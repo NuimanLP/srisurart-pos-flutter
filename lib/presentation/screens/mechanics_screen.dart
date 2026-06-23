@@ -198,19 +198,23 @@ class _MechanicsScreenState extends ConsumerState<MechanicsScreen> {
         // Tabs.
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Row(
-            children: [
-              _TabButton(
-                label: 'ทั้งหมด (${mechanics.length})',
-                active: _tab == 'all',
-                onTap: () => setState(() => _tab = 'all'),
-              ),
-              _TabButton(
-                label: 'มียอดค้าง ($overdueCount)',
-                active: _tab == 'overdue',
-                onTap: () => setState(() => _tab = 'overdue'),
-              ),
-            ],
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _TabButton(
+                  label: 'ทั้งหมด (${mechanics.length})',
+                  active: _tab == 'all',
+                  onTap: () => setState(() => _tab = 'all'),
+                ),
+                _TabButton(
+                  label: 'มียอดค้าง ($overdueCount)',
+                  active: _tab == 'overdue',
+                  onTap: () => setState(() => _tab = 'overdue'),
+                ),
+              ],
+            ),
           ),
         ),
         const Divider(height: 1),

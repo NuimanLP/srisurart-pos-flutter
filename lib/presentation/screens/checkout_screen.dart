@@ -212,6 +212,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   final _custSearchCtrl = TextEditingController();
   final _mechSearchCtrl = TextEditingController();
   final _cashCtrl = TextEditingController();
+  final _discountCtrl = TextEditingController();
 
   String _search = '';
   String _filterZone = 'ทั้งหมด';
@@ -232,7 +233,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _custSearchCtrl.dispose();
     _mechSearchCtrl.dispose();
     _cashCtrl.dispose();
+    _discountCtrl.dispose();
     super.dispose();
+  }
+
+  /// Sync the discount field's visible text to [_discount], mirroring the JS
+  /// controlled input `value={discount||''}` (0 shows as an empty field).
+  void _syncDiscountText() {
+    _discountCtrl.text = _discount == 0
+        ? ''
+        : (_discount == _discount.truncateToDouble()
+            ? _discount.toInt().toString()
+            : _discount.toString());
   }
 
   void _warn(String msg) {
@@ -276,8 +288,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   void _clearSaleState() {
     _cart.clear();
     _cashCtrl.clear();
+    _discount = 0;
+    _syncDiscountText();
     setState(() {
-      _discount = 0;
       _selectedCustomer = null;
       _selectedMechanic = null;
       _payMethod = 'เงินสด';
@@ -360,8 +373,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     await ref.read(parkedRepoProvider).deleteParked(pk.id);
     ref.invalidate(_parkedProvider);
     if (!mounted) return;
+    _discount = discount;
+    _syncDiscountText();
     setState(() {
-      _discount = discount;
       _selectedCustomer = cust;
       _selectedMechanic = mech;
       _priceWarning = res.issues.isNotEmpty
@@ -669,9 +683,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     if (buckets.out.isEmpty && buckets.low.isEmpty) {
       return const SizedBox.shrink();
     }
+    final catColors = ref.watch(_catColorsProvider).asData?.value ?? const {};
     return LowStockBanner(
       outOfStock: buckets.out,
       lowStock: buckets.low,
+      catColors: catColors,
       onClose: () {
         lowStockShownThisSession = true;
         setState(() => _lowStockDismissed = true);
@@ -1486,6 +1502,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               SizedBox(
                 width: 110,
                 child: TextField(
+                  controller: _discountCtrl,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
@@ -1502,6 +1519,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     final raw = double.tryParse(v) ?? 0;
                     final d = raw < 0 ? 0.0 : (raw > subtotal ? subtotal : raw);
                     setState(() => _discount = d);
+                    // Mirror the JS controlled input: when the typed value is
+                    // clamped (over subtotal / negative), reflect the clamped
+                    // value back into the field instead of showing stale text.
+                    if (d != raw) {
+                      _syncDiscountText();
+                      _discountCtrl.selection = TextSelection.collapsed(
+                          offset: _discountCtrl.text.length);
+                    }
                   },
                 ),
               ),

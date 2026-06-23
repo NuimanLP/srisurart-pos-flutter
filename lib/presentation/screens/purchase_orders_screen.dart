@@ -658,6 +658,53 @@ class _DraftItemRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final name = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          item.name,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+        Text(
+          item.partNo,
+          style: const TextStyle(
+            color: AppColors.orange,
+            fontFamily: 'monospace',
+            fontSize: 10,
+          ),
+        ),
+      ],
+    );
+    final qtyField = _MiniNum(
+      label: 'จำนวน',
+      value: item.qty.toString(),
+      onChanged: (s) => onQty(int.tryParse(s) ?? 1),
+    );
+    final costField = _MiniNum(
+      label: 'ราคาทุน ฿',
+      value: _trim(item.cost),
+      onChanged: (s) => onCost(double.tryParse(s) ?? 0),
+    );
+    final total = SizedBox(
+      width: 70,
+      child: Text(
+        baht(item.qty * item.cost),
+        textAlign: TextAlign.right,
+        style: const TextStyle(
+          color: AppColors.orange,
+          fontWeight: FontWeight.w700,
+          fontSize: 15,
+        ),
+      ),
+    );
+    final removeBtn = IconButton(
+      onPressed: onRemove,
+      icon: const Icon(Icons.close, size: 18),
+      color: AppColors.steelBlue,
+      visualDensity: VisualDensity.compact,
+    );
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -665,61 +712,43 @@ class _DraftItemRow extends StatelessWidget {
         border: Border.all(color: Theme.of(context).dividerColor),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+      // Below ~440px the single-row layout (name + 2 number fields + total +
+      // remove) overflows; stack the controls under the name on narrow widths.
+      child: LayoutBuilder(
+        builder: (context, c) {
+          if (c.maxWidth < 440) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  item.name,
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600),
+                Row(
+                  children: [
+                    Expanded(child: name),
+                    removeBtn,
+                  ],
                 ),
-                Text(
-                  item.partNo,
-                  style: const TextStyle(
-                    color: AppColors.orange,
-                    fontFamily: 'monospace',
-                    fontSize: 10,
-                  ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [qtyField, costField, total],
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          _MiniNum(
-            label: 'จำนวน',
-            value: item.qty.toString(),
-            onChanged: (s) => onQty(int.tryParse(s) ?? 1),
-          ),
-          const SizedBox(width: 8),
-          _MiniNum(
-            label: 'ราคาทุน ฿',
-            value: _trim(item.cost),
-            onChanged: (s) => onCost(double.tryParse(s) ?? 0),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 70,
-            child: Text(
-              baht(item.qty * item.cost),
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: AppColors.orange,
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: onRemove,
-            icon: const Icon(Icons.close, size: 18),
-            color: AppColors.steelBlue,
-            visualDensity: VisualDensity.compact,
-          ),
-        ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: name),
+              const SizedBox(width: 8),
+              qtyField,
+              const SizedBox(width: 8),
+              costField,
+              const SizedBox(width: 8),
+              total,
+              removeBtn,
+            ],
+          );
+        },
       ),
     );
   }

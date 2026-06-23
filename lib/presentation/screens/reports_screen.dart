@@ -356,22 +356,26 @@ class _RangeBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Wrap(
-            spacing: 6,
-            children: [
-              for (final o in _options)
-                _RangeButton(
-                  label: o.$2,
-                  active: range == o.$1,
-                  onTap: () => onChanged(o.$1),
-                ),
-            ],
+          Flexible(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final o in _options)
+                  _RangeButton(
+                    label: o.$2,
+                    active: range == o.$1,
+                    onTap: () => onChanged(o.$1),
+                  ),
+              ],
+            ),
           ),
-          const Spacer(),
+          const SizedBox(width: 12),
           Flexible(
             child: Text(
               'รายงานยอดขาย · Sales Report',
               overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
                 letterSpacing: 1,
@@ -511,44 +515,46 @@ class _StatCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: theme.dividerColor),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
               value,
+              maxLines: 1,
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.w800,
                 height: 1,
                 color: valueColor ?? theme.colorScheme.onSurface,
               ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-              color: theme.colorScheme.secondary,
-            ),
-          ),
-          if (sub != null) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
-              sub!,
+              label,
               maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.secondary.withValues(alpha: 0.7),
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.2,
+                color: theme.colorScheme.secondary,
               ),
             ),
+            if (sub != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                sub!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.secondary.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

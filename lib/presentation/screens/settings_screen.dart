@@ -1286,6 +1286,19 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
   }
 
   // ── exportSalesDetail (one row per item sold) ──
+  //
+  // KNOWN DIVERGENCE from pos/SettingsScreen.jsx exportSalesDetail:
+  // the JSX prefers the cost snapshotted on the line at sale time
+  // (`item.cost ?? p?.cost ?? 0`), so its profit column is a point-in-time
+  // figure. The Drift SaleItems table carries NO per-line cost column
+  // (lib/data/db/tables.dart), so we can only fall back to the *current*
+  // product cost. That means the ต้นทุน/กำไร columns are recomputed against
+  // today's cost and will shift if a product's cost later changes (e.g. a PO
+  // weighted-average update). To restore parity, add a `cost` RealColumn to
+  // SaleItems and snapshot it in saveSale (matching db.js item.cost), then use
+  // `item.cost ?? pr?.cost ?? 0` here — but that is a schema change, out of
+  // scope for this file. Until then the header columns below are labelled
+  // "(ต้นทุนปัจจุบัน)" so the figure is NOT trusted as point-in-time.
   Future<void> _exportDetail() async {
     final fs = _filteredSales();
     final vatDivisor = 1 + _taxRate / 100;
@@ -1300,9 +1313,9 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
       'จำนวน',
       'ราคา/ชิ้น',
       'รวม',
-      'ต้นทุน/ชิ้น',
-      'ต้นทุนรวม',
-      'กำไร (ไม่รวม VAT)',
+      'ต้นทุน/ชิ้น (ต้นทุนปัจจุบัน)',
+      'ต้นทุนรวม (ต้นทุนปัจจุบัน)',
+      'กำไร (ไม่รวม VAT, ต้นทุนปัจจุบัน)',
       'วิธีชำระ',
     ];
     final rows = <List<dynamic>>[header];
@@ -1311,7 +1324,9 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
       final d = s.date;
       for (final item in sw.items) {
         final pr = item.partNo == null ? null : prodByPart[item.partNo];
-        // SaleItems carry no cost in the schema → fall back to product cost.
+        // SaleItems carry no per-line cost column in the Drift schema, so
+        // (unlike the JSX, which reads item.cost first) we can only fall back
+        // to the current product cost. See KNOWN DIVERGENCE note above.
         final unitCost = pr?.cost ?? 0;
         final cost = unitCost * item.qty;
         final profit = (item.price / vatDivisor) * item.qty - cost;
@@ -1478,7 +1493,8 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
               const SizedBox(height: 10),
               _ExportRow(
                 title: '📦 รายการสินค้าที่ขาย',
-                desc: '1 แถว = 1 สินค้า · รหัส, จำนวน, ราคา, ต้นทุน, กำไร',
+                desc:
+                    '1 แถว = 1 สินค้า · รหัส, จำนวน, ราคา, ต้นทุน, กำไร (ต้นทุน/กำไรคำนวณจากต้นทุนปัจจุบัน ไม่ใช่ ณ วันที่ขาย)',
                 meta: '$itemCount แถว',
                 color: AppColors.orange,
                 onTap: _exportDetail,

@@ -103,6 +103,17 @@ class _ItemLite {
 
 String _today() => DateTime.now().toIso8601String().substring(0, 10);
 
+/// Legacy credit payments carried a `method` field (`'เงินสด'` | `'โอน/QR'`)
+/// and only cash settlements counted toward the drawer. The Drift port has no
+/// `method` column; MechanicsScreen instead encodes the method as the `note`
+/// prefix (`'<method>'` or `'<method> · <note>'`). Treat a payment as cash only
+/// when that leading segment is exactly `'เงินสด'`, mirroring `p.method === 'เงินสด'`.
+bool _isCashCreditPayment(String? note) {
+  if (note == null) return false;
+  final method = note.split(' · ').first.trim();
+  return method == 'เงินสด';
+}
+
 final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((ref) async {
   final today = _today();
   final salesAgg = await ref.watch(salesRepoProvider).getSales();
@@ -144,11 +155,17 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((ref) asyn
           r.ret.refundMethod == 'เงินสด')
       .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
-  // Cash credit-payments today increase the drawer. The Drift CreditPayments
-  // table has no `method` column (the JS filtered p.method === 'เงินสด'); we
-  // treat every same-day credit settlement as a cash drawer inflow.
+  // Cash credit-payments today increase the drawer. The JS filtered
+  // p.method === 'เงินสด' so only cash settlements hit the drawer; transfers
+  // (โอน/QR) must NOT. The Drift CreditPayments table has no `method` column,
+  // but MechanicsScreen folds the chosen method into the `note` as
+  // '<method>' or '<method> · <typed note>' (see mechanics_screen.dart). We
+  // recover the method from that prefix and count only cash settlements,
+  // matching ClosingReport.jsx (and keeping the drawer math consistent).
   final cashCreditPaymentsToday = creditPayments
-      .where((p) => p.date.toIso8601String().substring(0, 10) == today)
+      .where((p) =>
+          p.date.toIso8601String().substring(0, 10) == today &&
+          _isCashCreditPayment(p.note))
       .fold<double>(0, (s, p) => s + p.amount);
 
   final drawerToday =

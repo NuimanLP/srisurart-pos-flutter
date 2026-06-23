@@ -47,11 +47,16 @@ class QuotesRepository {
 
   /// Persist a new quote. Assigns id (newId('q')), quoteNo (docNo('QT')),
   /// date = now, status (input.status ?? 'open') and
-  /// validUntil = now + (validDays ?? settings.quoteValidDays ?? 30) days.
+  /// validUntil = now + (validDays ?? 30) days.
   /// Inserts the header + every item line. Returns the stored QuoteRow.
+  ///
+  /// Mirrors db.js DB.saveQuote: the data layer hard-defaults to the literal 30
+  /// (`(q.validDays || 30) * 86400000`) and NEVER reads settings.quoteValidDays.
+  /// The settings.quoteValidDays default is applied by the caller (the screen),
+  /// exactly as CheckoutScreen.jsx passes `DB.getSettings().quoteValidDays || 30`.
   Future<QuoteRow> saveQuote(QuoteInput input) async {
     final now = DateTime.now();
-    final int validDays = input.validDays ?? await _defaultValidDays();
+    final int validDays = input.validDays ?? 30;
     final row = QuoteRow(
       id: newId('q'),
       quoteNo: docNo('QT'),
@@ -160,12 +165,5 @@ class QuotesRepository {
   Future<void> _deleteQuoteInTx(String id) async {
     await (db.delete(db.quoteItems)..where((t) => t.quoteId.equals(id))).go();
     await (db.delete(db.quotes)..where((t) => t.id.equals(id))).go();
-  }
-
-  /// settings.quoteValidDays (defaults to 30 when no settings row exists).
-  Future<int> _defaultValidDays() async {
-    final s = await (db.select(db.settingsRow)..where((t) => t.id.equals(0)))
-        .getSingleOrNull();
-    return s?.quoteValidDays ?? 30;
   }
 }

@@ -12,6 +12,10 @@
 //    db.transaction(...), wiping + repopulating every table the file carries;
 //    validate __meta is present (throw 'ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta'
 //    when missing); treat a null store value as absent. Rolls back on any throw.
+//    Any UNKNOWN sa_* store the file carries (added by a newer app version that
+//    this build has no table for) is stashed verbatim in AppMeta under
+//    [unknownStorePrefix] and re-emitted on the next export, matching db.js's
+//    "carry every sa_* key the file holds" forward-compat guarantee.
 //
 // SHAPE NOTES (db.js → JS backup file → Drift):
 //  • Each sale nests its items[] array (SaleItems rows) like the JS sale objects.
@@ -37,6 +41,37 @@ class SnapshotRepository {
 
   // db.js BACKUP_FORMAT_VERSION (file-format version, NOT the schema counter).
   static const int backupFormatVersion = 2;
+
+  // Every `sa_*` store this build has a hand-written import/export branch for
+  // (mirrors db.js KNOWN = DB_KEYS_ALL + BACKUP_META_KEYS). Any `sa_*` key in a
+  // backup file that is NOT in this set is an unknown store from a newer app
+  // version: db.js carries it forward verbatim, so we persist it too (R-forwardcompat)
+  // instead of silently dropping it. Stashed in AppMeta under [unknownStorePrefix].
+  static const Set<String> _knownStoreKeys = {
+    'sa_products',
+    'sa_customers',
+    'sa_sales',
+    'sa_pos',
+    'sa_settings',
+    'sa_mechanics',
+    'sa_quotes',
+    'sa_returns',
+    'sa_movements',
+    'sa_suppliers',
+    'sa_categories',
+    'sa_credit_payments',
+    'sa_cash_drawer',
+    'sa_shift_history',
+    'sa_parked',
+    'sa_schema_version',
+  };
+
+  // AppMeta key namespace for carried-forward unknown `sa_*` stores. The raw
+  // file value is stored JSON-encoded under '<prefix><sa_key>' so an export can
+  // re-emit it unchanged and a newer-version backup round-trips without loss.
+  // No '_' in the prefix on purpose — it's used in a SQL LIKE where '_' is a
+  // single-char wildcard, and we want a literal-prefix match.
+  static const String unknownStorePrefix = 'unknownstore:';
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -452,6 +487,24 @@ class SnapshotRepository {
       'sa_schema_version': schemaVersionStr,
     };
 
+    // ── carried-forward unknown sa_* stores (from a newer-version backup) ──
+    // Re-emit any unknown store stashed in AppMeta on a prior import, so the
+    // round-trip matches db.js's "carry EVERY sa_* key the file holds" guarantee.
+    // Only fills keys not already produced above (typed tables win).
+    final unknownMeta = await (db.select(db.appMeta)
+          ..where((t) => t.key.like('$unknownStorePrefix%')))
+        .get();
+    for (final row in unknownMeta) {
+      final saKey = row.key.substring(unknownStorePrefix.length);
+      if (saKey.isEmpty || data.containsKey(saKey)) continue;
+      try {
+        data[saKey] = jsonDecode(row.value);
+      } catch (_) {
+        // Unparseable blob: emit the raw string rather than drop the store.
+        data[saKey] = row.value;
+      }
+    }
+
     // ── recordCounts (db.js labels) ──
     final recordCounts = <String, int>{
       'products': products.length,
@@ -842,6 +895,31 @@ class SnapshotRepository {
       if (sv != null) {
         await db.into(db.appMeta).insertOnConflictUpdate(
               AppMetaCompanion.insert(key: 'schema_version', value: sv.toString()),
+            );
+      }
+
+      // ── 18. Carry forward any UNKNOWN sa_* store the file holds ──
+      // db.js writes every sa_* key the backup carries, including stores a newer
+      // app version added that this build has no table for. We can't materialise
+      // those into typed tables, so we stash each one verbatim (JSON-encoded) in
+      // AppMeta so a later export re-emits it and the backup round-trips losslessly.
+      // First clear any previously-carried unknowns (the wipe in step 1 only
+      // touched typed tables, not AppMeta), so an omitted key doesn't linger.
+      await (db.delete(db.appMeta)
+            ..where((t) => t.key.like('$unknownStorePrefix%')))
+          .go();
+      for (final entry in data.entries) {
+        final k = entry.key;
+        if (k == '__meta') continue;
+        if (!k.startsWith('sa_')) continue;
+        if (_knownStoreKeys.contains(k)) continue;
+        // A null value is treated as "absent" (mirrors db.js: never write "null").
+        if (entry.value == null) continue;
+        await db.into(db.appMeta).insertOnConflictUpdate(
+              AppMetaCompanion.insert(
+                key: '$unknownStorePrefix$k',
+                value: jsonEncode(entry.value),
+              ),
             );
       }
     });

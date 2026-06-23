@@ -17,6 +17,7 @@ import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../providers/providers.dart';
 import '../widgets/app_button.dart';
+import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
@@ -218,8 +219,24 @@ class _CustomersTable extends StatelessWidget {
     required this.onDelete,
   });
 
+  // Below this width the multi-column table can't fit (largest column set is
+  // ~900px wide); fall back to a stacked card list so phone widths don't
+  // RenderFlex-overflow.
+  static const double _tableBreakpoint = 700;
+
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < _tableBreakpoint) {
+          return _buildCardList(context);
+        }
+        return _buildTable(context, constraints.maxWidth);
+      },
+    );
+  }
+
+  Widget _buildTable(BuildContext context, double availableWidth) {
     final theme = Theme.of(context);
     final headerStyle = theme.textTheme.labelMedium?.copyWith(
       fontWeight: FontWeight.w700,
@@ -231,9 +248,7 @@ class _CustomersTable extends StatelessWidget {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minWidth: MediaQuery.of(context).size.width,
-          ),
+          constraints: BoxConstraints(minWidth: availableWidth),
           child: DataTable(
             headingTextStyle: headerStyle,
             columnSpacing: 28,
@@ -254,6 +269,122 @@ class _CustomersTable extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCardList(BuildContext context) {
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: customers.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, i) {
+        final c = customers[i];
+        return _buildCard(context, c, billCountByCustomer[c.id] ?? 0);
+      },
+    );
+  }
+
+  Widget _buildCard(BuildContext context, CustomerRow c, int billCount) {
+    final theme = Theme.of(context);
+    final monoStyle = theme.textTheme.bodySmall?.copyWith(
+      color: AppColors.orange,
+      fontFamily: 'monospace',
+    );
+    final labelStyle = theme.textTheme.labelSmall?.copyWith(
+      color: theme.colorScheme.secondary,
+      letterSpacing: 1,
+    );
+    final numStyle = theme.textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+
+    Widget metric(String label, String value, {Color? color}) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: labelStyle),
+          const SizedBox(height: 2),
+          Text(value, style: numStyle?.copyWith(color: color)),
+        ],
+      );
+    }
+
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(c.code, style: monoStyle),
+                    const SizedBox(height: 4),
+                    Text(
+                      c.nameTH,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (c.name.isNotEmpty)
+                      Text(
+                        c.name,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.secondary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if ((c.phone ?? '').isNotEmpty)
+                Text(c.phone!, style: theme.textTheme.bodyMedium),
+            ],
+          ),
+          if ((c.address ?? '').isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              c.address!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.secondary,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 24,
+            runSpacing: 8,
+            children: [
+              metric('แต้ม', '${c.points}', color: AppColors.orange),
+              metric('ยอดซื้อรวม', baht(c.totalSpend)),
+              metric('จำนวนบิล', '$billCount'),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => onEdit(c),
+                child: const Text('แก้ไข'),
+              ),
+              const SizedBox(width: 6),
+              TextButton(
+                onPressed: () => onDelete(c, billCount),
+                style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                child: const Text('ลบ'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

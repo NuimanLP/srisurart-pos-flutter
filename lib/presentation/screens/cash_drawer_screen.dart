@@ -209,22 +209,25 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
             color: theme.colorScheme.surface,
             border: Border(bottom: BorderSide(color: theme.dividerColor)),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+          // Wrap so the title and the closing-report action reflow onto two
+          // lines on narrow (phone) widths instead of a horizontal overflow.
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 10,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('💵 ลิ้นชักเงินสด · Cash Drawer',
-                        style: theme.textTheme.titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 3),
-                    Text(_thaiDateLong(now),
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: AppColors.steelBlue)),
-                  ],
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('💵 ลิ้นชักเงินสด · Cash Drawer',
+                      style: theme.textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 3),
+                  Text(_thaiDateLong(now),
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: AppColors.steelBlue)),
+                ],
               ),
               AppButton.secondary(
                 label: '📊 สรุปยอดปิดร้าน',
@@ -261,14 +264,15 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
                 style: theme.textTheme.bodyMedium
                     ?.copyWith(color: AppColors.steelBlue)),
             const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
               children: [
                 Text('เงินตั้งต้น ฿',
                     style: theme.textTheme.labelLarge
                         ?.copyWith(color: AppColors.steelBlue)),
-                const SizedBox(width: 10),
                 SizedBox(
                   width: 160,
                   child: TextField(
@@ -284,7 +288,6 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
                     onSubmitted: (_) => _handleOpen(),
                   ),
                 ),
-                const SizedBox(width: 10),
                 AppButton(
                   label: 'เปิดร้าน',
                   busy: _busy,

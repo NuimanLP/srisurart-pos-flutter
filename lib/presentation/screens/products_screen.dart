@@ -19,6 +19,7 @@ import '../providers/providers.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
+import 'vehicle_search_screen.dart';
 
 class ProductsScreen extends ConsumerStatefulWidget {
   const ProductsScreen({super.key});
@@ -41,6 +42,34 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen>
   void dispose() {
     _tabs.dispose();
     super.dispose();
+  }
+
+  // Mirrors ProductsScreen.jsx: the "🔍 ค้นหาตามรุ่นรถ" button renders the
+  // VehicleSearch modal in place (setShowVehicleSearch(true)). Here we show the
+  // same VehicleSearchScreen content as a fullscreen dialog with a close
+  // affordance (the screen is a self-contained Scaffold with no close button).
+  Future<void> _openVehicleSearch(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                tooltip: 'ปิด',
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+            const Expanded(child: VehicleSearchScreen()),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -76,7 +105,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen>
                       foregroundColor: AppColors.orange,
                       side: const BorderSide(color: AppColors.orange),
                     ),
-                    onPressed: () {},
+                    onPressed: () => _openVehicleSearch(context),
                     icon: const Icon(Icons.search, size: 18),
                     label: const Text('ค้นหาตามรุ่นรถ'),
                   ),
