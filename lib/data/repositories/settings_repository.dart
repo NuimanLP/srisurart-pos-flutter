@@ -1,0 +1,35 @@
+// SettingsRepository — shop settings singleton (sa_settings in db.js).
+//
+// The settings live in a single row, id = 0 (seeded in AppDatabase.onCreate with
+// _DEFAULT_SETTINGS). db.js methods ported:
+//   getSettings()        → the singleton row
+//   updateSettings(patch) → merge patch into the row
+//
+// FULLY IMPLEMENTED (low-risk, other agents depend on it).
+
+import '../db/database.dart';
+
+class SettingsRepository {
+  final AppDatabase db;
+  SettingsRepository(this.db);
+
+  /// The settings singleton (row id = 0). Seeded on first create, so it always
+  /// exists on a normal install.
+  Future<SettingsRowData> getSettings() async {
+    return (db.select(db.settingsRow)..where((t) => t.id.equals(0)))
+        .getSingle();
+  }
+
+  /// A stream of the settings singleton — for screens that react to changes.
+  Stream<SettingsRowData> watchSettings() {
+    return (db.select(db.settingsRow)..where((t) => t.id.equals(0)))
+        .watchSingle();
+  }
+
+  /// Merge a patch into the settings row. Pass only the fields to change.
+  /// Mirrors db.js updateSettings({ ...current, ...patch }).
+  Future<void> updateSettings(SettingsRowCompanion patch) async {
+    await (db.update(db.settingsRow)..where((t) => t.id.equals(0)))
+        .write(patch);
+  }
+}
