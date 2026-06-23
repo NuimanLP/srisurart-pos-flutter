@@ -132,6 +132,7 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 | `movements_repository.dart` | `MovementsRepository` | `Future<List<MovementRow>> getMovements()`; `Future<MovementRow> addMovement({productId,partNo,name,delta,type,note?,stockAfter})` |
 | `suppliers_repository.dart` | `SuppliersRepository` | `getSuppliers()`; `getSuppliersForProduct(productId)`; `addSupplier({productId,name,unitCost,freight=0})`; `updateSupplier(id,{...Value patches})`; `deleteSupplier(id)` |
 | `settings_repository.dart` | `SettingsRepository` | `Future<SettingsRowData> getSettings()`; `Stream<SettingsRowData> watchSettings()`; `Future<void> updateSettings(SettingsRowCompanion patch)` |
+| `shifts_repository.dart` | `ShiftsRepository` | `Future<ShiftWithEntries?> getCashDrawer()` (single active shift, entries newest-first, or null); `Future<List<ShiftWithEntries>> getShiftHistory()` (inactive shifts, newest openedAt first); `Future<ShiftRow> openShift(double startingCash)` (same-day → returns existing unchanged; else archives prior active shift FIRST — autoArchived+archivedAt if it was never closed — then inserts a new active shift; wrapped in a txn); `Future<DrawerEntryRow> addDrawerEntry(String type, double amount, String? note)` (throws `'No open shift'` if none active; throws Thai `'ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้'` once the active shift is closed); `Future<ShiftRow?> closeShift(double physicalCash)` (stamps closedAt+physicalCash, shift stays isActive=true as the current drawer until next openShift archives it; null if none) |
 
 ### Stubs (each owned by a service agent)
 
@@ -173,6 +174,7 @@ Plain providers (NOT codegen). `databaseProvider` throws unless overridden in
 | `suppliersRepoProvider` | `Provider<SuppliersRepository>` |
 | `settingsRepoProvider` | `Provider<SettingsRepository>` |
 | `snapshotRepoProvider` | `Provider<SnapshotRepository>` |
+| `shiftsRepoProvider` | `Provider<ShiftsRepository>` (in `lib/presentation/providers/shift_providers.dart`, NOT the frozen `providers.dart`; import that file for the cash-drawer screen) |
 
 Screen agents may ADD their own UI-state providers (e.g. a cart
 `StateNotifierProvider`) **inside their own screen file or a new file they
@@ -306,3 +308,34 @@ All wrapped in a `ShellRoute` → `AppShell(child: …)`. Navigate with
    `AppDatabase` from a screen; never re-inline ids/money/csvSafe.
 4. Run `cd /c/srisurart_pos && dart analyze`; fix every error in YOUR files.
 5. Do NOT run build_runner / pub get / edit pubspec (Schema agent only).
+
+---
+
+## 11. Shared widgets (`lib/presentation/widgets/`) — UIKit agent
+
+Brand-styled, mostly-const building blocks for all 11 screens. Import the file
+you need; do NOT re-implement these. Money goes through `MoneyText`/`baht()`,
+confirmations through `showConfirm`, never `showDialog` ad-hoc for yes/no.
+
+| File | Public API | One-liner usage |
+|---|---|---|
+| `app_button.dart` | `AppButton({required String label, required VoidCallback? onPressed, AppButtonVariant variant = primary, IconData? icon, bool busy=false, bool fullWidth=false})`; named ctors `AppButton.secondary(...)`, `AppButton.danger(...)`; enum `AppButtonVariant { primary, secondary, danger }` | `AppButton(label: 'บันทึก', onPressed: _save, icon: Icons.save)` |
+| `app_card.dart` | `AppCard({String? title, Widget? trailing, required Widget child, EdgeInsetsGeometry padding = EdgeInsets.all(16)})` | `AppCard(title: 'สรุป', child: ...)` |
+| `app_text_field.dart` | `AppTextField({String? label, hint, TextEditingController? controller, String? initialValue, ValueChanged<String>? onChanged, VoidCallback? onSubmitted, bool numeric=false, autofocus=false, enabled=true, String? errorText, Widget? suffix, TextInputAction? textInputAction, int? maxLines=1})`; named ctor `AppTextField.numeric(...)` (decimal keyboard, digit/`.` filter) | `AppTextField.numeric(label: 'ราคา', controller: _price)` |
+| `money_text.dart` | `MoneyText(num value, {bool emphasis=false, TextStyle? style, Color? color})` — uses `baht()`; `emphasis` = large orange bold price | `MoneyText(total, emphasis: true)` |
+| `confirm_dialog.dart` | `Future<bool> showConfirm(BuildContext context, String title, String message, {bool danger=false, String confirmLabel='ตกลง', String cancelLabel='ยกเลิก'})` — replaces JS `window.confirm` | `if (await showConfirm(context, 'ลบ', 'ยืนยัน?', danger: true)) ...` |
+| `empty_state.dart` | `EmptyState({IconData icon=Icons.inbox_outlined, required String message, String? hint, Widget? action})` | `const EmptyState(message: 'ยังไม่มีรายการ')` |
+| `loading_view.dart` | `LoadingView({String? message})` | `loading: () => const LoadingView()` |
+| `search_field.dart` | `SearchField({String hint='ค้นหา…', ValueChanged<String>? onChanged, TextEditingController? controller, bool autofocus=false})` — leading magnifier + auto clear (✕) button | `SearchField(hint: 'ค้นหาอะไหล่…', onChanged: (q)=>...)` |
+| `section_header.dart` | `SectionHeader(String title, {String? subtitle, Widget? trailing})` | `SectionHeader('สินค้าทั้งหมด', trailing: addBtn)` |
+| `status_chip.dart` | `StatusChip(String label, {StatusTone tone = neutral})`; factory `StatusChip.of(String status)` maps open/converted/received/expired/cancelled/voided → Thai label+tone; enum `StatusTone { success, info, warning, danger, neutral }` | `StatusChip.of('converted')` or `StatusChip('ค้างชำระ', tone: StatusTone.warning)` |
+| `thai_format.dart` | top-level fns: `String thaiInt(num)`; `String thaiDate(DateTime)` (พ.ศ.); `String thaiDateTime(DateTime)`; `String thaiTime(DateTime)` — dates only; money stays in `baht()` | `Text(thaiDate(sale.date))` |
+| `theme_controller.dart` | `themeModeProvider` (`NotifierProvider<ThemeModeNotifier, ThemeMode>`); `ThemeModeNotifier { ThemeMode build(); Future<void> toggle(); Future<void> set(ThemeMode) }`; persists to shared_preferences key `sa_pos_theme` | `ref.read(themeModeProvider.notifier).toggle()` |
+| `app_shell.dart` | `AppShell({required Widget child})` — Contract+UIKit owned nav frame; topbar (shop name/cashier/date + theme toggle) + NavigationRail(>=1000px)/Drawer; do not edit | router `ShellRoute → AppShell(child: ...)` |
+
+**Coordination note (theme toggle):** the topbar toggle flips
+`themeModeProvider` and persists it, but the root `MaterialApp` in
+`lib/app.dart` (Contract-owned) must be made a `ConsumerWidget` that does
+`themeMode: ref.watch(themeModeProvider)` for the switch to repaint the app.
+Until app.dart is updated, the preference is stored and the toggle icon reflects
+state, but the live theme follows the system default.

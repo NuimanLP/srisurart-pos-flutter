@@ -1,15 +1,1656 @@
-// SettingsScreen — STUB. Implementation owned by its screen agent.
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+// SettingsScreen — Settings hub (ported from pos/SettingsScreen.jsx + ExportCSV.jsx).
+//
+// Sub-tabs:
+//   ⚙ ทั่วไป       — shop info form → settingsRepoProvider.updateSettings
+//   🎨 ธีม          — dark/light toggle via themeModeProvider
+//   💾 สำรอง/กู้คืน — backup (snapshotRepo.exportSnapshot → .json file) /
+//                     restore (importLegacyBackup; reload after)
+//   📤 ส่งออก CSV   — sales summary / sales detail / inventory CSV exporters
+//                     (ALWAYS via csvSafe), ported from ExportCSV.jsx.
+//
+// File save: no file_picker / share_plus dep is available, so exports are written
+// to the app documents directory via path_provider and the saved path is shown to
+// the user. Restore file-pick is deferred (no native picker) — a manual JSON paste
+// dialog is provided as a wired fallback (see _RestorePasteDialog).
 
-class SettingsScreen extends ConsumerWidget {
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:drift/drift.dart' show Value;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
+import '../../core/theme/app_colors.dart';
+import '../../core/utils/csv_safe.dart';
+import '../../data/db/database.dart';
+import '../../domain/models/aggregates.dart';
+import '../providers/providers.dart';
+import '../widgets/app_button.dart';
+import '../widgets/app_card.dart';
+import '../widgets/app_text_field.dart';
+import '../widgets/theme_controller.dart';
+
+// Today's date helpers (yyyy-MM-dd / yyyy-MM / week boundary) — match db.js slices.
+String _todayStr() => DateTime.now().toIso8601String().substring(0, 10);
+String _monthStr() => DateTime.now().toIso8601String().substring(0, 7);
+String _weekStr() => DateTime.now()
+    .subtract(const Duration(days: 7))
+    .toIso8601String()
+    .substring(0, 10);
+
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  // [key, label] — matches JS TABS.
+  static const _tabs = [
+    ['general', '⚙ ทั่วไป'],
+    ['theme', '🎨 ธีม'],
+    ['backup', '💾 สำรอง/กู้คืน'],
+    ['export', '📤 ส่งออก CSV'],
+  ];
+
+  String _subTab = 'general';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('ตั้งค่า')),
-      body: const Center(child: Text('ตั้งค่า')),
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Tab bar ──
+          Material(
+            color: theme.colorScheme.surface,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: theme.dividerColor),
+                ),
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final t in _tabs)
+                      _TabButton(
+                        label: t[1],
+                        active: _subTab == t[0],
+                        onTap: () => setState(() => _subTab = t[0]),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // ── Content ──
+          Expanded(
+            child: switch (_subTab) {
+              'general' => const _GeneralTab(),
+              'theme' => const _ThemeTab(),
+              'backup' => const _BackupTab(),
+              'export' => const _ExportTab(),
+              _ => const SizedBox.shrink(),
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TabButton extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _TabButton(
+      {required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: active ? AppColors.orange : Colors.transparent,
+              width: 3,
+            ),
+          ),
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: active
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.secondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Shared content scroll wrapper (maxWidth 820, padding) — matches stS.content.
+class _ContentPane extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _ContentPane({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: Text(
+                  title,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              ...children,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            text,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+              color: theme.colorScheme.secondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Divider(height: 1, color: theme.dividerColor),
+        ],
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// GENERAL — shop info form
+// ════════════════════════════════════════════════════════════════════════
+
+class _GeneralTab extends ConsumerStatefulWidget {
+  const _GeneralTab();
+  @override
+  ConsumerState<_GeneralTab> createState() => _GeneralTabState();
+}
+
+class _GeneralTabState extends ConsumerState<_GeneralTab> {
+  final _shopName = TextEditingController();
+  final _shopNameEN = TextEditingController();
+  final _phone = TextEditingController();
+  final _cashierName = TextEditingController();
+  final _address = TextEditingController();
+  final _taxRate = TextEditingController();
+  final _quoteValidDays = TextEditingController();
+
+  bool _loaded = false;
+  bool _saved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final s = await ref.read(settingsRepoProvider).getSettings();
+    if (!mounted) return;
+    _shopName.text = s.shopName;
+    _shopNameEN.text = s.shopNameEN;
+    _phone.text = s.phone ?? '';
+    _cashierName.text = s.cashierName ?? '';
+    _address.text = s.address ?? '';
+    _taxRate.text = _trimNum(s.taxRate);
+    _quoteValidDays.text = s.quoteValidDays.toString();
+    setState(() => _loaded = true);
+  }
+
+  static String _trimNum(num v) =>
+      v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+
+  @override
+  void dispose() {
+    _shopName.dispose();
+    _shopNameEN.dispose();
+    _phone.dispose();
+    _cashierName.dispose();
+    _address.dispose();
+    _taxRate.dispose();
+    _quoteValidDays.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final taxRate = double.tryParse(_taxRate.text.trim()) ?? 7;
+    final validDays = int.tryParse(_quoteValidDays.text.trim()) ?? 30;
+    await ref.read(settingsRepoProvider).updateSettings(
+          SettingsRowCompanion(
+            shopName: Value(_shopName.text),
+            shopNameEN: Value(_shopNameEN.text),
+            phone: Value(_phone.text.isEmpty ? null : _phone.text),
+            cashierName:
+                Value(_cashierName.text.isEmpty ? null : _cashierName.text),
+            address: Value(_address.text.isEmpty ? null : _address.text),
+            taxRate: Value(taxRate),
+            quoteValidDays: Value(validDays),
+          ),
+        );
+    if (!mounted) return;
+    setState(() => _saved = true);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _saved = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_loaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return _ContentPane(
+      title: 'ข้อมูลร้านค้า · Shop Information',
+      children: [
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SectionTitle('ชื่อและที่อยู่'),
+              LayoutBuilder(builder: (context, constraints) {
+                final twoCol = constraints.maxWidth > 480;
+                final fieldW =
+                    twoCol ? (constraints.maxWidth - 14) / 2 : constraints.maxWidth;
+                return Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: [
+                    SizedBox(
+                      width: fieldW,
+                      child: AppTextField(
+                          label: 'ชื่อร้าน (TH)', controller: _shopName),
+                    ),
+                    SizedBox(
+                      width: fieldW,
+                      child: AppTextField(
+                          label: 'ชื่อร้าน (EN)', controller: _shopNameEN),
+                    ),
+                    SizedBox(
+                      width: fieldW,
+                      child:
+                          AppTextField(label: 'เบอร์โทร', controller: _phone),
+                    ),
+                    SizedBox(
+                      width: fieldW,
+                      child: AppTextField(
+                          label: 'ชื่อแคชเชียร์ (default)',
+                          controller: _cashierName),
+                    ),
+                    SizedBox(
+                      width: constraints.maxWidth,
+                      child:
+                          AppTextField(label: 'ที่อยู่', controller: _address),
+                    ),
+                    SizedBox(
+                      width: fieldW,
+                      child: AppTextField.numeric(
+                          label: 'VAT (%)', controller: _taxRate),
+                    ),
+                    SizedBox(
+                      width: fieldW,
+                      child: AppTextField.numeric(
+                          label: 'ใบเสนอราคา · มีอายุ (วัน)',
+                          controller: _quoteValidDays),
+                    ),
+                  ],
+                );
+              }),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  AppButton(label: 'บันทึกการตั้งค่า', onPressed: _save),
+                  const SizedBox(width: 12),
+                  if (_saved)
+                    Text(
+                      '✓ บันทึกแล้ว',
+                      style: TextStyle(
+                        color: AppColors.successLight,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// THEME — dark / light selector
+// ════════════════════════════════════════════════════════════════════════
+
+class _ThemeTab extends ConsumerWidget {
+  const _ThemeTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(themeModeProvider);
+    final isDark = mode == ThemeMode.dark;
+    final cards = [
+      _ThemeCardData(
+        mode: ThemeMode.dark,
+        label: '🌙 Dark Mode',
+        desc: 'พื้นหลังมืด เหมาะสำหรับแสงน้อย',
+        bg: const Color(0xFF0B2444),
+        fg: const Color(0xFFFFFFFF),
+        active: isDark,
+      ),
+      _ThemeCardData(
+        mode: ThemeMode.light,
+        label: '☀️ Light Mode',
+        desc: 'พื้นหลังสว่าง อ่านง่ายสำหรับผู้สูงอายุ',
+        bg: const Color(0xFFFFFBF2),
+        fg: const Color(0xFF0B2444),
+        active: !isDark,
+      ),
+    ];
+    return _ContentPane(
+      title: 'ธีมการแสดงผล · Display Theme',
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 500),
+          child: LayoutBuilder(builder: (context, constraints) {
+            final w = (constraints.maxWidth - 16) / 2;
+            return Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                for (final c in cards)
+                  SizedBox(
+                    width: w,
+                    child: _ThemeCard(
+                      data: c,
+                      onTap: () =>
+                          ref.read(themeModeProvider.notifier).set(c.mode),
+                    ),
+                  ),
+              ],
+            );
+          }),
+        ),
+      ],
+    );
+  }
+}
+
+class _ThemeCardData {
+  final ThemeMode mode;
+  final String label;
+  final String desc;
+  final Color bg;
+  final Color fg;
+  final bool active;
+  _ThemeCardData({
+    required this.mode,
+    required this.label,
+    required this.desc,
+    required this.bg,
+    required this.fg,
+    required this.active,
+  });
+}
+
+class _ThemeCard extends StatelessWidget {
+  final _ThemeCardData data;
+  final VoidCallback onTap;
+  const _ThemeCard({required this.data, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: data.active
+              ? AppColors.orange.withValues(alpha: 0.08)
+              : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: data.active ? AppColors.orange : theme.dividerColor,
+            width: 2,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 70,
+              decoration: BoxDecoration(
+                color: data.bg,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.black.withValues(alpha: 0.1)),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                'PREVIEW',
+                style: TextStyle(
+                  color: data.fg,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              data.label,
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              data.desc,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.secondary, height: 1.5),
+            ),
+            if (data.active) ...[
+              const SizedBox(height: 6),
+              Text(
+                '✓ ใช้งานอยู่',
+                style: TextStyle(
+                  color: AppColors.orange,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// BACKUP / RESTORE
+// ════════════════════════════════════════════════════════════════════════
+
+class _BackupTab extends ConsumerStatefulWidget {
+  const _BackupTab();
+  @override
+  ConsumerState<_BackupTab> createState() => _BackupTabState();
+}
+
+class _BackupTabState extends ConsumerState<_BackupTab> {
+  String _mode = 'backup'; // backup | restore
+
+  Map<String, dynamic>? _snapshot; // current export (for record counts)
+  bool _loading = true;
+
+  // restore state
+  Map<String, dynamic>? _preview; // parsed/validated file ready to restore
+  bool _confirmRestore = false;
+  String? _restoreStatus; // success | error
+  String _restoreMsg = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSnapshot();
+  }
+
+  Future<void> _loadSnapshot() async {
+    final snap = await ref.read(snapshotRepoProvider).exportSnapshot();
+    if (!mounted) return;
+    setState(() {
+      _snapshot = snap;
+      _loading = false;
+    });
+  }
+
+  // ── EXPORT ──────────────────────────────────────────────────────────────
+  Future<void> _handleExport() async {
+    try {
+      final data = await ref.read(snapshotRepoProvider).exportSnapshot();
+      final json = const JsonEncoder.withIndent('  ').convert(data);
+      final dir = await getApplicationDocumentsDirectory();
+      final fileName = 'pos-backup-${_todayStr().replaceAll('-', '')}.json';
+      final file = File(p.join(dir.path, fileName));
+      await file.writeAsString(json);
+      if (!mounted) return;
+      await _showSavedDialog('ดาวน์โหลดไฟล์ backup สำเร็จ', file.path);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+      );
+    }
+  }
+
+  Future<void> _showSavedDialog(String title, String path) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('บันทึกไฟล์ไว้ที่:'),
+            const SizedBox(height: 8),
+            SelectableText(path,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: path));
+            },
+            child: const Text('คัดลอกที่อยู่'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('ตกลง'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── RESTORE: pick (paste) → validate → preview → confirm ───────────────
+  Future<void> _pickFile() async {
+    // No native file picker dependency is available on this machine. Offer a
+    // manual JSON-paste dialog as a wired fallback (deferred: native picker).
+    final pasted = await showDialog<String>(
+      context: context,
+      builder: (ctx) => const _RestorePasteDialog(),
+    );
+    if (pasted == null || pasted.trim().isEmpty) return;
+    _validateBackup(pasted);
+  }
+
+  // Port of handleFileSelect's validation (db.js / SettingsScreen.jsx).
+  void _validateBackup(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        throw Exception('ไฟล์ว่างเปล่า — ไม่มีข้อมูลสินค้าหรือยอดขาย');
+      }
+      final data = decoded.cast<String, dynamic>();
+      final meta = data['__meta'];
+      if (meta == null || meta is! Map) {
+        throw Exception('ไม่พบข้อมูล meta — ไฟล์ไม่ถูกต้อง');
+      }
+      final version = meta['version'];
+      if (version is! num) {
+        throw Exception('ไม่พบ version ในไฟล์');
+      }
+      if (version > 2) {
+        throw Exception(
+            'ไฟล์เวอร์ชัน $version ใหม่กว่าที่ระบบรองรับ — กรุณาอัพเดทระบบ');
+      }
+      if (data['sa_products'] == null && data['sa_sales'] == null) {
+        throw Exception('ไฟล์ว่างเปล่า — ไม่มีข้อมูลสินค้าหรือยอดขาย');
+      }
+      setState(() {
+        _preview = data;
+        _confirmRestore = false;
+        _restoreStatus = null;
+        _restoreMsg = '';
+      });
+    } catch (err) {
+      setState(() {
+        _preview = null;
+        _restoreStatus = 'error';
+        _restoreMsg = 'ไม่สามารถอ่านไฟล์ได้: ${_msg(err)}';
+      });
+    }
+  }
+
+  static String _msg(Object e) =>
+      e is Exception ? e.toString().replaceFirst('Exception: ', '') : '$e';
+
+  Future<void> _handleRestore() async {
+    final data = _preview;
+    if (data == null) return;
+    try {
+      await ref.read(snapshotRepoProvider).importLegacyBackup(data);
+      if (!mounted) return;
+      setState(() {
+        _restoreStatus = 'success';
+        _restoreMsg = 'นำเข้าข้อมูลสำเร็จ — กำลังโหลดหน้าใหม่…';
+        _confirmRestore = false;
+      });
+      // Reload reactive data so the new dataset is reflected app-wide.
+      await Future.delayed(const Duration(milliseconds: 1200));
+      if (!mounted) return;
+      ref.invalidate(snapshotRepoProvider);
+      await _loadSnapshot();
+      if (!mounted) return;
+      setState(() => _preview = null);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        _restoreStatus = 'error';
+        _restoreMsg = 'เกิดข้อผิดพลาด: ${_msg(err)}';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final meta = (_snapshot?['__meta'] as Map?)?.cast<String, dynamic>() ?? {};
+    final counts =
+        (meta['recordCounts'] as Map?)?.cast<String, dynamic>() ?? {};
+    return _ContentPane(
+      title: 'สำรอง / กู้คืนข้อมูล · Backup & Restore',
+      children: [
+        // sub-tab bar
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Row(
+            children: [
+              _SubTabBtn(
+                label: '💾 สำรองข้อมูล',
+                active: _mode == 'backup',
+                onTap: () => setState(() => _mode = 'backup'),
+              ),
+              const SizedBox(width: 4),
+              _SubTabBtn(
+                label: '📥 กู้คืนข้อมูล',
+                active: _mode == 'restore',
+                onTap: () => setState(() => _mode = 'restore'),
+              ),
+            ],
+          ),
+        ),
+        if (_mode == 'backup') ..._backupView(counts),
+        if (_mode == 'restore') ..._restoreView(),
+      ],
+    );
+  }
+
+  List<Widget> _backupView(Map<String, dynamic> counts) {
+    return [
+      const _InfoBox(
+        text:
+            '💡 ข้อมูลทั้งหมดเก็บในเครื่อง หากล้างข้อมูลหรือเปลี่ยนเครื่อง ข้อมูลจะหาย แนะนำสำรองทุกสัปดาห์',
+      ),
+      AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _SectionTitle('ข้อมูลปัจจุบัน'),
+            _RecordGrid(counts: counts),
+            const SizedBox(height: 20),
+            Center(
+              child: AppButton(
+                label: '⬇ ดาวน์โหลดไฟล์ backup (.json)',
+                onPressed: _handleExport,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _restoreView() {
+    final pmeta =
+        (_preview?['__meta'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final pcounts =
+        (pmeta['recordCounts'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return [
+      const _InfoBox(
+        danger: true,
+        text:
+            '⚠️ การกู้คืนจะแทนที่ข้อมูลทั้งหมด — ตรวจสอบไฟล์ให้ถูกต้องก่อนกด "กู้คืน"',
+      ),
+      InkWell(
+        onTap: _pickFile,
+        child: AppCard(
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              const Text('📁', style: TextStyle(fontSize: 36)),
+              const SizedBox(height: 8),
+              Text(
+                'คลิกเพื่อเลือกไฟล์ backup',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'รองรับไฟล์ .json ที่ส่งออกจากระบบนี้เท่านั้น',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.secondary),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+      if (_preview != null) ...[
+        const SizedBox(height: 16),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SectionTitle('ข้อมูลในไฟล์ที่เลือก'),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'ร้าน: ${pmeta['shopName'] ?? '—'} · สำรองเมื่อ: ${_fmtExportedAt(pmeta['exportedAt'])}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+              _RecordGrid(counts: pcounts),
+              const SizedBox(height: 16),
+              if (!_confirmRestore)
+                AppButton.danger(
+                  label: '📥 กู้คืนข้อมูลจากไฟล์นี้',
+                  fullWidth: true,
+                  onPressed: () => setState(() => _confirmRestore = true),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.error, width: 2),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        '⚠ ยืนยันการกู้คืน? ข้อมูลปัจจุบันจะถูกแทนที่',
+                        style: TextStyle(
+                          color: AppColors.error,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: AppButton.danger(
+                              label: '✓ ยืนยัน',
+                              onPressed: _handleRestore,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: AppButton.secondary(
+                              label: 'ยกเลิก',
+                              onPressed: () =>
+                                  setState(() => _confirmRestore = false),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+      if (_restoreStatus == 'success') ...[
+        const SizedBox(height: 12),
+        _StatusBanner(success: true, message: _restoreMsg),
+      ],
+      if (_restoreStatus == 'error') ...[
+        const SizedBox(height: 12),
+        _StatusBanner(success: false, message: _restoreMsg),
+      ],
+    ];
+  }
+
+  String _fmtExportedAt(dynamic iso) {
+    if (iso == null) return '—';
+    final d = DateTime.tryParse(iso.toString());
+    if (d == null) return '—';
+    final l = d.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(l.day)}/${two(l.month)}/${l.year} ${two(l.hour)}:${two(l.minute)}';
+  }
+}
+
+class _SubTabBtn extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _SubTabBtn(
+      {required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: active
+              ? theme.colorScheme.surfaceContainerHighest
+              : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: theme.dividerColor),
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: active
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.secondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoBox extends StatelessWidget {
+  final String text;
+  final bool danger;
+  const _InfoBox({required this.text, this.danger = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? AppColors.error : AppColors.steelBlue;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: danger ? 0.08 : 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 13,
+          height: 1.6,
+          color: danger
+              ? AppColors.error
+              : Theme.of(context).colorScheme.secondary,
+        ),
+      ),
+    );
+  }
+}
+
+// 3-column grid of record counts — matches RecordGrid in the JSX.
+class _RecordGrid extends StatelessWidget {
+  final Map<String, dynamic> counts;
+  const _RecordGrid({required this.counts});
+
+  int _n(String k) {
+    final v = counts[k];
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final entries = <List<dynamic>>[
+      ['📦 สินค้า', _n('products')],
+      ['👤 ลูกค้า', _n('customers')],
+      ['🧾 บิลขาย', _n('sales')],
+      ['🛒 ใบสั่งซื้อ', _n('purchaseOrders')],
+      ['🏭 ซัพพลายเออร์', _n('suppliers')],
+      ['📋 สต็อก log', _n('movements')],
+      ['🔧 ช่าง', _n('mechanics')],
+      ['↻ คืนสินค้า', _n('returns')],
+      ['💳 ชำระเครดิต', _n('creditPayments')],
+      ['🏷 ประเภท', _n('categories')],
+      ['💵 ลิ้นชัก', _n('cashDrawer')],
+      ['📝 ใบเสนอราคา', _n('quotes')],
+      ['⏸ บิลพัก', _n('parked')],
+      ['📚 ประวัติกะ', _n('shiftHistory')],
+    ];
+    return LayoutBuilder(builder: (context, constraints) {
+      const cols = 3;
+      const gap = 10.0;
+      final w = (constraints.maxWidth - gap * (cols - 1)) / cols;
+      return Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: [
+          for (final e in entries)
+            SizedBox(
+              width: w,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      e[0] as String,
+                      style: TextStyle(
+                          fontSize: 12, color: theme.colorScheme.secondary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${e[1]}',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 22),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      );
+    });
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  final bool success;
+  final String message;
+  const _StatusBanner({required this.success, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = success ? AppColors.successLight : AppColors.error;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color),
+      ),
+      child: Text(
+        '${success ? '✓' : '✕'} $message',
+        style: TextStyle(
+            color: color, fontWeight: FontWeight.w700, fontSize: 14),
+      ),
+    );
+  }
+}
+
+// Manual JSON paste dialog (file-pick fallback; native picker deferred).
+class _RestorePasteDialog extends StatefulWidget {
+  const _RestorePasteDialog();
+  @override
+  State<_RestorePasteDialog> createState() => _RestorePasteDialogState();
+}
+
+class _RestorePasteDialogState extends State<_RestorePasteDialog> {
+  final _ctrl = TextEditingController();
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('วางข้อมูล backup (.json)'),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'ตัวเลือกไฟล์แบบ native ยังไม่รองรับ — วางเนื้อหาไฟล์ .json ที่นี่',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.secondary),
+            ),
+            const SizedBox(height: 12),
+            AppTextField(
+              controller: _ctrl,
+              hint: '{ "__meta": { ... }, "sa_products": [ ... ] }',
+              maxLines: 8,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('ยกเลิก'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_ctrl.text),
+          child: const Text('ตรวจสอบไฟล์'),
+        ),
+      ],
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// EXPORT CSV (ported from ExportCSV.jsx + SettingsScreen export sub-tab)
+// ════════════════════════════════════════════════════════════════════════
+
+class _ExportTab extends ConsumerStatefulWidget {
+  const _ExportTab();
+  @override
+  ConsumerState<_ExportTab> createState() => _ExportTabState();
+}
+
+class _ExportTabState extends ConsumerState<_ExportTab> {
+  String _range = 'month'; // today | week | month | all | custom
+  final _customStart = TextEditingController();
+  final _customEnd = TextEditingController();
+  String? _exported;
+
+  // Loaded data
+  bool _loading = true;
+  List<SaleWithItems> _sales = const [];
+  List<ProductRow> _products = const [];
+  List<CustomerRow> _customers = const [];
+  List<SupplierRow> _suppliers = const [];
+  double _taxRate = 7;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _customStart.dispose();
+    _customEnd.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final sales = await ref.read(salesRepoProvider).getSales();
+    final products = await ref.read(productsRepoProvider).getAll();
+    final customers = await ref.read(customersRepoProvider).getCustomers();
+    final suppliers = await ref.read(suppliersRepoProvider).getSuppliers();
+    final settings = await ref.read(settingsRepoProvider).getSettings();
+    if (!mounted) return;
+    setState(() {
+      _sales = sales;
+      _products = products;
+      _customers = customers;
+      _suppliers = suppliers;
+      _taxRate = settings.taxRate;
+      _loading = false;
+    });
+  }
+
+  // db.js filteredSales — by selected range, using ISO yyyy-MM-dd slices.
+  List<SaleWithItems> _filteredSales() {
+    final today = _todayStr();
+    final month = _monthStr();
+    final week = _weekStr();
+    final cs = _customStart.text.trim();
+    final ce = _customEnd.text.trim();
+    return _sales.where((sw) {
+      final d = sw.sale.date.toIso8601String().substring(0, 10);
+      switch (_range) {
+        case 'today':
+          return d == today;
+        case 'week':
+          return d.compareTo(week) >= 0;
+        case 'month':
+          return d.startsWith(month);
+        case 'all':
+          return true;
+        case 'custom':
+          return (cs.isEmpty || d.compareTo(cs) >= 0) &&
+              (ce.isEmpty || d.compareTo(ce) <= 0);
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
+  // ── CSV builder (BOM + csvSafe + quote-escape) — matches downloadCSV ──
+  String _buildCsv(List<List<dynamic>> rows) {
+    const bom = '﻿';
+    final body = rows.map((r) {
+      return r.map((cell) {
+        final str = csvSafe(cell);
+        if (str.contains(',') || str.contains('"') || str.contains('\n')) {
+          return '"${str.replaceAll('"', '""')}"';
+        }
+        return str;
+      }).join(',');
+    }).join('\r\n');
+    return bom + body;
+  }
+
+  Future<void> _download(List<List<dynamic>> rows, String filename,
+      String exportedKey) async {
+    try {
+      final csv = _buildCsv(rows);
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File(p.join(dir.path, filename));
+      await file.writeAsString(csv);
+      if (!mounted) return;
+      setState(() => _exported = exportedKey);
+      await _showSaved(file.path);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+      );
+    }
+  }
+
+  Future<void> _showSaved(String path) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ดาวน์โหลดสำเร็จ'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('บันทึกไฟล์ไว้ที่:'),
+            const SizedBox(height: 8),
+            SelectableText(path,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: path)),
+            child: const Text('คัดลอกที่อยู่'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('ตกลง'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // th-TH date / time strings — match d.toLocaleDateString/TimeString('th-TH').
+  String _thDate(DateTime d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(d.day)}/${two(d.month)}/${d.year + 543}';
+  }
+
+  String _thTime(DateTime d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(d.hour)}:${two(d.minute)}';
+  }
+
+  // ── exportSalesSummary (one row per bill) ──
+  Future<void> _exportSummary() async {
+    final fs = _filteredSales();
+    final custById = {for (final c in _customers) c.id: c};
+    final header = [
+      'เลขที่ใบเสร็จ',
+      'วันที่',
+      'เวลา',
+      'จำนวนรายการ',
+      'ยอดก่อนส่วนลด',
+      'ส่วนลด',
+      'ยอดรวม',
+      'วิธีชำระ',
+      'ลูกค้า',
+      'เงินรับ',
+      'เงินทอน',
+    ];
+    final rows = <List<dynamic>>[header];
+    for (final sw in fs) {
+      final s = sw.sale;
+      final cust = s.customerId == null ? null : custById[s.customerId];
+      final d = s.date;
+      rows.add([
+        s.receiptNo,
+        _thDate(d),
+        _thTime(d),
+        sw.items.length,
+        s.subtotal,
+        s.discount,
+        s.total,
+        s.paymentMethod,
+        cust != null ? cust.nameTH : 'ลูกค้าทั่วไป',
+        s.total, // cashReceived not persisted → fall back to total (db.js)
+        0, // change not persisted → 0 (db.js)
+      ]);
+    }
+    await _download(rows, 'sales-summary-${_todayStr()}.csv', 'summary');
+  }
+
+  // ── exportSalesDetail (one row per item sold) ──
+  Future<void> _exportDetail() async {
+    final fs = _filteredSales();
+    final vatDivisor = 1 + _taxRate / 100;
+    final prodByPart = {for (final p in _products) p.partNo: p};
+    final header = [
+      'เลขที่',
+      'วันที่',
+      'รหัสสินค้า',
+      'ชื่อ (EN)',
+      'ชื่อ (TH)',
+      'ประเภท',
+      'จำนวน',
+      'ราคา/ชิ้น',
+      'รวม',
+      'ต้นทุน/ชิ้น',
+      'ต้นทุนรวม',
+      'กำไร (ไม่รวม VAT)',
+      'วิธีชำระ',
+    ];
+    final rows = <List<dynamic>>[header];
+    for (final sw in fs) {
+      final s = sw.sale;
+      final d = s.date;
+      for (final item in sw.items) {
+        final pr = item.partNo == null ? null : prodByPart[item.partNo];
+        // SaleItems carry no cost in the schema → fall back to product cost.
+        final unitCost = pr?.cost ?? 0;
+        final cost = unitCost * item.qty;
+        final profit = (item.price / vatDivisor) * item.qty - cost;
+        rows.add([
+          s.receiptNo,
+          _thDate(d),
+          item.partNo ?? '',
+          item.name,
+          item.nameTH ?? pr?.nameTH ?? '',
+          pr?.category ?? '',
+          item.qty,
+          item.price,
+          item.price * item.qty,
+          unitCost,
+          cost,
+          (profit * 100).round() / 100,
+          s.paymentMethod,
+        ]);
+      }
+    }
+    await _download(rows, 'sales-detail-${_todayStr()}.csv', 'detail');
+  }
+
+  // ── exportInventory (current stock snapshot) ──
+  Future<void> _exportInventory() async {
+    final header = [
+      'รหัสสินค้า',
+      'ชื่อ (EN)',
+      'ชื่อ (TH)',
+      'ประเภท',
+      'แบรนด์',
+      'ใช้กับรถรุ่น',
+      'ราคาขาย',
+      'ราคาทุน',
+      'สต็อก',
+      'สต็อกขั้นต่ำ',
+      'สถานะ',
+      'ซัพพลายเออร์ถูกที่สุด',
+      'ราคาซัพฯถูกที่สุด',
+    ];
+    final rows = <List<dynamic>>[header];
+    for (final pr in _products) {
+      final sups =
+          _suppliers.where((s) => s.productId == pr.id).toList();
+      SupplierRow? cheapest;
+      if (sups.isNotEmpty) {
+        cheapest = sups.reduce((a, b) =>
+            (a.unitCost + a.freight) < (b.unitCost + b.freight) ? a : b);
+      }
+      final status = pr.stock == 0
+          ? 'หมดสต็อก'
+          : pr.stock <= pr.minStock
+              ? 'สต็อกต่ำ'
+              : 'ปกติ';
+      rows.add([
+        pr.partNo,
+        pr.name,
+        pr.nameTH,
+        pr.category,
+        pr.brand,
+        pr.compat ?? '',
+        pr.price,
+        pr.cost,
+        pr.stock,
+        pr.minStock,
+        status,
+        cheapest?.name ?? '',
+        cheapest != null ? (cheapest.unitCost + cheapest.freight) : '',
+      ]);
+    }
+    await _download(rows, 'inventory-${_todayStr()}.csv', 'inventory');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final theme = Theme.of(context);
+    final fs = _filteredSales();
+    final billCount = fs.length;
+    final revenue = fs.fold<double>(0, (s, t) => s + t.sale.total);
+    final itemCount = fs.fold<int>(0, (s, t) => s + t.items.length);
+
+    final ranges = const [
+      ['today', 'วันนี้'],
+      ['week', '7 วัน'],
+      ['month', 'เดือนนี้'],
+      ['all', 'ทั้งหมด'],
+      ['custom', 'กำหนดเอง'],
+    ];
+
+    return _ContentPane(
+      title: 'ส่งออกข้อมูล · Export to CSV',
+      children: [
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SectionTitle('ช่วงวันที่ · Date Range'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final r in ranges)
+                    _RangeBtn(
+                      label: r[1],
+                      active: _range == r[0],
+                      onTap: () => setState(() => _range = r[0]),
+                    ),
+                ],
+              ),
+              if (_range == 'custom') ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: AppTextField(
+                        label: 'ตั้งแต่ (YYYY-MM-DD)',
+                        controller: _customStart,
+                        hint: 'YYYY-MM-DD',
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: AppTextField(
+                        label: 'ถึงวันที่ (YYYY-MM-DD)',
+                        controller: _customEnd,
+                        hint: 'YYYY-MM-DD',
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 16),
+              // Summary bar
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: theme.dividerColor),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    _SummaryCell(label: 'บิล', value: '$billCount'),
+                    _divider(theme),
+                    _SummaryCell(
+                        label: 'ยอดรวม',
+                        value: '฿${_grouped(revenue)}'),
+                    _divider(theme),
+                    _SummaryCell(label: 'รายการ', value: '$itemCount'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _ExportRow(
+                title: '📋 ยอดขายรายบิล',
+                desc: '1 แถว = 1 บิล · เลขที่, วันที่, ยอดรวม, วิธีชำระ',
+                meta: '$billCount แถว',
+                color: AppColors.orange,
+                onTap: _exportSummary,
+              ),
+              const SizedBox(height: 10),
+              _ExportRow(
+                title: '📦 รายการสินค้าที่ขาย',
+                desc: '1 แถว = 1 สินค้า · รหัส, จำนวน, ราคา, ต้นทุน, กำไร',
+                meta: '$itemCount แถว',
+                color: AppColors.orange,
+                onTap: _exportDetail,
+              ),
+              const SizedBox(height: 10),
+              _ExportRow(
+                title: '🗂 สต็อกปัจจุบัน',
+                desc: 'ไม่ขึ้นกับช่วงวันที่ · รหัส, ราคา, สต็อก, ซัพพลายเออร์',
+                meta: '${_products.length} รายการ',
+                color: AppColors.steelBlue,
+                onTap: _exportInventory,
+              ),
+              if (_exported != null) ...[
+                const SizedBox(height: 12),
+                _StatusBanner(
+                  success: true,
+                  message:
+                      'ดาวน์โหลดสำเร็จ — เปิดใน Excel (รองรับ UTF-8 + ภาษาไทย)',
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _grouped(num v) {
+    final neg = v < 0;
+    final s = v.abs().toStringAsFixed(
+        v == v.roundToDouble() ? 0 : 2);
+    final parts = s.split('.');
+    final intPart = parts[0];
+    final buf = StringBuffer();
+    for (var i = 0; i < intPart.length; i++) {
+      if (i > 0 && (intPart.length - i) % 3 == 0) buf.write(',');
+      buf.write(intPart[i]);
+    }
+    var out = buf.toString();
+    if (parts.length > 1) out += '.${parts[1]}';
+    return neg ? '-$out' : out;
+  }
+
+  Widget _divider(ThemeData theme) =>
+      Container(width: 1, height: 44, color: theme.dividerColor);
+}
+
+class _RangeBtn extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _RangeBtn(
+      {required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        constraints: const BoxConstraints(minHeight: 38),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active ? AppColors.orange : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+              color: active ? AppColors.orange : theme.dividerColor),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            letterSpacing: 0.6,
+            color: active ? AppColors.white : theme.colorScheme.secondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryCell extends StatelessWidget {
+  final String label;
+  final String value;
+  const _SummaryCell({required this.label, required this.value});
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          children: [
+            Text(value,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w800, fontSize: 22, height: 1)),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                letterSpacing: 0.8,
+                color: theme.colorScheme.secondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExportRow extends StatelessWidget {
+  final String title;
+  final String desc;
+  final String meta;
+  final Color color;
+  final VoidCallback onTap;
+  const _ExportRow({
+    required this.title,
+    required this.desc,
+    required this.meta,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 3),
+                Text(desc,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.secondary, height: 1.5)),
+                const SizedBox(height: 4),
+                Text(meta,
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: color)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          FilledButton(
+            onPressed: onTap,
+            style: FilledButton.styleFrom(
+              backgroundColor: color,
+              foregroundColor: AppColors.white,
+            ),
+            child: const Text('⬇ ดาวน์โหลด'),
+          ),
+        ],
+      ),
     );
   }
 }
