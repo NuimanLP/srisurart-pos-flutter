@@ -18,11 +18,12 @@
 // Cart state is a StateNotifier defined IN THIS FILE (cartProvider). All data
 // goes through the §4 repo providers; no direct AppDatabase access.
 //
-// NOTE (cross-screen quote loading): the JS screen accepted loadQuote/
-// onQuoteLoaded props from QuotesManager. The Flutter router constructs
-// `const CheckoutScreen()` with no args, so converting a quote into the cart is
-// not wired here (QuotesScreen is a separate agent). Park/resume re-validation
-// is fully self-contained.
+// Cross-screen quote loading: QuotesManager (convert/edit) stages a quote in
+// `pendingQuoteForCartProvider` then navigates here. On mount we consume it,
+// re-validate its items against current stock (the same validateItems used by
+// park/resume), load them into the cart at the quoted prices + the quote
+// discount, best-effort re-select the customer, then clear the provider —
+// mirroring the JS screen's loadQuote/onQuoteLoaded effect.
 
 import 'dart:convert';
 
@@ -36,6 +37,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../domain/models/aggregates.dart';
+import '../providers/pending_quote_provider.dart';
 import '../providers/providers.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/receipt_view.dart';
@@ -226,6 +228,16 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   bool _submitting = false;
   String? _priceWarning;
   bool _lowStockDismissed = false;
+  bool _consumingPendingQuote = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // A quote staged by QuotesManager (convert/edit) is consumed once on mount.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeConsumePendingQuote();
+    });
+  }
 
   @override
   void dispose() {
@@ -282,6 +294,67 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       safe.add(it);
     }
     return (safe: safe, issues: issues);
+  }
+
+  // ── Consume a quote staged by QuotesManager (convert/edit). ──
+  // Mirrors the JS loadQuote effect: re-validate the quote items against current
+  // stock, load them (at the quoted prices) + the quote discount into the cart,
+  // best-effort re-select the customer (quotes persist name/phone, not ids;
+  // mechanic context is not stored on a quote), then clear the hand-off
+  // provider. The provider is cleared up-front and guarded by a flag so a
+  // rebuild or the build-time listener can never double-load.
+  Future<void> _maybeConsumePendingQuote() async {
+    if (_consumingPendingQuote) return;
+    final pending = ref.read(pendingQuoteForCartProvider);
+    if (pending == null) return;
+    _consumingPendingQuote = true;
+    ref.read(pendingQuoteForCartProvider.notifier).clear();
+    try {
+      final fresh = await ref.read(productsRepoProvider).getAll();
+      // Build cart lines from the quote; pull partNo/nameTH/cost from the live
+      // product. originalPrice = the quoted price, so no spurious override mark.
+      final lines = <CartLine>[];
+      for (final it in pending.items) {
+        final p = fresh.where((x) => x.id == it.productId).firstOrNull;
+        lines.add(CartLine(
+          productId: it.productId ?? '',
+          partNo: p?.partNo,
+          name: it.name,
+          nameTH: p?.nameTH,
+          price: it.price,
+          originalPrice: it.price,
+          cost: p?.cost ?? 0,
+          qty: it.qty,
+        ));
+      }
+      final res = _validateItems(lines, fresh);
+
+      // Best-effort customer restore by phone (quotes store name+phone, not id).
+      CustomerRow? cust;
+      final phone = (pending.quote.customerPhone ?? '').trim();
+      if (phone.isNotEmpty) {
+        final customers = await ref.read(customersRepoProvider).getCustomers();
+        cust = customers
+            .where((c) => (c.phone ?? '').trim() == phone)
+            .firstOrNull;
+      }
+
+      // Cart state is global (survives a teardown); load it before the mounted
+      // guard so the items are never lost. Controllers/setState need mounted.
+      _cart.setLines(res.safe);
+      if (!mounted) return;
+      _discount = pending.quote.discount ?? 0;
+      _syncDiscountText();
+      setState(() {
+        if (cust != null) _selectedCustomer = cust;
+        if (res.issues.isNotEmpty) {
+          _priceWarning =
+              'สต็อกเปลี่ยนแปลงตั้งแต่ออกใบเสนอ:\n${res.issues.join('\n')}';
+        }
+      });
+    } finally {
+      _consumingPendingQuote = false;
+    }
   }
 
   // ── Cart state helpers ──
@@ -627,6 +700,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    // Catch a quote staged while this screen is already alive; the initState
+    // post-frame handles the normal fresh-build navigation case.
+    ref.listen<QuoteWithItems?>(pendingQuoteForCartProvider, (_, next) {
+      if (next != null) _maybeConsumePendingQuote();
+    });
     final productsAsync = ref.watch(_productsProvider);
     final isWide = MediaQuery.of(context).size.width >= 900;
 

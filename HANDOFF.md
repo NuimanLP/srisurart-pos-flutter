@@ -2,11 +2,47 @@
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the **final gate is GREEN**:
-`dart analyze` clean, **108/108 tests pass** (incl. all 22 route-smoke cases at tablet
+`dart analyze` clean, **110/110 tests pass** (incl. all 22 route-smoke cases at tablet
 AND phone), `flutter build web` succeeds. The 3 phone-size overflows are fixed and the
 LOW findings triaged. **The web runtime now boots in Chrome with the home screen
-pixel-verified** — the Drift web DB was wired up this session (see "2026-06-24 (web DB)" below).
-Remaining work is the bigger post-parity follow-ups only (cloud sync, native hardware, font bundling, etc.).
+pixel-verified** — the Drift web DB was wired up (see "2026-06-24 (web DB)" below).
+A **15-agent scrutiny audit** (107 verified findings → `SCRUTINY_REPORT.md`) ran this
+session and its **one CRITICAL** bug — the dead Quote→Checkout hand-off — **is now fixed**
+(see "2026-06-24 (scrutiny + Quote→Checkout fix)" below). Remaining work is the audit's
+high/medium backlog plus the bigger post-parity follow-ups (cloud sync, native hardware, font bundling, etc.).
+
+## 2026-06-24 (scrutiny + Quote→Checkout fix)
+- **15-agent scrutiny audit** (code/DB/UI/UX/design/a11y/perf/i18n/security/tests, each
+  finding adversarially verified against the real code path + the legacy `db.js`/`.jsx`):
+  **129 agents → 113 findings → 107 verified, 6 rejected** as false positives. Full prioritized
+  report committed as **`SCRUTINY_REPORT.md`** (exec summary, top fixes, per-dimension catalog,
+  quick wins, what's solid, and the rejected FPs with verifier reasoning).
+  Severity totals: **1 critical · 2 high · 28 medium · 36 low · 11 info**. Headline: the
+  data/money core is solid; the work is the presentation layer + the web target.
+- **CRITICAL fixed — dead Quote→Checkout hand-off** (`checkout_screen.dart`): `QuotesScreen`
+  staged a quote in `pendingQuoteForCartProvider` and navigated to `/`, but `CheckoutScreen`
+  **never read it** → "→ ขาย" (convert) and "✎" (edit) landed on an EMPTY cart, and the edit
+  path `deleteQuote()`s first → unrecoverable. Fix: CheckoutScreen now consumes the staged quote
+  on mount (`initState` post-frame, with a `build`-time `ref.listen` fallback), mirroring the JS
+  `loadQuote` effect — re-validates items vs current stock (existing `_validateItems`: drop
+  missing/out-of-stock, clamp over-stock + Thai warning), loads cart + discount at the quoted
+  prices, best-effort re-selects the customer **by phone**, then clears the provider (guarded so
+  it can't double-load). The edit data-loss is resolved as a side effect (the in-memory
+  `QuoteWithItems` flows to the cart regardless of the DB delete; `_handleEdit` delete-first
+  ordering left intact to match its documented UX).
+- **Known limitation (flagged, not silently diverged):** the `Quotes`/`QuoteItems` tables persist
+  only `customerName`/`customerPhone` (no `customerId`, no mechanic) — unlike the JS app which
+  restores customer/mechanic **by id**. So mechanic context **cannot** be restored on convert/edit;
+  customer is best-effort by phone. Storing `customerId`/`mechanicId` on quotes would need a Drift
+  schema change → `build_runner` on an ASCII path.
+- **Regression test added** (`test/quote_to_checkout_test.dart`, 2 cases): a staged quote loads
+  into the cart + clears the provider; an over-stock quote qty is clamped to available stock.
+- **Gate:** `dart analyze` clean; `flutter test` **110/110** (108 prior + 2 new).
+- **Next (audit backlog, prioritized in `SCRUTINY_REPORT.md`):** HIGH — web backup/CSV export is
+  `dart:io`-only (silently fails on web → no data-safety path); ClosingReport dialog overflows on
+  phones. Quick wins — GoRouter `errorBuilder`, write-handler error toasts (park/save-quote/cash
+  open/close), `closeShift` confirm dialog, change-due contrast (#2ECC71 → forestGreen), Mechanics
+  `ลดให้ช่าง` stat (`totalCredit`→`totalDiscount`), unit tests for `round2`/`pointsFor`/`baht`/`csvSafe`.
 
 ## 2026-06-24 (web DB) — `flutter run -d chrome` now boots
 - **Symptom:** the web app loaded to a blank white page. Console threw
@@ -77,10 +113,10 @@ Remaining work is the bigger post-parity follow-ups only (cloud sync, native har
   without codegen; only a Drift schema change needs an ASCII-path codegen run.
 - Use `dart analyze` (NOT `flutter analyze`). `flutter test`. `flutter build web --no-tree-shake-icons`.
 
-## Current state (verified 2026-06-24, this session — macOS, ASCII path, Flutter 3.44.3)
+## Current state (verified 2026-06-24)
 - `dart analyze`: **CLEAN** (No issues found).
-- `flutter test`: **108 pass, 0 fail** — all 22 route-smoke cases now green at BOTH tablet
-  (1280×800) and phone (400×800); all repository/unit tests pass.
+- `flutter test`: **110 pass, 0 fail** — all 22 route-smoke cases green at BOTH tablet
+  (1280×800) and phone (400×800); all repository/unit tests pass; + 2 Quote→Checkout regression tests.
 - `flutter build web --no-tree-shake-icons`: **succeeds** (`build/web` built).
 - Commits: scaffold → data layer (76 tests) → deps → screens (W2) → W3 scrutiny fixes →
   **W4: phone-overflow fixes + LOW-finding F001 + this handoff (2026-06-24)**.
