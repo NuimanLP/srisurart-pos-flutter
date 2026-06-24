@@ -52,6 +52,7 @@ dependencies:
   pdf: ^3.13.0
   printing: ^5.15.0
   barcode_widget: ^2.0.4
+  web: ^1.1.1 # browser file-download for backup/CSV export on the web target
 
 dev_dependencies:
   flutter_test:

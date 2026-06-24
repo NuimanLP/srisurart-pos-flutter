@@ -8,23 +8,22 @@
 //   📤 ส่งออก CSV   — sales summary / sales detail / inventory CSV exporters
 //                     (ALWAYS via csvSafe), ported from ExportCSV.jsx.
 //
-// File save: no file_picker / share_plus dep is available, so exports are written
-// to the app documents directory via path_provider and the saved path is shown to
-// the user. Restore file-pick is deferred (no native picker) — a manual JSON paste
-// dialog is provided as a wired fallback (see _RestorePasteDialog).
+// File save: no file_picker / share_plus dep is available. On native, exports are
+// written to the app documents directory and the saved path is shown to the user;
+// on the web a browser download is triggered (see core/utils/file_export.dart).
+// Restore file-pick is deferred (no native picker) — a manual JSON paste dialog
+// is provided as a wired fallback (see _RestorePasteDialog).
 
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/csv_safe.dart';
+import '../../core/utils/file_export.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../domain/models/aggregates.dart';
@@ -73,9 +72,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             color: theme.colorScheme.surface,
             child: Container(
               decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: theme.dividerColor),
-                ),
+                border: Border(bottom: BorderSide(color: theme.dividerColor)),
               ),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -112,8 +109,11 @@ class _TabButton extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
-  const _TabButton(
-      {required this.label, required this.active, required this.onTap});
+  const _TabButton({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -266,13 +266,16 @@ class _GeneralTabState extends ConsumerState<_GeneralTab> {
   Future<void> _save() async {
     final taxRate = double.tryParse(_taxRate.text.trim()) ?? 7;
     final validDays = int.tryParse(_quoteValidDays.text.trim()) ?? 30;
-    await ref.read(settingsRepoProvider).updateSettings(
+    await ref
+        .read(settingsRepoProvider)
+        .updateSettings(
           SettingsRowCompanion(
             shopName: Value(_shopName.text),
             shopNameEN: Value(_shopNameEN.text),
             phone: Value(_phone.text.isEmpty ? null : _phone.text),
-            cashierName:
-                Value(_cashierName.text.isEmpty ? null : _cashierName.text),
+            cashierName: Value(
+              _cashierName.text.isEmpty ? null : _cashierName.text,
+            ),
             address: Value(_address.text.isEmpty ? null : _address.text),
             taxRate: Value(taxRate),
             quoteValidDays: Value(validDays),
@@ -298,54 +301,69 @@ class _GeneralTabState extends ConsumerState<_GeneralTab> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const _SectionTitle('ชื่อและที่อยู่'),
-              LayoutBuilder(builder: (context, constraints) {
-                final twoCol = constraints.maxWidth > 480;
-                final fieldW =
-                    twoCol ? (constraints.maxWidth - 14) / 2 : constraints.maxWidth;
-                return Wrap(
-                  spacing: 14,
-                  runSpacing: 14,
-                  children: [
-                    SizedBox(
-                      width: fieldW,
-                      child: AppTextField(
-                          label: 'ชื่อร้าน (TH)', controller: _shopName),
-                    ),
-                    SizedBox(
-                      width: fieldW,
-                      child: AppTextField(
-                          label: 'ชื่อร้าน (EN)', controller: _shopNameEN),
-                    ),
-                    SizedBox(
-                      width: fieldW,
-                      child:
-                          AppTextField(label: 'เบอร์โทร', controller: _phone),
-                    ),
-                    SizedBox(
-                      width: fieldW,
-                      child: AppTextField(
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final twoCol = constraints.maxWidth > 480;
+                  final fieldW = twoCol
+                      ? (constraints.maxWidth - 14) / 2
+                      : constraints.maxWidth;
+                  return Wrap(
+                    spacing: 14,
+                    runSpacing: 14,
+                    children: [
+                      SizedBox(
+                        width: fieldW,
+                        child: AppTextField(
+                          label: 'ชื่อร้าน (TH)',
+                          controller: _shopName,
+                        ),
+                      ),
+                      SizedBox(
+                        width: fieldW,
+                        child: AppTextField(
+                          label: 'ชื่อร้าน (EN)',
+                          controller: _shopNameEN,
+                        ),
+                      ),
+                      SizedBox(
+                        width: fieldW,
+                        child: AppTextField(
+                          label: 'เบอร์โทร',
+                          controller: _phone,
+                        ),
+                      ),
+                      SizedBox(
+                        width: fieldW,
+                        child: AppTextField(
                           label: 'ชื่อแคชเชียร์ (default)',
-                          controller: _cashierName),
-                    ),
-                    SizedBox(
-                      width: constraints.maxWidth,
-                      child:
-                          AppTextField(label: 'ที่อยู่', controller: _address),
-                    ),
-                    SizedBox(
-                      width: fieldW,
-                      child: AppTextField.numeric(
-                          label: 'VAT (%)', controller: _taxRate),
-                    ),
-                    SizedBox(
-                      width: fieldW,
-                      child: AppTextField.numeric(
+                          controller: _cashierName,
+                        ),
+                      ),
+                      SizedBox(
+                        width: constraints.maxWidth,
+                        child: AppTextField(
+                          label: 'ที่อยู่',
+                          controller: _address,
+                        ),
+                      ),
+                      SizedBox(
+                        width: fieldW,
+                        child: AppTextField.numeric(
+                          label: 'VAT (%)',
+                          controller: _taxRate,
+                        ),
+                      ),
+                      SizedBox(
+                        width: fieldW,
+                        child: AppTextField.numeric(
                           label: 'ใบเสนอราคา · มีอายุ (วัน)',
-                          controller: _quoteValidDays),
-                    ),
-                  ],
-                );
-              }),
+                          controller: _quoteValidDays,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -404,24 +422,26 @@ class _ThemeTab extends ConsumerWidget {
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 500),
-          child: LayoutBuilder(builder: (context, constraints) {
-            final w = (constraints.maxWidth - 16) / 2;
-            return Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              children: [
-                for (final c in cards)
-                  SizedBox(
-                    width: w,
-                    child: _ThemeCard(
-                      data: c,
-                      onTap: () =>
-                          ref.read(themeModeProvider.notifier).set(c.mode),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final w = (constraints.maxWidth - 16) / 2;
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: [
+                  for (final c in cards)
+                    SizedBox(
+                      width: w,
+                      child: _ThemeCard(
+                        data: c,
+                        onTap: () =>
+                            ref.read(themeModeProvider.notifier).set(c.mode),
+                      ),
                     ),
-                  ),
-              ],
-            );
-          }),
+                ],
+              );
+            },
+          ),
         ),
       ],
     );
@@ -491,14 +511,17 @@ class _ThemeCard extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               data.label,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               data.desc,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.secondary, height: 1.5),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.secondary,
+                height: 1.5,
+              ),
             ),
             if (data.active) ...[
               const SizedBox(height: 6),
@@ -561,21 +584,25 @@ class _BackupTabState extends ConsumerState<_BackupTab> {
     try {
       final data = await ref.read(snapshotRepoProvider).exportSnapshot();
       final json = const JsonEncoder.withIndent('  ').convert(data);
-      final dir = await getApplicationDocumentsDirectory();
       final fileName = 'pos-backup-${_todayStr().replaceAll('-', '')}.json';
-      final file = File(p.join(dir.path, fileName));
-      await file.writeAsString(json);
+      final path = await exportTextFile(filename: fileName, content: json);
       if (!mounted) return;
-      await _showSavedDialog('ดาวน์โหลดไฟล์ backup สำเร็จ', file.path);
+      await _showSavedDialog('ดาวน์โหลดไฟล์ backup สำเร็จ', path, fileName);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
     }
   }
 
-  Future<void> _showSavedDialog(String title, String path) async {
+  // [path] is null on the web (browser handled the download); show the saved
+  // filesystem path on native, otherwise a "downloaded" confirmation.
+  Future<void> _showSavedDialog(
+    String title,
+    String? path,
+    String filename,
+  ) async {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -583,20 +610,35 @@ class _BackupTabState extends ConsumerState<_BackupTab> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('บันทึกไฟล์ไว้ที่:'),
-            const SizedBox(height: 8),
-            SelectableText(path,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-          ],
+          children: path == null
+              ? [
+                  Text('ดาวน์โหลดไฟล์ "$filename" แล้ว'),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'ดูในโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ]
+              : [
+                  const Text('บันทึกไฟล์ไว้ที่:'),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    path,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
         ),
         actions: [
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: path));
-            },
-            child: const Text('คัดลอกที่อยู่'),
-          ),
+          if (path != null)
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: path));
+              },
+              child: const Text('คัดลอกที่อยู่'),
+            ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('ตกลง'),
@@ -636,7 +678,8 @@ class _BackupTabState extends ConsumerState<_BackupTab> {
       }
       if (version > 2) {
         throw Exception(
-            'ไฟล์เวอร์ชัน $version ใหม่กว่าที่ระบบรองรับ — กรุณาอัพเดทระบบ');
+          'ไฟล์เวอร์ชัน $version ใหม่กว่าที่ระบบรองรับ — กรุณาอัพเดทระบบ',
+        );
       }
       if (data['sa_products'] == null && data['sa_sales'] == null) {
         throw Exception('ไฟล์ว่างเปล่า — ไม่มีข้อมูลสินค้าหรือยอดขาย');
@@ -768,16 +811,16 @@ class _BackupTabState extends ConsumerState<_BackupTab> {
               const SizedBox(height: 8),
               Text(
                 'คลิกเพื่อเลือกไฟล์ backup',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 4),
               Text(
                 'รองรับไฟล์ .json ที่ส่งออกจากระบบนี้เท่านั้น',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.secondary),
+                  color: Theme.of(context).colorScheme.secondary,
+                ),
               ),
               const SizedBox(height: 8),
             ],
@@ -876,8 +919,11 @@ class _SubTabBtn extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
-  const _SubTabBtn(
-      {required this.label, required this.active, required this.onTap});
+  const _SubTabBtn({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -971,45 +1017,55 @@ class _RecordGrid extends StatelessWidget {
       ['⏸ บิลพัก', _n('parked')],
       ['📚 ประวัติกะ', _n('shiftHistory')],
     ];
-    return LayoutBuilder(builder: (context, constraints) {
-      const cols = 3;
-      const gap = 10.0;
-      final w = (constraints.maxWidth - gap * (cols - 1)) / cols;
-      return Wrap(
-        spacing: gap,
-        runSpacing: gap,
-        children: [
-          for (final e in entries)
-            SizedBox(
-              width: w,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest
-                      .withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      e[0] as String,
-                      style: TextStyle(
-                          fontSize: 12, color: theme.colorScheme.secondary),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const cols = 3;
+        const gap = 10.0;
+        final w = (constraints.maxWidth - gap * (cols - 1)) / cols;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final e in entries)
+              SizedBox(
+                width: w,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.5,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${e[1]}',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 22),
-                    ),
-                  ],
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        e[0] as String,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.secondary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${e[1]}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 22,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
-      );
-    });
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -1032,7 +1088,10 @@ class _StatusBanner extends StatelessWidget {
       child: Text(
         '${success ? '✓' : '✕'} $message',
         style: TextStyle(
-            color: color, fontWeight: FontWeight.w700, fontSize: 14),
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 14,
+        ),
       ),
     );
   }
@@ -1065,10 +1124,9 @@ class _RestorePasteDialogState extends State<_RestorePasteDialog> {
           children: [
             Text(
               'ตัวเลือกไฟล์แบบ native ยังไม่รองรับ — วางเนื้อหาไฟล์ .json ที่นี่',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.secondary),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.secondary,
+              ),
             ),
             const SizedBox(height: 12),
             AppTextField(
@@ -1177,37 +1235,45 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
   // ── CSV builder (BOM + csvSafe + quote-escape) — matches downloadCSV ──
   String _buildCsv(List<List<dynamic>> rows) {
     const bom = '﻿';
-    final body = rows.map((r) {
-      return r.map((cell) {
-        final str = csvSafe(cell);
-        if (str.contains(',') || str.contains('"') || str.contains('\n')) {
-          return '"${str.replaceAll('"', '""')}"';
-        }
-        return str;
-      }).join(',');
-    }).join('\r\n');
+    final body = rows
+        .map((r) {
+          return r
+              .map((cell) {
+                final str = csvSafe(cell);
+                if (str.contains(',') ||
+                    str.contains('"') ||
+                    str.contains('\n')) {
+                  return '"${str.replaceAll('"', '""')}"';
+                }
+                return str;
+              })
+              .join(',');
+        })
+        .join('\r\n');
     return bom + body;
   }
 
-  Future<void> _download(List<List<dynamic>> rows, String filename,
-      String exportedKey) async {
+  Future<void> _download(
+    List<List<dynamic>> rows,
+    String filename,
+    String exportedKey,
+  ) async {
     try {
       final csv = _buildCsv(rows);
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File(p.join(dir.path, filename));
-      await file.writeAsString(csv);
+      final path = await exportTextFile(filename: filename, content: csv);
       if (!mounted) return;
       setState(() => _exported = exportedKey);
-      await _showSaved(file.path);
+      await _showSaved(path, filename);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
     }
   }
 
-  Future<void> _showSaved(String path) async {
+  // [path] is null on the web (browser download); native shows the saved path.
+  Future<void> _showSaved(String? path, String filename) async {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1215,18 +1281,33 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('บันทึกไฟล์ไว้ที่:'),
-            const SizedBox(height: 8),
-            SelectableText(path,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-          ],
+          children: path == null
+              ? [
+                  Text('ดาวน์โหลดไฟล์ "$filename" แล้ว'),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'ดูในโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ]
+              : [
+                  const Text('บันทึกไฟล์ไว้ที่:'),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    path,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Clipboard.setData(ClipboardData(text: path)),
-            child: const Text('คัดลอกที่อยู่'),
-          ),
+          if (path != null)
+            TextButton(
+              onPressed: () => Clipboard.setData(ClipboardData(text: path)),
+              child: const Text('คัดลอกที่อยู่'),
+            ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('ตกลง'),
@@ -1370,18 +1451,18 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
     ];
     final rows = <List<dynamic>>[header];
     for (final pr in _products) {
-      final sups =
-          _suppliers.where((s) => s.productId == pr.id).toList();
+      final sups = _suppliers.where((s) => s.productId == pr.id).toList();
       SupplierRow? cheapest;
       if (sups.isNotEmpty) {
-        cheapest = sups.reduce((a, b) =>
-            (a.unitCost + a.freight) < (b.unitCost + b.freight) ? a : b);
+        cheapest = sups.reduce(
+          (a, b) => (a.unitCost + a.freight) < (b.unitCost + b.freight) ? a : b,
+        );
       }
       final status = pr.stock == 0
           ? 'หมดสต็อก'
           : pr.stock <= pr.minStock
-              ? 'สต็อกต่ำ'
-              : 'ปกติ';
+          ? 'สต็อกต่ำ'
+          : 'ปกติ';
       rows.add([
         pr.partNo,
         pr.name,
@@ -1475,9 +1556,7 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
                   children: [
                     _SummaryCell(label: 'บิล', value: '$billCount'),
                     _divider(theme),
-                    _SummaryCell(
-                        label: 'ยอดรวม',
-                        value: baht(revenue)),
+                    _SummaryCell(label: 'ยอดรวม', value: baht(revenue)),
                     _divider(theme),
                     _SummaryCell(label: 'รายการ', value: '$itemCount'),
                   ],
@@ -1531,8 +1610,11 @@ class _RangeBtn extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
-  const _RangeBtn(
-      {required this.label, required this.active, required this.onTap});
+  const _RangeBtn({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1548,7 +1630,8 @@ class _RangeBtn extends StatelessWidget {
           color: active ? AppColors.orange : theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-              color: active ? AppColors.orange : theme.dividerColor),
+            color: active ? AppColors.orange : theme.dividerColor,
+          ),
         ),
         child: Text(
           label,
@@ -1576,9 +1659,14 @@ class _SummaryCell extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Column(
           children: [
-            Text(value,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 22, height: 1)),
+            Text(
+              value,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 22,
+                height: 1,
+              ),
+            ),
             const SizedBox(height: 4),
             Text(
               label,
@@ -1625,19 +1713,29 @@ class _ExportRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: theme.textTheme.titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 3),
-                Text(desc,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.secondary, height: 1.5)),
+                Text(
+                  desc,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.secondary,
+                    height: 1.5,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text(meta,
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: color)),
+                Text(
+                  meta,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
               ],
             ),
           ),

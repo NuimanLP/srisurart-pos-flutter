@@ -11,18 +11,15 @@
 // Convert/edit hand the quote to the checkout cart via
 // pendingQuoteForCartProvider then navigate to `/` (see that provider's note).
 
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/csv_safe.dart';
+import '../../core/utils/file_export.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../domain/models/aggregates.dart';
@@ -119,7 +116,9 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
       'แปลง ${q.quoteNo} เป็นการขาย? ระบบจะใส่รายการนี้กลับเข้าตะกร้า',
     );
     if (!ok) return;
-    await ref.read(quotesRepoProvider).updateQuote(
+    await ref
+        .read(quotesRepoProvider)
+        .updateQuote(
           q.id,
           QuotesCompanion(
             status: const Value('converted'),
@@ -138,8 +137,9 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
   Future<void> _handlePurgeOld() async {
     final days = await _promptDays();
     if (days == null || days < 1) return;
-    final n =
-        await ref.read(quotesRepoProvider).purgeOldQuotes(olderThanDays: days);
+    final n = await ref
+        .read(quotesRepoProvider)
+        .purgeOldQuotes(olderThanDays: days);
     _refresh();
     _snack(n > 0 ? 'ลบ $n ใบเสนอราคา' : 'ไม่มีรายการที่ตรงตามเงื่อนไข');
   }
@@ -203,8 +203,9 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
     for (final qi in all) {
       final q = qi.quote;
       final expired = _isExpired(q);
-      final status =
-          _isConverted(q) ? 'converted' : (expired ? 'expired' : 'open');
+      final status = _isConverted(q)
+          ? 'converted'
+          : (expired ? 'expired' : 'open');
       rows.add([
         q.quoteNo,
         _isoDate(q.date),
@@ -219,22 +220,24 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
         '',
       ]);
     }
-    final csv = rows.map((r) {
-      return r.map((v) {
-        final s = csvSafe(v);
-        return RegExp('[",\n]').hasMatch(s)
-            ? '"${s.replaceAll('"', '""')}"'
-            : s;
-      }).join(',');
-    }).join('\n');
+    final csv = rows
+        .map((r) {
+          return r
+              .map((v) {
+                final s = csvSafe(v);
+                return RegExp('[",\n]').hasMatch(s)
+                    ? '"${s.replaceAll('"', '""')}"'
+                    : s;
+              })
+              .join(',');
+        })
+        .join('\n');
 
     try {
-      final dir = await getApplicationDocumentsDirectory();
       final fileName = 'quotes_${_isoDate(DateTime.now())}.csv';
-      final file = File('${dir.path}${Platform.pathSeparator}$fileName');
       // Prefix the UTF-8 BOM exactly like the JS Blob (﻿).
-      await file.writeAsString('﻿$csv', encoding: utf8);
-      _snack('บันทึกไฟล์: ${file.path}');
+      final path = await exportTextFile(filename: fileName, content: '﻿$csv');
+      _snack(path != null ? 'บันทึกไฟล์: $path' : 'ดาวน์โหลด $fileName แล้ว');
     } catch (e) {
       _snack('บันทึกไฟล์ไม่สำเร็จ');
     }
@@ -275,12 +278,13 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
         error: (e, _) => Center(child: Text('โหลดข้อมูลไม่สำเร็จ: $e')),
         data: (all) {
           final openValid = all
-              .where((qi) =>
-                  !_isConverted(qi.quote) && !_isExpired(qi.quote))
+              .where((qi) => !_isConverted(qi.quote) && !_isExpired(qi.quote))
               .toList();
           final totalOpen = openValid.length;
-          final totalValue =
-              openValid.fold<double>(0, (s, qi) => s + (qi.quote.total ?? 0));
+          final totalValue = openValid.fold<double>(
+            0,
+            (s, qi) => s + (qi.quote.total ?? 0),
+          );
           final filtered = _applyFilter(all);
 
           return Column(
@@ -307,8 +311,7 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                         itemCount: filtered.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(height: 8),
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (_, i) => _QuoteRow(
                           item: filtered[i],
                           expired: _isExpired(filtered[i].quote),
@@ -366,7 +369,9 @@ class _Header extends StatelessWidget {
                 Text(
                   '$totalOpen ใบยังไม่หมดอายุ · ${baht(totalValue)}',
                   style: const TextStyle(
-                      fontSize: 12, color: AppColors.steelBlue),
+                    fontSize: 12,
+                    color: AppColors.steelBlue,
+                  ),
                 ),
               ],
             ),
@@ -470,8 +475,8 @@ class _QuoteRow extends StatelessWidget {
     final validDays = expired
         ? 0
         : (q.validUntil.difference(DateTime.now()).inMilliseconds / 86400000)
-            .round()
-            .clamp(0, 1 << 31);
+              .round()
+              .clamp(0, 1 << 31);
     final customer = (q.customerName != null && q.customerName!.isNotEmpty)
         ? q.customerName!
         : 'ลูกค้าทั่วไป';
@@ -511,13 +516,17 @@ class _QuoteRow extends StatelessWidget {
                     customer,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 14),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     '${item.items.length} รายการ · ${thaiDate(q.date)}',
                     style: const TextStyle(
-                        fontSize: 11, color: AppColors.steelBlue),
+                      fontSize: 11,
+                      color: AppColors.steelBlue,
+                    ),
                   ),
                 ],
               ),
@@ -531,7 +540,9 @@ class _QuoteRow extends StatelessWidget {
               Text(
                 baht(q.total ?? 0),
                 style: const TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 18),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                ),
               ),
               const SizedBox(height: 6),
               Wrap(
@@ -546,13 +557,25 @@ class _QuoteRow extends StatelessWidget {
                       tooltip: 'แปลงเป็นการขาย',
                     ),
                   if (!converted)
-                    _iconBtn(Icons.edit, AppColors.warning, onEdit,
-                        'แก้ไข (ลบของเก่า ใส่ตะกร้า)'),
-                  _iconBtn(Icons.copy, AppColors.info, onDuplicate,
-                      'ทำซ้ำ (ต่ออายุใหม่)'),
+                    _iconBtn(
+                      Icons.edit,
+                      AppColors.warning,
+                      onEdit,
+                      'แก้ไข (ลบของเก่า ใส่ตะกร้า)',
+                    ),
+                  _iconBtn(
+                    Icons.copy,
+                    AppColors.info,
+                    onDuplicate,
+                    'ทำซ้ำ (ต่ออายุใหม่)',
+                  ),
                   _actionBtn('ดู', AppColors.orange, onPreview),
-                  _iconBtn(Icons.delete_outline, AppColors.error, onDelete,
-                      'ลบ'),
+                  _iconBtn(
+                    Icons.delete_outline,
+                    AppColors.error,
+                    onDelete,
+                    'ลบ',
+                  ),
                 ],
               ),
             ],
@@ -590,8 +613,13 @@ class _QuoteRow extends StatelessWidget {
     );
   }
 
-  Widget _actionBtn(String label, Color color, VoidCallback onTap,
-      {bool filled = false, String? tooltip}) {
+  Widget _actionBtn(
+    String label,
+    Color color,
+    VoidCallback onTap, {
+    bool filled = false,
+    String? tooltip,
+  }) {
     final btn = InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(5),
@@ -618,7 +646,11 @@ class _QuoteRow extends StatelessWidget {
   }
 
   Widget _iconBtn(
-      IconData icon, Color color, VoidCallback onTap, String tooltip) {
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+    String tooltip,
+  ) {
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -670,11 +702,7 @@ class _QuotePreviewPage extends StatelessWidget {
             ),
         ],
       ),
-      body: QuoteA4View(
-        quote: q,
-        items: quote.items,
-        settings: settings,
-      ),
+      body: QuoteA4View(quote: q, items: quote.items, settings: settings),
     );
   }
 }

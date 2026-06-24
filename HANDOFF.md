@@ -2,14 +2,44 @@
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the **final gate is GREEN**:
-`dart analyze` clean, **110/110 tests pass** (incl. all 22 route-smoke cases at tablet
+`dart analyze` clean, **112/112 tests pass** (incl. all 22 route-smoke cases at tablet
 AND phone), `flutter build web` succeeds. The 3 phone-size overflows are fixed and the
 LOW findings triaged. **The web runtime now boots in Chrome with the home screen
 pixel-verified** — the Drift web DB was wired up (see "2026-06-24 (web DB)" below).
 A **15-agent scrutiny audit** (107 verified findings → `SCRUTINY_REPORT.md`) ran this
-session and its **one CRITICAL** bug — the dead Quote→Checkout hand-off — **is now fixed**
-(see "2026-06-24 (scrutiny + Quote→Checkout fix)" below). Remaining work is the audit's
-high/medium backlog plus the bigger post-parity follow-ups (cloud sync, native hardware, font bundling, etc.).
+session; its **1 CRITICAL + both HIGH** findings are now fixed (dead Quote→Checkout hand-off,
+web-only-broken backup/CSV export, ClosingReport phone overflow — see the two entries below).
+Remaining work is the audit's medium/low backlog plus the bigger post-parity follow-ups
+(cloud sync, native hardware, font bundling, etc.).
+
+## 2026-06-24 (two HIGH fixes — web export + ClosingReport responsive)
+- **HIGH — backup + CSV export were `dart:io`-only → silently broken on web** (the only
+  data-safety path for an offline-first app; a web shop could never back up). Added a
+  conditional-import platform helper **`lib/core/utils/file_export.dart`** (+ `_io.dart` /
+  `_web.dart`): native writes to the app docs dir and returns the path; **web triggers a
+  browser download** via Blob + a hidden `<a download>` (the same mechanism the original JS
+  app used) and returns null. Rewired all four exporters to `exportTextFile(...)` —
+  `settings_screen.dart` (JSON backup + 3 CSVs) and `quotes_screen.dart` (CSV, same defect);
+  removed their `dart:io`/`path_provider`/`path` imports. Save dialogs now show the path on
+  native and a "ดาวน์โหลด …แล้ว" note on web. Added `web: ^1.1.1` to pubspec (promoted from
+  transitive). **`flutter build web` compiles the web impl clean** (proof the previously
+  throwing path now builds for web). *Caveat: the live in-browser download click is not yet
+  manually verified (headless has no download harness); logic is the standard pattern.*
+- **HIGH — ClosingReport dialog overflowed on phones** (fixed 320px right pane + Expanded
+  left). Wrapped `_body` in a **`LayoutBuilder`**: ≥720px keeps the side-by-side Row; below
+  that it **stacks** the summary + cash panes in one scroll view (panes extracted to
+  `summary`/`cashForm` locals). Also fixed a **pre-existing 6.3px overflow inside the 320px
+  cash pane** (long Thai label + amount in `spaceBetween` rows) by making those labels
+  `Expanded` so they ellipsize — caught only because ClosingReport had never been rendered in
+  a test before (it's a dialog behind a button).
+- **Regression test added** (`test/closing_report_layout_test.dart`, 2 cases): renders
+  ClosingReport at phone (400) and tablet (1280) with no overflow (would fail pre-fix at both).
+- **Gate:** `dart analyze` clean; `flutter test` **112/112**; `flutter build web` ok.
+- **Next (audit backlog, see `SCRUTINY_REPORT.md`):** the quick-wins batch — GoRouter
+  `errorBuilder`, write-handler error toasts (park/save-quote/cash open/close), `closeShift`
+  confirm dialog, change-due contrast (#2ECC71 → forestGreen), Mechanics `ลดให้ช่าง` stat
+  (`totalCredit`→`totalDiscount`), unit tests for `round2`/`pointsFor`/`baht`/`csvSafe`; then
+  the medium a11y / design-system / i18n items.
 
 ## 2026-06-24 (scrutiny + Quote→Checkout fix)
 - **15-agent scrutiny audit** (code/DB/UI/UX/design/a11y/perf/i18n/security/tests, each
@@ -38,11 +68,7 @@ high/medium backlog plus the bigger post-parity follow-ups (cloud sync, native h
 - **Regression test added** (`test/quote_to_checkout_test.dart`, 2 cases): a staged quote loads
   into the cart + clears the provider; an over-stock quote qty is clamped to available stock.
 - **Gate:** `dart analyze` clean; `flutter test` **110/110** (108 prior + 2 new).
-- **Next (audit backlog, prioritized in `SCRUTINY_REPORT.md`):** HIGH — web backup/CSV export is
-  `dart:io`-only (silently fails on web → no data-safety path); ClosingReport dialog overflows on
-  phones. Quick wins — GoRouter `errorBuilder`, write-handler error toasts (park/save-quote/cash
-  open/close), `closeShift` confirm dialog, change-due contrast (#2ECC71 → forestGreen), Mechanics
-  `ลดให้ช่าง` stat (`totalCredit`→`totalDiscount`), unit tests for `round2`/`pointsFor`/`baht`/`csvSafe`.
+- **Next:** the two HIGH findings — **now both DONE**, see "two HIGH fixes" entry above.
 
 ## 2026-06-24 (web DB) — `flutter run -d chrome` now boots
 - **Symptom:** the web app loaded to a blank white page. Console threw

@@ -114,12 +114,15 @@ bool _isCashCreditPayment(String? note) {
   return method == 'เงินสด';
 }
 
-final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((ref) async {
+final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
+  ref,
+) async {
   final today = _today();
   final salesAgg = await ref.watch(salesRepoProvider).getSales();
   final returns = await ref.watch(returnsRepoProvider).getReturns();
-  final creditPayments =
-      await ref.watch(mechanicsRepoProvider).getCreditPayments();
+  final creditPayments = await ref
+      .watch(mechanicsRepoProvider)
+      .getCreditPayments();
   final products = await ref.watch(productsRepoProvider).getAll();
   final settings = await ref.watch(settingsRepoProvider).getSettings();
   final drawer = await ref.watch(shiftsRepoProvider).getCashDrawer();
@@ -130,29 +133,33 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((ref) asyn
   for (final s in salesAgg) {
     final sale = s.sale;
     if (sale.date.toIso8601String().substring(0, 10) != today) continue;
-    sales.add(_SaleLite(
-      subtotal: sale.subtotal,
-      discount: sale.discount,
-      total: sale.total,
-      paymentMethod: sale.paymentMethod,
-      items: [
-        for (final i in s.items)
-          _ItemLite(
-            partNo: i.partNo ?? '',
-            name: i.name,
-            qty: i.qty,
-            price: i.price,
-            cost: costByPart[i.partNo] ?? 0,
-          ),
-      ],
-    ));
+    sales.add(
+      _SaleLite(
+        subtotal: sale.subtotal,
+        discount: sale.discount,
+        total: sale.total,
+        paymentMethod: sale.paymentMethod,
+        items: [
+          for (final i in s.items)
+            _ItemLite(
+              partNo: i.partNo ?? '',
+              name: i.name,
+              qty: i.qty,
+              price: i.price,
+              cost: costByPart[i.partNo] ?? 0,
+            ),
+        ],
+      ),
+    );
   }
 
   // Cash refunds today reduce the drawer.
   final cashRefundsToday = returns
-      .where((r) =>
-          r.ret.date.toIso8601String().substring(0, 10) == today &&
-          r.ret.refundMethod == 'เงินสด')
+      .where(
+        (r) =>
+            r.ret.date.toIso8601String().substring(0, 10) == today &&
+            r.ret.refundMethod == 'เงินสด',
+      )
       .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
   // Cash credit-payments today increase the drawer. The JS filtered
@@ -163,23 +170,24 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((ref) asyn
   // recover the method from that prefix and count only cash settlements,
   // matching ClosingReport.jsx (and keeping the drawer math consistent).
   final cashCreditPaymentsToday = creditPayments
-      .where((p) =>
-          p.date.toIso8601String().substring(0, 10) == today &&
-          _isCashCreditPayment(p.note))
+      .where(
+        (p) =>
+            p.date.toIso8601String().substring(0, 10) == today &&
+            _isCashCreditPayment(p.note),
+      )
       .fold<double>(0, (s, p) => s + p.amount);
 
-  final drawerToday =
-      drawer != null && drawer.shift.dateStr == today;
+  final drawerToday = drawer != null && drawer.shift.dateStr == today;
   final drawerStarting = drawerToday ? drawer.shift.startingCash : 0.0;
   final drawerOut = drawerToday
       ? drawer.entries
-          .where((e) => e.type == 'out')
-          .fold<double>(0, (s, e) => s + e.amount)
+            .where((e) => e.type == 'out')
+            .fold<double>(0, (s, e) => s + e.amount)
       : 0.0;
   final drawerIn = drawerToday
       ? drawer.entries
-          .where((e) => e.type == 'in')
-          .fold<double>(0, (s, e) => s + e.amount)
+            .where((e) => e.type == 'in')
+            .fold<double>(0, (s, e) => s + e.amount)
       : 0.0;
 
   return _ClosingData(
@@ -230,14 +238,15 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
       d.sales.where((s) => s.paymentMethod == 'เงินสด').toList();
 
   List<_SaleLite> _qrSales(_ClosingData d) => d.sales
-      .where((s) =>
-          s.paymentMethod == 'โอน/QR' ||
-          s.paymentMethod == 'PromptPay' ||
-          s.paymentMethod == 'โอนเงิน')
+      .where(
+        (s) =>
+            s.paymentMethod == 'โอน/QR' ||
+            s.paymentMethod == 'PromptPay' ||
+            s.paymentMethod == 'โอนเงิน',
+      )
       .toList();
 
-  double _sumTotal(List<_SaleLite> list) =>
-      list.fold(0, (s, t) => s + t.total);
+  double _sumTotal(List<_SaleLite> list) => list.fold(0, (s, t) => s + t.total);
 
   double _grossProfit(_ClosingData d) {
     final vatDivisor = 1 + d.taxRate / 100;
@@ -259,8 +268,11 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
     for (final t in d.sales) {
       for (final i in t.items) {
         final cur = map[i.partNo] ?? _TopItem(i.name, 0, 0);
-        map[i.partNo] = _TopItem(cur.name, cur.qty + i.qty,
-            cur.revenue + i.qty * i.price);
+        map[i.partNo] = _TopItem(
+          cur.name,
+          cur.qty + i.qty,
+          cur.revenue + i.qty * i.price,
+        );
       }
     }
     final list = map.values.toList()
@@ -308,82 +320,111 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
     final cashExpected = _cashExpected(d);
     final cashActual = _cashActual();
     final diff = cashActual - cashExpected;
-    final cashierName =
-        _cashierCtl.text.isEmpty ? 'แคชเชียร์' : _cashierCtl.text;
+    final cashierName = _cashierCtl.text.isEmpty
+        ? 'แคชเชียร์'
+        : _cashierCtl.text;
     final note = _noteCtl.text;
 
     final navy = const PdfColor.fromInt(0xFF0B2444);
 
     pw.Widget row(String l, String r, {bool big = false}) => pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text(l,
-                  style: pw.TextStyle(
-                      fontSize: big ? 11 : 9,
-                      fontWeight: big ? pw.FontWeight.bold : pw.FontWeight.normal)),
-              pw.Text(r,
-                  style: pw.TextStyle(
-                      fontSize: big ? 11 : 9,
-                      fontWeight: big ? pw.FontWeight.bold : pw.FontWeight.normal)),
-            ],
+      padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(
+            l,
+            style: pw.TextStyle(
+              fontSize: big ? 11 : 9,
+              fontWeight: big ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
           ),
-        );
+          pw.Text(
+            r,
+            style: pw.TextStyle(
+              fontSize: big ? 11 : 9,
+              fontWeight: big ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
     pw.Widget divider() => pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 3),
-          child: pw.Divider(height: 1, thickness: 0.5),
-        );
+      padding: const pw.EdgeInsets.symmetric(vertical: 3),
+      child: pw.Divider(height: 1, thickness: 0.5),
+    );
     pw.Widget sectionTitle(String t) => pw.Padding(
-          padding: const pw.EdgeInsets.only(bottom: 2),
-          child: pw.Text(t.toUpperCase(),
-              style: pw.TextStyle(
-                  fontSize: 8,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.grey700)),
-        );
+      padding: const pw.EdgeInsets.only(bottom: 2),
+      child: pw.Text(
+        t.toUpperCase(),
+        style: pw.TextStyle(
+          fontSize: 8,
+          fontWeight: pw.FontWeight.bold,
+          color: PdfColors.grey700,
+        ),
+      ),
+    );
 
     final diffLabel = diff == 0
         ? '✓ ตรงยอด'
         : diff > 0
-            ? 'เงินเกิน +${baht(diff.abs())}'
-            : 'เงินขาด −${baht(diff.abs())}';
+        ? 'เงินเกิน +${baht(diff.abs())}'
+        : 'เงินขาด −${baht(diff.abs())}';
 
     doc.addPage(
       pw.Page(
-        pageFormat: PdfPageFormat.roll80
-            .copyWith(marginTop: 8, marginBottom: 8, marginLeft: 8, marginRight: 8),
+        pageFormat: PdfPageFormat.roll80.copyWith(
+          marginTop: 8,
+          marginBottom: 8,
+          marginLeft: 8,
+          marginRight: 8,
+        ),
         theme: pw.ThemeData.withFont(base: font, bold: fontB),
         build: (context) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
             pw.Center(
-              child: pw.Text(d.shopName,
-                  style: pw.TextStyle(
-                      fontSize: 16, fontWeight: pw.FontWeight.bold, color: navy)),
+              child: pw.Text(
+                d.shopName,
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                  color: navy,
+                ),
+              ),
             ),
             pw.Center(
               child: pw.Text(
-                  '${d.shopNameEN} · ${d.address ?? ''}',
-                  style:
-                      const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+                '${d.shopNameEN} · ${d.address ?? ''}',
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.grey700,
+                ),
+              ),
             ),
             if ((d.phone ?? '').isNotEmpty)
               pw.Center(
-                child: pw.Text(d.phone!,
-                    style: const pw.TextStyle(
-                        fontSize: 8, color: PdfColors.grey700)),
+                child: pw.Text(
+                  d.phone!,
+                  style: const pw.TextStyle(
+                    fontSize: 8,
+                    color: PdfColors.grey700,
+                  ),
+                ),
               ),
             pw.SizedBox(height: 6),
             pw.Container(
               color: navy,
               padding: const pw.EdgeInsets.all(4),
               child: pw.Center(
-                child: pw.Text('สรุปยอดประจำวัน · Daily Closing',
-                    style: pw.TextStyle(
-                        fontSize: 11,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.white)),
+                child: pw.Text(
+                  'สรุปยอดประจำวัน · Daily Closing',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.white,
+                  ),
+                ),
               ),
             ),
             pw.SizedBox(height: 6),
@@ -394,10 +435,11 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
             row('รายได้รวม', baht(totalRevenue)),
             row('จำนวนบิล', '${d.sales.length}'),
             row(
-                'เฉลี่ย/บิล',
-                baht(d.sales.isEmpty
-                    ? 0
-                    : (totalRevenue / d.sales.length).round())),
+              'เฉลี่ย/บิล',
+              baht(
+                d.sales.isEmpty ? 0 : (totalRevenue / d.sales.length).round(),
+              ),
+            ),
             row('กำไรประมาณ', baht(grossProfit.round())),
             divider(),
             sectionTitle('แบ่งตามวิธีชำระเงิน'),
@@ -410,8 +452,10 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
               row('เงินตั้งต้น', baht(d.drawerStarting)),
               row('+ ยอดขายเงินสด', baht(cashTotal)),
               if (d.cashCreditPaymentsToday > 0)
-                row('+ รับชำระเครดิต (เงินสด)',
-                    baht(d.cashCreditPaymentsToday)),
+                row(
+                  '+ รับชำระเครดิต (เงินสด)',
+                  baht(d.cashCreditPaymentsToday),
+                ),
               if (d.cashRefundsToday > 0)
                 row('− คืนเงินสด', baht(d.cashRefundsToday)),
               if (d.drawerIn > 0)
@@ -427,31 +471,37 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
               color: diff == 0
                   ? const PdfColor.fromInt(0xFFE8F5E9)
                   : diff > 0
-                      ? const PdfColor.fromInt(0xFFFFF3E0)
-                      : const PdfColor.fromInt(0xFFFCE4E4),
+                  ? const PdfColor.fromInt(0xFFFFF3E0)
+                  : const PdfColor.fromInt(0xFFFCE4E4),
               child: pw.Center(
-                child: pw.Text(diffLabel,
-                    style: pw.TextStyle(
-                        fontSize: 11,
-                        fontWeight: pw.FontWeight.bold,
-                        color: diff == 0
-                            ? const PdfColor.fromInt(0xFF2E7D12)
-                            : diff > 0
-                                ? const PdfColor.fromInt(0xFFE65100)
-                                : const PdfColor.fromInt(0xFFC0392B))),
+                child: pw.Text(
+                  diffLabel,
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                    color: diff == 0
+                        ? const PdfColor.fromInt(0xFF2E7D12)
+                        : diff > 0
+                        ? const PdfColor.fromInt(0xFFE65100)
+                        : const PdfColor.fromInt(0xFFC0392B),
+                  ),
+                ),
               ),
             ),
             divider(),
             sectionTitle('สินค้าขายดีวันนี้ Top ${topItems.length}'),
             if (topItems.isEmpty)
               pw.Center(
-                child: pw.Text('ยังไม่มียอดขายวันนี้',
-                    style: const pw.TextStyle(
-                        fontSize: 9, color: PdfColors.grey)),
+                child: pw.Text(
+                  'ยังไม่มียอดขายวันนี้',
+                  style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey),
+                ),
               ),
             for (var i = 0; i < topItems.length; i++)
-              row('${i + 1}. ${topItems[i].name}',
-                  '${baht(topItems[i].revenue)} (${topItems[i].qty} ชิ้น)'),
+              row(
+                '${i + 1}. ${topItems[i].name}',
+                '${baht(topItems[i].revenue)} (${topItems[i].qty} ชิ้น)',
+              ),
             divider(),
             if (note.isNotEmpty) ...[
               sectionTitle('หมายเหตุ'),
@@ -460,20 +510,31 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
             ],
             pw.SizedBox(height: 24),
             pw.Center(
-                child: pw.Text('ลายมือชื่อแคชเชียร์ / Cashier Signature',
-                    style: const pw.TextStyle(
-                        fontSize: 8, color: PdfColors.grey700))),
+              child: pw.Text(
+                'ลายมือชื่อแคชเชียร์ / Cashier Signature',
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.grey700,
+                ),
+              ),
+            ),
             pw.SizedBox(height: 20),
             pw.Center(
-                child: pw.Text('ลายมือชื่อผู้จัดการ / Manager Signature',
-                    style: const pw.TextStyle(
-                        fontSize: 8, color: PdfColors.grey700))),
+              child: pw.Text(
+                'ลายมือชื่อผู้จัดการ / Manager Signature',
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.grey700,
+                ),
+              ),
+            ),
             pw.SizedBox(height: 8),
             pw.Center(
-                child: pw.Text(
-                    'พิมพ์เมื่อ ${_thaiDateLong(now)} ${_hhmm(now)} · ${d.shopNameEN}',
-                    style: const pw.TextStyle(
-                        fontSize: 7, color: PdfColors.grey))),
+              child: pw.Text(
+                'พิมพ์เมื่อ ${_thaiDateLong(now)} ${_hhmm(now)} · ${d.shopNameEN}',
+                style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey),
+              ),
+            ),
           ],
         ),
       ),
@@ -523,232 +584,301 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
     final statColor = diff == 0
         ? AppColors.successLight
         : diff > 0
-            ? AppColors.warning
-            : AppColors.error;
+        ? AppColors.warning
+        : AppColors.error;
     final statLabel = diff == 0
         ? '✓ ตรงยอด'
         : diff > 0
-            ? 'เงินเกิน +${baht(diff.abs())}'
-            : 'เงินขาด −${baht(diff.abs())}';
+        ? 'เงินเกิน +${baht(diff.abs())}'
+        : 'เงินขาด −${baht(diff.abs())}';
 
     final theme = Theme.of(context);
 
-    return Row(
+    // Two scrollable panes. Side-by-side on a wide dialog; stacked vertically on
+    // a narrow (phone) dialog so neither the summary nor the fixed-width cash
+    // form is crushed — the old fixed 320px right pane + Expanded left overflowed
+    // below ~720px (reachable on phones via Cash Drawer's สรุปยอดปิดร้าน).
+    final Widget summary = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Left — summary
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+        _kpiGrid([
+          _Kpi('รายได้รวม', baht(totalRevenue), AppColors.orange),
+          _Kpi('จำนวนบิล', '${d.sales.length} บิล', null),
+          _Kpi(
+            'เฉลี่ย/บิล',
+            baht(d.sales.isEmpty ? 0 : (totalRevenue / d.sales.length).round()),
+            null,
+          ),
+          _Kpi('กำไรประมาณ', baht(grossProfit.round()), AppColors.successLight),
+        ]),
+        const SizedBox(height: 20),
+        _SectionTitle('วิธีชำระเงิน'),
+        _payRow('💵 เงินสด', cashSales.length, cashTotal, AppColors.orange),
+        _payRow('📱 โอน/QR', qrSales.length, qrTotal, AppColors.steelBlue),
+        Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: theme.dividerColor, width: 2),
+            ),
+          ),
+          padding: const EdgeInsets.only(top: 8),
+          margin: const EdgeInsets.only(top: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'รวมทั้งหมด',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                baht(totalRevenue),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.orange,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        _SectionTitle('สินค้าขายดีวันนี้'),
+        if (topItems.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'ยังไม่มีรายการวันนี้',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.steelBlue,
+              ),
+            ),
+          ),
+        for (var i = 0; i < topItems.length; i++)
+          Container(
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: theme.dividerColor)),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _kpiGrid([
-                  _Kpi('รายได้รวม', baht(totalRevenue), AppColors.orange),
-                  _Kpi('จำนวนบิล', '${d.sales.length} บิล', null),
-                  _Kpi(
-                      'เฉลี่ย/บิล',
-                      baht(d.sales.isEmpty
-                          ? 0
-                          : (totalRevenue / d.sales.length).round()),
-                      null),
-                  _Kpi('กำไรประมาณ', baht(grossProfit.round()),
-                      AppColors.successLight),
-                ]),
-                const SizedBox(height: 20),
-                _SectionTitle('วิธีชำระเงิน'),
-                _payRow('💵 เงินสด', cashSales.length, cashTotal,
-                    AppColors.orange),
-                _payRow('📱 โอน/QR', qrSales.length, qrTotal,
-                    AppColors.steelBlue),
-                Container(
-                  decoration: BoxDecoration(
-                    border: Border(
-                        top: BorderSide(
-                            color: theme.dividerColor, width: 2)),
-                  ),
-                  padding: const EdgeInsets.only(top: 8),
-                  margin: const EdgeInsets.only(top: 4),
+                Expanded(
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('รวมทั้งหมด',
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700)),
-                      Text(baht(totalRevenue),
-                          style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.orange)),
+                      SizedBox(
+                        width: 28,
+                        child: Text(
+                          '#${i + 1}',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.orange,
+                          ),
+                        ),
+                      ),
+                      Expanded(child: Text(topItems[i].name)),
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
-                _SectionTitle('สินค้าขายดีวันนี้'),
-                if (topItems.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text('ยังไม่มีรายการวันนี้',
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(color: AppColors.steelBlue)),
-                  ),
-                for (var i = 0; i < topItems.length; i++)
-                  Container(
-                    decoration: BoxDecoration(
-                      border: Border(
-                          bottom: BorderSide(color: theme.dividerColor)),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 28,
-                                child: Text('#${i + 1}',
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        color: AppColors.orange)),
-                              ),
-                              Expanded(child: Text(topItems[i].name)),
-                            ],
-                          ),
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(baht(topItems[i].revenue),
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.successLight)),
-                            Text('${topItems[i].qty} ชิ้น',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                    color: AppColors.steelBlue)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        // Right — cash check + form
-        SizedBox(
-          width: 320,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _SectionTitle('ข้อมูลแคชเชียร์'),
-                _fieldLabel('ชื่อแคชเชียร์'),
-                TextField(
-                  controller: _cashierCtl,
-                  decoration: const InputDecoration(isDense: true),
-                ),
-                const SizedBox(height: 20),
-                _SectionTitle('ตรวจนับเงินสดในลิ้นชัก'),
-                if (d.drawerToday) ...[
-                  if (d.drawerStarting > 0)
-                    _miniRow('เงินตั้งต้น', baht(d.drawerStarting), null),
-                  if (cashTotal > 0)
-                    _miniRow('+ ยอดขายเงินสด', '+${baht(cashTotal)}',
-                        AppColors.successLight),
-                  if (d.cashCreditPaymentsToday > 0)
-                    _miniRow('+ รับชำระเครดิต (เงินสด)',
-                        '+${baht(d.cashCreditPaymentsToday)}',
-                        AppColors.successLight),
-                  if (d.cashRefundsToday > 0)
-                    _miniRow('− คืนเงินสด', '−${baht(d.cashRefundsToday)}',
-                        AppColors.error),
-                  if (d.drawerIn > 0)
-                    _miniRow('+ เงินเพิ่มระหว่างวัน', '+${baht(d.drawerIn)}',
-                        AppColors.successLight),
-                  if (d.drawerOut > 0)
-                    _miniRow('− เงินออกระหว่างวัน', '−${baht(d.drawerOut)}',
-                        AppColors.error),
-                  const SizedBox(height: 8),
-                ],
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('ยอดเงินสดที่ควรมี',
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(color: AppColors.steelBlue)),
-                    Text(baht(cashExpected),
-                        style: theme.textTheme.titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w800)),
+                    Text(
+                      baht(topItems[i].revenue),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.successLight,
+                      ),
+                    ),
+                    Text(
+                      '${topItems[i].qty} ชิ้น',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.steelBlue,
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                _fieldLabel('นับเงินสดจริงได้ ฿'),
-                TextField(
-                  controller: _cashCtl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.w700),
-                  decoration: const InputDecoration(
-                      isDense: true, hintText: '0'),
-                  onChanged: (_) => setState(() {}),
-                ),
-                if (_cashCtl.text.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(top: 10),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: statColor.withValues(alpha: 0.12),
-                      border: Border.all(color: statColor, width: 2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('ผลต่าง',
-                            style: theme.textTheme.bodyMedium
-                                ?.copyWith(fontWeight: FontWeight.w700)),
-                        Text(statLabel,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: statColor)),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 20),
-                _SectionTitle('หมายเหตุ (ถ้ามี)'),
-                TextField(
-                  controller: _noteCtl,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    hintText: 'เช่น มีสินค้าเสียหาย, ปัญหาระบบ…',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                AppButton(
-                  label: '🖨 พิมพ์รายงานปิดร้าน',
-                  busy: _busy,
-                  fullWidth: true,
-                  onPressed: () => _print(d),
-                ),
-                if (_printed)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text('✓ ส่งรายงานไปยังหน้าต่างพิมพ์แล้ว',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: AppColors.successLight)),
-                  ),
               ],
             ),
           ),
-        ),
       ],
+    );
+
+    final Widget cashForm = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionTitle('ข้อมูลแคชเชียร์'),
+        _fieldLabel('ชื่อแคชเชียร์'),
+        TextField(
+          controller: _cashierCtl,
+          decoration: const InputDecoration(isDense: true),
+        ),
+        const SizedBox(height: 20),
+        _SectionTitle('ตรวจนับเงินสดในลิ้นชัก'),
+        if (d.drawerToday) ...[
+          if (d.drawerStarting > 0)
+            _miniRow('เงินตั้งต้น', baht(d.drawerStarting), null),
+          if (cashTotal > 0)
+            _miniRow(
+              '+ ยอดขายเงินสด',
+              '+${baht(cashTotal)}',
+              AppColors.successLight,
+            ),
+          if (d.cashCreditPaymentsToday > 0)
+            _miniRow(
+              '+ รับชำระเครดิต (เงินสด)',
+              '+${baht(d.cashCreditPaymentsToday)}',
+              AppColors.successLight,
+            ),
+          if (d.cashRefundsToday > 0)
+            _miniRow(
+              '− คืนเงินสด',
+              '−${baht(d.cashRefundsToday)}',
+              AppColors.error,
+            ),
+          if (d.drawerIn > 0)
+            _miniRow(
+              '+ เงินเพิ่มระหว่างวัน',
+              '+${baht(d.drawerIn)}',
+              AppColors.successLight,
+            ),
+          if (d.drawerOut > 0)
+            _miniRow(
+              '− เงินออกระหว่างวัน',
+              '−${baht(d.drawerOut)}',
+              AppColors.error,
+            ),
+          const SizedBox(height: 8),
+        ],
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'ยอดเงินสดที่ควรมี',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppColors.steelBlue,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              baht(cashExpected),
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _fieldLabel('นับเงินสดจริงได้ ฿'),
+        TextField(
+          controller: _cashCtl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          textAlign: TextAlign.right,
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+          decoration: const InputDecoration(isDense: true, hintText: '0'),
+          onChanged: (_) => setState(() {}),
+        ),
+        if (_cashCtl.text.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: statColor.withValues(alpha: 0.12),
+              border: Border.all(color: statColor, width: 2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  'ผลต่าง',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    statLabel,
+                    textAlign: TextAlign.right,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: statColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 20),
+        _SectionTitle('หมายเหตุ (ถ้ามี)'),
+        TextField(
+          controller: _noteCtl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            isDense: true,
+            hintText: 'เช่น มีสินค้าเสียหาย, ปัญหาระบบ…',
+          ),
+        ),
+        const SizedBox(height: 16),
+        AppButton(
+          label: '🖨 พิมพ์รายงานปิดร้าน',
+          busy: _busy,
+          fullWidth: true,
+          onPressed: () => _print(d),
+        ),
+        if (_printed)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '✓ ส่งรายงานไปยังหน้าต่างพิมพ์แล้ว',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.successLight,
+              ),
+            ),
+          ),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 720) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: summary,
+                ),
+              ),
+              const VerticalDivider(width: 1),
+              SizedBox(
+                width: 320,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: cashForm,
+                ),
+              ),
+            ],
+          );
+        }
+        // Narrow (phone): stack the two panes in a single scroll view.
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              summary,
+              const SizedBox(height: 24),
+              const Divider(height: 1),
+              const SizedBox(height: 24),
+              cashForm,
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -765,88 +895,123 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
   }
 
   Widget _kpiCard(_Kpi k) {
-    return Builder(builder: (context) {
-      final theme = Theme.of(context);
-      return Container(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          border: Border.all(color: theme.dividerColor),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(k.value,
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        return Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border.all(color: theme.dividerColor),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                k.value,
                 style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: k.color ?? theme.colorScheme.onSurface)),
-            const SizedBox(height: 4),
-            Text(k.label,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: AppColors.steelBlue)),
-          ],
-        ),
-      );
-    });
+                  fontWeight: FontWeight.w800,
+                  color: k.color ?? theme.colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                k.label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.steelBlue,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Widget _payRow(String label, int count, double value, Color color) {
-    return Builder(builder: (context) {
-      final theme = Theme.of(context);
-      return Container(
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: theme.dividerColor)),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 7),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text.rich(TextSpan(children: [
-              TextSpan(text: '$label '),
-              TextSpan(
-                  text: '($count บิล)',
-                  style: TextStyle(color: AppColors.steelBlue, fontSize: 13)),
-            ])),
-            Text(baht(value),
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700, color: color)),
-          ],
-        ),
-      );
-    });
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        return Container(
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: theme.dividerColor)),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(text: '$label '),
+                    TextSpan(
+                      text: '($count บิล)',
+                      style: TextStyle(
+                        color: AppColors.steelBlue,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                baht(value),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Widget _miniRow(String label, String value, Color? color) {
-    return Builder(builder: (context) {
-      final theme = Theme.of(context);
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: AppColors.steelBlue)),
-            Text(value,
-                style: theme.textTheme.bodySmall?.copyWith(color: color)),
-          ],
-        ),
-      );
-    });
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.steelBlue,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                value,
+                style: theme.textTheme.bodySmall?.copyWith(color: color),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
-  Widget _fieldLabel(String text) => Builder(builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 5),
-          child: Text(text,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.steelBlue,
-                  )),
-        );
-      });
+  Widget _fieldLabel(String text) => Builder(
+    builder: (context) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: AppColors.steelBlue,
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _TopItem {
@@ -891,8 +1056,11 @@ class _Header extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onClose;
-  const _Header(
-      {required this.title, required this.subtitle, required this.onClose});
+  const _Header({
+    required this.title,
+    required this.subtitle,
+    required this.onClose,
+  });
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -909,20 +1077,23 @@ class _Header extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: theme.textTheme.titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w800)),
+                Text(
+                  title,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
                 const SizedBox(height: 3),
-                Text(subtitle,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: AppColors.steelBlue)),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.steelBlue,
+                  ),
+                ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: onClose,
-            icon: const Icon(Icons.close),
-          ),
+          IconButton(onPressed: onClose, icon: const Icon(Icons.close)),
         ],
       ),
     );
