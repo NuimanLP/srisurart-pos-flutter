@@ -4,9 +4,9 @@
 The Flutter port (Phase 0–6, offline parity) is built and the **final gate is GREEN**:
 `dart analyze` clean, **108/108 tests pass** (incl. all 22 route-smoke cases at tablet
 AND phone), `flutter build web` succeeds. The 3 phone-size overflows are fixed and the
-LOW findings triaged. **The web runtime now boots in Chrome** — the Drift web DB was wired
-up this session (see "2026-06-24 (web DB)" below). Remaining work is the bigger
-post-parity follow-ups only (cloud sync, native hardware, font bundling, etc.).
+LOW findings triaged. **The web runtime now boots in Chrome with the home screen
+pixel-verified** — the Drift web DB was wired up this session (see "2026-06-24 (web DB)" below).
+Remaining work is the bigger post-parity follow-ups only (cloud sync, native hardware, font bundling, etc.).
 
 ## 2026-06-24 (web DB) — `flutter run -d chrome` now boots
 - **Symptom:** the web app loaded to a blank white page. Console threw
@@ -17,9 +17,17 @@ post-parity follow-ups only (cloud sync, native hardware, font bundling, etc.).
   simolus3 GitHub releases (WASM magic-bytes verified). `AppDatabase.open()` now passes
   `web: DriftWebOptions(sqlite3Wasm: Uri.parse('sqlite3.wasm'), driftWorker: Uri.parse('drift_worker.js'))`
   (the option is ignored on native, so Android/iOS/macOS/tests are unaffected).
-- **Verified:** `dart analyze` clean; `flutter run -d chrome` boots with no DB error /
-  exception in the run log. **Caveat:** rendering was confirmed via a clean startup log, not
-  a pixel screenshot — eyeball the home screen once on next run.
+- **Verified (pixel-confirmed):** `dart analyze` clean; the POS home screen renders fully on the
+  web — product grid (all 12 seeded items, prices, live stock counts), nav rail, and the
+  customer/mechanic/payment panel all paint, proving the Drift web DB opens and loads seed data.
+  Console logged `Using WasmStorageImplementation.sharedIndexedDb` (drift picking a web storage
+  backend), no exceptions.
+- **How it was screenshotted (for next dev):** the **debug** build (`flutter run`) will NOT paint
+  under headless Chrome — its DDC module loader (~1370 ES modules) stalls without the dev harness.
+  Screenshot the **release** build instead: `flutter build web --no-tree-shake-icons`, serve
+  `build/web` (`python3 -m http.server`), and capture with headless Chrome started with
+  `--enable-unsafe-swiftshader` (CanvasKit needs WebGL; software GL works, plain `--disable-gpu`
+  gives a blank canvas). Release is also exactly what deploys to the shop PC.
 - **Gotcha for next dev:** if you bump `drift` or `sqlite3`, re-download the version-matched
   assets or the web DB breaks at boot (version skew). Source: `github.com/simolus3/{drift,sqlite3.dart}/releases`.
 
