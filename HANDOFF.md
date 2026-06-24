@@ -12,6 +12,21 @@ web-only-broken backup/CSV export, ClosingReport phone overflow — see the two 
 Remaining work is the audit's medium/low backlog plus the bigger post-parity follow-ups
 (cloud sync, native hardware, font bundling, etc.).
 
+## 2026-06-24 (developer-onboarding course — `teaching/`)
+- Stood up a `/teach`-style **developer onboarding course** under **`teaching/`** that explains
+  what the project is, what each code sector does, and how to configure/run it. Built from a
+  4-agent codebase sweep (lib map / data layer + CONTRACT / build+config / presentation) styled
+  after the `cookies-101.html` design reference (warm paper/caramel; Fraunces + IBM Plex Sans Thai
+  + JetBrains Mono). Content is Thai-primary; identifiers in EN.
+- **What is committed (markdown only):** `teaching/MISSION.md`, `NOTES.md`, `RESOURCES.md`,
+  `reference/_index.md`, `learning-records/0001-course-bootstrap-project-onboarding.md`.
+- **Intentionally NOT committed (kept local):** the generated HTML/CSS/JS — `teaching/index.html`,
+  `teaching/lessons/*.html`, `teaching/reference/*.html`, `teaching/assets/course.css` + `course.js`.
+  These are the rendered course pages (the "html summary"); the markdown workspace is the source of
+  record. To regenerate/extend, re-run the teach skill or ask the agent (see the learning record for
+  queued next lessons: deep-dive `SalesRepository.saveSale`, write-a-screen end-to-end, Phase 7 sync).
+- **No app code touched** — this session only added docs; gate status unchanged from the entries below.
+
 ## 2026-06-24 (two HIGH fixes — web export + ClosingReport responsive)
 - **HIGH — backup + CSV export were `dart:io`-only → silently broken on web** (the only
   data-safety path for an offline-first app; a web shop could never back up). Added a
