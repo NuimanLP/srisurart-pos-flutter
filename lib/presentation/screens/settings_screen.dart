@@ -25,6 +25,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/csv_safe.dart';
+import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../domain/models/aggregates.dart';
 import '../providers/providers.dart';
@@ -1476,7 +1477,7 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
                     _divider(theme),
                     _SummaryCell(
                         label: 'ยอดรวม',
-                        value: '฿${_grouped(revenue)}'),
+                        value: baht(revenue)),
                     _divider(theme),
                     _SummaryCell(label: 'รายการ', value: '$itemCount'),
                   ],
@@ -1520,22 +1521,6 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
         ),
       ],
     );
-  }
-
-  static String _grouped(num v) {
-    final neg = v < 0;
-    final s = v.abs().toStringAsFixed(
-        v == v.roundToDouble() ? 0 : 2);
-    final parts = s.split('.');
-    final intPart = parts[0];
-    final buf = StringBuffer();
-    for (var i = 0; i < intPart.length; i++) {
-      if (i > 0 && (intPart.length - i) % 3 == 0) buf.write(',');
-      buf.write(intPart[i]);
-    }
-    var out = buf.toString();
-    if (parts.length > 1) out += '.${parts[1]}';
-    return neg ? '-$out' : out;
   }
 
   Widget _divider(ThemeData theme) =>

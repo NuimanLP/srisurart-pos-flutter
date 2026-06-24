@@ -1,10 +1,40 @@
-# HANDOFF — Srisurart POS Flutter migration (2026-06-23)
+# HANDOFF — Srisurart POS Flutter migration (updated 2026-06-24)
 
 ## TL;DR
-The Flutter port (Phase 0–6, offline parity) is built, pushed, and ~95% green.
-Before calling it done: fix 3 phone-size layout overflows + a few low-severity parity
-items, then a **final gate** (analyze + test + build web all green). Plan = re-run
-scrutiny, fix, gate.
+The Flutter port (Phase 0–6, offline parity) is built and the **final gate is GREEN**:
+`dart analyze` clean, **108/108 tests pass** (incl. all 22 route-smoke cases at tablet
+AND phone), `flutter build web` succeeds. The 3 phone-size overflows are fixed and the
+LOW findings triaged (see "2026-06-24 session" below). Remaining work is the bigger
+post-parity follow-ups only (cloud sync, native hardware, font bundling, etc.).
+
+## 2026-06-24 session — parity gate closed
+- **Env note:** this session ran on **macOS** at an **ASCII path**
+  (`/Users/.../Sri_POS/Flutter`), so the Thai-path `build_runner`/`flutter analyze`
+  constraint does NOT apply here — all tools run. Flutter **3.44.3** (Dart 3.12.2) was
+  installed via `brew install --cask flutter`. The Windows `C:\srisurart_pos` workflow in
+  the older notes below is therefore optional; this Mac path is fully build-capable.
+- **Fixed the 3 phone-overflow route-smoke fails** (all now green at 400×800, tablet
+  unchanged):
+  - `customers_screen.dart` `_TopBar`: `Row` → `LayoutBuilder` (≥600px renders the original
+    single-row layout byte-for-byte; <600px stacks stats over a full-width search+button row).
+  - `purchase_orders_screen.dart` `_PoListView` stat bar: grouped the two `_Stat`s into a
+    `Flexible` inner `Row` (each `_Stat` `Flexible`); added `maxLines:1`+ellipsis on the `_Stat`
+    label. Tablet sizes to intrinsic width (Spacer still pins the button right) — no regression.
+  - `returns_screen.dart` `_LeftPane` tab bar: wrapped the two-`_TabButton` `Row` in a
+    horizontal `SingleChildScrollView` (the 3.3px overflow source).
+  - Each fix was adversarially read-verified (tablet-safe, exact-match, Thai strings untouched).
+- **LOW findings triage (re-scrutiny):**
+  - **F001 (use `baht()`):** APPLIED — `settings_screen.dart` export summary now uses the
+    canonical `baht()` and the bespoke `_grouped()` duplicate was deleted.
+  - **F002 (checkout search placeholder):** DEFERRED — the field does match name+nameTH+partNo
+    while the hint says only "ชื่อสินค้า", but changing a Thai UI string needs the JS source
+    to stay parity-faithful (CLAUDE.md rule). Document/confirm wording before editing.
+  - **F003 (today-filter timezone):** NOT A BUG — `_todayStr()` and stored sale dates both use
+    local `DateTime.now()`; the JS app used local time too, so local is the parity-correct
+    choice. Switching to UTC would *introduce* an off-by-one in Thailand (UTC+7). Left as-is.
+  - **F004 (CreditPayments `method` column):** KNOWN LIMITATION (out of scope here) — JS filtered
+    cash-drawer credit settlements by `method === 'เงินสด'`; the Drift table has no `method`
+    column, so all credit payments count as cash inflow. Needs a schema change + `build_runner`.
 
 ## Where everything is
 - **GitHub (canonical):** https://github.com/NuimanLP/srisurart-pos-flutter (private, branch `main`)
@@ -23,13 +53,13 @@ scrutiny, fix, gate.
   without codegen; only a Drift schema change needs an ASCII-path codegen run.
 - Use `dart analyze` (NOT `flutter analyze`). `flutter test`. `flutter build web --no-tree-shake-icons`.
 
-## Current state (verified 2026-06-23, this session)
+## Current state (verified 2026-06-24, this session — macOS, ASCII path, Flutter 3.44.3)
 - `dart analyze`: **CLEAN** (No issues found).
-- `flutter test`: **105 pass, 3 fail** — all 3 are phone (400×800) route-smoke overflows:
-  `customers`, `purchase_orders`, `returns`. Tablet (1280×800) = 100% clean. (These failing
-  tests are the TODO markers; the POS targets tablets.)
-- `flutter build web`: succeeds.
-- Commits pushed: scaffold → data layer (76 tests) → deps → screens (W2) → W3 scrutiny fixes.
+- `flutter test`: **108 pass, 0 fail** — all 22 route-smoke cases now green at BOTH tablet
+  (1280×800) and phone (400×800); all repository/unit tests pass.
+- `flutter build web --no-tree-shake-icons`: **succeeds** (`build/web` built).
+- Commits: scaffold → data layer (76 tests) → deps → screens (W2) → W3 scrutiny fixes →
+  **W4: phone-overflow fixes + LOW-finding F001 + this handoff (2026-06-24)**.
 
 ## What's done
 - **W1 data layer:** 20 Drift tables porting `pos/db.js`; transactional repos (saveSale,
@@ -41,19 +71,20 @@ scrutiny, fix, gate.
 - **W3 scrutiny:** 5 adversarial auditors → 28 findings (13 high/medium) → 12 fixers applied.
   Fixed: quotes `validDays` default, snapshot unknown-key carry-forward, LowStockAlert full
   modal restored, cash-drawer credit-settlement-as-cash, checkout discount field, products
-  no-op vehicle button, + 6 screen layout fixes. **Final gate agent died (returned null) — that
-  is why the 3 phone overflows remain.**
+  no-op vehicle button, + 6 screen layout fixes. (The W3 final-gate agent died, leaving the 3
+  phone overflows — those are now fixed in the W4/2026-06-24 session above.)
+- **W4 (2026-06-24):** the 3 phone-overflow fixes + LOW-finding F001; re-scrutiny ran (see the
+  triage above); **final gate green**; this handoff updated. *(All items below are now done.)*
 
-## Remaining work (tomorrow)
-1. **Fix the 3 phone-overflow route-smoke fails** (`customers`, `purchase_orders`, `returns`) —
-   wrap rows in `Flexible`/`Expanded` or `SingleChildScrollView`. (MEDIUM; tablet already clean.)
-2. **Re-scrutinize** to confirm the 12 fixes didn't regress and catch leftovers. The workflow is
-   saved as `/srisurart-flutter-scrutiny` (its script hardcodes `C:\srisurart_pos`, so clone there).
-3. **Address remaining LOW findings** from the W3 output, e.g.: export-summary should use `baht()`;
-   misleading product search placeholder; 'today' filter timezone edge; credit-payment `method`
-   folded into note (no `method` column). Decide which are worth doing.
-4. **Final gate:** `dart analyze` + `flutter test` (incl. `route_smoke_test.dart`) + `flutter
-   build web` ALL green → commit + push.
+## Remaining work — DONE (2026-06-24)
+1. ~~Fix the 3 phone-overflow route-smoke fails~~ — **DONE** (`customers` LayoutBuilder,
+   `purchase_orders` Flexible stats, `returns` horizontal-scroll tabs; all green, tablet unchanged).
+2. ~~Re-scrutinize~~ — **DONE** via a diagnose→adversarial-verify workflow (this Mac path; the
+   old `/srisurart-flutter-scrutiny` script hardcodes `C:\srisurart_pos` and is Windows-only).
+3. ~~Address remaining LOW findings~~ — **DONE/triaged**: F001 applied; F002 deferred (Thai-string
+   parity); F003 not-a-bug (local-time is parity-correct); F004 known limitation (schema change).
+4. ~~Final gate~~ — **DONE**: `dart analyze` clean + `flutter test` 108/108 + `flutter build web`
+   all green.
 
 ## Bigger follow-ups (post-parity; see CLAUDE.md)
 - Cloud sync (Supabase, Phase 7 — stubbed/not wired). Native thermal printer / barcode scanner /

@@ -198,12 +198,24 @@ class _PoListView extends StatelessWidget {
           ),
           child: Row(
             children: [
-              _Stat(value: '${pos.length}', label: 'ใบสั่งซื้อทั้งหมด'),
-              const SizedBox(width: 28),
-              _Stat(
-                value: '$pendingCount',
-                label: 'รอรับสินค้า',
-                color: AppColors.warning,
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: _Stat(
+                          value: '${pos.length}', label: 'ใบสั่งซื้อทั้งหมด'),
+                    ),
+                    const SizedBox(width: 28),
+                    Flexible(
+                      child: _Stat(
+                        value: '$pendingCount',
+                        label: 'รอรับสินค้า',
+                        color: AppColors.warning,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const Spacer(),
               AppButton(
@@ -258,6 +270,8 @@ class _Stat extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 13,
             letterSpacing: 0.8,

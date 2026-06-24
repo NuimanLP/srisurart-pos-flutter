@@ -149,26 +149,54 @@ class _TopBar extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: divider)),
       ),
-      child: Row(
-        children: [
-          _Stat(value: '$customerCount', label: 'ลูกค้าทั้งหมด'),
-          const SizedBox(width: 28),
-          _Stat(value: baht(totalSpend), label: 'ยอดขายรวม'),
-          const Spacer(),
-          SizedBox(
-            width: 260,
-            child: SearchField(
-              hint: 'ค้นหาลูกค้า / เบอร์โทร…',
-              onChanged: onSearch,
-            ),
-          ),
-          const SizedBox(width: 16),
-          AppButton(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stats = [
+            _Stat(value: '$customerCount', label: 'ลูกค้าทั้งหมด'),
+            const SizedBox(width: 28),
+            _Stat(value: baht(totalSpend), label: 'ยอดขายรวม'),
+          ];
+          final search = SearchField(
+            hint: 'ค้นหาลูกค้า / เบอร์โทร…',
+            onChanged: onSearch,
+          );
+          final addButton = AppButton(
             label: 'เพิ่มลูกค้า',
             icon: Icons.add,
             onPressed: onAdd,
-          ),
-        ],
+          );
+          // Wide (tablet): keep the original single-row layout byte-identical —
+          // un-flexed stats, fixed 260px search, one Spacer pushing the
+          // search + button flush right.
+          if (constraints.maxWidth >= 600) {
+            return Row(
+              children: [
+                ...stats,
+                const Spacer(),
+                SizedBox(width: 260, child: search),
+                const SizedBox(width: 16),
+                addButton,
+              ],
+            );
+          }
+          // Narrow (phone): stack the stats row above a full-width search +
+          // button so nothing overflows horizontally.
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: stats),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: search),
+                  const SizedBox(width: 16),
+                  addButton,
+                ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }

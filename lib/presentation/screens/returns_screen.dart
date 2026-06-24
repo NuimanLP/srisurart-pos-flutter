@@ -377,19 +377,22 @@ class _LeftPane extends ConsumerWidget {
         ),
         const Divider(height: 1),
         // Tabs.
-        Row(
-          children: [
-            _TabButton(
-              label: 'ค้นหาบิล',
-              active: tab == _Tab.search,
-              onTap: () => onTab(_Tab.search),
-            ),
-            _TabButton(
-              label: 'ประวัติการคืน (${returns.length})',
-              active: tab == _Tab.history,
-              onTap: () => onTab(_Tab.history),
-            ),
-          ],
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _TabButton(
+                label: 'ค้นหาบิล',
+                active: tab == _Tab.search,
+                onTap: () => onTab(_Tab.search),
+              ),
+              _TabButton(
+                label: 'ประวัติการคืน (${returns.length})',
+                active: tab == _Tab.history,
+                onTap: () => onTab(_Tab.history),
+              ),
+            ],
+          ),
         ),
         const Divider(height: 1),
         Expanded(
