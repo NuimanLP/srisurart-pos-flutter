@@ -4,8 +4,24 @@
 The Flutter port (Phase 0–6, offline parity) is built and the **final gate is GREEN**:
 `dart analyze` clean, **108/108 tests pass** (incl. all 22 route-smoke cases at tablet
 AND phone), `flutter build web` succeeds. The 3 phone-size overflows are fixed and the
-LOW findings triaged (see "2026-06-24 session" below). Remaining work is the bigger
+LOW findings triaged. **The web runtime now boots in Chrome** — the Drift web DB was wired
+up this session (see "2026-06-24 (web DB)" below). Remaining work is the bigger
 post-parity follow-ups only (cloud sync, native hardware, font bundling, etc.).
+
+## 2026-06-24 (web DB) — `flutter run -d chrome` now boots
+- **Symptom:** the web app loaded to a blank white page. Console threw
+  `Invalid argument(s): When compiling to the web, the 'web' parameter needs to be set`
+  from `driftDatabase()` — the app crashed at DB-open before rendering.
+- **Fix:** committed the two required web assets into `web/` — `sqlite3.wasm` (matches
+  `sqlite3` 3.3.3) and `drift_worker.js` (matches `drift` 2.34.0), both pulled from the
+  simolus3 GitHub releases (WASM magic-bytes verified). `AppDatabase.open()` now passes
+  `web: DriftWebOptions(sqlite3Wasm: Uri.parse('sqlite3.wasm'), driftWorker: Uri.parse('drift_worker.js'))`
+  (the option is ignored on native, so Android/iOS/macOS/tests are unaffected).
+- **Verified:** `dart analyze` clean; `flutter run -d chrome` boots with no DB error /
+  exception in the run log. **Caveat:** rendering was confirmed via a clean startup log, not
+  a pixel screenshot — eyeball the home screen once on next run.
+- **Gotcha for next dev:** if you bump `drift` or `sqlite3`, re-download the version-matched
+  assets or the web DB breaks at boot (version skew). Source: `github.com/simolus3/{drift,sqlite3.dart}/releases`.
 
 ## 2026-06-24 session — parity gate closed
 - **Env note:** this session ran on **macOS** at an **ASCII path**
@@ -90,7 +106,8 @@ post-parity follow-ups only (cloud sync, native hardware, font bundling, etc.).
 - Cloud sync (Supabase, Phase 7 — stubbed/not wired). Native thermal printer / barcode scanner /
   cash-drawer kick (Phase 8). Bundle Sarabun/Barlow fonts (currently `google_fonts` runtime fetch;
   tests set `GoogleFonts.config.allowRuntimeFetching = false`). Re-capture `tutorial/` screenshots
-  from the Flutter app (current ones are from the JS app). Drift web worker/wasm for full web DB.
+  from the Flutter app (current ones are from the JS app). *(Drift web worker/wasm — DONE
+  2026-06-24, see the "web DB" session note up top.)*
 
 ## Reference
 - `CLAUDE.md` — build constraint + architecture + invariants. `CONTRACT.md` — binding spec

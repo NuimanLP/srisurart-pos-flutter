@@ -99,7 +99,15 @@ idiomatic replacement for the JS snapshot/rollback):
 ## Migration status (Phase 0–6 complete) — see legacy `PLAN.md`
 
 **Done:** scaffold; data layer + unit tests; all 11 screens; shared UI kit + nav; shifts layer;
-adversarial scrutiny + fix pass. App `dart analyze`-clean, tests green, `flutter build web` ok.
+adversarial scrutiny + fix pass; **web-DB runtime wired** (`flutter run -d chrome` now boots —
+see below). App `dart analyze`-clean, tests green, `flutter build web` ok.
+
+**Web DB (done 2026-06-24):** `driftDatabase()` on the web requires a `web:` option pointing at
+two assets committed in `web/`: `sqlite3.wasm` (matches the `sqlite3` pub version, 3.3.3) and
+`drift_worker.js` (matches the `drift` pub version, 2.34.0). `AppDatabase.open()` passes
+`DriftWebOptions(sqlite3Wasm: Uri.parse('sqlite3.wasm'), driftWorker: Uri.parse('drift_worker.js'))`
+(ignored on native). **If you bump `drift` or `sqlite3`, re-download the matching assets** from
+`github.com/simolus3/{drift,sqlite3.dart}/releases` — a version skew breaks the web DB at boot.
 
 **Pending follow-ups (not yet built):**
 - **Cloud backup/sync (Supabase)** — Phase 7, stubbed/not wired (needs project creds).
@@ -108,7 +116,6 @@ adversarial scrutiny + fix pass. App `dart analyze`-clean, tests green, `flutter
 - **Bundle Sarabun/Barlow fonts as assets** (currently `google_fonts` runtime fetch — set
   `GoogleFonts.config.allowRuntimeFetching = false` in tests to avoid a pending-timer leak).
 - **Re-capture tutorial screenshots** from the Flutter app (current images are from the JS app).
-- **Drift web worker / sqlite3.wasm** assets for full web-DB support.
 - Carried from JS: manager-PIN gate, audit log, PDPA, full tax invoice (ใบกำกับภาษีเต็มรูป).
 
 ---

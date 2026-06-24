@@ -45,8 +45,20 @@ class AppDatabase extends _$AppDatabase {
 
   /// App entry point — opens the on-device SQLite DB via drift_flutter.
   /// Tests should instead construct `AppDatabase(NativeDatabase.memory())`.
-  factory AppDatabase.open() =>
-      AppDatabase(driftDatabase(name: 'srisurart'));
+  ///
+  /// On the web, drift needs the compiled `sqlite3.wasm` module and the
+  /// `drift_worker.js` worker, both served from the app's `web/` folder
+  /// (relative URIs resolve against the deployed base href). These options
+  /// are ignored on native platforms.
+  factory AppDatabase.open() => AppDatabase(
+        driftDatabase(
+          name: 'srisurart',
+          web: DriftWebOptions(
+            sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+            driftWorker: Uri.parse('drift_worker.js'),
+          ),
+        ),
+      );
 
   /// Matches SCHEMA_VERSION = 2 in db.js (localStorage migration counter),
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
