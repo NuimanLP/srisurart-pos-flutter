@@ -1,4 +1,4 @@
-# HANDOFF — Srisurart POS Flutter migration (updated 2026-06-24)
+# HANDOFF — Srisurart POS Flutter migration (updated 2026-06-25)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the **final gate is GREEN**:
@@ -11,6 +11,39 @@ session; its **1 CRITICAL + both HIGH** findings are now fixed (dead Quote→Che
 web-only-broken backup/CSV export, ClosingReport phone overflow — see the two entries below).
 Remaining work is the audit's medium/low backlog plus the bigger post-parity follow-ups
 (cloud sync, native hardware, font bundling, etc.).
+
+## 2026-06-25 (UI polish — topbar alignment + live clock, vehicle search, dark-mode contrast)
+- **Topbar cluster floated to the centre instead of the right edge** (`app_shell.dart`
+  `_TopBar`): the cashier/date block was a `Flexible` (flex:1) competing with the `Expanded`
+  shop name, so the Row split its free space 50/50 and the loose-fit block sat left-aligned in
+  its half — leaving a large empty navy gap on the right. Fix: made it a plain fixed-size
+  `ConstrainedBox` (maxWidth 220, NOT `Flexible`) so the shop name absorbs all slack and the
+  cluster pins right. `maxWidth` + per-line ellipsis still prevent a long cashier name from
+  overflowing.
+- **Added a live ticking clock to the topbar.** `_TopBar` is now `ConsumerStatefulWidget` with
+  a `Timer.periodic(1s)` that only `setState`s when the displayed minute (or day) changes — so
+  the topbar's StreamBuilders aren't rebuilt 60×/min. Second line now shows `EEE date · HH:mm`
+  (e.g. `พฤ. 25 มิ.ย. 2569 · 20:17`) via the existing `thaiTime()` helper. Timer cancelled in
+  `dispose()`. (No test mounts `AppShell`/`_TopBar`, so the periodic timer can't stall
+  `pumpAndSettle` in the suite.)
+- **Vehicle search showed motorcycle models in a car shop** (`vehicle_search_screen.dart`):
+  `_popularVehicles` was the legacy `.jsx` motorcycle list (Wave/PCX/Click/NMAX…), but the
+  seed products' `compat` fields and the search hint are all cars/pickups — so every quick-chip
+  returned zero results. Replaced with the 12 car/pickup models actually present in seed
+  `compat` (Toyota Hilux/Vios/Fortuner, Honda City/Civic/Jazz, Isuzu D-Max/MU-X, Ford Ranger,
+  Mitsubishi Triton, Nissan Navara, Mazda 2) so each chip matches real data.
+- **…which then overflowed the phone layout** — the longer car names made the chip `Wrap`
+  tall enough that header+search+chips exceeded the 800px body and the body `Column` overflowed
+  by 56px at 400×800 (caught by the route-smoke test). Fix: chips now `Wrap` on wide screens
+  (≥`AppBreakpoints.rail`) but become a single **horizontally-scrolling** row on phones (fixed
+  height, robust to any number/length of model names, leaves room for results).
+- **Dark mode: secondary buttons were invisible** (`app_button.dart`): `AppButton.secondary`
+  hardcoded `foregroundColor: AppColors.navy` (#0B2444) — fine on the light cream surface, but
+  navy-on-navy in dark mode (scaffold `bgDark` #0B2444, header surface `navyMid` #153660). Made
+  the label brightness-aware (white in dark, navy in light); the steel-blue outline reads in
+  both. Shared widget → fixes every secondary button app-wide (e.g. "📊 สรุปยอดปิดร้าน").
+- **Gate:** `dart analyze` clean; `flutter test` **112/112** (incl. vehicle_search phone after
+  the overflow fix); no schema/codegen change. UI-only.
 
 ## 2026-06-24 (developer-onboarding course — moved OUT of repo)
 - Built a `/teach`-style **developer onboarding course** that explains what the project is, what

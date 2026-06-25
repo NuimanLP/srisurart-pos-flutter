@@ -94,10 +94,16 @@ class AppButton extends StatelessWidget {
         );
         break;
       case AppButtonVariant.secondary:
+        // Brightness-aware label: navy reads on the light surface, but on the
+        // dark theme's navy surface navy-on-navy is invisible — use a light
+        // foreground there. The steel-blue outline reads in both themes.
+        final secondaryFg = Theme.of(context).brightness == Brightness.dark
+            ? AppColors.white
+            : AppColors.navy;
         button = OutlinedButton(
           onPressed: enabled ? onPressed : null,
           style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.navy,
+            foregroundColor: secondaryFg,
             side: const BorderSide(color: AppColors.steelBlue),
             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
             shape: RoundedRectangleBorder(

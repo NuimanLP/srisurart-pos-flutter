@@ -4,7 +4,8 @@
 //   D:/Beestation/.../pos/VehicleSearch.jsx
 //
 // Behaviour parity notes:
-//  • POPULAR_VEHICLES is the EXACT motorcycle list from the .jsx (Wave/PCX/…).
+//  • POPULAR_VEHICLES lists the car/pickup models this shop stocks parts for
+//    (matched against the products' `compat` field — see seed data in database.dart).
 //  • Results = products whose `compat` text-contains the trimmed query
 //    (case-insensitive) — productsRepoProvider.getAll() then filter.
 //  • Quick-chip toggles: tapping the active chip clears the query.
@@ -25,12 +26,14 @@ import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../providers/providers.dart';
 
-/// EXACT list copied from VehicleSearch.jsx POPULAR_VEHICLES.
+/// Popular car/pickup models this auto-parts shop carries — each value is a
+/// substring of one or more products' `compat` field so a chip tap returns real
+/// results (see seed data in database.dart). This is a car shop, not motorcycle.
 const List<String> _popularVehicles = [
-  'Wave 110i', 'PCX', 'Click 125i',
-  'Mio', 'Fino', 'Dream',
-  'ADV 150', 'Forza', 'Phantom',
-  'Aerox', 'NMAX', 'CBR',
+  'Toyota Hilux', 'Toyota Vios', 'Toyota Fortuner',
+  'Honda City', 'Honda Civic', 'Honda Jazz',
+  'Isuzu D-Max', 'Isuzu MU-X', 'Ford Ranger',
+  'Mitsubishi Triton', 'Nissan Navara', 'Mazda 2',
 ];
 
 /// Products + category list, loaded once for the screen (categories drive the
@@ -169,6 +172,25 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
 
   // ── Popular quick-buttons ──
   Widget _quickRow(BuildContext context) {
+    // Wide screens (tablet/desktop) Wrap the chips to multiple rows — all
+    // visible at once. On a phone that Wrap can grow tall enough that the fixed
+    // header + search + chips exceed the body height and the Column overflows;
+    // there the chips become a single horizontally-scrolling row (fixed height,
+    // robust to any number/length of model names), leaving room for results.
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.rail;
+    final label = Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Text(
+        'รุ่นยอดนิยม:',
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+          letterSpacing: 1.2,
+          color: AppColors.steelBlue,
+        ),
+      ),
+    );
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
@@ -177,26 +199,35 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
           bottom: BorderSide(color: AppColors.gray200.withValues(alpha: 0.25)),
         ),
       ),
-      child: Wrap(
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Text(
-              'รุ่นยอดนิยม:',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-                letterSpacing: 1.2,
-                color: AppColors.steelBlue,
-              ),
+      child: wide
+          ? Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                label,
+                for (final v in _popularVehicles) _quickChip(v),
+              ],
+            )
+          : Row(
+              children: [
+                label,
+                const SizedBox(width: 4),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final v in _popularVehicles) ...[
+                          _quickChip(v),
+                          const SizedBox(width: 8),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-          for (final v in _popularVehicles) _quickChip(v),
-        ],
-      ),
     );
   }
 

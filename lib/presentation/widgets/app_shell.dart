@@ -6,6 +6,8 @@
 // The router passes the active child via the `child` parameter (ShellRoute).
 // The active route is highlighted via GoRouterState.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -189,16 +191,45 @@ class _NavDrawer extends StatelessWidget {
   }
 }
 
-class _TopBar extends ConsumerWidget {
+class _TopBar extends ConsumerStatefulWidget {
   final String title;
   final bool showMenu;
   const _TopBar({required this.title, this.showMenu = false});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TopBar> createState() => _TopBarState();
+}
+
+class _TopBarState extends ConsumerState<_TopBar> {
+  late DateTime _now;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _now = DateTime.now();
+    // Live clock. Tick every second but only rebuild when the displayed
+    // minute (or day) actually changes, so we don't rebuild the topbar's
+    // StreamBuilders 60×/minute just to show HH:mm.
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final next = DateTime.now();
+      if (next.minute != _now.minute || next.day != _now.day) {
+        setState(() => _now = next);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final settings = ref.watch(settingsRepoProvider).watchSettings();
     final mode = ref.watch(themeModeProvider);
-    final now = DateTime.now();
+    final now = _now;
 
     return Container(
       constraints: const BoxConstraints(minHeight: 68),
@@ -211,7 +242,7 @@ class _TopBar extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          if (showMenu)
+          if (widget.showMenu)
             Builder(
               builder: (ctx) => IconButton(
                 icon: const Icon(Icons.menu, color: AppColors.white),
@@ -266,53 +297,54 @@ class _TopBar extends ConsumerWidget {
             onPressed: () => ref.read(themeModeProvider.notifier).toggle(),
           ),
           const SizedBox(width: 8),
-          // Flexible + maxWidth + ellipsis: a long Thai cashier name + พ.ศ. date
-          // must yield to the Expanded shop name, never overflow the topbar.
-          Flexible(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 180),
-              child: StreamBuilder(
-                stream: settings,
-                builder: (context, snap) {
-                  final cashier = snap.data?.cashierName;
-                  return Container(
-                    padding: const EdgeInsets.only(left: 12),
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        left: BorderSide(color: Colors.white24),
+          // Fixed-size (NOT Flexible): a Flexible here would share the Row's
+          // free space 50/50 with the Expanded shop name and float the cluster
+          // to the topbar's centre. As a plain ConstrainedBox the Expanded shop
+          // name absorbs all the slack and this stays pinned to the right edge;
+          // maxWidth + ellipsis still keep a long cashier name from overflowing.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220),
+            child: StreamBuilder(
+              stream: settings,
+              builder: (context, snap) {
+                final cashier = snap.data?.cashierName;
+                return Container(
+                  padding: const EdgeInsets.only(left: 12),
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: Colors.white24),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        (cashier == null || cashier.isEmpty)
+                            ? 'Cashier'
+                            : cashier,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
                       ),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          (cashier == null || cashier.isEmpty)
-                              ? 'Cashier'
-                              : cashier,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
-                          ),
+                      Text(
+                        '${DateFormat('EEE', 'th').format(now)} '
+                        '${thaiDate(now)} · ${thaiTime(now)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
                         ),
-                        Text(
-                          '${DateFormat('EEE', 'th').format(now)} '
-                          '${thaiDate(now)}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ],
