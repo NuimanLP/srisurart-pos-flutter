@@ -950,6 +950,72 @@ class _ItemRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final highlighted = current > 0;
+
+    final nameBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          item.name,
+          style:
+              theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 2),
+        Wrap(
+          children: [
+            Text(
+              'ขายไป ${item.qty} × ${baht(item.price)}',
+              style: theme.textTheme.bodySmall,
+            ),
+            if (refundedQty > 0)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(
+                  '· คืนแล้ว $refundedQty',
+                  style: const TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            if (fully)
+              const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Text(
+                  '· คืนหมดแล้ว',
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+
+    final stepper = _QtyStepper(
+      productId: item.productId,
+      current: current,
+      remaining: remaining,
+      fully: fully,
+      onSetQty: onSetQty,
+    );
+
+    final amount = SizedBox(
+      width: 90,
+      child: Text(
+        current > 0 ? '−${baht(item.price * current)}' : '—',
+        textAlign: TextAlign.right,
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          fontSize: 16,
+          color: current > 0 ? AppColors.error : theme.colorScheme.secondary,
+        ),
+      ),
+    );
+
     return Opacity(
       opacity: fully ? 0.4 : 1,
       child: Container(
@@ -965,79 +1031,36 @@ class _ItemRow extends StatelessWidget {
                 : theme.dividerColor,
           ),
         ),
-        child: Row(
-          children: [
-            // Name + sold info.
-            Expanded(
-              child: Column(
+        // Below ~520dp the ~300dp stepper+amount cluster can starve the name to
+        // zero and overflow, so stack: row1 = name + amount, row2 = stepper.
+        child: LayoutBuilder(
+          builder: (context, c) {
+            if (c.maxWidth < 520) {
+              return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.name,
-                    style: theme.textTheme.titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 2),
-                  Wrap(
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'ขายไป ${item.qty} × ${baht(item.price)}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      if (refundedQty > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: Text(
-                            '· คืนแล้ว $refundedQty',
-                            style: const TextStyle(
-                              color: AppColors.error,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      if (fully)
-                        const Padding(
-                          padding: EdgeInsets.only(left: 8),
-                          child: Text(
-                            '· คืนหมดแล้ว',
-                            style: TextStyle(
-                              color: AppColors.error,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
+                      Expanded(child: nameBlock),
+                      const SizedBox(width: 8),
+                      amount,
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Align(alignment: Alignment.centerLeft, child: stepper),
                 ],
-              ),
-            ),
-            // Qty stepper.
-            _QtyStepper(
-              productId: item.productId,
-              current: current,
-              remaining: remaining,
-              fully: fully,
-              onSetQty: onSetQty,
-            ),
-            const SizedBox(width: 8),
-            // Line refund amount.
-            SizedBox(
-              width: 90,
-              child: Text(
-                current > 0 ? '−${baht(item.price * current)}' : '—',
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                  color: current > 0
-                      ? AppColors.error
-                      : theme.colorScheme.secondary,
-                ),
-              ),
-            ),
-          ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: nameBlock),
+                stepper,
+                const SizedBox(width: 8),
+                amount,
+              ],
+            );
+          },
         ),
       ),
     );
@@ -1139,8 +1162,7 @@ class _QtyStepperState extends State<_QtyStepper> {
               : null,
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            minimumSize: const Size(0, 32),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            minimumSize: const Size(0, 44),
           ),
           child: const Text('คืนหมด',
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
@@ -1160,14 +1182,15 @@ class _StepBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // 44dp touch target (was 28dp) — the primary refund-qty control on touch.
     return SizedBox(
-      width: 28,
-      height: 28,
+      width: 44,
+      height: 44,
       child: OutlinedButton(
         onPressed: enabled ? onTap : null,
         style: OutlinedButton.styleFrom(
           padding: EdgeInsets.zero,
-          minimumSize: const Size(28, 28),
+          minimumSize: const Size(44, 44),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
         child: Text(label,
@@ -1278,28 +1301,48 @@ class _SummaryBox extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
-          // Actions.
-          Row(
-            children: [
-              AppButton(
-                label: '✕ ยกเลิกบิลทั้งบิล',
+          // Actions. Below ~480dp the fixed void button + Expanded submit can't
+          // both fit, so stack full-width buttons (submit on top, destructive
+          // void below) instead of two cramped red buttons side by side.
+          LayoutBuilder(
+            builder: (context, c) {
+              final submit = AppButton(
+                label: busy
+                    ? 'กำลังบันทึก…'
+                    : '↻ คืน $itemCount รายการ · ${baht(total)}',
+                icon: busy ? null : Icons.refresh,
+                busy: busy,
                 variant: AppButtonVariant.danger,
-                onPressed: busy ? null : onVoid,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: AppButton(
-                  label: busy
-                      ? 'กำลังบันทึก…'
-                      : '↻ คืน $itemCount รายการ · ${baht(total)}',
-                  icon: busy ? null : Icons.refresh,
-                  busy: busy,
-                  variant: AppButtonVariant.danger,
-                  fullWidth: true,
-                  onPressed: (itemCount == 0 || busy) ? null : onSubmit,
-                ),
-              ),
-            ],
+                fullWidth: true,
+                onPressed: (itemCount == 0 || busy) ? null : onSubmit,
+              );
+              if (c.maxWidth < 480) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    submit,
+                    const SizedBox(height: 8),
+                    AppButton(
+                      label: '✕ ยกเลิกบิลทั้งบิล',
+                      variant: AppButtonVariant.danger,
+                      fullWidth: true,
+                      onPressed: busy ? null : onVoid,
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  AppButton(
+                    label: '✕ ยกเลิกบิลทั้งบิล',
+                    variant: AppButtonVariant.danger,
+                    onPressed: busy ? null : onVoid,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: submit),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1367,8 +1410,11 @@ class _MethodButton extends StatelessWidget {
             color: active ? AppColors.orange : theme.dividerColor),
         padding: const EdgeInsets.symmetric(vertical: 12),
       ),
-      child: Text(label,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(label,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+      ),
     );
   }
 }

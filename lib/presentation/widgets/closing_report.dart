@@ -883,13 +883,15 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
   }
 
   Widget _kpiGrid(List<_Kpi> kpis) {
-    return GridView.count(
-      crossAxisCount: 2,
+    return GridView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
-      childAspectRatio: 2.2,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        mainAxisExtent: 92,
+      ),
       children: kpis.map((k) => _kpiCard(k)).toList(),
     );
   }
@@ -909,16 +911,23 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                k.value,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: k.color ?? theme.colorScheme.onSurface,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  k.value,
+                  maxLines: 1,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: k.color ?? theme.colorScheme.onSurface,
+                  ),
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 k.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: AppColors.steelBlue,
                 ),

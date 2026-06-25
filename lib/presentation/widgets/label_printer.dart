@@ -264,15 +264,31 @@ class _LabelPrinterState extends State<LabelPrinter> {
               ),
             ),
             const Divider(height: 1),
-            // body
+            // body — two-pane on tablet/desktop; below ~720dp the fixed 300dp
+            // selector would starve the preview (≈11–65dp on a phone), so stack
+            // the panes vertically. Both stay Expanded under the bounded dialog
+            // height so each pane's inner ListView has a bounded height.
             Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(width: 300, child: _selectorCol(theme)),
-                  const VerticalDivider(width: 1),
-                  Expanded(child: _previewCol(theme, printProducts)),
-                ],
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  if (c.maxWidth < 720) {
+                    return Column(
+                      children: [
+                        Expanded(child: _selectorCol(theme)),
+                        const Divider(height: 1),
+                        Expanded(child: _previewCol(theme, printProducts)),
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: 300, child: _selectorCol(theme)),
+                      const VerticalDivider(width: 1),
+                      Expanded(child: _previewCol(theme, printProducts)),
+                    ],
+                  );
+                },
               ),
             ),
             const Divider(height: 1),
@@ -440,7 +456,14 @@ class _LabelPrinterState extends State<LabelPrinter> {
                             Text('${p.name} × $_copies',
                                 style: theme.textTheme.labelMedium),
                             const SizedBox(height: 4),
-                            _ShelfLabel(product: p, zoneColor: _catColor(p.category)),
+                            // The label is a fixed 218dp; on a very narrow
+                            // stacked preview let it scroll rather than overflow.
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: _ShelfLabel(
+                                  product: p,
+                                  zoneColor: _catColor(p.category)),
+                            ),
                           ],
                         ),
                       );

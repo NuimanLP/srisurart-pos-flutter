@@ -576,10 +576,16 @@ class _CustomerEditorDialogState extends ConsumerState<_CustomerEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // On phones the AlertDialog's 40dp insets leave < 334dp, so a fixed 460dp
+    // child overflows — let it size to the available width below 520dp. scrollable
+    // keeps the fields reachable above the soft keyboard on short screens.
+    final dialogWidth =
+        MediaQuery.sizeOf(context).width < 520 ? double.maxFinite : 460.0;
     return AlertDialog(
+      scrollable: true,
       title: Text(_isNew ? 'เพิ่มลูกค้าใหม่' : 'แก้ไขข้อมูลลูกค้า'),
       content: SizedBox(
-        width: 460,
+        width: dialogWidth,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

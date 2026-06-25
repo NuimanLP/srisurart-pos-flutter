@@ -50,6 +50,15 @@ class AppButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onPressed != null && !busy;
+    // Label always single-line + ellipsis so a long Thai label (or an enlarged
+    // text scale) shrinks gracefully instead of overflowing the button / its
+    // enclosing Row.
+    final labelText = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+    );
     final child = busy
         ? const SizedBox(
             width: 18,
@@ -62,10 +71,10 @@ class AppButton extends StatelessWidget {
                 children: [
                   Icon(icon, size: 18),
                   const SizedBox(width: 8),
-                  Text(label),
+                  Flexible(child: labelText),
                 ],
               )
-            : Text(label));
+            : labelText);
 
     final Widget button;
     switch (variant) {

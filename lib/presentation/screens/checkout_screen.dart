@@ -33,6 +33,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
@@ -40,7 +41,9 @@ import '../../domain/models/aggregates.dart';
 import '../providers/pending_quote_provider.dart';
 import '../providers/providers.dart';
 import '../widgets/low_stock_alert.dart';
+import '../widgets/money_text.dart';
 import '../widgets/receipt_view.dart';
+import '../widgets/tap_target.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cart line + cart StateNotifier (in-file UI state, per §4 allowance).
@@ -706,7 +709,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       if (next != null) _maybeConsumePendingQuote();
     });
     final productsAsync = ref.watch(_productsProvider);
-    final isWide = MediaQuery.of(context).size.width >= 900;
+    final isWide =
+        MediaQuery.of(context).size.width >= AppBreakpoints.checkoutTwoPane;
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -1433,12 +1437,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                         item.productId, item.qty - 1, product);
                     if (err != null) _warn(err);
                   }),
-                  Container(
-                    width: 28,
-                    alignment: Alignment.center,
-                    child: Text('${item.qty}',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 16)),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 28),
+                    child: Container(
+                      alignment: Alignment.center,
+                      child: Text('${item.qty}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 16)),
+                    ),
                   ),
                   _qtyBtn(Icons.add, () {
                     final err = _cart.setQty(
@@ -1450,14 +1457,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             ],
           ),
           const SizedBox(width: 8),
-          SizedBox(
-            width: 70,
-            child: Text(baht(item.price * item.qty),
-                textAlign: TextAlign.right,
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 70),
+            child: MoneyText(item.price * item.qty,
+                scaleDown: true,
+                color: _orange,
                 style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    color: _orange)),
+                    fontWeight: FontWeight.w800, fontSize: 16)),
           ),
         ],
       ),
@@ -1491,47 +1497,55 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       );
     }
     final mechSel = _selectedMechanic != null;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    final priceButton = OutlinedButton(
+      onPressed: mechSel
+          ? () => setState(() => _editingPriceId = item.productId)
+          : null,
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        minimumSize: const Size(0, 28),
+        side: BorderSide(
+            color: item.overridden ? _orange : Theme.of(context).dividerColor),
+        backgroundColor:
+            item.overridden ? _orange.withValues(alpha: 0.18) : null,
+        foregroundColor: item.overridden
+            ? _orange
+            : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+      ),
+      child: Text('${baht(item.price)}${item.overridden ? ' ✎' : ''}',
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+    );
+    if (!item.overridden) {
+      return Align(alignment: Alignment.centerLeft, child: priceButton);
+    }
+    // Overridden: keep the "ปกติ ฿…" annotation + reset on a SECOND line so the
+    // button and its annotation never have to share one line in the narrow
+    // (~140–180dp) cart name column — the old single Row overflowed here.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        OutlinedButton(
-          onPressed: mechSel
-              ? () => setState(() => _editingPriceId = item.productId)
-              : null,
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            minimumSize: const Size(0, 28),
-            side: BorderSide(
-                color: item.overridden ? _orange : Theme.of(context).dividerColor,
-                style: item.overridden ? BorderStyle.solid : BorderStyle.solid),
-            backgroundColor: item.overridden
-                ? _orange.withValues(alpha: 0.18)
-                : null,
-            foregroundColor: item.overridden
-                ? _orange
-                : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-          ),
-          child: Text('${baht(item.price)}${item.overridden ? ' ✎' : ''}',
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w700)),
+        priceButton,
+        const SizedBox(height: 2),
+        Row(
+          children: [
+            Flexible(
+              child: Text('ปกติ ${baht(item.originalPrice)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 11,
+                      decoration: TextDecoration.lineThrough,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.5))),
+            ),
+            TapTarget(
+              onTap: () => _cart.resetPrice(item.productId),
+              child: const Icon(Icons.refresh, size: 18),
+            ),
+          ],
         ),
-        if (item.overridden) ...[
-          const SizedBox(width: 6),
-          Text('ปกติ ${baht(item.originalPrice)}',
-              style: TextStyle(
-                  fontSize: 11,
-                  decoration: TextDecoration.lineThrough,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.5))),
-          IconButton(
-            icon: const Icon(Icons.refresh, size: 16),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            onPressed: () => _cart.resetPrice(item.productId),
-          ),
-        ],
       ],
     );
   }
@@ -1543,7 +1557,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     if (err != null) _warn(err);
   }
 
-  Widget _qtyBtn(IconData icon, VoidCallback onTap) => InkWell(
+  // 30dp visual chip kept, but TapTarget gives it a ≥44dp hit area — these are
+  // the most-tapped controls on a touch POS.
+  Widget _qtyBtn(IconData icon, VoidCallback onTap) => TapTarget(
         onTap: onTap,
         child: Container(
           width: 30,

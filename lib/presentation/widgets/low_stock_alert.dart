@@ -323,41 +323,49 @@ class _LowStockBannerState extends State<LowStockBanner> {
                 border: Border(top: BorderSide(color: theme.dividerColor)),
               ),
               padding: const EdgeInsets.fromLTRB(20, 12, 14, 12),
-              child: Row(
+              // Column + Wrap so the two long-Thai-label buttons reflow to a new
+              // line on a narrow phone banner instead of overflowing the Row.
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: Text(
-                      visible > 0
-                          ? 'ยังมี $visible รายการที่ยังไม่ได้จัดการ'
-                          : (_printed
-                              ? '✓ ส่งใบสั่งซื้อไปยังหน้าต่างพิมพ์แล้ว'
-                              : '✓ จัดการทุกรายการแล้ว'),
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: AppColors.steelBlue),
-                    ),
+                  Text(
+                    visible > 0
+                        ? 'ยังมี $visible รายการที่ยังไม่ได้จัดการ'
+                        : (_printed
+                            ? '✓ ส่งใบสั่งซื้อไปยังหน้าต่างพิมพ์แล้ว'
+                            : '✓ จัดการทุกรายการแล้ว'),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: AppColors.steelBlue),
                   ),
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: _busy ? null : _print,
-                    child: _busy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('🖨 พิมพ์ใบสั่งซื้อ'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: () {
-                      widget.onOrder();
-                      widget.onClose();
-                    },
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _partColor,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text('🛒 ไปหน้าสั่งซื้อ'),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      OutlinedButton(
+                        onPressed: _busy ? null : _print,
+                        child: _busy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('🖨 พิมพ์ใบสั่งซื้อ'),
+                      ),
+                      FilledButton(
+                        onPressed: () {
+                          widget.onOrder();
+                          widget.onClose();
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _partColor,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('🛒 ไปหน้าสั่งซื้อ'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -420,20 +428,26 @@ class _LowStockBannerState extends State<LowStockBanner> {
         child: Row(
           children: [
             // category pill
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: _pillColor(p.category),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: Text(
-                p.category,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 96),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _pillColor(p.category),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: Text(
+                  p.category,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8),
+                ),
               ),
             ),
             const SizedBox(width: 10),

@@ -15,12 +15,18 @@ class MoneyText extends StatelessWidget {
   final TextStyle? style;
   final Color? color;
 
+  /// When true, render inside a `FittedBox(scaleDown)` so a large baht value
+  /// (e.g. ฿1,234,567) or an enlarged accessibility text scale shrinks to fit
+  /// its (constrained) cell on one line instead of wrapping or overflowing.
+  final bool scaleDown;
+
   const MoneyText(
     this.value, {
     super.key,
     this.emphasis = false,
     this.style,
     this.color,
+    this.scaleDown = false,
   });
 
   @override
@@ -31,6 +37,18 @@ class MoneyText extends StatelessWidget {
               color: color ?? AppColors.orange,
             )
         : Theme.of(context).textTheme.bodyMedium?.copyWith(color: color);
-    return Text(baht(value), style: (base ?? const TextStyle()).merge(style));
+    final text = Text(
+      baht(value),
+      maxLines: 1,
+      softWrap: !scaleDown,
+      overflow: TextOverflow.ellipsis,
+      style: (base ?? const TextStyle()).merge(style),
+    );
+    if (!scaleDown) return text;
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: text,
+    );
   }
 }

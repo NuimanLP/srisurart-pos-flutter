@@ -229,15 +229,22 @@ class _PoListView extends StatelessWidget {
         Expanded(
           child: pos.isEmpty
               ? const EmptyState(message: 'ยังไม่มีใบสั่งซื้อ')
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: pos.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 10),
-                  itemBuilder: (_, i) => _PoCard(
-                    data: pos[i],
-                    onReceive: () => onReceive(pos[i].po),
-                    onCancel: () => onCancel(pos[i].po),
-                    onDelete: () => onDelete(pos[i].po),
+              // Cap content width so cards don't stretch edge-to-edge on
+              // iPad-landscape / desktop, leaving a stranded empty mid-band.
+              : Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 900),
+                    child: ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: pos.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (_, i) => _PoCard(
+                        data: pos[i],
+                        onReceive: () => onReceive(pos[i].po),
+                        onCancel: () => onCancel(pos[i].po),
+                        onDelete: () => onDelete(pos[i].po),
+                      ),
+                    ),
                   ),
                 ),
         ),
@@ -398,6 +405,7 @@ class _PoCard extends StatelessWidget {
                 icon: const Icon(Icons.delete_outline),
                 color: AppColors.error,
                 visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
               ),
             ],
           ),
@@ -547,6 +555,8 @@ class _CreatePoDialogState extends ConsumerState<_CreatePoDialog> {
             children: [
               Text(
                 'สร้างใบสั่งซื้อใหม่ · New Purchase Order',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -700,15 +710,23 @@ class _DraftItemRow extends StatelessWidget {
       value: _trim(item.cost),
       onChanged: (s) => onCost(double.tryParse(s) ?? 0),
     );
+    // FittedBox(scaleDown) keeps the total a deterministic 70dp cell that works
+    // in BOTH the wide Row and the narrow Wrap (a Flexible here would crash the
+    // Wrap), while large baht values / text scale shrink to fit instead of clip.
     final total = SizedBox(
       width: 70,
-      child: Text(
-        baht(item.qty * item.cost),
-        textAlign: TextAlign.right,
-        style: const TextStyle(
-          color: AppColors.orange,
-          fontWeight: FontWeight.w700,
-          fontSize: 15,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerRight,
+        child: Text(
+          baht(item.qty * item.cost),
+          maxLines: 1,
+          softWrap: false,
+          style: const TextStyle(
+            color: AppColors.orange,
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+          ),
         ),
       ),
     );
@@ -717,6 +735,7 @@ class _DraftItemRow extends StatelessWidget {
       icon: const Icon(Icons.close, size: 18),
       color: AppColors.steelBlue,
       visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
     );
 
     return Container(
@@ -754,9 +773,9 @@ class _DraftItemRow extends StatelessWidget {
             children: [
               Expanded(child: name),
               const SizedBox(width: 8),
-              qtyField,
+              Flexible(child: qtyField),
               const SizedBox(width: 8),
-              costField,
+              Flexible(child: costField),
               const SizedBox(width: 8),
               total,
               removeBtn,
@@ -786,9 +805,14 @@ class _MiniNum extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          label,
-          style: const TextStyle(color: AppColors.steelBlue, fontSize: 12),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: const TextStyle(color: AppColors.steelBlue, fontSize: 12),
+          ),
         ),
         const SizedBox(width: 6),
         SizedBox(

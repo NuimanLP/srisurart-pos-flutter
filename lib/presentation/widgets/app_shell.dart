@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/router/app_router.dart';
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../providers/providers.dart';
 import 'thai_format.dart';
@@ -53,7 +54,9 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selected = _selectedIndex(context);
-    final wide = MediaQuery.sizeOf(context).width >= 1000;
+    // Persistent NavigationRail from tablet width up; Drawer below. Lowered
+    // from 1000 to AppBreakpoints.rail (760) so iPad portrait gets the Rail.
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.rail;
 
     if (wide) {
       return Scaffold(
@@ -198,7 +201,7 @@ class _TopBar extends ConsumerWidget {
     final now = DateTime.now();
 
     return Container(
-      height: 68,
+      constraints: const BoxConstraints(minHeight: 68),
       decoration: const BoxDecoration(
         color: AppColors.navyDeep,
         border: Border(
@@ -263,43 +266,54 @@ class _TopBar extends ConsumerWidget {
             onPressed: () => ref.read(themeModeProvider.notifier).toggle(),
           ),
           const SizedBox(width: 8),
-          StreamBuilder(
-            stream: settings,
-            builder: (context, snap) {
-              final cashier = snap.data?.cashierName;
-              return Container(
-                padding: const EdgeInsets.only(left: 12),
-                decoration: const BoxDecoration(
-                  border: Border(
-                    left: BorderSide(color: Colors.white24),
-                  ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      (cashier == null || cashier.isEmpty)
-                          ? 'Cashier'
-                          : cashier,
-                      style: const TextStyle(
-                        color: AppColors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
+          // Flexible + maxWidth + ellipsis: a long Thai cashier name + พ.ศ. date
+          // must yield to the Expanded shop name, never overflow the topbar.
+          Flexible(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 180),
+              child: StreamBuilder(
+                stream: settings,
+                builder: (context, snap) {
+                  final cashier = snap.data?.cashierName;
+                  return Container(
+                    padding: const EdgeInsets.only(left: 12),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        left: BorderSide(color: Colors.white24),
                       ),
                     ),
-                    Text(
-                      '${DateFormat('EEE', 'th').format(now)} '
-                      '${thaiDate(now)}',
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
-                      ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          (cashier == null || cashier.isEmpty)
+                              ? 'Cashier'
+                              : cashier,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          '${DateFormat('EEE', 'th').format(now)} '
+                          '${thaiDate(now)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              );
-            },
+                  );
+                },
+              ),
+            ),
           ),
         ],
       ),

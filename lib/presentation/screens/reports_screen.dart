@@ -515,46 +515,57 @@ class _StatCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: theme.dividerColor),
       ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              value,
-              maxLines: 1,
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                height: 1,
-                color: valueColor ?? theme.colorScheme.onSurface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Only value+label scale together; the sub stays at fixed size so a
+          // long 'ขาย ฿..−คืน ฿..' subtitle can't drag the headline smaller
+          // than sibling cards.
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    value,
+                    maxLines: 1,
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1,
+                      color: valueColor ?? theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 6),
+          ),
+          if (sub != null) ...[
+            const SizedBox(height: 4),
             Text(
-              label,
+              sub!,
               maxLines: 1,
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.2,
-                color: theme.colorScheme.secondary,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.secondary.withValues(alpha: 0.7),
               ),
             ),
-            if (sub != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                sub!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.secondary.withValues(alpha: 0.7),
-                ),
-              ),
-            ],
           ],
-        ),
+        ],
       ),
     );
   }
@@ -671,12 +682,16 @@ class _TopProductRow extends StatelessWidget {
               children: [
                 Text(
                   name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyLarge?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   partNo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppColors.orangeLight,
                     fontFamily: 'monospace',
@@ -735,6 +750,8 @@ class _CategoryBar extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.6,
@@ -857,6 +874,8 @@ class _RecentRow extends StatelessWidget {
                 const SizedBox(height: 1),
                 Text(
                   '${sale.items.length} รายการ · ${s.paymentMethod}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.secondary.withValues(alpha: 0.8),
                   ),

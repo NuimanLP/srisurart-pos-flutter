@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
@@ -201,28 +202,36 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
 
   Widget _quickChip(String v) {
     final active = _query == v;
+    // minHeight:44 hit target (widthFactor:1 keeps the pill compact in the Wrap).
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: () => _toggleChip(v),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-        decoration: BoxDecoration(
-          color: active
-              ? AppColors.orange.withValues(alpha: 0.18)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: active
-                ? AppColors.orange.withValues(alpha: 0.6)
-                : AppColors.gray200.withValues(alpha: 0.6),
-          ),
-        ),
-        child: Text(
-          v,
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-            color: active ? AppColors.orange : AppColors.steelBlue,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Center(
+          widthFactor: 1,
+          heightFactor: 1,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: active
+                  ? AppColors.orange.withValues(alpha: 0.18)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: active
+                    ? AppColors.orange.withValues(alpha: 0.6)
+                    : AppColors.gray200.withValues(alpha: 0.6),
+              ),
+            ),
+            child: Text(
+              v,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                color: active ? AppColors.orange : AppColors.steelBlue,
+              ),
+            ),
           ),
         ),
       ),
@@ -264,9 +273,14 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
     }
 
     final trimmed = _query.trim();
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-      children: [
+    // Cap content width so result cards don't stretch edge-to-edge on
+    // iPad-landscape / desktop (empty/loading states keep their own centering).
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: AppBreakpoints.rail),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 14),
           child: RichText(
@@ -286,11 +300,13 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
             ),
           ),
         ),
-        for (final p in results) ...[
-          _resultCard(context, p, categories, trimmed),
-          const SizedBox(height: 10),
-        ],
-      ],
+            for (final p in results) ...[
+              _resultCard(context, p, categories, trimmed),
+              const SizedBox(height: 10),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -417,20 +433,25 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
           // cardFooter: category badge + brand + copy
           Row(
             children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: catColor.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: catColor.withValues(alpha: 0.27)),
-                ),
-                child: Text(
-                  p.category,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: catColor,
+              Flexible(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: catColor.withValues(alpha: 0.13),
+                    borderRadius: BorderRadius.circular(4),
+                    border:
+                        Border.all(color: catColor.withValues(alpha: 0.27)),
+                  ),
+                  child: Text(
+                    p.category,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: catColor,
+                    ),
                   ),
                 ),
               ),
@@ -445,9 +466,8 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
                 onPressed: () => _copy(p.partNo),
                 style: OutlinedButton.styleFrom(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  minimumSize: const Size(0, 0),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  minimumSize: const Size(0, 44),
                   side: BorderSide(
                     color: AppColors.gray200.withValues(alpha: 0.6),
                   ),

@@ -1659,12 +1659,18 @@ class _SummaryCell extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Column(
           children: [
-            Text(
-              value,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 22,
-                height: 1,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 22,
+                  height: 1,
+                ),
               ),
             ),
             const SizedBox(height: 4),

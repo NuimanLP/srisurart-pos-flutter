@@ -397,14 +397,17 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Summary cards
-        GridView.count(
-          crossAxisCount: 2,
+        // Summary cards — fixed pixel height (was childAspectRatio:2.8, whose
+        // width-derived height clipped the baht value + label under text scale).
+        GridView(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 2.8,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            mainAxisExtent: 78,
+          ),
           children: [
             _summCard('เงินตั้งต้น', d.startingCash, AppColors.steelBlue),
             _summCard('ยอดขายเงินสด', d.cashSalesTotal, AppColors.successLight),
@@ -427,12 +430,25 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('เงินในลิ้นชักที่ควรมี',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: AppColors.steelBlue)),
-              Text(baht(d.expectedCash),
-                  style: theme.textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w800)),
+              Flexible(
+                child: Text('เงินในลิ้นชักที่ควรมี',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: AppColors.steelBlue)),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(baht(d.expectedCash),
+                      maxLines: 1,
+                      softWrap: false,
+                      style: theme.textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800)),
+                ),
+              ),
             ],
           ),
         ),
@@ -641,12 +657,21 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(r[0] as String,
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(color: AppColors.steelBlue)),
-                      Text(baht(r[1] as double),
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.w700)),
+                      Expanded(
+                        child: Text(r[0] as String,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(color: AppColors.steelBlue)),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(baht(r[1] as double),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                      ),
                     ],
                   ),
                 ),
@@ -660,12 +685,21 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('เงินที่ควรมีในลิ้นชัก',
-                        style: theme.textTheme.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w700)),
-                    Text(baht(d.expectedCash),
-                        style: theme.textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    Expanded(
+                      child: Text('เงินที่ควรมีในลิ้นชัก',
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w700)),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(baht(d.expectedCash),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: theme.textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w700)),
+                    ),
                   ],
                 ),
               ),
@@ -699,9 +733,16 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
                       Text('ผลต่าง',
                           style: theme.textTheme.titleSmall
                               ?.copyWith(fontWeight: FontWeight.w700)),
-                      Text(varLabel,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800, color: varColor)),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(varLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: varColor)),
+                      ),
                     ],
                   ),
                 ),
@@ -733,11 +774,19 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(baht(value),
-                style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800, color: color, height: 1)),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(baht(value),
+                  maxLines: 1,
+                  softWrap: false,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800, color: color, height: 1)),
+            ),
             const SizedBox(height: 3),
             Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: AppColors.steelBlue)),
           ],
