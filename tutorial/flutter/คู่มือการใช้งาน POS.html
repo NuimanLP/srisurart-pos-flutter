@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือการใช้งาน — ระบบขายหน้าร้าน POS · ศรีสุราษฎร์เจริญยนต์ (Flutter Edition)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0B2444;
+    --navy-deep: #071A33;
+    --orange: #E8601C;
+    --ink: #1B2A3A;
+    --ink-soft: #51657A;
+    --line: #E2E0D8;
+    --paper: #FFFFFF;
+    --cream: #FBF8F1;
+    --green: #3B7A2E;
+    --red: #C0392B;
+    --amber: #B5780A;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: #6B7280; }
+  body {
+    font-family: 'Sarabun', sans-serif;
+    color: var(--ink);
+    line-height: 1.62;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .kicker, .mono { font-feature-settings: "tnum"; }
+
+  /* ── PAGE MODEL ──────────────────────────────── */
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    background: var(--paper);
+    margin: 16px auto;
+    padding: 22mm 20mm 20mm;
+    position: relative;
+    box-shadow: 0 4px 28px rgba(0,0,0,0.28);
+  }
+  .page.cover { padding: 0; overflow: hidden; background: var(--navy); }
+
+  /* ── COVER ───────────────────────────────────── */
+  .cover-wrap { position: relative; height: 297mm; display: flex; flex-direction: column; color: #fff; }
+  .cover-top-rule { height: 10px; background: var(--orange); flex-shrink: 0; }
+  .cover-body { flex: 1; padding: 30mm 24mm; display: flex; flex-direction: column; }
+  .cover-brand { display: flex; align-items: center; gap: 16px; }
+  .logo-mark {
+    width: 60px; height: 60px; border-radius: 9px; background: var(--orange);
+    display: flex; align-items: center; justify-content: center; font-size: 34px;
+    box-shadow: 0 3px 22px rgba(232,96,28,0.55);
+  }
+  .cover-brand .name {
+    font-family: 'Barlow Condensed', 'Sarabun', sans-serif; font-weight: 800;
+    font-size: 27px; letter-spacing: 0.02em; line-height: 1.05;
+  }
+  .cover-brand .sub {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 12px;
+    letter-spacing: 0.34em; text-transform: uppercase; color: var(--orange); margin-top: 3px;
+  }
+  .cover-spacer { flex: 1; }
+  .cover-eyebrow {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px;
+    letter-spacing: 0.4em; text-transform: uppercase; color: #6B8FAF; margin-bottom: 14px;
+  }
+  .cover-title {
+    font-weight: 800; font-size: 58px; line-height: 1.04; letter-spacing: -0.01em;
+  }
+  .cover-title .accent { color: var(--orange); }
+  .cover-lede {
+    font-weight: 300; font-size: 19px; color: #B9CBDD; margin-top: 20px; max-width: 30em;
+  }
+  .cover-meta {
+    margin-top: 34px; display: flex; gap: 40px; padding-top: 22px;
+    border-top: 1px solid rgba(255,255,255,0.16);
+  }
+  .cover-meta .lbl { font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: #6B8FAF; }
+  .cover-meta .val { font-size: 16px; font-weight: 600; margin-top: 3px; }
+  .cover-foot {
+    background: var(--navy-deep); padding: 12px 24mm; font-size: 12.5px; color: #6B8FAF;
+    display: flex; justify-content: space-between; flex-shrink: 0;
+  }
+
+  /* ── RUNNING HEADER / FOOTER ─────────────────── */
+  .runhead {
+    position: absolute; top: 11mm; left: 20mm; right: 20mm;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'Barlow Condensed', sans-serif; font-size: 11px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: #9AA7B4; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+  }
+  .runhead .r { color: var(--orange); font-weight: 700; }
+  .runfoot {
+    position: absolute; bottom: 12mm; left: 20mm; right: 20mm;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'Barlow Condensed', sans-serif; font-size: 11px; letter-spacing: 0.1em;
+    color: #9AA7B4; padding-top: 6px; border-top: 1px solid var(--line);
+  }
+  .pagenum { font-weight: 700; color: var(--ink-soft); }
+
+  /* ── TYPE ────────────────────────────────────── */
+  .sec-no {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 13px;
+    letter-spacing: 0.3em; color: var(--orange); text-transform: uppercase;
+  }
+  h1.sec {
+    font-weight: 800; font-size: 30px; line-height: 1.12; color: var(--navy);
+    margin: 4px 0 4px; letter-spacing: -0.01em;
+  }
+  h1.sec .en { font-family: 'Barlow Condensed', sans-serif; font-weight: 600; color: var(--ink-soft); font-size: 21px; letter-spacing: 0.02em; }
+  .sec-lede { font-size: 15.5px; color: var(--ink-soft); max-width: 44em; margin-bottom: 18px; }
+  h2.sub {
+    font-weight: 700; font-size: 18.5px; color: var(--navy); margin: 26px 0 8px;
+    padding-left: 12px; border-left: 4px solid var(--orange);
+  }
+  p { margin-bottom: 9px; }
+  strong { font-weight: 700; color: var(--navy); }
+  .hl { background: linear-gradient(transparent 60%, rgba(232,96,28,0.22) 60%); font-weight: 600; padding: 0 1px; }
+
+  /* ── FIGURE ──────────────────────────────────── */
+  figure { margin: 14px 0 6px; break-inside: avoid; }
+  figure img {
+    width: 100%; display: block; border-radius: 8px; border: 1px solid var(--line);
+    box-shadow: 0 6px 18px rgba(11,36,68,0.12);
+  }
+  figcaption {
+    font-family: 'Barlow Condensed', sans-serif; font-size: 12.5px; letter-spacing: 0.05em;
+    color: var(--ink-soft); margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--orange);
+    text-transform: uppercase; font-weight: 600;
+  }
+  .figrow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  /* ── STEPS ───────────────────────────────────── */
+  ol.steps { list-style: none; counter-reset: step; margin: 10px 0 6px; }
+  ol.steps > li {
+    position: relative; padding-left: 44px; margin-bottom: 13px; break-inside: avoid;
+  }
+  ol.steps > li::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 0; top: 1px; width: 30px; height: 30px;
+    background: var(--navy); color: #fff; border-radius: 8px;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 17px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ol.steps > li .st-title { font-weight: 700; color: var(--navy); display: block; }
+
+  ul.ticks { list-style: none; margin: 8px 0 8px; }
+  ul.ticks li { position: relative; padding-left: 24px; margin-bottom: 6px; }
+  ul.ticks li::before {
+    content: ''; position: absolute; left: 4px; top: 9px; width: 7px; height: 7px;
+    background: var(--orange); border-radius: 2px; transform: rotate(45deg);
+  }
+
+  /* ── CALLOUTS ────────────────────────────────── */
+  .note {
+    border-radius: 9px; padding: 13px 16px 13px 46px; margin: 14px 0; position: relative;
+    font-size: 14.5px; break-inside: avoid;
+  }
+  .note::before { position: absolute; left: 15px; top: 12px; font-size: 18px; }
+  .note .nt { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; font-size: 12px; display: block; margin-bottom: 2px; }
+  .note.tip   { background: #EEF6EC; border: 1px solid #CFE6C8; }
+  .note.tip::before { content: '💡'; }
+  .note.tip .nt { color: var(--green); }
+  .note.warn  { background: #FCEFE9; border: 1px solid #F2CFBE; }
+  .note.warn::before { content: '⚠️'; }
+  .note.warn .nt { color: var(--red); }
+  .note.key   { background: #FFF6E6; border: 1px solid #F0DEB0; }
+  .note.key::before { content: '🔑'; }
+  .note.key .nt { color: var(--amber); }
+
+  /* ── KBD / UI TOKENS ─────────────────────────── */
+  .ui {
+    display: inline-block; background: var(--orange); color: #fff; font-weight: 600;
+    font-size: 13px; padding: 1px 8px; border-radius: 5px; white-space: nowrap;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.12);
+  }
+  .ui.ghost { background: var(--cream); color: var(--navy); border: 1px solid var(--line); box-shadow: none; }
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--orange); }
+
+  /* ── TOC ─────────────────────────────────────── */
+  .toc { margin-top: 6px; }
+  .toc-row {
+    display: flex; align-items: baseline; gap: 12px; padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .toc-row .n { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; color: var(--orange); font-size: 16px; width: 28px; flex-shrink: 0; }
+  .toc-row .t { font-weight: 600; color: var(--navy); }
+  .toc-row .t .en { font-family: 'Barlow Condensed', sans-serif; font-weight: 500; color: var(--ink-soft); font-size: 13px; margin-left: 8px; letter-spacing: 0.04em; }
+  .toc-row .pg { margin-left: auto; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; color: var(--ink-soft); }
+
+  /* ── NAV LEGEND GRID ─────────────────────────── */
+  .navgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 14px 0; }
+  .navcard { display: flex; gap: 11px; align-items: flex-start; background: var(--cream); border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; }
+  .navcard .ic { font-size: 20px; line-height: 1; flex-shrink: 0; width: 28px; text-align: center; }
+  .navcard .tx b { color: var(--navy); }
+  .navcard .tx span { display: block; font-size: 12.5px; color: var(--ink-soft); }
+
+  /* ── DIVIDER / SPACING ───────────────────────── */
+  .gap { height: 8px; }
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .twocol h2.sub { margin-top: 10px; }
+
+  @media print {
+    html { background: #fff; }
+    .page { margin: 0; box-shadow: none; width: auto; min-height: auto; page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════ COVER ════════════════ -->
+<section class="page cover">
+  <div class="cover-wrap">
+    <div class="cover-top-rule"></div>
+    <div class="cover-body">
+      <div class="cover-brand">
+        <div class="logo-mark">⚡</div>
+        <div>
+          <div class="name">ศรีสุราษฎร์เจริญยนต์</div>
+          <div class="sub">Srisuras Charoen Yon · POS</div>
+        </div>
+      </div>
+      <div class="cover-spacer"></div>
+      <div class="cover-eyebrow">User Manual · คู่มือการใช้งาน</div>
+      <div class="cover-title">คู่มือการใช้งาน<br><span class="accent">ระบบขายหน้าร้าน</span></div>
+      <div class="cover-lede">คู่มือฉบับสมบูรณ์สำหรับพนักงานขายและเจ้าของร้าน ตั้งแต่เปิดร้าน ขายอะไหล่ คืนสินค้า จัดการสต็อก ไปจนถึงปิดยอดและสำรองข้อมูล — พร้อมภาพประกอบจากแอปจริงทุกขั้นตอน</div>
+      <div class="cover-meta">
+        <div><div class="lbl">สำหรับ</div><div class="val">แคชเชียร์ · เจ้าของร้าน</div></div>
+        <div><div class="lbl">ฉบับ</div><div class="val">2.0 · Flutter</div></div>
+        <div><div class="lbl">ภาษา</div><div class="val">ไทย</div></div>
+      </div>
+    </div>
+    <div class="cover-foot">
+      <span>เอกสารภายในร้าน · สำหรับการอบรมพนักงาน</span>
+      <span>POS System Guide · Flutter Edition</span>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ TOC ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">สารบัญ</span></div>
+  <div class="sec-no">Contents</div>
+  <h1 class="sec">สารบัญ</h1>
+  <p class="sec-lede">คู่มือแบ่งออกเป็น 14 หัวข้อหลัก ตามลำดับการใช้งานจริงในหนึ่งวันทำงาน</p>
+  <div class="toc">
+    <div class="toc-row"><span class="n">01</span><span class="t">ภาพรวมระบบ <span class="en">Overview &amp; Navigation</span></span><span class="pg">4</span></div>
+    <div class="toc-row"><span class="n">02</span><span class="t">เปิดร้าน — ลิ้นชักเงินสด <span class="en">Open Drawer</span></span><span class="pg">5</span></div>
+    <div class="toc-row"><span class="n">03</span><span class="t">การขายสินค้า &amp; ใบเสร็จ <span class="en">Checkout &amp; Receipt</span></span><span class="pg">6</span></div>
+    <div class="toc-row"><span class="n">04</span><span class="t">พักบิล — เก็บบิลไว้ขายต่อ <span class="en">Park / Hold</span></span><span class="pg">8</span></div>
+    <div class="toc-row"><span class="n">05</span><span class="t">ใบเสนอราคา <span class="en">Quotation</span></span><span class="pg">9</span></div>
+    <div class="toc-row"><span class="n">06</span><span class="t">การคืนสินค้า / ยกเลิกบิล <span class="en">Returns</span></span><span class="pg">10</span></div>
+    <div class="toc-row"><span class="n">07</span><span class="t">สินค้า / สต็อก <span class="en">Inventory</span></span><span class="pg">11</span></div>
+    <div class="toc-row"><span class="n">08</span><span class="t">ค้นหาตามรุ่นรถ <span class="en">Search by Vehicle</span></span><span class="pg">12</span></div>
+    <div class="toc-row"><span class="n">09</span><span class="t">สั่งซื้อสินค้า <span class="en">Purchase Orders</span></span><span class="pg">13</span></div>
+    <div class="toc-row"><span class="n">10</span><span class="t">ลูกค้า &amp; แต้มสะสม <span class="en">Customers</span></span><span class="pg">14</span></div>
+    <div class="toc-row"><span class="n">11</span><span class="t">ช่าง &amp; เครดิตช่าง <span class="en">Mechanics &amp; Credit</span></span><span class="pg">15</span></div>
+    <div class="toc-row"><span class="n">12</span><span class="t">รายงานยอดขาย <span class="en">Sales Reports</span></span><span class="pg">16</span></div>
+    <div class="toc-row"><span class="n">13</span><span class="t">ปิดร้าน — ปิดลิ้นชัก <span class="en">Closing</span></span><span class="pg">17</span></div>
+    <div class="toc-row"><span class="n">14</span><span class="t">ตั้งค่า &amp; สำรองข้อมูล <span class="en">Settings &amp; Backup</span></span><span class="pg">18</span></div>
+    <div class="toc-row"><span class="n">＋</span><span class="t">ภาคผนวก — เคล็ดลับ &amp; คำถามพบบ่อย <span class="en">Tips &amp; FAQ</span></span><span class="pg">19</span></div>
+  </div>
+  <div class="note key">
+    <span class="nt">ก่อนเริ่มใช้งาน</span>
+    ระบบทำงานแบบ <strong>ออฟไลน์ (Offline-first)</strong> และเก็บข้อมูลไว้ใน <strong>เครื่องนี้เท่านั้น</strong> — ควร<strong>สำรองข้อมูลทุกวัน</strong> และเก็บไฟล์สำรองไว้ที่ปลอดภัย (ดูหัวข้อ 14)
+  </div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">3</span></div>
+</section>
+
+<!-- ════════════════ 01 OVERVIEW ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">01 · ภาพรวม</span></div>
+  <div class="sec-no">Section 01</div>
+  <h1 class="sec">ภาพรวมระบบ <span class="en">Overview</span></h1>
+  <p class="sec-lede">หน้าจอแบ่งเป็น 3 ส่วน: <strong>แถบเมนูด้านซ้าย</strong> สำหรับสลับ 11 หน้าจอ · <strong>แถบบนสุด</strong> แสดงชื่อร้าน ชื่อหน้าจอ ปุ่มสลับธีม ชื่อแคชเชียร์ และวันเวลา · และ<strong>พื้นที่ทำงาน</strong>ตรงกลาง โดยเริ่มต้นจะอยู่ที่หน้าขายสินค้าเสมอ</p>
+
+  <figure>
+    <img src="img/checkout.png" alt="หน้าจอหลักของระบบ POS">
+    <figcaption>หน้าขายสินค้า — แถบเมนูด้านซ้าย · รายการสินค้าตรงกลาง · ตะกร้าและการชำระเงินด้านขวา</figcaption>
+  </figure>
+
+  <h2 class="sub">เมนูหลัก 11 หน้า (แถบด้านซ้าย)</h2>
+  <div class="navgrid">
+    <div class="navcard"><span class="ic">🧾</span><span class="tx"><b>ขายสินค้า</b><span>หน้าขายหลัก / คิดเงิน</span></span></div>
+    <div class="navcard"><span class="ic">📦</span><span class="tx"><b>สินค้า/สต็อก</b><span>เพิ่ม-แก้ไขสินค้า · เช็กของ</span></span></div>
+    <div class="navcard"><span class="ic">🛒</span><span class="tx"><b>สั่งซื้อ</b><span>ใบสั่งซื้อ · รับของเข้าสต็อก</span></span></div>
+    <div class="navcard"><span class="ic">🚗</span><span class="tx"><b>ค้นหารุ่น</b><span>ค้นอะไหล่จากรุ่นรถ</span></span></div>
+    <div class="navcard"><span class="ic">👥</span><span class="tx"><b>ลูกค้า</b><span>ทะเบียนลูกค้า · แต้มสะสม</span></span></div>
+    <div class="navcard"><span class="ic">🔧</span><span class="tx"><b>ช่าง</b><span>ทะเบียนช่าง · ยอดเครดิต</span></span></div>
+    <div class="navcard"><span class="ic">↩</span><span class="tx"><b>คืนสินค้า</b><span>คืนของ · ยกเลิกบิล</span></span></div>
+    <div class="navcard"><span class="ic">📄</span><span class="tx"><b>ใบเสนอราคา</b><span>สร้าง-จัดการใบเสนอราคา</span></span></div>
+    <div class="navcard"><span class="ic">📊</span><span class="tx"><b>รายงาน</b><span>ยอดขาย · สินค้าขายดี</span></span></div>
+    <div class="navcard"><span class="ic">⚙</span><span class="tx"><b>ตั้งค่า</b><span>ข้อมูลร้าน · สำรองข้อมูล</span></span></div>
+    <div class="navcard"><span class="ic">💵</span><span class="tx"><b>ลิ้นชัก</b><span>เปิด/ปิดร้าน · เงินเข้า-ออก</span></span></div>
+  </div>
+
+  <h2 class="sub">แถบบนสุด</h2>
+  <ul class="ticks">
+    <li><strong>ซ้าย</strong> — ชื่อร้าน (ไทย) และชื่อภาษาอังกฤษ</li>
+    <li><strong>กลาง</strong> — ชื่อหน้าจอที่กำลังเปิดอยู่</li>
+    <li><strong>ขวา</strong> — ปุ่ม <span class="ui ghost">🌙 / ☀️</span> สลับ <strong>โหมดมืด/สว่าง</strong> · ชื่อแคชเชียร์ · วันที่และเวลาปัจจุบัน</li>
+  </ul>
+  <div class="note tip">
+    <span class="nt">รู้ไว้ก่อน</span>
+    หน้าจอ <span class="ui ghost">🚗 ค้นหารุ่น</span> · <span class="ui ghost">💵 ลิ้นชัก</span> · <span class="ui ghost">📄 ใบเสนอราคา</span> เป็น<strong>เมนูถาวรในแถบซ้าย</strong> เข้าถึงได้ตลอด ส่วนการ<strong>ปิดร้าน</strong>อยู่ในปุ่ม <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> ภายในหน้าลิ้นชัก
+  </div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">4</span></div>
+</section>
+
+<!-- ════════════════ 02 OPEN DRAWER ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">02 · เปิดร้าน</span></div>
+  <div class="sec-no">Section 02</div>
+  <h1 class="sec">เปิดร้าน — ลิ้นชักเงินสด <span class="en">Open Drawer</span></h1>
+  <p class="sec-lede">ทุกเช้าก่อนเริ่มขาย ให้เข้าหน้า <span class="ui ghost">💵 ลิ้นชัก</span> และกรอก<strong>เงินตั้งต้น</strong> (เงินทอน) เพื่อให้ระบบคำนวณยอดเงินสดที่ควรมีได้ถูกต้องตอนปิดร้าน</p>
+
+  <figure>
+    <img src="img/cashdrawer.png" alt="หน้าจอลิ้นชักเงินสดหลังเปิดร้าน">
+    <figcaption>หน้าลิ้นชักเงินสด — แท็บ รายการเงิน / ปิดลิ้นชัก · สรุปเงินที่ควรมีในลิ้นชักด้านซ้าย · ประวัติรายการวันนี้ด้านขวา</figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li><span class="st-title">เปิดเมนู <span class="ui ghost">💵 ลิ้นชัก</span> ในแถบซ้าย</span>หากยังไม่ได้เปิดร้าน ระบบจะแสดงข้อความ <strong>“ยังไม่ได้เปิดร้านวันนี้”</strong> พร้อมช่องกรอกเงินตั้งต้น</li>
+    <li><span class="st-title">กรอกเงินตั้งต้น</span>พิมพ์จำนวนเงินทอนที่ใส่ลิ้นชักไว้ หรือกดปุ่มลัด <span class="ui ghost">฿500</span> <span class="ui ghost">฿1,000</span> <span class="ui ghost">฿2,000</span> <span class="ui ghost">฿3,000</span></li>
+    <li><span class="st-title">กด <span class="ui">เปิดร้าน</span></span>ระบบบันทึกเวลาเปิดร้านและเริ่มนับยอดเงินสดของวันนั้น</li>
+  </ol>
+
+  <h2 class="sub">ระหว่างวัน — บันทึกเงินเข้า/ออก</h2>
+  <p>เมื่อมีการ<strong>จ่ายเงินสดออก</strong>จากลิ้นชัก (เช่น จ่ายซัพพลายเออร์ ค่าน้ำมัน) หรือ<strong>เติมเงินเข้า</strong> ให้ทำที่แท็บ <span class="ui ghost">💵 รายการเงิน</span> เลือก <span class="ui ghost">💸 เงินออก</span> หรือ <span class="ui ghost">💰 เงินเข้า</span> ใส่จำนวนและหมายเหตุ แล้วกด <span class="ui ghost">+ เพิ่ม</span></p>
+  <div class="note tip">
+    <span class="nt">ทำไมต้องบันทึก</span>
+    ทุกรายการเงินเข้า-ออกจะถูกนำไปคำนวณ <strong>“เงินในลิ้นชักที่ควรมี”</strong> อัตโนมัติ ทำให้ตอนปิดร้านนับเงินแล้วรู้ทันทีว่าเงินขาดหรือเกิน</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">5</span></div>
+</section>
+
+<!-- ════════════════ 03 CHECKOUT ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">03 · การขายสินค้า</span></div>
+  <div class="sec-no">Section 03</div>
+  <h1 class="sec">การขายสินค้า <span class="en">Checkout</span></h1>
+  <p class="sec-lede">หัวใจของระบบ — เลือกสินค้าลงตะกร้า เลือกลูกค้า/ช่าง (ถ้ามี) เลือกวิธีชำระเงิน แล้วคิดเงิน ระบบจะตัดสต็อกและออกใบเสร็จให้อัตโนมัติ</p>
+
+  <figure>
+    <img src="img/checkout.png" alt="หน้าจอขายสินค้า">
+    <figcaption>กลาง: รายการสินค้า (กรองตามหมวด) — ขวา: ลูกค้า · ช่าง · ตะกร้า · ยอดเงิน · การชำระเงิน</figcaption>
+  </figure>
+
+  <h2 class="sub">ขั้นตอนการขาย</h2>
+  <ol class="steps">
+    <li><span class="st-title">เพิ่มสินค้าลงตะกร้า</span>มี 2 วิธี — <strong>สแกนบาร์โค้ด/พิมพ์รหัสอะไหล่</strong>ในช่องบนสุดแล้วกด Enter หรือ<strong>คลิกที่การ์ดสินค้า</strong>ตรงกลาง (กรองตามหมวดด้วยแถบ <span class="ui ghost">ทั้งหมด</span> <span class="ui ghost">เครื่องยนต์</span> <span class="ui ghost">ไฟฟ้า</span> <span class="ui ghost">น้ำมัน</span> <span class="ui ghost">เบรก</span> <span class="ui ghost">ตัวถัง</span>)</li>
+    <li><span class="st-title">ปรับจำนวน</span>กดปุ่ม <span class="ui ghost">−</span> / <span class="ui ghost">+</span> ในตะกร้า (ระบบไม่ให้ขายเกินจำนวนสต็อกที่มี)</li>
+    <li><span class="st-title">เลือกลูกค้า (ถ้ามี)</span>พิมพ์ชื่อหรือเบอร์โทรในช่อง <strong>ลูกค้า · Customer</strong> เพื่อสะสมแต้มและยอดซื้อ</li>
+    <li><span class="st-title">เลือกช่าง (ถ้ามี)</span>พิมพ์ชื่อช่างในช่อง <strong>🔧 ช่าง · Mechanic</strong> เพื่อปรับราคาเฉพาะรายการ หรือขายแบบเครดิต (ดูหัวข้อ 11)</li>
+    <li><span class="st-title">ใส่ส่วนลด (ถ้ามี)</span>กรอกจำนวนเงินส่วนลดในช่อง <strong>ส่วนลด</strong> (ใส่เกินยอดรวมไม่ได้)</li>
+    <li><span class="st-title">เลือกวิธีชำระเงิน</span><span class="ui ghost">เงินสด</span> · <span class="ui ghost">โอน/QR</span> (และ <span class="ui ghost">🔧 เครดิตช่าง</span> เมื่อเลือกช่าง)</li>
+    <li><span class="st-title">รับเงิน &amp; ทอนเงิน</span>กรณีเงินสด: กรอกยอด <strong>รับเงิน ฿…</strong> ระบบคำนวณ <strong>เงินทอน</strong> ให้ทันที (มีปุ่มลัดจำนวนเงิน)</li>
+    <li><span class="st-title">กด <span class="ui">✓ ชำระเงิน · CHECKOUT</span></span>ระบบบันทึกการขาย ตัดสต็อก และเปิดใบเสร็จให้พิมพ์</li>
+  </ol>
+  <div class="note tip">
+    <span class="nt">เคล็ดลับความเร็ว</span>
+    ช่องสแกนบาร์โค้ดอยู่บนสุดเสมอ — ใช้เครื่องยิงบาร์โค้ดยิงรหัสอะไหล่แล้วกด Enter เพื่อเพิ่มลงตะกร้าได้ต่อเนื่อง</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">6</span></div>
+</section>
+
+<!-- ════════════════ 03b RECEIPT ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">03 · ใบเสร็จ</span></div>
+  <div class="sec-no">Section 03 · ต่อ</div>
+  <h1 class="sec">ใบเสร็จรับเงิน <span class="en">Receipt</span></h1>
+  <p class="sec-lede">หลังกดชำระเงิน ใบเสร็จจะเด้งขึ้นพร้อมเลขที่บิล รายการสินค้า ยอดรวม เงินที่รับ และเงินทอน — รูปแบบกระดาษความร้อน 58 มม.</p>
+
+  <ul class="ticks">
+    <li><strong>เลขที่บิล</strong> ขึ้นต้นด้วย <span class="mono">RC</span> ใช้อ้างอิงเวลาคืนสินค้า (หัวข้อ 6)</li>
+    <li>กด <span class="ui">🖨 พิมพ์ใบเสร็จ</span> เพื่อสั่งพิมพ์ผ่านเครื่องพิมพ์ใบเสร็จ</li>
+    <li>กด <span class="ui ghost">✕ ปิด</span> ตะกร้าจะถูกล้าง พร้อมเริ่มบิลถัดไปทันที</li>
+  </ul>
+
+  <h2 class="sub">การปรับราคาเฉพาะรายการ (ราคาช่าง)</h2>
+  <p>เมื่อ<strong>เลือกช่าง</strong>ในบิล จะสามารถ<strong>คลิกที่ราคาของแต่ละรายการ</strong>เพื่อปรับราคาเฉพาะบิลนั้นได้ (เช่น ราคาพิเศษสำหรับช่างประจำ) — ระบบจะแสดง <strong>ส่วนต่างช่าง</strong> ในสรุปยอด และมีปุ่มคืนราคาเดิม</p>
+  <div class="note warn">
+    <span class="nt">ข้อจำกัด</span>
+    ระบบ<strong>ห้ามตั้งราคาต่ำกว่าทุน</strong> — ถ้าพิมพ์ราคาที่ต่ำกว่าราคาทุนของสินค้า ระบบจะเตือนและไม่บันทึกให้</div>
+  <div class="note tip">
+    <span class="nt">ขายเครดิตช่าง</span>
+    หากเลือกช่างแล้วเลือกวิธีชำระ <span class="ui ghost">🔧 เครดิตช่าง</span> ยอดบิลจะถูกบันทึกเป็นยอดค้างของช่าง แทนการรับเงินสด (ดูหัวข้อ 11)</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">7</span></div>
+</section>
+
+<!-- ════════════════ 04 PARK ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">04 · พักบิล</span></div>
+  <div class="sec-no">Section 04</div>
+  <h1 class="sec">พักบิล — เก็บบิลไว้ขายต่อ <span class="en">Park / Hold</span></h1>
+  <p class="sec-lede">ลูกค้ายังเลือกของไม่เสร็จ หรือมีลูกค้าอีกคนรีบจ่าย? <strong>พักบิล</strong>เก็บตะกร้าปัจจุบันไว้ก่อน แล้วกลับมาขายต่อทีหลังได้ โดยไม่กระทบสต็อก</p>
+
+  <ol class="steps">
+    <li><span class="st-title">กด <span class="ui ghost" style="border-color:#D4820A;color:#B5780A">⏸ พักบิล</span></span>ตะกร้าปัจจุบัน (พร้อมลูกค้า ช่าง และส่วนลด) ถูกเก็บไว้ และตะกร้าถูกล้างให้พร้อมขายบิลใหม่</li>
+    <li><span class="st-title">ขายลูกค้าคนถัดไปตามปกติ</span>บิลที่พักไว้จะปรากฏเป็น<strong>ชิปบิลที่พัก</strong>ด้านบนสุดของตะกร้า</li>
+    <li><span class="st-title">เรียกบิลกลับ</span>คลิกที่ชิปบิลที่พัก สินค้าทั้งหมดจะกลับเข้าตะกร้า พร้อมขายต่อ</li>
+  </ol>
+
+  <div class="note tip">
+    <span class="nt">สลับบิลอัตโนมัติ — ไม่มีอะไรหาย</span>
+    ถ้ากดเรียกบิลที่พักกลับ <strong>ขณะที่ตะกร้ายังมีสินค้าอยู่</strong> ระบบจะ<strong>พักบิลปัจจุบันให้อัตโนมัติ</strong>ก่อน แล้วค่อยเรียกบิลเก่ากลับมา — สลับไปมาได้โดยไม่ต้องกลัวข้อมูลหาย</div>
+  <div class="note warn">
+    <span class="nt">หมายเหตุ</span>
+    พักบิล<strong>ไม่ตัดสต็อก</strong> เมื่อเรียกกลับมา ระบบจะ<strong>ตรวจสต็อกใหม่</strong>เสมอ — หากสินค้าบางตัวถูกขายหมดไประหว่างนั้น ระบบจะปรับจำนวนหรือเอาออกพร้อมแจ้งเตือน</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">8</span></div>
+</section>
+
+<!-- ════════════════ 05 QUOTE ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">05 · ใบเสนอราคา</span></div>
+  <div class="sec-no">Section 05</div>
+  <h1 class="sec">ใบเสนอราคา <span class="en">Quotation</span></h1>
+  <p class="sec-lede">ออกใบเสนอราคา (A4) ให้ลูกค้าหรือร้านอู่ โดย<strong>ยังไม่ตัดสต็อกและยังไม่นับเป็นยอดขาย</strong> เมื่อลูกค้าตกลงค่อยแปลงเป็นการขายจริง</p>
+
+  <figure>
+    <img src="img/quotes.png" alt="หน้าจอจัดการใบเสนอราคา">
+    <figcaption>หน้าใบเสนอราคา — กรอง ทั้งหมด/ยังใช้ได้/หมดอายุ/แปลงแล้ว · แต่ละใบมีปุ่ม → ขาย · แก้ไข · ทำซ้ำ · ดู · ลบ</figcaption>
+  </figure>
+
+  <h2 class="sub">สร้างใบเสนอราคา</h2>
+  <ol class="steps">
+    <li><span class="st-title">เลือกสินค้าลงตะกร้า</span>ทำเหมือนการขายปกติที่หน้าขายสินค้า เลือกลูกค้า/ช่าง และส่วนลดได้</li>
+    <li><span class="st-title">กด <span class="ui ghost" style="border-color:#2A6FDB;color:#2A6FDB">📋 บันทึกใบเสนอราคา</span></span>ระบบสร้างใบเสนอราคา (เลขที่ขึ้นต้น <span class="mono">QT</span>) พร้อมพรีวิวแบบ A4 สำหรับพิมพ์</li>
+  </ol>
+
+  <h2 class="sub">จัดการใบเสนอราคา</h2>
+  <p>เปิดเมนู <span class="ui ghost">📄 ใบเสนอราคา</span> ในแถบซ้าย เพื่อดูทั้งหมด กรอง ค้นหา และทำสิ่งต่อไปนี้:</p>
+  <ul class="ticks">
+    <li><strong>→ ขาย</strong> — โหลดรายการกลับเข้าตะกร้าเพื่อคิดเงินจริง (ระบบตรวจสต็อกใหม่ให้)</li>
+    <li><strong>แก้ไข / ทำซ้ำ</strong> — ปรับรายการ หรือคัดลอกใบเดิมเป็นใบใหม่</li>
+    <li><strong>⬇ CSV</strong> — ส่งออกเป็นไฟล์ตาราง</li>
+    <li><strong>🧹 ล้าง</strong> — ลบใบที่แปลงแล้ว/หมดอายุออก</li>
+  </ul>
+  <div class="note key">
+    <span class="nt">อายุใบเสนอราคา</span>
+    ค่าเริ่มต้นมีอายุ <strong>30 วัน</strong> (ปรับได้ในหน้าตั้งค่า) ใบที่ยังไม่หมดอายุจะมีป้าย <span class="ui ghost">ยังใช้ได้ N วัน</span></div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">9</span></div>
+</section>
+
+<!-- ════════════════ 06 RETURNS ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">06 · คืนสินค้า</span></div>
+  <div class="sec-no">Section 06</div>
+  <h1 class="sec">การคืนสินค้า / ยกเลิกบิล <span class="en">Returns</span></h1>
+  <p class="sec-lede">คืนสินค้าบางรายการ หรือยกเลิกทั้งบิล ระบบจะ<strong>คืนสต็อก คืนเงิน และลบยอด/แต้ม</strong>ออกให้อัตโนมัติ พร้อมออกใบลดหนี้ (เลขที่ <span class="mono">CN</span>)</p>
+
+  <div class="figrow">
+    <figure>
+      <img src="img/returns.png" alt="หน้าจอคืนสินค้า — ค้นหาบิล">
+      <figcaption>ซ้าย: ค้นหาบิลด้วยเลขที่ RC / ชื่อสินค้า / ชื่อช่าง</figcaption>
+    </figure>
+    <figure>
+      <img src="img/returns-detail.png" alt="หน้าจอคืนสินค้า — เลือกรายการที่จะคืน">
+      <figcaption>ขวา: เลือกจำนวนที่คืน · วิธีคืนเงิน · ยืนยันการคืน</figcaption>
+    </figure>
+  </div>
+
+  <ol class="steps">
+    <li><span class="st-title">ค้นหาบิล</span>พิมพ์เลขที่บิล <span class="mono">RC…</span> ชื่อสินค้า หรือชื่อช่าง ในช่องค้นหาทางซ้าย แล้วเลือกบิล</li>
+    <li><span class="st-title">เลือกจำนวนที่จะคืน</span>ปรับจำนวนแต่ละรายการ หรือกด <span class="ui ghost">คืนหมด</span> เฉพาะรายการนั้น</li>
+    <li><span class="st-title">เลือกวิธีคืนเงิน</span><span class="ui ghost">เงินสด</span> · <span class="ui ghost">โอน</span> · <span class="ui ghost">หักจากเครดิต</span> (กรณีบิลช่าง) + ใส่เหตุผล (ถ้ามี)</li>
+    <li><span class="st-title">กด <span class="ui" style="background:#C0392B">ยืนยันการคืนสินค้า</span></span>ระบบออกใบลดหนี้และคืนสต็อกทันที — หรือกด <span class="ui ghost" style="border-color:#C0392B;color:#C0392B">✕ ยกเลิกบิลทั้งบิล</span> เพื่อคืนทุกรายการในครั้งเดียว</li>
+  </ol>
+  <div class="note warn">
+    <span class="nt">ระบบป้องกันการคืนเกิน</span>
+    คืนได้ไม่เกินจำนวนที่ขายไปจริง (หักจำนวนที่เคยคืนแล้ว) เมื่อคืนครบทุกชิ้น บิลจะถูกทำเครื่องหมาย <strong>“ยกเลิกแล้ว”</strong> อัตโนมัติ และจะคืนซ้ำไม่ได้</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">10</span></div>
+</section>
+
+<!-- ════════════════ 07 INVENTORY ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">07 · สินค้า/สต็อก</span></div>
+  <div class="sec-no">Section 07</div>
+  <h1 class="sec">สินค้า / สต็อก <span class="en">Inventory</span></h1>
+  <p class="sec-lede">จัดการคลังสินค้าทั้งหมด — เพิ่ม แก้ไข ปรับสต็อก พิมพ์ป้ายบาร์โค้ด และดูสินค้าที่ใกล้หมด</p>
+
+  <figure>
+    <img src="img/products.png" alt="หน้าจอจัดการสินค้าและสต็อก">
+    <figcaption>ตารางสินค้า — รหัส · ชื่อ · ประเภท · ราคาขาย · ราคาทุน · คงเหลือ · MIN · สถานะ</figcaption>
+  </figure>
+
+  <h2 class="sub">การทำงานหลัก (แท็บ สต็อก)</h2>
+  <ul class="ticks">
+    <li><span class="ui">+ เพิ่มสินค้า</span> — เพิ่มอะไหล่ใหม่ (รหัสอะไหล่ห้ามซ้ำกัน)</li>
+    <li><span class="ui ghost">แก้ไข</span> — แก้ชื่อ ราคา หมวด รุ่นที่ใช้ได้</li>
+    <li><span class="ui ghost">± ปรับ</span> — ปรับจำนวนสต็อก (เช่น ของชำรุด นับสต็อก) พร้อมบันทึกเหตุผล</li>
+    <li><span class="ui ghost">🖨 พิมพ์ป้าย</span> — พิมพ์ป้ายบาร์โค้ดติดสินค้า</li>
+    <li>กรองด้วยชิป <span class="ui ghost">ทั้งหมด</span> <span class="ui ghost">สต็อกต่ำ</span> <span class="ui ghost">หมดสต็อก</span> และตามหมวดหมู่</li>
+  </ul>
+  <h2 class="sub">แท็บย่อย</h2>
+  <ul class="ticks">
+    <li><strong>สต็อก</strong> — ตารางสินค้าหลัก (ในภาพ)</li>
+    <li><strong>คำนวณราคา</strong> — ช่วยตั้งราคาขายจากราคาทุน + กำไรที่ต้องการ</li>
+    <li><strong>ซัพพลายเออร์</strong> — เก็บแหล่งซื้อหลายเจ้าต่อสินค้าหนึ่งตัว เปรียบเทียบราคา</li>
+    <li><strong>รายงานสต็อก</strong> — การเคลื่อนไหวสต็อก รับเข้า-จ่ายออก</li>
+  </ul>
+  <div class="note key">
+    <span class="nt">สถานะสต็อก</span>
+    คงเหลือ <span style="color:#3B7A2E;font-weight:700">สีเขียว</span> = ปกติ · <span style="color:#B5780A;font-weight:700">สีส้ม</span> = ใกล้หมด (ต่ำกว่าหรือเท่าขั้นต่ำ) · <span style="color:#C0392B;font-weight:700">สีแดง</span> = หมด — ดูจำนวนรายการใกล้หมดได้จากชิป <span class="ui ghost">สต็อกต่ำ</span> ด้านบน</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">11</span></div>
+</section>
+
+<!-- ════════════════ 08 VEHICLE SEARCH ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">08 · ค้นหารุ่น</span></div>
+  <div class="sec-no">Section 08</div>
+  <h1 class="sec">ค้นหาตามรุ่นรถ <span class="en">Search by Vehicle</span></h1>
+  <p class="sec-lede">ลูกค้าบอกแค่รุ่นรถ? เปิดเมนู <span class="ui ghost">🚗 ค้นหารุ่น</span> แล้วพิมพ์หรือเลือกรุ่นรถ ระบบจะแสดงอะไหล่ที่ใช้กับรุ่นนั้นได้ทั้งหมด พร้อมปุ่มคัดลอกรหัส</p>
+
+  <div class="figrow">
+    <figure>
+      <img src="img/vehicle.png" alt="หน้าค้นหาตามรุ่นรถ">
+      <figcaption>เลือกรุ่นยอดนิยม หรือพิมพ์ชื่อรุ่นในช่องค้นหา</figcaption>
+    </figure>
+    <figure>
+      <img src="img/vehicle-results.png" alt="ผลการค้นหาตามรุ่นรถ">
+      <figcaption>ผลลัพธ์ — รุ่นที่ตรงถูกไฮไลต์สีส้ม · กด 📋 คัดลอกรหัส</figcaption>
+    </figure>
+  </div>
+
+  <ol class="steps">
+    <li><span class="st-title">เลือกรุ่นรถ</span>กดชิปรุ่นยอดนิยม (เช่น <span class="ui ghost">Toyota Hilux</span> <span class="ui ghost">Honda City</span> <span class="ui ghost">Isuzu D-Max</span>) หรือพิมพ์ชื่อรุ่นเอง</li>
+    <li><span class="st-title">ดูอะไหล่ที่เข้ากันได้</span>ระบบแสดงสินค้าทุกตัวที่ระบุว่าใช้กับรุ่นนั้น พร้อม<strong>ไฮไลต์ชื่อรุ่นที่ตรง</strong> รหัสอะไหล่ และจำนวนคงเหลือ</li>
+    <li><span class="st-title">กด <span class="ui ghost">📋 คัดลอกรหัส</span></span>คัดลอกรหัสอะไหล่ไปวางในช่องสแกนที่หน้าขายเพื่อเพิ่มลงตะกร้าได้ทันที</li>
+  </ol>
+  <div class="note tip">
+    <span class="nt">รุ่นที่ใช้ได้มาจากไหน</span>
+    ระบบดึงจากช่อง <strong>รุ่นที่ใช้ได้ (compat)</strong> ของสินค้าแต่ละตัว — กรอกข้อมูลรุ่นให้ครบตอนเพิ่ม/แก้ไขสินค้า (หัวข้อ 7) เพื่อให้ค้นหาเจอ</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">12</span></div>
+</section>
+
+<!-- ════════════════ 09 PO ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">09 · สั่งซื้อ</span></div>
+  <div class="sec-no">Section 09</div>
+  <h1 class="sec">สั่งซื้อสินค้า <span class="en">Purchase Orders</span></h1>
+  <p class="sec-lede">สร้างใบสั่งซื้อ (PO) ส่งให้ซัพพลายเออร์ และเมื่อของมาส่ง ให้ <strong>“รับสินค้า”</strong> เพื่อเพิ่มเข้าสต็อกอัตโนมัติ</p>
+
+  <figure>
+    <img src="img/orders.png" alt="หน้าจอใบสั่งซื้อ">
+    <figcaption>การ์ดสรุปด้านบน (ทั้งหมด · รอรับสินค้า) · แต่ละใบมีปุ่ม รับสินค้า · ยกเลิก · ลบ — เลขที่ขึ้นต้น PO</figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li><span class="st-title">กด <span class="ui">+ สร้างใบสั่งซื้อ</span></span>เลือกซัพพลายเออร์ เพิ่มรายการอะไหล่ จำนวน และราคาทุนที่สั่ง</li>
+    <li><span class="st-title">บันทึกใบสั่งซื้อ</span>ใบ PO จะอยู่ในสถานะ <strong>รอรับสินค้า</strong></li>
+    <li><span class="st-title">เมื่อของมาส่ง — กด <span class="ui ghost">✓ รับสินค้า</span></span>ระบบเพิ่มจำนวนเข้าสต็อกและคำนวณ<strong>ราคาทุนเฉลี่ยถ่วงน้ำหนัก</strong>ใหม่ให้ทันที</li>
+  </ol>
+  <div class="note key">
+    <span class="nt">ราคาทุนเฉลี่ย — สำคัญ</span>
+    เมื่อรับของเข้า ระบบไม่ได้เขียนทับราคาทุนเดิมด้วยราคาล็อตใหม่ แต่<strong>เฉลี่ยถ่วงน้ำหนัก</strong>กับของเก่าที่เหลือ — ทำให้ราคาทุนต่อหน่วยแม่นยำ ไม่ผิดเพี้ยนจากของล็อตเดียว</div>
+  <div class="note tip">
+    <span class="nt">เชื่อมกับสต็อกต่ำ</span>
+    ดูรายการที่ใกล้หมดได้จากชิป <span class="ui ghost">สต็อกต่ำ</span> ในหน้าสินค้า แล้วสั่งซื้อเติมได้เลย</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">13</span></div>
+</section>
+
+<!-- ════════════════ 10 CUSTOMERS ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">10 · ลูกค้า</span></div>
+  <div class="sec-no">Section 10</div>
+  <h1 class="sec">ลูกค้า &amp; แต้มสะสม <span class="en">Customers</span></h1>
+  <p class="sec-lede">เก็บทะเบียนลูกค้าประจำ พร้อมยอดซื้อสะสมและแต้ม — เลือกลูกค้าตอนขายเพื่อสะสมแต้มอัตโนมัติ</p>
+
+  <figure>
+    <img src="img/customers.png" alt="หน้าจอทะเบียนลูกค้า">
+    <figcaption>ทะเบียนลูกค้า — รหัส · ชื่อ · เบอร์โทร · ที่อยู่ · แต้ม · ยอดซื้อรวม · จำนวนบิล</figcaption>
+  </figure>
+
+  <ul class="ticks">
+    <li><span class="ui">+ เพิ่มลูกค้า</span> — ระบบออกรหัสลูกค้า (<span class="mono">CUS001</span>…) ให้อัตโนมัติ</li>
+    <li><strong>แต้มสะสม</strong> — ทุกการขายที่ผูกลูกค้า จะได้แต้ม <strong>1 แต้ม ต่อยอด ฿10</strong></li>
+    <li><strong>ยอดซื้อรวม</strong> — ระบบรวมยอดให้เอง ใช้ดูว่าใครคือลูกค้าชั้นดี</li>
+    <li>คืนสินค้าเมื่อใด ระบบ<strong>หักแต้มและยอดซื้อ</strong>ตามสัดส่วนให้อัตโนมัติ</li>
+  </ul>
+  <div class="note tip">
+    <span class="nt">ค้นหาเร็ว</span>
+    ตอนขาย พิมพ์เบอร์โทรในช่องลูกค้าเพื่อดึงประวัติได้ทันที ไม่ต้องจำรหัส</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">14</span></div>
+</section>
+
+<!-- ════════════════ 11 MECHANICS ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">11 · ช่าง &amp; เครดิต</span></div>
+  <div class="sec-no">Section 11</div>
+  <h1 class="sec">ช่าง &amp; เครดิตช่าง <span class="en">Mechanics &amp; Credit</span></h1>
+  <p class="sec-lede">จัดการช่าง/อู่ที่ซื้ออะไหล่ประจำ ตั้งวงเงินเครดิต ขายแบบลงเครดิต และรับชำระยอดค้างได้</p>
+
+  <figure>
+    <img src="img/mechanics.png" alt="หน้าจอทะเบียนช่าง">
+    <figcaption>ทะเบียนช่าง — รหัส · ชื่อ/ชื่อเล่น · อู่ · เบอร์โทร · ยอดค้าง · วงเงิน · แท็บ มียอดค้าง</figcaption>
+  </figure>
+
+  <h2 class="sub">การขายเครดิตช่าง</h2>
+  <ol class="steps">
+    <li><span class="st-title">เลือกช่างในบิล</span>ที่หน้าขาย พิมพ์ชื่อช่างในช่อง <strong>🔧 ช่าง</strong></li>
+    <li><span class="st-title">เลือกวิธีชำระ <span class="ui ghost" style="border-color:#D4820A;color:#B5780A">🔧 เครดิตช่าง</span></span>ระบบแสดงยอดค้างเดิม + บิลนี้ = ยอดค้างใหม่ และเตือนหากเกินวงเงิน</li>
+    <li><span class="st-title">คิดเงิน</span>ยอดบิลถูกบันทึกเป็น<strong>ยอดค้างของช่าง</strong></li>
+  </ol>
+  <h2 class="sub">รับชำระยอดค้าง</h2>
+  <p>เมื่อช่างมาจ่ายเงิน ให้คลิกที่ช่างเพื่อเปิดรายละเอียด แล้วกด <span class="ui ghost">รับชำระ</span> ระบบจะลดยอดค้างลง และถ้าจ่ายเป็นเงินสด จะนับรวมในลิ้นชักวันนั้น</p>
+  <div class="note key">
+    <span class="nt">วงเงินเครดิต</span>
+    ตั้งวงเงินต่อช่างได้ในตารางช่อง <strong>วงเงิน</strong> — แท็บ <span class="ui ghost">มียอดค้าง</span> ช่วยดูว่าช่างคนไหนค้างอยู่ และส่วนหัวจะเตือนหากมีช่าง <span style="color:#C0392B;font-weight:700">เกินวงเงิน</span></div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">15</span></div>
+</section>
+
+<!-- ════════════════ 12 REPORTS ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">12 · รายงาน</span></div>
+  <div class="sec-no">Section 12</div>
+  <h1 class="sec">รายงานยอดขาย <span class="en">Sales Reports</span></h1>
+  <p class="sec-lede">ดูภาพรวมยอดขาย สินค้าขายดี และยอดตามหมวด เลือกช่วงเวลาได้: วันนี้ · 7 วัน · เดือนนี้ · ทั้งหมด</p>
+
+  <figure>
+    <img src="img/reports.png" alt="หน้าจอรายงานยอดขาย">
+    <figcaption>การ์ดสรุป KPI ด้านบน · สินค้าขายดี · รายได้ตามประเภท · รายการขายล่าสุด</figcaption>
+  </figure>
+
+  <h2 class="sub">ตัวเลขสำคัญ</h2>
+  <ul class="ticks">
+    <li><strong>เงินสดสุทธิ</strong> — ยอดขายในช่วงเวลา <strong>หัก</strong>มูลค่าการคืนสินค้า (รวมบิลที่ยกเลิก) แล้ว — สะท้อนรายได้จริง</li>
+    <li><strong>จำนวนธุรกรรม</strong> · <strong>ราคาเฉลี่ยต่อบิล</strong> · <strong>จำนวนสินค้าขาย</strong></li>
+    <li><strong>สินค้าขายดี · Top Products</strong> — จัดอันดับตามจำนวนที่ขายได้</li>
+    <li><strong>รายได้ตามประเภท</strong> — สัดส่วนยอดขายแต่ละหมวด</li>
+    <li><strong>รายการล่าสุด · Recent Sales</strong> — บิลล่าสุดพร้อมวิธีชำระเงิน</li>
+  </ul>
+  <div class="note tip">
+    <span class="nt">อ่านยอดให้ถูก</span>
+    การ์ด “เงินสดรับทั้งหมด” และ “เงินคืนทั้งหมด” แยกให้เห็นชัด ส่วน “เงินสดสุทธิ” คือผลต่างที่เป็นรายได้จริง</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">16</span></div>
+</section>
+
+<!-- ════════════════ 13 CLOSING ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">13 · ปิดร้าน</span></div>
+  <div class="sec-no">Section 13</div>
+  <h1 class="sec">ปิดร้าน — ปิดลิ้นชัก <span class="en">Closing</span></h1>
+  <p class="sec-lede">สิ้นวัน นับเงินสดจริงในลิ้นชัก เทียบกับยอดที่ระบบคำนวณ แล้วปิดลิ้นชัก — ระบบเก็บประวัติทุกกะไว้ให้</p>
+
+  <div class="figrow">
+    <figure>
+      <img src="img/closing-tab.png" alt="แท็บปิดลิ้นชัก">
+      <figcaption>แท็บ 🔒 ปิดลิ้นชัก — สรุปเงินที่ควรมี + ช่องนับเงินจริง</figcaption>
+    </figure>
+    <figure>
+      <img src="img/closing-report.png" alt="สรุปยอดปิดร้าน">
+      <figcaption>ปุ่ม 📊 สรุปยอดปิดร้าน — รายงานปิดร้านประจำวันแบบเต็ม</figcaption>
+    </figure>
+  </div>
+
+  <ol class="steps">
+    <li><span class="st-title">เปิดหน้าลิ้นชัก แล้วไปแท็บ <span class="ui ghost">🔒 ปิดลิ้นชัก</span></span>หรือกดปุ่ม <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> มุมขวาบนเพื่อดูรายงานเต็ม</li>
+    <li><span class="st-title">นับเงินสดจริง</span>นับเงินในลิ้นชักแล้วกรอกในช่อง <strong>นับเงินสดจริงได้ ฿</strong></li>
+    <li><span class="st-title">ดูผลต่าง</span>ระบบเทียบกับ “เงินที่ควรมีในลิ้นชัก” และแสดง <span style="color:#3B7A2E;font-weight:700">ตรงยอด</span> / <span style="color:#B5780A;font-weight:700">เงินเกิน</span> / <span style="color:#C0392B;font-weight:700">เงินขาด</span></li>
+    <li><span class="st-title">กด <span class="ui">🔒 ยืนยันปิดลิ้นชัก</span></span>หลังปิดแล้ว จะ<strong>เพิ่มรายการเงินเข้า-ออกไม่ได้อีก</strong> (ป้องกันการแก้ยอดย้อนหลัง) และพิมพ์รายงานปิดร้านได้</li>
+  </ol>
+  <div class="note key">
+    <span class="nt">ไม่ลืมกะไหนเลย</span>
+    หากลืมปิดลิ้นชักของเมื่อวาน เมื่อเปิดร้านวันใหม่ ระบบจะ<strong>เก็บกะเก่าเข้าประวัติให้อัตโนมัติ</strong>ก่อนเปิดกะใหม่</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">17</span></div>
+</section>
+
+<!-- ════════════════ 14 SETTINGS ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">14 · ตั้งค่า</span></div>
+  <div class="sec-no">Section 14</div>
+  <h1 class="sec">ตั้งค่า &amp; สำรองข้อมูล <span class="en">Settings &amp; Backup</span></h1>
+  <p class="sec-lede">แก้ข้อมูลร้าน เปลี่ยนธีม และที่สำคัญที่สุด — <strong>สำรองข้อมูล</strong>เพื่อกันข้อมูลสูญหาย</p>
+
+  <figure>
+    <img src="img/settings.png" alt="หน้าจอตั้งค่าข้อมูลร้าน">
+    <figcaption>แท็บ ทั่วไป — ชื่อร้าน (TH/EN) · เบอร์โทร · ชื่อแคชเชียร์ · ที่อยู่ · VAT · อายุใบเสนอราคา</figcaption>
+  </figure>
+
+  <h2 class="sub">แท็บในหน้าตั้งค่า</h2>
+  <ul class="ticks">
+    <li><strong>⚙ ทั่วไป</strong> — ข้อมูลร้านที่จะขึ้นบนใบเสร็จและใบเสนอราคา (กด <span class="ui">บันทึกการตั้งค่า</span> ทุกครั้ง)</li>
+    <li><strong>🎨 ธีม</strong> — สลับโหมดมืด/สว่าง (สลับจากปุ่มบนแถบบนสุดก็ได้)</li>
+    <li><strong>💾 สำรอง/กู้คืน</strong> — ⬇ สำรองข้อมูล (ดาวน์โหลดไฟล์) / ⬆ กู้คืนข้อมูล</li>
+    <li><strong>📤 ส่งออก CSV</strong> — ส่งออกสรุปยอดขาย รายละเอียดขาย และสินค้าคงเหลือ เป็นไฟล์ตาราง</li>
+  </ul>
+  <div class="note warn">
+    <span class="nt">สำคัญที่สุด — สำรองข้อมูลทุกวัน</span>
+    ข้อมูลทั้งหมดเก็บไว้ใน<strong>เครื่องนี้เครื่องเดียว</strong> (ออฟไลน์) ถ้าเครื่องเสีย ลงเครื่องใหม่ หรือถูกล้างข้อมูล ข้อมูลจะหาย — ให้กด <strong>สำรองข้อมูล</strong> ในแท็บ สำรอง/กู้คืน เป็นประจำ แล้วเก็บไฟล์ไว้ที่ปลอดภัย (เช่น USB หรือคลาวด์)</div>
+  <div class="note tip">
+    <span class="nt">การกู้คืน</span>
+    เวลากู้คืน ระบบจะล้างข้อมูลเดิมทั้งหมดก่อน แล้วเขียนจากไฟล์สำรอง — ตรวจให้แน่ใจว่าเลือกไฟล์ถูกใบ</div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">18</span></div>
+</section>
+
+<!-- ════════════════ APPENDIX ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">ภาคผนวก</span></div>
+  <div class="sec-no">Appendix</div>
+  <h1 class="sec">เคล็ดลับ &amp; คำถามพบบ่อย <span class="en">Tips &amp; FAQ</span></h1>
+
+  <div class="twocol">
+    <div>
+      <h2 class="sub">ลำดับงานในหนึ่งวัน</h2>
+      <ol class="steps">
+        <li><span class="st-title">เปิดร้าน</span>เปิดลิ้นชัก กรอกเงินตั้งต้น</li>
+        <li><span class="st-title">ขายทั้งวัน</span>ขายสินค้า · พักบิล · คืนสินค้า ตามจริง</li>
+        <li><span class="st-title">ปิดร้าน</span>นับเงิน ปิดลิ้นชัก พิมพ์รายงาน</li>
+        <li><span class="st-title">สำรองข้อมูล</span>ดาวน์โหลดไฟล์สำรองเก็บไว้</li>
+      </ol>
+    </div>
+    <div>
+      <h2 class="sub">เอกสารและเลขที่</h2>
+      <ul class="ticks">
+        <li><span class="mono">RC</span> — ใบเสร็จรับเงิน</li>
+        <li><span class="mono">CN</span> — ใบลดหนี้ (คืนสินค้า)</li>
+        <li><span class="mono">QT</span> — ใบเสนอราคา</li>
+        <li><span class="mono">PO</span> — ใบสั่งซื้อ</li>
+        <li><span class="mono">CP</span> — ใบรับชำระเครดิต</li>
+        <li><span class="mono">CUS</span> / <span class="mono">M</span> — รหัสลูกค้า / ช่าง</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 class="sub">คำถามพบบ่อย</h2>
+  <p><strong>ถาม: เพิ่มจำนวนในตะกร้าไม่ได้ ขึ้นว่าสต็อกไม่พอ?</strong><br>
+  ตอบ: ขายได้ไม่เกินจำนวนคงเหลือจริง หากต้องการขายเพิ่ม ต้องรับของเข้าสต็อกก่อน (หัวข้อ 9) หรือปรับสต็อกในหน้าสินค้า</p>
+  <p><strong>ถาม: ปรับราคาในตะกร้าไม่ได้?</strong><br>
+  ตอบ: การปรับราคาเฉพาะรายการใช้ได้เมื่อ<strong>เลือกช่าง</strong>ในบิลแล้วเท่านั้น และห้ามต่ำกว่าทุน</p>
+  <p><strong>ถาม: คืนสินค้าซ้ำไม่ได้?</strong><br>
+  ตอบ: คืนได้ไม่เกินจำนวนที่ขายจริง บิลที่คืนครบแล้วจะถูกล็อกเป็น “ยกเลิกแล้ว”</p>
+  <p><strong>ถาม: เปลี่ยนเป็นโหมดมืดอย่างไร?</strong><br>
+  ตอบ: กดปุ่ม <span class="ui ghost">🌙 / ☀️</span> บนแถบบนสุด หรือไปที่ตั้งค่า → แท็บ ธีม</p>
+  <p><strong>ถาม: ข้อมูลหายไหมถ้าปิดแอป?</strong><br>
+  ตอบ: ไม่หาย ระบบเก็บทุกอย่างไว้ในเครื่อง (ออฟไลน์) แต่ให้<strong>สำรองข้อมูลสม่ำเสมอ</strong>เผื่อเครื่องเสีย</p>
+
+  <div class="note key">
+    <span class="nt">ติดปัญหา?</span>
+    หากระบบค้างหรือแสดงผลผิดปกติ ให้ลอง<strong>เปิดแอปใหม่</strong> ข้อมูลที่บันทึกแล้วจะยังอยู่ครบ</div>
+
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · ศรีสุราษฎร์เจริญยนต์ · Flutter Edition</span><span class="pagenum">19</span></div>
+</section>
+
+</body>
+</html>
