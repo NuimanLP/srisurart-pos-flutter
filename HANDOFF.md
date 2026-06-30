@@ -1,4 +1,4 @@
-# HANDOFF — Srisurart POS Flutter migration (updated 2026-06-25)
+# HANDOFF — Srisurart POS Flutter migration (updated 2026-06-30)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the **final gate is GREEN**:
@@ -11,6 +11,25 @@ session; its **1 CRITICAL + both HIGH** findings are now fixed (dead Quote→Che
 web-only-broken backup/CSV export, ClosingReport phone overflow — see the two entries below).
 Remaining work is the audit's medium/low backlog plus the bigger post-parity follow-ups
 (cloud sync, native hardware, font bundling, etc.).
+
+## 2026-06-30 (onboarding course → three audience tracks — still OUT of repo)
+- Expanded the `/teach` onboarding course (the out-of-repo artifact under
+  **`Sri_POS/Summary/teaching/`**, see the "2026-06-24 (developer-onboarding course)" entry) from
+  a **dev-only** course into **three audience tracks** of the same project: **Dev** (existing 5
+  lessons + glossary/cheat-sheet), **CEO** (business case, status/roadmap/risk — no code), and
+  **Owner / "for me"** (operate + protect the data; the open decisions only the owner can make).
+- New files (all under `teaching/lessons/`, reusing the shared `assets/course.css` verbatim — no
+  CSS changes): `ceo-01-the-business-case.html`, `ceo-02-status-and-roadmap.html`,
+  `owner-01-run-and-protect.html`, `owner-02-decisions-you-own.html`. `index.html` reworked into a
+  three-track hub (per-track brand span: `.dev` / `.biz` / `.shop`). `MISSION.md` audience-scope
+  updated; `learning-records/0004-three-audience-tracks-ceo-owner.md` added.
+- **Grounding:** CEO/Owner content is a business/ops framing of facts already in `CLAUDE.md`
+  (migration status, pending follow-ups, invariants) + the existing dev lessons — no new code
+  claims, no app code touched. The #1 risk surfaced for the CEO/Owner = **no automatic cloud
+  backup yet** (Phase 7 Supabase stubbed); interim mitigation = daily manual snapshot export.
+- **Still NOT in this repo.** Same rule as before — git tracks app code only; the course is a
+  BeeStation-synced artifact. The only in-repo change this session is **this HANDOFF entry**.
+- **No app code touched** — docs only; gate status unchanged from the entries below.
 
 ## 2026-06-25 (UI polish — topbar alignment + live clock, vehicle search, dark-mode contrast)
 - **Topbar cluster floated to the centre instead of the right edge** (`app_shell.dart`
