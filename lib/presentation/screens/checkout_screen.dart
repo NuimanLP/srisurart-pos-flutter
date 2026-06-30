@@ -798,14 +798,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
     final catsAsync = ref.watch(_categoriesProvider);
     final catColors = ref.watch(_catColorsProvider).asData?.value ?? const {};
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
       color: Theme.of(context).colorScheme.surface,
       child: Column(
         children: [
-          // Search row
-          Padding(
-            padding: const EdgeInsets.all(14),
+          // ── Search area ──
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
+                  blurRadius: 12,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
             child: Row(
               children: [
                 Expanded(
@@ -813,15 +828,40 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   child: TextField(
                     controller: _barcodeCtrl,
                     autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: '🔍 สแกนบาร์โค้ด / รหัสอะไหล่ (Enter)',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      hintText: 'สแกนบาร์โค้ด / รหัสอะไหล่',
+                      hintStyle: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.4)),
+                      prefixIcon: Container(
+                        padding: const EdgeInsets.all(10),
+                        child: const Icon(Icons.qr_code_scanner,
+                            color: _orange, size: 20),
+                      ),
+                      filled: true,
+                      fillColor: isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : AppColors.gray100.withValues(alpha: 0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
                       enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: _orange, width: 2),
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: _orange, width: 1.5),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: _orange, width: 2),
                       ),
                       isDense: true,
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
                     ),
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _handleBarcode(products),
@@ -831,12 +871,31 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 Expanded(
                   flex: 5,
                   child: TextField(
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'ค้นหาชื่อสินค้า…',
-                      border: OutlineInputBorder(),
+                      hintStyle: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.4)),
+                      prefixIcon: Icon(Icons.search,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.4),
+                          size: 20),
+                      filled: true,
+                      fillColor: isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : AppColors.gray100.withValues(alpha: 0.5),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
                       isDense: true,
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
                     ),
                     onChanged: (v) => setState(() => _search = v),
                   ),
@@ -844,50 +903,119 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               ],
             ),
           ),
-          // Category chips
+          // ── Category chips ──
           catsAsync.when(
             loading: () => const SizedBox(height: 8),
-            error: (_, _) => const SizedBox(height: 8),
+            error: (_, __) => const SizedBox(height: 8),
             data: (cats) {
               final all = ['ทั้งหมด', ...cats];
               return SizedBox(
-                height: 48,
+                height: 46,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
                     for (final z in all)
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(z),
-                          selected: _filterZone == z,
-                          onSelected: (_) => setState(() => _filterZone = z),
-                        ),
+                        child: _categoryChip(z, catColors),
                       ),
                   ],
                 ),
               );
             },
           ),
-          const SizedBox(height: 4),
-          // Product grid
+          const SizedBox(height: 8),
+          // ── Product grid ──
           Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(14),
-              gridDelegate:
-                  const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 200,
-                mainAxisExtent: 150,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemCount: filtered.length,
-              itemBuilder: (ctx, i) =>
-                  _productTile(filtered[i], catColors),
-            ),
+            child: filtered.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.search_off_rounded,
+                            size: 56,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.2)),
+                        const SizedBox(height: 12),
+                        Text('ไม่พบสินค้า',
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.4))),
+                        const SizedBox(height: 4),
+                        Text('ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.3))),
+                      ],
+                    ),
+                  )
+                : GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 200,
+                      mainAxisExtent: 155,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    itemCount: filtered.length,
+                    itemBuilder: (ctx, i) =>
+                        _productTile(filtered[i], catColors),
+                  ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _categoryChip(String name, Map<String, String> catColors) {
+    final isSelected = _filterZone == name;
+    final isAll = name == 'ทั้งหมด';
+    final catColor =
+        isAll ? _orange : (_parseColor(catColors[name]) ?? AppColors.navyLight);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => setState(() => _filterZone = name),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? catColor
+                  : catColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isSelected
+                    ? catColor
+                    : catColor.withValues(alpha: 0.25),
+                width: isSelected ? 1.5 : 1,
+              ),
+            ),
+            child: Text(
+              name,
+              style: TextStyle(
+                color: isSelected ? Colors.white : catColor,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -898,83 +1026,157 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final stockColor = p.stock == 0
         ? AppColors.error
         : (p.stock <= p.minStock ? _warnOrange : AppColors.successLight);
-    return Opacity(
-      opacity: outOfStock ? 0.35 : 1,
-      child: InkWell(
-        onTap: outOfStock
-            ? null
-            : () {
-                final err = _cart.add(p);
-                if (err != null) _warn(err);
-              },
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-                color: Theme.of(context).dividerColor.withValues(alpha: 0.4)),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: outOfStock
+              ? null
+              : () {
+                  final err = _cart.add(p);
+                  if (err != null) _warn(err);
+                },
+          splashColor: _orange.withValues(alpha: 0.15),
+          highlightColor: _orange.withValues(alpha: 0.05),
+          child: Stack(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: catColor,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: Text(p.category,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700)),
-              ),
-              const SizedBox(height: 6),
-              Text(p.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 16)),
-              Text(p.nameTH,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.7))),
-              Text(p.partNo,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 11, color: _orange)),
-              const Spacer(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Flexible(
-                    child: Text(baht(p.price),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Product name
+                    Text(p.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 18,
-                            color: _orange)),
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(p.stock > 0 ? '${p.stock} ชิ้น' : 'หมด',
+                            fontWeight: FontWeight.w700, fontSize: 14)),
+                    const SizedBox(height: 2),
+                    Text(p.nameTH,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: stockColor)),
-                  ),
-                ],
+                            fontSize: 12,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.55))),
+                    const SizedBox(height: 2),
+                    Text(p.partNo,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            color: AppColors.steelBlue
+                                .withValues(alpha: 0.8))),
+                    const Spacer(),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Text(baht(p.price),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 18,
+                                  color: _orange)),
+                        ),
+                        const SizedBox(width: 4),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: stockColor,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: stockColor.withValues(alpha: 0.4),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              p.stock > 0 ? '${p.stock}' : 'หมด',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: stockColor),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
+              // Category badge — top right
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: catColor,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(p.category,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700)),
+                ),
+              ),
+              // Out-of-stock overlay
+              if (outOfStock)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: (isDark ? Colors.black : Colors.white)
+                          .withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.error,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text('สินค้าหมด',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -1005,9 +1207,19 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final cart = ref.watch(cartProvider);
     final parkedAsync = ref.watch(_parkedProvider);
     final mechanicDelta = _cart.mechanicDelta;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
+      decoration: BoxDecoration(
+        color: isDark
+            ? Theme.of(context).colorScheme.surfaceContainerLowest
+            : const Color(0xFFF8F6F2),
+        border: Border(
+          left: BorderSide(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.15),
+          ),
+        ),
+      ),
       child: ListView(
         children: [
           // Parked strip
@@ -1033,39 +1245,73 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           border: Border(
               bottom: BorderSide(
                   color:
-                      Theme.of(context).dividerColor.withValues(alpha: 0.4))),
+                      Theme.of(context).dividerColor.withValues(alpha: 0.12))),
         ),
         child: child,
       );
 
   Widget _label(String t) => Padding(
         padding: const EdgeInsets.only(bottom: 10),
-        child: Text(t,
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.2,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.7))),
+        child: Row(
+          children: [
+            Container(
+              width: 3,
+              height: 14,
+              decoration: BoxDecoration(
+                color: _orange,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(t,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.55))),
+          ],
+        ),
       );
 
   Widget _parkedStrip(List<ParkedSaleRow> parked) {
     return Container(
-      color: _warnOrange.withValues(alpha: 0.07),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _warnOrange.withValues(alpha: 0.08),
+            _warnOrange.withValues(alpha: 0.03),
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        border: Border(
+          bottom: BorderSide(
+              color: _warnOrange.withValues(alpha: 0.15)),
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _label('⏸ บิลที่พัก · Parked (${parked.length})'),
-          for (final pk in parked) _parkedRow(pk),
+          _label('⏸ บิลที่พัก (${parked.length})'),
+          SizedBox(
+            height: 44,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemCount: parked.length,
+              itemBuilder: (ctx, i) => _parkedChip(parked[i]),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _parkedRow(ParkedSaleRow pk) {
+  Widget _parkedChip(ParkedSaleRow pk) {
     final lines = _decodeParkedLines(pk);
     final blob = _decodeBlob(pk);
     final total = (blob['total'] as num?)?.toDouble() ?? 0;
@@ -1076,50 +1322,54 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         ? custName!
         : (mechName?.isNotEmpty == true ? mechName! : firstName);
     final suffix = lines.length > 1 ? ' +${lines.length - 1}' : '';
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: InkWell(
-              onTap: () => _handleResume(pk),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(6),
-                  border:
-                      Border.all(color: _warnOrange.withValues(alpha: 0.45)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Flexible(
-                      child: Text('$title$suffix',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
-                    ),
-                    Text('${_hhmm(pk.parkedAt)} · ${baht(total)}',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.6))),
-                  ],
-                ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _handleResume(pk),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(10),
+            border:
+                Border.all(color: _warnOrange.withValues(alpha: 0.35)),
+            boxShadow: [
+              BoxShadow(
+                color: _warnOrange.withValues(alpha: 0.08),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
               ),
-            ),
+            ],
           ),
-          const SizedBox(width: 6),
-          IconButton(
-            tooltip: 'ลบบิลที่พัก',
-            icon: const Icon(Icons.close, size: 18),
-            onPressed: () => _handleDeleteParked(pk),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.receipt_long, size: 15, color: _warnOrange),
+              const SizedBox(width: 6),
+              Text('$title$suffix',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 12)),
+              const SizedBox(width: 6),
+              Text(baht(total),
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: _warnOrange)),
+              const SizedBox(width: 4),
+              InkWell(
+                onTap: () => _handleDeleteParked(pk),
+                child: Icon(Icons.close, size: 14,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.4)),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1131,9 +1381,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _label('ลูกค้า · Customer'),
+          _label('ลูกค้า'),
           if (_selectedCustomer != null)
             _selectedChip(
+              icon: Icons.person,
               title: _selectedCustomer!.nameTH,
               subtitle:
                   '${_selectedCustomer!.phone ?? ''} · ${_selectedCustomer!.points} แต้ม',
@@ -1145,10 +1396,31 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               children: [
                 TextField(
                   controller: _custSearchCtrl,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'ค้นหาลูกค้า / เบอร์โทร…',
-                    border: OutlineInputBorder(),
+                    hintStyle: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.4)),
+                    prefixIcon: Icon(Icons.person_search,
+                        size: 18,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.4)),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withValues(alpha: 0.3))),
                     isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                   ),
                   onChanged: (v) => setState(() => _custSearch = v),
                 ),
@@ -1165,29 +1437,77 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                           .take(4)
                           .toList();
                       if (list.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(8),
+                        return Padding(
+                          padding: const EdgeInsets.all(12),
                           child: Text('ไม่พบลูกค้า',
-                              style: TextStyle(fontSize: 12)),
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.5))),
                         );
                       }
-                      return Column(
-                        children: [
-                          for (final c in list)
-                            ListTile(
-                              dense: true,
-                              title: Text(c.nameTH),
-                              trailing: Text(c.phone ?? '',
-                                  style: const TextStyle(fontSize: 11)),
-                              onTap: () {
-                                _custSearchCtrl.clear();
-                                setState(() {
-                                  _selectedCustomer = c;
-                                  _custSearch = '';
-                                });
-                              },
+                      return Container(
+                        margin: const EdgeInsets.only(top: 6),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.06),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
                             ),
-                        ],
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            for (final c in list)
+                              InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () {
+                                  _custSearchCtrl.clear();
+                                  setState(() {
+                                    _selectedCustomer = c;
+                                    _custSearch = '';
+                                  });
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 10),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 14,
+                                        backgroundColor: AppColors.steelBlue
+                                            .withValues(alpha: 0.15),
+                                        child: Icon(Icons.person,
+                                            size: 14,
+                                            color: AppColors.steelBlue),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(c.nameTH,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13)),
+                                      ),
+                                      Text(c.phone ?? '',
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .withValues(alpha: 0.5))),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       );
                     },
                     orElse: () => const SizedBox.shrink(),
@@ -1206,10 +1526,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _label('🔧 ช่าง · Mechanic (ถ้ามี — เพื่อปรับราคาช่าง)'),
+          _label('🔧 ช่าง (ปรับราคาช่าง)'),
           if (_selectedMechanic != null)
             _selectedChip(
-              title: '🔧 ${_selectedMechanic!.nameTH ?? _selectedMechanic!.name} (${_selectedMechanic!.code})',
+              icon: Icons.build,
+              title: '${_selectedMechanic!.nameTH ?? _selectedMechanic!.name} (${_selectedMechanic!.code})',
               subtitle: _selectedMechanic!.shopName ??
                   _selectedMechanic!.phone ??
                   '',
@@ -1222,10 +1543,31 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               children: [
                 TextField(
                   controller: _mechSearchCtrl,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'ค้นหาช่าง / ชื่อเล่น / เบอร์…',
-                    border: OutlineInputBorder(),
+                    hintStyle: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.4)),
+                    prefixIcon: Icon(Icons.build,
+                        size: 18,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.4)),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withValues(alpha: 0.3))),
                     isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                   ),
                   onChanged: (v) => setState(() => _mechSearch = v),
                 ),
@@ -1243,29 +1585,78 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                           .take(5)
                           .toList();
                       if (list.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(8),
+                        return Padding(
+                          padding: const EdgeInsets.all(12),
                           child: Text('ไม่พบช่าง — เพิ่มในเมนู "ช่าง"',
-                              style: TextStyle(fontSize: 12)),
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.5))),
                         );
                       }
-                      return Column(
-                        children: [
-                          for (final m in list)
-                            ListTile(
-                              dense: true,
-                              title: Text('🔧 ${m.nameTH ?? m.name}'),
-                              trailing: Text(m.shopName ?? m.phone ?? '',
-                                  style: const TextStyle(fontSize: 11)),
-                              onTap: () {
-                                _mechSearchCtrl.clear();
-                                setState(() {
-                                  _selectedMechanic = m;
-                                  _mechSearch = '';
-                                });
-                              },
+                      return Container(
+                        margin: const EdgeInsets.only(top: 6),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.06),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
                             ),
-                        ],
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            for (final m in list)
+                              InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () {
+                                  _mechSearchCtrl.clear();
+                                  setState(() {
+                                    _selectedMechanic = m;
+                                    _mechSearch = '';
+                                  });
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 10),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 14,
+                                        backgroundColor: _orange
+                                            .withValues(alpha: 0.12),
+                                        child: const Icon(Icons.build,
+                                            size: 14,
+                                            color: _orange),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                            m.nameTH ?? m.name,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13)),
+                                      ),
+                                      Text(m.shopName ?? m.phone ?? '',
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .withValues(alpha: 0.5))),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       );
                     },
                     orElse: () => const SizedBox.shrink(),
@@ -1278,44 +1669,62 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Widget _selectedChip({
+    required IconData icon,
     required String title,
     required String subtitle,
     required VoidCallback onClear,
     bool highlight = false,
   }) {
+    final accentColor = highlight ? _orange : AppColors.steelBlue;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: highlight
-            ? _orange.withValues(alpha: 0.15)
-            : Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-        border: highlight
-            ? Border.all(color: _orange.withValues(alpha: 0.4))
-            : null,
+        color: accentColor.withValues(alpha: highlight ? 0.08 : 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: accentColor.withValues(alpha: highlight ? 0.35 : 0.2)),
       ),
       child: Row(
         children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: accentColor.withValues(alpha: 0.15),
+            child: Icon(icon, size: 16, color: accentColor),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 16)),
+                        fontWeight: FontWeight.w700, fontSize: 14)),
                 if (subtitle.isNotEmpty)
                   Text(subtitle,
                       style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 12,
                           color: Theme.of(context)
                               .colorScheme
                               .onSurface
-                              .withValues(alpha: 0.7))),
+                              .withValues(alpha: 0.55))),
               ],
             ),
           ),
-          IconButton(
-              icon: const Icon(Icons.close, size: 18), onPressed: onClear),
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: IconButton(
+                padding: EdgeInsets.zero,
+                icon: const Icon(Icons.close, size: 14),
+                onPressed: onClear),
+          ),
         ],
       ),
     );
@@ -1329,28 +1738,55 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         children: [
           Row(
             children: [
-              Expanded(child: _label('รายการสินค้า · Items (${cart.length})')),
+              Expanded(child: _label('รายการสินค้า (${cart.length})')),
               if (_selectedMechanic != null)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 10),
-                  child: Text('· คลิกราคาเพื่อปรับ',
-                      style: TextStyle(
-                          color: _orange,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600)),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _orange.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text('คลิกราคาเพื่อปรับ',
+                        style: TextStyle(
+                            color: _orange,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600)),
+                  ),
                 ),
             ],
           ),
           if (cart.isEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Text('ยังไม่มีสินค้า\nสแกนหรือเลือกสินค้าด้านซ้าย',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
+              padding: const EdgeInsets.symmetric(vertical: 28),
+              child: Column(
+                children: [
+                  Icon(Icons.shopping_cart_outlined,
+                      size: 40,
                       color: Theme.of(context)
                           .colorScheme
                           .onSurface
-                          .withValues(alpha: 0.5))),
+                          .withValues(alpha: 0.15)),
+                  const SizedBox(height: 10),
+                  Text('ยังไม่มีสินค้า',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.35))),
+                  const SizedBox(height: 4),
+                  Text('สแกนหรือเลือกสินค้าด้านซ้าย',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.25))),
+                ],
+              ),
             )
           else
             ConstrainedBox(
@@ -1399,71 +1835,76 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final product =
         products.where((p) => p.id == item.productId).firstOrNull;
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.08)),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(item.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 15)),
+                        fontWeight: FontWeight.w700, fontSize: 13)),
                 if (item.partNo != null)
                   Text(item.partNo!,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontFamily: 'monospace',
-                          fontSize: 11,
-                          color: _orange)),
-                const SizedBox(height: 4),
+                          fontSize: 10,
+                          color: AppColors.steelBlue
+                              .withValues(alpha: 0.7))),
+                const SizedBox(height: 3),
                 _linePriceControl(item, isEditing),
               ],
             ),
           ),
-          // qty control
-          Column(
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _qtyBtn(Icons.remove, () {
-                    final err = _cart.setQty(
-                        item.productId, item.qty - 1, product);
-                    if (err != null) _warn(err);
-                  }),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 28),
-                    child: Container(
-                      alignment: Alignment.center,
-                      child: Text('${item.qty}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 16)),
-                    ),
-                  ),
-                  _qtyBtn(Icons.add, () {
-                    final err = _cart.setQty(
-                        item.productId, item.qty + 1, product);
-                    if (err != null) _warn(err);
-                  }),
-                ],
-              ),
-            ],
-          ),
           const SizedBox(width: 8),
+          // qty control — pill shape
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _qtyBtn(Icons.remove, () {
+                  final err = _cart.setQty(
+                      item.productId, item.qty - 1, product);
+                  if (err != null) _warn(err);
+                }),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 28),
+                  child: Text('${item.qty}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 15)),
+                ),
+                _qtyBtn(Icons.add, () {
+                  final err = _cart.setQty(
+                      item.productId, item.qty + 1, product);
+                  if (err != null) _warn(err);
+                }),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
           ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 70),
+            constraints: const BoxConstraints(minWidth: 65),
             child: MoneyText(item.price * item.qty,
                 scaleDown: true,
                 color: _orange,
                 style: const TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 16)),
+                    fontWeight: FontWeight.w800, fontSize: 15)),
           ),
         ],
       ),
@@ -1564,11 +2005,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         child: Container(
           width: 30,
           height: 30,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Icon(icon, size: 18),
+          alignment: Alignment.center,
+          child: Icon(icon, size: 16,
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.7)),
         ),
       );
 
@@ -1587,12 +2029,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             children: [
               Text('ส่วนลด',
                   style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
                       color: Theme.of(context)
                           .colorScheme
                           .onSurface
-                          .withValues(alpha: 0.7))),
+                          .withValues(alpha: 0.55))),
               SizedBox(
                 width: 110,
                 child: TextField(
@@ -1603,19 +2045,25 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
                   ],
                   textAlign: TextAlign.right,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     prefixText: '฿',
                     isDense: true,
-                    border: OutlineInputBorder(),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withValues(alpha: 0.3))),
                     hintText: '0',
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
                   ),
                   onChanged: (v) {
                     final raw = double.tryParse(v) ?? 0;
                     final d = raw < 0 ? 0.0 : (raw > subtotal ? subtotal : raw);
                     setState(() => _discount = d);
-                    // Mirror the JS controlled input: when the typed value is
-                    // clamped (over subtotal / negative), reflect the clamped
-                    // value back into the field instead of showing stale text.
                     if (d != raw) {
                       _syncDiscountText();
                       _discountCtrl.selection = TextSelection.collapsed(
@@ -1632,13 +2080,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: mechanicDelta > 0
-                    ? AppColors.successLight.withValues(alpha: 0.12)
-                    : _warnOrange.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(6),
+                    ? AppColors.successLight.withValues(alpha: 0.1)
+                    : _warnOrange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                     color: mechanicDelta > 0
-                        ? AppColors.successLight.withValues(alpha: 0.3)
-                        : _warnOrange.withValues(alpha: 0.35)),
+                        ? AppColors.successLight.withValues(alpha: 0.25)
+                        : _warnOrange.withValues(alpha: 0.3)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1648,7 +2096,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                           ? '↑ ช่างได้ส่วนต่าง'
                           : '↓ เครดิตช่าง (ลดราคา)',
                       style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: mechanicDelta > 0
                               ? const Color(0xFF2ECC71)
@@ -1656,7 +2104,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   Text(
                       '${mechanicDelta > 0 ? '+' : ''}${baht(mechanicDelta.abs())}',
                       style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.w800,
                           color: mechanicDelta > 0
                               ? const Color(0xFF2ECC71)
@@ -1665,25 +2113,38 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               ),
             ),
           ],
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
+          // Grand total — navy gradient container
           Container(
-            padding: const EdgeInsets.only(top: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              border: Border(
-                  top: BorderSide(
-                      color: Theme.of(context).dividerColor, width: 2)),
+              gradient: const LinearGradient(
+                colors: [AppColors.navyDeep, AppColors.navyMid],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.navy.withValues(alpha: 0.25),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('รวมทั้งสิ้น',
                     style: TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.w800)),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white70)),
                 Text(baht(total),
                     style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
-                        color: _orange)),
+                        color: Colors.white)),
               ],
             ),
           ),
@@ -1697,15 +2158,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         children: [
           Text(l,
               style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
                   color: Theme.of(context)
                       .colorScheme
                       .onSurface
-                      .withValues(alpha: 0.7))),
+                      .withValues(alpha: 0.55))),
           Text(r,
               style:
-                  const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                  const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
         ],
       );
 
@@ -1721,18 +2182,27 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _label('ชำระเงิน · Payment'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final m in methods) _payButton(m, total),
-            ],
+          _label('ชำระเงิน'),
+          // Segmented-control-style payment buttons
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHigh
+                  .withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                for (var i = 0; i < methods.length; i++)
+                  Expanded(child: _payButton(methods[i], total)),
+              ],
+            ),
           ),
           if (_payMethod == 'เครดิตช่าง' && _selectedMechanic != null)
             _creditPanel(total),
           if (_payMethod == 'เงินสด') ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             TextField(
               controller: _cashCtrl,
               keyboardType:
@@ -1743,17 +2213,42 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               textAlign: TextAlign.right,
               style:
                   const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'รับเงิน ฿…',
-                border: OutlineInputBorder(),
+                hintStyle: TextStyle(
+                    fontSize: 20,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.3)),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10)),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                        color: Theme.of(context)
+                            .dividerColor
+                            .withValues(alpha: 0.3))),
+                focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide:
+                        const BorderSide(color: _orange, width: 1.5)),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 14),
               ),
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [for (final v in _quickCash(total)) _quickBtn(v)],
+            Row(
+              children: [
+                for (final v in _quickCash(total))
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: _quickBtn(v),
+                    ),
+                  ),
+              ],
             ),
             _changeRow(total),
           ],
@@ -1769,22 +2264,63 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         _selectedMechanic != null &&
         (_selectedMechanic!.creditBalance + total) >
             _selectedMechanic!.creditLimit;
-    final Color border = isCredit ? _warnOrange : Theme.of(context).dividerColor;
-    return OutlinedButton(
-      onPressed: () => setState(() => _payMethod = m),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: active
-            ? (isCredit ? _warnOrange : Theme.of(context).colorScheme.surfaceContainerHigh)
-            : null,
-        foregroundColor: active
-            ? (isCredit ? Colors.white : Theme.of(context).colorScheme.onSurface)
-            : (isCredit ? _warnOrange : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
-        side: BorderSide(color: border),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    final IconData icon = m == 'เงินสด'
+        ? Icons.payments_outlined
+        : m == 'โอน/QR'
+            ? Icons.qr_code
+            : Icons.credit_score;
+
+    return GestureDetector(
+      onTap: () => setState(() => _payMethod = m),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        margin: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: active
+              ? (isCredit
+                  ? _warnOrange
+                  : _orange)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: (isCredit ? _warnOrange : _orange)
+                        .withValues(alpha: 0.2),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon,
+                size: 20,
+                color: active
+                    ? Colors.white
+                    : Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.5)),
+            const SizedBox(height: 3),
+            Text(
+              '$m${wouldExceed ? ' ⚠' : ''}',
+              style: TextStyle(
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+                  fontSize: 11,
+                  color: active
+                      ? Colors.white
+                      : Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6)),
+            ),
+          ],
+        ),
       ),
-      child: Text(
-          '${isCredit ? '🔧 ' : ''}$m${wouldExceed ? ' ⚠' : ''}',
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
     );
   }
 
@@ -1793,12 +2329,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final after = m.creditBalance + total;
     final exceed = after > m.creditLimit;
     return Container(
-      margin: const EdgeInsets.only(top: 8),
+      margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _warnOrange.withValues(alpha: 0.1),
-        border: Border.all(color: _warnOrange.withValues(alpha: 0.4)),
-        borderRadius: BorderRadius.circular(8),
+        color: _warnOrange.withValues(alpha: 0.07),
+        border: Border.all(color: _warnOrange.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1821,12 +2357,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 const Text('ยอดค้างหลังบิลนี้',
                     style: TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 16,
+                        fontSize: 14,
                         color: _warnOrange)),
                 Text(baht(after),
                     style: const TextStyle(
                         fontWeight: FontWeight.w800,
-                        fontSize: 18,
+                        fontSize: 16,
                         color: _warnOrange)),
               ],
             ),
@@ -1834,18 +2370,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           const SizedBox(height: 6),
           Text('วงเงิน ${baht(m.creditLimit)}',
               style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   color: Theme.of(context)
                       .colorScheme
                       .onSurface
-                      .withValues(alpha: 0.5))),
+                      .withValues(alpha: 0.45))),
           if (exceed)
             const Padding(
               padding: EdgeInsets.only(top: 6),
               child: Text('⚠ เกินวงเงินเครดิต!',
                   style: TextStyle(
                       color: AppColors.error,
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: FontWeight.w700)),
             ),
         ],
@@ -1858,18 +2394,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         children: [
           Text(l,
               style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   color: Theme.of(context)
                       .colorScheme
                       .onSurface
-                      .withValues(alpha: 0.7))),
+                      .withValues(alpha: 0.6))),
           Text(r,
               style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   color: Theme.of(context)
                       .colorScheme
                       .onSurface
-                      .withValues(alpha: 0.7))),
+                      .withValues(alpha: 0.6))),
         ],
       );
 
@@ -1891,20 +2427,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     return out.take(4).toList();
   }
 
-  Widget _quickBtn(num v) => InkWell(
-        onTap: () {
-          _cashCtrl.text = v.toString();
-          setState(() {});
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(6),
+  Widget _quickBtn(num v) => Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            _cashCtrl.text = v.toString();
+            setState(() {});
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHigh
+                  .withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: Text(baht(v),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 13)),
+            ),
           ),
-          child: Text(baht(v),
-              style:
-                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
         ),
       );
 
@@ -1912,16 +2457,27 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final cash = double.tryParse(_cashCtrl.text.trim()) ?? 0;
     final change = cash - total;
     if (_cashCtrl.text.isEmpty || change < 0) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 10),
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2ECC71).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: const Color(0xFF2ECC71).withValues(alpha: 0.25)),
+      ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text('เงินทอน: ',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+          const Text('เงินทอน',
+              style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                  color: Color(0xFF2ECC71))),
           Text(baht(change),
               style: const TextStyle(
                   fontWeight: FontWeight.w800,
-                  fontSize: 18,
+                  fontSize: 20,
                   color: Color(0xFF2ECC71))),
         ],
       ),
@@ -1932,60 +2488,107 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   Widget _actionButtons(List<CartLine> cart) {
     final empty = cart.isEmpty;
     return Padding(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Column(
         children: [
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                child: OutlinedButton.icon(
                   onPressed: empty ? null : _handlePark,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFE0A33C),
-                    side: const BorderSide(color: _warnOrange, width: 1.5),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text('⏸ พักบิล',
+                  icon: const Icon(Icons.pause_circle_outline, size: 18),
+                  label: const Text('พักบิล',
                       style: TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 15)),
+                          fontWeight: FontWeight.w700, fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _warnOrange,
+                    side: BorderSide(
+                        color: _warnOrange.withValues(alpha: 0.5),
+                        width: 1.5),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton(
+                child: OutlinedButton.icon(
                   onPressed: empty ? null : _handleSaveQuote,
+                  icon: const Icon(Icons.description_outlined, size: 18),
+                  label: const Text('ใบเสนอราคา',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 13)),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF5B97F0),
-                    side: const BorderSide(color: Color(0xFF2A6FDB), width: 1.5),
+                    side: BorderSide(
+                        color: const Color(0xFF2A6FDB).withValues(alpha: 0.5),
+                        width: 1.5),
                     padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
-                  child: const Text('📋 บันทึกใบเสนอราคา',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 15)),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+          // Checkout button — gradient + glow
           SizedBox(
             width: double.infinity,
-            child: FilledButton(
-              onPressed: (empty || _submitting) ? null : _handleCheckout,
-              style: FilledButton.styleFrom(
-                backgroundColor: _orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 18),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: (empty || _submitting)
+                      ? [Colors.grey.shade400, Colors.grey.shade500]
+                      : [_orange, AppColors.orangeDark],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: (empty || _submitting)
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: _orange.withValues(alpha: 0.35),
+                          blurRadius: 14,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
               ),
-              child: Text(
-                _submitting
-                    ? '⏳ กำลังบันทึก…'
-                    : '✓ ชำระเงิน · CHECKOUT — ${baht(_total)}',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 19,
-                    letterSpacing: 0.5),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: (empty || _submitting) ? null : _handleCheckout,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _submitting
+                              ? Icons.hourglass_top
+                              : Icons.check_circle,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _submitting
+                              ? 'กำลังบันทึก…'
+                              : 'ชำระเงิน  ${baht(_total)}',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                              letterSpacing: 0.3,
+                              color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

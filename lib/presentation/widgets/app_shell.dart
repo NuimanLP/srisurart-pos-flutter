@@ -231,15 +231,17 @@ class _TopBarState extends ConsumerState<_TopBar> {
     final mode = ref.watch(themeModeProvider);
     final now = _now;
 
+    final topPadding = MediaQuery.of(context).padding.top;
+
     return Container(
-      constraints: const BoxConstraints(minHeight: 68),
+      constraints: BoxConstraints(minHeight: 68 + topPadding),
       decoration: const BoxDecoration(
         color: AppColors.navyDeep,
         border: Border(
           bottom: BorderSide(color: AppColors.orange, width: 3),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.only(top: topPadding, left: 16, right: 16),
       child: Row(
         children: [
           if (widget.showMenu)
