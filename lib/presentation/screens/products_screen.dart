@@ -76,41 +76,66 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: theme.colorScheme.surfaceContainerLow,
       body: Column(
         children: [
-          Material(
-            color: theme.colorScheme.surfaceContainerLow,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TabBar(
-                    controller: _tabs,
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    labelColor: AppColors.orange,
-                    indicatorColor: AppColors.orange,
-                    tabs: const [
-                      Tab(text: 'สต็อก · Stock'),
-                      Tab(text: 'คำนวณราคา · Price Calc'),
-                      Tab(text: 'ซัพพลายเออร์ · Suppliers'),
-                      Tab(text: 'รายงานสต็อก · Reports'),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.orange,
-                      side: const BorderSide(color: AppColors.orange),
-                    ),
-                    onPressed: () => _openVehicleSearch(context),
-                    icon: const Icon(Icons.search, size: 18),
-                    label: const Text('ค้นหาตามรุ่นรถ'),
-                  ),
-                ),
+          Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  offset: const Offset(0, 2),
+                  blurRadius: 6,
+                )
               ],
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TabBar(
+                      controller: _tabs,
+                      isScrollable: true,
+                      tabAlignment: TabAlignment.start,
+                      labelColor: AppColors.orange,
+                      unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+                      indicatorColor: AppColors.orange,
+                      indicatorWeight: 3,
+                      dividerColor: Colors.transparent,
+                      labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tabs: const [
+                        Tab(text: 'สต็อก · Stock', height: 64),
+                        Tab(text: 'คำนวณราคา · Price Calc', height: 64),
+                        Tab(text: 'ซัพพลายเออร์ · Suppliers', height: 64),
+                        Tab(text: 'รายงานสต็อก · Reports', height: 64),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 16, left: 8),
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.orange.withValues(alpha: 0.1),
+                        foregroundColor: AppColors.orange,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () => _openVehicleSearch(context),
+                      icon: const Icon(Icons.directions_car, size: 22),
+                      label: const Flexible(
+                        child: Text('ค้นหาตามรุ่นรถ', 
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15), 
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           Expanded(
@@ -264,54 +289,115 @@ class _StockTabState extends ConsumerState<_StockTab> {
       children: [
         // toolbar
         Container(
-          color: theme.colorScheme.surfaceContainerLow,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            runSpacing: 10,
+          width: double.infinity,
+          color: theme.colorScheme.surface,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _summaryChip('ทั้งหมด', _products.length, theme.colorScheme.onSurface, 'All'),
-              _summaryChip('สต็อกต่ำ', lowCount, AppColors.warning, 'Low'),
-              _summaryChip('หมดสต็อก', outCount, AppColors.error, 'Out'),
-              SizedBox(
-                width: 240,
-                child: TextField(
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    hintText: 'ค้นหา ชื่อ / รหัส…',
-                    prefixIcon: Icon(Icons.search, size: 18),
-                    border: OutlineInputBorder(),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 16,
+                runSpacing: 16,
+                children: [
+                  // Left side: Summaries
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      _summaryChip('ทั้งหมด', _products.length, theme.colorScheme.onSurface, 'All'),
+                      _summaryChip('สต็อกต่ำ', lowCount, AppColors.warning, 'Low'),
+                      _summaryChip('หมดสต็อก', outCount, AppColors.error, 'Out'),
+                    ],
                   ),
-                  onChanged: (v) => setState(() => _search = v),
-                ),
+                  // Right side: Search & Actions
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 260,
+                        child: TextField(
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintText: 'ค้นหา ชื่อ / รหัส…',
+                            prefixIcon: const Icon(Icons.search, size: 20),
+                            filled: true,
+                            fillColor: theme.colorScheme.surfaceContainerLow,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: AppColors.orange, width: 2),
+                            ),
+                          ),
+                          onChanged: (v) => setState(() => _search = v),
+                        ),
+                      ),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.orange,
+                          foregroundColor: AppColors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () => _openEdit(null),
+                        icon: const Icon(Icons.add, size: 20),
+                        label: const Text('เพิ่มสินค้า', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.navyMid,
+                          foregroundColor: AppColors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () =>
+                            _printLabels(filtered, filtered.map((p) => p.id).toList()),
+                        icon: const Icon(Icons.print, size: 20),
+                        label: const Text('พิมพ์ป้าย', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              _catFilterBtn('ทั้งหมด', _filterCat == 'All', null,
-                  () => setState(() => _filterCat = 'All')),
-              ..._categories.map((c) => _catFilterBtn(
-                  c, _filterCat == c, _catColor(c),
-                  () => setState(() => _filterCat = _filterCat == c ? 'All' : c))),
-              TextButton(
-                onPressed: () => setState(() => _showCatMgr = !_showCatMgr),
-                child: const Text('⚙ จัดการประเภท',
-                    style: TextStyle(fontSize: 12)),
-              ),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.orange,
-                    foregroundColor: AppColors.white),
-                onPressed: () => _openEdit(null),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('เพิ่มสินค้า'),
-              ),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.navyMid,
-                    foregroundColor: AppColors.white),
-                onPressed: () =>
-                    _printLabels(filtered, filtered.map((p) => p.id).toList()),
-                icon: const Icon(Icons.label_outline, size: 18),
-                label: const Text('พิมพ์ป้าย'),
+              const SizedBox(height: 16),
+              // Bottom row: Categories & Manage
+              Row(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _catFilterBtn('ทั้งหมด', _filterCat == 'All', null,
+                              () => setState(() => _filterCat = 'All')),
+                          const SizedBox(width: 8),
+                          ..._categories.map((c) => Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: _catFilterBtn(c, _filterCat == c, _catColor(c),
+                                    () => setState(() => _filterCat = _filterCat == c ? 'All' : c)),
+                              )),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(foregroundColor: theme.colorScheme.secondary),
+                    onPressed: () => setState(() => _showCatMgr = !_showCatMgr),
+                    icon: const Icon(Icons.settings, size: 18),
+                    label: const Text('จัดการประเภท', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ],
               ),
             ],
           ),
@@ -324,29 +410,54 @@ class _StockTabState extends ConsumerState<_StockTab> {
                   child: Text('ไม่พบสินค้า',
                       style: theme.textTheme.titleMedium
                           ?.copyWith(color: theme.colorScheme.secondary)))
-              : SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('รหัสสินค้า')),
-                          DataColumn(label: Text('ชื่อสินค้า')),
-                          DataColumn(label: Text('ประเภท')),
-                          DataColumn(label: Text('ราคาขาย'), numeric: true),
-                          DataColumn(label: Text('ราคาทุน'), numeric: true),
-                          DataColumn(label: Text('คงเหลือ'), numeric: true),
-                          DataColumn(label: Text('Min'), numeric: true),
-                          DataColumn(label: Text('สถานะ')),
-                          DataColumn(label: Text('')),
-                        ],
-                        rows: filtered.map(_buildRow).toList(),
+              : Container(
+                  margin: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.03),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      )
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.vertical,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                            child: DataTable(
+                          dataRowMinHeight: 70,
+                          dataRowMaxHeight: double.infinity,
+                          horizontalMargin: 24,
+                          columnSpacing: 28,
+                          headingTextStyle: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface, fontSize: 14),
+                          columns: const [
+                            DataColumn(label: Text('รหัสสินค้า')),
+                            DataColumn(label: Text('ชื่อสินค้า')),
+                            DataColumn(label: Text('ประเภท')),
+                            DataColumn(label: Text('ราคาขาย'), numeric: true),
+                            DataColumn(label: Text('ราคาทุน'), numeric: true),
+                            DataColumn(label: Text('คงเหลือ'), numeric: true),
+                            DataColumn(label: Text('Min'), numeric: true),
+                            DataColumn(label: Text('สถานะ')),
+                            DataColumn(label: Text('')),
+                          ],
+                          rows: filtered.map(_buildRow).toList(),
+                        ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
+              ),
+            ),
         ),
       ],
     );
@@ -361,93 +472,150 @@ class _StockTabState extends ConsumerState<_StockTab> {
             : ('In Stock', AppColors.successLight);
     return DataRow(cells: [
       DataCell(Text(p.partNo,
-          style: const TextStyle(color: AppColors.orange, fontSize: 12))),
-      DataCell(Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-          Text(p.nameTH,
-              style: TextStyle(
-                  fontSize: 12, color: theme.colorScheme.secondary)),
-        ],
+          style: const TextStyle(color: AppColors.orange, fontSize: 13, fontWeight: FontWeight.bold))),
+      DataCell(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(p.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            const SizedBox(height: 2),
+            Text(p.nameTH,
+                style: TextStyle(
+                    fontSize: 13, color: theme.colorScheme.secondary)),
+          ],
+        ),
       )),
       DataCell(Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-            color: _catColor(p.category),
-            borderRadius: BorderRadius.circular(3)),
+            color: _catColor(p.category).withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(6)),
         child: Text(p.category,
-            style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w700)),
+            style: TextStyle(
+                color: _catColor(p.category),
+                fontSize: 12,
+                fontWeight: FontWeight.w800)),
       )),
       DataCell(Text(baht(p.price),
-          style: const TextStyle(fontWeight: FontWeight.w700))),
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))),
       DataCell(Text(baht(p.cost),
-          style: TextStyle(color: theme.colorScheme.secondary))),
+          style: TextStyle(color: theme.colorScheme.secondary, fontWeight: FontWeight.w600))),
       DataCell(Text('${p.stock}',
           style: TextStyle(
-              color: statusColor, fontSize: 20, fontWeight: FontWeight.w800))),
+              color: statusColor, fontSize: 22, fontWeight: FontWeight.w900))),
       DataCell(Text('${p.minStock}',
           style: TextStyle(color: theme.colorScheme.secondary))),
-      DataCell(Text('● $statusLabel',
-          style: TextStyle(
-              color: statusColor, fontWeight: FontWeight.w700, fontSize: 13))),
       DataCell(Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextButton(
-            onPressed: () => _openAdjust(p),
-            child: const Text('± ปรับ'),
+          Container(
+            width: 8, height: 8,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
           ),
-          OutlinedButton(
-            onPressed: () => _openEdit(p),
-            child: const Text('แก้ไข'),
-          ),
-          IconButton(
-            tooltip: 'พิมพ์ป้าย',
-            icon: const Icon(Icons.label_outline, size: 18),
-            onPressed: () => _printLabels(_products, [p.id]),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            onPressed: () => _delete(p),
-            child: const Text('ลบ'),
-          ),
+          const SizedBox(width: 6),
+          Text(statusLabel,
+              style: TextStyle(
+                  color: statusColor, fontWeight: FontWeight.w700, fontSize: 13)),
         ],
+      )),
+      DataCell(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton.tonalIcon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.successLight.withValues(alpha: 0.15),
+                foregroundColor: AppColors.successLight,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => _openAdjust(p),
+              icon: const Icon(Icons.sync_alt, size: 18),
+              label: const Text('ปรับสต็อก', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => _openEdit(p),
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('แก้ไข', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'พิมพ์ป้าย',
+              icon: const Icon(Icons.print_outlined, size: 20),
+              color: theme.colorScheme.primary,
+              style: IconButton.styleFrom(
+                backgroundColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => _printLabels(_products, [p.id]),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'ลบ',
+              icon: const Icon(Icons.delete_outline, size: 20),
+              color: AppColors.error,
+              style: IconButton.styleFrom(
+                backgroundColor: AppColors.error.withValues(alpha: 0.1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => _delete(p),
+            ),
+          ],
+        ),
       )),
     ]);
   }
 
   Widget _summaryChip(String label, int n, Color color, String status) {
     final active = _filterStatus == status;
-    return InkWell(
-      onTap: () => setState(
-          () => _filterStatus = _filterStatus == status ? 'All' : status),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 80),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: active ? color.withValues(alpha: 0.09) : null,
-          border: Border.all(
-              color: active ? color : Theme.of(context).dividerColor, width: 2),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('$n',
-                style: TextStyle(
-                    fontSize: 22, fontWeight: FontWeight.w800, color: color)),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.secondary)),
-          ],
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(
+            () => _filterStatus = _filterStatus == status ? 'All' : status),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          constraints: const BoxConstraints(minWidth: 90),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: active ? color.withValues(alpha: 0.1) : theme.colorScheme.surface,
+            border: Border.all(
+                color: active ? color : theme.dividerColor.withValues(alpha: 0.3), 
+                width: active ? 2 : 1),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: active ? [] : [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.02),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              )
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('$n',
+                  style: TextStyle(
+                      fontSize: 24, fontWeight: FontWeight.w900, color: color, height: 1.1)),
+              const SizedBox(height: 4),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                      color: active ? color : theme.colorScheme.secondary)),
+            ],
+          ),
         ),
       ),
     );
@@ -455,19 +623,26 @@ class _StockTabState extends ConsumerState<_StockTab> {
 
   Widget _catFilterBtn(
       String label, bool active, Color? color, VoidCallback onTap) {
-    final fg = active ? (color ?? AppColors.orange) : null;
-    return OutlinedButton(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: fg,
-        side: BorderSide(
-            color: active
-                ? (color ?? AppColors.orange)
-                : Theme.of(context).dividerColor),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        minimumSize: const Size(0, 34),
+    final bg = active ? (color ?? AppColors.orange) : Colors.transparent;
+    final fg = active ? AppColors.white : (color ?? AppColors.orange);
+    final border = color ?? AppColors.orange;
+    
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: fg,
+          backgroundColor: bg,
+          side: BorderSide(
+              color: active ? Colors.transparent : border.withValues(alpha: 0.5),
+              width: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: active ? 2 : 0,
+        ),
+        onPressed: onTap,
+        child: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
       ),
-      onPressed: onTap,
-      child: Text(label, style: const TextStyle(fontSize: 12)),
     );
   }
 
@@ -717,31 +892,51 @@ class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
                   style: theme.textTheme.titleLarge
                       ?.copyWith(fontWeight: FontWeight.w800)),
               const SizedBox(height: 16),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 4.2,
+              Wrap(
+                spacing: 16,
+                runSpacing: 20,
                 children: [
-                  _field('รหัสสินค้า', _partNo,
-                      enabled: _isNew,
-                      hint: _isNew
-                          ? null
-                          : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)'),
-                  _field('ชื่อ (EN)', _name),
-                  _field('ชื่อ (TH)', _nameTH),
-                  _field('แบรนด์', _brand),
-                  _categoryField(theme),
-                  _field('ใช้กับรถรุ่น', _compat),
-                  _field('สต็อก', _stock,
-                      enabled: _isNew,
-                      numeric: true,
-                      hint: _isNew
-                          ? null
-                          : 'ใช้ปุ่ม "± ปรับ" เพื่อเปลี่ยนสต็อก (มี audit log)'),
-                  _field('สต็อกขั้นต่ำ', _minStock, numeric: true),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 280, maxWidth: 300),
+                    child: _field('รหัสสินค้า', _partNo,
+                        enabled: _isNew,
+                        hint: _isNew
+                            ? null
+                            : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)'),
+                  ),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 280, maxWidth: 300),
+                    child: _field('ชื่อ (EN)', _name),
+                  ),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 280, maxWidth: 300),
+                    child: _field('ชื่อ (TH)', _nameTH),
+                  ),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 280, maxWidth: 300),
+                    child: _field('แบรนด์', _brand),
+                  ),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 280, maxWidth: 300),
+                    child: _categoryField(theme),
+                  ),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 280, maxWidth: 300),
+                    child: _field('ใช้กับรถรุ่น', _compat),
+                  ),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 280, maxWidth: 300),
+                    child: _field('สต็อก', _stock,
+                        enabled: _isNew,
+                        numeric: true,
+                        hint: _isNew
+                            ? null
+                            : 'ใช้ปุ่ม "ปรับสต็อก" เพื่อเปลี่ยนสต็อกอย่างถูกต้อง'),
+                  ),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 280, maxWidth: 300),
+                    child: _field('สต็อกขั้นต่ำ', _minStock, numeric: true),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -844,77 +1039,76 @@ class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
   Widget _priceCalcBox(ThemeData theme) {
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer,
-        border: Border.all(color: _marginColor, width: 2),
-        borderRadius: BorderRadius.circular(10),
+        color: theme.colorScheme.surface,
+        border: Border.all(color: _marginColor.withValues(alpha: 0.5), width: 2),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _marginColor.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-              '📊 คำนวณราคา + กำไร (VAT ${_numText(_taxRate)}% อัตโนมัติ)',
-              style: theme.textTheme.labelLarge
-                  ?.copyWith(color: theme.colorScheme.secondary)),
-          const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _calcInput('ราคาทุน ฿', _cost)),
-              const SizedBox(width: 10),
-              Expanded(child: _calcInput('ค่าขนส่ง ฿', _freight)),
-              const SizedBox(width: 10),
-              Expanded(
-                  child: _calcInput('ราคาขาย ฿ (รวม VAT)', _price,
-                      accent: true)),
+              Icon(Icons.analytics, color: _marginColor),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                    'คำนวณราคา + กำไร (VAT ${_numText(_taxRate)}% อัตโนมัติ)',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(color: _marginColor, fontWeight: FontWeight.w800)),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: [
+              Container(constraints: const BoxConstraints(minWidth: 160, maxWidth: 190), child: _calcInput('ราคาทุน ฿', _cost)),
+              Container(constraints: const BoxConstraints(minWidth: 160, maxWidth: 190), child: _calcInput('ค่าขนส่ง ฿', _freight)),
+              Container(constraints: const BoxConstraints(minWidth: 160, maxWidth: 210), child: _calcInput('ราคาขาย ฿ (รวม VAT)', _price, accent: true)),
+            ],
+          ),
+          const SizedBox(height: 20),
           Container(
             decoration: BoxDecoration(
               color: theme.colorScheme.surfaceContainerLowest,
-              border: Border.all(color: theme.dividerColor),
-              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
+            child: Wrap(
+              alignment: WrapAlignment.spaceEvenly,
               children: [
-                _statCell('ต้นทุนรวม', '฿${_fTotalCost.toStringAsFixed(2)}',
-                    theme.colorScheme.onSurface),
-                _divider(theme),
-                _statCell('ราคาสุทธิ', '฿${_fNetSell.toStringAsFixed(2)}',
-                    theme.colorScheme.onSurface),
-                _divider(theme),
-                _statCell(
-                    'กำไร',
-                    '฿${_fProfit.toStringAsFixed(2)}',
-                    _fProfit >= 0 ? AppColors.successLight : AppColors.error),
-                _divider(theme),
-                Expanded(
-                  flex: 12,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                    child: Column(
-                      children: [
-                        Text('Margin %',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: theme.colorScheme.secondary)),
-                        Text(
-                            _fMargin != null
-                                ? '${_fMargin!.toStringAsFixed(1)}%'
-                                : '—',
-                            style: TextStyle(
-                                fontSize: 26,
-                                height: 1,
-                                fontWeight: FontWeight.w800,
-                                color: _marginColor)),
-                        Text(_marginLabel,
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: _marginColor)),
-                      ],
-                    ),
+                _statCell('ต้นทุนรวม', '฿${_fTotalCost.toStringAsFixed(2)}', theme.colorScheme.onSurface),
+                _statCell('ราคาสุทธิ', '฿${_fNetSell.toStringAsFixed(2)}', theme.colorScheme.onSurface),
+                _statCell('กำไร', '฿${_fProfit.toStringAsFixed(2)}', _fProfit >= 0 ? AppColors.successLight : AppColors.error),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Margin %', style: TextStyle(fontSize: 12, color: theme.colorScheme.secondary, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text(
+                          _fMargin != null ? '${_fMargin!.toStringAsFixed(1)}%' : '—',
+                          style: TextStyle(fontSize: 28, height: 1.1, fontWeight: FontWeight.w900, color: _marginColor)),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _marginColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(_marginLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _marginColor)),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -925,26 +1119,16 @@ class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
     );
   }
 
-  Widget _divider(ThemeData theme) =>
-      Container(width: 1, height: 56, color: theme.dividerColor);
-
   Widget _statCell(String label, String value, Color color) {
-    return Expanded(
-      flex: 10,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Column(
-          children: [
-            Text(label,
-                style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context).colorScheme.secondary)),
-            const SizedBox(height: 3),
-            Text(value,
-                style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w700, color: color)),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.secondary, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+        ],
       ),
     );
   }
@@ -1548,6 +1732,7 @@ class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
             .reduce((a, b) => a < b ? a : b);
 
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // product list
         Container(
@@ -1679,115 +1864,157 @@ class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
 
   Widget _supplierTable(
       ThemeData theme, List<SupplierRow> rows, double? minTotal) {
-    return Column(
-      children: rows.map((s) {
-        final total = s.unitCost + s.freight;
-        final isMin = total == minTotal;
-        return Container(
-          decoration: BoxDecoration(
-            color: isMin
-                ? AppColors.forestGreen.withValues(alpha: 0.1)
-                : null,
-            border: Border(bottom: BorderSide(color: theme.dividerColor)),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(s.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                    if (isMin)
-                      Container(
-                        margin: const EdgeInsets.only(top: 4),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.forestGreen,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                        child: const Text('✓ ราคาถูกสุด',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700)),
-                      ),
-                  ],
-                ),
-              ),
-              Expanded(
-                  child: Text(baht(s.unitCost),
-                      textAlign: TextAlign.right)),
-              Expanded(
-                  child:
-                      Text(baht(s.freight), textAlign: TextAlign.right)),
-              Expanded(
-                child: Text(baht(total),
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: isMin
-                            ? AppColors.successLight
-                            : theme.colorScheme.onSurface)),
-              ),
-              const SizedBox(width: 8),
-              TextButton(
-                style: TextButton.styleFrom(foregroundColor: AppColors.error),
-                onPressed: () => _delete(s.id),
-                child: const Text('ลบ'),
-              ),
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: DataTable(
+            dataRowMinHeight: 70,
+            dataRowMaxHeight: double.infinity,
+            horizontalMargin: 24,
+            columnSpacing: 32,
+            headingTextStyle: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface, fontSize: 14),
+            columns: const [
+              DataColumn(label: Text('ชื่อซัพพลายเออร์')),
+              DataColumn(label: Text('ทุน/ชิ้น'), numeric: true),
+              DataColumn(label: Text('ค่าส่ง'), numeric: true),
+              DataColumn(label: Text('รวม'), numeric: true),
+              DataColumn(label: Text('จัดการ')),
             ],
+            rows: rows.map((s) {
+              final total = s.unitCost + s.freight;
+              final isMin = total == minTotal;
+              return DataRow(
+                color: WidgetStateProperty.resolveWith((states) {
+                  return isMin ? AppColors.forestGreen.withValues(alpha: 0.05) : null;
+                }),
+                cells: [
+                  DataCell(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(s.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                          if (isMin) ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.forestGreen,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text('✓ ราคาถูกสุด',
+                                  style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  DataCell(Text(baht(s.unitCost), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
+                  DataCell(Text(baht(s.freight), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
+                  DataCell(Text(baht(total), style: TextStyle(
+                    fontWeight: isMin ? FontWeight.w900 : FontWeight.w700,
+                    fontSize: isMin ? 20 : 15,
+                    color: isMin ? AppColors.successLight : theme.colorScheme.onSurface,
+                  ))),
+                  DataCell(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: IconButton(
+                        tooltip: 'ลบ',
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        color: AppColors.error,
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppColors.error.withValues(alpha: 0.1),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () => _delete(s.id),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
           ),
-        );
-      }).toList(),
-    );
-  }
+        ),
+      );
+    },
+  ),
+);
+}
 
   Widget _addForm(ThemeData theme) {
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer,
-        border: Border.all(color: theme.dividerColor),
-        borderRadius: BorderRadius.circular(10),
+        color: theme.colorScheme.surface,
+        border: Border.all(color: AppColors.orange.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.orange.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('เพิ่มซัพพลายเออร์ใหม่',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 14),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                  flex: 2,
-                  child: _formField('ชื่อซัพพลายเออร์', _name)),
-              const SizedBox(width: 12),
-              Expanded(child: _formField('ราคาต่อชิ้น ฿', _unitCost, numeric: true)),
-              const SizedBox(width: 12),
-              Expanded(child: _formField('ค่าส่ง ฿', _freight, numeric: true)),
+              const Icon(Icons.add_business, color: AppColors.orange),
+              const SizedBox(width: 8),
+              Text('เพิ่มซัพพลายเออร์ใหม่',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800, color: AppColors.orange)),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 20),
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: [
+              Container(constraints: const BoxConstraints(minWidth: 200, maxWidth: 300), child: _formField('ชื่อซัพพลายเออร์', _name)),
+              Container(constraints: const BoxConstraints(minWidth: 120, maxWidth: 160), child: _formField('ราคาต่อชิ้น ฿', _unitCost, numeric: true)),
+              Container(constraints: const BoxConstraints(minWidth: 120, maxWidth: 160), child: _formField('ค่าส่ง ฿', _freight, numeric: true)),
+            ],
+          ),
+          const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              OutlinedButton(
+              TextButton(
                   onPressed: () => setState(() => _adding = false),
-                  child: const Text('ยกเลิก')),
-              const SizedBox(width: 8),
+                  child: const Text('ยกเลิก', style: TextStyle(fontWeight: FontWeight.bold))),
+              const SizedBox(width: 12),
               FilledButton(
                 style: FilledButton.styleFrom(
                     backgroundColor: AppColors.orange,
-                    foregroundColor: AppColors.white),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
                 onPressed: _add,
-                child: const Text('เพิ่ม'),
+                child: const Text('บันทึก', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -1801,8 +2028,8 @@ class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelMedium),
-        const SizedBox(height: 4),
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
         TextField(
           controller: ctrl,
           keyboardType: numeric
@@ -1810,8 +2037,11 @@ class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
               : null,
           decoration: InputDecoration(
               isDense: true,
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
               hintText: numeric ? '0' : '',
-              border: const OutlineInputBorder()),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.orange, width: 2))),
         ),
       ],
     );
