@@ -31,6 +31,7 @@ import '../providers/providers.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
+import '../widgets/font_scale_controller.dart';
 import '../widgets/theme_controller.dart';
 
 // Today's date helpers (yyyy-MM-dd / yyyy-MM / week boundary) — match db.js slices.
@@ -389,7 +390,7 @@ class _GeneralTabState extends ConsumerState<_GeneralTab> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// THEME — dark / light selector
+// THEME — dark / light selector + font scale multiplier
 // ════════════════════════════════════════════════════════════════════════
 
 class _ThemeTab extends ConsumerWidget {
@@ -443,6 +444,9 @@ class _ThemeTab extends ConsumerWidget {
             },
           ),
         ),
+        const SizedBox(height: 32),
+        // ── Font scale section ──
+        const _FontScaleSection(),
       ],
     );
   }
@@ -532,6 +536,281 @@ class _ThemeCard extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                   fontSize: 12,
                   letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Font scale preset cards + slider + preview ──
+class _FontScaleSection extends ConsumerWidget {
+  const _FontScaleSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final currentScale = ref.watch(fontScaleProvider);
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _SectionTitle('ขนาดตัวอักษร · Font Size'),
+          const SizedBox(height: 4),
+          // ── Preset cards ──
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final presets = fontScalePresets;
+              const gap = 10.0;
+              final w =
+                  (constraints.maxWidth - gap * (presets.length - 1)) /
+                  presets.length;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (final p in presets)
+                    SizedBox(
+                      width: w,
+                      child: _FontScalePresetCard(
+                        preset: p,
+                        active: (currentScale - p.value).abs() < 0.01,
+                        onTap: () => ref
+                            .read(fontScaleProvider.notifier)
+                            .setScale(p.value),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          // ── Slider ──
+          Row(
+            children: [
+              Icon(
+                Icons.text_decrease,
+                size: 20,
+                color: theme.colorScheme.secondary,
+              ),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    activeTrackColor: AppColors.orange,
+                    inactiveTrackColor:
+                        AppColors.orange.withValues(alpha: 0.2),
+                    thumbColor: AppColors.orange,
+                    overlayColor: AppColors.orange.withValues(alpha: 0.12),
+                    trackHeight: 4,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 10,
+                    ),
+                  ),
+                  child: Slider(
+                    value: currentScale.clamp(0.85, 1.25),
+                    min: 0.85,
+                    max: 1.25,
+                    divisions: 8, // (1.25 - 0.85) / 0.05 = 8
+                    onChanged: (v) {
+                      // Round to 2 decimal places for clean display
+                      final rounded =
+                          (v * 20).round() / 20; // snap to 0.05 steps
+                      ref
+                          .read(fontScaleProvider.notifier)
+                          .setScale(rounded);
+                    },
+                  ),
+                ),
+              ),
+              Icon(
+                Icons.text_increase,
+                size: 20,
+                color: theme.colorScheme.secondary,
+              ),
+            ],
+          ),
+          // ── Scale label ──
+          Center(
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.orange.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Text(
+                '${currentScale.toStringAsFixed(2)}x',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: AppColors.orange,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          // ── Live preview box ──
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: theme.dividerColor,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.preview,
+                      size: 16,
+                      color: theme.colorScheme.secondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'ตัวอย่าง · Preview',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.0,
+                        color: theme.colorScheme.secondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'ศรีสุรัตน์ ออโต้พาร์ท',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Srisurart Autopart POS',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.secondary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      'น้ำมันเครื่อง 10W-40',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '฿1,250.00',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: AppColors.orange,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'สต็อก: 24 ชิ้น · หมวดหมู่: น้ำมัน',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.secondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FontScalePresetCard extends StatelessWidget {
+  final FontScalePreset preset;
+  final bool active;
+  final VoidCallback onTap;
+  const _FontScalePresetCard({
+    required this.preset,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        decoration: BoxDecoration(
+          color: active
+              ? AppColors.orange.withValues(alpha: 0.1)
+              : theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: active ? AppColors.orange : theme.dividerColor,
+            width: active ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              preset.icon,
+              size: 22,
+              color: active ? AppColors.orange : theme.colorScheme.secondary,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              preset.label,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+                color: active
+                    ? AppColors.orange
+                    : theme.colorScheme.onSurface,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${preset.value}x',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+                color: active
+                    ? AppColors.orange
+                    : theme.colorScheme.secondary,
+                letterSpacing: 0.5,
+              ),
+            ),
+            if (active) ...[
+              const SizedBox(height: 4),
+              Text(
+                '✓',
+                style: TextStyle(
+                  color: AppColors.orange,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
                 ),
               ),
             ],
