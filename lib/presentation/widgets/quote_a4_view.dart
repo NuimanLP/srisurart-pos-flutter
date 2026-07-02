@@ -75,7 +75,16 @@ class QuoteA4View extends StatelessWidget {
     final cond = await PdfGoogleFonts.barlowCondensedBold();
 
     final doc = pw.Document(
-      theme: pw.ThemeData.withFont(base: base, bold: bold),
+      // The display headings use Barlow Condensed (cond), which has NO Thai
+      // glyphs. The labels mix Thai + EN (e.g. 'เสนอแก่ · TO'), so without a
+      // fallback the Thai half renders as .notdef boxes. Sarabun fonts as the
+      // theme-wide fallback render any non-Latin glyph; the fallback is
+      // inherited by every TextStyle even when it overrides `font:`.
+      theme: pw.ThemeData.withFont(
+        base: base,
+        bold: bold,
+        fontFallback: [base, bold, semi],
+      ),
     );
 
     final s = settings;
