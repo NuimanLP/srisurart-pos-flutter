@@ -193,7 +193,7 @@ class _ReportsView extends StatelessWidget {
         ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(24),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final narrow = constraints.maxWidth < 900;
@@ -209,7 +209,7 @@ class _ReportsView extends StatelessWidget {
                       avgTicket: avgTicket,
                       totalItems: totalItems,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
                     _columns(
                       narrow: narrow,
                       children: [
@@ -234,7 +234,7 @@ class _ReportsView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (int i = 0; i < children.length; i++) ...[
-            if (i > 0) const SizedBox(height: 14),
+            if (i > 0) const SizedBox(height: 16),
             children[i],
           ],
         ],
@@ -245,7 +245,7 @@ class _ReportsView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (int i = 0; i < children.length; i++) ...[
-            if (i > 0) const SizedBox(width: 14),
+            if (i > 0) const SizedBox(width: 16),
             Expanded(child: children[i]),
           ],
         ],
@@ -256,7 +256,10 @@ class _ReportsView extends StatelessWidget {
   // ── Top Products ──────────────────────────────────────────────────────────
   Widget _topProductsCard(BuildContext context, List<MapEntry<String, _Sold>> top) {
     return _ReportCard(
-      title: 'สินค้าขายดี · Top Products',
+      icon: Icons.emoji_events_rounded,
+      iconColor: const Color(0xFFFFB300),
+      title: 'สินค้าขายดี',
+      subtitle: 'Top Products',
       child: top.isEmpty
           ? const _EmptyLine('ยังไม่มีข้อมูลการขาย')
           : Column(
@@ -268,6 +271,7 @@ class _ReportsView extends StatelessWidget {
                     name: top[i].value.name,
                     revenue: top[i].value.revenue,
                     qty: top[i].value.qty,
+                    isLast: i == top.length - 1,
                   ),
               ],
             ),
@@ -282,7 +286,10 @@ class _ReportsView extends StatelessWidget {
     List<ProductRow> lowStock,
   ) {
     return _ReportCard(
-      title: 'รายได้ตามประเภท · Revenue by Category',
+      icon: Icons.donut_small_rounded,
+      iconColor: AppColors.navyLight,
+      title: 'รายได้ตามประเภท',
+      subtitle: 'Revenue by Category',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -297,11 +304,8 @@ class _ReportsView extends StatelessWidget {
                 color: _hex(data.catColors[z.key] ?? '#1E4A80'),
               ),
           if (lowStock.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            _CardTitle(
-              '⚠ สต็อกต่ำ · Low Stock (${lowStock.length})',
-              color: AppColors.warning,
-            ),
+            const SizedBox(height: 20),
+            _LowStockHeader(count: lowStock.length),
             const SizedBox(height: 8),
             for (final p in lowStock.take(5)) _LowStockRow(p),
           ],
@@ -313,11 +317,17 @@ class _ReportsView extends StatelessWidget {
   // ── Recent Sales ──────────────────────────────────────────────────────────
   Widget _recentCard(BuildContext context, List<SaleWithItems> recent) {
     return _ReportCard(
-      title: 'รายการล่าสุด · Recent Sales',
+      icon: Icons.receipt_long_rounded,
+      iconColor: AppColors.orange,
+      title: 'รายการล่าสุด',
+      subtitle: 'Recent Sales',
       child: recent.isEmpty
           ? const _EmptyLine('ยังไม่มีรายการ')
           : Column(
-              children: [for (final t in recent) _RecentRow(t)],
+              children: [
+                for (int i = 0; i < recent.length; i++)
+                  _RecentRow(recent[i], isLast: i == recent.length - 1),
+              ],
             ),
     );
   }
@@ -337,50 +347,72 @@ class _RangeBar extends StatelessWidget {
   const _RangeBar({required this.range, required this.onChanged});
 
   static const _options = [
-    (_Range.today, 'วันนี้'),
-    (_Range.week, '7 วัน'),
-    (_Range.month, 'เดือนนี้'),
-    (_Range.all, 'ทั้งหมด'),
+    (_Range.today, 'วันนี้', Icons.today_rounded),
+    (_Range.week, '7 วัน', Icons.date_range_rounded),
+    (_Range.month, 'เดือนนี้', Icons.calendar_month_rounded),
+    (_Range.all, 'ทั้งหมด', Icons.all_inclusive_rounded),
   ];
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor,
-        border: Border(
-          bottom: BorderSide(color: theme.dividerColor),
-        ),
+        color: isDark
+            ? AppColors.navy.withValues(alpha: 0.6)
+            : Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          Flexible(
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final o in _options)
-                  _RangeButton(
-                    label: o.$2,
-                    active: range == o.$1,
-                    onTap: () => onChanged(o.$1),
-                  ),
-              ],
-            ),
+          // Report title with icon
+          Icon(
+            Icons.analytics_rounded,
+            size: 22,
+            color: AppColors.orange,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Flexible(
             child: Text(
-              'รายงานยอดขาย · Sales Report',
+              'รายงานยอดขาย',
               overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.right,
               style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1,
-                color: theme.colorScheme.secondary,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.5,
+                color: isDark ? Colors.white : AppColors.navy,
               ),
+            ),
+          ),
+          const Spacer(),
+          // Range pill buttons
+          Container(
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : AppColors.gray100,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.all(3),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (int i = 0; i < _options.length; i++) ...[
+                  _RangeButton(
+                    label: _options[i].$2,
+                    icon: _options[i].$3,
+                    active: range == _options[i].$1,
+                    onTap: () => onChanged(_options[i].$1),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
@@ -391,10 +423,12 @@ class _RangeBar extends StatelessWidget {
 
 class _RangeButton extends StatelessWidget {
   final String label;
+  final IconData icon;
   final bool active;
   final VoidCallback onTap;
   const _RangeButton({
     required this.label,
+    required this.icon,
     required this.active,
     required this.onTap,
   });
@@ -402,28 +436,46 @@ class _RangeButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Material(
-      color: active ? AppColors.orange : theme.colorScheme.surface,
-      borderRadius: BorderRadius.circular(6),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(6),
-        onTap: onTap,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: active ? AppColors.orange : theme.dividerColor,
-            ),
-          ),
-          child: Text(
-            label,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1,
-              color: active ? Colors.white : theme.colorScheme.secondary,
+    final isDark = theme.brightness == Brightness.dark;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      child: Material(
+        color: active
+            ? AppColors.orange
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        elevation: active ? 2 : 0,
+        shadowColor: AppColors.orange.withValues(alpha: 0.3),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 38),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 15,
+                  color: active
+                      ? Colors.white
+                      : (isDark ? AppColors.steelBlue : AppColors.gray500),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+                    letterSpacing: 0.5,
+                    color: active
+                        ? Colors.white
+                        : (isDark ? AppColors.steelBlue : AppColors.gray500),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -456,24 +508,33 @@ class _KpiRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final cards = <Widget>[
       _StatCard(
+        icon: Icons.account_balance_wallet_rounded,
+        iconGradient: const [Color(0xFFFF8A3D), Color(0xFFE8601C)],
         label: 'รายได้สุทธิ',
         value: baht(netRevenue),
         valueColor: AppColors.orange,
         sub: totalRefunds > 0
             ? 'ขาย ${baht(totalRevenue)} − คืน ${baht(totalRefunds)}'
             : null,
+        isPrimary: true,
       ),
       _StatCard(
+        icon: Icons.receipt_rounded,
+        iconGradient: const [Color(0xFF4ECDC4), Color(0xFF2BA8A4)],
         label: 'จำนวนบิล',
         value: thaiInt(totalTransactions),
         sub: 'transactions',
       ),
       _StatCard(
+        icon: Icons.trending_up_rounded,
+        iconGradient: const [Color(0xFF667EEA), Color(0xFF4A5CD9)],
         label: 'ยอดเฉลี่ย/บิล',
         value: baht(avgTicket),
         sub: 'avg ticket',
       ),
       _StatCard(
+        icon: Icons.inventory_2_rounded,
+        iconGradient: const [Color(0xFF6DD5ED), Color(0xFF2193B0)],
         label: 'ชิ้นสินค้าที่ขาย',
         value: thaiInt(totalItems),
         sub: 'items sold',
@@ -485,44 +546,89 @@ class _KpiRow extends StatelessWidget {
       crossAxisCount: crossAxisCount,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 14,
-      mainAxisSpacing: 14,
-      childAspectRatio: narrow ? 2.0 : 2.3,
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      childAspectRatio: narrow ? 1.9 : 2.2,
       children: cards,
     );
   }
 }
 
 class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final List<Color> iconGradient;
   final String label;
   final String value;
   final String? sub;
   final Color? valueColor;
+  final bool isPrimary;
   const _StatCard({
+    required this.icon,
+    required this.iconGradient,
     required this.label,
     required this.value,
     this.sub,
     this.valueColor,
+    this.isPrimary = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
-      padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: theme.dividerColor),
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isPrimary
+              ? AppColors.orange.withValues(alpha: 0.3)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : AppColors.gray100),
+          width: isPrimary ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isPrimary
+                ? AppColors.orange.withValues(alpha: isDark ? 0.08 : 0.06)
+                : Colors.black.withValues(alpha: isDark ? 0.15 : 0.03),
+            blurRadius: isPrimary ? 16 : 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Only value+label scale together; the sub stays at fixed size so a
-          // long 'ขาย ฿..−คืน ฿..' subtitle can't drag the headline smaller
-          // than sibling cards.
+          // Icon badge
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: iconGradient,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: iconGradient.first.withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(icon, size: 18, color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+          // Value + label scale together
           Flexible(
             child: FittedBox(
               fit: BoxFit.scaleDown,
@@ -537,17 +643,20 @@ class _StatCard extends StatelessWidget {
                     style: theme.textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                       height: 1,
-                      color: valueColor ?? theme.colorScheme.onSurface,
+                      color: valueColor ??
+                          (isDark ? Colors.white : AppColors.navy),
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
                     label,
                     maxLines: 1,
                     style: theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
-                      color: theme.colorScheme.secondary,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                      color: isDark
+                          ? AppColors.steelBlue
+                          : AppColors.gray500,
                     ),
                   ),
                 ],
@@ -555,13 +664,16 @@ class _StatCard extends StatelessWidget {
             ),
           ),
           if (sub != null) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               sub!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.secondary.withValues(alpha: 0.7),
+                color: isDark
+                    ? AppColors.steelBlue.withValues(alpha: 0.7)
+                    : AppColors.gray400,
+                fontSize: 11,
               ),
             ),
           ],
@@ -573,54 +685,106 @@ class _StatCard extends StatelessWidget {
 
 // ── Generic report card (scrollable, max height like the JS card) ─────────────
 class _ReportCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
   final String title;
+  final String subtitle;
   final Widget child;
-  const _ReportCard({required this.title, required this.child});
+  const _ReportCard({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
-      constraints: const BoxConstraints(maxHeight: 440),
+      constraints: const BoxConstraints(maxHeight: 480),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: theme.dividerColor),
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : AppColors.gray100,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 4),
-            child: _CardTitle(title),
+          // Card header with icon
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : AppColors.gray100,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, size: 17, color: iconColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : AppColors.navy,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.8,
+                          color: isDark
+                              ? AppColors.steelBlue
+                              : AppColors.gray400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           Flexible(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
               child: child,
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _CardTitle extends StatelessWidget {
-  final String text;
-  final Color? color;
-  const _CardTitle(this.text, {this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Text(
-      text,
-      style: theme.textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.2,
-        color: color ?? theme.colorScheme.secondary,
       ),
     );
   }
@@ -645,34 +809,82 @@ class _TopProductRow extends StatelessWidget {
   final String name;
   final double revenue;
   final int qty;
+  final bool isLast;
   const _TopProductRow({
     required this.rank,
     required this.partNo,
     required this.name,
     required this.revenue,
     required this.qty,
+    this.isLast = false,
   });
+
+  Color _rankColor() {
+    switch (rank) {
+      case 1:
+        return const Color(0xFFFFB300); // gold
+      case 2:
+        return const Color(0xFF90A4AE); // silver
+      case 3:
+        return const Color(0xFFCD7F32); // bronze
+      default:
+        return AppColors.gray300;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final rColor = _rankColor();
+    final isTopThree = rank <= 3;
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 11),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+        border: isLast
+            ? null
+            : Border(
+                bottom: BorderSide(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : AppColors.gray100.withValues(alpha: 0.7),
+                ),
+              ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          SizedBox(
+          // Rank badge
+          Container(
             width: 30,
-            child: Text(
-              '#$rank',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: theme.colorScheme.secondary.withValues(alpha: 0.7),
-              ),
+            height: 30,
+            decoration: BoxDecoration(
+              color: isTopThree
+                  ? rColor.withValues(alpha: 0.15)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: isTopThree
+                  ? null
+                  : Border.all(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.1)
+                          : AppColors.gray200,
+                    ),
             ),
+            alignment: Alignment.center,
+            child: isTopThree
+                ? Icon(
+                    Icons.emoji_events_rounded,
+                    size: 16,
+                    color: rColor,
+                  )
+                : Text(
+                    '$rank',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? AppColors.steelBlue : AppColors.gray400,
+                    ),
+                  ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -686,8 +898,10 @@ class _TopProductRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyLarge?.copyWith(
                     fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : AppColors.navy,
                   ),
                 ),
+                const SizedBox(height: 1),
                 Text(
                   partNo,
                   maxLines: 1,
@@ -695,6 +909,7 @@ class _TopProductRow extends StatelessWidget {
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppColors.orangeLight,
                     fontFamily: 'monospace',
+                    fontSize: 11,
                   ),
                 ),
               ],
@@ -709,13 +924,26 @@ class _TopProductRow extends StatelessWidget {
                 baht(revenue),
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: AppColors.orangeLight,
+                  color: AppColors.orange,
                 ),
               ),
-              Text(
-                '$qty ชิ้น',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.secondary),
+              Container(
+                margin: const EdgeInsets.only(top: 2),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : AppColors.gray100,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '$qty ชิ้น',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? AppColors.steelBlue : AppColors.gray500,
+                  ),
+                ),
               ),
             ],
           ),
@@ -740,21 +968,39 @@ class _CategoryBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
+              // Color dot
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.3),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
+                    color: isDark ? Colors.white : AppColors.navy,
                   ),
                 ),
               ),
@@ -762,25 +1008,86 @@ class _CategoryBar extends StatelessWidget {
                 baht(value),
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: AppColors.orangeLight,
+                  color: AppColors.orange,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           ClipRRect(
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(4),
             child: Stack(
               children: [
                 Container(
-                  height: 6,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : AppColors.gray100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
                 FractionallySizedBox(
                   widthFactor: fraction.clamp(0.0, 1.0),
-                  child: Container(height: 6, color: color),
+                  child: Container(
+                    height: 8,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          color,
+                          color.withValues(alpha: 0.7),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.25),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Low stock header ──────────────────────────────────────────────────────────
+class _LowStockHeader extends StatelessWidget {
+  final int count;
+  const _LowStockHeader({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: AppColors.warning.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            size: 18,
+            color: AppColors.warning,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'สต็อกต่ำ · Low Stock ($count)',
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.warning,
             ),
           ),
         ],
@@ -797,13 +1104,37 @@ class _LowStockRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final out = product.stock == 0;
+    final isDark = theme.brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+        border: Border(
+          bottom: BorderSide(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.05)
+                : AppColors.gray100.withValues(alpha: 0.7),
+          ),
+        ),
       ),
       child: Row(
         children: [
+          // Status indicator
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: out ? AppColors.error : AppColors.warning,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: (out ? AppColors.error : AppColors.warning)
+                      .withValues(alpha: 0.4),
+                  blurRadius: 4,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -811,8 +1142,10 @@ class _LowStockRow extends StatelessWidget {
               children: [
                 Text(
                   product.name,
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : AppColors.navy,
+                  ),
                 ),
                 Text(
                   product.partNo,
@@ -824,11 +1157,20 @@ class _LowStockRow extends StatelessWidget {
               ],
             ),
           ),
-          Text(
-            '${product.stock} ชิ้น',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: out ? AppColors.error : AppColors.warning,
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: (out ? AppColors.error : AppColors.warning)
+                  .withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              out ? 'หมด' : '${product.stock} ชิ้น',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: out ? AppColors.error : AppColors.warning,
+              ),
             ),
           ),
         ],
@@ -839,20 +1181,47 @@ class _LowStockRow extends StatelessWidget {
 
 class _RecentRow extends StatelessWidget {
   final SaleWithItems sale;
-  const _RecentRow(this.sale);
+  final bool isLast;
+  const _RecentRow(this.sale, {this.isLast = false});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final s = sale.sale;
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+        border: isLast
+            ? null
+            : Border(
+                bottom: BorderSide(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : AppColors.gray100.withValues(alpha: 0.7),
+                ),
+              ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          // Receipt icon badge
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? AppColors.orange.withValues(alpha: 0.12)
+                  : AppColors.orange.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Icon(
+              Icons.receipt_outlined,
+              size: 17,
+              color: AppColors.orange,
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -861,24 +1230,46 @@ class _RecentRow extends StatelessWidget {
                 Text(
                   s.receiptNo,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppColors.orangeLight,
+                    color: AppColors.orange,
                     fontFamily: 'monospace',
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  thaiDateTime(s.date),
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.secondary),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.access_time_rounded,
+                      size: 12,
+                      color: isDark ? AppColors.steelBlue : AppColors.gray400,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        thaiDateTime(s.date),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: isDark
+                              ? AppColors.steelBlue
+                              : AppColors.gray400,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  '${sale.items.length} รายการ · ${s.paymentMethod}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.secondary.withValues(alpha: 0.8),
-                  ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    _InfoChip(
+                      label: '${sale.items.length} รายการ',
+                      isDark: isDark,
+                    ),
+                    const SizedBox(width: 6),
+                    _InfoChip(
+                      label: s.paymentMethod,
+                      isDark: isDark,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -886,11 +1277,39 @@ class _RecentRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             baht(s.total),
-            style: theme.textTheme.titleLarge?.copyWith(
+            style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
+              color: isDark ? Colors.white : AppColors.navy,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Small info chip for recent row metadata.
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final bool isDark;
+  const _InfoChip({required this.label, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : AppColors.gray100,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w500,
+              color: isDark ? AppColors.steelBlue : AppColors.gray500,
+            ),
       ),
     );
   }
