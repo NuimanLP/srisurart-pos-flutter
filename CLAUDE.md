@@ -109,14 +109,20 @@ two assets committed in `web/`: `sqlite3.wasm` (matches the `sqlite3` pub versio
 (ignored on native). **If you bump `drift` or `sqlite3`, re-download the matching assets** from
 `github.com/simolus3/{drift,sqlite3.dart}/releases` — a version skew breaks the web DB at boot.
 
-**Pending follow-ups (not yet built):**
-- **Cloud backup/sync (Supabase)** — Phase 7, stubbed/not wired (needs project creds).
-- **Native hardware** — thermal printer / cash-drawer kick / barcode **scanning** (camera)
-  deferred to Phase 8; scan actions currently use manual entry.
-- **Bundle Sarabun/Barlow fonts as assets** (currently `google_fonts` runtime fetch — set
-  `GoogleFonts.config.allowRuntimeFetching = false` in tests to avoid a pending-timer leak).
+**Pending follow-ups (not yet built)** — phase numbers per the revised `docs/PLAN.md` (2026-07-03):
+- **Cloud snapshot backup (Supabase) — Phase 7a**, stubbed/not wired (needs project creds).
+  Do first: dev/prod env split, then scheduled+manual backup + restore drill.
+- **Record-level sync — Phase 7b**, optional until a second device exists. Prerequisite:
+  add `updatedAt` to `customers`/`mechanics`/`settings` (only `products` has it) — Drift
+  schema change ⇒ `build_runner` on an ASCII path.
+- **Software hardening — Phase 8a** (anywhere, can parallel Phase 7): manager-PIN gate,
+  audit log, PDPA, **bundle Sarabun/Barlow fonts as assets** (currently `google_fonts`
+  runtime fetch — set `GoogleFonts.config.allowRuntimeFetching = false` in tests to avoid
+  a pending-timer leak).
+- **Native hardware — Phase 8b** (needs shop access): thermal printer / cash-drawer kick /
+  barcode **scanning** (camera); scan actions currently use manual entry.
 - **Re-capture tutorial screenshots** from the Flutter app (current images are from the JS app).
-- Carried from JS: manager-PIN gate, audit log, PDPA, full tax invoice (ใบกำกับภาษีเต็มรูป).
+- Carried from JS (beyond 8a): full tax invoice (ใบกำกับภาษีเต็มรูป) — out of scope for v1.
 
 ---
 

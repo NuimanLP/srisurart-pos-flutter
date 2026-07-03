@@ -239,8 +239,10 @@ Remaining work is the audit's medium/low backlog plus the bigger post-parity fol
    all green.
 
 ## Bigger follow-ups (post-parity; see CLAUDE.md)
-- Cloud sync (Supabase, Phase 7 — stubbed/not wired). Native thermal printer / barcode scanner /
-  cash-drawer kick (Phase 8). Bundle Sarabun/Barlow fonts (currently `google_fonts` runtime fetch;
+- Cloud backup (Supabase, Phase 7a — stubbed/not wired; record-level sync = Phase 7b, optional
+  until multi-device). Native thermal printer / barcode scanner /
+  cash-drawer kick (Phase 8b; software hardening incl. PIN gate/audit/PDPA = Phase 8a).
+  Bundle Sarabun/Barlow fonts (currently `google_fonts` runtime fetch;
   tests set `GoogleFonts.config.allowRuntimeFetching = false`). Re-capture `tutorial/` screenshots
   from the Flutter app (current ones are from the JS app). *(Drift web worker/wasm — DONE
   2026-06-24, see the "web DB" session note up top.)*

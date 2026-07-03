@@ -1,6 +1,6 @@
 # Srisurart Autopart POS — Architecture Migration Plan
 
-> **Status:** Planning · **Created:** 2026-06-23 · **Owner:** TBD
+> **Status:** In progress — Phases 0–6 complete, Phase 7 next · **Created:** 2026-06-23 · **Updated:** 2026-07-03 · **Owner:** TBD
 > **Goal:** Re-architect the POS from the current **React-in-browser + localStorage**
 > single-station web app to **Flutter**, targeting **Android/iOS tablet & mobile + Web**,
 > with an **offline-first local database and cloud backup/sync**.
@@ -127,17 +127,34 @@ redesign second.
   partial returns/void/credit notes, A4 quotation + manager.
 - **Phase 6 — Reports, settings, local backup/restore + CSV.** Net-revenue KPIs, top
   products, by-category; settings; local backup/restore + CSV export (with `csvSafe`).
-- **Phase 7 — Cloud backup/sync.** Supabase auth + push/pull sync; periodic + manual
-  backup to cloud; conflict policy (§6). *Exit:* device loss no longer means data loss.
-- **Phase 8 — Hardening.** Real thermal-printer + scanner + cash-drawer testing; Flutter
-  Web build & print path; **manager-PIN role gate (SEC-003)**; audit log (QA-001); PDPA
-  (SEC-004). Fold in known follow-ups from `CLAUDE.md`.
-- **Phase 9 — Pilot & cutover.** Run Flutter app in parallel with the JS app, migrate live
-  data via the Phase-2 importer, train staff, then decommission `POS.html`.
+- **Phase 7a — Cloud backup (do this first; it alone meets the exit criterion).**
+  First: **dev/prod env split** (`--dart-define=ENV`, separate Supabase projects/keys per
+  env) so cloud work never touches live shop data. Then: Supabase auth; scheduled +
+  manual **snapshot backup** (`exportSnapshot()` shape) to Supabase Storage; restore path
+  mirroring the atomic import; **one full backup→restore drill on a dev project**.
+  *Exit:* device loss no longer means data loss. **Safe pause point** — 7b can wait
+  until a second device actually exists.
+- **Phase 7b — Record-level sync (optional until multi-device).** Push/pull sync queue +
+  conflict policy (§6). **Schema prerequisite:** LWW-by-`updatedAt` needs an `updatedAt`
+  column on every mutable table — today only `products` has one; `customers`,
+  `mechanics`, `settings` need it added. That is a Drift schema change + migration, so it
+  requires a `build_runner` run **on an ASCII path** (see `CLAUDE.md` build-path
+  constraint). *Exit:* two devices converge after offline edits.
+- **Phase 8a — Software hardening (no shop visit needed; can run parallel to 7).**
+  **Manager-PIN role gate (SEC-003)**; audit log (QA-001); PDPA (SEC-004); bundle
+  Sarabun/Barlow fonts as assets; fold in remaining software follow-ups from `CLAUDE.md`.
+- **Phase 8b — Hardware validation (needs physical access to shop devices).** Real
+  thermal-printer + barcode-scanner + cash-drawer-kick testing; Flutter Web build & print
+  path on the shop PC.
+- **Phase 9 — Pilot & cutover.** **Cutover rehearsal first**: at least once before the
+  real day, freeze the JS app, export a live backup, import via the Phase-2 importer, and
+  verify against the golden file — zero loss. Then run the Flutter app in parallel with
+  the JS app, do the real migration the same way, train staff, and decommission
+  `POS.html`.
 
 ---
 
-## 6. Sync & conflict policy (Phase 7)
+## 6. Sync & conflict policy (Phase 7a backup · 7b sync)
 
 - **Offline-first:** all writes hit local Drift first; a sync queue pushes changes when
   online. Reads never block on network.
@@ -177,7 +194,7 @@ redesign second.
 |---|---|
 | **Thermal printing on Flutter Web** is limited (no direct USB/BT ESC-POS). | Web prints via browser/PDF; native thermal stays on mobile. Confirm acceptable. |
 | **Drift on Web** (WASM/sql.js) maturity & bundle size. | Spike in Phase 0; fallback: web uses IndexedDB-backed store. |
-| **Cash-drawer kick** needs a printer/driver that exposes it. | Validate against the shop's actual hardware in Phase 8. |
+| **Cash-drawer kick** needs a printer/driver that exposes it. | Validate against the shop's actual hardware in Phase 8b. |
 | **Data-migration fidelity** from localStorage JSON. | Phase-2 importer + golden-file test against a real backup. |
 | **Supabase vs Firebase** final pick. | Phase-0 spike; Postgres relational fit favors Supabase. |
 | **Thai rendering / fonts** across platforms. | Bundle Sarabun; test receipts + A4 + web. |
@@ -207,6 +224,20 @@ redesign second.
 
 ## 11. Progress log
 
+- **2026-07-03 — Plan revised after Phase 0–6 completion (see `CLAUDE.md` for build status).**
+  - Status header updated: Phases 0–6 are done (all 11 screens, data layer + tests,
+    shifts, web-DB runtime); Phase 7 is next.
+  - **Phase 7 split into 7a (snapshot backup — meets the exit criterion alone) and
+    7b (record-level sync — optional until a second device exists).** 7a keeps the
+    dev/prod env split as its first step.
+  - Flagged 7b's hidden prerequisite: `updatedAt` column missing on `customers` /
+    `mechanics` / `settings` (only `products` has it) → Drift schema change →
+    `build_runner` on an ASCII path.
+  - **Phase 8 split into 8a (software: PIN gate, audit log, PDPA, bundled fonts — can
+    run parallel to Phase 7) and 8b (hardware: printer/scanner/drawer — needs shop
+    access).**
+  - Phase 9 now requires a **cutover rehearsal** (freeze → export → import → golden-file
+    verify) before the real migration day.
 - **2026-06-23 — Pre-`git init` preparation complete.**
   - Migration plan authored (this file); pointers added in `CLAUDE.md` + `MAINTENANCE.md`.
   - Repo hygiene added: `.gitignore`, `.gitattributes`, `.editorconfig`, `.env.example`
