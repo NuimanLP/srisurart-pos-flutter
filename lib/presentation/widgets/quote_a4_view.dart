@@ -20,6 +20,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../data/db/database.dart';
+import '../../domain/models/aggregates.dart';
 
 // Brand colors as PDF colors (hex parity with the JSX A4 styles).
 const PdfColor _navy = PdfColor.fromInt(0xFF0B2444);
@@ -88,7 +89,7 @@ class QuoteA4View extends StatelessWidget {
     );
 
     final s = settings;
-    final isExpired = quote.validUntil.isBefore(DateTime.now());
+    final isExpired = quote.isExpired;
     final dateStr = _longThaiDate(quote.date);
     final validUntilStr = _longThaiDate(quote.validUntil);
     final validDays =

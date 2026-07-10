@@ -18,6 +18,7 @@
 
 import 'package:drift/drift.dart';
 
+import '../../core/utils/dates.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
 
@@ -43,7 +44,7 @@ class CustomersRepository {
     }
     final code = 'CUS${(maxNum + 1).toString().padLeft(3, '0')}';
 
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final today = todayKey();
     final id = newId('c');
 
     final row = data.copyWith(

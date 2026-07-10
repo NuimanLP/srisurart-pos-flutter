@@ -906,7 +906,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           // ── Category chips ──
           catsAsync.when(
             loading: () => const SizedBox(height: 8),
-            error: (_, __) => const SizedBox(height: 8),
+            error: (_, _) => const SizedBox(height: 8),
             data: (cats) {
               final all = ['ทั้งหมด', ...cats];
               return SizedBox(
@@ -1301,7 +1301,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             height: 44,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemCount: parked.length,
               itemBuilder: (ctx, i) => _parkedChip(parked[i]),
             ),
@@ -2597,11 +2597,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     );
   }
 
-  // ── helpers ──
-  String _hhmm(DateTime d) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${two(d.hour)}:${two(d.minute)}';
-  }
 }
 
 Color? _parseColor(String? hex) {

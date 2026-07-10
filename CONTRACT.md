@@ -251,7 +251,11 @@ those are NOT input fields.
 - `double round2(num v)` — `(v*100).round()/100` (JS `Math.round(v*100)/100`)
 - `int pointsFor(num total)` — `(total/10).floor()`
 - `String baht(num v)` — `'฿' + #,##0.##` formatted
+- `String baht2(num v)` — `'฿' + #,##0.00` (fixed 2-decimal, for cost/margin views)
 - `String csvSafe(Object? v)` — prefixes `'` when value starts with `= + - @ \t \r`
+- `dates.dart`: `String dateKey(DateTime)` (yyyy-MM-dd), `String todayKey()`,
+  `String monthKey()` (yyyy-MM) — the db.js `toISOString().slice(…)` key idiom,
+  in LOCAL time; never re-slice `toIso8601String()` inline
 
 **Use these — never inline equivalents.** All CSV exporters MUST pass values
 through `csvSafe` before quote-escaping. ID/doc numbers come ONLY from `ids.dart`.
@@ -329,7 +333,7 @@ confirmations through `showConfirm`, never `showDialog` ad-hoc for yes/no.
 | `search_field.dart` | `SearchField({String hint='ค้นหา…', ValueChanged<String>? onChanged, TextEditingController? controller, bool autofocus=false})` — leading magnifier + auto clear (✕) button | `SearchField(hint: 'ค้นหาอะไหล่…', onChanged: (q)=>...)` |
 | `section_header.dart` | `SectionHeader(String title, {String? subtitle, Widget? trailing})` | `SectionHeader('สินค้าทั้งหมด', trailing: addBtn)` |
 | `status_chip.dart` | `StatusChip(String label, {StatusTone tone = neutral})`; factory `StatusChip.of(String status)` maps open/converted/received/expired/cancelled/voided → Thai label+tone; enum `StatusTone { success, info, warning, danger, neutral }` | `StatusChip.of('converted')` or `StatusChip('ค้างชำระ', tone: StatusTone.warning)` |
-| `thai_format.dart` | top-level fns: `String thaiInt(num)`; `String thaiDate(DateTime)` (พ.ศ.); `String thaiDateTime(DateTime)`; `String thaiTime(DateTime)` — dates only; money stays in `baht()` | `Text(thaiDate(sale.date))` |
+| `thai_format.dart` | top-level fns: `String thaiInt(num)`; `String thaiDate(DateTime)` (พ.ศ.); `String thaiDateTime(DateTime)`; `String thaiTime(DateTime)`; `String thaiDateSlash(DateTime)` (numeric "23/06/2569", CSV/receipt shape); `String thaiDateTimeSlash(DateTime)` — dates only; money stays in `baht()` | `Text(thaiDate(sale.date))` |
 | `theme_controller.dart` | `themeModeProvider` (`NotifierProvider<ThemeModeNotifier, ThemeMode>`); `ThemeModeNotifier { ThemeMode build(); Future<void> toggle(); Future<void> set(ThemeMode) }`; persists to shared_preferences key `sa_pos_theme` | `ref.read(themeModeProvider.notifier).toggle()` |
 | `app_shell.dart` | `AppShell({required Widget child})` — Contract+UIKit owned nav frame; topbar (shop name/cashier/date + theme toggle) + NavigationRail(>=1000px)/Drawer; do not edit | router `ShellRoute → AppShell(child: ...)` |
 

@@ -53,16 +53,13 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
 
   void _refresh() => ref.invalidate(_quotesListProvider);
 
-  bool _isExpired(QuoteRow q) => q.validUntil.isBefore(DateTime.now());
-  bool _isConverted(QuoteRow q) => q.status == 'converted';
-
   // ── filtering (mirrors JSX `filtered`) ──
   List<QuoteWithItems> _applyFilter(List<QuoteWithItems> all) {
     final s = _search.trim().toLowerCase();
     return all.where((qi) {
       final q = qi.quote;
-      final expired = _isExpired(q);
-      final converted = _isConverted(q);
+      final expired = q.isExpired;
+      final converted = q.isConverted;
       if (_filter == _QuoteFilter.open && (converted || expired)) return false;
       if (_filter == _QuoteFilter.expired && (converted || !expired)) {
         return false;
@@ -94,7 +91,7 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
 
   Future<void> _handleEdit(QuoteWithItems qi) async {
     final q = qi.quote;
-    if (_isConverted(q)) {
+    if (q.isConverted) {
       _snack('ใบนี้แปลงเป็นการขายแล้ว แก้ไขไม่ได้');
       return;
     }
@@ -202,8 +199,8 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
     ];
     for (final qi in all) {
       final q = qi.quote;
-      final expired = _isExpired(q);
-      final status = _isConverted(q)
+      final expired = q.isExpired;
+      final status = q.isConverted
           ? 'converted'
           : (expired ? 'expired' : 'open');
       rows.add([
@@ -278,7 +275,7 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
         error: (e, _) => Center(child: Text('โหลดข้อมูลไม่สำเร็จ: $e')),
         data: (all) {
           final openValid = all
-              .where((qi) => !_isConverted(qi.quote) && !_isExpired(qi.quote))
+              .where((qi) => !qi.quote.isConverted && !qi.quote.isExpired)
               .toList();
           final totalOpen = openValid.length;
           final totalValue = openValid.fold<double>(
@@ -314,8 +311,8 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
                         separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (_, i) => _QuoteRow(
                           item: filtered[i],
-                          expired: _isExpired(filtered[i].quote),
-                          converted: _isConverted(filtered[i].quote),
+                          expired: filtered[i].quote.isExpired,
+                          converted: filtered[i].quote.isConverted,
                           onPreview: () => _openPreview(filtered[i]),
                           onConvert: () => _handleConvert(filtered[i]),
                           onEdit: () => _handleEdit(filtered[i]),
@@ -685,7 +682,7 @@ class _QuotePreviewPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final q = quote.quote;
-    final isExpired = q.validUntil.isBefore(DateTime.now());
+    final isExpired = q.isExpired;
     final canConvert = q.status == 'open' && !isExpired;
     return Scaffold(
       appBar: AppBar(

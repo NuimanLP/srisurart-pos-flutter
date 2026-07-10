@@ -6,9 +6,14 @@
 import 'package:intl/intl.dart';
 
 final NumberFormat _bahtFormat = NumberFormat('#,##0.##');
+final NumberFormat _baht2Format = NumberFormat('#,##0.00');
 
 /// Formats a number as a baht string, e.g. `฿1,250.5` / `฿85`.
 String baht(num v) => '฿${_bahtFormat.format(v)}';
+
+/// Baht with exactly 2 decimals, e.g. `฿1,250.50` / `฿85.00`.
+/// For cost/margin views where the fixed precision is part of the display.
+String baht2(num v) => '฿${_baht2Format.format(v)}';
 
 /// JS-exact 2-decimal rounding: `Math.round(v * 100) / 100`.
 /// Returned as a double.

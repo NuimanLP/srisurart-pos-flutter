@@ -42,6 +42,13 @@ class QuoteWithItems {
   const QuoteWithItems(this.quote, this.items);
 }
 
+/// Quote status reads shared by the quotes screen + A4 view (JSX parity:
+/// `new Date(q.validUntil) < new Date()` / `q.status === 'converted'`).
+extension QuoteRowStatus on QuoteRow {
+  bool get isExpired => validUntil.isBefore(DateTime.now());
+  bool get isConverted => status == 'converted';
+}
+
 /// A return / credit-note header (ReturnRow) together with its line items.
 class ReturnWithItems {
   final ReturnRow ret;

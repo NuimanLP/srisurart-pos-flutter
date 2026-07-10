@@ -18,6 +18,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../providers/providers.dart';
 import '../providers/shift_providers.dart';
@@ -101,7 +102,6 @@ class _ItemLite {
   });
 }
 
-String _today() => DateTime.now().toIso8601String().substring(0, 10);
 
 /// Legacy credit payments carried a `method` field (`'เงินสด'` | `'โอน/QR'`)
 /// and only cash settlements counted toward the drawer. The Drift port has no
@@ -117,7 +117,7 @@ bool _isCashCreditPayment(String? note) {
 final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
   ref,
 ) async {
-  final today = _today();
+  final today = todayKey();
   final salesAgg = await ref.watch(salesRepoProvider).getSales();
   final returns = await ref.watch(returnsRepoProvider).getReturns();
   final creditPayments = await ref
@@ -132,7 +132,7 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
   final sales = <_SaleLite>[];
   for (final s in salesAgg) {
     final sale = s.sale;
-    if (sale.date.toIso8601String().substring(0, 10) != today) continue;
+    if (dateKey(sale.date) != today) continue;
     sales.add(
       _SaleLite(
         subtotal: sale.subtotal,
@@ -157,7 +157,7 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
   final cashRefundsToday = returns
       .where(
         (r) =>
-            r.ret.date.toIso8601String().substring(0, 10) == today &&
+            dateKey(r.ret.date) == today &&
             r.ret.refundMethod == 'เงินสด',
       )
       .fold<double>(0, (s, r) => s + r.ret.refundTotal);
@@ -172,7 +172,7 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
   final cashCreditPaymentsToday = creditPayments
       .where(
         (p) =>
-            p.date.toIso8601String().substring(0, 10) == today &&
+            dateKey(p.date) == today &&
             _isCashCreditPayment(p.note),
       )
       .fold<double>(0, (s, p) => s + p.amount);

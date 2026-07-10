@@ -129,7 +129,17 @@ two assets committed in `web/`: `sqlite3.wasm` (matches the `sqlite3` pub versio
 ## Conventions
 
 - **Thai UI strings = behaviour parity** — copy exactly from `db.js` / the `.jsx`; never translate.
-- Money via `baht()` / `round2()`; never inline currency formatting.
+- Money via `baht()` / `round2()` — or `baht2()` where the display is fixed 2-decimal
+  (cost/margin views); never inline `'฿${…toStringAsFixed(…)}'`.
+- Date-string keys (yyyy-MM-dd / yyyy-MM, the db.js `slice(0,10)` idiom) via
+  `core/utils/dates.dart` (`dateKey`/`todayKey`/`monthKey`); never re-slice inline.
+- Thai date/time display via `presentation/widgets/thai_format.dart`
+  (`thaiDate`/`thaiDateTime` for "23 มิ.ย. 2569", `thaiDateSlash`/`thaiDateTimeSlash`
+  for the numeric "23/06/2569" CSV/receipt shape); no private per-file formatters.
+- Status pills via the shared `StatusChip` widget (`StatusChip.of` for the common keys, or an
+  explicit label+tone where the JS labels differ, e.g. PO 'open' → รอรับสินค้า).
+- Quote expiry/converted checks via the `QuoteRowStatus` extension in
+  `domain/models/aggregates.dart` (`q.isExpired` / `q.isConverted`).
 - Screens consume **repository providers + Drift row classes** — never touch `AppDatabase`
   directly from a screen.
 - Each screen file owns its sub-views (Receipt, ClosingReport, QuotesManager, etc.) per

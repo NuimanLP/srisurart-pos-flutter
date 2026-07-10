@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../domain/models/aggregates.dart';
@@ -26,7 +27,6 @@ import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
 import '../widgets/empty_state.dart';
 
-String _today() => DateTime.now().toIso8601String().substring(0, 10);
 
 /// Aggregated read-model for the cash-drawer screen.
 class _DrawerData {
@@ -59,7 +59,7 @@ class _DrawerData {
 }
 
 final _drawerDataProvider = FutureProvider.autoDispose<_DrawerData>((ref) async {
-  final today = _today();
+  final today = todayKey();
   final drawer = await ref.watch(shiftsRepoProvider).getCashDrawer();
   // db.js: only treat the drawer as today's shift if its date matches today.
   final shift =
@@ -68,14 +68,14 @@ final _drawerDataProvider = FutureProvider.autoDispose<_DrawerData>((ref) async 
   final salesAgg = await ref.watch(salesRepoProvider).getSales();
   final cashSalesTotal = salesAgg
       .where((s) =>
-          s.sale.date.toIso8601String().substring(0, 10) == today &&
+          dateKey(s.sale.date) == today &&
           s.sale.paymentMethod == 'เงินสด')
       .fold<double>(0, (sum, s) => sum + s.sale.total);
 
   final returns = await ref.watch(returnsRepoProvider).getReturns();
   final cashRefundsToday = returns
       .where((r) =>
-          r.ret.date.toIso8601String().substring(0, 10) == today &&
+          dateKey(r.ret.date) == today &&
           r.ret.refundMethod == 'เงินสด')
       .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
@@ -85,7 +85,7 @@ final _drawerDataProvider = FutureProvider.autoDispose<_DrawerData>((ref) async 
   final creditPayments =
       await ref.watch(mechanicsRepoProvider).getCreditPayments();
   final cashCreditPaymentsToday = creditPayments
-      .where((p) => p.date.toIso8601String().substring(0, 10) == today)
+      .where((p) => dateKey(p.date) == today)
       .fold<double>(0, (s, p) => s + p.amount);
 
   return _DrawerData(

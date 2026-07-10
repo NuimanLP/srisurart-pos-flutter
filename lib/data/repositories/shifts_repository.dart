@@ -19,6 +19,7 @@
 
 import 'package:drift/drift.dart';
 
+import '../../core/utils/dates.dart';
 import '../../core/utils/ids.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
@@ -67,7 +68,7 @@ class ShiftsRepository {
   /// FIRST (never lose a day) and inserts a new active shift.
   Future<ShiftRow> openShift(double startingCash) {
     return db.transaction(() async {
-      final today = DateTime.now().toIso8601String().substring(0, 10);
+      final today = todayKey();
 
       final existing = await (db.select(db.shifts)
             ..where((t) => t.isActive.equals(true))

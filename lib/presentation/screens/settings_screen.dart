@@ -23,6 +23,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/csv_safe.dart';
+import '../../core/utils/dates.dart';
 import '../../core/utils/file_export.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
@@ -32,15 +33,64 @@ import '../widgets/app_button.dart';
 import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/font_scale_controller.dart';
+import '../widgets/thai_format.dart';
 import '../widgets/theme_controller.dart';
 
-// Today's date helpers (yyyy-MM-dd / yyyy-MM / week boundary) — match db.js slices.
-String _todayStr() => DateTime.now().toIso8601String().substring(0, 10);
-String _monthStr() => DateTime.now().toIso8601String().substring(0, 7);
-String _weekStr() => DateTime.now()
-    .subtract(const Duration(days: 7))
-    .toIso8601String()
-    .substring(0, 10);
+// Week-boundary key (today − 7d, yyyy-MM-dd) — matches the db.js slice.
+// todayKey()/monthKey() come from core/utils/dates.dart.
+String _weekStr() => dateKey(DateTime.now().subtract(const Duration(days: 7)));
+
+/// "File saved" dialog shared by the backup + CSV export tabs. [path] is null
+/// on the web (the browser handled the download); native shows the saved
+/// filesystem path with a copy-to-clipboard action.
+Future<void> _showSavedFileDialog(
+  BuildContext context, {
+  required String title,
+  required String? path,
+  required String filename,
+}) async {
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: path == null
+            ? [
+                Text('ดาวน์โหลดไฟล์ "$filename" แล้ว'),
+                const SizedBox(height: 8),
+                const Text(
+                  'ดูในโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ]
+            : [
+                const Text('บันทึกไฟล์ไว้ที่:'),
+                const SizedBox(height: 8),
+                SelectableText(
+                  path,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+      ),
+      actions: [
+        if (path != null)
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: path)),
+            child: const Text('คัดลอกที่อยู่'),
+          ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('ตกลง'),
+        ),
+      ],
+    ),
+  );
+}
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -863,68 +913,17 @@ class _BackupTabState extends ConsumerState<_BackupTab> {
     try {
       final data = await ref.read(snapshotRepoProvider).exportSnapshot();
       final json = const JsonEncoder.withIndent('  ').convert(data);
-      final fileName = 'pos-backup-${_todayStr().replaceAll('-', '')}.json';
+      final fileName = 'pos-backup-${todayKey().replaceAll('-', '')}.json';
       final path = await exportTextFile(filename: fileName, content: json);
       if (!mounted) return;
-      await _showSavedDialog('ดาวน์โหลดไฟล์ backup สำเร็จ', path, fileName);
+      await _showSavedFileDialog(context,
+          title: 'ดาวน์โหลดไฟล์ backup สำเร็จ', path: path, filename: fileName);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
     }
-  }
-
-  // [path] is null on the web (browser handled the download); show the saved
-  // filesystem path on native, otherwise a "downloaded" confirmation.
-  Future<void> _showSavedDialog(
-    String title,
-    String? path,
-    String filename,
-  ) async {
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: path == null
-              ? [
-                  Text('ดาวน์โหลดไฟล์ "$filename" แล้ว'),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'ดูในโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ]
-              : [
-                  const Text('บันทึกไฟล์ไว้ที่:'),
-                  const SizedBox(height: 8),
-                  SelectableText(
-                    path,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-        ),
-        actions: [
-          if (path != null)
-            TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: path));
-              },
-              child: const Text('คัดลอกที่อยู่'),
-            ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('ตกลง'),
-          ),
-        ],
-      ),
-    );
   }
 
   // ── RESTORE: pick (paste) → validate → preview → confirm ───────────────
@@ -1486,13 +1485,13 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
 
   // db.js filteredSales — by selected range, using ISO yyyy-MM-dd slices.
   List<SaleWithItems> _filteredSales() {
-    final today = _todayStr();
-    final month = _monthStr();
+    final today = todayKey();
+    final month = monthKey();
     final week = _weekStr();
     final cs = _customStart.text.trim();
     final ce = _customEnd.text.trim();
     return _sales.where((sw) {
-      final d = sw.sale.date.toIso8601String().substring(0, 10);
+      final d = dateKey(sw.sale.date);
       switch (_range) {
         case 'today':
           return d == today;
@@ -1542,7 +1541,8 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
       final path = await exportTextFile(filename: filename, content: csv);
       if (!mounted) return;
       setState(() => _exported = exportedKey);
-      await _showSaved(path, filename);
+      await _showSavedFileDialog(context,
+          title: 'ดาวน์โหลดสำเร็จ', path: path, filename: filename);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1551,61 +1551,6 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
     }
   }
 
-  // [path] is null on the web (browser download); native shows the saved path.
-  Future<void> _showSaved(String? path, String filename) async {
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('ดาวน์โหลดสำเร็จ'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: path == null
-              ? [
-                  Text('ดาวน์โหลดไฟล์ "$filename" แล้ว'),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'ดูในโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ]
-              : [
-                  const Text('บันทึกไฟล์ไว้ที่:'),
-                  const SizedBox(height: 8),
-                  SelectableText(
-                    path,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-        ),
-        actions: [
-          if (path != null)
-            TextButton(
-              onPressed: () => Clipboard.setData(ClipboardData(text: path)),
-              child: const Text('คัดลอกที่อยู่'),
-            ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('ตกลง'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // th-TH date / time strings — match d.toLocaleDateString/TimeString('th-TH').
-  String _thDate(DateTime d) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(d.day)}/${two(d.month)}/${d.year + 543}';
-  }
-
-  String _thTime(DateTime d) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(d.hour)}:${two(d.minute)}';
-  }
 
   // ── exportSalesSummary (one row per bill) ──
   Future<void> _exportSummary() async {
@@ -1631,8 +1576,8 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
       final d = s.date;
       rows.add([
         s.receiptNo,
-        _thDate(d),
-        _thTime(d),
+        thaiDateSlash(d),
+        thaiTime(d),
         sw.items.length,
         s.subtotal,
         s.discount,
@@ -1643,7 +1588,7 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
         0, // change not persisted → 0 (db.js)
       ]);
     }
-    await _download(rows, 'sales-summary-${_todayStr()}.csv', 'summary');
+    await _download(rows, 'sales-summary-${todayKey()}.csv', 'summary');
   }
 
   // ── exportSalesDetail (one row per item sold) ──
@@ -1693,7 +1638,7 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
         final profit = (item.price / vatDivisor) * item.qty - cost;
         rows.add([
           s.receiptNo,
-          _thDate(d),
+          thaiDateSlash(d),
           item.partNo ?? '',
           item.name,
           item.nameTH ?? pr?.nameTH ?? '',
@@ -1708,7 +1653,7 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
         ]);
       }
     }
-    await _download(rows, 'sales-detail-${_todayStr()}.csv', 'detail');
+    await _download(rows, 'sales-detail-${todayKey()}.csv', 'detail');
   }
 
   // ── exportInventory (current stock snapshot) ──
@@ -1758,7 +1703,7 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
         cheapest != null ? (cheapest.unitCost + cheapest.freight) : '',
       ]);
     }
-    await _download(rows, 'inventory-${_todayStr()}.csv', 'inventory');
+    await _download(rows, 'inventory-${todayKey()}.csv', 'inventory');
   }
 
   @override

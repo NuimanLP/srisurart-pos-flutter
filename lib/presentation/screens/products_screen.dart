@@ -127,11 +127,10 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen>
                       ),
                       onPressed: () => _openVehicleSearch(context),
                       icon: const Icon(Icons.directions_car, size: 22),
-                      label: const Flexible(
-                        child: Text('ค้นหาตามรุ่นรถ', 
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15), 
-                            overflow: TextOverflow.ellipsis),
-                      ),
+                      label: const Text('ค้นหาตามรุ่นรถ',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 15),
+                          overflow: TextOverflow.ellipsis),
                     ),
                   ),
                 ],
@@ -1086,9 +1085,9 @@ class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
             child: Wrap(
               alignment: WrapAlignment.spaceEvenly,
               children: [
-                _statCell('ต้นทุนรวม', '฿${_fTotalCost.toStringAsFixed(2)}', theme.colorScheme.onSurface),
-                _statCell('ราคาสุทธิ', '฿${_fNetSell.toStringAsFixed(2)}', theme.colorScheme.onSurface),
-                _statCell('กำไร', '฿${_fProfit.toStringAsFixed(2)}', _fProfit >= 0 ? AppColors.successLight : AppColors.error),
+                _statCell('ต้นทุนรวม', baht2(_fTotalCost), theme.colorScheme.onSurface),
+                _statCell('ราคาสุทธิ', baht2(_fNetSell), theme.colorScheme.onSurface),
+                _statCell('กำไร', baht2(_fProfit), _fProfit >= 0 ? AppColors.successLight : AppColors.error),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   child: Column(
@@ -1443,7 +1442,7 @@ class _PriceCalcTabState extends ConsumerState<_PriceCalcTab> {
                               fontWeight: FontWeight.w700,
                               color: theme.colorScheme.secondary)),
                       Text(
-                          '฿${((double.tryParse(_cost.text) ?? 0) + (double.tryParse(_freight.text) ?? 0)).toStringAsFixed(2)}',
+                          baht2((double.tryParse(_cost.text) ?? 0) + (double.tryParse(_freight.text) ?? 0)),
                           style: const TextStyle(
                               fontSize: 28, fontWeight: FontWeight.w800)),
                     ],
@@ -1545,11 +1544,10 @@ class _PriceCalcTabState extends ConsumerState<_PriceCalcTab> {
                   fontSize: 13, color: theme.colorScheme.secondary)),
           const SizedBox(height: 12),
           if (result != null) ...[
-            _calcRow('ราคาขาย (ไม่รวม VAT)',
-                '฿${result.netSell.toStringAsFixed(2)}'),
-            _calcRow('ต้นทุนรวม', '฿${result.totalCost.toStringAsFixed(2)}'),
+            _calcRow('ราคาขาย (ไม่รวม VAT)', baht2(result.netSell)),
+            _calcRow('ต้นทุนรวม', baht2(result.totalCost)),
             const Divider(),
-            _calcRow('กำไร', '฿${result.profit.toStringAsFixed(2)}',
+            _calcRow('กำไร', baht2(result.profit),
                 valueColor: AppColors.orange, bold: true),
             const SizedBox(height: 12),
             Text('${result.margin.toStringAsFixed(1)}%',
@@ -1629,7 +1627,7 @@ class _PriceCalcTabState extends ConsumerState<_PriceCalcTab> {
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Text(
-                'ตัวอย่าง: ฿${_retail.text} ÷ ${_vat.toStringAsFixed(2)} = ฿${retail.netSell.toStringAsFixed(2)} → กำไร ฿${retail.profit.toStringAsFixed(2)} → margin ${retail.margin.toStringAsFixed(1)}%',
+                'ตัวอย่าง: ฿${_retail.text} ÷ ${_vat.toStringAsFixed(2)} = ${baht2(retail.netSell)} → กำไร ${baht2(retail.profit)} → margin ${retail.margin.toStringAsFixed(1)}%',
                 style: TextStyle(
                     fontSize: 12, color: theme.colorScheme.secondary),
               ),

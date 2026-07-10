@@ -391,28 +391,35 @@ class _RangeBar extends StatelessWidget {
               ),
             ),
           ),
-          const Spacer(),
-          // Range pill buttons
-          Container(
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : AppColors.gray100,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            padding: const EdgeInsets.all(3),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (int i = 0; i < _options.length; i++) ...[
-                  _RangeButton(
-                    label: _options[i].$2,
-                    icon: _options[i].$3,
-                    active: range == _options[i].$1,
-                    onTap: () => onChanged(_options[i].$1),
-                  ),
-                ],
-              ],
+          const SizedBox(width: 12),
+          // Range pill buttons — scrolls horizontally when the screen is
+          // narrower than the full strip (phone sizes).
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              reverse: true,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : AppColors.gray100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.all(3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (int i = 0; i < _options.length; i++) ...[
+                      _RangeButton(
+                        label: _options[i].$2,
+                        icon: _options[i].$3,
+                        active: range == _options[i].$1,
+                        onTap: () => onChanged(_options[i].$1),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -659,24 +666,26 @@ class _StatCard extends StatelessWidget {
                           : AppColors.gray500,
                     ),
                   ),
+                  // sub lives inside the FittedBox so it scales down with the
+                  // value/label instead of overflowing short grid cells.
+                  if (sub != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      sub!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: isDark
+                            ? AppColors.steelBlue.withValues(alpha: 0.7)
+                            : AppColors.gray400,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
-          if (sub != null) ...[
-            const SizedBox(height: 6),
-            Text(
-              sub!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: isDark
-                    ? AppColors.steelBlue.withValues(alpha: 0.7)
-                    : AppColors.gray400,
-                fontSize: 11,
-              ),
-            ),
-          ],
         ],
       ),
     );

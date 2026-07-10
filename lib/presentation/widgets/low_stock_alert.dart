@@ -22,6 +22,7 @@ import 'package:printing/printing.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../data/db/database.dart';
+import 'thai_format.dart';
 
 /// Session flag: true once the alert has been shown/dismissed this app run.
 /// The checkout screen flips this so the banner appears at most once per session.
@@ -200,7 +201,7 @@ class _LowStockBannerState extends State<LowStockBanner> {
             pw.SizedBox(height: 4),
             pw.Center(
               child: pw.Text(
-                  'Low Stock Alert · ${_thaiDateTime(now)} · ศรีสุราษฎร์เจริญยนต์',
+                  'Low Stock Alert · ${thaiDateTime(now)} · ศรีสุราษฎร์เจริญยนต์',
                   textAlign: pw.TextAlign.center,
                   style: const pw.TextStyle(
                       fontSize: 7, color: PdfColors.grey700)),
@@ -517,24 +518,3 @@ class _LowStockBannerState extends State<LowStockBanner> {
   }
 }
 
-// ── Thai date/time for the print header (th-TH toLocaleString equivalent) ────
-const _thMonthsShort = [
-  'ม.ค.',
-  'ก.พ.',
-  'มี.ค.',
-  'เม.ย.',
-  'พ.ค.',
-  'มิ.ย.',
-  'ก.ค.',
-  'ส.ค.',
-  'ก.ย.',
-  'ต.ค.',
-  'พ.ย.',
-  'ธ.ค.',
-];
-
-String _thaiDateTime(DateTime d) {
-  final hh = d.hour.toString().padLeft(2, '0');
-  final mm = d.minute.toString().padLeft(2, '0');
-  return '${d.day} ${_thMonthsShort[d.month - 1]} ${d.year + 543} $hh:$mm';
-}

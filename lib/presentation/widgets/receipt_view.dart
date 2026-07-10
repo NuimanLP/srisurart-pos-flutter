@@ -21,6 +21,7 @@ import 'package:printing/printing.dart';
 
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import 'thai_format.dart';
 
 /// One line on the receipt. Mirrors the JS sale.items[i] fields the receipt reads.
 class ReceiptLine {
@@ -192,7 +193,7 @@ class ReceiptView extends StatelessWidget {
 
           // Receipt info
           row('เลขที่', sale.receiptNo),
-          row('วันที่', _thDateTime(sale.date)),
+          row('วันที่', thaiDateTimeSlash(sale.date)),
           row('แคชเชียร์', s.cashierName ?? ''),
           if (data.customerName != null) row('ลูกค้า', data.customerName!),
           if (isMechanicSale) row('ช่าง', sale.mechanicName ?? ''),
@@ -308,7 +309,7 @@ class ReceiptView extends StatelessWidget {
             center('โทร ${s.phone ?? ''}'),
             divider(),
             row('เลขที่', sale.receiptNo),
-            row('วันที่', _thDateTime(sale.date)),
+            row('วันที่', thaiDateTimeSlash(sale.date)),
             row('แคชเชียร์', s.cashierName ?? ''),
             if (data.customerName != null) row('ลูกค้า', data.customerName!),
             if (isMechanicSale) row('ช่าง', sale.mechanicName ?? ''),
@@ -360,10 +361,3 @@ class ReceiptView extends StatelessWidget {
   }
 }
 
-// Local Thai datetime string matching JS `new Date(date).toLocaleString('th-TH')`
-// closely enough for the receipt (BE year, 24h time).
-String _thDateTime(DateTime d) {
-  final be = d.year + 543;
-  String two(int v) => v.toString().padLeft(2, '0');
-  return '${two(d.day)}/${two(d.month)}/$be ${two(d.hour)}:${two(d.minute)}';
-}

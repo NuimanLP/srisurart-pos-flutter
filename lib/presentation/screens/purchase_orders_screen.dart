@@ -25,6 +25,7 @@ import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/money_text.dart';
+import '../widgets/status_chip.dart';
 import '../widgets/thai_format.dart';
 
 /// All purchase orders, newest-first (with items).
@@ -139,22 +140,18 @@ class PurchaseOrdersScreen extends ConsumerWidget {
 // Status helpers (parity with the JS statusTH / statusColor maps).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Map<String, String> _statusTH = {
-  'open': 'รอรับสินค้า',
-  'received': 'รับแล้ว',
-  'cancelled': 'ยกเลิก',
-};
-
-Color _statusColor(String status) {
+/// PO status → shared [StatusChip]. Labels stay verbatim from the JS statusTH
+/// map ('open' → รอรับสินค้า, NOT the generic StatusChip.of 'เปิดอยู่').
+StatusChip _poStatusChip(String status) {
   switch (status) {
     case 'open':
-      return AppColors.warning;
+      return const StatusChip('รอรับสินค้า', tone: StatusTone.warning);
     case 'received':
-      return AppColors.successLight;
+      return const StatusChip('รับแล้ว', tone: StatusTone.success);
     case 'cancelled':
-      return AppColors.error;
+      return const StatusChip('ยกเลิก', tone: StatusTone.danger);
     default:
-      return AppColors.gray400;
+      return StatusChip(status);
   }
 }
 
@@ -310,8 +307,6 @@ class _PoCard extends StatelessWidget {
     final border = theme.brightness == Brightness.dark
         ? Colors.white.withValues(alpha: 0.08)
         : AppColors.gray200;
-    final statusC = _statusColor(po.status);
-
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
@@ -359,10 +354,7 @@ class _PoCard extends StatelessWidget {
                 children: [
                   MoneyText(_poTotal(data), emphasis: true),
                   const SizedBox(height: 6),
-                  _StatusPill(
-                    label: _statusTH[po.status] ?? po.status,
-                    color: statusC,
-                  ),
+                  _poStatusChip(po.status),
                 ],
               ),
             ],
@@ -410,33 +402,6 @@ class _PoCard extends StatelessWidget {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _StatusPill({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w700,
-          fontSize: 13,
-          letterSpacing: 0.6,
-        ),
       ),
     );
   }
