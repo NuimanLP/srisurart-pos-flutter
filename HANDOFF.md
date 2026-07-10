@@ -1,16 +1,48 @@
-# HANDOFF — Srisurart POS Flutter migration (updated 2026-06-30)
+# HANDOFF — Srisurart POS Flutter migration (updated 2026-07-10)
 
 ## TL;DR
-The Flutter port (Phase 0–6, offline parity) is built and the **final gate is GREEN**:
-`dart analyze` clean, **112/112 tests pass** (incl. all 22 route-smoke cases at tablet
-AND phone), `flutter build web` succeeds. The 3 phone-size overflows are fixed and the
-LOW findings triaged. **The web runtime now boots in Chrome with the home screen
-pixel-verified** — the Drift web DB was wired up (see "2026-06-24 (web DB)" below).
-A **15-agent scrutiny audit** (107 verified findings → `SCRUTINY_REPORT.md`) ran this
-session; its **1 CRITICAL + both HIGH** findings are now fixed (dead Quote→Checkout hand-off,
-web-only-broken backup/CSV export, ClosingReport phone overflow — see the two entries below).
-Remaining work is the audit's medium/low backlog plus the bigger post-parity follow-ups
-(cloud sync, native hardware, font bundling, etc.).
+The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
+commit `279b90a`** (2026-07-10): `dart analyze` clean, **122/122 tests pass**,
+including all committed route-smoke cases. A clean-code debt pass landed (shared
+helpers, dedup, 3 pre-existing rendering bugs fixed, 3 new repository test files) —
+see the 2026-07-10 entry. **One red item remains UNCOMMITTED in the working tree**:
+the rewritten responsive smoke-test harness (`test/route_smoke_test.dart` +
+`lib/core/theme/app_theme.dart`) fails and hangs — debug it before committing (see
+entry). Remaining bigger work: Phases 7a/7b/8a/8b per `docs/PLAN.md` (cloud backup,
+sync, hardening, hardware) — listed in `CLAUDE.md`.
+
+## 2026-07-10 (clean-code pass + rendering fixes — commit `279b90a`)
+- **Clean-code audit fixes** (details in the commit message): `baht2()` for fixed
+  2-decimal money; new `core/utils/dates.dart` (`dateKey`/`todayKey`/`monthKey`) replacing
+  all inline `toIso8601String().substring` slicing; `thaiDateSlash`/`thaiDateTimeSlash` in
+  `thai_format.dart` replacing 3 private per-file formatters; PO screen status pill now
+  uses shared `StatusChip` (JS labels kept verbatim — 'open' → รอรับสินค้า, do NOT swap to
+  `StatusChip.of`); `QuoteRowStatus` extension (`isExpired`/`isConverted`); settings
+  saved-file dialog dedup; dead `_hhmm` removed. Conventions recorded in `CLAUDE.md`
+  Conventions + `CONTRACT.md` §7/§11.
+- **3 pre-existing rendering bugs fixed** (all caught by the committed smoke tests, all
+  pre-dated this session): products' `Flexible`-as-`FilledButton.icon`-label
+  (ParentDataWidget error at every size); reports header range-pill Row overflow at phone
+  (now horizontal-scrolls, `reverse: true`); reports `_StatCard` `sub` line moved inside
+  the `FittedBox` (15px bottom overflow in short grid cells).
+- **New tests**: `movements` / `suppliers` / `settings` repository tests (were the only
+  repos without any).
+- **⚠ UNCOMMITTED + RED — responsive smoke-test harness** (left in working tree on
+  purpose): `test/route_smoke_test.dart` (+262-line `_pumpAndProbe` rewrite) +
+  `lib/core/theme/app_theme.dart` (adds `AppTheme.useGoogleFonts`, which that harness
+  needs). Under the new harness: products@desktop_web dies with
+  `'_pendingExceptionDetails != null'` (an uncaught zone error escapes its
+  `FlutterError.onError` override — verified NOT caused by the refactor; HEAD screens fail
+  identically), and purchase_orders@desktop_web/tablet deadlock for hours inside
+  `tester.runAsync` (same screens pass in seconds under the committed harness). Fix the
+  harness first: capture zone errors (`runZonedGuarded`/`PlatformDispatcher.onError`) so
+  the real exception surfaces, then chase the `runAsync` + `db.close()` sequencing.
+- **⚠ Ops lessons (repeat offenders)**: (1) `flutter test` CANNOT run on the BeeStation
+  cloud mount — errno-60 timeouts/hangs; rsync the repo (minus `build`/`.dart_tool`/`.git`)
+  to a local path and test there. (2) BeeStation sync silently REVERTED `CLAUDE.md` to a
+  pre-`38d94a3` version this session (restored from git) — before committing, diff doc
+  files against HEAD and distrust hunks that delete recently-committed content.
+  (3) `android/build/` artifacts were accidentally staged — now gitignored.
 
 ## 2026-06-30 (onboarding course → three audience tracks — still OUT of repo)
 - Expanded the `/teach` onboarding course (the out-of-repo artifact under
