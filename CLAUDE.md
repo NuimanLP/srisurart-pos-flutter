@@ -109,7 +109,10 @@ two assets committed in `web/`: `sqlite3.wasm` (matches the `sqlite3` pub versio
 (ignored on native). **If you bump `drift` or `sqlite3`, re-download the matching assets** from
 `github.com/simolus3/{drift,sqlite3.dart}/releases` — a version skew breaks the web DB at boot.
 
-**Pending follow-ups (not yet built)** — phase numbers per the revised `docs/PLAN.md` (2026-07-03):
+**Pending follow-ups (not yet built)** — phase numbers per the revised `docs/PLAN.md` (2026-07-03).
+The backend / Supabase-hierarchy / deployment design for Phases 7–9 (dev+prod project split, auth,
+backup bucket layout, 7b Postgres schema + RLS, hosting incl. the Docker decision, CI) lives in
+**`docs/BACKEND_DEPLOYMENT.md`** (2026-07-13):
 - **Cloud snapshot backup (Supabase) — Phase 7a**, stubbed/not wired (needs project creds).
   Do first: dev/prod env split, then scheduled+manual backup + restore drill.
 - **Record-level sync — Phase 7b**, optional until a second device exists. Prerequisite:

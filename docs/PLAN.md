@@ -8,7 +8,10 @@
 This document is the canonical migration plan. `CLAUDE.md` and `MAINTENANCE.md` point here.
 It describes *what we are moving to and in what order* — it is not a line-by-line porting log.
 
-> **Related (same folder):** [`data-durability-architecture.draft.html`](data-durability-architecture.draft.html)
+> **Related (same folder):** [`BACKEND_DEPLOYMENT.md`](BACKEND_DEPLOYMENT.md) — backend
+> architecture, Supabase project/auth/storage/Postgres hierarchy, and deployment/hosting
+> (incl. the Docker decision) for Phases 7–9;
+> [`data-durability-architecture.draft.html`](data-durability-architecture.draft.html)
 > — earlier cloud/data-durability analysis that informs §6; and
 > [`step0-fsa-persistence-test.html`](step0-fsa-persistence-test.html) — the FSA persistence probe.
 
@@ -224,6 +227,14 @@ redesign second.
 
 ## 11. Progress log
 
+- **2026-07-13 — Backend/deployment coverage added (`BACKEND_DEPLOYMENT.md`).**
+  The plan previously covered frontend + local data layer in depth but left backend,
+  Supabase hierarchy, and hosting undefined. The new companion doc decides: no custom
+  server (Supabase = the backend); dev/prod as two separate Supabase projects; private
+  `backups` bucket layout + retention for 7a; Postgres mirror schema + RLS + sync
+  bookkeeping tables for 7b; shop-PC hosting = static file serving (Docker/nginx only
+  if the PC already runs Docker; BeeStation cannot run containers); Supabase **cloud**,
+  not self-hosted; CI (analyze/test/build + stale-`*.g.dart` check) slotted into 8a.
 - **2026-07-03 — Plan revised after Phase 0–6 completion (see `CLAUDE.md` for build status).**
   - Status header updated: Phases 0–6 are done (all 11 screens, data layer + tests,
     shifts, web-DB runtime); Phase 7 is next.

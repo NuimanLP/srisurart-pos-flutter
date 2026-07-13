@@ -1,4 +1,4 @@
-# HANDOFF — Srisurart POS Flutter migration (updated 2026-07-10)
+# HANDOFF — Srisurart POS Flutter migration (updated 2026-07-13)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
@@ -9,7 +9,31 @@ see the 2026-07-10 entry. **One red item remains UNCOMMITTED in the working tree
 the rewritten responsive smoke-test harness (`test/route_smoke_test.dart` +
 `lib/core/theme/app_theme.dart`) fails and hangs — debug it before committing (see
 entry). Remaining bigger work: Phases 7a/7b/8a/8b per `docs/PLAN.md` (cloud backup,
-sync, hardening, hardware) — listed in `CLAUDE.md`.
+sync, hardening, hardware) — listed in `CLAUDE.md`; the backend/deployment design for
+those phases is now written down in `docs/BACKEND_DEPLOYMENT.md` (2026-07-13).
+
+## 2026-07-13 (backend / Supabase-hierarchy / deployment plan — docs only)
+- **Gap closed:** `docs/PLAN.md` covered frontend + local data layer in depth but left
+  backend architecture, the Supabase hierarchy, and hosting/Docker undefined. Authored
+  **`docs/BACKEND_DEPLOYMENT.md`** as the companion doc; PLAN.md cross-links it (Related
+  block + §11 log entry) and `CLAUDE.md` pending-follow-ups points to it.
+- **Decisions recorded there (planned, nothing built):** no custom server — Supabase IS
+  the backend, all transactional invariants stay in the Dart repos; **two separate
+  Supabase projects** `srisurart-dev`/`srisurart-prod` selected via
+  `--dart-define-from-file` (keys git-ignored); Auth = one owner email account, sign-ups
+  off (manager PIN stays app-level, Phase 8a); Phase 7a needs **no Postgres tables** —
+  just a private `backups` bucket, `{deviceId}/{timestamp}_{schemaVersion}.json.gz` in
+  the exact `exportSnapshot()` shape (one format for cloud backup / local backup /
+  legacy import), 30-daily+12-monthly retention; 7b Postgres = snake_case mirror of the
+  20 Drift tables split append-only-events vs LWW-mutable + `devices`/`sync_conflicts`,
+  RLS on everything (the `updatedAt` prerequisite still blocks 7b); **hosting = static
+  file serving of `build/web` on the shop PC** (Docker/nginx only if the PC already runs
+  Docker — the BeeStation cannot run containers); **Supabase cloud, NOT self-hosted**
+  (backups on shop hardware defeat the purpose); CI (analyze/test/build + stale-`*.g.dart`
+  check on ASCII-path runners) slotted into Phase 8a — none exists yet.
+- **No app code touched** — gate status unchanged from 2026-07-10. The red
+  uncommitted smoke-harness pair (`test/route_smoke_test.dart` +
+  `lib/core/theme/app_theme.dart`) is still in the working tree, still NOT committed.
 
 ## 2026-07-10 (clean-code pass + rendering fixes — commit `279b90a`)
 - **Clean-code audit fixes** (details in the commit message): `baht2()` for fixed
