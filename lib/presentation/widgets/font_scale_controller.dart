@@ -8,7 +8,7 @@
 // Persistence key: `sa_pos_font_scale` (survives restarts).
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String _kFontScaleKey = 'sa_pos_font_scale';
@@ -60,29 +60,22 @@ const List<FontScalePreset> fontScalePresets = [
   ),
 ];
 
-class FontScaleNotifier extends Notifier<double> {
-  @override
-  double build() {
+class FontScaleCubit extends Cubit<double> {
+  FontScaleCubit() : super(1.0) {
     _load();
-    return 1.0; // default — normal size
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getDouble(_kFontScaleKey);
     if (v != null) {
-      state = v;
+      emit(v);
     }
   }
 
   Future<void> setScale(double scale) async {
-    state = scale;
+    emit(scale);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_kFontScaleKey, scale);
   }
 }
-
-/// App-wide font scale. Read in app.dart for MediaQuery.textScaler; configured
-/// from the Settings screen 🎨 ธีม tab.
-final fontScaleProvider =
-    NotifierProvider<FontScaleNotifier, double>(FontScaleNotifier.new);

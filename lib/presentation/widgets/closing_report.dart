@@ -12,7 +12,7 @@
 // receipt with the `printing` package.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -20,8 +20,12 @@ import 'package:printing/printing.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
-import '../providers/providers.dart';
-import '../providers/shift_providers.dart';
+import '../../data/repositories/mechanics_repository.dart';
+import '../../data/repositories/products_repository.dart';
+import '../../data/repositories/returns_repository.dart';
+import '../../data/repositories/sales_repository.dart';
+import '../../data/repositories/settings_repository.dart';
+import '../../data/repositories/shifts_repository.dart';
 import 'app_button.dart';
 
 /// Opens the daily Closing Report as a modal dialog.
@@ -102,7 +106,6 @@ class _ItemLite {
   });
 }
 
-
 /// Legacy credit payments carried a `method` field (`'เงินสด'` | `'โอน/QR'`)
 /// and only cash settlements counted toward the drawer. The Drift port has no
 /// `method` column; MechanicsScreen instead encodes the method as the `note`
@@ -114,18 +117,21 @@ bool _isCashCreditPayment(String? note) {
   return method == 'เงินสด';
 }
 
-final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
-  ref,
-) async {
+Future<_ClosingData> _loadClosingData(BuildContext context) async {
+  final salesRepo = context.read<SalesRepository>();
+  final returnsRepo = context.read<ReturnsRepository>();
+  final mechanicsRepo = context.read<MechanicsRepository>();
+  final productsRepo = context.read<ProductsRepository>();
+  final settingsRepo = context.read<SettingsRepository>();
+  final shiftsRepo = context.read<ShiftsRepository>();
+
   final today = todayKey();
-  final salesAgg = await ref.watch(salesRepoProvider).getSales();
-  final returns = await ref.watch(returnsRepoProvider).getReturns();
-  final creditPayments = await ref
-      .watch(mechanicsRepoProvider)
-      .getCreditPayments();
-  final products = await ref.watch(productsRepoProvider).getAll();
-  final settings = await ref.watch(settingsRepoProvider).getSettings();
-  final drawer = await ref.watch(shiftsRepoProvider).getCashDrawer();
+  final salesAgg = await salesRepo.getSales();
+  final returns = await returnsRepo.getReturns();
+  final creditPayments = await mechanicsRepo.getCreditPayments();
+  final products = await productsRepo.getAll();
+  final settings = await settingsRepo.getSettings();
+  final drawer = await shiftsRepo.getCashDrawer();
 
   final costByPart = {for (final p in products) p.partNo: p.cost};
 
@@ -156,9 +162,7 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
   // Cash refunds today reduce the drawer.
   final cashRefundsToday = returns
       .where(
-        (r) =>
-            dateKey(r.ret.date) == today &&
-            r.ret.refundMethod == 'เงินสด',
+        (r) => dateKey(r.ret.date) == today && r.ret.refundMethod == 'เงินสด',
       )
       .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
@@ -170,11 +174,7 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
   // recover the method from that prefix and count only cash settlements,
   // matching ClosingReport.jsx (and keeping the drawer math consistent).
   final cashCreditPaymentsToday = creditPayments
-      .where(
-        (p) =>
-            dateKey(p.date) == today &&
-            _isCashCreditPayment(p.note),
-      )
+      .where((p) => dateKey(p.date) == today && _isCashCreditPayment(p.note))
       .fold<double>(0, (s, p) => s + p.amount);
 
   final drawerToday = drawer != null && drawer.shift.dateStr == today;
@@ -205,22 +205,30 @@ final _closingDataProvider = FutureProvider.autoDispose<_ClosingData>((
     phone: settings.phone,
     cashierName: settings.cashierName,
   );
-});
+}
 
-class ClosingReport extends ConsumerStatefulWidget {
+class ClosingReport extends StatefulWidget {
   const ClosingReport({super.key});
 
   @override
-  ConsumerState<ClosingReport> createState() => _ClosingReportState();
+  State<ClosingReport> createState() => _ClosingReportState();
 }
 
-class _ClosingReportState extends ConsumerState<ClosingReport> {
+class _ClosingReportState extends State<ClosingReport> {
   final _cashCtl = TextEditingController();
   final _cashierCtl = TextEditingController();
   final _noteCtl = TextEditingController();
   bool _cashierInit = false;
   bool _printed = false;
   bool _busy = false;
+  // Created in initState — never inline in build.
+  late Future<_ClosingData> _dataFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataFuture = _loadClosingData(context);
+  }
 
   @override
   void dispose() {
@@ -544,7 +552,6 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
 
   @override
   Widget build(BuildContext context) {
-    final asyncData = ref.watch(_closingDataProvider);
     final now = DateTime.now();
     return Column(
       children: [
@@ -554,10 +561,16 @@ class _ClosingReportState extends ConsumerState<ClosingReport> {
           onClose: () => Navigator.of(context).pop(),
         ),
         Expanded(
-          child: asyncData.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('เกิดข้อผิดพลาด: $e')),
-            data: (d) {
+          child: FutureBuilder<_ClosingData>(
+            future: _dataFuture,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snap.hasError) {
+                return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
+              }
+              final d = snap.data!;
               if (!_cashierInit) {
                 _cashierCtl.text = d.cashierName ?? 'แคชเชียร์';
                 _cashierInit = true;

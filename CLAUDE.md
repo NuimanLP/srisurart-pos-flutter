@@ -2,7 +2,7 @@
 
 Flutter migration of a Thai auto-parts shop POS, ported from the React-in-browser +
 localStorage app (the "Srisurart Autopart Design System" repo; origin
-github.com/NuimanLP/Sri-SuRat_Store). **Offline-first**: Drift/SQLite + Riverpod +
+github.com/NuimanLP/Sri-SuRat_Store). **Offline-first**: Drift/SQLite + flutter_bloc +
 go_router. Thai-first UI with EN labels. Targets **Android/iOS + Web**.
 
 > **🔒 Read first — private operating instructions (machine-local, NOT in this repo).**
@@ -60,11 +60,12 @@ lib/
     repositories/            ← one repo per domain; transactional services mirror db.js
   domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
   presentation/
-    providers/               ← Riverpod providers (databaseProvider + one per repo)
-    screens/                 ← 11 screens, 1:1 with the JS screens
-    widgets/                 ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
-                               label printer, closing report)
-  app.dart / main.dart       ← MaterialApp.router + ProviderScope(databaseProvider override)
+    repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (13 repos)
+    blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
+    screens/                  ← 11 screens, 1:1 with the JS screens
+    widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
+                                label printer, closing report)
+  app.dart / main.dart       ← MaterialApp.router + MultiRepositoryProvider/MultiBlocProvider
 CONTRACT.md                  ← THE binding spec: tables, repo signatures, providers, routes,
                                screen→sub-view ownership, Thai-string rules. Read it first.
 test/                        ← repo unit tests (per transactional rule) + route smoke tests
@@ -108,6 +109,13 @@ two assets committed in `web/`: `sqlite3.wasm` (matches the `sqlite3` pub versio
 `DriftWebOptions(sqlite3Wasm: Uri.parse('sqlite3.wasm'), driftWorker: Uri.parse('drift_worker.js'))`
 (ignored on native). **If you bump `drift` or `sqlite3`, re-download the matching assets** from
 `github.com/simolus3/{drift,sqlite3.dart}/releases` — a version skew breaks the web DB at boot.
+
+**Riverpod → flutter_bloc migration (done 2026-07-14):** full replacement — DI (13
+repositories via `RepositoryProvider`), the 4 stateful controllers (now Cubits:
+`ThemeModeCubit`/`FontScaleCubit`/`PendingQuoteCubit`/`CartCubit`), and the 20 one-shot
+data loads (now `FutureBuilder`s fed by futures created in `initState`/explicit
+`_refresh()`). `flutter_riverpod` fully removed from `pubspec.yaml`. Plan + rationale:
+`docs/plans/riverpod-to-bloc.md`.
 
 **Pending follow-ups (not yet built)** — phase numbers per the revised `docs/PLAN.md` (2026-07-03).
 The backend / Supabase-hierarchy / deployment design for Phases 7–9 (dev+prod project split, auth,

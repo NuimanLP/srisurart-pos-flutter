@@ -21,7 +21,7 @@ MUST follow this file so nothing collides. Source of truth for all behaviour:
    Drift tables and must NOT run build_runner.
 5. Do NOT run `flutter pub get` or edit `pubspec.yaml` unless you are the Schema
    agent. Deps already installed: drift, sqlite3_flutter_libs, drift_flutter,
-   flutter_riverpod, go_router, intl, uuid, csv, path, path_provider,
+   flutter_bloc, bloc, go_router, intl, uuid, csv, path, path_provider,
    shared_preferences, equatable, google_fonts, flutter_localizations
    (+ dev: drift_dev, build_runner).
 6. **Thai UI strings & Thai error messages are behaviour parity** — copy them
@@ -62,7 +62,8 @@ lib/
   domain/
     models/aggregates.dart        ← read aggregates + input DTOs (Contract — frozen)
   presentation/
-    providers/providers.dart      ← Riverpod providers (Contract — frozen)
+    repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (Contract — frozen)
+    blocs/                        ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
     screens/                      ← one stub file per screen (screen agents fill in)
     widgets/app_shell.dart        ← nav frame (Contract; screen agents may extend)
   app.dart                        ← SrisurartApp (Contract)
@@ -118,8 +119,9 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 ## 3. Repositories — class + methods + owning agent
 
 All repositories live in `lib/data/repositories/`, take an `AppDatabase` in the
-constructor, and are exposed through a Riverpod provider (§4). Screens MUST go
-through these repos — never touch `AppDatabase` directly from a screen.
+constructor, and are exposed through a flutter_bloc `RepositoryProvider` (§4).
+Screens MUST go through these repos — never touch `AppDatabase` directly from
+a screen.
 
 Three repos are **already fully implemented** by the Contract agent (low-risk).
 The other nine are **stubs that `throw UnimplementedError('<name>: pending <agent>')`**
@@ -154,41 +156,60 @@ comment before implementing.
 
 ---
 
-## 4. Riverpod providers (`lib/presentation/providers/providers.dart`)
+## 4. Dependency injection (`lib/presentation/repositories/repository_providers.dart` + `lib/presentation/blocs/`)
 
-Plain providers (NOT codegen). `databaseProvider` throws unless overridden in
-`main.dart`. Each repo provider reads `databaseProvider`.
+Repositories are wired via flutter_bloc's `RepositoryProvider`, not Riverpod.
+`repositoryProviders(AppDatabase db)` returns the 13 `RepositoryProvider`
+entries below; `main.dart` wires them via `MultiRepositoryProvider`, wrapping
+`AppDatabase.open()`'s single instance. Screens read a repo with
+`context.read<XRepository>()` (never `context.watch` — repos are DI, not
+reactive state).
 
-| Provider | Type |
+| Repository | Type |
 |---|---|
-| `databaseProvider` | `Provider<AppDatabase>` (overridden in main.dart) |
-| `productsRepoProvider` | `Provider<ProductsRepository>` |
-| `customersRepoProvider` | `Provider<CustomersRepository>` |
-| `mechanicsRepoProvider` | `Provider<MechanicsRepository>` |
-| `salesRepoProvider` | `Provider<SalesRepository>` |
-| `returnsRepoProvider` | `Provider<ReturnsRepository>` |
-| `purchaseOrdersRepoProvider` | `Provider<PurchaseOrdersRepository>` |
-| `quotesRepoProvider` | `Provider<QuotesRepository>` |
-| `parkedRepoProvider` | `Provider<ParkedRepository>` |
-| `movementsRepoProvider` | `Provider<MovementsRepository>` |
-| `suppliersRepoProvider` | `Provider<SuppliersRepository>` |
-| `settingsRepoProvider` | `Provider<SettingsRepository>` |
-| `snapshotRepoProvider` | `Provider<SnapshotRepository>` |
-| `shiftsRepoProvider` | `Provider<ShiftsRepository>` (in `lib/presentation/providers/shift_providers.dart`, NOT the frozen `providers.dart`; import that file for the cash-drawer screen) |
+| `ProductsRepository` | `RepositoryProvider<ProductsRepository>` |
+| `CustomersRepository` | `RepositoryProvider<CustomersRepository>` |
+| `MechanicsRepository` | `RepositoryProvider<MechanicsRepository>` |
+| `SalesRepository` | `RepositoryProvider<SalesRepository>` |
+| `ReturnsRepository` | `RepositoryProvider<ReturnsRepository>` |
+| `PurchaseOrdersRepository` | `RepositoryProvider<PurchaseOrdersRepository>` |
+| `QuotesRepository` | `RepositoryProvider<QuotesRepository>` |
+| `ParkedRepository` | `RepositoryProvider<ParkedRepository>` |
+| `MovementsRepository` | `RepositoryProvider<MovementsRepository>` |
+| `SuppliersRepository` | `RepositoryProvider<SuppliersRepository>` |
+| `SettingsRepository` | `RepositoryProvider<SettingsRepository>` |
+| `SnapshotRepository` | `RepositoryProvider<SnapshotRepository>` |
+| `ShiftsRepository` | `RepositoryProvider<ShiftsRepository>` |
 
-Screen agents may ADD their own UI-state providers (e.g. a cart
-`StateNotifierProvider`) **inside their own screen file or a new file they
-create** — do not add them to `providers.dart` (Contract-owned).
+Cross-screen/app-wide UI state lives in Cubits under `lib/presentation/blocs/`
+(plus `ThemeModeCubit`/`FontScaleCubit` in `lib/presentation/widgets/`, kept
+alongside their persistence helpers), wired via `MultiBlocProvider` in
+`main.dart`:
+
+| Cubit | State | Purpose |
+|---|---|---|
+| `ThemeModeCubit` | `ThemeMode` | app-wide light/dark, persisted `sa_pos_theme` |
+| `FontScaleCubit` | `double` | app-wide text scale, persisted `sa_pos_font_scale` |
+| `PendingQuoteCubit` | `QuoteWithItems?` | QuotesScreen → CheckoutScreen quote hand-off |
+| `CartCubit` | `List<CartLine>` | checkout cart (add/setQty/setPrice/clear) |
+
+Screen agents may add their own Cubit **inside their own screen file or a new
+file under `lib/presentation/blocs/`** — do not add repositories to
+`repository_providers.dart` (Contract-owned).
 
 ---
 
 ## 5. Screens — class + file + route + sub-views + owning agent
 
-All screens are `ConsumerWidget` stubs returning a `Scaffold`. The router
-imports them by these exact class names. Each screen agent fills in its file
-(and may create additional widget files under `lib/presentation/`).
+All screens are `StatelessWidget`/`StatefulWidget` stubs returning a
+`Scaffold`. The router imports them by these exact class names. Each screen
+agent fills in its file (and may create additional widget files under
+`lib/presentation/`).
 
-Screens consume **Drift row classes + providers** (rule §3) — never `AppDatabase`.
+Screens consume **Drift row classes + repository injection** (rule §3) —
+never `AppDatabase`. One-shot loads use a `FutureBuilder` fed by a future
+created in `initState` (or an explicit `_refresh()` that calls `setState`) —
+never inline in `build`.
 
 | File (`lib/presentation/screens/`) | Class | Route path (AppRoutes) | Sub-views OWNED by this screen agent |
 |---|---|---|---|
@@ -334,12 +355,12 @@ confirmations through `showConfirm`, never `showDialog` ad-hoc for yes/no.
 | `section_header.dart` | `SectionHeader(String title, {String? subtitle, Widget? trailing})` | `SectionHeader('สินค้าทั้งหมด', trailing: addBtn)` |
 | `status_chip.dart` | `StatusChip(String label, {StatusTone tone = neutral})`; factory `StatusChip.of(String status)` maps open/converted/received/expired/cancelled/voided → Thai label+tone; enum `StatusTone { success, info, warning, danger, neutral }` | `StatusChip.of('converted')` or `StatusChip('ค้างชำระ', tone: StatusTone.warning)` |
 | `thai_format.dart` | top-level fns: `String thaiInt(num)`; `String thaiDate(DateTime)` (พ.ศ.); `String thaiDateTime(DateTime)`; `String thaiTime(DateTime)`; `String thaiDateSlash(DateTime)` (numeric "23/06/2569", CSV/receipt shape); `String thaiDateTimeSlash(DateTime)` — dates only; money stays in `baht()` | `Text(thaiDate(sale.date))` |
-| `theme_controller.dart` | `themeModeProvider` (`NotifierProvider<ThemeModeNotifier, ThemeMode>`); `ThemeModeNotifier { ThemeMode build(); Future<void> toggle(); Future<void> set(ThemeMode) }`; persists to shared_preferences key `sa_pos_theme` | `ref.read(themeModeProvider.notifier).toggle()` |
+| `theme_controller.dart` | `ThemeModeCubit extends Cubit<ThemeMode> { Future<void> toggle(); Future<void> set(ThemeMode) }`; persists to shared_preferences key `sa_pos_theme` | `context.read<ThemeModeCubit>().toggle()` |
 | `app_shell.dart` | `AppShell({required Widget child})` — Contract+UIKit owned nav frame; topbar (shop name/cashier/date + theme toggle) + NavigationRail(>=1000px)/Drawer; do not edit | router `ShellRoute → AppShell(child: ...)` |
 
 **Coordination note (theme toggle):** the topbar toggle flips
-`themeModeProvider` and persists it, but the root `MaterialApp` in
-`lib/app.dart` (Contract-owned) must be made a `ConsumerWidget` that does
-`themeMode: ref.watch(themeModeProvider)` for the switch to repaint the app.
-Until app.dart is updated, the preference is stored and the toggle icon reflects
-state, but the live theme follows the system default.
+`ThemeModeCubit` and persists it; the root `MaterialApp` in `lib/app.dart`
+(Contract-owned) reads it via `themeMode: context.watch<ThemeModeCubit>().state`
+so the switch repaints the app. Read and write sides must stay on the same
+Cubit — converting one without the other compiles clean but breaks silently
+at runtime (see `docs/plans/riverpod-to-bloc.md`'s silent-coupling risks).

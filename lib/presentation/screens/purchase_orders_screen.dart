@@ -12,13 +12,14 @@
 //   open → รอรับสินค้า, received → รับแล้ว, cancelled → ยกเลิก.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/products_repository.dart';
+import '../../data/repositories/purchase_orders_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/providers.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_text_field.dart';
 import '../widgets/confirm_dialog.dart';
@@ -28,45 +29,55 @@ import '../widgets/money_text.dart';
 import '../widgets/status_chip.dart';
 import '../widgets/thai_format.dart';
 
-/// All purchase orders, newest-first (with items).
-final _posProvider = FutureProvider.autoDispose<List<PurchaseOrderWithItems>>(
-  (ref) => ref.watch(purchaseOrdersRepoProvider).getPOs(),
-);
-
-/// All products (for the add-item search in the create modal).
-final _productsProvider = FutureProvider.autoDispose<List<ProductRow>>(
-  (ref) => ref.watch(productsRepoProvider).getAll(),
-);
-
-class PurchaseOrdersScreen extends ConsumerWidget {
+class PurchaseOrdersScreen extends StatefulWidget {
   const PurchaseOrdersScreen({super.key});
 
-  void _refresh(WidgetRef ref) {
-    ref.invalidate(_posProvider);
-    ref.invalidate(_productsProvider);
+  @override
+  State<PurchaseOrdersScreen> createState() => _PurchaseOrdersScreenState();
+}
+
+class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
+  // Created in initState/_refresh — never inline in build.
+  late Future<List<PurchaseOrderWithItems>> _posFuture;
+  // Products for the add-item search in the create modal; re-loaded on
+  // _refresh too, so a receive's cost update is reflected next time the
+  // create dialog opens.
+  late Future<List<ProductRow>> _productsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  Future<void> _openCreate(BuildContext context, WidgetRef ref) async {
-    final products = await ref.read(_productsProvider.future);
-    if (!context.mounted) return;
+  void _load() {
+    _posFuture = context.read<PurchaseOrdersRepository>().getPOs();
+    _productsFuture = context.read<ProductsRepository>().getAll();
+  }
+
+  void _refresh() => setState(_load);
+
+  Future<void> _openCreate() async {
+    final products = await _productsFuture;
+    if (!mounted) return;
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _CreatePoDialog(products: products),
     );
-    if (saved == true) _refresh(ref);
+    if (saved == true) _refresh();
   }
 
-  Future<void> _receive(
-      BuildContext context, WidgetRef ref, PurchaseOrderRow po) async {
+  Future<void> _receive(PurchaseOrderRow po) async {
+    final repo = context.read<PurchaseOrdersRepository>();
     final ok = await showConfirm(
       context,
       'รับสินค้าเข้าสต็อก',
       'ยืนยันรับสินค้าเข้าสต็อก?\n(ต้นทุนสินค้าจะถูกอัปเดตตามราคาในใบสั่งซื้อ)',
     );
     if (!ok) return;
-    final unmatched = await ref.read(purchaseOrdersRepoProvider).receivePO(po.id);
-    _refresh(ref);
-    if (!context.mounted) return;
+    final unmatched = await repo.receivePO(po.id);
+    _refresh();
+    if (!mounted) return;
     if (unmatched.isNotEmpty) {
       await showDialog<void>(
         context: context,
@@ -87,8 +98,8 @@ class PurchaseOrdersScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _cancel(
-      BuildContext context, WidgetRef ref, PurchaseOrderRow po) async {
+  Future<void> _cancel(PurchaseOrderRow po) async {
+    final repo = context.read<PurchaseOrdersRepository>();
     final ok = await showConfirm(
       context,
       'ยกเลิกใบสั่งซื้อ',
@@ -96,12 +107,12 @@ class PurchaseOrdersScreen extends ConsumerWidget {
       danger: true,
     );
     if (!ok) return;
-    await ref.read(purchaseOrdersRepoProvider).cancelPO(po.id);
-    _refresh(ref);
+    await repo.cancelPO(po.id);
+    _refresh();
   }
 
-  Future<void> _delete(
-      BuildContext context, WidgetRef ref, PurchaseOrderRow po) async {
+  Future<void> _delete(PurchaseOrderRow po) async {
+    final repo = context.read<PurchaseOrdersRepository>();
     final ok = await showConfirm(
       context,
       'ลบใบสั่งซื้อ',
@@ -109,28 +120,34 @@ class PurchaseOrdersScreen extends ConsumerWidget {
       danger: true,
     );
     if (!ok) return;
-    await ref.read(purchaseOrdersRepoProvider).deletePO(po.id);
-    _refresh(ref);
+    await repo.deletePO(po.id);
+    _refresh();
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final posAsync = ref.watch(_posProvider);
+  Widget build(BuildContext context) {
     return Scaffold(
-      body: posAsync.when(
-        loading: () => const LoadingView(),
-        error: (e, _) => EmptyState(
-          icon: Icons.error_outline,
-          message: 'เกิดข้อผิดพลาด',
-          hint: '$e',
-        ),
-        data: (pos) => _PoListView(
-          pos: pos,
-          onCreate: () => _openCreate(context, ref),
-          onReceive: (po) => _receive(context, ref, po),
-          onCancel: (po) => _cancel(context, ref, po),
-          onDelete: (po) => _delete(context, ref, po),
-        ),
+      body: FutureBuilder<List<PurchaseOrderWithItems>>(
+        future: _posFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const LoadingView();
+          }
+          if (snap.hasError) {
+            return EmptyState(
+              icon: Icons.error_outline,
+              message: 'เกิดข้อผิดพลาด',
+              hint: '${snap.error}',
+            );
+          }
+          return _PoListView(
+            pos: snap.data!,
+            onCreate: _openCreate,
+            onReceive: _receive,
+            onCancel: _cancel,
+            onDelete: _delete,
+          );
+        },
       ),
     );
   }
@@ -424,15 +441,15 @@ class _DraftItem {
   });
 }
 
-class _CreatePoDialog extends ConsumerStatefulWidget {
+class _CreatePoDialog extends StatefulWidget {
   final List<ProductRow> products;
   const _CreatePoDialog({required this.products});
 
   @override
-  ConsumerState<_CreatePoDialog> createState() => _CreatePoDialogState();
+  State<_CreatePoDialog> createState() => _CreatePoDialogState();
 }
 
-class _CreatePoDialogState extends ConsumerState<_CreatePoDialog> {
+class _CreatePoDialogState extends State<_CreatePoDialog> {
   final _supplierCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
   final List<_DraftItem> _items = [];
@@ -487,7 +504,7 @@ class _CreatePoDialogState extends ConsumerState<_CreatePoDialog> {
     if (_busy || _supplier.isEmpty || _items.isEmpty) return;
     setState(() => _busy = true);
     try {
-      await ref.read(purchaseOrdersRepoProvider).savePO(
+      await context.read<PurchaseOrdersRepository>().savePO(
             PoInput(
               supplier: _supplier,
               items: _items

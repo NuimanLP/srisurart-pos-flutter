@@ -12,13 +12,13 @@
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/data/db/database.dart';
-import 'package:srisurart_pos/presentation/providers/providers.dart';
+import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/widgets/closing_report.dart';
 
 void main() {
@@ -45,8 +45,8 @@ void main() {
       Object? caught;
       await tester.runAsync(() async {
         await tester.pumpWidget(
-          ProviderScope(
-            overrides: [databaseProvider.overrideWithValue(db)],
+          MultiRepositoryProvider(
+            providers: repositoryProviders(db),
             child: const MaterialApp(home: Scaffold(body: ClosingReport())),
           ),
         );

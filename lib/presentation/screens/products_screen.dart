@@ -1,34 +1,38 @@
 // products_screen.dart — Inventory Management (4 tabs).
 //
 // Flutter port of pos/ProductsScreen.jsx (Stock / Price Calc / Suppliers /
-// Reports) + the LabelPrinter sub-view. Data flows ONLY through the Riverpod
-// repo providers; money is formatted with baht(); category colors come from
+// Reports) + the LabelPrinter sub-view. Data flows ONLY through repository
+// injection; money is formatted with baht(); category colors come from
 // AppColors.catColor (db.js getCatColor parity). Stock can only change via the
 // "± ปรับ" adjust action (adjustStock clamps at 0 + writes a movement); the edit
 // form strips stock + partNo exactly like the JSX.
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/movements_repository.dart';
+import '../../data/repositories/products_repository.dart';
+import '../../data/repositories/sales_repository.dart';
+import '../../data/repositories/settings_repository.dart';
+import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/providers.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
 import 'vehicle_search_screen.dart';
 
-class ProductsScreen extends ConsumerStatefulWidget {
+class ProductsScreen extends StatefulWidget {
   const ProductsScreen({super.key});
 
   @override
-  ConsumerState<ProductsScreen> createState() => _ProductsScreenState();
+  State<ProductsScreen> createState() => _ProductsScreenState();
 }
 
-class _ProductsScreenState extends ConsumerState<ProductsScreen>
+class _ProductsScreenState extends State<ProductsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
 
@@ -157,13 +161,13 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 // STOCK TAB
 // ─────────────────────────────────────────────────────────────────────────────
-class _StockTab extends ConsumerStatefulWidget {
+class _StockTab extends StatefulWidget {
   const _StockTab();
   @override
-  ConsumerState<_StockTab> createState() => _StockTabState();
+  State<_StockTab> createState() => _StockTabState();
 }
 
-class _StockTabState extends ConsumerState<_StockTab> {
+class _StockTabState extends State<_StockTab> {
   List<ProductRow> _products = [];
   List<String> _categories = [];
   bool _loading = true;
@@ -187,7 +191,7 @@ class _StockTabState extends ConsumerState<_StockTab> {
   }
 
   Future<void> _load() async {
-    final repo = ref.read(productsRepoProvider);
+    final repo = context.read<ProductsRepository>();
     final products = await repo.getAll();
     final cats = await repo.getCategories();
     if (!mounted) return;
@@ -218,16 +222,17 @@ class _StockTabState extends ConsumerState<_StockTab> {
   Future<void> _addCat() async {
     final v = _newCatCtrl.text.trim();
     if (v.isEmpty) return;
-    await ref.read(productsRepoProvider).addCategory(v);
+    await context.read<ProductsRepository>().addCategory(v);
     _newCatCtrl.clear();
     await _load();
   }
 
   Future<void> _deleteCat(String name) async {
+    final repo = context.read<ProductsRepository>();
     final ok = await showConfirm(context, 'ลบประเภท', 'ลบประเภท "$name"?',
         danger: true);
     if (!ok) return;
-    await ref.read(productsRepoProvider).deleteCategory(name);
+    await repo.deleteCategory(name);
     if (_filterCat == name) _filterCat = 'All';
     await _load();
   }
@@ -253,6 +258,7 @@ class _StockTabState extends ConsumerState<_StockTab> {
   }
 
   Future<void> _delete(ProductRow p) async {
+    final repo = context.read<ProductsRepository>();
     final ok = await showConfirm(
       context,
       'ลบสินค้า',
@@ -260,7 +266,7 @@ class _StockTabState extends ConsumerState<_StockTab> {
       danger: true,
     );
     if (!ok) return;
-    await ref.read(productsRepoProvider).delete(p.id);
+    await repo.delete(p.id);
     await _load();
   }
 
@@ -693,7 +699,7 @@ class _StockTabState extends ConsumerState<_StockTab> {
 }
 
 // ── Product add/edit dialog ──────────────────────────────────────────────────
-class _ProductEditDialog extends ConsumerStatefulWidget {
+class _ProductEditDialog extends StatefulWidget {
   final ProductRow? product; // null = new
   final List<String> categories;
   final Future<void> Function() onCategoriesChanged;
@@ -704,10 +710,10 @@ class _ProductEditDialog extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<_ProductEditDialog> createState() => _ProductEditDialogState();
+  State<_ProductEditDialog> createState() => _ProductEditDialogState();
 }
 
-class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
+class _ProductEditDialogState extends State<_ProductEditDialog> {
   late final bool _isNew;
   late List<String> _categories;
 
@@ -748,7 +754,7 @@ class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
   }
 
   Future<void> _loadTax() async {
-    final s = await ref.read(settingsRepoProvider).getSettings();
+    final s = await context.read<SettingsRepository>().getSettings();
     if (!mounted) return;
     setState(() => _taxRate = s.taxRate);
   }
@@ -804,9 +810,10 @@ class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
   Future<void> _addCat() async {
     final v = _newCatCtrl.text.trim();
     if (v.isEmpty) return;
-    await ref.read(productsRepoProvider).addCategory(v);
+    final repo = context.read<ProductsRepository>();
+    await repo.addCategory(v);
     await widget.onCategoriesChanged();
-    final cats = await ref.read(productsRepoProvider).getCategories();
+    final cats = await repo.getCategories();
     if (!mounted) return;
     setState(() {
       _categories = cats;
@@ -826,7 +833,7 @@ class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
       _toast('กรุณากรอกชื่อสินค้า');
       return;
     }
-    final repo = ref.read(productsRepoProvider);
+    final repo = context.read<ProductsRepository>();
 
     if (_isNew) {
       final companion = ProductsCompanion.insert(
@@ -1166,14 +1173,14 @@ class _ProductEditDialogState extends ConsumerState<_ProductEditDialog> {
 }
 
 // ── Adjust stock dialog ──────────────────────────────────────────────────────
-class _AdjustStockDialog extends ConsumerStatefulWidget {
+class _AdjustStockDialog extends StatefulWidget {
   final ProductRow product;
   const _AdjustStockDialog({required this.product});
   @override
-  ConsumerState<_AdjustStockDialog> createState() => _AdjustStockDialogState();
+  State<_AdjustStockDialog> createState() => _AdjustStockDialogState();
 }
 
-class _AdjustStockDialogState extends ConsumerState<_AdjustStockDialog> {
+class _AdjustStockDialogState extends State<_AdjustStockDialog> {
   final _delta = TextEditingController();
   final _note = TextEditingController();
 
@@ -1187,7 +1194,7 @@ class _AdjustStockDialogState extends ConsumerState<_AdjustStockDialog> {
   Future<void> _save() async {
     final d = int.tryParse(_delta.text);
     if (d == null) return;
-    await ref.read(productsRepoProvider).adjustStock(
+    await context.read<ProductsRepository>().adjustStock(
           widget.product.id,
           d,
           d > 0 ? 'adjustment-in' : 'adjustment-out',
@@ -1328,10 +1335,10 @@ class _AdjustStockDialogState extends ConsumerState<_AdjustStockDialog> {
 // ─────────────────────────────────────────────────────────────────────────────
 // PRICE CALC TAB
 // ─────────────────────────────────────────────────────────────────────────────
-class _PriceCalcTab extends ConsumerStatefulWidget {
+class _PriceCalcTab extends StatefulWidget {
   const _PriceCalcTab();
   @override
-  ConsumerState<_PriceCalcTab> createState() => _PriceCalcTabState();
+  State<_PriceCalcTab> createState() => _PriceCalcTabState();
 }
 
 class _PriceCalcResult {
@@ -1339,7 +1346,7 @@ class _PriceCalcResult {
   _PriceCalcResult(this.totalCost, this.netSell, this.profit, this.margin);
 }
 
-class _PriceCalcTabState extends ConsumerState<_PriceCalcTab> {
+class _PriceCalcTabState extends State<_PriceCalcTab> {
   final _cost = TextEditingController();
   final _freight = TextEditingController();
   final _retail = TextEditingController();
@@ -1353,7 +1360,7 @@ class _PriceCalcTabState extends ConsumerState<_PriceCalcTab> {
   }
 
   Future<void> _loadTax() async {
-    final s = await ref.read(settingsRepoProvider).getSettings();
+    final s = await context.read<SettingsRepository>().getSettings();
     if (!mounted) return;
     setState(() => _taxRate = s.taxRate);
   }
@@ -1642,13 +1649,13 @@ class _PriceCalcTabState extends ConsumerState<_PriceCalcTab> {
 // ─────────────────────────────────────────────────────────────────────────────
 // SUPPLIERS TAB
 // ─────────────────────────────────────────────────────────────────────────────
-class _SuppliersTab extends ConsumerStatefulWidget {
+class _SuppliersTab extends StatefulWidget {
   const _SuppliersTab();
   @override
-  ConsumerState<_SuppliersTab> createState() => _SuppliersTabState();
+  State<_SuppliersTab> createState() => _SuppliersTabState();
 }
 
-class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
+class _SuppliersTabState extends State<_SuppliersTab> {
   List<ProductRow> _products = [];
   List<SupplierRow> _suppliers = [];
   String _selectedId = '';
@@ -1674,8 +1681,10 @@ class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
   }
 
   Future<void> _load() async {
-    final products = await ref.read(productsRepoProvider).getAll();
-    final suppliers = await ref.read(suppliersRepoProvider).getSuppliers();
+    final productsRepo = context.read<ProductsRepository>();
+    final suppliersRepo = context.read<SuppliersRepository>();
+    final products = await productsRepo.getAll();
+    final suppliers = await suppliersRepo.getSuppliers();
     if (!mounted) return;
     setState(() {
       _products = products;
@@ -1688,14 +1697,14 @@ class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
   }
 
   Future<void> _refreshSuppliers() async {
-    final suppliers = await ref.read(suppliersRepoProvider).getSuppliers();
+    final suppliers = await context.read<SuppliersRepository>().getSuppliers();
     if (!mounted) return;
     setState(() => _suppliers = suppliers);
   }
 
   Future<void> _add() async {
     if (_name.text.isEmpty) return;
-    await ref.read(suppliersRepoProvider).addSupplier(
+    await context.read<SuppliersRepository>().addSupplier(
           productId: _selectedId,
           name: _name.text,
           unitCost: double.tryParse(_unitCost.text) ?? 0,
@@ -1709,7 +1718,7 @@ class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
   }
 
   Future<void> _delete(String id) async {
-    await ref.read(suppliersRepoProvider).deleteSupplier(id);
+    await context.read<SuppliersRepository>().deleteSupplier(id);
     await _refreshSuppliers();
   }
 
@@ -2049,10 +2058,10 @@ class _SuppliersTabState extends ConsumerState<_SuppliersTab> {
 // ─────────────────────────────────────────────────────────────────────────────
 // INVENTORY REPORTS TAB
 // ─────────────────────────────────────────────────────────────────────────────
-class _InvReportTab extends ConsumerStatefulWidget {
+class _InvReportTab extends StatefulWidget {
   const _InvReportTab();
   @override
-  ConsumerState<_InvReportTab> createState() => _InvReportTabState();
+  State<_InvReportTab> createState() => _InvReportTabState();
 }
 
 class _SoldAgg {
@@ -2062,7 +2071,7 @@ class _SoldAgg {
   _SoldAgg(this.name);
 }
 
-class _InvReportTabState extends ConsumerState<_InvReportTab> {
+class _InvReportTabState extends State<_InvReportTab> {
   String _subTab = 'daily';
   bool _loading = true;
 
@@ -2078,10 +2087,14 @@ class _InvReportTabState extends ConsumerState<_InvReportTab> {
   }
 
   Future<void> _load() async {
-    final sales = await ref.read(salesRepoProvider).getSales();
-    final products = await ref.read(productsRepoProvider).getAll();
-    final movements = await ref.read(movementsRepoProvider).getMovements();
-    final settings = await ref.read(settingsRepoProvider).getSettings();
+    final salesRepo = context.read<SalesRepository>();
+    final productsRepo = context.read<ProductsRepository>();
+    final movementsRepo = context.read<MovementsRepository>();
+    final settingsRepo = context.read<SettingsRepository>();
+    final sales = await salesRepo.getSales();
+    final products = await productsRepo.getAll();
+    final movements = await movementsRepo.getMovements();
+    final settings = await settingsRepo.getSettings();
     if (!mounted) return;
     setState(() {
       _sales = sales;

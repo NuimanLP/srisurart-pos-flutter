@@ -18,13 +18,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
-import '../providers/providers.dart';
+import '../../data/repositories/products_repository.dart';
 
 /// Popular car/pickup models this auto-parts shop carries — each value is a
 /// substring of one or more products' `compat` field so a chip tap returns real
@@ -36,29 +36,35 @@ const List<String> _popularVehicles = [
   'Mitsubishi Triton', 'Nissan Navara', 'Mazda 2',
 ];
 
-/// Products + category list, loaded once for the screen (categories drive the
-/// per-category color, mirroring getCatColor in the .jsx).
-final _vehicleSearchDataProvider =
-    FutureProvider.autoDispose<({List<ProductRow> products, List<String> categories})>(
-  (ref) async {
-    final repo = ref.watch(productsRepoProvider);
-    final products = await repo.getAll();
-    final categories = await repo.getCategories();
-    return (products: products, categories: categories);
-  },
-);
-
-class VehicleSearchScreen extends ConsumerStatefulWidget {
+class VehicleSearchScreen extends StatefulWidget {
   const VehicleSearchScreen({super.key});
 
   @override
-  ConsumerState<VehicleSearchScreen> createState() =>
-      _VehicleSearchScreenState();
+  State<VehicleSearchScreen> createState() => _VehicleSearchScreenState();
 }
 
-class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
+class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   final TextEditingController _controller = TextEditingController();
   String _query = '';
+  // Products + category list, loaded once for the screen (categories drive
+  // the per-category color, mirroring getCatColor in the .jsx). Created in
+  // initState — never inline in build — so it doesn't refetch on rebuild.
+  late Future<({List<ProductRow> products, List<String> categories})>
+      _dataFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataFuture = _loadData();
+  }
+
+  Future<({List<ProductRow> products, List<String> categories})>
+      _loadData() async {
+    final repo = context.read<ProductsRepository>();
+    final products = await repo.getAll();
+    final categories = await repo.getCategories();
+    return (products: products, categories: categories);
+  }
 
   @override
   void dispose() {
@@ -89,8 +95,6 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dataAsync = ref.watch(_vehicleSearchDataProvider);
-
     return Scaffold(
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -99,10 +103,18 @@ class _VehicleSearchScreenState extends ConsumerState<VehicleSearchScreen> {
           _searchArea(context),
           _quickRow(context),
           Expanded(
-            child: dataAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('เกิดข้อผิดพลาด: $e')),
-              data: (data) => _results(context, data.products, data.categories),
+            child: FutureBuilder(
+              future: _dataFuture,
+              builder: (context, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snap.hasError) {
+                  return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
+                }
+                final data = snap.data!;
+                return _results(context, data.products, data.categories);
+              },
             ),
           ),
         ],

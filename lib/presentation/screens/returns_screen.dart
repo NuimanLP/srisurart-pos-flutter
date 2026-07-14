@@ -17,7 +17,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -25,8 +25,10 @@ import 'package:printing/printing.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/returns_repository.dart';
+import '../../data/repositories/sales_repository.dart';
+import '../../data/repositories/settings_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/providers.dart';
 import '../widgets/app_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
@@ -34,33 +36,21 @@ import '../widgets/loading_view.dart';
 import '../widgets/search_field.dart';
 import '../widgets/thai_format.dart';
 
-// ── Reactive data providers (auto-refresh on createReturn via invalidate). ──
-final _salesProvider =
-    FutureProvider.autoDispose<List<SaleWithItems>>((ref) async {
-  return ref.watch(salesRepoProvider).getSales();
-});
-
-final _returnsProvider =
-    FutureProvider.autoDispose<List<ReturnWithItems>>((ref) async {
-  return ref.watch(returnsRepoProvider).getReturns();
-});
-
-/// Already-refunded qty (productId → qty) for the currently-selected sale.
-final _refundedProvider = FutureProvider.autoDispose
-    .family<Map<String, int>, String>((ref, saleId) async {
-  return ref.watch(salesRepoProvider).getRefundedQty(saleId);
+typedef _ReturnsData = ({
+  List<SaleWithItems> sales,
+  List<ReturnWithItems> returns,
 });
 
 enum _Tab { search, history }
 
-class ReturnsScreen extends ConsumerStatefulWidget {
+class ReturnsScreen extends StatefulWidget {
   const ReturnsScreen({super.key});
 
   @override
-  ConsumerState<ReturnsScreen> createState() => _ReturnsScreenState();
+  State<ReturnsScreen> createState() => _ReturnsScreenState();
 }
 
-class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
+class _ReturnsScreenState extends State<ReturnsScreen> {
   _Tab _tab = _Tab.search;
   String _search = '';
   SaleWithItems? _selected;
@@ -69,6 +59,22 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
   String _reason = '';
   bool _busy = false;
   final TextEditingController _reasonCtl = TextEditingController();
+  // Created in initState/_refreshAll — never inline in build.
+  late Future<_ReturnsData> _dataFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataFuture = _loadData();
+  }
+
+  Future<_ReturnsData> _loadData() async {
+    final salesRepo = context.read<SalesRepository>();
+    final returnsRepo = context.read<ReturnsRepository>();
+    final sales = await salesRepo.getSales();
+    final returns = await returnsRepo.getReturns();
+    return (sales: sales, returns: returns);
+  }
 
   @override
   void dispose() {
@@ -76,13 +82,9 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
     super.dispose();
   }
 
-  void _refreshAll() {
-    ref.invalidate(_salesProvider);
-    ref.invalidate(_returnsProvider);
-    if (_selected != null) ref.invalidate(_refundedProvider(_selected!.sale.id));
-  }
+  void _refreshAll() => setState(() => _dataFuture = _loadData());
 
-  void _selectSale(SaleWithItems s, Map<String, int> refunded) {
+  void _selectSale(SaleWithItems s) {
     setState(() {
       _selected = s;
       _refundQtys.clear();
@@ -92,8 +94,9 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
       _reason = '';
       _reasonCtl.text = '';
       // Credit sales default to "หักจากเครดิต" — prevents double refund.
-      _refundMethod =
-          s.sale.paymentMethod == 'เครดิตช่าง' ? 'หักจากเครดิต' : 'เงินสด';
+      _refundMethod = s.sale.paymentMethod == 'เครดิตช่าง'
+          ? 'หักจากเครดิต'
+          : 'เงินสด';
     });
   }
 
@@ -125,8 +128,9 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
   double _refundTotal(List<ReturnLineInput> items) {
     final s = _selected!;
     final sub = _refundSubtotal(items);
-    final ratio =
-        s.sale.subtotal > 0 ? (s.sale.discount) / s.sale.subtotal : 0.0;
+    final ratio = s.sale.subtotal > 0
+        ? (s.sale.discount) / s.sale.subtotal
+        : 0.0;
     final disc = round2(sub * ratio);
     return round2(sub - disc);
   }
@@ -134,8 +138,9 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
   double _refundDiscount(List<ReturnLineInput> items) {
     final s = _selected!;
     final sub = _refundSubtotal(items);
-    final ratio =
-        s.sale.subtotal > 0 ? (s.sale.discount) / s.sale.subtotal : 0.0;
+    final ratio = s.sale.subtotal > 0
+        ? (s.sale.discount) / s.sale.subtotal
+        : 0.0;
     return round2(sub * ratio);
   }
 
@@ -199,17 +204,22 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
     );
   }
 
-  Future<void> _doReturn(List<ReturnLineInput> items,
-      {String? reasonOverride}) async {
+  Future<void> _doReturn(
+    List<ReturnLineInput> items, {
+    String? reasonOverride,
+  }) async {
     final s = _selected!;
+    final repo = context.read<ReturnsRepository>();
     setState(() => _busy = true);
     try {
-      final cn = await ref.read(returnsRepoProvider).createReturn(ReturnInput(
-            saleId: s.sale.id,
-            items: items,
-            refundMethod: _refundMethod,
-            reason: reasonOverride ?? _reason,
-          ));
+      final cn = await repo.createReturn(
+        ReturnInput(
+          saleId: s.sale.id,
+          items: items,
+          refundMethod: _refundMethod,
+          reason: reasonOverride ?? _reason,
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _selected = null;
@@ -253,7 +263,7 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
   }
 
   Future<void> _showCreditNote(ReturnWithItems cn) async {
-    final settings = await ref.read(settingsRepoProvider).getSettings();
+    final settings = await context.read<SettingsRepository>().getSettings();
     if (!mounted) return;
     await showDialog<void>(
       context: context,
@@ -264,59 +274,76 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 900;
-    final left = _LeftPane(
-      tab: _tab,
-      search: _search,
-      selectedId: _selected?.sale.id,
-      onTab: (t) => setState(() => _tab = t),
-      onSearch: (q) => setState(() => _search = q),
-      onSelectSale: _selectSale,
-      onOpenCreditNote: (cn) async {
-        final settings = await ref.read(settingsRepoProvider).getSettings();
-        if (!context.mounted) return;
-        await showDialog<void>(
-          context: context,
-          builder: (_) => _CreditNoteDialog(cn: cn, settings: settings),
-        );
-      },
-    );
-    final right = _selected == null
-        ? const _EmptyDetail()
-        : _RefundDetail(
-            key: ValueKey(_selected!.sale.id),
-            sale: _selected!,
-            refundQtys: _refundQtys,
-            refundMethod: _refundMethod,
-            reasonController: _reasonCtl,
-            busy: _busy,
-            onClose: () => setState(() => _selected = null),
-            onSetQty: _setQty,
-            onMethod: (m) => setState(() => _refundMethod = m),
-            onReason: (r) => _reason = r,
-            refundItems: _refundItems,
-            refundSubtotal: _refundSubtotal,
-            refundDiscount: _refundDiscount,
-            refundTotal: _refundTotal,
-            onSubmit: _submit,
-            onVoid: _voidWholeBill,
+    return Scaffold(
+      body: FutureBuilder<_ReturnsData>(
+        future: _dataFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const LoadingView();
+          }
+          if (snap.hasError) {
+            return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+          }
+          final sales = snap.data!.sales;
+          final returns = snap.data!.returns;
+
+          final left = _LeftPane(
+            tab: _tab,
+            sales: sales,
+            returns: returns,
+            search: _search,
+            selectedId: _selected?.sale.id,
+            onTab: (t) => setState(() => _tab = t),
+            onSearch: (q) => setState(() => _search = q),
+            onSelectSale: _selectSale,
+            onOpenCreditNote: (cn) async {
+              final settingsRepo = context.read<SettingsRepository>();
+              final settings = await settingsRepo.getSettings();
+              if (!context.mounted) return;
+              await showDialog<void>(
+                context: context,
+                builder: (_) => _CreditNoteDialog(cn: cn, settings: settings),
+              );
+            },
+          );
+          final right = _selected == null
+              ? const _EmptyDetail()
+              : _RefundDetail(
+                  key: ValueKey(_selected!.sale.id),
+                  sale: _selected!,
+                  refundQtys: _refundQtys,
+                  refundMethod: _refundMethod,
+                  reasonController: _reasonCtl,
+                  busy: _busy,
+                  onClose: () => setState(() => _selected = null),
+                  onSetQty: _setQty,
+                  onMethod: (m) => setState(() => _refundMethod = m),
+                  onReason: (r) => _reason = r,
+                  refundItems: _refundItems,
+                  refundSubtotal: _refundSubtotal,
+                  refundDiscount: _refundDiscount,
+                  refundTotal: _refundTotal,
+                  onSubmit: _submit,
+                  onVoid: _voidWholeBill,
+                );
+
+          final divider = VerticalDivider(
+            width: 1,
+            thickness: 1,
+            color: Theme.of(context).dividerColor,
           );
 
-    final divider = VerticalDivider(
-      width: 1,
-      thickness: 1,
-      color: Theme.of(context).dividerColor,
-    );
-
-    return Scaffold(
-      body: wide
-          ? Row(
-              children: [
-                SizedBox(width: 460, child: left),
-                divider,
-                Expanded(child: right),
-              ],
-            )
-          : (_selected == null ? left : right),
+          return wide
+              ? Row(
+                  children: [
+                    SizedBox(width: 460, child: left),
+                    divider,
+                    Expanded(child: right),
+                  ],
+                )
+              : (_selected == null ? left : right);
+        },
+      ),
     );
   }
 }
@@ -324,18 +351,21 @@ class _ReturnsScreenState extends ConsumerState<ReturnsScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 // LEFT PANE — header + tabs + (search list | history list).
 // ─────────────────────────────────────────────────────────────────────────────
-class _LeftPane extends ConsumerWidget {
+class _LeftPane extends StatelessWidget {
   final _Tab tab;
+  final List<SaleWithItems> sales;
+  final List<ReturnWithItems> returns;
   final String search;
   final String? selectedId;
   final ValueChanged<_Tab> onTab;
   final ValueChanged<String> onSearch;
-  final void Function(SaleWithItems sale, Map<String, int> refunded)
-      onSelectSale;
+  final void Function(SaleWithItems sale) onSelectSale;
   final ValueChanged<ReturnWithItems> onOpenCreditNote;
 
   const _LeftPane({
     required this.tab,
+    required this.sales,
+    required this.returns,
     required this.search,
     required this.selectedId,
     required this.onTab,
@@ -345,12 +375,12 @@ class _LeftPane extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final returnsAsync = ref.watch(_returnsProvider);
-    final returns = returnsAsync.value ?? const <ReturnWithItems>[];
-    final totalRefund =
-        returns.fold<double>(0, (s, r) => s + r.ret.refundTotal);
+    final totalRefund = returns.fold<double>(
+      0,
+      (s, r) => s + r.ret.refundTotal,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -363,14 +393,16 @@ class _LeftPane extends ConsumerWidget {
             children: [
               Text(
                 'คืนสินค้า · Returns',
-                style: theme.textTheme.titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 '${returns.length} ใบลดหนี้ · มูลค่าคืนรวม ${baht(totalRefund)}',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.secondary),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.secondary,
+                ),
               ),
             ],
           ),
@@ -398,15 +430,13 @@ class _LeftPane extends ConsumerWidget {
         Expanded(
           child: tab == _Tab.search
               ? _SearchTab(
+                  sales: sales,
                   search: search,
                   selectedId: selectedId,
                   onSearch: onSearch,
                   onSelectSale: onSelectSale,
                 )
-              : _HistoryTab(
-                  returnsAsync: returnsAsync,
-                  onOpen: onOpenCreditNote,
-                ),
+              : _HistoryTab(returns: returns, onOpen: onOpenCreditNote),
         ),
       ],
     );
@@ -417,8 +447,11 @@ class _TabButton extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
-  const _TabButton(
-      {required this.label, required this.active, required this.onTap});
+  const _TabButton({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -450,14 +483,15 @@ class _TabButton extends StatelessWidget {
 }
 
 // ── Search tab: search box + scrollable sale cards. ──
-class _SearchTab extends ConsumerWidget {
+class _SearchTab extends StatelessWidget {
+  final List<SaleWithItems> sales;
   final String search;
   final String? selectedId;
   final ValueChanged<String> onSearch;
-  final void Function(SaleWithItems sale, Map<String, int> refunded)
-      onSelectSale;
+  final void Function(SaleWithItems sale) onSelectSale;
 
   const _SearchTab({
+    required this.sales,
     required this.search,
     required this.selectedId,
     required this.onSearch,
@@ -465,8 +499,19 @@ class _SearchTab extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final salesAsync = ref.watch(_salesProvider);
+  Widget build(BuildContext context) {
+    final q = search.toLowerCase();
+    final matching = sales.where((s) {
+      if (search.isEmpty) return true;
+      final r = s.sale;
+      return r.receiptNo.toLowerCase().contains(q) ||
+          (r.mechanicName ?? '').contains(search) ||
+          s.items.any((i) => i.name.toLowerCase().contains(q));
+    }).toList();
+    final filtered = search.isNotEmpty
+        ? matching.take(200).toList()
+        : matching.take(50).toList();
+
     return Column(
       children: [
         Padding(
@@ -478,46 +523,27 @@ class _SearchTab extends ConsumerWidget {
           ),
         ),
         Expanded(
-          child: salesAsync.when(
-            loading: () => const LoadingView(),
-            error: (e, _) => Center(child: Text('โหลดข้อมูลไม่สำเร็จ: $e')),
-            data: (allSales) {
-              final q = search.toLowerCase();
-              final matching = allSales.where((s) {
-                if (search.isEmpty) return true;
-                final r = s.sale;
-                return r.receiptNo.toLowerCase().contains(q) ||
-                    (r.mechanicName ?? '').contains(search) ||
-                    s.items.any((i) => i.name.toLowerCase().contains(q));
-              }).toList();
-              final filtered = search.isNotEmpty
-                  ? matching.take(200).toList()
-                  : matching.take(50).toList();
-              if (filtered.isEmpty) {
-                return const EmptyState(message: 'ไม่พบบิล');
-              }
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                itemCount: filtered.length,
-                itemBuilder: (_, idx) => _SaleCard(
-                  sale: filtered[idx],
-                  active: filtered[idx].sale.id == selectedId,
-                  onSelectSale: onSelectSale,
+          child: filtered.isEmpty
+              ? const EmptyState(message: 'ไม่พบบิล')
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                  itemCount: filtered.length,
+                  itemBuilder: (_, idx) => _SaleCard(
+                    sale: filtered[idx],
+                    active: filtered[idx].sale.id == selectedId,
+                    onSelectSale: onSelectSale,
+                  ),
                 ),
-              );
-            },
-          ),
         ),
       ],
     );
   }
 }
 
-class _SaleCard extends ConsumerWidget {
+class _SaleCard extends StatefulWidget {
   final SaleWithItems sale;
   final bool active;
-  final void Function(SaleWithItems sale, Map<String, int> refunded)
-      onSelectSale;
+  final void Function(SaleWithItems sale) onSelectSale;
 
   const _SaleCard({
     required this.sale,
@@ -526,96 +552,122 @@ class _SaleCard extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final s = sale.sale;
-    final refundedAsync = ref.watch(_refundedProvider(s.id));
-    final refunded = refundedAsync.value ?? const <String, int>{};
-    final totalRefunded = refunded.values.fold<int>(0, (a, b) => a + b);
-    final totalQty = sale.items.fold<int>(0, (a, i) => a + i.qty);
-    final isVoided = s.voided;
-    final isPartial = totalRefunded > 0 && !isVoided;
+  State<_SaleCard> createState() => _SaleCardState();
+}
 
-    return Opacity(
-      opacity: isVoided ? 0.5 : 1,
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 8),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(
-            color: active ? AppColors.orange : theme.dividerColor,
-            width: active ? 2 : 1,
-          ),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: isVoided
-              ? null
-              : () => onSelectSale(sale, Map<String, int>.from(refunded)),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        s.receiptNo,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 13,
-                          color: AppColors.orange,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        thaiDateTime(s.date),
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: theme.colorScheme.secondary),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${sale.items.length} รายการ · ${s.paymentMethod}'
-                        '${s.mechanicName != null ? ' · 🔧 ${s.mechanicName}' : ''}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
+class _SaleCardState extends State<_SaleCard> {
+  // Already-refunded qty (productId → qty) for this sale — created once in
+  // initState — never inline in build.
+  late Future<Map<String, int>> _refundedFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _refundedFuture = context.read<SalesRepository>().getRefundedQty(
+      widget.sale.sale.id,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sale = widget.sale;
+    final active = widget.active;
+    final s = sale.sale;
+    return FutureBuilder<Map<String, int>>(
+      future: _refundedFuture,
+      builder: (context, snap) {
+        final refunded = snap.data ?? const <String, int>{};
+        final totalRefunded = refunded.values.fold<int>(0, (a, b) => a + b);
+        final totalQty = sale.items.fold<int>(0, (a, i) => a + i.qty);
+        final isVoided = s.voided;
+        final isPartial = totalRefunded > 0 && !isVoided;
+
+        return Opacity(
+          opacity: isVoided ? 0.5 : 1,
+          child: Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(
+                color: active ? AppColors.orange : theme.dividerColor,
+                width: active ? 2 : 1,
+              ),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: isVoided ? null : () => widget.onSelectSale(sale),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      baht(s.total),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w800),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s.receiptNo,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 13,
+                              color: AppColors.orange,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            thaiDateTime(s.date),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.secondary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${sale.items.length} รายการ · ${s.paymentMethod}'
+                            '${s.mechanicName != null ? ' · 🔧 ${s.mechanicName}' : ''}',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
-                    if (isVoided)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: _Pill(
-                          '✕ ยกเลิกแล้ว',
-                          color: AppColors.error,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          baht(s.total),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                      ),
-                    if (isPartial)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: _Pill(
-                          '↻ คืนบางส่วน $totalRefunded/$totalQty',
-                          color: AppColors.warning,
-                        ),
-                      ),
+                        if (isVoided)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: _Pill(
+                              '✕ ยกเลิกแล้ว',
+                              color: AppColors.error,
+                            ),
+                          ),
+                        if (isPartial)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: _Pill(
+                              '↻ คืนบางส่วน $totalRefunded/$totalQty',
+                              color: AppColors.warning,
+                            ),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -647,92 +699,86 @@ class _Pill extends StatelessWidget {
 
 // ── History tab: list of credit notes. ──
 class _HistoryTab extends StatelessWidget {
-  final AsyncValue<List<ReturnWithItems>> returnsAsync;
+  final List<ReturnWithItems> returns;
   final ValueChanged<ReturnWithItems> onOpen;
-  const _HistoryTab({required this.returnsAsync, required this.onOpen});
+  const _HistoryTab({required this.returns, required this.onOpen});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return returnsAsync.when(
-      loading: () => const LoadingView(),
-      error: (e, _) => Center(child: Text('โหลดข้อมูลไม่สำเร็จ: $e')),
-      data: (returns) {
-        if (returns.isEmpty) {
-          return const EmptyState(message: 'ยังไม่มีประวัติการคืนสินค้า');
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-          itemCount: returns.length,
-          itemBuilder: (_, idx) {
-            final rw = returns[idx];
-            final r = rw.ret;
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: BorderSide(color: theme.dividerColor),
-              ),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () => onOpen(rw),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              r.cnNo,
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 13,
-                                color: AppColors.error,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'อ้างอิง ${r.receiptNo} · ${thaiDateTime(r.date)}',
+    if (returns.isEmpty) {
+      return const EmptyState(message: 'ยังไม่มีประวัติการคืนสินค้า');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      itemCount: returns.length,
+      itemBuilder: (_, idx) {
+        final rw = returns[idx];
+        final r = rw.ret;
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: theme.dividerColor),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => onOpen(rw),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          r.cnNo,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            color: AppColors.error,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'อ้างอิง ${r.receiptNo} · ${thaiDateTime(r.date)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.secondary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${rw.items.length} รายการ · ${r.refundMethod}'
+                          '${r.mechanicName != null ? ' · 🔧 ${r.mechanicName}' : ''}',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        if (r.reason.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '"${r.reason}"',
                               style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.secondary),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${rw.items.length} รายการ · ${r.refundMethod}'
-                              '${r.mechanicName != null ? ' · 🔧 ${r.mechanicName}' : ''}',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                            if (r.reason.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: Text(
-                                  '"${r.reason}"',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
+                                fontStyle: FontStyle.italic,
                               ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        '−${baht(r.refundTotal)}',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.error,
-                        ),
-                      ),
-                    ],
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
+                  Text(
+                    '−${baht(r.refundTotal)}',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.error,
+                    ),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
     );
@@ -754,15 +800,19 @@ class _EmptyDetail extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('↻',
-                style: TextStyle(
-                    fontSize: 48,
-                    color: theme.colorScheme.secondary.withValues(alpha: 0.4))),
+            Text(
+              '↻',
+              style: TextStyle(
+                fontSize: 48,
+                color: theme.colorScheme.secondary.withValues(alpha: 0.4),
+              ),
+            ),
             const SizedBox(height: 12),
             Text(
               'เลือกบิลที่ต้องการคืน',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 6),
             ConstrainedBox(
@@ -780,7 +830,7 @@ class _EmptyDetail extends StatelessWidget {
   }
 }
 
-class _RefundDetail extends ConsumerWidget {
+class _RefundDetail extends StatefulWidget {
   final SaleWithItems sale;
   final Map<String, int> refundQtys;
   final String refundMethod;
@@ -817,114 +867,142 @@ class _RefundDetail extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  State<_RefundDetail> createState() => _RefundDetailState();
+}
+
+class _RefundDetailState extends State<_RefundDetail> {
+  // Already-refunded qty for this sale — created once in initState — never
+  // inline in build.
+  late Future<Map<String, int>> _refundedFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _refundedFuture = context.read<SalesRepository>().getRefundedQty(
+      widget.sale.sale.id,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final s = sale.sale;
-    final refundedAsync = ref.watch(_refundedProvider(s.id));
-    final refunded = refundedAsync.value ?? const <String, int>{};
+    final s = widget.sale.sale;
 
-    final items = refundItems();
-    final sub = refundSubtotal(items);
-    final disc = refundDiscount(items);
-    final total = refundTotal(items);
+    return FutureBuilder<Map<String, int>>(
+      future: _refundedFuture,
+      builder: (context, snap) {
+        final refunded = snap.data ?? const <String, int>{};
 
-    final methods = <String>['เงินสด', 'โอน', if (s.mechanicId != null) 'หักจากเครดิต'];
+        final items = widget.refundItems();
+        final sub = widget.refundSubtotal(items);
+        final disc = widget.refundDiscount(items);
+        final total = widget.refundTotal(items);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Header.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        final methods = <String>[
+          'เงินสด',
+          'โอน',
+          if (s.mechanicId != null) 'หักจากเครดิต',
+        ];
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      s.receiptNo,
-                      style: theme.textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${thaiDateTime(s.date)} · ${s.paymentMethod}',
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(color: theme.colorScheme.secondary),
-                    ),
-                    if (s.mechanicName != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          '🔧 ${s.mechanicName}',
-                          style: const TextStyle(
-                            color: AppColors.warning,
-                            fontWeight: FontWeight.w700,
+              // Header.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s.receiptNo,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                      ),
-                  ],
+                        const SizedBox(height: 2),
+                        Text(
+                          '${thaiDateTime(s.date)} · ${s.paymentMethod}',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.secondary,
+                          ),
+                        ),
+                        if (s.mechanicName != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '🔧 ${s.mechanicName}',
+                              style: const TextStyle(
+                                color: AppColors.warning,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: widget.onClose,
+                    icon: const Icon(Icons.close),
+                    tooltip: 'ปิด',
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              Text(
+                'เลือกรายการที่จะคืน',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                  color: theme.colorScheme.secondary,
                 ),
               ),
-              IconButton(
-                onPressed: onClose,
-                icon: const Icon(Icons.close),
-                tooltip: 'ปิด',
+              const SizedBox(height: 10),
+              // Item list.
+              Expanded(
+                child: ListView.separated(
+                  itemCount: widget.sale.items.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 6),
+                  itemBuilder: (_, idx) {
+                    final i = widget.sale.items[idx];
+                    final refundedQty = refunded[i.productId] ?? 0;
+                    final remaining = i.qty - refundedQty;
+                    final current = widget.refundQtys[i.productId] ?? 0;
+                    final fully = remaining <= 0;
+                    return _ItemRow(
+                      item: i,
+                      refundedQty: refundedQty,
+                      remaining: remaining,
+                      current: current,
+                      fully: fully,
+                      onSetQty: widget.onSetQty,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Summary + actions.
+              _SummaryBox(
+                sub: sub,
+                disc: disc,
+                total: total,
+                methods: methods,
+                refundMethod: widget.refundMethod,
+                reasonController: widget.reasonController,
+                busy: widget.busy,
+                itemCount: items.length,
+                onMethod: widget.onMethod,
+                onReason: widget.onReason,
+                onSubmit: () => widget.onSubmit(refunded),
+                onVoid: () => widget.onVoid(refunded),
               ),
             ],
           ),
-          const Divider(height: 24),
-          Text(
-            'เลือกรายการที่จะคืน',
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-              color: theme.colorScheme.secondary,
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Item list.
-          Expanded(
-            child: ListView.separated(
-              itemCount: sale.items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 6),
-              itemBuilder: (_, idx) {
-                final i = sale.items[idx];
-                final refundedQty = refunded[i.productId] ?? 0;
-                final remaining = i.qty - refundedQty;
-                final current = refundQtys[i.productId] ?? 0;
-                final fully = remaining <= 0;
-                return _ItemRow(
-                  item: i,
-                  refundedQty: refundedQty,
-                  remaining: remaining,
-                  current: current,
-                  fully: fully,
-                  onSetQty: onSetQty,
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 14),
-          // Summary + actions.
-          _SummaryBox(
-            sub: sub,
-            disc: disc,
-            total: total,
-            methods: methods,
-            refundMethod: refundMethod,
-            reasonController: reasonController,
-            busy: busy,
-            itemCount: items.length,
-            onMethod: onMethod,
-            onReason: onReason,
-            onSubmit: () => onSubmit(refunded),
-            onVoid: () => onVoid(refunded),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -956,8 +1034,9 @@ class _ItemRow extends StatelessWidget {
       children: [
         Text(
           item.name,
-          style:
-              theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
         ),
         const SizedBox(height: 2),
         Wrap(
@@ -1100,8 +1179,7 @@ class _QtyStepperState extends State<_QtyStepper> {
     super.didUpdateWidget(old);
     if (widget.current.toString() != _ctl.text) {
       _ctl.text = '${widget.current}';
-      _ctl.selection =
-          TextSelection.collapsed(offset: _ctl.text.length);
+      _ctl.selection = TextSelection.collapsed(offset: _ctl.text.length);
     }
   }
 
@@ -1123,7 +1201,10 @@ class _QtyStepperState extends State<_QtyStepper> {
           label: '−',
           enabled: canDec,
           onTap: () => widget.onSetQty(
-              widget.productId, widget.current - 1, widget.remaining),
+            widget.productId,
+            widget.current - 1,
+            widget.remaining,
+          ),
         ),
         const SizedBox(width: 8),
         SizedBox(
@@ -1137,35 +1218,44 @@ class _QtyStepperState extends State<_QtyStepper> {
             style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
             decoration: const InputDecoration(
               isDense: true,
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
             onChanged: (v) => widget.onSetQty(
-                widget.productId, int.tryParse(v) ?? 0, widget.remaining),
+              widget.productId,
+              int.tryParse(v) ?? 0,
+              widget.remaining,
+            ),
           ),
         ),
         const SizedBox(width: 6),
-        Text('/ ${widget.remaining}',
-            style: theme.textTheme.bodySmall),
+        Text('/ ${widget.remaining}', style: theme.textTheme.bodySmall),
         const SizedBox(width: 8),
         _StepBtn(
           label: '+',
           enabled: canInc,
           onTap: () => widget.onSetQty(
-              widget.productId, widget.current + 1, widget.remaining),
+            widget.productId,
+            widget.current + 1,
+            widget.remaining,
+          ),
         ),
         const SizedBox(width: 8),
         OutlinedButton(
           onPressed: canInc
               ? () => widget.onSetQty(
-                  widget.productId, widget.remaining, widget.remaining)
+                  widget.productId,
+                  widget.remaining,
+                  widget.remaining,
+                )
               : null,
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             minimumSize: const Size(0, 44),
           ),
-          child: const Text('คืนหมด',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+          child: const Text(
+            'คืนหมด',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          ),
         ),
       ],
     );
@@ -1176,8 +1266,11 @@ class _StepBtn extends StatelessWidget {
   final String label;
   final bool enabled;
   final VoidCallback onTap;
-  const _StepBtn(
-      {required this.label, required this.enabled, required this.onTap});
+  const _StepBtn({
+    required this.label,
+    required this.enabled,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1193,9 +1286,12 @@ class _StepBtn extends StatelessWidget {
           minimumSize: const Size(44, 44),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
-        child: Text(label,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700)),
+        child: Text(
+          label,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
     );
   }
@@ -1245,27 +1341,32 @@ class _SummaryBox extends StatelessWidget {
         children: [
           _SummaryRow(label: 'ยอดคืน', value: baht(sub)),
           if (disc > 0)
-            _SummaryRow(
-                label: 'หักส่วนลดตามสัดส่วน', value: '−${baht(disc)}'),
+            _SummaryRow(label: 'หักส่วนลดตามสัดส่วน', value: '−${baht(disc)}'),
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Container(
               decoration: BoxDecoration(
                 border: Border(
-                    top: BorderSide(width: 2, color: theme.dividerColor)),
+                  top: BorderSide(width: 2, color: theme.dividerColor),
+                ),
               ),
               padding: const EdgeInsets.only(top: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('คืนเงินทั้งสิ้น',
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w800)),
-                  Text('−${baht(total)}',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.error,
-                      )),
+                  Text(
+                    'คืนเงินทั้งสิ้น',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    '−${baht(total)}',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.error,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1363,9 +1464,12 @@ class _SummaryRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.secondary)),
+          Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.secondary,
+            ),
+          ),
           Text(value, style: theme.textTheme.bodyMedium),
         ],
       ),
@@ -1395,8 +1499,11 @@ class _MethodButton extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
-  const _MethodButton(
-      {required this.label, required this.active, required this.onTap});
+  const _MethodButton({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1406,14 +1513,15 @@ class _MethodButton extends StatelessWidget {
       style: OutlinedButton.styleFrom(
         backgroundColor: active ? AppColors.orange : null,
         foregroundColor: active ? Colors.white : theme.colorScheme.secondary,
-        side: BorderSide(
-            color: active ? AppColors.orange : theme.dividerColor),
+        side: BorderSide(color: active ? AppColors.orange : theme.dividerColor),
         padding: const EdgeInsets.symmetric(vertical: 12),
       ),
       child: FittedBox(
         fit: BoxFit.scaleDown,
-        child: Text(label,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+        child: Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+        ),
       ),
     );
   }
@@ -1454,7 +1562,8 @@ class _CreditNoteDialog extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 border: Border(
-                    top: BorderSide(color: Theme.of(context).dividerColor)),
+                  top: BorderSide(color: Theme.of(context).dividerColor),
+                ),
               ),
               child: Row(
                 children: [
@@ -1487,34 +1596,46 @@ class _CreditNoteDialog extends StatelessWidget {
         Container(
           padding: const EdgeInsets.only(bottom: 10),
           decoration: const BoxDecoration(
-            border: Border(
-                bottom: BorderSide(width: 2, color: Colors.black)),
+            border: Border(bottom: BorderSide(width: 2, color: Colors.black)),
           ),
           child: Column(
             children: [
-              Text(settings.shopName,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w800, fontSize: 20)),
+              Text(
+                settings.shopName,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                ),
+              ),
               if (settings.address != null)
-                Text(settings.address!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 11)),
+                Text(
+                  settings.address!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 11),
+                ),
               if (settings.phone != null)
-                Text('โทร ${settings.phone}',
-                    style: const TextStyle(fontSize: 11)),
+                Text(
+                  'โทร ${settings.phone}',
+                  style: const TextStyle(fontSize: 11),
+                ),
               const SizedBox(height: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   border: Border.all(width: 2, color: AppColors.error),
                 ),
-                child: const Text('ใบลดหนี้ · CREDIT NOTE',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
-                        color: AppColors.error)),
+                child: const Text(
+                  'ใบลดหนี้ · CREDIT NOTE',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: AppColors.error,
+                  ),
+                ),
               ),
             ],
           ),
@@ -1543,17 +1664,27 @@ class _CreditNoteDialog extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(i.name,
-                          style: const TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w700)),
+                      Text(
+                        i.name,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('${i.qty} × ${baht(i.price)}',
-                              style: const TextStyle(fontSize: 11)),
-                          Text(baht(i.qty * i.price),
-                              style: const TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w700)),
+                          Text(
+                            '${i.qty} × ${baht(i.price)}',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          Text(
+                            baht(i.qty * i.price),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -1569,18 +1700,22 @@ class _CreditNoteDialog extends StatelessWidget {
           margin: const EdgeInsets.only(top: 8),
           padding: const EdgeInsets.only(top: 8),
           decoration: const BoxDecoration(
-            border:
-                Border(top: BorderSide(width: 2, color: Colors.black)),
+            border: Border(top: BorderSide(width: 2, color: Colors.black)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('คืนเงินทั้งสิ้น',
-                  style:
-                      TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-              Text(baht(r.refundTotal),
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w800, fontSize: 18)),
+              const Text(
+                'คืนเงินทั้งสิ้น',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+              ),
+              Text(
+                baht(r.refundTotal),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                ),
+              ),
             ],
           ),
         ),
@@ -1591,8 +1726,10 @@ class _CreditNoteDialog extends StatelessWidget {
             margin: const EdgeInsets.only(top: 8),
             padding: const EdgeInsets.all(8),
             color: const Color(0xFFF5F5F5),
-            child: Text('เหตุผล: ${r.reason}',
-                style: const TextStyle(fontSize: 11)),
+            child: Text(
+              'เหตุผล: ${r.reason}',
+              style: const TextStyle(fontSize: 11),
+            ),
           ),
         Container(
           margin: const EdgeInsets.only(top: 14),
@@ -1602,12 +1739,16 @@ class _CreditNoteDialog extends StatelessWidget {
           ),
           child: const Column(
             children: [
-              Text('*** เอกสารใบลดหนี้นี้ใช้แสดงเป็นหลักฐานการคืนสินค้า ***',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 10, color: Color(0xFF666666))),
-              Text('กรุณาเก็บไว้คู่กับใบเสร็จต้นฉบับ',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 10, color: Color(0xFF666666))),
+              Text(
+                '*** เอกสารใบลดหนี้นี้ใช้แสดงเป็นหลักฐานการคืนสินค้า ***',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 10, color: Color(0xFF666666)),
+              ),
+              Text(
+                'กรุณาเก็บไว้คู่กับใบเสร็จต้นฉบับ',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 10, color: Color(0xFF666666)),
+              ),
             ],
           ),
         ),
@@ -1638,22 +1779,27 @@ class _CreditNoteDialog extends StatelessWidget {
 
 // ── Print the credit note as a thermal-width PDF (the JS window.print()). ──
 Future<void> _printCreditNote(
-    ReturnWithItems cn, SettingsRowData settings) async {
+  ReturnWithItems cn,
+  SettingsRowData settings,
+) async {
   final r = cn.ret;
   final font = await PdfGoogleFonts.sarabunRegular();
   final fontBold = await PdfGoogleFonts.sarabunBold();
   final doc = pw.Document();
 
   pw.Widget kv(String k, String v, {bool bold = false}) => pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text(k, style: const pw.TextStyle(fontSize: 8)),
-          pw.Text(v,
-              style: pw.TextStyle(
-                  fontSize: 8,
-                  fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
-        ],
-      );
+    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+    children: [
+      pw.Text(k, style: const pw.TextStyle(fontSize: 8)),
+      pw.Text(
+        v,
+        style: pw.TextStyle(
+          fontSize: 8,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+        ),
+      ),
+    ],
+  );
 
   doc.addPage(
     pw.Page(
@@ -1663,23 +1809,31 @@ Future<void> _printCreditNote(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
           pw.Center(
-            child: pw.Text(settings.shopName,
-                style: pw.TextStyle(
-                    fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            child: pw.Text(
+              settings.shopName,
+              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            ),
           ),
           if (settings.address != null)
             pw.Center(
-                child: pw.Text(settings.address!,
-                    style: const pw.TextStyle(fontSize: 8))),
+              child: pw.Text(
+                settings.address!,
+                style: const pw.TextStyle(fontSize: 8),
+              ),
+            ),
           if (settings.phone != null)
             pw.Center(
-                child: pw.Text('โทร ${settings.phone}',
-                    style: const pw.TextStyle(fontSize: 8))),
+              child: pw.Text(
+                'โทร ${settings.phone}',
+                style: const pw.TextStyle(fontSize: 8),
+              ),
+            ),
           pw.SizedBox(height: 6),
           pw.Center(
-            child: pw.Text('ใบลดหนี้ · CREDIT NOTE',
-                style: pw.TextStyle(
-                    fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            child: pw.Text(
+              'ใบลดหนี้ · CREDIT NOTE',
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+            ),
           ),
           pw.Divider(),
           kv('เลขที่', r.cnNo, bold: true),
@@ -1691,16 +1845,24 @@ Future<void> _printCreditNote(
             pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               children: [
-                pw.Text(i.name,
-                    style: pw.TextStyle(
-                        fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                pw.Text(
+                  i.name,
+                  style: pw.TextStyle(
+                    fontSize: 9,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('${i.qty} x ${baht(i.price)}',
-                        style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text(baht(i.qty * i.price),
-                        style: const pw.TextStyle(fontSize: 8)),
+                    pw.Text(
+                      '${i.qty} x ${baht(i.price)}',
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
+                    pw.Text(
+                      baht(i.qty * i.price),
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
                   ],
                 ),
                 pw.SizedBox(height: 3),
@@ -1714,31 +1876,44 @@ Future<void> _printCreditNote(
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text('คืนเงินทั้งสิ้น',
-                  style: pw.TextStyle(
-                      fontSize: 11, fontWeight: pw.FontWeight.bold)),
-              pw.Text(baht(r.refundTotal),
-                  style: pw.TextStyle(
-                      fontSize: 11, fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                'คืนเงินทั้งสิ้น',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Text(
+                baht(r.refundTotal),
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
             ],
           ),
           kv('วิธีคืน', r.refundMethod, bold: true),
           if (r.reason.isNotEmpty)
             pw.Padding(
               padding: const pw.EdgeInsets.only(top: 6),
-              child: pw.Text('เหตุผล: ${r.reason}',
-                  style: const pw.TextStyle(fontSize: 8)),
+              child: pw.Text(
+                'เหตุผล: ${r.reason}',
+                style: const pw.TextStyle(fontSize: 8),
+              ),
             ),
           pw.SizedBox(height: 8),
           pw.Center(
             child: pw.Text(
-                '*** เอกสารใบลดหนี้นี้ใช้แสดงเป็นหลักฐานการคืนสินค้า ***',
-                textAlign: pw.TextAlign.center,
-                style: const pw.TextStyle(fontSize: 7)),
+              '*** เอกสารใบลดหนี้นี้ใช้แสดงเป็นหลักฐานการคืนสินค้า ***',
+              textAlign: pw.TextAlign.center,
+              style: const pw.TextStyle(fontSize: 7),
+            ),
           ),
           pw.Center(
-            child: pw.Text('กรุณาเก็บไว้คู่กับใบเสร็จต้นฉบับ',
-                style: const pw.TextStyle(fontSize: 7)),
+            child: pw.Text(
+              'กรุณาเก็บไว้คู่กับใบเสร็จต้นฉบับ',
+              style: const pw.TextStyle(fontSize: 7),
+            ),
           ),
         ],
       ),

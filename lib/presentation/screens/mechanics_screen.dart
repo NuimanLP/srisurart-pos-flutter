@@ -15,12 +15,13 @@
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/mechanics_repository.dart';
+import '../../data/repositories/sales_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/providers.dart';
 import '../widgets/app_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
@@ -34,37 +35,38 @@ const Color _green = Color(0xFF2ECC71); // รับชำระ / ส่วน�
 const Color _red = Color(0xFFC0392B); // เกินวงเงิน
 const Color _saleOrange = Color(0xFFE8601C);
 
-/// Reactive list of all mechanics.
-final _mechanicsProvider = FutureProvider.autoDispose<List<MechanicRow>>(
-  (ref) => ref.watch(mechanicsRepoProvider).getMechanics(),
-);
-
-/// All credit payments (newest first).
-final _creditPaymentsProvider =
-    FutureProvider.autoDispose<List<CreditPaymentRow>>(
-  (ref) => ref.watch(mechanicsRepoProvider).getCreditPayments(),
-);
-
-/// All sales (header + items) for the account-history view.
-final _salesProvider = FutureProvider.autoDispose<List<SaleWithItems>>(
-  (ref) => ref.watch(salesRepoProvider).getSales(),
-);
-
-class MechanicsScreen extends ConsumerStatefulWidget {
+class MechanicsScreen extends StatefulWidget {
   const MechanicsScreen({super.key});
 
   @override
-  ConsumerState<MechanicsScreen> createState() => _MechanicsScreenState();
+  State<MechanicsScreen> createState() => _MechanicsScreenState();
 }
 
-class _MechanicsScreenState extends ConsumerState<MechanicsScreen> {
+class _MechanicsScreenState extends State<MechanicsScreen> {
   String _search = '';
   String _tab = 'all'; // 'all' | 'overdue'
   String? _selectedId;
 
+  // Created in initState/_refresh — never inline in build.
+  late Future<List<MechanicRow>> _mechanicsFuture;
+  late Future<List<CreditPaymentRow>> _creditPaymentsFuture;
+  late Future<List<SaleWithItems>> _salesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
+    _creditPaymentsFuture =
+        context.read<MechanicsRepository>().getCreditPayments();
+    _salesFuture = context.read<SalesRepository>().getSales();
+  }
+
   void _refresh() {
-    ref.invalidate(_mechanicsProvider);
-    ref.invalidate(_creditPaymentsProvider);
+    setState(() {
+      _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
+      _creditPaymentsFuture =
+          context.read<MechanicsRepository>().getCreditPayments();
+    });
   }
 
   List<MechanicRow> _filtered(List<MechanicRow> mechanics) {
@@ -81,13 +83,17 @@ class _MechanicsScreenState extends ConsumerState<MechanicsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final mechAsync = ref.watch(_mechanicsProvider);
-
     return Scaffold(
-      body: mechAsync.when(
-        loading: () => const LoadingView(),
-        error: (e, _) => Center(child: Text('โหลดข้อมูลไม่สำเร็จ: $e')),
-        data: (mechanics) {
+      body: FutureBuilder<List<MechanicRow>>(
+        future: _mechanicsFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const LoadingView();
+          }
+          if (snap.hasError) {
+            return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+          }
+          final mechanics = snap.data!;
           final selected = _selectedId == null
               ? null
               : mechanics.where((m) => m.id == _selectedId).firstOrNull;
@@ -114,6 +120,8 @@ class _MechanicsScreenState extends ConsumerState<MechanicsScreen> {
                   width: 420,
                   child: _DetailPanel(
                     mechanic: selected,
+                    salesFuture: _salesFuture,
+                    paymentsFuture: _creditPaymentsFuture,
                     onClose: () => setState(() => _selectedId = null),
                     onPayCredit: () => _openPayCredit(selected),
                   ),
@@ -259,6 +267,9 @@ class _MechanicsScreenState extends ConsumerState<MechanicsScreen> {
         MaterialPageRoute<void>(
           builder: (_) => _DetailSheet(
             mechanicId: m.id,
+            mechanicsFuture: _mechanicsFuture,
+            salesFuture: _salesFuture,
+            paymentsFuture: _creditPaymentsFuture,
             onPayCredit: _openPayCredit,
           ),
         ),
@@ -272,14 +283,16 @@ class _MechanicsScreenState extends ConsumerState<MechanicsScreen> {
   Future<void> _openEdit(MechanicRow m) => _openForm(m);
 
   Future<void> _openForm(MechanicRow? editing) async {
+    final repo = context.read<MechanicsRepository>();
     final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => _MechanicFormDialog(editing: editing, ref: ref),
+      builder: (_) => _MechanicFormDialog(editing: editing, repo: repo),
     );
     if (saved == true) _refresh();
   }
 
   Future<void> _remove(MechanicRow m) async {
+    final repo = context.read<MechanicsRepository>();
     final ok = await showConfirm(
       context,
       'ลบช่าง',
@@ -287,7 +300,7 @@ class _MechanicsScreenState extends ConsumerState<MechanicsScreen> {
       danger: true,
     );
     if (!ok) return;
-    await ref.read(mechanicsRepoProvider).deleteMechanic(m.id);
+    await repo.deleteMechanic(m.id);
     if (_selectedId == m.id) {
       setState(() => _selectedId = null);
     }
@@ -296,13 +309,18 @@ class _MechanicsScreenState extends ConsumerState<MechanicsScreen> {
 
   // ── CREDIT PAYMENT ────────────────────────────────────────────────────────
   Future<void> _openPayCredit(MechanicRow mechanic) async {
+    final repo = context.read<MechanicsRepository>();
     final paid = await showDialog<bool>(
       context: context,
-      builder: (_) => _PayCreditDialog(mechanic: mechanic, ref: ref),
+      builder: (_) => _PayCreditDialog(mechanic: mechanic, repo: repo),
     );
     if (paid == true) {
-      _refresh();
-      ref.invalidate(_salesProvider);
+      setState(() {
+        _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
+        _creditPaymentsFuture =
+            context.read<MechanicsRepository>().getCreditPayments();
+        _salesFuture = context.read<SalesRepository>().getSales();
+      });
     }
   }
 }
@@ -529,26 +547,42 @@ class _MechanicRowTile extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // DETAIL SHEET (narrow) — watches the live mechanic by id.
 // ─────────────────────────────────────────────────────────────────────────────
-class _DetailSheet extends ConsumerWidget {
+class _DetailSheet extends StatelessWidget {
   final String mechanicId;
+  final Future<List<MechanicRow>> mechanicsFuture;
+  final Future<List<SaleWithItems>> salesFuture;
+  final Future<List<CreditPaymentRow>> paymentsFuture;
   final Future<void> Function(MechanicRow) onPayCredit;
-  const _DetailSheet({required this.mechanicId, required this.onPayCredit});
+  const _DetailSheet({
+    required this.mechanicId,
+    required this.mechanicsFuture,
+    required this.salesFuture,
+    required this.paymentsFuture,
+    required this.onPayCredit,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mechAsync = ref.watch(_mechanicsProvider);
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('รายละเอียดช่าง')),
-      body: mechAsync.when(
-        loading: () => const LoadingView(),
-        error: (e, _) => Center(child: Text('$e')),
-        data: (mechanics) {
-          final m = mechanics.where((x) => x.id == mechanicId).firstOrNull;
+      body: FutureBuilder<List<MechanicRow>>(
+        future: mechanicsFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const LoadingView();
+          }
+          if (snap.hasError) {
+            return Center(child: Text('${snap.error}'));
+          }
+          final m =
+              snap.data!.where((x) => x.id == mechanicId).firstOrNull;
           if (m == null) {
             return const EmptyState(message: 'ไม่พบช่าง');
           }
           return _DetailPanel(
             mechanic: m,
+            salesFuture: salesFuture,
+            paymentsFuture: paymentsFuture,
             onClose: () => Navigator.of(context).maybePop(),
             onPayCredit: () => onPayCredit(m),
           );
@@ -561,19 +595,23 @@ class _DetailSheet extends ConsumerWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // DETAIL PANEL
 // ─────────────────────────────────────────────────────────────────────────────
-class _DetailPanel extends ConsumerWidget {
+class _DetailPanel extends StatelessWidget {
   final MechanicRow mechanic;
+  final Future<List<SaleWithItems>> salesFuture;
+  final Future<List<CreditPaymentRow>> paymentsFuture;
   final VoidCallback onClose;
   final VoidCallback onPayCredit;
 
   const _DetailPanel({
     required this.mechanic,
+    required this.salesFuture,
+    required this.paymentsFuture,
     required this.onClose,
     required this.onPayCredit,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final m = mechanic;
     final theme = Theme.of(context);
     final bal = m.creditBalance;
@@ -668,7 +706,11 @@ class _DetailPanel extends ConsumerWidget {
           ),
           const SizedBox(height: 18),
           // History.
-          _AccountHistory(mechanic: m),
+          _AccountHistory(
+            mechanic: m,
+            salesFuture: salesFuture,
+            paymentsFuture: paymentsFuture,
+          ),
         ],
       ),
     );
@@ -825,74 +867,88 @@ class _StatBox extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // ACCOUNT HISTORY — merged sales + payments, newest first (slice 40).
 // ─────────────────────────────────────────────────────────────────────────────
-class _AccountHistory extends ConsumerWidget {
+class _AccountHistory extends StatelessWidget {
   final MechanicRow mechanic;
-  const _AccountHistory({required this.mechanic});
+  final Future<List<SaleWithItems>> salesFuture;
+  final Future<List<CreditPaymentRow>> paymentsFuture;
+  const _AccountHistory({
+    required this.mechanic,
+    required this.salesFuture,
+    required this.paymentsFuture,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final salesAsync = ref.watch(_salesProvider);
-    final paysAsync = ref.watch(_creditPaymentsProvider);
+    return FutureBuilder<List<SaleWithItems>>(
+      future: salesFuture,
+      builder: (context, salesSnap) {
+        return FutureBuilder<List<CreditPaymentRow>>(
+          future: paymentsFuture,
+          builder: (context, paysSnap) {
+            if (salesSnap.connectionState != ConnectionState.done ||
+                paysSnap.connectionState != ConnectionState.done) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
 
-    if (salesAsync.isLoading || paysAsync.isLoading) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
+            final sales = (salesSnap.data ?? <SaleWithItems>[])
+                .where((s) => s.sale.mechanicId == mechanic.id)
+                .toList();
+            final pays = (paysSnap.data ?? <CreditPaymentRow>[])
+                .where((p) => p.mechanicId == mechanic.id)
+                .toList();
 
-    final sales = (salesAsync.value ?? <SaleWithItems>[])
-        .where((s) => s.sale.mechanicId == mechanic.id)
-        .toList();
-    final pays = (paysAsync.value ?? <CreditPaymentRow>[])
-        .where((p) => p.mechanicId == mechanic.id)
-        .toList();
+            // Merge by date, newest first.
+            final merged = <_HistoryEntry>[
+              ...sales.map((s) => _HistoryEntry.sale(s)),
+              ...pays.map((p) => _HistoryEntry.payment(p)),
+            ]..sort((a, b) => b.date.compareTo(a.date));
+            final shown = merged.take(40).toList();
 
-    // Merge by date, newest first.
-    final merged = <_HistoryEntry>[
-      ...sales.map((s) => _HistoryEntry.sale(s)),
-      ...pays.map((p) => _HistoryEntry.payment(p)),
-    ]..sort((a, b) => b.date.compareTo(a.date));
-    final shown = merged.take(40).toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'ประวัติเดินบัญชี (${sales.length} ขาย · ${pays.length} รับชำระ)',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                  letterSpacing: 1.1,
-                  color: theme.hintColor,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ประวัติเดินบัญชี (${sales.length} ขาย · ${pays.length} รับชำระ)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          letterSpacing: 1.1,
+                          color: theme.hintColor,
+                        ),
+                      ),
+                      const Divider(height: 12),
+                    ],
+                  ),
                 ),
-              ),
-              const Divider(height: 12),
-            ],
-          ),
-        ),
-        if (merged.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Center(
-              child: Text('ยังไม่มีประวัติ',
-                  style: TextStyle(color: theme.hintColor)),
-            ),
-          )
-        else
-          ...shown.map((e) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: e.isPayment
-                    ? _PaymentRow(payment: e.payment!)
-                    : _SaleRow(sale: e.sale!),
-              )),
-      ],
+                if (merged.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                      child: Text('ยังไม่มีประวัติ',
+                          style: TextStyle(color: theme.hintColor)),
+                    ),
+                  )
+                else
+                  ...shown.map((e) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: e.isPayment
+                            ? _PaymentRow(payment: e.payment!)
+                            : _SaleRow(sale: e.sale!),
+                      )),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -1074,8 +1130,8 @@ class _SaleRow extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _MechanicFormDialog extends StatefulWidget {
   final MechanicRow? editing;
-  final WidgetRef ref;
-  const _MechanicFormDialog({required this.editing, required this.ref});
+  final MechanicsRepository repo;
+  const _MechanicFormDialog({required this.editing, required this.repo});
 
   @override
   State<_MechanicFormDialog> createState() => _MechanicFormDialogState();
@@ -1124,7 +1180,6 @@ class _MechanicFormDialogState extends State<_MechanicFormDialog> {
       return;
     }
     setState(() => _busy = true);
-    final repo = widget.ref.read(mechanicsRepoProvider);
     final creditLimit = double.tryParse(_creditLimit.text.trim()) ?? 0;
     final patch = MechanicsCompanion(
       nameTH: Value(_nameTH.text.trim()),
@@ -1135,9 +1190,9 @@ class _MechanicFormDialogState extends State<_MechanicFormDialog> {
       creditLimit: Value(creditLimit),
     );
     if (widget.editing != null) {
-      await repo.updateMechanic(widget.editing!.id, patch);
+      await widget.repo.updateMechanic(widget.editing!.id, patch);
     } else {
-      await repo.addMechanic(patch);
+      await widget.repo.addMechanic(patch);
     }
     if (mounted) Navigator.of(context).pop(true);
   }
@@ -1223,8 +1278,8 @@ class _MechanicFormDialogState extends State<_MechanicFormDialog> {
 // ─────────────────────────────────────────────────────────────────────────────
 class _PayCreditDialog extends StatefulWidget {
   final MechanicRow mechanic;
-  final WidgetRef ref;
-  const _PayCreditDialog({required this.mechanic, required this.ref});
+  final MechanicsRepository repo;
+  const _PayCreditDialog({required this.mechanic, required this.repo});
 
   @override
   State<_PayCreditDialog> createState() => _PayCreditDialogState();
@@ -1280,11 +1335,11 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
     // ("รับชำระเครดิต · <method> · <note>"), matching the JSX display.
     final typed = _note.text.trim();
     final combinedNote = typed.isEmpty ? _method : '$_method · $typed';
-    await widget.ref.read(mechanicsRepoProvider).addCreditPayment(
-          mechanicId: widget.mechanic.id,
-          amount: amt,
-          note: combinedNote,
-        );
+    await widget.repo.addCreditPayment(
+      mechanicId: widget.mechanic.id,
+      amount: amt,
+      note: combinedNote,
+    );
     if (!mounted) return;
     Navigator.of(context).pop(true);
     ScaffoldMessenger.of(context).showSnackBar(

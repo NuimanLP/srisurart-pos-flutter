@@ -2,27 +2,27 @@
 // themes, go_router navigation. Font-scale multiplier via MediaQuery.textScaler.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'presentation/widgets/font_scale_controller.dart';
 import 'presentation/widgets/theme_controller.dart';
 
-class SrisurartApp extends ConsumerWidget {
+class SrisurartApp extends StatelessWidget {
   const SrisurartApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final fontScale = ref.watch(fontScaleProvider);
+  Widget build(BuildContext context) {
+    final fontScale = context.watch<FontScaleCubit>().state;
     return MaterialApp.router(
       title: 'Srisurart POS',
       debugShowCheckedModeBanner: false,
       routerConfig: appRouter,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ref.watch(themeModeProvider),
+      themeMode: context.watch<ThemeModeCubit>().state,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,

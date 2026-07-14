@@ -8,13 +8,15 @@
 // colors come from ProductsRepository.catColor.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/products_repository.dart';
+import '../../data/repositories/returns_repository.dart';
+import '../../data/repositories/sales_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/providers.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/thai_format.dart';
@@ -35,54 +37,72 @@ class _ReportsData {
   });
 }
 
-final _reportsDataProvider = FutureProvider.autoDispose<_ReportsData>((ref) async {
-  final sales = await ref.watch(salesRepoProvider).getSales();
-  final returns = await ref.watch(returnsRepoProvider).getReturns();
-  final products = await ref.watch(productsRepoProvider).getAll();
-
-  // Pre-resolve a color per distinct category we will plot (catColor is async).
-  final productsRepo = ref.watch(productsRepoProvider);
-  final cats = <String>{};
-  for (final p in products) {
-    final c = p.category.isNotEmpty ? p.category : (p.zone ?? 'อื่นๆ');
-    cats.add(c);
-  }
-  cats.add('อื่นๆ');
-  final catColors = <String, String>{};
-  for (final c in cats) {
-    catColors[c] = await productsRepo.catColor(c);
-  }
-
-  return _ReportsData(
-    sales: sales,
-    returns: returns,
-    products: products,
-    catColors: catColors,
-  );
-});
-
-class ReportsScreen extends ConsumerStatefulWidget {
+class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
 
   @override
-  ConsumerState<ReportsScreen> createState() => _ReportsScreenState();
+  State<ReportsScreen> createState() => _ReportsScreenState();
 }
 
-class _ReportsScreenState extends ConsumerState<ReportsScreen> {
+class _ReportsScreenState extends State<ReportsScreen> {
   _Range _range = _Range.today;
+  // Created in initState — never inline in build — so it doesn't refetch on
+  // every rebuild (e.g. every range-selector tap).
+  late Future<_ReportsData> _dataFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataFuture = _loadData();
+  }
+
+  Future<_ReportsData> _loadData() async {
+    final salesRepo = context.read<SalesRepository>();
+    final returnsRepo = context.read<ReturnsRepository>();
+    final productsRepo = context.read<ProductsRepository>();
+
+    final sales = await salesRepo.getSales();
+    final returns = await returnsRepo.getReturns();
+    final products = await productsRepo.getAll();
+
+    // Pre-resolve a color per distinct category we will plot (catColor is async).
+    final cats = <String>{};
+    for (final p in products) {
+      final c = p.category.isNotEmpty ? p.category : (p.zone ?? 'อื่นๆ');
+      cats.add(c);
+    }
+    cats.add('อื่นๆ');
+    final catColors = <String, String>{};
+    for (final c in cats) {
+      catColors[c] = await productsRepo.catColor(c);
+    }
+
+    return _ReportsData(
+      sales: sales,
+      returns: returns,
+      products: products,
+      catColors: catColors,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final async = ref.watch(_reportsDataProvider);
     return Scaffold(
-      body: async.when(
-        loading: () => const LoadingView(),
-        error: (e, _) => Center(child: Text('เกิดข้อผิดพลาด: $e')),
-        data: (data) => _ReportsView(
-          data: data,
-          range: _range,
-          onRangeChanged: (r) => setState(() => _range = r),
-        ),
+      body: FutureBuilder<_ReportsData>(
+        future: _dataFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const LoadingView();
+          }
+          if (snap.hasError) {
+            return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
+          }
+          return _ReportsView(
+            data: snap.data!,
+            range: _range,
+            onRangeChanged: (r) => setState(() => _range = r),
+          );
+        },
       ),
     );
   }

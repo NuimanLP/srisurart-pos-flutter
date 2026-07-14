@@ -9,14 +9,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
-import '../providers/providers.dart';
+import '../../data/repositories/settings_repository.dart';
 import 'thai_format.dart';
 import 'theme_controller.dart';
 
@@ -42,7 +42,7 @@ const List<_NavDest> _destinations = [
   _NavDest(AppRoutes.cashDrawer, Icons.account_balance_wallet, 'ลิ้นชัก'),
 ];
 
-class AppShell extends ConsumerWidget {
+class AppShell extends StatelessWidget {
   final Widget child;
   const AppShell({super.key, required this.child});
 
@@ -54,7 +54,7 @@ class AppShell extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final selected = _selectedIndex(context);
     // Persistent NavigationRail from tablet width up; Drawer below. Lowered
     // from 1000 to AppBreakpoints.rail (760) so iPad portrait gets the Rail.
@@ -191,16 +191,16 @@ class _NavDrawer extends StatelessWidget {
   }
 }
 
-class _TopBar extends ConsumerStatefulWidget {
+class _TopBar extends StatefulWidget {
   final String title;
   final bool showMenu;
   const _TopBar({required this.title, this.showMenu = false});
 
   @override
-  ConsumerState<_TopBar> createState() => _TopBarState();
+  State<_TopBar> createState() => _TopBarState();
 }
 
-class _TopBarState extends ConsumerState<_TopBar> {
+class _TopBarState extends State<_TopBar> {
   late DateTime _now;
   Timer? _timer;
 
@@ -227,8 +227,8 @@ class _TopBarState extends ConsumerState<_TopBar> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(settingsRepoProvider).watchSettings();
-    final mode = ref.watch(themeModeProvider);
+    final settings = context.read<SettingsRepository>().watchSettings();
+    final mode = context.watch<ThemeModeCubit>().state;
     final now = _now;
 
     final topPadding = MediaQuery.of(context).padding.top;
@@ -296,7 +296,7 @@ class _TopBarState extends ConsumerState<_TopBar> {
                   : Icons.dark_mode,
               color: AppColors.white,
             ),
-            onPressed: () => ref.read(themeModeProvider.notifier).toggle(),
+            onPressed: () => context.read<ThemeModeCubit>().toggle(),
           ),
           const SizedBox(width: 8),
           // Fixed-size (NOT Flexible): a Flexible here would share the Row's

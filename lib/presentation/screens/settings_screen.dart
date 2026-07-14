@@ -1,8 +1,8 @@
 // SettingsScreen — Settings hub (ported from pos/SettingsScreen.jsx + ExportCSV.jsx).
 //
 // Sub-tabs:
-//   ⚙ ทั่วไป       — shop info form → settingsRepoProvider.updateSettings
-//   🎨 ธีม          — dark/light toggle via themeModeProvider
+//   ⚙ ทั่วไป       — shop info form → SettingsRepository.updateSettings
+//   🎨 ธีม          — dark/light toggle via ThemeModeCubit
 //   💾 สำรอง/กู้คืน — backup (snapshotRepo.exportSnapshot → .json file) /
 //                     restore (importLegacyBackup; reload after)
 //   📤 ส่งออก CSV   — sales summary / sales detail / inventory CSV exporters
@@ -19,7 +19,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/csv_safe.dart';
@@ -27,8 +27,13 @@ import '../../core/utils/dates.dart';
 import '../../core/utils/file_export.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/customers_repository.dart';
+import '../../data/repositories/products_repository.dart';
+import '../../data/repositories/sales_repository.dart';
+import '../../data/repositories/settings_repository.dart';
+import '../../data/repositories/snapshot_repository.dart';
+import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/providers.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
@@ -92,14 +97,14 @@ Future<void> _showSavedFileDialog(
   );
 }
 
-class SettingsScreen extends ConsumerStatefulWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+  State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> {
   // [key, label] — matches JS TABS.
   static const _tabs = [
     ['general', '⚙ ทั่วไป'],
@@ -262,13 +267,13 @@ class _SectionTitle extends StatelessWidget {
 // GENERAL — shop info form
 // ════════════════════════════════════════════════════════════════════════
 
-class _GeneralTab extends ConsumerStatefulWidget {
+class _GeneralTab extends StatefulWidget {
   const _GeneralTab();
   @override
-  ConsumerState<_GeneralTab> createState() => _GeneralTabState();
+  State<_GeneralTab> createState() => _GeneralTabState();
 }
 
-class _GeneralTabState extends ConsumerState<_GeneralTab> {
+class _GeneralTabState extends State<_GeneralTab> {
   final _shopName = TextEditingController();
   final _shopNameEN = TextEditingController();
   final _phone = TextEditingController();
@@ -287,7 +292,7 @@ class _GeneralTabState extends ConsumerState<_GeneralTab> {
   }
 
   Future<void> _load() async {
-    final s = await ref.read(settingsRepoProvider).getSettings();
+    final s = await context.read<SettingsRepository>().getSettings();
     if (!mounted) return;
     _shopName.text = s.shopName;
     _shopNameEN.text = s.shopNameEN;
@@ -317,8 +322,8 @@ class _GeneralTabState extends ConsumerState<_GeneralTab> {
   Future<void> _save() async {
     final taxRate = double.tryParse(_taxRate.text.trim()) ?? 7;
     final validDays = int.tryParse(_quoteValidDays.text.trim()) ?? 30;
-    await ref
-        .read(settingsRepoProvider)
+    await context
+        .read<SettingsRepository>()
         .updateSettings(
           SettingsRowCompanion(
             shopName: Value(_shopName.text),
@@ -443,12 +448,12 @@ class _GeneralTabState extends ConsumerState<_GeneralTab> {
 // THEME — dark / light selector + font scale multiplier
 // ════════════════════════════════════════════════════════════════════════
 
-class _ThemeTab extends ConsumerWidget {
+class _ThemeTab extends StatelessWidget {
   const _ThemeTab();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mode = ref.watch(themeModeProvider);
+  Widget build(BuildContext context) {
+    final mode = context.watch<ThemeModeCubit>().state;
     final isDark = mode == ThemeMode.dark;
     final cards = [
       _ThemeCardData(
@@ -485,8 +490,7 @@ class _ThemeTab extends ConsumerWidget {
                       width: w,
                       child: _ThemeCard(
                         data: c,
-                        onTap: () =>
-                            ref.read(themeModeProvider.notifier).set(c.mode),
+                        onTap: () => context.read<ThemeModeCubit>().set(c.mode),
                       ),
                     ),
                 ],
@@ -597,13 +601,13 @@ class _ThemeCard extends StatelessWidget {
 }
 
 // ── Font scale preset cards + slider + preview ──
-class _FontScaleSection extends ConsumerWidget {
+class _FontScaleSection extends StatelessWidget {
   const _FontScaleSection();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final currentScale = ref.watch(fontScaleProvider);
+    final currentScale = context.watch<FontScaleCubit>().state;
 
     return AppCard(
       child: Column(
@@ -629,9 +633,8 @@ class _FontScaleSection extends ConsumerWidget {
                       child: _FontScalePresetCard(
                         preset: p,
                         active: (currentScale - p.value).abs() < 0.01,
-                        onTap: () => ref
-                            .read(fontScaleProvider.notifier)
-                            .setScale(p.value),
+                        onTap: () =>
+                            context.read<FontScaleCubit>().setScale(p.value),
                       ),
                     ),
                 ],
@@ -669,9 +672,7 @@ class _FontScaleSection extends ConsumerWidget {
                       // Round to 2 decimal places for clean display
                       final rounded =
                           (v * 20).round() / 20; // snap to 0.05 steps
-                      ref
-                          .read(fontScaleProvider.notifier)
-                          .setScale(rounded);
+                      context.read<FontScaleCubit>().setScale(rounded);
                     },
                   ),
                 ),
@@ -875,13 +876,13 @@ class _FontScalePresetCard extends StatelessWidget {
 // BACKUP / RESTORE
 // ════════════════════════════════════════════════════════════════════════
 
-class _BackupTab extends ConsumerStatefulWidget {
+class _BackupTab extends StatefulWidget {
   const _BackupTab();
   @override
-  ConsumerState<_BackupTab> createState() => _BackupTabState();
+  State<_BackupTab> createState() => _BackupTabState();
 }
 
-class _BackupTabState extends ConsumerState<_BackupTab> {
+class _BackupTabState extends State<_BackupTab> {
   String _mode = 'backup'; // backup | restore
 
   Map<String, dynamic>? _snapshot; // current export (for record counts)
@@ -900,7 +901,7 @@ class _BackupTabState extends ConsumerState<_BackupTab> {
   }
 
   Future<void> _loadSnapshot() async {
-    final snap = await ref.read(snapshotRepoProvider).exportSnapshot();
+    final snap = await context.read<SnapshotRepository>().exportSnapshot();
     if (!mounted) return;
     setState(() {
       _snapshot = snap;
@@ -911,7 +912,7 @@ class _BackupTabState extends ConsumerState<_BackupTab> {
   // ── EXPORT ──────────────────────────────────────────────────────────────
   Future<void> _handleExport() async {
     try {
-      final data = await ref.read(snapshotRepoProvider).exportSnapshot();
+      final data = await context.read<SnapshotRepository>().exportSnapshot();
       final json = const JsonEncoder.withIndent('  ').convert(data);
       final fileName = 'pos-backup-${todayKey().replaceAll('-', '')}.json';
       final path = await exportTextFile(filename: fileName, content: json);
@@ -984,17 +985,16 @@ class _BackupTabState extends ConsumerState<_BackupTab> {
     final data = _preview;
     if (data == null) return;
     try {
-      await ref.read(snapshotRepoProvider).importLegacyBackup(data);
+      await context.read<SnapshotRepository>().importLegacyBackup(data);
       if (!mounted) return;
       setState(() {
         _restoreStatus = 'success';
         _restoreMsg = 'นำเข้าข้อมูลสำเร็จ — กำลังโหลดหน้าใหม่…';
         _confirmRestore = false;
       });
-      // Reload reactive data so the new dataset is reflected app-wide.
+      // Reload the snapshot record counts so the new dataset is reflected.
       await Future.delayed(const Duration(milliseconds: 1200));
       if (!mounted) return;
-      ref.invalidate(snapshotRepoProvider);
       await _loadSnapshot();
       if (!mounted) return;
       setState(() => _preview = null);
@@ -1433,13 +1433,13 @@ class _RestorePasteDialogState extends State<_RestorePasteDialog> {
 // EXPORT CSV (ported from ExportCSV.jsx + SettingsScreen export sub-tab)
 // ════════════════════════════════════════════════════════════════════════
 
-class _ExportTab extends ConsumerStatefulWidget {
+class _ExportTab extends StatefulWidget {
   const _ExportTab();
   @override
-  ConsumerState<_ExportTab> createState() => _ExportTabState();
+  State<_ExportTab> createState() => _ExportTabState();
 }
 
-class _ExportTabState extends ConsumerState<_ExportTab> {
+class _ExportTabState extends State<_ExportTab> {
   String _range = 'month'; // today | week | month | all | custom
   final _customStart = TextEditingController();
   final _customEnd = TextEditingController();
@@ -1467,11 +1467,16 @@ class _ExportTabState extends ConsumerState<_ExportTab> {
   }
 
   Future<void> _load() async {
-    final sales = await ref.read(salesRepoProvider).getSales();
-    final products = await ref.read(productsRepoProvider).getAll();
-    final customers = await ref.read(customersRepoProvider).getCustomers();
-    final suppliers = await ref.read(suppliersRepoProvider).getSuppliers();
-    final settings = await ref.read(settingsRepoProvider).getSettings();
+    final salesRepo = context.read<SalesRepository>();
+    final productsRepo = context.read<ProductsRepository>();
+    final customersRepo = context.read<CustomersRepository>();
+    final suppliersRepo = context.read<SuppliersRepository>();
+    final settingsRepo = context.read<SettingsRepository>();
+    final sales = await salesRepo.getSales();
+    final products = await productsRepo.getAll();
+    final customers = await customersRepo.getCustomers();
+    final suppliers = await suppliersRepo.getSuppliers();
+    final settings = await settingsRepo.getSettings();
     if (!mounted) return;
     setState(() {
       _sales = sales;

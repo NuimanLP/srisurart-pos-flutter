@@ -7,13 +7,13 @@
 // 🧹 ล้าง (purge old). Tapping a row or ดู opens the A4 quotation preview
 // (QuoteA4View) which carries its own print/convert affordances.
 //
-// Quotes NEVER touch stock — all reads/writes go through quotesRepoProvider.
-// Convert/edit hand the quote to the checkout cart via
-// pendingQuoteForCartProvider then navigate to `/` (see that provider's note).
+// Quotes NEVER touch stock — all reads/writes go through QuotesRepository.
+// Convert/edit hand the quote to the checkout cart via PendingQuoteCubit then
+// navigate to `/` (see that cubit's note).
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
@@ -22,9 +22,10 @@ import '../../core/utils/csv_safe.dart';
 import '../../core/utils/file_export.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/quotes_repository.dart';
+import '../../data/repositories/settings_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/pending_quote_provider.dart';
-import '../providers/providers.dart';
+import '../blocs/pending_quote_cubit.dart';
 import '../widgets/app_card.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
@@ -33,25 +34,30 @@ import '../widgets/quote_a4_view.dart';
 import '../widgets/search_field.dart';
 import '../widgets/thai_format.dart';
 
-/// Reactive list of all quotes (newest-first), each with its line items.
-final _quotesListProvider = FutureProvider.autoDispose<List<QuoteWithItems>>(
-  (ref) => ref.watch(quotesRepoProvider).getQuotes(),
-);
-
 enum _QuoteFilter { all, open, expired, converted }
 
-class QuotesScreen extends ConsumerStatefulWidget {
+class QuotesScreen extends StatefulWidget {
   const QuotesScreen({super.key});
 
   @override
-  ConsumerState<QuotesScreen> createState() => _QuotesScreenState();
+  State<QuotesScreen> createState() => _QuotesScreenState();
 }
 
-class _QuotesScreenState extends ConsumerState<QuotesScreen> {
+class _QuotesScreenState extends State<QuotesScreen> {
   _QuoteFilter _filter = _QuoteFilter.all;
   String _search = '';
+  // Created in initState/_refresh — never inline in build.
+  late Future<List<QuoteWithItems>> _quotesFuture;
 
-  void _refresh() => ref.invalidate(_quotesListProvider);
+  @override
+  void initState() {
+    super.initState();
+    _quotesFuture = context.read<QuotesRepository>().getQuotes();
+  }
+
+  void _refresh() => setState(
+    () => _quotesFuture = context.read<QuotesRepository>().getQuotes(),
+  );
 
   // ── filtering (mirrors JSX `filtered`) ──
   List<QuoteWithItems> _applyFilter(List<QuoteWithItems> all) {
@@ -73,6 +79,7 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
 
   // ── row actions ──
   Future<void> _handleDelete(QuoteRow q) async {
+    final repo = context.read<QuotesRepository>();
     final ok = await showConfirm(
       context,
       'ลบใบเสนอราคา',
@@ -80,12 +87,12 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
       danger: true,
     );
     if (!ok) return;
-    await ref.read(quotesRepoProvider).deleteQuote(q.id);
+    await repo.deleteQuote(q.id);
     _refresh();
   }
 
   Future<void> _handleDuplicate(QuoteRow q) async {
-    final dup = await ref.read(quotesRepoProvider).duplicateQuote(q.id);
+    final dup = await context.read<QuotesRepository>().duplicateQuote(q.id);
     if (dup != null) _refresh();
   }
 
@@ -95,48 +102,47 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
       _snack('ใบนี้แปลงเป็นการขายแล้ว แก้ไขไม่ได้');
       return;
     }
+    final repo = context.read<QuotesRepository>();
     final ok = await showConfirm(
       context,
       'แก้ไขใบเสนอราคา',
       'แก้ไข ${q.quoteNo} ? ระบบจะลบใบเดิมและรอให้บันทึกใหม่หลังแก้ไข',
     );
     if (!ok) return;
-    await ref.read(quotesRepoProvider).deleteQuote(q.id);
+    await repo.deleteQuote(q.id);
     _loadToCart(qi);
   }
 
   Future<void> _handleConvert(QuoteWithItems qi) async {
     final q = qi.quote;
+    final repo = context.read<QuotesRepository>();
     final ok = await showConfirm(
       context,
       'แปลงเป็นการขาย',
       'แปลง ${q.quoteNo} เป็นการขาย? ระบบจะใส่รายการนี้กลับเข้าตะกร้า',
     );
     if (!ok) return;
-    await ref
-        .read(quotesRepoProvider)
-        .updateQuote(
-          q.id,
-          QuotesCompanion(
-            status: const Value('converted'),
-            convertedAt: Value(DateTime.now()),
-          ),
-        );
+    await repo.updateQuote(
+      q.id,
+      QuotesCompanion(
+        status: const Value('converted'),
+        convertedAt: Value(DateTime.now()),
+      ),
+    );
     _loadToCart(qi);
   }
 
-  /// Hand the quote to checkout (pending-cart provider) and navigate home.
+  /// Hand the quote to checkout (pending-cart cubit) and navigate home.
   void _loadToCart(QuoteWithItems qi) {
-    ref.read(pendingQuoteForCartProvider.notifier).set(qi);
+    context.read<PendingQuoteCubit>().set(qi);
     if (mounted) context.go(AppRoutes.checkout);
   }
 
   Future<void> _handlePurgeOld() async {
+    final repo = context.read<QuotesRepository>();
     final days = await _promptDays();
     if (days == null || days < 1) return;
-    final n = await ref
-        .read(quotesRepoProvider)
-        .purgeOldQuotes(olderThanDays: days);
+    final n = await repo.purgeOldQuotes(olderThanDays: days);
     _refresh();
     _snack(n > 0 ? 'ลบ $n ใบเสนอราคา' : 'ไม่มีรายการที่ตรงตามเงื่อนไข');
   }
@@ -244,7 +250,7 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   void _openPreview(QuoteWithItems qi) async {
-    final settings = await ref.read(settingsRepoProvider).getSettings();
+    final settings = await context.read<SettingsRepository>().getSettings();
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -268,12 +274,17 @@ class _QuotesScreenState extends ConsumerState<QuotesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final asyncQuotes = ref.watch(_quotesListProvider);
     return Scaffold(
-      body: asyncQuotes.when(
-        loading: () => const LoadingView(),
-        error: (e, _) => Center(child: Text('โหลดข้อมูลไม่สำเร็จ: $e')),
-        data: (all) {
+      body: FutureBuilder<List<QuoteWithItems>>(
+        future: _quotesFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const LoadingView();
+          }
+          if (snap.hasError) {
+            return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+          }
+          final all = snap.data!;
           final openValid = all
               .where((qi) => !qi.quote.isConverted && !qi.quote.isExpired)
               .toList();

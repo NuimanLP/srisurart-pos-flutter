@@ -14,15 +14,17 @@
 // math mirrors db.js exactly; Thai strings are copied verbatim from the JSX.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/mechanics_repository.dart';
+import '../../data/repositories/returns_repository.dart';
+import '../../data/repositories/sales_repository.dart';
+import '../../data/repositories/shifts_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/providers.dart';
-import '../providers/shift_providers.dart';
 import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
 import '../widgets/empty_state.dart';
@@ -58,52 +60,14 @@ class _DrawerData {
       totalIn);
 }
 
-final _drawerDataProvider = FutureProvider.autoDispose<_DrawerData>((ref) async {
-  final today = todayKey();
-  final drawer = await ref.watch(shiftsRepoProvider).getCashDrawer();
-  // db.js: only treat the drawer as today's shift if its date matches today.
-  final shift =
-      (drawer != null && drawer.shift.dateStr == today) ? drawer : null;
-
-  final salesAgg = await ref.watch(salesRepoProvider).getSales();
-  final cashSalesTotal = salesAgg
-      .where((s) =>
-          dateKey(s.sale.date) == today &&
-          s.sale.paymentMethod == 'เงินสด')
-      .fold<double>(0, (sum, s) => sum + s.sale.total);
-
-  final returns = await ref.watch(returnsRepoProvider).getReturns();
-  final cashRefundsToday = returns
-      .where((r) =>
-          dateKey(r.ret.date) == today &&
-          r.ret.refundMethod == 'เงินสด')
-      .fold<double>(0, (s, r) => s + r.ret.refundTotal);
-
-  // The Drift CreditPayments table has no `method` column (the JS filtered
-  // p.method === 'เงินสด'); we treat every same-day credit settlement as a
-  // cash drawer inflow.
-  final creditPayments =
-      await ref.watch(mechanicsRepoProvider).getCreditPayments();
-  final cashCreditPaymentsToday = creditPayments
-      .where((p) => dateKey(p.date) == today)
-      .fold<double>(0, (s, p) => s + p.amount);
-
-  return _DrawerData(
-    shift: shift,
-    cashSalesTotal: cashSalesTotal,
-    cashRefundsToday: cashRefundsToday,
-    cashCreditPaymentsToday: cashCreditPaymentsToday,
-  );
-});
-
-class CashDrawerScreen extends ConsumerStatefulWidget {
+class CashDrawerScreen extends StatefulWidget {
   const CashDrawerScreen({super.key});
 
   @override
-  ConsumerState<CashDrawerScreen> createState() => _CashDrawerScreenState();
+  State<CashDrawerScreen> createState() => _CashDrawerScreenState();
 }
 
-class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
+class _CashDrawerScreenState extends State<CashDrawerScreen> {
   final _startCtl = TextEditingController();
   final _amountCtl = TextEditingController();
   final _noteCtl = TextEditingController();
@@ -111,6 +75,56 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
   String _entryType = 'out'; // 'out' | 'in'
   int _tab = 0; // 0 = รายการเงิน, 1 = ปิดลิ้นชัก
   bool _busy = false;
+  // Created in initState/_refresh — never inline in build.
+  late Future<_DrawerData> _dataFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataFuture = _loadData();
+  }
+
+  Future<_DrawerData> _loadData() async {
+    final shiftsRepo = context.read<ShiftsRepository>();
+    final salesRepo = context.read<SalesRepository>();
+    final returnsRepo = context.read<ReturnsRepository>();
+    final mechanicsRepo = context.read<MechanicsRepository>();
+
+    final today = todayKey();
+    final drawer = await shiftsRepo.getCashDrawer();
+    // db.js: only treat the drawer as today's shift if its date matches today.
+    final shift =
+        (drawer != null && drawer.shift.dateStr == today) ? drawer : null;
+
+    final salesAgg = await salesRepo.getSales();
+    final cashSalesTotal = salesAgg
+        .where((s) =>
+            dateKey(s.sale.date) == today &&
+            s.sale.paymentMethod == 'เงินสด')
+        .fold<double>(0, (sum, s) => sum + s.sale.total);
+
+    final returns = await returnsRepo.getReturns();
+    final cashRefundsToday = returns
+        .where((r) =>
+            dateKey(r.ret.date) == today &&
+            r.ret.refundMethod == 'เงินสด')
+        .fold<double>(0, (s, r) => s + r.ret.refundTotal);
+
+    // The Drift CreditPayments table has no `method` column (the JS filtered
+    // p.method === 'เงินสด'); we treat every same-day credit settlement as a
+    // cash drawer inflow.
+    final creditPayments = await mechanicsRepo.getCreditPayments();
+    final cashCreditPaymentsToday = creditPayments
+        .where((p) => dateKey(p.date) == today)
+        .fold<double>(0, (s, p) => s + p.amount);
+
+    return _DrawerData(
+      shift: shift,
+      cashSalesTotal: cashSalesTotal,
+      cashRefundsToday: cashRefundsToday,
+      cashCreditPaymentsToday: cashCreditPaymentsToday,
+    );
+  }
 
   @override
   void dispose() {
@@ -121,7 +135,7 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
     super.dispose();
   }
 
-  void _refresh() => ref.invalidate(_drawerDataProvider);
+  void _refresh() => setState(() => _dataFuture = _loadData());
 
   Future<void> _handleOpen() async {
     final v = double.tryParse(_startCtl.text) ?? 0;
@@ -129,9 +143,10 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
       _toast('กรุณากรอกเงินตั้งต้นให้ถูกต้อง');
       return;
     }
+    final repo = context.read<ShiftsRepository>();
     setState(() => _busy = true);
     try {
-      await ref.read(shiftsRepoProvider).openShift(v);
+      await repo.openShift(v);
       _startCtl.clear();
       _refresh();
     } finally {
@@ -146,11 +161,10 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
     }
     final amount = double.tryParse(_amountCtl.text) ?? 0;
     if (amount <= 0) return;
+    final repo = context.read<ShiftsRepository>();
     setState(() => _busy = true);
     try {
-      await ref
-          .read(shiftsRepoProvider)
-          .addDrawerEntry(_entryType, amount, _noteCtl.text);
+      await repo.addDrawerEntry(_entryType, amount, _noteCtl.text);
       _amountCtl.clear();
       _noteCtl.clear();
       _refresh();
@@ -164,9 +178,10 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
   Future<void> _handleClose() async {
     final v = double.tryParse(_physCtl.text) ?? -1;
     if (!(v >= 0)) return;
+    final repo = context.read<ShiftsRepository>();
     setState(() => _busy = true);
     try {
-      await ref.read(shiftsRepoProvider).closeShift(v);
+      await repo.closeShift(v);
       _physCtl.clear();
       _refresh();
     } finally {
@@ -186,12 +201,18 @@ class _CashDrawerScreenState extends ConsumerState<CashDrawerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final asyncData = ref.watch(_drawerDataProvider);
     return Scaffold(
-      body: asyncData.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('เกิดข้อผิดพลาด: $e')),
-        data: (d) => _content(context, d),
+      body: FutureBuilder<_DrawerData>(
+        future: _dataFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
+          }
+          return _content(context, snap.data!);
+        },
       ),
     );
   }

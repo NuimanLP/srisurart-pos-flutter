@@ -20,13 +20,17 @@
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/data/db/database.dart';
-import 'package:srisurart_pos/presentation/providers/providers.dart';
+import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
+import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
+import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
+import 'package:srisurart_pos/presentation/widgets/font_scale_controller.dart';
+import 'package:srisurart_pos/presentation/widgets/theme_controller.dart';
 import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
 import 'package:srisurart_pos/presentation/screens/products_screen.dart';
 import 'package:srisurart_pos/presentation/screens/purchase_orders_screen.dart';
@@ -99,12 +103,23 @@ void main() {
           Object? caught;
           await tester.runAsync(() async {
             await tester.pumpWidget(
-              ProviderScope(
-                overrides: [databaseProvider.overrideWithValue(db)],
-                child: MaterialApp(
-                  // A bare Scaffold parent gives screens an Overlay/Navigator
-                  // and Material ancestor without pulling in go_router.
-                  home: Scaffold(body: sc.build()),
+              MultiRepositoryProvider(
+                providers: repositoryProviders(db),
+                child: MultiBlocProvider(
+                  providers: [
+                    BlocProvider<ThemeModeCubit>(
+                        create: (_) => ThemeModeCubit()),
+                    BlocProvider<FontScaleCubit>(
+                        create: (_) => FontScaleCubit()),
+                    BlocProvider<PendingQuoteCubit>(
+                        create: (_) => PendingQuoteCubit()),
+                    BlocProvider<CartCubit>(create: (_) => CartCubit()),
+                  ],
+                  child: MaterialApp(
+                    // A bare Scaffold parent gives screens an Overlay/Navigator
+                    // and Material ancestor without pulling in go_router.
+                    home: Scaffold(body: sc.build()),
+                  ),
                 ),
               ),
             );

@@ -15,11 +15,11 @@
 //    non-empty cart auto-parks the current cart first (swap).
 //  • LowStockAlert shown once per session as a dismissible banner.
 //
-// Cart state is a StateNotifier defined IN THIS FILE (cartProvider). All data
-// goes through the §4 repo providers; no direct AppDatabase access.
+// Cart state is CartCubit (presentation/blocs/cart_cubit.dart). All data
+// goes through repository injection; no direct AppDatabase access.
 //
 // Cross-screen quote loading: QuotesManager (convert/edit) stages a quote in
-// `pendingQuoteForCartProvider` then navigates here. On mount we consume it,
+// `PendingQuoteCubit` then navigates here. On mount we consume it,
 // re-validate its items against current stock (the same validateItems used by
 // park/resume), load them into the cart at the quoted prices + the quote
 // discount, best-effort re-select the customer, then clear the provider —
@@ -29,7 +29,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
@@ -37,166 +37,20 @@ import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/customers_repository.dart';
+import '../../data/repositories/mechanics_repository.dart';
+import '../../data/repositories/parked_repository.dart';
+import '../../data/repositories/products_repository.dart';
+import '../../data/repositories/quotes_repository.dart';
+import '../../data/repositories/sales_repository.dart';
+import '../../data/repositories/settings_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../providers/pending_quote_provider.dart';
-import '../providers/providers.dart';
+import '../blocs/cart_cubit.dart';
+import '../blocs/pending_quote_cubit.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_text.dart';
 import '../widgets/receipt_view.dart';
 import '../widgets/tap_target.dart';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Cart line + cart StateNotifier (in-file UI state, per §4 allowance).
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// One cart line. Mirrors the JS cart item shape (productId, partNo, name,
-/// nameTH, price, originalPrice, cost, qty).
-class CartLine {
-  final String productId;
-  final String? partNo;
-  final String name;
-  final String? nameTH;
-  final double price;
-  final double originalPrice;
-  final double cost;
-  final int qty;
-
-  const CartLine({
-    required this.productId,
-    this.partNo,
-    required this.name,
-    this.nameTH,
-    required this.price,
-    required this.originalPrice,
-    required this.cost,
-    required this.qty,
-  });
-
-  CartLine copyWith({double? price, int? qty}) => CartLine(
-        productId: productId,
-        partNo: partNo,
-        name: name,
-        nameTH: nameTH,
-        price: price ?? this.price,
-        originalPrice: originalPrice,
-        cost: cost,
-        qty: qty ?? this.qty,
-      );
-
-  bool get overridden => price != originalPrice;
-}
-
-class CartNotifier extends Notifier<List<CartLine>> {
-  @override
-  List<CartLine> build() => const [];
-
-  double get subtotal =>
-      state.fold(0, (s, i) => s + i.price * i.qty);
-  double get originalSubtotal =>
-      state.fold(0, (s, i) => s + i.originalPrice * i.qty);
-  double get mechanicDelta =>
-      state.fold(0, (s, i) => s + (i.price - i.originalPrice) * i.qty);
-
-  void clear() => state = const [];
-
-  void setLines(List<CartLine> lines) => state = lines;
-
-  /// Add one unit of [p]. Returns an error string when it would exceed stock,
-  /// else null (mirrors JS addToCart's stock-cap warning).
-  String? add(ProductRow p) {
-    final existing =
-        state.where((i) => i.productId == p.id).firstOrNull;
-    final newQty = (existing?.qty ?? 0) + 1;
-    if (newQty > p.stock) {
-      return 'สต็อก "${p.name}" เหลือเพียง ${p.stock} ชิ้น';
-    }
-    if (existing != null) {
-      state = [
-        for (final i in state)
-          i.productId == p.id ? i.copyWith(qty: newQty) : i
-      ];
-    } else {
-      state = [
-        ...state,
-        CartLine(
-          productId: p.id,
-          partNo: p.partNo,
-          name: p.name,
-          nameTH: p.nameTH,
-          price: p.price,
-          originalPrice: p.price,
-          cost: p.cost,
-          qty: 1,
-        ),
-      ];
-    }
-    return null;
-  }
-
-  /// Set qty; qty<=0 removes the line. Returns an error when over stock.
-  String? setQty(String productId, int qty, ProductRow? product) {
-    if (qty <= 0) {
-      state = state.where((i) => i.productId != productId).toList();
-      return null;
-    }
-    if (product != null && qty > product.stock) {
-      return 'สต็อก "${product.name}" เหลือเพียง ${product.stock} ชิ้น';
-    }
-    state = [
-      for (final i in state)
-        i.productId == productId ? i.copyWith(qty: qty) : i
-    ];
-    return null;
-  }
-
-  /// Price override — blocks below cost. Returns an error string when blocked.
-  String? setPrice(String productId, double newPrice) {
-    final item = state.where((i) => i.productId == productId).firstOrNull;
-    if (item == null) return null;
-    if (newPrice < item.cost) {
-      return 'ราคา ฿$newPrice ต่ำกว่าทุน ฿${item.cost} — ห้ามขายต่ำกว่าทุน';
-    }
-    state = [
-      for (final i in state)
-        i.productId == productId ? i.copyWith(price: newPrice) : i
-    ];
-    return null;
-  }
-
-  void resetPrice(String productId) {
-    state = [
-      for (final i in state)
-        i.productId == productId
-            ? i.copyWith(price: i.originalPrice)
-            : i
-    ];
-  }
-}
-
-final cartProvider =
-    NotifierProvider<CartNotifier, List<CartLine>>(CartNotifier.new);
-
-// Reactive data providers (re-fetchable via ref.invalidate after a write).
-final _productsProvider = FutureProvider.autoDispose<List<ProductRow>>(
-    (ref) => ref.watch(productsRepoProvider).getAll());
-final _customersProvider = FutureProvider.autoDispose<List<CustomerRow>>(
-    (ref) => ref.watch(customersRepoProvider).getCustomers());
-final _mechanicsProvider = FutureProvider.autoDispose<List<MechanicRow>>(
-    (ref) => ref.watch(mechanicsRepoProvider).getMechanics());
-final _categoriesProvider = FutureProvider.autoDispose<List<String>>(
-    (ref) => ref.watch(productsRepoProvider).getCategories());
-final _parkedProvider = FutureProvider.autoDispose<List<ParkedSaleRow>>(
-    (ref) => ref.watch(parkedRepoProvider).getParked());
-final _catColorsProvider = FutureProvider.autoDispose<Map<String, String>>(
-    (ref) async {
-  final repo = ref.watch(productsRepoProvider);
-  final cats = await repo.getCategories();
-  final out = <String, String>{};
-  for (final c in cats) {
-    out[c] = await repo.catColor(c);
-  }
-  return out;
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
@@ -205,14 +59,14 @@ final _catColorsProvider = FutureProvider.autoDispose<Map<String, String>>(
 const _orange = Color(0xFFE8601C);
 const _warnOrange = Color(0xFFD4820A);
 
-class CheckoutScreen extends ConsumerStatefulWidget {
+class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
 
   @override
-  ConsumerState<CheckoutScreen> createState() => _CheckoutScreenState();
+  State<CheckoutScreen> createState() => _CheckoutScreenState();
 }
 
-class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
+class _CheckoutScreenState extends State<CheckoutScreen> {
   final _barcodeCtrl = TextEditingController();
   final _custSearchCtrl = TextEditingController();
   final _mechSearchCtrl = TextEditingController();
@@ -233,12 +87,52 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   bool _lowStockDismissed = false;
   bool _consumingPendingQuote = false;
 
+  // The screen's 6 co-located data loads — each created once in
+  // initState/its own targeted refresh method, never inline in build.
+  late Future<List<ProductRow>> _productsFuture;
+  late Future<List<CustomerRow>> _customersFuture;
+  late Future<List<MechanicRow>> _mechanicsFuture;
+  late Future<List<String>>
+  _categoriesFuture; // truly one-shot, never refreshed
+  late Future<List<ParkedSaleRow>> _parkedFuture;
+  late Future<Map<String, String>> _catColorsFuture; // truly one-shot
+
   @override
   void initState() {
     super.initState();
+    _productsFuture = context.read<ProductsRepository>().getAll();
+    _customersFuture = context.read<CustomersRepository>().getCustomers();
+    _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
+    _categoriesFuture = context.read<ProductsRepository>().getCategories();
+    _parkedFuture = context.read<ParkedRepository>().getParked();
+    _catColorsFuture = _loadCatColors();
     // A quote staged by QuotesManager (convert/edit) is consumed once on mount.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeConsumePendingQuote();
+    });
+  }
+
+  Future<Map<String, String>> _loadCatColors() async {
+    final repo = context.read<ProductsRepository>();
+    final cats = await repo.getCategories();
+    final out = <String, String>{};
+    for (final c in cats) {
+      out[c] = await repo.catColor(c);
+    }
+    return out;
+  }
+
+  void _refreshParked() => setState(
+    () => _parkedFuture = context.read<ParkedRepository>().getParked(),
+  );
+
+  /// Reset the 3 loads a completed sale can change: stock (products), and
+  /// the mechanic/customer stats a sale updates (credit balance, points).
+  void _refreshAfterSale() {
+    setState(() {
+      _productsFuture = context.read<ProductsRepository>().getAll();
+      _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
+      _customersFuture = context.read<CustomersRepository>().getCustomers();
     });
   }
 
@@ -258,8 +152,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _discountCtrl.text = _discount == 0
         ? ''
         : (_discount == _discount.truncateToDouble()
-            ? _discount.toInt().toString()
-            : _discount.toString());
+              ? _discount.toInt().toString()
+              : _discount.toString());
   }
 
   void _warn(String msg) {
@@ -270,7 +164,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     if (_priceWarning != null) setState(() => _priceWarning = null);
   }
 
-  CartNotifier get _cart => ref.read(cartProvider.notifier);
+  CartCubit get _cart => context.read<CartCubit>();
 
   // ── Re-validate a saved item list against CURRENT stock. ──
   ({List<CartLine> safe, List<String> issues}) _validateItems(
@@ -308,27 +202,32 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   // rebuild or the build-time listener can never double-load.
   Future<void> _maybeConsumePendingQuote() async {
     if (_consumingPendingQuote) return;
-    final pending = ref.read(pendingQuoteForCartProvider);
+    final pendingQuoteCubit = context.read<PendingQuoteCubit>();
+    final pending = pendingQuoteCubit.state;
     if (pending == null) return;
     _consumingPendingQuote = true;
-    ref.read(pendingQuoteForCartProvider.notifier).clear();
+    pendingQuoteCubit.clear();
+    final productsRepo = context.read<ProductsRepository>();
+    final customersRepo = context.read<CustomersRepository>();
     try {
-      final fresh = await ref.read(productsRepoProvider).getAll();
+      final fresh = await productsRepo.getAll();
       // Build cart lines from the quote; pull partNo/nameTH/cost from the live
       // product. originalPrice = the quoted price, so no spurious override mark.
       final lines = <CartLine>[];
       for (final it in pending.items) {
         final p = fresh.where((x) => x.id == it.productId).firstOrNull;
-        lines.add(CartLine(
-          productId: it.productId ?? '',
-          partNo: p?.partNo,
-          name: it.name,
-          nameTH: p?.nameTH,
-          price: it.price,
-          originalPrice: it.price,
-          cost: p?.cost ?? 0,
-          qty: it.qty,
-        ));
+        lines.add(
+          CartLine(
+            productId: it.productId ?? '',
+            partNo: p?.partNo,
+            name: it.name,
+            nameTH: p?.nameTH,
+            price: it.price,
+            originalPrice: it.price,
+            cost: p?.cost ?? 0,
+            qty: it.qty,
+          ),
+        );
       }
       final res = _validateItems(lines, fresh);
 
@@ -336,7 +235,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       CustomerRow? cust;
       final phone = (pending.quote.customerPhone ?? '').trim();
       if (phone.isNotEmpty) {
-        final customers = await ref.read(customersRepoProvider).getCustomers();
+        final customers = await customersRepo.getCustomers();
         cust = customers
             .where((c) => (c.phone ?? '').trim() == phone)
             .firstOrNull;
@@ -374,59 +273,65 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   double get _subtotal => _cart.subtotal;
-  double get _total => (_subtotal - _discount) < 0 ? 0 : (_subtotal - _discount);
+  double get _total =>
+      (_subtotal - _discount) < 0 ? 0 : (_subtotal - _discount);
 
   ParkedInput _buildParkPayload(List<CartLine> cart) => ParkedInput(
-        items: [
-          for (final it in cart)
-            SaleLineInput(
-              productId: it.productId,
-              name: it.name,
-              qty: it.qty,
-              price: it.price,
-              partNo: it.partNo,
-              nameTH: it.nameTH,
-            )
-        ],
-        discount: _discount,
-        customerId: _selectedCustomer?.id,
-        customerName: _selectedCustomer?.nameTH ?? '',
-        mechanicId: _selectedMechanic?.id,
-        mechanicName: _selectedMechanic?.nameTH ?? '',
-        extra: {
-          'total': _total,
-          // Preserve per-line override context for an exact resume.
-          'lines': [
-            for (final it in cart)
-              {
-                'productId': it.productId,
-                'partNo': it.partNo,
-                'name': it.name,
-                'nameTH': it.nameTH,
-                'price': it.price,
-                'originalPrice': it.originalPrice,
-                'cost': it.cost,
-                'qty': it.qty,
-              }
-          ],
-        },
-      );
+    items: [
+      for (final it in cart)
+        SaleLineInput(
+          productId: it.productId,
+          name: it.name,
+          qty: it.qty,
+          price: it.price,
+          partNo: it.partNo,
+          nameTH: it.nameTH,
+        ),
+    ],
+    discount: _discount,
+    customerId: _selectedCustomer?.id,
+    customerName: _selectedCustomer?.nameTH ?? '',
+    mechanicId: _selectedMechanic?.id,
+    mechanicName: _selectedMechanic?.nameTH ?? '',
+    extra: {
+      'total': _total,
+      // Preserve per-line override context for an exact resume.
+      'lines': [
+        for (final it in cart)
+          {
+            'productId': it.productId,
+            'partNo': it.partNo,
+            'name': it.name,
+            'nameTH': it.nameTH,
+            'price': it.price,
+            'originalPrice': it.originalPrice,
+            'cost': it.cost,
+            'qty': it.qty,
+          },
+      ],
+    },
+  );
 
   Future<void> _handlePark() async {
-    final cart = ref.read(cartProvider);
+    final cart = _cart.state;
     if (cart.isEmpty) return;
-    await ref.read(parkedRepoProvider).parkSale(_buildParkPayload(cart));
-    ref.invalidate(_parkedProvider);
+    await context.read<ParkedRepository>().parkSale(_buildParkPayload(cart));
+    _refreshParked();
     _clearSaleState();
     _warn('⏸ พักบิลแล้ว — กดที่แถบด้านบนเพื่อเรียกคืน');
   }
 
   Future<void> _handleResume(ParkedSaleRow pk) async {
-    final cart = ref.read(cartProvider);
-    final fresh = await ref.read(productsRepoProvider).getAll();
+    final parkedRepo = context.read<ParkedRepository>();
+    final productsRepo = context.read<ProductsRepository>();
+    final customersRepo = context.read<CustomersRepository>();
+    final mechanicsRepo = context.read<MechanicsRepository>();
+
+    final cart = _cart.state;
+    final fresh = await productsRepo.getAll();
     // Auto-park current cart first (swap) so nothing is lost.
     if (cart.isNotEmpty) {
-      await ref.read(parkedRepoProvider).parkSale(_buildParkPayload(cart));
+      await parkedRepo.parkSale(_buildParkPayload(cart));
     }
     final lines = _decodeParkedLines(pk);
     final res = _validateItems(lines, fresh);
@@ -439,16 +344,16 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     CustomerRow? cust;
     MechanicRow? mech;
     if (custId != null) {
-      final all = await ref.read(customersRepoProvider).getCustomers();
+      final all = await customersRepo.getCustomers();
       cust = all.where((c) => c.id == custId).firstOrNull;
     }
     if (mechId != null) {
-      final all = await ref.read(mechanicsRepoProvider).getMechanics();
+      final all = await mechanicsRepo.getMechanics();
       mech = all.where((m) => m.id == mechId).firstOrNull;
     }
-    await ref.read(parkedRepoProvider).deleteParked(pk.id);
-    ref.invalidate(_parkedProvider);
+    await parkedRepo.deleteParked(pk.id);
     if (!mounted) return;
+    _refreshParked();
     _discount = discount;
     _syncDiscountText();
     setState(() {
@@ -461,27 +366,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Future<void> _handleDeleteParked(ParkedSaleRow pk) async {
+    final repo = context.read<ParkedRepository>();
     final lines = _decodeParkedLines(pk);
     final blob = _decodeBlob(pk);
     final total = (blob['total'] as num?)?.toDouble() ?? 0;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        content: Text(
-            'ลบบิลที่พัก (${lines.length} รายการ · ${baht(total)})?'),
+        content: Text('ลบบิลที่พัก (${lines.length} รายการ · ${baht(total)})?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('ยกเลิก')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('ลบ')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ลบ'),
+          ),
         ],
       ),
     );
     if (ok != true) return;
-    await ref.read(parkedRepoProvider).deleteParked(pk.id);
-    ref.invalidate(_parkedProvider);
+    await repo.deleteParked(pk.id);
+    _refreshParked();
   }
 
   Map<String, dynamic> _decodeBlob(ParkedSaleRow pk) {
@@ -507,12 +414,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             name: (l['name'] ?? '').toString(),
             nameTH: l['nameTH'] as String?,
             price: (l['price'] as num?)?.toDouble() ?? 0,
-            originalPrice: (l['originalPrice'] as num?)?.toDouble() ??
+            originalPrice:
+                (l['originalPrice'] as num?)?.toDouble() ??
                 (l['price'] as num?)?.toDouble() ??
                 0,
             cost: (l['cost'] as num?)?.toDouble() ?? 0,
             qty: (l['qty'] as num?)?.toInt() ?? 0,
-          )
+          ),
       ];
     }
     final items = blob['items'];
@@ -528,41 +436,47 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             originalPrice: (l['price'] as num?)?.toDouble() ?? 0,
             cost: 0,
             qty: (l['qty'] as num?)?.toInt() ?? 0,
-          )
+          ),
       ];
     }
     return const [];
   }
 
   Future<void> _handleSaveQuote() async {
-    final cart = ref.read(cartProvider);
+    final cart = _cart.state;
     if (cart.isEmpty) {
       _warn('ตะกร้าว่าง');
       return;
     }
-    await ref.read(quotesRepoProvider).saveQuote(QuoteInput(
-          subtotal: _subtotal,
-          discount: _discount,
-          total: _total,
-          customerName: _selectedCustomer?.nameTH ?? '',
-          customerPhone: _selectedCustomer?.phone ?? '',
-          items: [
-            for (final it in cart)
-              QuoteLineInput(
-                  productId: it.productId,
-                  name: it.name,
-                  qty: it.qty,
-                  price: it.price)
-          ],
-        ));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('บันทึกใบเสนอราคาแล้ว')),
+    await context.read<QuotesRepository>().saveQuote(
+      QuoteInput(
+        subtotal: _subtotal,
+        discount: _discount,
+        total: _total,
+        customerName: _selectedCustomer?.nameTH ?? '',
+        customerPhone: _selectedCustomer?.phone ?? '',
+        items: [
+          for (final it in cart)
+            QuoteLineInput(
+              productId: it.productId,
+              name: it.name,
+              qty: it.qty,
+              price: it.price,
+            ),
+        ],
+      ),
     );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('บันทึกใบเสนอราคาแล้ว')));
   }
 
   Future<void> _handleCheckout() async {
-    final cart = ref.read(cartProvider);
+    final salesRepo = context.read<SalesRepository>();
+    final settingsRepo = context.read<SettingsRepository>();
+    final customersRepo = context.read<CustomersRepository>();
+    final cart = _cart.state;
     if (_submitting || cart.isEmpty) return;
     final subtotal = _subtotal;
     final total = _total;
@@ -587,14 +501,17 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             content: Text(
-                'เกินวงเงินเครดิต! ยอดค้างใหม่ ${baht(newBal)} > วงเงิน ${baht(m.creditLimit)}\n\nยืนยันขายเครดิต?'),
+              'เกินวงเงินเครดิต! ยอดค้างใหม่ ${baht(newBal)} > วงเงิน ${baht(m.creditLimit)}\n\nยืนยันขายเครดิต?',
+            ),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('ยกเลิก')),
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('ยกเลิก'),
+              ),
               FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('ยืนยัน')),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('ยืนยัน'),
+              ),
             ],
           ),
         );
@@ -605,47 +522,49 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     setState(() => _submitting = true);
     try {
       final mechanicDelta = round2(_cart.mechanicDelta);
-      final sale = await ref.read(salesRepoProvider).saveSale(SaleInput(
-            subtotal: subtotal,
-            discount: _discount,
-            total: total,
-            paymentMethod: _payMethod,
-            customerId: _selectedCustomer?.id,
-            customerName: _selectedCustomer?.nameTH,
-            mechanicId: _selectedMechanic?.id,
-            mechanicName: _selectedMechanic?.nameTH,
-            mechanicDelta: _selectedMechanic != null ? mechanicDelta : null,
-            items: [
-              for (final it in cart)
-                SaleLineInput(
-                  productId: it.productId,
-                  name: it.name,
-                  qty: it.qty,
-                  price: it.price,
-                  partNo: it.partNo,
-                  nameTH: it.nameTH,
-                )
-            ],
-          ));
+      final sale = await salesRepo.saveSale(
+        SaleInput(
+          subtotal: subtotal,
+          discount: _discount,
+          total: total,
+          paymentMethod: _payMethod,
+          customerId: _selectedCustomer?.id,
+          customerName: _selectedCustomer?.nameTH,
+          mechanicId: _selectedMechanic?.id,
+          mechanicName: _selectedMechanic?.nameTH,
+          mechanicDelta: _selectedMechanic != null ? mechanicDelta : null,
+          items: [
+            for (final it in cart)
+              SaleLineInput(
+                productId: it.productId,
+                name: it.name,
+                qty: it.qty,
+                price: it.price,
+                partNo: it.partNo,
+                nameTH: it.nameTH,
+              ),
+          ],
+        ),
+      );
 
       // Build receipt context from the just-completed sale (cart + cash/change).
       final receiptLines = [
         for (final it in cart)
           ReceiptLine(
-              name: it.name,
-              nameTH: it.nameTH,
-              partNo: it.partNo,
-              qty: it.qty,
-              price: it.price)
+            name: it.name,
+            nameTH: it.nameTH,
+            partNo: it.partNo,
+            qty: it.qty,
+            price: it.price,
+          ),
       ];
-      final settings = await ref.read(settingsRepoProvider).getSettings();
+      final settings = await settingsRepo.getSettings();
       // Re-fetch customer for updated point balance after the sale.
       int? custPoints;
       String? custName = _selectedCustomer?.nameTH;
       if (_selectedCustomer != null) {
-        final all = await ref.read(customersRepoProvider).getCustomers();
-        final c =
-            all.where((x) => x.id == _selectedCustomer!.id).firstOrNull;
+        final all = await customersRepo.getCustomers();
+        final c = all.where((x) => x.id == _selectedCustomer!.id).firstOrNull;
         custPoints = c?.points ?? _selectedCustomer!.points;
         custName = c?.nameTH ?? custName;
       }
@@ -666,14 +585,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
       // Reset sale state (mirrors JS post-checkout reset).
       _clearSaleState();
-      ref.invalidate(_productsProvider);
-      ref.invalidate(_mechanicsProvider);
-      ref.invalidate(_customersProvider);
-
       if (!mounted) return;
+      _refreshAfterSale();
       await showReceiptDialog(context, receiptData);
     } catch (e) {
-      ref.invalidate(_productsProvider);
+      if (mounted) {
+        setState(
+          () => _productsFuture = context.read<ProductsRepository>().getAll(),
+        );
+      }
       _alert('ขายไม่สำเร็จ: ${_msg(e)}');
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -692,7 +612,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         content: Text(msg),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('ตกลง')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('ตกลง'),
+          ),
         ],
       ),
     );
@@ -703,55 +625,66 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    // Catch a quote staged while this screen is already alive; the initState
-    // post-frame handles the normal fresh-build navigation case.
-    ref.listen<QuoteWithItems?>(pendingQuoteForCartProvider, (_, next) {
-      if (next != null) _maybeConsumePendingQuote();
-    });
-    final productsAsync = ref.watch(_productsProvider);
     final isWide =
         MediaQuery.of(context).size.width >= AppBreakpoints.checkoutTwoPane;
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      body: productsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('โหลดสินค้าไม่สำเร็จ: $e')),
-        data: (products) {
-          return Column(
-            children: [
-              _lowStockBanner(products),
-              Expanded(
-                child: isWide
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(child: _leftPanel(products)),
-                          const VerticalDivider(width: 1),
-                          SizedBox(width: 400, child: _rightPanel(products)),
-                        ],
-                      )
-                    : DefaultTabController(
-                        length: 2,
-                        child: Column(
+    // Catch a quote staged while this screen is already alive; the initState
+    // post-frame handles the normal fresh-build navigation case.
+    return BlocListener<PendingQuoteCubit, QuoteWithItems?>(
+      listener: (context, state) {
+        if (state != null) _maybeConsumePendingQuote();
+      },
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        body: FutureBuilder<List<ProductRow>>(
+          future: _productsFuture,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snap.hasError) {
+              return Center(child: Text('โหลดสินค้าไม่สำเร็จ: ${snap.error}'));
+            }
+            final products = snap.data!;
+            return Column(
+              children: [
+                _lowStockBanner(products),
+                Expanded(
+                  child: isWide
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const TabBar(tabs: [
-                              Tab(text: 'สินค้า'),
-                              Tab(text: 'ตะกร้า'),
-                            ]),
-                            Expanded(
-                              child: TabBarView(children: [
-                                _leftPanel(products),
-                                _rightPanel(products),
-                              ]),
-                            ),
+                            Expanded(child: _leftPanel(products)),
+                            const VerticalDivider(width: 1),
+                            SizedBox(width: 400, child: _rightPanel(products)),
                           ],
+                        )
+                      : DefaultTabController(
+                          length: 2,
+                          child: Column(
+                            children: [
+                              const TabBar(
+                                tabs: [
+                                  Tab(text: 'สินค้า'),
+                                  Tab(text: 'ตะกร้า'),
+                                ],
+                              ),
+                              Expanded(
+                                child: TabBarView(
+                                  children: [
+                                    _leftPanel(products),
+                                    _rightPanel(products),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-              ),
-            ],
-          );
-        },
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -765,19 +698,24 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     if (buckets.out.isEmpty && buckets.low.isEmpty) {
       return const SizedBox.shrink();
     }
-    final catColors = ref.watch(_catColorsProvider).asData?.value ?? const {};
-    return LowStockBanner(
-      outOfStock: buckets.out,
-      lowStock: buckets.low,
-      catColors: catColors,
-      onClose: () {
-        lowStockShownThisSession = true;
-        setState(() => _lowStockDismissed = true);
-      },
-      onOrder: () {
-        lowStockShownThisSession = true;
-        setState(() => _lowStockDismissed = true);
-        context.go(AppRoutes.purchaseOrders);
+    return FutureBuilder<Map<String, String>>(
+      future: _catColorsFuture,
+      builder: (context, snap) {
+        final catColors = snap.data ?? const <String, String>{};
+        return LowStockBanner(
+          outOfStock: buckets.out,
+          lowStock: buckets.low,
+          catColors: catColors,
+          onClose: () {
+            lowStockShownThisSession = true;
+            setState(() => _lowStockDismissed = true);
+          },
+          onOrder: () {
+            lowStockShownThisSession = true;
+            setState(() => _lowStockDismissed = true);
+            context.go(AppRoutes.purchaseOrders);
+          },
+        );
       },
     );
   }
@@ -789,17 +727,31 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final q = _search.toLowerCase();
     final filtered = products.where((p) {
       final catOk = _filterZone == 'ทั้งหมด' || p.category == _filterZone;
-      final searchOk = q.isEmpty ||
+      final searchOk =
+          q.isEmpty ||
           p.name.toLowerCase().contains(q) ||
           p.nameTH.contains(q) ||
           p.partNo.toLowerCase().contains(q);
       return catOk && searchOk;
     }).toList();
 
-    final catsAsync = ref.watch(_categoriesProvider);
-    final catColors = ref.watch(_catColorsProvider).asData?.value ?? const {};
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    return FutureBuilder<Map<String, String>>(
+      future: _catColorsFuture,
+      builder: (context, catColorsSnap) {
+        final catColors = catColorsSnap.data ?? const <String, String>{};
+        return _leftPanelBody(products, filtered, catColors, isDark);
+      },
+    );
+  }
+
+  Widget _leftPanelBody(
+    List<ProductRow> products,
+    List<ProductRow> filtered,
+    Map<String, String> catColors,
+    bool isDark,
+  ) {
     return Container(
       color: Theme.of(context).colorScheme.surface,
       child: Column(
@@ -831,15 +783,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     decoration: InputDecoration(
                       hintText: 'สแกนบาร์โค้ด / รหัสอะไหล่',
                       hintStyle: TextStyle(
-                          fontSize: 13,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.4)),
+                        fontSize: 13,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.4),
+                      ),
                       prefixIcon: Container(
                         padding: const EdgeInsets.all(10),
-                        child: const Icon(Icons.qr_code_scanner,
-                            color: _orange, size: 20),
+                        child: const Icon(
+                          Icons.qr_code_scanner,
+                          color: _orange,
+                          size: 20,
+                        ),
                       ),
                       filled: true,
                       fillColor: isDark
@@ -851,17 +806,20 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: _orange, width: 1.5),
+                        borderSide: const BorderSide(
+                          color: _orange,
+                          width: 1.5,
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: _orange, width: 2),
+                        borderSide: const BorderSide(color: _orange, width: 2),
                       ),
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                     ),
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _handleBarcode(products),
@@ -874,17 +832,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     decoration: InputDecoration(
                       hintText: 'ค้นหาชื่อสินค้า…',
                       hintStyle: TextStyle(
-                          fontSize: 13,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.4)),
-                      prefixIcon: Icon(Icons.search,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.4),
-                          size: 20),
+                        fontSize: 13,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.4),
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.4),
+                        size: 20,
+                      ),
                       filled: true,
                       fillColor: isDark
                           ? Colors.white.withValues(alpha: 0.06)
@@ -895,7 +854,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                       ),
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                     ),
                     onChanged: (v) => setState(() => _search = v),
                   ),
@@ -904,11 +865,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             ),
           ),
           // ── Category chips ──
-          catsAsync.when(
-            loading: () => const SizedBox(height: 8),
-            error: (_, _) => const SizedBox(height: 8),
-            data: (cats) {
-              final all = ['ทั้งหมด', ...cats];
+          FutureBuilder<List<String>>(
+            future: _categoriesFuture,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done ||
+                  snap.hasError) {
+                return const SizedBox(height: 8);
+              }
+              final all = ['ทั้งหมด', ...snap.data ?? const <String>[]];
               return SizedBox(
                 height: 46,
                 child: ListView(
@@ -933,29 +897,34 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.search_off_rounded,
-                            size: 56,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.2)),
+                        Icon(
+                          Icons.search_off_rounded,
+                          size: 56,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.2),
+                        ),
                         const SizedBox(height: 12),
-                        Text('ไม่พบสินค้า',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withValues(alpha: 0.4))),
+                        Text(
+                          'ไม่พบสินค้า',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: 0.4),
+                          ),
+                        ),
                         const SizedBox(height: 4),
-                        Text('ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withValues(alpha: 0.3))),
+                        Text(
+                          'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: 0.3),
+                          ),
+                        ),
                       ],
                     ),
                   )
@@ -963,11 +932,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 200,
-                      mainAxisExtent: 155,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                    ),
+                          maxCrossAxisExtent: 200,
+                          mainAxisExtent: 155,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
+                        ),
                     itemCount: filtered.length,
                     itemBuilder: (ctx, i) =>
                         _productTile(filtered[i], catColors),
@@ -981,8 +950,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   Widget _categoryChip(String name, Map<String, String> catColors) {
     final isSelected = _filterZone == name;
     final isAll = name == 'ทั้งหมด';
-    final catColor =
-        isAll ? _orange : (_parseColor(catColors[name]) ?? AppColors.navyLight);
+    final catColor = isAll
+        ? _orange
+        : (_parseColor(catColors[name]) ?? AppColors.navyLight);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -995,14 +965,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(
-              color: isSelected
-                  ? catColor
-                  : catColor.withValues(alpha: 0.08),
+              color: isSelected ? catColor : catColor.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: isSelected
-                    ? catColor
-                    : catColor.withValues(alpha: 0.25),
+                color: isSelected ? catColor : catColor.withValues(alpha: 0.25),
                 width: isSelected ? 1.5 : 1,
               ),
             ),
@@ -1033,7 +999,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.15)),
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.15),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.04),
@@ -1063,42 +1030,53 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Product name
-                    Text(p.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 14)),
+                    Text(
+                      p.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text(p.nameTH,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.55))),
+                    Text(
+                      p.nameTH,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.55),
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text(p.partNo,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                            color: AppColors.steelBlue
-                                .withValues(alpha: 0.8))),
+                    Text(
+                      p.partNo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 10,
+                        color: AppColors.steelBlue.withValues(alpha: 0.8),
+                      ),
+                    ),
                     const Spacer(),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Expanded(
-                          child: Text(baht(p.price),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 18,
-                                  color: _orange)),
+                          child: Text(
+                            baht(p.price),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                              color: _orange,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 4),
                         Row(
@@ -1122,9 +1100,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                             Text(
                               p.stock > 0 ? '${p.stock}' : 'หมด',
                               style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: stockColor),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: stockColor,
+                              ),
                             ),
                           ],
                         ),
@@ -1138,17 +1117,22 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 top: 8,
                 right: 8,
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: catColor,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text(p.category,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700)),
+                  child: Text(
+                    p.category,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
               // Out-of-stock overlay
@@ -1156,23 +1140,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 Positioned.fill(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: (isDark ? Colors.black : Colors.white)
-                          .withValues(alpha: 0.65),
+                      color: (isDark ? Colors.black : Colors.white).withValues(
+                        alpha: 0.65,
+                      ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Center(
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 5),
+                          horizontal: 14,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.error,
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: const Text('สินค้าหมด',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700)),
+                        child: const Text(
+                          'สินค้าหมด',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1204,8 +1194,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   // RIGHT: cart + payment
   // ─────────────────────────────────────────────────────────────────────────
   Widget _rightPanel(List<ProductRow> products) {
-    final cart = ref.watch(cartProvider);
-    final parkedAsync = ref.watch(_parkedProvider);
+    final cart = context.watch<CartCubit>().state;
     final mechanicDelta = _cart.mechanicDelta;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -1223,10 +1212,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       child: ListView(
         children: [
           // Parked strip
-          parkedAsync.maybeWhen(
-            data: (parked) =>
-                parked.isEmpty ? const SizedBox.shrink() : _parkedStrip(parked),
-            orElse: () => const SizedBox.shrink(),
+          FutureBuilder<List<ParkedSaleRow>>(
+            future: _parkedFuture,
+            builder: (context, snap) {
+              final parked = snap.data ?? const <ParkedSaleRow>[];
+              return parked.isEmpty
+                  ? const SizedBox.shrink()
+                  : _parkedStrip(parked);
+            },
           ),
           _customerSection(),
           _mechanicSection(),
@@ -1240,41 +1233,44 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Widget _section({required Widget child}) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          border: Border(
-              bottom: BorderSide(
-                  color:
-                      Theme.of(context).dividerColor.withValues(alpha: 0.12))),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    decoration: BoxDecoration(
+      border: Border(
+        bottom: BorderSide(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.12),
         ),
-        child: child,
-      );
+      ),
+    ),
+    child: child,
+  );
 
   Widget _label(String t) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Row(
-          children: [
-            Container(
-              width: 3,
-              height: 14,
-              decoration: BoxDecoration(
-                color: _orange,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(t,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.55))),
-          ],
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      children: [
+        Container(
+          width: 3,
+          height: 14,
+          decoration: BoxDecoration(
+            color: _orange,
+            borderRadius: BorderRadius.circular(2),
+          ),
         ),
-      );
+        const SizedBox(width: 8),
+        Text(
+          t,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.55),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _parkedStrip(List<ParkedSaleRow> parked) {
     return Container(
@@ -1289,8 +1285,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           end: Alignment.bottomCenter,
         ),
         border: Border(
-          bottom: BorderSide(
-              color: _warnOrange.withValues(alpha: 0.15)),
+          bottom: BorderSide(color: _warnOrange.withValues(alpha: 0.15)),
         ),
       ),
       child: Column(
@@ -1332,8 +1327,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(10),
-            border:
-                Border.all(color: _warnOrange.withValues(alpha: 0.35)),
+            border: Border.all(color: _warnOrange.withValues(alpha: 0.35)),
             boxShadow: [
               BoxShadow(
                 color: _warnOrange.withValues(alpha: 0.08),
@@ -1347,25 +1341,34 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             children: [
               Icon(Icons.receipt_long, size: 15, color: _warnOrange),
               const SizedBox(width: 6),
-              Text('$title$suffix',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 12)),
+              Text(
+                '$title$suffix',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
               const SizedBox(width: 6),
-              Text(baht(total),
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: _warnOrange)),
+              Text(
+                baht(total),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _warnOrange,
+                ),
+              ),
               const SizedBox(width: 4),
               InkWell(
                 onTap: () => _handleDeleteParked(pk),
-                child: Icon(Icons.close, size: 14,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.4)),
+                child: Icon(
+                  Icons.close,
+                  size: 14,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.4),
+                ),
               ),
             ],
           ),
@@ -1376,7 +1379,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
   // ── Customer ──
   Widget _customerSection() {
-    final custAsync = ref.watch(_customersProvider);
     return _section(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1399,61 +1401,74 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   decoration: InputDecoration(
                     hintText: 'ค้นหาลูกค้า / เบอร์โทร…',
                     hintStyle: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.4)),
-                    prefixIcon: Icon(Icons.person_search,
-                        size: 18,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.4)),
+                      fontSize: 13,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
+                    prefixIcon: Icon(
+                      Icons.person_search,
+                      size: 18,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(
-                            color: Theme.of(context)
-                                .dividerColor
-                                .withValues(alpha: 0.3))),
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: Theme.of(
+                          context,
+                        ).dividerColor.withValues(alpha: 0.3),
+                      ),
+                    ),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                   onChanged: (v) => setState(() => _custSearch = v),
                 ),
                 if (_custSearch.isNotEmpty)
-                  custAsync.maybeWhen(
-                    data: (customers) {
+                  FutureBuilder<List<CustomerRow>>(
+                    future: _customersFuture,
+                    builder: (context, snap) {
+                      if (!snap.hasData) return const SizedBox.shrink();
+                      final customers = snap.data!;
                       final q = _custSearch.toLowerCase();
                       final list = customers
-                          .where((c) =>
-                              c.name.toLowerCase().contains(q) ||
-                              c.nameTH.contains(q) ||
-                              (c.phone ?? '').contains(q) ||
-                              c.code.toLowerCase().contains(q))
+                          .where(
+                            (c) =>
+                                c.name.toLowerCase().contains(q) ||
+                                c.nameTH.contains(q) ||
+                                (c.phone ?? '').contains(q) ||
+                                c.code.toLowerCase().contains(q),
+                          )
                           .take(4)
                           .toList();
                       if (list.isEmpty) {
                         return Padding(
                           padding: const EdgeInsets.all(12),
-                          child: Text('ไม่พบลูกค้า',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurface
-                                      .withValues(alpha: 0.5))),
+                          child: Text(
+                            'ไม่พบลูกค้า',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: 0.5),
+                            ),
+                          ),
                         );
                       }
                       return Container(
                         margin: const EdgeInsets.only(top: 6),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(10),
                           boxShadow: [
                             BoxShadow(
@@ -1477,31 +1492,41 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                                 },
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 10),
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
                                   child: Row(
                                     children: [
                                       CircleAvatar(
                                         radius: 14,
                                         backgroundColor: AppColors.steelBlue
                                             .withValues(alpha: 0.15),
-                                        child: Icon(Icons.person,
-                                            size: 14,
-                                            color: AppColors.steelBlue),
+                                        child: Icon(
+                                          Icons.person,
+                                          size: 14,
+                                          color: AppColors.steelBlue,
+                                        ),
                                       ),
                                       const SizedBox(width: 10),
                                       Expanded(
-                                        child: Text(c.nameTH,
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 13)),
+                                        child: Text(
+                                          c.nameTH,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
                                       ),
-                                      Text(c.phone ?? '',
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface
-                                                  .withValues(alpha: 0.5))),
+                                      Text(
+                                        c.phone ?? '',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withValues(alpha: 0.5),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -1510,7 +1535,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                         ),
                       );
                     },
-                    orElse: () => const SizedBox.shrink(),
                   ),
               ],
             ),
@@ -1521,7 +1545,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
   // ── Mechanic ──
   Widget _mechanicSection() {
-    final mechAsync = ref.watch(_mechanicsProvider);
     return _section(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1530,10 +1553,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           if (_selectedMechanic != null)
             _selectedChip(
               icon: Icons.build,
-              title: '${_selectedMechanic!.nameTH ?? _selectedMechanic!.name} (${_selectedMechanic!.code})',
-              subtitle: _selectedMechanic!.shopName ??
-                  _selectedMechanic!.phone ??
-                  '',
+              title:
+                  '${_selectedMechanic!.nameTH ?? _selectedMechanic!.name} (${_selectedMechanic!.code})',
+              subtitle:
+                  _selectedMechanic!.shopName ?? _selectedMechanic!.phone ?? '',
               highlight: true,
               onClear: () => setState(() => _selectedMechanic = null),
             )
@@ -1546,62 +1569,75 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   decoration: InputDecoration(
                     hintText: 'ค้นหาช่าง / ชื่อเล่น / เบอร์…',
                     hintStyle: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.4)),
-                    prefixIcon: Icon(Icons.build,
-                        size: 18,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.4)),
+                      fontSize: 13,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
+                    prefixIcon: Icon(
+                      Icons.build,
+                      size: 18,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(
-                            color: Theme.of(context)
-                                .dividerColor
-                                .withValues(alpha: 0.3))),
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: Theme.of(
+                          context,
+                        ).dividerColor.withValues(alpha: 0.3),
+                      ),
+                    ),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                   onChanged: (v) => setState(() => _mechSearch = v),
                 ),
                 if (_mechSearch.isNotEmpty)
-                  mechAsync.maybeWhen(
-                    data: (mechanics) {
+                  FutureBuilder<List<MechanicRow>>(
+                    future: _mechanicsFuture,
+                    builder: (context, snap) {
+                      if (!snap.hasData) return const SizedBox.shrink();
+                      final mechanics = snap.data!;
                       final q = _mechSearch.toLowerCase();
                       final list = mechanics
-                          .where((m) =>
-                              (m.nameTH ?? '').contains(q) ||
-                              (m.nickname ?? '').contains(q) ||
-                              (m.phone ?? '').contains(q) ||
-                              m.code.toLowerCase().contains(q) ||
-                              (m.shopName ?? '').toLowerCase().contains(q))
+                          .where(
+                            (m) =>
+                                (m.nameTH ?? '').contains(q) ||
+                                (m.nickname ?? '').contains(q) ||
+                                (m.phone ?? '').contains(q) ||
+                                m.code.toLowerCase().contains(q) ||
+                                (m.shopName ?? '').toLowerCase().contains(q),
+                          )
                           .take(5)
                           .toList();
                       if (list.isEmpty) {
                         return Padding(
                           padding: const EdgeInsets.all(12),
-                          child: Text('ไม่พบช่าง — เพิ่มในเมนู "ช่าง"',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurface
-                                      .withValues(alpha: 0.5))),
+                          child: Text(
+                            'ไม่พบช่าง — เพิ่มในเมนู "ช่าง"',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: 0.5),
+                            ),
+                          ),
                         );
                       }
                       return Container(
                         margin: const EdgeInsets.only(top: 6),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(10),
                           boxShadow: [
                             BoxShadow(
@@ -1625,32 +1661,42 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                                 },
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 10),
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
                                   child: Row(
                                     children: [
                                       CircleAvatar(
                                         radius: 14,
-                                        backgroundColor: _orange
-                                            .withValues(alpha: 0.12),
-                                        child: const Icon(Icons.build,
-                                            size: 14,
-                                            color: _orange),
+                                        backgroundColor: _orange.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                        child: const Icon(
+                                          Icons.build,
+                                          size: 14,
+                                          color: _orange,
+                                        ),
                                       ),
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                            m.nameTH ?? m.name,
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 13)),
+                                          m.nameTH ?? m.name,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
                                       ),
-                                      Text(m.shopName ?? m.phone ?? '',
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface
-                                                  .withValues(alpha: 0.5))),
+                                      Text(
+                                        m.shopName ?? m.phone ?? '',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withValues(alpha: 0.5),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -1659,7 +1705,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                         ),
                       );
                     },
-                    orElse: () => const SizedBox.shrink(),
                   ),
               ],
             ),
@@ -1682,7 +1727,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         color: accentColor.withValues(alpha: highlight ? 0.08 : 0.06),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-            color: accentColor.withValues(alpha: highlight ? 0.35 : 0.2)),
+          color: accentColor.withValues(alpha: highlight ? 0.35 : 0.2),
+        ),
       ),
       child: Row(
         children: [
@@ -1696,17 +1742,23 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 14)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
                 if (subtitle.isNotEmpty)
-                  Text(subtitle,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.55))),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1714,16 +1766,16 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.06),
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(14),
             ),
             child: IconButton(
-                padding: EdgeInsets.zero,
-                icon: const Icon(Icons.close, size: 14),
-                onPressed: onClear),
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.close, size: 14),
+              onPressed: onClear,
+            ),
           ),
         ],
       ),
@@ -1744,16 +1796,21 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: _orange.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text('คลิกราคาเพื่อปรับ',
-                        style: TextStyle(
-                            color: _orange,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600)),
+                    child: const Text(
+                      'คลิกราคาเพื่อปรับ',
+                      style: TextStyle(
+                        color: _orange,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -1763,28 +1820,33 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               padding: const EdgeInsets.symmetric(vertical: 28),
               child: Column(
                 children: [
-                  Icon(Icons.shopping_cart_outlined,
-                      size: 40,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.15)),
+                  Icon(
+                    Icons.shopping_cart_outlined,
+                    size: 40,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.15),
+                  ),
                   const SizedBox(height: 10),
-                  Text('ยังไม่มีสินค้า',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.35))),
+                  Text(
+                    'ยังไม่มีสินค้า',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.35),
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  Text('สแกนหรือเลือกสินค้าด้านซ้าย',
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.25))),
+                  Text(
+                    'สแกนหรือเลือกสินค้าด้านซ้าย',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.25),
+                    ),
+                  ),
                 ],
               ),
             )
@@ -1808,18 +1870,24 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text('⚠ $_priceWarning',
-                        style: const TextStyle(
-                            color: Color(0xFFFF8B7A),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600)),
+                    child: Text(
+                      '⚠ $_priceWarning',
+                      style: const TextStyle(
+                        color: Color(0xFFFF8B7A),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                   InkWell(
                     onTap: _clearWarn,
                     child: const Padding(
                       padding: EdgeInsets.only(left: 6),
-                      child: Icon(Icons.close,
-                          size: 16, color: Color(0xFFFF8B7A)),
+                      child: Icon(
+                        Icons.close,
+                        size: 16,
+                        color: Color(0xFFFF8B7A),
+                      ),
                     ),
                   ),
                 ],
@@ -1832,8 +1900,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
   Widget _cartRow(CartLine item, List<ProductRow> products) {
     final isEditing = _editingPriceId == item.productId;
-    final product =
-        products.where((p) => p.id == item.productId).firstOrNull;
+    final product = products.where((p) => p.id == item.productId).firstOrNull;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1841,7 +1908,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.08)),
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.08),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -1850,18 +1918,24 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 13)),
+                Text(
+                  item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
                 if (item.partNo != null)
-                  Text(item.partNo!,
-                      style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                          color: AppColors.steelBlue
-                              .withValues(alpha: 0.7))),
+                  Text(
+                    item.partNo!,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      color: AppColors.steelBlue.withValues(alpha: 0.7),
+                    ),
+                  ),
                 const SizedBox(height: 3),
                 _linePriceControl(item, isEditing),
               ],
@@ -1879,19 +1953,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               children: [
                 _qtyBtn(Icons.remove, () {
                   final err = _cart.setQty(
-                      item.productId, item.qty - 1, product);
+                    item.productId,
+                    item.qty - 1,
+                    product,
+                  );
                   if (err != null) _warn(err);
                 }),
                 ConstrainedBox(
                   constraints: const BoxConstraints(minWidth: 28),
-                  child: Text('${item.qty}',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 15)),
+                  child: Text(
+                    '${item.qty}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
                 _qtyBtn(Icons.add, () {
                   final err = _cart.setQty(
-                      item.productId, item.qty + 1, product);
+                    item.productId,
+                    item.qty + 1,
+                    product,
+                  );
                   if (err != null) _warn(err);
                 }),
               ],
@@ -1900,11 +1984,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           const SizedBox(width: 10),
           ConstrainedBox(
             constraints: const BoxConstraints(minWidth: 65),
-            child: MoneyText(item.price * item.qty,
-                scaleDown: true,
-                color: _orange,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 15)),
+            child: MoneyText(
+              item.price * item.qty,
+              scaleDown: true,
+              color: _orange,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            ),
           ),
         ],
       ),
@@ -1921,15 +2006,17 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
           ],
           decoration: const InputDecoration(
             isDense: true,
             border: OutlineInputBorder(),
             enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: _orange, width: 2)),
+              borderSide: BorderSide(color: _orange, width: 2),
+            ),
             focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: _orange, width: 2)),
+              borderSide: BorderSide(color: _orange, width: 2),
+            ),
             contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           ),
           onSubmitted: (v) => _commitPrice(item.productId, v),
@@ -1946,15 +2033,19 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         minimumSize: const Size(0, 28),
         side: BorderSide(
-            color: item.overridden ? _orange : Theme.of(context).dividerColor),
-        backgroundColor:
-            item.overridden ? _orange.withValues(alpha: 0.18) : null,
+          color: item.overridden ? _orange : Theme.of(context).dividerColor,
+        ),
+        backgroundColor: item.overridden
+            ? _orange.withValues(alpha: 0.18)
+            : null,
         foregroundColor: item.overridden
             ? _orange
             : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
       ),
-      child: Text('${baht(item.price)}${item.overridden ? ' ✎' : ''}',
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+      child: Text(
+        '${baht(item.price)}${item.overridden ? ' ✎' : ''}',
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
     );
     if (!item.overridden) {
       return Align(alignment: Alignment.centerLeft, child: priceButton);
@@ -1970,16 +2061,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         Row(
           children: [
             Flexible(
-              child: Text('ปกติ ${baht(item.originalPrice)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 11,
-                      decoration: TextDecoration.lineThrough,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.5))),
+              child: Text(
+                'ปกติ ${baht(item.originalPrice)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  decoration: TextDecoration.lineThrough,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
             ),
             TapTarget(
               onTap: () => _cart.resetPrice(item.productId),
@@ -2001,18 +2094,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   // 30dp visual chip kept, but TapTarget gives it a ≥44dp hit area — these are
   // the most-tapped controls on a touch POS.
   Widget _qtyBtn(IconData icon, VoidCallback onTap) => TapTarget(
-        onTap: onTap,
-        child: Container(
-          width: 30,
-          height: 30,
-          alignment: Alignment.center,
-          child: Icon(icon, size: 16,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.7)),
-        ),
-      );
+    onTap: onTap,
+    child: Container(
+      width: 30,
+      height: 30,
+      alignment: Alignment.center,
+      child: Icon(
+        icon,
+        size: 16,
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+      ),
+    ),
+  );
 
   // ── Totals ──
   Widget _totalsSection(List<CartLine> cart, double mechanicDelta) {
@@ -2027,38 +2120,46 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('ส่วนลด',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.55))),
+              Text(
+                'ส่วนลด',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.55),
+                ),
+              ),
               SizedBox(
                 width: 110,
                 child: TextField(
                   controller: _discountCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                   ],
                   textAlign: TextAlign.right,
                   decoration: InputDecoration(
                     prefixText: '฿',
                     isDense: true,
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                     enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                            color: Theme.of(context)
-                                .dividerColor
-                                .withValues(alpha: 0.3))),
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: Theme.of(
+                          context,
+                        ).dividerColor.withValues(alpha: 0.3),
+                      ),
+                    ),
                     hintText: '0',
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
                   ),
                   onChanged: (v) {
                     final raw = double.tryParse(v) ?? 0;
@@ -2067,7 +2168,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     if (d != raw) {
                       _syncDiscountText();
                       _discountCtrl.selection = TextSelection.collapsed(
-                          offset: _discountCtrl.text.length);
+                        offset: _discountCtrl.text.length,
+                      );
                     }
                   },
                 ),
@@ -2084,31 +2186,36 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     : _warnOrange.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                    color: mechanicDelta > 0
-                        ? AppColors.successLight.withValues(alpha: 0.25)
-                        : _warnOrange.withValues(alpha: 0.3)),
+                  color: mechanicDelta > 0
+                      ? AppColors.successLight.withValues(alpha: 0.25)
+                      : _warnOrange.withValues(alpha: 0.3),
+                ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                      mechanicDelta > 0
-                          ? '↑ ช่างได้ส่วนต่าง'
-                          : '↓ เครดิตช่าง (ลดราคา)',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: mechanicDelta > 0
-                              ? const Color(0xFF2ECC71)
-                              : _warnOrange)),
+                    mechanicDelta > 0
+                        ? '↑ ช่างได้ส่วนต่าง'
+                        : '↓ เครดิตช่าง (ลดราคา)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: mechanicDelta > 0
+                          ? const Color(0xFF2ECC71)
+                          : _warnOrange,
+                    ),
+                  ),
                   Text(
-                      '${mechanicDelta > 0 ? '+' : ''}${baht(mechanicDelta.abs())}',
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: mechanicDelta > 0
-                              ? const Color(0xFF2ECC71)
-                              : _warnOrange)),
+                    '${mechanicDelta > 0 ? '+' : ''}${baht(mechanicDelta.abs())}',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: mechanicDelta > 0
+                          ? const Color(0xFF2ECC71)
+                          : _warnOrange,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2135,16 +2242,22 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('รวมทั้งสิ้น',
-                    style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white70)),
-                Text(baht(total),
-                    style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white)),
+                const Text(
+                  'รวมทั้งสิ้น',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white70,
+                  ),
+                ),
+                Text(
+                  baht(total),
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
               ],
             ),
           ),
@@ -2154,21 +2267,24 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Widget _totalRow(String l, String r) => Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(l,
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.55))),
-          Text(r,
-              style:
-                  const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-        ],
-      );
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(
+        l,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: 0.55),
+        ),
+      ),
+      Text(
+        r,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+      ),
+    ],
+  );
 
   // ── Payment ──
   Widget _paymentSection() {
@@ -2186,10 +2302,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           // Segmented-control-style payment buttons
           Container(
             decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHigh
-                  .withValues(alpha: 0.5),
+              color: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHigh.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
@@ -2205,36 +2320,41 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _cashCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
               ],
               textAlign: TextAlign.right,
-              style:
-                  const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
               decoration: InputDecoration(
                 hintText: 'รับเงิน ฿…',
                 hintStyle: TextStyle(
-                    fontSize: 20,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.3)),
+                  fontSize: 20,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.3),
+                ),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                        color: Theme.of(context)
-                            .dividerColor
-                            .withValues(alpha: 0.3))),
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(
+                    color: Theme.of(
+                      context,
+                    ).dividerColor.withValues(alpha: 0.3),
+                  ),
+                ),
                 focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide:
-                        const BorderSide(color: _orange, width: 1.5)),
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: _orange, width: 1.5),
+                ),
                 contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 14),
+                  horizontal: 14,
+                  vertical: 14,
+                ),
               ),
               onChanged: (_) => setState(() {}),
             ),
@@ -2260,15 +2380,16 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   Widget _payButton(String m, double total) {
     final isCredit = m == 'เครดิตช่าง';
     final active = _payMethod == m;
-    final wouldExceed = isCredit &&
+    final wouldExceed =
+        isCredit &&
         _selectedMechanic != null &&
         (_selectedMechanic!.creditBalance + total) >
             _selectedMechanic!.creditLimit;
     final IconData icon = m == 'เงินสด'
         ? Icons.payments_outlined
         : m == 'โอน/QR'
-            ? Icons.qr_code
-            : Icons.credit_score;
+        ? Icons.qr_code
+        : Icons.credit_score;
 
     return GestureDetector(
       onTap: () => setState(() => _payMethod = m),
@@ -2278,16 +2399,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         margin: const EdgeInsets.all(3),
         decoration: BoxDecoration(
           color: active
-              ? (isCredit
-                  ? _warnOrange
-                  : _orange)
+              ? (isCredit ? _warnOrange : _orange)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           boxShadow: active
               ? [
                   BoxShadow(
-                    color: (isCredit ? _warnOrange : _orange)
-                        .withValues(alpha: 0.2),
+                    color: (isCredit ? _warnOrange : _orange).withValues(
+                      alpha: 0.2,
+                    ),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -2297,26 +2417,27 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon,
-                size: 20,
-                color: active
-                    ? Colors.white
-                    : Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.5)),
+            Icon(
+              icon,
+              size: 20,
+              color: active
+                  ? Colors.white
+                  : Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
             const SizedBox(height: 3),
             Text(
               '$m${wouldExceed ? ' ⚠' : ''}',
               style: TextStyle(
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w600,
-                  fontSize: 11,
-                  color: active
-                      ? Colors.white
-                      : Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.6)),
+                fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+                fontSize: 11,
+                color: active
+                    ? Colors.white
+                    : Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
             ),
           ],
         ),
@@ -2347,42 +2468,55 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             padding: const EdgeInsets.only(top: 6),
             decoration: const BoxDecoration(
               border: Border(
-                  top: BorderSide(
-                      color: Color(0x66D4820A),
-                      style: BorderStyle.solid)),
+                top: BorderSide(
+                  color: Color(0x66D4820A),
+                  style: BorderStyle.solid,
+                ),
+              ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('ยอดค้างหลังบิลนี้',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
-                        color: _warnOrange)),
-                Text(baht(after),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: _warnOrange)),
+                const Text(
+                  'ยอดค้างหลังบิลนี้',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    color: _warnOrange,
+                  ),
+                ),
+                Text(
+                  baht(after),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: _warnOrange,
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 6),
-          Text('วงเงิน ${baht(m.creditLimit)}',
-              style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.45))),
+          Text(
+            'วงเงิน ${baht(m.creditLimit)}',
+            style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.45),
+            ),
+          ),
           if (exceed)
             const Padding(
               padding: EdgeInsets.only(top: 6),
-              child: Text('⚠ เกินวงเงินเครดิต!',
-                  style: TextStyle(
-                      color: AppColors.error,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700)),
+              child: Text(
+                '⚠ เกินวงเงินเครดิต!',
+                style: TextStyle(
+                  color: AppColors.error,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
         ],
       ),
@@ -2390,24 +2524,24 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Widget _creditRow(String l, String r) => Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(l,
-              style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.6))),
-          Text(r,
-              style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.6))),
-        ],
-      );
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(
+        l,
+        style: TextStyle(
+          fontSize: 12,
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+        ),
+      ),
+      Text(
+        r,
+        style: TextStyle(
+          fontSize: 12,
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+        ),
+      ),
+    ],
+  );
 
   List<num> _quickCash(double total) {
     final raw = <num>[
@@ -2428,30 +2562,30 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Widget _quickBtn(num v) => Material(
-        color: Colors.transparent,
-        child: InkWell(
+    color: Colors.transparent,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () {
+        _cashCtrl.text = v.toString();
+        setState(() {});
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHigh.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            _cashCtrl.text = v.toString();
-            setState(() {});
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHigh
-                  .withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Center(
-              child: Text(baht(v),
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 13)),
-            ),
+        ),
+        child: Center(
+          child: Text(
+            baht(v),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
           ),
         ),
-      );
+      ),
+    ),
+  );
 
   Widget _changeRow(double total) {
     final cash = double.tryParse(_cashCtrl.text.trim()) ?? 0;
@@ -2464,21 +2598,28 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         color: const Color(0xFF2ECC71).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-            color: const Color(0xFF2ECC71).withValues(alpha: 0.25)),
+          color: const Color(0xFF2ECC71).withValues(alpha: 0.25),
+        ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text('เงินทอน',
-              style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  color: Color(0xFF2ECC71))),
-          Text(baht(change),
-              style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 20,
-                  color: Color(0xFF2ECC71))),
+          const Text(
+            'เงินทอน',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              color: Color(0xFF2ECC71),
+            ),
+          ),
+          Text(
+            baht(change),
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 20,
+              color: Color(0xFF2ECC71),
+            ),
+          ),
         ],
       ),
     );
@@ -2497,17 +2638,20 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 child: OutlinedButton.icon(
                   onPressed: empty ? null : _handlePark,
                   icon: const Icon(Icons.pause_circle_outline, size: 18),
-                  label: const Text('พักบิล',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 13)),
+                  label: const Text(
+                    'พักบิล',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _warnOrange,
                     side: BorderSide(
-                        color: _warnOrange.withValues(alpha: 0.5),
-                        width: 1.5),
+                      color: _warnOrange.withValues(alpha: 0.5),
+                      width: 1.5,
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
@@ -2516,17 +2660,20 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 child: OutlinedButton.icon(
                   onPressed: empty ? null : _handleSaveQuote,
                   icon: const Icon(Icons.description_outlined, size: 18),
-                  label: const Text('ใบเสนอราคา',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 13)),
+                  label: const Text(
+                    'ใบเสนอราคา',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF5B97F0),
                     side: BorderSide(
-                        color: const Color(0xFF2A6FDB).withValues(alpha: 0.5),
-                        width: 1.5),
+                      color: const Color(0xFF2A6FDB).withValues(alpha: 0.5),
+                      width: 1.5,
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
@@ -2580,10 +2727,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                               ? 'กำลังบันทึก…'
                               : 'ชำระเงิน  ${baht(_total)}',
                           style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
-                              letterSpacing: 0.3,
-                              color: Colors.white),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 18,
+                            letterSpacing: 0.3,
+                            color: Colors.white,
+                          ),
                         ),
                       ],
                     ),
@@ -2596,7 +2744,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       ),
     );
   }
-
 }
 
 Color? _parseColor(String? hex) {

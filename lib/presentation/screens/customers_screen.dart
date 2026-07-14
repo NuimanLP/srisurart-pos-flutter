@@ -9,13 +9,14 @@
 //  • จำนวนบิล = count of sales whose customerId == customer.id.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:drift/drift.dart' show Value;
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
-import '../providers/providers.dart';
+import '../../data/repositories/customers_repository.dart';
+import '../../data/repositories/sales_repository.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
@@ -31,31 +32,40 @@ class _CustomersData {
   const _CustomersData(this.customers, this.billCountByCustomer);
 }
 
-/// Loads customers + indexes sales by customerId once → O(1) bill-count lookup.
-final _customersDataProvider = FutureProvider.autoDispose<_CustomersData>(
-  (ref) async {
-    final customers = await ref.watch(customersRepoProvider).getCustomers();
-    final sales = await ref.watch(salesRepoProvider).getSales();
+class CustomersScreen extends StatefulWidget {
+  const CustomersScreen({super.key});
+
+  @override
+  State<CustomersScreen> createState() => _CustomersScreenState();
+}
+
+class _CustomersScreenState extends State<CustomersScreen> {
+  String _search = '';
+  // Created in initState/_refresh — never inline in build — so a rebuild
+  // (e.g. typing in the search box) doesn't refetch.
+  late Future<_CustomersData> _dataFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataFuture = _loadData();
+  }
+
+  /// Loads customers + indexes sales by customerId once → O(1) bill-count lookup.
+  Future<_CustomersData> _loadData() async {
+    final customersRepo = context.read<CustomersRepository>();
+    final salesRepo = context.read<SalesRepository>();
+    final customers = await customersRepo.getCustomers();
+    final sales = await salesRepo.getSales();
     final billCount = <String, int>{};
     for (final s in sales) {
       final cid = s.sale.customerId;
       if (cid != null) billCount[cid] = (billCount[cid] ?? 0) + 1;
     }
     return _CustomersData(customers, billCount);
-  },
-);
+  }
 
-class CustomersScreen extends ConsumerStatefulWidget {
-  const CustomersScreen({super.key});
-
-  @override
-  ConsumerState<CustomersScreen> createState() => _CustomersScreenState();
-}
-
-class _CustomersScreenState extends ConsumerState<CustomersScreen> {
-  String _search = '';
-
-  void _refresh() => ref.invalidate(_customersDataProvider);
+  void _refresh() => setState(() => _dataFuture = _loadData());
 
   List<CustomerRow> _filter(List<CustomerRow> all) {
     final q = _search.toLowerCase();
@@ -81,20 +91,26 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
         ? 'ลบลูกค้า "${c.nameTH}"?\n\n'
             'ลูกค้ารายนี้มี $billCount บิล (ประวัติการขายจะยังคงอยู่ แต่ไม่มีชื่อลูกค้าผูก)'
         : 'ลบลูกค้า "${c.nameTH}"?';
+    final repo = context.read<CustomersRepository>();
     final ok = await showConfirm(context, 'ลบลูกค้า', msg, danger: true);
     if (!ok) return;
-    await ref.read(customersRepoProvider).deleteCustomer(c.id);
+    await repo.deleteCustomer(c.id);
     _refresh();
   }
 
   @override
   Widget build(BuildContext context) {
-    final dataAsync = ref.watch(_customersDataProvider);
     return Scaffold(
-      body: dataAsync.when(
-        loading: () => const LoadingView(),
-        error: (e, _) => Center(child: Text('เกิดข้อผิดพลาด: $e')),
-        data: (data) {
+      body: FutureBuilder<_CustomersData>(
+        future: _dataFuture,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const LoadingView();
+          }
+          if (snap.hasError) {
+            return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
+          }
+          final data = snap.data!;
           final filtered = _filter(data.customers);
           final totalSpend =
               data.customers.fold<double>(0, (s, c) => s + c.totalSpend);
@@ -501,16 +517,15 @@ class _CustomersTable extends StatelessWidget {
 }
 
 /// Add / edit customer dialog. Pops `true` when a save succeeded.
-class _CustomerEditorDialog extends ConsumerStatefulWidget {
+class _CustomerEditorDialog extends StatefulWidget {
   final CustomerRow? customer;
   const _CustomerEditorDialog({this.customer});
 
   @override
-  ConsumerState<_CustomerEditorDialog> createState() =>
-      _CustomerEditorDialogState();
+  State<_CustomerEditorDialog> createState() => _CustomerEditorDialogState();
 }
 
-class _CustomerEditorDialogState extends ConsumerState<_CustomerEditorDialog> {
+class _CustomerEditorDialogState extends State<_CustomerEditorDialog> {
   late final TextEditingController _nameTH;
   late final TextEditingController _name;
   late final TextEditingController _phone;
@@ -546,7 +561,7 @@ class _CustomerEditorDialogState extends ConsumerState<_CustomerEditorDialog> {
       return;
     }
     setState(() => _saving = true);
-    final repo = ref.read(customersRepoProvider);
+    final repo = context.read<CustomersRepository>();
     final phone = _phone.text;
     final address = _address.text;
     try {
