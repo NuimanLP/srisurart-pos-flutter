@@ -56,16 +56,18 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
   void initState() {
     super.initState();
     _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
-    _creditPaymentsFuture =
-        context.read<MechanicsRepository>().getCreditPayments();
+    _creditPaymentsFuture = context
+        .read<MechanicsRepository>()
+        .getCreditPayments();
     _salesFuture = context.read<SalesRepository>().getSales();
   }
 
   void _refresh() {
     setState(() {
       _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
-      _creditPaymentsFuture =
-          context.read<MechanicsRepository>().getCreditPayments();
+      _creditPaymentsFuture = context
+          .read<MechanicsRepository>()
+          .getCreditPayments();
     });
   }
 
@@ -136,8 +138,10 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
   // ── LIST ──────────────────────────────────────────────────────────────────
   Widget _buildList(List<MechanicRow> mechanics, MechanicRow? selected) {
     final filtered = _filtered(mechanics);
-    final totalOutstanding =
-        mechanics.fold<double>(0, (s, m) => s + m.creditBalance);
+    final totalOutstanding = mechanics.fold<double>(
+      0,
+      (s, m) => s + m.creditBalance,
+    );
     final overLimitCount = mechanics
         .where((m) => m.creditBalance > m.creditLimit && m.creditLimit > 0)
         .length;
@@ -196,10 +200,7 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
                   ],
                 ),
               ),
-              AppButton(
-                label: '+ เพิ่มช่าง',
-                onPressed: _openNew,
-              ),
+              AppButton(label: '+ เพิ่มช่าง', onPressed: _openNew),
             ],
           ),
         ),
@@ -317,8 +318,9 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
     if (paid == true) {
       setState(() {
         _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
-        _creditPaymentsFuture =
-            context.read<MechanicsRepository>().getCreditPayments();
+        _creditPaymentsFuture = context
+            .read<MechanicsRepository>()
+            .getCreditPayments();
         _salesFuture = context.read<SalesRepository>().getSales();
       });
     }
@@ -456,10 +458,7 @@ class _MechanicRowTile extends StatelessWidget {
               flex: 2,
               child: Text(
                 m.phone ?? '',
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 13,
-                ),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
               ),
             ),
             // ยอดซื้อ.
@@ -502,8 +501,7 @@ class _MechanicRowTile extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(baht(lim),
-                            style: theme.textTheme.bodySmall),
+                        Text(baht(lim), style: theme.textTheme.bodySmall),
                         const SizedBox(height: 3),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(2),
@@ -520,8 +518,10 @@ class _MechanicRowTile extends StatelessWidget {
                     )
                   : Align(
                       alignment: Alignment.centerRight,
-                      child:
-                          Text('—', style: TextStyle(color: theme.hintColor)),
+                      child: Text(
+                        '—',
+                        style: TextStyle(color: theme.hintColor),
+                      ),
                     ),
             ),
             // Actions.
@@ -574,8 +574,7 @@ class _DetailSheet extends StatelessWidget {
           if (snap.hasError) {
             return Center(child: Text('${snap.error}'));
           }
-          final m =
-              snap.data!.where((x) => x.id == mechanicId).firstOrNull;
+          final m = snap.data!.where((x) => x.id == mechanicId).firstOrNull;
           if (m == null) {
             return const EmptyState(message: 'ไม่พบช่าง');
           }
@@ -660,10 +659,7 @@ class _DetailPanel extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: onClose,
-              ),
+              IconButton(icon: const Icon(Icons.close), onPressed: onClose),
             ],
           ),
           const SizedBox(height: 16),
@@ -681,10 +677,7 @@ class _DetailPanel extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _StatBox(
-                  label: 'ยอดซื้อสะสม',
-                  value: m.totalSales,
-                ),
+                child: _StatBox(label: 'ยอดซื้อสะสม', value: m.totalSales),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -933,17 +926,21 @@ class _AccountHistory extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.all(24),
                     child: Center(
-                      child: Text('ยังไม่มีประวัติ',
-                          style: TextStyle(color: theme.hintColor)),
+                      child: Text(
+                        'ยังไม่มีประวัติ',
+                        style: TextStyle(color: theme.hintColor),
+                      ),
                     ),
                   )
                 else
-                  ...shown.map((e) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: e.isPayment
-                            ? _PaymentRow(payment: e.payment!)
-                            : _SaleRow(sale: e.sale!),
-                      )),
+                  ...shown.map(
+                    (e) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: e.isPayment
+                          ? _PaymentRow(payment: e.payment!)
+                          : _SaleRow(sale: e.sale!),
+                    ),
+                  ),
               ],
             );
           },
@@ -960,16 +957,16 @@ class _HistoryEntry {
   final SaleWithItems? sale;
 
   _HistoryEntry.payment(CreditPaymentRow p)
-      : payment = p,
-        sale = null,
-        isPayment = true,
-        date = p.date;
+    : payment = p,
+      sale = null,
+      isPayment = true,
+      date = p.date;
 
   _HistoryEntry.sale(SaleWithItems s)
-      : sale = s,
-        payment = null,
-        isPayment = false,
-        date = s.sale.date;
+    : sale = s,
+      payment = null,
+      isPayment = false,
+      date = s.sale.date;
 }
 
 String _historyDateTime(DateTime d) {
@@ -1011,13 +1008,16 @@ class _PaymentRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(_historyDateTime(p.date),
-                    style: theme.textTheme.bodySmall),
+                Text(
+                  _historyDateTime(p.date),
+                  style: theme.textTheme.bodySmall,
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '💵 รับชำระเครดิต$note',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.hintColor),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.hintColor,
+                  ),
                 ),
               ],
             ),
@@ -1033,9 +1033,12 @@ class _PaymentRow extends StatelessWidget {
                   color: _green,
                 ),
               ),
-              Text('ลดยอดค้าง',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.hintColor)),
+              Text(
+                'ลดยอดค้าง',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.hintColor,
+                ),
+              ),
             ],
           ),
         ],
@@ -1083,13 +1086,16 @@ class _SaleRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(_historyDateTime(s.date),
-                    style: theme.textTheme.bodySmall),
+                Text(
+                  _historyDateTime(s.date),
+                  style: theme.textTheme.bodySmall,
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '$itemCount รายการ${isCredit ? ' · 🔧 เครดิต' : ' · ${s.paymentMethod}'}',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.hintColor),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.hintColor,
+                  ),
                 ),
               ],
             ),
@@ -1156,7 +1162,8 @@ class _MechanicFormDialogState extends State<_MechanicFormDialog> {
     _phone = TextEditingController(text: m?.phone ?? '');
     _shopName = TextEditingController(text: m?.shopName ?? '');
     _creditLimit = TextEditingController(
-        text: m == null ? '0' : _numText(m.creditLimit));
+      text: m == null ? '0' : _numText(m.creditLimit),
+    );
     _note = TextEditingController(text: m?.note ?? '');
   }
 
@@ -1342,9 +1349,9 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
     );
     if (!mounted) return;
     Navigator.of(context).pop(true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('รับชำระ ${baht(amt)} เรียบร้อย')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('รับชำระ ${baht(amt)} เรียบร้อย')));
   }
 
   @override
@@ -1375,8 +1382,10 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('ยอดค้างปัจจุบัน',
-                            style: theme.textTheme.bodySmall),
+                        Text(
+                          'ยอดค้างปัจจุบัน',
+                          style: theme.textTheme.bodySmall,
+                        ),
                         Text(
                           baht(_balance),
                           style: const TextStyle(
@@ -1393,8 +1402,10 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('ยอดค้างหลังรับชำระ',
-                              style: theme.textTheme.bodySmall),
+                          Text(
+                            'ยอดค้างหลังรับชำระ',
+                            style: theme.textTheme.bodySmall,
+                          ),
                           Text(
                             baht(after),
                             style: TextStyle(
@@ -1512,8 +1523,10 @@ class _QuickChip extends StatelessWidget {
         foregroundColor: theme.hintColor,
         side: BorderSide(color: theme.dividerColor),
       ),
-      child: Text(label,
-          style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+      child: Text(
+        label,
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+      ),
     );
   }
 }
@@ -1539,9 +1552,7 @@ class _MethodButton extends StatelessWidget {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: active ? _saleOrange : Colors.transparent,
-          border: Border.all(
-            color: active ? _saleOrange : theme.dividerColor,
-          ),
+          border: Border.all(color: active ? _saleOrange : theme.dividerColor),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
@@ -1622,9 +1633,7 @@ class AppTextFieldLite extends StatelessWidget {
             helperText: helperText,
             errorText: errorText,
             isDense: true,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
         ),
       ],

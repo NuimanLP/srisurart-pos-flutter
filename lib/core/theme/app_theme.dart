@@ -18,9 +18,7 @@ class AppTheme {
       surface: AppColors.surfaceLight,
       error: AppColors.error,
     );
-    return _base(scheme).copyWith(
-      scaffoldBackgroundColor: AppColors.offWhite,
-    );
+    return _base(scheme).copyWith(scaffoldBackgroundColor: AppColors.offWhite);
   }
 
   static ThemeData get dark {
@@ -32,9 +30,7 @@ class AppTheme {
       surface: AppColors.surfaceDark,
       error: AppColors.error,
     );
-    return _base(scheme).copyWith(
-      scaffoldBackgroundColor: AppColors.bgDark,
-    );
+    return _base(scheme).copyWith(scaffoldBackgroundColor: AppColors.bgDark);
   }
 
   static ThemeData _base(ColorScheme scheme) {

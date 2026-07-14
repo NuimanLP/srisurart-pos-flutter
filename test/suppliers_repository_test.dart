@@ -26,33 +26,39 @@ void main() {
     await db.close();
   });
 
-  test('seed data: 6 suppliers, getSuppliersForProduct filters by product',
-      () async {
-    expect(await repo.getSuppliers(), hasLength(6));
+  test(
+    'seed data: 6 suppliers, getSuppliersForProduct filters by product',
+    () async {
+      expect(await repo.getSuppliers(), hasLength(6));
 
-    final forP1 = await repo.getSuppliersForProduct('p1');
-    expect(forP1.map((s) => s.name).toSet(),
-        {'Honda Parts Center', 'Auto Zone TH'});
+      final forP1 = await repo.getSuppliersForProduct('p1');
+      expect(forP1.map((s) => s.name).toSet(), {
+        'Honda Parts Center',
+        'Auto Zone TH',
+      });
 
-    expect(await repo.getSuppliersForProduct('no_such_product'), isEmpty);
-  });
+      expect(await repo.getSuppliersForProduct('no_such_product'), isEmpty);
+    },
+  );
 
-  test('addSupplier assigns sup-prefixed id and defaults freight to 0',
-      () async {
-    final row = await repo.addSupplier(
-      productId: 'p3',
-      name: 'ร้านอะไหล่ตลาดใหม่',
-      unitCost: 99.5,
-    );
+  test(
+    'addSupplier assigns sup-prefixed id and defaults freight to 0',
+    () async {
+      final row = await repo.addSupplier(
+        productId: 'p3',
+        name: 'ร้านอะไหล่ตลาดใหม่',
+        unitCost: 99.5,
+      );
 
-    expect(row.id, startsWith('sup'));
-    expect(row.freight, 0);
+      expect(row.id, startsWith('sup'));
+      expect(row.freight, 0);
 
-    final stored = (await repo.getSuppliersForProduct('p3')).single;
-    expect(stored.name, 'ร้านอะไหล่ตลาดใหม่');
-    expect(stored.unitCost, 99.5);
-    expect(stored.freight, 0);
-  });
+      final stored = (await repo.getSuppliersForProduct('p3')).single;
+      expect(stored.name, 'ร้านอะไหล่ตลาดใหม่');
+      expect(stored.unitCost, 99.5);
+      expect(stored.freight, 0);
+    },
+  );
 
   test('updateSupplier patches only the passed fields', () async {
     final row = await repo.addSupplier(

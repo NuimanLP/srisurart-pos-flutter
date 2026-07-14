@@ -16,20 +16,23 @@ class SettingsRepository {
   /// The settings singleton (row id = 0). Seeded on first create, so it always
   /// exists on a normal install.
   Future<SettingsRowData> getSettings() async {
-    return (db.select(db.settingsRow)..where((t) => t.id.equals(0)))
-        .getSingle();
+    return (db.select(
+      db.settingsRow,
+    )..where((t) => t.id.equals(0))).getSingle();
   }
 
   /// A stream of the settings singleton — for screens that react to changes.
   Stream<SettingsRowData> watchSettings() {
-    return (db.select(db.settingsRow)..where((t) => t.id.equals(0)))
-        .watchSingle();
+    return (db.select(
+      db.settingsRow,
+    )..where((t) => t.id.equals(0))).watchSingle();
   }
 
   /// Merge a patch into the settings row. Pass only the fields to change.
   /// Mirrors db.js updateSettings({ ...current, ...patch }).
   Future<void> updateSettings(SettingsRowCompanion patch) async {
-    await (db.update(db.settingsRow)..where((t) => t.id.equals(0)))
-        .write(patch);
+    await (db.update(
+      db.settingsRow,
+    )..where((t) => t.id.equals(0))).write(patch);
   }
 }

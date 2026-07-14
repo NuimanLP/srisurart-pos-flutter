@@ -37,10 +37,12 @@ void main() {
   });
 
   test('updateSettings merges the patch, untouched fields survive', () async {
-    await repo.updateSettings(const SettingsRowCompanion(
-      shopName: Value('ร้านใหม่'),
-      phone: Value('099-999-9999'),
-    ));
+    await repo.updateSettings(
+      const SettingsRowCompanion(
+        shopName: Value('ร้านใหม่'),
+        phone: Value('099-999-9999'),
+      ),
+    );
 
     final s = await repo.getSettings();
     expect(s.shopName, 'ร้านใหม่');
@@ -52,8 +54,7 @@ void main() {
     expect(s.cashierName, 'แคชเชียร์');
   });
 
-  test('watchSettings emits the seeded row, then re-emits on update',
-      () async {
+  test('watchSettings emits the seeded row, then re-emits on update', () async {
     final emissions = repo.watchSettings().take(2).toList();
 
     // Let the first emission land before patching.

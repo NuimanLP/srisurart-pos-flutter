@@ -23,26 +23,19 @@ import '../../data/repositories/suppliers_repository.dart';
 /// Wired via `MultiRepositoryProvider` in main.dart, alongside (not instead of)
 /// the existing `ProviderScope`.
 List<RepositoryProvider> repositoryProviders(AppDatabase db) => [
-      RepositoryProvider<ProductsRepository>.value(
-          value: ProductsRepository(db)),
-      RepositoryProvider<CustomersRepository>.value(
-          value: CustomersRepository(db)),
-      RepositoryProvider<MechanicsRepository>.value(
-          value: MechanicsRepository(db)),
-      RepositoryProvider<SalesRepository>.value(value: SalesRepository(db)),
-      RepositoryProvider<ReturnsRepository>.value(
-          value: ReturnsRepository(db)),
-      RepositoryProvider<PurchaseOrdersRepository>.value(
-          value: PurchaseOrdersRepository(db)),
-      RepositoryProvider<QuotesRepository>.value(value: QuotesRepository(db)),
-      RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
-      RepositoryProvider<MovementsRepository>.value(
-          value: MovementsRepository(db)),
-      RepositoryProvider<SuppliersRepository>.value(
-          value: SuppliersRepository(db)),
-      RepositoryProvider<SettingsRepository>.value(
-          value: SettingsRepository(db)),
-      RepositoryProvider<SnapshotRepository>.value(
-          value: SnapshotRepository(db)),
-      RepositoryProvider<ShiftsRepository>.value(value: ShiftsRepository(db)),
-    ];
+  RepositoryProvider<ProductsRepository>.value(value: ProductsRepository(db)),
+  RepositoryProvider<CustomersRepository>.value(value: CustomersRepository(db)),
+  RepositoryProvider<MechanicsRepository>.value(value: MechanicsRepository(db)),
+  RepositoryProvider<SalesRepository>.value(value: SalesRepository(db)),
+  RepositoryProvider<ReturnsRepository>.value(value: ReturnsRepository(db)),
+  RepositoryProvider<PurchaseOrdersRepository>.value(
+    value: PurchaseOrdersRepository(db),
+  ),
+  RepositoryProvider<QuotesRepository>.value(value: QuotesRepository(db)),
+  RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
+  RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
+  RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
+  RepositoryProvider<SettingsRepository>.value(value: SettingsRepository(db)),
+  RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db)),
+  RepositoryProvider<ShiftsRepository>.value(value: ShiftsRepository(db)),
+];

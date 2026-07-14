@@ -123,7 +123,8 @@ class QuoteA4View extends StatelessWidget {
 
   pw.Widget _headerBand(SettingsRowData s, pw.Font cond) {
     final taxId = s.taxId;
-    final phoneLine = 'โทร ${s.phone ?? ''}'
+    final phoneLine =
+        'โทร ${s.phone ?? ''}'
         '${(taxId != null && taxId.isNotEmpty) ? ' · เลขประจำตัวผู้เสียภาษี $taxId' : ''}';
     return pw.Container(
       padding: const pw.EdgeInsets.only(bottom: 14),
@@ -138,36 +139,48 @@ class QuoteA4View extends StatelessWidget {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text(s.shopName,
-                    style: pw.TextStyle(
-                        font: cond, fontSize: 22, color: _navy)),
-                pw.Text(s.shopNameEN.toUpperCase(),
-                    style: pw.TextStyle(
-                        font: cond,
-                        fontSize: 12,
-                        color: _orange,
-                        letterSpacing: 2.2)),
+                pw.Text(
+                  s.shopName,
+                  style: pw.TextStyle(font: cond, fontSize: 22, color: _navy),
+                ),
+                pw.Text(
+                  s.shopNameEN.toUpperCase(),
+                  style: pw.TextStyle(
+                    font: cond,
+                    fontSize: 12,
+                    color: _orange,
+                    letterSpacing: 2.2,
+                  ),
+                ),
                 pw.SizedBox(height: 4),
                 if ((s.address ?? '').isNotEmpty)
-                  pw.Text(s.address!,
-                      style:
-                          const pw.TextStyle(fontSize: 9, color: _gray)),
-                pw.Text(phoneLine,
-                    style: const pw.TextStyle(fontSize: 9, color: _gray)),
+                  pw.Text(
+                    s.address!,
+                    style: const pw.TextStyle(fontSize: 9, color: _gray),
+                  ),
+                pw.Text(
+                  phoneLine,
+                  style: const pw.TextStyle(fontSize: 9, color: _gray),
+                ),
               ],
             ),
           ),
           pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.end,
             children: [
-              pw.Text('ใบเสนอราคา',
-                  style: pw.TextStyle(font: cond, fontSize: 28, color: _navy)),
-              pw.Text('QUOTATION',
-                  style: pw.TextStyle(
-                      font: cond,
-                      fontSize: 12,
-                      color: _orange,
-                      letterSpacing: 3.2)),
+              pw.Text(
+                'ใบเสนอราคา',
+                style: pw.TextStyle(font: cond, fontSize: 28, color: _navy),
+              ),
+              pw.Text(
+                'QUOTATION',
+                style: pw.TextStyle(
+                  font: cond,
+                  fontSize: 12,
+                  color: _orange,
+                  letterSpacing: 3.2,
+                ),
+              ),
             ],
           ),
         ],
@@ -199,8 +212,10 @@ class QuoteA4View extends StatelessWidget {
                 style: pw.TextStyle(font: semi, fontSize: 14, color: _navy),
               ),
               if ((quote.customerPhone ?? '').isNotEmpty)
-                pw.Text('โทร ${quote.customerPhone}',
-                    style: const pw.TextStyle(fontSize: 10, color: _gray)),
+                pw.Text(
+                  'โทร ${quote.customerPhone}',
+                  style: const pw.TextStyle(fontSize: 10, color: _gray),
+                ),
             ],
           ),
         ),
@@ -224,31 +239,41 @@ class QuoteA4View extends StatelessWidget {
                 pw.Container(
                   margin: const pw.EdgeInsets.only(top: 8),
                   padding: const pw.EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 3),
+                    horizontal: 10,
+                    vertical: 3,
+                  ),
                   decoration: pw.BoxDecoration(
                     color: const PdfColor.fromInt(0xFFE5F0DD),
                     borderRadius: pw.BorderRadius.circular(12),
                   ),
-                  child: pw.Text('✓ แปลงเป็นการขายแล้ว',
-                      style: pw.TextStyle(
-                          font: semi,
-                          fontSize: 10,
-                          color: const PdfColor.fromInt(0xFF3A6D1F))),
+                  child: pw.Text(
+                    '✓ แปลงเป็นการขายแล้ว',
+                    style: pw.TextStyle(
+                      font: semi,
+                      fontSize: 10,
+                      color: const PdfColor.fromInt(0xFF3A6D1F),
+                    ),
+                  ),
                 ),
               if (isExpired && !converted)
                 pw.Container(
                   margin: const pw.EdgeInsets.only(top: 8),
                   padding: const pw.EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 3),
+                    horizontal: 10,
+                    vertical: 3,
+                  ),
                   decoration: pw.BoxDecoration(
                     color: const PdfColor.fromInt(0xFFFBE5E2),
                     borderRadius: pw.BorderRadius.circular(12),
                   ),
-                  child: pw.Text('⏱ หมดอายุ',
-                      style: pw.TextStyle(
-                          font: semi,
-                          fontSize: 10,
-                          color: const PdfColor.fromInt(0xFFA12818))),
+                  child: pw.Text(
+                    '⏱ หมดอายุ',
+                    style: pw.TextStyle(
+                      font: semi,
+                      fontSize: 10,
+                      color: const PdfColor.fromInt(0xFFA12818),
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -258,10 +283,14 @@ class QuoteA4View extends StatelessWidget {
   }
 
   pw.Widget _metaLabel(String t, pw.Font cond) => pw.Text(
-        t.toUpperCase(),
-        style: pw.TextStyle(
-            font: cond, fontSize: 9, color: _steel, letterSpacing: 1.6),
-      );
+    t.toUpperCase(),
+    style: pw.TextStyle(
+      font: cond,
+      fontSize: 9,
+      color: _steel,
+      letterSpacing: 1.6,
+    ),
+  );
 
   pw.Widget _metaRow(
     String label,
@@ -277,17 +306,25 @@ class QuoteA4View extends StatelessWidget {
         mainAxisAlignment: pw.MainAxisAlignment.end,
         crossAxisAlignment: pw.CrossAxisAlignment.end,
         children: [
-          pw.Text(label,
-              style: pw.TextStyle(
-                  font: cond, fontSize: 9, color: _steel, letterSpacing: 1.6)),
+          pw.Text(
+            label,
+            style: pw.TextStyle(
+              font: cond,
+              fontSize: 9,
+              color: _steel,
+              letterSpacing: 1.6,
+            ),
+          ),
           pw.SizedBox(width: 10),
-          pw.Text(value,
-              style: pw.TextStyle(
-                fontSize: 11,
-                font: valueFont,
-                color: valueColor ?? _navy,
-                fontWeight: valueBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-              )),
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontSize: 11,
+              font: valueFont,
+              color: valueColor ?? _navy,
+              fontWeight: valueBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+            ),
+          ),
         ],
       ),
     );
@@ -298,9 +335,15 @@ class QuoteA4View extends StatelessWidget {
         pw.Container(
           alignment: align,
           padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-          child: pw.Text(t.toUpperCase(),
-              style: pw.TextStyle(
-                  font: cond, fontSize: 9, color: _steel, letterSpacing: 1.4)),
+          child: pw.Text(
+            t.toUpperCase(),
+            style: pw.TextStyle(
+              font: cond,
+              fontSize: 9,
+              color: _steel,
+              letterSpacing: 1.4,
+            ),
+          ),
         );
 
     final rows = <pw.TableRow>[
@@ -324,20 +367,26 @@ class QuoteA4View extends StatelessWidget {
       rows.add(
         pw.TableRow(
           decoration: const pw.BoxDecoration(
-            border:
-                pw.Border(bottom: pw.BorderSide(color: _itemBorder, width: 1)),
+            border: pw.Border(
+              bottom: pw.BorderSide(color: _itemBorder, width: 1),
+            ),
           ),
           children: [
             _td('${i + 1}', align: pw.Alignment.center, color: _steel),
             pw.Padding(
               padding: const pw.EdgeInsets.all(8),
-              child: pw.Text(it.name,
-                  style: pw.TextStyle(font: semi, fontSize: 11, color: _navy)),
+              child: pw.Text(
+                it.name,
+                style: pw.TextStyle(font: semi, fontSize: 11, color: _navy),
+              ),
             ),
             _td('${it.qty}', align: pw.Alignment.center),
             _td(_money(it.price), align: pw.Alignment.centerRight),
-            _td(_money(it.qty * it.price),
-                align: pw.Alignment.centerRight, font: semi),
+            _td(
+              _money(it.qty * it.price),
+              align: pw.Alignment.centerRight,
+              font: semi,
+            ),
           ],
         ),
       );
@@ -355,15 +404,19 @@ class QuoteA4View extends StatelessWidget {
     );
   }
 
-  pw.Widget _td(String t,
-          {pw.Alignment align = pw.Alignment.centerLeft,
-          PdfColor color = _navy,
-          pw.Font? font}) =>
-      pw.Container(
-        alignment: align,
-        padding: const pw.EdgeInsets.all(8),
-        child: pw.Text(t, style: pw.TextStyle(fontSize: 11, color: color, font: font)),
-      );
+  pw.Widget _td(
+    String t, {
+    pw.Alignment align = pw.Alignment.centerLeft,
+    PdfColor color = _navy,
+    pw.Font? font,
+  }) => pw.Container(
+    alignment: align,
+    padding: const pw.EdgeInsets.all(8),
+    child: pw.Text(
+      t,
+      style: pw.TextStyle(fontSize: 11, color: color, font: font),
+    ),
+  );
 
   pw.Widget _totalsRow(int validDays, pw.Font cond) {
     final notes = (quote.notes != null && quote.notes!.isNotEmpty)
@@ -380,23 +433,34 @@ class QuoteA4View extends StatelessWidget {
               _metaLabel('หมายเหตุ · NOTES', cond),
               pw.SizedBox(height: 4),
               pw.Container(
-                padding:
-                    const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const pw.EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: const pw.BoxDecoration(
                   color: _cream,
-                  border: pw.Border(left: pw.BorderSide(color: _orange, width: 3)),
+                  border: pw.Border(
+                    left: pw.BorderSide(color: _orange, width: 3),
+                  ),
                 ),
-                child: pw.Text(notes,
-                    style: const pw.TextStyle(fontSize: 10, color: _navy)),
+                child: pw.Text(
+                  notes,
+                  style: const pw.TextStyle(fontSize: 10, color: _navy),
+                ),
               ),
               pw.SizedBox(height: 8),
               pw.Text(
-                  '• ใบเสนอราคามีอายุ $validDays วัน นับจากวันที่ออก',
-                  style: const pw.TextStyle(fontSize: 9, color: _gray)),
-              pw.Text('• ราคาอาจเปลี่ยนแปลงตามต้นทุน หากเกินกำหนดอายุ',
-                  style: const pw.TextStyle(fontSize: 9, color: _gray)),
-              pw.Text('• สินค้าตามใบเสนอราคานี้ ยังไม่ได้ตัดสต็อก',
-                  style: const pw.TextStyle(fontSize: 9, color: _gray)),
+                '• ใบเสนอราคามีอายุ $validDays วัน นับจากวันที่ออก',
+                style: const pw.TextStyle(fontSize: 9, color: _gray),
+              ),
+              pw.Text(
+                '• ราคาอาจเปลี่ยนแปลงตามต้นทุน หากเกินกำหนดอายุ',
+                style: const pw.TextStyle(fontSize: 9, color: _gray),
+              ),
+              pw.Text(
+                '• สินค้าตามใบเสนอราคานี้ ยังไม่ได้ตัดสต็อก',
+                style: const pw.TextStyle(fontSize: 9, color: _gray),
+              ),
             ],
           ),
         ),
@@ -408,22 +472,32 @@ class QuoteA4View extends StatelessWidget {
           child: pw.Column(
             children: [
               _totLine('ยอดรวม', _money(quote.subtotal ?? 0)),
-              if (discount > 0)
-                _totLine('ส่วนลด', '-${_money(discount)}'),
+              if (discount > 0) _totLine('ส่วนลด', '-${_money(discount)}'),
               pw.Container(
                 margin: const pw.EdgeInsets.only(top: 8),
                 padding: const pw.EdgeInsets.only(top: 8),
                 decoration: const pw.BoxDecoration(
-                  border:
-                      pw.Border(top: pw.BorderSide(color: _navy, width: 2)),
+                  border: pw.Border(top: pw.BorderSide(color: _navy, width: 2)),
                 ),
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('รวมทั้งสิ้น',
-                        style: pw.TextStyle(font: cond, fontSize: 16, color: _orange)),
-                    pw.Text(_money(quote.total ?? 0),
-                        style: pw.TextStyle(font: cond, fontSize: 16, color: _orange)),
+                    pw.Text(
+                      'รวมทั้งสิ้น',
+                      style: pw.TextStyle(
+                        font: cond,
+                        fontSize: 16,
+                        color: _orange,
+                      ),
+                    ),
+                    pw.Text(
+                      _money(quote.total ?? 0),
+                      style: pw.TextStyle(
+                        font: cond,
+                        fontSize: 16,
+                        color: _orange,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -435,44 +509,52 @@ class QuoteA4View extends StatelessWidget {
   }
 
   pw.Widget _totLine(String label, String value) => pw.Padding(
-        padding: const pw.EdgeInsets.only(bottom: 5),
-        child: pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Text(label, style: const pw.TextStyle(fontSize: 11, color: _navy)),
-            pw.Text(value, style: const pw.TextStyle(fontSize: 11, color: _navy)),
-          ],
-        ),
-      );
+    padding: const pw.EdgeInsets.only(bottom: 5),
+    child: pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(label, style: const pw.TextStyle(fontSize: 11, color: _navy)),
+        pw.Text(value, style: const pw.TextStyle(fontSize: 11, color: _navy)),
+      ],
+    ),
+  );
 
   pw.Widget _signatures(pw.Font cond) {
     pw.Widget col(String label) => pw.Expanded(
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              pw.Container(
-                height: 32,
-                margin: const pw.EdgeInsets.only(bottom: 8),
-                decoration: const pw.BoxDecoration(
-                  border:
-                      pw.Border(bottom: pw.BorderSide(color: _gray, width: 1)),
-                ),
-              ),
-              pw.Text(label,
-                  style: pw.TextStyle(
-                      font: cond, fontSize: 10, color: _navy, letterSpacing: 1.6)),
-              pw.SizedBox(height: 4),
-              pw.Text('วันที่ ........../........../..........',
-                  style: const pw.TextStyle(fontSize: 9, color: _steel)),
-            ],
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Container(
+            height: 32,
+            margin: const pw.EdgeInsets.only(bottom: 8),
+            decoration: const pw.BoxDecoration(
+              border: pw.Border(bottom: pw.BorderSide(color: _gray, width: 1)),
+            ),
           ),
-        );
+          pw.Text(
+            label,
+            style: pw.TextStyle(
+              font: cond,
+              fontSize: 10,
+              color: _navy,
+              letterSpacing: 1.6,
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(
+            'วันที่ ........../........../..........',
+            style: const pw.TextStyle(fontSize: 9, color: _steel),
+          ),
+        ],
+      ),
+    );
     return pw.Container(
       margin: const pw.EdgeInsets.only(top: 2),
       padding: const pw.EdgeInsets.only(top: 18),
       decoration: const pw.BoxDecoration(
         border: pw.Border(
-            top: pw.BorderSide(color: PdfColor.fromInt(0xFFC9BFA8), width: 1)),
+          top: pw.BorderSide(color: PdfColor.fromInt(0xFFC9BFA8), width: 1),
+        ),
       ),
       child: pw.Row(
         children: [

@@ -56,8 +56,7 @@ class CustomersRepository {
     );
 
     await db.into(db.customers).insert(row);
-    return (db.select(db.customers)..where((t) => t.id.equals(id)))
-        .getSingle();
+    return (db.select(db.customers)..where((t) => t.id.equals(id))).getSingle();
   }
 
   Future<void> updateCustomer(String id, CustomersCompanion patch) async {

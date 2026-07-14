@@ -89,7 +89,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Future<void> _handleDelete(CustomerRow c, int billCount) async {
     final msg = billCount > 0
         ? 'ลบลูกค้า "${c.nameTH}"?\n\n'
-            'ลูกค้ารายนี้มี $billCount บิล (ประวัติการขายจะยังคงอยู่ แต่ไม่มีชื่อลูกค้าผูก)'
+              'ลูกค้ารายนี้มี $billCount บิล (ประวัติการขายจะยังคงอยู่ แต่ไม่มีชื่อลูกค้าผูก)'
         : 'ลบลูกค้า "${c.nameTH}"?';
     final repo = context.read<CustomersRepository>();
     final ok = await showConfirm(context, 'ลบลูกค้า', msg, danger: true);
@@ -112,8 +112,10 @@ class _CustomersScreenState extends State<CustomersScreen> {
           }
           final data = snap.data!;
           final filtered = _filter(data.customers);
-          final totalSpend =
-              data.customers.fold<double>(0, (s, c) => s + c.totalSpend);
+          final totalSpend = data.customers.fold<double>(
+            0,
+            (s, c) => s + c.totalSpend,
+          );
           return Column(
             children: [
               _TopBar(
@@ -555,9 +557,9 @@ class _CustomerEditorDialogState extends State<_CustomerEditorDialog> {
 
   Future<void> _save() async {
     if (_nameTH.text.trim().isEmpty && _name.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณากรอกชื่อลูกค้า')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('กรุณากรอกชื่อลูกค้า')));
       return;
     }
     setState(() => _saving = true);
@@ -566,12 +568,14 @@ class _CustomerEditorDialogState extends State<_CustomerEditorDialog> {
     final address = _address.text;
     try {
       if (_isNew) {
-        await repo.addCustomer(CustomersCompanion(
-          name: Value(_name.text),
-          nameTH: Value(_nameTH.text),
-          phone: Value(phone.isEmpty ? null : phone),
-          address: Value(address.isEmpty ? null : address),
-        ));
+        await repo.addCustomer(
+          CustomersCompanion(
+            name: Value(_name.text),
+            nameTH: Value(_nameTH.text),
+            phone: Value(phone.isEmpty ? null : phone),
+            address: Value(address.isEmpty ? null : address),
+          ),
+        );
       } else {
         await repo.updateCustomer(
           widget.customer!.id,
@@ -594,8 +598,9 @@ class _CustomerEditorDialogState extends State<_CustomerEditorDialog> {
     // On phones the AlertDialog's 40dp insets leave < 334dp, so a fixed 460dp
     // child overflows — let it size to the available width below 520dp. scrollable
     // keeps the fields reachable above the soft keyboard on short screens.
-    final dialogWidth =
-        MediaQuery.sizeOf(context).width < 520 ? double.maxFinite : 460.0;
+    final dialogWidth = MediaQuery.sizeOf(context).width < 520
+        ? double.maxFinite
+        : 460.0;
     return AlertDialog(
       scrollable: true,
       title: Text(_isNew ? 'เพิ่มลูกค้าใหม่' : 'แก้ไขข้อมูลลูกค้า'),

@@ -33,8 +33,9 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  testWidgets('a staged quote is loaded into the cart on checkout mount',
-      (tester) async {
+  testWidgets('a staged quote is loaded into the cart on checkout mount', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -58,17 +59,23 @@ void main() {
 
       // Save a real quote referencing it, then read it back as the aggregate
       // QuotesManager would hand off.
-      await quotesRepo.saveQuote(QuoteInput(
-            subtotal: p.price * 2,
-            discount: 10,
-            total: p.price * 2 - 10,
-            customerName: '',
-            customerPhone: '',
-            items: [
-              QuoteLineInput(
-                  productId: p.id, name: p.name, qty: 2, price: p.price),
-            ],
-          ));
+      await quotesRepo.saveQuote(
+        QuoteInput(
+          subtotal: p.price * 2,
+          discount: 10,
+          total: p.price * 2 - 10,
+          customerName: '',
+          customerPhone: '',
+          items: [
+            QuoteLineInput(
+              productId: p.id,
+              name: p.name,
+              qty: 2,
+              price: p.price,
+            ),
+          ],
+        ),
+      );
       final quotes = await quotesRepo.getQuotes();
       final QuoteWithItems qi = quotes.first;
 
@@ -102,8 +109,9 @@ void main() {
     });
   });
 
-  testWidgets('over-stock quote qty is clamped to available stock on load',
-      (tester) async {
+  testWidgets('over-stock quote qty is clamped to available stock on load', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -125,17 +133,23 @@ void main() {
       final p = products.firstWhere((x) => x.stock > 0);
       final overQty = p.stock + 5;
 
-      await quotesRepo.saveQuote(QuoteInput(
-            subtotal: p.price * overQty,
-            discount: 0,
-            total: p.price * overQty,
-            customerName: '',
-            customerPhone: '',
-            items: [
-              QuoteLineInput(
-                  productId: p.id, name: p.name, qty: overQty, price: p.price),
-            ],
-          ));
+      await quotesRepo.saveQuote(
+        QuoteInput(
+          subtotal: p.price * overQty,
+          discount: 0,
+          total: p.price * overQty,
+          customerName: '',
+          customerPhone: '',
+          items: [
+            QuoteLineInput(
+              productId: p.id,
+              name: p.name,
+              qty: overQty,
+              price: p.price,
+            ),
+          ],
+        ),
+      );
       final qi = (await quotesRepo.getQuotes()).first;
       pendingQuoteCubit.set(qi);
 
@@ -155,8 +169,11 @@ void main() {
 
       final cart = cartCubit.state;
       expect(cart, hasLength(1));
-      expect(cart.first.qty, p.stock,
-          reason: 'qty must be clamped to current stock (validateItems)');
+      expect(
+        cart.first.qty,
+        p.stock,
+        reason: 'qty must be clamped to current stock (validateItems)',
+      );
 
       await tester.takeException();
     });

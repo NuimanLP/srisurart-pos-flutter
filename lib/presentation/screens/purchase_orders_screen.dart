@@ -205,9 +205,7 @@ class _PoListView extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           decoration: BoxDecoration(
             border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).dividerColor,
-              ),
+              bottom: BorderSide(color: Theme.of(context).dividerColor),
             ),
           ),
           child: Row(
@@ -218,7 +216,9 @@ class _PoListView extends StatelessWidget {
                   children: [
                     Flexible(
                       child: _Stat(
-                          value: '${pos.length}', label: 'ใบสั่งซื้อทั้งหมด'),
+                        value: '${pos.length}',
+                        label: 'ใบสั่งซื้อทั้งหมด',
+                      ),
                     ),
                     const SizedBox(width: 28),
                     Flexible(
@@ -353,14 +353,16 @@ class _PoCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       po.supplier,
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       '${data.items.length} รายการ · ${thaiDate(po.createdAt)}',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: AppColors.steelBlue),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.steelBlue,
+                      ),
                     ),
                   ],
                 ),
@@ -468,9 +470,11 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
     final q = _partSearch.toLowerCase();
     if (q.isEmpty) return const [];
     return widget.products
-        .where((p) =>
-            p.name.toLowerCase().contains(q) ||
-            p.partNo.toLowerCase().contains(q))
+        .where(
+          (p) =>
+              p.name.toLowerCase().contains(q) ||
+              p.partNo.toLowerCase().contains(q),
+        )
         .take(5)
         .toList();
   }
@@ -484,12 +488,14 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
       if (ex != null) {
         ex.qty += 1;
       } else {
-        _items.add(_DraftItem(
-          partNo: product.partNo,
-          name: product.name,
-          qty: 1,
-          cost: product.cost,
-        ));
+        _items.add(
+          _DraftItem(
+            partNo: product.partNo,
+            name: product.name,
+            qty: 1,
+            cost: product.cost,
+          ),
+        );
       }
       _partSearch = '';
       _searchCtrl.clear();
@@ -505,18 +511,20 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
     setState(() => _busy = true);
     try {
       await context.read<PurchaseOrdersRepository>().savePO(
-            PoInput(
-              supplier: _supplier,
-              items: _items
-                  .map((i) => PoLineInput(
-                        partNo: i.partNo,
-                        name: i.name,
-                        qty: i.qty,
-                        cost: i.cost,
-                      ))
-                  .toList(),
-            ),
-          );
+        PoInput(
+          supplier: _supplier,
+          items: _items
+              .map(
+                (i) => PoLineInput(
+                  partNo: i.partNo,
+                  name: i.name,
+                  qty: i.qty,
+                  cost: i.cost,
+                ),
+              )
+              .toList(),
+        ),
+      );
       if (mounted) Navigator.of(context).pop(true);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -539,9 +547,9 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                 'สร้างใบสั่งซื้อใหม่ · New Purchase Order',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 18),
               Flexible(
@@ -578,7 +586,9 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                                   onTap: () => _addItem(p),
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 12),
+                                      horizontal: 14,
+                                      vertical: 12,
+                                    ),
                                     child: Row(
                                       children: [
                                         Expanded(child: Text(p.name)),

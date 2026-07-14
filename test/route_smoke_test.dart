@@ -108,11 +108,14 @@ void main() {
                 child: MultiBlocProvider(
                   providers: [
                     BlocProvider<ThemeModeCubit>(
-                        create: (_) => ThemeModeCubit()),
+                      create: (_) => ThemeModeCubit(),
+                    ),
                     BlocProvider<FontScaleCubit>(
-                        create: (_) => FontScaleCubit()),
+                      create: (_) => FontScaleCubit(),
+                    ),
                     BlocProvider<PendingQuoteCubit>(
-                        create: (_) => PendingQuoteCubit()),
+                      create: (_) => PendingQuoteCubit(),
+                    ),
                     BlocProvider<CartCubit>(create: (_) => CartCubit()),
                   ],
                   child: MaterialApp(

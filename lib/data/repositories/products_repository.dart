@@ -76,14 +76,16 @@ class ProductsRepository {
   }
 
   Stream<List<ProductRow>> watchAll() {
-    return db.select(db.products).watch().map(
-          (rows) => rows.map(_migrate).toList(),
-        );
+    return db
+        .select(db.products)
+        .watch()
+        .map((rows) => rows.map(_migrate).toList());
   }
 
   Future<ProductRow?> getById(String id) async {
-    final row = await (db.select(db.products)..where((t) => t.id.equals(id)))
-        .getSingleOrNull();
+    final row = await (db.select(
+      db.products,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
     return row == null ? null : _migrate(row);
   }
 
@@ -98,10 +100,7 @@ class ProductsRepository {
     final dup = existing.any((x) => x.partNo.toLowerCase() == lower);
     if (dup) return null;
 
-    final row = data.copyWith(
-      id: Value(newId('p')),
-      partNo: Value(partNo),
-    );
+    final row = data.copyWith(id: Value(newId('p')), partNo: Value(partNo));
     return db.into(db.products).insertReturning(row);
   }
 
@@ -111,8 +110,9 @@ class ProductsRepository {
     if (patch.partNo.present) {
       final newPart = patch.partNo.value.trim().toLowerCase();
       final all = await db.select(db.products).get();
-      final collides =
-          all.any((p) => p.id != id && p.partNo.toLowerCase() == newPart);
+      final collides = all.any(
+        (p) => p.id != id && p.partNo.toLowerCase() == newPart,
+      );
       if (collides) return false;
     }
     await (db.update(db.products)..where((t) => t.id.equals(id))).write(patch);
@@ -131,13 +131,14 @@ class ProductsRepository {
     String type,
     String? note,
   ) async {
-    final p = await (db.select(db.products)
-          ..where((t) => t.id.equals(productId)))
-        .getSingleOrNull();
+    final p = await (db.select(
+      db.products,
+    )..where((t) => t.id.equals(productId))).getSingleOrNull();
     if (p == null) return;
     final newStock = (p.stock + delta) < 0 ? 0 : (p.stock + delta);
-    await (db.update(db.products)..where((t) => t.id.equals(productId)))
-        .write(ProductsCompanion(stock: Value(newStock)));
+    await (db.update(db.products)..where((t) => t.id.equals(productId))).write(
+      ProductsCompanion(stock: Value(newStock)),
+    );
     await MovementsRepository(db).addMovement(
       productId: productId,
       partNo: p.partNo,
@@ -151,9 +152,9 @@ class ProductsRepository {
 
   /// db.js getCategories: Categories ordered by position; SEED_CATEGORIES if empty.
   Future<List<String>> getCategories() async {
-    final rows = await (db.select(db.categories)
-          ..orderBy([(t) => OrderingTerm.asc(t.position)]))
-        .get();
+    final rows = await (db.select(
+      db.categories,
+    )..orderBy([(t) => OrderingTerm.asc(t.position)])).get();
     if (rows.isEmpty) return List<String>.from(seedCategories);
     return rows.map((r) => r.name).toList();
   }
@@ -162,9 +163,9 @@ class ProductsRepository {
   Future<void> addCategory(String name) async {
     final t = name.trim();
     if (t.isEmpty) return;
-    final rows = await (db.select(db.categories)
-          ..orderBy([(c) => OrderingTerm.asc(c.position)]))
-        .get();
+    final rows = await (db.select(
+      db.categories,
+    )..orderBy([(c) => OrderingTerm.asc(c.position)])).get();
     if (rows.any((c) => c.name == t)) return;
     final nextPos = rows.isEmpty ? 0 : rows.last.position + 1;
     await db

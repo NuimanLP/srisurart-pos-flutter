@@ -66,11 +66,7 @@ class StatusChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: c,
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
-        ),
+        style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
   }

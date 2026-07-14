@@ -30,10 +30,12 @@ bool lowStockShownThisSession = false;
 
 /// Splits products into out-of-stock and low-stock buckets (db.js logic).
 ({List<ProductRow> out, List<ProductRow> low}) lowStockBuckets(
-    List<ProductRow> products) {
+  List<ProductRow> products,
+) {
   final out = products.where((p) => p.stock == 0).toList();
-  final low =
-      products.where((p) => p.stock > 0 && p.stock <= p.minStock).toList();
+  final low = products
+      .where((p) => p.stock > 0 && p.stock <= p.minStock)
+      .toList();
   return (out: out, low: low);
 }
 
@@ -121,13 +123,16 @@ class _LowStockBannerState extends State<LowStockBanner> {
     final now = DateTime.now();
 
     pw.Widget sectionTitle(String t) => pw.Padding(
-          padding: const pw.EdgeInsets.only(top: 6, bottom: 2),
-          child: pw.Text(t,
-              style: pw.TextStyle(
-                  fontSize: 8,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.grey700)),
-        );
+      padding: const pw.EdgeInsets.only(top: 6, bottom: 2),
+      child: pw.Text(
+        t,
+        style: pw.TextStyle(
+          fontSize: 8,
+          fontWeight: pw.FontWeight.bold,
+          color: PdfColors.grey700,
+        ),
+      ),
+    );
 
     pw.Widget row(ProductRow p, {required bool isOut}) {
       final color = isOut
@@ -136,7 +141,8 @@ class _LowStockBannerState extends State<LowStockBanner> {
       return pw.Container(
         decoration: const pw.BoxDecoration(
           border: pw.Border(
-              bottom: pw.BorderSide(width: 0.5, color: PdfColors.grey300)),
+            bottom: pw.BorderSide(width: 0.5, color: PdfColors.grey300),
+          ),
         ),
         padding: const pw.EdgeInsets.symmetric(vertical: 2),
         child: pw.Row(
@@ -146,30 +152,42 @@ class _LowStockBannerState extends State<LowStockBanner> {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text(p.name,
-                      style: pw.TextStyle(fontSize: 9, color: color)),
-                  pw.Text(p.partNo,
-                      style: const pw.TextStyle(
-                          fontSize: 7,
-                          color: PdfColor.fromInt(0xFFE8601C))),
+                  pw.Text(
+                    p.name,
+                    style: pw.TextStyle(fontSize: 9, color: color),
+                  ),
+                  pw.Text(
+                    p.partNo,
+                    style: const pw.TextStyle(
+                      fontSize: 7,
+                      color: PdfColor.fromInt(0xFFE8601C),
+                    ),
+                  ),
                 ],
               ),
             ),
             pw.SizedBox(
               width: 22,
-              child: pw.Text('${p.stock}',
-                  textAlign: pw.TextAlign.center,
-                  style: pw.TextStyle(
-                      fontSize: 9,
-                      fontWeight: pw.FontWeight.bold,
-                      color: const PdfColor.fromInt(0xFFC0392B))),
+              child: pw.Text(
+                '${p.stock}',
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(
+                  fontSize: 9,
+                  fontWeight: pw.FontWeight.bold,
+                  color: const PdfColor.fromInt(0xFFC0392B),
+                ),
+              ),
             ),
             pw.SizedBox(
               width: 24,
-              child: pw.Text('/${p.minStock}',
-                  textAlign: pw.TextAlign.center,
-                  style: const pw.TextStyle(
-                      fontSize: 9, color: PdfColors.grey700)),
+              child: pw.Text(
+                '/${p.minStock}',
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(
+                  fontSize: 9,
+                  color: PdfColors.grey700,
+                ),
+              ),
             ),
           ],
         ),
@@ -179,7 +197,11 @@ class _LowStockBannerState extends State<LowStockBanner> {
     doc.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.roll80.copyWith(
-            marginTop: 8, marginBottom: 8, marginLeft: 8, marginRight: 8),
+          marginTop: 8,
+          marginBottom: 8,
+          marginLeft: 8,
+          marginRight: 8,
+        ),
         theme: pw.ThemeData.withFont(base: font, bold: fontB),
         build: (context) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -187,24 +209,31 @@ class _LowStockBannerState extends State<LowStockBanner> {
             pw.Container(
               decoration: const pw.BoxDecoration(
                 border: pw.Border(
-                    bottom: pw.BorderSide(width: 2, color: _navyPdf)),
+                  bottom: pw.BorderSide(width: 2, color: _navyPdf),
+                ),
               ),
               padding: const pw.EdgeInsets.only(bottom: 4),
               child: pw.Center(
-                child: pw.Text('⚠ แจ้งเตือนสต็อกต่ำ',
-                    style: pw.TextStyle(
-                        fontSize: 14,
-                        fontWeight: pw.FontWeight.bold,
-                        color: _navyPdf)),
+                child: pw.Text(
+                  '⚠ แจ้งเตือนสต็อกต่ำ',
+                  style: pw.TextStyle(
+                    fontSize: 14,
+                    fontWeight: pw.FontWeight.bold,
+                    color: _navyPdf,
+                  ),
+                ),
               ),
             ),
             pw.SizedBox(height: 4),
             pw.Center(
               child: pw.Text(
-                  'Low Stock Alert · ${thaiDateTime(now)} · ศรีสุราษฎร์เจริญยนต์',
-                  textAlign: pw.TextAlign.center,
-                  style: const pw.TextStyle(
-                      fontSize: 7, color: PdfColors.grey700)),
+                'Low Stock Alert · ${thaiDateTime(now)} · ศรีสุราษฎร์เจริญยนต์',
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(
+                  fontSize: 7,
+                  color: PdfColors.grey700,
+                ),
+              ),
             ),
             if (widget.outOfStock.isNotEmpty) ...[
               sectionTitle('❌ หมดสต็อก (${widget.outOfStock.length} รายการ)'),
@@ -216,9 +245,10 @@ class _LowStockBannerState extends State<LowStockBanner> {
             ],
             pw.SizedBox(height: 10),
             pw.Center(
-              child: pw.Text('พิมพ์เพื่อส่งซัพพลายเออร์ · Print for supplier order',
-                  style: const pw.TextStyle(
-                      fontSize: 7, color: PdfColors.grey)),
+              child: pw.Text(
+                'พิมพ์เพื่อส่งซัพพลายเออร์ · Print for supplier order',
+                style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey),
+              ),
             ),
           ],
         ),
@@ -264,14 +294,16 @@ class _LowStockBannerState extends State<LowStockBanner> {
                       children: [
                         Text(
                           'แจ้งเตือนสต็อก · Stock Alert',
-                          style: theme.textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'พบ $outN รายการหมด + $lowN รายการต่ำกว่าขั้นต่ำ',
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: AppColors.steelBlue),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.steelBlue,
+                          ),
                         ),
                       ],
                     ),
@@ -297,8 +329,12 @@ class _LowStockBannerState extends State<LowStockBanner> {
                         count: outN,
                         rows: [
                           for (final p in widget.outOfStock)
-                            _row(theme, p,
-                                statusColor: _outColor, statusLabel: 'OUT'),
+                            _row(
+                              theme,
+                              p,
+                              statusColor: _outColor,
+                              statusLabel: 'OUT',
+                            ),
                         ],
                       ),
                     if (lowN > 0)
@@ -309,9 +345,12 @@ class _LowStockBannerState extends State<LowStockBanner> {
                         count: lowN,
                         rows: [
                           for (final p in widget.lowStock)
-                            _row(theme, p,
-                                statusColor: _lowColor,
-                                statusLabel: '${p.stock}/${p.minStock}'),
+                            _row(
+                              theme,
+                              p,
+                              statusColor: _lowColor,
+                              statusLabel: '${p.stock}/${p.minStock}',
+                            ),
                         ],
                       ),
                   ],
@@ -333,10 +372,11 @@ class _LowStockBannerState extends State<LowStockBanner> {
                     visible > 0
                         ? 'ยังมี $visible รายการที่ยังไม่ได้จัดการ'
                         : (_printed
-                            ? '✓ ส่งใบสั่งซื้อไปยังหน้าต่างพิมพ์แล้ว'
-                            : '✓ จัดการทุกรายการแล้ว'),
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: AppColors.steelBlue),
+                              ? '✓ ส่งใบสั่งซื้อไปยังหน้าต่างพิมพ์แล้ว'
+                              : '✓ จัดการทุกรายการแล้ว'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppColors.steelBlue,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Wrap(
@@ -350,8 +390,9 @@ class _LowStockBannerState extends State<LowStockBanner> {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Text('🖨 พิมพ์ใบสั่งซื้อ'),
                       ),
@@ -397,12 +438,19 @@ class _LowStockBannerState extends State<LowStockBanner> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(titleLeft,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700, color: titleColor)),
-                Text('$count รายการ',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: AppColors.steelBlue)),
+                Text(
+                  titleLeft,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: titleColor,
+                  ),
+                ),
+                Text(
+                  '$count รายการ',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.steelBlue,
+                  ),
+                ),
               ],
             ),
           ),
@@ -432,8 +480,7 @@ class _LowStockBannerState extends State<LowStockBanner> {
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 96),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
                   color: _pillColor(p.category),
                   borderRadius: BorderRadius.circular(3),
@@ -444,10 +491,11 @@ class _LowStockBannerState extends State<LowStockBanner> {
                   softWrap: false,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8),
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
                 ),
               ),
             ),
@@ -457,23 +505,30 @@ class _LowStockBannerState extends State<LowStockBanner> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(p.name,
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  Text(
+                    p.name,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   const SizedBox(height: 2),
                   Text.rich(
-                    TextSpan(children: [
-                      TextSpan(text: '${p.nameTH} · '),
-                      TextSpan(
-                        text: p.partNo,
-                        style: const TextStyle(
+                    TextSpan(
+                      children: [
+                        TextSpan(text: '${p.nameTH} · '),
+                        TextSpan(
+                          text: p.partNo,
+                          style: const TextStyle(
                             fontFamily: 'monospace',
                             color: _partColor,
-                            fontSize: 11),
-                      ),
-                    ]),
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: AppColors.steelBlue),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppColors.steelBlue,
+                    ),
                   ),
                 ],
               ),
@@ -485,15 +540,22 @@ class _LowStockBannerState extends State<LowStockBanner> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(statusLabel,
-                      style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 20,
-                          height: 1,
-                          color: statusColor)),
-                  Text('Min: ${p.minStock}',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: AppColors.steelBlue, fontSize: 11)),
+                  Text(
+                    statusLabel,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                      height: 1,
+                      color: statusColor,
+                    ),
+                  ),
+                  Text(
+                    'Min: ${p.minStock}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppColors.steelBlue,
+                      fontSize: 11,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -505,10 +567,11 @@ class _LowStockBannerState extends State<LowStockBanner> {
               icon: Text(
                 dismissed ? '✓' : '○',
                 style: TextStyle(
-                    fontSize: 16,
-                    color: dismissed
-                        ? const Color(0xFF5A9E2F)
-                        : AppColors.steelBlue),
+                  fontSize: 16,
+                  color: dismissed
+                      ? const Color(0xFF5A9E2F)
+                      : AppColors.steelBlue,
+                ),
               ),
             ),
           ],
@@ -517,4 +580,3 @@ class _LowStockBannerState extends State<LowStockBanner> {
     );
   }
 }
-

@@ -29,7 +29,6 @@ import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
 import '../widgets/empty_state.dart';
 
-
 /// Aggregated read-model for the cash-drawer screen.
 class _DrawerData {
   /// The active shift for TODAY, or null (no shift opened today).
@@ -44,20 +43,26 @@ class _DrawerData {
     required this.cashCreditPaymentsToday,
   });
 
-  double get totalOut => round2((shift?.entries ?? [])
-      .where((e) => e.type == 'out')
-      .fold<double>(0, (s, e) => s + e.amount));
-  double get totalIn => round2((shift?.entries ?? [])
-      .where((e) => e.type == 'in')
-      .fold<double>(0, (s, e) => s + e.amount));
+  double get totalOut => round2(
+    (shift?.entries ?? [])
+        .where((e) => e.type == 'out')
+        .fold<double>(0, (s, e) => s + e.amount),
+  );
+  double get totalIn => round2(
+    (shift?.entries ?? [])
+        .where((e) => e.type == 'in')
+        .fold<double>(0, (s, e) => s + e.amount),
+  );
   double get startingCash => shift?.shift.startingCash ?? 0;
 
-  double get expectedCash => round2(startingCash +
-      cashSalesTotal +
-      cashCreditPaymentsToday -
-      cashRefundsToday -
-      totalOut +
-      totalIn);
+  double get expectedCash => round2(
+    startingCash +
+        cashSalesTotal +
+        cashCreditPaymentsToday -
+        cashRefundsToday -
+        totalOut +
+        totalIn,
+  );
 }
 
 class CashDrawerScreen extends StatefulWidget {
@@ -93,21 +98,23 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final today = todayKey();
     final drawer = await shiftsRepo.getCashDrawer();
     // db.js: only treat the drawer as today's shift if its date matches today.
-    final shift =
-        (drawer != null && drawer.shift.dateStr == today) ? drawer : null;
+    final shift = (drawer != null && drawer.shift.dateStr == today)
+        ? drawer
+        : null;
 
     final salesAgg = await salesRepo.getSales();
     final cashSalesTotal = salesAgg
-        .where((s) =>
-            dateKey(s.sale.date) == today &&
-            s.sale.paymentMethod == 'เงินสด')
+        .where(
+          (s) =>
+              dateKey(s.sale.date) == today && s.sale.paymentMethod == 'เงินสด',
+        )
         .fold<double>(0, (sum, s) => sum + s.sale.total);
 
     final returns = await returnsRepo.getReturns();
     final cashRefundsToday = returns
-        .where((r) =>
-            dateKey(r.ret.date) == today &&
-            r.ret.refundMethod == 'เงินสด')
+        .where(
+          (r) => dateKey(r.ret.date) == today && r.ret.refundMethod == 'เงินสด',
+        )
         .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
     // The Drift CreditPayments table has no `method` column (the JS filtered
@@ -189,8 +196,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     }
   }
 
-  String _clean(Object e) =>
-      e.toString().replaceFirst('Exception: ', '');
+  String _clean(Object e) => e.toString().replaceFirst('Exception: ', '');
 
   void _toast(String msg) {
     if (!mounted) return;
@@ -241,13 +247,19 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('💵 ลิ้นชักเงินสด · Cash Drawer',
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w800)),
+                  Text(
+                    '💵 ลิ้นชักเงินสด · Cash Drawer',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                   const SizedBox(height: 3),
-                  Text(_thaiDateLong(now),
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: AppColors.steelBlue)),
+                  Text(
+                    _thaiDateLong(now),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppColors.steelBlue,
+                    ),
+                  ),
                 ],
               ),
               AppButton.secondary(
@@ -258,9 +270,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
           ),
         ),
         Expanded(
-          child: d.shift == null
-              ? _noShift(context)
-              : _shiftOpen(context, d),
+          child: d.shift == null ? _noShift(context) : _shiftOpen(context, d),
         ),
       ],
     );
@@ -277,13 +287,19 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
           children: [
             const Text('💰', style: TextStyle(fontSize: 48)),
             const SizedBox(height: 12),
-            Text('ยังไม่ได้เปิดร้านวันนี้',
-                style: theme.textTheme.titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w700)),
+            Text(
+              'ยังไม่ได้เปิดร้านวันนี้',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 6),
-            Text('กรอกเงินตั้งต้นในลิ้นชักก่อนเริ่มขาย',
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: AppColors.steelBlue)),
+            Text(
+              'กรอกเงินตั้งต้นในลิ้นชักก่อนเริ่มขาย',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.steelBlue,
+              ),
+            ),
             const SizedBox(height: 20),
             Wrap(
               alignment: WrapAlignment.center,
@@ -291,21 +307,29 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
               spacing: 10,
               runSpacing: 10,
               children: [
-                Text('เงินตั้งต้น ฿',
-                    style: theme.textTheme.labelLarge
-                        ?.copyWith(color: AppColors.steelBlue)),
+                Text(
+                  'เงินตั้งต้น ฿',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: AppColors.steelBlue,
+                  ),
+                ),
                 SizedBox(
                   width: 160,
                   child: TextField(
                     controller: _startCtl,
                     autofocus: true,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     textAlign: TextAlign.right,
                     style: const TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.w700),
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                    ),
                     decoration: const InputDecoration(
-                        isDense: true, hintText: '0'),
+                      isDense: true,
+                      hintText: '0',
+                    ),
                     onSubmitted: (_) => _handleOpen(),
                   ),
                 ),
@@ -320,8 +344,12 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
             Wrap(
               spacing: 8,
               children: [500, 1000, 2000, 3000]
-                  .map((n) => _quickChip(
-                      baht(n), () => setState(() => _startCtl.text = '$n')))
+                  .map(
+                    (n) => _quickChip(
+                      baht(n),
+                      () => setState(() => _startCtl.text = '$n'),
+                    ),
+                  )
                   .toList(),
             ),
           ],
@@ -391,25 +419,27 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final closed = shift.shift.closedAt != null;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
-      child: LayoutBuilder(builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 760;
-        final left = _drawerLeft(context, d, closed);
-        final right = _drawerRight(context, d);
-        if (wide) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: left),
-              const SizedBox(width: 24),
-              SizedBox(width: 300, child: right),
-            ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 760;
+          final left = _drawerLeft(context, d, closed);
+          final right = _drawerRight(context, d);
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: left),
+                const SizedBox(width: 24),
+                SizedBox(width: 300, child: right),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [left, const SizedBox(height: 24), right],
           );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [left, const SizedBox(height: 24), right],
-        );
-      }),
+        },
+      ),
     );
   }
 
@@ -432,8 +462,11 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
           children: [
             _summCard('เงินตั้งต้น', d.startingCash, AppColors.steelBlue),
             _summCard('ยอดขายเงินสด', d.cashSalesTotal, AppColors.successLight),
-            _summCard('รับชำระเครดิต (สด)', d.cashCreditPaymentsToday,
-                AppColors.successLight),
+            _summCard(
+              'รับชำระเครดิต (สด)',
+              d.cashCreditPaymentsToday,
+              AppColors.successLight,
+            ),
             _summCard('คืนเงินสด', d.cashRefundsToday, AppColors.error),
             _summCard('เงินออก', d.totalOut, AppColors.error),
             _summCard('เงินเข้า (เพิ่ม)', d.totalIn, AppColors.warning),
@@ -452,22 +485,28 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Flexible(
-                child: Text('เงินในลิ้นชักที่ควรมี',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: AppColors.steelBlue)),
+                child: Text(
+                  'เงินในลิ้นชักที่ควรมี',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppColors.steelBlue,
+                  ),
+                ),
               ),
               const SizedBox(width: 8),
               Flexible(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerRight,
-                  child: Text(baht(d.expectedCash),
-                      maxLines: 1,
-                      softWrap: false,
-                      style: theme.textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800)),
+                  child: Text(
+                    baht(d.expectedCash),
+                    maxLines: 1,
+                    softWrap: false,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -483,16 +522,13 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _sectionTitle(
-                    'บันทึกการเคลื่อนเงิน${closed ? ' — ปิดลิ้นชักแล้ว' : ''}'),
+                  'บันทึกการเคลื่อนเงิน${closed ? ' — ปิดลิ้นชักแล้ว' : ''}',
+                ),
                 Row(
                   children: [
-                    Expanded(
-                      child: _typeButton('💸 เงินออก', 'out'),
-                    ),
+                    Expanded(child: _typeButton('💸 เงินออก', 'out')),
                     const SizedBox(width: 8),
-                    Expanded(
-                      child: _typeButton('💰 เงินเข้า', 'in'),
-                    ),
+                    Expanded(child: _typeButton('💰 เงินเข้า', 'in')),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -504,12 +540,17 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                       child: TextField(
                         controller: _amountCtl,
                         keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
+                          decimal: true,
+                        ),
                         textAlign: TextAlign.right,
                         style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w700),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
                         decoration: const InputDecoration(
-                            isDense: true, hintText: 'จำนวนเงิน'),
+                          isDense: true,
+                          hintText: 'จำนวนเงิน',
+                        ),
                         onSubmitted: (_) => _handleAddEntry(d),
                       ),
                     ),
@@ -519,7 +560,8 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                         controller: _noteCtl,
                         decoration: const InputDecoration(
                           isDense: true,
-                          hintText: 'หมายเหตุ เช่น จ่ายซัพ / เติมทอน / ค่าน้ำมัน',
+                          hintText:
+                              'หมายเหตุ เช่น จ่ายซัพ / เติมทอน / ค่าน้ำมัน',
                         ),
                         onSubmitted: (_) => _handleAddEntry(d),
                       ),
@@ -536,8 +578,12 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   spacing: 6,
                   runSpacing: 6,
                   children: [100, 200, 500, 1000, 2000]
-                      .map((n) => _quickChip(baht(n),
-                          () => setState(() => _amountCtl.text = '$n')))
+                      .map(
+                        (n) => _quickChip(
+                          baht(n),
+                          () => setState(() => _amountCtl.text = '$n'),
+                        ),
+                      )
                       .toList(),
                 ),
               ],
@@ -560,8 +606,9 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             'เปิดร้าน ${_hhmm(shift.shift.openedAt)} · ตั้งต้น ${baht(d.startingCash)}',
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: AppColors.steelBlue),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppColors.steelBlue,
+            ),
           ),
         ),
         if (entries.isEmpty)
@@ -595,18 +642,28 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(note,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600)),
-                Text(_hhmm(e.createdAt),
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: AppColors.steelBlue)),
+                Text(
+                  note,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  _hhmm(e.createdAt),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.steelBlue,
+                  ),
+                ),
               ],
             ),
           ),
-          Text('${isOut ? '−' : '+'}${baht(e.amount)}',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700, color: accent)),
+          Text(
+            '${isOut ? '−' : '+'}${baht(e.amount)}',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
         ],
       ),
     );
@@ -623,13 +680,13 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final varColor = variance == 0
         ? AppColors.successLight
         : variance > 0
-            ? AppColors.warning
-            : AppColors.error;
+        ? AppColors.warning
+        : AppColors.error;
     final varLabel = variance == 0
         ? '✓ ตรงยอด'
         : variance > 0
-            ? 'เงินเกิน +${baht(variance.abs())}'
-            : 'เงินขาด −${baht(variance.abs())}';
+        ? 'เงินเกิน +${baht(variance.abs())}'
+        : 'เงินขาด −${baht(variance.abs())}';
 
     // The breakdown rows (label, value, alwaysShow) — filter like the JSX.
     final rows = <List<Object>>[
@@ -653,45 +710,56 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 Container(
                   margin: const EdgeInsets.only(bottom: 16),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.successLight.withValues(alpha: 0.12),
                     border: Border.all(
-                        color: AppColors.successLight.withValues(alpha: 0.4)),
+                      color: AppColors.successLight.withValues(alpha: 0.4),
+                    ),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     '✓ ปิดลิ้นชักแล้วเวลา ${_hhmm(shift.shift.closedAt!)} · นับจริง ${baht(shift.shift.physicalCash ?? 0)}',
                     style: theme.textTheme.bodyMedium?.copyWith(
-                        color: AppColors.successLight,
-                        fontWeight: FontWeight.w600),
+                      color: AppColors.successLight,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               _sectionTitle('สรุปยอดเงินสด'),
               for (final r in rows)
                 Container(
                   decoration: BoxDecoration(
-                    border:
-                        Border(bottom: BorderSide(color: theme.dividerColor)),
+                    border: Border(
+                      bottom: BorderSide(color: theme.dividerColor),
+                    ),
                   ),
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
-                        child: Text(r[0] as String,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium
-                                ?.copyWith(color: AppColors.steelBlue)),
+                        child: Text(
+                          r[0] as String,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppColors.steelBlue,
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Flexible(
-                        child: Text(baht(r[1] as double),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: theme.textTheme.bodyMedium
-                                ?.copyWith(fontWeight: FontWeight.w700)),
+                        child: Text(
+                          baht(r[1] as double),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -699,7 +767,8 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
               Container(
                 decoration: BoxDecoration(
                   border: Border(
-                      top: BorderSide(color: theme.dividerColor, width: 2)),
+                    top: BorderSide(color: theme.dividerColor, width: 2),
+                  ),
                 ),
                 margin: const EdgeInsets.only(top: 4),
                 padding: const EdgeInsets.symmetric(vertical: 10),
@@ -707,19 +776,25 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
-                      child: Text('เงินที่ควรมีในลิ้นชัก',
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700)),
+                      child: Text(
+                        'เงินที่ควรมีในลิ้นชัก',
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Flexible(
-                      child: Text(baht(d.expectedCash),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.right,
-                          style: theme.textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w700)),
+                      child: Text(
+                        baht(d.expectedCash),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -728,13 +803,15 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
               _fieldLabel('นับเงินสดจริงได้ ฿'),
               TextField(
                 controller: _physCtl,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 textAlign: TextAlign.right,
-                style:
-                    const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
-                decoration:
-                    const InputDecoration(isDense: true, hintText: '0'),
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                ),
+                decoration: const InputDecoration(isDense: true, hintText: '0'),
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 10),
@@ -742,7 +819,9 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 Container(
                   margin: const EdgeInsets.only(bottom: 14),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: varColor.withValues(alpha: 0.12),
                     border: Border.all(color: varColor, width: 2),
@@ -751,18 +830,24 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('ผลต่าง',
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700)),
+                      Text(
+                        'ผลต่าง',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       Flexible(
-                        child: Text(varLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.right,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: varColor)),
+                        child: Text(
+                          varLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: varColor,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -782,38 +867,48 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
 
   // ── small reusable widgets ─────────────────────────────────────────────
   Widget _summCard(String label, double value, Color color) {
-    return Builder(builder: (context) {
-      final theme = Theme.of(context);
-      return Container(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          border: Border.all(color: theme.dividerColor),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(baht(value),
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        return Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border.all(color: theme.dividerColor),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  baht(value),
                   maxLines: 1,
                   softWrap: false,
                   style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800, color: color, height: 1)),
-            ),
-            const SizedBox(height: 3),
-            Text(label,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                    height: 1,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: AppColors.steelBlue)),
-          ],
-        ),
-      );
-    });
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.steelBlue,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Widget _typeButton(String label, String value) {
@@ -833,73 +928,95 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         fg = const Color(0xFF81C784);
       }
     }
-    return Builder(builder: (context) {
-      final theme = Theme.of(context);
-      return InkWell(
-        onTap: () => setState(() => _entryType = value),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 9),
-          decoration: BoxDecoration(
-            color: bg ?? theme.colorScheme.surface,
-            border: Border.all(color: border ?? theme.dividerColor),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          alignment: Alignment.center,
-          child: Text(label,
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        return InkWell(
+          onTap: () => setState(() => _entryType = value),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            decoration: BoxDecoration(
+              color: bg ?? theme.colorScheme.surface,
+              border: Border.all(color: border ?? theme.dividerColor),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              label,
               style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: fg ?? AppColors.steelBlue)),
-        ),
-      );
-    });
+                fontWeight: FontWeight.w700,
+                color: fg ?? AppColors.steelBlue,
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _quickChip(String label, VoidCallback onTap) {
-    return Builder(builder: (context) {
-      final theme = Theme.of(context);
-      return InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            border: Border.all(color: theme.dividerColor),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(label,
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        return InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              border: Border.all(color: theme.dividerColor),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              label,
               style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w700, color: AppColors.steelBlue)),
-        ),
-      );
-    });
+                fontWeight: FontWeight.w700,
+                color: AppColors.steelBlue,
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
-  Widget _sectionTitle(String title) => Builder(builder: (context) {
-        final theme = Theme.of(context);
-        return Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.only(bottom: 6),
-          decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: theme.dividerColor)),
+  Widget _sectionTitle(String title) => Builder(
+    builder: (context) {
+      final theme = Theme.of(context);
+      return Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.only(bottom: 6),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: theme.dividerColor)),
+        ),
+        child: Text(
+          title,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.4,
+            color: AppColors.steelBlue,
           ),
-          child: Text(title,
-              style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.4,
-                  color: AppColors.steelBlue)),
-        );
-      });
+        ),
+      );
+    },
+  );
 
-  Widget _fieldLabel(String text) => Builder(builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 5),
-          child: Text(text,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w700, color: AppColors.steelBlue)),
-        );
-      });
+  Widget _fieldLabel(String text) => Builder(
+    builder: (context) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 5),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: AppColors.steelBlue,
+          ),
+        ),
+      );
+    },
+  );
 }
 
 // ── date/time helpers (long Thai date for the header) ────────────────────────

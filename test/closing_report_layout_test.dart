@@ -32,8 +32,9 @@ void main() {
   for (final size in const [Size(400, 800), Size(1280, 800)]) {
     final label = size.width == 400 ? 'phone' : 'tablet';
 
-    testWidgets('ClosingReport renders without overflow at $label',
-        (tester) async {
+    testWidgets('ClosingReport renders without overflow at $label', (
+      tester,
+    ) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {

@@ -23,7 +23,8 @@ class Products extends Table {
   IntColumn get stock => integer()();
   IntColumn get minStock => integer()();
   TextColumn get compat => text().nullable()();
-  TextColumn get zone => text().nullable()(); // legacy field, migrated to category on read
+  TextColumn get zone =>
+      text().nullable()(); // legacy field, migrated to category on read
   DateTimeColumn get updatedAt => dateTime().nullable()();
 
   @override
@@ -267,7 +268,8 @@ class DrawerEntries extends Table {
 class ParkedSales extends Table {
   TextColumn get id => text()();
   DateTimeColumn get parkedAt => dateTime()();
-  TextColumn get payload => text()(); // JSON string: items, customerId, mechanicId, discount, etc.
+  TextColumn get payload =>
+      text()(); // JSON string: items, customerId, mechanicId, discount, etc.
 
   @override
   Set<Column> get primaryKey => {id};

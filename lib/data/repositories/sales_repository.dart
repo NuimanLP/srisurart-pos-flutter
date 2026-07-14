@@ -62,42 +62,48 @@ class SalesRepository {
         if (newStock < 0) {
           throw Exception('Stock underflow on ${p.partNo} — race condition?');
         }
-        await (db.update(db.products)..where((t) => t.id.equals(p.id)))
-            .write(ProductsCompanion(stock: Value(newStock)));
+        await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
+          ProductsCompanion(stock: Value(newStock)),
+        );
       }
 
       // Customer (if any): add total to totalSpend, pointsGranted to points.
       if (input.customerId != null) {
-        final c = await (db.select(db.customers)
-              ..where((t) => t.id.equals(input.customerId!)))
-            .getSingleOrNull();
+        final c = await (db.select(
+          db.customers,
+        )..where((t) => t.id.equals(input.customerId!))).getSingleOrNull();
         if (c != null) {
-          await (db.update(db.customers)
-                ..where((t) => t.id.equals(input.customerId!)))
-              .write(CustomersCompanion(
-            totalSpend: Value(c.totalSpend + input.total),
-            points: Value(c.points + pointsGranted),
-          ));
+          await (db.update(
+            db.customers,
+          )..where((t) => t.id.equals(input.customerId!))).write(
+            CustomersCompanion(
+              totalSpend: Value(c.totalSpend + input.total),
+              points: Value(c.points + pointsGranted),
+            ),
+          );
         }
       }
 
       // Mechanic (if any).
       if (input.mechanicId != null) {
-        final m = await (db.select(db.mechanics)
-              ..where((t) => t.id.equals(input.mechanicId!)))
-            .getSingleOrNull();
+        final m = await (db.select(
+          db.mechanics,
+        )..where((t) => t.id.equals(input.mechanicId!))).getSingleOrNull();
         if (m != null) {
           final delta = input.mechanicDelta ?? 0;
           final isCredit = input.paymentMethod == 'เครดิตช่าง';
-          await (db.update(db.mechanics)
-                ..where((t) => t.id.equals(input.mechanicId!)))
-              .write(MechanicsCompanion(
-            totalSales: Value(m.totalSales + input.total),
-            totalDiscount: Value(m.totalDiscount + (delta < 0 ? -delta : 0)),
-            totalMarkup: Value(m.totalMarkup + (delta > 0 ? delta : 0)),
-            creditBalance:
-                Value(m.creditBalance + (isCredit ? input.total : 0)),
-          ));
+          await (db.update(
+            db.mechanics,
+          )..where((t) => t.id.equals(input.mechanicId!))).write(
+            MechanicsCompanion(
+              totalSales: Value(m.totalSales + input.total),
+              totalDiscount: Value(m.totalDiscount + (delta < 0 ? -delta : 0)),
+              totalMarkup: Value(m.totalMarkup + (delta > 0 ? delta : 0)),
+              creditBalance: Value(
+                m.creditBalance + (isCredit ? input.total : 0),
+              ),
+            ),
+          );
         }
       }
 
@@ -145,9 +151,9 @@ class SalesRepository {
 
   /// All sales, newest first (with their items).
   Future<List<SaleWithItems>> getSales() async {
-    final sales = await (db.select(db.sales)
-          ..orderBy([(t) => OrderingTerm.desc(t.date)]))
-        .get();
+    final sales = await (db.select(
+      db.sales,
+    )..orderBy([(t) => OrderingTerm.desc(t.date)])).get();
     return _attachItems(sales);
   }
 
@@ -160,15 +166,15 @@ class SalesRepository {
   /// Map of productId → already-refunded qty for a sale (db.js getRefundedQty).
   /// Sums ReturnItems across every Return whose saleId matches.
   Future<Map<String, int>> getRefundedQty(String saleId) async {
-    final returns = await (db.select(db.returns)
-          ..where((t) => t.saleId.equals(saleId)))
-        .get();
+    final returns = await (db.select(
+      db.returns,
+    )..where((t) => t.saleId.equals(saleId))).get();
     final result = <String, int>{};
     if (returns.isEmpty) return result;
     final returnIds = returns.map((r) => r.id).toList();
-    final items = await (db.select(db.returnItems)
-          ..where((t) => t.returnId.isIn(returnIds)))
-        .get();
+    final items = await (db.select(
+      db.returnItems,
+    )..where((t) => t.returnId.isIn(returnIds))).get();
     for (final i in items) {
       result[i.productId] = (result[i.productId] ?? 0) + i.qty;
     }
@@ -179,15 +185,13 @@ class SalesRepository {
   Future<List<SaleWithItems>> _attachItems(List<SaleRow> sales) async {
     if (sales.isEmpty) return const [];
     final ids = sales.map((s) => s.id).toList();
-    final allItems = await (db.select(db.saleItems)
-          ..where((t) => t.saleId.isIn(ids)))
-        .get();
+    final allItems = await (db.select(
+      db.saleItems,
+    )..where((t) => t.saleId.isIn(ids))).get();
     final bySale = <String, List<SaleItemRow>>{};
     for (final it in allItems) {
       (bySale[it.saleId] ??= []).add(it);
     }
-    return [
-      for (final s in sales) SaleWithItems(s, bySale[s.id] ?? const []),
-    ];
+    return [for (final s in sales) SaleWithItems(s, bySale[s.id] ?? const [])];
   }
 }

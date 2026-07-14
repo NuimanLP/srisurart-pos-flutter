@@ -124,8 +124,11 @@ class _ReportsView extends StatelessWidget {
       case _Range.today:
         return d.year == now.year && d.month == now.month && d.day == now.day;
       case _Range.week:
-        final weekAgo = DateTime(now.year, now.month, now.day)
-            .subtract(const Duration(days: 7));
+        final weekAgo = DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(const Duration(days: 7));
         return !d.isBefore(weekAgo);
       case _Range.month:
         return d.year == now.year && d.month == now.month;
@@ -147,8 +150,7 @@ class _ReportsView extends StatelessWidget {
         .where((s) => _inRange(s.sale.date, range, now))
         .toList();
 
-    final totalRevenue =
-        filtered.fold<double>(0, (s, t) => s + t.sale.total);
+    final totalRevenue = filtered.fold<double>(0, (s, t) => s + t.sale.total);
     // Credit notes in the same range reduce real revenue (partial returns AND
     // voided bills).
     final totalRefunds = data.returns
@@ -156,18 +158,20 @@ class _ReportsView extends StatelessWidget {
         .fold<double>(0, (s, r) => s + r.ret.refundTotal);
     final netRevenue = totalRevenue - totalRefunds;
     final totalTransactions = filtered.length;
-    final avgTicket =
-        totalTransactions > 0 ? (totalRevenue / totalTransactions).round() : 0;
+    final avgTicket = totalTransactions > 0
+        ? (totalRevenue / totalTransactions).round()
+        : 0;
     final totalItems = filtered.fold<int>(
-        0, (s, t) => s + t.items.fold<int>(0, (a, i) => a + i.qty));
+      0,
+      (s, t) => s + t.items.fold<int>(0, (a, i) => a + i.qty),
+    );
 
     // Top products by qty sold (keyed by partNo, like the JS).
     final soldMap = <String, _Sold>{};
     for (final t in filtered) {
       for (final item in t.items) {
         final key = item.partNo ?? '';
-        final entry =
-            soldMap.putIfAbsent(key, () => _Sold(name: item.name));
+        final entry = soldMap.putIfAbsent(key, () => _Sold(name: item.name));
         entry.qty += item.qty;
         entry.revenue += item.qty * item.price;
       }
@@ -201,16 +205,12 @@ class _ReportsView extends StatelessWidget {
     final double maxZoneVal = zones.isNotEmpty ? zones.first.value : 1.0;
 
     // Low stock alert.
-    final lowStock =
-        data.products.where((p) => p.stock <= p.minStock).toList();
+    final lowStock = data.products.where((p) => p.stock <= p.minStock).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _RangeBar(
-          range: range,
-          onChanged: onRangeChanged,
-        ),
+        _RangeBar(range: range, onChanged: onRangeChanged),
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
@@ -274,7 +274,10 @@ class _ReportsView extends StatelessWidget {
   }
 
   // ── Top Products ──────────────────────────────────────────────────────────
-  Widget _topProductsCard(BuildContext context, List<MapEntry<String, _Sold>> top) {
+  Widget _topProductsCard(
+    BuildContext context,
+    List<MapEntry<String, _Sold>> top,
+  ) {
     return _ReportCard(
       icon: Icons.emoji_events_rounded,
       iconColor: const Color(0xFFFFB300),
@@ -380,9 +383,7 @@ class _RangeBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       decoration: BoxDecoration(
-        color: isDark
-            ? AppColors.navy.withValues(alpha: 0.6)
-            : Colors.white,
+        color: isDark ? AppColors.navy.withValues(alpha: 0.6) : Colors.white,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
@@ -394,11 +395,7 @@ class _RangeBar extends StatelessWidget {
       child: Row(
         children: [
           // Report title with icon
-          Icon(
-            Icons.analytics_rounded,
-            size: 22,
-            color: AppColors.orange,
-          ),
+          Icon(Icons.analytics_rounded, size: 22, color: AppColors.orange),
           const SizedBox(width: 10),
           Flexible(
             child: Text(
@@ -468,9 +465,7 @@ class _RangeButton extends StatelessWidget {
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
       child: Material(
-        color: active
-            ? AppColors.orange
-            : Colors.transparent,
+        color: active ? AppColors.orange : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         elevation: active ? 2 : 0,
         shadowColor: AppColors.orange.withValues(alpha: 0.3),
@@ -606,16 +601,14 @@ class _StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
       decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.05)
-            : Colors.white,
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isPrimary
               ? AppColors.orange.withValues(alpha: 0.3)
               : (isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : AppColors.gray100),
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : AppColors.gray100),
           width: isPrimary ? 1.5 : 1,
         ),
         boxShadow: [
@@ -670,7 +663,8 @@ class _StatCard extends StatelessWidget {
                     style: theme.textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                       height: 1,
-                      color: valueColor ??
+                      color:
+                          valueColor ??
                           (isDark ? Colors.white : AppColors.navy),
                     ),
                   ),
@@ -681,9 +675,7 @@ class _StatCard extends StatelessWidget {
                     style: theme.textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0.8,
-                      color: isDark
-                          ? AppColors.steelBlue
-                          : AppColors.gray500,
+                      color: isDark ? AppColors.steelBlue : AppColors.gray500,
                     ),
                   ),
                   // sub lives inside the FittedBox so it scales down with the
@@ -734,9 +726,7 @@ class _ReportCard extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(maxHeight: 480),
       decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.04)
-            : Colors.white,
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isDark
@@ -902,11 +892,7 @@ class _TopProductRow extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: isTopThree
-                ? Icon(
-                    Icons.emoji_events_rounded,
-                    size: 16,
-                    color: rColor,
-                  )
+                ? Icon(Icons.emoji_events_rounded, size: 16, color: rColor)
                 : Text(
                     '$rank',
                     style: theme.textTheme.labelMedium?.copyWith(
@@ -958,8 +944,7 @@ class _TopProductRow extends StatelessWidget {
               ),
               Container(
                 margin: const EdgeInsets.only(top: 2),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
                   color: isDark
                       ? Colors.white.withValues(alpha: 0.06)
@@ -1062,10 +1047,7 @@ class _CategoryBar extends StatelessWidget {
                     height: 8,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          color,
-                          color.withValues(alpha: 0.7),
-                        ],
+                        colors: [color, color.withValues(alpha: 0.7)],
                       ),
                       borderRadius: BorderRadius.circular(4),
                       boxShadow: [
@@ -1100,17 +1082,11 @@ class _LowStockHeader extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.warning.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: AppColors.warning.withValues(alpha: 0.25),
-        ),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.25)),
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.warning_amber_rounded,
-            size: 18,
-            color: AppColors.warning,
-          ),
+          Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.warning),
           const SizedBox(width: 8),
           Text(
             'สต็อกต่ำ · Low Stock ($count)',
@@ -1156,8 +1132,9 @@ class _LowStockRow extends StatelessWidget {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: (out ? AppColors.error : AppColors.warning)
-                      .withValues(alpha: 0.4),
+                  color: (out ? AppColors.error : AppColors.warning).withValues(
+                    alpha: 0.4,
+                  ),
                   blurRadius: 4,
                 ),
               ],
@@ -1187,11 +1164,11 @@ class _LowStockRow extends StatelessWidget {
             ),
           ),
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: (out ? AppColors.error : AppColors.warning)
-                  .withValues(alpha: 0.12),
+              color: (out ? AppColors.error : AppColors.warning).withValues(
+                alpha: 0.12,
+              ),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
@@ -1294,10 +1271,7 @@ class _RecentRow extends StatelessWidget {
                       isDark: isDark,
                     ),
                     const SizedBox(width: 6),
-                    _InfoChip(
-                      label: s.paymentMethod,
-                      isDark: isDark,
-                    ),
+                    _InfoChip(label: s.paymentMethod, isDark: isDark),
                   ],
                 ),
               ],
@@ -1336,9 +1310,9 @@ class _InfoChip extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w500,
-              color: isDark ? AppColors.steelBlue : AppColors.gray500,
-            ),
+          fontWeight: FontWeight.w500,
+          color: isDark ? AppColors.steelBlue : AppColors.gray500,
+        ),
       ),
     );
   }

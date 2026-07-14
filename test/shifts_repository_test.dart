@@ -44,56 +44,70 @@ void main() {
     expect(all.single.isActive, isTrue);
   });
 
-  test('opening on a different day archives the prior (never-closed → auto)',
-      () async {
-    // Seed a prior active shift dated yesterday that was never closed.
-    final yId = await db.into(db.shifts).insert(ShiftsCompanion.insert(
-          dateStr: '2020-01-01',
-          startingCash: 500,
-          openedAt: DateTime(2020, 1, 1, 8),
-          isActive: const Value(true),
-        ));
+  test(
+    'opening on a different day archives the prior (never-closed → auto)',
+    () async {
+      // Seed a prior active shift dated yesterday that was never closed.
+      final yId = await db
+          .into(db.shifts)
+          .insert(
+            ShiftsCompanion.insert(
+              dateStr: '2020-01-01',
+              startingCash: 500,
+              openedAt: DateTime(2020, 1, 1, 8),
+              isActive: const Value(true),
+            ),
+          );
 
-    final fresh = await repo.openShift(1000);
-    expect(fresh.dateStr, today());
-    expect(fresh.isActive, isTrue);
+      final fresh = await repo.openShift(1000);
+      expect(fresh.dateStr, today());
+      expect(fresh.isActive, isTrue);
 
-    final prior = await (db.select(db.shifts)..where((t) => t.id.equals(yId)))
-        .getSingle();
-    expect(prior.isActive, isFalse);
-    expect(prior.autoArchived, isTrue);
-    expect(prior.archivedAt, isNotNull);
+      final prior = await (db.select(
+        db.shifts,
+      )..where((t) => t.id.equals(yId))).getSingle();
+      expect(prior.isActive, isFalse);
+      expect(prior.autoArchived, isTrue);
+      expect(prior.archivedAt, isNotNull);
 
-    // History contains exactly the archived prior shift.
-    final history = await repo.getShiftHistory();
-    expect(history.length, 1);
-    expect(history.single.shift.id, yId);
+      // History contains exactly the archived prior shift.
+      final history = await repo.getShiftHistory();
+      expect(history.length, 1);
+      expect(history.single.shift.id, yId);
 
-    // Active drawer is the new shift.
-    final drawer = await repo.getCashDrawer();
-    expect(drawer!.shift.id, fresh.id);
-  });
+      // Active drawer is the new shift.
+      final drawer = await repo.getCashDrawer();
+      expect(drawer!.shift.id, fresh.id);
+    },
+  );
 
-  test('opening on a different day after CLOSE archives without autoArchived',
-      () async {
-    // Prior active shift dated yesterday that WAS closed.
-    final yId = await db.into(db.shifts).insert(ShiftsCompanion.insert(
-          dateStr: '2020-01-01',
-          startingCash: 500,
-          openedAt: DateTime(2020, 1, 1, 8),
-          closedAt: Value(DateTime(2020, 1, 1, 18)),
-          physicalCash: const Value(480),
-          isActive: const Value(true),
-        ));
+  test(
+    'opening on a different day after CLOSE archives without autoArchived',
+    () async {
+      // Prior active shift dated yesterday that WAS closed.
+      final yId = await db
+          .into(db.shifts)
+          .insert(
+            ShiftsCompanion.insert(
+              dateStr: '2020-01-01',
+              startingCash: 500,
+              openedAt: DateTime(2020, 1, 1, 8),
+              closedAt: Value(DateTime(2020, 1, 1, 18)),
+              physicalCash: const Value(480),
+              isActive: const Value(true),
+            ),
+          );
 
-    await repo.openShift(1000);
+      await repo.openShift(1000);
 
-    final prior = await (db.select(db.shifts)..where((t) => t.id.equals(yId)))
-        .getSingle();
-    expect(prior.isActive, isFalse);
-    expect(prior.autoArchived, isFalse); // was closed, not auto-archived
-    expect(prior.archivedAt, isNull);
-  });
+      final prior = await (db.select(
+        db.shifts,
+      )..where((t) => t.id.equals(yId))).getSingle();
+      expect(prior.isActive, isFalse);
+      expect(prior.autoArchived, isFalse); // was closed, not auto-archived
+      expect(prior.archivedAt, isNull);
+    },
+  );
 
   test('addDrawerEntry throws with no open shift', () async {
     expect(
@@ -117,32 +131,42 @@ void main() {
     expect(drawer.entries.map((e) => e.id).toSet(), {e1.id, e2.id});
   });
 
-  test('getCashDrawer returns drawer entries newest-first by createdAt',
-      () async {
-    final s = await repo.openShift(1000);
-    // Insert with explicit, distinct createdAt timestamps to assert ordering
-    // deterministically (real inserts span milliseconds).
-    await db.into(db.drawerEntries).insert(DrawerEntryRow(
-          id: 'de_old',
-          shiftId: s.id,
-          type: 'in',
-          amount: 10,
-          note: '',
-          createdAt: DateTime(2026, 1, 1, 9),
-        ));
-    await db.into(db.drawerEntries).insert(DrawerEntryRow(
-          id: 'de_new',
-          shiftId: s.id,
-          type: 'in',
-          amount: 20,
-          note: '',
-          createdAt: DateTime(2026, 1, 1, 17),
-        ));
+  test(
+    'getCashDrawer returns drawer entries newest-first by createdAt',
+    () async {
+      final s = await repo.openShift(1000);
+      // Insert with explicit, distinct createdAt timestamps to assert ordering
+      // deterministically (real inserts span milliseconds).
+      await db
+          .into(db.drawerEntries)
+          .insert(
+            DrawerEntryRow(
+              id: 'de_old',
+              shiftId: s.id,
+              type: 'in',
+              amount: 10,
+              note: '',
+              createdAt: DateTime(2026, 1, 1, 9),
+            ),
+          );
+      await db
+          .into(db.drawerEntries)
+          .insert(
+            DrawerEntryRow(
+              id: 'de_new',
+              shiftId: s.id,
+              type: 'in',
+              amount: 20,
+              note: '',
+              createdAt: DateTime(2026, 1, 1, 17),
+            ),
+          );
 
-    final drawer = await repo.getCashDrawer();
-    expect(drawer!.entries.first.id, 'de_new');
-    expect(drawer.entries.last.id, 'de_old');
-  });
+      final drawer = await repo.getCashDrawer();
+      expect(drawer!.entries.first.id, 'de_new');
+      expect(drawer.entries.last.id, 'de_old');
+    },
+  );
 
   test('closeShift sets closedAt + physicalCash', () async {
     await repo.openShift(1000);

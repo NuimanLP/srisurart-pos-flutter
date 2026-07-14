@@ -34,13 +34,17 @@ class ThemeModeCubit extends Cubit<ThemeMode> {
     emit(next);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-        _kThemeKey, next == ThemeMode.dark ? 'dark' : 'light');
+      _kThemeKey,
+      next == ThemeMode.dark ? 'dark' : 'light',
+    );
   }
 
   Future<void> set(ThemeMode mode) async {
     emit(mode);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-        _kThemeKey, mode == ThemeMode.dark ? 'dark' : 'light');
+      _kThemeKey,
+      mode == ThemeMode.dark ? 'dark' : 'light',
+    );
   }
 }

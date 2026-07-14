@@ -23,38 +23,40 @@ void main() {
     await db.close();
   });
 
-  test('addMovement assigns mv-prefixed id, stamps now, stores verbatim',
-      () async {
-    final before = DateTime.now();
-    final row = await repo.addMovement(
-      productId: 'p1',
-      partNo: 'BP-001',
-      name: 'Brake Pad',
-      delta: -3,
-      type: 'sale',
-      note: 'ขายหน้าร้าน',
-      stockAfter: 7,
-    );
-    final after = DateTime.now();
+  test(
+    'addMovement assigns mv-prefixed id, stamps now, stores verbatim',
+    () async {
+      final before = DateTime.now();
+      final row = await repo.addMovement(
+        productId: 'p1',
+        partNo: 'BP-001',
+        name: 'Brake Pad',
+        delta: -3,
+        type: 'sale',
+        note: 'ขายหน้าร้าน',
+        stockAfter: 7,
+      );
+      final after = DateTime.now();
 
-    expect(row.id, startsWith('mv'));
-    expect(
-      row.date.isBefore(before.subtract(const Duration(seconds: 1))),
-      isFalse,
-    );
-    expect(row.date.isAfter(after.add(const Duration(seconds: 1))), isFalse);
+      expect(row.id, startsWith('mv'));
+      expect(
+        row.date.isBefore(before.subtract(const Duration(seconds: 1))),
+        isFalse,
+      );
+      expect(row.date.isAfter(after.add(const Duration(seconds: 1))), isFalse);
 
-    final stored = await repo.getMovements();
-    expect(stored, hasLength(1));
-    final s = stored.single;
-    expect(s.productId, 'p1');
-    expect(s.partNo, 'BP-001');
-    expect(s.name, 'Brake Pad');
-    expect(s.delta, -3);
-    expect(s.type, 'sale');
-    expect(s.note, 'ขายหน้าร้าน');
-    expect(s.stockAfter, 7);
-  });
+      final stored = await repo.getMovements();
+      expect(stored, hasLength(1));
+      final s = stored.single;
+      expect(s.productId, 'p1');
+      expect(s.partNo, 'BP-001');
+      expect(s.name, 'Brake Pad');
+      expect(s.delta, -3);
+      expect(s.type, 'sale');
+      expect(s.note, 'ขายหน้าร้าน');
+      expect(s.stockAfter, 7);
+    },
+  );
 
   test('addMovement allows a null note', () async {
     final row = await repo.addMovement(
@@ -82,10 +84,7 @@ void main() {
       stockAfter: 5,
       date: DateTime(2026, 1, 1, 9, 0),
     );
-    final recent = old.copyWith(
-      id: 'mv_new',
-      date: DateTime(2026, 6, 1, 9, 0),
-    );
+    final recent = old.copyWith(id: 'mv_new', date: DateTime(2026, 6, 1, 9, 0));
     await db.into(db.movements).insert(old);
     await db.into(db.movements).insert(recent);
 

@@ -97,7 +97,12 @@ Map<String, dynamic> buildLegacyBackup() {
         'status': 'open',
         'createdAt': '2024-04-20T02:00:00.000Z',
         'items': [
-          {'partNo': 'HN-15412-KVB', 'name': 'Oil Filter', 'qty': 10, 'cost': 42},
+          {
+            'partNo': 'HN-15412-KVB',
+            'name': 'Oil Filter',
+            'qty': 10,
+            'cost': 42,
+          },
         ],
       },
     ],
@@ -179,7 +184,13 @@ Map<String, dynamic> buildLegacyBackup() {
       },
     ],
     'sa_suppliers': [
-      {'id': 'sup1', 'productId': 'p1', 'name': 'Honda Parts Center', 'unitCost': 42, 'freight': 3},
+      {
+        'id': 'sup1',
+        'productId': 'p1',
+        'name': 'Honda Parts Center',
+        'unitCost': 42,
+        'freight': 3,
+      },
     ],
     'sa_categories': ['เครื่องยนต์', 'ไฟฟ้า', 'น้ำมัน', 'เบรก', 'ตัวถัง'],
     'sa_credit_payments': [
@@ -272,8 +283,12 @@ void main() {
     final bad = buildLegacyBackup()..remove('__meta');
     expect(
       () => repo.importLegacyBackup(bad),
-      throwsA(predicate((e) =>
-          e.toString().contains('ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta'))),
+      throwsA(
+        predicate(
+          (e) =>
+              e.toString().contains('ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta'),
+        ),
+      ),
     );
   });
 
@@ -304,8 +319,9 @@ void main() {
 
   test('importLegacyBackup migrates legacy zone -> category', () async {
     await repo.importLegacyBackup(buildLegacyBackup());
-    final p2 = await (db.select(db.products)..where((t) => t.id.equals('p2')))
-        .getSingle();
+    final p2 = await (db.select(
+      db.products,
+    )..where((t) => t.id.equals('p2'))).getSingle();
     // zone 'Electrical' must become category 'ไฟฟ้า'.
     expect(p2.category, 'ไฟฟ้า');
   });
@@ -313,8 +329,9 @@ void main() {
   test('importLegacyBackup nests sale items + key fields correct', () async {
     await repo.importLegacyBackup(buildLegacyBackup());
 
-    final sale =
-        await (db.select(db.sales)..where((t) => t.id.equals('s1'))).getSingle();
+    final sale = await (db.select(
+      db.sales,
+    )..where((t) => t.id.equals('s1'))).getSingle();
     expect(sale.receiptNo, 'RC12345678ABCD');
     expect(sale.total, 200);
     expect(sale.discount, 5);
@@ -323,9 +340,9 @@ void main() {
     expect(sale.pointsGranted, 20);
     expect(sale.voided, false);
 
-    final items = await (db.select(db.saleItems)
-          ..where((t) => t.saleId.equals('s1')))
-        .get();
+    final items = await (db.select(
+      db.saleItems,
+    )..where((t) => t.saleId.equals('s1'))).get();
     expect(items.length, 2);
     final oilFilter = items.firstWhere((i) => i.productId == 'p1');
     expect(oilFilter.name, 'Oil Filter');
@@ -335,21 +352,21 @@ void main() {
 
   test('active shift becomes isActive=true with its entries', () async {
     await repo.importLegacyBackup(buildLegacyBackup());
-    final active =
-        await (db.select(db.shifts)..where((t) => t.isActive.equals(true)))
-            .get();
+    final active = await (db.select(
+      db.shifts,
+    )..where((t) => t.isActive.equals(true))).get();
     expect(active.length, 1);
     expect(active.first.dateStr, '2024-05-05');
     expect(active.first.startingCash, 1000);
 
-    final entries = await (db.select(db.drawerEntries)
-          ..where((t) => t.shiftId.equals(active.first.id)))
-        .get();
+    final entries = await (db.select(
+      db.drawerEntries,
+    )..where((t) => t.shiftId.equals(active.first.id))).get();
     expect(entries.length, 2);
 
-    final history =
-        await (db.select(db.shifts)..where((t) => t.isActive.equals(false)))
-            .get();
+    final history = await (db.select(
+      db.shifts,
+    )..where((t) => t.isActive.equals(false))).get();
     expect(history.length, 1);
     expect(history.first.dateStr, '2024-05-04');
     expect(history.first.physicalCash, 950);
@@ -387,7 +404,13 @@ void main() {
     expect((sales.first as Map)['items'].length, 2);
 
     // categories is an ordered array of names
-    expect(snap['sa_categories'], ['เครื่องยนต์', 'ไฟฟ้า', 'น้ำมัน', 'เบรก', 'ตัวถัง']);
+    expect(snap['sa_categories'], [
+      'เครื่องยนต์',
+      'ไฟฟ้า',
+      'น้ำมัน',
+      'เบรก',
+      'ตัวถัง',
+    ]);
 
     // cash drawer is the single active shift object with entries[]
     final cd = snap['sa_cash_drawer'] as Map;
@@ -395,47 +418,51 @@ void main() {
     expect(cd['date'], '2024-05-05');
   });
 
-  test('round-trip: import -> export -> re-import keeps counts stable', () async {
-    await repo.importLegacyBackup(buildLegacyBackup());
+  test(
+    'round-trip: import -> export -> re-import keeps counts stable',
+    () async {
+      await repo.importLegacyBackup(buildLegacyBackup());
 
-    Future<Map<String, int>> counts() async => {
-          'products': (await db.select(db.products).get()).length,
-          'customers': (await db.select(db.customers).get()).length,
-          'sales': (await db.select(db.sales).get()).length,
-          'saleItems': (await db.select(db.saleItems).get()).length,
-          'pos': (await db.select(db.purchaseOrders).get()).length,
-          'poItems': (await db.select(db.poItems).get()).length,
-          'mechanics': (await db.select(db.mechanics).get()).length,
-          'quotes': (await db.select(db.quotes).get()).length,
-          'quoteItems': (await db.select(db.quoteItems).get()).length,
-          'returns': (await db.select(db.returns).get()).length,
-          'returnItems': (await db.select(db.returnItems).get()).length,
-          'movements': (await db.select(db.movements).get()).length,
-          'suppliers': (await db.select(db.suppliers).get()).length,
-          'categories': (await db.select(db.categories).get()).length,
-          'creditPayments': (await db.select(db.creditPayments).get()).length,
-          'parked': (await db.select(db.parkedSales).get()).length,
-          'shifts': (await db.select(db.shifts).get()).length,
-          'drawerEntries': (await db.select(db.drawerEntries).get()).length,
-        };
+      Future<Map<String, int>> counts() async => {
+        'products': (await db.select(db.products).get()).length,
+        'customers': (await db.select(db.customers).get()).length,
+        'sales': (await db.select(db.sales).get()).length,
+        'saleItems': (await db.select(db.saleItems).get()).length,
+        'pos': (await db.select(db.purchaseOrders).get()).length,
+        'poItems': (await db.select(db.poItems).get()).length,
+        'mechanics': (await db.select(db.mechanics).get()).length,
+        'quotes': (await db.select(db.quotes).get()).length,
+        'quoteItems': (await db.select(db.quoteItems).get()).length,
+        'returns': (await db.select(db.returns).get()).length,
+        'returnItems': (await db.select(db.returnItems).get()).length,
+        'movements': (await db.select(db.movements).get()).length,
+        'suppliers': (await db.select(db.suppliers).get()).length,
+        'categories': (await db.select(db.categories).get()).length,
+        'creditPayments': (await db.select(db.creditPayments).get()).length,
+        'parked': (await db.select(db.parkedSales).get()).length,
+        'shifts': (await db.select(db.shifts).get()).length,
+        'drawerEntries': (await db.select(db.drawerEntries).get()).length,
+      };
 
-    final before = await counts();
+      final before = await counts();
 
-    final exported = await repo.exportSnapshot();
-    await repo.importLegacyBackup(exported);
+      final exported = await repo.exportSnapshot();
+      await repo.importLegacyBackup(exported);
 
-    final after = await counts();
-    expect(after, before);
+      final after = await counts();
+      expect(after, before);
 
-    // active shift still exactly one after the round-trip
-    final active =
-        await (db.select(db.shifts)..where((t) => t.isActive.equals(true)))
-            .get();
-    expect(active.length, 1);
+      // active shift still exactly one after the round-trip
+      final active = await (db.select(
+        db.shifts,
+      )..where((t) => t.isActive.equals(true))).get();
+      expect(active.length, 1);
 
-    // zone migration still holds (p2 stayed in category, not zone)
-    final p2 = await (db.select(db.products)..where((t) => t.id.equals('p2')))
-        .getSingle();
-    expect(p2.category, 'ไฟฟ้า');
-  });
+      // zone migration still holds (p2 stayed in category, not zone)
+      final p2 = await (db.select(
+        db.products,
+      )..where((t) => t.id.equals('p2'))).getSingle();
+      expect(p2.category, 'ไฟฟ้า');
+    },
+  );
 }

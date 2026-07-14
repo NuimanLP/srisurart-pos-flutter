@@ -22,9 +22,9 @@ class SuppliersRepository {
   Future<List<SupplierRow>> getSuppliers() => db.select(db.suppliers).get();
 
   Future<List<SupplierRow>> getSuppliersForProduct(String productId) {
-    return (db.select(db.suppliers)
-          ..where((t) => t.productId.equals(productId)))
-        .get();
+    return (db.select(
+      db.suppliers,
+    )..where((t) => t.productId.equals(productId))).get();
   }
 
   /// Insert a supplier (id from newId('sup')) and return the stored row.

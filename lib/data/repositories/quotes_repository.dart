@@ -32,14 +32,14 @@ class QuotesRepository {
   /// All quotes newest-first (db.js prepends new quotes → order by date desc),
   /// each paired with its line items.
   Future<List<QuoteWithItems>> getQuotes() async {
-    final quotes = await (db.select(db.quotes)
-          ..orderBy([(t) => OrderingTerm.desc(t.date)]))
-        .get();
+    final quotes = await (db.select(
+      db.quotes,
+    )..orderBy([(t) => OrderingTerm.desc(t.date)])).get();
     final result = <QuoteWithItems>[];
     for (final q in quotes) {
-      final items = await (db.select(db.quoteItems)
-            ..where((t) => t.quoteId.equals(q.id)))
-          .get();
+      final items = await (db.select(
+        db.quoteItems,
+      )..where((t) => t.quoteId.equals(q.id))).get();
       result.add(QuoteWithItems(q, items));
     }
     return result;
@@ -77,7 +77,9 @@ class QuotesRepository {
     await db.transaction(() async {
       await db.into(db.quotes).insert(row);
       for (final it in input.items) {
-        await db.into(db.quoteItems).insert(
+        await db
+            .into(db.quoteItems)
+            .insert(
               QuoteItemsCompanion.insert(
                 quoteId: row.id,
                 productId: Value(it.productId),
@@ -101,12 +103,13 @@ class QuotesRepository {
   /// 'open' (db.js destructures those out then re-saveQuote). Returns the new
   /// QuoteRow, or null if the source quote does not exist.
   Future<QuoteRow?> duplicateQuote(String id) async {
-    final src = await (db.select(db.quotes)..where((t) => t.id.equals(id)))
-        .getSingleOrNull();
+    final src = await (db.select(
+      db.quotes,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
     if (src == null) return null;
-    final items = await (db.select(db.quoteItems)
-          ..where((t) => t.quoteId.equals(id)))
-        .get();
+    final items = await (db.select(
+      db.quoteItems,
+    )..where((t) => t.quoteId.equals(id))).get();
     return saveQuote(
       QuoteInput(
         subtotal: src.subtotal,
@@ -118,12 +121,14 @@ class QuotesRepository {
         validDays: src.validDays,
         status: 'open',
         items: items
-            .map((it) => QuoteLineInput(
-                  productId: it.productId,
-                  name: it.name,
-                  qty: it.qty,
-                  price: it.price,
-                ))
+            .map(
+              (it) => QuoteLineInput(
+                productId: it.productId,
+                name: it.name,
+                qty: it.qty,
+                price: it.price,
+              ),
+            )
             .toList(),
       ),
     );
@@ -134,7 +139,8 @@ class QuotesRepository {
   /// Mirrors db.js: keep converted if (convertedAt||date) > cutoff, otherwise
   /// keep if validUntil > cutoff. Returns the number of quotes removed.
   Future<int> purgeOldQuotes({int olderThanDays = 90}) async {
-    final cutoffMs = DateTime.now().millisecondsSinceEpoch - olderThanDays * _dayMs;
+    final cutoffMs =
+        DateTime.now().millisecondsSinceEpoch - olderThanDays * _dayMs;
     final all = await db.select(db.quotes).get();
     int removed = 0;
     await db.transaction(() async {

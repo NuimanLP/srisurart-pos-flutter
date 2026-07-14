@@ -176,10 +176,7 @@ class PoLineInput {
 class PoInput {
   final String supplier;
   final List<PoLineInput> items;
-  const PoInput({
-    required this.supplier,
-    required this.items,
-  });
+  const PoInput({required this.supplier, required this.items});
 }
 
 /// One quote line passed to [QuotesRepository.saveQuote].

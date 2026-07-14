@@ -157,14 +157,15 @@ class ReceiptView extends StatelessWidget {
     }
 
     Widget divider() => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Text(
-            _divider,
-            style: mono.copyWith(fontSize: 9, color: const Color(0xFF999999)),
-          ),
-        );
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Text(
+        _divider,
+        style: mono.copyWith(fontSize: 9, color: const Color(0xFF999999)),
+      ),
+    );
 
-    Widget center(String t, {double size = 10, FontWeight? w, Color? c}) => Text(
+    Widget center(String t, {double size = 10, FontWeight? w, Color? c}) =>
+        Text(
           t,
           textAlign: TextAlign.center,
           style: mono.copyWith(
@@ -182,10 +183,12 @@ class ReceiptView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Header
-          center(s.shopName,
-              size: 14,
-              w: FontWeight.w700,
-              c: const Color(0xFF111111)),
+          center(
+            s.shopName,
+            size: 14,
+            w: FontWeight.w700,
+            c: const Color(0xFF111111),
+          ),
           center(s.shopNameEN, size: 11, c: const Color(0xFF111111)),
           if ((s.address ?? '').isNotEmpty) center(s.address!),
           center('โทร ${s.phone ?? ''}'),
@@ -201,11 +204,14 @@ class ReceiptView extends StatelessWidget {
 
           // Items
           for (final it in data.items) ...[
-            Text(it.name,
-                style: mono.copyWith(fontSize: 11, fontWeight: FontWeight.w700)),
-            Text('${it.nameTH ?? ''} [${it.partNo ?? ''}]',
-                style: mono.copyWith(
-                    fontSize: 9, color: const Color(0xFF777777))),
+            Text(
+              it.name,
+              style: mono.copyWith(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+            Text(
+              '${it.nameTH ?? ''} [${it.partNo ?? ''}]',
+              style: mono.copyWith(fontSize: 9, color: const Color(0xFF777777)),
+            ),
             row('${it.qty} x ${baht(it.price)}', baht(it.qty * it.price)),
             const SizedBox(height: 2),
           ],
@@ -228,8 +234,10 @@ class ReceiptView extends StatelessWidget {
           if (isCredit)
             row('ค้างชำระ (เครดิตช่าง)', baht(sale.total))
           else ...[
-            row('ชำระ (${sale.paymentMethod})',
-                baht(data.cashReceived != 0 ? data.cashReceived : sale.total)),
+            row(
+              'ชำระ (${sale.paymentMethod})',
+              baht(data.cashReceived != 0 ? data.cashReceived : sale.total),
+            ),
             if (data.change > 0) row('เงินทอน', baht(data.change)),
           ],
           divider(),
@@ -251,9 +259,7 @@ class ReceiptView extends StatelessWidget {
   }
 
   Future<void> _print(BuildContext context) async {
-    await Printing.layoutPdf(
-      onLayout: (format) => _buildPdf(format),
-    );
+    await Printing.layoutPdf(onLayout: (format) => _buildPdf(format));
   }
 
   Future<Uint8List> _buildPdf(PdfPageFormat _) async {
@@ -268,8 +274,7 @@ class ReceiptView extends StatelessWidget {
     final base = pw.TextStyle(font: font, fontSize: 8);
     final baseB = pw.TextStyle(font: fontB, fontSize: 8);
 
-    pw.Widget row(String l, String r,
-        {bool bold = false, double size = 8}) {
+    pw.Widget row(String l, String r, {bool bold = false, double size = 8}) {
       final st = (bold ? baseB : base).copyWith(fontSize: size);
       return pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -283,23 +288,32 @@ class ReceiptView extends StatelessWidget {
     }
 
     pw.Widget divider() => pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 2),
-          child: pw.Text('-' * 40,
-              style: base.copyWith(fontSize: 6, color: PdfColors.grey600)),
-        );
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Text(
+        '-' * 40,
+        style: base.copyWith(fontSize: 6, color: PdfColors.grey600),
+      ),
+    );
 
     pw.Widget center(String t, {double size = 7, bool bold = false}) =>
         pw.Center(
-          child: pw.Text(t,
-              textAlign: pw.TextAlign.center,
-              style: (bold ? baseB : base)
-                  .copyWith(fontSize: size, color: PdfColors.grey800)),
+          child: pw.Text(
+            t,
+            textAlign: pw.TextAlign.center,
+            style: (bold ? baseB : base).copyWith(
+              fontSize: size,
+              color: PdfColors.grey800,
+            ),
+          ),
         );
 
     doc.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(58 * PdfPageFormat.mm, double.infinity,
-            marginAll: 4 * PdfPageFormat.mm),
+        pageFormat: const PdfPageFormat(
+          58 * PdfPageFormat.mm,
+          double.infinity,
+          marginAll: 4 * PdfPageFormat.mm,
+        ),
         build: (ctx) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
@@ -316,8 +330,10 @@ class ReceiptView extends StatelessWidget {
             divider(),
             for (final it in data.items) ...[
               pw.Text(it.name, style: baseB),
-              pw.Text('${it.nameTH ?? ''} [${it.partNo ?? ''}]',
-                  style: base.copyWith(fontSize: 6, color: PdfColors.grey700)),
+              pw.Text(
+                '${it.nameTH ?? ''} [${it.partNo ?? ''}]',
+                style: base.copyWith(fontSize: 6, color: PdfColors.grey700),
+              ),
               row('${it.qty} x ${baht(it.price)}', baht(it.qty * it.price)),
               pw.SizedBox(height: 2),
             ],
@@ -338,10 +354,10 @@ class ReceiptView extends StatelessWidget {
             if (isCredit)
               row('ค้างชำระ (เครดิตช่าง)', baht(sale.total))
             else ...[
-              row('ชำระ (${sale.paymentMethod})',
-                  baht(data.cashReceived != 0
-                      ? data.cashReceived
-                      : sale.total)),
+              row(
+                'ชำระ (${sale.paymentMethod})',
+                baht(data.cashReceived != 0 ? data.cashReceived : sale.total),
+              ),
               if (data.change > 0) row('เงินทอน', baht(data.change)),
             ],
             divider(),
@@ -360,4 +376,3 @@ class ReceiptView extends StatelessWidget {
     return doc.save();
   }
 }
-

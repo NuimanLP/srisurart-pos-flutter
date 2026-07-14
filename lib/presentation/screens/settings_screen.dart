@@ -75,10 +75,7 @@ Future<void> _showSavedFileDialog(
                 const SizedBox(height: 8),
                 SelectableText(
                   path,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                 ),
               ],
       ),
@@ -322,21 +319,19 @@ class _GeneralTabState extends State<_GeneralTab> {
   Future<void> _save() async {
     final taxRate = double.tryParse(_taxRate.text.trim()) ?? 7;
     final validDays = int.tryParse(_quoteValidDays.text.trim()) ?? 30;
-    await context
-        .read<SettingsRepository>()
-        .updateSettings(
-          SettingsRowCompanion(
-            shopName: Value(_shopName.text),
-            shopNameEN: Value(_shopNameEN.text),
-            phone: Value(_phone.text.isEmpty ? null : _phone.text),
-            cashierName: Value(
-              _cashierName.text.isEmpty ? null : _cashierName.text,
-            ),
-            address: Value(_address.text.isEmpty ? null : _address.text),
-            taxRate: Value(taxRate),
-            quoteValidDays: Value(validDays),
-          ),
-        );
+    await context.read<SettingsRepository>().updateSettings(
+      SettingsRowCompanion(
+        shopName: Value(_shopName.text),
+        shopNameEN: Value(_shopNameEN.text),
+        phone: Value(_phone.text.isEmpty ? null : _phone.text),
+        cashierName: Value(
+          _cashierName.text.isEmpty ? null : _cashierName.text,
+        ),
+        address: Value(_address.text.isEmpty ? null : _address.text),
+        taxRate: Value(taxRate),
+        quoteValidDays: Value(validDays),
+      ),
+    );
     if (!mounted) return;
     setState(() => _saved = true);
     Future.delayed(const Duration(seconds: 2), () {
@@ -654,8 +649,7 @@ class _FontScaleSection extends StatelessWidget {
                 child: SliderTheme(
                   data: SliderThemeData(
                     activeTrackColor: AppColors.orange,
-                    inactiveTrackColor:
-                        AppColors.orange.withValues(alpha: 0.2),
+                    inactiveTrackColor: AppColors.orange.withValues(alpha: 0.2),
                     thumbColor: AppColors.orange,
                     overlayColor: AppColors.orange.withValues(alpha: 0.12),
                     trackHeight: 4,
@@ -687,8 +681,7 @@ class _FontScaleSection extends StatelessWidget {
           // ── Scale label ──
           Center(
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               decoration: BoxDecoration(
                 color: AppColors.orange.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
@@ -712,12 +705,11 @@ class _FontScaleSection extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: theme.dividerColor,
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.5,
               ),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: theme.dividerColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -814,8 +806,9 @@ class _FontScalePresetCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: active
               ? AppColors.orange.withValues(alpha: 0.1)
-              : theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.5),
+              : theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.5,
+                ),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: active ? AppColors.orange : theme.dividerColor,
@@ -836,9 +829,7 @@ class _FontScalePresetCard extends StatelessWidget {
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 12,
-                color: active
-                    ? AppColors.orange
-                    : theme.colorScheme.onSurface,
+                color: active ? AppColors.orange : theme.colorScheme.onSurface,
               ),
               textAlign: TextAlign.center,
             ),
@@ -848,9 +839,7 @@ class _FontScalePresetCard extends StatelessWidget {
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 11,
-                color: active
-                    ? AppColors.orange
-                    : theme.colorScheme.secondary,
+                color: active ? AppColors.orange : theme.colorScheme.secondary,
                 letterSpacing: 0.5,
               ),
             ),
@@ -917,8 +906,12 @@ class _BackupTabState extends State<_BackupTab> {
       final fileName = 'pos-backup-${todayKey().replaceAll('-', '')}.json';
       final path = await exportTextFile(filename: fileName, content: json);
       if (!mounted) return;
-      await _showSavedFileDialog(context,
-          title: 'ดาวน์โหลดไฟล์ backup สำเร็จ', path: path, filename: fileName);
+      await _showSavedFileDialog(
+        context,
+        title: 'ดาวน์โหลดไฟล์ backup สำเร็จ',
+        path: path,
+        filename: fileName,
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1546,8 +1539,12 @@ class _ExportTabState extends State<_ExportTab> {
       final path = await exportTextFile(filename: filename, content: csv);
       if (!mounted) return;
       setState(() => _exported = exportedKey);
-      await _showSavedFileDialog(context,
-          title: 'ดาวน์โหลดสำเร็จ', path: path, filename: filename);
+      await _showSavedFileDialog(
+        context,
+        title: 'ดาวน์โหลดสำเร็จ',
+        path: path,
+        filename: filename,
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1555,7 +1552,6 @@ class _ExportTabState extends State<_ExportTab> {
       ).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
     }
   }
-
 
   // ── exportSalesSummary (one row per bill) ──
   Future<void> _exportSummary() async {

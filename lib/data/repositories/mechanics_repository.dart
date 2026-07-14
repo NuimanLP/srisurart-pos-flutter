@@ -96,9 +96,9 @@ class MechanicsRepository {
       await db.into(db.creditPayments).insert(row);
 
       // Reduce mechanic balance (only if the mechanic exists), clamped at 0.
-      final mech = await (db.select(db.mechanics)
-            ..where((t) => t.id.equals(mechanicId)))
-          .getSingleOrNull();
+      final mech = await (db.select(
+        db.mechanics,
+      )..where((t) => t.id.equals(mechanicId))).getSingleOrNull();
       if (mech != null) {
         var newBalance = mech.creditBalance - amount;
         if (newBalance < 0) newBalance = 0;

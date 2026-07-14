@@ -31,11 +31,12 @@ class ShiftsRepository {
   /// The single active shift (isActive == true) with its drawer entries
   /// (newest first), or null when no drawer is open.
   Future<ShiftWithEntries?> getCashDrawer() async {
-    final shift = await (db.select(db.shifts)
-          ..where((t) => t.isActive.equals(true))
-          ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
-          ..limit(1))
-        .getSingleOrNull();
+    final shift =
+        await (db.select(db.shifts)
+              ..where((t) => t.isActive.equals(true))
+              ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
+              ..limit(1))
+            .getSingleOrNull();
     if (shift == null) return null;
     final entries = await _entriesFor(shift.id);
     return ShiftWithEntries(shift, entries);
@@ -44,10 +45,11 @@ class ShiftsRepository {
   /// All inactive shifts (isActive == false), newest openedAt first, each with
   /// its drawer entries.
   Future<List<ShiftWithEntries>> getShiftHistory() async {
-    final shifts = await (db.select(db.shifts)
-          ..where((t) => t.isActive.equals(false))
-          ..orderBy([(t) => OrderingTerm.desc(t.openedAt)]))
-        .get();
+    final shifts =
+        await (db.select(db.shifts)
+              ..where((t) => t.isActive.equals(false))
+              ..orderBy([(t) => OrderingTerm.desc(t.openedAt)]))
+            .get();
     final result = <ShiftWithEntries>[];
     for (final s in shifts) {
       result.add(ShiftWithEntries(s, await _entriesFor(s.id)));
@@ -70,11 +72,12 @@ class ShiftsRepository {
     return db.transaction(() async {
       final today = todayKey();
 
-      final existing = await (db.select(db.shifts)
-            ..where((t) => t.isActive.equals(true))
-            ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
-            ..limit(1))
-          .getSingleOrNull();
+      final existing =
+          await (db.select(db.shifts)
+                ..where((t) => t.isActive.equals(true))
+                ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
+                ..limit(1))
+              .getSingleOrNull();
 
       if (existing != null && existing.dateStr == today) {
         return existing;
@@ -84,21 +87,29 @@ class ShiftsRepository {
       if (existing != null) {
         final now = DateTime.now();
         final autoArchive = existing.closedAt == null;
-        await (db.update(db.shifts)..where((t) => t.id.equals(existing.id)))
-            .write(ShiftsCompanion(
-          isActive: const Value(false),
-          autoArchived:
-              autoArchive ? const Value(true) : Value(existing.autoArchived),
-          archivedAt: autoArchive ? Value(now) : Value(existing.archivedAt),
-        ));
+        await (db.update(
+          db.shifts,
+        )..where((t) => t.id.equals(existing.id))).write(
+          ShiftsCompanion(
+            isActive: const Value(false),
+            autoArchived: autoArchive
+                ? const Value(true)
+                : Value(existing.autoArchived),
+            archivedAt: autoArchive ? Value(now) : Value(existing.archivedAt),
+          ),
+        );
       }
 
-      final id = await db.into(db.shifts).insert(ShiftsCompanion.insert(
-            dateStr: today,
-            startingCash: startingCash,
-            openedAt: DateTime.now(),
-            isActive: const Value(true),
-          ));
+      final id = await db
+          .into(db.shifts)
+          .insert(
+            ShiftsCompanion.insert(
+              dateStr: today,
+              startingCash: startingCash,
+              openedAt: DateTime.now(),
+              isActive: const Value(true),
+            ),
+          );
 
       return (db.select(db.shifts)..where((t) => t.id.equals(id))).getSingle();
     });
@@ -107,12 +118,16 @@ class ShiftsRepository {
   /// Add a drawer entry to the active shift. Throws if no shift is open, and
   /// blocks new entries once the active shift has been closed.
   Future<DrawerEntryRow> addDrawerEntry(
-      String type, double amount, String? note) async {
-    final shift = await (db.select(db.shifts)
-          ..where((t) => t.isActive.equals(true))
-          ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
-          ..limit(1))
-        .getSingleOrNull();
+    String type,
+    double amount,
+    String? note,
+  ) async {
+    final shift =
+        await (db.select(db.shifts)
+              ..where((t) => t.isActive.equals(true))
+              ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
+              ..limit(1))
+            .getSingleOrNull();
     if (shift == null) throw Exception('No open shift');
     if (shift.closedAt != null) {
       throw Exception('ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้');
@@ -134,11 +149,12 @@ class ShiftsRepository {
   /// isActive=true (the current drawer) until the next openShift archives it.
   /// Returns the updated row, or null when no shift is open.
   Future<ShiftRow?> closeShift(double physicalCash) async {
-    final shift = await (db.select(db.shifts)
-          ..where((t) => t.isActive.equals(true))
-          ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
-          ..limit(1))
-        .getSingleOrNull();
+    final shift =
+        await (db.select(db.shifts)
+              ..where((t) => t.isActive.equals(true))
+              ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
+              ..limit(1))
+            .getSingleOrNull();
     if (shift == null) return null;
 
     await (db.update(db.shifts)..where((t) => t.id.equals(shift.id))).write(
@@ -147,7 +163,8 @@ class ShiftsRepository {
         physicalCash: Value(physicalCash),
       ),
     );
-    return (db.select(db.shifts)..where((t) => t.id.equals(shift.id)))
-        .getSingle();
+    return (db.select(
+      db.shifts,
+    )..where((t) => t.id.equals(shift.id))).getSingle();
   }
 }

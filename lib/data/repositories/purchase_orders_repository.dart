@@ -39,14 +39,14 @@ class PurchaseOrdersRepository {
 
   /// All purchase orders, newest first (db.js prepends new POs).
   Future<List<PurchaseOrderWithItems>> getPOs() async {
-    final pos = await (db.select(db.purchaseOrders)
-          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
-        .get();
+    final pos = await (db.select(
+      db.purchaseOrders,
+    )..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).get();
     final result = <PurchaseOrderWithItems>[];
     for (final po in pos) {
-      final items = await (db.select(db.poItems)
-            ..where((t) => t.poId.equals(po.id)))
-          .get();
+      final items = await (db.select(
+        db.poItems,
+      )..where((t) => t.poId.equals(po.id))).get();
       result.add(PurchaseOrderWithItems(po, items));
     }
     return result;
@@ -68,7 +68,9 @@ class PurchaseOrdersRepository {
     await db.transaction(() async {
       await db.into(db.purchaseOrders).insert(po);
       for (final item in input.items) {
-        await db.into(db.poItems).insert(
+        await db
+            .into(db.poItems)
+            .insert(
               PoItemsCompanion.insert(
                 poId: id,
                 partNo: item.partNo,
@@ -90,14 +92,14 @@ class PurchaseOrdersRepository {
   /// snapshot/rollback).
   Future<List<String>> receivePO(String id) async {
     return db.transaction(() async {
-      final po = await (db.select(db.purchaseOrders)
-            ..where((t) => t.id.equals(id)))
-          .getSingleOrNull();
+      final po = await (db.select(
+        db.purchaseOrders,
+      )..where((t) => t.id.equals(id))).getSingleOrNull();
       if (po == null) return <String>[];
 
-      final items = await (db.select(db.poItems)
-            ..where((t) => t.poId.equals(id)))
-          .get();
+      final items = await (db.select(
+        db.poItems,
+      )..where((t) => t.poId.equals(id))).get();
 
       final unmatched = <String>[];
       for (final item in items) {
@@ -124,14 +126,15 @@ class PurchaseOrdersRepository {
               ? round2((oldStock * oldCost + newQty * newCost) / totalQty)
               : newCost;
 
-          await (db.update(db.products)..where((t) => t.id.equals(p!.id))).write(
-            ProductsCompanion(
-              stock: Value(totalQty),
-              cost: Value(wac),
-            ),
+          await (db.update(
+            db.products,
+          )..where((t) => t.id.equals(p!.id))).write(
+            ProductsCompanion(stock: Value(totalQty), cost: Value(wac)),
           );
 
-          await db.into(db.movements).insert(
+          await db
+              .into(db.movements)
+              .insert(
                 MovementRow(
                   id: newId('mv'),
                   productId: p.id,

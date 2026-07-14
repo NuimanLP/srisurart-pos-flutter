@@ -52,8 +52,8 @@ class AppTextField extends StatelessWidget {
     this.errorText,
     this.suffix,
     this.textInputAction,
-  })  : numeric = true,
-        maxLines = 1;
+  }) : numeric = true,
+       maxLines = 1;
 
   @override
   Widget build(BuildContext context) {
@@ -78,9 +78,7 @@ class AppTextField extends StatelessWidget {
         errorText: errorText,
         suffixIcon: suffix,
         isDense: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
       ),
     );
 

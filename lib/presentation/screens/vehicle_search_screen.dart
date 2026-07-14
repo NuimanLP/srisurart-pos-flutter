@@ -30,10 +30,18 @@ import '../../data/repositories/products_repository.dart';
 /// substring of one or more products' `compat` field so a chip tap returns real
 /// results (see seed data in database.dart). This is a car shop, not motorcycle.
 const List<String> _popularVehicles = [
-  'Toyota Hilux', 'Toyota Vios', 'Toyota Fortuner',
-  'Honda City', 'Honda Civic', 'Honda Jazz',
-  'Isuzu D-Max', 'Isuzu MU-X', 'Ford Ranger',
-  'Mitsubishi Triton', 'Nissan Navara', 'Mazda 2',
+  'Toyota Hilux',
+  'Toyota Vios',
+  'Toyota Fortuner',
+  'Honda City',
+  'Honda Civic',
+  'Honda Jazz',
+  'Isuzu D-Max',
+  'Isuzu MU-X',
+  'Ford Ranger',
+  'Mitsubishi Triton',
+  'Nissan Navara',
+  'Mazda 2',
 ];
 
 class VehicleSearchScreen extends StatefulWidget {
@@ -50,7 +58,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   // the per-category color, mirroring getCatColor in the .jsx). Created in
   // initState — never inline in build — so it doesn't refetch on rebuild.
   late Future<({List<ProductRow> products, List<String> categories})>
-      _dataFuture;
+  _dataFuture;
 
   @override
   void initState() {
@@ -59,7 +67,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   }
 
   Future<({List<ProductRow> products, List<String> categories})>
-      _loadData() async {
+  _loadData() async {
     final repo = context.read<ProductsRepository>();
     final products = await repo.getAll();
     final categories = await repo.getCategories();
@@ -146,10 +154,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           const SizedBox(height: 3),
           Text(
             'พิมพ์รุ่นรถเพื่อดูอะไหล่ที่ใช้ได้ทั้งหมด',
-            style: TextStyle(
-              fontSize: 13,
-              color: AppColors.steelBlue,
-            ),
+            style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
           ),
         ],
       ),
@@ -174,9 +179,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                   onPressed: () => _setQuery(''),
                 )
               : null,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         ),
       ),
     );
@@ -301,9 +304,11 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
 
     // .jsx filter: p.compat && p.compat.toLowerCase().includes(q)
     final results = products
-        .where((p) =>
-            (p.compat ?? '').isNotEmpty &&
-            p.compat!.toLowerCase().contains(q))
+        .where(
+          (p) =>
+              (p.compat ?? '').isNotEmpty &&
+              p.compat!.toLowerCase().contains(q),
+        )
         .toList();
 
     if (results.isEmpty) {
@@ -324,25 +329,25 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
           children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: RichText(
-            text: TextSpan(
-              style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
-              children: [
-                const TextSpan(text: 'พบ '),
-                TextSpan(
-                  text: '${results.length}',
-                  style: const TextStyle(
-                    color: AppColors.orange,
-                    fontWeight: FontWeight.bold,
-                  ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: RichText(
+                text: TextSpan(
+                  style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
+                  children: [
+                    const TextSpan(text: 'พบ '),
+                    TextSpan(
+                      text: '${results.length}',
+                      style: const TextStyle(
+                        color: AppColors.orange,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextSpan(text: ' รายการ สำหรับ "$_query"'),
+                  ],
                 ),
-                TextSpan(text: ' รายการ สำหรับ "$_query"'),
-              ],
+              ),
             ),
-          ),
-        ),
             for (final p in results) ...[
               _resultCard(context, p, categories, trimmed),
               const SizedBox(height: 10),
@@ -364,13 +369,13 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     final Color stockColor = isOut
         ? AppColors.error
         : isLow
-            ? AppColors.warning
-            : AppColors.successLight;
+        ? AppColors.warning
+        : AppColors.successLight;
     final stockLabel = isOut
         ? 'หมด'
         : isLow
-            ? 'เหลือ ${p.stock}'
-            : '${p.stock} ชิ้น';
+        ? 'เหลือ ${p.stock}'
+        : '${p.stock} ชิ้น';
     final catColor = AppColors.catColor(p.category, categories);
 
     return Container(
@@ -439,8 +444,10 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                   ),
                   const SizedBox(height: 4),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: stockColor.withValues(alpha: 0.13),
                       borderRadius: BorderRadius.circular(4),
@@ -478,13 +485,14 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
             children: [
               Flexible(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: catColor.withValues(alpha: 0.13),
                     borderRadius: BorderRadius.circular(4),
-                    border:
-                        Border.all(color: catColor.withValues(alpha: 0.27)),
+                    border: Border.all(color: catColor.withValues(alpha: 0.27)),
                   ),
                   child: Text(
                     p.category,
@@ -508,8 +516,10 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
               OutlinedButton(
                 onPressed: () => _copy(p.partNo),
                 style: OutlinedButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   minimumSize: const Size(0, 44),
                   side: BorderSide(
                     color: AppColors.gray200.withValues(alpha: 0.6),

@@ -51,14 +51,14 @@ class AppDatabase extends _$AppDatabase {
   /// (relative URIs resolve against the deployed base href). These options
   /// are ignored on native platforms.
   factory AppDatabase.open() => AppDatabase(
-        driftDatabase(
-          name: 'srisurart',
-          web: DriftWebOptions(
-            sqlite3Wasm: Uri.parse('sqlite3.wasm'),
-            driftWorker: Uri.parse('drift_worker.js'),
-          ),
-        ),
-      );
+    driftDatabase(
+      name: 'srisurart',
+      web: DriftWebOptions(
+        sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+        driftWorker: Uri.parse('drift_worker.js'),
+      ),
+    ),
+  );
 
   /// Matches SCHEMA_VERSION = 2 in db.js (localStorage migration counter),
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
@@ -68,21 +68,15 @@ class AppDatabase extends _$AppDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) async {
-          await m.createAll();
-          await _seed();
-        },
-      );
+    onCreate: (m) async {
+      await m.createAll();
+      await _seed();
+    },
+  );
 
   Future<void> _seed() async {
     // ── Categories (SEED_CATEGORIES, order preserved for color palette) ──
-    const seedCategories = [
-      'เครื่องยนต์',
-      'ไฟฟ้า',
-      'น้ำมัน',
-      'เบรก',
-      'ตัวถัง',
-    ];
+    const seedCategories = ['เครื่องยนต์', 'ไฟฟ้า', 'น้ำมัน', 'เบรก', 'ตัวถัง'];
     await batch((b) {
       for (var i = 0; i < seedCategories.length; i++) {
         b.insert(
@@ -352,17 +346,47 @@ class AppDatabase extends _$AppDatabase {
     await batch((b) {
       b.insertAll(suppliers, [
         SuppliersCompanion.insert(
-            id: 'sup1', productId: 'p1', name: 'Honda Parts Center', unitCost: 42, freight: const Value(3)),
+          id: 'sup1',
+          productId: 'p1',
+          name: 'Honda Parts Center',
+          unitCost: 42,
+          freight: const Value(3),
+        ),
         SuppliersCompanion.insert(
-            id: 'sup2', productId: 'p1', name: 'Auto Zone TH', unitCost: 38, freight: const Value(7)),
+          id: 'sup2',
+          productId: 'p1',
+          name: 'Auto Zone TH',
+          unitCost: 38,
+          freight: const Value(7),
+        ),
         SuppliersCompanion.insert(
-            id: 'sup3', productId: 'p2', name: 'NGK Thailand', unitCost: 62, freight: const Value(3)),
+          id: 'sup3',
+          productId: 'p2',
+          name: 'NGK Thailand',
+          unitCost: 62,
+          freight: const Value(3),
+        ),
         SuppliersCompanion.insert(
-            id: 'sup4', productId: 'p2', name: 'Spark King', unitCost: 58, freight: const Value(8)),
+          id: 'sup4',
+          productId: 'p2',
+          name: 'Spark King',
+          unitCost: 58,
+          freight: const Value(8),
+        ),
         SuppliersCompanion.insert(
-            id: 'sup5', productId: 'p5', name: 'GS Yuasa Official', unitCost: 375, freight: const Value(5)),
+          id: 'sup5',
+          productId: 'p5',
+          name: 'GS Yuasa Official',
+          unitCost: 375,
+          freight: const Value(5),
+        ),
         SuppliersCompanion.insert(
-            id: 'sup6', productId: 'p5', name: 'Battery World', unitCost: 360, freight: const Value(20)),
+          id: 'sup6',
+          productId: 'p5',
+          name: 'Battery World',
+          unitCost: 360,
+          freight: const Value(20),
+        ),
       ]);
     });
 
@@ -375,7 +399,8 @@ class AppDatabase extends _$AppDatabase {
         taxRate: const Value(7),
         quoteValidDays: const Value(30),
         address: const Value(
-            '76/1 หมู่ 3 ถนนลพบุรีราเมศวร์ ต.คลองแห อ.หาดใหญ่ จ.สงขลา 90110'),
+          '76/1 หมู่ 3 ถนนลพบุรีราเมศวร์ ต.คลองแห อ.หาดใหญ่ จ.สงขลา 90110',
+        ),
         phone: const Value('081-234-5678'),
         cashierName: const Value('แคชเชียร์'),
       ),
@@ -386,7 +411,9 @@ class AppDatabase extends _$AppDatabase {
       b.insertAll(appMeta, const [
         AppMetaCompanion(key: Value('schema_version'), value: Value('2')),
         AppMetaCompanion(
-            key: Value('backup_format_version'), value: Value('2')),
+          key: Value('backup_format_version'),
+          value: Value('2'),
+        ),
       ]);
     });
   }

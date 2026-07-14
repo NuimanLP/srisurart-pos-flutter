@@ -7,10 +7,14 @@ class AppColors {
   AppColors._();
 
   // ── BRAND PALETTE (confirmed) ──
-  static const Color navy = Color(0xFF0B2444); // Primary — text, borders, fascia
+  static const Color navy = Color(
+    0xFF0B2444,
+  ); // Primary — text, borders, fascia
   static const Color orange = Color(0xFFE8601C); // Accent — prices, CTAs
   static const Color steelBlue = Color(0xFF6B8FAF); // Support — secondary text
-  static const Color offWhite = Color(0xFFFFFBF2); // Background — signage, receipt
+  static const Color offWhite = Color(
+    0xFFFFFBF2,
+  ); // Background — signage, receipt
   static const Color forestGreen = Color(0xFF3B6D11); // Confirm — in stock
 
   // Navy tints

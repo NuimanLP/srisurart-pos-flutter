@@ -47,56 +47,60 @@ void main() {
     extra: {'note': 'hold for pickup'},
   );
 
-  test('parkSale stores payload JSON + parkedAt and leaves Products untouched',
-      () async {
-    final productsBefore =
-        (await db.select(db.products).get()).map((p) => p.id).toSet();
-    final before = DateTime.now();
+  test(
+    'parkSale stores payload JSON + parkedAt and leaves Products untouched',
+    () async {
+      final productsBefore = (await db.select(db.products).get())
+          .map((p) => p.id)
+          .toSet();
+      final before = DateTime.now();
 
-    final row = await repo.parkSale(input);
+      final row = await repo.parkSale(input);
 
-    final after = DateTime.now();
+      final after = DateTime.now();
 
-    // id prefix from newId('pk').
-    expect(row.id, startsWith('pk'));
+      // id prefix from newId('pk').
+      expect(row.id, startsWith('pk'));
 
-    // parkedAt is a real timestamp captured during the call.
-    expect(
-      row.parkedAt.isBefore(before.subtract(const Duration(seconds: 1))),
-      isFalse,
-    );
-    expect(
-      row.parkedAt.isAfter(after.add(const Duration(seconds: 1))),
-      isFalse,
-    );
+      // parkedAt is a real timestamp captured during the call.
+      expect(
+        row.parkedAt.isBefore(before.subtract(const Duration(seconds: 1))),
+        isFalse,
+      );
+      expect(
+        row.parkedAt.isAfter(after.add(const Duration(seconds: 1))),
+        isFalse,
+      );
 
-    // payload decodes to the full cart blob.
-    final blob = jsonDecode(row.payload) as Map<String, dynamic>;
-    expect(blob['customerId'], 'c1');
-    expect(blob['customerName'], 'สมชาย');
-    expect(blob['mechanicId'], 'm1');
-    expect(blob['mechanicName'], 'ช่างเอ');
-    expect(blob['discount'], 50.0);
-    expect(blob['note'], 'hold for pickup'); // extra carried through
-    expect(blob['id'], row.id);
-    expect(blob['parkedAt'], row.parkedAt.toIso8601String());
+      // payload decodes to the full cart blob.
+      final blob = jsonDecode(row.payload) as Map<String, dynamic>;
+      expect(blob['customerId'], 'c1');
+      expect(blob['customerName'], 'สมชาย');
+      expect(blob['mechanicId'], 'm1');
+      expect(blob['mechanicName'], 'ช่างเอ');
+      expect(blob['discount'], 50.0);
+      expect(blob['note'], 'hold for pickup'); // extra carried through
+      expect(blob['id'], row.id);
+      expect(blob['parkedAt'], row.parkedAt.toIso8601String());
 
-    final items = (blob['items'] as List).cast<Map<String, dynamic>>();
-    expect(items, hasLength(2));
-    expect(items[0]['productId'], 'p1');
-    expect(items[0]['name'], 'Brake Pad');
-    expect(items[0]['qty'], 3);
-    expect(items[0]['price'], 120.0);
-    expect(items[0]['partNo'], 'BP-001');
-    expect(items[0]['nameTH'], 'ผ้าเบรก');
-    expect(items[1]['productId'], 'p2');
-    expect(items[1].containsKey('partNo'), isFalse);
+      final items = (blob['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(2));
+      expect(items[0]['productId'], 'p1');
+      expect(items[0]['name'], 'Brake Pad');
+      expect(items[0]['qty'], 3);
+      expect(items[0]['price'], 120.0);
+      expect(items[0]['partNo'], 'BP-001');
+      expect(items[0]['nameTH'], 'ผ้าเบรก');
+      expect(items[1]['productId'], 'p2');
+      expect(items[1].containsKey('partNo'), isFalse);
 
-    // Products table is completely untouched — same set of ids, none mutated.
-    final productsAfter =
-        (await db.select(db.products).get()).map((p) => p.id).toSet();
-    expect(productsAfter, equals(productsBefore));
-  });
+      // Products table is completely untouched — same set of ids, none mutated.
+      final productsAfter = (await db.select(db.products).get())
+          .map((p) => p.id)
+          .toSet();
+      expect(productsAfter, equals(productsBefore));
+    },
+  );
 
   test('getParked returns the stored bill, newest-first', () async {
     final row = await repo.parkSale(input);
@@ -107,9 +111,13 @@ void main() {
     expect(all.first.payload, row.payload);
 
     // Park a second one — must sort newest-first by parkedAt desc.
-    final second = await repo.parkSale(const ParkedInput(
-      items: [SaleLineInput(productId: 'p9', name: 'Wiper', qty: 1, price: 10)],
-    ));
+    final second = await repo.parkSale(
+      const ParkedInput(
+        items: [
+          SaleLineInput(productId: 'p9', name: 'Wiper', qty: 1, price: 10),
+        ],
+      ),
+    );
     final allTwo = await repo.getParked();
     expect(allTwo, hasLength(2));
     expect(allTwo.first.id, second.id);

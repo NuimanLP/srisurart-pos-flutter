@@ -33,9 +33,9 @@ class MoneyText extends StatelessWidget {
   Widget build(BuildContext context) {
     final base = emphasis
         ? Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: color ?? AppColors.orange,
-            )
+            fontWeight: FontWeight.w800,
+            color: color ?? AppColors.orange,
+          )
         : Theme.of(context).textTheme.bodyMedium?.copyWith(color: color);
     final text = Text(
       baht(value),

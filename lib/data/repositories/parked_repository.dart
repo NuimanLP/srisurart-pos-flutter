@@ -45,11 +45,10 @@ class ParkedRepository {
   /// deterministic tiebreaker (two parks in the same millisecond keep insertion
   /// order: the later insert — higher rowid — comes first).
   Future<List<ParkedSaleRow>> getParked() {
-    return (db.select(db.parkedSales)
-          ..orderBy([
-            (t) => OrderingTerm.desc(t.parkedAt),
-            (t) => OrderingTerm.desc(t.rowId),
-          ]))
+    return (db.select(db.parkedSales)..orderBy([
+          (t) => OrderingTerm.desc(t.parkedAt),
+          (t) => OrderingTerm.desc(t.rowId),
+        ]))
         .get();
   }
 
@@ -66,14 +65,16 @@ class ParkedRepository {
       // win on key collision so the modeled shape is authoritative.
       ...input.extra,
       'items': input.items
-          .map((it) => <String, dynamic>{
-                'productId': it.productId,
-                'name': it.name,
-                'qty': it.qty,
-                'price': it.price,
-                if (it.partNo != null) 'partNo': it.partNo,
-                if (it.nameTH != null) 'nameTH': it.nameTH,
-              })
+          .map(
+            (it) => <String, dynamic>{
+              'productId': it.productId,
+              'name': it.name,
+              'qty': it.qty,
+              'price': it.price,
+              if (it.partNo != null) 'partNo': it.partNo,
+              if (it.nameTH != null) 'nameTH': it.nameTH,
+            },
+          )
           .toList(),
       'customerId': input.customerId,
       'customerName': input.customerName,

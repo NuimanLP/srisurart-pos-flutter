@@ -90,8 +90,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
 
     for (final p in printProducts) {
       for (var c = 0; c < _copies; c++) {
-        final zoneColor =
-            PdfColor.fromInt(_catColor(p.category).toARGB32());
+        final zoneColor = PdfColor.fromInt(_catColor(p.category).toARGB32());
         doc.addPage(
           pw.Page(
             pageFormat: PdfPageFormat(54 * mm, double.infinity, marginAll: 0),
@@ -112,7 +111,10 @@ class _LabelPrinterState extends State<LabelPrinter> {
 
     return pw.Container(
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: const PdfColor.fromInt(0xFFDDDDDD), width: 0.5),
+        border: pw.Border.all(
+          color: const PdfColor.fromInt(0xFFDDDDDD),
+          width: 0.5,
+        ),
         borderRadius: pw.BorderRadius.circular(2),
         color: PdfColors.white,
       ),
@@ -126,16 +128,22 @@ class _LabelPrinterState extends State<LabelPrinter> {
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text('${p.category} · ประเภท',
-                    style: pw.TextStyle(
-                        color: PdfColors.white,
-                        fontWeight: pw.FontWeight.bold,
-                        fontSize: 9)),
-                pw.Text(widget.shopNameEN,
-                    style: pw.TextStyle(
-                        color: PdfColors.white,
-                        fontWeight: pw.FontWeight.bold,
-                        fontSize: 8)),
+                pw.Text(
+                  '${p.category} · ประเภท',
+                  style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 9,
+                  ),
+                ),
+                pw.Text(
+                  widget.shopNameEN,
+                  style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 8,
+                  ),
+                ),
               ],
             ),
           ),
@@ -145,23 +153,33 @@ class _LabelPrinterState extends State<LabelPrinter> {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text(p.name.toUpperCase(),
-                    style: pw.TextStyle(
-                        fontSize: 13,
-                        fontWeight: pw.FontWeight.bold,
-                        color: navy)),
+                pw.Text(
+                  p.name.toUpperCase(),
+                  style: pw.TextStyle(
+                    fontSize: 13,
+                    fontWeight: pw.FontWeight.bold,
+                    color: navy,
+                  ),
+                ),
                 if (p.nameTH.isNotEmpty)
-                  pw.Text(p.nameTH,
-                      style: pw.TextStyle(fontSize: 10, color: steel)),
+                  pw.Text(
+                    p.nameTH,
+                    style: pw.TextStyle(fontSize: 10, color: steel),
+                  ),
               ],
             ),
           ),
           // part no
           pw.Padding(
             padding: const pw.EdgeInsets.fromLTRB(7, 0, 7, 3),
-            child: pw.Text(p.partNo,
-                style: pw.TextStyle(
-                    fontSize: 9, color: orange, fontWeight: pw.FontWeight.bold)),
+            child: pw.Text(
+              p.partNo,
+              style: pw.TextStyle(
+                fontSize: 9,
+                color: orange,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
           ),
           // barcode
           pw.Padding(
@@ -178,8 +196,10 @@ class _LabelPrinterState extends State<LabelPrinter> {
           if ((p.compat ?? '').isNotEmpty)
             pw.Padding(
               padding: const pw.EdgeInsets.fromLTRB(7, 0, 7, 3),
-              child: pw.Text(p.compat!,
-                  style: pw.TextStyle(fontSize: 8, color: compat)),
+              child: pw.Text(
+                p.compat!,
+                style: pw.TextStyle(fontSize: 8, color: compat),
+              ),
             ),
           // price strip
           pw.Container(
@@ -192,31 +212,43 @@ class _LabelPrinterState extends State<LabelPrinter> {
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('ราคา · Price',
-                        style: pw.TextStyle(
-                            color: const PdfColor.fromInt(0x80FFFFFF),
-                            fontSize: 8)),
-                    pw.Text('รวม VAT 7%',
-                        style: pw.TextStyle(
-                            color: const PdfColor.fromInt(0x59FFFFFF),
-                            fontSize: 7)),
+                    pw.Text(
+                      'ราคา · Price',
+                      style: pw.TextStyle(
+                        color: const PdfColor.fromInt(0x80FFFFFF),
+                        fontSize: 8,
+                      ),
+                    ),
+                    pw.Text(
+                      'รวม VAT 7%',
+                      style: pw.TextStyle(
+                        color: const PdfColor.fromInt(0x59FFFFFF),
+                        fontSize: 7,
+                      ),
+                    ),
                   ],
                 ),
                 pw.RichText(
-                  text: pw.TextSpan(children: [
-                    pw.TextSpan(
+                  text: pw.TextSpan(
+                    children: [
+                      pw.TextSpan(
                         text: '฿',
                         style: pw.TextStyle(
-                            fontSize: 12,
-                            fontWeight: pw.FontWeight.bold,
-                            color: orange)),
-                    pw.TextSpan(
+                          fontSize: 12,
+                          fontWeight: pw.FontWeight.bold,
+                          color: orange,
+                        ),
+                      ),
+                      pw.TextSpan(
                         text: LabelPrinter.plain(p.price),
                         style: pw.TextStyle(
-                            fontSize: 24,
-                            fontWeight: pw.FontWeight.bold,
-                            color: orange)),
-                  ]),
+                          fontSize: 24,
+                          fontWeight: pw.FontWeight.bold,
+                          color: orange,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -247,12 +279,17 @@ class _LabelPrinterState extends State<LabelPrinter> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('🏷 พิมพ์ป้ายราคา · Print Shelf Labels',
-                            style: theme.textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.w800)),
+                        Text(
+                          '🏷 พิมพ์ป้ายราคา · Print Shelf Labels',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                         const SizedBox(height: 3),
-                        Text('58mm thermal · เลือกสินค้าแล้วกดพิมพ์',
-                            style: theme.textTheme.bodySmall),
+                        Text(
+                          '58mm thermal · เลือกสินค้าแล้วกดพิมพ์',
+                          style: theme.textTheme.bodySmall,
+                        ),
                       ],
                     ),
                   ),
@@ -338,15 +375,23 @@ class _LabelPrinterState extends State<LabelPrinter> {
             spacing: 6,
             runSpacing: 6,
             children: [
-              _selChip('เลือกทั้งหมด',
-                  () => setState(() => _selected = widget.products.map((p) => p.id).toSet())),
+              _selChip(
+                'เลือกทั้งหมด',
+                () => setState(
+                  () => _selected = widget.products.map((p) => p.id).toSet(),
+                ),
+              ),
               _selChip('ล้าง', () => setState(() => _selected = {})),
-              _selChip('⚠ สต็อกต่ำ',
-                  () => setState(() => _selected = widget.products
+              _selChip(
+                '⚠ สต็อกต่ำ',
+                () => setState(
+                  () => _selected = widget.products
                       .where((p) => p.stock <= p.minStock)
                       .map((p) => p.id)
-                      .toSet()),
-                  color: AppColors.warning),
+                      .toSet(),
+                ),
+                color: AppColors.warning,
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -365,33 +410,48 @@ class _LabelPrinterState extends State<LabelPrinter> {
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
                     margin: const EdgeInsets.only(bottom: 4),
                     child: Row(
                       children: [
-                        Icon(on ? Icons.check_box : Icons.check_box_outline_blank,
-                            size: 18, color: AppColors.orange),
+                        Icon(
+                          on ? Icons.check_box : Icons.check_box_outline_blank,
+                          size: 18,
+                          color: AppColors.orange,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(p.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700)),
-                              Text(p.partNo,
-                                  style: const TextStyle(
-                                      fontSize: 11, color: AppColors.orange)),
+                              Text(
+                                p.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                p.partNo,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.orange,
+                                ),
+                              ),
                             ],
                           ),
                         ),
-                        Text('฿${LabelPrinter.priceText(p.price)}',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.orange)),
+                        Text(
+                          '฿${LabelPrinter.priceText(p.price)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.orange,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -412,10 +472,14 @@ class _LabelPrinterState extends State<LabelPrinter> {
               ),
               SizedBox(
                 width: 40,
-                child: Text('$_copies',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.w800)),
+                child: Text(
+                  '$_copies',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
               IconButton.filledTonal(
                 onPressed: () => setState(() => _copies++),
@@ -442,8 +506,11 @@ class _LabelPrinterState extends State<LabelPrinter> {
           Expanded(
             child: printProducts.isEmpty
                 ? Center(
-                    child: Text('เลือกสินค้าด้านซ้ายเพื่อดูตัวอย่าง',
-                        style: theme.textTheme.bodyMedium))
+                    child: Text(
+                      'เลือกสินค้าด้านซ้ายเพื่อดูตัวอย่าง',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  )
                 : ListView.builder(
                     itemCount: printProducts.length,
                     itemBuilder: (ctx, i) {
@@ -453,16 +520,19 @@ class _LabelPrinterState extends State<LabelPrinter> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('${p.name} × $_copies',
-                                style: theme.textTheme.labelMedium),
+                            Text(
+                              '${p.name} × $_copies',
+                              style: theme.textTheme.labelMedium,
+                            ),
                             const SizedBox(height: 4),
                             // The label is a fixed 218dp; on a very narrow
                             // stacked preview let it scroll rather than overflow.
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
                               child: _ShelfLabel(
-                                  product: p,
-                                  zoneColor: _catColor(p.category)),
+                                product: p,
+                                zoneColor: _catColor(p.category),
+                              ),
                             ),
                           ],
                         ),
@@ -476,10 +546,12 @@ class _LabelPrinterState extends State<LabelPrinter> {
   }
 
   Widget _colTitle(String t, ThemeData theme) => Text(
-        t,
-        style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.w700, color: theme.colorScheme.secondary),
-      );
+    t,
+    style: theme.textTheme.labelLarge?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: theme.colorScheme.secondary,
+    ),
+  );
 
   Widget _selChip(String label, VoidCallback onTap, {Color? color}) {
     return OutlinedButton(
@@ -523,20 +595,26 @@ class _ShelfLabel extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Flexible(
-                  child: Text('${p.category} · ประเภท',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 10,
-                          letterSpacing: 1)),
+                  child: Text(
+                    '${p.category} · ประเภท',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10,
+                      letterSpacing: 1,
+                    ),
+                  ),
                 ),
-                const Text('SRISURART',
-                    style: TextStyle(
-                        color: Color(0xB3FFFFFF),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 9)),
+                const Text(
+                  'SRISURART',
+                  style: TextStyle(
+                    color: Color(0xB3FFFFFF),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 9,
+                  ),
+                ),
               ],
             ),
           ),
@@ -545,28 +623,37 @@ class _ShelfLabel extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(p.name.toUpperCase(),
-                    style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: _navyLabel,
-                        height: 1.1)),
-                Text(p.nameTH,
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: _steelLabel,
-                        height: 1.2)),
+                Text(
+                  p.name.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: _navyLabel,
+                    height: 1.1,
+                  ),
+                ),
+                Text(
+                  p.nameTH,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: _steelLabel,
+                    height: 1.2,
+                  ),
+                ),
               ],
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 3),
-            child: Text(p.partNo,
-                style: const TextStyle(
-                    fontSize: 10,
-                    color: _orangeLabel,
-                    fontWeight: FontWeight.w600)),
+            child: Text(
+              p.partNo,
+              style: const TextStyle(
+                fontSize: 10,
+                color: _orangeLabel,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 2),
@@ -582,8 +669,10 @@ class _ShelfLabel extends StatelessWidget {
           if ((p.compat ?? '').isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-              child: Text(p.compat!,
-                  style: const TextStyle(fontSize: 9, color: _compatLabel)),
+              child: Text(
+                p.compat!,
+                style: const TextStyle(fontSize: 9, color: _compatLabel),
+              ),
             ),
           Container(
             color: _navyLabel,
@@ -595,28 +684,38 @@ class _ShelfLabel extends StatelessWidget {
                 const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('ราคา · Price',
-                        style: TextStyle(color: Color(0x80FFFFFF), fontSize: 8)),
-                    Text('รวม VAT 7%',
-                        style: TextStyle(color: Color(0x66FFFFFF), fontSize: 8)),
+                    Text(
+                      'ราคา · Price',
+                      style: TextStyle(color: Color(0x80FFFFFF), fontSize: 8),
+                    ),
+                    Text(
+                      'รวม VAT 7%',
+                      style: TextStyle(color: Color(0x66FFFFFF), fontSize: 8),
+                    ),
                   ],
                 ),
                 RichText(
-                  text: TextSpan(children: [
-                    const TextSpan(
+                  text: TextSpan(
+                    children: [
+                      const TextSpan(
                         text: '฿',
                         style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: _orangeLabel)),
-                    TextSpan(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _orangeLabel,
+                        ),
+                      ),
+                      TextSpan(
                         text: LabelPrinter.plain(p.price),
                         style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                            color: _orangeLabel,
-                            height: 1)),
-                  ]),
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: _orangeLabel,
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

@@ -17,9 +17,9 @@ class MovementsRepository {
 
   /// All movements, newest first (db.js stores them prepended → order by date desc).
   Future<List<MovementRow>> getMovements() {
-    return (db.select(db.movements)
-          ..orderBy([(t) => OrderingTerm.desc(t.date)]))
-        .get();
+    return (db.select(
+      db.movements,
+    )..orderBy([(t) => OrderingTerm.desc(t.date)])).get();
   }
 
   /// Insert a movement and return the stored row.

@@ -48,8 +48,10 @@ class AppShell extends StatelessWidget {
 
   int _selectedIndex(BuildContext context) {
     final loc = GoRouterState.of(context).uri.path;
-    final idx = _destinations.indexWhere((d) =>
-        d.path == AppRoutes.checkout ? loc == d.path : loc.startsWith(d.path));
+    final idx = _destinations.indexWhere(
+      (d) =>
+          d.path == AppRoutes.checkout ? loc == d.path : loc.startsWith(d.path),
+    );
     return idx < 0 ? 0 : idx;
   }
 
@@ -112,12 +114,9 @@ class _Rail extends StatelessWidget {
               color: AppColors.orange,
               fontWeight: FontWeight.w700,
             ),
-            unselectedIconTheme:
-                const IconThemeData(color: AppColors.gray300),
-            unselectedLabelTextStyle:
-                const TextStyle(color: AppColors.gray300),
-            onDestinationSelected: (i) =>
-                context.go(_destinations[i].path),
+            unselectedIconTheme: const IconThemeData(color: AppColors.gray300),
+            unselectedLabelTextStyle: const TextStyle(color: AppColors.gray300),
+            onDestinationSelected: (i) => context.go(_destinations[i].path),
             destinations: [
               for (final d in _destinations)
                 NavigationRailDestination(
@@ -164,18 +163,15 @@ class _NavDrawer extends StatelessWidget {
               ListTile(
                 leading: Icon(
                   _destinations[i].icon,
-                  color: i == selected
-                      ? AppColors.orange
-                      : AppColors.gray300,
+                  color: i == selected ? AppColors.orange : AppColors.gray300,
                 ),
                 title: Text(
                   _destinations[i].label,
                   style: TextStyle(
-                    color: i == selected
-                        ? AppColors.orange
-                        : AppColors.gray300,
-                    fontWeight:
-                        i == selected ? FontWeight.w700 : FontWeight.w400,
+                    color: i == selected ? AppColors.orange : AppColors.gray300,
+                    fontWeight: i == selected
+                        ? FontWeight.w700
+                        : FontWeight.w400,
                   ),
                 ),
                 selected: i == selected,
@@ -237,9 +233,7 @@ class _TopBarState extends State<_TopBar> {
       constraints: BoxConstraints(minHeight: 68 + topPadding),
       decoration: const BoxDecoration(
         color: AppColors.navyDeep,
-        border: Border(
-          bottom: BorderSide(color: AppColors.orange, width: 3),
-        ),
+        border: Border(bottom: BorderSide(color: AppColors.orange, width: 3)),
       ),
       padding: EdgeInsets.only(top: topPadding, left: 16, right: 16),
       child: Row(
@@ -291,9 +285,7 @@ class _TopBarState extends State<_TopBar> {
           IconButton(
             tooltip: mode == ThemeMode.dark ? 'โหมดสว่าง' : 'โหมดมืด',
             icon: Icon(
-              mode == ThemeMode.dark
-                  ? Icons.light_mode
-                  : Icons.dark_mode,
+              mode == ThemeMode.dark ? Icons.light_mode : Icons.dark_mode,
               color: AppColors.white,
             ),
             onPressed: () => context.read<ThemeModeCubit>().toggle(),
@@ -313,9 +305,7 @@ class _TopBarState extends State<_TopBar> {
                 return Container(
                   padding: const EdgeInsets.only(left: 12),
                   decoration: const BoxDecoration(
-                    border: Border(
-                      left: BorderSide(color: Colors.white24),
-                    ),
+                    border: Border(left: BorderSide(color: Colors.white24)),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
