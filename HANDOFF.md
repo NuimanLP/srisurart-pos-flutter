@@ -1,16 +1,39 @@
-# HANDOFF — Srisurart POS Flutter migration (updated 2026-07-13)
+# HANDOFF — Srisurart POS Flutter migration (updated 2026-07-20)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
-commit `279b90a`** (2026-07-10): `dart analyze` clean, **122/122 tests pass**,
-including all committed route-smoke cases. A clean-code debt pass landed (shared
-helpers, dedup, 3 pre-existing rendering bugs fixed, 3 new repository test files) —
-see the 2026-07-10 entry. **One red item remains UNCOMMITTED in the working tree**:
-the rewritten responsive smoke-test harness (`test/route_smoke_test.dart` +
-`lib/core/theme/app_theme.dart`) fails and hangs — debug it before committing (see
-entry). Remaining bigger work: Phases 7a/7b/8a/8b per `docs/PLAN.md` (cloud backup,
-sync, hardening, hardware) — listed in `CLAUDE.md`; the backend/deployment design for
-those phases is now written down in `docs/BACKEND_DEPLOYMENT.md` (2026-07-13).
+commit `d44dfce`** (2026-07-20): `dart analyze` clean, **122/122 tests pass**,
+including all route-smoke cases. State management is now **flutter_bloc**, not
+Riverpod — the full migration (13 repos via `RepositoryProvider`, 4 Cubits, all
+`FutureBuilder` data loads) landed 2026-07-14 and is committed; see the 2026-07-14
+entry. The previously-red uncommitted smoke-test harness noted in the 2026-07-13
+entry below was superseded by that migration's rewrite of `route_smoke_test.dart`
+and is resolved (green in the current suite). Remaining bigger work: Phases
+7a/7b/8a/8b per `docs/PLAN.md` (cloud backup, sync, hardening, hardware) — listed in
+`CLAUDE.md`; the backend/deployment design for those phases is written down in
+`docs/BACKEND_DEPLOYMENT.md` (2026-07-13).
+
+## 2026-07-14 (Riverpod → flutter_bloc migration — commits `d834450`, `857f434`, `d44dfce`)
+- **Full state-management replacement**, executed per the 12-step plan in
+  `docs/plans/riverpod-to-bloc.md` (now `Status: Complete`): DI moved to 13
+  repositories via flutter_bloc `RepositoryProvider` (new
+  `lib/presentation/repositories/repository_providers.dart`); the 4 stateful
+  controllers became Cubits in `lib/presentation/blocs/`
+  (`ThemeModeCubit`/`FontScaleCubit`/`PendingQuoteCubit`/`CartCubit`); the 20
+  one-shot data loads across screens became `FutureBuilder`s fed by futures created
+  in `initState`/explicit `_refresh()`. `flutter_riverpod` fully removed from
+  `pubspec.yaml`; old provider files deleted (`providers.dart`, `shift_providers.dart`,
+  `pending_quote_provider.dart`).
+- **Docs updated to match:** `CONTRACT.md` (§0.5, §1, §3, §4, §5, §11), `CLAUDE.md`
+  (architecture summary + dated migration-status note).
+- **Verified:** `dart analyze` clean; `flutter test` 122/122; manually smoke-tested
+  in a live browser session (theme/font-scale toggle repaints from 3 read/write
+  sites, quote→checkout cart hand-off, post-sale stock refresh).
+- **Follow-up commit `d44dfce`** ran `dart format` across the whole `lib/`/`test/`
+  tree (formatting only, no behavior change) to clean up drift accumulated during
+  the migration's many touched files.
+- Full session narrative (environment quirks, git-state-at-handoff notes) lives in
+  `handoff/riverpod-to-bloc.md` — not duplicated here.
 
 ## 2026-07-13 (backend / Supabase-hierarchy / deployment plan — docs only)
 - **Gap closed:** `docs/PLAN.md` covered frontend + local data layer in depth but left
