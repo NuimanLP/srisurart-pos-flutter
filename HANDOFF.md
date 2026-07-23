@@ -1,4 +1,4 @@
-# HANDOFF — Srisurart POS Flutter migration (updated 2026-07-20)
+# HANDOFF — Srisurart POS Flutter migration (updated 2026-07-23)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
@@ -11,7 +11,25 @@ entry below was superseded by that migration's rewrite of `route_smoke_test.dart
 and is resolved (green in the current suite). Remaining bigger work: Phases
 7a/7b/8a/8b per `docs/PLAN.md` (cloud backup, sync, hardening, hardware) — listed in
 `CLAUDE.md`; the backend/deployment design for those phases is written down in
-`docs/BACKEND_DEPLOYMENT.md` (2026-07-13).
+`docs/BACKEND_DEPLOYMENT.md` (2026-07-13). No app code has changed since 2026-07-20 — the
+2026-07-23 entry below is presentation collateral only.
+
+## 2026-07-23 (frontend-prototype presentation deck — docs/collateral only, no app code)
+- Iterated `PDF_Report/frontend-prototype-slides.html` (first added 2026-07-20, commit
+  `f173fbe`) from an 11-slide code/jargon-heavy draft into a 21-slide screenshot-driven
+  walkthrough, in response to grading-committee-readability feedback: one real-screenshot
+  slide + one paired "flow-chain" code-trace slide per feature (select product → adjust cart
+  qty → pay → cross-screen linking to customers/mechanics/stock), a full 11-screen gallery,
+  and one deep-dive slide per grading-rubric criterion (UI Completeness, Layout Structure,
+  Code Cleanliness, UX & State-Driven) pairing real code with real verification evidence
+  (test counts, a caught-and-fixed CSS bug, concrete stats).
+- Real screenshots captured via a disposable headless-Chrome + DevTools-Protocol pipeline
+  (Claude-in-Chrome wasn't connected this session) and embedded as base64 data URIs so the
+  deck stays a single portable file.
+- Gate status unchanged from 2026-07-20 (`d44dfce`) — no `lib/`/`test/` files touched.
+- Added reference PDFs alongside the deck (course/rubric materials, not authored this
+  session): `02_Widget improvement.pdf`, `03_Clean_Code - Google เอกสาร.pdf`,
+  `Update Frontend Prototype.pdf`.
 
 ## 2026-07-14 (Riverpod → flutter_bloc migration — commits `d834450`, `857f434`, `d44dfce`)
 - **Full state-management replacement**, executed per the 12-step plan in
