@@ -1,5 +1,20 @@
 # Srisurart POS — Backend, Supabase Hierarchy & Deployment Plan
 
+> ### ⚠️ §1–§2 SUPERSEDED (2026-08-25)
+> The backend direction changed after this was written: the team now has backend help,
+> the stack is fixed to **NestJS + PostgreSQL + Redis + BullMQ + Nginx** (course/assignment
+> requirement), and **multi-tenant** (many shops on one database) was added to the scope.
+>
+> That flips three decisions made below — no custom server → custom server; Drift as source
+> of truth → PostgreSQL as source of truth; no business logic in the cloud → transactional
+> logic moves server-side.
+>
+> **Current plan → [`Backend_design/`](Backend_design/00_INDEX.md)** (start at `00_INDEX.md`;
+> `00_BASICS.md` first if you are new to backend work).
+>
+> **Still valid here:** §3 Deployment & hosting (Flutter Web build → shop PC, Android/iOS,
+> CI/CD) — the new package does not cover deployment. Read §1–2 as history, not as the plan.
+
 > **Status:** Planned (nothing here is built yet) · **Created:** 2026-07-13 · Companion to [`PLAN.md`](PLAN.md)
 > Fills the three gaps the migration plan left open: **backend architecture**, the
 > **Supabase database hierarchy**, and **deployment/hosting (incl. Docker)**.

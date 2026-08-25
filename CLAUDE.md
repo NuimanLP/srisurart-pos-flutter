@@ -117,10 +117,21 @@ data loads (now `FutureBuilder`s fed by futures created in `initState`/explicit
 `_refresh()`). `flutter_riverpod` fully removed from `pubspec.yaml`. Plan + rationale:
 `docs/plans/riverpod-to-bloc.md`.
 
+**Backend direction changed (2026-08-25) — read `docs/Backend_design/` first.** The team now has
+backend help and the stack is fixed by the course/assignment to **NestJS + PostgreSQL + Redis +
+BullMQ + Nginx**, with **multi-tenant** (many shops, one database) added to the scope. That
+supersedes the Supabase-as-backend decision below on three points: a custom server now exists,
+**PostgreSQL becomes the source of truth** (Drift drops to a read cache), and the transactional
+invariants move server-side. The package is `docs/Backend_design/` — `00_BASICS.md` (backend
+primer), `00_INDEX.md` (map + open decisions), `01_DATABASE.md` (27 tables + DDL + invariants),
+`02_API_SCREENS.md` (all 11 screens → endpoints), `03_ARCHITECTURE.md` (3 options + rollout),
+`04_QA_SCRUTINY.md` (design review record). Nothing is built yet, and **no cutover is planned
+for phase 1** — the shop keeps running this Drift build while the server is developed against a
+demo tenant.
+
 **Pending follow-ups (not yet built)** — phase numbers per the revised `docs/PLAN.md` (2026-07-03).
-The backend / Supabase-hierarchy / deployment design for Phases 7–9 (dev+prod project split, auth,
-backup bucket layout, 7b Postgres schema + RLS, hosting incl. the Docker decision, CI) lives in
-**`docs/BACKEND_DEPLOYMENT.md`** (2026-07-13):
+`docs/BACKEND_DEPLOYMENT.md` (2026-07-13) still owns **deployment/hosting** (§3: Flutter Web build
+→ shop PC, Android/iOS, CI) — its §1–2 (Supabase hierarchy) are superseded by the package above:
 - **Cloud snapshot backup (Supabase) — Phase 7a**, stubbed/not wired (needs project creds).
   Do first: dev/prod env split, then scheduled+manual backup + restore drill.
 - **Record-level sync — Phase 7b**, optional until a second device exists. Prerequisite:

@@ -24,6 +24,32 @@
 
 ---
 
+## ⚠️ ความสัมพันธ์กับ `docs/BACKEND_DEPLOYMENT.md` (แผนเดิม)
+
+repo นี้มีแผน backend อยู่แล้ว 1 ฉบับ — [`../BACKEND_DEPLOYMENT.md`](../BACKEND_DEPLOYMENT.md) (2026-07-13)
+ซึ่ง **ตัดสินใจตรงข้ามกับเอกสารชุดนี้ใน 3 เรื่องหลัก** อ่านคู่กันแล้วจะสับสน ถ้าไม่รู้ว่าอันไหนใช้อยู่
+
+| ประเด็น | แผนเดิม (2026-07-13) | ชุดนี้ (2026-08-25) |
+|---|---|---|
+| ใครเป็น backend | **Supabase (BaaS)** — ไม่มี server ของตัวเอง | **NestJS ที่เราเขียนเอง** + PostgreSQL + Redis |
+| ข้อมูลตัวจริงอยู่ที่ไหน | **Drift ในเครื่อง** (cloud = backup เฉย ๆ) | **PostgreSQL บน server** (เครื่องเก็บเป็น cache) |
+| กฎธุรกิจอยู่ที่ไหน | **ใน Dart repositories เท่านั้น** — "ห้ามมี business logic บน cloud" | **ย้ายไปฝั่ง server** (transaction + ตัดสต็อก) |
+| รองรับหลายร้าน | ไม่ได้ออกแบบไว้ | **multi-tenant ตั้งแต่ schema** |
+
+**ทำไมถึงเปลี่ยน:** ไม่ใช่เพราะแผนเดิมผิด แต่เพราะ**โจทย์เปลี่ยน** — ตอนนี้มีทีมช่วยทำ backend,
+อาจารย์กำหนดสแตก (NestJS + Postgres + Redis + BullMQ + Nginx) และเพิ่มโจทย์ **multi-tenant**
+ซึ่งสามข้อนี้ทำบน Supabase-only ไม่ได้ตามที่แผนเดิมวางไว้
+
+> **เอกสารชุดนี้ = แผนที่ใช้อยู่** สำหรับงาน backend ตั้งแต่ 2026-08-25 เป็นต้นไป
+> ส่วน `BACKEND_DEPLOYMENT.md` ยังมีค่าอยู่ในเรื่อง **deployment/hosting** (§3: build Flutter Web
+> ขึ้นเครื่องร้าน, Android/iOS, CI/CD) ซึ่งชุดนี้ไม่ได้ครอบคลุม — ส่วน §1–2 (Supabase) ถือว่าถูกแทนแล้ว
+>
+> ⚠️ ยังไม่มีใครเคาะอย่างเป็นทางการว่า "ทิ้ง Supabase" — ถ้าทีมยังอยากใช้ Supabase
+> ให้ดู [`03_ARCHITECTURE.md §5`](03_ARCHITECTURE.md#5-multi-tenant--3-ทางเลือก) เพราะ Supabase
+> ก็ทำ multi-tenant ด้วย RLS ได้ แต่จะไม่ตรงโจทย์อาจารย์ (ไม่มี NestJS/BullMQ/Nginx ให้ทำ load test)
+
+---
+
 ## บริบทที่ใช้ออกแบบ (อ่านมาจากไหน)
 
 1. **แอปปัจจุบัน** — `CONTRACT.md` ของ repo นี้: 20 Drift tables, 13 repositories, 11 screens
