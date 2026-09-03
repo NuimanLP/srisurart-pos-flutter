@@ -246,7 +246,8 @@ erDiagram
 ### 5.1 ตารางระบบ (ใหม่ทั้งหมด)
 
 ```sql
--- ร้านค้าแต่ละร้าน = 1 tenant
+-- ร้านค้าแต่ละร้าน = 1 tenant = 1 เจ้าของอิสระ (ไม่ใช่แฟรนไชส์เดียวกัน) = 1 เครื่อง POS ในเฟสนี้
+-- ดูเหตุผลที่ 03_ARCHITECTURE.md §5
 CREATE TABLE tenants (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code          TEXT NOT NULL UNIQUE,           -- 'srisurart'
@@ -257,7 +258,7 @@ CREATE TABLE tenants (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- พนักงาน (JWT subject)
+-- พนักงาน (JWT subject) — 1 user ผูก tenant เดียวเสมอ ห้ามมี user ข้าม tenant (คนละเจ้าของกันจริง)
 CREATE TABLE users (
   tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   id            UUID NOT NULL DEFAULT gen_random_uuid(),
