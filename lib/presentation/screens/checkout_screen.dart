@@ -83,6 +83,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String _payMethod = 'เงินสด';
   double _discount = 0;
   bool _submitting = false;
+  bool _parkedBusy = false;
   String? _priceWarning;
   bool _lowStockDismissed = false;
   bool _consumingPendingQuote = false;
@@ -295,6 +296,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     mechanicName: _selectedMechanic?.nameTH ?? '',
     extra: {
       'total': _total,
+      // Preserve the in-progress payment state so a resume restores it
+      // instead of inheriting whatever is left over from the next cart.
+      'paymentMethod': _payMethod,
+      'cash': _cashCtrl.text,
       // Preserve per-line override context for an exact resume.
       'lines': [
         for (final it in cart)
@@ -313,59 +318,98 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   );
 
   Future<void> _handlePark() async {
+    if (_parkedBusy) return;
     final cart = _cart.state;
     if (cart.isEmpty) return;
-    await context.read<ParkedRepository>().parkSale(_buildParkPayload(cart));
-    _refreshParked();
-    _clearSaleState();
-    _warn('⏸ พักบิลแล้ว — กดที่แถบด้านบนเพื่อเรียกคืน');
+    setState(() => _parkedBusy = true);
+    try {
+      await context.read<ParkedRepository>().parkSale(
+        _buildParkPayload(cart),
+      );
+      if (!mounted) return;
+      _refreshParked();
+      _clearSaleState();
+      _warn('⏸ พักบิลแล้ว — กดที่แถบด้านบนเพื่อเรียกคืน');
+    } catch (e) {
+      if (!mounted) return;
+      _alert('พักบิลไม่สำเร็จ: ${_msg(e)}');
+    } finally {
+      if (mounted) setState(() => _parkedBusy = false);
+    }
   }
 
   Future<void> _handleResume(ParkedSaleRow pk) async {
-    final parkedRepo = context.read<ParkedRepository>();
-    final productsRepo = context.read<ProductsRepository>();
-    final customersRepo = context.read<CustomersRepository>();
-    final mechanicsRepo = context.read<MechanicsRepository>();
+    if (_parkedBusy) return;
+    setState(() => _parkedBusy = true);
+    try {
+      final parkedRepo = context.read<ParkedRepository>();
+      final productsRepo = context.read<ProductsRepository>();
+      final customersRepo = context.read<CustomersRepository>();
+      final mechanicsRepo = context.read<MechanicsRepository>();
 
-    final cart = _cart.state;
-    final fresh = await productsRepo.getAll();
-    // Auto-park current cart first (swap) so nothing is lost.
-    if (cart.isNotEmpty) {
-      await parkedRepo.parkSale(_buildParkPayload(cart));
-    }
-    final lines = _decodeParkedLines(pk);
-    final res = _validateItems(lines, fresh);
-    _cart.setLines(res.safe);
+      final cart = _cart.state;
+      final fresh = await productsRepo.getAll();
+      if (!mounted) return;
+      // Auto-park current cart first (swap) so nothing is lost — but tell
+      // the cashier, so an in-progress cart doesn't just vanish silently.
+      if (cart.isNotEmpty) {
+        await parkedRepo.parkSale(_buildParkPayload(cart));
+        if (!mounted) return;
+        _warn('⏸ พักบิลปัจจุบันถูกพักอัตโนมัติก่อนเรียกคืนบิลนี้');
+      }
+      final lines = _decodeParkedLines(pk, fresh: fresh);
+      final res = _validateItems(lines, fresh);
+      final issues = [...res.issues];
+      // CartCubit is global (survives a teardown of this screen) — load the
+      // resumed lines now, before any further mounted-gated widget state, so
+      // they're never lost even if the screen is torn down mid-resume.
+      _cart.setLines(res.safe);
 
-    final blob = _decodeBlob(pk);
-    final discount = (blob['discount'] as num?)?.toDouble() ?? 0;
-    final custId = blob['customerId'] as String?;
-    final mechId = blob['mechanicId'] as String?;
-    CustomerRow? cust;
-    MechanicRow? mech;
-    if (custId != null) {
-      final all = await customersRepo.getCustomers();
-      cust = all.where((c) => c.id == custId).firstOrNull;
+      final blob = _decodeBlob(pk);
+      final discount = (blob['discount'] as num?)?.toDouble() ?? 0;
+      final custId = blob['customerId'] as String?;
+      final mechId = blob['mechanicId'] as String?;
+      final payMethod = (blob['paymentMethod'] as String?) ?? 'เงินสด';
+      final cash = (blob['cash'] as String?) ?? '';
+      CustomerRow? cust;
+      MechanicRow? mech;
+      if (custId != null) {
+        final all = await customersRepo.getCustomers();
+        if (!mounted) return;
+        cust = all.where((c) => c.id == custId).firstOrNull;
+        if (cust == null) issues.add('ลูกค้าที่บันทึกไว้ถูกลบไปแล้ว');
+      }
+      if (mechId != null) {
+        final all = await mechanicsRepo.getMechanics();
+        if (!mounted) return;
+        mech = all.where((m) => m.id == mechId).firstOrNull;
+        if (mech == null) issues.add('ช่างที่บันทึกไว้ถูกลบไปแล้ว');
+      }
+      await parkedRepo.deleteParked(pk.id);
+      if (!mounted) return;
+
+      _refreshParked();
+      _discount = discount;
+      _syncDiscountText();
+      _cashCtrl.text = cash;
+      setState(() {
+        _selectedCustomer = cust;
+        _selectedMechanic = mech;
+        _payMethod = payMethod;
+        _priceWarning = issues.isNotEmpty
+            ? 'ข้อมูลเปลี่ยนระหว่างพักบิล:\n${issues.join('\n')}'
+            : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _alert('เรียกคืนบิลไม่สำเร็จ: ${_msg(e)}');
+    } finally {
+      if (mounted) setState(() => _parkedBusy = false);
     }
-    if (mechId != null) {
-      final all = await mechanicsRepo.getMechanics();
-      mech = all.where((m) => m.id == mechId).firstOrNull;
-    }
-    await parkedRepo.deleteParked(pk.id);
-    if (!mounted) return;
-    _refreshParked();
-    _discount = discount;
-    _syncDiscountText();
-    setState(() {
-      _selectedCustomer = cust;
-      _selectedMechanic = mech;
-      _priceWarning = res.issues.isNotEmpty
-          ? 'สต็อกเปลี่ยนระหว่างพักบิล:\n${res.issues.join('\n')}'
-          : _priceWarning;
-    });
   }
 
   Future<void> _handleDeleteParked(ParkedSaleRow pk) async {
+    if (_parkedBusy) return;
     final repo = context.read<ParkedRepository>();
     final lines = _decodeParkedLines(pk);
     final blob = _decodeBlob(pk);
@@ -386,9 +430,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ],
       ),
     );
-    if (ok != true) return;
-    await repo.deleteParked(pk.id);
-    _refreshParked();
+    if (ok != true || !mounted) return;
+    setState(() => _parkedBusy = true);
+    try {
+      await repo.deleteParked(pk.id);
+      if (!mounted) return;
+      _refreshParked();
+    } catch (e) {
+      if (!mounted) return;
+      _alert('ลบบิลที่พักไม่สำเร็จ: ${_msg(e)}');
+    } finally {
+      if (mounted) setState(() => _parkedBusy = false);
+    }
   }
 
   Map<String, dynamic> _decodeBlob(ParkedSaleRow pk) {
@@ -401,8 +454,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   /// Decode parked lines, preferring the rich 'lines' blob (keeps override
-  /// context) and falling back to the contract 'items' shape.
-  List<CartLine> _decodeParkedLines(ParkedSaleRow pk) {
+  /// context) and falling back to the contract 'items' shape. [fresh], when
+  /// given, backfills cost for the 'items' fallback (e.g. a legacy-imported
+  /// parked bill) so the below-cost override guard still applies on resume.
+  List<CartLine> _decodeParkedLines(
+    ParkedSaleRow pk, {
+    List<ProductRow>? fresh,
+  }) {
     final blob = _decodeBlob(pk);
     final rich = blob['lines'];
     if (rich is List) {
@@ -434,7 +492,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             nameTH: l['nameTH'] as String?,
             price: (l['price'] as num?)?.toDouble() ?? 0,
             originalPrice: (l['price'] as num?)?.toDouble() ?? 0,
-            cost: 0,
+            cost:
+                fresh
+                    ?.where((p) => p.id == (l['productId'] ?? '').toString())
+                    .firstOrNull
+                    ?.cost ??
+                0,
             qty: (l['qty'] as num?)?.toInt() ?? 0,
           ),
       ];
