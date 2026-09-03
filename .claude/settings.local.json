@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/Users/chav_sir/Library/CloudStorage/BeeStation-MyBeeStation/Sri_POS/Summary/teaching\")",
+      "Bash(cat MISSION.md)",
+      "Bash(cat NOTES.md)"
+    ]
+  }
+}
