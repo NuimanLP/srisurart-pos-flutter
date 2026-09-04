@@ -278,8 +278,7 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 
 > ### 📌 ยืนยันโมเดล (2026-09-03): **หลายร้าน คนละเจ้าของ ไม่ใช่แฟรนไชส์**
 > เจ้าของโปรเจกต์ยืนยันว่า tenant แต่ละร้าน = **ธุรกิจอิสระ คนละเจ้าของกัน** (SaaS ขายให้ร้านอะไหล่
-> หลายร้านที่ไม่รู้จักกัน) **ไม่ใช่** เชนเดียวเจ้าของเดียวเปิดหลายสาขา และ **1 ร้าน = 1 เครื่อง POS**
-> (ไม่ใช่หลายเครื่องต่อร้านในเฟสนี้) ข้อนี้เปลี่ยน 3 จุดในเอกสารเดิม:
+> หลายร้านที่ไม่รู้จักกัน) **ไม่ใช่** เชนเดียวเจ้าของเดียวเปิดหลายสาขา ข้อนี้เปลี่ยน 3 จุดในเอกสารเดิม:
 >
 > 1. **ไม่มี "รายงานข้ามร้าน" เป็นฟีเจอร์ทางธุรกิจอีกต่อไป** — แถวตารางด้านล่างที่เคย
 >    เขียนไว้ว่าเพื่อ "เจ้าของแฟรนไชส์" นั้น **ตกไป** เพราะไม่มีเจ้าของคนเดียวที่ควรเห็นร้านอื่น
@@ -288,11 +287,15 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 > 2. **`users.role = 'owner'` ผูกกับ `tenant_id` เดียวเท่านั้น** — ไม่มี user คนไหน sub อยู่ได้
 >    มากกว่า 1 tenant (คนละเจ้าของกันจริง ๆ ไม่มีเหตุผลทางธุรกิจให้ user ข้าม tenant)
 >    ต่างจากแฟรนไชส์ที่เจ้าของอาจอยากมี 1 login ดูได้ทุกสาขา
-> 3. **ต้องมีทาง provision tenant ใหม่** — เดิมเอกสารมีแต่ `/auth/token|refresh|me` (ดู
->    `02_API_SCREENS.md`) ไม่มี endpoint สร้างร้านใหม่เลย เพราะตอนออกแบบสมมติว่ามีคนกลาง
->    (platform admin) สร้าง tenant ให้ทุกครั้ง ยังไม่มี self-service signup ก็ยังพอไปได้จริง
->    สำหรับ scope นักศึกษา (จำนวนร้านน้อย, สมัครผ่านทีมเราด้วยมือ/สคริปต์) — ทางเลือกนี้ยังไม่เคาะ
->    ดู `00_INDEX.md` รายการ "ตัดสินใจแทนไม่ได้" ข้อ 5
+> 3. **provision tenant ใหม่ — ปิดแล้ว (ADR-0001):** platform admin ของทีมเราเป็นคนสร้างร้านใหม่ให้
+>    ผ่าน `POST /platform/tenants` (ทรานแซกชันเดียว ได้ tenant+owner+settings+seed ครบ) —
+>    **ยังไม่ทำ self-service signup ในเฟส 1** ดู [`adr/0001-tenant-provisioning.md`](adr/0001-tenant-provisioning.md)
+>
+> **จำนวนเครื่องต่อร้าน — ไม่ใช่ "1 ร้าน = 1 เครื่อง" แต่แบ่งตาม *บทบาท* (ADR-0004):**
+> ร้านมีเครื่อง **`role='pos'` ได้ไม่เกิน 1 เครื่อง** (เครื่องที่แตะลิ้นชักเก็บเงิน ออกเลขใบเสร็จ
+> และเป็นเครื่องเดียวที่เขียนตอนออฟไลน์ได้ในเฟส 2) กับเครื่อง **`role='backoffice'` กี่เครื่องก็ได้**
+> (สต็อก/รับของเข้า/ใบเสนอราคา/รายงาน — ต้องออนไลน์เสมอ) บังคับด้วย partial unique index
+> `one_pos_per_tenant` ที่ระดับฐานข้อมูล ดู [`adr/0004-device-roles.md`](adr/0004-device-roles.md)
 
 | | **T1. Shared DB + Shared Schema**<br/>(`tenant_id` + RLS) | **T2. Schema-per-tenant**<br/>(`tenant_abc.products`) | **T3. Database-per-tenant** |
 |---|---|---|---|
@@ -300,15 +303,15 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 | **ต้นทุน/ร้าน** | ต่ำมาก (ร้านที่ 100 ≈ ฟรี) | กลาง | สูง (connection pool ต่อ DB) |
 | **Migration** | รันครั้งเดียว จบทุกร้าน | ต้องวนทุก schema (100 ร้าน = 100 รอบ) | วนทุก DB + จัดการเวอร์ชันเหลื่อม |
 | **ความเสี่ยงข้อมูลรั่ว** | 🔴 สูงสุด — ลืม `WHERE tenant_id` ครั้งเดียวก็รั่ว | 🟡 กลาง | 🟢 ต่ำสุด |
-| **Backup/restore ทีละร้าน** | ยาก (ต้อง filter) | กลาง | ง่ายสุด (`pg_dump` ทั้ง DB) |
-| **Noisy neighbor** | ร้านใหญ่ทำร้านเล็กช้าได้ | เหมือนกัน | แยกขาด |
+| **Backup/restore ทีละร้าน** | ยาก (ต้อง filter) — **export รายร้านทำได้** (ADR-0005) แต่ **ไม่รับปาก restore รายร้าน** | กลาง | ง่ายสุด (`pg_dump` ทั้ง DB) |
+| **Noisy neighbor** | ร้านใหญ่ทำร้านเล็กช้าได้ — กันด้วย **rate limit ต่อ tenant ที่ guard+Redis** (Nginx ทำไม่ได้เพราะอ่าน JWT ไม่ได้, ADR-0006) | เหมือนกัน | แยกขาด |
 | **รายงานรวม-ระดับแพลตฟอร์ม (ทีมเราเอง ไม่ใช่ร้านไหน)** | ง่ายสุด (query เดียว) | ต้อง UNION | ยากสุด |
 | **เหมาะกับ** | SaaS หลายร้าน, ร้านเล็ก-กลาง | 10–100 ร้านที่ต้องการแยกชัด | ลูกค้าองค์กรที่ขอ DB แยก |
 
 **แนะนำ: T1** — เพราะโจทย์คือ "ร้านอะไหล่หลายร้าน" ซึ่งเป็น SaaS ร้านเล็ก-กลางจำนวนมาก
 และเป็นแบบเดียวที่ทำรายงานรวมทุกร้านได้ง่าย
 
-**แต่ต้องจ่ายค่าความปลอดภัยให้ครบ 5 ข้อ** (ไม่ทำ = ข้อมูลร้านหนึ่งโผล่ในอีกร้าน ซึ่งเป็นหายนะทางธุรกิจ):
+**แต่ต้องจ่ายค่าความปลอดภัยให้ครบ 6 ข้อ** (ไม่ทำ = ข้อมูลร้านหนึ่งโผล่ในอีกร้าน ซึ่งเป็นหายนะทางธุรกิจ):
 1. `tenant_id` มาจาก **JWT เท่านั้น** ห้ามมาจาก request
 2. เปิด **RLS + FORCE RLS** ทุกตาราง, app ใช้ role ที่ไม่ใช่ owner
 3. **Composite FK พา `tenant_id` ไปด้วย** ทุกความสัมพันธ์
@@ -316,7 +319,9 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 5. **เขียน integration test ที่พยายามอ่านข้ามร้านแล้วต้องได้ 0 แถว** — รันทุก PR
 6. **1 user = 1 tenant เท่านั้น ห้ามมี user ที่มีสิทธิ์มากกว่า 1 ร้าน** — JWT ออกมาผูก `tid`
    เดียวตลอดชีพ token ถ้าอนาคตมีคนต้องดูหลายร้าน (เช่น พนักงานบัญชีรับจ้างหลายร้าน) ให้ทำเป็นบัญชี
-   แยกต่อร้าน + สลับ login ไม่ใช่ token เดียวข้ามร้าน
+   แยกต่อร้าน + สลับ login ไม่ใช่ token เดียวข้ามร้าน — กติกาข้อนี้จริง 100% **สำหรับตาราง `users`**
+   เท่านั้น ทีม platform ops ที่ต้องเห็นทุกร้าน (กับดักที่ 1 ด้านล่าง) **ไม่ได้อยู่ในตาราง `users`**
+   ไปตามกติกานี้ แต่แยกไปอยู่ตาราง `platform_admins` ต่างหาก (ADR-0002) — ดูรายละเอียดที่กับดักที่ 1
 
 > ### ⚠️ 3 กับดักของ T1 ที่จะเจอตอน implement (review จับได้)
 > **1. "รายงานข้ามร้าน query เดียวจบ" ต้องใช้ role ที่ `BYPASSRLS`**
@@ -325,6 +330,12 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 > ลูกค้าอีกราย ไม่ใช่แค่รั่วภายในบริษัทเดียวกัน
 > → ต้องเป็น endpoint แยกต่างหาก **สำหรับทีม platform ops เท่านั้น ไม่มี role `owner`/`manager`
 > ของร้านไหนเรียกได้** + เขียน `audit_log` ทุกครั้งที่เรียก ไม่ใช่ path ปกติของแอป
+>
+> **เคาะแบบแผนรองรับแล้ว (ADR-0002)** — ไม่ใช่แค่คำเตือนลอย ๆ อีกต่อไป: platform ops อยู่ใน
+> ตาราง `platform_admins` แยกขาดจาก `users` (ไม่มี `tenant_id`), login คนละ endpoint
+> (`POST /platform/auth/token`), JWT คนละ `aud` (`"platform"` vs `"tenant"`), connection ที่
+> `BYPASSRLS` เป็น **DataSource คนละตัว** กับ traffic ปกติ, และ Nginx กัน `/platform/*`
+> ไม่ให้ออกอินเทอร์เน็ต (internal network / allowlist IP) เหมือนที่สั่งไว้กับ Bull-Board
 >
 > **2. บังคับทุก request อยู่ใน transaction (เพื่อให้ `SET LOCAL` ปลอดภัย) = read replica ไม่ได้ใช้เลย**
 > TypeORM transaction วิ่งเข้า master เสมอ → replica ในไดอะแกรมจะไม่ได้รับ traffic
@@ -389,8 +400,30 @@ sync engine ที่ทำไม่จบคือแหล่งของ "เ
 > ### 🔑 ข้อสรุปที่สำคัญที่สุดของทั้งเอกสาร: **เฟส 1 ไม่ต้อง cutover ร้าน**
 > คำถามที่ค้างอยู่คือ *"เน็ตล่มแล้วขายไม่ได้ ใครรับผิดชอบ?"* — คำตอบคือ **ไม่ต้องมีใครรับ ถ้าไม่ cutover**
 >
-> วันนี้ร้านมี **เครื่องเดียว** (`CLAUDE.md` Phase 7b: sync ยัง optional จนกว่าจะมีเครื่องที่สอง)
-> แปลว่า conflict ยังเป็นไปไม่ได้ทางโครงสร้าง และ **ไม่มีเหตุผลต้องรีบย้ายร้านขึ้น server**
+> **conflict เป็นไปไม่ได้ ตราบใดที่มี offline writer เดียวต่อร้าน — ไม่ใช่เพราะ "ร้านมีเครื่องเดียว"**
+> (ADR-0004) เอกสารเวอร์ชันก่อนอ้างว่าเพราะ "ร้านมีเครื่องเดียว" ซึ่งผิด 2 ชั้น:
+>
+> 1. **ไม่มีอะไรบังคับ** ให้มีเครื่องเดียว แอปเป็น Flutter Web เปิดแท็บที่สองก็พังแล้ว — มันเป็นแค่
+>    ข้อเท็จจริงวันนี้ที่ผู้ใช้ทำให้พังได้ตลอด ไม่ใช่ "ทางโครงสร้าง"
+> 2. **ไม่จำเป็นต้องใช้ข้ออ้างนี้เลย** — ในโหมดออนไลน์ server เป็นเจ้าของสต็อก ตัดในทรานแซกชัน
+>    พร้อม row lock อยู่แล้ว และเกณฑ์ปิดเฟส 1 ข้อ *"ยิง POST /sales พร้อมกัน 200 ครั้งบนสินค้า
+>    50 ชิ้น → ได้ 50 บิลพอดี"* **คือการพิสูจน์ว่าหลายเครื่องพร้อมกันปลอดภัย**
+>
+> สิ่งที่บังคับ "เครื่องเดียว" จริง ๆ คือ **partial unique index `one_pos_per_tenant`** — ร้านมีเครื่อง
+> `role='pos'` ที่ยังไม่ถูก retire ได้ไม่เกิน 1 เครื่อง และเหตุผลก็ไม่ใช่เรื่องสต็อกด้วย แต่เป็นของที่มีอยู่
+> **ชิ้นเดียวทางกายภาพ**:
+>
+> 1. **ลิ้นชักเก็บเงินมีใบเดียว** — `shifts`/`drawer_entries`/ใบปิดกะทั้งชุดตั้งอยู่บนสมมติฐานนี้
+>    สองเครื่องรับเงินสด = ปิดกะนับเงินไม่ตรงโดยไม่มีบั๊กสักตัว
+> 2. **เลขที่ใบเสร็จควรเป็นชุดเดียว** — สองเครื่องขาย = สองชุดเลข = บัญชีไล่สองเล่ม
+>
+> เหตุผลสองข้อนี้ **ไม่หายไปแม้ระบบจะออนไลน์ 100%** ต่างจากเหตุผลเรื่องสต็อกที่หายไปทันทีที่มี
+> server — จึงเป็นฐานที่มั่นคงกว่าให้ยึด และ **ไม่มีเหตุผลต้องรีบย้ายร้านขึ้น server**
+>
+> ผลพลอยได้: ADR-0004 ตอบคำถาม "ใครเขียน offline ได้" (เฟส 2) ได้ทันที = **เครื่องที่ `role='pos'`**
+> ซึ่งเป็นแฟล็กนิ่ง ๆ ตั้งครั้งเดียวตอน provision **ไม่เพิ่ม state ฝั่ง server เลย** ไม่ต้องมี lease
+> ที่มี TTL — ตรงกับเจตนาเดิมตอนที่ทีมตัดสินใจทิ้งกลไก stock lease (ดู [§4](#4-architecture-c--hybrid-online-first--โหมดสำรองแบบจำกัด-แนะนำ))
+> ดู [`adr/0004-device-roles.md`](adr/0004-device-roles.md)
 >
 > | | ทำอะไร |
 > |---|---|
@@ -413,13 +446,17 @@ gantt
     Docker Compose + Nginx + NestJS skeleton   :p1, 2026-09-01, 5d
     Schema + TypeORM migrations + seed         :p2, after p1, 5d
     Auth (JWT) + Tenancy guard + RLS           :p3, after p2, 4d
-    Products / Customers / Mechanics CRUD      :p4, after p3, 5d
+    Platform admin plane + tenant provisioning :p3b, after p3, 3d
+    Device roles (pos/backoffice) + guard      :p3c, after p3b, 2d
+    Products / Customers / Mechanics CRUD      :p4, after p3c, 5d
     Sales + Returns (transaction + idempotent) :p5, after p4, 7d
     PO / Quotes / Shifts                       :p6, after p5, 6d
     Reports (server-side aggregation)          :p7, after p6, 4d
     Redis cache + invalidation                 :p8, after p7, 4d
-    BullMQ + Bull-Board + health + metrics     :p9, after p8, 4d
-    k6 load test + tuning                      :p10, after p9, 4d
+    Per-tenant rate limit (guard + Redis)      :p8b, after p8, 2d
+    BullMQ + Bull-Board + health + metrics     :p9, after p8b, 4d
+    Tenant export job (POST /tenant/export)    :p9b, after p9, 2d
+    k6 load test + tuning                      :p10, after p9b, 4d
     section เฟส 2 — Offline shell (ส่วนเพิ่มของ C)
     Flutter ApiRepository (แทน Drift repos)    :q1, after p5, 20d
     Outbox + SyncService + offlineOk           :q2, after p10, 10d
@@ -430,6 +467,13 @@ gantt
 > ⚠️ **Gantt นี้เรียงงานต่อกันหมด ซึ่งไม่สมจริงสำหรับทีม 3 คน** — ใช้ดูลำดับพึ่งพา ไม่ใช่ดูวันที่
 > และงาน `q1` (แทน 13 Drift repos ด้วย HTTP + รักษา parity ข้อความไทย + เขียน unit test ใหม่ทั้งชุด)
 > เดิมประเมินไว้ 10 วัน ซึ่งต่ำเกินจริงชัดเจน — แก้เป็น 20 วันแล้ว และควรบวก buffer อีก 30%
+>
+> **งาน `p3b`/`p3c`/`p8b`/`p9b` เป็นของใหม่ที่ ADR ทำให้เกิดขึ้น** ไม่มีในแผนเดิม:
+> `p3b` platform admin plane + tenant provisioning ([ADR-0001](adr/0001-tenant-provisioning.md),
+> [ADR-0002](adr/0002-platform-admin-plane.md)), `p3c` device roles + guard
+> ([ADR-0004](adr/0004-device-roles.md)), `p8b` per-tenant rate limit
+> ([ADR-0006](adr/0006-per-tenant-rate-limit.md)), `p9b` tenant export job
+> ([ADR-0005](adr/0005-data-portability.md))
 >
 > **งานที่ต้องแทรกก่อนทุกอย่าง (ครึ่งวัน แต่ block ของอื่น):**
 > เพิ่ม `updatedAt` + `deletedAt` ให้ `customers` / `mechanics` / `settings` ใน Drift
@@ -445,6 +489,9 @@ gantt
 - [ ] `redis-cache` กับ `redis-queue` แยกกันจริง และ Bull-Board มี auth
 - [ ] ยิง `POST /sales` ที่บิลมีสินค้าไม่พอ 3 บรรทัด → ได้ข้อความไทย **ครบทั้ง 3 บรรทัดในครั้งเดียว**
 - [ ] ลบลูกค้าที่มีบิลแล้ว → ได้ `200` (soft delete) ไม่ใช่ `500`
+- [ ] สร้าง tenant ใหม่ด้วย `POST /platform/tenants` แล้วล็อกอิน+ขายได้จริงโดยไม่ต้องแตะ psql (ADR-0001)
+- [ ] เครื่อง `backoffice` ยิง `POST /sales` ต้องได้ `403` (`DEVICE_ROLE_FORBIDDEN`) (ADR-0004)
+- [ ] ระงับร้าน (`status='suspended'`) แล้ว **คำขอถัดไปต้องถูกปฏิเสธทันที** ไม่ต้องรอ token หมดอายุ (ADR-0003)
 
 **สิ่งที่ห้ามลืมตอน deploy** (สรุปจากคอร์ส Backend01/06 + ที่ review จับเพิ่ม):
 * 🔴 **แยก Redis เป็น 2 ตัว: `redis-cache` (`allkeys-lru`) กับ `redis-queue` (`noeviction` + AOF)**
@@ -453,6 +500,8 @@ gantt
 * 🔴 **Bull-Board ต้องมี auth** — payload ของ job มี `tenantId` + ข้อมูลลูกค้า
   mount ไว้เปล่า ๆ ที่ `/admin/queues` = ข้อมูลรั่วข้ามร้าน + ผิด PDPA
   ให้ใส่ basic-auth และวางไว้บน internal network ไม่ให้ออกอินเทอร์เน็ต
+* 🔴 **`/platform/*` ต้องกันไม่ให้ออกอินเทอร์เน็ต** (internal network / allowlist IP) — แนวเดียวกับ
+  Bull-Board ด้านบน endpoint กลุ่มนี้เห็น/แก้ได้ทุกร้าน พลาดครั้งเดียว = รั่วทั้งแพลตฟอร์ม (ADR-0002)
 * 🔴 **JWT ต้องระบุ TTL + revoke ให้ชัด** — เอกสารมี `/auth/refresh` แต่ไม่เคยบอกอายุ token
   ข้อเสนอ: access 15 นาที + refresh rotation เก็บใน Redis
   (ร้านไล่พนักงานออกแล้ว token ต้องใช้ไม่ได้ — JWT เปล่า ๆ revoke ไม่ได้)

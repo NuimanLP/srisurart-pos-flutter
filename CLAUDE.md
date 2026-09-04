@@ -123,9 +123,12 @@ BullMQ + Nginx**, with **multi-tenant** (many shops, one database) added to the 
 supersedes the Supabase-as-backend decision below on three points: a custom server now exists,
 **PostgreSQL becomes the source of truth** (Drift drops to a read cache), and the transactional
 invariants move server-side. The package is `docs/Backend_design/` — `00_BASICS.md` (backend
-primer), `00_INDEX.md` (map + open decisions), `01_DATABASE.md` (27 tables + DDL + invariants),
+primer), `00_INDEX.md` (map + open decisions), `01_DATABASE.md` (28 tables + DDL + invariants),
 `02_API_SCREENS.md` (all 11 screens → endpoints), `03_ARCHITECTURE.md` (3 options + rollout),
-`04_QA_SCRUTINY.md` (design review record). Nothing is built yet, and **no cutover is planned
+`04_QA_SCRUTINY.md` (design review record), and **`adr/` — the binding decision record**
+(ADR-0001…0007: tenant provisioning, platform-admin plane, tenant lifecycle, device roles,
+data portability, per-tenant rate limit, receipt numbering). **Where a doc contradicts an ADR,
+the ADR wins.** Nothing is built yet, and **no cutover is planned
 for phase 1** — the shop keeps running this Drift build while the server is developed against a
 demo tenant.
 
@@ -134,9 +137,11 @@ demo tenant.
 → shop PC, Android/iOS, CI) — its §1–2 (Supabase hierarchy) are superseded by the package above:
 - **Cloud snapshot backup (Supabase) — Phase 7a**, stubbed/not wired (needs project creds).
   Do first: dev/prod env split, then scheduled+manual backup + restore drill.
-- **Record-level sync — Phase 7b**, optional until a second device exists. Prerequisite:
-  add `updatedAt` to `customers`/`mechanics`/`settings` (only `products` has it) — Drift
-  schema change ⇒ `build_runner` on an ASCII path.
+- **Record-level sync — Phase 7b**, optional until a second device exists. ~~Prerequisite:
+  add `updatedAt` to `customers`/`mechanics`/`settings`~~ — **done 2026-09-04** (schema v2:
+  `updatedAt`/`deletedAt` on those three + `saleItems.costAtSale` per ADR-0008, with an
+  `onUpgrade` migration; write paths wired). Note `products.updatedAt` is still never
+  written by the app — it only round-trips through snapshots.
 - **Software hardening — Phase 8a** (anywhere, can parallel Phase 7): manager-PIN gate,
   audit log, PDPA, **bundle Sarabun/Barlow fonts as assets** (currently `google_fonts`
   runtime fetch — set `GoogleFonts.config.allowRuntimeFetching = false` in tests to avoid

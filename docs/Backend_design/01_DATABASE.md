@@ -2,8 +2,9 @@
 
 > **สำหรับทีม backend:** นี่คือ "หน้าตาของ database" ที่ถามถึง
 > แอปเดิมเก็บทุกอย่างใน SQLite บนเครื่อง (Drift) **20 ตาราง** — เอกสารนี้แปลงเป็น PostgreSQL
-> พร้อมเพิ่มอีก **7 ตาราง** ที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant) → **รวม 27 ตาราง**
-> (เฟส 1 สร้างจริงแค่ 26 — `change_log` เป็นของเฟส 2)
+> พร้อมเพิ่มอีก **8 ตาราง** ที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant) → **รวม 28 ตาราง**
+> (เฟส 1 สร้างจริงแค่ 27 — `change_log` เป็นของเฟส 2)
+> ตารางที่ 8 คือ `platform_admins` ซึ่งเพิ่มเข้ามาตาม [ADR-0002](adr/0002-platform-admin-plane.md)
 >
 > Business rule ทั้งหมดที่เขียนในนี้ถอดมาจาก `pos/db.js` (แอป JS ตัวเดิม) และ `CONTRACT.md`
 > **ห้ามแก้ค่าคงที่/สูตร** โดยไม่คุยกัน เพราะมันคือ behaviour ที่ร้านใช้จริงอยู่ทุกวัน
@@ -183,7 +184,8 @@ erDiagram
         text code UK
         text shop_name
         text plan
-        boolean is_active
+        text status
+        text timezone
     }
     USERS {
         uuid tenant_id PK
@@ -246,14 +248,29 @@ erDiagram
 ### 5.1 ตารางระบบ (ใหม่ทั้งหมด)
 
 ```sql
--- ร้านค้าแต่ละร้าน = 1 tenant = 1 เจ้าของอิสระ (ไม่ใช่แฟรนไชส์เดียวกัน) = 1 เครื่อง POS ในเฟสนี้
+-- ร้านค้าแต่ละร้าน = 1 tenant = 1 เจ้าของอิสระ (ไม่ใช่แฟรนไชส์เดียวกัน)
+-- 1 ร้านมีเครื่องขาย (role='pos') ได้ไม่เกิน 1 เครื่อง แต่เครื่อง backoffice มีกี่เครื่องก็ได้ (ADR-0004)
 -- ดูเหตุผลที่ 03_ARCHITECTURE.md §5
 CREATE TABLE tenants (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code          TEXT NOT NULL UNIQUE,           -- 'srisurart'
   shop_name     TEXT NOT NULL,                  -- 'ศรีสุรัตน์อะไหล่ยนต์'
   shop_name_en  TEXT NOT NULL DEFAULT '',
-  plan          TEXT NOT NULL DEFAULT 'basic',
+  plan          TEXT NOT NULL DEFAULT 'basic',  -- โควตา rate limit ต่อ tenant (ADR-0006): 'basic' = โควตาปกติ, 'loadtest' = ไม่จำกัด ใช้ตอนทำ k6
+  status        TEXT NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active','suspended','closed')),  -- (ADR-0003) บังคับที่ TenantGuard ไม่ใช่ใน RLS predicate — ดู §8
+  timezone      TEXT NOT NULL DEFAULT 'Asia/Bangkok',  -- (ADR-0003) shifts.date_str และรายงานรายวันทุกใบขึ้นกับค่านี้ — เฟส 1 โค้ดสมมติเวลาไทยได้
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- platform admin ของทีมเราเอง — ไม่ใช่ผู้ใช้ของร้านไหน จึงไม่มี tenant_id (ADR-0002)
+-- login ผ่าน POST /platform/auth/token → JWT aud:"platform" (ไม่มี tid) คนละ realm กับ users
+-- ต่อ DB ด้วย role ที่ BYPASSRLS และต้องเป็น DataSource คนละตัวจาก traffic ปกติของ /api/* (ADR-0002)
+CREATE TABLE platform_admins (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,                  -- argon2id
+  display_name  TEXT NOT NULL,
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -273,17 +290,27 @@ CREATE TABLE users (
   UNIQUE (tenant_id, username)
 );
 
--- เครื่อง POS แต่ละเครื่อง (ใช้ตอน sync + ออกเลขเอกสารไม่ให้ชน)
+-- เครื่องของร้าน (ใช้ตอน sync + ออกเลขเอกสารไม่ให้ชน) — แบ่งด้วย role ไม่ใช่นับจำนวนเครื่อง (ADR-0004)
+-- เส้นแบ่งคือ "แตะลิ้นชักไหม" ไม่ใช่ "แตะสต็อกไหม": role='pos' เท่านั้นที่ขาย/รับคืน/เปิดปิดกะ/
+-- พักบิล/ออกเลขใบเสร็จได้ (ร้านละไม่เกิน 1 เครื่องที่ยัง active — บังคับด้วย index ด้านล่าง)
+-- role='backoffice' แตะสต็อก/สินค้า/รายงานได้ปกติ แต่แตะเงิน/บิลไม่ได้ และมีกี่เครื่องก็ได้
 CREATE TABLE devices (
   tenant_id     UUID NOT NULL,
   id            TEXT NOT NULL,                  -- client-generated
   label         TEXT NOT NULL,                  -- 'เคาน์เตอร์หน้าร้าน'
   device_no     SMALLINT NOT NULL,              -- 1..99 ใช้เป็น prefix เลขเอกสาร
+  role          TEXT NOT NULL DEFAULT 'backoffice'
+                CHECK (role IN ('pos','backoffice')),  -- (ADR-0004)
+  retired_at    TIMESTAMPTZ,                    -- (ADR-0004) เครื่องแทนที่ต้องปลดตรงนี้ก่อน แล้วสร้างเครื่องใหม่ด้วย device_no ใหม่เสมอ ห้ามใช้ซ้ำ ไม่งั้นชุดเลขใบเสร็จชน
   last_pull_seq BIGINT NOT NULL DEFAULT 0,      -- cursor ของ change_log
   last_seen_at  TIMESTAMPTZ,
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, device_no)
 );
+
+-- ร้านหนึ่งมีเครื่องขายที่ยังใช้งานอยู่ได้ไม่เกิน 1 เครื่อง — บังคับที่ฐานข้อมูล (ADR-0004)
+CREATE UNIQUE INDEX one_pos_per_tenant ON devices (tenant_id)
+  WHERE role = 'pos' AND retired_at IS NULL;
 
 -- กัน request ซ้ำ (โทรศัพท์กดซ้ำ / retry ตอนเน็ตกระตุก)
 CREATE TABLE idempotency_keys (
@@ -760,6 +787,7 @@ CREATE TABLE settings (
 | `sales` | `(tenant_id, receipt_no)` UNIQUE | หน้า Returns ค้นบิลด้วยเลขที่ |
 | `sale_items` | `(tenant_id, product_id)` | รายงาน "สินค้าขายดี" |
 | `movements` | `(tenant_id, product_id, date DESC)` | ประวัติสต็อกรายชิ้น |
+| `devices` | partial UNIQUE `one_pos_per_tenant`<br/>`WHERE role='pos' AND retired_at IS NULL` | บังคับ 1 เครื่องขายต่อร้าน (ADR-0004) |
 | `shifts` | partial UNIQUE `WHERE is_active` | บังคับ 1 กะ active |
 | `change_log` | `(tenant_id, server_seq)` | sync pull |
 | `audit_log` | `(tenant_id, created_at DESC)` | ตรวจย้อนหลัง |
@@ -846,15 +874,34 @@ UPDATE products SET stock = stock - $qty, updated_at = now()
 ส่วน server ทำหน้าที่แค่ 2 อย่าง: กันเลขชนด้วย `UNIQUE (tenant_id, receipt_no)`
 และเก็บ high-water mark ใน `doc_counters` ไว้ตรวจว่า **เลขขาดช่วงไหม** (บิลหาย / เครื่องพัง)
 
-2 ทางเลือกที่เหลือ — **ต้องให้เจ้าของร้านเลือก เพราะใบเสร็จหน้าตาเปลี่ยน**:
+**เคาะแล้ว (ADR-0007): เลขเรียงต่อเครื่อง รีเซ็ตรายเดือน** — ไม่ใช่ 2 ทางเลือกที่ยังตัดสินใจไม่ได้อีกต่อไป:
 
 | แบบ | รูปแบบ | ข้อดี | ข้อเสีย |
 |---|---|---|---|
-| **คงของเดิม** (`docNo('RC')`) | `RC12345678ABCD` | ไม่ต้องแก้อะไรเลย, ใบเสร็จหน้าตาเดิม | เลขไม่เรียง, บัญชีไล่ยาก |
-| **เลขเรียงต่อเครื่อง** | `RC1-2569-08-0042` | เรียงสวย, ตรวจเลขขาดช่วงได้, ยังออฟไลน์ได้ | **ใบเสร็จหน้าตาเปลี่ยน** ต้องถามเจ้าของร้าน + ต้องจดทะเบียนเครื่อง |
+| คงของเดิม (`docNo('RC')`) | `RC12345678ABCD` | ไม่ต้องแก้อะไรเลย, ใบเสร็จหน้าตาเดิม | เลขไม่เรียง, บัญชีไล่ยาก |
+| **✅ เลขเรียงต่อเครื่อง — เคาะแล้ว** | `RC01-2569-08-0042` | เรียงสวย, ตรวจเลขขาดช่วงได้, ยังออฟไลน์ได้ | ใบเสร็จหน้าตาเปลี่ยน ต้องจดทะเบียนเครื่อง |
 
-⚠️ **อย่าเผลอเขียนตัวอย่างเลขแบบใหม่ลงใน spec แล้วให้ทีม implement ไปเลย** — `docNo()`
-มีรูปแบบตายตัวอยู่แล้ว (`CONTRACT.md §7`) การเปลี่ยนคือการตัดสินใจทางธุรกิจ ไม่ใช่ทางเทคนิค
+⚠️ **`device_no` ต้องซีโร่แพด 2 หลักเสมอ** (`RC01`, `RC12` — ไม่ใช่ `RC1`) เพราะ `devices.device_no`
+เป็น 1..99 ถ้าไม่แพด เครื่องที่ 1 กับเครื่องที่ 12 จะพาร์สแยกกันไม่ออก (`RC1-` กับ `RC12-`
+ต่างกันแค่ตัวคั่น) (ADR-0007)
+
+⚠️ **ADR-0007 ปลดล็อกให้เริ่ม implement ได้ แต่ไม่ได้แทนการยืนยันหน้าตาใบเสร็จ** — ยังต้องให้
+เจ้าของร้านเห็นตัวอย่างใบเสร็จจริงก่อนพิมพ์ใบแรก `CONTRACT.md §7` (`docNo()`) มีรูปแบบตายตัวอยู่แล้ว
+ต้องอัปเดตตาม การเปลี่ยนรูปแบบยังเป็นเรื่องที่ต้องแจ้งร้านก่อน แม้ทีมเทคนิคจะเคาะรูปแบบแล้วก็ตาม
+
+เครื่องที่ออกเลขใบเสร็จได้คือเครื่อง `role='pos'` เท่านั้น (ADR-0004) — `backoffice` ออกเลขเอกสารไม่ได้
+
+#### 🔴 counter ในเครื่องหายได้ (Flutter Web = IndexedDB/OPFS ผู้ใช้ล้างได้)
+
+แอปรันบน Flutter Web — Drift เก็บ counter ใน IndexedDB/OPFS ซึ่ง**ผู้ใช้หรือเบราว์เซอร์ล้างได้**
+(ล้างข้อมูลเว็บไซต์, เปลี่ยนเบราว์เซอร์, โหมดส่วนตัว, ลง Windows ใหม่) ถ้า counter รีเซ็ตเป็น 0
+เลขที่ออกใหม่จะ**ชนกับใบเสร็จเดิมทั้งเดือน** → `UNIQUE (tenant_id, receipt_no)` เด้งทุกบิล →
+**ขายไม่ได้เลยจนกว่าจะมีคนแก้ให้** ต้องมี 2 อย่างนี้ ไม่ใช่ทางเลือก (ADR-0007):
+
+1. **seed counter จาก server ทุกครั้งที่เปิดแอป/ล็อกอิน** — `GET /doc-counters` คืน high-water
+   mark ของ `(device_id, doc_type, period)` แล้วตั้ง `local = max(local, server)`
+2. **ชน `UNIQUE (tenant_id, receipt_no)` แล้วต้องขยับเลขแล้วลองใหม่ ห้ามให้บิลตก** — เป็นตาข่ายชั้นสุดท้าย
+   ลูกค้ายืนรออยู่หน้าเคาน์เตอร์ บั๊กเรื่องเลขที่ต้องไม่ทำให้ขายไม่ได้
 
 ### 7.3 การรับคืน (`createReturn`)
 
@@ -923,7 +970,20 @@ CREATE POLICY tenant_isolation ON products
   🔴 **กับดัก:** ถ้า job throw นอก transaction ค่า `app.tenant_id` จะ**ค้างอยู่บน connection ใน pool**
   แล้ว job ของร้านถัดไปจะสืบทอด tenant ผิด → **บังคับให้ทุก job body ห่อ transaction เสมอ**
   หรือใช้ `set_config(…, true)` + `RESET` ใน `finally`
-* งาน admin/migration ใช้ role แยกที่ `BYPASSRLS`
+* role ที่ `BYPASSRLS` ใช้เฉพาะ **admin/platform plane** (`/platform/*`, ADR-0002) ไม่ใช่งานทั่วไป —
+  และต้องเป็น **DataSource คนละตัว** จาก traffic ปกติของ `/api/*` ถ้าใช้ pool เดียวกัน โค้ดของร้าน
+  มีสิทธิ์หลุดไปวิ่งบน connection ที่ไม่มี RLS (ADR-0002)
+
+> ### สถานะร้าน (`tenants.status`) บังคับที่ `TenantGuard` ไม่ใช่ใน RLS predicate (ADR-0003)
+> `TenantGuard` อ่าน `tid` จาก JWT แล้วเช็ค `tenants.status` **ก่อน** ทุกครั้ง — ถ้าไม่ `active`
+> ให้ปฏิเสธคำขอและ **ไม่** `SET LOCAL app.tenant_id` เลย connection นั้นจึงไม่มีค่า GUC
+> `app.tenant_id` → policy ด้านบนคืน 0 แถวเองโดยอัตโนมัติอยู่แล้ว (จาก `NULLIF(..., '')`) —
+> ได้ defence-in-depth ฟรี โดยไม่ต้องแตะ policy สักตัว
+>
+> **ห้ามใส่ `status` ลงใน policy** (เช่น `AND EXISTS (SELECT 1 FROM tenants WHERE id = tenant_id
+> AND status = 'active')`) เพราะจะกลายเป็น subquery ที่วิ่ง**ต่อแถว ทุกตาราง ทุก query** —
+> จ่ายค่า performance ตลอดชีพระบบ เพื่อกันเคสที่เกิดปีละครั้ง เช็คที่ guard = ครั้งเดียวต่อ request
+> และให้ผลเหมือนกันเป๊ะ (ADR-0003)
 
 > ### 🔴 ราคาที่ต้องจ่ายของ RLS ที่เอกสารเวอร์ชันแรกไม่ได้บอก
 > **1. รายงานข้ามร้านต้องใช้ `BYPASSRLS`** — ตารางเปรียบเทียบใน `03` บอกว่า T1 ทำรายงานรวมทุกร้าน
@@ -1005,6 +1065,13 @@ flowchart LR
 **ผลต่อ API:** `DELETE` ที่เป็น soft delete ต้องคืน `200` เสมอเหมือนเดิม client ไม่ต้องรู้ว่าเปลี่ยนวิธี
 และ `GET` ทุกตัวต้องกรอง `WHERE deleted_at IS NULL` (ยกเว้น endpoint sync ที่ต้องเห็น tombstone)
 
+> **ทำไมตารางข้างบนต้องแม่นเป๊ะ (ADR-0005):** ระบบ**ไม่มี point-in-time restore รายร้าน** —
+> เลือกรับปาก export (`POST /tenant/export`) แต่ไม่รับปาก restore เพราะ restore รายร้านบน
+> shared-schema ต้องมี nightly per-tenant dump แยกทุกร้าน + สคริปต์ลบ-แล้ว-โหลดกลับที่เรียงตาม FK
+> ให้ถูกทั้ง 27 ตาราง ทำครึ่ง ๆ กลาง ๆ แย่กว่าไม่ทำ (restore พลาด = ข้อมูลร้านอื่นเสียหายด้วย)
+> **soft delete จึงเป็นกลไกเดียวที่กู้ "ลบผิด" ได้** — ต้องตรวจให้แน่ใจว่าทุกตารางที่ผู้ใช้กดลบได้
+> เอง (ผ่านหน้าจอ ไม่ใช่แค่ระบบภายใน) เป็น soft delete จริงตามตารางนี้ ไม่ใช่หลุด hard delete ไป
+
 ---
 
 ## 11. สิ่งที่ DB ยัง "ไม่มี" และควรคุยกัน
@@ -1014,7 +1081,7 @@ flowchart LR
 | **ยังไม่มีตารางภาษี/ใบกำกับภาษีเต็มรูป** | ร้านออกใบกำกับอย่างย่อ ถ้าลูกค้าขอเต็มรูป ต้องมี `tax_invoices` แยก (ยกมาจาก scope เดิมที่ยังไม่ทำ) |
 | **`sales` ไม่เก็บ `cost` ตอนขาย** | คำนวณกำไรย้อนหลังไม่ได้จริง เพราะ `products.cost` เปลี่ยนทุกครั้งที่รับของ → ควรเพิ่ม `sale_items.cost_at_sale` |
 | **ไม่มี soft delete ครบทุกตาราง** | ตอน sync การลบต้องส่งเป็น tombstone ไม่งั้นเครื่องอื่นจะ resurrect ข้อมูลที่ลบไปแล้ว |
-| **หลายร้าน = หลาย timezone?** | ถ้าทุกร้านอยู่ไทยหมด ใช้ `Asia/Bangkok` ตายตัวได้ ถ้าไม่ ต้องเก็บ `tenants.timezone` เพราะ `shifts.date_str` และรายงานรายวันขึ้นกับมัน |
+| ~~หลายร้าน = หลาย timezone?~~ **เคาะแล้ว (ADR-0003)** | เพิ่ม `tenants.timezone TEXT DEFAULT 'Asia/Bangkok'` แล้ว (§5.1) เพราะ `shifts.date_str` และรายงานรายวันทุกใบขึ้นกับค่านี้ |
 | **`customers` / `mechanics` / `settings` ยังไม่มี `updated_at`** | มีแต่ `products` ที่มี → refresh cache ด้วย `?updatedSince=` ทำไม่ได้กับ 3 ตารางนี้ **เป็น Drift schema change ที่ต้องรัน `build_runner` บน ASCII path** ควรทำรวดเดียวตอนนี้ ไม่ใช่ไปเจอตอนเฟส 2 |
 | **`sales.sync_status`** | ถ้าจะทำโหมดออฟไลน์ ต้องมี `('local'\|'confirmed'\|'rejected')` + คิวให้เจ้าของร้านเคลียร์บิลที่ server ปฏิเสธหลังพิมพ์ใบเสร็จไปแล้ว — ซ่อนไว้ใน log ไม่ได้ |
 

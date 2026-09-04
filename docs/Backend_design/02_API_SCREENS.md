@@ -17,6 +17,8 @@
 | Base path | `/api/v1` (ล็อกเวอร์ชันไว้ตั้งแต่วันแรก) |
 | Auth | `Authorization: Bearer <JWT>` ทุก endpoint ยกเว้น `/auth/*` และ `/health/*` |
 | Tenant | **อ่านจาก JWT claim `tid` เท่านั้น** — ห้ามรับ `tenantId` จาก body/query เด็ดขาด (ไม่งั้นปลอมข้ามร้านได้) |
+| Device | JWT พก `did` (device id) + `drole` (`pos` / `backoffice`) เพิ่มจาก `tid` — guard ตรวจ `drole` **ต่อ endpoint** ตามคอลัมน์ "Device role" ใน §4 (ADR-0004) |
+| Token audience | guard ของ `/api/*` **ปฏิเสธ token ที่ `aud != "tenant"`** และ guard ของ `/platform/*` **ปฏิเสธ `aud != "platform"`** — token ข้ามฝั่งกันไม่ได้แม้แต่กรณีเดียว **ไม่มี role ของร้านไหนเรียก `/platform/*` ได้ แม้แต่ `owner`** (ADR-0002) |
 | Content | `application/json; charset=utf-8` |
 | Pagination | `?page=1&limit=50` (default 50, max 200) |
 | เวลา | ISO-8601 UTC ทุกที่ (`2026-08-25T03:12:00Z`) |
@@ -342,12 +344,21 @@ sequenceDiagram
 |---|---|
 | `GET /settings` · `PATCH /settings` | ข้อมูลร้าน, VAT, อายุใบเสนอราคา |
 | `POST /backup/export` | → `202 Accepted` + `jobId` (งานหนัก เข้า BullMQ) → ได้ signed URL ตอนเสร็จ |
-| `POST /backup/import` | อัปโหลด snapshot JSON แบบเดิม (`sa_*` + `__meta`) — **ต้องเป็น admin + ต้องมี audit log** |
+| ~~`POST /backup/import`~~ | **ย้ายไป admin plane แล้ว** → `POST /platform/tenants/{id}/import` (ดู §4.1) |
 | `GET /backup/jobs/:id` | เช็คสถานะงาน export/import |
 | `GET /export/products.csv` `?…` | CSV — ทุกช่องผ่าน `csvSafe()` กัน formula injection |
 
-> ⚠️ `POST /backup/import` เป็น endpoint ที่อันตรายที่สุดในระบบ (เขียนทับข้อมูลทั้งร้าน)
-> → ต้อง role `owner` + ยืนยัน PIN + เก็บ `audit_log` + ทำ backup อัตโนมัติก่อน import
+> ### ⚠️ ทำไม import ถึงไม่ใช่ปุ่มของร้านอีกต่อไป (ADR-0005)
+> เดิมออกแบบให้ `owner` + PIN กดเองได้ ซึ่ง**ขัดกับ ADR-0005** ที่ประกาศว่า
+> **ระบบไม่มีการย้อนข้อมูลรายร้าน** — ถ้าเจ้าของร้านอัปโหลดไฟล์เมื่อวานทับของวันนี้ได้
+> นั่นคือ restore รายร้าน แค่เรียกชื่ออื่น และเป็น endpoint ที่อันตรายที่สุดในระบบ
+>
+> **การนำเข้าข้อมูลมีเหตุผลเดียวที่ยังจำเป็น: ตอน onboard ร้านใหม่** (ย้ายข้อมูลจากแอปเดิมเข้ามา
+> ครั้งแรก — ดู `01_DATABASE.md` §9) จึงย้ายไปเป็น **`POST /platform/tenants/{id}/import`**
+> ของ admin plane และ **ต้องปฏิเสธถ้า tenant นั้นมีบิลอยู่แล้ว** → เป็นเครื่องมือ provisioning
+> ไม่ใช่เครื่องมือ restore
+>
+> ร้านยังกด **export** เก็บไฟล์เองได้ตามเดิม (นั่นคือประกันของร้าน) แค่กด import ทับเองไม่ได้
 
 ### 3.11 Cash Drawer (เปิด-ปิดกะ)
 
@@ -381,54 +392,106 @@ sequenceDiagram
 
 ---
 
-## 4. API Catalogue เต็ม (ตารางเดียวจบ)
+## 4. API Catalogue เต็ม
 
-| Method | Path | Auth | Cache | Queue | Idempotent |
-|---|---|---|---|---|---|
-| POST | `/auth/token` | – | – | – | – |
-| POST | `/auth/refresh` | refresh | – | – | – |
-| GET | `/auth/me` | ✔ | – | – | – |
-| GET | `/products` (`?search=` / `?partNo=` / `?updatedSince=`) | ✔ | ✅ 5m | – | – |
-| GET | `/products/:id` | ✔ | ✅ 5m | – | – |
-| POST | `/products` | manager | invalidate | – | ✔ |
-| PATCH | `/products/:id` | manager | invalidate | – | ✔ |
-| DELETE | `/products/:id` | manager | invalidate | – | ✔ |
-| POST | `/products/:id/adjust-stock` | manager | invalidate | – | ✔ |
-| GET | `/categories` (คืน `[{name,color}]`) | ✔ | ✅ 1h | – | – |
-| POST/DELETE | `/categories` | manager | invalidate | – | ✔ |
-| GET | `/products/:id/suppliers` | ✔ | – | – | – |
-| POST/PATCH/DELETE | `/suppliers/:id?` | manager | – | – | ✔ |
-| GET | `/movements` | ✔ | – | – | – |
-| GET | `/customers` | ✔ | ✅ 1m | – | – |
-| POST/PATCH/DELETE | `/customers/:id?` | ✔ | invalidate | – | ✔ |
-| GET | `/customers/:id/sales` | ✔ | – | – | – |
-| GET | `/mechanics` | ✔ | ✅ 1m | – | – |
-| POST/PATCH/DELETE | `/mechanics/:id?` | manager | invalidate | – | ✔ |
-| POST | `/mechanics/:id/credit-payments` | ✔ | invalidate | – | **✔ บังคับ** |
-| **POST** | **`/sales`** | ✔ | invalidate | ✅ post-process | **✔ บังคับ** |
-| GET | `/sales` | ✔ | – | – | – |
-| GET | `/sales/:id` · `/sales/:id/refunded-qty` | ✔ | – | – | – |
-| POST | `/sales/:id/void` 🆕 | manager+PIN | invalidate | – | ✔ |
-| **POST** | **`/returns`** | ✔ | invalidate | ✅ post-process | **✔ บังคับ** |
-| GET | `/returns` | ✔ | – | – | – |
-| GET | `/purchase-orders` | ✔ | – | – | – |
-| POST | `/purchase-orders` | manager | – | – | ✔ |
-| **POST** | **`/purchase-orders/:id/receive`** | manager | invalidate | ✅ | **✔ บังคับ** |
-| POST | `/purchase-orders/:id/cancel` · DELETE | manager | – | – | ✔ |
-| GET/POST/PATCH/DELETE | `/quotes/:id?` | ✔ | – | – | ✔ |
-| POST | `/quotes/:id/duplicate` | ✔ | – | – | ✔ |
-| POST | `/quotes/:id/convert` | ✔ | invalidate | ✅ | **✔ บังคับ** |
-| POST | `/quotes/purge` | manager | – | ✅ 202 | ✔ |
-| GET | `/parked-sales` · POST · DELETE | ✔ | – | – | ✔ |
-| GET | `/shifts/current` · `/shifts/history` | ✔ | – | – | – |
-| POST | `/shifts/open` · `/close` · `/current/entries` | ✔ | – | – | ✔ |
-| GET | `/reports/*` | ✔ | ✅ 5–15m | – | – |
-| GET/PATCH | `/settings` | manager | ✅ 1h / invalidate | – | ✔ |
-| POST | `/backup/export` · `/backup/import` | owner+PIN | – | ✅ 202 | ✔ |
-| GET | `/export/:entity.csv` | manager | – | – | – |
-| POST | `/sync/push` · GET `/sync/pull` · `/sync/bootstrap` | ✔ | – | – | **✔ บังคับ** |
-| GET | `/health/live` · `/health/ready` | – | – | – | – |
-| GET | `/metrics` | internal | – | – | – |
+### 4.1 Admin plane (ADR-0002) — ไม่ใช่ API ของร้าน
+
+อยู่ใต้ **`/platform/*`** ไม่ใช่ `/api/v1/*` — auth คนละ audience (`aud: "platform"`, **ไม่มี `tid`**)
+guard ของ `/platform/*` ปฏิเสธ token ที่ `aud != "platform"` เสมอ **ไม่มี role ของร้านไหนเรียกได้
+แม้แต่ `owner`** (ADR-0002) — ร้านแต่ละ tenant เป็นคนละเจ้าของกันจริง ข้ามร้านมาเห็นกันไม่ได้เด็ดขาด
+
+| Method | Path | Auth | Idempotent | หมายเหตุ |
+|---|---|---|---|---|
+| POST | `/platform/auth/token` | – | – | login ของ platform admin (ตาราง `platform_admins` แยกจาก `users`) — JWT ที่ได้ `aud: "platform"` ไม่มี `tid` |
+| POST | `/platform/tenants` | platform admin | ✔ | สร้างร้านใหม่ (ADR-0001) **ทรานแซกชันเดียว** ต้องได้ครบ: แถวใน `tenants` (`status='active'`) + `users` แถวแรก `role='owner'` + `settings` 1 แถว + seed หมวดหมู่/หน่วยนับ + device แรก `role='pos'`, `device_no=1` — ล้มข้อใดข้อหนึ่งต้อง rollback ทั้งหมด ห้ามมี tenant ที่ไม่มี owner หรือไม่มี settings |
+| PATCH | `/platform/tenants/{id}/status` | platform admin | ✔ | เปลี่ยน `active`/`suspended`/`closed` (ADR-0003) — **ต้องล้าง cache `t:{tid}:status` ทันที** ไม่งั้นการระงับจะช้าเท่า TTL ของ cache นั้น |
+| POST | `/platform/tenants/{id}/import` | platform admin | ✔ | นำเข้า snapshot `sa_*` + `__meta` ตอน **onboard ร้านใหม่เท่านั้น** (ADR-0005) — **ต้องปฏิเสธถ้า tenant นั้นมีบิลอยู่แล้ว** ไม่ใช่ทาง restore ย้อนเวลา · ย้ายมาจาก `POST /backup/import` เดิม |
+| GET | `/platform/tenants` | platform admin | – | รายชื่อร้าน (platform ops เท่านั้น) |
+
+> 🔴 **ทุก endpoint ในตารางนี้ต้องเขียน `audit_log` ทุกครั้งที่ถูกเรียก** (ใคร, endpoint ไหน, แตะ tenant ใด) — ADR-0002 กติกาข้อ 3
+
+### 4.2 Tenant plane (ตารางเดียวจบ)
+
+Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud: "tenant"` มี `tid`
+
+> คอลัมน์ **Device role** อ้างตามตารางความสามารถใน ADR-0004 (เส้นแบ่งคือ "แตะลิ้นชักเก็บเงินไหม"
+> ไม่ใช่ "แตะสต็อกไหม"): `pos เท่านั้น` = เครื่องขาย 1 เครื่องต่อร้าน (ขาย/คืน/รับชำระเครดิตช่าง/
+> เปิด-ปิดกะ+`drawer_entries`/พักบิล/ออกเลขใบเสร็จ — เขียน offline ได้เฉพาะเครื่องนี้), `ทั้งคู่` =
+> `pos` + `backoffice` เรียกได้ทั้งคู่ (`backoffice` ต้องออนไลน์เสมอ เขียนตอนออฟไลน์ไม่ได้ — เฟส 2),
+> `–` = ไม่มีแนวคิดเครื่อง (auth/health/metrics) **ADR-0004 เองระบุว่า "รายการ endpoint ที่จำกัดเฉพาะ
+> `pos` รอยืนยัน"** — แถวที่ไม่ตรงกับหมวดในตารางความสามารถของ ADR ตรง ๆ (เช่น `/sales/:id/void`,
+> `/shifts/*`, `/sync/*`) ใช้หลักการเดียวกัน **"อะไรก็ตามที่เกี่ยวกับบิล ทำที่เครื่องขาย"** เป็นการตีความ
+> ของเอกสารนี้ ควรให้เจ้าของโปรเจกต์ยืนยันอีกรอบก่อน implement
+
+| Method | Path | Auth | Device role | Cache | Queue | Idempotent |
+|---|---|---|---|---|---|---|
+| POST | `/auth/token` | – | – | – | – | – |
+| POST | `/auth/refresh` | refresh | – | – | – | – |
+| GET | `/auth/me` | ✔ | ทั้งคู่ | – | – | – |
+| GET | `/products` (`?search=` / `?partNo=` / `?updatedSince=`) | ✔ | ทั้งคู่ | ✅ 5m | – | – |
+| GET | `/products/:id` | ✔ | ทั้งคู่ | ✅ 5m | – | – |
+| POST | `/products` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| PATCH | `/products/:id` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| DELETE | `/products/:id` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| POST | `/products/:id/adjust-stock` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| GET | `/categories` (คืน `[{name,color}]`) | ✔ | ทั้งคู่ | ✅ 1h | – | – |
+| POST/DELETE | `/categories` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| GET | `/products/:id/suppliers` | ✔ | ทั้งคู่ | – | – | – |
+| POST/PATCH/DELETE | `/suppliers/:id?` | manager | ทั้งคู่ | – | – | ✔ |
+| GET | `/movements` | ✔ | ทั้งคู่ | – | – | – |
+| GET | `/customers` | ✔ | ทั้งคู่ | ✅ 1m | – | – |
+| POST/PATCH/DELETE | `/customers/:id?` | ✔ | ทั้งคู่ | invalidate | – | ✔ |
+| GET | `/customers/:id/sales` | ✔ | ทั้งคู่ | – | – | – |
+| GET | `/mechanics` | ✔ | ทั้งคู่ | ✅ 1m | – | – |
+| POST/PATCH/DELETE | `/mechanics/:id?` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| POST | `/mechanics/:id/credit-payments` | ✔ | **pos เท่านั้น** | invalidate | – | **✔ บังคับ** |
+| **POST** | **`/sales`** | ✔ | **pos เท่านั้น** | invalidate | ✅ post-process | **✔ บังคับ** |
+| GET | `/sales` | ✔ | ทั้งคู่ | – | – | – |
+| GET | `/sales/:id` · `/sales/:id/refunded-qty` | ✔ | ทั้งคู่ | – | – | – |
+| POST | `/sales/:id/void` 🆕 | manager+PIN | **pos เท่านั้น** | invalidate | – | ✔ |
+| **POST** | **`/returns`** | ✔ | **pos เท่านั้น** | invalidate | ✅ post-process | **✔ บังคับ** |
+| GET | `/returns` | ✔ | ทั้งคู่ | – | – | – |
+| GET | `/purchase-orders` | ✔ | ทั้งคู่ | – | – | – |
+| POST | `/purchase-orders` | manager | ทั้งคู่ | – | – | ✔ |
+| **POST** | **`/purchase-orders/:id/receive`** | manager | ทั้งคู่ | invalidate | ✅ | **✔ บังคับ** |
+| POST | `/purchase-orders/:id/cancel` · DELETE | manager | ทั้งคู่ | – | – | ✔ |
+| GET/POST/PATCH/DELETE | `/quotes/:id?` | ✔ | ทั้งคู่ | – | – | ✔ |
+| POST | `/quotes/:id/duplicate` | ✔ | ทั้งคู่ | – | – | ✔ |
+| POST | `/quotes/:id/convert` | ✔ | **pos เท่านั้น** | invalidate | ✅ | **✔ บังคับ** |
+| POST | `/quotes/purge` | manager | ทั้งคู่ | – | ✅ 202 | ✔ |
+| GET | `/parked-sales` · POST · DELETE | ✔ | **pos เท่านั้น** | – | – | ✔ |
+| GET | `/shifts/current` · `/shifts/history` | ✔ | ทั้งคู่ | – | – | – |
+| POST | `/shifts/open` · `/close` · `/current/entries` | ✔ | **pos เท่านั้น** | – | – | ✔ |
+| GET | `/reports/*` | ✔ | ทั้งคู่ | ✅ 5–15m | – | – |
+| GET/PATCH | `/settings` | manager | ทั้งคู่ | ✅ 1h / invalidate | – | ✔ |
+| POST | `/backup/export` | **owner เท่านั้น** | ทั้งคู่ | – | ✅ `tenant-export` | ✔ |
+| ~~POST~~ | ~~`/backup/import`~~ → ย้ายไป **§4.1 admin plane** | – | – | – | – | – |
+| **GET** | **`/doc-counters`** 🆕 | ✔ | **pos เท่านั้น** | – | – | – |
+| GET | `/export/:entity.csv` | manager | ทั้งคู่ | – | – | – |
+| POST | `/sync/push` · GET `/sync/pull` · `/sync/bootstrap` | ✔ | **pos เท่านั้น** | – | – | **✔ บังคับ** |
+| GET | `/health/live` · `/health/ready` | – | – | – | – | – |
+| GET | `/metrics` | internal | – | – | – | – |
+
+**`POST /backup/export`** (ADR-0005) — เจ้าของร้าน (`role='owner'`) เท่านั้น
+
+> 📌 **ยุบ endpoint ซ้ำ (2026-09-04):** ADR-0005 เคยเสนอ `POST /tenant/export` เป็นของใหม่
+> แต่ `POST /backup/export` เดิม**ทำสิ่งเดียวกันเป๊ะ** (202 + BullMQ + signed URL + โครง `sa_*`)
+> จึงไม่สร้างตัวใหม่ — ใช้ของเดิมแล้วรัดสเปคให้แน่นตาม ADR-0005 แทน
+
+* เป็น **BullMQ job แบบ async** (job `tenant-export` ดู §6) — export ทั้งร้านใหญ่เกินกว่าจะทำใน request เดียว
+* คืนไฟล์โครง `sa_*` + `__meta` เดิมของ `DB.exportSnapshot()` — เปิดในแอปเดิมได้จริง
+* ให้ **ลิงก์ดาวน์โหลดที่หมดอายุ** (ไม่ใช่ไฟล์ค้างตลอดไป)
+* **เขียน `audit_log` ทุกครั้ง** — ไฟล์นี้มีชื่อ/เบอร์โทรลูกค้าทั้งร้าน (PDPA)
+* **จำกัดความถี่** (เช่น วันละครั้ง) — เป็น endpoint ที่หนักที่สุดในระบบ
+* 🔴 **ไม่มี restore รายร้าน** — endpoint นี้ export ได้อย่างเดียว **import กลับมาทับข้อมูลร้านตัวเองไม่ได้**
+  (ADR-0005 รับปากแค่ "ขอไฟล์ข้อมูลร้านตัวเอง" ไม่รับปาก "ย้อนข้อมูล/กู้ของที่ลบผิด")
+
+**`GET /doc-counters`** (ADR-0007) — คืน high-water mark ของ `(device_id, doc_type, period)`
+
+* เครื่อง `pos` เรียกตอน **เปิดแอป/ล็อกอิน** เพื่อ seed counter ในเครื่อง: `local = max(local, server)`
+* กันกรณี IndexedDB/OPFS ของเครื่อง `pos` ถูกล้าง (ล้างข้อมูลเว็บไซต์, โหมดส่วนตัว, ลง Windows ใหม่)
+  แล้ว counter รีเซ็ตเป็น 0 → เลขที่ออกใหม่ชนกับใบเสร็จเดิมทั้งเดือน → `UNIQUE (tenant_id, receipt_no)`
+  เด้งทุกบิล → ขายไม่ได้เลยจนกว่าจะมีคนแก้
 
 ---
 
@@ -442,6 +505,8 @@ sequenceDiagram
 | `t:{tid}:settings` | ตั้งค่าร้าน | 3600s | `PATCH /settings` |
 | `t:{tid}:reports:summary:{from}:{to}` | KPI | 300s | (ปล่อยหมดอายุเอง) |
 | `t:{tid}:idem:{key}` | ผลลัพธ์ idempotency (ชั้นเร็ว) | 24h | – |
+| `t:{tid}:status` | สถานะร้าน (`active`/`suspended`/`closed`) | – (ไม่หมดอายุเอง) | `PATCH /platform/tenants/{id}/status` ล้างทันที (ADR-0003) |
+| `t:{tid}:rl:{route}:{window}` | ตัวนับ rate limit ต่อ tenant (ADR-0006) | 1 window (เช่น 60s) | หมดอายุเองตาม window |
 
 **กฎที่ต้องทำตาม (จาก Backend04):**
 * **ทุก key ต้องมี TTL + jitter** — ไม่งั้นเจอ *cache avalanche* (key หมดอายุพร้อมกันหมด → DB โดนถล่ม)
@@ -449,6 +514,23 @@ sequenceDiagram
 * **key ต้องขึ้นต้นด้วย `t:{tid}:` เสมอ** — cache รั่วข้ามร้านคือบั๊กที่แย่ที่สุดที่จะเกิดได้ในระบบ multi-tenant
 * invalidate ต้องทำ**หลัง `COMMIT`** เท่านั้น (ถ้าล้างก่อนแล้ว transaction rollback = cache ค้างข้อมูลเก่า)
 * อย่าใช้ `KEYS` ใน production — ใช้ `SCAN` หรือเก็บ tag set (`SADD t:{tid}:tags:products <key>`)
+
+### 5.1 Rate limit ต่อ tenant (ADR-0006) — บังคับ 2 ชั้น คนละหน้าที่
+
+| ชั้น | ที่ไหน | key | กันอะไร |
+|---|---|---|---|
+| นอก (หยาบ) | Nginx `limit_req_zone` | **IP** | flood จากภายนอก, request ที่ยังไม่ผ่าน auth |
+| ใน (แม่น) | NestJS guard + Redis | **`tenant_id`** (จาก JWT) | ร้านเดียวกินทรัพยากรจนร้านอื่นช้า (noisy neighbor) |
+
+* **ทำที่ Nginx อย่างเดียวไม่ได้** — Nginx ตัวฟรี**อ่าน JWT ไม่ได้** (`auth_jwt` เป็นฟีเจอร์ของ NGINX Plus)
+  จึงไม่รู้ว่า request เป็นของ tenant ไหน และให้ client ส่ง `X-Tenant-Id` มาเองก็ทำไม่ได้ —
+  **ผิดกติกาข้อ 1 ที่เอกสารตั้งไว้เอง** (`tenant_id` มาจาก JWT เท่านั้น ห้ามมาจาก request) และเปิดช่องปลอม header เพื่อกินโควตาร้านอื่น
+* Redis ที่ใช้ต้องเป็น **`redis-cache`** (`allkeys-lru`) **ไม่ใช่ `redis-queue`** — ตัวนับหายได้ ไม่เสียหาย
+* เกินโควตา → `429` + header `Retry-After`
+* **ยกเว้น `/health/live` และ `/health/ready`** — ไม่งั้น LB จะเข้าใจว่า instance ตาย
+* **Redis ล่ม → guard ต้อง fail-open (ปล่อยผ่าน) ไม่ใช่บล็อกทั้งระบบ** — POS หยุดขายไม่ได้
+* 🔴 **ตอนทำ k6 load test (§9) ต้องปิดหรือขยาย limit ให้ tenant ที่ใช้ทดสอบ** (`tenants.plan = 'loadtest'`)
+  ไม่งั้นตัวเลขที่วัดได้คือ rate limiter ของตัวเอง ไม่ใช่ตัวระบบ
 
 ---
 
@@ -461,8 +543,8 @@ sequenceDiagram
 | `inventory` | `po.received` | รับของ | คำนวณต้นทุนใหม่, เตือนของใกล้หมด |
 | `maintenance` | `quotes.purge` | manual / cron | ลบใบเสนอราคาเก่า |
 | `maintenance` | `idem.cleanup` | repeatable ทุกชั่วโมง | ลบ idempotency key > 24h |
-| `backup` | `snapshot.export` | manual / cron รายวัน | dump ข้อมูลร้าน → object storage |
-| `backup` | `snapshot.import` | manual | import ทีละร้าน |
+| `backup` | `tenant-export` | `POST /backup/export` (ADR-0005) | export ข้อมูลร้านเดียว (ไม่ใช่ทั้ง cluster) เป็นโครง `sa_*` + `__meta` เดิม, สร้างลิงก์ดาวน์โหลดที่หมดอายุ, เขียน `audit_log` — **ไม่ใช่ backup สำหรับ restore** |
+| `backup` | `tenant-import` | `POST /platform/tenants/{id}/import` (ADR-0005) | นำเข้าข้อมูลตอน onboard ร้านใหม่เท่านั้น — ปฏิเสธถ้า tenant มีบิลอยู่แล้ว |
 | `sync` | `sync.apply` | `/sync/push` (Arch C) | apply command จากเครื่องที่ออฟไลน์ |
 
 **กติกา (จาก Backend05):**
@@ -520,7 +602,7 @@ sequenceDiagram
 
 ### 8.1 Error ที่เป็น **ของใหม่** (ไม่มีใน `db.js` — ห้ามแต่งข้อความไทยเอง)
 
-ทั้ง 4 ตัวนี้เป็นพฤติกรรมที่ระบบเดิม **ไม่มี** จึงไม่มีข้อความไทยให้ลอก
+ทั้ง 7 ตัวนี้เป็นพฤติกรรมที่ระบบเดิม **ไม่มี** จึงไม่มีข้อความไทยให้ลอก
 → **ต้องให้เจ้าของร้าน/คนหน้าร้านเป็นคนเลือกคำ** ก่อน implement
 
 | HTTP | code | เป็นของใหม่เพราะ |
@@ -529,6 +611,9 @@ sequenceDiagram
 | 409 | `DUPLICATE_PART_NO` | โค้ดเดิม **ไม่ throw** — `add()` คืน `null`, `update()` คืน `false` แล้ว UI จัดการเอง |
 | 409 | `TOTAL_MISMATCH` | ยอดที่ client ส่งกับที่ server คำนวณต่างกันเกิน 0.01 (ดู §1.4) |
 | 409 | `OFFLINE_NOT_ALLOWED` | ขายสินค้าที่ไม่ผ่านเกณฑ์ `offlineOk` ขณะออฟไลน์ (เฟส 2) |
+| 403 | `TENANT_SUSPENDED` | ร้านถูกระงับ/เลิกใช้ (ADR-0003) — ของเดิมไม่มีสถานะร้าน ไม่มีบทจะเจอเคสนี้ ข้อความไทย: **(รอเจ้าของร้าน/คนหน้าร้านเลือกคำ)** |
+| 403 | `DEVICE_ROLE_FORBIDDEN` | เครื่อง `backoffice` พยายามทำงานที่จำกัดเฉพาะเครื่อง `pos` (ADR-0004) — ของเดิมมีเครื่องเดียว ไม่มีแนวคิด "เครื่องนี้ทำไม่ได้" ข้อความไทย: **(รอเจ้าของร้าน/คนหน้าร้านเลือกคำ)** |
+| 429 | `RATE_LIMITED` | เกินโควตาต่อ tenant (ADR-0006) — ต้องมี header `Retry-After` ด้วยเสมอ ข้อความไทย: **(รอเจ้าของร้าน/คนหน้าร้านเลือกคำ)** |
 
 ### 8.2 ⚠️ วงเงินเครดิตช่าง — **ไม่ใช่ error**
 
@@ -544,6 +629,11 @@ sequenceDiagram
 ---
 
 ## 9. เป้าหมาย load test (k6) — ผูกกับเกณฑ์ในคอร์ส
+
+> 🔴 **ต้องปิดหรือขยาย rate limit ให้ tenant ที่ใช้ทำ k6 ก่อนยิงโหลด** (ตั้ง `tenants.plan = 'loadtest'`
+> ตาม ADR-0006) — ไม่งั้นตัวเลขที่ได้คือ **การวัด rate limiter ของตัวเอง ไม่ใช่การวัดระบบ**
+> เพราะ guard จะเริ่มตอบ `429` ก่อนที่ NestJS/PostgreSQL/Redis จะเข้าใกล้ขีดจำกัดจริงด้วยซ้ำ
+> ตัวเลขแบบนั้นส่งอาจารย์ไปก็ไม่มีความหมาย
 
 | สถานการณ์ | โหลด | เกณฑ์ผ่าน |
 |---|---|---|
