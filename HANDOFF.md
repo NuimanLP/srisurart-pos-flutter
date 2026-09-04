@@ -1,10 +1,10 @@
-# HANDOFF — Srisurart POS Flutter migration (updated 2026-09-04)
+# HANDOFF — Srisurart POS (updated 2026-09-04)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
 commit `92bd3bf`** (2026-09-04): `dart analyze` clean, **123/123 tests pass**. State
 management is **flutter_bloc**, not Riverpod (migration landed 2026-07-14; see that
-entry). **Local `main` is 3 commits ahead of `origin/main` and has NOT been pushed.**
+entry). ~~Local `main` is 3 commits ahead of `origin/main` and has NOT been pushed.~~ — **pushed 2026-09-04.**
 
 Backend direction: the design package `docs/Backend_design/` is now backed by a
 **decision record in `docs/Backend_design/adr/` (ADR-0001…0009)** — read its
@@ -17,8 +17,36 @@ Two of those ADRs were implementable immediately and shipped: Drift **schema v2*
 this clears the Phase-7b prerequisite) and a **fix to the profit reports**, which were
 overstating profit against today's product cost. See the 2026-09-04 entry.
 
-Remaining bigger work: Phases 7a/7b/8a/8b per `docs/PLAN.md`, and **CI/CD**, which is
-the next thing the user asked for.
+**Branch split (2026-09-04):** `main` is now the **multi-tenant line** — Flutter client +
+NestJS backend + CI/CD in this one repo. The offline-first, Drift-only build is frozen on
+**`POC_sample_offline_first`** (branched from `main` at `4dae2f0`). See the entry below.
+
+Remaining bigger work: Phases 7a/7b/8a/8b per `docs/PLAN.md`, the multi-tenant server and
+client API layer, and **CI/CD** — still nothing in `.github/workflows/`, and it is the next
+thing to stand up.
+
+## 2026-09-04 (branch split — `main` becomes the multi-tenant + CI/CD line — docs only)
+- **Decision:** `main` is now the line for **multi-tenant frontend + backend + CI/CD**;
+  the offline-first Drift-only build is preserved on **`POC_sample_offline_first`**,
+  branched from `main` at `4dae2f0` and pushed. Both branches are on GitHub; no code moved,
+  the two branches are identical trees at the point of the split.
+  (The branch was first pushed as `POC_sample_offine_first` — typo — then renamed on both
+  local and remote; the misspelled remote branch is deleted.)
+- **Why:** the backend direction set on 2026-08-25 (`docs/Backend_design/`) makes this repo
+  more than a Flutter app — a NestJS server, PostgreSQL as the source of truth, and pipelines
+  all land here. Keeping a frozen POC branch means the phase-1 rule *"the shop keeps running
+  the Drift build, no cutover"* stays testable against an untouched tree.
+- **Docs updated to match** (this commit): `CLAUDE.md` gained a **Branch strategy** section
+  plus a CI/CD target shape and a multi-tenant client-work item in the follow-ups list;
+  `README.md` was rewritten from the Flutter boilerplate into a real project README with the
+  branch map and reading order.
+- **Not done / next:** nothing is built yet — `.github/workflows/` is still empty and no
+  `server/` directory exists. First concrete steps are the Flutter CI workflow
+  (`dart analyze` + `flutter test`) and the NestJS skeleton + `docker-compose.yml`
+  (`03_ARCHITECTURE.md §8`, tasks `p1`–`p2`).
+- **Still unresolved and blocking client work:** the Thai strings for the three new server
+  errors (shop suspended / device cannot sell / quota `429`) — `00_INDEX.md` open item 3.
+  Do not invent them; Thai UI strings are behaviour parity.
 
 ## 2026-09-04 (backend design grill → ADR record + schema v2 — commits `3bcc146`, `21e7434`, `92bd3bf`)
 - **Full detail: [`handoff/backend-design-adr.md`](handoff/backend-design-adr.md).** Read

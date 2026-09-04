@@ -2,8 +2,10 @@
 
 Flutter migration of a Thai auto-parts shop POS, ported from the React-in-browser +
 localStorage app (the "Srisurart Autopart Design System" repo; origin
-github.com/NuimanLP/Sri-SuRat_Store). **Offline-first**: Drift/SQLite + flutter_bloc +
-go_router. Thai-first UI with EN labels. Targets **Android/iOS + Web**.
+github.com/NuimanLP/Sri-SuRat_Store). The shipped client is **offline-first**: Drift/SQLite +
+flutter_bloc + go_router. Thai-first UI with EN labels. Targets **Android/iOS + Web**.
+Since 2026-09-04 `main` is the **multi-tenant client + backend + CI/CD** line (see below); the
+offline-first-only build is preserved on `POC_sample_offline_first`.
 
 > **🔒 Read first — private operating instructions (machine-local, NOT in this repo).**
 > Also read these from the local toolkit folder `D:\Beestation\A_Tooling\claude-portable\`:
@@ -12,6 +14,31 @@ go_router. Thai-first UI with EN labels. Targets **Android/iOS + Web**.
 >
 > These live **outside** this repo on purpose and must stay private. Do **NOT** copy, paste,
 > summarize, or commit their contents here — only this pointer belongs in the repo.
+
+---
+
+## 🌿 Branch strategy (set 2026-09-04)
+
+The repo now carries **two lines of work**. Know which one you are on before you change anything.
+
+| Branch | What it is | Status |
+|---|---|---|
+| **`main`** | **The multi-tenant line** — Flutter **client** + NestJS **backend** + **CI/CD**, per `docs/Backend_design/` (Architecture C phase 1 = A, tenancy model T1) | **Active.** All new work lands here. |
+| **`POC_sample_offline_first`** | Frozen **proof-of-concept snapshot** of the offline-first, Drift-only build (branched from `main` at `4dae2f0`) | Reference only. Do not build on it. |
+
+**What this means in practice:**
+- `main` grows a **server** (NestJS + PostgreSQL + Redis + BullMQ + Nginx) and **pipelines**
+  (`.github/workflows/`) alongside the existing Flutter app — it is no longer a Flutter-only repo.
+- **PostgreSQL becomes the source of truth**; Drift drops to a read cache / offline shell, and the
+  transactional invariants (`saveSale`, `createReturn`, `receivePO`, shifts) move **server-side**.
+  The Dart repositories stay the behavioural reference for those rules — port them, don't reinvent.
+- `POC_sample_offline_first` preserves the offline-first build exactly as the shop runs it today,
+  so the phase-1 rule **"the shop keeps running the Drift build, no cutover"** stays testable.
+- The offline-first design is **not abandoned** — it returns as **phase 2** (outbox + `offlineOk`
+  + a single `role='pos'` writer per tenant, ADR-0004). The POC branch is its starting point.
+
+> Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
+> **where a doc contradicts an ADR, the ADR wins.**
 
 ---
 
@@ -130,7 +157,17 @@ primer), `00_INDEX.md` (map + open decisions), `01_DATABASE.md` (28 tables + DDL
 data portability, per-tenant rate limit, receipt numbering). **Where a doc contradicts an ADR,
 the ADR wins.** Nothing is built yet, and **no cutover is planned
 for phase 1** — the shop keeps running this Drift build while the server is developed against a
-demo tenant.
+demo tenant. **As of 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the
+server, the client's API layer and the CI/CD pipelines all land in this repo.
+
+**CI/CD (not built yet) — the next thing to stand up.** `.github/workflows/` is still empty; the
+repo has no pipeline of any kind. Target shape, smallest first:
+1. **Flutter CI** — `dart analyze` + `flutter test` on every push/PR (mirrors the local gate).
+   Runners are ASCII paths, so `build_runner` verification can also run in CI.
+2. **Backend CI** (once `server/` exists) — lint + unit + integration tests on a Postgres/Redis
+   service container; the phase-1 done-criteria tests in `03_ARCHITECTURE.md §8` are the target.
+3. **Build/deploy** — Flutter Web artifact for the shop PC (`docs/BACKEND_DEPLOYMENT.md §3` owns
+   this), then container images for the server + `docker compose up` smoke check.
 
 **Pending follow-ups (not yet built)** — phase numbers per the revised `docs/PLAN.md` (2026-07-03).
 `docs/BACKEND_DEPLOYMENT.md` (2026-07-13) still owns **deployment/hosting** (§3: Flutter Web build
@@ -148,6 +185,10 @@ demo tenant.
   a pending-timer leak).
 - **Native hardware — Phase 8b** (needs shop access): thermal printer / cash-drawer kick /
   barcode **scanning** (camera); scan actions currently use manual entry.
+- **Multi-tenant client work** — the Flutter side of phase 1/2: an `ApiRepository` layer behind the
+  existing repository interfaces (`03_ARCHITECTURE.md §8` task `q1`), then the outbox + `offlineOk`
+  shell. Thai error strings for the new server errors are **still unresolved** (`00_INDEX.md` open
+  item 3) — never invent them.
 - **Re-capture tutorial screenshots** from the Flutter app (current images are from the JS app).
 - Carried from JS (beyond 8a): full tax invoice (ใบกำกับภาษีเต็มรูป) — out of scope for v1.
 
