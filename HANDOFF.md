@@ -2,12 +2,14 @@
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
-commit `92bd3bf`** (2026-09-04): `dart analyze` clean, **123/123 tests pass**. State
+commit `946c405`** (2026-09-04): `dart analyze` clean, **123/123 tests pass** — and that
+gate now **runs in CI** (`.github/workflows/flutter.yml`, the repo's first pipeline). State
 management is **flutter_bloc**, not Riverpod (migration landed 2026-07-14; see that
-entry). ~~Local `main` is 3 commits ahead of `origin/main` and has NOT been pushed.~~ — **pushed 2026-09-04.**
+entry). ~~Local `main` is 3 commits ahead of `origin/main` and has NOT been pushed.~~ —
+**pushed 2026-09-04**, but `946c405` (grill round 2 + CI) is **not pushed yet**.
 
 Backend direction: the design package `docs/Backend_design/` is now backed by a
-**decision record in `docs/Backend_design/adr/` (ADR-0001…0009)** — read its
+**decision record in `docs/Backend_design/adr/` (ADR-0001…0011)** — read its
 `README.md` before touching any backend doc. `CLAUDE.md` now states that **where a doc
 contradicts an ADR, the ADR wins.** Nothing server-side is built yet; the design is the
 deliverable so far, and no cutover is planned for phase 1.
@@ -21,9 +23,55 @@ overstating profit against today's product cost. See the 2026-09-04 entry.
 NestJS backend + CI/CD in this one repo. The offline-first, Drift-only build is frozen on
 **`POC_sample_offline_first`** (branched from `main` at `4dae2f0`). See the entry below.
 
-Remaining bigger work: Phases 7a/7b/8a/8b per `docs/PLAN.md`, the multi-tenant server and
-client API layer, and **CI/CD** — still nothing in `.github/workflows/`, and it is the next
-thing to stand up.
+**Scope and schedule (decided 2026-09-04, grill round 2):** the scope is **not cut** — build
+through cutover, phase 1 + phase 2 — and there is **no delivery date**. The `§8` Gantt is a
+**dependency checklist, not a calendar**. The ordered checklist lives in
+[`handoff/grill-round2-ci.md`](handoff/grill-round2-ci.md); the next unticked item is
+**confirming the faculty VM accepts inbound connections from outside the university network**.
+
+⚠️ `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` **no longer exist** (deleted in `ec24f79`,
+decided 2026-09-04 not to recover). **Deployment/hosting has no owning document** — host notes
+are temporarily at the end of `03_ARCHITECTURE.md §8`.
+
+Remaining bigger work: the multi-tenant server (nothing built; no `server/` directory yet),
+the client API layer, and CI levels 2–3.
+
+## 2026-09-04 (grill round 2 → ADR-0010/0011 + first CI — commit `946c405`)
+- **Full detail: [`handoff/grill-round2-ci.md`](handoff/grill-round2-ci.md).** This entry is
+  the summary only.
+- An 8-round `/grill-with-docs` interview on **the project as a whole** (the previous one
+  covered only the backend design). 11 decisions taken, 2 new ADRs written.
+- **Scope: no cuts** — build through cutover (phase 1 + phase 2). **No delivery date**; the
+  Gantt becomes an ordered checklist. Both deliverables (shop POS + course) must land.
+- **[ADR-0010](docs/Backend_design/adr/0010-client-write-through-cache.md) — client keeps
+  Drift as a write-through cache, mapped at the repository boundary.** This resolved a live
+  contradiction: `§8`'s Gantt called task `q1` *"แทน Drift repos"* (replace) while `§4`
+  (Architecture C) requires a local cache for degraded mode. Following the Gantt would have
+  deleted the working offline layer and rebuilt it two months later. Screens are untouched —
+  `CONTRACT.md` already makes them consume repository interfaces, which is the seam this uses.
+- **[ADR-0011](docs/Backend_design/adr/0011-monorepo.md) — `server/` lives in this repo.**
+  One commit per API change beats tidy CI for a small team; CI uses `paths:` filters.
+- **Decisions the project owner could finally make**, because they are the shop's successor
+  owner *and* the developer: receipt format `RC01-2569-08-0042` **approved as-is**; cutover
+  **after phase 2**; the 7 new Thai error strings **accepted as drafts** to unblock work.
+- **Doc repairs.** `CLAUDE.md` pointed at `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` in
+  five places — both deleted in `ec24f79`, and the previous handoff had named
+  `BACKEND_DEPLOYMENT §3` as an input for the CI/CD work. Decided not to recover them; the
+  references are gone and **the loss of §3 (deployment/hosting) is now recorded explicitly**.
+  `CLAUDE.md` also claimed `.github/workflows/` was "empty" when it did not exist, and
+  `00_INDEX.md` still warned that docs 01–03 were un-propagated (they were).
+- **First CI workflow** — `.github/workflows/flutter.yml`, four jobs, **all verified locally
+  before committing**: `dart analyze --fatal-infos` (clean), `flutter test` (123/123),
+  `build_runner` vs the committed `*.g.dart` (no diff), and `flutter build web` asserting
+  `sqlite3.wasm` + `drift_worker.js` reach `build/web`. The codegen job matters because the
+  shop's Thai path cannot run `build_runner` — **CI is the only place generated code is ever
+  checked against the schema**. No deploy step: the production host is undecided by decision.
+- **Rejected:** using the faculty's Assignment 06 NestJS project (`docs/Summary_backend/AGENTS.md`)
+  as the base for `server/`. It is a lab; `server/` starts clean.
+- 🔴 **Still open on purpose:** `offlineOk` threshold (needs a real backup JSON), production
+  host (due before `q4` — the faculty VM is demo-only), Lane B / Lane C assignment, and the
+  **counter-facing Thai wording** — 3 server errors plus the 3 report strings already live in
+  the shop build, all agent-written and unread by the people who run the shop.
 
 ## 2026-09-04 (branch split — `main` becomes the multi-tenant + CI/CD line — docs only)
 - **Decision:** `main` is now the line for **multi-tenant frontend + backend + CI/CD**;

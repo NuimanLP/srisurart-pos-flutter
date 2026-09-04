@@ -25,10 +25,15 @@ lib/          Flutter app — core/ (router, theme, utils), data/ (Drift tables 
 test/         repository unit tests + route smoke tests
 web/          Flutter Web assets, incl. sqlite3.wasm + drift_worker.js for the web DB
 docs/         Backend_design/ (the binding backend spec + adr/), Summary_backend/, plans/
+handoff/      per-session detail records; HANDOFF.md links to them
+.github/      workflows/flutter.yml — analyze, test, drift codegen check, web artifact
 CONTRACT.md   the binding client spec: tables, repo signatures, routes, Thai-string rules
 CLAUDE.md     project knowledge base — read this first
 HANDOFF.md    dated log of what changed and why
 ```
+
+`server/` (NestJS) does not exist yet — it lands in this repo when built
+([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)).
 
 ## Commands
 
@@ -43,6 +48,10 @@ dart run build_runner build               # ONLY after Drift schema changes — 
 characters. Generated `*.g.dart` files are committed so the repo still builds and tests
 anywhere; regenerate them from an ASCII path. Details in `CLAUDE.md`.
 
+CI runs the same gate on every push and PR, plus a job that regenerates the Drift code and
+fails if it differs from what is committed — GitHub runners use ASCII paths, so that check
+can only happen there.
+
 ## Where to start reading
 
 1. `CLAUDE.md` — conventions, constraints, current status
@@ -50,3 +59,4 @@ anywhere; regenerate them from an ASCII path. Details in `CLAUDE.md`.
 3. `docs/Backend_design/00_INDEX.md` — the backend package (start at `00_BASICS.md` if backend
    is new to you); **`docs/Backend_design/adr/` is binding — where a doc contradicts an ADR,
    the ADR wins**
+4. `handoff/grill-round2-ci.md` — the current ordered checklist and what is still undecided
