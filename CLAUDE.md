@@ -124,7 +124,7 @@ idiomatic replacement for the JS snapshot/rollback):
 
 ---
 
-## Migration status (Phase 0–6 complete) — see legacy `PLAN.md`
+## Migration status (Phase 0–6 complete)
 
 **Done:** scaffold; data layer + unit tests; all 11 screens; shared UI kit + nav; shifts layer;
 adversarial scrutiny + fix pass; **web-DB runtime wired** (`flutter run -d chrome` now boots —
@@ -153,25 +153,31 @@ invariants move server-side. The package is `docs/Backend_design/` — `00_BASIC
 primer), `00_INDEX.md` (map + open decisions), `01_DATABASE.md` (28 tables + DDL + invariants),
 `02_API_SCREENS.md` (all 11 screens → endpoints), `03_ARCHITECTURE.md` (3 options + rollout),
 `04_QA_SCRUTINY.md` (design review record), and **`adr/` — the binding decision record**
-(ADR-0001…0007: tenant provisioning, platform-admin plane, tenant lifecycle, device roles,
-data portability, per-tenant rate limit, receipt numbering). **Where a doc contradicts an ADR,
-the ADR wins.** Nothing is built yet, and **no cutover is planned
+(ADR-0001…0011: tenant provisioning, platform-admin plane, tenant lifecycle, device roles,
+data portability, per-tenant rate limit, receipt numbering, cost-at-sale, JWT lifetime,
+client write-through cache, monorepo). **Where a doc contradicts an ADR,
+the ADR wins.** Nothing is built server-side yet, and **no cutover is planned
 for phase 1** — the shop keeps running this Drift build while the server is developed against a
 demo tenant. **As of 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the
 server, the client's API layer and the CI/CD pipelines all land in this repo.
 
-**CI/CD (not built yet) — the next thing to stand up.** `.github/workflows/` is still empty; the
-repo has no pipeline of any kind. Target shape, smallest first:
+**CI/CD — the next thing to stand up.** `.github/` exists but has **no `workflows/` directory**;
+the repo has no pipeline of any kind. Target shape, smallest first (level 3 is the agreed target,
+2026-09-04):
 1. **Flutter CI** — `dart analyze` + `flutter test` on every push/PR (mirrors the local gate).
    Runners are ASCII paths, so `build_runner` verification can also run in CI.
 2. **Backend CI** (once `server/` exists) — lint + unit + integration tests on a Postgres/Redis
    service container; the phase-1 done-criteria tests in `03_ARCHITECTURE.md §8` are the target.
-3. **Build/deploy** — Flutter Web artifact for the shop PC (`docs/BACKEND_DEPLOYMENT.md §3` owns
-   this), then container images for the server + `docker compose up` smoke check.
+3. **Build/deploy** — Flutter Web artifact + server container images on every green build.
+   The **deploy step stays unwired until a production host is chosen** (due before `q4`; the
+   faculty VM is demo-only — `03_ARCHITECTURE.md §8`).
 
-**Pending follow-ups (not yet built)** — phase numbers per the revised `docs/PLAN.md` (2026-07-03).
-`docs/BACKEND_DEPLOYMENT.md` (2026-07-13) still owns **deployment/hosting** (§3: Flutter Web build
-→ shop PC, Android/iOS, CI) — its §1–2 (Supabase hierarchy) are superseded by the package above:
+`server/` and the Flutter client share this repo ([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)),
+so every CI job needs a `paths:` filter — the Flutter jobs must not run on `server/`-only changes.
+
+**Pending follow-ups (not yet built).** Deployment/hosting has **no owning document** — the old
+`docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` were deleted in `ec24f79` and are **not coming
+back** (decided 2026-09-04). Recover from git history if you ever need the Supabase-era text:
 - **Cloud snapshot backup (Supabase) — Phase 7a**, stubbed/not wired (needs project creds).
   Do first: dev/prod env split, then scheduled+manual backup + restore drill.
 - **Record-level sync — Phase 7b**, optional until a second device exists. ~~Prerequisite:
@@ -186,9 +192,11 @@ repo has no pipeline of any kind. Target shape, smallest first:
 - **Native hardware — Phase 8b** (needs shop access): thermal printer / cash-drawer kick /
   barcode **scanning** (camera); scan actions currently use manual entry.
 - **Multi-tenant client work** — the Flutter side of phase 1/2: an `ApiRepository` layer behind the
-  existing repository interfaces (`03_ARCHITECTURE.md §8` task `q1`), then the outbox + `offlineOk`
-  shell. Thai error strings for the new server errors are **still unresolved** (`00_INDEX.md` open
-  item 3) — never invent them.
+  existing repository interfaces (`03_ARCHITECTURE.md §8` task `q1`) that **writes through to
+  Drift** and maps at the repository boundary ([ADR-0010](docs/Backend_design/adr/0010-client-write-through-cache.md)),
+  then the outbox + `offlineOk` shell. Thai strings for the 7 new server errors now have
+  **agent-drafted placeholders** accepted by the project owner (`02_API_SCREENS.md §8.1`) — three
+  of them are counter-facing and still need the shop's own wording. Never invent new ones.
 - **Re-capture tutorial screenshots** from the Flutter app (current images are from the JS app).
 - Carried from JS (beyond 8a): full tax invoice (ใบกำกับภาษีเต็มรูป) — out of scope for v1.
 
@@ -215,6 +223,6 @@ repo has no pipeline of any kind. Target shape, smallest first:
 
 ## Legacy app & full plan
 
-The legacy JS app (source-of-truth-until-cutover) and the full migration `PLAN.md` live in the
+The legacy JS app (source-of-truth-until-cutover) and the full migration plan live in the
 **"Srisurart Autopart Design System"** repo. Tag **`v1.0-js-localstorage`** there marks the last
 pure-JS/localStorage state.

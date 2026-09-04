@@ -15,6 +15,8 @@
 | [0007](0007-receipt-numbering.md) | รูปแบบเลขที่ใบเสร็จ | `RC01-2569-08-0042` เรียงต่อเครื่อง รีเซ็ตรายเดือน + ต้อง seed counter จาก server กัน IndexedDB ถูกล้าง | Accepted |
 | [0008](0008-cost-at-sale.md) | ต้นทุน ณ วันที่ขาย | `sale_items.cost_at_sale` — บิลเก่า `NULL` ห้าม backfill · **ลงมือใน Drift แล้ว** (schema v2) | Accepted ✅ |
 | [0009](0009-jwt-session-lifetime.md) | อายุ JWT | ล็อกอินใหม่ทุกวัน — access 15 นาที + refresh หมดอายุ **ตี 4** ไม่ใช่ 24 ชม.นับจากล็อกอิน | Accepted |
+| [0010](0010-client-write-through-cache.md) | client ใช้ Drift ยังไง | `ApiRepository` = implementation ใหม่ของ interface เดิม เขียนผลลง Drift (**write-through**) และ **map ที่ชั้น repository** ไม่ regenerate schema ตาม Postgres | Accepted |
+| [0011](0011-monorepo.md) | `server/` อยู่ที่ไหน | repo เดียวกับ client — 1 commit แก้ API ได้ทั้งสองฝั่ง, CI ใช้ `paths:` filter | Accepted |
 
 ## สถานะการนำไปลงเอกสารหลัก — ✅ เสร็จแล้ว (2026-09-04)
 
@@ -48,8 +50,24 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
 
 → ปลดล็อกเงื่อนไขของเฟส 2 ที่ `CLAUDE.md` ระบุไว้ (`updatedAt` บน customers/mechanics/settings)
 
+## รอบ grill 2026-09-04 (ครั้งที่ 2) — ปิดอะไรไปบ้าง
+
+| เรื่อง | ผล |
+|---|---|
+| scope | **ไม่ตัด** ทำครบถึง cutover (เฟส 1 + เฟส 2) |
+| กำหนดส่ง | **ไม่ผูกกับวัน** ใช้ checklist เรียงลำดับแทน |
+| `server/` อยู่ไหน | repo นี้ — ADR-0011 |
+| client ↔ Drift | write-through + map ที่ repository — ADR-0010 |
+| เลขที่ใบเสร็จ | ✅ อนุมัติ `RC01-2569-08-0042` ตาม ADR-0007 |
+| ข้อความไทย 7 ตัว | ร่างแล้วใน `02_API_SCREENS §8.1` — **agent ร่าง เจ้าของโปรเจกต์รับไว้ ยังไม่ผ่านคนหน้าร้าน** |
+| host เฟส 1 | VM คณะ + Docker — **สาธิตเท่านั้น** production host เคาะก่อน `q4` |
+| CI/CD | ระดับ 3 (gate + integration + artifact) — deploy step ยังไม่ต่อสาย |
+
 ## ยังค้างอยู่ — ต้องให้คนเคาะ
 
-ดู `00_INDEX.md` ตาราง "ตัดสินใจแทนไม่ได้" — เหลือ 3 ข้อ: เกณฑ์ `offlineOk`,
-**ข้อความไทยของ error ใหม่ 7 ตัว** (ห้ามแต่งเอง), และเวลา cutover
-บวกหัวข้อ "ยังไม่เคาะ" ท้าย ADR แต่ละฉบับ
+* **เกณฑ์ `offlineOk`** — ต้องคำนวณจากข้อมูลขายจริง (ไฟล์ backup `sa_*`) ก่อนงาน `q2`
+* **คำไทย 3 ตัวที่ขึ้นหน้าร้าน** — `DEVICE_ROLE_FORBIDDEN` / `TENANT_SUSPENDED` /
+  `OFFLINE_NOT_ALLOWED` ต้องให้คนขายอ่านแล้วเลือกคำเอง
+* **production host** — ก่อนงาน `q4`
+* **แบ่ง Lane B / Lane C** ให้อีกสองคนในทีม
+* บวกหัวข้อ "ยังไม่เคาะ" ท้าย ADR แต่ละฉบับ

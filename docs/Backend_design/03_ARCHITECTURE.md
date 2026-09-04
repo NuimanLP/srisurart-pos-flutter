@@ -458,15 +458,19 @@ gantt
     Tenant export job (POST /tenant/export)    :p9b, after p9, 2d
     k6 load test + tuning                      :p10, after p9b, 4d
     section เฟส 2 — Offline shell (ส่วนเพิ่มของ C)
-    Flutter ApiRepository (แทน Drift repos)    :q1, after p5, 20d
+    Flutter ApiRepository (write-through cache) :q1, after p5, 20d
     Outbox + SyncService + offlineOk           :q2, after p10, 10d
     หน้าจอ reconciliation + คู่มือร้าน          :q3, after q2, 5d
     Cutover ร้านจริง                            :q4, after q3, 3d
 ```
 
-> ⚠️ **Gantt นี้เรียงงานต่อกันหมด ซึ่งไม่สมจริงสำหรับทีม 3 คน** — ใช้ดูลำดับพึ่งพา ไม่ใช่ดูวันที่
-> และงาน `q1` (แทน 13 Drift repos ด้วย HTTP + รักษา parity ข้อความไทย + เขียน unit test ใหม่ทั้งชุด)
-> เดิมประเมินไว้ 10 วัน ซึ่งต่ำเกินจริงชัดเจน — แก้เป็น 20 วันแล้ว และควรบวก buffer อีก 30%
+> ⚠️ **Gantt นี้ใช้ดูลำดับพึ่งพาเท่านั้น ไม่ใช่ดูวันที่** — เจ้าของโปรเจกต์ตัดสินใจ 2026-09-04
+> ว่า**ไม่ผูกกับกำหนดส่ง** ใช้เป็น checklist เรียงลำดับแทน (และ**ไม่ตัด scope** — ทำครบถึง cutover)
+>
+> งาน `q1` **ไม่ใช่การแทนที่ Drift** — ดู [ADR-0010](adr/0010-client-write-through-cache.md):
+> `ApiRepository` เป็น implementation ใหม่ของ interface เดิม ยิง server แล้ว**เขียนผลลง Drift**
+> ซึ่ง Architecture C §4 ต้องการอยู่แล้ว (Online ต้อง cache สินค้า + โควตาสต็อกไว้ในเครื่อง)
+> เดิมประเมิน 10 วัน ต่ำเกินจริงชัดเจน — แก้เป็น 20 วันแล้ว และควรบวก buffer อีก 30%
 >
 > **งาน `p3b`/`p3c`/`p8b`/`p9b` เป็นของใหม่ที่ ADR ทำให้เกิดขึ้น** ไม่มีในแผนเดิม:
 > `p3b` platform admin plane + tenant provisioning ([ADR-0001](adr/0001-tenant-provisioning.md),
@@ -510,6 +514,13 @@ gantt
 * graceful shutdown ก่อน SIGTERM ไม่งั้น deploy ทีเจอ 502 ทุกครั้ง
 * ห้าม `synchronize: true` ใน production, ใช้ migration เท่านั้น
 * ห้าม log เลขบัตร/เบอร์โทร/ชื่อลูกค้าเต็ม (PDPA)
+
+**เครื่องที่รันจริง — ยังไม่เคาะ (2026-09-04):**
+* เฟส 1 รันบน **VM ของคณะ (Docker)** — ใช้สำหรับ**สาธิต/ส่งงานเท่านั้น**
+* 🔴 **ต้องเลือก production host ก่อนงาน `q4` (cutover)** — VM คณะไม่ใช่ที่ที่ POS ของร้าน
+  จะไปฝากชีวิตไว้ได้ (หมดสถานะนักศึกษา = เครื่องหาย, และมักไม่มี inbound จากนอกเครือข่ายคณะ)
+* ตรวจตั้งแต่สัปดาห์แรก: **VM คณะรับ inbound จากนอกมหาวิทยาลัยได้ไหม** ถ้าไม่ได้ k6 จาก
+  เครื่องตัวเองก็ยิงไม่ถึง
 
 ---
 

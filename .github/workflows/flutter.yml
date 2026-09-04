@@ -1,0 +1,107 @@
+name: Flutter CI
+
+# Client-side gate. Mirrors the local gate in CLAUDE.md:
+#   dart analyze  (NEVER flutter analyze — see the non-ASCII path constraint)
+#   flutter test
+# server/ has its own workflow; paths-ignore keeps this from running on
+# backend-only changes (ADR-0011).
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['server/**', 'docs/**', '**/*.md']
+  pull_request:
+    paths-ignore: ['server/**', 'docs/**', '**/*.md']
+  workflow_dispatch:
+
+concurrency:
+  group: flutter-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.44.3'   # keep in sync with .fvmrc
+
+jobs:
+  analyze-and-test:
+    name: analyze + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: dart analyze
+        run: dart analyze --fatal-infos
+
+      - name: flutter test
+        run: flutter test --reporter expanded
+
+  codegen-check:
+    name: drift codegen is up to date
+    runs-on: ubuntu-latest
+    # The committed *.g.dart files are the build on the shop's Thai path, where
+    # build_runner cannot run (CLAUDE.md). CI runners are ASCII, so this is the
+    # only place the generated code is ever verified against the schema.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: dart run build_runner build
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: fail if generated code differs from what is committed
+        run: |
+          if ! git diff --quiet -- '*.g.dart'; then
+            echo "::error::Generated Drift code is stale. Run 'dart run build_runner build' on an ASCII path and commit the result."
+            git diff --stat -- '*.g.dart'
+            exit 1
+          fi
+
+  build-web:
+    name: build web artifact
+    runs-on: ubuntu-latest
+    needs: [analyze-and-test]
+    if: github.ref == 'refs/heads/main'
+    # Level 3 (CLAUDE.md): the artifact is produced on every green build.
+    # There is deliberately NO deploy step — the production host is undecided
+    # until before task q4 (03_ARCHITECTURE.md §8). The faculty VM is demo-only.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: flutter build web
+        run: flutter build web --no-tree-shake-icons
+
+      - name: check web DB assets shipped
+        # A version skew between these and the drift/sqlite3 pub versions breaks
+        # the web DB at boot with no error until the app is opened (CLAUDE.md).
+        run: |
+          test -f build/web/sqlite3.wasm || { echo "::error::sqlite3.wasm missing from build/web"; exit 1; }
+          test -f build/web/drift_worker.js || { echo "::error::drift_worker.js missing from build/web"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pos-web-${{ github.sha }}
+          path: build/web
+          retention-days: 14
