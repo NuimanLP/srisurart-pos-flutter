@@ -46,14 +46,20 @@
 
 ## ผลที่ตามมา
 
-* ต้องเพิ่มตาราง `platform_admins` + `audit_log` เข้า `01_DATABASE.md` (audit_log มีแล้ว ตรวจว่า
-  รองรับ actor ที่ไม่ใช่ user ของ tenant ได้)
-* NestJS ต้องมี **2 DataSource** และ `TenantInterceptor` ต้องไม่ทำงานบนเส้น `/platform/*`
+* ตาราง `platform_admins` อยู่ใน `01_DATABASE.md` แล้ว — แต่ `audit_log.user_id` เป็น UUID ของ
+  user ในร้าน **ใส่ platform admin ไม่ได้** (ตรวจแล้ว 2026-09-04 ข้อที่ ADR นี้สั่งให้ตรวจไม่เคยถูกปิด)
+  → เพิ่ม `audit_log.platform_admin_id UUID` (nullable) และ `CHECK` ว่ามี actor อย่างน้อยหนึ่ง
+  แถวจาก `/platform/*` เขียน `tenant_id` ของร้านที่ถูกแตะ + `platform_admin_id` โดย `user_id` เป็น NULL
+* NestJS ต้องมี **2 DataSource** และ `TenantGuard` (ซึ่งทำ `SET LOCAL` ด้วย — ADR-0003 ข้อ 3)
+  ต้องไม่ทำงานบนเส้น `/platform/*`
 * Nginx ควรกัน `/platform/*` ไม่ให้ออกอินเทอร์เน็ต (internal network / allowlist IP)
   — แนวเดียวกับที่เอกสารสั่งไว้กับ Bull-Board
 
 ## ยังไม่เคาะ
 
 * [ ] platform admin ต้องมี MFA ไหม (บัญชีนี้เห็นข้อมูลทุกร้าน — พลาดครั้งเดียวคือทั้งแพลตฟอร์ม)
-* [ ] `/platform/*` มีกี่ endpoint จริง ๆ ในเฟส 1 (เสนอขั้นต่ำ: สร้าง tenant, ระงับ/คืนสถานะ,
-      ดูรายชื่อร้าน, สถิติรวมของแพลตฟอร์ม) — ยังไม่มีใน API catalogue เลยสักตัว
+* [x] ~~`/platform/*` มีกี่ endpoint จริง ๆ ในเฟส 1~~ — **มีใน `02_API_SCREENS.md §4.1` แล้ว 5 ตัว:**
+      `POST /platform/auth/token`, `POST /platform/tenants`, `PATCH /platform/tenants/{id}/status`,
+      `POST /platform/tenants/{id}/import`, `GET /platform/tenants` — "สถิติรวมของแพลตฟอร์ม" ยังไม่มี
+      และไม่จำเป็นในเฟส 1
+* [ ] วิธีถามเรื่อง MFA: "ยอมรับได้ไหมที่บัญชี admin ซึ่งเห็นทุกร้าน มีแค่รหัสผ่านชั้นเดียว"

@@ -37,17 +37,52 @@ Gantt ใน `§8` เขียนงาน `q1` ว่า **"Flutter ApiReposit
 Postgres มี 28 ตาราง Drift มี 20 (+ ที่เพิ่มใน schema v2) **ไม่ regenerate Drift ให้ mirror Postgres**
 `ApiRepository` แปลง JSON → Drift row ด้วยมือ
 
-* schema ฝั่ง client **หยุดขยับ** — migration ฝั่ง server ไม่ลากเป็น client release ทุกครั้ง
-* test 123 ตัวที่เขียนไว้กับ schema เดิม **ยังใช้ได้ทั้งหมด**
+* schema ฝั่ง client **ขยับเฉพาะเมื่อ client ต้องใช้ field นั้นจริง** ไม่ใช่ตาม migration ฝั่ง server
+  — ⚠️ ฉบับแรกเขียนว่า "หยุดขยับ" ซึ่ง**ผิดตั้งแต่วันแรก** (scrutinize 2026-09-04):
+  `POST /sales` ต้องส่ง `shiftId` แต่ตาราง `Sales` ใน Drift ไม่มีคอลัมน์นี้, `Shifts.id` ใน Drift
+  เป็น integer autoIncrement (`tables.dart:261`) ขณะที่ server ใช้ TEXT + `device_id`,
+  และ `Products` ไม่มี `offlineOk` ที่ `q2` ต้องใช้ → **ต้องมี schema v3** ก่อน `q1` เสร็จ:
+  `Sales.shiftId TEXT`, `Shifts.id → TEXT` (พร้อม migration แปลง id เดิม), `Products.offlineOk BOOL`
+  รัน `build_runner` บน ASCII path รอบเดียว
+* test 123 ตัวที่เขียนไว้กับ schema เดิม **ยังใช้ได้ทั้งหมด** (คอลัมน์ใหม่ nullable/มี default)
 * ต้นทุนที่ยอมจ่าย: โค้ด mapping น่าเบื่อและต้องเขียนเอง — แต่มันคือชั้นที่ทำให้เห็นตอน
   field ฝั่ง server ความหมายไม่ตรงกับที่ client สมมติไว้ ซึ่ง mirror อัตโนมัติจะกลืนหายไปเงียบ ๆ
+
+**3. ใครเป็นเจ้าของ invariant — เพิ่ม 2026-09-04 (scrutinize รอบ 3)**
+
+ฉบับแรกไม่ได้บอกว่า `ApiRepository` จะ "เขียนผลลง Drift" ยังไง ซึ่งเป็นคำถามที่อันตรายที่สุดของ ADR นี้:
+`SalesRepository.saveSale` ของ Drift (`sales_repository.dart:33-56`) pre-check สต็อกแล้วตัดแบบ
+strict ในทรานแซกชันของตัวเอง ถ้า `ApiRepository` เรียกมันหลัง server ตอบ 201 จะได้ (ก) สต็อกใน
+เครื่องที่ค้างต่ำกว่าจริงปฏิเสธบิลที่ server รับไปแล้ว หรือ (ข) ตัดสต็อกซ้ำสองรอบ
+
+* **`ApiRepository` ห้ามเรียก transactional service ของ Drift** (`saveSale` / `createReturn` /
+  `receivePO` / `openShift` …) — มัน **patch แถว** จาก response ของ server เท่านั้น
+  invariant ทุกตัวอยู่ที่ server แห่งเดียว Drift repos เดิมยังอยู่เพื่อ (1) เป็น behavioural
+  reference ให้ port และ (2) เป็น implementation ที่ build เดิมของร้านใช้ จนกว่าจะ cutover
+* interface ที่ screen ผูกคือ **concrete class** (`RepositoryProvider<SalesRepository>`) — Dart
+  ให้ทุก class เป็น implicit interface จึง `class ApiSalesRepository implements SalesRepository`
+  ได้โดยไม่ต้องสกัด abstract class แต่ `SalesRepository` รับ `AppDatabase` ใน constructor
+  `ApiSalesRepository` ต้องสร้าง `SaleRow`/aggregate เดิมคืนให้ screen จาก JSON เอง
+* **แต่ละ write ต้อง patch แถวไหน** (สเปคของ response ใน `02_API_SCREENS.md`):
+
+  | write | server คืน | `ApiRepository` patch ลง Drift |
+  |---|---|---|
+  | `POST /sales` | บิล + `products[].stock/offlineOk` + `mechanicCreditBalanceAfter` + **`customerAfter {points,totalSpend}`** (เพิ่ม) | `sales`, `saleItems`, `products.stock`, `customers`, `mechanics`, `movements` |
+  | `POST /returns` | ใบลดหนี้ + `products[]` + `customerAfter` + `mechanicAfter` + `parentSaleVoided` | `returns`, `products.stock`, `customers`, `mechanics`, `sales.voided` |
+  | `POST /purchase-orders/:id/receive` | PO + `products[] {stock, cost}` | `purchaseOrders`, `products.stock/cost`, `movements` |
+  | `POST /shifts/*` | shift row | `shifts`, `drawerEntries` |
+  | ที่เหลือ (CRUD) | แถวที่แก้ | แถวนั้น |
+
+  ถ้า field ไหนไม่อยู่ใน response ให้ **ถือว่า Drift แถวนั้น stale** จนกว่า `/bootstrap` รอบถัดไป
+  ห้ามคำนวณเองในเครื่อง (ถึงจะแค่ 6 บรรทัด) เพราะจะกลายเป็น invariant ชุดที่สองที่เพี้ยนได้เงียบ ๆ
 
 ## ผลที่ตามมา
 
 * **`03_ARCHITECTURE §8` ต้องแก้คำ** — `q1` ไม่ใช่ *"แทน Drift repos"* แต่เป็น
   *"เพิ่ม ApiRepository เป็น implementation ใหม่ของ interface เดิม"*
-* ทุกวันที่ทำ `q1` **ยังได้ client ที่ใช้ต่อได้ตอนเน็ตหลุด** ไม่มีช่วงที่แอปกลายเป็น online-only
-  — สำคัญ เพราะร้านใช้ build นี้ขายของอยู่จริง
+* ทุกวันที่ทำ `q1` **ฝั่งอ่านยังใช้ต่อได้ตอนเน็ตหลุด** (ค้นสินค้า/ลูกค้าจาก Drift) แต่ **ฝั่งเขียน
+  เป็น online-only จนกว่า `q2` (outbox) จะเสร็จ** — ฉบับแรกเขียนว่า "ใช้ต่อได้" รวม ๆ ซึ่งเกินจริง
+  ข้อนี้ไม่กระทบร้าน เพราะ build ที่ร้านใช้อยู่ไม่มี `ApiRepository` (ไม่ cutover ในเฟส 1)
 * 🔴 **`products.updatedAt` ต้องต่อสายให้เขียนจริงก่อนเริ่ม `q2`** — วันนี้แอปไม่เคยเขียนค่านี้
   มันแค่วิ่งผ่าน snapshot ไปกลับ ถ้า sync ใช้ `?updatedSince=` บน products จะพังเงียบ
 
@@ -55,3 +90,5 @@ Postgres มี 28 ตาราง Drift มี 20 (+ ที่เพิ่ม�
 
 * [ ] cache invalidation ฝั่ง client — Drift ที่ค้างอยู่จะถือว่าหมดอายุเมื่อไหร่ (TTL? ตอน login? ตอน sync เสร็จ?)
 * [ ] อ่านตอน Online อ่านจาก Drift ก่อนแล้ว refresh (stale-while-revalidate) หรือรอ server เสมอ
+* [ ] **ถามเจ้าของโปรเจกต์:** เมื่อ server รับบิลแล้ว แอปต้องเชื่อตัวเลขของ server และทับของในเครื่อง
+      เสมอไหม แม้เครื่องจะเห็นต่าง (ADR นี้ตั้งไว้ว่า "ใช่" ตามข้อ 3)

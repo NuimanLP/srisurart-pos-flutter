@@ -455,7 +455,7 @@ gantt
     Redis cache + invalidation                 :p8, after p7, 4d
     Per-tenant rate limit (guard + Redis)      :p8b, after p8, 2d
     BullMQ + Bull-Board + health + metrics     :p9, after p8b, 4d
-    Tenant export job (POST /tenant/export)    :p9b, after p9, 2d
+    Tenant export job (POST /backup/export)    :p9b, after p9, 2d
     k6 load test + tuning                      :p10, after p9b, 4d
     section เฟส 2 — Offline shell (ส่วนเพิ่มของ C)
     Flutter ApiRepository (write-through cache) :q1, after p5, 20d
@@ -479,9 +479,13 @@ gantt
 > ([ADR-0006](adr/0006-per-tenant-rate-limit.md)), `p9b` tenant export job
 > ([ADR-0005](adr/0005-data-portability.md))
 >
-> **งานที่ต้องแทรกก่อนทุกอย่าง (ครึ่งวัน แต่ block ของอื่น):**
-> เพิ่ม `updatedAt` + `deletedAt` ให้ `customers` / `mechanics` / `settings` ใน Drift
-> แล้วรัน `build_runner` **บน ASCII path** (ดู `CLAUDE.md`) — ถ้าไม่ทำตอนนี้จะไปติดตอนเฟส 2
+> ~~**งานที่ต้องแทรกก่อนทุกอย่าง:** เพิ่ม `updatedAt` + `deletedAt` ให้ `customers` / `mechanics` /
+> `settings` ใน Drift~~ — **ทำแล้ว 2026-09-04** (Drift schema v2, ADR-0008) งานที่เหลือฝั่ง Drift คือ
+> **schema v3** ก่อน `q1` เสร็จ: `Sales.shiftId`, `Shifts.id → TEXT`, `Products.offlineOk` (ADR-0010 ข้อ 2)
+>
+> **งาน `p3c` ต้องรวม device enrolment** (`POST /devices`, `POST /auth/device`, `/retire`,
+> `deviceToken` ใน `/auth/token`) ตาม ADR-0004 "การผูกเครื่อง" — ไม่ใช่แค่ guard ตรวจ `drole`
+> และ **`p5` ต้องมีตัวออกเลขเอกสารฝั่ง server** (ADR-0007: เฟส 1 server ออกทุกเลข)
 
 **เกณฑ์ปิดเฟส 1 (definition of done):**
 - [ ] `docker compose up` ครั้งเดียวได้ครบ Nginx + NestJS×3 + Postgres + Redis + worker + Bull-Board
@@ -496,6 +500,11 @@ gantt
 - [ ] สร้าง tenant ใหม่ด้วย `POST /platform/tenants` แล้วล็อกอิน+ขายได้จริงโดยไม่ต้องแตะ psql (ADR-0001)
 - [ ] เครื่อง `backoffice` ยิง `POST /sales` ต้องได้ `403` (`DEVICE_ROLE_FORBIDDEN`) (ADR-0004)
 - [ ] ระงับร้าน (`status='suspended'`) แล้ว **คำขอถัดไปต้องถูกปฏิเสธทันที** ไม่ต้องรอ token หมดอายุ (ADR-0003)
+- [ ] ระงับร้านแล้ว **job ที่ค้างในคิว BullMQ ของร้านนั้นต้องไม่ถูกรัน** (ADR-0003 — DoD เดิมทดสอบแค่ request path)
+- [ ] ดับ `redis-cache` แล้วร้านที่ `suspended` **ยังถูกปฏิเสธ** และร้านปกติ**ยังใช้งานได้** (ADR-0003 ข้อ 5: status ตกไปอ่าน Postgres ไม่ fail-open/closed)
+- [ ] เครื่อง `pos` ยิง `POST /sales` พร้อมกับเครื่อง `backoffice` ยิง `/purchase-orders/:id/receive` และ `/adjust-stock` **บนสินค้าตัวเดียวกัน** 200 รอบ → `stock` สุดท้ายตรงกับผลบวก/ลบทั้งหมด ไม่มี lost update (ADR-0004 — นี่คือการแข่งกันของหลายเครื่องที่มีอยู่จริง ไม่ใช่ `POST /sales` ×200)
+- [ ] `owner` กด `POST /devices/{id}/retire` เครื่อง `pos` ที่มีกะเปิดอยู่ → กะถูกปิดใน transaction เดียวกัน, token เดิมของเครื่องนั้น refresh ไม่ผ่านภายใน 15 นาที, enrol เครื่องใหม่ได้ `device_no` ใหม่ และขายได้ (ADR-0004/0009)
+- [ ] เครื่อง `backoffice` ที่ล็อกอินโดยไม่มี `deviceToken` เรียก `GET /products` ได้ แต่ `POST /sales` ได้ `403` (ADR-0004 "การผูกเครื่อง")
 
 **สิ่งที่ห้ามลืมตอน deploy** (สรุปจากคอร์ส Backend01/06 + ที่ review จับเพิ่ม):
 * 🔴 **แยก Redis เป็น 2 ตัว: `redis-cache` (`allkeys-lru`) กับ `redis-queue` (`noeviction` + AOF)**
@@ -506,9 +515,11 @@ gantt
   ให้ใส่ basic-auth และวางไว้บน internal network ไม่ให้ออกอินเทอร์เน็ต
 * 🔴 **`/platform/*` ต้องกันไม่ให้ออกอินเทอร์เน็ต** (internal network / allowlist IP) — แนวเดียวกับ
   Bull-Board ด้านบน endpoint กลุ่มนี้เห็น/แก้ได้ทุกร้าน พลาดครั้งเดียว = รั่วทั้งแพลตฟอร์ม (ADR-0002)
-* 🔴 **JWT ต้องระบุ TTL + revoke ให้ชัด** — เอกสารมี `/auth/refresh` แต่ไม่เคยบอกอายุ token
-  ข้อเสนอ: access 15 นาที + refresh rotation เก็บใน Redis
-  (ร้านไล่พนักงานออกแล้ว token ต้องใช้ไม่ได้ — JWT เปล่า ๆ revoke ไม่ได้)
+* 🔴 **JWT TTL + revoke — เคาะแล้ว ([ADR-0009](adr/0009-jwt-session-lifetime.md))** — access 15 นาที,
+  refresh หมดอายุ 04:00 ตาม `tenants.timezone`, `/auth/refresh` เช็ค `users.is_active` +
+  `tenants.status` + `devices.retired_at` จาก DB ทุกครั้ง **ไม่มี refresh rotation ไม่มี denylist ใน Redis**
+  (ข้อเสนอเดิม "rotation เก็บใน Redis" ถูก ADR-0009 ตัดทิ้งโดยตั้งใจ — ไล่พนักงานออกแล้ว token
+  ตายภายใน ≤15 นาทีโดยไม่ต้องมี state เพิ่ม)
 * `instances × (1 + replicas) × poolSize ≤ 80% ของ max_connections` — สาเหตุอันดับ 1 ของ "too many connections"
 * Nginx ฟรีมีแค่ passive health check (`max_fails`/`fail_timeout`) — **Docker `HEALTHCHECK` ไม่ได้ทำให้ Nginx หยุดส่ง traffic** (สไลด์ในคอร์สผิดข้อนี้)
 * graceful shutdown ก่อน SIGTERM ไม่งั้น deploy ทีเจอ 502 ทุกครั้ง

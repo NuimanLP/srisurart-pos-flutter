@@ -156,7 +156,15 @@ primer), `00_INDEX.md` (map + open decisions), `01_DATABASE.md` (28 tables + DDL
 (ADR-0001…0011: tenant provisioning, platform-admin plane, tenant lifecycle, device roles,
 data portability, per-tenant rate limit, receipt numbering, cost-at-sale, JWT lifetime,
 client write-through cache, monorepo). **Where a doc contradicts an ADR,
-the ADR wins.** Nothing is built server-side yet, and **no cutover is planned
+the ADR wins.** The 2026-09-04 scrutinize round (3 agents) added binding addenda you must read
+before server work: ADR-0004 *"การผูกเครื่อง"* (a device is a server-issued device token via
+`POST /devices` + `POST /auth/device`; `did`/`drole` never come from the request body),
+ADR-0007 *phase 1 = server issues every document number, phase 2 = the `pos` device issues
+RC/CN only*, ADR-0009 *refresh also checks `devices.retired_at`*, ADR-0010 *`ApiRepository`
+patches rows only and never calls the Drift transactional services; Drift schema v3
+(`Sales.shiftId`, `Shifts.id` TEXT, `Products.offlineOk`) is due before `q1` ends*. The eight
+questions only the shop/project owner can answer are collected at the end of `adr/README.md`.
+Nothing is built server-side yet, and **no cutover is planned
 for phase 1** — the shop keeps running this Drift build while the server is developed against a
 demo tenant. **As of 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the
 server, the client's API layer and the CI/CD pipelines all land in this repo.

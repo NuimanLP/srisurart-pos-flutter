@@ -47,3 +47,10 @@ app.*.map.json
 
 # FVM Version Cache
 .fvm/
+# NestJS backend (ADR-0011: server/ lives in this repo)
+/server/node_modules/
+/server/dist/
+/server/coverage/
+/server/.env
+/server/.env.*
+!/server/.env.example

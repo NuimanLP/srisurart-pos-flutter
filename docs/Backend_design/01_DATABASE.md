@@ -50,8 +50,8 @@
 ```mermaid
 flowchart LR
   subgraph app["NestJS instance"]
-    G["JwtAuthGuard<br/>อ่าน tenantId จาก JWT"] --> I["TenantInterceptor<br/>SET LOCAL app.tenant_id"]
-    I --> S["Service / Repository"]
+    G["JwtAuthGuard<br/>ตรวจลายเซ็น + aud"] --> T["TenantGuard<br/>เช็ค tenants.status (ADR-0003)<br/>แล้ว SET LOCAL app.tenant_id"]
+    T --> S["Service / Repository"]
   end
   S --> PG[("PostgreSQL<br/>RLS: tenant_id = current_setting('app.tenant_id')")]
   style PG fill:#1e3a5f,color:#fff
@@ -60,6 +60,11 @@ flowchart LR
 **ข้อควรระวัง:** `SET LOCAL` มีผลเฉพาะใน transaction ถ้าใช้ connection pool แล้วไม่ได้อยู่ใน
 transaction ค่าอาจติดไปกับ connection ตัวถัดไป → บังคับให้ทุก request ที่แตะ DB
 ทำงานใน transaction (หรือใช้ `set_config('app.tenant_id', $1, true)`)
+
+> **แก้ 2026-09-04 (ADR-0003 ข้อ 3):** ฉบับก่อนวาด `TenantInterceptor` แยกจาก guard ให้เป็นคนทำ
+> `SET LOCAL` ซึ่งทำให้ route ที่ลืมใส่ guard ยังได้ `SET LOCAL` และเห็นข้อมูลของร้านที่ถูกระงับ —
+> **การเช็คสถานะกับ `SET LOCAL` ต้องอยู่ใน `TenantGuard` ตัวเดียว** ไม่มี interceptor แยก
+> (ตรงกับที่ `03_ARCHITECTURE.md §5` วาดไว้อยู่แล้ว)
 
 ---
 
@@ -296,16 +301,20 @@ CREATE TABLE users (
 -- role='backoffice' แตะสต็อก/สินค้า/รายงานได้ปกติ แต่แตะเงิน/บิลไม่ได้ และมีกี่เครื่องก็ได้
 CREATE TABLE devices (
   tenant_id     UUID NOT NULL,
-  id            TEXT NOT NULL,                  -- client-generated
+  id            TEXT NOT NULL,                  -- server-generated ตอน POST /devices (ADR-0004 "การผูกเครื่อง") — ไม่รับจาก client
   label         TEXT NOT NULL,                  -- 'เคาน์เตอร์หน้าร้าน'
-  device_no     SMALLINT NOT NULL,              -- 1..99 ใช้เป็น prefix เลขเอกสาร
+  device_no     SMALLINT NOT NULL,              -- 1..99 ใช้เป็น prefix เลขเอกสาร — server กำหนดเลขถัดไปที่ไม่เคยใช้ ห้ามใช้ซ้ำแม้เครื่องเดิม retire แล้ว
   role          TEXT NOT NULL DEFAULT 'backoffice'
                 CHECK (role IN ('pos','backoffice')),  -- (ADR-0004)
-  retired_at    TIMESTAMPTZ,                    -- (ADR-0004) เครื่องแทนที่ต้องปลดตรงนี้ก่อน แล้วสร้างเครื่องใหม่ด้วย device_no ใหม่เสมอ ห้ามใช้ซ้ำ ไม่งั้นชุดเลขใบเสร็จชน
+  retired_at    TIMESTAMPTZ,                    -- (ADR-0004) เครื่องแทนที่ต้องปลดตรงนี้ก่อน แล้วสร้างเครื่องใหม่ด้วย device_no ใหม่เสมอ ห้ามใช้ซ้ำ ไม่งั้นชุดเลขใบเสร็จชน · /auth/refresh ต้องเช็คคอลัมน์นี้ (ADR-0009)
+  enrol_code_hash  TEXT,                        -- (ADR-0004) hash ของ enrolment code ใช้ครั้งเดียว — ล้างเป็น NULL เมื่อ POST /auth/device สำเร็จ
+  enrol_expires_at TIMESTAMPTZ,                 -- (ADR-0004) อายุของ code (เสนอ 15 นาที)
+  token_hash    TEXT,                           -- (ADR-0004) hash ของ device token ที่ browser ถือ — JWT claim did/drole มาจากการ resolve token นี้เท่านั้น
   last_pull_seq BIGINT NOT NULL DEFAULT 0,      -- cursor ของ change_log
   last_seen_at  TIMESTAMPTZ,
   PRIMARY KEY (tenant_id, id),
-  UNIQUE (tenant_id, device_no)
+  UNIQUE (tenant_id, device_no),
+  UNIQUE (token_hash)                           -- token ต้อง lookup ได้โดยไม่รู้ tenant (ตอน POST /auth/token)
 );
 
 -- ร้านหนึ่งมีเครื่องขายที่ยังใช้งานอยู่ได้ไม่เกิน 1 เครื่อง — บังคับที่ฐานข้อมูล (ADR-0004)
@@ -340,23 +349,27 @@ CREATE TABLE change_log (
 );
 CREATE INDEX idx_changelog_pull ON change_log (tenant_id, server_seq);
 
--- ⚠️ ตารางนี้ "ไม่ใช่ตัวออกเลข" — ตัวออกเลขอยู่ที่เครื่อง (ดู §7.2)
--- นี่คือ high-water mark ไว้ตรวจว่าเลขเอกสารขาดช่วงหรือเปล่า (บิลหาย/เครื่องพัง)
+-- ⚠️ ใครออกเลขขึ้นกับเฟสและบทบาทเครื่อง (ADR-0007 แก้ 2026-09-04 — ดู §7.2):
+--   เฟส 1: server ออกทุกเลขจากตารางนี้ (UPDATE … RETURNING ใต้ row lock ใน transaction เดียวกับบิล)
+--   เฟส 2: เครื่อง pos ออก receipt/cn เองจาก counter ใน Drift แล้วตารางนี้เป็น high-water mark
+--          ส่วน po/quote/cp ยังให้ server ออกจากตารางนี้ตลอด (เครื่อง backoffice ออนไลน์เสมอ)
 CREATE TABLE doc_counters (
   tenant_id     UUID NOT NULL,
   device_id     TEXT NOT NULL,                  -- ⭐ ขาดไม่ได้ ไม่งั้นสองเครื่องเขียนทับกัน
-  doc_type      TEXT NOT NULL,                  -- 'receipt' | 'po' | 'quote' | 'cn'
+  doc_type      TEXT NOT NULL CHECK (doc_type IN ('receipt','po','quote','cn','cp')),  -- 'cp' = ใบรับชำระเครดิตช่าง (เพิ่ม ADR-0007)
   period        TEXT NOT NULL,                  -- '2569-08'  (รีเซ็ตรายเดือน)
-  last_no       INT  NOT NULL DEFAULT 0,        -- เลขสูงสุดที่เห็นจากเครื่องนี้
+  last_no       INT  NOT NULL DEFAULT 0 CHECK (last_no <= 9999),  -- เลขสูงสุดที่เห็นจากเครื่องนี้ — เกิน 9999 ต้อง error ชัด ๆ ไม่วนกลับ 0001
   PRIMARY KEY (tenant_id, device_id, doc_type, period)
 );
 
 -- audit (PDPA + สืบสวนเวลาเงินไม่ตรง)
 CREATE TABLE audit_log (
   id            BIGSERIAL PRIMARY KEY,
-  tenant_id     UUID NOT NULL,
-  user_id       UUID,
+  tenant_id     UUID NOT NULL,                  -- ร้านที่ถูกแตะ — แถวจาก /platform/* ก็ต้องใส่ (ร้านที่ admin แตะ)
+  user_id       UUID,                           -- actor ฝั่งร้าน (users) — NULL เมื่อ actor เป็น platform admin
+  platform_admin_id UUID REFERENCES platform_admins (id),  -- (ADR-0002, เพิ่ม 2026-09-04) actor ฝั่ง admin plane — user_id ใส่ admin ไม่ได้เพราะเป็น UUID ของ users ในร้าน
   device_id     TEXT,
+  CHECK (user_id IS NOT NULL OR platform_admin_id IS NOT NULL OR action LIKE 'system.%'),  -- ต้องรู้ว่าใครทำ ยกเว้น job ของระบบ
   action        TEXT NOT NULL,                  -- 'sale.void' | 'product.price_change' | 'backup.import'
   entity        TEXT,
   entity_id     TEXT,
@@ -590,6 +603,7 @@ CREATE TABLE sale_items (
   name_th    TEXT,
   qty        INT  NOT NULL CHECK (qty > 0),
   price      NUMERIC(12,2) NOT NULL,
+  cost_at_sale NUMERIC(12,2),      -- (ADR-0008) snapshot products.cost ณ วินาทีที่ saveSale ตัดสต็อก — บิลที่ import มาก่อนขึ้นระบบเป็น NULL ห้าม backfill (ยกเว้นไฟล์ JS ที่มี cost บนบรรทัดอยู่แล้ว)
   PRIMARY KEY (tenant_id, sale_id, line_no),
   FOREIGN KEY (tenant_id, sale_id) REFERENCES sales (tenant_id, id) ON DELETE CASCADE
 );
@@ -726,6 +740,8 @@ CREATE TABLE shifts (
   PRIMARY KEY (tenant_id, id)
 );
 -- ⭐ "1 เครื่อง มีลิ้นชักปัจจุบันได้ 1 ใบ" — ต้องผูกกับ device_id ไม่ใช่ tenant_id
+-- ⚠️ ผลข้างเคียง (ADR-0004 "การผูกเครื่อง"): ย้ายเครื่องขายกลางกะ → เครื่องใหม่เปิดกะที่สองของวันเดียวกันได้
+--    ขั้นตอน retire ต้องปิดกะค้างของเครื่องเดิมก่อนใน transaction เดียวกับการตั้ง devices.retired_at
 CREATE UNIQUE INDEX uq_shift_active ON shifts (tenant_id, device_id) WHERE is_active;
 CREATE INDEX idx_shifts_hist ON shifts (tenant_id, opened_at DESC);
 
@@ -830,6 +846,7 @@ sequenceDiagram
 | ข้อความ error | `สต็อกไม่พอ:\n` + ต่อบรรทัด `<name>: สต็อก <stock> แต่ต้องการ <qty>` หรือ `<name>: ไม่พบในสต็อก` — **คัดลอกตรงตัว ห้ามแปล** |
 | แต้มลูกค้า | `points_granted = floor(total / 10)` |
 | ปัดเงิน | `round2(v) = round(v * 100) / 100` (แบบ JS) |
+| **ต้นทุน ณ วันที่ขาย** (ADR-0008) | `sale_items.cost_at_sale = products.cost` ที่อ่านได้ใน `SELECT … FOR UPDATE` เดียวกับที่ตัดสต็อก — ห้ามอ่านซ้ำนอก transaction และห้ามรับจาก client |
 | ขายเงินเชื่อช่าง | เมื่อ `payment_method = 'เครดิตช่าง'` → `mechanics.credit_balance += total` |
 | สถิติช่าง | `total_sales += total`, `total_credit += total` (เฉพาะเครดิต), `total_discount`/`total_markup` จาก `mechanic_delta` |
 
@@ -868,11 +885,16 @@ UPDATE products SET stock = stock - $qty, updated_at = now()
 ปัจจุบัน client สร้างเองด้วย `docNo(prefix)` = prefix + 8 หลักท้ายของ epoch ms + 4 ตัวอักษรจาก uuid
 → **ไม่ซ้ำ แต่ไม่เรียงสวย และไม่ใช่รูปแบบที่บัญชีชอบ**
 
-**ข้อสรุปหลัง review: เลขต้องออกที่เครื่อง ไม่ใช่ที่ server**
-ถ้า server เป็นคนออกเลข = ออฟไลน์ออกบิลไม่ได้ = ตัดความสามารถออฟไลน์ทิ้งทั้งหมด
-ดังนั้น counter ต้อง persist **ในเครื่อง** (Drift) ต่อ `(device_no, doc_type, period)`
-ส่วน server ทำหน้าที่แค่ 2 อย่าง: กันเลขชนด้วย `UNIQUE (tenant_id, receipt_no)`
-และเก็บ high-water mark ใน `doc_counters` ไว้ตรวจว่า **เลขขาดช่วงไหม** (บิลหาย / เครื่องพัง)
+**ใครออกเลข — แก้ 2026-09-04 ตาม ADR-0007 (scrutinize รอบ 3): ขึ้นกับเฟสและบทบาทเครื่อง**
+
+| | RC / CN (เครื่อง `pos`) | PO / QT / CP (ทุกเครื่อง) |
+|---|---|---|
+| เฟส 1 (ออนไลน์ล้วน) | **server ออก** จาก `doc_counters` ใต้ row lock ใน transaction เดียวกับบิล — client ไม่ส่ง `receiptNo` | **server ออก** |
+| เฟส 2 (offline shell) | **เครื่อง `pos` ออกเอง** จาก counter ใน Drift ต่อ `(device_no, doc_type, period)` server เก็บ high-water mark + `UNIQUE` | **server ออกตลอด** (เครื่องเหล่านี้ออนไลน์เสมอ) |
+
+เหตุผลเดิม "ถ้า server ออกเลข = ออฟไลน์ออกบิลไม่ได้" จริงเฉพาะเครื่อง `pos` ในเฟส 2 เท่านั้น
+ให้เครื่องที่ออนไลน์เสมอออกเลขเองคือจ่ายค่า seed/retry โดยไม่ได้อะไร และทำให้ PO/QT ของ `backoffice`
+seed ไม่ได้ (`GET /doc-counters` เป็น `pos` เท่านั้น) — รูปแบบเลขไม่เปลี่ยนระหว่างเฟส
 
 **เคาะแล้ว (ADR-0007): เลขเรียงต่อเครื่อง รีเซ็ตรายเดือน** — ไม่ใช่ 2 ทางเลือกที่ยังตัดสินใจไม่ได้อีกต่อไป:
 
@@ -1006,13 +1028,13 @@ CREATE POLICY tenant_isolation ON products
 ```mermaid
 flowchart LR
   A["POS เครื่องร้าน<br/>Drift/SQLite"] -->|"exportSnapshot() → .json"| B["ไฟล์ backup"]
-  B -->|"POST /v1/admin/tenants/:id/import"| C["NestJS import job<br/>(BullMQ, ทีละ tenant)"]
+  B -->|"POST /platform/tenants/{id}/import (ADR-0005)"| C["NestJS import job<br/>(BullMQ, ทีละ tenant)"]
   C --> D[("PostgreSQL")]
   D -->|"GET /v1/sync/bootstrap"| E["POS เครื่องใหม่"]
 ```
 
 ขั้นตอน:
-1. สร้าง `tenants` + `users` + `devices` ให้ร้าน
+1. สร้าง `tenants` + `users` + `devices` ให้ร้านผ่าน `POST /platform/tenants` (ADR-0001) — ไม่ insert มือ
 2. **Pre-flight scan ก่อนแตะ DB** (สแกน JSON อย่างเดียว ยังไม่ insert) — ถ้าเจอต้องหยุดและตัดสินใจก่อน:
    - สินค้าที่ `stock < 0` → `CHECK (stock >= 0)` จะ rollback ทั้งร้านเพราะสินค้าตัวเดียว
    - `category` ที่สินค้าอ้างถึงแต่ไม่มีในรายการหมวด
@@ -1066,9 +1088,9 @@ flowchart LR
 และ `GET` ทุกตัวต้องกรอง `WHERE deleted_at IS NULL` (ยกเว้น endpoint sync ที่ต้องเห็น tombstone)
 
 > **ทำไมตารางข้างบนต้องแม่นเป๊ะ (ADR-0005):** ระบบ**ไม่มี point-in-time restore รายร้าน** —
-> เลือกรับปาก export (`POST /tenant/export`) แต่ไม่รับปาก restore เพราะ restore รายร้านบน
+> เลือกรับปาก export (`POST /backup/export`) แต่ไม่รับปาก restore เพราะ restore รายร้านบน
 > shared-schema ต้องมี nightly per-tenant dump แยกทุกร้าน + สคริปต์ลบ-แล้ว-โหลดกลับที่เรียงตาม FK
-> ให้ถูกทั้ง 27 ตาราง ทำครึ่ง ๆ กลาง ๆ แย่กว่าไม่ทำ (restore พลาด = ข้อมูลร้านอื่นเสียหายด้วย)
+> ให้ถูกทั้ง 28 ตาราง ทำครึ่ง ๆ กลาง ๆ แย่กว่าไม่ทำ (restore พลาด = ข้อมูลร้านอื่นเสียหายด้วย)
 > **soft delete จึงเป็นกลไกเดียวที่กู้ "ลบผิด" ได้** — ต้องตรวจให้แน่ใจว่าทุกตารางที่ผู้ใช้กดลบได้
 > เอง (ผ่านหน้าจอ ไม่ใช่แค่ระบบภายใน) เป็น soft delete จริงตามตารางนี้ ไม่ใช่หลุด hard delete ไป
 
@@ -1079,7 +1101,7 @@ flowchart LR
 | ประเด็น | ทำไมสำคัญ |
 |---|---|
 | **ยังไม่มีตารางภาษี/ใบกำกับภาษีเต็มรูป** | ร้านออกใบกำกับอย่างย่อ ถ้าลูกค้าขอเต็มรูป ต้องมี `tax_invoices` แยก (ยกมาจาก scope เดิมที่ยังไม่ทำ) |
-| **`sales` ไม่เก็บ `cost` ตอนขาย** | คำนวณกำไรย้อนหลังไม่ได้จริง เพราะ `products.cost` เปลี่ยนทุกครั้งที่รับของ → ควรเพิ่ม `sale_items.cost_at_sale` |
+| ~~`sales` ไม่เก็บ `cost` ตอนขาย~~ **เคาะแล้ว (ADR-0008)** | เพิ่ม `sale_items.cost_at_sale` ใน DDL §5.4 + กฎใน §7.1 แล้ว (2026-09-04) — ฝั่ง Drift ทำเสร็จก่อนหน้า (schema v2) |
 | **ไม่มี soft delete ครบทุกตาราง** | ตอน sync การลบต้องส่งเป็น tombstone ไม่งั้นเครื่องอื่นจะ resurrect ข้อมูลที่ลบไปแล้ว |
 | ~~หลายร้าน = หลาย timezone?~~ **เคาะแล้ว (ADR-0003)** | เพิ่ม `tenants.timezone TEXT DEFAULT 'Asia/Bangkok'` แล้ว (§5.1) เพราะ `shifts.date_str` และรายงานรายวันทุกใบขึ้นกับค่านี้ |
 | **`customers` / `mechanics` / `settings` ยังไม่มี `updated_at`** | มีแต่ `products` ที่มี → refresh cache ด้วย `?updatedSince=` ทำไม่ได้กับ 3 ตารางนี้ **เป็น Drift schema change ที่ต้องรัน `build_runner` บน ASCII path** ควรทำรวดเดียวตอนนี้ ไม่ใช่ไปเจอตอนเฟส 2 |

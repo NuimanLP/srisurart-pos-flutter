@@ -17,7 +17,8 @@
 | Base path | `/api/v1` (ล็อกเวอร์ชันไว้ตั้งแต่วันแรก) |
 | Auth | `Authorization: Bearer <JWT>` ทุก endpoint ยกเว้น `/auth/*` และ `/health/*` |
 | Tenant | **อ่านจาก JWT claim `tid` เท่านั้น** — ห้ามรับ `tenantId` จาก body/query เด็ดขาด (ไม่งั้นปลอมข้ามร้านได้) |
-| Device | JWT พก `did` (device id) + `drole` (`pos` / `backoffice`) เพิ่มจาก `tid` — guard ตรวจ `drole` **ต่อ endpoint** ตามคอลัมน์ "Device role" ใน §4 (ADR-0004) |
+| Device | JWT พก `did` (device id) + `drole` (`pos` / `backoffice`) เพิ่มจาก `tid` — guard ตรวจ `drole` **ต่อ endpoint** ตามคอลัมน์ "Device role" ใน §4 (ADR-0004) · **ที่มา:** `POST /auth/token` รับ `deviceToken` (ได้จาก `POST /auth/device` ด้วย enrolment code ที่ owner ออกผ่าน `POST /devices`) แล้ว server resolve เป็น `did`/`drole` เอง **ห้ามรับ `deviceId` จาก body** ไม่มี token = ไม่มี `drole` = เรียกได้เฉพาะแถว "ทั้งคู่" ในฐานะ `backoffice` (ADR-0004 "การผูกเครื่อง") |
+| อายุ token (ADR-0009) | **access 15 นาที** · **refresh หมดอายุ 04:00 ตาม `tenants.timezone`** (ไม่ใช่ 24 ชม.นับจากล็อกอิน; refresh ที่ออกหลัง 03:00 หมดอายุ 04:00 ของวันถัดไป) · `/auth/refresh` ต้องเช็ค `users.is_active` + `tenants.status` + `devices.retired_at` ของ `did` ทุกครั้ง · **ไม่มี** refresh rotation และ **ไม่มี** denylist ใน Redis |
 | Token audience | guard ของ `/api/*` **ปฏิเสธ token ที่ `aud != "tenant"`** และ guard ของ `/platform/*` **ปฏิเสธ `aud != "platform"`** — token ข้ามฝั่งกันไม่ได้แม้แต่กรณีเดียว **ไม่มี role ของร้านไหนเรียก `/platform/*` ได้ แม้แต่ `owner`** (ADR-0002) |
 | Content | `application/json; charset=utf-8` |
 | Pagination | `?page=1&limit=50` (default 50, max 200) |
@@ -173,7 +174,7 @@ sequenceDiagram
 // Request
 {
   "id": "s1a2b3c4",                 // client สร้าง (รองรับ offline) — server ใช้เป็น natural idempotency key ด้วย
-  "receiptNo": "R1-2569-08-0042",
+  // "receiptNo": "RC01-2569-08-0042",   ← เฟส 1 ไม่ส่ง (server ออกให้) · เฟส 2 เครื่อง pos ส่งมาได้ และ prefix/device_no ต้องตรงกับ did ของ token (ADR-0007)
   "subtotal": "1500.00",
   "discount": "100.00",
   "total": "1400.00",
@@ -190,9 +191,10 @@ sequenceDiagram
 
 // 201 Created — ⭐ ต้องคืน stock ใหม่ของทุกบรรทัดที่แตะกลับมาด้วย
 { "status": "success",
-  "data": { "id": "s1a2b3c4", "receiptNo": "R1-2569-08-0042", "total": "1400.00",
+  "data": { "id": "s1a2b3c4", "receiptNo": "RC01-2569-08-0042", "total": "1400.00",
             "pointsGranted": 140, "date": "2026-08-25T03:12:00Z",
             "mechanicCreditBalanceAfter": "5400.00",
+            "customerAfter": { "id": "c3", "points": 1340, "totalSpend": "58200.00" },   // ⭐ เพิ่ม (ADR-0010 ข้อ 3) — ไม่งั้น Drift ฝั่ง client ค้างค่าเก่าจนกว่า /bootstrap รอบถัดไป
             "products": [ { "id": "p12", "stock": 8, "offlineOk": true } ] } }
 
 // 409 — ของไม่พอ
@@ -204,10 +206,13 @@ sequenceDiagram
 
 > **หมายเหตุสำคัญ 3 ข้อ:**
 > 1. `pointsGranted` **server คำนวณเอง** (`floor(total/10)`) ไม่รับจาก client
-> 2. `receiptNo` **client เป็นคนออก** (ต้องออกบิลได้ตอนออฟไลน์) — server แค่กันชนด้วย
->    `UNIQUE (tenant_id, receipt_no)` ถ้าชนให้คืน `409 RECEIPT_NO_CONFLICT` แล้วให้ client ออกเลขใหม่
->    ⚠️ ตัวอย่าง `"R1-2569-08-0042"` ข้างบนเป็น **รูปแบบที่เสนอ ไม่ใช่รูปแบบปัจจุบัน** —
->    ของจริงคือ `docNo('RC')` การเปลี่ยนต้องถามเจ้าของร้านก่อน (ดู `01_DATABASE.md §7.2`)
+> 2. `receiptNo` — **เฟส 1 server เป็นคนออก** (จาก `doc_counters` ใต้ row lock ใน transaction เดียวกับบิล
+>    ใช้ `device_no` ของ `did` ใน JWT) client ไม่ต้องส่ง · **เฟส 2 เครื่อง `pos` ออกเองได้** (ต้องออกบิลได้ตอนออฟไลน์)
+>    server กันชนด้วย `UNIQUE (tenant_id, receipt_no)` ถ้าชน**ก่อนพิมพ์**ให้คืน `409 RECEIPT_NO_CONFLICT`
+>    แล้ว client ออกเลขใหม่ ถ้าชนตอน `POST /sync/push` (บิลพิมพ์ไปแล้ว) ห้ามเปลี่ยนเลข → `rejected` เข้าคิว
+>    reconciliation (ADR-0007)
+>    ✅ รูปแบบ `RC01-2569-08-0042` **อนุมัติแล้ว** (ADR-0007, grill รอบ 2) — ยังต้องให้เจ้าของร้านเห็นใบเสร็จ
+>    ตัวอย่างจริงก่อนพิมพ์ใบแรก แต่ไม่ใช่ "รูปแบบที่เสนอ" อีกต่อไป
 > 3. **ต้องคืน `products[]` ที่สต็อกเปลี่ยนกลับมาใน response** เพื่อให้หน้า Checkout อัปเดตค่าในเครื่องได้ทันที
 >    ไม่ต้องยิง `GET /products` ซ้ำ — แก้ปัญหา read-your-writes ที่ cache 5 นาที + replica lag ทำให้เห็นสต็อกเก่า
 
@@ -287,7 +292,7 @@ sequenceDiagram
     participant N as NestJS
     participant D as PostgreSQL
     U->>F: สแกน/พิมพ์เลขที่ใบเสร็จ
-    F->>N: GET /sales?search=R1-2569-08-0042
+    F->>N: GET /sales?search=RC01-2569-08-0042
     N-->>F: บิล + รายการ
     F->>N: GET /sales/{id}/refunded-qty
     N->>D: SUM(qty) ที่เคยคืน GROUP BY product
@@ -425,9 +430,13 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 
 | Method | Path | Auth | Device role | Cache | Queue | Idempotent |
 |---|---|---|---|---|---|---|
-| POST | `/auth/token` | – | – | – | – | – |
-| POST | `/auth/refresh` | refresh | – | – | – | – |
+| POST | `/auth/token` `{username, password, deviceToken?}` | – | – (server resolve `did`/`drole` จาก `deviceToken`) | – | – | – |
+| POST | `/auth/refresh` | refresh | – (เช็ค `devices.retired_at` ของ `did`) | – | – | – |
+| POST | `/auth/device` `{code}` 🆕 | – | – | – | – | – |
 | GET | `/auth/me` | ✔ | ทั้งคู่ | – | – | – |
+| GET | `/devices` 🆕 | owner | ทั้งคู่ | – | – | – |
+| POST | `/devices` `{label, role}` 🆕 | owner | ทั้งคู่ | – | – | ✔ |
+| POST | `/devices/{id}/retire` 🆕 | owner | ทั้งคู่ | – | – | ✔ |
 | GET | `/products` (`?search=` / `?partNo=` / `?updatedSince=`) | ✔ | ทั้งคู่ | ✅ 5m | – | – |
 | GET | `/products/:id` | ✔ | ทั้งคู่ | ✅ 5m | – | – |
 | POST | `/products` | manager | ทั้งคู่ | invalidate | – | ✔ |
@@ -486,12 +495,27 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 * 🔴 **ไม่มี restore รายร้าน** — endpoint นี้ export ได้อย่างเดียว **import กลับมาทับข้อมูลร้านตัวเองไม่ได้**
   (ADR-0005 รับปากแค่ "ขอไฟล์ข้อมูลร้านตัวเอง" ไม่รับปาก "ย้อนข้อมูล/กู้ของที่ลบผิด")
 
-**`GET /doc-counters`** (ADR-0007) — คืน high-water mark ของ `(device_id, doc_type, period)`
+**Device enrolment** (ADR-0004 "การผูกเครื่อง" — เพิ่ม 2026-09-04)
 
-* เครื่อง `pos` เรียกตอน **เปิดแอป/ล็อกอิน** เพื่อ seed counter ในเครื่อง: `local = max(local, server)`
-* กันกรณี IndexedDB/OPFS ของเครื่อง `pos` ถูกล้าง (ล้างข้อมูลเว็บไซต์, โหมดส่วนตัว, ลง Windows ใหม่)
-  แล้ว counter รีเซ็ตเป็น 0 → เลขที่ออกใหม่ชนกับใบเสร็จเดิมทั้งเดือน → `UNIQUE (tenant_id, receipt_no)`
-  เด้งทุกบิล → ขายไม่ได้เลยจนกว่าจะมีคนแก้
+* `POST /devices` `{label, role}` — `owner` เท่านั้น · server กำหนด `device_no` ถัดไปที่ไม่เคยใช้
+  (ห้ามใช้ซ้ำแม้เครื่องเดิม retire แล้ว) · คืน **enrolment code ใช้ครั้งเดียว** อายุสั้น · ถ้า `role='pos'`
+  และร้านมี `pos` ที่ยังไม่ retire อยู่แล้ว → `409` (index `one_pos_per_tenant`) · เขียน `audit_log`
+* `POST /auth/device` `{code}` — browser ของเครื่องนั้นแลก code เป็น **device token** (opaque, ยาว,
+  server เก็บ `devices.token_hash`) · code ใช้ได้ครั้งเดียว · token เก็บใน localStorage/IndexedDB
+  ล้างแล้ว = ต้อง enrol ใหม่ (ได้ `device_no` ใหม่ ชุดเลขเอกสารไม่ชนกับของเก่า)
+* `POST /auth/token` รับ `deviceToken` (optional) → server resolve เป็น `did`/`drole` ใส่ JWT
+  **ไม่มี `deviceId` ใน body ไม่ว่ากรณีใด**
+* `POST /devices/{id}/retire` — `owner` เท่านั้น · **ปิดกะที่ค้างของเครื่องนั้นก่อน** (รับ `physicalCash`
+  ใน body) แล้วตั้ง `retired_at` ใน transaction เดียว · `audit_log` · นี่คือปุ่ม "ย้ายเครื่องขาย"
+* `GET /devices` — owner ดูรายการเครื่อง + สถานะ retire
+
+**`GET /doc-counters`** (ADR-0007) — คืน high-water mark ของ `(device_id, doc_type, period)` — **เฟส 2 เท่านั้น**
+
+* เฟส 1 server ออกเลขทุกชนิดเอง endpoint นี้ยังไม่ต้องมี (ADR-0007 แก้ 2026-09-04)
+* เฟส 2 เครื่อง `pos` เรียกตอน **เปิดแอป/ล็อกอิน** เพื่อ seed counter ในเครื่อง: `local = max(local, server)`
+  และ**ห้ามออกเลขออฟไลน์ถ้า period ปัจจุบันยังไม่เคยได้ seed** (`OFFLINE_NOT_ALLOWED`)
+* กันกรณี counter ใน Drift เพี้ยนโดยที่ device token ยังอยู่ (เช่น restore Drift จากไฟล์เก่า) —
+  ส่วนกรณี IndexedDB ถูกล้างทั้งก้อน device token หายไปด้วย จึงเป็นการ enrol เครื่องใหม่ ไม่ใช่ seed
 
 ---
 
@@ -505,7 +529,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | `t:{tid}:settings` | ตั้งค่าร้าน | 3600s | `PATCH /settings` |
 | `t:{tid}:reports:summary:{from}:{to}` | KPI | 300s | (ปล่อยหมดอายุเอง) |
 | `t:{tid}:idem:{key}` | ผลลัพธ์ idempotency (ชั้นเร็ว) | 24h | – |
-| `t:{tid}:status` | สถานะร้าน (`active`/`suspended`/`closed`) | – (ไม่หมดอายุเอง) | `PATCH /platform/tenants/{id}/status` ล้างทันที (ADR-0003) |
+| `t:{tid}:status` | สถานะร้าน (`active`/`suspended`/`closed`) | 300s + jitter (แก้ 2026-09-04 — เดิม "ไม่หมดอายุ" ขัดกฎด้านล่างเอง) | `PATCH /platform/tenants/{id}/status` ล้างทันที (ADR-0003) · **miss / Redis ล่ม → อ่าน `tenants` ด้วย PK เสมอ ห้าม fail-open** (ADR-0003 ข้อ 5) |
 | `t:{tid}:rl:{route}:{window}` | ตัวนับ rate limit ต่อ tenant (ADR-0006) | 1 window (เช่น 60s) | หมดอายุเองตาม window |
 
 **กฎที่ต้องทำตาม (จาก Backend04):**
@@ -597,6 +621,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 400 | `INVALID_BACKUP` | `ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta` |
 | 409 | `NO_OPEN_SHIFT` | `No open shift` |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | – (ไม่แสดงให้ผู้ใช้เห็น) |
+| 409 | `RECEIPT_NO_CONFLICT` | – (client ออกเลขใหม่เองก่อนพิมพ์ · ตอน sync เข้าคิว reconciliation — ADR-0007; เดิมโผล่แค่ใน §3.1) |
 | 401/403 | `UNAUTHENTICATED` / `FORBIDDEN` | – |
 | 429 | `RATE_LIMITED` | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` | – |
 
