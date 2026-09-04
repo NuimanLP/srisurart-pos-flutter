@@ -107,7 +107,7 @@ not read them.
 1. ✅ Flutter CI gate — *done, `946c405`*
 2. ✅ Strip dead doc refs from CLAUDE.md — *done*
 3. ✅ ADR-0010 + ADR-0011, Gantt wording, Thai strings — *done*
-4. ⬜ **Confirm the faculty VM accepts inbound connections from outside the university network**
+4. ✅ **Confirm the faculty VM accepts inbound connections from outside the university network** — *confirmed by the project owner 2026-09-04 (grill round 3); single VM, 4 vCPU / 6 GB / 30 GB — spec recorded in `03_ARCHITECTURE.md §8`*
 
 **Server foundation — one dependency chain, the project owner's**
 5. `p1` compose + Nginx + NestJS skeleton — **two Redis** (`cache` = `allkeys-lru`, `queue` = `noeviction` + AOF)
