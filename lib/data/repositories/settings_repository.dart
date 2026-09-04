@@ -7,6 +7,8 @@
 //
 // FULLY IMPLEMENTED (low-risk, other agents depend on it).
 
+import 'package:drift/drift.dart';
+
 import '../db/database.dart';
 
 class SettingsRepository {
@@ -33,6 +35,8 @@ class SettingsRepository {
   Future<void> updateSettings(SettingsRowCompanion patch) async {
     await (db.update(
       db.settingsRow,
-    )..where((t) => t.id.equals(0))).write(patch);
+    )..where((t) => t.id.equals(0))).write(
+      patch.copyWith(updatedAt: Value(DateTime.now())),
+    );
   }
 }

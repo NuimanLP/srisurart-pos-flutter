@@ -110,6 +110,14 @@ class SnapshotRepository {
 
   static String? _asNullableStr(dynamic v) => v?.toString();
 
+  /// Null-preserving double — distinguishes "absent" from 0, which matters for
+  /// costAtSale (ADR-0008: a missing cost is unknown, not free).
+  static double? _asNullableDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v);
+    return null;
+  }
+
   static bool _asBool(dynamic v) {
     if (v is bool) return v;
     if (v is num) return v != 0;
@@ -158,6 +166,8 @@ class SnapshotRepository {
             'points': c.points,
             'totalSpend': c.totalSpend,
             'createdAt': c.createdAt,
+            if (c.updatedAt != null) 'updatedAt': _iso(c.updatedAt),
+            if (c.deletedAt != null) 'deletedAt': _iso(c.deletedAt),
           },
         )
         .toList();
@@ -198,6 +208,9 @@ class SnapshotRepository {
                     if (it.nameTH != null) 'nameTH': it.nameTH,
                     'qty': it.qty,
                     'price': it.price,
+                    // JS backups carried `cost` on the line; keep the round-trip
+                    // lossless so historical profit survives export/import.
+                    if (it.costAtSale != null) 'cost': it.costAtSale,
                   },
                 )
                 .toList(),
@@ -256,6 +269,8 @@ class SnapshotRepository {
             if (settingsData.taxId != null) 'taxId': settingsData.taxId,
             if (settingsData.branchNo != null)
               'branchNo': settingsData.branchNo,
+            if (settingsData.updatedAt != null)
+              'updatedAt': _iso(settingsData.updatedAt),
           };
 
     // ── mechanics (sa_mechanics) ──
@@ -278,6 +293,8 @@ class SnapshotRepository {
             'totalDiscount': m.totalDiscount,
             'totalMarkup': m.totalMarkup,
             'createdAt': m.createdAt,
+            if (m.updatedAt != null) 'updatedAt': _iso(m.updatedAt),
+            if (m.deletedAt != null) 'deletedAt': _iso(m.deletedAt),
           },
         )
         .toList();
@@ -662,6 +679,8 @@ class SnapshotRepository {
                 points: Value(_asInt(c['points'])),
                 totalSpend: Value(_asDouble(c['totalSpend'])),
                 createdAt: _asStr(c['createdAt']),
+                updatedAt: Value(_parseDate(c['updatedAt'])),
+                deletedAt: Value(_parseDate(c['deletedAt'])),
               ),
             );
       }
@@ -687,6 +706,8 @@ class SnapshotRepository {
                 totalDiscount: Value(_asDouble(m['totalDiscount'])),
                 totalMarkup: Value(_asDouble(m['totalMarkup'])),
                 createdAt: _asStr(m['createdAt']),
+                updatedAt: Value(_parseDate(m['updatedAt'])),
+                deletedAt: Value(_parseDate(m['deletedAt'])),
               ),
             );
       }
@@ -730,6 +751,9 @@ class SnapshotRepository {
                   nameTH: Value(_asNullableStr(it['nameTH'])),
                   qty: _asInt(it['qty']),
                   price: _asDouble(it['price']),
+                  // JS backups may carry the cost at sale time — keep it rather
+                  // than falling back to today's products.cost (ADR-0008).
+                  costAtSale: Value(_asNullableDouble(it['cost'])),
                 ),
               );
         }
@@ -1016,6 +1040,7 @@ class SnapshotRepository {
             cashierName: Value(_asNullableStr(s['cashierName'])),
             taxId: Value(_asNullableStr(s['taxId'])),
             branchNo: Value(_asNullableStr(s['branchNo'])),
+            updatedAt: Value(_parseDate(s['updatedAt'])),
           ),
         );
       }

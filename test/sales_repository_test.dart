@@ -1,5 +1,6 @@
 // Unit tests for SalesRepository (port of db.js saveSale invariants).
 
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
@@ -21,6 +22,42 @@ void main() {
 
   Future<ProductRow> product(String id) =>
       (db.select(db.products)..where((t) => t.id.equals(id))).getSingle();
+
+  test('costAtSale snapshots product cost and survives a later cost change',
+      () async {
+    final before = await product('p8');
+    final costWhenSold = before.cost;
+
+    await repo.saveSale(
+      SaleInput(
+        subtotal: 3200,
+        discount: 0,
+        total: 3200,
+        paymentMethod: 'เงินสด',
+        items: const [
+          SaleLineInput(
+            productId: 'p8',
+            name: 'Piston Kit STD',
+            qty: 1,
+            price: 3200,
+          ),
+        ],
+      ),
+    );
+
+    final line = await db.select(db.saleItems).getSingle();
+    expect(line.costAtSale, costWhenSold);
+
+    // Receiving a PO recomputes products.cost (weighted average). The bill's
+    // recorded cost must NOT move with it — that is the whole point of ADR-0008.
+    await (db.update(db.products)..where((t) => t.id.equals('p8'))).write(
+      ProductsCompanion(cost: Value(costWhenSold + 500)),
+    );
+
+    final lineAfter = await db.select(db.saleItems).getSingle();
+    expect(lineAfter.costAtSale, costWhenSold);
+    expect((await product('p8')).cost, costWhenSold + 500);
+  });
 
   test(
     'insufficient stock throws Thai message and leaves data unchanged',

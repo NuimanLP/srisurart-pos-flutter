@@ -51,6 +51,11 @@ class Customers extends Table {
   IntColumn get points => integer().withDefault(const Constant(0))();
   RealColumn get totalSpend => real().withDefault(const Constant(0))();
   TextColumn get createdAt => text()();
+  // Sync bookkeeping (schema v2) — see docs/Backend_design/adr/README.md.
+  // updatedAt feeds the server's `?updatedSince=` refresh; deletedAt is the
+  // tombstone slot for phase-2 sync. Delete is still a hard delete today.
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -73,6 +78,9 @@ class Mechanics extends Table {
   RealColumn get totalDiscount => real().withDefault(const Constant(0))();
   RealColumn get totalMarkup => real().withDefault(const Constant(0))();
   TextColumn get createdAt => text()();
+  // Sync bookkeeping (schema v2) — see Customers above.
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -110,6 +118,11 @@ class SaleItems extends Table {
   TextColumn get nameTH => text().nullable()();
   IntColumn get qty => integer()();
   RealColumn get price => real()();
+  // Cost snapshot at the moment of sale (ADR-0008). NULL on bills created
+  // before schema v2 — reports must label those periods as estimated, never
+  // backfill them. products.cost changes on every weighted-average PO receive,
+  // so it can NOT be used to reconstruct historical profit.
+  RealColumn get costAtSale => real().nullable()();
 }
 
 @DataClassName('PurchaseOrderRow')
@@ -195,6 +208,11 @@ class QuoteItems extends Table {
   TextColumn get name => text()();
   IntColumn get qty => integer()();
   RealColumn get price => real()();
+  // Cost snapshot at the moment of sale (ADR-0008). NULL on bills created
+  // before schema v2 — reports must label those periods as estimated, never
+  // backfill them. products.cost changes on every weighted-average PO receive,
+  // so it can NOT be used to reconstruct historical profit.
+  RealColumn get costAtSale => real().nullable()();
 }
 
 @DataClassName('MovementRow')
@@ -287,6 +305,10 @@ class SettingsRow extends Table {
   TextColumn get cashierName => text().nullable()();
   TextColumn get taxId => text().nullable()();
   TextColumn get branchNo => text().nullable()();
+  // Sync bookkeeping (schema v2) — see Customers above. Settings is a singleton
+  // so deletedAt is unused, but kept for a uniform sync shape across tables.
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};

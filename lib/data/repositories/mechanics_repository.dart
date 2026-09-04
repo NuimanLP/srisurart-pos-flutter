@@ -61,13 +61,15 @@ class MechanicsRepository {
       totalDiscount: 0,
       totalMarkup: 0,
       createdAt: createdAt,
+      updatedAt: DateTime.now(),
     );
     await db.into(db.mechanics).insert(row);
     return row;
   }
 
   Future<void> updateMechanic(String id, MechanicsCompanion patch) async {
-    await (db.update(db.mechanics)..where((t) => t.id.equals(id))).write(patch);
+    await (db.update(db.mechanics)..where((t) => t.id.equals(id)))
+        .write(patch.copyWith(updatedAt: Value(DateTime.now())));
   }
 
   Future<void> deleteMechanic(String id) async {
@@ -103,7 +105,12 @@ class MechanicsRepository {
         var newBalance = mech.creditBalance - amount;
         if (newBalance < 0) newBalance = 0;
         await (db.update(db.mechanics)..where((t) => t.id.equals(mechanicId)))
-            .write(MechanicsCompanion(creditBalance: Value(newBalance)));
+            .write(
+              MechanicsCompanion(
+                creditBalance: Value(newBalance),
+                updatedAt: Value(DateTime.now()),
+              ),
+            );
       }
 
       return row;

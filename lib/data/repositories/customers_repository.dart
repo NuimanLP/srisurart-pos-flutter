@@ -53,6 +53,7 @@ class CustomersRepository {
       points: const Value(0),
       totalSpend: const Value(0),
       createdAt: Value(today),
+      updatedAt: Value(DateTime.now()),
     );
 
     await db.into(db.customers).insert(row);
@@ -60,7 +61,8 @@ class CustomersRepository {
   }
 
   Future<void> updateCustomer(String id, CustomersCompanion patch) async {
-    await (db.update(db.customers)..where((t) => t.id.equals(id))).write(patch);
+    await (db.update(db.customers)..where((t) => t.id.equals(id)))
+        .write(patch.copyWith(updatedAt: Value(DateTime.now())));
   }
 
   Future<void> deleteCustomer(String id) async {

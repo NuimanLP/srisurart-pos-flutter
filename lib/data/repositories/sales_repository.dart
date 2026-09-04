@@ -79,6 +79,7 @@ class SalesRepository {
             CustomersCompanion(
               totalSpend: Value(c.totalSpend + input.total),
               points: Value(c.points + pointsGranted),
+              updatedAt: Value(DateTime.now()),
             ),
           );
         }
@@ -102,6 +103,7 @@ class SalesRepository {
               creditBalance: Value(
                 m.creditBalance + (isCredit ? input.total : 0),
               ),
+              updatedAt: Value(DateTime.now()),
             ),
           );
         }
@@ -140,6 +142,11 @@ class SalesRepository {
               nameTH: Value(item.nameTH),
               qty: item.qty,
               price: item.price,
+              // Snapshot the cost as it stands right now (ADR-0008). products.cost
+              // is recomputed on every weighted-average PO receive, so without
+              // this the profit on an old bill silently changes whenever new
+              // stock is bought in.
+              costAtSale: Value(byId[item.productId]!.cost),
             ),
           );
         }

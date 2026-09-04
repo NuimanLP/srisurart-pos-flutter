@@ -64,13 +64,29 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
       await _seed();
+    },
+    // v1 → v2: sync bookkeeping columns + the cost snapshot on sale lines.
+    // All are nullable, so existing rows stay valid and no data is rewritten —
+    // bills sold before this upgrade keep costAtSale = NULL on purpose
+    // (ADR-0008: never backfill a guessed cost, it is indistinguishable from
+    // a real one once written).
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(customers, customers.updatedAt);
+        await m.addColumn(customers, customers.deletedAt);
+        await m.addColumn(mechanics, mechanics.updatedAt);
+        await m.addColumn(mechanics, mechanics.deletedAt);
+        await m.addColumn(settingsRow, settingsRow.updatedAt);
+        await m.addColumn(settingsRow, settingsRow.deletedAt);
+        await m.addColumn(saleItems, saleItems.costAtSale);
+      }
     },
   );
 

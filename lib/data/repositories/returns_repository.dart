@@ -143,6 +143,7 @@ class ReturnsRepository {
             CustomersCompanion(
               totalSpend: Value(math.max(0.0, cust.totalSpend - refundTotal)),
               points: Value(math.max(0, cust.points - pointsToReverse)),
+              updatedAt: Value(DateTime.now()),
             ),
           );
         }
@@ -178,6 +179,7 @@ class ReturnsRepository {
               creditBalance: Value(
                 math.max(0.0, mech.creditBalance - reduceBalance),
               ),
+              updatedAt: Value(DateTime.now()),
             ),
           );
         }

@@ -78,6 +78,9 @@ Map<String, dynamic> buildLegacyBackup() {
             'nameTH': 'กรองน้ำมันเครื่อง',
             'qty': 1,
             'price': 85,
+            // The JS app recorded the cost on the line; the second item below
+            // deliberately omits it (older bills did not always have one).
+            'cost': 40,
           },
           {
             'productId': 'p2',
@@ -348,6 +351,12 @@ void main() {
     expect(oilFilter.name, 'Oil Filter');
     expect(oilFilter.qty, 1);
     expect(oilFilter.price, 85);
+    // ADR-0008: a cost recorded by the JS app must survive the import, and a
+    // line without one stays NULL — absent means unknown, never 0 (which would
+    // silently read as 100% profit).
+    expect(oilFilter.costAtSale, 40);
+    final sparkPlug = items.firstWhere((i) => i.productId == 'p2');
+    expect(sparkPlug.costAtSale, isNull);
   });
 
   test('active shift becomes isActive=true with its entries', () async {
