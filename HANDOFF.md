@@ -1,18 +1,54 @@
-# HANDOFF — Srisurart POS Flutter migration (updated 2026-07-23)
+# HANDOFF — Srisurart POS Flutter migration (updated 2026-09-04)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
-commit `d44dfce`** (2026-07-20): `dart analyze` clean, **122/122 tests pass**,
-including all route-smoke cases. State management is now **flutter_bloc**, not
-Riverpod — the full migration (13 repos via `RepositoryProvider`, 4 Cubits, all
-`FutureBuilder` data loads) landed 2026-07-14 and is committed; see the 2026-07-14
-entry. The previously-red uncommitted smoke-test harness noted in the 2026-07-13
-entry below was superseded by that migration's rewrite of `route_smoke_test.dart`
-and is resolved (green in the current suite). Remaining bigger work: Phases
-7a/7b/8a/8b per `docs/PLAN.md` (cloud backup, sync, hardening, hardware) — listed in
-`CLAUDE.md`; the backend/deployment design for those phases is written down in
-`docs/BACKEND_DEPLOYMENT.md` (2026-07-13). No app code has changed since 2026-07-20 — the
-2026-07-23 entry below is presentation collateral only.
+commit `92bd3bf`** (2026-09-04): `dart analyze` clean, **123/123 tests pass**. State
+management is **flutter_bloc**, not Riverpod (migration landed 2026-07-14; see that
+entry). **Local `main` is 3 commits ahead of `origin/main` and has NOT been pushed.**
+
+Backend direction: the design package `docs/Backend_design/` is now backed by a
+**decision record in `docs/Backend_design/adr/` (ADR-0001…0009)** — read its
+`README.md` before touching any backend doc. `CLAUDE.md` now states that **where a doc
+contradicts an ADR, the ADR wins.** Nothing server-side is built yet; the design is the
+deliverable so far, and no cutover is planned for phase 1.
+
+Two of those ADRs were implementable immediately and shipped: Drift **schema v2**
+(`sale_items.costAtSale` + `updatedAt`/`deletedAt` on customers/mechanics/settings —
+this clears the Phase-7b prerequisite) and a **fix to the profit reports**, which were
+overstating profit against today's product cost. See the 2026-09-04 entry.
+
+Remaining bigger work: Phases 7a/7b/8a/8b per `docs/PLAN.md`, and **CI/CD**, which is
+the next thing the user asked for.
+
+## 2026-09-04 (backend design grill → ADR record + schema v2 — commits `3bcc146`, `21e7434`, `92bd3bf`)
+- **Full detail: [`handoff/backend-design-adr.md`](handoff/backend-design-adr.md).** Read
+  that plus `docs/Backend_design/adr/README.md`; this entry is only the summary.
+- A 4-round `/grill-with-docs` interview on the multi-tenant design produced **9 ADRs**:
+  tenant provisioning, platform-admin plane, tenant lifecycle, device roles, data
+  portability, per-tenant rate limit, receipt numbering, cost-at-sale, JWT lifetime.
+  Docs `01`–`03` + `00_INDEX` were then propagated to match (3 parallel sub-agents,
+  one file each), so the package no longer contradicts itself.
+- **Three real contradictions were found in the existing design docs and fixed**, the
+  largest being the claim that "conflict is structurally impossible because the shop
+  has one machine" — nothing enforced that (it's a web app; a second tab breaks it),
+  and it was unnecessary anyway since the phase-1 acceptance test already proves
+  concurrent machines are safe. Replaced with the constraint that actually holds:
+  one cash drawer, one receipt-number series, enforced by a partial unique index.
+- **Drift schema v1 → v2** with an `onUpgrade` adding 7 nullable columns.
+  `build_runner` ran here without trouble — the `CLAUDE.md` warning is about the Thai
+  folder path on Windows, and this checkout is on an ASCII path.
+- **Profit reports were wrong on the shop's screen**, not just imprecise: cost came
+  from `products.cost` (which moves on every PO receive), and a missing product fell
+  back to cost `0` = 100% profit. Both the monthly KPI and the CSV export now read the
+  recorded cost first, and the CSV gained a `ที่มาของต้นทุน` column so each row can be
+  audited. Also found: `snapshot_repository` had been dropping `cost` from JS backups
+  all along, so importing the shop's real backup recovers historical cost.
+- 🔴 **Three Thai UI strings in the reports fix were written from scratch** (no `db.js`
+  original exists), which is against the parity rule in `CLAUDE.md`. They are flagged
+  at the end of ADR-0008 for the shop owner to reword. Seven more Thai error strings
+  for the backend remain deliberately blank for the same reason.
+- **Verified:** `dart analyze` clean; `flutter test` 123/123 (2 new tests — a
+  `costAtSale` regression test and a snapshot round-trip assertion).
 
 ## 2026-07-23 (frontend-prototype presentation deck — docs/collateral only, no app code)
 - Iterated `PDF_Report/frontend-prototype-slides.html` (first added 2026-07-20, commit
