@@ -2839,14 +2839,27 @@ class _InvReportTabState extends State<_InvReportTab> {
         )
         .toList();
     final monthRevenue = monthSales.fold<double>(0, (a, s) => a + s.sale.total);
-    // Cost from current product cost keyed by partNo (SaleItemRow has no cost
-    // column; the JS `i.cost ?? products.find(...).cost ?? 0` reduces to this).
+    // Prefer the cost recorded on the bill itself (ADR-0008). products.cost is
+    // recomputed on every weighted-average PO receive, so falling back to it
+    // makes the profit of a past month drift whenever new stock is bought in.
+    // Mirrors the JS `i.cost ?? products.find(...).cost` — except the JS `?? 0`
+    // tail is NOT reproduced: a line with no cost anywhere is counted as
+    // unknown, not as free (which silently read as 100% profit).
     final costByPart = {for (final p in _products) p.partNo: p.cost};
+    var estimatedLines = 0; // fell back to today's cost
+    var unknownLines = 0; // no cost available at all
     final monthCost = monthSales.fold<double>(0, (acc, s) {
       return acc +
           s.items.fold<double>(0, (a, i) {
-            final unitCost = costByPart[i.partNo] ?? 0;
-            return a + unitCost * i.qty;
+            final recorded = i.costAtSale;
+            if (recorded != null) return a + recorded * i.qty;
+            final current = costByPart[i.partNo];
+            if (current != null) {
+              estimatedLines++;
+              return a + current * i.qty;
+            }
+            unknownLines++;
+            return a;
           });
     });
     final monthProfit = (monthRevenue / vatDivisor) - monthCost;
@@ -2922,6 +2935,22 @@ class _InvReportTabState extends State<_InvReportTab> {
                     'จาก ${monthSales.length} บิล',
                     style: TextStyle(color: theme.colorScheme.secondary),
                   ),
+                  // The CSV export has always disclosed this; the on-screen
+                  // number never did — and this is where people actually look.
+                  if (estimatedLines > 0 || unknownLines > 0) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      [
+                        if (estimatedLines > 0)
+                          '$estimatedLines รายการคำนวณจากต้นทุนปัจจุบัน ไม่ใช่ ณ วันที่ขาย',
+                        if (unknownLines > 0)
+                          '$unknownLines รายการไม่มีข้อมูลต้นทุน (กำไรจะสูงกว่าจริง)',
+                      ].join('\n'),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.warning,
+                      ),
+                    ),
+                  ],
                 ] else
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 20),

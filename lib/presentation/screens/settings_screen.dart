@@ -1594,18 +1594,17 @@ class _ExportTabState extends State<_ExportTab> {
 
   // ── exportSalesDetail (one row per item sold) ──
   //
-  // KNOWN DIVERGENCE from pos/SettingsScreen.jsx exportSalesDetail:
-  // the JSX prefers the cost snapshotted on the line at sale time
-  // (`item.cost ?? p?.cost ?? 0`), so its profit column is a point-in-time
-  // figure. The Drift SaleItems table carries NO per-line cost column
-  // (lib/data/db/tables.dart), so we can only fall back to the *current*
-  // product cost. That means the ต้นทุน/กำไร columns are recomputed against
-  // today's cost and will shift if a product's cost later changes (e.g. a PO
-  // weighted-average update). To restore parity, add a `cost` RealColumn to
-  // SaleItems and snapshot it in saveSale (matching db.js item.cost), then use
-  // `item.cost ?? pr?.cost ?? 0` here — but that is a schema change, out of
-  // scope for this file. Until then the header columns below are labelled
-  // "(ต้นทุนปัจจุบัน)" so the figure is NOT trusted as point-in-time.
+  // PARITY RESTORED with pos/SettingsScreen.jsx exportSalesDetail (ADR-0008).
+  // The JSX prefers the cost snapshotted on the line at sale time
+  // (`item.cost ?? p?.cost ?? 0`); SaleItems now carries `costAtSale` (schema
+  // v2) and saveSale writes it, so this export reads it first and only falls
+  // back to the current product cost for older bills.
+  //
+  // The JSX `?? 0` tail is deliberately NOT reproduced: a line with no cost
+  // anywhere leaves the cost cells empty rather than 0, because 0 reads as
+  // 100% profit and is indistinguishable from a genuinely free item. The
+  // trailing 'ที่มาของต้นทุน' column says which of the three cases each row is,
+  // so the figure can be audited in Excel instead of trusted blindly.
   Future<void> _exportDetail() async {
     final fs = _filteredSales();
     final vatDivisor = 1 + _taxRate / 100;
@@ -1620,10 +1619,11 @@ class _ExportTabState extends State<_ExportTab> {
       'จำนวน',
       'ราคา/ชิ้น',
       'รวม',
-      'ต้นทุน/ชิ้น (ต้นทุนปัจจุบัน)',
-      'ต้นทุนรวม (ต้นทุนปัจจุบัน)',
-      'กำไร (ไม่รวม VAT, ต้นทุนปัจจุบัน)',
+      'ต้นทุน/ชิ้น',
+      'ต้นทุนรวม',
+      'กำไร (ไม่รวม VAT)',
       'วิธีชำระ',
+      'ที่มาของต้นทุน',
     ];
     final rows = <List<dynamic>>[header];
     for (final sw in fs) {
@@ -1631,12 +1631,17 @@ class _ExportTabState extends State<_ExportTab> {
       final d = s.date;
       for (final item in sw.items) {
         final pr = item.partNo == null ? null : prodByPart[item.partNo];
-        // SaleItems carry no per-line cost column in the Drift schema, so
-        // (unlike the JSX, which reads item.cost first) we can only fall back
-        // to the current product cost. See KNOWN DIVERGENCE note above.
-        final unitCost = pr?.cost ?? 0;
-        final cost = unitCost * item.qty;
-        final profit = (item.price / vatDivisor) * item.qty - cost;
+        // Recorded cost wins; today's product cost is only a fallback for bills
+        // written before schema v2. See the parity note above.
+        final recordedCost = item.costAtSale;
+        final unitCost = recordedCost ?? pr?.cost;
+        final costSource = recordedCost != null
+            ? 'ณ วันที่ขาย'
+            : (pr != null ? 'ต้นทุนปัจจุบัน' : 'ไม่มีข้อมูล');
+        final cost = unitCost == null ? null : unitCost * item.qty;
+        final profit = cost == null
+            ? null
+            : (item.price / vatDivisor) * item.qty - cost;
         rows.add([
           s.receiptNo,
           thaiDateSlash(d),
@@ -1647,10 +1652,11 @@ class _ExportTabState extends State<_ExportTab> {
           item.qty,
           item.price,
           item.price * item.qty,
-          unitCost,
-          cost,
-          (profit * 100).round() / 100,
+          unitCost ?? '',
+          cost ?? '',
+          profit == null ? '' : (profit * 100).round() / 100,
           s.paymentMethod,
+          costSource,
         ]);
       }
     }
@@ -1799,7 +1805,7 @@ class _ExportTabState extends State<_ExportTab> {
               _ExportRow(
                 title: '📦 รายการสินค้าที่ขาย',
                 desc:
-                    '1 แถว = 1 สินค้า · รหัส, จำนวน, ราคา, ต้นทุน, กำไร (ต้นทุน/กำไรคำนวณจากต้นทุนปัจจุบัน ไม่ใช่ ณ วันที่ขาย)',
+                    '1 แถว = 1 สินค้า · รหัส, จำนวน, ราคา, ต้นทุน, กำไร (คอลัมน์ ที่มาของต้นทุน บอกว่าเป็นต้นทุน ณ วันที่ขาย หรือต้นทุนปัจจุบัน)',
                 meta: '$itemCount แถว',
                 color: AppColors.orange,
                 onTap: _exportDetail,
