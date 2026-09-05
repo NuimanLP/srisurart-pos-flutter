@@ -66,7 +66,8 @@ this one continues from it and closes three of the four items it left open.
 
 ## The CI workflow — `.github/workflows/flutter.yml`
 
-Four jobs. **All were run locally before committing; none is speculative.**
+**Four checks across three jobs** (`analyze-and-test` carries two of them).
+**All were run locally before committing; none is speculative.**
 
 | Job | Verified |
 |---|---|

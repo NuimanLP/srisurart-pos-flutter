@@ -21,6 +21,7 @@
 | [`02_API_SCREENS.md`](02_API_SCREENS.md) | 11 หน้าจอ → ยิง API อะไรบ้าง (ตารางต่อหน้าจอ), API catalogue เต็ม, request/response ตัวอย่าง, จุดที่ต้อง cache / ต้องเข้า queue / ต้อง idempotent | **คนทำ NestJS modules + คนทำ Flutter client** |
 | [`03_ARCHITECTURE.md`](03_ARCHITECTURE.md) | 3 architecture ให้เลือก (พร้อม mermaid + ข้อดี/ข้อเสีย/ต้นทุน), 3 ทางเลือกของ multi-tenant model, ตารางเปรียบเทียบ, ข้อเสนอสุดท้าย | **ทุกคน + อาจารย์** |
 | [`04_QA_SCRUTINY.md`](04_QA_SCRUTINY.md) | บันทึกการถกเถียงของ 3 agent ที่ review design นี้ (Q&A สั้น ๆ) + ข้อสรุปที่แก้เข้าไปในเอกสารแล้ว | คนที่อยากรู้ว่า "ทำไมถึงตัดสินใจแบบนี้" |
+| ⭐ [`05_HOW_WE_GOT_HERE.md`](05_HOW_WE_GOT_HERE.md) | **จาก design เป็น ticket** — เอกสารกองนี้ถูกแตกเป็น GitHub issue ที่หยิบทำได้ยังไง (grill-with-docs → to-spec → to-tickets), ตัวละครทั้งหมด, ชีวิตของ ticket 1 ใบ, ตารางแบ่งงาน 3 คน, และของที่ห้ามเดา | **คนที่เพิ่งเข้าทีมและกำลังจะหยิบ issue ใบแรก** |
 | ⭐ [`adr/`](adr/README.md) | **บันทึกการตัดสินใจ (ADR) — 1 ไฟล์ = 1 การตัดสินใจ** ครอบคลุมเรื่องที่เอกสาร 01–03 ยังไม่ได้ตอบ: การสร้างร้านใหม่, admin plane, สถานะร้าน, บทบาทเครื่อง, export/restore, rate limit, เลขที่ใบเสร็จ, ต้นทุน ณ วันขาย, อายุ JWT, cache ฝั่ง client, monorepo | ทุกคนก่อนเริ่ม implement |
 
 ---
