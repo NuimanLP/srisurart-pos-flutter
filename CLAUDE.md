@@ -169,19 +169,40 @@ for phase 1** — the shop keeps running this Drift build while the server is de
 demo tenant. **As of 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the
 server, the client's API layer and the CI/CD pipelines all land in this repo.
 
-**CI/CD — the next thing to stand up.** `.github/` exists but has **no `workflows/` directory**;
-the repo has no pipeline of any kind. Target shape, smallest first (level 3 is the agreed target,
-2026-09-04):
-1. **Flutter CI** — `dart analyze` + `flutter test` on every push/PR (mirrors the local gate).
-   Runners are ASCII paths, so `build_runner` verification can also run in CI.
-2. **Backend CI** (once `server/` exists) — lint + unit + integration tests on a Postgres/Redis
-   service container; the phase-1 done-criteria tests in `03_ARCHITECTURE.md §8` are the target.
-3. **Build/deploy** — Flutter Web artifact + server container images on every green build.
-   The **deploy step stays unwired until a production host is chosen** (due before `q4`; the
-   faculty VM is demo-only — `03_ARCHITECTURE.md §8`).
+**CI/CD — level 1 is done, levels 2–3 are ticketed.** `.github/workflows/flutter.yml` is the
+client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter build web` + the
+web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
+1. ✅ **Flutter CI** — done. Runners are ASCII paths, so `build_runner` verification runs in CI —
+   the only place the committed `*.g.dart` is ever checked against the schema.
+2. **Backend CI** (once `server/` exists) — lint + unit + integration on Postgres/Redis service
+   containers, real migrations applied, `synchronize` false even in tests — issue **#38**.
+3. **Build/deploy** — Flutter Web artifact + server container image on every green build —
+   issue **#40**. The **deploy step stays unwired until a production host is chosen** (due
+   before `q4`; the faculty VM is demo-only — `03_ARCHITECTURE.md §8`).
 
 `server/` and the Flutter client share this repo ([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)),
 so every CI job needs a `paths:` filter — the Flutter jobs must not run on `server/`-only changes.
+🔴 **Known trap:** `flutter.yml`'s `paths-ignore` means a `server/`-only PR runs **no** Flutter
+jobs at all; if those job names are required status checks on `main`, such a PR can never satisfy
+them and blocks forever. Issue **#39** owns that fix.
+
+**Where the work lives — GitHub issues (since 2026-09-05).** `docs/Backend_design/` says *what* to
+build; the issue tracker says *who builds what, in what order.*
+- **#2** — phase-1 program brief: the full child tree plus the ownership table. Read it first.
+- **#3 / #7 / #8 / #9 / #10** — parents. They hold shared context and carry **no**
+  `ready-for-agent` label; do not implement them directly.
+- **#14–#40** — the 27 implementable slices. Each is one PR's worth of work with its own
+  acceptance criteria and real "Blocked by" numbers.
+- **#11–#13** — decisions only a human can make (labelled `question`). **Never settle one in a
+  PR**, especially #11 (`mechanics.total_credit`), where the design doc and the Dart reference
+  disagree and reading either alone gives a confidently wrong answer.
+
+🔴 **Course rule (2026-09-05): every team member must touch frontend, backend *and* CI/CD.** The
+old "one backend lane each" split is therefore dead — all three lanes were backend. Work is now
+three cross-cutting bundles of **9 backend slices + 1 CI slice + 1 frontend slice**, carried by
+the labels `team/1` / `team/2` / `team/3`; the table is in #2. **The frontend slices are reserved
+but not yet ticketed** — they are task `q1` + Drift schema v3, and they must be cut before anyone
+finishes their backend bundle.
 
 **Pending follow-ups (not yet built).** Deployment/hosting has **no owning document** — the old
 `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` were deleted in `ec24f79` and are **not coming
