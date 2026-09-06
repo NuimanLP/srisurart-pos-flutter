@@ -22,7 +22,7 @@ x-api: &api
   mem_limit: 384m
   stop_grace_period: 30s
   depends_on:
-    postgres: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
     redis-cache: { condition: service_healthy }
     redis-queue: { condition: service_healthy }
   healthcheck:
@@ -61,6 +61,18 @@ services:
         -keyout /certs/server.key -out /certs/server.crt
     volumes:
       - certs:/certs
+
+  # Schema comes only from migrations (#15), applied once here as the table owner
+  # before any api/worker starts — never on boot, where three instances would race.
+  migrate:
+    image: srisurart-pos/server:local
+    command: ["node", "dist/db/migrate.js", "up"]
+    restart: "no"
+    mem_limit: 128m
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-dev-only-postgres}@postgres:5432/pos
 
   api-1:
     <<: *api

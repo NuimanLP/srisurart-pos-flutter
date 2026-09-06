@@ -12,7 +12,8 @@ Backend direction: the design package `docs/Backend_design/` is now backed by a
 **decision record in `docs/Backend_design/adr/` (ADR-0001…0011)** — read its
 `README.md` before touching any backend doc. `CLAUDE.md` now states that **where a doc
 contradicts an ADR, the ADR wins.** ~~Nothing server-side is built yet~~ — **`server/` exists
-as of 2026-09-06 (#14 `p1`, see that entry)**; no cutover is planned for phase 1.
+as of 2026-09-06 (#14 `p1` stack, #15 `p2` schema + RLS, #38 backend CI — see those entries)**;
+no cutover is planned for phase 1.
 
 Two of those ADRs were implementable immediately and shipped: Drift **schema v2**
 (`sale_items.costAtSale` + `updatedAt`/`deletedAt` on customers/mechanics/settings —
@@ -33,15 +34,14 @@ through cutover, phase 1 + phase 2 — and there is **no delivery date**. The `�
 decided 2026-09-04 not to recover). **Deployment/hosting has no owning document** — host notes
 are temporarily at the end of `03_ARCHITECTURE.md §8`.
 
-Remaining bigger work: the multi-tenant server (`p1` merged; `p2` built and green, **PR #42
-blocked on a pending force-push approval** — see the 2026-09-07 entry), the client API layer,
-and CI levels 2–3.
+Remaining bigger work: the multi-tenant server (`p1` + `p2` merged; #4 auth/tenancy guard is
+next on the critical path #14 → #15 → #4 → #6), the client API layer, and CI level 3.
 
 **Lane assignment (2026-09-07):** the 31 phase-1 backend/CI issues are assigned by lane, not
 placeholders anymore — `NuimanLP` (Lane A, transaction path), `LomerAlloys` (Lane B,
 schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). See that entry.
 
-## 2026-09-07 (merge #41 into `main`, #42 blocked, lane→handle assignment, doc reorg — docs + GitHub state only)
+## 2026-09-07 (merge #41 + #42 into `main`, lane→handle assignment, doc reorg — docs + GitHub state only)
 - **Full detail: [`handoff_log/merge-p1-p2-lane-assignments.md`](handoff_log/merge-p1-p2-lane-assignments.md).**
   This entry is the summary only. No application or server code changed this session.
 - **PR #41 squash-merged** (`c47c74e`). **PR #42 is NOT merged** — stacking it on #41 plus
@@ -65,6 +65,36 @@ schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). 
   old paths was fixed (`README.md`, `CONTRACT.md`, `CLAUDE.md`, this file,
   `docs/Backend_design/05_HOW_WE_GOT_HERE.md`, `docs/Backend_design/adr/README.md`,
   `.claude/agents/riverpod-to-bloc.md`).
+- **Resolution:** the user approved the force-push. `feat/p2-schema-rebase` was rebased a second
+  time (main had moved again, onto this very docs commit) and pushed over `feat/p2-schema` with
+  `--force-with-lease`; **PR #42 merged** (squash) immediately after. Both #14 and #15 are on
+  `main` as of this entry.
+
+## 2026-09-06 (#15 `p2` — schema migrations, RLS, seed · #38 `ci.1` — backend CI — branch `feat/p2-schema`)
+- **Full detail: [`handoff_log/p2-schema.md`](handoff_log/p2-schema.md).** Stacked on `feat/p1-compose-stack`
+  (PR #41, open). Two TypeORM migrations create the **27 tables** of `01_DATABASE.md §5` (no
+  `change_log`), every index/partial unique from the doc, `pg_trgm` + the trigram GIN over
+  part number/names/compat, then **RLS ENABLE + FORCE on all 25 tenant-scoped tables** with the
+  fail-closed policy from #2 and grants to `pos_app` (`movements` insert-only).
+- A one-shot compose **`migrate` job** runs them as `postgres` before any `api-*` starts; the
+  migration DataSource is separate from the app's and `synchronize` is false everywhere.
+- `test/schema.e2e-spec.ts` (12 tests) runs the real migrations into a scratch database and
+  proves the #15 acceptance list: 27 tables, `tenant_id` in every tenant-scoped PK, RLS
+  forced, `pos_app` reads **zero rows with the GUC unset and cannot insert**, `SET LOCAL`
+  scope ends at COMMIT, `SET row_security = off` is refused (42501), "เบรก" is found inside
+  "ผ้าเบรกหน้า" and the planner can use `idx_products_search`, the movements replay guard,
+  the five-category seed, and `down()` × 2 back to an empty schema then `up()` again.
+- **`.github/workflows/server.yml`** (#38): lint / unit / integration jobs, path-filtered to
+  `server/**`. Integration uses `docker compose up postgres redis-cache redis-queue` rather
+  than GitHub service containers (those cannot set the Redis eviction policies), applies the
+  migrations, then runs `test:e2e`. Not yet observed green on GitHub — it runs on the PR.
+- Deviations from the doc's DDL, all recorded in the migration header: `audit_log` PK is
+  `(tenant_id, id)`; CHECKs added on `tenants.plan`, `devices.device_no` (1..99),
+  `drawer_entries.type`, `movements.type`. `idx_idem_created` keeps the doc's `(created_at)`
+  shape even though it does not start with `tenant_id` — the cleanup job is cross-tenant.
+- Not done: nothing from #4 onward. No BYPASSRLS role exists yet — #5 (platform plane) must
+  create it; provisioning must `SET LOCAL app.tenant_id` (or use that role) before
+  `seedCategories`, or the WITH CHECK policy rejects the inserts.
 
 ## 2026-09-06 (#14 `p1` — `server/` compose stack, Nginx, health probes — branch `feat/p1-compose-stack`)
 - **Full detail: [`handoff_log/p1-compose-stack.md`](handoff_log/p1-compose-stack.md).** First server

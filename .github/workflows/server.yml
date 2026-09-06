@@ -1,0 +1,88 @@
+name: Server CI
+
+# Backend gate (#38 ci.1). Mirrors the local gate in server/README.md:
+#   pnpm lint && pnpm typecheck   → job "lint"
+#   pnpm test                     → job "unit"
+#   migrate + pnpm test:e2e       → job "integration", on the real compose Postgres +
+#                                   both Redis (their eviction policies matter), with
+#                                   the real migrations applied — never synchronize.
+# Path-filtered to server/** so client-only changes skip it (ADR-0011); flutter.yml
+# ignores server/** in turn. Do NOT make these jobs required checks on main until
+# #39 adds an always-runs job — a server-only PR runs no Flutter jobs at all.
+
+on:
+  push:
+    branches: [main]
+    paths: ['server/**', '.github/workflows/server.yml']
+  pull_request:
+    paths: ['server/**', '.github/workflows/server.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: server
+
+jobs:
+  lint:
+    name: lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  integration:
+    name: integration (Postgres + both Redis, real migrations)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+
+      # The same compose file as prod: pos_app role from the init script, allkeys-lru
+      # vs noeviction+AOF. (GitHub service containers cannot set a Redis command.)
+      - name: start Postgres, redis-cache, redis-queue
+        run: docker compose up -d --wait postgres redis-cache redis-queue
+
+      - run: pnpm build
+
+      - name: apply migrations as the owner role
+        # A broken migration exits non-zero here and fails the build before any test runs.
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://postgres:dev-only-postgres@127.0.0.1:5432/pos
+
+      - name: e2e (app boots as pos_app; schema suite re-runs the migrations on a scratch DB)
+        run: pnpm test:e2e
+
+      - name: compose logs
+        if: failure()
+        run: docker compose logs --no-color postgres redis-cache redis-queue
+
+      - name: stop stack
+        if: always()
+        run: docker compose down -v
