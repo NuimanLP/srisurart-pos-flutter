@@ -24,6 +24,7 @@ lib/          Flutter app — core/ (router, theme, utils), data/ (Drift tables 
               domain/models, presentation/ (blocs, 11 screens, widgets)
 test/         repository unit tests + route smoke tests
 web/          Flutter Web assets, incl. sqlite3.wasm + drift_worker.js for the web DB
+server/       NestJS backend (phase 1) — compose stack, Nginx, health probes; see server/README.md
 docs/         Backend_design/ (the binding backend spec + adr/), Summary_backend/, plans/
 handoff/      per-session detail records; HANDOFF.md links to them
 .github/      workflows/flutter.yml — analyze, test, drift codegen check, web artifact
@@ -32,8 +33,9 @@ CLAUDE.md     project knowledge base — read this first
 HANDOFF.md    dated log of what changed and why
 ```
 
-`server/` (NestJS) does not exist yet — it lands in this repo when built
-([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)).
+`server/` (NestJS) lives in this repo ([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)).
+As of 2026-09-06 it holds issue **#14 `p1`** — `docker compose up` brings up the full phase-1
+topology with health probes, but no schema or business endpoints yet (#15 is next).
 
 ## Commands
 

@@ -488,13 +488,13 @@ gantt
 > และ **`p5` ต้องมีตัวออกเลขเอกสารฝั่ง server** (ADR-0007: เฟส 1 server ออกทุกเลข)
 
 **เกณฑ์ปิดเฟส 1 (definition of done):**
-- [ ] `docker compose up` ครั้งเดียวได้ครบ Nginx + NestJS×3 + Postgres + Redis + worker + Bull-Board
+- [x] `docker compose up` ครั้งเดียวได้ครบ Nginx + NestJS×3 + Postgres + Redis + worker + Bull-Board — **#14 `p1` 2026-09-06**
 - [ ] k6 ผ่านเกณฑ์ใน [`02_API_SCREENS.md §9`](02_API_SCREENS.md#9-เป้าหมาย-load-test-k6--ผูกกับเกณฑ์ในคอร์ส)
 - [ ] ยิง `POST /sales` พร้อมกัน 200 ครั้งบนสินค้าที่มี 50 ชิ้น → ขายได้ 50 บิลพอดี **สต็อกเหลือ 0 ไม่ติดลบ**
 - [ ] Integration test "อ่านข้ามร้าน" ได้ 0 แถวทุกเคส
-- [ ] `/health/live` ไม่แตะ DB, `/health/ready` แตะ DB+Redis (แยกกันจริง)
+- [x] `/health/live` ไม่แตะ DB, `/health/ready` แตะ DB+Redis (แยกกันจริง) — **#14 `p1` 2026-09-06** (ดับ Postgres/Redis แล้ว ready = 503, live = 200, ไม่มี container restart)
 - [ ] import snapshot ของร้านจริงเข้ามาแล้ว **ผ่าน checklist 6 ข้อ** ใน `01_DATABASE.md §9` ทุกข้อ
-- [ ] `redis-cache` กับ `redis-queue` แยกกันจริง และ Bull-Board มี auth
+- [x] `redis-cache` กับ `redis-queue` แยกกันจริง และ Bull-Board มี auth — **#14 `p1` 2026-09-06**
 - [ ] ยิง `POST /sales` ที่บิลมีสินค้าไม่พอ 3 บรรทัด → ได้ข้อความไทย **ครบทั้ง 3 บรรทัดในครั้งเดียว**
 - [ ] ลบลูกค้าที่มีบิลแล้ว → ได้ `200` (soft delete) ไม่ใช่ `500`
 - [ ] สร้าง tenant ใหม่ด้วย `POST /platform/tenants` แล้วล็อกอิน+ขายได้จริงโดยไม่ต้องแตะ psql (ADR-0001)

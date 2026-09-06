@@ -1,0 +1,162 @@
+# Phase-1 stack (03_ARCHITECTURE.md §8, done-criterion 1):
+#   Nginx → NestJS ×3 → PostgreSQL, redis-cache, redis-queue; + worker + Bull-Board.
+# One command from a clean clone:  docker compose up -d --build
+# Dev secrets default below; override in server/.env (see .env.example).
+#
+# Memory budget (faculty VM 4 vCPU / 6 GB): 1024 + 2×256 + 3×384 + 256 + 128 + 64 ≈ 3.0 GB.
+# Connections: max_connections=100 → 3 api × 15 + worker × 5 = 50 ≤ 80 (80%).
+
+name: srisurart-pos
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://pos_app:${POS_APP_PASSWORD:-dev-only-pos-app}@postgres:5432/pos
+  REDIS_CACHE_URL: redis://redis-cache:6379
+  REDIS_QUEUE_URL: redis://redis-queue:6379
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+# Only api-1 carries `build:`; every other process reuses the image it produced
+# (parallel builds of one tag race on the name).
+x-api: &api
+  image: srisurart-pos/server:local
+  restart: unless-stopped
+  mem_limit: 384m
+  stop_grace_period: 30s
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis-cache: { condition: service_healthy }
+    redis-queue: { condition: service_healthy }
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health/live"]
+    interval: 15s
+    timeout: 3s
+    retries: 3
+    start_period: 10s
+
+services:
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    mem_limit: 64m
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certs:/etc/nginx/certs:ro
+    depends_on:
+      certgen: { condition: service_completed_successfully }
+      api-1: { condition: service_healthy }
+      api-2: { condition: service_healthy }
+      api-3: { condition: service_healthy }
+
+  # Self-signed TLS for dev/demo. Replace the volume contents with a real cert on the VM.
+  certgen:
+    image: alpine/openssl
+    entrypoint: sh
+    command:
+      - -c
+      - >
+        test -f /certs/server.crt ||
+        openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=localhost"
+        -keyout /certs/server.key -out /certs/server.crt
+    volumes:
+      - certs:/certs
+
+  api-1:
+    <<: *api
+    networks: { default: { ipv4_address: 172.30.0.11 } }
+    build: .
+    environment: { <<: *app-env, INSTANCE_ID: api-1, DB_POOL_SIZE: "${DB_POOL_SIZE:-15}" }
+  api-2:
+    <<: *api
+    networks: { default: { ipv4_address: 172.30.0.12 } }
+    environment: { <<: *app-env, INSTANCE_ID: api-2, DB_POOL_SIZE: "${DB_POOL_SIZE:-15}" }
+  api-3:
+    <<: *api
+    networks: { default: { ipv4_address: 172.30.0.13 } }
+    environment: { <<: *app-env, INSTANCE_ID: api-3, DB_POOL_SIZE: "${DB_POOL_SIZE:-15}" }
+
+  worker:
+    <<: *api
+    command: ["node", "dist/worker.js"]
+    mem_limit: 256m
+    healthcheck: { disable: true }
+    environment: { <<: *app-env, INSTANCE_ID: worker, DB_POOL_SIZE: "5" }
+
+  bull-board:
+    image: srisurart-pos/server:local
+    command: ["node", "dist/bull-board.js"]
+    restart: unless-stopped
+    mem_limit: 128m
+    depends_on:
+      api-1: { condition: service_started }
+    environment:
+      PORT: "3100"
+      BULL_BOARD_USER: ${BULL_BOARD_USER:-admin}
+      BULL_BOARD_PASSWORD: ${BULL_BOARD_PASSWORD:-dev-only-bull-board}
+    ports:
+      - "127.0.0.1:3100:3100"   # host loopback only — never on the public interface
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 1024m
+    shm_size: 256m
+    command: ["postgres", "-c", "max_connections=100"]
+    environment:
+      POSTGRES_DB: pos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-only-postgres}
+      POS_APP_PASSWORD: ${POS_APP_PASSWORD:-dev-only-pos-app}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432"   # local dev / e2e tests only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Cache: evict freely, nothing here is authoritative.
+  redis-cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    command: ["redis-server", "--maxmemory", "192mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Queue: never evict (a dropped job is a lost sale), persist with AOF.
+  redis-queue:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 256m
+    command: ["redis-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-queue-data:/data
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# Fixed subnet so the api instances can hold static addresses (see nginx.conf).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  pgdata:
+  redis-queue-data:
+  certs:
