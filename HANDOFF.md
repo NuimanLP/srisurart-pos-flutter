@@ -87,7 +87,8 @@ schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). 
 - **`.github/workflows/server.yml`** (#38): lint / unit / integration jobs, path-filtered to
   `server/**`. Integration uses `docker compose up postgres redis-cache redis-queue` rather
   than GitHub service containers (those cannot set the Redis eviction policies), applies the
-  migrations, then runs `test:e2e`. Not yet observed green on GitHub — it runs on the PR.
+  migrations, then runs `test:e2e`. **Green on GitHub on PR #42** (run 34038859839): all
+  three jobs passed on the first run.
 - Deviations from the doc's DDL, all recorded in the migration header: `audit_log` PK is
   `(tenant_id, id)`; CHECKs added on `tenants.plan`, `devices.device_no` (1..99),
   `drawer_entries.type`, `movements.type`. `idx_idem_created` keeps the doc's `(created_at)`
