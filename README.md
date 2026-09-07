@@ -25,8 +25,8 @@ lib/          Flutter app — core/ (router, theme, utils), data/ (Drift tables 
 test/         repository unit tests + route smoke tests
 web/          Flutter Web assets, incl. sqlite3.wasm + drift_worker.js for the web DB
 server/       NestJS backend (phase 1) — compose stack, Nginx, health probes; see server/README.md
-docs/         Backend_design/ (the binding backend spec + adr/), Summary_backend/, plans/
-handoff/      per-session detail records; HANDOFF.md links to them
+docs/         Backend_design/ (the binding backend spec + adr/), Summary_backend/
+handoff_log/      per-session detail records; HANDOFF.md links to them
 .github/      workflows/flutter.yml — analyze, test, drift codegen check, web artifact
 CONTRACT.md   the binding client spec: tables, repo signatures, routes, Thai-string rules
 CLAUDE.md     project knowledge base — read this first
@@ -34,8 +34,12 @@ HANDOFF.md    dated log of what changed and why
 ```
 
 `server/` (NestJS) lives in this repo ([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)).
-As of 2026-09-06 it holds issue **#14 `p1`** — `docker compose up` brings up the full phase-1
-topology with health probes, but no schema or business endpoints yet (#15 is next).
+As of 2026-09-07, **#14 `p1`** (compose stack, Nginx, health probes) is merged to `main`;
+**#15 `p2`** (schema, migrations, RLS, seed) is built and green but not yet merged — see
+`handoff_log/merge-p1-p2-lane-assignments.md`. Issues #16 onward (business endpoints, auth) are
+not started. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP` (Lane A — transaction
+path), `LomerAlloys` (Lane B — schema/catalogue/reports), `PattaraponKitcharoen` (Lane C —
+platform/infra/ops).
 
 ## Commands
 
@@ -61,4 +65,6 @@ can only happen there.
 3. `docs/Backend_design/00_INDEX.md` — the backend package (start at `00_BASICS.md` if backend
    is new to you); **`docs/Backend_design/adr/` is binding — where a doc contradicts an ADR,
    the ADR wins**
-4. `handoff/grill-round2-ci.md` — the current ordered checklist and what is still undecided
+4. `handoff_log/grill-round2-ci.md` — the current ordered checklist and what is still undecided
+5. `handoff_log/merge-p1-p2-lane-assignments.md` — latest session: merge state, lane→handle
+   assignment, a pending force-push that needs sign-off

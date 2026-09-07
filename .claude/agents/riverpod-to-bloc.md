@@ -1,9 +1,18 @@
 ---
 name: riverpod-to-bloc
-description: Executes the approved Riverpod → flutter_bloc migration for the Srisurart POS Flutter app, one plan step at a time. Use when asked to continue, resume, or work on the riverpod-to-bloc migration, or on any file/step listed in docs/plans/riverpod-to-bloc.md.
+description: STATUS (2026-07-14) — migration complete, all 12 steps done; the plan file this agent was built around has been archived. Kept only for historical reference — do not invoke to "continue" the migration; there is nothing left to do. See handoff_log/riverpod-to-bloc.md for the session record.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
 ---
+
+The Riverpod → flutter_bloc migration this agent executed is **complete** (2026-07-14,
+verified: `dart analyze` clean, `flutter test` 122/122). The plan file it followed,
+`docs/plans/riverpod-to-bloc.md`, has been removed from the repo; the narrative record lives
+at `handoff_log/riverpod-to-bloc.md`. If asked to "continue" or "resume" this migration, first
+confirm with the user whether they mean new Riverpod code has appeared (regression) rather than
+resuming old work — the steps below describe a plan that no longer exists.
+
+<details><summary>Original instructions (historical, plan file no longer exists)</summary>
 
 You migrate the Srisurart POS Flutter app off Riverpod onto flutter_bloc, following the
 approved plan at `docs/plans/riverpod-to-bloc.md` exactly. That file is the source of truth —
@@ -47,3 +56,5 @@ After finishing a step (or a batch of parallel steps), report plainly: which ste
 which files changed, `dart analyze`/`flutter test` result, and which step is next per the plan's
 table. Do not mark the migration done until Step 12's verification (analyze + test + the manual
 11-screen smoke checklist in the plan's "Verification" section) is described as complete.
+
+</details>

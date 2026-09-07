@@ -573,12 +573,12 @@ stateDiagram-v2
 |---|---|---|
 | ตอบ decision ticket (#11 `mechanics.total_credit`) เองใน PR แทนที่จะรอคนเคาะ | `01_DATABASE §7.1` สั่งให้ `+= total` ตอนขายเครดิตช่าง แต่โค้ด Dart อ้างอิง (`mechanics_repository.dart`) ไม่เคยเขียนค่านี้เลย — ถ้า agent อ่านเอกสารฝั่งเดียวแล้วลงมือ โค้ดจะผ่านเทสต์ทุกตัว (ไม่มีเทสต์อ้างอิงมาเช็ค) แต่ตัวเลขยอดหนี้บนหน้าจอช่างที่เคยนิ่งเป็น 0 มาตลอดจะเริ่มขยับ | ❌ เงียบสนิท จนกว่าจะมีคนที่ร้านทักว่าเลขแปลก |
 | แก้เอกสารออกแบบ (`01`–`04`) ให้ขัดกับ ADR โดยไม่รู้ตัว | กติกาที่ประกาศไว้คือ "เอกสารขัดกับ ADR → ยึด ADR" แต่คนอ่านเอกสารหลักเป็นหลักจะไม่รู้ว่ามันขัดกัน แล้วทำตามส่วนที่ผิด — เกิดขึ้นมาแล้วจริงกับ ADR-0008/0009 ที่ค้างอยู่ฝั่ง ADR โดย DDL/API ไม่ตาม (`adr/README.md` หัวข้อ "สถานะการนำไปลงเอกสารหลัก") | ❌ เงียบสนิท จนกว่าจะมีคนไปเปิด `adr/` มาเทียบ |
-| ปล่อยให้พื้นที่ frontend ไม่มี ticket จนใกล้ส่ง | `handoff/to-tickets-backend.md` ระบุเองว่า frontend slice "ยังไม่มี ticket" เป็นแค่แถวในตาราง ไม่มี issue ค้างให้เห็นว่ามันหายไป ทั้งที่กฎอาจารย์บังคับให้ทุกคนต้องแตะ frontend/backend/CI — ถ้าไม่ตัด ticket ก่อนใครสักคนทำ backend เสร็จ พื้นที่นี้จะถูกเร่งทำตอนท้าย | ❌ เงียบสนิท เพราะไม่มี issue ที่ค้างให้มองเห็น |
+| ปล่อยให้พื้นที่ frontend ไม่มี ticket จนใกล้ส่ง | `handoff_log/to-tickets-backend.md` ระบุเองว่า frontend slice "ยังไม่มี ticket" เป็นแค่แถวในตาราง ไม่มี issue ค้างให้เห็นว่ามันหายไป ทั้งที่กฎอาจารย์บังคับให้ทุกคนต้องแตะ frontend/backend/CI — ถ้าไม่ตัด ticket ก่อนใครสักคนทำ backend เสร็จ พื้นที่นี้จะถูกเร่งทำตอนท้าย | ❌ เงียบสนิท เพราะไม่มี issue ที่ค้างให้มองเห็น |
 | แต่งข้อความไทยขึ้นมาเอง แทนที่จะรอ #12 หรือของเดิม | ผิดกติกา behaviour parity (`CLAUDE.md`: ข้อความไทย = ลอกจากของเดิม ห้ามแปล/แต่งเอง) และ 3 คำที่ยังรอคนหน้าร้านยืนยัน (`DEVICE_ROLE_FORBIDDEN` / `TENANT_SUSPENDED` / `OFFLINE_NOT_ALLOWED`) เป็นคำที่ counter จะอ่านทุกวัน — ถ้าแต่งเอง โค้ด compile ผ่าน เทสต์ผ่าน แต่คนหน้าร้านอ่านแล้วงงหรือเข้าใจผิด | 🟡 เห็นอาการ (พนักงานถามว่า error นี้แปลว่าอะไร) แต่กว่าจะเชื่อมกลับมาที่ PR ที่แต่งคำเองใช้เวลา |
 | ทำ slice เสร็จโดยไม่ไล่ acceptance criteria ในใบนั้นให้ครบ | สิ่งที่ "ดูเหมือนเสร็จ" (build ผ่าน, PR merge ได้) แต่เกณฑ์ปิดเฟส 1 ข้อใดข้อหนึ่งใน 17 ข้อของ `03_ARCHITECTURE.md §8` ยังไม่ผ่านจริง เช่น #39 ที่ตั้งเกณฑ์ไว้ชัดว่า PR แตะ `server/**` อย่างเดียวต้อง merge ได้ | ✅(สาย) รู้ตอนไล่ done-criteria ทั้ง 17 ข้อตอนท้าย ซึ่งแพงกว่าการเจอตอน review มาก |
 | ตั้ง required status check บน `main` เป็นชื่อ job ของ `flutter.yml` ตรง ๆ | `flutter.yml` มี `paths-ignore: ['server/**', ...]` — PR ที่แตะแต่ `server/**` จะไม่รัน job ฝั่ง Flutter เลย ถ้า job นั้นเป็น required check, PR แบบนี้จะไม่มีวันผ่านเกณฑ์และ merge ไม่ได้ตลอดกาล นี่คือกับดักที่ issue **#39** เขียนเตือนไว้ตรง ๆ ว่าเป็น "the trap" | ✅ พังทันทีรู้เลย (PR ค้างไม่ให้ merge) แต่ถ้าตั้งไปแล้วแก้ยาก เพราะต้องรื้อ branch-protection settings ที่ตั้งไว้ |
 | หยิบ parent issue (#3 #7 #8 #9 #10) มาทำตรง ๆ แทนที่จะไปหยิบ child ของมัน | parent issue ถูกถอดป้าย `ready-for-agent` ออกแล้วโดยตั้งใจ เพราะมันคือ "โปรแกรมยาวหลายสัปดาห์" ไม่ใช่งานชิ้นเดียว — ทำตรง ๆ จะได้ PR ใหญ่จน review ไม่ไหว และมีโอกาสชนกับคนอื่นที่กำลังทำ child slice ของ parent เดียวกันอยู่ (เช่น #18–#24 ใต้ #7) | 🟡 เห็นอาการตอนเปิด PR แล้ว (ใหญ่เกิน / merge conflict กับ slice อื่น) แต่กว่าจะรู้ก็เสียเวลาทำไปมากแล้ว |
-| เริ่มงานของ `team/1` ก่อน #14 → #15 → #6 เสร็จ | `handoff/to-tickets-backend.md` ระบุ #14 → #15 → #6 เป็น critical path เพราะเส้นทางเงินต้องรอ device role (#6) ซึ่งรอ schema (#15) ซึ่งรอ stack (#14) — เริ่มก่อนแปลว่านั่งรอเฉย ๆ | ✅ พังทันทีรู้เลย (ไม่มีของให้ต่อ ก็หยุดเขียนได้แค่นั้น) |
+| เริ่มงานของ `team/1` ก่อน #14 → #15 → #6 เสร็จ | `handoff_log/to-tickets-backend.md` ระบุ #14 → #15 → #6 เป็น critical path เพราะเส้นทางเงินต้องรอ device role (#6) ซึ่งรอ schema (#15) ซึ่งรอ stack (#14) — เริ่มก่อนแปลว่านั่งรอเฉย ๆ | ✅ พังทันทีรู้เลย (ไม่มีของให้ต่อ ก็หยุดเขียนได้แค่นั้น) |
 
 ยิ่งแถวไหนตอบว่า **❌ เงียบสนิท** ยิ่งอันตราย เพราะมันคือแถวที่ทำถูกกติกาทุกอย่างที่ตรวจได้อัตโนมัติ (compile, test, merge) แต่ยังพังอยู่ดี — ระบบ ticket ทั้งชุดนี้ (parent/child, decision ticket, Blocked by, required check) มีไว้ดันจุดพังให้โผล่ตอน review ไม่ใช่ตอนขึ้นใช้งานจริงที่ร้าน แถวที่ยัง ❌ อยู่คือจุดที่ยังไม่มีอะไรดันให้โผล่ก่อนหน้านั้น
 
@@ -647,19 +647,19 @@ stateDiagram-v2
 <summary><b>เปิด backlog มาเจอ #7 ไม่มีป้าย <code>ready-for-agent</code> ทั้งที่ป้ายอื่น (#14 #20 …) มีปกติ — ทำไมถึงไม่ใช่แค่ป้ายตกหล่นแล้วหยิบทำไปเลย</b></summary>
 
 #3/#7/#8/#9/#10 ถูกถอด `ready-for-agent` ออกโดยตั้งใจตอน `/to-tickets` เพราะกลายเป็น **parent** — ให้บริบทร่วมของเลนเท่านั้น งานจริงถูกตัดเป็นลูกไปหมดแล้ว (#7 → #18–#24) หยิบลูกแทน อย่าหยิบ parent มาทำ
-📍 `handoff/to-tickets-backend.md` §"Issue tracker — the shape it is now in"
+📍 `handoff_log/to-tickets-backend.md` §"Issue tracker — the shape it is now in"
 </details>
 <details>
 <summary><b>หยิบ #21 มาทำ เจอ <code>01_DATABASE.md §7.1</code> สั่งให้ <code>+= total</code> เข้า <code>mechanics.total_credit</code> ตอนขายเชื่อ แต่ <code>sales_repository.dart</code> ไม่เขียน field นี้เลยสักบรรทัด ในเมื่อ CLAUDE.md บอกให้ยึดโค้ด Dart เป็น behavioural reference ทำไมไม่ implement ตามเอกสาร design แล้วทำต่อไปเลย</b></summary>
 
 เพราะนี่คือของค้างที่มีเลขที่แน่นอนแล้ว: **decision #11** ระบุไว้ว่ายังไม่ปิดและ **blocks #21** ตรงๆ ห้ามเดาเอง ต้องหยุดแล้วรอ/ไปทวงคนตอบ — implement ผิดทางจะไปเปลี่ยนตัวเลขเครดิตช่างที่ร้านดูอยู่จริงแบบเงียบๆ ไม่มี error ให้เห็น
-📍 `handoff/to-tickets-backend.md` §"The three decision tickets" (#11), `docs/Backend_design/adr/README.md`
+📍 `handoff_log/to-tickets-backend.md` §"The three decision tickets" (#11), `docs/Backend_design/adr/README.md`
 </details>
 <details>
 <summary><b>อยากใส่ข้อความ error ภาษาไทยตัวใหม่ของ <code>DEVICE_ROLE_FORBIDDEN</code> เองบนหน้าจอ ในเมื่อ <code>02_API_SCREENS.md §8.1</code> ก็มีข้อความร่างให้ใช้อยู่แล้ว ทำไมยังห้ามใช้ตรงๆ</b></summary>
 
 เพราะ 3 ข้อความที่ขึ้นหน้าร้าน (`DEVICE_ROLE_FORBIDDEN` / `TENANT_SUSPENDED` / `OFFLINE_NOT_ALLOWED`) เป็น **placeholder ที่ agent ร่างไว้ชั่วคราว** เจ้าของโปรเจกต์รับไว้เพื่อไม่ block งาน ไม่ใช่คำที่คนขายเลือกเอง เป็น **decision #12** รอคนหน้าร้านเคาะคำจริง — ห้ามแต่งเองและห้ามถือว่า placeholder เท่ากับของจริง
-📍 `docs/Backend_design/02_API_SCREENS.md §8.1`, `handoff/to-tickets-backend.md` §"decision tickets" (#12)
+📍 `docs/Backend_design/02_API_SCREENS.md §8.1`, `handoff_log/to-tickets-backend.md` §"decision tickets" (#12)
 </details>
 <details>
 <summary><b><code>02_API_SCREENS.md</code> เขียนขัดกับ ADR-0007 เรื่องใครเป็นคนออกเลขที่ใบเสร็จ ในเมื่อ 02 เป็นไฟล์ endpoint ที่ละเอียดกว่า ADR แค่หน้าเดียว ทำไมไม่เชื่อไฟล์ที่ละเอียดกว่า</b></summary>
@@ -671,7 +671,7 @@ stateDiagram-v2
 <summary><b>ทำ #20 (<code>POST /sales</code> transaction core) ให้เสร็จโดยยังไม่มี #19 (document number issuer) ได้ไหม ในเมื่อแค่ generate เลขวิ่งในโค้ดเดียวกันก็ทำได้ไม่ยาก</b></summary>
 
 ไม่ได้ — #20 ระบุ **Blocked by #19** ตรงๆ เพราะเลขเอกสาร (RC/CN/PO/QT/CP) เป็น deep module ที่ใช้ร่วมหลายจุด ถ้าสร้างแยกใน #20 จะได้ตัวออกเลขอีกชุดที่หลุด spec ของ #19 (รีเซ็ตรายเดือน ต่อเครื่อง ตาม ADR-0007) แล้วต้องรื้อทีหลัง
-📍 issue #20 §"Blocked by", `handoff/to-tickets-backend.md` §"#7 Lane A → #18–#24"
+📍 issue #20 §"Blocked by", `handoff_log/to-tickets-backend.md` §"#7 Lane A → #18–#24"
 </details>
 <details>
 <summary><b>จะรู้ได้ยังไงว่า slice ที่ทำอยู่ "เสร็จ" แล้ว ในเมื่อเนื้อ ticket ก็ยาวและมีรายละเอียดจนดูเหมือนทำตามหมดก็เสร็จ</b></summary>
@@ -683,13 +683,13 @@ stateDiagram-v2
 <summary><b>ทำไม #24 (รับชำระหนี้ช่าง) ไม่อยู่บันเดิลเดียวกับ #17 (CRUD ลูกค้า/ช่าง) ทั้งที่เป็นเรื่อง mechanic เหมือนกัน</b></summary>
 
 เพราะ #24 รับเงินสดจริงและออกเลขเอกสาร **CP** ต้องมีวินัย transaction แบบ Lane A (sales/returns) ปล่อยไว้กับ CRUD ช่างที่ไม่มีวินัยแบบนี้ = เอาเส้นทางเงินไปอยู่ในเลนที่ไม่มีระบบรองรับ จึงย้ายไป team/1 (Lane A) แทน
-📍 `handoff/to-tickets-backend.md` §"Two judgment calls worth re-reading" ข้อ 1
+📍 `handoff_log/to-tickets-backend.md` §"Two judgment calls worth re-reading" ข้อ 1
 </details>
 <details>
 <summary><b><code>team/1</code> เป็นเจ้าของ #18 (idempotency module) เอง ไม่ต้องรอใครทำก่อน ทำไมถึงยังเริ่ม "เต็มตัว" ตั้งแต่วันแรกไม่ได้</b></summary>
 
 เขียนโค้ด #18 แยกเดี่ยวเริ่มได้ แต่ critical path จริงคือ **#14 (stack) → #15 (schema) → #6 (device roles, team/3)** — จนกว่า schema+auth จะพร้อม #18 จะ integrate/ทดสอบผ่าน HTTP seam จริงไม่ได้ team/1 จึงเป็นสายที่ "เริ่มจริง" ช้าที่สุดเชิงโครงสร้าง แม้ ticket แรกจะเป็นของตัวเอง 100%
-📍 `handoff/to-tickets-backend.md` §"team/1 starts last, structurally"
+📍 `handoff_log/to-tickets-backend.md` §"team/1 starts last, structurally"
 </details>
 
 ## §12 อ่านอะไรต่อ

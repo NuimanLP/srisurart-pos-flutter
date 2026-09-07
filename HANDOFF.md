@@ -1,4 +1,4 @@
-# HANDOFF — Srisurart POS (updated 2026-09-06)
+# HANDOFF — Srisurart POS (updated 2026-09-07)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
@@ -26,18 +26,48 @@ NestJS backend + CI/CD in this one repo. The offline-first, Drift-only build is 
 **Scope and schedule (decided 2026-09-04, grill round 2):** the scope is **not cut** — build
 through cutover, phase 1 + phase 2 — and there is **no delivery date**. The `§8` Gantt is a
 **dependency checklist, not a calendar**. The ordered checklist lives in
-[`handoff/grill-round2-ci.md`](handoff/grill-round2-ci.md); the next unticked item is
+[`handoff_log/grill-round2-ci.md`](handoff_log/grill-round2-ci.md); the next unticked item is
 **confirming the faculty VM accepts inbound connections from outside the university network**.
 
 ⚠️ `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` **no longer exist** (deleted in `ec24f79`,
 decided 2026-09-04 not to recover). **Deployment/hosting has no owning document** — host notes
 are temporarily at the end of `03_ARCHITECTURE.md §8`.
 
-Remaining bigger work: the multi-tenant server (`p1` done; #15 schema is next on the critical
-path #14 → #15 → #6), the client API layer, and CI levels 2–3.
+Remaining bigger work: the multi-tenant server (`p1` merged; `p2` built and green, **PR #42
+blocked on a pending force-push approval** — see the 2026-09-07 entry), the client API layer,
+and CI levels 2–3.
+
+**Lane assignment (2026-09-07):** the 31 phase-1 backend/CI issues are assigned by lane, not
+placeholders anymore — `NuimanLP` (Lane A, transaction path), `LomerAlloys` (Lane B,
+schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). See that entry.
+
+## 2026-09-07 (merge #41 into `main`, #42 blocked, lane→handle assignment, doc reorg — docs + GitHub state only)
+- **Full detail: [`handoff_log/merge-p1-p2-lane-assignments.md`](handoff_log/merge-p1-p2-lane-assignments.md).**
+  This entry is the summary only. No application or server code changed this session.
+- **PR #41 squash-merged** (`c47c74e`). **PR #42 is NOT merged** — stacking it on #41 plus
+  squash-merging turned out to be the wrong combination: GitHub only re-targets a stacked PR to
+  `main` when its base branch is deleted, and after a manual retarget the squash-produced commit
+  hash made #42 register as `CONFLICTING` even though the file content is identical. A rebased
+  branch (`feat/p2-schema-rebase`, local only) has the fix ready; **pushing it needs a
+  force-push, which is still waiting on approval** as of this entry.
+- **Local `main` lagged `origin/main` by one commit** after the #41 merge for a while this
+  session — `gh pr merge` updates the remote ref but not the local branch, and a plain
+  `git fetch` doesn't fast-forward it either. `git pull --ff-only origin main` fixed it. Anyone
+  picking this up should do that pull first.
+- **All 31 phase-1 backend/CI issues assigned** to real GitHub handles, replacing the
+  `team/1|2|3` placeholders `handoff_log/to-tickets-backend.md` left open. Labels unchanged;
+  only `assignee` was set.
+- **Confirmed to the user:** the frontend backlog still does not exist (unchanged from
+  `handoff_log/to-tickets-backend.md` — task `q1` + Drift schema v3, not yet cut as issues).
+- **Doc/directory reorg adopted, not caused by this session:** `handoff/` → `handoff_log/` and
+  removal of `docs/plans/riverpod-to-bloc.md` happened on disk mid-session from something
+  outside this agent's tool calls; the user confirmed it was intentional. Every reference to the
+  old paths was fixed (`README.md`, `CONTRACT.md`, `CLAUDE.md`, this file,
+  `docs/Backend_design/05_HOW_WE_GOT_HERE.md`, `docs/Backend_design/adr/README.md`,
+  `.claude/agents/riverpod-to-bloc.md`).
 
 ## 2026-09-06 (#14 `p1` — `server/` compose stack, Nginx, health probes — branch `feat/p1-compose-stack`)
-- **Full detail: [`handoff/p1-compose-stack.md`](handoff/p1-compose-stack.md).** First server
+- **Full detail: [`handoff_log/p1-compose-stack.md`](handoff_log/p1-compose-stack.md).** First server
   code. `cd server && docker compose up -d --build` yields Nginx (TLS) → NestJS ×3 → Postgres +
   `redis-cache` (`allkeys-lru`) + `redis-queue` (`noeviction` + AOF), plus the BullMQ worker and
   Bull-Board (basic auth, host loopback only). `/health/live` touches nothing; `/health/ready`
@@ -53,7 +83,7 @@ path #14 → #15 → #6), the client API layer, and CI levels 2–3.
   `pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e`.
 
 ## 2026-09-04 (grill round 2 → ADR-0010/0011 + first CI — commit `946c405`)
-- **Full detail: [`handoff/grill-round2-ci.md`](handoff/grill-round2-ci.md).** This entry is
+- **Full detail: [`handoff_log/grill-round2-ci.md`](handoff_log/grill-round2-ci.md).** This entry is
   the summary only.
 - An 8-round `/grill-with-docs` interview on **the project as a whole** (the previous one
   covered only the backend design). 11 decisions taken, 2 new ADRs written.
@@ -113,7 +143,7 @@ path #14 → #15 → #6), the client API layer, and CI levels 2–3.
   Do not invent them; Thai UI strings are behaviour parity.
 
 ## 2026-09-04 (backend design grill → ADR record + schema v2 — commits `3bcc146`, `21e7434`, `92bd3bf`)
-- **Full detail: [`handoff/backend-design-adr.md`](handoff/backend-design-adr.md).** Read
+- **Full detail: [`handoff_log/backend-design-adr.md`](handoff_log/backend-design-adr.md).** Read
   that plus `docs/Backend_design/adr/README.md`; this entry is only the summary.
 - A 4-round `/grill-with-docs` interview on the multi-tenant design produced **9 ADRs**:
   tenant provisioning, platform-admin plane, tenant lifecycle, device roles, data
@@ -161,7 +191,7 @@ path #14 → #15 → #6), the client API layer, and CI levels 2–3.
 
 ## 2026-07-14 (Riverpod → flutter_bloc migration — commits `d834450`, `857f434`, `d44dfce`)
 - **Full state-management replacement**, executed per the 12-step plan in
-  `docs/plans/riverpod-to-bloc.md` (now `Status: Complete`): DI moved to 13
+  the (now-archived) 12-step plan: DI moved to 13
   repositories via flutter_bloc `RepositoryProvider` (new
   `lib/presentation/repositories/repository_providers.dart`); the 4 stateful
   controllers became Cubits in `lib/presentation/blocs/`
@@ -179,7 +209,7 @@ path #14 → #15 → #6), the client API layer, and CI levels 2–3.
   tree (formatting only, no behavior change) to clean up drift accumulated during
   the migration's many touched files.
 - Full session narrative (environment quirks, git-state-at-handoff notes) lives in
-  `handoff/riverpod-to-bloc.md` — not duplicated here.
+  `handoff_log/riverpod-to-bloc.md` — not duplicated here.
 
 ## 2026-07-13 (backend / Supabase-hierarchy / deployment plan — docs only)
 - **Gap closed:** `docs/PLAN.md` covered frontend + local data layer in depth but left

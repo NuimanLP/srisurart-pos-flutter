@@ -363,4 +363,4 @@ confirmations through `showConfirm`, never `showDialog` ad-hoc for yes/no.
 (Contract-owned) reads it via `themeMode: context.watch<ThemeModeCubit>().state`
 so the switch repaints the app. Read and write sides must stay on the same
 Cubit — converting one without the other compiles clean but breaks silently
-at runtime (see `docs/plans/riverpod-to-bloc.md`'s silent-coupling risks).
+at runtime (see `handoff_log/riverpod-to-bloc.md`'s silent-coupling risks).

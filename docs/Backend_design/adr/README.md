@@ -139,9 +139,11 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
 (Lane A/B/C) ใช้ไม่ได้ เพราะทั้งสาม lane เป็น backend ล้วน — คนหนึ่งจะไม่ได้แตะ frontend หรือ CI เลย
 
 แบ่งใหม่เป็น **3 กลุ่มตัดขวาง** กลุ่มละ **backend 9 ชิ้น + CI 1 ชิ้น + frontend 1 ชิ้น**
-ใช้ป้าย `team/1` `team/2` `team/3` (ยังเป็นชื่อชั่วคราว เปลี่ยนเป็นชื่อคนได้)
+ใช้ป้าย `team/1` `team/2` `team/3` — **ผูกกับคนจริงแล้ว (2026-09-07)**: `team/1` = `NuimanLP`,
+`team/2` = `LomerAlloys`, `team/3` = `PattaraponKitcharoen` (ตั้งเป็น assignee ของแต่ละ issue
+ใน GitHub แล้ว ป้าย label เดิมไม่เปลี่ยน)
 
-| | `team/1` เส้นทางเงิน | `team/2` schema + แคตตาล็อก + รายงาน | `team/3` แพลตฟอร์ม + โครงสร้างพื้นฐาน |
+| | `team/1` เส้นทางเงิน — `NuimanLP` | `team/2` schema + แคตตาล็อก + รายงาน — `LomerAlloys` | `team/3` แพลตฟอร์ม + โครงสร้างพื้นฐาน — `PattaraponKitcharoen` |
 |---|---|---|---|
 | **backend** | #18 #19 #20 #21 #22 #23 #24 #28 #30 | #15 #5 #16 #17 #25 #26 #27 #29 #32 | #14 #4 #6 #31 #33 #34 #35 #36 #37 |
 | **CI/CD** | #40 image artefact | #39 path filter + isolation check | #38 backend workflow |
@@ -162,7 +164,7 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
 ## ลงมือแล้ว (2026-09-06) — #14 `p1` stack + health probes
 
 `server/` เกิดขึ้นแล้วตาม ADR-0011 (branch `feat/p1-compose-stack`) — รายละเอียดใน
-[`handoff/p1-compose-stack.md`](../../../handoff/p1-compose-stack.md) และ `server/README.md`
+[`handoff_log/p1-compose-stack.md`](../../../handoff_log/p1-compose-stack.md) และ `server/README.md`
 เกณฑ์ปิดเฟส 1 ข้อ 1 / 5 / 7 ใน `03_ARCHITECTURE §8` ติ๊กแล้ว
 
 สิ่งที่ p1 ตัดสินใจไปและ ticket ถัดไปต้องรู้:
@@ -176,4 +178,9 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
 * **Envelope `{status, data}` / `{status, error}`** และ JSON 404 ใช้กับทุก path แล้ว (Nest 12 ติด 404 handler
   ของตัวเองไว้ใต้ global prefix เท่านั้น จึงมี fallback ระดับ Express เพิ่ม)
 * worker กับ Bull-Board **มี process แล้วแต่ยังไม่มี queue** — #34/#35 เป็นคนลงทะเบียน
+
+**สถานะ merge (2026-09-07):** #14 (`feat/p1-compose-stack`, PR #41) merge เข้า `main` แล้ว.
+#15 `p2` (schema, migration, RLS, seed — PR #42) build เสร็จและ CI เขียว **แต่ยังไม่ merge** —
+ติดปัญหา stacked PR + squash merge ทำให้ history ชนกัน ต้อง force-push branch ที่ rebase ใหม่แล้ว
+รอ approve อยู่ รายละเอียดเต็มใน [`handoff_log/merge-p1-p2-lane-assignments.md`](../../../handoff_log/merge-p1-p2-lane-assignments.md)
 

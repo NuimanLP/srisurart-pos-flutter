@@ -141,8 +141,8 @@ two assets committed in `web/`: `sqlite3.wasm` (matches the `sqlite3` pub versio
 repositories via `RepositoryProvider`), the 4 stateful controllers (now Cubits:
 `ThemeModeCubit`/`FontScaleCubit`/`PendingQuoteCubit`/`CartCubit`), and the 20 one-shot
 data loads (now `FutureBuilder`s fed by futures created in `initState`/explicit
-`_refresh()`). `flutter_riverpod` fully removed from `pubspec.yaml`. Plan + rationale:
-`docs/plans/riverpod-to-bloc.md`.
+`_refresh()`). `flutter_riverpod` fully removed from `pubspec.yaml`. The 12-step plan is
+archived (migration complete); the session record is `handoff_log/riverpod-to-bloc.md`.
 
 **Backend direction changed (2026-08-25) — read `docs/Backend_design/` first.** The team now has
 backend help and the stack is fixed by the course/assignment to **NestJS + PostgreSQL + Redis +
@@ -164,12 +164,16 @@ RC/CN only*, ADR-0009 *refresh also checks `devices.retired_at`*, ADR-0010 *`Api
 patches rows only and never calls the Drift transactional services; Drift schema v3
 (`Sales.shiftId`, `Shifts.id` TEXT, `Products.offlineOk`) is due before `q1` ends*. The eight
 questions only the shop/project owner can answer are collected at the end of `adr/README.md`.
-**Server status (2026-09-06): `server/` exists — #14 `p1` is built** (compose stack with
-Nginx + NestJS ×3 + Postgres + two Redis + worker + Bull-Board, health probes, JSON logs; see
-`server/README.md`). No schema, auth or business endpoints yet — #15 `p2` is next on the
-critical path. **No cutover is planned for phase 1** — the shop keeps running this Drift build while the server is developed against a
-demo tenant. **As of 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the
-server, the client's API layer and the CI/CD pipelines all land in this repo.
+**Server status (2026-09-07): `server/` exists — #14 `p1` is merged to `main`.** Compose stack
+with Nginx + NestJS ×3 + Postgres + two Redis + worker + Bull-Board, health probes, JSON logs;
+see `server/README.md`. **#15 `p2`** (schema, migrations, RLS, seed) is built and green (PR #42)
+but **not yet merged** — it's stacked on #41 and needs a history rewrite to merge cleanly after
+#41's squash-merge; see `handoff_log/merge-p1-p2-lane-assignments.md` for the exact blocker. No
+auth or business endpoints yet — #4 `p3` is next on the critical path once #15 lands.
+**No cutover is planned for phase 1** — the shop keeps running this Drift build while the server
+is developed against a demo tenant. **As of 2026-09-04 this work happens on `main`** (see
+*Branch strategy* above): the server, the client's API layer and the CI/CD pipelines all land
+in this repo.
 
 **CI/CD — level 1 is done, levels 2–3 are ticketed.** `.github/workflows/flutter.yml` is the
 client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter build web` + the
@@ -202,9 +206,11 @@ build; the issue tracker says *who builds what, in what order.*
 🔴 **Course rule (2026-09-05): every team member must touch frontend, backend *and* CI/CD.** The
 old "one backend lane each" split is therefore dead — all three lanes were backend. Work is now
 three cross-cutting bundles of **9 backend slices + 1 CI slice + 1 frontend slice**, carried by
-the labels `team/1` / `team/2` / `team/3`; the table is in #2. **The frontend slices are reserved
-but not yet ticketed** — they are task `q1` + Drift schema v3, and they must be cut before anyone
-finishes their backend bundle.
+the labels `team/1` / `team/2` / `team/3`; the table is in #2. **As of 2026-09-07 the 31 issues
+are also assigned to real GitHub handles**, not just labels: `NuimanLP` (`team/1`, transaction
+path), `LomerAlloys` (`team/2`, schema/catalogue/reports), `PattaraponKitcharoen` (`team/3`,
+platform/infra/ops). **The frontend slices are reserved but not yet ticketed** — they are task
+`q1` + Drift schema v3, and they must be cut before anyone finishes their backend bundle.
 
 **Pending follow-ups (not yet built).** Deployment/hosting has **no owning document** — the old
 `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` were deleted in `ec24f79` and are **not coming
