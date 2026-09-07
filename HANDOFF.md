@@ -52,6 +52,7 @@ schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). 
   - Updated `.gitignore` to match `**/build/`, `**/.dart_tool/`, `**/.fvm/`, etc. across subprojects.
   - Updated `settings.json` and `.vscode/settings.json` with `dart.projectSearchPaths: ["frontend"]`.
   - Verification: `dart analyze` passes with zero issues, all 123 tests pass (`flutter test`), `flutter build web --no-tree-shake-icons` builds cleanly, and `server` typecheck & vitest test suites pass.
+- **Architecture & Tickets Primer added:** Created [`docs/00_LANE_PRIMER.md`](docs/00_LANE_PRIMER.md) explaining the ~40 tickets across the 3 lanes (`team/1`, `team/2`, `team/3`) in simple, beginner-friendly terms with real-world analogies and critical path breakdown.
 
 ## 2026-09-07 (merge #41 + #42 into `main`, lane→handle assignment, doc reorg — docs + GitHub state only)
 - **Full detail: [`docs/handoff_log/merge-p1-p2-lane-assignments.md`](docs/handoff_log/merge-p1-p2-lane-assignments.md).**

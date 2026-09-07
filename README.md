@@ -79,11 +79,12 @@ can only happen there.
 
 ## Where to start reading
 
-1. `CLAUDE.md` — conventions, constraints, current status
-2. `CONTRACT.md` — the client spec
-3. `docs/Backend_design/00_INDEX.md` — the backend package (start at `00_BASICS.md` if backend
+1. `docs/00_LANE_PRIMER.md` — **เริ่มอ่านตรงนี้ก่อน!** สรุปภาพรวมระบบและ 40 Tickets แบ่ง 3 ทีม ฉบับเข้าใจง่ายที่สุด
+2. `CLAUDE.md` — conventions, constraints, current status
+3. `CONTRACT.md` — the client spec
+4. `docs/Backend_design/00_INDEX.md` — the backend package (start at `00_BASICS.md` if backend
    is new to you); **`docs/Backend_design/adr/` is binding — where a doc contradicts an ADR,
    the ADR wins**
-4. `docs/handoff_log/grill-round2-ci.md` — the current ordered checklist and what is still undecided
-5. `docs/handoff_log/merge-p1-p2-lane-assignments.md` — latest session: merge state, lane→handle
+5. `docs/handoff_log/grill-round2-ci.md` — the current ordered checklist and what is still undecided
+6. `docs/handoff_log/merge-p1-p2-lane-assignments.md` — latest session: merge state, lane→handle
    assignment, a pending force-push that needs sign-off
