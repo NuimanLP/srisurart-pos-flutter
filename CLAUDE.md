@@ -225,7 +225,7 @@ old "one backend lane each" split is therefore dead — all three lanes were bac
 three cross-cutting bundles of **9 backend slices + 1 CI slice + 1 frontend slice**, carried by
 the labels `team/1` / `team/2` / `team/3`; the table is in #2. **As of 2026-09-07 the 31 issues
 are also assigned to real GitHub handles**, not just labels: `NuimanLP` (`team/1`, transaction
-path), `LomerAlloys` (`team/2`, schema/catalogue/reports), `PattaraponKitcharoen` (`team/3`,
+path + #14 compose stack), `LomerAlloys` (`team/2`, schema/catalogue/reports), `PattaraponKitcharoen` (`team/3`,
 platform/infra/ops). **The frontend slices are reserved but not yet ticketed** — they are task
 `q1` + Drift schema v3, and they must be cut before anyone finishes their backend bundle.
 

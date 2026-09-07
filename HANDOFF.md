@@ -42,6 +42,7 @@ placeholders anymore — `NuimanLP` (Lane A, transaction path), `LomerAlloys` (L
 schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). See that entry.
 
 ## 2026-09-07 (reassign ticket #14 to team/1 based on commit author NuimanLP)
+- **Full detail: [`docs/handoff_log/reassign-ticket-14.md`](docs/handoff_log/reassign-ticket-14.md).**
 - **Context:** Commit `c47c74e` (#14 `p1` compose stack) was authored and committed by `NuimanLP` (PR #41), but Issue #14 had previously been marked `team/3` in the 3-way split plan.
 - **Changes made:**
   - Updated GitHub Issue #14 label from `team/3` to `team/1` (`NuimanLP`).
