@@ -20,13 +20,18 @@ demo tenant while the shop keeps running the build preserved on the POC branch.
 ## Layout
 
 ```
-lib/          Flutter app — core/ (router, theme, utils), data/ (Drift tables + repositories),
-              domain/models, presentation/ (blocs, 11 screens, widgets)
-test/         repository unit tests + route smoke tests
-web/          Flutter Web assets, incl. sqlite3.wasm + drift_worker.js for the web DB
+frontend/     Flutter app — Android/iOS/Web, Drift/SQLite + flutter_bloc + go_router
+  lib/        core/ (router, theme, utils), data/ (Drift tables + repositories), domain/, presentation/
+  test/       repository unit tests + route smoke tests
+  web/        Flutter Web assets, incl. sqlite3.wasm + drift_worker.js for web DB
 server/       NestJS backend (phase 1) — compose stack, Nginx, health probes, schema migrations + RLS; see server/README.md
-docs/         Backend_design/ (the binding backend spec + adr/), Summary_backend/
-handoff_log/      per-session detail records; HANDOFF.md links to them
+docs/         Documentation package:
+  Backend_design/  the binding backend spec + adr/
+  Summary_backend/ summary notes
+  PDF_Report/      reports & slides
+  PR/              PR notes
+  handoff_log/     per-session detail records; HANDOFF.md links to them
+  tutorial/        usage guides (JS & Flutter)
 .github/      workflows/flutter.yml — analyze, test, drift codegen check, web artifact
               workflows/server.yml  — lint, unit, integration on real Postgres/Redis with migrations
 CONTRACT.md   the binding client spec: tables, repo signatures, routes, Thai-string rules
@@ -41,15 +46,27 @@ migrations, RLS forced on every tenant-scoped table). No auth or business endpoi
 is next on the critical path. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP`
 (Lane A — transaction path), `LomerAlloys` (Lane B — schema/catalogue/reports),
 `PattaraponKitcharoen` (Lane C — platform/infra/ops); see
-`handoff_log/merge-p1-p2-lane-assignments.md`.
+`docs/handoff_log/merge-p1-p2-lane-assignments.md`.
 
 ## Commands
 
+### Frontend (Flutter)
 ```bash
+cd frontend
+flutter pub get
 dart analyze                              # NOT flutter analyze (see CLAUDE.md)
 flutter test                              # unit + repository + smoke tests
 flutter build web --no-tree-shake-icons   # web build for the shop PC
 dart run build_runner build               # ONLY after Drift schema changes — ASCII path only
+```
+
+### Backend (NestJS)
+```bash
+cd server
+pnpm install
+pnpm lint && pnpm typecheck
+pnpm test                                 # unit tests
+pnpm test:e2e                             # integration tests (with docker compose)
 ```
 
 ⚠️ `build_runner` and `flutter analyze` fail on a filesystem path containing non-ASCII
@@ -67,6 +84,6 @@ can only happen there.
 3. `docs/Backend_design/00_INDEX.md` — the backend package (start at `00_BASICS.md` if backend
    is new to you); **`docs/Backend_design/adr/` is binding — where a doc contradicts an ADR,
    the ADR wins**
-4. `handoff_log/grill-round2-ci.md` — the current ordered checklist and what is still undecided
-5. `handoff_log/merge-p1-p2-lane-assignments.md` — latest session: merge state, lane→handle
+4. `docs/handoff_log/grill-round2-ci.md` — the current ordered checklist and what is still undecided
+5. `docs/handoff_log/merge-p1-p2-lane-assignments.md` — latest session: merge state, lane→handle
    assignment, a pending force-push that needs sign-off

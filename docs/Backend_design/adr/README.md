@@ -164,7 +164,7 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
 ## ลงมือแล้ว (2026-09-06) — #14 `p1` stack + health probes
 
 `server/` เกิดขึ้นแล้วตาม ADR-0011 (branch `feat/p1-compose-stack`) — รายละเอียดใน
-[`handoff_log/p1-compose-stack.md`](../../../handoff_log/p1-compose-stack.md) และ `server/README.md`
+[`docs/handoff_log/p1-compose-stack.md`](../../handoff_log/p1-compose-stack.md) และ `server/README.md`
 เกณฑ์ปิดเฟส 1 ข้อ 1 / 5 / 7 ใน `03_ARCHITECTURE §8` ติ๊กแล้ว
 
 สิ่งที่ p1 ตัดสินใจไปและ ticket ถัดไปต้องรู้:
@@ -182,7 +182,7 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
 ## ลงมือแล้ว (2026-09-06) — #15 `p2` schema + RLS + seed, #38 backend CI
 
 schema ทั้ง 27 ตารางของ `01_DATABASE.md §5` เป็น TypeORM migration แล้ว (branch `feat/p2-schema`
-ต่อจาก `feat/p1-compose-stack`) — รายละเอียดใน [`handoff_log/p2-schema.md`](../../../handoff_log/p2-schema.md)
+ต่อจาก `feat/p1-compose-stack`) — รายละเอียดใน [`docs/handoff_log/p2-schema.md`](../../handoff_log/p2-schema.md)
 และ `server/README.md` § *Schema and migrations*
 
 สิ่งที่ p2 ตัดสินใจไปและ ticket ถัดไปต้องรู้:
@@ -207,5 +207,5 @@ schema ทั้ง 27 ตารางของ `01_DATABASE.md §5` เป็�
 **สถานะ merge (2026-09-07):** #14 (`feat/p1-compose-stack`, PR #41) และ #15 (`feat/p2-schema`,
 PR #42) merge เข้า `main` แล้วทั้งคู่ — ติดปัญหา stacked PR + squash merge ระหว่างทาง (history ชนกัน
 ต้อง force-push branch ที่ rebase ใหม่) รายละเอียดเต็มใน
-[`handoff_log/merge-p1-p2-lane-assignments.md`](../../../handoff_log/merge-p1-p2-lane-assignments.md)
+[`docs/handoff_log/merge-p1-p2-lane-assignments.md`](../../handoff_log/merge-p1-p2-lane-assignments.md)
 

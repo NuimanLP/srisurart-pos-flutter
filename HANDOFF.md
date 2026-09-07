@@ -27,7 +27,7 @@ NestJS backend + CI/CD in this one repo. The offline-first, Drift-only build is 
 **Scope and schedule (decided 2026-09-04, grill round 2):** the scope is **not cut** — build
 through cutover, phase 1 + phase 2 — and there is **no delivery date**. The `§8` Gantt is a
 **dependency checklist, not a calendar**. The ordered checklist lives in
-[`handoff_log/grill-round2-ci.md`](handoff_log/grill-round2-ci.md); the next unticked item is
+[`docs/handoff_log/grill-round2-ci.md`](docs/handoff_log/grill-round2-ci.md); the next unticked item is
 **confirming the faculty VM accepts inbound connections from outside the university network**.
 
 ⚠️ `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` **no longer exist** (deleted in `ec24f79`,
@@ -41,8 +41,20 @@ next on the critical path #14 → #15 → #4 → #6), the client API layer, and 
 placeholders anymore — `NuimanLP` (Lane A, transaction path), `LomerAlloys` (Lane B,
 schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). See that entry.
 
+## 2026-09-07 (monorepo root cleanup: Flutter client moved to `frontend/`, docs consolidated to `docs/`)
+- **Full detail: [`docs/handoff_log/monorepo-root-cleanup.md`](docs/handoff_log/monorepo-root-cleanup.md).**
+- **Reason:** Root folder was cluttered with Flutter client files (`lib/`, `test/`, `web/`, `android/`, `ios/`, `pubspec.yaml`), server backend (`server/`), and various doc/tutorial folders (`docs/`, `PDF_Report/`, `PR/`, `handoff_log/`, `tutorial/`), making builds and project navigation messy.
+- **Changes made:**
+  - Moved Flutter project into `frontend/` (`frontend/lib/`, `frontend/test/`, `frontend/web/`, `frontend/android/`, `frontend/ios/`, `frontend/pubspec.yaml`, `frontend/.fvm/`, etc.).
+  - Consolidated doc folders into `docs/` (`docs/PDF_Report/`, `docs/PR/`, `docs/handoff_log/`, `docs/tutorial/`).
+  - Result: Root directory cleanly contains only `frontend/`, `server/`, and `docs/`.
+  - Updated CI `.github/workflows/flutter.yml` to set `defaults.run.working-directory: frontend`, `paths: ['frontend/**', '.github/workflows/flutter.yml']`, and upload artifact path `frontend/build/web`.
+  - Updated `.gitignore` to match `**/build/`, `**/.dart_tool/`, `**/.fvm/`, etc. across subprojects.
+  - Updated `settings.json` and `.vscode/settings.json` with `dart.projectSearchPaths: ["frontend"]`.
+  - Verification: `dart analyze` passes with zero issues, all 123 tests pass (`flutter test`), `flutter build web --no-tree-shake-icons` builds cleanly, and `server` typecheck & vitest test suites pass.
+
 ## 2026-09-07 (merge #41 + #42 into `main`, lane→handle assignment, doc reorg — docs + GitHub state only)
-- **Full detail: [`handoff_log/merge-p1-p2-lane-assignments.md`](handoff_log/merge-p1-p2-lane-assignments.md).**
+- **Full detail: [`docs/handoff_log/merge-p1-p2-lane-assignments.md`](docs/handoff_log/merge-p1-p2-lane-assignments.md).**
   This entry is the summary only. No application or server code changed this session.
 - **PR #41 squash-merged** (`c47c74e`). **PR #42 is NOT merged** — stacking it on #41 plus
   squash-merging turned out to be the wrong combination: GitHub only re-targets a stacked PR to
@@ -55,10 +67,10 @@ schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). 
   `git fetch` doesn't fast-forward it either. `git pull --ff-only origin main` fixed it. Anyone
   picking this up should do that pull first.
 - **All 31 phase-1 backend/CI issues assigned** to real GitHub handles, replacing the
-  `team/1|2|3` placeholders `handoff_log/to-tickets-backend.md` left open. Labels unchanged;
+  `team/1|2|3` placeholders `docs/handoff_log/to-tickets-backend.md` left open. Labels unchanged;
   only `assignee` was set.
 - **Confirmed to the user:** the frontend backlog still does not exist (unchanged from
-  `handoff_log/to-tickets-backend.md` — task `q1` + Drift schema v3, not yet cut as issues).
+  `docs/handoff_log/to-tickets-backend.md` — task `q1` + Drift schema v3, not yet cut as issues).
 - **Doc/directory reorg adopted, not caused by this session:** `handoff/` → `handoff_log/` and
   removal of `docs/plans/riverpod-to-bloc.md` happened on disk mid-session from something
   outside this agent's tool calls; the user confirmed it was intentional. Every reference to the

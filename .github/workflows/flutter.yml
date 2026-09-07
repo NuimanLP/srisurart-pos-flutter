@@ -9,9 +9,9 @@ name: Flutter CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['server/**', 'docs/**', '**/*.md']
+    paths: ['frontend/**', '.github/workflows/flutter.yml']
   pull_request:
-    paths-ignore: ['server/**', 'docs/**', '**/*.md']
+    paths: ['frontend/**', '.github/workflows/flutter.yml']
   workflow_dispatch:
 
 concurrency:
@@ -19,7 +19,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: '3.44.3'   # keep in sync with .fvmrc
+  FLUTTER_VERSION: '3.44.3'   # keep in sync with frontend/.fvmrc
+
+defaults:
+  run:
+    working-directory: frontend
 
 jobs:
   analyze-and-test:
@@ -103,5 +107,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pos-web-${{ github.sha }}
-          path: build/web
+          path: frontend/build/web
           retention-days: 14

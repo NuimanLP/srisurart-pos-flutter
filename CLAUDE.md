@@ -60,13 +60,25 @@ What works on a non-ASCII path: `flutter create`, `pub get`, `dart analyze`, `fl
   `C:\srisurart_pos`), run codegen there, then commit the regenerated `*.g.dart`.
 - **Always use `dart analyze`**, NEVER `flutter analyze`.
 
-## Build / test commands
+### Build / test commands
 
-```
+### Frontend (Flutter)
+```bash
+cd frontend
+flutter pub get
 dart analyze                              # NOT flutter analyze
 flutter test                              # unit + repository + smoke tests
 flutter build web --no-tree-shake-icons   # web build (replaces POS.html on the shop PC)
 dart run build_runner build               # ONLY after Drift schema changes — ASCII path only
+```
+
+### Backend (NestJS)
+```bash
+cd server
+pnpm install
+pnpm lint && pnpm typecheck
+pnpm test
+pnpm test:e2e
 ```
 
 ---
@@ -74,28 +86,29 @@ dart run build_runner build               # ONLY after Drift schema changes — 
 ## Architecture (layered: data → domain → presentation)
 
 ```
-lib/
-  core/
-    router/app_router.dart   ← GoRouter + AppRoutes (the 11 routes). ShellRoute → AppShell.
-    theme/                   ← navy/orange brand, Sarabun (Thai) + Barlow type
-    utils/                   ← newId/docNo (ids.dart), baht/round2/pointsFor (money.dart),
-                               csvSafe (csv_safe.dart)
-  data/
-    db/tables.dart           ← 20 Drift tables (ported sa_* stores from pos/db.js)
-    db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
-    db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
-    repositories/            ← one repo per domain; transactional services mirror db.js
-  domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
-  presentation/
-    repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (13 repos)
-    blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
-    screens/                  ← 11 screens, 1:1 with the JS screens
-    widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
-                                label printer, closing report)
-  app.dart / main.dart       ← MaterialApp.router + MultiRepositoryProvider/MultiBlocProvider
-CONTRACT.md                  ← THE binding spec: tables, repo signatures, providers, routes,
-                               screen→sub-view ownership, Thai-string rules. Read it first.
-test/                        ← repo unit tests (per transactional rule) + route smoke tests
+frontend/
+  lib/
+    core/
+      router/app_router.dart   ← GoRouter + AppRoutes (the 11 routes). ShellRoute → AppShell.
+      theme/                   ← navy/orange brand, Sarabun (Thai) + Barlow type
+      utils/                   ← newId/docNo (ids.dart), baht/round2/pointsFor (money.dart),
+                                 csvSafe (csv_safe.dart)
+    data/
+      db/tables.dart           ← 20 Drift tables (ported sa_* stores from pos/db.js)
+      db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
+      db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
+      repositories/            ← one repo per domain; transactional services mirror db.js
+    domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
+    presentation/
+      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (13 repos)
+      blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
+      screens/                  ← 11 screens, 1:1 with the JS screens
+      widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
+                                  label printer, closing report)
+    app.dart / main.dart       ← MaterialApp.router + MultiRepositoryProvider/MultiBlocProvider
+  test/                        ← repo unit tests (per transactional rule) + route smoke tests
+CONTRACT.md                    ← THE binding spec: tables, repo signatures, providers, routes,
+                                screen→sub-view ownership, Thai-string rules. Read it first.
 ```
 
 `AppDatabase.open()` uses `drift_flutter` for the app; tests use `NativeDatabase.memory()`.
