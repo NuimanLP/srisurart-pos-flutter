@@ -179,8 +179,33 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
   ของตัวเองไว้ใต้ global prefix เท่านั้น จึงมี fallback ระดับ Express เพิ่ม)
 * worker กับ Bull-Board **มี process แล้วแต่ยังไม่มี queue** — #34/#35 เป็นคนลงทะเบียน
 
-**สถานะ merge (2026-09-07):** #14 (`feat/p1-compose-stack`, PR #41) merge เข้า `main` แล้ว.
-#15 `p2` (schema, migration, RLS, seed — PR #42) build เสร็จและ CI เขียว **แต่ยังไม่ merge** —
-ติดปัญหา stacked PR + squash merge ทำให้ history ชนกัน ต้อง force-push branch ที่ rebase ใหม่แล้ว
-รอ approve อยู่ รายละเอียดเต็มใน [`handoff_log/merge-p1-p2-lane-assignments.md`](../../../handoff_log/merge-p1-p2-lane-assignments.md)
+## ลงมือแล้ว (2026-09-06) — #15 `p2` schema + RLS + seed, #38 backend CI
+
+schema ทั้ง 27 ตารางของ `01_DATABASE.md §5` เป็น TypeORM migration แล้ว (branch `feat/p2-schema`
+ต่อจาก `feat/p1-compose-stack`) — รายละเอียดใน [`handoff_log/p2-schema.md`](../../../handoff_log/p2-schema.md)
+และ `server/README.md` § *Schema and migrations*
+
+สิ่งที่ p2 ตัดสินใจไปและ ticket ถัดไปต้องรู้:
+
+* **RLS เปิด + FORCE ทั้ง 25 ตารางที่มี `tenant_id`** ด้วย policy fail-closed ตาม #2 — ไม่ตั้ง GUC ได้ 0 แถว
+  ไม่ error และ INSERT ถูกปฏิเสธ · #4 (`TenantGuard`) ต้อง `SET LOCAL app.tenant_id` ใน transaction
+  ของ request เท่านั้น ทดสอบแล้วว่าค่าหายหลัง COMMIT และ `pos_app` สั่ง `SET row_security = off` ไม่ได้
+* **ยังไม่มี role `BYPASSRLS`** — #5 (platform plane, ADR-0002) ต้องสร้างเองพร้อม DataSource แยก
+  และการ provisioning ต้องตั้ง GUC หรือใช้ role นั้นก่อนเรียก `seedCategories()` ไม่งั้น WITH CHECK ปัด
+* **migration รันเป็น job `migrate` ใน compose ครั้งเดียวก่อน `api-*` ขึ้น** (role `postgres`) ไม่รันตอน boot ·
+  เพิ่ม migration = เพิ่มไฟล์ + ต่อท้าย `MIGRATIONS` ใน `data-source.ts` + ถ้ามีตารางใหม่ต้องใส่ใน
+  `TENANT_SCOPED_TABLES` (test ตรวจ RLS/grant ทุกตาราง ลืมแล้ว suite แดง)
+* **`movements` ให้ `pos_app` แค่ SELECT/INSERT** — ledger append-only บังคับที่ DB · ตารางอื่น DML ครบ
+* **seed = 5 หมวดเท่านั้น** (ADR-0001) เป็นฟังก์ชัน `seedCategories(db, tenantId)` ให้ #5 เรียกใน
+  transaction เดียวกับการสร้างร้าน ไม่ใช่ script ที่รันตอน migrate
+* ที่ต่างจาก DDL ในเอกสาร (บันทึกไว้ในหัวไฟล์ migration): `audit_log` PK เป็น `(tenant_id, id)`,
+  เพิ่ม CHECK ให้ `tenants.plan` / `devices.device_no` / `drawer_entries.type` / `movements.type`
+* **CI ฝั่ง server ใช้ `docker compose up postgres redis-cache redis-queue` แทน service container**
+  เพราะ service container ของ GitHub ตั้ง `command` ของ Redis ไม่ได้ → policy `allkeys-lru`/`noeviction`
+  จะไม่ตรงกับของจริง
+
+**สถานะ merge (2026-09-07):** #14 (`feat/p1-compose-stack`, PR #41) และ #15 (`feat/p2-schema`,
+PR #42) merge เข้า `main` แล้วทั้งคู่ — ติดปัญหา stacked PR + squash merge ระหว่างทาง (history ชนกัน
+ต้อง force-push branch ที่ rebase ใหม่) รายละเอียดเต็มใน
+[`handoff_log/merge-p1-p2-lane-assignments.md`](../../../handoff_log/merge-p1-p2-lane-assignments.md)
 

@@ -164,24 +164,28 @@ RC/CN only*, ADR-0009 *refresh also checks `devices.retired_at`*, ADR-0010 *`Api
 patches rows only and never calls the Drift transactional services; Drift schema v3
 (`Sales.shiftId`, `Shifts.id` TEXT, `Products.offlineOk`) is due before `q1` ends*. The eight
 questions only the shop/project owner can answer are collected at the end of `adr/README.md`.
-**Server status (2026-09-07): `server/` exists — #14 `p1` is merged to `main`.** Compose stack
-with Nginx + NestJS ×3 + Postgres + two Redis + worker + Bull-Board, health probes, JSON logs;
-see `server/README.md`. **#15 `p2`** (schema, migrations, RLS, seed) is built and green (PR #42)
-but **not yet merged** — it's stacked on #41 and needs a history rewrite to merge cleanly after
-#41's squash-merge; see `handoff_log/merge-p1-p2-lane-assignments.md` for the exact blocker. No
-auth or business endpoints yet — #4 `p3` is next on the critical path once #15 lands.
-**No cutover is planned for phase 1** — the shop keeps running this Drift build while the server
-is developed against a demo tenant. **As of 2026-09-04 this work happens on `main`** (see
-*Branch strategy* above): the server, the client's API layer and the CI/CD pipelines all land
-in this repo.
+**Server status (2026-09-07): `server/` exists — #14 `p1` and #15 `p2` are merged to `main`.**
+Compose stack with Nginx + NestJS ×3 + Postgres + two Redis + worker + Bull-Board, health
+probes, JSON logs; the 27-table schema as TypeORM migrations applied by a one-shot compose
+`migrate` job, RLS enabled + forced on every tenant-scoped table, grants to the non-owner
+`pos_app` role, the five-category seed; see `server/README.md` *Schema and migrations*. No auth
+or business endpoints yet — **#4 `p3`** is next on the critical path. `synchronize` is never
+true anywhere, tests included. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP`
+(Lane A), `LomerAlloys` (Lane B), `PattaraponKitcharoen` (Lane C) — see
+`handoff_log/merge-p1-p2-lane-assignments.md`. **No cutover is planned for phase 1** — the shop
+keeps running this Drift build while the server is developed against a demo tenant. **As of
+2026-09-04 this work happens on `main`** (see *Branch strategy* above): the server, the
+client's API layer and the CI/CD pipelines all land in this repo.
 
-**CI/CD — level 1 is done, levels 2–3 are ticketed.** `.github/workflows/flutter.yml` is the
+**CI/CD — levels 1–2 are done, level 3 is ticketed.** `.github/workflows/flutter.yml` is the
 client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter build web` + the
 web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
 1. ✅ **Flutter CI** — done. Runners are ASCII paths, so `build_runner` verification runs in CI —
    the only place the committed `*.g.dart` is ever checked against the schema.
-2. **Backend CI** (once `server/` exists) — lint + unit + integration on Postgres/Redis service
-   containers, real migrations applied, `synchronize` false even in tests — issue **#38**.
+2. ✅ **Backend CI** — `.github/workflows/server.yml` (2026-09-06, #38): three jobs — lint,
+   unit, integration. Integration starts the compose Postgres + both Redis (GitHub service
+   containers cannot set the Redis eviction policies), applies the real migrations, then runs
+   `test:e2e`; `synchronize` is false even in tests. Path-filtered to `server/**`.
 3. **Build/deploy** — Flutter Web artifact + server container image on every green build —
    issue **#40**. The **deploy step stays unwired until a production host is chosen** (due
    before `q4`; the faculty VM is demo-only — `03_ARCHITECTURE.md §8`).

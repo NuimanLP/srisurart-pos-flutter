@@ -24,22 +24,24 @@ lib/          Flutter app — core/ (router, theme, utils), data/ (Drift tables 
               domain/models, presentation/ (blocs, 11 screens, widgets)
 test/         repository unit tests + route smoke tests
 web/          Flutter Web assets, incl. sqlite3.wasm + drift_worker.js for the web DB
-server/       NestJS backend (phase 1) — compose stack, Nginx, health probes; see server/README.md
+server/       NestJS backend (phase 1) — compose stack, Nginx, health probes, schema migrations + RLS; see server/README.md
 docs/         Backend_design/ (the binding backend spec + adr/), Summary_backend/
 handoff_log/      per-session detail records; HANDOFF.md links to them
 .github/      workflows/flutter.yml — analyze, test, drift codegen check, web artifact
+              workflows/server.yml  — lint, unit, integration on real Postgres/Redis with migrations
 CONTRACT.md   the binding client spec: tables, repo signatures, routes, Thai-string rules
 CLAUDE.md     project knowledge base — read this first
 HANDOFF.md    dated log of what changed and why
 ```
 
 `server/` (NestJS) lives in this repo ([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)).
-As of 2026-09-07, **#14 `p1`** (compose stack, Nginx, health probes) is merged to `main`;
-**#15 `p2`** (schema, migrations, RLS, seed) is built and green but not yet merged — see
-`handoff_log/merge-p1-p2-lane-assignments.md`. Issues #16 onward (business endpoints, auth) are
-not started. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP` (Lane A — transaction
-path), `LomerAlloys` (Lane B — schema/catalogue/reports), `PattaraponKitcharoen` (Lane C —
-platform/infra/ops).
+As of 2026-09-07 it holds issues **#14 `p1`** and **#15 `p2`** — `docker compose up` brings up
+the full phase-1 topology with health probes and applies the 27-table schema (TypeORM
+migrations, RLS forced on every tenant-scoped table). No auth or business endpoints yet — **#4**
+is next on the critical path. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP`
+(Lane A — transaction path), `LomerAlloys` (Lane B — schema/catalogue/reports),
+`PattaraponKitcharoen` (Lane C — platform/infra/ops); see
+`handoff_log/merge-p1-p2-lane-assignments.md`.
 
 ## Commands
 
