@@ -1,4 +1,4 @@
-# HANDOFF — Srisurart POS (updated 2026-09-04)
+# HANDOFF — Srisurart POS (updated 2026-09-06)
 
 ## TL;DR
 The Flutter port (Phase 0–6, offline parity) is built and the gate is **GREEN as of
@@ -11,8 +11,8 @@ entry). ~~Local `main` is 3 commits ahead of `origin/main` and has NOT been push
 Backend direction: the design package `docs/Backend_design/` is now backed by a
 **decision record in `docs/Backend_design/adr/` (ADR-0001…0011)** — read its
 `README.md` before touching any backend doc. `CLAUDE.md` now states that **where a doc
-contradicts an ADR, the ADR wins.** Nothing server-side is built yet; the design is the
-deliverable so far, and no cutover is planned for phase 1.
+contradicts an ADR, the ADR wins.** ~~Nothing server-side is built yet~~ — **`server/` exists
+as of 2026-09-06 (#14 `p1`, see that entry)**; no cutover is planned for phase 1.
 
 Two of those ADRs were implementable immediately and shipped: Drift **schema v2**
 (`sale_items.costAtSale` + `updatedAt`/`deletedAt` on customers/mechanics/settings —
@@ -33,8 +33,24 @@ through cutover, phase 1 + phase 2 — and there is **no delivery date**. The `�
 decided 2026-09-04 not to recover). **Deployment/hosting has no owning document** — host notes
 are temporarily at the end of `03_ARCHITECTURE.md §8`.
 
-Remaining bigger work: the multi-tenant server (nothing built; no `server/` directory yet),
-the client API layer, and CI levels 2–3.
+Remaining bigger work: the multi-tenant server (`p1` done; #15 schema is next on the critical
+path #14 → #15 → #6), the client API layer, and CI levels 2–3.
+
+## 2026-09-06 (#14 `p1` — `server/` compose stack, Nginx, health probes — branch `feat/p1-compose-stack`)
+- **Full detail: [`handoff/p1-compose-stack.md`](handoff/p1-compose-stack.md).** First server
+  code. `cd server && docker compose up -d --build` yields Nginx (TLS) → NestJS ×3 → Postgres +
+  `redis-cache` (`allkeys-lru`) + `redis-queue` (`noeviction` + AOF), plus the BullMQ worker and
+  Bull-Board (basic auth, host loopback only). `/health/live` touches nothing; `/health/ready`
+  returns `503 NOT_READY` naming the dead dependency. JSON logs carry `X-Correlation-ID`.
+- Every #14 acceptance criterion was exercised against the running stack, including a 400-request
+  drain while stopping one instance (0 failures) and a `/platform/*` request from a non-private IP
+  (403). Unit + e2e suites (real Postgres/Redis, no mocks) pass.
+- Two Nginx bugs found and fixed by the review pass before commit: `proxy_next_upstream http_503`
+  would have ejected all instances on a readiness 503; DNS `resolve` produced a 502 during drain.
+- Docs synced: `03_ARCHITECTURE §8` DoD items 1/5/7 ticked, `adr/README.md` gained a "ลงมือแล้ว"
+  section, `CLAUDE.md` / `README.md` no longer claim `server/` does not exist.
+- Not done: nothing from #15 onward. Ticket #38 (backend CI) has a ready-made gate:
+  `pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e`.
 
 ## 2026-09-04 (grill round 2 → ADR-0010/0011 + first CI — commit `946c405`)
 - **Full detail: [`handoff/grill-round2-ci.md`](handoff/grill-round2-ci.md).** This entry is

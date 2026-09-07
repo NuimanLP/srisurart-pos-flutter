@@ -164,8 +164,10 @@ RC/CN only*, ADR-0009 *refresh also checks `devices.retired_at`*, ADR-0010 *`Api
 patches rows only and never calls the Drift transactional services; Drift schema v3
 (`Sales.shiftId`, `Shifts.id` TEXT, `Products.offlineOk`) is due before `q1` ends*. The eight
 questions only the shop/project owner can answer are collected at the end of `adr/README.md`.
-Nothing is built server-side yet, and **no cutover is planned
-for phase 1** — the shop keeps running this Drift build while the server is developed against a
+**Server status (2026-09-06): `server/` exists — #14 `p1` is built** (compose stack with
+Nginx + NestJS ×3 + Postgres + two Redis + worker + Bull-Board, health probes, JSON logs; see
+`server/README.md`). No schema, auth or business endpoints yet — #15 `p2` is next on the
+critical path. **No cutover is planned for phase 1** — the shop keeps running this Drift build while the server is developed against a
 demo tenant. **As of 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the
 server, the client's API layer and the CI/CD pipelines all land in this repo.
 

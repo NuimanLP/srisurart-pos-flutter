@@ -158,3 +158,22 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
 3. **`team/1` เริ่มได้ช้าที่สุด และเป็นเรื่องเชิงโครงสร้าง** — เส้นทางเงินต้องรอ device role (#6 ของ `team/3`)
    ซึ่งรอ schema (#15 ของ `team/2`) ซึ่งรอ stack (#14 ของ `team/3`) · ลำดับ **#14 → #15 → #6 คือเส้นวิกฤต**
    ไม่ว่าจะแบ่งงานยังไงก็หนีไม่พ้น
+
+## ลงมือแล้ว (2026-09-06) — #14 `p1` stack + health probes
+
+`server/` เกิดขึ้นแล้วตาม ADR-0011 (branch `feat/p1-compose-stack`) — รายละเอียดใน
+[`handoff/p1-compose-stack.md`](../../../handoff/p1-compose-stack.md) และ `server/README.md`
+เกณฑ์ปิดเฟส 1 ข้อ 1 / 5 / 7 ใน `03_ARCHITECTURE §8` ติ๊กแล้ว
+
+สิ่งที่ p1 ตัดสินใจไปและ ticket ถัดไปต้องรู้:
+
+* **แอปต่อ Postgres ด้วย role `pos_app`** (`NOSUPERUSER NOBYPASSRLS` ไม่ใช่เจ้าของตาราง) สร้างตอน init
+  volume — #15 ต้องรัน migration ในฐานะ `postgres` แล้ว `GRANT` ให้ `pos_app` เอง ไม่งั้น RLS ถูกข้ามเงียบ ๆ
+* **Nginx fail over เฉพาะ `error timeout`** (ระดับ connection) ไม่รวม `http_5xx` — เพราะ `/health/ready`
+  ตอบ 503 โดยตั้งใจตอน dependency ล่ม ถ้านับเป็น upstream failure จะเตะทั้ง 3 instance ทิ้งพร้อมกัน
+* **api-1..3 ใช้ IP คงที่** (`172.30.0.11–13`) แทน DNS `resolve` — รอบทดสอบ drain เจอ 502
+  "no live upstreams" จาก DNS ที่หายตอน container หยุด
+* **Envelope `{status, data}` / `{status, error}`** และ JSON 404 ใช้กับทุก path แล้ว (Nest 12 ติด 404 handler
+  ของตัวเองไว้ใต้ global prefix เท่านั้น จึงมี fallback ระดับ Express เพิ่ม)
+* worker กับ Bull-Board **มี process แล้วแต่ยังไม่มี queue** — #34/#35 เป็นคนลงทะเบียน
+
