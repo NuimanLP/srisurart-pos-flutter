@@ -23,9 +23,9 @@ Created [`docs/00_LANE_PRIMER.md`](../00_LANE_PRIMER.md) covering:
 
 2. **The 3-Lane Team Division (Mandated by Course Rule):**
    - Every collaborator touches Frontend + Backend + CI/CD.
-   - **Lane A (`team/1` — NuimanLP):** The Money & Cashier Path (#18, #19, #20, #21, #22, #23, #24, #28, #30, #40 + decision #11 + Frontend checkout/returns).
+   - **Lane A (`team/1` — NuimanLP):** The Money & Cashier Path + Compose Stack (#14, #18, #19, #20, #21, #22, #23, #24, #28, #30, #40 + decision #11 + Frontend checkout/returns).
    - **Lane B (`team/2` — LomerAlloys):** The Warehouse, Catalogue & Reporting Path (#15, #5, #16, #17, #25, #26, #27, #29, #32, #39 + Frontend catalogue/PO).
-   - **Lane C (`team/3` — PattaraponKitcharoen):** The Security, Infrastructure & Platform Path (#14, #4, #6, #31, #33, #34, #35, #36, #37, #38 + decisions #12, #13 + Frontend auth/login).
+   - **Lane C (`team/3` — PattaraponKitcharoen):** The Security, Infrastructure & Platform Path (#4, #6, #31, #33, #34, #35, #36, #37, #38 + decisions #12, #13 + Frontend auth/login).
 
 3. **Critical Path Domino Sequence:**
    - `#14 (Stack: Docker/Compose)` ➡️ `#15 (DB Schema & RLS)` ➡️ `#4 & #6 (Auth & Device Roles)` ➡️ `#18–#20 (Sales & Transaction Core)`.

@@ -145,7 +145,7 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
 
 | | `team/1` เส้นทางเงิน — `NuimanLP` | `team/2` schema + แคตตาล็อก + รายงาน — `LomerAlloys` | `team/3` แพลตฟอร์ม + โครงสร้างพื้นฐาน — `PattaraponKitcharoen` |
 |---|---|---|---|
-| **backend** | #18 #19 #20 #21 #22 #23 #24 #28 #30 | #15 #5 #16 #17 #25 #26 #27 #29 #32 | #14 #4 #6 #31 #33 #34 #35 #36 #37 |
+| **backend** | #14 #18 #19 #20 #21 #22 #23 #24 #28 #30 | #15 #5 #16 #17 #25 #26 #27 #29 #32 | #4 #6 #31 #33 #34 #35 #36 #37 |
 | **CI/CD** | #40 image artefact | #39 path filter + isolation check | #38 backend workflow |
 | **frontend** | Checkout / Returns / Cash Drawer (ฝั่งเขียน) | Products / Customers / PO / Quotes / Reports (ฝั่งอ่าน) + Drift schema v3 | auth + device token, หน้า login, ข้อความ error ใหม่ 7 ตัว |
 | **ตามการตัดสินใจ** | #11 | — | #12 #13 |
@@ -157,8 +157,8 @@ Drift `schemaVersion` 1 → **2** (`build_runner` รันบน path ASCII น
    ไม่งั้นพื้นที่ที่สามจะถูกเร่งทำตอนท้าย
 2. **คอลัมน์ frontend จับคู่กับคอลัมน์ backend โดยตั้งใจ** — คนที่เขียน `POST /sales` เป็นคนต่อหน้า Checkout
    เข้ากับมัน ทำให้งาน client เป็นงานจริง ไม่ใช่งานที่แถมมาเพื่อให้ครบเกณฑ์
-3. **`team/1` เริ่มได้ช้าที่สุด และเป็นเรื่องเชิงโครงสร้าง** — เส้นทางเงินต้องรอ device role (#6 ของ `team/3`)
-   ซึ่งรอ schema (#15 ของ `team/2`) ซึ่งรอ stack (#14 ของ `team/3`) · ลำดับ **#14 → #15 → #6 คือเส้นวิกฤต**
+3. **`team/1` เริ่มงานเส้นทางเงินได้ช้าที่สุด และเป็นเรื่องเชิงโครงสร้าง** — เส้นทางเงินต้องรอ device role (#6 ของ `team/3`)
+   ซึ่งรอ schema (#15 ของ `team/2`) ซึ่งรอ stack (#14 ที่ `NuimanLP` ทำและ merge แล้ว) · ลำดับ **#14 → #15 → #6 คือเส้นวิกฤต**
    ไม่ว่าจะแบ่งงานยังไงก็หนีไม่พ้น
 
 ## ลงมือแล้ว (2026-09-06) — #14 `p1` stack + health probes

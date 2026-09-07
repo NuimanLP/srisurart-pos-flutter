@@ -41,6 +41,14 @@ next on the critical path #14 → #15 → #4 → #6), the client API layer, and 
 placeholders anymore — `NuimanLP` (Lane A, transaction path), `LomerAlloys` (Lane B,
 schema/catalogue/reports), `PattaraponKitcharoen` (Lane C, platform/infra/ops). See that entry.
 
+## 2026-09-07 (reassign ticket #14 to team/1 based on commit author NuimanLP)
+- **Context:** Commit `c47c74e` (#14 `p1` compose stack) was authored and committed by `NuimanLP` (PR #41), but Issue #14 had previously been marked `team/3` in the 3-way split plan.
+- **Changes made:**
+  - Updated GitHub Issue #14 label from `team/3` to `team/1` (`NuimanLP`).
+  - Updated [`docs/00_LANE_PRIMER.md`](docs/00_LANE_PRIMER.md) to allocate #14 under Lane A (`team/1` — NuimanLP) in the ticket breakdown, critical path diagram, and cheat sheet table.
+  - Updated [`docs/Backend_design/adr/README.md`](docs/Backend_design/adr/README.md) table to place #14 under `team/1` (10 backend tickets) and `team/3` (8 backend tickets).
+  - Note: Critical path remains `#14 ➡️ #15 ➡️ #4 ➡️ #6` as foundational stack must be in place before schema and auth.
+
 ## 2026-09-07 (architecture primer: 40-ticket breakdown across 3 lanes + beginner guide)
 - **Full detail: [`docs/handoff_log/lane-primer-breakdown.md`](docs/handoff_log/lane-primer-breakdown.md).**
 - **Artifact created:** [`docs/00_LANE_PRIMER.md`](docs/00_LANE_PRIMER.md) — comprehensive, friendly primer explaining the multi-tenant concept, the 4 building blocks (Flutter, NestJS, Postgres, Redis/BullMQ), the 40 tickets mapped across 3 lanes (`team/1`, `team/2`, `team/3`), the `#14 ➡️ #15 ➡️ #4 ➡️ #6` critical path, and the 3 open decision tickets (#11, #12, #13).
