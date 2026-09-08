@@ -17,7 +17,7 @@
 | [รอบ 1](#รอบ-1--แต่ละคนเจออะไร-ย่อ) | แต่ละคนเจออะไรใน `01`–`03` | 18 finding, 3 BLOCKER |
 | [รอบ 2](#รอบ-2--บทสนทนา) | Q1–Q10 รายละเอียดข้างใน (stock lease, เลขใบเสร็จ, soft delete, Drift…) | ตัดสินใจ 22 ข้อ แก้เข้าเอกสารแล้ว |
 | [รอบ 3](#รอบ-3-2026-09-04--ถกทางเลือก-architecture-a--b--c-กันตรง-ๆ) | **A vs B vs C ตรง ๆ** — §7 แนะนำ C จริงไหม ตาราง §6 ซื่อตรงไหม | Q11–Q19 · ข้อเสนอ 12 ข้อ 🟡 ยังไม่แก้ · verdict: *A + T1 คือทางหลัก, C = option* |
-| รอบ 4 (2026-09-08) — บันทึกอยู่ใน [`06_COUCHDB_REVISION.md §9`](06_COUCHDB_REVISION.md#9-บันทึก-scrutinize-รอบ-4-2026-09-08--ยิงใส่ข้อเสนอนี้) | **ข้อเสนอ CouchDB แทน Postgres** (ADR-0012) — invariant ทำเป็น view ได้จริงไหม | 2 agent · blocker 5 (voided ไม่ใช่เทอม ledger, delta ที่ขอ≠ที่มีผล, ไม่มี opening balance, reversal order-dependent, clamp ตอนอ่าน≠ตอนเขียน) + major 7 · **แก้เข้า `06` แล้วทุกข้อ** · verdict: *fix-then-ship ในฐานะข้อเสนอ* |
+| รอบ 4 (2026-09-08) — บันทึกอยู่ใน [`06_COUCHDB_REVISION.md §9`](06_COUCHDB_REVISION.md#9-บันทึก-scrutinize-รอบ-4-2026-09-08--ยิงใส่ข้อเสนอนี้) | **ข้อเสนอ CouchDB แทน Postgres** (ADR-0012) — invariant ทำเป็น view ได้จริงไหม | 2 agent · blocker 5 (voided ไม่ใช่เทอม ledger, delta ที่ขอ≠ที่มีผล, ไม่มี opening balance, reversal order-dependent, clamp ตอนอ่าน≠ตอนเขียน) + major 7 · **แก้เข้า `06` แล้วทุกข้อ** · verdict: *fix-then-ship ในฐานะข้อเสนอ* · **ผล: เจ้าของโปรเจกต์ปฏิเสธ ADR-0012 วันเดียวกัน — คง Postgres** (finding B1/B2/B4/B5 ยังใช้กับ #20–#24) |
 
 ---
 

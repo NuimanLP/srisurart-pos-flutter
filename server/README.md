@@ -1,10 +1,8 @@
 # Srisurart POS — server (phase 1)
 
-> **2026-09-08 — frozen pending ADR-0012.** The professor has asked for CouchDB instead of
-> PostgreSQL. If `../docs/Backend_design/adr/0012-couchdb-replaces-postgres.md` is accepted,
-> the #15 schema/RLS migrations and `test/schema.e2e-spec.ts` are discarded and the compose
-> stack swaps `postgres` for `couchdb`; the Nginx/health/envelope/logger work from #14 stays.
-> Do not add migrations, entities, or endpoints here until that decision lands.
+> **2026-09-08 — CouchDB was proposed and rejected the same day**
+> (`../docs/Backend_design/adr/0012-couchdb-replaces-postgres.md`). PostgreSQL stays; the
+> #15 migrations and `test/schema.e2e-spec.ts` are current; #4 `p3` is next.
 
 NestJS multi-tenant backend. Design lives in `../docs/Backend_design/` (ADRs win over
 prose); work items live in GitHub issues (#2 is the brief). Landed so far: **#14 `p1`**

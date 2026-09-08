@@ -1,6 +1,8 @@
 # Handoff — แผนฉบับ CouchDB แทน PostgreSQL (2026-09-08)
 
-**วันที่:** 2026-09-08 · **ผู้บันทึก:** agent (session เจ้าของโปรเจกต์) · **สถานะ:** รอคนอื่น — รออาจารย์ตอบ 5 ข้อ
+> **ผล (2026-09-08 วันเดียวกัน): Rejected — คง PostgreSQL** → [`couchdb-rejected.md`](couchdb-rejected.md)
+
+**วันที่:** 2026-09-08 · **ผู้บันทึก:** agent (session เจ้าของโปรเจกต์) · **สถานะ:** ปิดแล้ว (เดิม: รออาจารย์ตอบ 5 ข้อ)
 **ขอบเขต:** แปลงคำสั่งปากเปล่าของอาจารย์ *"POS ควรใช้ CouchDB ไม่ใช่ Postgres"* เป็นข้อเสนอที่ตรวจแล้ว ไม่ได้แก้ `01`–`03` และไม่ได้แตะ `server/`
 **ต่อจาก:** [`merge-p1-p2-lane-assignments.md`](merge-p1-p2-lane-assignments.md), [`reassign-ticket-14.md`](reassign-ticket-14.md)
 

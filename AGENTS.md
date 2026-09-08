@@ -157,6 +157,15 @@ data loads (now `FutureBuilder`s fed by futures created in `initState`/explicit
 `_refresh()`). `flutter_riverpod` fully removed from `pubspec.yaml`. The 12-step plan is
 archived (migration complete); the session record is `handoff_log/riverpod-to-bloc.md`.
 
+**CouchDB considered and rejected (2026-09-08).** The professor suggested CouchDB in place of
+PostgreSQL; the project owner decided the same day to keep the PostgreSQL line. The reasons
+(reading ก is strictly worse than Postgres; reading ข rests on an unproven Flutter-Web
+replication spike, gets its stock safety from ADR-0004 rather than the DB, throws away #15 and
+the course rubric, and offline-first already returns as phase 2) are recorded in
+`docs/Backend_design/adr/0012-couchdb-replaces-postgres.md` (**Rejected**) — start there if the
+topic comes back; `06_COUCHDB_REVISION.md` is kept as history only. The 2026-09-08 freeze on
+`server/` and #4–#37 is lifted.
+
 **Backend direction changed (2026-08-25) — read `docs/Backend_design/` first.** The team now has
 backend help and the stack is fixed by the course/assignment to **NestJS + PostgreSQL + Redis +
 BullMQ + Nginx**, with **multi-tenant** (many shops, one database) added to the scope. That

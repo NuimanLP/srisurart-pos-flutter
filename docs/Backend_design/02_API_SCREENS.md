@@ -1,11 +1,5 @@
 # 02 — หน้าจอ → API (Screen-to-Endpoint Map)
 
-> 🔴 **2026-09-08 — ถ้า [ADR-0012](adr/0012-couchdb-replaces-postgres.md) (CouchDB, Proposed) ผ่าน:**
-> endpoint ฝั่งเครื่อง `pos` ทั้งกลุ่ม (`/sales`, `/returns`, `/shifts`, `/parked`, `/credit-payments`, `/sync/*`)
-> **หายไป** — เครื่อง `pos` เขียน doc ลง replica แล้ว replicate เอง · ที่เหลืออยู่คือ backoffice + admin plane +
-> reports + `/devices` · ข้อความไทยใน §8 **ยังใช้ทุกตัว** (ย้ายไปอยู่ที่เครื่อง) ยกเว้น `OFFLINE_NOT_ALLOWED`
-> ที่ไม่มีแล้ว — รายละเอียดใน [`06_COUCHDB_REVISION.md §2, §6.2`](06_COUCHDB_REVISION.md)
-
 > **สำหรับทีม backend:** แอปมี **11 หน้าจอ** เอกสารนี้บอกว่าแต่ละหน้าจอ "ยิงอะไร ตอนไหน"
 > ข้อมูลนี้ไม่ได้เดา — อ่านจากโค้ดจริงว่าหน้าจอเรียก repository method ไหนบ้าง
 > แล้วแปลง repository method → REST endpoint
