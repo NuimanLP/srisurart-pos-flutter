@@ -1,5 +1,11 @@
 # 01 — Database Design (PostgreSQL, multi-tenant)
 
+> 🔴 **2026-09-08 — ไฟล์นี้อาจถูกแทนทั้งฉบับ:** อาจารย์แจ้งให้ใช้ **CouchDB แทน PostgreSQL**
+> ([ADR-0012](adr/0012-couchdb-replaces-postgres.md) — Proposed) ถ้าผ่าน §2 §5 §6 §8 (DDL / index / RLS)
+> จะหายทั้งหมด และ **§7 (invariants) ย้ายไปบังคับที่เครื่อง `pos` + view** ตาม
+> [`06_COUCHDB_REVISION.md §4`](06_COUCHDB_REVISION.md) — กติกาธุรกิจใน §7 ยังเป็นความจริงเสมอไม่ว่า DB ไหน
+> **ห้ามเขียน migration/entity ใหม่จากไฟล์นี้จนกว่า ADR-0012 จะเคาะ**
+
 > **สำหรับทีม backend:** นี่คือ "หน้าตาของ database" ที่ถามถึง
 > แอปเดิมเก็บทุกอย่างใน SQLite บนเครื่อง (Drift) **20 ตาราง** — เอกสารนี้แปลงเป็น PostgreSQL
 > พร้อมเพิ่มอีก **8 ตาราง** ที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant) → **รวม 28 ตาราง**

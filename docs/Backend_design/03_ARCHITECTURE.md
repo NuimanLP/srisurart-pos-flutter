@@ -1,5 +1,12 @@
 # 03 — Architecture: 3 ทางเลือก พร้อมข้อดี-ข้อเสีย
 
+> 🔴 **2026-09-08 — ข้อสรุป §7 ถูกท้าทายจากนอกเอกสาร:** อาจารย์แจ้งให้ใช้ **CouchDB แทน PostgreSQL**
+> ([ADR-0012](adr/0012-couchdb-replaces-postgres.md) — Proposed) ซึ่งเท่ากับ **ปลุก Architecture B กลับมา**
+> โดย sync engine (ข้อเสีย 🔴 ทั้งหมดใน §3) มากับตัว DB และ conflict บน path เงินถูกกันด้วย ADR-0004 (writer เดียว)
+> ไม่ใช่ด้วยโค้ด · ตาราง §6 และ Gantt §8 **ยังไม่ได้แก้** — แผนฉบับ CouchDB อยู่ใน
+> [`06_COUCHDB_REVISION.md §3, §6.3, §7`](06_COUCHDB_REVISION.md) · ถ้าอาจารย์หมายถึงแค่ "สลับ DB หลัง server"
+> เอกสารนี้ยังถูกทั้งฉบับ (แค่เปลี่ยนคำว่า PostgreSQL)
+
 > ทั้ง 3 แบบอยู่บน **สแตกเดียวกัน** ที่ทีมเรียนมาและอาจารย์กำหนด:
 > **Nginx (LB) → NestJS ≥3 instances → PostgreSQL (TypeORM) + Redis (cache) + BullMQ (queue), JWT stateless, Docker Compose**
 > ที่ต่างกันคือ **"ข้อมูลตัวจริงอยู่ที่ไหน"** และ **"ตอนเน็ตล่มเกิดอะไรขึ้น"**

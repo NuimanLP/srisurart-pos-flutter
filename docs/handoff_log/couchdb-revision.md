@@ -6,12 +6,14 @@
 
 ## 1. ตอนนี้อยู่ตรงไหน
 
-* มีไฟล์ใหม่ 2 ไฟล์ + banner 3 จุด **ยังไม่ commit**:
+* commit แรก `8320299` (2026-09-08): ไฟล์ใหม่ 2 ไฟล์ + banner 3 จุด
   * `docs/Backend_design/adr/0012-couchdb-replaces-postgres.md` — สถานะ **Proposed**
   * `docs/Backend_design/06_COUCHDB_REVISION.md` — แผนทั้งชุดถ้า ADR-0012 ผ่าน (ผ่าน scrutinize รอบ 4 แล้ว)
   * banner ใน `00_INDEX.md`, `adr/README.md` (แถว 0012), `CLAUDE.md` (ย่อหน้าใหม่บน "Backend direction changed")
-* เอกสาร `01`–`03` และ `server/` **ยังเป็นฉบับ Postgres ทั้งหมด** โดยตั้งใจ
-* ticket #4–#37 ทุกใบยังเขียนบนสมมติฐาน Postgres — **ประกาศ freeze ไว้ใน banner แล้ว** แต่ยังไม่ได้ comment ใน GitHub
+* commit ที่สอง (2026-09-08): banner ชี้ไป ADR-0012 ใน `00_BASICS` `01` `02` `03` `05` `00_LANE_PRIMER` `server/README`,
+  แถวรอบ 4 ในตาราง `04_QA_SCRUTINY`, คำถาม 5 ข้อไว้บนสุดของ "ยังค้างอยู่" ใน `adr/README`, และ `handoff_log/INDEX.md`
+* เอกสาร `01`–`03` และ `server/` **ยังเป็นฉบับ Postgres ทั้งหมด** โดยตั้งใจ — แค่มี banner
+* ticket #4–#37 ทุกใบยังเขียนบนสมมติฐาน Postgres — **ประกาศ freeze ไว้ใน banner ทุกไฟล์แล้ว** แต่ยังไม่ได้ comment ใน GitHub
 
 ## 2. รอบนี้ทำอะไรไป ได้ผลอะไร
 
@@ -62,7 +64,7 @@
 4. `c0` ผ่าน → ADR-0012 เป็น Accepted, amend ADR-0007 (CP) + ADR-0005 (restore ทำได้), เขียน `01`/`02`/`03` ใหม่ตาม `06`,
    ตัด ticket `c1`–`c5` + `c3.1`–`c3.3`, re-scope #4–#37 ตามตาราง `06 §6.2`, ปิด #11 ก่อน `c3.1`
 5. `c0` ไม่ผ่าน / อาจารย์ตอบ **ก**: กลับไปเสนอ Postgres พร้อมตาราง "ราคาที่ต้องจ่าย" ใน ADR-0012
-6. commit งานรอบนี้ (ยังไม่ได้ commit — รอเจ้าของโปรเจกต์ดูก่อน)
+6. ~~commit งานรอบนี้~~ — ทำแล้ว (`8320299` + commit banner) · ยังไม่ push
 
 ## 7. ข้อควรระวัง
 

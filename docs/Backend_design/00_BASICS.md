@@ -1,5 +1,11 @@
 # 00 — ปูพื้นฐาน: อ่านอันนี้ก่อน
 
+> ℹ️ **2026-09-08:** ไฟล์นี้อธิบาย SQL / transaction / RLS บน PostgreSQL ซึ่งอาจถูกแทนด้วย **CouchDB**
+> ([ADR-0012](adr/0012-couchdb-replaces-postgres.md) — Proposed) · ศัพท์ที่ยังไม่มีในไฟล์นี้และจะต้องรู้ถ้าผ่าน:
+> *document*, `_id`/`_rev`, *replication*, *view / map-reduce*, *conflict*, *database-per-tenant* —
+> อ่านสั้น ๆ ได้จาก [`06_COUCHDB_REVISION.md §1, §4`](06_COUCHDB_REVISION.md) · ส่วน client/server, API, JWT,
+> cache, queue, scaling ในไฟล์นี้ **ยังใช้ได้หมด**
+
 > **ไฟล์นี้เขียนให้คนที่ยังไม่เคยทำ backend มาก่อน**
 > เอกสาร `01`–`04` เขียนโดยสมมติว่ารู้ศัพท์พวกนี้อยู่แล้ว ซึ่งทำให้อ่านแล้วงง
 > ไฟล์นี้จะอธิบายทุกคำที่โผล่ในเอกสารพวกนั้น **โดยใช้ร้านอะไหล่ของเราเองเป็นตัวอย่างตลอด**
