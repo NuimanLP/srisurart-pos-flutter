@@ -1,5 +1,11 @@
 # Srisurart POS — Backend Design Package
 
+> ### 🔴 2026-09-08 — อาจารย์แจ้งให้ใช้ **CouchDB แทน PostgreSQL** (ยังไม่เคาะ)
+> ข้อเสนอและผลกระทบอยู่ใน [ADR-0012](adr/0012-couchdb-replaces-postgres.md) (Proposed) และ
+> [`06_COUCHDB_REVISION.md`](06_COUCHDB_REVISION.md) (แผนที่แก้แล้วทั้งชุด) — เอกสาร `01`–`03` ด้านล่าง
+> **ยังเป็นฉบับ PostgreSQL** โดยตั้งใจ จนกว่าอาจารย์จะตอบคำถาม 5 ข้อท้าย ADR-0012
+> **ระหว่างนี้ห้ามหยิบ ticket #4–#37 และห้ามแตะ `server/`** — ทุกใบเขียนบนสมมติฐาน Postgres
+
 เอกสารชุดนี้เขียนให้ **ทีม backend** ใช้เป็น spec ตั้งต้น สำหรับย้ายแอป POS ร้านอะไหล่
 จากเดิมที่เป็น **offline-only (Drift/SQLite บนเครื่อง)** ไปเป็น **client + backend**
 และขยาย scope ให้รองรับ **ร้านอะไหล่หลายร้าน (multi-tenant)** ตามที่อาจารย์ต้องการ
@@ -22,6 +28,7 @@
 | [`03_ARCHITECTURE.md`](03_ARCHITECTURE.md) | 3 architecture ให้เลือก (พร้อม mermaid + ข้อดี/ข้อเสีย/ต้นทุน), 3 ทางเลือกของ multi-tenant model, ตารางเปรียบเทียบ, ข้อเสนอสุดท้าย | **ทุกคน + อาจารย์** |
 | [`04_QA_SCRUTINY.md`](04_QA_SCRUTINY.md) | บันทึกการถกเถียงของ 3 agent ที่ review design นี้ (Q&A สั้น ๆ) + ข้อสรุปที่แก้เข้าไปในเอกสารแล้ว | คนที่อยากรู้ว่า "ทำไมถึงตัดสินใจแบบนี้" |
 | ⭐ [`05_HOW_WE_GOT_HERE.md`](05_HOW_WE_GOT_HERE.md) | **จาก design เป็น ticket** — เอกสารกองนี้ถูกแตกเป็น GitHub issue ที่หยิบทำได้ยังไง (grill-with-docs → to-spec → to-tickets), ตัวละครทั้งหมด, ชีวิตของ ticket 1 ใบ, ตารางแบ่งงาน 3 คน, และของที่ห้ามเดา | **คนที่เพิ่งเข้าทีมและกำลังจะหยิบ issue ใบแรก** |
+| 🔴 [`06_COUCHDB_REVISION.md`](06_COUCHDB_REVISION.md) | **แผนฉบับ CouchDB (Proposed 2026-09-08)** — สมมติฐานที่ยืนอยู่, ADR ทีละฉบับเปลี่ยนยังไง, document model + ledger แทน transaction, ticket ทีละใบ (เก็บ/ทิ้ง/ย้ายไป frontend), งานใหม่ `c0`–`c5`, DoD ใหม่, สิ่งที่ห้ามหลอกตัวเอง | **ทุกคน ก่อนหยิบงานใด ๆ** |
 | ⭐ [`adr/`](adr/README.md) | **บันทึกการตัดสินใจ (ADR) — 1 ไฟล์ = 1 การตัดสินใจ** ครอบคลุมเรื่องที่เอกสาร 01–03 ยังไม่ได้ตอบ: การสร้างร้านใหม่, admin plane, สถานะร้าน, บทบาทเครื่อง, export/restore, rate limit, เลขที่ใบเสร็จ, ต้นทุน ณ วันขาย, อายุ JWT, cache ฝั่ง client, monorepo | ทุกคนก่อนเริ่ม implement |
 
 ---

@@ -17,6 +17,7 @@
 | [0009](0009-jwt-session-lifetime.md) | อายุ JWT | ล็อกอินใหม่ทุกวัน — access 15 นาที + refresh หมดอายุ **ตี 4** ไม่ใช่ 24 ชม.นับจากล็อกอิน | Accepted |
 | [0010](0010-client-write-through-cache.md) | client ใช้ Drift ยังไง | `ApiRepository` = implementation ใหม่ของ interface เดิม เขียนผลลง Drift (**write-through**) และ **map ที่ชั้น repository** ไม่ regenerate schema ตาม Postgres | Accepted |
 | [0011](0011-monorepo.md) | `server/` อยู่ที่ไหน | repo เดียวกับ client — 1 commit แก้ API ได้ทั้งสองฝั่ง, CI ใช้ `paths:` filter | Accepted |
+| [0012](0012-couchdb-replaces-postgres.md) | **CouchDB แทน PostgreSQL** (อาจารย์สั่ง 2026-09-08) | ถ้าใช้ต้องเป็นแบบ "เครื่อง `pos` replicate ตรง" เท่านั้น: db-per-tenant, สต็อก = ledger view, `pos` เป็น writer เดียวของ doc เงิน (พึ่ง ADR-0004), `pos` ออกเลขเองตั้งแต่เฟส 1 (ADR-0007 เฟส 2), ADR-0010 ยกเลิก, #15 ทิ้ง · **ถ้าอาจารย์หมายถึงแค่สลับ DB หลัง server → ขอคง Postgres** | 🟡 **Proposed** — รอคำตอบอาจารย์ 5 ข้อ |
 
 ## สถานะการนำไปลงเอกสารหลัก
 
