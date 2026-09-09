@@ -13,6 +13,7 @@ RLS, grants, category seed). No auth or business endpoints yet — #4 is next.
 
 ```
 cd server
+cp .env.example .env     # required: compose enforces that secrets are present
 docker compose up -d --build
 curl -k https://localhost/health/live     # → {"status":"success","data":{"status":"up"}}
 curl -k https://localhost/health/ready    # checks Postgres + both Redis
@@ -21,18 +22,32 @@ curl -k https://localhost/health/ready    # checks Postgres + both Redis
 That is the whole stack: Nginx (TLS, self-signed) → `api-1..3` → PostgreSQL, `redis-cache`,
 `redis-queue`, plus the BullMQ `worker` and `bull-board` (http://127.0.0.1:3100, basic auth).
 The one-shot `migrate` job applies the schema as the owner role before any `api-*` starts.
-Dev secrets are the defaults in `docker-compose.yml`; override them in `server/.env`
-(see `.env.example`) on any shared machine.
+Secrets are required via `server/.env` (see `.env.example`); `docker-compose.yml` fails fast
+if `POSTGRES_PASSWORD`, `POS_APP_PASSWORD`, `REDIS_PASSWORD` or `BULL_BOARD_PASSWORD` is unset.
+
+**Only Nginx (80/443) and Bull-Board (loopback 3100) are reachable from the host.** Postgres
+and both Redis publish no port at all in `docker-compose.yml` — they are reachable only over
+the compose network, and both Redis require `AUTH` (`--requirepass`, password carried in
+`REDIS_*_URL`). Tools that run outside Docker need the dev overlay, which publishes
+5432 / 6379 / 6380 on `127.0.0.1`:
+
+```
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait postgres redis-cache redis-queue
+```
+
+🔴 The overlay is for a laptop or a CI runner. **Never use it on the faculty VM or any shared
+host** — a second user or an SSRF bug on that host would then reach the datastores directly.
 
 Local development without Docker for the app itself:
 
 ```
 corepack pnpm install
-docker compose up -d --wait postgres redis-cache redis-queue
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait postgres redis-cache redis-queue
 corepack pnpm build
 DATABASE_URL=postgres://postgres:dev-only-postgres@127.0.0.1:5432/pos corepack pnpm db:migrate
 DATABASE_URL=postgres://pos_app:dev-only-pos-app@127.0.0.1:5432/pos \
-REDIS_CACHE_URL=redis://127.0.0.1:6379 REDIS_QUEUE_URL=redis://127.0.0.1:6380 \
+REDIS_CACHE_URL=redis://:dev-only-redis@127.0.0.1:6379 \
+REDIS_QUEUE_URL=redis://:dev-only-redis@127.0.0.1:6380 \
 corepack pnpm start:dev
 ```
 
@@ -46,7 +61,7 @@ corepack pnpm test:e2e      # against the compose Postgres/Redis — no mocks; t
 
 `.github/workflows/server.yml` (#38) runs the same three as separate jobs — lint, unit,
 integration — on every push/PR touching `server/**`, starting the compose Postgres + both
-Redis and applying the migrations first.
+Redis (with the dev overlay, so the runner can reach them) and applying the migrations first.
 
 ## Schema and migrations (#15)
 
@@ -93,8 +108,12 @@ docker/postgres/init/    creates the non-superuser pos_app role on first boot
 ## Invariants this stack enforces (from #14 / #2)
 
 - `redis-cache` = `allkeys-lru`, no persistence. `redis-queue` = `noeviction` + AOF. Two processes.
-- Bull-Board requires basic auth and is bound to host loopback only; `/platform/*` is refused
-  by Nginx from any non-private source address.
+- Both Redis run with `--requirepass`; an unauthenticated client cannot read a cache entry or
+  `FLUSHALL` the queue even from inside the compose network.
+- Postgres and both Redis publish **no** host port; only `docker-compose.dev.yml` (dev/CI) does.
+- Bull-Board requires basic auth and is bound to host loopback only (Nginx does not proxy it —
+  on the VM reach it over an SSH tunnel); `/platform/*` is refused by Nginx from any non-private
+  source address.
 - `/health/live` does no I/O. `/health/ready` returns `503 NOT_READY` naming the failed
   dependency. Nginx fails over only on connection errors, never on the app's own 5xx.
 - `SIGTERM` drains: Nest closes the listener, in-flight requests finish, then pools close.

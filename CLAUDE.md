@@ -259,7 +259,12 @@ back** (decided 2026-09-04). Recover from git history if you ever need the Supab
   a pending-timer leak).
 - **Native hardware — Phase 8b** (needs shop access): thermal printer / cash-drawer kick /
   barcode **scanning** (camera); scan actions currently use manual entry.
-- **Security (2026-09-09 review)** — ADR-0009 addendum *"การเซ็นและที่เก็บ token"* (RS256 + `kid`,
+- **Security (2026-09-09 review)** — compose hardening landed the same day: both Redis run with
+  `--requirepass` (`REDIS_PASSWORD`, carried in `REDIS_*_URL`) and **no datastore port is published
+  to the host** — `docker-compose.yml` keeps Postgres/Redis on the compose network only, while
+  `server/docker-compose.dev.yml` publishes 5432/6379/6380 on loopback **for dev machines and CI
+  runners only, never the VM** (`server/README.md`, `04_QA_SCRUTINY.md` รอบ 4 เพิ่มเติม). Also:
+  ADR-0009 addendum *"การเซ็นและที่เก็บ token"* (RS256 + `kid`,
   `typ` claim, access in memory / refresh in IndexedDB) binds #4; **#43** owns the `audit_log`
   writer (auth events with #4, money/stock writes call it); **#44** `sec.1` owns Helmet/CORS,
   per-user auth rate limits, the negative-path e2e suite, CodeQL after #4+#20, and a one-off ZAP

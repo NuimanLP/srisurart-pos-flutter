@@ -1,0 +1,21 @@
+# Dev / CI overlay — publishes the datastore ports on host loopback so that tests and
+# tools running OUTSIDE Docker can reach them (pnpm test:e2e, pnpm db:migrate, psql).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait postgres redis-cache redis-queue
+#
+# 🔴 Never use this overlay on the faculty VM or any shared host: with it, any local user
+# or an SSRF bug on the host can reach Postgres and both Redis directly. The base
+# docker-compose.yml deliberately publishes no datastore port at all (sec.1, 2026-09-09).
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis-cache:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  # 6380 on the host so the two Redis do not collide.
+  redis-queue:
+    ports:
+      - "127.0.0.1:6380:6379"

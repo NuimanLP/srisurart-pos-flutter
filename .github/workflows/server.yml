@@ -6,6 +6,9 @@ name: Server CI
 #   migrate + pnpm test:e2e       → job "integration", on the real compose Postgres +
 #                                   both Redis (their eviction policies matter), with
 #                                   the real migrations applied — never synchronize.
+#                                   It adds docker-compose.dev.yml, which is the only
+#                                   file that publishes 5432/6379/6380 on loopback so a
+#                                   runner-side test can connect (sec.1, 2026-09-09).
 # Path-filtered to server/** so client-only changes skip it (ADR-0011); flutter.yml
 # ignores server/** in turn. Do NOT make these jobs required checks on main until
 # #39 adds an always-runs job — a server-only PR runs no Flutter jobs at all.
@@ -82,6 +85,10 @@ jobs:
   integration:
     name: integration (Postgres + both Redis, real migrations)
     runs-on: ubuntu-latest
+    env:
+      # Base + dev overlay for every `docker compose` call in this job. The base file
+      # publishes no datastore port; only the overlay does, and only on 127.0.0.1.
+      COMPOSE_FILE: docker-compose.yml:docker-compose.dev.yml
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,7 +98,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # The same compose file as prod: pos_app role from the init script, allkeys-lru
-      # vs noeviction+AOF. (GitHub service containers cannot set a Redis command.)
+      # vs noeviction+AOF, both Redis behind --requirepass. (GitHub service containers
+      # cannot set a Redis command.) The dev overlay only adds the loopback ports.
+      - name: write the dev secrets compose requires
+        run: cp .env.example .env
+
       - name: start Postgres, redis-cache, redis-queue
         run: docker compose up -d --wait postgres redis-cache redis-queue
 

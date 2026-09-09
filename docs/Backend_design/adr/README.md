@@ -206,7 +206,8 @@ schema ทั้ง 27 ตารางของ `01_DATABASE.md §5` เป็�
   เพิ่ม CHECK ให้ `tenants.plan` / `devices.device_no` / `drawer_entries.type` / `movements.type`
 * **CI ฝั่ง server ใช้ `docker compose up postgres redis-cache redis-queue` แทน service container**
   เพราะ service container ของ GitHub ตั้ง `command` ของ Redis ไม่ได้ → policy `allkeys-lru`/`noeviction`
-  จะไม่ตรงกับของจริง
+  จะไม่ตรงกับของจริง · ตั้งแต่ 2026-09-09 job นี้ต้องซ้อน `docker-compose.dev.yml` ด้วย (`COMPOSE_FILE`)
+  เพราะไฟล์ compose หลักไม่ publish port ของ datastore ออก host อีกแล้ว (04_QA_SCRUTINY รอบ 4 เพิ่มเติม)
 
 **สถานะ merge (2026-09-07):** #14 (`feat/p1-compose-stack`, PR #41) และ #15 (`feat/p2-schema`,
 PR #42) merge เข้า `main` แล้วทั้งคู่ — ติดปัญหา stacked PR + squash merge ระหว่างทาง (history ชนกัน

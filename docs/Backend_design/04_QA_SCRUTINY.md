@@ -518,7 +518,7 @@ ticket `sec.1` (CVE gate + OWASP checklist), job `audit` ใน `server.yml`, jo
 | A02 | Cryptographic Failures | Argon2id · RS256 + `kid` · access ใน memory · redact log (ADR-0009 addendum) · TLS ที่ Nginx | ยังไม่มี TLS config จริงเพราะยังไม่มี host (ADR-0011 / #40) |
 | A03 | Injection | TypeORM parameterized · `SET LOCAL app.tenant_id` รับค่าจาก UUID ที่ parse แล้ว · JSON body only | negative-path e2e: SQLi ทุก string field, `tid` ที่ไม่ใช่ UUID → `sec.1` |
 | A04 | Insecure Design | idempotency key (#18) · `TOTAL_MISMATCH` (§1.3) · row lock บนสต็อก · one `pos` per tenant · ADR ทั้งชุด | — |
-| A05 | Security Misconfiguration | `synchronize` false ทุกที่ · `pos_app` ไม่ใช่ owner · Redis policy ตรงกับ prod ใน CI (#38) | **Helmet + CORS allowlist + Nginx hardening ยังไม่ระบุที่ไหนเลย** → `sec.1` (ลงใน #4/#14) · Trivy misconfig scan ของ Dockerfile → job `audit` |
+| A05 | Security Misconfiguration | `synchronize` false ทุกที่ · `pos_app` ไม่ใช่ owner · Redis policy ตรงกับ prod ใน CI (#38) · **ใหม่ 2026-09-09:** Redis ทั้งสองตัวมี `--requirepass` และ datastore ไม่ publish port ออก host เลย (ดูกล่องด้านล่าง) | **Helmet + CORS allowlist + Nginx hardening ยังไม่ระบุที่ไหนเลย** → `sec.1` (ลงใน #4/#14) · Trivy misconfig scan ของ Dockerfile → job `audit` |
 | A06 | Vulnerable & Outdated Components | **ใหม่:** `pnpm audit --audit-level=high` + Trivy fs (`server.yml`) · OSV-Scanner บน `pubspec.lock` (`flutter.yml`) · Dependabot **security-only** (ไม่ใช่ version bump รายสัปดาห์ — ดูกล่องด้านบน) | image scan ของ container ที่ build จริง → #40 |
 | A07 | Identification & Auth Failures | access 15 นาที / refresh ตี 4 · refresh เช็ค DB 3 ค่า · `typ` แยก access/refresh · device token opaque hash | **rate limit ต่อ user/IP บน `/auth/token` และ PIN** — #33 เป็นต่อ tenant ไม่พอ → `sec.1` เพิ่มลง #33 · e2e brute-force PIN |
 | A08 | Software & Data Integrity | migration one-shot job, ไม่รันตอน boot · `--frozen-lockfile` ทุก job · `pnpm.overrides` แทนการ patch มือ | pin GitHub Actions ด้วย SHA — **ทำมือ** เพราะ Dependabot ปิด version update แล้ว → `sec.1` · image signing ไม่ทำในเฟส 1 |
@@ -532,3 +532,21 @@ ticket `sec.1` (CVE gate + OWASP checklist), job `audit` ใน `server.yml`, jo
 * **SAST เต็มรูป (CodeQL/Semgrep)** — repo public จึงใช้ CodeQL ฟรีได้ แต่ยังไม่มี business code ให้สแกน
   ค่อยเปิดหลัง #4 + #20 merge เพราะตอนนี้จะเขียวเปล่า ๆ และไม่มีใครอ่าน
 * **Pentest ภายนอก** — นอกขอบเขตวิชา; ตาราง OWASP ด้านบน + negative-path e2e คือหลักฐานที่ rubric ต้องการ
+
+### เพิ่มเติม 2026-09-09 — สองรูรั่วในไฟล์ compose เอง (แก้แล้ว)
+
+รอบ 4 ทบทวนโค้ดของ **application** เป็นหลัก อีกคนรีวิว `docker-compose.yml` ต่อแล้วเจอสองข้อที่
+ไม่มีใครพูดถึงเลยทั้งใน #14 และในตาราง OWASP ข้างบน ทั้งคู่แก้แล้วในรอบเดียวกัน:
+
+| ข้อ | เดิม | ทำไมถึงเป็นปัญหา | แก้เป็น |
+|---|---|---|---|
+| **Redis ไม่มีรหัสผ่าน** 🟡 Medium-High | `redis-cache` และ `redis-queue` รันโดยไม่มี `--requirepass` เลย ใครต่อถึงก็สั่งได้ทุกคำสั่ง | ขอบเขตความปลอดภัยไปกองอยู่ที่ docker network อย่างเดียว — container ตัวไหนในสแตกโดนเจาะ (หรือมีใครต่อ network นี้เพิ่ม) ก็อ่าน cache ได้หมด และสั่ง `FLUSHALL` ล้าง `redis-queue` ได้ทันที ซึ่งเท่ากับ**งานขายที่ค้างในคิวหายเงียบ ๆ** — เป็นความเสียหายแบบเดียวกับที่กฎ `noeviction` ตั้งใจกันไว้ | `--requirepass ${REDIS_PASSWORD:?…}` ทั้งสองตัว, รหัสเดินทางไปกับ `REDIS_CACHE_URL`/`REDIS_QUEUE_URL` (ioredis อ่าน `redis://:pass@host:port` ตรง ๆ ไม่ต้องแก้โค้ด), healthcheck ใช้ `REDISCLI_AUTH` + `grep -q PONG` (redis-cli exit 0 แม้ตอบ error) |
+| **publish port datastore ออก host** 🟡 Medium | `ports:` ของ Postgres (5432), Redis (6379/6380) ผูกไว้ที่ `127.0.0.1` | กันคนนอกอินเทอร์เน็ตได้แล้วก็จริง แต่ยัง**เชื่อ host ทั้งเครื่อง**: user อื่นบน VM เดียวกัน หรือช่องโหว่ SSRF ในบริการอะไรก็ตามบน host นั้น ยิงถึง DB ได้ตรง ๆ โดยไม่ผ่าน Nginx/RLS guard | `docker-compose.yml` **ไม่มี `ports:` ของ datastore แล้ว** — คุยกันผ่าน docker network เท่านั้น · ย้าย 5432/6379/6380 (loopback) ไปไว้ที่ `docker-compose.dev.yml` ซึ่งใช้เฉพาะเครื่อง dev กับ CI runner (`COMPOSE_FILE` ใน job `integration`) · **ห้าม overlay ตัวนี้บน VM** |
+
+**สิ่งที่ยังผูก port ไว้โดยตั้งใจ:** Nginx (80/443 — คือทางเข้าเดียวของระบบ) และ Bull-Board
+(`127.0.0.1:3100`) Bull-Board ไม่มี route ผ่าน Nginx จึงต้องเหลือ port ไว้ให้เข้าทาง **SSH tunnel**
+(`ssh -L 3100:127.0.0.1:3100 …`) และมันยังมี basic auth ทับอีกชั้น
+
+**ผลข้างเคียงที่ต้องรู้:** ใครที่มี `server/.env` เก่าอยู่แล้วต้องเติม `REDIS_PASSWORD` เข้าไป ไม่งั้น
+`docker compose` จะไม่ยอมขึ้นเลย (fail fast ตามที่ตั้งใจ) — และคำสั่ง dev ทุกอันที่ต่อ DB/Redis จาก
+นอก Docker ต้องเติม `-f docker-compose.yml -f docker-compose.dev.yml` (ดู `server/README.md`)
