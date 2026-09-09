@@ -9,6 +9,10 @@ name: Server CI
 # Path-filtered to server/** so client-only changes skip it (ADR-0011); flutter.yml
 # ignores server/** in turn. Do NOT make these jobs required checks on main until
 # #39 adds an always-runs job — a server-only PR runs no Flutter jobs at all.
+#
+# Job "audit" (sec.1, 2026-09-09) is the CVE gate: `pnpm audit` on the lockfile plus a
+# Trivy filesystem scan (lockfile + Dockerfile misconfiguration). Image scanning of the
+# built container belongs to #40 once an image is produced on green main.
 
 on:
   push:
@@ -39,6 +43,29 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
+
+  audit:
+    name: audit (pnpm audit + Trivy fs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # Fails on high/critical advisories. Fix by bumping, or by a `pnpm.overrides`
+      # entry in package.json when the vulnerable package is transitive (see multer).
+      - run: pnpm audit --audit-level=high
+      - name: Trivy — lockfile CVEs + Dockerfile misconfig
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: server
+          scanners: vuln,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
 
   unit:
     name: unit

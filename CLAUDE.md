@@ -204,8 +204,11 @@ client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter bu
 web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
 1. ✅ **Flutter CI** — done. Runners are ASCII paths, so `build_runner` verification runs in CI —
    the only place the committed `*.g.dart` is ever checked against the schema.
-2. ✅ **Backend CI** — `.github/workflows/server.yml` (2026-09-06, #38): three jobs — lint,
-   unit, integration. Integration starts the compose Postgres + both Redis (GitHub service
+2. ✅ **Backend CI** — `.github/workflows/server.yml` (2026-09-06, #38): four jobs — lint,
+   unit, integration, and `audit` (2026-09-09, #44: `pnpm audit --audit-level=high` + Trivy fs
+   scan; `flutter.yml` gained `deps-audit` = OSV-Scanner on `pubspec.lock`; `.github/dependabot.yml`
+   covers npm/pub/docker/actions weekly). A transitive CVE is fixed via `pnpm.overrides` in
+   `server/package.json`, never by hand-patching. Integration starts the compose Postgres + both Redis (GitHub service
    containers cannot set the Redis eviction policies), applies the real migrations, then runs
    `test:e2e`; `synchronize` is false even in tests. Path-filtered to `server/**`.
 3. **Build/deploy** — Flutter Web artifact + server container image on every green build —
@@ -254,6 +257,11 @@ back** (decided 2026-09-04). Recover from git history if you ever need the Supab
   a pending-timer leak).
 - **Native hardware — Phase 8b** (needs shop access): thermal printer / cash-drawer kick /
   barcode **scanning** (camera); scan actions currently use manual entry.
+- **Security (2026-09-09 review)** — ADR-0009 addendum *"การเซ็นและที่เก็บ token"* (RS256 + `kid`,
+  `typ` claim, access in memory / refresh in IndexedDB) binds #4; **#43** owns the `audit_log`
+  writer (auth events with #4, money/stock writes call it); **#44** `sec.1` owns Helmet/CORS,
+  per-user auth rate limits, the negative-path e2e suite, CodeQL after #4+#20, and a one-off ZAP
+  baseline before submission. OWASP Top 10 mapping lives in `04_QA_SCRUTINY.md` รอบ 4.
 - **Multi-tenant client work** — the Flutter side of phase 1/2: an `ApiRepository` layer behind the
   existing repository interfaces (`03_ARCHITECTURE.md §8` task `q1`) that **writes through to
   Drift** and maps at the repository boundary ([ADR-0010](docs/Backend_design/adr/0010-client-write-through-cache.md)),

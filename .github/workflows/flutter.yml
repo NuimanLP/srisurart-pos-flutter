@@ -47,6 +47,18 @@ jobs:
       - name: flutter test
         run: flutter test --reporter expanded
 
+  deps-audit:
+    name: pubspec.lock CVEs (OSV-Scanner)
+    runs-on: ubuntu-latest
+    # sec.1 (2026-09-09): `pub` has no `audit` command, so the lockfile is checked
+    # against OSV. Fails on any known vulnerability in a locked dependency.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
+        with:
+          scan-args: |-
+            --lockfile=frontend/pubspec.lock
+
   codegen-check:
     name: drift codegen is up to date
     runs-on: ubuntu-latest

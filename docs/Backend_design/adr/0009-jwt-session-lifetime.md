@@ -56,6 +56,36 @@
   ทางที่มีอยู่แล้วในระบบ: `users.pin_hash` (ตอนนี้ใช้เป็น manager PIN สำหรับงานเสี่ยง)
   → เก็บ hash ไว้ในเครื่องตอนซิงก์ แล้วให้เปิดกะออฟไลน์ด้วย PIN ได้ ค่อยไปต่อ token จริงตอนเน็ตกลับมา
 
+## การเซ็นและที่เก็บ token — เพิ่ม 2026-09-09 หลังทบทวนความปลอดภัย
+
+**ปัญหาที่พบ:** ADR นี้และ `02_API_SCREENS.md §1.1` กำหนด*อายุ* token และสิ่งที่ `/auth/refresh` ต้องเช็ค
+แต่**ไม่เคยบอกว่าเซ็นด้วยอะไร กุญแจอยู่ที่ไหน หมุนอย่างไร และ client เก็บ token ไว้ตรงไหน** —
+#4 กำลังจะเริ่ม ถ้าปล่อยให้คนเขียนเลือกเอง ค่า default ของทุก library คือ HS256 กับ secret ก้อนเดียว
+ที่ทุก process ใน compose ถือร่วมกัน
+
+**การตัดสินใจ:**
+
+| หัวข้อ | ค่าที่เคาะ |
+|---|---|
+| อัลกอริทึม | **RS256** (RSA ≥ 2048 บิต) · verifier ล็อกรายการ alg ที่รับไว้ที่ `['RS256']` เท่านั้น — ห้าม HS256, ห้าม `alg: none`, ห้ามอ่าน alg จาก header มาตัดสินใจ |
+| กุญแจ | env `JWT_PRIVATE_KEY` (PEM, ตัวที่เซ็น) และ `JWT_PUBLIC_KEYS` (PEM หลายตัว key ด้วย `kid`) · **`JWT_PRIVATE_KEY` ให้เฉพาะ process ที่มี `/auth/*`** — `worker`, `migrate`, Bull-Board ต้องไม่มีตัวแปรนี้ใน compose · ไม่ commit ลง repo ไม่ฝังใน image · dev/CI ใช้ keypair ที่ script สร้างทิ้งใน `.env` |
+| แยก signer/verifier ในโค้ด | `JwtSigner` (ต้องการ private key) กับ `JwtVerifier` (ต้องการแค่ public keys) เป็น provider คนละตัว · เฟส 1 ทั้งสองอยู่ใน `api-*` เดียวกัน แต่การย้าย `/auth/*` ออกเป็น service แยกต้องเป็นแค่การแก้ compose ไม่ใช่แก้โค้ด |
+| หมุนกุญแจ | header `kid` ทุกใบ · ขั้นตอน: เพิ่ม public key ใหม่ลง `JWT_PUBLIC_KEYS` ทุก process → สลับ `JWT_PRIVATE_KEY` → ถอด key เก่าหลังผ่านตี 4 ไป 1 รอบ (อายุ refresh สูงสุด) · **ไม่มี JWKS endpoint ในเฟส 1** เพราะ verifier ทุกตัวอยู่ใน compose เดียวกัน |
+| claim บังคับ | `iss` = `srisurart-pos` · `aud` = `tenant` / `platform` (ADR-0002) · `sub` · `iat` · `exp` · `jti` (UUID) · **`typ` = `access` / `refresh`** — guard ของ `/api/*` รับเฉพาะ `typ=access`, `/auth/refresh` รับเฉพาะ `typ=refresh` (ไม่งั้น refresh ที่เก็บใน IndexedDB ใช้ยิง API ได้ตรง ๆ) · `tid`, `role`, `did`, `drole` ตามเดิม |
+| clock skew | ยอมให้ `exp` / `iat` / `nbf` คลาดได้ **30 วินาที** ไม่มากกว่านั้น |
+| ที่เก็บฝั่ง Flutter Web | **access token อยู่ใน memory เท่านั้น** (reload = ขอใหม่ด้วย refresh) · **refresh token เก็บใน IndexedDB** ก้อนเดียวกับ device token (ADR-0004) · **ห้าม** เก็บ access ใน localStorage · ไม่ใช้ cookie เพราะ client กับ API คนละ origin และกติกาอาจารย์ระบุ Bearer |
+| ช่องทางส่ง | `Authorization: Bearer` เท่านั้น · **ห้าม** รับ token จาก query string (จะติดใน access log ของ Nginx) |
+| log | `pino-http` ต้อง redact `req.headers.authorization` และ body ของ `/auth/*` ทั้งหมด (`password`, `pin`, `deviceToken`, `code`, `refreshToken`) · เก็บ `jti` ใน log ได้ เก็บ token เต็มไม่ได้ |
+| รหัสผ่าน / PIN | **Argon2id** (#4 ระบุแล้ว) พารามิเตอร์ขั้นต่ำ m = 64 MiB, t = 3, p = 1 · PIN 4–6 หลัก hash วิธีเดียวกัน แต่ entropy ต่ำ → ต้องมี rate limit ต่อ user บน endpoint ที่รับ PIN (ADR-0006) |
+| เหตุการณ์ auth ลง `audit_log` | login สำเร็จ / ล้มเหลว (`auth.login`, `auth.login_failed`), refresh ถูกปฏิเสธพร้อมเหตุผล (`auth.refresh_rejected`), enrol / retire เครื่อง (`device.enrol`, `device.retire`), ตรวจ PIN ผ่าน / ไม่ผ่าน (`auth.pin_ok`, `auth.pin_failed`) — ตารางมีอยู่แล้ว (`01_DATABASE.md §5`, migration ใน #15) แต่ยังไม่มีใครเขียน · ticket แยกที่ blocked by #4 |
+
+**ทำไม RS256 ไม่ใช่ HS256:** stack มี `api-1..3` + `worker` + Bull-Board ในเครือข่ายเดียว ถ้าใช้ HS256
+ทุก process ที่**ตรวจ** token จะถือ secret ที่**ออก** token ได้ด้วย และ secret ตัวเดียวกันนั้นมักถูกวางไว้ใน
+`environment:` ร่วมของ compose จน worker/Bull-Board ได้ไปด้วย — process ไหนหลุดก็ปลอมเป็นใครก็ได้
+**ทุกร้าน** (multi-tenant ทำให้ blast radius เป็นทั้ง cluster ไม่ใช่ร้านเดียว) RS256 ทำให้ผู้ที่ปลอม token
+ได้มีแค่ที่เดียว ยังเป็น stateless ตามกติกาอาจารย์ และเป็นคำตอบสำเร็จรูปตอนถูกถามในการนำเสนอ
+ต้นทุนคือ token ยาวขึ้นราว 2 เท่า ซึ่งไม่มีผลกับ POS ที่ยิง request ไม่กี่ครั้งต่อนาที
+
 ## ผลที่ตามมา
 
 * `02_API_SCREENS.md §1.1` ต้องระบุอายุ token ทั้งสองตัวให้ชัด ไม่ใช่ปล่อยว่าง
@@ -66,6 +96,12 @@
   ช่องที่เหลือหลังแก้คือ ≤15 นาที (อายุ access token) เท่ากับกรณีปิด `users.is_active`
 * ไม่ต้องทำ refresh-token rotation + Redis denylist ตามข้อเสนอเดิม — **ตัดงานออกไปหนึ่งก้อน**
 * ต้องมีข้อความไทยตอน session หมดอายุ — 🔴 **ห้ามแต่งเอง** (กติกา `02_API_SCREENS.md §8.1`)
+* (2026-09-09) #4 ต้องทำตามหัวข้อ *"การเซ็นและที่เก็บ token"* ทั้งตาราง — `config.ts` เพิ่ม
+  `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEYS` เป็น required เฉพาะ process ที่มี `/auth/*`, compose และ
+  `server.yml` ต้องมี keypair สำหรับ dev/CI, e2e ต้องมีเคส "token ที่เซ็นด้วย HS256 โดยใช้ public key
+  เป็น secret ถูกปฏิเสธ" (การโจมตี key-confusion แบบคลาสสิก) และ "refresh token ยิง `/api/*` ถูกปฏิเสธ"
+* (2026-09-09) เหตุการณ์ auth ทั้งหมดต้องลง `audit_log` — ticket แยกที่ blocked by #4 (ดูตารางด้านบน)
+  งานที่แตะเงิน/สต็อกใน #16, #20–#28 ต้องเรียก writer ตัวเดียวกันใน transaction เดียวกับ business write
 
 ## ยังไม่เคาะ
 
@@ -73,3 +109,7 @@
 * [ ] **ถามเจ้าของร้าน:** มีวันไหนที่ร้านยังขายอยู่ตอนตี 4 ไหม และพนักงานที่เปิดร้านรับได้ไหมกับการ
       ล็อกอินใหม่ทุกเช้า — ถ้าคำตอบข้อแรกคือ "มี" ต้องเปลี่ยนเวลาตัดเป็นค่าต่อร้าน (`tenants.session_reset_at`)
 * [ ] เครื่อง `backoffice` ควรอายุสั้นกว่าเครื่อง `pos` ไหม (มือถือ/โน้ตบุ๊กหายง่ายกว่าเครื่องที่ตั้งอยู่กับที่)
+* [x] ~~อัลกอริทึมเซ็นและที่เก็บ token~~ — **เคาะแล้ว 2026-09-09:** RS256 + `kid`, access ใน memory,
+      refresh ใน IndexedDB (หัวข้อ *"การเซ็นและที่เก็บ token"*)
+* [ ] เฟส 2: refresh ที่นอนอยู่ใน IndexedDB ของเครื่อง `pos` ตลอดคืน ควรผูกกับ device token
+      (`refresh` ใช้ได้เฉพาะเมื่อส่งคู่กับ `deviceToken` ตัวเดิม) ไหม — ยังไม่จำเป็นในเฟส 1 เพราะออนไลน์อย่างเดียว

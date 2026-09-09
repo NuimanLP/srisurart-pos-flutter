@@ -488,3 +488,37 @@ stateDiagram-v2
 ---
 
 **กลับไป:** [`00_INDEX.md`](00_INDEX.md)
+
+---
+
+## รอบ 4 (2026-09-09) — ทบทวนความปลอดภัย: JWT, audit log, OWASP Top 10, CVE
+
+**ที่มา:** เจ้าของโปรเจกต์ถามว่า JWT ทำตาม best practice ไหม (RS256?), มี user event log ไหม
+และมีแผน CVE / OWASP Top 10 ไหม — คำตอบตอนนั้นคือ **ไม่มีทั้งสามอย่างในเอกสารหรือ CI**
+สิ่งที่แก้ในรอบนี้: ADR-0009 addendum *"การเซ็นและที่เก็บ token"*, ticket #43 (`audit_log` writer),
+ticket `sec.1` (CVE gate + OWASP checklist), job `audit` ใน `server.yml`, job `deps-audit` ใน
+`flutter.yml`, `.github/dependabot.yml` และ override `multer >= 2.3.0` (3 high CVE ที่ `pnpm audit`
+เจอทันทีในวันแรก — GHSA-535w-7cp7-47q4 และเพื่อน ผ่าน `@nestjs/platform-express`)
+
+### OWASP Top 10 (2021) — แต่ละข้อปิดด้วยอะไร และยังขาดอะไร
+
+| # | หมวด | ปิดด้วย (ออกแบบ / test ที่มี) | ยังขาด → ใครเป็นเจ้าของ |
+|---|---|---|---|
+| A01 | Broken Access Control | RLS fail-closed + FORCE ทุกตาราง (#15) · `tid`/`did` จาก claim เท่านั้น · `aud` แยก tenant/platform (ADR-0002) · `drole` guard ต่อ endpoint (ADR-0004) · cross-tenant zero-row test เป็น required check (#39) | e2e ที่ยิง `tenantId`/`deviceId` ปลอมใน body ทุก write endpoint → `sec.1` |
+| A02 | Cryptographic Failures | Argon2id · RS256 + `kid` · access ใน memory · redact log (ADR-0009 addendum) · TLS ที่ Nginx | ยังไม่มี TLS config จริงเพราะยังไม่มี host (ADR-0011 / #40) |
+| A03 | Injection | TypeORM parameterized · `SET LOCAL app.tenant_id` รับค่าจาก UUID ที่ parse แล้ว · JSON body only | negative-path e2e: SQLi ทุก string field, `tid` ที่ไม่ใช่ UUID → `sec.1` |
+| A04 | Insecure Design | idempotency key (#18) · `TOTAL_MISMATCH` (§1.3) · row lock บนสต็อก · one `pos` per tenant · ADR ทั้งชุด | — |
+| A05 | Security Misconfiguration | `synchronize` false ทุกที่ · `pos_app` ไม่ใช่ owner · Redis policy ตรงกับ prod ใน CI (#38) | **Helmet + CORS allowlist + Nginx hardening ยังไม่ระบุที่ไหนเลย** → `sec.1` (ลงใน #4/#14) · Trivy misconfig scan ของ Dockerfile → job `audit` |
+| A06 | Vulnerable & Outdated Components | **ใหม่:** `pnpm audit --audit-level=high` + Trivy fs (`server.yml`) · OSV-Scanner บน `pubspec.lock` (`flutter.yml`) · Dependabot 4 ecosystem | image scan ของ container ที่ build จริง → #40 |
+| A07 | Identification & Auth Failures | access 15 นาที / refresh ตี 4 · refresh เช็ค DB 3 ค่า · `typ` แยก access/refresh · device token opaque hash | **rate limit ต่อ user/IP บน `/auth/token` และ PIN** — #33 เป็นต่อ tenant ไม่พอ → `sec.1` เพิ่มลง #33 · e2e brute-force PIN |
+| A08 | Software & Data Integrity | migration one-shot job, ไม่รันตอน boot · `--frozen-lockfile` ทุก job · `pnpm.overrides` แทนการ patch มือ | pin GitHub Actions ด้วย SHA (Dependabot `github-actions` ช่วย) · image signing ไม่ทำในเฟส 1 |
+| A09 | Logging & Monitoring Failures | JSON log (pino) + health probes (#14) · **`audit_log` writer (#43)** · auth events ทุกตัวลง audit | alerting ไม่มี (ไม่มี host) · `GET /audit` สำหรับ owner เป็น slice หลัง |
+| A10 | SSRF | ไม่เกี่ยว — server ไม่ fetch URL ที่ผู้ใช้กำหนด (export สร้างลิงก์ขาออกเท่านั้น) | — |
+
+### สิ่งที่ตั้งใจ *ไม่* ทำ และทำไม
+
+* **OWASP ZAP ใน CI** — ช้า (10+ นาที) และ false positive สูงกับ API ที่ไม่มีหน้าเว็บ ให้รัน baseline scan
+  **ครั้งเดียวก่อนส่ง** กับ demo tenant บน faculty VM แล้วแนบผลในรายงาน (`sec.1` ข้อสุดท้าย)
+* **SAST เต็มรูป (CodeQL/Semgrep)** — repo public จึงใช้ CodeQL ฟรีได้ แต่ยังไม่มี business code ให้สแกน
+  ค่อยเปิดหลัง #4 + #20 merge เพราะตอนนี้จะเขียวเปล่า ๆ และไม่มีใครอ่าน
+* **Pentest ภายนอก** — นอกขอบเขตวิชา; ตาราง OWASP ด้านบน + negative-path e2e คือหลักฐานที่ rubric ต้องการ
