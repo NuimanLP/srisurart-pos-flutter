@@ -30,7 +30,7 @@ jobs:
     name: analyze + test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
@@ -53,7 +53,7 @@ jobs:
     # sec.1 (2026-09-09): `pub` has no `audit` command, so the lockfile is checked
     # against OSV. Fails on any known vulnerability in a locked dependency.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
         with:
           scan-args: |-
@@ -66,7 +66,7 @@ jobs:
     # build_runner cannot run (CLAUDE.md). CI runners are ASCII, so this is the
     # only place the generated code is ever verified against the schema.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
@@ -96,7 +96,7 @@ jobs:
     # There is deliberately NO deploy step — the production host is undecided
     # until before task q4 (03_ARCHITECTURE.md §8). The faculty VM is demo-only.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
@@ -116,7 +116,7 @@ jobs:
           test -f build/web/sqlite3.wasm || { echo "::error::sqlite3.wasm missing from build/web"; exit 1; }
           test -f build/web/drift_worker.js || { echo "::error::drift_worker.js missing from build/web"; exit 1; }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pos-web-${{ github.sha }}
           path: frontend/build/web
