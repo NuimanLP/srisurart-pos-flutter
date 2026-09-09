@@ -6,15 +6,16 @@ import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { loadConfig } from '../src/config/config.js';
 
-// Runs against the real compose stack (ports bound on 127.0.0.1) — no mocks.
+// Runs against the real compose stack — no mocks. The datastore ports live on 127.0.0.1
+// only through docker-compose.dev.yml; the defaults below match server/.env.example.
 describe('health (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
     const config = loadConfig({
       DATABASE_URL: 'postgres://pos_app:dev-only-pos-app@127.0.0.1:5432/pos',
-      REDIS_CACHE_URL: 'redis://127.0.0.1:6379',
-      REDIS_QUEUE_URL: 'redis://127.0.0.1:6380',
+      REDIS_CACHE_URL: 'redis://:dev-only-redis@127.0.0.1:6379',
+      REDIS_QUEUE_URL: 'redis://:dev-only-redis@127.0.0.1:6380',
       ...process.env,
     });
     const logger = pino({ level: 'silent' });

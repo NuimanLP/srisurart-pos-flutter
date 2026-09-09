@@ -516,6 +516,16 @@ gantt
 * 🔴 **Bull-Board ต้องมี auth** — payload ของ job มี `tenantId` + ข้อมูลลูกค้า
   mount ไว้เปล่า ๆ ที่ `/admin/queues` = ข้อมูลรั่วข้ามร้าน + ผิด PDPA
   ให้ใส่ basic-auth และวางไว้บน internal network ไม่ให้ออกอินเทอร์เน็ต
+* 🔴 **Redis ทั้งสองตัวต้องมี `--requirepass`** (แก้ 2026-09-09) — ฉบับแรกของ compose ไม่ตั้งรหัสเลย
+  ใครที่เข้าถึง network ของ compose ได้ (เช่น container อื่นที่โดนเจาะ) `FLUSHALL` คิวงานขายทิ้งได้ทันที
+  รหัสมาจาก `REDIS_PASSWORD` ใน `server/.env` และเดินทางไปกับ `REDIS_CACHE_URL`/`REDIS_QUEUE_URL`
+  · healthcheck ใช้ `REDISCLI_AUTH` จึงไม่มีรหัสโผล่ใน command line
+* 🔴 **ห้าม publish port ของ Postgres/Redis ออกมาที่ host บนเครื่องจริง** (แก้ 2026-09-09) — ผูกไว้ที่
+  `127.0.0.1` ก็ยังไม่พอ เพราะ user อื่นบน host หรือช่องโหว่ SSRF บนเครื่องนั้นยิงเข้า DB ได้ตรง ๆ
+  `docker-compose.yml` จึงไม่มี `ports:` ของ datastore เลย (คุยกันผ่าน docker network เท่านั้น)
+  ส่วน `docker-compose.dev.yml` ที่เปิด 5432/6379/6380 บน loopback มีไว้สำหรับ **เครื่อง dev กับ CI runner
+  เท่านั้น ห้ามใช้บน VM** · Bull-Board (3100) ยังผูก loopback ไว้ เพราะ Nginx ไม่ได้ proxy ให้ — เข้าผ่าน
+  SSH tunnel
 * 🔴 **`/platform/*` ต้องกันไม่ให้ออกอินเทอร์เน็ต** (internal network / allowlist IP) — แนวเดียวกับ
   Bull-Board ด้านบน endpoint กลุ่มนี้เห็น/แก้ได้ทุกร้าน พลาดครั้งเดียว = รั่วทั้งแพลตฟอร์ม (ADR-0002)
 * 🔴 **JWT TTL + revoke — เคาะแล้ว ([ADR-0009](adr/0009-jwt-session-lifetime.md))** — access 15 นาที,

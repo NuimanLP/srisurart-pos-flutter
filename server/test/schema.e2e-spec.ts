@@ -11,7 +11,7 @@ import {
 import { SEED_CATEGORIES, seedCategories } from '../src/db/seed.js';
 
 // #15 acceptance suite. Runs the REAL migrations into a throwaway database on the
-// compose Postgres (127.0.0.1:5432) — never synchronize, never mocks. The owner
+// compose Postgres (127.0.0.1:5432, published by docker-compose.dev.yml) — never synchronize, never mocks. The owner
 // connection is `postgres`; the application connection is `pos_app`, exactly as in prod.
 const ADMIN_URL =
   process.env.DATABASE_ADMIN_URL ??
