@@ -6,6 +6,9 @@ name: Flutter CI
 # server/ has its own workflow; paths-ignore keeps this from running on
 # backend-only changes (ADR-0011).
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -16,7 +19,8 @@ on:
 
 concurrency:
   group: flutter-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a main run — it is the only producer of that commit's web artefact.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   FLUTTER_VERSION: '3.44.3'   # keep in sync with frontend/.fvmrc
@@ -90,7 +94,7 @@ jobs:
   build-web:
     name: build web artifact
     runs-on: ubuntu-latest
-    needs: [analyze-and-test]
+    needs: [analyze-and-test, codegen-check, deps-audit]
     if: github.ref == 'refs/heads/main'
     # Level 3 (CLAUDE.md): the artifact is produced on every green build.
     # There is deliberately NO deploy step — the production host is undecided

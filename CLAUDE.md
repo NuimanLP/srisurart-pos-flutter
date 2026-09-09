@@ -199,7 +199,7 @@ keeps running this Drift build while the server is developed against a demo tena
 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the server, the
 client's API layer and the CI/CD pipelines all land in this repo.
 
-**CI/CD — levels 1–2 are done, level 3 is ticketed.** `.github/workflows/flutter.yml` is the
+**CI/CD — levels 1–2 are done, level 3 is half-landed.** `.github/workflows/flutter.yml` is the
 client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter build web` + the
 web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
 1. ✅ **Flutter CI** — done. Runners are ASCII paths, so `build_runner` verification runs in CI —
@@ -213,9 +213,19 @@ web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
    all closed) within minutes — routine upgrades are human-timed here, not a weekly interrupt. Integration starts the compose Postgres + both Redis (GitHub service
    containers cannot set the Redis eviction policies), applies the real migrations, then runs
    `test:e2e`; `synchronize` is false even in tests. Path-filtered to `server/**`.
-3. **Build/deploy** — Flutter Web artifact + server container image on every green build —
-   issue **#40**. The **deploy step stays unwired until a production host is chosen** (due
-   before `q4`; the faculty VM is demo-only — `03_ARCHITECTURE.md §8`).
+3. ◐ **Build artefacts** — the server image half landed with #40; the web half
+   (`flutter.yml`'s `build-web`) has existed since level 1 (`946c405`). Both now run only on a
+   green build of `main` and both are gated on *every* job in their workflow, so a red build
+   uploads nothing. `server.yml`'s `build-image` builds the image, Trivy-scans it, checks all
+   four entrypoints compose runs, smoke-runs it, `docker save | gzip`s it, verifies the tarball
+   re-loads, and uploads it tagged with the commit SHA (`server/README.md` has the recipe).
+   The **deploy step stays unwired until a production host is chosen** (due before `q4`; the
+   faculty VM is demo-only — `03_ARCHITECTURE.md §8`), and no registry push either — picking a
+   registry is part of that same decision.
+   🔴 **#40's AC4 is still open:** path filters mean a `server/`-only commit produces no web
+   artefact and a `frontend/`-only commit no image, so the two halves exist together only for a
+   commit touching both. No `main` commit is reproducibly deployable until that is fixed, and
+   the fix (dropping `paths:` from the `push` triggers) belongs to **#39**.
 
 `server/` and the Flutter client share this repo ([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)),
 so every CI job needs a `paths:` filter — the Flutter jobs must not run on `server/`-only changes.
