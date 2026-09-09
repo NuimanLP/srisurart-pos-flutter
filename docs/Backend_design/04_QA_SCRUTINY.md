@@ -497,8 +497,18 @@ stateDiagram-v2
 และมีแผน CVE / OWASP Top 10 ไหม — คำตอบตอนนั้นคือ **ไม่มีทั้งสามอย่างในเอกสารหรือ CI**
 สิ่งที่แก้ในรอบนี้: ADR-0009 addendum *"การเซ็นและที่เก็บ token"*, ticket #43 (`audit_log` writer),
 ticket `sec.1` (CVE gate + OWASP checklist), job `audit` ใน `server.yml`, job `deps-audit` ใน
-`flutter.yml`, `.github/dependabot.yml` และ override `multer >= 2.3.0` (3 high CVE ที่ `pnpm audit`
-เจอทันทีในวันแรก — GHSA-535w-7cp7-47q4 และเพื่อน ผ่าน `@nestjs/platform-express`)
+`flutter.yml`, `.github/dependabot.yml` (**security update เท่านั้น** — ดูกล่องด้านล่าง) และ override
+`multer >= 2.3.0` (3 high CVE ที่ `pnpm audit` เจอทันทีในวันแรก — GHSA-535w-7cp7-47q4 และเพื่อน
+ผ่าน `@nestjs/platform-express` ซึ่งยัง pin 2.2.0 อยู่)
+
+> ### ⚠️ Dependabot ตั้งผิดรอบแรก — บันทึกไว้กันคนเปิดกลับ
+> ฉบับแรกของ `.github/dependabot.yml` ตั้ง **version update** รายสัปดาห์ด้วย `patterns: ['*']`
+> โดยไม่กัน major พอ push ขึ้น `main` มันเปิด PR ทันที 4 ตัวภายในไม่กี่นาที: Node `22-alpine → 26-alpine`,
+> GitHub Actions 3 ตัว, server dev-deps 4 ตัว และ Flutter deps 7 ตัวที่ทำ `dart analyze`, drift codegen
+> และ build web พังหมด (#45–#48 ปิดทั้งหมด 2026-09-09 พร้อมลบ branch และลบ item ออกจาก project board)
+> **แก้เป็น `open-pull-requests-limit: 0` ทุก ecosystem** = ปิด version update แต่ยังได้ security update
+> ซึ่งเป็นสิ่งเดียวที่โปรเจกต์นี้ต้องการจาก Dependabot การอัปเดตตามปกติเป็นงานที่ **คนเลือกเวลาเอง**
+> ไม่ใช่การถูกขัดจังหวะทุกสัปดาห์ · 🔴 ของที่ทำให้ build แดงจริงคือ job ใน CI ไม่ใช่ Dependabot
 
 ### OWASP Top 10 (2021) — แต่ละข้อปิดด้วยอะไร และยังขาดอะไร
 
@@ -509,9 +519,9 @@ ticket `sec.1` (CVE gate + OWASP checklist), job `audit` ใน `server.yml`, jo
 | A03 | Injection | TypeORM parameterized · `SET LOCAL app.tenant_id` รับค่าจาก UUID ที่ parse แล้ว · JSON body only | negative-path e2e: SQLi ทุก string field, `tid` ที่ไม่ใช่ UUID → `sec.1` |
 | A04 | Insecure Design | idempotency key (#18) · `TOTAL_MISMATCH` (§1.3) · row lock บนสต็อก · one `pos` per tenant · ADR ทั้งชุด | — |
 | A05 | Security Misconfiguration | `synchronize` false ทุกที่ · `pos_app` ไม่ใช่ owner · Redis policy ตรงกับ prod ใน CI (#38) | **Helmet + CORS allowlist + Nginx hardening ยังไม่ระบุที่ไหนเลย** → `sec.1` (ลงใน #4/#14) · Trivy misconfig scan ของ Dockerfile → job `audit` |
-| A06 | Vulnerable & Outdated Components | **ใหม่:** `pnpm audit --audit-level=high` + Trivy fs (`server.yml`) · OSV-Scanner บน `pubspec.lock` (`flutter.yml`) · Dependabot 4 ecosystem | image scan ของ container ที่ build จริง → #40 |
+| A06 | Vulnerable & Outdated Components | **ใหม่:** `pnpm audit --audit-level=high` + Trivy fs (`server.yml`) · OSV-Scanner บน `pubspec.lock` (`flutter.yml`) · Dependabot **security-only** (ไม่ใช่ version bump รายสัปดาห์ — ดูกล่องด้านบน) | image scan ของ container ที่ build จริง → #40 |
 | A07 | Identification & Auth Failures | access 15 นาที / refresh ตี 4 · refresh เช็ค DB 3 ค่า · `typ` แยก access/refresh · device token opaque hash | **rate limit ต่อ user/IP บน `/auth/token` และ PIN** — #33 เป็นต่อ tenant ไม่พอ → `sec.1` เพิ่มลง #33 · e2e brute-force PIN |
-| A08 | Software & Data Integrity | migration one-shot job, ไม่รันตอน boot · `--frozen-lockfile` ทุก job · `pnpm.overrides` แทนการ patch มือ | pin GitHub Actions ด้วย SHA (Dependabot `github-actions` ช่วย) · image signing ไม่ทำในเฟส 1 |
+| A08 | Software & Data Integrity | migration one-shot job, ไม่รันตอน boot · `--frozen-lockfile` ทุก job · `pnpm.overrides` แทนการ patch มือ | pin GitHub Actions ด้วย SHA — **ทำมือ** เพราะ Dependabot ปิด version update แล้ว → `sec.1` · image signing ไม่ทำในเฟส 1 |
 | A09 | Logging & Monitoring Failures | JSON log (pino) + health probes (#14) · **`audit_log` writer (#43)** · auth events ทุกตัวลง audit | alerting ไม่มี (ไม่มี host) · `GET /audit` สำหรับ owner เป็น slice หลัง |
 | A10 | SSRF | ไม่เกี่ยว — server ไม่ fetch URL ที่ผู้ใช้กำหนด (export สร้างลิงก์ขาออกเท่านั้น) | — |
 

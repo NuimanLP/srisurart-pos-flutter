@@ -2,6 +2,7 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
+- 2026-09-09 — [ทบทวนความปลอดภัย: JWT signing, audit log, CVE/OWASP](security-review-jwt-audit-cve.md) — ADR-0009 addendum (RS256 + `kid`, `typ` claim, access ใน memory) · #43 `audit_log` writer · #44 `sec.1` · job `audit`/`deps-audit` ใน CI · multer override (3 high CVE) · OWASP Top 10 ลง `04_QA` รอบ 4 · 🔴 Dependabot ตั้งผิดรอบแรก เปิด PR #45–#48 ต้องปิดทั้งหมด — ปิดแล้ว
 - 2026-09-08 — [ปฏิเสธ CouchDB — คง PostgreSQL](couchdb-rejected.md) — เจ้าของโปรเจกต์ตัดสินคงสถาปัตยกรรมเดิม → ADR-0012 Rejected + บันทึกเหตุผล, ถอน banner freeze ทุกไฟล์ · #4–#37 กลับมาหยิบได้ — ปิดแล้ว
 - 2026-09-08 — [แผนฉบับ CouchDB แทน PostgreSQL](couchdb-revision.md) — อาจารย์สั่งเปลี่ยน DB → ADR-0012 (Proposed) + `06_COUCHDB_REVISION.md` + scrutinize รอบ 4 · freeze #4–#37 — ปิดแล้ว (ผล: Rejected ดูบรรทัดบน)
 - 2026-09-07 — [merge #41/#42, lane → GitHub handle](merge-p1-p2-lane-assignments.md) — #14/#15 เข้า `main`, team/1–3 ผูกกับคนจริง — ปิดแล้ว
