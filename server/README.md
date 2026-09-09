@@ -124,6 +124,19 @@ docker/postgres/init/    creates the non-superuser pos_app role on first boot
 - The app connects as `pos_app` (`NOSUPERUSER NOBYPASSRLS`, not the table owner) so RLS
   cannot be bypassed by accident. Migrations run as `postgres`, once, before the app starts.
 
+## The image CI builds (#40)
+
+A green push to `main` uploads the server image as a GitHub Actions artefact — there is no
+registry and no deploy step until a production host is picked (`03_ARCHITECTURE.md §8`):
+
+```
+gh run download <run-id> -n pos-server-image-<sha>
+docker load < pos-server-<sha>.tar.gz
+docker tag srisurart-pos/server:<sha> srisurart-pos/server:local   # the tag compose expects
+```
+
+The same image runs api, worker and bull-board; compose overrides `command`.
+
 ## Deploying a new image without a full outage
 
 `docker compose up -d --build` recreates all three instances at once. For a rolling restart:
