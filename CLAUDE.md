@@ -206,9 +206,11 @@ web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
    the only place the committed `*.g.dart` is ever checked against the schema.
 2. ✅ **Backend CI** — `.github/workflows/server.yml` (2026-09-06, #38): four jobs — lint,
    unit, integration, and `audit` (2026-09-09, #44: `pnpm audit --audit-level=high` + Trivy fs
-   scan; `flutter.yml` gained `deps-audit` = OSV-Scanner on `pubspec.lock`; `.github/dependabot.yml`
-   covers npm/pub/docker/actions weekly). A transitive CVE is fixed via `pnpm.overrides` in
-   `server/package.json`, never by hand-patching. Integration starts the compose Postgres + both Redis (GitHub service
+   scan; `flutter.yml` gained `deps-audit` = OSV-Scanner on `pubspec.lock`). A transitive CVE is
+   fixed via `pnpm.overrides` in `server/package.json`, never by hand-patching.
+   🔴 `.github/dependabot.yml` is **security-updates-only** (`open-pull-requests-limit: 0` on every
+   ecosystem). Its first version did weekly version bumps and opened four unwanted PRs (#45–#48,
+   all closed) within minutes — routine upgrades are human-timed here, not a weekly interrupt. Integration starts the compose Postgres + both Redis (GitHub service
    containers cannot set the Redis eviction policies), applies the real migrations, then runs
    `test:e2e`; `synchronize` is false even in tests. Path-filtered to `server/**`.
 3. **Build/deploy** — Flutter Web artifact + server container image on every green build —

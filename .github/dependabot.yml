@@ -1,42 +1,47 @@
-# sec.1 (2026-09-09) — keep the four dependency surfaces patched. Weekly, grouped, so the
-# team gets at most one PR per ecosystem per week instead of one per package.
+# sec.1 (#44) — SECURITY UPDATES ONLY.
+#
+# `open-pull-requests-limit: 0` disables Dependabot's *version* updates (the weekly
+# "bump X to Y" noise) while leaving *security* updates on: a PR still appears when a
+# dependency has a published advisory. That is the only thing we wanted from Dependabot.
+#
+# History: the first version of this file grouped `patterns: ['*']` with no major-version
+# guard. On 2026-09-09 it immediately opened four PRs (#45–#48) including Node 22→26 and
+# seven Flutter bumps that broke `dart analyze`, drift codegen and the web build. All four
+# were closed. Routine upgrades are a deliberate, human-timed action in this project, not
+# a weekly interrupt.
+#
+# The actual CVE gate lives in CI and is what fails a build:
+#   server.yml  → job `audit`      = pnpm audit --audit-level=high + Trivy fs
+#   flutter.yml → job `deps-audit` = OSV-Scanner on frontend/pubspec.lock
+#
+# ⚠️ A drift/sqlite3 bump also requires re-downloading web/sqlite3.wasm and
+# web/drift_worker.js (CLAUDE.md "Web DB"), so those are reviewed by hand regardless.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /server
     schedule:
       interval: weekly
-      day: monday
-    groups:
-      server-deps:
-        patterns: ['*']
+    open-pull-requests-limit: 0
     labels: [dependencies, server]
 
   - package-ecosystem: pub
     directory: /frontend
     schedule:
       interval: weekly
-      day: monday
-    groups:
-      flutter-deps:
-        patterns: ['*']
+    open-pull-requests-limit: 0
     labels: [dependencies, frontend]
-    # drift / sqlite3 bumps also require re-downloading web/sqlite3.wasm and
-    # web/drift_worker.js (CLAUDE.md "Web DB") — review those PRs by hand.
 
   - package-ecosystem: docker
     directory: /server
     schedule:
       interval: weekly
-      day: monday
+    open-pull-requests-limit: 0
     labels: [dependencies, server]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-      day: monday
-    groups:
-      actions:
-        patterns: ['*']
+    open-pull-requests-limit: 0
     labels: [dependencies, ci]
