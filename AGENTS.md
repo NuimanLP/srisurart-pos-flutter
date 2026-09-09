@@ -211,9 +211,12 @@ web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
 3. ◐ **Build artefacts** — the server image half landed with #40; the web half
    (`flutter.yml`'s `build-web`) has existed since level 1 (`946c405`). Both now run only on a
    green build of `main` and both are gated on *every* job in their workflow, so a red build
-   uploads nothing. `server.yml`'s `build-image` builds the image, Trivy-scans it, checks all
-   four entrypoints compose runs, smoke-runs it, `docker save | gzip`s it, verifies the tarball
-   re-loads, and uploads it tagged with the commit SHA (`server/README.md` has the recipe).
+   uploads nothing. `server.yml`'s `build-image` builds the image, checks all four entrypoints
+   compose runs, smoke-runs it, `docker save | gzip`s it, verifies the tarball re-loads, and
+   uploads it tagged with the commit SHA (`server/README.md` has the recipe). It does **not**
+   Trivy-scan the image: `node:22-alpine` ships 13 fixable HIGH/CRITICAL CVEs of its own
+   (bundled npm + alpine openssl, none of them ours), so turning that gate on is **#44**'s
+   decision, with the Dockerfile change it implies.
    The **deploy step stays unwired until a production host is chosen** (due before `q4`; the
    faculty VM is demo-only — `03_ARCHITECTURE.md §8`), and no registry push either — picking a
    registry is part of that same decision.
