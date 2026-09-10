@@ -15,6 +15,8 @@ import { AuthModule } from './auth/auth.module.js';
 import { PlatformModule } from './platform/platform.module.js';
 import { RequestContextMiddleware } from './common/request-context.middleware.js';
 import { AuthController } from './auth/auth.controller.js';
+import { SalesController } from './sales/sales.controller.js';
+import { SalesModule } from './sales/sales.module.js';
 
 /** Shared infrastructure (config, logger, Postgres, both Redis) — no HTTP. */
 @Module({})
@@ -37,7 +39,7 @@ export class CoreModule {
  * `TenantGuard` belongs here — the guard's `SET LOCAL app.tenant_id` has nowhere to
  * live otherwise — and nothing else does.
  */
-const TENANT_ROUTES = [AuthController];
+const TENANT_ROUTES = [AuthController, SalesController];
 
 /** The HTTP application: core + health + platform. Business modules are added by later tickets. */
 @Module({})
@@ -63,6 +65,7 @@ export class AppModule implements NestModule {
         PlatformModule,
         AuditModule,
         AuthModule,
+        SalesModule,
       ],
       providers: [RequestContextMiddleware],
     };

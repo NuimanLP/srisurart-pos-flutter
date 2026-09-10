@@ -99,6 +99,7 @@ src/common/              response envelope, error envelope, pino logger + correl
 src/infra/               DataSource (pos_app role, synchronize=false), REDIS_CACHE / REDIS_QUEUE
 src/idempotency/         Idempotency-Key: claim, replay, 409 on a changed request (#18)
 src/documents/           document numbers: RC01-2569-08-0042, per device per month (#19)
+src/sales/               POST /sales — the sale transaction (#20)
 src/db/migrations/       the schema (27 tables, indexes, pg_trgm) + RLS/grants — the only source of DDL
 src/db/data-source.ts    owner-role DataSource with the static MIGRATIONS list
 src/db/migrate.ts        up | down | status                → node dist/db/migrate.js (compose `migrate` job)
@@ -196,6 +197,52 @@ sale gives its number back and the printed series has no visible hole.
 - Phase 2 (the `pos` device issuing RC/CN from its own Drift counter, and
   `GET /doc-counters` to seed it) is **not** built here — in phase 1 the server issues
   every series.
+
+## The sale transaction (#20)
+
+`POST /api/v1/sales` — `pos` device only, `Idempotency-Key` mandatory. Everything runs
+inside the request transaction, in this order, and the order is the design:
+
+1. the idempotency claim (interceptor, before the handler)
+2. `SELECT … WHERE id = ANY($ids) ORDER BY id FOR UPDATE` — **the ordering is the
+   deadlock guard.** Two bills sharing two products, each locking in its own arrival
+   order, deadlock; one order everywhere makes the second wait instead
+3. the **complete** Thai error, built from that locked read and thrown once for the
+   whole bill. `UPDATE … WHERE stock >= qty` cannot do this — a row count of zero
+   cannot tell "not enough" from "no such product" — and fail-fast reports only the
+   first bad line, so staff re-submit the bill once per missing item to find out what
+   is short
+4. deduct, `stock >= qty` kept in the predicate as an assertion against our own bugs.
+   A sale never clamps at zero; `adjustStock` is the only path that may
+5. issue the receipt number (#19) from the `device_no` of the token's `did`
+6. insert the header and the lines, `cost_at_sale` from **the same locked read**
+   (ADR-0008) — never re-read outside the transaction, never taken from the client
+7. insert `movements` — one row per product, because `uq_movements_ref` is unique on
+   `(tenant_id, type, ref_id, product_id)`
+8. commit. Only after commit may anything external happen: no cache call and no
+   enqueue inside a transaction that holds locks and can still roll back
+
+**This closes a real race.** `sales_repository.dart` pre-checks stock *outside* its
+transaction and then opens one to deduct; it has never bitten only because the shop
+has one machine. The suite proves the fix: 200 concurrent bills against 50 units
+produce exactly 50 bills, stock exactly zero, 50 distinct receipt numbers.
+
+**Money.** The client owns the numbers — the receipt is printed before the request is
+sent — and the server checks the arithmetic: more than `0.01` apart is
+`409 TOTAL_MISMATCH`, within tolerance the client's values are stored. A line price is
+**never** compared against the catalogue price: haggling is an ordinary day at this
+counter. `pointsGranted` is `floor(total/10)`, computed from the persisted total.
+Everything in between is integer satang (`src/common/money.ts`), never a float.
+
+**Not here:** the customer and mechanic ledger effects are #21 (blocked on the #11
+decision), `shift_id` is stamped by #28, and the response carries no `offlineOk` —
+it has no storage in phase 1.
+
+🔴 **`returning()` (`src/common/sql.ts`) is not optional.** TypeORM's Postgres driver
+returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/`DELETE`,
+so `result[0].stock` reads a number on one and `undefined` on the other — which reaches
+Postgres as a NULL several statements later, where nothing points back at the cause.
+Every `UPDATE … RETURNING` goes through it.
 
 ## Invariants this stack enforces (from #14 / #2)
 

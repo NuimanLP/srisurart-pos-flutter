@@ -77,7 +77,9 @@ export async function createTestApp(
     JWT_PRIVATE_KEY: privateKey,
     JWT_PUBLIC_KEYS: publicKey,
   });
-  const logger = pino({ level: 'silent' });
+  // Silent unless a run asks otherwise: `TEST_LOG_LEVEL=error pnpm test:e2e` is how
+  // you see why a suite is getting a 500.
+  const logger = pino({ level: process.env.TEST_LOG_LEVEL ?? 'silent' });
   let builder = Test.createTestingModule({
     imports: [AppModule.forRoot(config, logger)],
   });
