@@ -161,6 +161,16 @@ const TENANT_TABLES_DEPTH_FIRST = [
 export interface TenantFixture {
   tenantId: string;
   userId: string;
+  /**
+   * The manager's login name — derived from the tenant id, never a shared literal.
+   * `POST /auth/token` without a device token resolves a username across EVERY tenant
+   * (ADR-0004: the shop is named by the device token, not by the form), so two fixture
+   * tenants sharing one name make that name ambiguous and every login with it a 401.
+   * When the name was the constant `'tester'`, a single tenant left behind by a crashed
+   * or interrupted run poisoned every later suite — an ordering-dependent red build with
+   * no relation to the change under test. Derive it, and a leftover cannot collide.
+   */
+  username: string;
   posDeviceId: string;
   backofficeDeviceId: string;
   posDeviceNo: number;
@@ -195,10 +205,14 @@ export async function resetTenant(
     [tenantId, `test-${tenantId.slice(0, 8)}`],
   );
   const userId = randomUUID();
+  // Unique per tenant, on purpose — see `TenantFixture.username`. The whole uuid, not a
+  // prefix of it: suites pick their tenant ids by hand and two of them could easily
+  // share the first eight characters.
+  const username = `tester-${tenantId}`;
   await admin.query(
     `INSERT INTO users (tenant_id, id, username, password_hash, display_name, role, pin_hash)
-          VALUES ($1::uuid, $2::uuid, 'tester', 'x', 'Tester', 'manager', $3)`,
-    [tenantId, userId, opts.pin ? await hashPassword(opts.pin) : null],
+          VALUES ($1::uuid, $2::uuid, $3, 'x', 'Tester', 'manager', $4)`,
+    [tenantId, userId, username, opts.pin ? await hashPassword(opts.pin) : null],
   );
   const posDeviceId = `pos-${tenantId.slice(0, 8)}`;
   const backofficeDeviceId = `bo-${tenantId.slice(0, 8)}`;
@@ -211,6 +225,7 @@ export async function resetTenant(
   return {
     tenantId,
     userId,
+    username,
     posDeviceId,
     backofficeDeviceId,
     posDeviceNo,

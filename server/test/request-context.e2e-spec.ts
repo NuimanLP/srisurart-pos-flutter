@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
@@ -62,7 +63,10 @@ describe('the request-context seam (e2e)', () => {
     // all without a request transaction, not that a login succeeds.
     const res = await request(app.getHttpServer())
       .post('/api/v1/auth/token')
-      .send({ username: 'tester', password: 'wrong' });
+      // The fixture's own username, not a shared literal: the login lookup crosses
+      // tenants, so a name any other tenant also has resolves to nothing and the audit
+      // row below is written under no tenant at all.
+      .send({ username: fixture.username, password: 'wrong' });
 
     expect(res.status).toBe(401);
     expect(res.body.status).toBe('error');
@@ -77,6 +81,38 @@ describe('the request-context seam (e2e)', () => {
       [TENANT],
     );
     expect(rows[0].n).toBeGreaterThan(0);
+  });
+
+  it('refuses a username two shops share, and says a device token is required', async () => {
+    // The cross-tenant lookup in `AuthService.login` is production behaviour (ADR-0004:
+    // a shop is identified by its device token, so a bare username that two shops both
+    // use cannot be resolved). It used to be exercised by accident — the fixture named
+    // every tenant's user `tester`, so one leftover tenant turned the case above into a
+    // 401 with no audit row. The fixture now derives the name per tenant, so the
+    // collision has to be built on purpose, which is what this does.
+    const twinTenant = randomUUID();
+    await admin.query(
+      `INSERT INTO tenants (id, code, shop_name, shop_name_en, plan, status, timezone)
+            VALUES ($1::uuid, $2, 'ร้านชื่อซ้ำ', 'Twin Shop', 'demo', 'active', 'Asia/Bangkok')`,
+      [twinTenant, `test-twin-${twinTenant.slice(0, 8)}`],
+    );
+    try {
+      await admin.query(
+        `INSERT INTO users (tenant_id, id, username, password_hash, display_name, role)
+              VALUES ($1::uuid, gen_random_uuid(), $2, 'x', 'Tester', 'manager')`,
+        [twinTenant, fixture.username],
+      );
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/token')
+        .send({ username: fixture.username, password: 'wrong' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.message).toBe('Ambiguous username. Device token is required.');
+    } finally {
+      // ON DELETE CASCADE from `tenants` takes the user with it.
+      await admin.query(`DELETE FROM tenants WHERE id = $1::uuid`, [twinTenant]);
+    }
   });
 
   it('returns every connection it takes, including on the paths that never reach the handler', async () => {
