@@ -24,6 +24,7 @@ concurrency:
 
 env:
   FLUTTER_VERSION: '3.44.3'   # keep in sync with frontend/.fvmrc
+  WEB_IMAGE: ghcr.io/nuimanlp/srisurart-pos-web
 
 defaults:
   run:
@@ -96,9 +97,22 @@ jobs:
     runs-on: ubuntu-latest
     needs: [analyze-and-test, codegen-check, deps-audit]
     if: github.ref == 'refs/heads/main'
-    # Level 3 (CLAUDE.md): the artifact is produced on every green build.
+    # Level 3 (CLAUDE.md): the artifact is produced on every green build, and
+    # ci.5 (#62) adds the web image — static files only, same <sha>/main tag
+    # discipline as the server image (07_CICD_DEPLOY.md §3). The downloadable
+    # artefact stays: it is how a person inspects a build without a registry.
     # There is deliberately NO deploy step — the production host is undecided
     # until before task q4 (03_ARCHITECTURE.md §8). The faculty VM is demo-only.
+    # When #39 lands, this job becomes a `needs:` of the flutter-ci-status job;
+    # it is never itself a required check (07 §4).
+    # 🔴 One-time manual step after the first push: both GHCR packages
+    # (srisurart-pos-server and srisurart-pos-web) are created private by
+    # GITHUB_TOKEN and must be flipped to public by hand — runbook 07 §7.
+    permissions:
+      contents: read
+      # The file-level `permissions:` replaces the default set, so packages
+      # would otherwise be none here.
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -125,3 +139,36 @@ jobs:
           name: pos-web-${{ github.sha }}
           path: frontend/build/web
           retention-days: 14
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build web image
+        # Context is frontend/ (the job's working-directory) so the Dockerfile's
+        # COPY sees build/web; the Dockerfile itself lives in deploy/.
+        run: |
+          docker build -f ../deploy/web.Dockerfile \
+            -t "$WEB_IMAGE:${{ github.sha }}" \
+            -t "$WEB_IMAGE:main" .
+
+      - name: smoke test the web image
+        # The image must be exactly the build output: the entry point, both web
+        # DB assets, no nginx, and nothing configured to serve (no EXPOSE, the
+        # base's default CMD). Nginx on the VM is stock; this image is inert.
+        run: |
+          docker run --rm "$WEB_IMAGE:${{ github.sha }}" sh -c '
+            test -f /web/index.html &&
+            test -f /web/sqlite3.wasm &&
+            test -f /web/drift_worker.js &&
+            ! command -v nginx
+          ' || { echo "::error::web image contents are wrong"; exit 1; }
+          [ "$(docker image inspect "$WEB_IMAGE:${{ github.sha }}" --format '{{len .Config.ExposedPorts}}')" = 0 ] \
+            || { echo "::error::web image exposes a port"; exit 1; }
+
+      - name: push web image
+        run: |
+          docker push "$WEB_IMAGE:${{ github.sha }}"
+          docker push "$WEB_IMAGE:main"
