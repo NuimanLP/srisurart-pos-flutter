@@ -60,7 +60,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
     }
 
     const { tenantId, manager } = currentRequestContext();
-    const endpoint = `${req.method} ${req.route?.path ?? req.path}`;
+    // The CONCRETE target, not `req.route.path`: that is the route pattern, so every
+    // bill sent to `POST /sales/:id/void` — whose whole body is `{pin}` — would share
+    // one fingerprint, and a reused key would replay the first bill's receipt while
+    // the bill the clerk meant to void stayed live. The path parameter identifies
+    // what is being written, so it belongs in `endpoint` (what was addressed) rather
+    // than in `request_hash`, which `01_DATABASE.md` defines as the hash of the body.
+    const endpoint = `${req.method} ${req.baseUrl}${req.path}`;
     const requestHash = IdempotencyService.requestHash(req.body);
 
     const claim = await this.idempotency.claim(manager, {

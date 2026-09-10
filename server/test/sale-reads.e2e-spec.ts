@@ -361,6 +361,40 @@ describe('sale reads and void (e2e)', () => {
     expect(await stockOf('p1')).toBe(40);
   });
 
+  it('refuses a key reused against a different bill — no replay onto the wrong one', async () => {
+    // `POST /sales/:id/void` is the first route to combine the interceptor with a path
+    // parameter, and the body is only `{pin}`: fingerprinting the route pattern would
+    // make voiding any two bills look like the same request, so the second clerk would
+    // get 200 with the FIRST bill's receipt while their own bill stayed live.
+    const first = await ringUp(2);
+    const second = await ringUp(3);
+    expect(await stockOf('p1')).toBe(35);
+
+    const key = `k-void-shared-${++keySeq}-${Date.now()}`;
+    const voidWithKey = (id: string) =>
+      request(app.getHttpServer())
+        .post(`/api/v1/sales/${id}/void`)
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', key)
+        .send({ pin: PIN });
+
+    expect((await voidWithKey(first.id)).status).toBe(200);
+    expect(await stockOf('p1')).toBe(37);
+
+    const res = await voidWithKey(second.id);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+
+    // The second bill is untouched: still live, and its 3 units were never credited
+    // back — a replay would have answered 200 and left exactly this state unseen.
+    const rows = await admin.query(
+      `SELECT voided FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, second.id],
+    );
+    expect(rows[0].voided).toBe(false);
+    expect(await stockOf('p1')).toBe(37);
+  });
+
   it('refuses to void a bill that already has a credit note against it', async () => {
     const sale = await ringUp(2);
     await admin.query(
