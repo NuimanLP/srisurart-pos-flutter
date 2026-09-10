@@ -184,7 +184,8 @@ before server work: ADR-0004 *"การผูกเครื่อง"* (a devi
 ADR-0007 *phase 1 = server issues every document number, phase 2 = the `pos` device issues
 RC/CN only*, ADR-0009 *refresh also checks `devices.retired_at`*, ADR-0010 *`ApiRepository`
 patches rows only and never calls the Drift transactional services; Drift schema v3
-(`Sales.shiftId`, `Shifts.id` TEXT, `Products.offlineOk`) is due before `q1` ends*. The eight
+(`Sales.shiftId`, `Shifts.id` TEXT, `Products.offlineOk`) is due before `q1` ends* — **schema v3
+landed 2026-09-10 (#53)**. The eight
 questions only the shop/project owner can answer are collected at the end of `adr/README.md`.
 **Server status (2026-09-07): `server/` exists — #14 `p1` and #15 `p2` are merged to `main`.**
 Compose stack with Nginx + NestJS ×3 + Postgres + two Redis + worker + Bull-Board, health
@@ -209,7 +210,7 @@ keeps running this Drift build while the server is developed against a demo tena
 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the server, the
 client's API layer and the CI/CD pipelines all land in this repo.
 
-**CI/CD — levels 1–2 are done, level 3 is half-landed.** `.github/workflows/flutter.yml` is the
+**CI/CD — levels 1–2 are done, level 3 is half-landed; the full design (CD to the faculty VM, GHCR, Ansible, etcd, Prometheus/Grafana) was settled 2026-09-10 in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 and is ticketed under #10 — read those before touching `.github/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the
 client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter build web` + the
 web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
 1. ✅ **Flutter CI** — done. Runners are ASCII paths, so `build_runner` verification runs in CI —
@@ -263,10 +264,12 @@ three cross-cutting bundles of **9 backend slices + 1 CI slice + 1 frontend slic
 the labels `team/1` / `team/2` / `team/3`; the table is in #2. **As of 2026-09-07 the 31 issues
 are also assigned to real GitHub handles**, not just labels: `NuimanLP` (`team/1`, transaction
 path + #14 compose stack), `LomerAlloys` (`team/2`, schema/catalogue/reports), `PattaraponKitcharoen` (`team/3`,
-platform/infra/ops). **The frontend slices are reserved but not yet ticketed** — they are task
-`q1` + Drift schema v3, and they must be cut before anyone finishes their backend bundle.
+platform/infra/ops). **The frontend slices were ticketed 2026-09-10:** #52 (parent, task `q1`) → #53 `fe.0` Drift
+schema v3 · #54 `fe.1` client auth + device token + the server error strings · #55 `fe.2`
+`ApiRepository` reads · #56 `fe.3` `ApiRepository` writes. #53 moved to `team/1` (#2's table
+reserved it for `team/2`) because it was the only unblocked slice and #55/#56 both sit behind it.
 
-**Pending follow-ups (not yet built).** Deployment/hosting has **no owning document** — the old
+**Pending follow-ups (not yet built).** Deployment/hosting is owned by `docs/Backend_design/07_CICD_DEPLOY.md` since 2026-09-10 (ADR-0013); before that it had no owning document — the old
 `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` were deleted in `ec24f79` and are **not coming
 back** (decided 2026-09-04). Recover from git history if you ever need the Supabase-era text:
 - **Cloud snapshot backup (Supabase) — Phase 7a**, stubbed/not wired (needs project creds).
@@ -274,8 +277,9 @@ back** (decided 2026-09-04). Recover from git history if you ever need the Supab
 - **Record-level sync — Phase 7b**, optional until a second device exists. ~~Prerequisite:
   add `updatedAt` to `customers`/`mechanics`/`settings`~~ — **done 2026-09-04** (schema v2:
   `updatedAt`/`deletedAt` on those three + `saleItems.costAtSale` per ADR-0008, with an
-  `onUpgrade` migration; write paths wired). Note `products.updatedAt` is still never
-  written by the app — it only round-trips through snapshots.
+  `onUpgrade` migration; write paths wired). ~~Note `products.updatedAt` is still never
+  written by the app~~ — **done 2026-09-10** (schema v3, #53): all six paths that change a
+  product row stamp it (add / update / adjustStock / saveSale / createReturn / receivePO).
 - **Software hardening — Phase 8a** (anywhere, can parallel Phase 7): manager-PIN gate,
   audit log, PDPA, **bundle Sarabun/Barlow fonts as assets** (currently `google_fonts`
   runtime fetch — set `GoogleFonts.config.allowRuntimeFetching = false` in tests to avoid

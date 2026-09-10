@@ -83,11 +83,11 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 
 | Table | Row class | Companion | Key columns |
 |---|---|---|---|
-| Products | `ProductRow` | `ProductsCompanion` | id, partNo, name, nameTH, category, brand, price(real), cost(real), stock(int), minStock(int), compat?, zone?(legacy), updatedAt? |
+| Products | `ProductRow` | `ProductsCompanion` | id, partNo, name, nameTH, category, brand, price(real), cost(real), stock(int), minStock(int), compat?, zone?(legacy), updatedAt?, offlineOk(bool=false — v3, server-written only) |
 | Categories | `CategoryRow` | `CategoriesCompanion` | name (PK), position(int — palette order) |
 | Customers | `CustomerRow` | `CustomersCompanion` | id, code, name, nameTH, phone?, address?, points(int=0), totalSpend(real=0), createdAt(text) |
 | Mechanics | `MechanicRow` | `MechanicsCompanion` | id, code, name, nameTH?, nickname?, shopName?, phone?, note?, creditLimit(real=0), creditBalance(real=0), totalSales(real=0), totalCredit(real=0), totalDiscount(real=0), totalMarkup(real=0), createdAt(text) |
-| Sales | `SaleRow` | `SalesCompanion` | id, receiptNo, subtotal, discount(=0), total, paymentMethod, customerId?, customerName?, mechanicId?, mechanicName?, mechanicDelta?(real), pointsGranted(int=0), date(dateTime), voided(bool=false), voidedAt? |
+| Sales | `SaleRow` | `SalesCompanion` | id, receiptNo, subtotal, discount(=0), total, paymentMethod, customerId?, customerName?, mechanicId?, mechanicName?, mechanicDelta?(real), pointsGranted(int=0), date(dateTime), voided(bool=false), voidedAt?, shiftId?(text — v3, server-issued) |
 | SaleItems | `SaleItemRow` | `SaleItemsCompanion` | rowId(autoInc PK), saleId→Sales.id, productId, partNo?, name, nameTH?, qty(int), price(real) |
 | PurchaseOrders | `PurchaseOrderRow` | `PurchaseOrdersCompanion` | id, poNo, supplier, status(='open'), createdAt, receivedAt?, cancelledAt? |
 | PoItems | `PoItemRow` | `PoItemsCompanion` | rowId(autoInc PK), poId→PurchaseOrders.id, partNo, name, qty(int), cost(real) |
@@ -98,8 +98,8 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 | Movements | `MovementRow` | `MovementsCompanion` | id, productId, partNo, name, delta(int), type, note?, stockAfter(int), date |
 | Suppliers | `SupplierRow` | `SuppliersCompanion` | id, productId, name, unitCost(real), freight(real=0) |
 | CreditPayments | `CreditPaymentRow` | `CreditPaymentsCompanion` | id, receiptNo, mechanicId, amount(real), date, note? |
-| Shifts | `ShiftRow` | `ShiftsCompanion` | id(autoInc PK), dateStr(yyyy-MM-dd), startingCash(real), openedAt, closedAt?, physicalCash?(real), isActive(bool=false), autoArchived(bool=false), archivedAt? |
-| DrawerEntries | `DrawerEntryRow` | `DrawerEntriesCompanion` | id, shiftId→Shifts.id, type, amount(real), note?, createdAt |
+| Shifts | `ShiftRow` | `ShiftsCompanion` | id(text PK — v3, `newId('sh')` offline / server-issued online), dateStr(yyyy-MM-dd), startingCash(real), openedAt, closedAt?, physicalCash?(real), isActive(bool=false), autoArchived(bool=false), archivedAt? |
+| DrawerEntries | `DrawerEntryRow` | `DrawerEntriesCompanion` | id, shiftId(text)→Shifts.id, type, amount(real), note?, createdAt |
 | ParkedSales | `ParkedSaleRow` | `ParkedSalesCompanion` | id, parkedAt, payload(JSON string) |
 | SettingsRow | `SettingsRowData` | `SettingsRowCompanion` | id(singleton=0), shopName, shopNameEN, taxRate(real=7), quoteValidDays(int=30), address?, phone?, cashierName?, taxId?, branchNo? |
 | AppMeta | `AppMetaRow` | `AppMetaCompanion` | key(PK), value |
@@ -111,8 +111,21 @@ Screens & services consume these row classes DIRECTLY for flat entities.
   as a JSON string.
 - AppMeta seeds `schema_version=2` and `backup_format_version=2` (these are the
   JS `SCHEMA_VERSION` / `BACKUP_FORMAT_VERSION`).
-- Drift's own `schemaVersion => 1` (fresh native schema); the JS migration
-  counter value (2) lives in AppMeta, NOT in Drift's schemaVersion.
+- Drift's own `schemaVersion => 3` (v2 = sync bookkeeping + costAtSale; v3 =
+  the columns the server's shape forces, ADR-0010); the JS migration counter
+  value (2) lives in AppMeta, NOT in Drift's schemaVersion — the two numbers
+  are unrelated and coincide only by accident.
+- Every write that changes a `Products` row stamps `updatedAt` via
+  `ProductsCompanion.stamped` (ADR-0010: the client fetches with
+  `?updatedSince=`), and a companion that already carries a stamp keeps it, so
+  a server timestamp is never overwritten by the local clock. Two paths are
+  deliberately exempt and leave the value as-is: `_seed()` and
+  `importLegacyBackup()`, which restore rows rather than change them — so a
+  freshly seeded or freshly imported database has null stamps, which `fe.2`
+  (#55) has to treat as "never synced" rather than "unchanged".
+- `offlineOk` and `Sales.shiftId` are the server's to write; nothing offline
+  derives them. Neither appears in `exportSnapshot()` — the backup keeps the JS
+  `sa_*` shape, so a shiftId written online does not survive a backup/restore.
 
 ---
 

@@ -58,7 +58,7 @@ class ShiftsRepository {
   }
 
   /// Drawer entries for a shift, newest first.
-  Future<List<DrawerEntryRow>> _entriesFor(int shiftId) {
+  Future<List<DrawerEntryRow>> _entriesFor(String shiftId) {
     return (db.select(db.drawerEntries)
           ..where((t) => t.shiftId.equals(shiftId))
           ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
@@ -100,10 +100,12 @@ class ShiftsRepository {
         );
       }
 
-      final id = await db
+      final id = newId('sh');
+      await db
           .into(db.shifts)
           .insert(
             ShiftsCompanion.insert(
+              id: id,
               dateStr: today,
               startingCash: startingCash,
               openedAt: DateTime.now(),
