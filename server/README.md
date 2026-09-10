@@ -124,18 +124,37 @@ docker/postgres/init/    creates the non-superuser pos_app role on first boot
 - The app connects as `pos_app` (`NOSUPERUSER NOBYPASSRLS`, not the table owner) so RLS
   cannot be bypassed by accident. Migrations run as `postgres`, once, before the app starts.
 
-## The image CI builds (#40)
+## The image CI builds (#61)
 
-A green push to `main` uploads the server image as a GitHub Actions artefact — there is no
-registry and no deploy step until a production host is picked (`03_ARCHITECTURE.md §8`):
+A green push to `main` pushes the server image to GHCR, tagged with the commit SHA and with
+`main`. There is still no deploy step until a production host is picked
+(`03_ARCHITECTURE.md §8`), so a human pulls it:
 
 ```
-gh run download <run-id> -n pos-server-image-<sha>
-docker load < pos-server-<sha>.tar.gz
-docker tag srisurart-pos/server:<sha> srisurart-pos/server:local   # the tag compose expects
+docker pull ghcr.io/nuimanlp/srisurart-pos-server:<sha>          # or :main
+docker tag ghcr.io/nuimanlp/srisurart-pos-server:<sha> srisurart-pos/server:local
 ```
 
-The same image runs api, worker and bull-board; compose overrides `command`.
+`srisurart-pos/server:local` is the tag compose expects. The same image runs api, worker and
+bull-board; compose overrides `command`.
+
+The push is gated: Trivy scans the built image for **fixable** HIGH/CRITICAL and the job exits
+non-zero before the push, so a vulnerable image never reaches the registry. The image is kept
+clean by `Dockerfile` (base pinned by digest, `apk upgrade`, npm/npx deleted from the runtime
+stage), never by an ignore file — there is no `.trivyignore` in this repo and adding one is
+forbidden (ADR-0013).
+
+**Once, after the very first push:** the package `GITHUB_TOKEN` creates is **private**, and a
+user-owned package cannot be made public through the API. Flip it by hand — GitHub → Packages →
+the package → *Package settings* → *Change visibility* → Public. Until then `docker pull`
+requires a token.
+
+**Bumping the base image.** The base is pinned by digest and Dependabot here is restricted to
+security updates, so nothing bumps it on a schedule. A CVE published *after* the pin turns this
+gate red on the next push to `main` — usually a push that has nothing to do with the image, so
+whoever meets the red build did not cause it. The fix is to bump the digest
+(`docker buildx imagetools inspect node:22-alpine`, paste the index digest into both `FROM`
+lines in `Dockerfile`), never a suppression file.
 
 ## Deploying a new image without a full outage
 
