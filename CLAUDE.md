@@ -177,7 +177,8 @@ primer), `00_INDEX.md` (map + open decisions), `01_DATABASE.md` (28 tables + DDL
 `04_QA_SCRUTINY.md` (design review record), and **`adr/` — the binding decision record**
 (ADR-0001…0011: tenant provisioning, platform-admin plane, tenant lifecycle, device roles,
 data portability, per-tenant rate limit, receipt numbering, cost-at-sale, JWT lifetime,
-client write-through cache, monorepo). **Where a doc contradicts an ADR,
+client write-through cache, monorepo; **ADR-0013** = the CI/CD + deploy toolchain, owning doc
+`07_CICD_DEPLOY.md`, glossary in the root `CONTEXT.md`). **Where a doc contradicts an ADR,
 the ADR wins.** The 2026-09-04 scrutinize round (3 agents) added binding addenda you must read
 before server work: ADR-0004 *"การผูกเครื่อง"* (a device is a server-issued device token via
 `POST /devices` + `POST /auth/device`; `did`/`drole` never come from the request body),
@@ -192,7 +193,7 @@ Compose stack with Nginx + NestJS ×3 + Postgres + two Redis + worker + Bull-Boa
 probes, JSON logs; the 27-table schema as TypeORM migrations applied by a one-shot compose
 `migrate` job, RLS enabled + forced on every tenant-scoped table, grants to the non-owner
 `pos_app` role, the five-category seed; see `server/README.md` *Schema and migrations*.
-**#18 `p5.1` (idempotency) landed next** — the `Idempotency-Key` module every money/stock
+**#18 `p5.1` (idempotency) is merged to `main`** (PR #51, 2026-09-10) — the `Idempotency-Key` module every money/stock
 write goes through, proved against the real Postgres; `server/README.md` *Idempotency* has the
 rules and the three error codes it had to add to `02_API_SCREENS.md §8`. It reads the request's
 tenant + transaction from `src/common/request-context.ts`, a seam **#4** fills. 🔴 ADR-0003 says
@@ -210,9 +211,9 @@ keeps running this Drift build while the server is developed against a demo tena
 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the server, the
 client's API layer and the CI/CD pipelines all land in this repo.
 
-**CI/CD — levels 1–2 are done, level 3 is half-landed; the full design (CD to the faculty VM, GHCR, Ansible, etcd, Prometheus/Grafana) was settled 2026-09-10 in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 and is ticketed under #10 — read those before touching `.github/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the
+**CI/CD — levels 1–3 are done (level 3 = both release images on GHCR since 2026-09-10, #69/#70). CD to the faculty VM (Ansible), etcd and Prometheus/Grafana are designed in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 (spec #60) and ticketed #63–#67 under #10 for the teammates — read those before touching `.github/`, `deploy/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the
 client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter build web` + the
-web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
+web-asset assertion), committed 2026-09-04. Status per level:
 1. ✅ **Flutter CI** — done. Runners are ASCII paths, so `build_runner` verification runs in CI —
    the only place the committed `*.g.dart` is ever checked against the schema.
 2. ✅ **Backend CI** — `.github/workflows/server.yml` (2026-09-06, #38): four jobs — lint,
@@ -224,28 +225,35 @@ web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
    all closed) within minutes — routine upgrades are human-timed here, not a weekly interrupt. Integration starts the compose Postgres + both Redis (GitHub service
    containers cannot set the Redis eviction policies), applies the real migrations, then runs
    `test:e2e`; `synchronize` is false even in tests. Path-filtered to `server/**`.
-3. ◐ **Build artefacts** — the server image half landed with #40; the web half
-   (`flutter.yml`'s `build-web`) has existed since level 1 (`946c405`). Both now run only on a
-   green build of `main` and both are gated on *every* job in their workflow, so a red build
-   uploads nothing. **Superseded 2026-09-10 by ADR-0013 / `07_CICD_DEPLOY.md`:** the release is
-   now two **images on GHCR** tagged `<sha>` + `main` — `server.yml`'s `build-image` builds,
-   smoke-runs, **Trivy-scans (HIGH/CRITICAL, fixed-only, blocks the push, no `.trivyignore`)**
-   and pushes `ghcr.io/nuimanlp/srisurart-pos-server` (#61; the tarball artefact is gone, and the
-   base-image CVEs are answered in `server/Dockerfile` by a digest pin + `apk upgrade` + deleting
-   npm/npx from the runtime stage), and `flutter.yml`'s `build-web` pushes the static-only
-   `…/srisurart-pos-web` (#62). The **deploy step** is no longer "unwired by decision": Ansible
-   auto-deploys every green `main` to the faculty VM as environment `demo` (#65–#67, 07 §6);
-   the *production* host is still unchosen (due before `q4`).
-   🔴 **#40's AC4 is still open:** path filters mean a `server/`-only commit produces no web
-   artefact and a `frontend/`-only commit no image, so the two halves exist together only for a
-   commit touching both. No `main` commit is reproducibly deployable until that is fixed, and
-   the fix (dropping `paths:` from the `push` triggers) belongs to **#39**.
+3. ✅ **Release images** — merged 2026-09-10 (#70 `ci.4`, #69 `ci.5`; ADR-0013, 07 §3). On a
+   green `main` both workflows push to GHCR tagged `<sha>` + `main`: `server.yml`'s `build-image`
+   builds, smoke-runs, **Trivy-scans the image (HIGH/CRITICAL, fixed-only, blocks the push — no
+   `.trivyignore` anywhere, by ADR)** and pushes `ghcr.io/nuimanlp/srisurart-pos-server`;
+   `flutter.yml`'s `build-web` keeps the downloadable web artefact and pushes the static-only
+   `…/srisurart-pos-web` (`deploy/web.Dockerfile`, busybox + `/web`). The base-image CVEs (#44's
+   table) are answered in `server/Dockerfile`: base pinned by digest, `apk upgrade`, npm/npx/corepack
+   deleted from the runtime stage before `USER node` — Trivy 0 findings vs 13 on the bare base.
+   The tarball artefact is gone. **Packages are public from the first push** (verified with an
+   anonymous pull; no manual visibility step — #71). `server/docker/nginx/nginx.conf` now serves
+   the client at `/` (mime types added, `/api/` routed) and the admin-plane allowlist moved to
+   `/api/v1/platform/` — the old `/platform/` block never matched (pre-existing bug).
+   🔴 **Bump the base digest, never suppress:** the digest pin + security-only Dependabot means a
+   CVE published later reddens the gate on an unrelated `main` push (07 §7).
+   **Not built yet (teammates):** Ansible provision/deploy to the `demo` VM with rollback
+   (#65 #67), monitoring overlay (#63), etcd + `RuntimeConfigService` (#64 #66). The *production*
+   host is still unchosen (due before `q4`).
+   🔴 **#40's AC4 is still open:** `push.paths` means a `server/`-only commit produces no web
+   image and a `frontend/`-only commit no server image, so a full release exists only for a commit
+   touching both. The fix — no `paths:` on push, PR-only filtering inside the workflow — is
+   specified in 07 §2 and belongs to **#39**.
 
 `server/` and the Flutter client share this repo ([ADR-0011](docs/Backend_design/adr/0011-monorepo.md)),
-so every CI job needs a `paths:` filter — the Flutter jobs must not run on `server/`-only changes.
-🔴 **Known trap:** `flutter.yml`'s `paths-ignore` means a `server/`-only PR runs **no** Flutter
+so PR runs are path-filtered — the Flutter jobs must not run on `server/`-only PRs.
+🔴 **Known trap:** today's workflow-level `paths:` means a `server/`-only PR runs **no** Flutter
 jobs at all; if those job names are required status checks on `main`, such a PR can never satisfy
-them and blocks forever. Issue **#39** owns that fix.
+them and blocks forever. Issue **#39** owns the fix, and its shape is decided (07 §2/§4): filter
+inside the workflow on PRs only, two uniquely-named always-reported status jobs
+(`flutter-ci-status`, `server-ci-status`) as the only required checks, `!cancelled()` semantics.
 
 **Where the work lives — GitHub issues (since 2026-09-05).** `docs/Backend_design/` says *what* to
 build; the issue tracker says *who builds what, in what order.*
@@ -268,6 +276,16 @@ platform/infra/ops). **The frontend slices were ticketed 2026-09-10:** #52 (pare
 schema v3 · #54 `fe.1` client auth + device token + the server error strings · #55 `fe.2`
 `ApiRepository` reads · #56 `fe.3` `ApiRepository` writes. #53 moved to `team/1` (#2's table
 reserved it for `team/2`) because it was the only unblocked slice and #55/#56 both sit behind it.
+**#53 is merged (PR #58, 2026-09-10)** — schema v3 is on `main`, so #55/#56 are unblocked.
+Both `onUpgrade` hops are covered: `frontend/test/schema_v3_migration_test.dart` (v2 → v3) and
+`frontend/test/schema_v1_to_v3_migration_test.dart` (v1 → v3 — the hop the shop can actually
+hit, since schema v2 only landed 2026-09-04, so a browser whose IndexedDB predates that is
+still v1 and runs `from < 2` and `from < 3` back to back). Both DDL constants are dumps of the
+real schema at the commit before each bump — **they are evidence, do not tidy them**.
+🔴 **`Products` has no `deletedAt` and `ProductsRepository.delete` is a hard delete**, so
+#55's `?updatedSince=` cursor sees creates and edits but is structurally blind to deletions —
+**#55 owns that column.** It was deliberately NOT added in #53: ADR-0010 decision 2 moves the
+client schema only when the client actually needs the field, and nothing writes it until #55.
 
 **Pending follow-ups (not yet built).** Deployment/hosting is owned by `docs/Backend_design/07_CICD_DEPLOY.md` since 2026-09-10 (ADR-0013); before that it had no owning document — the old
 `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` were deleted in `ec24f79` and are **not coming

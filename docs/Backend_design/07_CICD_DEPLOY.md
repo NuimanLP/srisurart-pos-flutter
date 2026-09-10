@@ -6,7 +6,7 @@
 > ที่ root (gate / status check / artefact / image / release / deploy / rollback / provision)
 > **เอกสารนี้ขัดกับ ADR เมื่อไร ยึด ADR**
 
-สถานะ 2026-09-10: **ออกแบบเสร็จ ผ่าน scrutinize 3 รอบ (แบบ / spec / ticket) · #61 และ #62 มี PR แล้ว (ผ่าน code-review 2 แกน)** — spec = **#60**,
+สถานะ 2026-09-10: **ออกแบบเสร็จ ผ่าน scrutinize 3 รอบ (แบบ / spec / ticket) · #61 และ #62 merge แล้ว (#70, #69) — image ทั้งสองอยู่บน GHCR และ public แล้ว** — spec = **#60**,
 ticket ใต้ #10: #61 `ci.4` · #62 `ci.5` · #63 `ops.1` · #64 `ops.2` · #65 `cd.1` (รอ #61 #62) · #66 `ops.3` (รอ #64) ·
 #67 `cd.2` (รอ #65) · #39 และ #44 ได้ comment ปรับขอบเขต
 
