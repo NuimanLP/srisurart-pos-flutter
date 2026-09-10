@@ -48,12 +48,21 @@ the templates into the agent prompts instead — output shape matches the skills
 * Q16 facts never answered (Docker present? SSH user? key holder) — moot because provision runs from bare.
 * Grafana kept at the owner's "ใส่ก็ได้"; drop it only if the slide table changes too.
 
-## State
+## State (end of session, 2026-09-10)
 
-Docs on branch `docs/cicd-design-adr-0013` (PR **#68** — merge first: it retires CLAUDE.md's "no registry push" paragraph).
+**All merged to `main`, in this order:** #68 docs (rebased over the other session's #58; `INDEX.md` conflict kept both lines) →
+#70 `ci.4` (#61) → #69 `ci.5` (#62) → #71 docs correction → this status commit.
 Implemented by agents in isolated worktrees, each through a two-axis code review (Standards + Spec) before push:
-**#61 → PR #70** (`ci.4`: digest-pinned Dockerfile, npm/npx/corepack stripped, Trivy image gate before the GHCR push, tarball gone;
-local Trivy 0 findings vs 13 on the bare base) · **#62 → PR #69** (`ci.5`: static-only web image on GHCR, nginx mime types,
-`/api/v1/platform/` allowlist fix, `location /` static without `limit_req`). The owner chose to leave #39, #63–#67 to the teammates.
-Post-merge human steps: flip both GHCR packages public (07 §7); #65 must overwrite the pre-seeded nginx volume (comment on #65). Working tree also carried another
-session's #53 work (merged separately as `42daf80`, which swept in this session's two CLAUDE.md/AGENTS.md pointer lines).
+**#61 → #70** (digest-pinned Dockerfile, npm/npx/corepack stripped, Trivy image gate before the GHCR push, tarball gone;
+local Trivy 0 findings vs 13 on the bare base) · **#62 → #69** (static-only web image on GHCR, nginx mime types,
+`/api/v1/platform/` allowlist fix, `location /` static without `limit_req`).
+
+**First real `main` runs:** all green; Trivy image step passed; both images pushed with `<sha>` + `main`.
+**Runbook correction (#71):** the "flip both GHCR packages public by hand" step was wrong — packages pushed by `GITHUB_TOKEN` from a
+public repo are public from the first push (anonymous registry token → 200 on both manifests, `docker pull` logged out works).
+
+**Left to the teammates by the owner's decision:** #39 (team/2), #63 #64 (team/2), #65 #66 #67 (team/3). Before the first auto-deploy
+(07 §7): Environment `demo` + 4 secrets, one manual `provision.yml`, secret scanning + push protection in repo settings.
+**Trap for #65:** the stock nginx image pre-seeds a fresh volume with its own `index.html`; `web-sync` must overwrite (comment on #65).
+
+The working tree also carried another session's #53/#58 work during this session (merged separately); nothing of it is in these PRs.
