@@ -97,6 +97,10 @@ export async function createTestApp(
   const admin = app.get<DataSource>(ADMIN_DATA_SOURCE);
   const cache = app.get<Redis>(REDIS_CACHE);
   await configureApp(app, logger);
+  // Listen once, on an ephemeral port. Without this supertest starts and closes a
+  // server per request, which the 200-request case turns into 200 listen/close cycles
+  // — and a keep-alive socket pointing at a server that has already gone.
+  await app.listen(0);
   return { app, ds, admin, cache };
 }
 

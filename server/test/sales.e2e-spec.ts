@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import request from 'supertest';
+import request, { type Response } from 'supertest';
 import type { DataSource } from 'typeorm';
 import {
   accessToken,
@@ -308,7 +308,13 @@ describe('POST /sales (e2e)', () => {
     const attempts = Array.from({ length: 200 }, () =>
       post(bill([{ productId: 'hot', name: 'Hot Part', qty: 1, price: '100.00' }])),
     );
-    const results = await Promise.all(attempts);
+    // `allSettled`, not `all`: a rejection would leave the other 199 requests still in
+    // flight, writing rows into a tenant the next test's `resetTenant` is already
+    // deleting — a foreign-key error in the fixture, pointing nowhere near the cause.
+    const settled = await Promise.allSettled(attempts);
+    const failed = settled.filter((r) => r.status === 'rejected');
+    expect(failed).toEqual([]);
+    const results = settled.map((r) => (r as PromiseFulfilledResult<Response>).value);
 
     const created = results.filter((r) => r.status === 201);
     const refused = results.filter((r) => r.status === 409);
