@@ -50,5 +50,10 @@ the templates into the agent prompts instead — output shape matches the skills
 
 ## State
 
-Docs on branch `docs/cicd-design-adr-0013` (this PR). Nothing implemented yet. Working tree also carried another
+Docs on branch `docs/cicd-design-adr-0013` (PR **#68** — merge first: it retires CLAUDE.md's "no registry push" paragraph).
+Implemented by agents in isolated worktrees, each through a two-axis code review (Standards + Spec) before push:
+**#61 → PR #70** (`ci.4`: digest-pinned Dockerfile, npm/npx/corepack stripped, Trivy image gate before the GHCR push, tarball gone;
+local Trivy 0 findings vs 13 on the bare base) · **#62 → PR #69** (`ci.5`: static-only web image on GHCR, nginx mime types,
+`/api/v1/platform/` allowlist fix, `location /` static without `limit_req`). The owner chose to leave #39, #63–#67 to the teammates.
+Post-merge human steps: flip both GHCR packages public (07 §7); #65 must overwrite the pre-seeded nginx volume (comment on #65). Working tree also carried another
 session's #53 work (merged separately as `42daf80`, which swept in this session's two CLAUDE.md/AGENTS.md pointer lines).
