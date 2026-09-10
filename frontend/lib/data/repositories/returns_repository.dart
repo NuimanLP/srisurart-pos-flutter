@@ -26,6 +26,7 @@ import '../../core/utils/ids.dart';
 import '../../core/utils/money.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
+import '../db/product_stamp.dart';
 
 class ReturnsRepository {
   final AppDatabase db;

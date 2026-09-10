@@ -21,6 +21,7 @@ import 'package:drift/drift.dart';
 
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
+import '../db/product_stamp.dart';
 import 'movements_repository.dart';
 
 class ProductsRepository {

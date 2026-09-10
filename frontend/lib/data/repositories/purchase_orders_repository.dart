@@ -21,6 +21,7 @@ import '../../core/utils/ids.dart';
 import '../../core/utils/money.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
+import '../db/product_stamp.dart';
 
 /// Renders a [round2] result the way JS interpolates a number into a template
 /// literal: `120.0` → `"120"`, `133.33` → `"133.33"`. db.js writes the raw
