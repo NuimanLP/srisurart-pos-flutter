@@ -205,10 +205,10 @@ clean by `Dockerfile` (base pinned by digest, `apk upgrade`, npm/npx deleted fro
 stage), never by an ignore file — there is no `.trivyignore` in this repo and adding one is
 forbidden (ADR-0013).
 
-**Once, after the very first push:** the package `GITHUB_TOKEN` creates is **private**, and a
-user-owned package cannot be made public through the API. Flip it by hand — GitHub → Packages →
-the package → *Package settings* → *Change visibility* → Public. Until then `docker pull`
-requires a token.
+**Visibility.** The package is pushed by `GITHUB_TOKEN` from this public repository, so it is
+linked to the repo and **public from the first push** — verified 2026-09-10 by an anonymous
+`docker pull` of both images minutes after the first run. No manual step. If the repository is
+ever made private the package follows and the VM would need a pull token (07 §7).
 
 **Bumping the base image.** The base is pinned by digest and Dependabot here is restricted to
 security updates, so nothing bumps it on a schedule. A CVE published *after* the pin turns this

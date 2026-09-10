@@ -212,8 +212,9 @@ jobs:
 
       - name: push <sha> and main
         # <sha> is what a deploy pins and what a rollback names; `main` is the convenience
-        # tag that always points at the newest green commit. The very first push creates
-        # the package as private — someone flips it to public once by hand (07 §7).
+        # tag that always points at the newest green commit. Pushed from this public repo
+        # by GITHUB_TOKEN, the package is linked to it and public from the first push —
+        # verified with an anonymous pull 2026-09-10 (07 §7); no manual visibility step.
         run: |
           docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
           docker push "$IMAGE:$GITHUB_SHA"
