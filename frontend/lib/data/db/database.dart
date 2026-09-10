@@ -64,7 +64,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -86,6 +86,30 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(settingsRow, settingsRow.updatedAt);
         await m.addColumn(settingsRow, settingsRow.deletedAt);
         await m.addColumn(saleItems, saleItems.costAtSale);
+      }
+      // v2 → v3: the columns the server's shape forces on the client
+      // (ADR-0010 decision 2). Sales.shiftId and Products.offlineOk are plain
+      // additions; Shifts.id changes type, which SQLite cannot do in place —
+      // both it and the DrawerEntries.shiftId that points at it are rebuilt,
+      // CASTing the old integer ids to their text form so every entry stays
+      // attached to the shift it already had.
+      if (from < 3) {
+        await m.addColumn(sales, sales.shiftId);
+        await m.addColumn(products, products.offlineOk);
+        await m.alterTable(
+          TableMigration(
+            shifts,
+            columnTransformer: {shifts.id: shifts.id.cast<String>()},
+          ),
+        );
+        await m.alterTable(
+          TableMigration(
+            drawerEntries,
+            columnTransformer: {
+              drawerEntries.shiftId: drawerEntries.shiftId.cast<String>(),
+            },
+          ),
+        );
       }
     },
   );

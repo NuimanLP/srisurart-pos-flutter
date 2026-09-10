@@ -23,6 +23,7 @@ import '../../core/utils/ids.dart';
 import '../../core/utils/money.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
+import '../db/product_stamp.dart';
 
 class SalesRepository {
   final AppDatabase db;
@@ -63,7 +64,7 @@ class SalesRepository {
           throw Exception('Stock underflow on ${p.partNo} — race condition?');
         }
         await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
-          ProductsCompanion(stock: Value(newStock)),
+          ProductsCompanion(stock: Value(newStock)).stamped,
         );
       }
 
