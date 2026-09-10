@@ -18,6 +18,7 @@
 | [0010](0010-client-write-through-cache.md) | client ใช้ Drift ยังไง | `ApiRepository` = implementation ใหม่ของ interface เดิม เขียนผลลง Drift (**write-through**) และ **map ที่ชั้น repository** ไม่ regenerate schema ตาม Postgres | Accepted |
 | [0011](0011-monorepo.md) | `server/` อยู่ที่ไหน | repo เดียวกับ client — 1 commit แก้ API ได้ทั้งสองฝั่ง, CI ใช้ `paths:` filter | Accepted |
 | [0012](0012-couchdb-replaces-postgres.md) | **CouchDB แทน PostgreSQL?** (อาจารย์เสนอ 2026-09-08) | **ไม่ใช้ — คง PostgreSQL** · สลับ DB เฉย ๆ แย่กว่า Postgres ทุกข้อ; แบบ replicate ตรงยืนบน spike Flutter Web ที่ยังไม่พิสูจน์, กัน oversell ได้เพราะ ADR-0004 ไม่ใช่เพราะ DB, ทิ้ง #15 + rubric คอร์ส · offline-first กลับมาเป็นเฟส 2 ตามแผนเดิมอยู่แล้ว | ❌ **Rejected** 2026-09-08 |
+| [0013](0013-cicd-toolchain.md) | toolchain CI/CD + deploy | GitHub Actions (คงเดิม ไม่ Jenkins) + Trivy สแกน image บล็อก push + **GHCR** public (server + web เป็น image ทั้งคู่) + **Ansible** deploy อัตโนมัติขึ้น VM คณะ (`demo`) + **etcd** เฉพาะ dynamic config ไม่ใช่ข้อมูลธุรกิจ + Prometheus/Grafana ผูก loopback · เอกสารเจ้าของ = `07_CICD_DEPLOY.md` | Accepted 2026-09-10 |
 
 ## สถานะการนำไปลงเอกสารหลัก
 

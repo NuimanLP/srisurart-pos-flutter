@@ -27,6 +27,11 @@ class Products extends Table {
       text().nullable()(); // legacy field, migrated to category on read
   DateTimeColumn get updatedAt => dateTime().nullable()();
 
+  /// Schema v3 (ADR-0010): may this line be sold while the client is degraded?
+  /// Written ONLY from a server response — never derived here. Defaults to
+  /// false so an unknown product is not sellable offline.
+  BoolColumn get offlineOk => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -103,6 +108,12 @@ class Sales extends Table {
   DateTimeColumn get date => dateTime()();
   BoolColumn get voided => boolean().withDefault(const Constant(false))();
   DateTimeColumn get voidedAt => dateTime().nullable()();
+
+  /// Schema v3 (ADR-0010): the shift this bill belongs to, as issued by the
+  /// server (`sales.shift_id`). Nullable because every bill written by the
+  /// offline build has none. Deliberately NOT a `references(Shifts, #id)`:
+  /// a patched bill can name a shift this cache has never seen.
+  TextColumn get shiftId => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -258,7 +269,10 @@ class CreditPayments extends Table {
 
 @DataClassName('ShiftRow')
 class Shifts extends Table {
-  IntColumn get id => integer().autoIncrement()();
+  /// Schema v3 (ADR-0010): TEXT, not an autoincrement integer — the server
+  /// issues shift ids (TEXT + `device_id`) and an integer column cannot hold
+  /// one. Offline-issued ids come from `newId('sh')`.
+  TextColumn get id => text()();
   TextColumn get dateStr => text()(); // yyyy-MM-dd
   RealColumn get startingCash => real()();
   DateTimeColumn get openedAt => dateTime()();
@@ -267,12 +281,15 @@ class Shifts extends Table {
   BoolColumn get isActive => boolean().withDefault(const Constant(false))();
   BoolColumn get autoArchived => boolean().withDefault(const Constant(false))();
   DateTimeColumn get archivedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
 }
 
 @DataClassName('DrawerEntryRow')
 class DrawerEntries extends Table {
   TextColumn get id => text()();
-  IntColumn get shiftId => integer().references(Shifts, #id)();
+  TextColumn get shiftId => text().references(Shifts, #id)();
   TextColumn get type => text()();
   RealColumn get amount => real()();
   TextColumn get note => text().nullable()();

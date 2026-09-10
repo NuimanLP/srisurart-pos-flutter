@@ -26,6 +26,7 @@ import '../../core/utils/ids.dart';
 import '../../core/utils/money.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
+import '../db/product_stamp.dart';
 
 class ReturnsRepository {
   final AppDatabase db;
@@ -120,7 +121,7 @@ class ReturnsRepository {
         )..where((x) => x.id.equals(i.productId))).getSingleOrNull();
         if (p != null) {
           await (db.update(db.products)..where((x) => x.id.equals(p.id))).write(
-            ProductsCompanion(stock: Value(p.stock + i.qty)),
+            ProductsCompanion(stock: Value(p.stock + i.qty)).stamped,
           );
         }
       }

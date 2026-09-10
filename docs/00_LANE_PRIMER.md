@@ -14,6 +14,12 @@
 > และตั้งกฎการเซ็นบัตร JWT ให้ชัดใน [ADR-0009](Backend_design/adr/0009-jwt-session-lifetime.md)
 > ก่อนที่ #4 จะเริ่มเขียนโค้ด · เล่าเต็ม ๆ ที่ [handoff log](handoff_log/security-review-jwt-audit-cve.md)
 
+> 🚀 **2026-09-10 — ตั๋ว CI/CD ชุดใหม่ #60–#67 (ตารางด้านล่างยังไม่ได้ใส่):** อาจารย์ให้ตาราง 7 บล็อก DevOps
+> (GitHub Actions · Trivy · GHCR · Ansible · etcd · Prometheus/Grafana) → ออกแบบ + ADR-0013 + เอกสารเจ้าของเรื่อง
+> [`07_CICD_DEPLOY.md`](Backend_design/07_CICD_DEPLOY.md) · spec = #60 · **Team 1:** #61 #62 (**ทำเสร็จ merge แล้ว** — image
+> ขึ้น GHCR ผ่าน Trivy gate) · **Team 2:** #39 #63 #64 (status job + branch protection, monitoring, service etcd) ·
+> **Team 3:** #65 #66 #67 (Ansible provision/deploy + rollback, ตัวอ่าน etcd) · ศัพท์กลางอยู่ที่ [`CONTEXT.md`](../CONTEXT.md)
+
 ---
 
 ## 🐣 ภาค 1: ปูพื้นฐาน — เรากำลังสร้างอะไรกันอยู่วะ?
