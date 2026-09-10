@@ -14,6 +14,10 @@ import { DataSource } from 'typeorm';
 import { JwtVerifier } from '../../auth/jwt-keys.service.js';
 import { REQUIRE_DEVICE_ROLE_KEY } from '../decorators/device-role.decorator.js';
 import { REDIS_CACHE } from '../../infra/redis.module.js';
+import {
+  currentRequestTransaction,
+  setRequestTenant,
+} from '../request-context.js';
 
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -119,6 +123,24 @@ export class TenantGuard implements CanActivate {
         HttpStatus.FORBIDDEN,
       );
     }
+
+    // 7. Only now claim the request's transaction for this tenant (ADR-0003 — this
+    //    guard is the ONE component allowed to). `SET LOCAL` is transaction-scoped,
+    //    so it must land on the transaction RequestContextMiddleware opened and no
+    //    other: a query on any other connection is a query RLS shows nothing. Doing
+    //    it after the status check means a suspended tenant is never named on a
+    //    transaction at all.
+    const manager = currentRequestTransaction();
+    if (!manager) {
+      throw new HttpException(
+        { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+    await manager.query(`SELECT set_config('app.tenant_id', $1, true)`, [
+      payload.tid,
+    ]);
+    setRequestTenant(payload.tid);
 
     return true;
   }

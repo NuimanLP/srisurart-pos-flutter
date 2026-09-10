@@ -4,26 +4,25 @@ import type { EntityManager } from 'typeorm';
 /**
  * The per-request tenant and transaction that every tenant-scoped module reads.
  *
- * ADR-0003 makes `TenantGuard` (#4) the ONE component that checks `tenants.status`
+ * ADR-0003 makes `TenantGuard` the ONE component that checks `tenants.status`
  * and does `SET LOCAL app.tenant_id` — a separate tenant interceptor was considered
  * and rejected, because a route that forgot the guard would still get the GUC set
  * and read a suspended tenant's rows. Nothing else may set `app.tenant_id`.
  *
  * A guard cannot be the whole story, though: `canActivate` returns before the
  * handler runs, so it can neither hold this scope open across the handler nor commit
- * afterwards. The wiring #4 has to build is therefore a split, and ADR-0003 is
- * untouched by it because only the guard still touches the tenant:
+ * afterwards. The wiring is therefore a split, and ADR-0003 is untouched by it
+ * because only the guard still touches the tenant:
  *
- *   middleware   `runInRequestContext({ tenantId, manager }, next)` — opens the
- *                transaction and the scope for the whole request
- *   TenantGuard  checks `tenants.status` and `SET LOCAL app.tenant_id` on that
- *                manager — the one component allowed to, per ADR-0003
- *   interceptor  commits on success, rolls back on error, before the response is sent
+ *   RequestContextMiddleware  opens the transaction and this scope for the whole request
+ *   TenantGuard               checks `tenants.status` and `SET LOCAL app.tenant_id` on
+ *                             that manager — the one component allowed to, per ADR-0003
+ *   TransactionInterceptor    commits on success, rolls back on error, before the
+ *                             response is sent
  *
- * Nothing in `src/` populates this yet: #4 is not built. A module that needs it
- * therefore fails closed — `currentRequestContext()` throws rather than guessing a
- * tenant — so no route can reach tenant data before the guard exists.
- * `test/idempotency.e2e-spec.ts` stands in for the whole chain.
+ * `currentRequestContext()` fails closed twice over: outside the scope, and inside it
+ * before the guard has named a tenant. A route that forgot the guard therefore cannot
+ * reach tenant data — it gets an exception, not someone else's rows.
  */
 export interface RequestContext {
   /**
@@ -34,29 +33,63 @@ export interface RequestContext {
   tenantId: string;
   /**
    * The request's transactional EntityManager. Every tenant-scoped read and write
-   * goes through it, or it lands outside the transaction the guard opened — and
+   * goes through it, or it lands outside the transaction the middleware opened — and
    * outside `SET LOCAL`, which is transaction-scoped, RLS sees no tenant at all.
    */
   manager: EntityManager;
 }
 
-const storage = new AsyncLocalStorage<RequestContext>();
+/** What the middleware opens: a transaction with no tenant named on it yet. */
+interface MutableRequestContext {
+  tenantId: string | null;
+  manager: EntityManager;
+}
 
-/** Runs `fn` with `ctx` as the current request context. #4's TenantGuard calls this. */
+const storage = new AsyncLocalStorage<MutableRequestContext>();
+
+/**
+ * Runs `fn` with a fresh request scope carrying `manager`'s transaction.
+ * `RequestContextMiddleware` calls this; the tenant is named later, by the guard.
+ */
 export function runInRequestContext<T>(
-  ctx: RequestContext,
+  ctx: { tenantId?: string; manager: EntityManager },
   fn: () => Promise<T>,
 ): Promise<T> {
-  return storage.run(ctx, fn);
+  return storage.run({ tenantId: ctx.tenantId ?? null, manager: ctx.manager }, fn);
 }
 
 /** The current request's context, or throws — never a silent default tenant. */
 export function currentRequestContext(): RequestContext {
+  const ctx = requireScope();
+  if (ctx.tenantId === null) {
+    throw new Error(
+      'Request context has no tenant. TenantGuard names it; this route ran without the guard.',
+    );
+  }
+  return { tenantId: ctx.tenantId, manager: ctx.manager };
+}
+
+/**
+ * The request's transaction before a tenant is known — for the two components that
+ * run either side of the guard: the guard itself (which needs the manager to do
+ * `SET LOCAL`) and the interceptor that commits it. Nothing else may use it, because
+ * a query through it before the guard runs sees no tenant at all under RLS.
+ */
+export function currentRequestTransaction(): EntityManager | undefined {
+  return storage.getStore()?.manager;
+}
+
+/** Names the tenant on the current request. `TenantGuard` only (ADR-0003). */
+export function setRequestTenant(tenantId: string): void {
+  requireScope().tenantId = tenantId;
+}
+
+function requireScope(): MutableRequestContext {
   const ctx = storage.getStore();
   if (!ctx) {
     throw new Error(
       'No request context. Tenant-scoped work must run inside runInRequestContext(), ' +
-        'which TenantGuard (#4) establishes; this route ran without it.',
+        'which RequestContextMiddleware establishes; this route ran without it.',
     );
   }
   return ctx;

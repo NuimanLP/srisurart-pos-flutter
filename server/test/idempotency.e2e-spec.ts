@@ -9,10 +9,12 @@ import {
   type CallHandler,
   type ExecutionContext,
   type NestInterceptor,
+  type MiddlewareConsumer,
+  type NestModule,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { pino } from 'pino';
-import { lastValueFrom, of, type Observable } from 'rxjs';
+import type { Observable } from 'rxjs';
 import request from 'supertest';
 import { DataSource, type QueryRunner } from 'typeorm';
 import { AppModule } from '../src/app.module.js';
@@ -23,8 +25,10 @@ import { IdempotencyModule } from '../src/idempotency/idempotency.module.js';
 import { IdempotencyService } from '../src/idempotency/idempotency.service.js';
 import {
   currentRequestContext,
-  runInRequestContext,
+  currentRequestTransaction,
+  setRequestTenant,
 } from '../src/common/request-context.js';
+import { RequestContextMiddleware } from '../src/common/request-context.middleware.js';
 
 // #18 acceptance suite. Runs against the real compose Postgres and Redis as `pos_app`,
 // with RLS on — no mocks, because the primary key and RLS ARE the mechanism under test.
@@ -32,14 +36,12 @@ const TENANT_A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 
 /**
- * Stands in for TenantGuard (#4), which does not exist yet: opens the request
- * transaction, applies `SET LOCAL app.tenant_id`, and publishes the context the
- * interceptor reads. Production has no equivalent — that is the point (nothing in
- * `src/` can reach tenant data until #4 lands).
+ * Stands in for the one thing `TenantGuard` does that this suite cannot get from
+ * a real login: naming the tenant. The transaction and the scope come from the real
+ * `RequestContextMiddleware`, and the real `TransactionInterceptor` commits — so the
+ * chain under test is production's, with only the token replaced by a header.
  */
 class StandInTenantGuard implements NestInterceptor {
-  constructor(private readonly ds: DataSource) {}
-
   async intercept(
     context: ExecutionContext,
     next: CallHandler,
@@ -48,23 +50,11 @@ class StandInTenantGuard implements NestInterceptor {
       .switchToHttp()
       .getRequest<{ headers: Record<string, string> }>()
       .headers['x-test-tenant'];
-    const qr = this.ds.createQueryRunner();
-    await qr.connect();
-    await qr.startTransaction();
-    try {
-      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
-      const value = await runInRequestContext(
-        { tenantId, manager: qr.manager },
-        () => lastValueFrom(next.handle()),
-      );
-      await qr.commitTransaction();
-      return of(value);
-    } catch (err) {
-      await qr.rollbackTransaction();
-      throw err;
-    } finally {
-      await qr.release();
-    }
+    const manager = currentRequestTransaction();
+    if (!manager) throw new Error('middleware did not open a request context');
+    await manager.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
+    setRequestTenant(tenantId);
+    return next.handle();
   }
 }
 
@@ -113,8 +103,15 @@ class TestAcceptedController {
 @Module({
   imports: [IdempotencyModule],
   controllers: [TestWriteController, TestAcceptedController],
+  providers: [RequestContextMiddleware],
 })
-class TestWriteModule {}
+class TestWriteModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(RequestContextMiddleware)
+      .forRoutes(TestWriteController, TestAcceptedController);
+  }
+}
 
 describe('idempotency (e2e)', () => {
   let app: INestApplication;
@@ -184,9 +181,10 @@ describe('idempotency (e2e)', () => {
     }).compile();
     app = moduleRef.createNestApplication();
     ds = app.get(DataSource);
-    // Outermost, so it wraps the route-scoped IdempotencyInterceptor — the order
-    // #4's guard will have for real, since guards run before interceptors.
-    app.useGlobalInterceptors(new StandInTenantGuard(ds));
+    // Registered before configureApp's, so it is the outermost interceptor and runs
+    // ahead of both the transaction interceptor and the route-scoped idempotency one
+    // — the position a real guard has, since guards run before every interceptor.
+    app.useGlobalInterceptors(new StandInTenantGuard());
     await configureApp(app, logger);
   });
 
