@@ -67,6 +67,10 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   drift_dev: ^2.34.0
   build_runner: ^2.15.0
+  # Test-only: schema_v3_migration_test builds a real v2 database file before
+  # AppDatabase opens it. Pinned to the version drift already resolves, so the
+  # committed web assets (web/sqlite3.wasm) are unaffected.
+  sqlite3: 3.4.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

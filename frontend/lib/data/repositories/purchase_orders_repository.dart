@@ -129,7 +129,11 @@ class PurchaseOrdersRepository {
           await (db.update(
             db.products,
           )..where((t) => t.id.equals(p!.id))).write(
-            ProductsCompanion(stock: Value(totalQty), cost: Value(wac)),
+            ProductsCompanion(
+              stock: Value(totalQty),
+              cost: Value(wac),
+              updatedAt: Value(DateTime.now()),
+            ),
           );
 
           await db

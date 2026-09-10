@@ -438,7 +438,7 @@ class SnapshotRepository {
     // ── shifts: active → sa_cash_drawer object; rest → sa_shift_history array ──
     final shiftRows = await db.select(db.shifts).get();
     final entryRows = await db.select(db.drawerEntries).get();
-    final entriesByShift = <int, List<DrawerEntryRow>>{};
+    final entriesByShift = <String, List<DrawerEntryRow>>{};
     for (final e in entryRows) {
       (entriesByShift[e.shiftId] ??= []).add(e);
     }
@@ -940,10 +940,15 @@ class SnapshotRepository {
       final cd = data['sa_cash_drawer'];
       if (cd is Map) {
         final shift = cd.cast<String, dynamic>();
-        final shiftId = await db
+        // A JS snapshot's shifts carry no id at all, so the importer issues
+        // one by the same rule as openShift (schema v3: shift ids are TEXT and
+        // are no longer invented by the database).
+        final shiftId = newId('sh');
+        await db
             .into(db.shifts)
             .insert(
               ShiftsCompanion.insert(
+                id: shiftId,
                 dateStr: _asStr(shift['date']),
                 startingCash: _asDouble(shift['startingCash']),
                 openedAt: _parseDate(shift['openedAt']) ?? DateTime.now(),
@@ -976,10 +981,12 @@ class SnapshotRepository {
 
       // ── 14. Shift history (sa_shift_history) → inactive Shifts + entries ──
       for (final shift in asList(data['sa_shift_history'])) {
-        final shiftId = await db
+        final shiftId = newId('sh');
+        await db
             .into(db.shifts)
             .insert(
               ShiftsCompanion.insert(
+                id: shiftId,
                 dateStr: _asStr(shift['date']),
                 startingCash: _asDouble(shift['startingCash']),
                 openedAt: _parseDate(shift['openedAt']) ?? DateTime.now(),

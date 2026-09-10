@@ -48,10 +48,12 @@ void main() {
     'opening on a different day archives the prior (never-closed → auto)',
     () async {
       // Seed a prior active shift dated yesterday that was never closed.
-      final yId = await db
+      const yId = 'sh_yesterday';
+      await db
           .into(db.shifts)
           .insert(
             ShiftsCompanion.insert(
+              id: yId,
               dateStr: '2020-01-01',
               startingCash: 500,
               openedAt: DateTime(2020, 1, 1, 8),
@@ -85,10 +87,12 @@ void main() {
     'opening on a different day after CLOSE archives without autoArchived',
     () async {
       // Prior active shift dated yesterday that WAS closed.
-      final yId = await db
+      const yId = 'sh_yesterday_closed';
+      await db
           .into(db.shifts)
           .insert(
             ShiftsCompanion.insert(
+              id: yId,
               dateStr: '2020-01-01',
               startingCash: 500,
               openedAt: DateTime(2020, 1, 1, 8),

@@ -120,7 +120,10 @@ class ReturnsRepository {
         )..where((x) => x.id.equals(i.productId))).getSingleOrNull();
         if (p != null) {
           await (db.update(db.products)..where((x) => x.id.equals(p.id))).write(
-            ProductsCompanion(stock: Value(p.stock + i.qty)),
+            ProductsCompanion(
+              stock: Value(p.stock + i.qty),
+              updatedAt: Value(DateTime.now()),
+            ),
           );
         }
       }

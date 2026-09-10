@@ -100,7 +100,11 @@ class ProductsRepository {
     final dup = existing.any((x) => x.partNo.toLowerCase() == lower);
     if (dup) return null;
 
-    final row = data.copyWith(id: Value(newId('p')), partNo: Value(partNo));
+    final row = data.copyWith(
+      id: Value(newId('p')),
+      partNo: Value(partNo),
+      updatedAt: Value(DateTime.now()),
+    );
     return db.into(db.products).insertReturning(row);
   }
 
@@ -115,7 +119,9 @@ class ProductsRepository {
       );
       if (collides) return false;
     }
-    await (db.update(db.products)..where((t) => t.id.equals(id))).write(patch);
+    await (db.update(db.products)..where((t) => t.id.equals(id))).write(
+      patch.copyWith(updatedAt: Value(DateTime.now())),
+    );
     return true;
   }
 
@@ -137,7 +143,10 @@ class ProductsRepository {
     if (p == null) return;
     final newStock = (p.stock + delta) < 0 ? 0 : (p.stock + delta);
     await (db.update(db.products)..where((t) => t.id.equals(productId))).write(
-      ProductsCompanion(stock: Value(newStock)),
+      ProductsCompanion(
+        stock: Value(newStock),
+        updatedAt: Value(DateTime.now()),
+      ),
     );
     await MovementsRepository(db).addMovement(
       productId: productId,
