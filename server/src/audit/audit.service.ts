@@ -44,7 +44,7 @@ export class AuditService {
           params.entityId ?? null,
           params.before ? JSON.stringify(params.before) : null,
           params.after ? JSON.stringify(params.after) : null,
-          params.ip ?? null,
+          params.ip?.trim() || null,
         ]
       );
     } catch (err) {

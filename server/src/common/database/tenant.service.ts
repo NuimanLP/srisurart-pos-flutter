@@ -13,23 +13,11 @@ export class TenantService {
   constructor(private readonly ds: DataSource) {}
 
   /**
-   * Runs a function with a QueryRunner that has `app.tenant_id` set.
-   * Useful for reads or non-transactional writes.
+   * Runs a function with `app.tenant_id` set using transactional `SET LOCAL`.
+   * Postgres automatically clears `SET LOCAL` on completion, ensuring no connection pool contamination.
    */
   async run<T>(tid: string, fn: (manager: EntityManager) => Promise<T>): Promise<T> {
-    const qr = this.ds.createQueryRunner();
-    await qr.connect();
-    try {
-      await qr.query(`SET app.tenant_id = $1`, [tid]);
-      return await fn(qr.manager);
-    } finally {
-      try {
-        await qr.query(`RESET app.tenant_id`);
-      } catch (err) {
-        this.logger.error(`Failed to reset app.tenant_id: ${err}`);
-      }
-      await qr.release();
-    }
+    return this.runTx(tid, fn);
   }
 
   /**

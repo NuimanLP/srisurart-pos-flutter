@@ -183,4 +183,18 @@ describe('TenantGuard', () => {
     const result = await guard.canActivate(ctx);
     expect(result).toBe(true);
   });
+
+  it('lets database error bubble up on cache miss without converting to 401', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue(null);
+    dsMock.query.mockRejectedValue(new Error('Postgres connection timeout'));
+
+    await expect(guard.canActivate(ctx)).rejects.toThrow('Postgres connection timeout');
+  });
 });

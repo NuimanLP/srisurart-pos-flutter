@@ -80,6 +80,7 @@ export class AuthSecurityDefinerAndAuditFix1788652800002
         FROM devices d
         WHERE d.enrol_code_hash = p_code_hash
           AND d.enrol_expires_at > now()
+          AND d.retired_at IS NULL
         FOR UPDATE;
 
         IF NOT FOUND THEN

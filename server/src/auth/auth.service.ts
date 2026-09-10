@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException, Logger, ForbiddenException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import * as crypto from 'node:crypto';
 import * as argon2 from 'argon2';
 import { JwtSigner, type JwtPayload } from './jwt-keys.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -138,16 +139,13 @@ export class AuthService {
       });
 
       return {
-        status: 'success',
-        data: {
-          accessToken,
-          refreshToken,
-          user: {
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            displayName: user.display_name,
-          },
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          displayName: user.display_name,
         },
       };
     } finally {
@@ -162,6 +160,9 @@ export class AuthService {
   async refreshTokenPayload(payload: JwtPayload) {
     if (payload.typ !== 'refresh') {
       throw new UnauthorizedException('Invalid token type');
+    }
+    if (payload.aud !== 'tenant') {
+      throw new UnauthorizedException('Invalid token audience');
     }
     const tenantId = payload.tid;
     const userId = payload.sub;
@@ -236,14 +237,13 @@ export class AuthService {
 
       const accessToken = this.jwtSigner.sign(accessPayload, '15m');
       
-      // Issue new refresh token
+      // Issue new refresh token retaining the exact original expiration timestamp (ADR-0009)
       const refreshPayload = { ...accessPayload, typ: 'refresh' as const, jti: crypto.randomUUID() };
-      const expUnix = this.calculateRefreshExpiry(u.timezone || 'Asia/Bangkok');
-      const refreshToken = this.jwtSigner.sign(refreshPayload, expUnix);
+      const refreshToken = this.jwtSigner.sign(refreshPayload, payload.exp);
 
       return {
-        status: 'success',
-        data: { accessToken, refreshToken },
+        accessToken,
+        refreshToken,
       };
     } catch (err) {
       if (qr.isTransactionActive) {
@@ -287,8 +287,7 @@ export class AuthService {
       });
 
       return {
-        status: 'success',
-        data: { deviceToken: rawDeviceToken },
+        deviceToken: rawDeviceToken,
       };
     } finally {
       await qr.release();
