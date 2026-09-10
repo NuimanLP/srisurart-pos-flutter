@@ -217,15 +217,15 @@ web-asset assertion), committed 2026-09-04. Level 3 remains the agreed target:
 3. ◐ **Build artefacts** — the server image half landed with #40; the web half
    (`flutter.yml`'s `build-web`) has existed since level 1 (`946c405`). Both now run only on a
    green build of `main` and both are gated on *every* job in their workflow, so a red build
-   uploads nothing. `server.yml`'s `build-image` builds the image, checks all four entrypoints
-   compose runs, smoke-runs it, `docker save | gzip`s it, verifies the tarball re-loads, and
-   uploads it tagged with the commit SHA (`server/README.md` has the recipe). It does **not**
-   Trivy-scan the image: `node:22-alpine` ships 13 fixable HIGH/CRITICAL CVEs of its own
-   (bundled npm + alpine openssl, none of them ours), so turning that gate on is **#44**'s
-   decision, with the Dockerfile change it implies.
-   The **deploy step stays unwired until a production host is chosen** (due before `q4`; the
-   faculty VM is demo-only — `03_ARCHITECTURE.md §8`), and no registry push either — picking a
-   registry is part of that same decision.
+   uploads nothing. **Superseded 2026-09-10 by ADR-0013 / `07_CICD_DEPLOY.md`:** the release is
+   now two **images on GHCR** tagged `<sha>` + `main` — `server.yml`'s `build-image` builds,
+   smoke-runs, **Trivy-scans (HIGH/CRITICAL, fixed-only, blocks the push, no `.trivyignore`)**
+   and pushes `ghcr.io/nuimanlp/srisurart-pos-server` (#61; the tarball artefact is gone, and the
+   base-image CVEs are answered in `server/Dockerfile` by a digest pin + `apk upgrade` + deleting
+   npm/npx from the runtime stage), and `flutter.yml`'s `build-web` pushes the static-only
+   `…/srisurart-pos-web` (#62). The **deploy step** is no longer "unwired by decision": Ansible
+   auto-deploys every green `main` to the faculty VM as environment `demo` (#65–#67, 07 §6);
+   the *production* host is still unchosen (due before `q4`).
    🔴 **#40's AC4 is still open:** path filters mean a `server/`-only commit produces no web
    artefact and a `frontend/`-only commit no image, so the two halves exist together only for a
    commit touching both. No `main` commit is reproducibly deployable until that is fixed, and
