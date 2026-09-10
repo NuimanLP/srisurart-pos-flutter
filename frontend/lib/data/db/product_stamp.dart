@@ -16,8 +16,12 @@ import 'database.dart';
 /// silently drops out of the sync cursor.
 ///
 /// A companion that already carries a stamp keeps it: once `ApiRepository`
-/// patches rows from a server response, the server's timestamp must not be
-/// overwritten with the local clock (ADR-0010 decision 3).
+/// patches rows from a server response, that `updatedAt` came from the server,
+/// and re-stamping it with the local clock is the "ห้ามคำนวณเองในเครื่อง" that
+/// ADR-0010 decision 3 forbids — a second set of invariants that drifts
+/// silently. Note the ADR states the rule generally and never names the
+/// timestamp case; #56 should write it in explicitly rather than lean on this
+/// comment.
 extension ProductWriteStamp on ProductsCompanion {
   ProductsCompanion get stamped =>
       updatedAt.present ? this : copyWith(updatedAt: Value(DateTime.now()));
