@@ -1,5 +1,6 @@
 import {
   Module,
+  RequestMethod,
   type DynamicModule,
   type MiddlewareConsumer,
   type NestModule,
@@ -14,7 +15,6 @@ import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { PlatformModule } from './platform/platform.module.js';
 import { RequestContextMiddleware } from './common/request-context.middleware.js';
-import { AuthController } from './auth/auth.controller.js';
 import { SalesController } from './sales/sales.controller.js';
 import { SalesModule } from './sales/sales.module.js';
 import { ShiftsController } from './shifts/shifts.controller.js';
@@ -37,11 +37,19 @@ export class CoreModule {
 }
 
 /**
- * Controllers whose routes need the request transaction. Every controller carrying
- * `TenantGuard` belongs here — the guard's `SET LOCAL app.tenant_id` has nowhere to
- * live otherwise — and nothing else does.
+ * Routes that need the request transaction — exactly those carrying `TenantGuard`,
+ * whose `SET LOCAL app.tenant_id` has nowhere else to live.
+ *
+ * `AuthController` is listed by route, not as a controller: only `GET /auth/me` has
+ * the guard. `/auth/token` and `/auth/refresh` would otherwise pin an idle-in-
+ * transaction connection across an argon2 verify, on the one endpoint that sees a
+ * thundering herd after a restart.
  */
-const TENANT_ROUTES = [AuthController, SalesController, ShiftsController];
+const TENANT_ROUTES = [
+  { path: 'auth/me', method: RequestMethod.GET },
+  SalesController,
+  ShiftsController,
+];
 
 /** The HTTP application: core + health + platform. Business modules are added by later tickets. */
 @Module({})

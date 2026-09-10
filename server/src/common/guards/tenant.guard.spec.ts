@@ -7,7 +7,6 @@ describe('TenantGuard', () => {
   let guard: TenantGuard;
   let jwtVerifierMock: any;
   let reflectorMock: any;
-  let dsMock: any;
   let redisCacheMock: any;
   let managerMock: any;
 
@@ -26,9 +25,6 @@ describe('TenantGuard', () => {
     reflectorMock = {
       getAllAndOverride: vi.fn(),
     };
-    dsMock = {
-      query: vi.fn(),
-    };
     redisCacheMock = {
       get: vi.fn(),
       set: vi.fn(),
@@ -37,12 +33,7 @@ describe('TenantGuard', () => {
       query: vi.fn().mockResolvedValue([]),
     };
 
-    guard = new TenantGuard(
-      jwtVerifierMock,
-      reflectorMock,
-      dsMock,
-      redisCacheMock,
-    );
+    guard = new TenantGuard(jwtVerifierMock, reflectorMock, redisCacheMock);
   });
 
   function createMockContext(authHeader?: string, reqAttrs: Record<string, any> = {}) {
@@ -90,7 +81,13 @@ describe('TenantGuard', () => {
       deviceId: undefined,
       deviceRole: 'pos',
     });
-    expect(dsMock.query).not.toHaveBeenCalled();
+    // On a cache hit the guard touches the database once — to name the tenant — and
+    // never to re-read the status.
+    expect(managerMock.query).toHaveBeenCalledTimes(1);
+    expect(managerMock.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('SELECT status FROM tenants'),
+      expect.anything(),
+    );
   });
 
   it('queries database on cache miss and caches result in Redis', async () => {
@@ -102,11 +99,13 @@ describe('TenantGuard', () => {
     });
     reflectorMock.getAllAndOverride.mockReturnValue(undefined);
     redisCacheMock.get.mockResolvedValue(null); // cache miss
-    dsMock.query.mockResolvedValue([{ status: 'active' }]);
+    managerMock.query.mockResolvedValue([{ status: 'active' }]);
 
     const result = await activate(ctx);
     expect(result).toBe(true);
-    expect(dsMock.query).toHaveBeenCalledWith(
+    // On the request's OWN transaction, never a second pool checkout: the middleware
+    // is already holding one, and reaching for another deadlocks the pool under load.
+    expect(managerMock.query).toHaveBeenCalledWith(
       expect.stringContaining('SELECT status FROM tenants'),
       ['t1'],
     );
@@ -260,7 +259,7 @@ describe('TenantGuard', () => {
     });
     reflectorMock.getAllAndOverride.mockReturnValue(undefined);
     redisCacheMock.get.mockResolvedValue(null);
-    dsMock.query.mockRejectedValue(new Error('Postgres connection timeout'));
+    managerMock.query.mockRejectedValue(new Error('Postgres connection timeout'));
 
     await expect(activate(ctx)).rejects.toThrow('Postgres connection timeout');
   });

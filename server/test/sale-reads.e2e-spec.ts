@@ -16,6 +16,7 @@ const PIN = '4821';
 describe('sale reads and void (e2e)', () => {
   let app: INestApplication;
   let admin: DataSource;
+  let cache: import('ioredis').Redis;
   let fixture: TenantFixture;
   let posToken: string;
   let backofficeToken: string;
@@ -76,11 +77,11 @@ describe('sale reads and void (e2e)', () => {
   };
 
   beforeAll(async () => {
-    ({ app, admin } = await createTestApp());
+    ({ app, admin, cache } = await createTestApp());
   });
 
   beforeEach(async () => {
-    fixture = await resetTenant(admin, TENANT, { posDeviceNo: 9, pin: PIN });
+    fixture = await resetTenant(admin, TENANT, { posDeviceNo: 9, pin: PIN, cache });
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
@@ -124,11 +125,11 @@ describe('sale reads and void (e2e)', () => {
 
     const res = await get(`/sales?receiptNo=${encodeURIComponent(sale.receiptNo)}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.total).toBe(1);
-    expect(res.body.data.items[0].id).toBe(sale.id);
-    expect(res.body.data.items[0].items).toHaveLength(1);
-    expect(res.body.data.items[0].items[0].qty).toBe(2);
-    expect(res.body.data.items[0].items[0].costAtSale).toBe('50.00');
+    expect(res.body.meta.total).toBe(1);
+    expect(res.body.data[0].id).toBe(sale.id);
+    expect(res.body.data[0].items).toHaveLength(1);
+    expect(res.body.data[0].items[0].qty).toBe(2);
+    expect(res.body.data[0].items[0].costAtSale).toBe('50.00');
   });
 
   it('searches by part of a receipt number or a customer name', async () => {
@@ -144,35 +145,35 @@ describe('sale reads and void (e2e)', () => {
     await ringUp(1);
 
     const byName = await get('/sales?search=' + encodeURIComponent('สมชาย'));
-    expect(byName.body.data.items).toHaveLength(1);
-    expect(byName.body.data.items[0].id).toBe(withCustomer.id);
+    expect(byName.body.data).toHaveLength(1);
+    expect(byName.body.data[0].id).toBe(withCustomer.id);
 
     const byNumber = await get('/sales?search=RC09-');
-    expect(byNumber.body.data.total).toBe(2);
+    expect(byNumber.body.meta.total).toBe(2);
   });
 
   it('treats % and _ in a search as characters, not wildcards', async () => {
     await ringUp(1);
     const res = await get('/sales?search=%25');
     expect(res.status).toBe(200);
-    expect(res.body.data.items).toHaveLength(0);
+    expect(res.body.data).toHaveLength(0);
   });
 
   it('paginates instead of loading the whole table', async () => {
     for (let i = 0; i < 3; i++) await ringUp(1);
 
     const page1 = await get('/sales?page=1&limit=2');
-    expect(page1.body.data.total).toBe(3);
-    expect(page1.body.data.items).toHaveLength(2);
-    expect(page1.body.data.limit).toBe(2);
+    // §1.2 puts pagination in `meta`, beside `data`.
+    expect(page1.body.meta).toEqual({ total: 3, page: 1, limit: 2, totalPages: 2 });
+    expect(page1.body.data).toHaveLength(2);
 
     const page2 = await get('/sales?page=2&limit=2');
-    expect(page2.body.data.items).toHaveLength(1);
+    expect(page2.body.data).toHaveLength(1);
 
-    // Newest first, and the two pages do not overlap.
-    const ids = [...page1.body.data.items, ...page2.body.data.items].map(
-      (s: { id: string }) => s.id,
-    );
+    // Newest first, and the two pages do not overlap. `date` defaults to the
+    // transaction timestamp, so bills written in the same instant tie — without the
+    // `id DESC` tiebreaker a paged read could show one twice and miss another.
+    const ids = [...page1.body.data, ...page2.body.data].map((sale: { id: string }) => sale.id);
     expect(new Set(ids).size).toBe(3);
     expect((await get('/sales?limit=0')).status).toBe(400);
     expect((await get('/sales?from=not-a-date')).status).toBe(400);
@@ -187,8 +188,8 @@ describe('sale reads and void (e2e)', () => {
     const recent = await ringUp(1);
 
     const res = await get('/sales?from=2021-01-01T00:00:00Z');
-    expect(res.body.data.items).toHaveLength(1);
-    expect(res.body.data.items[0].id).toBe(recent.id);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].id).toBe(recent.id);
   });
 
   it('reads one bill by id, and 404s for one that does not exist', async () => {
@@ -233,6 +234,39 @@ describe('sale reads and void (e2e)', () => {
     expect((await get('/sales/no-such-bill/refunded-qty')).status).toBe(404);
   });
 
+  it('gives each bill its own lines when several are listed', async () => {
+    await seedProduct(admin, TENANT, {
+      id: 'p2',
+      partNo: 'BP-2',
+      name: 'Brake Pad',
+      price: 750,
+      cost: 500,
+      stock: 20,
+    });
+    const first = await ringUp(2);
+    const second = await sell({
+      id: `s-other-${Date.now()}`,
+      subtotal: '1500.00',
+      discount: '0.00',
+      total: '1500.00',
+      paymentMethod: 'เงินสด',
+      items: [
+        { lineNo: 1, productId: 'p2', partNo: 'BP-2', name: 'Brake Pad', qty: 2, price: '750.00' },
+      ],
+    });
+    expect(second.status).toBe(201);
+
+    const res = await get('/sales');
+    const byId = new Map(
+      res.body.data.map((sale: { id: string; items: { productId: string }[] }) => [
+        sale.id,
+        sale.items.map((i) => i.productId),
+      ]),
+    );
+    expect(byId.get(first.id)).toEqual(['p1']);
+    expect(byId.get(second.body.data.id)).toEqual(['p2']);
+  });
+
   it('a backoffice device can read bills', async () => {
     const sale = await ringUp(1);
     expect((await get('/sales', backofficeToken)).status).toBe(200);
@@ -250,13 +284,16 @@ describe('sale reads and void (e2e)', () => {
     expect(res.body.data.voidedAt).not.toBeNull();
     expect(await stockOf('p1')).toBe(40);
 
+    // `void:` prefix, not the bare sale id: `uq_movements_ref` is unique on
+    // `(tenant_id, type, ref_id, product_id)`, and a credit note against this bill
+    // would want that same slot.
     const movements = await admin.query(
       `SELECT delta, type, note, stock_after FROM movements
         WHERE tenant_id = $1::uuid AND ref_id = $2 AND type = 'return'`,
-      [TENANT, sale.id],
+      [TENANT, `void:${sale.id}`],
     );
     expect(movements).toEqual([
-      { delta: 4, type: 'return', note: 'ยกเลิกบิล', stock_after: 40 },
+      { delta: 4, type: 'return', note: null, stock_after: 40 },
     ]);
 
     const audit = await admin.query(
@@ -293,7 +330,23 @@ describe('sale reads and void (e2e)', () => {
       [TENANT],
     );
     expect(audit[0].n).toBe(0);
+
+    // But every refusal IS recorded. This is a four-digit PIN with no per-user rate
+    // limit yet (#44); brute-forcing it must not be invisible. The rows survive
+    // because they are written outside the transaction the 403 rolls back.
+    const denied = await admin.query(
+      `SELECT count(*)::int AS n FROM audit_log
+        WHERE tenant_id = $1::uuid AND action = 'sale.void.denied'`,
+      [TENANT],
+    );
+    expect(denied[0].n).toBe(4);
   });
+
+  it.todo(
+    'void must also reverse the customer and mechanic ledger — blocked on #21, ' +
+      'which is blocked on the #11 decision. Nothing writes those columns yet, so ' +
+      'there is nothing to reverse today; #21 has to extend VoidService.restoreStock.',
+  );
 
   it('refuses to void twice', async () => {
     const sale = await ringUp(3);

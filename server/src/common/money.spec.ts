@@ -15,6 +15,20 @@ describe('money', () => {
     }
   });
 
+  it('holds a JSON number to the same two decimals as the string form', () => {
+    // Otherwise `1.005` rounds silently where `"1.005"` is a 400, and two clients
+    // sending the same amount two ways disagree about what it was.
+    expect(() => toSatang(1.005, 'price')).toThrow();
+    expect(toSatang(1.5, 'price')).toBe(150);
+  });
+
+  it('refuses an amount wider than the NUMERIC(12,2) it has to land in', () => {
+    // Otherwise Postgres raises 22003 several statements later — a 500 where the
+    // request deserved a 400.
+    expect(() => toSatang('20000000000.00', 'price')).toThrow();
+    expect(toSatang('9999999999.99', 'price')).toBe(999999999999);
+  });
+
   it('round-trips through the wire format', () => {
     expect(fromSatang(123450)).toBe('1234.50');
     expect(fromSatang(5)).toBe('0.05');

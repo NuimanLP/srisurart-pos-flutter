@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { catchError, concatMap, from, throwError, type Observable } from 'rxjs';
 import type { QueryRunner } from 'typeorm';
+import { OWNED_BY_INTERCEPTOR } from './request-context.middleware.js';
 import { currentRequestTransaction } from './request-context.js';
 
 /**
@@ -23,6 +24,12 @@ export class TransactionInterceptor implements NestInterceptor {
   intercept(_ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const qr = currentRequestTransaction()?.queryRunner;
     if (!qr) return next.handle();
+
+    // From here the transaction is this interceptor's to end. The middleware's
+    // response-close backstop steps aside: it exists only for a guard that throws
+    // before any interceptor runs, and a client that disconnects mid-handler must not
+    // have the connection pulled out from under statements still in flight.
+    qr.data[OWNED_BY_INTERCEPTOR] = true;
 
     return next.handle().pipe(
       concatMap(async (value) => {

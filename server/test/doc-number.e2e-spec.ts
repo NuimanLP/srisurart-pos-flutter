@@ -162,13 +162,10 @@ describe('document numbers (e2e)', () => {
       [TENANT],
     );
     const period = await currentPeriod();
-    // The counter starts from zero regardless: the two formats cannot collide, so
-    // there is nothing to reconcile (ADR-0007).
+    // The counter starts from zero regardless of what the imported bills are numbered:
+    // the two formats cannot collide, so there is nothing to reconcile (ADR-0007).
+    // (Asserting the legacy row still reads `RC12345678ABCD` would assert only that an
+    // INSERT inserted — this service never touches `sales`.)
     expect(await issue()).toBe(`RC07-${period}-0001`);
-    const rows = await admin.query(
-      `SELECT receipt_no FROM sales WHERE tenant_id = $1::uuid AND id = 's-legacy'`,
-      [TENANT],
-    );
-    expect(rows[0].receipt_no).toBe('RC12345678ABCD');
   });
 });

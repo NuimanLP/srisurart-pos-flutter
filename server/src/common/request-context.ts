@@ -55,7 +55,10 @@ export function runInRequestContext<T>(
   ctx: { tenantId?: string; manager: EntityManager },
   fn: () => Promise<T>,
 ): Promise<T> {
-  return storage.run({ tenantId: ctx.tenantId ?? null, manager: ctx.manager }, fn);
+  return storage.run(
+    { tenantId: ctx.tenantId ?? null, manager: ctx.manager },
+    fn,
+  );
 }
 
 /** The current request's context, or throws — never a silent default tenant. */

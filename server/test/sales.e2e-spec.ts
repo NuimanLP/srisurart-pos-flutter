@@ -3,6 +3,7 @@ import request from 'supertest';
 import type { DataSource } from 'typeorm';
 import {
   accessToken,
+  clearTenantCache,
   createTestApp,
   resetTenant,
   seedProduct,
@@ -26,6 +27,7 @@ interface Line {
 describe('POST /sales (e2e)', () => {
   let app: INestApplication;
   let admin: DataSource;
+  let cache: import('ioredis').Redis;
   let fixture: TenantFixture;
   let posToken: string;
   let backofficeToken: string;
@@ -69,11 +71,11 @@ describe('POST /sales (e2e)', () => {
   };
 
   beforeAll(async () => {
-    ({ app, admin } = await createTestApp());
+    ({ app, admin, cache } = await createTestApp());
   });
 
   beforeEach(async () => {
-    fixture = await resetTenant(admin, TENANT, { posDeviceNo: 3 });
+    fixture = await resetTenant(admin, TENANT, { posDeviceNo: 3, cache });
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
@@ -363,16 +365,129 @@ describe('POST /sales (e2e)', () => {
     await admin.query(`UPDATE tenants SET status = 'suspended' WHERE id = $1::uuid`, [
       TENANT,
     ]);
-    // The guard caches status in Redis for 5 minutes; a fresh tenant id per run keeps
-    // this honest, so re-read under a key this run has not cached yet.
+    // The guard caches status for five minutes, so the suspension is invisible until
+    // that key is gone. Dropping it is what makes this an assertion about the guard
+    // rather than about Redis timing: without it the test has to accept a 201, and a
+    // suspended shop quietly ringing up a real bill would pass.
+    await clearTenantCache(cache, TENANT);
+
     const suspended = await post(
       bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }]),
     );
-    expect([403, 201]).toContain(suspended.status);
-    if (suspended.status === 403) {
-      expect(suspended.body.error.code).toBe('TENANT_SUSPENDED');
-    }
+    expect(suspended.status).toBe(403);
+    expect(suspended.body.error.code).toBe('TENANT_SUSPENDED');
+    expect(suspended.body.error.message).toBe('ร้านนี้ถูกระงับการใช้งาน');
+    expect(await saleCount()).toBe(0);
+
     await admin.query(`UPDATE tenants SET status = 'active' WHERE id = $1::uuid`, [TENANT]);
+    await clearTenantCache(cache, TENANT);
+  });
+
+  it('replays a bill whose id was already written, instead of a 500 on the key', async () => {
+    const body = bill([{ productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' }]);
+    const first = await post(body);
+    expect(first.status).toBe(201);
+
+    // A retry that lost its Idempotency-Key: a page reload, an app restart. §3.1 makes
+    // the client id a natural idempotency key, and a 500 here would send staff to ring
+    // the same bill up a second time.
+    const replay = await post(body, { key: `k-fresh-${Date.now()}` });
+    expect(replay.status).toBe(201);
+    expect(replay.body.data.receiptNo).toBe(first.body.data.receiptNo);
+    expect(await saleCount()).toBe(1);
+    expect(await stockOf('p1')).toBe(46);
+  });
+
+  it('refuses a different bill wearing an id that is already taken', async () => {
+    const first = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }]),
+    );
+    const clash = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' }], {
+        id: first.body.data.id,
+      }),
+      { key: `k-clash-${Date.now()}` },
+    );
+    expect(clash.status).toBe(409);
+    expect(clash.body.error.code).toBe('SALE_ID_REUSED');
+    expect(await stockOf('p1')).toBe(47);
+  });
+
+  it('refuses an unknown customer with a 400, not a 500 from the foreign key', async () => {
+    const res = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+        customerId: 'no-such-customer',
+        customerName: 'ไม่มีตัวตน',
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(await saleCount()).toBe(0);
+  });
+
+  it('refuses money that does not make sense', async () => {
+    const line = { productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' };
+    // A negative discount inflates the total, and pointsGranted is computed from the
+    // total that gets stored — points the shop never owed.
+    const negativeDiscount = await post(
+      bill([line], { subtotal: '170.00', discount: '-50.00', total: '220.00' }),
+    );
+    expect(negativeDiscount.status).toBe(400);
+
+    const negativeTotal = await post(
+      bill([line], { subtotal: '170.00', discount: '200.00', total: '-30.00' }),
+    );
+    expect(negativeTotal.status).toBe(400);
+
+    // NUMERIC(12,2) would raise 22003 several statements later: a 500 for what is
+    // plainly a bad request.
+    const absurd = await post(
+      bill([{ ...line, qty: 1, price: '20000000000.00' }], {
+        subtotal: '20000000000.00',
+        total: '20000000000.00',
+      }),
+    );
+    expect(absurd.status).toBe(400);
+
+    expect(await saleCount()).toBe(0);
+    expect(await stockOf('p1')).toBe(48);
+  });
+
+  it('keeps the client line numbers, and refuses two lines that share one', async () => {
+    const ok = await post({
+      id: `s-lineno-${Date.now()}`,
+      subtotal: '170.00',
+      discount: '0.00',
+      total: '170.00',
+      paymentMethod: 'เงินสด',
+      items: [
+        { lineNo: 7, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+        { lineNo: 3, productId: 'p8', name: 'Piston Kit STD', qty: 1, price: '85.00' },
+      ],
+    });
+    expect(ok.status).toBe(201);
+    const rows = await admin.query(
+      `SELECT line_no, product_id FROM sale_items
+        WHERE tenant_id = $1::uuid AND sale_id = $2 ORDER BY line_no`,
+      [TENANT, ok.body.data.id],
+    );
+    // What the receipt in the customer's hand says is what gets stored.
+    expect(rows).toEqual([
+      { line_no: 3, product_id: 'p8' },
+      { line_no: 7, product_id: 'p1' },
+    ]);
+
+    const clash = await post({
+      id: `s-dupline-${Date.now()}`,
+      subtotal: '170.00',
+      discount: '0.00',
+      total: '170.00',
+      paymentMethod: 'เงินสด',
+      items: [
+        { lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+        { lineNo: 1, productId: 'p8', name: 'Piston Kit STD', qty: 1, price: '85.00' },
+      ],
+    });
+    expect(clash.status).toBe(400);
   });
 
   it('refuses a bill with no Idempotency-Key, and one with no lines', async () => {

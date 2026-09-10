@@ -76,7 +76,9 @@ const SALE_COLUMNS = `id, receipt_no, subtotal, discount, total, payment_method,
 @Injectable()
 export class SaleReadsService {
   /** A page of bills, newest first. Never the whole table — this one grows forever. */
-  async list(query: SaleListQuery): Promise<{ items: SaleWithItems[]; total: number }> {
+  async list(
+    query: SaleListQuery,
+  ): Promise<{ items: SaleWithItems[]; total: number }> {
     const { tenantId, manager } = currentRequestContext();
     const where: string[] = ['tenant_id = $1::uuid'];
     const params: unknown[] = [tenantId];
@@ -112,7 +114,7 @@ export class SaleReadsService {
     const rows = (await manager.query(
       `SELECT ${SALE_COLUMNS} FROM sales
         WHERE ${clause}
-        ORDER BY date DESC
+        ORDER BY date DESC, id DESC
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     )) as SaleRow[];
@@ -190,7 +192,10 @@ export class SaleReadsService {
       bySale.set(item.sale_id, list);
     }
 
-    return rows.map((row) => ({ ...toHeader(row), items: bySale.get(row.id) ?? [] }));
+    return rows.map((row) => ({
+      ...toHeader(row),
+      items: bySale.get(row.id) ?? [],
+    }));
   }
 }
 

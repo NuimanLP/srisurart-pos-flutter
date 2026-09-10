@@ -3,11 +3,13 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as jwt from 'jsonwebtoken';
 import { pino } from 'pino';
+import type { Redis } from 'ioredis';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/app.setup.js';
 import { loadConfig } from '../../src/config/config.js';
 import { ADMIN_DATA_SOURCE } from '../../src/infra/db.module.js';
+import { REDIS_CACHE } from '../../src/infra/redis.module.js';
 import { hashPassword } from '../../src/common/password.js';
 
 /**
@@ -54,6 +56,8 @@ export interface TestApp {
   ds: DataSource;
   /** Connects as the superuser, for fixture setup and assertions RLS would hide. */
   admin: DataSource;
+  /** The guard's status cache — a suite that resets a tenant must reset this too. */
+  cache: Redis;
 }
 
 /**
@@ -66,9 +70,13 @@ export async function createTestApp(
 ): Promise<TestApp> {
   const config = loadConfig({
     DATABASE_URL: 'postgres://pos_app:dev-only-pos-app@127.0.0.1:5432/pos',
-    // The concurrency suites need many in-flight transactions at once; with a small
-    // pool they would queue and prove nothing about locking.
-    DB_POOL_SIZE: '20',
+    // Enough in-flight transactions for the concurrency suites to contend for real,
+    // and no more: `fileParallelism: false` runs every suite in ONE worker process, so
+    // each app's two pools (app + admin) accumulate against the compose Postgres's
+    // `max_connections = 100` for the length of the run. At 20 the run occasionally
+    // died as "worker exited unexpectedly" — a crash with no failing assertion behind
+    // it, which is the worst kind of red build to inherit.
+    DB_POOL_SIZE: '8',
     REDIS_CACHE_URL: 'redis://:dev-only-redis@127.0.0.1:6379',
     REDIS_QUEUE_URL: 'redis://:dev-only-redis@127.0.0.1:6380',
     ...process.env,
@@ -87,8 +95,9 @@ export async function createTestApp(
   const app = moduleRef.createNestApplication();
   const ds = app.get(DataSource);
   const admin = app.get<DataSource>(ADMIN_DATA_SOURCE);
+  const cache = app.get<Redis>(REDIS_CACHE);
   await configureApp(app, logger);
-  return { app, ds, admin };
+  return { app, ds, admin, cache };
 }
 
 /** Every tenant-scoped table, in an order that respects the foreign keys. */
@@ -138,9 +147,15 @@ export interface TenantFixture {
 export async function resetTenant(
   admin: DataSource,
   tenantId: string,
-  opts: { posDeviceNo?: number; pin?: string } = {},
+  opts: { posDeviceNo?: number; pin?: string; cache?: Redis } = {},
 ): Promise<TenantFixture> {
   const posDeviceNo = opts.posDeviceNo ?? 1;
+  // Postgres is not the only state a tenant has. `TenantGuard` caches
+  // `t:{tid}:status` for five minutes, and the idempotency service caches responses
+  // under `t:{tid}:idem:*` for a day — both outlive a run. A suite that wipes the
+  // tables and not these is testing against a tenant that is half reset: a suspended
+  // shop still reads `active`, and a re-used key replays a bill that no longer exists.
+  if (opts.cache) await clearTenantCache(opts.cache, tenantId);
   for (const table of TENANT_TABLES_DEPTH_FIRST) {
     await admin.query(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, [tenantId]);
   }
@@ -172,6 +187,12 @@ export async function resetTenant(
     posDeviceNo,
     pin: opts.pin ?? null,
   };
+}
+
+/** Drops every Redis key belonging to a tenant. */
+export async function clearTenantCache(cache: Redis, tenantId: string): Promise<void> {
+  const keys = await cache.keys(`t:${tenantId}:*`);
+  if (keys.length > 0) await cache.del(...keys);
 }
 
 /** Inserts a product. Returns its id. */

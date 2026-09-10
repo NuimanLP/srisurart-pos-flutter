@@ -173,7 +173,25 @@ commits or rolls back before the response is sent. `currentRequestContext()` fai
 twice: outside the scope, and inside it before the guard has named a tenant.
 
 A guard that throws never reaches an interceptor, so the response's own `close` event is
-the backstop that rolls back and returns the connection to the pool.
+the backstop that rolls back and returns the connection to the pool. `TransactionInterceptor`
+claims the transaction (`qr.data`) as soon as it runs, and the backstop then stands aside:
+Nest does not cancel a handler when the client disconnects, so on a mid-sale abort an
+unclaimed backstop would roll back and release **underneath statements still in flight**,
+handing a live query queue to whichever request took that connection next.
+
+🔴 **Two rules for anything that runs inside a request:**
+
+1. **Never reach for a second pooled connection.** The request already holds one. Under
+   load every in-flight request holding one and waiting for another is a pool deadlock —
+   they all sit there until `connectionTimeoutMillis` fires and all return 500. Read
+   through `currentRequestContext().manager`. (`tenants` and `platform_admins` are the
+   two tables with no RLS, so even a status probe can go through it.) The one deliberate
+   exception is `VoidService`'s refusal audit, which must survive the rollback that the
+   403 causes and therefore takes its own short-lived connection — on the failure path
+   only, never on the path every request follows.
+2. **An async Express middleware must never reject.** Express does not await it, so a
+   rejection is an unhandled rejection, which Node answers by killing the worker. Both
+   `RequestContextMiddleware` failure paths write a response instead.
 
 ## Document numbers (#19)
 
@@ -198,6 +216,13 @@ sale gives its number back and the printed series has no visible hole.
 - Phase 2 (the `pos` device issuing RC/CN from its own Drift counter, and
   `GET /doc-counters` to seed it) is **not** built here — in phase 1 the server issues
   every series.
+
+🔴 **Lock order: products, then `doc_counters`.** `POST /sales` takes `FOR UPDATE` on
+every product on the bill and only then bumps the counter. Any later path that writes
+stock **and** issues a number — `POST /purchase-orders/:id/receive` (#26), `POST /returns`
+(#22) — must take them in that same order. Issuing the number first inverts the order and
+the two deadlock under concurrent load, which is the kind of failure that only shows up on
+a busy Saturday.
 
 ## The sale transaction (#20)
 
@@ -235,9 +260,18 @@ sent — and the server checks the arithmetic: more than `0.01` apart is
 counter. `pointsGranted` is `floor(total/10)`, computed from the persisted total.
 Everything in between is integer satang (`src/common/money.ts`), never a float.
 
+**The client's `id` is a natural idempotency key** (§3.1). A retry that lost its
+`Idempotency-Key` — a page reload, an app restart — finds the bill already written and is
+answered with it, before anything is locked or deducted. It used to be a 500 on the
+primary key, which is worse than an error: staff read it as "that did not go through" and
+ring the bill up a second time. A repeat carrying a *different* total is
+`409 SALE_ID_REUSED`, because silently answering with the old bill would lose the new
+one's money.
+
 **Not here:** the customer and mechanic ledger effects are #21 (blocked on the #11
-decision), `shift_id` is stamped by #28, and the response carries no `offlineOk` —
-it has no storage in phase 1.
+decision), and with them the `customerAfter` / `mechanicCreditBalanceAfter` fields §3.1
+and ADR-0010 §3 want in the 201. `shift_id` is stamped by #28. The response carries no
+`offlineOk` — it has no storage in phase 1.
 
 🔴 **`returning()` (`src/common/sql.ts`) is not optional.** TypeORM's Postgres driver
 returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/`DELETE`,
@@ -262,6 +296,11 @@ idempotent. Restores stock, writes a `movements` row per product (`ยกเล�
 the bill void and writes an `audit_log` row. Refused when the bill is already void
 (`409 SALE_VOIDED`) or already has a credit note against it (`409 SALE_HAS_RETURNS` —
 voiding then would restore that stock twice).
+
+Refusals are audited too (`sale.void.denied`, with the reason). This is a four-digit PIN
+with no per-user rate limit until #44; brute-forcing it must not be invisible. That row is
+written on its own connection because the 403 rolls the request transaction back — an
+audit row written on it would vanish along with the attempt it was recording.
 
 🔴 **Two things to know before this ships:**
 - The old app has no void button at all: a bill is voided only as the automatic
@@ -300,7 +339,51 @@ device's current drawer* until the next open archives it, exactly as
 - `closeForRetirement()` is the operation `POST /devices/:id/retire` (#6) calls to
   close a machine's drawer in the same transaction that stamps `retired_at`. The
   endpoint does not exist yet, so `test/shifts.e2e-spec.ts` mounts the call on a probe
-  route rather than shipping it untested.
+  route rather than shipping it untested. **It archives as well as closes**: normally the
+  device's *next* open archives its drawer, but a retired device never opens again, so an
+  active row would be stranded — `history()` (`NOT is_active`) would hide that day's
+  takings forever while `current()` showed a drawer nothing could close.
+- 🔴 **A bill rung up while no drawer is open carries no `shift_id`,** and neither does
+  one rung up after the drawer is closed. The shipped app's closing report counts by date
+  key (`closing_report.dart`), not by shift, so it *does* include those bills — a report
+  built purely on `shift_id` will be short by exactly the after-close takings. Whoever
+  builds `GET /reports/closing` (#30) has to decide that explicitly: either fold
+  `shift_id IS NULL AND date = <the shift's day>` into the query, or stamp the day's
+  drawer regardless of close. It is a `db.js` behaviour change either way, so it is not a
+  decision to make inside a test.
+
+## Conventions these slices set
+
+- **Pagination lives in `meta`, not in `data`** (§1.2). A handler returns
+  `new Paginated(items, { total, page, limit })` and `EnvelopeInterceptor` lifts it into
+  `{ status, data, meta: { total, page, limit, totalPages } }`. `GET /sales` and
+  `GET /shifts/history` are the first two; #55 will read them.
+- **Money is integer satang in the server** (`src/common/money.ts`) and a string on the
+  wire. `toSatang` holds a JSON number to the same two decimals as the string form and
+  bounds every amount to what `NUMERIC(12,2)` can hold — past that Postgres raises `22003`
+  several statements later, which surfaces as a 500 for what was plainly a bad request.
+- **A list read needs a tiebreaker.** `sales.date` defaults to the transaction timestamp,
+  so bills written in the same instant tie; `LIMIT`/`OFFSET` over a tie shows one row
+  twice and misses another. Every paged query orders by `<sort key> DESC, id DESC`.
+- 🔴 **`returning()` (`src/common/sql.ts`) is not optional.** TypeORM's Postgres driver
+  returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/`DELETE`,
+  so `result[0].stock` reads a number on one and `undefined` on the other — which reaches
+  Postgres as a NULL several statements later, where nothing points back at the cause.
+
+## The e2e suite
+
+`test/support/fixture.ts` boots the real application against the compose Postgres and
+Redis, mints access tokens from a per-run RSA key pair, and resets one tenant per suite.
+
+- **`resetTenant` clears Redis as well as Postgres.** `TenantGuard` caches
+  `t:{tid}:status` for five minutes and the idempotency service caches responses under
+  `t:{tid}:idem:*` for a day — both outlive a run. A suite that wipes only the tables is
+  testing a half-reset tenant: a suspended shop still reads `active`, and a re-used key
+  replays a bill that no longer exists.
+- **`fileParallelism: false`.** Each file boots the whole application, so parallel files
+  multiply the connection pools past `max_connections=100` and the run dies as "worker
+  exited unexpectedly" rather than as a failed assertion.
+- `TEST_LOG_LEVEL=error pnpm test:e2e` is how you find out why a suite is getting a 500.
 
 ## Invariants this stack enforces (from #14 / #2)
 

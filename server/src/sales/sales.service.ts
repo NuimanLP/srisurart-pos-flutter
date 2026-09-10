@@ -47,6 +47,12 @@ interface Demand {
 /** The client's arithmetic may differ from ours by this much and still be believed. */
 const TOTAL_TOLERANCE_SATANG = 1;
 
+/** Postgres `unique_violation` — the bill's own primary key, under a race. */
+const UNIQUE_VIOLATION = '23505';
+
+/** Postgres `foreign_key_violation` — an unknown `customer_id` / `mechanic_id`. */
+const FOREIGN_KEY_VIOLATION = '23503';
+
 /**
  * The sale transaction — the heart of the system.
  *
@@ -80,10 +86,20 @@ export class SalesService {
   async create(dto: CreateSale, actor: SaleActor): Promise<CreateSaleResult> {
     const { tenantId, manager } = currentRequestContext();
 
+    // Arithmetic first: a 409 for a total that does not add up must not take
+    // `FOR UPDATE` on every product on the bill and hold them until rollback.
+    this.assertTotals(dto);
+
+    // §3.1 makes the client's `id` a natural idempotency key. A retry that lost its
+    // Idempotency-Key — a page reload, an app restart — must not be a 500 on the
+    // primary key: the bill really was written, and an error here sends staff to ring
+    // it up a second time.
+    const existing = await this.existingSale(manager, tenantId, dto);
+    if (existing) return existing;
+
     const demands = aggregate(dto.items);
     const locked = await this.lockProducts(manager, tenantId, demands);
     this.assertStock(demands, locked);
-    this.assertTotals(dto);
 
     const stockAfter = await this.deduct(manager, tenantId, demands, locked);
 
@@ -99,7 +115,11 @@ export class SalesService {
     // breaks across midnight and cannot separate two machines. Null when the drawer
     // was never opened — the old app lets staff sell without it, and refusing the
     // sale would be a new rule rather than a ported one.
-    const shiftId = await this.shifts.currentShiftIdFor(manager, tenantId, actor.deviceId);
+    const shiftId = await this.shifts.currentShiftIdFor(
+      manager,
+      tenantId,
+      actor.deviceId,
+    );
     const date = await this.insertSale(
       manager,
       tenantId,
@@ -110,7 +130,14 @@ export class SalesService {
       shiftId,
     );
     await this.insertLines(manager, tenantId, dto, locked);
-    await this.insertMovements(manager, tenantId, dto.id, demands, locked, stockAfter);
+    await this.insertMovements(
+      manager,
+      tenantId,
+      dto.id,
+      demands,
+      locked,
+      stockAfter,
+    );
 
     return {
       id: dto.id,
@@ -160,7 +187,11 @@ export class SalesService {
   private assertStock(demands: Demand[], locked: LockedProduct[]): void {
     const byId = new Map(locked.map((p) => [p.id, p]));
     const lines: string[] = [];
-    const details: { productId: string; stock: number | null; requested: number }[] = [];
+    const details: {
+      productId: string;
+      stock: number | null;
+      requested: number;
+    }[] = [];
 
     for (const d of demands) {
       const p = byId.get(d.productId);
@@ -169,7 +200,11 @@ export class SalesService {
         details.push({ productId: d.productId, stock: null, requested: d.qty });
       } else if (p.stock < d.qty) {
         lines.push(`${p.name}: สต็อก ${p.stock} แต่ต้องการ ${d.qty}`);
-        details.push({ productId: d.productId, stock: p.stock, requested: d.qty });
+        details.push({
+          productId: d.productId,
+          stock: p.stock,
+          requested: d.qty,
+        });
       }
     }
 
@@ -194,10 +229,14 @@ export class SalesService {
    * up at a haggled price is an ordinary day at this counter, not an error.
    */
   private assertTotals(dto: CreateSale): void {
-    const computedSubtotal = dto.items.reduce((sum, i) => sum + i.qty * i.priceSatang, 0);
+    const computedSubtotal = dto.items.reduce(
+      (sum, i) => sum + i.qty * i.priceSatang,
+      0,
+    );
     const computedTotal = computedSubtotal - dto.discountSatang;
     const off =
-      Math.abs(computedSubtotal - dto.subtotalSatang) > TOTAL_TOLERANCE_SATANG ||
+      Math.abs(computedSubtotal - dto.subtotalSatang) >
+        TOTAL_TOLERANCE_SATANG ||
       Math.abs(computedTotal - dto.totalSatang) > TOTAL_TOLERANCE_SATANG;
 
     if (off) {
@@ -228,12 +267,12 @@ export class SalesService {
     locked: LockedProduct[],
   ): Promise<Map<string, number>> {
     const stockAfter = new Map<string, number>();
-    // In id order, like the lock: the rows are already held, but keeping one order
-    // everywhere is what makes that easy to keep true.
-    const inLockOrder = [...demands].sort((a, b) =>
-      a.productId < b.productId ? -1 : a.productId > b.productId ? 1 : 0,
-    );
-    for (const d of inLockOrder) {
+    // Order does not matter here: `lockProducts` already holds every one of these rows
+    // for the rest of the transaction, so no other writer can interleave. (A JS sort
+    // would not reproduce the database's collation anyway — every id from `newId`
+    // contains underscores, which sort differently — so pretending otherwise in a
+    // comment would be worse than saying nothing.)
+    for (const d of demands) {
       const rows = returning<{ stock: number }>(
         await manager.query(
           `UPDATE products
@@ -255,6 +294,59 @@ export class SalesService {
     return stockAfter;
   }
 
+  /**
+   * The bill already written under this `id`, replayed — or null if there is none.
+   *
+   * Read before anything is locked or deducted, so a duplicate costs one indexed
+   * lookup and touches no stock. The stock reported back is the stock as it stands
+   * now, which is what the client's cache should hold either way.
+   */
+  private async existingSale(
+    manager: EntityManager,
+    tenantId: string,
+    dto: CreateSale,
+  ): Promise<CreateSaleResult | null> {
+    const rows = (await manager.query(
+      `SELECT receipt_no, total, points_granted, date
+         FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+      [tenantId, dto.id],
+    )) as {
+      receipt_no: string;
+      total: string;
+      points_granted: number;
+      date: Date;
+    }[];
+    if (rows.length === 0) return null;
+
+    if (Math.round(Number(rows[0].total) * 100) !== dto.totalSatang) {
+      // A different bill wearing an id that is already taken. `newId` makes this
+      // essentially impossible, so it means a client bug — and silently answering with
+      // the old bill would lose the new one's money.
+      throw new HttpException(
+        {
+          code: 'SALE_ID_REUSED',
+          message: 'A different sale already exists under this id.',
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const productIds = [...new Set(dto.items.map((i) => i.productId))];
+    const stock = (await manager.query(
+      `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
+      [tenantId, productIds],
+    )) as { id: string; stock: number }[];
+
+    return {
+      id: dto.id,
+      receiptNo: rows[0].receipt_no,
+      total: fromSatang(Math.round(Number(rows[0].total) * 100)),
+      pointsGranted: rows[0].points_granted,
+      date: rows[0].date.toISOString(),
+      products: stock.map((p) => ({ id: p.id, stock: p.stock })),
+    };
+  }
+
   /** Inserts the header. Returns the date Postgres stamped on it. */
   private async insertSale(
     manager: EntityManager,
@@ -265,33 +357,73 @@ export class SalesService {
     pointsGranted: number,
     shiftId: string | null,
   ): Promise<string> {
-    const rows = (await manager.query(
-      `INSERT INTO sales (
+    const rows = (await this.mapConstraintErrors(() =>
+      manager.query(
+        `INSERT INTO sales (
          tenant_id, id, receipt_no, subtotal, discount, total, payment_method,
          customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta,
          points_granted, user_id, device_id, shift_id)
        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::uuid, $15, $16)
        RETURNING date`,
-      [
-        tenantId,
-        dto.id,
-        receiptNo,
-        fromSatang(dto.subtotalSatang),
-        fromSatang(dto.discountSatang),
-        fromSatang(dto.totalSatang),
-        dto.paymentMethod,
-        dto.customerId,
-        dto.customerName,
-        dto.mechanicId,
-        dto.mechanicName,
-        dto.mechanicDeltaSatang === null ? null : fromSatang(dto.mechanicDeltaSatang),
-        pointsGranted,
-        actor.userId,
-        actor.deviceId,
-        shiftId,
-      ],
+        [
+          tenantId,
+          dto.id,
+          receiptNo,
+          fromSatang(dto.subtotalSatang),
+          fromSatang(dto.discountSatang),
+          fromSatang(dto.totalSatang),
+          dto.paymentMethod,
+          dto.customerId,
+          dto.customerName,
+          dto.mechanicId,
+          dto.mechanicName,
+          dto.mechanicDeltaSatang === null
+            ? null
+            : fromSatang(dto.mechanicDeltaSatang),
+          pointsGranted,
+          actor.userId,
+          actor.deviceId,
+          shiftId,
+        ],
+      ),
     )) as { date: Date }[];
     return rows[0].date.toISOString();
+  }
+
+  /**
+   * Turns the two constraint violations a client can actually provoke into the status
+   * they deserve. Without this both are `500 INTERNAL_ERROR`, which tells the counter
+   * nothing and tells the client nothing it can act on.
+   *
+   * `23503` is reachable today for an ordinary reason: `customers` and `mechanics`
+   * have no write endpoints yet (#17), so a bill naming one that was never imported
+   * is a bad request, not a server fault.
+   */
+  private async mapConstraintErrors<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code === UNIQUE_VIOLATION) {
+        throw new HttpException(
+          {
+            code: 'SALE_ID_REUSED',
+            message: 'A different sale already exists under this id.',
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+      if (code === FOREIGN_KEY_VIOLATION) {
+        throw new HttpException(
+          {
+            code: 'BAD_REQUEST',
+            message: `Unknown reference on this sale (${(err as { constraint?: string }).constraint ?? 'foreign key'}).`,
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      throw err;
+    }
   }
 
   /**
@@ -307,7 +439,7 @@ export class SalesService {
     locked: LockedProduct[],
   ): Promise<void> {
     const byId = new Map(locked.map((p) => [p.id, p]));
-    for (const [i, line] of dto.items.entries()) {
+    for (const line of dto.items) {
       await manager.query(
         `INSERT INTO sale_items (
            tenant_id, sale_id, line_no, product_id, part_no, name, name_th, qty, price, cost_at_sale)
@@ -315,10 +447,10 @@ export class SalesService {
         [
           tenantId,
           dto.id,
-          // The client's `lineNo` only orders the receipt; the primary key needs it
-          // unique, and two lines carrying the same number is a client bug that must
-          // not become a 500.
-          i + 1,
+          // The client's own numbering: it is what the receipt in the customer's hand
+          // says. The DTO has already refused a bill where two lines share a number,
+          // which would collide on `(tenant_id, sale_id, line_no)`.
+          line.lineNo,
           line.productId,
           line.partNo ?? byId.get(line.productId)?.part_no ?? null,
           line.name,
@@ -389,5 +521,7 @@ function aggregate(items: SaleLine[]): Demand[] {
         firstLineIndex: i,
       });
   }
-  return [...byProduct.values()].sort((a, b) => a.firstLineIndex - b.firstLineIndex);
+  return [...byProduct.values()].sort(
+    (a, b) => a.firstLineIndex - b.firstLineIndex,
+  );
 }

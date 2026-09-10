@@ -64,6 +64,7 @@ const TENANT = 'ffffffff-6666-4666-8666-ffffffffffff';
 describe('shifts and the cash drawer (e2e)', () => {
   let app: INestApplication;
   let admin: DataSource;
+  let cache: import('ioredis').Redis;
   let fixture: TenantFixture;
   let posToken: string;
   let backofficeToken: string;
@@ -93,11 +94,11 @@ describe('shifts and the cash drawer (e2e)', () => {
   };
 
   beforeAll(async () => {
-    ({ app, admin } = await createTestApp([RetireProbeModule]));
+    ({ app, admin, cache } = await createTestApp([RetireProbeModule]));
   });
 
   beforeEach(async () => {
-    fixture = await resetTenant(admin, TENANT, { posDeviceNo: 5 });
+    fixture = await resetTenant(admin, TENANT, { posDeviceNo: 5, cache });
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
@@ -252,6 +253,7 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(read.body.data.startingCash).toBe('1000.00');
     expect((await get('/history', backofficeToken)).status).toBe(200);
 
+
     for (const [path, body] of [
       ['/open', { startingCash: '1.00' }],
       ['/close', { physicalCash: '1.00' }],
@@ -276,14 +278,13 @@ describe('shifts and the cash drawer (e2e)', () => {
 
     const page1 = await get('/history?page=1&limit=2');
     expect(page1.status).toBe(200);
-    expect(page1.body.data.total).toBe(3);
-    expect(page1.body.data.items).toHaveLength(2);
+    // §1.2 puts pagination in `meta`, beside `data` — not inside it.
+    expect(page1.body.meta).toEqual({ total: 3, page: 1, limit: 2, totalPages: 2 });
+    expect(page1.body.data).toHaveLength(2);
     const page2 = await get('/history?page=2&limit=2');
-    expect(page2.body.data.items).toHaveLength(1);
+    expect(page2.body.data).toHaveLength(1);
 
-    const ids = [...page1.body.data.items, ...page2.body.data.items].map(
-      (s: { id: string }) => s.id,
-    );
+    const ids = [...page1.body.data, ...page2.body.data].map((sh: { id: string }) => sh.id);
     expect(ids).not.toContain(live.body.data.id);
     expect((await get('/history?page=0')).status).toBe(400);
   });
@@ -391,24 +392,124 @@ describe('shifts and the cash drawer (e2e)', () => {
 
     const row = await shiftRow(opened.body.data.id);
     expect(row.closed_at).not.toBeNull();
-    // ADR-0004 wants the drawer closed before `retired_at` is stamped, in one
-    // transaction — the device endpoint (#6) calls exactly this.
-    expect(row.is_active).toBe(true);
+    // 🔴 Archived, not left active. Normally the device's NEXT open archives its
+    // drawer — but a retired device never opens again, so an active row here would be
+    // stranded: `history()` (`NOT is_active`) would hide that day's takings forever
+    // while `current()` showed a drawer nothing could close. That is exactly the day
+    // ADR-0004 wants preserved.
+    expect(row.is_active).toBe(false);
+    expect(closed.body.data.isActive).toBe(false);
+
+    const history = await get('/history');
+    expect(history.body.data.map((sh: { id: string }) => sh.id)).toContain(
+      opened.body.data.id,
+    );
   });
 
-  it('the same idempotency key opens one drawer, not two', async () => {
+  it('a replacement pos device starts clean after the old one is retired', async () => {
+    const oldDrawer = await post('/open', { startingCash: '1000.00' });
+    await post('/current/entries', { type: 'in', amount: '250.00', note: 'ช่างจ่ายหนี้' });
+    await request(app.getHttpServer())
+      .post('/api/v1/test-retire')
+      .set('Authorization', `Bearer ${posToken}`)
+      .send({ deviceId: fixture.posDeviceId, physicalCash: '1250.00' });
+    await admin.query(
+      `UPDATE devices SET retired_at = now() WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, fixture.posDeviceId],
+    );
+
+    // The shop buys a new till. It gets a new device_no and its own drawer.
+    const replacementId = 'pos-replacement';
+    await admin.query(
+      `INSERT INTO devices (tenant_id, id, label, device_no, role)
+            VALUES ($1::uuid, $2, 'เครื่องขายใหม่', 6, 'pos')`,
+      [TENANT, replacementId],
+    );
+    const replacementToken = accessToken({
+      tenantId: TENANT,
+      userId: fixture.userId,
+      role: 'manager',
+      deviceId: replacementId,
+      deviceRole: 'pos',
+    });
+
+    // The retired machine's last day is in history, with its entries, and nothing the
+    // new machine does can reach it.
+    const history = await get('/history', replacementToken);
+    const archived = history.body.data.find(
+      (sh: { id: string }) => sh.id === oldDrawer.body.data.id,
+    );
+    expect(archived).toBeDefined();
+    expect(archived.physicalCash).toBe('1250.00');
+    expect(archived.entries).toHaveLength(1);
+
+    const fresh = await post('/open', { startingCash: '500.00' }, replacementToken);
+    expect(fresh.status).toBe(200);
+    expect(fresh.body.data.id).not.toBe(oldDrawer.body.data.id);
+    expect(fresh.body.data.deviceId).toBe(replacementId);
+  });
+
+  it('the idempotency key really guards open, not just the same-day rule', async () => {
     const key = `k-open-once-${Date.now()}`;
-    const send = () =>
+    const send = (startingCash: string) =>
       request(app.getHttpServer())
         .post('/api/v1/shifts/open')
         .set('Authorization', `Bearer ${posToken}`)
         .set('Idempotency-Key', key)
+        .send({ startingCash });
+
+    const first = await send('1000.00');
+    expect(first.status).toBe(200);
+    expect((await send('1000.00')).body.data.id).toBe(first.body.data.id);
+
+    // Same key, different body. Asserting only that a repeat returns the same shift
+    // would pass with the interceptor removed — the same-day rule alone guarantees
+    // that. This is the assertion only the interceptor can satisfy.
+    const changed = await send('9999.00');
+    expect(changed.status).toBe(409);
+    expect(changed.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+  });
+
+  it('refuses to close twice, and refuses cash that is missing or negative', async () => {
+    await post('/open', { startingCash: '1000.00' });
+    expect((await post('/close', { physicalCash: '1500.00' })).status).toBe(200);
+
+    // `physical_cash` is the number the day is reconciled against, and a second press
+    // carries a different idempotency key — nothing else would stop it overwriting the
+    // counted cash silently.
+    const twice = await post('/close', { physicalCash: '1.00' });
+    expect(twice.status).toBe(409);
+    expect(twice.body.error.code).toBe('DRAWER_CLOSED');
+    const rows = await admin.query(
+      `SELECT physical_cash FROM shifts WHERE tenant_id = $1::uuid AND is_active`,
+      [TENANT],
+    );
+    expect(rows[0].physical_cash).toBe('1500.00');
+  });
+
+  it('will not open or close on a defaulted or negative amount', async () => {
+    // A defaulted 0 closes the day at zero counted cash, and the report then shows a
+    // shortfall the size of the day's takings (§3.11's own warning).
+    expect((await post('/open', {})).status).toBe(400);
+    expect((await post('/open', { startingCash: '-1.00' })).status).toBe(400);
+    await post('/open', { startingCash: '1000.00' });
+    expect((await post('/close', {})).status).toBe(400);
+    expect((await post('/close', { physicalCash: '-1.00' })).status).toBe(400);
+  });
+
+  it('ten simultaneous opens produce exactly one drawer', async () => {
+    const send = () =>
+      request(app.getHttpServer())
+        .post('/api/v1/shifts/open')
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', `k-race-${Math.random()}`)
         .send({ startingCash: '1000.00' });
 
-    const first = await send();
-    const replay = await send();
-    expect(first.status).toBe(200);
-    expect(replay.body.data.id).toBe(first.body.data.id);
+    // Different keys, so idempotency does not answer this: the `ON CONFLICT … WHERE
+    // is_active DO NOTHING` and the re-read behind it are what has to hold.
+    const results = await Promise.all(Array.from({ length: 10 }, send));
+    for (const r of results) expect(r.status).toBe(200);
+    expect(new Set(results.map((r) => r.body.data.id)).size).toBe(1);
 
     const rows = await admin.query(
       `SELECT count(*)::int AS n FROM shifts WHERE tenant_id = $1::uuid`,

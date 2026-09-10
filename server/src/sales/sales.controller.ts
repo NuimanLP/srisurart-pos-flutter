@@ -16,6 +16,7 @@ import type { Request } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { IdempotencyInterceptor } from '../idempotency/idempotency.interceptor.js';
+import { Paginated } from '../common/paginated.js';
 import { parseCreateSale } from './sales.dto.js';
 import { SalesService, type CreateSaleResult } from './sales.service.js';
 import { SaleReadsService, type SaleWithItems } from './sale-reads.service.js';
@@ -76,7 +77,7 @@ export class SalesController {
     @Query('to') to?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<{ items: SaleWithItems[]; total: number; page: number; limit: number }> {
+  ): Promise<Paginated<SaleWithItems>> {
     const p = positiveInt(page, 1, 'page');
     const l = Math.min(positiveInt(limit, DEFAULT_LIMIT, 'limit'), MAX_LIMIT);
     const { items, total } = await this.reads.list({
@@ -87,7 +88,7 @@ export class SalesController {
       page: p,
       limit: l,
     });
-    return { items, total, page: p, limit: l };
+    return new Paginated(items, { total, page: p, limit: l });
   }
 
   @Get(':id')
@@ -136,7 +137,11 @@ export class SalesController {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
-function positiveInt(raw: string | undefined, fallback: number, field: string): number {
+function positiveInt(
+  raw: string | undefined,
+  fallback: number,
+  field: string,
+): number {
   if (raw === undefined) return fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) {

@@ -7,9 +7,27 @@ import { BadRequestException } from '@nestjs/common';
  * up a satang off the paper the customer is holding.
  */
 export function toSatang(value: unknown, field: string): number {
+  const satang = parse(value, field);
+  // `NUMERIC(12,2)` is the widest money column in the schema; anything past it is a
+  // `22003` from Postgres several statements later, which surfaces as a 500 instead
+  // of the 400 a nonsense amount deserves.
+  if (Math.abs(satang) > MAX_SATANG) throw badMoney(field, value);
+  return satang;
+}
+
+/** `NUMERIC(12,2)` — ten digits before the point. */
+const MAX_SATANG = 9_999_999_999_99;
+
+function parse(value: unknown, field: string): number {
   if (typeof value === 'number') {
+    // The wire format is a string (§1.1); a number is accepted because clients send
+    // them, but under the same two-decimal rule — otherwise `1.005` rounds silently
+    // where `"1.005"` is a 400, and the two callers disagree about the same amount.
     if (!Number.isFinite(value)) throw badMoney(field, value);
-    return Math.round(value * 100);
+    const satang = value * 100;
+    if (Math.abs(satang - Math.round(satang)) > 1e-6)
+      throw badMoney(field, value);
+    return Math.round(satang);
   }
   if (typeof value === 'string' && /^-?\d+(\.\d{1,2})?$/.test(value.trim())) {
     return Math.round(Number(value.trim()) * 100);

@@ -86,7 +86,10 @@ export class ShiftsService {
   }
 
   /** Archived shifts, newest first. Paginated — this table grows by one a day forever. */
-  async history(page: number, limit: number): Promise<{ items: ShiftWithEntries[]; total: number }> {
+  async history(
+    page: number,
+    limit: number,
+  ): Promise<{ items: ShiftWithEntries[]; total: number }> {
     const { tenantId, manager } = currentRequestContext();
     const totalRows = (await manager.query(
       `SELECT count(*)::int AS n FROM shifts WHERE tenant_id = $1::uuid AND NOT is_active`,
@@ -95,12 +98,13 @@ export class ShiftsService {
     const rows = (await manager.query(
       `SELECT ${SHIFT_COLUMNS} FROM shifts
         WHERE tenant_id = $1::uuid AND NOT is_active
-        ORDER BY opened_at DESC
+        ORDER BY opened_at DESC, id DESC
         LIMIT $2 OFFSET $3`,
       [tenantId, limit, (page - 1) * limit],
     )) as ShiftRow[];
     const items = [];
-    for (const row of rows) items.push(await this.withEntries(manager, tenantId, row));
+    for (const row of rows)
+      items.push(await this.withEntries(manager, tenantId, row));
     return { items, total: totalRows[0].n };
   }
 
@@ -151,7 +155,8 @@ export class ShiftsService {
       ],
     )) as ShiftRow[];
 
-    if (inserted.length > 0) return this.withEntries(manager, tenantId, inserted[0]);
+    if (inserted.length > 0)
+      return this.withEntries(manager, tenantId, inserted[0]);
 
     // Another request opened the drawer while this one was deciding to. Pressing the
     // button twice must not be an error, so hand back what that one opened.
@@ -162,7 +167,9 @@ export class ShiftsService {
       [tenantId, deviceId],
     )) as ShiftRow[];
     if (winner.length === 0) {
-      throw new Error(`Shift for device ${deviceId} vanished between insert and read.`);
+      throw new Error(
+        `Shift for device ${deviceId} vanished between insert and read.`,
+      );
     }
     return this.withEntries(manager, tenantId, winner[0]);
   }
@@ -171,9 +178,24 @@ export class ShiftsService {
    * Stamps `closed_at` and the cash actually counted. The shift stays `is_active`:
    * it is still this device's drawer until tomorrow's open archives it.
    */
-  async close(deviceId: string, physicalCashSatang: number): Promise<ShiftWithEntries> {
+  async close(
+    deviceId: string,
+    physicalCashSatang: number,
+  ): Promise<ShiftWithEntries> {
     const { tenantId, manager } = currentRequestContext();
     const shift = await this.lockActive(manager, tenantId, deviceId);
+    if (shift.closed_at !== null) {
+      // `physical_cash` is the number the day is reconciled against. A second press of
+      // the button carries a different idempotency key, so nothing else would stop it
+      // from overwriting the counted cash — silently, with no audit trail.
+      throw new HttpException(
+        {
+          code: 'DRAWER_CLOSED',
+          message: 'ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้',
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
     const rows = returning<ShiftRow>(
       await manager.query(
         `UPDATE shifts SET closed_at = now(), physical_cash = $3
@@ -204,7 +226,19 @@ export class ShiftsService {
       [tenantId, deviceId],
     )) as ShiftRow[];
     if (rows.length === 0) return null;
-    return this.close(deviceId, physicalCashSatang);
+
+    const closed = await this.close(deviceId, physicalCashSatang);
+
+    // 🔴 Archive it too. Normally the device's NEXT open archives the drawer, but a
+    // retired device never opens again — so the row would stay `is_active` forever,
+    // and `history()` (`NOT is_active`) would hide that day's takings while
+    // `current()` shows a drawer nothing can close. That is exactly the day ADR-0004
+    // wants preserved.
+    await this.archive(manager, tenantId, {
+      ...rows[0],
+      closed_at: new Date(),
+    });
+    return { ...closed, isActive: false };
   }
 
   /** Adds money in or out of the open drawer. */
@@ -309,15 +343,18 @@ export class ShiftsService {
     await manager.query(
       `UPDATE shifts
           SET is_active = FALSE,
-              auto_archived = $3,
-              archived_at = CASE WHEN $3 THEN now() ELSE archived_at END
+              auto_archived = auto_archived OR $3,
+              archived_at = COALESCE(archived_at, now())
         WHERE tenant_id = $1::uuid AND id = $2`,
       [tenantId, shift.id, neverClosed],
     );
   }
 
   /** Today's date key (yyyy-MM-dd) in the tenant's own timezone, not in UTC's. */
-  private async today(manager: EntityManager, tenantId: string): Promise<string> {
+  private async today(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<string> {
     const rows = (await manager.query(
       `SELECT to_char(now() AT TIME ZONE t.timezone, 'YYYY-MM-DD') AS d
          FROM tenants t WHERE t.id = $1::uuid`,
@@ -348,7 +385,6 @@ export class ShiftsService {
     }[];
     return { ...toShift(shift), entries: rows.map(toEntry) };
   }
-
 }
 
 function toShift(row: ShiftRow): Shift {

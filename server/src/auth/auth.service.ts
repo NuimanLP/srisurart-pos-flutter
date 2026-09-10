@@ -328,12 +328,18 @@ export class AuthService {
   ): Promise<void> {
     try {
       await qr.startTransaction();
-      await qr.query(`SET LOCAL app.tenant_id = $1`, [tenantId]);
+      // `SET LOCAL` takes no bind parameter — `SET LOCAL app.tenant_id = $1` is a
+      // plain syntax error, so every auth audit write failed into the catch below and
+      // ADR-0009's "every /auth/* endpoint writes audit_log" recorded nothing at all.
+      // `set_config(..., true)` is the transaction-scoped form that does take one.
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
       await this.audit.log(qr.manager, params);
       await qr.commitTransaction();
     } catch (err) {
-      if (qr.isTransactionActive) {
-        await qr.rollbackTransaction();
+      try {
+        if (qr.isTransactionActive) await qr.rollbackTransaction();
+      } catch {
+        /* the connection is already gone; the log below is what matters */
       }
       this.logger.error(`Failed to write auth audit log: ${err}`);
     }

@@ -16,6 +16,7 @@ import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { toSatang } from '../common/money.js';
 import { IdempotencyInterceptor } from '../idempotency/idempotency.interceptor.js';
+import { Paginated } from '../common/paginated.js';
 import {
   ShiftsService,
   type Actor,
@@ -49,46 +50,61 @@ export class ShiftsController {
   async history(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<{ items: ShiftWithEntries[]; total: number; page: number; limit: number }> {
+  ): Promise<Paginated<ShiftWithEntries>> {
     const p = positiveInt(page, 1, 'page');
     const l = Math.min(positiveInt(limit, DEFAULT_LIMIT, 'limit'), MAX_LIMIT);
     const { items, total } = await this.shifts.history(p, l);
-    return { items, total, page: p, limit: l };
+    return new Paginated(items, { total, page: p, limit: l });
   }
 
   @Post('open')
   @HttpCode(200)
   @RequireDeviceRole('pos')
   @UseInterceptors(IdempotencyInterceptor)
-  open(@Body() body: unknown, @Req() req: AuthenticatedRequest): Promise<ShiftWithEntries> {
+  open(
+    @Body() body: unknown,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<ShiftWithEntries> {
     const b = asObject(body);
-    return this.shifts.open(actorOf(req), toSatang(b.startingCash ?? 0, 'startingCash'));
+    return this.shifts.open(actorOf(req), cash(b.startingCash, 'startingCash'));
   }
 
   @Post('close')
   @HttpCode(200)
   @RequireDeviceRole('pos')
   @UseInterceptors(IdempotencyInterceptor)
-  close(@Body() body: unknown, @Req() req: AuthenticatedRequest): Promise<ShiftWithEntries> {
+  close(
+    @Body() body: unknown,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<ShiftWithEntries> {
     const b = asObject(body);
     return this.shifts.close(
       actorOf(req).deviceId,
-      toSatang(b.physicalCash ?? 0, 'physicalCash'),
+      cash(b.physicalCash, 'physicalCash'),
     );
   }
 
   @Post('current/entries')
   @RequireDeviceRole('pos')
   @UseInterceptors(IdempotencyInterceptor)
-  addEntry(@Body() body: unknown, @Req() req: AuthenticatedRequest): Promise<DrawerEntry> {
+  addEntry(
+    @Body() body: unknown,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<DrawerEntry> {
     const b = asObject(body);
     if (b.type !== 'in' && b.type !== 'out') {
       throw new BadRequestException(`type must be 'in' or 'out'`);
     }
     const amountSatang = toSatang(b.amount, 'amount');
-    if (amountSatang <= 0) throw new BadRequestException('amount must be greater than zero');
-    const note = b.note === undefined || b.note === null ? null : String(b.note);
-    return this.shifts.addEntry(actorOf(req), { type: b.type, amountSatang, note });
+    if (amountSatang <= 0)
+      throw new BadRequestException('amount must be greater than zero');
+    const note =
+      b.note === undefined || b.note === null ? null : String(b.note);
+    return this.shifts.addEntry(actorOf(req), {
+      type: b.type,
+      amountSatang,
+      note,
+    });
   }
 }
 
@@ -107,6 +123,22 @@ function actorOf(req: AuthenticatedRequest): Actor {
   return { userId: req.user.userId, deviceId: req.user.deviceId };
 }
 
+/**
+ * Cash counted into or out of the drawer. Required and non-negative, both on purpose:
+ * a defaulted `0` closes the day at zero counted cash, and the closing report then
+ * shows a shortfall the size of the day's takings — which §3.11 names as the thing
+ * that makes staff stop believing the report at all.
+ */
+function cash(value: unknown, field: string): number {
+  if (value === undefined || value === null || value === '') {
+    throw new BadRequestException(`${field} is required`);
+  }
+  const satang = toSatang(value, field);
+  if (satang < 0)
+    throw new BadRequestException(`${field} must not be negative`);
+  return satang;
+}
+
 function asObject(body: unknown): Record<string, unknown> {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new BadRequestException('body must be an object');
@@ -114,7 +146,11 @@ function asObject(body: unknown): Record<string, unknown> {
   return body as Record<string, unknown>;
 }
 
-function positiveInt(raw: string | undefined, fallback: number, field: string): number {
+function positiveInt(
+  raw: string | undefined,
+  fallback: number,
+  field: string,
+): number {
   if (raw === undefined) return fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) {
