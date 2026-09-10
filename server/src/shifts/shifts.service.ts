@@ -188,10 +188,15 @@ export class ShiftsService {
       // `physical_cash` is the number the day is reconciled against. A second press of
       // the button carries a different idempotency key, so nothing else would stop it
       // from overwriting the counted cash — silently, with no audit trail.
+      //
+      // Not `DRAWER_CLOSED`: that code's documented Thai message is about refusing a
+      // *cash entry*, which is a different action, and the Dart reference never refuses
+      // a second close at all — so there is no Thai sentence to copy. English until the
+      // shop words it, per §8.1.
       throw new HttpException(
         {
-          code: 'DRAWER_CLOSED',
-          message: 'ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้',
+          code: 'SHIFT_ALREADY_CLOSED',
+          message: 'This shift is already closed.',
         },
         HttpStatus.CONFLICT,
       );

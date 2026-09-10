@@ -477,9 +477,13 @@ describe('shifts and the cash drawer (e2e)', () => {
     // `physical_cash` is the number the day is reconciled against, and a second press
     // carries a different idempotency key — nothing else would stop it overwriting the
     // counted cash silently.
+    // Its own code and message: `DRAWER_CLOSED`'s Thai sentence is about refusing a
+    // cash *entry*, and the Dart reference never refuses a second close, so there is
+    // no Thai to copy — English until the shop words it (§8.1).
     const twice = await post('/close', { physicalCash: '1.00' });
     expect(twice.status).toBe(409);
-    expect(twice.body.error.code).toBe('DRAWER_CLOSED');
+    expect(twice.body.error.code).toBe('SHIFT_ALREADY_CLOSED');
+    expect(twice.body.error.message).toBe('This shift is already closed.');
     const rows = await admin.query(
       `SELECT physical_cash FROM shifts WHERE tenant_id = $1::uuid AND is_active`,
       [TENANT],
