@@ -5,6 +5,7 @@ import { HealthModule } from './health/health.module.js';
 import { DbModule } from './infra/db.module.js';
 import { LOGGER } from './infra/logger.provider.js';
 import { RedisModule } from './infra/redis.module.js';
+import { PlatformModule } from './platform/platform.module.js';
 
 /** Shared infrastructure (config, logger, Postgres, both Redis) — no HTTP. */
 @Module({})
@@ -22,7 +23,7 @@ export class CoreModule {
   }
 }
 
-/** The HTTP application: core + health. Business modules are added by later tickets. */
+/** The HTTP application: core + health + platform. Business modules are added by later tickets. */
 @Module({})
 export class AppModule {
   static forRoot(config: AppConfig, logger: Logger): DynamicModule {
@@ -33,6 +34,7 @@ export class AppModule {
         DbModule,
         RedisModule,
         HealthModule,
+        PlatformModule,
       ],
     };
   }
