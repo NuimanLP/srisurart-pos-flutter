@@ -83,15 +83,30 @@ services:
     <<: *api
     networks: { default: { ipv4_address: 172.30.0.11 } }
     build: .
-    environment: { <<: *app-env, INSTANCE_ID: api-1, DB_POOL_SIZE: "${DB_POOL_SIZE:-15}" }
+    environment:
+      <<: *app-env
+      INSTANCE_ID: api-1
+      DB_POOL_SIZE: "${DB_POOL_SIZE:-15}"
+      JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY:?JWT_PRIVATE_KEY is required}"
+      JWT_PUBLIC_KEYS: "${JWT_PUBLIC_KEYS:?JWT_PUBLIC_KEYS is required}"
   api-2:
     <<: *api
     networks: { default: { ipv4_address: 172.30.0.12 } }
-    environment: { <<: *app-env, INSTANCE_ID: api-2, DB_POOL_SIZE: "${DB_POOL_SIZE:-15}" }
+    environment:
+      <<: *app-env
+      INSTANCE_ID: api-2
+      DB_POOL_SIZE: "${DB_POOL_SIZE:-15}"
+      JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY:?JWT_PRIVATE_KEY is required}"
+      JWT_PUBLIC_KEYS: "${JWT_PUBLIC_KEYS:?JWT_PUBLIC_KEYS is required}"
   api-3:
     <<: *api
     networks: { default: { ipv4_address: 172.30.0.13 } }
-    environment: { <<: *app-env, INSTANCE_ID: api-3, DB_POOL_SIZE: "${DB_POOL_SIZE:-15}" }
+    environment:
+      <<: *app-env
+      INSTANCE_ID: api-3
+      DB_POOL_SIZE: "${DB_POOL_SIZE:-15}"
+      JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY:?JWT_PRIVATE_KEY is required}"
+      JWT_PUBLIC_KEYS: "${JWT_PUBLIC_KEYS:?JWT_PUBLIC_KEYS is required}"
 
   worker:
     <<: *api

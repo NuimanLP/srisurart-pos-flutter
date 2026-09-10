@@ -1,6 +1,7 @@
 import { Global, Module, Inject } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
+import { TenantService } from '../common/database/tenant.service.js';
 
 export const ADMIN_DATA_SOURCE = Symbol('ADMIN_DATA_SOURCE');
 
@@ -45,8 +46,9 @@ export const ADMIN_DATA_SOURCE = Symbol('ADMIN_DATA_SOURCE');
         return ds.initialize();
       },
     },
+    TenantService,
   ],
-  exports: [DataSource, ADMIN_DATA_SOURCE],
+  exports: [DataSource, ADMIN_DATA_SOURCE, TenantService],
 })
 export class DbModule {
   constructor(
@@ -59,4 +61,3 @@ export class DbModule {
     if (this.adminDs.isInitialized) await this.adminDs.destroy();
   }
 }
-

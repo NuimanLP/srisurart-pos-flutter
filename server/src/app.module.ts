@@ -5,6 +5,8 @@ import { HealthModule } from './health/health.module.js';
 import { DbModule } from './infra/db.module.js';
 import { LOGGER } from './infra/logger.provider.js';
 import { RedisModule } from './infra/redis.module.js';
+import { AuditModule } from './audit/audit.module.js';
+import { AuthModule } from './auth/auth.module.js';
 import { PlatformModule } from './platform/platform.module.js';
 
 /** Shared infrastructure (config, logger, Postgres, both Redis) — no HTTP. */
@@ -35,6 +37,8 @@ export class AppModule {
         RedisModule,
         HealthModule,
         PlatformModule,
+        AuditModule,
+        AuthModule,
       ],
     };
   }

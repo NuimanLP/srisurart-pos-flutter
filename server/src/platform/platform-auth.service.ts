@@ -21,7 +21,8 @@ export class PlatformAuthService {
     );
 
     const admin = res[0];
-    if (!admin || !admin.is_active || !verifyPassword(password, admin.password_hash)) {
+    const isValid = admin ? await verifyPassword(password, admin.password_hash) : false;
+    if (!admin || !admin.is_active || !isValid) {
       throw new UnauthorizedException('Invalid platform admin credentials');
     }
 
