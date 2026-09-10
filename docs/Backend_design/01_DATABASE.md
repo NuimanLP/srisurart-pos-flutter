@@ -575,7 +575,11 @@ CREATE TABLE sales (
   subtotal       NUMERIC(12,2) NOT NULL,
   discount       NUMERIC(12,2) NOT NULL DEFAULT 0,
   total          NUMERIC(12,2) NOT NULL,
-  payment_method TEXT NOT NULL,     -- 'เงินสด' | 'โอน' | 'บัตร' | 'เครดิตช่าง'
+  payment_method TEXT NOT NULL,     -- 'เงินสด' | 'โอน/QR' | 'เครดิตช่าง' — เคยเขียนผิดไว้เป็น 4
+                                     -- ค่า ('โอน' ขาด /QR, แถม 'บัตร' ที่ไม่เคยมีอยู่จริง);
+                                     -- checkout_screen.dart:2355 คือโค้ดเดียวที่สร้างบิล จึงเป็น
+                                     -- source of truth ไม่ใช่คอมเมนต์นี้ — sales.dto.ts บังคับ
+                                     -- whitelist นี้ที่ DTO แล้ว (2026-09-10)
   customer_id    TEXT,
   customer_name  TEXT,              -- denormalize ไว้ตั้งใจ: ใบเสร็จเก่าต้องไม่เปลี่ยนตามชื่อที่แก้ทีหลัง
   mechanic_id    TEXT,

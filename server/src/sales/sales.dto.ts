@@ -31,6 +31,17 @@ export interface CreateSale {
 const MAX_LINES = 200;
 
 /**
+ * The exact three literals a sale can ever be created with. `checkout_screen.dart:2355`
+ * is the only code that creates one, so — per CLAUDE.md, "Thai UI strings = behaviour
+ * parity" — it is the source, not `01_DATABASE.md`'s DDL comment (which listed a fourth,
+ * `'บัตร'`, that no screen has ever offered; that comment has been corrected). Rejecting
+ * anything outside this set at the boundary is what stops a typo on `'เครดิตช่าง'` (a
+ * trailing space, one dropped character) from silently landing as an unrecognised cash
+ * sale that #21's mechanic-credit math and the cash/credit closing report never catch.
+ */
+const PAYMENT_METHODS = ['เงินสด', 'โอน/QR', 'เครดิตช่าง'] as const;
+
+/**
  * Validates the body by hand. Nest's `ValidationPipe` wants `class-validator`, which
  * this server does not depend on; the rules here are few and the errors they raise are
  * plain `400`s, which is what a malformed body is.
@@ -54,7 +65,7 @@ export function parseCreateSale(body: unknown): CreateSale {
     subtotalSatang: toSatang(b.subtotal, 'subtotal'),
     discountSatang: toSatang(b.discount ?? 0, 'discount'),
     totalSatang: toSatang(b.total, 'total'),
-    paymentMethod: requiredString(b.paymentMethod, 'paymentMethod'),
+    paymentMethod: requiredPaymentMethod(b.paymentMethod),
     customerId: optionalString(b.customerId, 'customerId'),
     customerName: optionalString(b.customerName, 'customerName'),
     mechanicId: optionalString(b.mechanicId, 'mechanicId'),
@@ -164,6 +175,16 @@ function requiredString(value: unknown, field: string): string {
     throw new BadRequestException(`${field} is required`);
   }
   return value;
+}
+
+function requiredPaymentMethod(value: unknown): string {
+  const method = requiredString(value, 'paymentMethod');
+  if (!(PAYMENT_METHODS as readonly string[]).includes(method)) {
+    throw new BadRequestException(
+      `paymentMethod must be one of ${PAYMENT_METHODS.join(', ')}, got ${JSON.stringify(value)}`,
+    );
+  }
+  return method;
 }
 
 function optionalString(value: unknown, field: string): string | null {

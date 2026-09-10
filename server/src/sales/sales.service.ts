@@ -300,6 +300,8 @@ export class SalesService {
    * Read before anything is locked or deducted, so a duplicate costs one indexed
    * lookup and touches no stock. The stock reported back is the stock as it stands
    * now, which is what the client's cache should hold either way.
+   *
+   * A **voided** bill is the one id that is not replayed: see below.
    */
   private async existingSale(
     manager: EntityManager,
@@ -307,7 +309,7 @@ export class SalesService {
     dto: CreateSale,
   ): Promise<CreateSaleResult | null> {
     const rows = (await manager.query(
-      `SELECT receipt_no, total, points_granted, date
+      `SELECT receipt_no, total, points_granted, date, voided
          FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
       [tenantId, dto.id],
     )) as {
@@ -315,6 +317,7 @@ export class SalesService {
       total: string;
       points_granted: number;
       date: Date;
+      voided: boolean;
     }[];
     if (rows.length === 0) return null;
 
@@ -327,6 +330,24 @@ export class SalesService {
           code: 'SALE_ID_REUSED',
           message: 'A different sale already exists under this id.',
         },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    if (rows[0].voided) {
+      // The bill under this id has been cancelled: its stock is back on the shelf and
+      // its money is out of the closing report. Replaying it would answer 201 with a
+      // receipt number, a total and points for a bill that no longer stands, and the
+      // counter would read that as "the sale went through".
+      //
+      // The reason a duplicate is replayed rather than refused — a 409 reads at the
+      // counter as "it didn't go through", so staff ring the bill up again and the
+      // shop really does sell twice — points the other way once the bill is voided:
+      // nothing was sold, so ringing it up again is not a second sale, it is the only
+      // way to get a bill that stands. Refusing costs one re-ring; replaying lets the
+      // goods leave the shop under a bill that was cancelled.
+      throw new HttpException(
+        { code: 'SALE_VOIDED', message: 'Bill already voided' },
         HttpStatus.CONFLICT,
       );
     }

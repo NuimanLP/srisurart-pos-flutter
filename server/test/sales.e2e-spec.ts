@@ -14,6 +14,8 @@ import {
 // is reproduced here at the HTTP seam, with the Thai assertions verbatim, plus the
 // concurrency the Dart version cannot have (one machine, one process).
 const TENANT = 'eeeeeeee-5555-4555-8555-eeeeeeeeeeee';
+// The manager PIN a void asks for — this suite needs one only for the voided-retry case.
+const PIN = '7315';
 
 interface Line {
   productId: string;
@@ -75,7 +77,7 @@ describe('POST /sales (e2e)', () => {
   });
 
   beforeEach(async () => {
-    fixture = await resetTenant(admin, TENANT, { posDeviceNo: 3, cache });
+    fixture = await resetTenant(admin, TENANT, { posDeviceNo: 3, pin: PIN, cache });
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
@@ -404,6 +406,34 @@ describe('POST /sales (e2e)', () => {
     expect(await stockOf('p1')).toBe(46);
   });
 
+  it('refuses a retry of a bill that has since been voided', async () => {
+    const body = bill([
+      { productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' },
+    ]);
+    const first = await post(body);
+    expect(first.status).toBe(201);
+
+    const voided = await request(app.getHttpServer())
+      .post(`/api/v1/sales/${first.body.data.id}/void`)
+      .set('Authorization', `Bearer ${posToken}`)
+      .set('Idempotency-Key', `k-void-${Date.now()}`)
+      .send({ pin: PIN });
+    expect(voided.status).toBe(200);
+    expect(await stockOf('p1')).toBe(48);
+
+    // The replay above is safe because that bill still stands. This one does not:
+    // a 201 here hands the counter a receipt number, a total and points for a bill
+    // that was cancelled and whose stock is already back on the shelf.
+    const retry = await post(body, { key: `k-after-void-${Date.now()}` });
+    expect(retry.status).toBe(409);
+    expect(retry.body.error.code).toBe('SALE_VOIDED');
+    expect(retry.body.error.message).toBe('Bill already voided');
+
+    // Refusing must cost nothing: no second bill, no second deduction.
+    expect(await saleCount()).toBe(1);
+    expect(await stockOf('p1')).toBe(48);
+  });
+
   it('refuses a different bill wearing an id that is already taken', async () => {
     const first = await post(
       bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }]),
@@ -428,6 +458,38 @@ describe('POST /sales (e2e)', () => {
     );
     expect(res.status).toBe(400);
     expect(await saleCount()).toBe(0);
+  });
+
+  it('rings up the other two real payment methods', async () => {
+    const qr = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+        paymentMethod: 'โอน/QR',
+      }),
+    );
+    expect(qr.status).toBe(201);
+
+    const credit = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+        paymentMethod: 'เครดิตช่าง',
+      }),
+    );
+    expect(credit.status).toBe(201);
+  });
+
+  it('refuses an unknown paymentMethod, including a near-miss on เครดิตช่าง', async () => {
+    // The actual bug this closes: one wrong character or a trailing space used to be
+    // recorded verbatim as an unrecognised cash sale instead of a credit sale — no
+    // CHECK constraint and no DTO validation caught it.
+    for (const bad of ['เครดิตช่าง ', 'เครดิตชาง', 'โอน', 'บัตร', 'cash']) {
+      const res = await post(
+        bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+          paymentMethod: bad,
+        }),
+      );
+      expect(res.status).toBe(400);
+    }
+    expect(await saleCount()).toBe(0);
+    expect(await stockOf('p1')).toBe(48);
   });
 
   it('refuses money that does not make sense', async () => {
