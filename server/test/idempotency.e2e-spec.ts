@@ -174,6 +174,8 @@ describe('idempotency (e2e)', () => {
       DB_POOL_SIZE: '5',
       REDIS_CACHE_URL: 'redis://:dev-only-redis@127.0.0.1:6379',
       REDIS_QUEUE_URL: 'redis://:dev-only-redis@127.0.0.1:6380',
+      JWT_PRIVATE_KEY: 'dummy',
+      JWT_PUBLIC_KEYS: 'dummy',
       ...process.env,
     });
     const logger = pino({ level: 'silent' });
