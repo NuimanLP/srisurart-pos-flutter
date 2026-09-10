@@ -50,6 +50,31 @@ export function accessToken(claims: TokenClaims): string {
   );
 }
 
+/**
+ * A refresh token exactly as `/auth/token` would have issued it. `exp` is a Unix
+ * second, because ADR-0009 pins the refresh expiry to 04:00 of the tenant's day and
+ * a reissue has to carry that same instant forward — a suite proving that needs to
+ * choose the number itself.
+ */
+export function refreshToken(claims: TokenClaims & { exp?: number }): string {
+  return jwt.sign(
+    {
+      iss: 'srisurart-pos',
+      aud: 'tenant',
+      sub: claims.userId ?? randomUUID(),
+      jti: randomUUID(),
+      typ: 'refresh',
+      tid: claims.tenantId,
+      role: claims.role ?? 'cashier',
+      did: claims.deviceId,
+      drole: claims.deviceRole,
+      exp: claims.exp ?? Math.floor(Date.now() / 1000) + 8 * 3600,
+    },
+    privateKey,
+    { algorithm: 'RS256', keyid: 'key-1' },
+  );
+}
+
 export interface TestApp {
   app: INestApplication;
   /** Connects as `pos_app`: RLS enabled and forced, exactly as production does. */

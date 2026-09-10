@@ -163,6 +163,17 @@ ADR-0003 survives it intact because only the guard still touches the tenant:
 | `TenantGuard` | checks `tenants.status` and `SET LOCAL app.tenant_id` on that manager |
 | interceptor | commits on success, rolls back on error, before the response is sent |
 
+**How the tenant is named: `SELECT set_config('app.tenant_id', $1, true)`, never
+`SET LOCAL app.tenant_id = $1`.** `SET` is a utility statement — Postgres does not plan
+it, so it takes no bind parameter and that second spelling is a flat `42601` syntax
+error that also aborts the enclosing transaction. It is invisible to unit tests, because
+a mocked `query` accepts any string, and it reached `main` three separate times: the
+login audit write, `refreshTokenPayload` (where it 500'd every `POST /auth/refresh`
+until it was covered by `test/auth-refresh.e2e-spec.ts`) and `TenantService.runTx`. The
+`SET LOCAL` wording elsewhere in this file and in ADR-0003 means *transaction-scoped*,
+which `set_config(..., true)` is; `src/common/tenant-scope.spec.ts` scans `src/` so the
+literal form cannot come back.
+
 Nothing in `src/` populates it yet, and `currentRequestContext()` throws rather than
 defaulting — a route without the guard fails closed instead of reading someone's data.
 Built in #19's branch, because every write slice needs it: `RequestContextMiddleware`

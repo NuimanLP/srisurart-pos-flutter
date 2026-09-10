@@ -183,7 +183,11 @@ export class AuthService {
     
     try {
       await qr.startTransaction();
-      await qr.query(`SET LOCAL app.tenant_id = $1`, [tenantId]);
+      // `set_config(..., true)`, not `SET LOCAL app.tenant_id = $1`: SET is a utility
+      // statement and takes no bind parameter, so that form is a plain 42601 syntax
+      // error. Being the transaction's first statement, it turned every refresh into
+      // a 500 and left ADR-0009's `auth.refresh_rejected` trail empty.
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
 
       // Check tenant and user under RLS
       const userRows = await qr.query(
