@@ -63,10 +63,7 @@ class SalesRepository {
           throw Exception('Stock underflow on ${p.partNo} — race condition?');
         }
         await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
-          ProductsCompanion(
-            stock: Value(newStock),
-            updatedAt: Value(date),
-          ),
+          ProductsCompanion(stock: Value(newStock)).stamped,
         );
       }
 

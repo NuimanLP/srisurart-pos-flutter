@@ -142,6 +142,21 @@ void main() {
     expect(stamp!.isBefore(before), isFalse);
   });
 
+  test('a caller-supplied stamp is kept, not overwritten by the local clock',
+      () async {
+    // ADR-0010 decision 3: once ApiRepository patches rows from a server
+    // response, the server's timestamp is the one that counts.
+    final fromServer = DateTime(2026, 1, 1, 12);
+    await clearStamp('p1');
+    final ok = await ProductsRepository(db).update(
+      'p1',
+      ProductsCompanion(price: const Value(999), updatedAt: Value(fromServer)),
+    );
+
+    expect(ok, isTrue);
+    expect(await stampOf('p1'), fromServer);
+  });
+
   test('receivePO stamps the line whose cost it recomputed', () async {
     final repo = PurchaseOrdersRepository(db);
     final p1 = await (db.select(
