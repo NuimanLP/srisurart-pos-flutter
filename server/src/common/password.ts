@@ -1,12 +1,25 @@
-import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
+import * as argon2 from 'argon2';
+import { pbkdf2Sync, timingSafeEqual } from 'node:crypto';
 
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString('hex');
-  const hash = pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return `${salt}:${hash}`;
+export async function hashPassword(password: string): Promise<string> {
+  return argon2.hash(password, {
+    type: argon2.argon2id,
+    memoryCost: 65536, // 64 MiB (ADR-0009)
+    timeCost: 3,
+    parallelism: 1,
+  });
 }
 
-export function verifyPassword(password: string, combinedHash: string): boolean {
+export async function verifyPassword(password: string, combinedHash: string): Promise<boolean> {
+  if (combinedHash.startsWith('$argon2')) {
+    try {
+      return await argon2.verify(combinedHash, password);
+    } catch {
+      return false;
+    }
+  }
+
+  // Fallback for legacy PBKDF2 hashes
   const parts = combinedHash.split(':');
   if (parts.length !== 2) return false;
   const [salt, hash] = parts;

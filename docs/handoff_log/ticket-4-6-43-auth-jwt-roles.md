@@ -53,16 +53,17 @@ The implementation strictly followed the architectural decisions laid out in `AD
   - Implemented `auth_lookup_device_by_token`, `auth_lookup_user_for_login`, and `auth_enrol_device` as `SECURITY DEFINER` procedures to safely bypass PostgreSQL RLS for unauthenticated pre-auth lookups without tenant leaks.
   - Relaxed `audit_log_check` constraint to support non-user events (`device.%` and `auth.%`).
 - Fixed `JwtSigner` to natively accept numeric epoch `exp` timestamps, eliminating privateKey property leaks.
-- Wrapped `AuthController.refresh` with explicit `401 Unauthorized` handling and `TENANT_SUSPENDED` on inactive tenant per ADR-0003.
-- Sanitized `params.ip` in `AuditService` to extract client IP from comma-separated proxy chains.
+- Wrapped `AuthController.refresh` with explicit `401 Unauthorized` handling and `TENANT_SUSPENDED` on inactive tenant per ADR-0003, and added fallback support for `Authorization: Bearer` header.
+- Sanitized and strictly validated `params.ip` in `AuditService` using `net.isIP` to prevent Postgres `INET` syntax errors.
 - Corrected `TenantGuard` device role logic to ensure POS terminals are never blocked from backoffice operations.
-- Added comprehensive unit test suites: `jwt-keys.service.spec.ts` (RS256, key confusion, expired tokens), `auth.service.spec.ts` (04:00 AM refresh calculation, suspended tenant, inactive user), and `tenant.guard.spec.ts` (Redis caching, role guards, and DB error bubbling) — 28/28 passing.
+- Resolved Ticket #5 cross-integration collision: unified `password.ts` to Argon2id per ADR-0009, hashed initial POS device `enrolCode` using SHA-256 in `PlatformTenantsService`, and defensively handled malformed password hashes in `AuthService.login`.
+- Expanded test suites across 7 test files (`auth.service.spec.ts`, `jwt-keys.service.spec.ts`, `tenant.guard.spec.ts`, `auth.controller.spec.ts`, `audit.service.spec.ts`, `platform.spec.ts`, `http-exception.filter.spec.ts`) — **50/50 passing in <1s**.
 
 ## State
 
 - Fully functioning authentication, device roles, and audit logging system.
 - Code compiles cleanly (`pnpm typecheck` and `pnpm lint` passed with 0 errors).
-- All 28 unit tests pass (`pnpm test` green).
+- All 50 unit tests pass (`pnpm test` green).
 - Frontend `dart analyze` and `flutter test` (123 tests) completely green.
 
 ## Next Steps

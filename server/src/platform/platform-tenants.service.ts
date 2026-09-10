@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
@@ -69,10 +69,11 @@ export class PlatformTenantsService {
         const tid = tenantRes[0].id;
 
         // 2. Owner user
+        const ownerPasswordHash = await hashPassword(dto.ownerPassword);
         await manager.query(
           `INSERT INTO users (tenant_id, username, password_hash, display_name, role, is_active)
            VALUES ($1, $2, $3, $4, 'owner', true)`,
-          [tid, dto.ownerUsername, hashPassword(dto.ownerPassword), dto.ownerDisplayName || dto.ownerUsername],
+          [tid, dto.ownerUsername, ownerPasswordHash, dto.ownerDisplayName || dto.ownerUsername],
         );
 
         // 3. Settings row
@@ -92,10 +93,11 @@ export class PlatformTenantsService {
 
         // 5. Initial POS Device (device_no = 1, role = 'pos')
         const enrolExpires = new Date(Date.now() + 7 * 86400 * 1000);
+        const enrolCodeHash = createHash('sha256').update(enrolCode).digest('hex');
         await manager.query(
           `INSERT INTO devices (tenant_id, id, label, device_no, role, enrol_code_hash, enrol_expires_at)
            VALUES ($1, $2, $3, 1, 'pos', $4, $5)`,
-          [tid, 'pos1', 'POS #1', hashPassword(enrolCode), enrolExpires],
+          [tid, 'pos1', 'POS #1', enrolCodeHash, enrolExpires],
         );
 
         return tid;

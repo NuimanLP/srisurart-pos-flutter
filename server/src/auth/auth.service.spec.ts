@@ -250,4 +250,106 @@ describe('AuthService', () => {
       expect((res as any).data).toBeUndefined();
     });
   });
+
+  describe('login', () => {
+    it('authenticates with valid Argon2id password hash and returns access & refresh tokens', async () => {
+      const passHash = '$argon2id$v=19$m=65536,p=4,t=3$gJw9MtqrLGeVn4IEjCOu8A$t9z3qf7c29GFn4x8qa9LmO25XCYHm06+MKoB4zGVxEU'; // 'password123'
+      const qrMock = {
+        connect: vi.fn(),
+        startTransaction: vi.fn(),
+        commitTransaction: vi.fn(),
+        rollbackTransaction: vi.fn(),
+        release: vi.fn(),
+        query: vi.fn().mockImplementation((sql: string) => {
+          if (sql.includes('auth_lookup_user_for_login')) {
+            return [
+              {
+                id: 'u1',
+                tenant_id: 't1',
+                username: 'owner',
+                password_hash: passHash,
+                role: 'owner',
+                display_name: 'Store Owner',
+                is_active: true,
+                tenant_status: 'active',
+                timezone: 'Asia/Bangkok',
+              },
+            ];
+          }
+          return [];
+        }),
+        manager: {},
+        isTransactionActive: false,
+      };
+
+      const signerMock = {
+        sign: vi.fn().mockImplementation((payload: any) => `token-${payload.typ}`),
+      };
+
+      const auditMock = {
+        log: vi.fn(),
+      };
+
+      const authService = new AuthService(
+        { createQueryRunner: () => qrMock } as any,
+        signerMock as any,
+        auditMock as any,
+      );
+
+      const res = await authService.login({
+        username: 'owner',
+        password: 'password123',
+      });
+
+      expect(res.accessToken).toBe('token-access');
+      expect(res.refreshToken).toBe('token-refresh');
+      expect(res.user.username).toBe('owner');
+      expect(res.user.role).toBe('owner');
+    });
+
+    it('defensively handles malformed/non-argon2 password hash without throwing 500', async () => {
+      const malformedHash = 'not-an-argon2-hash';
+      const qrMock = {
+        connect: vi.fn(),
+        startTransaction: vi.fn(),
+        commitTransaction: vi.fn(),
+        rollbackTransaction: vi.fn(),
+        release: vi.fn(),
+        query: vi.fn().mockImplementation((sql: string) => {
+          if (sql.includes('auth_lookup_user_for_login')) {
+            return [
+              {
+                id: 'u1',
+                tenant_id: 't1',
+                username: 'owner',
+                password_hash: malformedHash,
+                role: 'owner',
+                display_name: 'Store Owner',
+                is_active: true,
+                tenant_status: 'active',
+                timezone: 'Asia/Bangkok',
+              },
+            ];
+          }
+          return [];
+        }),
+        manager: {},
+        isTransactionActive: false,
+      };
+
+      const authService = new AuthService(
+        { createQueryRunner: () => qrMock } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+      );
+
+      await expect(
+        authService.login({
+          username: 'owner',
+          password: 'password123',
+        }),
+      ).rejects.toThrow('Invalid credentials');
+    });
+  });
 });
+

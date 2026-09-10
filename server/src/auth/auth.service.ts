@@ -100,7 +100,13 @@ export class AuthService {
       }
 
       // Verify Password (Argon2id)
-      const valid = await argon2.verify(user.password_hash, dto.password);
+      let valid = false;
+      try {
+        valid = await argon2.verify(user.password_hash, dto.password);
+      } catch (err) {
+        this.logger.warn(`Password verification failed to parse hash for userId=${user.id}: ${err}`);
+        valid = false;
+      }
       if (!valid) {
         await this.logAuthEventWithRls(qr, tenantId, {
           tenantId,

@@ -22,15 +22,21 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(200)
-  async refresh(@Body() dto: { refreshToken: string }) {
-    if (!dto.refreshToken) {
+  async refresh(
+    @Body() dto: { refreshToken?: string },
+    @Req() req: Request,
+  ) {
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
+    const refreshToken = dto?.refreshToken || bearerToken;
+    if (!refreshToken) {
       throw new UnauthorizedException('Refresh token is required');
     }
     
     // Verify signature and type 'refresh'
     let payload;
     try {
-      payload = this.jwtVerifier.verify(dto.refreshToken, 'refresh');
+      payload = this.jwtVerifier.verify(refreshToken, 'refresh');
     } catch (err) {
       if (err instanceof UnauthorizedException) {
         throw err;

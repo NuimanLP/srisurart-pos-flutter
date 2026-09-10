@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as net from 'node:net';
 import { EntityManager } from 'typeorm';
 
 export interface AuditLogParams {
@@ -25,6 +26,14 @@ export class AuditService {
    */
   async log(manager: EntityManager, params: AuditLogParams): Promise<void> {
     try {
+      let cleanIp: string | null = null;
+      if (params.ip) {
+        const candidate = params.ip.split(',')[0].trim();
+        if (candidate && net.isIP(candidate) !== 0) {
+          cleanIp = candidate;
+        }
+      }
+
       await manager.query(
         `
         INSERT INTO audit_log (
@@ -44,7 +53,7 @@ export class AuditService {
           params.entityId ?? null,
           params.before ? JSON.stringify(params.before) : null,
           params.after ? JSON.stringify(params.after) : null,
-          params.ip ? params.ip.split(',')[0].trim() || null : null,
+          cleanIp,
         ]
       );
     } catch (err) {
