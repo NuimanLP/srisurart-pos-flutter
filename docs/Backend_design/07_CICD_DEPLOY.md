@@ -80,8 +80,10 @@ flowchart LR
 * job ปล่อยของต้องมี `permissions: { contents: read, packages: write }` **ระดับ job** — ทั้งสอง
   workflow ประกาศ `permissions: contents: read` ระดับไฟล์ ซึ่ง*แทน* default ทั้งหมด (packages กลายเป็น none)
 * **tarball artefact เดิม (`docker save`) ถูกยกเลิก** — เหลือทางปล่อยทางเดียว · web artefact (`pos-web-<sha>`) คงไว้ให้คนโหลดดูได้
-* 🔴 **ครั้งแรกหลัง push ต้องสลับ package ทั้งสองเป็น public ด้วยมือ** (package ที่ `GITHUB_TOKEN`
-  สร้างเป็น private โดย default และไม่มี API สำหรับ package ของ user) — อยู่ใน runbook §7
+* ~~ครั้งแรกหลัง push ต้องสลับ package ทั้งสองเป็น public ด้วยมือ~~ — **ไม่ต้อง (ตรวจแล้ว 2026-09-10):**
+  package ที่ `GITHUB_TOKEN` push จาก repo public จะผูกกับ repo และเป็น public ตั้งแต่ push แรก
+  (pull แบบ anonymous สำเร็จทั้ง 2 image ทันทีหลัง run แรกบน main) · ถ้า repo เปลี่ยนเป็น private เมื่อไร
+  package จะตามไปด้วย และ VM ต้องมี pull token — ดู §7
 
 ---
 
@@ -184,7 +186,7 @@ on:
 
 | งาน | ทำอย่างไร |
 |---|---|
-| ครั้งแรก | สร้าง Environment `demo` + secret 4 ตัว (§5) → รัน `provision.yml` ด้วยมือครั้งเดียว → merge อะไรก็ได้ขึ้น main → **สลับ package GHCR ทั้งสองเป็น public** (Packages → Package settings → Change visibility) → deploy ถัดไปจะ pull ได้ |
+| ครั้งแรก | สร้าง Environment `demo` + secret 4 ตัว (§5) → รัน `provision.yml` ด้วยมือครั้งเดียว → merge อะไรก็ได้ขึ้น main → image ทั้งสองอยู่บน GHCR และ **public อยู่แล้ว** (ไม่ต้องสลับด้วยมือ — ตรวจแล้ว 2026-09-10) → deploy ถัดไป pull ได้เลย |
 | ดู Grafana / Prometheus / Bull-Board | `ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 deploy@<vm>` |
 | rollback | Actions → Deploy → Run workflow → `image_tag` = SHA ก่อนหน้า |
 | VM พัง/ย้ายเครื่อง | เครื่องใหม่ + `provision.yml` + `deploy.yml` — ข้อมูลใน volume ของ Postgres **ไม่ได้ย้ายตาม** (demo ไม่มีข้อมูลจริง; production ต้องมีแผน backup ก่อน — ยังไม่มีเอกสาร) |

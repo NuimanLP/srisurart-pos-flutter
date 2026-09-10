@@ -105,9 +105,10 @@ jobs:
     # until before task q4 (03_ARCHITECTURE.md §8). The faculty VM is demo-only.
     # When #39 lands, this job becomes a `needs:` of the flutter-ci-status job;
     # it is never itself a required check (07 §4).
-    # 🔴 One-time manual step after the first push: both GHCR packages
-    # (srisurart-pos-server and srisurart-pos-web) are created private by
-    # GITHUB_TOKEN and must be flipped to public by hand — runbook 07 §7.
+    # Visibility: a package first pushed by GITHUB_TOKEN from this public repo is
+    # linked to it and is public from the start — verified 2026-09-10 with an
+    # anonymous pull of both images right after the first push (07 §7). No manual
+    # flip is needed; check again only if the repo ever goes private.
     permissions:
       contents: read
       # The file-level `permissions:` replaces the default set, so packages
