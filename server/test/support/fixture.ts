@@ -8,6 +8,7 @@ import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/app.setup.js';
 import { loadConfig } from '../../src/config/config.js';
 import { ADMIN_DATA_SOURCE } from '../../src/infra/db.module.js';
+import { hashPassword } from '../../src/common/password.js';
 
 /**
  * One RSA key pair for the whole run: the suites mint their own access tokens
@@ -125,6 +126,8 @@ export interface TenantFixture {
   posDeviceId: string;
   backofficeDeviceId: string;
   posDeviceNo: number;
+  /** The manager PIN, when the suite asked for one. */
+  pin: string | null;
 }
 
 /**
@@ -135,7 +138,7 @@ export interface TenantFixture {
 export async function resetTenant(
   admin: DataSource,
   tenantId: string,
-  opts: { posDeviceNo?: number } = {},
+  opts: { posDeviceNo?: number; pin?: string } = {},
 ): Promise<TenantFixture> {
   const posDeviceNo = opts.posDeviceNo ?? 1;
   for (const table of TENANT_TABLES_DEPTH_FIRST) {
@@ -149,9 +152,9 @@ export async function resetTenant(
   );
   const userId = randomUUID();
   await admin.query(
-    `INSERT INTO users (tenant_id, id, username, password_hash, display_name, role)
-          VALUES ($1::uuid, $2::uuid, 'tester', 'x', 'Tester', 'manager')`,
-    [tenantId, userId],
+    `INSERT INTO users (tenant_id, id, username, password_hash, display_name, role, pin_hash)
+          VALUES ($1::uuid, $2::uuid, 'tester', 'x', 'Tester', 'manager', $3)`,
+    [tenantId, userId, opts.pin ? await hashPassword(opts.pin) : null],
   );
   const posDeviceId = `pos-${tenantId.slice(0, 8)}`;
   const backofficeDeviceId = `bo-${tenantId.slice(0, 8)}`;
@@ -161,7 +164,14 @@ export async function resetTenant(
                  ($1::uuid, $4, 'หลังร้าน', $5, 'backoffice')`,
     [tenantId, posDeviceId, posDeviceNo, backofficeDeviceId, posDeviceNo + 50],
   );
-  return { tenantId, userId, posDeviceId, backofficeDeviceId, posDeviceNo };
+  return {
+    tenantId,
+    userId,
+    posDeviceId,
+    backofficeDeviceId,
+    posDeviceNo,
+    pin: opts.pin ?? null,
+  };
 }
 
 /** Inserts a product. Returns its id. */

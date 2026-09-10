@@ -245,6 +245,34 @@ so `result[0].stock` reads a number on one and `undefined` on the other — whic
 Postgres as a NULL several statements later, where nothing points back at the cause.
 Every `UPDATE … RETURNING` goes through it.
 
+## Sale reads and the void (#23)
+
+`GET /sales` (filters `search`, `receiptNo`, `from`, `to`, plus `page`/`limit` — never
+the whole table), `GET /sales/:id`, `GET /sales/:id/refunded-qty`, all readable from
+both device roles. `refunded-qty` sums `return_items` across every credit note against
+the bill: it is what makes the over-refund guard visible to staff *before* they submit.
+
+`?receiptNo=` is an exact match, separate from `?search=`, for the same reason the
+barcode lookup is separate from product search — what is printed on the paper a
+customer brings back is one number, and a LIKE would offer several bills. `%` and `_`
+in a search are escaped: they are characters staff typed, not wildcards.
+
+**`POST /sales/:id/void`** — `manager` (or `owner`) plus the PIN, `pos` device only,
+idempotent. Restores stock, writes a `movements` row per product (`ยกเลิกบิล`), marks
+the bill void and writes an `audit_log` row. Refused when the bill is already void
+(`409 SALE_VOIDED`) or already has a credit note against it (`409 SALE_HAS_RETURNS` —
+voiding then would restore that stock twice).
+
+🔴 **Two things to know before this ships:**
+- The old app has no void button at all: a bill is voided only as the automatic
+  consequence of returning every line (`02_API_SCREENS.md §2` lists the endpoint under
+  "new, not a port", and asks for a conversation first). #23 specifies it, so it is
+  built — but the shop has never seen this button.
+- **The customer and mechanic ledger is deliberately untouched by the void.** #20 does
+  not apply those effects yet (they are #21, blocked on the #11 decision), so there is
+  nothing on a bill this server wrote to reverse, and reversing anyway would drive
+  points and credit balances negative. #21 must extend `VoidService.restoreStock`.
+
 ## The cash drawer (#28)
 
 `GET /shifts/current` and `/shifts/history` are readable from **both** device roles —

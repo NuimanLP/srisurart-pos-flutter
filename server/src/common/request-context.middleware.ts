@@ -1,6 +1,9 @@
-import { Injectable, type NestMiddleware } from '@nestjs/common';
+import { Inject, Injectable, type NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
+import type { Logger } from 'pino';
 import { DataSource, type QueryRunner } from 'typeorm';
+import { LOGGER } from '../infra/logger.provider.js';
+import { toErrorEnvelope } from './http-exception.filter.js';
 import { runInRequestContext } from './request-context.js';
 
 /**
@@ -18,12 +21,31 @@ import { runInRequestContext } from './request-context.js';
  */
 @Injectable()
 export class RequestContextMiddleware implements NestMiddleware {
-  constructor(private readonly ds: DataSource) {}
+  constructor(
+    private readonly ds: DataSource,
+    @Inject(LOGGER) private readonly logger: Logger,
+  ) {}
 
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const qr = this.ds.createQueryRunner();
-    await qr.connect();
-    await qr.startTransaction();
+    // 🔴 Express does not await a middleware's promise. A rejection here would be an
+    // unhandled rejection, which Node answers by killing the process — so acquiring
+    // the connection must never be allowed to throw out of this method. It really
+    // does happen: under a burst the pool's `connectionTimeoutMillis` fires, and one
+    // slow checkout took down the whole worker before this was caught.
+    let qr: QueryRunner;
+    try {
+      qr = this.ds.createQueryRunner();
+      await qr.connect();
+      await qr.startTransaction();
+    } catch (err) {
+      this.logger.error(
+        { correlationId: (req as Request & { id?: string }).id, err },
+        'could not open the request transaction',
+      );
+      const { status, body } = toErrorEnvelope(err);
+      res.status(status).json(body);
+      return;
+    }
 
     res.on('close', () => {
       void endIfOpen(qr);
