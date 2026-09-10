@@ -48,8 +48,8 @@ export function loadConfig(env = process.env): AppConfig {
     redisQueueUrl: required(env, 'REDIS_QUEUE_URL'),
     jwtPlatformSecret: env.JWT_PLATFORM_SECRET ?? 'dev-only-platform-secret',
     jwtTenantSecret: env.JWT_TENANT_SECRET ?? 'dev-only-tenant-secret',
-    jwtPrivateKey: isApi ? (env.JWT_PRIVATE_KEY ?? (env.NODE_ENV === 'test' ? 'dummy' : required(env, 'JWT_PRIVATE_KEY'))) : undefined,
-    jwtPublicKeys: isApi ? (env.JWT_PUBLIC_KEYS ?? (env.NODE_ENV === 'test' ? 'dummy' : required(env, 'JWT_PUBLIC_KEYS'))).split(',').map(k => k.trim()) : undefined,
+    jwtPrivateKey: isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined,
+    jwtPublicKeys: isApi ? required(env, 'JWT_PUBLIC_KEYS').split(',').map(k => k.trim()) : undefined,
     jwtKeyId: env.JWT_KEY_ID ?? 'key-1',
   };
 }
