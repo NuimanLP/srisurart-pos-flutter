@@ -249,6 +249,39 @@ describe('AuthService', () => {
       expect((res as any).status).toBeUndefined();
       expect((res as any).data).toBeUndefined();
     });
+
+    it('normalizes enrolment code (trims whitespace and converts to uppercase)', async () => {
+      let passedCodeHash = '';
+      const qrMock = {
+        connect: vi.fn(),
+        startTransaction: vi.fn(),
+        commitTransaction: vi.fn(),
+        rollbackTransaction: vi.fn(),
+        release: vi.fn(),
+        query: vi.fn().mockImplementation((sql: string, params: any[]) => {
+          if (sql.includes('auth_enrol_device')) {
+            passedCodeHash = params[0];
+            return [{ tenant_id: 't1', id: 'dev-1' }];
+          }
+          return [];
+        }),
+        manager: {},
+        isTransactionActive: false,
+      };
+
+      const authService = new AuthService(
+        { createQueryRunner: () => qrMock } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+      );
+
+      await authService.enrolDevice('  a1b2c3d4  ');
+
+      // Hash of "A1B2C3D4"
+      const expectedHash = (await crypto.subtle.digest('SHA-256', new TextEncoder().encode('A1B2C3D4')));
+      const expectedHex = Buffer.from(expectedHash).toString('hex');
+      expect(passedCodeHash).toBe(expectedHex);
+    });
   });
 
   describe('login', () => {

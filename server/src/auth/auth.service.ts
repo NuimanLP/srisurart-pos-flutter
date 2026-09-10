@@ -285,7 +285,8 @@ export class AuthService {
     await qr.connect();
 
     try {
-      const codeHash = await this.hashDeviceToken(code);
+      const normalizedCode = (code || '').trim().toUpperCase();
+      const codeHash = await this.hashDeviceToken(normalizedCode);
       const rawDeviceToken = crypto.randomUUID() + '-' + crypto.randomUUID();
       const tokenHash = await this.hashDeviceToken(rawDeviceToken);
 
