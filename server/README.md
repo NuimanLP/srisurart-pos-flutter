@@ -98,6 +98,7 @@ src/common/              response envelope, error envelope, pino logger + correl
                          request-context.ts (the per-request tenant + transaction seam)
 src/infra/               DataSource (pos_app role, synchronize=false), REDIS_CACHE / REDIS_QUEUE
 src/idempotency/         Idempotency-Key: claim, replay, 409 on a changed request (#18)
+src/documents/           document numbers: RC01-2569-08-0042, per device per month (#19)
 src/db/migrations/       the schema (27 tables, indexes, pg_trgm) + RLS/grants — the only source of DDL
 src/db/data-source.ts    owner-role DataSource with the static MIGRATIONS list
 src/db/migrate.ts        up | down | status                → node dist/db/migrate.js (compose `migrate` job)
@@ -162,9 +163,39 @@ ADR-0003 survives it intact because only the guard still touches the tenant:
 
 Nothing in `src/` populates it yet, and `currentRequestContext()` throws rather than
 defaulting — a route without the guard fails closed instead of reading someone's data.
-`test/idempotency.e2e-spec.ts` stands in for the whole chain so the module can be proved
-today; that stand-in lives in the test, deliberately, so `src/` ships no route that could
-run without a tenant.
+Built in #19's branch, because every write slice needs it: `RequestContextMiddleware`
+opens the transaction per controller listed in `TENANT_ROUTES` (not globally — a
+transaction per liveness probe is a pool slot spent on nothing), `TenantGuard` names the
+tenant on it *after* the status check, and the globally-bound `TransactionInterceptor`
+commits or rolls back before the response is sent. `currentRequestContext()` fails closed
+twice: outside the scope, and inside it before the guard has named a tenant.
+
+A guard that throws never reaches an interceptor, so the response's own `close` event is
+the backstop that rolls back and returns the connection to the pool.
+
+## Document numbers (#19)
+
+`RC01-2569-08-0042` — type, two-digit `device_no`, Buddhist year-month, four-digit running
+number (ADR-0007). `DocNumberService.issue(manager, …)` allocates from `doc_counters` with
+`ON CONFLICT DO UPDATE … RETURNING` inside **the caller's** transaction, so a rolled-back
+sale gives its number back and the printed series has no visible hole.
+
+- The series is per `(device_id, doc_type, period)` and resets monthly. `period` is the
+  Buddhist year and month **in `tenants.timezone`** — a sale rung up at 00:30 in Bangkok
+  belongs to that day's month, not to UTC's.
+- `device_no` is resolved here from the token's `did`. It is never read from a request
+  body: a client that could choose it could print into another machine's series (ADR-0004).
+- `device_no` is zero-padded to two digits without exception — unpadded, machine 1 and
+  machine 12 differ only by a separator and parse back wrong.
+- The 10,000th document in one month on one device is `409 DOC_NUMBER_EXHAUSTED`, not a
+  wrap to `0001` that would re-issue a number already printed on paper. The message is
+  English on purpose: inventing a Thai string is the shop owner's call, and the code is
+  filed in `02_API_SCREENS.md §8.1` waiting for it.
+- Imported legacy documents keep their original `RC12345678ABCD` numbers. The two formats
+  cannot collide, so the counter neither reads them nor reconciles against them.
+- Phase 2 (the `pos` device issuing RC/CN from its own Drift counter, and
+  `GET /doc-counters` to seed it) is **not** built here — in phase 1 the server issues
+  every series.
 
 ## Invariants this stack enforces (from #14 / #2)
 
