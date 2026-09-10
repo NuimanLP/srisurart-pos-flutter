@@ -1,6 +1,6 @@
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
-import { Test, type TestingModuleBuilder } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import * as jwt from 'jsonwebtoken';
 import { pino } from 'pino';
 import { DataSource } from 'typeorm';
@@ -56,12 +56,12 @@ export interface TestApp {
 }
 
 /**
- * Boots the real application against the compose Postgres and Redis. Extra test
- * modules can be added through `extend`, which is how a suite mounts a controller
- * that does not exist in `src/` yet.
+ * Boots the real application against the compose Postgres and Redis. `extraModules`
+ * is how a suite mounts a controller that does not exist in `src/` yet — a route that
+ * a later ticket will own, exercised now rather than shipped untested.
  */
 export async function createTestApp(
-  extend?: (builder: TestingModuleBuilder) => TestingModuleBuilder,
+  extraModules: unknown[] = [],
 ): Promise<TestApp> {
   const config = loadConfig({
     DATABASE_URL: 'postgres://pos_app:dev-only-pos-app@127.0.0.1:5432/pos',
@@ -80,11 +80,9 @@ export async function createTestApp(
   // Silent unless a run asks otherwise: `TEST_LOG_LEVEL=error pnpm test:e2e` is how
   // you see why a suite is getting a 500.
   const logger = pino({ level: process.env.TEST_LOG_LEVEL ?? 'silent' });
-  let builder = Test.createTestingModule({
-    imports: [AppModule.forRoot(config, logger)],
-  });
-  if (extend) builder = extend(builder);
-  const moduleRef = await builder.compile();
+  const moduleRef = await Test.createTestingModule({
+    imports: [AppModule.forRoot(config, logger), ...(extraModules as never[])],
+  }).compile();
   const app = moduleRef.createNestApplication();
   const ds = app.get(DataSource);
   const admin = app.get<DataSource>(ADMIN_DATA_SOURCE);

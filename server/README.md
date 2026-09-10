@@ -100,6 +100,7 @@ src/infra/               DataSource (pos_app role, synchronize=false), REDIS_CAC
 src/idempotency/         Idempotency-Key: claim, replay, 409 on a changed request (#18)
 src/documents/           document numbers: RC01-2569-08-0042, per device per month (#19)
 src/sales/               POST /sales — the sale transaction (#20)
+src/shifts/              the cash drawer: shifts, entries, the shift_id stamp (#28)
 src/db/migrations/       the schema (27 tables, indexes, pg_trgm) + RLS/grants — the only source of DDL
 src/db/data-source.ts    owner-role DataSource with the static MIGRATIONS list
 src/db/migrate.ts        up | down | status                → node dist/db/migrate.js (compose `migrate` job)
@@ -243,6 +244,35 @@ returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/
 so `result[0].stock` reads a number on one and `undefined` on the other — which reaches
 Postgres as a NULL several statements later, where nothing points back at the cause.
 Every `UPDATE … RETURNING` goes through it.
+
+## The cash drawer (#28)
+
+`GET /shifts/current` and `/shifts/history` are readable from **both** device roles —
+looking at the drawer does not touch it (ADR-0004) — while `POST /shifts/open`,
+`/close` and `/current/entries` are `pos` only.
+
+⚠️ **`is_active` does not mean "open."** Closing leaves it true: the shift stays *this
+device's current drawer* until the next open archives it, exactly as
+`shifts_repository.dart` does, and `uq_shift_active` (unique on
+`(tenant_id, device_id) WHERE is_active`) depends on that meaning. "Open" is
+`closed_at IS NULL`. Do not repurpose the flag.
+
+- Re-opening on the same day returns the existing shift untouched, starting cash and
+  all: staff press the button twice. A new day archives the previous shift **first**,
+  flagged `auto_archived` when it was never closed, so a day's takings are never lost.
+- A drawer entry after close is `409 DRAWER_CLOSED` with the message verbatim from
+  `db.js`; no drawer at all is `409 NO_OPEN_SHIFT`.
+- Reads are tenant-wide, writes are per device. In this shop those coincide
+  (`one_pos_per_tenant`), but a read filtered by the caller's device would show a
+  `backoffice` machine nothing, which is not what "readable from both" means.
+- **`shift_id` is stamped on a sale at write time**, from the device's own *open*
+  drawer — never from the request body, and null when no drawer is open (the old app
+  lets staff sell without one). The closing report is computed by `shift_id`, never by
+  a timestamp window: a window breaks across midnight and cannot separate two machines.
+- `closeForRetirement()` is the operation `POST /devices/:id/retire` (#6) calls to
+  close a machine's drawer in the same transaction that stamps `retired_at`. The
+  endpoint does not exist yet, so `test/shifts.e2e-spec.ts` mounts the call on a probe
+  route rather than shipping it untested.
 
 ## Invariants this stack enforces (from #14 / #2)
 

@@ -5,6 +5,7 @@ import { fromSatang, pointsFor } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { returning } from '../common/sql.js';
 import { DocNumberService } from '../documents/doc-number.service.js';
+import { ShiftsService } from '../shifts/shifts.service.js';
 import type { CreateSale, SaleLine } from './sales.dto.js';
 
 /** Who is ringing the bill up — read from the token, never from the body. */
@@ -71,7 +72,10 @@ const TOTAL_TOLERANCE_SATANG = 1;
  */
 @Injectable()
 export class SalesService {
-  constructor(private readonly docNumbers: DocNumberService) {}
+  constructor(
+    private readonly docNumbers: DocNumberService,
+    private readonly shifts: ShiftsService,
+  ) {}
 
   async create(dto: CreateSale, actor: SaleActor): Promise<CreateSaleResult> {
     const { tenantId, manager } = currentRequestContext();
@@ -90,6 +94,12 @@ export class SalesService {
     });
 
     const pointsGranted = pointsFor(dto.totalSatang);
+    // Stamped at write time from the device's own open drawer, never from the body
+    // (#28): the closing report is computed by `shift_id`, and a timestamp window
+    // breaks across midnight and cannot separate two machines. Null when the drawer
+    // was never opened — the old app lets staff sell without it, and refusing the
+    // sale would be a new rule rather than a ported one.
+    const shiftId = await this.shifts.currentShiftIdFor(manager, tenantId, actor.deviceId);
     const date = await this.insertSale(
       manager,
       tenantId,
@@ -97,6 +107,7 @@ export class SalesService {
       actor,
       receiptNo,
       pointsGranted,
+      shiftId,
     );
     await this.insertLines(manager, tenantId, dto, locked);
     await this.insertMovements(manager, tenantId, dto.id, demands, locked, stockAfter);
@@ -252,13 +263,14 @@ export class SalesService {
     actor: SaleActor,
     receiptNo: string,
     pointsGranted: number,
+    shiftId: string | null,
   ): Promise<string> {
     const rows = (await manager.query(
       `INSERT INTO sales (
          tenant_id, id, receipt_no, subtotal, discount, total, payment_method,
          customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta,
-         points_granted, user_id, device_id)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::uuid, $15)
+         points_granted, user_id, device_id, shift_id)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::uuid, $15, $16)
        RETURNING date`,
       [
         tenantId,
@@ -276,6 +288,7 @@ export class SalesService {
         pointsGranted,
         actor.userId,
         actor.deviceId,
+        shiftId,
       ],
     )) as { date: Date }[];
     return rows[0].date.toISOString();
