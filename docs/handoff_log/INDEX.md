@@ -2,8 +2,10 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
+- 2026-09-10 — [#5 p3b tenant provisioning, platform admin plane, status lifecycle, snapshot import](p3b-tenant-provisioning.md) — Platform admin realm auth, dual DataSource isolation, atomic provisioning, snapshot importer with pre-flight scan, status lifecycle & Redis purge, audit logging — ปิดแล้ว
 - 2026-09-10 — [ตัด issue frontend (`q1`) + #53 Drift schema v3](fe0-drift-schema-v3.md) — ตัด #52 parent + #53–#56 (schema v3 ย้ายมา `team/1`) · #53 ทำจบ: `Sales.shiftId`, `Shifts.id` TEXT (rebuild ด้วย `TableMigration` + CAST), `Products.offlineOk`, `products.updatedAt` เขียนจริงครบ 6 path · 123 → 135 tests · พิสูจน์ migration บน Chrome (`sharedIndexedDb`) ด้วย · 🔴 กับดัก: extension ที่อ้างชนิดจาก `database.g.dart` ห้ามอยู่ใน `database.dart` ไม่งั้น codegen ตายเงียบ — PR #58 เขียว รอ merge
 - 2026-09-09 — [ปิดรูรั่วใน compose: Redis AUTH + ไม่ publish port ของ datastore](compose-hardening-redis-auth-ports.md) — `--requirepass` ทั้งสอง Redis (รหัสไปกับ `REDIS_*_URL`, ไม่แก้โค้ด) · เอา `ports:` ของ Postgres/Redis ออกจาก compose หลัก ย้ายไป `docker-compose.dev.yml` สำหรับ dev+CI เท่านั้น · PR #49 เขียวครบ 4 job · 🔴 ต้องเติม `REDIS_PASSWORD` ใน `.env` เดิม — ปิดแล้ว
+
 - 2026-09-09 — [ทบทวนความปลอดภัย: JWT signing, audit log, CVE/OWASP](security-review-jwt-audit-cve.md) — ADR-0009 addendum (RS256 + `kid`, `typ` claim, access ใน memory) · #43 `audit_log` writer · #44 `sec.1` · job `audit`/`deps-audit` ใน CI · multer override (3 high CVE) · OWASP Top 10 ลง `04_QA` รอบ 4 · 🔴 Dependabot ตั้งผิดรอบแรก เปิด PR #45–#48 ต้องปิดทั้งหมด — ปิดแล้ว
 - 2026-09-08 — [ปฏิเสธ CouchDB — คง PostgreSQL](couchdb-rejected.md) — เจ้าของโปรเจกต์ตัดสินคงสถาปัตยกรรมเดิม → ADR-0012 Rejected + บันทึกเหตุผล, ถอน banner freeze ทุกไฟล์ · #4–#37 กลับมาหยิบได้ — ปิดแล้ว
 - 2026-09-08 — [แผนฉบับ CouchDB แทน PostgreSQL](couchdb-revision.md) — อาจารย์สั่งเปลี่ยน DB → ADR-0012 (Proposed) + `06_COUCHDB_REVISION.md` + scrutinize รอบ 4 · freeze #4–#37 — ปิดแล้ว (ผล: Rejected ดูบรรทัดบน)
