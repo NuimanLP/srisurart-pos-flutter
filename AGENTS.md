@@ -191,8 +191,18 @@ questions only the shop/project owner can answer are collected at the end of `ad
 Compose stack with Nginx + NestJS ×3 + Postgres + two Redis + worker + Bull-Board, health
 probes, JSON logs; the 27-table schema as TypeORM migrations applied by a one-shot compose
 `migrate` job, RLS enabled + forced on every tenant-scoped table, grants to the non-owner
-`pos_app` role, the five-category seed; see `server/README.md` *Schema and migrations*. No auth
-or business endpoints yet — **#4 `p3`** is next on the critical path. `synchronize` is never
+`pos_app` role, the five-category seed; see `server/README.md` *Schema and migrations*.
+**#18 `p5.1` (idempotency) landed next** — the `Idempotency-Key` module every money/stock
+write goes through, proved against the real Postgres; `server/README.md` *Idempotency* has the
+rules and the three error codes it had to add to `02_API_SCREENS.md §8`. It reads the request's
+tenant + transaction from `src/common/request-context.ts`, a seam **#4** fills. 🔴 ADR-0003 says
+`TenantGuard` alone may check tenant status and `SET LOCAL app.tenant_id` — true, but a guard
+cannot also hold that scope open across the handler or commit after it (`canActivate` returns
+first), so #4 has to build a **split**: middleware opens the transaction and the scope, the guard
+does status + `SET LOCAL` on it, an interceptor commits. Read `server/README.md` *The
+request-context seam* before starting #4. `currentRequestContext()` throws rather than
+defaulting, so no route can reach tenant data before that lands. Still no auth and no business
+endpoints — **#4 `p3`** remains next on the critical path. `synchronize` is never
 true anywhere, tests included. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP`
 (Lane A), `LomerAlloys` (Lane B), `PattaraponKitcharoen` (Lane C) — see
 `handoff_log/merge-p1-p2-lane-assignments.md`. **No cutover is planned for phase 1** — the shop

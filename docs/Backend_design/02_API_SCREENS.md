@@ -622,6 +622,8 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 400 | `INVALID_BACKUP` | `ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta` |
 | 409 | `NO_OPEN_SHIFT` | `No open shift` |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | – (ไม่แสดงให้ผู้ใช้เห็น) |
+| 400 | `IDEMPOTENCY_KEY_INVALID` | – (ไม่แสดงให้ผู้ใช้เห็น · header หาย หรือยาวเกิน 200 ตัวอักษร — เพิ่มตอน #18) |
+| 503 | `IDEMPOTENCY_KEY_IN_FLIGHT` | – (ไม่แสดงให้ผู้ใช้เห็น · คำขอเดิมยังทำงานอยู่ ให้ client retry — เพิ่มตอน #18) |
 | 409 | `RECEIPT_NO_CONFLICT` | – (client ออกเลขใหม่เองก่อนพิมพ์ · ตอน sync เข้าคิว reconciliation — ADR-0007; เดิมโผล่แค่ใน §3.1) |
 | 401/403 | `UNAUTHENTICATED` / `FORBIDDEN` | – |
 | 429 | `RATE_LIMITED` | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` | – |

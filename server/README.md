@@ -94,8 +94,10 @@ src/worker.ts            BullMQ worker (no HTTP)        → node dist/worker.js
 src/bull-board.ts        Bull-Board behind basic auth   → node dist/bull-board.js
 src/app.module.ts        CoreModule (config, logger, Postgres, Redis) / AppModule / WorkerModule
 src/app.setup.ts         global prefix /api/v1 (health excluded), envelope, filter, JSON 404
-src/common/              response envelope, error envelope, pino logger + correlation id
+src/common/              response envelope, error envelope, pino logger + correlation id,
+                         request-context.ts (the per-request tenant + transaction seam)
 src/infra/               DataSource (pos_app role, synchronize=false), REDIS_CACHE / REDIS_QUEUE
+src/idempotency/         Idempotency-Key: claim, replay, 409 on a changed request (#18)
 src/db/migrations/       the schema (27 tables, indexes, pg_trgm) + RLS/grants — the only source of DDL
 src/db/data-source.ts    owner-role DataSource with the static MIGRATIONS list
 src/db/migrate.ts        up | down | status                → node dist/db/migrate.js (compose `migrate` job)
@@ -104,6 +106,65 @@ src/health/              /health/live (touches nothing) · /health/ready (Postgr
 docker/nginx/nginx.conf  least_conn, TLS, per-IP limit_req, timeouts, /platform/ allowlist
 docker/postgres/init/    creates the non-superuser pos_app role on first boot
 ```
+
+## Idempotency (#18)
+
+Every write that touches money or stock carries `Idempotency-Key`
+(`02_API_SCREENS.md §1.4`). Apply `IdempotencyInterceptor` to those routes — never
+globally: it must run inside the request transaction, and a global copy would wrap
+routes that have no tenant and no key at all.
+
+- **Postgres is the authority.** `idempotency_keys`'s primary key `(tenant_id, key)` is
+  the whole concurrency mechanism: a second request carrying a live key blocks on the
+  first transaction's row lock, then finds its `ON CONFLICT DO NOTHING` inserted nothing
+  and replays the committed row. No advisory lock, no application-level mutex. The wait
+  is bounded by `SET LOCAL lock_timeout = '5s'`, so a wedged original cannot pin a pool
+  connection indefinitely; past that the retry gets `503 IDEMPOTENCY_KEY_IN_FLIGHT`.
+- **The record is written in the same transaction as the work.** A crash anywhere before
+  COMMIT leaves neither, and the retry does the work; a crash after COMMIT leaves both,
+  and the retry replays. There is no window that bills twice. `complete()` fails the
+  request if it updated no row, because committing work with no record is that window.
+- **Key + body + endpoint must all match** to replay. `request_hash` covers the body
+  (that is what `01_DATABASE.md` defines it as), and the `endpoint` column is compared
+  alongside it — the same key and body against `POST /sales` and then `POST /returns`
+  must not replay the sale and quietly perform no return. Any mismatch is
+  `409 IDEMPOTENCY_KEY_REUSED`; a missing or over-long key is `400
+  IDEMPOTENCY_KEY_INVALID`.
+- **A replay equals the original as JSON, not byte for byte.** `response_body` is
+  `jsonb`, which does not preserve object key order, and a handler returning nothing
+  comes back as `null`. Clients may compare values; nothing may compare bytes or hash
+  the response.
+- **Redis (`t:{tid}:idem:{key}`) is an accelerator, never an authority.** It is read only
+  once the primary key has already shown the request to be a repeat, so a first request
+  never waits on it; it is written only after Postgres has committed the row, and only
+  for that row's remaining life, so it can neither invent a success nor outlive a key
+  Lane C has deleted. Every call is bounded at 200 ms and falls through on failure.
+- Keys live 24h; deleting them is Lane C's `idem.cleanup` job, not this module's.
+
+Three decisions the design docs do not cover, made here and recorded in
+`02_API_SCREENS.md §8`: `IDEMPOTENCY_KEY_INVALID`, `IDEMPOTENCY_KEY_IN_FLIGHT`, and the
+200-character key bound (`(tenant_id, key)` is a btree index; an unbounded key is a 500).
+
+### The request-context seam
+
+`src/common/request-context.ts` holds the request's `{ tenantId, manager }`. **ADR-0003
+makes `TenantGuard` (#4) the one component allowed to check tenant status and
+`SET LOCAL app.tenant_id`** — but a guard cannot be the whole story, because
+`canActivate` returns before the handler runs, so it can neither hold that scope open
+across the handler nor commit afterwards. The wiring #4 has to build is a split, and
+ADR-0003 survives it intact because only the guard still touches the tenant:
+
+| stage | does |
+|---|---|
+| middleware | `runInRequestContext({ tenantId, manager }, next)` — opens the transaction and the scope |
+| `TenantGuard` | checks `tenants.status` and `SET LOCAL app.tenant_id` on that manager |
+| interceptor | commits on success, rolls back on error, before the response is sent |
+
+Nothing in `src/` populates it yet, and `currentRequestContext()` throws rather than
+defaulting — a route without the guard fails closed instead of reading someone's data.
+`test/idempotency.e2e-spec.ts` stands in for the whole chain so the module can be proved
+today; that stand-in lives in the test, deliberately, so `src/` ships no route that could
+run without a tenant.
 
 ## Invariants this stack enforces (from #14 / #2)
 
