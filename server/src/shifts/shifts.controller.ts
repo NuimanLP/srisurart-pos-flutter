@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  ForbiddenException,
   Get,
   HttpCode,
   Post,
@@ -14,9 +13,15 @@ import {
 import type { Request } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { toSatang } from '../common/money.js';
 import { IdempotencyInterceptor } from '../idempotency/idempotency.interceptor.js';
-import { Paginated } from '../common/paginated.js';
+import {
+  DEFAULT_LIMIT,
+  MAX_LIMIT,
+  Paginated,
+  positiveInt,
+} from '../common/paginated.js';
 import {
   ShiftsService,
   type Actor,
@@ -27,10 +32,6 @@ import {
 interface AuthenticatedRequest extends Request {
   user: { userId: string; tenantId: string; deviceId?: string };
 }
-
-/** `?page=1&limit=50`, capped at 200 (02_API_SCREENS.md §1.1). */
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
 
 @Controller('shifts')
 @UseGuards(TenantGuard)
@@ -115,10 +116,7 @@ export class ShiftsController {
  */
 function actorOf(req: AuthenticatedRequest): Actor {
   if (!req.user.deviceId) {
-    throw new ForbiddenException({
-      code: 'DEVICE_ROLE_FORBIDDEN',
-      message: 'เครื่องนี้ขายของไม่ได้',
-    });
+    throw new DeviceRoleForbiddenException();
   }
   return { userId: req.user.userId, deviceId: req.user.deviceId };
 }
@@ -144,17 +142,4 @@ function asObject(body: unknown): Record<string, unknown> {
     throw new BadRequestException('body must be an object');
   }
   return body as Record<string, unknown>;
-}
-
-function positiveInt(
-  raw: string | undefined,
-  fallback: number,
-  field: string,
-): number {
-  if (raw === undefined) return fallback;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1) {
-    throw new BadRequestException(`${field} must be a positive integer`);
-  }
-  return n;
 }

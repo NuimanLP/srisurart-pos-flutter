@@ -12,6 +12,7 @@ import { Reflector } from '@nestjs/core';
 import type { Redis } from 'ioredis';
 import { JwtVerifier } from '../../auth/jwt-keys.service.js';
 import { REQUIRE_DEVICE_ROLE_KEY } from '../decorators/device-role.decorator.js';
+import { DeviceRoleForbiddenException } from '../device-role-forbidden.exception.js';
 import { REDIS_CACHE } from '../../infra/redis.module.js';
 import {
   currentRequestTransaction,
@@ -74,10 +75,7 @@ export class TenantGuard implements CanActivate {
     if (requiredDeviceRole) {
       // If an endpoint requires 'pos', only drole === 'pos' is allowed (ADR-0004).
       if (requiredDeviceRole === 'pos' && payload.drole !== 'pos') {
-        throw new HttpException(
-          { code: 'DEVICE_ROLE_FORBIDDEN', message: 'เครื่องนี้ขายของไม่ได้' },
-          HttpStatus.FORBIDDEN,
-        );
+        throw new DeviceRoleForbiddenException();
       }
       // Note: 'pos' devices have full access to all 'backoffice' endpoints (ADR-0004: "ทั้งคู่").
       // Web sessions without a device token (drole undefined) and 'backoffice' devices can also access.

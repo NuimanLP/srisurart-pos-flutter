@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -15,8 +14,14 @@ import {
 import type { Request } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { IdempotencyInterceptor } from '../idempotency/idempotency.interceptor.js';
-import { Paginated } from '../common/paginated.js';
+import {
+  DEFAULT_LIMIT,
+  MAX_LIMIT,
+  Paginated,
+  positiveInt,
+} from '../common/paginated.js';
 import { parseCreateSale } from './sales.dto.js';
 import { SalesService, type CreateSaleResult } from './sales.service.js';
 import { SaleReadsService, type SaleWithItems } from './sale-reads.service.js';
@@ -57,10 +62,7 @@ export class SalesController {
     // A `pos` token always carries `did` — the guard refuses this route otherwise —
     // but the receipt number depends on it, so it is checked rather than asserted.
     if (!req.user.deviceId) {
-      throw new ForbiddenException({
-        code: 'DEVICE_ROLE_FORBIDDEN',
-        message: 'เครื่องนี้ขายของไม่ได้',
-      });
+      throw new DeviceRoleForbiddenException();
     }
     return this.sales.create(parseCreateSale(body), {
       userId: req.user.userId,
@@ -117,10 +119,7 @@ export class SalesController {
     @Req() req: AuthenticatedRequest,
   ): Promise<SaleWithItems> {
     if (!req.user.deviceId) {
-      throw new ForbiddenException({
-        code: 'DEVICE_ROLE_FORBIDDEN',
-        message: 'เครื่องนี้ขายของไม่ได้',
-      });
+      throw new DeviceRoleForbiddenException();
     }
     const pin = (body as { pin?: unknown })?.pin;
     return this.voids.void(id, {
@@ -131,23 +130,6 @@ export class SalesController {
       ip: req.ip,
     });
   }
-}
-
-/** `?page=1&limit=50`, capped at 200 (02_API_SCREENS.md §1.1). */
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
-
-function positiveInt(
-  raw: string | undefined,
-  fallback: number,
-  field: string,
-): number {
-  if (raw === undefined) return fallback;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1) {
-    throw new BadRequestException(`${field} must be a positive integer`);
-  }
-  return n;
 }
 
 function isoDate(raw: string | undefined, field: string): string | undefined {

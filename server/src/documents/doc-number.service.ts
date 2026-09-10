@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
+import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 
 /** `doc_counters.doc_type` — the five series ADR-0007 defines. */
 export type DocType = 'receipt' | 'po' | 'quote' | 'cn' | 'cp';
@@ -138,10 +139,7 @@ export class DocNumberService {
     )) as { device_no: number; retired_at: Date | null }[];
 
     if (rows.length === 0 || rows[0].retired_at !== null) {
-      throw new HttpException(
-        { code: 'DEVICE_ROLE_FORBIDDEN', message: 'เครื่องนี้ขายของไม่ได้' },
-        HttpStatus.FORBIDDEN,
-      );
+      throw new DeviceRoleForbiddenException();
     }
     return rows[0].device_no;
   }
