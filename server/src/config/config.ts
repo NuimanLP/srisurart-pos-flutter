@@ -7,6 +7,10 @@ export interface AppConfig {
   dbPoolSize: number;
   redisCacheUrl: string;
   redisQueueUrl: string;
+  /** Required only for API instances handling /auth/* (ADR-0009). */
+  jwtPrivateKey?: string;
+  /** Required only for API instances handling /auth/* and API validation. */
+  jwtPublicKeys?: string[];
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -18,13 +22,18 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
 }
 
 export function loadConfig(env = process.env): AppConfig {
+  const instanceId = env.INSTANCE_ID ?? 'local';
+  const isApi = instanceId.startsWith('api') || instanceId === 'local';
+
   return {
     port: Number(env.PORT ?? 3000),
-    instanceId: env.INSTANCE_ID ?? 'local',
+    instanceId,
     logLevel: env.LOG_LEVEL ?? 'info',
     databaseUrl: required(env, 'DATABASE_URL'),
     dbPoolSize: Number(env.DB_POOL_SIZE ?? 5),
     redisCacheUrl: required(env, 'REDIS_CACHE_URL'),
     redisQueueUrl: required(env, 'REDIS_QUEUE_URL'),
+    jwtPrivateKey: isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined,
+    jwtPublicKeys: isApi ? required(env, 'JWT_PUBLIC_KEYS').split(',').map(k => k.trim()) : undefined,
   };
 }

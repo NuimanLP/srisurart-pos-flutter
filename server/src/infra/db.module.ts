@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
+import { TenantService } from '../common/database/tenant.service.js';
 
 /**
  * One TypeORM DataSource per process, connected as the non-superuser
@@ -26,8 +27,9 @@ import { APP_CONFIG, type AppConfig } from '../config/config.js';
         return ds.initialize();
       },
     },
+    TenantService,
   ],
-  exports: [DataSource],
+  exports: [DataSource, TenantService],
 })
 export class DbModule {
   constructor(private readonly ds: DataSource) {}
