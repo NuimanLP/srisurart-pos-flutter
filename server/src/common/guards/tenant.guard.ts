@@ -70,20 +70,15 @@ export class TenantGuard implements CanActivate {
     );
 
     if (requiredDeviceRole) {
-      // If an endpoint requires 'pos', only drole === 'pos' is allowed.
+      // If an endpoint requires 'pos', only drole === 'pos' is allowed (ADR-0004).
       if (requiredDeviceRole === 'pos' && payload.drole !== 'pos') {
         throw new HttpException(
           { code: 'DEVICE_ROLE_FORBIDDEN', message: 'เครื่องนี้ขายของไม่ได้' },
           HttpStatus.FORBIDDEN,
         );
       }
-      // If an endpoint requires 'backoffice', non-device logins (drole undefined) or drole === 'backoffice' are allowed.
-      if (requiredDeviceRole === 'backoffice' && payload.drole && payload.drole !== 'backoffice') {
-        throw new HttpException(
-          { code: 'DEVICE_ROLE_FORBIDDEN', message: 'เครื่องนี้ขายของไม่ได้' },
-          HttpStatus.FORBIDDEN,
-        );
-      }
+      // Note: 'pos' devices have full access to all 'backoffice' endpoints (ADR-0004: "ทั้งคู่").
+      // Web sessions without a device token (drole undefined) and 'backoffice' devices can also access.
     }
 
     // 6. Check Tenant Status (ADR-0003) with Redis caching (t:{tid}:status, TTL 300s + jitter)

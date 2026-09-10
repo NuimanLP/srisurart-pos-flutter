@@ -43,22 +43,26 @@ The implementation strictly followed the architectural decisions laid out in `AD
 - Built `server/src/common/guards/tenant.guard.ts` to parse Bearer tokens, verify signatures, and extract `tid`, `did`, and `drole`.
 - Implemented Redis status caching (`t:{tid}:status`, 300s TTL + jitter) per ADR-0003, falling back to DB on miss.
 - Emits standardized Thai error envelopes (`TENANT_SUSPENDED` and `DEVICE_ROLE_FORBIDDEN`) per `02_API_SCREENS.md §8.1`.
-- Implemented the `@RequireDeviceRole('pos' | 'backoffice')` decorator to restrict endpoint access.
+- Implemented the `@RequireDeviceRole('pos')` decorator to restrict register/drawer access to POS terminals while granting POS devices full access to backoffice endpoints per ADR-0004.
+- Added `GET /auth/me` in `AuthController` guarded by `TenantGuard` to return the current authenticated user context.
 - Exported `TenantService` via `DbModule` for transactional RLS isolation.
+- Marked `AuthModule` as `@Global()` to provide `JwtVerifier` and `AuthService` across all domain modules.
 
 ### 5. Adversarial Scrutiny Fixes & Migration
 - Added Migration `1788652800002-AuthSecurityDefinerAndAuditFix.ts`:
   - Implemented `auth_lookup_device_by_token`, `auth_lookup_user_for_login`, and `auth_enrol_device` as `SECURITY DEFINER` procedures to safely bypass PostgreSQL RLS for unauthenticated pre-auth lookups without tenant leaks.
   - Relaxed `audit_log_check` constraint to support non-user events (`device.%` and `auth.%`).
 - Fixed `JwtSigner` to natively accept numeric epoch `exp` timestamps, eliminating privateKey property leaks.
-- Wrapped `AuthController.refresh` with explicit `401 Unauthorized` handling.
-- Added comprehensive unit test suites: `jwt-keys.service.spec.ts` (RS256, key confusion, expired tokens), `auth.service.spec.ts` (04:00 AM refresh calculation), and `tenant.guard.spec.ts` (Redis caching and role guards).
+- Wrapped `AuthController.refresh` with explicit `401 Unauthorized` handling and `TENANT_SUSPENDED` on inactive tenant per ADR-0003.
+- Sanitized `params.ip` in `AuditService` to extract client IP from comma-separated proxy chains.
+- Corrected `TenantGuard` device role logic to ensure POS terminals are never blocked from backoffice operations.
+- Added comprehensive unit test suites: `jwt-keys.service.spec.ts` (RS256, key confusion, expired tokens), `auth.service.spec.ts` (04:00 AM refresh calculation, suspended tenant, inactive user), and `tenant.guard.spec.ts` (Redis caching, role guards, and DB error bubbling) — 28/28 passing.
 
 ## State
 
 - Fully functioning authentication, device roles, and audit logging system.
 - Code compiles cleanly (`pnpm typecheck` and `pnpm lint` passed with 0 errors).
-- All 20 unit tests pass (`pnpm test` green).
+- All 28 unit tests pass (`pnpm test` green).
 - Frontend `dart analyze` and `flutter test` (123 tests) completely green.
 
 ## Next Steps

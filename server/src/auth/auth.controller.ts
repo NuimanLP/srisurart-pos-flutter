@@ -1,6 +1,8 @@
-import { Controller, Post, Body, HttpCode, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Body, HttpCode, UnauthorizedException, UseGuards, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { AuthService, type LoginDto } from './auth.service.js';
 import { JwtVerifier } from './jwt-keys.service.js';
+import { TenantGuard } from '../common/guards/tenant.guard.js';
 
 @Controller('auth')
 export class AuthController {
@@ -47,5 +49,11 @@ export class AuthController {
       throw new UnauthorizedException('Enrolment code is required');
     }
     return this.authService.enrolDevice(dto.code);
+  }
+
+  @Get('me')
+  @UseGuards(TenantGuard)
+  async me(@Req() req: Request & { user: any }) {
+    return req.user;
   }
 }

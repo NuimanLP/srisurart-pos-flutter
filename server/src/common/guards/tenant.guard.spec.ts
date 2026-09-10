@@ -184,6 +184,36 @@ describe('TenantGuard', () => {
     expect(result).toBe(true);
   });
 
+  it('allows pos device to access backoffice endpoint per ADR-0004', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+      drole: 'pos',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue('backoffice');
+    redisCacheMock.get.mockResolvedValue('active');
+
+    const result = await guard.canActivate(ctx);
+    expect(result).toBe(true);
+  });
+
+  it('allows backoffice device to access backoffice endpoint', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+      drole: 'backoffice',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue('backoffice');
+    redisCacheMock.get.mockResolvedValue('active');
+
+    const result = await guard.canActivate(ctx);
+    expect(result).toBe(true);
+  });
+
   it('lets database error bubble up on cache miss without converting to 401', async () => {
     const ctx = createMockContext('Bearer valid-token');
     jwtVerifierMock.verify.mockReturnValue({

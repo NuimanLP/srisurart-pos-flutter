@@ -139,6 +139,79 @@ describe('AuthService', () => {
         targetExp,
       );
     });
+
+    it('throws TENANT_SUSPENDED (403) with Thai message if tenant is not active on refresh', async () => {
+      const qrMock = {
+        connect: vi.fn(),
+        startTransaction: vi.fn(),
+        commitTransaction: vi.fn(),
+        rollbackTransaction: vi.fn(),
+        release: vi.fn(),
+        query: vi.fn().mockReturnValue([
+          { is_active: true, status: 'suspended', timezone: 'Asia/Bangkok' },
+        ]),
+        manager: {},
+        isTransactionActive: true,
+      };
+      const authService = new AuthService(
+        { createQueryRunner: () => qrMock } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+      );
+
+      try {
+        await authService.refreshTokenPayload({
+          aud: 'tenant',
+          typ: 'refresh',
+          sub: 'u1',
+          tid: 't1',
+          exp: 1789000000,
+          iat: 1788990000,
+          iss: 'srisurart-pos',
+          jti: 'jti-1',
+        });
+        expect.unreachable('Should have thrown ForbiddenException');
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(403);
+        expect(err.getResponse()).toEqual({
+          code: 'TENANT_SUSPENDED',
+          message: 'ร้านนี้ถูกระงับการใช้งาน',
+        });
+      }
+    });
+
+    it('throws UnauthorizedException if user is inactive on refresh', async () => {
+      const qrMock = {
+        connect: vi.fn(),
+        startTransaction: vi.fn(),
+        commitTransaction: vi.fn(),
+        rollbackTransaction: vi.fn(),
+        release: vi.fn(),
+        query: vi.fn().mockReturnValue([
+          { is_active: false, status: 'active', timezone: 'Asia/Bangkok' },
+        ]),
+        manager: {},
+        isTransactionActive: true,
+      };
+      const authService = new AuthService(
+        { createQueryRunner: () => qrMock } as any,
+        {} as any,
+        { log: vi.fn() } as any,
+      );
+
+      await expect(
+        authService.refreshTokenPayload({
+          aud: 'tenant',
+          typ: 'refresh',
+          sub: 'u1',
+          tid: 't1',
+          exp: 1789000000,
+          iat: 1788990000,
+          iss: 'srisurart-pos',
+          jti: 'jti-1',
+        }),
+      ).rejects.toThrow('User is inactive');
+    });
   });
 
   describe('enrolDevice', () => {

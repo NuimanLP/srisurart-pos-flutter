@@ -190,16 +190,31 @@ export class AuthService {
       }
       const u = userRows[0];
 
-      if (u.status !== 'active' || !u.is_active) {
+      if (u.status !== 'active') {
         await this.audit.log(qr.manager, {
           tenantId,
           userId,
           deviceId: did,
           action: 'auth.refresh_rejected',
-          before: { reason: 'inactive' },
+          before: { reason: 'tenant_inactive' },
         });
         await qr.commitTransaction();
-        throw new UnauthorizedException('User or tenant inactive');
+        throw new ForbiddenException({
+          code: 'TENANT_SUSPENDED',
+          message: 'ร้านนี้ถูกระงับการใช้งาน',
+        });
+      }
+
+      if (!u.is_active) {
+        await this.audit.log(qr.manager, {
+          tenantId,
+          userId,
+          deviceId: did,
+          action: 'auth.refresh_rejected',
+          before: { reason: 'user_inactive' },
+        });
+        await qr.commitTransaction();
+        throw new UnauthorizedException('User is inactive');
       }
 
       // Check device if bound
