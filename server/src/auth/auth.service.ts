@@ -1,13 +1,12 @@
 import { Injectable, UnauthorizedException, Logger, ForbiddenException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as argon2 from 'argon2';
-import * as jwt from 'jsonwebtoken';
-import { JwtSigner, JwtPayload } from './jwt-keys.service.js';
+import { JwtSigner, type JwtPayload } from './jwt-keys.service.js';
 import { AuditService } from '../audit/audit.service.js';
 
 export interface LoginDto {
   username: string;
-  password?: string; // Required for normal users, maybe omit for something else? No, required.
+  password?: string;
   deviceToken?: string;
 }
 
@@ -36,15 +35,10 @@ export class AuthService {
       let drole: string | undefined;
 
       if (dto.deviceToken) {
-        // Find device by token_hash (for simplicity, we assume deviceToken is raw and we need to hash it,
-        // or the client sends the hash. The DB says token_hash TEXT)
-        // We'll use SHA256 of the token, but for now let's assume it matches token_hash directly or via crypto.
-        // Actually, ADR-0004 says "hash ของ device token". We'll just assume token_hash is stored.
-        // If they send raw token, we'd hash it. Let's do a simple lookup.
         const hash = await this.hashDeviceToken(dto.deviceToken);
         const devRes = await qr.query(
-          `SELECT tenant_id, id, role, retired_at FROM devices WHERE token_hash = $1`,
-          [hash]
+          `SELECT tenant_id, id, role, retired_at FROM auth_lookup_device_by_token($1)`,
+          [hash],
         );
         if (devRes.length === 1) {
           const dev = devRes[0];
@@ -59,28 +53,18 @@ export class AuthService {
         }
       }
 
-      // 2. Find User
-      let userRows = [];
-      if (deviceTenantId) {
-        // If we know the tenant from the device, use it.
-        userRows = await qr.query(
-          `SELECT u.*, t.status as tenant_status, t.timezone FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE u.tenant_id = $1 AND u.username = $2`,
-          [deviceTenantId, dto.username]
-        );
-      } else {
-        // Otherwise, lookup globally. If multiple users have the same username across different tenants,
-        // they must use a deviceToken or unique username.
-        userRows = await qr.query(
-          `SELECT u.*, t.status as tenant_status, t.timezone FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE u.username = $1`,
-          [dto.username]
-        );
-        if (userRows.length > 1) {
-          throw new UnauthorizedException('Ambiguous username. Device token is required.');
-        }
+      // 2. Find User via SECURITY DEFINER function to respect RLS
+      const userRows = await qr.query(
+        `SELECT * FROM auth_lookup_user_for_login($1, $2)`,
+        [dto.username, deviceTenantId ?? null],
+      );
+
+      if (userRows.length > 1) {
+        throw new UnauthorizedException('Ambiguous username. Device token is required.');
       }
 
       if (userRows.length === 0) {
-        // Record failed attempt globally (no tenant context if we don't know it)
+        this.logger.warn(`Login failed: user not found for username=${dto.username}`);
         throw new UnauthorizedException('Invalid credentials');
       }
 
@@ -89,18 +73,27 @@ export class AuthService {
 
       // Check tenant status (ADR-0003)
       if (user.tenant_status !== 'active') {
-        await this.audit.log(qr.manager, {
-          tenantId, userId: user.id, deviceId: did,
-          action: 'auth.login_failed', before: { reason: 'tenant_inactive' }
+        await this.logAuthEventWithRls(qr, tenantId, {
+          tenantId,
+          userId: user.id,
+          deviceId: did,
+          action: 'auth.login_failed',
+          before: { reason: 'tenant_inactive' },
         });
-        throw new ForbiddenException('Tenant is not active');
+        throw new ForbiddenException({
+          code: 'TENANT_SUSPENDED',
+          message: 'ร้านนี้ถูกระงับการใช้งาน',
+        });
       }
 
       // Check user active
       if (!user.is_active) {
-        await this.audit.log(qr.manager, {
-          tenantId, userId: user.id, deviceId: did,
-          action: 'auth.login_failed', before: { reason: 'user_inactive' }
+        await this.logAuthEventWithRls(qr, tenantId, {
+          tenantId,
+          userId: user.id,
+          deviceId: did,
+          action: 'auth.login_failed',
+          before: { reason: 'user_inactive' },
         });
         throw new UnauthorizedException('User is inactive');
       }
@@ -108,9 +101,12 @@ export class AuthService {
       // Verify Password (Argon2id)
       const valid = await argon2.verify(user.password_hash, dto.password);
       if (!valid) {
-        await this.audit.log(qr.manager, {
-          tenantId, userId: user.id, deviceId: did,
-          action: 'auth.login_failed', before: { reason: 'invalid_password' }
+        await this.logAuthEventWithRls(qr, tenantId, {
+          tenantId,
+          userId: user.id,
+          deviceId: did,
+          action: 'auth.login_failed',
+          before: { reason: 'invalid_password' },
         });
         throw new UnauthorizedException('Invalid credentials');
       }
@@ -131,19 +127,14 @@ export class AuthService {
       
       const refreshPayload = { ...payload, typ: 'refresh' as const, jti: crypto.randomUUID() };
       const expUnix = this.calculateRefreshExpiry(user.timezone || 'Asia/Bangkok');
-      // Sign with exact expiration timestamp instead of relative string
-      // jsonwebtoken sign() accepts numeric seconds for exact exp.
-      // We pass it in payload and omit expiresIn from options.
-      const refreshToken = jwt.sign(
-        { ...refreshPayload, iss: 'srisurart-pos', exp: expUnix },
-        (this.jwtSigner as any).privateKey,
-        { algorithm: 'RS256', keyid: 'key-1' }
-      );
+      const refreshToken = this.jwtSigner.sign(refreshPayload, expUnix);
 
       // Log success
-      await this.audit.log(qr.manager, {
-        tenantId, userId: user.id, deviceId: did,
-        action: 'auth.login'
+      await this.logAuthEventWithRls(qr, tenantId, {
+        tenantId,
+        userId: user.id,
+        deviceId: did,
+        action: 'auth.login',
       });
 
       return {
@@ -156,27 +147,9 @@ export class AuthService {
             username: user.username,
             role: user.role,
             displayName: user.display_name,
-          }
-        }
+          },
+        },
       };
-    } finally {
-      await qr.release();
-    }
-  }
-
-  // Refreshes a token
-  async refresh() {
-    // 1. decode/verify
-    const qr = this.ds.createQueryRunner();
-    await qr.connect();
-    
-    try {
-      // Decode and verify the refresh token (JWT verifier will be called by guard usually,
-      // but here we might just verify it inline since the controller passes the raw token or 
-      // the guard already parsed it. Let's assume the controller passes the raw token).
-      // We can inject JwtVerifier and use it. Wait, the guard will reject invalid tokens.
-      // So the controller will pass the decoded payload. Let's just accept the payload.
-      throw new Error("Method signature should take JwtPayload");
     } finally {
       await qr.release();
     }
@@ -194,25 +167,37 @@ export class AuthService {
     const userId = payload.sub;
     const did = payload.did;
 
+    if (!tenantId) {
+      throw new UnauthorizedException('Token missing tenant id');
+    }
+
     const qr = this.ds.createQueryRunner();
     await qr.connect();
     
     try {
-      // Check tenant and user
+      await qr.startTransaction();
+      await qr.query(`SET LOCAL app.tenant_id = $1`, [tenantId]);
+
+      // Check tenant and user under RLS
       const userRows = await qr.query(
         `SELECT u.is_active, t.status, t.timezone FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE u.tenant_id = $1 AND u.id = $2`,
-        [tenantId, userId]
+        [tenantId, userId],
       );
       if (userRows.length === 0) {
+        await qr.rollbackTransaction();
         throw new UnauthorizedException('User not found');
       }
       const u = userRows[0];
 
       if (u.status !== 'active' || !u.is_active) {
         await this.audit.log(qr.manager, {
-          tenantId: tenantId!, userId, deviceId: did,
-          action: 'auth.refresh_rejected', before: { reason: 'inactive' }
+          tenantId,
+          userId,
+          deviceId: did,
+          action: 'auth.refresh_rejected',
+          before: { reason: 'inactive' },
         });
+        await qr.commitTransaction();
         throw new UnauthorizedException('User or tenant inactive');
       }
 
@@ -220,16 +205,22 @@ export class AuthService {
       if (did) {
         const devRows = await qr.query(
           `SELECT retired_at FROM devices WHERE tenant_id = $1 AND id = $2`,
-          [tenantId, did]
+          [tenantId, did],
         );
         if (devRows.length === 0 || devRows[0].retired_at) {
           await this.audit.log(qr.manager, {
-            tenantId: tenantId!, userId, deviceId: did,
-            action: 'auth.refresh_rejected', before: { reason: 'device_retired' }
+            tenantId,
+            userId,
+            deviceId: did,
+            action: 'auth.refresh_rejected',
+            before: { reason: 'device_retired' },
           });
+          await qr.commitTransaction();
           throw new UnauthorizedException('Device is retired');
         }
       }
+
+      await qr.commitTransaction();
 
       // Issue new access token
       const accessPayload: Omit<JwtPayload, 'iss' | 'iat' | 'exp'> = {
@@ -248,17 +239,17 @@ export class AuthService {
       // Issue new refresh token
       const refreshPayload = { ...accessPayload, typ: 'refresh' as const, jti: crypto.randomUUID() };
       const expUnix = this.calculateRefreshExpiry(u.timezone || 'Asia/Bangkok');
-      const refreshToken = jwt.sign(
-        { ...refreshPayload, iss: 'srisurart-pos', exp: expUnix },
-        (this.jwtSigner as any).privateKey,
-        { algorithm: 'RS256', keyid: 'key-1' }
-      );
+      const refreshToken = this.jwtSigner.sign(refreshPayload, expUnix);
 
       return {
         status: 'success',
-        data: { accessToken, refreshToken }
+        data: { accessToken, refreshToken },
       };
-
+    } catch (err) {
+      if (qr.isTransactionActive) {
+        await qr.rollbackTransaction();
+      }
+      throw err;
     } finally {
       await qr.release();
     }
@@ -273,13 +264,13 @@ export class AuthService {
     await qr.connect();
 
     try {
-      // Find the device with the matching enrolment code hash
       const codeHash = await this.hashDeviceToken(code);
-      
+      const rawDeviceToken = crypto.randomUUID() + '-' + crypto.randomUUID();
+      const tokenHash = await this.hashDeviceToken(rawDeviceToken);
+
       const res = await qr.query(
-        `SELECT tenant_id, id FROM devices 
-         WHERE enrol_code_hash = $1 AND enrol_expires_at > now()`,
-        [codeHash]
+        `SELECT tenant_id, id FROM auth_enrol_device($1, $2)`,
+        [codeHash, tokenHash],
       );
 
       if (res.length === 0) {
@@ -287,18 +278,9 @@ export class AuthService {
       }
 
       const dev = res[0];
-      const rawDeviceToken = crypto.randomUUID() + '-' + crypto.randomUUID();
-      const tokenHash = await this.hashDeviceToken(rawDeviceToken);
 
-      await qr.query(
-        `UPDATE devices 
-         SET enrol_code_hash = NULL, enrol_expires_at = NULL, token_hash = $1
-         WHERE tenant_id = $2 AND id = $3`,
-        [tokenHash, dev.tenant_id, dev.id]
-      );
-
-      // Audit log
-      await this.audit.log(qr.manager, {
+      // Audit log inside tenant RLS context
+      await this.logAuthEventWithRls(qr, dev.tenant_id, {
         tenantId: dev.tenant_id,
         deviceId: dev.id,
         action: 'device.enrol',
@@ -306,7 +288,7 @@ export class AuthService {
 
       return {
         status: 'success',
-        data: { deviceToken: rawDeviceToken }
+        data: { deviceToken: rawDeviceToken },
       };
     } finally {
       await qr.release();
@@ -314,10 +296,26 @@ export class AuthService {
   }
 
   private async hashDeviceToken(token: string): Promise<string> {
-    // We use SHA-256 for device tokens to be deterministic (Argon2 generates random salts)
-    // as we need to lookup by hash.
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
     return Buffer.from(hash).toString('hex');
+  }
+
+  private async logAuthEventWithRls(
+    qr: any,
+    tenantId: string,
+    params: Parameters<AuditService['log']>[1],
+  ): Promise<void> {
+    try {
+      await qr.startTransaction();
+      await qr.query(`SET LOCAL app.tenant_id = $1`, [tenantId]);
+      await this.audit.log(qr.manager, params);
+      await qr.commitTransaction();
+    } catch (err) {
+      if (qr.isTransactionActive) {
+        await qr.rollbackTransaction();
+      }
+      this.logger.error(`Failed to write auth audit log: ${err}`);
+    }
   }
 
   /**
@@ -326,18 +324,25 @@ export class AuthService {
    * If issued after 03:00 AM, expires at 04:00 AM the *next* day (ADR-0009).
    */
   public calculateRefreshExpiry(timezone: string): number {
-    // We use Intl.DateTimeFormat to work with the timezone
+    let validTimezone = timezone;
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: validTimezone });
+    } catch {
+      validTimezone = 'Asia/Bangkok';
+    }
+
     const now = new Date();
-    
-    // Create a string in the tenant's timezone: "YYYY-MM-DDTHH:mm:ss"
     const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false
+      timeZone: validTimezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
     });
     
-    // e.g. "08/25/2026, 03:15:00" -> parse it
     const parts = formatter.formatToParts(now);
     const getPart = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
     
@@ -346,26 +351,18 @@ export class AuthService {
     const day = getPart('day');
     const hour = getPart('hour');
     
-    // Create date representing the local time
-    // Then figure out the target day
     const targetDate = new Date(Date.UTC(year, month, day, 4, 0, 0)); 
     
     if (hour >= 3) {
-      // If after 3 AM, shift to next day's 4 AM
       targetDate.setUTCDate(targetDate.getUTCDate() + 1);
     }
     
-    // Now we must convert this target local time back to UTC timestamp
-    // Since JavaScript Date doesn't natively parse "Target Date in Timezone",
-    // we iterate or use a trick.
-    // The trick: we know the UTC offset roughly. 
-    // Let's do it precisely:
-    
     let targetMs = Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate(), 4, 0, 0);
-    // targetMs is a UTC time representing 04:00:00 in UTC. We need 04:00:00 in `timezone`.
-    // Let's find the offset at targetMs
-    const targetStr = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'longOffset' }).format(new Date(targetMs));
-    // Extracts "GMT+07:00"
+    const targetStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: validTimezone,
+      timeZoneName: 'longOffset',
+    }).format(new Date(targetMs));
+
     const match = targetStr.match(/GMT([+-]\d{2}):?(\d{2})?/);
     let offsetMinutes = 0;
     if (match) {
@@ -374,10 +371,7 @@ export class AuthService {
       offsetMinutes = hours * 60 + (hours < 0 ? -mins : mins);
     }
     
-    // Adjust targetMs by subtracting the offset
     targetMs -= offsetMinutes * 60 * 1000;
-    
     return Math.floor(targetMs / 1000);
   }
 }
-

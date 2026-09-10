@@ -41,16 +41,25 @@ The implementation strictly followed the architectural decisions laid out in `AD
 
 ### 4. Security Contexts & RLS Readiness (`TenantGuard`)
 - Built `server/src/common/guards/tenant.guard.ts` to parse Bearer tokens, verify signatures, and extract `tid`, `did`, and `drole`.
-- The guard actively hits the DB to check `tenants.status` on every request.
+- Implemented Redis status caching (`t:{tid}:status`, 300s TTL + jitter) per ADR-0003, falling back to DB on miss.
+- Emits standardized Thai error envelopes (`TENANT_SUSPENDED` and `DEVICE_ROLE_FORBIDDEN`) per `02_API_SCREENS.md §8.1`.
 - Implemented the `@RequireDeviceRole('pos' | 'backoffice')` decorator to restrict endpoint access.
-- Finalized `TenantService` and exported it via `DbModule` to allow downstream services to execute raw queries safely within a `SET LOCAL app.tenant_id` context for Row-Level Security (RLS).
+- Exported `TenantService` via `DbModule` for transactional RLS isolation.
+
+### 5. Adversarial Scrutiny Fixes & Migration
+- Added Migration `1788652800002-AuthSecurityDefinerAndAuditFix.ts`:
+  - Implemented `auth_lookup_device_by_token`, `auth_lookup_user_for_login`, and `auth_enrol_device` as `SECURITY DEFINER` procedures to safely bypass PostgreSQL RLS for unauthenticated pre-auth lookups without tenant leaks.
+  - Relaxed `audit_log_check` constraint to support non-user events (`device.%` and `auth.%`).
+- Fixed `JwtSigner` to natively accept numeric epoch `exp` timestamps, eliminating privateKey property leaks.
+- Wrapped `AuthController.refresh` with explicit `401 Unauthorized` handling.
+- Added comprehensive unit test suites: `jwt-keys.service.spec.ts` (RS256, key confusion, expired tokens), `auth.service.spec.ts` (04:00 AM refresh calculation), and `tenant.guard.spec.ts` (Redis caching and role guards).
 
 ## State
 
-- The backend now has a fully functioning authentication and session management system.
-- Code compiles correctly (`pnpm typecheck` and `pnpm lint` passed with 0 errors).
-- Unit tests (`pnpm test`) remain green.
-- No global TypeORM entities were used; everything correctly uses raw queries as mandated by the current Phase 1 codebase structure.
+- Fully functioning authentication, device roles, and audit logging system.
+- Code compiles cleanly (`pnpm typecheck` and `pnpm lint` passed with 0 errors).
+- All 20 unit tests pass (`pnpm test` green).
+- Frontend `dart analyze` and `flutter test` (123 tests) completely green.
 
 ## Next Steps
 

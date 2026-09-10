@@ -11,6 +11,8 @@ export interface AppConfig {
   jwtPrivateKey?: string;
   /** Required only for API instances handling /auth/* and API validation. */
   jwtPublicKeys?: string[];
+  /** Optional active signing key ID (defaults to 'key-1'). */
+  jwtKeyId?: string;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -35,5 +37,6 @@ export function loadConfig(env = process.env): AppConfig {
     redisQueueUrl: required(env, 'REDIS_QUEUE_URL'),
     jwtPrivateKey: isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined,
     jwtPublicKeys: isApi ? required(env, 'JWT_PUBLIC_KEYS').split(',').map(k => k.trim()) : undefined,
+    jwtKeyId: env.JWT_KEY_ID ?? 'key-1',
   };
 }

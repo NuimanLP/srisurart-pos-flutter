@@ -26,7 +26,15 @@ export class AuthController {
     }
     
     // Verify signature and type 'refresh'
-    const payload = this.jwtVerifier.verify(dto.refreshToken, 'refresh');
+    let payload;
+    try {
+      payload = this.jwtVerifier.verify(dto.refreshToken, 'refresh');
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
     
     // Check DB status and issue new tokens
     return this.authService.refreshTokenPayload(payload);
