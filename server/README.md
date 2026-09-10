@@ -96,7 +96,9 @@ src/app.module.ts        CoreModule (config, logger, Postgres, Redis) / AppModul
 src/app.setup.ts         global prefix /api/v1 (health excluded), envelope, filter, JSON 404
 src/common/              response envelope, error envelope, pino logger + correlation id,
                          request-context.ts (the per-request tenant + transaction seam)
-src/infra/               DataSource (pos_app role, synchronize=false), REDIS_CACHE / REDIS_QUEUE
+src/infra/               DataSource (pos_app role, synchronize=false), ADMIN_DATA_SOURCE (owner),
+                         AUDIT_DATA_SOURCE (pos_app, pool of 2, off the request pool),
+                         REDIS_CACHE / REDIS_QUEUE
 src/idempotency/         Idempotency-Key: claim, replay, 409 on a changed request (#18)
 src/documents/           document numbers: RC01-2569-08-0042, per device per month (#19)
 src/sales/               POST /sales — the sale transaction (#20)
@@ -192,14 +194,36 @@ handing a live query queue to whichever request took that connection next.
 
 🔴 **Two rules for anything that runs inside a request:**
 
-1. **Never reach for a second pooled connection.** The request already holds one. Under
-   load every in-flight request holding one and waiting for another is a pool deadlock —
-   they all sit there until `connectionTimeoutMillis` fires and all return 500. Read
-   through `currentRequestContext().manager`. (`tenants` and `platform_admins` are the
-   two tables with no RLS, so even a status probe can go through it.) The one deliberate
-   exception is `VoidService`'s refusal audit, which must survive the rollback that the
-   403 causes and therefore takes its own short-lived connection — on the failure path
-   only, never on the path every request follows.
+1. **Never take a second connection from the request pool — there is no exception.** The
+   request already holds one. Under load every in-flight request holding one and waiting
+   for another is a pool deadlock — they all sit there until `connectionTimeoutMillis`
+   fires and all return 500, and the 500s are *other people's requests*, not the one that
+   misbehaved. Read through `currentRequestContext().manager`. (`tenants` and
+   `platform_admins` are the two tables with no RLS, so even a status probe can go
+   through it.)
+
+   Work that genuinely cannot run in the request transaction — today that is exactly one
+   call site, `VoidService`'s refusal audit, which must survive the rollback the 403
+   causes — takes its connection from **`AUDIT_DATA_SOURCE`** (`src/infra/db.module.ts`):
+   a separate pool of 2, same `pos_app` role, so RLS still applies and the write still has
+   to name its tenant with `set_config('app.tenant_id', …)` of its own. Never
+   `ADMIN_DATA_SOURCE` — that connects as the owner, and an audit row written as the owner
+   is tenant data that RLS never checked.
+
+   🔴 This *was* written as a deliberate exception taking a second request-pool
+   connection, and it was measured as an availability bug. Same app, same tenant,
+   `DB_POOL_SIZE=2`, four concurrent denials plus four unrelated reads:
+
+   | | before | after |
+   |---|---|---|
+   | four concurrent denials | `403,403,500,500` in 5013 ms | `403,403,403,403` in 44 ms |
+   | four unrelated reads | `500,500,500,500` | `200,200,200,200` |
+
+   Production runs `DB_POOL_SIZE ?? 5` and the first denial branch is the **role** check,
+   so any authenticated cashier could stall every sale in flight for five seconds without
+   knowing a PIN. `test/void-denial-pool.e2e-spec.ts` holds the measurement. The next
+   denial path to be written follows that shape: its own pool, its own `set_config`, and
+   a `catch` that keeps a failed audit from turning a 403 into a 500.
 2. **An async Express middleware must never reject.** Express does not await it, so a
    rejection is an unhandled rejection, which Node answers by killing the worker. Both
    `RequestContextMiddleware` failure paths write a response instead.
@@ -311,7 +335,11 @@ voiding then would restore that stock twice).
 Refusals are audited too (`sale.void.denied`, with the reason). This is a four-digit PIN
 with no per-user rate limit until #44; brute-forcing it must not be invisible. That row is
 written on its own connection because the 403 rolls the request transaction back — an
-audit row written on it would vanish along with the attempt it was recording.
+audit row written on it would vanish along with the attempt it was recording. The
+connection comes from `AUDIT_DATA_SOURCE`, a two-connection pool of its own; taking it
+from the request pool made a denial a request queuing for a second connection, which
+timed out unrelated requests (see *Two rules* above, and
+`test/void-denial-pool.e2e-spec.ts`).
 
 🔴 **Two things to know before this ships:**
 - The old app has no void button at all: a bill is voided only as the automatic

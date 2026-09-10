@@ -1,6 +1,7 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { DataSource, type EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
+import { AUDIT_DATA_SOURCE } from '../infra/db.module.js';
 import { newId } from '../common/ids.js';
 import { verifyPassword } from '../common/password.js';
 import { currentRequestContext } from '../common/request-context.js';
@@ -43,7 +44,7 @@ export class VoidService {
   constructor(
     private readonly reads: SaleReadsService,
     private readonly audit: AuditService,
-    private readonly ds: DataSource,
+    @Inject(AUDIT_DATA_SOURCE) private readonly auditDs: DataSource,
   ) {}
 
   async void(saleId: string, actor: VoidActor): Promise<SaleWithItems> {
@@ -210,9 +211,17 @@ export class VoidService {
    * On its **own** connection, because the 403 rolls the request transaction back and
    * an audit row written on it would vanish with the attempt it was recording. This
    * is a four-digit PIN with no per-user rate limit yet (#44); brute-forcing it must
-   * not be invisible. Failing to log must not turn a 403 into a 500, so the write is
-   * best-effort — the connection is only taken on the refusal path, never on the one
-   * every request follows.
+   * not be invisible.
+   *
+   * 🔴 That connection comes from `AUDIT_DATA_SOURCE`, **not** from the request pool.
+   * Taken from the request pool this is a request holding one connection while queuing
+   * for a second: measured at `DB_POOL_SIZE=2`, four concurrent denials answered
+   * `403,403,500,500` in 5112 ms, the two 500s being unrelated requests whose middleware
+   * timed out waiting for a connection these were sitting on. The first denial branch is
+   * the role check, so any authenticated cashier can reach it without knowing a PIN.
+   *
+   * Failing to log must not turn a 403 into a 500, so the write is best-effort — and the
+   * connection is only taken on the refusal path, never on the one every request follows.
    */
   private async auditDenial(
     tenantId: string,
@@ -220,7 +229,7 @@ export class VoidService {
     saleId: string,
     reason: string,
   ): Promise<void> {
-    const qr = this.ds.createQueryRunner();
+    const qr = this.auditDs.createQueryRunner();
     try {
       await qr.connect();
       await qr.startTransaction();
