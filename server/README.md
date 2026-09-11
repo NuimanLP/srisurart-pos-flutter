@@ -263,7 +263,8 @@ bill locking products first and the mechanic later would deadlock against a cred
 for the same mechanic sharing one product), then takes `FOR UPDATE` on every product on
 the bill, and only then bumps the counter. Any later path that writes
 stock **and** issues a number — `POST /purchase-orders/:id/receive` (#26), `POST /returns`
-(#22) — must take them in that same order. Issuing the number first inverts the order and
+(#22) — must take them in that same order, and so must `POST /sales/:id/void` once #23
+reverses the mechanic's tab: mechanic first, then products. Issuing the number first inverts the order and
 the two deadlock under concurrent load, which is the kind of failure that only shows up on
 a busy Saturday.
 

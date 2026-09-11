@@ -307,6 +307,29 @@ describe('POST /sales — ledger effects (e2e)', () => {
     });
   });
 
+  it('the counter path: 409, the dialog, the same bill and the same key resent with the flag', async () => {
+    // The client keys the bill, not the attempt, so the resend after 'ยืนยันขายเครดิต?'
+    // carries the same Idempotency-Key with a different body. That is only not
+    // IDEMPOTENCY_KEY_REUSED because the claim rolled back with the refused bill —
+    // pinned here so a later change to the claim's lifetime (tx.3) cannot turn the
+    // dialog's confirm into a bill that can never be rung up.
+    const body = bill(chain(), {
+      paymentMethod: 'เครดิตช่าง',
+      mechanicId: 'm3',
+      mechanicName: 'Tight Limit',
+    });
+    const key = `k-same-${Date.now()}`;
+    const refused = await post(body, key);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('CREDIT_LIMIT_EXCEEDED');
+
+    const confirmed = await post({ ...body, overrideCreditLimit: true }, key);
+    expect(confirmed.status).toBe(201);
+    expect(confirmed.body.data.mechanicCreditBalanceAfter).toBe('1150.00');
+    expect(await saleCount()).toBe(1);
+    expect(await overrideAudits()).toHaveLength(1);
+  });
+
   it('the flag on a bill that is under the limit records nothing', async () => {
     const res = await post(
       bill(chain(), {
