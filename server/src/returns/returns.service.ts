@@ -71,10 +71,42 @@ interface LockedSale {
   voided: boolean;
 }
 
-/** What one product on the parent bill sold as — from the bill, never from the catalogue. */
-interface SoldProduct {
+/** What one product-and-price on the parent bill sold as — never from the catalogue. */
+interface SoldLine {
   qty: number;
   costAtSale: string | null;
+}
+
+/**
+ * The parent bill's lines, indexed the ways the guards need them.
+ *
+ * 🔴 One bill may legitimately carry the same product on two lines at two different
+ * prices, so "the price this product sold at on this bill" is a **set**, not a value.
+ * Every guard below therefore works per product-and-price, with `qtyByProduct` kept
+ * only as the backstop described in `assertRefundable`.
+ */
+interface Sold {
+  /** Total quantity per product, across every price it went out at. */
+  qtyByProduct: Map<string, number>;
+  /** Quantity and cost per product-and-price, keyed by `priceKey`. */
+  byPrice: Map<string, SoldLine>;
+  /** The prices one product sold at, for the refusal a mispriced line earns. */
+  pricesByProduct: Map<string, number[]>;
+}
+
+/** How much of each product has already come back, by product and by price. */
+interface Refunded {
+  byProduct: Map<string, number>;
+  byPrice: Map<string, number>;
+}
+
+/**
+ * A product and the price it sold at, in satang — the unit both guards work in.
+ * The separator is `\u0000` because a product id is client text: any printable one
+ * could be part of an id, and two different products would share a bucket.
+ */
+function priceKey(productId: string, priceSatang: number): string {
+  return `${productId}\u0000${priceSatang}`;
 }
 
 /** How much of one product this credit note takes back, and what to call it. */
@@ -134,8 +166,22 @@ export class ReturnsService {
     const { tenantId, manager } = currentRequestContext();
 
     const sale = await this.lockSale(manager, tenantId, dto.saleId);
-    const sold = await this.soldByProduct(manager, tenantId, dto.saleId);
-    const refunded = await this.refundedByProduct(manager, tenantId, dto.saleId);
+    // The DTO whitelists the three refund methods but cannot see the bill, and only a
+    // bill naming a mechanic has a tab to deduct from — the Returns screen offers the
+    // option on no other (`returns_screen.dart:904`). Without this check the credit
+    // note records a deduction that deducted from nothing, and the closing report does
+    // not count it as cash either, so the money is simply lost.
+    if (dto.refundMethod === DEDUCT_FROM_CREDIT && sale.mechanic_id === null) {
+      throw new HttpException(
+        {
+          code: 'REFUND_METHOD_NOT_ALLOWED',
+          message: `Refund method '${DEDUCT_FROM_CREDIT}' needs a bill with a mechanic.`,
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+    const sold = await this.soldLines(manager, tenantId, dto.saleId);
+    const refunded = await this.refundedSoFar(manager, tenantId, dto.saleId);
 
     const demands = aggregate(dto.items);
     this.assertRefundable(demands, sold, refunded);
@@ -227,9 +273,17 @@ export class ReturnsService {
     };
   }
 
-  /** A page of credit notes, newest first, optionally for one bill. */
+  /**
+   * A page of credit notes, newest first, optionally for one bill or one date range.
+   *
+   * `from`/`to` are the documented filters (`02_API_SCREENS.md §3.7`, the refund
+   * history) and behave exactly as `GET /sales` does; `saleId` is the extra one
+   * `POST /returns` needs to show a bill's own notes.
+   */
   async list(query: {
     saleId?: string;
+    from?: string;
+    to?: string;
     page: number;
     limit: number;
   }): Promise<{ items: ReturnWithItems[]; total: number }> {
@@ -239,6 +293,14 @@ export class ReturnsService {
     if (query.saleId) {
       params.push(query.saleId);
       clause += ` AND sale_id = $${params.length}`;
+    }
+    if (query.from) {
+      params.push(query.from);
+      clause += ` AND date >= $${params.length}::timestamptz`;
+    }
+    if (query.to) {
+      params.push(query.to);
+      clause += ` AND date <= $${params.length}::timestamptz`;
     }
 
     const totals = (await manager.query(
@@ -317,40 +379,92 @@ export class ReturnsService {
     return rows[0];
   }
 
-  /** What the bill sold, per product, with the cost each line left the shop at. */
-  private async soldByProduct(
+  /**
+   * What the bill sold, per product **and per price**, with the cost each line left
+   * the shop at.
+   *
+   * 🔴 `price` is read here because the **server** decides what a refund is worth. The
+   * body may name a product and a quantity; the amount comes off this row. Without it
+   * a `pos` token could credit 999,999 baht against a bill that sold the part for 85,
+   * and the `GREATEST(0, …)` clamps downstream would absorb the damage in silence —
+   * zeroing a mechanic's tab and raising nothing. The Dart reference has the same hole
+   * because there the client *is* the authority; here Postgres is.
+   *
+   * `cost_at_sale` is the first line of each group. `POST /sales` stamps it from one
+   * locked read of `products.cost`, so every line of a product on one bill carries the
+   * same cost and the choice cannot matter.
+   */
+  private async soldLines(
     manager: EntityManager,
     tenantId: string,
     saleId: string,
-  ): Promise<Map<string, SoldProduct>> {
+  ): Promise<Sold> {
     const rows = (await manager.query(
-      `SELECT product_id, sum(qty)::int AS qty,
+      `SELECT product_id, price, sum(qty)::int AS qty,
               (array_agg(cost_at_sale ORDER BY line_no))[1] AS cost_at_sale
          FROM sale_items
         WHERE tenant_id = $1::uuid AND sale_id = $2
-        GROUP BY product_id`,
+        GROUP BY product_id, price
+        ORDER BY product_id, price`,
       [tenantId, saleId],
-    )) as { product_id: string; qty: number; cost_at_sale: string | null }[];
-    return new Map(
-      rows.map((r) => [r.product_id, { qty: r.qty, costAtSale: r.cost_at_sale }]),
-    );
+    )) as {
+      product_id: string;
+      price: string;
+      qty: number;
+      cost_at_sale: string | null;
+    }[];
+
+    const sold: Sold = {
+      qtyByProduct: new Map(),
+      byPrice: new Map(),
+      pricesByProduct: new Map(),
+    };
+    for (const r of rows) {
+      const priceSatang = satangOf(r.price);
+      sold.qtyByProduct.set(
+        r.product_id,
+        (sold.qtyByProduct.get(r.product_id) ?? 0) + r.qty,
+      );
+      sold.byPrice.set(priceKey(r.product_id, priceSatang), {
+        qty: r.qty,
+        costAtSale: r.cost_at_sale,
+      });
+      sold.pricesByProduct.set(r.product_id, [
+        ...(sold.pricesByProduct.get(r.product_id) ?? []),
+        priceSatang,
+      ]);
+    }
+    return sold;
   }
 
-  /** How much of each product every prior credit note against this bill took back. */
-  private async refundedByProduct(
+  /**
+   * How much every prior credit note against this bill took back — by product, and by
+   * product-and-price, because that is the unit `assertRefundable` bounds.
+   */
+  private async refundedSoFar(
     manager: EntityManager,
     tenantId: string,
     saleId: string,
-  ): Promise<Map<string, number>> {
+  ): Promise<Refunded> {
     const rows = (await manager.query(
-      `SELECT ri.product_id, sum(ri.qty)::int AS qty
+      `SELECT ri.product_id, ri.price, sum(ri.qty)::int AS qty
          FROM return_items ri
          JOIN returns r ON r.tenant_id = ri.tenant_id AND r.id = ri.return_id
         WHERE ri.tenant_id = $1::uuid AND r.sale_id = $2
-        GROUP BY ri.product_id`,
+        GROUP BY ri.product_id, ri.price`,
       [tenantId, saleId],
-    )) as { product_id: string; qty: number }[];
-    return new Map(rows.map((r) => [r.product_id, r.qty]));
+    )) as { product_id: string; price: string; qty: number }[];
+
+    const refunded: Refunded = { byProduct: new Map(), byPrice: new Map() };
+    for (const r of rows) {
+      refunded.byProduct.set(
+        r.product_id,
+        (refunded.byProduct.get(r.product_id) ?? 0) + r.qty,
+      );
+      const key = priceKey(r.product_id, satangOf(r.price));
+      refunded.byPrice.set(key, (refunded.byPrice.get(key) ?? 0) + r.qty);
+    }
+    return refunded;
   }
 
   /**
@@ -358,22 +472,60 @@ export class ReturnsService {
    * sale side, so staff see every bad line at once instead of discovering them one
    * resubmission at a time. Both strings are verbatim from `returns_repository.dart`.
    *
-   * Nothing has been written when this fires: the only statements above it are reads
-   * and the lock on the parent bill.
+   * Ahead of it, `409 RETURN_PRICE_MISMATCH` for a line priced at anything this bill
+   * did not charge — refused rather than silently corrected, because a body that
+   * disagrees with the bill about the price disagrees about which line it means.
+   *
+   * Nothing has been written when either fires: the only statements above them are
+   * reads and the lock on the parent bill.
    */
   private assertRefundable(
     demands: Demand[],
-    sold: Map<string, SoldProduct>,
-    refunded: Map<string, number>,
+    sold: Sold,
+    refunded: Refunded,
   ): void {
+    // Price before quantity: a line priced at something this bill never charged is
+    // not a quantity problem, and the Thai sentence below would misdescribe it.
+    const mispriced = demands.filter(
+      (d) =>
+        sold.qtyByProduct.has(d.productId) &&
+        !sold.byPrice.has(priceKey(d.productId, d.priceSatang)),
+    );
+    if (mispriced.length > 0) {
+      throw new HttpException(
+        {
+          code: 'RETURN_PRICE_MISMATCH',
+          message: 'A refund line must be priced as this bill sold it.',
+          details: {
+            lines: mispriced.map((d) => ({
+              productId: d.productId,
+              price: fromSatang(d.priceSatang),
+              soldAt: (sold.pricesByProduct.get(d.productId) ?? []).map(
+                (satang) => fromSatang(satang),
+              ),
+            })),
+          },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
     const lines: string[] = [];
     for (const d of demands) {
-      const line = sold.get(d.productId);
+      const key = priceKey(d.productId, d.priceSatang);
+      const line = sold.byPrice.get(key);
       if (!line) {
         lines.push(`${d.requestedName}: ไม่อยู่ในบิลนี้`);
         continue;
       }
-      const remaining = line.qty - (refunded.get(d.productId) ?? 0);
+      // Bounded per product-and-price, and never above what the product has left
+      // overall: a credit note imported from the old app may carry a price this bill
+      // never charged, and no per-price figure can see that quantity.
+      const remaining = Math.min(
+        line.qty - (refunded.byPrice.get(key) ?? 0),
+        (sold.qtyByProduct.get(d.productId) ?? 0) -
+          (refunded.byProduct.get(d.productId) ?? 0),
+      );
       if (d.qty > remaining) {
         lines.push(
           `${d.requestedName}: คืนได้อีก ${remaining} แต่ขอคืน ${d.qty}`,
@@ -414,8 +566,14 @@ export class ReturnsService {
 
   /**
    * Locks every product this credit note puts back, in id order — the same deadlock
-   * guard the sale takes. A product deleted since the sale simply has no row; the
-   * credit note still stands, and `restoreStock` skips it.
+   * guard the sale takes.
+   *
+   * 🔴 **Soft-deleted products included.** They used to be filtered out here, so the
+   * same goods came back onto the shelf through `POST /sales/:id/void` and silently
+   * did not through `POST /returns` — and on this path with no `movements` row to say
+   * they had come back at all. Restoring is the defensible half: the goods physically
+   * exist again, and a product taken off the catalogue is still a product the shop is
+   * holding.
    */
   private lockProducts(
     manager: EntityManager,
@@ -424,7 +582,7 @@ export class ReturnsService {
   ): Promise<{ id: string }[]> {
     return manager.query(
       `SELECT id FROM products
-        WHERE tenant_id = $1::uuid AND id = ANY($2::text[]) AND deleted_at IS NULL
+        WHERE tenant_id = $1::uuid AND id = ANY($2::text[])
         ORDER BY id
           FOR UPDATE`,
       [tenantId, demands.map((d) => d.productId)],
@@ -481,12 +639,14 @@ export class ReturnsService {
     tenantId: string,
     returnId: string,
     demands: Demand[],
-    sold: Map<string, SoldProduct>,
+    sold: Sold,
   ): Promise<ReturnLineOut[]> {
     const out: ReturnLineOut[] = [];
     for (const [i, d] of demands.entries()) {
       const lineNo = i + 1;
-      const costAtSale = sold.get(d.productId)?.costAtSale ?? null;
+      const costAtSale =
+        sold.byPrice.get(priceKey(d.productId, d.priceSatang))?.costAtSale ??
+        null;
       await manager.query(
         `INSERT INTO return_items (
            tenant_id, return_id, line_no, product_id, name, qty, price, original_qty, cost_at_sale)
@@ -517,11 +677,13 @@ export class ReturnsService {
   }
 
   /**
-   * Puts the goods back and writes one ledger row per product.
+   * Puts the goods back and writes one ledger row per **product** — the demands are
+   * per product-and-price, and a credit note taking one part back at two prices must
+   * still write a single row: `uq_movements_ref` is unique on
+   * `(tenant_id, type, ref_id, product_id)` and the second would be a 500.
    *
-   * `ref_id` is the **return** id, not the sale's: `uq_movements_ref` is unique on
-   * `(tenant_id, type, ref_id, product_id)`, so keying on the sale would let the first
-   * credit note against a bill take the slot and the second fail as a 500.
+   * `ref_id` is the **return** id, not the sale's, for the same index: keying on the
+   * sale would let the first credit note against a bill take the slot.
    */
   private async restoreStock(
     manager: EntityManager,
@@ -531,12 +693,18 @@ export class ReturnsService {
     locked: { id: string }[],
   ): Promise<Map<string, number>> {
     const alive = new Set(locked.map((p) => p.id));
-    const stockAfter = new Map<string, number>();
+    const byProduct = new Map<string, number>();
     for (const d of demands) {
-      // A product deleted since the sale has no row to credit back. The credit note
-      // still stands — the money is what matters — and inventing the row would be
-      // worse (`void.service.ts` does the same).
-      if (!alive.has(d.productId)) continue;
+      byProduct.set(d.productId, (byProduct.get(d.productId) ?? 0) + d.qty);
+    }
+
+    const stockAfter = new Map<string, number>();
+    for (const [productId, qty] of byProduct) {
+      // Only a product with no row at all, which a sold one cannot be: `movements`
+      // has a foreign key to `products` with no cascade and every sale writes a row
+      // per product, so deleting a product that has ever sold can only ever set
+      // `deleted_at` — and `lockProducts` now returns those too.
+      if (!alive.has(productId)) continue;
       const updated = returning<{
         stock: number;
         part_no: string;
@@ -547,10 +715,10 @@ export class ReturnsService {
               SET stock = stock + $3, updated_at = now()
             WHERE tenant_id = $1::uuid AND id = $2
         RETURNING stock, part_no, name`,
-          [tenantId, d.productId, d.qty],
+          [tenantId, productId, qty],
         ),
       );
-      stockAfter.set(d.productId, updated[0].stock);
+      stockAfter.set(productId, updated[0].stock);
 
       await manager.query(
         `INSERT INTO movements (
@@ -559,10 +727,10 @@ export class ReturnsService {
         [
           tenantId,
           newId('mv'),
-          d.productId,
+          productId,
           updated[0].part_no,
           updated[0].name,
-          d.qty,
+          qty,
           updated[0].stock,
           returnId,
         ],
@@ -702,11 +870,14 @@ export class ReturnsService {
     manager: EntityManager,
     tenantId: string,
     saleId: string,
-    sold: Map<string, SoldProduct>,
+    sold: Sold,
   ): Promise<boolean> {
-    const refunded = await this.refundedByProduct(manager, tenantId, saleId);
-    const refundedTotal = [...refunded.values()].reduce((s, q) => s + q, 0);
-    const soldTotal = [...sold.values()].reduce((s, p) => s + p.qty, 0);
+    const refunded = await this.refundedSoFar(manager, tenantId, saleId);
+    const refundedTotal = [...refunded.byProduct.values()].reduce(
+      (s, q) => s + q,
+      0,
+    );
+    const soldTotal = [...sold.qtyByProduct.values()].reduce((s, q) => s + q, 0);
     if (refundedTotal < soldTotal) return false;
 
     await manager.query(
@@ -734,6 +905,10 @@ interface RefundAmounts {
  * is a sum of lines, and `0.1 + 0.2` is how a credit note ends up a satang off the
  * bill it credits. `Math.round` on a non-negative value is the Dart `round2`
  * (`(v * 100).round() / 100`, half away from zero) to the satang.
+ *
+ * Every `priceSatang` summed here has already been matched against a price the bill
+ * actually charged (`assertRefundable`), which is what makes this the bill's money
+ * rather than the client's.
  */
 function refundAmounts(demands: Demand[], sale: LockedSale): RefundAmounts {
   const refundSubtotalSatang = demands.reduce(
@@ -758,23 +933,28 @@ function refundAmounts(demands: Demand[], sale: LockedSale): RefundAmounts {
 }
 
 /**
- * Collapses the credit note to one demand per product, keeping the order the lines
- * were asked for so the Thai error reads in the order staff typed.
+ * Collapses the credit note to one demand per product **and price**, keeping the order
+ * the lines were asked for so the Thai error reads in the order staff typed.
  *
  * The Dart reference checks each line separately against the remaining quantity, so a
  * credit note listing the same part on two lines can pass the guard and jointly
- * over-refund. Summing first is the same behaviour for every note the UI can actually
- * build — it lists one row per product on the bill — and it turns that case into the
- * ordinary Thai message instead of a silent over-refund. `sales.service.ts` does the
- * same for the same reason.
+ * over-refund. Summing first turns that into the ordinary Thai message instead of a
+ * silent over-refund, the way `sales.service.ts` does.
+ *
+ * 🔴 Summing **only lines that agree on the price**. Collapsing by product alone kept
+ * the first line's price and multiplied it by the whole quantity, so `[p1×1@85,
+ * p1×1@70]` refunded 170 where the reference refunds 155 — and the stored
+ * `return_items` row then matched neither the bill nor the request. Two prices stay two
+ * demands: each keeps its own money, its own row, and its own slice of the guard.
  */
 function aggregate(items: ReturnLine[]): Demand[] {
   const byProduct = new Map<string, Demand>();
   for (const [i, line] of items.entries()) {
-    const existing = byProduct.get(line.productId);
+    const key = priceKey(line.productId, line.priceSatang);
+    const existing = byProduct.get(key);
     if (existing) existing.qty += line.qty;
     else
-      byProduct.set(line.productId, {
+      byProduct.set(key, {
         productId: line.productId,
         qty: line.qty,
         priceSatang: line.priceSatang,

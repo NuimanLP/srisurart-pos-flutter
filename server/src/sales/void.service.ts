@@ -244,9 +244,11 @@ export class VoidService {
           [tenantId, item.product_id, item.qty],
         ),
       );
-      // A product deleted since the sale has no row to credit back. The void still
-      // stands — the money is what matters — but the stock cannot be restored to
-      // something that is gone, and inventing the row would be worse.
+      // A soft-deleted product is restored like any other — the goods physically
+      // exist again — and `POST /returns` does the same. Only a product with no row
+      // at all is skipped, which a sold one cannot be: `movements` has a foreign key
+      // to `products` with no cascade and every sale writes a row per product, so
+      // deleting one that has ever sold can only ever set `deleted_at`.
       if (updated.length === 0) continue;
 
       await manager.query(

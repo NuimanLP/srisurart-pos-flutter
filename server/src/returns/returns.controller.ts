@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -64,15 +65,33 @@ export class ReturnsController {
   @Get()
   async list(
     @Query('saleId') saleId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<Paginated<ReturnWithItems>> {
     const { page: p, limit: l } = pageParams(page, limit);
     const { items, total } = await this.returns.list({
       saleId: saleId || undefined,
+      from: isoDate(from, 'from'),
+      to: isoDate(to, 'to'),
       page: p,
       limit: l,
     });
     return new Paginated(items, { total, page: p, limit: l });
   }
+}
+
+/**
+ * The same guard `sales.controller.ts` puts on its own `from`/`to`: an unparseable
+ * value would otherwise reach Postgres as a `22007` and surface as a 500. Copied
+ * rather than shared — the sale and the credit note are separate contracts, and #22's
+ * review asked for no new helpers between them.
+ */
+function isoDate(raw: string | undefined, field: string): string | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  if (Number.isNaN(Date.parse(raw))) {
+    throw new BadRequestException(`${field} must be an ISO-8601 timestamp`);
+  }
+  return raw;
 }

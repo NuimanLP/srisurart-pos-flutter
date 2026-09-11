@@ -265,9 +265,9 @@ for the same mechanic sharing one product), then takes `FOR UPDATE` on every pro
 the bill, and only then bumps the counter. Any later path that writes
 stock **and** issues a number must take them in that same order. `POST /returns` (#22)
 does, with the parent bill's own `FOR UPDATE` ahead of all three: **sale → mechanic →
-products → `doc_counters`**. `POST /purchase-orders/:id/receive` (#26) still has to, and
-so does `POST /sales/:id/void` once #23 reverses the mechanic's tab: mechanic first, then
-products. Issuing the number first inverts the order and
+products → `doc_counters`**. `POST /purchase-orders/:id/receive` (#26) still has to;
+`POST /sales/:id/void` (#23) does, taking the mechanic's row before the first product
+because it now reverses the tab. Issuing the number first inverts the order and
 the two deadlock under concurrent load, which is the kind of failure that only shows up on
 a busy Saturday.
 
@@ -349,10 +349,12 @@ in this order:
 1. the idempotency claim (interceptor, before the handler)
 2. `SELECT … FROM sales … FOR UPDATE` — `404 SALE_NOT_FOUND` / `409 SALE_VOIDED` come off
    this row, and both messages stay English, as they are in the Dart source
-3. the over-refund guard: per product, `qty ≤ sold − already refunded`, summed across
-   every prior credit note. Built whole and thrown once as `409 OVER_REFUND`, whose
-   message is `'คืนเกินจำนวนที่ขาย:'` and one line per bad product, so staff see every
-   bad line at once instead of one resubmission at a time
+3. the guards, from the locked bill: **`409 RETURN_PRICE_MISMATCH`** for a line priced
+   at anything this bill did not charge, then the over-refund guard — per product
+   **and price**, `qty ≤ sold − already refunded`, summed across every prior credit
+   note. The latter is built whole and thrown once as `409 OVER_REFUND`, whose message
+   is `'คืนเกินจำนวนที่ขาย:'` and one line per bad product, so staff see every bad line
+   at once instead of one resubmission at a time
 4. the money, in integer satang: `refundDiscount = round2(refundSubtotal × discount /
    subtotal)`, `refundTotal = refundSubtotal − refundDiscount`
 5. lock the mechanic's row, if the bill named one
@@ -375,6 +377,33 @@ Without it two concurrent partial returns of one bill both read the same already
 total, both pass step 3, and the shop refunds more than it sold. The Dart reference is
 single-process and structurally cannot expose that race.
 
+🔴 **The server decides what a refund is worth, not the client.** The body names a
+product and a quantity; the amount comes off `sale_items`. Summing the client's own
+`price` let a `pos` token credit 999,999 baht against a bill that sold the part for 85,
+and the `GREATEST(0, …)` clamps then absorbed it in silence — `total_spend` and a
+mechanic's `credit_balance` floor at 0, so one bogus credit note zeroed a tab and raised
+nothing. The Dart reference has the same hole because there the client *is* the
+authority. One bill may carry the same product on two lines at two prices, so "the price
+of that product on the bill" is a set: a line is matched against that set and **refused**
+if it is not in it, never silently corrected, and the quantity is bounded per
+product-and-price so `[p1×1@85, p1×1@70]` cannot be credited back as `p1×2@85`.
+
+The money is therefore **arithmetically more exact than the reference, not a verbatim
+port of it**: `refundDiscount` is integer satang with half-up rounding where
+`returns_repository.dart` does `round2()` on doubles, so the two differ by one satang on
+an exact tie (subtotal 200.00, discount 3.00, one 85.00 line refunded: exact 1.275 →
+server 1.28, Dart 1.27). The Thai strings are verbatim; the arithmetic is not.
+
+A soft-deleted product is put back on the shelf like any other — the goods physically
+exist again, and `POST /sales/:id/void` does the same. It used to be skipped here, with
+no `movements` row to say the goods had come back at all. A product that has ever sold
+cannot be hard-deleted: `movements` references `products` with no cascade.
+
+`refundMethod = 'หักจากเครดิต'` on a bill with no mechanic is `409
+REFUND_METHOD_NOT_ALLOWED`. The DTO whitelists the three methods but cannot see the
+bill; without the check the credit note records a deduction from a tab that does not
+exist, and the closing report does not count it as cash either.
+
 🔴 **`mechanics.total_credit` is read and never written** (#11): the discount base is
 `total_discount` unless it is zero, in which case it is the legacy `total_credit` — the
 old app's own `(totalDiscount || totalCredit)` fallback, kept so a mechanic imported from
@@ -385,8 +414,10 @@ over cash and the mechanic still owes what he owed. That is why the Returns scre
 before it lets staff choose cash on a credit bill.
 
 `returns.shift_id` is stamped from the device's own open drawer, never from the body, and
-is null when none was opened. `GET /returns?saleId=&page=&limit=` is newest-first and
-readable from both device roles.
+is null when none was opened. `GET /returns?saleId=&from=&to=&page=&limit=` is
+newest-first and readable from both device roles; `from`/`to` are the filters
+`02_API_SCREENS.md §3.7` defines for the refund history and behave exactly as
+`GET /sales` does, with `saleId` the extra one a single bill's notes need.
 
 ## Sale reads and the void (#23)
 
@@ -401,8 +432,10 @@ customer brings back is one number, and a LIKE would offer several bills. `%` an
 in a search are escaped: they are characters staff typed, not wildcards.
 
 **`POST /sales/:id/void`** — `manager` (or `owner`) plus the PIN, `pos` device only,
-idempotent. Restores stock, writes a `movements` row per product (`ยกเลิกบิล`), marks
-the bill void and writes an `audit_log` row. Refused when the bill is already void
+idempotent. Restores stock, writes a `movements` row per product (`type='void'`, no
+`note` — the ledger row carries the type and the bare sale id as `ref_id`, and nothing
+writes a Thai note on this path), reverses the customer and mechanic ledger in full,
+marks the bill void and writes an `audit_log` row. Refused when the bill is already void
 (`409 SALE_VOIDED`) or already has a credit note against it (`409 SALE_HAS_RETURNS` —
 voiding then would restore that stock twice).
 
@@ -415,15 +448,18 @@ from the request pool made a denial a request queuing for a second connection, w
 timed out unrelated requests (see *Two rules* above, and
 `test/void-denial-pool.e2e-spec.ts`).
 
-🔴 **Two things to know before this ships:**
-- The old app has no void button at all: a bill is voided only as the automatic
-  consequence of returning every line (`02_API_SCREENS.md §2` lists the endpoint under
-  "new, not a port", and asks for a conversation first). #23 specifies it, so it is
-  built — but the shop has never seen this button.
-- **The customer and mechanic ledger is deliberately untouched by the void.** #20 does
-  not apply those effects yet (they are #21, blocked on the #11 decision), so there is
-  nothing on a bill this server wrote to reverse, and reversing anyway would drive
-  points and credit balances negative. #21 must extend `VoidService.restoreStock`.
+🔴 **One thing to know before this ships:** the old app has no void button at all — a
+bill is voided only as the automatic consequence of returning every line
+(`02_API_SCREENS.md §2` lists the endpoint under "new, not a port", and asks for a
+conversation first). #23 specifies it, so it is built — but the shop has never seen
+this button.
+
+**The ledger is reversed in full, never in proportion.** #21 made `POST /sales` apply
+the customer's points and spend and the mechanic's tab, and `VoidService.reverseLedger`
+takes exactly those figures back off, every accumulator clamped with `GREATEST(0, …)`.
+In full is safe only because a bill with a credit note against it is already refused
+above (`SALE_HAS_RETURNS`), so there is no partial refund to share out the way
+`POST /returns` has to. `total_credit` is not written (#11).
 
 ## The cash drawer (#28)
 
