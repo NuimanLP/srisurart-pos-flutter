@@ -44,3 +44,35 @@ describe('parseCreateSale — paymentMethod', () => {
     expect(() => parseCreateSale(bodyWith(42))).toThrow(/paymentMethod is required/);
   });
 });
+
+describe('parseCreateSale — line price', () => {
+  const bodyWithLines = (items: unknown[]) => ({
+    id: 's1',
+    subtotal: '0.00',
+    discount: '0.00',
+    total: '0.00',
+    paymentMethod: 'เงินสด',
+    items,
+  });
+
+  it('rejects a negative line price, which no total-level check can see', () => {
+    // Two lines that cancel each other out: subtotal, discount and total are all
+    // coherent, so `assertMoneyMakesSense` passes, but the bill still deducts 2 units
+    // of stock and stores a negative `sale_items.price`.
+    expect(() =>
+      parseCreateSale(
+        bodyWithLines([
+          { productId: 'p1', name: 'x', qty: 1, price: '1000.00' },
+          { productId: 'p1', name: 'x', qty: 1, price: '-1000.00' },
+        ]),
+      ),
+    ).toThrow(/items\[1\]\.price must not be negative/);
+  });
+
+  it('still accepts a zero-price line (a giveaway is not a refund)', () => {
+    const sale = parseCreateSale(
+      bodyWithLines([{ productId: 'p1', name: 'x', qty: 1, price: '0.00' }]),
+    );
+    expect(sale.items[0].priceSatang).toBe(0);
+  });
+});

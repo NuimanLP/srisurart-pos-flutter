@@ -16,12 +16,7 @@ import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { toSatang } from '../common/money.js';
 import { IdempotencyInterceptor } from '../idempotency/idempotency.interceptor.js';
-import {
-  DEFAULT_LIMIT,
-  MAX_LIMIT,
-  Paginated,
-  positiveInt,
-} from '../common/paginated.js';
+import { Paginated, pageParams } from '../common/paginated.js';
 import {
   ShiftsService,
   type Actor,
@@ -52,8 +47,7 @@ export class ShiftsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<Paginated<ShiftWithEntries>> {
-    const p = positiveInt(page, 1, 'page');
-    const l = Math.min(positiveInt(limit, DEFAULT_LIMIT, 'limit'), MAX_LIMIT);
+    const { page: p, limit: l } = pageParams(page, limit);
     const { items, total } = await this.shifts.history(p, l);
     return new Paginated(items, { total, page: p, limit: l });
   }

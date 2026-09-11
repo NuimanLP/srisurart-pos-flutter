@@ -506,6 +506,20 @@ describe('POST /sales (e2e)', () => {
     );
     expect(negativeTotal.status).toBe(400);
 
+    // A negative line price is not covered by the three totals above: the two lines
+    // cancel to a coherent subtotal/total of 0 while still deducting 2 units of stock
+    // and writing a negative `sale_items.price` (only `qty > 0` is CHECKed).
+    const negativeLine = await post(
+      bill(
+        [
+          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '-85.00' },
+        ],
+        { subtotal: '0.00', total: '0.00' },
+      ),
+    );
+    expect(negativeLine.status).toBe(400);
+
     // NUMERIC(12,2) would raise 22003 several statements later: a 500 for what is
     // plainly a bad request.
     const absurd = await post(

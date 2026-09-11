@@ -152,6 +152,13 @@ function parseLine(raw: unknown, index: number): SaleLine {
       `items[${index}].lineNo must be a positive integer`,
     );
   }
+  // The same trap as a negative discount, one level down: `assertMoneyMakesSense`
+  // only ever sees the bill's three totals and `sale_items` only CHECKs `qty > 0`, so
+  // a line priced at -1000 nets a total of 0 while still deducting that line's stock.
+  const priceSatang = toSatang(l.price, `items[${index}].price`);
+  if (priceSatang < 0) {
+    throw new BadRequestException(`items[${index}].price must not be negative`);
+  }
   return {
     lineNo: (l.lineNo as number | undefined) ?? index + 1,
     productId: requiredString(l.productId, `items[${index}].productId`),
@@ -159,7 +166,7 @@ function parseLine(raw: unknown, index: number): SaleLine {
     name: requiredString(l.name, `items[${index}].name`),
     nameTH: optionalString(l.nameTH, `items[${index}].nameTH`),
     qty,
-    priceSatang: toSatang(l.price, `items[${index}].price`),
+    priceSatang,
   };
 }
 

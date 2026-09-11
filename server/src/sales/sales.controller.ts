@@ -16,12 +16,7 @@ import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { IdempotencyInterceptor } from '../idempotency/idempotency.interceptor.js';
-import {
-  DEFAULT_LIMIT,
-  MAX_LIMIT,
-  Paginated,
-  positiveInt,
-} from '../common/paginated.js';
+import { Paginated, pageParams } from '../common/paginated.js';
 import { parseCreateSale } from './sales.dto.js';
 import { SalesService, type CreateSaleResult } from './sales.service.js';
 import { SaleReadsService, type SaleWithItems } from './sale-reads.service.js';
@@ -80,8 +75,7 @@ export class SalesController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<Paginated<SaleWithItems>> {
-    const p = positiveInt(page, 1, 'page');
-    const l = Math.min(positiveInt(limit, DEFAULT_LIMIT, 'limit'), MAX_LIMIT);
+    const { page: p, limit: l } = pageParams(page, limit);
     const { items, total } = await this.reads.list({
       search,
       receiptNo,
