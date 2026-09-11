@@ -1,0 +1,830 @@
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import type { EntityManager } from 'typeorm';
+import { newId } from '../common/ids.js';
+import { fromSatang, satangOf } from '../common/money.js';
+import { currentRequestContext } from '../common/request-context.js';
+import { returning } from '../common/sql.js';
+import { DocNumberService } from '../documents/doc-number.service.js';
+import { ShiftsService } from '../shifts/shifts.service.js';
+import { saleNotFound } from '../sales/sale-reads.service.js';
+import type { CustomerAfter } from '../sales/sales.service.js';
+import type { CreateReturn, ReturnLine } from './returns.dto.js';
+
+/** Who is taking the goods back — read from the token, never from the body. */
+export interface ReturnActor {
+  userId: string;
+  deviceId: string;
+}
+
+/** One credit-note line as the API hands it back. */
+export interface ReturnLineOut {
+  lineNo: number;
+  productId: string;
+  name: string;
+  qty: number;
+  price: string;
+  originalQty: number | null;
+  costAtSale: string | null;
+}
+
+/** A credit note with its lines — what both `POST` and `GET /returns` answer with. */
+export interface ReturnWithItems {
+  id: string;
+  cnNo: string;
+  saleId: string;
+  receiptNo: string;
+  refundSubtotal: string;
+  refundDiscount: string;
+  refundTotal: string;
+  refundMethod: string;
+  reason: string;
+  customerId: string | null;
+  mechanicId: string | null;
+  mechanicName: string | null;
+  date: string;
+  shiftId: string | null;
+  items: ReturnLineOut[];
+}
+
+/** `POST /returns` — the credit note plus the effects the client's cache must patch. */
+export interface CreateReturnResult extends ReturnWithItems {
+  /** True when this return took the last unit off the bill and voided it. */
+  saleVoided: boolean;
+  /** Every product this credit note put back, with its new stock. */
+  products: { id: string; stock: number }[];
+  customerAfter: CustomerAfter | null;
+  mechanicCreditBalanceAfter: string | null;
+}
+
+/** The parent bill, locked, with everything the reversal needs off it. */
+interface LockedSale {
+  subtotal: string;
+  discount: string;
+  total: string;
+  points_granted: number;
+  customer_id: string | null;
+  mechanic_id: string | null;
+  mechanic_name: string | null;
+  mechanic_delta: string | null;
+  payment_method: string;
+  receipt_no: string;
+  voided: boolean;
+}
+
+/** What one product on the parent bill sold as — from the bill, never from the catalogue. */
+interface SoldProduct {
+  qty: number;
+  costAtSale: string | null;
+}
+
+/** How much of one product this credit note takes back, and what to call it. */
+interface Demand {
+  productId: string;
+  qty: number;
+  priceSatang: number;
+  originalQty: number | null;
+  /** The name the client used, for the Thai error and for `return_items.name`. */
+  requestedName: string;
+  firstLineIndex: number;
+}
+
+/** The one refund method that comes off the mechanic's tab instead of out of the drawer. */
+const DEDUCT_FROM_CREDIT = 'หักจากเครดิต';
+
+/**
+ * The credit-note transaction — a faithful port of `returns_repository.dart`, which
+ * is itself the port of `db.js` `createReturn`.
+ *
+ * Everything runs inside the request's transaction, in this order, and the order is
+ * the design:
+ *
+ *   1. the idempotency claim (the interceptor, before this method is called)
+ *   2. `SELECT … FROM sales … FOR UPDATE` — 404 / `SALE_VOIDED` come off this row
+ *   3. the over-refund guard, from the locked bill and every prior credit note
+ *   4. the money, in integer satang
+ *   5. lock the mechanic's row, if the bill named one
+ *   6. `SELECT … FROM products … ORDER BY id FOR UPDATE`
+ *   7. issue the CN number
+ *   8. insert the header and the lines, `cost_at_sale` copied from the parent line
+ *   9. put the stock back and write the `movements` rows
+ *  10. reverse the customer's points and spend, and the mechanic's tab, in proportion
+ *  11. auto-void the parent bill once every unit on it has come back
+ *
+ * 🔴 **The `FOR UPDATE` on the sale in step 2 is what makes the guard in step 3 mean
+ * anything.** Without it two concurrent partial returns of the same bill both read the
+ * same "already refunded" total, both pass, and the shop refunds more than it sold.
+ * The Dart reference is single-process and structurally cannot expose that race.
+ *
+ * 🔴 **Lock order: sale → mechanic → products → `doc_counters`.** `POST /sales` locks
+ * the mechanic before the products (README, *Lock order*) so a cash bill and a credit
+ * bill for the same mechanic cannot deadlock over a shared part; a return that took
+ * the products first would deadlock against any such bill.
+ */
+@Injectable()
+export class ReturnsService {
+  constructor(
+    private readonly docNumbers: DocNumberService,
+    private readonly shifts: ShiftsService,
+  ) {}
+
+  async create(
+    dto: CreateReturn,
+    actor: ReturnActor,
+  ): Promise<CreateReturnResult> {
+    const { tenantId, manager } = currentRequestContext();
+
+    const sale = await this.lockSale(manager, tenantId, dto.saleId);
+    const sold = await this.soldByProduct(manager, tenantId, dto.saleId);
+    const refunded = await this.refundedByProduct(manager, tenantId, dto.saleId);
+
+    const demands = aggregate(dto.items);
+    this.assertRefundable(demands, sold, refunded);
+
+    const money = refundAmounts(demands, sale);
+
+    // Mechanic before products, always — see the class comment.
+    const mechanic = await this.lockMechanic(manager, tenantId, sale.mechanic_id);
+    const locked = await this.lockProducts(manager, tenantId, demands);
+
+    const cnNo = await this.docNumbers.issue(manager, {
+      tenantId,
+      deviceId: actor.deviceId,
+      docType: 'cn',
+    });
+    const returnId = newId('r');
+    // Stamped from the device's own open drawer, never from the body (#28): the
+    // closing report is computed by `shift_id`, and null when the drawer was never
+    // opened — the old app lets staff take goods back without one.
+    const shiftId = await this.shifts.currentShiftIdFor(
+      manager,
+      tenantId,
+      actor.deviceId,
+    );
+
+    const date = await this.insertReturn(
+      manager,
+      tenantId,
+      returnId,
+      cnNo,
+      dto,
+      sale,
+      money,
+      shiftId,
+    );
+    const items = await this.insertLines(
+      manager,
+      tenantId,
+      returnId,
+      demands,
+      sold,
+    );
+
+    const stockAfter = await this.restoreStock(
+      manager,
+      tenantId,
+      returnId,
+      demands,
+      locked,
+    );
+
+    const customerAfter = await this.reverseCustomer(
+      manager,
+      tenantId,
+      sale,
+      money,
+    );
+    const mechanicCreditBalanceAfter = await this.reverseMechanic(
+      manager,
+      tenantId,
+      sale,
+      mechanic,
+      dto.refundMethod,
+      money,
+    );
+
+    const saleVoided = await this.autoVoid(manager, tenantId, dto.saleId, sold);
+
+    return {
+      id: returnId,
+      cnNo,
+      saleId: dto.saleId,
+      receiptNo: sale.receipt_no,
+      refundSubtotal: fromSatang(money.refundSubtotalSatang),
+      refundDiscount: fromSatang(money.refundDiscountSatang),
+      refundTotal: fromSatang(money.refundTotalSatang),
+      refundMethod: dto.refundMethod,
+      reason: dto.reason,
+      customerId: sale.customer_id,
+      mechanicId: sale.mechanic_id,
+      mechanicName: sale.mechanic_name,
+      date,
+      shiftId,
+      items,
+      saleVoided,
+      products: [...stockAfter].map(([id, stock]) => ({ id, stock })),
+      customerAfter,
+      mechanicCreditBalanceAfter,
+    };
+  }
+
+  /** A page of credit notes, newest first, optionally for one bill. */
+  async list(query: {
+    saleId?: string;
+    page: number;
+    limit: number;
+  }): Promise<{ items: ReturnWithItems[]; total: number }> {
+    const { tenantId, manager } = currentRequestContext();
+    const params: unknown[] = [tenantId];
+    let clause = 'tenant_id = $1::uuid';
+    if (query.saleId) {
+      params.push(query.saleId);
+      clause += ` AND sale_id = $${params.length}`;
+    }
+
+    const totals = (await manager.query(
+      `SELECT count(*)::int AS n FROM returns WHERE ${clause}`,
+      params,
+    )) as { n: number }[];
+
+    params.push(query.limit, (query.page - 1) * query.limit);
+    const rows = (await manager.query(
+      `SELECT ${RETURN_COLUMNS} FROM returns
+        WHERE ${clause}
+        ORDER BY date DESC, id DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    )) as ReturnRow[];
+    if (rows.length === 0) return { items: [], total: totals[0].n };
+
+    const items = (await manager.query(
+      `SELECT return_id, line_no, product_id, name, qty, price, original_qty, cost_at_sale
+         FROM return_items
+        WHERE tenant_id = $1::uuid AND return_id = ANY($2::text[])
+        ORDER BY return_id, line_no`,
+      [tenantId, rows.map((r) => r.id)],
+    )) as ({ return_id: string } & Record<string, unknown>)[];
+
+    const byReturn = new Map<string, ReturnLineOut[]>();
+    for (const item of items) {
+      const list = byReturn.get(item.return_id) ?? [];
+      list.push({
+        lineNo: item.line_no as number,
+        productId: item.product_id as string,
+        name: item.name as string,
+        qty: item.qty as number,
+        price: item.price as string,
+        originalQty: (item.original_qty as number) ?? null,
+        costAtSale: (item.cost_at_sale as string) ?? null,
+      });
+      byReturn.set(item.return_id, list);
+    }
+
+    return {
+      items: rows.map((row) => toReturn(row, byReturn.get(row.id) ?? [])),
+      total: totals[0].n,
+    };
+  }
+
+  /**
+   * Locks the parent bill for the rest of the transaction.
+   *
+   * 🔴 This is the serialisation point of the whole endpoint. Two clerks crediting
+   * back the same bill at the same moment would otherwise both read the same
+   * already-refunded totals in `assertRefundable`, both find room, and jointly refund
+   * more than the bill ever sold — every later statement here is per-row and cannot
+   * notice.
+   */
+  private async lockSale(
+    manager: EntityManager,
+    tenantId: string,
+    saleId: string,
+  ): Promise<LockedSale> {
+    const rows = (await manager.query(
+      `SELECT subtotal, discount, total, points_granted, customer_id, mechanic_id,
+              mechanic_name, mechanic_delta, payment_method, receipt_no, voided
+         FROM sales
+        WHERE tenant_id = $1::uuid AND id = $2
+          FOR UPDATE`,
+      [tenantId, saleId],
+    )) as LockedSale[];
+    if (rows.length === 0) throw saleNotFound();
+    if (rows[0].voided) {
+      throw new HttpException(
+        { code: 'SALE_VOIDED', message: 'Bill already voided' },
+        HttpStatus.CONFLICT,
+      );
+    }
+    return rows[0];
+  }
+
+  /** What the bill sold, per product, with the cost each line left the shop at. */
+  private async soldByProduct(
+    manager: EntityManager,
+    tenantId: string,
+    saleId: string,
+  ): Promise<Map<string, SoldProduct>> {
+    const rows = (await manager.query(
+      `SELECT product_id, sum(qty)::int AS qty,
+              (array_agg(cost_at_sale ORDER BY line_no))[1] AS cost_at_sale
+         FROM sale_items
+        WHERE tenant_id = $1::uuid AND sale_id = $2
+        GROUP BY product_id`,
+      [tenantId, saleId],
+    )) as { product_id: string; qty: number; cost_at_sale: string | null }[];
+    return new Map(
+      rows.map((r) => [r.product_id, { qty: r.qty, costAtSale: r.cost_at_sale }]),
+    );
+  }
+
+  /** How much of each product every prior credit note against this bill took back. */
+  private async refundedByProduct(
+    manager: EntityManager,
+    tenantId: string,
+    saleId: string,
+  ): Promise<Map<string, number>> {
+    const rows = (await manager.query(
+      `SELECT ri.product_id, sum(ri.qty)::int AS qty
+         FROM return_items ri
+         JOIN returns r ON r.tenant_id = ri.tenant_id AND r.id = ri.return_id
+        WHERE ri.tenant_id = $1::uuid AND r.sale_id = $2
+        GROUP BY ri.product_id`,
+      [tenantId, saleId],
+    )) as { product_id: string; qty: number }[];
+    return new Map(rows.map((r) => [r.product_id, r.qty]));
+  }
+
+  /**
+   * The over-refund guard, built whole and thrown once — like `assertStock` on the
+   * sale side, so staff see every bad line at once instead of discovering them one
+   * resubmission at a time. Both strings are verbatim from `returns_repository.dart`.
+   *
+   * Nothing has been written when this fires: the only statements above it are reads
+   * and the lock on the parent bill.
+   */
+  private assertRefundable(
+    demands: Demand[],
+    sold: Map<string, SoldProduct>,
+    refunded: Map<string, number>,
+  ): void {
+    const lines: string[] = [];
+    for (const d of demands) {
+      const line = sold.get(d.productId);
+      if (!line) {
+        lines.push(`${d.requestedName}: ไม่อยู่ในบิลนี้`);
+        continue;
+      }
+      const remaining = line.qty - (refunded.get(d.productId) ?? 0);
+      if (d.qty > remaining) {
+        lines.push(
+          `${d.requestedName}: คืนได้อีก ${remaining} แต่ขอคืน ${d.qty}`,
+        );
+      }
+    }
+    if (lines.length > 0) {
+      throw new HttpException(
+        {
+          code: 'OVER_REFUND',
+          message: `คืนเกินจำนวนที่ขาย:\n${lines.join('\n')}`,
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+  }
+
+  /**
+   * Takes the mechanic's row lock before any product is touched, and reads the two
+   * running totals the reversal needs as they stand under it.
+   *
+   * No row is not an error: `sales.mechanic_id` is a foreign key, so a bill naming
+   * one has one, and the Dart reference skips the reversal rather than failing.
+   */
+  private async lockMechanic(
+    manager: EntityManager,
+    tenantId: string,
+    mechanicId: string | null,
+  ): Promise<{ total_discount: string; total_credit: string } | null> {
+    if (mechanicId === null) return null;
+    const rows = (await manager.query(
+      `SELECT total_discount, total_credit FROM mechanics
+        WHERE tenant_id = $1::uuid AND id = $2 FOR UPDATE`,
+      [tenantId, mechanicId],
+    )) as { total_discount: string; total_credit: string }[];
+    return rows.length === 0 ? null : rows[0];
+  }
+
+  /**
+   * Locks every product this credit note puts back, in id order — the same deadlock
+   * guard the sale takes. A product deleted since the sale simply has no row; the
+   * credit note still stands, and `restoreStock` skips it.
+   */
+  private lockProducts(
+    manager: EntityManager,
+    tenantId: string,
+    demands: Demand[],
+  ): Promise<{ id: string }[]> {
+    return manager.query(
+      `SELECT id FROM products
+        WHERE tenant_id = $1::uuid AND id = ANY($2::text[]) AND deleted_at IS NULL
+        ORDER BY id
+          FOR UPDATE`,
+      [tenantId, demands.map((d) => d.productId)],
+    ) as Promise<{ id: string }[]>;
+  }
+
+  /** Inserts the header. Returns the date Postgres stamped on it. */
+  private async insertReturn(
+    manager: EntityManager,
+    tenantId: string,
+    returnId: string,
+    cnNo: string,
+    dto: CreateReturn,
+    sale: LockedSale,
+    money: RefundAmounts,
+    shiftId: string | null,
+  ): Promise<string> {
+    const rows = (await manager.query(
+      `INSERT INTO returns (
+         tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal, refund_discount,
+         refund_total, refund_method, reason, customer_id, mechanic_id, mechanic_name, shift_id)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       RETURNING date`,
+      [
+        tenantId,
+        returnId,
+        cnNo,
+        dto.saleId,
+        // Copied off the parent bill, not sent by the client: the credit note has to
+        // name the receipt it credits, and the client cannot be the authority on that.
+        sale.receipt_no,
+        fromSatang(money.refundSubtotalSatang),
+        fromSatang(money.refundDiscountSatang),
+        fromSatang(money.refundTotalSatang),
+        dto.refundMethod,
+        dto.reason,
+        sale.customer_id,
+        sale.mechanic_id,
+        sale.mechanic_name,
+        shiftId,
+      ],
+    )) as { date: Date }[];
+    return rows[0].date.toISOString();
+  }
+
+  /**
+   * Inserts the lines, `cost_at_sale` copied from the **parent sale line** read above
+   * (ADR-0008, #22). Never re-read from `products.cost`: a weighted-average PO receive
+   * rewrites that column, so profit-after-returns on an old bill would drift with
+   * whatever stock was bought in since.
+   */
+  private async insertLines(
+    manager: EntityManager,
+    tenantId: string,
+    returnId: string,
+    demands: Demand[],
+    sold: Map<string, SoldProduct>,
+  ): Promise<ReturnLineOut[]> {
+    const out: ReturnLineOut[] = [];
+    for (const [i, d] of demands.entries()) {
+      const lineNo = i + 1;
+      const costAtSale = sold.get(d.productId)?.costAtSale ?? null;
+      await manager.query(
+        `INSERT INTO return_items (
+           tenant_id, return_id, line_no, product_id, name, qty, price, original_qty, cost_at_sale)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          tenantId,
+          returnId,
+          lineNo,
+          d.productId,
+          d.requestedName,
+          d.qty,
+          fromSatang(d.priceSatang),
+          d.originalQty,
+          costAtSale,
+        ],
+      );
+      out.push({
+        lineNo,
+        productId: d.productId,
+        name: d.requestedName,
+        qty: d.qty,
+        price: fromSatang(d.priceSatang),
+        originalQty: d.originalQty,
+        costAtSale,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Puts the goods back and writes one ledger row per product.
+   *
+   * `ref_id` is the **return** id, not the sale's: `uq_movements_ref` is unique on
+   * `(tenant_id, type, ref_id, product_id)`, so keying on the sale would let the first
+   * credit note against a bill take the slot and the second fail as a 500.
+   */
+  private async restoreStock(
+    manager: EntityManager,
+    tenantId: string,
+    returnId: string,
+    demands: Demand[],
+    locked: { id: string }[],
+  ): Promise<Map<string, number>> {
+    const alive = new Set(locked.map((p) => p.id));
+    const stockAfter = new Map<string, number>();
+    for (const d of demands) {
+      // A product deleted since the sale has no row to credit back. The credit note
+      // still stands — the money is what matters — and inventing the row would be
+      // worse (`void.service.ts` does the same).
+      if (!alive.has(d.productId)) continue;
+      const updated = returning<{
+        stock: number;
+        part_no: string;
+        name: string;
+      }>(
+        await manager.query(
+          `UPDATE products
+              SET stock = stock + $3, updated_at = now()
+            WHERE tenant_id = $1::uuid AND id = $2
+        RETURNING stock, part_no, name`,
+          [tenantId, d.productId, d.qty],
+        ),
+      );
+      stockAfter.set(d.productId, updated[0].stock);
+
+      await manager.query(
+        `INSERT INTO movements (
+           tenant_id, id, product_id, part_no, name, delta, type, stock_after, ref_id)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, 'return', $7, $8)`,
+        [
+          tenantId,
+          newId('mv'),
+          d.productId,
+          updated[0].part_no,
+          updated[0].name,
+          d.qty,
+          updated[0].stock,
+          returnId,
+        ],
+      );
+    }
+    return stockAfter;
+  }
+
+  /**
+   * Reverses the customer's spend and points in proportion.
+   *
+   * `basePoints` falls back to `floor(total / 10)` when the bill recorded none, which
+   * is what `returns_repository.dart` does for bills imported from the old app; the
+   * reversal is then `floor(basePoints × ratio)`, floored exactly as the reference
+   * floors it, so a quarter of a 34-point bill gives back 8, not 9.
+   */
+  private async reverseCustomer(
+    manager: EntityManager,
+    tenantId: string,
+    sale: LockedSale,
+    money: RefundAmounts,
+  ): Promise<CustomerAfter | null> {
+    if (sale.customer_id === null) return null;
+    const basePoints =
+      sale.points_granted > 0
+        ? sale.points_granted
+        : Math.floor(money.saleTotalSatang / 1000);
+    const pointsToReverse =
+      money.saleTotalSatang > 0
+        ? Math.floor(
+            (basePoints * money.refundTotalSatang) / money.saleTotalSatang,
+          )
+        : 0;
+
+    const rows = returning<{ id: string; points: number; total_spend: string }>(
+      await manager.query(
+        `UPDATE customers
+            SET points = GREATEST(0, points - $3),
+                total_spend = GREATEST(0, total_spend - $4),
+                updated_at = now()
+          WHERE tenant_id = $1::uuid AND id = $2
+      RETURNING id, points, total_spend`,
+        [
+          tenantId,
+          sale.customer_id,
+          pointsToReverse,
+          fromSatang(money.refundTotalSatang),
+        ],
+      ),
+    );
+    return rows.length === 0
+      ? null
+      : {
+          id: rows[0].id,
+          points: rows[0].points,
+          totalSpend: fromSatang(satangOf(rows[0].total_spend)),
+        };
+  }
+
+  /**
+   * Reverses the mechanic's statistics and, only for `'หักจากเครดิต'`, his tab.
+   *
+   * 🔴 `credit_balance` moves on that one string and nothing else. A cash refund on a
+   * credit sale deliberately leaves the tab alone — the shop hands over cash and the
+   * mechanic still owes what he owed, which is exactly why the Returns screen warns
+   * staff before it lets them choose cash on a credit bill.
+   *
+   * 🔴 `total_credit` is **read and never written** (decision #11): it is the JS app's
+   * legacy alias of `total_discount`, and the `(total_discount || total_credit)`
+   * fallback below is the old app's own, kept so a mechanic imported from it reverses
+   * against the figure his screen actually shows.
+   */
+  private async reverseMechanic(
+    manager: EntityManager,
+    tenantId: string,
+    sale: LockedSale,
+    mechanic: { total_discount: string; total_credit: string } | null,
+    refundMethod: string,
+    money: RefundAmounts,
+  ): Promise<string | null> {
+    if (sale.mechanic_id === null || mechanic === null) return null;
+
+    const origDelta =
+      sale.mechanic_delta === null ? 0 : satangOf(sale.mechanic_delta);
+    // In proportion to what this credit note takes back, never in full — the same
+    // share `reverseCustomer` uses for the points.
+    const inProportion = (satang: number): number =>
+      money.saleTotalSatang > 0
+        ? Math.round((satang * money.refundTotalSatang) / money.saleTotalSatang)
+        : 0;
+    // A negative delta was a discount given to the mechanic, a positive one a markup.
+    const reverseCredit = origDelta < 0 ? inProportion(-origDelta) : 0;
+    const reverseMarkup = origDelta > 0 ? inProportion(origDelta) : 0;
+    const reduceBalance =
+      refundMethod === DEDUCT_FROM_CREDIT ? money.refundTotalSatang : 0;
+    const totalDiscount = satangOf(mechanic.total_discount);
+    const discountBaseSatang =
+      totalDiscount !== 0 ? totalDiscount : satangOf(mechanic.total_credit);
+
+    const rows = returning<{ credit_balance: string }>(
+      await manager.query(
+        `UPDATE mechanics
+            SET total_sales = GREATEST(0, total_sales - $3),
+                total_discount = GREATEST(0, $4::numeric),
+                total_markup = GREATEST(0, total_markup - $5),
+                credit_balance = GREATEST(0, credit_balance - $6),
+                updated_at = now()
+          WHERE tenant_id = $1::uuid AND id = $2
+      RETURNING credit_balance`,
+        [
+          tenantId,
+          sale.mechanic_id,
+          fromSatang(money.refundTotalSatang),
+          // Assigned, not subtracted: the base is `total_discount` unless it is zero,
+          // in which case it is the legacy `total_credit`. Safe to compute in Node
+          // because this row has been locked since `lockMechanic`. The `::numeric`
+          // on it is load-bearing — with no column in the GREATEST to infer from,
+          // Postgres types the parameter from the literal `0` and rejects `"0.00"`
+          // as an integer.
+          fromSatang(discountBaseSatang - reverseCredit),
+          fromSatang(reverseMarkup),
+          fromSatang(reduceBalance),
+        ],
+      ),
+    );
+    return rows.length === 0
+      ? null
+      : fromSatang(satangOf(rows[0].credit_balance));
+  }
+
+  /**
+   * Voids the parent bill once every unit on it has come back — cumulative quantity
+   * across all credit notes, this one included, exactly as the old app decides it.
+   * The bill is already locked, so this read cannot race a concurrent return.
+   */
+  private async autoVoid(
+    manager: EntityManager,
+    tenantId: string,
+    saleId: string,
+    sold: Map<string, SoldProduct>,
+  ): Promise<boolean> {
+    const refunded = await this.refundedByProduct(manager, tenantId, saleId);
+    const refundedTotal = [...refunded.values()].reduce((s, q) => s + q, 0);
+    const soldTotal = [...sold.values()].reduce((s, p) => s + p.qty, 0);
+    if (refundedTotal < soldTotal) return false;
+
+    await manager.query(
+      `UPDATE sales SET voided = TRUE, voided_at = now()
+        WHERE tenant_id = $1::uuid AND id = $2`,
+      [tenantId, saleId],
+    );
+    return true;
+  }
+}
+
+/** The four figures on the credit note, in integer satang. */
+interface RefundAmounts {
+  refundSubtotalSatang: number;
+  refundDiscountSatang: number;
+  refundTotalSatang: number;
+  saleTotalSatang: number;
+}
+
+/**
+ * The refund carries the parent bill's discount at the same rate it was given:
+ * `refundDiscount = round2(refundSubtotal × discount / subtotal)`.
+ *
+ * In integer satang throughout, the way `sales.service.ts` handles money — a refund
+ * is a sum of lines, and `0.1 + 0.2` is how a credit note ends up a satang off the
+ * bill it credits. `Math.round` on a non-negative value is the Dart `round2`
+ * (`(v * 100).round() / 100`, half away from zero) to the satang.
+ */
+function refundAmounts(demands: Demand[], sale: LockedSale): RefundAmounts {
+  const refundSubtotalSatang = demands.reduce(
+    (s, d) => s + d.qty * d.priceSatang,
+    0,
+  );
+  const saleSubtotalSatang = satangOf(sale.subtotal);
+  const refundDiscountSatang =
+    saleSubtotalSatang > 0
+      ? Math.round(
+          (refundSubtotalSatang * satangOf(sale.discount)) / saleSubtotalSatang,
+        )
+      : 0;
+  return {
+    refundSubtotalSatang,
+    refundDiscountSatang,
+    // Both operands are already whole satang, so the reference's second `round2` is
+    // a no-op here.
+    refundTotalSatang: refundSubtotalSatang - refundDiscountSatang,
+    saleTotalSatang: satangOf(sale.total),
+  };
+}
+
+/**
+ * Collapses the credit note to one demand per product, keeping the order the lines
+ * were asked for so the Thai error reads in the order staff typed.
+ *
+ * The Dart reference checks each line separately against the remaining quantity, so a
+ * credit note listing the same part on two lines can pass the guard and jointly
+ * over-refund. Summing first is the same behaviour for every note the UI can actually
+ * build — it lists one row per product on the bill — and it turns that case into the
+ * ordinary Thai message instead of a silent over-refund. `sales.service.ts` does the
+ * same for the same reason.
+ */
+function aggregate(items: ReturnLine[]): Demand[] {
+  const byProduct = new Map<string, Demand>();
+  for (const [i, line] of items.entries()) {
+    const existing = byProduct.get(line.productId);
+    if (existing) existing.qty += line.qty;
+    else
+      byProduct.set(line.productId, {
+        productId: line.productId,
+        qty: line.qty,
+        priceSatang: line.priceSatang,
+        originalQty: line.originalQty,
+        requestedName: line.name,
+        firstLineIndex: i,
+      });
+  }
+  return [...byProduct.values()].sort(
+    (a, b) => a.firstLineIndex - b.firstLineIndex,
+  );
+}
+
+interface ReturnRow {
+  id: string;
+  cn_no: string;
+  sale_id: string;
+  receipt_no: string;
+  refund_subtotal: string;
+  refund_discount: string;
+  refund_total: string;
+  refund_method: string;
+  reason: string;
+  customer_id: string | null;
+  mechanic_id: string | null;
+  mechanic_name: string | null;
+  date: Date;
+  shift_id: string | null;
+}
+
+const RETURN_COLUMNS = `id, cn_no, sale_id, receipt_no, refund_subtotal, refund_discount,
+                        refund_total, refund_method, reason, customer_id, mechanic_id,
+                        mechanic_name, date, shift_id`;
+
+function toReturn(row: ReturnRow, items: ReturnLineOut[]): ReturnWithItems {
+  return {
+    id: row.id,
+    cnNo: row.cn_no,
+    saleId: row.sale_id,
+    receiptNo: row.receipt_no,
+    refundSubtotal: row.refund_subtotal,
+    refundDiscount: row.refund_discount,
+    refundTotal: row.refund_total,
+    refundMethod: row.refund_method,
+    reason: row.reason,
+    customerId: row.customer_id,
+    mechanicId: row.mechanic_id,
+    mechanicName: row.mechanic_name,
+    date: row.date.toISOString(),
+    shiftId: row.shift_id,
+    items,
+  };
+}

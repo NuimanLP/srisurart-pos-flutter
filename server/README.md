@@ -102,6 +102,7 @@ src/infra/               DataSource (pos_app role, synchronize=false), ADMIN_DAT
 src/idempotency/         Idempotency-Key: claim, replay, 409 on a changed request (#18)
 src/documents/           document numbers: RC01-2569-08-0042, per device per month (#19)
 src/sales/               POST /sales — the sale transaction (#20)
+src/returns/             POST /returns — the credit note (#22)
 src/shifts/              the cash drawer: shifts, entries, the shift_id stamp (#28)
 src/db/migrations/       the schema (27 tables, indexes, pg_trgm) + RLS/grants — the only source of DDL
 src/db/data-source.ts    owner-role DataSource with the static MIGRATIONS list
@@ -262,9 +263,11 @@ locks the mechanic named on the bill (any bill naming one, not just credit sales
 bill locking products first and the mechanic later would deadlock against a credit bill
 for the same mechanic sharing one product), then takes `FOR UPDATE` on every product on
 the bill, and only then bumps the counter. Any later path that writes
-stock **and** issues a number — `POST /purchase-orders/:id/receive` (#26), `POST /returns`
-(#22) — must take them in that same order, and so must `POST /sales/:id/void` once #23
-reverses the mechanic's tab: mechanic first, then products. Issuing the number first inverts the order and
+stock **and** issues a number must take them in that same order. `POST /returns` (#22)
+does, with the parent bill's own `FOR UPDATE` ahead of all three: **sale → mechanic →
+products → `doc_counters`**. `POST /purchase-orders/:id/receive` (#26) still has to, and
+so does `POST /sales/:id/void` once #23 reverses the mechanic's tab: mechanic first, then
+products. Issuing the number first inverts the order and
 the two deadlock under concurrent load, which is the kind of failure that only shows up on
 a busy Saturday.
 
@@ -336,6 +339,54 @@ returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/
 so `result[0].stock` reads a number on one and `undefined` on the other — which reaches
 Postgres as a NULL several statements later, where nothing points back at the cause.
 Every `UPDATE … RETURNING` goes through it.
+
+## The credit note (#22)
+
+`POST /api/v1/returns` — `pos` device only, `Idempotency-Key` mandatory, a port of
+`returns_repository.dart` (itself the port of `db.js` `createReturn`). One transaction,
+in this order:
+
+1. the idempotency claim (interceptor, before the handler)
+2. `SELECT … FROM sales … FOR UPDATE` — `404 SALE_NOT_FOUND` / `409 SALE_VOIDED` come off
+   this row, and both messages stay English, as they are in the Dart source
+3. the over-refund guard: per product, `qty ≤ sold − already refunded`, summed across
+   every prior credit note. Built whole and thrown once as `409 OVER_REFUND`, whose
+   message is `'คืนเกินจำนวนที่ขาย:'` and one line per bad product, so staff see every
+   bad line at once instead of one resubmission at a time
+4. the money, in integer satang: `refundDiscount = round2(refundSubtotal × discount /
+   subtotal)`, `refundTotal = refundSubtotal − refundDiscount`
+5. lock the mechanic's row, if the bill named one
+6. `SELECT … FROM products … ORDER BY id FOR UPDATE`
+7. issue the CN number (`CN07-2569-09-0001`)
+8. insert the header and the lines — `cost_at_sale` copied from the **parent sale line**,
+   never re-read from `products.cost`, which a weighted-average PO receive rewrites
+9. stock back, one `movements` row per product, `type='return'`, `ref_id` = the **return**
+   id (`uq_movements_ref` is `(tenant_id, type, ref_id, product_id)`, so keying on the bill
+   would make the second credit note against it a 500)
+10. the ledger, in proportion to `refundTotal / sale.total`: customer `points` and
+   `total_spend`; mechanic `total_sales`, `total_discount`, `total_markup`, and
+   `credit_balance` **only** for `refundMethod === 'หักจากเครดิต'`. Every accumulator
+   clamps with `GREATEST(0, …)` — `total_spend`, `total_sales`, `total_discount` and
+   `total_markup` have no CHECK at all, so a missing clamp there fails silently
+11. auto-void the parent bill once the cumulative returned quantity reaches what it sold
+
+🔴 **The `FOR UPDATE` on the sale in step 2 is the whole endpoint's serialisation point.**
+Without it two concurrent partial returns of one bill both read the same already-refunded
+total, both pass step 3, and the shop refunds more than it sold. The Dart reference is
+single-process and structurally cannot expose that race.
+
+🔴 **`mechanics.total_credit` is read and never written** (#11): the discount base is
+`total_discount` unless it is zero, in which case it is the legacy `total_credit` — the
+old app's own `(totalDiscount || totalCredit)` fallback, kept so a mechanic imported from
+it reverses against the figure his screen actually shows.
+
+A cash refund on a credit sale deliberately leaves `credit_balance` alone — the shop hands
+over cash and the mechanic still owes what he owed. That is why the Returns screen warns
+before it lets staff choose cash on a credit bill.
+
+`returns.shift_id` is stamped from the device's own open drawer, never from the body, and
+is null when none was opened. `GET /returns?saleId=&page=&limit=` is newest-first and
+readable from both device roles.
 
 ## Sale reads and the void (#23)
 
