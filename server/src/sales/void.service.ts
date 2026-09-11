@@ -3,6 +3,7 @@ import { DataSource, type EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { AUDIT_DATA_SOURCE } from '../infra/db.module.js';
 import { newId } from '../common/ids.js';
+import { fromSatang, satangOf } from '../common/money.js';
 import { verifyPassword } from '../common/password.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { returning } from '../common/sql.js';
@@ -11,6 +12,18 @@ import {
   saleNotFound,
   type SaleWithItems,
 } from './sale-reads.service.js';
+import { MECHANIC_CREDIT } from './sales.service.js';
+
+/** The bill under its own row lock — everything the void has to undo. */
+interface LockedSale {
+  voided: boolean;
+  customer_id: string | null;
+  mechanic_id: string | null;
+  mechanic_delta: string | null;
+  payment_method: string;
+  total: string;
+  points_granted: number;
+}
 
 /** Who is voiding, from the token — plus the PIN they typed, which is not. */
 export interface VoidActor {
@@ -50,11 +63,15 @@ export class VoidService {
     await this.assertManagerPin(manager, tenantId, actor, saleId);
 
     // Locked, because two clerks voiding the same bill would otherwise both restore
-    // its stock and the shop would gain inventory it never had.
+    // its stock and the shop would gain inventory it never had. The ledger columns
+    // ride along on that lock: the reversal has to subtract the figures this bill
+    // actually wrote, and it reads them under the same lock that makes it exclusive.
     const rows = (await manager.query(
-      `SELECT id, voided FROM sales WHERE tenant_id = $1::uuid AND id = $2 FOR UPDATE`,
+      `SELECT voided, customer_id, mechanic_id, mechanic_delta,
+              payment_method, total, points_granted
+         FROM sales WHERE tenant_id = $1::uuid AND id = $2 FOR UPDATE`,
       [tenantId, saleId],
-    )) as { id: string; voided: boolean }[];
+    )) as LockedSale[];
     if (rows.length === 0) throw saleNotFound();
     if (rows[0].voided) {
       throw new HttpException(
@@ -80,7 +97,17 @@ export class VoidService {
       );
     }
 
+    const sale = rows[0];
+    // 🔴 The mechanic's row lock is taken here, before the first product row.
+    // `sales.service.ts` locks mechanic → products → doc_counters; a void that
+    // reached the mechanic after the products would close the cycle and deadlock
+    // against a concurrent bill for the same mechanic sharing one product. The
+    // customer is deliberately left to `reverseLedger`, after the stock, because
+    // that is where the sale path takes it too.
+    await this.lockMechanic(manager, tenantId, sale.mechanic_id);
+
     await this.restoreStock(manager, tenantId, saleId);
+    await this.reverseLedger(manager, tenantId, sale);
 
     const voided = returning<{ voided_at: Date }>(
       await manager.query(
@@ -106,13 +133,88 @@ export class VoidService {
   }
 
   /**
+   * Takes the mechanic's row lock, in the sale path's lock order, so the ledger
+   * reversal below can run after the stock without inverting it.
+   *
+   * No row is not an error: a mechanic deleted since the bill has nothing to lock
+   * and nothing to reverse, and the void still stands.
+   */
+  private async lockMechanic(
+    manager: EntityManager,
+    tenantId: string,
+    mechanicId: string | null,
+  ): Promise<void> {
+    if (mechanicId === null) return;
+    await manager.query(
+      `SELECT id FROM mechanics WHERE tenant_id = $1::uuid AND id = $2 FOR UPDATE`,
+      [tenantId, mechanicId],
+    );
+  }
+
+  /**
+   * Undoes what `POST /sales` applied to the customer and the mechanic — the same two
+   * statements as `applyCustomer`/`applyMechanic`, with every sign flipped.
+   *
+   * In **full, never in proportion**: a bill with a credit note against it was already
+   * refused above (`SALE_HAS_RETURNS`), so there is no partial refund to share out the
+   * way `POST /returns` has to. What the sale added is exactly what comes off.
+   *
+   * `GREATEST(0, …)` on every running total. `points` and `credit_balance` have a
+   * `>= 0` CHECK that would at least raise if this were wrong, but `total_spend`,
+   * `total_sales`, `total_discount` and `total_markup` have none — an unclamped
+   * subtraction against a figure imported short from the old app goes negative in
+   * silence.
+   *
+   * 🔴 `total_credit` is never written (decision #11): it is the JS app's legacy alias
+   * of `total_discount`, the sale path deliberately does not write it, and a void that
+   * did would move a column no sale ever moved.
+   */
+  private async reverseLedger(
+    manager: EntityManager,
+    tenantId: string,
+    sale: LockedSale,
+  ): Promise<void> {
+    if (sale.customer_id !== null) {
+      await manager.query(
+        `UPDATE customers
+            SET points = GREATEST(0, points - $3),
+                total_spend = GREATEST(0, total_spend - $4),
+                updated_at = now()
+          WHERE tenant_id = $1::uuid AND id = $2`,
+        [tenantId, sale.customer_id, sale.points_granted, sale.total],
+      );
+    }
+
+    if (sale.mechanic_id === null) return;
+    // A negative delta was a discount given to the mechanic, a positive one a markup.
+    const delta =
+      sale.mechanic_delta === null ? 0 : satangOf(sale.mechanic_delta);
+    await manager.query(
+      `UPDATE mechanics
+          SET total_sales = GREATEST(0, total_sales - $3),
+              total_discount = GREATEST(0, total_discount - $4),
+              total_markup = GREATEST(0, total_markup - $5),
+              credit_balance = GREATEST(0, credit_balance - $6),
+              updated_at = now()
+        WHERE tenant_id = $1::uuid AND id = $2`,
+      [
+        tenantId,
+        sale.mechanic_id,
+        sale.total,
+        fromSatang(delta < 0 ? -delta : 0),
+        fromSatang(delta > 0 ? delta : 0),
+        // Only a bill that went on the tab put anything on it.
+        sale.payment_method === MECHANIC_CREDIT ? sale.total : '0.00',
+      ],
+    );
+  }
+
+  /**
    * Puts every line back and writes the ledger rows that say so.
    *
-   * 🔴 **The customer and mechanic ledger is deliberately untouched.** #20 does not
-   * apply those effects yet — they are #21, blocked on the #11 decision — so there is
-   * nothing on a bill written by this server to reverse, and reversing anyway would
-   * drive points and credit balances negative. When #21 lands it must extend this
-   * method, and #11 has to be settled by a human before either can be right.
+   * The customer and mechanic ledger is handled by `reverseLedger`, which runs after
+   * this — the sale path updates the customer after the products too, and the void
+   * must not invert that order.
    */
   private async restoreStock(
     manager: EntityManager,

@@ -78,7 +78,7 @@ const UNIQUE_VIOLATION = '23505';
 const FOREIGN_KEY_VIOLATION = '23503';
 
 /** The one payment method that goes on the mechanic's tab instead of into the drawer. */
-const MECHANIC_CREDIT = 'เครดิตช่าง';
+export const MECHANIC_CREDIT = 'เครดิตช่าง';
 
 /**
  * The sale transaction — the heart of the system.
