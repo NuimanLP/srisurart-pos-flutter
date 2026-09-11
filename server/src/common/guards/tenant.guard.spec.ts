@@ -1,0 +1,266 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import { TenantGuard } from './tenant.guard.js';
+import { runInRequestContext } from '../request-context.js';
+
+describe('TenantGuard', () => {
+  let guard: TenantGuard;
+  let jwtVerifierMock: any;
+  let reflectorMock: any;
+  let redisCacheMock: any;
+  let managerMock: any;
+
+  /**
+   * The guard now runs inside the transaction RequestContextMiddleware opens — it
+   * has to, because `SET LOCAL app.tenant_id` only means anything on that one
+   * connection. Every call goes through the scope for the same reason production does.
+   */
+  const activate = (ctx: any) =>
+    runInRequestContext({ manager: managerMock }, () => guard.canActivate(ctx));
+
+  beforeEach(() => {
+    jwtVerifierMock = {
+      verify: vi.fn(),
+    };
+    reflectorMock = {
+      getAllAndOverride: vi.fn(),
+    };
+    redisCacheMock = {
+      get: vi.fn(),
+      set: vi.fn(),
+    };
+    managerMock = {
+      query: vi.fn().mockResolvedValue([]),
+    };
+
+    guard = new TenantGuard(jwtVerifierMock, reflectorMock, redisCacheMock);
+  });
+
+  function createMockContext(authHeader?: string, reqAttrs: Record<string, any> = {}) {
+    const request = {
+      headers: {
+        authorization: authHeader,
+      },
+      ...reqAttrs,
+    };
+    return {
+      switchToHttp: () => ({
+        getRequest: () => request,
+      }),
+      getHandler: () => ({}),
+      getClass: () => ({}),
+    } as any;
+  }
+
+  it('throws UnauthorizedException when Authorization header is missing or malformed', async () => {
+    const ctxNoHeader = createMockContext(undefined);
+    await expect(activate(ctxNoHeader)).rejects.toThrow(UnauthorizedException);
+
+    const ctxBadPrefix = createMockContext('Basic 12345');
+    await expect(activate(ctxBadPrefix)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('allows access and attaches user when token is valid, active, and cache hits', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+      role: 'cashier',
+      drole: 'pos',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue('active');
+
+    const result = await activate(ctx);
+    expect(result).toBe(true);
+    expect(ctx.switchToHttp().getRequest().user).toEqual({
+      userId: 'u1',
+      tenantId: 't1',
+      role: 'cashier',
+      deviceId: undefined,
+      deviceRole: 'pos',
+    });
+    // On a cache hit the guard touches the database once — to name the tenant — and
+    // never to re-read the status.
+    expect(managerMock.query).toHaveBeenCalledTimes(1);
+    expect(managerMock.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('SELECT status FROM tenants'),
+      expect.anything(),
+    );
+  });
+
+  it('queries database on cache miss and caches result in Redis', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue(null); // cache miss
+    managerMock.query.mockResolvedValue([{ status: 'active' }]);
+
+    const result = await activate(ctx);
+    expect(result).toBe(true);
+    // On the request's OWN transaction, never a second pool checkout: the middleware
+    // is already holding one, and reaching for another deadlocks the pool under load.
+    expect(managerMock.query).toHaveBeenCalledWith(
+      expect.stringContaining('SELECT status FROM tenants'),
+      ['t1'],
+    );
+    expect(redisCacheMock.set).toHaveBeenCalledWith(
+      't:t1:status',
+      'active',
+      'EX',
+      expect.any(Number),
+    );
+  });
+
+  it('names the tenant on the request transaction, and only after the status check', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({ aud: 'tenant', sub: 'u1', tid: 't1' });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue('active');
+
+    await activate(ctx);
+
+    expect(managerMock.query).toHaveBeenCalledWith(
+      expect.stringContaining("set_config('app.tenant_id'"),
+      ['t1'],
+    );
+  });
+
+  it('never names a suspended tenant on a transaction', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({ aud: 'tenant', sub: 'u1', tid: 't1' });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue('suspended');
+
+    await expect(activate(ctx)).rejects.toThrow(HttpException);
+    expect(managerMock.query).not.toHaveBeenCalled();
+  });
+
+  it('throws TENANT_SUSPENDED (403) with Thai message if tenant is not active', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue('suspended');
+
+    try {
+      await activate(ctx);
+      expect.unreachable('Should have thrown');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(HttpException);
+      expect(err.getStatus()).toBe(HttpStatus.FORBIDDEN);
+      const res = err.getResponse();
+      expect(res).toEqual({
+        code: 'TENANT_SUSPENDED',
+        message: 'ร้านนี้ถูกระงับการใช้งาน',
+      });
+    }
+  });
+
+  it('throws DEVICE_ROLE_FORBIDDEN (403) with Thai message if non-pos device accesses pos endpoint', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+      drole: 'backoffice', // backoffice trying to access pos endpoint
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue('pos'); // requires pos
+    redisCacheMock.get.mockResolvedValue('active');
+
+    try {
+      await activate(ctx);
+      expect.unreachable('Should have thrown');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(HttpException);
+      expect(err.getStatus()).toBe(HttpStatus.FORBIDDEN);
+      const res = err.getResponse();
+      expect(res).toEqual({
+        code: 'DEVICE_ROLE_FORBIDDEN',
+        message: 'เครื่องนี้ขายของไม่ได้',
+      });
+    }
+  });
+
+  it('allows access to pos endpoint if drole is pos', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+      drole: 'pos',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue('pos');
+    redisCacheMock.get.mockResolvedValue('active');
+
+    const result = await activate(ctx);
+    expect(result).toBe(true);
+  });
+
+  it('allows access to backoffice endpoint if user logged in without device token (drole undefined)', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+      drole: undefined, // web user without device token
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue('backoffice');
+    redisCacheMock.get.mockResolvedValue('active');
+
+    const result = await activate(ctx);
+    expect(result).toBe(true);
+  });
+
+  it('allows pos device to access backoffice endpoint per ADR-0004', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+      drole: 'pos',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue('backoffice');
+    redisCacheMock.get.mockResolvedValue('active');
+
+    const result = await activate(ctx);
+    expect(result).toBe(true);
+  });
+
+  it('allows backoffice device to access backoffice endpoint', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+      drole: 'backoffice',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue('backoffice');
+    redisCacheMock.get.mockResolvedValue('active');
+
+    const result = await activate(ctx);
+    expect(result).toBe(true);
+  });
+
+  it('lets database error bubble up on cache miss without converting to 401', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({
+      aud: 'tenant',
+      sub: 'u1',
+      tid: 't1',
+    });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue(null);
+    managerMock.query.mockRejectedValue(new Error('Postgres connection timeout'));
+
+    await expect(activate(ctx)).rejects.toThrow('Postgres connection timeout');
+  });
+});

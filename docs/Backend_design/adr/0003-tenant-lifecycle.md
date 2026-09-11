@@ -39,6 +39,113 @@ WHERE id = tenant_id AND status='active')` จะกลายเป็น **subq
 — จ่ายค่า performance ตลอดชีพระบบ เพื่อกันเคสที่เกิดปีละครั้ง
 เช็คที่ guard = **ครั้งเดียวต่อ request** และให้ผลเหมือนกันเป๊ะ (เพราะ `SET LOCAL` ไม่เกิด)
 
+### ใครตัดสิน กับ ใครลงมือ — เพิ่ม 2026-09-10 หลังวัดต้นทุน connection
+
+> **สถานะ: เสนอ (Proposed) — ยังไม่มีผลบังคับ** จะมีผลเมื่อสไลซ์ **`tx.4`** ของ
+> [`0003-handler-scoped-migration-plan.md`](0003-handler-scoped-migration-plan.md) ลงจริง
+> (แผนนั้นเขียนไว้เองว่า "ยังไม่ลงมือ")
+>
+> จนถึงวันนั้น **กลไกที่บังคับใช้อยู่คือรูป middleware → guard → interceptor ที่ PR #75 ส่งมอบ**
+> (`RequestContextMiddleware` เปิดทรานแซกชัน → `TenantGuard` เช็ค `tenants.status` แล้วตั้ง
+> `app.tenant_id` → `TransactionInterceptor` commit) ตามข้อ 2 และข้อ 3 ข้างบน — ของชุดนั้น
+> **ไม่ผิดและยังเป็นของที่ถูกต้องวันนี้**
+>
+> ดังนั้นอ่านหัวข้อนี้แบบนี้: รายชื่อใน **"สิ่งที่ตายไปพร้อมกัน"** (`RequestContextMiddleware`,
+> `TransactionInterceptor`, `OWNED_BY_INTERCEPTOR`, backstop บน `res.on('close')`,
+> `TENANT_ROUTES`) คือ **รายการที่จะถูกถอนออกตอน `tx.4`** ไม่ใช่ข้อห้ามที่มีผลตั้งแต่วันนี้
+> และคำว่า **"ห้ามใช้"** ที่ผูกกับ `runTx(tid, fn)` คือ **ห้ามสร้าง call site ใหม่ตามลายเซ็นนั้น**
+> — ตัวลายเซ็นยังอยู่ในโค้ดจนกว่า `tx.1` จะเปลี่ยนให้เป็น `runTx(fn)`
+>
+> บรรทัดนี้เพิ่ม **วันที่มีผล** อย่างเดียว เหตุผลและตัวเลขทั้งหมดด้านล่างยังยืนตามเดิมทุกข้อ
+
+**ปัญหาที่พบ:** ข้อ 2 ของ ADR นี้เขียนรวบ *"guard เช็คสถานะ → `SET LOCAL app.tenant_id`"*
+ไว้เป็นก้อนเดียว แล้วข้อ 3 (เพิ่ม 2026-09-04) ก็ตอกย้ำว่า **"ต้องอยู่ใน component เดียวกัน"**
+ถูกต้องในเจตนา แต่พออิมพลีเมนต์จริงกลับบังคับรูปทรงที่ไม่มีใครตั้งใจเลือก:
+
+`SET LOCAL` มีความหมายเฉพาะ *ภายในทรานแซกชัน* และ `canActivate` **return ก่อน handler รัน**
+guard จึงเปิดทรานแซกชันค้างไว้เองไม่ได้ ผลคือ #4 ต้องสร้าง `RequestContextMiddleware`
+มาเปิดทรานแซกชัน **ตั้งแต่ก่อน guard ตัวแรก** และ `TransactionInterceptor` มา commit ทีหลัง
+พร้อมของแถมที่ตามมาทั้งชุด: รายชื่อ `TENANT_ROUTES` ที่ต้องไล่แก้ด้วยมือทุกครั้งที่เพิ่ม
+controller, ธง `OWNED_BY_INTERCEPTOR`, และ backstop บน `res.on('close')` สำหรับทางที่ guard
+throw ก่อน interceptor ตัวไหนจะได้รัน
+
+ราคาที่จ่ายไม่ใช่แค่ความซับซ้อน — **วัดออกมาเป็นตัวเลขได้** ทุก request ที่ผูก guard จะ
+**ยึด connection จาก pool ไว้ตั้งแต่ก่อน guard จนหลังส่ง response** คือครอบ argon2 (`memoryCost:
+65536`), การเช็ค PIN, การ serialise JSON และ client ที่เน็ตช้า วัดบน `POST /sales/{id}/void`
+(4 request พร้อมกัน, `DB_POOL_SIZE=2`, Postgres จริง):
+
+| | ทรานแซกชันยาวสุดที่ Postgres เห็น | wall time | latency ราย request |
+|---|---|---|---|
+| ของเดิม (ทรานแซกชันคลุมทั้ง request) | **112–116 ms** | 226–274 ms | 119 / 126 / 229 / 234 ms — เป็นขั้นบันได |
+| แบบใหม่ (ทรานแซกชันอยู่ใน handler) | **18–28 ms** | 146–176 ms | 142 / 143 / 157 / 157 ms — เรียบ |
+
+ขั้นบันไดคือคิว: request ที่ 3 กับ 4 รอ argon2 ของสองตัวแรกจบก่อน ทั้งที่ไม่ได้แย่ง lock อะไรกัน
+ที่ `DB_POOL_SIZE=4` วัดได้ว่า **connection ทั้ง pool อยู่ในสถานะ `idle in transaction` พร้อมกันทั้ง 4 ตัว**
+— request ที่ 5 ไม่ว่าจะเป็นการค้นสินค้าหรือดูรายงาน ก็ต้องรอ argon2 ของคนอื่น
+
+**การตัดสินใจ:** แยก **"ใครตัดสิน"** ออกจาก **"ใครลงมือ"** — เจตนาของ ADR นี้อยู่ที่ข้อแรก
+ไม่ใช่ข้อหลัง
+
+| | ของเดิม | แบบใหม่ |
+|---|---|---|
+| ตัดสินว่า request นี้เป็นร้านไหน + เช็ค `tenants.status` | `TenantGuard` | **`TenantGuard` (เหมือนเดิม)** |
+| เก็บคำตัดสินไว้ที่ไหน | `SET LOCAL` บนทรานแซกชันของ middleware | **request scope (`AsyncLocalStorage`) — `setRequestTenant()`** |
+| ลงมือ `set_config('app.tenant_id', …, true)` | `TenantGuard` | **`TenantService.runTx`** ซึ่งอ่านค่าจาก scope ข้างบน |
+| เปิด/ปิดทรานแซกชัน | middleware เปิด, interceptor commit | **`TenantService.runTx`** เปิดและ commit เอง ในขอบเขต handler |
+
+**กติกาที่ยังเหมือนเดิมทุกตัวอักษร:**
+
+* **guard เป็น component เดียวที่ตัดสินว่า request เป็นร้านไหน** — `setRequestTenant()` เรียกได้
+  จาก `TenantGuard` ที่เดียว เหมือนที่ `SET LOCAL` เคยเรียกได้จากที่เดียว
+* **ร้านที่ไม่ `active` ไม่เคยถูกตั้งชื่อลง scope เลย** → `runTx` เปิดทรานแซกชันให้ไม่ได้ →
+  ไม่มี `app.tenant_id` → RLS คืน 0 แถวอยู่ดี **defence-in-depth ของข้อ 3 ยังอยู่ครบ** เพียงแต่
+  ขยับไปอีกหนึ่งขั้น จาก "ไม่ `SET LOCAL`" เป็น "ไม่มีค่าให้ `set_config` เอาไปใช้"
+* **ไม่มี `TenantInterceptor` แยกกลับมา** — สิ่งที่ข้อ 3 ห้ามไว้คือ component ที่ `SET LOCAL`
+  โดย**ไม่ผ่านการเช็คสถานะ** `runTx` ไม่ใช่แบบนั้น: มันไม่มีทางรู้จัก tenant ที่ guard ไม่ได้อนุมัติ
+* 🔴 **`runTx` ต้อง *ไม่* รับ `tid` เป็นพารามิเตอร์** — คลาส `TenantService` ที่มีอยู่ในโค้ดวันนี้
+  (ยังไม่มีใครเรียกสักที่) เขียนเป็น `runTx(tid, fn)` ซึ่ง **ผิดและห้ามใช้รูปนั้น**: call site ไหน
+  ก็ส่ง uuid ร้านอื่นเข้าไปได้ แล้วจะได้ข้อมูลข้ามร้านกลับมาแบบ**ที่หน้าโค้ดดูปกติและไม่มี error**
+  — ซึ่งคือสิ่งเดียวที่ ADR นี้มีไว้กันโดยแท้ ต้องเป็น `runTx(fn)` ที่อ่าน tenant จาก scope เท่านั้น
+* guard ยังอ่าน `tenants.status` จาก Postgres ได้ตอน cache miss ตามข้อ 5 — `tenants` เป็นหนึ่งใน
+  `GLOBAL_TABLES` ที่ไม่มี RLS จึงอ่านด้วย pooled connection ธรรมดาโดยไม่ต้องมี `app.tenant_id`
+  (**ตรวจกับ Postgres จริงแล้ว ไม่ใช่สมมติ**) และเป็น connection **ตัวแรก** ของ request นั้น
+  ไม่ใช่ตัวที่สองที่ขอขณะยังถือตัวแรกอยู่ จึงไม่ใช่รูปทรงที่ทำให้ pool ตัน
+
+**สิ่งที่ตายไปพร้อมกัน:** `RequestContextMiddleware`, `TransactionInterceptor`,
+`OWNED_BY_INTERCEPTOR`, backstop บน `res.on('close')` และ **`TENANT_ROUTES`** — โค้ดฝั่ง
+production หายไป 3 ไฟล์ (257 บรรทัด) แลกกับของใหม่ 2 ไฟล์ (152 บรรทัด) ที่เข้ามาแทน
+
+**สิ่งที่แลกไป — และวิธีปิด:** footgun เปลี่ยนหน้า จาก *"ลืมใส่ controller ใน `TENANT_ROUTES`"*
+เป็น *"ลืมห่อ `runTx`"* ทดสอบกับ Postgres จริงแล้วว่ามันพังคนละแบบ:
+
+| ลืมแบบไหน | ผล | ดังไหม |
+|---|---|---|
+| ลืม `runTx` แต่ยังขอ manager ผ่าน `currentRequestContext()` | throw → 500 | **ดัง** ปิดตายเหมือนเดิม เพราะประตูเดียวที่ให้ manager ได้คือ `runTx` |
+| ฉีด `DataSource` เข้า service แล้ว query ตรง | **200 พร้อม 0 แถว** · UPDATE รายงานสำเร็จแต่ไม่ขยับอะไร | 🔴 **เงียบสนิท** |
+
+แถวที่สองคือแถวที่อันตราย และ **มันมีอยู่แล้ววันนี้** (`AuthService`, `VoidService.auditDenial`
+ต่างก็ถือ `DataSource` ของตัวเองด้วยเหตุผลที่เขียนไว้ชัด) ไม่ได้เกิดจากการเปลี่ยนนี้ แต่การเปลี่ยนนี้
+ทำให้ `DataSource` เปล่า ๆ เป็นของที่หยิบง่ายขึ้น → **ต้องมี architecture test สแกน source
+ห้ามฉีด `DataSource` นอก allowlist ที่มีเหตุผลกำกับทีละบรรทัด** (แบบเดียวกับ
+`common/tenant-scope.spec.ts` ที่ดักการเขียน `SET LOCAL … = $1`) ข้อนี้เป็นเงื่อนไข ไม่ใช่ข้อเสนอแนะ
+
+**ไม่ขัดกับ ADR อื่น:** ADR-0004 (`did`/`drole` มาจาก device token ที่ server ตรวจ ไม่ใช่จาก body)
+ไม่ถูกแตะเลย — guard ยังอ่าน claim ชุดเดิมจาก JWT ตัวเดิม · ADR-0009 (`/auth/refresh` เช็ค
+`users.is_active` + `tenants.status` + `devices.retired_at`) ไม่ถูกแตะ เพราะ `/auth/*` ไม่เคยอยู่ใน
+ทรานแซกชันของ request อยู่แล้ว (ADR-0009 บังคับให้ audit ของ login ที่ล้มเหลว **ต้องรอด** จากการ
+rollback ซึ่งเป็นเหตุผลเดียวกับที่ `TENANT_ROUTES` ใส่แค่ `GET /auth/me` ไม่ใส่ทั้ง controller) ·
+ADR-0010 (client write-through) เป็นเรื่องฝั่ง Flutter ล้วน ไม่มีจุดสัมผัส · ADR-0007 (เลขเอกสาร
+ต้องถูกจองใน**ทรานแซกชันเดียวกับบิล**) ยังจริง — `DocNumberService.issue` รับ `manager` มาจาก
+`runTx` ตัวเดียวกับที่เขียนบิล บิลที่ rollback ยังพาเลขกลับไปด้วยเหมือนเดิม (มีเคสใน
+`test/request-context.e2e-spec.ts` ยืนยัน และผ่านทั้งก่อนและหลัง)
+
+**เงื่อนไขที่ต้องคงไว้ตอนย้าย:** record ของ `Idempotency-Key` **ต้อง commit ในทรานแซกชันเดียว
+กับงานที่มันอธิบาย** (`02_API_SCREENS.md §1.4`) — เมื่อไม่มี `IdempotencyInterceptor` แล้ว
+มันกลายเป็น `runIdempotent(...)` ที่เรียกอยู่ **ข้างใน** `runTx` บน `manager` ตัวเดียวกัน
+กลไก concurrency ไม่เปลี่ยนสักบรรทัด (`INSERT … ON CONFLICT DO NOTHING` + row lock เดิม)
+เคส 3-way race และเคส "process ตายหลัง commit ก่อนตอบ" ใน `test/idempotency.e2e-spec.ts`
+ผ่านทั้งคู่โดยไม่ต้องแก้ assertion
+
 ## ผลที่ตามมา
 
 * ระงับร้านแล้ว **มีผลทันทีในคำขอถัดไป** ไม่ต้องรอ access token 15 นาทีหมดอายุ

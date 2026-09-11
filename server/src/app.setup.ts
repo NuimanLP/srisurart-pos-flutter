@@ -11,6 +11,7 @@ import {
   toErrorEnvelope,
 } from './common/http-exception.filter.js';
 import { requestLogger } from './common/logger.js';
+import { TransactionInterceptor } from './common/transaction.interceptor.js';
 
 /** Everything main.ts and the e2e tests must configure identically. */
 export async function configureApp(
@@ -25,7 +26,10 @@ export async function configureApp(
       { path: 'health/ready', method: RequestMethod.GET },
     ],
   });
-  app.useGlobalInterceptors(new EnvelopeInterceptor());
+  // Order matters: the envelope wraps whatever comes back, the transaction ends
+  // inside it, and every route-scoped interceptor (IdempotencyInterceptor above all)
+  // runs inside the transaction — its record must commit with the work it describes.
+  app.useGlobalInterceptors(new EnvelopeInterceptor(), new TransactionInterceptor());
   app.useGlobalFilters(new HttpExceptionFilter(logger));
   app.enableShutdownHooks();
   await app.init();

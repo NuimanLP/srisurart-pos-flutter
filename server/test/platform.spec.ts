@@ -87,7 +87,7 @@ describe('Platform Realm & Tenant Provisioning (#5)', () => {
 
   describe('PlatformAuthService', () => {
     it('authenticates admin, returns token, and writes audit log', async () => {
-      const passHash = hashPassword('secret123');
+      const passHash = await hashPassword('secret123');
       mockAdminDs.query.mockResolvedValueOnce([
         { id: 'adm1', username: 'superadmin', password_hash: passHash, display_name: 'Admin', is_active: true },
       ]);
@@ -104,7 +104,7 @@ describe('Platform Realm & Tenant Provisioning (#5)', () => {
     });
 
     it('rejects invalid password', async () => {
-      const passHash = hashPassword('secret123');
+      const passHash = await hashPassword('secret123');
       mockAdminDs.query.mockResolvedValueOnce([
         { id: 'adm1', username: 'superadmin', password_hash: passHash, display_name: 'Admin', is_active: true },
       ]);
