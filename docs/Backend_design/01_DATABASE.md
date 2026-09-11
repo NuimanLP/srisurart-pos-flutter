@@ -481,6 +481,7 @@ CREATE TABLE movements (
                                   --    'receive' (รับของเข้า PO)
                                   --    'adjustment-in' / 'adjustment-out' (ปรับสต็อกมือ)
                                   --    'sale' / 'return' เป็น "ของใหม่" — ดูกล่องเตือนใต้ DDL
+                                  --    'void' (ยกเลิกบิล — คืนสต็อก)
   note        TEXT,
   stock_after INT  NOT NULL,
   ref_id      TEXT,               -- ⭐ เพิ่มใหม่: sale_id / return_id / po_id ที่ทำให้เกิดแถวนี้

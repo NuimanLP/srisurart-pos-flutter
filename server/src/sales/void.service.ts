@@ -28,9 +28,6 @@ export interface VoidActor {
  */
 const ROLES_THAT_MAY_VOID = new Set(['manager', 'owner']);
 
-/** Keeps a void's ledger row out of the slot a credit note wants (`uq_movements_ref`). */
-export const VOID_REF_PREFIX = 'void:';
-
 /**
  * The manual void.
  *
@@ -153,7 +150,7 @@ export class VoidService {
       await manager.query(
         `INSERT INTO movements (
            tenant_id, id, product_id, part_no, name, delta, type, stock_after, ref_id)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, 'return', $7, $8)`,
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, 'void', $7, $8)`,
         [
           tenantId,
           newId('mv'),
@@ -162,12 +159,10 @@ export class VoidService {
           updated[0].name,
           item.qty,
           updated[0].stock,
-          // `void:` prefix, not the bare sale id. `uq_movements_ref` is unique on
-          // `(tenant_id, type, ref_id, product_id)`, and a credit note against this
-          // bill would naturally use the sale id as its own ref — the two would
-          // collide as a 500. `movements.type` has no 'void' value to use instead
-          // without a migration, which belongs to the schema lane.
-          `${VOID_REF_PREFIX}${saleId}`,
+          // The bare sale id. `uq_movements_ref` is unique on
+          // `(tenant_id, type, ref_id, product_id)`, so a credit note against this
+          // bill keeps its own slot under type 'return'.
+          saleId,
         ],
       );
     }

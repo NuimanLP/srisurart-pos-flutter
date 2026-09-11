@@ -284,16 +284,16 @@ describe('sale reads and void (e2e)', () => {
     expect(res.body.data.voidedAt).not.toBeNull();
     expect(await stockOf('p1')).toBe(40);
 
-    // `void:` prefix, not the bare sale id: `uq_movements_ref` is unique on
-    // `(tenant_id, type, ref_id, product_id)`, and a credit note against this bill
-    // would want that same slot.
+    // A void has its own movement type, so the bare sale id is free: `uq_movements_ref`
+    // is unique on `(tenant_id, type, ref_id, product_id)` and a credit note against
+    // this bill keeps its own slot under type 'return'.
     const movements = await admin.query(
       `SELECT delta, type, note, stock_after FROM movements
-        WHERE tenant_id = $1::uuid AND ref_id = $2 AND type = 'return'`,
-      [TENANT, `void:${sale.id}`],
+        WHERE tenant_id = $1::uuid AND ref_id = $2 AND type = 'void'`,
+      [TENANT, sale.id],
     );
     expect(movements).toEqual([
-      { delta: 4, type: 'return', note: null, stock_after: 40 },
+      { delta: 4, type: 'void', note: null, stock_after: 40 },
     ]);
 
     const audit = await admin.query(
