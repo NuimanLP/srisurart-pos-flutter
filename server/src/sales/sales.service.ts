@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { newId } from '../common/ids.js';
-import { fromSatang, pointsFor } from '../common/money.js';
+import { fromSatang, pointsFor, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { returning } from '../common/sql.js';
 import { DocNumberService } from '../documents/doc-number.service.js';
@@ -36,7 +36,7 @@ export interface CustomerAfter {
   totalSpend: string;
 }
 
-/** What `lockMechanic` hands back when the bill went past the limit on the flag. */
+/** What `lockMechanicAndCheckLimit` hands back when the bill went past the limit on the flag. */
 interface CreditOverride {
   creditLimit: number;
   creditBalanceBefore: number;
@@ -132,7 +132,7 @@ export class SalesService {
     // Every bill naming a mechanic takes this lock, not just credit ones — a cash
     // bill that locked products first and the mechanic later would deadlock against
     // a credit bill for the same mechanic sharing one product.
-    const override = await this.lockMechanic(manager, tenantId, dto);
+    const override = await this.lockMechanicAndCheckLimit(manager, tenantId, dto);
 
     const demands = aggregate(dto.items);
     const locked = await this.lockProducts(manager, tenantId, demands);
@@ -238,7 +238,7 @@ export class SalesService {
    * No row is not an error here: `insertSale`'s foreign key already turns an
    * unknown mechanic into the 400 it deserves.
    */
-  private async lockMechanic(
+  private async lockMechanicAndCheckLimit(
     manager: EntityManager,
     tenantId: string,
     dto: CreateSale,
@@ -276,8 +276,10 @@ export class SalesService {
 
   /**
    * `points += pointsGranted`, `total_spend += total` — `sales_repository.dart`, which
-   * does not filter on `deleted_at`, so neither does this. `GREATEST(0, …)` mirrors
-   * the clamps the Dart ledger keeps on every customer/mechanic figure.
+   * does not filter on `deleted_at`, so neither does this. `GREATEST(0, …)` is #21's
+   * rule for every running total — the `>= 0` CHECKs are assertions that the clamp is
+   * present, never a user-facing path. (The Dart sale path has no clamp; only its
+   * return path does, and a sale only ever adds.)
    */
   private async applyCustomer(
     manager: EntityManager,
@@ -754,11 +756,6 @@ function aggregate(items: SaleLine[]): Demand[] {
   return [...byProduct.values()].sort(
     (a, b) => a.firstLineIndex - b.firstLineIndex,
   );
-}
-
-/** A `NUMERIC` as `pg` hands it back (`"1234.50"`), in integer satang. */
-function satangOf(numeric: string): number {
-  return Math.round(Number(numeric) * 100);
 }
 
 /** A `NUMERIC` as `pg` hands it back, normalised to the wire shape. */

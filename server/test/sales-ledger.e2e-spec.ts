@@ -152,7 +152,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
       id: 'm2',
       code: 'M002',
       name: 'Chang Tao',
-      creditLimit: 5000,
+      creditLimit: 3000,
     });
     // 800 on a 1000 limit: one 350 chain pushes it to 1150.
     await seedMechanic(admin, TENANT, {

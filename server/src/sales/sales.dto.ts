@@ -78,7 +78,7 @@ export function parseCreateSale(body: unknown): CreateSale {
         : toSatang(b.mechanicDelta, 'mechanicDelta'),
     // Strictly a boolean: `"false"` is truthy in JS, and a client sending the string
     // would confirm an override it never showed the dialog for.
-    overrideCreditLimit: optionalBoolean(
+    overrideCreditLimit: booleanOrFalse(
       b.overrideCreditLimit,
       'overrideCreditLimit',
     ),
@@ -198,7 +198,7 @@ function requiredPaymentMethod(value: unknown): string {
   return method;
 }
 
-function optionalBoolean(value: unknown, field: string): boolean {
+function booleanOrFalse(value: unknown, field: string): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value !== 'boolean')
     throw new BadRequestException(`${field} must be a boolean`);
