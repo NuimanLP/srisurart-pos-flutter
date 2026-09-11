@@ -76,3 +76,33 @@ describe('parseCreateSale — line price', () => {
     expect(sale.items[0].priceSatang).toBe(0);
   });
 });
+
+describe('parseCreateSale — overrideCreditLimit', () => {
+  const bodyWith = (overrideCreditLimit: unknown) => ({
+    id: 's1',
+    subtotal: '10.00',
+    discount: '0.00',
+    total: '10.00',
+    paymentMethod: 'เครดิตช่าง',
+    mechanicId: 'm1',
+    overrideCreditLimit,
+    items: [{ productId: 'p1', name: 'x', qty: 1, price: '10.00' }],
+  });
+
+  it('defaults to false when absent, and keeps a real boolean', () => {
+    expect(parseCreateSale(bodyWith(undefined)).overrideCreditLimit).toBe(
+      false,
+    );
+    expect(parseCreateSale(bodyWith(null)).overrideCreditLimit).toBe(false);
+    expect(parseCreateSale(bodyWith(false)).overrideCreditLimit).toBe(false);
+    expect(parseCreateSale(bodyWith(true)).overrideCreditLimit).toBe(true);
+  });
+
+  it('rejects anything that is not a boolean — "false" is truthy and would confirm an override', () => {
+    for (const bad of ['true', 'false', 1, 0, 'yes', {}]) {
+      expect(() => parseCreateSale(bodyWith(bad))).toThrow(
+        /overrideCreditLimit must be a boolean/,
+      );
+    }
+  });
+});

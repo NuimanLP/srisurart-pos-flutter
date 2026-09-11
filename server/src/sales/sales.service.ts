@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
+import { AuditService } from '../audit/audit.service.js';
 import { newId } from '../common/ids.js';
 import { fromSatang, pointsFor } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
@@ -23,6 +24,22 @@ export interface CreateSaleResult {
   date: string;
   /** Every product this bill touched, so the client patches its cache without a re-read. */
   products: { id: string; stock: number }[];
+  /** The mechanic's balance once this bill is on it; null when the bill names none. */
+  mechanicCreditBalanceAfter: string | null;
+  /** The customer's row after the bill (ADR-0010 §3); null when the bill names none. */
+  customerAfter: CustomerAfter | null;
+}
+
+export interface CustomerAfter {
+  id: string;
+  points: number;
+  totalSpend: string;
+}
+
+/** What `lockMechanic` hands back when the bill went past the limit on the flag. */
+interface CreditOverride {
+  creditLimit: number;
+  creditBalanceBefore: number;
 }
 
 /** A product row as the locking select returns it. */
@@ -33,6 +50,13 @@ interface LockedProduct {
   name_th: string;
   cost: string;
   stock: number;
+}
+
+/** A customer row as the ledger update and the replay read return it. */
+interface CustomerRow {
+  id: string;
+  points: number;
+  total_spend: string;
 }
 
 /** How much of one product the whole bill wants, and where it was first asked for. */
@@ -53,6 +77,9 @@ const UNIQUE_VIOLATION = '23505';
 /** Postgres `foreign_key_violation` — an unknown `customer_id` / `mechanic_id`. */
 const FOREIGN_KEY_VIOLATION = '23503';
 
+/** The one payment method that goes on the mechanic's tab instead of into the drawer. */
+const MECHANIC_CREDIT = 'เครดิตช่าง';
+
 /**
  * The sale transaction — the heart of the system.
  *
@@ -60,27 +87,29 @@ const FOREIGN_KEY_VIOLATION = '23503';
  * opened it, `TransactionInterceptor` commits it), in the order #20 fixes:
  *
  *   1. the idempotency claim (the interceptor, before this method is called)
- *   2. `SELECT ... ORDER BY id FOR UPDATE` — the ordering is the deadlock guard
- *   3. build the *complete* Thai error from that locked read
- *   4. deduct, keeping `stock >= qty` in the predicate as an assertion
- *   5. issue the receipt number
- *   6. insert the header and the lines, `cost_at_sale` from the same locked read
- *   7. insert the `movements` rows
- *   8. commit — and only then may anything external happen
+ *   2. lock the mechanic's row, if the bill names one, and for a credit sale check
+ *      the limit — refused here, the bill holds no product lock
+ *   3. `SELECT ... ORDER BY id FOR UPDATE` — the ordering is the deadlock guard
+ *   4. build the *complete* Thai error from that locked read
+ *   5. deduct, keeping `stock >= qty` in the predicate as an assertion
+ *   6. issue the receipt number
+ *   7. insert the header and the lines, `cost_at_sale` from the same locked read
+ *   8. insert the `movements` rows
+ *   9. the ledger: customer points and spend, the mechanic's tab and statistics
+ *      (#21, rule for rule from `sales_repository.dart`), and the audit row when
+ *      the bill went past the credit limit on `overrideCreditLimit`
+ *  10. commit — and only then may anything external happen
  *
  * This closes a real race the Dart reference has: `sales_repository.dart` pre-checks
  * stock *outside* its transaction and then opens one to deduct. It has never bitten
  * because the shop has one machine.
- *
- * The customer and mechanic ledger effects are deliberately **not** here: they are
- * #21, which is blocked on #11 (`mechanics.total_credit` — the design doc and the
- * Dart reference disagree, and only the project owner can settle it).
  */
 @Injectable()
 export class SalesService {
   constructor(
     private readonly docNumbers: DocNumberService,
     private readonly shifts: ShiftsService,
+    private readonly audit: AuditService,
   ) {}
 
   async create(dto: CreateSale, actor: SaleActor): Promise<CreateSaleResult> {
@@ -96,6 +125,14 @@ export class SalesService {
     // it up a second time.
     const existing = await this.existingSale(manager, tenantId, dto);
     if (existing) return existing;
+
+    // Mechanic before products, always: a bill refused for the credit limit must not
+    // be holding product locks while it rolls back, and the check and the balance
+    // update below have to sit under one lock or two credit bills can both pass.
+    // Every bill naming a mechanic takes this lock, not just credit ones — a cash
+    // bill that locked products first and the mechanic later would deadlock against
+    // a credit bill for the same mechanic sharing one product.
+    const override = await this.lockMechanic(manager, tenantId, dto);
 
     const demands = aggregate(dto.items);
     const locked = await this.lockProducts(manager, tenantId, demands);
@@ -139,6 +176,38 @@ export class SalesService {
       stockAfter,
     );
 
+    const customerAfter = await this.applyCustomer(
+      manager,
+      tenantId,
+      dto,
+      pointsGranted,
+    );
+    const mechanicCreditBalanceAfter = await this.applyMechanic(
+      manager,
+      tenantId,
+      dto,
+    );
+    if (override && mechanicCreditBalanceAfter !== null) {
+      // §8.2: who let this bill past the limit, and by how much. On the request
+      // transaction on purpose — an override recorded for a bill that rolled back
+      // would be a lie.
+      await this.audit.log(manager, {
+        tenantId,
+        userId: actor.userId,
+        deviceId: actor.deviceId,
+        action: 'sale.credit_limit_override',
+        entity: 'mechanic',
+        entityId: dto.mechanicId!,
+        after: {
+          saleId: dto.id,
+          total: fromSatang(dto.totalSatang),
+          creditLimit: fromSatang(override.creditLimit),
+          creditBalanceBefore: fromSatang(override.creditBalanceBefore),
+          creditBalanceAfter: mechanicCreditBalanceAfter,
+        },
+      });
+    }
+
     return {
       id: dto.id,
       receiptNo,
@@ -151,7 +220,126 @@ export class SalesService {
         id: d.productId,
         stock: stockAfter.get(d.productId)!,
       })),
+      mechanicCreditBalanceAfter,
+      customerAfter,
     };
+  }
+
+  /**
+   * Takes the mechanic's row lock for the rest of the transaction and, when the bill
+   * is going on the tab, checks the limit — `newBalance > creditLimit`, exactly the
+   * test in `checkout_screen.dart:561`, with no special case for a limit of 0.
+   *
+   * Over the limit without the flag is `409 CREDIT_LIMIT_EXCEEDED`; the client owns
+   * the Thai confirm dialog and resends with `overrideCreditLimit: true`, which is
+   * the case this returns non-null for, so the caller can write the audit row. A
+   * flag on a bill that was never over the limit is nothing to record.
+   *
+   * No row is not an error here: `insertSale`'s foreign key already turns an
+   * unknown mechanic into the 400 it deserves.
+   */
+  private async lockMechanic(
+    manager: EntityManager,
+    tenantId: string,
+    dto: CreateSale,
+  ): Promise<CreditOverride | null> {
+    if (dto.mechanicId === null) return null;
+    const rows = (await manager.query(
+      `SELECT credit_limit, credit_balance FROM mechanics
+        WHERE tenant_id = $1::uuid AND id = $2 FOR UPDATE`,
+      [tenantId, dto.mechanicId],
+    )) as { credit_limit: string; credit_balance: string }[];
+    if (rows.length === 0 || dto.paymentMethod !== MECHANIC_CREDIT) return null;
+
+    const creditLimit = satangOf(rows[0].credit_limit);
+    const creditBalance = satangOf(rows[0].credit_balance);
+    const newBalance = creditBalance + dto.totalSatang;
+    if (newBalance <= creditLimit) return null;
+
+    if (!dto.overrideCreditLimit) {
+      throw new HttpException(
+        {
+          code: 'CREDIT_LIMIT_EXCEEDED',
+          message:
+            'Credit limit exceeded; resend with overrideCreditLimit to confirm.',
+          details: {
+            creditLimit: fromSatang(creditLimit),
+            creditBalance: fromSatang(creditBalance),
+            newBalance: fromSatang(newBalance),
+          },
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+    return { creditLimit, creditBalanceBefore: creditBalance };
+  }
+
+  /**
+   * `points += pointsGranted`, `total_spend += total` — `sales_repository.dart`, which
+   * does not filter on `deleted_at`, so neither does this. `GREATEST(0, …)` mirrors
+   * the clamps the Dart ledger keeps on every customer/mechanic figure.
+   */
+  private async applyCustomer(
+    manager: EntityManager,
+    tenantId: string,
+    dto: CreateSale,
+    pointsGranted: number,
+  ): Promise<CustomerAfter | null> {
+    if (dto.customerId === null) return null;
+    const rows = returning<CustomerRow>(
+      await manager.query(
+        `UPDATE customers
+            SET points = GREATEST(0, points + $3),
+                total_spend = GREATEST(0, total_spend + $4),
+                updated_at = now()
+          WHERE tenant_id = $1::uuid AND id = $2
+      RETURNING id, points, total_spend`,
+        [tenantId, dto.customerId, pointsGranted, fromSatang(dto.totalSatang)],
+      ),
+    );
+    return rows.length === 0 ? null : customerAfter(rows[0]);
+  }
+
+  /**
+   * The mechanic's statistics and tab, rule for rule from `sales_repository.dart`:
+   * `total_sales += total`; a negative `mechanic_delta` is a discount given, a
+   * positive one a markup; and the bill goes on `credit_balance` only when it was
+   * paid with `'เครดิตช่าง'`.
+   *
+   * 🔴 `total_credit` is never written. It is the JS app's legacy alias of
+   * `total_discount` (decision #11); `POST /returns` reads it only as a fallback for
+   * the discount base, and a server that also wrote it would double the figure.
+   */
+  private async applyMechanic(
+    manager: EntityManager,
+    tenantId: string,
+    dto: CreateSale,
+  ): Promise<string | null> {
+    if (dto.mechanicId === null) return null;
+    const delta = dto.mechanicDeltaSatang ?? 0;
+    const rows = returning<{ credit_balance: string }>(
+      await manager.query(
+        `UPDATE mechanics
+            SET total_sales = GREATEST(0, total_sales + $3),
+                total_discount = GREATEST(0, total_discount + $4),
+                total_markup = GREATEST(0, total_markup + $5),
+                credit_balance = GREATEST(0, credit_balance + $6),
+                updated_at = now()
+          WHERE tenant_id = $1::uuid AND id = $2
+      RETURNING credit_balance`,
+        [
+          tenantId,
+          dto.mechanicId,
+          fromSatang(dto.totalSatang),
+          fromSatang(delta < 0 ? -delta : 0),
+          fromSatang(delta > 0 ? delta : 0),
+          fromSatang(
+            dto.paymentMethod === MECHANIC_CREDIT ? dto.totalSatang : 0,
+          ),
+        ],
+      ),
+    );
+    return rows.length === 0 ? null : money(rows[0].credit_balance);
   }
 
   /**
@@ -321,7 +509,7 @@ export class SalesService {
     }[];
     if (rows.length === 0) return null;
 
-    if (Math.round(Number(rows[0].total) * 100) !== dto.totalSatang) {
+    if (satangOf(rows[0].total) !== dto.totalSatang) {
       // A different bill wearing an id that is already taken. `newId` makes this
       // essentially impossible, so it means a client bug — and silently answering with
       // the old bill would lose the new one's money.
@@ -357,14 +545,35 @@ export class SalesService {
       `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
       [tenantId, productIds],
     )) as { id: string; stock: number }[];
+    // The ledger as it stands now, like the stock above — a replay moves nothing,
+    // and null when the id names a row that is gone.
+    const customer =
+      dto.customerId === null
+        ? []
+        : ((await manager.query(
+            `SELECT id, points, total_spend FROM customers
+              WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, dto.customerId],
+          )) as CustomerRow[]);
+    const mechanic =
+      dto.mechanicId === null
+        ? []
+        : ((await manager.query(
+            `SELECT credit_balance FROM mechanics
+              WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, dto.mechanicId],
+          )) as { credit_balance: string }[]);
 
     return {
       id: dto.id,
       receiptNo: rows[0].receipt_no,
-      total: fromSatang(Math.round(Number(rows[0].total) * 100)),
+      total: money(rows[0].total),
       pointsGranted: rows[0].points_granted,
       date: rows[0].date.toISOString(),
       products: stock.map((p) => ({ id: p.id, stock: p.stock })),
+      mechanicCreditBalanceAfter:
+        mechanic.length === 0 ? null : money(mechanic[0].credit_balance),
+      customerAfter: customer.length === 0 ? null : customerAfter(customer[0]),
     };
   }
 
@@ -545,4 +754,18 @@ function aggregate(items: SaleLine[]): Demand[] {
   return [...byProduct.values()].sort(
     (a, b) => a.firstLineIndex - b.firstLineIndex,
   );
+}
+
+/** A `NUMERIC` as `pg` hands it back (`"1234.50"`), in integer satang. */
+function satangOf(numeric: string): number {
+  return Math.round(Number(numeric) * 100);
+}
+
+/** A `NUMERIC` as `pg` hands it back, normalised to the wire shape. */
+function money(numeric: string): string {
+  return fromSatang(satangOf(numeric));
+}
+
+function customerAfter(row: CustomerRow): CustomerAfter {
+  return { id: row.id, points: row.points, totalSpend: money(row.total_spend) };
 }

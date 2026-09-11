@@ -257,8 +257,11 @@ sale gives its number back and the printed series has no visible hole.
   `GET /doc-counters` to seed it) is **not** built here — in phase 1 the server issues
   every series.
 
-🔴 **Lock order: products, then `doc_counters`.** `POST /sales` takes `FOR UPDATE` on
-every product on the bill and only then bumps the counter. Any later path that writes
+🔴 **Lock order: the mechanic's row, then products, then `doc_counters`.** `POST /sales`
+locks the mechanic named on the bill (any bill naming one, not just credit sales — a cash
+bill locking products first and the mechanic later would deadlock against a credit bill
+for the same mechanic sharing one product), then takes `FOR UPDATE` on every product on
+the bill, and only then bumps the counter. Any later path that writes
 stock **and** issues a number — `POST /purchase-orders/:id/receive` (#26), `POST /returns`
 (#22) — must take them in that same order. Issuing the number first inverts the order and
 the two deadlock under concurrent load, which is the kind of failure that only shows up on
@@ -270,22 +273,34 @@ a busy Saturday.
 inside the request transaction, in this order, and the order is the design:
 
 1. the idempotency claim (interceptor, before the handler)
-2. `SELECT … WHERE id = ANY($ids) ORDER BY id FOR UPDATE` — **the ordering is the
+2. lock the mechanic's row if the bill names one; for `'เครดิตช่าง'`, refuse
+   `credit_balance + total > credit_limit` with `409 CREDIT_LIMIT_EXCEEDED` unless the
+   body carries `overrideCreditLimit: true` (#21). Before the products on purpose: a
+   refused bill holds no product locks, and the check and the balance update in step 9
+   sit under one lock
+3. `SELECT … WHERE id = ANY($ids) ORDER BY id FOR UPDATE` — **the ordering is the
    deadlock guard.** Two bills sharing two products, each locking in its own arrival
    order, deadlock; one order everywhere makes the second wait instead
-3. the **complete** Thai error, built from that locked read and thrown once for the
+4. the **complete** Thai error, built from that locked read and thrown once for the
    whole bill. `UPDATE … WHERE stock >= qty` cannot do this — a row count of zero
    cannot tell "not enough" from "no such product" — and fail-fast reports only the
    first bad line, so staff re-submit the bill once per missing item to find out what
    is short
-4. deduct, `stock >= qty` kept in the predicate as an assertion against our own bugs.
+5. deduct, `stock >= qty` kept in the predicate as an assertion against our own bugs.
    A sale never clamps at zero; `adjustStock` is the only path that may
-5. issue the receipt number (#19) from the `device_no` of the token's `did`
-6. insert the header and the lines, `cost_at_sale` from **the same locked read**
+6. issue the receipt number (#19) from the `device_no` of the token's `did`
+7. insert the header and the lines, `cost_at_sale` from **the same locked read**
    (ADR-0008) — never re-read outside the transaction, never taken from the client
-7. insert `movements` — one row per product, because `uq_movements_ref` is unique on
+8. insert `movements` — one row per product, because `uq_movements_ref` is unique on
    `(tenant_id, type, ref_id, product_id)`
-8. commit. Only after commit may anything external happen: no cache call and no
+9. the ledger, rule for rule from `sales_repository.dart`: customer `points +=
+   floor(total/10)`, `total_spend += total`; mechanic `total_sales += total`, a negative
+   `mechanic_delta` into `total_discount`, a positive one into `total_markup`,
+   `credit_balance += total` only for `'เครดิตช่าง'`. 🔴 `mechanics.total_credit` is
+   **never written** — a legacy alias of `total_discount` from the JS app (#11). A bill
+   that went past the limit on the flag writes one `audit_log` row
+   (`sale.credit_limit_override`); the flag on a bill under the limit writes none
+10. commit. Only after commit may anything external happen: no cache call and no
    enqueue inside a transaction that holds locks and can still roll back
 
 **This closes a real race.** `sales_repository.dart` pre-checks stock *outside* its
@@ -308,10 +323,12 @@ ring the bill up a second time. A repeat carrying a *different* total is
 `409 SALE_ID_REUSED`, because silently answering with the old bill would lose the new
 one's money.
 
-**Not here:** the customer and mechanic ledger effects are #21 (blocked on the #11
-decision), and with them the `customerAfter` / `mechanicCreditBalanceAfter` fields §3.1
-and ADR-0010 §3 want in the 201. `shift_id` is stamped by #28. The response carries no
-`offlineOk` — it has no storage in phase 1.
+**The 201 carries the ledger back** — `customerAfter { id, points, totalSpend }` and
+`mechanicCreditBalanceAfter`, null when the bill names none (§3.1, ADR-0010 §3) — so the
+client patches its cache without waiting for the next `/bootstrap`. A replayed bill
+answers the rows as they stand now and moves nothing. `shift_id` is stamped by #28. The
+response carries no `offlineOk` — it has no storage in phase 1. Reversing the ledger on a
+void is #23's.
 
 🔴 **`returning()` (`src/common/sql.ts`) is not optional.** TypeORM's Postgres driver
 returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/`DELETE`,
