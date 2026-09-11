@@ -221,6 +221,21 @@ and `server/docker/postgres/init/01-app-role.sh` lacked the executable bit, so D
 never created `pos_app` (CI on Linux was unaffected). #23 and #28 stay open by design.
 Read `handoff_log/lane-a-review-and-adr0003.md` before picking up Lane A.
 
+**#21 `p5.4` is merged — PR #76, 2026-09-11 (`feat/p5.4-ledger-effects` deleted), after #11 was settled
+the same day: `mechanics.total_credit` is the JS app's **legacy alias of `total_discount`** (the mechanics
+screen labels it "ลดให้ช่าง"; `saveSale` never wrote it) so **the server never writes it** and
+`01_DATABASE.md §7.1` is struck accordingly. `POST /sales` now applies the customer/mechanic ledger
+in the same transaction, answers `customerAfter` / `mechanicCreditBalanceAfter`, and turns the
+credit-limit dialog into `409 CREDIT_LIMIT_EXCEEDED` (English message; the client owns the Thai
+dialog) unless the body carries `overrideCreditLimit: true`, which writes one `audit_log` row.
+🔴 **Lock order is now mechanic → products → `doc_counters`** — every bill naming a mechanic takes the
+mechanic's row first (a cash bill locking products first would deadlock against a credit bill for the
+same mechanic); #22 and #23's void reversal must keep that order. 🔴 The counter path resends the
+**same `Idempotency-Key`** with the flag after the 409; it works only because the claim rolls back
+with the refused transaction, and an e2e pins it — `tx.3` must preserve that. #23's remaining AC
+(void reverses the ledger) is now buildable; #28 still waits on #22.
+Read `docs/handoff_log/lane-a-21-ledger-effects.md` before #22 or #23.
+
 🔴 **ADR-0003 was amended 2026-09-10 — the transaction is handler-scoped, not request-wide.** The
 addendum's status is **Proposed** and takes effect only when slice `tx.4` lands; until then the
 middleware → guard → interceptor split that #75 shipped is the in-force mechanism (the 2026-09-11
@@ -304,8 +319,9 @@ build; the issue tracker says *who builds what, in what order.*
 - **#14–#40** — the 27 implementable slices. Each is one PR's worth of work with its own
   acceptance criteria and real "Blocked by" numbers.
 - **#11–#13** — decisions only a human can make (labelled `question`). **Never settle one in a
-  PR**, especially #11 (`mechanics.total_credit`), where the design doc and the Dart reference
-  disagree and reading either alone gives a confidently wrong answer.
+  PR.** #11 (`mechanics.total_credit`) was settled by the project owner on 2026-09-11 — parity, the
+  column is a legacy alias and the server never writes it — the design doc and the Dart reference
+  disagreed and reading either alone gave a confidently wrong answer. #12 and #13 are still open.
 
 🔴 **Course rule (2026-09-05): every team member must touch frontend, backend *and* CI/CD.** The
 old "one backend lane each" split is therefore dead — all three lanes were backend. Work is now
