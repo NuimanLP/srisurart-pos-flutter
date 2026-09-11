@@ -14,6 +14,7 @@ import { RedisModule } from './infra/redis.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { PlatformModule } from './platform/platform.module.js';
+import { RateLimitModule } from './rate-limit/rate-limit.module.js';
 import { RequestContextMiddleware } from './common/request-context.middleware.js';
 import { SalesController } from './sales/sales.controller.js';
 import { SalesModule } from './sales/sales.module.js';
@@ -75,6 +76,7 @@ export class AppModule implements NestModule {
         PlatformModule,
         AuditModule,
         AuthModule,
+        RateLimitModule,
         SalesModule,
         ShiftsModule,
       ],
