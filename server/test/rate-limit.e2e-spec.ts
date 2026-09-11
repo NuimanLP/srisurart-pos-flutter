@@ -4,14 +4,15 @@ import type { DataSource } from 'typeorm';
 import type { Redis } from 'ioredis';
 import {
   accessToken,
+  clearTenantCache,
   createTestApp,
   resetTenant,
   type TenantFixture,
 } from './support/fixture.js';
 
 const TENANT_A = '44444444-1111-4111-8111-444444444444';
-const TENANT_B = '44444444-2222-4222-8222-444444444444';
-const TENANT_LOADTEST = '44444444-3333-4333-8333-444444444444';
+const TENANT_B = '55555555-2222-4222-8222-555555555555';
+const TENANT_LOADTEST = '66666666-3333-4333-8333-666666666666';
 
 describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
   let app: INestApplication;
@@ -28,16 +29,15 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     fixtureA = await resetTenant(admin, TENANT_A, { cache });
     fixtureB = await resetTenant(admin, TENANT_B, { cache });
 
-    // Clean up rate-limit and plan cache keys
-    const keys = await cache.keys('t:44444444-*:*');
-    if (keys.length > 0) {
-      await cache.del(...keys);
-    }
+    await clearTenantCache(cache, TENANT_A);
+    await clearTenantCache(cache, TENANT_B);
+    await clearTenantCache(cache, TENANT_LOADTEST);
   });
 
   afterAll(async () => {
-    await resetTenant(admin, TENANT_A);
-    await resetTenant(admin, TENANT_B);
+    await resetTenant(admin, TENANT_A, { cache });
+    await resetTenant(admin, TENANT_B, { cache });
+    await resetTenant(admin, TENANT_LOADTEST, { cache });
     await admin.query(`DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid, $3::uuid)`, [
       TENANT_A,
       TENANT_B,
@@ -129,11 +129,11 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
   });
 
   it('bypasses rate limit if tenant plan is loadtest (ADR-0006)', async () => {
-    // Create tenant with plan = 'loadtest'
-    await resetTenant(admin, TENANT_LOADTEST, { cache });
+    const fixtureLoadtest = await resetTenant(admin, TENANT_LOADTEST, { cache });
     await admin.query(`UPDATE tenants SET plan = 'loadtest' WHERE id = $1::uuid`, [TENANT_LOADTEST]);
     const tokenLoadtest = accessToken({
       tenantId: TENANT_LOADTEST,
+      userId: fixtureLoadtest.userId,
       role: 'cashier',
     });
 
