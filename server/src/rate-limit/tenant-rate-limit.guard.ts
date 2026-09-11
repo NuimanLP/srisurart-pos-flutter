@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
+import { JwtVerifier } from '../auth/jwt-keys.service.js';
 import {
   RATE_LIMIT_OPTIONS_KEY,
   SKIP_RATE_LIMIT_KEY,
@@ -19,6 +20,7 @@ export class TenantRateLimitGuard implements CanActivate {
   constructor(
     private readonly rateLimitService: RateLimitService,
     private readonly reflector: Reflector,
+    private readonly jwtVerifier: JwtVerifier,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -41,9 +43,25 @@ export class TenantRateLimitGuard implements CanActivate {
       return true;
     }
 
-    // 3. Resolve tenantId strictly from authenticated session (request.user.tenantId)
+    // 3. Resolve tenantId strictly from authenticated session (JWT only)
     // ADR-0006: Forged X-Tenant-Id headers are completely ignored.
-    const tenantId = req.user?.tenantId;
+    let tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        try {
+          const payload = this.jwtVerifier.verify(token, 'access');
+          if (payload.aud === 'tenant' && payload.tid) {
+            tenantId = payload.tid;
+          }
+        } catch {
+          // Unverified or invalid token; let downstream auth guard handle 401/403
+          return true;
+        }
+      }
+    }
+
     if (!tenantId) {
       // Unauthenticated / pre-auth traffic is protected by Nginx per-IP rate limit.
       return true;

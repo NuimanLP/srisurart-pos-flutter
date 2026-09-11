@@ -75,13 +75,13 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
       role: 'cashier',
     });
 
-    // Preset counter in Redis to hit limit (default 120)
+    // Preset counter in Redis to hit limit (default 300)
     const windowSec = 60;
     const nowSec = Math.floor(Date.now() / 1000);
     const windowSlice = Math.floor(nowSec / windowSec);
     // GET /api/v1/auth/me route key
     const key = `t:${TENANT_A}:rl:GET__api_v1_auth_me:${windowSlice}`;
-    await cache.set(key, '125', 'EX', 50);
+    await cache.set(key, '350', 'EX', 50);
 
     const res = await request(app.getHttpServer())
       .get('/api/v1/auth/me')
@@ -91,8 +91,11 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     expect(res.headers['retry-after']).toBeDefined();
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
     expect(res.body).toEqual({
-      code: 'RATE_LIMITED',
-      message: 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
+      status: 'error',
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
+      },
     });
   });
 
@@ -113,7 +116,7 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const windowSlice = Math.floor(nowSec / windowSec);
     const keyA = `t:${TENANT_A}:rl:GET__api_v1_auth_me:${windowSlice}`;
-    await cache.set(keyA, '150', 'EX', 50);
+    await cache.set(keyA, '350', 'EX', 50);
 
     // Tenant A is 429
     const resA = await request(app.getHttpServer())
@@ -163,7 +166,7 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const windowSlice = Math.floor(nowSec / windowSec);
     const keyB = `t:${TENANT_B}:rl:GET__api_v1_auth_me:${windowSlice}`;
-    await cache.set(keyB, '200', 'EX', 50);
+    await cache.set(keyB, '350', 'EX', 50);
 
     // Request carries Tenant A token, but attempts to spoof X-Tenant-Id: Tenant B
     const res = await request(app.getHttpServer())

@@ -8,7 +8,7 @@ export interface RateLimitCheckResult {
   retryAfter?: number;
 }
 
-const DEFAULT_LIMIT = 120;
+const DEFAULT_LIMIT = 300;
 const DEFAULT_WINDOW_SEC = 60;
 const PLAN_CACHE_TTL_SEC = 300;
 

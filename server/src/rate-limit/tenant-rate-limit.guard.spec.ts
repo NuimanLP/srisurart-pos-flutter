@@ -6,6 +6,7 @@ describe('TenantRateLimitGuard (ADR-0006 & Issue #33)', () => {
   let guard: TenantRateLimitGuard;
   let serviceMock: any;
   let reflectorMock: any;
+  let jwtVerifierMock: any;
 
   beforeEach(() => {
     serviceMock = {
@@ -14,7 +15,10 @@ describe('TenantRateLimitGuard (ADR-0006 & Issue #33)', () => {
     reflectorMock = {
       getAllAndOverride: vi.fn(),
     };
-    guard = new TenantRateLimitGuard(serviceMock, reflectorMock);
+    jwtVerifierMock = {
+      verify: vi.fn(),
+    };
+    guard = new TenantRateLimitGuard(serviceMock, reflectorMock, jwtVerifierMock);
   });
 
   function createMockContext(reqOverrides: Record<string, any> = {}) {
