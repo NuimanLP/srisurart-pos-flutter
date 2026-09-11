@@ -198,7 +198,7 @@ write goes through, proved against the real Postgres; `server/README.md` *Idempo
 rules and the three error codes it had to add to `02_API_SCREENS.md §8`. It reads the request's
 tenant + transaction from `src/common/request-context.ts`, the seam **#4** filled.
 
-**Lane A is built and waiting on review — PR #75 (`feat/laneA-sales`), not yet merged.** It carries
+**Lane A is merged to `main` — PR #75, 2026-09-11 (`feat/laneA-sales` deleted).** It carries
 #4's request-context seam, **#19** (document numbers) and **#20** (`POST /sales`) which it closes, plus
 #23 (sale reads + void) and #28 (shifts + drawer) which it deliberately **leaves open**, because
 #23's "void reverses ledger effects" is only vacuously true until #21 exists and #28's "every sale
@@ -213,9 +213,18 @@ in 47 ms via a dedicated `AUDIT_DATA_SOURCE`; **never `ADMIN_DATA_SOURCE`**, whi
 owner and so writes audit rows RLS never checks).
 Also: a retry of a **voided** bill answered success instead of `409 SALE_VOIDED`; closing a drawer
 twice returned `addEntry`'s Thai sentence about a different action; `paymentMethod` was free text.
+A second review round before the merge (2026-09-11, three parallel agents: Standards / Spec /
+Scrutinize) fixed four more: a **negative `items[].price`** passed every total-level check (now 400);
+`?page=` was unbounded (now capped like `?limit=`); a **void wrote `movements.type='return'`**, so
+reports counted voids as returns (migration `1788652800003` adds `'void'`, `ref_id` is the bare sale id);
+and `server/docker/postgres/init/01-app-role.sh` lacked the executable bit, so Docker Desktop on macOS
+never created `pos_app` (CI on Linux was unaffected). #23 and #28 stay open by design.
 Read `handoff_log/lane-a-review-and-adr0003.md` before picking up Lane A.
 
-🔴 **ADR-0003 was amended 2026-09-10 — the transaction is handler-scoped, not request-wide.**
+🔴 **ADR-0003 was amended 2026-09-10 — the transaction is handler-scoped, not request-wide.** The
+addendum's status is **Proposed** and takes effect only when slice `tx.4` lands; until then the
+middleware → guard → interceptor split that #75 shipped is the in-force mechanism (the 2026-09-11
+review found the first draft banned the very code the PR added).
 The old split (middleware opens the transaction, the guard names the tenant on it, an interceptor
 commits) was never chosen: it was forced by reading ADR-0003's "status check and `SET LOCAL` in one
 component" as also binding *where the transaction lives*. Separating **who decides the tenant**
