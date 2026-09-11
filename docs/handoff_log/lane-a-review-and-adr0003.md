@@ -113,3 +113,13 @@ Scrutinize (ไล่ call graph จริงข้าม seam) — แล้ว
    translate" การยืมประโยคของ `addEntry` มาใช้ตอนปิดกะซ้ำ คือการบอกพนักงานผิดเรื่อง
 4. **fixture ไม่ใช้ `tester` แล้ว** — `resetTenant` สร้าง `tester-<tenantId>` และ `TenantFixture` มี `username`
    ให้ใช้ค่านั้น อย่า hard-code
+
+## 8. อ้างอิง
+
+- **PR #75** https://github.com/NuimanLP/srisurart-pos-flutter/pull/75 — คอมมิตของรอบตรวจอยู่ท้าย branch `feat/laneA-sales`
+- [`../Backend_design/adr/0003-tenant-lifecycle.md`](../Backend_design/adr/0003-tenant-lifecycle.md) หัวข้อ *"ใครตัดสิน กับ ใครลงมือ"* (**เสนอ** ยังไม่บังคับ) · [`0003-handler-scoped-migration-plan.md`](../Backend_design/adr/0003-handler-scoped-migration-plan.md) สไลซ์ `tx.0`–`tx.5`
+- `server/README.md` — *The request-context seam* (รูปที่รันจริงวันนี้ + วันที่จะถูกแทน)
+- [`lane-a-sales-shifts-void.md`](lane-a-sales-shifts-void.md) — รอบก่อนหน้า (#19 #20 #23 #28) และรายการอ้างอิงเต็มของสไลซ์เหล่านั้น
+- `docs/Backend_design/02_API_SCREENS.md` §3.1 (`shiftId`) · §4.2 (`owner`) · §8/§8.1 (error code ใหม่)
+- prototype ที่ใช้ตัดสิน: commit `0feaf94` บน branch `worktree-agent-a1756ff02f223b4eb` (ไม่ merge)
+- คนที่ต้องถาม: **เจ้าของร้าน** (ปุ่ม void, ข้อความไทย 3 ตัว, `shift_id` หลังปิดกะ) · **เจ้าของโปรเจกต์** (#11) · `LomerAlloys` (migration ของ `movements.type`)

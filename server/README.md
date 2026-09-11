@@ -165,6 +165,11 @@ ADR-0003 survives it intact because only the guard still touches the tenant:
 | `TenantGuard` | checks `tenants.status` and `SET LOCAL app.tenant_id` on that manager |
 | interceptor | commits on success, rolls back on error, before the response is sent |
 
+This shape is scheduled for replacement: the 2026-09-10 addendum to ADR-0003
+(*"ใครตัดสิน กับ ใครลงมือ"*) moves the transaction inside the handler, and
+`docs/Backend_design/adr/0003-handler-scoped-migration-plan.md` sequences that as
+`tx.0`–`tx.5` — the split above is what runs until `tx.4` lands.
+
 **How the tenant is named: `SELECT set_config('app.tenant_id', $1, true)`, never
 `SET LOCAL app.tenant_id = $1`.** `SET` is a utility statement — Postgres does not plan
 it, so it takes no bind parameter and that second spelling is a flat `42601` syntax
