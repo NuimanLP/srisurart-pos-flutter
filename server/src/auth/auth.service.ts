@@ -183,7 +183,11 @@ export class AuthService {
     
     try {
       await qr.startTransaction();
-      await qr.query(`SET LOCAL app.tenant_id = $1`, [tenantId]);
+      // `set_config(..., true)`, not `SET LOCAL app.tenant_id = $1`: SET is a utility
+      // statement and takes no bind parameter, so that form is a plain 42601 syntax
+      // error. Being the transaction's first statement, it turned every refresh into
+      // a 500 and left ADR-0009's `auth.refresh_rejected` trail empty.
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
 
       // Check tenant and user under RLS
       const userRows = await qr.query(
@@ -328,12 +332,18 @@ export class AuthService {
   ): Promise<void> {
     try {
       await qr.startTransaction();
-      await qr.query(`SET LOCAL app.tenant_id = $1`, [tenantId]);
+      // `SET LOCAL` takes no bind parameter — `SET LOCAL app.tenant_id = $1` is a
+      // plain syntax error, so every auth audit write failed into the catch below and
+      // ADR-0009's "every /auth/* endpoint writes audit_log" recorded nothing at all.
+      // `set_config(..., true)` is the transaction-scoped form that does take one.
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
       await this.audit.log(qr.manager, params);
       await qr.commitTransaction();
     } catch (err) {
-      if (qr.isTransactionActive) {
-        await qr.rollbackTransaction();
+      try {
+        if (qr.isTransactionActive) await qr.rollbackTransaction();
+      } catch {
+        /* the connection is already gone; the log below is what matters */
       }
       this.logger.error(`Failed to write auth audit log: ${err}`);
     }

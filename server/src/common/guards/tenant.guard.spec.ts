@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import { TenantGuard } from './tenant.guard.js';
+import { runInRequestContext } from '../request-context.js';
 
 describe('TenantGuard', () => {
   let guard: TenantGuard;
   let jwtVerifierMock: any;
   let reflectorMock: any;
-  let dsMock: any;
   let redisCacheMock: any;
+  let managerMock: any;
+
+  /**
+   * The guard now runs inside the transaction RequestContextMiddleware opens — it
+   * has to, because `SET LOCAL app.tenant_id` only means anything on that one
+   * connection. Every call goes through the scope for the same reason production does.
+   */
+  const activate = (ctx: any) =>
+    runInRequestContext({ manager: managerMock }, () => guard.canActivate(ctx));
 
   beforeEach(() => {
     jwtVerifierMock = {
@@ -16,20 +25,15 @@ describe('TenantGuard', () => {
     reflectorMock = {
       getAllAndOverride: vi.fn(),
     };
-    dsMock = {
-      query: vi.fn(),
-    };
     redisCacheMock = {
       get: vi.fn(),
       set: vi.fn(),
     };
+    managerMock = {
+      query: vi.fn().mockResolvedValue([]),
+    };
 
-    guard = new TenantGuard(
-      jwtVerifierMock,
-      reflectorMock,
-      dsMock,
-      redisCacheMock,
-    );
+    guard = new TenantGuard(jwtVerifierMock, reflectorMock, redisCacheMock);
   });
 
   function createMockContext(authHeader?: string, reqAttrs: Record<string, any> = {}) {
@@ -50,10 +54,10 @@ describe('TenantGuard', () => {
 
   it('throws UnauthorizedException when Authorization header is missing or malformed', async () => {
     const ctxNoHeader = createMockContext(undefined);
-    await expect(guard.canActivate(ctxNoHeader)).rejects.toThrow(UnauthorizedException);
+    await expect(activate(ctxNoHeader)).rejects.toThrow(UnauthorizedException);
 
     const ctxBadPrefix = createMockContext('Basic 12345');
-    await expect(guard.canActivate(ctxBadPrefix)).rejects.toThrow(UnauthorizedException);
+    await expect(activate(ctxBadPrefix)).rejects.toThrow(UnauthorizedException);
   });
 
   it('allows access and attaches user when token is valid, active, and cache hits', async () => {
@@ -68,7 +72,7 @@ describe('TenantGuard', () => {
     reflectorMock.getAllAndOverride.mockReturnValue(undefined);
     redisCacheMock.get.mockResolvedValue('active');
 
-    const result = await guard.canActivate(ctx);
+    const result = await activate(ctx);
     expect(result).toBe(true);
     expect(ctx.switchToHttp().getRequest().user).toEqual({
       userId: 'u1',
@@ -77,7 +81,13 @@ describe('TenantGuard', () => {
       deviceId: undefined,
       deviceRole: 'pos',
     });
-    expect(dsMock.query).not.toHaveBeenCalled();
+    // On a cache hit the guard touches the database once — to name the tenant — and
+    // never to re-read the status.
+    expect(managerMock.query).toHaveBeenCalledTimes(1);
+    expect(managerMock.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('SELECT status FROM tenants'),
+      expect.anything(),
+    );
   });
 
   it('queries database on cache miss and caches result in Redis', async () => {
@@ -89,11 +99,13 @@ describe('TenantGuard', () => {
     });
     reflectorMock.getAllAndOverride.mockReturnValue(undefined);
     redisCacheMock.get.mockResolvedValue(null); // cache miss
-    dsMock.query.mockResolvedValue([{ status: 'active' }]);
+    managerMock.query.mockResolvedValue([{ status: 'active' }]);
 
-    const result = await guard.canActivate(ctx);
+    const result = await activate(ctx);
     expect(result).toBe(true);
-    expect(dsMock.query).toHaveBeenCalledWith(
+    // On the request's OWN transaction, never a second pool checkout: the middleware
+    // is already holding one, and reaching for another deadlocks the pool under load.
+    expect(managerMock.query).toHaveBeenCalledWith(
       expect.stringContaining('SELECT status FROM tenants'),
       ['t1'],
     );
@@ -103,6 +115,30 @@ describe('TenantGuard', () => {
       'EX',
       expect.any(Number),
     );
+  });
+
+  it('names the tenant on the request transaction, and only after the status check', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({ aud: 'tenant', sub: 'u1', tid: 't1' });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue('active');
+
+    await activate(ctx);
+
+    expect(managerMock.query).toHaveBeenCalledWith(
+      expect.stringContaining("set_config('app.tenant_id'"),
+      ['t1'],
+    );
+  });
+
+  it('never names a suspended tenant on a transaction', async () => {
+    const ctx = createMockContext('Bearer valid-token');
+    jwtVerifierMock.verify.mockReturnValue({ aud: 'tenant', sub: 'u1', tid: 't1' });
+    reflectorMock.getAllAndOverride.mockReturnValue(undefined);
+    redisCacheMock.get.mockResolvedValue('suspended');
+
+    await expect(activate(ctx)).rejects.toThrow(HttpException);
+    expect(managerMock.query).not.toHaveBeenCalled();
   });
 
   it('throws TENANT_SUSPENDED (403) with Thai message if tenant is not active', async () => {
@@ -116,7 +152,7 @@ describe('TenantGuard', () => {
     redisCacheMock.get.mockResolvedValue('suspended');
 
     try {
-      await guard.canActivate(ctx);
+      await activate(ctx);
       expect.unreachable('Should have thrown');
     } catch (err: any) {
       expect(err).toBeInstanceOf(HttpException);
@@ -141,7 +177,7 @@ describe('TenantGuard', () => {
     redisCacheMock.get.mockResolvedValue('active');
 
     try {
-      await guard.canActivate(ctx);
+      await activate(ctx);
       expect.unreachable('Should have thrown');
     } catch (err: any) {
       expect(err).toBeInstanceOf(HttpException);
@@ -165,7 +201,7 @@ describe('TenantGuard', () => {
     reflectorMock.getAllAndOverride.mockReturnValue('pos');
     redisCacheMock.get.mockResolvedValue('active');
 
-    const result = await guard.canActivate(ctx);
+    const result = await activate(ctx);
     expect(result).toBe(true);
   });
 
@@ -180,7 +216,7 @@ describe('TenantGuard', () => {
     reflectorMock.getAllAndOverride.mockReturnValue('backoffice');
     redisCacheMock.get.mockResolvedValue('active');
 
-    const result = await guard.canActivate(ctx);
+    const result = await activate(ctx);
     expect(result).toBe(true);
   });
 
@@ -195,7 +231,7 @@ describe('TenantGuard', () => {
     reflectorMock.getAllAndOverride.mockReturnValue('backoffice');
     redisCacheMock.get.mockResolvedValue('active');
 
-    const result = await guard.canActivate(ctx);
+    const result = await activate(ctx);
     expect(result).toBe(true);
   });
 
@@ -210,7 +246,7 @@ describe('TenantGuard', () => {
     reflectorMock.getAllAndOverride.mockReturnValue('backoffice');
     redisCacheMock.get.mockResolvedValue('active');
 
-    const result = await guard.canActivate(ctx);
+    const result = await activate(ctx);
     expect(result).toBe(true);
   });
 
@@ -223,8 +259,8 @@ describe('TenantGuard', () => {
     });
     reflectorMock.getAllAndOverride.mockReturnValue(undefined);
     redisCacheMock.get.mockResolvedValue(null);
-    dsMock.query.mockRejectedValue(new Error('Postgres connection timeout'));
+    managerMock.query.mockRejectedValue(new Error('Postgres connection timeout'));
 
-    await expect(guard.canActivate(ctx)).rejects.toThrow('Postgres connection timeout');
+    await expect(activate(ctx)).rejects.toThrow('Postgres connection timeout');
   });
 });

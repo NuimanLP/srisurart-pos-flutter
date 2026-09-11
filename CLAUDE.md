@@ -196,14 +196,46 @@ probes, JSON logs; the 27-table schema as TypeORM migrations applied by a one-sh
 **#18 `p5.1` (idempotency) is merged to `main`** (PR #51, 2026-09-10) — the `Idempotency-Key` module every money/stock
 write goes through, proved against the real Postgres; `server/README.md` *Idempotency* has the
 rules and the three error codes it had to add to `02_API_SCREENS.md §8`. It reads the request's
-tenant + transaction from `src/common/request-context.ts`, a seam **#4** fills. 🔴 ADR-0003 says
-`TenantGuard` alone may check tenant status and `SET LOCAL app.tenant_id` — true, but a guard
-cannot also hold that scope open across the handler or commit after it (`canActivate` returns
-first), so #4 has to build a **split**: middleware opens the transaction and the scope, the guard
-does status + `SET LOCAL` on it, an interceptor commits. Read `server/README.md` *The
-request-context seam* before starting #4. `currentRequestContext()` throws rather than
-defaulting, so no route can reach tenant data before that lands. Still no auth and no business
-endpoints — **#4 `p3`** remains next on the critical path. `synchronize` is never
+tenant + transaction from `src/common/request-context.ts`, the seam **#4** filled.
+
+**Lane A is built and waiting on review — PR #75 (`feat/laneA-sales`), not yet merged.** It carries
+#4's request-context seam, **#19** (document numbers) and **#20** (`POST /sales`) which it closes, plus
+#23 (sale reads + void) and #28 (shifts + drawer) which it deliberately **leaves open**, because
+#23's "void reverses ledger effects" is only vacuously true until #21 exists and #28's "every sale
+*and return* carries `shift_id`" needs #22. A three-axis review round (Standards / Spec / Scrutinize)
+then found and fixed, with measurements rather than argument:
+🔴 a reused `Idempotency-Key` on `POST /sales/:id/void` answered **200 with a different bill's
+payload**, leaving the targeted bill live and its stock unrestored — the fingerprint was built from
+`req.route.path`, which is the *pattern*, so two bills collided; it now uses the concrete path.
+🔴 the void-denial audit took a **second connection from the request pool**, so any cashier could
+500 unrelated requests (`403,403,500,500` in 5013 ms, and every concurrent read 500 — now `403×4`
+in 47 ms via a dedicated `AUDIT_DATA_SOURCE`; **never `ADMIN_DATA_SOURCE`**, which connects as the
+owner and so writes audit rows RLS never checks).
+Also: a retry of a **voided** bill answered success instead of `409 SALE_VOIDED`; closing a drawer
+twice returned `addEntry`'s Thai sentence about a different action; `paymentMethod` was free text.
+Read `handoff_log/lane-a-review-and-adr0003.md` before picking up Lane A.
+
+🔴 **ADR-0003 was amended 2026-09-10 — the transaction is handler-scoped, not request-wide.**
+The old split (middleware opens the transaction, the guard names the tenant on it, an interceptor
+commits) was never chosen: it was forced by reading ADR-0003's "status check and `SET LOCAL` in one
+component" as also binding *where the transaction lives*. Separating **who decides the tenant**
+(the guard, unchanged) from **who executes `set_config`** (`TenantService.runTx`) keeps every ADR-0003
+guarantee and deletes the middleware, `TENANT_ROUTES`, the `res.on('close')` backstop and the global
+interceptor — and cuts the open-transaction hold from **112 ms to 18–28 ms** (measured, 4 concurrent
+voids at `DB_POOL_SIZE=2`). The migration is **not done**: it is planned as six slices `tx.0`–`tx.5`
+in `docs/Backend_design/adr/0003-handler-scoped-migration-plan.md`, and `tx.3` (idempotency) is the
+one that fails silently and as money. 🔴 **`runTx` must never take a `tid` argument** — the amendment
+is only safe because `runTx(fn)` cannot name a tenant the guard did not authorise; the
+`TenantService` in the tree today still has the `runTx(tid, fn)` signature, and following it would
+silently restore exactly what ADR-0003 banned, failing as a cross-tenant read that raises nothing.
+The proving prototype is commit `0feaf94` on `worktree-agent-a1756ff02f223b4eb` (never merge it).
+Until `tx.*` lands, `server/README.md` *The request-context seam* still describes the shipped code.
+
+🔴 **The e2e suite cannot tolerate a second concurrent runner on the same database** —
+`test/schema.e2e-spec.ts` tears the schema down and re-applies it. CI is safe (one Postgres per job),
+two developers sharing a dev database are not; the symptom is a migration dying with
+`terminating connection due to administrator command` and document numbers starting mid-series.
+No ticket yet. `synchronize` is never
 true anywhere, tests included. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP`
 (Lane A), `LomerAlloys` (Lane B), `PattaraponKitcharoen` (Lane C) — see
 `handoff_log/merge-p1-p2-lane-assignments.md`. **No cutover is planned for phase 1** — the shop

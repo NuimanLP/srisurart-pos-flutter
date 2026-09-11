@@ -96,8 +96,13 @@ src/app.module.ts        CoreModule (config, logger, Postgres, Redis) / AppModul
 src/app.setup.ts         global prefix /api/v1 (health excluded), envelope, filter, JSON 404
 src/common/              response envelope, error envelope, pino logger + correlation id,
                          request-context.ts (the per-request tenant + transaction seam)
-src/infra/               DataSource (pos_app role, synchronize=false), REDIS_CACHE / REDIS_QUEUE
+src/infra/               DataSource (pos_app role, synchronize=false), ADMIN_DATA_SOURCE (owner),
+                         AUDIT_DATA_SOURCE (pos_app, pool of 2, off the request pool),
+                         REDIS_CACHE / REDIS_QUEUE
 src/idempotency/         Idempotency-Key: claim, replay, 409 on a changed request (#18)
+src/documents/           document numbers: RC01-2569-08-0042, per device per month (#19)
+src/sales/               POST /sales — the sale transaction (#20)
+src/shifts/              the cash drawer: shifts, entries, the shift_id stamp (#28)
 src/db/migrations/       the schema (27 tables, indexes, pg_trgm) + RLS/grants — the only source of DDL
 src/db/data-source.ts    owner-role DataSource with the static MIGRATIONS list
 src/db/migrate.ts        up | down | status                → node dist/db/migrate.js (compose `migrate` job)
@@ -160,11 +165,269 @@ ADR-0003 survives it intact because only the guard still touches the tenant:
 | `TenantGuard` | checks `tenants.status` and `SET LOCAL app.tenant_id` on that manager |
 | interceptor | commits on success, rolls back on error, before the response is sent |
 
+This shape is scheduled for replacement: the 2026-09-10 addendum to ADR-0003
+(*"ใครตัดสิน กับ ใครลงมือ"*) moves the transaction inside the handler, and
+`docs/Backend_design/adr/0003-handler-scoped-migration-plan.md` sequences that as
+`tx.0`–`tx.5` — the split above is what runs until `tx.4` lands.
+
+**How the tenant is named: `SELECT set_config('app.tenant_id', $1, true)`, never
+`SET LOCAL app.tenant_id = $1`.** `SET` is a utility statement — Postgres does not plan
+it, so it takes no bind parameter and that second spelling is a flat `42601` syntax
+error that also aborts the enclosing transaction. It is invisible to unit tests, because
+a mocked `query` accepts any string, and it reached `main` three separate times: the
+login audit write, `refreshTokenPayload` (where it 500'd every `POST /auth/refresh`
+until it was covered by `test/auth-refresh.e2e-spec.ts`) and `TenantService.runTx`. The
+`SET LOCAL` wording elsewhere in this file and in ADR-0003 means *transaction-scoped*,
+which `set_config(..., true)` is; `src/common/tenant-scope.spec.ts` scans `src/` so the
+literal form cannot come back.
+
 Nothing in `src/` populates it yet, and `currentRequestContext()` throws rather than
 defaulting — a route without the guard fails closed instead of reading someone's data.
-`test/idempotency.e2e-spec.ts` stands in for the whole chain so the module can be proved
-today; that stand-in lives in the test, deliberately, so `src/` ships no route that could
-run without a tenant.
+Built in #19's branch, because every write slice needs it: `RequestContextMiddleware`
+opens the transaction per controller listed in `TENANT_ROUTES` (not globally — a
+transaction per liveness probe is a pool slot spent on nothing), `TenantGuard` names the
+tenant on it *after* the status check, and the globally-bound `TransactionInterceptor`
+commits or rolls back before the response is sent. `currentRequestContext()` fails closed
+twice: outside the scope, and inside it before the guard has named a tenant.
+
+A guard that throws never reaches an interceptor, so the response's own `close` event is
+the backstop that rolls back and returns the connection to the pool. `TransactionInterceptor`
+claims the transaction (`qr.data`) as soon as it runs, and the backstop then stands aside:
+Nest does not cancel a handler when the client disconnects, so on a mid-sale abort an
+unclaimed backstop would roll back and release **underneath statements still in flight**,
+handing a live query queue to whichever request took that connection next.
+
+🔴 **Two rules for anything that runs inside a request:**
+
+1. **Never take a second connection from the request pool — there is no exception.** The
+   request already holds one. Under load every in-flight request holding one and waiting
+   for another is a pool deadlock — they all sit there until `connectionTimeoutMillis`
+   fires and all return 500, and the 500s are *other people's requests*, not the one that
+   misbehaved. Read through `currentRequestContext().manager`. (`tenants` and
+   `platform_admins` are the two tables with no RLS, so even a status probe can go
+   through it.)
+
+   Work that genuinely cannot run in the request transaction — today that is exactly one
+   call site, `VoidService`'s refusal audit, which must survive the rollback the 403
+   causes — takes its connection from **`AUDIT_DATA_SOURCE`** (`src/infra/db.module.ts`):
+   a separate pool of 2, same `pos_app` role, so RLS still applies and the write still has
+   to name its tenant with `set_config('app.tenant_id', …)` of its own. Never
+   `ADMIN_DATA_SOURCE` — that connects as the owner, and an audit row written as the owner
+   is tenant data that RLS never checked.
+
+   🔴 This *was* written as a deliberate exception taking a second request-pool
+   connection, and it was measured as an availability bug. Same app, same tenant,
+   `DB_POOL_SIZE=2`, four concurrent denials plus four unrelated reads:
+
+   | | before | after |
+   |---|---|---|
+   | four concurrent denials | `403,403,500,500` in 5013 ms | `403,403,403,403` in 44 ms |
+   | four unrelated reads | `500,500,500,500` | `200,200,200,200` |
+
+   Production runs `DB_POOL_SIZE ?? 5` and the first denial branch is the **role** check,
+   so any authenticated cashier could stall every sale in flight for five seconds without
+   knowing a PIN. `test/void-denial-pool.e2e-spec.ts` holds the measurement. The next
+   denial path to be written follows that shape: its own pool, its own `set_config`, and
+   a `catch` that keeps a failed audit from turning a 403 into a 500.
+2. **An async Express middleware must never reject.** Express does not await it, so a
+   rejection is an unhandled rejection, which Node answers by killing the worker. Both
+   `RequestContextMiddleware` failure paths write a response instead.
+
+## Document numbers (#19)
+
+`RC01-2569-08-0042` — type, two-digit `device_no`, Buddhist year-month, four-digit running
+number (ADR-0007). `DocNumberService.issue(manager, …)` allocates from `doc_counters` with
+`ON CONFLICT DO UPDATE … RETURNING` inside **the caller's** transaction, so a rolled-back
+sale gives its number back and the printed series has no visible hole.
+
+- The series is per `(device_id, doc_type, period)` and resets monthly. `period` is the
+  Buddhist year and month **in `tenants.timezone`** — a sale rung up at 00:30 in Bangkok
+  belongs to that day's month, not to UTC's.
+- `device_no` is resolved here from the token's `did`. It is never read from a request
+  body: a client that could choose it could print into another machine's series (ADR-0004).
+- `device_no` is zero-padded to two digits without exception — unpadded, machine 1 and
+  machine 12 differ only by a separator and parse back wrong.
+- The 10,000th document in one month on one device is `409 DOC_NUMBER_EXHAUSTED`, not a
+  wrap to `0001` that would re-issue a number already printed on paper. The message is
+  English on purpose: inventing a Thai string is the shop owner's call, and the code is
+  filed in `02_API_SCREENS.md §8.1` waiting for it.
+- Imported legacy documents keep their original `RC12345678ABCD` numbers. The two formats
+  cannot collide, so the counter neither reads them nor reconciles against them.
+- Phase 2 (the `pos` device issuing RC/CN from its own Drift counter, and
+  `GET /doc-counters` to seed it) is **not** built here — in phase 1 the server issues
+  every series.
+
+🔴 **Lock order: products, then `doc_counters`.** `POST /sales` takes `FOR UPDATE` on
+every product on the bill and only then bumps the counter. Any later path that writes
+stock **and** issues a number — `POST /purchase-orders/:id/receive` (#26), `POST /returns`
+(#22) — must take them in that same order. Issuing the number first inverts the order and
+the two deadlock under concurrent load, which is the kind of failure that only shows up on
+a busy Saturday.
+
+## The sale transaction (#20)
+
+`POST /api/v1/sales` — `pos` device only, `Idempotency-Key` mandatory. Everything runs
+inside the request transaction, in this order, and the order is the design:
+
+1. the idempotency claim (interceptor, before the handler)
+2. `SELECT … WHERE id = ANY($ids) ORDER BY id FOR UPDATE` — **the ordering is the
+   deadlock guard.** Two bills sharing two products, each locking in its own arrival
+   order, deadlock; one order everywhere makes the second wait instead
+3. the **complete** Thai error, built from that locked read and thrown once for the
+   whole bill. `UPDATE … WHERE stock >= qty` cannot do this — a row count of zero
+   cannot tell "not enough" from "no such product" — and fail-fast reports only the
+   first bad line, so staff re-submit the bill once per missing item to find out what
+   is short
+4. deduct, `stock >= qty` kept in the predicate as an assertion against our own bugs.
+   A sale never clamps at zero; `adjustStock` is the only path that may
+5. issue the receipt number (#19) from the `device_no` of the token's `did`
+6. insert the header and the lines, `cost_at_sale` from **the same locked read**
+   (ADR-0008) — never re-read outside the transaction, never taken from the client
+7. insert `movements` — one row per product, because `uq_movements_ref` is unique on
+   `(tenant_id, type, ref_id, product_id)`
+8. commit. Only after commit may anything external happen: no cache call and no
+   enqueue inside a transaction that holds locks and can still roll back
+
+**This closes a real race.** `sales_repository.dart` pre-checks stock *outside* its
+transaction and then opens one to deduct; it has never bitten only because the shop
+has one machine. The suite proves the fix: 200 concurrent bills against 50 units
+produce exactly 50 bills, stock exactly zero, 50 distinct receipt numbers.
+
+**Money.** The client owns the numbers — the receipt is printed before the request is
+sent — and the server checks the arithmetic: more than `0.01` apart is
+`409 TOTAL_MISMATCH`, within tolerance the client's values are stored. A line price is
+**never** compared against the catalogue price: haggling is an ordinary day at this
+counter. `pointsGranted` is `floor(total/10)`, computed from the persisted total.
+Everything in between is integer satang (`src/common/money.ts`), never a float.
+
+**The client's `id` is a natural idempotency key** (§3.1). A retry that lost its
+`Idempotency-Key` — a page reload, an app restart — finds the bill already written and is
+answered with it, before anything is locked or deducted. It used to be a 500 on the
+primary key, which is worse than an error: staff read it as "that did not go through" and
+ring the bill up a second time. A repeat carrying a *different* total is
+`409 SALE_ID_REUSED`, because silently answering with the old bill would lose the new
+one's money.
+
+**Not here:** the customer and mechanic ledger effects are #21 (blocked on the #11
+decision), and with them the `customerAfter` / `mechanicCreditBalanceAfter` fields §3.1
+and ADR-0010 §3 want in the 201. `shift_id` is stamped by #28. The response carries no
+`offlineOk` — it has no storage in phase 1.
+
+🔴 **`returning()` (`src/common/sql.ts`) is not optional.** TypeORM's Postgres driver
+returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/`DELETE`,
+so `result[0].stock` reads a number on one and `undefined` on the other — which reaches
+Postgres as a NULL several statements later, where nothing points back at the cause.
+Every `UPDATE … RETURNING` goes through it.
+
+## Sale reads and the void (#23)
+
+`GET /sales` (filters `search`, `receiptNo`, `from`, `to`, plus `page`/`limit` — never
+the whole table), `GET /sales/:id`, `GET /sales/:id/refunded-qty`, all readable from
+both device roles. `refunded-qty` sums `return_items` across every credit note against
+the bill: it is what makes the over-refund guard visible to staff *before* they submit.
+
+`?receiptNo=` is an exact match, separate from `?search=`, for the same reason the
+barcode lookup is separate from product search — what is printed on the paper a
+customer brings back is one number, and a LIKE would offer several bills. `%` and `_`
+in a search are escaped: they are characters staff typed, not wildcards.
+
+**`POST /sales/:id/void`** — `manager` (or `owner`) plus the PIN, `pos` device only,
+idempotent. Restores stock, writes a `movements` row per product (`ยกเลิกบิล`), marks
+the bill void and writes an `audit_log` row. Refused when the bill is already void
+(`409 SALE_VOIDED`) or already has a credit note against it (`409 SALE_HAS_RETURNS` —
+voiding then would restore that stock twice).
+
+Refusals are audited too (`sale.void.denied`, with the reason). This is a four-digit PIN
+with no per-user rate limit until #44; brute-forcing it must not be invisible. That row is
+written on its own connection because the 403 rolls the request transaction back — an
+audit row written on it would vanish along with the attempt it was recording. The
+connection comes from `AUDIT_DATA_SOURCE`, a two-connection pool of its own; taking it
+from the request pool made a denial a request queuing for a second connection, which
+timed out unrelated requests (see *Two rules* above, and
+`test/void-denial-pool.e2e-spec.ts`).
+
+🔴 **Two things to know before this ships:**
+- The old app has no void button at all: a bill is voided only as the automatic
+  consequence of returning every line (`02_API_SCREENS.md §2` lists the endpoint under
+  "new, not a port", and asks for a conversation first). #23 specifies it, so it is
+  built — but the shop has never seen this button.
+- **The customer and mechanic ledger is deliberately untouched by the void.** #20 does
+  not apply those effects yet (they are #21, blocked on the #11 decision), so there is
+  nothing on a bill this server wrote to reverse, and reversing anyway would drive
+  points and credit balances negative. #21 must extend `VoidService.restoreStock`.
+
+## The cash drawer (#28)
+
+`GET /shifts/current` and `/shifts/history` are readable from **both** device roles —
+looking at the drawer does not touch it (ADR-0004) — while `POST /shifts/open`,
+`/close` and `/current/entries` are `pos` only.
+
+⚠️ **`is_active` does not mean "open."** Closing leaves it true: the shift stays *this
+device's current drawer* until the next open archives it, exactly as
+`shifts_repository.dart` does, and `uq_shift_active` (unique on
+`(tenant_id, device_id) WHERE is_active`) depends on that meaning. "Open" is
+`closed_at IS NULL`. Do not repurpose the flag.
+
+- Re-opening on the same day returns the existing shift untouched, starting cash and
+  all: staff press the button twice. A new day archives the previous shift **first**,
+  flagged `auto_archived` when it was never closed, so a day's takings are never lost.
+- A drawer entry after close is `409 DRAWER_CLOSED` with the message verbatim from
+  `db.js`; no drawer at all is `409 NO_OPEN_SHIFT`.
+- Reads are tenant-wide, writes are per device. In this shop those coincide
+  (`one_pos_per_tenant`), but a read filtered by the caller's device would show a
+  `backoffice` machine nothing, which is not what "readable from both" means.
+- **`shift_id` is stamped on a sale at write time**, from the device's own *open*
+  drawer — never from the request body, and null when no drawer is open (the old app
+  lets staff sell without one). The closing report is computed by `shift_id`, never by
+  a timestamp window: a window breaks across midnight and cannot separate two machines.
+- `closeForRetirement()` is the operation `POST /devices/:id/retire` (#6) calls to
+  close a machine's drawer in the same transaction that stamps `retired_at`. The
+  endpoint does not exist yet, so `test/shifts.e2e-spec.ts` mounts the call on a probe
+  route rather than shipping it untested. **It archives as well as closes**: normally the
+  device's *next* open archives its drawer, but a retired device never opens again, so an
+  active row would be stranded — `history()` (`NOT is_active`) would hide that day's
+  takings forever while `current()` showed a drawer nothing could close.
+- 🔴 **A bill rung up while no drawer is open carries no `shift_id`,** and neither does
+  one rung up after the drawer is closed. The shipped app's closing report counts by date
+  key (`closing_report.dart`), not by shift, so it *does* include those bills — a report
+  built purely on `shift_id` will be short by exactly the after-close takings. Whoever
+  builds `GET /reports/closing` (#30) has to decide that explicitly: either fold
+  `shift_id IS NULL AND date = <the shift's day>` into the query, or stamp the day's
+  drawer regardless of close. It is a `db.js` behaviour change either way, so it is not a
+  decision to make inside a test.
+
+## Conventions these slices set
+
+- **Pagination lives in `meta`, not in `data`** (§1.2). A handler returns
+  `new Paginated(items, { total, page, limit })` and `EnvelopeInterceptor` lifts it into
+  `{ status, data, meta: { total, page, limit, totalPages } }`. `GET /sales` and
+  `GET /shifts/history` are the first two; #55 will read them.
+- **Money is integer satang in the server** (`src/common/money.ts`) and a string on the
+  wire. `toSatang` holds a JSON number to the same two decimals as the string form and
+  bounds every amount to what `NUMERIC(12,2)` can hold — past that Postgres raises `22003`
+  several statements later, which surfaces as a 500 for what was plainly a bad request.
+- **A list read needs a tiebreaker.** `sales.date` defaults to the transaction timestamp,
+  so bills written in the same instant tie; `LIMIT`/`OFFSET` over a tie shows one row
+  twice and misses another. Every paged query orders by `<sort key> DESC, id DESC`.
+- 🔴 **`returning()` (`src/common/sql.ts`) is not optional.** TypeORM's Postgres driver
+  returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/`DELETE`,
+  so `result[0].stock` reads a number on one and `undefined` on the other — which reaches
+  Postgres as a NULL several statements later, where nothing points back at the cause.
+
+## The e2e suite
+
+`test/support/fixture.ts` boots the real application against the compose Postgres and
+Redis, mints access tokens from a per-run RSA key pair, and resets one tenant per suite.
+
+- **`resetTenant` clears Redis as well as Postgres.** `TenantGuard` caches
+  `t:{tid}:status` for five minutes and the idempotency service caches responses under
+  `t:{tid}:idem:*` for a day — both outlive a run. A suite that wipes only the tables is
+  testing a half-reset tenant: a suspended shop still reads `active`, and a re-used key
+  replays a bill that no longer exists.
+- **`fileParallelism: false`.** Each file boots the whole application, so parallel files
+  multiply the connection pools past `max_connections=100` and the run dies as "worker
+  exited unexpectedly" rather than as a failed assertion.
+- `TEST_LOG_LEVEL=error pnpm test:e2e` is how you find out why a suite is getting a 500.
 
 ## Invariants this stack enforces (from #14 / #2)
 

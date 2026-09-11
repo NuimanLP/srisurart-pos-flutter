@@ -225,7 +225,9 @@ export class IdempotencyService {
   ): ClaimResult {
     // The endpoint matters as much as the body: the same key and body against
     // POST /sales and then POST /returns would otherwise replay the sale and
-    // silently perform no return.
+    // silently perform no return. It is the CONCRETE target, path parameters and
+    // all, so the same key against two bills' /void is caught here too — the body
+    // of a void is just `{pin}` and cannot tell them apart.
     if (
       stored.hash !== params.requestHash ||
       stored.endpoint !== params.endpoint
