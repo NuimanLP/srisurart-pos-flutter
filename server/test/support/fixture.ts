@@ -272,6 +272,71 @@ export async function seedProduct(
   return p.id;
 }
 
+/** Inserts a customer. Returns its id. */
+export async function seedCustomer(
+  admin: DataSource,
+  tenantId: string,
+  c: {
+    id: string;
+    code: string;
+    name: string;
+    nameTH?: string;
+    points?: number;
+    totalSpend?: number;
+  },
+): Promise<string> {
+  await admin.query(
+    `INSERT INTO customers (tenant_id, id, code, name, name_th, points, total_spend)
+          VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)`,
+    [
+      tenantId,
+      c.id,
+      c.code,
+      c.name,
+      c.nameTH ?? c.name,
+      c.points ?? 0,
+      c.totalSpend ?? 0,
+    ],
+  );
+  return c.id;
+}
+
+/** Inserts a mechanic. Returns its id. */
+export async function seedMechanic(
+  admin: DataSource,
+  tenantId: string,
+  m: {
+    id: string;
+    code: string;
+    name: string;
+    creditLimit?: number;
+    creditBalance?: number;
+    totalSales?: number;
+    totalCredit?: number;
+    totalDiscount?: number;
+    totalMarkup?: number;
+  },
+): Promise<string> {
+  await admin.query(
+    `INSERT INTO mechanics (tenant_id, id, code, name, credit_limit, credit_balance,
+                            total_sales, total_credit, total_discount, total_markup)
+          VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      tenantId,
+      m.id,
+      m.code,
+      m.name,
+      m.creditLimit ?? 0,
+      m.creditBalance ?? 0,
+      m.totalSales ?? 0,
+      m.totalCredit ?? 0,
+      m.totalDiscount ?? 0,
+      m.totalMarkup ?? 0,
+    ],
+  );
+  return m.id;
+}
+
 /** Runs `fn` with `app.tenant_id` set, the way a request does. */
 export async function asTenant<T>(
   ds: DataSource,

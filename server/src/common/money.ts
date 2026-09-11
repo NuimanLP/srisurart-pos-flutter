@@ -35,6 +35,14 @@ function parse(value: unknown, field: string): number {
   throw badMoney(field, value);
 }
 
+/**
+ * A `NUMERIC` as `pg` hands it back (`"1234.50"`), in integer satang — the read side
+ * of `fromSatang`, for values the database already holds and the DTO never saw.
+ */
+export function satangOf(numeric: string): number {
+  return Math.round(Number(numeric) * 100);
+}
+
 /** Back to the wire/DB shape: `"1234.50"`. */
 export function fromSatang(satang: number): string {
   const sign = satang < 0 ? '-' : '';

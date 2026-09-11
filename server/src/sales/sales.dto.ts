@@ -24,6 +24,8 @@ export interface CreateSale {
   mechanicId: string | null;
   mechanicName: string | null;
   mechanicDeltaSatang: number | null;
+  /** The counter confirmed 'ยืนยันขายเครดิต?' — the bill may push the mechanic past the limit. */
+  overrideCreditLimit: boolean;
   items: SaleLine[];
 }
 
@@ -74,10 +76,12 @@ export function parseCreateSale(body: unknown): CreateSale {
       b.mechanicDelta === undefined || b.mechanicDelta === null
         ? null
         : toSatang(b.mechanicDelta, 'mechanicDelta'),
-    // `overrideCreditLimit` is deliberately NOT read. §8.2 requires an `audit_log`
-    // row naming who overrode a credit limit and by how much, and the credit balance
-    // it would override is #21's to write — accepting the flag now would let a client
-    // believe an override was recorded when nothing was.
+    // Strictly a boolean: `"false"` is truthy in JS, and a client sending the string
+    // would confirm an override it never showed the dialog for.
+    overrideCreditLimit: booleanOrFalse(
+      b.overrideCreditLimit,
+      'overrideCreditLimit',
+    ),
     items: parseLines(items),
   };
   assertMoneyMakesSense(sale);
@@ -192,6 +196,13 @@ function requiredPaymentMethod(value: unknown): string {
     );
   }
   return method;
+}
+
+function booleanOrFalse(value: unknown, field: string): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value !== 'boolean')
+    throw new BadRequestException(`${field} must be a boolean`);
+  return value;
 }
 
 function optionalString(value: unknown, field: string): string | null {

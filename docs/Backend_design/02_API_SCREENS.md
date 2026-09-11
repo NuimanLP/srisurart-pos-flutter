@@ -183,6 +183,7 @@ sequenceDiagram
   "customerId": "c3", "customerName": "สมชาย ยานยนต์",
   "mechanicId": "m2", "mechanicName": "ช่างเอก",
   "mechanicDelta": "-100.00",
+  "overrideCreditLimit": false,   // true = คนขายกด "ยืนยัน" ใน dialog เกินวงเงินแล้ว (§8.2)
   "items": [
     { "lineNo": 1, "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",
       "nameTH": "ผ้าเบรกหน้า", "qty": 2, "price": "750.00" }
@@ -629,12 +630,13 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 409 | `DOC_NUMBER_EXHAUSTED` | – **ยังไม่มีข้อความไทย** (เลขเอกสารของเครื่องนี้เต็มเดือน = 9,999 ใบ — เพิ่มตอน #19 ดู §8.1) |
 | 409 | `SALE_HAS_RETURNS` | – **ยังไม่มีข้อความไทย** (บิลนี้มีใบลดหนี้แล้ว void ไม่ได้ — เพิ่มตอน #23 ดู §8.1) |
 | 409 | `SALE_ID_REUSED` | – **ยังไม่มีข้อความไทย** (`id` ของบิลถูกใช้ไปแล้วกับบิลที่ยอดไม่ตรงกัน — เพิ่มตอน #20 ดู §8.1) |
+| 409 | `CREDIT_LIMIT_EXCEEDED` | – **ยังไม่มีข้อความไทย** (ขายเครดิตเกินวงเงินโดยไม่มี `overrideCreditLimit: true` — client แสดง dialog เดิมแล้วส่งซ้ำ เพิ่มตอน #21 ดู §8.1 / §8.2) |
 | 401/403 | `UNAUTHENTICATED` / `FORBIDDEN` | – |
 | 429 | `RATE_LIMITED` | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` | – |
 
 ### 8.1 Error ที่เป็น **ของใหม่** (ไม่มีใน `db.js`)
 
-ทั้ง 11 ตัวนี้เป็นพฤติกรรมที่ระบบเดิม **ไม่มี** จึงไม่มีข้อความไทยให้ลอก
+ทั้ง 12 ตัวนี้เป็นพฤติกรรมที่ระบบเดิม **ไม่มี** จึงไม่มีข้อความไทยให้ลอก
 
 > **สถานะ 2026-09-04 — ข้อความชั่วคราว ผ่านเจ้าของโปรเจกต์แล้ว ยังไม่ผ่านคนหน้าร้าน**
 > ข้อความในคอลัมน์ *ข้อความไทย* ด้านล่าง **agent เป็นคนร่าง** ไม่ได้ลอกมาจาก `db.js`
@@ -656,8 +658,11 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 409 | `SALE_HAS_RETURNS` | 🔴 **ยังไม่ร่าง — ต้องให้เจ้าของร้านเป็นคนตั้ง** | `POST /sales/:id/void` กับบิลที่มีใบลดหนี้แล้ว — ถ้าปล่อยให้ void จะคืนสต็อกซ้ำกับที่ใบลดหนี้คืนไปแล้ว · ของเดิมไม่มีปุ่ม void จึงไม่มีเคสนี้ · **#23 คืนข้อความอังกฤษไว้ก่อน** ไม่แต่งไทยเอง |
 | 409 | `SALE_ID_REUSED` | 🔴 **ยังไม่ร่าง — ต้องให้เจ้าของร้านเป็นคนตั้ง** | §3.1 บอกว่า `id` ที่ client สร้างคือ natural idempotency key → ยิงซ้ำด้วย `id` เดิม **และยอดเท่าเดิม** server คืนบิลเดิมให้ (ไม่ใช่ error ไม่ใช่ตัดสต็อกซ้ำ) แต่ถ้า `id` เดิม **ยอดต่าง** = คนละบิลที่ใส่ `id` ชนกัน ถ้าเงียบไว้เท่ากับทำเงินของบิลใหม่หาย · เดิม `POST /sales` ชน PK แล้วเป็น **500** ซึ่งทำให้พนักงานตีบิลใหม่ = ขายซ้ำ · **#20 คืนข้อความอังกฤษไว้ก่อน** |
 | 409 | `SHIFT_ALREADY_CLOSED` | 🔴 **ยังไม่ร่าง — ต้องให้เจ้าของร้านเป็นคนตั้ง** | `POST /shifts/close` กับกะที่ปิดไปแล้ว — `physical_cash` คือเงินที่นับจริง กดซ้ำแล้วทับค่าเดิมเงียบ ๆ โดยไม่มีร่องรอย (idempotency key คนละใบกันจึงกันไม่ได้) · ของเดิม `closeShift()` ใน `shifts_repository.dart` **ไม่ throw** แค่เขียนทับค่าเดิม จึงไม่มีข้อความไทยให้ลอก · **ใช้ `DRAWER_CLOSED` ไม่ได้** — ข้อความไทยของ code นั้นพูดถึง“บันทึกรายการเงินเพิ่ม” ซึ่งเป็นคนละการกระทำ · **#28 คืนข้อความอังกฤษไว้ก่อน** |
+| 409 | `CREDIT_LIMIT_EXCEEDED` | 🔴 **ยังไม่ร่าง — client แสดง dialog ไทยของเดิมเอง** | ส่งเฉพาะเมื่อ `paymentMethod = 'เครดิตช่าง'` **และ** `credit_balance + total > credit_limit` **และ** body ไม่มี `overrideCreditLimit: true` — `details { creditLimit, creditBalance, newBalance }` · ของเดิมไม่ใช่ error แต่เป็น confirm dialog (`checkout_screen.dart:567` — ดู §8.2) client จึงแสดง dialog เดิมแล้วส่งบิลซ้ำพร้อม flag; server จึงเขียน `audit_log` (`sale.credit_limit_override`) · **#21 คืนข้อความอังกฤษไว้ก่อน** ไม่แต่งไทยเอง |
 
 ### 8.2 ⚠️ วงเงินเครดิตช่าง — **ไม่ใช่ error**
+
+> **หมายเหตุ #21:** "ไม่ใช่ error" หมายถึง *ไม่ใช่การปฏิเสธขาย* — server ยังต้องตอบ `409 CREDIT_LIMIT_EXCEEDED` เมื่อบิลไม่มี flag เพื่อให้ client รู้ว่าต้องแสดง dialog (ดูข้อสุดท้ายด้านล่าง) แต่บิลเดิมส่งซ้ำพร้อม `overrideCreditLimit: true` ผ่านเสมอ
 
 เวอร์ชันแรกของเอกสารนี้เขียนไว้ว่า `CREDIT_LIMIT_EXCEEDED → 403` ซึ่ง **ผิด**
 ของจริงเป็น **confirm dialog ให้ override ได้**:
@@ -667,6 +672,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 * `GET /mechanics` ส่ง `creditBalance` / `creditLimit` มาให้ client เตือนเอง
 * `POST /sales` รับ `"overrideCreditLimit": true` ใน body
 * server **บันทึกลง `audit_log`** ว่า override ตอนไหน ด้วยยอดเท่าไหร่ ใครทำ
+* ถ้าเกินวงเงินแต่ body **ไม่มี** flag → server ตอบ `409 CREDIT_LIMIT_EXCEEDED` พร้อม `details { creditLimit, creditBalance, newBalance }` — client แสดง dialog เดิมแล้วส่งบิลเดิมซ้ำพร้อม `overrideCreditLimit: true` (#21; flag บนบิลที่ไม่เกินวงเงินไม่เขียน audit)
 
 ---
 

@@ -541,7 +541,7 @@ CREATE TABLE mechanics (
   credit_limit   NUMERIC(14,2) NOT NULL DEFAULT 0,
   credit_balance NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (credit_balance >= 0),
   total_sales    NUMERIC(14,2) NOT NULL DEFAULT 0,
-  total_credit   NUMERIC(14,2) NOT NULL DEFAULT 0,
+  total_credit   NUMERIC(14,2) NOT NULL DEFAULT 0,  -- legacy (JS totalCredit); never written by the server (#11)
   total_discount NUMERIC(14,2) NOT NULL DEFAULT 0,
   total_markup   NUMERIC(14,2) NOT NULL DEFAULT 0,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -858,7 +858,7 @@ sequenceDiagram
 | ปัดเงิน | `round2(v) = round(v * 100) / 100` (แบบ JS) |
 | **ต้นทุน ณ วันที่ขาย** (ADR-0008) | `sale_items.cost_at_sale = products.cost` ที่อ่านได้ใน `SELECT … FOR UPDATE` เดียวกับที่ตัดสต็อก — ห้ามอ่านซ้ำนอก transaction และห้ามรับจาก client |
 | ขายเงินเชื่อช่าง | เมื่อ `payment_method = 'เครดิตช่าง'` → `mechanics.credit_balance += total` |
-| สถิติช่าง | `total_sales += total`, `total_credit += total` (เฉพาะเครดิต), `total_discount`/`total_markup` จาก `mechanic_delta` |
+| สถิติช่าง | `total_sales += total`, `total_discount`/`total_markup` จาก `mechanic_delta` — `total_credit` **ไม่เขียน** (legacy alias ของ `total_discount` จาก JS, ตัดสินใจใน #11; `POST /returns` ใช้เป็น fallback ของฐานส่วนลดเท่านั้น) |
 
 **วิธีตัดสต็อกที่ถูกต้อง** — ต้องล็อกอ่านก่อน ไม่ใช่ `UPDATE … WHERE` เปล่า ๆ:
 
