@@ -16,6 +16,8 @@ import { AuthModule } from './auth/auth.module.js';
 import { PlatformModule } from './platform/platform.module.js';
 import { RateLimitModule } from './rate-limit/rate-limit.module.js';
 import { RequestContextMiddleware } from './common/request-context.middleware.js';
+import { ReturnsController } from './returns/returns.controller.js';
+import { ReturnsModule } from './returns/returns.module.js';
 import { SalesController } from './sales/sales.controller.js';
 import { SalesModule } from './sales/sales.module.js';
 import { ShiftsController } from './shifts/shifts.controller.js';
@@ -49,6 +51,7 @@ export class CoreModule {
 const TENANT_ROUTES = [
   { path: 'auth/me', method: RequestMethod.GET },
   SalesController,
+  ReturnsController,
   ShiftsController,
 ];
 
@@ -78,6 +81,7 @@ export class AppModule implements NestModule {
         AuthModule,
         RateLimitModule,
         SalesModule,
+        ReturnsModule,
         ShiftsModule,
       ],
       providers: [RequestContextMiddleware],

@@ -5,6 +5,8 @@ import {
   accessToken,
   createTestApp,
   resetTenant,
+  seedCustomer,
+  seedMechanic,
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
@@ -342,11 +344,121 @@ describe('sale reads and void (e2e)', () => {
     expect(denied[0].n).toBe(4);
   });
 
-  it.todo(
-    'void must also reverse the customer and mechanic ledger — blocked on #21, ' +
-      'which is blocked on the #11 decision. Nothing writes those columns yet, so ' +
-      'there is nothing to reverse today; #21 has to extend VoidService.restoreStock.',
-  );
+  /** Seeds the pair the ledger tests bill against, and reads their running totals. */
+  const seedLedgerParties = async () => {
+    await seedCustomer(admin, TENANT, {
+      id: 'c-void',
+      code: 'C900',
+      name: 'Somchai Motors',
+      points: 7,
+      totalSpend: 500,
+    });
+    await seedMechanic(admin, TENANT, {
+      id: 'm-void',
+      code: 'M900',
+      name: 'Chang Somsak',
+      creditLimit: 100000,
+      creditBalance: 200,
+      totalSales: 900,
+      // The legacy alias of `total_discount` (#11). Seeded non-zero precisely so a
+      // void that wrote it would show up as a changed number.
+      totalCredit: 33,
+      totalDiscount: 60,
+      totalMarkup: 20,
+    });
+  };
+
+  const ledger = async () => {
+    const [c] = await admin.query(
+      `SELECT points, total_spend FROM customers WHERE tenant_id = $1::uuid AND id = 'c-void'`,
+      [TENANT],
+    );
+    const [m] = await admin.query(
+      `SELECT total_sales, total_credit, total_discount, total_markup, credit_balance
+         FROM mechanics WHERE tenant_id = $1::uuid AND id = 'm-void'`,
+      [TENANT],
+    );
+    return { ...c, ...m };
+  };
+
+  /** 4 × 85 = 340.00, 34 points, 50 baht discounted to the mechanic. */
+  const onTheTab = (paymentMethod: string) =>
+    ringUp(4, {
+      customerId: 'c-void',
+      customerName: 'Somchai Motors',
+      mechanicId: 'm-void',
+      mechanicName: 'Chang Somsak',
+      mechanicDelta: '-50.00',
+      paymentMethod,
+    });
+
+  it('reverses the customer and mechanic ledger exactly as the sale applied it', async () => {
+    await seedLedgerParties();
+    const before = await ledger();
+    expect(before).toEqual({
+      points: 7,
+      total_spend: '500.00',
+      total_sales: '900.00',
+      total_credit: '33.00',
+      total_discount: '60.00',
+      total_markup: '20.00',
+      credit_balance: '200.00',
+    });
+
+    const credit = await onTheTab('เครดิตช่าง');
+    expect(await ledger()).toEqual({
+      points: 41,
+      total_spend: '840.00',
+      total_sales: '1240.00',
+      // Untouched by the sale (#11), and it must stay untouched by the void.
+      total_credit: '33.00',
+      total_discount: '110.00',
+      total_markup: '20.00',
+      credit_balance: '540.00',
+    });
+
+    expect((await voidSale(credit.id, { pin: PIN })).status).toBe(200);
+    expect(await ledger()).toEqual(before);
+
+    // A cash bill never put anything on the tab, so voiding one must not take
+    // anything off it — the mechanic still owes what he owed.
+    const cash = await onTheTab('เงินสด');
+    expect((await ledger()).credit_balance).toBe('200.00');
+    expect((await voidSale(cash.id, { pin: PIN })).status).toBe(200);
+    expect(await ledger()).toEqual(before);
+  });
+
+  it('clamps every running total at zero instead of driving it negative', async () => {
+    await seedLedgerParties();
+    const sale = await onTheTab('เครดิตช่าง');
+
+    // A shop whose figures were imported short of what its bills add up to — the old
+    // app's own totals are editable. `total_spend`, `total_sales`, `total_discount`
+    // and `total_markup` have no `>= 0` CHECK, so an unclamped subtraction here would
+    // go negative in silence rather than raise.
+    await admin.query(
+      `UPDATE customers SET points = 2, total_spend = 10
+        WHERE tenant_id = $1::uuid AND id = 'c-void'`,
+      [TENANT],
+    );
+    await admin.query(
+      `UPDATE mechanics SET total_sales = 10, total_discount = 1, total_markup = 0,
+                            credit_balance = 5
+        WHERE tenant_id = $1::uuid AND id = 'm-void'`,
+      [TENANT],
+    );
+
+    expect((await voidSale(sale.id, { pin: PIN })).status).toBe(200);
+    expect(await ledger()).toEqual({
+      points: 0,
+      total_spend: '0.00',
+      total_sales: '0.00',
+      total_credit: '33.00',
+      total_discount: '0.00',
+      total_markup: '0.00',
+      credit_balance: '0.00',
+    });
+  });
 
   it('refuses to void twice', async () => {
     const sale = await ringUp(3);

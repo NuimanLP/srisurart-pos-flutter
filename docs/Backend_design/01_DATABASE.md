@@ -649,8 +649,9 @@ CREATE TABLE return_items (
   product_id   TEXT NOT NULL,
   name         TEXT NOT NULL,
   qty          INT  NOT NULL CHECK (qty > 0),
-  price        NUMERIC(12,2) NOT NULL,
+  price        NUMERIC(12,2) NOT NULL,  -- ต้องตรงกับราคาที่ sale_items ของบิลแม่ขายจริง (#22 — server เป็นคนตรวจ ไม่เชื่อราคาจาก client)
   original_qty INT,
+  cost_at_sale NUMERIC(12,2),        -- (ADR-0008) copy จาก sale_items.cost_at_sale ของบรรทัดแม่ — ห้ามอ่าน products.cost ซ้ำ (#22, migration 1788652800004)
   PRIMARY KEY (tenant_id, return_id, line_no),
   FOREIGN KEY (tenant_id, return_id) REFERENCES returns (tenant_id, id) ON DELETE CASCADE
 );

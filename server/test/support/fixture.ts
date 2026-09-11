@@ -202,7 +202,12 @@ export async function resetTenant(
   await admin.query(
     `INSERT INTO tenants (id, code, shop_name, shop_name_en, plan, status, timezone)
           VALUES ($1::uuid, $2, 'ร้านทดสอบ', 'Test Shop', 'demo', 'active', 'Asia/Bangkok')`,
-    [tenantId, `test-${tenantId.slice(0, 8)}`],
+    // The whole uuid, for the reason spelled out for `username` below: `tenants.code`
+    // is globally unique, and `sales`, `sales-ledger` and `returns` all begin
+    // `eeeeeeee`. On a prefix they collide as `duplicate key … tenants_code_key` in
+    // whichever suite happens to reset second, which is a scheduling accident and
+    // reads as a failure of whatever was last changed.
+    [tenantId, `test-${tenantId}`],
   );
   const userId = randomUUID();
   // Unique per tenant, on purpose — see `TenantFixture.username`. The whole uuid, not a
