@@ -260,7 +260,7 @@ and `GET /returns` shipped without the `?from=&to=` that `02_API_SCREENS.md §31
 code and were not. It uses the whole uuid now.
 Read `docs/handoff_log/lane-a-22-23-returns-void.md` before #28 or #30.
 
-**#28 is closed — PR #79, 2026-09-12 (`feat/p6.3-shifts-drawer`), and it needed no new behaviour.**
+**#28 is closed — PR #79, 2026-09-12 (`feat/p6.3-shifts-drawer` deleted), and it needed no new behaviour.**
 The whole drawer — `src/shifts/`, the five endpoints, the `shift_id` stamp — shipped inside PR #75
 (`6e8080f`); the issue stayed open only because its AC *"every sale **and return** carries
 `shift_id`"* could not be true until #22 existed. It does, so closing it was two missing assertions:
