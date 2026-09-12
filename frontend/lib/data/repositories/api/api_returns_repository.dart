@@ -19,6 +19,12 @@
 // ADR-0010 both call it `parentSaleVoided`; no such field exists on
 // `CreateReturnResult`. Reading the docs instead of the server would have left
 // `sales.voided` permanently false here. Flagged in the #56 report.
+//
+// #82 added `movements[]` and `mechanicAfter` to `CreateReturnResult`, so the two
+// gaps #56 had to leave stale are patched below. Both are read DEFENSIVELY — a
+// server that predates #82 answers without them and a missing field must not
+// crash the counter — and absent means the local table is left as it was, never
+// that the value is worked out here (ADR-0010 §3).
 
 import 'package:drift/drift.dart';
 
@@ -174,15 +180,34 @@ class ApiReturnsRepository implements ReturnsRepository {
         );
       }
 
-      // Mechanic: only the credit balance is returned. `totalSales`,
-      // `totalDiscount` and `totalMarkup` are reversed server-side too but are
-      // not in `CreateReturnResult`, so those columns go stale here rather than
-      // being recomputed. Flagged in #56.
-      final creditAfter = moneyOrNull(res['mechanicCreditBalanceAfter']);
-      final mechanicId = ret.mechanicId;
-      if (creditAfter != null && mechanicId != null) {
-        await (db.update(db.mechanics)..where((t) => t.id.equals(mechanicId)))
-            .write(MechanicsCompanion(creditBalance: Value(creditAfter)));
+      // Mechanic: the four running totals AS REVERSED BY THE SERVER (#82) —
+      // never the local `old - refund`. `mechanicCreditBalanceAfter` stays as
+      // the fallback for a server that predates #82; when neither field is
+      // there the row is left stale rather than recomputed.
+      //
+      // 🔴 `totalCredit` is NOT written — the legacy alias of `totalDiscount`
+      // settled in #11; the server never moves it.
+      final mechanicAfter = res['mechanicAfter'];
+      if (mechanicAfter is Map) {
+        final m = mechanicAfter.cast<String, dynamic>();
+        final companion = MechanicsCompanion(
+          totalSales: keepMoney(moneyOrNull(m['totalSales'])),
+          totalDiscount: keepMoney(moneyOrNull(m['totalDiscount'])),
+          totalMarkup: keepMoney(moneyOrNull(m['totalMarkup'])),
+          creditBalance: keepMoney(moneyOrNull(m['creditBalance'])),
+        );
+        if (companion != const MechanicsCompanion()) {
+          await (db.update(db.mechanics)
+                ..where((t) => t.id.equals(m['id'] as String)))
+              .write(companion);
+        }
+      } else {
+        final creditAfter = moneyOrNull(res['mechanicCreditBalanceAfter']);
+        final mechanicId = ret.mechanicId;
+        if (creditAfter != null && mechanicId != null) {
+          await (db.update(db.mechanics)..where((t) => t.id.equals(mechanicId)))
+              .write(MechanicsCompanion(creditBalance: Value(creditAfter)));
+        }
       }
 
       // Auto-void: BECAUSE THE SERVER SAID SO. The Drift service decides this by
@@ -198,9 +223,25 @@ class ApiReturnsRepository implements ReturnsRepository {
         );
       }
 
-      // `movements` is NOT written: the server writes the restore rows but the
-      // response does not carry them, and inventing them locally is the
-      // arithmetic ADR-0010 §3 forbids.
+      // The สต็อก log rows the SERVER wrote for this credit note (#82), copied
+      // verbatim — `delta`, `stockAfter` and `type: 'return'` are all its
+      // numbers ('return' is not the same row type as a void's 'void', see
+      // `movementRowFromWire`). Without them the log on `products_screen.dart`
+      // was blind to every API-written return.
+      //
+      // Absent → the table is left alone; the rows are safe on the server and a
+      // read slice will fetch them. Inventing `{delta, stockAfter}` from the
+      // lines is the arithmetic ADR-0010 §3 forbids.
+      final movements = (res['movements'] as List? ?? const [])
+          .map((e) => (e as Map).cast<String, dynamic>())
+          .toList();
+      if (movements.isNotEmpty) {
+        await db.batch((b) {
+          for (final mv in movements) {
+            b.insert(db.movements, movementRowFromWire(mv));
+          }
+        });
+      }
     });
 
     return ret;

@@ -178,7 +178,39 @@ void main() {
     'customerAfter': {'id': 'tc1', 'points': 11, 'totalSpend': '222.25'},
     'mechanicCreditBalanceAfter': '333.75',
     'saleVoided': saleVoided,
+    // ── #82's two new fields ──
+    // The restore row the server actually wrote: stockAfter 77 again, and
+    // `type: 'return'` — never collapsed into a void's 'return'-looking row
+    // (migration 1788652800003 separated them so reports stop double-counting).
+    'movements': [
+      {
+        'id': 'mv-server-r1',
+        'productId': 'tp1',
+        'partNo': 'TP-1',
+        'name': 'Brake Pad',
+        'delta': 1,
+        'type': 'return',
+        'note': 'CN-00007',
+        'stockAfter': 77,
+        'date': '2026-09-12T04:00:00.000Z',
+      },
+    ],
+    // Four totals reversed by the server. A client reversing ฿87.50 off the
+    // seeded 500 could produce none of them.
+    'mechanicAfter': {
+      'id': 'tm1',
+      'totalSales': '999.00',
+      'totalDiscount': '8.50',
+      'totalMarkup': '1.25',
+      'creditBalance': '333.75',
+    },
   };
+
+  /// The same credit note from a server that has not shipped #82: no
+  /// `movements`, no `mechanicAfter`.
+  Map<String, dynamic> creditNotePre82() => creditNote()
+    ..remove('movements')
+    ..remove('mechanicAfter');
 
   test(
     'patches the credit note and every effect from the response only',
@@ -231,9 +263,25 @@ void main() {
         db.mechanics,
       )..where((t) => t.id.equals('tm1'))).getSingle();
       expect(m.creditBalance, 333.75); // not 500, not 500 - 87.50
+      // #82: the other three running totals the server reverses too.
+      expect(m.totalSales, 999);
+      expect(m.totalDiscount, 8.5);
+      expect(m.totalMarkup, 1.25);
+      // 🔴 The legacy alias of totalDiscount (#11) — the server never writes it.
+      expect(m.totalCredit, 0);
 
-      // Not in the response → not written locally.
-      expect(await db.select(db.movements).get(), isEmpty);
+      // #82: the stock log row the server wrote, copied verbatim.
+      final mv = await db.select(db.movements).get();
+      expect(mv, hasLength(1));
+      expect(mv.single.id, 'mv-server-r1'); // the server's id, not newId('mv')
+      expect(mv.single.type, 'return');
+      expect(mv.single.delta, 1);
+      expect(mv.single.stockAfter, 77, reason: 'server value; local maths says 4');
+      expect(mv.single.note, 'CN-00007');
+      expect(
+        mv.single.date,
+        DateTime.parse('2026-09-12T04:00:00.000Z').toLocal(),
+      );
 
       // ── The wire ──
       expect(body['saleId'], 'sale-1');
@@ -252,6 +300,48 @@ void main() {
       final post = sent.single;
       expect(post.url.path, '/api/v1/returns');
       expect(post.headers['Idempotency-Key'], isNotNull);
+    },
+  );
+
+  test(
+    '#82 — a response WITHOUT movements or mechanicAfter leaves them stale, no throw',
+    () async {
+      // A server that predates #82. Absent is "stale", never "work it out here"
+      // (ADR-0010 §3), and above all never an exception at the counter.
+      await (db.update(db.mechanics)..where((t) => t.id.equals('tm1'))).write(
+        const MechanicsCompanion(
+          totalSales: Value(11.11),
+          totalDiscount: Value(22.22),
+          totalMarkup: Value(33.33),
+        ),
+      );
+
+      final repo = repoWith(
+        (req) async => http.Response(
+          _ok(creditNotePre82()),
+          201,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+
+      final cn = await repo.createReturn(oneBack);
+      expect(cn.cnNo, 'CN-00007');
+      expect(cn.refundTotal, 87.5);
+
+      expect(
+        await db.select(db.movements).get(),
+        isEmpty,
+        reason: 'movements are not in the response and must not be synthesised',
+      );
+
+      final m = await (db.select(
+        db.mechanics,
+      )..where((t) => t.id.equals('tm1'))).getSingle();
+      expect(m.totalSales, 11.11, reason: 'stale, not moved by local arithmetic');
+      expect(m.totalDiscount, 22.22);
+      expect(m.totalMarkup, 33.33);
+      // The legacy `mechanicCreditBalanceAfter` is still there and still used.
+      expect(m.creditBalance, 333.75);
     },
   );
 

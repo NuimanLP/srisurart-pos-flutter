@@ -8,7 +8,8 @@
 //     receipt total ends up a satang off the paper in the customer's hand, so
 //     the client sends the string form and never the double.
 //  2. **Timestamps are ISO-8601 UTC** and become local `DateTime`s here.
-//  3. **An `ApiException` must never reach a screen.** Checkout / Returns /
+//  3. **A field the response omits leaves its row alone** — `keepMoney` below.
+//  4. **An `ApiException` must never reach a screen.** Checkout / Returns /
 //     Cash Drawer all render a failure as
 //     `e.toString().replaceFirst('Exception: ', '')` — see
 //     `returns_screen.dart:238` and `cash_drawer_screen.dart:199` — and those
@@ -18,8 +19,11 @@
 //     resolved Thai sentence as a plain `Exception` — the same shape the Drift
 //     services throw.
 
+import 'package:drift/drift.dart';
+
 import '../../../core/network/api_exception.dart';
 import '../../../core/utils/ids.dart';
+import '../../db/database.dart';
 
 /// Parses a `NUMERIC` as the API hands it back (`"1234.50"`, or a JSON number
 /// from a handler that skipped the string form). `null` → 0.
@@ -72,3 +76,30 @@ Future<T> rethrowThai<T>(Future<T> Function() body) async {
     throw Exception(e.thaiMessage);
   }
 }
+
+/// A value to write, or [Value.absent] when the response did not carry the
+/// field at all.
+///
+/// 🔴 Absent must leave the column as it is. Writing a default (0, or a locally
+/// derived number) for a missing field is the silent-corruption path the ADR
+/// forbids: a stale figure is visibly old, a fabricated one is not.
+Value<double> keepMoney(double? v) =>
+    v == null ? const Value.absent() : Value(v);
+
+/// One `movements[]` entry from a server response → the local log row.
+///
+/// Every number is the server's: `delta` and `stockAfter` are what it actually
+/// wrote, and `type` is its own label ('sale' / 'return' / 'void' — migration
+/// `1788652800003` separated void from return precisely so reports stop counting
+/// one as the other, so it is copied, never inferred from which endpoint replied).
+MovementRow movementRowFromWire(Map<String, dynamic> mv) => MovementRow(
+  id: mv['id'] as String,
+  productId: mv['productId'] as String,
+  partNo: mv['partNo'] as String? ?? '',
+  name: mv['name'] as String? ?? '',
+  delta: mv['delta'] as int,
+  type: mv['type'] as String,
+  note: mv['note'] as String?,
+  stockAfter: mv['stockAfter'] as int,
+  date: stamp(mv['date']),
+);

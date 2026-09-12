@@ -165,6 +165,144 @@ describe('POST /sales (e2e)', () => {
     ]);
   });
 
+  // #82. Four things `POST /sales` writes and did not answer with, so the client's
+  // cache had nowhere honest to get them and ADR-0010 §3 left the rows stale. The
+  // mechanic's totals are the fourth and live in `sales-ledger.e2e-spec.ts`, next to
+  // the ledger rules they belong to.
+  describe('the write-through fields (#82)', () => {
+    const openShift = async (startingCash = '1000.00'): Promise<string> => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/shifts/open')
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', `k-shift-${Math.random()}`)
+        .send({ startingCash });
+      expect(res.status).toBe(200);
+      return res.body.data.id as string;
+    };
+
+    const twoLines = () => [
+      { productId: 'p1', name: 'Oil Filter', qty: 3, price: '85.00' },
+      { productId: 'p8', name: 'Piston Kit STD', qty: 1, price: '3200.00' },
+    ];
+
+    it('answers the shift it stamped on the bill', async () => {
+      const shiftId = await openShift();
+      const res = await post(bill(twoLines()));
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.shiftId).toBe(shiftId);
+      const rows = await admin.query(
+        `SELECT shift_id FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+        [TENANT, res.body.data.id],
+      );
+      expect(rows[0].shift_id).toBe(shiftId);
+    });
+
+    it('answers a null shift when no drawer is open', async () => {
+      const res = await post(bill(twoLines()));
+      expect(res.status).toBe(201);
+      expect(res.body.data.shiftId).toBeNull();
+    });
+
+    it('answers `cost_at_sale` per line, from the locked read (ADR-0008)', async () => {
+      const res = await post(bill(twoLines()));
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.items).toEqual([
+        { lineNo: 1, productId: 'p1', costAtSale: '50.00' },
+        { lineNo: 2, productId: 'p8', costAtSale: '2400.00' },
+      ]);
+
+      // The answer is the row, not today's catalogue cost: move `products.cost` the
+      // way a weighted-average PO receive would and the stored line must not follow.
+      await admin.query(
+        `UPDATE products SET cost = 999 WHERE tenant_id = $1::uuid AND id = 'p1'`,
+        [TENANT],
+      );
+      const stored = await admin.query(
+        `SELECT cost_at_sale FROM sale_items
+          WHERE tenant_id = $1::uuid AND sale_id = $2 AND line_no = 1`,
+        [TENANT, res.body.data.id],
+      );
+      expect(Number(stored[0].cost_at_sale)).toBe(50);
+    });
+
+    it('answers the movement rows it wrote, matching the ledger', async () => {
+      const res = await post(bill(twoLines()));
+      expect(res.status).toBe(201);
+
+      const movements = res.body.data.movements as Record<string, unknown>[];
+      expect(movements).toHaveLength(2);
+      expect(movements[0]).toEqual({
+        id: expect.stringMatching(/^mv/) as unknown,
+        productId: 'p1',
+        partNo: 'HN-15412-KVB',
+        name: 'Oil Filter',
+        delta: -3,
+        // 🔴 A sale is `'sale'`; a credit note is `'return'` and a void `'void'`
+        // (migration `1788652800003`). Reports group by this column.
+        type: 'sale',
+        note: null,
+        stockAfter: 45,
+        date: expect.any(String) as unknown,
+      });
+      expect(movements[1]).toMatchObject({
+        productId: 'p8',
+        delta: -1,
+        type: 'sale',
+        stockAfter: 4,
+      });
+
+      const rows = await admin.query(
+        `SELECT id, product_id, delta, type, note, stock_after, date
+           FROM movements WHERE tenant_id = $1::uuid AND ref_id = $2`,
+        [TENANT, res.body.data.id],
+      );
+      expect(new Set(rows.map((r: { id: string }) => r.id))).toEqual(
+        new Set(movements.map((m) => m.id)),
+      );
+      const p1 = rows.find(
+        (r: { product_id: string }) => r.product_id === 'p1',
+      ) as { date: Date };
+      expect(p1.date.toISOString()).toBe(movements[0].date);
+    });
+
+    it('a replayed bill answers the identical body, new fields included', async () => {
+      await openShift();
+      const body = bill(twoLines());
+      const first = await post(body);
+      expect(first.status).toBe(201);
+      expect(first.body.data.shiftId).not.toBeNull();
+
+      // The `existingSale` path: a retry that lost its `Idempotency-Key`. Every field
+      // widened above has to come back off the stored rows, in the same order — the
+      // replay is where a widened response silently diverges, and `shiftId` in
+      // particular was null here until the SELECT learned to read it.
+      const replay = await post(body, { key: `k-fresh-${Date.now()}` });
+      expect(replay.status).toBe(201);
+      expect(replay.body).toEqual(first.body);
+
+      expect(await saleCount()).toBe(1);
+      expect(await stockOf('p1')).toBe(45);
+      expect(await stockOf('p8')).toBe(4);
+    });
+
+    it('an idempotency-key replay answers the identical body, new fields included', async () => {
+      await openShift();
+      const body = bill(twoLines());
+      const key = `k-same-${Date.now()}`;
+      const first = await post(body, { key });
+      expect(first.status).toBe(201);
+
+      // The other replay path: the stored `response_body` round-trips through `jsonb`,
+      // which is where a `null` note or a date string would quietly change shape.
+      const replay = await post(body, { key });
+      expect(replay.status).toBe(201);
+      expect(replay.body).toEqual(first.body);
+      expect(await saleCount()).toBe(1);
+    });
+  });
+
   it('insufficient stock: the verbatim Thai message, and nothing is written', async () => {
     // The Dart case: p8 has stock 5, the bill wants 6.
     const res = await post(

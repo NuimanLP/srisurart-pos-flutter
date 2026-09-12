@@ -186,7 +186,46 @@ void main() {
     ],
     'mechanicCreditBalanceAfter': '1234.50',
     'customerAfter': {'id': 'tc1', 'points': 41, 'totalSpend': '999.50'},
+    // ── #82's four new fields ──
+    // The drawer the server filed the bill under; this device has no shift open
+    // at all, so nothing local could have produced it.
+    'shiftId': 'shift-server-9',
+    // 58.25, not the local `products.cost` of 60.
+    'items': [
+      {'lineNo': 1, 'productId': 'tp1', 'costAtSale': '58.25'},
+    ],
+    // stockAfter 3 again — the same number no local `10 - 2` can reach.
+    'movements': [
+      {
+        'id': 'mv-server-1',
+        'productId': 'tp1',
+        'partNo': 'TP-1',
+        'name': 'Brake Pad',
+        'delta': -2,
+        'type': 'sale',
+        'note': 'RC-00042',
+        'stockAfter': 3,
+        'date': '2026-09-12T03:00:00.000Z',
+      },
+    ],
+    // All four totals, none of them reachable from a ฿200 bill with a -15
+    // mechanic delta: the client would say 200 / 15 / 0.
+    'mechanicAfter': {
+      'id': 'tm1',
+      'totalSales': '4321.00',
+      'totalDiscount': '77.25',
+      'totalMarkup': '13.75',
+      'creditBalance': '1234.50',
+    },
   };
+
+  /// The same bill as answered by a server that has not shipped #82 yet: no
+  /// `shiftId`, no `items`, no `movements`, no `mechanicAfter`.
+  Map<String, dynamic> createdPre82() => created()
+    ..remove('shiftId')
+    ..remove('items')
+    ..remove('movements')
+    ..remove('mechanicAfter');
 
   test(
     'AC3 — every patched number is the SERVER\'s, never the client\'s arithmetic',
@@ -213,8 +252,10 @@ void main() {
       expect(sale.date, DateTime.parse('2026-09-12T03:00:00.000Z').toLocal());
       expect(sales.single.receiptNo, 'RC-00042');
       expect(sales.single.pointsGranted, 7);
-      // Not in CreateSaleResult — left null rather than invented.
-      expect(sales.single.shiftId, isNull);
+      // #82: the drawer the SERVER filed it under. No shift is open on this
+      // device, so a locally-chosen value could only have been null.
+      expect(sale.shiftId, 'shift-server-9');
+      expect(sales.single.shiftId, 'shift-server-9');
 
       // ── The cache ──
       final p = await (db.select(
@@ -235,22 +276,34 @@ void main() {
         db.mechanics,
       )..where((t) => t.id.equals('tm1'))).getSingle();
       expect(m.creditBalance, 1234.5); // not 0 (cash bill) and not 0 + 200
+      // #82: all four running totals, not just the balance. None of these is
+      // reachable from this cart — the client's own sums would be 200 / 15 / 0.
+      expect(m.totalSales, 4321);
+      expect(m.totalDiscount, 77.25);
+      expect(m.totalMarkup, 13.75);
+      // 🔴 The legacy alias of totalDiscount (#11): the server never writes it,
+      // so neither may the client.
+      expect(m.totalCredit, 0);
 
-      // ── Lines, and the two tables the response cannot fill ──
+      // ── Lines and the stock log ──
       final lines = await db.select(db.saleItems).get();
       expect(lines, hasLength(1));
       expect(lines.single.saleId, 's-server');
       expect(lines.single.qty, 2);
       expect(
         lines.single.costAtSale,
-        isNull,
-        reason: 'no cost in the response; local products.cost would be a guess',
+        58.25,
+        reason: "the server's locked cost; local products.cost is 60",
       );
-      expect(
-        await db.select(db.movements).get(),
-        isEmpty,
-        reason: 'movements are not in the response and must not be synthesised',
-      );
+
+      final mv = await db.select(db.movements).get();
+      expect(mv, hasLength(1));
+      expect(mv.single.id, 'mv-server-1'); // the server's row id, not newId('mv')
+      expect(mv.single.type, 'sale');
+      expect(mv.single.delta, -2);
+      expect(mv.single.stockAfter, 3, reason: 'server value; local maths says 8');
+      expect(mv.single.note, 'RC-00042');
+      expect(mv.single.date, DateTime.parse('2026-09-12T03:00:00.000Z').toLocal());
 
       // ── The wire ──
       expect(body['id'], startsWith('s'));
@@ -263,6 +316,132 @@ void main() {
       // Server-owned fields the client must never claim.
       expect(body.containsKey('receiptNo'), isFalse);
       expect(body.containsKey('shiftId'), isFalse);
+    },
+  );
+
+  test(
+    '#82 — costAtSale is joined on lineNo, so the same product twice keeps two costs',
+    () async {
+      // The case a `productId` join silently corrupts: one bill, the same part
+      // on two lines, sold at two prices and (because the shop received stock
+      // between them) recorded at two costs. Joining on productId would hand
+      // both lines whichever entry it read last — 71.50 here — and the bill's
+      // profit would be wrong in a way no screen could show.
+      const twoLines = SaleInput(
+        subtotal: 180,
+        discount: 0,
+        total: 180,
+        paymentMethod: 'เงินสด',
+        items: [
+          SaleLineInput(
+            productId: 'tp1',
+            name: 'Brake Pad',
+            qty: 1,
+            price: 100,
+            partNo: 'TP-1',
+            nameTH: 'ผ้าเบรก',
+          ),
+          SaleLineInput(
+            productId: 'tp1',
+            name: 'Brake Pad',
+            qty: 1,
+            price: 80,
+            partNo: 'TP-1',
+            nameTH: 'ผ้าเบรก',
+          ),
+        ],
+      );
+
+      late Map<String, dynamic> body;
+      final repo = repoWith((req) async {
+        body = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response(
+          _ok(
+            created()
+              ..['total'] = '180.00'
+              // Out of order on purpose: the join must use lineNo, not the
+              // order the list happens to arrive in either.
+              ..['items'] = [
+                {'lineNo': 2, 'productId': 'tp1', 'costAtSale': '71.50'},
+                {'lineNo': 1, 'productId': 'tp1', 'costAtSale': '58.25'},
+              ],
+          ),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await repo.saveSale(twoLines);
+
+      // The lineNo the client sent is the join key, so pin it on the wire too.
+      final wireLines = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(wireLines.map((l) => l['lineNo']), [1, 2]);
+      expect(wireLines.map((l) => l['price']), ['100.00', '80.00']);
+
+      final lines =
+          await (db.select(db.saleItems)
+                ..orderBy([(t) => OrderingTerm.asc(t.rowId)]))
+              .get();
+      expect(lines, hasLength(2));
+      expect(lines[0].price, 100);
+      expect(lines[0].costAtSale, 58.25);
+      expect(lines[1].price, 80);
+      expect(
+        lines[1].costAtSale,
+        71.5,
+        reason: 'a productId join would have given this line 58.25 or 71.50 twice',
+      );
+    },
+  );
+
+  test(
+    '#82 — a response WITHOUT the new fields leaves those rows stale and does not throw',
+    () async {
+      // A server that has not shipped #82 yet. Absent must mean "stale", never
+      // "compute it here" (ADR-0010 §3) — and it must certainly not put an
+      // exception in front of the counter.
+      await (db.update(db.mechanics)..where((t) => t.id.equals('tm1'))).write(
+        const MechanicsCompanion(
+          totalSales: Value(11.11),
+          totalDiscount: Value(22.22),
+          totalMarkup: Value(33.33),
+        ),
+      );
+
+      final repo = repoWith(
+        (req) async => http.Response(
+          _ok(createdPre82()),
+          201,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+
+      final sale = await repo.saveSale(input());
+
+      // The bill itself still lands, with everything the old response does carry.
+      expect(sale.receiptNo, 'RC-00042');
+      expect(sale.pointsGranted, 7);
+      expect(sale.shiftId, isNull, reason: 'unknown here, not guessed locally');
+
+      expect(
+        (await db.select(db.saleItems).get()).single.costAtSale,
+        isNull,
+        reason: 'no cost in the response; local products.cost would be a guess',
+      );
+      expect(
+        await db.select(db.movements).get(),
+        isEmpty,
+        reason: 'movements are not in the response and must not be synthesised',
+      );
+
+      final m = await (db.select(
+        db.mechanics,
+      )..where((t) => t.id.equals('tm1'))).getSingle();
+      expect(m.totalSales, 11.11, reason: 'stale, not moved by local arithmetic');
+      expect(m.totalDiscount, 22.22);
+      expect(m.totalMarkup, 33.33);
+      // The legacy field still comes back and is still honoured.
+      expect(m.creditBalance, 1234.5);
     },
   );
 

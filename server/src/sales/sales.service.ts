@@ -22,10 +22,29 @@ export interface CreateSaleResult {
   total: string;
   pointsGranted: number;
   date: string;
+  /**
+   * The drawer this bill was rung up on, stamped server-side from the device's own
+   * open shift (#28); null when none was open. The client cannot compute it — its
+   * own idea of the open drawer is a cache — so it comes back here (#82).
+   */
+  shiftId: string | null;
   /** Every product this bill touched, so the client patches its cache without a re-read. */
   products: { id: string; stock: number }[];
-  /** The mechanic's balance once this bill is on it; null when the bill names none. */
+  /**
+   * The lines as stored, carrying the cost frozen at sale time (ADR-0008). Only the
+   * server has it: `products.cost` is rewritten by every weighted-average PO receive,
+   * so a client reading it later reads a cost this bill never went out at.
+   */
+  items: SaleLineOut[];
+  /** The ledger rows this bill wrote, so the stock log is not blind to sales (#82). */
+  movements: MovementOut[];
+  /**
+   * The mechanic's balance once this bill is on it; null when the bill names none.
+   * Kept alongside `mechanicAfter` — it is what every existing reader looks at.
+   */
   mechanicCreditBalanceAfter: string | null;
+  /** All four running totals `applyMechanic` moved; null when the bill names none. */
+  mechanicAfter: MechanicAfter | null;
   /** The customer's row after the bill (ADR-0010 §3); null when the bill names none. */
   customerAfter: CustomerAfter | null;
 }
@@ -34,6 +53,70 @@ export interface CustomerAfter {
   id: string;
   points: number;
   totalSpend: string;
+}
+
+/** One stored sale line, with the one field on it the client cannot recover later. */
+export interface SaleLineOut {
+  lineNo: number;
+  productId: string;
+  costAtSale: string;
+}
+
+/**
+ * One `movements` row exactly as it was written. Money-free by construction — the
+ * ledger records quantities, never amounts — so nothing here needs converting.
+ *
+ * 🔴 `type` is the row's own: a sale writes `'sale'`, a credit note `'return'` and a
+ * void `'void'` (migration `1788652800003`). Never collapse the last two: reports
+ * group by this column, and a void counted as a return is a refund that never happened.
+ */
+export interface MovementOut {
+  id: string;
+  productId: string;
+  partNo: string;
+  name: string;
+  delta: number;
+  type: string;
+  note: string | null;
+  stockAfter: number;
+  date: string;
+}
+
+/**
+ * The mechanic's four running totals after a write.
+ *
+ * 🔴 `total_credit` is deliberately absent. It is the JS app's legacy alias of
+ * `total_discount` (decision #11); the server never writes it, so returning it would
+ * invite the client to patch a column that has no authority behind it.
+ */
+export interface MechanicAfter {
+  id: string;
+  totalSales: string;
+  totalDiscount: string;
+  totalMarkup: string;
+  creditBalance: string;
+}
+
+/** `movements` as the `RETURNING` clause hands it back. */
+export interface MovementRow {
+  id: string;
+  product_id: string;
+  part_no: string;
+  name: string;
+  delta: number;
+  type: string;
+  note: string | null;
+  stock_after: number;
+  date: Date;
+}
+
+/** `mechanics` as the ledger update and the replay read return it. */
+export interface MechanicRow {
+  id: string;
+  total_sales: string;
+  total_discount: string;
+  total_markup: string;
+  credit_balance: string;
 }
 
 /** What `lockMechanicAndCheckLimit` hands back when the bill went past the limit on the flag. */
@@ -166,8 +249,8 @@ export class SalesService {
       pointsGranted,
       shiftId,
     );
-    await this.insertLines(manager, tenantId, dto, locked);
-    await this.insertMovements(
+    const items = await this.insertLines(manager, tenantId, dto, locked);
+    const movements = await this.insertMovements(
       manager,
       tenantId,
       dto.id,
@@ -182,11 +265,8 @@ export class SalesService {
       dto,
       pointsGranted,
     );
-    const mechanicCreditBalanceAfter = await this.applyMechanic(
-      manager,
-      tenantId,
-      dto,
-    );
+    const mechanicAfter = await this.applyMechanic(manager, tenantId, dto);
+    const mechanicCreditBalanceAfter = mechanicAfter?.creditBalance ?? null;
     if (override && mechanicCreditBalanceAfter !== null) {
       // §8.2: who let this bill past the limit, and by how much. On the request
       // transaction on purpose — an override recorded for a bill that rolled back
@@ -214,13 +294,17 @@ export class SalesService {
       total: fromSatang(dto.totalSatang),
       pointsGranted,
       date,
+      shiftId,
       // Deliberately no `offlineOk`: it has no storage in phase 1, and a field the
       // server invents is a field the client will eventually trust.
       products: demands.map((d) => ({
         id: d.productId,
         stock: stockAfter.get(d.productId)!,
       })),
+      items,
+      movements,
       mechanicCreditBalanceAfter,
+      mechanicAfter,
       customerAfter,
     };
   }
@@ -308,18 +392,22 @@ export class SalesService {
    * positive one a markup; and the bill goes on `credit_balance` only when it was
    * paid with `'เครดิตช่าง'`.
    *
-   * 🔴 `total_credit` is never written. It is the JS app's legacy alias of
-   * `total_discount` (decision #11); `POST /returns` reads it only as a fallback for
-   * the discount base, and a server that also wrote it would double the figure.
+   * 🔴 `total_credit` is never written **and never returned**. It is the JS app's
+   * legacy alias of `total_discount` (decision #11); `POST /returns` reads it only as
+   * a fallback for the discount base, and a server that also wrote it would double
+   * the figure.
+   *
+   * All four totals come back (#82), not just the balance: the mechanics screen shows
+   * every one of them, and the client may not recompute a server-owned figure.
    */
   private async applyMechanic(
     manager: EntityManager,
     tenantId: string,
     dto: CreateSale,
-  ): Promise<string | null> {
+  ): Promise<MechanicAfter | null> {
     if (dto.mechanicId === null) return null;
     const delta = dto.mechanicDeltaSatang ?? 0;
-    const rows = returning<{ credit_balance: string }>(
+    const rows = returning<MechanicRow>(
       await manager.query(
         `UPDATE mechanics
             SET total_sales = GREATEST(0, total_sales + $3),
@@ -328,7 +416,7 @@ export class SalesService {
                 credit_balance = GREATEST(0, credit_balance + $6),
                 updated_at = now()
           WHERE tenant_id = $1::uuid AND id = $2
-      RETURNING credit_balance`,
+      RETURNING id, total_sales, total_discount, total_markup, credit_balance`,
         [
           tenantId,
           dto.mechanicId,
@@ -341,7 +429,7 @@ export class SalesService {
         ],
       ),
     );
-    return rows.length === 0 ? null : money(rows[0].credit_balance);
+    return rows.length === 0 ? null : mechanicAfter(rows[0]);
   }
 
   /**
@@ -499,7 +587,7 @@ export class SalesService {
     dto: CreateSale,
   ): Promise<CreateSaleResult | null> {
     const rows = (await manager.query(
-      `SELECT receipt_no, total, points_granted, date, voided
+      `SELECT receipt_no, total, points_granted, date, voided, shift_id
          FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
       [tenantId, dto.id],
     )) as {
@@ -508,6 +596,7 @@ export class SalesService {
       points_granted: number;
       date: Date;
       voided: boolean;
+      shift_id: string | null;
     }[];
     if (rows.length === 0) return null;
 
@@ -542,11 +631,36 @@ export class SalesService {
       );
     }
 
-    const productIds = [...new Set(dto.items.map((i) => i.productId))];
+    // The same collapse the write path does, so every array below comes back in the
+    // order the original answer had it. A replay that agrees on the values but not on
+    // their order is still a different body, and the client diffs bodies.
+    const demands = aggregate(dto.items);
     const stock = (await manager.query(
       `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
-      [tenantId, productIds],
+      [tenantId, demands.map((d) => d.productId)],
     )) as { id: string; stock: number }[];
+    const stockById = new Map(stock.map((p) => [p.id, p.stock]));
+
+    // The lines as stored (#82): `cost_at_sale` is the whole point, and only the row
+    // has it — `products.cost` has moved on with every PO receive since.
+    const lines = (await manager.query(
+      `SELECT line_no, product_id, cost_at_sale FROM sale_items
+        WHERE tenant_id = $1::uuid AND sale_id = $2
+        ORDER BY line_no`,
+      [tenantId, dto.id],
+    )) as { line_no: number; product_id: string; cost_at_sale: string }[];
+
+    // The ledger rows this bill wrote, keyed by product so they replay in `demands`
+    // order. `type = 'sale'` is not decoration: a void of this bill writes `'void'`
+    // against the same `ref_id`, and returning that as the sale's own movement would
+    // tell the client a sale put stock back.
+    const movements = (await manager.query(
+      `SELECT ${MOVEMENT_COLUMNS} FROM movements
+        WHERE tenant_id = $1::uuid AND type = 'sale' AND ref_id = $2`,
+      [tenantId, dto.id],
+    )) as MovementRow[];
+    const movementByProduct = new Map(movements.map((m) => [m.product_id, m]));
+
     // The ledger as it stands now, like the stock above — a replay moves nothing,
     // and null when the id names a row that is gone.
     const customer =
@@ -561,10 +675,10 @@ export class SalesService {
       dto.mechanicId === null
         ? []
         : ((await manager.query(
-            `SELECT credit_balance FROM mechanics
-              WHERE tenant_id = $1::uuid AND id = $2`,
+            `SELECT id, total_sales, total_discount, total_markup, credit_balance
+               FROM mechanics WHERE tenant_id = $1::uuid AND id = $2`,
             [tenantId, dto.mechanicId],
-          )) as { credit_balance: string }[]);
+          )) as MechanicRow[]);
 
     return {
       id: dto.id,
@@ -572,9 +686,21 @@ export class SalesService {
       total: money(rows[0].total),
       pointsGranted: rows[0].points_granted,
       date: rows[0].date.toISOString(),
-      products: stock.map((p) => ({ id: p.id, stock: p.stock })),
+      shiftId: rows[0].shift_id,
+      products: demands
+        .filter((d) => stockById.has(d.productId))
+        .map((d) => ({ id: d.productId, stock: stockById.get(d.productId)! })),
+      items: lines.map((l) => ({
+        lineNo: l.line_no,
+        productId: l.product_id,
+        costAtSale: money(l.cost_at_sale),
+      })),
+      movements: demands
+        .filter((d) => movementByProduct.has(d.productId))
+        .map((d) => movementOut(movementByProduct.get(d.productId)!)),
       mechanicCreditBalanceAfter:
         mechanic.length === 0 ? null : money(mechanic[0].credit_balance),
+      mechanicAfter: mechanic.length === 0 ? null : mechanicAfter(mechanic[0]),
       customerAfter: customer.length === 0 ? null : customerAfter(customer[0]),
     };
   }
@@ -669,8 +795,9 @@ export class SalesService {
     tenantId: string,
     dto: CreateSale,
     locked: LockedProduct[],
-  ): Promise<void> {
+  ): Promise<SaleLineOut[]> {
     const byId = new Map(locked.map((p) => [p.id, p]));
+    const out: SaleLineOut[] = [];
     for (const line of dto.items) {
       await manager.query(
         `INSERT INTO sale_items (
@@ -692,7 +819,16 @@ export class SalesService {
           byId.get(line.productId)!.cost,
         ],
       );
+      out.push({
+        lineNo: line.lineNo,
+        productId: line.productId,
+        costAtSale: money(byId.get(line.productId)!.cost),
+      });
     }
+    // By line number, not by the order the body listed them: the replay reads these
+    // back from `sale_items`, which has no memory of the array order, and the two
+    // answers have to be the same body.
+    return out.sort((a, b) => a.lineNo - b.lineNo);
   }
 
   /**
@@ -707,26 +843,35 @@ export class SalesService {
     demands: Demand[],
     locked: LockedProduct[],
     stockAfter: Map<string, number>,
-  ): Promise<void> {
+  ): Promise<MovementOut[]> {
     const byId = new Map(locked.map((p) => [p.id, p]));
+    const out: MovementOut[] = [];
     for (const d of demands) {
       const p = byId.get(d.productId)!;
-      await manager.query(
-        `INSERT INTO movements (
+      // `RETURNING` rather than a second read: the row's `id` and `date` are the
+      // database's, and re-selecting them would be a read of rows this transaction
+      // already holds — and one more statement in the sale's open-transaction window.
+      const rows = returning<MovementRow>(
+        await manager.query(
+          `INSERT INTO movements (
            tenant_id, id, product_id, part_no, name, delta, type, stock_after, ref_id)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, 'sale', $7, $8)`,
-        [
-          tenantId,
-          newId('mv'),
-          d.productId,
-          p.part_no,
-          p.name,
-          -d.qty,
-          stockAfter.get(d.productId),
-          saleId,
-        ],
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, 'sale', $7, $8)
+       RETURNING ${MOVEMENT_COLUMNS}`,
+          [
+            tenantId,
+            newId('mv'),
+            d.productId,
+            p.part_no,
+            p.name,
+            -d.qty,
+            stockAfter.get(d.productId),
+            saleId,
+          ],
+        ),
       );
+      out.push(movementOut(rows[0]));
     }
+    return out;
   }
 }
 
@@ -765,4 +910,36 @@ function money(numeric: string): string {
 
 function customerAfter(row: CustomerRow): CustomerAfter {
   return { id: row.id, points: row.points, totalSpend: money(row.total_spend) };
+}
+
+/**
+ * The `movements` columns every reader of that table returns, in one place so the
+ * write path's `RETURNING` and the replay path's `SELECT` cannot drift apart.
+ */
+export const MOVEMENT_COLUMNS = `id, product_id, part_no, name, delta, type, note, stock_after, date`;
+
+/** A `movements` row on the wire. Shared by the sale and the credit-note paths. */
+export function movementOut(row: MovementRow): MovementOut {
+  return {
+    id: row.id,
+    productId: row.product_id,
+    partNo: row.part_no,
+    name: row.name,
+    delta: row.delta,
+    type: row.type,
+    note: row.note,
+    stockAfter: row.stock_after,
+    date: row.date.toISOString(),
+  };
+}
+
+/** A `mechanics` row on the wire — the four totals the server owns, and no alias. */
+export function mechanicAfter(row: MechanicRow): MechanicAfter {
+  return {
+    id: row.id,
+    totalSales: money(row.total_sales),
+    totalDiscount: money(row.total_discount),
+    totalMarkup: money(row.total_markup),
+    creditBalance: money(row.credit_balance),
+  };
 }

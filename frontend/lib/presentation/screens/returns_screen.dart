@@ -82,7 +82,9 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
     super.dispose();
   }
 
-  void _refreshAll() => setState(() => _dataFuture = _loadData());
+  void _refreshAll() => setState(() {
+    _dataFuture = _loadData();
+  });
 
   void _selectSale(SaleWithItems s) {
     setState(() {

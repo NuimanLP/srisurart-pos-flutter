@@ -142,7 +142,9 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     super.dispose();
   }
 
-  void _refresh() => setState(() => _dataFuture = _loadData());
+  void _refresh() => setState(() {
+    _dataFuture = _loadData();
+  });
 
   Future<void> _handleOpen() async {
     final v = double.tryParse(_startCtl.text) ?? 0;
@@ -156,6 +158,12 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
       await repo.openShift(v);
       _startCtl.clear();
       _refresh();
+    } catch (e) {
+      // Opening the drawer could not fail while ShiftsRepository was Drift-only,
+      // so this had no catch. ApiShiftsRepository (#56) makes it a network call,
+      // and an uncaught error in an async handler shows the counter nothing at
+      // all — the drawer silently stays shut. Same shape as _handleAddEntry.
+      _toast(_clean(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -191,6 +199,10 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
       await repo.closeShift(v);
       _physCtl.clear();
       _refresh();
+    } catch (e) {
+      // Same reason as _handleOpen: closing is a network call now, and closing
+      // the day is the one moment the counter must not be left guessing.
+      _toast(_clean(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

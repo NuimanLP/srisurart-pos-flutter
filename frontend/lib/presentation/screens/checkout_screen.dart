@@ -123,9 +123,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     return out;
   }
 
-  void _refreshParked() => setState(
-    () => _parkedFuture = context.read<ParkedRepository>().getParked(),
-  );
+  void _refreshParked() => setState(() {
+    _parkedFuture = context.read<ParkedRepository>().getParked();
+  });
 
   /// Reset the 3 loads a completed sale can change: stock (products), and
   /// the mechanic/customer stats a sale updates (credit balance, points).
@@ -552,6 +552,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _alert('รับเงินไม่ครบ');
       return;
     }
+    // The counter's answer to 'ยืนยันขายเครดิต?', carried into SaleInput below.
+    // It is a value rather than something the repository works out for itself
+    // because consent cannot be re-derived: this screen tests the MechanicRow it
+    // captured when its list loaded, and any later reader sees a different row
+    // (a prior bill on this very screen moves it). See SaleInput.overrideCreditLimit.
+    var overrideCreditLimit = false;
     if (_payMethod == 'เครดิตช่าง') {
       final m = _selectedMechanic;
       if (m == null) {
@@ -579,6 +585,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
         );
         if (ok != true) return;
+        overrideCreditLimit = true;
       }
     }
 
@@ -596,6 +603,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           mechanicId: _selectedMechanic?.id,
           mechanicName: _selectedMechanic?.nameTH,
           mechanicDelta: _selectedMechanic != null ? mechanicDelta : null,
+          overrideCreditLimit: overrideCreditLimit,
           items: [
             for (final it in cart)
               SaleLineInput(
@@ -653,9 +661,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       await showReceiptDialog(context, receiptData);
     } catch (e) {
       if (mounted) {
-        setState(
-          () => _productsFuture = context.read<ProductsRepository>().getAll(),
-        );
+        setState(() {
+          _productsFuture = context.read<ProductsRepository>().getAll();
+        });
       }
       _alert('ขายไม่สำเร็จ: ${_msg(e)}');
     } finally {

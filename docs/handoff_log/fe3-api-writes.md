@@ -54,34 +54,54 @@ read.
 `SaleInput` now carries `overrideCreditLimit` (default `false`) and the
 repository only passes it through. **Consent is carried, never inferred.**
 
-🔴 **Follow-up owed:** nothing sets it yet, so an over-limit credit sale is
-refused with `เกินวงเงินเครดิต` even when the counter confirmed. The fix is one
-line in `checkout_screen.dart` — the dialog's `if (ok != true) return` at `:581`
-already *is* the consent signal, so pass `overrideCreditLimit: true` below it.
-It was left undone here because #56 AC1 forbids touching
-`lib/presentation/screens/`. That AC and the server's override contract are in
-direct conflict; someone has to decide which gives.
+**Closed the same day.** `checkout_screen.dart` now sets the flag in the branch
+where the counter tapped ยืนยัน, and passes it into `SaleInput`.
+`test/checkout_credit_override_test.dart` drives the real dialog and pins both
+directions — the wiring is three invisible lines, and without a test a refactor
+either drops them (bills get refused) or defaults the flag to `true` to make them
+go through, which is the original bug with a different author.
+
+⚠️ This breaks #56 AC1 (*"git diff touches no file under
+`lib/presentation/screens/`"*) **deliberately, on the project owner's
+instruction.** That AC and the server's `overrideCreditLimit` contract could not
+both hold: the server refuses an over-limit credit bill without the flag, nothing
+but the screen knows whether a human confirmed, and the alternative — having the
+repository work it out — is the bug above.
 
 ---
 
-## What the server does not return (client left it stale, on purpose)
+## What the server did not return — closed by #82
 
 ADR-0010 §3: *"ถ้า field ไหนไม่อยู่ใน response ให้ถือว่า Drift แถวนั้น stale …
-ห้ามคำนวณเองในเครื่อง"*. Four fields fall in that hole. **None of them is a
-client bug and none should be fixed on the client** — each is one line of server
-work. The ADR's §3 table now records them.
+ห้ามคำนวณเองในเครื่อง"*. Four fields the server **wrote but did not hand back**
+fell in that hole, so the client left them stale and said so at each site. That
+is no longer true: **issue #82 widened both write responses and the client now
+patches all four.** The "left stale on purpose" comments are gone with them.
 
-| Gap | Server | Visible effect with `USE_API_WRITES=true` |
+| Was stale | Now carried by | Client patches |
 |---|---|---|
-| `sales.shiftId` | computed at `sales.service.ts:155`, written at `:160`, **not in `CreateSaleResult`** (`:211-225`) | schema v3's new column is null on every bill. #56's *"the bill carries `shiftId`"* is **unreachable from client code**. Also add `shift_id` to `existingSale`'s SELECT. No screen reads it today, so this is latent. |
-| `movements` | rows written by `insertMovements` (`:170`), not returned | the "สต็อก log" (`products_screen.dart:2660`) shows PO receipts and adjustments but **no sales and no returns** — a visible regression against the Drift build |
-| `saleItems.costAtSale` | server has it from its locked read in `insertLines` | every API-written bill is "estimated" forever — `products_screen.dart:2854` falls back to today's cost, `settings_screen.dart:1887` labels the row `ต้นทุนปัจจุบัน`. This is exactly what ADR-0008 exists to prevent. |
-| `mechanics.totalSales` / `totalDiscount` / `totalMarkup` | all three moved by `applyMechanic` (`:320-344`); only `mechanicCreditBalanceAfter` comes back | the mechanics screen shows figures frozen at the last Drift-era write |
+| `sales.shiftId` — computed `sales.service.ts:155`, written, not returned | `CreateSaleResult.shiftId` | `Sales.shiftId`, the column #53 added |
+| `movements` — written by `insertMovements`, not returned | `movements[]` on both results, via `RETURNING` | the local log, so the สต็อก log sees sales and returns again |
+| `saleItems.costAtSale` | `items[] {lineNo, productId, costAtSale}` | joined on **`lineNo`**, not `productId` — one bill can carry the same product twice at different prices, which is a bug #22's review already had to fix once on the server |
+| `mechanics.totalSales` / `totalDiscount` / `totalMarkup` | `mechanicAfter {id, totalSales, totalDiscount, totalMarkup, creditBalance}` | all four; `mechanicCreditBalanceAfter` kept so nothing reading it broke |
 
-Synthesising any of them locally is the second set of invariants ADR-0010 §3
-bans, so the code writes nothing and says so at each site.
+🔴 **`mechanics.total_credit` is still never written** — #11 settled it as the
+legacy alias of `total_discount`.
 
----
+🔴 **The replay path is where a widened response silently diverges.** Every new
+field had to be added to `existingSale` too, or a retried bill answers null for a
+shift it really has. The e2e compares the replay's **whole body** with `toEqual`
+rather than field by field, and the check was falsified (forcing
+`shiftId: null` in the replay branch reds it) rather than trusted. Array order is
+pinned on both paths for the same reason: a replay agreeing on values but not
+order is still a different body to the client. **Anything added to either result
+from here must do all of this.**
+
+Still open on the server: `POST /sales/:id/void` does not return its movements.
+It answers `SaleWithItems`, the shape `GET /sales/:id` also returns, so adding
+them means either widening a read shape or introducing a void-specific result —
+a design call, not a freebie. Note a void writes `movements.type = 'void'`
+(migration `1788652800003`), never `'return'`.
 
 ## Other live findings
 
@@ -138,8 +158,15 @@ bans, so the code writes nothing and says so at each site.
 - **Money crosses the wire as the string `"1234.50"`** via `wireMoney`, rounded
   through integer satang. `toStringAsFixed` is a float formatting of a float and
   the server's `toSatang` refuses a third decimal.
-- 🔴 **`cash_drawer_screen.dart` has no `try/catch` around `openShift` /
-  `closeShift`** (`:147-161`, `:184-197`) — only `addDrawerEntry`'s call site
-  catches. With Drift they cannot fail; with the API they can, and the error lands
-  in an uncaught async handler. Not fixed here (AC1). Same decision as the
-  credit-limit flag: it needs one screen edit.
+- **`cash_drawer_screen.dart`'s `openShift` / `closeShift` now catch**, as
+  `addDrawerEntry`'s call site always did. With Drift they could not fail; with
+  `ApiShiftsRepository` a network error landed in an uncaught async handler and
+  the counter saw *nothing* — the drawer silently stayed shut.
+- 🔴 **`setState(() => _someFuture = …)` trips a Flutter assertion**, because the
+  arrow body *returns* the Future and `setState` asserts its callback did not.
+  Six sites had it (`checkout_screen` ×2, `quotes_screen`, `cash_drawer_screen`,
+  `customers_screen`, `returns_screen`), all pre-existing and all invisible
+  because the shop runs a release web build, where assertions are compiled out.
+  The checkout one sits in the **failed-sale `catch`**, so every refused bill hit
+  it in any debug build — which is how the new widget test found it. All six are
+  now block bodies.

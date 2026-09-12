@@ -16,18 +16,17 @@
 // STALE rather than reconstructed — an invented value is a second set of
 // invariants that drifts silently, which is exactly what the ADR bans.
 //
-// Fields the server owns and does NOT hand back (all three are flagged in the #56
-// report, none of them are guessed here):
-//   • `sales.shiftId` — `CreateSaleResult` carries no `shiftId` even though the
-//     server stamps one on the row. Left null; a `GET /sales` refresh (#55) is the
-//     only honest way to fill it.
-//   • `saleItems.costAtSale` — the response carries no cost. `products.cost` here
-//     is a cache and moves on every PO receive (ADR-0008), so writing it would
-//     fabricate the bill's profit. Left null, which `tables.dart` already defines
-//     as "estimated, never backfill".
-//   • `movements` — the server writes the movement rows but does not return them.
-//     Nothing is synthesised; the local movements table simply does not see this
-//     bill until a read slice fetches it.
+// #82 widened `CreateSaleResult` with the four fields #56 had to leave stale —
+// `shiftId`, `items[].costAtSale`, `movements[]` and `mechanicAfter` (the
+// mechanic's four running totals). All four are patched below, read off the
+// response and never worked out here.
+//
+// 🔴 Each is read DEFENSIVELY: a server that predates #82 answers without them,
+// and the counter must not see a crash because a field is missing. Absent means
+// the row (or the table) is left exactly as it was — it never means "compute it
+// locally". That is ADR-0010 §3 verbatim: a field the response does not carry is
+// stale until a read slice refreshes it, and reconstructing it here is the second
+// set of invariants the ADR bans.
 
 import 'package:drift/drift.dart';
 
@@ -204,20 +203,35 @@ class ApiSalesRepository implements SalesRepository {
       date: stamp(res['date']),
       voided: false,
       voidedAt: null,
-      // 🔴 `CreateSaleResult` does not carry `shiftId`, although the server DOES
-      // stamp one on the row it just wrote. Left null rather than guessed from
-      // the local open shift: the drawer the server used is the one bound to the
-      // device token, and a locally-chosen shift would mis-file the bill in the
-      // closing report. Flagged as a spec-vs-server gap in #56.
-      shiftId: null,
+      // The drawer the SERVER filed this bill under (#82) — never the local open
+      // shift, which is bound to this device's own cache and would mis-file the
+      // bill in the closing report. Null when the bill was rung up with no
+      // drawer open, and also null against a server that predates #82; both mean
+      // "unknown here", not "work it out".
+      shiftId: res['shiftId'] as String?,
     );
+
+    // The response's per-line costs, keyed by the `lineNo` `_saleBody` sent.
+    //
+    // 🔴 The join key is `lineNo`, NOT `productId`. One bill can carry the same
+    // product on two lines at different prices — and so at different recorded
+    // costs — and a productId join would give both lines whichever cost it read
+    // last, quietly falsifying the bill's profit. #22's server review had to fix
+    // exactly this shape of bug on the refund path.
+    final costByLineNo = <int, double?>{};
+    for (final raw in (res['items'] as List? ?? const [])) {
+      final line = (raw as Map).cast<String, dynamic>();
+      final lineNo = line['lineNo'] as int?;
+      if (lineNo != null) costByLineNo[lineNo] = moneyOrNull(line['costAtSale']);
+    }
 
     await db.transaction(() async {
       await db.into(db.sales).insert(sale);
 
       // Lines after the header: `SaleItems.saleId` is a real FK.
       await db.batch((b) {
-        for (final item in input.items) {
+        for (var i = 0; i < input.items.length; i++) {
+          final item = input.items[i];
           b.insert(
             db.saleItems,
             SaleItemsCompanion.insert(
@@ -228,12 +242,13 @@ class ApiSalesRepository implements SalesRepository {
               nameTH: Value(item.nameTH),
               qty: item.qty,
               price: item.price,
-              // 🔴 Null on purpose. The response carries no cost, and the local
+              // The cost the SERVER locked at the moment of sale (#82, ADR-0008),
+              // matched on the same 1-based `lineNo` this line was sent under.
+              // Still null when the response carries no cost for it — the local
               // `products.cost` is a cache that moves on every weighted-average
-              // PO receive (ADR-0008) — writing it would invent this bill's
-              // profit. `tables.dart` already defines null here as "estimated,
-              // never backfill".
-              costAtSale: const Value(null),
+              // PO receive, so filling it in from here would invent this bill's
+              // profit. `tables.dart` defines null as "estimated, never backfill".
+              costAtSale: Value(costByLineNo[i + 1]),
             ),
           );
         }
@@ -273,20 +288,58 @@ class ApiSalesRepository implements SalesRepository {
         );
       }
 
-      // Mechanic: only the credit balance comes back. `totalSales`,
-      // `totalDiscount` and `totalMarkup` are moved by the server too but are
-      // NOT in `CreateSaleResult`, so those three columns go stale here rather
-      // than being recomputed locally. Flagged in #56.
-      final creditAfter = moneyOrNull(res['mechanicCreditBalanceAfter']);
-      if (creditAfter != null && input.mechanicId != null) {
-        await (db.update(db.mechanics)
-              ..where((t) => t.id.equals(input.mechanicId!)))
-            .write(MechanicsCompanion(creditBalance: Value(creditAfter)));
+      // Mechanic: all four running totals as the server has them (#82).
+      // `applyMechanic` moves `totalSales`, `totalDiscount` and `totalMarkup`
+      // alongside the credit balance, so patching only the balance left the
+      // mechanics screen showing three figures frozen at the last Drift-era
+      // write. `mechanicCreditBalanceAfter` is kept as the fallback for a server
+      // that predates #82 — and where neither field is present the row is left
+      // untouched rather than recomputed from the cart.
+      //
+      // 🔴 `totalCredit` is NOT written: it is the legacy alias of
+      // `totalDiscount` settled in #11, and the server never moves it either.
+      final mechanicAfter = res['mechanicAfter'];
+      if (mechanicAfter is Map) {
+        final m = mechanicAfter.cast<String, dynamic>();
+        final companion = MechanicsCompanion(
+          totalSales: keepMoney(moneyOrNull(m['totalSales'])),
+          totalDiscount: keepMoney(moneyOrNull(m['totalDiscount'])),
+          totalMarkup: keepMoney(moneyOrNull(m['totalMarkup'])),
+          creditBalance: keepMoney(moneyOrNull(m['creditBalance'])),
+        );
+        if (companion != const MechanicsCompanion()) {
+          await (db.update(db.mechanics)
+                ..where((t) => t.id.equals(m['id'] as String)))
+              .write(companion);
+        }
+      } else {
+        final creditAfter = moneyOrNull(res['mechanicCreditBalanceAfter']);
+        if (creditAfter != null && input.mechanicId != null) {
+          await (db.update(db.mechanics)
+                ..where((t) => t.id.equals(input.mechanicId!)))
+              .write(MechanicsCompanion(creditBalance: Value(creditAfter)));
+        }
       }
 
-      // `movements` is NOT written. The server writes the rows; the response
-      // does not carry them, and synthesising `{delta, stockAfter, type}` here
-      // would be exactly the local arithmetic ADR-0010 §3 forbids.
+      // The สต็อก log, as the SERVER wrote it (#82): its own row id, its own
+      // `delta`, `stockAfter` and `type` ('sale' here — a void writes 'void' and
+      // a credit note 'return'; they are never collapsed). Without these the log
+      // on `products_screen.dart` showed PO receipts and manual adjustments but
+      // no sales at all — a visible regression against the Drift build.
+      //
+      // An absent `movements` leaves the table alone: the rows exist on the
+      // server and a read slice will fetch them. Synthesising
+      // `{delta, stockAfter}` from the cart is the arithmetic ADR-0010 §3 bans.
+      final movements = (res['movements'] as List? ?? const [])
+          .map((e) => (e as Map).cast<String, dynamic>())
+          .toList();
+      if (movements.isNotEmpty) {
+        await db.batch((b) {
+          for (final mv in movements) {
+            b.insert(db.movements, movementRowFromWire(mv));
+          }
+        });
+      }
     });
 
     return sale;
@@ -321,3 +374,10 @@ class _Attempt {
   final String saleId;
   final Map<String, String> headers;
 }
+
+// ── Shared with `api_returns_repository.dart` ───────────────────────────────
+// Both helpers belong beside the other wire conventions in `api_wire.dart` and
+// should move there the next time that file is opened; they live here because
+// #82's client half is scoped to the two repositories. What matters is that
+// there is ONE of each: two repositories mapping the same server field slightly
+// differently is precisely the "invariant ชุดที่สอง" ADR-0010 §3 bans.

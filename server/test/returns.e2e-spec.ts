@@ -427,6 +427,15 @@ describe('POST /returns (e2e)', () => {
     );
     expect(cash.status).toBe(201);
     expect(cash.body.data.mechanicCreditBalanceAfter).toBe('500.00');
+    // #82: all four running totals, not just the balance — the mechanics screen shows
+    // every one of them and the client may not recompute a server-owned figure.
+    expect(cash.body.data.mechanicAfter).toEqual({
+      id: 'm1',
+      totalSales: '800.00',
+      totalDiscount: '0.00',
+      totalMarkup: '150.00',
+      creditBalance: '500.00',
+    });
 
     let mech = await mechanicRow('m1');
     expect(Number(mech.credit_balance)).toBe(500);
@@ -460,6 +469,159 @@ describe('POST /returns (e2e)', () => {
     // 🔴 decision #11: the server reads `total_credit` as the discount-base fallback
     // and never writes it.
     expect(Number(mech.total_credit)).toBe(0);
+    expect(deduct.body.data.mechanicAfter).toEqual({
+      id: 'm1',
+      totalSales: '500.00',
+      totalDiscount: '0.00',
+      totalMarkup: '150.00',
+      creditBalance: '200.00',
+    });
+    // 🔴 The legacy alias must not be on the wire at all — returning it would invite
+    // the client to patch a column nothing writes.
+    expect(deduct.body.data.mechanicAfter).not.toHaveProperty('totalCredit');
+    expect(JSON.stringify(deduct.body)).not.toContain('total_credit');
+  });
+
+  // #82. The credit note wrote `movements` rows the client's stock log had no way to
+  // see, so the "สต็อก log" showed PO receipts and adjustments but no refunds.
+  describe('the write-through fields (#82)', () => {
+    it('answers the movement rows it wrote, as `return`, matching the ledger', async () => {
+      await insertSale({
+        id: 's_mv',
+        receiptNo: 'R20',
+        subtotal: 340,
+        total: 340,
+        items: [{ productId: 'p1', name: 'Oil Filter', qty: 4, price: 85 }],
+      });
+      const before = await stockOf('p1');
+
+      const res = await post(
+        credit('s_mv', [
+          { productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' },
+        ]),
+      );
+      expect(res.status).toBe(201);
+
+      const movements = res.body.data.movements as Record<string, unknown>[];
+      expect(movements).toEqual([
+        {
+          id: expect.stringMatching(/^mv/) as unknown,
+          productId: 'p1',
+          partNo: 'HN-15412-KVB',
+          name: 'Oil Filter',
+          delta: 2,
+          // 🔴 `'return'`, never `'void'`: a void of the parent bill writes its own
+          // row of that type (migration `1788652800003`) and reports group by this
+          // column, so collapsing the two counts a cancellation as a refund.
+          type: 'return',
+          note: null,
+          stockAfter: before + 2,
+          date: expect.any(String) as unknown,
+        },
+      ]);
+
+      const rows = await admin.query(
+        `SELECT id, type, stock_after, date FROM movements
+          WHERE tenant_id = $1::uuid AND ref_id = $2`,
+        [TENANT, res.body.data.id],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(movements[0].id);
+      expect(rows[0].type).toBe('return');
+      expect((rows[0].date as Date).toISOString()).toBe(movements[0].date);
+    });
+
+    it('one movement per product even when a part comes back at two prices', async () => {
+      await insertSale({
+        id: 's_mv2',
+        receiptNo: 'R21',
+        subtotal: 155,
+        total: 155,
+        items: [
+          { productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 },
+          { productId: 'p1', name: 'Oil Filter', qty: 1, price: 70 },
+        ],
+      });
+      const before = await stockOf('p1');
+
+      const res = await post(
+        credit('s_mv2', [
+          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '70.00' },
+        ]),
+      );
+      expect(res.status).toBe(201);
+      // Two lines, two `return_items`, but `uq_movements_ref` allows exactly one
+      // ledger row per product — and the answer must say the same thing the table does.
+      expect(res.body.data.items).toHaveLength(2);
+      expect(res.body.data.movements).toHaveLength(1);
+      expect(res.body.data.movements[0]).toMatchObject({
+        productId: 'p1',
+        delta: 2,
+        type: 'return',
+        stockAfter: before + 2,
+      });
+    });
+
+    it('no mechanic on the bill: mechanicAfter is null, alongside the balance', async () => {
+      await insertSale({
+        id: 's_mv3',
+        receiptNo: 'R22',
+        subtotal: 85,
+        total: 85,
+        items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      });
+      const res = await post(
+        credit('s_mv3', [
+          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+        ]),
+      );
+      expect(res.status).toBe(201);
+      expect(res.body.data.mechanicAfter).toBeNull();
+      expect(res.body.data.mechanicCreditBalanceAfter).toBeNull();
+    });
+
+    it('an idempotency-key replay answers the identical body, new fields included', async () => {
+      await seedMechanic(admin, TENANT, {
+        id: 'm9',
+        code: 'M009',
+        name: 'Replay Mechanic',
+        creditLimit: 20000,
+        creditBalance: 500,
+        totalSales: 1000,
+        totalMarkup: 200,
+      });
+      await insertSale({
+        id: 's_mv4',
+        receiptNo: 'R23',
+        subtotal: 200,
+        total: 200,
+        paymentMethod: 'เครดิตช่าง',
+        mechanicId: 'm9',
+        mechanicName: 'Replay Mechanic',
+        mechanicDelta: 50,
+        items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 200 }],
+      });
+
+      const body = credit(
+        's_mv4',
+        [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '200.00' }],
+        'หักจากเครดิต',
+      );
+      const key = `k-replay-${Date.now()}`;
+      const first = await post(body, { key });
+      expect(first.status).toBe(201);
+      expect(first.body.data.movements).toHaveLength(1);
+      expect(first.body.data.mechanicAfter).not.toBeNull();
+
+      // `POST /returns` has no client-id replay of its own, so the `Idempotency-Key`
+      // is the whole guard: the stored `response_body` round-trips through `jsonb`,
+      // which is where a `null` note or a date string quietly changes shape.
+      const replay = await post(body, { key });
+      expect(replay.status).toBe(201);
+      expect(replay.body).toEqual(first.body);
+      expect(await returnCount()).toBe(1);
+    });
   });
 
   it('the discount on the bill comes back in proportion', async () => {

@@ -7,7 +7,16 @@ import { returning } from '../common/sql.js';
 import { DocNumberService } from '../documents/doc-number.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import { saleNotFound } from '../sales/sale-reads.service.js';
-import type { CustomerAfter } from '../sales/sales.service.js';
+import {
+  MOVEMENT_COLUMNS,
+  mechanicAfter as toMechanicAfter,
+  movementOut,
+  type CustomerAfter,
+  type MechanicAfter,
+  type MechanicRow,
+  type MovementOut,
+  type MovementRow,
+} from '../sales/sales.service.js';
 import type { CreateReturn, ReturnLine } from './returns.dto.js';
 
 /** Who is taking the goods back — read from the token, never from the body. */
@@ -52,8 +61,20 @@ export interface CreateReturnResult extends ReturnWithItems {
   saleVoided: boolean;
   /** Every product this credit note put back, with its new stock. */
   products: { id: string; stock: number }[];
+  /**
+   * The ledger rows this credit note wrote, `type: 'return'` (#82) — so the stock log
+   * on the client is not blind to refunds. A **void** writes `'void'` against the
+   * same goods and is a different row; the two must never be collapsed.
+   */
+  movements: MovementOut[];
   customerAfter: CustomerAfter | null;
+  /**
+   * The mechanic's balance after the reversal; null when the bill named none. Kept
+   * alongside `mechanicAfter` — it is what every existing reader looks at.
+   */
   mechanicCreditBalanceAfter: string | null;
+  /** All four running totals `reverseMechanic` moved; null when the bill names none. */
+  mechanicAfter: MechanicAfter | null;
 }
 
 /** The parent bill, locked, with everything the reversal needs off it. */
@@ -225,7 +246,7 @@ export class ReturnsService {
       sold,
     );
 
-    const stockAfter = await this.restoreStock(
+    const { stockAfter, movements } = await this.restoreStock(
       manager,
       tenantId,
       returnId,
@@ -239,7 +260,7 @@ export class ReturnsService {
       sale,
       money,
     );
-    const mechanicCreditBalanceAfter = await this.reverseMechanic(
+    const mechanicAfter = await this.reverseMechanic(
       manager,
       tenantId,
       sale,
@@ -247,6 +268,7 @@ export class ReturnsService {
       dto.refundMethod,
       money,
     );
+    const mechanicCreditBalanceAfter = mechanicAfter?.creditBalance ?? null;
 
     const saleVoided = await this.autoVoid(manager, tenantId, dto.saleId, sold);
 
@@ -268,8 +290,10 @@ export class ReturnsService {
       items,
       saleVoided,
       products: [...stockAfter].map(([id, stock]) => ({ id, stock })),
+      movements,
       customerAfter,
       mechanicCreditBalanceAfter,
+      mechanicAfter,
     };
   }
 
@@ -691,7 +715,7 @@ export class ReturnsService {
     returnId: string,
     demands: Demand[],
     locked: { id: string }[],
-  ): Promise<Map<string, number>> {
+  ): Promise<{ stockAfter: Map<string, number>; movements: MovementOut[] }> {
     const alive = new Set(locked.map((p) => p.id));
     const byProduct = new Map<string, number>();
     for (const d of demands) {
@@ -699,6 +723,7 @@ export class ReturnsService {
     }
 
     const stockAfter = new Map<string, number>();
+    const movements: MovementOut[] = [];
     for (const [productId, qty] of byProduct) {
       // Only a product with no row at all, which a sold one cannot be: `movements`
       // has a foreign key to `products` with no cascade and every sale writes a row
@@ -720,23 +745,29 @@ export class ReturnsService {
       );
       stockAfter.set(productId, updated[0].stock);
 
-      await manager.query(
-        `INSERT INTO movements (
+      // `RETURNING` rather than a second read (#82): the row's `id` and `date` are
+      // the database's, and the client has nowhere else to get them.
+      const written = returning<MovementRow>(
+        await manager.query(
+          `INSERT INTO movements (
            tenant_id, id, product_id, part_no, name, delta, type, stock_after, ref_id)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, 'return', $7, $8)`,
-        [
-          tenantId,
-          newId('mv'),
-          productId,
-          updated[0].part_no,
-          updated[0].name,
-          qty,
-          updated[0].stock,
-          returnId,
-        ],
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, 'return', $7, $8)
+       RETURNING ${MOVEMENT_COLUMNS}`,
+          [
+            tenantId,
+            newId('mv'),
+            productId,
+            updated[0].part_no,
+            updated[0].name,
+            qty,
+            updated[0].stock,
+            returnId,
+          ],
+        ),
       );
+      movements.push(movementOut(written[0]));
     }
-    return stockAfter;
+    return { stockAfter, movements };
   }
 
   /**
@@ -810,7 +841,7 @@ export class ReturnsService {
     mechanic: { total_discount: string; total_credit: string } | null,
     refundMethod: string,
     money: RefundAmounts,
-  ): Promise<string | null> {
+  ): Promise<MechanicAfter | null> {
     if (sale.mechanic_id === null || mechanic === null) return null;
 
     const origDelta =
@@ -830,7 +861,7 @@ export class ReturnsService {
     const discountBaseSatang =
       totalDiscount !== 0 ? totalDiscount : satangOf(mechanic.total_credit);
 
-    const rows = returning<{ credit_balance: string }>(
+    const rows = returning<MechanicRow>(
       await manager.query(
         `UPDATE mechanics
             SET total_sales = GREATEST(0, total_sales - $3),
@@ -839,7 +870,7 @@ export class ReturnsService {
                 credit_balance = GREATEST(0, credit_balance - $6),
                 updated_at = now()
           WHERE tenant_id = $1::uuid AND id = $2
-      RETURNING credit_balance`,
+      RETURNING id, total_sales, total_discount, total_markup, credit_balance`,
         [
           tenantId,
           sale.mechanic_id,
@@ -856,9 +887,9 @@ export class ReturnsService {
         ],
       ),
     );
-    return rows.length === 0
-      ? null
-      : fromSatang(satangOf(rows[0].credit_balance));
+    // 🔴 `total_credit` is not in the answer, only in the read above: it is the legacy
+    // alias this method reverses *against*, never a figure the client may patch (#11).
+    return rows.length === 0 ? null : toMechanicAfter(rows[0]);
   }
 
   /**
