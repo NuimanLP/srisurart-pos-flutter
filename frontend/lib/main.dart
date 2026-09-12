@@ -6,6 +6,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'app.dart';
 import 'data/db/database.dart';
+import 'data/repositories/auth_repository.dart';
+import 'presentation/blocs/auth_cubit.dart';
 import 'presentation/blocs/cart_cubit.dart';
 import 'presentation/blocs/pending_quote_cubit.dart';
 import 'presentation/repositories/repository_providers.dart';
@@ -24,6 +26,11 @@ void main() {
           BlocProvider<FontScaleCubit>(create: (_) => FontScaleCubit()),
           BlocProvider<PendingQuoteCubit>(create: (_) => PendingQuoteCubit()),
           BlocProvider<CartCubit>(create: (_) => CartCubit()),
+          BlocProvider<AuthCubit>(
+            create: (ctx) => AuthCubit(
+              authRepository: ctx.read<AuthRepository>(),
+            )..init(),
+          ),
         ],
         child: const SrisurartApp(),
       ),

@@ -34,10 +34,13 @@ import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/snapshot_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
+import '../blocs/auth_cubit.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_card.dart';
 import '../widgets/app_text_field.dart';
+import '../widgets/device_enrolment_dialog.dart';
 import '../widgets/font_scale_controller.dart';
+import '../widgets/login_dialog.dart';
 import '../widgets/thai_format.dart';
 import '../widgets/theme_controller.dart';
 
@@ -102,9 +105,10 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // [key, label] — matches JS TABS.
+  // [key, label] — matches JS TABS + account tab for device enrolment & auth.
   static const _tabs = [
     ['general', '⚙ ทั่วไป'],
+    ['account', '🔐 บัญชี / ผูกเครื่อง'],
     ['theme', '🎨 ธีม'],
     ['backup', '💾 สำรอง/กู้คืน'],
     ['export', '📤 ส่งออก CSV'],
@@ -146,6 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Expanded(
             child: switch (_subTab) {
               'general' => const _GeneralTab(),
+              'account' => const _AccountTab(),
               'theme' => const _ThemeTab(),
               'backup' => const _BackupTab(),
               'export' => const _ExportTab(),
@@ -256,6 +261,252 @@ class _SectionTitle extends StatelessWidget {
           Divider(height: 1, color: theme.dividerColor),
         ],
       ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// ACCOUNT & DEVICE ENROLMENT (ADR-0004)
+// ════════════════════════════════════════════════════════════════════════
+
+class _AccountTab extends StatelessWidget {
+  const _AccountTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final authState = context.watch<AuthCubit>().state;
+    final cubit = context.read<AuthCubit>();
+
+    final user = authState is Authenticated ? authState.user : null;
+    final isAuthed = user != null;
+    final deviceToken = authState is Authenticated
+        ? authState.deviceToken
+        : (authState is Unauthenticated ? authState.deviceToken : null);
+    final isPos = authState is Authenticated
+        ? authState.isPos
+        : (authState is Unauthenticated ? authState.isPos : false);
+
+    return _ContentPane(
+      title: '🔐 บัญชีผู้ใช้และการผูกเครื่อง (Auth & Device)',
+      children: [
+        // ── 1. User Account ──
+        const _SectionTitle('ข้อมูลผู้ใช้งาน (User Account)'),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: isAuthed
+                        ? AppColors.orange.withValues(alpha: 0.15)
+                        : Colors.grey.withValues(alpha: 0.15),
+                    child: Icon(
+                      isAuthed ? Icons.person : Icons.person_outline,
+                      color: isAuthed ? AppColors.orange : Colors.grey,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              isAuthed
+                                  ? (user.displayName ?? user.username)
+                                  : 'ยังไม่ได้เข้าสู่ระบบ',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isAuthed
+                                    ? AppColors.success.withValues(alpha: 0.1)
+                                    : Colors.grey.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                isAuthed
+                                    ? 'บทบาท: ${user.role}'
+                                    : 'โหมดออฟไลน์ / แขก',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: isAuthed
+                                      ? AppColors.success
+                                      : Colors.grey[700],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          isAuthed
+                              ? 'Username: @${user.username}'
+                              : 'ระบบทำงานในโหมด Offline-first ด้วยฐานข้อมูลภายในเครื่อง',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  if (isAuthed)
+                    AppButton.secondary(
+                      label: 'ออกจากระบบ',
+                      icon: Icons.logout,
+                      onPressed: () => cubit.logout(),
+                    )
+                  else
+                    AppButton(
+                      label: 'เข้าสู่ระบบ',
+                      icon: Icons.login,
+                      onPressed: () => LoginDialog.show(context),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // ── 2. Device Role & Enrolment ──
+        const _SectionTitle('บทบาทและการผูกเครื่อง (Device Role — ADR-0004)'),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'ตามกติกา ADR-0004 แต่ละร้านค้าจะมีเครื่อง POS สำหรับขายของและบันทึกเงินสดหน้าร้านได้ 1 เครื่อง เครื่องอื่นจะเป็นโหมด Backoffice สำหรับจัดการสต็อกและเอกสาร',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isPos
+                      ? AppColors.success.withValues(alpha: 0.08)
+                      : (deviceToken != null
+                          ? AppColors.navy.withValues(alpha: 0.08)
+                          : Colors.grey.withValues(alpha: 0.08)),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isPos
+                        ? AppColors.success.withValues(alpha: 0.3)
+                        : (deviceToken != null
+                            ? AppColors.navy.withValues(alpha: 0.3)
+                            : Colors.grey.withValues(alpha: 0.3)),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isPos
+                          ? Icons.check_circle
+                          : (deviceToken != null
+                              ? Icons.computer
+                              : Icons.warning_amber_rounded),
+                      color: isPos
+                          ? AppColors.success
+                          : (deviceToken != null
+                              ? AppColors.navy
+                              : Colors.orange[800]),
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isPos
+                                ? 'เครื่องนี้คือเครื่อง POS หน้าร้าน (POS Terminal)'
+                                : (deviceToken != null
+                                    ? 'เครื่องนี้คือ Backoffice Terminal'
+                                    : 'เครื่องนี้ยังไม่ได้ผูกกับระบบ (โหมดทั่วไป)'),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            deviceToken != null
+                                ? 'Device Token: ${deviceToken.substring(0, deviceToken.length > 16 ? 16 : deviceToken.length)}...'
+                                : 'ยังไม่มี Device Token ในเบราว์เซอร์นี้',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    if (deviceToken != null)
+                      AppButton.danger(
+                        label: 'ยกเลิกการผูกเครื่อง',
+                        icon: Icons.link_off,
+                        onPressed: () async {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('ยืนยันยกเลิกการผูกเครื่อง'),
+                              content: const Text(
+                                'หากยกเลิกการผูกเครื่องนี้ สิทธิ์ของเครื่อง POS จะถูกถอนออก และต้องให้เจ้าของร้านออกรหัสผูกเครื่องใหม่หากต้องการเชื่อมต่ออีกครั้ง',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(false),
+                                  child: const Text('ยกเลิก'),
+                                ),
+                                FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                  onPressed: () => Navigator.of(ctx).pop(true),
+                                  child: const Text('ยืนยันถอนการผูกเครื่อง'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirm == true) {
+                            await cubit.clearDeviceEnrolment();
+                          }
+                        },
+                      )
+                    else
+                      AppButton(
+                        label: 'ผูกเครื่องขาย (POS)',
+                        icon: Icons.qr_code_scanner,
+                        onPressed: () => DeviceEnrolmentDialog.show(context),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

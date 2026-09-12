@@ -54,6 +54,7 @@ dependencies:
   web: ^1.1.1 # browser file-download for backup/CSV export on the web target
   flutter_bloc: ^9.1.1
   bloc: ^9.2.1
+  http: ^1.3.0
 
 dev_dependencies:
   flutter_test:
