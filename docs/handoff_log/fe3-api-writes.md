@@ -8,6 +8,20 @@ off, because phase 1 plans no cutover.
 
 **Read this before touching the sale path or picking up #55.**
 
+| | |
+|---|---|
+| Branch | `feat/fe3-api-writes` — three commits, opened as a PR |
+| Closes | **#82** (the write responses) · **#56** except its AC1, see below |
+| Opened along the way | **#83** — `ServerErrorResolver`'s Thai test is too weak, three idempotency codes unmapped |
+| Gate | frontend **199 tests**, `dart analyze` clean · server lint + typecheck clean, **97 unit**, **164 e2e** against the real Postgres |
+| Not proven | #56 AC2's *"verified against the server"* — every client AC's evidence is a `MockClient`; `useApi` defaults to false, so no path here runs end to end yet |
+
+⚠️ **#56 AC1 (*"git diff touches no file under `lib/presentation/screens/`"*) is broken
+deliberately**, on the project owner's instruction. It and the server's
+`overrideCreditLimit` contract could not both hold — see *The credit-limit override
+inferred consent* below. Three screen files changed; the reasons are recorded per
+file and on the issue.
+
 ---
 
 ## The two things that were wrong on the first pass

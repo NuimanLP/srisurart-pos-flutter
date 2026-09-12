@@ -98,9 +98,13 @@ frontend/
       db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
       db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
       repositories/            ← one repo per domain; transactional services mirror db.js
+      repositories/api/        ← #56: ApiSales/ApiReturns/ApiShifts — same interfaces,
+                                 server is the truth, Drift rows patched from the response
+                                 (ADR-0010). Opt-in: --dart-define=USE_API_WRITES=true
     domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
     presentation/
-      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (13 repos)
+      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (13 repos
+                                 + AuthRepository/ApiClient); `useApi` swaps in the #56 API repos
       blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
       screens/                  ← 11 screens, 1:1 with the JS screens
       widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
@@ -387,6 +391,63 @@ real schema at the commit before each bump — **they are evidence, do not tidy 
 #55's `?updatedSince=` cursor sees creates and edits but is structurally blind to deletions —
 **#55 owns that column.** It was deliberately NOT added in #53: ADR-0010 decision 2 moves the
 client schema only when the client actually needs the field, and nothing writes it until #55.
+
+**#54 is merged (PR #81, 2026-09-12) and #56 is on `feat/fe3-api-writes` (PR open).** `fe.3` is the
+money path client-side: `ApiSalesRepository` / `ApiReturnsRepository` / `ApiShiftsRepository` under
+`frontend/lib/data/repositories/api/`, each `implements` the concrete Drift class's implicit
+interface, hits the server, and **patches Drift rows from the response** (ADR-0010). Reads still
+delegate to the Drift instance they hold — those are #55. Wiring is opt-in:
+`repositoryProviders(db, useApi: …)` defaults to `const bool.fromEnvironment('USE_API_WRITES')`,
+so the shop keeps running the Drift build and `--dart-define=USE_API_WRITES=true` is what a
+developer flips. Read `docs/handoff_log/fe3-api-writes.md` before touching the client write path.
+
+Rules the slice establishes, all enforced or pinned:
+- 🔴 **An `ApiRepository` never calls a Drift transactional service** — `saveSale` after a `201` is
+  a double stock decrement, and a local stock pre-check refuses a bill the server would have taken.
+  `frontend/test/api_repository_contract_test.dart` enforces it at the source level. Its first draft
+  banned `db.transaction(` outright and red-flagged correct code: a **local-only** transaction after
+  the response is how a header row and its FK-bearing lines avoid being half-written. The rule is
+  what ADR-0010 §3 actually implies — no Drift transactional service, and **no transaction held open
+  across the wire**.
+- 🔴 **An `ApiException` must never reach a screen.** Checkout, Returns and the Cash Drawer all
+  render a failure as `e.toString().replaceFirst('Exception: ', '')`, so an escaping one prints
+  `ApiException(status: 409, code: …)` at the counter. `api_wire.dart`'s `rethrowThai` converts every
+  server verdict to the plain `Exception(thaiMessage)` those screens already understand.
+- 🔴 **The bill id and `Idempotency-Key` are minted once per cart, not once per call.** `ApiClient`
+  sets no timeout, so the ordinary failure is a dropped reply for a bill the server committed; a
+  fresh id and key on the counter's second press defeat **both** server defences at once
+  (`existingSale` keys on the client's bill id, `idempotency_keys` on the header) and ring the sale
+  up twice. A `SocketException` parks the attempt, an `ApiException` is a verdict and closes it.
+- 🔴 **Consent is carried, never inferred.** `SaleInput.overrideCreditLimit` exists because the
+  first implementation replayed `checkout_screen.dart:561`'s own credit-limit test against the
+  cached mechanic row on a 409 and treated a trip as proof the counter had confirmed. It is not the
+  same read — the screen tests the row it captured when its list loaded — so it could override a
+  limit nobody was shown a dialog for, and the server then writes an `audit_log` row recording a
+  confirmation that never happened.
+- **Money crosses the wire as the string `"1234.50"`** (`wireMoney`, rounded through integer
+  satang); timestamps are ISO-8601; a field the response omits leaves its row alone (`keepMoney`).
+
+**#82 is closed by the same branch.** `POST /sales` and `POST /returns` wrote four things they did
+not return — `sales.shift_id`, the `movements` rows, `sale_items.cost_at_sale`, and the mechanic's
+three running totals — so the client had nowhere honest to get them. All four are returned now
+(no migration; `RETURNING` on INSERTs that already existed, no new read, no new lock, lock order
+untouched). 🔴 **Anything added to either write result must also be added to `existingSale`**, or a
+replayed bill answers null for a shift it really has; the e2e compares the replay's **whole body**
+with `toEqual` and pins array order, and the check was falsified rather than trusted. Still open:
+`POST /sales/:id/void` does not return its movements — it answers `SaleWithItems`, the shape
+`GET /sales/:id` also returns, so that is a design call. A void writes `movements.type = 'void'`
+(migration `1788652800003`), never `'return'`.
+
+🔴 **`setState(() => _someFuture = …)` trips a Flutter assertion** — the arrow body *returns* the
+Future and `setState` asserts its callback did not. Six pre-existing sites were fixed on this
+branch. They were invisible because the shop runs a release web build, where assertions are
+compiled out; the `checkout_screen` one sat in the **failed-sale `catch`**, so every refused bill
+hit it in any debug build. Write `setState(() { x = …; })`, never the arrow form, when assigning.
+
+**#83 is open** (`team/3`): `ServerErrorResolver` prefers *any* server message containing a Thai
+codepoint over its own canonical string, so `returns.service.ts`'s English
+`Refund method 'หักจากเครดิต' needs a bill with a mechanic.` wins and the mapped Thai never fires.
+Three idempotency codes are unmapped too.
 
 **Pending follow-ups (not yet built).** Deployment/hosting is owned by `docs/Backend_design/07_CICD_DEPLOY.md` since 2026-09-10 (ADR-0013); before that it had no owning document — the old
 `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` were deleted in `ec24f79` and are **not coming
