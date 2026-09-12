@@ -20,16 +20,25 @@ import '../../data/repositories/snapshot_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 
 import '../../core/network/api_client.dart';
+import '../../data/repositories/api/api_returns_repository.dart';
+import '../../data/repositories/api/api_sales_repository.dart';
+import '../../data/repositories/api/api_shifts_repository.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/storage/token_storage.dart';
 
 /// The repository providers, mirroring providers.dart + shift_providers.dart,
 /// plus AuthRepository and ApiClient.
 /// Wired via `MultiRepositoryProvider` in main.dart.
+///
+/// [useApi] switches the API-backed repositories in behind the same
+/// interfaces (ADR-0010) instead of the Drift-only ones. It defaults to
+/// `false` — CLAUDE.md: "the shop keeps running the Drift build, no cutover"
+/// for phase 1 — and is flipped only via `--dart-define=USE_API_WRITES=true`.
 List<RepositoryProvider> repositoryProviders(
   AppDatabase db, {
   AuthRepository? authRepository,
   ApiClient? apiClient,
+  bool useApi = const bool.fromEnvironment('USE_API_WRITES'),
 }) {
   final storage = SharedPrefsTokenStorage();
   final client = apiClient ?? ApiClient(tokenStorage: storage);
@@ -39,12 +48,29 @@ List<RepositoryProvider> repositoryProviders(
         tokenStorage: storage,
       );
 
+  // The three write paths of #56. Each API implementation keeps a Drift
+  // instance of the same repository to delegate its READS to — those belong to
+  // #55 and are untouched here — so the Drift object is constructed either way.
+  final driftSales = SalesRepository(db);
+  final driftReturns = ReturnsRepository(db);
+  final driftShifts = ShiftsRepository(db);
+
+  final salesRepository = useApi
+      ? ApiSalesRepository(api: client, db: db, drift: driftSales)
+      : driftSales;
+  final returnsRepository = useApi
+      ? ApiReturnsRepository(api: client, db: db, drift: driftReturns)
+      : driftReturns;
+  final shiftsRepository = useApi
+      ? ApiShiftsRepository(api: client, db: db, drift: driftShifts)
+      : driftShifts;
+
   return [
     RepositoryProvider<ProductsRepository>.value(value: ProductsRepository(db)),
     RepositoryProvider<CustomersRepository>.value(value: CustomersRepository(db)),
     RepositoryProvider<MechanicsRepository>.value(value: MechanicsRepository(db)),
-    RepositoryProvider<SalesRepository>.value(value: SalesRepository(db)),
-    RepositoryProvider<ReturnsRepository>.value(value: ReturnsRepository(db)),
+    RepositoryProvider<SalesRepository>.value(value: salesRepository),
+    RepositoryProvider<ReturnsRepository>.value(value: returnsRepository),
     RepositoryProvider<PurchaseOrdersRepository>.value(
       value: PurchaseOrdersRepository(db),
     ),
@@ -54,7 +80,7 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
     RepositoryProvider<SettingsRepository>.value(value: SettingsRepository(db)),
     RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db)),
-    RepositoryProvider<ShiftsRepository>.value(value: ShiftsRepository(db)),
+    RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),
     RepositoryProvider<AuthRepository>.value(value: authRepo),
     RepositoryProvider<ApiClient>.value(value: client),
   ];
