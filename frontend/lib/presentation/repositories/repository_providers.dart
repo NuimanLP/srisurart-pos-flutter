@@ -23,13 +23,21 @@ import '../../core/network/api_client.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/storage/token_storage.dart';
 
+import '../../data/repositories/api_customers_repository.dart';
+import '../../data/repositories/api_mechanics_repository.dart';
+import '../../data/repositories/api_products_repository.dart';
+import '../../data/repositories/api_purchase_orders_repository.dart';
+import '../../data/repositories/api_quotes_repository.dart';
+import '../../data/services/bootstrap_service.dart';
+
 /// The repository providers, mirroring providers.dart + shift_providers.dart,
-/// plus AuthRepository and ApiClient.
+/// plus AuthRepository, ApiClient, and ApiRepositories (Ticket #55 / ADR-0010).
 /// Wired via `MultiRepositoryProvider` in main.dart.
 List<RepositoryProvider> repositoryProviders(
   AppDatabase db, {
   AuthRepository? authRepository,
   ApiClient? apiClient,
+  bool useApiRepositories = true,
 }) {
   final storage = SharedPrefsTokenStorage();
   final client = apiClient ?? ApiClient(tokenStorage: storage);
@@ -39,16 +47,31 @@ List<RepositoryProvider> repositoryProviders(
         tokenStorage: storage,
       );
 
+  final productsRepo = useApiRepositories
+      ? ApiProductsRepository(db, client)
+      : ProductsRepository(db);
+  final customersRepo = useApiRepositories
+      ? ApiCustomersRepository(db, client)
+      : CustomersRepository(db);
+  final mechanicsRepo = useApiRepositories
+      ? ApiMechanicsRepository(db, client)
+      : MechanicsRepository(db);
+  final poRepo = useApiRepositories
+      ? ApiPurchaseOrdersRepository(db, client)
+      : PurchaseOrdersRepository(db);
+  final quotesRepo = useApiRepositories
+      ? ApiQuotesRepository(db, client)
+      : QuotesRepository(db);
+  final bootstrapService = BootstrapService(db: db, apiClient: client);
+
   return [
-    RepositoryProvider<ProductsRepository>.value(value: ProductsRepository(db)),
-    RepositoryProvider<CustomersRepository>.value(value: CustomersRepository(db)),
-    RepositoryProvider<MechanicsRepository>.value(value: MechanicsRepository(db)),
+    RepositoryProvider<ProductsRepository>.value(value: productsRepo),
+    RepositoryProvider<CustomersRepository>.value(value: customersRepo),
+    RepositoryProvider<MechanicsRepository>.value(value: mechanicsRepo),
     RepositoryProvider<SalesRepository>.value(value: SalesRepository(db)),
     RepositoryProvider<ReturnsRepository>.value(value: ReturnsRepository(db)),
-    RepositoryProvider<PurchaseOrdersRepository>.value(
-      value: PurchaseOrdersRepository(db),
-    ),
-    RepositoryProvider<QuotesRepository>.value(value: QuotesRepository(db)),
+    RepositoryProvider<PurchaseOrdersRepository>.value(value: poRepo),
+    RepositoryProvider<QuotesRepository>.value(value: quotesRepo),
     RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
     RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
     RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
@@ -57,5 +80,6 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<ShiftsRepository>.value(value: ShiftsRepository(db)),
     RepositoryProvider<AuthRepository>.value(value: authRepo),
     RepositoryProvider<ApiClient>.value(value: client),
+    RepositoryProvider<BootstrapService>.value(value: bootstrapService),
   ];
 }

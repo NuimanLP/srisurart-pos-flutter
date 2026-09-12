@@ -125,7 +125,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 3);
+    expect(version, 4);
   });
 
   test('every drawer entry stays attached to the shift it had', () async {
@@ -188,6 +188,7 @@ void main() {
       db.products,
     )..where((t) => t.id.equals('p1'))).getSingle();
     expect(product.offlineOk, isFalse); // unknown ⇒ not sellable offline
+    expect(product.deletedAt, isNull); // schema v4: soft delete column is null on migrated rows
     expect(product.stock, 7);
     expect(product.nameTH, 'ผ้าเบรกหน้า');
   });

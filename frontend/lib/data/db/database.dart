@@ -64,7 +64,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -110,6 +110,11 @@ class AppDatabase extends _$AppDatabase {
             },
           ),
         );
+      }
+      // v3 → v4 (Ticket #55): Products.deletedAt for soft delete sync
+      // (ADR-0010 decision 2: cursor ?updatedSince= sees deletions).
+      if (from < 4) {
+        await m.addColumn(products, products.deletedAt);
       }
     },
   );
