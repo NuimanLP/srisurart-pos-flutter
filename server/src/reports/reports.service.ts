@@ -137,7 +137,49 @@ item_events AS (
   SELECT product_id, part_no, name, qty, revenue FROM sale_events
   UNION ALL
   SELECT product_id, part_no, name, qty, revenue FROM return_events
-)`;
+)
+`;
+
+const PRODUCT_ITEM_EVENTS = `
+sale_events AS (
+  SELECT si.product_id, si.part_no, si.name, si.qty,
+         (si.qty * si.price)::numeric AS revenue
+    FROM bounds b
+    JOIN sales s
+      ON s.tenant_id = $1::uuid
+     AND s.date >= b.from_at AND s.date < b.to_at
+    JOIN sale_items si
+      ON si.tenant_id = $1::uuid
+     AND si.product_id = $4
+     AND si.tenant_id = s.tenant_id AND si.sale_id = s.id
+),
+return_events AS (
+  SELECT ri.product_id, sl.part_no, COALESCE(sl.name, ri.name) AS name,
+         -ri.qty AS qty, -(ri.qty * ri.price)::numeric AS revenue
+    FROM bounds b
+    JOIN returns r
+      ON r.tenant_id = $1::uuid
+     AND r.date >= b.from_at AND r.date < b.to_at
+    JOIN return_items ri
+      ON ri.tenant_id = $1::uuid
+     AND ri.product_id = $4
+     AND ri.tenant_id = r.tenant_id AND ri.return_id = r.id
+    LEFT JOIN LATERAL (
+      SELECT si.part_no, si.name
+        FROM sale_items si
+       WHERE si.tenant_id = $1::uuid
+         AND si.tenant_id = r.tenant_id AND si.sale_id = r.sale_id
+         AND si.product_id = ri.product_id AND si.price = ri.price
+       ORDER BY si.line_no
+       LIMIT 1
+    ) sl ON TRUE
+),
+item_events AS (
+  SELECT product_id, part_no, name, qty, revenue FROM sale_events
+  UNION ALL
+  SELECT product_id, part_no, name, qty, revenue FROM return_events
+)
+`;
 
 @Injectable()
 export class ReportsService {
@@ -307,7 +349,7 @@ export class ReportsService {
   ): Promise<ProductSales> {
     const { tenantId, manager } = currentRequestContext();
     const rows = (await manager.query(
-      `WITH ${BOUNDS}, ${ITEM_EVENTS}
+      `WITH ${BOUNDS}, ${PRODUCT_ITEM_EVENTS}
        SELECT $4::text AS product_id,
               COALESCE(max(e.part_no), max(p.part_no), $4::text) AS part_no,
               COALESCE(max(e.name), max(p.name), $4::text) AS name,
