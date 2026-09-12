@@ -20,6 +20,7 @@
 import 'package:drift/drift.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
 import '../shifts_repository.dart';
@@ -45,6 +46,16 @@ class ApiShiftsRepository implements ShiftsRepository {
   /// own (see file header) and for nothing else.
   final ShiftsRepository drift;
 
+  /// The `Idempotency-Key` of a drawer write that never got a verdict.
+  ///
+  /// 🔴 `addDrawerEntry` is the one that costs money: none of these endpoints
+  /// takes a client-generated id, so on a lost reply a second press writes a
+  /// SECOND `drawer_entries` row and the closing count is out by that amount,
+  /// with nothing on either side to notice. `open`/`close` are parked under the
+  /// same rule for the same reason — a verdict closes the attempt, a 5xx does
+  /// not.
+  final PendingWrites _pending = PendingWrites('sh');
+
   // ── Reads — #55's slice, delegated unchanged. ──────────────────────────
 
   @override
@@ -62,14 +73,15 @@ class ApiShiftsRepository implements ShiftsRepository {
   @override
   Future<ShiftRow> openShift(double startingCash) {
     return rethrowThai(() async {
-      final response =
-          await api.post(
-                '/api/v1/shifts/open',
-                body: {'startingCash': wireMoney(startingCash)},
-                headers: idempotencyKey(),
-              )
-              as Map<String, dynamic>;
-      return _patchShiftWithEntries(response);
+      final attempt = _pending.of('open|${wireMoney(startingCash)}');
+      final response = await _send(
+        attempt,
+        '/api/v1/shifts/open',
+        {'startingCash': wireMoney(startingCash)},
+      );
+      final row = await _patchShiftWithEntries(response);
+      _pending.close(attempt);
+      return row;
     });
   }
 
@@ -80,14 +92,15 @@ class ApiShiftsRepository implements ShiftsRepository {
   @override
   Future<ShiftRow?> closeShift(double physicalCash) {
     return rethrowThai(() async {
-      final response =
-          await api.post(
-                '/api/v1/shifts/close',
-                body: {'physicalCash': wireMoney(physicalCash)},
-                headers: idempotencyKey(),
-              )
-              as Map<String, dynamic>;
-      return _patchShiftWithEntries(response);
+      final attempt = _pending.of('close|${wireMoney(physicalCash)}');
+      final response = await _send(
+        attempt,
+        '/api/v1/shifts/close',
+        {'physicalCash': wireMoney(physicalCash)},
+      );
+      final row = await _patchShiftWithEntries(response);
+      _pending.close(attempt);
+      return row;
     });
   }
 
@@ -100,17 +113,14 @@ class ApiShiftsRepository implements ShiftsRepository {
     String? note,
   ) {
     return rethrowThai(() async {
-      final response =
-          await api.post(
-                '/api/v1/shifts/current/entries',
-                body: {
-                  'type': type,
-                  'amount': wireMoney(amount),
-                  'note': note,
-                },
-                headers: idempotencyKey(),
-              )
-              as Map<String, dynamic>;
+      final attempt = _pending.of(
+        'entry|$type|${wireMoney(amount)}|${note ?? ''}',
+      );
+      final response = await _send(attempt, '/api/v1/shifts/current/entries', {
+        'type': type,
+        'amount': wireMoney(amount),
+        'note': note,
+      });
 
       final row = DrawerEntryRow(
         id: response['id'] as String,
@@ -164,8 +174,25 @@ class ApiShiftsRepository implements ShiftsRepository {
       if (parentShift != null) {
         await db.into(db.drawerEntries).insertOnConflictUpdate(row);
       }
+      _pending.close(attempt);
       return row;
     });
+  }
+
+  /// `POST`s [body] under [attempt]'s `Idempotency-Key`, keeping the attempt
+  /// parked unless the server gives a verdict ([isVerdict]).
+  Future<Map<String, dynamic>> _send(
+    PendingWrite attempt,
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    try {
+      return await api.post(path, body: body, headers: attempt.headers)
+          as Map<String, dynamic>;
+    } on ApiException catch (e) {
+      _pending.closeIfVerdict(attempt, e);
+      rethrow;
+    }
   }
 
   // ── Patch helpers ───────────────────────────────────────────────────────

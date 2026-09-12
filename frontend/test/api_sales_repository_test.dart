@@ -651,6 +651,102 @@ void main() {
       );
     });
 
+    test('a 504 from the proxy is NOT a verdict — the retry replays the bill', () async {
+      // The likeliest real shape of a lost reply. `ApiClient` sets no timeout,
+      // so what actually fires first is nginx's own `proxy_read_timeout`, and
+      // that arrives as an ordinary `ApiException` — not the `SocketException`
+      // the test above uses. Treating every `ApiException` as a verdict is how
+      // a committed bill gets rung up a second time.
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        if (attempt == 1) {
+          return http.Response('<html>504 Gateway Time-out</html>', 504);
+        }
+        return http.Response(
+          _ok(created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(() => repo.saveSale(input()), throwsA(isA<Exception>()));
+      await repo.saveSale(input());
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+      expect(posts, hasLength(2));
+      expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(1));
+      expect(
+        posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+        hasLength(1),
+        reason: 'a 5xx leaves the fate of the bill unknown; reuse the id',
+      );
+      expect(await db.select(db.sales).get(), hasLength(1));
+    });
+
+    test('503 IDEMPOTENCY_KEY_IN_FLIGHT keeps the attempt parked', () async {
+      // The one reply that says in so many words "the original is still
+      // running; retrying later is right, executing now is not"
+      // (`idempotency.service.ts`). Closing the attempt on it is the worst
+      // possible reading of the clearest possible message.
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        if (attempt == 1) {
+          return http.Response(
+            _err('IDEMPOTENCY_KEY_IN_FLIGHT', 'the original request is running'),
+            503,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          _ok(created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(() => repo.saveSale(input()), throwsA(isA<Exception>()));
+      await repo.saveSale(input());
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+      expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(1));
+      expect(
+        posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+        hasLength(1),
+      );
+    });
+
+    test('a patch that throws leaves the attempt parked', () async {
+      // The server committed and answered; only the local write-through failed
+      // — here because the reply is missing `receiptNo`, the shape a version
+      // skew produces. The counter still reads ขายไม่สำเร็จ and still presses
+      // again, so the attempt is exactly as unresolved as a lost socket.
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        return http.Response(
+          _ok(attempt == 1 ? (created()..remove('receiptNo')) : created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(() => repo.saveSale(input()), throwsA(anything));
+      final sale = await repo.saveSale(input());
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+      expect(posts, hasLength(2));
+      expect(
+        posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+        hasLength(1),
+        reason: 'a second id here is a second bill for goods that left once',
+      );
+      expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(1));
+      expect(sale.receiptNo, 'RC-00042');
+      expect(await db.select(db.sales).get(), hasLength(1));
+    });
+
     test('a different cart never replays a parked attempt', () async {
       var attempt = 0;
       final repo = repoWith((req) async {

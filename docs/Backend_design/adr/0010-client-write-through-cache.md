@@ -67,8 +67,8 @@ strict ในทรานแซกชันของตัวเอง ถ้า
 
   | write | server คืน | `ApiRepository` patch ลง Drift |
   |---|---|---|
-  | `POST /sales` | บิล + `products[] {id, stock}` + `mechanicCreditBalanceAfter` + **`customerAfter {points,totalSpend}`** (เพิ่ม) | `sales`, `saleItems`, `products.stock`, `customers`, `mechanics` |
-  | `POST /returns` | ใบลดหนี้ + `products[] {id, stock}` + `customerAfter` + `mechanicCreditBalanceAfter` + `saleVoided` | `returns`, `returnItems`, `products.stock`, `customers`, `mechanics`, `sales.voided` |
+  | `POST /sales` | บิล + `products[] {id, stock}` + `customerAfter {points,totalSpend}` + `mechanicCreditBalanceAfter` + **`shiftId` + `items[] {lineNo,productId,costAtSale}` + `movements[]` + `mechanicAfter{}`** (#82) | `sales` (รวม `shiftId`), `saleItems` (รวม `costAtSale`), `products.stock`, `customers`, `mechanics` (ทั้งสี่ยอด), `movements` |
+  | `POST /returns` | ใบลดหนี้ + `products[] {id, stock}` + `customerAfter` + `mechanicCreditBalanceAfter` + `saleVoided` + **`movements[]` + `mechanicAfter{}`** (#82) | `returns`, `returnItems`, `products.stock`, `customers`, `mechanics` (ทั้งสี่ยอด), `sales.voided`, `movements` |
   | `POST /purchase-orders/:id/receive` | PO + `products[] {stock, cost}` | `purchaseOrders`, `products.stock/cost`, `movements` |
   | `POST /shifts/*` | shift row | `shifts`, `drawerEntries` |
   | ที่เหลือ (CRUD) | แถวที่แก้ | แถวนั้น |
@@ -80,7 +80,8 @@ strict ในทรานแซกชันของตัวเอง ถ้า
 
 ตารางฉบับแรกเขียนชื่อ field จากที่ตั้งใจไว้ ไม่ใช่จากที่ server ส่งจริง `#56` ไปต่อโค้ดแล้วเจอว่า
 **ผิดสามจุด** จึงแก้ไว้ข้างบนแล้ว: `POST /returns` ส่ง `saleVoided` (ไม่ใช่ `parentSaleVoided`) และ
-`mechanicCreditBalanceAfter` (ไม่ใช่ `mechanicAfter`) — `server/src/returns/returns.service.ts`;
+~~`mechanicCreditBalanceAfter` (ไม่ใช่ `mechanicAfter`)~~ — **ข้อนี้หมดอายุแล้วใน PR เดียวกัน: #82
+เพิ่ม `mechanicAfter` เข้าทั้งสอง response และเก็บ `mechanicCreditBalanceAfter` ไว้ด้วย (ดูข้อ 6)** — `server/src/returns/returns.service.ts`;
 `products[]` มีแค่ `{id, stock}` **ไม่มี `offlineOk`** ซึ่ง `sales.service.ts:217` ตั้งใจไม่ส่ง
 เพราะเฟส 1 ยังไม่มีที่เก็บ
 

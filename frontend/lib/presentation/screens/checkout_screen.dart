@@ -32,6 +32,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
@@ -566,25 +567,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
       final newBal = m.creditBalance + total;
       if (newBal > m.creditLimit) {
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            content: Text(
-              'เกินวงเงินเครดิต! ยอดค้างใหม่ ${baht(newBal)} > วงเงิน ${baht(m.creditLimit)}\n\nยืนยันขายเครดิต?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('ยกเลิก'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('ยืนยัน'),
-              ),
-            ],
-          ),
-        );
-        if (ok != true) return;
+        if (!await _confirmOverLimit(newBal, m.creditLimit)) return;
         overrideCreditLimit = true;
       }
     }
@@ -592,31 +575,59 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() => _submitting = true);
     try {
       final mechanicDelta = round2(_cart.mechanicDelta);
-      final sale = await salesRepo.saveSale(
-        SaleInput(
-          subtotal: subtotal,
-          discount: _discount,
-          total: total,
-          paymentMethod: _payMethod,
-          customerId: _selectedCustomer?.id,
-          customerName: _selectedCustomer?.nameTH,
-          mechanicId: _selectedMechanic?.id,
-          mechanicName: _selectedMechanic?.nameTH,
-          mechanicDelta: _selectedMechanic != null ? mechanicDelta : null,
-          overrideCreditLimit: overrideCreditLimit,
-          items: [
-            for (final it in cart)
-              SaleLineInput(
-                productId: it.productId,
-                name: it.name,
-                qty: it.qty,
-                price: it.price,
-                partNo: it.partNo,
-                nameTH: it.nameTH,
-              ),
-          ],
-        ),
+      SaleInput buildInput(bool override) => SaleInput(
+        subtotal: subtotal,
+        discount: _discount,
+        total: total,
+        paymentMethod: _payMethod,
+        customerId: _selectedCustomer?.id,
+        customerName: _selectedCustomer?.nameTH,
+        mechanicId: _selectedMechanic?.id,
+        mechanicName: _selectedMechanic?.nameTH,
+        mechanicDelta: _selectedMechanic != null ? mechanicDelta : null,
+        overrideCreditLimit: override,
+        items: [
+          for (final it in cart)
+            SaleLineInput(
+              productId: it.productId,
+              name: it.name,
+              qty: it.qty,
+              price: it.price,
+              partNo: it.partNo,
+              nameTH: it.nameTH,
+            ),
+        ],
       );
+
+      // Returns null when the counter answers the server's over-limit dialog
+      // with 'ยกเลิก' — the one path here that is a decision, not a failure.
+      Future<SaleRow?> submit() async {
+        try {
+          return await salesRepo.saveSale(buildInput(overrideCreditLimit));
+        } on PosException catch (e) {
+          // The dialog above tests the `MechanicRow` THIS screen captured
+          // when its list loaded; the server tests the row as it is now, and
+          // in a multi-device shop those differ. Another counter puts the
+          // mechanic at 9,900 of a 10,000 limit, this screen still believes 0,
+          // so no dialog is shown and the bill goes out with
+          // `overrideCreditLimit: false`. The server is right to refuse it —
+          // but without this branch the refusal is a dead end that repeats on
+          // every press, and selling over a regular mechanic's limit is a daily
+          // operation here (`02_API_SCREENS.md` 8.2). So ask the same question
+          // again with the SERVER's numbers and resend only on a yes. Consent
+          // is still given by a human, never inferred.
+          if (e.code != 'CREDIT_LIMIT_EXCEEDED') rethrow;
+          final d = e.details;
+          final serverNewBal = _detailMoney(d is Map ? d['newBalance'] : null);
+          final serverLimit = _detailMoney(d is Map ? d['creditLimit'] : null);
+          if (serverNewBal == null || serverLimit == null) rethrow;
+          if (!await _confirmOverLimit(serverNewBal, serverLimit)) return null;
+          return await salesRepo.saveSale(buildInput(true));
+        }
+      }
+
+      final sale = await submit();
+      if (sale == null) return;
 
       // Build receipt context from the just-completed sale (cart + cash/change).
       final receiptLines = [
@@ -669,6 +680,40 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  /// 'ยืนยันขายเครดิต?' — the one dialog that authorises a bill over a
+  /// mechanic's credit limit. Asked either from this screen's cached row before
+  /// sending, or from the server's own numbers after it answers 409.
+  Future<bool> _confirmOverLimit(double newBal, double creditLimit) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        content: Text(
+          'เกินวงเงินเครดิต! ยอดค้างใหม่ ${baht(newBal)} > วงเงิน ${baht(creditLimit)}\n\nยืนยันขายเครดิต?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ยืนยัน'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  /// One money field out of a server `error.details`. The wire form is the
+  /// two-decimal string of `02_API_SCREENS.md` 1.1; a handler that sent a JSON
+  /// number is accepted too. Anything else is not a number this dialog may show.
+  double? _detailMoney(Object? wire) {
+    if (wire is num) return wire.toDouble();
+    if (wire is String) return double.tryParse(wire);
+    return null;
   }
 
   String _msg(Object e) {

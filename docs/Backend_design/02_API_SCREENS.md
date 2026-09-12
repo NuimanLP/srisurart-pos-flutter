@@ -199,7 +199,7 @@ sequenceDiagram
             "mechanicAfter": { "id": "m2", "totalSales": "182000.00", "totalDiscount": "3100.00",   // ⭐ #82 — ครบทั้งสี่ยอดสะสม
                                "totalMarkup": "0.00", "creditBalance": "5400.00" },                 // 🔴 ไม่มี total_credit (ข้อตัดสิน #11)
             "customerAfter": { "id": "c3", "points": 1340, "totalSpend": "58200.00" },   // ⭐ เพิ่ม (ADR-0010 ข้อ 3) — ไม่งั้น Drift ฝั่ง client ค้างค่าเก่าจนกว่า /bootstrap รอบถัดไป
-            "products": [ { "id": "p12", "stock": 8, "offlineOk": true } ],
+            "products": [ { "id": "p12", "stock": 8 } ],   // ไม่มี offlineOk — เฟส 1 ยังไม่มีที่เก็บ (`sales.service.ts`), ADR-0010 ข้อ 4
             "items": [ { "lineNo": 1, "productId": "p12", "costAtSale": "480.00" } ],    // ⭐ #82 — ต้นทุน ณ วันที่ขาย (ADR-0008) กู้คืนทีหลังไม่ได้
             "movements": [ { "id": "mv…", "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",   // ⭐ #82 — แถว ledger ที่บิลนี้เขียน
                              "delta": -2, "type": "sale", "note": null, "stockAfter": 8,

@@ -6,6 +6,7 @@
 // passing it quietly.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNotNull, isNull;
 import 'package:drift/native.dart';
@@ -472,6 +473,94 @@ void main() {
     // lands, this expectation becomes the canonical string and the test is the
     // thing that notices.
     expect(msg, "Refund method 'หักจากเครดิต' needs a bill with a mechanic.");
+  });
+
+  group('a lost reply must not become a second credit note', () {
+    test('a dropped connection then a second press replays the SAME key', () async {
+      // 🔴 `POST /returns` takes no client-generated id, so the
+      // `Idempotency-Key` is the ONLY thing between a lost reply and a second
+      // refund — and `assertRefundable` will not catch it: it allows anything
+      // up to `sold - refunded`, so returning 1 of 5 twice is two legal credit
+      // notes and twice the money out of the drawer.
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        if (attempt == 1) throw const SocketException('connection closed');
+        return http.Response(
+          _ok(creditNote()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(
+        () => repo.createReturn(oneBack),
+        throwsA(isA<SocketException>()),
+      );
+      final cn = await repo.createReturn(oneBack);
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/returns').toList();
+      expect(posts, hasLength(2));
+      expect(
+        posts.map((r) => r.headers['Idempotency-Key']).toSet(),
+        hasLength(1),
+        reason: 'a fresh key here refunds the same goods twice',
+      );
+      expect(cn.id, 'r-server');
+      expect(await db.select(db.returns).get(), hasLength(1));
+    });
+
+    test('a 502 is not a verdict either', () async {
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        if (attempt == 1) {
+          return http.Response('<html>502 Bad Gateway</html>', 502);
+        }
+        return http.Response(
+          _ok(creditNote()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(
+        () => repo.createReturn(oneBack),
+        throwsA(isA<Exception>()),
+      );
+      await repo.createReturn(oneBack);
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/returns').toList();
+      expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(1));
+    });
+
+    test('but a 409 IS a verdict — the next refund is a new one', () async {
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        if (attempt == 1) {
+          return http.Response(
+            _err('OVER_REFUND', 'คืนเกินจำนวนที่ขาย'),
+            409,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          _ok(creditNote()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(
+        () => repo.createReturn(oneBack),
+        throwsA(isA<Exception>()),
+      );
+      await repo.createReturn(oneBack);
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/returns').toList();
+      expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(2));
+    });
   });
 
   test('reads still come from Drift', () async {

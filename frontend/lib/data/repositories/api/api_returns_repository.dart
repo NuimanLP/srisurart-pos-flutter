@@ -29,6 +29,7 @@
 import 'package:drift/drift.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
 import '../returns_repository.dart';
@@ -50,6 +51,16 @@ class ApiReturnsRepository implements ReturnsRepository {
 
   /// Reads stay on Drift until the read slice (#55) replaces them.
   final ReturnsRepository drift;
+
+  /// The `Idempotency-Key` of a credit note that never got a verdict, keyed by
+  /// the refund it was for.
+  ///
+  /// 🔴 `POST /returns` does NOT take a client-generated id — `returns.service.ts`
+  /// mints it — so the header is the ONLY thing standing between a lost reply and
+  /// a second credit note, and the over-refund guard does not catch it: it
+  /// enforces `requested ≤ sold − refunded`, so returning 3 of 10 twice is two
+  /// legal credit notes and ฿600 refunded for ฿300 of goods.
+  final PendingWrites _pending = PendingWrites('r');
 
   @override
   Future<ReturnRow> createReturn(ReturnInput input) {
@@ -73,21 +84,42 @@ class ApiReturnsRepository implements ReturnsRepository {
         ],
       };
 
-      // One key for this attempt, reused by `ApiClient`'s 401 → refresh → retry.
-      // A credit note is money leaving the drawer; a second one is a second
-      // refund for goods that came back once.
-      final res =
-          ((await api.post(
-                    '/api/v1/returns',
-                    body: body,
-                    headers: idempotencyKey(),
-                  ))
-                  as Map)
-              .cast<String, dynamic>();
+      // One key for this attempt, reused by `ApiClient`'s 401 → refresh → retry
+      // AND by the counter's own second press. A credit note is money leaving
+      // the drawer; a second one is a second refund for goods that came back
+      // once.
+      final attempt = _pending.of(_refundKey(input));
 
-      return _patchFromResponse(res);
+      final Map<String, dynamic> res;
+      try {
+        res =
+            ((await api.post(
+                      '/api/v1/returns',
+                      body: body,
+                      headers: attempt.headers,
+                    ))
+                    as Map)
+                .cast<String, dynamic>();
+      } on ApiException catch (e) {
+        _pending.closeIfVerdict(attempt, e);
+        rethrow;
+      }
+
+      final row = await _patchFromResponse(res);
+      // Closed only after the cache agrees — same rule as the sale path.
+      _pending.close(attempt);
+      return row;
     });
   }
+
+  /// Identifies "the same refund, sent again": the bill, how it is refunded, and
+  /// every line. See [_pending].
+  String _refundKey(ReturnInput input) => [
+    input.saleId,
+    input.refundMethod,
+    input.reason ?? '',
+    for (final i in input.items) '${i.productId}x${i.qty}@${wireMoney(i.price)}',
+  ].join('|');
 
   /// Copies the server's credit note into the cache. One Drift transaction so a
   /// half-patched cache is impossible; the network call is already done.

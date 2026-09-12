@@ -378,6 +378,86 @@ void main() {
         expect(await db.select(db.drawerEntries).get(), isEmpty);
       },
     );
+
+    test('a lost reply must not become a second drawer entry', () async {
+      // 🔴 Nothing else catches this. The endpoint mints its own id, the server
+      // has no notion of "the same entry twice", and a duplicated row is money:
+      // the closing count comes out over by the amount, and the drawer is
+      // reconciled against a figure nobody typed.
+      await db
+          .into(db.shifts)
+          .insert(
+            ShiftsCompanion.insert(
+              id: 'srv-shift-9f3a',
+              dateStr: '2019-03-04',
+              startingCash: 1500,
+              openedAt: DateTime.parse('2019-03-04T02:00:00.000Z'),
+              isActive: const Value(true),
+            ),
+          );
+
+      final keys = <String?>[];
+      var attempt = 0;
+      final repo = buildRepo((req) async {
+        keys.add(req.headers['Idempotency-Key']);
+        attempt++;
+        if (attempt == 1) {
+          // nginx timed out on the way back; the row is already written.
+          return http.Response('<html>504 Gateway Time-out</html>', 504);
+        }
+        return _successResponse({
+          'id': 'srv-de-77',
+          'shiftId': 'srv-shift-9f3a',
+          'type': 'in',
+          'amount': '300.00',
+          'note': 'ทอนเงิน',
+          'createdAt': '2019-03-04T05:30:00.000Z',
+        }, 201);
+      });
+
+      await expectLater(
+        () => repo.addDrawerEntry('in', 300, 'ทอนเงิน'),
+        throwsA(isA<Exception>()),
+      );
+      final entry = await repo.addDrawerEntry('in', 300, 'ทอนเงิน');
+
+      expect(keys, hasLength(2));
+      expect(keys.toSet(), hasLength(1), reason: 'the retry must replay the key');
+      expect(entry.id, 'srv-de-77');
+      expect(await db.select(db.drawerEntries).get(), hasLength(1));
+    });
+
+    test('a verdict closes the attempt — the next entry is a new one', () async {
+      final keys = <String?>[];
+      var attempt = 0;
+      final repo = buildRepo((req) async {
+        keys.add(req.headers['Idempotency-Key']);
+        attempt++;
+        if (attempt == 1) {
+          return _errorResponse(
+            409,
+            'SHIFT_ALREADY_CLOSED',
+            'ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้',
+          );
+        }
+        return _successResponse({
+          'id': 'srv-de-78',
+          'shiftId': 'srv-shift-9f3a',
+          'type': 'in',
+          'amount': '300.00',
+          'note': 'ทอนเงิน',
+          'createdAt': '2019-03-04T05:30:00.000Z',
+        }, 201);
+      });
+
+      await expectLater(
+        () => repo.addDrawerEntry('in', 300, 'ทอนเงิน'),
+        throwsA(isA<Exception>()),
+      );
+      await repo.addDrawerEntry('in', 300, 'ทอนเงิน');
+
+      expect(keys.toSet(), hasLength(2));
+    });
   });
 
   group('reads delegate to Drift unchanged', () {

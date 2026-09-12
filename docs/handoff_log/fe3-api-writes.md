@@ -10,17 +10,22 @@ off, because phase 1 plans no cutover.
 
 | | |
 |---|---|
-| Branch | `feat/fe3-api-writes` — three commits, opened as a PR |
+| Branch | `feat/fe3-api-writes` — five commits, opened as a PR |
 | Closes | **#82** (the write responses) · **#56** except its AC1, see below |
 | Opened along the way | **#83** — `ServerErrorResolver`'s Thai test is too weak, three idempotency codes unmapped |
-| Gate | frontend **199 tests**, `dart analyze` clean · server lint + typecheck clean, **97 unit**, **164 e2e** against the real Postgres |
+| Gate | frontend **233 tests**, `dart analyze` clean · server lint + typecheck clean, **97 unit**, **164 e2e** against the real Postgres |
 | Not proven | #56 AC2's *"verified against the server"* — every client AC's evidence is a `MockClient`; `useApi` defaults to false, so no path here runs end to end yet |
 
 ⚠️ **#56 AC1 (*"git diff touches no file under `lib/presentation/screens/`"*) is broken
 deliberately**, on the project owner's instruction. It and the server's
 `overrideCreditLimit` contract could not both hold — see *The credit-limit override
-inferred consent* below. Three screen files changed; the reasons are recorded per
-file and on the issue.
+inferred consent* below. **Five** screen files changed, not three:
+
+| File | Change | Why |
+|---|---|---|
+| `checkout_screen.dart` | carries `overrideCreditLimit`, and answers the server's `409` with the same dialog | the AC1 deviation the owner approved, plus the review fix below |
+| `cash_drawer_screen.dart` | `catch` on open/close | these became network calls; without it the counter sees nothing at all |
+| `cash_drawer_screen.dart`, `customers_screen.dart`, `quotes_screen.dart`, `returns_screen.dart` | four `setState` arrow → block fixes | pre-existing assertion bugs, unrelated to either issue — correct fixes that landed in the wrong PR. Recorded rather than reverted. |
 
 ---
 
@@ -184,3 +189,90 @@ a design call, not a freebie. Note a void writes `movements.type = 'void'`
   The checkout one sits in the **failed-sale `catch`**, so every refused bill hit
   it in any debug build — which is how the new widget test found it. All six are
   now block bodies.
+
+---
+
+## The three things the second review round found (2026-09-12)
+
+Three parallel agents (Standards / Spec / Scrutinize) against the merge of
+`origin/main`. All three of the money findings are the **same mistake**: treating
+an answer the server did not give as if it had given it.
+
+### 1. Every `ApiException` was read as a verdict — including 5xx, 429 and 503
+
+`saveSale` dropped the parked attempt on **any** `ApiException`, and
+`ApiClient._handleResponse` raises one for every non-2xx. So an nginx `504` — the
+likeliest real shape of a lost reply, since `ApiClient` sets no timeout — closed
+the attempt, and the counter's next press minted a fresh id and key. Sharpest
+case: `503 IDEMPOTENCY_KEY_IN_FLIGHT`, the one reply that says in so many words
+*the original is still running*, also closed it.
+
+Now `api_wire.dart`'s `isVerdict(e)` = `statusCode < 500 && statusCode != 429`,
+and only a verdict closes an attempt. Pinned by *a 504 from the proxy is NOT a
+verdict* and *503 IDEMPOTENCY_KEY_IN_FLIGHT keeps the attempt parked*.
+
+### 2. `createReturn` and `addDrawerEntry` had no retry protection at all
+
+Both minted an `Idempotency-Key` inline on every call, so a human retry always
+carried a fresh one. `POST /returns` takes **no** client-generated id, so the
+header is the only defence — and `assertRefundable` does not catch a duplicate:
+it allows anything up to `sold − refunded`, so returning 3 of 10 twice is two
+legal credit notes and ฿600 refunded for ฿300 of goods. `addDrawerEntry` is the
+same shape: a second row, and the closing count out by that amount.
+
+The parked-attempt logic is now `PendingWrites` in `api_wire.dart` and all three
+repositories use it. 🔴 **The lesson is the one this PR already learned once
+and applied to one path out of three: a defence written for the sale path is not
+a defence of the money path.**
+
+### 3. A `409 CREDIT_LIMIT_EXCEEDED` the local cache could not predict was a dead end
+
+Removing the inferred-consent version was right; nothing replaced it. The
+pre-emptive dialog tests the `MechanicRow` **this screen captured when its list
+loaded**, so in the multi-device shop phase 1 exists for — another till puts the
+mechanic at ฿9,900 of a ฿10,000 limit — no dialog is shown, the bill goes out with
+the flag false, the server refuses it, and pressing again reproduces the refusal
+forever with no path to the override. Selling over a regular mechanic's limit is
+a daily operation here (`02_API_SCREENS.md` §8.2).
+
+`checkout_screen` now catches it and asks the same question again with the
+**server's** `details {creditLimit, creditBalance, newBalance}`, resending only on
+a yes. Consent is still given by a human, never inferred. This needed
+`PosException` (`core/network/api_exception.dart`): `rethrowThai` used to erase
+the error code into a plain `Exception`, so no caller could tell this refusal
+from any other. `toString()` is still the bare Thai sentence, so all three
+screens render it exactly as before.
+
+### Also fixed
+
+* The attempt was closed **before** `_patchFromResponse` ran, so a patch that
+  threw (a version-skew response shape, a Drift error) left the counter with
+  `ขายไม่สำเร็จ` for a bill the server had committed — and the retry opened a
+  second one. Closed after the patch now.
+* A parked attempt never expired, and the fingerprint is a *value*: two walk-ins
+  hours apart buying one ฿250 oil filter for cash produce the same key, so the
+  second could replay the first one's bill. `PendingWrites` expires after ten
+  minutes.
+* Docs: `CONTRACT.md` §4 (two switches, 16 providers, `BootstrapService`) and §6
+  (`SaleInput.overrideCreditLimit`); `02_API_SCREENS.md` §3.1 (`offlineOk` was
+  still in the example against three other documents and the code); ADR-0010 §3
+  (the table lost `movements` and never gained #82's four fields, and addendum 4
+  still said `ไม่ใช่ mechanicAfter` after #82 added it).
+* The `setState` rule in `CLAUDE.md` / `AGENTS.md` was broader than its bug — it
+  fires only when the assigned value is a `Future`, and 99 arrow-form sites
+  remain on purpose.
+
+### Still open, deliberately
+
+* **#55 owns the API read repositories that `extend` their Drift counterparts**
+  (`lib/data/repositories/api_*.dart`, one level up from this slice's folder).
+  `api_purchase_orders_repository.dart` swallows a failure with `catch (_)` and
+  then runs the Drift `receivePO` locally — an ADR-0010 §3 violation this slice's
+  contract test cannot see, because its glob is `lib/data/repositories/api/`.
+  Widening the glob belongs with fixing those files, which is #55's, not this
+  PR's.
+* `addDrawerEntry`'s FK guard drops an entry whose parent shift is not cached.
+  SQLite has `foreign_keys` **off** by default and nothing in this app turns it
+  on, so the insert it avoids would have succeeded. Left as is — the entry is
+  safe on the server and comes back with #55's sync — but it defends against
+  something that cannot happen, at the cost of something that can.

@@ -417,13 +417,27 @@ Rules the slice establishes, all enforced or pinned:
   sets no timeout, so the ordinary failure is a dropped reply for a bill the server committed; a
   fresh id and key on the counter's second press defeat **both** server defences at once
   (`existingSale` keys on the client's bill id, `idempotency_keys` on the header) and ring the sale
-  up twice. A `SocketException` parks the attempt, an `ApiException` is a verdict and closes it.
+  up twice. The parked attempt lives in `api_wire.dart`'s **`PendingWrites`**, and all three money
+  paths use it — `createReturn` and `addDrawerEntry` did not at first, which is a second refund and
+  a wrong closing count respectively; `POST /returns` takes no client id at all, so the header is
+  its only defence, and the over-refund guard allows `sold − refunded` and so cannot see a duplicate.
+- 🔴 **Only a 4xx is a verdict** (`isVerdict`). A 5xx — nginx's own 502/504 included — and a 429
+  leave the write's fate unknown, and `503 IDEMPOTENCY_KEY_IN_FLIGHT` says outright that the
+  original is still running. Reading every `ApiException` as an answer is how a committed bill gets
+  rung up a second time. An attempt is also closed only **after** the local patch succeeds: a patch
+  that throws is as unresolved as a lost socket, and it expires after ten minutes because the
+  fingerprint is a value, not an identity.
 - 🔴 **Consent is carried, never inferred.** `SaleInput.overrideCreditLimit` exists because the
-  first implementation replayed `checkout_screen.dart:561`'s own credit-limit test against the
-  cached mechanic row on a 409 and treated a trip as proof the counter had confirmed. It is not the
-  same read — the screen tests the row it captured when its list loaded — so it could override a
-  limit nobody was shown a dialog for, and the server then writes an `audit_log` row recording a
-  confirmation that never happened.
+  first implementation replayed `checkout_screen`'s own credit-limit test against the cached
+  mechanic row on a 409 and treated a trip as proof the counter had confirmed. It is not the same
+  read — the screen tests the row it captured when its list loaded — so it could override a limit
+  nobody was shown a dialog for, and the server then writes an `audit_log` row recording a
+  confirmation that never happened. **But removing that must not leave the 409 unanswered:** the
+  same staleness means the pre-emptive dialog cannot fire for a mechanic another till has already
+  moved, so `checkout_screen` catches `CREDIT_LIMIT_EXCEEDED` and asks again with the *server's*
+  `details {creditLimit, creditBalance, newBalance}`. That is what `PosException` is for —
+  `rethrowThai` used to erase the code, so no caller could tell one refusal from another; its
+  `toString()` is still the bare Thai sentence, so no screen had to change.
 - **Money crosses the wire as the string `"1234.50"`** (`wireMoney`, rounded through integer
   satang); timestamps are ISO-8601; a field the response omits leaves its row alone (`keepMoney`).
 
@@ -442,7 +456,10 @@ with `toEqual` and pins array order, and the check was falsified rather than tru
 Future and `setState` asserts its callback did not. Six pre-existing sites were fixed on this
 branch. They were invisible because the shop runs a release web build, where assertions are
 compiled out; the `checkout_screen` one sat in the **failed-sale `catch`**, so every refused bill
-hit it in any debug build. Write `setState(() { x = …; })`, never the arrow form, when assigning.
+hit it in any debug build. Write `setState(() { x = …; })`, never the arrow form, **when the
+value assigned is a `Future`** — that is the whole rule: `setState(() => _busy = true)` is fine,
+and 99 arrow-form sites remain in `frontend/lib` on purpose. A convention broader than its bug is
+one nobody follows, which teaches readers to skip the 🔴 markers.
 
 **#83 is open** (`team/3`): `ServerErrorResolver` prefers *any* server message containing a Thai
 codepoint over its own canonical string, so `returns.service.ts`'s English

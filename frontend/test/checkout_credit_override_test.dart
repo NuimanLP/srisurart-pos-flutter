@@ -25,6 +25,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
@@ -43,13 +44,30 @@ import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
 /// longer has a context" failure. The screen already has a `catch` for this and
 /// shows a toast, which is a quiet place to stop.
 class _CapturingSales extends SalesRepository {
-  _CapturingSales(super.db);
+  _CapturingSales(super.db, {this.refuseFirstOverLimit = false});
 
-  SaleInput? captured;
+  /// Answer the first call the way a server does when THIS screen's cached
+  /// mechanic row is out of date — the multi-device case the pre-emptive
+  /// dialog structurally cannot see.
+  final bool refuseFirstOverLimit;
+
+  final List<SaleInput> inputs = [];
+  SaleInput? get captured => inputs.isEmpty ? null : inputs.last;
 
   @override
   Future<SaleRow> saveSale(SaleInput input) async {
-    captured = input;
+    inputs.add(input);
+    if (refuseFirstOverLimit && inputs.length == 1) {
+      throw const PosException(
+        'CREDIT_LIMIT_EXCEEDED',
+        'เกินวงเงินเครดิต',
+        {
+          'creditLimit': '10000.00',
+          'creditBalance': '9900.00',
+          'newBalance': '10400.00',
+        },
+      );
+    }
     throw Exception('test stops here — the input has been captured');
   }
 }
@@ -64,10 +82,11 @@ void main() {
 
   /// Drives a whole credit sale to the mechanic seeded with a 5,000 limit, and
   /// hands back the `SaleInput` the screen produced.
-  Future<SaleInput> runCreditSale(
+  Future<_CapturingSales> runCreditSale(
     WidgetTester tester, {
     required bool overLimit,
     required bool confirmDialog,
+    bool serverRefusesOnce = false,
   }) async {
     // Tall enough that the whole checkout column is laid out in one pass, and
     // wide enough that the mechanic card's row does not overflow — a narrower
@@ -81,13 +100,12 @@ void main() {
 
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    final sales = _CapturingSales(db);
+    final sales = _CapturingSales(db, refuseFirstOverLimit: serverRefusesOnce);
     final cartCubit = CartCubit();
     final pendingQuoteCubit = PendingQuoteCubit();
     addTearDown(cartCubit.close);
     addTearDown(pendingQuoteCubit.close);
 
-    late SaleInput result;
     await tester.runAsync(() async {
       // The limit rather than the balance is moved, and every seeded mechanic
       // is moved the same way, so the case holds whichever one the picker lands
@@ -177,20 +195,20 @@ void main() {
 
       await tester.pumpAndSettle(const Duration(milliseconds: 200));
 
-      result = sales.captured ?? (throw StateError('saveSale was never called'));
+      if (sales.inputs.isEmpty) throw StateError('saveSale was never called');
     });
-    return result;
+    return sales;
   }
 
   testWidgets('confirming the over-limit dialog carries overrideCreditLimit', (
     tester,
   ) async {
     // A credit limit of 0: any bill at all trips it, so the dialog is shown.
-    final input = await runCreditSale(
+    final input = (await runCreditSale(
       tester,
       overLimit: true,
       confirmDialog: true,
-    );
+    )).captured!;
 
     expect(input.paymentMethod, 'เครดิตช่าง');
     expect(
@@ -202,11 +220,11 @@ void main() {
 
   testWidgets('a bill within the limit never carries it', (tester) async {
     // No dialog is shown at all, so nothing may set the flag.
-    final input = await runCreditSale(
+    final input = (await runCreditSale(
       tester,
       overLimit: false,
       confirmDialog: false,
-    );
+    )).captured!;
 
     expect(input.paymentMethod, 'เครดิตช่าง');
     expect(
@@ -214,5 +232,46 @@ void main() {
       isFalse,
       reason: 'no human was asked, so the bill must not claim one was',
     );
+  });
+
+  testWidgets(
+    'a 409 the local cache could not predict is asked again, not a dead end',
+    (tester) async {
+      // The cached mechanic row says there is room, so the pre-emptive dialog
+      // never fires and the bill goes out with the flag false. The server, which
+      // reads the row another till has already moved, refuses it. Before this
+      // branch existed that refusal repeated on every press with no way through
+      // — and selling over a regular mechanic's limit is a daily operation here.
+      final sales = await runCreditSale(
+        tester,
+        overLimit: false,
+        confirmDialog: true,
+        serverRefusesOnce: true,
+      );
+
+      expect(sales.inputs, hasLength(2), reason: 'the bill must be resent');
+      expect(
+        sales.inputs.first.overrideCreditLimit,
+        isFalse,
+        reason: 'nothing was shown to a human before the server answered',
+      );
+      expect(
+        sales.inputs.last.overrideCreditLimit,
+        isTrue,
+        reason: 'the counter confirmed the servers own numbers',
+      );
+    },
+  );
+
+  testWidgets('and refusing that dialog sends nothing more', (tester) async {
+    final sales = await runCreditSale(
+      tester,
+      overLimit: false,
+      confirmDialog: false,
+      serverRefusesOnce: true,
+    );
+
+    expect(sales.inputs, hasLength(1));
+    expect(sales.inputs.single.overrideCreditLimit, isFalse);
   });
 }

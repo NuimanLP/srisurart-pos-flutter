@@ -32,7 +32,6 @@ import 'package:drift/drift.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
-import '../../../core/utils/ids.dart';
 import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
 import '../sales_repository.dart';
@@ -56,31 +55,38 @@ class ApiSalesRepository implements SalesRepository {
   final SalesRepository drift;
 
   /// The bill id + `Idempotency-Key` of an attempt that never got a verdict,
-  /// keyed by the cart it was for. See [_attemptFor] — this is what stops a
-  /// cashier's second press after a timeout from becoming a second bill.
-  final Map<String, _Attempt> _unresolved = {};
+  /// keyed by the cart it was for — this is what stops a cashier's second press
+  /// after a timeout from becoming a second bill.
+  final PendingWrites _pending = PendingWrites('s');
 
   @override
   Future<SaleRow> saveSale(SaleInput input) {
     return rethrowThai(() async {
-      final attempt = _attemptFor(input);
-      final body = _saleBody(attempt.saleId, input);
+      final attempt = _pending.of(_cartKey(input));
+      final body = _saleBody(attempt.id, input);
 
       final Map<String, dynamic> res;
       try {
         res = await _post(body, attempt.headers);
-      } on ApiException {
-        // The server reached a verdict, so this attempt is closed: a 409 for
-        // insufficient stock or a credit limit is an answer, and the next press
-        // is a NEW bill that must not replay this one's id.
-        _unresolved.remove(attempt.cartKey);
+      } on ApiException catch (e) {
+        // Closed ONLY if this is a verdict: a 409 for insufficient stock or a
+        // credit limit is an answer, and the next press is a NEW bill that must
+        // not replay this one's id. A 5xx (nginx's own 504 included) or a 429 is
+        // NOT an answer — the bill may be committed — so the attempt stays
+        // parked for the retry. See [isVerdict].
+        _pending.closeIfVerdict(attempt, e);
         rethrow;
       }
       // Anything else — a dropped socket, a timeout — left the bill's fate
-      // unknown, so the attempt stays parked for the retry (see [_attemptFor]).
+      // unknown, so the attempt stays parked too.
 
-      _unresolved.remove(attempt.cartKey);
-      return _patchFromResponse(attempt.saleId, input, res);
+      final sale = await _patchFromResponse(attempt.id, input, res);
+      // 🔴 Closed only now, AFTER the cache agrees with the server. If the patch
+      // throws, the bill is committed but the counter still sees a failure, so
+      // the attempt is exactly as unresolved as a lost socket: leaving it parked
+      // makes the retry replay this same bill instead of opening a second one.
+      _pending.close(attempt);
+      return sale;
     });
   }
 
@@ -100,21 +106,14 @@ class ApiSalesRepository implements SalesRepository {
   ///
   /// The cart is fingerprinted rather than held by identity because
   /// `checkout_screen.dart` rebuilds a fresh `SaleInput` on every press.
-  _Attempt _attemptFor(SaleInput input) {
-    final key = _cartKey(input);
-    return _unresolved[key] ??= _Attempt(
-      cartKey: key,
-      saleId: newId('s'),
-      headers: idempotencyKey(),
-    );
-  }
-
+  ///
   /// Identifies "the same cart, sent again": the money, who it is for, and every
   /// line. Two genuinely different bills that happen to match on all of this are
   /// indistinguishable from a retry — and the counter ringing the identical cart
   /// up twice in a row, for the same customer and mechanic, is far likelier to
-  /// be a retry than a real second sale. The entry is dropped the moment the
-  /// server answers, so this only ever spans one unresolved attempt.
+  /// be a retry than a real second sale. `PendingWrites` drops the entry the
+  /// moment the server answers, and expires it after ten minutes so a genuinely
+  /// later identical cart cannot replay it.
   String _cartKey(SaleInput input) => [
     wireMoney(input.subtotal),
     wireMoney(input.discount),
@@ -359,25 +358,3 @@ class ApiSalesRepository implements SalesRepository {
   Future<Map<String, int>> getRefundedQty(String saleId) =>
       drift.getRefundedQty(saleId);
 }
-
-/// One unresolved `POST /sales`: the bill id and header it was sent under, kept
-/// until the server answers so a retry can replay it rather than open a second
-/// bill.
-class _Attempt {
-  const _Attempt({
-    required this.cartKey,
-    required this.saleId,
-    required this.headers,
-  });
-
-  final String cartKey;
-  final String saleId;
-  final Map<String, String> headers;
-}
-
-// ── Shared with `api_returns_repository.dart` ───────────────────────────────
-// Both helpers belong beside the other wire conventions in `api_wire.dart` and
-// should move there the next time that file is opened; they live here because
-// #82's client half is scoped to the two repositories. What matters is that
-// there is ONE of each: two repositories mapping the same server field slightly
-// differently is precisely the "invariant ชุดที่สอง" ADR-0010 §3 bans.
