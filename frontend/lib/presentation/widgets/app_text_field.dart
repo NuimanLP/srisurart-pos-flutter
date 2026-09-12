@@ -17,6 +17,7 @@ class AppTextField extends StatelessWidget {
   final bool numeric;
   final bool autofocus;
   final bool enabled;
+  final bool obscureText;
   final String? errorText;
   final Widget? suffix;
   final TextInputAction? textInputAction;
@@ -33,6 +34,7 @@ class AppTextField extends StatelessWidget {
     this.numeric = false,
     this.autofocus = false,
     this.enabled = true,
+    this.obscureText = false,
     this.errorText,
     this.suffix,
     this.textInputAction,
@@ -53,6 +55,7 @@ class AppTextField extends StatelessWidget {
     this.suffix,
     this.textInputAction,
   }) : numeric = true,
+       obscureText = false,
        maxLines = 1;
 
   @override
@@ -63,6 +66,7 @@ class AppTextField extends StatelessWidget {
       initialValue: controller == null ? initialValue : null,
       autofocus: autofocus,
       enabled: enabled,
+      obscureText: obscureText,
       maxLines: maxLines,
       keyboardType: numeric
           ? const TextInputType.numberWithOptions(decimal: true)

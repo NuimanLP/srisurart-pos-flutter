@@ -19,23 +19,43 @@ import '../../data/repositories/shifts_repository.dart';
 import '../../data/repositories/snapshot_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 
-/// The 13 repository providers, mirroring providers.dart + shift_providers.dart.
-/// Wired via `MultiRepositoryProvider` in main.dart, alongside (not instead of)
-/// the existing `ProviderScope`.
-List<RepositoryProvider> repositoryProviders(AppDatabase db) => [
-  RepositoryProvider<ProductsRepository>.value(value: ProductsRepository(db)),
-  RepositoryProvider<CustomersRepository>.value(value: CustomersRepository(db)),
-  RepositoryProvider<MechanicsRepository>.value(value: MechanicsRepository(db)),
-  RepositoryProvider<SalesRepository>.value(value: SalesRepository(db)),
-  RepositoryProvider<ReturnsRepository>.value(value: ReturnsRepository(db)),
-  RepositoryProvider<PurchaseOrdersRepository>.value(
-    value: PurchaseOrdersRepository(db),
-  ),
-  RepositoryProvider<QuotesRepository>.value(value: QuotesRepository(db)),
-  RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
-  RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
-  RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
-  RepositoryProvider<SettingsRepository>.value(value: SettingsRepository(db)),
-  RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db)),
-  RepositoryProvider<ShiftsRepository>.value(value: ShiftsRepository(db)),
-];
+import '../../core/network/api_client.dart';
+import '../../data/repositories/auth_repository.dart';
+import '../../data/storage/token_storage.dart';
+
+/// The repository providers, mirroring providers.dart + shift_providers.dart,
+/// plus AuthRepository and ApiClient.
+/// Wired via `MultiRepositoryProvider` in main.dart.
+List<RepositoryProvider> repositoryProviders(
+  AppDatabase db, {
+  AuthRepository? authRepository,
+  ApiClient? apiClient,
+}) {
+  final storage = SharedPrefsTokenStorage();
+  final client = apiClient ?? ApiClient(tokenStorage: storage);
+  final authRepo = authRepository ??
+      AuthRepository(
+        apiClient: client,
+        tokenStorage: storage,
+      );
+
+  return [
+    RepositoryProvider<ProductsRepository>.value(value: ProductsRepository(db)),
+    RepositoryProvider<CustomersRepository>.value(value: CustomersRepository(db)),
+    RepositoryProvider<MechanicsRepository>.value(value: MechanicsRepository(db)),
+    RepositoryProvider<SalesRepository>.value(value: SalesRepository(db)),
+    RepositoryProvider<ReturnsRepository>.value(value: ReturnsRepository(db)),
+    RepositoryProvider<PurchaseOrdersRepository>.value(
+      value: PurchaseOrdersRepository(db),
+    ),
+    RepositoryProvider<QuotesRepository>.value(value: QuotesRepository(db)),
+    RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
+    RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
+    RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
+    RepositoryProvider<SettingsRepository>.value(value: SettingsRepository(db)),
+    RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db)),
+    RepositoryProvider<ShiftsRepository>.value(value: ShiftsRepository(db)),
+    RepositoryProvider<AuthRepository>.value(value: authRepo),
+    RepositoryProvider<ApiClient>.value(value: client),
+  ];
+}
