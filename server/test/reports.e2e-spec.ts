@@ -291,5 +291,6 @@ describe('server-side reports (e2e)', () => {
          FROM generate_series(1, 5000) AS g`,
       [TENANT_A],
     );
+    await admin.query('ANALYZE sales; ANALYZE sale_items;');
   }
 });
