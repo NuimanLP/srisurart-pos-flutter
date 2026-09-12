@@ -157,6 +157,21 @@ class AuthCubit extends Cubit<AuthState> {
     ));
   }
 
+  /// The refresh token is gone or the server refused it: the session is over.
+  ///
+  /// 🔴 `errorMessage` stays **null** on purpose. This fires when the shift that
+  /// started before midnight is still on screen at 04:00, and what the counter
+  /// needs then is the login form, not a dialog explaining a token lifetime
+  /// (#54 AC3). The device token survives — the machine is still enrolled, only
+  /// the person is signed out (ADR-0004), which is exactly [logout]'s shape.
+  ///
+  /// Driven by `ApiClient.onSessionExpired`, wired in `repositoryProviders`.
+  Future<void> sessionExpired() async {
+    final deviceToken = await _repo.getDeviceToken();
+    final deviceRole = await _repo.getDeviceRole();
+    emit(Unauthenticated(deviceToken: deviceToken, deviceRole: deviceRole));
+  }
+
   /// Removes the device token and unbinds the hardware.
   Future<void> clearDeviceEnrolment() async {
     await _repo.clearDeviceEnrolment();

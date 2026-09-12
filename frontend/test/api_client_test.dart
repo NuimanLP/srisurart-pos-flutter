@@ -213,4 +213,104 @@ void main() {
       expect(e.thaiMessage, 'สต็อกไม่พอ:\nผ้าเบรกหน้า: สต็อก 0 แต่ต้องการ 1');
     }
   });
+
+  test('five concurrent reads on an expired token cause ONE refresh', () async {
+    // #54 AC1. Every screen is a FutureBuilder fed from initState, so a tab
+    // opened after the access token expired fires several reads at once. Without
+    // the single-flight lock each one refreshes, and the server's refresh-token
+    // rotation means the last winner invalidates the tokens the other four are
+    // still holding: five reads, one usable session, four spurious logouts.
+    tokenStorage.accessToken = 'expired';
+    tokenStorage.refreshToken = 'refresh-1';
+
+    var refreshCalls = 0;
+    var refreshInFlight = 0;
+    final client = ApiClient(
+      baseUrl: 'http://server.test',
+      tokenStorage: tokenStorage,
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/auth/refresh')) {
+          refreshCalls++;
+          refreshInFlight++;
+          // Yield, so a second refresh started concurrently would overlap this
+          // one and be visible rather than racing past.
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          expect(refreshInFlight, 1, reason: 'refreshes must not overlap');
+          refreshInFlight--;
+          return http.Response(
+            jsonEncode({'accessToken': 'fresh', 'refreshToken': 'refresh-2'}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        final auth = req.headers['Authorization'];
+        if (auth != 'Bearer fresh') {
+          return http.Response(
+            jsonEncode({
+              'status': 'error',
+              'error': {'code': 'UNAUTHENTICATED', 'message': 'token expired'},
+            }),
+            401,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({'status': 'success', 'data': []}),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final results = await Future.wait([
+      for (var i = 0; i < 5; i++) client.get('/api/v1/products'),
+    ]);
+
+    expect(results, hasLength(5));
+    expect(refreshCalls, 1, reason: 'the single-flight lock is the whole point');
+    expect(tokenStorage.accessToken, 'fresh');
+  });
+
+  test('a refused refresh ends the session and says nothing to the counter', () async {
+    // #54 AC3. The 04:00 case: the refresh token has aged out, so there is no
+    // way back but a fresh login. What must NOT happen is an error dialog about
+    // token lifetimes on a counter screen.
+    tokenStorage.accessToken = 'expired';
+    tokenStorage.refreshToken = 'refresh-too-old';
+
+    var expired = 0;
+    final client = ApiClient(
+      baseUrl: 'http://server.test',
+      tokenStorage: tokenStorage,
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/auth/refresh')) {
+          return http.Response(
+            jsonEncode({
+              'status': 'error',
+              'error': {'code': 'UNAUTHENTICATED', 'message': 'refresh expired'},
+            }),
+            401,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'status': 'error',
+            'error': {'code': 'UNAUTHENTICATED', 'message': 'token expired'},
+          }),
+          401,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    )..onSessionExpired = () => expired++;
+
+    await expectLater(
+      () => client.get('/api/v1/products'),
+      throwsA(isA<ApiException>()),
+    );
+
+    expect(expired, 1, reason: 'the hook is what puts the app back on login');
+    expect(tokenStorage.accessToken, isNull);
+    expect(tokenStorage.refreshToken, isNull);
+  });
 }

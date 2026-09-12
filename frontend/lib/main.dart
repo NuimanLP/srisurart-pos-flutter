@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'app.dart';
+import 'core/network/api_client.dart';
 import 'data/db/database.dart';
 import 'data/repositories/auth_repository.dart';
 import 'presentation/blocs/auth_cubit.dart';
@@ -27,9 +28,16 @@ void main() {
           BlocProvider<PendingQuoteCubit>(create: (_) => PendingQuoteCubit()),
           BlocProvider<CartCubit>(create: (_) => CartCubit()),
           BlocProvider<AuthCubit>(
-            create: (ctx) => AuthCubit(
-              authRepository: ctx.read<AuthRepository>(),
-            )..init(),
+            create: (ctx) {
+              final cubit = AuthCubit(
+                authRepository: ctx.read<AuthRepository>(),
+              )..init();
+              // The refresh path clears the tokens and calls this; without the
+              // wiring the app kept a signed-in state that every request 401'd
+              // against. #54 AC3.
+              ctx.read<ApiClient>().onSessionExpired = cubit.sessionExpired;
+              return cubit;
+            },
           ),
         ],
         child: const SrisurartApp(),

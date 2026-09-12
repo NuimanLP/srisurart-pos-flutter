@@ -68,3 +68,17 @@ class PosException implements Exception {
   @override
   String toString() => message;
 }
+
+/// Re-throw a server refusal in the form the screens render, from a repository
+/// that would otherwise fall through to a LOCAL write.
+///
+/// 🔴 The offline fallback in `data/repositories/api_*.dart` (#55) exists because
+/// phase 1 plans no cutover: with no server reachable the app must keep working
+/// on Drift. But it may only run when the server **never answered**. An
+/// [ApiException] means it did — including a 5xx, where the write may well have
+/// committed and only the reply was lost — and running the Drift transactional
+/// service then is a second PO receipt (a second weighted-average cost and a
+/// second `movements` row), a second credit payment, a second quote. A refusal
+/// the server *did* give must reach the counter, not be quietly re-done locally.
+Never rethrowServerRefusal(ApiException e) =>
+    throw PosException(e.code, e.thaiMessage, e.details);

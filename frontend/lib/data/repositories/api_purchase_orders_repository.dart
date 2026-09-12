@@ -5,6 +5,7 @@
 //  • receivePO writes through server's updated {stockAfter, costAfter} directly to products.
 //  • NO client code re-computes weighted average cost.
 
+import '../../core/network/api_exception.dart';
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
@@ -146,6 +147,8 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
 
         return row;
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {
       // Offline fallback
     }
@@ -219,6 +222,8 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
         }
         return [];
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {
       // Offline fallback
     }
@@ -230,6 +235,8 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
   Future<void> cancelPO(String id) async {
     try {
       await apiClient.post('/api/v1/purchase-orders/$id/cancel');
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     await super.cancelPO(id);
@@ -239,6 +246,8 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
   Future<void> deletePO(String id) async {
     try {
       await apiClient.delete('/api/v1/purchase-orders/$id');
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     await super.deletePO(id);

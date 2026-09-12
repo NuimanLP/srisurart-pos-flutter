@@ -13,7 +13,7 @@ off, because phase 1 plans no cutover.
 | Branch | `feat/fe3-api-writes` — five commits, opened as a PR |
 | Closes | **#82** (the write responses) · **#56** except its AC1, see below |
 | Opened along the way | **#83** — `ServerErrorResolver`'s Thai test is too weak, three idempotency codes unmapped |
-| Gate | frontend **233 tests**, `dart analyze` clean · server lint + typecheck clean, **97 unit**, **164 e2e** against the real Postgres |
+| Gate | frontend **239 tests**, `dart analyze` clean · server lint + typecheck clean, **97 unit**, **164 e2e** against the real Postgres |
 | Not proven | #56 AC2's *"verified against the server"* — every client AC's evidence is a `MockClient`; `useApi` defaults to false, so no path here runs end to end yet |
 
 ⚠️ **#56 AC1 (*"git diff touches no file under `lib/presentation/screens/`"*) is broken
@@ -264,13 +264,20 @@ screens render it exactly as before.
 
 ### Still open, deliberately
 
-* **#55 owns the API read repositories that `extend` their Drift counterparts**
-  (`lib/data/repositories/api_*.dart`, one level up from this slice's folder).
-  `api_purchase_orders_repository.dart` swallows a failure with `catch (_)` and
-  then runs the Drift `receivePO` locally — an ADR-0010 §3 violation this slice's
-  contract test cannot see, because its glob is `lib/data/repositories/api/`.
-  Widening the glob belongs with fixing those files, which is #55's, not this
-  PR's.
+* ~~#55's API repositories fall through to `super.<write>()` in a bare
+  `catch (_)`~~ — **fixed here** rather than left to #55, because the contract
+  test's blind spot was this slice's. All 16 write fallbacks are guarded by
+  `on ApiException catch (e) { rethrowServerRefusal(e); }`; only a transport
+  failure still falls back, so the no-server phase-1 behaviour is unchanged. The
+  contract test now scans `repositories/api_*.dart` too, with a self-check that
+  the new matcher catches an unguarded fallback and does **not** trip on a
+  cached read.
+* **#54's AC3 and AC5 are still not closable.** `ApiClient.onSessionExpired` is
+  wired to `AuthCubit.sessionExpired` now (it used to call a hook nobody had
+  set), and AC1 and AC6 are pinned by tests — but there is **no login screen and
+  no router redirect anywhere in the app**, so "lands on the login screen" and
+  "enrolling with a code binds the machine" have no UI to land on. That is a
+  slice to ticket, not something to improvise.
 * `addDrawerEntry`'s FK guard drops an entry whose parent shift is not cached.
   SQLite has `foreign_keys` **off** by default and nothing in this app turns it
   on, so the insert it avoids would have succeeded. Left as is — the entry is

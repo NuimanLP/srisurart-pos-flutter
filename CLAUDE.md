@@ -461,6 +461,26 @@ value assigned is a `Future`** — that is the whole rule: `setState(() => _busy
 and 99 arrow-form sites remain in `frontend/lib` on purpose. A convention broader than its bug is
 one nobody follows, which teaches readers to skip the 🔴 markers.
 
+🔴 **An offline fallback may only run when the server never answered.** #55's API
+repositories (`data/repositories/api_*.dart`) `extend` their Drift counterpart and fell through to
+`super.<write>()` inside a bare `catch (_)`, so a server that *did* answer — a 409, or a 5xx where
+the write may well have committed and only the reply was lost — silently re-ran the Drift
+transactional service: a second weighted-average cost and a second `movements` row out of
+`receivePO`, a second `credit_payments` row, a second quote. All 16 write fallbacks now sit behind
+`on ApiException catch (e) { rethrowServerRefusal(e); }`, which converts the refusal to the
+`PosException` the screens render; only a transport failure still falls back, which is what keeps
+the app working with no server in phase 1. `api_repository_contract_test.dart` enforces it at the
+source level over **both** folders — its glob used to be `repositories/api/` only, so #55's files,
+which are one level up, were never checked at all.
+
+🔴 **`ApiClient.onSessionExpired` had no listener.** `_executeRefresh` cleared the tokens and
+called a hook nobody had set, so a refused refresh left the app in a signed-in state that every
+later request 401'd against. `main.dart` now wires it to `AuthCubit.sessionExpired`, which keeps the
+device token (ADR-0004 — the machine is still enrolled, only the person is signed out) and emits
+`Unauthenticated` with **no** `errorMessage`: at 04:00 the counter needs the login form, not a
+dialog about token lifetimes. **There is still no login screen and no router redirect**, so #54's
+AC3 and AC5 cannot be closed by this — that UI is unticketed work.
+
 **#83 is open** (`team/3`): `ServerErrorResolver` prefers *any* server message containing a Thai
 codepoint over its own canonical string, so `returns.service.ts`'s English
 `Refund method 'หักจากเครดิต' needs a bill with a mechanic.` wins and the mapped Thai never fires.

@@ -4,6 +4,7 @@
 //  • Server is the authority on mechanic credit balances and payment receipts (CP###).
 //  • Patches rows directly in Drift without dual-bookkeeping locally.
 
+import '../../core/network/api_exception.dart';
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
@@ -115,6 +116,8 @@ class ApiMechanicsRepository extends MechanicsRepository {
         await db.into(db.mechanics).insertOnConflictUpdate(comp);
         return (db.select(db.mechanics)..where((t) => t.id.equals(comp.id.value))).getSingle();
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {
       // Offline fallback
     }
@@ -140,6 +143,8 @@ class ApiMechanicsRepository extends MechanicsRepository {
         await db.into(db.mechanics).insertOnConflictUpdate(comp);
         return;
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     await super.updateMechanic(id, patch);
@@ -209,6 +214,8 @@ class ApiMechanicsRepository extends MechanicsRepository {
 
         return row;
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {
       // Offline fallback
     }

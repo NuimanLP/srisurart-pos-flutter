@@ -184,4 +184,20 @@ void main() {
     final state = cubit.state as Unauthenticated;
     expect(state.deviceToken, 'preserved-token');
   });
+
+  test('a refused refresh signs the person out with no message', () async {
+    // #54 AC3, cubit half: `ApiClient.onSessionExpired` drives this. The device
+    // stays enrolled (ADR-0004 — the machine is still this shop's till), and
+    // `errorMessage` stays null, because what the counter needs at 04:00 is the
+    // login form, not a dialog about token lifetimes.
+    repo.mockDeviceToken = 'preserved-token';
+    await cubit.login(username: 'cashier', password: 'pass');
+    expect(cubit.state, isA<Authenticated>());
+
+    await cubit.sessionExpired();
+
+    final state = cubit.state as Unauthenticated;
+    expect(state.deviceToken, 'preserved-token');
+    expect(state.errorMessage, isNull);
+  });
 }
