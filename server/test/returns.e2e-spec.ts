@@ -652,7 +652,7 @@ describe('POST /returns (e2e)', () => {
   it('a credit note with no drawer open carries no shift_id', async () => {
     await insertSale({
       id: 's_noshift',
-      receiptNo: 'R15',
+      receiptNo: 'R24',
       subtotal: 85,
       total: 85,
       items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
