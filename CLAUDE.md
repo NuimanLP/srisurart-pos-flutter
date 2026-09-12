@@ -98,6 +98,9 @@ frontend/
       db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
       db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
       repositories/            ← one repo per domain; transactional services mirror db.js
+      repositories/api/        ← #56: ApiSales/ApiReturns/ApiShifts — same interfaces,
+                                 server is the truth, Drift rows patched from the response
+                                 (ADR-0010). Opt-in: --dart-define=USE_API_WRITES=true
     domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
     presentation/
       repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (13 repos)

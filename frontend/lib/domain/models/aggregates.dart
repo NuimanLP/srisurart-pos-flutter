@@ -107,6 +107,28 @@ class SaleInput {
 
   final List<SaleLineInput> items;
 
+  /// The counter answered 'ยืนยัน' to the `ยืนยันขายเครดิต?` dialog
+  /// (`checkout_screen.dart:561-582`): this bill may push the mechanic past his
+  /// credit limit.
+  ///
+  /// Added for #56. The Drift `saveSale` ignores it — the JS app never had a
+  /// limit check in the data layer, only in the screen — but the server does
+  /// check, and answers `409 CREDIT_LIMIT_EXCEEDED` unless the body carries
+  /// `overrideCreditLimit: true`, which also writes an `audit_log` row naming
+  /// who let the bill past.
+  ///
+  /// 🔴 It is a field rather than something the repository works out for itself
+  /// because **consent cannot be re-derived**. The first implementation replayed
+  /// the screen's own `creditBalance + total > creditLimit` test against the
+  /// cached mechanic row on a 409, and treated a trip as proof the dialog had
+  /// been answered. It is not: the screen tests the `MechanicRow` it captured
+  /// when the list loaded, while the repository would re-read the live row, so a
+  /// balance that moved in between (a prior bill on the same screen already
+  /// patches it) makes the repository override a limit the counter was never
+  /// shown a dialog for — and the server then records an override that never
+  /// happened. Carry the answer; never infer it.
+  final bool overrideCreditLimit;
+
   const SaleInput({
     required this.subtotal,
     required this.discount,
@@ -117,6 +139,7 @@ class SaleInput {
     this.mechanicId,
     this.mechanicName,
     this.mechanicDelta,
+    this.overrideCreditLimit = false,
     required this.items,
   });
 }

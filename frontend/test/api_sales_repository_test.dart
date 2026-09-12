@@ -7,6 +7,7 @@
 // back to `saveSale`'s local maths would be caught rather than congratulated.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNotNull, isNull;
 import 'package:drift/native.dart';
@@ -145,11 +146,16 @@ void main() {
 
   /// Two pads at ฿100 — the client's own arithmetic would be stock 8,
   /// points 20, spend 200, credit 200. The mock answers none of those.
-  SaleInput input({String paymentMethod = 'เงินสด'}) => SaleInput(
+  SaleInput input({
+    String paymentMethod = 'เงินสด',
+    bool overrideCreditLimit = false,
+    double total = 200,
+  }) => SaleInput(
     subtotal: 200,
     discount: 0,
-    total: 200,
+    total: total,
     paymentMethod: paymentMethod,
+    overrideCreditLimit: overrideCreditLimit,
     customerId: 'tc1',
     customerName: 'สมชาย',
     mechanicId: 'tm1',
@@ -183,7 +189,7 @@ void main() {
   };
 
   test(
-    'AC1 — every patched number is the SERVER\'s, never the client\'s arithmetic',
+    'AC3 — every patched number is the SERVER\'s, never the client\'s arithmetic',
     () async {
       late Map<String, dynamic> body;
       final repo = repoWith((req) async {
@@ -300,7 +306,7 @@ void main() {
   );
 
   test(
-    'AC3 — a 409 INSUFFICIENT_STOCK shows all three lines and writes nothing',
+    'AC4 — a 409 INSUFFICIENT_STOCK shows all three lines and writes nothing',
     () async {
       const thai =
           'สต็อกไม่พอ:\n'
@@ -339,7 +345,7 @@ void main() {
   );
 
   test(
-    'AC4 — a 403 DEVICE_ROLE_FORBIDDEN surfaces เครื่องนี้ขายของไม่ได้',
+    'AC7 — a 403 DEVICE_ROLE_FORBIDDEN surfaces เครื่องนี้ขายของไม่ได้',
     () async {
       final repo = repoWith(
         (req) async => http.Response(
@@ -364,7 +370,7 @@ void main() {
   );
 
   test(
-    'AC7 — what reaches the screen is a plain Exception, never an ApiException',
+    'what reaches the screen is a plain Exception, never an ApiException',
     () async {
       final repo = repoWith(
         (req) async => http.Response(
@@ -391,27 +397,19 @@ void main() {
     },
   );
 
-  group('the credit-limit override (#56 tension — see the report)', () {
+  group('a lost reply must not become a second bill (AC2)', () {
     test(
-      'resends once with overrideCreditLimit and the SAME key when the counter '
-      'must already have confirmed',
+      'a dropped connection then a second press replays the SAME bill id and key',
       () async {
-        // Local cache: balance 4900 + a 200 bill > limit 5000, so
-        // `checkout_screen.dart:561` showed its dialog and staff pressed ยืนยัน.
-        await (db.update(db.mechanics)..where((t) => t.id.equals('tm1'))).write(
-          const MechanicsCompanion(creditBalance: Value(4900)),
-        );
-
-        final bodies = <Map<String, dynamic>>[];
+        // The shape the shop actually hits: the server commits the bill, the
+        // reply is lost on the way back, the counter sees the failure and
+        // presses ยืนยัน again on the same cart. The second press must be the
+        // same bill, or `existingSale` and `idempotency_keys` both see a new
+        // request and the customer is charged twice.
+        var attempt = 0;
         final repo = repoWith((req) async {
-          bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
-          if (bodies.length == 1) {
-            return http.Response(
-              _err('CREDIT_LIMIT_EXCEEDED', 'Credit limit exceeded'),
-              409,
-              headers: {'content-type': 'application/json'},
-            );
-          }
+          attempt++;
+          if (attempt == 1) throw const SocketException('connection closed');
           return http.Response(
             _ok(created()),
             201,
@@ -419,28 +417,103 @@ void main() {
           );
         });
 
-        final sale = await repo.saveSale(input(paymentMethod: 'เครดิตช่าง'));
+        final cart = input();
+        await expectLater(() => repo.saveSale(cart), throwsA(isA<SocketException>()));
 
-        expect(bodies, hasLength(2));
-        expect(bodies[0].containsKey('overrideCreditLimit'), isFalse);
-        expect(bodies[1]['overrideCreditLimit'], isTrue);
-        expect(bodies[0]['id'], bodies[1]['id']);
-        final posts = sent.where((r) => r.url.path == '/api/v1/sales');
+        // A brand-new SaleInput, as `checkout_screen.dart` builds on every press.
+        final sale = await repo.saveSale(input());
+
+        final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+        expect(posts, hasLength(2));
         expect(
           posts.map((r) => r.headers['Idempotency-Key']).toSet(),
           hasLength(1),
-          reason: 'the refused transaction rolls its idempotency claim back',
+          reason: 'a fresh key would defeat the server idempotency module',
+        );
+        expect(
+          posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+          hasLength(1),
+          reason: "a fresh bill id would defeat the server's existingSale check",
         );
         expect(sale.receiptNo, 'RC-00042');
         expect(await db.select(db.sales).get(), hasLength(1));
       },
     );
 
+    test('but a server VERDICT closes the attempt — the next bill is a new one', () async {
+      // A 409 is an answer: nothing was committed, and the next press is a
+      // different sale that must not inherit the refused bill's id.
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        if (attempt == 1) {
+          return http.Response(
+            _err('INSUFFICIENT_STOCK', 'สต็อกไม่พอ:\nBrake Pad: สต็อก 1 แต่ต้องการ 2'),
+            409,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          _ok(created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(() => repo.saveSale(input()), throwsA(isA<Exception>()));
+      await repo.saveSale(input());
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+      expect(posts, hasLength(2));
+      expect(
+        posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+        hasLength(2),
+        reason: 'the refused bill was never written; this is a different sale',
+      );
+    });
+
+    test('a different cart never replays a parked attempt', () async {
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        if (attempt == 1) throw const SocketException('connection closed');
+        return http.Response(
+          _ok(created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(() => repo.saveSale(input()), throwsA(isA<SocketException>()));
+      await repo.saveSale(input(total: 350));
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+      expect(
+        posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+        hasLength(2),
+      );
+      expect(
+        posts.map((r) => r.headers['Idempotency-Key']).toSet(),
+        hasLength(2),
+      );
+    });
+  });
+
+  group('the credit limit', () {
     test(
-      'refuses when only the SERVER thinks the bill is over the limit — no human '
-      'was ever asked',
+      'the counter\'s confirmation is CARRIED, not re-derived from the cache',
       () async {
-        // Local cache says 0 + 200 <= 5000, so no dialog was shown.
+        // The mechanic is deep over his limit in the local cache. That must not
+        // be what decides the override: the screen tests the MechanicRow it
+        // captured when its list loaded, this row is the live one, and the two
+        // drift apart (a prior bill on the same screen already patches it). If
+        // the repository re-derived consent from this row, the 409 below would
+        // be retried with the flag and the server would log an override the
+        // counter was never shown a dialog for.
+        await (db.update(db.mechanics)..where((t) => t.id.equals('tm1'))).write(
+          const MechanicsCompanion(creditBalance: Value(4900)),
+        );
+
         var calls = 0;
         final repo = repoWith((req) async {
           calls++;
@@ -458,7 +531,7 @@ void main() {
           thrown = e;
         }
 
-        expect(calls, 1, reason: 'no silent override');
+        expect(calls, 1, reason: 'no second POST — consent was never given');
         expect(
           thrown.toString().replaceFirst('Exception: ', ''),
           'เกินวงเงินเครดิต',
@@ -466,6 +539,41 @@ void main() {
         expect(await db.select(db.sales).get(), isEmpty);
       },
     );
+
+    test('overrideCreditLimit travels in the body when the input carries it', () async {
+      final bodies = <Map<String, dynamic>>[];
+      final repo = repoWith((req) async {
+        bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
+        return http.Response(
+          _ok(created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await repo.saveSale(
+        input(paymentMethod: 'เครดิตช่าง', overrideCreditLimit: true),
+      );
+
+      expect(bodies, hasLength(1));
+      expect(bodies.single['overrideCreditLimit'], isTrue);
+    });
+
+    test('and defaults to false, so an unconfirmed bill cannot carry it', () async {
+      final bodies = <Map<String, dynamic>>[];
+      final repo = repoWith((req) async {
+        bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
+        return http.Response(
+          _ok(created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await repo.saveSale(input(paymentMethod: 'เครดิตช่าง'));
+
+      expect(bodies.single['overrideCreditLimit'], isFalse);
+    });
   });
 
   test('reads still come from Drift', () async {

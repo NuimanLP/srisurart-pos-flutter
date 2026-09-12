@@ -172,11 +172,32 @@ comment before implementing.
 ## 4. Dependency injection (`lib/presentation/repositories/repository_providers.dart` + `lib/presentation/blocs/`)
 
 Repositories are wired via flutter_bloc's `RepositoryProvider`, not Riverpod.
-`repositoryProviders(AppDatabase db)` returns the 13 `RepositoryProvider`
-entries below; `main.dart` wires them via `MultiRepositoryProvider`, wrapping
-`AppDatabase.open()`'s single instance. Screens read a repo with
-`context.read<XRepository>()` (never `context.watch` — repos are DI, not
-reactive state).
+
+```dart
+repositoryProviders(
+  AppDatabase db, {
+  AuthRepository? authRepository,   // #54
+  ApiClient? apiClient,             // #54
+  bool useApi = const bool.fromEnvironment('USE_API_WRITES'),  // #56
+})
+```
+
+It returns the 13 `RepositoryProvider` entries below **plus `AuthRepository` and
+`ApiClient`** (#54), 15 in all; `main.dart` wires them via
+`MultiRepositoryProvider`, wrapping `AppDatabase.open()`'s single instance.
+Screens read a repo with `context.read<XRepository>()` (never `context.watch` —
+repos are DI, not reactive state).
+
+`useApi` (#56) is the phase-1 cutover switch and **defaults to false**: the shop
+keeps running the Drift build (CLAUDE.md, *"no cutover is planned for phase 1"*),
+and `--dart-define=USE_API_WRITES=true` is what a developer flips to test against
+a server. When true, three of the entries below are swapped for their
+write-through API implementations from `lib/data/repositories/api/` —
+`SalesRepository` → `ApiSalesRepository`, `ReturnsRepository` →
+`ApiReturnsRepository`, `ShiftsRepository` → `ApiShiftsRepository`. **The types
+in the table do not change**, which is the whole point of ADR-0010: each API
+class `implements` the concrete Drift class's implicit interface and keeps a
+Drift instance to delegate its reads to, so no screen can tell the difference.
 
 | Repository | Type |
 |---|---|

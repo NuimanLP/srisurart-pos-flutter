@@ -39,11 +39,6 @@ import '../../db/database.dart';
 import '../sales_repository.dart';
 import 'api_wire.dart';
 
-/// The one payment method that puts a bill on the mechanic's tab. Copied
-/// verbatim from `sales_repository.dart` / `db.js` — Thai strings are behaviour
-/// parity, never translated (CLAUDE.md).
-const _mechanicCredit = 'เครดิตช่าง';
-
 class ApiSalesRepository implements SalesRepository {
   ApiSalesRepository({
     required this.api,
@@ -61,50 +56,77 @@ class ApiSalesRepository implements SalesRepository {
   /// Reads stay on Drift until the read slice (#55) replaces them.
   final SalesRepository drift;
 
+  /// The bill id + `Idempotency-Key` of an attempt that never got a verdict,
+  /// keyed by the cart it was for. See [_attemptFor] — this is what stops a
+  /// cashier's second press after a timeout from becoming a second bill.
+  final Map<String, _Attempt> _unresolved = {};
+
   @override
   Future<SaleRow> saveSale(SaleInput input) {
     return rethrowThai(() async {
-      // `SaleInput` carries no id — the Drift service minted one inside its
-      // transaction. `POST /sales` REQUIRES one: `sales.service.ts.existingSale`
-      // makes the client's id the bill's natural idempotency key, so a retry that
-      // lost its `Idempotency-Key` (a reload, an app restart) replays the same
-      // bill instead of ringing it up twice. Mint it ONCE, out here, so both the
-      // first attempt and the credit-limit resend below carry the same one.
-      final saleId = newId('s');
-      final body = _saleBody(saleId, input);
+      final attempt = _attemptFor(input);
+      final body = _saleBody(attempt.saleId, input);
 
-      // One key per logical attempt, reused verbatim on every resend of that
-      // attempt — including `ApiClient`'s own 401 → refresh → retry, which
-      // re-executes the closure with these same headers.
-      final headers = idempotencyKey();
-
-      Map<String, dynamic> res;
+      final Map<String, dynamic> res;
       try {
-        res = await _post(body, headers);
-      } on ApiException catch (e) {
-        // 🔴 The credit-limit tension (#56, flagged in the report). The server
-        // answers `409 CREDIT_LIMIT_EXCEEDED` unless the body says
-        // `overrideCreditLimit: true`, but `SaleInput` has no such field and
-        // `checkout_screen.dart:555-582` already showed the shop's own Thai
-        // confirm dialog ('ยืนยันขายเครดิต?') BEFORE calling us — a decline
-        // returns without ever reaching this method. So reaching here with the
-        // local cache also over the limit proves a human already said yes, and
-        // the least-surprising outcome is that the bill they confirmed goes
-        // through. Resent with the SAME key on purpose: the refused transaction
-        // rolls the idempotency claim back with it (server handoff log, #21).
-        //
-        // The guard matters. If only the SERVER thinks the bill is over the
-        // limit — a stale local mechanic row — no dialog was ever shown, and
-        // overriding would be a money decision taken with no human in it. That
-        // case is refused with the plain Thai 'เกินวงเงินเครดิต'.
-        if (e.code != 'CREDIT_LIMIT_EXCEEDED') rethrow;
-        if (!await _counterConfirmedOverLimit(input)) rethrow;
-        res = await _post({...body, 'overrideCreditLimit': true}, headers);
+        res = await _post(body, attempt.headers);
+      } on ApiException {
+        // The server reached a verdict, so this attempt is closed: a 409 for
+        // insufficient stock or a credit limit is an answer, and the next press
+        // is a NEW bill that must not replay this one's id.
+        _unresolved.remove(attempt.cartKey);
+        rethrow;
       }
+      // Anything else — a dropped socket, a timeout — left the bill's fate
+      // unknown, so the attempt stays parked for the retry (see [_attemptFor]).
 
-      return _patchFromResponse(saleId, input, res);
+      _unresolved.remove(attempt.cartKey);
+      return _patchFromResponse(attempt.saleId, input, res);
     });
   }
+
+  /// The bill id and `Idempotency-Key` this cart should be sent under.
+  ///
+  /// 🔴 Both are minted ONCE PER CART, not once per call, and that is the whole
+  /// point. `ApiClient` sets no timeout and the shop's link is not reliable, so
+  /// the ordinary failure is: `POST /sales` hangs or the socket drops, the
+  /// counter sees `ขายไม่สำเร็จ…` and presses ยืนยัน again. The server may well
+  /// have committed the first bill — the reply is what was lost, not the write.
+  /// Minting a fresh id and a fresh key on the second press defeats BOTH of the
+  /// server's defences at once (`existingSale` keys on the client's bill id,
+  /// `idempotency_keys` on the header), so the customer is charged twice and the
+  /// stock leaves twice for goods that left the shop once. Re-sending the same
+  /// pair makes the second press replay the first bill, which is #56 AC2 and the
+  /// reason `POST /sales` takes a client-generated id at all.
+  ///
+  /// The cart is fingerprinted rather than held by identity because
+  /// `checkout_screen.dart` rebuilds a fresh `SaleInput` on every press.
+  _Attempt _attemptFor(SaleInput input) {
+    final key = _cartKey(input);
+    return _unresolved[key] ??= _Attempt(
+      cartKey: key,
+      saleId: newId('s'),
+      headers: idempotencyKey(),
+    );
+  }
+
+  /// Identifies "the same cart, sent again": the money, who it is for, and every
+  /// line. Two genuinely different bills that happen to match on all of this are
+  /// indistinguishable from a retry — and the counter ringing the identical cart
+  /// up twice in a row, for the same customer and mechanic, is far likelier to
+  /// be a retry than a real second sale. The entry is dropped the moment the
+  /// server answers, so this only ever spans one unresolved attempt.
+  String _cartKey(SaleInput input) => [
+    wireMoney(input.subtotal),
+    wireMoney(input.discount),
+    wireMoney(input.total),
+    input.paymentMethod,
+    input.customerId ?? '',
+    input.mechanicId ?? '',
+    input.mechanicDelta == null ? '' : wireMoney(input.mechanicDelta!),
+    input.overrideCreditLimit,
+    for (final i in input.items) '${i.productId}x${i.qty}@${wireMoney(i.price)}',
+  ].join('|');
 
   Future<Map<String, dynamic>> _post(
     Map<String, dynamic> body,
@@ -132,6 +154,9 @@ class ApiSalesRepository implements SalesRepository {
     'mechanicDelta': input.mechanicDelta == null
         ? null
         : wireMoney(input.mechanicDelta!),
+    // The counter's own answer to 'ยืนยันขายเครดิต?', carried — never
+    // re-derived from the cached mechanic row. See `SaleInput.overrideCreditLimit`.
+    'overrideCreditLimit': input.overrideCreditLimit,
     'items': [
       for (var i = 0; i < input.items.length; i++)
         {
@@ -147,23 +172,6 @@ class ApiSalesRepository implements SalesRepository {
         },
     ],
   };
-
-  /// Replays `checkout_screen.dart:561`'s own test against the cached mechanic
-  /// row: did the screen have to show the confirm dialog to get here?
-  ///
-  /// This is NOT arithmetic on a server-owned number in the sense ADR-0010 §3
-  /// bans — nothing computed here is stored anywhere. It only decides whether a
-  /// human was asked.
-  Future<bool> _counterConfirmedOverLimit(SaleInput input) async {
-    if (input.paymentMethod != _mechanicCredit) return false;
-    final id = input.mechanicId;
-    if (id == null) return false;
-    final m = await (db.select(
-      db.mechanics,
-    )..where((t) => t.id.equals(id))).getSingleOrNull();
-    if (m == null) return false;
-    return m.creditBalance + input.total > m.creditLimit;
-  }
 
   /// Copies the server's answer into the cache. One Drift transaction so a
   /// half-patched cache is impossible — note this wraps only local writes, the
@@ -297,4 +305,19 @@ class ApiSalesRepository implements SalesRepository {
   @override
   Future<Map<String, int>> getRefundedQty(String saleId) =>
       drift.getRefundedQty(saleId);
+}
+
+/// One unresolved `POST /sales`: the bill id and header it was sent under, kept
+/// until the server answers so a retry can replay it rather than open a second
+/// bill.
+class _Attempt {
+  const _Attempt({
+    required this.cartKey,
+    required this.saleId,
+    required this.headers,
+  });
+
+  final String cartKey;
+  final String saleId;
+  final Map<String, String> headers;
 }

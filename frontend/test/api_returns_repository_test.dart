@@ -305,7 +305,7 @@ void main() {
   );
 
   test(
-    'AC6 — a 409 RETURN_PRICE_MISMATCH throws Thai and writes nothing',
+    'a 409 RETURN_PRICE_MISMATCH throws Thai and writes nothing',
     () async {
       final repo = repoWith(
         (req) async => http.Response(
@@ -326,7 +326,7 @@ void main() {
         thrown = e;
       }
 
-      // AC7 again, on this repository: a plain Exception carrying a clean Thai
+      // Again on this repository: a plain Exception carrying a clean Thai
       // sentence — `returns_screen.dart:238` renders exactly this.
       expect(thrown, isA<Exception>());
       expect(thrown, isNot(isA<ApiException>()));
@@ -368,7 +368,20 @@ void main() {
     }
     final msg = thrown.toString().replaceFirst('Exception: ', '');
     expect(msg, isNot(contains('ApiException')));
-    expect(msg, contains('หักจากเครดิต'));
+    // 🔴 Pinned to the message the counter ACTUALLY sees, which is not the
+    // mapped Thai one. `ServerErrorResolver.resolve` prefers any server message
+    // containing a Thai codepoint over its own canonical string
+    // (`server_error_resolver.dart:59-63`), and this server message is an
+    // English sentence with one Thai literal quoted inside it
+    // (`returns.service.ts:178`) — so the resolver's
+    // 'วิธีคืนเงินไม่ถูกต้องสำหรับบิลนี้' never fires. Asserting only
+    // `contains('หักจากเครดิต')` passed on the English sentence and proved
+    // nothing, which is why this is spelled out in full. Fixing it belongs to
+    // #54 (tighten the heuristic to messages that START in Thai) or to the
+    // server (stop quoting a Thai literal in an English message); when either
+    // lands, this expectation becomes the canonical string and the test is the
+    // thing that notices.
+    expect(msg, "Refund method 'หักจากเครดิต' needs a bill with a mechanic.");
   });
 
   test('reads still come from Drift', () async {
