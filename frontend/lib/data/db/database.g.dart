@@ -147,6 +147,17 @@ class $ProductsTable extends Products
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -163,6 +174,7 @@ class $ProductsTable extends Products
     zone,
     updatedAt,
     offlineOk,
+    deletedAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -277,6 +289,12 @@ class $ProductsTable extends Products
         offlineOk.isAcceptableOrUnknown(data['offline_ok']!, _offlineOkMeta),
       );
     }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
     return context;
   }
 
@@ -342,6 +360,10 @@ class $ProductsTable extends Products
         DriftSqlType.bool,
         data['${effectivePrefix}offline_ok'],
       )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
     );
   }
 
@@ -370,6 +392,10 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
   /// Written ONLY from a server response — never derived here. Defaults to
   /// false so an unknown product is not sellable offline.
   final bool offlineOk;
+
+  /// Schema v4 (Ticket #55): soft delete timestamp from server so that
+  /// `?updatedSince=` cursor does not re-resurrect deleted products.
+  final DateTime? deletedAt;
   const ProductRow({
     required this.id,
     required this.partNo,
@@ -385,6 +411,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     this.zone,
     this.updatedAt,
     required this.offlineOk,
+    this.deletedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -409,6 +436,9 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       map['updated_at'] = Variable<DateTime>(updatedAt);
     }
     map['offline_ok'] = Variable<bool>(offlineOk);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
     return map;
   }
 
@@ -432,6 +462,9 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
           ? const Value.absent()
           : Value(updatedAt),
       offlineOk: Value(offlineOk),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
     );
   }
 
@@ -455,6 +488,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       zone: serializer.fromJson<String?>(json['zone']),
       updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
       offlineOk: serializer.fromJson<bool>(json['offlineOk']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
     );
   }
   @override
@@ -475,6 +509,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       'zone': serializer.toJson<String?>(zone),
       'updatedAt': serializer.toJson<DateTime?>(updatedAt),
       'offlineOk': serializer.toJson<bool>(offlineOk),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
     };
   }
 
@@ -493,6 +528,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     Value<String?> zone = const Value.absent(),
     Value<DateTime?> updatedAt = const Value.absent(),
     bool? offlineOk,
+    Value<DateTime?> deletedAt = const Value.absent(),
   }) => ProductRow(
     id: id ?? this.id,
     partNo: partNo ?? this.partNo,
@@ -508,6 +544,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     zone: zone.present ? zone.value : this.zone,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
     offlineOk: offlineOk ?? this.offlineOk,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
   );
   ProductRow copyWithCompanion(ProductsCompanion data) {
     return ProductRow(
@@ -525,6 +562,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       zone: data.zone.present ? data.zone.value : this.zone,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       offlineOk: data.offlineOk.present ? data.offlineOk.value : this.offlineOk,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
     );
   }
 
@@ -544,7 +582,8 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
           ..write('compat: $compat, ')
           ..write('zone: $zone, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('offlineOk: $offlineOk')
+          ..write('offlineOk: $offlineOk, ')
+          ..write('deletedAt: $deletedAt')
           ..write(')'))
         .toString();
   }
@@ -565,6 +604,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     zone,
     updatedAt,
     offlineOk,
+    deletedAt,
   );
   @override
   bool operator ==(Object other) =>
@@ -583,7 +623,8 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
           other.compat == this.compat &&
           other.zone == this.zone &&
           other.updatedAt == this.updatedAt &&
-          other.offlineOk == this.offlineOk);
+          other.offlineOk == this.offlineOk &&
+          other.deletedAt == this.deletedAt);
 }
 
 class ProductsCompanion extends UpdateCompanion<ProductRow> {
@@ -601,6 +642,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
   final Value<String?> zone;
   final Value<DateTime?> updatedAt;
   final Value<bool> offlineOk;
+  final Value<DateTime?> deletedAt;
   final Value<int> rowid;
   const ProductsCompanion({
     this.id = const Value.absent(),
@@ -617,6 +659,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     this.zone = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.offlineOk = const Value.absent(),
+    this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ProductsCompanion.insert({
@@ -634,6 +677,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     this.zone = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.offlineOk = const Value.absent(),
+    this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        partNo = Value(partNo),
@@ -660,6 +704,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     Expression<String>? zone,
     Expression<DateTime>? updatedAt,
     Expression<bool>? offlineOk,
+    Expression<DateTime>? deletedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -677,6 +722,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
       if (zone != null) 'zone': zone,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (offlineOk != null) 'offline_ok': offlineOk,
+      if (deletedAt != null) 'deleted_at': deletedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -696,6 +742,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     Value<String?>? zone,
     Value<DateTime?>? updatedAt,
     Value<bool>? offlineOk,
+    Value<DateTime?>? deletedAt,
     Value<int>? rowid,
   }) {
     return ProductsCompanion(
@@ -713,6 +760,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
       zone: zone ?? this.zone,
       updatedAt: updatedAt ?? this.updatedAt,
       offlineOk: offlineOk ?? this.offlineOk,
+      deletedAt: deletedAt ?? this.deletedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -762,6 +810,9 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     if (offlineOk.present) {
       map['offline_ok'] = Variable<bool>(offlineOk.value);
     }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -785,6 +836,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
           ..write('zone: $zone, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('offlineOk: $offlineOk, ')
+          ..write('deletedAt: $deletedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -10928,6 +10980,7 @@ typedef $$ProductsTableCreateCompanionBuilder =
       Value<String?> zone,
       Value<DateTime?> updatedAt,
       Value<bool> offlineOk,
+      Value<DateTime?> deletedAt,
       Value<int> rowid,
     });
 typedef $$ProductsTableUpdateCompanionBuilder =
@@ -10946,6 +10999,7 @@ typedef $$ProductsTableUpdateCompanionBuilder =
       Value<String?> zone,
       Value<DateTime?> updatedAt,
       Value<bool> offlineOk,
+      Value<DateTime?> deletedAt,
       Value<int> rowid,
     });
 
@@ -11025,6 +11079,11 @@ class $$ProductsTableFilterComposer
 
   ColumnFilters<bool> get offlineOk => $composableBuilder(
     column: $table.offlineOk,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -11107,6 +11166,11 @@ class $$ProductsTableOrderingComposer
     column: $table.offlineOk,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ProductsTableAnnotationComposer
@@ -11159,6 +11223,9 @@ class $$ProductsTableAnnotationComposer
 
   GeneratedColumn<bool> get offlineOk =>
       $composableBuilder(column: $table.offlineOk, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
 }
 
 class $$ProductsTableTableManager
@@ -11206,6 +11273,7 @@ class $$ProductsTableTableManager
                 Value<String?> zone = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
                 Value<bool> offlineOk = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ProductsCompanion(
                 id: id,
@@ -11222,6 +11290,7 @@ class $$ProductsTableTableManager
                 zone: zone,
                 updatedAt: updatedAt,
                 offlineOk: offlineOk,
+                deletedAt: deletedAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -11240,6 +11309,7 @@ class $$ProductsTableTableManager
                 Value<String?> zone = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
                 Value<bool> offlineOk = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ProductsCompanion.insert(
                 id: id,
@@ -11256,6 +11326,7 @@ class $$ProductsTableTableManager
                 zone: zone,
                 updatedAt: updatedAt,
                 offlineOk: offlineOk,
+                deletedAt: deletedAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

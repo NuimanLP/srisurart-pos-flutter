@@ -149,12 +149,12 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  test('a v1 file lands on v3 in a single open', () async {
+  test('a v1 file lands on v4 in a single open', () async {
     final version = await db
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 3);
+    expect(version, 4);
   });
 
   test('the v2 block still applies on the way through', () async {
@@ -216,6 +216,7 @@ void main() {
       db.products,
     )..where((t) => t.id.equals('p1'))).getSingle();
     expect(product.offlineOk, isFalse);
+    expect(product.deletedAt, isNull);
     expect(product.stock, 9);
     expect(product.updatedAt, isNull); // never written by a v1 build
   });
