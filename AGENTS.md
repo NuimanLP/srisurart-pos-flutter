@@ -218,7 +218,8 @@ Scrutinize) fixed four more: a **negative `items[].price`** passed every total-l
 `?page=` was unbounded (now capped like `?limit=`); a **void wrote `movements.type='return'`**, so
 reports counted voids as returns (migration `1788652800003` adds `'void'`, `ref_id` is the bare sale id);
 and `server/docker/postgres/init/01-app-role.sh` lacked the executable bit, so Docker Desktop on macOS
-never created `pos_app` (CI on Linux was unaffected). #23 and #28 stay open by design.
+never created `pos_app` (CI on Linux was unaffected). #23 and #28 stayed open by design; both
+are closed now (#23 by PR #78, #28 by PR #79).
 Read `handoff_log/lane-a-review-and-adr0003.md` before picking up Lane A.
 
 **#21 `p5.4` is merged — PR #76, 2026-09-11 (`feat/p5.4-ledger-effects` deleted), after #11 was settled
@@ -232,9 +233,52 @@ dialog) unless the body carries `overrideCreditLimit: true`, which writes one `a
 mechanic's row first (a cash bill locking products first would deadlock against a credit bill for the
 same mechanic); #22 and #23's void reversal must keep that order. 🔴 The counter path resends the
 **same `Idempotency-Key`** with the flag after the 409; it works only because the claim rolls back
-with the refused transaction, and an e2e pins it — `tx.3` must preserve that. #23's remaining AC
-(void reverses the ledger) is now buildable; #28 still waits on #22.
-Read `docs/handoff_log/lane-a-21-ledger-effects.md` before #22 or #23.
+with the refused transaction, and an e2e pins it — `tx.3` must preserve that.
+Read `docs/handoff_log/lane-a-21-ledger-effects.md` before touching the sale path.
+
+**#22 and #23 are merged — PR #78, 2026-09-11 (`feat/p5.6-void-ledger-reversal` deleted).** `POST /returns`
+is the credit-note transaction ported from `returns_repository.dart`, and `POST /sales/:id/void` now
+reverses the customer and mechanic ledger, which was #23's one remaining AC (1/2/4/5 shipped with #75).
+🔴 **The lock order grew to sale → mechanic → products → `doc_counters` → customer** — `sales` is the
+outermost resource because the sale path only INSERTs it; **#28 and #30 must keep that order**.
+Migration `1788652800004` adds `return_items.cost_at_sale`, carried from the locked `sale_items` read
+(ADR-0008's reasoning, applied to credit notes); #22 also writes `returns.shift_id`, which closes half
+of **#28**'s "every sale *and return* carries `shift_id`" — do not rebuild it there.
+🔴 **The review found a money bug the port inherited: the refund amount was whatever the client sent.**
+`soldByProduct` read `qty` and `cost_at_sale` but never `price`, so a `pos` device could issue a
+999,999-baht credit note against a bill that sold the part at 85 — and the `GREATEST(0, …)` clamps
+turned the damage silent by flooring a mechanic's tab at 0 instead of raising. The bill now decides the
+price (`409 RETURN_PRICE_MISMATCH`, refused not corrected). **The general lesson is in that clamp:
+validate input first, then clamp — a clamp on unvalidated input converts a loud corruption into a quiet
+one.** The Dart reference has the same hole because there the client *is* the authority; on the server
+Postgres is. The same round fixed four more: duplicate lines at different prices over-refunded, a
+soft-deleted product was restored by a void but silently skipped by a return (writing no `movements`
+row at all), `หักจากเครดิต` was accepted on a bill with no mechanic (`409 REFUND_METHOD_NOT_ALLOWED`),
+and `GET /returns` shipped without the `?from=&to=` that `02_API_SCREENS.md §314` specifies.
+🔴 **`resetTenant` derived `tenants.code` from `tenantId.slice(0, 8)`** and three suites all began
+`eeeeeeee`, so whichever reset second died on `tenants_code_key` — 37 failures that looked like new
+code and were not. It uses the whole uuid now.
+Read `docs/handoff_log/lane-a-22-23-returns-void.md` before #28 or #30.
+
+**#28 is closed — PR #79, 2026-09-12 (`feat/p6.3-shifts-drawer`), and it needed no new behaviour.**
+The whole drawer — `src/shifts/`, the five endpoints, the `shift_id` stamp — shipped inside PR #75
+(`6e8080f`); the issue stayed open only because its AC *"every sale **and return** carries
+`shift_id`"* could not be true until #22 existed. It does, so closing it was two missing assertions:
+the auto-archived shift is visible through `GET /shifts/history` while `GET /shifts/current` answers
+the new drawer (the raw columns were checked, the API view was not), and a credit note written with
+no drawer open carries a null `shift_id` (the sale path proved that case, the return path did not).
+🔴 **`closeForRetirement` still has no production caller** — `src/devices/` does not exist, so the
+ADR-0004 rule *"retiring a `pos` device closes its open shift in the same transaction"* is proved
+only against a test-mounted probe controller (`test/shifts.e2e-spec.ts`). Whoever builds the device
+endpoint must call it, and that wiring is the part no test covers today.
+🔴 **A local DB one migration behind reads as a code bug:** this round began with 14 red returns
+cases, all 500s, because the dev Postgres had never been given `1788652800004` (#22's
+`return_items.cost_at_sale`) — `pnpm db:migrate:status` said *"up to date"* because `dist/` was
+stale too. Rebuild before believing it. The `200 concurrent bills` case is still the known
+machine limit, now with its cause measured: every 500 is `pg-pool`'s *"timeout exceeded when
+trying to connect"* raised in `request-context.middleware.ts` **before routing** — the
+request-wide transaction ADR-0003's `tx.*` slices remove, not a fault on the sale path.
+Read `docs/handoff_log/p6.3-shifts-drawer.md` before #30 or a device slice.
 
 🔴 **ADR-0003 was amended 2026-09-10 — the transaction is handler-scoped, not request-wide.** The
 addendum's status is **Proposed** and takes effect only when slice `tx.4` lands; until then the

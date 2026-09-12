@@ -649,6 +649,29 @@ describe('POST /returns (e2e)', () => {
     expect(rows[0].shift_id).toBe(shift.body.data.id);
   });
 
+  it('a credit note with no drawer open carries no shift_id', async () => {
+    await insertSale({
+      id: 's_noshift',
+      receiptNo: 'R24',
+      subtotal: 85,
+      total: 85,
+      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+    });
+    const res = await post(
+      credit('s_noshift', [
+        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ]),
+    );
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.shiftId).toBeNull();
+    const rows = await admin.query(
+      `SELECT shift_id FROM returns WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, res.body.data.id],
+    );
+    expect(rows[0].shift_id).toBeNull();
+  });
+
   // ── The fix round: the server, not the client, decides what a refund is worth ──
 
   it('refuses a line priced at anything the bill did not charge', async () => {

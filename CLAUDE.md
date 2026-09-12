@@ -218,7 +218,8 @@ Scrutinize) fixed four more: a **negative `items[].price`** passed every total-l
 `?page=` was unbounded (now capped like `?limit=`); a **void wrote `movements.type='return'`**, so
 reports counted voids as returns (migration `1788652800003` adds `'void'`, `ref_id` is the bare sale id);
 and `server/docker/postgres/init/01-app-role.sh` lacked the executable bit, so Docker Desktop on macOS
-never created `pos_app` (CI on Linux was unaffected). #23 and #28 stay open by design.
+never created `pos_app` (CI on Linux was unaffected). #23 and #28 stayed open by design; both
+are closed now (#23 by PR #78, #28 by PR #79).
 Read `handoff_log/lane-a-review-and-adr0003.md` before picking up Lane A.
 
 **#21 `p5.4` is merged — PR #76, 2026-09-11 (`feat/p5.4-ledger-effects` deleted), after #11 was settled
@@ -258,6 +259,26 @@ and `GET /returns` shipped without the `?from=&to=` that `02_API_SCREENS.md §31
 `eeeeeeee`, so whichever reset second died on `tenants_code_key` — 37 failures that looked like new
 code and were not. It uses the whole uuid now.
 Read `docs/handoff_log/lane-a-22-23-returns-void.md` before #28 or #30.
+
+**#28 is closed — PR #79, 2026-09-12 (`feat/p6.3-shifts-drawer`), and it needed no new behaviour.**
+The whole drawer — `src/shifts/`, the five endpoints, the `shift_id` stamp — shipped inside PR #75
+(`6e8080f`); the issue stayed open only because its AC *"every sale **and return** carries
+`shift_id`"* could not be true until #22 existed. It does, so closing it was two missing assertions:
+the auto-archived shift is visible through `GET /shifts/history` while `GET /shifts/current` answers
+the new drawer (the raw columns were checked, the API view was not), and a credit note written with
+no drawer open carries a null `shift_id` (the sale path proved that case, the return path did not).
+🔴 **`closeForRetirement` still has no production caller** — `src/devices/` does not exist, so the
+ADR-0004 rule *"retiring a `pos` device closes its open shift in the same transaction"* is proved
+only against a test-mounted probe controller (`test/shifts.e2e-spec.ts`). Whoever builds the device
+endpoint must call it, and that wiring is the part no test covers today.
+🔴 **A local DB one migration behind reads as a code bug:** this round began with 14 red returns
+cases, all 500s, because the dev Postgres had never been given `1788652800004` (#22's
+`return_items.cost_at_sale`) — `pnpm db:migrate:status` said *"up to date"* because `dist/` was
+stale too. Rebuild before believing it. The `200 concurrent bills` case is still the known
+machine limit, now with its cause measured: every 500 is `pg-pool`'s *"timeout exceeded when
+trying to connect"* raised in `request-context.middleware.ts` **before routing** — the
+request-wide transaction ADR-0003's `tx.*` slices remove, not a fault on the sale path.
+Read `docs/handoff_log/p6.3-shifts-drawer.md` before #30 or a device slice.
 
 🔴 **ADR-0003 was amended 2026-09-10 — the transaction is handler-scoped, not request-wide.** The
 addendum's status is **Proposed** and takes effect only when slice `tx.4` lands; until then the
