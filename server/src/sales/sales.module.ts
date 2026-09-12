@@ -11,5 +11,6 @@ import { VoidService } from './void.service.js';
   imports: [DocumentsModule, IdempotencyModule, ShiftsModule],
   controllers: [SalesController],
   providers: [SalesService, SaleReadsService, VoidService],
+  exports: [SaleReadsService],
 })
 export class SalesModule {}

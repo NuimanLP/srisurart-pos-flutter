@@ -112,6 +112,24 @@ class ApiClient {
     );
   }
 
+  Future<dynamic> patch(
+    String path, {
+    dynamic body,
+    Map<String, String>? headers,
+    bool skipAuth = false,
+  }) async {
+    return _sendWithRetry(
+      () async {
+        final uri = _buildUri(path);
+        final h = await _buildHeaders(extraHeaders: headers, skipAuth: skipAuth);
+        final encodedBody = body != null ? (body is String ? body : jsonEncode(body)) : null;
+        return _client.patch(uri, headers: h, body: encodedBody);
+      },
+      path: path,
+      skipAuth: skipAuth,
+    );
+  }
+
   Future<dynamic> delete(
     String path, {
     Map<String, String>? headers,

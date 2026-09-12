@@ -42,6 +42,9 @@ export interface SaleListQuery {
   receiptNo?: string;
   from?: string;
   to?: string;
+  /** Internal people-directory filters; the public `/sales` route does not expose them. */
+  customerId?: string;
+  mechanicId?: string;
   page: number;
   limit: number;
 }
@@ -102,6 +105,14 @@ export class SaleReadsService {
     if (query.to) {
       params.push(query.to);
       where.push(`date <= $${params.length}::timestamptz`);
+    }
+    if (query.customerId) {
+      params.push(query.customerId);
+      where.push(`customer_id = $${params.length}`);
+    }
+    if (query.mechanicId) {
+      params.push(query.mechanicId);
+      where.push(`mechanic_id = $${params.length}`);
     }
 
     const clause = where.join(' AND ');

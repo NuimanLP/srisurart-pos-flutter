@@ -22,6 +22,13 @@ import { SalesController } from './sales/sales.controller.js';
 import { SalesModule } from './sales/sales.module.js';
 import { ShiftsController } from './shifts/shifts.controller.js';
 import { ShiftsModule } from './shifts/shifts.module.js';
+import { CustomersController } from './customers/customers.controller.js';
+import { CustomersModule } from './customers/customers.module.js';
+import { MechanicsController } from './mechanics/mechanics.controller.js';
+import { MechanicsModule } from './mechanics/mechanics.module.js';
+import { ReportsController } from './reports/reports.controller.js';
+import { ReportsModule } from './reports/reports.module.js';
+import { QueueModule } from './queue/queue.module.js';
 
 /** Shared infrastructure (config, logger, Postgres, both Redis) — no HTTP. */
 @Module({})
@@ -53,6 +60,9 @@ const TENANT_ROUTES = [
   SalesController,
   ReturnsController,
   ShiftsController,
+  CustomersController,
+  MechanicsController,
+  ReportsController,
 ];
 
 /** The HTTP application: core + health + platform. Business modules are added by later tickets. */
@@ -83,19 +93,28 @@ export class AppModule implements NestModule {
         SalesModule,
         ReturnsModule,
         ShiftsModule,
+        CustomersModule,
+        MechanicsModule,
+        ReportsModule,
+        QueueModule,
       ],
       providers: [RequestContextMiddleware],
     };
   }
 }
 
-/** The BullMQ worker process: core only. Processors arrive with #35. */
+/** The BullMQ worker process: core + db + redis + queue. Processors arrive with #35. */
 @Module({})
 export class WorkerModule {
   static forRoot(config: AppConfig, logger: Logger): DynamicModule {
     return {
       module: WorkerModule,
-      imports: [CoreModule.forRoot(config, logger), DbModule, RedisModule],
+      imports: [
+        CoreModule.forRoot(config, logger),
+        DbModule,
+        RedisModule,
+        QueueModule,
+      ],
     };
   }
 }

@@ -125,6 +125,7 @@ services:
     # No Redis connection yet — it registers no queue until #34. That slice must merge
     # `<<: *app-env` in here so it reaches redis-queue with the password.
     environment:
+      <<: *app-env
       PORT: "3100"
       BULL_BOARD_USER: ${BULL_BOARD_USER:-admin}
       BULL_BOARD_PASSWORD: ${BULL_BOARD_PASSWORD:?BULL_BOARD_PASSWORD is required}

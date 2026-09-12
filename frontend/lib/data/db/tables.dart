@@ -32,6 +32,10 @@ class Products extends Table {
   /// false so an unknown product is not sellable offline.
   BoolColumn get offlineOk => boolean().withDefault(const Constant(false))();
 
+  /// Schema v4 (Ticket #55): soft delete timestamp from server so that
+  /// `?updatedSince=` cursor does not re-resurrect deleted products.
+  DateTimeColumn get deletedAt => dateTime().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
