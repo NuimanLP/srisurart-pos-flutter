@@ -392,7 +392,7 @@ real schema at the commit before each bump — **they are evidence, do not tidy 
 **#55 owns that column.** It was deliberately NOT added in #53: ADR-0010 decision 2 moves the
 client schema only when the client actually needs the field, and nothing writes it until #55.
 
-**#54 is merged (PR #81, 2026-09-12) and #56 is on `feat/fe3-api-writes` (PR open).** `fe.3` is the
+**#54 is merged (PR #81) and #56 + #82 are merged and closed (PR #84, `ae4d47b`, 2026-09-12 — `feat/fe3-api-writes` deleted; read `docs/handoff_log/review-merge-fe3-84.md` for the review round that gated it).** `fe.3` is the
 money path client-side: `ApiSalesRepository` / `ApiReturnsRepository` / `ApiShiftsRepository` under
 `frontend/lib/data/repositories/api/`, each `implements` the concrete Drift class's implicit
 interface, hits the server, and **patches Drift rows from the response** (ADR-0010). Reads still
