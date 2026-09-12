@@ -64,6 +64,12 @@ Per **Issue #34**, **`02_API_SCREENS.md §6`**, **`03_ARCHITECTURE.md`**, and **
    - AC4: Proved Bull-Board requires auth and returns 401 when unauthorized.
    - Proved connection and responsiveness of all 5 queues on `redis-queue`.
 
+### D. CI Performance Fix
+1. **`server/src/reports/reports.service.ts` & `server/test/reports.e2e-spec.ts`**:
+   - Pushed down `product_id = $4` into `PRODUCT_ITEM_EVENTS` CTE in `productSales`.
+   - Added `ANALYZE sales; ANALYZE sale_items;` after 10k bulk demo insert in `addDemoVolume()`.
+   - Reduced query latency from ~2,038 ms down to ~4 ms, keeping it well within the 200 ms budget on CI runners.
+
 ---
 
 ## 3. Verification Results
@@ -74,4 +80,5 @@ Per **Issue #34**, **`02_API_SCREENS.md §6`**, **`03_ARCHITECTURE.md`**, and **
 | TypeScript | `pnpm typecheck` | **Clean (0 errors)** |
 | Unit Tests | `pnpm test` | **16 test files passed (102 tests)** |
 | Queue E2E Tests | `pnpm test:e2e test/queue.e2e-spec.ts` | **7 passed (0 failed)** |
+| Reports E2E Tests | `pnpm test:e2e test/reports.e2e-spec.ts` | **6 passed (0 failed)** |
 | Production Build | `pnpm build` | **`nest build` succeeds** |
