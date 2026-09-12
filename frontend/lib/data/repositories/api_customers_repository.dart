@@ -5,6 +5,7 @@
 //  • Writes results through to Drift immediately.
 //  • Supports offline read fallback from Drift cache.
 
+import '../../core/network/api_exception.dart';
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
@@ -95,6 +96,8 @@ class ApiCustomersRepository extends CustomersRepository {
         await db.into(db.customers).insertOnConflictUpdate(comp);
         return (db.select(db.customers)..where((t) => t.id.equals(comp.id.value))).getSingle();
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {
       // Offline fallback
     }
@@ -117,6 +120,8 @@ class ApiCustomersRepository extends CustomersRepository {
         await db.into(db.customers).insertOnConflictUpdate(comp);
         return;
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     await super.updateCustomer(id, patch);

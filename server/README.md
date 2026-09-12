@@ -327,12 +327,26 @@ ring the bill up a second time. A repeat carrying a *different* total is
 `409 SALE_ID_REUSED`, because silently answering with the old bill would lose the new
 one's money.
 
-**The 201 carries the ledger back** — `customerAfter { id, points, totalSpend }` and
-`mechanicCreditBalanceAfter`, null when the bill names none (§3.1, ADR-0010 §3) — so the
-client patches its cache without waiting for the next `/bootstrap`. A replayed bill
-answers the rows as they stand now and moves nothing. `shift_id` is stamped by #28. The
-response carries no `offlineOk` — it has no storage in phase 1. Reversing the ledger on a
-void is #23's.
+**The 201 carries back everything the client cannot compute** (§3.1, ADR-0010 §3), so it
+patches its cache without waiting for the next `/bootstrap`: `customerAfter
+{ id, points, totalSpend }`, `mechanicCreditBalanceAfter`, and — added by #82 — `shiftId`,
+`items[] { lineNo, productId, costAtSale }`, `movements[]`, and `mechanicAfter` with all
+four running totals. The response carries no `offlineOk`: it has no storage in phase 1.
+
+🔴 **`mechanicAfter` has no `totalCredit`, on either endpoint.** `mechanics.total_credit`
+is the JS app's legacy alias of `total_discount` (decision #11); the server never writes
+it, and a field on the wire is a field the client will eventually patch.
+
+🔴 **A widened response is a widened *replay*.** Both replay paths have to answer the same
+body, field for field and in the same array order: the `Idempotency-Key` path does it for
+free (the stored `response_body`), but `existingSale` rebuilds the answer from the rows,
+so every new field needs a matching `SELECT` there — `shiftId` came back null for a bill
+that really had a shift until that read learned about `shift_id`. `items[]` is ordered by
+`line_no` on both paths, and `products[]` / `movements[]` by the order the products appear
+on the bill; a replay that agrees on the values but not on their order is still a different
+body. `test/sales.e2e-spec.ts` *the write-through fields (#82)* compares the two bodies
+whole rather than field by field, which is the only assertion that stays true as the shape
+grows. A replayed bill reports the rows as they stand now and moves nothing.
 
 🔴 **`returning()` (`src/common/sql.ts`) is not optional.** TypeORM's Postgres driver
 returns rows directly for `SELECT`/`INSERT` but `[rows, affected]` for `UPDATE`/`DELETE`,
@@ -364,12 +378,15 @@ in this order:
    never re-read from `products.cost`, which a weighted-average PO receive rewrites
 9. stock back, one `movements` row per product, `type='return'`, `ref_id` = the **return**
    id (`uq_movements_ref` is `(tenant_id, type, ref_id, product_id)`, so keying on the bill
-   would make the second credit note against it a 500)
+   would make the second credit note against it a 500). #82 answers those rows in
+   `movements[]`; a **void** writes `type='void'` (migration `1788652800003`) against the
+   same goods and the two must never be collapsed — every report groups by that column
 10. the ledger, in proportion to `refundTotal / sale.total`: customer `points` and
    `total_spend`; mechanic `total_sales`, `total_discount`, `total_markup`, and
    `credit_balance` **only** for `refundMethod === 'หักจากเครดิต'`. Every accumulator
    clamps with `GREATEST(0, …)` — `total_spend`, `total_sales`, `total_discount` and
-   `total_markup` have no CHECK at all, so a missing clamp there fails silently
+   `total_markup` have no CHECK at all, so a missing clamp there fails silently. All four
+   come back as `mechanicAfter` (#82), alongside the unchanged `mechanicCreditBalanceAfter`
 11. auto-void the parent bill once the cumulative returned quantity reaches what it sold
 
 🔴 **The `FOR UPDATE` on the sale in step 2 is the whole endpoint's serialisation point.**

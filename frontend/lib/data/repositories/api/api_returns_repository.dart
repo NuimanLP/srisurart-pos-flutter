@@ -1,0 +1,286 @@
+// ApiReturnsRepository — `POST /api/v1/returns`, then patch the Drift cache
+// (#56, ADR-0010).
+//
+// Same rule as `api_sales_repository.dart`: the Drift `createReturn` is a
+// transaction that restores stock, reverses the customer's points and spend,
+// reverses the mechanic's tab and auto-voids the parent bill. All of that is now
+// `server/src/returns/returns.service.ts`, so the Drift service is never called —
+// a credit note applied twice puts the goods back on the shelf twice.
+//
+// 🔴 The price is the server's verdict, not ours. `returns.service.ts` reads what
+// each product-and-price actually sold for on the parent bill and answers
+// `409 RETURN_PRICE_MISMATCH` when the client's line disagrees — the bug #22's
+// review found was a client that could name any refund amount it liked. So the
+// screen's price is sent AS GIVEN and never "corrected" on the way out: a
+// mismatch must be refused loudly, not silently fixed into a different credit
+// note than the one the counter is about to print.
+//
+// 🔴 Naming: the "did this void the bill" flag is **`saleVoided`**. Issue #56 and
+// ADR-0010 both call it `parentSaleVoided`; no such field exists on
+// `CreateReturnResult`. Reading the docs instead of the server would have left
+// `sales.voided` permanently false here. Flagged in the #56 report.
+//
+// #82 added `movements[]` and `mechanicAfter` to `CreateReturnResult`, so the two
+// gaps #56 had to leave stale are patched below. Both are read DEFENSIVELY — a
+// server that predates #82 answers without them and a missing field must not
+// crash the counter — and absent means the local table is left as it was, never
+// that the value is worked out here (ADR-0010 §3).
+
+import 'package:drift/drift.dart';
+
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../domain/models/aggregates.dart';
+import '../../db/database.dart';
+import '../returns_repository.dart';
+import 'api_wire.dart';
+
+class ApiReturnsRepository implements ReturnsRepository {
+  ApiReturnsRepository({
+    required this.api,
+    required this.db,
+    required this.drift,
+  });
+
+  final ApiClient api;
+
+  /// Plain row patches only — never `db.transaction` around the network call,
+  /// never a Drift transactional service.
+  @override
+  final AppDatabase db;
+
+  /// Reads stay on Drift until the read slice (#55) replaces them.
+  final ReturnsRepository drift;
+
+  /// The `Idempotency-Key` of a credit note that never got a verdict, keyed by
+  /// the refund it was for.
+  ///
+  /// 🔴 `POST /returns` does NOT take a client-generated id — `returns.service.ts`
+  /// mints it — so the header is the ONLY thing standing between a lost reply and
+  /// a second credit note, and the over-refund guard does not catch it: it
+  /// enforces `requested ≤ sold − refunded`, so returning 3 of 10 twice is two
+  /// legal credit notes and ฿600 refunded for ฿300 of goods.
+  final PendingWrites _pending = PendingWrites('r');
+
+  @override
+  Future<ReturnRow> createReturn(ReturnInput input) {
+    return rethrowThai(() async {
+      final body = {
+        'saleId': input.saleId,
+        'refundMethod': input.refundMethod,
+        // `returns.reason` is NOT NULL DEFAULT '' on both sides, and the old app
+        // stores '' when staff typed nothing.
+        'reason': input.reason ?? '',
+        'items': [
+          for (final i in input.items)
+            {
+              'productId': i.productId,
+              'name': i.name,
+              'qty': i.qty,
+              // Sent verbatim. See the file header: the bill decides the price.
+              'price': wireMoney(i.price),
+              'originalQty': i.originalQty,
+            },
+        ],
+      };
+
+      // One key for this attempt, reused by `ApiClient`'s 401 → refresh → retry
+      // AND by the counter's own second press. A credit note is money leaving
+      // the drawer; a second one is a second refund for goods that came back
+      // once.
+      final attempt = _pending.of(_refundKey(input));
+
+      final Map<String, dynamic> res;
+      try {
+        res =
+            ((await api.post(
+                      '/api/v1/returns',
+                      body: body,
+                      headers: attempt.headers,
+                    ))
+                    as Map)
+                .cast<String, dynamic>();
+      } on ApiException catch (e) {
+        _pending.closeIfVerdict(attempt, e);
+        rethrow;
+      }
+
+      final row = await _patchFromResponse(res);
+      // Closed only after the cache agrees — same rule as the sale path.
+      _pending.close(attempt);
+      return row;
+    });
+  }
+
+  /// Identifies "the same refund, sent again": the bill, how it is refunded, and
+  /// every line. See [_pending].
+  String _refundKey(ReturnInput input) => [
+    input.saleId,
+    input.refundMethod,
+    input.reason ?? '',
+    for (final i in input.items) '${i.productId}x${i.qty}@${wireMoney(i.price)}',
+  ].join('|');
+
+  /// Copies the server's credit note into the cache. One Drift transaction so a
+  /// half-patched cache is impossible; the network call is already done.
+  Future<ReturnRow> _patchFromResponse(Map<String, dynamic> res) async {
+    final ret = ReturnRow(
+      id: res['id'] as String,
+      // Server's (ADR-0007) — `returns_screen.dart` prints this on the note.
+      cnNo: res['cnNo'] as String,
+      saleId: res['saleId'] as String,
+      receiptNo: res['receiptNo'] as String,
+      // All three refund amounts are the SERVER's: it recomputes them from the
+      // bill's own prices and its own discount ratio. Never the client's sums.
+      refundSubtotal: money(res['refundSubtotal']),
+      refundDiscount: money(res['refundDiscount']),
+      refundTotal: money(res['refundTotal']),
+      refundMethod: res['refundMethod'] as String,
+      reason: res['reason'] as String? ?? '',
+      customerId: res['customerId'] as String?,
+      mechanicId: res['mechanicId'] as String?,
+      mechanicName: res['mechanicName'] as String?,
+      date: stamp(res['date']),
+      // `res['shiftId']` is DROPPED: the Drift `Returns` table has no shiftId
+      // column. Per ADR-0010 decision 2 the client schema moves only when the
+      // client actually needs the field, and nothing on this device reads a
+      // credit note's shift — the closing report the server computes does. Adding
+      // the column here would be schema churn with no reader. (`Sales.shiftId`
+      // exists because #53 added it for the sale path.)
+    );
+
+    await db.transaction(() async {
+      await db.into(db.returns).insert(ret);
+
+      // Lines after the header: `ReturnItems.returnId` is a real FK.
+      //
+      // Built from the SERVER's `items`, not the input: the server is what
+      // decided each line's price, and its list is the canonical one (it also
+      // aggregates duplicate lines). `lineNo` and `costAtSale` come back too but
+      // have no column here.
+      final items =
+          (res['items'] as List? ?? const [])
+              .map((e) => (e as Map).cast<String, dynamic>())
+              .toList()
+            ..sort(
+              (a, b) => (a['lineNo'] as int? ?? 0).compareTo(
+                b['lineNo'] as int? ?? 0,
+              ),
+            );
+      await db.batch((b) {
+        for (final i in items) {
+          b.insert(
+            db.returnItems,
+            ReturnItemsCompanion.insert(
+              returnId: ret.id,
+              productId: i['productId'] as String,
+              name: i['name'] as String,
+              qty: i['qty'] as int,
+              price: money(i['price']),
+              originalQty: Value(i['originalQty'] as int?),
+            ),
+          );
+        }
+      });
+
+      // Stock: the server's restored number, not `old + qty`.
+      for (final p in (res['products'] as List? ?? const [])) {
+        final row = (p as Map).cast<String, dynamic>();
+        await (db.update(
+          db.products,
+        )..where((t) => t.id.equals(row['id'] as String))).write(
+          // Not `.stamped`, for the reason spelled out in
+          // `api_sales_repository.dart`: `updatedAt` is #55's sync cursor and
+          // this response carries none, so a locally invented one would push the
+          // cursor past server changes it has not seen yet.
+          ProductsCompanion(stock: Value(row['stock'] as int)),
+        );
+      }
+
+      // Customer: the reversed points and spend as the server has them — never
+      // the local `max(0, old - refund)` the Drift service computes.
+      final customerAfter = res['customerAfter'];
+      if (customerAfter is Map) {
+        final c = customerAfter.cast<String, dynamic>();
+        await (db.update(
+          db.customers,
+        )..where((t) => t.id.equals(c['id'] as String))).write(
+          CustomersCompanion(
+            points: Value(c['points'] as int),
+            totalSpend: Value(money(c['totalSpend'])),
+          ),
+        );
+      }
+
+      // Mechanic: the four running totals AS REVERSED BY THE SERVER (#82) —
+      // never the local `old - refund`. `mechanicCreditBalanceAfter` stays as
+      // the fallback for a server that predates #82; when neither field is
+      // there the row is left stale rather than recomputed.
+      //
+      // 🔴 `totalCredit` is NOT written — the legacy alias of `totalDiscount`
+      // settled in #11; the server never moves it.
+      final mechanicAfter = res['mechanicAfter'];
+      if (mechanicAfter is Map) {
+        final m = mechanicAfter.cast<String, dynamic>();
+        final companion = MechanicsCompanion(
+          totalSales: keepMoney(moneyOrNull(m['totalSales'])),
+          totalDiscount: keepMoney(moneyOrNull(m['totalDiscount'])),
+          totalMarkup: keepMoney(moneyOrNull(m['totalMarkup'])),
+          creditBalance: keepMoney(moneyOrNull(m['creditBalance'])),
+        );
+        if (companion != const MechanicsCompanion()) {
+          await (db.update(db.mechanics)
+                ..where((t) => t.id.equals(m['id'] as String)))
+              .write(companion);
+        }
+      } else {
+        final creditAfter = moneyOrNull(res['mechanicCreditBalanceAfter']);
+        final mechanicId = ret.mechanicId;
+        if (creditAfter != null && mechanicId != null) {
+          await (db.update(db.mechanics)..where((t) => t.id.equals(mechanicId)))
+              .write(MechanicsCompanion(creditBalance: Value(creditAfter)));
+        }
+      }
+
+      // Auto-void: BECAUSE THE SERVER SAID SO. The Drift service decides this by
+      // summing returned qty against sold qty; here that sum is the server's
+      // business and the client would need the whole bill to redo it. `voidedAt`
+      // is the credit note's own server timestamp — the void happened in that
+      // same transaction — rather than a local clock reading.
+      if (res['saleVoided'] == true) {
+        await (db.update(
+          db.sales,
+        )..where((t) => t.id.equals(ret.saleId))).write(
+          SalesCompanion(voided: const Value(true), voidedAt: Value(ret.date)),
+        );
+      }
+
+      // The สต็อก log rows the SERVER wrote for this credit note (#82), copied
+      // verbatim — `delta`, `stockAfter` and `type: 'return'` are all its
+      // numbers ('return' is not the same row type as a void's 'void', see
+      // `movementRowFromWire`). Without them the log on `products_screen.dart`
+      // was blind to every API-written return.
+      //
+      // Absent → the table is left alone; the rows are safe on the server and a
+      // read slice will fetch them. Inventing `{delta, stockAfter}` from the
+      // lines is the arithmetic ADR-0010 §3 forbids.
+      final movements = (res['movements'] as List? ?? const [])
+          .map((e) => (e as Map).cast<String, dynamic>())
+          .toList();
+      if (movements.isNotEmpty) {
+        await db.batch((b) {
+          for (final mv in movements) {
+            b.insert(db.movements, movementRowFromWire(mv));
+          }
+        });
+      }
+    });
+
+    return ret;
+  }
+
+  // ── Reads — still Drift (#55 owns them) ───────────────────────────────────
+
+  @override
+  Future<List<ReturnWithItems>> getReturns() => drift.getReturns();
+}

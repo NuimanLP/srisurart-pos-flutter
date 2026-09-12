@@ -222,6 +222,49 @@ describe('POST /sales — ledger effects (e2e)', () => {
     // Decision #11: a legacy alias of `total_discount` from the JS app. The server
     // never writes it, so it is exactly what the fixture seeded.
     expect(Number(m.total_credit)).toBe(120);
+
+    // #82: all four running totals come back, because the mechanics screen shows all
+    // four and the client may not recompute a server-owned figure.
+    expect(res.body.data.mechanicAfter).toEqual({
+      id: 'm1',
+      totalSales: '350.00',
+      totalDiscount: '50.00',
+      totalMarkup: '0.00',
+      creditBalance: '350.00',
+    });
+    // 🔴 `total_credit` is 120 in the row above and must not be on the wire at all:
+    // returning it would invite the client to patch a column nothing writes.
+    expect(res.body.data.mechanicAfter).not.toHaveProperty('totalCredit');
+    expect(JSON.stringify(res.body)).not.toContain('total_credit');
+  });
+
+  it('no mechanic on the bill: mechanicAfter is null, alongside the balance', async () => {
+    const res = await post(bill(chain()));
+    expect(res.status).toBe(201);
+    expect(res.body.data.mechanicAfter).toBeNull();
+    expect(res.body.data.mechanicCreditBalanceAfter).toBeNull();
+  });
+
+  it('a replayed bill answers the identical ledger body (#82)', async () => {
+    const body = bill(chain(), {
+      paymentMethod: 'เครดิตช่าง',
+      customerId: 'c1',
+      customerName: 'Somchai Jaidee',
+      mechanicId: 'm1',
+      mechanicName: 'Lung Manop',
+      mechanicDelta: '-50.00',
+    });
+    const first = await post(body);
+    expect(first.status).toBe(201);
+    expect(first.body.data.mechanicAfter.totalSales).toBe('350.00');
+
+    // The `existingSale` replay reads the mechanic and customer rows as they stand.
+    // Nothing moved between the two calls, so the two bodies must be equal — and the
+    // widened `mechanicAfter` is exactly the sort of field a replay forgets to fill.
+    const replay = await post(body, `k-replay-${Date.now()}`);
+    expect(replay.status).toBe(201);
+    expect(replay.body).toEqual(first.body);
+    expect(await saleCount()).toBe(1);
   });
 
   it('mechanic cash sale with a markup: no tab movement, markup added', async () => {

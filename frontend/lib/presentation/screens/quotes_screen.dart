@@ -55,9 +55,9 @@ class _QuotesScreenState extends State<QuotesScreen> {
     _quotesFuture = context.read<QuotesRepository>().getQuotes();
   }
 
-  void _refresh() => setState(
-    () => _quotesFuture = context.read<QuotesRepository>().getQuotes(),
-  );
+  void _refresh() => setState(() {
+    _quotesFuture = context.read<QuotesRepository>().getQuotes();
+  });
 
   // ── filtering (mirrors JSX `filtered`) ──
   List<QuoteWithItems> _applyFilter(List<QuoteWithItems> all) {

@@ -67,14 +67,66 @@ strict ในทรานแซกชันของตัวเอง ถ้า
 
   | write | server คืน | `ApiRepository` patch ลง Drift |
   |---|---|---|
-  | `POST /sales` | บิล + `products[].stock/offlineOk` + `mechanicCreditBalanceAfter` + **`customerAfter {points,totalSpend}`** (เพิ่ม) | `sales`, `saleItems`, `products.stock`, `customers`, `mechanics`, `movements` |
-  | `POST /returns` | ใบลดหนี้ + `products[]` + `customerAfter` + `mechanicAfter` + `parentSaleVoided` | `returns`, `products.stock`, `customers`, `mechanics`, `sales.voided` |
+  | `POST /sales` | บิล + `products[] {id, stock}` + `customerAfter {points,totalSpend}` + `mechanicCreditBalanceAfter` + **`shiftId` + `items[] {lineNo,productId,costAtSale}` + `movements[]` + `mechanicAfter{}`** (#82) | `sales` (รวม `shiftId`), `saleItems` (รวม `costAtSale`), `products.stock`, `customers`, `mechanics` (ทั้งสี่ยอด), `movements` |
+  | `POST /returns` | ใบลดหนี้ + `products[] {id, stock}` + `customerAfter` + `mechanicCreditBalanceAfter` + `saleVoided` + **`movements[]` + `mechanicAfter{}`** (#82) | `returns`, `returnItems`, `products.stock`, `customers`, `mechanics` (ทั้งสี่ยอด), `sales.voided`, `movements` |
   | `POST /purchase-orders/:id/receive` | PO + `products[] {stock, cost}` | `purchaseOrders`, `products.stock/cost`, `movements` |
   | `POST /shifts/*` | shift row | `shifts`, `drawerEntries` |
   | ที่เหลือ (CRUD) | แถวที่แก้ | แถวนั้น |
 
   ถ้า field ไหนไม่อยู่ใน response ให้ **ถือว่า Drift แถวนั้น stale** จนกว่า `/bootstrap` รอบถัดไป
   ห้ามคำนวณเองในเครื่อง (ถึงจะแค่ 6 บรรทัด) เพราะจะกลายเป็น invariant ชุดที่สองที่เพี้ยนได้เงียบ ๆ
+
+**4. แก้ตารางข้างบนตามของจริง + ช่องที่ response ไม่มี — เพิ่ม 2026-09-12 (#56)**
+
+ตารางฉบับแรกเขียนชื่อ field จากที่ตั้งใจไว้ ไม่ใช่จากที่ server ส่งจริง `#56` ไปต่อโค้ดแล้วเจอว่า
+**ผิดสามจุด** จึงแก้ไว้ข้างบนแล้ว: `POST /returns` ส่ง `saleVoided` (ไม่ใช่ `parentSaleVoided`) และ
+~~`mechanicCreditBalanceAfter` (ไม่ใช่ `mechanicAfter`)~~ — **ข้อนี้หมดอายุแล้วใน PR เดียวกัน: #82
+เพิ่ม `mechanicAfter` เข้าทั้งสอง response และเก็บ `mechanicCreditBalanceAfter` ไว้ด้วย (ดูข้อ 6)** — `server/src/returns/returns.service.ts`;
+`products[]` มีแค่ `{id, stock}` **ไม่มี `offlineOk`** ซึ่ง `sales.service.ts:217` ตั้งใจไม่ส่ง
+เพราะเฟส 1 ยังไม่มีที่เก็บ
+
+~~ช่องที่ response **ไม่มี** และ client จึงต้องปล่อยค้าง (ตามกฎ "ถ้าไม่อยู่ใน response ให้ถือว่า stale"):~~
+**ปิดครบทั้งสี่ช่องแล้วโดย `#82`** — ดูข้อ 6 ตารางนี้เก็บไว้เป็นประวัติเท่านั้น
+
+| ~~ช่อง~~ | ~~ทำไมไม่มี~~ | ~~ผลกับ client~~ |
+|---|---|---|
+| ~~`movements`~~ | ~~server เขียนแถวจริง (`insertMovements`) แต่ไม่ส่งคืน~~ | ~~ตาราง `movements` ในเครื่องมองไม่เห็นบิลที่ขายผ่าน server เลย จนกว่าจะมี read slice~~ |
+| ~~`sales.shiftId`~~ | ~~server ประทับลงแถว (`sales.service.ts:155,160`) แต่ `CreateSaleResult` ไม่ส่งกลับ~~ | ~~`Sales.shiftId` ที่ schema v3 เพิ่งเพิ่มมาเป็น null ทุกบิล — **แก้ที่ server บรรทัดเดียว**~~ |
+| ~~`saleItems.costAtSale`~~ | ~~response ไม่มีต้นทุน~~ | ~~null = "ประเมิน ห้าม backfill" ตาม `tables.dart`~~ |
+| ~~`mechanics.totalSales/totalDiscount/totalMarkup`~~ | ~~response ส่งแค่ยอดเครดิต~~ | ~~หน้าจอช่างเห็นสถิติค้าง~~ |
+
+**5. `updatedAt` ของแถวที่มาจาก server — เพิ่ม 2026-09-12 (#56)**
+
+ข้อ 3 ห้าม "คำนวณเองในเครื่อง" ไว้กว้าง ๆ แต่ไม่เคยพูดถึงกรณี timestamp ซึ่ง `product_stamp.dart`
+ขอไว้ให้ `#56` เขียนลงเอกสารให้ชัด — เขียนตรงนี้:
+
+> เมื่อ `ApiRepository` patch แถวจาก response ของ server **ห้ามประทับ `updatedAt` ด้วยนาฬิกาเครื่อง**
+> `updatedAt` คือเคอร์เซอร์ที่ `?updatedSince=` ใช้ (งาน `#55`) การประทับเองดันเคอร์เซอร์ **ล้ำหน้า**
+> การแก้ที่ server ทำระหว่างนั้น = แถวนั้นหายถาวร ส่วนการปล่อยให้ค้างอยู่ข้างหลัง อย่างแย่ที่สุดคือ
+> ดึงซ้ำแล้วได้ค่าที่ถูกต้อง — ผิดทางที่ปลอดภัยกว่าอย่างชัดเจน
+>
+> กฎของ `product_stamp.dart` ("ทุก write ที่แก้แถวสินค้าต้องขยับ `updatedAt`") ยังใช้กับ **write ที่เกิดในเครื่อง**
+> ทั้งหมดเหมือนเดิม ข้อนี้เป็นข้อยกเว้นเฉพาะแถวที่ค่ามาจาก server ซึ่ง server ขยับ `products.updated_at`
+> ของตัวเองอยู่แล้ว เคอร์เซอร์ฝั่ง server จึงถูกต้องไม่ว่า client จะประทับหรือไม่
+
+**6. ปิดทั้งสี่ช่องของข้อ 4 — เพิ่ม 2026-09-12 (#82)**
+
+ข้อ 4 บอกว่า client "ต้องปล่อยค้าง" ซึ่งถูกตามกฎข้อ 3 แต่ **ไม่ใช่คำตอบสุดท้าย**: ทั้งสี่ช่องเป็นค่าที่
+server ถืออยู่ในมือแล้วตอนเขียน แค่ไม่ได้ส่งกลับ `#82` จึงขยาย response แทนที่จะให้ client เดา —
+ซึ่งตรงกับเจตนาข้อ 3 มากกว่า ("ถ้าอยากให้ client มีค่า ให้ server ส่งมา อย่าให้ client คำนวณ")
+
+| ช่อง | อยู่ใน response แล้ว |
+|---|---|
+| `sales.shiftId` | `CreateSaleResult.shiftId` (และ replay path `existingSale` อ่าน `shift_id` ด้วย) |
+| `saleItems.costAtSale` | `CreateSaleResult.items[] { lineNo, productId, costAtSale }` — จาก locked read เดียวกับที่เขียนแถว (ADR-0008) |
+| `movements` | `CreateSaleResult.movements[]` (`type: 'sale'`) และ `CreateReturnResult.movements[]` (`type: 'return'`) |
+| `mechanics.totalSales/totalDiscount/totalMarkup` | `mechanicAfter { id, totalSales, totalDiscount, totalMarkup, creditBalance }` ทั้งสองฝั่ง — `mechanicCreditBalanceAfter` ยังอยู่เหมือนเดิม |
+
+🔴 **`mechanics.total_credit` ไม่อยู่ใน `mechanicAfter` และห้ามใส่** (ข้อตัดสิน `#11`) — มันคือชื่อเก่าของ
+`total_discount` ที่ server ไม่เคยเขียน ถ้าส่งกลับไป client จะไป patch คอลัมน์ที่ไม่มีใครเป็นเจ้าของ
+
+🔴 **`movements.type` ของ void คือ `'void'` ไม่ใช่ `'return'`** (migration `1788652800003`) รายงานทั้งหมด
+group ด้วยคอลัมน์นี้ การยุบสองค่านี้เข้าด้วยกัน = นับบิลที่ยกเลิกเป็นการคืนเงิน
 
 ## ผลที่ตามมา
 

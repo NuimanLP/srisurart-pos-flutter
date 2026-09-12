@@ -301,6 +301,8 @@ class ApiProductsRepository extends ProductsRepository {
 
     try {
       await apiClient.post('/api/v1/categories', body: {'name': trimmed});
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     await super.addCategory(trimmed);
@@ -310,6 +312,8 @@ class ApiProductsRepository extends ProductsRepository {
   Future<void> deleteCategory(String name) async {
     try {
       await apiClient.delete('/api/v1/categories/$name');
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     await super.deleteCategory(name);

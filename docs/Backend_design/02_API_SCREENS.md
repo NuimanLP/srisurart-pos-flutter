@@ -194,9 +194,16 @@ sequenceDiagram
 { "status": "success",
   "data": { "id": "s1a2b3c4", "receiptNo": "RC01-2569-08-0042", "total": "1400.00",
             "pointsGranted": 140, "date": "2026-08-25T03:12:00Z",
+            "shiftId": "sh_20260825_01",          // ⭐ #82 — กะที่ server ประทับให้ (null ถ้าไม่ได้เปิดลิ้นชัก) client คำนวณเองไม่ได้
             "mechanicCreditBalanceAfter": "5400.00",
+            "mechanicAfter": { "id": "m2", "totalSales": "182000.00", "totalDiscount": "3100.00",   // ⭐ #82 — ครบทั้งสี่ยอดสะสม
+                               "totalMarkup": "0.00", "creditBalance": "5400.00" },                 // 🔴 ไม่มี total_credit (ข้อตัดสิน #11)
             "customerAfter": { "id": "c3", "points": 1340, "totalSpend": "58200.00" },   // ⭐ เพิ่ม (ADR-0010 ข้อ 3) — ไม่งั้น Drift ฝั่ง client ค้างค่าเก่าจนกว่า /bootstrap รอบถัดไป
-            "products": [ { "id": "p12", "stock": 8, "offlineOk": true } ] } }
+            "products": [ { "id": "p12", "stock": 8 } ],   // ไม่มี offlineOk — เฟส 1 ยังไม่มีที่เก็บ (`sales.service.ts`), ADR-0010 ข้อ 4
+            "items": [ { "lineNo": 1, "productId": "p12", "costAtSale": "480.00" } ],    // ⭐ #82 — ต้นทุน ณ วันที่ขาย (ADR-0008) กู้คืนทีหลังไม่ได้
+            "movements": [ { "id": "mv…", "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",   // ⭐ #82 — แถว ledger ที่บิลนี้เขียน
+                             "delta": -2, "type": "sale", "note": null, "stockAfter": 8,
+                             "date": "2026-08-25T03:12:00Z" } ] } }
 
 // 409 — ของไม่พอ
 { "status": "error",
@@ -214,10 +221,15 @@ sequenceDiagram
 >    reconciliation (ADR-0007)
 >    ✅ รูปแบบ `RC01-2569-08-0042` **อนุมัติแล้ว** (ADR-0007, grill รอบ 2) — ยังต้องให้เจ้าของร้านเห็นใบเสร็จ
 >    ตัวอย่างจริงก่อนพิมพ์ใบแรก แต่ไม่ใช่ "รูปแบบที่เสนอ" อีกต่อไป
-> 3. **`shiftId` ไม่อยู่ใน body** — server ประทับให้เองจากลิ้นชักที่เปิดอยู่ของเครื่องนั้น (#28)
+> 3. **`shiftId` ไม่อยู่ใน request body** — server ประทับให้เองจากลิ้นชักที่เปิดอยู่ของเครื่องนั้น (#28)
 >    ส่งมาก็ไม่อ่าน · รายงานปิดร้านคิดจาก `shift_id` ถ้ารับจาก body เครื่องหนึ่งเขียนเข้ากะของอีกเครื่องได้
+>    **แต่อยู่ใน response** (#82) เพราะ client ไม่มีทางรู้ค่าที่ server ประทับ
 > 4. **ต้องคืน `products[]` ที่สต็อกเปลี่ยนกลับมาใน response** เพื่อให้หน้า Checkout อัปเดตค่าในเครื่องได้ทันที
 >    ไม่ต้องยิง `GET /products` ซ้ำ — แก้ปัญหา read-your-writes ที่ cache 5 นาที + replica lag ทำให้เห็นสต็อกเก่า
+> 5. 🔴 **replay ต้องตอบ body เดิมทุก field** (#82) — ทั้งทาง `Idempotency-Key` และทาง `existingSale`
+>    (ยิงซ้ำด้วย `id` เดิมแต่ key ใหม่) `existingSale` ต้อง `SELECT` `shift_id` / `sale_items` /
+>    `movements` / ยอดช่าง กลับมาให้ครบ ไม่งั้นบิลที่ replay จะตอบ null ให้กับกะที่มันมีจริง
+>    ทุก array เรียงลำดับแบบเดียวกับตอนเขียน (`items` ตาม `line_no`, `products`/`movements` ตามลำดับสินค้าบนบิล)
 
 ### 3.2 Products (จัดการอะไหล่)
 
@@ -312,6 +324,23 @@ sequenceDiagram
 | **`GET /sales/:id/refunded-qty`** | ตรงกับ `getRefundedQty()` เดิม — คืน map `productId → qty ที่**คืนไปแล้ว**` |
 | `POST /returns` | ⭐ transaction + idempotent |
 | `GET /returns?saleId=&from=&to=&page=` | ประวัติการคืน · `saleId` เป็นตัวกรองเพิ่ม (#22) สำหรับดูใบลดหนี้ของบิลเดียว |
+
+**`POST /returns` — 201 body** = ใบลดหนี้ (`id, cnNo, saleId, receiptNo, refundSubtotal, refundDiscount,
+refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, shiftId, items[]`)
+บวกผลที่ client ต้อง patch: `saleVoided`, `products[] {id, stock}`, `customerAfter`,
+`mechanicCreditBalanceAfter` และ **#82 เพิ่มอีกสอง field**
+
+```jsonc
+  "movements": [ { "id": "mv…", "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",
+                   "delta": 2, "type": "return", "note": null, "stockAfter": 10,
+                   "date": "2026-08-25T04:00:00Z" } ],   // 🔴 'return' เท่านั้น — void เขียน 'void' (migration 1788652800003)
+  "mechanicAfter": { "id": "m2", "totalSales": "…", "totalDiscount": "…",
+                     "totalMarkup": "…", "creditBalance": "…" }   // 🔴 ไม่มี total_credit (#11)
+```
+
+> หนึ่งแถว `movements` ต่อ **หนึ่งสินค้า** ไม่ใช่ต่อบรรทัด — `uq_movements_ref` unique บน
+> `(tenant_id, type, ref_id, product_id)` ใบลดหนี้ที่คืนของชิ้นเดียวกันสองราคาจึงได้แถวเดียว
+> ส่วน `items[]` ได้สองบรรทัด · `items[].costAtSale` มีอยู่แล้วตั้งแต่ #22 (คัดจากบรรทัดบิลแม่)
 
 ### 3.8 Quotes (ใบเสนอราคา)
 

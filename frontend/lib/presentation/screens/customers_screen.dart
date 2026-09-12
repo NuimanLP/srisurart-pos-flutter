@@ -65,7 +65,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
     return _CustomersData(customers, billCount);
   }
 
-  void _refresh() => setState(() => _dataFuture = _loadData());
+  void _refresh() => setState(() {
+    _dataFuture = _loadData();
+  });
 
   List<CustomerRow> _filter(List<CustomerRow> all) {
     final q = _search.toLowerCase();

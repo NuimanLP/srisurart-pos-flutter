@@ -5,6 +5,7 @@
 //  • Quotes NEVER touch stock (pure document persistence).
 //  • Writes results through to Drift immediately; offline fallback preserved.
 
+import '../../core/network/api_exception.dart';
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
@@ -173,6 +174,8 @@ class ApiQuotesRepository extends QuotesRepository {
 
         return row;
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {
       // Offline fallback
     }
@@ -190,6 +193,8 @@ class ApiQuotesRepository extends QuotesRepository {
       if (patch.status.present) body['status'] = patch.status.value;
 
       await apiClient.patch('/api/v1/quotes/$id', body: body);
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     await super.updateQuote(id, patch);
@@ -231,6 +236,8 @@ class ApiQuotesRepository extends QuotesRepository {
           return newRow;
         }
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     return super.duplicateQuote(id);
@@ -248,6 +255,8 @@ class ApiQuotesRepository extends QuotesRepository {
           return (resMap['count'] as num).toInt();
         }
       }
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     return super.purgeOldQuotes(olderThanDays: olderThanDays);
@@ -257,6 +266,8 @@ class ApiQuotesRepository extends QuotesRepository {
   Future<void> deleteQuote(String id) async {
     try {
       await apiClient.delete('/api/v1/quotes/$id');
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
     } catch (_) {}
 
     await super.deleteQuote(id);
