@@ -167,7 +167,7 @@ describe('shifts and the cash drawer (e2e)', () => {
       [TENANT, forgotten.body.data.id],
     );
 
-    await post('/open', { startingCash: '2000.00' });
+    const fresh = await post('/open', { startingCash: '2000.00' });
 
     const archived = await shiftRow(forgotten.body.data.id);
     expect(archived.is_active).toBe(false);
@@ -175,6 +175,14 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(archived.archived_at).not.toBeNull();
     // The day's takings are still there to report on.
     expect(archived.closed_at).toBeNull();
+
+    // The forgotten shift moved to history, not the void — and the active drawer is the new one.
+    const current = await get('/current');
+    expect(current.body.data.id).toBe(fresh.body.data.id);
+    const history = await get('/history');
+    expect(history.body.data.map((sh: { id: string }) => sh.id)).toContain(
+      forgotten.body.data.id,
+    );
   });
 
   it('closing leaves the shift active — it is still this device’s drawer', async () => {
