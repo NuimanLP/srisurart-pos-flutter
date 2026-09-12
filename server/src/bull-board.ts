@@ -1,20 +1,25 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createBullBoard } from '@bull-board/api';
+import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
+import { Queue } from 'bullmq';
 import express, {
   type NextFunction,
   type Request,
   type Response,
 } from 'express';
 import { createLogger } from './common/logger.js';
+import { ALL_QUEUES } from './queue/queue.constants.js';
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing required environment variable ${name}`);
   return v;
 }
+
 const user = requiredEnv('BULL_BOARD_USER');
 const password = requiredEnv('BULL_BOARD_PASSWORD');
+const redisQueueUrl = requiredEnv('REDIS_QUEUE_URL');
 const port = Number(process.env.PORT ?? 3100);
 const logger = createLogger({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -44,16 +49,36 @@ function basicAuth(req: Request, res: Response, next: NextFunction) {
 
 const serverAdapter = new ExpressAdapter();
 serverAdapter.setBasePath('/');
-// Queues are registered by #34 (BullMQAdapter per queue on redis-queue).
-createBullBoard({ queues: [], serverAdapter });
+
+const parsedRedisUrl = new URL(redisQueueUrl);
+const redisConnection = {
+  host: parsedRedisUrl.hostname,
+  port: Number(parsedRedisUrl.port || 6379),
+  password: parsedRedisUrl.password || undefined,
+  username: parsedRedisUrl.username || undefined,
+  maxRetriesPerRequest: null,
+};
+
+const queues = ALL_QUEUES.map((name) => new Queue(name, { connection: redisConnection }));
+
+createBullBoard({
+  queues: queues.map((q) => new BullMQAdapter(q)),
+  serverAdapter,
+});
 
 const app = express();
 app.use(basicAuth);
 app.use('/', serverAdapter.getRouter());
 
 const server = app.listen(port, '0.0.0.0', () =>
-  logger.info({ port }, 'bull-board listening'),
+  logger.info({ port, queues: ALL_QUEUES }, 'bull-board listening'),
 );
+
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(sig, () => server.close(() => process.exit(0)));
+  process.on(sig, () => {
+    server.close(async () => {
+      await Promise.allSettled(queues.map((q) => q.close()));
+      process.exit(0);
+    });
+  });
 }
