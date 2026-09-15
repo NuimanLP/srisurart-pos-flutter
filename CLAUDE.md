@@ -701,8 +701,7 @@ Read `docs/handoff_log/ops-auth-cache-monitoring-etcd.md` before touching auth r
   `ApiException`): it is **not a verdict**, so `PendingWrites` keeps the id + key. 🔴 Every #55 transport fallback
   in `data/repositories/api_*.dart` has `on ApiTimeoutException { rethrow; }` before its `catch (_)` — a timed-out
   write may have committed, and falling back ran it twice locally; `api_repository_contract_test.dart` enforces it.
-  A reset socket still falls back (pre-existing). Follow-ups #199 (Thai text instead of `ClientException` at the
-  counter), #200 (cancel via `AbortableRequest`).
+  A reset socket still falls back (pre-existing). Follow-ups: #199 and #200 (merged 2026-09-15).
 - **Merged 2026-09-15:** #182 → PR #198 — `JobSchedulerService` upserts the global `idem.cleanup` as a BullMQ job
   scheduler (id `idem-cleanup-global`, every hour; BullMQ 6.3.4 runs the first occurrence **immediately** on first
   registration, not at the next hour). 🔴 It lives in `QueueSchedulerModule`, imported **only** by
@@ -726,12 +725,24 @@ Read `docs/handoff_log/ops-auth-cache-monitoring-etcd.md` before touching auth r
   at `seededAt`, **not** that the counter is current — in phase 1 the server keeps issuing after the seed and the
   client does not advance from write responses; #189 must re-seed or compare before trusting it (hazards on #189).
 - **Merged 2026-09-15:** #199 → PR #209 (Thai connection sentence at the counter via `resolveCounterError`) and
-  #200 → PR #208 (`AbortableRequest` cancels a timed-out request). Merged by another session without review; the
-  post-merge review found no regression (#183 invariants hold, abort proven on a live socket, verdicts keep their
-  Thai text). Follow-ups #219 (`http ^1.5.0`, 200 ms timers, test fixtures), #221 (the credit-payment re-ask only
-  handles the server's `CREDIT_PAYMENT_EXCEEDS_BALANCE`, not the local `OVERPAYMENT_NOT_ALLOWED`). 🔴 After a
-  timeout Checkout still says "ขายไม่สำเร็จ" although the bill may have committed — editing the cart then mints a new
-  id + key and can ring a second bill; the wording is the owner's call (#220).
+  #200 → PR #208 (`AbortableRequest` cancels a timed-out request). The post-merge review found no regression (#183
+  invariants hold, abort proven on a live socket, verdicts keep their Thai text). Follow-ups #219 (`http ^1.5.0`,
+  200 ms timers, test fixtures), #221 (the credit-payment re-ask only handles the server's
+  `CREDIT_PAYMENT_EXCEEDS_BALANCE`, not the local `OVERPAYMENT_NOT_ALLOWED`). 🔴 After a timeout Checkout still says
+  "ขายไม่สำเร็จ" although the bill may have committed — editing the cart then mints a new id + key and can ring a
+  second bill; the wording is the owner's call (#220).
+  #200 rules: all client requests route through `http.AbortableRequest` with an `abortTrigger` completed on timeout
+  in `ApiClient._withTimeout` — an abandoned XHR in the browser is cancelled immediately so it does not tie up
+  one of ~6 HTTP/1.1 connection slots per host. 🔴 It still throws `ApiTimeoutException` (subclass of
+  `http.ClientException`), so it remains a transport failure (never an `ApiException`/verdict), `PendingWrites`
+  keeps the attempt parked, and credit payments remain queued in Drift. A 401 retry creates a fresh `AbortableRequest`
+  with its own `abortTrigger`.
+  #199 rules: `ServerErrorResolver.resolveCounterError` centralizes counter error formatting across Checkout, Returns,
+  Cash Drawer, and Mechanics credit payments — on `ClientException` (incl. `ApiTimeoutException`) and `TimeoutException`
+  it renders the canonical Thai connection sentence (`เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์`), exactly mirroring
+  `AuthCubit.loginRefusalMessage`; raw exception text and backend URLs never reach the counter UI; server verdicts
+  (`PosException`) still render their own message verbatim; exceptions quoting URLs are defensively masked to the
+  connection sentence.
 - **Decided 2026-09-15 (owner):** #187 + #191 → PR #214 (supersedes PR #206, corrects PR #210). Offline PIN for
   `cashier` only, device-bound, valid 3 days since the last online login on that device, Degraded mode only, re-checked
   on `/sync/push`. Reconnect = push outbox then pull; products with pending ops are not overwritten until pushed;
