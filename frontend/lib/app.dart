@@ -25,8 +25,11 @@ class SrisurartApp extends StatefulWidget {
   /// plain [appRouter] and never reads the AuthCubit here.
   final bool requireLogin;
 
-  /// Replaces both brand themes. Tests only: the brand themes load Sarabun
-  /// through google_fonts, which a test harness cannot fetch.
+  /// Replaces both brand themes. Tests only, for a plain deterministic theme
+  /// where a test doesn't care about AppTheme's brand styling. (Historically
+  /// this also dodged a google_fonts network fetch inside AppTheme — #271
+  /// removed that; Sarabun is a bundled asset font now, so that reason no
+  /// longer applies, but the override hook is still useful on its own.)
   final ThemeData? themeOverride;
 
   @override

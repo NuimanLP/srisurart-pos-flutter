@@ -20,6 +20,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../core/utils/money.dart';
+import '../../core/utils/pdf_fonts.dart';
 import '../../data/db/database.dart';
 import 'thai_format.dart';
 
@@ -267,8 +268,8 @@ class ReceiptView extends StatelessWidget {
     final sale = data.sale;
     final isMechanicSale = sale.mechanicId != null;
     final isCredit = sale.paymentMethod == 'เครดิตช่าง';
-    final font = await PdfGoogleFonts.sarabunRegular();
-    final fontB = await PdfGoogleFonts.sarabunBold();
+    final font = await PosPdfFonts.sarabunRegular();
+    final fontB = await PosPdfFonts.sarabunBold();
 
     final doc = pw.Document();
     final base = pw.TextStyle(font: font, fontSize: 8);

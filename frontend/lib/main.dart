@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'app.dart';
 import 'core/network/api_client.dart';
@@ -19,6 +20,10 @@ import 'presentation/widgets/theme_controller.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // #271: Sarabun is a bundled asset font (see app_theme.dart) — nothing in
+  // the app should ever fetch a font over the network. Belt-and-braces safety
+  // net; the offline PWA shell can't reach fonts.gstatic.com (flutter#163554).
+  GoogleFonts.config.allowRuntimeFetching = false;
   final db = AppDatabase.open();
   runApp(
     MultiRepositoryProvider(

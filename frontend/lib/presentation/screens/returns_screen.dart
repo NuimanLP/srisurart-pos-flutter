@@ -25,6 +25,7 @@ import 'package:printing/printing.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
+import '../../core/utils/pdf_fonts.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
@@ -1785,8 +1786,8 @@ Future<void> _printCreditNote(
   SettingsRowData settings,
 ) async {
   final r = cn.ret;
-  final font = await PdfGoogleFonts.sarabunRegular();
-  final fontBold = await PdfGoogleFonts.sarabunBold();
+  final font = await PosPdfFonts.sarabunRegular();
+  final fontBold = await PosPdfFonts.sarabunBold();
   final doc = pw.Document();
 
   pw.Widget kv(String k, String v, {bool bold = false}) => pw.Row(

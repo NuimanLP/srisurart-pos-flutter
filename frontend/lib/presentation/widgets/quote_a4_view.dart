@@ -3,8 +3,9 @@
 // Flutter port of the `Quote` component (the #receipt-paper data-print="a4"
 // block) in pos/Quote.jsx. Builds a real PDF via the `pdf` package and shows it
 // with the `printing` package's PdfPreview (which also exposes the share/print
-// bar). Thai text uses Sarabun; the display headings use Barlow Condensed — both
-// fetched lazily through PdfGoogleFonts so Thai glyphs render in the PDF.
+// bar). Thai text uses Sarabun; the display headings use Barlow Condensed —
+// both loaded from bundled assets via PosPdfFonts (#271) so Thai glyphs render
+// in the PDF with no network fetch.
 //
 // The JS A4 layout (760px paper) is reproduced: orange header band with shop
 // info + QUOTATION title, a meta grid (เสนอแก่ / เลขที่·วันที่·ใช้ได้ถึง·ผู้ออก),
@@ -19,6 +20,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../../core/utils/pdf_fonts.dart';
 import '../../data/db/database.dart';
 import '../../domain/models/aggregates.dart';
 
@@ -70,10 +72,10 @@ class QuoteA4View extends StatelessWidget {
   }
 
   Future<Uint8List> _buildPdf(PdfPageFormat format) async {
-    final base = await PdfGoogleFonts.sarabunRegular();
-    final bold = await PdfGoogleFonts.sarabunBold();
-    final semi = await PdfGoogleFonts.sarabunSemiBold();
-    final cond = await PdfGoogleFonts.barlowCondensedBold();
+    final base = await PosPdfFonts.sarabunRegular();
+    final bold = await PosPdfFonts.sarabunBold();
+    final semi = await PosPdfFonts.sarabunSemiBold();
+    final cond = await PosPdfFonts.barlowCondensedBold();
 
     final doc = pw.Document(
       // The display headings use Barlow Condensed (cond), which has NO Thai
