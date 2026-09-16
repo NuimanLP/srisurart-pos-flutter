@@ -884,9 +884,26 @@ back** (decided 2026-09-04). Recover from git history if you ever need the Supab
   written by the app~~ — **done 2026-09-10** (schema v3, #53): all six paths that change a
   product row stamp it (add / update / adjustStock / saveSale / createReturn / receivePO).
 - **Software hardening — Phase 8a** (anywhere, can parallel Phase 7): manager-PIN gate,
-  audit log, PDPA, **bundle Sarabun/Barlow fonts as assets** (currently `google_fonts`
-  runtime fetch — set `GoogleFonts.config.allowRuntimeFetching = false` in tests to avoid
-  a pending-timer leak).
+  audit log, PDPA. ~~bundle Sarabun/Barlow fonts as assets~~ — **done 2026-09-16 (#271)**:
+  `frontend/assets/fonts/` bundles Sarabun 400/500/600/700 + BarlowCondensed 700
+  (OFL-licensed, provenance + sha256 in `assets/fonts/SOURCES.txt`); `app_theme.dart` uses
+  `TextTheme.apply(fontFamily: 'Sarabun')` instead of `GoogleFonts.sarabunTextTheme()`, and
+  `GoogleFonts.config.allowRuntimeFetching = false` is set once in `main.dart` (not just
+  per-test). 🔴 **`PdfGoogleFonts` was a second, separate runtime-fetch mechanism** the ticket
+  text didn't spell out — `printing`'s PDF font loader, used across **5** files (receipt,
+  credit-note, quote A4, low-stock supplier order, closing report), all switched to a local
+  `PosPdfFonts` loader (`core/utils/pdf_fonts.dart`) that reads the same bundled `.ttf`s via
+  `rootBundle`; a Windows-side scrutinize round caught that the old `PdfGoogleFonts` path never
+  throws (it silently falls back to Helvetica) while the new one does, so `pdf_fonts.dart`
+  clears its cached Future on failure rather than permanently breaking printing after one
+  transient asset-load error. 🔴 **Not fully closed:** turning the network off and opening the
+  **web** build still isn't clean — `flutter build web`'s output still references
+  `fonts.gstatic.com` as the Flutter *engine's* (not `google_fonts`') fallback-glyph download
+  base for characters the bundled faces don't cover (this app's UI strings use emoji in ~29
+  files), and the web build's service worker precaches nothing regardless (blocked on #266, see
+  the Web DB entry above) — so AC1 ("ปิดเน็ตแล้วเปิดแอป ไม่มี request ไป gstatic") is proven for
+  Thai text but not for the web target as a whole. Native (Android/iOS) targets aren't affected
+  by either gap. See `docs/handoff_log/ticket-271-bundle-fonts.md`.
 - **Native hardware — Phase 8b** (needs shop access): thermal printer / cash-drawer kick /
   barcode **scanning** (camera); scan actions currently use manual entry.
 - **Security (2026-09-09 review)** — compose hardening landed the same day: both Redis run with

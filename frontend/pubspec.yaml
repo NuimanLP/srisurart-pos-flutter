@@ -99,7 +99,8 @@ flutter:
   # the app renders Thai text and generates PDFs with no network access; the
   # offline PWA shell can't reach fonts.gstatic.com, flutter#163554). Source:
   # github.com/google/fonts (OFL-licensed); OFL.txt for each family travels
-  # alongside the .ttf files in assets/fonts/.
+  # alongside the .ttf files in assets/fonts/, and assets/fonts/SOURCES.txt
+  # has the exact URLs + sha256 for re-verifying or re-syncing.
   #
   # Sarabun: 400/500 cover Material 3's default TextTheme (app_theme.dart);
   # 600/700 are pulled in for the PDF-generation weights the app already used

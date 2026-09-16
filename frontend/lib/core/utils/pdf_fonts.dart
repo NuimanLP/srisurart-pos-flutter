@@ -26,15 +26,37 @@ class PosPdfFonts {
     return pw.Font.ttf(bytes);
   }
 
+  // A failed load (missing/corrupt asset, e.g. a stale web deploy) must not be
+  // cached forever — `??=` assigns the Future synchronously, so a rejected one
+  // would otherwise permanently break printing for the rest of the session.
+  // Clearing the field on error lets the next call retry.
   static Future<pw.Font> sarabunRegular() =>
-      _sarabunRegular ??= _load('assets/fonts/Sarabun-Regular.ttf');
+      _sarabunRegular ??= _load(
+        'assets/fonts/Sarabun-Regular.ttf',
+      ).onError((e, st) {
+        _sarabunRegular = null;
+        Error.throwWithStackTrace(e!, st);
+      });
 
   static Future<pw.Font> sarabunSemiBold() =>
-      _sarabunSemiBold ??= _load('assets/fonts/Sarabun-SemiBold.ttf');
+      _sarabunSemiBold ??= _load(
+        'assets/fonts/Sarabun-SemiBold.ttf',
+      ).onError((e, st) {
+        _sarabunSemiBold = null;
+        Error.throwWithStackTrace(e!, st);
+      });
 
   static Future<pw.Font> sarabunBold() =>
-      _sarabunBold ??= _load('assets/fonts/Sarabun-Bold.ttf');
+      _sarabunBold ??= _load('assets/fonts/Sarabun-Bold.ttf').onError((e, st) {
+        _sarabunBold = null;
+        Error.throwWithStackTrace(e!, st);
+      });
 
   static Future<pw.Font> barlowCondensedBold() =>
-      _barlowCondensedBold ??= _load('assets/fonts/BarlowCondensed-Bold.ttf');
+      _barlowCondensedBold ??= _load(
+        'assets/fonts/BarlowCondensed-Bold.ttf',
+      ).onError((e, st) {
+        _barlowCondensedBold = null;
+        Error.throwWithStackTrace(e!, st);
+      });
 }

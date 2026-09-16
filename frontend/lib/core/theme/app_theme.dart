@@ -39,8 +39,15 @@ class AppTheme {
     // TextTheme role keeps its own size/weight/spacing, only the font family
     // changes. `Sarabun` is declared in pubspec.yaml with the 400/500 faces
     // Material 3's default TextTheme actually references (see typography.dart
-    // englishLike2021 — only w400/w500 appear); any explicit bold request
-    // beyond that synthesizes bold from the nearest face, same as before.
+    // englishLike2021 — only w400/w500 appear).
+    //
+    // 🔴 Bold text now renders differently than before #271. google_fonts gave
+    // each role a per-variant family with exactly one registered face, so any
+    // widget doing `.copyWith(fontWeight: FontWeight.bold)` got a *synthesized*
+    // (faux) bold. `Sarabun` now has real 600/700 faces bundled (see below),
+    // so the same call selects the genuine Sarabun Bold instead — an
+    // improvement, but it changes how every bold Thai label in the app
+    // renders. Worth a look at one dense screen (checkout / products list).
     final textTheme = ThemeData(
       brightness: scheme.brightness,
     ).textTheme.apply(fontFamily: 'Sarabun');

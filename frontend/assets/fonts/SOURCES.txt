@@ -1,0 +1,19 @@
+Bundled font provenance (#271) — same pattern as web/WEB_DB_ASSET_VERSIONS.txt (#245/#267):
+record where a committed binary came from so a future skew is diagnosable.
+
+All files: SIL Open Font License 1.1 (see the accompanying *-OFL.txt in this
+directory), pulled from the Google Fonts repository (google/fonts), branch
+`main`, on 2026-09-16.
+
+  URL                                                                                 SHA-256
+  https://raw.githubusercontent.com/google/fonts/main/ofl/sarabun/Sarabun-Regular.ttf         226d4f368fbc0457990ddef2692679badfd2c1a4e89e5ac4d43c10ba7743b2f1
+  https://raw.githubusercontent.com/google/fonts/main/ofl/sarabun/Sarabun-Medium.ttf          cc7c3016daab3321674fdf6e2ef59850dc0c07503de1cbdb8b90fe8080ada2b4
+  https://raw.githubusercontent.com/google/fonts/main/ofl/sarabun/Sarabun-SemiBold.ttf        c0bb057d86e4a12097d701ac0953597e315788d47a446f5b63a6604ab21dceba
+  https://raw.githubusercontent.com/google/fonts/main/ofl/sarabun/Sarabun-Bold.ttf            d38308ca27d067b9a1b79006337c1f9a66c29aa016d96a9d88d3801da7fa83b9
+  https://raw.githubusercontent.com/google/fonts/main/ofl/sarabun/OFL.txt                     (→ Sarabun-OFL.txt)
+  https://raw.githubusercontent.com/google/fonts/main/ofl/barlowcondensed/BarlowCondensed-Bold.ttf  e476562ec9c1e16cf16475895b511f08c804f438cc9a9f80a44ea50a0eeb5b65
+  https://raw.githubusercontent.com/google/fonts/main/ofl/barlowcondensed/OFL.txt             (→ BarlowCondensed-OFL.txt)
+
+Re-verify with `sha256sum *.ttf` in this directory. If a font ever needs
+re-syncing (a hinting fix upstream, a new weight), update this file in the
+same commit — do not just overwrite the binaries silently.
