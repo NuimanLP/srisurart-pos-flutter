@@ -21,6 +21,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/pdf_fonts.dart';
 import '../../data/db/database.dart';
 import 'thai_format.dart';
 
@@ -108,8 +109,8 @@ class _LowStockBannerState extends State<LowStockBanner> {
   Future<void> _print() async {
     setState(() => _busy = true);
     try {
-      final font = await PdfGoogleFonts.sarabunRegular();
-      final fontB = await PdfGoogleFonts.sarabunBold();
+      final font = await PosPdfFonts.sarabunRegular();
+      final fontB = await PosPdfFonts.sarabunBold();
       final doc = _buildPdf(font, fontB);
       await Printing.layoutPdf(onLayout: (_) async => doc.save());
       if (mounted) setState(() => _printed = true);
