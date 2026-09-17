@@ -123,6 +123,42 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     });
   });
 
+  describe('PlatformAuthGuard IP allowlist (Slice 24 / #270)', () => {
+    it('rejects with 403 when hitting API directly from an IP outside the allowlist', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '203.0.113.195');
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('PLATFORM_IP_FORBIDDEN');
+      expect(res.body.error.message).toContain('IP not allowed for platform admin access');
+    });
+
+    it('allows request from loopback IP', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '127.0.0.1');
+
+      expect(res.status).toBe(200);
+    });
+
+    it('allows request from configured admin IP', async () => {
+      config.platformAdminIps = ['198.51.100.50'];
+      try {
+        const res = await request(app.getHttpServer())
+          .get('/api/v1/platform/tenants')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .set('X-Forwarded-For', '198.51.100.50');
+
+        expect(res.status).toBe(200);
+      } finally {
+        delete config.platformAdminIps;
+      }
+    });
+  });
+
   describe('Atomic Audit Logging in createTenant (AC2)', () => {
     it('creates tenant and writes audit log atomically inside the same transaction', async () => {
       const code = `t-${randomUUID().slice(0, 8)}`;

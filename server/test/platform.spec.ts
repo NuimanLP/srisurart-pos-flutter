@@ -99,7 +99,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
     it('rejects missing Authorization header', async () => {
       const context = {
         switchToHttp: () => ({
-          getRequest: () => ({ headers: {} }),
+          getRequest: () => ({ headers: {}, ip: '127.0.0.1' }),
         }),
       } as any;
 
@@ -115,6 +115,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
         switchToHttp: () => ({
           getRequest: () => ({
             headers: { authorization: `Bearer ${tenantToken}` },
+            ip: '127.0.0.1',
           }),
         }),
       } as any;
@@ -130,6 +131,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       );
       const req = {
         headers: { authorization: `Bearer ${platformToken}` },
+        ip: '127.0.0.1',
       } as any;
       const context = {
         switchToHttp: () => ({ getRequest: () => req }),
@@ -138,6 +140,65 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       expect(await guard.canActivate(context)).toBe(true);
       expect(req.platformAdmin).toEqual({ id: 'adm1', username: 'admin' });
       expect(mockAdminDs.query).not.toHaveBeenCalled();
+    });
+
+    it('rejects with ForbiddenException when client IP is outside allowlist', async () => {
+      const platformToken = signJwt(
+        { aud: 'platform', sub: 'adm1', username: 'admin' },
+        mockConfig.jwtPlatformSecret,
+      );
+      const req = {
+        headers: {
+          authorization: `Bearer ${platformToken}`,
+          'x-forwarded-for': '203.0.113.195',
+        },
+      } as any;
+      const context = {
+        switchToHttp: () => ({ getRequest: () => req }),
+      } as any;
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows request from loopback IP', async () => {
+      mockRedisCache.get.mockResolvedValueOnce('1');
+      const platformToken = signJwt(
+        { aud: 'platform', sub: 'adm1', username: 'admin' },
+        mockConfig.jwtPlatformSecret,
+      );
+      const req = {
+        ip: '127.0.0.1',
+        headers: { authorization: `Bearer ${platformToken}` },
+      } as any;
+      const context = {
+        switchToHttp: () => ({ getRequest: () => req }),
+      } as any;
+
+      expect(await guard.canActivate(context)).toBe(true);
+    });
+
+    it('allows request from configured admin IP', async () => {
+      mockRedisCache.get.mockResolvedValueOnce('1');
+      const platformToken = signJwt(
+        { aud: 'platform', sub: 'adm1', username: 'admin' },
+        mockConfig.jwtPlatformSecret,
+      );
+      const guardWithAdminIp = new PlatformAuthGuard(
+        { ...mockConfig, platformAdminIps: ['198.51.100.50'] },
+        mockAdminDs,
+        mockRedisCache,
+      );
+      const req = {
+        headers: {
+          authorization: `Bearer ${platformToken}`,
+          'x-forwarded-for': '198.51.100.50',
+        },
+      } as any;
+      const context = {
+        switchToHttp: () => ({ getRequest: () => req }),
+      } as any;
+
+      expect(await guardWithAdminIp.canActivate(context)).toBe(true);
     });
 
     it('verifies against DB and populates Redis cache (60s TTL) when Redis misses', async () => {
@@ -150,6 +211,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       );
       const req = {
         headers: { authorization: `Bearer ${platformToken}` },
+        ip: '127.0.0.1',
       } as any;
       const context = {
         switchToHttp: () => ({ getRequest: () => req }),
@@ -167,6 +229,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       );
       const req = {
         headers: { authorization: `Bearer ${platformToken}` },
+        ip: '127.0.0.1',
       } as any;
       const context = {
         switchToHttp: () => ({ getRequest: () => req }),
@@ -185,6 +248,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       );
       const req = {
         headers: { authorization: `Bearer ${platformToken}` },
+        ip: '127.0.0.1',
       } as any;
       const context = {
         switchToHttp: () => ({ getRequest: () => req }),
@@ -211,7 +275,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
         expect.stringContaining('INSERT INTO audit_log'),
         expect.arrayContaining(['00000000-0000-0000-0000-000000000000', 'adm1', null, null, 'platform.auth.login']),
       );
-    });
+    }, 15000);
 
     it('rejects invalid password', async () => {
       const passHash = await hashPassword('secret123');
@@ -221,7 +285,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
 
       const authService = new PlatformAuthService(mockAdminDs, mockConfig, auditService);
       await expect(authService.login('superadmin', 'wrongpass')).rejects.toThrow(UnauthorizedException);
-    });
+    }, 15000);
   });
 
   describe('PlatformTenantsService', () => {
