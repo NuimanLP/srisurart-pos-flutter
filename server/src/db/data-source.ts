@@ -10,6 +10,7 @@ import { ProductsPartNoCaseInsensitive1788652800007 } from './migrations/1788652
 import { AppRoleTransactionCeiling1788652802131 } from './migrations/1788652802131-AppRoleTransactionCeiling.js';
 import { ImportJobs1788652802200 } from './migrations/1788652802200-ImportJobs.js';
 import { SingleOwnerRole1788652803001 } from './migrations/1788652803001-SingleOwnerRole.js';
+import { OwnerReviewItems1788652803002 } from './migrations/1788652803002-OwnerReviewItems.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -24,6 +25,7 @@ export const MIGRATIONS = [
   AppRoleTransactionCeiling1788652802131,
   ImportJobs1788652802200,
   SingleOwnerRole1788652803001,
+  OwnerReviewItems1788652803002,
 ];
 
 /**
