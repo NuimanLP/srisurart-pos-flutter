@@ -1,0 +1,47 @@
+{
+  "name": "customer-create.applied",
+  "description": "New customer created via push queue",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "op_cust_001",
+          "idempotencyKey": "k_cust_001",
+          "type": "customer.create",
+          "payload": {
+            "id": "c_off_001",
+            "name": "สมชาย สายลม",
+            "phone": "0812345678",
+            "address": "123 ถ.สุขุมวิท"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_cust_001",
+            "status": "applied",
+            "response": {
+              "id": "c_off_001",
+              "name": "สมชาย สายลม",
+              "phone": "0812345678",
+              "address": "123 ถ.สุขุมวิท",
+              "totalSpend": "0.00",
+              "points": 0
+            }
+          }
+        ]
+      }
+    }
+  }
+}

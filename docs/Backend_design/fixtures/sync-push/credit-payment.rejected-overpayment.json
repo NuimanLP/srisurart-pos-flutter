@@ -1,0 +1,47 @@
+{
+  "name": "credit-payment.rejected-overpayment",
+  "description": "Credit payment rejected because amount exceeds mechanic outstanding balance",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 1,
+      "ops": [
+        {
+          "opId": "op_cp_002",
+          "idempotencyKey": "k_cp_002",
+          "type": "credit_payment.create",
+          "payload": {
+            "id": "cp_off_002",
+            "mechanicId": "m1",
+            "amount": "5000.00",
+            "paymentMethod": "เงินสด",
+            "date": "2026-09-15T04:30:00.000Z"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_cp_002",
+            "status": "rejected",
+            "code": "OVERPAYMENT",
+            "message": "ยอดชำระเกินยอดหนี้คงค้าง",
+            "details": {
+              "mechanicId": "m1",
+              "outstandingBalance": "1500.00",
+              "attemptedAmount": "5000.00"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

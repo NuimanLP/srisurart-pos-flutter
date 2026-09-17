@@ -1,0 +1,41 @@
+{
+  "name": "customer-update.applied",
+  "description": "Customer update applied via push queue",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "op_cust_002",
+          "idempotencyKey": "k_cust_002",
+          "type": "customer.update",
+          "payload": {
+            "id": "c_off_001",
+            "phone": "0899999999"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_cust_002",
+            "status": "applied",
+            "response": {
+              "id": "c_off_001",
+              "phone": "0899999999"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

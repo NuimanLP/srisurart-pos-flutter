@@ -33,6 +33,7 @@ import '../../data/repositories/api_purchase_orders_repository.dart';
 import '../../data/repositories/api_quotes_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
+import '../../data/sync/sync_facade.dart';
 
 /// The repository providers, mirroring providers.dart + shift_providers.dart,
 /// plus AuthRepository, ApiClient, and ApiRepositories (Ticket #55 / ADR-0010).
@@ -50,6 +51,7 @@ List<RepositoryProvider> repositoryProviders(
   AppDatabase db, {
   AuthRepository? authRepository,
   ApiClient? apiClient,
+  SyncFacade? syncFacade,
   bool useApi = const bool.fromEnvironment('USE_API_WRITES'),
   bool useApiRepositories = true,
 }) {
@@ -126,6 +128,11 @@ List<RepositoryProvider> repositoryProviders(
     // #188: seeded on app open / login by `seedDocCountersOnSignIn` (main.dart).
     RepositoryProvider<DocCounterSeeder>.value(
       value: DocCounterSeeder(db: db, apiClient: client),
+    ),
+    // Phase 2: SyncFacade contract seam (Slice 0d / Ticket #269).
+    // Swapped to real SyncService in slice 8-c (#228).
+    RepositoryProvider<SyncFacade>.value(
+      value: syncFacade ?? const NullSyncFacade(),
     ),
   ];
 }
