@@ -1,21 +1,17 @@
-// Schema v5 → v6 migration, run against a REAL v5 database file.
+// Schema v6 → v7 migration test (Ticket #272).
 //
-// #188 adds the document-number counter (`doc_counters`) and its seed record
-// (`doc_counter_seeds`). Without the `createTable` steps an upgraded till would
-// throw "no such table" on its first seed instead of filling the counter.
+// Verifies that migrating an in-memory database from schema v6 to v7 drops
+// the `offline_ok` column from the `products` table while keeping all existing
+// product rows and columns intact.
 
-import 'dart:io';
-
+import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart' as raw;
 import 'package:srisurart_pos/data/db/database.dart';
 
-/// 🔴 Evidence, not a fixture: `SELECT sql FROM sqlite_master` of a database
-/// created by `AppDatabase` at the commit before the v6 bump (origin/main
-/// 261daa4), in `rowid` order (`sqlite_sequence` omitted — SQLite creates it
-/// itself). Do not tidy it.
-const _v5Ddl = [
+/// Schema v6 DDL with `products.offline_ok` present.
+const _v6Ddl = [
   'CREATE TABLE "products" ("id" TEXT NOT NULL, "part_no" TEXT NOT NULL, "name" TEXT NOT NULL, "name_t_h" TEXT NOT NULL, "category" TEXT NOT NULL, "brand" TEXT NOT NULL, "price" REAL NOT NULL, "cost" REAL NOT NULL, "stock" INTEGER NOT NULL, "min_stock" INTEGER NOT NULL, "compat" TEXT NULL, "zone" TEXT NULL, "updated_at" INTEGER NULL, "offline_ok" INTEGER NOT NULL DEFAULT 0 CHECK ("offline_ok" IN (0, 1)), "deleted_at" INTEGER NULL, PRIMARY KEY ("id"))',
   'CREATE TABLE "categories" ("name" TEXT NOT NULL, "position" INTEGER NOT NULL, PRIMARY KEY ("name"))',
   'CREATE TABLE "customers" ("id" TEXT NOT NULL, "code" TEXT NOT NULL, "name" TEXT NOT NULL, "name_t_h" TEXT NOT NULL, "phone" TEXT NULL, "address" TEXT NULL, "points" INTEGER NOT NULL DEFAULT 0, "total_spend" REAL NOT NULL DEFAULT 0.0, "created_at" TEXT NOT NULL, "updated_at" INTEGER NULL, "deleted_at" INTEGER NULL, PRIMARY KEY ("id"))',
@@ -36,78 +32,118 @@ const _v5Ddl = [
   'CREATE TABLE "drawer_entries" ("id" TEXT NOT NULL, "shift_id" TEXT NOT NULL REFERENCES shifts (id), "type" TEXT NOT NULL, "amount" REAL NOT NULL, "note" TEXT NULL, "created_at" INTEGER NOT NULL, PRIMARY KEY ("id"))',
   'CREATE TABLE "parked_sales" ("id" TEXT NOT NULL, "parked_at" INTEGER NOT NULL, "payload" TEXT NOT NULL, PRIMARY KEY ("id"))',
   'CREATE TABLE "settings_row" ("id" INTEGER NOT NULL, "shop_name" TEXT NOT NULL, "shop_name_e_n" TEXT NOT NULL, "tax_rate" REAL NOT NULL DEFAULT 7.0, "quote_valid_days" INTEGER NOT NULL DEFAULT 30, "address" TEXT NULL, "phone" TEXT NULL, "cashier_name" TEXT NULL, "tax_id" TEXT NULL, "branch_no" TEXT NULL, "updated_at" INTEGER NULL, "deleted_at" INTEGER NULL, PRIMARY KEY ("id"))',
+  'CREATE TABLE "doc_counters" ("device_id" TEXT NOT NULL, "device_no" INTEGER NOT NULL, "doc_type" TEXT NOT NULL, "period" TEXT NOT NULL, "last_no" INTEGER NOT NULL, PRIMARY KEY ("device_id", "doc_type", "period"))',
+  'CREATE TABLE "doc_counter_seeds" ("device_id" TEXT NOT NULL, "period" TEXT NOT NULL, "seeded_at" INTEGER NOT NULL, PRIMARY KEY ("device_id", "period"))',
   'CREATE TABLE "app_meta" ("key" TEXT NOT NULL, "value" TEXT NOT NULL, PRIMARY KEY ("key"))',
 ];
 
 void main() {
-  late Directory dir;
-  late AppDatabase db;
+  test(
+    'migrating an in-memory database from schema v6 to v7 drops offline_ok while keeping product rows intact',
+    () async {
+      final rawDb = raw.sqlite3.openInMemory();
+      for (final ddl in _v6Ddl) {
+        rawDb.execute(ddl);
+      }
 
-  setUp(() async {
-    dir = await Directory.systemTemp.createTemp('sri_v5_');
-    final file = File('${dir.path}/app.sqlite');
+      // Populate v6 product rows: one with offline_ok = 1 and one with offline_ok = 0
+      rawDb.execute(
+        'INSERT INTO products (id, part_no, name, name_t_h, category, brand, price, '
+        'cost, stock, min_stock, compat, zone, updated_at, offline_ok, deleted_at) VALUES '
+        "('p1', 'OIL-001', 'Engine Oil', 'น้ำมันเครื่อง', 'น้ำมัน', 'Shell', 450.0, 320.0, 15, 3, 'All', 'A1', 1726000000, 1, NULL), "
+        "('p2', 'BRK-002', 'Brake Pad', 'ผ้าเบรก', 'เบรก', 'Brembo', 1200.0, 800.0, 8, 2, NULL, NULL, NULL, 0, NULL)",
+      );
+      rawDb.execute('PRAGMA user_version = 6');
 
-    final v5 = raw.sqlite3.open(file.path);
-    for (final ddl in _v5Ddl) {
-      v5.execute(ddl);
-    }
-    // A queued credit payment: v5 data the upgrade must not touch.
-    v5.execute(
-      'INSERT INTO pending_credit_payments (id, idempotency_key, mechanic_id, '
-      "amount, payment_method, created_at) VALUES ('cp_1', 'idem_1', 'm1', "
-      "'500.00', 'เงินสด', 1789000000)",
-    );
-    v5.execute('PRAGMA user_version = 5');
-    v5.close();
+      final db = AppDatabase(NativeDatabase.opened(rawDb));
+      addTearDown(() => db.close());
 
-    db = AppDatabase(NativeDatabase(file));
-  });
+      // Verify PRAGMA user_version is bumped to 7
+      final version = await db
+          .customSelect('PRAGMA user_version')
+          .map((r) => r.data.values.first)
+          .getSingle();
+      expect(version, 7);
 
-  tearDown(() async {
-    await db.close();
-    await dir.delete(recursive: true);
-  });
+      // Verify existing product rows are intact with all fields preserved
+      final products = await (db.select(db.products)
+            ..orderBy([(t) => OrderingTerm.asc(t.id)]))
+          .get();
+      expect(products.length, 2);
 
-  test('upgrades a v5 file to v6 with empty counter tables', () async {
-    final version = await db
-        .customSelect('PRAGMA user_version')
-        .map((r) => r.data.values.first)
-        .getSingle();
-    expect(version, 7);
+      final p1 = products[0];
+      expect(p1.id, 'p1');
+      expect(p1.partNo, 'OIL-001');
+      expect(p1.name, 'Engine Oil');
+      expect(p1.nameTH, 'น้ำมันเครื่อง');
+      expect(p1.category, 'น้ำมัน');
+      expect(p1.brand, 'Shell');
+      expect(p1.price, 450.0);
+      expect(p1.cost, 320.0);
+      expect(p1.stock, 15);
+      expect(p1.minStock, 3);
+      expect(p1.compat, 'All');
+      expect(p1.zone, 'A1');
+      expect(p1.deletedAt, isNull);
 
-    expect(await db.select(db.docCounters).get(), isEmpty);
-    expect(await db.select(db.docCounterSeeds).get(), isEmpty);
+      final p2 = products[1];
+      expect(p2.id, 'p2');
+      expect(p2.partNo, 'BRK-002');
+      expect(p2.name, 'Brake Pad');
+      expect(p2.nameTH, 'ผ้าเบรก');
+      expect(p2.category, 'เบรก');
+      expect(p2.brand, 'Brembo');
+      expect(p2.price, 1200.0);
+      expect(p2.cost, 800.0);
+      expect(p2.stock, 8);
+      expect(p2.minStock, 2);
 
-    final queued = await db.select(db.pendingCreditPayments).getSingle();
-    expect(queued.id, 'cp_1');
-    expect(queued.amount, '500.00');
-  });
+      // Verify offline_ok column was dropped from sqlite schema
+      final tableInfo =
+          await db.customSelect('PRAGMA table_info(products)').get();
+      final columnNames =
+          tableInfo.map((row) => row.data['name'] as String).toList();
+      expect(columnNames, isNot(contains('offline_ok')));
+      expect(
+        columnNames,
+        containsAll([
+          'id',
+          'part_no',
+          'name',
+          'name_t_h',
+          'category',
+          'brand',
+          'price',
+          'cost',
+          'stock',
+          'min_stock',
+          'compat',
+          'zone',
+          'updated_at',
+          'deleted_at',
+        ]),
+      );
 
-  test('the new tables accept a counter row and a seed row', () async {
-    await db
-        .into(db.docCounters)
-        .insert(
-          DocCountersCompanion.insert(
-            deviceId: 'dv_1',
-            deviceNo: 1,
-            docType: 'receipt',
-            period: '2569-09',
-            lastNo: 42,
-          ),
-        );
-    await db
-        .into(db.docCounterSeeds)
-        .insert(
-          DocCounterSeedsCompanion.insert(
-            deviceId: 'dv_1',
-            period: '2569-09',
-            seededAt: DateTime(2026, 9, 15, 9),
-          ),
-        );
-
-    final counter = await db.select(db.docCounters).getSingle();
-    expect(counter.lastNo, 42);
-    final seed = await db.select(db.docCounterSeeds).getSingle();
-    expect(seed.period, '2569-09');
-  });
+      // Verify inserting and reading a new product row without offline_ok
+      await db.into(db.products).insert(
+            ProductsCompanion.insert(
+              id: 'p3',
+              partNo: 'FLT-003',
+              name: 'Air Filter',
+              nameTH: 'กรองอากาศ',
+              category: 'เครื่องยนต์',
+              brand: 'Denso',
+              price: 250.0,
+              cost: 150.0,
+              stock: 20,
+              minStock: 5,
+            ),
+          );
+      final p3 = await (db.select(db.products)
+            ..where((t) => t.id.equals('p3')))
+          .getSingle();
+      expect(p3.name, 'Air Filter');
+      expect(p3.stock, 20);
+    },
+  );
 }

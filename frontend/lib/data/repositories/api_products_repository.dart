@@ -34,7 +34,6 @@ class ApiProductsRepository extends ProductsRepository {
     final minStock = (json['minStock'] ?? json['min_stock'] as num?)?.toInt() ?? 0;
     final compat = json['compat'] as String?;
     final zone = json['zone'] as String?;
-    final offlineOk = (json['offlineOk'] ?? json['offline_ok'] as bool?) ?? false;
 
     final updatedAt = stampOrNull(json['updatedAt']);
     final deletedAt = stampOrNull(json['deletedAt']);
@@ -52,7 +51,6 @@ class ApiProductsRepository extends ProductsRepository {
       minStock: Value(minStock),
       compat: Value(compat),
       zone: Value(zone),
-      offlineOk: Value(offlineOk),
       updatedAt: Value(updatedAt),
       deletedAt: Value(deletedAt),
     );

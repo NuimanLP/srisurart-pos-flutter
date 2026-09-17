@@ -11098,6 +11098,7 @@ q.xFileSize=A.b8(s.gll())
 q.xLock=A.b8(s.glp())
 q.xUnlock=A.b8(s.glD())
 q.xCheckReservedLock=A.b8(s.glc())
+q.xFileControl=function(file,op,pArg){return 12}
 q.xDeviceCharacteristics=A.bu(s.gcl())
 q["dispatch_()v"]=A.bu(s.gka())
 q["dispatch_()i"]=A.bu(s.gk5())

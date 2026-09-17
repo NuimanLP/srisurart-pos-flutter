@@ -149,12 +149,12 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  test('a v1 file lands on the current schema (v6) in a single open', () async {
+  test('a v1 file lands on the current schema (v7) in a single open', () async {
     final version = await db
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 6);
+    expect(version, 7);
   });
 
   test('the v2 block still applies on the way through', () async {
@@ -215,7 +215,6 @@ void main() {
     final product = await (db.select(
       db.products,
     )..where((t) => t.id.equals('p1'))).getSingle();
-    expect(product.offlineOk, isFalse);
     expect(product.deletedAt, isNull);
     expect(product.stock, 9);
     expect(product.updatedAt, isNull); // never written by a v1 build

@@ -91,7 +91,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 6);
+    expect(version, 7);
 
     final product = await (db.select(
       db.products,
@@ -101,7 +101,6 @@ void main() {
     expect(product.partNo, 'OIL-001');
     expect(product.nameTH, 'น้ำมันเครื่อง');
     expect(product.stock, 15);
-    expect(product.offlineOk, isTrue);
     expect(product.deletedAt, isNull);
   });
 
