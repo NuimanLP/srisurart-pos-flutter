@@ -403,6 +403,141 @@ describe('customers and mechanics (e2e)', () => {
     expect(response.body.data).toHaveLength(1);
   });
 
+  describe('customers keyset pagination', () => {
+    it('refuses invalid keyset sync parameter combinations on customers', async () => {
+      const cursor = '2026-03-01T10:00:00.000Z';
+      const res1 = await request(app.getHttpServer())
+        .get('/api/v1/customers?afterId=c1')
+        .set(auth());
+      expect(res1.status).toBe(400);
+
+      const res2 = await request(app.getHttpServer())
+        .get(
+          `/api/v1/customers?updatedSince=${encodeURIComponent(cursor)}&page=2`,
+        )
+        .set(auth());
+      expect(res2.status).toBe(400);
+    });
+
+    it('a keyset sync pass over customer records sharing one microsecond timestamp returns every row once and ends', async () => {
+      for (let i = 0; i < 5; i++) {
+        await createCustomer({
+          name: `Sync Cust ${i}`,
+          nameTH: `ลูกค้าซิงค์ ${i}`,
+        });
+      }
+      const listBefore = await request(app.getHttpServer())
+        .get('/api/v1/customers')
+        .set(auth());
+      const deleteId = listBefore.body.data[0].id as string;
+      await request(app.getHttpServer())
+        .delete(`/api/v1/customers/${deleteId}`)
+        .set(auth())
+        .set('Idempotency-Key', idempotency());
+
+      await admin.query(
+        `UPDATE customers SET updated_at = '2026-03-01 10:00:00.123456+00' WHERE tenant_id = $1::uuid`,
+        [TENANT],
+      );
+
+      const seen: string[] = [];
+      let cursor: { updatedSince: string; afterId?: string } = {
+        updatedSince: '2026-01-01T00:00:00.000Z',
+      };
+      let requests = 0;
+      for (;;) {
+        expect(++requests).toBeLessThanOrEqual(5);
+        const qs = new URLSearchParams({ ...cursor, limit: '2' }).toString();
+        const page = await request(app.getHttpServer())
+          .get(`/api/v1/customers?${qs}`)
+          .set(auth());
+        expect(page.status).toBe(200);
+        seen.push(...page.body.data.map((c: { id: string }) => c.id));
+        if (page.body.meta.nextCursor) {
+          cursor = page.body.meta.nextCursor;
+          expect(cursor.updatedSince).toBe('2026-03-01T10:00:00.123456Z');
+        }
+        if (page.body.data.length < 2) break;
+      }
+      expect(seen).toHaveLength(5);
+      expect(new Set(seen).size).toBe(5);
+      expect(seen).toContain(deleteId);
+
+      const final = await request(app.getHttpServer())
+        .get(`/api/v1/customers?${new URLSearchParams(cursor).toString()}`)
+        .set(auth());
+      expect(final.body.data).toEqual([]);
+      expect(final.body.meta.nextCursor).toBeNull();
+    });
+  });
+
+  describe('mechanics keyset pagination', () => {
+    it('refuses invalid keyset sync parameter combinations on mechanics', async () => {
+      const cursor = '2026-03-01T10:00:00.000Z';
+      const res1 = await request(app.getHttpServer())
+        .get('/api/v1/mechanics?afterId=m1')
+        .set(auth());
+      expect(res1.status).toBe(400);
+
+      const res2 = await request(app.getHttpServer())
+        .get(
+          `/api/v1/mechanics?updatedSince=${encodeURIComponent(cursor)}&page=2`,
+        )
+        .set(auth());
+      expect(res2.status).toBe(400);
+    });
+
+    it('a keyset sync pass over mechanic records sharing one microsecond timestamp returns every row once and ends', async () => {
+      for (let i = 0; i < 5; i++) {
+        await createMechanic({
+          name: `Sync Mech ${i}`,
+        });
+      }
+      const listBefore = await request(app.getHttpServer())
+        .get('/api/v1/mechanics')
+        .set(auth());
+      const deleteId = listBefore.body.data[0].id as string;
+      await request(app.getHttpServer())
+        .delete(`/api/v1/mechanics/${deleteId}`)
+        .set(auth())
+        .set('Idempotency-Key', idempotency());
+
+      await admin.query(
+        `UPDATE mechanics SET updated_at = '2026-03-01 10:00:00.123456+00' WHERE tenant_id = $1::uuid`,
+        [TENANT],
+      );
+
+      const seen: string[] = [];
+      let cursor: { updatedSince: string; afterId?: string } = {
+        updatedSince: '2026-01-01T00:00:00.000Z',
+      };
+      let requests = 0;
+      for (;;) {
+        expect(++requests).toBeLessThanOrEqual(5);
+        const qs = new URLSearchParams({ ...cursor, limit: '2' }).toString();
+        const page = await request(app.getHttpServer())
+          .get(`/api/v1/mechanics?${qs}`)
+          .set(auth());
+        expect(page.status).toBe(200);
+        seen.push(...page.body.data.map((m: { id: string }) => m.id));
+        if (page.body.meta.nextCursor) {
+          cursor = page.body.meta.nextCursor;
+          expect(cursor.updatedSince).toBe('2026-03-01T10:00:00.123456Z');
+        }
+        if (page.body.data.length < 2) break;
+      }
+      expect(seen).toHaveLength(5);
+      expect(new Set(seen).size).toBe(5);
+      expect(seen).toContain(deleteId);
+
+      const final = await request(app.getHttpServer())
+        .get(`/api/v1/mechanics?${new URLSearchParams(cursor).toString()}`)
+        .set(auth());
+      expect(final.body.data).toEqual([]);
+      expect(final.body.meta.nextCursor).toBeNull();
+    });
+  });
+
   async function insertSale(input: {
     id: string;
     customerId?: string;

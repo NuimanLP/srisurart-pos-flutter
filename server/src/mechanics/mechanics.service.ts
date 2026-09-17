@@ -52,6 +52,8 @@ const COLUMNS = `id, code, name, name_th, nickname, shop_name, phone, note,
                  credit_limit, credit_balance, total_sales, total_credit,
                  total_discount, total_markup, created_at, updated_at, deleted_at`;
 
+const CURSOR_TIMESTAMP = `to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
 @Injectable()
 export class MechanicsService {
   constructor(
@@ -63,31 +65,46 @@ export class MechanicsService {
   list(query: {
     search?: string;
     updatedSince?: string;
+    afterId?: string;
     page: number;
     limit: number;
-  }): Promise<{ items: Mechanic[]; total: number; fromCache: boolean }> {
+  }): Promise<{
+    items: Mechanic[];
+    total: number;
+    nextCursor?: { updatedSince: string; afterId: string } | null;
+    fromCache: boolean;
+  }> {
     return this.tenants.runTx(() => this.listIn(query));
   }
 
   private async listIn(query: {
     search?: string;
     updatedSince?: string;
+    afterId?: string;
     page: number;
     limit: number;
-  }): Promise<{ items: Mechanic[]; total: number; fromCache: boolean }> {
+  }): Promise<{
+    items: Mechanic[];
+    total: number;
+    nextCursor?: { updatedSince: string; afterId: string } | null;
+    fromCache: boolean;
+  }> {
     const { tenantId, manager } = currentRequestContext();
     // #32: cache-aside on `t:{tid}:mechanics:g:{token}:list:…`. The prefix is taken
     // before the query — see `TenantCache.prefix` for why that order matters.
     const prefix = await this.cache.prefix(tenantId, 'mechanics');
     const key =
-      prefix === null
+      prefix === null || query.updatedSince
         ? null
         : `${prefix}list:` +
           (query.search ? `s:${encodeURIComponent(query.search)}:` : '') +
-          (query.updatedSince ? `u:${encodeURIComponent(query.updatedSince)}:` : '') +
           `${query.page}:${query.limit}`;
     if (key !== null) {
-      const cached = await this.cache.get<{ items: Mechanic[]; total: number }>(key);
+      const cached = await this.cache.get<{
+        items: Mechanic[];
+        total: number;
+        nextCursor?: { updatedSince: string; afterId: string } | null;
+      }>(key);
       if (cached) return { ...cached, fromCache: true };
     }
     const params: unknown[] = [tenantId];
@@ -101,10 +118,18 @@ export class MechanicsService {
         `(code ILIKE $${params.length} ESCAPE '\\' OR name ILIKE $${params.length} ESCAPE '\\' OR COALESCE(name_th, '') ILIKE $${params.length} ESCAPE '\\' OR COALESCE(nickname, '') ILIKE $${params.length} ESCAPE '\\' OR COALESCE(shop_name, '') ILIKE $${params.length} ESCAPE '\\' OR COALESCE(phone, '') ILIKE $${params.length} ESCAPE '\\')`,
       );
     }
-    if (query.updatedSince) {
+    if (query.updatedSince && query.afterId) {
+      params.push(query.updatedSince, query.afterId);
+      where.push(
+        `(updated_at, id) > ($${params.length - 1}::timestamptz, $${params.length})`,
+      );
+    } else if (query.updatedSince) {
       params.push(query.updatedSince);
       where.push(`updated_at > $${params.length}::timestamptz`);
     }
+    const order = query.updatedSince
+      ? 'updated_at ASC, id ASC'
+      : 'updated_at DESC, id DESC';
     const clause = where.join(' AND ');
     const totals = (await manager.query(
       `SELECT count(*)::int AS n FROM mechanics WHERE ${clause}`,
@@ -112,13 +137,21 @@ export class MechanicsService {
     )) as { n: number }[];
     params.push(query.limit, (query.page - 1) * query.limit);
     const rows = (await manager.query(
-      `SELECT ${COLUMNS} FROM mechanics
+      `SELECT ${COLUMNS}, ${CURSOR_TIMESTAMP} AS updated_at_cursor FROM mechanics
         WHERE ${clause}
-        ORDER BY updated_at DESC, id DESC
+        ORDER BY ${order}
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
-    )) as MechanicRow[];
-    const page = { items: rows.map(toMechanic), total: totals[0].n };
+    )) as (MechanicRow & { updated_at_cursor: string })[];
+    const items = rows.map(toMechanic);
+    const total = totals[0]?.n ?? 0;
+    const last = rows[rows.length - 1];
+    const nextCursor = query.updatedSince
+      ? last
+        ? { updatedSince: last.updated_at_cursor, afterId: last.id }
+        : null
+      : undefined;
+    const page = { items, total, nextCursor };
     if (key !== null) await this.cache.set(key, page, 'mechanics');
     return { ...page, fromCache: false };
   }
