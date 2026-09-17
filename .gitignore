@@ -20,7 +20,7 @@ migrate_working_dir/
 
 #Local Test
 run_local_tests.sh
-
+.sh
 
 
 # The .vscode folder contains launch configuration and tasks you configure in
