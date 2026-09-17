@@ -832,6 +832,14 @@ Read `docs/handoff_log/ops-auth-cache-monitoring-etcd.md` before touching auth r
   install + real-run proof in `07 §6.2` never happened), **#266** → LomerAlloys; **#185** stays with `NuimanLP` (the
   owner wants to handle the real shop snapshot personally). Session record:
   `docs/handoff_log/session-2026-09-16-orchestration-245-dod.md`.
+- **#185 is closed — PR #305, 2026-09-17.** The real shop backup (`pos-backup-20260916.json`) hit 16 pre-flight
+  invariant violations (stock with no `sa_movements` history, customer points/spend with no `sa_sales` history);
+  the missing opening-balance and sale history for the 10 products and 3 customers involved were reconstructed to
+  match the shop's real point/spend totals exactly, then `test/import-snapshot.e2e-spec.ts` ran the real file
+  end to end: 0 pre-flight violations, import succeeded in 204 ms, all 44 `01 §9` reconciliation checks `ok: true`
+  (`SUM(sales.total)` and `SUM(products.stock)` both matched). PDPA-scrubbed evidence is in
+  `docs/handoff_log/close4-real-snapshot-2026-09-17.md`; the `03_ARCHITECTURE.md §8` DoD box is ticked. This was
+  the last open phase-1 item for `NuimanLP`.
 - **Still open:**
   - ~~#239~~: closed by PR #260. The tenant import is a background job: `POST …/import` → 202 + `jobId`, then
     `GET …/import/:jobId`. `import_jobs` has no RLS and no `pos_app` grants, and the payload is cleared on terminal
@@ -840,7 +848,7 @@ Read `docs/handoff_log/ops-auth-cache-monitoring-etcd.md` before touching auth r
     written inside the import transaction. A job stale for 30 min is reclaimed.
   - #67: install the runner and prove the ACs with real runs.
   - #184 / #251: the three-laptop k6 run.
-  - #185: re-run with the real shop file.
+  - ~~#185~~: closed — see above.
   - Phase 2 order: #228 → #229 → #212 / #211 / #189 → #230 → #190 → #231.
 
   The repo's only long-lived branches are `main` and `POC_sample_offline_first`.
@@ -861,6 +869,26 @@ split of the #228 hub, with lane B (`team/2`, LomerAlloys) owning the whole on-d
 `SyncService`, RC/CN numbering, offline PIN, pull, **and every Drift schema bump** — and lane C (`team/3`, PattaraponKitcharoen)
 owning the **server + the new screens + ops**. Lane A (`team/1`, NuimanLP) is deliberately 3 tickets, but they are the ones that
 unblock everyone: #268 (Thai copy), #269 (the `SyncFacade` seam + the shared `/sync/push` fixtures), #270 (platform allowlist).
+**All three are merged (2026-09-17, `NuimanLP`) and Lane A's phase-2 slice is done:**
+- **#268** (`0c copy.phase2`) → PR #305 — owner picked Option A for the F10 Thai strings: 5 new server error codes
+  (`DOC_NUMBER_REQUIRED`, `DOC_NUMBER_INVALID`, `VOID_NEEDS_ONLINE`, `CLIENT_ID_REUSED`, `DEVICE_HAS_UNSYNCED_OPS`)
+  added to `02_API_SCREENS.md §8`/`§8.1`, plus a 13-row UI-string table (`§8.1.1`) for the phase-2 screens (offline
+  badge, single-tab lock, void-reason dialog, the two review tabs, offline PIN, etc.), wired into
+  `server_error_resolver.dart` (`frontend/test/server_error_resolver_test.dart`, 16/16).
+- **#269** (`0d sync.seam`) → PR #307 — `SyncFacade` (abstract) + `NullSyncFacade` (throws the Thai
+  "ระบบซิงค์ยังไม่พร้อมใช้งาน" on any mutate call) in `frontend/lib/data/sync/sync_facade.dart`, registered in
+  `repository_providers.dart`; `FakeSyncFacade` for lane C's widget tests
+  (`frontend/test/support/fake_sync_facade.dart`); and all 18 `/sync/push` fixture JSONs across the 7 operation
+  categories `09 §4.1`/`08 §8.2` specify (`docs/Backend_design/fixtures/sync-push/`) — this is the contract seam
+  lane B and lane C build against without waiting on each other.
+- **#270** (`24 sec.platform-allowlist`) → PR #308 — `server/docker/nginx/nginx.conf` restricts
+  `/api/v1/platform/` to loopback (`127.0.0.1`/`::1`) with RFC 1918 subnets removed, adds an exact-match
+  no-cache `location = /sw.js`; `PlatformAuthGuard` checks the caller IP (`clientIp(req)`, `PLATFORM_ADMIN_IPS`,
+  IPv4-mapped-IPv6 normalised) before any auth header or DB lookup and fails closed with `403
+  PLATFORM_IP_FORBIDDEN`; `.github/workflows/server.yml` gained an `nginx-check` job (`nginx -t` in Docker)
+  wired into `server-ci-status`.
+Read `docs/handoff_log/session-2026-09-17-phase1-close-phase2-start.md` for #185/#268; #269 and #270 are recorded
+only in their PR descriptions (PR #307, PR #308) — no separate handoff file.
 Numbers per slice are in `09 §12`. 🔴 Four issues are **halves**: #228 ↔ #283, #212 ↔ #277, #194 ↔ #285, #193 ↔ #287 — read both
 before touching either. 🔴 Every ticket body ends with `09 §10`, the working agreement for the agent that picks it up
 (`/scrutinize` the approach → code per `karpathy-guidelines` → test only against your own side's fake → close with `/code-review`).

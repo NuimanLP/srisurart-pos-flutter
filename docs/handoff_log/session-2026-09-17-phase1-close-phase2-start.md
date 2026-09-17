@@ -1,8 +1,12 @@
-# Handoff: ปิด Phase 1 (#185) และเริ่ม Phase 2 (#268 Option A) (2026-09-17)
+# Handoff: ปิด Phase 1 (#185) และปิด Lane A ทั้งเฟส 2 (#268/#269/#270) (2026-09-17)
 
 **ผู้บันทึก:** NuimanLP (`team/1`, Lane A) & Orchestrator  
-**สถานะ:** ปิด #185 (DoD Phase 1 ติ๊กครบ) · ปิด #268 (Phase 2 slice 0c) · เตรียมเริ่ม #269 (slice 0d)  
-**Branch:** `feat/268-copy-phase2`  
+**สถานะ:** ปิด #185 (DoD Phase 1 ติ๊กครบ) · ปิด #268 (PR #305) · ปิด #269 (PR #307) · ปิด #270 (PR #308) —
+Lane A ไม่มีงานเฟส 2 ค้างแล้ว  
+**Branch:** `feat/268-copy-phase2` (+ แยก branch ต่อสำหรับ #269, #270)  
+
+> **อัปเดต:** ส่วนที่ 3 ("ก้าวถัดไป") ด้านล่างเขียนไว้ตอนที่ #269/#270 ยังไม่เริ่ม — ทั้งสองปิดแล้วในรอบเดียวกันนี้
+> (PR #307, PR #308) รายละเอียดอยู่ในคำอธิบาย PR แต่ละใบ ไม่มีไฟล์ handoff แยกต่างหาก.
 
 ---
 
@@ -51,14 +55,17 @@
 ## 2. สถานะภาพรวม
 
 - **Phase 1 (Lane A):** ปิดงานค้างทั้งหมดของเลน A เรียบร้อย (ไม่มีงานตกค้าง)
-- **Phase 2 (Lane A):**
-  - [x] #268 (`0c copy.phase2`) — เสร็จแล้ว (อยู่ใน branch นี้)
-  - [ ] #269 (`0d sync.seam`) — งานถัดไป (สร้าง `SyncFacade` + Fixtures JSON)
-  - [ ] #270 (`24 sec.platform-allowlist`) — ปรับแต่ง Nginx และ Cache-Control
+- **Phase 2 (Lane A):** ปิดครบทั้ง 3 ตั๋วแล้ว — เลน A ไม่มีงานเฟส 2 ค้าง
+  - [x] #268 (`0c copy.phase2`) → PR #305
+  - [x] #269 (`0d sync.seam`) → PR #307 — `SyncFacade`/`NullSyncFacade`/`FakeSyncFacade` +
+    fixtures 18 ไฟล์ครบ 7 หมวดใน `docs/Backend_design/fixtures/sync-push/`
+  - [x] #270 (`24 sec.platform-allowlist`) → PR #308 — nginx loopback allowlist +
+    `PlatformAuthGuard` IP check + `nginx-check` CI job
 
 ---
 
 ## 3. ก้าวถัดไป
 
-1. Push branch `feat/268-copy-phase2` และเปิด PR หรือ merge เข้า `main`
-2. สร้าง branch ใหม่ `feat/269-sync-seam` สำหรับลงมือทำ **Ticket #269 (Slice 0d)** เพื่อปลดล็อกให้ Lane B (`team/2`) และ Lane C (`team/3`)
+1. ~~Push branch `feat/268-copy-phase2` และเปิด PR หรือ merge เข้า `main`~~ — เสร็จแล้ว (PR #305)
+2. ~~สร้าง branch ใหม่ `feat/269-sync-seam`~~ — เสร็จแล้ว (PR #307), ตามด้วย #270 (PR #308)
+3. ตรวจตั๋วเปิดใหม่ที่ผูกกับ `NuimanLP` เผื่อมีงานต่อจาก Lane A โผล่มาหลังปิดชุดนี้ (ยังไม่เช็ค ณ เวลาบันทึกนี้)
