@@ -44,7 +44,7 @@ A เบาโดยตั้งใจ (เจ้าของสั่ง) แ�
 
 | slice | ticket | เนื้อใน | บล็อกโดย |
 |---|---|---|---|
-| 0c | **NEW** `copy.phase2` (F10) | **ใบแรกของ A** — เป็นคิวเดียวในแผนที่รอ *คน* · ร่างข้อความไทย 2–3 แบบต่อข้อ (รายการใน `08 §18 Q1`) → เจ้าของเลือก → ลง `02 §8.1` · เพิ่ม mapping ของ 5 code ใหม่ใน `frontend/lib/core/network/server_error_resolver.dart` (`DOC_NUMBER_REQUIRED` `DOC_NUMBER_INVALID` `VOID_NEEDS_ONLINE` `CLIENT_ID_REUSED` `DEVICE_HAS_UNSYNCED_OPS`) · **ห้ามคิดคำเอง** ต้องให้เจ้าของเลือก | – |
+| 0c | #268 `copy.phase2` (F10) | **ใบแรกของ A** — เป็นคิวเดียวในแผนที่รอ *คน* · ร่างข้อความไทย 2–3 แบบต่อข้อ (รายการใน `08 §18 Q1`) → เจ้าของเลือก (Option A, 2026-09-17) → ลง `02 §8.1` · เพิ่ม mapping ของ 5 code ใหม่ใน `frontend/lib/core/network/server_error_resolver.dart` (`DOC_NUMBER_REQUIRED` `DOC_NUMBER_INVALID` `VOID_NEEDS_ONLINE` `CLIENT_ID_REUSED` `DEVICE_HAS_UNSYNCED_OPS`) · **ห้ามคิดคำเอง** ต้องให้เจ้าของเลือก | – |
 | 0d | **NEW** `sync.seam` | **contract ทั้งสองเส้น** ในใบเดียว: (1) `frontend/lib/data/sync/sync_facade.dart` ตาม §4.2 — abstract + โมเดล (**มี `payload`**) + **`NullSyncFacade` ใช้จริงตอนรันไทม์** + ลงทะเบียนใน `repository_providers.dart` (2) `frontend/test/support/fake_sync_facade.dart` (3) **`docs/Backend_design/fixtures/sync-push/*.json`** ตาม §4.1 · ไม่มี logic ทั้งใบ | – |
 | 24 | **NEW** `sec.platform-allowlist` | `nginx.conf`: `/api/v1/platform/` เหลือ loopback + IP admin · เช็ค IP ซ้ำใน `PlatformAuthGuard` (กันคนที่ข้าม nginx) · **+ `location = /sw.js` ใส่ `Cache-Control: no-cache`** (`08 §4` ข้อ 8 — B ต้องใช้ใน slice 3 แต่ไฟล์นี้เป็นของ A) · `nginx -t` + e2e ใน `server.yml` | – |
 

@@ -506,7 +506,7 @@ gantt
 - [x] ยิง `POST /sales` พร้อมกัน 200 ครั้งบนสินค้าที่มี 50 ชิ้น → ขายได้ 50 บิลพอดี **สต็อกเหลือ 0 ไม่ติดลบ** — **#184 `close.3` 2026-09-15 บน demo VM** (201×50 / 409×150 / 5xx 0, `k6:verify` ผ่าน — [handoff §4.2](../handoff_log/close3-demo-deploy-2026-09-15.md)); ข้อ k6 §9 ด้านบนยังเปิด: latency วัดผ่าน nginx จากเครื่องเดียวไม่ได้ (§4.1)
 - [ ] Integration test "อ่านข้ามร้าน" ได้ 0 แถวทุกเคส
 - [x] `/health/live` ไม่แตะ DB, `/health/ready` แตะ DB+Redis (แยกกันจริง) — **#14 `p1` 2026-09-06** (ดับ Postgres/Redis แล้ว ready = 503, live = 200, ไม่มี container restart)
-- [ ] import snapshot ของร้านจริงเข้ามาแล้ว **ผ่าน checklist 6 ข้อ** ใน `01_DATABASE.md §9` ทุกข้อ
+- [x] import snapshot ของร้านจริงเข้ามาแล้ว **ผ่าน checklist 6 ข้อ** ใน `01_DATABASE.md §9` ทุกข้อ — **#185 `close.4` 2026-09-17** (นำเข้า `pos-backup-20260916.json` ผ่านทั้ง 44 checks, preflight 0 violations, ยอดขาย 33,700 บาท, สต็อก 191 ชิ้น, หลักฐานใน `docs/handoff_log/close4-real-snapshot-2026-09-17.md`)
 - [x] `redis-cache` กับ `redis-queue` แยกกันจริง และ Bull-Board มี auth — **#14 `p1` 2026-09-06**
 - [x] ยิง `POST /sales` ที่บิลมีสินค้าไม่พอ 3 บรรทัด → ได้ข้อความไทย **ครบทั้ง 3 บรรทัดในครั้งเดียว** — **#20 2026-09-11** (PR #75 `feat/laneA-sales`; `server/test/sales.e2e-spec.ts:476` "three short lines come back as three Thai lines in ONE response"; re-run 2026-09-16 — full e2e suite 490/492 passed)
 - [x] ลบลูกค้าที่มีบิลแล้ว → ได้ `200` (soft delete) ไม่ใช่ `500` — **#17 2026-09-12** (PR #85 `lane2`; `server/test/people.e2e-spec.ts:177` "soft-deletes a customer with bills, keeps the bill, and hides the tombstone"; re-run 2026-09-16)
