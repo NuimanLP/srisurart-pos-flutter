@@ -133,6 +133,7 @@ export async function createTestApp(
  * does carry `tenant_id` and a FK to `tenants`, so a reset must still clear it first. */
 export const TENANT_TABLES_DEPTH_FIRST = [
   'import_jobs',
+  'owner_review_items',
   'drawer_entries',
   'shifts',
   'return_items',

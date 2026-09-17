@@ -259,6 +259,8 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
       'QuotesController.duplicate': 'POST /quotes/:id/duplicate 201',
       'QuotesController.convert': 'POST /quotes/:id/convert 201',
       'ReturnsController.create': 'POST /returns 201',
+      'ReviewItemsController.markReviewed':
+        'POST /review-items/:id/reviewed 200',
       'SalesController.create': 'POST /sales 201',
       'SalesController.voidSale': 'POST /sales/:id/void 200',
       'SettingsController.updateSettings': 'PATCH /settings 200',

@@ -4,11 +4,18 @@ import {
   MIGRATIONS,
 } from '../src/db/data-source.js';
 import {
-  ALL_TABLES,
+  ALL_TABLES as INITIAL_ALL_TABLES,
   APP_ROLE,
-  TENANT_SCOPED_TABLES,
+  TENANT_SCOPED_TABLES as INITIAL_TENANT_SCOPED_TABLES,
 } from '../src/db/migrations/1788652800001-RowLevelSecurity.js';
 import { SEED_CATEGORIES, seedCategories } from '../src/db/seed.js';
+
+const OWNER_REVIEW_ITEMS_TABLE = 'owner_review_items';
+const TENANT_SCOPED_TABLES = [
+  ...INITIAL_TENANT_SCOPED_TABLES,
+  OWNER_REVIEW_ITEMS_TABLE,
+] as const;
+const ALL_TABLES = [...INITIAL_ALL_TABLES, OWNER_REVIEW_ITEMS_TABLE] as const;
 
 // #15 acceptance suite. Runs the REAL migrations into a throwaway database on the
 // compose Postgres (127.0.0.1:5432, published by docker-compose.dev.yml) — never synchronize, never mocks. The owner
@@ -92,9 +99,9 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   // migration explains why it could not simply be appended to either exported list.
   const IMPORT_JOBS_TABLE = 'import_jobs';
 
-  it('runs from an empty database to exactly 28 tables (27 + import_jobs), without change_log', async () => {
+  it('runs from an empty database to exactly 29 tables (27 + import_jobs + owner_review_items), without change_log', async () => {
     const tables = await tableNames(owner);
-    expect(tables).toHaveLength(28);
+    expect(tables).toHaveLength(29);
     expect(tables).toEqual([...ALL_TABLES, IMPORT_JOBS_TABLE].sort());
     expect(tables).not.toContain('change_log');
   });
@@ -315,7 +322,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       expect(ran.map((m) => m.name)).toEqual(
         MIGRATIONS.map((m) => new m().name),
       );
-      expect(await tableNames(owner)).toHaveLength(28);
+      expect(await tableNames(owner)).toHaveLength(29);
     } finally {
       await ds.destroy();
     }
