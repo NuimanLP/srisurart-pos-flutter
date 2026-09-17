@@ -618,7 +618,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
       expect(optionsRes.headers['access-control-allow-methods']).toContain('POST');
     });
 
-    it('verifies Nginx platform admin plane has strict private IP allowlist and deny all (07 §9)', async () => {
+    it('verifies Nginx platform admin plane has loopback allowlist and deny all (07 §9, #270)', async () => {
       const fs = await import('node:fs');
       const path = await import('node:path');
       const nginxConf = fs.readFileSync(
@@ -626,13 +626,27 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
         'utf8',
       );
 
-      // Must target /api/v1/platform/ with strict private allowlist and deny all (07 §9 fix)
-      expect(nginxConf).toContain('location /api/v1/platform/ {');
-      expect(nginxConf).toContain('allow 127.0.0.1;');
-      expect(nginxConf).toContain('allow 10.0.0.0/8;');
-      expect(nginxConf).toContain('allow 172.16.0.0/12;');
-      expect(nginxConf).toContain('allow 192.168.0.0/16;');
-      expect(nginxConf).toContain('deny  all;');
+      // Must target /api/v1/platform/ with strict loopback/admin allowlist and deny all (07 §9, #270)
+      const platformBlock = nginxConf.match(/location \/api\/v1\/platform\/ \{([\s\S]*?)\}/)?.[1] ?? '';
+      expect(platformBlock).toContain('allow 127.0.0.1;');
+      expect(platformBlock).toContain('allow ::1;');
+      expect(platformBlock).not.toContain('allow 10.0.0.0/8;');
+      expect(platformBlock).not.toContain('allow 172.16.0.0/12;');
+      expect(platformBlock).not.toContain('allow 192.168.0.0/16;');
+      expect(platformBlock).toContain('deny  all;');
+    });
+
+    it('verifies Nginx serves /sw.js with Cache-Control: no-cache (08 §4 item 8, #270)', async () => {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const nginxConf = fs.readFileSync(
+        path.resolve(process.cwd(), 'docker/nginx/nginx.conf'),
+        'utf8',
+      );
+
+      expect(nginxConf).toContain('location = /sw.js {');
+      expect(nginxConf).toContain('add_header Cache-Control "no-cache";');
+      expect(nginxConf).toContain('try_files $uri =404;');
     });
   });
 

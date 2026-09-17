@@ -26,6 +26,8 @@ export interface AppConfig {
   etcdUrl?: string;
   /** Optional etcd root password. */
   etcdPassword?: string;
+  /** Optional allowlist of admin IPs allowed to access /api/v1/platform (slice 24 / #270). */
+  platformAdminIps?: string[];
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -93,5 +95,8 @@ export function loadConfig(env = process.env): AppConfig {
       : undefined,
     etcdUrl: env.ETCD_URL,
     etcdPassword: env.ETCD_ROOT_PASSWORD ?? env.ETCD_PASSWORD,
+    platformAdminIps: env.PLATFORM_ADMIN_IPS
+      ? env.PLATFORM_ADMIN_IPS.split(',').map((ip) => ip.trim()).filter(Boolean)
+      : undefined,
   };
 }

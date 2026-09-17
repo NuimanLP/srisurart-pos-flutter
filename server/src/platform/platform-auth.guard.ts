@@ -12,6 +12,7 @@ import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
 import { verifyJwt, type JwtPayload } from '../common/jwt.js';
+import { clientIp } from '../common/client-ip.js';
 
 /**
  * The platform token in an `Authorization` header, verified (HMAC with `jwtPlatformSecret`,
@@ -35,8 +36,32 @@ export class PlatformAuthGuard implements CanActivate {
     @Inject(REDIS_CACHE) private readonly redisCache: Redis,
   ) {}
 
+  private isAllowedIp(ip: string | null): boolean {
+    if (!ip) return false;
+    const lowerIp = ip.toLowerCase();
+    const cleanIp = lowerIp.startsWith('::ffff:') ? lowerIp.slice(7) : lowerIp;
+    if (cleanIp === '127.0.0.1' || cleanIp === '::1') {
+      return true;
+    }
+    if (this.config.platformAdminIps?.includes(cleanIp)) {
+      return true;
+    }
+    return false;
+  }
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
+
+    // IP allowlist check: platform plane is restricted to loopback and configured admin IPs
+    // (sec.platform-allowlist / #270).
+    const ip = clientIp(req);
+    if (!this.isAllowedIp(ip)) {
+      throw new ForbiddenException({
+        code: 'PLATFORM_IP_FORBIDDEN',
+        message: 'IP not allowed for platform admin access',
+      });
+    }
+
     const authHeader = req.headers['authorization'];
     if (!authHeader || typeof authHeader !== 'string') {
       throw new UnauthorizedException('Missing Authorization header');
