@@ -1,0 +1,59 @@
+{
+  "name": "sale-create.rejected-stock",
+  "description": "Sale rejected due to insufficient stock at sync time",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 1,
+      "ops": [
+        {
+          "opId": "op_sale_002",
+          "idempotencyKey": "k_sale_002",
+          "type": "sale.create",
+          "payload": {
+            "id": "s_off_002",
+            "receiptNo": "RC01-2569-09-0043",
+            "date": "2026-09-15T02:10:00.000Z",
+            "subtotal": "4250.00",
+            "discount": "0.00",
+            "total": "4250.00",
+            "paymentMethod": "เงินสด",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "p1",
+                "partNo": "HN-15412-KVB",
+                "name": "Oil Filter",
+                "qty": 50,
+                "price": "85.00"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_sale_002",
+            "status": "rejected",
+            "code": "INSUFFICIENT_STOCK",
+            "message": "สต็อกไม่พอ",
+            "details": {
+              "productId": "p1",
+              "requested": 50,
+              "available": 10
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "drawer-entry.applied",
+  "description": "Cash drawer entry pushed to server successfully",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "op_drawer_001",
+          "idempotencyKey": "k_de_001",
+          "type": "drawer.entry",
+          "payload": {
+            "id": "de_off_001",
+            "type": "in",
+            "amount": "500.00",
+            "note": "สำรองเงินทอน",
+            "createdAt": "2026-09-15T01:30:00.000Z"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_drawer_001",
+            "status": "applied",
+            "response": {
+              "id": "de_off_001",
+              "type": "in",
+              "amount": "500.00",
+              "note": "สำรองเงินทอน",
+              "balanceAfter": "1500.00"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

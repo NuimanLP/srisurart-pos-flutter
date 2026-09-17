@@ -1,0 +1,64 @@
+{
+  "name": "sale-create.applied",
+  "description": "Normal sale created offline and pushed to server successfully",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "op_sale_001",
+          "idempotencyKey": "k_sale_001",
+          "type": "sale.create",
+          "payload": {
+            "id": "s_off_001",
+            "receiptNo": "RC01-2569-09-0042",
+            "date": "2026-09-15T02:00:00.000Z",
+            "subtotal": "255.00",
+            "discount": "0.00",
+            "total": "255.00",
+            "paymentMethod": "เงินสด",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "p1",
+                "partNo": "HN-15412-KVB",
+                "name": "Oil Filter",
+                "qty": 3,
+                "price": "85.00"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_sale_001",
+            "status": "applied",
+            "response": {
+              "id": "s_off_001",
+              "receiptNo": "RC01-2569-09-0042",
+              "total": "255.00",
+              "pointsGranted": 25,
+              "products": [
+                {
+                  "id": "p1",
+                  "stock": 45
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

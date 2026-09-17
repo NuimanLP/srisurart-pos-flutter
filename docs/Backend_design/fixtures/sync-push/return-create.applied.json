@@ -1,0 +1,63 @@
+{
+  "name": "return-create.applied",
+  "description": "Credit note created offline and pushed to server successfully",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "op_ret_001",
+          "idempotencyKey": "k_ret_001",
+          "type": "return.create",
+          "payload": {
+            "id": "ret_off_001",
+            "saleId": "s_off_001",
+            "cnNo": "CN01-2569-09-0005",
+            "date": "2026-09-15T03:00:00.000Z",
+            "refundMethod": "เงินสด",
+            "reason": "สินค้าชำรุด",
+            "subtotal": "85.00",
+            "total": "85.00",
+            "items": [
+              {
+                "productId": "p1",
+                "qty": 1,
+                "price": "85.00"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_ret_001",
+            "status": "applied",
+            "response": {
+              "id": "ret_off_001",
+              "cnNo": "CN01-2569-09-0005",
+              "saleId": "s_off_001",
+              "total": "85.00",
+              "refundMethod": "เงินสด",
+              "stockRestored": [
+                {
+                  "id": "p1",
+                  "stock": 46
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

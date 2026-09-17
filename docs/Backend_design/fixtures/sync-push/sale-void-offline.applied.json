@@ -1,0 +1,48 @@
+{
+  "name": "sale-void-offline.applied",
+  "description": "Offline bill voided while in current offline shift (slice 11)",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "op_void_001",
+          "idempotencyKey": "k_void_001",
+          "type": "sale.void_offline",
+          "payload": {
+            "saleId": "s_off_001",
+            "reason": "ลูกค้าขอยกเลิกและเปลี่ยนสินค้า"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_void_001",
+            "status": "applied",
+            "response": {
+              "saleId": "s_off_001",
+              "status": "voided",
+              "voidReason": "ลูกค้าขอยกเลิกและเปลี่ยนสินค้า",
+              "stockRestored": [
+                {
+                  "productId": "p1",
+                  "stock": 48
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

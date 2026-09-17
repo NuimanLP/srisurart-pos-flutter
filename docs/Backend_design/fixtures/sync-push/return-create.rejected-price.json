@@ -1,0 +1,57 @@
+{
+  "name": "return-create.rejected-price",
+  "description": "Credit note rejected because return price does not match original sale price",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 1,
+      "ops": [
+        {
+          "opId": "op_ret_002",
+          "idempotencyKey": "k_ret_002",
+          "type": "return.create",
+          "payload": {
+            "id": "ret_off_002",
+            "saleId": "s_off_001",
+            "cnNo": "CN01-2569-09-0006",
+            "date": "2026-09-15T03:15:00.000Z",
+            "refundMethod": "เงินสด",
+            "reason": "สินค้าชำรุด",
+            "subtotal": "120.00",
+            "total": "120.00",
+            "items": [
+              {
+                "productId": "p1",
+                "qty": 1,
+                "price": "120.00"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_ret_002",
+            "status": "rejected",
+            "code": "RETURN_PRICE_MISMATCH",
+            "message": "ราคาคืนไม่ตรงกับราคาที่ขายจริง",
+            "details": {
+              "productId": "p1",
+              "expectedPrice": "85.00",
+              "actualPrice": "120.00"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "credit-payment.applied",
+  "description": "Mechanic credit payment applied successfully",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "op_cp_001",
+          "idempotencyKey": "k_cp_001",
+          "type": "credit_payment.create",
+          "payload": {
+            "id": "cp_off_001",
+            "mechanicId": "m1",
+            "amount": "500.00",
+            "paymentMethod": "เงินสด",
+            "date": "2026-09-15T04:00:00.000Z"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_cp_001",
+            "status": "applied",
+            "response": {
+              "id": "cp_off_001",
+              "mechanicId": "m1",
+              "amount": "500.00",
+              "paymentMethod": "เงินสด",
+              "balanceAfter": "1000.00"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
