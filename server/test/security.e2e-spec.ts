@@ -321,6 +321,47 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
       expect(res.body.error?.code).toBe('DEVICE_ROLE_FORBIDDEN');
     });
 
+    it('a backoffice session with no deviceToken can read products but cannot create sale (DoD line 13)', async () => {
+      const browserToken = accessToken({
+        tenantId: TENANT_A,
+        userId: fixtureA.userId,
+        role: 'owner',
+      });
+
+      // 1. GET /api/v1/products succeeds (200)
+      const productsRes = await request(app.getHttpServer())
+        .get('/api/v1/products')
+        .set('Authorization', `Bearer ${browserToken}`);
+      expect(productsRes.status).toBe(200);
+      expect(productsRes.body.status).toBe('success');
+
+      // 2. POST /api/v1/sales fails with 403 DEVICE_ROLE_FORBIDDEN
+      const saleId = `sale-${randomUUID()}`;
+      const saleRes = await request(app.getHttpServer())
+        .post('/api/v1/sales')
+        .set('Authorization', `Bearer ${browserToken}`)
+        .set('Idempotency-Key', `k-nodev-${randomUUID()}`)
+        .send({
+          id: saleId,
+          subtotal: '100.00',
+          discount: '0.00',
+          total: '100.00',
+          paymentMethod: 'เงินสด',
+          items: [
+            {
+              lineNo: 1,
+              productId: productIdA,
+              name: 'Product A',
+              qty: 1,
+              price: '100.00',
+            },
+          ],
+        });
+
+      expect(saleRes.status).toBe(403);
+      expect(saleRes.body.error?.code).toBe('DEVICE_ROLE_FORBIDDEN');
+    });
+
     it('rejects access and refresh from retired devices', async () => {
       // 1. Valid refresh token for POS device
       const validRefreshToken = refreshToken({
