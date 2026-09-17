@@ -7,6 +7,7 @@ import { ReturnItemsCostAtSale1788652800004 } from './migrations/1788652800004-R
 import { CreditPaymentsMethodAndShift1788652800005 } from './migrations/1788652800005-CreditPaymentsMethodAndShift.js';
 import { ReturnsShiftIndex1788652800006 } from './migrations/1788652800006-ReturnsShiftIndex.js';
 import { ProductsPartNoCaseInsensitive1788652800007 } from './migrations/1788652800007-ProductsPartNoCaseInsensitive.js';
+import { CustomersMechanicsSyncIndex1788652804000 } from './migrations/1788652804000-CustomersMechanicsSyncIndex.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -18,6 +19,7 @@ export const MIGRATIONS = [
   CreditPaymentsMethodAndShift1788652800005,
   ReturnsShiftIndex1788652800006,
   ProductsPartNoCaseInsensitive1788652800007,
+  CustomersMechanicsSyncIndex1788652804000,
 ];
 
 /**
