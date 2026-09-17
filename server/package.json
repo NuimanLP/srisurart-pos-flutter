@@ -21,6 +21,7 @@
     "db:migrate:status": "node dist/db/migrate.js status",
     "lint": "oxlint src/ test/",
     "typecheck": "tsc --noEmit",
+    "check": "oxlint src/ test/ && tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "k6:setup": "tsx test/k6/setup.ts",
