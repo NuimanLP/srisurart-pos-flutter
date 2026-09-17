@@ -146,18 +146,34 @@ describe('devices: enrol and retire (e2e)', () => {
     expect(allowed.body.data.device.deviceNo).toBe(58);
   });
 
-  it('is owner only, and validates the body', async () => {
-    for (const role of ['viewer', 'employee'] as const) {
-      const create = await createDevice({ label: 'x', role: 'backoffice' }, role);
-      expect(create.status).toBe(403);
-      expect(create.body.error.code).toBe('FORBIDDEN');
-      const ret = await retire(fixture.backofficeDeviceId, {}, role);
-      expect(ret.status).toBe(403);
-      const list = await request(app.getHttpServer())
-        .get('/api/v1/devices')
-        .set('Authorization', `Bearer ${token(role)}`);
-      expect(list.status).toBe(403);
-    }
+  it('requires an enrolled device token (did), and validates the body (F6)', async () => {
+    const tokenWithoutDevice = accessToken({
+      tenantId: TENANT,
+      userId: fixture.userId,
+      role: 'owner',
+    });
+
+    const create = await request(app.getHttpServer())
+      .post('/api/v1/devices')
+      .set('Authorization', `Bearer ${tokenWithoutDevice}`)
+      .set('Idempotency-Key', `k-dev-${++keySeq}-${Date.now()}`)
+      .send({ label: 'x', role: 'backoffice' });
+    expect(create.status).toBe(403);
+    expect(create.body.error.code).toBe('DEVICE_ROLE_FORBIDDEN');
+
+    const ret = await request(app.getHttpServer())
+      .post(`/api/v1/devices/${encodeURIComponent(fixture.backofficeDeviceId)}/retire`)
+      .set('Authorization', `Bearer ${tokenWithoutDevice}`)
+      .set('Idempotency-Key', `k-ret-${++keySeq}-${Date.now()}`)
+      .send({});
+    expect(ret.status).toBe(403);
+    expect(ret.body.error.code).toBe('DEVICE_ROLE_FORBIDDEN');
+
+    const list = await request(app.getHttpServer())
+      .get('/api/v1/devices')
+      .set('Authorization', `Bearer ${tokenWithoutDevice}`);
+    expect(list.status).toBe(403);
+    expect(list.body.error.code).toBe('DEVICE_ROLE_FORBIDDEN');
 
     expect((await createDevice({ label: '', role: 'backoffice' })).status).toBe(400);
     expect((await createDevice({ label: 'x', role: 'admin' })).status).toBe(400);

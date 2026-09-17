@@ -1,6 +1,5 @@
 import {
   Controller,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -13,6 +12,7 @@ import {
 import type { Request } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
@@ -50,12 +50,8 @@ export class BackupController {
   }
 
   private async exportTenantDataIn(req: AuthenticatedRequest) {
-    const role = req.user?.role;
-    if (role !== 'owner') {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Owner role required',
-      });
+    if (!req.user?.deviceId) {
+      throw new DeviceRoleForbiddenException();
     }
 
     const { tenantId } = currentRequestContext();
@@ -87,12 +83,8 @@ export class BackupController {
   }
 
   private async getJobStatusIn(req: AuthenticatedRequest, id: string) {
-    const role = req.user?.role;
-    if (role !== 'owner') {
-      throw new ForbiddenException({
-        code: 'FORBIDDEN',
-        message: 'Owner role required',
-      });
+    if (!req.user?.deviceId) {
+      throw new DeviceRoleForbiddenException();
     }
 
     const { tenantId } = currentRequestContext();

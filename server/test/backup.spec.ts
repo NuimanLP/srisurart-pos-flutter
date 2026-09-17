@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import { pino } from 'pino';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
+import { DeviceRoleForbiddenException } from '../src/common/device-role-forbidden.exception.js';
 import { BackupProcessor } from '../src/queue/processors/backup.processor.js';
 import { BackupController } from '../src/backup/backup.controller.js';
 import {
@@ -380,15 +381,15 @@ describe('Backup Module (unit)', () => {
     });
 
     describe('POST /backup/export (AC1 & AC2)', () => {
-      it('AC1: rejects non-owner with 403 Forbidden', async () => {
-        const req: any = { user: { role: 'viewer', userId: USER_ID } };
-        await expect(controller.exportTenantData(req)).rejects.toThrow(ForbiddenException);
+      it('AC1: rejects token without deviceId with 403 DEVICE_ROLE_FORBIDDEN', async () => {
+        const req: any = { user: { role: 'owner', userId: USER_ID } };
+        await expect(controller.exportTenantData(req)).rejects.toThrow(DeviceRoleForbiddenException);
       });
 
-      it('AC2: accepts owner and enqueues job with status queued', async () => {
+      it('AC2: accepts enrolled device and enqueues job with status queued', async () => {
         mockQueue.add.mockResolvedValueOnce({ id: 'export-job-123' });
         const req: any = {
-          user: { role: 'owner', userId: USER_ID },
+          user: { role: 'owner', userId: USER_ID, deviceId: 'dev-1' },
           headers: { 'x-forwarded-for': '192.168.1.10' },
           ip: '127.0.0.1',
         };
@@ -413,14 +414,14 @@ describe('Backup Module (unit)', () => {
     });
 
     describe('GET /backup/jobs/:id (AC1 & AC5)', () => {
-      it('AC1: rejects non-owner with 403 Forbidden', async () => {
-        const req: any = { user: { role: 'viewer' } };
-        await expect(controller.getJobStatus(req, 'job-1')).rejects.toThrow(ForbiddenException);
+      it('AC1: rejects token without deviceId with 403 DEVICE_ROLE_FORBIDDEN', async () => {
+        const req: any = { user: { role: 'owner' } };
+        await expect(controller.getJobStatus(req, 'job-1')).rejects.toThrow(DeviceRoleForbiddenException);
       });
 
       it('AC5: rejects if job not found', async () => {
         mockQueue.getJob.mockResolvedValueOnce(null);
-        const req: any = { user: { role: 'owner' } };
+        const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
         await expect(
           runInRequestContext(
             { tenantId: TENANT_ID, manager: {} as any },
@@ -434,7 +435,7 @@ describe('Backup Module (unit)', () => {
           id: 'job-other',
           data: { tenantId: 'different-tenant-uuid' },
         });
-        const req: any = { user: { role: 'owner' } };
+        const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
         await expect(
           runInRequestContext(
             { tenantId: TENANT_ID, manager: {} as any },
@@ -453,7 +454,7 @@ describe('Backup Module (unit)', () => {
           returnvalue: { skipped: false, result: mockSnapshot },
           failedReason: undefined,
         });
-        const req: any = { user: { role: 'owner' } };
+        const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
         const res = await runInRequestContext(
           { tenantId: TENANT_ID, manager: {} as any },
           () => controller.getJobStatus(req, 'job-mine'),

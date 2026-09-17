@@ -59,31 +59,29 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
     nonOwnerToken = accessToken({
       tenantId: tenantInfo.tenantId,
       userId: tenantInfo.userId,
-      role: 'viewer',
-      deviceId: tenantInfo.posDeviceId,
-      deviceRole: 'pos',
+      role: 'owner',
     });
 
     await backupQueue.obliterate({ force: true });
   });
 
-  describe('AC1: Role Authorization', () => {
-    it('rejects non-owner on POST /backup/export with 403 Forbidden', async () => {
+  describe('AC1: Device Gate Authorization (F6)', () => {
+    it('rejects token without deviceId on POST /backup/export with 403 DEVICE_ROLE_FORBIDDEN', async () => {
       const res = await request(fixture.app.getHttpServer())
         .post('/api/v1/backup/export')
         .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
+      expect(res.body.error.code).toBe('DEVICE_ROLE_FORBIDDEN');
     });
 
-    it('rejects non-owner on GET /backup/jobs/:id with 403 Forbidden', async () => {
+    it('rejects token without deviceId on GET /backup/jobs/:id with 403 DEVICE_ROLE_FORBIDDEN', async () => {
       const res = await request(fixture.app.getHttpServer())
         .get('/api/v1/backup/jobs/any-id')
         .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
+      expect(res.body.error.code).toBe('DEVICE_ROLE_FORBIDDEN');
     });
   });
 
@@ -237,6 +235,8 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
         tenantId: OTHER_TENANT_ID,
         userId: 'other-user-uuid',
         role: 'owner',
+        deviceId: 'other-pos-device',
+        deviceRole: 'pos',
       });
 
       const crossRes = await request(fixture.app.getHttpServer())
