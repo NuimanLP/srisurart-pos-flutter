@@ -194,6 +194,9 @@ class ApiQuotesRepository extends QuotesRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
     }
@@ -210,6 +213,9 @@ class ApiQuotesRepository extends QuotesRepository {
       return;
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {}
 
     await super.deleteQuote(id);
@@ -248,6 +254,9 @@ class ApiQuotesRepository extends QuotesRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {}
 
     await super.updateQuote(id, patch);
@@ -322,6 +331,9 @@ class ApiQuotesRepository extends QuotesRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {}
 
     return super.duplicateQuote(id);
@@ -340,6 +352,9 @@ class ApiQuotesRepository extends QuotesRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {}
 
     return super.purgeOldQuotes(olderThanDays: olderThanDays);

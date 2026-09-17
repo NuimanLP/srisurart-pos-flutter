@@ -24,6 +24,37 @@ const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 
 /**
+ * Thrown by authenticate() / fetchInitialLogLevel() / watchStream()'s initiation check for a
+ * non-ok HTTP response. Carries the numeric status so callers can match on the status code
+ * itself instead of scanning the message text (a message like "etcd watch compacted at
+ * revision 14017; resyncing" contains the digits "401" as a substring and must never match).
+ */
+class EtcdHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Thrown by handleWatchPayload() when a canceled watch's cancel_reason says the auth token
+ * is no longer valid. Measured against etcd v3.6.12 (--auth-token-ttl=5): an expired token on
+ * /v3/watch answers HTTP 200 whose stream body carries `{"canceled":true,"cancel_reason":"rpc
+ * error: code = Unauthenticated desc = etcdserver: invalid auth token"}` — no HTTP status ever
+ * signals this, so it needs its own error type rather than a status code to match on.
+ */
+class EtcdWatchAuthError extends Error {}
+
+/** True when the error means the cached etcd auth token is no longer good and must be dropped. */
+function isAuthFailure(err: unknown): boolean {
+  if (err instanceof EtcdWatchAuthError) return true;
+  if (err instanceof EtcdHttpError) return err.status === 401;
+  return false;
+}
+
+/**
  * RuntimeConfigService: Dynamic runtime configuration via etcd v3 (ADR-0013, 07_CICD_DEPLOY.md §8).
  *
  * - Reads and watches `/pos/config/log_level` over etcd v3's gRPC-gateway HTTP API (/v3/kv/range, /v3/watch)
@@ -109,7 +140,7 @@ export class RuntimeConfigService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!resp.ok) {
-      throw new Error(`etcd auth failed with HTTP ${resp.status}`);
+      throw new EtcdHttpError(`etcd auth failed with HTTP ${resp.status}`, resp.status);
     }
 
     const data = (await resp.json()) as { token?: string };
@@ -140,7 +171,10 @@ export class RuntimeConfigService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!resp.ok) {
-      throw new Error(`etcd range request failed with HTTP ${resp.status}`);
+      throw new EtcdHttpError(
+        `etcd range request failed with HTTP ${resp.status}`,
+        resp.status,
+      );
     }
 
     const data = (await resp.json()) as {
@@ -201,7 +235,7 @@ export class RuntimeConfigService implements OnModuleInit, OnModuleDestroy {
         await this.watchStream(etcdUrl);
       } catch (err: any) {
         if (this.isStopped) break;
-        if (String(err?.message).includes('401')) {
+        if (isAuthFailure(err)) {
           this.authToken = undefined;
         }
         // 07_CICD_DEPLOY.md §8: warn once per outage; further retries are debug noise.
@@ -264,7 +298,10 @@ export class RuntimeConfigService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!resp.ok || !resp.body) {
-      throw new Error(`etcd watch initiation failed with HTTP ${resp.status}`);
+      throw new EtcdHttpError(
+        `etcd watch initiation failed with HTTP ${resp.status}`,
+        resp.status,
+      );
     }
 
     const reader = resp.body.getReader();
@@ -319,9 +356,12 @@ export class RuntimeConfigService implements OnModuleInit, OnModuleDestroy {
       );
     }
     if (result?.canceled) {
-      throw new Error(
-        `etcd watch canceled: ${result.cancel_reason ?? 'no reason given'}`,
-      );
+      const reason: string = result.cancel_reason ?? 'no reason given';
+      const message = `etcd watch canceled: ${reason}`;
+      if (/unauthenticated|invalid auth token/i.test(reason)) {
+        throw new EtcdWatchAuthError(message);
+      }
+      throw new Error(message);
     }
 
     const events = result?.events;

@@ -10,12 +10,20 @@
 #
 # Memory budget (faculty VM 4 vCPU / 6 GB): 1024 + 2×256 + 3×384 + 256 + 128 + 64 + 256 (etcd)
 # ≈ 3.3 GB.
-# Connections: max_connections=100 → 3 api × 15 + worker × 5 = 50 ≤ 80 (80%).
+# Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health) + worker ×
+# (5 + 2 + 1) = 62 ≤ 80 (80%). The admin pool is platform-plane only (server/README.md *Invariants this stack enforces*).
 
 name: srisurart-pos
 
 x-app-env: &app-env
   DATABASE_URL: postgres://pos_app:${POS_APP_PASSWORD:?POS_APP_PASSWORD is required}@postgres:5432/pos
+  # ADMIN_DATA_SOURCE (platform plane) connects as `postgres`; config.ts rebuilds that URL from
+  # POSTGRES_PASSWORD and falls back to the dev default when it is absent — so without this line
+  # any deployment with a real password crash-looped at boot (#184, first VM deploy).
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  # Signs platform-admin tokens (HS256). config.ts falls back to a public dev string, which
+  # would let anyone forge an admin token on a real host — required here, never defaulted (#184).
+  JWT_PLATFORM_SECRET: ${JWT_PLATFORM_SECRET:?JWT_PLATFORM_SECRET is required}
   REDIS_CACHE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis-cache:6379
   REDIS_QUEUE_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis-queue:6379
   LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -56,8 +64,10 @@ services:
     volumes:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - certs:/etc/nginx/certs:ro
+      - nginx-auth:/etc/nginx/auth:ro
     depends_on:
       certgen: { condition: service_completed_successfully }
+      htpasswd-gen: { condition: service_completed_successfully }
       api-1: { condition: service_healthy }
       api-2: { condition: service_healthy }
       api-3: { condition: service_healthy }
@@ -74,6 +84,26 @@ services:
         -keyout /certs/server.key -out /certs/server.crt
     volumes:
       - certs:/certs
+
+  # HTTP Basic Auth for Nginx's /prometheus-remote-write/ location (#251) — the k6 distributed
+  # run's Prometheus receiver. Same shape as `certgen` above: idempotent, generates into a named
+  # volume so a re-run against an already-bootstrapped volume is a no-op. `openssl passwd -apr1`
+  # writes an APR1-MD5 hash, a format Nginx's auth_basic accepts. dev-only credentials by default
+  # (.env.example) — never committed for real; on the VM they come from DEMO_ENV_FILE (07 §10.3).
+  htpasswd-gen:
+    image: alpine/openssl
+    entrypoint: sh
+    command:
+      - -c
+      - >
+        test -f /auth/k6-remote-write.htpasswd ||
+        echo "$$K6_REMOTE_WRITE_BASIC_AUTH_USER:$$(openssl passwd -apr1 "$$K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD")"
+        > /auth/k6-remote-write.htpasswd
+    environment:
+      K6_REMOTE_WRITE_BASIC_AUTH_USER: ${K6_REMOTE_WRITE_BASIC_AUTH_USER:?K6_REMOTE_WRITE_BASIC_AUTH_USER is required}
+      K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD: ${K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD:?K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD is required}
+    volumes:
+      - nginx-auth:/auth
 
   # Schema comes only from migrations (#15), applied once here as the table owner
   # before any api/worker starts — never on boot, where three instances would race.
@@ -274,11 +304,13 @@ services:
       start_period: 10s
 
   # One-shot: creates the etcd root user and enables RBAC auth on first boot, then asserts it
-  # (root authenticates, an anonymous request is refused) — see `docker/etcd/etcd-init.sh`.
+  # (root authenticates, an anonymous request is refused), then seeds `/pos/config/log_level`
+  # from LOG_LEVEL if the key has never existed — see `docker/etcd/etcd-init.sh`.
   # Idempotent: a re-run against an already-bootstrapped volume short-circuits immediately.
-  # Nothing depends on this succeeding (`condition: service_completed_successfully` is
+  # No service depends on this succeeding (`condition: service_completed_successfully` is
   # deliberately not used anywhere) — the whole point of RuntimeConfigService's fail-open
-  # design is that the API must boot with no working etcd at all.
+  # design is that the API must boot with no working etcd at all. The VM deploy
+  # (deploy/ansible/deploy.yml) runs it with `run --rm` instead, so a failure fails the deploy.
   etcd-init:
     image: curlimages/curl:8.16.0
     restart: "no"
@@ -287,6 +319,7 @@ services:
     command: ["/etcd-init.sh"]
     environment:
       ETCD_ROOT_PASSWORD: ${ETCD_ROOT_PASSWORD:?ETCD_ROOT_PASSWORD is required}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./docker/etcd/etcd-init.sh:/etcd-init.sh:ro
     depends_on:
@@ -312,3 +345,4 @@ volumes:
   redis-queue-data:
   etcd-data:
   certs:
+  nginx-auth:

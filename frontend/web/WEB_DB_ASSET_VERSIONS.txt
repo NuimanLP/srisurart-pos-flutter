@@ -1,0 +1,11 @@
+# Records which pub versions of `sqlite3` and `drift` the committed
+# sqlite3.wasm and drift_worker.js in this directory were downloaded from
+# (github.com/simolus3/{sqlite3.dart,drift}/releases, tags
+# sqlite3-<version> and drift-<version>). CLAUDE.md "Web DB": a mismatch
+# between these and frontend/pubspec.lock breaks the web DB at boot.
+#
+# .github/workflows/flutter.yml checks this file against pubspec.lock on
+# every build. Bumping sqlite3 or drift: re-download both assets from the
+# matching release tag, update the two values below, and update CLAUDE.md.
+sqlite3=3.4.0
+drift=2.34.1

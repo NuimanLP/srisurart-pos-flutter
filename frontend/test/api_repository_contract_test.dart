@@ -146,11 +146,8 @@ List<String> _unguardedFallbacks(String source) {
       // credit payment, #24) reads as falling out of its neighbour's catch.
       if (lines[j].trim() == '@override') break;
       if (!_isSwallowingCatch(lines[j])) continue;
-      final guarded =
-          j >= 2 &&
-          lines[j - 1].contains('rethrowServerRefusal(') &&
-          lines[j - 2].contains('on ApiException catch');
-      if (!guarded) {
+      final refusalAt = _refusalGuardAbove(lines, j);
+      if (refusalAt == null) {
         violations.add(
           'line ${i + 1}: ${lines[i].trim()}  '
           '(falls back to Drift after the catch on line ${j + 1}, which '
@@ -158,6 +155,57 @@ List<String> _unguardedFallbacks(String source) {
         );
       }
       break;
+    }
+  }
+  return violations;
+}
+
+/// The line of the `on ApiException catch (e) { rethrowServerRefusal(e); }`
+/// clause in the catch chain ending at the swallowing catch on line [j], or
+/// null. Only the clauses directly above [j] are searched (they all start with
+/// `} on `), so a guard in a different try is never credited.
+int? _refusalGuardAbove(List<String> lines, int j) {
+  for (var k = j - 1; k >= 0; k--) {
+    final t = lines[k].trim();
+    if (t.startsWith('} on ApiException catch')) {
+      return k + 1 < lines.length && lines[k + 1].contains('rethrowServerRefusal(') ? k : null;
+    }
+    // Still inside the chain: another `} on X {` clause, or its body.
+    if (t.startsWith('} on ') ||
+        t == 'rethrow;' ||
+        t.startsWith('rethrowServerRefusal(') ||
+        t.startsWith('//')) {
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+/// #183: every `rethrowServerRefusal` fallback guard must ALSO rethrow an
+/// [ApiTimeoutException] before its swallowing `catch (_)`.
+///
+/// 🔴 A timeout is a transport error — the request got no reply — but unlike a
+/// refused connection it has almost certainly reached the server, which may
+/// have committed. Falling through to the Drift write then is the same double
+/// write as a 5xx: a second weighted-average cost and `movements` row out of
+/// `receivePO`, a second customer or quote. The credit-payment outbox (#24) is
+/// not in this shape (its catch is `CreditPaymentQueued`) and handles a timeout
+/// by queueing with the same key.
+List<String> _timeoutFallsBack(String source) {
+  final violations = <String>[];
+  final lines = source.split('\n');
+  for (var j = 0; j < lines.length; j++) {
+    if (!_isSwallowingCatch(lines[j])) continue;
+    final refusalAt = _refusalGuardAbove(lines, j);
+    if (refusalAt == null) continue;
+    final chain = lines.sublist(refusalAt, j).join('\n');
+    if (!RegExp(r'\} on ApiTimeoutException \{\s*(//[^\n]*\s*)*rethrow;').hasMatch(chain)) {
+      violations.add(
+        'line ${j + 1}: ${lines[j].trim()}  '
+        '(no `on ApiTimeoutException { rethrow; }` before this fallback — a '
+        'timed-out write may have committed on the server)',
+      );
     }
   }
   return violations;
@@ -372,6 +420,55 @@ class ApiShiftsRepository implements ShiftsRepository {
     expect(_unguardedFallbacks(unguardedAfterOverride), isNotEmpty);
   });
 
+  test('self-check: the timeout matcher catches a fallback that swallows a timeout', () {
+    const refusalOnly = '''
+  Future<CustomerRow> addCustomer(CustomersCompanion data) async {
+    try {
+      return _row(await apiClient.post('/customers'));
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
+    } catch (_) {
+      // Offline fallback
+    }
+
+    return super.addCustomer(data);
+  }
+''';
+    expect(_timeoutFallsBack(refusalOnly), isNotEmpty);
+    expect(_unguardedFallbacks(refusalOnly), isEmpty, reason: 'the refusal guard is still recognised');
+
+    const guarded = '''
+  Future<CustomerRow> addCustomer(CustomersCompanion data) async {
+    try {
+      return _row(await apiClient.post('/customers'));
+    } on ApiException catch (e) {
+      rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed.
+      rethrow;
+    } catch (_) {
+      // Offline fallback
+    }
+
+    return super.addCustomer(data);
+  }
+''';
+    expect(_timeoutFallsBack(guarded), isEmpty);
+    expect(_unguardedFallbacks(guarded), isEmpty);
+
+    // A read falling back to the cache after a timeout is the design.
+    const cachedRead = '''
+  Future<List<PurchaseOrderRow>> getPOs() async {
+    try {
+      return _fromWire(await apiClient.get('/purchase-orders'));
+    } catch (_) {}
+
+    return super.getPOs();
+  }
+''';
+    expect(_timeoutFallsBack(cachedRead), isEmpty);
+  });
+
   test(
     'no api_*_repository.dart re-runs a Drift write after the server answered',
     () {
@@ -394,6 +491,7 @@ class ApiShiftsRepository implements ShiftsRepository {
         final source = file.readAsStringSync();
         final violations = [
           ..._unguardedFallbacks(source),
+          ..._timeoutFallsBack(source),
           ..._networkInsideTransaction(source.split('\n')),
         ];
         if (violations.isNotEmpty) {
@@ -426,6 +524,16 @@ class ApiShiftsRepository implements ShiftsRepository {
       Directory(p.join('lib', 'data', 'services')),
     ];
 
+    // Exact trimmed lines that READ the key out of a server reply, with the
+    // reason. The scan is textual and cannot tell a read from a send, so each
+    // exemption is one line, never a whole file.
+    const readsFromReply = {
+      // #188: `GET /doc-counters` answers the token's own `devices.id`; the
+      // local counter is keyed by it. The request sends no body and no query.
+      'lib/data/services/doc_counter_seeder.dart':
+          "final deviceId = res['deviceId'];",
+    };
+
     final offenders = <String>[];
     for (final dir in dirs) {
       if (!dir.existsSync()) continue;
@@ -433,6 +541,8 @@ class ApiShiftsRepository implements ShiftsRepository {
           .listSync(recursive: true)
           .whereType<File>()
           .where((f) => f.path.endsWith('.dart'))) {
+        // Posix separators on every OS, so the allowlist keys match on Windows too.
+        final rel = p.posix.joinAll(p.split(p.relative(file.path)));
         final lines = file.readAsStringSync().split('\n');
         for (var i = 0; i < lines.length; i++) {
           final line = lines[i];
@@ -440,7 +550,8 @@ class ApiShiftsRepository implements ShiftsRepository {
           if (!line.contains("'deviceId'") && !line.contains("'tenantId'")) {
             continue;
           }
-          offenders.add('${p.relative(file.path)}:${i + 1}: ${line.trim()}');
+          if (readsFromReply[rel] == line.trim()) continue;
+          offenders.add('$rel:${i + 1}: ${line.trim()}');
         }
       }
     }

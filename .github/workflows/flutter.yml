@@ -81,6 +81,37 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
+      - name: check web DB asset versions match pubspec.lock
+        # #245: web/sqlite3.wasm and web/drift_worker.js are downloaded from a specific
+        # simolus3 release tag (see web/WEB_DB_ASSET_VERSIONS.txt) and a version skew
+        # against the locked sqlite3/drift packages breaks the web DB at boot with no
+        # error until the app is opened (CLAUDE.md "Web DB").
+        run: |
+          # Reads the version field from inside a top-level `  <name>:` block only
+          # (stops at the next top-level key), so it can't bleed into a neighbouring
+          # package if fields are ever added/reordered.
+          locked_version() {
+            awk -v key="  $1:" '
+              $0 == key { found=1; next }
+              found && /^  [A-Za-z0-9_]+:$/ { exit }
+              found && /^    version:/ { print; exit }
+            ' pubspec.lock | sed -E 's/.*"([0-9.]+)".*/\1/'
+          }
+          locked_sqlite3=$(locked_version sqlite3)
+          locked_drift=$(locked_version drift)
+          asset_sqlite3=$(grep '^sqlite3=' web/WEB_DB_ASSET_VERSIONS.txt | cut -d= -f2)
+          asset_drift=$(grep '^drift=' web/WEB_DB_ASSET_VERSIONS.txt | cut -d= -f2)
+          if [[ -z "$locked_sqlite3" || -z "$locked_drift" || -z "$asset_sqlite3" || -z "$asset_drift" ]]; then
+            echo "::error::could not parse a version (pubspec.lock sqlite3='$locked_sqlite3' drift='$locked_drift', WEB_DB_ASSET_VERSIONS.txt sqlite3='$asset_sqlite3' drift='$asset_drift') — pubspec.lock's format may have changed."
+            exit 1
+          fi
+          echo "pubspec.lock: sqlite3=$locked_sqlite3 drift=$locked_drift"
+          echo "web/WEB_DB_ASSET_VERSIONS.txt: sqlite3=$asset_sqlite3 drift=$asset_drift"
+          if [[ "$locked_sqlite3" != "$asset_sqlite3" || "$locked_drift" != "$asset_drift" ]]; then
+            echo "::error::pubspec.lock (sqlite3=$locked_sqlite3, drift=$locked_drift) no longer matches the committed web DB assets (sqlite3=$asset_sqlite3, drift=$asset_drift, per web/WEB_DB_ASSET_VERSIONS.txt). Re-download web/sqlite3.wasm and web/drift_worker.js from the matching github.com/simolus3/{sqlite3.dart,drift} release tags, update WEB_DB_ASSET_VERSIONS.txt, and update CLAUDE.md."
+            exit 1
+          fi
+
       - name: dart analyze
         run: dart analyze --fatal-infos
 
@@ -145,7 +176,10 @@ jobs:
     name: build web artifact
     runs-on: ubuntu-latest
     needs: [analyze-and-test, codegen-check, deps-audit]
-    if: github.ref == 'refs/heads/main'
+    # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
+    # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
+    # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.analyze-and-test.result == 'success' && needs.codegen-check.result == 'success' && needs.deps-audit.result == 'success' }}
     # Level 3 (CLAUDE.md): the artifact is produced on every green build, and
     # ci.5 (#62) adds the web image — static files only, same <sha>/main tag
     # discipline as the server image (07_CICD_DEPLOY.md §3). The downloadable
@@ -257,3 +291,9 @@ jobs:
               exit 1
             fi
           done
+          # A skipped release image on a `main` push is not a pass: that is how #39's skip went
+          # unnoticed for every release (#184).
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.build-web.result }}" != "success" ]]; then
+            echo "::error::build-web did not run on a main push: ${{ needs.build-web.result }}"
+            exit 1
+          fi

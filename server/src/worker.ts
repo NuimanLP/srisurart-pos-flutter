@@ -16,4 +16,4 @@ const app = await NestFactory.createApplicationContext(
   },
 );
 app.enableShutdownHooks();
-logger.info('worker ready (BullMQ queues registered: sale-post, inventory, maintenance, backup, dlq)');
+logger.info('worker ready (BullMQ queues registered: sale-post, inventory, maintenance, backup, tenant-import, dlq)');

@@ -8,6 +8,7 @@ import {
   setRequestTenant,
 } from '../request-context.js';
 import { TenantService } from './tenant.service.js';
+import { CommitCeilingExceededError } from './commit-ceiling.js';
 
 const TID = '00000000-0000-4000-8000-000000000150';
 
@@ -343,5 +344,30 @@ describe('onTransactionCommit with no open transaction (tx.4, #153)', () => {
       expect(() => onTransactionCommit(() => undefined)).toThrow(/needs an open transaction/);
     });
     expect(events.filter((e) => e === 'hook')).toHaveLength(1);
+  });
+});
+
+describe('TenantService.runTx commit guard (#213)', () => {
+  it('rolls back instead of committing a transaction older than the ceiling', async () => {
+    const { tenants, events } = fakePool();
+    tenants.commitCeilingMs = 10;
+    const hook = vi.fn();
+    await authorised(async () => {
+      await expect(
+        tenants.runTx(async () => {
+          onTransactionCommit(hook);
+          await new Promise((r) => setTimeout(r, 30));
+        }),
+      ).rejects.toThrow(CommitCeilingExceededError);
+    });
+    expect(events).not.toContain('commit');
+    expect(events.slice(-2)).toEqual(['rollback', 'release']);
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it('commits a transaction under the ceiling', async () => {
+    const { tenants, events } = fakePool();
+    await authorised(() => tenants.runTx(async () => undefined));
+    expect(events.slice(-2)).toEqual(['commit', 'release']);
   });
 });

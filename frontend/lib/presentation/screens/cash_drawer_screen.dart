@@ -16,6 +16,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
@@ -208,7 +209,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     }
   }
 
-  String _clean(Object e) => e.toString().replaceFirst('Exception: ', '');
+  String _clean(Object e) => ServerErrorResolver.resolveCounterError(e);
 
   void _toast(String msg) {
     if (!mounted) return;

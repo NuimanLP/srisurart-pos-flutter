@@ -2,6 +2,29 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
+- 2026-09-17 — [ปิด Phase 1 (#185) และเริ่ม Phase 2 (#268 Option A)](session-2026-09-17-phase1-close-phase2-start.md) — ปิด #185 นำเข้า snapshot จริงผ่าน checklist 6 ข้อ (e2e 44/44 checks ผ่าน 100%, ติ๊ก DoD ใน 03 §8) · ปิด #268 (Phase 2 slice 0c) เคาะ Option A ข้อความไทย 5 error codes + 13 UI จุด, อัปเดต server_error_resolver.dart, dart analyze + test ผ่านคลีน · สรุปแผน Phase 2 เตรียมเริ่ม #269 (slice 0d sync.seam)
+
+- 2026-09-15 (ค่ำ) — [รอบ orchestrator ปิดงาน phase 1](orchestrated-closeout-round-2026-09-15.md) — merge 13 PR (#235 #236 #237 #244 #246 #247 #250 #252 #253 #255 #256 #257 #260)
+  - เจ้าของเคาะ: #67 self-hosted runner · #185 ใช้ข้อมูลสังเคราะห์ก่อน · #238 tombstone + ทิ้งแถวซัพพลายเออร์กำพร้า · #251 k6 หลายเครื่อง → Prometheus · #239 import เป็น background job
+  - 🔴 etcd auth ไม่เคยเปิดบน demo VM (#250) · watch ถือ token หมดอายุค้าง เพราะ watch ตอบ 200 ไม่ใช่ 401 (#255) · ลิ้นชักที่ import มาค้างเปิดถาวร (#244)
+  - ⚠️ subagent รัน `docker compose down -v` บนเครื่อง dev → volume Postgres/Redis ของเครื่องนี้หาย
+  - #239 ปิดแล้วด้วย PR #260 · ค้าง: #67 ต้องติดตั้ง runner และรันจริง · deploy รอบหน้าต้องเช็ก etcd auth · #251/#184 วัดจริงด้วย 3 เครื่อง · #185 รอไฟล์จริง
+
+- 2026-09-15 — [#185 `close.4`: ลอง checklist §9 ด้วย snapshot สังเคราะห์](close4-synthetic-snapshot-2026-09-15.md) — เจ้าของโปรเจกต์สั่งให้ใช้ข้อมูลสังเคราะห์ก่อน เพราะยังไม่ได้ไฟล์จริงจากร้าน
+  - สร้าง generator แบบ deterministic ที่จำลองการขายของร้านทีละวันตามกฎของ Drift repository (สินค้า 320 · บิล 2,043 · 4 เดือน · 2 MiB) · commit เฉพาะ sample เล็ก 142 KiB
+  - Flutter: `importLegacyBackup()` ผ่าน 4/4
+  - Server: รอบแรกบน `main` พัง
+    - 🔴 body เกิน 100 KiB ได้ 500
+    - 🔴 import อ่าน key ที่แต่งขึ้นเอง (`sa_purchase_orders`/`sa_shifts`/`sa_parked_sales`) → PO, กะ, ลิ้นชัก, บิลพัก หายหมด แต่ยังตอบ 201 · หมวดกลายเป็น `Cat-n` · `zone` ไม่ถูกแปลง
+  - แก้แล้ว: 6 ข้อใน §9 ผ่านครบ · rollback ผ่าน · closing report ถูกต้อง · บิลแรกหลัง import ได้เลข `RC01-2569-09-0001`
+  - 🔴 กับดัก: ถ้าส่ง `json()` ให้ `app.use` ตรง ๆ Nest จะข้าม parser ของตัวเอง ทุก route อื่นเลยไม่มี body
+  - 🔴 ไฟล์แบบ realistic (มีสินค้า/ลูกค้า/ช่างที่ถูกลบจริงแต่ประวัติยังอ้างถึง) → FK ได้ 500 → #238 · ช่องโหว่ pre-flight ที่เหลือ → #239
+  - #185 ยังเปิดไว้ รอไฟล์จริง
+
+- 2026-09-15 — [#184 `close.3` deploy จริงครั้งแรกบน demo VM + rollback + k6 บน VM](close3-demo-deploy-2026-09-15.md) — `provision.yml` เพิ่ม `JWT_PLATFORM_SECRET` · `deploy.yml` `8e873cd` ผ่าน (`/health/ready` 200, `.current_sha` ตรง) · rollback `4f3a244` → กลับ `8e873cd` (102 / 95 วินาที, health ไม่หลุด) · 200 `POST /sales` บนสต็อก 50 → 50 บิล 0 5xx สต็อก 0 (`k6:verify` ผ่าน) · 🔴 latency §9 ยังวัดไม่สะอาด: nginx `perip` 30r/s ทำให้ k6 จากเครื่องเดียววัด nginx · 🔴 etcd auth ไม่เปิดบน VM (`etcd-init.sh` กลายเป็นโฟลเดอร์ — แก้ใน branch `fix/etcd-init-deploy`) · 🔴 rollback ถอยแค่ image ไม่ถอย config · `/health/ready` ตอบ postgres down ตอน pool เต็ม · `verify-integrity.ts` ผ่านแม้ขาย 0 บิล — #184 เปิดไว้ให้เจ้าของปิด
+
+- 2026-09-15 — [Lane A: ปิดงานค้าง phase 1 + เคาะ ADR phase 2](lane-a-closeout-round-2026-09-15.md) — orchestrator + agent (implement → `/code-review` + `/scrutinize` แยก agent → แก้ → merge) · merge #197 (#183 timeout) #198 (#182 scheduler) #204 (#188 doc-counters, schema v6) #205 (#201 builtin jitter) #215 (#213 commit guard 25 วินาที) · รีวิวย้อนหลัง #208/#209 (ไม่ต้อง revert) · #187/#191 เคาะแล้ว (#214 แทน #206/#210) · 🔴 role timeout 5 วินาทีทำให้ report พัง → เปลี่ยนเป็น commit guard · 🔴 test ต้องรันแบบไม่มี env ค้าง · 🔴 checkout หลักใช้ร่วมกับอีก session · ค้าง #184–#186 #217 #219–#221 และติ๊ก DoD — กำลังทำ
+
 - 2026-09-14 — [#25 Ticket 25 `p6.1` GET /bootstrap + GET/PATCH /settings](ticket-25-p61-bootstrap-settings.md) — เอนด์พอยต์ GET /bootstrap คำนวณ Strong ETag SHA256 ตอบ 304 Not Modified เมื่อข้อมูลไม่เปลี่ยน + GET/PATCH /settings ตรวจสิทธิ์ manager — ปิดแล้ว
 - 2026-09-14 — [#66 `ops.3` runtime config via etcd v3](ticket-66-ops3-etcd-runtime-config.md) — `RuntimeConfigService` ใน NestJS อ่านและ watch `/pos/config/log_level` ผ่าน etcd v3 gRPC-gateway HTTP API ด้วย native `fetch` (ไม่พึ่งพา `etcd3` npm) · mutate `logger.level` แบบ real-time โดยไม่ต้อง restart app · fail-open ปลอดภัย fallback ไปใช้ `LOG_LEVEL` จาก `.env` ทันทีเมื่อ etcd unreachable — เสร็จสมบูรณ์พร้อม merge
 

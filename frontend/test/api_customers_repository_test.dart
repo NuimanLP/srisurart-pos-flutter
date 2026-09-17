@@ -146,6 +146,37 @@ void main() {
     expect(customers.any((c) => c.name == 'Offline Customer'), isTrue);
   });
 
+  test('#183: a timed-out write does NOT fall back to a local row', () async {
+    // The server receives the POST and commits after the client has given up;
+    // a Drift fallback here would be a second customer for one person.
+    var serverCommitted = 0;
+    final slowServer = MockClient((request) async {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      serverCommitted++;
+      return http.Response('{"status":"success","data":{}}', 201);
+    });
+    final repo = ApiCustomersRepository(
+      db,
+      ApiClient(httpClient: slowServer, writeTimeout: const Duration(milliseconds: 200)),
+    );
+    final before = (await db.select(db.customers).get()).length;
+
+    await expectLater(
+      repo.addCustomer(CustomersCompanion.insert(
+        id: 'c_timeout',
+        code: 'CUS777',
+        name: 'Timed Out',
+        nameTH: 'หมดเวลา',
+        createdAt: '2026-09-15T10:00:00.000Z',
+      )),
+      throwsA(isA<ApiTimeoutException>()),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+
+    expect(serverCommitted, 1);
+    expect((await db.select(db.customers).get()).length, before, reason: 'no local re-run');
+  });
+
   test('deleteCustomer soft-deletes in Drift by setting deletedAt', () async {
     await db.into(db.customers).insert(
           CustomersCompanion.insert(

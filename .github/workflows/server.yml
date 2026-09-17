@@ -70,6 +70,8 @@ jobs:
             server:
               - 'server/**'
               - '.github/workflows/server.yml'
+              # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
+              - 'frontend/test/fixtures/synthetic_snapshot_*.json'
 
   lint:
     name: lint + typecheck
@@ -140,6 +142,33 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
+  nginx-check:
+    name: nginx config check (nginx -t)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - name: generate test TLS cert and htpasswd for syntax validation
+        run: |
+          mkdir -p .tmp-nginx/certs .tmp-nginx/auth
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \
+            -keyout .tmp-nginx/certs/server.key -out .tmp-nginx/certs/server.crt
+          printf 'dummy:%s\n' "$(openssl passwd -apr1 dummy)" > .tmp-nginx/auth/k6-remote-write.htpasswd
+      - name: test nginx configuration (nginx -t)
+        run: |
+          docker run --rm \
+            -v "$PWD/server/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
+            -v "$PWD/.tmp-nginx/auth:/etc/nginx/auth:ro" \
+            nginx:1.29-alpine nginx -t
+      - name: cleanup temporary files
+        if: always()
+        run: rm -rf .tmp-nginx
+
   integration:
     name: integration (Postgres + both Redis, real migrations)
     runs-on: ubuntu-latest
@@ -191,8 +220,11 @@ jobs:
   build-image:
     name: server image → GHCR
     runs-on: ubuntu-latest
-    needs: [lint, audit, unit, integration]
-    if: github.ref == 'refs/heads/main'
+    needs: [lint, audit, unit, integration, nginx-check]
+    # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
+    # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
+    # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
     # docker build + a scan + a push; nothing here should take 20 min, and `docker run` of
     # the app must never be allowed to hang for the 6-hour default.
     timeout-minutes: 20
@@ -276,7 +308,7 @@ jobs:
   server-ci-status:
     name: server-ci-status
     runs-on: ubuntu-latest
-    needs: [changes, lint, audit, unit, integration, build-image]
+    needs: [changes, lint, audit, unit, integration, build-image, nginx-check]
     # #39: this is the only server-side required check on `main`. It must report
     # on every PR — including a frontend-only one, where "lint"/"audit"/"unit"
     # (and `changes` itself, on push/workflow_dispatch) are legitimately skipped
@@ -302,9 +334,16 @@ jobs:
             "${{ needs.audit.result }}" \
             "${{ needs.unit.result }}" \
             "${{ needs.integration.result }}" \
-            "${{ needs.build-image.result }}"; do
+            "${{ needs.build-image.result }}" \
+            "${{ needs.nginx-check.result }}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "::error::a required server job did not succeed: $result"
               exit 1
             fi
           done
+          # A skipped release image on a `main` push is not a pass: that is how #39's skip went
+          # unnoticed for every release (#184).
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.build-image.result }}" != "success" ]]; then
+            echo "::error::build-image did not run on a main push: ${{ needs.build-image.result }}"
+            exit 1
+          fi

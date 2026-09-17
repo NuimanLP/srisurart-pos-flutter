@@ -22,8 +22,10 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
+import '../../core/utils/pdf_fonts.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
@@ -238,8 +240,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
     }
   }
 
-  String _msg(Object e) =>
-      e is Exception ? e.toString().replaceFirst('Exception: ', '') : '$e';
+  String _msg(Object e) => ServerErrorResolver.resolveCounterError(e);
 
   void _toast(String msg) {
     ScaffoldMessenger.of(context)
@@ -1785,8 +1786,8 @@ Future<void> _printCreditNote(
   SettingsRowData settings,
 ) async {
   final r = cn.ret;
-  final font = await PdfGoogleFonts.sarabunRegular();
-  final fontBold = await PdfGoogleFonts.sarabunBold();
+  final font = await PosPdfFonts.sarabunRegular();
+  final fontBold = await PosPdfFonts.sarabunBold();
   final doc = pw.Document();
 
   pw.Widget kv(String k, String v, {bool bold = false}) => pw.Row(

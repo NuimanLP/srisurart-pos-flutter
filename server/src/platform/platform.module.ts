@@ -5,22 +5,12 @@ import { PlatformAuthGuard } from './platform-auth.guard.js';
 import { PlatformAuthService } from './platform-auth.service.js';
 import { PlatformTenantsController } from './platform-tenants.controller.js';
 import { PlatformTenantsService } from './platform-tenants.service.js';
-import { TenantImportController } from './tenant-import.controller.js';
-import { TenantImportService } from './tenant-import.service.js';
+import { TenantImportModule } from './tenant-import.module.js';
 
 @Module({
-  controllers: [
-    PlatformAuthController,
-    PlatformTenantsController,
-    TenantImportController,
-  ],
-  providers: [
-    AuditService,
-    PlatformAuthService,
-    PlatformTenantsService,
-    TenantImportService,
-    PlatformAuthGuard,
-  ],
+  imports: [TenantImportModule],
+  controllers: [PlatformAuthController, PlatformTenantsController],
+  providers: [AuditService, PlatformAuthService, PlatformTenantsService, PlatformAuthGuard],
   exports: [PlatformTenantsService, AuditService],
 })
 export class PlatformModule {}

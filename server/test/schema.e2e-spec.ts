@@ -4,11 +4,18 @@ import {
   MIGRATIONS,
 } from '../src/db/data-source.js';
 import {
-  ALL_TABLES,
+  ALL_TABLES as INITIAL_ALL_TABLES,
   APP_ROLE,
-  TENANT_SCOPED_TABLES,
+  TENANT_SCOPED_TABLES as INITIAL_TENANT_SCOPED_TABLES,
 } from '../src/db/migrations/1788652800001-RowLevelSecurity.js';
 import { SEED_CATEGORIES, seedCategories } from '../src/db/seed.js';
+
+const OWNER_REVIEW_ITEMS_TABLE = 'owner_review_items';
+const TENANT_SCOPED_TABLES = [
+  ...INITIAL_TENANT_SCOPED_TABLES,
+  OWNER_REVIEW_ITEMS_TABLE,
+] as const;
+const ALL_TABLES = [...INITIAL_ALL_TABLES, OWNER_REVIEW_ITEMS_TABLE] as const;
 
 // #15 acceptance suite. Runs the REAL migrations into a throwaway database on the
 // compose Postgres (127.0.0.1:5432, published by docker-compose.dev.yml) — never synchronize, never mocks. The owner
@@ -86,14 +93,20 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     await admin.end();
   });
 
-  it('runs from an empty database to exactly 27 tables, without change_log', async () => {
+  // #239: `import_jobs` carries a `tenant_id` column (for lookup) but is neither a
+  // `GLOBAL_TABLE` (that category means "no tenant_id at all") nor a `TENANT_SCOPED_TABLE`
+  // (RLS would be theatre: `pos_app` never touches it, only `ADMIN_DATA_SOURCE`) — its own
+  // migration explains why it could not simply be appended to either exported list.
+  const IMPORT_JOBS_TABLE = 'import_jobs';
+
+  it('runs from an empty database to exactly 29 tables (27 + import_jobs + owner_review_items), without change_log', async () => {
     const tables = await tableNames(owner);
-    expect(tables).toHaveLength(27);
-    expect(tables).toEqual([...ALL_TABLES].sort());
+    expect(tables).toHaveLength(29);
+    expect(tables).toEqual([...ALL_TABLES, IMPORT_JOBS_TABLE].sort());
     expect(tables).not.toContain('change_log');
   });
 
-  it('every tenant-scoped table carries tenant_id in its primary key', async () => {
+  it('every tenant-scoped table carries tenant_id in its primary key (import_jobs included)', async () => {
     const r = await owner.query<{ table_name: string; columns: string[] }>(
       `SELECT c.conrelid::regclass::text AS table_name,
               array_agg(a.attname::text ORDER BY k.ord) AS columns
@@ -107,11 +120,12 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     for (const t of TENANT_SCOPED_TABLES) {
       expect(pk.get(t), `${t} primary key`).toContain('tenant_id');
     }
+    expect(pk.get(IMPORT_JOBS_TABLE), `${IMPORT_JOBS_TABLE} primary key`).toContain('tenant_id');
     expect(pk.get('tenants')).toEqual(['id']);
     expect(pk.get('platform_admins')).toEqual(['id']);
   });
 
-  it('RLS is enabled and forced on every tenant-scoped table, with one policy each', async () => {
+  it('RLS is enabled and forced on every tenant-scoped table, with one policy each — import_jobs gets none', async () => {
     const r = await owner.query<{
       relname: string;
       rls: boolean;
@@ -132,6 +146,9 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       });
     }
     expect(byName.get('tenants')).toMatchObject({ rls: false, policies: 0 });
+    // #239: no RLS at all — only ADMIN_DATA_SOURCE (which bypasses RLS regardless) ever
+    // touches this table, so a policy would guard nothing real.
+    expect(byName.get(IMPORT_JOBS_TABLE)).toMatchObject({ rls: false, forced: false, policies: 0 });
   });
 
   it(`${APP_ROLE} is neither superuser, BYPASSRLS, nor the owner of any table`, async () => {
@@ -262,6 +279,15 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     expect(mig.rows[0].s).toBe(false);
   });
 
+  it(`${APP_ROLE} has no privilege at all on import_jobs (#239 — only ADMIN_DATA_SOURCE touches it)`, async () => {
+    const r = await owner.query(
+      `SELECT has_table_privilege($1, $2, 'SELECT') AS s, has_table_privilege($1, $2, 'INSERT') AS i,
+              has_table_privilege($1, $2, 'UPDATE') AS u, has_table_privilege($1, $2, 'DELETE') AS d`,
+      [APP_ROLE, IMPORT_JOBS_TABLE],
+    );
+    expect(r.rows[0]).toEqual({ s: false, i: false, u: false, d: false });
+  });
+
   it('seedCategories inserts exactly the five categories in palette order (ADR-0001)', async () => {
     await seedCategories(owner, TENANT_B);
     const r = await owner.query(
@@ -296,7 +322,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       expect(ran.map((m) => m.name)).toEqual(
         MIGRATIONS.map((m) => new m().name),
       );
-      expect(await tableNames(owner)).toHaveLength(27);
+      expect(await tableNames(owner)).toHaveLength(29);
     } finally {
       await ds.destroy();
     }

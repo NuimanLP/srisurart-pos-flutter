@@ -159,6 +159,9 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
     }
@@ -256,6 +259,9 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
     }
@@ -276,6 +282,9 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
       return;
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {}
 
     await super.cancelPO(id);
@@ -290,6 +299,9 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
       return;
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {}
 
     await super.deletePO(id);

@@ -125,6 +125,9 @@ class ApiCustomersRepository extends CustomersRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
     }
@@ -149,6 +152,9 @@ class ApiCustomersRepository extends CustomersRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
     }
@@ -167,6 +173,9 @@ class ApiCustomersRepository extends CustomersRepository {
       );
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
       await (db.update(db.customers)..where((t) => t.id.equals(id))).write(

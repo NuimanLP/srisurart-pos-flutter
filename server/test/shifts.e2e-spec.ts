@@ -55,14 +55,14 @@ describe('shifts and the cash drawer (e2e)', () => {
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
     backofficeToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.backofficeDeviceId,
       deviceRole: 'backoffice',
     });
@@ -436,7 +436,7 @@ describe('shifts and the cash drawer (e2e)', () => {
     const replacementToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: replacementId,
       deviceRole: 'pos',
     });
@@ -455,6 +455,43 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(fresh.status).toBe(200);
     expect(fresh.body.data.id).not.toBe(oldDrawer.body.data.id);
     expect(fresh.body.data.deviceId).toBe(replacementId);
+
+    // DoD line 12 (03_ARCHITECTURE.md §8): "enrol เครื่องใหม่ได้ device_no ใหม่ และขายได้"
+    await seedProduct(admin, TENANT, {
+      id: 'p-repl-sell',
+      partNo: 'RP-01',
+      name: 'Replacement Part',
+      price: 150,
+      cost: 100,
+      stock: 10,
+    });
+    const sale = await request(app.getHttpServer())
+      .post('/api/v1/sales')
+      .set('Authorization', `Bearer ${replacementToken}`)
+      .set('Idempotency-Key', `k-repl-sale-${Date.now()}`)
+      .send({
+        id: `s-repl-${Date.now()}`,
+        subtotal: '150.00',
+        discount: '0.00',
+        total: '150.00',
+        paymentMethod: 'เงินสด',
+        items: [
+          {
+            lineNo: 1,
+            productId: 'p-repl-sell',
+            name: 'Replacement Part',
+            qty: 1,
+            price: '150.00',
+          },
+        ],
+      });
+    expect(sale.status).toBe(201);
+    expect(sale.body.status).toBe('success');
+    expect(sale.body.data.shiftId).toBe(fresh.body.data.id);
+    const padNo = String(created.body.data.device.deviceNo).padStart(2, '0');
+    expect(sale.body.data.receiptNo).toMatch(
+      new RegExp(`^RC${padNo}-\\d{4}-\\d{2}-\\d{4}$`),
+    );
   });
 
   it('the idempotency key really guards open, not just the same-day rule', async () => {

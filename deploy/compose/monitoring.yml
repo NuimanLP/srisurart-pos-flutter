@@ -55,6 +55,10 @@ services:
       # into a dead POS.
       - "--storage.tsdb.retention.time=7d"
       - "--storage.tsdb.retention.size=2GB"
+      # #251: accepts remote_write pushes from the distributed k6 shards, reached only through
+      # Nginx's allowlisted + Basic-Auth-gated /prometheus-remote-write/ location (never this
+      # service's own loopback port, and never a new published port — server/docker/nginx/nginx.conf).
+      - "--web.enable-remote-write-receiver"
     volumes:
       # Relative paths in a Compose file resolve against the *project directory*, which
       # defaults to the directory of the FIRST `-f` file — never this file's own directory.

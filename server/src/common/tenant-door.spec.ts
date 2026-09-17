@@ -99,7 +99,9 @@ function reachesForPool(source: string): boolean {
 /**
  * Files allowed to hold a pool of their own, and why (`src/`-relative, production code).
  * Built from the tree on 2026-09-14, not from the migration plan's 12-file count. A new
- * entry needs a reason a reviewer can check, not just a line.
+ * entry needs a reason a reviewer can check, not just a line. A pool holder that writes a table
+ * clients pull by `updated_at` must commit through the commit guard (`runTx` /
+ * `TenantJobRunner`) — README *The transaction ceiling (#213)*.
  */
 const ALLOWED: Record<string, string> = {
   'common/database/tenant.service.ts':
@@ -107,15 +109,13 @@ const ALLOWED: Record<string, string> = {
   'common/guards/tenant.guard.ts':
     'ADR-0003: reads tenants.status (a GLOBAL_TABLE, no RLS) on a cache miss with a plain pool query before it names the tenant — the request holds no other connection yet (tx.4 #153), so this is never a second one. It never sets app.tenant_id.',
   'infra/db.module.ts':
-    'Builds and destroys the three pools (default pos_app, ADMIN_DATA_SOURCE, AUDIT_DATA_SOURCE).',
+    'Builds and destroys the four pools (default pos_app, ADMIN_DATA_SOURCE, AUDIT_DATA_SOURCE, HEALTH_DATA_SOURCE).',
   'db/data-source.ts':
     'The migration DataSource (#15): connects as the table owner, runs outside the app and any request.',
   'health/health.controller.ts':
-    '/health/ready probes Postgres with SELECT 1: no tenant, no table, deliberately outside any transaction.',
+    '/health/ready probes Postgres with SELECT 1 on HEALTH_DATA_SOURCE only (pos_app, pool of 1, #248): no tenant, no table, deliberately outside any transaction, and never the request pool, whose saturation would read as a dead database.',
   'auth/auth.service.ts':
     'ADR-0009: a failed login must leave its audit_log row, which a rolled-back request transaction would erase, and /auth/token must not hold an idle transaction across its argon2 verify; so /auth/token and /auth/refresh carry no TenantGuard and set app.tenant_id on their own runners.',
-  'sales/void.service.ts':
-    'auditDenial only, via AUDIT_DATA_SOURCE: a refused void rolls its request back and the refusal record must survive that; never the request pool (void-denial-pool.e2e-spec.ts).',
   'rate-limit/rate-limit.service.ts':
     'readPlan reads tenants.plan (no RLS) on the pool from the global rate-limit guard, before any runTx holds a connection — since tx.4 (#153) there is no request transaction to hold one first (#162).',
   'queue/tenant-job-runner.ts':

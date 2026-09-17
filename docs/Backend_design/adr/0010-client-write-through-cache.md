@@ -128,6 +128,50 @@ server ถืออยู่ในมือแล้วตอนเขียน 
 🔴 **`movements.type` ของ void คือ `'void'` ไม่ใช่ `'return'`** (migration `1788652800003`) รายงานทั้งหมด
 group ด้วยคอลัมน์นี้ การยุบสองค่านี้เข้าด้วยกัน = นับบิลที่ยกเลิกเป็นการคืนเงิน
 
+## Addendum 2026-09-15 — phase-2 owner session #240
+
+เจ้าของโปรเจกต์ตัดสิน D3, D5, D9 ใน #240 · สเปกเต็ม [`08_PHASE2_SPEC.md §5, §6, §15`](../08_PHASE2_SPEC.md)
+
+| # | ตัดสิน | ผลกับ ADR นี้ |
+|---|---|---|
+| D3 | **ไม่มี `offlineOk`** — ออฟไลน์ขายได้ถ้าสต็อกในเครื่องพอ | ข้อ 2 เพิ่ม `Products.offlineOk` ใน schema v3 ไว้ให้ `q2` — คอลัมน์นี้**ไม่มีใครใช้แล้ว** ~~(ลบหรือปล่อยไว้ → `08 §15 Q12`)~~ (E10: ลบ) · ทางเลือก (ค) ในตารางด้านบนที่ตกเพราะ "`offlineOk` ต้อง query ในเครื่อง" — เหตุผลนั้นหมดไป แต่ (ก) ยังถูก เพราะการตรวจสต็อกในเครื่องก็ต้อง query เหมือนกัน · pull (#191) ไม่คำนวณ/ไม่อ่าน `offlineOk` |
+| D5 | เข้า Degraded เมื่อ health check ล้ม 3 ครั้ง / ช้า > 5 วินาที **หรือ write ที่ server ไม่ตอบ** · ออกด้วย health check เท่านั้น | write ที่ไม่ได้คำตัดสิน (`isVerdict` ไม่นับ) **เข้า outbox ด้วย id + key เดิม** แทนการค้างใน `PendingWrites` · "ฝั่งเขียนเป็น online-only จนกว่า `q2` จะเสร็จ" ในผลที่ตามมาจบลงเมื่อ outbox ลง |
+| ~~D9~~ | ~~ลูกค้า / ช่าง / ใบเสนอราคา = **เข้าคิว** · สินค้า / หมวด / ใบสั่งซื้อ (+ `purgeOldQuotes`) = **ออนไลน์เท่านั้น**~~ | ~~fallback `super.<write>()` ที่สร้างแถวอยู่ในเครื่องอย่างเดียว (#229, 18 จุด) ต้องหายหมด — ทุก write เป็น op ในคิวหรือถูกปฏิเสธ~~ **(แทนที่โดย E6 รอบ 2)** |
+
+**กติกาที่ outbox เพิ่มให้ข้อ 3 ("ใครเป็นเจ้าของ invariant")** — ไม่เปลี่ยนหลัก เพิ่มแค่ช่องทาง:
+
+* op ในคิวถูกเขียนลง Drift (แถวที่ op สร้าง + แถว `outbox_ops`) **ใน local transaction เดียว** ตอนกด — นี่คือการเขียน "ในเครื่อง"
+  ที่ข้อ 5 อนุญาตให้ประทับ `updatedAt` ได้ **แต่ห้ามเรียก transactional service ของ Drift** เหมือนเดิม (`saveSale` ไม่ถูกเรียกตอนเข้าคิว)
+  การตรวจสต็อก/วงเงินในเครื่องก่อนเข้าคิวเป็นการ**ตรวจ** ไม่ใช่ invariant — ผู้ตัดสินจริงยังเป็น server ตอน push
+* `/sync/push` ตอบ `applied` พร้อม **response เดียวกับ endpoint ออนไลน์** → patch ตามตารางข้อ 3 ทุกช่องเหมือนเดิม
+* outbox **ตารางเดียว** (`outbox_ops`, ~~Drift schema v7~~ เลข schema ใส่ตอน merge) — `pending_credit_payments` ของ #24 ย้ายเข้ามา เพื่อให้ลำดับกับบิลเครดิตถูก
+* ตราบใดที่มี op ค้างส่ง write ใหม่ต่อท้ายคิว แม้ออนไลน์แล้ว (รักษาลำดับ) · สินค้าที่มี op ค้างไม่ถูกเขียนทับสต็อกตอน pull (#191 เดิม)
+* **ไม่เพิ่ม `sales.sync_status`** — สถานะของบิลอ่านจาก op ของมันใน outbox ที่เดียว
+
+## Addendum 2026-09-15 (รอบ 2) — owner round 2 on #240 (E6, E10) + review PR #254
+
+สเปก [`08_PHASE2_SPEC.md §6, §7, §15`](../08_PHASE2_SPEC.md)
+
+| # | ตัดสิน | ผลกับ ADR นี้ |
+|---|---|---|
+| E6 | รายการ op เข้าคิว / ออนไลน์เท่านั้น / ในเครื่องอย่างเดียว → **`08 §6`** (ไม่คัดลอกมาที่นี่) | แทน D9 |
+| E10 | **ลบ `Products.offlineOk`** (Drift — Postgres ไม่มีคอลัมน์นี้) | ข้อ 2 schema v3 ส่วน `offlineOk` หมดความหมาย |
+| 08 B4 🔴 | cursor ของ pull = **`meta.nextCursor` ของ server เก็บใน Drift** · ถอย 30 วินาทีครั้งเดียวต่อรอบ pull **และไม่ส่ง `afterId` ในหน้าแรก** (รอบ 3) · **ห้าม derive จาก `updatedAt` ในเครื่อง** (`api_*_repository.dart` วันนี้ใช้ `MAX(updatedAt)` = นาฬิกาเครื่อง ข้ามการแก้ของ backoffice ถาวรถ้านาฬิกาเร็ว) · customers/mechanics ต้องได้ keyset + `nextCursor` แบบ products | แทนการอ่าน cursor จากแถวในเครื่อง · ข้อ 5 (ประทับ `updatedAt` ในเครื่องได้) ปลอดภัยก็เพราะข้อนี้ |
+| 08 B2 🔴 | ทุก op ที่สร้างแถวพก client id และ server replay ด้วย id นั้น (key หมดอายุ 24 ชม. แต่ช่วงออฟไลน์ไม่มีเพดาน) | – |
+| 08 §6.4 | **body ออนไลน์ = payload ของ op** ตัวอักษรต่อตัวอักษร ไม่งั้น fingerprint ไม่ตรง → `IDEMPOTENCY_KEY_REUSED` | – |
+| 08 §7 (review 🟠8) | patch จาก response ที่ `applied` ห้ามเขียนทับ `stock` ของสินค้าที่ยังมี op ค้าง · discard ลบแถวในเครื่องที่ op สร้าง แล้วให้ pull แก้สต็อก | – |
+
+## Addendum 2026-09-15 (รอบ 3) — owner round 3 on #240 (F1, F2, F8) + review รอบ 2
+
+สเปก [`08_PHASE2_SPEC.md §6–§8, §14, §15`](../08_PHASE2_SPEC.md)
+
+| # | ตัดสิน | ผลกับ ADR นี้ |
+|---|---|---|
+| F1 | B1–B4 อนุมัติ | cursor = `meta.nextCursor` ของ server เป็นกติกาถาวรของ ADR นี้ |
+| F2 | op หัวคิวไม่ได้คำตัดสิน 3 ครั้ง → `stuck` ไปหน้า "รอ owner" · op ที่ aggregate เดียวกันรอ ที่เหลือไปต่อ | outbox มี `status` 3 ค่า (`pending`/`stuck`/`rejected`) + `attempts` + `aggregates` |
+| F8 | storage ของ `pos` ถูกล้าง = op ค้างหาย (ยอมรับ) · `storage.persist()` ตอนบูต | cache + outbox อยู่ใน storage เดียว ไม่มีสำเนาที่สอง |
+| review | replay by id เทียบเฉพาะฟิลด์ที่ไม่เปลี่ยน · ไม่ตรง → `CLIENT_ID_REUSED` code เดียว · discard ลบแถวในเครื่องเฉพาะเมื่อ server ตอบ `serverHasRow=false` | กันลบแถวที่ server ถืออยู่จริง |
+
 ## ผลที่ตามมา
 
 * **`03_ARCHITECTURE §8` ต้องแก้คำ** — `q1` ไม่ใช่ *"แทน Drift repos"* แต่เป็น
@@ -140,11 +184,18 @@ group ด้วยคอลัมน์นี้ การยุบสองค�
 
 ## ยังไม่เคาะ
 
-* [ ] **(#55, เพิ่ม 2026-09-14 จาก #16) read-back window ของ `?updatedSince=`** — write ที่ประทับ `updated_at = now()`
+* [x] **(#55, เพิ่ม 2026-09-14 จาก #16) read-back window ของ `?updatedSince=`** — write ที่ประทับ `updated_at = now()`
       (เวลาเริ่ม transaction) แล้ว commit ช้า อาจ commit หลังจาก client เลื่อน cursor ผ่านเวลานั้นไปแล้ว → แถวนั้นไม่ถูกดึงเลย
       server แก้เรื่อง tie/ความละเอียดของ cursor แล้ว (keyset `(updated_at, id)` + `meta.nextCursor`) แต่ยังไม่เคาะว่า
       client ต้องถอย cursor ย้อนหลังกี่วินาที หรือ server ต้องเปลี่ยนวิธีประทับเวลา
+      → **เคาะแล้ว 2026-09-15 (#191, เจ้าของโปรเจกต์):** cursor ของเฟส 2 = keyset นี้ **ไม่สร้าง `change_log`** ·
+      client **ถอย cursor ย้อนหลัง 30 วินาที**ทุกครั้งที่ pull (แถวที่ได้ซ้ำ upsert ซ้ำได้ ไม่เสียหาย) · endpoint ส่งแถวที่ `deleted_at IS NOT NULL` (tombstone) ลงมาด้วย เครื่องซ่อน/ลบตาม
+      🔴 ถอย 30 วินาทีปลอดภัยเฉพาะเมื่อ write transaction commit ภายใน 30 วินาที — **บังคับแล้วตั้งแต่ #213 (PR #215):**
+      commit guard 25 วินาทีใน `TenantService.runTx` / `TenantJobRunner` + role `pos_app` `statement_timeout=25s`,
+      `idle_in_transaction_session_timeout=5s` (Postgres 16 ไม่มี `transaction_timeout`) — กติกาและข้อยกเว้นอยู่ที่
+      `server/README.md` *The transaction ceiling* · ช่องที่ยังเปิด: tenant import ประทับ `updated_at` ย้อนหลัง (#217)
+* [x] ~~**(2026-09-15, #240 D3)** คอลัมน์ `Products.offlineOk` ใน Drift — ลบใน schema v7 หรือปล่อยไว้ไม่ใช้ → `08 §15 Q12`~~ — **เคาะ (E10): ลบ** (08 slice 16)
 * [ ] cache invalidation ฝั่ง client — Drift ที่ค้างอยู่จะถือว่าหมดอายุเมื่อไหร่ (TTL? ตอน login? ตอน sync เสร็จ?)
 * [ ] อ่านตอน Online อ่านจาก Drift ก่อนแล้ว refresh (stale-while-revalidate) หรือรอ server เสมอ
-* [ ] **ถามเจ้าของโปรเจกต์:** เมื่อ server รับบิลแล้ว แอปต้องเชื่อตัวเลขของ server และทับของในเครื่อง
+* [x] **ถามเจ้าของโปรเจกต์ — เคาะแล้ว 2026-09-15 (#191): ใช่ เชื่อ server เสมอ** เมื่อ server รับบิลแล้ว แอปต้องเชื่อตัวเลขของ server และทับของในเครื่อง
       เสมอไหม แม้เครื่องจะเห็นต่าง (ADR นี้ตั้งไว้ว่า "ใช่" ตามข้อ 3)

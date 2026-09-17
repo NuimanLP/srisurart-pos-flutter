@@ -3,6 +3,11 @@ import type { Logger } from 'pino';
 import { DataSource, EntityManager } from 'typeorm';
 import { LOGGER } from '../../infra/logger.provider.js';
 import {
+  assertWithinCommitCeiling,
+  commitClockStart,
+  TX_COMMIT_CEILING_MS,
+} from './commit-ceiling.js';
+import {
   authorisedTenantId,
   currentTransaction,
   executePostCommitHooks,
@@ -17,6 +22,12 @@ import {
  */
 @Injectable()
 export class TenantService {
+  /**
+   * The commit guard's ceiling (#213). A field only so an e2e can lower it instead of
+   * sleeping 25 s; production never assigns it.
+   */
+  commitCeilingMs = TX_COMMIT_CEILING_MS;
+
   constructor(
     private readonly ds: DataSource,
     @Inject(LOGGER) private readonly logger: Logger,
@@ -47,6 +58,10 @@ export class TenantService {
    * with no transaction open takes two connections at once — the #162 pool-deadlock shape
    * under a burst, and two snapshots instead of one. Run them in one `runTx` instead.
    *
+   * 🔴 **The owner refuses to commit past `commitCeilingMs`** (25 s, #213): it rolls back
+   * and throws `CommitCeilingExceededError` (a 500) instead. A joined call is covered by
+   * its owner's check. See README *The transaction ceiling (#213)*.
+   *
    * Otherwise it opens one: `set_config('app.tenant_id', …, true)` (the transaction-local
    * form; `SET LOCAL app.tenant_id = $1` is a 42601 — see `tenant-scope.spec.ts`), runs `fn`
    * with the manager published, commits or rolls back and returns the connection. Only then
@@ -63,6 +78,7 @@ export class TenantService {
     let hooks: ReturnType<typeof takePostCommitHooks> = [];
     try {
       await qr.connect();
+      const startedAt = commitClockStart();
       await qr.startTransaction();
       value = await runInTransaction(
         { tenantId, manager: qr.manager },
@@ -75,6 +91,9 @@ export class TenantService {
           return result;
         },
       );
+      // #213: never commit a transaction older than the ceiling — its `now()` stamps could
+      // land behind a client's rewound cursor. Throwing here rolls it back below.
+      assertWithinCommitCeiling(startedAt, this.commitCeilingMs);
       await qr.commitTransaction();
     } catch (err) {
       try {

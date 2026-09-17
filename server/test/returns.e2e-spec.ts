@@ -176,14 +176,14 @@ describe('POST /returns (e2e)', () => {
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
     backofficeToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.backofficeDeviceId,
       deviceRole: 'backoffice',
     });

@@ -38,6 +38,8 @@ part 'database.g.dart';
     DrawerEntries,
     ParkedSales,
     SettingsRow,
+    DocCounters,
+    DocCounterSeeds,
     AppMeta,
   ],
 )
@@ -65,7 +67,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -121,6 +123,12 @@ class AppDatabase extends _$AppDatabase {
       // rewrite — and nothing to backfill, since only the API build writes it.
       if (from < 5) {
         await m.createTable(pendingCreditPayments);
+      }
+      // v5 → v6 (#188): the document-number counter and its seed record. New
+      // tables only; they start empty and the next seed fills them.
+      if (from < 6) {
+        await m.createTable(docCounters);
+        await m.createTable(docCounterSeeds);
       }
     },
   );

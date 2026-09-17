@@ -6,6 +6,7 @@
 // ฿200 bill where `floor(total/10)` is 20), so a repository that quietly fell
 // back to `saveSale`'s local maths would be caught rather than congratulated.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -71,8 +72,9 @@ void main() {
   /// The refresh endpoint always succeeds, so `ApiClient`'s 401 path is available
   /// to any test that wants it.
   ApiSalesRepository repoWith(
-    Future<http.Response> Function(http.Request req) handler,
-  ) {
+    Future<http.Response> Function(http.Request req) handler, {
+    Duration writeTimeout = ApiClient.defaultWriteTimeout,
+  }) {
     final client = MockClient((req) async {
       sent.add(req);
       if (req.url.path.endsWith('/auth/refresh')) {
@@ -89,6 +91,7 @@ void main() {
         baseUrl: 'http://server.test',
         httpClient: client,
         tokenStorage: _MemoryTokenStorage(),
+        writeTimeout: writeTimeout,
       ),
       db: db,
       drift: SalesRepository(db),
@@ -632,6 +635,39 @@ void main() {
       },
     );
 
+    test('a timeout then a second press replays the SAME bill id and key (#183)', () async {
+      // The hung socket: the first POST reaches the server, commits, and its
+      // reply never comes. The timeout must read like a dropped socket — fate
+      // unknown — so the attempt stays parked and the retry replays it.
+      var attempt = 0;
+      final repo = repoWith((req) {
+        attempt++;
+        if (attempt == 1) return Completer<http.Response>().future; // never answers
+        return Future.value(http.Response(
+          _ok(created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        ));
+      }, writeTimeout: const Duration(milliseconds: 200));
+
+      await expectLater(
+        () => repo.saveSale(input()),
+        throwsA(allOf(isA<ApiTimeoutException>(), isNot(isA<ApiException>()), isNot(isA<PosException>()))),
+      );
+      final sale = await repo.saveSale(input());
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+      expect(posts, hasLength(2));
+      expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(1));
+      expect(
+        posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+        hasLength(1),
+        reason: 'a timeout is not a verdict; a fresh id is a second bill',
+      );
+      expect(sale.receiptNo, 'RC-00042');
+      expect(await db.select(db.sales).get(), hasLength(1));
+    });
+
     test('but a server VERDICT closes the attempt — the next bill is a new one', () async {
       // A 409 is an answer: nothing was committed, and the next press is a
       // different sale that must not inherit the refused bill's id.
@@ -665,10 +701,10 @@ void main() {
     });
 
     test('a 504 from the proxy is NOT a verdict — the retry replays the bill', () async {
-      // The likeliest real shape of a lost reply. `ApiClient` sets no timeout,
-      // so what actually fires first is nginx's own `proxy_read_timeout`, and
-      // that arrives as an ordinary `ApiException` — not the `SocketException`
-      // the test above uses. Treating every `ApiException` as a verdict is how
+      // The likeliest real shape of a lost reply. `ApiClient`'s write timeout
+      // sits above nginx's, so what usually fires first is nginx's own
+      // `proxy_read_timeout`, and that arrives as an ordinary `ApiException` —
+      // not the `SocketException` the test above uses. Treating every `ApiException` as a verdict is how
       // a committed bill gets rung up a second time.
       var attempt = 0;
       final repo = repoWith((req) async {

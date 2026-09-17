@@ -292,8 +292,8 @@ CREATE TABLE users (
   username      TEXT NOT NULL,
   password_hash TEXT NOT NULL,                  -- argon2id
   display_name  TEXT NOT NULL,
-  role          TEXT NOT NULL CHECK (role IN ('owner','manager','cashier')),
-  pin_hash      TEXT,                           -- manager PIN สำหรับยืนยันงานเสี่ยง (void/ลดราคาเกิน)
+  role          TEXT NOT NULL CHECK (role IN ('owner','manager','cashier')),  -- ⚠️ 2026-09-15 (#240 E1/E2/F9): เฟส 2 เหลือ CHECK (role IN ('owner')) · user active หนึ่งคนต่อร้าน (UNIQUE INDEX ON users(tenant_id) WHERE is_active) — 08 §3
+  pin_hash      TEXT,                           -- manager PIN สำหรับยืนยันงานเสี่ยง (void/ลดราคาเกิน) · ⚠️ 2026-09-15 (#240 E3): void ไม่ใช้ PIN แล้ว → ลบคอลัมน์ในเฟส 2 (08 §3)
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, id),
@@ -340,7 +340,8 @@ CREATE TABLE idempotency_keys (
 );
 CREATE INDEX idx_idem_created ON idempotency_keys (created_at);  -- ใช้ลบของเก่า (>24h)
 
--- ⛔ เฟส 2 เท่านั้น — อย่าสร้างในเฟส 1 (ยังไม่มีใครเรียก และมีบั๊ก cursor ที่ต้องแก้ก่อน ดูกล่องใต้ตาราง)
+-- ⛔ ไม่สร้าง — เคาะ 2026-09-15 (#191, ถอย cursor 30 วินาที): pull ของเฟส 2 ใช้ keyset ?updatedSince=&afterId= (ADR-0010) แทน
+--    เก็บ DDL ไว้เป็นประวัติเท่านั้น (เดิม: "เฟส 2 เท่านั้น — มีบั๊ก cursor ที่ต้องแก้ก่อน ดูกล่องใต้ตาราง")
 -- log การเปลี่ยนแปลงสำหรับ sync แบบ pull
 CREATE TABLE change_log (
   server_seq    BIGSERIAL PRIMARY KEY,
@@ -1057,16 +1058,30 @@ flowchart LR
 
 ขั้นตอน:
 1. สร้าง `tenants` + `users` + `devices` ให้ร้านผ่าน `POST /platform/tenants` (ADR-0001) — ไม่ insert มือ
-2. **Pre-flight scan ก่อนแตะ DB** (สแกน JSON อย่างเดียว ยังไม่ insert) — ถ้าเจอต้องหยุดและตัดสินใจก่อน:
+2. **Pre-flight scan ก่อนแตะ DB** (สแกน JSON อย่างเดียว ยังไม่ insert, รันแบบ synchronous ในคำขอ
+   `POST .../import` เอง — ไฟล์เสียได้ 400/409 ทันที) — ถ้าเจอต้องหยุดและตัดสินใจก่อน **(ครบทุกข้อแล้ว,
+   #239, `server/src/platform/snapshot-preflight.ts` + `snapshot-tombstones.ts`):**
    - สินค้าที่ `stock < 0` → `CHECK (stock >= 0)` จะ rollback ทั้งร้านเพราะสินค้าตัวเดียว
    - `category` ที่สินค้าอ้างถึงแต่ไม่มีในรายการหมวด
-   - `createdAt` ที่ parse ไม่ได้
-   - เลขเอกสารซ้ำ (`receipt_no` / `po_no` / `quote_no` / `cn_no`)
-3. import ตามลำดับ dependency:
+   - `createdAt`/`updatedAt`/`deletedAt` และวันที่อื่นทุกจุดที่ `parseDate()` อ่าน (ไม่ใช่แค่
+     `createdAt`) ที่ parse ไม่ได้ — เดิม parse ไม่ได้แล้วเงียบ ๆ กลายเป็นเวลา import ปัจจุบัน
+   - เลขเอกสารซ้ำ (`receipt_no` / `po_no` / `quote_no` / `cn_no`, และ `receipt_no` ของ
+     credit payment — คนละตารางกับ `sales.receipt_no`)
+   - ค่าที่เดิม clamp เงียบ ๆ (validate ก่อน แล้วค่อย clamp — บทเรียนจาก #22): `credit_balance`
+     ติดลบ, `points`/`minStock` ติดลบ, และ `qty` ของบรรทัดขาย/คืน/PO/ใบเสนอราคาที่เป็น 0, ติดลบ,
+     ไม่ใช่จำนวนเต็ม หรือหายไปเฉย ๆ — ทุกจุดปฏิเสธเป็น 400 พร้อม id แทนการ clamp
+   - `deletedAt` บนลูกค้า/ช่าง (Drift schema v2) — import เป็นแถว soft-deleted ตามไฟล์ ไม่ใช่แถว live
+3. **นำเข้าเป็น background job** (BullMQ, ตัดสินโดยเจ้าของโปรเจกต์ 2026-09-15, #239): `POST
+   .../import` ตอบ `202 Accepted` พร้อม `jobId` ทันทีหลัง pre-flight ผ่าน, worker แยก
+   (`TenantImportProcessor`) เป็นคนเขียนจริงตามลำดับ dependency ด้านล่าง — `GET
+   .../import/:jobId` เช็คสถานะ (`queued|running|succeeded|failed`) ได้ เหตุผล: import
+   synchronous ใช้เวลาประมาณ 6.4 วินาทีต่อ 2 MiB (วัดจริง) ขณะที่ nginx จำกัด
+   `proxy_read_timeout 30s` — ไฟล์ร้านที่ใหญ่ขึ้นจะโดน 504 ทั้งที่ transaction ไปสำเร็จจริง แล้ว
+   retry จะเจอ 409 ที่งงว่าเกิดอะไรขึ้น:
    `categories → products → suppliers → customers → mechanics → sales/sale_items →
    returns/return_items → credit_payments → purchase_orders/po_items → quotes/quote_items →
    movements → shifts → drawer_entries → parked_sales → settings → tenant_meta`
-4. รันทั้งหมดใน transaction เดียวต่อ tenant — ล้มก็ rollback ทั้งร้าน
+4. รันทั้งหมดใน transaction เดียวต่อ tenant (ภายใน worker) — ล้มก็ rollback ทั้งร้าน
 5. **ตรวจ 6 ค่าหลังย้าย** (ไม่ตรง = หยุด แล้วหาเหตุ):
    - `SUM(sales.total)` เท่ากับของเดิม
    - `SUM(products.stock)` เท่ากับของเดิม
@@ -1089,6 +1104,31 @@ flowchart LR
 * float → NUMERIC: ค่าอย่าง `123.45000000000002` ต้อง `round2` ก่อนใส่
 * `categories` ที่มีสินค้าอ้างถึงแต่ไม่มีในตาราง (ข้อมูลเก่าไม่ clean) → สร้าง category ให้อัตโนมัติ
   **แต่ห้ามใส่ FK `products.category → categories`** — ดู §10 (ของเดิมตั้งใจให้เป็น orphan ได้)
+* **ประวัติอ้างถึงแถวที่ร้านลบทิ้งไปแล้ว (#238 — เจ้าของโปรเจกต์เคาะ 2026-09-15: ตัวเลือก (a) tombstone)**
+  Drift ไม่มี FK และลบแบบ hard delete ทุกที่ ไฟล์จริงจึงมี `movements` ที่อ้างสินค้าที่หายไปแล้ว
+  มี `sales` ที่อ้างลูกค้า/ช่างที่หายไป และมี `credit_payments` ที่อ้างช่างที่หายไป ถ้าไม่จัดการ Postgres จะชน FK → 500 ทั้งร้าน
+  → import สร้าง **แถว soft-deleted หนึ่งแถวต่อ id ที่หายไป** ดังนี้
+  - `deleted_at` = เวลา import
+  - ชื่อเอามาจากชื่อที่ประวัติคัดลอกเก็บไว้ (`movements.name/part_no`, `sale_items.name/part_no`, `sales.customer_name`,
+    `sales.mechanic_name`, `returns.mechanic_name`)
+  - ยอดสะสมเป็นศูนย์
+  - ติดป้าย `import-tombstone` (`products.brand`, และ `customers.code`/`mechanics.code` = `import-tombstone:<id>`)
+  - นับจำนวนต่อตารางลง `audit_log.after` ใน transaction เดียวกับ import
+
+  tombstone ไม่ชน `uq_products_partno(_ci)` เพราะทั้งสอง index เป็น partial `WHERE deleted_at IS NULL`
+  และไม่คืนชีพเป็นแถว live
+  **อ้างถึงแต่ไม่มีชื่อให้เก็บเลย** → pre-flight ตอบ 400 พร้อมรายการ id (ห้ามสร้างบิลปลอม เพราะเท่ากับสร้างเงิน —
+  เหตุผลนี้ของผู้ทำ ไม่ใช่สิ่งที่เจ้าของโปรเจกต์เคาะไว้ตรง ๆ ใน #238 แต่เป็นข้อสรุปที่จำเป็นเพื่อให้ "ใบลดหนี้ที่บิลต้นทางหายไป"
+  ก็ต้องตอบ 400 ด้วยเหตุผลเดียวกัน) — `server/src/platform/snapshot-tombstones.ts`
+
+* **`suppliers.product_id` เป็น FK เหมือนกัน แต่ราคาซัพพลายเออร์ไม่ใช่ "ประวัติ" (#252 — เจ้าของโปรเจกต์เคาะ 2026-09-15)**
+  รอบตรวจ PR #252 พบว่าสินค้าที่ถูกเพิ่มพร้อมราคาซัพพลายเออร์ (`SuppliersRepository`) แล้วลบทิ้งทันที
+  **ก่อนเคยลงสต็อกหรือขาย** จะไม่มี `movements`/`sale_items` อ้างถึงเลย — ไม่มีชื่อให้ตั้ง tombstone จากที่ไหนเลย
+  เดิมโค้ดจะปฏิเสธไฟล์ทั้งไฟล์ด้วย 400 `unnamed` แม้ราคาซัพพลายเออร์ไม่ใช่สิ่งที่ต้องกู้คืน
+  → ตัดสินใจใหม่: แถว `sa_suppliers` ที่อ้าง `product_id` ที่ไม่อยู่ในไฟล์ **และ**ไม่ถูก tombstone ด้วยเหตุอื่น
+  (เช่นมี `movements` อ้างสินค้าเดียวกันอยู่) → **ทิ้งแถวนั้น** ไม่ import ไม่ปฏิเสธทั้งไฟล์
+  นับจำนวนลง `droppedSuppliers` ทั้งใน `audit_log.after`, response ของ import และรายงาน pre-flight
+  ถ้าสินค้าตัวนั้นถูก tombstone อยู่แล้ว (มีประวัติอื่นอ้างถึงจริง) แถวซัพพลายเออร์จะถูกเก็บไว้ตามเดิม
 
 ---
 
@@ -1127,7 +1167,7 @@ flowchart LR
 | **ไม่มี soft delete ครบทุกตาราง** | ตอน sync การลบต้องส่งเป็น tombstone ไม่งั้นเครื่องอื่นจะ resurrect ข้อมูลที่ลบไปแล้ว |
 | ~~หลายร้าน = หลาย timezone?~~ **เคาะแล้ว (ADR-0003)** | เพิ่ม `tenants.timezone TEXT DEFAULT 'Asia/Bangkok'` แล้ว (§5.1) เพราะ `shifts.date_str` และรายงานรายวันทุกใบขึ้นกับค่านี้ |
 | **`customers` / `mechanics` / `settings` ยังไม่มี `updated_at`** | มีแต่ `products` ที่มี → refresh cache ด้วย `?updatedSince=` ทำไม่ได้กับ 3 ตารางนี้ **เป็น Drift schema change ที่ต้องรัน `build_runner` บน ASCII path** ควรทำรวดเดียวตอนนี้ ไม่ใช่ไปเจอตอนเฟส 2 |
-| **`sales.sync_status`** | ถ้าจะทำโหมดออฟไลน์ ต้องมี `('local'\|'confirmed'\|'rejected')` + คิวให้เจ้าของร้านเคลียร์บิลที่ server ปฏิเสธหลังพิมพ์ใบเสร็จไปแล้ว — ซ่อนไว้ใน log ไม่ได้ |
+| ~~**`sales.sync_status`**~~ | ~~ถ้าจะทำโหมดออฟไลน์ ต้องมี `('local'\|'confirmed'\|'rejected')`~~ + คิวให้เจ้าของร้านเคลียร์บิลที่ server ปฏิเสธหลังพิมพ์ใบเสร็จไปแล้ว — ซ่อนไว้ใน log ไม่ได้ · **2026-09-15: ไม่ทำคอลัมน์ — สถานะอยู่ใน outbox ของเครื่อง, คิวคือหน้า "รอ owner" (08 §7, §14)** |
 
 ---
 

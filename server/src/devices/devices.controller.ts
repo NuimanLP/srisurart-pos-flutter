@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -13,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { clientIp } from '../common/client-ip.js';
+import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { toSatang } from '../common/money.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
@@ -31,10 +31,9 @@ interface AuthenticatedRequest extends Request {
 const LABEL_MAX_LENGTH = 100;
 
 /**
- * `/devices` (ADR-0004 "การผูกเครื่อง", 02_API_SCREENS.md §4.2). **`owner` only** — ADR-0004
- * sets it there "until the shop answers" whether a manager may move the till too. Both device
- * roles, and a session with no device token, may call it: the owner does this from Settings on
- * whatever machine is at hand, and a broken `pos` is the usual reason to be here at all.
+ * `/devices` (ADR-0004 "การผูกเครื่อง", 02_API_SCREENS.md §4.2, F6). Enrolled device token
+ * required (`did` in JWT — either `pos` or `backoffice`). A session without a device token is
+ * refused with 403 DEVICE_ROLE_FORBIDDEN.
  */
 @Controller('devices')
 @UseGuards(TenantGuard)
@@ -46,7 +45,7 @@ export class DevicesController {
 
   @Get()
   list(@Req() req: AuthenticatedRequest): Promise<Device[]> {
-    requireOwner(req);
+    requireEnrolledDevice(req);
     return this.devices.list();
   }
 
@@ -65,7 +64,7 @@ export class DevicesController {
       idempotencyParamsOf(req, 201),
       res,
       () => {
-        requireOwner(req);
+        requireEnrolledDevice(req);
         const b = asObject(body);
         if (typeof b.label !== 'string' || b.label.trim() === '') {
           throw new BadRequestException('label is required');
@@ -99,7 +98,7 @@ export class DevicesController {
       idempotencyParamsOf(req, 200),
       res,
       () => {
-        requireOwner(req);
+        requireEnrolledDevice(req);
         const b = body === undefined || body === null ? {} : asObject(body);
         let physicalCash: number | null = null;
         if (b.physicalCash !== undefined && b.physicalCash !== null && b.physicalCash !== '') {
@@ -112,9 +111,9 @@ export class DevicesController {
   }
 }
 
-function requireOwner(req: AuthenticatedRequest): void {
-  if (req.user?.role !== 'owner') {
-    throw new ForbiddenException({ code: 'FORBIDDEN', message: 'Owner role required' });
+function requireEnrolledDevice(req: AuthenticatedRequest): void {
+  if (!req.user?.deviceId) {
+    throw new DeviceRoleForbiddenException();
   }
 }
 

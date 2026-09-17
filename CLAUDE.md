@@ -34,7 +34,7 @@ The repo now carries **two lines of work**. Know which one you are on before you
   The Dart repositories stay the behavioural reference for those rules — port them, don't reinvent.
 - `POC_sample_offline_first` preserves the offline-first build exactly as the shop runs it today,
   so the phase-1 rule **"the shop keeps running the Drift build, no cutover"** stays testable.
-- The offline-first design is **not abandoned** — it returns as **phase 2** (outbox + `offlineOk`
+- The offline-first design is **not abandoned** — it returns as **phase 2** (outbox + ~~`offlineOk`~~ — dropped 2026-09-15, see 08
   + a single `role='pos'` writer per tenant, ADR-0004). The POC branch is its starting point.
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
@@ -147,12 +147,26 @@ idiomatic replacement for the JS snapshot/rollback):
 adversarial scrutiny + fix pass; **web-DB runtime wired** (`flutter run -d chrome` now boots —
 see below). App `dart analyze`-clean, tests green, `flutter build web` ok.
 
-**Web DB (done 2026-06-24):** `driftDatabase()` on the web requires a `web:` option pointing at
-two assets committed in `web/`: `sqlite3.wasm` (matches the `sqlite3` pub version, 3.3.3) and
-`drift_worker.js` (matches the `drift` pub version, 2.34.0). `AppDatabase.open()` passes
+**Web DB (done 2026-06-24, assets re-synced 2026-09-16, #245):** `driftDatabase()` on the web
+requires a `web:` option pointing at two assets committed in `web/`: `sqlite3.wasm` (matches the
+`sqlite3` pub version, 3.4.0) and `drift_worker.js` (matches the `drift` pub version, 2.34.1) —
+recorded in `frontend/web/WEB_DB_ASSET_VERSIONS.txt`. `AppDatabase.open()` passes
 `DriftWebOptions(sqlite3Wasm: Uri.parse('sqlite3.wasm'), driftWorker: Uri.parse('drift_worker.js'))`
 (ignored on native). **If you bump `drift` or `sqlite3`, re-download the matching assets** from
-`github.com/simolus3/{drift,sqlite3.dart}/releases` — a version skew breaks the web DB at boot.
+`github.com/simolus3/{drift,sqlite3.dart}/releases` (tags `sqlite3-<version>` / `drift-<version>`)
+and update `WEB_DB_ASSET_VERSIONS.txt` — a version skew breaks the web DB at boot, and it is not
+cosmetic: sqlite3 3.3.3→3.4.0 bumped the bundled SQLite core (3.53.3) and changed statement-reset
+behaviour, and drift 2.34.0→2.34.1 fixed a zone-scoped cancellation bug inside `drift_worker.js`
+itself (`docs/handoff_log/ticket-245-web-db-asset-skew.md`). `.github/workflows/flutter.yml`'s
+`analyze-and-test` job fails the build if `pubspec.lock`'s locked versions diverge from
+`WEB_DB_ASSET_VERSIONS.txt`.
+🔴 **Matching the versions does not mean the web DB boots clean (#266, open).** With the
+correctly matched 3.4.0/2.34.1 pair, a browser missing `dedicatedWorkersInSharedWorkers` (drift's
+`sharedIndexedDb`/`opfsLocks` fallback storage) hits `LinkError: ... "xFileControl": function
+import requires a callable` and never loads — reproduces identically with the old self-matched
+3.3.3/2.34.0 pair too, so it predates #245 and is a separate drift/sqlite3 incompatibility, not
+an asset-skew symptom. Unverified on a browser with full OPFS support. **#241 (PWA precache
+manifest) must wait on #266, not just #245.**
 
 **Riverpod → flutter_bloc migration (done 2026-07-14):** full replacement — DI (13
 repositories via `RepositoryProvider`), the 4 stateful controllers (now Cubits:
@@ -332,7 +346,7 @@ keeps running this Drift build while the server is developed against a demo tena
 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the server, the
 client's API layer and the CI/CD pipelines all land in this repo.
 
-**CI/CD — levels 1–3 are done (level 3 = both release images on GHCR since 2026-09-10, #69/#70). CD to the faculty VM (Ansible), etcd and Prometheus/Grafana are designed in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 (spec #60) and ticketed #63–#67 under #10 for the teammates — read those before touching `.github/`, `deploy/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the
+**CI/CD — levels 1–3 are done (level 3 = both release images on GHCR since 2026-09-10, #69/#70). CD to the faculty VM (Ansible), etcd and Monitoring (Node Exporter + Prometheus + Grafana) are designed in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 (spec #60) and ticketed #63–#67 under #10 for the teammates — read those before touching `.github/`, `deploy/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the
 client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter build web` + the
 web-asset assertion), committed 2026-09-04. Status per level:
 1. ✅ **Flutter CI** — done. Runners are ASCII paths, so `build_runner` verification runs in CI —
@@ -390,9 +404,9 @@ GitHub would then skip — and a skipped required check reads as passing — whe
 cancelled) is the false green `07_CICD_DEPLOY.md` §2 rule 4 warns about. These two status jobs are
 the only required check for their side. Both workflows' `concurrency.group` on `main` is keyed by
 commit SHA (not just `github.ref`) so two quick merges don't have the second evict the first's
-in-progress release-image build. Branch protection on GitHub itself is **not yet set** — that is a
-repo-settings change intentionally left to the project owner; the required-check table and the
-exact `gh api` command are in `docs/Backend_design/07_CICD_DEPLOY.md` §4.
+in-progress release-image build. Branch protection on `main` is **set since 2026-09-15** (#186, on the owner's instruction): PR
+required (0 approvals), the two status jobs required, no force push/delete, admins not enforced;
+the exact `gh api` command is in `docs/Backend_design/07_CICD_DEPLOY.md` §4.
 
 **Where the work lives — GitHub issues (since 2026-09-05).** `docs/Backend_design/` says *what* to
 build; the issue tracker says *who builds what, in what order.*
@@ -448,9 +462,9 @@ Rules the slice establishes, all enforced or pinned:
   render a failure as `e.toString().replaceFirst('Exception: ', '')`, so an escaping one prints
   `ApiException(status: 409, code: …)` at the counter. `api_wire.dart`'s `rethrowThai` converts every
   server verdict to the plain `Exception(thaiMessage)` those screens already understand.
-- 🔴 **The bill id and `Idempotency-Key` are minted once per cart, not once per call.** `ApiClient`
-  sets no timeout, so the ordinary failure is a dropped reply for a bill the server committed; a
-  fresh id and key on the counter's second press defeat **both** server defences at once
+- 🔴 **The bill id and `Idempotency-Key` are minted once per cart, not once per call.** The ordinary
+  failure is a dropped or timed-out reply for a bill the server committed (`ApiClient` times out
+  since #183, but abandons rather than cancels the request); a fresh id and key on the counter's second press defeat **both** server defences at once
   (`existingSale` keys on the client's bill id, `idempotency_keys` on the header) and ring the sale
   up twice. The parked attempt lives in `api_wire.dart`'s **`PendingWrites`**, and all three money
   paths use it — `createReturn` and `addDrawerEntry` did not at first, which is a second refund and
@@ -501,7 +515,9 @@ repositories (`data/repositories/api_*.dart`) `extend` their Drift counterpart a
 `super.<write>()` inside a bare `catch (_)`, so a server that *did* answer — a 409, or a 5xx where
 the write may well have committed and only the reply was lost — silently re-ran the Drift
 transactional service: a second weighted-average cost and a second `movements` row out of
-`receivePO`, a second `credit_payments` row, a second quote. All 16 write fallbacks now sit behind
+`receivePO`, a second `credit_payments` row, a second quote. All **22** write fallbacks (counted
+2026-09-16 — this line said 16 until then, and #229's ticket would have left six of them alive)
+now sit behind
 `on ApiException catch (e) { rethrowServerRefusal(e); }`, which converts the refusal to the
 `PosException` the screens render; only a transport failure still falls back, which is what keeps
 the app working with no server in phase 1. `api_repository_contract_test.dart` enforces it at the
@@ -656,10 +672,15 @@ Read `docs/handoff_log/ops-auth-cache-monitoring-etcd.md` before touching auth r
   (strong random values, not `.env.example`'s), then re-run `provision.yml`. A missing `ETCD_ROOT_PASSWORD` fails
   the next Ansible deploy at compose interpolation; a missing Grafana password only leaves monitoring down.
   CI is unaffected.
-- 🔴 **#67 was closed without its workflow.** `.github/workflows/deploy.yml` has never existed in git history
-  (not on `feat/67-auto-deploy` either); #67 is reopened. Deploys are `ansible-playbook` by hand until it lands,
-  so 07 §2's "merge → deploy.yml" arrow is design, not fact. An agent building it was stopped by the Claude Code
-  permission classifier ("Production Deploy") — it needs the owner's explicit go-ahead.
+- **#67 (automatic deploy):** `.github/workflows/deploy.yml` exists since PR #237 (2026-09-15). It runs on a
+  **self-hosted runner on the demo VM**, because the campus-internal VM is unreachable from GitHub-hosted runners
+  (ADR-0013 addendum, 07 §6.2). The runner user `gha-runner` may only `sudo -u deploy /usr/local/bin/pos-deploy`.
+  That wrapper fetches `main` into its own clone, refuses a commit not on `main` or below `ROLLBACK_FLOOR`, and
+  rolls back with `-e force_redeploy=true`, **never deleting `.current_sha`**. A job-started hook admits only
+  `deploy.yml@refs/heads/main`. 🔴 `pos-deploy.sh` greps `when:.*not \(force_redeploy \| default\(false\) \| bool\)`
+  in the target release's `deploy/ansible/deploy.yml`, so those two `when:` lines must survive every playbook edit.
+  🔴 A rollback runs the **target release's** playbook, not main's. 🔴 The runner is **not installed yet** and
+  #67's real-run ACs are unproven, so deploys are still `ansible-playbook` by hand (07 §6.2 has the owner's steps).
 - **Merged 2026-09-14 (orchestrated round):** #141 → PR #157 (e2e runner lock), #140 → PR #158 (ioredis
   `commandTimeout`, `REDIS_COMMAND_TIMEOUT_MS` default 1000 ms, not on BullMQ connections), #144 → PR #159
   (`src/devices`), #143 → PR #155 (login screen + redirect, `USE_API_WRITES` only), #148 → PR #156.
@@ -692,13 +713,164 @@ Read `docs/handoff_log/ops-auth-cache-monitoring-etcd.md` before touching auth r
   plaintext code in `idempotency_keys` is accepted; one `เข้าสู่ระบบไม่สำเร็จ` for every login 401; code re-issue,
   label edit and a client device screen are **phase 2** (ADR-0004 *ยังไม่เคาะ*). PR #176; read
   `docs/handoff_log/owner-decisions-145-163.md`.
-- **Merged 2026-09-15 (tx follow-ups):** #169 → PR #177 (global `idem.cleanup` fans out per tenant; 🔴 nothing
-  schedules it yet), #175 → PR #178 (audit pool timeout 10 s; loss not reproducible for role denials, burst pinned),
+- **Merged 2026-09-15 (tx follow-ups):** #169 → PR #177 (global `idem.cleanup` fans out per tenant;
+  scheduled hourly since #182), #175 → PR #178 (audit pool timeout 10 s; loss not reproducible for role denials, burst pinned),
   #173 → PR #179 (🔴 cached reads: Redis first via `authorisedTenantId()`, `runTx` loader only on a miss — never
   open `runTx` before `singleFlight`). Read `docs/handoff_log/followups-169-173-175.md`.
-- **Still open:** #67 (needs the owner's go-ahead); branch protection on `main`
-  (owner runs 07 §4); `ApiClient` has no request timeout (unticketed); no scheduler for the global `idem.cleanup`. The repo's only long-lived branches are
-  `main` and `POC_sample_offline_first`.
+- **Merged 2026-09-15:** #183 → PR #197 — `ApiClient` timeouts: reads and `/auth/refresh` 15 s, writes 40 s
+  (nginx's own worst case is ~34 s). 🔴 A timeout throws `ApiTimeoutException` (a `ClientException`, never an
+  `ApiException`): it is **not a verdict**, so `PendingWrites` keeps the id + key. 🔴 Every #55 transport fallback
+  in `data/repositories/api_*.dart` has `on ApiTimeoutException { rethrow; }` before its `catch (_)` — a timed-out
+  write may have committed, and falling back ran it twice locally; `api_repository_contract_test.dart` enforces it.
+  A reset socket still falls back (pre-existing). Follow-ups: #199 and #200 (merged 2026-09-15).
+- **Merged 2026-09-15:** #182 → PR #198 — `JobSchedulerService` upserts the global `idem.cleanup` as a BullMQ job
+  scheduler (id `idem-cleanup-global`, every hour; BullMQ 6.3.4 runs the first occurrence **immediately** on first
+  registration, not at the next hour). 🔴 It lives in `QueueSchedulerModule`, imported **only** by
+  `WorkerModule.forRoot` — never add it to `QueueProcessorsModule`, which e2e files import: the first cut did, and
+  every such test app registered the scheduler, fanned DELETEs over every dev tenant and left it in shared Redis.
+  🔴 Renaming the scheduler id orphans the old scheduler in Redis — remove it (`removeJobScheduler`) in the same change.
+  A scheduler e2e must clear the queue first and drain active jobs before `app.close()` (`idem-cleanup-scheduler.e2e-spec.ts`).
+- **Merged 2026-09-15:** #201 → PR #205 — `DEFAULT_JOB_OPTIONS.backoff` is BullMQ's **builtin**
+  `{ type: 'exponential', delay: 1000, jitter: 1 }` (full jitter). The old custom `'exponential-jitter'` type was never
+  registered: a failing job threw `Unknown backoff strategy` and stuck `active` with `attemptsMade` 0 (no retry, no
+  DLQ). 🔴 Keep backoff a builtin type — a custom type needs `settings.backoffStrategy` on **every** Worker (it is a
+  per-Worker option, `@Processor(name, opts)`), and a strategy that throws recreates the same stuck-`active` failure.
+  `jitter-backoff.ts` is deleted; `test/backoff-strategy.e2e-spec.ts` pins retry + `failed` on a Worker with no settings.
+- **Merged 2026-09-15:** #188 → PR #204 — `GET /api/v1/doc-counters` (`pos` only, device from the token's `did`,
+  retired device → 403) returns the calling device's high-water marks for every period plus the tenant's current
+  `period`, computed by the issuer's shared `TENANT_PERIOD_SQL` (never copy it). Client: Drift **schema v6** —
+  `doc_counters` / `doc_counter_seeds` keyed by server **`deviceId`**, not `deviceNo` (`device_no` repeats across
+  tenants; a browser re-enrolled from the demo tenant kept its old counters). `DocCounterSeeder` applies
+  `local = max(local, server)` and the seeded marker in one local transaction on every `Authenticated` of a `pos`
+  device (`USE_API_WRITES` only); a failure never blocks sign-in. 🔴 A seeded marker proves only that a seed happened
+  at `seededAt`, **not** that the counter is current — in phase 1 the server keeps issuing after the seed and the
+  client does not advance from write responses; #189 must re-seed or compare before trusting it (hazards on #189).
+- **Merged 2026-09-15:** #199 → PR #209 (Thai connection sentence at the counter via `resolveCounterError`) and
+  #200 → PR #208 (`AbortableRequest` cancels a timed-out request). The post-merge review found no regression (#183
+  invariants hold, abort proven on a live socket, verdicts keep their Thai text). Follow-ups #219 (`http ^1.5.0`,
+  200 ms timers, test fixtures), #221 (the credit-payment re-ask only handles the server's
+  `CREDIT_PAYMENT_EXCEEDS_BALANCE`, not the local `OVERPAYMENT_NOT_ALLOWED`). 🔴 After a timeout Checkout still says
+  "ขายไม่สำเร็จ" although the bill may have committed — editing the cart then mints a new id + key and can ring a
+  second bill; the wording is the owner's call (#220).
+  #200 rules: all client requests route through `http.AbortableRequest` with an `abortTrigger` completed on timeout
+  in `ApiClient._withTimeout` — an abandoned XHR in the browser is cancelled immediately so it does not tie up
+  one of ~6 HTTP/1.1 connection slots per host. 🔴 It still throws `ApiTimeoutException` (subclass of
+  `http.ClientException`), so it remains a transport failure (never an `ApiException`/verdict), `PendingWrites`
+  keeps the attempt parked, and credit payments remain queued in Drift. A 401 retry creates a fresh `AbortableRequest`
+  with its own `abortTrigger`.
+  #199 rules: `ServerErrorResolver.resolveCounterError` centralizes counter error formatting across Checkout, Returns,
+  Cash Drawer, and Mechanics credit payments — on `ClientException` (incl. `ApiTimeoutException`) and `TimeoutException`
+  it renders the canonical Thai connection sentence (`เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์`), exactly mirroring
+  `AuthCubit.loginRefusalMessage`; raw exception text and backend URLs never reach the counter UI; server verdicts
+  (`PosException`) still render their own message verbatim; exceptions quoting URLs are defensively masked to the
+  connection sentence.
+- **Decided 2026-09-15 (owner):** #187 + #191 → PR #214 (supersedes PR #206, corrects PR #210). Offline PIN for
+  `cashier` only, device-bound, valid 3 days since the last online login on that device, Degraded mode only, re-checked
+  on `/sync/push`. Reconnect = push outbox then pull; products with pending ops are not overwritten until pushed;
+  `offlineOk` computed on the client; keyset cursor with a **30 s** rewind + tombstones; no `change_log`. Still open in
+  ADR-0009: offline PIN vs online credential reuse, re-login vs background JWT exchange, void offline. Implementation
+  #211 / #212. Read `docs/handoff_log/owner-decisions-187-191.md`.
+- **Merged 2026-09-15:** #213 → PR #215 — the transaction ceiling ADR-0010's 30 s rewind depends on. 🔴 A **25 s
+  commit guard** (monotonic mark before `BEGIN`, rollback + `CommitCeilingExceededError` before `COMMIT`) in
+  `TenantService.runTx` and `TenantJobRunner` bounds commit − `now()` for any number of statements; role `pos_app` gets
+  `statement_timeout=25s` and `idle_in_transaction_session_timeout=5s` (migration `1788652802131`; Postgres 16 has no
+  `transaction_timeout`). 🔴 Never make `statement_timeout` ≤ `CLAIM_LOCK_TIMEOUT` — the first cut (5 s) made
+  `503 IDEMPOTENCY_KEY_IN_FLIGHT` unreachable and killed all-time reports (57014 at 5 s on 550k bills). 🔴 A pool
+  holder that writes a table clients pull by `updated_at` must commit through the guard (`tenant-door.spec.ts`); the
+  tenant export is the only opt-out (`exemptFromCommitCeiling`). Role-in-database settings are lost by a plain
+  `pg_dump`, and running processes keep old values until they reconnect — `DbModule` warns at boot on a mismatch.
+  A dev DB that ran the short-lived id `1788652802130` must delete that `migrations` row and re-migrate.
+  `TenantJobRunner` also stopped losing the DLQ after a failed rollback or a failed `BEGIN`.
+  Follow-up #217: tenant import stamps historic `updated_at`, so already-synced devices never pull imported rows.
+- **Merged 2026-09-15 (evening orchestrated round, 12 PRs):** #235 #236 #237 #244 #246 #247 #250 #252 #253 #255
+  #256 #257. Read `docs/handoff_log/orchestrated-closeout-round-2026-09-15.md` before touching the deploy playbook,
+  etcd, the tenant import or k6.
+  - 🔴 **etcd auth had never been on on the demo VM (#250).** Nothing copied `etcd-init.sh`, so Docker created a
+    root-owned *directory* at the bind-mount source, `sh` exited 0 on it, and the deploy stayed green. The playbook
+    now copies the script, runs `docker compose run --rm etcd-init` (blocking), asserts an anonymous read gets 400,
+    and seeds `/pos/config/log_level` put-if-absent. The next deploy of a new SHA must show `etcdctl auth status` =
+    `true`.
+  - 🔴 **An expired token on `/v3/watch` answers HTTP 200** with `canceled … Unauthenticated`, never a 401 (#255).
+    Auth failures are typed (`EtcdHttpError.status === 401`, `EtcdWatchAuthError`). Never string-match `'401'`:
+    compaction revisions contain those digits. An idle watch reconnects every ~5 min (undici `bodyTimeout`); that is
+    harmless.
+  - 🔴 **nginx.conf is a single-file bind mount (#256).** Every deploy runs `nginx -t` in a
+    `docker compose run --rm --no-deps nginx` container, then `up -d --force-recreate nginx` (1–3 s blip). Reproduce
+    inode bugs on a Linux daemon (`docker:dind`): Docker Desktop on Windows re-resolves by path and hides them.
+  - **`/health/ready` has its own `HEALTH_DATA_SOURCE`** (pool 1, `pos_app`, 2 s; #253). Readiness means "Postgres
+    answers", not "the request pool has a free slot". Connection budget 62 ≤ 80 (`server/README.md`).
+  - **Tenant import (#244, #252):**
+    - It reads the real `sa_*` keys: `sa_pos`, `sa_cash_drawer` + `sa_shift_history`, `sa_parked`.
+    - The 10 MiB JSON parser runs only for a **verified** platform JWT.
+    - Imported shifts are all `is_active=false`. A device-less active drawer was stranded forever.
+    - `updated_at` is re-stamped last before COMMIT.
+    - Orphan references get **soft-deleted tombstones**: `products.brand='import-tombstone'` or
+      `code='import-tombstone:<id>'`. Orphan supplier rows are **dropped** (`droppedSuppliers`).
+    - Every reference id goes through `fieldId()`. A missing id, an unnamed orphan or a credit note without its bill
+      is a pre-flight 400, never a 500.
+    - Synthetic generator: `server/test/fixtures/synthetic-snapshot.ts`.
+  - **k6 §9 latency (#257, owner decision):** run from several machines with `SHARD=i/N` (24 r/s per source IP,
+    under nginx `perip`), remote-writing to the VM's Prometheus through
+    `location = /prometheus-remote-write/api/v1/write` (allowlist + basic auth, write only; 07 §10.3). Read p95 per
+    machine. 🔴 The campus IP range is still a `TODO(owner)` in `nginx.conf`. `DEMO_ENV_FILE` needs
+    `K6_REMOTE_WRITE_BASIC_AUTH_USER` / `_PASSWORD`.
+  - 🔴 **Never `docker compose down -v` on a shared Docker daemon.** A subagent did, on the default `srisurart-pos`
+    project, and wiped another session's dev Postgres/Redis volumes. Throwaway stacks use a unique `-p`; run
+    `docker ps` first.
+- **Merged 2026-09-16:** the phase-1 DoD audit → PR #265 — ran the full e2e suite for real (490/492 passed) and
+  ticked 5 of the 13 open `03_ARCHITECTURE.md §8` boxes with PR/issue + file:line citations; the other 8 stayed
+  open as documented gaps, not fabricated ticks (`docs/handoff_log/dod-mapping-2026-09-16.md`). **#245** (web DB
+  asset skew) → PR #267 — the skew was real, not cosmetic (`sqlite3.wasm` 747,018→748,424 bytes, `drift_worker.js`
+  byte-different): the committed assets matched `3.3.3`/`2.34.0` exactly while `pubspec.lock` had moved to
+  `3.4.0`/`2.34.1`; re-synced to the locked versions (sha256-checked against the real GitHub releases) and added a
+  `pubspec.lock`-vs-asset CI check to `flutter.yml`. 🔴 **Filed as #266, not fixed by #267:** even with matching
+  assets, the web build still fails to boot in a browser without `dedicatedWorkersInSharedWorkers` —
+  `LinkError: … "xFileControl": function import requires a callable` in drift's non-OPFS fallback path, reproduced
+  with both the old and new asset pairs, so it's an sqlite3 3.4.0 / drift 2.34.1 compatibility gap, not an
+  asset-sync bug. **#266 blocks #241** (PWA precache manifest). Tickets reassigned off `NuimanLP`: **#184** →
+  PattaraponKitcharoen, **#67** → PattaraponKitcharoen (reopened — PR #237 merged the workflow file, but the runner
+  install + real-run proof in `07 §6.2` never happened), **#266** → LomerAlloys; **#185** stays with `NuimanLP` (the
+  owner wants to handle the real shop snapshot personally). Session record:
+  `docs/handoff_log/session-2026-09-16-orchestration-245-dod.md`.
+- **Still open:**
+  - ~~#239~~: closed by PR #260. The tenant import is a background job: `POST …/import` → 202 + `jobId`, then
+    `GET …/import/:jobId`. `import_jobs` has no RLS and no `pos_app` grants, and the payload is cleared on terminal
+    states. It runs on its own `tenant-import` queue: two `@Processor` classes on one queue race for jobs. The
+    pre-flight refuses duplicate doc numbers, bad dates and non-finite or negative money. `status='succeeded'` is
+    written inside the import transaction. A job stale for 30 min is reclaimed.
+  - #67: install the runner and prove the ACs with real runs.
+  - #184 / #251: the three-laptop k6 run.
+  - #185: re-run with the real shop file.
+  - Phase 2 order: #228 → #229 → #212 / #211 / #189 → #230 → #190 → #231.
+
+  The repo's only long-lived branches are `main` and `POC_sample_offline_first`.
+
+**Phase 2 spec — `docs/Backend_design/08_PHASE2_SPEC.md` (2026-09-15; owner decisions D1–D15, E1–E11, F1–F10 in #240, map #243).**
+Read it before any phase-2 ticket: one user role `owner` + one active shop account per tenant (slice 1; device roles unchanged),
+retire/enrol/export need an enrolled device token, no `offlineOk` (column dropped), the `pos` device issues RC/CN online and
+offline, `POST /sync/push` authenticates with the device token, acts as the tenant's single active user, replays by key then
+client id before any check and stops at the first non-verdict (a head op stuck 3 times goes to the owner screen), multiple
+shifts per day, online void = reason only (no PIN), the offline-PIN 3-day window is enforced on the till only, production =
+the department VM `mob04` deployed by the hardened self-hosted runner from PR #237 (F4′ reversed the pull-based timer; a real-shop cutover is a later phase).
+§2 records the design decisions; the only open item is the Thai-strings ticket (F10). ADR-0004/0007/0009/0010/0013 carry dated addenda.
+Merged as PR #254 (`1072f17`).
+
+**Phase 2 is ticketed — `docs/Backend_design/09_PHASE2_LANES.md` (2026-09-16, owner-approved; 35 issues, all sub-issues of #243).**
+`08` says *what*, `09` says **who builds which slice, in what order, and where the lanes meet**. The owner chose the client/server
+split of the #228 hub, with lane B (`team/2`, LomerAlloys) owning the whole on-device **engine** — PWA/SW, `outbox_ops`,
+`SyncService`, RC/CN numbering, offline PIN, pull, **and every Drift schema bump** — and lane C (`team/3`, PattaraponKitcharoen)
+owning the **server + the new screens + ops**. Lane A (`team/1`, NuimanLP) is deliberately 3 tickets, but they are the ones that
+unblock everyone: #268 (Thai copy), #269 (the `SyncFacade` seam + the shared `/sync/push` fixtures), #270 (platform allowlist).
+Numbers per slice are in `09 §12`. 🔴 Four issues are **halves**: #228 ↔ #283, #212 ↔ #277, #194 ↔ #285, #193 ↔ #287 — read both
+before touching either. 🔴 Every ticket body ends with `09 §10`, the working agreement for the agent that picks it up
+(`/scrutinize` the approach → code per `karpathy-guidelines` → test only against your own side's fake → close with `/code-review`).
+Rules the plan establishes: **blocked-by never crosses a lane** (a cross-lane need is a contract — the fixtures and `SyncFacade` —
+never a queue); `09 §6` assigns every shared file an owner, and the Drift schema, the server migration-id blocks and
+`customers.service.ts` have explicit rules because two lanes cannot both hold them; **AC may never claim "works against the real
+thing"** while the other half is unmerged. A `/scrutinize` round before filing caught, among others, that
+`requireManager` is **20 call sites + 4 definitions, not 21**, and that `quotes.controller.ts:114` hand-rolls
+`role !== 'manager'` so a grep-driven ticket walks straight past it. Read
+`docs/handoff_log/phase2-lane-split-and-tickets-2026-09-16.md`, then `phase2-wayfinder-spec-2026-09-15.md` for how the spec got here.
 
 **Pending follow-ups (not yet built).** Deployment/hosting is owned by `docs/Backend_design/07_CICD_DEPLOY.md` since 2026-09-10 (ADR-0013); before that it had no owning document — the old
 `docs/PLAN.md` and `docs/BACKEND_DEPLOYMENT.md` were deleted in `ec24f79` and are **not coming
@@ -712,9 +884,26 @@ back** (decided 2026-09-04). Recover from git history if you ever need the Supab
   written by the app~~ — **done 2026-09-10** (schema v3, #53): all six paths that change a
   product row stamp it (add / update / adjustStock / saveSale / createReturn / receivePO).
 - **Software hardening — Phase 8a** (anywhere, can parallel Phase 7): manager-PIN gate,
-  audit log, PDPA, **bundle Sarabun/Barlow fonts as assets** (currently `google_fonts`
-  runtime fetch — set `GoogleFonts.config.allowRuntimeFetching = false` in tests to avoid
-  a pending-timer leak).
+  audit log, PDPA. ~~bundle Sarabun/Barlow fonts as assets~~ — **done 2026-09-16 (#271)**:
+  `frontend/assets/fonts/` bundles Sarabun 400/500/600/700 + BarlowCondensed 700
+  (OFL-licensed, provenance + sha256 in `assets/fonts/SOURCES.txt`); `app_theme.dart` uses
+  `TextTheme.apply(fontFamily: 'Sarabun')` instead of `GoogleFonts.sarabunTextTheme()`, and
+  `GoogleFonts.config.allowRuntimeFetching = false` is set once in `main.dart` (not just
+  per-test). 🔴 **`PdfGoogleFonts` was a second, separate runtime-fetch mechanism** the ticket
+  text didn't spell out — `printing`'s PDF font loader, used across **5** files (receipt,
+  credit-note, quote A4, low-stock supplier order, closing report), all switched to a local
+  `PosPdfFonts` loader (`core/utils/pdf_fonts.dart`) that reads the same bundled `.ttf`s via
+  `rootBundle`; a Windows-side scrutinize round caught that the old `PdfGoogleFonts` path never
+  throws (it silently falls back to Helvetica) while the new one does, so `pdf_fonts.dart`
+  clears its cached Future on failure rather than permanently breaking printing after one
+  transient asset-load error. 🔴 **Not fully closed:** turning the network off and opening the
+  **web** build still isn't clean — `flutter build web`'s output still references
+  `fonts.gstatic.com` as the Flutter *engine's* (not `google_fonts`') fallback-glyph download
+  base for characters the bundled faces don't cover (this app's UI strings use emoji in ~29
+  files), and the web build's service worker precaches nothing regardless (blocked on #266, see
+  the Web DB entry above) — so AC1 ("ปิดเน็ตแล้วเปิดแอป ไม่มี request ไป gstatic") is proven for
+  Thai text but not for the web target as a whole. Native (Android/iOS) targets aren't affected
+  by either gap. See `docs/handoff_log/ticket-271-bundle-fonts.md`.
 - **Native hardware — Phase 8b** (needs shop access): thermal printer / cash-drawer kick /
   barcode **scanning** (camera); scan actions currently use manual entry.
 - **Security (2026-09-09 review)** — compose hardening landed the same day: both Redis run with
@@ -730,7 +919,7 @@ back** (decided 2026-09-04). Recover from git history if you ever need the Supab
 - **Multi-tenant client work** — the Flutter side of phase 1/2: an `ApiRepository` layer behind the
   existing repository interfaces (`03_ARCHITECTURE.md §8` task `q1`) that **writes through to
   Drift** and maps at the repository boundary ([ADR-0010](docs/Backend_design/adr/0010-client-write-through-cache.md)),
-  then the outbox + `offlineOk` shell. Thai strings for the 7 new server errors now have
+  then the outbox ~~+ `offlineOk`~~ shell (no `offlineOk` since 2026-09-15 — `docs/Backend_design/08_PHASE2_SPEC.md`). Thai strings for the 7 new server errors now have
   **agent-drafted placeholders** accepted by the project owner (`02_API_SCREENS.md §8.1`) — three
   of them are counter-facing and still need the shop's own wording. Never invent new ones.
 - **Re-capture tutorial screenshots** from the Flutter app (current images are from the JS app).

@@ -10,6 +10,7 @@ import request from 'supertest';
 import type { DataSource } from 'typeorm';
 import { TenantService } from '../src/common/database/tenant.service.js';
 import { TenantGuard } from '../src/common/guards/tenant.guard.js';
+import { HEALTH_DATA_SOURCE } from '../src/infra/db.module.js';
 import {
   accessToken,
   createTestApp,
@@ -74,7 +75,7 @@ describe('the tenant scope without a request transaction (e2e, tx.4 #153)', () =
     token = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
@@ -182,15 +183,52 @@ describe('the tenant scope without a request transaction (e2e, tx.4 #153)', () =
     );
   });
 
-  it('/health/live touches no Postgres connection and /health/ready exactly one', async () => {
+  it('when redis-cache fails (e.g. connection error), active tenant still succeeds and suspended tenant is still rejected (DoD line 10, ADR-0003)', async () => {
+    // Simulate Redis cache outage (throws ECONNREFUSED)
+    vi.spyOn(cache, 'get').mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:6379'));
+    vi.spyOn(cache, 'set').mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:6379'));
+
+    // 1. Active tenant request succeeds (200) via Postgres fallback
+    const activeRes = await http()
+      .get('/api/v1/tx4-probe')
+      .set('Authorization', `Bearer ${token}`);
+    expect(activeRes.status).toBe(200);
+    expect(activeRes.body.data).toBeDefined();
+
+    // 2. Suspended tenant request is still rejected (403) via Postgres fallback
+    await admin.query(
+      `UPDATE tenants SET status = 'suspended' WHERE id = $1::uuid`,
+      [TENANT],
+    );
+
+    const suspendedRes = await http()
+      .get('/api/v1/tx4-probe')
+      .set('Authorization', `Bearer ${token}`);
+    expect(suspendedRes.status).toBe(403);
+    expect(suspendedRes.body.error.code).toBe('TENANT_SUSPENDED');
+
+    // Restore tenant status
+    await admin.query(
+      `UPDATE tenants SET status = 'active' WHERE id = $1::uuid`,
+      [TENANT],
+    );
+  });
+
+  it('/health/live touches no Postgres connection and /health/ready exactly one, off the request pool', async () => {
     const runners = vi.spyOn(ds, 'createQueryRunner');
+    const healthRunners = vi.spyOn(
+      app.get<DataSource>(HEALTH_DATA_SOURCE),
+      'createQueryRunner',
+    );
 
     expect((await http().get('/health/live')).status).toBe(200);
     expect(runners).toHaveBeenCalledTimes(0);
+    expect(healthRunners).toHaveBeenCalledTimes(0);
 
     expect((await http().get('/health/ready')).status).toBe(200);
-    // `SELECT 1` through `DataSource.query`, which takes one runner — as on main, where the
-    // request-wide transaction was never bound to `/health/*` either.
-    expect(runners).toHaveBeenCalledTimes(1);
+    // `SELECT 1` through `DataSource.query`, which takes one runner — from the probe's own
+    // pool of one, never the request pool (#248, `health-pool.e2e-spec.ts`).
+    expect(healthRunners).toHaveBeenCalledTimes(1);
+    expect(runners).toHaveBeenCalledTimes(0);
   });
 });

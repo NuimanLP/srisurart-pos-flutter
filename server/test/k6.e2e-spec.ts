@@ -25,14 +25,14 @@ describe('k6 Load Test Harness & Products Read Path (p11.1 e2e)', () => {
     const posToken = accessToken({
       tenantId: TENANT_ID,
       userId: '00000000-0000-4000-8000-000000000010',
-      role: 'cashier',
+      role: 'owner',
       deviceId: 'pos-loadtest',
       deviceRole: 'pos',
     });
     const boToken = accessToken({
       tenantId: TENANT_ID,
       userId: '00000000-0000-4000-8000-000000000020',
-      role: 'manager',
+      role: 'owner',
       deviceId: 'bo-loadtest',
       deviceRole: 'backoffice',
     });

@@ -1,0 +1,4 @@
+# actionlint config. The self-hosted runner on the demo VM carries this label (07_CICD_DEPLOY.md §6.2).
+self-hosted-runner:
+  labels:
+    - srisurart-demo-deploy

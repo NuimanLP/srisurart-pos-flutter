@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # Helper script to verify that both server and web release images exist in GHCR (ADR-0013, 07_CICD_DEPLOY.md §6.1).
 # Usage: ./deploy/scripts/verify-ghcr-tags.sh <image_tag>
-# Returns exit code 0 if both images exist, exit code 1 otherwise.
+# Exit codes:
+#   0  both images exist
+#   1  at least one image is missing (GHCR answered 404) — "not yet", the normal first-completion case
+#   2  the registry could not be asked (no token, network error, any status other than 200/404) or bad usage
+# .github/workflows/deploy.yml treats 1 as a quiet skip and 2 as a red run (#67): a GHCR outage must
+# not look like "the other image is not built yet".
 set -euo pipefail
 
 TAG="${1:-}"
 
 if [[ -z "$TAG" ]]; then
   echo "Usage: $0 <image_tag>" >&2
-  exit 1
+  exit 2
 fi
 
 check_ghcr_tag() {
@@ -16,14 +21,14 @@ check_ghcr_tag() {
   local tag="$2"
 
   echo "Checking GHCR for ${repo}:${tag}..."
-  
+
   # Request anonymous bearer token for the public repository
   local token_resp
   token_resp=$(curl -fsSL --max-time 10 "https://ghcr.io/token?scope=repository:${repo}:pull" 2>/dev/null || echo "")
-  
+
   if [[ -z "$token_resp" ]]; then
     echo "  -> Failed to acquire anonymous token for ${repo}" >&2
-    return 1
+    return 2
   fi
 
   local token
@@ -31,7 +36,7 @@ check_ghcr_tag() {
 
   if [[ -z "$token" ]]; then
     echo "  -> Extracted empty token for ${repo}" >&2
-    return 1
+    return 2
   fi
 
   local http_code
@@ -42,25 +47,38 @@ check_ghcr_tag() {
     -H "Accept: application/vnd.oci.image.manifest.v1+json" \
     "https://ghcr.io/v2/${repo}/manifests/${tag}" 2>/dev/null || echo "000")
 
-  if [[ "$http_code" == "200" ]]; then
-    echo "  -> Found ${repo}:${tag} (HTTP 200)"
-    return 0
-  else
-    echo "  -> Missing ${repo}:${tag} (HTTP ${http_code})"
-    return 1
-  fi
+  case "$http_code" in
+    200)
+      echo "  -> Found ${repo}:${tag} (HTTP 200)"
+      return 0
+      ;;
+    404)
+      echo "  -> Missing ${repo}:${tag} (HTTP 404)"
+      return 1
+      ;;
+    *)
+      echo "  -> Could not check ${repo}:${tag} (HTTP ${http_code})" >&2
+      return 2
+      ;;
+  esac
 }
 
 SERVER_REPO="nuimanlp/srisurart-pos-server"
 WEB_REPO="nuimanlp/srisurart-pos-web"
 
-if ! check_ghcr_tag "$SERVER_REPO" "$TAG"; then
-  echo "Server image ${SERVER_REPO}:${TAG} is not ready on GHCR." >&2
-  exit 1
+# Check both even when the first is missing, so an error on the second is never hidden behind "not yet".
+server_rc=0
+check_ghcr_tag "$SERVER_REPO" "$TAG" || server_rc=$?
+web_rc=0
+check_ghcr_tag "$WEB_REPO" "$TAG" || web_rc=$?
+
+if [[ "$server_rc" == 2 || "$web_rc" == 2 ]]; then
+  echo "Could not verify the release images for '${TAG}' on GHCR." >&2
+  exit 2
 fi
 
-if ! check_ghcr_tag "$WEB_REPO" "$TAG"; then
-  echo "Web image ${WEB_REPO}:${TAG} is not ready on GHCR." >&2
+if [[ "$server_rc" != 0 || "$web_rc" != 0 ]]; then
+  echo "Release images for '${TAG}' are not both on GHCR yet (server: ${server_rc}, web: ${web_rc}; 0 = present)." >&2
   exit 1
 fi
 

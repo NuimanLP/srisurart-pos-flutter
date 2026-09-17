@@ -108,6 +108,121 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 6,
+      "title": "k6: 429s from nginx's perip limiter, by machine (must be zero — #251)",
+      "type": "stat",
+      "description": "The whole point of #251's distributed run: if this is ever non-zero for a shard, that shard's own source IP tripped nginx's `limit_req zone=perip rate=30r/s burst=60` and every §9 number from it is contaminated the same way a single-machine run always was (docs/handoff_log/close3-demo-deploy-2026-09-15.md §4.1). No data until a k6 run with SHARD set (and --tag machine=...) has pushed.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "no data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(increase(k6_http_reqs_total{status=\"429\"}[$__range])) by (machine)",
+          "legendFormat": "{{machine}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "k6: request rate by machine (each must stay <= its shard's safe budget)",
+      "type": "timeseries",
+      "description": "server/test/k6/lib/shard.js SAFE_RATE_PER_SHARD = 24 r/s (80% of nginx's rate=30r/s) — see README.md \"Per-shard math\". A line crossing 24 for more than an instant means that shard's rate override or VU count is unsafe, not just that this one run got unlucky.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "noValue": "no data" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(k6_http_reqs_total[30s])) by (machine, scenario)",
+          "legendFormat": "{{machine}} / {{scenario}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "k6: p95 / p99 by scenario (§9 latency thresholds)",
+      "type": "timeseries",
+      "description": "k6's Prometheus remote-write output computes each percentile locally, per k6 process — there is no valid way to recombine three machines' local p95s into one true cross-machine p95 after the fact. §9 evidence is therefore per-machine: every shard's own line must clear the threshold, not an average of them. See README.md \"Reading the numbers\".",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "noValue": "no data" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "k6_http_req_duration_p95",
+          "legendFormat": "p95 {{machine}} / {{scenario}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "k6_http_req_duration_p99",
+          "legendFormat": "p99 {{machine}} / {{scenario}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "k6: error rate by scenario (http_req_failed, §9 error<0.1%)",
+      "type": "timeseries",
+      "description": "k6_http_req_failed_rate is already a 0-1 ratio per push interval (a k6 Rate metric) — do not wrap it in rate() again, that would compute a rate of a ratio.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "noValue": "no data", "max": 1, "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "k6_http_req_failed_rate",
+          "legendFormat": "{{machine}} / {{scenario}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "k6: 01-read-products cache hit rate (§9 cache hit>90%)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "noValue": "no data", "max": 1, "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "k6_cache_hits_rate",
+          "legendFormat": "{{machine}}",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

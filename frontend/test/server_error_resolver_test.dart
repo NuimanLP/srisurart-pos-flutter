@@ -1,6 +1,10 @@
 // Unit tests for ServerErrorResolver and ApiException Thai message resolution.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:async';
+
+import 'package:http/http.dart' as http;
+import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/core/network/server_error_resolver.dart';
 
@@ -34,6 +38,12 @@ void main() {
       expect(ServerErrorResolver.resolve('DEVICE_NO_EXHAUSTED'), 'เพิ่มเครื่องไม่ได้ ร้านใช้เลขเครื่องครบ 99 เครื่องแล้ว');
       expect(ServerErrorResolver.resolve('DEVICE_ALREADY_RETIRED'), 'เครื่องนี้ถูกปลดไปแล้ว');
       expect(ServerErrorResolver.resolve('PHYSICAL_CASH_REQUIRED'), 'เครื่องนี้ยังมีกะเปิดอยู่ กรุณานับเงินในลิ้นชักและกรอกยอดก่อนปลดเครื่อง');
+      // Phase 2 (#268, F10)
+      expect(ServerErrorResolver.resolve('DOC_NUMBER_REQUIRED'), 'จำเป็นต้องระบุเลขที่เอกสาร');
+      expect(ServerErrorResolver.resolve('DOC_NUMBER_INVALID'), 'รูปแบบเลขที่เอกสารไม่ถูกต้อง');
+      expect(ServerErrorResolver.resolve('VOID_NEEDS_ONLINE'), 'บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น');
+      expect(ServerErrorResolver.resolve('CLIENT_ID_REUSED'), 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ');
+      expect(ServerErrorResolver.resolve('DEVICE_HAS_UNSYNCED_OPS'), 'เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง');
       expect(ServerErrorResolver.resolve('SHIFT_NOT_FOUND'), 'ไม่พบข้อมูลกะ');
       expect(ServerErrorResolver.resolve('UNAUTHENTICATED'), 'กรุณาเข้าสู่ระบบ');
       expect(ServerErrorResolver.resolve('FORBIDDEN'), 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้');
@@ -101,6 +111,83 @@ void main() {
       expect(ex.retryAfterSeconds, 30);
       expect(ex.thaiMessage, 'ระบบกำลังทำงานหนัก กรุณารอสักครู่');
       expect(ex.toString(), contains('Retry-After: 30s'));
+    });
+  });
+
+  group('resolveCounterError (#199)', () {
+    test('preserves PosException message verbatim', () {
+      const ex1 = PosException('INSUFFICIENT_STOCK', 'สต็อกไม่พอ');
+      expect(ServerErrorResolver.resolveCounterError(ex1), 'สต็อกไม่พอ');
+
+      const ex2 = PosException('SALE_NOT_FOUND', 'Sale not found');
+      expect(ServerErrorResolver.resolveCounterError(ex2), 'Sale not found');
+
+      const ex3 = PosException('DRAWER_CLOSED', 'ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้');
+      expect(
+        ServerErrorResolver.resolveCounterError(ex3),
+        'ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้',
+      );
+    });
+
+    test('renders canonical connection sentence on http.ClientException', () {
+      final ex = http.ClientException(
+        'Connection closed before full header was received',
+        Uri.parse('http://127.0.0.1:3000/api/v1/sales'),
+      );
+      final res = ServerErrorResolver.resolveCounterError(ex);
+      expect(res, ServerErrorResolver.resolve(null));
+      expect(res, 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+      expect(res, isNot(contains('http://')));
+      expect(res, isNot(contains('ClientException')));
+    });
+
+    test('renders canonical connection sentence on ApiTimeoutException (#183/#199)', () {
+      final ex = ApiTimeoutException(
+        const Duration(seconds: 40),
+        Uri.parse('http://pos-server.local:3000/api/v1/sales'),
+      );
+      final res = ServerErrorResolver.resolveCounterError(ex);
+      expect(res, ServerErrorResolver.resolve(null));
+      expect(res, 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+      expect(res, isNot(contains('40000 ms')));
+      expect(res, isNot(contains('http://pos-server.local')));
+      expect(res, isNot(contains('ClientException')));
+    });
+
+    test('renders canonical connection sentence on TimeoutException', () {
+      final ex = TimeoutException('Timeout expired after 40 seconds');
+      final res = ServerErrorResolver.resolveCounterError(ex);
+      expect(res, ServerErrorResolver.resolve(null));
+      expect(res, 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+      expect(res, isNot(contains('TimeoutException')));
+    });
+
+    test('renders canonical connection sentence on 5xx ApiException', () {
+      final ex = ApiException(statusCode: 502, code: 'BAD_GATEWAY', serverMessage: 'Bad Gateway');
+      expect(
+        ServerErrorResolver.resolveCounterError(ex),
+        ServerErrorResolver.resolve(null),
+      );
+    });
+
+    test('renders thaiMessage on 4xx ApiException', () {
+      final ex = ApiException(statusCode: 429, code: 'RATE_LIMITED');
+      expect(
+        ServerErrorResolver.resolveCounterError(ex),
+        'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
+      );
+    });
+
+    test('cleans leading Exception: on standard exceptions', () {
+      final ex = Exception('ข้อผิดพลาดทั่วไป');
+      expect(ServerErrorResolver.resolveCounterError(ex), 'ข้อผิดพลาดทั่วไป');
+    });
+
+    test('defensively masks any exception that leaks a URL (#199)', () {
+      final ex = Exception('Failed to connect to http://192.168.1.50:3000/endpoint');
+      final res = ServerErrorResolver.resolveCounterError(ex);
+      expect(res, ServerErrorResolver.resolve(null));
+      expect(res, isNot(contains('192.168.1.50')));
     });
   });
 }

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { DataSource } from 'typeorm';
+import { HEALTH_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE, REDIS_QUEUE } from '../infra/redis.module.js';
 
 type Check = 'up' | 'down';
@@ -30,7 +31,9 @@ async function probe(run: () => Promise<unknown>): Promise<Check> {
 @Controller('health')
 export class HealthController {
   constructor(
-    private readonly ds: DataSource,
+    // Its own pool of one, never the request pool (#248): a saturated request pool is a
+    // busy instance, not a dead database.
+    @Inject(HEALTH_DATA_SOURCE) private readonly ds: DataSource,
     @Inject(REDIS_CACHE) private readonly cache: Redis,
     @Inject(REDIS_QUEUE) private readonly queue: Redis,
   ) {}

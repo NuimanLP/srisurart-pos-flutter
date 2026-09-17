@@ -1,0 +1,58 @@
+{
+  "name": "sale-create.client-id-reused",
+  "description": "Client id matches existing bill but comparing field (total) differs",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 1,
+      "ops": [
+        {
+          "opId": "op_sale_mismatch",
+          "idempotencyKey": "k_sale_diff",
+          "type": "sale.create",
+          "payload": {
+            "id": "s_off_001",
+            "receiptNo": "RC01-2569-09-0042",
+            "date": "2026-09-15T02:00:00.000Z",
+            "subtotal": "999.00",
+            "discount": "0.00",
+            "total": "999.00",
+            "paymentMethod": "เงินสด",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "p1",
+                "partNo": "HN-15412-KVB",
+                "name": "Oil Filter",
+                "qty": 1,
+                "price": "999.00"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_sale_mismatch",
+            "status": "rejected",
+            "code": "CLIENT_ID_REUSED",
+            "message": "รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ",
+            "details": {
+              "type": "sale.create",
+              "id": "s_off_001"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

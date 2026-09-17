@@ -1,0 +1,42 @@
+{
+  "name": "sale-void-offline.rejected-online-bill",
+  "description": "Attempting to void an online bill via sale.void_offline op is rejected",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 1,
+      "ops": [
+        {
+          "opId": "op_void_002",
+          "idempotencyKey": "k_void_002",
+          "type": "sale.void_offline",
+          "payload": {
+            "saleId": "s_online_123",
+            "reason": "ขอยกเลิก"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_void_002",
+            "status": "rejected",
+            "code": "VOID_NEEDS_ONLINE",
+            "message": "บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น",
+            "details": {
+              "saleId": "s_online_123"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

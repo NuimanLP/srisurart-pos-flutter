@@ -4,6 +4,11 @@ import { type Job, Queue } from 'bullmq';
 import { DataSource, type EntityManager } from 'typeorm';
 import type { Logger } from 'pino';
 import { LOGGER } from '../infra/logger.provider.js';
+import {
+  assertWithinCommitCeiling,
+  commitClockStart,
+  TX_COMMIT_CEILING_MS,
+} from '../common/database/commit-ceiling.js';
 import { type BaseJobPayload, QUEUE_DLQ } from './queue.constants.js';
 
 export interface JobExecutionResult<T> {
@@ -14,6 +19,9 @@ export interface JobExecutionResult<T> {
 
 @Injectable()
 export class TenantJobRunner {
+  /** The commit guard's ceiling (#213). A field only so a test can lower it. */
+  commitCeilingMs = TX_COMMIT_CEILING_MS;
+
   constructor(
     private readonly dataSource: DataSource,
     @Inject(LOGGER) private readonly logger: Logger,
@@ -29,10 +37,15 @@ export class TenantJobRunner {
    * 2. If the handler throws, rolls back the transaction — preventing `app.tenant_id`
    *    from leaking to subsequent jobs on the connection pool.
    * 3. On final attempt failure, routes the job to the dead-letter queue (DLQ) and raises an alert.
+   * 4. Refuses to commit a transaction older than `commitCeilingMs` (25 s, #213) — rolls back
+   *    and fails the attempt — unless the caller passes `exemptFromCommitCeiling`. That
+   *    opt-out is for a job that writes no row a client pulls by `updated_at`; today only
+   *    the tenant export (`backup.processor.ts`, pinned by `tenant-job-runner.spec.ts`).
    */
   async runWithTenantContext<T>(
     job: Job<BaseJobPayload>,
     fn: (em: EntityManager) => Promise<T>,
+    options: { exemptFromCommitCeiling?: true } = {},
   ): Promise<JobExecutionResult<T>> {
     const { tenantId, correlationId } = job.data;
 
@@ -65,21 +78,34 @@ export class TenantJobRunner {
 
     // 2. Open dedicated QueryRunner and execute inside transaction with SET LOCAL
     const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
 
     try {
+      // Inside the try, so a failed connect or BEGIN still releases the runner.
+      await queryRunner.connect();
+      const startedAt = commitClockStart();
+      await queryRunner.startTransaction();
+
       await queryRunner.query('SELECT set_config($1, $2, true)', [
         'app.tenant_id',
         tenantId,
       ]);
 
       const result = await fn(queryRunner.manager);
+      if (!options.exemptFromCommitCeiling) {
+        assertWithinCommitCeiling(startedAt, this.commitCeilingMs);
+      }
       await queryRunner.commitTransaction();
 
       return { skipped: false, result };
     } catch (err) {
-      await queryRunner.rollbackTransaction();
+      // Never let the rollback replace `err`: after Postgres ends an idle-in-transaction
+      // session (#213) the runner is already released and `rollbackTransaction` throws,
+      // which used to skip the DLQ routing below.
+      try {
+        if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
+      } catch {
+        /* the original error is the one worth reporting */
+      }
 
       const maxAttempts = job.opts.attempts ?? 3;
       // attemptsMade starts at 0 on first execution, 1 on second, etc.
@@ -89,7 +115,7 @@ export class TenantJobRunner {
 
       throw err;
     } finally {
-      await queryRunner.release();
+      if (!queryRunner.isReleased) await queryRunner.release();
     }
   }
 

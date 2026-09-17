@@ -412,7 +412,8 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 | `GET /settings` · `PATCH /settings` | ข้อมูลร้าน, VAT, อายุใบเสนอราคา |
 | `POST /backup/export` | → `202 Accepted` + `jobId` (งานหนัก เข้า BullMQ) → ได้ signed URL ตอนเสร็จ |
 | ~~`POST /backup/import`~~ | **ย้ายไป admin plane แล้ว** → `POST /platform/tenants/{id}/import` (ดู §4.1) |
-| `GET /backup/jobs/:id` | เช็คสถานะงาน export/import |
+| `GET /backup/jobs/:id` | เช็คสถานะงาน export (tenant plane, tenant JWT) |
+| `GET /platform/tenants/{id}/import/{jobId}` | เช็คสถานะงาน **import** (#239) — คนละ endpoint กับแถวบน: import อยู่ admin plane (platform admin token, ไม่มี `tid`) ไม่ใช่ tenant plane เหมือน export — ดู §4.1 |
 | `GET /export/products.csv` `?…` | CSV — ทุกช่องผ่าน `csvSafe()` กัน formula injection |
 
 > ### ⚠️ ทำไม import ถึงไม่ใช่ปุ่มของร้านอีกต่อไป (ADR-0005)
@@ -483,7 +484,8 @@ guard ของ `/platform/*` ปฏิเสธ token ที่ `aud != "platfo
 | POST | `/platform/auth/token` | – | – | login ของ platform admin (ตาราง `platform_admins` แยกจาก `users`) — JWT ที่ได้ `aud: "platform"` ไม่มี `tid` |
 | POST | `/platform/tenants` | platform admin | ✔ | สร้างร้านใหม่ (ADR-0001) **ทรานแซกชันเดียว** ต้องได้ครบ: แถวใน `tenants` (`status='active'`) + `users` แถวแรก `role='owner'` + `settings` 1 แถว + seed หมวดหมู่/หน่วยนับ + device แรก `role='pos'`, `device_no=1` — ล้มข้อใดข้อหนึ่งต้อง rollback ทั้งหมด ห้ามมี tenant ที่ไม่มี owner หรือไม่มี settings |
 | PATCH | `/platform/tenants/{id}/status` | platform admin | ✔ | เปลี่ยน `active`/`suspended`/`closed` (ADR-0003) — **ต้องล้าง cache `t:{tid}:status` ทันที** ไม่งั้นการระงับจะช้าเท่า TTL ของ cache นั้น |
-| POST | `/platform/tenants/{id}/import` | platform admin | ✔ | นำเข้า snapshot `sa_*` + `__meta` ตอน **onboard ร้านใหม่เท่านั้น** (ADR-0005) — **ต้องปฏิเสธถ้า tenant นั้นมีบิลอยู่แล้ว** ไม่ใช่ทาง restore ย้อนเวลา · ย้ายมาจาก `POST /backup/import` เดิม |
+| POST | `/platform/tenants/{id}/import` | platform admin | ✔ | นำเข้า snapshot `sa_*` + `__meta` ตอน **onboard ร้านใหม่เท่านั้น** (ADR-0005) — **ต้องปฏิเสธถ้า tenant นั้นมีบิลอยู่แล้ว** ไม่ใช่ทาง restore ย้อนเวลา · ย้ายมาจาก `POST /backup/import` เดิม · **ตอบ `202 Accepted` + `jobId` (#239, ไม่ใช่ `201` อีกต่อไป)** — pre-flight (`01_DATABASE.md §9` ข้อ 2) รันแบบ synchronous ก่อนตอบ ไฟล์เสีย 400/409 ทันที ส่วนการเขียนจริงเป็น BullMQ job (`QUEUE_TENANT_IMPORT`, แยกจาก `QUEUE_BACKUP` ที่ export ใช้ — เหตุผลใน `server/README.md` §*Tenant import*) |
+| GET | `/platform/tenants/{id}/import/{jobId}` | platform admin | – | สถานะงาน import (#239) — `queued\|running\|succeeded\|failed` + `tombstones`/`droppedSuppliers` ตอนสำเร็จ หรือ `error` ตอนล้ม อ่านจากตาราง `import_jobs` โดยตรง ไม่ผ่าน `GET /backup/jobs/:id` (ตัวนั้นอยู่ tenant plane ใช้ tenant JWT — platform admin ไม่มี token แบบนั้น) |
 | GET | `/platform/tenants` | platform admin | – | รายชื่อร้าน (platform ops เท่านั้น) |
 
 > 🔴 **ทุก endpoint ในตารางนี้ต้องเขียน `audit_log` ทุกครั้งที่ถูกเรียก** (ใคร, endpoint ไหน, แตะ tenant ใด) — ADR-0002 กติกาข้อ 3
@@ -507,9 +509,9 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | POST | `/auth/refresh` | refresh | – (เช็ค `devices.retired_at` ของ `did`) | – | – | – |
 | POST | `/auth/device` `{code}` 🆕 | – | – | – | – | – |
 | GET | `/auth/me` | ✔ | ทั้งคู่ | – | – | – |
-| GET | `/devices` 🆕 | owner | ทั้งคู่ | – | – | – |
-| POST | `/devices` `{label, role}` 🆕 | owner | ทั้งคู่ | – | – | ✔ |
-| POST | `/devices/{id}/retire` `{physicalCash?}` 🆕 (#144) | owner | ทั้งคู่ | – | – | ✔ |
+| GET | `/devices` 🆕 | ~~owner~~ **ต้องมี `did`** (2026-09-15 F6, 08 §3) | ทั้งคู่ | – | – | – |
+| POST | `/devices` `{label, role}` 🆕 | ~~owner~~ **ต้องมี `did`** (2026-09-15 F6, 08 §3) | ทั้งคู่ | – | – | ✔ |
+| POST | `/devices/{id}/retire` `{physicalCash?}` 🆕 (#144) | ~~owner~~ **ต้องมี `did`** (2026-09-15 F6, 08 §3) | ทั้งคู่ | – | – | ✔ |
 | **GET** | **`/bootstrap`** 🆕 (#25) | ✔ | ทั้งคู่ | `ETag`/`304`, ไม่ใช่ Redis — ดู §3.1 (#32 ไม่ทำ Redis cache ให้ bootstrap — ไม่มีใน §5) | – | – |
 | GET | `/products` (`?search=` / `?partNo=` / `?updatedSince=`) | ✔ | ทั้งคู่ | ✅ 5m | – | – |
 | GET | `/products/:id` | ✔ | ทั้งคู่ | ✅ 5m | – | – |
@@ -548,11 +550,12 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | GET | `/reports/*` | ✔ | ทั้งคู่ | – *(ยังไม่ cache — §5 บอก "ปล่อยหมดอายุเอง" ขัดกับ AC3 ของ #32 ที่ให้อ่านหลังเขียนต้องสด → คำถามถึงเจ้าของโปรเจกต์ ดู `server/README.md` The server cache)* | – | – |
 | GET | `/settings` | ✔ (ทุก role) | ทั้งคู่ | ✅ 3600s ±10% (#32) | – | – |
 | PATCH | `/settings` | manager | ทั้งคู่ | invalidate (#32) | – | ✔ |
-| POST | `/backup/export` | **owner เท่านั้น** | ทั้งคู่ | – | ✅ `tenant-export` | ✔ |
+| POST | `/backup/export` | ~~**owner เท่านั้น**~~ **ต้องมี `did`** (2026-09-15 F6) | ทั้งคู่ | – | ✅ `tenant-export` | ✔ |
 | ~~POST~~ | ~~`/backup/import`~~ → ย้ายไป **§4.1 admin plane** | – | – | – | – | – |
 | **GET** | **`/doc-counters`** 🆕 | ✔ | **pos เท่านั้น** | – | – | – |
 | GET | `/export/:entity.csv` | manager | ทั้งคู่ | – | – | – |
-| POST | `/sync/push` · GET `/sync/pull` · `/sync/bootstrap` | ✔ | **pos เท่านั้น** | – | – | **✔ บังคับ** |
+| ~~POST~~ | ~~`/sync/push` · GET `/sync/pull` · `/sync/bootstrap`~~ | ~~✔~~ | ~~**pos เท่านั้น**~~ | – | – | ~~**✔ บังคับ**~~ |
+| POST | `/sync/push` (2026-09-15, 08 §8 — `/sync/pull`/`/sync/bootstrap` ไม่ทำ) | **device token** (`X-Device-Token`) ไม่ใช่ JWT | **pos เท่านั้น** | – | – | **✔ บังคับ ต่อ op** |
 | GET | `/health/live` · `/health/ready` | – | – | – | – | – |
 | GET | `/metrics` | internal | – | – | – | – |
 
@@ -599,13 +602,29 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 >   ออกเลขเอกสาร = `403 DEVICE_ROLE_FORBIDDEN`, `POST /shifts/open` = `403 DEVICE_ROLE_FORBIDDEN` (#144 —
 >   access token เดิมยังอยู่ได้ถึง 15 นาที เปิดกะใหม่บนเครื่องที่ retire แล้วจะได้กะค้างแบบเดิมอีก)
 
-**`GET /doc-counters`** (ADR-0007) — คืน high-water mark ของ `(device_id, doc_type, period)` — **เฟส 2 เท่านั้น**
+**`GET /doc-counters`** (ADR-0007) — คืน high-water mark ของ `(device_id, doc_type, period)` — **ผู้ใช้คือเฟส 2**
 
-* เฟส 1 server ออกเลขทุกชนิดเอง endpoint นี้ยังไม่ต้องมี (ADR-0007 แก้ 2026-09-04)
+* เฟส 1 server ยังออกเลขทุกชนิดเอง endpoint นี้ไม่อยู่ใน critical path ของเฟส 1 (ADR-0007 แก้ 2026-09-04)
+  แต่**ทำไว้ล่วงหน้าแล้วใน #188** พร้อม seed ฝั่ง client — ตัวที่ใช้ผลจริง (ห้ามออกเลขออฟไลน์ ฯลฯ) คือเฟส 2
 * เฟส 2 เครื่อง `pos` เรียกตอน **เปิดแอป/ล็อกอิน** เพื่อ seed counter ในเครื่อง: `local = max(local, server)`
   และ**ห้ามออกเลขออฟไลน์ถ้า period ปัจจุบันยังไม่เคยได้ seed** (`OFFLINE_NOT_ALLOWED`)
 * กันกรณี counter ใน Drift เพี้ยนโดยที่ device token ยังอยู่ (เช่น restore Drift จากไฟล์เก่า) —
   ส่วนกรณี IndexedDB ถูกล้างทั้งก้อน device token หายไปด้วย จึงเป็นการ enrol เครื่องใหม่ ไม่ใช่ seed
+
+> **ลงมือแล้ว #188 (2026-09-15)** — `server/src/documents/doc-counters.*` · client `DocCounterSeeder`
+> * `200 {deviceId, deviceNo, period, counters: [{docType, period, lastNo}]}` · เครื่องมาจาก `did` ใน token เท่านั้น
+>   (query ใด ๆ ไม่สนใจ) · `period` = เดือนปัจจุบันตาม timezone ร้าน (สูตรเดียวกับตัวออกเลข) ให้ client
+>   บันทึกเป็น period ที่ seed แล้วโดยไม่ต้องเดาจากนาฬิกาเครื่อง · `counters` คืน**ทุก period** ของเครื่องนี้
+>   (ไม่ใช่แค่เดือนปัจจุบัน — ข้ามเดือนระหว่างนาฬิกา server กับเครื่องต้องไม่ทำแถวที่ยังออกเลขอยู่หาย และมีไม่เกิน
+>   5 แถว/เดือน) · token ไม่ใช่ `pos` / ไม่มีเครื่อง / เครื่องไม่อยู่ในร้านนี้ / เครื่อง retire แล้ว =
+>   `403 DEVICE_ROLE_FORBIDDEN`
+> * client (เฉพาะ `USE_API_WRITES`, เครื่อง `pos`): Drift schema v6 `doc_counters` + `doc_counter_seeds` ·
+>   seed เมื่อ `AuthCubit` emit `Authenticated` (เปิดแอปที่ session ยังอยู่ และหลังล็อกอิน) · ไม่ await ·
+>   ดึงหรือพาร์สไม่ผ่าน = ไม่แตะแถวในเครื่องเลย · ทั้งสองตาราง key ด้วย `deviceId` (`devices.id`) ไม่ใช่ `deviceNo`
+>   เพราะ `device_no` ไม่ซ้ำแค่ในร้านเดียว — browser ที่ enrol ใหม่เข้าอีกร้านด้วยเลขเดิมต้องไม่ได้ counter/marker เก่า
+> * 🔴 แถวใน `doc_counter_seeds` พิสูจน์แค่ว่า **มีการ seed เกิดขึ้นเมื่อ `seededAt`** — **ไม่ได้**แปลว่า counter
+>   ในเครื่องเป็นปัจจุบัน: เฟส 1 server ยังออกเลขต่อหลัง seed ตอนเช้า และ client ไม่ขยับ counter จาก response
+>   ของการเขียน → #189 ต้อง seed ใหม่หรือเทียบกับ server ก่อนเชื่อ marker
 
 ---
 
@@ -669,9 +688,9 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | `inventory` | `po.received` | รับของ | คำนวณต้นทุนใหม่, เตือนของใกล้หมด |
 | `maintenance` | `quotes.purge` | manual / cron | ลบใบเสนอราคาเก่า |
 | `maintenance` | `idem.cleanup` | repeatable ทุกชั่วโมง | ลบ idempotency key > 24h |
-| `backup` | `tenant-export` | `POST /backup/export` (ADR-0005) | export ข้อมูลร้านเดียว (ไม่ใช่ทั้ง cluster) เป็นโครง `sa_*` + `__meta` เดิม, สร้างลิงก์ดาวน์โหลดที่หมดอายุ, เขียน `audit_log` — **ไม่ใช่ backup สำหรับ restore** |
-| `backup` | `tenant-import` | `POST /platform/tenants/{id}/import` (ADR-0005) | นำเข้าข้อมูลตอน onboard ร้านใหม่เท่านั้น — ปฏิเสธถ้า tenant มีบิลอยู่แล้ว |
-| `sync` | `sync.apply` | `/sync/push` (Arch C) | apply command จากเครื่องที่ออฟไลน์ |
+| `backup` | `tenant.export` | `POST /backup/export` (ADR-0005) | export ข้อมูลร้านเดียว (ไม่ใช่ทั้ง cluster) เป็นโครง `sa_*` + `__meta` เดิม, สร้างลิงก์ดาวน์โหลดที่หมดอายุ, เขียน `audit_log` — **ไม่ใช่ backup สำหรับ restore** |
+| `tenant-import` | `tenant.import` | `POST /platform/tenants/{id}/import` (ADR-0005, #239) | นำเข้าข้อมูลตอน onboard ร้านใหม่เท่านั้น — ปฏิเสธถ้า tenant มีบิลอยู่แล้ว · **คิวแยกจาก `backup`** แม้เป็นงานฝั่งเดียวกัน (ADR-0005) เพราะ `@nestjs/bullmq` สร้าง Worker หนึ่งตัวต่อคิวต่อคลาส — สองคลาสแย่งคิวเดียวกันจะสุ่มว่าใครได้ job (เหตุผลเต็มใน `server/README.md` §*Tenant import*) · endpoint ตอบ `202` + `jobId`, เช็คสถานะที่ `GET /platform/tenants/{id}/import/{jobId}` |
+| ~~`sync`~~ | ~~`sync.apply`~~ | ~~`/sync/push` (Arch C)~~ | ~~apply command จากเครื่องที่ออฟไลน์~~ — **ไม่ทำ (2026-09-15, 08 §8): push ตอบผลต่อ op ในคำขอเดียวกัน** |
 
 **กติกา (จาก Backend05):**
 * ทุก job ต้อง **idempotent** — BullMQ เป็น at-least-once, job รันซ้ำได้เสมอ
@@ -682,6 +701,11 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 ---
 
 ## 7. Sync endpoints (ใช้เฉพาะ Architecture B / C)
+
+> 🔴 **แทนที่ 2026-09-15** — สัญญาของ `POST /sync/push` ที่ใช้จริงอยู่ที่ [`08_PHASE2_SPEC.md §8`](08_PHASE2_SPEC.md)
+> (ยืนยันด้วย device token, ผลต่อ op `applied`/`rejected`/`retry`, service เดียวกับ endpoint ออนไลน์) ·
+> `GET /sync/pull?since=serverSeq` / `GET /sync/bootstrap` / `change_log` **ไม่ทำ** (#191 — pull ใช้ keyset `GET /products?updatedSince=&afterId=` + `meta.nextCursor`, 08 §15) ·
+> job `sync.apply` ใน §6 ไม่ทำ — push ตอบผลในคำขอเดียวกัน · ตารางและตัวอย่างข้างล่างเก็บไว้เป็นประวัติ
 
 | Method + Path | ทำอะไร |
 |---|---|
@@ -747,12 +771,17 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 409 | `DEVICE_NO_EXHAUSTED` | `เพิ่มเครื่องไม่ได้ ร้านใช้เลขเครื่องครบ 99 เครื่องแล้ว` (#163 · ร้านใช้ `device_no` ครบ 99 แล้ว — เพิ่มตอน #144 ดู §8.1) |
 | 409 | `DEVICE_ALREADY_RETIRED` | `เครื่องนี้ถูกปลดไปแล้ว` (#163 · retire เครื่องที่ retire ไปแล้ว — เพิ่มตอน #144 ดู §8.1) |
 | 409 | `PHYSICAL_CASH_REQUIRED` | `เครื่องนี้ยังมีกะเปิดอยู่ กรุณานับเงินในลิ้นชักและกรอกยอดก่อนปลดเครื่อง` (#163 · retire เครื่องที่มีกะเปิดอยู่โดยไม่ส่ง `physicalCash` — เพิ่มตอน #144 ดู §8.1) |
+| 400 | `DOC_NUMBER_REQUIRED` | `จำเป็นต้องระบุเลขที่เอกสาร` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
+| 400 | `DOC_NUMBER_INVALID` | `รูปแบบเลขที่เอกสารไม่ถูกต้อง` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
+| 409 | `VOID_NEEDS_ONLINE` | `บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
+| 409 | `CLIENT_ID_REUSED` | `รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
+| 409 | `DEVICE_HAS_UNSYNCED_OPS` | `เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
 | 401/403 | `UNAUTHENTICATED` / `FORBIDDEN` | – |
 | 429 | `RATE_LIMITED` | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` | – |
 
 ### 8.1 Error ที่เป็น **ของใหม่** (ไม่มีใน `db.js`)
 
-ทั้ง 24 ตัวนี้เป็นพฤติกรรมที่ระบบเดิม **ไม่มี** จึงไม่มีข้อความไทยให้ลอก
+ทั้ง 29 ตัวนี้เป็นพฤติกรรมที่ระบบเดิม **ไม่มี** จึงไม่มีข้อความไทยให้ลอก
 
 > **สถานะ 2026-09-04 — ข้อความชั่วคราว ผ่านเจ้าของโปรเจกต์แล้ว ยังไม่ผ่านคนหน้าร้าน**
 > ข้อความในคอลัมน์ *ข้อความไทย* ด้านล่าง **agent เป็นคนร่าง** ไม่ได้ลอกมาจาก `db.js`
@@ -765,13 +794,17 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 > และ error ของการจัดการเครื่องสี่ตัว (`POS_DEVICE_EXISTS` · `DEVICE_NO_EXHAUSTED` · `DEVICE_ALREADY_RETIRED` ·
 > `PHYSICAL_CASH_REQUIRED` — owner เห็นเท่านั้น) · หน้า login คงข้อความเดียว `เข้าสู่ระบบไม่สำเร็จ` สำหรับ 401
 > ทุกแบบ (ไม่บอกว่าผิดที่ชื่อ/รหัส/เครื่อง กันการเดาชื่อผู้ใช้) ส่วน `TENANT_SUSPENDED` / `RATE_LIMITED` ยังแสดงข้อความเฉพาะ
+>
+> **2026-09-17 (#268, F10):** เจ้าของโปรเจกต์เคาะข้อความไทยชุด Option A สำหรับ 5 error code ใหม่ของ Phase 2
+> (`DOC_NUMBER_REQUIRED`, `DOC_NUMBER_INVALID`, `VOID_NEEDS_ONLINE`, `CLIENT_ID_REUSED`, `DEVICE_HAS_UNSYNCED_OPS`)
+> และ 13 จุด UI ของ Phase 2 (ดู §8.1.1)
 
 | HTTP | code | ข้อความไทย (ร่าง) | เป็นของใหม่เพราะ |
 |---|---|---|---|
 | 409 | `PO_ALREADY_RECEIVED` | `ใบสั่งซื้อนี้รับของแล้ว` | โค้ดเดิม **ไม่มี status guard** — รับของซ้ำได้และสต็อกบวกซ้ำ (บั๊กที่ควรปิด) |
 | 409 | `DUPLICATE_PART_NO` | `รหัสอะไหล่นี้มีอยู่แล้ว` | โค้ดเดิม **ไม่ throw** — `add()` คืน `null`, `update()` คืน `false` แล้ว UI จัดการเอง |
 | 409 | `TOTAL_MISMATCH` | `ยอดเงินไม่ตรงกัน กรุณาทำรายการใหม่` | ยอดที่ client ส่งกับที่ server คำนวณต่างกันเกิน 0.01 (ดู §1.4) |
-| 409 | `OFFLINE_NOT_ALLOWED` | `สินค้านี้ขายตอนออฟไลน์ไม่ได้` | ขายสินค้าที่ไม่ผ่านเกณฑ์ `offlineOk` ขณะออฟไลน์ (เฟส 2) |
+| 409 | ~~`OFFLINE_NOT_ALLOWED`~~ | ~~`สินค้านี้ขายตอนออฟไลน์ไม่ได้`~~ | ~~ขายสินค้าที่ไม่ผ่านเกณฑ์ `offlineOk` ขณะออฟไลน์ (เฟส 2)~~ · **ยกเลิก 2026-09-15 (D3, #240):** ไม่มี `offlineOk` แล้ว — error เฟส 2 และข้อความไทยทั้งหมดอยู่ที่ `08_PHASE2_SPEC.md` §18 |
 | 403 | `TENANT_SUSPENDED` | `ร้านนี้ถูกระงับการใช้งาน` | ร้านถูกระงับ/เลิกใช้ (ADR-0003) — ของเดิมไม่มีสถานะร้าน ไม่มีบทจะเจอเคสนี้ |
 | 403 | `DEVICE_ROLE_FORBIDDEN` | `เครื่องนี้ขายของไม่ได้` | เครื่อง `backoffice` พยายามทำงานที่จำกัดเฉพาะเครื่อง `pos` (ADR-0004) — ของเดิมมีเครื่องเดียว ไม่มีแนวคิด "เครื่องนี้ทำไม่ได้" |
 | 429 | `RATE_LIMITED` | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` | เกินโควตาต่อ tenant (ADR-0006) — ต้องมี header `Retry-After` ด้วยเสมอ |
@@ -792,6 +825,51 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 409 | `DEVICE_NO_EXHAUSTED` | `เพิ่มเครื่องไม่ได้ ร้านใช้เลขเครื่องครบ 99 เครื่องแล้ว` — agent ร่าง เจ้าของโปรเจกต์เลือก 2026-09-15 (#163) | `device_no` เป็น 2 หลักในเลขเอกสาร (1..99) และห้ามใช้ซ้ำแม้เครื่องเดิม retire แล้ว (ADR-0004/0007) — เครื่องที่ 100 ของร้านสร้างไม่ได้ · ไม่น่าเกิดที่ร้านนี้ · **#144 คืนข้อความอังกฤษไว้ก่อน** |
 | 409 | `DEVICE_ALREADY_RETIRED` | `เครื่องนี้ถูกปลดไปแล้ว` — agent ร่าง เจ้าของโปรเจกต์เลือก 2026-09-15 (#163) | `POST /devices/{id}/retire` กับเครื่องที่ retire ไปแล้ว — `details { retiredAt }` · ถ้าเงียบไว้ `retired_at` และ audit จะถูกเขียนทับ · ของเดิมไม่มีเครื่อง จึงไม่มีเคสนี้ · **#144 คืนข้อความอังกฤษไว้ก่อน** |
 | 409 | `PHYSICAL_CASH_REQUIRED` | `เครื่องนี้ยังมีกะเปิดอยู่ กรุณานับเงินในลิ้นชักและกรอกยอดก่อนปลดเครื่อง` — agent ร่าง เจ้าของโปรเจกต์เลือก 2026-09-15 (#163) | `POST /devices/{id}/retire` ไม่ส่ง `physicalCash` ขณะเครื่องนั้นมีกะเปิดอยู่ — `details { shiftId }` · ADR-0004 สั่งปิดกะค้างใน transaction เดียวกับ retire โดยบันทึกเงินที่ owner นับ · ถ้าตั้งเป็น 0 ให้เอง ใบปิดกะจะขาดเงินเท่ายอดทั้งวัน (เหตุผลเดียวกับ `POST /shifts/close` ที่บังคับ `physicalCash`) · client ควรถามยอดนับเงินแล้วส่งซ้ำด้วย `Idempotency-Key` ใหม่ · **#144 คืนข้อความอังกฤษไว้ก่อน** |
+| 400 | `DOC_NUMBER_REQUIRED` | `จำเป็นต้องระบุเลขที่เอกสาร` — เจ้าของโปรเจกต์เลือก 2026-09-17 (#268 Option A) | client ไม่ส่งเลขเอกสาร (RC/CN) หลังปิด fallback (C16) · ADR-0007 / Phase 2 |
+| 400 | `DOC_NUMBER_INVALID` | `รูปแบบเลขที่เอกสารไม่ถูกต้อง` — เจ้าของโปรเจกต์เลือก 2026-09-17 (#268 Option A) | client ส่งเลขเอกสารผิด format / ผิด prefix / นอกช่วง 0001–9999 · ADR-0007 / Phase 2 |
+| 409 | `VOID_NEEDS_ONLINE` | `บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น` — เจ้าของโปรเจกต์เลือก 2026-09-17 (#268 Option A) | บิลที่สร้างตอนออนไลน์ต้อง void ตอนออนไลน์เท่านั้น ห้าม void ออฟไลน์ · Phase 2 (§18) |
+| 409 | `CLIENT_ID_REUSED` | `รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ` — เจ้าของโปรเจกต์เลือก 2026-09-17 (#268 Option A) | `client_id` (natural key) ซ้ำกับรายการอื่นแต่ payload ต่างกัน · Phase 2 |
+| 409 | `DEVICE_HAS_UNSYNCED_OPS` | `เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง` — เจ้าของโปรเจกต์เลือก 2026-09-17 (#268 Option A) | `POST /devices/:id/retire` ขณะยังมี unsynced ops ใน outbox และไม่ได้ force · ADR-0004 / Phase 2 |
+
+### 8.1.1 ข้อความ UI ของ Phase 2 (เคาะแล้ว 2026-09-17, #268 Option A)
+
+ข้อความสำหรับหน้าจอและ component ใหม่ของ Phase 2 ตามที่เจ้าของโปรเจกต์เลือก (Option A):
+
+| จุด UI | ข้อความไทย (Option A) | หมายเหตุ / บริบท |
+|---|---|---|
+| ป้าย "รอ owner" (Badge) | `รอตรวจสอบ` | รายการที่ต้องรอเจ้าของร้านตรวจสอบ (เช่น reconciles / review) |
+| แถบสถานะ (Status Bar) | `ออนไลน์` / `ออฟไลน์ (ขายสำรอง)` / `กำลังส่งข้อมูล...` | สถานะการเชื่อมต่อของเครื่อง pos |
+| ล็อกแท็บเดียว (Single-Tab Lock) | หัวข้อ: `ระบบ POS กำลังเปิดใช้งานในแท็บอื่น`<br>คำอธิบาย: `เพื่อป้องกันสต็อกและยอดเงินคลาดเคลื่อน กรุณาใช้แท็บเดิมที่เปิดไว้` | ป้องกันการเปิด POS ซ้อนกันหลายแท็บในเบราว์เซอร์เดียว |
+| แจ้งเตือนอัปเดตรุ่นใหม่ (Update Prompt) | หัวข้อ: `มีอัปเดตระบบเวอร์ชันใหม่`<br>ปุ่ม: `อัปเดตทันที` / `ไว้ทีหลัง` | แจ้งเตือนเมื่อตรวจพบเวอร์ชันใหม่ของ Web app |
+| ช่องกรอกเหตุผล void (Void Reason) | `ระบุเหตุผลในการยกเลิกบิล (จำเป็น)` | Placeholder / Label ช่องกรอกเหตุผลในการยกเลิกบิล |
+| ปุ่ม Reconciliation | `ส่งเข้าระบบใหม่` / `ทิ้งรายการนี้` / `ตรวจรับทราบแล้ว` | ปุ่มดำเนินการสำหรับรายการ reconcile แต่ละสถานะ |
+| ชื่อ 2 แท็บ Review | `รายการติดปัญหา / ค้างส่ง` · `รายการรอตรวจสอบ` | แท็บแยกประเภทรายการในหน้าตรวจรายการของเจ้าของร้าน |
+| 5 Review Kinds (ประเภทรายการตรวจ) | 1. `ยกเลิกบิลตอนออฟไลน์`<br>2. `อนุมัติขายเกินวงเงินเครดิต`<br>3. `ปิดกะอัตโนมัติ (ไม่ได้นับเงิน)`<br>4. `เวลาเครื่องไม่ตรงกับระบบ`<br>5. `บังคับปลดเครื่องขณะมีรายการค้าง` | ประเภทรายการที่ต้องตรวจสอบความถูกต้อง |
+| ป้ายปิดกะไม่ได้นับเงิน (Uncounted Shift) | `ไม่ได้นับเงินตอนปิดกะ` | ป้ายเตือนในรายงานกะที่ปิดอัตโนมัติหรือไม่ได้นับเงิน |
+| หน้าจอตั้ง PIN ออฟไลน์ (Offline PIN) | หัวข้อ: `ตั้งรหัส PIN สำหรับขายออฟไลน์`<br>คำเตือน: `รหัส PIN ต้องไม่ตรงกับรหัสผ่านเข้าสู่ระบบ` | หน้าจอตั้ง PIN สำหรับใช้งานตอนออฟไลน์ |
+| แถบเตือนออฟไลน์หมดอายุ (Offline Expired) | `ไม่ได้เชื่อมต่อระบบเกิน 3 วัน กรุณาต่ออินเทอร์เน็ตและเข้าสู่ระบบด้วยรหัสผ่าน` | แจ้งเตือนเมื่อเครื่องออฟไลน์เกินกำหนดเวลา 3 วัน |
+| ปุ่มโหมด Degraded ที่กดไม่ได้ | ป้ายปุ่ม: `ใช้ได้เฉพาะโหมดออนไลน์`<br>Tooltip: `ฟังก์ชันนี้ต้องเชื่อมต่ออินเทอร์เน็ต` | ปุ่มฟังก์ชันที่ปิดใช้งานเมื่อระบบอยู่ในโหมด degraded / ออฟไลน์ |
+| เครื่องยังไม่ Seed เลขเอกสาร (Unseeded Counter) | `เครื่องยังไม่ได้เชื่อมต่อข้อมูลเลขเอกสาร กรุณาต่อเน็ตเพื่อเริ่มใช้งาน` | เตือนเมื่อเครื่อง pos ยังไม่เคยต่อเน็ตเพื่อดึงเลขเอกสารเริ่มต้น |
+
+#### สถานะ "ยังไม่ทราบผลการขาย" — **ไม่ใช่ error code** (#220, เจ้าของโปรเจกต์ 2026-09-15)
+
+`POST /sales` ที่ **server ไม่ได้ตอบคำตัดสิน** (timeout, socket หลุด, 5xx รวม 502/504 ของ nginx, 429,
+`503 IDEMPOTENCY_KEY_IN_FLIGHT` — คือทุกอย่างที่ `isVerdict` ไม่นับ) **ไม่ใช่ "ขายไม่สำเร็จ"**: บิลอาจ commit
+ไปแล้ว แค่คำตอบหาย เดิมหน้า Checkout ขึ้น `ขายไม่สำเร็จ: เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์` ซึ่งชวนให้แคชเชียร์
+แก้ตะกร้าแล้วตีบิลใหม่ → id + `Idempotency-Key` ใหม่ → **บิลซ้ำ ตัดสต็อกสองรอบ**
+
+**ข้อตัดสิน: แก้ด้วย outbox (`q2`) ไม่ทำ stopgap ใน phase 1.** บิล/ใบลดหนี้/รายการลิ้นชักที่ server ไม่ตอบ
+**เก็บลงคิวในเครื่อง** (id + `Idempotency-Key` ผูกกับ op ตั้งแต่ก่อนส่ง แบบเดียวกับ `pending_credit_payments` ของ #24)
+แคชเชียร์ขายบิลต่อไปได้ พอเน็ตกลับมาค่อยส่งด้วย key เดิม — ไม่มีการล็อกตะกร้า ไม่มีปุ่มยกเลิก
+
+เหตุผลที่ทำได้โดยไม่ต้องรอ reconciliation เต็มรูป: **ร้านมีเครื่อง `pos` เครื่องเดียว** (ADR-0004) จึงเป็นผู้เดียวที่ตัดสต็อก
+และขยับยอดหนี้ช่าง — ข้อมูลในเครื่องถูกต้อง เช็คสต็อกและวงเงินเครดิต (dialog เดิม + `overrideCreditLimit` ที่ติดไปกับ op, #194)
+ในเครื่องได้ก่อนเข้าคิว บิลที่ถูกปฏิเสธตอน push จึงเหลือแค่เคสที่เครื่อง `backoffice` เปลี่ยนข้อมูลระหว่างเน็ตหลุด
+(ปรับสต็อกลด ลบสินค้า แก้วงเงิน) ซึ่งยังต้องมีที่ให้คนมาตัดสิน (q3) · เลขใบเสร็จ offline ต้องผ่าน #189/#190
+
+- ข้อความเมื่อบิลเข้าคิว: `บันทึกการขายแล้ว รอส่งเข้าระบบ` — agent ร่าง เจ้าของโปรเจกต์เลือก 2026-09-15 (#228) ยังไม่ผ่านคนหน้าร้าน
+- op ที่ server ปฏิเสธตอน push: **แถบแดงค้างบนหน้าขาย** จนกว่าจะมีคนกดเข้าไปจัดการ (เจ้าของโปรเจกต์ 2026-09-15, #228) — ถ้อยคำในแถบยังไม่ตั้ง
+- **ก่อน `q2` ลง** หน้า Checkout ยังเป็นพฤติกรรมเดิม (phase 1 ไม่ cutover — ร้านใช้ Drift build)
 
 ### 8.2 ⚠️ วงเงินเครดิตช่าง — **ไม่ใช่ error**
 
@@ -822,6 +900,19 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | `POST /sales` (write-heavy) | 200 VUs ยิงสินค้าชุดเดียวกัน | **สต็อกห้ามติดลบแม้แต่ครั้งเดียว**, ไม่มีบิลซ้ำ, p95 < 500ms |
 | ยิง `POST /sales` ซ้ำด้วย Idempotency-Key เดิม 5 ครั้ง | 100 VUs | สร้างบิลเดียว, ตัดสต็อกครั้งเดียว |
 | Mixed (80% read / 20% write) | 500 VUs, 10 นาที | ไม่มี connection pool หมด, replication lag < 1s |
+
+🔴 **วิธีวัด latency ให้สะอาด — เคาะแล้ว 2026-09-15 (owner, issue #251):** ยิงจาก**หลายเครื่องพร้อมกัน**
+(สามเครื่องทีม บน campus network) แต่ละเครื่องอยู่ใต้ `limit_req zone=perip rate=30r/s burst=60` ของ
+Nginx เอง (ห้ามยกเว้น `perip` ให้ — ตัวจำกัดต้องเข้มเท่าที่ร้านจริงเจอ) ผล metrics ส่งเข้า Prometheus
+ของ VM ผ่าน `--web.enable-remote-write-receiver` (`deploy/compose/monitoring.yml`) หลัง Nginx ที่
+`location /prometheus-remote-write/` (allowlist + Basic Auth, `server/docker/nginx/nginx.conf`)
+รวมผลใน Grafana. เหตุผลที่ยิงจากเครื่องเดียวผ่าน Nginx วัดไม่ได้สะอาด, SSH tunnel วัดได้แค่ tunnel,
+และ k6 บน VM เองแย่ง CPU กับ server — ดู `docs/handoff_log/close3-demo-deploy-2026-09-15.md` §4.1.
+สูตรแบ่งโหลดต่อเครื่อง (`SAFE_RATE_PER_SHARD` = 24r/s, 80% ของ 30r/s; `SAFE_BURST_PER_SHARD` = 45
+requests, 75% ของ burst=60) อยู่ที่ `server/test/k6/lib/shard.js`; ขั้นตอนเต็มอยู่ที่
+`server/test/k6/README.md`. **p95/p99 เป็นค่าต่อเครื่อง ไม่ใช่ค่าเฉลี่ยรวม** — k6's remote-write
+คำนวณ percentile ในเครื่องตัวเอง รวมทีหลังไม่ได้ (ไม่ใช่สถิติเชิงเส้น) — ทุกเครื่องต้องผ่านเกณฑ์
+ของตัวเองแยกกัน.
 
 **Data-integrity proof ที่ต้องแคปหน้าจอส่ง (แบบเดียวกับ assignment):**
 `SELECT stock FROM products WHERE id='p12'` ต้องเท่ากับ `สต็อกตั้งต้น − SUM(sale_items.qty)` พอดี และ **ไม่ติดลบ**

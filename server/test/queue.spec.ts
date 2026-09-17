@@ -9,8 +9,8 @@ import {
   QUEUE_INVENTORY,
   QUEUE_MAINTENANCE,
   QUEUE_SALE_POST,
+  QUEUE_TENANT_IMPORT,
 } from '../src/queue/queue.constants.js';
-import { calculateJitterBackoff } from '../src/queue/jitter-backoff.js';
 
 describe('queue substrate (unit)', () => {
   it('AC6: no bull package is installed alongside bullmq', () => {
@@ -27,12 +27,16 @@ describe('queue substrate (unit)', () => {
     expect(allDeps).not.toHaveProperty('@nestjs/bull');
   });
 
-  it('registers all 5 required queues (4 operational + 1 DLQ)', () => {
+  it('registers all 6 required queues (5 operational + 1 DLQ)', () => {
     expect(ALL_QUEUES).toEqual([
       QUEUE_SALE_POST,
       QUEUE_INVENTORY,
       QUEUE_MAINTENANCE,
       QUEUE_BACKUP,
+      // #239: its own queue, not a `tenant.import` job name on QUEUE_BACKUP — see that
+      // constant's comment (two `@Processor` classes on one queue name would race for
+      // every job).
+      QUEUE_TENANT_IMPORT,
       QUEUE_DLQ,
     ]);
   });
@@ -44,33 +48,12 @@ describe('queue substrate (unit)', () => {
       age: 3600,
       count: 1000,
     });
+    // #201: BullMQ's own builtin 'exponential' strategy with jitter: 1 is full jitter
+    // (minDelay = maxDelay * (1 - jitter) = 0) — see the comment on DEFAULT_JOB_OPTIONS.
     expect(DEFAULT_JOB_OPTIONS.backoff).toEqual({
-      type: 'exponential-jitter',
+      type: 'exponential',
       delay: 1000,
-    });
-  });
-
-  describe('jitter-backoff', () => {
-    it('calculates exponential delay with jitter bounded in [0, maxForAttempt]', () => {
-      // attempt 1: base = 1000 * 2^0 = 1000
-      expect(calculateJitterBackoff(1, 1000, 30000, () => 0.5)).toBe(500);
-      expect(calculateJitterBackoff(1, 1000, 30000, () => 1.0)).toBe(1000);
-      expect(calculateJitterBackoff(1, 1000, 30000, () => 0.0)).toBe(0);
-
-      // attempt 2: base = 1000 * 2^1 = 2000
-      expect(calculateJitterBackoff(2, 1000, 30000, () => 0.5)).toBe(1000);
-
-      // attempt 3: base = 1000 * 2^2 = 4000
-      expect(calculateJitterBackoff(3, 1000, 30000, () => 0.75)).toBe(3000);
-
-      // attempt 0 or negative returns 0
-      expect(calculateJitterBackoff(0, 1000, 30000)).toBe(0);
-    });
-
-    it('caps delay at maxDelay', () => {
-      // attempt 10: 1000 * 2^9 = 512,000 -> capped at 30,000
-      const capped = calculateJitterBackoff(10, 1000, 30000, () => 1.0);
-      expect(capped).toBe(30000);
+      jitter: 1,
     });
   });
 });

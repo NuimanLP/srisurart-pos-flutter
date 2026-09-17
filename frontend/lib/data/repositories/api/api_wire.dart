@@ -85,12 +85,13 @@ Future<T> rethrowThai<T>(Future<T> Function() body) async {
 /// Whether [e] is the server's FINAL answer about a money/stock write — that
 /// is, whether the attempt that raised it can safely be forgotten.
 ///
-/// 🔴 Only a 4xx is a verdict. A 5xx (including nginx's own 502/504 — `ApiClient`
-/// sets no timeout, so a proxy read-timeout is the likeliest shape of a lost
-/// reply) and a 429 both leave the bill's fate UNKNOWN: the transaction may have
-/// committed and only the reply was lost. Forgetting the attempt there means the
-/// counter's next press mints a fresh id and a fresh `Idempotency-Key`, which
-/// misses both of the server's defences at once and rings the customer up twice.
+/// 🔴 Only a 4xx is a verdict. A 5xx (including nginx's own 502/504 —
+/// `ApiClient`'s write timeout sits above nginx's, so a proxy read-timeout is
+/// the likeliest shape of a lost reply) and a 429 both leave the bill's fate
+/// UNKNOWN: the transaction may have committed and only the reply was lost.
+/// Forgetting the attempt there means the counter's next press mints a fresh
+/// id and a fresh `Idempotency-Key`, which misses both of the server's defences
+/// at once and rings the customer up twice.
 ///
 /// 503 `IDEMPOTENCY_KEY_IN_FLIGHT` is the sharpest case and falls out of the
 /// same rule: it means *the original is still running*, so it is the one reply
@@ -179,9 +180,9 @@ class PendingWrite {
 ///
 /// 🔴 This is what stops a cashier's second press after a lost reply from
 /// becoming a second bill, a second credit note, or a second drawer entry.
-/// `ApiClient` sets no timeout and the shop's link is not reliable, so the
-/// ordinary failure is: the request commits server-side, the reply is lost, the
-/// counter reads `ขายไม่สำเร็จ…` and presses again. Re-sending the SAME id and
+/// The shop's link is not reliable and `ApiClient` gives up after a timeout,
+/// so the ordinary failure is: the request commits server-side, the reply is
+/// lost, the counter reads `ขายไม่สำเร็จ…` and presses again. Re-sending the SAME id and
 /// the SAME `Idempotency-Key` makes that second press replay the first write.
 /// Minting a fresh pair defeats both of the server's defences at once.
 ///

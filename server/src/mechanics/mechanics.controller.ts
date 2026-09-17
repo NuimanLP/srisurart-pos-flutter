@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -104,10 +103,7 @@ export class MechanicsController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 201),
       res,
-      () => {
-        requireManager(req);
-        return this.mechanics.create(parseMechanicCreate(body));
-      },
+      () => this.mechanics.create(parseMechanicCreate(body)),
     );
   }
 
@@ -121,10 +117,7 @@ export class MechanicsController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.mechanics.update(id, parseMechanicPatch(body));
-      },
+      () => this.mechanics.update(id, parseMechanicPatch(body)),
     );
   }
 
@@ -171,19 +164,8 @@ export class MechanicsController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.mechanics.delete(id);
-      },
+      () => this.mechanics.delete(id),
     );
   }
 }
 
-function requireManager(req: AuthenticatedRequest): void {
-  if (req.user.role !== 'manager' && req.user.role !== 'owner') {
-    throw new ForbiddenException({
-      code: 'FORBIDDEN',
-      message: 'Manager role required',
-    });
-  }
-}

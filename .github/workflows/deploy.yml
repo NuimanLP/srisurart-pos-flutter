@@ -1,0 +1,157 @@
+name: Deploy (demo)
+
+# #67 cd.2 — every green `main` reaches the demo VM on its own, and any earlier release can be put
+# back with a manual run (07_CICD_DEPLOY.md §6, §6.1, §6.2; ADR-0013 + its 2026-09-15 addendum).
+#
+# The demo VM (172.30.58.20) is campus-internal: a GitHub-hosted runner cannot reach it, so the
+# deploy job runs on a SELF-HOSTED runner installed on the VM itself (outbound HTTPS only, no open
+# port). That runner's user has no docker group and cannot read /opt/pos/.env. The one thing it may
+# do is `sudo -u deploy /usr/local/bin/pos-deploy` (deploy/scripts/pos-deploy.sh), which fetches
+# `main` itself, refuses any commit not on it, runs deploy/ansible/deploy.yml with a local
+# connection, and rolls back automatically. A job-started hook on the runner admits only this file,
+# on `main`, for workflow_run / workflow_dispatch (deploy/scripts/runner-job-started.sh).
+#
+# 🔴 This repo is PUBLIC.
+#   * Nothing here may ever be triggered by `pull_request` / `pull_request_target`, and no other
+#     workflow may name the runner's label (the hook refuses it anyway).
+#   * No `${{ }}` of an input or event field is interpolated into a shell script; values go through
+#     `env:` and are validated.
+#   * The workflow reads no secrets: /opt/pos/.env is placed by provision.yml, which a person runs.
+
+on:
+  workflow_run:
+    # Both release images must exist for one SHA. Each CI workflow's completion fires this once;
+    # the first normally finds only its own image and ends quietly, the second deploys (07 §6.1).
+    workflows: ["Server CI", "Flutter CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Commit on main to deploy (full or short SHA). Empty = the head of main. An earlier SHA is a rollback; the schema never moves backwards."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: resolve release
+    # GitHub-hosted: the registry and history checks need nothing from the VM, so a run that is not
+    # going to deploy never reaches the self-hosted runner or the `deploy-demo` concurrency slot.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.repository == 'NuimanLP/srisurart-pos-flutter' && (
+        (github.event_name == 'workflow_run'
+          && github.event.workflow_run.event == 'push'
+          && github.event.workflow_run.head_branch == 'main'
+          && github.event.workflow_run.conclusion == 'success'
+          && github.event.workflow_run.head_repository.full_name == github.repository)
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      images_ready: ${{ steps.images.outputs.images_ready }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: resolve the commit to deploy
+        id: sha
+        env:
+          EVENT: ${{ github.event_name }}
+          # In a workflow_run, github.sha is the head of main *now*, not the commit whose CI
+          # finished — after two quick merges that is a different release (07 §6.1).
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT: ${{ inputs.image_tag }}
+        run: |
+          if [[ "$EVENT" == "workflow_run" ]]; then
+            want="$RUN_SHA"
+          elif [[ -z "$INPUT" ]]; then
+            want="origin/main"
+          elif [[ "$INPUT" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            want="$INPUT"
+          else
+            echo "::error::image_tag must be a commit SHA (7-40 hex characters)"
+            exit 1
+          fi
+          if ! sha=$(git rev-parse --verify --quiet "${want}^{commit}"); then
+            echo "::error::$want is not a commit in this repository"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::error::$sha is not on main; only commits on main are deployed"
+            exit 1
+          fi
+          # An automatic run deploys only the current head of main. A re-run of an older commit's CI
+          # would otherwise take the single pending slot of `deploy-demo` and replace a waiting deploy
+          # of a newer release. Consequence: after two quick merges only the later one deploys, and
+          # if its CI fails nothing deploys until the next merge (or a manual run).
+          head=$(git rev-parse origin/main)
+          if [[ "$EVENT" == "workflow_run" && "$sha" != "$head" ]]; then
+            echo "::notice::Not deploying $sha: main has moved on to $head, whose own CI completion deploys it."
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Release to deploy: $sha"
+
+      - name: both release images on GHCR?
+        id: images
+        if: steps.sha.outputs.sha != ''
+        env:
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          rc=0
+          deploy/scripts/verify-ghcr-tags.sh "$SHA" || rc=$?
+          if [[ "$rc" == 0 ]]; then
+            echo "images_ready=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$rc" == 1 && "$EVENT" == "workflow_run" ]]; then
+            # The expected path for the first of the two CI completions — not an error.
+            echo "::notice::Not deploying $SHA: GHCR does not have both images yet. The other CI workflow's completion triggers the deploy."
+            echo "images_ready=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$rc" == 1 ]]; then
+            echo "::error::GHCR does not have both release images for $SHA; nothing to deploy"
+            exit 1
+          else
+            # Exit 2: the registry could not be asked. Red, so an outage never reads as "not yet".
+            echo "::error::Could not check GHCR for $SHA; nothing deployed. Re-run this workflow once GHCR answers."
+            exit 1
+          fi
+
+  deploy:
+    name: deploy to demo
+    needs: resolve
+    if: >-
+      needs.resolve.outputs.images_ready == 'true'
+      && github.repository == 'NuimanLP/srisurart-pos-flutter' && (
+        (github.event_name == 'workflow_run'
+          && github.event.workflow_run.event == 'push'
+          && github.event.workflow_run.head_branch == 'main')
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: [self-hosted, srisurart-demo-deploy]
+    environment: demo
+    # Serialised and never cancelled mid-flight: cancelling between two API restarts leaves the VM
+    # running two versions (07 §6.1). GitHub keeps one *pending* run per group; a newer run replaces
+    # a pending one, never the running one (07 §6.1 lists what that means for a manual rollback).
+    concurrency:
+      group: deploy-demo
+      cancel-in-progress: false
+    # pos-deploy bounds each playbook attempt (deploy, then rollback) at 20 minutes, so a hung
+    # compose command fails the attempt and still rolls back; this is only the backstop above both.
+    # 🔴 Cancelling this run (or hitting this timeout) does NOT stop a deploy already in progress:
+    # pos-deploy ignores INT/TERM/HUP once it starts changing the VM and runs to the end, rollback
+    # included; its log is /home/deploy/pos-deploy/last-deploy.log (07 §6.1).
+    timeout-minutes: 50
+    steps:
+      - name: pos-deploy (deploy, roll back on failure)
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'auto' }}
+          RELEASE: ${{ needs.resolve.outputs.sha }}
+        run: |
+          [[ "$RELEASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::resolve produced no commit SHA"; exit 1; }
+          sudo -n -u deploy /usr/local/bin/pos-deploy "$MODE" "$RELEASE"

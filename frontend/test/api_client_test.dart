@@ -549,4 +549,289 @@ void main() {
       expect(refreshes, 1);
     });
   });
+
+  group('#183 request timeout', () {
+    /// A response that never arrives — the hung socket the timeout exists for.
+    Future<http.Response> hang() => Completer<http.Response>().future;
+
+    const short = Duration(milliseconds: 200);
+
+    test('a GET that hangs fails as a transport error after readTimeout, not an ApiException', () async {
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        httpClient: MockClient((_) => hang()),
+        readTimeout: short,
+      );
+
+      await expectLater(
+        client.get('/api/v1/products'),
+        throwsA(allOf(isA<ApiTimeoutException>(), isA<http.ClientException>(), isNot(isA<ApiException>()))),
+      );
+    });
+
+    test('reads and writes have separate timeouts', () async {
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        httpClient: MockClient((_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          return http.Response(jsonEncode({'status': 'success', 'data': {'ok': true}}), 201);
+        }),
+        readTimeout: short,
+        writeTimeout: const Duration(seconds: 5),
+      );
+
+      await expectLater(client.get('/api/v1/products'), throwsA(isA<http.ClientException>()));
+      expect(await client.post('/api/v1/sales', body: {}), {'ok': true});
+    });
+
+    test('defaults: 15 s for reads, 40 s for writes', () {
+      final client = ApiClient(baseUrl: 'http://server.test', httpClient: MockClient((_) => hang()));
+      expect(client.readTimeout, const Duration(seconds: 15));
+      expect(client.writeTimeout, const Duration(seconds: 40));
+    });
+
+    test('a timed-out POST is sent once — never retried by the client', () async {
+      var sends = 0;
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        tokenStorage: tokenStorage..accessToken = 'a'..refreshToken = 'r',
+        httpClient: MockClient((_) {
+          sends++;
+          return hang();
+        }),
+        writeTimeout: short,
+      );
+
+      await expectLater(
+        client.post('/api/v1/sales', body: {}, headers: {'Idempotency-Key': 'k'}),
+        throwsA(isA<http.ClientException>()),
+      );
+      expect(sends, 1);
+    });
+
+    test('a timeout on /auth/refresh keeps both tokens, and uses readTimeout (#161)', () async {
+      tokenStorage.accessToken = 'expired';
+      tokenStorage.refreshToken = 'refresh-1';
+      var expiries = 0;
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((req) async {
+          if (req.url.path.endsWith('/auth/refresh')) return hang();
+          return http.Response(
+            jsonEncode({'status': 'error', 'error': {'code': 'UNAUTHENTICATED', 'message': 'expired'}}),
+            401,
+          );
+        }),
+        readTimeout: short,
+        // A write timeout the test would never outlive: the refresh must not use it.
+        writeTimeout: const Duration(minutes: 5),
+      )..onSessionExpired = () => expiries++;
+
+      await expectLater(client.post('/api/v1/sales', body: {}), throwsA(isA<ApiTimeoutException>()));
+      expect(expiries, 0);
+      expect(tokenStorage.accessToken, 'expired');
+      expect(tokenStorage.refreshToken, 'refresh-1');
+    });
+
+    test('two requests waiting on one hung refresh both fail; the next call refreshes afresh', () async {
+      tokenStorage.accessToken = 'expired';
+      tokenStorage.refreshToken = 'refresh-1';
+      var expiries = 0;
+      var refreshes = 0;
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((req) async {
+          if (req.url.path.endsWith('/auth/refresh')) {
+            refreshes++;
+            if (refreshes == 1) return hang();
+            return http.Response(
+              jsonEncode({'status': 'success', 'data': {'accessToken': 'fresh', 'refreshToken': 'refresh-2'}}),
+              200,
+            );
+          }
+          if (req.headers['Authorization'] == 'Bearer fresh') {
+            return http.Response(jsonEncode({'status': 'success', 'data': {'ok': true}}), 200);
+          }
+          return http.Response(
+            jsonEncode({'status': 'error', 'error': {'code': 'UNAUTHENTICATED', 'message': 'expired'}}),
+            401,
+          );
+        }),
+        readTimeout: short,
+      )..onSessionExpired = () => expiries++;
+
+      final a = client.get('/api/v1/products');
+      final b = client.get('/api/v1/customers');
+      await Future.wait([
+        expectLater(a, throwsA(isA<ApiTimeoutException>())),
+        expectLater(b, throwsA(isA<ApiTimeoutException>())),
+      ]);
+      expect(refreshes, 1, reason: 'B must wait on A\'s refresh, not start its own');
+      expect(expiries, 0);
+      expect(tokenStorage.accessToken, 'expired');
+      expect(tokenStorage.refreshToken, 'refresh-1');
+
+      expect(await client.get('/api/v1/products'), {'ok': true});
+      expect(refreshes, 2, reason: 'the timed-out refresh must not stay cached');
+    });
+  });
+
+  group('#200 AbortableRequest on timeout', () {
+    const short = Duration(milliseconds: 200);
+
+    test('after timeout the underlying request is aborted (#200)', () async {
+      final abortedCompleter = Completer<void>();
+      var isAbortable = false;
+
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        httpClient: MockClient.streaming((req, bodyStream) async {
+          if (req case http.Abortable(:final abortTrigger?)) {
+            isAbortable = true;
+            abortTrigger.then((_) {
+              if (!abortedCompleter.isCompleted) {
+                abortedCompleter.complete();
+              }
+            });
+          }
+          return Completer<http.StreamedResponse>().future;
+        }),
+        readTimeout: short,
+      );
+
+      await expectLater(
+        client.get('/api/v1/products'),
+        throwsA(allOf(
+          isA<ApiTimeoutException>(),
+          isA<http.ClientException>(),
+          isNot(isA<ApiException>()),
+        )),
+      );
+
+      expect(isAbortable, isTrue, reason: 'Request must be an AbortableRequest');
+      await expectLater(
+        abortedCompleter.future.timeout(const Duration(seconds: 1)),
+        completes,
+        reason: 'abortTrigger must complete when the request times out',
+      );
+    });
+
+    test('when client completes with RequestAbortedException, ApiTimeoutException still surfaces (#200)', () async {
+      final aborted = Completer<void>();
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        httpClient: MockClient.streaming((req, bodyStream) async {
+          final completer = Completer<http.StreamedResponse>();
+          if (req case http.Abortable(:final abortTrigger?)) {
+            abortTrigger.then((_) {
+              if (!aborted.isCompleted) aborted.complete();
+              completer.completeError(http.RequestAbortedException(req.url));
+            });
+          }
+          return completer.future;
+        }),
+        readTimeout: short,
+      );
+
+      await expectLater(
+        client.get('/api/v1/products'),
+        throwsA(allOf(
+          isA<ApiTimeoutException>(),
+          isA<http.ClientException>(),
+          isNot(isA<ApiException>()),
+        )),
+      );
+      await expectLater(
+        aborted.future.timeout(const Duration(seconds: 1)),
+        completes,
+        reason: 'abortTrigger must have been triggered',
+      );
+    });
+
+    test('a successful request does not trigger abort (#200)', () async {
+      var aborted = false;
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        httpClient: MockClient.streaming((req, bodyStream) async {
+          if (req case http.Abortable(:final abortTrigger?)) {
+            abortTrigger.then((_) => aborted = true);
+          }
+          return http.StreamedResponse(
+            Stream.value(utf8.encode(jsonEncode({'status': 'success', 'data': {'ok': true}}))),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+        readTimeout: const Duration(seconds: 5),
+      );
+
+      final result = await client.get('/api/v1/products');
+      expect(result, {'ok': true});
+      expect(aborted, isFalse);
+    });
+
+    test('a 401 retry creates a new AbortableRequest with its own abortTrigger (#200)', () async {
+      tokenStorage.accessToken = 'expired';
+      tokenStorage.refreshToken = 'good-refresh-token';
+
+      final abortTriggers = <Future<void>>[];
+      var callCount = 0;
+
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        tokenStorage: tokenStorage,
+        httpClient: MockClient.streaming((req, bodyStream) async {
+          if (req.url.path.endsWith('/auth/refresh')) {
+            return http.StreamedResponse(
+              Stream.value(utf8.encode(jsonEncode({
+                'status': 'success',
+                'data': {'accessToken': 'new-token', 'refreshToken': 'new-refresh'},
+              }))),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+
+          if (req case http.Abortable(:final abortTrigger?)) {
+            abortTriggers.add(abortTrigger);
+          }
+
+          callCount++;
+          if (callCount == 1) {
+            return http.StreamedResponse(
+              Stream.value(utf8.encode(jsonEncode({'statusCode': 401, 'message': 'Token expired'}))),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+
+          // Second request hangs and times out
+          return Completer<http.StreamedResponse>().future;
+        }),
+        readTimeout: short,
+      );
+
+      await expectLater(
+        client.get('/api/v1/products'),
+        throwsA(isA<ApiTimeoutException>()),
+      );
+
+      expect(callCount, 2);
+      expect(abortTriggers.length, 2);
+      expect(abortTriggers[0], isNot(same(abortTriggers[1])), reason: 'Retry must have its own abortTrigger');
+
+      // The first request (401) was not aborted because it completed normally
+      var firstAborted = false;
+      abortTriggers[0].then((_) => firstAborted = true);
+
+      // The second request (hung) was aborted on timeout
+      final secondAborted = Completer<void>();
+      abortTriggers[1].then((_) => secondAborted.complete());
+
+      await expectLater(secondAborted.future.timeout(const Duration(seconds: 1)), completes);
+      expect(firstAborted, isFalse);
+    });
+  });
 }

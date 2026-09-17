@@ -20,8 +20,7 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
   let fixture: TestApp;
   let tenantInfo: TenantFixture;
   let ownerToken: string;
-  let managerToken: string;
-  let cashierToken: string;
+  let nonOwnerToken: string;
   let backupQueue: Queue;
 
   const TENANT_ID = '44444444-4444-4444-4444-444444444444';
@@ -31,7 +30,7 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       if (await fn()) return;
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((r) => setTimeout(r, 100));
     }
     throw new Error(`Timeout waiting for condition after ${timeoutMs}ms`);
   }
@@ -57,60 +56,32 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
       deviceRole: 'pos',
     });
 
-    managerToken = accessToken({
+    nonOwnerToken = accessToken({
       tenantId: tenantInfo.tenantId,
       userId: tenantInfo.userId,
-      role: 'manager',
-      deviceId: tenantInfo.posDeviceId,
-      deviceRole: 'pos',
-    });
-
-    cashierToken = accessToken({
-      tenantId: tenantInfo.tenantId,
-      userId: tenantInfo.userId,
-      role: 'cashier',
-      deviceId: tenantInfo.posDeviceId,
-      deviceRole: 'pos',
+      role: 'owner',
     });
 
     await backupQueue.obliterate({ force: true });
   });
 
-  describe('AC1: Role Authorization', () => {
-    it('rejects cashier on POST /backup/export with 403 Forbidden', async () => {
+  describe('AC1: Device Gate Authorization (F6)', () => {
+    it('rejects token without deviceId on POST /backup/export with 403 DEVICE_ROLE_FORBIDDEN', async () => {
       const res = await request(fixture.app.getHttpServer())
         .post('/api/v1/backup/export')
-        .set('Authorization', `Bearer ${cashierToken}`);
+        .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
+      expect(res.body.error.code).toBe('DEVICE_ROLE_FORBIDDEN');
     });
 
-    it('rejects manager on POST /backup/export with 403 Forbidden', async () => {
-      const res = await request(fixture.app.getHttpServer())
-        .post('/api/v1/backup/export')
-        .set('Authorization', `Bearer ${managerToken}`);
-
-      expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
-    });
-
-    it('rejects cashier on GET /backup/jobs/:id with 403 Forbidden', async () => {
+    it('rejects token without deviceId on GET /backup/jobs/:id with 403 DEVICE_ROLE_FORBIDDEN', async () => {
       const res = await request(fixture.app.getHttpServer())
         .get('/api/v1/backup/jobs/any-id')
-        .set('Authorization', `Bearer ${cashierToken}`);
+        .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
-    });
-
-    it('rejects manager on GET /backup/jobs/:id with 403 Forbidden', async () => {
-      const res = await request(fixture.app.getHttpServer())
-        .get('/api/v1/backup/jobs/any-id')
-        .set('Authorization', `Bearer ${managerToken}`);
-
-      expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
+      expect(res.body.error.code).toBe('DEVICE_ROLE_FORBIDDEN');
     });
   });
 
@@ -264,6 +235,8 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
         tenantId: OTHER_TENANT_ID,
         userId: 'other-user-uuid',
         role: 'owner',
+        deviceId: 'other-pos-device',
+        deviceRole: 'pos',
       });
 
       const crossRes = await request(fixture.app.getHttpServer())

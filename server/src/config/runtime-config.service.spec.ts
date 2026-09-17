@@ -29,7 +29,6 @@ describe('RuntimeConfigService', () => {
       redisQueueUrl: 'redis://localhost:6380',
       redisCommandTimeoutMs: 200,
       jwtPlatformSecret: 'secret',
-      jwtTenantSecret: 'secret',
       etcdUrl: 'http://127.0.0.1:2379',
     };
 
@@ -460,6 +459,128 @@ describe('RuntimeConfigService watch resume (#120)', () => {
 
       expect(logger.warn).toHaveBeenCalledTimes(1);
       expect(vi.mocked(logger.debug!).mock.calls.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it('reconnects through backoff when the watch body errors after headers (undici bodyTimeout shape)', async () => {
+      const bodyErr = new Error('Body Timeout Error');
+      const erroringStream = () =>
+        ({
+          ok: true,
+          status: 200,
+          body: new ReadableStream({
+            start(c) {
+              // Headers/connection already succeeded; the body errors with no data,
+              // matching undici's UND_ERR_BODY_TIMEOUT on an idle watch stream.
+              queueMicrotask(() => c.error(bodyErr));
+            },
+          }),
+        }) as unknown as Response;
+
+      const fetchSpy = etcd(erroringStream);
+
+      await service.start();
+      for (let i = 0; i < 2; i++) await tick(1_000);
+
+      // No special-casing needed: a mid-stream body error is just another
+      // thrown error, so it goes through the same backoff-and-reconnect path.
+      expect(watchBodies(fetchSpy).length).toBeGreaterThanOrEqual(2);
+      expect(service.backoffDelay).toHaveBeenCalled();
+    });
+  });
+
+  describe('etcd watch reauthentication (invalid auth token on a 200 watch cancel)', () => {
+    let authLogger: Partial<Logger> & { level: string };
+    let authService: RuntimeConfigService;
+
+    beforeEach(() => {
+      authLogger = {
+        level: 'info',
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      };
+      authService = new RuntimeConfigService(
+        { etcdUrl: 'http://127.0.0.1:2379', etcdPassword: 'root-pw' } as AppConfig,
+        authLogger as Logger,
+      );
+      vi.spyOn(authService, 'backoffDelay').mockReturnValue(0);
+    });
+
+    afterEach(() => {
+      authService.onModuleDestroy();
+    });
+
+    it('drops a stale token and re-authenticates when /v3/watch answers 200 with a canceled+Unauthenticated body', async () => {
+      let authCalls = 0;
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (url) => {
+          const u = String(url);
+          if (u.endsWith('/v3/auth/authenticate')) {
+            authCalls += 1;
+            return json({ token: `token-${authCalls}` });
+          }
+          if (u.endsWith('/v3/kv/range')) {
+            return json({ header: { revision: '1' }, kvs: [] });
+          }
+          // etcd v3.6.12 shape (measured): HTTP 200 whose body says the token expired.
+          return stream({
+            result: {
+              canceled: true,
+              cancel_reason:
+                'rpc error: code = Unauthenticated desc = etcdserver: invalid auth token',
+            },
+          });
+        });
+
+      await authService.start();
+      await until(() => authCalls >= 2);
+
+      expect(authCalls).toBeGreaterThanOrEqual(2);
+      const watchCalls = fetchSpy.mock.calls.filter(([u]) =>
+        String(u).endsWith('/v3/watch'),
+      );
+      expect(watchCalls.length).toBeGreaterThanOrEqual(2);
+      const secondWatchInit = watchCalls[1]?.[1] as RequestInit;
+      const secondWatchHeaders = secondWatchInit.headers as Record<string, string>;
+      expect(secondWatchHeaders.Authorization).toBe('token-2');
+    });
+
+    it('does not re-authenticate for a compaction whose revision text contains "401" (e.g. 14017)', async () => {
+      let authCalls = 0;
+      let rangeCalls = 0;
+      let watchCalls = 0;
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (url, init) => {
+          const u = String(url);
+          if (u.endsWith('/v3/auth/authenticate')) {
+            authCalls += 1;
+            return json({ token: `token-${authCalls}` });
+          }
+          if (u.endsWith('/v3/kv/range')) {
+            rangeCalls += 1;
+            return json({ header: { revision: '5' }, kvs: [] });
+          }
+          watchCalls += 1;
+          if (watchCalls === 1) {
+            // compact_revision '14017' contains the substring '401' — must not be read as HTTP 401.
+            return stream({
+              result: { canceled: true, compact_revision: '14017' },
+            });
+          }
+          return hang(url, init);
+        });
+
+      await authService.start();
+      await until(() => watchCalls >= 2);
+
+      // Only the initial authenticate() from start() — a compaction is not an auth failure.
+      expect(authCalls).toBe(1);
+      // The resync fetchInitialLogLevel() call the compaction forces, plus the initial one.
+      expect(rangeCalls).toBe(2);
+      expect(fetchSpy).toHaveBeenCalled();
     });
   });
 

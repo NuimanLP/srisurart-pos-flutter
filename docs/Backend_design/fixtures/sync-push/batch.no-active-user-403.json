@@ -1,0 +1,39 @@
+{
+  "name": "batch.no-active-user-403",
+  "description": "C13: Whole request rejected with 403 when tenant has no active user",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 1,
+      "ops": [
+        {
+          "opId": "op_1",
+          "idempotencyKey": "k_1",
+          "type": "sale.create",
+          "payload": {
+            "id": "s_1",
+            "receiptNo": "RC01-2569-09-0054",
+            "date": "2026-09-15T05:10:00.000Z",
+            "subtotal": "100.00",
+            "discount": "0.00",
+            "total": "100.00",
+            "paymentMethod": "เงินสด",
+            "items": []
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "status": "error",
+      "error": {
+        "code": "FORBIDDEN",
+        "message": "No active user found for tenant"
+      }
+    }
+  }
+}

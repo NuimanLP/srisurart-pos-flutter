@@ -33,6 +33,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
@@ -716,10 +717,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     return null;
   }
 
-  String _msg(Object e) {
-    final s = e.toString();
-    return s.startsWith('Exception: ') ? s.substring('Exception: '.length) : s;
-  }
+  String _msg(Object e) => ServerErrorResolver.resolveCounterError(e);
 
   void _alert(String msg) {
     showDialog<void>(

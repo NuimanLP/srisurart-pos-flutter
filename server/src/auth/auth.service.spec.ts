@@ -131,7 +131,7 @@ describe('AuthService', () => {
         typ: 'refresh',
         sub: 'u1',
         tid: 't1',
-        role: 'cashier',
+        role: 'owner',
         exp: targetExp,
         iat: targetExp - 3600,
         iss: 'srisurart-pos',

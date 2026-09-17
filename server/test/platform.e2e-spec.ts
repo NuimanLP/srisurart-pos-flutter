@@ -123,6 +123,42 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     });
   });
 
+  describe('PlatformAuthGuard IP allowlist (Slice 24 / #270)', () => {
+    it('rejects with 403 when hitting API directly from an IP outside the allowlist', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '203.0.113.195');
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('PLATFORM_IP_FORBIDDEN');
+      expect(res.body.error.message).toContain('IP not allowed for platform admin access');
+    });
+
+    it('allows request from loopback IP', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '127.0.0.1');
+
+      expect(res.status).toBe(200);
+    });
+
+    it('allows request from configured admin IP', async () => {
+      config.platformAdminIps = ['198.51.100.50'];
+      try {
+        const res = await request(app.getHttpServer())
+          .get('/api/v1/platform/tenants')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .set('X-Forwarded-For', '198.51.100.50');
+
+        expect(res.status).toBe(200);
+      } finally {
+        delete config.platformAdminIps;
+      }
+    });
+  });
+
   describe('Atomic Audit Logging in createTenant (AC2)', () => {
     it('creates tenant and writes audit log atomically inside the same transaction', async () => {
       const code = `t-${randomUUID().slice(0, 8)}`;
@@ -305,6 +341,138 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
         [tenantId, categoryName],
       );
       expect(rows.length).toBe(0);
+    });
+  });
+
+  describe('Full loop: Provision -> Login -> Enrol -> Sell without psql (DoD line 6, ADR-0001)', () => {
+    it('creates tenant, logs in as owner, creates product, enrols POS device, logs in on POS, opens shift, and sells', async () => {
+      const code = `loop-${randomUUID().slice(0, 8)}`;
+      const ownerUsername = `owner_${code}`;
+      const ownerPassword = 'password123';
+
+      // 1. POST /platform/tenants: platform admin provisions tenant
+      const provisionRes = await request(app.getHttpServer())
+        .post('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          code,
+          shopName: 'ร้านทดสอบ ลูปเต็ม',
+          ownerUsername,
+          ownerPassword,
+          ownerDisplayName: 'เจ้าของร้าน',
+        });
+
+      expect(provisionRes.status).toBe(201);
+      const { tenantId, enrolCode } = provisionRes.body.data;
+      expect(tenantId).toBeDefined();
+      expect(enrolCode).toBeDefined();
+
+      try {
+        // 2. POST /auth/token: Owner logs in without device token (backoffice session)
+        const ownerLoginRes = await request(app.getHttpServer())
+          .post('/api/v1/auth/token')
+          .send({ username: ownerUsername, password: ownerPassword });
+
+        expect(ownerLoginRes.status).toBe(200);
+        const ownerToken = ownerLoginRes.body.data.accessToken;
+        expect(ownerToken).toBeDefined();
+
+        // 3. POST /products: Owner adds a product to inventory via backoffice session
+        const prodRes = await request(app.getHttpServer())
+          .post('/api/v1/products')
+          .set('Authorization', `Bearer ${ownerToken}`)
+          .set('Idempotency-Key', `k-prod-${randomUUID()}`)
+          .send({
+            partNo: 'PART-NEW-01',
+            name: 'ผ้าเบรคหน้า',
+            category: 'เบรก',
+            price: '450.00',
+            cost: '300.00',
+            stock: 20,
+          });
+
+        expect(prodRes.status).toBe(201);
+        const productId = prodRes.body.data.id;
+        expect(productId).toBeDefined();
+
+        // 4. POST /auth/device: Device enrols using the server-issued enrolCode
+        const enrolRes = await request(app.getHttpServer())
+          .post('/api/v1/auth/device')
+          .send({ code: enrolCode });
+
+        expect(enrolRes.status).toBe(200);
+        const deviceToken = enrolRes.body.data.deviceToken;
+        expect(deviceToken).toBeDefined();
+
+        // 5. POST /auth/token: Cashier/Owner logs in with deviceToken to obtain POS token
+        const posLoginRes = await request(app.getHttpServer())
+          .post('/api/v1/auth/token')
+          .send({
+            username: ownerUsername,
+            password: ownerPassword,
+            deviceToken,
+          });
+
+        expect(posLoginRes.status).toBe(200);
+        const posToken = posLoginRes.body.data.accessToken;
+        expect(posToken).toBeDefined();
+
+        // 6. POST /shifts/open: POS opens the cash drawer
+        const openRes = await request(app.getHttpServer())
+          .post('/api/v1/shifts/open')
+          .set('Authorization', `Bearer ${posToken}`)
+          .set('Idempotency-Key', `k-shift-${randomUUID()}`)
+          .send({ startingCash: '1000.00' });
+
+        expect(openRes.status).toBe(200);
+        const shiftId = openRes.body.data.id;
+        expect(shiftId).toBeDefined();
+
+        // 7. POST /sales: POS rings up a sale
+        const saleId = `s-${randomUUID()}`;
+        const saleRes = await request(app.getHttpServer())
+          .post('/api/v1/sales')
+          .set('Authorization', `Bearer ${posToken}`)
+          .set('Idempotency-Key', `k-sale-${randomUUID()}`)
+          .send({
+            id: saleId,
+            subtotal: '450.00',
+            discount: '0.00',
+            total: '450.00',
+            paymentMethod: 'เงินสด',
+            items: [
+              {
+                lineNo: 1,
+                productId,
+                name: 'ผ้าเบรคหน้า',
+                qty: 1,
+                price: '450.00',
+              },
+            ],
+          });
+
+        expect(saleRes.status).toBe(201);
+        expect(saleRes.body.status).toBe('success');
+        expect(saleRes.body.data.shiftId).toBe(shiftId);
+        expect(saleRes.body.data.receiptNo).toMatch(/^RC01-\d{4}-\d{2}-\d{4}$/);
+        expect(saleRes.body.data.total).toBe('450.00');
+      } finally {
+        // Cleanup created tenant
+        await adminDs.query(`DELETE FROM audit_log WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM movements WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM sale_items WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM sales WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM drawer_entries WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM shifts WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM products WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM devices WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM categories WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM settings WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM users WHERE tenant_id = $1`, [tenantId]);
+        await adminDs.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
+        await cache.del(`t:${tenantId}:status`);
+        await cache.del(`t:${tenantId}:plan`);
+      }
     });
   });
 });

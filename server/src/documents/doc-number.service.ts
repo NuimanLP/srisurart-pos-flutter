@@ -17,6 +17,16 @@ export const DOC_PREFIX: Record<DocType, string> = {
 /** `last_no` is four digits (`CHECK (last_no <= 9999)`), so this is the last one. */
 export const MAX_DOC_NO = 9999;
 
+/**
+ * The tenant's current `doc_counters.period` — Buddhist year and month in the tenant's
+ * own timezone — as a SQL expression over a `tenants` row aliased `t`. The one
+ * definition: `GET /doc-counters` hands this period to the device as "seeded", so it
+ * must be exactly the period the issuer numbers into.
+ */
+export const TENANT_PERIOD_SQL = `(EXTRACT(YEAR FROM now() AT TIME ZONE t.timezone)::int + 543)
+                  || '-' ||
+                  to_char(now() AT TIME ZONE t.timezone, 'MM')`;
+
 /** Postgres `check_violation` — what the counter's own CHECK raises past 9999. */
 const CHECK_VIOLATION = '23514';
 
@@ -45,8 +55,9 @@ export function formatDocNumber(
 /**
  * Issues document numbers. In phase 1 the server issues **every** series — RC, CN,
  * PO, QT and CP alike (ADR-0007 as amended 2026-09-04); the phase-2 split, where the
- * `pos` device issues RC and CN from its own Drift counter, is not built here and
- * `GET /doc-counters` does not exist yet.
+ * `pos` device issues RC and CN from its own Drift counter, is not built here.
+ * `GET /doc-counters` (#188, `DocCountersService`) already reads what this writes, so
+ * the device can seed that counter.
  *
  * Three properties the shop's paperwork depends on:
  *
@@ -85,9 +96,7 @@ export class DocNumberService {
     try {
       rows = (await manager.query(
         `WITH p AS (
-           SELECT (EXTRACT(YEAR FROM now() AT TIME ZONE t.timezone)::int + 543)
-                  || '-' ||
-                  to_char(now() AT TIME ZONE t.timezone, 'MM') AS period
+           SELECT ${TENANT_PERIOD_SQL} AS period
              FROM tenants t
             WHERE t.id = $1::uuid
          )

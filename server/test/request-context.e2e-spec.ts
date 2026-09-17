@@ -41,7 +41,7 @@ describe('the request-context seam (e2e)', () => {
     token = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
@@ -109,7 +109,7 @@ describe('the request-context seam (e2e)', () => {
     try {
       await admin.query(
         `INSERT INTO users (tenant_id, id, username, password_hash, display_name, role)
-              VALUES ($1::uuid, gen_random_uuid(), $2, 'x', 'Tester', 'manager')`,
+              VALUES ($1::uuid, gen_random_uuid(), $2, 'x', 'Tester', 'owner')`,
         [twinTenant, fixture.username],
       );
 

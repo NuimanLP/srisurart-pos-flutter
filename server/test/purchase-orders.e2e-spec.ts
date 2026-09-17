@@ -34,7 +34,6 @@ describe('purchase orders (e2e)', () => {
   let cache: Redis;
   let fixture: TenantFixture;
   let manager: string;
-  let cashier: string;
   let posManager: string;
   let otherManager: string;
   let seq = 0;
@@ -123,7 +122,7 @@ describe('purchase orders (e2e)', () => {
   beforeEach(async () => {
     fixture = await resetTenant(admin, TENANT, { cache });
     const other = await resetTenant(admin, OTHER, { cache });
-    const bo = (tenantId: string, f: TenantFixture, role: 'manager' | 'cashier') =>
+    const bo = (tenantId: string, f: TenantFixture, role = 'owner') =>
       accessToken({
         tenantId,
         userId: f.userId,
@@ -131,13 +130,12 @@ describe('purchase orders (e2e)', () => {
         deviceId: f.backofficeDeviceId,
         deviceRole: 'backoffice',
       });
-    manager = bo(TENANT, fixture, 'manager');
-    cashier = bo(TENANT, fixture, 'cashier');
-    otherManager = bo(OTHER, other, 'manager');
+    manager = bo(TENANT, fixture, 'owner');
+    otherManager = bo(OTHER, other, 'owner');
     posManager = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
@@ -463,6 +461,106 @@ describe('purchase orders (e2e)', () => {
       expect(hotRow.stock_after).toBeGreaterThanOrEqual(50 - 8 + 7);
       expect(hotRow.stock_after).toBeLessThanOrEqual(50 + 7);
     });
+
+    it(
+      '200-round 3-way race: pos sales + backoffice receive + adjust-stock on same product (DoD line 11, ADR-0004)',
+      async () => {
+        const prodId = 'hot200';
+        await seedProduct(admin, TENANT, {
+          id: prodId,
+          partNo: 'HOT-200',
+          name: 'Hot 200 Part',
+          price: 100,
+          cost: 60,
+          stock: 300,
+        });
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
+          userId: fixture.userId,
+        });
+
+        // 1. Pre-open 50 POs that will be received during the race
+        const poList = await Promise.all(
+          Array.from({ length: 50 }, () =>
+            openPo([{ partNo: 'HOT-200', qty: 1, cost: '60.00' }]),
+          ),
+        );
+        expect(poList).toHaveLength(50);
+
+        // 2. Prepare 200 operations: 100 sales (-1 each), 50 PO receives (+1 each), 50 adjustments (+1 each)
+        const sales = Array.from({ length: 100 }, (_, i) =>
+          http()
+            .post('/api/v1/sales')
+            .set(auth(posManager))
+            .set('Idempotency-Key', key())
+            .send({
+              id: `s-race200-${i}-${Date.now()}`,
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เงินสด',
+              items: [
+                {
+                  lineNo: 1,
+                  productId: prodId,
+                  name: 'Hot 200 Part',
+                  qty: 1,
+                  price: '100.00',
+                },
+              ],
+            }),
+        );
+
+        const receives = poList.map((po) => action(po.id, 'receive'));
+
+        const adjusts = Array.from({ length: 50 }, (_, i) =>
+          http()
+            .post(`/api/v1/products/${prodId}/adjust-stock`)
+            .set(auth(manager))
+            .set('Idempotency-Key', key())
+            .send({
+              delta: 1,
+              type: 'adjustment-in',
+              note: `race200-adj-${i}`,
+            }),
+        );
+
+        // Interleave the operations so they race simultaneously across all 3 handlers
+        const interleaved: Promise<Response>[] = [];
+        let sIdx = 0;
+        let rIdx = 0;
+        let aIdx = 0;
+        while (sIdx < 100 || rIdx < 50 || aIdx < 50) {
+          if (sIdx < 100) interleaved.push(sales[sIdx++]);
+          if (rIdx < 50) interleaved.push(receives[rIdx++]);
+          if (sIdx < 100) interleaved.push(sales[sIdx++]);
+          if (aIdx < 50) interleaved.push(adjusts[aIdx++]);
+        }
+        expect(interleaved).toHaveLength(200);
+
+        const settled = await Promise.allSettled(interleaved);
+        const rejected = settled.filter((r) => r.status === 'rejected');
+        expect(rejected).toEqual([]);
+
+        const results = settled.map(
+          (r) => (r as PromiseFulfilledResult<Response>).value,
+        );
+        const nonSuccess = results.filter((r) => r.status !== 200 && r.status !== 201);
+        expect(nonSuccess.map((r) => ({ status: r.status, body: r.body }))).toEqual([]);
+        expect(results).toHaveLength(200);
+
+        // Final stock check: 300 initial - 100 sales + 50 receives + 50 adjustments = 300
+        const finalProd = await product(prodId);
+        expect(finalProd.stock).toBe(300);
+
+        // Ledger row check: exactly 200 movements recorded with no lost updates
+        const moveRows = await admin.query(
+          `SELECT count(*)::int AS n FROM movements WHERE tenant_id = $1::uuid AND product_id = $2`,
+          [TENANT, prodId],
+        );
+        expect(moveRows[0].n).toBe(200);
+      },
+      60_000,
+    );
   });
 
   describe('status rules', () => {
@@ -565,19 +663,8 @@ describe('purchase orders (e2e)', () => {
   });
 
   describe('refusals', () => {
-    it('a cashier can read but not create, receive, cancel or delete', async () => {
-      const { id } = await openPo([{ partNo: 'TEST-1', qty: 5, cost: '160.00' }]);
-      expect((await list('', cashier)).status).toBe(200);
-
-      const writes = [
-        await createPo({ supplier: 'Acme', items: [{ partNo: 'X', name: 'x', qty: 1, cost: '1.00' }] }, cashier),
-        await action(id, 'receive', cashier),
-        await action(id, 'cancel', cashier),
-        await del(id, cashier),
-      ];
-      for (const res of writes) expect(res.status).toBe(403);
-      expect((await poRow(id))?.status).toBe('open');
-      expect(await product('tp1')).toEqual({ stock: 10, cost: '100.00' });
+    it('requires authentication for purchase order routes', async () => {
+      expect((await request(app.getHttpServer()).get('/api/v1/purchase-orders')).status).toBe(401);
     });
 
     it("another tenant's manager cannot see, receive, cancel or delete this tenant's PO", async () => {

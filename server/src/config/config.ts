@@ -14,7 +14,6 @@ export interface AppConfig {
    */
   redisCommandTimeoutMs: number;
   jwtPlatformSecret: string;
-  jwtTenantSecret: string;
   /** Required only for API instances handling /auth/* (ADR-0009). */
   jwtPrivateKey?: string;
   /** Required only for API instances handling /auth/* and API validation. */
@@ -27,6 +26,8 @@ export interface AppConfig {
   etcdUrl?: string;
   /** Optional etcd root password. */
   etcdPassword?: string;
+  /** Optional allowlist of admin IPs allowed to access /api/v1/platform (slice 24 / #270). */
+  platformAdminIps?: string[];
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -86,7 +87,6 @@ export function loadConfig(env = process.env): AppConfig {
     redisQueueUrl: required(env, 'REDIS_QUEUE_URL'),
     redisCommandTimeoutMs: positiveInt(env, 'REDIS_COMMAND_TIMEOUT_MS', 1000),
     jwtPlatformSecret: env.JWT_PLATFORM_SECRET ?? 'dev-only-platform-secret',
-    jwtTenantSecret: env.JWT_TENANT_SECRET ?? 'dev-only-tenant-secret',
     jwtPrivateKey: isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined,
     jwtPublicKeys: isApi ? parsePublicKeys(required(env, 'JWT_PUBLIC_KEYS')) : undefined,
     jwtKeyId: env.JWT_KEY_ID ?? 'key-1',
@@ -95,5 +95,8 @@ export function loadConfig(env = process.env): AppConfig {
       : undefined,
     etcdUrl: env.ETCD_URL,
     etcdPassword: env.ETCD_ROOT_PASSWORD ?? env.ETCD_PASSWORD,
+    platformAdminIps: env.PLATFORM_ADMIN_IPS
+      ? env.PLATFORM_ADMIN_IPS.split(',').map((ip) => ip.trim()).filter(Boolean)
+      : undefined,
   };
 }

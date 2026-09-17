@@ -47,7 +47,7 @@ describe('cache stampede lock (e2e, #124)', () => {
     token = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });

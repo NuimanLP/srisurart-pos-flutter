@@ -63,3 +63,4 @@ app.*.map.json
 !/server/.env.example
 /server/*.tsbuildinfo
 /server/test/k6/k6-env.json
+/.tmp-nginx/

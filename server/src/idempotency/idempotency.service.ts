@@ -31,6 +31,9 @@ export const IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
  * How long a retry may wait for the in-flight original to commit before giving the
  * connection back. Without it the waiter holds a pool slot for as long as the winner
  * runs, and one wedged request can starve the whole instance.
+ *
+ * 🔴 Must stay below `pos_app`'s `statement_timeout` (25 s, #213): the statement timer starts
+ * first, so at equal values a waiter gets `57014` (a 500) and never `IDEMPOTENCY_KEY_IN_FLIGHT`.
  */
 const CLAIM_LOCK_TIMEOUT = '5s';
 

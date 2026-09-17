@@ -42,6 +42,31 @@ export function toErrorEnvelope(exception: unknown): {
       },
     };
   }
+  // Express middleware errors follow the `http-errors` convention: body-parser's
+  // `PayloadTooLargeError` (413) or malformed JSON (400) carry `status` + `expose: true`.
+  // They are the client's fault and must not read as a server crash (#239). body-parser
+  // also sets `type` (`entity.too.large`, `entity.parse.failed`); requiring it keeps some
+  // other library's error that happens to carry `status`/`expose` from leaking its message.
+  const httpError = exception as { status?: unknown; expose?: unknown; message?: unknown; type?: unknown } | null;
+  if (
+    httpError &&
+    httpError.expose === true &&
+    typeof httpError.type === 'string' &&
+    typeof httpError.status === 'number' &&
+    httpError.status >= 400 &&
+    httpError.status < 500
+  ) {
+    return {
+      status: httpError.status,
+      body: {
+        status: 'error',
+        error: {
+          code: HttpStatus[httpError.status] ?? 'BAD_REQUEST',
+          message: typeof httpError.message === 'string' ? httpError.message : 'Bad request',
+        },
+      },
+    };
+  }
   return {
     status: HttpStatus.INTERNAL_SERVER_ERROR,
     body: {

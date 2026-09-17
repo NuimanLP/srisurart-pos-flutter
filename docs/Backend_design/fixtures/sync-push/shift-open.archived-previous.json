@@ -1,0 +1,45 @@
+{
+  "name": "shift-open.archived-previous",
+  "description": "Open shift op auto-archives previously unclosed shift (slice 7)",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 0,
+      "ops": [
+        {
+          "opId": "op_shift_002",
+          "idempotencyKey": "k_sh_002",
+          "type": "shift.open",
+          "payload": {
+            "id": "sh_off_002",
+            "startingCash": "1000.00",
+            "openedAt": "2026-09-16T01:00:00.000Z"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_shift_002",
+            "status": "applied",
+            "response": {
+              "id": "sh_off_002",
+              "startingCash": "1000.00",
+              "openedAt": "2026-09-16T01:00:00.000Z",
+              "autoArchived": true,
+              "archivedShiftId": "sh_off_001"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

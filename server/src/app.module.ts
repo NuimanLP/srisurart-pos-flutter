@@ -23,13 +23,18 @@ import { CustomersModule } from './customers/customers.module.js';
 import { MechanicsModule } from './mechanics/mechanics.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { ReportsModule } from './reports/reports.module.js';
-import { QueueModule, QueueProcessorsModule } from './queue/queue.module.js';
+import {
+  QueueModule,
+  QueueProcessorsModule,
+  QueueSchedulerModule,
+} from './queue/queue.module.js';
 import { QuotesModule } from './quotes/quotes.module.js';
 import { ParkedSalesModule } from './parked-sales/parked-sales.module.js';
 import { BackupModule } from './backup/backup.module.js';
 import { ProductsModule } from './products/products.module.js';
 import { PurchasingModule } from './purchasing/purchasing.module.js';
 import { DevicesModule } from './devices/devices.module.js';
+import { ReviewItemsModule } from './review-items/review-items.module.js';
 
 import { RuntimeConfigService } from './config/runtime-config.service.js';
 
@@ -90,6 +95,7 @@ export class AppModule implements NestModule {
         ProductsModule,
         PurchasingModule,
         DevicesModule,
+        ReviewItemsModule,
       ],
     };
   }
@@ -105,8 +111,13 @@ export class WorkerModule {
         CoreModule.forRoot(config, logger),
         DbModule,
         RedisModule,
+        // #239: TenantImportProcessor's TenantImportService invalidates the products/
+        // categories/customers/mechanics/settings cache after a committed import, exactly
+        // like the synchronous endpoint always did.
+        TenantCacheModule,
         QueueModule,
         QueueProcessorsModule,
+        QueueSchedulerModule,
       ],
     };
   }

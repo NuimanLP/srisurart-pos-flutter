@@ -195,6 +195,9 @@ class ApiProductsRepository extends ProductsRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
     }
@@ -225,6 +228,9 @@ class ApiProductsRepository extends ProductsRepository {
       return true;
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
     }
@@ -244,6 +250,9 @@ class ApiProductsRepository extends ProductsRepository {
       );
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback
       await (db.update(db.products)..where((t) => t.id.equals(id))).write(
@@ -304,6 +313,9 @@ class ApiProductsRepository extends ProductsRepository {
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {
       // Offline fallback: only when server was never reached
     }
@@ -361,6 +373,9 @@ class ApiProductsRepository extends ProductsRepository {
       await apiClient.post('/api/v1/categories', body: {'name': trimmed}, headers: idempotencyKey());
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {}
 
     await super.addCategory(trimmed);
@@ -372,6 +387,9 @@ class ApiProductsRepository extends ProductsRepository {
       await apiClient.delete('/api/v1/categories/$name', headers: idempotencyKey());
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
+    } on ApiTimeoutException {
+      // The server may have committed: never re-run the write on Drift (#183).
+      rethrow;
     } catch (_) {}
 
     await super.deleteCategory(name);

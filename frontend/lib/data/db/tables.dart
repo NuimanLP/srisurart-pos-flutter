@@ -367,6 +367,52 @@ class SettingsRow extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// Schema v6 (#188, ADR-0007 "ช่องพังที่ต้องปิดก่อนเฟส 2" item 1): the local
+/// high-water mark per `(device, doc_type, period)` — the counter a phase-2
+/// `pos` device will issue RC/CN from. Nothing issues from it yet (phase 1: the
+/// server issues every number); for now it is only seeded from
+/// `GET /doc-counters`, and a seed never lowers [lastNo].
+///
+/// 🔴 Keyed by the server's [deviceId] (`devices.id`), not [deviceNo]:
+/// `device_no` is unique only within a tenant, so a browser re-enrolled into
+/// another shop with the same number would otherwise inherit the old device's
+/// counters.
+@DataClassName('DocCounterRow')
+class DocCounters extends Table {
+  TextColumn get deviceId => text()();
+
+  /// The series printed on the paper (`RC01-…`).
+  IntColumn get deviceNo => integer()();
+
+  /// The server's `doc_counters.doc_type`: `receipt` / `cn` / `po` / `quote` / `cp`.
+  TextColumn get docType => text()();
+
+  /// Buddhist year-month, `2569-09` — the server's `doc_counters.period`.
+  TextColumn get period => text()();
+  IntColumn get lastNo => integer()();
+
+  @override
+  Set<Column> get primaryKey => {deviceId, docType, period};
+}
+
+/// Schema v6 (#188): a period this device's counters were seeded from the
+/// server for, keyed by `devices.id` like [DocCounters].
+///
+/// 🔴 A row proves only that a seed happened at [seededAt] — **not** that the
+/// counter is current. In phase 1 the server keeps issuing numbers after the
+/// morning seed and the client does not advance its counter from write
+/// responses, so the local mark falls behind within the day. ADR-0007 item 2
+/// (#189) must re-seed or compare before trusting it.
+@DataClassName('DocCounterSeedRow')
+class DocCounterSeeds extends Table {
+  TextColumn get deviceId => text()();
+  TextColumn get period => text()();
+  DateTimeColumn get seededAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {deviceId, period};
+}
+
 @DataClassName('AppMetaRow')
 class AppMeta extends Table {
   TextColumn get key => text()();

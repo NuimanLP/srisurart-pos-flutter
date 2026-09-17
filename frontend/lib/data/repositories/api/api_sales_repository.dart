@@ -102,8 +102,8 @@ class ApiSalesRepository implements SalesRepository {
   /// The bill id and `Idempotency-Key` this cart should be sent under.
   ///
   /// 🔴 Both are minted ONCE PER CART, not once per call, and that is the whole
-  /// point. `ApiClient` sets no timeout and the shop's link is not reliable, so
-  /// the ordinary failure is: `POST /sales` hangs or the socket drops, the
+  /// point. The shop's link is not reliable and `ApiClient` times out, so the
+  /// ordinary failure is: `POST /sales` hangs or the socket drops, the
   /// counter sees `ขายไม่สำเร็จ…` and presses ยืนยัน again. The server may well
   /// have committed the first bill — the reply is what was lost, not the write.
   /// Minting a fresh id and a fresh key on the second press defeats BOTH of the

@@ -1,0 +1,137 @@
+{
+  "name": "batch.stop-at-retry",
+  "description": "B3: When op N receives retry, subsequent ops N+1.. are returned as retry without processing",
+  "request": {
+    "headers": {
+      "X-Device-Token": "pos-device-token-01"
+    },
+    "body": {
+      "outboxRemaining": 3,
+      "ops": [
+        {
+          "opId": "op_1",
+          "idempotencyKey": "k_1",
+          "type": "sale.create",
+          "payload": {
+            "id": "s_batch_1",
+            "receiptNo": "RC01-2569-09-0050",
+            "date": "2026-09-15T05:00:00.000Z",
+            "subtotal": "100.00",
+            "discount": "0.00",
+            "total": "100.00",
+            "paymentMethod": "เงินสด",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "p1",
+                "name": "Oil Filter",
+                "qty": 1,
+                "price": "100.00"
+              }
+            ]
+          }
+        },
+        {
+          "opId": "op_2",
+          "idempotencyKey": "k_2",
+          "type": "sale.create",
+          "payload": {
+            "id": "s_batch_2",
+            "receiptNo": "RC01-2569-09-0051",
+            "date": "2026-09-15T05:01:00.000Z",
+            "subtotal": "100.00",
+            "discount": "0.00",
+            "total": "100.00",
+            "paymentMethod": "เงินสด",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "p1",
+                "name": "Oil Filter",
+                "qty": 1,
+                "price": "100.00"
+              }
+            ]
+          }
+        },
+        {
+          "opId": "op_3",
+          "idempotencyKey": "k_3",
+          "type": "sale.create",
+          "payload": {
+            "id": "s_batch_3",
+            "receiptNo": "RC01-2569-09-0052",
+            "date": "2026-09-15T05:02:00.000Z",
+            "subtotal": "100.00",
+            "discount": "0.00",
+            "total": "100.00",
+            "paymentMethod": "เงินสด",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "p1",
+                "name": "Oil Filter",
+                "qty": 1,
+                "price": "100.00"
+              }
+            ]
+          }
+        },
+        {
+          "opId": "op_4",
+          "idempotencyKey": "k_4",
+          "type": "sale.create",
+          "payload": {
+            "id": "s_batch_4",
+            "receiptNo": "RC01-2569-09-0053",
+            "date": "2026-09-15T05:03:00.000Z",
+            "subtotal": "100.00",
+            "discount": "0.00",
+            "total": "100.00",
+            "paymentMethod": "เงินสด",
+            "items": [
+              {
+                "lineNo": 1,
+                "productId": "p1",
+                "name": "Oil Filter",
+                "qty": 1,
+                "price": "100.00"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "success",
+      "data": {
+        "results": [
+          {
+            "opId": "op_1",
+            "status": "applied",
+            "response": {
+              "id": "s_batch_1",
+              "receiptNo": "RC01-2569-09-0050",
+              "total": "100.00"
+            }
+          },
+          {
+            "opId": "op_2",
+            "status": "retry"
+          },
+          {
+            "opId": "op_3",
+            "status": "retry"
+          },
+          {
+            "opId": "op_4",
+            "status": "retry"
+          }
+        ]
+      }
+    }
+  }
+}

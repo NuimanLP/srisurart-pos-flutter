@@ -88,23 +88,33 @@ passes only `success`/`skipped` and fails on anything else. `flutter.yml` has th
 - Schema exists **only** through `src/db/migrations/*` — `synchronize` is never true, in any
   environment including tests. `node dist/db/migrate.js up|down|status` (`pnpm db:migrate*`)
   runs them; the compose `migrate` service runs `up` once, as `postgres`, before `api-*` start.
-- 27 tables (01_DATABASE §5). `change_log` is phase 2 and does not exist. Every tenant-scoped
-  table has `tenant_id` in its primary key, composite FKs, and indexes that start with `tenant_id`.
+- 28 tables (01_DATABASE §5 + `import_jobs`, #239). `change_log` is phase 2 and does not exist.
+  Every tenant-scoped table has `tenant_id` in its primary key, composite FKs, and indexes that
+  start with `tenant_id`.
 - **RLS is enabled and forced** on all 25 tenant-scoped tables with one fail-closed policy:
   `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid`. With the GUC unset
   `pos_app` reads zero rows (no error) and cannot insert. `set_config('app.tenant_id', …, true)` inside a
   `TenantService.runTx` transaction, under the tenant `TenantGuard` named, is the only way in (#4, tx.4 #153). `pos_app` cannot `SET row_security = off`.
 - Grants: `pos_app` has `SELECT/INSERT/UPDATE/DELETE` on every table except `movements`
-  (`SELECT/INSERT` — it is a ledger) and nothing on `migrations`.
+  (`SELECT/INSERT` — it is a ledger) and nothing on `migrations` or `import_jobs` (#239 — only
+  `ADMIN_DATA_SOURCE` ever touches that one; it carries `tenant_id` but no RLS policy, since a
+  policy would guard a role that never queries it).
 - Product search is `pg_trgm` + `ILIKE '%…%'` over `lower(part_no||' '||name||' '||name_th||' '||compat)`
   (`idx_products_search`). `to_tsvector` cannot find "เบรก" inside "ผ้าเบรกหน้า".
 - `src/db/seed.ts` — `seedCategories(db, tenantId)` inserts the five categories (ADR-0001) and
   nothing else; provisioning (#5) calls it inside its transaction.
 
 **Adding a migration:** create `src/db/migrations/<epoch-ms>-Name.ts` implementing `up` and
-`down`, append the class to `MIGRATIONS` in `src/db/data-source.ts`, and if it adds a table put
-the name in `TENANT_SCOPED_TABLES` (RLS + grants are asserted per table by `test/schema.e2e-spec.ts`,
-so a missing entry fails the suite). Run `pnpm build && pnpm db:migrate`, then rebuild the image.
+`down`, append the class to `MIGRATIONS` in `src/db/data-source.ts`, and if it adds a
+**tenant-facing** table (one `pos_app`/tenant requests will read or write) put the name in
+`TENANT_SCOPED_TABLES` (RLS + grants are asserted per table by `test/schema.e2e-spec.ts`, so a
+missing entry fails the suite). 🔴 That array lives in `RowLevelSecurity1788652800001`, which
+already ran by the time a later migration's table exists — **never append to it directly**; its
+`up()`/`down()` would then try to `ALTER TABLE` a table that does not exist yet on a from-empty
+run. `import_jobs` (#239) is the precedent for an admin-only table that needs neither RLS nor a
+`TENANT_SCOPED_TABLES` entry: its own migration explains the reasoning, and
+`test/schema.e2e-spec.ts` asserts its no-RLS, no-grant shape by name instead. Run
+`pnpm build && pnpm db:migrate`, then rebuild the image.
 
 ## Dynamic config (etcd, #64/#66)
 
@@ -137,7 +147,10 @@ is the consumer that reads it at boot and watches it live.
   `/v3/auth/role/add`, `/v3/auth/user/grant`, `/v3/auth/enable`), then **asserts** the result —
   root authenticates, an anonymous request is refused — rather than trusting the bootstrap
   calls succeeded. It is idempotent: re-run against an already-bootstrapped volume (a restart,
-  not a fresh one) short-circuits at the first authenticate call.
+  not a fresh one) short-circuits at the first authenticate call. It then seeds
+  `/pos/config/log_level` with `LOG_LEVEL` (default `info`) in a txn guarded by
+  `create_revision == 0`, so a value changed later is never overwritten (#67). Locally it still
+  runs from `up`; the VM deploy runs it with `run --rm`, so there a failure fails the deploy.
 - `etcdctl endpoint health` needs credentials once auth is enabled (it performs a linearizable
   read) — the healthcheck sets `ETCDCTL_USER=root:$ETCD_ROOT_PASSWORD` as an environment
   variable so the password never lands in a process argument, same reasoning as
@@ -189,6 +202,7 @@ src/common/              response envelope, error envelope, pino logger + correl
                          request-context.ts (the per-request tenant + transaction seam)
 src/infra/               DataSource (pos_app role, synchronize=false), ADMIN_DATA_SOURCE (owner),
                          AUDIT_DATA_SOURCE (pos_app, pool of 2, off the request pool),
+                         HEALTH_DATA_SOURCE (pos_app, pool of 1, /health/ready only — #248),
                          REDIS_CACHE / REDIS_QUEUE
 src/idempotency/         Idempotency-Key: claim, replay, 409 on a changed request (#18)
 src/documents/           document numbers: RC01-2569-08-0042, per device per month (#19)
@@ -306,7 +320,20 @@ voidSale(@Param('id') id: string, @Body() body: unknown, @Req() req: Authenticat
 - Keys live 24h; deleting them is Lane C's `idem.cleanup` job, not this module's.
   With no `tenantId` the job lists `tenants` and fans out one tenant-scoped job each (#169): a
   DELETE on the `pos_app` pool with no `app.tenant_id` matches 0 rows under forced RLS and still
-  "succeeds". Nothing schedules the global job yet — add a BullMQ job scheduler when it is wanted.
+  "succeeds". `queue/job-scheduler.service.ts` (#182) registers the global job as a repeatable
+  BullMQ job scheduler — `upsertJobScheduler(IDEM_CLEANUP_SCHEDULER_ID, { every: 1h }, …)` — on
+  worker boot; the id makes re-registering (a restart, or a future second worker replica) an
+  upsert of the same schedule, never a duplicate. Against real Redis/BullMQ 6.3.4 the first run
+  fires immediately on first registration (`every` with no prior run is not epoch-aligned), then
+  every hour after that. 🔴 Renaming `IDEM_CLEANUP_SCHEDULER_ID` orphans the old scheduler under
+  its old id in Redis — remove it (`queue.removeJobScheduler(oldId)`) before changing the
+  constant, or it keeps firing forever with nothing watching it.
+  It lives in its own `QueueSchedulerModule`, imported only by `WorkerModule` — **not**
+  `QueueProcessorsModule`, which several e2e suites (`test/backup.e2e-spec.ts`,
+  `test/worker-jobs.e2e-spec.ts`) mount on its own to exercise one processor, and must not also
+  register (and fan out) the global schedule by booting. The API imports plain `QueueModule` to
+  enqueue jobs but never `QueueProcessorsModule` or `QueueSchedulerModule`, so the three API
+  replicas never call it either.
 
 Three decisions the design docs do not cover, made here and recorded in
 `02_API_SCREENS.md §8`: `IDEMPOTENCY_KEY_INVALID`, `IDEMPOTENCY_KEY_IN_FLIGHT`, and the
@@ -361,7 +388,8 @@ its last slice, `tx.5` (#154), moved the void's manager-PIN check ahead of the t
   connection at all. A 403 on a cold cache takes at most two short pool reads (the rate
   limiter's `SELECT plan`, the guard's `SELECT status`), each returned at once, and never a
   `runTx` or a `set_config` (`test/tenant-scope.e2e-spec.ts` counts them exactly).
-  `/health/live` takes no connection and `/health/ready` one (`SELECT 1`).
+  `/health/live` takes no connection and `/health/ready` one (`SELECT 1`) — from
+  `HEALTH_DATA_SOURCE`, never the request pool (#248).
 - **The footgun that is easier to reach for is an injected `DataSource`.** Forgetting `runTx`
   and calling `currentRequestContext()` throws (a loud 500). Querying through a bare
   `DataSource` answers **200 with zero rows**, and an `UPDATE` reports success having changed
@@ -456,6 +484,83 @@ survive a rollback (and `/auth/token` must not hold a transaction across its arg
 2. **An async Express middleware must never reject.** Express does not await it, so a
    rejection is an unhandled rejection, which Node answers by killing the worker.
    `TenantScopeMiddleware` does no I/O at all; keep it that way.
+
+### The transaction ceiling (#213)
+
+🔴 **ADR-0010's phase-2 pull rewinds its `?updatedSince=` cursor by 30 s (#191), and that is
+safe only while no write commits more than 30 s after it stamped `updated_at = now()`** (the
+transaction's *start*). A later commit lands behind a cursor that has already moved past it, and
+the row is never pulled. Change one of these numbers only together with the other.
+
+Postgres here is 16, which has no `transaction_timeout` (added in 17), so the ceiling has two parts:
+
+| part | where | value | what it does |
+|---|---|---|---|
+| **commit guard** | `TenantService.runTx`, `TenantJobRunner.runWithTenantContext` (`common/database/commit-ceiling.ts`) | **25 s** | takes a monotonic mark just before `BEGIN`; right before `COMMIT`, if the mark is more than 25 s old, rolls back and throws `CommitCeilingExceededError` (a 500) |
+| `idle_in_transaction_session_timeout` | role `pos_app` in the app database (migration `1788652802131`) | **5 s** | a transaction the app leaves idle between statements: Postgres ends the session, the transaction rolls back, and pg-pool drops the client |
+| `statement_timeout` | same | **25 s** | a runaway statement: `57014`, the transaction can only roll back. It is a safety net that fires before nginx's `proxy_read_timeout 30s`, not the thing that bounds the rewind |
+
+**The guarantee.** `BEGIN` is sent after the mark, so Postgres `now()` is no earlier than the
+mark. Every transaction that commits through `runTx` or `TenantJobRunner` therefore commits within
+**25 s + one round trip** of its `now()`, whatever number of statements it ran. That stays under
+30 s. The guard adds no round trip. It relies on the database host's clock not being stepped
+between `now()` and `COMMIT`, since `now()` is wall-clock time and the mark is monotonic.
+
+- **A guard trip means "not committed", and the response is a 500.** The client reads a 5xx as
+  "fate unknown" and resends the same key. The idempotency claim rolled back with everything else,
+  so the resend is a first attempt.
+- **Reads are not cut short at 5 s.** An all-time report over years of data can take longer than
+  5 s, and it is only killed if a single statement runs past 25 s. A read that commits late stamps
+  nothing, so the guard's 500 on a read older than 25 s costs a retry and no data.
+- **Outside the guard, by design:**
+  - The owner role (`postgres`): the compose `migrate` job, `ADMIN_DATA_SOURCE`, platform
+    provisioning and import. Nothing caps these, so long migrations and imports keep working.
+    - 🔴 **A migration that touches pulled rows must commit within 30 s of stamping them.** A
+      `now()` stamp that commits later is **never** pulled, not pulled again. `clock_timestamp()`
+      alone does not help: `migrationsTransactionMode: 'each'` runs each migration as one
+      transaction. So either stamp last, with `clock_timestamp()`, in a short migration, or tell
+      clients to reset their cursor.
+    - **The tenant import stamps `clock_timestamp()` on imported products (#217).** It does
+      not write the snapshot's historic `products.updated_at`. A device that pulled before
+      the import (cursor T1) sees imported products because their `updated_at` is stamped
+      at import time (> T1).
+    - **…and re-stamps them as its last statements before COMMIT** (#185, review of #244).
+      The import is one long transaction: 6.4 s for a 2.0 MiB file (4 months, 2,043 bills,
+      local dev, `test/import-snapshot.e2e-spec.ts`), and nginx allows 10 MiB. A product
+      stamped at the start, or a customer/mechanic defaulting to `now()` (transaction start),
+      could therefore commit more than ADR-0010's 30 s rewind behind its stamp. The final
+      `UPDATE products|customers|mechanics SET updated_at = clock_timestamp()` puts every
+      pulled row's stamp within milliseconds of the commit. `settings` is not re-stamped: it
+      is read whole (ETag), not by cursor.
+  - `pos_app` writes that do not go through either door, where the role timeouts still apply:
+    - `AuthService`'s login, refresh and enrolment audit writes, on the default pool with their own
+      transactions. They write only `audit_log`, which no client pulls.
+    - `enrolDevice`'s autocommit write to `devices`, which no client pulls.
+    - `VoidService`'s refusal audit, on `AUDIT_DATA_SOURCE`.
+    - Any plain autocommit `ds.query` statement. Its commit is the statement itself, so
+      `statement_timeout` (25 s) bounds it.
+- **The one exemption is the tenant export** (`backup.processor.ts`, which passes
+  `exemptFromCommitCeiling: true`; `tenant-job-runner.spec.ts` fails if any other file passes it).
+  It reads a tenant's whole history unpaged, so it also `SET LOCAL`s both role timeouts to `5min`.
+  It used to be unbounded and is now capped at 5 min. The exemption is safe for the rewind only
+  because the export writes nothing a client pulls: its one write is `audit_log`. Any new exemption
+  needs the same argument.
+- **`CLAIM_LOCK_TIMEOUT` (5 s) must stay below `statement_timeout`.** When a resend waits on the
+  original's claim, it has to get `55P03`, which becomes `503 IDEMPOTENCY_KEY_IN_FLIGHT`. It must
+  not get `57014`, which becomes a plain 500.
+- **The role settings are fragile.** A role-in-database setting is lost by a plain `pg_dump` and
+  restore unless roles and globals are dumped too. A pooled connection only picks up a new value
+  when it reconnects, so after a migrate-only rerun you must **restart the app**. At boot the app
+  reads both settings with `SHOW` and logs a loud warning if they differ from `APP_ROLE_TIMEOUTS`.
+  It never fails readiness over this.
+- `test/tx-ceiling.e2e-spec.ts` pins all of this at `DB_POOL_SIZE=2`:
+  - Both `pos_app` pools show `25s` / `5s`, and the owner pool shows `0` / `0`.
+  - A 6 s `pg_sleep` read completes.
+  - A bill held past a lowered guard answers 500 and commits nothing, claim included; the resend
+    with the same key is a 201.
+  - Two bills stalled for more than 5 s are both ended. pg-pool drops exactly those two clients
+    after their connection errors, and the next burst is all 2xx.
+  - A resend during an uncommitted claim answers 503 `IDEMPOTENCY_KEY_IN_FLIGHT` after about 5 s.
 
 ## Document numbers (#19)
 
@@ -953,6 +1058,176 @@ every case of `frontend/test/products_repository_test.dart` at the HTTP seam.
 - `PATCH /products/:id` never reads `stock` — stock moves only through writes that log a movement.
 - Product money is now a string on the wire (`price`/`cost`, §1.1); it was a number before #16.
 
+## Tenant import (#185, #238, #239)
+
+`POST /api/v1/platform/tenants/:id/import` — admin plane, `PlatformAuthGuard`, onboarding only
+(ADR-0005: never a per-tenant restore). It turns a shop's `SnapshotRepository.exportSnapshot()`
+file (`sa_*` + `__meta`) into the tenant's first rows, per `01_DATABASE.md §9`.
+
+**It answers `202 Accepted` with a `jobId`, not `201` (#239, owner decision 2026-09-15).** A
+synchronous import took ~6.4 s per 2 MiB locally (four months, 2,043 bills,
+`test/import-snapshot.e2e-spec.ts`) and nginx allows a 10 MiB body — a bigger shop's file can
+run past `proxy_read_timeout 30s` while the transaction goes on to commit, so the operator got a
+504 for a write that had actually succeeded, and a retry read back as a confusing 409. The route
+now does two things in order:
+
+1. **Pre-flight, synchronously** — no write, so a bad file still answers 400/409 immediately.
+   Checks the tenant has no transaction data yet (`sales`/`returns`/`purchase_orders`/
+   `credit_payments`/`quotes`/`shifts` all empty, else `409`), then `01_DATABASE.md §9` step 2's
+   list: negative stock, a case-duplicate part number, a non-numeric category position, a
+   duplicate document number (`receipt_no`/`cn_no`/`po_no`/`quote_no`, and credit payments' own
+   `receipt_no` — a different table), an unparseable date anywhere `parseDate()` would otherwise
+   default to import time, a value that used to clamp silently (negative mechanic
+   `creditBalance`/customer `points`/product `minStock`, or a sale/return/PO/quote line `qty`
+   that was zero, negative, non-integer or missing), a money field `round2()` would otherwise turn
+   into a silent 0 (every price/cost/total/balance `tenant-import.service.ts` rounds — products,
+   suppliers, customers, mechanics, sales, returns, POs, quotes, credit payments, shifts, drawer
+   entries, `settings.taxRate` — refused if it is present and does not parse as a finite number,
+   and refused as negative/non-positive on the subset Postgres itself `CHECK`s, e.g.
+   `products.price/cost >= 0`, `credit_payments.amount > 0`), and #238's tombstone/FK checks
+   (`missingRefs`/`unnamed`/`returnsWithoutSale`). The first five are `snapshot-preflight.ts`
+   (pure, unit-tested on their own — `snapshot-preflight.spec.ts`); the tombstone checks are
+   `snapshot-tombstones.ts` (#238/#252, unchanged). **#22's lesson applied to import: validate,
+   then clamp — never the other way round.** A clamp on an unvalidated value (the old
+   `Math.max(0, …)`/`Math.max(1, …)` calls, or `round2()`'s old `isNaN(num) ? 0 : …`) turns a loud
+   corruption into a quiet one; every such clamp in `tenant-import.service.ts` now runs only on a
+   value pre-flight has already accepted — `round2()` itself now throws (never returns 0) if an
+   unparseable value somehow reaches it anyway, as defence in depth, not a fallback path.
+2. **Enqueue** — a row in `import_jobs` (own migration, `1788652802200-ImportJobs.ts`) carries the
+   whole snapshot as `jsonb`, and a tiny `TenantImportJobPayload` (`{tenantId, correlationId,
+   importJobId}`) goes on its own queue, `QUEUE_TENANT_IMPORT` — **not** `QUEUE_BACKUP`, even
+   though both are one-shot admin-plane whole-tenant jobs (ADR-0005 groups them): `@nestjs/bullmq`
+   starts one BullMQ `Worker` per `@Processor(queueName)` class, and two Workers consuming the
+   same queue name race for every job — `BackupProcessor`'s `if (name !== JOB_TENANT_EXPORT)
+   return {skipped:true}` would then silently "complete" a `tenant.import` job about half the
+   time without ever running `TenantImportProcessor`. A queue name costs nothing extra (no new
+   Redis service — it is a keyspace in the existing `redis-queue`).
+
+`GET /api/v1/platform/tenants/:id/import/:jobId` (same guard) reads `import_jobs` directly —
+`status`: `queued|running|succeeded|failed`, plus `tombstones`/`droppedSuppliers` on success or
+`error` on failure. No BullMQ `job.getState()` call: the row **is** the status, so a poller sees
+the same answer whether the worker is still warming up, mid-transaction, or long finished and
+its BullMQ job already reaped by `removeOnComplete`.
+
+**Why Postgres, not Redis, holds the snapshot.** `redis-queue` runs `noeviction` (BullMQ must
+never lose a job it hasn't finished), so putting a 10 MiB body straight into a job's own `data`
+— the obvious BullMQ-native place — means a burst of large imports grows Redis memory unbounded
+with nothing to page it out; Redis-with-a-TTL was considered and rejected for the same reason
+(nothing frees the memory early, and losing it before the worker reads it is worse than never
+having a TTL). `import_jobs.payload` is `jsonb`, which Postgres TOASTs out of the row
+automatically, and is cleared (`payload = NULL`) once a job reaches a terminal state — the
+outcome (`result`/`error`) stays, the shop's actual data at rest does not.
+
+🔴 **`idempotency-routes.spec.ts` needed no change for #239.** `POST .../import` and
+`GET .../import/:jobId` never call `idempotencyParamsOf`/`runIdempotent` — they are platform-admin
+routes, not one of the pinned POS `Idempotency-Key` claiming routes that spec scans for — so its
+directory walk (which does cover `src/platform/`) finds nothing to record for them and skips both
+silently, by the same `if (!claimed && !mentions) continue` rule every non-idempotent route hits.
+Their own duplicate-request defence is `uq_import_jobs_active` (below) plus the
+tenant-already-has-bills pre-flight check, not that module.
+
+**Idempotency.** `import_jobs (tenant_id) WHERE status IN ('queued','running')` is a partial
+unique index: a second `POST .../import` for a tenant with one already in flight is a `409` on
+that constraint (checked after pre-flight, so a bad file never even reaches it). A **completed**
+import (success or failure that committed nothing) is refused the same way it always was — the
+tenant-already-has-bills pre-flight check — since a successful import leaves those tables
+non-empty and a failed one leaves them exactly as empty as before, so a fresh attempt is a fresh
+row, no special-casing needed. `TenantImportProcessor` re-runs the full pre-flight (defence in
+depth — the payload cannot have changed since enqueue, but nothing besides the partial unique
+index stops a second code path from writing sales in between) before writing.
+
+**A worker that crashes or stalls no longer wedges the tenant forever (#239 review issue 1).**
+Nothing transitions a `queued`/`running` row on its own if the process running it dies (a killed
+container, an OOM, a BullMQ-detected stall with no clean `failed` event) — `uq_import_jobs_active`
+would then refuse every future import for that tenant, permanently, with no operator-visible cause
+beyond a `409`. Two independent nets:
+- `createJob` reclaims a stale row **in the same transaction** as its own insert: any row for the
+  tenant still `queued`/`running` with `COALESCE(started_at, created_at)` older than
+  `STALE_JOB_CEILING_MINUTES` (30) is marked `failed`, `error = 'stale: worker lost'`, payload
+  cleared, before the new row is inserted — a genuinely in-flight row's timestamp is recent and
+  survives untouched, so a real concurrent attempt still hits the unique index and gets `409`.
+  30 minutes is deliberately generous: locally the import runs ~6.4 s per 2 MiB, so the 10 MiB
+  body limit (`IMPORT_BODY_LIMIT`) is ≈32 s even before retries, and `DEFAULT_JOB_OPTIONS`' 3
+  attempts with exponential-jitter backoff add at most ~7 s more — a job that is merely slow, even
+  through every retry, finishes in well under two minutes.
+- `TenantImportProcessor.onFailed` (`@OnWorkerEvent('failed')`) marks the job failed the moment
+  BullMQ itself gives up on it — on whichever worker receives the event, not necessarily the one
+  that was running it — so a wedged tenant is freed within the retry backoff instead of waiting on
+  the 30-minute ceiling; the ceiling is the fallback for the case where no worker survives to
+  receive that event at all.
+
+Manual recovery, if both nets are somehow bypassed (e.g. a row hand-inserted or corrupted by
+something outside this code path): find and clear it —
+
+```sql
+SELECT tenant_id, id, status, started_at, created_at FROM import_jobs
+ WHERE status IN ('queued', 'running') AND COALESCE(started_at, created_at) < now() - interval '30 minutes';
+
+UPDATE import_jobs SET status = 'failed', error = 'stale: manual recovery', payload = NULL, finished_at = clock_timestamp()
+ WHERE tenant_id = '<tenant-id>' AND id = '<job-id>' AND status IN ('queued', 'running');
+```
+
+**Retries and the DLQ.** `QUEUE_TENANT_IMPORT` uses `DEFAULT_JOB_OPTIONS` like every other queue
+(3 attempts, BullMQ's builtin exponential-jitter backoff, #201) — a transaction failure here is
+almost always deterministic (bad data the pre-flight missed, or a row Postgres itself refuses,
+e.g. the drawer-entry `CHECK type IN ('in','out')` `test/import-snapshot.e2e-spec.ts` pins — an
+`amount` outside `CHECK amount > 0` is now refused in pre-flight itself, issue 3 below), so a retry
+rarely helps, but it costs nothing more than the existing backoff delay and keeps every queue
+behaving the same way. `import_jobs.payload` is kept across a non-final failure (a retry has to
+re-read it) and cleared only once the last attempt is known final — `process()`'s own catch uses
+`job.attemptsMade + 1 >= maxAttempts` (the same rule `TenantJobRunner.routeToDlq` uses for
+everything else); `onFailed` above uses BullMQ's own post-attempt `job.attemptsMade >= maxAttempts`
+and calls `markFailed` a second time in the ordinary case where `process()`'s catch already ran —
+idempotent, and cheaper to allow than to gate on a status read first. Neither path shares
+`TenantJobRunner.runWithTenantContext`, which opens a `pos_app`/RLS transaction scoped to one
+tenant — not what this job does (see below).
+
+**A crash between the import's `COMMIT` and recording success cannot happen (#239 review issue
+2).** `writeSnapshot` writes `import_jobs.status = 'succeeded'` (with `result`, and `payload`
+cleared) as the **last statement inside the same `adminDs.transaction`** as the business data —
+there is no separate `markSucceeded` call after the fact for a crash to land between. Either both
+commit or neither does: a rolled-back import (pre-flight passed, but a later row Postgres itself
+refuses) leaves the row exactly as it was, and `TenantImportProcessor`'s catch then marks it
+`failed` the ordinary way. `processJob` checks `status === 'succeeded'` before doing anything else,
+so a retry that lands after a successful commit — the worker's own acknowledgement lost, not the
+import — answers the transaction's own recorded result instead of importing the shop a second
+time; without that check it would re-run pre-flight against a tenant that already has bills and
+answer `409` instead, which is exactly how `test/import-snapshot.e2e-spec.ts`'s idempotent-replay
+test proves the check is wired in.
+
+**No `TenantJobRunner`.** Every other BullMQ processor runs its work through
+`runWithTenantContext`, which sets `app.tenant_id` on the `pos_app` role and enforces the #213
+commit ceiling. The import's whole point is writing historical rows as the **owner** role
+(`ADMIN_DATA_SOURCE`, exactly as the synchronous endpoint always has — RLS would refuse an
+insert whose `updated_at`/`created_at` predates "now", and the owner role is outside the #213
+ceiling by design: "platform provisioning and import" is one of the roles the README's
+*The transaction ceiling* section names as exempt). `TenantImportService` is therefore already on
+`tenant-door.spec.ts`'s allowlist for `ADMIN_DATA_SOURCE`, and `TenantImportProcessor` reaches no
+pool of its own at all — it only calls the service.
+
+**`import_jobs` carries no RLS.** See that migration's own comment and *Schema and migrations*
+above: it has a `tenant_id` column (for lookup) but only `ADMIN_DATA_SOURCE` ever touches it, so
+a `pos_app` RLS policy would guard nothing real. `test/schema.e2e-spec.ts` asserts the no-RLS,
+no-`pos_app`-grant shape explicitly, since it is deliberately absent from
+`RowLevelSecurity1788652800001`'s exported table lists (which that migration's own `up()`
+executes against — appending a not-yet-created table there would break a from-empty run).
+
+**Still true, unchanged by #239:**
+- An imported bill carries no `shift_id` (the file does not link bills to shifts), so a closing
+  report for an imported shift shows `cashSales 0.00` — only starting cash and drawer entries.
+  Documented, not fixed (`01_DATABASE.md §9`); #239 leaves it exactly as found.
+- Every imported shift is archived (`is_active = false`) — see *The cash drawer* /
+  `snapshot-tombstones.ts`'s header comment for the review that fixed the "active drawer with no
+  device" bug (#185, PR #244).
+- The 10 MiB body limit + verified-platform-token body parser (`app.setup.ts`'s `IMPORT_ROUTE`,
+  #244) is unchanged: `POST .../import` is still the only route it applies to (Express's `use()`
+  path-prefix matching also covers `GET .../import/:jobId`, harmlessly — a GET has no JSON body
+  for it to parse).
+
+Read `docs/handoff_log/close4-synthetic-snapshot-2026-09-15.md` for #185's synthetic-snapshot
+scrutiny round that found the gaps #239 closes, with a dated correction note about #252's
+supplier-drop landing after that document was written.
+
 ## Bootstrap and settings (#25)
 
 `src/bootstrap/` and `src/settings/` — Checkout's one-shot read (`02_API_SCREENS.md §3.1`) and
@@ -1129,7 +1404,8 @@ scanned. The old keys become unreachable at once and expire on their own TTL. `K
   request outside `runTx` (tx.4 #153). So does `onTransactionCommit` itself: there is no commit
   to wait for, and running the hook at once would run it before the caller's own commit.
 - The platform import runs its own `ADMIN_DATA_SOURCE` transaction. It calls `invalidate()` for all
-  four namespaces after `await adminDs.transaction(…)` resolves.
+  five namespaces after `await adminDs.transaction(…)` resolves. Since #239 this runs inside
+  `TenantImportProcessor` (a BullMQ worker), not the HTTP request — see *Tenant import (#239)* below.
 - A failed invalidation `SET` is logged as `cache invalidation failed`. A failed post-commit hook of
   any kind is logged as `post-commit hook failed`.
 
@@ -1407,12 +1683,27 @@ Redis, mints access tokens from a per-run RSA key pair, and resets one tenant pe
   the whole point of `RuntimeConfigService`'s fail-open design (#66) is that an unreachable
   store degrades logging, not availability, and health/readiness must not say otherwise.
   Nginx fails over only on connection errors, never on the app's own 5xx.
+- 🔴 **Readiness means "Postgres answers", not "the request pool has a free slot" (#248).**
+  The probe's `SELECT 1` runs on `HEALTH_DATA_SOURCE` — `pos_app`, a pool of **one**,
+  `connectionTimeoutMillis` 2000 and `statement_timeout` 2 s, matching the probe's own 2 s.
+  On the request pool, a burst holding every `DB_POOL_SIZE` slot queued the probe past that
+  timeout and a healthy, busy Postgres answered `503 {postgres: down}` — to Prometheus during
+  the 500-VU demo run, and potentially to `deploy.yml`'s readiness gate after a rolling
+  restart under traffic, rolling back a good release. A longer timeout only delays the same
+  false positive; reporting saturation as `busy` would still share the pool. A saturated
+  instance is visible in latency, not here. `test/health-pool.e2e-spec.ts` holds every
+  request-pool connection at pool 2 (before: `503` at 2031 ms; after: `200`) and still gets
+  `503` when the probe cannot connect or its query fails. Never point the probe at
+  `ADMIN_DATA_SOURCE` (it would pass while `pos_app` cannot log in) or back at the request pool.
 - `SIGTERM` drains: Nest closes the listener, in-flight requests finish, then pools close.
   Nginx retries idempotent requests on the next instance (`proxy_next_upstream error timeout`).
 - Every request carries `X-Correlation-ID` (client's, else Nginx `$request_id`) into the JSON
   log line and back out in the response. Request bodies are never logged.
 - `mem_limit` per container totals ≈ 3.3 GB (includes `etcd`'s 256m); `max_connections=100`,
-  pools 3×15 + 5 = 50.
+  steady-state pools 3 api × (15 request + 2 audit + 1 health) + worker (5 + 2 + 1) = 62 ≤ 80
+  (80%). `ADMIN_DATA_SOURCE` (sized `DB_POOL_SIZE`, owner role) is outside that figure: it is
+  touched only by the platform plane and at boot, and its idle connections close after 30 s —
+  a burst of platform calls on all three instances at once is the one way past 80.
 - The app connects as `pos_app` (`NOSUPERUSER NOBYPASSRLS`, not the table owner) so RLS
   cannot be bypassed by accident. Migrations run as `postgres`, once, before the app starts.
 

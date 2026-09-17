@@ -325,7 +325,7 @@ keeps running this Drift build while the server is developed against a demo tena
 2026-09-04 this work happens on `main`** (see *Branch strategy* above): the server, the
 client's API layer and the CI/CD pipelines all land in this repo.
 
-**CI/CD — levels 1–3 are done (level 3 = both release images on GHCR since 2026-09-10, #69/#70). CD to the faculty VM (Ansible), etcd and Prometheus/Grafana are designed in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 (spec #60) and ticketed #63–#67 under #10 for the teammates — read those before touching `.github/`, `deploy/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the
+**CI/CD — levels 1–3 are done (level 3 = both release images on GHCR since 2026-09-10, #69/#70). CD to the faculty VM (Ansible), etcd and Monitoring (Node Exporter + Prometheus + Grafana) are designed in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 (spec #60) and ticketed #63–#67 under #10 for the teammates — read those before touching `.github/`, `deploy/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the
 client gate (`dart analyze`, `flutter test`, `build_runner` no-diff, `flutter build web` + the
 web-asset assertion), committed 2026-09-04. Status per level:
 1. ✅ **Flutter CI** — done. Runners are ASCII paths, so `build_runner` verification runs in CI —
@@ -423,9 +423,9 @@ Rules the slice establishes, all enforced or pinned:
   render a failure as `e.toString().replaceFirst('Exception: ', '')`, so an escaping one prints
   `ApiException(status: 409, code: …)` at the counter. `api_wire.dart`'s `rethrowThai` converts every
   server verdict to the plain `Exception(thaiMessage)` those screens already understand.
-- 🔴 **The bill id and `Idempotency-Key` are minted once per cart, not once per call.** `ApiClient`
-  sets no timeout, so the ordinary failure is a dropped reply for a bill the server committed; a
-  fresh id and key on the counter's second press defeat **both** server defences at once
+- 🔴 **The bill id and `Idempotency-Key` are minted once per cart, not once per call.** The ordinary
+  failure is a dropped or timed-out reply for a bill the server committed (`ApiClient` times out
+  since #183, but abandons rather than cancels the request); a fresh id and key on the counter's second press defeat **both** server defences at once
   (`existingSale` keys on the client's bill id, `idempotency_keys` on the header) and ring the sale
   up twice. The parked attempt lives in `api_wire.dart`'s **`PendingWrites`**, and all three money
   paths use it — `createReturn` and `addDrawerEntry` did not at first, which is a second refund and

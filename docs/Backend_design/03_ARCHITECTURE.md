@@ -174,6 +174,14 @@ flowchart TB
 
 ## 4. Architecture C — Hybrid: Online-first + โหมดสำรองแบบจำกัด (แนะนำ)
 
+> 🔴 **แก้ 2026-09-15 (เจ้าของโปรเจกต์ #240) — สเปกเฟส 2 ที่ใช้จริงอยู่ที่ [`08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md)** ข้อที่หัวข้อนี้ล้าสมัย:
+> * **scarcity rule / `offlineOk` ถูกยกเลิก (D3) และคอลัมน์ถูกลบ (E10)** — ออฟไลน์ขายได้ถ้าสต็อกในเครื่อง `pos` พอ เพราะ `pos` เครื่องเดียวเป็นผู้ขายคนเดียว (ADR-0004)
+>   ความขัดแย้งเหลือแค่ที่ `backoffice` แก้ระหว่างออฟไลน์ → reconciliation · ป้ายเทาไม่มีแล้ว
+> * **ตัวกระตุ้น Degraded (D5):** health check ล้ม 3 ครั้งติด **หรือ** ช้า > 5 วินาทีครั้งเดียว **หรือ write ที่ server ไม่ตอบ** (08 C10) · ออกจาก Degraded ด้วย **health check เท่านั้น**
+>   (state diagram ด้านล่างมีแค่ข้อแรก และ "Conflict → Online: ผู้จัดการเคลียร์" ไม่ตรงแล้ว — ไม่มีผู้จัดการ (E1: role `owner` เดียว) และ "ถูกปฏิเสธ" เป็นป้าย ไม่ใช่ state · ดู 08 §5)
+> * สิ่งที่ห้ามทำตอน Degraded ถูกแทนด้วยรายการ op ใน 08 §6 (E6) · override วงเงินเครดิตออฟไลน์**ทำได้** แล้วลงรายการให้ owner ตรวจ (E6)
+> * `sales.sync_status` ไม่ทำ — สถานะอยู่ใน outbox (08 §7)
+
 **แนวคิด:** ปกติทำงานแบบ A ทุกอย่าง (server เป็นเจ้าของสต็อก)
 แต่เมื่อ **ตรวจพบว่าเน็ตหลุด** จะเข้าสู่ *degraded mode*: ขายต่อได้ภายใต้เงื่อนไขจำกัด
 โดยเก็บเป็น **command** ลง outbox แล้วส่งขึ้นเมื่อเน็ตกลับมา
@@ -223,15 +231,15 @@ flowchart LR
     style PG fill:#1e3a5f,color:#fff
 ```
 
-**กลไก "scarcity rule" — หัวใจของแบบนี้**
+~~**กลไก "scarcity rule" — หัวใจของแบบนี้**~~ — **ยกเลิก 2026-09-15 (#240 D3)** ข้อความถึงก่อนหัวข้อ *ทำไมไม่ใช้ "จองโควตาสต็อก"* เก็บไว้เป็นประวัติ · ดู [`08 §0, §20`](08_PHASE2_SPEC.md)
 
 server ส่ง flag มากับสินค้าแต่ละตัว:
 ```
 offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลของสินค้านั้น)
 ```
 * **ออนไลน์:** ขายได้ทุกอย่างตามปกติ server ตัดสต็อกจริง
-* **ออฟไลน์:** ขายได้เฉพาะสินค้าที่ `offlineOk == true` **และ** สต็อกที่ cache ไว้ยังพอ
-  → ของที่เหลือเยอะ (โอกาสชนแทบเป็นศูนย์) ขายได้ / ของใกล้หมด (ของที่ชนกันจริง) ต้องรอเน็ต
+* ~~**ออฟไลน์:** ขายได้เฉพาะสินค้าที่ `offlineOk == true` **และ** สต็อกที่ cache ไว้ยังพอ~~
+  ~~→ ของที่เหลือเยอะ (โอกาสชนแทบเป็นศูนย์) ขายได้ / ของใกล้หมด (ของที่ชนกันจริง) ต้องรอเน็ต~~ — **D3: ออฟไลน์ขายได้ถ้าสต็อกในเครื่องพอ**
 
 **ทำไมไม่ใช้ "จองโควตาสต็อก" (stock lease)?** — เวอร์ชันแรกของเอกสารนี้เสนอ lease ไว้ แต่ถูกตีตกในการ review
 เพราะ 3 เหตุผล (ดู [`04_QA_SCRUTINY.md` Q3](04_QA_SCRUTINY.md#q3--ประเด็นที่เถียงหนักสุด-กลไกจองสต็อก-stock-lease-เอาไงดี)):
@@ -245,6 +253,8 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
    index `stock <= min_stock` (แถบเตือนของใกล้หมด), `movements.stock_after`
    และ checklist migration `SUM(products.stock)` จะตีความคนละแบบทันที
 
+> ⚠️ *(2026-09-15: กล่องนี้เปรียบเทียบ scarcity กับ lease — scarcity ถูกยกเลิกแล้วโดย D3 เหตุผลที่ไม่ใช้ lease ข้างบนยังใช้ได้)*
+>
 > ✅ **scarcity rule ให้ผลทางธุรกิจเกือบเท่ากัน โดยไม่เพิ่ม state ฝั่ง server แม้แต่ตัวเดียว**
 > ไม่มีตารางใหม่ ไม่มี endpoint ใหม่ ไม่มี TTL ไม่มีของหายจากชั้น
 > และอธิบายให้พนักงานเข้าใจได้ใน 1 ประโยค: *"ป้ายเทา = เน็ตล่มขายไม่ได้"*
@@ -252,12 +262,12 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 
 **สิ่งที่ยังต้องมีอยู่ดี (อย่าหลอกตัวเอง):** scarcity ลดโอกาสชน **ไม่ใช่ทำให้เป็นศูนย์**
 ตอน push ขึ้น server ยังต้องมี `UPDATE … WHERE stock >= qty` เป็นผู้ตัดสินสุดท้าย
-และต้องมี `sales.sync_status ('local' | 'confirmed' | 'rejected')` + **คิวให้เจ้าของร้านเคลียร์บิล
+และต้องมี ~~`sales.sync_status ('local' | 'confirmed' | 'rejected')`~~ *(สถานะอยู่ใน outbox — 08 §7)* + **คิวให้เจ้าของร้านเคลียร์บิล
 ที่ถูกปฏิเสธหลังพิมพ์ใบเสร็จไปแล้ว** — ซ่อนไว้ใน log ไม่ได้
 
 ### ข้อดี
 * 🟢 ได้ **ทั้งความเรียบง่ายของ A** (สต็อกมีเจ้าของชัดเจน) **และความอึดของ B** (เน็ตล่มยังขายได้)
-* **ลดโอกาส conflict ลงมากโดยไม่เพิ่ม state ฝั่ง server เลย** — `offlineOk` เป็นแค่ boolean ที่ derive ได้
+* ~~**ลดโอกาส conflict ลงมากโดยไม่เพิ่ม state ฝั่ง server เลย** — `offlineOk` เป็นแค่ boolean ที่ derive ได้~~ *(D3 — ความขัดแย้งถูกจำกัดด้วย `pos` เครื่องเดียวแทน)*
 * ทำเป็นเฟสได้: **เฟส 1 = A ล้วน** (ส่งอาจารย์ได้แล้ว) → **เฟส 2 ค่อยเติม outbox + `offlineOk`**
 * ขอบเขตของ "สิ่งที่ทำตอนออฟไลน์ได้" ชัดเจน → test ได้ครบจริง (ต่างจาก B ที่ทำได้ทุกอย่าง = test ไม่หมด)
 * ยัง demo ให้อาจารย์เห็นครบทุก requirement (LB, cache, queue, JWT, k6) เพราะ path หลักคือ A
@@ -265,8 +275,8 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 ### ข้อเสีย
 * 🟡 มี **2 code path** (online / degraded) → ต้องเทสต์ทั้งคู่ และมีโอกาสพฤติกรรมสองทางไม่ตรงกัน
 * ยัง **ต้องมีหน้าจอ reconciliation** สำหรับบิลที่ server ปฏิเสธ — scarcity ลดความถี่ ไม่ได้ลบทิ้ง
-* พนักงานจะเจอ "ของมีอยู่แต่ขายตอนนี้ไม่ได้" ในสินค้าใกล้หมด ต้องอธิบายให้เข้าใจก่อนใช้จริง
-* วงเงินเครดิตช่างเป็นตัวเลขที่ enforce ตอนออฟไลน์ไม่ได้ (สองเครื่องแก้พร้อมกันได้)
+* ~~พนักงานจะเจอ "ของมีอยู่แต่ขายตอนนี้ไม่ได้" ในสินค้าใกล้หมด ต้องอธิบายให้เข้าใจก่อนใช้จริง~~ *(หมดไปกับ D3)*
+* วงเงินเครดิตช่างเป็นตัวเลขที่ enforce ตอนออฟไลน์ไม่ได้ ~~(สองเครื่องแก้พร้อมกันได้)~~ *(ไม่จริงภายใต้ `pos` เครื่องเดียว — เหลือแค่ `backoffice` แก้วงเงิน · E6: override ออฟไลน์ได้ + รายการตรวจของ owner)*
   → ต้องยอมรับว่าเป็น **warning + บันทึก override** ไม่ใช่ hard block (ซึ่งตรงกับพฤติกรรมเดิมอยู่แล้ว)
 * Effort ~150–160% ของ A (ตัวเลขนี้แก้แล้ว — ดู [§6](#6-ตารางเปรียบเทียบ-3-architecture))
 
@@ -493,21 +503,21 @@ gantt
 **เกณฑ์ปิดเฟส 1 (definition of done):**
 - [x] `docker compose up` ครั้งเดียวได้ครบ Nginx + NestJS×3 + Postgres + Redis + worker + Bull-Board — **#14 `p1` 2026-09-06**
 - [ ] k6 ผ่านเกณฑ์ใน [`02_API_SCREENS.md §9`](02_API_SCREENS.md#9-เป้าหมาย-load-test-k6--ผูกกับเกณฑ์ในคอร์ส)
-- [ ] ยิง `POST /sales` พร้อมกัน 200 ครั้งบนสินค้าที่มี 50 ชิ้น → ขายได้ 50 บิลพอดี **สต็อกเหลือ 0 ไม่ติดลบ**
-- [ ] Integration test "อ่านข้ามร้าน" ได้ 0 แถวทุกเคส
+- [x] ยิง `POST /sales` พร้อมกัน 200 ครั้งบนสินค้าที่มี 50 ชิ้น → ขายได้ 50 บิลพอดี **สต็อกเหลือ 0 ไม่ติดลบ** — **#184 `close.3` 2026-09-15 บน demo VM** (201×50 / 409×150 / 5xx 0, `k6:verify` ผ่าน — [handoff §4.2](../handoff_log/close3-demo-deploy-2026-09-15.md)); ข้อ k6 §9 ด้านบนยังเปิด: latency วัดผ่าน nginx จากเครื่องเดียวไม่ได้ (§4.1)
+- [x] Integration test "อ่านข้ามร้าน" ได้ 0 แถวทุกเคส — **#196 2026-09-17** (`server/test/cross-tenant-read.e2e-spec.ts`; RLS sweep ครบ 25 ตารางใน `TENANT_SCOPED_TABLES` + HTTP isolation 12 endpoints: products, categories, customers, mechanics, sales, returns, purchase-orders, quotes, parked-sales, shifts, devices, settings ได้ 0 แถว / 404 ทุกเคส)
 - [x] `/health/live` ไม่แตะ DB, `/health/ready` แตะ DB+Redis (แยกกันจริง) — **#14 `p1` 2026-09-06** (ดับ Postgres/Redis แล้ว ready = 503, live = 200, ไม่มี container restart)
-- [ ] import snapshot ของร้านจริงเข้ามาแล้ว **ผ่าน checklist 6 ข้อ** ใน `01_DATABASE.md §9` ทุกข้อ
+- [x] import snapshot ของร้านจริงเข้ามาแล้ว **ผ่าน checklist 6 ข้อ** ใน `01_DATABASE.md §9` ทุกข้อ — **#185 `close.4` 2026-09-17** (นำเข้า `pos-backup-20260916.json` ผ่านทั้ง 44 checks, preflight 0 violations, ยอดขาย 33,700 บาท, สต็อก 191 ชิ้น, หลักฐานใน `docs/handoff_log/close4-real-snapshot-2026-09-17.md`)
 - [x] `redis-cache` กับ `redis-queue` แยกกันจริง และ Bull-Board มี auth — **#14 `p1` 2026-09-06**
-- [ ] ยิง `POST /sales` ที่บิลมีสินค้าไม่พอ 3 บรรทัด → ได้ข้อความไทย **ครบทั้ง 3 บรรทัดในครั้งเดียว**
-- [ ] ลบลูกค้าที่มีบิลแล้ว → ได้ `200` (soft delete) ไม่ใช่ `500`
-- [ ] สร้าง tenant ใหม่ด้วย `POST /platform/tenants` แล้วล็อกอิน+ขายได้จริงโดยไม่ต้องแตะ psql (ADR-0001)
-- [ ] เครื่อง `backoffice` ยิง `POST /sales` ต้องได้ `403` (`DEVICE_ROLE_FORBIDDEN`) (ADR-0004)
-- [ ] ระงับร้าน (`status='suspended'`) แล้ว **คำขอถัดไปต้องถูกปฏิเสธทันที** ไม่ต้องรอ token หมดอายุ (ADR-0003)
-- [ ] ระงับร้านแล้ว **job ที่ค้างในคิว BullMQ ของร้านนั้นต้องไม่ถูกรัน** (ADR-0003 — DoD เดิมทดสอบแค่ request path)
-- [ ] ดับ `redis-cache` แล้วร้านที่ `suspended` **ยังถูกปฏิเสธ** และร้านปกติ**ยังใช้งานได้** (ADR-0003 ข้อ 5: status ตกไปอ่าน Postgres ไม่ fail-open/closed)
-- [ ] เครื่อง `pos` ยิง `POST /sales` พร้อมกับเครื่อง `backoffice` ยิง `/purchase-orders/:id/receive` และ `/adjust-stock` **บนสินค้าตัวเดียวกัน** 200 รอบ → `stock` สุดท้ายตรงกับผลบวก/ลบทั้งหมด ไม่มี lost update (ADR-0004 — นี่คือการแข่งกันของหลายเครื่องที่มีอยู่จริง ไม่ใช่ `POST /sales` ×200)
-- [ ] `owner` กด `POST /devices/{id}/retire` เครื่อง `pos` ที่มีกะเปิดอยู่ → กะถูกปิดใน transaction เดียวกัน, token เดิมของเครื่องนั้น refresh ไม่ผ่านภายใน 15 นาที, enrol เครื่องใหม่ได้ `device_no` ใหม่ และขายได้ (ADR-0004/0009)
-- [ ] เครื่อง `backoffice` ที่ล็อกอินโดยไม่มี `deviceToken` เรียก `GET /products` ได้ แต่ `POST /sales` ได้ `403` (ADR-0004 "การผูกเครื่อง")
+- [x] ยิง `POST /sales` ที่บิลมีสินค้าไม่พอ 3 บรรทัด → ได้ข้อความไทย **ครบทั้ง 3 บรรทัดในครั้งเดียว** — **#20 2026-09-11** (PR #75 `feat/laneA-sales`; `server/test/sales.e2e-spec.ts:476` "three short lines come back as three Thai lines in ONE response"; re-run 2026-09-16 — full e2e suite 490/492 passed)
+- [x] ลบลูกค้าที่มีบิลแล้ว → ได้ `200` (soft delete) ไม่ใช่ `500` — **#17 2026-09-12** (PR #85 `lane2`; `server/test/people.e2e-spec.ts:177` "soft-deletes a customer with bills, keeps the bill, and hides the tombstone"; re-run 2026-09-16)
+- [x] สร้าง tenant ใหม่ด้วย `POST /platform/tenants` แล้วล็อกอิน+ขายได้จริงโดยไม่ต้องแตะ psql (ADR-0001) — **#196 2026-09-17** (`server/test/platform.e2e-spec.ts:311` "creates tenant, logs in as owner, creates product, enrols POS device, logs in on POS, opens shift, and sells" — full loop ผ่าน HTTP APIs ล้วนๆ ไม่แตะ psql)
+- [x] เครื่อง `backoffice` ยิง `POST /sales` ต้องได้ `403` (`DEVICE_ROLE_FORBIDDEN`) (ADR-0004) — **#44 `sec.1` 2026-09-13** (PR #106; `server/test/security.e2e-spec.ts:306` "enforces device role guard (backoffice device cannot create sale)"; re-run 2026-09-16)
+- [x] ระงับร้าน (`status='suspended'`) แล้ว **คำขอถัดไปต้องถูกปฏิเสธทันที** ไม่ต้องรอ token หมดอายุ (ADR-0003) — **#20 2026-09-11** (PR #75; `server/test/request-context.e2e-spec.ts:154` "a suspended shop is refused before its tenant is ever named on a transaction" — same still-valid access token, no wait for expiry; re-run 2026-09-16)
+- [x] ระงับร้านแล้ว **job ที่ค้างในคิว BullMQ ของร้านนั้นต้องไม่ถูกรัน** (ADR-0003 — DoD เดิมทดสอบแค่ request path) — **#34 `p9.1` 2026-09-12** (PR #88; `server/test/queue.e2e-spec.ts:135` "skips job execution without invoking business logic if tenant is suspended"; re-run 2026-09-16)
+- [x] ดับ `redis-cache` แล้วร้านที่ `suspended` **ยังถูกปฏิเสธ** และร้านปกติ**ยังใช้งานได้** (ADR-0003 ข้อ 5: status ตกไปอ่าน Postgres ไม่ fail-open/closed) — **#196 2026-09-17** (`server/test/tenant-scope.e2e-spec.ts:187` "when redis-cache fails (e.g. connection error), active tenant still succeeds and suspended tenant is still rejected" — mock ECONNREFUSED บน cache get/set แล้วตกไปอ่าน Postgres จริง)
+- [x] เครื่อง `pos` ยิง `POST /sales` พร้อมกับเครื่อง `backoffice` ยิง `/purchase-orders/:id/receive` และ `/adjust-stock` **บนสินค้าตัวเดียวกัน** 200 รอบ → `stock` สุดท้ายตรงกับผลบวก/ลบทั้งหมด ไม่มี lost update (ADR-0004 — นี่คือการแข่งกันของหลายเครื่องที่มีอยู่จริง ไม่ใช่ `POST /sales` ×200) — **#196 2026-09-17** (`server/test/purchase-orders.e2e-spec.ts:465` "200-round 3-way race: pos sales + backoffice receive + adjust-stock on same product" — 100 sales + 50 PO receives + 50 adjust-stock แข่งพร้อมกันบนสินค้าตัวเดียว stock และ movements ครบ 200 รายการ ไม่มี deadlock/lost update)
+- [x] `owner` กด `POST /devices/{id}/retire` เครื่อง `pos` ที่มีกะเปิดอยู่ → กะถูกปิดใน transaction เดียวกัน, token เดิมของเครื่องนั้น refresh ไม่ผ่านภายใน 15 นาที, enrol เครื่องใหม่ได้ `device_no` ใหม่ และขายได้ (ADR-0004/0009) — **#196 2026-09-17** (`server/test/shifts.e2e-spec.ts:415` "a replacement pos device starts clean after the old one is retired"; retire ปิดกะใน tx เดียวกัน, enrol เครื่องใหม่ได้ deviceNo ใหม่, เปิดกะใหม่ และยิงขาย `POST /sales` สำเร็จ)
+- [x] เครื่อง `backoffice` ที่ล็อกอินโดยไม่มี `deviceToken` เรียก `GET /products` ได้ แต่ `POST /sales` ได้ `403` (ADR-0004 "การผูกเครื่อง") — **#196 2026-09-17** (`server/test/security.e2e-spec.ts:324` "a backoffice session with no deviceToken can read products but cannot create sale" — `GET /products` ได้ 200, `POST /sales` ได้ 403 `DEVICE_ROLE_FORBIDDEN`)
 
 **สิ่งที่ห้ามลืมตอน deploy** (สรุปจากคอร์ส Backend01/06 + ที่ review จับเพิ่ม):
 * 🔴 **แยก Redis เป็น 2 ตัว: `redis-cache` (`allkeys-lru`) กับ `redis-queue` (`noeviction` + AOF)**
@@ -545,10 +555,42 @@ gantt
   CPU/RAM เต็มแล้ว ขยายไม่ได้ · สแตกเฟส 1 ทั้งชุดกินราว 3–3.5 GB จึงพอ แต่ให้ใส่ `mem_limit`
   ต่อ container ใน compose กัน NestJS รั่วแล้วไป OOM Postgres · **ห้ามรัน k6 บน VM นี้** (แย่ง CPU
   กับ server ผลเชื่อไม่ได้) → k6 ต้องยิงจากเครื่องอื่น = ต้องมี inbound (ข้อถัดไป)
-* 🔴 **ต้องเลือก production host ก่อนงาน `q4` (cutover)** — VM คณะไม่ใช่ที่ที่ POS ของร้าน
-  จะไปฝากชีวิตไว้ได้ (หมดสถานะนักศึกษา = เครื่องหาย, และมักไม่มี inbound จากนอกเครือข่ายคณะ)
+* ~~🔴 **ต้องเลือก production host ก่อนงาน `q4` (cutover)** — VM คณะไม่ใช่ที่ที่ POS ของร้าน
+  จะไปฝากชีวิตไว้ได้ (หมดสถานะนักศึกษา = เครื่องหาย, และมักไม่มี inbound จากนอกเครือข่ายคณะ)~~
+  **เคาะแล้ว 2026-09-15 (#242, เจ้าของโปรเจกต์):** production = VM ของภาค `mob04` สภาพแวดล้อมเดียว เป้าเฟส 2 = รันในมหาวิทยาลัยพร้อมส่งอาจารย์ ·
+  **cutover ร้านจริงจากนอกมหาวิทยาลัยย้ายไปเฟสถัดไป** (#231) · เหตุผลเดิมข้างบนยังจริงสำหรับเฟสนั้น · ดู [`08 §17`](08_PHASE2_SPEC.md)
 * ตรวจตั้งแต่สัปดาห์แรก: **VM คณะรับ inbound จากนอกมหาวิทยาลัยได้ไหม** ถ้าไม่ได้ k6 จาก
   เครื่องตัวเองก็ยิงไม่ถึง
+
+### 8.1 k6 §9 latency — วิธีวัดที่ไม่ปนเปื้อน (owner decision, issue #251, 2026-09-15)
+
+"ห้ามรัน k6 บน VM นี้" ด้านบนยังจริงอยู่ — แต่การยิงจาก**เครื่องเดียว**ผ่าน Nginx ก็วัด latency
+สะอาดไม่ได้เหมือนกัน เพราะ k6 VU ทุกตัวใช้ IP เดียวกันของเครื่องนั้น แล้ว
+`limit_req zone=perip rate=30r/s burst=60` (`server/docker/nginx/nginx.conf`) จะเริ่มตอบ `429`
+ก่อน NestJS/PostgreSQL/Redis จะเข้าใกล้ขีดจำกัดจริง — วัดตัวจำกัดของ Nginx เอง ไม่ใช่วัดระบบ
+(เหมือนปัญหาเดียวกับ rate limiter ระดับ tenant ที่ §9 เตือนไว้ ห่างออกไปอีกชั้น) การยิงผ่าน SSH
+tunnel ก็วัดได้แค่ tunnel; หลักฐานทั้งหมดอยู่ที่
+`docs/handoff_log/close3-demo-deploy-2026-09-15.md` §4.1.
+
+**เคาะแล้ว:** ยิงจาก**หลายเครื่องพร้อมกัน** (สามเครื่องทีมบน campus network) แต่ละเครื่องอยู่ใต้
+`perip` ของตัวเอง **ไม่มีข้อยกเว้นให้ `perip`** — ผลรวมสตรีมเข้า Prometheus ของ VM ผ่าน
+`--web.enable-remote-write-receiver` แล้วดูรวมกันใน Grafana:
+* `deploy/compose/monitoring.yml`: `prometheus` เปิด `--web.enable-remote-write-receiver`
+* `server/docker/nginx/nginx.conf`: `location /prometheus-remote-write/` — allowlist (RFC1918 +
+  campus CIDR ที่ owner ต้องเติม) **และ** HTTP Basic Auth (`satisfy all` ของ Nginx โดย default)
+  proxy ไปที่ `prometheus:9090` แบบ resolve เฉพาะตอนมี request (`resolver` + ตัวแปร) ไม่ใช่ที่
+  startup — Nginx เองจึงยัง start ได้ปกติแม้ไม่มี monitoring overlay (dev/CI)
+* `server/docker-compose.yml`: `htpasswd-gen` (one-shot, เหมือน `certgen`) สร้าง htpasswd จาก
+  `K6_REMOTE_WRITE_BASIC_AUTH_USER`/`_PASSWORD` ใน `.env` (`.env.example` มีค่า dev-only; บน VM
+  ต้องเติมใน `DEMO_ENV_FILE`, `07_CICD_DEPLOY.md` §10.3) — ไม่มี port ใหม่เปิด, ไม่แตะ ufw
+  (ยังแค่ 22/80/443)
+* สูตรแบ่งโหลดต่อเครื่อง + ขั้นตอนรันเต็ม: `server/test/k6/README.md`
+
+ผลลัพธ์ที่ได้คือ throughput รวมที่ "3 IP จริงยิงผ่าน edge จริงแบบสะอาด" รับไหว
+(`N × SAFE_RATE_PER_SHARD` ที่ N=3 คือ ~72 r/s) ซึ่งต่ำกว่า "1,000 VU ยิงพร้อมกันจริง ๆ" มาก — นั่น
+คือราคาที่ต้องจ่ายเพื่อให้วัดผ่าน Nginx จริงโดยไม่ปนเปื้อน ไม่ใช่บั๊ก; ตัวเลข p95/error/cache-hit
+ที่ได้จึงเป็นหลักฐานเรื่อง tail latency ที่โหลดซึ่งวัดได้สะอาดจริง ไม่ใช่หลักฐานว่าระบบรับ 1,000
+concurrent user พร้อมกันได้ (ข้อนั้นยังไม่มีวิธีวัดสะอาดภายใต้ข้อจำกัดโครงสร้างพื้นฐานปัจจุบัน).
 
 ---
 

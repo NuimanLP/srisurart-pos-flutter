@@ -52,7 +52,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
     token = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
@@ -257,7 +257,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
     expect(sale.status).toBe(201);
     const cases: Array<[string, object, number]> = [
       ['/shifts/current/entries', { type: 'in', amount: '50.00' }, 201],
-      [`/sales/${sale.body.data.id}/void`, { pin: PIN }, 200],
+      [`/sales/${sale.body.data.id}/void`, { reason: 'Return' }, 200],
       ['/shifts/close', { physicalCash: '0.00' }, 200],
       ['/shifts/open', { startingCash: '500.00' }, 200],
     ];
@@ -312,7 +312,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
       user: {
         userId: fixture.userId,
         tenantId: TENANT,
-        role: 'manager',
+        role: 'owner',
         deviceId: fixture.posDeviceId,
         deviceRole: 'pos',
       },

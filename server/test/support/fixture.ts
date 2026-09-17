@@ -10,7 +10,6 @@ import { configureApp } from '../../src/app.setup.js';
 import { loadConfig } from '../../src/config/config.js';
 import { ADMIN_DATA_SOURCE } from '../../src/infra/db.module.js';
 import { REDIS_CACHE } from '../../src/infra/redis.module.js';
-import { hashPassword } from '../../src/common/password.js';
 
 /**
  * One RSA key pair for the whole run: the suites mint their own access tokens
@@ -26,7 +25,7 @@ const { privateKey, publicKey } = generateKeyPairSync('rsa', {
 export interface TokenClaims {
   tenantId: string;
   userId?: string;
-  role?: 'owner' | 'manager' | 'cashier';
+  role?: string;
   deviceId?: string;
   deviceRole?: 'pos' | 'backoffice';
 }
@@ -41,7 +40,7 @@ export function accessToken(claims: TokenClaims): string {
       jti: randomUUID(),
       typ: 'access',
       tid: claims.tenantId,
-      role: claims.role ?? 'cashier',
+      role: claims.role ?? 'owner',
       did: claims.deviceId,
       drole: claims.deviceRole,
     },
@@ -65,7 +64,7 @@ export function refreshToken(claims: TokenClaims & { exp?: number }): string {
       jti: randomUUID(),
       typ: 'refresh',
       tid: claims.tenantId,
-      role: claims.role ?? 'cashier',
+      role: claims.role ?? 'owner',
       did: claims.deviceId,
       drole: claims.deviceRole,
       exp: claims.exp ?? Math.floor(Date.now() / 1000) + 8 * 3600,
@@ -129,8 +128,12 @@ export async function createTestApp(
   return { app, ds, admin, cache };
 }
 
-/** Every tenant-scoped table, in an order that respects the foreign keys. */
-const TENANT_TABLES_DEPTH_FIRST = [
+/** Every tenant-scoped table, in an order that respects the foreign keys.
+ * `import_jobs` (#239) is not RLS'd or `TENANT_SCOPED_TABLES`-listed (it is admin-only), but it
+ * does carry `tenant_id` and a FK to `tenants`, so a reset must still clear it first. */
+export const TENANT_TABLES_DEPTH_FIRST = [
+  'import_jobs',
+  'owner_review_items',
   'drawer_entries',
   'shifts',
   'return_items',
@@ -215,9 +218,9 @@ export async function resetTenant(
   // share the first eight characters.
   const username = `tester-${tenantId}`;
   await admin.query(
-    `INSERT INTO users (tenant_id, id, username, password_hash, display_name, role, pin_hash)
-          VALUES ($1::uuid, $2::uuid, $3, 'x', 'Tester', 'manager', $4)`,
-    [tenantId, userId, username, opts.pin ? await hashPassword(opts.pin) : null],
+    `INSERT INTO users (tenant_id, id, username, password_hash, display_name, role)
+          VALUES ($1::uuid, $2::uuid, $3, 'x', 'Tester', 'owner')`,
+    [tenantId, userId, username],
   );
   const posDeviceId = `pos-${tenantId.slice(0, 8)}`;
   const backofficeDeviceId = `bo-${tenantId.slice(0, 8)}`;

@@ -22,7 +22,6 @@ import {
   parseCategoryCreate,
   parseSupplierCreate,
   parseSupplierPatch,
-  requireManager,
   type AuthenticatedRequest,
 } from './catalogue.dto.js';
 import { CategoriesService, type Category } from './categories.service.js';
@@ -53,10 +52,7 @@ export class CategoriesController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 201),
       res,
-      () => {
-        requireManager(req);
-        return this.categories.create(parseCategoryCreate(body).name);
-      },
+      () => this.categories.create(parseCategoryCreate(body).name),
     );
   }
 
@@ -69,10 +65,7 @@ export class CategoriesController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.categories.delete(name);
-      },
+      () => this.categories.delete(name),
     );
   }
 }
@@ -95,10 +88,7 @@ export class SuppliersController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 201),
       res,
-      () => {
-        requireManager(req);
-        return this.suppliers.create(parseSupplierCreate(body));
-      },
+      () => this.suppliers.create(parseSupplierCreate(body)),
     );
   }
 
@@ -112,10 +102,7 @@ export class SuppliersController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.suppliers.update(id, parseSupplierPatch(body));
-      },
+      () => this.suppliers.update(id, parseSupplierPatch(body)),
     );
   }
 
@@ -128,10 +115,7 @@ export class SuppliersController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.suppliers.delete(id);
-      },
+      () => this.suppliers.delete(id),
     );
   }
 }

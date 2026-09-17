@@ -20,6 +20,7 @@ import 'package:printing/printing.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
+import '../../core/utils/pdf_fonts.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/returns_repository.dart';
@@ -304,9 +305,10 @@ class _ClosingReportState extends State<ClosingReport> {
     setState(() => _busy = true);
     try {
       // Thai glyphs require a Thai-capable font (helvetica has none). Match the
-      // receipt_view pattern: Google Fonts Sarabun, loaded async.
-      final font = await PdfGoogleFonts.sarabunRegular();
-      final fontB = await PdfGoogleFonts.sarabunBold();
+      // receipt_view pattern: bundled Sarabun asset, loaded async (#271 — was
+      // PdfGoogleFonts, which fetched over the network).
+      final font = await PosPdfFonts.sarabunRegular();
+      final fontB = await PosPdfFonts.sarabunBold();
       final doc = _buildPdf(d, font, fontB);
       await Printing.layoutPdf(onLayout: (_) async => doc.save());
       if (mounted) setState(() => _printed = true);

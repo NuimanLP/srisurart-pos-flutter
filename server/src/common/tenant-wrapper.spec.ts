@@ -21,13 +21,7 @@ const WRAPPER =
   /^\{\s*return this\.tenants\.runTx\(\(\) =>\s*this\.(\w+)In\([^)]*\),?\s*\);\s*\}$/;
 
 /** `Class.method` → why it may read the context without the wrapper. */
-const UNWRAPPED_ALLOWED: Record<string, string> = {
-  // It does open its own runTx — the reader `readTenantAndPinHash` runs only inside it — but the body is
-  // not the whole-body wrapper, because argon2 has to run AFTER that transaction commits.
-  // Wrapping the whole method would put the ~75 ms verify back inside a held connection.
-  'VoidService.authorise':
-    'tx.5 (#154): a short runTx reads pin_hash, then verifyPassword runs with no transaction',
-};
+const UNWRAPPED_ALLOWED: Record<string, string> = {};
 
 /** Every non-private method that reaches `currentRequestContext()` without the wrapper. */
 function unwrappedReaders(source: string, file = 'x.ts'): string[] {
@@ -68,20 +62,6 @@ function unwrappedReaders(source: string, file = 'x.ts'): string[] {
   };
   visit(sf);
   return found;
-}
-
-/**
- * `void.service.ts` with `authorise`'s one sanctioned call — `this.tenants.runTx(() =>
- * this.readTenantAndPinHash(actor))` — replaced by a value. Throws unless it occurs exactly once.
- */
-function authoriseStripped(source: string): string {
-  const sanctioned =
-    /this\.tenants\.runTx\(\(\) =>\s*this\.readTenantAndPinHash\(actor\),?\s*\)/g;
-  const hits = source.match(sanctioned) ?? [];
-  if (hits.length !== 1) {
-    throw new Error(`expected one sanctioned runTx call, found ${hits.length}`);
-  }
-  return source.replace(sanctioned, 'Promise.resolve(null as never)');
 }
 
 function tsFiles(dir: string): string[] {
@@ -132,25 +112,5 @@ describe('every request-context reader opens its own runTx (tx.2 #151)', () => {
       Object.keys(UNWRAPPED_ALLOWED).filter((m) => !found.includes(m)),
     ).toEqual([]);
   });
-
-  it('VoidService.authorise reaches the context only through its own runTx', () => {
-    // The allowlist entry above exempts the method from the whole-body shape, not from
-    // opening a transaction. Take its one sanctioned call out of the source and scan what is
-    // left: any other way `authorise` reaches the context — a direct call, or another private
-    // reader — is still found.
-    const source = readFileSync(join(SRC, 'sales/void.service.ts'), 'utf8');
-    expect(unwrappedReaders(authoriseStripped(source))).toEqual([]);
-  });
-
-  it('the authorise check goes red on a reader planted outside its runTx', () => {
-    const source = readFileSync(join(SRC, 'sales/void.service.ts'), 'utf8');
-    const planted = source.replace(
-      /(async authorise\([^)]*\)[^{]*\{)/,
-      '$1\n    await this.readTenantAndPinHash(actor);',
-    );
-    expect(planted).not.toBe(source);
-    expect(unwrappedReaders(authoriseStripped(planted))).toEqual([
-      'VoidService.authorise',
-    ]);
-  });
 });
+

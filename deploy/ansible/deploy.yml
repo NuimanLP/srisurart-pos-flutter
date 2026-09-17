@@ -7,7 +7,11 @@
 # 4. Executes one-shot 'web-sync' container to update the shared 'web' volume
 # 5. Executes database migrations ('migrate' container: schema before code)
 # 6. Performs rolling restart of api-1 -> api-2 -> api-3 with health checks
-# 7. Restarts worker, bull-board, and Nginx
+# 7. Restarts worker and bull-board, validates the copied nginx.conf in a throwaway container,
+#    then force-recreates Nginx unconditionally (#249: a single-file bind mount keeps the old
+#    inode after 'copy' renames a new file into place, so 'up -d --no-deps' alone -- and even
+#    'nginx -s reload' -- would leave the OLD config running; same mechanism and fix as #148's
+#    Prometheus/Grafana recreate below)
 # 8. Verifies overall deployment health via GET /health/ready through Nginx
 # 9. Records deployed SHA in /opt/pos/.current_sha
 # 10. Copies the monitoring config, brings up the overlay and probes it on loopback. Steps 2-9 never
@@ -59,14 +63,18 @@
       ansible.builtin.set_fact:
         current_sha: "{{ (current_sha_file.content | b64decode | trim) if (current_sha_file is succeeded and current_sha_file.content is defined) else '' }}"
 
+    # `-e force_redeploy=true` redeploys the SHA .current_sha already names (#67): the automatic
+    # rollback needs it, because .current_sha is written only after readiness passes and so still
+    # names the previous release after a failed deploy. Never delete .current_sha to force instead:
+    # if that redeploy fails too, the VM has lost its only record of what it runs.
     - name: Notify if release is already deployed
       ansible.builtin.debug:
         msg: "Release '{{ image_tag }}' is already active on {{ inventory_hostname }}. Skipping duplicate deployment."
-      when: current_sha == image_tag
+      when: current_sha == image_tag and not (force_redeploy | default(false) | bool)
 
     - name: Early exit on duplicate release deployment
       ansible.builtin.meta: end_play
-      when: current_sha == image_tag
+      when: current_sha == image_tag and not (force_redeploy | default(false) | bool)
 
     # docker-compose.yml's network gained ip_range (#148). Compose cannot change the IPAM of a network
     # that has containers attached: measured with compose v5.0.2, `run --rm` swaps the network under
@@ -121,6 +129,57 @@
         dest: "{{ app_dir }}/docker/postgres/init/"
         mode: "0755"
 
+    # etcd-init bind-mounts ./docker/etcd/etcd-init.sh. Before this copy existed, the file was
+    # missing on the VM, so Docker created that path as an empty root-owned DIRECTORY (and its
+    # parent docker/etcd, also root-owned); etcd-init then ran `sh <directory>`, exited 0 with no
+    # output, and auth was never enabled. Undo exactly that, once: rmdir removes only empty
+    # directories, so anything unexpected fails loudly instead of being deleted. The `deploy` user
+    # has no sudo (07 §6.2), so this runs as root in a container, the same Docker access every
+    # other task here already uses; the image is read from compose so no tag is repeated.
+    - name: Check for the etcd-init.sh directory Docker created on earlier deploys
+      ansible.builtin.stat:
+        path: "{{ app_dir }}/docker/etcd/etcd-init.sh"
+      register: etcd_init_path
+
+    # --no-interpolate: the interpolated config carries every secret from .env, and `-v` prints stdout.
+    - name: Read the etcd-init image from the compose configuration
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} config --no-interpolate --format json etcd-init"
+      args:
+        chdir: "{{ app_dir }}"
+      register: etcd_init_config
+      changed_when: false
+      when: etcd_init_path.stat.isdir | default(false)
+
+    - name: Remove the Docker-created etcd-init.sh directory and its root-owned parent
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - --rm
+          - --user
+          - "0:0"
+          - --entrypoint
+          - rmdir
+          - --volume
+          - "{{ app_dir }}/docker:/pos-docker"
+          - "{{ (etcd_init_config.stdout | from_json).services['etcd-init'].image }}"
+          - /pos-docker/etcd/etcd-init.sh
+          - /pos-docker/etcd
+      changed_when: true
+      when: etcd_init_path.stat.isdir | default(false)
+
+    - name: Ensure the etcd config directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}/docker/etcd"
+        state: directory
+        mode: "0755"
+
+    - name: Copy etcd-init bootstrap script
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/server/docker/etcd/etcd-init.sh"
+        dest: "{{ app_dir }}/docker/etcd/etcd-init.sh"
+        mode: "0755"
+
     - name: Pull release images from GHCR
       ansible.builtin.command: "docker compose {{ pos_compose_files }} pull"
       environment:
@@ -142,17 +201,47 @@
       args:
         chdir: "{{ app_dir }}"
 
-    # etcd-init is a one-shot job (like certgen) that bootstraps the etcd root user/auth —
-    # #64/#66. Nothing later in this playbook depends on it finishing (RuntimeConfigService
-    # fails open with no etcd at all), but without it here etcd never starts on the VM at
-    # all: every later step in this playbook uses --no-deps, so a service missing from this
-    # one `up -d` line is never brought up by anything else.
-    - name: Ensure backing datastores, certgen and etcd are running
-      ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d postgres redis-cache redis-queue certgen etcd etcd-init"
+    # etcd must be in this `up -d` line: every later step in this playbook uses --no-deps, so a
+    # service missing here is never brought up by anything else. htpasswd-gen (#251) is the same
+    # shape as certgen — idempotent, must exist before Nginx starts, and Nginx's own restart
+    # below runs with --no-deps too.
+    - name: Ensure backing datastores, certgen, htpasswd-gen and etcd are running
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d postgres redis-cache redis-queue certgen htpasswd-gen etcd"
       environment:
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+
+    # etcd-init (#64/#67) enables auth, asserts it, and seeds /pos/config/log_level if missing.
+    # `run` waits for etcd to be healthy (depends_on) and returns the job's exit code, so a
+    # failure fails the deploy; `up -d` did not wait for one-shot jobs and stayed green. The API
+    # itself still boots without etcd (RuntimeConfigService fails open); this gates the release on
+    # the store being locked down, not the API on the store. Idempotent on an enabled store.
+    - name: Bootstrap etcd auth and seed dynamic config (etcd-init)
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm etcd-init"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      register: etcd_init_run
+      changed_when: "'etcd-init: bootstrapping' in etcd_init_run.stdout or 'etcd-init: seeded' in etcd_init_run.stdout"
+
+    # Checked from a fresh container with no credentials, independent of etcd-init.sh itself: the
+    # original bug made that script exit 0 without running, so its own assertion never fired.
+    # Only 400 passes: etcd v3.6.12 answers an anonymous read with 400 "user name is empty" once auth
+    # is on (measured). 200 means auth is off; any other code or a curl failure (rc != 0) means the
+    # check did not prove anything.
+    - name: Assert etcd refuses an unauthenticated read
+      ansible.builtin.command: >-
+        docker compose {{ pos_compose_files }} run --rm --no-deps --entrypoint curl etcd-init
+        -sS -o /dev/null -w '%{http_code}' -X POST http://etcd:2379/v3/kv/range -d '{"key":"Lw=="}'
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      register: etcd_anonymous_read
+      changed_when: false
+      failed_when: etcd_anonymous_read.rc != 0 or (etcd_anonymous_read.stdout | trim) != '400'
 
     # Rolling restart: api-1
     - name: Restart instance api-1
@@ -220,13 +309,47 @@
       until: api3_status.stdout | trim == "healthy"
       changed_when: false
 
-    # Background workers & edge proxy
-    - name: Restart worker, bull-board, and Nginx
-      ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d --no-deps worker bull-board nginx"
+    # Background workers
+    - name: Restart worker and bull-board
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d --no-deps worker bull-board"
       environment:
         IMAGE_TAG: "{{ image_tag }}"
       args:
         chdir: "{{ app_dir }}"
+
+    # nginx.conf is a single-file bind mount (docker-compose.yml). ansible.builtin.copy above wrote
+    # a temp file and renamed it into place -- new inode, same path -- and a container's bind mount
+    # stays pinned to the inode it had when it (re)started, so 'up -d --no-deps nginx' is a no-op
+    # whenever the compose service definition itself is unchanged and nginx keeps serving the OLD
+    # config indefinitely; 'nginx -s reload' does not help either, since the reloaded worker reads
+    # through that same stale mount (#249 -- proved against a real Linux bind mount, in a
+    # docker:27-dind daemon; a plain Windows-host Docker Desktop bind mount does NOT reproduce this,
+    # because its file-sharing layer re-resolves by path rather than pinning an inode, so it would
+    # have hidden the bug). Test the just-copied file in a fresh, disposable container BEFORE
+    # touching the running one, so a bad nginx.conf fails the deploy with the OLD config still
+    # serving traffic instead of taking Nginx down.
+    - name: Validate the copied Nginx configuration
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm --no-deps nginx nginx -t"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      changed_when: false
+
+    # Always recreate, never "only when this run's copy changed nginx.conf" -- the same reasoning
+    # #148 already established for Prometheus/Grafana below: a run that copies a new nginx.conf and
+    # then fails a later task (a rolling-restart health check, the readiness probe) never reaches
+    # this step, so the next run's copy reports no change and a changed-gated recreate would skip
+    # Nginx forever. The cost is a brief Nginx restart (a short blip for any in-flight connection,
+    # same class as the rolling-restart caveat already documented in 07 §6) on every deploy, even
+    # one that didn't touch nginx.conf; the task above has already proven the config valid.
+    - name: Recreate Nginx so it loads the copied config
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d --no-deps --force-recreate nginx"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      changed_when: true
 
     # Cluster health probe via Nginx
     - name: Verify cluster readiness via Nginx (GET /health/ready)

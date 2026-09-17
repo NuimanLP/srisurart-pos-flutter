@@ -37,6 +37,16 @@ describe('toErrorEnvelope', () => {
     ).toBe('SERVICE_UNAVAILABLE');
   });
 
+  it('answers a body-parser error with its own 4xx, and only when it looks like one (#239)', () => {
+    const tooLarge = Object.assign(new Error('request entity too large'), { status: 413, statusCode: 413, expose: true, type: 'entity.too.large' });
+    expect(toErrorEnvelope(tooLarge)).toEqual({
+      status: 413,
+      body: { status: 'error', error: { code: 'PAYLOAD_TOO_LARGE', message: 'request entity too large' } },
+    });
+    const untyped = Object.assign(new Error('internal detail'), { status: 400, expose: true });
+    expect(toErrorEnvelope(untyped).status).toBe(500);
+  });
+
   it('hides internals for unknown errors', () => {
     const out = toErrorEnvelope(
       new Error('pg: password authentication failed'),
