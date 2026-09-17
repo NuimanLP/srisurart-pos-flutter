@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -110,14 +109,6 @@ export class QuotesController {
       idempotencyParamsOf(req, HttpStatus.ACCEPTED),
       res,
       async () => {
-        const role = req.user?.role;
-        if (role !== 'manager' && role !== 'owner') {
-          throw new ForbiddenException({
-            code: 'FORBIDDEN',
-            message: 'Manager role required',
-          });
-        }
-
         const { tenantId } = currentRequestContext();
         const olderThanDays = Math.max(1, Number(dto?.olderThanDays ?? 90));
         const correlationId = newId('quote_');

@@ -64,7 +64,7 @@ describe('the rate-limit plan lookup does not deadlock the request pool (e2e)', 
     posToken = accessToken({
       tenantId: TENANT,
       userId: t.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: t.posDeviceId,
       deviceRole: 'pos',
     });

@@ -57,7 +57,7 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
     token = accessToken({
       tenantId: tenantInfo.tenantId,
       userId: tenantInfo.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: tenantInfo.posDeviceId,
       deviceRole: 'pos',
     });
@@ -368,23 +368,13 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
       expect(recentConvertedRows).toHaveLength(1);
     });
 
-    it('refuses quote purge requests from cashiers with 403 Forbidden', async () => {
-      const cashierToken = accessToken({
-        tenantId: tenantInfo.tenantId,
-        userId: tenantInfo.userId,
-        role: 'cashier',
-        deviceId: tenantInfo.posDeviceId,
-        deviceRole: 'pos',
-      });
-
+    it('requires authentication for quote purge', async () => {
       const res = await request(fixture.app.getHttpServer())
         .post('/api/v1/quotes/purge')
-        .set('Authorization', `Bearer ${cashierToken}`)
-        .set('Idempotency-Key', `purge-cashier-${Date.now()}`)
+        .set('Idempotency-Key', `purge-unauth-${Date.now()}`)
         .send({ olderThanDays: 90 });
 
-      expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
+      expect(res.status).toBe(401);
     });
   });
 

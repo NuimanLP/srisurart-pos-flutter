@@ -75,7 +75,7 @@ describe('TenantGuard', () => {
       aud: 'tenant',
       sub: 'u1',
       tid: 't1',
-      role: 'cashier',
+      role: 'owner',
       drole: 'pos',
     });
     reflectorMock.getAllAndOverride.mockReturnValue(undefined);
@@ -86,7 +86,7 @@ describe('TenantGuard', () => {
     expect(ctx.switchToHttp().getRequest().user).toEqual({
       userId: 'u1',
       tenantId: 't1',
-      role: 'cashier',
+      role: 'owner',
       deviceId: undefined,
       deviceRole: 'pos',
     });

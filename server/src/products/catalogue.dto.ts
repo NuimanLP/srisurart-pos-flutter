@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import type { Request } from 'express';
 import { fromSatang, toSatang } from '../common/money.js';
 
@@ -146,16 +146,6 @@ export function parseSupplierPatch(body: unknown): SupplierPatch {
 
 export interface AuthenticatedRequest extends Request {
   user: { userId: string; role?: string; deviceId?: string };
-}
-
-/** 02_API_SCREENS.md §4: every catalogue write is `manager` (owner included). */
-export function requireManager(req: AuthenticatedRequest): void {
-  if (req.user.role !== 'manager' && req.user.role !== 'owner') {
-    throw new ForbiddenException({
-      code: 'FORBIDDEN',
-      message: 'Manager role required',
-    });
-  }
 }
 
 /** `db.js addProduct`: the part number is trimmed, and a blank one is refused. */

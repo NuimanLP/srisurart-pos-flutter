@@ -54,7 +54,7 @@ describe('cached reads take no connection until they miss (e2e, #173)', () => {
     token = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });

@@ -50,7 +50,7 @@ describe('JwtSigner & JwtVerifier', () => {
         jti: 'jti-1',
         typ: 'access',
         tid: 'tenant-456',
-        role: 'cashier',
+        role: 'owner',
         drole: 'pos',
       },
       '15m',

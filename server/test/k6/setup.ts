@@ -14,7 +14,6 @@ const __dirname = path.dirname(__filename);
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const POS_DEVICE_ID = 'pos-loadtest';
 const BO_DEVICE_ID = 'bo-loadtest';
-const CASHIER_USER_ID = '00000000-0000-4000-8000-000000000010';
 const MANAGER_USER_ID = '00000000-0000-4000-8000-000000000020';
 const SHIFT_ID = 'sh-loadtest-1';
 
@@ -114,13 +113,12 @@ export async function setupLoadTest(options: {
       [TENANT_ID],
     );
 
-    // 6. Seed Users
+    // 6. Seed Users (single owner per tenant)
     const passwordHash = await hashPassword('password123');
     await client.query(
       `INSERT INTO users (tenant_id, id, username, password_hash, display_name, role)
-       VALUES ($1::uuid, $2::uuid, 'cashier_k6', $3, 'Cashier K6', 'cashier'),
-              ($1::uuid, $4::uuid, 'manager_k6', $3, 'Manager K6', 'manager')`,
-      [TENANT_ID, CASHIER_USER_ID, passwordHash, MANAGER_USER_ID],
+       VALUES ($1::uuid, $2::uuid, 'owner_k6', $3, 'Owner K6', 'owner')`,
+      [TENANT_ID, MANAGER_USER_ID, passwordHash],
     );
 
     // 7. Seed Devices (ADR-0004: exactly one active POS device per tenant)
@@ -135,7 +133,7 @@ export async function setupLoadTest(options: {
     await client.query(
       `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, is_active, device_id, opened_by)
        VALUES ($1::uuid, $2, to_char(now() AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD'), 1000, now(), TRUE, $3, $4::uuid)`,
-      [TENANT_ID, SHIFT_ID, POS_DEVICE_ID, CASHIER_USER_ID],
+      [TENANT_ID, SHIFT_ID, POS_DEVICE_ID, MANAGER_USER_ID],
     );
 
     // 9. Seed Categories
@@ -194,11 +192,11 @@ export async function setupLoadTest(options: {
         {
           iss: 'srisurart-pos',
           aud: 'tenant',
-          sub: CASHIER_USER_ID,
+          sub: MANAGER_USER_ID,
           jti: 'jti-pos-loadtest',
           typ: 'access',
           tid: TENANT_ID,
-          role: 'cashier',
+          role: 'owner',
           did: POS_DEVICE_ID,
           drole: 'pos',
         },
@@ -217,7 +215,7 @@ export async function setupLoadTest(options: {
           jti: 'jti-bo-loadtest',
           typ: 'access',
           tid: TENANT_ID,
-          role: 'manager',
+          role: 'owner',
           did: BO_DEVICE_ID,
           drole: 'backoffice',
         },

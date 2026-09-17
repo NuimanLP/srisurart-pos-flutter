@@ -153,21 +153,21 @@ describe('quotes and parked sales (e2e)', () => {
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'cashier',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
     backofficeToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'cashier',
+      role: 'owner',
       deviceId: fixture.backofficeDeviceId,
       deviceRole: 'backoffice',
     });
     otherPosToken = accessToken({
       tenantId: OTHER,
       userId: other.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: other.posDeviceId,
       deviceRole: 'pos',
     });

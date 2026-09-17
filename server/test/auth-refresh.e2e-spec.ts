@@ -58,7 +58,7 @@ describe('POST /auth/refresh (e2e)', () => {
       refreshToken({
         tenantId: TENANT,
         userId: fixture.userId,
-        role: 'manager',
+        role: 'owner',
         deviceId: fixture.posDeviceId,
         deviceRole: 'pos',
         exp,

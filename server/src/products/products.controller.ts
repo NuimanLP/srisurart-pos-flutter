@@ -22,7 +22,6 @@ import {
   parseProductCreate,
   parseProductPatch,
   parseStockAdjustment,
-  requireManager,
   type AuthenticatedRequest,
 } from './catalogue.dto.js';
 import {
@@ -111,10 +110,7 @@ export class ProductsController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 201),
       res,
-      () => {
-        requireManager(req);
-        return this.products.create(parseProductCreate(body));
-      },
+      () => this.products.create(parseProductCreate(body)),
     );
   }
 
@@ -128,10 +124,7 @@ export class ProductsController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.products.update(id, parseProductPatch(body));
-      },
+      () => this.products.update(id, parseProductPatch(body)),
     );
   }
 
@@ -144,10 +137,7 @@ export class ProductsController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.products.delete(id);
-      },
+      () => this.products.delete(id),
     );
   }
 
@@ -162,13 +152,11 @@ export class ProductsController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 201),
       res,
-      () => {
-        requireManager(req);
-        return this.products.adjustStock(id, parseStockAdjustment(body), {
+      () =>
+        this.products.adjustStock(id, parseStockAdjustment(body), {
           userId: req.user.userId,
           deviceId: req.user.deviceId,
-        });
-      },
+        }),
     );
   }
 }
