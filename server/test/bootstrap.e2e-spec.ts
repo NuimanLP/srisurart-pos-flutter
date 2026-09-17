@@ -15,11 +15,10 @@ describe('bootstrap and settings (e2e)', () => {
   let admin: DataSource;
   let cache: import('ioredis').Redis;
   let fixture: TenantFixture;
-  let managerToken: string;
-  let cashierToken: string;
+  let ownerToken: string;
   let key = 0;
 
-  const auth = (token = managerToken) => ({ Authorization: `Bearer ${token}` });
+  const auth = (token = ownerToken) => ({ Authorization: `Bearer ${token}` });
   const idempotency = () => `bootstrap-${++key}-${Date.now()}`;
 
   beforeAll(async () => {
@@ -28,17 +27,10 @@ describe('bootstrap and settings (e2e)', () => {
 
   beforeEach(async () => {
     fixture = await resetTenant(admin, TENANT, { cache });
-    managerToken = accessToken({
+    ownerToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
-      deviceId: fixture.backofficeDeviceId,
-      deviceRole: 'backoffice',
-    });
-    cashierToken = accessToken({
-      tenantId: TENANT,
-      userId: fixture.userId,
-      role: 'cashier',
+      role: 'owner',
       deviceId: fixture.backofficeDeviceId,
       deviceRole: 'backoffice',
     });
@@ -63,23 +55,19 @@ describe('bootstrap and settings (e2e)', () => {
     });
   });
 
-  it('PATCH /settings is refused for non-managers', async () => {
+  it('PATCH /settings requires auth', async () => {
     const res = await request(app.getHttpServer())
       .patch('/api/v1/settings')
-      .set(auth(cashierToken))
       .set('Idempotency-Key', idempotency())
       .send({ shopName: 'Hacked Shop' });
 
-    expect(res.status).toBe(403);
-    expect(res.body.error).toMatchObject({
-      code: 'FORBIDDEN',
-    });
+    expect(res.status).toBe(401);
   });
 
-  it('PATCH /settings updates settings when authorized as manager', async () => {
+  it('PATCH /settings updates settings when authorized as owner', async () => {
     const res = await request(app.getHttpServer())
       .patch('/api/v1/settings')
-      .set(auth(managerToken))
+      .set(auth(ownerToken))
       .set('Idempotency-Key', idempotency())
       .send({
         shopName: 'SriSurart New Shop',

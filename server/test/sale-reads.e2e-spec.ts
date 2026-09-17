@@ -1,7 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
-import { hashPassword } from '../src/common/password.js';
 import {
   accessToken,
   createTestApp,
@@ -24,7 +23,6 @@ describe('sale reads and void (e2e)', () => {
   let fixture: TenantFixture;
   let posToken: string;
   let backofficeToken: string;
-  let cashierToken: string;
   let openShiftId: string;
   let keySeq = 0;
 
@@ -40,12 +38,17 @@ describe('sale reads and void (e2e)', () => {
       .get(`/api/v1${path}`)
       .set('Authorization', `Bearer ${token ?? posToken}`);
 
-  const voidSale = (id: string, body: unknown, token?: string) =>
-    request(app.getHttpServer())
+  const voidSale = (id: string, body: unknown, token?: string) => {
+    const payload =
+      body && typeof body === 'object' && !('reason' in body)
+        ? { ...body, reason: 'Customer return' }
+        : body;
+    return request(app.getHttpServer())
       .post(`/api/v1/sales/${id}/void`)
       .set('Authorization', `Bearer ${token ?? posToken}`)
       .set('Idempotency-Key', `k-void-${++keySeq}-${Date.now()}`)
-      .send(body as object);
+      .send(payload as object);
+  };
 
   /** Rings up `qty` of p1 at 85 and returns the created bill. */
   const ringUp = async (qty = 1, extra: Record<string, unknown> = {}) => {
@@ -90,23 +93,16 @@ describe('sale reads and void (e2e)', () => {
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
     backofficeToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.backofficeDeviceId,
       deviceRole: 'backoffice',
-    });
-    cashierToken = accessToken({
-      tenantId: TENANT,
-      userId: fixture.userId,
-      role: 'cashier',
-      deviceId: fixture.posDeviceId,
-      deviceRole: 'pos',
     });
     await seedProduct(admin, TENANT, {
       id: 'p1',
@@ -307,7 +303,7 @@ describe('sale reads and void (e2e)', () => {
     ]);
 
     const audit = await admin.query(
-      `SELECT action, entity, entity_id, user_id, device_id FROM audit_log
+      `SELECT action, entity, entity_id, user_id, device_id, after FROM audit_log
         WHERE tenant_id = $1::uuid AND action = 'sale.void'`,
       [TENANT],
     );
@@ -315,18 +311,21 @@ describe('sale reads and void (e2e)', () => {
     expect(audit[0].entity_id).toBe(sale.id);
     expect(audit[0].user_id).toBe(fixture.userId);
     expect(audit[0].device_id).toBe(fixture.posDeviceId);
+    expect(audit[0].after.reason).toBe('Customer return');
   });
 
-  it('refuses a void without the PIN, with a wrong PIN, or from a cashier', async () => {
+  it('refuses a void with missing or empty reason', async () => {
     const sale = await ringUp(2);
 
-    for (const body of [{}, { pin: '0000' }, { pin: 12345 }]) {
-      const res = await voidSale(sale.id, body);
-      expect(res.status).toBe(403);
+    for (const body of [{}, { reason: '' }, { reason: '   ' }, { reason: 123 }]) {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/sales/${sale.id}/void`)
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', `k-void-err-${++keySeq}-${Date.now()}`)
+        .send(body);
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toBe('Void reason is required');
     }
-    // Right PIN, wrong rank: voiding is what staff fetch a manager for.
-    const asCashier = await voidSale(sale.id, { pin: PIN }, cashierToken);
-    expect(asCashier.status).toBe(403);
 
     expect(await stockOf('p1')).toBe(38);
     const rows = await admin.query(
@@ -340,16 +339,6 @@ describe('sale reads and void (e2e)', () => {
       [TENANT],
     );
     expect(audit[0].n).toBe(0);
-
-    // But every refusal IS recorded. This is a four-digit PIN with no per-user rate
-    // limit yet (#44); brute-forcing it must not be invisible. The rows survive
-    // because they are written outside the transaction the 403 rolls back.
-    const denied = await admin.query(
-      `SELECT count(*)::int AS n FROM audit_log
-        WHERE tenant_id = $1::uuid AND action = 'sale.void.denied'`,
-      [TENANT],
-    );
-    expect(denied[0].n).toBe(4);
   });
 
   /** Seeds the pair the ledger tests bill against, and reads their running totals. */
@@ -496,7 +485,7 @@ describe('sale reads and void (e2e)', () => {
         .post(`/api/v1/sales/${id}/void`)
         .set('Authorization', `Bearer ${posToken}`)
         .set('Idempotency-Key', key)
-        .send({ pin: PIN });
+        .send({ reason: 'Mistake' });
 
     expect((await voidWithKey(first.id)).status).toBe(200);
     expect(await stockOf('p1')).toBe(37);
@@ -706,7 +695,7 @@ describe('sale reads and void (e2e)', () => {
         .post(`/api/v1/sales/${sale.id}/void`)
         .set('Authorization', `Bearer ${posToken}`)
         .set('Idempotency-Key', key)
-        .send({ pin: PIN });
+        .send({ reason: 'Mistake' });
 
     const first = await voidWithKey();
     expect(first.status).toBe(200);
@@ -716,7 +705,7 @@ describe('sale reads and void (e2e)', () => {
     expect(replay.status).toBe(200);
     expect(replay.body.data).toEqual(first.body.data);
     // A retry that lost its key is told the truth about the bill, not about the drawer.
-    const keyless = await voidSale(sale.id, { pin: PIN });
+    const keyless = await voidSale(sale.id, { reason: 'Mistake' });
     expect(keyless.status).toBe(409);
     expect(keyless.body.error.code).toBe('SALE_VOIDED');
     expect(await stockOf('p1')).toBe(40);
@@ -739,15 +728,6 @@ describe('sale reads and void (e2e)', () => {
     return { sale, counts, stock: await stockOf('p1'), ledger: await ledger() };
   };
 
-  const deniedReasons = async (): Promise<string[]> =>
-    (
-      (await admin.query(
-        `SELECT after->>'reason' AS reason FROM audit_log
-          WHERE tenant_id = $1::uuid AND action = 'sale.void.denied' ORDER BY id`,
-        [TENANT],
-      )) as { reason: string }[]
-    ).map((r) => r.reason);
-
   const voidWithKey = (id: string, key: string, body: object) =>
     request(app.getHttpServer())
       .post(`/api/v1/sales/${id}/void`)
@@ -755,52 +735,20 @@ describe('sale reads and void (e2e)', () => {
       .set('Idempotency-Key', key)
       .send(body);
 
-  // tx.5 (#154): the PIN is checked before the claim, so a key that is already done no longer
-  // skips it. Falsified by moving `authorise` back inside `runIdempotent`: the identical resend
-  // after the PIN change answers the stored 200, and the wrong-PIN resend 409 IDEMPOTENCY_KEY_REUSED.
-  it('tx.5: a done key with a PIN that no longer verifies is a 403 and a denial row, not a replay — the bill is unchanged', async () => {
-    await seedLedgerParties();
-    const sale = await onTheTab('เครดิตช่าง');
-    const key = `k-void-done-deny-${++keySeq}-${Date.now()}`;
-    expect((await voidWithKey(sale.id, key, { pin: PIN })).status).toBe(200);
-    const after = await voidFootprint(sale.id);
-    expect(after.sale.voided).toBe(true);
-    expect(await deniedReasons()).toEqual([]);
-
-    // The same request, byte for byte, after the manager's PIN changed: before tx.5 the
-    // claim found the done key first and replayed the 200.
-    await admin.query(
-      `UPDATE users SET pin_hash = $3 WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-      [TENANT, fixture.userId, await hashPassword('9999')],
-    );
-    const identical = await voidWithKey(sale.id, key, { pin: PIN });
-    expect(identical.status).toBe(403);
-    expect(identical.body.error.code).toBe('FORBIDDEN');
-
-    // The same key with a wrong PIN in the body: before tx.5, 409 IDEMPOTENCY_KEY_REUSED.
-    const wrong = await voidWithKey(sale.id, key, { pin: '0000' });
-    expect(wrong.status).toBe(403);
-    expect(wrong.body.error.code).toBe('FORBIDDEN');
-
-    expect(await deniedReasons()).toEqual(['pin', 'pin']);
-    expect(await voidFootprint(sale.id)).toEqual(after);
-  });
-
-  it('tx.5: a done key with the right PIN replays the stored 200 and re-runs nothing', async () => {
+  it('a done key replays the stored 200 and re-runs nothing', async () => {
     await seedLedgerParties();
     const sale = await onTheTab('เครดิตช่าง');
     const key = `k-void-done-replay-${++keySeq}-${Date.now()}`;
-    const first = await voidWithKey(sale.id, key, { pin: PIN });
+    const first = await voidWithKey(sale.id, key, { reason: 'Customer return' });
     expect(first.status).toBe(200);
     const after = await voidFootprint(sale.id);
     expect(after.counts).toEqual({ movements: 1, voids: 1 });
 
-    const replay = await voidWithKey(sale.id, key, { pin: PIN });
+    const replay = await voidWithKey(sale.id, key, { reason: 'Customer return' });
     expect(replay.status).toBe(200);
     expect(replay.body.data).toEqual(first.body.data);
     // Stock restored once, one movement, one audit row, the ledger reversed once.
     expect(await voidFootprint(sale.id)).toEqual(after);
-    expect(await deniedReasons()).toEqual([]);
   });
 
   it('a backoffice device cannot void, and an unknown bill 404s', async () => {

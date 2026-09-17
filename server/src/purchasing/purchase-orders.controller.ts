@@ -17,10 +17,7 @@ import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
-import {
-  requireManager,
-  type AuthenticatedRequest,
-} from '../products/catalogue.dto.js';
+import { type AuthenticatedRequest } from '../products/catalogue.dto.js';
 import { parsePoCreate, parsePoStatus } from './purchase-orders.dto.js';
 import {
   PurchaseOrdersService,
@@ -69,7 +66,6 @@ export class PurchaseOrdersController {
       idempotencyParamsOf(req, 201),
       res,
       () => {
-        requireManager(req);
         const input = parsePoCreate(body);
         // The PO number is issued in the calling device's series (ADR-0007), and the
         // device comes from the token only (ADR-0004).
@@ -90,13 +86,11 @@ export class PurchaseOrdersController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.orders.receive(id, {
+      () =>
+        this.orders.receive(id, {
           userId: req.user.userId,
           deviceId: req.user.deviceId,
-        });
-      },
+        }),
     );
   }
 
@@ -110,10 +104,7 @@ export class PurchaseOrdersController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.orders.cancel(id);
-      },
+      () => this.orders.cancel(id),
     );
   }
 
@@ -126,10 +117,7 @@ export class PurchaseOrdersController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.orders.delete(id);
-      },
+      () => this.orders.delete(id),
     );
   }
 }

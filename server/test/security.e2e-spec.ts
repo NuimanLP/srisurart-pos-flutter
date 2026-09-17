@@ -30,7 +30,6 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
   let posTokenA: string;
   let posTokenB: string;
   let managerTokenA: string;
-  let cashierTokenA: string;
   let backofficeTokenA: string;
   let productIdA: string;
   let productIdB: string;
@@ -81,7 +80,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
     posTokenA = accessToken({
       tenantId: TENANT_A,
       userId: fixtureA.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixtureA.posDeviceId,
       deviceRole: 'pos',
     });
@@ -89,7 +88,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
     posTokenB = accessToken({
       tenantId: TENANT_B,
       userId: fixtureB.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixtureB.posDeviceId,
       deviceRole: 'pos',
     });
@@ -97,15 +96,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
     managerTokenA = accessToken({
       tenantId: TENANT_A,
       userId: fixtureA.userId,
-      role: 'manager',
-      deviceId: fixtureA.posDeviceId,
-      deviceRole: 'pos',
-    });
-
-    cashierTokenA = accessToken({
-      tenantId: TENANT_A,
-      userId: fixtureA.userId,
-      role: 'cashier',
+      role: 'owner',
       deviceId: fixtureA.posDeviceId,
       deviceRole: 'pos',
     });
@@ -113,7 +104,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
     backofficeTokenA = accessToken({
       tenantId: TENANT_A,
       userId: fixtureA.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixtureA.backofficeDeviceId,
       deviceRole: 'backoffice',
     });
@@ -263,12 +254,12 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
         .post(`/api/v1/sales/${saleIdB}/void`)
         .set('Authorization', `Bearer ${managerTokenA}`)
         .set('Idempotency-Key', `k-void-cross-${randomUUID()}`)
-        .send({ pin: MANAGER_PIN });
+        .send({ reason: 'Customer return' });
 
       expect(voidRes.status).toBe(404);
     });
 
-    it('prevents role escalation (cashier cannot void a sale)', async () => {
+    it('enforces device role guard (backoffice device cannot void a sale)', async () => {
       // Create sale in Tenant A
       const saleIdA = `sale-a-${randomUUID()}`;
       await request(app.getHttpServer())
@@ -292,15 +283,15 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
           ],
         });
 
-      // Cashier attempts to void with valid PIN
+      // Backoffice device attempts to void
       const voidRes = await request(app.getHttpServer())
         .post(`/api/v1/sales/${saleIdA}/void`)
-        .set('Authorization', `Bearer ${cashierTokenA}`)
-        .set('Idempotency-Key', `k-void-cashier-${randomUUID()}`)
-        .send({ pin: MANAGER_PIN });
+        .set('Authorization', `Bearer ${backofficeTokenA}`)
+        .set('Idempotency-Key', `k-void-bo-${randomUUID()}`)
+        .send({ reason: 'Customer return' });
 
       expect(voidRes.status).toBe(403);
-      expect(voidRes.body.error?.code).toBe('FORBIDDEN');
+      expect(voidRes.body.error?.code).toBe('DEVICE_ROLE_FORBIDDEN');
     });
 
     it('enforces device role guard (backoffice device cannot create sale)', async () => {
@@ -438,7 +429,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
           jti: randomUUID(),
           typ: 'access',
           tid: TENANT_A,
-          role: 'cashier',
+          role: 'owner',
           exp: Math.floor(Date.now() / 1000) - 300, // Expired 5m ago
         },
         untrustedKeys.privateKey,
@@ -456,7 +447,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
       const validToken = accessToken({
         tenantId: TENANT_A,
         userId: fixtureA.userId,
-        role: 'cashier',
+        role: 'owner',
       });
 
       // Tamper header kid to key-999
@@ -482,7 +473,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
           jti: randomUUID(),
           typ: 'refresh', // WRONG typ for API access
           tid: TENANT_A,
-          role: 'cashier',
+          role: 'owner',
         },
         untrustedKeys.privateKey,
         { algorithm: 'RS256', keyid: 'key-1', expiresIn: '8h' },
@@ -667,9 +658,9 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
       expect(statuses.filter((s) => s === 429)).toHaveLength(3);
     });
 
-    it('rate-limits consecutive failed manager PIN attempts on void with 429 and Retry-After', async () => {
+    it('enforces non-empty reason on void', async () => {
       // Create a sale to target for voiding
-      const saleId = `sale-void-pin-${randomUUID()}`;
+      const saleId = `sale-void-reason-${randomUUID()}`;
       await request(app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${posTokenA}`)
@@ -691,27 +682,15 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
           ],
         });
 
-      // 5 failed PIN attempts
-      for (let i = 0; i < 5; i++) {
-        const res = await request(app.getHttpServer())
-          .post(`/api/v1/sales/${saleId}/void`)
-          .set('Authorization', `Bearer ${managerTokenA}`)
-          .set('Idempotency-Key', `k-void-bad-pin-${i}-${randomUUID()}`)
-          .send({ pin: '0000' }); // Wrong PIN
-
-        expect(res.status).toBe(403);
-      }
-
-      // 6th attempt should be locked out with 429 RATE_LIMITED
-      const blockedRes = await request(app.getHttpServer())
+      // Missing reason is rejected with 400
+      const res = await request(app.getHttpServer())
         .post(`/api/v1/sales/${saleId}/void`)
-        .set('Authorization', `Bearer ${managerTokenA}`)
-        .set('Idempotency-Key', `k-void-bad-pin-blocked-${randomUUID()}`)
-        .send({ pin: '0000' });
+        .set('Authorization', `Bearer ${posTokenA}`)
+        .set('Idempotency-Key', `k-void-missing-reason-${randomUUID()}`)
+        .send({});
 
-      expect(blockedRes.status).toBe(429);
-      expect(blockedRes.body.error?.code).toBe('RATE_LIMITED');
-      expect(blockedRes.headers['retry-after']).toBeDefined();
+      expect(res.status).toBe(400);
+      expect(res.body.error?.message).toBe('Void reason is required');
     });
   });
 });

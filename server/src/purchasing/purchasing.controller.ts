@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Param,
   Post,
@@ -31,14 +30,6 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-function requireManager(req: AuthenticatedRequest): void {
-  if (req.user?.role !== 'manager' && req.user?.role !== 'owner') {
-    throw new ForbiddenException({
-      code: 'FORBIDDEN',
-      message: 'Manager role required',
-    });
-  }
-}
 
 function extractActor(req: AuthenticatedRequest): { userId: string; deviceId: string } {
   return {
@@ -90,7 +81,6 @@ export class PurchasingController {
       idempotencyParamsOf(req, 201),
       res,
       () => {
-        requireManager(req);
         const actor = extractActor(req);
         return this.purchasingService.receive(id, actor);
       },
@@ -102,7 +92,6 @@ export class PurchasingController {
     @Param('id') id: string,
     @Req() req: AuthenticatedRequest,
   ): Promise<PurchaseOrderOut> {
-    requireManager(req);
     const actor = extractActor(req);
     return this.purchasingService.cancel(id, actor);
   }
@@ -112,7 +101,6 @@ export class PurchasingController {
     @Param('id') id: string,
     @Req() req: AuthenticatedRequest,
   ): Promise<{ id: string; deleted: boolean }> {
-    requireManager(req);
     const actor = extractActor(req);
     return this.purchasingService.delete(id, actor);
   }

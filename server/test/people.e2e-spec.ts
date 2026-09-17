@@ -16,7 +16,6 @@ describe('customers and mechanics (e2e)', () => {
   let cache: import('ioredis').Redis;
   let fixture: TenantFixture;
   let managerToken: string;
-  let cashierToken: string;
   let key = 0;
 
   const auth = (token = managerToken) => ({ Authorization: `Bearer ${token}` });
@@ -51,14 +50,7 @@ describe('customers and mechanics (e2e)', () => {
     managerToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
-      deviceId: fixture.backofficeDeviceId,
-      deviceRole: 'backoffice',
-    });
-    cashierToken = accessToken({
-      tenantId: TENANT,
-      userId: fixture.userId,
-      role: 'cashier',
+      role: 'owner',
       deviceId: fixture.backofficeDeviceId,
       deviceRole: 'backoffice',
     });
@@ -347,18 +339,11 @@ describe('customers and mechanics (e2e)', () => {
     });
   });
 
-  it('requires manager access for mechanic writes but allows authenticated reads', async () => {
-    const refused = await createMechanic(
-      { name: 'Cashier edit' },
-      cashierToken,
-    );
-    expect(refused.status).toBe(403);
-    expect(refused.body.error.code).toBe('FORBIDDEN');
-
-    const read = await request(app.getHttpServer())
-      .get('/api/v1/mechanics')
-      .set(auth(cashierToken));
-    expect(read.status).toBe(200);
+  it('requires authentication for mechanic writes', async () => {
+    const unauth = await request(app.getHttpServer())
+      .post('/api/v1/mechanics')
+      .send({ name: 'Unauth edit' });
+    expect(unauth.status).toBe(401);
   });
 
   it('soft-deletes mechanics from normal list/search while exposing the sync tombstone', async () => {

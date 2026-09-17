@@ -187,14 +187,14 @@ describe('cache invalidation after commit (e2e, #32)', () => {
     token = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
     otherToken = accessToken({
       tenantId: OTHER,
       userId: other.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: other.posDeviceId,
       deviceRole: 'pos',
     });
@@ -289,7 +289,7 @@ describe('cache invalidation after commit (e2e, #32)', () => {
     it('POST /sales/:id/void', async () => {
       expect((await sale('s32-void', 4)).status).toBe(201);
       await prime();
-      expect((await post('/sales/s32-void/void', { pin: PIN })).status).toBe(200);
+      expect((await post('/sales/s32-void/void', { reason: 'Return' })).status).toBe(200);
       await expectFresh(50);
     });
 
@@ -455,7 +455,7 @@ describe('cache invalidation after commit (e2e, #32)', () => {
       expect((await creditSale('s32-ledger-void')).status).toBe(201);
       await primePath('/customers');
       await primePath('/mechanics');
-      expect((await post('/sales/s32-ledger-void/void', { pin: PIN })).status).toBe(200);
+      expect((await post('/sales/s32-ledger-void/void', { reason: 'Return' })).status).toBe(200);
       expect(row<CustomerOut>(await miss('/customers'), 'c1')).toMatchObject({
         points: 0,
         totalSpend: '0.00',

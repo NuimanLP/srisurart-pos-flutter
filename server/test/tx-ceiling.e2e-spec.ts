@@ -51,7 +51,7 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
     token = accessToken({
       tenantId: TENANT,
       userId: t.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: t.posDeviceId,
       deviceRole: 'pos',
     });

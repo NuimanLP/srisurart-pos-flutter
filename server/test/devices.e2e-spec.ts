@@ -25,7 +25,7 @@ describe('devices: enrol and retire (e2e)', () => {
   // One address per run: the login IP bucket is shared by every suite on 127.0.0.1.
   const ip = `203.0.113.${Math.floor(Math.random() * 250) + 1}`;
 
-  const token = (role: 'owner' | 'manager' | 'cashier', deviceId?: string) =>
+  const token = (role = 'owner', deviceId?: string) =>
     accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
@@ -34,7 +34,7 @@ describe('devices: enrol and retire (e2e)', () => {
       deviceRole: deviceId === fixture?.posDeviceId ? 'pos' : 'backoffice',
     });
 
-  const createDevice = (body: unknown, role: 'owner' | 'manager' | 'cashier' = 'owner') =>
+  const createDevice = (body: unknown, role = 'owner') =>
     request(app.getHttpServer())
       .post('/api/v1/devices')
       .set('Authorization', `Bearer ${token(role)}`)
@@ -44,7 +44,7 @@ describe('devices: enrol and retire (e2e)', () => {
   const retire = (
     id: string,
     body: unknown = {},
-    role: 'owner' | 'manager' | 'cashier' = 'owner',
+    role = 'owner',
   ) =>
     request(app.getHttpServer())
       .post(`/api/v1/devices/${encodeURIComponent(id)}/retire`)
@@ -147,7 +147,7 @@ describe('devices: enrol and retire (e2e)', () => {
   });
 
   it('is owner only, and validates the body', async () => {
-    for (const role of ['manager', 'cashier'] as const) {
+    for (const role of ['viewer', 'employee'] as const) {
       const create = await createDevice({ label: 'x', role: 'backoffice' }, role);
       expect(create.status).toBe(403);
       expect(create.body.error.code).toBe('FORBIDDEN');
@@ -239,7 +239,7 @@ describe('devices: enrol and retire (e2e)', () => {
   });
 
   it('retiring a pos with an open drawer needs the counted cash, and writes nothing without it', async () => {
-    const posToken = token('manager', fixture.posDeviceId);
+    const posToken = token('owner', fixture.posDeviceId);
     const opened = await request(app.getHttpServer())
       .post('/api/v1/shifts/open')
       .set('Authorization', `Bearer ${posToken}`)

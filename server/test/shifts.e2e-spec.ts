@@ -55,14 +55,14 @@ describe('shifts and the cash drawer (e2e)', () => {
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
     backofficeToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.backofficeDeviceId,
       deviceRole: 'backoffice',
     });
@@ -436,7 +436,7 @@ describe('shifts and the cash drawer (e2e)', () => {
     const replacementToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: replacementId,
       deviceRole: 'pos',
     });

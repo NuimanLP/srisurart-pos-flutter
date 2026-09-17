@@ -34,7 +34,6 @@ describe('catalogue (e2e)', () => {
   let cache: Redis;
   let fixture: TenantFixture;
   let manager: string;
-  let cashier: string;
   let otherManager: string;
   let key = 0;
 
@@ -107,7 +106,7 @@ describe('catalogue (e2e)', () => {
     const token = (
       tenantId: string,
       f: TenantFixture,
-      role: 'manager' | 'cashier',
+      role = 'owner',
     ) =>
       accessToken({
         tenantId,
@@ -116,9 +115,8 @@ describe('catalogue (e2e)', () => {
         deviceId: f.backofficeDeviceId,
         deviceRole: 'backoffice',
       });
-    manager = token(TENANT, fixture, 'manager');
-    cashier = token(TENANT, fixture, 'cashier');
-    otherManager = token(OTHER, other, 'manager');
+    manager = token(TENANT, fixture, 'owner');
+    otherManager = token(OTHER, other, 'owner');
 
     // The Dart seed rows the parity cases name: p1 stock 48, p2, p8 stock 5.
     await seedProduct(admin, TENANT, {
@@ -896,42 +894,9 @@ describe('catalogue (e2e)', () => {
   });
 
   describe('access', () => {
-    it('refuses every catalogue write to a cashier and allows the reads', async () => {
-      const refusals = [
-        await post('/products', newProduct(), cashier),
-        await patch('/products/p1', { name: 'x' }, cashier),
-        await del('/products/p1', cashier),
-        await post(
-          '/products/p1/adjust-stock',
-          { delta: 1, type: 'adjustment-in' },
-          cashier,
-        ),
-        await post('/categories', { name: 'x' }, cashier),
-        await del('/categories/x', cashier),
-        await post(
-          '/suppliers',
-          { productId: 'p1', name: 'x', unitCost: '1.00' },
-          cashier,
-        ),
-      ];
-      for (const r of refusals) {
-        expect(r.status).toBe(403);
-        expect(r.body.error.code).toBe('FORBIDDEN');
-      }
-      expect(await stockOf('p1')).toBe(48);
-      expect(await liveCount()).toBe(3);
-      expect(await movementCount()).toBe(0);
-
-      for (const path of [
-        '/products',
-        '/products/p1',
-        '/categories',
-        '/products/p1/suppliers',
-        '/movements',
-      ]) {
-        expect((await get(path, cashier)).status, path).toBe(200);
-      }
+    it('requires authentication for catalogue routes', async () => {
       expect((await http().get('/api/v1/categories')).status).toBe(401);
+      expect((await http().get('/api/v1/products')).status).toBe(401);
     });
 
     it("another tenant's manager sees and changes nothing (RLS)", async () => {

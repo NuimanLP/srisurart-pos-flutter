@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  ForbiddenException,
   Get,
   Patch,
   Req,
@@ -43,19 +42,7 @@ export class SettingsController {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 200),
       res,
-      () => {
-        requireManager(req);
-        return this.settingsService.updateSettings(parseSettingsPatch(body));
-      },
+      () => this.settingsService.updateSettings(parseSettingsPatch(body)),
     );
-  }
-}
-
-function requireManager(req: AuthenticatedRequest): void {
-  if (req.user?.role !== 'manager' && req.user?.role !== 'owner') {
-    throw new ForbiddenException({
-      code: 'FORBIDDEN',
-      message: 'Manager role required',
-    });
   }
 }

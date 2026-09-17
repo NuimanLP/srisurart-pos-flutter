@@ -83,14 +83,14 @@ describe('POST /sales (e2e)', () => {
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });
     backofficeToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.backofficeDeviceId,
       deviceRole: 'backoffice',
     });
@@ -698,7 +698,7 @@ describe('POST /sales (e2e)', () => {
       .post(`/api/v1/sales/${first.body.data.id}/void`)
       .set('Authorization', `Bearer ${posToken}`)
       .set('Idempotency-Key', `k-void-${Date.now()}`)
-      .send({ pin: PIN });
+      .send({ reason: 'Mistake' });
     expect(voided.status).toBe(200);
     expect(await stockOf('p1')).toBe(48);
 

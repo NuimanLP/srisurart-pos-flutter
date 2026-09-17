@@ -58,7 +58,7 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     const token = accessToken({
       tenantId: TENANT_A,
       userId: fixtureA.userId,
-      role: 'cashier',
+      role: 'owner',
     });
 
     const res = await request(app.getHttpServer())
@@ -72,7 +72,7 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     const token = accessToken({
       tenantId: TENANT_A,
       userId: fixtureA.userId,
-      role: 'cashier',
+      role: 'owner',
     });
 
     // Preset counter in Redis to hit limit (default 300)
@@ -103,12 +103,12 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     const tokenA = accessToken({
       tenantId: TENANT_A,
       userId: fixtureA.userId,
-      role: 'cashier',
+      role: 'owner',
     });
     const tokenB = accessToken({
       tenantId: TENANT_B,
       userId: fixtureB.userId,
-      role: 'cashier',
+      role: 'owner',
     });
 
     // Exhaust Tenant A
@@ -137,7 +137,7 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     const tokenLoadtest = accessToken({
       tenantId: TENANT_LOADTEST,
       userId: fixtureLoadtest.userId,
-      role: 'cashier',
+      role: 'owner',
     });
 
     // Preset Redis counter above limit
@@ -158,7 +158,7 @@ describe('Per-tenant rate limiting (ADR-0006 e2e)', () => {
     const tokenA = accessToken({
       tenantId: TENANT_A,
       userId: fixtureA.userId,
-      role: 'cashier',
+      role: 'owner',
     });
 
     // Preset Tenant B as exhausted

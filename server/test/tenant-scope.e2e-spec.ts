@@ -75,7 +75,7 @@ describe('the tenant scope without a request transaction (e2e, tx.4 #153)', () =
     token = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
-      role: 'manager',
+      role: 'owner',
       deviceId: fixture.posDeviceId,
       deviceRole: 'pos',
     });

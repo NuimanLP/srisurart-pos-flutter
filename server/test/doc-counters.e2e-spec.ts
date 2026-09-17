@@ -29,7 +29,7 @@ describe('GET /doc-counters (e2e)', () => {
     accessToken({
       tenantId: f.tenantId,
       userId: f.userId,
-      role: 'manager',
+      role: 'owner',
       ...(device === 'pos'
         ? { deviceId: f.posDeviceId, deviceRole: 'pos' }
         : device === 'backoffice'
@@ -184,7 +184,7 @@ describe('GET /doc-counters (e2e)', () => {
       accessToken({
         tenantId: TENANT,
         userId: fixture.userId,
-        role: 'manager',
+        role: 'owner',
         deviceId: other.posDeviceId,
         deviceRole: 'pos',
       }),

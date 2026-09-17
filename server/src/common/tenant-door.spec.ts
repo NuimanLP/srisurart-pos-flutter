@@ -116,8 +116,6 @@ const ALLOWED: Record<string, string> = {
     '/health/ready probes Postgres with SELECT 1 on HEALTH_DATA_SOURCE only (pos_app, pool of 1, #248): no tenant, no table, deliberately outside any transaction, and never the request pool, whose saturation would read as a dead database.',
   'auth/auth.service.ts':
     'ADR-0009: a failed login must leave its audit_log row, which a rolled-back request transaction would erase, and /auth/token must not hold an idle transaction across its argon2 verify; so /auth/token and /auth/refresh carry no TenantGuard and set app.tenant_id on their own runners.',
-  'sales/void.service.ts':
-    'auditDenial only, via AUDIT_DATA_SOURCE: a refused void rolls its request back and the refusal record must survive that; never the request pool (void-denial-pool.e2e-spec.ts).',
   'rate-limit/rate-limit.service.ts':
     'readPlan reads tenants.plan (no RLS) on the pool from the global rate-limit guard, before any runTx holds a connection — since tx.4 (#153) there is no request transaction to hold one first (#162).',
   'queue/tenant-job-runner.ts':

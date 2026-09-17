@@ -215,7 +215,7 @@ describe('Redis commandTimeout (#140)', () => {
         sub: 'u1',
         tid: TID,
         aud: 'tenant',
-        role: 'cashier',
+        role: 'owner',
         did: 'd1',
         drole: 'pos',
       }),

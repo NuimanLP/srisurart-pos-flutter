@@ -20,8 +20,7 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
   let fixture: TestApp;
   let tenantInfo: TenantFixture;
   let ownerToken: string;
-  let managerToken: string;
-  let cashierToken: string;
+  let nonOwnerToken: string;
   let backupQueue: Queue;
 
   const TENANT_ID = '44444444-4444-4444-4444-444444444444';
@@ -31,7 +30,7 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       if (await fn()) return;
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((r) => setTimeout(r, 100));
     }
     throw new Error(`Timeout waiting for condition after ${timeoutMs}ms`);
   }
@@ -57,18 +56,10 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
       deviceRole: 'pos',
     });
 
-    managerToken = accessToken({
+    nonOwnerToken = accessToken({
       tenantId: tenantInfo.tenantId,
       userId: tenantInfo.userId,
-      role: 'manager',
-      deviceId: tenantInfo.posDeviceId,
-      deviceRole: 'pos',
-    });
-
-    cashierToken = accessToken({
-      tenantId: tenantInfo.tenantId,
-      userId: tenantInfo.userId,
-      role: 'cashier',
+      role: 'viewer',
       deviceId: tenantInfo.posDeviceId,
       deviceRole: 'pos',
     });
@@ -77,37 +68,19 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
   });
 
   describe('AC1: Role Authorization', () => {
-    it('rejects cashier on POST /backup/export with 403 Forbidden', async () => {
+    it('rejects non-owner on POST /backup/export with 403 Forbidden', async () => {
       const res = await request(fixture.app.getHttpServer())
         .post('/api/v1/backup/export')
-        .set('Authorization', `Bearer ${cashierToken}`);
+        .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe('FORBIDDEN');
     });
 
-    it('rejects manager on POST /backup/export with 403 Forbidden', async () => {
-      const res = await request(fixture.app.getHttpServer())
-        .post('/api/v1/backup/export')
-        .set('Authorization', `Bearer ${managerToken}`);
-
-      expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
-    });
-
-    it('rejects cashier on GET /backup/jobs/:id with 403 Forbidden', async () => {
+    it('rejects non-owner on GET /backup/jobs/:id with 403 Forbidden', async () => {
       const res = await request(fixture.app.getHttpServer())
         .get('/api/v1/backup/jobs/any-id')
-        .set('Authorization', `Bearer ${cashierToken}`);
-
-      expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
-    });
-
-    it('rejects manager on GET /backup/jobs/:id with 403 Forbidden', async () => {
-      const res = await request(fixture.app.getHttpServer())
-        .get('/api/v1/backup/jobs/any-id')
-        .set('Authorization', `Bearer ${managerToken}`);
+        .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe('FORBIDDEN');

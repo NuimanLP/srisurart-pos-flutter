@@ -51,7 +51,7 @@ describe.skipIf(!process.env.MEASURE_TX_HOLD)(
       token = accessToken({
         tenantId: TENANT,
         userId: fixture.userId,
-        role: 'manager',
+        role: 'owner',
         deviceId: fixture.posDeviceId,
         deviceRole: 'pos',
       });
@@ -160,7 +160,7 @@ describe.skipIf(!process.env.MEASURE_TX_HOLD)(
       const warm = await sale();
       expect(warm.status).toBe(201);
       expect(
-        (await post(`/sales/${warm.body.data.id}/void`, { pin: PIN })).status,
+        (await post(`/sales/${warm.body.data.id}/void`, { reason: 'Return' })).status,
       ).toBe(200);
 
       const rounds = [];
@@ -175,7 +175,7 @@ describe.skipIf(!process.env.MEASURE_TX_HOLD)(
           await measure(() =>
             Promise.all(
               ids.map((id) =>
-                timed(() => post(`/sales/${id}/void`, { pin: PIN })),
+                timed(() => post(`/sales/${id}/void`, { reason: 'Return' })),
               ),
             ),
           ),

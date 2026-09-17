@@ -108,21 +108,10 @@ export class SalesController {
   }
 
   /**
-   * `manager` + PIN, `pos` device only. Restores stock, marks the bill void and
+   * `pos` device only. Restores stock, marks the bill void and
    * writes an audit row. Voiding twice, voiding a bill that already has a credit
    * note against it, or voiding a bill that is not from this device's open shift
    * (#94 — a credit note undoes that one), is refused.
-   *
-   * 🔴 The one idempotent route with work before its claim (tx.5, #154), in this order:
-   *   1. the key is read and validated — a missing or oversized key is still a 400 first;
-   *   2. `authorise` checks role + manager PIN: a short `runTx` for `pin_hash`, then argon2
-   *      with no transaction and no connection held;
-   *   3. `runIdempotent` claims the key and voids, in one transaction.
-   * Strictly sequential, never `Promise.all` — each `runTx` takes its own connection.
-   * Nothing about the bill is read between 2 and 3: the PIN is an authorisation, not an
-   * invariant, and the lock order inside 3 is unchanged.
-   * Consequence: a done key no longer skips the PIN — a replay with a wrong or missing PIN
-   * is a 403 plus a `sale.void.denied` row, not the stored 200.
    */
   @Post(':id/void')
   @HttpCode(200)
@@ -133,27 +122,30 @@ export class SalesController {
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SaleWithItems> {
-    const params = idempotencyParamsOf(req, 200);
-    const authorised = await this.voids.authorise(id, voidActorOf(req, body));
-    return this.idempotency.runIdempotent(params, res, () =>
-      this.voids.void(id, authorised),
+    return this.idempotency.runIdempotent(
+      idempotencyParamsOf(req, 200),
+      res,
+      () => this.voids.void(id, voidActorOf(req, body)),
     );
   }
 }
 
-/** Who is voiding: the token's user, role and device, plus the PIN the body carries. */
+/** Who is voiding: the token's user, role and device, plus the non-empty reason. */
 function voidActorOf(req: AuthenticatedRequest, body: unknown): VoidActor {
   // A `pos` token always carries `did` — the guard refuses this route otherwise — but the
   // audit rows depend on it, so it is checked rather than asserted.
   if (!req.user.deviceId) {
     throw new DeviceRoleForbiddenException();
   }
-  const pin = (body as { pin?: unknown })?.pin;
+  const reason = (body as { reason?: unknown })?.reason;
+  if (typeof reason !== 'string' || reason.trim() === '') {
+    throw new BadRequestException('Void reason is required');
+  }
   return {
     userId: req.user.userId,
     role: req.user.role,
     deviceId: req.user.deviceId,
-    pin: typeof pin === 'string' ? pin : '',
+    reason: reason.trim(),
     ip: clientIp(req) ?? undefined,
   };
 }

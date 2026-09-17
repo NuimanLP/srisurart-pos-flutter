@@ -380,13 +380,8 @@ describe('Backup Module (unit)', () => {
     });
 
     describe('POST /backup/export (AC1 & AC2)', () => {
-      it('AC1: rejects cashier with 403 Forbidden', async () => {
-        const req: any = { user: { role: 'cashier', userId: USER_ID } };
-        await expect(controller.exportTenantData(req)).rejects.toThrow(ForbiddenException);
-      });
-
-      it('AC1: rejects manager with 403 Forbidden', async () => {
-        const req: any = { user: { role: 'manager', userId: USER_ID } };
+      it('AC1: rejects non-owner with 403 Forbidden', async () => {
+        const req: any = { user: { role: 'viewer', userId: USER_ID } };
         await expect(controller.exportTenantData(req)).rejects.toThrow(ForbiddenException);
       });
 
@@ -418,8 +413,8 @@ describe('Backup Module (unit)', () => {
     });
 
     describe('GET /backup/jobs/:id (AC1 & AC5)', () => {
-      it('AC1: rejects cashier with 403 Forbidden', async () => {
-        const req: any = { user: { role: 'cashier' } };
+      it('AC1: rejects non-owner with 403 Forbidden', async () => {
+        const req: any = { user: { role: 'viewer' } };
         await expect(controller.getJobStatus(req, 'job-1')).rejects.toThrow(ForbiddenException);
       });
 
