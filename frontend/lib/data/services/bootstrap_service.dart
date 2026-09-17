@@ -185,7 +185,6 @@ class BootstrapService {
       minStock: Value((json['minStock'] ?? json['min_stock'] as num?)?.toInt() ?? 0),
       compat: Value(json['compat'] as String?),
       zone: Value(json['zone'] as String?),
-      offlineOk: Value((json['offlineOk'] ?? json['offline_ok'] as bool?) ?? false),
       updatedAt: Value(stampOrNull(json['updatedAt'])),
       deletedAt: Value(stampOrNull(json['deletedAt'])),
     );

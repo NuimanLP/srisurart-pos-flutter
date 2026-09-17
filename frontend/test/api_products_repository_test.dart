@@ -38,7 +38,6 @@ void main() {
                 "cost": "800.00",
                 "stock": 10,
                 "minStock": 2,
-                "offlineOk": true,
                 "updatedAt": "2026-09-12T10:00:00.000Z",
                 "deletedAt": null
               },
@@ -53,7 +52,6 @@ void main() {
                 "cost": "300.00",
                 "stock": 0,
                 "minStock": 0,
-                "offlineOk": false,
                 "updatedAt": "2026-09-12T10:00:00.000Z",
                 "deletedAt": "2026-09-12T10:05:00.000Z"
               }
@@ -78,7 +76,6 @@ void main() {
     final active = products.firstWhere((p) => p.id == 'p_remote_1');
     expect(active.partNo, 'REM-001');
     expect(active.price, 1200.0);
-    expect(active.offlineOk, isTrue);
 
     // Verify it was written through to Drift DB
     final inDrift = await (db.select(db.products)..where((t) => t.id.equals('p_remote_1'))).getSingleOrNull();

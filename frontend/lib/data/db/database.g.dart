@@ -132,21 +132,6 @@ class $ProductsTable extends Products
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
-  static const VerificationMeta _offlineOkMeta = const VerificationMeta(
-    'offlineOk',
-  );
-  @override
-  late final GeneratedColumn<bool> offlineOk = GeneratedColumn<bool>(
-    'offline_ok',
-    aliasedName,
-    false,
-    type: DriftSqlType.bool,
-    requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("offline_ok" IN (0, 1))',
-    ),
-    defaultValue: const Constant(false),
-  );
   static const VerificationMeta _deletedAtMeta = const VerificationMeta(
     'deletedAt',
   );
@@ -173,7 +158,6 @@ class $ProductsTable extends Products
     compat,
     zone,
     updatedAt,
-    offlineOk,
     deletedAt,
   ];
   @override
@@ -283,12 +267,6 @@ class $ProductsTable extends Products
         updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
       );
     }
-    if (data.containsKey('offline_ok')) {
-      context.handle(
-        _offlineOkMeta,
-        offlineOk.isAcceptableOrUnknown(data['offline_ok']!, _offlineOkMeta),
-      );
-    }
     if (data.containsKey('deleted_at')) {
       context.handle(
         _deletedAtMeta,
@@ -356,10 +334,6 @@ class $ProductsTable extends Products
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       ),
-      offlineOk: attachedDatabase.typeMapping.read(
-        DriftSqlType.bool,
-        data['${effectivePrefix}offline_ok'],
-      )!,
       deletedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
@@ -388,11 +362,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
   final String? zone;
   final DateTime? updatedAt;
 
-  /// Schema v3 (ADR-0010): may this line be sold while the client is degraded?
-  /// Written ONLY from a server response — never derived here. Defaults to
-  /// false so an unknown product is not sellable offline.
-  final bool offlineOk;
-
   /// Schema v4 (Ticket #55): soft delete timestamp from server so that
   /// `?updatedSince=` cursor does not re-resurrect deleted products.
   final DateTime? deletedAt;
@@ -410,7 +379,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     this.compat,
     this.zone,
     this.updatedAt,
-    required this.offlineOk,
     this.deletedAt,
   });
   @override
@@ -435,7 +403,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     if (!nullToAbsent || updatedAt != null) {
       map['updated_at'] = Variable<DateTime>(updatedAt);
     }
-    map['offline_ok'] = Variable<bool>(offlineOk);
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
     }
@@ -461,7 +428,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       updatedAt: updatedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(updatedAt),
-      offlineOk: Value(offlineOk),
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
@@ -487,7 +453,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       compat: serializer.fromJson<String?>(json['compat']),
       zone: serializer.fromJson<String?>(json['zone']),
       updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
-      offlineOk: serializer.fromJson<bool>(json['offlineOk']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
     );
   }
@@ -508,7 +473,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       'compat': serializer.toJson<String?>(compat),
       'zone': serializer.toJson<String?>(zone),
       'updatedAt': serializer.toJson<DateTime?>(updatedAt),
-      'offlineOk': serializer.toJson<bool>(offlineOk),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
     };
   }
@@ -527,7 +491,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     Value<String?> compat = const Value.absent(),
     Value<String?> zone = const Value.absent(),
     Value<DateTime?> updatedAt = const Value.absent(),
-    bool? offlineOk,
     Value<DateTime?> deletedAt = const Value.absent(),
   }) => ProductRow(
     id: id ?? this.id,
@@ -543,7 +506,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     compat: compat.present ? compat.value : this.compat,
     zone: zone.present ? zone.value : this.zone,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
-    offlineOk: offlineOk ?? this.offlineOk,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
   );
   ProductRow copyWithCompanion(ProductsCompanion data) {
@@ -561,7 +523,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       compat: data.compat.present ? data.compat.value : this.compat,
       zone: data.zone.present ? data.zone.value : this.zone,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
-      offlineOk: data.offlineOk.present ? data.offlineOk.value : this.offlineOk,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
     );
   }
@@ -582,7 +543,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
           ..write('compat: $compat, ')
           ..write('zone: $zone, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('offlineOk: $offlineOk, ')
           ..write('deletedAt: $deletedAt')
           ..write(')'))
         .toString();
@@ -603,7 +563,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     compat,
     zone,
     updatedAt,
-    offlineOk,
     deletedAt,
   );
   @override
@@ -623,7 +582,6 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
           other.compat == this.compat &&
           other.zone == this.zone &&
           other.updatedAt == this.updatedAt &&
-          other.offlineOk == this.offlineOk &&
           other.deletedAt == this.deletedAt);
 }
 
@@ -641,7 +599,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
   final Value<String?> compat;
   final Value<String?> zone;
   final Value<DateTime?> updatedAt;
-  final Value<bool> offlineOk;
   final Value<DateTime?> deletedAt;
   final Value<int> rowid;
   const ProductsCompanion({
@@ -658,7 +615,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     this.compat = const Value.absent(),
     this.zone = const Value.absent(),
     this.updatedAt = const Value.absent(),
-    this.offlineOk = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -676,7 +632,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     this.compat = const Value.absent(),
     this.zone = const Value.absent(),
     this.updatedAt = const Value.absent(),
-    this.offlineOk = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -703,7 +658,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     Expression<String>? compat,
     Expression<String>? zone,
     Expression<DateTime>? updatedAt,
-    Expression<bool>? offlineOk,
     Expression<DateTime>? deletedAt,
     Expression<int>? rowid,
   }) {
@@ -721,7 +675,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
       if (compat != null) 'compat': compat,
       if (zone != null) 'zone': zone,
       if (updatedAt != null) 'updated_at': updatedAt,
-      if (offlineOk != null) 'offline_ok': offlineOk,
       if (deletedAt != null) 'deleted_at': deletedAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -741,7 +694,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     Value<String?>? compat,
     Value<String?>? zone,
     Value<DateTime?>? updatedAt,
-    Value<bool>? offlineOk,
     Value<DateTime?>? deletedAt,
     Value<int>? rowid,
   }) {
@@ -759,7 +711,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
       compat: compat ?? this.compat,
       zone: zone ?? this.zone,
       updatedAt: updatedAt ?? this.updatedAt,
-      offlineOk: offlineOk ?? this.offlineOk,
       deletedAt: deletedAt ?? this.deletedAt,
       rowid: rowid ?? this.rowid,
     );
@@ -807,9 +758,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
-    if (offlineOk.present) {
-      map['offline_ok'] = Variable<bool>(offlineOk.value);
-    }
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
@@ -835,7 +783,6 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
           ..write('compat: $compat, ')
           ..write('zone: $zone, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('offlineOk: $offlineOk, ')
           ..write('deletedAt: $deletedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -12273,7 +12220,6 @@ typedef $$ProductsTableCreateCompanionBuilder =
       Value<String?> compat,
       Value<String?> zone,
       Value<DateTime?> updatedAt,
-      Value<bool> offlineOk,
       Value<DateTime?> deletedAt,
       Value<int> rowid,
     });
@@ -12292,7 +12238,6 @@ typedef $$ProductsTableUpdateCompanionBuilder =
       Value<String?> compat,
       Value<String?> zone,
       Value<DateTime?> updatedAt,
-      Value<bool> offlineOk,
       Value<DateTime?> deletedAt,
       Value<int> rowid,
     });
@@ -12368,11 +12313,6 @@ class $$ProductsTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<bool> get offlineOk => $composableBuilder(
-    column: $table.offlineOk,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12456,11 +12396,6 @@ class $$ProductsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<bool> get offlineOk => $composableBuilder(
-    column: $table.offlineOk,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
@@ -12515,9 +12450,6 @@ class $$ProductsTableAnnotationComposer
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 
-  GeneratedColumn<bool> get offlineOk =>
-      $composableBuilder(column: $table.offlineOk, builder: (column) => column);
-
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
 }
@@ -12566,7 +12498,6 @@ class $$ProductsTableTableManager
                 Value<String?> compat = const Value.absent(),
                 Value<String?> zone = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
-                Value<bool> offlineOk = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ProductsCompanion(
@@ -12583,7 +12514,6 @@ class $$ProductsTableTableManager
                 compat: compat,
                 zone: zone,
                 updatedAt: updatedAt,
-                offlineOk: offlineOk,
                 deletedAt: deletedAt,
                 rowid: rowid,
               ),
@@ -12602,7 +12532,6 @@ class $$ProductsTableTableManager
                 Value<String?> compat = const Value.absent(),
                 Value<String?> zone = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
-                Value<bool> offlineOk = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ProductsCompanion.insert(
@@ -12619,7 +12548,6 @@ class $$ProductsTableTableManager
                 compat: compat,
                 zone: zone,
                 updatedAt: updatedAt,
-                offlineOk: offlineOk,
                 deletedAt: deletedAt,
                 rowid: rowid,
               ),

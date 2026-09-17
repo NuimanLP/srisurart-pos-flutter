@@ -38,8 +38,7 @@ void main() {
                   "price": "350.00",
                   "cost": "200.00",
                   "stock": 15,
-                  "minStock": 3,
-                  "offlineOk": true
+                  "minStock": 3
                 }
               ],
               "customers": [
@@ -90,7 +89,6 @@ void main() {
     final product = await (db.select(db.products)..where((t) => t.id.equals('p_boot_1'))).getSingleOrNull();
     expect(product, isNotNull);
     expect(product!.partNo, 'BT-001');
-    expect(product.offlineOk, isTrue);
 
     final customer = await (db.select(db.customers)..where((t) => t.id.equals('c_boot_1'))).getSingleOrNull();
     expect(customer, isNotNull);

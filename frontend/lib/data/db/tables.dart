@@ -27,11 +27,6 @@ class Products extends Table {
       text().nullable()(); // legacy field, migrated to category on read
   DateTimeColumn get updatedAt => dateTime().nullable()();
 
-  /// Schema v3 (ADR-0010): may this line be sold while the client is degraded?
-  /// Written ONLY from a server response — never derived here. Defaults to
-  /// false so an unknown product is not sellable offline.
-  BoolColumn get offlineOk => boolean().withDefault(const Constant(false))();
-
   /// Schema v4 (Ticket #55): soft delete timestamp from server so that
   /// `?updatedSince=` cursor does not re-resurrect deleted products.
   DateTimeColumn get deletedAt => dateTime().nullable()();
