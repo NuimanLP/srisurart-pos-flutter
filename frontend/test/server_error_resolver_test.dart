@@ -38,6 +38,12 @@ void main() {
       expect(ServerErrorResolver.resolve('DEVICE_NO_EXHAUSTED'), 'เพิ่มเครื่องไม่ได้ ร้านใช้เลขเครื่องครบ 99 เครื่องแล้ว');
       expect(ServerErrorResolver.resolve('DEVICE_ALREADY_RETIRED'), 'เครื่องนี้ถูกปลดไปแล้ว');
       expect(ServerErrorResolver.resolve('PHYSICAL_CASH_REQUIRED'), 'เครื่องนี้ยังมีกะเปิดอยู่ กรุณานับเงินในลิ้นชักและกรอกยอดก่อนปลดเครื่อง');
+      // Phase 2 (#268, F10)
+      expect(ServerErrorResolver.resolve('DOC_NUMBER_REQUIRED'), 'จำเป็นต้องระบุเลขที่เอกสาร');
+      expect(ServerErrorResolver.resolve('DOC_NUMBER_INVALID'), 'รูปแบบเลขที่เอกสารไม่ถูกต้อง');
+      expect(ServerErrorResolver.resolve('VOID_NEEDS_ONLINE'), 'บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น');
+      expect(ServerErrorResolver.resolve('CLIENT_ID_REUSED'), 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ');
+      expect(ServerErrorResolver.resolve('DEVICE_HAS_UNSYNCED_OPS'), 'เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง');
       expect(ServerErrorResolver.resolve('SHIFT_NOT_FOUND'), 'ไม่พบข้อมูลกะ');
       expect(ServerErrorResolver.resolve('UNAUTHENTICATED'), 'กรุณาเข้าสู่ระบบ');
       expect(ServerErrorResolver.resolve('FORBIDDEN'), 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้');
