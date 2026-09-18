@@ -1234,6 +1234,188 @@ describe('POST /sync/push (e2e)', () => {
       expect(creditReviews[0].ref_id).toBe('s_credit_override');
     });
 
+    it('Slice 14-s (#285): credit limit override via push creates credit_override review item and single audit_log row, B1 replay preserved', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
+        id: 'sh_co_14',
+        startingCash: 500,
+      });
+      await seedProduct(admin, TENANT, {
+        id: 'p_co_14',
+        partNo: 'HN-CO-14',
+        name: 'Brake Pad CO14',
+        price: 100,
+        cost: 50,
+        stock: 50,
+      });
+      await seedMechanic(admin, TENANT, {
+        id: 'm14',
+        code: 'M14',
+        name: 'ช่างสมชาย 14',
+        creditLimit: 50,
+        creditBalance: 0,
+      });
+
+      // 1. Attempt pushing credit sale that exceeds credit limit without override flag -> rejected CREDIT_LIMIT_EXCEEDED
+      const resWithoutFlag = await push({
+        outboxRemaining: 1,
+        ops: [
+          {
+            opId: 'op_co_refused',
+            idempotencyKey: 'k_co_refused',
+            type: 'sale.create',
+            payload: {
+              id: 's_co_refused',
+              receiptNo: 'RC01-2569-09-0091',
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เครดิตช่าง',
+              mechanicId: 'm14',
+              items: [{ lineNo: 1, productId: 'p_co_14', name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
+            },
+          },
+        ],
+      });
+
+      expect(resWithoutFlag.status).toBe(200);
+      expect(resWithoutFlag.body.data.results[0]).toMatchObject({
+        opId: 'op_co_refused',
+        status: 'rejected',
+        code: 'CREDIT_LIMIT_EXCEEDED',
+        details: {
+          creditLimit: '50.00',
+          creditBalance: '0.00',
+          newBalance: '100.00',
+        },
+      });
+
+      // Assert no audit log and no review item were written for the refused attempt
+      const auditRefused = await admin.query(
+        `SELECT count(*)::int AS n FROM audit_log WHERE tenant_id = $1::uuid AND entity_id = 'm14'`,
+        [TENANT],
+      );
+      expect(auditRefused[0].n).toBe(0);
+      const reviewsRefused = await admin.query(
+        `SELECT count(*)::int AS n FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = 's_co_refused'`,
+        [TENANT],
+      );
+      expect(reviewsRefused[0].n).toBe(0);
+
+      // 2. Pushing with overrideCreditLimit: true succeeds and creates 1 review item + 1 audit_log row
+      const resWithFlag = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_co_success',
+            idempotencyKey: 'k_co_success',
+            type: 'sale.create',
+            payload: {
+              id: 's_co_14',
+              receiptNo: 'RC01-2569-09-0092',
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เครดิตช่าง',
+              mechanicId: 'm14',
+              overrideCreditLimit: true,
+              items: [{ lineNo: 1, productId: 'p_co_14', name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
+            },
+          },
+        ],
+      });
+
+      expect(resWithFlag.status).toBe(200);
+      expect(resWithFlag.body.data.results[0].status).toBe('applied');
+
+      // Verify owner_review_items: exactly 1 row
+      const reviews = await admin.query(
+        `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = 's_co_14'`,
+        [TENANT],
+      );
+      expect(reviews).toHaveLength(1);
+      expect(reviews[0]).toMatchObject({
+        kind: 'credit_override',
+        ref_id: 's_co_14',
+        details: {
+          saleId: 's_co_14',
+          mechanicId: 'm14',
+          total: '100.00',
+          creditLimit: '50.00',
+          creditBalanceAfter: '100.00',
+        },
+      });
+
+      // Verify audit_log: exactly 1 row, tied to shop user and push device
+      const audits = await admin.query(
+        `SELECT action, entity, entity_id, user_id, device_id, after FROM audit_log
+          WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = 'm14'`,
+        [TENANT],
+      );
+      expect(audits).toHaveLength(1);
+      expect(audits[0]).toMatchObject({
+        action: 'sale.credit_limit_override',
+        entity: 'mechanic',
+        entity_id: 'm14',
+        user_id: fixture.userId,
+        device_id: fixture.posDeviceId,
+        after: {
+          saleId: 's_co_14',
+          total: '100.00',
+          creditLimit: '50.00',
+          creditBalanceBefore: '0.00',
+          creditBalanceAfter: '100.00',
+        },
+      });
+
+      // 3. B1 Replay Invariant: retrying push with same key returns applied without duplicating audit_log or review item
+      const resReplay = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_co_success',
+            idempotencyKey: 'k_co_success',
+            type: 'sale.create',
+            payload: {
+              id: 's_co_14',
+              receiptNo: 'RC01-2569-09-0092',
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เครดิตช่าง',
+              mechanicId: 'm14',
+              overrideCreditLimit: true,
+              items: [{ lineNo: 1, productId: 'p_co_14', name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
+            },
+          },
+        ],
+      });
+
+      expect(resReplay.status).toBe(200);
+      expect(resReplay.body.data.results[0].status).toBe('applied');
+
+      // Verify no duplication in owner_review_items (still exactly 1)
+      const reviewsAfterReplay = await admin.query(
+        `SELECT count(*)::int AS n FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = 's_co_14'`,
+        [TENANT],
+      );
+      expect(reviewsAfterReplay[0].n).toBe(1);
+
+      // Verify no duplication in audit_log (still exactly 1)
+      const auditsAfterReplay = await admin.query(
+        `SELECT count(*)::int AS n FROM audit_log
+          WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = 'm14'`,
+        [TENANT],
+      );
+      expect(auditsAfterReplay[0].n).toBe(1);
+
+      // Verify mechanic balance not doubled
+      const mechanicRow = await admin.query(
+        `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = 'm14'`,
+        [TENANT],
+      );
+      expect(mechanicRow[0].credit_balance).toBe('100.00');
+    });
+
     it('Issue #190: rejects sale or return with RECEIPT_NO_CONFLICT when document number collides', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: 'sh_190',
