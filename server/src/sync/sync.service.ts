@@ -913,6 +913,22 @@ export class SyncService {
         };
       }
 
+      if (rawCode === 'RECEIPT_NO_CONFLICT') {
+        const docNumber =
+          typeof op.payload.receiptNo === 'string'
+            ? op.payload.receiptNo
+            : typeof op.payload.cnNo === 'string'
+              ? op.payload.cnNo
+              : undefined;
+        return {
+          opId: op.opId,
+          status: 'rejected',
+          code: 'RECEIPT_NO_CONFLICT',
+          message: 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
+          details: docNumber ? { docNumber } : details,
+        };
+      }
+
       return {
         opId: op.opId,
         status: 'rejected',

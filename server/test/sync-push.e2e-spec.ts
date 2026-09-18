@@ -1128,5 +1128,227 @@ describe('POST /sync/push (e2e)', () => {
       expect(creditReviews).toHaveLength(1);
       expect(creditReviews[0].ref_id).toBe('s_credit_override');
     });
+
+    it('Issue #190: rejects sale or return with RECEIPT_NO_CONFLICT when document number collides', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
+        id: 'sh_190',
+        startingCash: 500,
+      });
+      await seedProduct(admin, TENANT, {
+        id: 'p190',
+        partNo: 'HN-190',
+        name: 'Spark Plug 190',
+        price: 100,
+        cost: 50,
+        stock: 50,
+      });
+
+      const receiptNo = 'RC01-2569-09-0070';
+      const salePayload1 = {
+        id: 's_190_1',
+        receiptNo,
+        date: new Date().toISOString(),
+        subtotal: '100.00',
+        discount: '0.00',
+        total: '100.00',
+        paymentMethod: 'เงินสด',
+        items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+      };
+
+      // 1. First sale applies successfully
+      const res1 = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_190_1',
+            idempotencyKey: 'k_190_1',
+            type: 'sale.create',
+            payload: salePayload1,
+          },
+        ],
+      });
+      expect(res1.status).toBe(200);
+      expect(res1.body.data.results[0].status).toBe('applied');
+
+      // 2. Replay with exact same sale returns applied (replay takes precedence over conflict check)
+      const resReplay = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_190_1_replay',
+            idempotencyKey: 'k_190_1_new_key',
+            type: 'sale.create',
+            payload: salePayload1,
+          },
+        ],
+      });
+      expect(resReplay.status).toBe(200);
+      expect(resReplay.body.data.results[0].status).toBe('applied');
+
+      // 3. Different sale attempting to use the same receiptNo -> rejected RECEIPT_NO_CONFLICT
+      const salePayloadColliding = {
+        id: 's_190_colliding',
+        receiptNo,
+        date: new Date().toISOString(),
+        subtotal: '200.00',
+        discount: '0.00',
+        total: '200.00',
+        paymentMethod: 'เงินสด',
+        items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 2, price: '100.00' }],
+      };
+
+      const resConflict = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_190_colliding',
+            idempotencyKey: 'k_190_colliding',
+            type: 'sale.create',
+            payload: salePayloadColliding,
+          },
+        ],
+      });
+
+      expect(resConflict.status).toBe(200);
+      expect(resConflict.body.data.results[0]).toEqual({
+        opId: 'op_190_colliding',
+        status: 'rejected',
+        code: 'RECEIPT_NO_CONFLICT',
+        message: 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
+        details: {
+          docNumber: receiptNo,
+        },
+      });
+
+      // Invariant: stock was only deducted by sale 1 (50 - 1 = 49), not by the rejected sale
+      const productRow = await admin.query(
+        `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = 'p190'`,
+        [TENANT],
+      );
+      expect(productRow[0].stock).toBe(49);
+
+      // Invariant: no row exists for s_190_colliding
+      const saleRows = await admin.query(
+        `SELECT id FROM sales WHERE tenant_id = $1::uuid AND id = 's_190_colliding'`,
+        [TENANT],
+      );
+      expect(saleRows).toHaveLength(0);
+
+      // 4. Batch continuation: a batch containing valid, colliding, valid ops
+      const resBatch = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_batch_valid_1',
+            idempotencyKey: 'k_b_1',
+            type: 'sale.create',
+            payload: {
+              id: 's_batch_1',
+              receiptNo: 'RC01-2569-09-0071',
+              date: new Date().toISOString(),
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เงินสด',
+              items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+            },
+          },
+          {
+            opId: 'op_batch_conflict',
+            idempotencyKey: 'k_b_2',
+            type: 'sale.create',
+            payload: {
+              id: 's_batch_2',
+              receiptNo, // colliding with s_190_1
+              date: new Date().toISOString(),
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เงินสด',
+              items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+            },
+          },
+          {
+            opId: 'op_batch_valid_2',
+            idempotencyKey: 'k_b_3',
+            type: 'sale.create',
+            payload: {
+              id: 's_batch_3',
+              receiptNo: 'RC01-2569-09-0072',
+              date: new Date().toISOString(),
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เงินสด',
+              items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+            },
+          },
+        ],
+      });
+
+      expect(resBatch.status).toBe(200);
+      expect(resBatch.body.data.results[0].status).toBe('applied');
+      expect(resBatch.body.data.results[1].status).toBe('rejected');
+      expect(resBatch.body.data.results[1].code).toBe('RECEIPT_NO_CONFLICT');
+      expect(resBatch.body.data.results[2].status).toBe('applied');
+
+      // 5. Credit note cnNo collision in return.create
+      const cnNo = 'CN01-2569-09-0020';
+      const returnPayload1 = {
+        id: 'r_190_1',
+        cnNo,
+        saleId: 's_190_1',
+        refundMethod: 'เงินสด',
+        reason: 'เปลี่ยนใจ',
+        items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+      };
+
+      const resReturn1 = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_ret_1',
+            idempotencyKey: 'k_ret_1',
+            type: 'return.create',
+            payload: returnPayload1,
+          },
+        ],
+      });
+      expect(resReturn1.status).toBe(200);
+      expect(resReturn1.body.data.results[0].status).toBe('applied');
+
+      // Different return attempting to reuse the same cnNo
+      const returnPayloadColliding = {
+        id: 'r_190_colliding',
+        cnNo,
+        saleId: 's_batch_1',
+        refundMethod: 'เงินสด',
+        reason: 'ขอคืน',
+        items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+      };
+
+      const resReturnConflict = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_ret_colliding',
+            idempotencyKey: 'k_ret_colliding',
+            type: 'return.create',
+            payload: returnPayloadColliding,
+          },
+        ],
+      });
+
+      expect(resReturnConflict.status).toBe(200);
+      expect(resReturnConflict.body.data.results[0]).toEqual({
+        opId: 'op_ret_colliding',
+        status: 'rejected',
+        code: 'RECEIPT_NO_CONFLICT',
+        message: 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
+        details: {
+          docNumber: cnNo,
+        },
+      });
+    });
   });
 });
