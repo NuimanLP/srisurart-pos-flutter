@@ -28,6 +28,8 @@ export interface AppConfig {
   etcdPassword?: string;
   /** Optional allowlist of admin IPs allowed to access /api/v1/platform (slice 24 / #270). */
   platformAdminIps?: string[];
+  /** Whether the server falls back to issuing RC/CN when omitted by client (C16, default: true). */
+  docNumberFallback?: boolean;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -98,5 +100,6 @@ export function loadConfig(env = process.env): AppConfig {
     platformAdminIps: env.PLATFORM_ADMIN_IPS
       ? env.PLATFORM_ADMIN_IPS.split(',').map((ip) => ip.trim()).filter(Boolean)
       : undefined,
+    docNumberFallback: env.DOC_NUMBER_FALLBACK !== 'false',
   };
 }

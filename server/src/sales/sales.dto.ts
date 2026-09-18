@@ -15,6 +15,7 @@ export interface SaleLine {
 /** A validated `POST /sales` body. Money is satang; ids are the client's. */
 export interface CreateSale {
   id: string;
+  receiptNo?: string | null;
   subtotalSatang: number;
   discountSatang: number;
   totalSatang: number;
@@ -51,10 +52,11 @@ const PAYMENT_METHODS = ['เงินสด', 'โอน/QR', 'เครดิ�
  * this server does not depend on; the rules here are few and the errors they raise are
  * plain `400`s, which is what a malformed body is.
  *
- * Three fields are **not** read even when present, because a client that could choose
- * them could choose someone else's: `receiptNo` (phase 1 issues it server-side,
- * ADR-0007), `shiftId` (stamped from the device's own open drawer) and anything
- * naming a tenant or a device (ADR-0004).
+ * Two fields are **not** read even when present, because a client that could choose
+ * them could choose someone else's: `shiftId` (stamped from the device's own open drawer)
+ * and anything naming a tenant or a device (ADR-0004). `receiptNo` is optional (Phase 2):
+ * when present, the server validates it against the caller's device token and records
+ * the high-water mark; when omitted, the server falls back to issuing one (C16).
  */
 export function parseCreateSale(body: unknown): CreateSale {
   const b = asObject(body, 'body');
@@ -85,6 +87,7 @@ export type SaleParty = Omit<
 export function parseSaleParty(b: Record<string, unknown>): SaleParty {
   return {
     id: requiredString(b.id, 'id'),
+    receiptNo: optionalString(b.receiptNo, 'receiptNo'),
     paymentMethod: requiredPaymentMethod(b.paymentMethod),
     customerId: optionalString(b.customerId, 'customerId'),
     customerName: optionalString(b.customerName, 'customerName'),

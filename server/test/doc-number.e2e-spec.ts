@@ -168,4 +168,120 @@ describe('document numbers (e2e)', () => {
     // INSERT inserted — this service never touches `sales`.)
     expect(await issue()).toBe(`RC07-${period}-0001`);
   });
+
+  it('records client-issued document numbers and upserts high-water mark with GREATEST', async () => {
+    const period = await currentPeriod();
+    const qr = ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+    try {
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT]);
+
+      // 1. Client records 0050 -> last_no becomes 50
+      await issuer.recordClientDocNumber(qr.manager, {
+        tenantId: TENANT,
+        deviceId: fixture.posDeviceId,
+        docType: 'receipt',
+        docNumber: `RC07-${period}-0050`,
+      });
+
+      // 2. Client records a lower number 0020 -> last_no stays 50 (GREATEST)
+      await issuer.recordClientDocNumber(qr.manager, {
+        tenantId: TENANT,
+        deviceId: fixture.posDeviceId,
+        docType: 'receipt',
+        docNumber: `RC07-${period}-0020`,
+      });
+
+      // 3. Client records a higher number 0085 -> last_no becomes 85
+      await issuer.recordClientDocNumber(qr.manager, {
+        tenantId: TENANT,
+        deviceId: fixture.posDeviceId,
+        docType: 'receipt',
+        docNumber: `RC07-${period}-0085`,
+      });
+
+      await qr.commitTransaction();
+    } catch (err) {
+      await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+
+    const rows = await admin.query(
+      `SELECT last_no FROM doc_counters WHERE tenant_id = $1::uuid AND device_id = $2 AND doc_type = 'receipt' AND period = $3`,
+      [TENANT, fixture.posDeviceId, period],
+    );
+    expect(rows[0].last_no).toBe(85);
+  });
+
+  it('refuses recordClientDocNumber for a retired device', async () => {
+    const period = await currentPeriod();
+    await admin.query(
+      `UPDATE devices SET retired_at = now() WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, fixture.posDeviceId],
+    );
+
+    const qr = ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+    try {
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT]);
+      await expect(
+        issuer.recordClientDocNumber(qr.manager, {
+          tenantId: TENANT,
+          deviceId: fixture.posDeviceId,
+          docType: 'receipt',
+          docNumber: `RC07-${period}-0001`,
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'DEVICE_ROLE_FORBIDDEN' },
+      });
+      await qr.rollbackTransaction();
+    } finally {
+      await qr.release();
+    }
+  });
+
+  it('resolveDocNumber requires document number when fallback is disabled', async () => {
+    const prevEnv = process.env.DOC_NUMBER_FALLBACK;
+    process.env.DOC_NUMBER_FALLBACK = 'false';
+
+    const qr = ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+    try {
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT]);
+
+      // Missing clientDocNumber with fallback disabled -> 400 DOC_NUMBER_REQUIRED
+      await expect(
+        issuer.resolveDocNumber(qr.manager, {
+          tenantId: TENANT,
+          deviceId: fixture.posDeviceId,
+          docType: 'receipt',
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'DOC_NUMBER_REQUIRED' },
+      });
+
+      // Providing clientDocNumber works even when fallback is disabled
+      const period = await currentPeriod();
+      const num = await issuer.resolveDocNumber(qr.manager, {
+        tenantId: TENANT,
+        deviceId: fixture.posDeviceId,
+        docType: 'receipt',
+        clientDocNumber: `RC07-${period}-0010`,
+      });
+      expect(num).toBe(`RC07-${period}-0010`);
+
+      await qr.commitTransaction();
+    } catch (err) {
+      await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+      process.env.DOC_NUMBER_FALLBACK = prevEnv;
+    }
+  });
 });

@@ -256,10 +256,11 @@ export class ReturnsService {
     const mechanic = await this.lockMechanic(manager, tenantId, sale.mechanic_id);
     const locked = await this.lockProducts(manager, tenantId, demands);
 
-    const cnNo = await this.docNumbers.issue(manager, {
+    const cnNo = await this.docNumbers.resolveDocNumber(manager, {
       tenantId,
       deviceId: actor.deviceId,
       docType: 'cn',
+      clientDocNumber: dto.cnNo,
     });
     const returnId = newId('r');
 
@@ -699,32 +700,48 @@ export class ReturnsService {
     money: RefundAmounts,
     shiftId: string | null,
   ): Promise<string> {
-    const rows = (await manager.query(
-      `INSERT INTO returns (
-         tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal, refund_discount,
-         refund_total, refund_method, reason, customer_id, mechanic_id, mechanic_name, shift_id)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-       RETURNING date`,
-      [
-        tenantId,
-        returnId,
-        cnNo,
-        dto.saleId,
-        // Copied off the parent bill, not sent by the client: the credit note has to
-        // name the receipt it credits, and the client cannot be the authority on that.
-        sale.receipt_no,
-        fromSatang(money.refundSubtotalSatang),
-        fromSatang(money.refundDiscountSatang),
-        fromSatang(money.refundTotalSatang),
-        dto.refundMethod,
-        dto.reason,
-        sale.customer_id,
-        sale.mechanic_id,
-        sale.mechanic_name,
-        shiftId,
-      ],
-    )) as { date: Date }[];
-    return rows[0].date.toISOString();
+    try {
+      const rows = (await manager.query(
+        `INSERT INTO returns (
+           tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal, refund_discount,
+           refund_total, refund_method, reason, customer_id, mechanic_id, mechanic_name, shift_id)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING date`,
+        [
+          tenantId,
+          returnId,
+          cnNo,
+          dto.saleId,
+          // Copied off the parent bill, not sent by the client: the credit note has to
+          // name the receipt it credits, and the client cannot be the authority on that.
+          sale.receipt_no,
+          fromSatang(money.refundSubtotalSatang),
+          fromSatang(money.refundDiscountSatang),
+          fromSatang(money.refundTotalSatang),
+          dto.refundMethod,
+          dto.reason,
+          sale.customer_id,
+          sale.mechanic_id,
+          sale.mechanic_name,
+          shiftId,
+        ],
+      )) as { date: Date }[];
+      return rows[0].date.toISOString();
+    } catch (err) {
+      if (
+        (err as { code?: string })?.code === '23505' &&
+        (err as { constraint?: string })?.constraint?.includes('cn_no')
+      ) {
+        throw new HttpException(
+          {
+            code: 'RECEIPT_NO_CONFLICT',
+            message: 'Credit note number already exists',
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+      throw err;
+    }
   }
 
   /**
