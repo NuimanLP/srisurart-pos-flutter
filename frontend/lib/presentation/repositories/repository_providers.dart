@@ -31,6 +31,7 @@ import '../../data/repositories/api_mechanics_repository.dart';
 import '../../data/repositories/api_products_repository.dart';
 import '../../data/repositories/api_purchase_orders_repository.dart';
 import '../../data/repositories/api_quotes_repository.dart';
+import '../../data/repositories/review_items_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
 import '../../data/sync/sync_facade.dart';
@@ -52,6 +53,7 @@ List<RepositoryProvider> repositoryProviders(
   AuthRepository? authRepository,
   ApiClient? apiClient,
   SyncFacade? syncFacade,
+  ReviewItemsRepository? reviewItemsRepository,
   bool useApi = const bool.fromEnvironment('USE_API_WRITES'),
   bool useApiRepositories = true,
 }) {
@@ -128,6 +130,9 @@ List<RepositoryProvider> repositoryProviders(
     // #188: seeded on app open / login by `seedDocCountersOnSignIn` (main.dart).
     RepositoryProvider<DocCounterSeeder>.value(
       value: DocCounterSeeder(db: db, apiClient: client),
+    ),
+    RepositoryProvider<ReviewItemsRepository>.value(
+      value: reviewItemsRepository ?? ReviewItemsRepository(client),
     ),
     // Phase 2: SyncFacade contract seam (Slice 0d / Ticket #269).
     // Swapped to real SyncService in slice 8-c (#228).
