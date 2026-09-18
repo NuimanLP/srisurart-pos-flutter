@@ -74,18 +74,18 @@ describe('shifts and the cash drawer (e2e)', () => {
     await app.close();
   });
 
-  it('opens a drawer, and opening again the same day returns the same shift', async () => {
-    const first = await post('/open', { startingCash: '2000.00' });
+  it('opens a drawer, and opening again with the same id returns the same shift untouched', async () => {
+    const first = await post('/open', { id: 'sh_custom_1', startingCash: '2000.00' });
     expect(first.status).toBe(200);
+    expect(first.body.data.id).toBe('sh_custom_1');
     expect(first.body.data.startingCash).toBe('2000.00');
     expect(first.body.data.isActive).toBe(true);
     expect(first.body.data.entries).toEqual([]);
 
-    // Staff press the button twice; the starting cash of the second press is ignored
-    // precisely because the drawer already holds today's money.
-    const again = await post('/open', { startingCash: '9999.00' });
+    // Replay with the same id returns the existing shift untouched.
+    const again = await post('/open', { id: 'sh_custom_1', startingCash: '9999.00' });
     expect(again.status).toBe(200);
-    expect(again.body.data.id).toBe(first.body.data.id);
+    expect(again.body.data.id).toBe('sh_custom_1');
     expect(again.body.data.startingCash).toBe('2000.00');
 
     const rows = await admin.query(
@@ -93,6 +93,145 @@ describe('shifts and the cash drawer (e2e)', () => {
       [TENANT],
     );
     expect(rows[0].n).toBe(1);
+
+    const revs = await admin.query(
+      `SELECT count(*)::int AS n FROM owner_review_items WHERE tenant_id = $1::uuid`,
+      [TENANT],
+    );
+    expect(revs[0].n).toBe(0);
+  });
+
+  it('opening a new shift while previous shift is still open archives it and records shift_uncounted', async () => {
+    const first = await post('/open', { startingCash: '2000.00' });
+    expect(first.status).toBe(200);
+    expect(first.body.data.isActive).toBe(true);
+
+    const second = await post('/open', { startingCash: '3000.00' });
+    expect(second.status).toBe(200);
+    expect(second.body.data.id).not.toBe(first.body.data.id);
+    expect(second.body.data.startingCash).toBe('3000.00');
+    expect(second.body.data.isActive).toBe(true);
+
+    const archivedFirst = await shiftRow(first.body.data.id);
+    expect(archivedFirst.is_active).toBe(false);
+    expect(archivedFirst.auto_archived).toBe(true);
+    expect(archivedFirst.closed_at).toBeNull();
+
+    const revs = await admin.query(
+      `SELECT id, kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid`,
+      [TENANT],
+    );
+    expect(revs).toHaveLength(1);
+    expect(revs[0].kind).toBe('shift_uncounted');
+    expect(revs[0].ref_id).toBe(first.body.data.id);
+    expect(revs[0].details.shiftId).toBe(first.body.data.id);
+    expect(revs[0].details.deviceId).toBe(fixture.posDeviceId);
+  });
+
+  it('allows opening a new shift on the same day after closing without creating shift_uncounted', async () => {
+    const shift1 = await post('/open', { startingCash: '1000.00' });
+    await post('/close', { physicalCash: '1500.00' });
+
+    // Open second shift on the same day right after close (#100)
+    const shift2 = await post('/open', { startingCash: '2000.00' });
+    expect(shift2.body.data.id).not.toBe(shift1.body.data.id);
+    expect(shift2.body.data.isActive).toBe(true);
+
+    const archived1 = await shiftRow(shift1.body.data.id);
+    expect(archived1.is_active).toBe(false);
+    expect(archived1.auto_archived).toBe(false); // closed properly
+    expect(archived1.closed_at).not.toBeNull();
+
+    const revs = await admin.query(
+      `SELECT count(*)::int AS n FROM owner_review_items WHERE tenant_id = $1::uuid`,
+      [TENANT],
+    );
+    expect(revs[0].n).toBe(0);
+  });
+
+  it('e2e multi-shift: A date_str = 15, B = 16, no bills rejected and both stamped correctly', async () => {
+    await seedProduct(admin, TENANT, {
+      id: 'p1',
+      partNo: 'OF-1',
+      name: 'Oil Filter',
+      price: 85,
+      cost: 50,
+      stock: 100,
+    });
+
+    const sell = async (id: string) =>
+      request(app.getHttpServer())
+        .post('/api/v1/sales')
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', `k-sale-${id}`)
+        .send({
+          id,
+          subtotal: '85.00',
+          discount: '0.00',
+          total: '85.00',
+          paymentMethod: 'เงินสด',
+          items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+        });
+
+    // Open shift A on day 15 (openedAt 2026-09-15T08:00:00Z)
+    const shiftA = await post('/open', {
+      id: 'sh_A',
+      startingCash: '1000.00',
+      openedAt: '2026-09-15T08:00:00.000Z',
+    });
+    expect(shiftA.status).toBe(200);
+    expect(shiftA.body.data.id).toBe('sh_A');
+    expect(shiftA.body.data.dateStr).toBe('2026-09-15');
+
+    // Sell in shift A
+    const saleA = await sell('s-shift-A-1');
+    expect(saleA.status).toBe(201);
+    expect(saleA.body.data.shiftId).toBe('sh_A');
+
+    // Open shift B on day 16 (openedAt 2026-09-16T08:00:00Z) without closing A
+    const shiftB = await post('/open', {
+      id: 'sh_B',
+      startingCash: '1500.00',
+      openedAt: '2026-09-16T08:00:00.000Z',
+    });
+    expect(shiftB.status).toBe(200);
+    expect(shiftB.body.data.id).toBe('sh_B');
+    expect(shiftB.body.data.dateStr).toBe('2026-09-16');
+
+    // Shift A is archived with auto_archived = true and shift_uncounted item
+    const rowA = await shiftRow('sh_A');
+    expect(rowA.is_active).toBe(false);
+    expect(rowA.auto_archived).toBe(true);
+
+    const revs = await admin.query(
+      `SELECT kind, ref_id FROM owner_review_items WHERE tenant_id = $1::uuid`,
+      [TENANT],
+    );
+    expect(revs).toContainEqual({ kind: 'shift_uncounted', ref_id: 'sh_A' });
+
+    // Sell in shift B
+    const saleB = await sell('s-shift-B-1');
+    expect(saleB.status).toBe(201);
+    expect(saleB.body.data.shiftId).toBe('sh_B');
+  });
+
+  it('date_str formats correctly according to tenant timezone across UTC midnight', async () => {
+    // 2026-09-15 23:30:00 UTC = 2026-09-16 06:30:00 in Asia/Bangkok (+07:00)
+    const late = await post('/open', {
+      id: 'sh_late_utc',
+      startingCash: '500.00',
+      openedAt: '2026-09-15T23:30:00.000Z',
+    });
+    expect(late.status).toBe(200);
+    expect(late.body.data.dateStr).toBe('2026-09-16');
+  });
+
+  it('validates id and openedAt input formats', async () => {
+    const badId = await post('/open', { id: '   ', startingCash: '100.00' });
+    expect(badId.status).toBe(400);
+
+    const badDate = await post('/open', { startingCash: '100.00', openedAt: 'not-a-date' });
+    expect(badDate.status).toBe(400);
   });
 
   it('opening on a new day archives the previous shift first', async () => {
@@ -546,19 +685,22 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect((await post('/close', { physicalCash: '-1.00' })).status).toBe(400);
   });
 
-  it('ten simultaneous opens produce exactly one drawer', async () => {
+  it('ten simultaneous opens with the same id produce exactly one drawer', async () => {
+    const shiftId = 'sh-race-1';
     const send = () =>
       request(app.getHttpServer())
         .post('/api/v1/shifts/open')
         .set('Authorization', `Bearer ${posToken}`)
         .set('Idempotency-Key', `k-race-${Math.random()}`)
-        .send({ startingCash: '1000.00' });
+        .send({ id: shiftId, startingCash: '1000.00' });
 
-    // Different keys, so idempotency does not answer this: the `ON CONFLICT … WHERE
-    // is_active DO NOTHING` and the re-read behind it are what has to hold.
+    // Different keys, so idempotency does not answer this: the client id replay
+    // and `ON CONFLICT … WHERE is_active DO NOTHING` and the re-read behind it
+    // are what has to hold in Phase 2.
     const results = await Promise.all(Array.from({ length: 10 }, send));
     for (const r of results) expect(r.status).toBe(200);
     expect(new Set(results.map((r) => r.body.data.id)).size).toBe(1);
+    expect(results[0].body.data.id).toBe(shiftId);
 
     const rows = await admin.query(
       `SELECT count(*)::int AS n FROM shifts WHERE tenant_id = $1::uuid`,

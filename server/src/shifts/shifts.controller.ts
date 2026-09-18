@@ -69,7 +69,11 @@ export class ShiftsController {
       res,
       () => {
         const b = asObject(body);
-        return this.shifts.open(actorOf(req), cash(b.startingCash, 'startingCash'));
+        return this.shifts.open(actorOf(req), {
+          id: asOptionalString(b.id, 'id'),
+          startingCashSatang: cash(b.startingCash, 'startingCash'),
+          openedAt: asOptionalIsoDate(b.openedAt, 'openedAt'),
+        });
       },
     );
   }
@@ -158,4 +162,24 @@ function asObject(body: unknown): Record<string, unknown> {
     throw new BadRequestException('body must be an object');
   }
   return body as Record<string, unknown>;
+}
+
+function asOptionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new BadRequestException(`${field} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function asOptionalIsoDate(value: unknown, field: string): Date | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new BadRequestException(`${field} must be a valid ISO date string`);
+  }
+  const date = new Date(value);
+  if (isNaN(date.getTime())) {
+    throw new BadRequestException(`${field} must be a valid ISO date string`);
+  }
+  return date;
 }

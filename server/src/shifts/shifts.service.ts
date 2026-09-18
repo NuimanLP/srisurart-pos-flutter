@@ -6,11 +6,18 @@ import { fromSatang } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
+import { ReviewItemsService } from '../review-items/review-items.service.js';
 
 /** Who is at the drawer — from the token, never from the body. */
 export interface Actor {
   userId: string;
   deviceId: string;
+}
+
+export interface OpenShiftInput {
+  id?: string;
+  startingCashSatang: number;
+  openedAt?: Date;
 }
 
 /** A shift row as the API hands it back. Money is the wire format, `"1234.50"`. */
@@ -124,19 +131,20 @@ export class ShiftsService {
   }
 
   /**
-   * Opens today's drawer for `deviceId`.
+   * Opens a drawer for `deviceId`.
    *
-   * Re-opening on the same day returns the existing shift untouched — staff press the
-   * button twice. A new day archives the previous shift **first**, flagged
-   * `auto_archived` if it was never closed, so a day's takings are never lost.
+   * Accepts an optional client `id` and `openedAt`. If a shift with `id` already exists,
+   * returns it untouched without re-archiving. If an active shift exists on this device,
+   * archives it; if that previous shift was never closed, it is flagged `auto_archived`
+   * and recorded in `owner_review_items` as `shift_uncounted`.
    */
-  open(actor: Actor, startingCashSatang: number): Promise<ShiftWithEntries> {
-    return this.tenants.runTx(() => this.openIn(actor, startingCashSatang));
+  open(actor: Actor, input: OpenShiftInput): Promise<ShiftWithEntries> {
+    return this.tenants.runTx(() => this.openIn(actor, input));
   }
 
   private async openIn(
     actor: Actor,
-    startingCashSatang: number,
+    input: OpenShiftInput,
   ): Promise<ShiftWithEntries> {
     const deviceId = actor.deviceId;
     const { tenantId, manager } = currentRequestContext();
@@ -150,14 +158,26 @@ export class ShiftsService {
     const device = (await manager.query(
       `SELECT retired_at FROM devices
         WHERE tenant_id = $1::uuid AND id = $2
-          FOR SHARE`,
+          FOR NO KEY UPDATE`,
       [tenantId, deviceId],
     )) as { retired_at: Date | null }[];
     if (device.length === 0 || device[0].retired_at !== null) {
       throw new DeviceRoleForbiddenException();
     }
 
-    const today = await this.today(manager, tenantId);
+    // 🔴 Slice 7: If the client passed an id and that shift already exists for this tenant,
+    // hand it back untouched without re-archiving.
+    const shiftId = input.id ? input.id.trim() : null;
+    if (shiftId) {
+      const existing = (await manager.query(
+        `SELECT ${SHIFT_COLUMNS} FROM shifts
+          WHERE tenant_id = $1::uuid AND id = $2`,
+        [tenantId, shiftId],
+      )) as ShiftRow[];
+      if (existing.length > 0) {
+        return this.withEntries(manager, tenantId, existing[0]);
+      }
+    }
 
     const active = (await manager.query(
       `SELECT ${SHIFT_COLUMNS} FROM shifts
@@ -168,24 +188,44 @@ export class ShiftsService {
       [tenantId, deviceId],
     )) as ShiftRow[];
 
-    if (active.length > 0 && active[0].date_str === today) {
-      return this.withEntries(manager, tenantId, active[0]);
+    if (active.length > 0) {
+      const uncounted = await this.archive(manager, tenantId, active[0]);
+      if (uncounted) {
+        await ReviewItemsService.insertIn(manager, tenantId, {
+          kind: 'shift_uncounted',
+          refId: active[0].id,
+          details: {
+            shiftId: active[0].id,
+            deviceId,
+            startingCash: active[0].starting_cash,
+            openedAt:
+              active[0].opened_at instanceof Date
+                ? active[0].opened_at.toISOString()
+                : String(active[0].opened_at),
+          },
+        });
+      }
     }
 
-    if (active.length > 0) {
-      await this.archive(manager, tenantId, active[0]);
-    }
+    const openedAt = input.openedAt ?? new Date();
+    const dateStr = await this.dateStrOf(manager, tenantId, openedAt);
+    const newShiftId = shiftId ?? newId('sh');
+
+    const conflictClause = shiftId
+      ? `ON CONFLICT (tenant_id, id) DO NOTHING`
+      : `ON CONFLICT (tenant_id, device_id) WHERE is_active DO NOTHING`;
 
     const inserted = (await manager.query(
       `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, is_active, device_id, opened_by)
-            VALUES ($1::uuid, $2, $3, $4, now(), TRUE, $5, $6::uuid)
-       ON CONFLICT (tenant_id, device_id) WHERE is_active DO NOTHING
+            VALUES ($1::uuid, $2, $3, $4, $5, TRUE, $6, $7::uuid)
+       ${conflictClause}
          RETURNING ${SHIFT_COLUMNS}`,
       [
         tenantId,
-        newId('sh'),
-        today,
-        fromSatang(startingCashSatang),
+        newShiftId,
+        dateStr,
+        fromSatang(input.startingCashSatang),
+        openedAt,
         deviceId,
         actor.userId,
       ],
@@ -196,11 +236,13 @@ export class ShiftsService {
 
     // Another request opened the drawer while this one was deciding to. Pressing the
     // button twice must not be an error, so hand back what that one opened.
+    const winnerQuery = shiftId
+      ? `SELECT ${SHIFT_COLUMNS} FROM shifts WHERE tenant_id = $1::uuid AND id = $2`
+      : `SELECT ${SHIFT_COLUMNS} FROM shifts WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active LIMIT 1`;
+    const winnerParams = shiftId ? [tenantId, shiftId] : [tenantId, deviceId];
     const winner = (await manager.query(
-      `SELECT ${SHIFT_COLUMNS} FROM shifts
-        WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active
-        LIMIT 1`,
-      [tenantId, deviceId],
+      winnerQuery,
+      winnerParams,
     )) as ShiftRow[];
     if (winner.length === 0) {
       throw new Error(
@@ -475,13 +517,13 @@ export class ShiftsService {
   /**
    * Retires the previous shift. A shift that was never closed is archived with
    * `auto_archived` set rather than discarded — the day's takings are still a day's
-   * takings even if nobody pressed the button.
+   * takings even if nobody pressed the button. Returns true when the shift was never closed.
    */
   private async archive(
     manager: EntityManager,
     tenantId: string,
     shift: ShiftRow,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const neverClosed = shift.closed_at === null;
     await manager.query(
       `UPDATE shifts
@@ -491,17 +533,19 @@ export class ShiftsService {
         WHERE tenant_id = $1::uuid AND id = $2`,
       [tenantId, shift.id, neverClosed],
     );
+    return neverClosed;
   }
 
-  /** Today's date key (yyyy-MM-dd) in the tenant's own timezone, not in UTC's. */
-  private async today(
+  /** Date key (yyyy-MM-dd) from opened_at in the tenant's own timezone, not in UTC's. */
+  private async dateStrOf(
     manager: EntityManager,
     tenantId: string,
+    openedAt: Date,
   ): Promise<string> {
     const rows = (await manager.query(
-      `SELECT to_char(now() AT TIME ZONE t.timezone, 'YYYY-MM-DD') AS d
+      `SELECT to_char($2::timestamptz AT TIME ZONE t.timezone, 'YYYY-MM-DD') AS d
          FROM tenants t WHERE t.id = $1::uuid`,
-      [tenantId],
+      [tenantId, openedAt],
     )) as { d: string }[];
     if (rows.length === 0) throw new Error(`Tenant ${tenantId} not found.`);
     return rows[0].d;
