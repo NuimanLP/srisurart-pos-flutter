@@ -894,6 +894,29 @@ describe('POST /sync/push (e2e)', () => {
         },
       });
 
+      // 3.5. Attempting to void offline bill with missing/empty reason is rejected
+      const resEmptyReason = await push({
+        outboxRemaining: 1,
+        ops: [
+          {
+            opId: 'op_void_err',
+            idempotencyKey: 'k_void_err',
+            type: 'sale.void_offline',
+            payload: {
+              saleId: 's_off_001',
+              reason: '   ',
+            },
+          },
+        ],
+      });
+      expect(resEmptyReason.status).toBe(200);
+      expect(resEmptyReason.body.data.results[0]).toMatchObject({
+        opId: 'op_void_err',
+        status: 'rejected',
+        code: 'BAD_REQUEST',
+        message: 'Void reason is required',
+      });
+
       // 4. Voiding offline bill succeeds (sale-void-offline.applied.json)
       const resOfflineVoid = await push({
         outboxRemaining: 0,
@@ -929,6 +952,15 @@ describe('POST /sync/push (e2e)', () => {
         },
       });
 
+      // Verify sales row in DB has void_reason and sold_offline
+      const voidedSale = await admin.query(
+        `SELECT voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's_off_001'`,
+        [TENANT],
+      );
+      expect(voidedSale[0].voided).toBe(true);
+      expect(voidedSale[0].void_reason).toBe('ลูกค้าขอยกเลิกและเปลี่ยนสินค้า');
+      expect(voidedSale[0].sold_offline).toBe(true);
+
       // Verify owner_review_items for void_offline
       const reviews = await admin.query(
         `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'void_offline'`,
@@ -936,6 +968,79 @@ describe('POST /sync/push (e2e)', () => {
       );
       expect(reviews).toHaveLength(1);
       expect(reviews[0].ref_id).toBe('s_off_001');
+    });
+
+    it('push sale.create and sale.void_offline of that bill in the same batch -> voided + 1 review item', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+      await seedProduct(admin, TENANT, {
+        id: 'p1',
+        partNo: 'HN-15412-KVB',
+        name: 'Oil Filter',
+        price: 100,
+        cost: 50,
+        stock: 50,
+      });
+
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_sale_batch',
+            idempotencyKey: 'k_sale_batch',
+            type: 'sale.create',
+            payload: {
+              id: 's_batch_001',
+              receiptNo: 'RC01-2569-09-0010',
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เงินสด',
+              items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '100.00' }],
+            },
+          },
+          {
+            opId: 'op_void_batch',
+            idempotencyKey: 'k_void_batch',
+            type: 'sale.void_offline',
+            payload: {
+              saleId: 's_batch_001',
+              reason: 'ผิดบิลในกะเดียวกัน',
+            },
+          },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.results).toHaveLength(2);
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(res.body.data.results[1]).toEqual({
+        opId: 'op_void_batch',
+        status: 'applied',
+        response: {
+          saleId: 's_batch_001',
+          status: 'voided',
+          voidReason: 'ผิดบิลในกะเดียวกัน',
+          stockRestored: [{ productId: 'p1', stock: 50 }],
+        },
+      });
+
+      // Verify DB row
+      const rows = await admin.query(
+        `SELECT voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's_batch_001'`,
+        [TENANT],
+      );
+      expect(rows[0].voided).toBe(true);
+      expect(rows[0].void_reason).toBe('ผิดบิลในกะเดียวกัน');
+      expect(rows[0].sold_offline).toBe(true);
+
+      // Verify review item
+      const reviews = await admin.query(
+        `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = 's_batch_001'`,
+        [TENANT],
+      );
+      expect(reviews).toHaveLength(1);
+      expect(reviews[0].kind).toBe('void_offline');
+      expect(reviews[0].details.reason).toBe('ผิดบิลในกะเดียวกัน');
     });
 
     it('batch.stop-at-retry: when op N fails with retry, subsequent ops return retry without processing', async () => {

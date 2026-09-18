@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpException,
   HttpStatus,
@@ -687,18 +688,18 @@ export class SyncService {
           );
         }
 
-        const voidReason = op.payload.reason ?? '';
+        const voidReason =
+          typeof op.payload.reason === 'string' ? op.payload.reason.trim() : '';
+        if (!voidReason) {
+          throw new BadRequestException('Void reason is required');
+        }
+
         await this.voids.void(saleId, {
           userId: actor.userId,
           role: 'owner',
           deviceId: device.id,
           reason: voidReason,
         });
-
-        await manager.query(
-          `UPDATE sales SET void_reason = $1 WHERE tenant_id = $2::uuid AND id = $3`,
-          [voidReason, tenantId, saleId],
-        );
 
         await ReviewItemsService.insertIn(manager, tenantId, {
           kind: 'void_offline',
