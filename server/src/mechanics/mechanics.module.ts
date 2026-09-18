@@ -13,5 +13,6 @@ import { MechanicsService } from './mechanics.service.js';
   imports: [DocumentsModule, IdempotencyModule, SalesModule, ShiftsModule],
   controllers: [MechanicsController],
   providers: [MechanicsService, CreditPaymentsService],
+  exports: [MechanicsService, CreditPaymentsService],
 })
 export class MechanicsModule {}

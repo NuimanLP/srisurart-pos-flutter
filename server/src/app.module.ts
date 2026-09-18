@@ -35,6 +35,7 @@ import { ProductsModule } from './products/products.module.js';
 import { PurchasingModule } from './purchasing/purchasing.module.js';
 import { DevicesModule } from './devices/devices.module.js';
 import { ReviewItemsModule } from './review-items/review-items.module.js';
+import { SyncModule } from './sync/sync.module.js';
 
 import { RuntimeConfigService } from './config/runtime-config.service.js';
 
@@ -96,6 +97,7 @@ export class AppModule implements NestModule {
         PurchasingModule,
         DevicesModule,
         ReviewItemsModule,
+        SyncModule,
       ],
     };
   }

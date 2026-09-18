@@ -9,5 +9,6 @@ import { ReturnsService } from './returns.service.js';
   imports: [DocumentsModule, IdempotencyModule, ShiftsModule],
   controllers: [ReturnsController],
   providers: [ReturnsService],
+  exports: [ReturnsService],
 })
 export class ReturnsModule {}

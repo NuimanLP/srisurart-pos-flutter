@@ -16,7 +16,11 @@ export function createLogger(opts: {
     level: opts.level,
     base: { instance: opts.instanceId },
     redact: {
-      paths: ['req.headers.authorization', 'req.headers.cookie'],
+      paths: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        'req.headers["x-device-token"]',
+      ],
       censor: '[redacted]',
     },
   });

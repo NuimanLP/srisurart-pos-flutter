@@ -13,11 +13,13 @@ export interface ReturnLine {
 
 /** A validated `POST /returns` body. */
 export interface CreateReturn {
+  id?: string | null;
   saleId: string;
   cnNo?: string | null;
   refundMethod: string;
   reason: string;
   items: ReturnLine[];
+  date?: Date | string | null;
 }
 
 /** The most one credit note may carry — the same bound `POST /sales` puts on a bill. */
@@ -60,6 +62,7 @@ export function parseCreateReturn(body: unknown): CreateReturn {
   }
 
   return {
+    id: optionalString(b.id, 'id'),
     saleId: requiredString(b.saleId, 'saleId'),
     cnNo: optionalString(b.cnNo, 'cnNo'),
     refundMethod: requiredRefundMethod(b.refundMethod),
@@ -67,6 +70,7 @@ export function parseCreateReturn(body: unknown): CreateReturn {
     // typed nothing (`input.reason ?? ''`).
     reason: b.reason === undefined || b.reason === null ? '' : String(b.reason),
     items: items.map((raw, i) => parseLine(raw, i)),
+    date: optionalString(b.date, 'date'),
   };
 }
 
@@ -91,9 +95,14 @@ function parseLine(raw: unknown, index: number): ReturnLine {
   if (priceSatang < 0) {
     throw new BadRequestException(`items[${index}].price must not be negative`);
   }
+  const productId = requiredString(l.productId, `items[${index}].productId`);
+  const name =
+    typeof l.name === 'string' && l.name.trim() !== ''
+      ? l.name.trim()
+      : productId;
   return {
-    productId: requiredString(l.productId, `items[${index}].productId`),
-    name: requiredString(l.name, `items[${index}].name`),
+    productId,
+    name,
     qty,
     priceSatang,
     originalQty: optionalCount(l.originalQty, `items[${index}].originalQty`),

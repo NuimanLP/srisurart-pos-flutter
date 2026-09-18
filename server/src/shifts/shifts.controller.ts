@@ -117,12 +117,15 @@ export class ShiftsController {
         const amountSatang = toSatang(b.amount, 'amount');
         if (amountSatang <= 0)
           throw new BadRequestException('amount must be greater than zero');
-        const note =
-          b.note === undefined || b.note === null ? null : String(b.note);
+        const id = typeof b.id === 'string' && b.id.trim() ? b.id.trim() : null;
+        const note = b.note === undefined || b.note === null ? null : String(b.note);
+        const createdAt = b.createdAt ? String(b.createdAt) : null;
         return this.shifts.addEntry(actorOf(req), {
+          id,
           type: b.type,
           amountSatang,
           note,
+          createdAt,
         });
       },
     );

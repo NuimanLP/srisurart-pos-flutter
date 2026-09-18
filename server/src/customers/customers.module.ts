@@ -8,5 +8,6 @@ import { CustomersService } from './customers.service.js';
   imports: [IdempotencyModule, SalesModule],
   controllers: [CustomersController],
   providers: [CustomersService],
+  exports: [CustomersService],
 })
 export class CustomersModule {}

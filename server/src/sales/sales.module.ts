@@ -12,6 +12,6 @@ import { VoidService } from './void.service.js';
   controllers: [SalesController],
   providers: [SalesService, SaleReadsService, VoidService],
   // `SalesService` for `POST /quotes/:id/convert` (#27), which sells through it.
-  exports: [SaleReadsService, SalesService],
+  exports: [SaleReadsService, SalesService, VoidService],
 })
 export class SalesModule {}

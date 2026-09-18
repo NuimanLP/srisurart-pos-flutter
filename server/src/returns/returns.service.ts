@@ -262,7 +262,7 @@ export class ReturnsService {
       docType: 'cn',
       clientDocNumber: dto.cnNo,
     });
-    const returnId = newId('r');
+    const returnId = dto.id?.trim() || newId('r');
 
     const date = await this.insertReturn(
       manager,
@@ -701,11 +701,16 @@ export class ReturnsService {
     shiftId: string | null,
   ): Promise<string> {
     try {
+      const dateVal = dto.date
+        ? dto.date instanceof Date
+          ? dto.date.toISOString()
+          : dto.date
+        : null;
       const rows = (await manager.query(
         `INSERT INTO returns (
            tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal, refund_discount,
-           refund_total, refund_method, reason, customer_id, mechanic_id, mechanic_name, shift_id)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           refund_total, refund_method, reason, customer_id, mechanic_id, mechanic_name, shift_id, date)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE($15::timestamptz, now()))
          RETURNING date`,
         [
           tenantId,
@@ -724,6 +729,7 @@ export class ReturnsService {
           sale.mechanic_id,
           sale.mechanic_name,
           shiftId,
+          dateVal,
         ],
       )) as { date: Date }[];
       return rows[0].date.toISOString();

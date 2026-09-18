@@ -381,14 +381,26 @@ export class ShiftsService {
   /** Adds money in or out of the open drawer. */
   addEntry(
     actor: Actor,
-    entry: { type: 'in' | 'out'; amountSatang: number; note: string | null },
+    entry: {
+      id?: string | null;
+      type: 'in' | 'out';
+      amountSatang: number;
+      note: string | null;
+      createdAt?: Date | string | null;
+    },
   ): Promise<DrawerEntry> {
     return this.tenants.runTx(() => this.addEntryIn(actor, entry));
   }
 
   private async addEntryIn(
     actor: Actor,
-    entry: { type: 'in' | 'out'; amountSatang: number; note: string | null },
+    entry: {
+      id?: string | null;
+      type: 'in' | 'out';
+      amountSatang: number;
+      note: string | null;
+      createdAt?: Date | string | null;
+    },
   ): Promise<DrawerEntry> {
     const { tenantId, manager } = currentRequestContext();
     const shift = await this.lockActive(manager, tenantId, actor.deviceId);
@@ -403,18 +415,26 @@ export class ShiftsService {
       );
     }
 
+    const entryId = entry.id?.trim() || newId('de');
+    const createdAtVal = entry.createdAt
+      ? entry.createdAt instanceof Date
+        ? entry.createdAt.toISOString()
+        : entry.createdAt
+      : null;
+
     const rows = (await manager.query(
-      `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note, created_by)
-            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid)
+      `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note, created_by, created_at)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid, COALESCE($8::timestamptz, now()))
          RETURNING id, shift_id, type, amount, note, created_at`,
       [
         tenantId,
-        newId('de'),
+        entryId,
         shift.id,
         entry.type,
         fromSatang(entry.amountSatang),
         entry.note ?? '',
         actor.userId,
+        createdAtVal,
       ],
     )) as {
       id: string;
