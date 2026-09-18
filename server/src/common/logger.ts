@@ -35,7 +35,10 @@ export function requestLogger(logger: Logger) {
       res.setHeader('X-Correlation-ID', id);
       return id;
     },
-    customProps: (req) => ({ correlationId: req.id }),
+    customProps: (req) => ({
+      correlationId: req.id,
+      clientVersion: req.headers['x-client-version'] ?? undefined,
+    }),
   });
 }
 

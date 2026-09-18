@@ -1,6 +1,7 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
+import { APP_CONFIG, type AppConfig } from '../config/config.js';
 
 /** `doc_counters.doc_type` — the five series ADR-0007 defines. */
 export type DocType = 'receipt' | 'po' | 'quote' | 'cn' | 'cp';
@@ -16,6 +17,9 @@ export const DOC_PREFIX: Record<DocType, string> = {
 
 /** `last_no` is four digits (`CHECK (last_no <= 9999)`), so this is the last one. */
 export const MAX_DOC_NO = 9999;
+
+/** `RC01-2569-08-0042` regex: prefix, 2-digit device, 7-char period, 4-digit sequence. */
+export const DOC_NUMBER_REGEX = /^([A-Z]{2})(\d{2})-(\d{4}-\d{2})-(\d{4})$/;
 
 /**
  * The tenant's current `doc_counters.period` — Buddhist year and month in the tenant's
@@ -75,6 +79,152 @@ export function formatDocNumber(
  */
 @Injectable()
 export class DocNumberService {
+  constructor(
+    @Optional() @Inject(APP_CONFIG) private readonly config?: AppConfig,
+  ) {}
+
+  /**
+   * Validates a client-issued document number.
+   * - prefix must match `DOC_PREFIX[docType]` ('RC' for receipt, 'CN' for cn)
+   * - device_no must equal caller's `device_no`
+   * - seq must be between 1 and 9999 (0001..9999)
+   * - period is NOT validated against the server's clock/calendar (C2).
+   */
+  validateDocNumber(
+    docType: DocType,
+    callerDeviceNo: number,
+    docNumber: string,
+  ): { period: string; seq: number } {
+    const match = DOC_NUMBER_REGEX.exec(docNumber);
+    if (!match) {
+      throw new HttpException(
+        {
+          code: 'DOC_NUMBER_INVALID',
+          message: `Invalid document number format: ${docNumber}`,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const [, prefix, devNoStr, period, seqStr] = match;
+
+    if (prefix !== DOC_PREFIX[docType]) {
+      throw new HttpException(
+        {
+          code: 'DOC_NUMBER_INVALID',
+          message: `Document number prefix ${prefix} does not match type ${docType} (expected ${DOC_PREFIX[docType]})`,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const deviceNo = parseInt(devNoStr, 10);
+    if (deviceNo !== callerDeviceNo) {
+      throw new HttpException(
+        {
+          code: 'DOC_NUMBER_INVALID',
+          message: `Document number device ${devNoStr} does not match calling device (${String(callerDeviceNo).padStart(2, '0')})`,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const seq = parseInt(seqStr, 10);
+    if (seq < 1 || seq > MAX_DOC_NO) {
+      throw new HttpException(
+        {
+          code: 'DOC_NUMBER_INVALID',
+          message: `Document number sequence ${seqStr} is outside valid range (0001..${MAX_DOC_NO})`,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    return { period, seq };
+  }
+
+  /**
+   * Records a client-issued document number, validating its prefix, device_no,
+   * and sequence, and upserts the high-water mark into `doc_counters` using GREATEST.
+   */
+  async recordClientDocNumber(
+    manager: EntityManager,
+    params: {
+      tenantId: string;
+      deviceId: string;
+      docType: DocType;
+      docNumber: string;
+    },
+  ): Promise<string> {
+    const deviceNo = await this.deviceNo(manager, params.tenantId, params.deviceId);
+    const { period, seq } = this.validateDocNumber(
+      params.docType,
+      deviceNo,
+      params.docNumber,
+    );
+
+    await manager.query(
+      `INSERT INTO doc_counters (tenant_id, device_id, doc_type, period, last_no)
+       VALUES ($1::uuid, $2, $3, $4, $5)
+       ON CONFLICT (tenant_id, device_id, doc_type, period)
+       DO UPDATE SET last_no = GREATEST(doc_counters.last_no, EXCLUDED.last_no)`,
+      [params.tenantId, params.deviceId, params.docType, period, seq],
+    );
+
+    return params.docNumber;
+  }
+
+  /**
+   * Resolves the document number for a sale or return.
+   * If the client supplied a document number, validates and records it.
+   * If omitted:
+   *   - If fallback is enabled (default), issues via `issue(manager, ...)`.
+   *   - If fallback is disabled (`DOC_NUMBER_FALLBACK=false`), throws 400 DOC_NUMBER_REQUIRED.
+   */
+  async resolveDocNumber(
+    manager: EntityManager,
+    params: {
+      tenantId: string;
+      deviceId: string;
+      docType: DocType;
+      clientDocNumber?: string | null;
+    },
+  ): Promise<string> {
+    if (params.clientDocNumber && params.clientDocNumber.trim() !== '') {
+      return this.recordClientDocNumber(manager, {
+        tenantId: params.tenantId,
+        deviceId: params.deviceId,
+        docType: params.docType,
+        docNumber: params.clientDocNumber.trim(),
+      });
+    }
+
+    if (!this.isFallbackEnabled()) {
+      throw new HttpException(
+        {
+          code: 'DOC_NUMBER_REQUIRED',
+          message: 'Document number is required when fallback is disabled',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    return this.issue(manager, {
+      tenantId: params.tenantId,
+      deviceId: params.deviceId,
+      docType: params.docType,
+    });
+  }
+
+  private isFallbackEnabled(): boolean {
+    if (process.env.DOC_NUMBER_FALLBACK !== undefined) {
+      return process.env.DOC_NUMBER_FALLBACK !== 'false';
+    }
+    if (this.config && typeof this.config.docNumberFallback === 'boolean') {
+      return this.config.docNumberFallback;
+    }
+    return true;
+  }
   /**
    * Allocates the next number for `(device, docType, current period)` under a row
    * lock on `doc_counters`, held to the end of `manager`'s transaction.

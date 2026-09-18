@@ -14,6 +14,7 @@ export interface ReturnLine {
 /** A validated `POST /returns` body. */
 export interface CreateReturn {
   saleId: string;
+  cnNo?: string | null;
   refundMethod: string;
   reason: string;
   items: ReturnLine[];
@@ -41,11 +42,13 @@ const REFUND_METHODS = ['เงินสด', 'โอน', 'หักจาก�
  * Validates the body by hand, like `sales.dto.ts` — Nest's `ValidationPipe` wants
  * `class-validator`, which this server does not depend on.
  *
- * Three things are deliberately not read even when present: `cnNo` (phase 1 issues
- * every document number server-side, ADR-0007), `shiftId` (stamped from the device's
- * own open drawer) and anything naming a tenant or a device (ADR-0004). The credit
- * note's `id` is the server's too — unlike a sale, the client does not create one
- * ahead of the request, so there is nothing to echo back.
+ * Two things are deliberately not read even when present: `shiftId` (stamped from
+ * the device's own open drawer) and anything naming a tenant or a device (ADR-0004).
+ * `cnNo` is optional (Phase 2): when present, the server validates it against the
+ * caller's device token and records the high-water mark; when omitted, the server
+ * falls back to issuing one (C16). The credit note's `id` is the server's too —
+ * unlike a sale, the client does not create one ahead of the request, so there is
+ * nothing to echo back.
  */
 export function parseCreateReturn(body: unknown): CreateReturn {
   const b = asObject(body, 'body');
@@ -58,6 +61,7 @@ export function parseCreateReturn(body: unknown): CreateReturn {
 
   return {
     saleId: requiredString(b.saleId, 'saleId'),
+    cnNo: optionalString(b.cnNo, 'cnNo'),
     refundMethod: requiredRefundMethod(b.refundMethod),
     // `returns.reason` is NOT NULL DEFAULT '' and the old app stores '' when staff
     // typed nothing (`input.reason ?? ''`).
@@ -125,5 +129,12 @@ function optionalCount(value: unknown, field: string): number | null {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
     throw new BadRequestException(`${field} must be a non-negative integer`);
   }
+  return value;
+}
+
+function optionalString(value: unknown, field: string): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string')
+    throw new BadRequestException(`${field} must be a string`);
   return value;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDocNumber, MAX_DOC_NO } from './doc-number.service.js';
+import { DocNumberService, formatDocNumber, MAX_DOC_NO } from './doc-number.service.js';
 
 describe('formatDocNumber', () => {
   it('renders the ADR-0007 example exactly', () => {
@@ -30,3 +30,81 @@ describe('formatDocNumber', () => {
     expect(/^RC\d{2}-\d{4}-\d{2}-\d{4}$/.test('RC12345678ABCD')).toBe(false);
   });
 });
+
+describe('DocNumberService.validateDocNumber', () => {
+  const service = new DocNumberService();
+
+  it('validates a correct receipt number and extracts period and seq', () => {
+    expect(service.validateDocNumber('receipt', 1, 'RC01-2569-08-0042')).toEqual({
+      period: '2569-08',
+      seq: 42,
+    });
+  });
+
+  it('validates a correct CN number', () => {
+    expect(service.validateDocNumber('cn', 3, 'CN03-2569-09-0007')).toEqual({
+      period: '2569-09',
+      seq: 7,
+    });
+  });
+
+  it('does NOT validate period against clock (clock is client authority per C2)', () => {
+    expect(service.validateDocNumber('receipt', 1, 'RC01-2575-12-0001')).toEqual({
+      period: '2575-12',
+      seq: 1,
+    });
+    expect(service.validateDocNumber('receipt', 1, 'RC01-2560-01-9999')).toEqual({
+      period: '2560-01',
+      seq: 9999,
+    });
+  });
+
+  it('rejects prefix mismatch with 400 DOC_NUMBER_INVALID', () => {
+    expect(() => service.validateDocNumber('receipt', 1, 'CN01-2569-08-0042')).toThrowError(
+      expect.objectContaining({
+        response: expect.objectContaining({ code: 'DOC_NUMBER_INVALID' }),
+      }),
+    );
+    expect(() => service.validateDocNumber('cn', 1, 'RC01-2569-08-0042')).toThrowError(
+      expect.objectContaining({
+        response: expect.objectContaining({ code: 'DOC_NUMBER_INVALID' }),
+      }),
+    );
+  });
+
+  it('rejects device mismatch with 400 DOC_NUMBER_INVALID', () => {
+    expect(() => service.validateDocNumber('receipt', 1, 'RC02-2569-08-0042')).toThrowError(
+      expect.objectContaining({
+        response: expect.objectContaining({ code: 'DOC_NUMBER_INVALID' }),
+      }),
+    );
+  });
+
+  it('rejects seq 0000 with 400 DOC_NUMBER_INVALID', () => {
+    expect(() => service.validateDocNumber('receipt', 1, 'RC01-2569-08-0000')).toThrowError(
+      expect.objectContaining({
+        response: expect.objectContaining({ code: 'DOC_NUMBER_INVALID' }),
+      }),
+    );
+  });
+
+  it('rejects malformed numbers with 400 DOC_NUMBER_INVALID', () => {
+    const invalid = [
+      'RC12345678ABCD',
+      'RC1-2569-08-0001',
+      'RC01-2569-8-0001',
+      'RC01-2569-08-01',
+      'RC01-2569-08-10000',
+      'random-string',
+      '',
+    ];
+    for (const no of invalid) {
+      expect(() => service.validateDocNumber('receipt', 1, no)).toThrowError(
+        expect.objectContaining({
+          response: expect.objectContaining({ code: 'DOC_NUMBER_INVALID' }),
+        }),
+      );
+    }
+  });
+});
+

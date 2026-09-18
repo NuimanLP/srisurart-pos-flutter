@@ -1377,4 +1377,113 @@ describe('POST /returns (e2e)', () => {
     expect(bad.status).toBe(400);
     expect(bad.body.error.message).toBe('from must be an ISO-8601 timestamp');
   });
+
+  it('accepts a valid client-issued cnNo and updates doc_counters high-water mark', async () => {
+    await insertSale({
+      id: 's_client_cn',
+      receiptNo: 'RC07-2569-10-0001',
+      subtotal: 170,
+      total: 170,
+      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+    });
+
+    const res = await post({
+      ...credit('s_client_cn', [
+        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ]),
+      cnNo: 'CN07-2569-10-0015',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data.cnNo).toBe('CN07-2569-10-0015');
+
+    // First cn of period -> visible via GET /doc-counters
+    const counters = await request(app.getHttpServer())
+      .get('/api/v1/doc-counters')
+      .set('Authorization', `Bearer ${posToken}`);
+    expect(counters.status).toBe(200);
+    const cnCounter = counters.body.data.counters.find(
+      (c: { docType: string; period: string }) => c.docType === 'cn' && c.period === '2569-10',
+    );
+    expect(cnCounter).toBeDefined();
+    expect(cnCounter.lastNo).toBe(15);
+  });
+
+  it('rejects client cnNo with wrong device_no or wrong prefix (400 DOC_NUMBER_INVALID)', async () => {
+    await insertSale({
+      id: 's_cn_invalid',
+      receiptNo: 'RC07-2569-10-0002',
+      subtotal: 170,
+      total: 170,
+      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+    });
+
+    const wrongDevice = await post({
+      ...credit('s_cn_invalid', [
+        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ]),
+      cnNo: 'CN99-2569-10-0001',
+    });
+    expect(wrongDevice.status).toBe(400);
+    expect(wrongDevice.body.error.code).toBe('DOC_NUMBER_INVALID');
+
+    const wrongPrefix = await post({
+      ...credit('s_cn_invalid', [
+        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ]),
+      cnNo: 'RC07-2569-10-0001',
+    });
+    expect(wrongPrefix.status).toBe(400);
+    expect(wrongPrefix.body.error.code).toBe('DOC_NUMBER_INVALID');
+  });
+
+  it('returns 409 RECEIPT_NO_CONFLICT when client cnNo collides with existing credit note', async () => {
+    await insertSale({
+      id: 's_cn_conflict',
+      receiptNo: 'RC07-2569-10-0003',
+      subtotal: 170,
+      total: 170,
+      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+    });
+
+    const first = await post({
+      ...credit('s_cn_conflict', [
+        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ]),
+      cnNo: 'CN07-2569-10-0088',
+    });
+    expect(first.status).toBe(201);
+
+    const duplicate = await post({
+      ...credit('s_cn_conflict', [
+        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ]),
+      cnNo: 'CN07-2569-10-0088',
+    });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.error.code).toBe('RECEIPT_NO_CONFLICT');
+  });
+
+  it('rejects missing cnNo when DOC_NUMBER_FALLBACK=false (400 DOC_NUMBER_REQUIRED)', async () => {
+    await insertSale({
+      id: 's_cn_fallback',
+      receiptNo: 'RC03-2569-10-0004',
+      subtotal: 170,
+      total: 170,
+      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+    });
+
+    const prev = process.env.DOC_NUMBER_FALLBACK;
+    process.env.DOC_NUMBER_FALLBACK = 'false';
+    try {
+      const res = await post(
+        credit('s_cn_fallback', [
+          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+        ]),
+      );
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('DOC_NUMBER_REQUIRED');
+    } finally {
+      process.env.DOC_NUMBER_FALLBACK = prev;
+    }
+  });
 });

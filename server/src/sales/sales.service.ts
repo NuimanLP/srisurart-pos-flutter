@@ -254,10 +254,11 @@ export class SalesService {
 
     const stockAfter = await this.deduct(manager, tenantId, demands, locked);
 
-    const receiptNo = await this.docNumbers.issue(manager, {
+    const receiptNo = await this.docNumbers.resolveDocNumber(manager, {
       tenantId,
       deviceId: actor.deviceId,
       docType: 'receipt',
+      clientDocNumber: dto.receiptNo,
     });
 
     const pointsGranted = pointsFor(dto.totalSatang);
@@ -794,6 +795,15 @@ export class SalesService {
     } catch (err) {
       const code = (err as { code?: string })?.code;
       if (code === UNIQUE_VIOLATION) {
+        if ((err as { constraint?: string })?.constraint?.includes('receipt_no')) {
+          throw new HttpException(
+            {
+              code: 'RECEIPT_NO_CONFLICT',
+              message: 'Receipt number already exists',
+            },
+            HttpStatus.CONFLICT,
+          );
+        }
         throw new HttpException(
           {
             code: 'SALE_ID_REUSED',

@@ -866,14 +866,86 @@ describe('POST /sales (e2e)', () => {
     expect(await saleCount()).toBe(0);
   });
 
-  it('ignores a receiptNo the client tries to choose (phase 1 issues it)', async () => {
+  it('accepts a valid client-issued receiptNo and updates doc_counters high-water mark', async () => {
     const res = await post(
       bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
-        receiptNo: 'RC99-2000-01-0001',
+        receiptNo: 'RC03-2569-10-0042',
       }),
     );
     expect(res.status).toBe(201);
-    expect(res.body.data.receiptNo).toMatch(/^RC03-\d{4}-\d{2}-\d{4}$/);
+    expect(res.body.data.receiptNo).toBe('RC03-2569-10-0042');
+
+    // First bill of period -> visible via GET /doc-counters
+    const counters = await request(app.getHttpServer())
+      .get('/api/v1/doc-counters')
+      .set('Authorization', `Bearer ${posToken}`);
+    expect(counters.status).toBe(200);
+    const rcCounter = counters.body.data.counters.find(
+      (c: { docType: string; period: string }) => c.docType === 'receipt' && c.period === '2569-10',
+    );
+    expect(rcCounter).toBeDefined();
+    expect(rcCounter.lastNo).toBe(42);
+  });
+
+  it('rejects client receiptNo with wrong device_no (400 DOC_NUMBER_INVALID)', async () => {
+    const res = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+        receiptNo: 'RC99-2569-10-0001',
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('DOC_NUMBER_INVALID');
+  });
+
+  it('rejects client receiptNo with invalid format or wrong prefix (400 DOC_NUMBER_INVALID)', async () => {
+    const malformed = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+        receiptNo: 'RC12345678ABCD',
+      }),
+    );
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error.code).toBe('DOC_NUMBER_INVALID');
+
+    const wrongPrefix = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+        receiptNo: 'CN03-2569-10-0001',
+      }),
+    );
+    expect(wrongPrefix.status).toBe(400);
+    expect(wrongPrefix.body.error.code).toBe('DOC_NUMBER_INVALID');
+  });
+
+  it('returns 409 RECEIPT_NO_CONFLICT when client receiptNo collides with existing bill', async () => {
+    const first = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+        id: 's-bill-1',
+        receiptNo: 'RC03-2569-10-0099',
+      }),
+    );
+    expect(first.status).toBe(201);
+
+    const duplicate = await post(
+      bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }], {
+        id: 's-bill-2',
+        receiptNo: 'RC03-2569-10-0099',
+      }),
+    );
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.error.code).toBe('RECEIPT_NO_CONFLICT');
+  });
+
+  it('rejects missing receiptNo when DOC_NUMBER_FALLBACK=false (400 DOC_NUMBER_REQUIRED)', async () => {
+    const prev = process.env.DOC_NUMBER_FALLBACK;
+    process.env.DOC_NUMBER_FALLBACK = 'false';
+    try {
+      const res = await post(
+        bill([{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }]),
+      );
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('DOC_NUMBER_REQUIRED');
+    } finally {
+      process.env.DOC_NUMBER_FALLBACK = prev;
+    }
   });
 
   it('stamps the user and the device from the token, never from the body', async () => {
