@@ -9,8 +9,14 @@ import {
   ShiftsService,
   type ShiftWithEntries,
 } from '../shifts/shifts.service.js';
+import { ReviewItemsService } from '../review-items/review-items.service.js';
 
 export type DeviceRole = 'pos' | 'backoffice';
+
+export interface RetireOptions {
+  force?: boolean;
+  note?: string | null;
+}
 
 /** A device as the API hands it back. Never carries `token_hash` or `enrol_code_hash`. */
 export interface Device {
@@ -24,6 +30,8 @@ export interface Device {
   /** When the outstanding enrolment code stops working, or null when none is outstanding. */
   enrolExpiresAt: string | null;
   lastSeenAt: string | null;
+  unsyncedOps: number;
+  unsyncedReportedAt: string | null;
 }
 
 /** Who is acting — from the token, never from the body. */
@@ -42,12 +50,16 @@ interface DeviceRow {
   enrolled: boolean;
   enrol_expires_at: Date | null;
   last_seen_at: Date | null;
+  unsynced_ops: number;
+  unsynced_reported_at: Date | null;
 }
 
 const DEVICE_COLUMNS = `id, label, device_no, role, retired_at,
                         token_hash IS NOT NULL AS enrolled,
                         CASE WHEN enrol_expires_at > now() THEN enrol_expires_at END AS enrol_expires_at,
-                        last_seen_at`;
+                        last_seen_at,
+                        unsynced_ops,
+                        unsynced_reported_at`;
 
 /** `devices.device_no` is `CHECK (device_no BETWEEN 1 AND 99)` — two digits in every document number. */
 const MAX_DEVICE_NO = 99;
@@ -218,9 +230,10 @@ export class DevicesService {
     actor: DeviceActor,
     deviceId: string,
     physicalCashSatang: number | null,
+    options?: RetireOptions,
   ): Promise<{ device: Device; shift: ShiftWithEntries | null }> {
     return this.tenants.runTx(() =>
-      this.retireIn(actor, deviceId, physicalCashSatang),
+      this.retireIn(actor, deviceId, physicalCashSatang, options),
     );
   }
 
@@ -228,6 +241,7 @@ export class DevicesService {
     actor: DeviceActor,
     deviceId: string,
     physicalCashSatang: number | null,
+    options?: RetireOptions,
   ): Promise<{ device: Device; shift: ShiftWithEntries | null }> {
     const { tenantId, manager } = currentRequestContext();
 
@@ -252,6 +266,42 @@ export class DevicesService {
         },
         HttpStatus.CONFLICT,
       );
+    }
+
+    if (locked[0].unsynced_ops > 0) {
+      if (!options?.force) {
+        throw new HttpException(
+          {
+            code: 'DEVICE_HAS_UNSYNCED_OPS',
+            message:
+              'เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง',
+            details: {
+              unsyncedOps: Number(locked[0].unsynced_ops),
+              reportedAt: locked[0].unsynced_reported_at
+                ? (locked[0].unsynced_reported_at instanceof Date
+                    ? locked[0].unsynced_reported_at.toISOString()
+                    : String(locked[0].unsynced_reported_at))
+                : null,
+            },
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      await ReviewItemsService.insertIn(manager, tenantId, {
+        kind: 'device_force_retired',
+        refId: deviceId,
+        details: {
+          deviceId,
+          unsyncedOps: Number(locked[0].unsynced_ops),
+          reportedAt: locked[0].unsynced_reported_at
+            ? (locked[0].unsynced_reported_at instanceof Date
+                ? locked[0].unsynced_reported_at.toISOString()
+                : String(locked[0].unsynced_reported_at))
+            : null,
+          note: options.note!,
+        },
+      });
     }
 
     // Called for every role: a `backoffice` machine cannot open a drawer, so this is null
@@ -281,6 +331,7 @@ export class DevicesService {
         retiredAt: device.retiredAt,
         shiftId: shift?.id ?? null,
         physicalCash: shift?.physicalCash ?? null,
+        ...(options?.force ? { forced: true, note: options.note } : {}),
       },
       ip: actor.ip,
     });
@@ -310,5 +361,11 @@ function toDevice(row: DeviceRow): Device {
     enrolled: row.enrolled,
     enrolExpiresAt: row.enrol_expires_at ? row.enrol_expires_at.toISOString() : null,
     lastSeenAt: row.last_seen_at ? row.last_seen_at.toISOString() : null,
+    unsyncedOps: Number(row.unsynced_ops ?? 0),
+    unsyncedReportedAt: row.unsynced_reported_at
+      ? (row.unsynced_reported_at instanceof Date
+          ? row.unsynced_reported_at.toISOString()
+          : String(row.unsynced_reported_at))
+      : null,
   };
 }

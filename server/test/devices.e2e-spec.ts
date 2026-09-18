@@ -333,4 +333,98 @@ describe('devices: enrol and retire (e2e)', () => {
     expect(replay.body.data).toEqual(first.body.data);
     expect((await auditActions()).map((a) => a.action)).toEqual(['device.retire']);
   });
+
+  it('refuses retirement when device has unsynced operations (409 DEVICE_HAS_UNSYNCED_OPS)', async () => {
+    const reportedTime = new Date('2026-09-18T10:00:00.000Z');
+    await admin.query(
+      `UPDATE devices SET unsynced_ops = 3, unsynced_reported_at = $3
+        WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, fixture.posDeviceId, reportedTime],
+    );
+
+    const res = await retire(fixture.posDeviceId, {});
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('DEVICE_HAS_UNSYNCED_OPS');
+    expect(res.body.error.message).toBe(
+      'เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง',
+    );
+    expect(res.body.error.details).toEqual({
+      unsyncedOps: 3,
+      reportedAt: reportedTime.toISOString(),
+    });
+
+    const row = await admin.query(
+      `SELECT retired_at FROM devices WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, fixture.posDeviceId],
+    );
+    expect(row[0].retired_at).toBeNull();
+  });
+
+  it('refuses force retirement when note is missing or empty (400 BAD_REQUEST)', async () => {
+    await admin.query(
+      `UPDATE devices SET unsynced_ops = 2, unsynced_reported_at = now()
+        WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, fixture.posDeviceId],
+    );
+
+    const missingNote = await retire(fixture.posDeviceId, { force: true });
+    expect(missingNote.status).toBe(400);
+
+    const emptyNote = await retire(fixture.posDeviceId, { force: true, note: '   ' });
+    expect(emptyNote.status).toBe(400);
+
+    const invalidForce = await retire(fixture.posDeviceId, { force: 'yes', note: 'test' });
+    expect(invalidForce.status).toBe(400);
+
+    const row = await admin.query(
+      `SELECT retired_at FROM devices WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, fixture.posDeviceId],
+    );
+    expect(row[0].retired_at).toBeNull();
+  });
+
+  it('allows force retirement when force: true and note is provided, recording review item', async () => {
+    const reportedTime = new Date('2026-09-18T10:00:00.000Z');
+    await admin.query(
+      `UPDATE devices SET unsynced_ops = 5, unsynced_reported_at = $3
+        WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, fixture.posDeviceId, reportedTime],
+    );
+
+    const note = 'เครื่องทำกาแฟหกใส่ บอร์ดช็อต ส่งซ่อม';
+    const res = await retire(fixture.posDeviceId, { force: true, note });
+    expect(res.status).toBe(200);
+    expect(res.body.data.device.retiredAt).not.toBeNull();
+    expect(res.body.data.device.unsyncedOps).toBe(5);
+
+    const row = await admin.query(
+      `SELECT retired_at FROM devices WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, fixture.posDeviceId],
+    );
+    expect(row[0].retired_at).not.toBeNull();
+
+    // Check review items
+    const reviewItems = await admin.query(
+      `SELECT id, kind, ref_id, details, reviewed_at FROM owner_review_items
+        WHERE tenant_id = $1::uuid AND kind = 'device_force_retired'`,
+      [TENANT],
+    );
+    expect(reviewItems).toHaveLength(1);
+    expect(reviewItems[0].ref_id).toBe(fixture.posDeviceId);
+    expect(reviewItems[0].reviewed_at).toBeNull();
+    expect(reviewItems[0].details).toEqual({
+      deviceId: fixture.posDeviceId,
+      unsyncedOps: 5,
+      reportedAt: reportedTime.toISOString(),
+      note,
+    });
+
+    // Check audit log
+    const audits = await auditActions();
+    const retireAudit = audits.find((a) => a.action === 'device.retire' && a.entity_id === fixture.posDeviceId);
+    expect(retireAudit).toBeDefined();
+    const after = retireAudit!.after as Record<string, unknown>;
+    expect(after.forced).toBe(true);
+    expect(after.note).toBe(note);
+  });
 });
