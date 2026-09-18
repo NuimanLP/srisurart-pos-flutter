@@ -28,6 +28,8 @@ export interface CreateSale {
   /** The counter confirmed 'ยืนยันขายเครดิต?' — the bill may push the mechanic past the limit. */
   overrideCreditLimit: boolean;
   items: SaleLine[];
+  soldOffline?: boolean;
+  date?: Date | string | null;
 }
 
 /**
@@ -68,6 +70,8 @@ export function parseCreateSale(body: unknown): CreateSale {
     totalSatang: toSatang(b.total, 'total'),
     ...parseSaleParty(b),
     items: parseLines(items),
+    soldOffline: b.soldOffline === true,
+    date: optionalString(b.date, 'date'),
   };
   assertMoneyMakesSense(sale);
   return sale;

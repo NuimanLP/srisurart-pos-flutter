@@ -2,8 +2,9 @@ import { BadRequestException } from '@nestjs/common';
 import { fromSatang, toSatang } from '../common/money.js';
 
 export interface CustomerCreate {
+  id?: string | null;
   name: string;
-  nameTH: string;
+  nameTH?: string;
   phone: string | null;
   address: string | null;
 }
@@ -37,9 +38,11 @@ export interface MechanicPatch {
 
 export function parseCustomerCreate(body: unknown): CustomerCreate {
   const value = asObject(body);
+  const name = requiredString(value.name, 'name');
   return {
-    name: requiredString(value.name, 'name'),
-    nameTH: requiredString(value.nameTH, 'nameTH'),
+    id: optionalString(value.id, 'id'),
+    name,
+    nameTH: optionalString(value.nameTH, 'nameTH') ?? name,
     phone: optionalString(value.phone, 'phone'),
     address: optionalString(value.address, 'address'),
   };

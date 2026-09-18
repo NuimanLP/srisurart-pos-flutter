@@ -132,6 +132,8 @@ const ALLOWED: Record<string, string> = {
     'Admin plane (ADR-0002): ADMIN_DATA_SOURCE creates tenants and changes their status across tenants.',
   'platform/tenant-import.service.ts':
     'Admin plane (ADR-0002/0005): ADMIN_DATA_SOURCE imports a whole tenant in one owner transaction.',
+  'common/guards/device-token.guard.ts':
+    'ADR-0004 & 08 §8.1: DeviceTokenGuard resolves X-Device-Token for /sync/push, checks tenants.status on a cache miss before naming the tenant with setRequestTenant.',
 };
 
 /**
@@ -154,8 +156,10 @@ const SCOPE_DOORS: Array<{
   {
     name: 'setRequestTenant',
     definedIn: 'common/request-context.ts',
-    callers: (file) => file === 'common/guards/tenant.guard.ts',
-    why: 'ADR-0003: TenantGuard alone names the tenant, after checking tenants.status',
+    callers: (file) =>
+      file === 'common/guards/tenant.guard.ts' ||
+      file === 'common/guards/device-token.guard.ts',
+    why: 'ADR-0003 & 08 §8.1: TenantGuard and DeviceTokenGuard alone name the tenant, after checking tenants.status',
   },
   {
     name: 'runInTransaction',

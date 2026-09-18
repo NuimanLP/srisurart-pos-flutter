@@ -174,16 +174,17 @@ export class CustomersService {
       [tenantId],
     )) as { n: number }[];
     const code = `CUS${String(maxRows[0].n + 1).padStart(3, '0')}`;
+    const customerId = input.id?.trim() || newId('c');
     const rows = (await manager.query(
       `INSERT INTO customers (tenant_id, id, code, name, name_th, phone, address)
             VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
          RETURNING ${COLUMNS}`,
       [
         tenantId,
-        newId('c'),
+        customerId,
         code,
         input.name,
-        input.nameTH,
+        input.nameTH ?? input.name,
         input.phone,
         input.address,
       ],

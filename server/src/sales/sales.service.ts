@@ -11,6 +11,7 @@ import { returning } from '../common/sql.js';
 import { DocNumberService } from '../documents/doc-number.service.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
+import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { JOB_SALE_CREATED, QUEUE_SALE_POST } from '../queue/queue.constants.js';
 import type { CreateSale, SaleLine } from './sales.dto.js';
 
@@ -308,6 +309,19 @@ export class SalesService {
           creditBalanceAfter: mechanicCreditBalanceAfter,
         },
       });
+      if (dto.soldOffline) {
+        await ReviewItemsService.insertIn(manager, tenantId, {
+          kind: 'credit_override',
+          refId: dto.id,
+          details: {
+            saleId: dto.id,
+            mechanicId: dto.mechanicId!,
+            total: fromSatang(dto.totalSatang),
+            creditLimit: fromSatang(override.creditLimit),
+            creditBalanceAfter: mechanicCreditBalanceAfter,
+          },
+        });
+      }
     }
 
     // #32: every line's stock moved, and the customer's spend/points and the mechanic's
@@ -645,7 +659,7 @@ export class SalesService {
       );
     }
 
-    if (rows[0].voided) {
+    if (rows[0].voided && !dto.soldOffline) {
       // The bill under this id has been cancelled: its stock is back on the shelf and
       // its money is out of the closing report. Replaying it would answer 201 with a
       // receipt number, a total and points for a bill that no longer stands, and the
@@ -747,13 +761,20 @@ export class SalesService {
     pointsGranted: number,
     shiftId: string | null,
   ): Promise<string> {
+    const soldOffline = dto.soldOffline === true;
+    const dateVal = dto.date
+      ? dto.date instanceof Date
+        ? dto.date.toISOString()
+        : dto.date
+      : null;
+
     const rows = (await this.mapConstraintErrors(() =>
       manager.query(
         `INSERT INTO sales (
          tenant_id, id, receipt_no, subtotal, discount, total, payment_method,
          customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta,
-         points_granted, user_id, device_id, shift_id)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::uuid, $15, $16)
+         points_granted, user_id, device_id, shift_id, sold_offline, date)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::uuid, $15, $16, $17, COALESCE($18::timestamptz, now()))
        RETURNING date`,
         [
           tenantId,
@@ -774,6 +795,8 @@ export class SalesService {
           actor.userId,
           actor.deviceId,
           shiftId,
+          soldOffline,
+          dateVal,
         ],
       ),
     )) as { date: Date }[];
