@@ -288,7 +288,17 @@ describe('sale reads and void (e2e)', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.voided).toBe(true);
     expect(res.body.data.voidedAt).not.toBeNull();
+    expect(res.body.data.voidReason).toBe('Customer return');
+    expect(res.body.data.soldOffline).toBe(false);
     expect(await stockOf('p1')).toBe(40);
+
+    const saleRows = await admin.query(
+      `SELECT voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, sale.id],
+    );
+    expect(saleRows[0].voided).toBe(true);
+    expect(saleRows[0].void_reason).toBe('Customer return');
+    expect(saleRows[0].sold_offline).toBe(false);
 
     // A void has its own movement type, so the bare sale id is free: `uq_movements_ref`
     // is unique on `(tenant_id, type, ref_id, product_id)` and a credit note against

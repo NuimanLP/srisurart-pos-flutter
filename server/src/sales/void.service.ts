@@ -147,10 +147,10 @@ export class VoidService {
 
     const voided = returning<{ voided_at: Date }>(
       await manager.query(
-        `UPDATE sales SET voided = TRUE, voided_at = now()
+        `UPDATE sales SET voided = TRUE, voided_at = now(), void_reason = $3
           WHERE tenant_id = $1::uuid AND id = $2
       RETURNING voided_at`,
-        [tenantId, saleId],
+        [tenantId, saleId, actor.reason],
       ),
     );
 

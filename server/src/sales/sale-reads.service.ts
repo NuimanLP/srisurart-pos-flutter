@@ -20,6 +20,8 @@ export interface SaleHeader {
   date: string;
   voided: boolean;
   voidedAt: string | null;
+  voidReason: string | null;
+  soldOffline: boolean;
   shiftId: string | null;
 }
 
@@ -66,12 +68,15 @@ interface SaleRow {
   date: Date;
   voided: boolean;
   voided_at: Date | null;
+  void_reason: string | null;
+  sold_offline: boolean;
   shift_id: string | null;
 }
 
 const SALE_COLUMNS = `id, receipt_no, subtotal, discount, total, payment_method,
                       customer_id, customer_name, mechanic_id, mechanic_name,
-                      mechanic_delta, points_granted, date, voided, voided_at, shift_id`;
+                      mechanic_delta, points_granted, date, voided, voided_at,
+                      void_reason, sold_offline, shift_id`;
 
 /**
  * The read side of selling. Small, but the Returns screen cannot work without
@@ -251,6 +256,8 @@ export function toHeader(row: SaleRow): SaleHeader {
     date: row.date.toISOString(),
     voided: row.voided,
     voidedAt: row.voided_at ? row.voided_at.toISOString() : null,
+    voidReason: row.void_reason ?? null,
+    soldOffline: row.sold_offline ?? false,
     shiftId: row.shift_id,
   };
 }
