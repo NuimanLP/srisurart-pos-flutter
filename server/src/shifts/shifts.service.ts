@@ -158,7 +158,7 @@ export class ShiftsService {
     const device = (await manager.query(
       `SELECT retired_at FROM devices
         WHERE tenant_id = $1::uuid AND id = $2
-          FOR SHARE`,
+          FOR NO KEY UPDATE`,
       [tenantId, deviceId],
     )) as { retired_at: Date | null }[];
     if (device.length === 0 || device[0].retired_at !== null) {

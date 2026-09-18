@@ -81,7 +81,7 @@ describe('the rate-limit plan lookup does not deadlock the request pool (e2e)', 
       .post('/api/v1/shifts/open')
       .set('Authorization', `Bearer ${posToken}`)
       .set('Idempotency-Key', `k-162-${i}-${Date.now()}`)
-      .send({ startingCash: '1000.00' });
+      .send({ id: 'sh-162-pool', startingCash: '1000.00' });
 
   const current = () =>
     request(app.getHttpServer())
