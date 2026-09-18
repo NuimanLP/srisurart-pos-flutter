@@ -20,6 +20,8 @@
 | ไฟล์ | เนื้อหา | ใครควรอ่าน |
 |---|---|---|
 | ⭐ [`00_BASICS.md`](00_BASICS.md) | **ปูพื้นฐาน — อ่านอันนี้ก่อน** ถ้ายังไม่เคยทำ backend: client/server, API, SQL, transaction, multi-tenant, JWT, cache, queue, scaling, offline sync + glossary ศัพท์ทั้งหมด อธิบายด้วยตัวอย่างจากร้านเราเอง | **ทุกคนที่อ่านเอกสารอื่นแล้วงง** |
+| ⭐ [`architecture-primer.md`](architecture-primer.md) | **ปูพื้นฐานสถาปัตยกรรม & เจาะลึก Concurrency / Caching** — 18 ศัพท์สำคัญ, Optimistic vs Pessimistic vs Distributed vs Row Lock, Caching Patterns, Stock Overlay, Single-Flight Memo, TTL Jitter | **ทุกคนที่ต้องการเข้าใจวิศวกรรมสถาปัตยกรรม + สื่อการสอน** |
+| [`architecture.md`](architecture.md) | **สเปกสถาปัตยกรรมฉบับอ้างอิง** (Deep Dive Concurrency & Locking §6.5, Caching & Invalidation §5.5) | **ทีม Backend + Architecture Review** |
 | [`01_DATABASE.md`](01_DATABASE.md) | ตารางทั้งหมด (20 เดิม + 8 ใหม่ = 28 ตาราง), ER diagram, DDL เต็ม, index, constraint, business invariant ที่ DB/backend ต้องบังคับ, แผนการ migrate ข้อมูลเดิม | **คนทำ DB / TypeORM entities** |
 | [`02_API_SCREENS.md`](02_API_SCREENS.md) | 11 หน้าจอ → ยิง API อะไรบ้าง (ตารางต่อหน้าจอ), API catalogue เต็ม, request/response ตัวอย่าง, จุดที่ต้อง cache / ต้องเข้า queue / ต้อง idempotent | **คนทำ NestJS modules + คนทำ Flutter client** |
 | [`03_ARCHITECTURE.md`](03_ARCHITECTURE.md) | 3 architecture ให้เลือก (พร้อม mermaid + ข้อดี/ข้อเสีย/ต้นทุน), 3 ทางเลือกของ multi-tenant model, ตารางเปรียบเทียบ, ข้อเสนอสุดท้าย | **ทุกคน + อาจารย์** |

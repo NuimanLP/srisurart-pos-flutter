@@ -2,6 +2,8 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
+- 2026-09-18 — [Architecture Primer & Concurrency Locking / Caching Deep Dive](session-2026-09-18-architecture-primer-concurrency-caching-deepdive.md) — จัดทำเอกสารปูพื้นฐานสถาปัตยกรรม `architecture-primer.md` (997 บรรทัด ครบ 13 หัวข้อ §0–§12) และสเปกอ้างอิง `architecture.md` ใน `docs/Backend_design/` ตามแม่แบบ `primer-template.md` · เจาะลึก Concurrency & Locking เปรียบเทียบ Optimistic (Retry Storm) vs Pessimistic (Pool Starvation) vs Distributed In-Flight Lock vs Atomic Decrement และ Lock Hierarchy แก้ Deadlock `40P01` · เจาะลึก Caching & Invalidation (Cache-Aside, Write-Through, Write-Behind, Stock Overlay Pattern, Single-Flight Promise Memoization, TTL Jitter) · ผ่านเกณฑ์ 11 ข้อของ primer-template 100% ครบ 2 รอบ
+
 - 2026-09-17 — [ปิด Phase 1 (#185) และเริ่ม Phase 2 (#268 Option A)](session-2026-09-17-phase1-close-phase2-start.md) — ปิด #185 นำเข้า snapshot จริงผ่าน checklist 6 ข้อ (e2e 44/44 checks ผ่าน 100%, ติ๊ก DoD ใน 03 §8) · ปิด #268 (Phase 2 slice 0c) เคาะ Option A ข้อความไทย 5 error codes + 13 UI จุด, อัปเดต server_error_resolver.dart, dart analyze + test ผ่านคลีน · สรุปแผน Phase 2 เตรียมเริ่ม #269 (slice 0d sync.seam)
 
 - 2026-09-15 (ค่ำ) — [รอบ orchestrator ปิดงาน phase 1](orchestrated-closeout-round-2026-09-15.md) — merge 13 PR (#235 #236 #237 #244 #246 #247 #250 #252 #253 #255 #256 #257 #260)

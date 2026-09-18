@@ -6,6 +6,9 @@
 > ทั้ง 3 แบบอยู่บน **สแตกเดียวกัน** ที่ทีมเรียนมาและอาจารย์กำหนด:
 > **Nginx (LB) → NestJS ≥3 instances → PostgreSQL (TypeORM) + Redis (cache) + BullMQ (queue), JWT stateless, Docker Compose**
 > ที่ต่างกันคือ **"ข้อมูลตัวจริงอยู่ที่ไหน"** และ **"ตอนเน็ตล่มเกิดอะไรขึ้น"**
+>
+> 📚 **ต้องการปูพื้นฐานสถาปัตยกรรม & เจาะลึก Concurrency / Caching?**
+> อ่าน [`architecture-primer.md`](architecture-primer.md) (18 ศัพท์สำคัญ, Optimistic vs Pessimistic vs Distributed vs Row Lock, Stock Overlay, Single-Flight Memo, Jitter) และสเปกอ้างอิง [`architecture.md`](architecture.md)
 
 ---
 
