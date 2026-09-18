@@ -105,7 +105,20 @@ export class DevicesController {
           physicalCash = toSatang(b.physicalCash, 'physicalCash');
           if (physicalCash < 0) throw new BadRequestException('physicalCash must not be negative');
         }
-        return this.devices.retire(actorOf(req), id, physicalCash);
+
+        if (b.force !== undefined && typeof b.force !== 'boolean') {
+          throw new BadRequestException('force must be a boolean');
+        }
+        const force = b.force === true;
+        let note: string | null = null;
+        if (force) {
+          if (typeof b.note !== 'string' || b.note.trim() === '') {
+            throw new BadRequestException('note is required when force is true');
+          }
+          note = b.note.trim();
+        }
+
+        return this.devices.retire(actorOf(req), id, physicalCash, { force, note });
       },
     );
   }
