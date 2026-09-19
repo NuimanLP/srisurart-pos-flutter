@@ -247,7 +247,7 @@
   <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">สารบัญ</span></div>
   <div class="sec-no">Contents</div>
   <h1 class="sec">สารบัญ</h1>
-  <p class="sec-lede">คู่มือแบ่งออกเป็น 14 หัวข้อหลัก ตามลำดับการใช้งานจริงในหนึ่งวันทำงาน</p>
+  <p class="sec-lede">คู่มือแบ่งออกเป็น 15 หัวข้อหลัก ตามลำดับการใช้งานจริงในหนึ่งวันทำงาน</p>
   <div class="toc">
     <div class="toc-row"><span class="n">01</span><span class="t">ภาพรวมระบบ <span class="en">Overview &amp; Navigation</span></span><span class="pg">4</span></div>
     <div class="toc-row"><span class="n">02</span><span class="t">เปิดร้าน — ลิ้นชักเงินสด <span class="en">Open Drawer</span></span><span class="pg">5</span></div>
@@ -263,11 +263,12 @@
     <div class="toc-row"><span class="n">12</span><span class="t">รายงานยอดขาย <span class="en">Sales Reports</span></span><span class="pg">16</span></div>
     <div class="toc-row"><span class="n">13</span><span class="t">ปิดร้าน — ปิดลิ้นชัก <span class="en">Closing</span></span><span class="pg">17</span></div>
     <div class="toc-row"><span class="n">14</span><span class="t">ตั้งค่า &amp; สำรองข้อมูล <span class="en">Settings &amp; Backup</span></span><span class="pg">18</span></div>
-    <div class="toc-row"><span class="n">＋</span><span class="t">ภาคผนวก — เคล็ดลับ &amp; คำถามพบบ่อย <span class="en">Tips &amp; FAQ</span></span><span class="pg">19</span></div>
+    <div class="toc-row"><span class="n">15</span><span class="t">สถานะการซิงค์ &amp; กู้คืนข้อมูล <span class="en">Sync &amp; Recovery</span></span><span class="pg">19</span></div>
+    <div class="toc-row"><span class="n">＋</span><span class="t">ภาคผนวก — เคล็ดลับ &amp; คำถามพบบ่อย <span class="en">Tips &amp; FAQ</span></span><span class="pg">20</span></div>
   </div>
   <div class="note key">
     <span class="nt">ก่อนเริ่มใช้งาน</span>
-    ระบบทำงานแบบ <strong>ออฟไลน์ (Offline-first)</strong> และเก็บข้อมูลไว้ใน <strong>เครื่องนี้เท่านั้น</strong> — ควร<strong>สำรองข้อมูลทุกวัน</strong> และเก็บไฟล์สำรองไว้ที่ปลอดภัย (ดูหัวข้อ 14)
+    ระบบทำงานแบบ <strong>ออฟไลน์ (Offline-first)</strong> ร่วมกับ <strong>คลาวด์เซิร์ฟเวอร์ (Cloud Sync)</strong> — หากเน็ตหลุดสามารถขายสำรองต่อได้ และเมื่อเกิดเหตุฉุกเฉินข้อมูลในเครื่องหาย สามารถลงทะเบียนใหม่และคีย์บิลย้อนหลังได้ (ดูหัวข้อ 15)
   </div>
   <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">3</span></div>
 </section>
@@ -284,7 +285,7 @@
     <figcaption>หน้าขายสินค้า — แถบเมนูด้านซ้าย · รายการสินค้าตรงกลาง · ตะกร้าและการชำระเงินด้านขวา</figcaption>
   </figure>
 
-  <h2 class="sub">เมนูหลัก 11 หน้า (แถบด้านซ้าย)</h2>
+  <h2 class="sub">เมนูหลัก 12 หน้า (แถบด้านซ้าย)</h2>
   <div class="navgrid">
     <div class="navcard"><span class="ic">🧾</span><span class="tx"><b>ขายสินค้า</b><span>หน้าขายหลัก / คิดเงิน</span></span></div>
     <div class="navcard"><span class="ic">📦</span><span class="tx"><b>สินค้า/สต็อก</b><span>เพิ่ม-แก้ไขสินค้า · เช็กของ</span></span></div>
@@ -297,12 +298,13 @@
     <div class="navcard"><span class="ic">📊</span><span class="tx"><b>รายงาน</b><span>ยอดขาย · สินค้าขายดี</span></span></div>
     <div class="navcard"><span class="ic">⚙</span><span class="tx"><b>ตั้งค่า</b><span>ข้อมูลร้าน · สำรองข้อมูล</span></span></div>
     <div class="navcard"><span class="ic">💵</span><span class="tx"><b>ลิ้นชัก</b><span>เปิด/ปิดร้าน · เงินเข้า-ออก</span></span></div>
+    <div class="navcard"><span class="ic">🛡️</span><span class="tx"><b>รอเจ้าของ</b><span>ตรวจรายการค้าง · อนุมัติ</span></span></div>
   </div>
 
   <h2 class="sub">แถบบนสุด</h2>
   <ul class="ticks">
     <li><strong>ซ้าย</strong> — ชื่อร้าน (ไทย) และชื่อภาษาอังกฤษ</li>
-    <li><strong>กลาง</strong> — ชื่อหน้าจอที่กำลังเปิดอยู่</li>
+    <li><strong>สถานะการเชื่อมต่อ</strong> — แสดงสถานะแบบเรียลไทม์: <span class="ui ghost" style="color:var(--green)">ออนไลน์</span> · <span class="ui ghost" style="color:var(--amber)">ออฟไลน์ (ขายสำรอง)</span> · <span class="ui ghost" style="color:var(--navy)">กำลังส่งข้อมูล...</span> พร้อมป้ายเตือน <span class="ui ghost" style="color:var(--red)">รอตรวจสอบ</span> เมื่อมีรายการค้าง</li>
     <li><strong>ขวา</strong> — ปุ่ม <span class="ui ghost">🌙 / ☀️</span> สลับ <strong>โหมดมืด/สว่าง</strong> · ชื่อแคชเชียร์ · วันที่และเวลาปัจจุบัน</li>
   </ul>
   <div class="note tip">
@@ -697,6 +699,41 @@
   <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">18</span></div>
 </section>
 
+<!-- ════════════════ 15 SYNC & RECOVERY ════════════════ -->
+<section class="page">
+  <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">15 · ซิงค์ข้อมูล &amp; กู้คืน</span></div>
+  <div class="sec-no">Section 15</div>
+  <h1 class="sec">สถานะการซิงค์ &amp; กู้คืนข้อมูล <span class="en">Sync &amp; Recovery</span></h1>
+  <p class="sec-lede">ระบบ POS ถูกออกแบบให้ขายต่อได้แม้ไม่มีอินเทอร์เน็ต (Offline-first) โดยทำงานร่วมกับเซิร์ฟเวอร์คลาวด์ พร้อมระบบตรวจรายการและขั้นตอนปฏิบัติเมื่อเครื่องชำรุดหรือข้อมูลสูญหาย</p>
+
+  <h2 class="sub">1. แถบสถานะการเชื่อมต่อ (บนแถบบนสุด)</h2>
+  <ul class="ticks">
+    <li><strong style="color:var(--green)">● ออนไลน์</strong> — เชื่อมต่อเซิร์ฟเวอร์สมบูรณ์ รายการขาย/สต็อก/เงินจะอัปเดตขึ้นระบบคลาวด์ทันที</li>
+    <li><strong style="color:var(--amber)">● ออฟไลน์ (ขายสำรอง)</strong> — สัญญาณอินเทอร์เน็ตขาดหาย <strong>สามารถขายสินค้าและพิมพ์ใบเสร็จได้ตามปกติทุกรายการ</strong> (ไม่มีการจำกัดสินค้า) ข้อมูลจะถูกเก็บลงคิวในเครื่องรอส่ง</li>
+    <li><strong style="color:var(--navy)">⟳ กำลังส่งข้อมูล...</strong> — เน็ตกลับมาแล้ว ระบบกำลังทยอยส่งรายการที่ค้างในเครื่องขึ้นเซิร์ฟเวอร์ พร้อมแสดงจำนวนบิลที่รอส่ง</li>
+  </ul>
+
+  <h2 class="sub">2. หน้า "รอเจ้าของ" (Owner Review)</h2>
+  <p>หากมีรายการที่ต้องตรวจสอบ จะมีป้ายสีแดง <span class="ui ghost" style="color:var(--red)">รอตรวจสอบ</span> บนแถบบนสุดและที่เมนูด้านซ้าย เมื่อกดเข้าไปจะพบ 2 แท็บ:</p>
+  <ul class="ticks">
+    <li><strong>แท็บ ถูกปฏิเสธ / ค้าง</strong> — รายการออฟไลน์ที่ไม่สามารถเข้าเซิร์ฟเวอร์ได้อัตโนมัติ (เช่น สต็อกไม่พอหลังเน็ตกลับมา) เจ้าของร้านสามารถกด <strong>ส่งใหม่</strong> หรือ <strong>ทิ้งรายการ</strong> (พร้อมระบุเหตุผล)</li>
+    <li><strong>แท็บ รอตรวจ</strong> — รายการที่เซิร์ฟเวอร์บันทึกแล้วแต่ต้องการให้เจ้าของรับทราบ เช่น ยกเลิกบิลตอนออฟไลน์ หรือขายเกินวงเงินเครดิตช่าง ให้กด <strong>ตรวจแล้ว</strong> เพื่อยืนยัน</li>
+  </ul>
+
+  <div class="note warn">
+    <span class="nt">กรณีฉุกเฉิน — หน่วยความจำเครื่องสูญหาย (Storage Lost — F8 &amp; X7)</span>
+    หากเกิดเหตุคอมพิวเตอร์เสีย เบราว์เซอร์ถูกล้างแคช หรือลงเครื่องใหม่ ข้อมูลคิวที่ยังไม่ได้ซิงค์จะสูญหาย:
+    <ol class="steps" style="margin-top:8px">
+      <li><span class="st-title">ลงทะเบียนเครื่องใหม่</span>เจ้าของร้านทำการ Enrol เครื่องใหม่ ซึ่งระบบจะออกรหัสเครื่องใหม่ (<span class="mono">device_no</span> ใหม่) เสมอตามข้อกำหนด F8</li>
+      <li><span class="st-title">คีย์บิลย้อนหลังจากใบเสร็จกระดาษ</span>นำสำเนาใบเสร็จที่เคยพิมพ์ให้ลูกค้าตอนออฟไลน์มาคีย์ขายใหม่เข้าระบบ</li>
+      <li><span class="st-title">ข้อสำคัญเรื่องเลขที่บิล (X7)</span>บิลที่คีย์ใหม่จะได้รับ<strong>เลขที่เอกสารใหม่</strong>ประจำเครื่องใหม่ (ไม่ใช่เลขเดิมบนใบเสร็จกระดาษ)</li>
+      <li><span class="st-title">ต้องระบุเลขเดิมในหมายเหตุ (X7)</span><strong>ให้พิมพ์เลขที่เอกสารเดิมจากใบเสร็จลงในช่อง "หมายเหตุ" ของบิลเสมอ</strong> เพื่อให้สามารถตรวจสอบย้อนกลับและเทียบยอดกับใบเสร็จกระดาษได้อย่างถูกต้องครบถ้วน</li>
+    </ol>
+  </div>
+
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · Flutter Edition</span><span class="pagenum">19</span></div>
+</section>
+
 <!-- ════════════════ APPENDIX ════════════════ -->
 <section class="page">
   <div class="runhead"><span>ศรีสุราษฎร์เจริญยนต์ · POS</span><span class="r">ภาคผนวก</span></div>
@@ -710,7 +747,7 @@
         <li><span class="st-title">เปิดร้าน</span>เปิดลิ้นชัก กรอกเงินตั้งต้น</li>
         <li><span class="st-title">ขายทั้งวัน</span>ขายสินค้า · พักบิล · คืนสินค้า ตามจริง</li>
         <li><span class="st-title">ปิดร้าน</span>นับเงิน ปิดลิ้นชัก พิมพ์รายงาน</li>
-        <li><span class="st-title">สำรองข้อมูล</span>ดาวน์โหลดไฟล์สำรองเก็บไว้</li>
+        <li><span class="st-title">ตรวจรายการ</span>เช็กป้าย "รอตรวจสอบ" ในหน้า รอเจ้าของ</li>
       </ol>
     </div>
     <div>
@@ -727,22 +764,20 @@
   </div>
 
   <h2 class="sub">คำถามพบบ่อย</h2>
-  <p><strong>ถาม: เพิ่มจำนวนในตะกร้าไม่ได้ ขึ้นว่าสต็อกไม่พอ?</strong><br>
-  ตอบ: ขายได้ไม่เกินจำนวนคงเหลือจริง หากต้องการขายเพิ่ม ต้องรับของเข้าสต็อกก่อน (หัวข้อ 9) หรือปรับสต็อกในหน้าสินค้า</p>
-  <p><strong>ถาม: ปรับราคาในตะกร้าไม่ได้?</strong><br>
-  ตอบ: การปรับราคาเฉพาะรายการใช้ได้เมื่อ<strong>เลือกช่าง</strong>ในบิลแล้วเท่านั้น และห้ามต่ำกว่าทุน</p>
-  <p><strong>ถาม: คืนสินค้าซ้ำไม่ได้?</strong><br>
-  ตอบ: คืนได้ไม่เกินจำนวนที่ขายจริง บิลที่คืนครบแล้วจะถูกล็อกเป็น “ยกเลิกแล้ว”</p>
+  <p><strong>ถาม: เน็ตหลุดขายของได้ไหม?</strong><br>
+  ตอบ: ขายได้ตามปกติ ระบบจะขึ้นสถานะ <span class="ui ghost" style="color:var(--amber)">ออฟไลน์ (ขายสำรอง)</span> และส่งข้อมูลขึ้นเซิร์ฟเวอร์โดยอัตโนมัติเมื่อเน็ตกลับมา</p>
+  <p><strong>ถาม: สินค้าบางตัวขายตอนเน็ตหลุดไม่ได้ใช่ไหม?</strong><br>
+  ตอบ: ขายได้ทุกตัว ไม่มีสินค้าติดป้ายเทาหรือถูกล็อกอีกต่อไป</p>
+  <p><strong>ถาม: เครื่องเสียหรือเผลอล้างประวัติเบราว์เซอร์ ข้อมูลหายทำอย่างไร?</strong><br>
+  ตอบ: ให้ลงทะเบียนเครื่องใหม่ แล้วนำสำเนาใบเสร็จกระดาษมาคีย์ขายใหม่ โดยพิมพ์เลขที่ใบเดิมลงในช่อง "หมายเหตุ" ของบิล (ดูหัวข้อ 15)</p>
   <p><strong>ถาม: เปลี่ยนเป็นโหมดมืดอย่างไร?</strong><br>
   ตอบ: กดปุ่ม <span class="ui ghost">🌙 / ☀️</span> บนแถบบนสุด หรือไปที่ตั้งค่า → แท็บ ธีม</p>
-  <p><strong>ถาม: ข้อมูลหายไหมถ้าปิดแอป?</strong><br>
-  ตอบ: ไม่หาย ระบบเก็บทุกอย่างไว้ในเครื่อง (ออฟไลน์) แต่ให้<strong>สำรองข้อมูลสม่ำเสมอ</strong>เผื่อเครื่องเสีย</p>
 
   <div class="note key">
     <span class="nt">ติดปัญหา?</span>
-    หากระบบค้างหรือแสดงผลผิดปกติ ให้ลอง<strong>เปิดแอปใหม่</strong> ข้อมูลที่บันทึกแล้วจะยังอยู่ครบ</div>
+    หากระบบค้างหรือแสดงผลผิดปกติ ให้ลอง<strong>เปิดแอปใหม่</strong> ข้อมูลที่บันทึกแล้วจะยังอยู่ครบ และตรวจสอบป้ายเตือนในหน้า <strong>รอเจ้าของ</strong> สม่ำเสมอ</div>
 
-  <div class="runfoot"><span>คู่มือการใช้งาน POS · ศรีสุราษฎร์เจริญยนต์ · Flutter Edition</span><span class="pagenum">19</span></div>
+  <div class="runfoot"><span>คู่มือการใช้งาน POS · ศรีสุราษฎร์เจริญยนต์ · Flutter Edition</span><span class="pagenum">20</span></div>
 </section>
 
 </body>
