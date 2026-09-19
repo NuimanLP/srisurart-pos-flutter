@@ -17,6 +17,7 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/settings_repository.dart';
+import '../../data/sync/sync_facade.dart';
 import 'thai_format.dart';
 import 'theme_controller.dart';
 
@@ -40,7 +41,49 @@ const List<_NavDest> _destinations = [
   _NavDest(AppRoutes.reports, Icons.bar_chart, 'รายงาน'),
   _NavDest(AppRoutes.settings, Icons.settings, 'ตั้งค่า'),
   _NavDest(AppRoutes.cashDrawer, Icons.account_balance_wallet, 'ลิ้นชัก'),
+  _NavDest(AppRoutes.ownerReview, Icons.verified_user_outlined, 'รอเจ้าของ'),
 ];
+
+class _NavIcon extends StatelessWidget {
+  final _NavDest destination;
+  final Color? color;
+
+  const _NavIcon({required this.destination, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final iconWidget = Icon(destination.icon, color: color);
+    if (destination.path != AppRoutes.ownerReview) {
+      return iconWidget;
+    }
+
+    SyncFacade? syncFacade;
+    try {
+      syncFacade = context.read<SyncFacade>();
+    } catch (_) {
+      syncFacade = null;
+    }
+
+    if (syncFacade == null) {
+      return iconWidget;
+    }
+
+    return StreamBuilder<List<OutboxOpView>>(
+      stream: syncFacade.needsOwner,
+      builder: (context, snapshot) {
+        final count = snapshot.data?.length ?? 0;
+        if (count > 0) {
+          return Badge.count(
+            count: count,
+            backgroundColor: AppColors.error,
+            child: iconWidget,
+          );
+        }
+        return iconWidget;
+      },
+    );
+  }
+}
 
 class AppShell extends StatelessWidget {
   final Widget child;
@@ -120,7 +163,7 @@ class _Rail extends StatelessWidget {
             destinations: [
               for (final d in _destinations)
                 NavigationRailDestination(
-                  icon: Icon(d.icon),
+                  icon: _NavIcon(destination: d),
                   label: Text(d.label),
                 ),
             ],
@@ -161,8 +204,8 @@ class _NavDrawer extends StatelessWidget {
             ),
             for (var i = 0; i < _destinations.length; i++)
               ListTile(
-                leading: Icon(
-                  _destinations[i].icon,
+                leading: _NavIcon(
+                  destination: _destinations[i],
                   color: i == selected ? AppColors.orange : AppColors.gray300,
                 ),
                 title: Text(

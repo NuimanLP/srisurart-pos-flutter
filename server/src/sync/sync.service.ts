@@ -23,6 +23,7 @@ import { parseCreateSale } from '../sales/sales.dto.js';
 import { VoidService } from '../sales/void.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import {
+  type SyncDiscardDto,
   type SyncOpDto,
   type SyncOpResult,
   type SyncPushDto,
@@ -942,4 +943,84 @@ export class SyncService {
     this.logger.warn(`Transient or unhandled error for op ${op.opId}: ${err}`);
     return { opId: op.opId, status: 'retry' };
   }
+
+  discardOp(
+    actor: { userId: string; tenantId: string; deviceId?: string; ip?: string },
+    dto: SyncDiscardDto,
+  ): Promise<{ serverHasRow: boolean }> {
+    return this.tenants.runTx(() => this.discardOpIn(actor, dto));
+  }
+
+  private async discardOpIn(
+    actor: { userId: string; tenantId: string; deviceId?: string; ip?: string },
+    dto: SyncDiscardDto,
+  ): Promise<{ serverHasRow: boolean }> {
+    const { tenantId, manager } = currentRequestContext();
+    let serverHasRow = false;
+
+      const targetId =
+        dto.clientId ??
+        (dto.payload?.id ? String(dto.payload.id).trim() : undefined);
+
+      if (targetId) {
+        if (dto.type.startsWith('sale.')) {
+          const rows = await manager.query(
+            `SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, targetId],
+          );
+          serverHasRow = rows.length > 0;
+        } else if (dto.type.startsWith('return.')) {
+          const rows = await manager.query(
+            `SELECT 1 FROM returns WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, targetId],
+          );
+          serverHasRow = rows.length > 0;
+        } else if (dto.type.startsWith('shift.')) {
+          const rows = await manager.query(
+            `SELECT 1 FROM shifts WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, targetId],
+          );
+          serverHasRow = rows.length > 0;
+        } else if (dto.type.startsWith('drawer.')) {
+          const rows = await manager.query(
+            `SELECT 1 FROM drawer_entries WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, targetId],
+          );
+          serverHasRow = rows.length > 0;
+        } else if (dto.type.startsWith('customer.')) {
+          const rows = await manager.query(
+            `SELECT 1 FROM customers WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, targetId],
+          );
+          serverHasRow = rows.length > 0;
+        } else if (dto.type.startsWith('credit_payment.')) {
+          const rows = await manager.query(
+            `SELECT 1 FROM credit_payments WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, targetId],
+          );
+          serverHasRow = rows.length > 0;
+        }
+      }
+
+      await this.audit.log(manager, {
+        tenantId,
+        userId: actor.userId,
+        deviceId: actor.deviceId,
+        action: 'sync.op.discarded',
+        entity: 'sync',
+        entityId: dto.opId,
+        after: {
+          opId: dto.opId,
+          type: dto.type,
+          clientId: targetId,
+          lastCode: dto.lastCode,
+          note: dto.note,
+          serverHasRow,
+        },
+        ip: actor.ip,
+      });
+
+      return { serverHasRow };
+  }
 }
+

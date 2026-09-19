@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
 import {
+  accessToken,
   createTestApp,
   resetTenant,
   seedMechanic,
@@ -1638,4 +1639,116 @@ describe('POST /sync/push (e2e)', () => {
       });
     });
   });
+
+  describe('POST /sync/discards', () => {
+    const discard = (
+      body: unknown,
+      token: string | null = POS_DEVICE_TOKEN,
+      idempotencyKey = 'k_discard_1',
+    ) => {
+      const req = request(app.getHttpServer())
+        .post('/api/v1/sync/discards')
+        .set('Idempotency-Key', idempotencyKey);
+      if (token) req.set('X-Device-Token', token);
+      return req.send(body as object);
+    };
+
+    it('rejects request without authentication (401)', async () => {
+      const res = await discard(
+        {
+          opId: 'op_disc_1',
+          type: 'customer.create',
+          note: 'Customer duplicate',
+        },
+        null,
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects request with empty or missing note (400)', async () => {
+      const res = await discard({
+        opId: 'op_disc_1',
+        type: 'customer.create',
+        note: '   ',
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toContain('note');
+    });
+
+    it('returns serverHasRow: false when target row does not exist and writes audit log', async () => {
+      const opId = 'op_disc_non_existent';
+      const clientId = 'c_never_synced';
+      const res = await discard({
+        opId,
+        type: 'customer.create',
+        clientId,
+        lastCode: 'INSUFFICIENT_STOCK',
+        note: 'Discarded by cashier',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ serverHasRow: false });
+
+      // Verify audit log
+      const auditRows = await admin.query(
+        `SELECT action, entity, entity_id, after FROM audit_log WHERE tenant_id = $1::uuid AND action = 'sync.op.discarded' AND entity_id = $2`,
+        [TENANT, opId],
+      );
+      expect(auditRows.length).toBe(1);
+      expect(auditRows[0].action).toBe('sync.op.discarded');
+      expect(auditRows[0].entity_id).toBe(opId);
+      expect(auditRows[0].after.serverHasRow).toBe(false);
+      expect(auditRows[0].after.note).toBe('Discarded by cashier');
+    });
+
+    it('returns serverHasRow: true when target row exists on server', async () => {
+      // First push a customer so row exists on server
+      const clientId = 'c_exists_1';
+      await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_c_exists',
+            idempotencyKey: 'k_c_exists',
+            type: 'customer.create',
+            payload: { id: clientId, name: 'Existing Customer' },
+          },
+        ],
+      });
+
+      const opId = 'op_disc_existing';
+      const res = await discard({
+        opId,
+        type: 'customer.create',
+        clientId,
+        note: 'Already on server',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ serverHasRow: true });
+    });
+
+    it('works with Bearer JWT token (owner login)', async () => {
+      const userToken = accessToken({
+        tenantId: TENANT,
+        userId: fixture.userId,
+        role: 'owner',
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/sync/discards')
+        .set('Authorization', `Bearer ${userToken}`)
+        .set('Idempotency-Key', 'k_discard_jwt')
+        .send({
+          opId: 'op_jwt_disc',
+          type: 'sale.create',
+          clientId: 's_missing',
+          note: 'Owner discarded from backoffice',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ serverHasRow: false });
+    });
+  });
 });
+

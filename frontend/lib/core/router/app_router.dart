@@ -20,6 +20,7 @@ import '../../presentation/screens/checkout_screen.dart';
 import '../../presentation/screens/customers_screen.dart';
 import '../../presentation/screens/login_screen.dart';
 import '../../presentation/screens/mechanics_screen.dart';
+import '../../presentation/screens/owner_review_screen.dart';
 import '../../presentation/screens/products_screen.dart';
 import '../../presentation/screens/purchase_orders_screen.dart';
 import '../../presentation/screens/quotes_screen.dart';
@@ -43,6 +44,7 @@ class AppRoutes {
   static const String reports = '/reports';
   static const String settings = '/settings';
   static const String cashDrawer = '/cash-drawer';
+  static const String ownerReview = '/owner-review';
 
   /// #143 — registered only on the API build (see [buildAppRouter]).
   static const String login = '/login';
@@ -181,6 +183,10 @@ ShellRoute _buildShell() => ShellRoute(
     GoRoute(
       path: AppRoutes.cashDrawer,
       builder: (context, state) => const CashDrawerScreen(),
+    ),
+    GoRoute(
+      path: AppRoutes.ownerReview,
+      builder: (context, state) => const OwnerReviewScreen(),
     ),
   ],
 );

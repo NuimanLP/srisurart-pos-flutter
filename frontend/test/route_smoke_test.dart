@@ -42,6 +42,7 @@ import 'package:srisurart_pos/presentation/screens/reports_screen.dart';
 import 'package:srisurart_pos/presentation/screens/returns_screen.dart';
 import 'package:srisurart_pos/presentation/screens/settings_screen.dart';
 import 'package:srisurart_pos/presentation/screens/cash_drawer_screen.dart';
+import 'package:srisurart_pos/presentation/screens/owner_review_screen.dart';
 
 /// One screen under test: a human label + a builder for the widget.
 class _ScreenCase {
@@ -62,6 +63,7 @@ final List<_ScreenCase> _screens = [
   _ScreenCase('returns', () => const ReturnsScreen()),
   _ScreenCase('settings', () => const SettingsScreen()),
   _ScreenCase('cash_drawer', () => const CashDrawerScreen()),
+  _ScreenCase('owner_review', () => const OwnerReviewScreen()),
 ];
 
 /// Sizes a real POS runs at. Tablet is the primary target.

@@ -267,6 +267,7 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
       'ShiftsController.open': 'POST /shifts/open 200',
       'ShiftsController.close': 'POST /shifts/close 200',
       'ShiftsController.addEntry': 'POST /shifts/current/entries 201',
+      'SyncController.discard': 'POST /sync/discards 200',
     });
   });
 });

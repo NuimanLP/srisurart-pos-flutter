@@ -114,3 +114,50 @@ export function parseSyncPush(body: unknown): SyncPushDto {
     ops,
   };
 }
+
+export interface SyncDiscardDto {
+  opId: string;
+  type: string;
+  clientId?: string;
+  payload?: Record<string, unknown>;
+  lastCode?: string;
+  note: string;
+}
+
+export function parseSyncDiscard(body: unknown): SyncDiscardDto {
+  if (typeof body !== 'object' || body === null) {
+    throw new BadRequestException('Request body must be an object');
+  }
+  const b = body as Record<string, unknown>;
+  if (typeof b.opId !== 'string' || !b.opId.trim()) {
+    throw new BadRequestException('opId must be a non-empty string');
+  }
+  if (typeof b.type !== 'string' || !b.type.trim()) {
+    throw new BadRequestException('type must be a non-empty string');
+  }
+  if (typeof b.note !== 'string' || !b.note.trim()) {
+    throw new BadRequestException('note must be a non-empty string');
+  }
+  const clientId =
+    typeof b.clientId === 'string' && b.clientId.trim() !== ''
+      ? b.clientId.trim()
+      : undefined;
+  const lastCode =
+    typeof b.lastCode === 'string' && b.lastCode.trim() !== ''
+      ? b.lastCode.trim()
+      : undefined;
+  const payload =
+    typeof b.payload === 'object' && b.payload !== null
+      ? (b.payload as Record<string, unknown>)
+      : undefined;
+
+  return {
+    opId: b.opId.trim(),
+    type: b.type.trim(),
+    clientId,
+    payload,
+    lastCode,
+    note: b.note.trim(),
+  };
+}
+
