@@ -18,7 +18,8 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Srisurart Autopart POS (Flutter migration)">
+  <meta name="description" content="ระบบขายหน้าร้าน ศรีสุราษฎร์ อะไหล่ยนต์ (Srisurart Autopart POS)">
+  <meta name="theme-color" content="#0B2444">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -29,18 +30,374 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>srisurart_pos</title>
+  <title>ศรีสุราษฎร์ อะไหล่ยนต์ POS</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* CSS for PWA shell, Update Banner, and Single-Tab Lock Screen */
+    :root {
+      --pos-navy: #0B2444;
+      --pos-navy-mid: #153660;
+      --pos-orange: #E8601C;
+      --pos-orange-hover: #C04E10;
+      --pos-offwhite: #FFFBF2;
+      --pos-gray-100: #EDF0F4;
+      --pos-gray-200: #D1D8E0;
+      --pos-gray-400: #6B8FAF;
+      --pos-gray-600: #2E3D4A;
+      --pos-white: #FFFFFF;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--pos-offwhite);
+      font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: var(--pos-navy);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Update Prompt Banner */
+    .pwa-update-banner {
+      display: none;
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 99999;
+      background-color: var(--pos-navy);
+      color: var(--pos-white);
+      padding: 12px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(11, 36, 68, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      max-width: 90vw;
+    }
+
+    .pwa-update-content {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 15px;
+    }
+
+    .pwa-update-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .pwa-btn {
+      cursor: pointer;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      border: none;
+      transition: background-color 0.15s ease;
+    }
+
+    .pwa-btn-primary {
+      background-color: var(--pos-orange);
+      color: var(--pos-white);
+    }
+
+    .pwa-btn-primary:hover {
+      background-color: var(--pos-orange-hover);
+    }
+
+    .pwa-btn-secondary {
+      background-color: transparent;
+      color: var(--pos-gray-200);
+      border: 1px solid var(--pos-gray-400);
+    }
+
+    .pwa-btn-secondary:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+      color: var(--pos-white);
+    }
+
+    /* Single-Tab Lock Screen ("เปิดอยู่แล้ว") */
+    .pwa-lock-screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100000;
+      background: linear-gradient(135deg, var(--pos-navy) 0%, var(--pos-navy-mid) 100%);
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    .pwa-lock-card {
+      background: var(--pos-white);
+      border-radius: 12px;
+      max-width: 500px;
+      width: 100%;
+      padding: 32px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      box-sizing: border-box;
+    }
+
+    .pwa-lock-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 16px auto;
+      background-color: #FFF3EB;
+      color: var(--pos-orange);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pwa-lock-icon svg {
+      width: 32px;
+      height: 32px;
+      fill: currentColor;
+    }
+
+    .pwa-lock-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--pos-navy);
+      margin: 0 0 12px 0;
+    }
+
+    .pwa-lock-subtitle {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--pos-orange);
+      margin: 0 0 16px 0;
+      line-height: 1.5;
+    }
+
+    .pwa-lock-desc {
+      font-size: 14px;
+      color: var(--pos-gray-600);
+      margin: 0 0 24px 0;
+      line-height: 1.6;
+      text-align: left;
+      background-color: var(--pos-gray-100);
+      padding: 14px 16px;
+      border-radius: 8px;
+    }
+
+    .pwa-lock-desc ul {
+      margin: 8px 0 0 0;
+      padding-left: 20px;
+    }
+
+    .pwa-lock-desc li {
+      margin-bottom: 4px;
+    }
+
+    .pwa-lock-btn {
+      background-color: var(--pos-navy);
+      color: var(--pos-white);
+      border: none;
+      border-radius: 6px;
+      padding: 10px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      width: 100%;
+      transition: background-color 0.15s ease;
+    }
+
+    .pwa-lock-btn:hover {
+      background-color: var(--pos-navy-mid);
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <!-- Update Prompt Banner -->
+  <div id="pwa-update-banner" class="pwa-update-banner">
+    <div class="pwa-update-content">
+      <span class="pwa-update-text">มีแอปพลิเคชันเวอร์ชันใหม่ ต้องการอัปเดตหรือไม่?</span>
+      <div class="pwa-update-actions">
+        <button id="pwa-update-btn" class="pwa-btn pwa-btn-primary">อัปเดตเลย</button>
+        <button id="pwa-dismiss-btn" class="pwa-btn pwa-btn-secondary">ไว้ก่อน</button>
+      </div>
+    </div>
+  </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
-  <script src="flutter_bootstrap.js" async></script>
+  <!-- Single-Tab Lock Screen ("เปิดอยู่แล้ว") -->
+  <div id="pwa-lock-screen" class="pwa-lock-screen">
+    <div class="pwa-lock-card">
+      <div class="pwa-lock-icon">
+        <svg viewBox="0 0 24 24">
+          <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5z"/>
+        </svg>
+      </div>
+      <h2 class="pwa-lock-title">ระบบขายหน้าร้าน ศรีสุราษฎร์ อะไหล่ยนต์</h2>
+      <div class="pwa-lock-subtitle">
+        แอปเปิดใช้งานอยู่ในแท็บอื่นแล้ว (เครื่อง POS รองรับการทำงานแท็บเดียวเพื่อความปลอดภัยของข้อมูล)
+      </div>
+      <div class="pwa-lock-desc">
+        <div>เครื่อง POS จำกัดการเปิดใช้งานเพียง 1 แท็บเพื่อความถูกต้องของสต็อกและป้องกันความขัดแย้งของข้อมูล</div>
+        <ul>
+          <li>กรุณาสลับไปยังแท็บที่เปิดใช้งานอยู่แล้วเพื่อทำงานต่อ</li>
+          <li>หรือหากต้องการใช้แท็บนี้ กรุณาปิดแท็บอื่นๆ ทั้งหมด แล้วกดปุ่มด้านล่าง</li>
+        </ul>
+      </div>
+      <button class="pwa-lock-btn" onclick="window.location.reload()">ลองเปิดใหม่อีกครั้ง</button>
+    </div>
+  </div>
+
+  <script>
+    // 1. Persistent Storage (08 §4 item 7, F8)
+    async function initStoragePersistence() {
+      if (navigator.storage && navigator.storage.persist) {
+        try {
+          const isPersisted = await navigator.storage.persisted();
+          console.log('[Storage] Initial persisted status:', isPersisted);
+          if (!isPersisted) {
+            const granted = await navigator.storage.persist();
+            console.log('[Storage] Requested storage.persist(), result:', granted);
+          }
+          const finalStatus = await navigator.storage.persisted();
+          console.log('[Storage] Final persisted status:', finalStatus);
+          window.__POS_STORAGE_PERSISTED__ = finalStatus;
+          return finalStatus;
+        } catch (err) {
+          console.warn('[Storage] Error requesting persistence:', err);
+        }
+      } else {
+        console.log('[Storage] StorageManager persistence not supported');
+      }
+      return false;
+    }
+
+    // 2. Service Worker Registration & Update Notification UI (08 §4 item 6)
+    function initServiceWorker() {
+      if (!('serviceWorker' in navigator)) return;
+
+      let waitingWorker = null;
+      const banner = document.getElementById('pwa-update-banner');
+      const updateBtn = document.getElementById('pwa-update-btn');
+      const dismissBtn = document.getElementById('pwa-dismiss-btn');
+
+      function showUpdatePrompt(worker) {
+        waitingWorker = worker;
+        if (banner) {
+          banner.style.display = 'block';
+        }
+      }
+
+      if (updateBtn) {
+        updateBtn.addEventListener('click', () => {
+          if (waitingWorker) {
+            waitingWorker.postMessage({ action: 'skipWaiting' });
+          }
+          if (banner) banner.style.display = 'none';
+        });
+      }
+
+      if (dismissBtn) {
+        dismissBtn.addEventListener('click', () => {
+          if (banner) banner.style.display = 'none';
+        });
+      }
+
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
+
+      navigator.serviceWorker.register('sw.js').then((reg) => {
+        if (reg.waiting) {
+          showUpdatePrompt(reg.waiting);
+        }
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            // Only prompt update if a controller is already managing the page (not first install)
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdatePrompt(newWorker);
+            }
+          });
+        });
+      }).catch((err) => {
+        console.warn('[SW] Registration failed:', err);
+      });
+    }
+
+    // 3. Single-Tab Web Lock & Flutter Bootstrap (08 §4 item 11, D10)
+    function bootFlutter() {
+      console.log('[App] Booting Flutter...');
+      const script = document.createElement('script');
+      script.src = 'flutter_bootstrap.js';
+      script.async = true;
+      document.body.appendChild(script);
+    }
+
+    function showAlreadyOpenScreen() {
+      console.warn('[App] Single-tab lock not acquired. Aborting Flutter startup.');
+      const lockScreen = document.getElementById('pwa-lock-screen');
+      if (lockScreen) {
+        lockScreen.style.display = 'flex';
+      }
+    }
+
+    async function acquireSingleTabLockAndBoot() {
+      if (!navigator.locks || !navigator.locks.request) {
+        console.warn('[Locks] Web Locks API not available. Booting Flutter directly.');
+        bootFlutter();
+        return;
+      }
+
+      const RETRY_DURATION_MS = 2000;
+      const RETRY_INTERVAL_MS = 200;
+      const startTime = Date.now();
+
+      function tryAcquireOnce() {
+        return new Promise((resolve) => {
+          let resolved = false;
+          navigator.locks.request('srisurart-pos-writer', { ifAvailable: true }, async (lock) => {
+            if (!lock) {
+              resolved = true;
+              resolve(false);
+              return;
+            }
+            resolved = true;
+            resolve(true);
+            // Hold the lock for the lifetime of this tab
+            await new Promise((releaseLock) => {
+              window.addEventListener('beforeunload', releaseLock, { once: true });
+            });
+          }).catch((err) => {
+            console.error('[Locks] Lock request error:', err);
+            if (!resolved) resolve(false);
+          });
+        });
+      }
+
+      while (Date.now() - startTime < RETRY_DURATION_MS) {
+        const acquired = await tryAcquireOnce();
+        if (acquired) {
+          console.log('[Locks] Acquired srisurart-pos-writer lock successfully.');
+          bootFlutter();
+          return;
+        }
+        await new Promise((r) => setTimeout(r, RETRY_INTERVAL_MS));
+      }
+
+      // If lock was not acquired within ~2 seconds, abort and show notification
+      showAlreadyOpenScreen();
+    }
+
+    // Initialize Web Shell components
+    initStoragePersistence();
+    initServiceWorker();
+    acquireSingleTabLockAndBoot();
+  </script>
 </body>
 </html>
