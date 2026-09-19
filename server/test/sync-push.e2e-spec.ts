@@ -1691,7 +1691,7 @@ describe('POST /sync/push (e2e)', () => {
 
       // Verify audit log
       const auditRows = await admin.query(
-        `SELECT action, entity, entity_id, after FROM audit_logs WHERE tenant_id = $1::uuid AND action = 'sync.op.discarded' AND entity_id = $2`,
+        `SELECT action, entity, entity_id, after FROM audit_log WHERE tenant_id = $1::uuid AND action = 'sync.op.discarded' AND entity_id = $2`,
         [TENANT, opId],
       );
       expect(auditRows.length).toBe(1);
