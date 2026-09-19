@@ -67,7 +67,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -133,6 +133,11 @@ class AppDatabase extends _$AppDatabase {
       // Postgres never had this column, client drops it).
       if (from < 7) {
         await m.alterTable(TableMigration(products));
+      }
+      // v7 → v8 (Ticket #274, C16): Clear doc_counter_seeds upon upgrade so
+      // stale seed markers from before switch-over are wiped.
+      if (from < 8) {
+        await delete(docCounterSeeds).go();
       }
     },
   );
