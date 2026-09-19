@@ -34,6 +34,7 @@ import '../../data/repositories/api_quotes_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
 import '../../data/sync/sync_facade.dart';
+import '../../data/sync/sync_service.dart';
 
 /// The repository providers, mirroring providers.dart + shift_providers.dart,
 /// plus AuthRepository, ApiClient, and ApiRepositories (Ticket #55 / ADR-0010).
@@ -132,7 +133,12 @@ List<RepositoryProvider> repositoryProviders(
     // Phase 2: SyncFacade contract seam (Slice 0d / Ticket #269).
     // Swapped to real SyncService in slice 8-c (#228).
     RepositoryProvider<SyncFacade>.value(
-      value: syncFacade ?? const NullSyncFacade(),
+      value: syncFacade ??
+          SyncService(
+            db: db,
+            apiClient: client,
+            tokenStorage: storage,
+          ),
     ),
   ];
 }

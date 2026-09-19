@@ -416,3 +416,24 @@ class AppMeta extends Table {
   @override
   Set<Column> get primaryKey => {key};
 }
+
+/// Schema v9 (#228, Slice 8-c, 08_PHASE2_SPEC.md §7): local outbox table for
+/// background synchronization and single-flight push.
+@DataClassName('OutboxOpRow')
+class OutboxOps extends Table {
+  TextColumn get opId => text()();
+  TextColumn get idempotencyKey => text()();
+  TextColumn get type => text()();
+  TextColumn get payload => text()();
+  TextColumn get aggregates => text()();
+  DateTimeColumn get createdAt => dateTime()();
+  TextColumn get status => text()();
+  IntColumn get attempts => integer().withDefault(const Constant(0))();
+  TextColumn get lastCode => text().nullable()();
+  TextColumn get lastMessage => text().nullable()();
+  TextColumn get lastDetails => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {opId};
+}
+
