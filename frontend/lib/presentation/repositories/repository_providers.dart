@@ -45,12 +45,7 @@ import '../../data/sync/sync_service.dart';
 ///
 /// [useApi] switches the #56 API-backed WRITE repositories (sales, returns,
 /// shifts) in behind the same interfaces (ADR-0010) instead of the Drift-only
-/// ones. It defaults to `false` — CLAUDE.md: "the shop keeps running the Drift
-/// build, no cutover" for phase 1 — and is flipped only via
-/// `--dart-define=USE_API_WRITES=true`.
-///
-/// [useApiRepositories] is #55's separate switch for the API-backed READ
-/// repositories (products, customers, mechanics, purchase orders, quotes).
+/// versions. Read paths (#55) are switched independently by [useApiRepositories].
 List<RepositoryProvider> repositoryProviders(
   AppDatabase db, {
   AuthRepository? authRepository,

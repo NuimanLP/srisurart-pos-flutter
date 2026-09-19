@@ -84,6 +84,9 @@ class SyncService implements SyncFacade {
     } catch (_) {}
   }
 
+  /// Refreshes outbox streams. Called when external atomic transactions write to outbox_ops.
+  Future<void> refreshOutbox() => _refreshOutbox();
+
   void _updateOutboxStreams(List<OutboxOpRow> ops) {
     if (_isDisposed) return;
     _currentOutboxRemaining = ops.length;
