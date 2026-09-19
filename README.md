@@ -88,3 +88,5 @@ can only happen there.
 5. `docs/handoff_log/grill-round2-ci.md` — the current ordered checklist and what is still undecided
 6. `docs/handoff_log/merge-p1-p2-lane-assignments.md` — latest session: merge state, lane→handle
    assignment, a pending force-push that needs sign-off
+
+## Health Check Feature
