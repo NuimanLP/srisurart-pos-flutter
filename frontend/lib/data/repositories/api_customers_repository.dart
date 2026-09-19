@@ -1,22 +1,47 @@
-// ApiCustomersRepository — write-through cache implementation of CustomersRepository.
-//
-// Complies with ADR-0010:
-//  • Server is the authority on customer codes (CUS###) and balances.
-//  • Writes results through to Drift immediately.
-//  • Supports offline read fallback from Drift cache.
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../../core/utils/ids.dart';
 import '../db/database.dart';
+import '../sync/sync_facade.dart';
+import '../sync/sync_service.dart';
 import 'api/api_wire.dart';
 import 'customers_repository.dart';
 
 class ApiCustomersRepository extends CustomersRepository {
   final ApiClient apiClient;
+  final SyncService? syncService;
+  final SyncFacade? syncFacade;
 
-  ApiCustomersRepository(super.db, this.apiClient);
+  ApiCustomersRepository(
+    super.db,
+    this.apiClient, {
+    this.syncService,
+    this.syncFacade,
+  });
+
+  bool get _isDegraded {
+    final sync = syncService ??
+        (syncFacade is SyncService ? syncFacade as SyncService : null);
+    if (sync != null) {
+      return sync.currentStatus == SyncStatus.degraded ||
+          sync.currentStatus == SyncStatus.syncing ||
+          sync.currentOutboxRemaining > 0;
+    }
+    if (syncFacade != null) {
+      try {
+        final dynamic facade = syncFacade;
+        final status = facade.currentStatus;
+        if (status == SyncStatus.degraded || status == SyncStatus.syncing) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
 
   CustomersCompanion _customerToCompanion(Map<String, dynamic> json) {
     final id = json['id'] as String;
@@ -109,80 +134,204 @@ class ApiCustomersRepository extends CustomersRepository {
 
   @override
   Future<CustomerRow> addCustomer(CustomersCompanion data) async {
-    try {
-      final body = {
-        'name': data.name.present ? data.name.value : '',
-        'nameTH': data.nameTH.present ? data.nameTH.value : '',
-        if (data.phone.present && data.phone.value != null) 'phone': data.phone.value,
-        if (data.address.present && data.address.value != null) 'address': data.address.value,
-      };
+    final customerId = data.id.present && data.id.value.isNotEmpty
+        ? data.id.value
+        : newId('c');
+    final name = data.name.present ? data.name.value : '';
+    final nameTH = data.nameTH.present && data.nameTH.value.isNotEmpty
+        ? data.nameTH.value
+        : name;
+    final phone = data.phone.present ? data.phone.value : null;
+    final address = data.address.present ? data.address.value : null;
 
-      final res = await apiClient.post('/api/v1/customers', body: body, headers: idempotencyKey());
+    final body = {
+      'id': customerId,
+      'name': name,
+      'nameTH': nameTH,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+      if (address != null && address.isNotEmpty) 'address': address,
+    };
+    final aggregates = ['customer:$customerId'];
+
+    Future<CustomerRow> queueOfflineCustomer() async {
+      final opId = newId('op');
+      final key = newId('idem');
+      final now = DateTime.now();
+      final code = data.code.present ? data.code.value : '';
+
+      final comp = CustomersCompanion(
+        id: Value(customerId),
+        code: Value(code),
+        name: Value(name),
+        nameTH: Value(nameTH),
+        phone: Value(phone),
+        address: Value(address),
+        points: const Value(0),
+        totalSpend: const Value(0.0),
+        createdAt: Value(now.toUtc().toIso8601String()),
+      );
+
+      await db.transaction(() async {
+        await db.into(db.customers).insertOnConflictUpdate(comp);
+        await db.into(db.outboxOps).insert(
+          OutboxOpsCompanion(
+            opId: Value(opId),
+            idempotencyKey: Value(key),
+            type: const Value('customer.create'),
+            payload: Value(jsonEncode(body)),
+            aggregates: Value(jsonEncode(aggregates)),
+            createdAt: Value(now.toUtc()),
+            status: const Value('pending'),
+            attempts: const Value(0),
+          ),
+        );
+      });
+
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      await sync?.refreshOutbox();
+      return await (db.select(db.customers)
+            ..where((t) => t.id.equals(customerId)))
+          .getSingle();
+    }
+
+    if (_isDegraded) {
+      return await queueOfflineCustomer();
+    }
+
+    final key = newId('idem');
+    try {
+      final res = await apiClient.post(
+        '/api/v1/customers',
+        body: body,
+        headers: {'Idempotency-Key': key},
+      );
       if (res is Map) {
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
-        return await (db.select(db.customers)..where((t) => t.id.equals(comp.id.value))).getSingle();
+        return await (db.select(db.customers)
+              ..where((t) => t.id.equals(comp.id.value)))
+            .getSingle();
       }
+      throw ApiException(
+        statusCode: 500,
+        code: 'SERVER_ERROR',
+        serverMessage: 'บันทึกลูกค้าไม่สำเร็จ',
+      );
     } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
+      if (isVerdict(e)) {
+        rethrowServerRefusal(e);
+      }
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      sync?.recordNonVerdictWrite();
+      if (sync != null) {
+        return await queueOfflineCustomer();
+      }
       rethrow;
     } catch (_) {
-      // Offline fallback
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      sync?.recordNonVerdictWrite();
+      if (sync != null) {
+        return await queueOfflineCustomer();
+      }
+      rethrow;
     }
-
-    return super.addCustomer(data);
   }
 
   @override
   Future<void> updateCustomer(String id, CustomersCompanion patch) async {
-    try {
-      final body = <String, dynamic>{};
-      if (patch.name.present) body['name'] = patch.name.value;
-      if (patch.nameTH.present) body['nameTH'] = patch.nameTH.value;
-      if (patch.phone.present) body['phone'] = patch.phone.value;
-      if (patch.address.present) body['address'] = patch.address.value;
+    final body = <String, dynamic>{};
+    if (patch.name.present) body['name'] = patch.name.value;
+    if (patch.nameTH.present) body['nameTH'] = patch.nameTH.value;
+    if (patch.phone.present) body['phone'] = patch.phone.value;
+    if (patch.address.present) body['address'] = patch.address.value;
 
-      final res = await apiClient.patch('/api/v1/customers/$id', body: body, headers: idempotencyKey());
+    final aggregates = ['customer:$id'];
+
+    Future<void> queueOfflineUpdate() async {
+      final opId = newId('op');
+      final key = newId('idem');
+      final now = DateTime.now();
+
+      await db.transaction(() async {
+        await (db.update(db.customers)..where((t) => t.id.equals(id))).write(patch);
+        await db.into(db.outboxOps).insert(
+          OutboxOpsCompanion(
+            opId: Value(opId),
+            idempotencyKey: Value(key),
+            type: const Value('customer.update'),
+            payload: Value(jsonEncode({'id': id, ...body})),
+            aggregates: Value(jsonEncode(aggregates)),
+            createdAt: Value(now.toUtc()),
+            status: const Value('pending'),
+            attempts: const Value(0),
+          ),
+        );
+      });
+
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      await sync?.refreshOutbox();
+    }
+
+    if (_isDegraded) {
+      await queueOfflineUpdate();
+      return;
+    }
+
+    final key = newId('idem');
+    try {
+      final res = await apiClient.patch(
+        '/api/v1/customers/$id',
+        body: body,
+        headers: {'Idempotency-Key': key},
+      );
       if (res is Map) {
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
         return;
       }
     } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
+      if (isVerdict(e)) {
+        rethrowServerRefusal(e);
+      }
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      sync?.recordNonVerdictWrite();
+      if (sync != null) {
+        await queueOfflineUpdate();
+        return;
+      }
       rethrow;
     } catch (_) {
-      // Offline fallback
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      sync?.recordNonVerdictWrite();
+      if (sync != null) {
+        await queueOfflineUpdate();
+        return;
+      }
+      rethrow;
     }
-
-    await super.updateCustomer(id, patch);
   }
 
   @override
   Future<void> deleteCustomer(String id) async {
-    try {
-      await apiClient.delete('/api/v1/customers/$id', headers: idempotencyKey());
-      await (db.update(db.customers)..where((t) => t.id.equals(id))).write(
-        CustomersCompanion(
-          deletedAt: Value(DateTime.now()),
-        ),
-      );
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
-      await (db.update(db.customers)..where((t) => t.id.equals(id))).write(
-        CustomersCompanion(
-          deletedAt: Value(DateTime.now()),
-        ),
+    if (_isDegraded) {
+      throw const PosException(
+        'OFFLINE_ACTION_NOT_ALLOWED',
+        'ไม่สามารถลบลูกค้าได้ขณะออฟไลน์',
       );
     }
+
+    await apiClient.delete('/api/v1/customers/$id', headers: idempotencyKey());
+    await (db.update(db.customers)..where((t) => t.id.equals(id))).write(
+      CustomersCompanion(
+        deletedAt: Value(DateTime.now()),
+      ),
+    );
   }
 }
+

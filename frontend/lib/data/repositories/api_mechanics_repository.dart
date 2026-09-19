@@ -159,87 +159,56 @@ class ApiMechanicsRepository extends MechanicsRepository {
 
   @override
   Future<MechanicRow> addMechanic(MechanicsCompanion data) async {
-    try {
-      final body = {
-        'name': data.name.present ? data.name.value : '',
-        if (data.nameTH.present && data.nameTH.value != null) 'nameTH': data.nameTH.value,
-        if (data.nickname.present && data.nickname.value != null) 'nickname': data.nickname.value,
-        if (data.shopName.present && data.shopName.value != null) 'shopName': data.shopName.value,
-        if (data.phone.present && data.phone.value != null) 'phone': data.phone.value,
-        if (data.note.present && data.note.value != null) 'note': data.note.value,
-        if (data.creditLimit.present) 'creditLimit': wireMoney(data.creditLimit.value),
-      };
+    final body = {
+      'name': data.name.present ? data.name.value : '',
+      if (data.nameTH.present && data.nameTH.value != null) 'nameTH': data.nameTH.value,
+      if (data.nickname.present && data.nickname.value != null) 'nickname': data.nickname.value,
+      if (data.shopName.present && data.shopName.value != null) 'shopName': data.shopName.value,
+      if (data.phone.present && data.phone.value != null) 'phone': data.phone.value,
+      if (data.note.present && data.note.value != null) 'note': data.note.value,
+      if (data.creditLimit.present) 'creditLimit': wireMoney(data.creditLimit.value),
+    };
 
-      final res = await apiClient.post('/api/v1/mechanics', body: body, headers: idempotencyKey());
-      if (res is Map) {
-        final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
-        await db.into(db.mechanics).insertOnConflictUpdate(comp);
-        return await (db.select(db.mechanics)..where((t) => t.id.equals(comp.id.value))).getSingle();
-      }
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
+    final res = await apiClient.post('/api/v1/mechanics', body: body, headers: idempotencyKey());
+    if (res is Map) {
+      final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
+      await db.into(db.mechanics).insertOnConflictUpdate(comp);
+      return await (db.select(db.mechanics)..where((t) => t.id.equals(comp.id.value))).getSingle();
     }
-
-    return super.addMechanic(data);
+    throw ApiException(
+      statusCode: 500,
+      code: 'SERVER_ERROR',
+      serverMessage: 'ไม่สามารถบันทึกข้อมูลช่าง',
+    );
   }
 
   @override
   Future<void> updateMechanic(String id, MechanicsCompanion patch) async {
-    try {
-      final body = <String, dynamic>{};
-      if (patch.name.present) body['name'] = patch.name.value;
-      if (patch.nameTH.present) body['nameTH'] = patch.nameTH.value;
-      if (patch.nickname.present) body['nickname'] = patch.nickname.value;
-      if (patch.shopName.present) body['shopName'] = patch.shopName.value;
-      if (patch.phone.present) body['phone'] = patch.phone.value;
-      if (patch.note.present) body['note'] = patch.note.value;
-      if (patch.creditLimit.present) body['creditLimit'] = wireMoney(patch.creditLimit.value);
+    final body = <String, dynamic>{};
+    if (patch.name.present) body['name'] = patch.name.value;
+    if (patch.nameTH.present) body['nameTH'] = patch.nameTH.value;
+    if (patch.nickname.present) body['nickname'] = patch.nickname.value;
+    if (patch.shopName.present) body['shopName'] = patch.shopName.value;
+    if (patch.phone.present) body['phone'] = patch.phone.value;
+    if (patch.note.present) body['note'] = patch.note.value;
+    if (patch.creditLimit.present) body['creditLimit'] = wireMoney(patch.creditLimit.value);
 
-      final res = await apiClient.patch('/api/v1/mechanics/$id', body: body, headers: idempotencyKey());
-      if (res is Map) {
-        final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
-        await db.into(db.mechanics).insertOnConflictUpdate(comp);
-        return;
-      }
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
+    final res = await apiClient.patch('/api/v1/mechanics/$id', body: body, headers: idempotencyKey());
+    if (res is Map) {
+      final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
+      await db.into(db.mechanics).insertOnConflictUpdate(comp);
+      return;
     }
-
-    await super.updateMechanic(id, patch);
   }
 
   @override
   Future<void> deleteMechanic(String id) async {
-    try {
-      await apiClient.delete('/api/v1/mechanics/$id', headers: idempotencyKey());
-      await (db.update(db.mechanics)..where((t) => t.id.equals(id))).write(
-        MechanicsCompanion(
-          deletedAt: Value(DateTime.now()),
-        ),
-      );
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
-      await (db.update(db.mechanics)..where((t) => t.id.equals(id))).write(
-        MechanicsCompanion(
-          deletedAt: Value(DateTime.now()),
-        ),
-      );
-    }
+    await apiClient.delete('/api/v1/mechanics/$id', headers: idempotencyKey());
+    await (db.update(db.mechanics)..where((t) => t.id.equals(id))).write(
+      MechanicsCompanion(
+        deletedAt: Value(DateTime.now()),
+      ),
+    );
   }
 
   @override

@@ -52,6 +52,7 @@ import '../blocs/pending_quote_cubit.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_text.dart';
 import '../widgets/receipt_view.dart';
+import '../widgets/sync_status_builder.dart';
 import '../widgets/tap_target.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -508,6 +509,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _handleSaveQuote() async {
+    if (context.isDegraded) {
+      _warn('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกใบเสนอราคาได้');
+      return;
+    }
     final cart = _cart.state;
     if (cart.isEmpty) {
       _warn('ตะกร้าว่าง');
@@ -2771,24 +2776,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: empty ? null : _handleSaveQuote,
-                  icon: const Icon(Icons.description_outlined, size: 18),
-                  label: const Text(
-                    'ใบเสนอราคา',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF5B97F0),
-                    side: BorderSide(
-                      color: const Color(0xFF2A6FDB).withValues(alpha: 0.5),
-                      width: 1.5,
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
+                child: SyncStatusBuilder(
+                  builder: (context, status, isDegraded) {
+                    final disabled = empty || isDegraded;
+                    return OutlinedButton.icon(
+                      onPressed: disabled ? null : _handleSaveQuote,
+                      icon: const Icon(Icons.description_outlined, size: 18),
+                      label: const Text(
+                        'ใบเสนอราคา',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF5B97F0),
+                        side: BorderSide(
+                          color: const Color(0xFF2A6FDB).withValues(alpha: 0.5),
+                          width: 1.5,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],

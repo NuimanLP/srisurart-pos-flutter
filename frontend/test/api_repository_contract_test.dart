@@ -211,6 +211,39 @@ List<String> _timeoutFallsBack(String source) {
   return violations;
 }
 
+/// In Phase 2 (#229 / ADR-0010 §3 / 08 §6.4), EVERY write is either an outbox
+/// op or rejected with an error. No ApiRepository may fall back to
+/// `super.<write>()` against Drift.
+///
+/// Only allowed exceptions:
+/// - Reads in `_fallbackReads` (serving stale cache when offline is ADR-0010's read design)
+/// - The deliberate pure-Drift build branch `if (!writesToServer)` in addCreditPayment (#24)
+List<String> _fallbackWrites(String source) {
+  final violations = <String>[];
+  final lines = source.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final name = _superWriteName(line);
+    if (name == null || _fallbackReads.contains(name)) continue;
+
+    // Check if inside a `!writesToServer` guard (the pure-Drift build branch)
+    var inWritesToServerGuard = false;
+    for (var j = i; j >= 0; j--) {
+      if (lines[j].trim() == '@override') break;
+      if (lines[j].contains('!writesToServer')) {
+        inWritesToServerGuard = true;
+        break;
+      }
+    }
+    if (inWritesToServerGuard) continue;
+
+    violations.add(
+      'line ${i + 1}: ${line.trim()}  (banned fallback write to super.$name in Phase 2 / #229)',
+    );
+  }
+  return violations;
+}
+
 void main() {
   final apiDir = Directory(
     p.join('lib', 'data', 'repositories', 'api'),
@@ -469,8 +502,42 @@ class ApiShiftsRepository implements ShiftsRepository {
     expect(_timeoutFallsBack(cachedRead), isEmpty);
   });
 
+  test('self-check: the Phase 2 fallback matcher catches any super.<write>() call', () {
+    const hasFallbackWrite = '''
+  @override
+  Future<ProductRow> add(ProductsCompanion data) async {
+    try {
+      return await api.post('/products');
+    } catch (_) {}
+    return super.add(data);
+  }
+''';
+    expect(_fallbackWrites(hasFallbackWrite), isNotEmpty);
+
+    const pureDriftAllowed = '''
+  @override
+  Future<CreditPaymentRow> addCreditPayment() async {
+    if (!writesToServer) {
+      return super.addCreditPayment();
+    }
+  }
+''';
+    expect(_fallbackWrites(pureDriftAllowed), isEmpty);
+
+    const allowedRead = '''
+  @override
+  Future<List<String>> getCategories() async {
+    try {
+      return await api.get('/categories');
+    } catch (_) {}
+    return super.getCategories();
+  }
+''';
+    expect(_fallbackWrites(allowedRead), isEmpty);
+  });
+
   test(
-    'no api_*_repository.dart re-runs a Drift write after the server answered',
+    'no api_*_repository.dart re-runs a Drift write or contains fallback writes (Phase 2 #229)',
     () {
       final dir = Directory(p.join('lib', 'data', 'repositories'));
       final files = dir
@@ -490,6 +557,7 @@ class ApiShiftsRepository implements ShiftsRepository {
       for (final file in files) {
         final source = file.readAsStringSync();
         final violations = [
+          ..._fallbackWrites(source),
           ..._unguardedFallbacks(source),
           ..._timeoutFallsBack(source),
           ..._networkInsideTransaction(source.split('\n')),
@@ -505,10 +573,9 @@ class ApiShiftsRepository implements ShiftsRepository {
         allViolations,
         isEmpty,
         reason:
-            'A write whose reply was a server refusal must reach the counter, '
-            'not be quietly re-done against Drift. On a 5xx the server may have '
-            'committed and only the reply was lost, so the local re-run is a '
-            'SECOND PO receipt, credit payment or quote. Found:'
+            'In Phase 2 (#229 / ADR-0010), every write is either an outbox op or '
+            'rejected with an error. No local fallback super.<write>() against '
+            'Drift is permitted. Found:'
             '\n${allViolations.join('\n')}',
       );
     },

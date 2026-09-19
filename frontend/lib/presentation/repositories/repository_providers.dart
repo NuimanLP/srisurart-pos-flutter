@@ -100,7 +100,12 @@ List<RepositoryProvider> repositoryProviders(
       ? ApiProductsRepository(db, client)
       : ProductsRepository(db);
   final customersRepo = useApiRepositories
-      ? ApiCustomersRepository(db, client)
+      ? ApiCustomersRepository(
+          db,
+          client,
+          syncService: realSyncService,
+          syncFacade: syncFacade,
+        )
       : CustomersRepository(db);
   // 🔴 A credit payment is a money WRITE, so it follows the write switch, not
   // this read one: on the Drift build it stays a local Drift write, and only

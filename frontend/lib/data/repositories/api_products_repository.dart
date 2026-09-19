@@ -171,94 +171,63 @@ class ApiProductsRepository extends ProductsRepository {
     final partNo = (data.partNo.present ? data.partNo.value : '').trim();
     if (partNo.isEmpty) return null;
 
-    try {
-      final body = {
-        'partNo': partNo,
-        'name': data.name.present ? data.name.value : '',
-        'nameTH': data.nameTH.present ? data.nameTH.value : '',
-        'category': data.category.present ? data.category.value : '',
-        'brand': data.brand.present ? data.brand.value : '',
-        'price': data.price.present ? wireMoney(data.price.value) : '0.00',
-        'cost': data.cost.present ? wireMoney(data.cost.value) : '0.00',
-        'stock': data.stock.present ? data.stock.value : 0,
-        'minStock': data.minStock.present ? data.minStock.value : 0,
-        if (data.compat.present && data.compat.value != null) 'compat': data.compat.value,
-      };
+    final body = {
+      'partNo': partNo,
+      'name': data.name.present ? data.name.value : '',
+      'nameTH': data.nameTH.present ? data.nameTH.value : '',
+      'category': data.category.present ? data.category.value : '',
+      'brand': data.brand.present ? data.brand.value : '',
+      'price': data.price.present ? wireMoney(data.price.value) : '0.00',
+      'cost': data.cost.present ? wireMoney(data.cost.value) : '0.00',
+      'stock': data.stock.present ? data.stock.value : 0,
+      'minStock': data.minStock.present ? data.minStock.value : 0,
+      if (data.compat.present && data.compat.value != null) 'compat': data.compat.value,
+    };
 
-      final res = await apiClient.post('/api/v1/products', body: body, headers: idempotencyKey());
-      if (res is Map) {
-        final comp = _productToCompanion(Map<String, dynamic>.from(res));
-        await db.into(db.products).insertOnConflictUpdate(comp);
-        return await (db.select(db.products)..where((t) => t.id.equals(comp.id.value))).getSingle();
-      }
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
+    final res = await apiClient.post('/api/v1/products', body: body, headers: idempotencyKey());
+    if (res is Map) {
+      final comp = _productToCompanion(Map<String, dynamic>.from(res));
+      await db.into(db.products).insertOnConflictUpdate(comp);
+      return await (db.select(db.products)..where((t) => t.id.equals(comp.id.value))).getSingle();
     }
-
-    return super.add(data);
+    throw ApiException(
+      statusCode: 500,
+      code: 'SERVER_ERROR',
+      serverMessage: 'ไม่สามารถบันทึกสินค้า',
+    );
   }
 
   @override
   Future<bool> update(String id, ProductsCompanion patch) async {
-    try {
-      final body = <String, dynamic>{};
-      if (patch.partNo.present) body['partNo'] = patch.partNo.value.trim();
-      if (patch.name.present) body['name'] = patch.name.value;
-      if (patch.nameTH.present) body['nameTH'] = patch.nameTH.value;
-      if (patch.category.present) body['category'] = patch.category.value;
-      if (patch.brand.present) body['brand'] = patch.brand.value;
-      if (patch.price.present) body['price'] = wireMoney(patch.price.value);
-      if (patch.cost.present) body['cost'] = wireMoney(patch.cost.value);
-      if (patch.minStock.present) body['minStock'] = patch.minStock.value;
-      if (patch.compat.present) body['compat'] = patch.compat.value;
+    final body = <String, dynamic>{};
+    if (patch.partNo.present) body['partNo'] = patch.partNo.value.trim();
+    if (patch.name.present) body['name'] = patch.name.value;
+    if (patch.nameTH.present) body['nameTH'] = patch.nameTH.value;
+    if (patch.category.present) body['category'] = patch.category.value;
+    if (patch.brand.present) body['brand'] = patch.brand.value;
+    if (patch.price.present) body['price'] = wireMoney(patch.price.value);
+    if (patch.cost.present) body['cost'] = wireMoney(patch.cost.value);
+    if (patch.minStock.present) body['minStock'] = patch.minStock.value;
+    if (patch.compat.present) body['compat'] = patch.compat.value;
 
-      final res = await apiClient.patch('/api/v1/products/$id', body: body, headers: idempotencyKey());
-      if (res is Map) {
-        final comp = _productToCompanion(Map<String, dynamic>.from(res));
-        await db.into(db.products).insertOnConflictUpdate(comp);
-        return true;
-      }
+    final res = await apiClient.patch('/api/v1/products/$id', body: body, headers: idempotencyKey());
+    if (res is Map) {
+      final comp = _productToCompanion(Map<String, dynamic>.from(res));
+      await db.into(db.products).insertOnConflictUpdate(comp);
       return true;
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
     }
-
-    return super.update(id, patch);
+    return true;
   }
 
   @override
   Future<void> delete(String id) async {
-    try {
-      await apiClient.delete('/api/v1/products/$id', headers: idempotencyKey());
-      // ADR-0010: soft-delete locally by setting deletedAt WITHOUT stamping client clock on updatedAt
-      await (db.update(db.products)..where((t) => t.id.equals(id))).write(
-        ProductsCompanion(
-          deletedAt: Value(DateTime.now()),
-        ),
-      );
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
-      await (db.update(db.products)..where((t) => t.id.equals(id))).write(
-        ProductsCompanion(
-          deletedAt: Value(DateTime.now()),
-        ),
-      );
-    }
+    await apiClient.delete('/api/v1/products/$id', headers: idempotencyKey());
+    // ADR-0010: soft-delete locally by setting deletedAt WITHOUT stamping client clock on updatedAt
+    await (db.update(db.products)..where((t) => t.id.equals(id))).write(
+      ProductsCompanion(
+        deletedAt: Value(DateTime.now()),
+      ),
+    );
   }
 
   @override
@@ -271,71 +240,42 @@ class ApiProductsRepository extends ProductsRepository {
     final p = await (db.select(db.products)..where((t) => t.id.equals(productId))).getSingleOrNull();
     if (p == null) return;
 
-    try {
-      final body = <String, dynamic>{
-        'delta': delta,
-        'type': type,
-      };
-      if (note != null) body['note'] = note;
+    final body = <String, dynamic>{
+      'delta': delta,
+      'type': type,
+    };
+    if (note != null) body['note'] = note;
 
-      final res = await apiClient.post(
-        '/api/v1/products/$productId/adjust-stock',
-        body: body,
-        headers: idempotencyKey(),
+    final res = await apiClient.post(
+      '/api/v1/products/$productId/adjust-stock',
+      body: body,
+      headers: idempotencyKey(),
+    );
+    if (res is Map) {
+      final resMap = Map<String, dynamic>.from(res);
+      final stockAfter = (resMap['stockAfter'] as num?)?.toInt() ?? (p.stock + delta);
+      // Patch row directly without client clock stamping on updatedAt (ADR-0010 §5)
+      await (db.update(db.products)..where((t) => t.id.equals(productId))).write(
+        ProductsCompanion(
+          stock: Value(stockAfter),
+        ),
       );
-      if (res is Map) {
-        final resMap = Map<String, dynamic>.from(res);
-        final stockAfter = (resMap['stockAfter'] as num?)?.toInt() ?? (p.stock + delta);
-        // Patch row directly without client clock stamping on updatedAt (ADR-0010 §5)
-        await (db.update(db.products)..where((t) => t.id.equals(productId))).write(
-          ProductsCompanion(
-            stock: Value(stockAfter),
-          ),
+
+      final mv = resMap['movement'];
+      if (mv is Map<String, dynamic>) {
+        await db.into(db.movements).insertOnConflictUpdate(movementRowFromWire(mv));
+      } else {
+        await MovementsRepository(db).addMovement(
+          productId: productId,
+          partNo: p.partNo,
+          name: p.name,
+          delta: delta,
+          type: type,
+          note: note,
+          stockAfter: stockAfter,
         );
-
-        final mv = resMap['movement'];
-        if (mv is Map<String, dynamic>) {
-          await db.into(db.movements).insertOnConflictUpdate(movementRowFromWire(mv));
-        } else {
-          await MovementsRepository(db).addMovement(
-            productId: productId,
-            partNo: p.partNo,
-            name: p.name,
-            delta: delta,
-            type: type,
-            note: note,
-            stockAfter: stockAfter,
-          );
-        }
-        return;
       }
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback: only when server was never reached
     }
-
-    int fallbackStock = p.stock + delta;
-    if (fallbackStock < 0) fallbackStock = 0;
-
-    await (db.update(db.products)..where((t) => t.id.equals(productId))).write(
-      ProductsCompanion(
-        stock: Value(fallbackStock),
-      ),
-    );
-
-    await MovementsRepository(db).addMovement(
-      productId: productId,
-      partNo: p.partNo,
-      name: p.name,
-      delta: delta,
-      type: type,
-      note: note,
-      stockAfter: fallbackStock,
-    );
   }
 
   @override
@@ -367,29 +307,17 @@ class ApiProductsRepository extends ProductsRepository {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
 
-    try {
-      await apiClient.post('/api/v1/categories', body: {'name': trimmed}, headers: idempotencyKey());
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {}
-
-    await super.addCategory(trimmed);
+    await apiClient.post('/api/v1/categories', body: {'name': trimmed}, headers: idempotencyKey());
+    final count = await (db.select(db.categories)).get().then((l) => l.length);
+    await db.into(db.categories).insert(
+          CategoriesCompanion.insert(name: trimmed, position: count),
+          onConflict: DoUpdate((old) => CategoriesCompanion(position: Value(count))),
+        );
   }
 
   @override
   Future<void> deleteCategory(String name) async {
-    try {
-      await apiClient.delete('/api/v1/categories/$name', headers: idempotencyKey());
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {}
-
-    await super.deleteCategory(name);
+    await apiClient.delete('/api/v1/categories/$name', headers: idempotencyKey());
+    await (db.delete(db.categories)..where((t) => t.name.equals(name))).go();
   }
 }

@@ -595,6 +595,78 @@ class SyncService implements SyncFacade {
             );
       }
     }
+
+    // Customer applied (customer.create / customer.update) (#229)
+    final customerId = response['id'] as String?;
+    if (customerId != null &&
+        (response.containsKey('name') ||
+            response.containsKey('phone') ||
+            response.containsKey('points') ||
+            response.containsKey('totalSpend') ||
+            response.containsKey('code'))) {
+      final existing = await (db.select(db.customers)
+            ..where((t) => t.id.equals(customerId)))
+          .getSingleOrNull();
+
+      final customerCode = response['code'] as String?;
+      final name = response['name'] as String?;
+      final nameTH = (response['nameTH'] ??
+          response['name_t_h'] ??
+          response['nameTh']) as String?;
+      final phone = response.containsKey('phone')
+          ? response['phone'] as String?
+          : null;
+      final address = response.containsKey('address')
+          ? response['address'] as String?
+          : null;
+      final points = (response['points'] as num?)?.toInt();
+      final totalSpend = response.containsKey('totalSpend')
+          ? double.tryParse(response['totalSpend']?.toString() ?? '')
+          : null;
+
+      if (existing != null) {
+        await (db.update(db.customers)..where((t) => t.id.equals(customerId)))
+            .write(
+          CustomersCompanion(
+            code: customerCode != null
+                ? Value(customerCode)
+                : const Value.absent(),
+            name: name != null ? Value(name) : const Value.absent(),
+            nameTH: nameTH != null
+                ? Value(nameTH)
+                : (name != null ? Value(name) : const Value.absent()),
+            phone: response.containsKey('phone')
+                ? Value(phone)
+                : const Value.absent(),
+            address: response.containsKey('address')
+                ? Value(address)
+                : const Value.absent(),
+            points: points != null ? Value(points) : const Value.absent(),
+            totalSpend:
+                totalSpend != null ? Value(totalSpend) : const Value.absent(),
+          ),
+        );
+      } else {
+        await db.into(db.customers).insertOnConflictUpdate(
+              CustomersCompanion(
+                id: Value(customerId),
+                code: Value(customerCode ?? ''),
+                name: Value(name ?? ''),
+                nameTH: Value(nameTH ?? name ?? ''),
+                phone: Value(phone),
+                address: Value(address),
+                points: Value(points ?? 0),
+                totalSpend: Value(totalSpend ?? 0.0),
+                createdAt: Value(
+                  (response['createdAt'] ??
+                          response['created_at'] ??
+                          DateTime.now().toUtc().toIso8601String())
+                      as String,
+                ),
+              ),
+            );
+      }
+    }
   }
 
   // ── Aggregate Chain Filtering (§8.4) ──────────────────────────────────────
