@@ -1,12 +1,12 @@
 {
-    "name": "srisurart_pos",
-    "short_name": "srisurart_pos",
+    "name": "ศรีสุราษฎร์ อะไหล่ยนต์ POS",
+    "short_name": "ศรีสุราษฎร์ POS",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "Srisurart Autopart POS (Flutter migration)",
-    "orientation": "portrait-primary",
+    "background_color": "#0B2444",
+    "theme_color": "#0B2444",
+    "description": "ระบบขายหน้าร้าน ศรีสุราษฎร์ อะไหล่ยนต์ (Srisurart Autopart POS)",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

@@ -149,12 +149,12 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  test('a v1 file lands on the current schema (v7) in a single open', () async {
+  test('a v1 file lands on the current schema (v8) in a single open', () async {
     final version = await db
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 7);
+    expect(version, 8);
   });
 
   test('the v2 block still applies on the way through', () async {

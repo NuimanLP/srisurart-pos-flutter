@@ -159,7 +159,7 @@ class ApiProductsRepository extends ProductsRepository {
       if (res is Map) {
         final comp = _productToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.products).insertOnConflictUpdate(comp);
-        return (db.select(db.products)..where((t) => t.id.equals(id))).getSingleOrNull();
+        return await (db.select(db.products)..where((t) => t.id.equals(id))).getSingleOrNull();
       }
     } catch (_) {}
 
@@ -189,7 +189,7 @@ class ApiProductsRepository extends ProductsRepository {
       if (res is Map) {
         final comp = _productToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.products).insertOnConflictUpdate(comp);
-        return (db.select(db.products)..where((t) => t.id.equals(comp.id.value))).getSingle();
+        return await (db.select(db.products)..where((t) => t.id.equals(comp.id.value))).getSingle();
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);

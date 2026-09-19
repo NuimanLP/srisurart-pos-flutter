@@ -146,7 +146,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
       if (res is Map) {
         final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.mechanics).insertOnConflictUpdate(comp);
-        return (db.select(db.mechanics)..where((t) => t.id.equals(comp.id.value))).getSingle();
+        return await (db.select(db.mechanics)..where((t) => t.id.equals(comp.id.value))).getSingle();
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
