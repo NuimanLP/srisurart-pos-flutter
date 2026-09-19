@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
+import '../../data/repositories/devices_repository.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/movements_repository.dart';
 import '../../data/repositories/parked_repository.dart';
@@ -56,6 +57,7 @@ List<RepositoryProvider> repositoryProviders(
   ApiClient? apiClient,
   SyncFacade? syncFacade,
   ReviewItemsRepository? reviewItemsRepository,
+  DevicesRepository? devicesRepository,
   bool useApi = const bool.fromEnvironment('USE_API_WRITES'),
   bool useApiRepositories = true,
 }) {
@@ -153,6 +155,9 @@ List<RepositoryProvider> repositoryProviders(
     ),
     RepositoryProvider<ReviewItemsRepository>.value(
       value: reviewItemsRepository ?? ReviewItemsRepository(client),
+    ),
+    RepositoryProvider<DevicesRepository>.value(
+      value: devicesRepository ?? DevicesRepository(client),
     ),
     // Phase 2: SyncFacade contract seam (Slice 0d / Ticket #269).
     // Swapped to real SyncService in slice 8-c (#228).
