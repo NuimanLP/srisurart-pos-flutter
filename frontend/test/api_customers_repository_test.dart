@@ -476,4 +476,72 @@ void main() {
     final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_cust_1'))).getSingleOrNull();
     expect(op, isNull);
   });
+
+  test('SyncService._patchAppliedEntity patches customer row on customer.update response (Ticket #229)', () async {
+    await db.into(db.customers).insert(
+      CustomersCompanion.insert(
+        id: 'c_update_target',
+        code: 'CUS_ORIG',
+        name: 'Original Name',
+        nameTH: 'ชื่อเดิม',
+        phone: const Value('0810000000'),
+        createdAt: '2026-09-19T10:00:00.000Z',
+      ),
+    );
+
+    final mockClient = MockClient((request) async {
+      if (request.url.path == '/api/v1/sync/push' && request.method == 'POST') {
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'results': [
+                {
+                  'opId': 'op_cust_update_1',
+                  'status': 'applied',
+                  'response': {
+                    'id': 'c_update_target',
+                    'phone': '0899999999',
+                  },
+                }
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      return http.Response('{"status":"error"}', 404);
+    });
+
+    final apiClient = ApiClient(httpClient: mockClient);
+    final syncService = SyncService(
+      db: db,
+      apiClient: apiClient,
+      tokenStorage: InMemoryTokenStorage(),
+      httpClient: mockClient,
+      autoStartHealthProbe: false,
+    );
+
+    await syncService.enqueueOp(
+      opId: 'op_cust_update_1',
+      idempotencyKey: 'key_cust_update_1',
+      type: 'customer.update',
+      payload: {'id': 'c_update_target', 'phone': '0899999999'},
+      aggregates: ['customer:c_update_target'],
+    );
+
+    await syncService.push();
+
+    // Verify phone was updated while code and name were preserved
+    final patched = await (db.select(db.customers)..where((t) => t.id.equals('c_update_target'))).getSingle();
+    expect(patched.code, 'CUS_ORIG');
+    expect(patched.name, 'Original Name');
+    expect(patched.nameTH, 'ชื่อเดิม');
+    expect(patched.phone, '0899999999');
+
+    // Verify op was removed from outbox
+    final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_cust_update_1'))).getSingleOrNull();
+    expect(op, isNull);
+  });
 }
