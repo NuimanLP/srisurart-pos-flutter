@@ -56,6 +56,7 @@ class AuthRepository {
       await offlinePinRepository?.recordOnlineLogin(
         iat: claims!.iat!,
         deviceId: claims.did,
+        deviceRole: claims.drole,
       );
     }
 

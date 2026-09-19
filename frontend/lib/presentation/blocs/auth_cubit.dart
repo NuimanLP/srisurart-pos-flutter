@@ -138,7 +138,8 @@ class AuthCubit extends Cubit<AuthState> {
   /// Initializes authentication state from local storage.
   Future<void> init() async {
     final deviceToken = await _repo.getDeviceToken();
-    final deviceRole = await _repo.getDeviceRole();
+    var deviceRole = await _repo.getDeviceRole();
+    deviceRole ??= await _pinRepo?.getDeviceRole();
     final isAuth = await _repo.isAuthenticated();
     final user = await _repo.getCurrentUser();
 
@@ -237,14 +238,17 @@ class AuthCubit extends Cubit<AuthState> {
     }
   }
 
-  /// Logs out the current user while preserving the device token (ADR-0004).
+  /// Logs out the current user while preserving the device token and device role (ADR-0004).
   Future<void> logout() async {
+    final currentDeviceRole = (state is Authenticated)
+        ? (state as Authenticated).deviceRole
+        : await _repo.getDeviceRole();
     await _repo.logout();
     final deviceToken = await _repo.getDeviceToken();
-    final deviceRole = await _repo.getDeviceRole();
+    final effectiveRole = currentDeviceRole ?? await _pinRepo?.getDeviceRole();
     emit(Unauthenticated(
       deviceToken: deviceToken,
-      deviceRole: deviceRole,
+      deviceRole: effectiveRole,
     ));
   }
 
@@ -258,14 +262,18 @@ class AuthCubit extends Cubit<AuthState> {
   ///
   /// Driven by `ApiClient.onSessionExpired`, wired in `repositoryProviders`.
   Future<void> sessionExpired() async {
+    final currentDeviceRole = (state is Authenticated)
+        ? (state as Authenticated).deviceRole
+        : await _repo.getDeviceRole();
     final deviceToken = await _repo.getDeviceToken();
-    final deviceRole = await _repo.getDeviceRole();
-    emit(Unauthenticated(deviceToken: deviceToken, deviceRole: deviceRole));
+    final effectiveRole = currentDeviceRole ?? await _pinRepo?.getDeviceRole();
+    emit(Unauthenticated(deviceToken: deviceToken, deviceRole: effectiveRole));
   }
 
-  /// Removes the device token and unbinds the hardware.
+  /// Removes the device token, clears offline PIN, and unbinds the hardware.
   Future<void> clearDeviceEnrolment() async {
     await _repo.clearDeviceEnrolment();
+    await _pinRepo?.clearPin();
     emit(const Unauthenticated());
   }
 }

@@ -35,6 +35,7 @@ class OfflinePinRepository {
   static const String keyPinHash = 'offline_pin_hash';
   static const String keyPinSalt = 'offline_pin_salt';
   static const String keyDeviceId = 'offline_pin_device_id';
+  static const String keyDeviceRole = 'offline_pin_device_role';
   static const String keyUserJson = 'offline_pin_user';
   static const String keyFailedAttempts = 'offline_pin_failed_attempts';
   static const String keyLocked = 'offline_pin_locked';
@@ -101,8 +102,13 @@ class OfflinePinRepository {
     return diff > validityWindowSeconds;
   }
 
+  /// Returns the persisted device role if enrolled/recorded on this machine.
+  Future<String?> getDeviceRole() async {
+    return _getMeta(keyDeviceRole);
+  }
+
   /// Checks if PIN login is eligible to be offered and used:
-  /// - Device is enrolled as POS (`deviceRole == 'pos'`)
+  /// - Device is enrolled as POS (`deviceRole == 'pos'` or stored role is 'pos')
   /// - PIN is configured
   /// - PIN is not locked
   /// - Not expired (within 3 days of latest /auth/token `iat`)
@@ -127,10 +133,14 @@ class OfflinePinRepository {
   Future<void> recordOnlineLogin({
     required int iat,
     String? deviceId,
+    String? deviceRole,
   }) async {
     await _setMeta(keyLastLoginIat, iat.toString());
     if (deviceId != null && deviceId.isNotEmpty) {
       await _setMeta(keyDeviceId, deviceId);
+    }
+    if (deviceRole != null && deviceRole.isNotEmpty) {
+      await _setMeta(keyDeviceRole, deviceRole);
     }
     await _setMeta(keyFailedAttempts, '0');
     await _setMeta(keyLocked, 'false');
@@ -201,6 +211,7 @@ class OfflinePinRepository {
     await _setMeta(keyPinHash, hashHex);
     await _setMeta(keyPinSalt, saltHex);
     await _setMeta(keyDeviceId, deviceId);
+    await _setMeta(keyDeviceRole, 'pos');
     await _setMeta(keyFailedAttempts, '0');
     await _setMeta(keyLocked, 'false');
     await _setMeta(keyLastLoginIat, iat.toString());
@@ -261,7 +272,7 @@ class OfflinePinRepository {
     );
     final computedHash = Pbkdf2Sha256.toHex(derivedKey);
 
-    if (computedHash == storedHash) {
+    if (Pbkdf2Sha256.constantTimeEquals(computedHash, storedHash)) {
       // Success! Reset failed attempts
       await _setMeta(keyFailedAttempts, '0');
       return const PinVerifySuccess();
@@ -298,6 +309,7 @@ class OfflinePinRepository {
     await _deleteMeta(keyPinHash);
     await _deleteMeta(keyPinSalt);
     await _deleteMeta(keyDeviceId);
+    await _deleteMeta(keyDeviceRole);
     await _deleteMeta(keyUserJson);
     await _deleteMeta(keyFailedAttempts);
     await _deleteMeta(keyLocked);

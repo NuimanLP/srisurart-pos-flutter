@@ -107,4 +107,14 @@ class Pbkdf2Sha256 {
     final devIdBytes = utf8.encode(deviceId ?? 'unknown-device');
     return [...salt, 0x3A, ...devIdBytes]; // 0x3A is ':'
   }
+
+  /// Constant-time comparison of two strings to prevent timing attack leakages.
+  static bool constantTimeEquals(String a, String b) {
+    if (a.length != b.length) return false;
+    var result = 0;
+    for (int i = 0; i < a.length; i++) {
+      result |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+    }
+    return result == 0;
+  }
 }

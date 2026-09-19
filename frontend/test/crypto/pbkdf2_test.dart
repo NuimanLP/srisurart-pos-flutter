@@ -75,5 +75,13 @@ void main() {
       );
       expect(key1, isNot(equals(key2)));
     });
+
+    test('constantTimeEquals compares strings securely and accurately', () {
+      expect(Pbkdf2Sha256.constantTimeEquals('abc', 'abc'), isTrue);
+      expect(Pbkdf2Sha256.constantTimeEquals('abc', 'abd'), isFalse);
+      expect(Pbkdf2Sha256.constantTimeEquals('abc', 'abcd'), isFalse);
+      expect(Pbkdf2Sha256.constantTimeEquals('', ''), isTrue);
+      expect(Pbkdf2Sha256.constantTimeEquals('abc', ''), isFalse);
+    });
   });
 }
