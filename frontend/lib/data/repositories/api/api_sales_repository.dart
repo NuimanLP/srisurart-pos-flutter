@@ -28,12 +28,20 @@
 // stale until a read slice refreshes it, and reconstructing it here is the second
 // set of invariants the ADR bans.
 
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/utils/ids.dart';
+import '../../../core/utils/money.dart';
 import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
+import '../../services/doc_number_service.dart';
+import '../../sync/sync_facade.dart';
+import '../../sync/sync_service.dart';
 import '../sales_repository.dart';
 import 'api_wire.dart';
 
@@ -42,6 +50,10 @@ class ApiSalesRepository implements SalesRepository {
     required this.api,
     required this.db,
     required this.drift,
+    this.syncService,
+    this.syncFacade,
+    this.docNumberService,
+    this.isOffline = false,
   });
 
   final ApiClient api;
@@ -54,10 +66,35 @@ class ApiSalesRepository implements SalesRepository {
   /// Reads stay on Drift until the read slice (#55) replaces them.
   final SalesRepository drift;
 
+  final SyncService? syncService;
+  final SyncFacade? syncFacade;
+  final DocNumberService? docNumberService;
+  bool isOffline;
+
   /// The bill id + `Idempotency-Key` of an attempt that never got a verdict,
   /// keyed by the cart it was for — this is what stops a cashier's second press
   /// after a timeout from becoming a second bill.
   final PendingWrites _pending = PendingWrites('s');
+
+  bool get _isDegraded {
+    if (isOffline) return true;
+    final sync = syncService ??
+        (syncFacade is SyncService ? syncFacade as SyncService : null);
+    if (sync != null) {
+      return sync.currentStatus == SyncStatus.degraded ||
+          sync.currentStatus == SyncStatus.syncing;
+    }
+    if (syncFacade != null) {
+      try {
+        final dynamic facade = syncFacade;
+        final status = facade.currentStatus;
+        if (status == SyncStatus.degraded || status == SyncStatus.syncing) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
 
   @override
   Future<SaleRow> saveSale(SaleInput input) {
@@ -68,6 +105,17 @@ class ApiSalesRepository implements SalesRepository {
         throw const PosException('NO_OPEN_SHIFT', noOpenShiftForSale);
       }
       final attempt = _pending.of(_cartKey(input));
+
+      if (_isDegraded) {
+        final sale = await _saveOffline(
+          saleId: attempt.id,
+          idempotencyKey: attempt.headers['Idempotency-Key']!,
+          input: input,
+        );
+        _pending.close(attempt);
+        return sale;
+      }
+
       final body = _saleBody(attempt.id, input);
 
       final Map<String, dynamic> res;
@@ -147,8 +195,15 @@ class ApiSalesRepository implements SalesRepository {
   /// anything naming a tenant or a device are deliberately absent: phase 1
   /// issues every document number server-side (ADR-0007) and the device comes
   /// from the token (ADR-0004), so sending them is at best ignored.
-  Map<String, dynamic> _saleBody(String saleId, SaleInput input) => {
+  Map<String, dynamic> _saleBody(
+    String saleId,
+    SaleInput input, {
+    String? receiptNo,
+    DateTime? date,
+  }) => {
     'id': saleId,
+    'receiptNo': ?receiptNo,
+    if (date != null) 'date': date.toUtc().toIso8601String(),
     // Money crosses as a two-decimal string — see api_wire.dart.
     'subtotal': wireMoney(input.subtotal),
     'discount': wireMoney(input.discount),
@@ -349,6 +404,197 @@ class ApiSalesRepository implements SalesRepository {
         });
       }
     });
+
+    return sale;
+  }
+
+  /// Saves a sale offline when the client is in degraded mode or offline.
+  ///
+  /// Invariant (ADR-0010 / #84 / Slice 14-c):
+  ///  - The local sale row, sale items, product stock decrement, and the `outbox_ops`
+  ///    record MUST be written in a single SQLite transaction (`db.transaction`),
+  ///    never calling Drift transactional services.
+  ///  - The payload in `outbox_ops` carries `overrideCreditLimit` directly from
+  ///    `input.overrideCreditLimit` (the counter's answer to the dialog), NEVER
+  ///    guessing or re-deriving consent from cached mechanic rows.
+  Future<SaleRow> _saveOffline({
+    required String saleId,
+    required String idempotencyKey,
+    required SaleInput input,
+  }) async {
+    // 1. Pre-validate stock against local products
+    final products = await db.select(db.products).get();
+    final byId = {for (final p in products) p.id: p};
+
+    final insufficient = <String>[];
+    for (final item in input.items) {
+      final p = byId[item.productId];
+      if (p == null) {
+        insufficient.add('${item.name}: ไม่พบในสต็อก');
+      } else if (p.stock < item.qty) {
+        insufficient.add('${p.name}: สต็อก ${p.stock} แต่ต้องการ ${item.qty}');
+      }
+    }
+    if (insufficient.isNotEmpty) {
+      throw PosException(
+        'INSUFFICIENT_STOCK',
+        'สต็อกไม่พอ:\n${insufficient.join('\n')}',
+      );
+    }
+
+    final date = DateTime.now();
+
+    // 2. Document numbering
+    String receiptNo;
+    if (docNumberService != null) {
+      final counter =
+          await (db.select(db.docCounters)..limit(1)).getSingleOrNull();
+      if (counter != null) {
+        receiptNo = await docNumberService!.issueAndCommit(
+          deviceId: counter.deviceId,
+          deviceNo: counter.deviceNo,
+          docType: 'receipt',
+          now: date,
+          isOffline: true,
+        );
+      } else {
+        receiptNo = docNo('RC');
+      }
+    } else {
+      receiptNo = docNo('RC');
+    }
+
+    // 3. Shift
+    final activeShift = await (db.select(db.shifts)
+          ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
+          ..limit(1))
+        .getSingleOrNull();
+    final shiftId = activeShift?.id;
+
+    final sale = SaleRow(
+      id: saleId,
+      receiptNo: receiptNo,
+      subtotal: input.subtotal,
+      discount: input.discount,
+      total: input.total,
+      paymentMethod: input.paymentMethod,
+      customerId: input.customerId,
+      customerName: input.customerName,
+      mechanicId: input.mechanicId,
+      mechanicName: input.mechanicName,
+      mechanicDelta: input.mechanicDelta,
+      pointsGranted: pointsFor(input.total),
+      date: date,
+      voided: false,
+      voidedAt: null,
+      shiftId: shiftId,
+    );
+
+    final payload = _saleBody(
+      saleId,
+      input,
+      receiptNo: receiptNo,
+      date: date,
+    );
+
+    final opId = newId('op');
+    final aggregates = [
+      'sale:$saleId',
+      if (shiftId != null) 'shift:$shiftId',
+      if (input.customerId != null) 'customer:${input.customerId}',
+    ];
+
+    await db.transaction(() async {
+      await db.into(db.sales).insert(sale);
+
+      await db.batch((b) {
+        for (var i = 0; i < input.items.length; i++) {
+          final item = input.items[i];
+          b.insert(
+            db.saleItems,
+            SaleItemsCompanion.insert(
+              saleId: sale.id,
+              productId: item.productId,
+              partNo: Value(item.partNo),
+              name: item.name,
+              nameTH: Value(item.nameTH),
+              qty: item.qty,
+              price: item.price,
+              costAtSale: const Value(null),
+            ),
+          );
+        }
+      });
+
+      // Strict stock decrement (never clamp)
+      for (final item in input.items) {
+        final p = byId[item.productId]!;
+        final newStock = p.stock - item.qty;
+        if (newStock < 0) {
+          throw Exception('Stock underflow on ${p.partNo} — race condition?');
+        }
+        await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
+          ProductsCompanion(stock: Value(newStock)),
+        );
+      }
+
+      if (input.customerId != null) {
+        final c = await (db.select(db.customers)
+              ..where((t) => t.id.equals(input.customerId!)))
+            .getSingleOrNull();
+        if (c != null) {
+          await (db.update(db.customers)
+                ..where((t) => t.id.equals(input.customerId!)))
+              .write(
+            CustomersCompanion(
+              totalSpend: Value(c.totalSpend + input.total),
+              points: Value(c.points + pointsFor(input.total)),
+            ),
+          );
+        }
+      }
+
+      if (input.mechanicId != null) {
+        final m = await (db.select(db.mechanics)
+              ..where((t) => t.id.equals(input.mechanicId!)))
+            .getSingleOrNull();
+        if (m != null) {
+          final isCredit = input.paymentMethod == 'เครดิตช่าง';
+          final delta = input.mechanicDelta ?? 0;
+          await (db.update(db.mechanics)
+                ..where((t) => t.id.equals(input.mechanicId!)))
+              .write(
+            MechanicsCompanion(
+              totalSales: Value(m.totalSales + input.total),
+              totalDiscount: Value(m.totalDiscount + (delta < 0 ? -delta : 0)),
+              totalMarkup: Value(m.totalMarkup + (delta > 0 ? delta : 0)),
+              creditBalance: Value(
+                m.creditBalance + (isCredit ? input.total : 0),
+              ),
+              updatedAt: Value(DateTime.now()),
+            ),
+          );
+        }
+      }
+
+      await db.into(db.outboxOps).insert(
+            OutboxOpsCompanion.insert(
+              opId: opId,
+              idempotencyKey: idempotencyKey,
+              type: 'sale.create',
+              payload: jsonEncode(payload),
+              aggregates: jsonEncode(aggregates),
+              createdAt: date.toUtc(),
+              status: 'pending',
+            ),
+          );
+    });
+
+    final sync = syncService ??
+        (syncFacade is SyncService ? syncFacade as SyncService : null);
+    if (sync != null && sync.currentStatus != SyncStatus.degraded) {
+      unawaited(sync.push());
+    }
 
     return sale;
   }

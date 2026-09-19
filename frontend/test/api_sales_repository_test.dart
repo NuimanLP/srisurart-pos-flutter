@@ -20,7 +20,10 @@ import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api/api_sales_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
+import 'package:srisurart_pos/data/services/doc_number_service.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
+import 'package:srisurart_pos/data/sync/sync_facade.dart';
+import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 
@@ -952,6 +955,220 @@ void main() {
       expect(thrown, isNot(isA<ApiException>()));
       expect(thrown.toString(), 'กรุณาเปิดกะก่อนขาย');
       expect(await db.select(db.sales).get(), isEmpty);
+    });
+  });
+
+  group('offline sales & overrideCreditLimit (Slice 14-c / Issue #194)', () {
+    test('offline credit sale with overrideCreditLimit: true inserts outbox_ops with overrideCreditLimit: true', () async {
+      final repo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('HTTP should not be called offline')),
+          tokenStorage: _MemoryTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        isOffline: true,
+      );
+
+      final sale = await repo.saveSale(
+        input(paymentMethod: 'เครดิตช่าง', overrideCreditLimit: true),
+      );
+
+      // 1. Verify sale row in db
+      final localSales = await db.select(db.sales).get();
+      expect(localSales, hasLength(1));
+      expect(localSales.single.id, sale.id);
+      expect(localSales.single.paymentMethod, 'เครดิตช่าง');
+      expect(localSales.single.shiftId, 'tsh-local-open');
+
+      // 2. Verify product stock decremented strictly
+      final p = await (db.select(db.products)..where((t) => t.id.equals('tp1'))).getSingle();
+      expect(p.stock, 8); // 10 - 2
+
+      // 3. Verify mechanic creditBalance and running totals updated
+      final m = await (db.select(db.mechanics)..where((t) => t.id.equals('tm1'))).getSingle();
+      expect(m.creditBalance, 200.0);
+      expect(m.totalSales, 200.0);
+      expect(m.totalDiscount, 15.0); // mechanicDelta was -15
+
+      // 4. Verify customer points & spend updated
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('tc1'))).getSingle();
+      expect(c.totalSpend, 200.0);
+      expect(c.points, 20); // 200 / 10
+
+      // 5. Verify outbox_ops record (atomic with sale)
+      final ops = await db.select(db.outboxOps).get();
+      expect(ops, hasLength(1));
+      final op = ops.single;
+      expect(op.type, 'sale.create');
+      expect(op.status, 'pending');
+
+      final aggregates = (jsonDecode(op.aggregates) as List).cast<String>();
+      expect(aggregates, contains('sale:${sale.id}'));
+      expect(aggregates, contains('shift:tsh-local-open'));
+      expect(aggregates, contains('customer:tc1'));
+
+      final payload = jsonDecode(op.payload) as Map<String, dynamic>;
+      expect(payload['id'], sale.id);
+      expect(payload['receiptNo'], sale.receiptNo);
+      expect(payload['overrideCreditLimit'], isTrue);
+      expect(payload['paymentMethod'], 'เครดิตช่าง');
+      expect(payload['total'], '200.00');
+      expect(payload['items'], hasLength(1));
+    });
+
+    test('offline credit sale with overrideCreditLimit: false carries false directly into payload without guessing', () async {
+      // Mechanic has limit 5000, current balance 4900 -> total 200 puts it at 5100 (over limit).
+      await (db.update(db.mechanics)..where((t) => t.id.equals('tm1'))).write(
+        const MechanicsCompanion(creditBalance: Value(4900)),
+      );
+
+      final repo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('HTTP should not be called offline')),
+          tokenStorage: _MemoryTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        isOffline: true,
+      );
+
+      // Explicitly overrideCreditLimit: false
+      final sale = await repo.saveSale(
+        input(paymentMethod: 'เครดิตช่าง', overrideCreditLimit: false),
+      );
+
+      final ops = await db.select(db.outboxOps).get();
+      expect(ops, hasLength(1));
+      final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
+      expect(
+        payload['overrideCreditLimit'],
+        isFalse,
+        reason: 'Consent must be carried from input, never guessed by comparing balance with limit',
+      );
+      expect(sale.paymentMethod, 'เครดิตช่าง');
+    });
+
+    test('SyncStatus.degraded triggers offline save without network call', () async {
+      final tokenStorage = _MemoryTokenStorage();
+      final syncService = SyncService(
+        db: db,
+        apiClient: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('Network call in degraded mode')),
+          tokenStorage: tokenStorage,
+        ),
+        tokenStorage: tokenStorage,
+      );
+      syncService.recordNonVerdictWrite();
+      expect(syncService.currentStatus, SyncStatus.degraded);
+
+      final repo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('HTTP should not be called')),
+          tokenStorage: _MemoryTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        syncService: syncService,
+      );
+
+      final sale = await repo.saveSale(
+        input(paymentMethod: 'เครดิตช่าง', overrideCreditLimit: true),
+      );
+
+      final ops = await db.select(db.outboxOps).get();
+      expect(ops, hasLength(1));
+      final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
+      expect(payload['overrideCreditLimit'], isTrue);
+      expect(payload['id'], sale.id);
+    });
+
+    test('offline stock pre-validation refuses sale with insufficient stock', () async {
+      final repo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('HTTP should not be called')),
+          tokenStorage: _MemoryTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        isOffline: true,
+      );
+
+      // Product tp1 has stock 10. Request 11.
+      final invalidInput = SaleInput(
+        subtotal: 1100,
+        discount: 0,
+        total: 1100,
+        paymentMethod: 'เงินสด',
+        overrideCreditLimit: false,
+        items: const [
+          SaleLineInput(
+            productId: 'tp1',
+            name: 'Brake Pad',
+            qty: 11,
+            price: 100,
+          ),
+        ],
+      );
+
+      expect(
+        () => repo.saveSale(invalidInput),
+        throwsA(
+          isA<PosException>().having(
+            (e) => e.code,
+            'code',
+            'INSUFFICIENT_STOCK',
+          ),
+        ),
+      );
+
+      // Nothing written to sales or outbox_ops
+      expect(await db.select(db.sales).get(), isEmpty);
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+      // Stock remains untouched
+      final p = await (db.select(db.products)..where((t) => t.id.equals('tp1'))).getSingle();
+      expect(p.stock, 10);
+    });
+
+    test('offline sale with DocNumberService issues and commits offline receipt number', () async {
+      final docNumberService = DocNumberService(db: db);
+      const deviceId = 'dev-pos-01';
+      final period = DocNumberService.formatPeriod(DateTime.now());
+      await db.into(db.docCounters).insert(
+        DocCountersCompanion.insert(
+          deviceId: deviceId,
+          deviceNo: 1,
+          docType: 'receipt',
+          period: period,
+          lastNo: 41,
+        ),
+      );
+      await docNumberService.recordSeedMarker(deviceId: deviceId, period: period);
+
+      final repo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('HTTP should not be called')),
+          tokenStorage: _MemoryTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        docNumberService: docNumberService,
+        isOffline: true,
+      );
+
+      final sale = await repo.saveSale(input(overrideCreditLimit: true));
+      expect(sale.receiptNo, 'RC01-$period-0042');
+
+      final ops = await db.select(db.outboxOps).get();
+      final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
+      expect(payload['receiptNo'], 'RC01-$period-0042');
+      expect(payload['overrideCreditLimit'], isTrue);
     });
   });
 

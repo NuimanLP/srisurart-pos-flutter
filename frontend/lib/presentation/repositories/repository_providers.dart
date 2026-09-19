@@ -34,6 +34,7 @@ import '../../data/repositories/api_quotes_repository.dart';
 import '../../data/repositories/review_items_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
+import '../../data/services/doc_number_service.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../data/sync/sync_service.dart';
 
@@ -66,6 +67,17 @@ List<RepositoryProvider> repositoryProviders(
         tokenStorage: storage,
       );
 
+  final realSyncService = syncFacade is SyncService
+      ? syncFacade
+      : (syncFacade == null
+          ? SyncService(
+              db: db,
+              apiClient: client,
+              tokenStorage: storage,
+            )
+          : null);
+  final docNumberService = DocNumberService(db: db);
+
   // The three write paths of #56. Each API implementation keeps a Drift
   // instance of the same repository to delegate its READS to — those belong to
   // #55 and are untouched here — so the Drift object is constructed either way.
@@ -74,7 +86,14 @@ List<RepositoryProvider> repositoryProviders(
   final driftShifts = ShiftsRepository(db);
 
   final salesRepository = useApi
-      ? ApiSalesRepository(api: client, db: db, drift: driftSales)
+      ? ApiSalesRepository(
+          api: client,
+          db: db,
+          drift: driftSales,
+          syncService: realSyncService,
+          syncFacade: syncFacade,
+          docNumberService: docNumberService,
+        )
       : driftSales;
   final returnsRepository = useApi
       ? ApiReturnsRepository(api: client, db: db, drift: driftReturns)
@@ -139,11 +158,8 @@ List<RepositoryProvider> repositoryProviders(
     // Swapped to real SyncService in slice 8-c (#228).
     RepositoryProvider<SyncFacade>.value(
       value: syncFacade ??
-          SyncService(
-            db: db,
-            apiClient: client,
-            tokenStorage: storage,
-          ),
+          realSyncService ??
+          const NullSyncFacade(),
     ),
   ];
 }
