@@ -12145,6 +12145,679 @@ class AppMetaCompanion extends UpdateCompanion<AppMetaRow> {
   }
 }
 
+class $OutboxOpsTable extends OutboxOps
+    with TableInfo<$OutboxOpsTable, OutboxOpRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $OutboxOpsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _opIdMeta = const VerificationMeta('opId');
+  @override
+  late final GeneratedColumn<String> opId = GeneratedColumn<String>(
+    'op_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _idempotencyKeyMeta = const VerificationMeta(
+    'idempotencyKey',
+  );
+  @override
+  late final GeneratedColumn<String> idempotencyKey = GeneratedColumn<String>(
+    'idempotency_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+    'type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
+  @override
+  late final GeneratedColumn<String> payload = GeneratedColumn<String>(
+    'payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _aggregatesMeta = const VerificationMeta(
+    'aggregates',
+  );
+  @override
+  late final GeneratedColumn<String> aggregates = GeneratedColumn<String>(
+    'aggregates',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _attemptsMeta = const VerificationMeta(
+    'attempts',
+  );
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastCodeMeta = const VerificationMeta(
+    'lastCode',
+  );
+  @override
+  late final GeneratedColumn<String> lastCode = GeneratedColumn<String>(
+    'last_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastMessageMeta = const VerificationMeta(
+    'lastMessage',
+  );
+  @override
+  late final GeneratedColumn<String> lastMessage = GeneratedColumn<String>(
+    'last_message',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastDetailsMeta = const VerificationMeta(
+    'lastDetails',
+  );
+  @override
+  late final GeneratedColumn<String> lastDetails = GeneratedColumn<String>(
+    'last_details',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    opId,
+    idempotencyKey,
+    type,
+    payload,
+    aggregates,
+    createdAt,
+    status,
+    attempts,
+    lastCode,
+    lastMessage,
+    lastDetails,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'outbox_ops';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<OutboxOpRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('op_id')) {
+      context.handle(
+        _opIdMeta,
+        opId.isAcceptableOrUnknown(data['op_id']!, _opIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_opIdMeta);
+    }
+    if (data.containsKey('idempotency_key')) {
+      context.handle(
+        _idempotencyKeyMeta,
+        idempotencyKey.isAcceptableOrUnknown(
+          data['idempotency_key']!,
+          _idempotencyKeyMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_idempotencyKeyMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+        _typeMeta,
+        type.isAcceptableOrUnknown(data['type']!, _typeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_typeMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    if (data.containsKey('aggregates')) {
+      context.handle(
+        _aggregatesMeta,
+        aggregates.isAcceptableOrUnknown(data['aggregates']!, _aggregatesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_aggregatesMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_statusMeta);
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(
+        _attemptsMeta,
+        attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta),
+      );
+    }
+    if (data.containsKey('last_code')) {
+      context.handle(
+        _lastCodeMeta,
+        lastCode.isAcceptableOrUnknown(data['last_code']!, _lastCodeMeta),
+      );
+    }
+    if (data.containsKey('last_message')) {
+      context.handle(
+        _lastMessageMeta,
+        lastMessage.isAcceptableOrUnknown(
+          data['last_message']!,
+          _lastMessageMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_details')) {
+      context.handle(
+        _lastDetailsMeta,
+        lastDetails.isAcceptableOrUnknown(
+          data['last_details']!,
+          _lastDetailsMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {opId};
+  @override
+  OutboxOpRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return OutboxOpRow(
+      opId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}op_id'],
+      )!,
+      idempotencyKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}idempotency_key'],
+      )!,
+      type: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}type'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload'],
+      )!,
+      aggregates: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}aggregates'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      lastCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_code'],
+      ),
+      lastMessage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_message'],
+      ),
+      lastDetails: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_details'],
+      ),
+    );
+  }
+
+  @override
+  $OutboxOpsTable createAlias(String alias) {
+    return $OutboxOpsTable(attachedDatabase, alias);
+  }
+}
+
+class OutboxOpRow extends DataClass implements Insertable<OutboxOpRow> {
+  final String opId;
+  final String idempotencyKey;
+  final String type;
+  final String payload;
+  final String aggregates;
+  final DateTime createdAt;
+  final String status;
+  final int attempts;
+  final String? lastCode;
+  final String? lastMessage;
+  final String? lastDetails;
+  const OutboxOpRow({
+    required this.opId,
+    required this.idempotencyKey,
+    required this.type,
+    required this.payload,
+    required this.aggregates,
+    required this.createdAt,
+    required this.status,
+    required this.attempts,
+    this.lastCode,
+    this.lastMessage,
+    this.lastDetails,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['op_id'] = Variable<String>(opId);
+    map['idempotency_key'] = Variable<String>(idempotencyKey);
+    map['type'] = Variable<String>(type);
+    map['payload'] = Variable<String>(payload);
+    map['aggregates'] = Variable<String>(aggregates);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['status'] = Variable<String>(status);
+    map['attempts'] = Variable<int>(attempts);
+    if (!nullToAbsent || lastCode != null) {
+      map['last_code'] = Variable<String>(lastCode);
+    }
+    if (!nullToAbsent || lastMessage != null) {
+      map['last_message'] = Variable<String>(lastMessage);
+    }
+    if (!nullToAbsent || lastDetails != null) {
+      map['last_details'] = Variable<String>(lastDetails);
+    }
+    return map;
+  }
+
+  OutboxOpsCompanion toCompanion(bool nullToAbsent) {
+    return OutboxOpsCompanion(
+      opId: Value(opId),
+      idempotencyKey: Value(idempotencyKey),
+      type: Value(type),
+      payload: Value(payload),
+      aggregates: Value(aggregates),
+      createdAt: Value(createdAt),
+      status: Value(status),
+      attempts: Value(attempts),
+      lastCode: lastCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastCode),
+      lastMessage: lastMessage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastMessage),
+      lastDetails: lastDetails == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastDetails),
+    );
+  }
+
+  factory OutboxOpRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return OutboxOpRow(
+      opId: serializer.fromJson<String>(json['opId']),
+      idempotencyKey: serializer.fromJson<String>(json['idempotencyKey']),
+      type: serializer.fromJson<String>(json['type']),
+      payload: serializer.fromJson<String>(json['payload']),
+      aggregates: serializer.fromJson<String>(json['aggregates']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      status: serializer.fromJson<String>(json['status']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      lastCode: serializer.fromJson<String?>(json['lastCode']),
+      lastMessage: serializer.fromJson<String?>(json['lastMessage']),
+      lastDetails: serializer.fromJson<String?>(json['lastDetails']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'opId': serializer.toJson<String>(opId),
+      'idempotencyKey': serializer.toJson<String>(idempotencyKey),
+      'type': serializer.toJson<String>(type),
+      'payload': serializer.toJson<String>(payload),
+      'aggregates': serializer.toJson<String>(aggregates),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'status': serializer.toJson<String>(status),
+      'attempts': serializer.toJson<int>(attempts),
+      'lastCode': serializer.toJson<String?>(lastCode),
+      'lastMessage': serializer.toJson<String?>(lastMessage),
+      'lastDetails': serializer.toJson<String?>(lastDetails),
+    };
+  }
+
+  OutboxOpRow copyWith({
+    String? opId,
+    String? idempotencyKey,
+    String? type,
+    String? payload,
+    String? aggregates,
+    DateTime? createdAt,
+    String? status,
+    int? attempts,
+    Value<String?> lastCode = const Value.absent(),
+    Value<String?> lastMessage = const Value.absent(),
+    Value<String?> lastDetails = const Value.absent(),
+  }) => OutboxOpRow(
+    opId: opId ?? this.opId,
+    idempotencyKey: idempotencyKey ?? this.idempotencyKey,
+    type: type ?? this.type,
+    payload: payload ?? this.payload,
+    aggregates: aggregates ?? this.aggregates,
+    createdAt: createdAt ?? this.createdAt,
+    status: status ?? this.status,
+    attempts: attempts ?? this.attempts,
+    lastCode: lastCode.present ? lastCode.value : this.lastCode,
+    lastMessage: lastMessage.present ? lastMessage.value : this.lastMessage,
+    lastDetails: lastDetails.present ? lastDetails.value : this.lastDetails,
+  );
+  OutboxOpRow copyWithCompanion(OutboxOpsCompanion data) {
+    return OutboxOpRow(
+      opId: data.opId.present ? data.opId.value : this.opId,
+      idempotencyKey: data.idempotencyKey.present
+          ? data.idempotencyKey.value
+          : this.idempotencyKey,
+      type: data.type.present ? data.type.value : this.type,
+      payload: data.payload.present ? data.payload.value : this.payload,
+      aggregates: data.aggregates.present
+          ? data.aggregates.value
+          : this.aggregates,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      status: data.status.present ? data.status.value : this.status,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      lastCode: data.lastCode.present ? data.lastCode.value : this.lastCode,
+      lastMessage: data.lastMessage.present
+          ? data.lastMessage.value
+          : this.lastMessage,
+      lastDetails: data.lastDetails.present
+          ? data.lastDetails.value
+          : this.lastDetails,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxOpRow(')
+          ..write('opId: $opId, ')
+          ..write('idempotencyKey: $idempotencyKey, ')
+          ..write('type: $type, ')
+          ..write('payload: $payload, ')
+          ..write('aggregates: $aggregates, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('lastCode: $lastCode, ')
+          ..write('lastMessage: $lastMessage, ')
+          ..write('lastDetails: $lastDetails')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    opId,
+    idempotencyKey,
+    type,
+    payload,
+    aggregates,
+    createdAt,
+    status,
+    attempts,
+    lastCode,
+    lastMessage,
+    lastDetails,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is OutboxOpRow &&
+          other.opId == this.opId &&
+          other.idempotencyKey == this.idempotencyKey &&
+          other.type == this.type &&
+          other.payload == this.payload &&
+          other.aggregates == this.aggregates &&
+          other.createdAt == this.createdAt &&
+          other.status == this.status &&
+          other.attempts == this.attempts &&
+          other.lastCode == this.lastCode &&
+          other.lastMessage == this.lastMessage &&
+          other.lastDetails == this.lastDetails);
+}
+
+class OutboxOpsCompanion extends UpdateCompanion<OutboxOpRow> {
+  final Value<String> opId;
+  final Value<String> idempotencyKey;
+  final Value<String> type;
+  final Value<String> payload;
+  final Value<String> aggregates;
+  final Value<DateTime> createdAt;
+  final Value<String> status;
+  final Value<int> attempts;
+  final Value<String?> lastCode;
+  final Value<String?> lastMessage;
+  final Value<String?> lastDetails;
+  final Value<int> rowid;
+  const OutboxOpsCompanion({
+    this.opId = const Value.absent(),
+    this.idempotencyKey = const Value.absent(),
+    this.type = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.aggregates = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.lastCode = const Value.absent(),
+    this.lastMessage = const Value.absent(),
+    this.lastDetails = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  OutboxOpsCompanion.insert({
+    required String opId,
+    required String idempotencyKey,
+    required String type,
+    required String payload,
+    required String aggregates,
+    required DateTime createdAt,
+    required String status,
+    this.attempts = const Value.absent(),
+    this.lastCode = const Value.absent(),
+    this.lastMessage = const Value.absent(),
+    this.lastDetails = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : opId = Value(opId),
+       idempotencyKey = Value(idempotencyKey),
+       type = Value(type),
+       payload = Value(payload),
+       aggregates = Value(aggregates),
+       createdAt = Value(createdAt),
+       status = Value(status);
+  static Insertable<OutboxOpRow> custom({
+    Expression<String>? opId,
+    Expression<String>? idempotencyKey,
+    Expression<String>? type,
+    Expression<String>? payload,
+    Expression<String>? aggregates,
+    Expression<DateTime>? createdAt,
+    Expression<String>? status,
+    Expression<int>? attempts,
+    Expression<String>? lastCode,
+    Expression<String>? lastMessage,
+    Expression<String>? lastDetails,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (opId != null) 'op_id': opId,
+      if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
+      if (type != null) 'type': type,
+      if (payload != null) 'payload': payload,
+      if (aggregates != null) 'aggregates': aggregates,
+      if (createdAt != null) 'created_at': createdAt,
+      if (status != null) 'status': status,
+      if (attempts != null) 'attempts': attempts,
+      if (lastCode != null) 'last_code': lastCode,
+      if (lastMessage != null) 'last_message': lastMessage,
+      if (lastDetails != null) 'last_details': lastDetails,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  OutboxOpsCompanion copyWith({
+    Value<String>? opId,
+    Value<String>? idempotencyKey,
+    Value<String>? type,
+    Value<String>? payload,
+    Value<String>? aggregates,
+    Value<DateTime>? createdAt,
+    Value<String>? status,
+    Value<int>? attempts,
+    Value<String?>? lastCode,
+    Value<String?>? lastMessage,
+    Value<String?>? lastDetails,
+    Value<int>? rowid,
+  }) {
+    return OutboxOpsCompanion(
+      opId: opId ?? this.opId,
+      idempotencyKey: idempotencyKey ?? this.idempotencyKey,
+      type: type ?? this.type,
+      payload: payload ?? this.payload,
+      aggregates: aggregates ?? this.aggregates,
+      createdAt: createdAt ?? this.createdAt,
+      status: status ?? this.status,
+      attempts: attempts ?? this.attempts,
+      lastCode: lastCode ?? this.lastCode,
+      lastMessage: lastMessage ?? this.lastMessage,
+      lastDetails: lastDetails ?? this.lastDetails,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (opId.present) {
+      map['op_id'] = Variable<String>(opId.value);
+    }
+    if (idempotencyKey.present) {
+      map['idempotency_key'] = Variable<String>(idempotencyKey.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<String>(payload.value);
+    }
+    if (aggregates.present) {
+      map['aggregates'] = Variable<String>(aggregates.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (lastCode.present) {
+      map['last_code'] = Variable<String>(lastCode.value);
+    }
+    if (lastMessage.present) {
+      map['last_message'] = Variable<String>(lastMessage.value);
+    }
+    if (lastDetails.present) {
+      map['last_details'] = Variable<String>(lastDetails.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxOpsCompanion(')
+          ..write('opId: $opId, ')
+          ..write('idempotencyKey: $idempotencyKey, ')
+          ..write('type: $type, ')
+          ..write('payload: $payload, ')
+          ..write('aggregates: $aggregates, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('lastCode: $lastCode, ')
+          ..write('lastMessage: $lastMessage, ')
+          ..write('lastDetails: $lastDetails, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -12174,6 +12847,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     this,
   );
   late final $AppMetaTable appMeta = $AppMetaTable(this);
+  late final $OutboxOpsTable outboxOps = $OutboxOpsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -12202,6 +12876,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     docCounters,
     docCounterSeeds,
     appMeta,
+    outboxOps,
   ];
 }
 
@@ -19433,6 +20108,328 @@ typedef $$AppMetaTableProcessedTableManager =
       AppMetaRow,
       PrefetchHooks Function()
     >;
+typedef $$OutboxOpsTableCreateCompanionBuilder =
+    OutboxOpsCompanion Function({
+      required String opId,
+      required String idempotencyKey,
+      required String type,
+      required String payload,
+      required String aggregates,
+      required DateTime createdAt,
+      required String status,
+      Value<int> attempts,
+      Value<String?> lastCode,
+      Value<String?> lastMessage,
+      Value<String?> lastDetails,
+      Value<int> rowid,
+    });
+typedef $$OutboxOpsTableUpdateCompanionBuilder =
+    OutboxOpsCompanion Function({
+      Value<String> opId,
+      Value<String> idempotencyKey,
+      Value<String> type,
+      Value<String> payload,
+      Value<String> aggregates,
+      Value<DateTime> createdAt,
+      Value<String> status,
+      Value<int> attempts,
+      Value<String?> lastCode,
+      Value<String?> lastMessage,
+      Value<String?> lastDetails,
+      Value<int> rowid,
+    });
+
+class $$OutboxOpsTableFilterComposer
+    extends Composer<_$AppDatabase, $OutboxOpsTable> {
+  $$OutboxOpsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get opId => $composableBuilder(
+    column: $table.opId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get idempotencyKey => $composableBuilder(
+    column: $table.idempotencyKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get aggregates => $composableBuilder(
+    column: $table.aggregates,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastCode => $composableBuilder(
+    column: $table.lastCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastMessage => $composableBuilder(
+    column: $table.lastMessage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastDetails => $composableBuilder(
+    column: $table.lastDetails,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$OutboxOpsTableOrderingComposer
+    extends Composer<_$AppDatabase, $OutboxOpsTable> {
+  $$OutboxOpsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get opId => $composableBuilder(
+    column: $table.opId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get idempotencyKey => $composableBuilder(
+    column: $table.idempotencyKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get aggregates => $composableBuilder(
+    column: $table.aggregates,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastCode => $composableBuilder(
+    column: $table.lastCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastMessage => $composableBuilder(
+    column: $table.lastMessage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastDetails => $composableBuilder(
+    column: $table.lastDetails,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$OutboxOpsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $OutboxOpsTable> {
+  $$OutboxOpsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get opId =>
+      $composableBuilder(column: $table.opId, builder: (column) => column);
+
+  GeneratedColumn<String> get idempotencyKey => $composableBuilder(
+    column: $table.idempotencyKey,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<String> get aggregates => $composableBuilder(
+    column: $table.aggregates,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<String> get lastCode =>
+      $composableBuilder(column: $table.lastCode, builder: (column) => column);
+
+  GeneratedColumn<String> get lastMessage => $composableBuilder(
+    column: $table.lastMessage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastDetails => $composableBuilder(
+    column: $table.lastDetails,
+    builder: (column) => column,
+  );
+}
+
+class $$OutboxOpsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $OutboxOpsTable,
+          OutboxOpRow,
+          $$OutboxOpsTableFilterComposer,
+          $$OutboxOpsTableOrderingComposer,
+          $$OutboxOpsTableAnnotationComposer,
+          $$OutboxOpsTableCreateCompanionBuilder,
+          $$OutboxOpsTableUpdateCompanionBuilder,
+          (
+            OutboxOpRow,
+            BaseReferences<_$AppDatabase, $OutboxOpsTable, OutboxOpRow>,
+          ),
+          OutboxOpRow,
+          PrefetchHooks Function()
+        > {
+  $$OutboxOpsTableTableManager(_$AppDatabase db, $OutboxOpsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$OutboxOpsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$OutboxOpsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$OutboxOpsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> opId = const Value.absent(),
+                Value<String> idempotencyKey = const Value.absent(),
+                Value<String> type = const Value.absent(),
+                Value<String> payload = const Value.absent(),
+                Value<String> aggregates = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<String?> lastCode = const Value.absent(),
+                Value<String?> lastMessage = const Value.absent(),
+                Value<String?> lastDetails = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OutboxOpsCompanion(
+                opId: opId,
+                idempotencyKey: idempotencyKey,
+                type: type,
+                payload: payload,
+                aggregates: aggregates,
+                createdAt: createdAt,
+                status: status,
+                attempts: attempts,
+                lastCode: lastCode,
+                lastMessage: lastMessage,
+                lastDetails: lastDetails,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String opId,
+                required String idempotencyKey,
+                required String type,
+                required String payload,
+                required String aggregates,
+                required DateTime createdAt,
+                required String status,
+                Value<int> attempts = const Value.absent(),
+                Value<String?> lastCode = const Value.absent(),
+                Value<String?> lastMessage = const Value.absent(),
+                Value<String?> lastDetails = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OutboxOpsCompanion.insert(
+                opId: opId,
+                idempotencyKey: idempotencyKey,
+                type: type,
+                payload: payload,
+                aggregates: aggregates,
+                createdAt: createdAt,
+                status: status,
+                attempts: attempts,
+                lastCode: lastCode,
+                lastMessage: lastMessage,
+                lastDetails: lastDetails,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$OutboxOpsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $OutboxOpsTable,
+      OutboxOpRow,
+      $$OutboxOpsTableFilterComposer,
+      $$OutboxOpsTableOrderingComposer,
+      $$OutboxOpsTableAnnotationComposer,
+      $$OutboxOpsTableCreateCompanionBuilder,
+      $$OutboxOpsTableUpdateCompanionBuilder,
+      (
+        OutboxOpRow,
+        BaseReferences<_$AppDatabase, $OutboxOpsTable, OutboxOpRow>,
+      ),
+      OutboxOpRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -19483,4 +20480,6 @@ class $AppDatabaseManager {
       $$DocCounterSeedsTableTableManager(_db, _db.docCounterSeeds);
   $$AppMetaTableTableManager get appMeta =>
       $$AppMetaTableTableManager(_db, _db.appMeta);
+  $$OutboxOpsTableTableManager get outboxOps =>
+      $$OutboxOpsTableTableManager(_db, _db.outboxOps);
 }

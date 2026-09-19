@@ -41,6 +41,7 @@ part 'database.g.dart';
     DocCounters,
     DocCounterSeeds,
     AppMeta,
+    OutboxOps,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -67,7 +68,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -138,6 +139,11 @@ class AppDatabase extends _$AppDatabase {
       // stale seed markers from before switch-over are wiped.
       if (from < 8) {
         await delete(docCounterSeeds).go();
+      }
+      // v8 → v9 (#228, Slice 8-c, 08_PHASE2_SPEC.md §7): outbox_ops table for
+      // background sync push and offline-first queue.
+      if (from < 9) {
+        await m.createTable(outboxOps);
       }
     },
   );
