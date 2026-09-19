@@ -1,10 +1,14 @@
-// Unit tests for DocNumberService (Issue #274, ADR-0007, Phase 2 Spec §9).
+import 'dart:convert';
 
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:sqlite3/sqlite3.dart' as raw;
+import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/services/doc_counter_seeder.dart';
 import 'package:srisurart_pos/data/services/doc_number_service.dart';
 
 /// Schema v7 DDL (products without offline_ok, doc_counters and doc_counter_seeds present).
@@ -471,6 +475,322 @@ void main() {
       expect(products.length, 1);
       expect(products.first.id, 'p1');
       expect(products.first.name, 'Oil Filter');
+    });
+  });
+
+  group('Issue #189: Seed marker guard for offline document numbering', () {
+    const devId = 'dev_pos_guard';
+    final sepClock = DateTime(2026, 9, 15, 10, 30);
+
+    test('offline generation without seed marker throws OfflineSeedRequiredException with Thai message', () async {
+      expect(await service.hasSeedMarker(deviceId: devId, period: '2569-09'), isFalse);
+
+      try {
+        await service.generateNextDocNo(
+          deviceId: devId,
+          deviceNo: 1,
+          docType: 'receipt',
+          now: sepClock,
+          isOffline: true,
+        );
+        fail('Should have thrown OfflineSeedRequiredException');
+      } on OfflineSeedRequiredException catch (e) {
+        expect(e.code, 'OFFLINE_SEED_REQUIRED');
+        expect(
+          e.message,
+          'ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์',
+        );
+        expect(
+          e.toString(),
+          'ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์',
+        );
+      }
+
+      // Also verify SeedMarkerMissingException alias works
+      expect(
+        () => service.generateNextDocNo(
+          deviceId: devId,
+          deviceNo: 1,
+          docType: 'receipt',
+          now: sepClock,
+          isOffline: true,
+        ),
+        throwsA(isA<SeedMarkerMissingException>()),
+      );
+    });
+
+    test('issueAndCommit with isOffline: true without seed marker throws OfflineSeedRequiredException', () async {
+      expect(
+        () => service.issueAndCommit(
+          deviceId: devId,
+          deviceNo: 1,
+          docType: 'receipt',
+          now: sepClock,
+          isOffline: true,
+        ),
+        throwsA(isA<OfflineSeedRequiredException>()),
+      );
+    });
+
+    test('online generation (isOffline: false) succeeds even without seed marker', () async {
+      expect(await service.hasSeedMarker(deviceId: devId, period: '2569-09'), isFalse);
+
+      final docNo = await service.generateNextDocNo(
+        deviceId: devId,
+        deviceNo: 1,
+        docType: 'receipt',
+        now: sepClock,
+        isOffline: false,
+      );
+      expect(docNo, 'RC01-2569-09-0001');
+    });
+
+    test('offline generation WITH seed marker succeeds', () async {
+      await service.recordSeedMarker(
+        deviceId: devId,
+        period: '2569-09',
+        seededAt: DateTime(2026, 9, 15, 8, 0),
+      );
+
+      expect(await service.hasSeedMarker(deviceId: devId, period: '2569-09'), isTrue);
+
+      final docNo = await service.generateNextDocNo(
+        deviceId: devId,
+        deviceNo: 1,
+        docType: 'receipt',
+        now: sepClock,
+        isOffline: true,
+      );
+      expect(docNo, 'RC01-2569-09-0001');
+
+      // Issue and commit offline
+      final committed = await service.issueAndCommit(
+        deviceId: devId,
+        deviceNo: 1,
+        docType: 'receipt',
+        now: sepClock,
+        isOffline: true,
+      );
+      expect(committed, 'RC01-2569-09-0001');
+
+      final nextDocNo = await service.generateNextDocNo(
+        deviceId: devId,
+        deviceNo: 1,
+        docType: 'receipt',
+        now: sepClock,
+        isOffline: true,
+      );
+      expect(nextDocNo, 'RC01-2569-09-0002');
+    });
+
+    test('hasSeedMarker queries deviceId and optional period correctly', () async {
+      expect(await service.hasSeedMarker(deviceId: 'dev_check'), isFalse);
+      expect(await service.hasSeedMarker(deviceId: 'dev_check', period: '2569-09'), isFalse);
+
+      await service.recordSeedMarker(deviceId: 'dev_check', period: '2569-09');
+
+      // Checks with period
+      expect(await service.hasSeedMarker(deviceId: 'dev_check', period: '2569-09'), isTrue);
+      expect(await service.hasSeedMarker(deviceId: 'dev_check', period: '2569-10'), isFalse);
+
+      // Checks without period (any period for this device)
+      expect(await service.hasSeedMarker(deviceId: 'dev_check'), isTrue);
+      expect(await service.hasSeedMarker(deviceId: 'dev_other'), isFalse);
+    });
+
+    test('post-upgrade: wiped seed markers force online seed before offline generation works', () async {
+      final rawDb = raw.sqlite3.openInMemory();
+      for (final ddl in _v7Ddl) {
+        rawDb.execute(ddl);
+      }
+
+      // v7 state: stale seed marker and counters exist
+      rawDb.execute(
+        'INSERT INTO doc_counter_seeds (device_id, period, seeded_at) VALUES '
+        "('dev_upgraded', '2569-09', 1789000000)",
+      );
+      rawDb.execute(
+        'INSERT INTO doc_counters (device_id, device_no, doc_type, period, last_no) VALUES '
+        "('dev_upgraded', 1, 'receipt', '2569-09', 15)",
+      );
+      rawDb.execute('PRAGMA user_version = 7');
+
+      // Upgrade to v8
+      final upgradedDb = AppDatabase(NativeDatabase.opened(rawDb));
+      addTearDown(() => upgradedDb.close());
+      final upgradedService = DocNumberService(db: upgradedDb);
+
+      // Verify seed marker was wiped per C16 / Schema v8
+      expect(await upgradedService.hasSeedMarker(deviceId: 'dev_upgraded', period: '2569-09'), isFalse);
+
+      // Attempt offline generation -> rejected before write and before print!
+      expect(
+        () => upgradedService.generateNextDocNo(
+          deviceId: 'dev_upgraded',
+          deviceNo: 1,
+          docType: 'receipt',
+          now: sepClock,
+          isOffline: true,
+        ),
+        throwsA(isA<OfflineSeedRequiredException>()),
+      );
+
+      // Online generation still works
+      final onlineDocNo = await upgradedService.generateNextDocNo(
+        deviceId: 'dev_upgraded',
+        deviceNo: 1,
+        docType: 'receipt',
+        now: sepClock,
+        isOffline: false,
+      );
+      expect(onlineDocNo, 'RC01-2569-09-0016');
+
+      // Now perform online seed
+      await upgradedService.recordSeedMarker(
+        deviceId: 'dev_upgraded',
+        period: '2569-09',
+      );
+
+      // Now offline generation succeeds!
+      final offlineDocNo = await upgradedService.generateNextDocNo(
+        deviceId: 'dev_upgraded',
+        deviceNo: 1,
+        docType: 'receipt',
+        now: sepClock,
+        isOffline: true,
+      );
+      expect(offlineDocNo, 'RC01-2569-09-0016');
+    });
+
+    test('offline cross-month with new month seed marker works correctly at 0001', () async {
+      const devCross = 'dev_cross_month';
+      final sepTime = DateTime(2026, 9, 30, 22, 0);
+
+      // Seed September
+      await service.recordSeedMarker(deviceId: devCross, period: '2569-09');
+
+      // Issue offline bills in September up to 5
+      for (var i = 1; i <= 5; i++) {
+        final doc = await service.issueAndCommit(
+          deviceId: devCross,
+          deviceNo: 1,
+          docType: 'receipt',
+          now: sepTime,
+          isOffline: true,
+        );
+        expect(doc, 'RC01-2569-09-${i.toString().padLeft(4, '0')}');
+      }
+      expect(await service.getLastNo(deviceId: devCross, docType: 'receipt', period: '2569-09'), 5);
+
+      // Advance clock past midnight into October (new period 2569-10)
+      final octTime = DateTime(2026, 10, 1, 8, 30);
+
+      // Before October has seed marker: offline generation is prohibited!
+      expect(
+        () => service.generateNextDocNo(
+          deviceId: devCross,
+          deviceNo: 1,
+          docType: 'receipt',
+          now: octTime,
+          isOffline: true,
+        ),
+        throwsA(isA<OfflineSeedRequiredException>()),
+      );
+
+      // Online generation works even without October marker
+      final octOnline = await service.generateNextDocNo(
+        deviceId: devCross,
+        deviceNo: 1,
+        docType: 'receipt',
+        now: octTime,
+        isOffline: false,
+      );
+      expect(octOnline, 'RC01-2569-10-0001');
+
+      // Record October seed marker
+      await service.recordSeedMarker(deviceId: devCross, period: '2569-10');
+
+      // Now offline generation in October succeeds and starts at 0001!
+      final oct1 = await service.issueAndCommit(
+        deviceId: devCross,
+        deviceNo: 1,
+        docType: 'receipt',
+        now: octTime,
+        isOffline: true,
+      );
+      expect(oct1, 'RC01-2569-10-0001');
+
+      final oct2 = await service.issueAndCommit(
+        deviceId: devCross,
+        deviceNo: 1,
+        docType: 'receipt',
+        now: octTime,
+        isOffline: true,
+      );
+      expect(oct2, 'RC01-2569-10-0002');
+
+      // Verify counters
+      expect(await service.getLastNo(deviceId: devCross, docType: 'receipt', period: '2569-10'), 2);
+      expect(await service.getLastNo(deviceId: devCross, docType: 'receipt', period: '2569-09'), 5);
+    });
+
+    test('integration with DocCounterSeeder: seeder populates marker unlocking offline numbering', () async {
+      const seederDev = 'dev_pos_seeder';
+      final seederTime = DateTime(2026, 9, 15, 11, 0);
+
+      // Mock server response for GET /api/v1/doc-counters
+      final client = ApiClient(
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/v1/doc-counters');
+          return http.Response(
+            jsonEncode({
+              'status': 'success',
+              'data': {
+                'deviceId': seederDev,
+                'deviceNo': 1,
+                'period': '2569-09',
+                'counters': [
+                  {'docType': 'receipt', 'period': '2569-09', 'lastNo': 10},
+                  {'docType': 'cn', 'period': '2569-09', 'lastNo': 2},
+                ],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+
+      final seeder = DocCounterSeeder(db: db, apiClient: client);
+
+      // Before seeding: offline generation throws
+      expect(
+        () => service.generateNextDocNo(
+          deviceId: seederDev,
+          deviceNo: 1,
+          docType: 'receipt',
+          now: seederTime,
+          isOffline: true,
+        ),
+        throwsA(isA<OfflineSeedRequiredException>()),
+      );
+
+      // Perform seed
+      final seeded = await seeder.seed();
+      expect(seeded, isTrue);
+
+      // After seeding: seed marker is present
+      expect(await service.hasSeedMarker(deviceId: seederDev, period: '2569-09'), isTrue);
+
+      // Offline generation now succeeds and starts from server's high-water mark (10 + 1 = 11)
+      final docNo = await service.generateNextDocNo(
+        deviceId: seederDev,
+        deviceNo: 1,
+        docType: 'receipt',
+        now: seederTime,
+        isOffline: true,
+      );
+      expect(docNo, 'RC01-2569-09-0011');
     });
   });
 }

@@ -34,6 +34,17 @@ class DocNumberExhaustedException extends DocNumberException {
       : super('DOC_NUMBER_EXHAUSTED', message ?? 'เลขเอกสารเต็มโควตา');
 }
 
+class OfflineSeedRequiredException extends DocNumberException {
+  const OfflineSeedRequiredException([String? message])
+      : super(
+          'OFFLINE_SEED_REQUIRED',
+          message ??
+              'ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์',
+        );
+}
+
+typedef SeedMarkerMissingException = OfflineSeedRequiredException;
+
 class ParsedDocNo {
   const ParsedDocNo({
     required this.prefix,
@@ -147,8 +158,74 @@ class DocNumberService {
     );
   }
 
+  /// Checks whether a valid seed record exists in [DocCounterSeeds] for [deviceId]
+  /// and optionally [period].
+  ///
+  /// If [period] is omitted, checks if at least one seed record exists for [deviceId].
+  Future<bool> hasSeedMarker({
+    required String deviceId,
+    String? period,
+  }) async {
+    final query = db.select(db.docCounterSeeds)
+      ..where((t) {
+        final matchDevice = t.deviceId.equals(deviceId);
+        if (period != null) {
+          return matchDevice & t.period.equals(period);
+        }
+        return matchDevice;
+      })
+      ..limit(1);
+    final row = await query.getSingleOrNull();
+    return row != null;
+  }
+
+  /// Asserts that a valid seed record exists in [DocCounterSeeds] for [deviceId]
+  /// and [period] (#189).
+  ///
+  /// Throws [OfflineSeedRequiredException] if no seed marker exists for the period.
+  Future<void> ensureSeedMarker({
+    required String deviceId,
+    String? period,
+    DateTime? now,
+  }) async {
+    final p = period ?? formatPeriod(now ?? clock());
+    final seeded = await hasSeedMarker(deviceId: deviceId, period: p);
+    if (!seeded) {
+      throw const OfflineSeedRequiredException();
+    }
+  }
+
+  /// Records a seed marker in [DocCounterSeeds] for [deviceId] and [period].
+  Future<void> recordSeedMarker({
+    required String deviceId,
+    required String period,
+    DateTime? seededAt,
+  }) async {
+    await db.into(db.docCounterSeeds).insertOnConflictUpdate(
+          DocCounterSeedsCompanion.insert(
+            deviceId: deviceId,
+            period: period,
+            seededAt: seededAt ?? clock(),
+          ),
+        );
+  }
+
+  /// Deletes seed markers for [deviceId], or all markers if [deviceId] is null.
+  Future<void> clearSeedMarkers({String? deviceId}) async {
+    if (deviceId != null) {
+      await (db.delete(db.docCounterSeeds)
+            ..where((t) => t.deviceId.equals(deviceId)))
+          .go();
+    } else {
+      await db.delete(db.docCounterSeeds).go();
+    }
+  }
+
   /// Calculates the next candidate document number for the device and docType
   /// based on local clock and [DocCounters].
+  ///
+  /// If [isOffline] is true, verifies that a seed marker exists in [DocCounterSeeds]
+  /// for `(deviceId, period)` (#189), throwing [OfflineSeedRequiredException] if absent.
   ///
   /// 🔴 Does NOT write or consume the number in the database:
   /// A document number is committed/consumed only when write succeeds (2xx)
@@ -162,6 +239,7 @@ class DocNumberService {
     required int deviceNo,
     required String docType,
     DateTime? now,
+    bool isOffline = false,
   }) async {
     if (deviceNo < 1 || deviceNo > 99) {
       throw ArgumentError('deviceNo must be between 1 and 99, got $deviceNo');
@@ -170,6 +248,10 @@ class DocNumberService {
     final prefix = prefixForDocType(docType);
     final dt = now ?? clock();
     final period = formatPeriod(dt);
+
+    if (isOffline) {
+      await ensureSeedMarker(deviceId: deviceId, period: period);
+    }
 
     final row = await (db.select(db.docCounters)
           ..where((t) =>
@@ -249,12 +331,14 @@ class DocNumberService {
     required int deviceNo,
     required String docType,
     DateTime? now,
+    bool isOffline = false,
   }) async {
     final docNo = await generateNextDocNo(
       deviceId: deviceId,
       deviceNo: deviceNo,
       docType: docType,
       now: now,
+      isOffline: isOffline,
     );
     final parsed = parseDocNo(docNo);
     await commitDocNo(
