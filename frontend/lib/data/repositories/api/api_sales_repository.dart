@@ -53,6 +53,8 @@ class ApiSalesRepository implements SalesRepository {
     this.syncService,
     this.syncFacade,
     this.docNumberService,
+    this.deviceId,
+    this.deviceNo,
     this.isOffline = false,
   });
 
@@ -69,6 +71,8 @@ class ApiSalesRepository implements SalesRepository {
   final SyncService? syncService;
   final SyncFacade? syncFacade;
   final DocNumberService? docNumberService;
+  final String? deviceId;
+  final int? deviceNo;
   bool isOffline;
 
   /// The bill id + `Idempotency-Key` of an attempt that never got a verdict,
@@ -82,7 +86,8 @@ class ApiSalesRepository implements SalesRepository {
         (syncFacade is SyncService ? syncFacade as SyncService : null);
     if (sync != null) {
       return sync.currentStatus == SyncStatus.degraded ||
-          sync.currentStatus == SyncStatus.syncing;
+          sync.currentStatus == SyncStatus.syncing ||
+          sync.currentOutboxRemaining > 0;
     }
     if (syncFacade != null) {
       try {
@@ -101,9 +106,15 @@ class ApiSalesRepository implements SalesRepository {
     return rethrowThai(() async {
       // No open drawer, no sale (owner, 2026-09-13). Checked before an attempt is
       // parked, so a refused press leaves nothing to replay.
-      if (!await hasOpenShift(db)) {
+      final activeShift = await (db.select(db.shifts)
+            ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
+            ..limit(1))
+          .getSingleOrNull();
+      if (activeShift == null) {
         throw const PosException('NO_OPEN_SHIFT', noOpenShiftForSale);
       }
+      final shiftId = activeShift.id;
+
       final attempt = _pending.of(_cartKey(input));
 
       if (_isDegraded) {
@@ -111,6 +122,7 @@ class ApiSalesRepository implements SalesRepository {
           saleId: attempt.id,
           idempotencyKey: attempt.headers['Idempotency-Key']!,
           input: input,
+          shiftId: shiftId,
         );
         _pending.close(attempt);
         return sale;
@@ -133,9 +145,24 @@ class ApiSalesRepository implements SalesRepository {
           throw PosException(e.code, noOpenShiftForSale, e.details);
         }
         rethrow;
+      } catch (_) {
+        // Non-verdict network failure (timeout, dropped socket, 5xx):
+        // Transition to Degraded and queue offline into outbox with same attempt id & key.
+        final sync = syncService ??
+            (syncFacade is SyncService ? syncFacade as SyncService : null);
+        if (sync != null) {
+          sync.recordNonVerdictWrite();
+          final sale = await _saveOffline(
+            saleId: attempt.id,
+            idempotencyKey: attempt.headers['Idempotency-Key']!,
+            input: input,
+            shiftId: shiftId,
+          );
+          _pending.close(attempt);
+          return sale;
+        }
+        rethrow;
       }
-      // Anything else — a dropped socket, a timeout — left the bill's fate
-      // unknown, so the attempt stays parked too.
 
       final sale = await _patchFromResponse(attempt.id, input, res);
       // 🔴 Closed only now, AFTER the cache agrees with the server. If the patch
@@ -421,6 +448,7 @@ class ApiSalesRepository implements SalesRepository {
     required String saleId,
     required String idempotencyKey,
     required SaleInput input,
+    String? shiftId,
   }) async {
     // 1. Pre-validate stock against local products
     final products = await db.select(db.products).get();
@@ -449,10 +477,14 @@ class ApiSalesRepository implements SalesRepository {
     if (docNumberService != null) {
       final counter =
           await (db.select(db.docCounters)..limit(1)).getSingleOrNull();
-      if (counter != null) {
+      final seed =
+          await (db.select(db.docCounterSeeds)..limit(1)).getSingleOrNull();
+      final devId = deviceId ?? counter?.deviceId ?? seed?.deviceId;
+      final devNo = deviceNo ?? counter?.deviceNo ?? 1;
+      if (devId != null) {
         receiptNo = await docNumberService!.issueAndCommit(
-          deviceId: counter.deviceId,
-          deviceNo: counter.deviceNo,
+          deviceId: devId,
+          deviceNo: devNo,
           docType: 'receipt',
           now: date,
           isOffline: true,
@@ -469,7 +501,7 @@ class ApiSalesRepository implements SalesRepository {
           ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
           ..limit(1))
         .getSingleOrNull();
-    final shiftId = activeShift?.id;
+    final effectiveShiftId = shiftId ?? activeShift?.id;
 
     final sale = SaleRow(
       id: saleId,
@@ -487,7 +519,7 @@ class ApiSalesRepository implements SalesRepository {
       date: date,
       voided: false,
       voidedAt: null,
-      shiftId: shiftId,
+      shiftId: effectiveShiftId,
     );
 
     final payload = _saleBody(
@@ -500,8 +532,9 @@ class ApiSalesRepository implements SalesRepository {
     final opId = newId('op');
     final aggregates = [
       'sale:$saleId',
-      if (shiftId != null) 'shift:$shiftId',
+      if (effectiveShiftId != null) 'shift:$effectiveShiftId',
       if (input.customerId != null) 'customer:${input.customerId}',
+      if (input.mechanicId != null) 'mechanic:${input.mechanicId}',
     ];
 
     await db.transaction(() async {
@@ -592,8 +625,11 @@ class ApiSalesRepository implements SalesRepository {
 
     final sync = syncService ??
         (syncFacade is SyncService ? syncFacade as SyncService : null);
-    if (sync != null && sync.currentStatus != SyncStatus.degraded) {
-      unawaited(sync.push());
+    if (sync != null) {
+      await sync.refreshOutbox();
+      if (sync.currentStatus != SyncStatus.degraded) {
+        unawaited(sync.push());
+      }
     }
 
     return sale;

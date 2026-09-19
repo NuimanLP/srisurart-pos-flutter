@@ -77,6 +77,10 @@ void main() {
   ApiSalesRepository repoWith(
     Future<http.Response> Function(http.Request req) handler, {
     Duration writeTimeout = ApiClient.defaultWriteTimeout,
+    SyncService? syncService,
+    DocNumberService? docNumberService,
+    String? deviceId,
+    int? deviceNo,
   }) {
     final client = MockClient((req) async {
       sent.add(req);
@@ -98,6 +102,10 @@ void main() {
       ),
       db: db,
       drift: SalesRepository(db),
+      syncService: syncService,
+      docNumberService: docNumberService,
+      deviceId: deviceId,
+      deviceNo: deviceNo,
     );
   }
 
@@ -169,6 +177,8 @@ void main() {
     String paymentMethod = 'เงินสด',
     bool overrideCreditLimit = false,
     double total = 200,
+    String? mechanicId = 'tm1',
+    String? mechanicName = 'ช่างเอ',
   }) => SaleInput(
     subtotal: 200,
     discount: 0,
@@ -177,8 +187,8 @@ void main() {
     overrideCreditLimit: overrideCreditLimit,
     customerId: 'tc1',
     customerName: 'สมชาย',
-    mechanicId: 'tm1',
-    mechanicName: 'ช่างเอ',
+    mechanicId: mechanicId,
+    mechanicName: mechanicName,
     mechanicDelta: -15,
     items: const [
       SaleLineInput(
@@ -1085,6 +1095,48 @@ void main() {
       final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
       expect(payload['overrideCreditLimit'], isTrue);
       expect(payload['id'], sale.id);
+    });
+
+    test('online write failure (SocketException) falls back to outbox carrying overrideCreditLimit', () async {
+      final tokenStorage = _MemoryTokenStorage();
+      final syncService = SyncService(
+        db: db,
+        apiClient: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => throw const SocketException('Network down')),
+          tokenStorage: tokenStorage,
+        ),
+        tokenStorage: tokenStorage,
+        autoStartHealthProbe: false,
+      );
+
+      expect(syncService.currentStatus, SyncStatus.online);
+
+      final repo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => throw const SocketException('Network down')),
+          tokenStorage: tokenStorage,
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        syncService: syncService,
+      );
+
+      final sale = await repo.saveSale(
+        input(
+          paymentMethod: 'เครดิตช่าง',
+          overrideCreditLimit: true,
+        ),
+      );
+
+      expect(sale.id, isNotEmpty);
+      expect(syncService.currentStatus, SyncStatus.degraded);
+
+      final ops = await db.select(db.outboxOps).get();
+      expect(ops, hasLength(1));
+      final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
+      expect(payload['overrideCreditLimit'], isTrue);
     });
 
     test('offline stock pre-validation refuses sale with insufficient stock', () async {
