@@ -18,6 +18,7 @@ import '../../presentation/blocs/auth_cubit.dart';
 import '../../presentation/screens/cash_drawer_screen.dart';
 import '../../presentation/screens/checkout_screen.dart';
 import '../../presentation/screens/customers_screen.dart';
+import '../../presentation/screens/devices_screen.dart';
 import '../../presentation/screens/login_screen.dart';
 import '../../presentation/screens/mechanics_screen.dart';
 import '../../presentation/screens/owner_review_screen.dart';
@@ -45,6 +46,7 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String cashDrawer = '/cash-drawer';
   static const String ownerReview = '/owner-review';
+  static const String devices = '/devices';
 
   /// #143 — registered only on the API build (see [buildAppRouter]).
   static const String login = '/login';
@@ -187,6 +189,10 @@ ShellRoute _buildShell() => ShellRoute(
     GoRoute(
       path: AppRoutes.ownerReview,
       builder: (context, state) => const OwnerReviewScreen(),
+    ),
+    GoRoute(
+      path: AppRoutes.devices,
+      builder: (context, state) => const DevicesScreen(),
     ),
   ],
 );

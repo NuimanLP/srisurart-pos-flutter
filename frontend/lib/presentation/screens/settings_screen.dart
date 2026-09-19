@@ -20,7 +20,9 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/csv_safe.dart';
 import '../../core/utils/dates.dart';
@@ -502,6 +504,36 @@ class _AccountTab extends StatelessWidget {
                       ),
                   ],
                 ),
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.devices, color: AppColors.navy),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'จัดการเครื่องทั้งหมดในร้าน (Device Management)',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'ดูรายการเครื่อง, ออกรหัสผูกเครื่องใหม่ (POS/Backoffice), และปลดระวางเครื่อง',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AppButton(
+                    label: 'เปิดหน้าจัดการเครื่อง',
+                    icon: Icons.arrow_forward,
+                    onPressed: () => context.go(AppRoutes.devices),
+                  ),
+                ],
               ),
             ],
           ),
