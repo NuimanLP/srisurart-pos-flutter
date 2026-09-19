@@ -121,7 +121,7 @@ class ApiCustomersRepository extends CustomersRepository {
       if (res is Map) {
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
-        return (db.select(db.customers)..where((t) => t.id.equals(comp.id.value))).getSingle();
+        return await (db.select(db.customers)..where((t) => t.id.equals(comp.id.value))).getSingle();
       }
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
