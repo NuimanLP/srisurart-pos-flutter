@@ -29,6 +29,7 @@ class FakeSyncFacade implements SyncFacade {
         _currentNeedsOwner = initialNeedsOwner,
         _currentOutboxRemaining = initialOutboxRemaining;
 
+  @override
   SyncStatus get currentStatus => _currentStatus;
   List<OutboxOpView> get currentNeedsOwner => _currentNeedsOwner;
   int get currentOutboxRemaining => _currentOutboxRemaining;

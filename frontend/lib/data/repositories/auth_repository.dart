@@ -4,15 +4,18 @@
 import '../../core/network/api_client.dart';
 import '../../domain/models/auth_models.dart';
 import '../storage/token_storage.dart';
+import 'offline_pin_repository.dart';
 
 class AuthRepository {
   AuthRepository({
     required this.apiClient,
     required this.tokenStorage,
+    this.offlinePinRepository,
   });
 
   final ApiClient apiClient;
   final TokenStorage tokenStorage;
+  final OfflinePinRepository? offlinePinRepository;
 
   /// Logs in with username and password.
   ///
@@ -46,6 +49,16 @@ class AuthRepository {
     await tokenStorage.setAccessToken(accessToken);
     await tokenStorage.setRefreshToken(refreshToken);
     await tokenStorage.setUser(user);
+
+    // Record online login iat for 3-day offline PIN validity window (08 §13 C5)
+    final claims = JwtClaims.tryParse(accessToken);
+    if (claims?.iat != null) {
+      await offlinePinRepository?.recordOnlineLogin(
+        iat: claims!.iat!,
+        deviceId: claims.did,
+        deviceRole: claims.drole,
+      );
+    }
 
     return user;
   }
@@ -119,6 +132,14 @@ class AuthRepository {
     if (token == null) return null;
     final claims = JwtClaims.tryParse(token);
     return claims?.drole;
+  }
+
+  /// Inspects the server-assigned deviceId from the current access token claims.
+  Future<String?> getDeviceId() async {
+    final token = await tokenStorage.getAccessToken();
+    if (token == null) return null;
+    final claims = JwtClaims.tryParse(token);
+    return claims?.did;
   }
 
   /// Checks whether a valid session (or refresh token) is present.
