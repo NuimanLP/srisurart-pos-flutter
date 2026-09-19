@@ -5,27 +5,55 @@
 //  • Patches rows directly in Drift without dual-bookkeeping locally.
 //  • total_credit is struck (#11, ADR-0010 §6) — legacy alias of total_discount, never written.
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
+import '../sync/sync_facade.dart';
+import '../sync/sync_service.dart';
 import 'api/api_wire.dart';
 import 'mechanics_repository.dart';
 
 class ApiMechanicsRepository extends MechanicsRepository {
   final ApiClient apiClient;
+  final SyncService? syncService;
+  final SyncFacade? syncFacade;
 
   ApiMechanicsRepository(
     super.db,
     this.apiClient, {
     this.writesToServer = true,
+    this.syncService,
+    this.syncFacade,
   });
 
   /// Whether a credit payment is a server write — the `USE_API_WRITES` switch
   /// (`useApi`), the same one that moves sales, returns and shifts.
   final bool writesToServer;
+
+  bool get _isDegraded {
+    final sync = syncService ??
+        (syncFacade is SyncService ? syncFacade as SyncService : null);
+    if (sync != null) {
+      return sync.currentStatus == SyncStatus.degraded ||
+          sync.currentStatus == SyncStatus.syncing ||
+          sync.currentOutboxRemaining > 0;
+    }
+    if (syncFacade != null) {
+      try {
+        final dynamic facade = syncFacade;
+        final status = facade.currentStatus;
+        if (status == SyncStatus.degraded || status == SyncStatus.syncing) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
 
   MechanicsCompanion _mechanicToCompanion(Map<String, dynamic> json) {
     final id = json['id'] as String;
@@ -241,13 +269,24 @@ class ApiMechanicsRepository extends MechanicsRepository {
       throw const PosException('NOT_FOUND', 'ไม่พบข้อมูลช่าง');
     }
 
-    final queue = await (db.select(db.pendingCreditPayments)
-          ..where((t) => t.mechanicId.equals(mechanicId) & t.rejectedCode.isNull()))
+    await migratePendingCreditPayments(db);
+
+    final pendingOps = await (db.select(db.outboxOps)
+          ..where((t) =>
+              t.type.equals('credit_payment.create') &
+              t.status.isNotValue('rejected')))
         .get();
-    final queuedTotal = queue.fold<double>(
-      0.0,
-      (sum, row) => sum + (double.tryParse(row.amount) ?? 0.0),
-    );
+    double queuedTotal = 0.0;
+    for (final op in pendingOps) {
+      try {
+        final payload = jsonDecode(op.payload);
+        if (payload is Map<String, dynamic> &&
+            payload['mechanicId'] == mechanicId) {
+          queuedTotal +=
+              double.tryParse(payload['amount']?.toString() ?? '') ?? 0.0;
+        }
+      } catch (_) {}
+    }
     final projectedBalance = mechanic.creditBalance - queuedTotal;
 
     if (amount > projectedBalance && !allowOverpayment) {
@@ -264,30 +303,54 @@ class ApiMechanicsRepository extends MechanicsRepository {
     final localId = newId('cp');
     final now = DateTime.now();
     final key = newId('idem');
+    final opId = newId('op');
     final wireAmt = wireMoney(amount);
 
-    await db.into(db.pendingCreditPayments).insert(
-          PendingCreditPaymentsCompanion(
-            id: Value(localId),
-            idempotencyKey: Value(key),
-            mechanicId: Value(mechanicId),
-            amount: Value(wireAmt),
-            paymentMethod: Value(paymentMethod),
-            note: Value(note),
-            allowOverpayment: Value(allowOverpayment),
-            createdAt: Value(now),
-          ),
-        );
+    final activeShift = await (db.select(db.shifts)
+          ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
+          ..limit(1))
+        .getSingleOrNull();
+
+    final body = {
+      'id': localId,
+      'mechanicId': mechanicId,
+      'amount': wireAmt,
+      'paymentMethod': paymentMethod,
+      if (note != null && note.isNotEmpty) 'note': note,
+      if (allowOverpayment) 'allowOverpayment': true,
+      'date': now.toUtc().toIso8601String(),
+    };
+
+    final aggregates = [
+      'cp:$localId',
+      if (activeShift != null) 'shift:${activeShift.id}' else 'shift',
+      'mechanic:$mechanicId',
+    ];
+
+    Future<void> queueToOutbox() async {
+      await db.into(db.outboxOps).insert(
+            OutboxOpsCompanion(
+              opId: Value(opId),
+              idempotencyKey: Value(key),
+              type: const Value('credit_payment.create'),
+              payload: Value(jsonEncode(body)),
+              aggregates: Value(jsonEncode(aggregates)),
+              createdAt: Value(now),
+              status: const Value('pending'),
+              attempts: const Value(0),
+            ),
+          );
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      await sync?.refreshOutbox();
+    }
+
+    if (_isDegraded) {
+      await queueToOutbox();
+      throw const CreditPaymentQueued();
+    }
 
     try {
-      final body = {
-        'id': localId,
-        'amount': wireAmt,
-        'paymentMethod': paymentMethod,
-        if (note != null && note.isNotEmpty) 'note': note,
-        if (allowOverpayment) 'allowOverpayment': true,
-      };
-
       final res = await apiClient.post(
         '/api/v1/mechanics/$mechanicId/credit-payments',
         body: body,
@@ -299,14 +362,21 @@ class ApiMechanicsRepository extends MechanicsRepository {
       }
     } on ApiException catch (e) {
       if (isVerdict(e)) {
-        await (db.delete(db.pendingCreditPayments)..where((t) => t.id.equals(localId))).go();
         if (e.code == 'NO_OPEN_SHIFT') {
           throw PosException(e.code, noOpenShiftForCreditPayment, e.details);
         }
         rethrowServerRefusal(e);
       }
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      sync?.recordNonVerdictWrite();
+      await queueToOutbox();
       throw const CreditPaymentQueued();
     } catch (_) {
+      final sync = syncService ??
+          (syncFacade is SyncService ? syncFacade as SyncService : null);
+      sync?.recordNonVerdictWrite();
+      await queueToOutbox();
       throw const CreditPaymentQueued();
     }
 
@@ -324,7 +394,9 @@ class ApiMechanicsRepository extends MechanicsRepository {
     final serverId = (resMap['id'] ?? id) as String;
     final receiptNo = (resMap['receiptNo'] ?? resMap['receipt_no'] ?? '') as String;
     final paymentDate = stampOrNull(resMap['date']) ?? DateTime.now();
-    final creditBalanceAfter = moneyOrNull(resMap['mechanicCreditBalanceAfter'] ?? resMap['mechanic_credit_balance_after']);
+    final creditBalanceAfter = moneyOrNull(resMap['mechanicCreditBalanceAfter'] ??
+        resMap['mechanic_credit_balance_after'] ??
+        resMap['balanceAfter']);
 
     final paymentRow = CreditPaymentRow(
       id: serverId,
@@ -344,8 +416,23 @@ class ApiMechanicsRepository extends MechanicsRepository {
           ),
         );
       }
+      final ops = await (db.select(db.outboxOps)
+            ..where((t) => t.type.equals('credit_payment.create')))
+          .get();
+      for (final op in ops) {
+        try {
+          final p = jsonDecode(op.payload);
+          if (op.opId == id || (p is Map && p['id'] == id)) {
+            await (db.delete(db.outboxOps)..where((t) => t.opId.equals(op.opId))).go();
+          }
+        } catch (_) {}
+      }
       await (db.delete(db.pendingCreditPayments)..where((t) => t.id.equals(id))).go();
     });
+
+    final sync = syncService ??
+        (syncFacade is SyncService ? syncFacade as SyncService : null);
+    await sync?.refreshOutbox();
 
     return paymentRow;
   }
@@ -354,39 +441,54 @@ class ApiMechanicsRepository extends MechanicsRepository {
   Future<void> flushPendingCreditPayments() async {
     if (!writesToServer) return;
 
-    final pendingList = await (db.select(db.pendingCreditPayments)
-          ..where((t) => t.rejectedCode.isNull())
+    await migratePendingCreditPayments(db);
+
+    final sync = syncService ??
+        (syncFacade is SyncService ? syncFacade as SyncService : null);
+    if (sync != null) {
+      await sync.push();
+      return;
+    }
+
+    final pendingOps = await (db.select(db.outboxOps)
+          ..where((t) =>
+              t.type.equals('credit_payment.create') &
+              t.status.equals('pending'))
           ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
         .get();
 
-    for (final item in pendingList) {
+    for (final op in pendingOps) {
       try {
-        final body = {
-          'id': item.id,
-          'amount': item.amount,
-          'paymentMethod': item.paymentMethod,
-          if (item.note != null && item.note!.isNotEmpty) 'note': item.note,
-          if (item.allowOverpayment) 'allowOverpayment': true,
-        };
+        final payload = jsonDecode(op.payload) as Map<String, dynamic>;
+        final mechanicId = payload['mechanicId'] as String;
 
         final res = await apiClient.post(
-          '/api/v1/mechanics/${item.mechanicId}/credit-payments',
-          body: body,
-          headers: {'Idempotency-Key': item.idempotencyKey},
+          '/api/v1/mechanics/$mechanicId/credit-payments',
+          body: payload,
+          headers: {'Idempotency-Key': op.idempotencyKey},
         );
 
         if (res is Map) {
-          await _applyPaymentSuccess(item.id, item.mechanicId, item.amount, item.note, res);
+          await _applyPaymentSuccess(
+            payload['id'] as String? ?? op.opId,
+            mechanicId,
+            payload['amount'].toString(),
+            payload['note'] as String?,
+            res,
+          );
         }
       } on ApiException catch (e) {
         if (e.statusCode == 401) {
           break;
         }
         if (isVerdict(e)) {
-          await (db.update(db.pendingCreditPayments)..where((t) => t.id.equals(item.id))).write(
-            PendingCreditPaymentsCompanion(
-              rejectedCode: Value(e.code),
-              rejectedMessage: Value(e.thaiMessage),
+          await (db.update(db.outboxOps)..where((t) => t.opId.equals(op.opId)))
+              .write(
+            OutboxOpsCompanion(
+              status: const Value('rejected'),
+              attempts: const Value(0),
+              lastCode: Value(e.code),
+              lastMessage: Value(e.thaiMessage),
             ),
           );
         }

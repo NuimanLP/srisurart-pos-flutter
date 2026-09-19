@@ -830,5 +830,70 @@ void main() {
 
       syncService.dispose();
     });
+
+    test('Push credit_payment.create: applies, patches mechanic balance and inserts credit_payments row', () async {
+      // Seed mechanic m1 with 1500 balance
+      await db.into(db.mechanics).insertOnConflictUpdate(
+            MechanicsCompanion.insert(
+              id: 'm1',
+              code: 'M001',
+              name: 'Mechanic One',
+              createdAt: '2026-09-15T00:00:00.000Z',
+              creditBalance: const drift.Value(1500.0),
+            ),
+          );
+
+      final fixture = loadFixture('credit-payment.applied.json');
+      final reqFixture = fixture['request'] as Map<String, dynamic>;
+      final respFixture = fixture['response'] as Map<String, dynamic>;
+
+      final mockClient = MockClient((request) async {
+        return http.Response(
+          jsonEncode(respFixture['body']),
+          respFixture['status'] as int,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+
+      final apiClient = ApiClient(baseUrl: 'http://example.com', httpClient: mockClient);
+      final syncService = SyncService(
+        db: db,
+        apiClient: apiClient,
+        tokenStorage: tokenStorage,
+        httpClient: mockClient,
+        autoStartHealthProbe: false,
+      );
+
+      final opReq = (reqFixture['body']['ops'] as List).first as Map<String, dynamic>;
+      await db.into(db.outboxOps).insert(
+            OutboxOpsCompanion.insert(
+              opId: opReq['opId'],
+              idempotencyKey: opReq['idempotencyKey'],
+              type: opReq['type'],
+              payload: jsonEncode(opReq['payload']),
+              aggregates: jsonEncode(['cp:${opReq['payload']['id']}', 'shift', 'mechanic:${opReq['payload']['mechanicId']}']),
+              createdAt: DateTime.now().toUtc(),
+              status: 'pending',
+            ),
+          );
+
+      await syncService.push();
+
+      // Op applied and deleted from outbox_ops
+      final remaining = await (db.select(db.outboxOps)..where((t) => t.opId.equals(opReq['opId']))).getSingleOrNull();
+      expect(remaining, isNull);
+
+      // Mechanic creditBalance patched to 1000.00
+      final mechanic = await (db.select(db.mechanics)..where((t) => t.id.equals('m1'))).getSingle();
+      expect(mechanic.creditBalance, equals(1000.0));
+
+      // credit_payments row inserted
+      final payment = await (db.select(db.creditPayments)..where((t) => t.id.equals('cp_off_001'))).getSingleOrNull();
+      expect(payment, isNotNull);
+      expect(payment!.amount, equals(500.0));
+      expect(payment.mechanicId, equals('m1'));
+
+      syncService.dispose();
+    });
   });
 }

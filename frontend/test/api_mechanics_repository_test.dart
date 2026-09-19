@@ -613,6 +613,189 @@ void main() {
         },
       );
     });
+
+    group('Phase 2, Ticket #275: outbox_ops credit payment migration', () {
+      test(
+        'offline credit payment queues into outbox_ops with credit_payment.create',
+        () async {
+          await seedTarget();
+          final repo = ApiMechanicsRepository(
+            db,
+            ApiClient(
+              httpClient: MockClient((_) async => throw http.ClientException('Offline')),
+            ),
+          );
+
+          await expectLater(
+            repo.addCreditPayment(
+              mechanicId: 'm_target',
+              amount: 400.0,
+              paymentMethod: 'เงินสด',
+              note: 'งวดพิเศษ',
+            ),
+            throwsA(isA<CreditPaymentQueued>()),
+          );
+
+          // Verify outbox_ops contains the op
+          final ops = await (db.select(db.outboxOps)
+                ..where((t) => t.type.equals('credit_payment.create')))
+              .get();
+          expect(ops, hasLength(1));
+          final op = ops.first;
+          expect(op.status, 'pending');
+          expect(op.idempotencyKey, isNotEmpty);
+
+          final payload = jsonDecode(op.payload) as Map<String, dynamic>;
+          expect(payload['id'], startsWith('cp'));
+          expect(payload['mechanicId'], 'm_target');
+          expect(payload['amount'], '400.00');
+          expect(payload['paymentMethod'], 'เงินสด');
+          expect(payload['note'], 'งวดพิเศษ');
+          expect(payload['date'], isNotEmpty);
+
+          final aggregates = jsonDecode(op.aggregates) as List;
+          expect(aggregates, contains('cp:${payload['id']}'));
+          expect(aggregates, contains('shift:sh-open'));
+          expect(aggregates, contains('mechanic:m_target'));
+
+          // Verify pending_credit_payments has 0 rows
+          expect(await db.select(db.pendingCreditPayments).get(), isEmpty);
+        },
+      );
+
+      test(
+        'legacy pending_credit_payments rows are migrated to outbox_ops with zero data loss',
+        () async {
+          await seedTarget();
+          // Insert legacy rows directly into pendingCreditPayments
+          await db.into(db.pendingCreditPayments).insert(
+                PendingCreditPaymentsCompanion.insert(
+                  id: 'cp_legacy_1',
+                  idempotencyKey: 'idem_legacy_1',
+                  mechanicId: 'm_target',
+                  amount: '350.00',
+                  paymentMethod: 'เงินสด',
+                  createdAt: DateTime(2026, 9, 15, 8, 30),
+                ),
+              );
+          await db.into(db.pendingCreditPayments).insert(
+                PendingCreditPaymentsCompanion.insert(
+                  id: 'cp_legacy_2',
+                  idempotencyKey: 'idem_legacy_2',
+                  mechanicId: 'm_target',
+                  amount: '150.00',
+                  paymentMethod: 'โอน/QR',
+                  createdAt: DateTime(2026, 9, 15, 9, 0),
+                  rejectedCode: const Value('CREDIT_PAYMENT_EXCEEDS_BALANCE'),
+                  rejectedMessage: const Value('ยอดชำระเกิน'),
+                ),
+              );
+
+          final repo = ApiMechanicsRepository(
+            db,
+            ApiClient(
+              httpClient: MockClient((_) async => throw http.ClientException('Offline')),
+            ),
+          );
+
+          final pending = await repo.getPendingCreditPayments();
+          expect(pending, hasLength(2));
+
+          // pending_credit_payments must now be empty
+          expect(await db.select(db.pendingCreditPayments).get(), isEmpty);
+
+          // outbox_ops must contain both ops
+          final ops = await (db.select(db.outboxOps)
+                ..where((t) => t.type.equals('credit_payment.create')))
+              .get();
+          expect(ops, hasLength(2));
+          final op1 = ops.firstWhere((o) => o.idempotencyKey == 'idem_legacy_1');
+          expect(op1.status, 'pending');
+          final op2 = ops.firstWhere((o) => o.idempotencyKey == 'idem_legacy_2');
+          expect(op2.status, 'rejected');
+          expect(op2.lastCode, 'CREDIT_PAYMENT_EXCEEDS_BALANCE');
+          expect(op2.lastMessage, 'ยอดชำระเกิน');
+        },
+      );
+
+      test('overpayment guard checks queued balance in outbox_ops', () async {
+        await seedTarget(); // balance 2000
+        final repo = ApiMechanicsRepository(
+          db,
+          ApiClient(
+            httpClient: MockClient((_) async => throw http.ClientException('Offline')),
+          ),
+        );
+
+        // Take 1500 payment offline (queued into outbox_ops)
+        await expectLater(
+          repo.addCreditPayment(
+            mechanicId: 'm_target',
+            amount: 1500.0,
+            paymentMethod: 'เงินสด',
+          ),
+          throwsA(isA<CreditPaymentQueued>()),
+        );
+
+        // Remaining projected balance is 2000 - 1500 = 500
+        // Trying to pay 600 without allowOverpayment must throw OVERPAYMENT_NOT_ALLOWED
+        final err = await repo
+            .addCreditPayment(
+              mechanicId: 'm_target',
+              amount: 600.0,
+              paymentMethod: 'เงินสด',
+            )
+            .then<PosException?>((_) => null, onError: (Object e) => e as PosException);
+
+        expect(err, isNotNull);
+        expect(err!.code, 'OVERPAYMENT_NOT_ALLOWED');
+        expect((err.details as Map)['creditBalance'], 500.0);
+      });
+
+      test('discard and resend update outbox_ops correctly', () async {
+        await seedTarget();
+        var calls = 0;
+        final sent = <Map<String, dynamic>>[];
+        final repo = ApiMechanicsRepository(
+          db,
+          ApiClient(
+            httpClient: MockClient((request) async {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              sent.add(body);
+              calls++;
+              if (calls == 1) throw http.ClientException('Offline');
+              if (calls == 2) return exceedsBalance();
+              return created(body);
+            }),
+          ),
+        );
+
+        // 1. Queue offline
+        await expectLater(
+          repo.addCreditPayment(
+            mechanicId: 'm_target',
+            amount: 500.0,
+            paymentMethod: 'เงินสด',
+          ),
+          throwsA(isA<CreditPaymentQueued>()),
+        );
+
+        // 2. Flush gets rejected by server
+        await repo.flushPendingCreditPayments();
+        var ops = await (db.select(db.outboxOps)
+              ..where((t) => t.type.equals('credit_payment.create')))
+            .get();
+        expect(ops.single.status, 'rejected');
+
+        // 3. Resend allowing overpayment updates outbox_ops and succeeds
+        await repo.resendRejectedAllowingOverpayment(ops.single.opId);
+        ops = await (db.select(db.outboxOps)
+              ..where((t) => t.type.equals('credit_payment.create')))
+            .get();
+        expect(ops, isEmpty);
+        expect(await localPayments(), 1);
+      });
+    });
   });
 
   test('getMechanics falls back transparently to Drift when network fails', () async {
