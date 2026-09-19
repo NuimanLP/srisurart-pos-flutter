@@ -157,7 +157,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
       // Note: fixture expects outstandingBalance: '1500.00'
       // Reset mechanic to 1500 to match exact fixture expectation
       await admin.query(
-        `UPDATE mechanics SET credit_balance = 150000 WHERE tenant_id = $1::uuid AND id = 'm1'`,
+        `UPDATE mechanics SET credit_balance = 1500.00 WHERE tenant_id = $1::uuid AND id = 'm1'`,
         [TENANT],
       );
       const fCpRejected = loadFixture('credit-payment.rejected-overpayment.json');
@@ -269,10 +269,10 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
       await admin.query(
         `INSERT INTO sales (
           tenant_id, id, receipt_no, total, subtotal, discount, payment_method,
-          status, sold_offline, created_by
+          sold_offline, user_id
         ) VALUES (
-          $1::uuid, 's_online_123', 'RC01-2569-09-0099', 10000, 10000, 0, 'เงินสด',
-          'completed', false, $2::uuid
+          $1::uuid, 's_online_123', 'RC01-2569-09-0099', 100, 100, 0, 'เงินสด',
+          false, $2::uuid
         )`,
         [TENANT, fixture.userId],
       );
@@ -404,10 +404,10 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
       expect(res2.body.data.results[0].status).toBe('applied');
       expect(res2.body.data.results[0].response.id).toBe('s_b1_001');
 
-      // 3. Verify exactly ONE row in audit_log for sales.credit_override
+      // 3. Verify exactly ONE row in audit_log for sale.credit_limit_override
       const auditRows = (await admin.query(
         `SELECT action, user_id, entity, entity_id FROM audit_log
-         WHERE tenant_id = $1::uuid AND action = 'sales.credit_override' AND entity_id = 's_b1_001'`,
+         WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = 'm1'`,
         [TENANT],
       )) as { action: string; user_id: string; entity: string; entity_id: string }[];
       expect(auditRows).toHaveLength(1);
