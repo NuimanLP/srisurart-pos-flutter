@@ -10,6 +10,7 @@ import {
   createTestApp,
   resetTenant,
   seedMechanic,
+  seedOpenShift,
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
@@ -138,6 +139,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
 
   describe('Mechanic & Credit Payment Fixtures', () => {
     it('credit-payment.applied.json & credit-payment.rejected-overpayment.json', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedMechanic(admin, TENANT, {
         id: 'm1',
         code: 'M01',
@@ -167,6 +169,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
 
   describe('Sales, Stock & Returns Fixtures', () => {
     it('sale-create.applied.json, replay-by-key, replay-by-id, client-id-reused, rejected-stock', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
         id: 'p1',
         partNo: 'HN-15412-KVB',
@@ -212,6 +215,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
     });
 
     it('return-create.applied.json & return-create.rejected-price.json', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       // Setup sale s_off_001
       await seedProduct(admin, TENANT, {
         id: 'p1',
@@ -240,6 +244,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
 
   describe('Offline Void Fixtures', () => {
     it('sale-void-offline.applied.json & sale-void-offline.rejected-online-bill.json', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
         id: 'p1',
         partNo: 'HN-15412-KVB',
@@ -281,6 +286,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
 
   describe('Batch Fixtures & Invariants B3 and C13', () => {
     it('batch.stop-at-retry.json: Invariant B3 stops at first retry and leaves subsequent ops unprocessed', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
         id: 'p1',
         partNo: 'HN-15412-KVB',
@@ -342,6 +348,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
 
   describe('Invariant B1: overrideCreditLimit replay & single audit log row', () => {
     it('sale with overrideCreditLimit commit answered lost -> push returns applied with single audit_log row', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
         id: 'p1',
         partNo: 'HN-15412-KVB',

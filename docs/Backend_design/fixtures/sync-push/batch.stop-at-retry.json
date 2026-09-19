@@ -115,7 +115,14 @@
             "response": {
               "id": "s_batch_1",
               "receiptNo": "RC01-2569-09-0050",
-              "total": "100.00"
+              "total": "100.00",
+              "pointsGranted": 10,
+              "products": [
+                {
+                  "id": "p1",
+                  "stock": 9
+                }
+              ]
             }
           },
           {
