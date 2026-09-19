@@ -1,13 +1,59 @@
 // Unit tests for ApiCustomersRepository (Ticket #55 / ADR-0010).
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_customers_repository.dart';
+import 'package:srisurart_pos/data/storage/token_storage.dart';
+import 'package:srisurart_pos/data/sync/sync_facade.dart';
+import 'package:srisurart_pos/data/sync/sync_service.dart';
+import 'package:srisurart_pos/domain/models/auth_models.dart';
+
+class InMemoryTokenStorage implements TokenStorage {
+  String? deviceToken = 'pos-device-token-01';
+  String? accessToken = 'test-access-token';
+  String? refreshToken = 'test-refresh-token';
+
+  @override
+  Future<String?> getAccessToken() async => accessToken;
+  @override
+  Future<void> setAccessToken(String? token) async => accessToken = token;
+
+  @override
+  Future<String?> getRefreshToken() async => refreshToken;
+  @override
+  Future<void> setRefreshToken(String? token) async => refreshToken = token;
+
+  @override
+  Future<String?> getDeviceToken() async => deviceToken;
+  @override
+  Future<void> setDeviceToken(String? token) async => deviceToken = token;
+
+  @override
+  Future<AuthUser?> getUser() async => null;
+  @override
+  Future<void> setUser(AuthUser? user) async {}
+
+  @override
+  Future<void> clearAuthTokens() async {
+    accessToken = null;
+    refreshToken = null;
+  }
+
+  @override
+  Future<void> clearAll() async {
+    accessToken = null;
+    refreshToken = null;
+    deviceToken = null;
+  }
+}
 
 void main() {
   late AppDatabase db;
@@ -207,5 +253,227 @@ void main() {
     // Row in DB still exists with deletedAt populated
     final row = await (db.select(db.customers)..where((t) => t.id.equals('c_to_delete'))).getSingle();
     expect(row.deletedAt, isNotNull);
+  });
+
+  test('addCustomer in degraded mode writes to Drift and enqueues customer.create outbox op (Ticket #229)', () async {
+    final mockClient = MockClient((request) async {
+      return http.Response('{"status":"error"}', 500);
+    });
+    final apiClient = ApiClient(httpClient: mockClient);
+    final syncService = SyncService(
+      db: db,
+      apiClient: apiClient,
+      tokenStorage: InMemoryTokenStorage(),
+      autoStartHealthProbe: false,
+    );
+    syncService.recordNonVerdictWrite();
+    expect(syncService.currentStatus, SyncStatus.degraded);
+
+    final repo = ApiCustomersRepository(
+      db,
+      apiClient,
+      syncService: syncService,
+    );
+
+    final customer = await repo.addCustomer(
+      CustomersCompanion.insert(
+        id: 'c_offline_1',
+        code: 'CUS_OFF',
+        name: 'Offline Man',
+        nameTH: 'นายออฟไลน์',
+        createdAt: '2026-09-19T10:00:00.000Z',
+        phone: const Value('0811112222'),
+        address: const Value('123 BKK'),
+      ),
+    );
+
+    expect(customer.id, 'c_offline_1');
+    expect(customer.nameTH, 'นายออฟไลน์');
+
+    // Verify row in Drift
+    final inDrift = await (db.select(db.customers)..where((t) => t.id.equals('c_offline_1'))).getSingleOrNull();
+    expect(inDrift, isNotNull);
+    expect(inDrift!.nameTH, 'นายออฟไลน์');
+    expect(inDrift.phone, '0811112222');
+
+    // Verify op in outboxOps
+    final ops = await (db.select(db.outboxOps)..where((t) => t.type.equals('customer.create'))).get();
+    expect(ops.length, 1);
+    expect(ops.first.status, 'pending');
+    final payload = jsonDecode(ops.first.payload) as Map<String, dynamic>;
+    expect(payload['id'], 'c_offline_1');
+    expect(payload['nameTH'], 'นายออฟไลน์');
+    expect(payload['phone'], '0811112222');
+    expect(payload['address'], '123 BKK');
+  });
+
+  test('updateCustomer in degraded mode updates Drift and enqueues customer.update outbox op (Ticket #229)', () async {
+    await db.into(db.customers).insert(
+      CustomersCompanion.insert(
+        id: 'c_to_update',
+        code: 'CUS_INIT',
+        name: 'Initial Name',
+        nameTH: 'ชื่อเดิม',
+        createdAt: '2026-09-19T10:00:00.000Z',
+        phone: const Value('0811111111'),
+      ),
+    );
+
+    final mockClient = MockClient((request) async {
+      return http.Response('{"status":"error"}', 500);
+    });
+    final apiClient = ApiClient(httpClient: mockClient);
+    final syncService = SyncService(
+      db: db,
+      apiClient: apiClient,
+      tokenStorage: InMemoryTokenStorage(),
+      autoStartHealthProbe: false,
+    );
+    syncService.recordNonVerdictWrite();
+
+    final repo = ApiCustomersRepository(
+      db,
+      apiClient,
+      syncService: syncService,
+    );
+
+    await repo.updateCustomer(
+      'c_to_update',
+      const CustomersCompanion(
+        nameTH: Value('ชื่อใหม่'),
+        phone: Value('0899998888'),
+      ),
+    );
+
+    // Verify Drift row updated
+    final updated = await (db.select(db.customers)..where((t) => t.id.equals('c_to_update'))).getSingle();
+    expect(updated.nameTH, 'ชื่อใหม่');
+    expect(updated.phone, '0899998888');
+
+    // Verify op in outboxOps
+    final ops = await (db.select(db.outboxOps)..where((t) => t.type.equals('customer.update'))).get();
+    expect(ops.length, 1);
+    expect(ops.first.status, 'pending');
+    final payload = jsonDecode(ops.first.payload) as Map<String, dynamic>;
+    expect(payload['id'], 'c_to_update');
+    expect(payload['nameTH'], 'ชื่อใหม่');
+    expect(payload['phone'], '0899998888');
+  });
+
+  test('deleteCustomer in degraded mode throws PosException and does not delete locally (08 §6.2)', () async {
+    await db.into(db.customers).insert(
+      CustomersCompanion.insert(
+        id: 'c_offline_delete',
+        code: 'CUS_NODEL',
+        name: 'Cannot Delete Offline',
+        nameTH: 'ห้ามลบออฟไลน์',
+        createdAt: '2026-09-19T10:00:00.000Z',
+      ),
+    );
+
+    final mockClient = MockClient((request) async {
+      return http.Response('{"status":"error"}', 500);
+    });
+    final apiClient = ApiClient(httpClient: mockClient);
+    final syncService = SyncService(
+      db: db,
+      apiClient: apiClient,
+      tokenStorage: InMemoryTokenStorage(),
+      autoStartHealthProbe: false,
+    );
+    syncService.recordNonVerdictWrite();
+
+    final repo = ApiCustomersRepository(
+      db,
+      apiClient,
+      syncService: syncService,
+    );
+
+    await expectLater(
+      repo.deleteCustomer('c_offline_delete'),
+      throwsA(isA<PosException>()),
+    );
+
+    // Verify Drift row is NOT deleted or soft-deleted
+    final row = await (db.select(db.customers)..where((t) => t.id.equals('c_offline_delete'))).getSingleOrNull();
+    expect(row, isNotNull);
+    expect(row!.deletedAt, isNull);
+
+    // Verify NO delete op in outboxOps
+    final ops = await db.select(db.outboxOps).get();
+    expect(ops, isEmpty);
+  });
+
+  test('SyncService._patchAppliedEntity patches customer row on server confirmation (Ticket #229)', () async {
+    await db.into(db.customers).insert(
+      CustomersCompanion.insert(
+        id: 'c_patch_target',
+        code: 'TEMP',
+        name: 'Offline Created',
+        nameTH: 'สร้างตอนออฟไลน์',
+        createdAt: '2026-09-19T10:00:00.000Z',
+      ),
+    );
+
+    final mockClient = MockClient((request) async {
+      if (request.url.path == '/api/v1/sync/push' && request.method == 'POST') {
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'results': [
+                {
+                  'opId': 'op_cust_1',
+                  'status': 'applied',
+                  'response': {
+                    'id': 'c_patch_target',
+                    'code': 'CUS099',
+                    'name': 'Server Confirmed',
+                    'nameTH': 'ยืนยันแล้ว',
+                    'phone': '0812345678',
+                    'points': 120,
+                    'totalSpend': 3450.50,
+                  },
+                }
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      return http.Response('{"status":"error"}', 404);
+    });
+
+    final apiClient = ApiClient(httpClient: mockClient);
+    final syncService = SyncService(
+      db: db,
+      apiClient: apiClient,
+      tokenStorage: InMemoryTokenStorage(),
+      httpClient: mockClient,
+      autoStartHealthProbe: false,
+    );
+
+    await syncService.enqueueOp(
+      opId: 'op_cust_1',
+      idempotencyKey: 'key_cust_1',
+      type: 'customer.create',
+      payload: {'id': 'c_patch_target', 'name': 'Offline Created'},
+      aggregates: ['customer:c_patch_target'],
+    );
+
+    await syncService.push();
+
+    // Verify customer row in Drift was patched with server data
+    final patched = await (db.select(db.customers)..where((t) => t.id.equals('c_patch_target'))).getSingle();
+    expect(patched.code, 'CUS099');
+    expect(patched.name, 'Server Confirmed');
+    expect(patched.nameTH, 'ยืนยันแล้ว');
+    expect(patched.points, 120);
+    expect(patched.totalSpend, 3450.50);
+
+    // Verify op was deleted from outbox after applied
+    final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_cust_1'))).getSingleOrNull();
+    expect(op, isNull);
   });
 }

@@ -595,6 +595,43 @@ class SyncService implements SyncFacade {
             );
       }
     }
+
+    // Customer applied (customer.create / customer.update) (#229)
+    final customerId = response['id'] as String?;
+    final customerCode = response['code'] as String?;
+    if (customerId != null &&
+        (customerCode != null ||
+            response.containsKey('nameTH') ||
+            (response.containsKey('name') && response.containsKey('phone')))) {
+      final code = customerCode ?? '';
+      final name = (response['name'] ?? '') as String;
+      final nameTH = (response['nameTH'] ??
+          response['name_t_h'] ??
+          response['nameTh'] ??
+          name) as String;
+      final phone = response['phone'] as String?;
+      final address = response['address'] as String?;
+      final points = (response['points'] as num?)?.toInt() ?? 0;
+      final totalSpend =
+          double.tryParse(response['totalSpend']?.toString() ?? '') ?? 0.0;
+      final createdAt = (response['createdAt'] ??
+          response['created_at'] ??
+          DateTime.now().toUtc().toIso8601String()) as String;
+
+      await db.into(db.customers).insertOnConflictUpdate(
+            CustomersCompanion(
+              id: Value(customerId),
+              code: Value(code),
+              name: Value(name),
+              nameTH: Value(nameTH),
+              phone: Value(phone),
+              address: Value(address),
+              points: Value(points),
+              totalSpend: Value(totalSpend),
+              createdAt: Value(createdAt),
+            ),
+          );
+    }
   }
 
   // ── Aggregate Chain Filtering (§8.4) ──────────────────────────────────────

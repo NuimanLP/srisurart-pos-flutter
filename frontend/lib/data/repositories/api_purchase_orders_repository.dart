@@ -109,201 +109,169 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
 
   @override
   Future<PurchaseOrderRow> savePO(PoInput input) async {
-    try {
-      final body = {
-        'supplier': input.supplier,
-        'items': input.items
-            .map((i) => {
-                  'partNo': i.partNo,
-                  'name': i.name,
-                  'qty': i.qty,
-                  'cost': wireMoney(i.cost),
-                })
-            .toList(),
-      };
+    final body = {
+      'supplier': input.supplier,
+      'items': input.items
+          .map((i) => {
+                'partNo': i.partNo,
+                'name': i.name,
+                'qty': i.qty,
+                'cost': wireMoney(i.cost),
+              })
+          .toList(),
+    };
 
-      final res = await apiClient.post('/api/v1/purchase-orders', body: body, headers: idempotencyKey());
-      if (res is Map) {
-        final resMap = Map<String, dynamic>.from(res);
-        final realId = (resMap['id'] ?? newId('po')) as String;
-        final realPoNo = (resMap['poNo'] ?? resMap['po_no'] ?? docNo('PO')) as String;
-        final status = (resMap['status'] ?? 'open') as String;
-        final createdAt = stampOrNull(resMap['createdAt'] ?? resMap['created_at']) ?? DateTime.now();
+    final res = await apiClient.post('/api/v1/purchase-orders', body: body, headers: idempotencyKey());
+    if (res is Map) {
+      final resMap = Map<String, dynamic>.from(res);
+      final realId = (resMap['id'] ?? newId('po')) as String;
+      final realPoNo = (resMap['poNo'] ?? resMap['po_no'] ?? docNo('PO')) as String;
+      final status = (resMap['status'] ?? 'open') as String;
+      final createdAt = stampOrNull(resMap['createdAt'] ?? resMap['created_at']) ?? DateTime.now();
 
-        final poRow = PurchaseOrderRow(
-          id: realId,
-          poNo: realPoNo,
-          supplier: input.supplier,
-          status: status,
-          createdAt: createdAt,
-          receivedAt: null,
-          cancelledAt: null,
-        );
+      final poRow = PurchaseOrderRow(
+        id: realId,
+        poNo: realPoNo,
+        supplier: input.supplier,
+        status: status,
+        createdAt: createdAt,
+        receivedAt: null,
+        cancelledAt: null,
+      );
 
-        await db.into(db.purchaseOrders).insertOnConflictUpdate(poRow);
-        await (db.delete(db.poItems)..where((t) => t.poId.equals(realId))).go();
+      await db.into(db.purchaseOrders).insertOnConflictUpdate(poRow);
+      await (db.delete(db.poItems)..where((t) => t.poId.equals(realId))).go();
 
-        for (final item in input.items) {
-          await db.into(db.poItems).insert(
-                PoItemsCompanion.insert(
-                  poId: realId,
-                  partNo: item.partNo,
-                  name: item.name,
-                  qty: item.qty,
-                  cost: item.cost,
-                ),
-              );
-        }
-
-        return poRow;
+      for (final item in input.items) {
+        await db.into(db.poItems).insert(
+              PoItemsCompanion.insert(
+                poId: realId,
+                partNo: item.partNo,
+                name: item.name,
+                qty: item.qty,
+                cost: item.cost,
+              ),
+            );
       }
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
-    }
 
-    return super.savePO(input);
+      return poRow;
+    }
+    throw ApiException(
+      statusCode: 500,
+      code: 'SERVER_ERROR',
+      serverMessage: 'ไม่สามารถบันทึกใบสั่งซื้อ',
+    );
   }
 
   @override
   Future<List<String>> receivePO(String id) async {
-    try {
-      final res = await apiClient.post('/api/v1/purchase-orders/$id/receive', headers: idempotencyKey());
-      if (res is Map) {
-        final resMap = Map<String, dynamic>.from(res);
-        final now = DateTime.now();
+    final res = await apiClient.post('/api/v1/purchase-orders/$id/receive', headers: idempotencyKey());
+    if (res is Map) {
+      final resMap = Map<String, dynamic>.from(res);
+      final now = DateTime.now();
 
-        // 1. Mark PO as received in Drift
-        await (db.update(db.purchaseOrders)..where((t) => t.id.equals(id))).write(
-          PurchaseOrdersCompanion(
-            status: const Value('received'),
-            receivedAt: Value(now),
-          ),
-        );
+      // 1. Mark PO as received in Drift
+      await (db.update(db.purchaseOrders)..where((t) => t.id.equals(id))).write(
+        PurchaseOrdersCompanion(
+          status: const Value('received'),
+          receivedAt: Value(now),
+        ),
+      );
 
-        final po = await (db.select(db.purchaseOrders)..where((t) => t.id.equals(id))).getSingleOrNull();
-        final supplier = po?.supplier ?? '';
-        final poNo = po?.poNo ?? '';
+      final po = await (db.select(db.purchaseOrders)..where((t) => t.id.equals(id))).getSingleOrNull();
+      final supplier = po?.supplier ?? '';
+      final poNo = po?.poNo ?? '';
 
-        // 2. Patch updated products directly with server's new stock and cost (ADR-0010: no client clock on updatedAt)
-        final updated = resMap['updated'];
-        if (updated is List) {
-          for (final u in updated) {
-            if (u is Map) {
-              final uMap = Map<String, dynamic>.from(u);
-              final prodId = uMap['productId'] as String?;
-              final partNo = (uMap['partNo'] ?? uMap['part_no'] ?? '') as String;
-              final stockAfter = (uMap['stockAfter'] ?? uMap['stock_after'] as num?)?.toInt();
-              final costAfter = moneyOrNull(uMap['costAfter'] ?? uMap['cost_after']);
+      // 2. Patch updated products directly with server's new stock and cost (ADR-0010: no client clock on updatedAt)
+      final updated = resMap['updated'];
+      if (updated is List) {
+        for (final u in updated) {
+          if (u is Map) {
+            final uMap = Map<String, dynamic>.from(u);
+            final prodId = uMap['productId'] as String?;
+            final partNo = (uMap['partNo'] ?? uMap['part_no'] ?? '') as String;
+            final stockAfter = (uMap['stockAfter'] ?? uMap['stock_after'] as num?)?.toInt();
+            final costAfter = moneyOrNull(uMap['costAfter'] ?? uMap['cost_after']);
 
-              ProductRow? product;
-              if (prodId != null && prodId.isNotEmpty) {
-                product = await (db.select(db.products)..where((t) => t.id.equals(prodId))).getSingleOrNull();
-              }
-              product ??= await (db.select(db.products)..where((t) => t.partNo.equals(partNo))).getSingleOrNull();
+            ProductRow? product;
+            if (prodId != null && prodId.isNotEmpty) {
+              product = await (db.select(db.products)..where((t) => t.id.equals(prodId))).getSingleOrNull();
+            }
+            product ??= await (db.select(db.products)..where((t) => t.partNo.equals(partNo))).getSingleOrNull();
 
-              if (product != null && stockAfter != null && costAfter != null) {
-                await (db.update(db.products)..where((t) => t.id.equals(product!.id))).write(
-                  ProductsCompanion(
-                    stock: Value(stockAfter),
-                    cost: Value(costAfter),
-                  ),
-                );
-              }
+            if (product != null && stockAfter != null && costAfter != null) {
+              await (db.update(db.products)..where((t) => t.id.equals(product!.id))).write(
+                ProductsCompanion(
+                  stock: Value(stockAfter),
+                  cost: Value(costAfter),
+                ),
+              );
             }
           }
         }
-
-        // 3. Ingest movements from server if present; fallback to local movement if absent
-        final movements = resMap['movements'];
-        if (movements is List && movements.isNotEmpty) {
-          for (final mv in movements) {
-            if (mv is Map<String, dynamic>) {
-              await db.into(db.movements).insertOnConflictUpdate(movementRowFromWire(mv));
-            }
-          }
-        } else if (updated is List) {
-          for (final u in updated) {
-            if (u is Map) {
-              final uMap = Map<String, dynamic>.from(u);
-              final partNo = (uMap['partNo'] ?? uMap['part_no'] ?? '') as String;
-              final stockAfter = (uMap['stockAfter'] ?? uMap['stock_after'] as num?)?.toInt();
-              final costAfter = moneyOrNull(uMap['costAfter'] ?? uMap['cost_after']);
-
-              final product = await (db.select(db.products)..where((t) => t.partNo.equals(partNo))).getSingleOrNull();
-              if (product != null && stockAfter != null && costAfter != null) {
-                final delta = stockAfter - product.stock;
-                await MovementsRepository(db).addMovement(
-                  productId: product.id,
-                  partNo: product.partNo,
-                  name: product.name,
-                  delta: delta,
-                  type: 'receive',
-                  note: 'PO $poNo จาก $supplier · ทุนใหม่ ฿${wireMoney(costAfter)}',
-                  stockAfter: stockAfter,
-                );
-              }
-            }
-          }
-        }
-
-        final unmatched = resMap['unmatched'];
-        if (unmatched is List) {
-          return unmatched.map((e) => e.toString()).toList();
-        }
-        return [];
       }
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {
-      // Offline fallback
-    }
 
-    return super.receivePO(id);
+      // 3. Ingest movements from server if present; fallback to local movement if absent
+      final movements = resMap['movements'];
+      if (movements is List && movements.isNotEmpty) {
+        for (final mv in movements) {
+          if (mv is Map<String, dynamic>) {
+            await db.into(db.movements).insertOnConflictUpdate(movementRowFromWire(mv));
+          }
+        }
+      } else if (updated is List) {
+        for (final u in updated) {
+          if (u is Map) {
+            final uMap = Map<String, dynamic>.from(u);
+            final partNo = (uMap['partNo'] ?? uMap['part_no'] ?? '') as String;
+            final stockAfter = (uMap['stockAfter'] ?? uMap['stock_after'] as num?)?.toInt();
+            final costAfter = moneyOrNull(uMap['costAfter'] ?? uMap['cost_after']);
+
+            final product = await (db.select(db.products)..where((t) => t.partNo.equals(partNo))).getSingleOrNull();
+            if (product != null && stockAfter != null && costAfter != null) {
+              final delta = stockAfter - product.stock;
+              await MovementsRepository(db).addMovement(
+                productId: product.id,
+                partNo: product.partNo,
+                name: product.name,
+                delta: delta,
+                type: 'receive',
+                note: 'PO $poNo จาก $supplier · ทุนใหม่ ฿${wireMoney(costAfter)}',
+                stockAfter: stockAfter,
+              );
+            }
+          }
+        }
+      }
+
+      final unmatched = resMap['unmatched'];
+      if (unmatched is List) {
+        return unmatched.map((e) => e.toString()).toList();
+      }
+      return [];
+    }
+    throw ApiException(
+      statusCode: 500,
+      code: 'SERVER_ERROR',
+      serverMessage: 'ไม่สามารถรับสินค้า',
+    );
   }
 
   @override
   Future<void> cancelPO(String id) async {
-    try {
-      await apiClient.post('/api/v1/purchase-orders/$id/cancel', headers: idempotencyKey());
-      await (db.update(db.purchaseOrders)..where((t) => t.id.equals(id))).write(
-        PurchaseOrdersCompanion(
-          status: const Value('cancelled'),
-          cancelledAt: Value(DateTime.now()),
-        ),
-      );
-      return;
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {}
-
-    await super.cancelPO(id);
+    await apiClient.post('/api/v1/purchase-orders/$id/cancel', headers: idempotencyKey());
+    await (db.update(db.purchaseOrders)..where((t) => t.id.equals(id))).write(
+      PurchaseOrdersCompanion(
+        status: const Value('cancelled'),
+        cancelledAt: Value(DateTime.now()),
+      ),
+    );
   }
 
   @override
   Future<void> deletePO(String id) async {
-    try {
-      await apiClient.delete('/api/v1/purchase-orders/$id', headers: idempotencyKey());
-      await (db.delete(db.poItems)..where((t) => t.poId.equals(id))).go();
-      await (db.delete(db.purchaseOrders)..where((t) => t.id.equals(id))).go();
-      return;
-    } on ApiException catch (e) {
-      rethrowServerRefusal(e);
-    } on ApiTimeoutException {
-      // The server may have committed: never re-run the write on Drift (#183).
-      rethrow;
-    } catch (_) {}
-
-    await super.deletePO(id);
+    await apiClient.delete('/api/v1/purchase-orders/$id', headers: idempotencyKey());
+    await (db.delete(db.poItems)..where((t) => t.poId.equals(id))).go();
+    await (db.delete(db.purchaseOrders)..where((t) => t.id.equals(id))).go();
   }
 }

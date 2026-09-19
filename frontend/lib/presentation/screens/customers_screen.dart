@@ -24,6 +24,7 @@ import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/search_field.dart';
+import '../widgets/sync_status_builder.dart';
 
 /// Combined snapshot: customers + sales (for the per-customer bill count).
 class _CustomersData {
@@ -89,6 +90,14 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
   Future<void> _handleDelete(CustomerRow c, int billCount) async {
+    if (context.isDegraded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถลบลูกค้าได้'),
+        ),
+      );
+      return;
+    }
     final msg = billCount > 0
         ? 'ลบลูกค้า "${c.nameTH}"?\n\n'
               'ลูกค้ารายนี้มี $billCount บิล (ประวัติการขายจะยังคงอยู่ แต่ไม่มีชื่อลูกค้าผูก)'
@@ -103,43 +112,48 @@ class _CustomersScreenState extends State<CustomersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FutureBuilder<_CustomersData>(
-        future: _dataFuture,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const LoadingView();
-          }
-          if (snap.hasError) {
-            return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
-          }
-          final data = snap.data!;
-          final filtered = _filter(data.customers);
-          final totalSpend = data.customers.fold<double>(
-            0,
-            (s, c) => s + c.totalSpend,
-          );
-          return Column(
-            children: [
-              _TopBar(
-                customerCount: data.customers.length,
-                totalSpend: totalSpend,
-                onSearch: (v) => setState(() => _search = v),
-                onAdd: () => _openEditor(),
-              ),
-              Expanded(
-                child: filtered.isEmpty
-                    ? const EmptyState(
-                        icon: Icons.people_outline,
-                        message: 'ยังไม่มีลูกค้า',
-                      )
-                    : _CustomersTable(
-                        customers: filtered,
-                        billCountByCustomer: data.billCountByCustomer,
-                        onEdit: (c) => _openEditor(customer: c),
-                        onDelete: _handleDelete,
-                      ),
-              ),
-            ],
+      body: SyncStatusBuilder(
+        builder: (context, status, isDegraded) {
+          return FutureBuilder<_CustomersData>(
+            future: _dataFuture,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const LoadingView();
+              }
+              if (snap.hasError) {
+                return Center(child: Text('เกิดข้อผิดพลาด: ${snap.error}'));
+              }
+              final data = snap.data!;
+              final filtered = _filter(data.customers);
+              final totalSpend = data.customers.fold<double>(
+                0,
+                (s, c) => s + c.totalSpend,
+              );
+              return Column(
+                children: [
+                  _TopBar(
+                    customerCount: data.customers.length,
+                    totalSpend: totalSpend,
+                    onSearch: (v) => setState(() => _search = v),
+                    onAdd: () => _openEditor(),
+                  ),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const EmptyState(
+                            icon: Icons.people_outline,
+                            message: 'ยังไม่มีลูกค้า',
+                          )
+                        : _CustomersTable(
+                            customers: filtered,
+                            billCountByCustomer: data.billCountByCustomer,
+                            onEdit: (c) => _openEditor(customer: c),
+                            onDelete: _handleDelete,
+                            isDegraded: isDegraded,
+                          ),
+                  ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -259,12 +273,14 @@ class _CustomersTable extends StatelessWidget {
   final Map<String, int> billCountByCustomer;
   final ValueChanged<CustomerRow> onEdit;
   final void Function(CustomerRow, int) onDelete;
+  final bool isDegraded;
 
   const _CustomersTable({
     required this.customers,
     required this.billCountByCustomer,
     required this.onEdit,
     required this.onDelete,
+    this.isDegraded = false,
   });
 
   // Below this width the multi-column table can't fit (largest column set is
@@ -426,7 +442,7 @@ class _CustomersTable extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               TextButton(
-                onPressed: () => onDelete(c, billCount),
+                onPressed: isDegraded ? null : () => onDelete(c, billCount),
                 style: TextButton.styleFrom(foregroundColor: AppColors.error),
                 child: const Text('ลบ'),
               ),
@@ -508,7 +524,7 @@ class _CustomersTable extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               TextButton(
-                onPressed: () => onDelete(c, billCount),
+                onPressed: isDegraded ? null : () => onDelete(c, billCount),
                 style: TextButton.styleFrom(foregroundColor: AppColors.error),
                 child: const Text('ลบ'),
               ),

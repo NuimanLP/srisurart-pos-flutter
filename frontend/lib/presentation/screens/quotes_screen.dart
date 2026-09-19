@@ -32,6 +32,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/quote_a4_view.dart';
 import '../widgets/search_field.dart';
+import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 
 enum _QuoteFilter { all, open, expired, converted }
@@ -79,6 +80,10 @@ class _QuotesScreenState extends State<QuotesScreen> {
 
   // ── row actions ──
   Future<void> _handleDelete(QuoteRow q) async {
+    if (context.isDegraded) {
+      _snack('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถลบใบเสนอราคาได้');
+      return;
+    }
     final repo = context.read<QuotesRepository>();
     final ok = await showConfirm(
       context,
@@ -92,11 +97,19 @@ class _QuotesScreenState extends State<QuotesScreen> {
   }
 
   Future<void> _handleDuplicate(QuoteRow q) async {
+    if (context.isDegraded) {
+      _snack('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถทำซ้ำใบเสนอราคาได้');
+      return;
+    }
     final dup = await context.read<QuotesRepository>().duplicateQuote(q.id);
     if (dup != null) _refresh();
   }
 
   Future<void> _handleEdit(QuoteWithItems qi) async {
+    if (context.isDegraded) {
+      _snack('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถแก้ไขใบเสนอราคาได้');
+      return;
+    }
     final q = qi.quote;
     if (q.isConverted) {
       _snack('ใบนี้แปลงเป็นการขายแล้ว แก้ไขไม่ได้');
@@ -114,6 +127,10 @@ class _QuotesScreenState extends State<QuotesScreen> {
   }
 
   Future<void> _handleConvert(QuoteWithItems qi) async {
+    if (context.isDegraded) {
+      _snack('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถแปลงใบเสนอราคาได้');
+      return;
+    }
     final q = qi.quote;
     final repo = context.read<QuotesRepository>();
     final ok = await showConfirm(
@@ -139,6 +156,10 @@ class _QuotesScreenState extends State<QuotesScreen> {
   }
 
   Future<void> _handlePurgeOld() async {
+    if (context.isDegraded) {
+      _snack('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถล้างใบเสนอราคาได้');
+      return;
+    }
     final repo = context.read<QuotesRepository>();
     final days = await _promptDays();
     if (days == null || days < 1) return;
@@ -249,7 +270,7 @@ class _QuotesScreenState extends State<QuotesScreen> {
   String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  void _openPreview(QuoteWithItems qi) async {
+  void _openPreview(QuoteWithItems qi, {bool isDegraded = false}) async {
     final settings = await context.read<SettingsRepository>().getSettings();
     if (!mounted) return;
     await Navigator.of(context).push(
@@ -258,6 +279,7 @@ class _QuotesScreenState extends State<QuotesScreen> {
         builder: (_) => _QuotePreviewPage(
           quote: qi,
           settings: settings,
+          isDegraded: isDegraded,
           onConvert: () {
             Navigator.of(context).pop();
             _handleConvert(qi);
@@ -275,65 +297,72 @@ class _QuotesScreenState extends State<QuotesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FutureBuilder<List<QuoteWithItems>>(
-        future: _quotesFuture,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const LoadingView();
-          }
-          if (snap.hasError) {
-            return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
-          }
-          final all = snap.data!;
-          final openValid = all
-              .where((qi) => !qi.quote.isConverted && !qi.quote.isExpired)
-              .toList();
-          final totalOpen = openValid.length;
-          final totalValue = openValid.fold<double>(
-            0,
-            (s, qi) => s + (qi.quote.total ?? 0),
-          );
-          final filtered = _applyFilter(all);
+      body: SyncStatusBuilder(
+        builder: (context, status, isDegraded) {
+          return FutureBuilder<List<QuoteWithItems>>(
+            future: _quotesFuture,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const LoadingView();
+              }
+              if (snap.hasError) {
+                return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+              }
+              final all = snap.data!;
+              final openValid = all
+                  .where((qi) => !qi.quote.isConverted && !qi.quote.isExpired)
+                  .toList();
+              final totalOpen = openValid.length;
+              final totalValue = openValid.fold<double>(
+                0,
+                (s, qi) => s + (qi.quote.total ?? 0),
+              );
+              final filtered = _applyFilter(all);
 
-          return Column(
-            children: [
-              _Header(
-                totalOpen: totalOpen,
-                totalValue: totalValue,
-                onExport: () => _handleExportCSV(all),
-                onPurge: _handlePurgeOld,
-              ),
-              _FilterBar(
-                filter: _filter,
-                onFilter: (f) => setState(() => _filter = f),
-                onSearch: (q) => setState(() => _search = q),
-              ),
-              Expanded(
-                child: filtered.isEmpty
-                    ? EmptyState(
-                        icon: Icons.request_quote_outlined,
-                        message: all.isEmpty
-                            ? 'ยังไม่มีใบเสนอราคา · กดปุ่มในหน้าขายเพื่อบันทึก'
-                            : 'ไม่พบรายการ',
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) => _QuoteRow(
-                          item: filtered[i],
-                          expired: filtered[i].quote.isExpired,
-                          converted: filtered[i].quote.isConverted,
-                          onPreview: () => _openPreview(filtered[i]),
-                          onConvert: () => _handleConvert(filtered[i]),
-                          onEdit: () => _handleEdit(filtered[i]),
-                          onDuplicate: () =>
-                              _handleDuplicate(filtered[i].quote),
-                          onDelete: () => _handleDelete(filtered[i].quote),
-                        ),
-                      ),
-              ),
-            ],
+              return Column(
+                children: [
+                  _Header(
+                    totalOpen: totalOpen,
+                    totalValue: totalValue,
+                    onExport: () => _handleExportCSV(all),
+                    onPurge: _handlePurgeOld,
+                    isDegraded: isDegraded,
+                  ),
+                  _FilterBar(
+                    filter: _filter,
+                    onFilter: (f) => setState(() => _filter = f),
+                    onSearch: (q) => setState(() => _search = q),
+                  ),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? EmptyState(
+                            icon: Icons.request_quote_outlined,
+                            message: all.isEmpty
+                                ? 'ยังไม่มีใบเสนอราคา · กดปุ่มในหน้าขายเพื่อบันทึก'
+                                : 'ไม่พบรายการ',
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, _) => const SizedBox(height: 8),
+                            itemBuilder: (_, i) => _QuoteRow(
+                              item: filtered[i],
+                              expired: filtered[i].quote.isExpired,
+                              converted: filtered[i].quote.isConverted,
+                              onPreview: () =>
+                                  _openPreview(filtered[i], isDegraded: isDegraded),
+                              onConvert: () => _handleConvert(filtered[i]),
+                              onEdit: () => _handleEdit(filtered[i]),
+                              onDuplicate: () =>
+                                  _handleDuplicate(filtered[i].quote),
+                              onDelete: () => _handleDelete(filtered[i].quote),
+                              isDegraded: isDegraded,
+                            ),
+                          ),
+                  ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -347,12 +376,14 @@ class _Header extends StatelessWidget {
   final double totalValue;
   final VoidCallback onExport;
   final VoidCallback onPurge;
+  final bool isDegraded;
 
   const _Header({
     required this.totalOpen,
     required this.totalValue,
     required this.onExport,
     required this.onPurge,
+    this.isDegraded = false,
   });
 
   @override
@@ -391,9 +422,9 @@ class _Header extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           OutlinedButton.icon(
-            onPressed: onPurge,
+            onPressed: isDegraded ? null : onPurge,
             icon: const Icon(Icons.cleaning_services_outlined, size: 18),
-            label: const Text('ล้าง'),
+            label: const Text('ล้างเก่า'),
           ),
         ],
       ),
@@ -465,6 +496,7 @@ class _QuoteRow extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDuplicate;
   final VoidCallback onDelete;
+  final bool isDegraded;
 
   const _QuoteRow({
     required this.item,
@@ -475,6 +507,7 @@ class _QuoteRow extends StatelessWidget {
     required this.onEdit,
     required this.onDuplicate,
     required this.onDelete,
+    this.isDegraded = false,
   });
 
   @override
@@ -560,7 +593,7 @@ class _QuoteRow extends StatelessWidget {
                     _actionBtn(
                       '→ ขาย',
                       AppColors.successLight,
-                      onConvert,
+                      isDegraded ? null : onConvert,
                       filled: true,
                       tooltip: 'แปลงเป็นการขาย',
                     ),
@@ -568,20 +601,20 @@ class _QuoteRow extends StatelessWidget {
                     _iconBtn(
                       Icons.edit,
                       AppColors.warning,
-                      onEdit,
+                      isDegraded ? null : onEdit,
                       'แก้ไข (ลบของเก่า ใส่ตะกร้า)',
                     ),
                   _iconBtn(
                     Icons.copy,
                     AppColors.info,
-                    onDuplicate,
+                    isDegraded ? null : onDuplicate,
                     'ทำซ้ำ (ต่ออายุใหม่)',
                   ),
                   _actionBtn('ดู', AppColors.orange, onPreview),
                   _iconBtn(
                     Icons.delete_outline,
                     AppColors.error,
-                    onDelete,
+                    isDegraded ? null : onDelete,
                     'ลบ',
                   ),
                 ],
@@ -624,7 +657,7 @@ class _QuoteRow extends StatelessWidget {
   Widget _actionBtn(
     String label,
     Color color,
-    VoidCallback onTap, {
+    VoidCallback? onTap, {
     bool filled = false,
     String? tooltip,
   }) {
@@ -656,7 +689,7 @@ class _QuoteRow extends StatelessWidget {
   Widget _iconBtn(
     IconData icon,
     Color color,
-    VoidCallback onTap,
+    VoidCallback? onTap,
     String tooltip,
   ) {
     return Tooltip(
@@ -683,11 +716,13 @@ class _QuotePreviewPage extends StatelessWidget {
   final QuoteWithItems quote;
   final SettingsRowData settings;
   final VoidCallback onConvert;
+  final bool isDegraded;
 
   const _QuotePreviewPage({
     required this.quote,
     required this.settings,
     required this.onConvert,
+    this.isDegraded = false,
   });
 
   @override
@@ -701,7 +736,7 @@ class _QuotePreviewPage extends StatelessWidget {
         actions: [
           if (canConvert)
             TextButton.icon(
-              onPressed: onConvert,
+              onPressed: isDegraded ? null : onConvert,
               icon: const Icon(Icons.check, color: AppColors.successLight),
               label: const Text(
                 '✓ แปลงเป็นการขาย',

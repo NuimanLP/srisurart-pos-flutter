@@ -29,6 +29,7 @@ import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/sync_status_builder.dart';
 
 /// Aggregated read-model for the cash-drawer screen.
 class _DrawerData {
@@ -192,6 +193,10 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
   }
 
   Future<void> _handleClose() async {
+    if (context.isDegraded) {
+      _toast('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถปิดกะได้');
+      return;
+    }
     final v = double.tryParse(_physCtl.text) ?? -1;
     if (!(v >= 0)) return;
     final repo = context.read<ShiftsRepository>();
@@ -865,11 +870,15 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                     ],
                   ),
                 ),
-              AppButton(
-                label: '🔒 ยืนยันปิดลิ้นชัก',
-                busy: _busy,
-                fullWidth: true,
-                onPressed: hasPhys ? _handleClose : null,
+              SyncStatusBuilder(
+                builder: (context, status, isDegraded) {
+                  return AppButton(
+                    label: '🔒 ยืนยันปิดลิ้นชัก',
+                    busy: _busy,
+                    fullWidth: true,
+                    onPressed: (hasPhys && !isDegraded) ? _handleClose : null,
+                  );
+                },
               ),
             ],
           ),

@@ -43,6 +43,7 @@ import '../widgets/app_text_field.dart';
 import '../widgets/device_enrolment_dialog.dart';
 import '../widgets/font_scale_controller.dart';
 import '../widgets/login_dialog.dart';
+import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 import '../widgets/theme_controller.dart';
 
@@ -600,6 +601,14 @@ class _GeneralTabState extends State<_GeneralTab> {
   }
 
   Future<void> _save() async {
+    if (context.isDegraded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกการตั้งค่าได้'),
+        ),
+      );
+      return;
+    }
     final taxRate = double.tryParse(_taxRate.text.trim()) ?? 7;
     final validDays = int.tryParse(_quoteValidDays.text.trim()) ?? 30;
     await context.read<SettingsRepository>().updateSettings(
@@ -627,14 +636,16 @@ class _GeneralTabState extends State<_GeneralTab> {
     if (!_loaded) {
       return const Center(child: CircularProgressIndicator());
     }
-    return _ContentPane(
-      title: 'ข้อมูลร้านค้า · Shop Information',
-      children: [
-        AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const _SectionTitle('ชื่อและที่อยู่'),
+    return SyncStatusBuilder(
+      builder: (context, status, isDegraded) {
+        return _ContentPane(
+          title: 'ข้อมูลร้านค้า · Shop Information',
+          children: [
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _SectionTitle('ชื่อและที่อยู่'),
               LayoutBuilder(
                 builder: (context, constraints) {
                   final twoCol = constraints.maxWidth > 480;
@@ -701,7 +712,10 @@ class _GeneralTabState extends State<_GeneralTab> {
               const SizedBox(height: 20),
               Row(
                 children: [
-                  AppButton(label: 'บันทึกการตั้งค่า', onPressed: _save),
+                  AppButton(
+                    label: 'บันทึกการตั้งค่า',
+                    onPressed: isDegraded ? null : _save,
+                  ),
                   const SizedBox(width: 12),
                   if (_saved)
                     Text(
@@ -718,6 +732,8 @@ class _GeneralTabState extends State<_GeneralTab> {
           ),
         ),
       ],
+    );
+      },
     );
   }
 }
@@ -1183,6 +1199,14 @@ class _BackupTabState extends State<_BackupTab> {
 
   // ── EXPORT ──────────────────────────────────────────────────────────────
   Future<void> _handleExport() async {
+    if (context.isDegraded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถส่งออกไฟล์สำรองได้'),
+        ),
+      );
+      return;
+    }
     try {
       final data = await context.read<SnapshotRepository>().exportSnapshot();
       final json = const JsonEncoder.withIndent('  ').convert(data);
@@ -1258,6 +1282,14 @@ class _BackupTabState extends State<_BackupTab> {
       e is Exception ? e.toString().replaceFirst('Exception: ', '') : '$e';
 
   Future<void> _handleRestore() async {
+    if (context.isDegraded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถกู้คืนข้อมูลได้'),
+        ),
+      );
+      return;
+    }
     final data = _preview;
     if (data == null) return;
     try {
@@ -1288,38 +1320,42 @@ class _BackupTabState extends State<_BackupTab> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    final meta = (_snapshot?['__meta'] as Map?)?.cast<String, dynamic>() ?? {};
-    final counts =
-        (meta['recordCounts'] as Map?)?.cast<String, dynamic>() ?? {};
-    return _ContentPane(
-      title: 'สำรอง / กู้คืนข้อมูล · Backup & Restore',
-      children: [
-        // sub-tab bar
-        Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Row(
-            children: [
-              _SubTabBtn(
-                label: '💾 สำรองข้อมูล',
-                active: _mode == 'backup',
-                onTap: () => setState(() => _mode = 'backup'),
+    return SyncStatusBuilder(
+      builder: (context, status, isDegraded) {
+        final meta = (_snapshot?['__meta'] as Map?)?.cast<String, dynamic>() ?? {};
+        final counts =
+            (meta['recordCounts'] as Map?)?.cast<String, dynamic>() ?? {};
+        return _ContentPane(
+          title: 'สำรอง / กู้คืนข้อมูล · Backup & Restore',
+          children: [
+            // sub-tab bar
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Row(
+                children: [
+                  _SubTabBtn(
+                    label: '💾 สำรองข้อมูล',
+                    active: _mode == 'backup',
+                    onTap: () => setState(() => _mode = 'backup'),
+                  ),
+                  const SizedBox(width: 4),
+                  _SubTabBtn(
+                    label: '📥 กู้คืนข้อมูล',
+                    active: _mode == 'restore',
+                    onTap: () => setState(() => _mode = 'restore'),
+                  ),
+                ],
               ),
-              const SizedBox(width: 4),
-              _SubTabBtn(
-                label: '📥 กู้คืนข้อมูล',
-                active: _mode == 'restore',
-                onTap: () => setState(() => _mode = 'restore'),
-              ),
-            ],
-          ),
-        ),
-        if (_mode == 'backup') ..._backupView(counts),
-        if (_mode == 'restore') ..._restoreView(),
-      ],
+            ),
+            if (_mode == 'backup') ..._backupView(counts, isDegraded),
+            if (_mode == 'restore') ..._restoreView(isDegraded),
+          ],
+        );
+      },
     );
   }
 
-  List<Widget> _backupView(Map<String, dynamic> counts) {
+  List<Widget> _backupView(Map<String, dynamic> counts, bool isDegraded) {
     return [
       const _InfoBox(
         text:
@@ -1335,7 +1371,7 @@ class _BackupTabState extends State<_BackupTab> {
             Center(
               child: AppButton(
                 label: '⬇ ดาวน์โหลดไฟล์ backup (.json)',
-                onPressed: _handleExport,
+                onPressed: isDegraded ? null : _handleExport,
               ),
             ),
           ],
@@ -1344,7 +1380,7 @@ class _BackupTabState extends State<_BackupTab> {
     ];
   }
 
-  List<Widget> _restoreView() {
+  List<Widget> _restoreView(bool isDegraded) {
     final pmeta =
         (_preview?['__meta'] as Map?)?.cast<String, dynamic>() ?? const {};
     final pcounts =
@@ -1356,7 +1392,7 @@ class _BackupTabState extends State<_BackupTab> {
             '⚠️ การกู้คืนจะแทนที่ข้อมูลทั้งหมด — ตรวจสอบไฟล์ให้ถูกต้องก่อนกด "กู้คืน"',
       ),
       InkWell(
-        onTap: _pickFile,
+        onTap: isDegraded ? null : _pickFile,
         child: AppCard(
           child: Column(
             children: [
@@ -1401,7 +1437,9 @@ class _BackupTabState extends State<_BackupTab> {
                 AppButton.danger(
                   label: '📥 กู้คืนข้อมูลจากไฟล์นี้',
                   fullWidth: true,
-                  onPressed: () => setState(() => _confirmRestore = true),
+                  onPressed: isDegraded
+                      ? null
+                      : () => setState(() => _confirmRestore = true),
                 )
               else
                 Container(
@@ -1428,7 +1466,7 @@ class _BackupTabState extends State<_BackupTab> {
                           Expanded(
                             child: AppButton.danger(
                               label: '✓ ยืนยัน',
-                              onPressed: _handleRestore,
+                              onPressed: isDegraded ? null : _handleRestore,
                             ),
                           ),
                           const SizedBox(width: 8),

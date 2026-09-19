@@ -27,6 +27,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/money_text.dart';
 import '../widgets/status_chip.dart';
+import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 
 class PurchaseOrdersScreen extends StatefulWidget {
@@ -58,6 +59,10 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   void _refresh() => setState(_load);
 
   Future<void> _openCreate() async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final products = await _productsFuture;
     if (!mounted) return;
     final saved = await showDialog<bool>(
@@ -68,6 +73,10 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   }
 
   Future<void> _receive(PurchaseOrderRow po) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final repo = context.read<PurchaseOrdersRepository>();
     final ok = await showConfirm(
       context,
@@ -99,6 +108,10 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   }
 
   Future<void> _cancel(PurchaseOrderRow po) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final repo = context.read<PurchaseOrdersRepository>();
     final ok = await showConfirm(
       context,
@@ -112,6 +125,10 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   }
 
   Future<void> _delete(PurchaseOrderRow po) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final repo = context.read<PurchaseOrdersRepository>();
     final ok = await showConfirm(
       context,
@@ -124,28 +141,41 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
     _refresh();
   }
 
+  void _showDegradedWarning() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถดำเนินการใบสั่งซื้อได้'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FutureBuilder<List<PurchaseOrderWithItems>>(
-        future: _posFuture,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const LoadingView();
-          }
-          if (snap.hasError) {
-            return EmptyState(
-              icon: Icons.error_outline,
-              message: 'เกิดข้อผิดพลาด',
-              hint: '${snap.error}',
-            );
-          }
-          return _PoListView(
-            pos: snap.data!,
-            onCreate: _openCreate,
-            onReceive: _receive,
-            onCancel: _cancel,
-            onDelete: _delete,
+      body: SyncStatusBuilder(
+        builder: (context, status, isDegraded) {
+          return FutureBuilder<List<PurchaseOrderWithItems>>(
+            future: _posFuture,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const LoadingView();
+              }
+              if (snap.hasError) {
+                return EmptyState(
+                  icon: Icons.error_outline,
+                  message: 'เกิดข้อผิดพลาด',
+                  hint: '${snap.error}',
+                );
+              }
+              return _PoListView(
+                pos: snap.data!,
+                onCreate: _openCreate,
+                onReceive: _receive,
+                onCancel: _cancel,
+                onDelete: _delete,
+                isDegraded: isDegraded,
+              );
+            },
           );
         },
       ),
@@ -185,6 +215,7 @@ class _PoListView extends StatelessWidget {
   final ValueChanged<PurchaseOrderRow> onReceive;
   final ValueChanged<PurchaseOrderRow> onCancel;
   final ValueChanged<PurchaseOrderRow> onDelete;
+  final bool isDegraded;
 
   const _PoListView({
     required this.pos,
@@ -192,6 +223,7 @@ class _PoListView extends StatelessWidget {
     required this.onReceive,
     required this.onCancel,
     required this.onDelete,
+    this.isDegraded = false,
   });
 
   @override
@@ -235,7 +267,7 @@ class _PoListView extends StatelessWidget {
               AppButton(
                 label: 'สร้างใบสั่งซื้อ',
                 icon: Icons.add,
-                onPressed: onCreate,
+                onPressed: isDegraded ? null : onCreate,
               ),
             ],
           ),
@@ -257,6 +289,7 @@ class _PoListView extends StatelessWidget {
                         onReceive: () => onReceive(pos[i].po),
                         onCancel: () => onCancel(pos[i].po),
                         onDelete: () => onDelete(pos[i].po),
+                        isDegraded: isDegraded,
                       ),
                     ),
                   ),
@@ -309,12 +342,14 @@ class _PoCard extends StatelessWidget {
   final VoidCallback onReceive;
   final VoidCallback onCancel;
   final VoidCallback onDelete;
+  final bool isDegraded;
 
   const _PoCard({
     required this.data,
     required this.onReceive,
     required this.onCancel,
     required this.onDelete,
+    this.isDegraded = false,
   });
 
   @override
@@ -390,9 +425,12 @@ class _PoCard extends StatelessWidget {
                 AppButton(
                   label: 'รับสินค้า',
                   icon: Icons.check,
-                  onPressed: onReceive,
+                  onPressed: isDegraded ? null : onReceive,
                 ),
-                AppButton.secondary(label: 'ยกเลิก', onPressed: onCancel),
+                AppButton.secondary(
+                  label: 'ยกเลิก',
+                  onPressed: isDegraded ? null : onCancel,
+                ),
               ],
               if (po.status == 'received')
                 Text(
@@ -412,7 +450,7 @@ class _PoCard extends StatelessWidget {
                 ),
               IconButton(
                 tooltip: 'ลบถาวร',
-                onPressed: onDelete,
+                onPressed: isDegraded ? null : onDelete,
                 icon: const Icon(Icons.delete_outline),
                 color: AppColors.error,
                 visualDensity: VisualDensity.compact,

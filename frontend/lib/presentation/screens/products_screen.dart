@@ -23,6 +23,7 @@ import '../../domain/models/aggregates.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
+import '../widgets/sync_status_builder.dart';
 import 'vehicle_search_screen.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -239,6 +240,10 @@ class _StockTabState extends State<_StockTab> {
   }
 
   Future<void> _addCat() async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final v = _newCatCtrl.text.trim();
     if (v.isEmpty) return;
     await context.read<ProductsRepository>().addCategory(v);
@@ -247,6 +252,10 @@ class _StockTabState extends State<_StockTab> {
   }
 
   Future<void> _deleteCat(String name) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final repo = context.read<ProductsRepository>();
     final ok = await showConfirm(
       context,
@@ -261,6 +270,10 @@ class _StockTabState extends State<_StockTab> {
   }
 
   Future<void> _openEdit(ProductRow? p) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _ProductEditDialog(
@@ -273,6 +286,10 @@ class _StockTabState extends State<_StockTab> {
   }
 
   Future<void> _openAdjust(ProductRow p) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final done = await showDialog<bool>(
       context: context,
       builder: (_) => _AdjustStockDialog(product: p),
@@ -281,6 +298,10 @@ class _StockTabState extends State<_StockTab> {
   }
 
   Future<void> _delete(ProductRow p) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final repo = context.read<ProductsRepository>();
     final ok = await showConfirm(
       context,
@@ -291,6 +312,14 @@ class _StockTabState extends State<_StockTab> {
     if (!ok) return;
     await repo.delete(p.id);
     await _load();
+  }
+
+  void _showDegradedWarning() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถดำเนินการเกี่ยวกับสินค้าได้'),
+      ),
+    );
   }
 
   void _printLabels(List<ProductRow> products, List<String> ids) {
@@ -307,17 +336,19 @@ class _StockTabState extends State<_StockTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const LoadingView();
-    final theme = Theme.of(context);
-    final lowCount = _products
-        .where((p) => p.stock > 0 && p.stock <= p.minStock)
-        .length;
-    final outCount = _products.where((p) => p.stock == 0).length;
-    final filtered = _filtered;
+    return SyncStatusBuilder(
+      builder: (context, status, isDegraded) {
+        final theme = Theme.of(context);
+        final lowCount = _products
+            .where((p) => p.stock > 0 && p.stock <= p.minStock)
+            .length;
+        final outCount = _products.where((p) => p.stock == 0).length;
+        final filtered = _filtered;
 
-    return Column(
-      children: [
-        // toolbar
-        Container(
+        return Column(
+          children: [
+            // toolbar
+            Container(
           width: double.infinity,
           color: theme.colorScheme.surface,
           padding: const EdgeInsets.all(16),
@@ -401,7 +432,7 @@ class _StockTabState extends State<_StockTab> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: () => _openEdit(null),
+                        onPressed: isDegraded ? null : () => _openEdit(null),
                         icon: const Icon(Icons.add, size: 20),
                         label: const Text(
                           'เพิ่มสินค้า',
@@ -485,7 +516,7 @@ class _StockTabState extends State<_StockTab> {
             ],
           ),
         ),
-        if (_showCatMgr) _catManagerPanel(theme),
+        if (_showCatMgr) _catManagerPanel(theme, isDegraded),
         // table
         Expanded(
           child: filtered.isEmpty
@@ -554,7 +585,9 @@ class _StockTabState extends State<_StockTab> {
                                 DataColumn(label: Text('สถานะ')),
                                 DataColumn(label: Text('')),
                               ],
-                              rows: filtered.map(_buildRow).toList(),
+                              rows: filtered
+                                  .map((p) => _buildRow(p, isDegraded))
+                                  .toList(),
                             ),
                           ),
                         ),
@@ -565,9 +598,11 @@ class _StockTabState extends State<_StockTab> {
         ),
       ],
     );
+      },
+    );
   }
 
-  DataRow _buildRow(ProductRow p) {
+  DataRow _buildRow(ProductRow p, bool isDegraded) {
     final theme = Theme.of(context);
     final (statusLabel, statusColor) = p.stock == 0
         ? ('Out of Stock', AppColors.error)
@@ -705,7 +740,7 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: () => _openAdjust(p),
+                  onPressed: isDegraded ? null : () => _openAdjust(p),
                   icon: const Icon(Icons.sync_alt, size: 18),
                   label: const Text(
                     'ปรับสต็อก',
@@ -723,7 +758,7 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: () => _openEdit(p),
+                  onPressed: isDegraded ? null : () => _openEdit(p),
                   icon: const Icon(Icons.edit, size: 18),
                   label: const Text(
                     'แก้ไข',
@@ -755,7 +790,7 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: () => _delete(p),
+                  onPressed: isDegraded ? null : () => _delete(p),
                 ),
               ],
             ),
@@ -861,7 +896,7 @@ class _StockTabState extends State<_StockTab> {
     );
   }
 
-  Widget _catManagerPanel(ThemeData theme) {
+  Widget _catManagerPanel(ThemeData theme, bool isDegraded) {
     return Container(
       width: double.infinity,
       color: theme.colorScheme.surfaceContainer,
@@ -884,7 +919,7 @@ class _StockTabState extends State<_StockTab> {
               backgroundColor: color.withValues(alpha: 0.13),
               side: BorderSide(color: color.withValues(alpha: 0.33)),
               deleteIcon: Icon(Icons.close, size: 14, color: color),
-              onDeleted: () => _deleteCat(c),
+              onDeleted: isDegraded ? null : () => _deleteCat(c),
             );
           }),
           SizedBox(
@@ -896,7 +931,7 @@ class _StockTabState extends State<_StockTab> {
                 hintText: 'ประเภทใหม่…',
                 border: OutlineInputBorder(),
               ),
-              onSubmitted: (_) => _addCat(),
+              onSubmitted: isDegraded ? null : (_) => _addCat(),
             ),
           ),
           FilledButton(
@@ -904,7 +939,7 @@ class _StockTabState extends State<_StockTab> {
               backgroundColor: AppColors.orange,
               foregroundColor: AppColors.white,
             ),
-            onPressed: _addCat,
+            onPressed: isDegraded ? null : _addCat,
             child: const Text('+ เพิ่ม'),
           ),
         ],
@@ -2154,6 +2189,10 @@ class _SuppliersTabState extends State<_SuppliersTab> {
   }
 
   Future<void> _add() async {
+    if (context.isDegraded) {
+      _showSupplierDegradedWarning();
+      return;
+    }
     if (_name.text.isEmpty) return;
     await context.read<SuppliersRepository>().addSupplier(
       productId: _selectedId,
@@ -2169,30 +2208,44 @@ class _SuppliersTabState extends State<_SuppliersTab> {
   }
 
   Future<void> _delete(String id) async {
+    if (context.isDegraded) {
+      _showSupplierDegradedWarning();
+      return;
+    }
     await context.read<SuppliersRepository>().deleteSupplier(id);
     await _refreshSuppliers();
+  }
+
+  void _showSupplierDegradedWarning() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถดำเนินการเกี่ยวกับซัพพลายเออร์ได้'),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const LoadingView();
-    final theme = Theme.of(context);
-    final selected = _products.where((p) => p.id == _selectedId).firstOrNull;
-    final prodSuppliers =
-        _suppliers.where((s) => s.productId == _selectedId).toList()..sort(
-          (a, b) => (a.unitCost + a.freight).compareTo(b.unitCost + b.freight),
-        );
-    final minTotal = prodSuppliers.isEmpty
-        ? null
-        : prodSuppliers
-              .map((s) => s.unitCost + s.freight)
-              .reduce((a, b) => a < b ? a : b);
+    return SyncStatusBuilder(
+      builder: (context, status, isDegraded) {
+        final theme = Theme.of(context);
+        final selected = _products.where((p) => p.id == _selectedId).firstOrNull;
+        final prodSuppliers =
+            _suppliers.where((s) => s.productId == _selectedId).toList()..sort(
+              (a, b) => (a.unitCost + a.freight).compareTo(b.unitCost + b.freight),
+            );
+        final minTotal = prodSuppliers.isEmpty
+            ? null
+            : prodSuppliers
+                  .map((s) => s.unitCost + s.freight)
+                  .reduce((a, b) => a < b ? a : b);
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // product list
-        Container(
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // product list
+            Container(
           width: 260,
           color: theme.colorScheme.surfaceContainerLow,
           child: Column(
@@ -2310,7 +2363,9 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                               backgroundColor: AppColors.orange,
                               foregroundColor: AppColors.white,
                             ),
-                            onPressed: () => setState(() => _adding = true),
+                            onPressed: isDegraded
+                                ? null
+                                : () => setState(() => _adding = true),
                             icon: const Icon(Icons.add, size: 18),
                             label: const Text('เพิ่มซัพฯ'),
                           ),
@@ -2330,10 +2385,10 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                           ),
                         )
                       else
-                        _supplierTable(theme, prodSuppliers, minTotal),
+                        _supplierTable(theme, prodSuppliers, minTotal, isDegraded),
                       if (_adding) ...[
                         const SizedBox(height: 20),
-                        _addForm(theme),
+                        _addForm(theme, isDegraded),
                       ],
                     ],
                   ),
@@ -2341,12 +2396,15 @@ class _SuppliersTabState extends State<_SuppliersTab> {
         ),
       ],
     );
+      },
+    );
   }
 
   Widget _supplierTable(
     ThemeData theme,
     List<SupplierRow> rows,
     double? minTotal,
+    bool isDegraded,
   ) {
     return Container(
       decoration: BoxDecoration(
@@ -2482,7 +2540,7 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            onPressed: () => _delete(s.id),
+                            onPressed: isDegraded ? null : () => _delete(s.id),
                           ),
                         ),
                       ),
@@ -2497,7 +2555,7 @@ class _SuppliersTabState extends State<_SuppliersTab> {
     );
   }
 
-  Widget _addForm(ThemeData theme) {
+  Widget _addForm(ThemeData theme, bool isDegraded) {
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
@@ -2568,7 +2626,7 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                     vertical: 12,
                   ),
                 ),
-                onPressed: _add,
+                onPressed: isDegraded ? null : _add,
                 child: const Text(
                   'บันทึก',
                   style: TextStyle(fontWeight: FontWeight.bold),

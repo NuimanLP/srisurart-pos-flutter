@@ -30,6 +30,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/money_text.dart';
 import '../widgets/search_field.dart';
+import '../widgets/sync_status_builder.dart';
 
 // Status colors used in the JSX (kept literal for parity).
 const Color _credit = Color(0xFFD4820A); // ยอดค้าง / ลดให้ช่าง
@@ -103,49 +104,53 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FutureBuilder<List<MechanicRow>>(
-        future: _mechanicsFuture,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const LoadingView();
-          }
-          if (snap.hasError) {
-            return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
-          }
-          final mechanics = snap.data!;
-          final selected = _selectedId == null
-              ? null
-              : mechanics.where((m) => m.id == _selectedId).firstOrNull;
-          // Selection may have been deleted externally.
-          if (_selectedId != null && selected == null) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _selectedId = null);
-            });
-          }
+      body: SyncStatusBuilder(
+        builder: (context, status, isDegraded) {
+          return FutureBuilder<List<MechanicRow>>(
+            future: _mechanicsFuture,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const LoadingView();
+              }
+              if (snap.hasError) {
+                return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+              }
+              final mechanics = snap.data!;
+              final selected = _selectedId == null
+                  ? null
+                  : mechanics.where((m) => m.id == _selectedId).firstOrNull;
+              // Selection may have been deleted externally.
+              if (_selectedId != null && selected == null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) setState(() => _selectedId = null);
+                });
+              }
 
-          final isWide = MediaQuery.of(context).size.width >= 1000;
-          final list = _buildList(mechanics, selected);
+              final isWide = MediaQuery.of(context).size.width >= 1000;
+              final list = _buildList(mechanics, selected, isDegraded);
 
-          if (!isWide) {
-            // Narrow: list only; detail opens as a route/sheet on tap.
-            return list;
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: list),
-              if (selected != null)
-                SizedBox(
-                  width: 420,
-                  child: _DetailPanel(
-                    mechanic: selected,
-                    salesFuture: _salesFuture,
-                    paymentsFuture: _creditPaymentsFuture,
-                    onClose: () => setState(() => _selectedId = null),
-                    onPayCredit: () => _openPayCredit(selected),
-                  ),
-                ),
-            ],
+              if (!isWide) {
+                // Narrow: list only; detail opens as a route/sheet on tap.
+                return list;
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: list),
+                  if (selected != null)
+                    SizedBox(
+                      width: 420,
+                      child: _DetailPanel(
+                        mechanic: selected,
+                        salesFuture: _salesFuture,
+                        paymentsFuture: _creditPaymentsFuture,
+                        onClose: () => setState(() => _selectedId = null),
+                        onPayCredit: () => _openPayCredit(selected),
+                      ),
+                    ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -153,7 +158,11 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
   }
 
   // ── LIST ──────────────────────────────────────────────────────────────────
-  Widget _buildList(List<MechanicRow> mechanics, MechanicRow? selected) {
+  Widget _buildList(
+    List<MechanicRow> mechanics,
+    MechanicRow? selected,
+    bool isDegraded,
+  ) {
     final filtered = _filtered(mechanics);
     final totalOutstanding = mechanics.fold<double>(
       0,
@@ -217,7 +226,10 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
                   ],
                 ),
               ),
-              AppButton(label: '+ เพิ่มช่าง', onPressed: _openNew),
+              AppButton(
+                label: '+ เพิ่มช่าง',
+                onPressed: isDegraded ? null : _openNew,
+              ),
             ],
           ),
         ),
@@ -277,8 +289,8 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
                       mechanic: m,
                       selected: selected?.id == m.id,
                       onTap: () => _onSelect(m),
-                      onEdit: () => _openEdit(m),
-                      onDelete: () => _remove(m),
+                      onEdit: isDegraded ? null : () => _openEdit(m),
+                      onDelete: isDegraded ? null : () => _remove(m),
                     );
                   },
                 ),
@@ -312,6 +324,10 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
   Future<void> _openEdit(MechanicRow m) => _openForm(m);
 
   Future<void> _openForm(MechanicRow? editing) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final repo = context.read<MechanicsRepository>();
     final saved = await showDialog<bool>(
       context: context,
@@ -321,6 +337,10 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
   }
 
   Future<void> _remove(MechanicRow m) async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
     final repo = context.read<MechanicsRepository>();
     final ok = await showConfirm(
       context,
@@ -334,6 +354,14 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
       setState(() => _selectedId = null);
     }
     _refresh();
+  }
+
+  void _showDegradedWarning() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถดำเนินการจัดการช่างได้'),
+      ),
+    );
   }
 
   // ── CREDIT PAYMENT ────────────────────────────────────────────────────────
@@ -619,15 +647,15 @@ class _MechanicRowTile extends StatelessWidget {
   final MechanicRow mechanic;
   final bool selected;
   final VoidCallback onTap;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const _MechanicRowTile({
     required this.mechanic,
     required this.selected,
     required this.onTap,
-    required this.onEdit,
-    required this.onDelete,
+    this.onEdit,
+    this.onDelete,
   });
 
   @override
