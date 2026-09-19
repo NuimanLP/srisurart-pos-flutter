@@ -541,7 +541,7 @@ class SyncService implements SyncFacade {
     if (stockRestored is List) {
       for (final p in stockRestored) {
         if (p is Map) {
-          final id = p['id']?.toString();
+          final id = (p['id'] ?? p['productId'])?.toString();
           final stock = p['stock'];
           if (id != null && stock is int && !activeProductIds.contains(id)) {
             await (db.update(db.products)..where((t) => t.id.equals(id))).write(
