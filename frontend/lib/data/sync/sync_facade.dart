@@ -57,6 +57,7 @@ class DiscardResult {
 /// Abstract contract for sync operations exposed to the presentation layer.
 abstract class SyncFacade {
   Stream<SyncStatus> get status;
+  SyncStatus get currentStatus;
   Stream<List<OutboxOpView>> get needsOwner; // rejected + stuck
   Stream<int> get outboxRemaining;
   Future<void> resend(String opId); // attempts = 0, same key, never change docNo
@@ -87,6 +88,9 @@ class NullSyncFacade implements SyncFacade {
 
   @override
   Stream<SyncStatus> get status => _statusStream;
+
+  @override
+  SyncStatus get currentStatus => SyncStatus.online;
 
   @override
   Stream<List<OutboxOpView>> get needsOwner => _needsOwnerStream;

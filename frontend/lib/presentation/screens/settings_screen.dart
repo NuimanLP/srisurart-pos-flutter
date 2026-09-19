@@ -30,6 +30,7 @@ import '../../core/utils/file_export.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
+import '../../data/repositories/offline_pin_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
@@ -43,6 +44,7 @@ import '../widgets/app_text_field.dart';
 import '../widgets/device_enrolment_dialog.dart';
 import '../widgets/font_scale_controller.dart';
 import '../widgets/login_dialog.dart';
+import '../widgets/offline_pin_setup_dialog.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 import '../widgets/theme_controller.dart';
@@ -539,9 +541,205 @@ class _AccountTab extends StatelessWidget {
             ],
           ),
         ),
+
+        // ── 3. Offline PIN (08 §13) ──
+        _OfflinePinSection(isPos: isPos),
       ],
     );
   }
+}
+
+class _OfflinePinSection extends StatefulWidget {
+  const _OfflinePinSection({required this.isPos});
+
+  final bool isPos;
+
+  @override
+  State<_OfflinePinSection> createState() => _OfflinePinSectionState();
+}
+
+class _OfflinePinSectionState extends State<_OfflinePinSection> {
+  int _reloadCount = 0;
+
+  void _reload() {
+    if (mounted) {
+      setState(() {
+        _reloadCount++;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDegraded = context.isDegraded;
+    final pinRepo = context.read<OfflinePinRepository>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        const _SectionTitle('PIN ออฟไลน์ (Offline POS PIN — 08 §13)'),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'PIN สำหรับแคชเชียร์ขายของหน้าร้านเมื่อออฟไลน์ มีอายุ 3 วันนับจากการล็อกอินออนไลน์ครั้งล่าสุด (ไม่นับ refresh) และต้องไม่ซ้ำกับรหัสผ่านบัญชีร้าน',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (!widget.isPos)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.grey.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.grey, size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'ฟังก์ชัน PIN ออฟไลน์ใช้ได้เฉพาะเครื่องที่ผูกเป็นเครื่อง POS เท่านั้น',
+                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                FutureBuilder<_PinCardStatus>(
+                  key: ValueKey(_reloadCount),
+                  future: _loadStatus(pinRepo),
+                  builder: (context, snapshot) {
+                    final status = snapshot.data;
+                    final loading =
+                        snapshot.connectionState == ConnectionState.waiting;
+
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: status?.isLocked == true
+                            ? AppColors.error.withValues(alpha: 0.08)
+                            : (status?.isConfigured == true
+                                ? AppColors.success.withValues(alpha: 0.08)
+                                : Colors.grey.withValues(alpha: 0.08)),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: status?.isLocked == true
+                              ? AppColors.error.withValues(alpha: 0.3)
+                              : (status?.isConfigured == true
+                                  ? AppColors.success.withValues(alpha: 0.3)
+                                  : Colors.grey.withValues(alpha: 0.3)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            status?.isLocked == true
+                                ? Icons.lock
+                                : (status?.isConfigured == true
+                                    ? Icons.pin
+                                    : Icons.pin_outlined),
+                            color: status?.isLocked == true
+                                ? AppColors.error
+                                : (status?.isConfigured == true
+                                    ? AppColors.success
+                                    : Colors.grey[700]),
+                            size: 24,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  loading
+                                      ? 'กำลังตรวจสอบสถานะ PIN...'
+                                      : (status?.isLocked == true
+                                          ? 'รหัส PIN ถูกล็อก (ใส่ผิดครบ 5 ครั้ง)'
+                                          : (status?.isConfigured == true
+                                              ? 'ตั้งค่า PIN แล้ว (พร้อมใช้งานออฟไลน์)'
+                                              : 'ยังไม่ได้ตั้งค่า PIN ออฟไลน์')),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  isDegraded
+                                      ? 'ขณะนี้อยู่ในโหมดออฟไลน์ (ตั้งค่าได้เมื่อออนไลน์เท่านั้น)'
+                                      : (status?.isLocked == true
+                                          ? 'กรุณากดตั้งค่าใหม่เพื่อปลดล็อก'
+                                          : (status?.isConfigured == true
+                                              ? 'สามารถเข้าสู่ระบบด้วย PIN ได้เมื่อไม่มีอินเทอร์เน็ต'
+                                              : 'กดปุ่มเพื่อตั้งค่า PIN 4-6 หลัก')),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.6),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          AppButton(
+                            label: status?.isConfigured == true
+                                ? 'เปลี่ยน PIN'
+                                : 'ตั้งค่า PIN',
+                            icon: Icons.edit,
+                            onPressed: isDegraded
+                                ? null
+                                : () => OfflinePinSetupDialog.show(
+                                      context,
+                                      onSuccess: _reload,
+                                    ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<_PinCardStatus> _loadStatus(OfflinePinRepository repo) async {
+    final configured = await repo.isPinConfigured();
+    final locked = await repo.isLocked();
+    final expired = await repo.isExpired();
+    return _PinCardStatus(
+      isConfigured: configured,
+      isLocked: locked,
+      isExpired: expired,
+    );
+  }
+}
+
+class _PinCardStatus {
+  const _PinCardStatus({
+    required this.isConfigured,
+    required this.isLocked,
+    required this.isExpired,
+  });
+
+  final bool isConfigured;
+  final bool isLocked;
+  final bool isExpired;
 }
 
 // ════════════════════════════════════════════════════════════════════════

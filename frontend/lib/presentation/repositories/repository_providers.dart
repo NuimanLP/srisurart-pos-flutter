@@ -25,6 +25,7 @@ import '../../data/repositories/api/api_returns_repository.dart';
 import '../../data/repositories/api/api_sales_repository.dart';
 import '../../data/repositories/api/api_shifts_repository.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/offline_pin_repository.dart';
 import '../../data/storage/token_storage.dart';
 
 import '../../data/repositories/api_customers_repository.dart';
@@ -49,6 +50,7 @@ import '../../data/sync/sync_service.dart';
 List<RepositoryProvider> repositoryProviders(
   AppDatabase db, {
   AuthRepository? authRepository,
+  OfflinePinRepository? offlinePinRepository,
   ApiClient? apiClient,
   SyncFacade? syncFacade,
   ReviewItemsRepository? reviewItemsRepository,
@@ -58,10 +60,17 @@ List<RepositoryProvider> repositoryProviders(
 }) {
   final storage = SharedPrefsTokenStorage();
   final client = apiClient ?? ApiClient(tokenStorage: storage);
+  final offlinePinRepo = offlinePinRepository ??
+      OfflinePinRepository(
+        db: db,
+        tokenStorage: storage,
+        apiClient: client,
+      );
   final authRepo = authRepository ??
       AuthRepository(
         apiClient: client,
         tokenStorage: storage,
+        offlinePinRepository: offlinePinRepo,
       );
 
   final realSyncService = syncFacade is SyncService
@@ -153,6 +162,7 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db)),
     RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),
     RepositoryProvider<AuthRepository>.value(value: authRepo),
+    RepositoryProvider<OfflinePinRepository>.value(value: offlinePinRepo),
     RepositoryProvider<ApiClient>.value(value: client),
     RepositoryProvider<BootstrapService>.value(value: bootstrapService),
     // #188: seeded on app open / login by `seedDocCountersOnSignIn` (main.dart).

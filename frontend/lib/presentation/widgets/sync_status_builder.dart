@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../data/sync/sync_facade.dart';
-import '../../data/sync/sync_service.dart';
 
 /// Helper widget to expose [SyncStatus] and `isDegraded` to presentation widgets.
 /// Used to disable online-only UI buttons when in Degraded mode per 08_PHASE2_SPEC.md §6.2.
@@ -28,9 +27,7 @@ class SyncStatusBuilder extends StatelessWidget {
       return builder(context, SyncStatus.online, false);
     }
 
-    final initial = syncFacade is SyncService
-        ? syncFacade.currentStatus
-        : SyncStatus.online;
+    final initial = syncFacade.currentStatus;
 
     return StreamBuilder<SyncStatus>(
       stream: syncFacade.status,
@@ -47,9 +44,7 @@ extension SyncStatusContext on BuildContext {
   bool get isDegraded {
     try {
       final facade = read<SyncFacade>();
-      if (facade is SyncService) {
-        return facade.currentStatus == SyncStatus.degraded;
-      }
+      return facade.currentStatus == SyncStatus.degraded;
     } catch (_) {}
     return false;
   }

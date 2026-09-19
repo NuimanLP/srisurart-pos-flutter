@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import '../../core/network/api_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/offline_pin_repository.dart';
 import '../../domain/models/auth_models.dart';
 
 abstract class AuthState extends Equatable {
@@ -63,11 +64,76 @@ class Unauthenticated extends AuthState {
 }
 
 class AuthCubit extends Cubit<AuthState> {
-  AuthCubit({required AuthRepository authRepository})
-      : _repo = authRepository,
+  AuthCubit({
+    required AuthRepository authRepository,
+    OfflinePinRepository? offlinePinRepository,
+  })  : _repo = authRepository,
+        _pinRepo = offlinePinRepository,
         super(const AuthInitial());
 
   final AuthRepository _repo;
+  final OfflinePinRepository? _pinRepo;
+
+  /// Logs in with offline PIN when in degraded mode on a POS terminal (08 §13).
+  Future<PinVerifyResult> loginWithOfflinePin(String pin) async {
+    if (_pinRepo == null) {
+      return const PinVerifyNotConfigured();
+    }
+
+    final prevDeviceToken = await _repo.getDeviceToken();
+    final prevDeviceRole = await _repo.getDeviceRole();
+    final deviceId = await _repo.getDeviceId();
+
+    emit(const AuthLoading());
+
+    final result = await _pinRepo.verifyPin(
+      pin: pin,
+      deviceId: deviceId,
+    );
+
+    if (result is PinVerifySuccess) {
+      final user = await _pinRepo.getStoredUser() ??
+          const AuthUser(
+            id: 'offline_pos',
+            username: 'shop',
+            role: 'owner',
+            displayName: 'พนักงานหน้าร้าน (โหมดออฟไลน์)',
+          );
+
+      emit(Authenticated(
+        user: user,
+        deviceToken: prevDeviceToken,
+        deviceRole: prevDeviceRole ?? 'pos',
+      ));
+    } else {
+      String errorMessage;
+      switch (result) {
+        case PinVerifyInvalid(:final remainingAttempts):
+          errorMessage =
+              'รหัส PIN ไม่ถูกต้อง (เหลือโอกาสอีก $remainingAttempts ครั้ง)';
+        case PinVerifyLocked():
+          errorMessage =
+              'รหัส PIN ถูกล็อกเนื่องจากใส่ผิดครบ 5 ครั้ง กรุณาล็อกอินออนไลน์ด้วยรหัสผ่านหลัก';
+        case PinVerifyExpired():
+          errorMessage = 'รหัส PIN หมดอายุแล้ว (เกิน 3 วัน) กรุณาล็อกอินออนไลน์';
+        case PinVerifyNotConfigured():
+          errorMessage = 'ยังไม่ได้ตั้งค่า PIN ออฟไลน์บนเครื่องนี้';
+        case PinVerifyNotPos():
+          errorMessage =
+              'เครื่องนี้ไม่ใช่เครื่อง POS ไม่สามารถใช้ PIN ออฟไลน์ได้';
+        case PinVerifySuccess():
+          errorMessage = '';
+      }
+
+      emit(Unauthenticated(
+        deviceToken: prevDeviceToken,
+        deviceRole: prevDeviceRole,
+        errorMessage: errorMessage,
+      ));
+    }
+
+    return result;
+  }
 
   /// Initializes authentication state from local storage.
   Future<void> init() async {

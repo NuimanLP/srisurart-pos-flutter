@@ -9,6 +9,7 @@ import 'app.dart';
 import 'core/network/api_client.dart';
 import 'data/db/database.dart';
 import 'data/repositories/auth_repository.dart';
+import 'data/repositories/offline_pin_repository.dart';
 import 'data/services/doc_counter_seeder.dart';
 import 'presentation/blocs/auth_cubit.dart';
 import 'presentation/blocs/cart_cubit.dart';
@@ -38,6 +39,7 @@ void main() {
             create: (ctx) {
               final cubit = AuthCubit(
                 authRepository: ctx.read<AuthRepository>(),
+                offlinePinRepository: ctx.read<OfflinePinRepository>(),
               );
               // #188: seed the document-number counter on app open and login.
               // Only the API build has a server to seed from.

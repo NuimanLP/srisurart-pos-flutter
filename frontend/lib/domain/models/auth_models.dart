@@ -85,6 +85,7 @@ class JwtClaims {
     this.drole,
     this.role,
     this.exp,
+    this.iat,
   });
 
   final Map<String, dynamic> rawPayload;
@@ -94,6 +95,7 @@ class JwtClaims {
   final String? drole;
   final String? role;
   final int? exp;
+  final int? iat;
 
   /// Returns true if the token contains an exp claim and it has already passed.
   bool get isExpired {
@@ -121,6 +123,7 @@ class JwtClaims {
         drole: jsonMap['drole'] as String?,
         role: jsonMap['role'] as String?,
         exp: (jsonMap['exp'] as num?)?.toInt(),
+        iat: (jsonMap['iat'] as num?)?.toInt(),
       );
     } catch (_) {
       return null;
@@ -144,3 +147,55 @@ class JwtClaims {
     return output;
   }
 }
+
+/// Offline PIN verification outcome (08 §13).
+sealed class PinVerifyResult extends Equatable {
+  const PinVerifyResult();
+
+  bool get isSuccess => this is PinVerifySuccess;
+}
+
+class PinVerifySuccess extends PinVerifyResult {
+  const PinVerifySuccess();
+
+  @override
+  List<Object?> get props => [];
+}
+
+class PinVerifyInvalid extends PinVerifyResult {
+  const PinVerifyInvalid({required this.remainingAttempts});
+
+  final int remainingAttempts;
+
+  @override
+  List<Object?> get props => [remainingAttempts];
+}
+
+class PinVerifyLocked extends PinVerifyResult {
+  const PinVerifyLocked();
+
+  @override
+  List<Object?> get props => [];
+}
+
+class PinVerifyExpired extends PinVerifyResult {
+  const PinVerifyExpired();
+
+  @override
+  List<Object?> get props => [];
+}
+
+class PinVerifyNotConfigured extends PinVerifyResult {
+  const PinVerifyNotConfigured();
+
+  @override
+  List<Object?> get props => [];
+}
+
+class PinVerifyNotPos extends PinVerifyResult {
+  const PinVerifyNotPos();
+
+  @override
+  List<Object?> get props => [];
+}
+

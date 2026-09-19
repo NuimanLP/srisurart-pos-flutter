@@ -55,6 +55,7 @@ dependencies:
   flutter_bloc: ^9.1.1
   bloc: ^9.2.1
   http: ^1.5.0
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

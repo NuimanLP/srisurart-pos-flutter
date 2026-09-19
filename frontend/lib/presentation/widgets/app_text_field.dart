@@ -22,6 +22,8 @@ class AppTextField extends StatelessWidget {
   final Widget? suffix;
   final TextInputAction? textInputAction;
   final int? maxLines;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
 
   const AppTextField({
     super.key,
@@ -39,6 +41,8 @@ class AppTextField extends StatelessWidget {
     this.suffix,
     this.textInputAction,
     this.maxLines = 1,
+    this.keyboardType,
+    this.inputFormatters,
   });
 
   const AppTextField.numeric({
@@ -54,9 +58,11 @@ class AppTextField extends StatelessWidget {
     this.errorText,
     this.suffix,
     this.textInputAction,
+    this.inputFormatters,
   }) : numeric = true,
        obscureText = false,
-       maxLines = 1;
+       maxLines = 1,
+       keyboardType = const TextInputType.numberWithOptions(decimal: true);
 
   @override
   Widget build(BuildContext context) {
@@ -68,12 +74,14 @@ class AppTextField extends StatelessWidget {
       enabled: enabled,
       obscureText: obscureText,
       maxLines: maxLines,
-      keyboardType: numeric
-          ? const TextInputType.numberWithOptions(decimal: true)
-          : TextInputType.text,
-      inputFormatters: numeric
-          ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
-          : null,
+      keyboardType: keyboardType ??
+          (numeric
+              ? const TextInputType.numberWithOptions(decimal: true)
+              : TextInputType.text),
+      inputFormatters: inputFormatters ??
+          (numeric
+              ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
+              : null),
       textInputAction: textInputAction,
       onChanged: onChanged,
       onFieldSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
