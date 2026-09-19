@@ -110,6 +110,7 @@ class AppShell extends StatelessWidget {
         body: Column(
           children: [
             _TopBar(title: _destinations[selected].label),
+            const SyncAlertBanner(),
             Expanded(
               child: Row(
                 children: [
@@ -129,6 +130,7 @@ class AppShell extends StatelessWidget {
       body: Column(
         children: [
           _TopBar(title: _destinations[selected].label, showMenu: true),
+          const SyncAlertBanner(),
           Expanded(child: child),
         ],
       ),
@@ -325,6 +327,9 @@ class _TopBarState extends State<_TopBar> {
               },
             ),
           ),
+          const SizedBox(width: 8),
+          const SyncStatusIndicator(),
+          const SizedBox(width: 8),
           IconButton(
             tooltip: mode == ThemeMode.dark ? 'โหมดสว่าง' : 'โหมดมืด',
             icon: Icon(
@@ -384,6 +389,288 @@ class _TopBarState extends State<_TopBar> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Status pill / indicator for POS connection and sync status.
+///
+/// Implements Slice 19 (#195 FE) per docs/Backend_design/02_API_SCREENS.md §8.1.1:
+/// - [SyncStatus.online] -> 'ออนไลน์'
+/// - [SyncStatus.degraded] -> 'ออฟไลน์ (ขายสำรอง)'
+/// - [SyncStatus.syncing] -> 'กำลังส่งข้อมูล...'
+/// - If [SyncFacade.needsOwner] is non-empty, displays a 'รอตรวจสอบ ($count)' badge.
+class SyncStatusIndicator extends StatelessWidget {
+  const SyncStatusIndicator({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    SyncFacade? syncFacade;
+    try {
+      syncFacade = context.read<SyncFacade>();
+    } catch (_) {
+      syncFacade = null;
+    }
+
+    if (syncFacade == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<SyncStatus>(
+      stream: syncFacade.status,
+      initialData: SyncStatus.online,
+      builder: (context, statusSnap) {
+        final status = statusSnap.data ?? SyncStatus.online;
+        return StreamBuilder<int>(
+          stream: syncFacade!.outboxRemaining,
+          initialData: 0,
+          builder: (context, remainingSnap) {
+            final remaining = remainingSnap.data ?? 0;
+            return StreamBuilder<List<OutboxOpView>>(
+              stream: syncFacade!.needsOwner,
+              initialData: const [],
+              builder: (context, ownerSnap) {
+                final needsOwnerList = ownerSnap.data ?? const [];
+                final needsOwnerCount = needsOwnerList.length;
+
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildStatusPill(context, status, remaining),
+                    if (needsOwnerCount > 0) ...[
+                      const SizedBox(width: 8),
+                      _buildNeedsOwnerBadge(context, needsOwnerCount),
+                    ],
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildStatusPill(
+      BuildContext context, SyncStatus status, int remaining) {
+    final Color bg;
+    final Color border;
+    final Color fg;
+    final IconData icon;
+    final String label;
+    bool isSpinning = false;
+
+    switch (status) {
+      case SyncStatus.online:
+        bg = AppColors.successLight.withValues(alpha: 0.15);
+        border = AppColors.successLight.withValues(alpha: 0.4);
+        fg = AppColors.successLight;
+        icon = Icons.cloud_done;
+        label = 'ออนไลน์';
+        break;
+      case SyncStatus.degraded:
+        bg = AppColors.warning.withValues(alpha: 0.15);
+        border = AppColors.warning.withValues(alpha: 0.4);
+        fg = AppColors.warning;
+        icon = Icons.cloud_off;
+        label = remaining > 0
+            ? 'ออฟไลน์ (ขายสำรอง) · ค้าง $remaining'
+            : 'ออฟไลน์ (ขายสำรอง)';
+        break;
+      case SyncStatus.syncing:
+        bg = AppColors.steelBlue.withValues(alpha: 0.15);
+        border = AppColors.steelBlue.withValues(alpha: 0.4);
+        fg = AppColors.steelBlue;
+        icon = Icons.sync;
+        isSpinning = true;
+        label = remaining > 0
+            ? 'กำลังส่งข้อมูล... ($remaining)'
+            : 'กำลังส่งข้อมูล...';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isSpinning)
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(fg),
+              ),
+            )
+          else
+            Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNeedsOwnerBadge(BuildContext context, int count) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: () => context.go(AppRoutes.ownerReview),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.error.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: AppColors.error.withValues(alpha: 0.6)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.assignment_late_outlined,
+                size: 14, color: AppColors.error),
+            const SizedBox(width: 6),
+            Text(
+              'รอตรวจสอบ ($count)',
+              style: const TextStyle(
+                color: AppColors.error,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Alert banner displayed directly below the top bar when the POS is degraded
+/// or when there are outbox ops or review items requiring owner attention.
+class SyncAlertBanner extends StatelessWidget {
+  const SyncAlertBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    SyncFacade? syncFacade;
+    try {
+      syncFacade = context.read<SyncFacade>();
+    } catch (_) {
+      syncFacade = null;
+    }
+
+    if (syncFacade == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<SyncStatus>(
+      stream: syncFacade.status,
+      initialData: SyncStatus.online,
+      builder: (context, statusSnap) {
+        final status = statusSnap.data ?? SyncStatus.online;
+        return StreamBuilder<List<OutboxOpView>>(
+          stream: syncFacade!.needsOwner,
+          initialData: const [],
+          builder: (context, ownerSnap) {
+            final needsOwnerList = ownerSnap.data ?? const [];
+            final needsOwnerCount = needsOwnerList.length;
+
+            final isDegraded = status == SyncStatus.degraded;
+            final hasNeedsOwner = needsOwnerCount > 0;
+
+            if (!isDegraded && !hasNeedsOwner) {
+              return const SizedBox.shrink();
+            }
+
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final degradedBg =
+                isDark ? const Color(0xFF423200) : const Color(0xFFFFF3CD);
+            final degradedFg =
+                isDark ? const Color(0xFFFFD56B) : const Color(0xFF856404);
+            final ownerBg =
+                isDark ? const Color(0xFF4A1015) : const Color(0xFFF8D7DA);
+            final ownerFg =
+                isDark ? const Color(0xFFFF8E99) : const Color(0xFF721C24);
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isDegraded)
+                  Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    color: degradedBg,
+                    child: Row(
+                      children: [
+                        Icon(Icons.wifi_off, size: 16, color: degradedFg),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'ออฟไลน์ (ขายสำรอง) — ระบบจะบันทึกรายการขายในเครื่อง และส่งข้อมูลไปยังเซิร์ฟเวอร์โดยอัตโนมัติเมื่อเชื่อมต่ออินเทอร์เน็ต',
+                            style: TextStyle(
+                              color: degradedFg,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (hasNeedsOwner)
+                  Material(
+                    color: ownerBg,
+                    child: InkWell(
+                      onTap: () => context.go(AppRoutes.ownerReview),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 6),
+                        child: Row(
+                          children: [
+                            Icon(Icons.report_problem_outlined,
+                                size: 16, color: ownerFg),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'มีรายการรอเจ้าของร้านตรวจสอบ ($needsOwnerCount รายการ) — กดที่นี่เพื่อเข้าหน้าตรวจรายการ',
+                                style: TextStyle(
+                                  color: ownerFg,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              'ดูรายการ ›',
+                              style: TextStyle(
+                                color: ownerFg,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }
