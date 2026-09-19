@@ -106,7 +106,13 @@ List<RepositoryProvider> repositoryProviders(
   // this read one: on the Drift build it stays a local Drift write, and only
   // with `useApi` does it go through the outbox and require an open drawer.
   final mechanicsRepo = useApiRepositories
-      ? ApiMechanicsRepository(db, client, writesToServer: useApi)
+      ? ApiMechanicsRepository(
+          db,
+          client,
+          writesToServer: useApi,
+          syncService: realSyncService,
+          syncFacade: syncFacade,
+        )
       : MechanicsRepository(db);
 
   // Built after the mechanics repository: closing a shift on the API build

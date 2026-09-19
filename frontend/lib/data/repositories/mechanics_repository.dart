@@ -14,6 +14,8 @@
 //    Returns the new CreditPaymentRow. (Transactional.)
 //  • getCreditPayments()       → all credit payments newest-first.
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../core/utils/ids.dart';
@@ -141,44 +143,153 @@ class MechanicsRepository {
     return rows.map((r) => db.creditPayments.map(r.data)).toList();
   }
 
-  // ── Credit-payment outbox (#24) ─────────────────────────────────────────────
-  // Only `ApiMechanicsRepository` ever writes `pending_credit_payments`; on the
-  // Drift-only build the table stays empty and these are harmless.
+  // ── Credit-payment outbox (#24 / #275) ──────────────────────────────────────
+  // Phase 2 (Slice 9, Ticket #275): Credit payment outbox ops live in `outbox_ops`
+  // with type 'credit_payment.create'. Legacy rows in `pending_credit_payments`
+  // are migrated automatically so no rows are lost.
 
   /// Payments taken at the counter that the server has not confirmed, oldest
   /// first — both the ones still to send and the ones it refused.
-  Future<List<PendingCreditPaymentRow>> getPendingCreditPayments() =>
-      (db.select(db.pendingCreditPayments)
-            ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
-          .get();
+  Future<List<PendingCreditPaymentRow>> getPendingCreditPayments() async {
+    await migratePendingCreditPayments(db);
+    final ops = await (db.select(db.outboxOps)
+          ..where((t) => t.type.equals('credit_payment.create'))
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+        .get();
+    return ops.map(outboxOpToPendingCreditPayment).toList();
+  }
 
   /// Sends whatever is still queued. Nothing to send without a server.
   Future<void> flushPendingCreditPayments() async {}
 
   /// Drops a payment the server REFUSED. A row still queued is never dropped:
   /// it may already be committed with only the reply lost.
-  Future<void> discardRejectedCreditPayment(String id) =>
-      (db.delete(db.pendingCreditPayments)
-            ..where((t) => t.id.equals(id) & t.rejectedCode.isNotNull()))
-          .go();
+  Future<void> discardRejectedCreditPayment(String id) async {
+    await migratePendingCreditPayments(db);
+    final ops = await (db.select(db.outboxOps)
+          ..where((t) =>
+              t.type.equals('credit_payment.create') &
+              t.status.equals('rejected')))
+        .get();
+    for (final op in ops) {
+      final row = outboxOpToPendingCreditPayment(op);
+      if (op.opId == id || row.id == id) {
+        await (db.delete(db.outboxOps)..where((t) => t.opId.equals(op.opId)))
+            .go();
+      }
+    }
+  }
 
   /// A person confirmed a refused overpayment: queue it again with the flag and
   /// send. The id stays — the server never stored the refused attempt, and the id
   /// is its replay check — but the `Idempotency-Key` is new, because the body
   /// changed and a key may not be reused for a different body.
   Future<void> resendRejectedAllowingOverpayment(String id) async {
-    await (db.update(
-      db.pendingCreditPayments,
-    )..where((t) => t.id.equals(id) & t.rejectedCode.isNotNull())).write(
-      PendingCreditPaymentsCompanion(
-        idempotencyKey: Value(newId('idem')),
-        allowOverpayment: const Value(true),
-        rejectedCode: const Value(null),
-        rejectedMessage: const Value(null),
-      ),
-    );
+    await migratePendingCreditPayments(db);
+    final ops = await (db.select(db.outboxOps)
+          ..where((t) =>
+              t.type.equals('credit_payment.create') &
+              t.status.equals('rejected')))
+        .get();
+    for (final op in ops) {
+      final row = outboxOpToPendingCreditPayment(op);
+      if (op.opId == id || row.id == id) {
+        Map<String, dynamic> payload = {};
+        try {
+          final decoded = jsonDecode(op.payload);
+          if (decoded is Map<String, dynamic>) {
+            payload = Map<String, dynamic>.from(decoded);
+          }
+        } catch (_) {}
+        payload['allowOverpayment'] = true;
+
+        await (db.update(db.outboxOps)
+              ..where((t) => t.opId.equals(op.opId)))
+            .write(
+          OutboxOpsCompanion(
+            idempotencyKey: Value(newId('idem')),
+            payload: Value(jsonEncode(payload)),
+            status: const Value('pending'),
+            attempts: const Value(0),
+            lastCode: const Value(null),
+            lastMessage: const Value(null),
+            lastDetails: const Value(null),
+          ),
+        );
+      }
+    }
     await flushPendingCreditPayments();
   }
+}
+
+/// Converts an [OutboxOpRow] with type `credit_payment.create` into a
+/// [PendingCreditPaymentRow] consumed by the presentation layer and shift guards.
+PendingCreditPaymentRow outboxOpToPendingCreditPayment(OutboxOpRow op) {
+  Map<String, dynamic> payload = {};
+  try {
+    final decoded = jsonDecode(op.payload);
+    if (decoded is Map<String, dynamic>) {
+      payload = decoded;
+    }
+  } catch (_) {}
+
+  return PendingCreditPaymentRow(
+    id: (payload['id'] ?? op.opId) as String,
+    idempotencyKey: op.idempotencyKey,
+    mechanicId: (payload['mechanicId'] ?? '') as String,
+    amount: (payload['amount'] ?? '0.00').toString(),
+    paymentMethod: (payload['paymentMethod'] ?? 'เงินสด').toString(),
+    note: payload['note'] as String?,
+    allowOverpayment: payload['allowOverpayment'] == true,
+    createdAt: op.createdAt,
+    rejectedCode: op.status == 'rejected' ? (op.lastCode ?? 'REJECTED') : null,
+    rejectedMessage: op.status == 'rejected' ? op.lastMessage : null,
+  );
+}
+
+/// Migrates any legacy rows in `pending_credit_payments` (#24) into `outbox_ops`
+/// (Phase 2, Ticket #275). Runs atomically so no rows are lost during migration.
+Future<void> migratePendingCreditPayments(AppDatabase db) async {
+  final legacyRows = await (db.select(db.pendingCreditPayments)).get();
+  if (legacyRows.isEmpty) return;
+
+  await db.transaction(() async {
+    for (final row in legacyRows) {
+      final localId = row.id;
+      final payload = {
+        'id': localId,
+        'mechanicId': row.mechanicId,
+        'amount': row.amount,
+        'paymentMethod': row.paymentMethod,
+        if (row.note != null && row.note!.isNotEmpty) 'note': row.note,
+        if (row.allowOverpayment) 'allowOverpayment': true,
+        'date': row.createdAt.toUtc().toIso8601String(),
+      };
+      final aggregates = [
+        'cp:$localId',
+        'shift',
+        'mechanic:${row.mechanicId}',
+      ];
+      final opId = newId('op');
+      await db.into(db.outboxOps).insert(
+            OutboxOpsCompanion(
+              opId: Value(opId),
+              idempotencyKey: Value(row.idempotencyKey),
+              type: const Value('credit_payment.create'),
+              payload: Value(jsonEncode(payload)),
+              aggregates: Value(jsonEncode(aggregates)),
+              createdAt: Value(row.createdAt),
+              status: Value(row.rejectedCode != null ? 'rejected' : 'pending'),
+              attempts: const Value(0),
+              lastCode: Value(row.rejectedCode),
+              lastMessage: Value(row.rejectedMessage),
+            ),
+          );
+      await (db.delete(db.pendingCreditPayments)
+            ..where((t) => t.id.equals(row.id)))
+          .go();
+    }
+  });
 }
 
 /// Thrown by `addCreditPayment` when the payment was saved on this device but

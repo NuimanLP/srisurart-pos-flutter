@@ -551,6 +551,50 @@ class SyncService implements SyncFacade {
         }
       }
     }
+
+    // Mechanic credit payment applied (#275)
+    final mechanicId = response['mechanicId'] as String?;
+    final balanceAfterRaw = response['balanceAfter'] ??
+        response['mechanicCreditBalanceAfter'] ??
+        response['mechanic_credit_balance_after'];
+    if (mechanicId != null) {
+      if (balanceAfterRaw != null) {
+        final balance = double.tryParse(balanceAfterRaw.toString());
+        if (balance != null) {
+          await (db.update(db.mechanics)..where((t) => t.id.equals(mechanicId)))
+              .write(
+            MechanicsCompanion(creditBalance: Value(balance)),
+          );
+        }
+      }
+
+      final paymentId = response['id'] as String?;
+      final amountRaw = response['amount'];
+      if (paymentId != null && amountRaw != null) {
+        final amount = double.tryParse(amountRaw.toString()) ?? 0.0;
+        final receiptNo =
+            (response['receiptNo'] ?? response['receipt_no'] ?? '') as String;
+        final dateRaw = response['date'];
+        DateTime paymentDate = DateTime.now();
+        if (dateRaw != null) {
+          try {
+            paymentDate = DateTime.parse(dateRaw.toString()).toLocal();
+          } catch (_) {}
+        }
+        final note = response['note'] as String?;
+
+        await db.into(db.creditPayments).insertOnConflictUpdate(
+              CreditPaymentRow(
+                id: paymentId,
+                receiptNo: receiptNo,
+                mechanicId: mechanicId,
+                amount: amount,
+                date: paymentDate,
+                note: note,
+              ),
+            );
+      }
+    }
   }
 
   // ── Aggregate Chain Filtering (§8.4) ──────────────────────────────────────
