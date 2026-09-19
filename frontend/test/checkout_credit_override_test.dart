@@ -17,23 +17,53 @@
 //
 // Harness mirrors quote_to_checkout_test.dart.
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/repositories/api/api_sales_repository.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
+import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
+import 'package:srisurart_pos/domain/models/auth_models.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
+
+class _TestTokenStorage implements TokenStorage {
+  @override
+  Future<String?> getAccessToken() async => 'test-token';
+  @override
+  Future<void> setAccessToken(String? token) async {}
+  @override
+  Future<String?> getRefreshToken() async => null;
+  @override
+  Future<void> setRefreshToken(String? token) async {}
+  @override
+  Future<String?> getDeviceToken() async => 'pos-device-token-01';
+  @override
+  Future<void> setDeviceToken(String? token) async {}
+  @override
+  Future<AuthUser?> getUser() async => null;
+  @override
+  Future<void> setUser(AuthUser? user) async {}
+  @override
+  Future<void> clearAuthTokens() async {}
+  @override
+  Future<void> clearAll() async {}
+}
 
 /// Records the `SaleInput` the screen built, then refuses the sale.
 ///
@@ -193,9 +223,9 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      await tester.pumpAndSettle(const Duration(milliseconds: 200));
-
-      if (sales.inputs.isEmpty) throw StateError('saveSale was never called');
+      if (sales.inputs.isEmpty && (confirmDialog || !overLimit)) {
+        throw StateError('saveSale was never called');
+      }
     });
     return sales;
   }
@@ -274,4 +304,265 @@ void main() {
     expect(sales.inputs, hasLength(1));
     expect(sales.inputs.single.overrideCreditLimit, isFalse);
   });
+
+  testWidgets(
+    'cancelling the local over-limit dialog aborts checkout without calling saveSale',
+    (tester) async {
+      final sales = await runCreditSale(
+        tester,
+        overLimit: true,
+        confirmDialog: false,
+      );
+
+      expect(
+        sales.inputs,
+        isEmpty,
+        reason: 'cancelling the warning aborts checkout immediately',
+      );
+    },
+  );
+
+  testWidgets(
+    'offline: confirming over-limit dialog creates outbox_ops with overrideCreditLimit: true',
+    (tester) async {
+      tester.view.physicalSize = const Size(1800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+
+      final apiRepo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('No network calls offline')),
+          tokenStorage: _TestTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        isOffline: true,
+      );
+
+      final cartCubit = CartCubit();
+      final pendingQuoteCubit = PendingQuoteCubit();
+      addTearDown(cartCubit.close);
+      addTearDown(pendingQuoteCubit.close);
+
+      await tester.runAsync(() async {
+        await db.into(db.shifts).insert(
+          ShiftsCompanion.insert(
+            id: 'shift-test-open',
+            dateStr: '2026-09-19',
+            startingCash: 500,
+            openedAt: DateTime(2026, 9, 19, 8),
+            isActive: const Value(true),
+          ),
+        );
+
+        final mechanics = await db.select(db.mechanics).get();
+        final mech = mechanics.first;
+        await db.update(db.mechanics).write(
+          const MechanicsCompanion(
+            creditBalance: Value(0),
+            creditLimit: Value(0),
+          ),
+        );
+
+        final p = (await ProductsRepository(db).getAll()).firstWhere(
+          (x) => x.stock >= 1,
+        );
+        expect(cartCubit.add(p), isNull);
+
+        await tester.pumpWidget(
+          MultiRepositoryProvider(
+            providers: repositoryProviders(db),
+            child: RepositoryProvider<SalesRepository>.value(
+              value: apiRepo,
+              child: MultiBlocProvider(
+                providers: [
+                  BlocProvider<PendingQuoteCubit>.value(value: pendingQuoteCubit),
+                  BlocProvider<CartCubit>.value(value: cartCubit),
+                ],
+                child: MaterialApp(
+                  home: Builder(
+                    builder: (context) => MediaQuery(
+                      data: MediaQuery.of(
+                        context,
+                      ).copyWith(textScaler: const TextScaler.linear(0.8)),
+                      child: const Scaffold(body: CheckoutScreen()),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+        await tester.enterText(
+          find.widgetWithText(TextField, 'ค้นหาช่าง / ชื่อเล่น / เบอร์…'),
+          mech.nameTH ?? mech.name,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(mech.nameTH ?? mech.name).last);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find
+              .byWidgetPredicate(
+                (w) => w is Text && (w.data ?? '').startsWith('เครดิตช่าง'),
+              )
+              .last,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byWidgetPredicate(
+            (w) => w is Text && (w.data ?? '').startsWith('ชำระเงิน  '),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('ยืนยัน'), findsOneWidget);
+        await tester.tap(find.text('ยืนยัน'));
+        await tester.pumpAndSettle();
+
+        // Verify outbox_ops record
+        final ops = await db.select(db.outboxOps).get();
+        expect(ops, hasLength(1));
+        expect(ops.single.type, 'sale.create');
+        final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
+        expect(payload['overrideCreditLimit'], isTrue);
+        expect(payload['paymentMethod'], 'เครดิตช่าง');
+
+        // Dismiss receipt dialog if open
+        if (find.text('ปิด').evaluate().isNotEmpty) {
+          await tester.tap(find.text('ปิด'));
+          await tester.pumpAndSettle();
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await tester.pump();
+      });
+    },
+  );
+
+  testWidgets(
+    'offline: cancelling over-limit dialog creates no sale and no outbox op',
+    (tester) async {
+      tester.view.physicalSize = const Size(1800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+
+      final apiRepo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('No network calls offline')),
+          tokenStorage: _TestTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        isOffline: true,
+      );
+
+      final cartCubit = CartCubit();
+      final pendingQuoteCubit = PendingQuoteCubit();
+      addTearDown(cartCubit.close);
+      addTearDown(pendingQuoteCubit.close);
+
+      await tester.runAsync(() async {
+        await db.into(db.shifts).insert(
+          ShiftsCompanion.insert(
+            id: 'shift-test-open',
+            dateStr: '2026-09-19',
+            startingCash: 500,
+            openedAt: DateTime(2026, 9, 19, 8),
+            isActive: const Value(true),
+          ),
+        );
+
+        final mechanics = await db.select(db.mechanics).get();
+        final mech = mechanics.first;
+        await db.update(db.mechanics).write(
+          const MechanicsCompanion(
+            creditBalance: Value(0),
+            creditLimit: Value(0),
+          ),
+        );
+
+        final p = (await ProductsRepository(db).getAll()).firstWhere(
+          (x) => x.stock >= 1,
+        );
+        expect(cartCubit.add(p), isNull);
+
+        await tester.pumpWidget(
+          MultiRepositoryProvider(
+            providers: repositoryProviders(db),
+            child: RepositoryProvider<SalesRepository>.value(
+              value: apiRepo,
+              child: MultiBlocProvider(
+                providers: [
+                  BlocProvider<PendingQuoteCubit>.value(value: pendingQuoteCubit),
+                  BlocProvider<CartCubit>.value(value: cartCubit),
+                ],
+                child: MaterialApp(
+                  home: Builder(
+                    builder: (context) => MediaQuery(
+                      data: MediaQuery.of(
+                        context,
+                      ).copyWith(textScaler: const TextScaler.linear(0.8)),
+                      child: const Scaffold(body: CheckoutScreen()),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+        await tester.enterText(
+          find.widgetWithText(TextField, 'ค้นหาช่าง / ชื่อเล่น / เบอร์…'),
+          mech.nameTH ?? mech.name,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(mech.nameTH ?? mech.name).last);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find
+              .byWidgetPredicate(
+                (w) => w is Text && (w.data ?? '').startsWith('เครดิตช่าง'),
+              )
+              .last,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byWidgetPredicate(
+            (w) => w is Text && (w.data ?? '').startsWith('ชำระเงิน  '),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('ยกเลิก'), findsOneWidget);
+        await tester.tap(find.text('ยกเลิก'));
+        await tester.pumpAndSettle();
+
+        // Verify no sale and no outbox op
+        final ops = await db.select(db.outboxOps).get();
+        expect(ops, isEmpty);
+        final sales = await db.select(db.sales).get();
+        expect(sales, isEmpty);
+      });
+    },
+  );
 }
