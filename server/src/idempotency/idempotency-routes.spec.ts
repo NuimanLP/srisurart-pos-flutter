@@ -270,4 +270,52 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
       'SyncController.discard': 'POST /sync/discards 200',
     });
   });
+
+  it('POST /sync/push idempotency coverage: maps each op type to an online endpoint and declared status (08 §8, slice 20-s)', () => {
+    // SyncController.push is the bulk ingestion entrypoint for offline outbox ops.
+    // Idempotency is not claimed at the batch HTTP request level, but per-op inside SyncService
+    // using the exact online endpoint and success status code (08 §8.3 step 1).
+    const syncSrc = readFileSync(join(SRC, 'sync/sync.service.ts'), 'utf8');
+    const opMappings: Record<string, { endpointPrefix: string; successCode: number }> = {
+      'sale.create': { endpointPrefix: 'POST /sales', successCode: 201 },
+      'return.create': { endpointPrefix: 'POST /returns', successCode: 201 },
+      'shift.open': { endpointPrefix: 'POST /shifts/open', successCode: 200 },
+      'drawer.entry': { endpointPrefix: 'POST /shifts/current/entries', successCode: 201 },
+      'credit_payment.create': {
+        endpointPrefix: 'POST /mechanics/',
+        successCode: 201,
+      },
+      'customer.create': { endpointPrefix: 'POST /customers', successCode: 201 },
+      'customer.update': { endpointPrefix: 'PATCH /customers/', successCode: 200 },
+      'sale.void_offline': {
+        endpointPrefix: 'POST /sales/',
+        successCode: 200,
+      },
+    };
+
+    // Every mapped op type must correspond to an idempotent write route in the pinned summary
+    const found: Record<string, Route> = {};
+    for (const path of controllerFiles(SRC)) {
+      Object.assign(found, idempotentRoutes(readFileSync(path, 'utf8'), path));
+    }
+    const pinnedRoutes = Object.values(found).map((r) => `${r.route} ${r.declared}`);
+
+    for (const [opType, target] of Object.entries(opMappings)) {
+      const matchesPinned = pinnedRoutes.some((r) =>
+        r.startsWith(target.endpointPrefix) && r.endsWith(` ${target.successCode}`),
+      );
+      expect(
+        matchesPinned,
+        `Op ${opType} (prefix: ${target.endpointPrefix}, status: ${target.successCode}) must match a pinned idempotent route`,
+      ).toBe(true);
+
+      // Verify that sync.service.ts actually routes this op
+      expect(syncSrc).toContain(`case '${opType}':`);
+    }
+
+    // Verify claim and complete calls are present in SyncService
+    expect(syncSrc).toContain('this.idempotency.claim(manager');
+    expect(syncSrc).toContain('this.idempotency.complete(manager');
+  });
 });
+
