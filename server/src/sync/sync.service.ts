@@ -202,7 +202,7 @@ export class SyncService {
       case 'return.create':
         return { endpoint: 'POST /returns', successCode: 201 };
       case 'shift.open':
-        return { endpoint: 'POST /shifts/open', successCode: 201 };
+        return { endpoint: 'POST /shifts/open', successCode: 200 };
       case 'drawer.entry':
         return { endpoint: 'POST /shifts/current/entries', successCode: 201 };
       case 'credit_payment.create':
