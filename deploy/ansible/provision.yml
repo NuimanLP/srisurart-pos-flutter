@@ -120,6 +120,15 @@
         - "{{ app_dir }}/docker/nginx"
         - "{{ app_dir }}/docker/postgres"
         - "{{ app_dir }}/docker/postgres/init"
+        - '{{ app_dir }}/scripts'
+
+    - name: Install database backup script (Slice 23 / #288, #346)
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/../scripts/backup-db.sh'
+        dest: '{{ app_dir }}/scripts/backup-db.sh'
+        owner: '{{ deploy_user }}'
+        group: '{{ deploy_user }}'
+        mode: '0755'
 
     - name: Write server .env configuration (0600 mode)
       ansible.builtin.copy:
