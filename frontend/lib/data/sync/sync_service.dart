@@ -20,6 +20,7 @@ class SyncService implements SyncFacade {
     required this.db,
     required this.apiClient,
     required this.tokenStorage,
+    this.onPull,
     http.Client? httpClient,
     this.healthInterval = const Duration(seconds: 5),
     this.healthTimeout = const Duration(seconds: 5),
@@ -34,6 +35,7 @@ class SyncService implements SyncFacade {
   final AppDatabase db;
   final ApiClient apiClient;
   final TokenStorage tokenStorage;
+  final Future<void> Function()? onPull;
   final http.Client _httpClient;
   final Duration healthInterval;
   final Duration healthTimeout;
@@ -399,7 +401,9 @@ class SyncService implements SyncFacade {
         }
 
         final data = decoded['data'] as Map<String, dynamic>?;
-        final results = (data?['results'] as List?) ?? const [];
+        final results = (data?['results'] as List?) ??
+            (decoded['results'] as List?) ??
+            const [];
 
         bool stoppedAtRetry = false;
         for (final r in results) {
@@ -476,8 +480,21 @@ class SyncService implements SyncFacade {
       }
       if (_pushRequested && !_isDisposed) {
         unawaited(push());
+      } else if (_currentStatus == SyncStatus.online && !_isDisposed) {
+        // 08 §15: Push then pull
+        unawaited(pull());
       }
     }
+  }
+
+  /// Coordinates pull sync across entities after push completion (08 §15).
+  Future<void> pull() async {
+    if (_isDisposed || _currentStatus == SyncStatus.degraded) return;
+    try {
+      if (onPull != null) {
+        await onPull!();
+      }
+    } catch (_) {}
   }
 
   Future<void> _handleHeadFailure(OutboxOpRow headOp) async {

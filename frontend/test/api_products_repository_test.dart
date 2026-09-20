@@ -83,24 +83,16 @@ void main() {
     expect(inDrift!.nameTH, 'จานเบรก');
   });
 
-  test('getAll uses ?updatedSince= cursor when latest updatedAt exists in Drift', () async {
+  test('getAll uses ?updatedSince= cursor from sync_cursors with 30s rewind (#212, 08 §15)', () async {
     String? requestedUpdatedSince;
 
-    // Seed one product with known updatedAt
+    // Seed sync_cursors with known cursor
     final knownDate = DateTime.utc(2026, 9, 10, 8, 30);
-    await db.into(db.products).insert(
-          ProductsCompanion.insert(
-            id: 'p_existing',
-            partNo: 'EXT-001',
-            name: 'Existing',
-            nameTH: 'สินค้าเดิม',
-            category: 'เครื่องยนต์',
-            brand: 'Honda',
-            price: 100,
-            cost: 50,
-            stock: 5,
-            minStock: 1,
-            updatedAt: Value(knownDate),
+    await db.into(db.syncCursors).insert(
+          SyncCursorsCompanion.insert(
+            entity: 'products',
+            cursor: Value(knownDate.toIso8601String()),
+            updatedAt: Value(DateTime.now().toUtc()),
           ),
         );
 
@@ -118,7 +110,8 @@ void main() {
 
     await repo.getAll();
 
-    expect(requestedUpdatedSince, equals(knownDate.toIso8601String()));
+    final expectedRewound = knownDate.subtract(const Duration(seconds: 30)).toIso8601String();
+    expect(requestedUpdatedSince, equals(expectedRewound));
   });
 
   test('getAll falls back gracefully to Drift cache when network call fails', () async {

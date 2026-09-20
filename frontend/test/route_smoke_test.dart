@@ -106,7 +106,7 @@ void main() {
           await tester.runAsync(() async {
             await tester.pumpWidget(
               MultiRepositoryProvider(
-                providers: repositoryProviders(db),
+                providers: repositoryProviders(db, useApiRepositories: false),
                 child: MultiBlocProvider(
                   providers: [
                     BlocProvider<ThemeModeCubit>(

@@ -42,6 +42,7 @@ part 'database.g.dart';
     DocCounterSeeds,
     AppMeta,
     OutboxOps,
+    SyncCursors,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -68,7 +69,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -149,6 +150,11 @@ class AppDatabase extends _$AppDatabase {
       if (from < 10) {
         await m.addColumn(sales, sales.soldOffline);
         await m.addColumn(sales, sales.voidReason);
+      }
+      // v10 → v11 (#212, Slice 13b, 08_PHASE2_SPEC.md §15): sync_cursors table
+      // for keyset pull sync and 30s rewind window.
+      if (from < 11) {
+        await m.createTable(syncCursors);
       }
     },
   );
