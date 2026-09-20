@@ -3,14 +3,16 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import type { Redis } from 'ioredis';
 import type { Logger } from 'pino';
 import type { EntityManager } from 'typeorm';
-import { currentRequestContext } from '../common/request-context.js';
+import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
+import { MetricsService } from '../metrics/metrics.service.js';
 import { LOGGER } from '../infra/logger.provider.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
 
@@ -108,6 +110,7 @@ export class IdempotencyService {
     @Inject(REDIS_CACHE) private readonly cache: Redis,
     @Inject(LOGGER) private readonly logger: Logger,
     private readonly tenants: TenantService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   /**
@@ -164,6 +167,11 @@ export class IdempotencyService {
     }
 
     if (claim.outcome === 'replay') {
+      // D5 #335: count replay strictly AFTER commit via onTransactionCommit.
+      // A rollback discards the hook, so failed/aborted transactions are never counted.
+      onTransactionCommit(() => {
+        this.metrics?.recordReplay();
+      });
       res.status(claim.response.code);
       return claim.response.body as T;
     }

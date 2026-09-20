@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import type { Response } from 'express';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
@@ -10,8 +11,21 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { IdempotencyService } from '../src/idempotency/idempotency.service.js';
+import { TenantService } from '../src/common/database/tenant.service.js';
+import {
+  runInTenantScope,
+  setRequestTenant,
+} from '../src/common/request-context.js';
 
 const TENANT = 'eeeeeeee-6666-4666-8666-eeeeeeeeeeee';
+
+function parseReplayCount(metricsText: string): number {
+  const match = metricsText.match(
+    /pos_idempotency_replay_total(?:\{[^}]*\})?\s+(\d+)/,
+  );
+  return match ? Number(match[1]) : 0;
+}
 
 describe('metrics (e2e)', () => {
   let app: INestApplication;
@@ -167,5 +181,179 @@ describe('metrics (e2e)', () => {
     const countAfter = matchAfter ? Number(matchAfter[1]) : 0;
 
     expect(countAfter - countBefore).toBe(1);
+  });
+
+  it('increments pos_idempotency_replay_total on replayed request (without tenant_id label)', async () => {
+    const productId = 'prod-metric-replay';
+    await seedProduct(admin, TENANT, {
+      id: productId,
+      partNo: 'RP-999',
+      name: 'Replay Test Part',
+      price: 100,
+      cost: 50,
+      stock: 50,
+    });
+
+    const key = `k-replay-${Date.now()}`;
+    const billId = `s-replay-${Date.now()}`;
+    const saleBody = {
+      id: billId,
+      subtotal: '100.00',
+      discount: '0.00',
+      total: '100.00',
+      paymentMethod: 'เงินสด',
+      items: [
+        {
+          lineNo: 1,
+          productId,
+          name: 'Replay Test Part',
+          qty: 1,
+          price: '100.00',
+        },
+      ],
+    };
+
+    // First call: succeeds with 201
+    await request(app.getHttpServer())
+      .post('/api/v1/sales')
+      .set('Authorization', `Bearer ${posToken}`)
+      .set('Idempotency-Key', key)
+      .send(saleBody)
+      .expect(201);
+
+    const beforeMetrics = await request(app.getHttpServer()).get('/metrics');
+    const countBefore = parseReplayCount(beforeMetrics.text);
+
+    // Second call with same key: replayed with 201
+    const replayRes = await request(app.getHttpServer())
+      .post('/api/v1/sales')
+      .set('Authorization', `Bearer ${posToken}`)
+      .set('Idempotency-Key', key)
+      .send(saleBody)
+      .expect(201);
+
+    expect(replayRes.body.data.id).toBe(billId);
+
+    const afterMetrics = await request(app.getHttpServer()).get('/metrics');
+    const countAfter = parseReplayCount(afterMetrics.text);
+
+    // Replay counter must increment by exactly 1
+    expect(countAfter - countBefore).toBe(1);
+
+    // Must NOT contain tenant_id label (D5 #335)
+    expect(afterMetrics.text).not.toMatch(/pos_idempotency_replay_total\{[^}]*tenant_id/);
+
+    // Verify only ONE sale row was created in Postgres
+    const rows = await admin.query(
+      `SELECT count(*) FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, billId],
+    );
+    expect(Number(rows[0].count)).toBe(1);
+  });
+
+  it('does NOT increment pos_idempotency_replay_total when transaction rolls back', async () => {
+    const beforeMetrics = await request(app.getHttpServer()).get('/metrics');
+    const countBefore = parseReplayCount(beforeMetrics.text);
+
+    // 1. Initial attempt fails due to insufficient stock (409) and rolls back
+    const failKey = `k-fail-${Date.now()}`;
+    const failBillId = `s-fail-${Date.now()}`;
+    await request(app.getHttpServer())
+      .post('/api/v1/sales')
+      .set('Authorization', `Bearer ${posToken}`)
+      .set('Idempotency-Key', failKey)
+      .send({
+        id: failBillId,
+        subtotal: '50000.00',
+        discount: '0.00',
+        total: '50000.00',
+        paymentMethod: 'เงินสด',
+        items: [
+          {
+            lineNo: 1,
+            productId: 'prod-metric-replay',
+            name: 'Replay Test Part',
+            qty: 999999, // Insufficient stock throws 409 INSUFFICIENT_STOCK
+            price: '50000.00',
+          },
+        ],
+      })
+      .expect(409);
+
+    const midMetrics = await request(app.getHttpServer()).get('/metrics');
+    expect(parseReplayCount(midMetrics.text)).toBe(countBefore);
+
+    // 2. Retrying the same key with valid stock succeeds as a fresh claim, NOT a replay
+    await request(app.getHttpServer())
+      .post('/api/v1/sales')
+      .set('Authorization', `Bearer ${posToken}`)
+      .set('Idempotency-Key', failKey)
+      .send({
+        id: failBillId,
+        subtotal: '100.00',
+        discount: '0.00',
+        total: '100.00',
+        paymentMethod: 'เงินสด',
+        items: [
+          {
+            lineNo: 1,
+            productId: 'prod-metric-replay',
+            name: 'Replay Test Part',
+            qty: 1,
+            price: '100.00',
+          },
+        ],
+      })
+      .expect(201);
+
+    const postClaimMetrics = await request(app.getHttpServer()).get('/metrics');
+    // Fresh claim does not increment replay counter
+    expect(parseReplayCount(postClaimMetrics.text)).toBe(countBefore);
+
+    // 3. A replay that occurs inside a transaction that subsequently rolls back
+    //    must discard onTransactionCommit and NOT increment pos_idempotency_replay_total
+    const idempotencyService = app.get(IdempotencyService);
+    const tenantService = app.get(TenantService);
+    const mockRes = { status: () => mockRes } as unknown as Response;
+
+    await runInTenantScope(async () => {
+      setRequestTenant(TENANT);
+      await expect(
+        tenantService.runTx(async () => {
+          await idempotencyService.runIdempotent(
+            {
+              key: failKey,
+              endpoint: 'POST /api/v1/sales',
+              requestHash: IdempotencyService.requestHash({
+                id: failBillId,
+                subtotal: '100.00',
+                discount: '0.00',
+                total: '100.00',
+                paymentMethod: 'เงินสด',
+                items: [
+                  {
+                    lineNo: 1,
+                    productId: 'prod-metric-replay',
+                    name: 'Replay Test Part',
+                    qty: 1,
+                    price: '100.00',
+                  },
+                ],
+              }),
+              successCode: 201,
+            },
+            mockRes,
+            () => {
+              throw new Error('should not execute on replay');
+            },
+          );
+          // Transaction aborts after the replay claim was made
+          throw new Error('Simulated transaction rollback during replay');
+        }),
+      ).rejects.toThrow('Simulated transaction rollback during replay');
+    });
+
+    const finalMetrics = await request(app.getHttpServer()).get('/metrics');
+    expect(parseReplayCount(finalMetrics.text)).toBe(countBefore);
   });
 });

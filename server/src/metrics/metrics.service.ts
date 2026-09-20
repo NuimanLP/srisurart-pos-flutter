@@ -16,6 +16,7 @@ export class MetricsService {
   private readonly httpRequestDurationSeconds: Histogram<
     'method' | 'route' | 'status_code'
   >;
+  private readonly idempotencyReplayTotal: Counter<string>;
 
   constructor() {
     collectDefaultMetrics({ register: this.registry });
@@ -35,6 +36,14 @@ export class MetricsService {
       buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
       registers: [this.registry],
     });
+
+    // Business counter per D5 of #335: counts idempotent request replays after commit.
+    // Intentionally carries NO tenant_id label to avoid cardinality explosion and preserve privacy.
+    this.idempotencyReplayTotal = new Counter({
+      name: 'pos_idempotency_replay_total',
+      help: 'Total number of idempotent request replays',
+      registers: [this.registry],
+    });
   }
 
   get contentType(): string {
@@ -43,6 +52,10 @@ export class MetricsService {
 
   metrics(): Promise<string> {
     return this.registry.metrics();
+  }
+
+  recordReplay(): void {
+    this.idempotencyReplayTotal.inc();
   }
 
   recordRequest(
