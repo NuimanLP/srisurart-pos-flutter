@@ -9,29 +9,36 @@
 
 ## 1. คีย์ที่ต้องมี
 
-compose บังคับด้วย `:?` (ขึ้นไม่ได้ถ้าขาด) **10 ตัว** — ตรวจซ้ำได้ด้วย
+ตรวจซ้ำได้ด้วย
 `grep -ohE '\$\{[A-Z_0-9]+:\?[^}]*\}' server/docker-compose.yml deploy/compose/*.yml | sort -u`
+— คำสั่งนี้คืน **12 ตัว** เพราะกวาด overlay ด้วย คือ 10 ตัวของสแตกหลักในตารางข้างล่าง
+บวก `GRAFANA_ADMIN_PASSWORD` (เฉพาะตอนเปิด overlay) และ `IMAGE_TAG` (Ansible ส่งเอง — ห้ามใส่ในไฟล์)
+ตรงกับที่ D1 เขียนไว้ว่า "10 ตัว + `IMAGE_TAG`"
+
+**10 ตัวที่สแตกหลักบังคับ:**
 
 | คีย์ | บังคับที่ | หมายเหตุ |
 |---|---|---|
-| `POSTGRES_PASSWORD` | `docker-compose.yml:23,118,185` | ใช้ทั้ง `ADMIN_DATA_SOURCE` และ `migrate` |
-| `POS_APP_PASSWORD` | `:19,186` | ฝังใน URL **และ** ใน SQL literal ที่ `docker/postgres/init/01-app-role.sh:7` |
-| `REDIS_PASSWORD` | `:27,28,204,216,230,241` | ฝังใน URL สองเส้น + `REDISCLI_AUTH` |
-| `JWT_PLATFORM_SECRET` | `:26` | HS256 ของ platform-admin token · ถ้าขาด `config.ts:91` fallback เป็นสตริง dev ที่เป็นสาธารณะ |
-| `ETCD_ROOT_PASSWORD` | `:36,295,316` | ดูกับดัก §4 |
+| `POSTGRES_PASSWORD` | `docker-compose.yml:23,118,184` | ใช้ทั้ง `ADMIN_DATA_SOURCE` และ `migrate` |
+| `POS_APP_PASSWORD` | `:19,185` | ฝังใน URL **และ** ใน SQL literal ที่ `docker/postgres/init/01-app-role.sh:7` |
+| `REDIS_PASSWORD` | `:27,28,205,216,231,241` | ฝังใน URL สองเส้น + `--requirepass` + `REDISCLI_AUTH` |
+| `JWT_PLATFORM_SECRET` | `:26` | HS256 ของ platform-admin token · ถ้าขาด `src/config/config.ts:91` fallback เป็นสตริง dev ที่เป็นสาธารณะ |
+| `ETCD_ROOT_PASSWORD` | `:36,296,321` | ดูกับดัก §4 |
 | `BULL_BOARD_PASSWORD` | `:169` | — |
-| `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEYS` | `:130-131,138-139,146-147` | RS256 ของ token ฝั่งร้าน |
+| `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEYS` | `:128-129,137-138,146-147` | RS256 ของ token ฝั่งร้าน |
 | `K6_REMOTE_WRITE_BASIC_AUTH_USER` / `_PASSWORD` | `:103-104` | `htpasswd-gen` ของ **สแตกหลัก** ไม่ใช่ overlay — ขาดแล้วสแตกไม่ขึ้นทั้งที่ไม่ได้รัน k6 |
 
-คีย์ที่ **ไม่ใช่ `:?` แต่ต้องใส่**:
+**คีย์ของ overlay:** `GRAFANA_ADMIN_PASSWORD` เป็น `:?` ที่ `deploy/compose/monitoring.yml:92`
+(บังคับเฉพาะเมื่อเปิด overlay) คู่กับ `GRAFANA_ADMIN_USER` ที่ `:89` ซึ่ง default เป็น `admin`
+
+**คีย์ที่ไม่ใช่ `:?` แต่ต้องใส่:**
 
 - `BULL_BOARD_USER` — `docker-compose.yml:168` ใส่ default `admin` ให้ แต่ `src/bull-board.ts:20` เรียก `requiredEnv()` · รอดได้เพราะ default ของ compose เท่านั้น ใส่ไว้ตรง ๆ ดีกว่า
-- `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` — `deploy/compose/monitoring.yml:89,92` (password เป็น `:?` เมื่อเปิด overlay)
 - `DB_POOL_SIZE` / `LOG_LEVEL` / `REDIS_COMMAND_TIMEOUT_MS` — มี default อยู่แล้ว ใส่ไว้ให้อ่านง่าย
 
-คีย์ที่ **ห้ามใส่**:
+**คีย์ที่ห้ามใส่:**
 
-- `IMAGE_TAG` — `deploy/compose/vm.override.yml:11` บังคับก็จริง แต่ `deploy/ansible/deploy.yml:186` ส่งเป็น shell env var ซึ่ง **ชนะไฟล์ `.env`** · ค่าที่ปักไว้ในไฟล์จะกลายเป็น tag เก่าค้างที่ไม่มีใครสังเกต
+- `IMAGE_TAG` — `deploy/compose/vm.override.yml:10` บังคับก็จริง แต่ `deploy/ansible/deploy.yml:186` ส่งเป็น shell env var ซึ่ง **ชนะไฟล์ `.env`** · ค่าที่ปักไว้ในไฟล์จะกลายเป็น tag เก่าค้างที่ไม่มีใครสังเกต
 
 ---
 
@@ -48,9 +55,11 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt.key   # PK
 openssl rsa -in jwt.key -pubout -out jwt.pub
 ```
 
-🔴 **PEM ต้องคงรูป multi-line ในเครื่องหมายคำพูด** แบบเดียวกับ `.env.example:51-78`
-`server/test/k6/setup.ts:39` แกะคีย์ออกจากไฟล์ด้วย regex `JWT_PRIVATE_KEY="([^"]+)"` และ `:44`
-throw ถ้าไม่เจอ — เขียนเป็น `\n` บรรทัดเดียวหรือไม่ใส่ quote แล้ว `pnpm k6:setup` (#184/#251, lane C) พัง
+🔴 **PEM ต้องอยู่ในเครื่องหมายคำพูด** แบบเดียวกับ `.env.example:51-79`
+`server/test/k6/setup.ts:39` แกะคีย์ออกจากไฟล์ด้วย regex `JWT_PRIVATE_KEY="([^"]+)"` (มี flag `s`)
+และ `:44` throw ถ้าไม่เจอ — **ไม่ใส่ quote แล้ว `pnpm k6:setup` (#184/#251, lane C) พัง**
+(รูป `\n` บรรทัดเดียว *ในเครื่องหมายคำพูด* ใช้ได้ เพราะ `:34,:41` มี `.replace(/\\n/g, '\n')`
+แต่ multi-line ตามตัวอย่างอ่านง่ายกว่าและตรงกับ `.env.example` จึงใช้รูปนั้น)
 
 ---
 
@@ -65,26 +74,33 @@ throw ถ้าไม่เจอ — เขียนเป็น `\n` บรร
 
 ### ทำไม dev ยังใช้ `dev-only-*` สำหรับสามตัวนั้น
 
-ชุดเทสต์ e2e **hardcode ค่าสามตัวนี้ไว้เป็น default** และไม่มีใคร export `DATABASE_URL` ให้:
+ชุดเทสต์ e2e **hardcode ค่าสามตัวนี้ไว้เป็น default** และไม่มีใคร export `DATABASE_URL` ให้ — **แปดไฟล์**:
 `test/support/fixture.ts:96,104,105`, `test/schema.e2e-spec.ts:25-26`,
-`test/support/e2e-runner-lock.ts:31`, `test/k6/setup.ts:23`, `test/health.e2e-spec.ts:16-18`,
-`test/idempotency.e2e-spec.ts:176-181`, `test/backoff-strategy.e2e-spec.ts:34-36`
+`test/support/e2e-runner-lock.ts:31`, `test/k6/setup.ts:23`, `test/k6/verify-integrity.ts:12`,
+`test/health.e2e-spec.ts:16-18`, `test/idempotency.e2e-spec.ts:176-181`,
+`test/backoff-strategy.e2e-spec.ts:34-36`
 
 สุ่มค่าใหม่ในไฟล์ dev = `pnpm test:e2e` ของ **ทุกเลน** ตายทันทีโดยไม่มี error ที่ชี้สาเหตุ
+(และ `pnpm k6:verify` ของ lane C ตายด้วย — `package.json:28`)
 รับความเสี่ยงนี้ได้เพราะ dev overlay publish พอร์ตบน loopback เท่านั้น (`docker-compose.dev.yml:9-21`)
 และ #335 บรรทัด 34 กำกับไว้เองว่าเครื่อง dev คือ "ที่ไว้รันเทสต์" ของจริงคือ VM
-ถ้าจะสุ่มจริงเมื่อไหร่ ต้องแก้ default ในเจ็ดไฟล์นั้นก่อน แล้วประกาศให้ทุกเลนรู้
+
+🔴 **AC ข้อ 1 ของ #336 จึงปิดแบบ "ปิดบางส่วนโดยตั้งใจ"**: ไฟล์ VM สุ่มครบทุกคีย์ ส่วนไฟล์ dev
+เหลือสามคีย์เป็นค่า `dev-only-*` ตามเดิม ไม่ใช่การลืม — ถ้าจะสุ่มจริงเมื่อไหร่ ต้องแก้ default
+ในแปดไฟล์นั้นก่อน แล้วประกาศให้ทุกเลนรู้
 
 ### ⚠️ ช่องว่างที่พบระหว่างทำใบนี้ (ไม่ได้แก้ในใบนี้)
 
-`CORS_ORIGINS` และ `PLATFORM_ADMIN_IPS` ถูกอ่านจริงที่ `config.ts:95-97,100-102` และ
-`app.setup.ts:47-51` ใช้ `'*'` เมื่อว่าง — แต่ **ไม่มี compose ไฟล์ไหนส่งสองคีย์นี้เข้า container**
+`CORS_ORIGINS` และ `PLATFORM_ADMIN_IPS` ถูกอ่านจริงที่ `src/config/config.ts:95-97,100-102` และ
+`src/app.setup.ts:45` ตั้งต้นเป็น `'*'` โดยมี `:47-51` เป็นที่เดียวที่จะ override ให้ — แต่
+**ไม่มี compose ไฟล์ไหนส่งสองคีย์นี้เข้า container**
 (`server/docker-compose.yml` ไม่มี `env_file:` และ `x-app-env:18-36` ไม่มีสองคีย์นี้ ·
 `docker-compose.dev.yml` และ `deploy/compose/vm.override.yml` ก็ไม่มี) ทั้งที่
 `07_CICD_DEPLOY.md:168` ระบุว่า `CORS_ORIGINS` เป็นส่วนหนึ่งของ `DEMO_ENV_FILE`
 
 → **ใส่ลงไฟล์ตอนนี้ก็ไม่มีผล** และห้ามอ้างว่า VM ปิด CORS แล้ว
 การต่อสายเป็นการแก้ compose ซึ่งอยู่นอกอาณาเขตของ lane A — รายงานไว้ที่ #335 แล้ว
+(คอมเมนต์ `#issuecomment-5750642942` — รอเจ้าของตัดสินว่าจะเปิดใบแยกหรือให้ #343 รับไป)
 
 ---
 
@@ -103,7 +119,7 @@ throw ถ้าไม่เจอ — เขียนเป็น `\n` บรร
 **ถ้าต้องหมุนค่าจริงบน volume เดิม**: `ALTER ROLE postgres PASSWORD …; ALTER ROLE pos_app PASSWORD …;`
 ผ่าน `docker compose exec postgres psql` · `etcdctl user passwd root` · ลบไฟล์ htpasswd แล้วให้ `htpasswd-gen` สร้างใหม่
 **ห้าม `docker compose down -v`** และห้าม `docker volume rm srisurart-pos_*`
-(กฎ CLAUDE.md + `demo-335-three-agent-split.md` ข้อ 1)
+(กฎใน CLAUDE.md หัวข้อ CI/CD — "never `docker compose down -v` on a shared daemon")
 
 ---
 
@@ -151,6 +167,7 @@ etcd-init: asserting root authenticates
 etcd-init: asserting anonymous access is refused
 etcd-init: auth ok — root authenticates, anonymous access refused (HTTP 400)
 etcd-init: seeded /pos/config/log_level = info
+etcd-init: done
 
 $ … cut -d: -f1 /etc/nginx/auth/k6-remote-write.htpasswd
 k6
@@ -159,7 +176,7 @@ $ … /v3/kv/range  (ไม่ใส่ token)
 {"code":3, "message":"etcdserver: user name is empty"}
 ```
 
-🔴 **`/health/ready` อย่างเดียวพิสูจน์ไม่ได้ว่า "ขึ้นครบทุก service"** — `src/health/health.controller.ts:46-66`
+🔴 **`/health/ready` อย่างเดียวพิสูจน์ไม่ได้ว่า "ขึ้นครบทุก service"** — `src/health/health.controller.ts:48-68`
 ตรวจแค่ Postgres + Redis สองตัว **ไม่แตะ etcd** สามบรรทัดสุดท้ายข้างบนคือสิ่งที่พิสูจน์
 `ETCD_ROOT_PASSWORD` / `K6_REMOTE_WRITE_*` / cert ซึ่งเป็นคีย์ที่ D1 บอกเองว่ามักถูกลืม
 
