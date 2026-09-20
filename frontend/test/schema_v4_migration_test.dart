@@ -91,7 +91,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 9);
+    expect(version, 10);
 
     final product = await (db.select(
       db.products,

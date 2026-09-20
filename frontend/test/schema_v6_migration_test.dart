@@ -73,7 +73,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 9);
+    expect(version, 10);
 
     expect(await db.select(db.docCounters).get(), isEmpty);
     expect(await db.select(db.docCounterSeeds).get(), isEmpty);
