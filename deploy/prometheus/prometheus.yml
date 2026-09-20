@@ -11,8 +11,8 @@ scrape_configs:
     static_configs:
       - targets: ['node-exporter:9100']
 
-  # The API has no /metrics endpoint yet (#34/#35). Until then this job scrapes the
-  # readiness path so the three instances at least appear as targets.
+  # The API's /health/ready endpoint is JSON, so Prometheus's `up` metric reads 0 (fails text-exposition parse).
+  # Kept as a placeholder; actual metrics are scraped by the api-metrics job below (#339/#340).
   #
   # 🔴 Known limitation (measured while building this file, not assumed): Prometheus's `up`
   # is 0 whenever the response body fails to parse as the Prometheus text-exposition format —
@@ -28,11 +28,9 @@ scrape_configs:
     static_configs:
       - targets: ['api-1:3000', 'api-2:3000', 'api-3:3000']
 
-  # Disabled until #34/#35 land a real /metrics endpoint (internal-only per
+  # Enabled via #339 metrics.serve / #340 metrics.dashboard (internal-only per
   # 02_API_SCREENS.md's endpoint table — never routed through the public Nginx surface).
-  # Turning it on is then a one-line uncomment; the dashboard's two SLI panels (success rate,
-  # p95) read "no data" until this job is enabled and the app emits what they query.
-  # - job_name: api-metrics
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ['api-1:3000', 'api-2:3000', 'api-3:3000']
+  - job_name: api-metrics
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['api-1:3000', 'api-2:3000', 'api-3:3000']

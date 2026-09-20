@@ -68,7 +68,7 @@
     },
     {
       "id": 4,
-      "title": "API success rate (needs #34/#35 /metrics — no data until then)",
+      "title": "API success rate",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
@@ -92,7 +92,7 @@
     },
     {
       "id": 5,
-      "title": "API p95 latency (needs #34/#35 /metrics — no data until then)",
+      "title": "API p95 latency",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
