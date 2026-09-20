@@ -17,6 +17,8 @@
 //  • Run the WHOLE thing in db.transaction(...) so any throw rolls everything back.
 //  • Store pointsGranted ON the sale so refunds reverse the right count.
 
+import 'dart:math' as math;
+
 import 'package:drift/drift.dart';
 
 import '../../core/utils/ids.dart';
@@ -127,6 +129,8 @@ class SalesRepository {
         date: date,
         voided: false,
         voidedAt: null,
+        soldOffline: true,
+        voidReason: null,
       );
       await db.into(db.sales).insert(sale);
 
@@ -201,5 +205,90 @@ class SalesRepository {
       (bySale[it.saleId] ??= []).add(it);
     }
     return [for (final s in sales) SaleWithItems(s, bySale[s.id] ?? const [])];
+  }
+
+  /// Voids a sale offline. Atomically marks sale as voided, restores stock,
+  /// and reverses customer and mechanic ledgers.
+  Future<SaleRow> voidSaleOffline(String saleId, String reason) async {
+    final trimmedReason = reason.trim();
+    if (trimmedReason.isEmpty) {
+      throw ArgumentError('กรุณาระบุเหตุผลในการยกเลิกบิล');
+    }
+
+    final sale = await (db.select(db.sales)..where((t) => t.id.equals(saleId)))
+        .getSingleOrNull();
+    if (sale == null) {
+      throw Exception('Sale not found');
+    }
+    if (sale.voided) {
+      throw Exception('Bill already voided');
+    }
+
+    final returns = await (db.select(db.returns)..where((t) => t.saleId.equals(saleId))).get();
+    if (returns.isNotEmpty) {
+      throw Exception('บิลนี้มีการคืนสินค้าแล้ว ไม่สามารถยกเลิกได้');
+    }
+
+    final items = await (db.select(db.saleItems)..where((t) => t.saleId.equals(saleId))).get();
+
+    return db.transaction(() async {
+      final now = DateTime.now();
+
+      // 1. Mark sale voided
+      await (db.update(db.sales)..where((t) => t.id.equals(saleId))).write(
+        SalesCompanion(
+          voided: const Value(true),
+          voidedAt: Value(now),
+          voidReason: Value(trimmedReason),
+        ),
+      );
+
+      // 2. Restore stock
+      for (final item in items) {
+        final p = await (db.select(db.products)..where((t) => t.id.equals(item.productId))).getSingleOrNull();
+        if (p != null) {
+          await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
+            ProductsCompanion(stock: Value(p.stock + item.qty)).stamped,
+          );
+        }
+      }
+
+      // 3. Reverse customer spend & points
+      if (sale.customerId != null) {
+        final c = await (db.select(db.customers)..where((t) => t.id.equals(sale.customerId!))).getSingleOrNull();
+        if (c != null) {
+          await (db.update(db.customers)..where((t) => t.id.equals(sale.customerId!))).write(
+            CustomersCompanion(
+              totalSpend: Value(math.max(0.0, c.totalSpend - sale.total)),
+              points: Value(math.max(0, c.points - sale.pointsGranted)),
+              updatedAt: Value(now),
+            ),
+          );
+        }
+      }
+
+      // 4. Reverse mechanic stats
+      if (sale.mechanicId != null) {
+        final m = await (db.select(db.mechanics)..where((t) => t.id.equals(sale.mechanicId!))).getSingleOrNull();
+        if (m != null) {
+          final isCredit = sale.paymentMethod == 'เครดิตช่าง';
+          final delta = sale.mechanicDelta ?? 0;
+          final reverseDiscount = delta < 0 ? -delta : 0.0;
+          final reverseMarkup = delta > 0 ? delta : 0.0;
+          final discountBase = m.totalDiscount != 0 ? m.totalDiscount : m.totalCredit;
+          await (db.update(db.mechanics)..where((t) => t.id.equals(sale.mechanicId!))).write(
+            MechanicsCompanion(
+              totalSales: Value(math.max(0.0, m.totalSales - sale.total)),
+              totalDiscount: Value(math.max(0.0, discountBase - reverseDiscount)),
+              totalMarkup: Value(math.max(0.0, m.totalMarkup - reverseMarkup)),
+              creditBalance: Value(math.max(0.0, m.creditBalance - (isCredit ? sale.total : 0.0))),
+              updatedAt: Value(now),
+            ),
+          );
+        }
+      }
+
+      return (await (db.select(db.sales)..where((t) => t.id.equals(saleId))).getSingle());
+    });
   }
 }

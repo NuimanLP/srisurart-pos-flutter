@@ -114,6 +114,13 @@ class Sales extends Table {
   /// a patched bill can name a shift this cache has never seen.
   TextColumn get shiftId => text().nullable()();
 
+  /// Schema v10 (#276, Slice 11-c): tracks if bill was issued offline.
+  /// Used by Degraded mode to allow offline void only on offline bills.
+  BoolColumn get soldOffline => boolean().withDefault(const Constant(false))();
+
+  /// Schema v10 (#276, Slice 11-c): mandatory reason required when voiding.
+  TextColumn get voidReason => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

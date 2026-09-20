@@ -299,6 +299,8 @@ class ApiSalesRepository implements SalesRepository {
       // drawer open, and also null against a server that predates #82; both mean
       // "unknown here", not "work it out".
       shiftId: res['shiftId'] as String?,
+      soldOffline: false,
+      voidReason: null,
     );
 
     // The response's per-line costs, keyed by the `lineNo` `_saleBody` sent.
@@ -520,6 +522,8 @@ class ApiSalesRepository implements SalesRepository {
       voided: false,
       voidedAt: null,
       shiftId: effectiveShiftId,
+      soldOffline: true,
+      voidReason: null,
     );
 
     final payload = _saleBody(
@@ -648,4 +652,130 @@ class ApiSalesRepository implements SalesRepository {
   @override
   Future<Map<String, int>> getRefundedQty(String saleId) =>
       drift.getRefundedQty(saleId);
+
+  @override
+  Future<SaleRow> voidSaleOffline(String saleId, String reason) async {
+    final trimmedReason = reason.trim();
+    if (trimmedReason.isEmpty) {
+      throw const PosException('VOID_REASON_REQUIRED', 'กรุณาระบุเหตุผลในการยกเลิกบิล');
+    }
+
+    final sale = await (db.select(db.sales)..where((t) => t.id.equals(saleId)))
+        .getSingleOrNull();
+    if (sale == null) {
+      throw const PosException('SALE_NOT_FOUND', 'ไม่พบบิล');
+    }
+    if (sale.voided) {
+      throw const PosException('SALE_ALREADY_VOIDED', 'บิลนี้ถูกยกเลิกไปแล้ว');
+    }
+
+    // 08_PHASE2_SPEC.md §12 / F10: Online bills CANNOT be voided offline.
+    if (!sale.soldOffline) {
+      throw const PosException(
+        'VOID_NEEDS_ONLINE',
+        'บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น',
+      );
+    }
+
+    final refunded = await getRefundedQty(saleId);
+    if (refunded.values.any((qty) => qty > 0)) {
+      throw const PosException(
+        'SALE_HAS_RETURNS',
+        'บิลนี้มีการคืนสินค้าแล้ว ไม่สามารถยกเลิกได้',
+      );
+    }
+
+    final items = await (db.select(db.saleItems)..where((t) => t.saleId.equals(saleId))).get();
+    final now = DateTime.now();
+
+    final opId = newId('op');
+    final idempotencyKey = newId('k');
+    final aggregates = [
+      'sale:$saleId',
+      if (sale.shiftId != null) 'shift:${sale.shiftId}',
+    ];
+    final payload = {
+      'saleId': saleId,
+      'reason': trimmedReason,
+    };
+
+    await db.transaction(() async {
+      // 1. Mark sale as voided with reason
+      await (db.update(db.sales)..where((t) => t.id.equals(saleId))).write(
+        SalesCompanion(
+          voided: const Value(true),
+          voidedAt: Value(now),
+          voidReason: Value(trimmedReason),
+        ),
+      );
+
+      // 2. Restore stock locally
+      for (final item in items) {
+        final p = await (db.select(db.products)..where((t) => t.id.equals(item.productId))).getSingleOrNull();
+        if (p != null) {
+          await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
+            ProductsCompanion(stock: Value(p.stock + item.qty)),
+          );
+        }
+      }
+
+      // 3. Reverse customer spend & points
+      if (sale.customerId != null) {
+        final c = await (db.select(db.customers)..where((t) => t.id.equals(sale.customerId!))).getSingleOrNull();
+        if (c != null) {
+          await (db.update(db.customers)..where((t) => t.id.equals(sale.customerId!))).write(
+            CustomersCompanion(
+              totalSpend: Value((c.totalSpend - sale.total).clamp(0.0, double.infinity)),
+              points: Value((c.points - sale.pointsGranted).clamp(0, 999999999)),
+            ),
+          );
+        }
+      }
+
+      // 4. Reverse mechanic stats
+      if (sale.mechanicId != null) {
+        final m = await (db.select(db.mechanics)..where((t) => t.id.equals(sale.mechanicId!))).getSingleOrNull();
+        if (m != null) {
+          final isCredit = sale.paymentMethod == 'เครดิตช่าง';
+          final delta = sale.mechanicDelta ?? 0;
+          final reverseDiscount = delta < 0 ? -delta : 0.0;
+          final reverseMarkup = delta > 0 ? delta : 0.0;
+          final discountBase = m.totalDiscount != 0 ? m.totalDiscount : m.totalCredit;
+          await (db.update(db.mechanics)..where((t) => t.id.equals(sale.mechanicId!))).write(
+            MechanicsCompanion(
+              totalSales: Value((m.totalSales - sale.total).clamp(0.0, double.infinity)),
+              totalDiscount: Value((discountBase - reverseDiscount).clamp(0.0, double.infinity)),
+              totalMarkup: Value((m.totalMarkup - reverseMarkup).clamp(0.0, double.infinity)),
+              creditBalance: Value((m.creditBalance - (isCredit ? sale.total : 0.0)).clamp(0.0, double.infinity)),
+              updatedAt: Value(now),
+            ),
+          );
+        }
+      }
+
+      // 5. Insert op into outbox_ops
+      await db.into(db.outboxOps).insert(
+        OutboxOpsCompanion.insert(
+          opId: opId,
+          idempotencyKey: idempotencyKey,
+          type: 'sale.void_offline',
+          payload: jsonEncode(payload),
+          aggregates: jsonEncode(aggregates),
+          createdAt: now.toUtc(),
+          status: 'pending',
+        ),
+      );
+    });
+
+    final sync = syncService ??
+        (syncFacade is SyncService ? syncFacade as SyncService : null);
+    if (sync != null) {
+      await sync.refreshOutbox();
+      if (sync.currentStatus != SyncStatus.degraded) {
+        unawaited(sync.push());
+      }
+    }
+
+    return (await (db.select(db.sales)..where((t) => t.id.equals(saleId))).getSingle());
+  }
 }

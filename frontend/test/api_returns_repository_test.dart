@@ -112,6 +112,8 @@ void main() {
             voided: false,
             voidedAt: null,
             shiftId: null,
+            soldOffline: false,
+            voidReason: null,
           ),
         );
     await db

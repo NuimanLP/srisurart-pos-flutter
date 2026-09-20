@@ -2781,6 +2781,32 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, SaleRow> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _soldOfflineMeta = const VerificationMeta(
+    'soldOffline',
+  );
+  @override
+  late final GeneratedColumn<bool> soldOffline = GeneratedColumn<bool>(
+    'sold_offline',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("sold_offline" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _voidReasonMeta = const VerificationMeta(
+    'voidReason',
+  );
+  @override
+  late final GeneratedColumn<String> voidReason = GeneratedColumn<String>(
+    'void_reason',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2799,6 +2825,8 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, SaleRow> {
     voided,
     voidedAt,
     shiftId,
+    soldOffline,
+    voidReason,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2932,6 +2960,21 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, SaleRow> {
         shiftId.isAcceptableOrUnknown(data['shift_id']!, _shiftIdMeta),
       );
     }
+    if (data.containsKey('sold_offline')) {
+      context.handle(
+        _soldOfflineMeta,
+        soldOffline.isAcceptableOrUnknown(
+          data['sold_offline']!,
+          _soldOfflineMeta,
+        ),
+      );
+    }
+    if (data.containsKey('void_reason')) {
+      context.handle(
+        _voidReasonMeta,
+        voidReason.isAcceptableOrUnknown(data['void_reason']!, _voidReasonMeta),
+      );
+    }
     return context;
   }
 
@@ -3005,6 +3048,14 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, SaleRow> {
         DriftSqlType.string,
         data['${effectivePrefix}shift_id'],
       ),
+      soldOffline: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}sold_offline'],
+      )!,
+      voidReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}void_reason'],
+      ),
     );
   }
 
@@ -3036,6 +3087,13 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
   /// offline build has none. Deliberately NOT a `references(Shifts, #id)`:
   /// a patched bill can name a shift this cache has never seen.
   final String? shiftId;
+
+  /// Schema v10 (#276, Slice 11-c): tracks if bill was issued offline.
+  /// Used by Degraded mode to allow offline void only on offline bills.
+  final bool soldOffline;
+
+  /// Schema v10 (#276, Slice 11-c): mandatory reason required when voiding.
+  final String? voidReason;
   const SaleRow({
     required this.id,
     required this.receiptNo,
@@ -3053,6 +3111,8 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     required this.voided,
     this.voidedAt,
     this.shiftId,
+    required this.soldOffline,
+    this.voidReason,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3086,6 +3146,10 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     }
     if (!nullToAbsent || shiftId != null) {
       map['shift_id'] = Variable<String>(shiftId);
+    }
+    map['sold_offline'] = Variable<bool>(soldOffline);
+    if (!nullToAbsent || voidReason != null) {
+      map['void_reason'] = Variable<String>(voidReason);
     }
     return map;
   }
@@ -3122,6 +3186,10 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
       shiftId: shiftId == null && nullToAbsent
           ? const Value.absent()
           : Value(shiftId),
+      soldOffline: Value(soldOffline),
+      voidReason: voidReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(voidReason),
     );
   }
 
@@ -3147,6 +3215,8 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
       voided: serializer.fromJson<bool>(json['voided']),
       voidedAt: serializer.fromJson<DateTime?>(json['voidedAt']),
       shiftId: serializer.fromJson<String?>(json['shiftId']),
+      soldOffline: serializer.fromJson<bool>(json['soldOffline']),
+      voidReason: serializer.fromJson<String?>(json['voidReason']),
     );
   }
   @override
@@ -3169,6 +3239,8 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
       'voided': serializer.toJson<bool>(voided),
       'voidedAt': serializer.toJson<DateTime?>(voidedAt),
       'shiftId': serializer.toJson<String?>(shiftId),
+      'soldOffline': serializer.toJson<bool>(soldOffline),
+      'voidReason': serializer.toJson<String?>(voidReason),
     };
   }
 
@@ -3189,6 +3261,8 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     bool? voided,
     Value<DateTime?> voidedAt = const Value.absent(),
     Value<String?> shiftId = const Value.absent(),
+    bool? soldOffline,
+    Value<String?> voidReason = const Value.absent(),
   }) => SaleRow(
     id: id ?? this.id,
     receiptNo: receiptNo ?? this.receiptNo,
@@ -3208,6 +3282,8 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     voided: voided ?? this.voided,
     voidedAt: voidedAt.present ? voidedAt.value : this.voidedAt,
     shiftId: shiftId.present ? shiftId.value : this.shiftId,
+    soldOffline: soldOffline ?? this.soldOffline,
+    voidReason: voidReason.present ? voidReason.value : this.voidReason,
   );
   SaleRow copyWithCompanion(SalesCompanion data) {
     return SaleRow(
@@ -3241,6 +3317,12 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
       voided: data.voided.present ? data.voided.value : this.voided,
       voidedAt: data.voidedAt.present ? data.voidedAt.value : this.voidedAt,
       shiftId: data.shiftId.present ? data.shiftId.value : this.shiftId,
+      soldOffline: data.soldOffline.present
+          ? data.soldOffline.value
+          : this.soldOffline,
+      voidReason: data.voidReason.present
+          ? data.voidReason.value
+          : this.voidReason,
     );
   }
 
@@ -3262,7 +3344,9 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
           ..write('date: $date, ')
           ..write('voided: $voided, ')
           ..write('voidedAt: $voidedAt, ')
-          ..write('shiftId: $shiftId')
+          ..write('shiftId: $shiftId, ')
+          ..write('soldOffline: $soldOffline, ')
+          ..write('voidReason: $voidReason')
           ..write(')'))
         .toString();
   }
@@ -3285,6 +3369,8 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     voided,
     voidedAt,
     shiftId,
+    soldOffline,
+    voidReason,
   );
   @override
   bool operator ==(Object other) =>
@@ -3305,7 +3391,9 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
           other.date == this.date &&
           other.voided == this.voided &&
           other.voidedAt == this.voidedAt &&
-          other.shiftId == this.shiftId);
+          other.shiftId == this.shiftId &&
+          other.soldOffline == this.soldOffline &&
+          other.voidReason == this.voidReason);
 }
 
 class SalesCompanion extends UpdateCompanion<SaleRow> {
@@ -3325,6 +3413,8 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
   final Value<bool> voided;
   final Value<DateTime?> voidedAt;
   final Value<String?> shiftId;
+  final Value<bool> soldOffline;
+  final Value<String?> voidReason;
   final Value<int> rowid;
   const SalesCompanion({
     this.id = const Value.absent(),
@@ -3343,6 +3433,8 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     this.voided = const Value.absent(),
     this.voidedAt = const Value.absent(),
     this.shiftId = const Value.absent(),
+    this.soldOffline = const Value.absent(),
+    this.voidReason = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   SalesCompanion.insert({
@@ -3362,6 +3454,8 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     this.voided = const Value.absent(),
     this.voidedAt = const Value.absent(),
     this.shiftId = const Value.absent(),
+    this.soldOffline = const Value.absent(),
+    this.voidReason = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        receiptNo = Value(receiptNo),
@@ -3386,6 +3480,8 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     Expression<bool>? voided,
     Expression<DateTime>? voidedAt,
     Expression<String>? shiftId,
+    Expression<bool>? soldOffline,
+    Expression<String>? voidReason,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3405,6 +3501,8 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
       if (voided != null) 'voided': voided,
       if (voidedAt != null) 'voided_at': voidedAt,
       if (shiftId != null) 'shift_id': shiftId,
+      if (soldOffline != null) 'sold_offline': soldOffline,
+      if (voidReason != null) 'void_reason': voidReason,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3426,6 +3524,8 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     Value<bool>? voided,
     Value<DateTime?>? voidedAt,
     Value<String?>? shiftId,
+    Value<bool>? soldOffline,
+    Value<String?>? voidReason,
     Value<int>? rowid,
   }) {
     return SalesCompanion(
@@ -3445,6 +3545,8 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
       voided: voided ?? this.voided,
       voidedAt: voidedAt ?? this.voidedAt,
       shiftId: shiftId ?? this.shiftId,
+      soldOffline: soldOffline ?? this.soldOffline,
+      voidReason: voidReason ?? this.voidReason,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3500,6 +3602,12 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     if (shiftId.present) {
       map['shift_id'] = Variable<String>(shiftId.value);
     }
+    if (soldOffline.present) {
+      map['sold_offline'] = Variable<bool>(soldOffline.value);
+    }
+    if (voidReason.present) {
+      map['void_reason'] = Variable<String>(voidReason.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3525,6 +3633,8 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
           ..write('voided: $voided, ')
           ..write('voidedAt: $voidedAt, ')
           ..write('shiftId: $shiftId, ')
+          ..write('soldOffline: $soldOffline, ')
+          ..write('voidReason: $voidReason, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -14165,6 +14275,8 @@ typedef $$SalesTableCreateCompanionBuilder =
       Value<bool> voided,
       Value<DateTime?> voidedAt,
       Value<String?> shiftId,
+      Value<bool> soldOffline,
+      Value<String?> voidReason,
       Value<int> rowid,
     });
 typedef $$SalesTableUpdateCompanionBuilder =
@@ -14185,6 +14297,8 @@ typedef $$SalesTableUpdateCompanionBuilder =
       Value<bool> voided,
       Value<DateTime?> voidedAt,
       Value<String?> shiftId,
+      Value<bool> soldOffline,
+      Value<String?> voidReason,
       Value<int> rowid,
     });
 
@@ -14296,6 +14410,16 @@ class $$SalesTableFilterComposer extends Composer<_$AppDatabase, $SalesTable> {
 
   ColumnFilters<String> get shiftId => $composableBuilder(
     column: $table.shiftId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get soldOffline => $composableBuilder(
+    column: $table.soldOffline,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get voidReason => $composableBuilder(
+    column: $table.voidReason,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -14413,6 +14537,16 @@ class $$SalesTableOrderingComposer
     column: $table.shiftId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get soldOffline => $composableBuilder(
+    column: $table.soldOffline,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get voidReason => $composableBuilder(
+    column: $table.voidReason,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$SalesTableAnnotationComposer
@@ -14486,6 +14620,16 @@ class $$SalesTableAnnotationComposer
   GeneratedColumn<String> get shiftId =>
       $composableBuilder(column: $table.shiftId, builder: (column) => column);
 
+  GeneratedColumn<bool> get soldOffline => $composableBuilder(
+    column: $table.soldOffline,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get voidReason => $composableBuilder(
+    column: $table.voidReason,
+    builder: (column) => column,
+  );
+
   Expression<T> saleItemsRefs<T extends Object>(
     Expression<T> Function($$SaleItemsTableAnnotationComposer a) f,
   ) {
@@ -14556,6 +14700,8 @@ class $$SalesTableTableManager
                 Value<bool> voided = const Value.absent(),
                 Value<DateTime?> voidedAt = const Value.absent(),
                 Value<String?> shiftId = const Value.absent(),
+                Value<bool> soldOffline = const Value.absent(),
+                Value<String?> voidReason = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SalesCompanion(
                 id: id,
@@ -14574,6 +14720,8 @@ class $$SalesTableTableManager
                 voided: voided,
                 voidedAt: voidedAt,
                 shiftId: shiftId,
+                soldOffline: soldOffline,
+                voidReason: voidReason,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -14594,6 +14742,8 @@ class $$SalesTableTableManager
                 Value<bool> voided = const Value.absent(),
                 Value<DateTime?> voidedAt = const Value.absent(),
                 Value<String?> shiftId = const Value.absent(),
+                Value<bool> soldOffline = const Value.absent(),
+                Value<String?> voidReason = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SalesCompanion.insert(
                 id: id,
@@ -14612,6 +14762,8 @@ class $$SalesTableTableManager
                 voided: voided,
                 voidedAt: voidedAt,
                 shiftId: shiftId,
+                soldOffline: soldOffline,
+                voidReason: voidReason,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
