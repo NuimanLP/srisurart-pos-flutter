@@ -31,9 +31,9 @@
 | #336 | `env.secrets` | A | ✅ **merged** `6d3219f` | #352 | สแตกพร้อมแล้ว — B/C ทดสอบจริงได้ |
 | #337 | `admin.bootstrap` | A | 🔨 กำลังทำ | — | blocked by #336 (ปลดแล้ว) |
 | #338 | `platform.provision` | A | ⏸️ รอ #337 | — | ต้องต่อ VPN สำหรับขา VM |
-| #339 | `metrics.serve` | B | ❓ ยังไม่รายงาน | — | เขียนโค้ดได้เลย · ทดสอบจริงได้แล้ว |
-| #340 | `dashboard` | B | ⏸️ รอ #339 | — | — |
-| #341 | `replay` counter | B | ⏸️ รอ #340 | — | — |
+| #339 | `metrics.serve` | B | 👀 รอรีวิว/CI | #349 | PR เปิดแล้ว · text format, bypass envelope, Nginx 404 block, route pattern label, e2e ผ่าน |
+| #340 | `dashboard` | B | 👀 รอรีวิว/CI | #350 | PR เปิดแล้ว · base #349 · scrape target api-metrics, panel titles, 07_CICD_DEPLOY.md |
+| #341 | `replay` counter | B | 👀 รอรีวิว/CI | #351 | PR เปิดแล้ว · base #350 · pos_idempotency_replay_total (no tenant_id), onTransactionCommit, panels 11 & 12, e2e ผ่าน (commit vs rollback) |
 | #342 | `web.server-build` | C | ❓ ยังไม่รายงาน | — | เริ่มได้ทันที ไม่ต้องรอใคร |
 | #346 | `ops.backup-scripts` | C | ❓ ยังไม่รายงาน | — | อิสระ ไม่บล็อกใคร |
 | #343 | `vm.deploy` 🔒 | C | ⏸️ รอ VPN | — | #336 ปลดแล้ว เหลือรอเจ้าของต่อ VPN |
@@ -48,6 +48,11 @@
 
 > ที่นี่สำหรับ **เรื่องที่กระทบเลนอื่น** เท่านั้น: ปลดบล็อก, ของที่พัง, ของที่ต้องรู้ก่อนลงมือ
 > รูปแบบ: `- **YYYY-MM-DD HH:MM · lane X** — เรื่อง`
+
+- **2026-09-20 23:00 · lane B** — ✅ **#339, #340, #341 เสร็จครบทั้ง 3 ใบ — เปิด PR #349, #350, #351 แล้ว**
+  เลน B ปิดงาน observability: `/metrics` พร้อมให้ Prometheus scrape, dashboard มี 12 panels ครบ
+  (รวม Error Rate และ Idempotent Replays), counter `pos_idempotency_replay_total` นับผ่าน `onTransactionCommit`
+  และไม่ใส่ `tenant_id` ตาม D5 · Architecture tests และ E2E metrics tests ผ่านครบ 100%
 
 - **2026-09-20 15:20 · lane A** — 🔴 **เจอช่องว่างที่ยังไม่มีใครรู้: `CORS_ORIGINS` และ
   `PLATFORM_ADMIN_IPS` ไม่ถูกส่งเข้า container โดย compose ไฟล์ใดเลย**
@@ -103,9 +108,15 @@
 
 | ใบ | สถานะ | หลักฐาน |
 |---|---|---|
-| #339 `metrics.serve` | ❓ ยังไม่รายงาน | _(lane B เติมตรงนี้)_ |
-| #340 `dashboard` | ⏸️ รอ #339 | — |
-| #341 `replay` counter | ⏸️ รอ #340 | — |
+| #339 `metrics.serve` | 👀 รอรีวิว/CI | PR #349 · `prom-client@15.1.3` · bypass global prefix & envelope · Nginx 404 block · route pattern label · e2e `server/test/metrics.e2e-spec.ts` ผ่าน |
+| #340 `dashboard` | 👀 รอรีวิว/CI | PR #350 · uncomment `api-metrics` job ใน `deploy/prometheus/prometheus.yml` · ล้าง `#34/#35` ใน dashboard และ `07_CICD_DEPLOY.md` |
+| #341 `replay` counter | 👀 รอรีวิว/CI | PR #351 · `pos_idempotency_replay_total` (no `tenant_id` label) · `onTransactionCommit` hook ใน `IdempotencyService` · Panels 11 & 12 ใน `pos-overview.json` · e2e ผ่าน (commit vs rollback) |
+
+**บันทึกที่เลนอื่นอาจใช้ซ้ำได้:**
+- `/metrics` ให้ scrape จากภายใน compose network เท่านั้น (port 3000 ของ api instance)
+- Nginx บล็อก `/metrics` จากภายนอกด้วย `location ^~ /metrics { return 404; }`
+- `pos_idempotency_replay_total` ไม่ติด label `tenant_id` ป้องกัน cardinality explosion และรักษา tenant privacy
+- Architecture tests (`tenant-door.spec.ts`, `tenant-wrapper.spec.ts`, `idempotency-routes.spec.ts`) เขียว 100% โดยไม่ต้องแก้สเปก
 
 **เตือนจาก D4/D5/D7 — อ่านก่อนลงมือ:**
 - ต้องเพิ่ม `metrics` เข้า `exclude` ของ `setGlobalPrefix` ไม่งั้น route ไปอยู่ `/api/v1/metrics`
