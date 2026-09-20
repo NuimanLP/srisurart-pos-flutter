@@ -106,6 +106,7 @@ void main() {
                 date: DateTime.now(),
                 pointsGranted: 10,
                 voided: false,
+                soldOffline: true,
               ),
             );
 
@@ -151,6 +152,7 @@ void main() {
                   date: DateTime.now(),
                   pointsGranted: 10,
                   voided: false,
+                  soldOffline: true,
                 ),
               );
 
@@ -537,6 +539,7 @@ void main() {
               date: DateTime.now(),
               pointsGranted: 5,
               voided: false,
+              soldOffline: true,
             ),
           );
 

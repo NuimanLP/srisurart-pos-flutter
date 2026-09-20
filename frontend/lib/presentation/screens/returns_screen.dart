@@ -30,6 +30,7 @@ import '../../data/db/database.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
+import '../../data/sync/sync_facade.dart';
 import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
 import '../widgets/confirm_dialog.dart';
@@ -208,6 +209,92 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
     );
   }
 
+  Future<void> _voidSaleOffline(SaleWithItems s) async {
+    if (_busy) return;
+    if (!s.sale.soldOffline) {
+      _toast('บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น');
+      return;
+    }
+
+    final reasonTextCtl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('ยกเลิกบิลออฟไลน์'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ยกเลิกบิล ${s.sale.receiptNo} ทั้งบิล?\n\nสต็อกจะถูกคืน และรายการยกเลิกจะถูกส่งขึ้นระบบเมื่อเชื่อมต่อเน็ต',
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: reasonTextCtl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'เหตุผลในการยกเลิกบิล',
+                    hintText: 'ระบุเหตุผล เช่น ลูกค้าเปลี่ยนใจ',
+                  ),
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) {
+                      return 'กรุณาระบุเหตุผลในการยกเลิกบิล';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('ยกเลิก'),
+            ),
+            AppButton(
+              label: 'ยืนยันยกเลิกบิล',
+              variant: AppButtonVariant.danger,
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.of(ctx).pop(true);
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+    final reason = reasonTextCtl.text.trim();
+    if (!mounted) return;
+
+    final salesRepo = context.read<SalesRepository>();
+    setState(() => _busy = true);
+    try {
+      await salesRepo.voidSaleOffline(s.sale.id, reason);
+      if (!mounted) return;
+      setState(() {
+        _selected = null;
+        _refundQtys.clear();
+        _reason = '';
+        _reasonCtl.text = '';
+      });
+      _refreshAll();
+      _toast('ยกเลิกบิลสำเร็จ');
+    } catch (e) {
+      if (mounted) _toast('เกิดข้อผิดพลาด: ${_msg(e)}');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _doReturn(
     List<ReturnLineInput> items, {
     String? reasonOverride,
@@ -277,76 +364,92 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 900;
-    return Scaffold(
-      body: FutureBuilder<_ReturnsData>(
-        future: _dataFuture,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const LoadingView();
-          }
-          if (snap.hasError) {
-            return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
-          }
-          final sales = snap.data!.sales;
-          final returns = snap.data!.returns;
+    SyncFacade? syncFacade;
+    try {
+      syncFacade = context.read<SyncFacade>();
+    } catch (_) {}
+    final statusStream = syncFacade?.status ?? const Stream.empty();
+    final initialStatus = syncFacade?.currentStatus ?? SyncStatus.online;
 
-          final left = _LeftPane(
-            tab: _tab,
-            sales: sales,
-            returns: returns,
-            search: _search,
-            selectedId: _selected?.sale.id,
-            onTab: (t) => setState(() => _tab = t),
-            onSearch: (q) => setState(() => _search = q),
-            onSelectSale: _selectSale,
-            onOpenCreditNote: (cn) async {
-              final settingsRepo = context.read<SettingsRepository>();
-              final settings = await settingsRepo.getSettings();
-              if (!context.mounted) return;
-              await showDialog<void>(
-                context: context,
-                builder: (_) => _CreditNoteDialog(cn: cn, settings: settings),
+    return StreamBuilder<SyncStatus>(
+      stream: statusStream,
+      initialData: initialStatus,
+      builder: (context, statusSnap) {
+        final isDegraded = statusSnap.data == SyncStatus.degraded;
+        return Scaffold(
+          body: FutureBuilder<_ReturnsData>(
+            future: _dataFuture,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const LoadingView();
+              }
+              if (snap.hasError) {
+                return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+              }
+              final sales = snap.data!.sales;
+              final returns = snap.data!.returns;
+
+              final left = _LeftPane(
+                tab: _tab,
+                sales: sales,
+                returns: returns,
+                search: _search,
+                selectedId: _selected?.sale.id,
+                onTab: (t) => setState(() => _tab = t),
+                onSearch: (q) => setState(() => _search = q),
+                onSelectSale: _selectSale,
+                onOpenCreditNote: (cn) async {
+                  final settingsRepo = context.read<SettingsRepository>();
+                  final settings = await settingsRepo.getSettings();
+                  if (!context.mounted) return;
+                  await showDialog<void>(
+                    context: context,
+                    builder: (_) => _CreditNoteDialog(cn: cn, settings: settings),
+                  );
+                },
               );
+              final right = _selected == null
+                  ? const _EmptyDetail()
+                  : _RefundDetail(
+                      key: ValueKey(_selected!.sale.id),
+                      sale: _selected!,
+                      refundQtys: _refundQtys,
+                      refundMethod: _refundMethod,
+                      reasonController: _reasonCtl,
+                      busy: _busy,
+                      isDegraded: isDegraded,
+                      onClose: () => setState(() => _selected = null),
+                      onSetQty: _setQty,
+                      onMethod: (m) => setState(() => _refundMethod = m),
+                      onReason: (r) => _reason = r,
+                      refundItems: _refundItems,
+                      refundSubtotal: _refundSubtotal,
+                      refundDiscount: _refundDiscount,
+                      refundTotal: _refundTotal,
+                      onSubmit: _submit,
+                      onVoid: _voidWholeBill,
+                      onVoidOffline: () => _voidSaleOffline(_selected!),
+                    );
+
+              final divider = VerticalDivider(
+                width: 1,
+                thickness: 1,
+                color: Theme.of(context).dividerColor,
+              );
+
+              return wide
+                  ? Row(
+                      children: [
+                        SizedBox(width: 460, child: left),
+                        divider,
+                        Expanded(child: right),
+                      ],
+                    )
+                  : (_selected == null ? left : right);
             },
-          );
-          final right = _selected == null
-              ? const _EmptyDetail()
-              : _RefundDetail(
-                  key: ValueKey(_selected!.sale.id),
-                  sale: _selected!,
-                  refundQtys: _refundQtys,
-                  refundMethod: _refundMethod,
-                  reasonController: _reasonCtl,
-                  busy: _busy,
-                  onClose: () => setState(() => _selected = null),
-                  onSetQty: _setQty,
-                  onMethod: (m) => setState(() => _refundMethod = m),
-                  onReason: (r) => _reason = r,
-                  refundItems: _refundItems,
-                  refundSubtotal: _refundSubtotal,
-                  refundDiscount: _refundDiscount,
-                  refundTotal: _refundTotal,
-                  onSubmit: _submit,
-                  onVoid: _voidWholeBill,
-                );
-
-          final divider = VerticalDivider(
-            width: 1,
-            thickness: 1,
-            color: Theme.of(context).dividerColor,
-          );
-
-          return wide
-              ? Row(
-                  children: [
-                    SizedBox(width: 460, child: left),
-                    divider,
-                    Expanded(child: right),
-                  ],
-                )
-              : (_selected == null ? left : right);
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -839,6 +942,7 @@ class _RefundDetail extends StatefulWidget {
   final String refundMethod;
   final TextEditingController reasonController;
   final bool busy;
+  final bool isDegraded;
   final VoidCallback onClose;
   final void Function(String pid, int val, int max) onSetQty;
   final ValueChanged<String> onMethod;
@@ -849,6 +953,7 @@ class _RefundDetail extends StatefulWidget {
   final double Function(List<ReturnLineInput>) refundTotal;
   final Future<void> Function(Map<String, int>) onSubmit;
   final Future<void> Function(Map<String, int>) onVoid;
+  final VoidCallback onVoidOffline;
 
   const _RefundDetail({
     super.key,
@@ -857,6 +962,7 @@ class _RefundDetail extends StatefulWidget {
     required this.refundMethod,
     required this.reasonController,
     required this.busy,
+    required this.isDegraded,
     required this.onClose,
     required this.onSetQty,
     required this.onMethod,
@@ -867,6 +973,7 @@ class _RefundDetail extends StatefulWidget {
     required this.refundTotal,
     required this.onSubmit,
     required this.onVoid,
+    required this.onVoidOffline,
   });
 
   @override
@@ -997,10 +1104,14 @@ class _RefundDetailState extends State<_RefundDetail> {
                 reasonController: widget.reasonController,
                 busy: widget.busy,
                 itemCount: items.length,
+                isDegraded: widget.isDegraded,
+                soldOffline: widget.sale.sale.soldOffline,
+                isVoided: widget.sale.sale.voided,
                 onMethod: widget.onMethod,
                 onReason: widget.onReason,
                 onSubmit: () => widget.onSubmit(refunded),
                 onVoid: () => widget.onVoid(refunded),
+                onVoidOffline: widget.onVoidOffline,
               ),
             ],
           ),
@@ -1309,10 +1420,14 @@ class _SummaryBox extends StatelessWidget {
   final TextEditingController reasonController;
   final bool busy;
   final int itemCount;
+  final bool isDegraded;
+  final bool soldOffline;
+  final bool isVoided;
   final ValueChanged<String> onMethod;
   final ValueChanged<String> onReason;
   final VoidCallback onSubmit;
   final VoidCallback onVoid;
+  final VoidCallback onVoidOffline;
 
   const _SummaryBox({
     required this.sub,
@@ -1323,10 +1438,14 @@ class _SummaryBox extends StatelessWidget {
     required this.reasonController,
     required this.busy,
     required this.itemCount,
+    required this.isDegraded,
+    required this.soldOffline,
+    required this.isVoided,
     required this.onMethod,
     required this.onReason,
     required this.onSubmit,
     required this.onVoid,
+    required this.onVoidOffline,
   });
 
   @override
@@ -1420,29 +1539,40 @@ class _SummaryBox extends StatelessWidget {
                 fullWidth: true,
                 onPressed: (itemCount == 0 || busy) ? null : onSubmit,
               );
+              final voidBtn = (isDegraded && soldOffline && !isVoided)
+                  ? AppButton(
+                      label: '✕ ยกเลิกบิลออฟไลน์',
+                      variant: AppButtonVariant.danger,
+                      fullWidth: c.maxWidth < 480,
+                      onPressed: busy ? null : onVoidOffline,
+                    )
+                  : (!isDegraded && !isVoided)
+                      ? AppButton(
+                          label: '✕ ยกเลิกบิลทั้งบิล',
+                          variant: AppButtonVariant.danger,
+                          fullWidth: c.maxWidth < 480,
+                          onPressed: busy ? null : onVoid,
+                        )
+                      : null;
+
               if (c.maxWidth < 480) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     submit,
-                    const SizedBox(height: 8),
-                    AppButton(
-                      label: '✕ ยกเลิกบิลทั้งบิล',
-                      variant: AppButtonVariant.danger,
-                      fullWidth: true,
-                      onPressed: busy ? null : onVoid,
-                    ),
+                    if (voidBtn != null) ...[
+                      const SizedBox(height: 8),
+                      voidBtn,
+                    ],
                   ],
                 );
               }
               return Row(
                 children: [
-                  AppButton(
-                    label: '✕ ยกเลิกบิลทั้งบิล',
-                    variant: AppButtonVariant.danger,
-                    onPressed: busy ? null : onVoid,
-                  ),
-                  const SizedBox(width: 10),
+                  if (voidBtn != null) ...[
+                    voidBtn,
+                    const SizedBox(width: 10),
+                  ],
                   Expanded(child: submit),
                 ],
               );

@@ -68,7 +68,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -144,6 +144,11 @@ class AppDatabase extends _$AppDatabase {
       // background sync push and offline-first queue.
       if (from < 9) {
         await m.createTable(outboxOps);
+      }
+      // v9 → v10 (#276, Slice 11-c): Add soldOffline and voidReason to Sales table.
+      if (from < 10) {
+        await m.addColumn(sales, sales.soldOffline);
+        await m.addColumn(sales, sales.voidReason);
       }
     },
   );
