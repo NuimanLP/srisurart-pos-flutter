@@ -179,7 +179,9 @@ jobs:
     # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
     # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.analyze-and-test.result == 'success' && needs.codegen-check.result == 'success' && needs.deps-audit.result == 'success' }}
+    # A manual branch run is the pre-merge proof path for changes to this image:
+    # it publishes only the immutable SHA tag below, never the moving main tag.
+    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && needs.analyze-and-test.result == 'success' && needs.codegen-check.result == 'success' && needs.deps-audit.result == 'success' }}
     # Level 3 (CLAUDE.md): the artifact is produced on every green build, and
     # ci.5 (#62) adds the web image — static files only, same <sha>/main tag
     # discipline as the server image (07_CICD_DEPLOY.md §3). The downloadable
@@ -209,7 +211,10 @@ jobs:
       - run: flutter pub get
 
       - name: flutter build web
-        run: flutter build web --no-tree-shake-icons
+        run: >-
+          flutter build web --no-tree-shake-icons
+          --dart-define=USE_API_WRITES=true
+          --dart-define=API_BASE_URL=
 
       - name: check web DB assets shipped
         # A version skew between these and the drift/sqlite3 pub versions breaks
@@ -235,8 +240,10 @@ jobs:
         # COPY sees build/web; the Dockerfile itself lives in deploy/.
         run: |
           docker build -f ../deploy/web.Dockerfile \
-            -t "$WEB_IMAGE:${{ github.sha }}" \
-            -t "$WEB_IMAGE:main" .
+            -t "$WEB_IMAGE:${{ github.sha }}" .
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            docker tag "$WEB_IMAGE:${{ github.sha }}" "$WEB_IMAGE:main"
+          fi
 
       - name: smoke test the web image
         # The image must be exactly the build output: the entry point, both web
@@ -255,7 +262,9 @@ jobs:
       - name: push web image
         run: |
           docker push "$WEB_IMAGE:${{ github.sha }}"
-          docker push "$WEB_IMAGE:main"
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            docker push "$WEB_IMAGE:main"
+          fi
 
   flutter-ci-status:
     name: flutter-ci-status
