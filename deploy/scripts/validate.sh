@@ -104,6 +104,8 @@ REQUIRED_FILES=(
   "deploy/ansible/inventory/hosts.ini"
   "deploy/ansible/provision.yml"
   "deploy/ansible/deploy.yml"
+  "deploy/scripts/backup-db.sh"
+  "deploy/scripts/restore-db.sh"
 )
 
 for file in "${REQUIRED_FILES[@]}"; do

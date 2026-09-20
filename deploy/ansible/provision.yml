@@ -129,3 +129,20 @@
         group: "{{ deploy_user }}"
         mode: "0600"
       when: demo_env_content != ""
+
+    - name: Create backup directory (0700 mode, Slice 23 / #288)
+      ansible.builtin.file:
+        path: "{{ app_dir }}/backups"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0700"
+
+    - name: Configure daily database backup cron job (Slice 23 / #288)
+      ansible.builtin.cron:
+        name: "Srisurart POS Daily Database Backup"
+        user: "{{ deploy_user }}"
+        minute: "0"
+        hour: "3"
+        job: "{{ app_dir }}/scripts/backup-db.sh {{ app_dir }}/backups >/dev/null 2>&1"
+        state: present
