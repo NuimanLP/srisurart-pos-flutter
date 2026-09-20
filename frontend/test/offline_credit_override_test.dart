@@ -166,7 +166,11 @@ void main() {
 
     await tester.pumpWidget(
       MultiRepositoryProvider(
-        providers: repositoryProviders(db),
+        providers: repositoryProviders(
+          db,
+          apiClient: apiClient,
+          syncFacade: syncService,
+        ),
         child: RepositoryProvider<SalesRepository>.value(
           value: salesRepo,
           child: MultiBlocProvider(

@@ -73,6 +73,23 @@ List<RepositoryProvider> repositoryProviders(
         offlinePinRepository: offlinePinRepo,
       );
 
+  late final ProductsRepository productsRepo;
+  late final CustomersRepository customersRepo;
+  late final MechanicsRepository mechanicsRepo;
+
+  Future<void> triggerEntityPull() async {
+    if (useApiRepositories) {
+      final p = productsRepo;
+      final c = customersRepo;
+      final m = mechanicsRepo;
+      await Future.wait([
+        if (p is ApiProductsRepository) p.syncFromServer(),
+        if (c is ApiCustomersRepository) c.syncFromServer(),
+        if (m is ApiMechanicsRepository) m.syncFromServer(),
+      ]);
+    }
+  }
+
   final realSyncService = syncFacade is SyncService
       ? syncFacade
       : (syncFacade == null
@@ -80,6 +97,7 @@ List<RepositoryProvider> repositoryProviders(
               db: db,
               apiClient: client,
               tokenStorage: storage,
+              onPull: triggerEntityPull,
             )
           : null);
   final docNumberService = DocNumberService(db: db);
@@ -105,10 +123,10 @@ List<RepositoryProvider> repositoryProviders(
       ? ApiReturnsRepository(api: client, db: db, drift: driftReturns)
       : driftReturns;
   // The five read paths of #55, switched by their own flag.
-  final productsRepo = useApiRepositories
+  productsRepo = useApiRepositories
       ? ApiProductsRepository(db, client)
       : ProductsRepository(db);
-  final customersRepo = useApiRepositories
+  customersRepo = useApiRepositories
       ? ApiCustomersRepository(
           db,
           client,
@@ -119,7 +137,7 @@ List<RepositoryProvider> repositoryProviders(
   // 🔴 A credit payment is a money WRITE, so it follows the write switch, not
   // this read one: on the Drift build it stays a local Drift write, and only
   // with `useApi` does it go through the outbox and require an open drawer.
-  final mechanicsRepo = useApiRepositories
+  mechanicsRepo = useApiRepositories
       ? ApiMechanicsRepository(
           db,
           client,

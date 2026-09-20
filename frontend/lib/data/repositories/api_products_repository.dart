@@ -6,6 +6,8 @@
 //  • Incremental sync uses ?updatedSince= cursor; soft-deletions tracked via deletedAt.
 //  • When offline, transparently falls back to local Drift database.
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
@@ -57,70 +59,128 @@ class ApiProductsRepository extends ProductsRepository {
   }
 
   /// Write-through sync: pulls updates from server and patches Drift.
-  /// Walks keyset cursor or offset pages to completion.
+  /// Uses server `meta.nextCursor` stored in `sync_cursors` with 30s rewind window
+  /// and protects local stock of products with pending outbox operations (#212, 08 §15).
   Future<void> syncFromServer({bool forceFull = false}) async {
     try {
       String? updatedSince;
       String? afterId;
 
       if (!forceFull) {
-        final latestRow = await (db.select(db.products)
-              ..where((t) => t.updatedAt.isNotNull())
-              ..orderBy([(t) => OrderingTerm.desc(t.updatedAt), (t) => OrderingTerm.desc(t.id)])
-              ..limit(1))
+        final cursorRow = await (db.select(db.syncCursors)
+              ..where((t) => t.entity.equals('products')))
             .getSingleOrNull();
 
-        if (latestRow?.updatedAt != null) {
-          updatedSince = latestRow!.updatedAt!.toUtc().toIso8601String();
-          afterId = latestRow.id;
+        if (cursorRow?.cursor != null && cursorRow!.cursor!.isNotEmpty) {
+          final dt = DateTime.parse(cursorRow.cursor!).toUtc();
+          // 08 §15: หน้าแรกของรอบ: updatedSince = cursor − 30 วินาที และไม่ส่ง afterId
+          updatedSince = dt.subtract(const Duration(seconds: 30)).toIso8601String();
+          afterId = null;
+        } else {
+          updatedSince = '1970-01-01T00:00:00.000Z';
+          afterId = null;
         }
+      } else {
+        updatedSince = '1970-01-01T00:00:00.000Z';
+        afterId = null;
+      }
+
+      // Collect product IDs associated with active pending ops in outbox_ops.
+      // ADR-0010 §D3 / 08 §15: pull must NOT overwrite local stock of products with pending ops.
+      final pendingOps = await (db.select(db.outboxOps)
+            ..where((t) => t.status.isIn(const ['pending', 'stuck'])))
+          .get();
+      final pendingProductIds = <String>{};
+      for (final op in pendingOps) {
+        try {
+          final aggs = jsonDecode(op.aggregates);
+          if (aggs is List) {
+            for (final a in aggs) {
+              if (a is String && a.startsWith('product:')) {
+                pendingProductIds.add(a.substring('product:'.length));
+              }
+            }
+          }
+        } catch (_) {}
+        try {
+          final payload = jsonDecode(op.payload);
+          if (payload is Map && payload['items'] is List) {
+            for (final item in payload['items']) {
+              if (item is Map && item['productId'] != null) {
+                pendingProductIds.add(item['productId'].toString());
+              }
+            }
+          }
+        } catch (_) {}
       }
 
       bool hasMore = true;
-      int page = 1;
+      String? latestServerCursor;
 
       while (hasMore) {
-        final queryParams = <String, dynamic>{'limit': 100};
-        if (updatedSince != null) {
-          queryParams['updatedSince'] = updatedSince;
-          if (afterId != null) queryParams['afterId'] = afterId;
-        } else {
-          queryParams['page'] = page;
-        }
+        final queryParams = <String, dynamic>{
+          'limit': 100,
+          'updatedSince': updatedSince,
+        };
+        if (afterId != null) queryParams['afterId'] = afterId;
 
         final res = await apiClient.getPaginated('/api/v1/products', queryParameters: queryParams);
         final items = res.data;
 
         if (items.isNotEmpty) {
-          await db.batch((batch) {
-            for (final item in items) {
-              if (item is Map) {
-                final comp = _productToCompanion(Map<String, dynamic>.from(item));
+          final companions = <ProductsCompanion>[];
+          for (final item in items) {
+            if (item is Map) {
+              var comp = _productToCompanion(Map<String, dynamic>.from(item));
+              final prodId = comp.id.value;
+              if (pendingProductIds.contains(prodId)) {
+                final localProd = await (db.select(db.products)
+                      ..where((t) => t.id.equals(prodId)))
+                    .getSingleOrNull();
+                if (localProd != null) {
+                  // Protect local stock from being overwritten by server.
+                  comp = comp.copyWith(stock: Value(localProd.stock));
+                }
+              }
+              companions.add(comp);
+            }
+          }
+
+          if (companions.isNotEmpty) {
+            await db.batch((batch) {
+              for (final comp in companions) {
                 batch.insert(
                   db.products,
                   comp,
                   onConflict: DoUpdate((old) => comp),
                 );
               }
-            }
-          });
+            });
+          }
         }
 
-        final next = res.nextCursor;
-        if (updatedSince != null) {
+        if (items.isEmpty) {
+          hasMore = false;
+        } else {
+          final next = res.nextCursor;
           if (next != null && next['updatedSince'] != null) {
-            updatedSince = next['updatedSince'] as String;
+            latestServerCursor = next['updatedSince'] as String;
+            updatedSince = latestServerCursor;
             afterId = next['afterId'] as String?;
           } else {
             hasMore = false;
           }
-        } else {
-          if (page >= res.totalPages || items.isEmpty) {
-            hasMore = false;
-          } else {
-            page++;
-          }
         }
+      }
+
+      if (latestServerCursor != null) {
+        await db.into(db.syncCursors).insertOnConflictUpdate(
+          SyncCursorsCompanion(
+            entity: const Value('products'),
+            cursor: Value(latestServerCursor),
+            updatedAt: Value(DateTime.now().toUtc()),
+          ),
+        );
       }
     } catch (_) {
       // Network failure or degraded mode: gracefully ignore and rely on Drift cache
@@ -131,14 +191,19 @@ class ApiProductsRepository extends ProductsRepository {
   Future<List<ProductRow>> getAll() async {
     await syncFromServer();
     final rows = await (db.select(db.products)
-          ..where((t) => t.deletedAt.isNull()))
+          ..where((t) =>
+              t.deletedAt.isNull() &
+              (t.brand.isNull() | t.brand.equals('import-tombstone').not())))
         .get();
     return rows.map((r) => r.category.isNotEmpty ? r : r.copyWith(category: r.zone ?? 'เครื่องยนต์')).toList();
   }
 
   @override
   Stream<List<ProductRow>> watchAll() {
-    return (db.select(db.products)..where((t) => t.deletedAt.isNull()))
+    return (db.select(db.products)
+          ..where((t) =>
+              t.deletedAt.isNull() &
+              (t.brand.isNull() | t.brand.equals('import-tombstone').not())))
         .watch()
         .map((rows) => rows
             .map((r) => r.category.isNotEmpty
@@ -150,7 +215,10 @@ class ApiProductsRepository extends ProductsRepository {
   @override
   Future<ProductRow?> getById(String id) async {
     final local = await (db.select(db.products)
-          ..where((t) => t.id.equals(id) & t.deletedAt.isNull()))
+          ..where((t) =>
+              t.id.equals(id) &
+              t.deletedAt.isNull() &
+              (t.brand.isNull() | t.brand.equals('import-tombstone').not())))
         .getSingleOrNull();
     if (local != null) return local;
 
@@ -159,7 +227,12 @@ class ApiProductsRepository extends ProductsRepository {
       if (res is Map) {
         final comp = _productToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.products).insertOnConflictUpdate(comp);
-        return await (db.select(db.products)..where((t) => t.id.equals(id))).getSingleOrNull();
+        return await (db.select(db.products)
+              ..where((t) =>
+                  t.id.equals(id) &
+                  t.deletedAt.isNull() &
+                  (t.brand.isNull() | t.brand.equals('import-tombstone').not())))
+            .getSingleOrNull();
       }
     } catch (_) {}
 

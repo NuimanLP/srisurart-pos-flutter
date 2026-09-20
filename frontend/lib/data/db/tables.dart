@@ -444,3 +444,15 @@ class OutboxOps extends Table {
   Set<Column> get primaryKey => {opId};
 }
 
+/// Schema v11 (#212, Slice 13b, 08_PHASE2_SPEC.md §15): local sync cursors table
+/// storing server-provided `meta.nextCursor` per entity for keyset pull synchronization.
+@DataClassName('SyncCursorRow')
+class SyncCursors extends Table {
+  TextColumn get entity => text()();
+  TextColumn get cursor => text().nullable()();
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {entity};
+}
+

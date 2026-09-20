@@ -95,30 +95,39 @@ class ApiMechanicsRepository extends MechanicsRepository {
     );
   }
 
-  Future<void> syncFromServer() async {
+  Future<void> syncFromServer({bool forceFull = false}) async {
     try {
       String? updatedSince;
-      final latestRow = await (db.select(db.mechanics)
-            ..where((t) => t.updatedAt.isNotNull())
-            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
-            ..limit(1))
-          .getSingleOrNull();
+      String? afterId;
 
-      if (latestRow?.updatedAt != null) {
-        updatedSince = latestRow!.updatedAt!.toUtc().toIso8601String();
+      if (!forceFull) {
+        final cursorRow = await (db.select(db.syncCursors)
+              ..where((t) => t.entity.equals('mechanics')))
+            .getSingleOrNull();
+
+        if (cursorRow?.cursor != null && cursorRow!.cursor!.isNotEmpty) {
+          final dt = DateTime.parse(cursorRow.cursor!).toUtc();
+          // 08 §15: หน้าแรกของรอบ: updatedSince = cursor − 30 วินาที และไม่ส่ง afterId
+          updatedSince = dt.subtract(const Duration(seconds: 30)).toIso8601String();
+          afterId = null;
+        } else {
+          updatedSince = '1970-01-01T00:00:00.000Z';
+          afterId = null;
+        }
+      } else {
+        updatedSince = '1970-01-01T00:00:00.000Z';
+        afterId = null;
       }
 
       bool hasMore = true;
-      int page = 1;
+      String? latestServerCursor;
 
       while (hasMore) {
         final queryParams = <String, dynamic>{
           'limit': 100,
-          'page': page,
+          'updatedSince': updatedSince,
         };
-        if (updatedSince != null) {
-          queryParams['updatedSince'] = updatedSince;
-        }
+        if (afterId != null) queryParams['afterId'] = afterId;
 
         final res = await apiClient.getPaginated('/api/v1/mechanics', queryParameters: queryParams);
         final items = res.data;
@@ -138,11 +147,28 @@ class ApiMechanicsRepository extends MechanicsRepository {
           });
         }
 
-        if (page >= res.totalPages || items.isEmpty) {
+        if (items.isEmpty) {
           hasMore = false;
         } else {
-          page++;
+          final next = res.nextCursor;
+          if (next != null && next['updatedSince'] != null) {
+            latestServerCursor = next['updatedSince'] as String;
+            updatedSince = latestServerCursor;
+            afterId = next['afterId'] as String?;
+          } else {
+            hasMore = false;
+          }
         }
+      }
+
+      if (latestServerCursor != null) {
+        await db.into(db.syncCursors).insertOnConflictUpdate(
+          SyncCursorsCompanion(
+            entity: const Value('mechanics'),
+            cursor: Value(latestServerCursor),
+            updatedAt: Value(DateTime.now().toUtc()),
+          ),
+        );
       }
     } catch (_) {
       // Network failure or degraded mode: gracefully ignore and rely on Drift cache
@@ -154,7 +180,11 @@ class ApiMechanicsRepository extends MechanicsRepository {
     // Queued payments first, so the balances this read brings back include them.
     await flushPendingCreditPayments();
     await syncFromServer();
-    return (db.select(db.mechanics)..where((t) => t.deletedAt.isNull())).get();
+    return (db.select(db.mechanics)
+          ..where((t) =>
+              t.deletedAt.isNull() &
+              (t.code.isNull() | t.code.like('import-tombstone%').not())))
+        .get();
   }
 
   @override
