@@ -92,6 +92,12 @@ class ServerErrorResolver {
     'CLIENT_ID_REUSED': 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
     'DEVICE_HAS_UNSYNCED_OPS':
         'เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง',
+    // #364 — `POST /platform/tenants` refuses an owner password that is absent or
+    // under 12 characters (the same floor `bootstrap:admin` enforces), so the wording
+    // states the rule rather than one of the two reasons. Ops-facing, not counter-facing:
+    // no screen in this app provisions a tenant, so this entry exists so the code can
+    // never surface as a raw English sentence if a tool ever does.
+    'WEAK_PASSWORD': 'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
     'SHIFT_NOT_FOUND': 'ไม่พบข้อมูลกะ',
     'UNAUTHENTICATED': 'กรุณาเข้าสู่ระบบ',
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
