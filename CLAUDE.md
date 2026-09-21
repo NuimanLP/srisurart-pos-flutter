@@ -223,8 +223,8 @@ develops against a demo tenant.
   copies a backup off the VM although #288's AC for it is still `[ ]` on a closed
   ticket), #364 (`ownerPassword` has no server-side length rule while `bootstrap:admin`
   demands 12), #365 (`etcd-init.sh` on the VM is a root-owned *directory*, so etcd never
-  had auth enabled), #366 (`Deploy (demo)` fires on every green `main`, contradicting
-  D9's manual-deploy decision — an owner call, due before #67 installs the runner),
+  had auth enabled), #366 (owner picked option 3 2026-09-21 — see the binding CI/CD
+  rule below; auto-deploy stays, gated by a required reviewer),
   #367 (`CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` reach no container, so CORS is `'*'`;
   deliberately scheduled after the demo — **nobody may claim CORS is closed until it
   merges**).
@@ -291,6 +291,15 @@ on void/return paths. Keep this order in any new write touching more than one of
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
+- **`demo` environment requires a manual approval before `deploy.yml`'s `deploy` job
+  touches the VM** (#366, 2026-09-21 — ADR-0013 addendum, option 3). Auto-trigger on
+  every green `main` is unchanged; the job enters GitHub's "Waiting for review" state
+  and is never handed to a runner until the required reviewer (`NuimanLP`) approves —
+  that is the entire mechanism for keeping a merge off the VM mid-demo. This is a live
+  repo-settings change (`gh api …/environments/demo`), not just documentation — verify
+  with `gh api repos/NuimanLP/srisurart-pos-flutter/environments/demo --jq '.protection_rules'`
+  before assuming it's still on. Reconciles #335 D9 (manual Ansible) as the documented
+  fallback for when the #67 runner is offline, not a competing trigger policy.
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
   `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
   images for that SHA are not on GHCR yet the job is skipped and the workflow still

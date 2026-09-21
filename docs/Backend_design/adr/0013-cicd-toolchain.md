@@ -2,7 +2,9 @@
 
 * **สถานะ:** Accepted — 2026-09-10 (พิจารณาปฏิเสธ Wazuh/ELK จากข้อจำกัด RAM: 2026-09-15) ·
   addendum **2026-09-15** *"Actions เข้าถึง VM อย่างไร"* — แถว Config & Deploy เปลี่ยนจาก "SSH เข้า VM" เป็น
-  **self-hosted runner บน VM** (ดูหัวข้อท้ายไฟล์)
+  **self-hosted runner บน VM** (ดูหัวข้อท้ายไฟล์) · addendum **2026-09-21** *"auto-deploy ผ่าน required
+  reviewer"* (#366) — เคาะข้อขัดแย้งกับ #335 D9 ด้วย option 3: auto trigger เดิมอยู่ แต่ `deploy` job
+  ต้องผ่าน required reviewer ของ GitHub Environment `demo` ก่อนถึง VM (ดูหัวข้อท้ายไฟล์)
 * **ผู้ตัดสิน:** เจ้าของโปรเจกต์ (grill 2 รอบ, 19 ข้อ) — บันทึกการสัมภาษณ์อยู่ใน `docs/handoff_log/`
 * **เอกสารเจ้าของเรื่องนี้:** [`07_CICD_DEPLOY.md`](../07_CICD_DEPLOY.md)
 
@@ -30,7 +32,10 @@ Build & Test · Security Scan · Package/Storage · Config & Deploy · KV Storag
 
 **ข้อที่ตั้งใจให้ต่างจากที่คนมักคาดหวัง:**
 
-* **deploy อัตโนมัติ ไม่มีคนกดอนุมัติ** บน `demo` — เพื่อสาธิต CD ของจริง · production จะเปิดอนุมัติ
+* ~~**deploy อัตโนมัติ ไม่มีคนกดอนุมัติ** บน `demo` — เพื่อสาธิต CD ของจริง · production จะเปิดอนุมัติ~~ —
+  **แก้ 2026-09-21 (#366):** `demo` **คือ** production ตัวเดียวตั้งแต่ #242 (ดู addendum รอบ 2 ด้านล่าง)
+  จึงเปิด required reviewer บน `demo` แล้ว ไม่รอ "production" อีกสภาพแวดล้อม — ดูหัวข้อ *auto-deploy ผ่าน
+  required reviewer* ท้ายไฟล์
 * **branch protection ใช้ `status` job ที่รันเสมอ** ต่อ workflow แทน `paths:` ระดับ workflow —
   เพราะ PR ที่แตะแค่ `server/` จะไม่รัน workflow ฝั่ง Flutter เลย ทำให้ required check ค้างตลอดกาล (#39) ·
   ผลพลอยได้: ทุก push ขึ้น `main` ได้ image ครบทั้งสองฝั่งสำหรับ SHA เดียว (ปิด AC4 ของ #40)
@@ -139,3 +144,26 @@ runner ของ GitHub (GitHub-hosted) ต่อเข้าไม่ได้ 
 ## Addendum 2026-09-15 (รอบ 4) — owner F4′ on #240
 
 **F4′ แทน F4:** ใช้ **self-hosted runner ที่ PR #237 merge แล้ว** (job-started hook รับเฉพาะ `deploy.yml@refs/heads/main` fail-closed · user `gha-runner` ไม่มี docker/`.env` · sudoers คำสั่งเดียว `pos-deploy` deploy เฉพาะ commit บน `main` · workflow ไม่ใช้ secret) · **ไม่สร้าง pull-based timer** · รายละเอียดทั้งหมดอยู่ในหัวข้อ *Actions เข้าถึง VM อย่างไร* ด้านบน — ไม่คัดลอกซ้ำ · ความเสี่ยง fork PR ที่ review รอบ 2 ของ PR #254 ยกขึ้นปิดด้วย hook + wrapper · run จริงบน VM = #67 · 08 §17
+
+## Addendum 2026-09-21 — owner option 3 on #366 (auto-deploy ผ่าน required reviewer)
+
+**ปัญหา:** `.github/workflows/deploy.yml` trigger ด้วย `workflow_run` ทุก green `main` ตาม ADR นี้/#67
+แต่ #335 D9 เขียนว่า *"deploy ด้วย Ansible ด้วยมือ"* — สองข้อความขัดกัน (#366)
+
+**การตัดสินใจ (เจ้าของโปรเจกต์ 2026-09-21 — ตัวเลือกที่ 3 จาก 3 ตัวเลือกที่ #366 เสนอ):** คง auto-trigger
+เดิมของ ADR นี้/#67 ไว้ทั้งหมด แต่เพิ่ม **GitHub Environment protection — required reviewer** บน
+environment `demo` (= production ตัวเดียวตาม #242 ด้านบน) ก่อนที่ job `deploy` จะถูกส่งให้ runner ใด ๆ
+
+| หัวข้อ | ค่าที่เคาะ |
+|---|---|
+| กลไกกัน deploy ทับเดโม | required reviewer เดียว (`NuimanLP`) บน environment `demo` — เปิดจริงแล้ว (`gh api PUT repos/NuimanLP/srisurart-pos-flutter/environments/demo`, ตรวจแล้ว 2026-09-21: `protection_rules: [{"type":"required_reviewers","reviewers":[{"login":"NuimanLP"}]}]`, `deployment_branch_policy` ไม่เปลี่ยน — ยังเป็น `null` เหมือนก่อนแก้) · job `deploy` เข้าสถานะ **Waiting** ทันทีที่ `resolve` ส่งต่อมา — ไม่ถูกส่งให้ runner จนกว่าจะมีคนกด approve ใน Actions UI · ระหว่างเดโม ผู้อนุมัติแค่ไม่กด — นี่คือกลไกทั้งหมด ไม่มีขั้นอื่น |
+| ผลกับ `deploy.yml` | `environment: demo` **มีอยู่แล้ว** ในไฟล์ (ใส่ไว้ตั้งแต่ addendum 2026-09-15 เพื่อบังคับ deployment branch เท่านั้น ตอนนั้นยังไม่มี required reviewer) — **ไม่ต้องแก้ trigger/`if:` ใด ๆ เพิ่ม** เพราะ required reviewer เป็นคุณสมบัติของ environment ไม่ใช่ของ trigger; `workflow_run` ยังกว้างเท่าเดิมโดยตั้งใจ ความแคบอยู่ที่ environment ไม่ใช่ event · เพิ่มแค่คอมเมนต์อธิบายที่หัวไฟล์และข้าง `environment: demo` |
+| D9 (#335) | **ไม่ขัดกันจริง หลังตีความใหม่:** D9 เป็น runbook เฉพาะกิจของ #335 (เดโม HITL ที่แตะ VM ตอน runner ของ #67 ยังไม่ติดตั้ง) ไม่ใช่นโยบาย trigger ของ pipeline — มันคือ **ทางสำรองที่ `07_CICD_DEPLOY.md` §6.1 บันทึกไว้อยู่แล้ว** ("ถ้า runner offline … รัน playbook ด้วยมือ") ไม่ใช่กติกาใหม่ · ตอบกลับใน #335 ด้วยคอมเมนต์ ไม่แก้ body ของ D9 — D9 เป็นคำตัดสินของเจ้าของ ไม่ใช่ที่ของ agent จะเขียนทับ |
+| ทดสอบได้แค่ไหนตอนนี้ | 🔴 runner ของ #67 **ยังไม่ติดตั้งบน `mob04`** และ CD ทั้งเส้นยังบล็อกอยู่จาก FortiGate SSL inspection ของเครือข่ายคณะ (ดู `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`) — สองเรื่องนี้เป็นเหตุคนละอันจากใบนี้ ไม่ใช่ผลของการเปลี่ยนแปลงนี้ อย่าอ้างว่าใบนี้แก้สองเรื่องนั้นด้วย · **สิ่งที่พิสูจน์ได้จริงตอนนี้โดยไม่ต้องมี runner**: job `deploy` เข้าสถานะ *Waiting for review* ได้ เพราะ required-reviewer gate ทำงานที่ระดับ job scheduling ก่อนถึงขั้นหา runner ให้จับคู่ — เจ้าของ trigger `workflow_dispatch` เพื่อดูสถานะนี้เองได้ (ไม่ trigger จริงในใบนี้ เพื่อไม่ทิ้ง run ค้างรอ approve ที่ยังไม่มี runner จะรับต่อ) |
+| ข้อที่ยังไม่พิสูจน์ (🔴) | ถ้ามีสอง SHA ไปถึง `deploy` job คนละรอบ (เช่น commit A ผ่าน CI ก่อน commit B merge เสร็จ แล้ว B ก็ผ่าน CI ภายหลัง) `concurrency: {group: deploy-demo, cancel-in-progress: false}` ที่มีอยู่เดิมบอกว่า "run ที่*รอ*อยู่ถูกแทนด้วย run ใหม่ได้ (ตัวที่*กำลังรัน*ไม่ถูกแตะ)" (07 §6.1) — **ยังไม่ยืนยันว่ากติกานี้ครอบคลุมสถานะ "รอ required reviewer approve" เหมือนกับ "รอ runner ว่าง" หรือไม่**, เพราะก่อนหน้านี้สถานะรอมักสั้น (แค่รอ runner รับงาน) ไม่เคยค้างเป็นชั่วโมง/วันแบบรออนุมัติมาก่อน · ผลเสียที่แย่สุดถ้ากติกานี้ใช้ไม่ได้กับสถานะรออนุมัติ: มี pending approval ซ้อนกันสองอัน (SHA เก่ากับใหม่) ต้องกด approve สองครั้งแทนที่จะเป็นครั้งเดียว แล้ว deploy เรียงกันสองรอบ (SHA ใหม่ทับ SHA เก่าอยู่ดี ผลสุดท้ายถูกต้อง) — **ไม่เกิด concurrent deploy สอง SHA พร้อมกันบน VM** เพราะ `concurrency` ยังคุม "run ที่กำลังทำงาน" ไม่ให้เกินหนึ่งตัวเสมอ ต่างกันแค่ความสะดวกของคนกด approve ไม่ใช่ความถูกต้องของสถานะ VM · ยังไม่เพิ่มโค้ดกันเรื่องนี้เพราะพิสูจน์ไม่ได้ตอนนี้ (ไม่มี runner ให้ทดสอบจริง) และผลเสียที่แย่สุดมีขอบเขตจำกัดตามที่เขียนไว้ — จะยืนยันเมื่อ #67 ติดตั้ง runner แล้วลองจริง |
+
+**ผลที่ตามมา:** `.github/workflows/deploy.yml` (คอมเมนต์ 2 จุด, ไม่แก้ trigger/`if:`) · GitHub Environment
+`demo` (repo settings — เปิด required reviewer จริงแล้วผ่าน `gh api`, ไม่ใช่แค่เอกสาร) ·
+`07_CICD_DEPLOY.md` §5, §6.2 ข้อ 2 (runbook การติดตั้ง runner ต้องไม่ทำ `gh api PUT` ที่ไม่ใส่ `reviewers`
+อีกต่อไป — เสี่ยงลบ required reviewer ทิ้งถ้า endpoint ตีความ key ที่ขาดว่า "ล้างค่า" แทนที่จะ "คงเดิม")
+· คอมเมนต์ปิดของ #335 (D9) · #366
