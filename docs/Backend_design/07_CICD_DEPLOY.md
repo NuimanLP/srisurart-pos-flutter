@@ -499,11 +499,14 @@ conf ปัจจุบันไม่มี ทำให้ `.js`/`.wasm` ข�
   ตอบ JSON ซึ่ง parse ไม่ผ่าน ทำให้ target ทั้งสามขึ้น **DOWN ใน Prometheus UI ตลอดเวลา แม้ API จะ
   รันอยู่จริง** จนกว่า job `api-metrics` จะเปิดใช้งาน — เป็นข้อจำกัดที่รับทราบแล้ว ไม่ใช่บั๊กของ
   overlay นี้ (ตั้งใจไม่เพิ่ม `blackbox_exporter` หรือ exporter อื่นเพื่อแก้ ตามสโคปของ #63)
-* dashboard เดียว (provisioned, ห้า panel): CPU / RAM / disk ของ VM (query จาก node-exporter,
+* dashboard เดียว (provisioned): CPU / RAM / disk ของ VM (query จาก node-exporter,
   มีค่าจริงทันทีที่ stack รัน) + **SLI จาก `02_API_SCREENS §9`**: success rate และ p95 —
-  สอง panel นี้ตั้งใจให้อ่าน "no data" จนกว่า #339/#340 จะทำ `/metrics` เสร็จ (query ที่ผูกไว้เป็น
-  ชื่อ metric ทั่วไปตามธรรมเนียม prom-client — `http_requests_total` / `http_request_duration_seconds_bucket`
-  — ยืนยันแล้วใน #339/#340)
+  สอง panel นี้มีข้อมูลจริงแล้วตั้งแต่ #339/#340 (ชื่อ metric ที่ผูกไว้ตามธรรมเนียม prom-client —
+  `http_requests_total` / `http_request_duration_seconds_bucket` — ยืนยันตรงกับที่ API ส่งออกแล้ว)
+  🔴 middleware **ไม่นับ** `/metrics` และ `/health/live` `/health/ready` เพราะ scrape ของ Prometheus
+  (15 วิ × 3 instance) กับ healthcheck ของ compose (15 วิ × 3) เป็น 200 ที่การันตี ถ้านับรวม
+  จะกลบอัตราพลาดของคำขอจริงบน panel ทั้งสอง (`server/src/metrics/metrics.middleware.ts`)
+  + panel error rate แยก status code และ panel `pos_idempotency_replay_total` เพิ่มใน #341
 * ไม่มี Alertmanager · ทุกอย่างผูก `127.0.0.1` เข้าผ่าน SSH tunnel (§7) · Grafana admin password
   ต้องมาจาก `GRAFANA_ADMIN_PASSWORD` ใน `.env` (`.env.example` มีตัวอย่าง) — stack fail fast ถ้าไม่ตั้ง
   เหมือน secret ของ datastore ตัวอื่น

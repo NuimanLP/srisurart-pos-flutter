@@ -9,7 +9,7 @@ export class MetricsController {
   /**
    * Prometheus scrape endpoint:
    * Uses `@Res()` in library mode (without `passthrough: true`) and `res.send()`
-   * to bypass EnvelopeInterceptor (`app.setup.ts:114`) so Prometheus receives
+   * to bypass the `EnvelopeInterceptor` that `configureApp` registers globally, so Prometheus receives
    * raw text format instead of a JSON envelope.
    */
   @Get()

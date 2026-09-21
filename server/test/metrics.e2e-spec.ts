@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import type { Response } from 'express';
 import request from 'supertest';
+import type { Redis } from 'ioredis';
 import type { DataSource } from 'typeorm';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import {
@@ -31,11 +32,12 @@ function parseReplayCount(metricsText: string): number {
 describe('metrics (e2e)', () => {
   let app: INestApplication;
   let admin: DataSource;
+  let cache: Redis;
   let fixture: TenantFixture;
   let posToken: string;
 
   beforeAll(async () => {
-    ({ app, admin } = await createTestApp());
+    ({ app, admin, cache } = await createTestApp());
     fixture = await resetTenant(admin, TENANT);
     posToken = accessToken({
       tenantId: TENANT,
@@ -83,15 +85,41 @@ describe('metrics (e2e)', () => {
   });
 
   it('records route pattern and status_code for successful requests', async () => {
-    await request(app.getHttpServer()).get('/health/live').expect(200);
+    await request(app.getHttpServer())
+      .get('/api/v1/products')
+      .set('Authorization', `Bearer ${posToken}`)
+      .expect(200);
 
     const metricsRes = await request(app.getHttpServer())
       .get('/metrics')
       .expect(200);
 
     expect(metricsRes.text).toMatch(
-      /http_requests_total\{method="GET",route="\/health\/live",status_code="200"\}\s+[1-9]\d*/,
+      /http_requests_total\{method="GET",route="\/api\/v1\/products",status_code="200"\}\s+[1-9]\d*/,
     );
+  });
+
+  // Synthetic traffic must stay out of the SLI. Compose health-checks each api instance every
+  // 15s and Prometheus scrapes all three every 15s, so on a quiet shop day these three paths
+  // would be most of `http_requests_total` — and the *API success rate* / *API p95 latency*
+  // panels average over every series in it, so a day where every real sale 500s would still
+  // read as healthy. `UNMEASURED_PATHS` in metrics.middleware.ts is what keeps them out.
+  it('does not measure its own scrape or the health probes', async () => {
+    await request(app.getHttpServer()).get('/health/live').expect(200);
+    await request(app.getHttpServer()).get('/health/ready');
+    await request(app.getHttpServer()).get('/metrics').expect(200);
+
+    const metricsRes = await request(app.getHttpServer())
+      .get('/metrics')
+      .expect(200);
+
+    const series = metricsRes.text
+      .split('\n')
+      .filter((line) => line.startsWith('http_requests_total{'));
+
+    expect(series.length).toBeGreaterThan(0); // the filter is looking at something
+    expect(series.filter((line) => line.includes('/metrics'))).toEqual([]);
+    expect(series.filter((line) => line.includes('/health/'))).toEqual([]);
   });
 
   it('records guard-rejected requests (401) using route pattern rather than concrete path', async () => {
@@ -132,6 +160,29 @@ describe('metrics (e2e)', () => {
 
     expect(metricsRes.text).toMatch(
       /http_requests_total\{method="GET",route="\/api\/v1\/devices",status_code="403"\}\s+[1-9]\d*/,
+    );
+  });
+
+  // #339's third acceptance criterion names 429 alongside 401 and 403, and 429 is the one that
+  // proves the hook choice: `TenantRateLimitGuard` refuses before any interceptor runs, so an
+  // interceptor-based hook would have counted nothing here. Preloading the window counter in
+  // Redis is how test/rate-limit.e2e-spec.ts trips the guard without firing 300 requests.
+  it('records guard-rejected requests (429) using the route pattern', async () => {
+    const windowSlice = Math.floor(Date.now() / 1000 / 60);
+    const key = `t:${TENANT}:rl:GET__api_v1_auth_me:${windowSlice}`;
+    await cache.set(key, '350', 'EX', 50);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${posToken}`)
+      .expect(429);
+
+    const metricsRes = await request(app.getHttpServer())
+      .get('/metrics')
+      .expect(200);
+
+    expect(metricsRes.text).toMatch(
+      /http_requests_total\{method="GET",route="\/api\/v1\/auth\/me",status_code="429"\}\s+[1-9]\d*/,
     );
   });
 

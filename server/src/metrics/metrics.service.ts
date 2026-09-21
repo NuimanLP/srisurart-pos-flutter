@@ -7,21 +7,22 @@ import {
 } from 'prom-client';
 
 const HTTP_METRIC_LABELS = ['method', 'route', 'status_code'] as const;
+type HttpMetricLabel = (typeof HTTP_METRIC_LABELS)[number];
 
 @Injectable()
 export class MetricsService {
   private readonly registry = new Registry();
 
-  private readonly httpRequestsTotal: Counter<'method' | 'route' | 'status_code'>;
-  private readonly httpRequestDurationSeconds: Histogram<
-    'method' | 'route' | 'status_code'
-  >;
+  private readonly httpRequestsTotal: Counter<HttpMetricLabel>;
+  private readonly httpRequestDurationSeconds: Histogram<HttpMetricLabel>;
   private readonly idempotencyReplayTotal: Counter<string>;
 
   constructor() {
     collectDefaultMetrics({ register: this.registry });
 
-    // Metric names are pinned by existing Grafana panel queries (pos-overview.json:86,104).
+    // Metric names are pinned by the exprs of the *API success rate* and *API p95 latency*
+    // panels in deploy/grafana/dashboards/pos-overview.json — renaming either one here is a
+    // two-sided change (D4 #335).
     this.httpRequestsTotal = new Counter({
       name: 'http_requests_total',
       help: 'Total number of HTTP requests',
