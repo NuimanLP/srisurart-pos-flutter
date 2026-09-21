@@ -11,7 +11,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
-import { hashPassword } from '../common/password.js';
+import {
+  hashPassword,
+  passwordPolicyMessage,
+  passwordPolicyViolation,
+} from '../common/password.js';
 import { AuditService } from './audit.service.js';
 
 export class CreateTenantDto {
@@ -49,14 +53,35 @@ export class PlatformTenantsService {
     adminId: string,
     ip?: string,
   ) {
-    if (!dto.code || !dto.shopName || !dto.ownerUsername || !dto.ownerPassword) {
-      throw new BadRequestException('code, shopName, ownerUsername, and ownerPassword are required');
+    // Everything below this comment runs BEFORE the argon2 hash and BEFORE the
+    // transaction opens (#364): argon2 costs 64 MiB and ~100 ms, and a refusal that
+    // happened mid-transaction would have already burnt that and taken a pool
+    // connection with it. Validate the input first, then use it (CLAUDE.md).
+    if (!dto.code || !dto.shopName || !dto.ownerUsername) {
+      throw new BadRequestException('code, shopName, and ownerUsername are required');
+    }
+
+    // The same floor `bootstrap:admin` enforces, from the same function — this is a
+    // shop's `owner` account, the highest-privileged login in that tenant, and until
+    // #364 the endpoint accepted `1234`. `WEAK_PASSWORD` is the client-translatable
+    // code from `02_API_SCREENS.md §8.1`; the English `message` is for the operator
+    // running the provisioning call.
+    const pwViolation = passwordPolicyViolation(dto.ownerPassword);
+    if (pwViolation) {
+      throw new BadRequestException({
+        code: 'WEAK_PASSWORD',
+        message: passwordPolicyMessage(pwViolation, 'ownerPassword'),
+      });
     }
 
     const plan = dto.plan ?? 'basic';
     const timezone = dto.timezone ?? 'Asia/Bangkok';
     const shopNameEn = dto.shopNameEn ?? '';
     const enrolCode = randomBytes(4).toString('hex').toUpperCase(); // e.g. "A1B2C3D4"
+    // Hashed out here rather than inside the transaction: argon2id at 64 MiB / 3 passes
+    // is the slowest thing on this path, and holding an open transaction (and its pool
+    // connection) across it buys nothing — the hash depends on no row we read.
+    const ownerPasswordHash = await hashPassword(dto.ownerPassword);
 
     let tenantId: string;
 
@@ -72,7 +97,6 @@ export class PlatformTenantsService {
         const tid = tenantRes[0].id;
 
         // 2. Owner user
-        const ownerPasswordHash = await hashPassword(dto.ownerPassword);
         await manager.query(
           `INSERT INTO users (tenant_id, username, password_hash, display_name, role, is_active)
            VALUES ($1, $2, $3, $4, 'owner', true)`,

@@ -1,6 +1,11 @@
 import { pathToFileURL } from 'node:url';
 import { createMigrationDataSource } from './data-source.js';
-import { hashPassword } from '../common/password.js';
+import {
+  hashPassword,
+  MIN_PASSWORD_LENGTH,
+  passwordPolicyMessage,
+  passwordPolicyViolation,
+} from '../common/password.js';
 
 /**
  * Platform-admin bootstrap (#337, D2 of #335) — the one supported way to get the first
@@ -19,12 +24,9 @@ import { hashPassword } from '../common/password.js';
  * ADR-0001 is unchanged: admins are created out of band by the team. No API creates one.
  */
 
-/**
- * Minimum length for a platform-admin password. This account can create and suspend every
- * tenant, so the floor is deliberately above the 8-ish habit; there is no upper structure
- * requirement because length is what a generated secret has.
- */
-export const MIN_PASSWORD_LENGTH = 12;
+// The password floor moved to `common/password.ts` (#364) so `POST /platform/tenants`
+// enforces the same one. Re-exported here because this module was its original home.
+export { MIN_PASSWORD_LENGTH };
 
 export interface BootstrapAdminOptions {
   /** Owner-role connection string. Defaults to `DATABASE_URL`. */
@@ -79,12 +81,12 @@ export async function bootstrapAdmin(
     'BOOTSTRAP_ADMIN_DISPLAY_NAME',
   );
   // Not trimmed: a password's spaces are part of it. Only its emptiness is rejected.
+  // The condition itself lives in `common/password.ts` — shared with the provisioning
+  // endpoint, so the two can no longer drift (#364).
   const password = opts.password ?? process.env.BOOTSTRAP_ADMIN_PASSWORD ?? '';
-  if (!password.trim()) throw new Error('BOOTSTRAP_ADMIN_PASSWORD is required');
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    throw new Error(
-      `BOOTSTRAP_ADMIN_PASSWORD is too weak: at least ${MIN_PASSWORD_LENGTH} characters required`,
-    );
+  const violation = passwordPolicyViolation(password);
+  if (violation) {
+    throw new Error(passwordPolicyMessage(violation, 'BOOTSTRAP_ADMIN_PASSWORD'));
   }
 
   const ds = createMigrationDataSource(url);

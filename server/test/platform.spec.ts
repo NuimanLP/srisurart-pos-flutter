@@ -304,7 +304,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
           code: 'shop01',
           shopName: 'ร้านอะไหล่ 1',
           ownerUsername: 'owner1',
-          ownerPassword: 'pass123',
+          ownerPassword: 'pass123456789',
           ownerDisplayName: 'เจ้าของร้าน',
         },
         'adm1',
@@ -331,6 +331,58 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       );
     });
 
+    // #364 — the policy must bite before the transaction opens, so nothing can be left
+    // half-created and the argon2 hash is never paid for a request we are refusing.
+    // `mockAdminDs.transaction` not being called is the proof; the e2e suite proves the
+    // ground truth (no rows) against a real database.
+    it.each([
+      ['a short numeric password', '1234'],
+      ['an 11-character password', 'password123'],
+      ['an empty password', ''],
+      ['a whitespace-only password', '            '],
+      ['a non-string password', 1234 as unknown as string],
+    ])('refuses %s before opening a transaction', async (_label, ownerPassword) => {
+      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
+
+      await expect(
+        service.createTenant(
+          {
+            code: 'shop-weak',
+            shopName: 'ร้านอะไหล่อ่อนแอ',
+            ownerUsername: 'owner-weak',
+            ownerPassword,
+            ownerDisplayName: 'เจ้าของร้าน',
+          },
+          'adm1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockAdminDs.transaction).not.toHaveBeenCalled();
+      expect(mockAdminDs.query).not.toHaveBeenCalled();
+    });
+
+    it('carries the WEAK_PASSWORD code so the client can translate it (02_API_SCREENS.md §8.1)', async () => {
+      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
+
+      await expect(
+        service.createTenant(
+          {
+            code: 'shop-weak-2',
+            shopName: 'ร้านอะไหล่อ่อนแอ 2',
+            ownerUsername: 'owner-weak-2',
+            ownerPassword: '1234',
+            ownerDisplayName: 'เจ้าของร้าน',
+          },
+          'adm1',
+        ),
+      ).rejects.toMatchObject({
+        response: {
+          code: 'WEAK_PASSWORD',
+          message: 'ownerPassword is too weak: at least 12 characters required',
+        },
+      });
+    });
+
     it('rolls back and propagates error if audit logging fails during tenant creation', async () => {
       mockAdminDs.query
         .mockResolvedValueOnce([{ id: 'tenant-123' }]) // INSERT INTO tenants
@@ -349,7 +401,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
             code: 'shop02',
             shopName: 'ร้านอะไหล่ 2',
             ownerUsername: 'owner2',
-            ownerPassword: 'pass123',
+            ownerPassword: 'pass123456789',
             ownerDisplayName: 'เจ้าของร้าน 2',
           },
           'deleted-adm',

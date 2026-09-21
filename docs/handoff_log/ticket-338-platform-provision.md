@@ -91,7 +91,7 @@ $DC exec -T nginx wget -qO- --no-check-certificate \
 # ── 2. provision tenant ──────────────────────────────────────────────────
 printf '%s' '{"code":"srisurart-demo","shopName":"ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)",
 "shopNameEn":"Srisurart Autopart (demo)","plan":"demo","ownerUsername":"owner_demo",
-"ownerPassword":"<รหัสเจ้าของร้าน>","ownerDisplayName":"เจ้าของร้าน"}' > /tmp/body.json
+"ownerPassword":"<รหัสเจ้าของร้าน · อย่างน้อย 12 ตัวอักษร>","ownerDisplayName":"เจ้าของร้าน"}' > /tmp/body.json
 $DC cp /tmp/body.json nginx:/tmp/body.json
 $DC exec -T nginx wget -qO- --no-check-certificate \
   --header 'Content-Type: application/json' \
@@ -111,8 +111,14 @@ history -d $(history 1)     # หรือเว้นวรรคนำหน�
 `shopName` · `shopNameEn` (ไม่ใส่ = `''`) · `plan` `basic|demo|loadtest` (ไม่ใส่ = `basic`) ·
 `timezone` (ไม่ใส่ = `Asia/Bangkok`) · `ownerUsername` · `ownerPassword` ·
 `ownerDisplayName` (ไม่ใส่ = ใช้ `ownerUsername`)
-🔴 `ownerPassword` **ไม่มีเกณฑ์ความยาวฝั่ง server** (`platform-tenants.service.ts:52-54`
-ตรวจแค่ว่ามีค่า) — คนที่รันต้องตั้งรหัสที่ดีเอง ต่างจาก `bootstrap:admin` ของ #337 ที่บังคับ 12 ตัว
+🔴 `ownerPassword` **ต้องยาวอย่างน้อย 12 ตัวอักษร** (แก้แล้วที่ #364 — เดิมตรวจแค่ว่ามีค่า
+จึงตั้ง `1234` ได้) เกณฑ์เดียวกับ `bootstrap:admin` ของ #337 เพราะมาจาก**ฟังก์ชันเดียวกัน**
+(`server/src/common/password.ts` → `passwordPolicyViolation` / `MIN_PASSWORD_LENGTH`)
+ถ้าไม่ผ่านจะได้ **`400 WEAK_PASSWORD`** (`02_API_SCREENS.md §8.1`) โดยที่ยัง**ไม่ได้**
+สร้าง tenant / owner / settings / categories / device อะไรเลย — เพราะตรวจก่อน hash argon2
+และก่อนเปิดธุรกรรม (`platform-tenants.service.ts` `createTenant()` ต้นฟังก์ชัน)
+`message` ของ error เป็นภาษาอังกฤษสำหรับคนที่รัน (`ownerPassword is too weak: at least 12
+characters required`) ส่วนข้อความไทยอยู่ใน `server_error_resolver.dart`
 
 ### 🔴 `enrolCode` คืนกลับมาครั้งเดียว
 
