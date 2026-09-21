@@ -55,10 +55,21 @@ Git Bash on the controller machine unless the row says otherwise.
 | P4 | The monitoring overlay is up (k6 has nowhere to push otherwise) | `ssh … deploy@172.30.58.20 'curl -s -o /dev/null -w "prom=%{http_code}\n" http://127.0.0.1:9090/-/healthy; curl -s -o /dev/null -w "graf=%{http_code}\n" http://127.0.0.1:3000/api/health'` | `prom=200` and `graf=200` |
 | P5 | Grafana actually draws | `ssh -i ~/.ssh/deploy_ed25519 -o IdentitiesOnly=yes -L 3000:127.0.0.1:3000 deploy@172.30.58.20` then open `http://localhost:3000` → *Srisurart POS — overview* | the five `k6:` panels exist (they will read *No data* until the run — that is correct) |
 | P6 | The sampler is **on the VM** | `ssh … deploy@172.30.58.20 'ls -l /opt/pos/scripts/measure-container-rss.sh'` | a `-rwxr-xr-x … deploy deploy` file |
-| P7 | `/opt/pos/.env` carries the two remote-write keys | `ssh … deploy@172.30.58.20 'sudo grep -c "^K6_REMOTE_WRITE_BASIC_AUTH_" /opt/pos/.env'` (as `cloud`; `deploy` has no sudo) | `2` — 🔴 anchor the `^`, an unanchored `grep -c` has already produced a false pass in this repo |
+| P7 | `/opt/pos/.env` carries the two remote-write keys | `ssh … deploy@172.30.58.20 'sudo grep -c "^K6_REMOTE_WRITE_BASIC_AUTH_" /opt/pos/.env'` (as `cloud`; `deploy` has no sudo) | `2` — 🔴 anchor the `^`, an unanchored `grep -c` has already produced a false pass in this repo. **Expect this to fail until `provision.yml` is re-run**: `ticket-343-vm-deploy.md` §5 records `/opt/pos/.env` as written 2026-09-15, before #251 added those two keys |
 | P8 | Each laptop's source IP is inside nginx's remote-write allowlist | from **each** laptop: `curl -sk -o /dev/null -w "%{http_code}\n" -X POST https://172.30.58.20/prometheus-remote-write/api/v1/write` | **`401`** = IP allowed, credentials missing (expected, good). **`403`** = that laptop is outside the allowlist → **STOP**, see §7 F1 |
 | P9 | k6 installed on all three laptops | `k6 version` on each | any version prints |
-| P10 | Clocks synced on all three laptops | `date -u` on each, compare against a phone | within a couple of seconds — one laptop was found ~70 s behind during the #184 session (close3 finding 7) |
+| P10 | Clocks synced on all three laptops | `date -u` on each, compare against a phone | within a couple of seconds — the controller machine was found ~70 s behind real time during the #184 session (close3 finding 7), so this is not hypothetical |
+
+**The SHA you measure has to be a SHA whose images exist.** Two rows of
+[`demo-rehearsal-dev-2026-09-21.md`](demo-rehearsal-dev-2026-09-21.md) §10 apply before P2 can be
+true at all: the VM never builds, so *"ต้องรอ CI ของ commit นั้น build+push image เสร็จก่อน (D8) · เช็คด้วย
+`deploy/scripts/verify-ghcr-tags.sh <sha>`"*, and the deploy *"ต้องส่ง `image_tag=<40-hex>` เสมอ"* —
+with `-e force_redeploy=true` when the target equals `.current_sha`, or the play exits early and
+silently. Prove it before asking anyone to deploy:
+
+```bash
+bash deploy/scripts/verify-ghcr-tags.sh <40-hex SHA>
+```
 
 **P2/P3 are #343's output, not something to do here.** If `.current_sha` is still `8e873cd`
 (2026-09-15, 188 commits behind `main` as of 2026-09-21), the deploy has never happened: run
@@ -93,10 +104,12 @@ Why that question survives the method decision — the arithmetic, already recor
   concurrent users. `03 §8.1` already says so in writing.
 
 **What this runbook does in the meantime:** produce and record the per-machine numbers, state their
-scope in exactly those words, and **leave `03 §8`'s k6 box unticked**. Whoever runs this may tick
-#184 AC 4 (its own wording is *"ผล k6 p95 ต่อเครื่อง เทียบเกณฑ์ `02 §9`"* — a per-machine p95
-compared against the thresholds, which this run does deliver) and must **not** tick the `03 §8` DoD
-box, which is a broader claim and is #251's to release. Say both things in the evidence comment.
+scope in exactly those words, and **leave `03 §8`'s k6 box unticked**. #184 AC 4's own wording is *"ผล k6 p95 ต่อเครื่อง
+เทียบเกณฑ์ `02 §9`"* — a per-machine p95 compared against the thresholds — and this run delivers
+that, **except** for §9's `replication lag < 1s`, which nothing in this stack can measure (§6.2).
+So: fill §6.2 completely, including that row's N/A and its reason, and let the owner decide whether
+AC 4 counts as satisfied with an N/A in it. **Do not** tick the `03 §8` DoD box either way — that is
+a broader claim and is #251's to release. Say all of this in the evidence comment.
 
 ---
 
@@ -153,7 +166,7 @@ API.
 The VM publishes **no** datastore port (`server/docker-compose.yml` has no `ports:` on Postgres or
 Redis, and `docker-compose.dev.yml` is forbidden on the VM — `03 §8`). The only path that has ever
 worked is the one recorded in
-[`close3-demo-deploy-2026-09-15.md`](close3-demo-deploy-2026-09-15.md) §"How it was run": a Linux
+[`close3-demo-deploy-2026-09-15.md`](close3-demo-deploy-2026-09-15.md) §2 "How it was run: a Linux
 container on the coordinator laptop holding **SSH tunnels to the compose addresses**, with a native
 `pnpm install` of `server/` (argon2 is a native module, so a Windows install will not do).
 
@@ -235,6 +248,14 @@ docker ps --format '{{.Names}}' | while read n; do \
 
 Keep that output. §6.1 diffs against it.
 
+🔴 **Any `docker compose` you type in `/opt/pos` must carry the whole `-f` set** —
+`-f docker-compose.yml -f vm.override.yml -f monitoring.yml`, with `IMAGE_TAG=$(cat .current_sha)`.
+A partial set is a different project definition: on the dev rehearsal a bare `docker compose run`
+**recreated Postgres** and took its published port with it
+(`demo-rehearsal-dev-2026-09-21.md` §9.2). Nothing in this runbook needs `compose` at all —
+`docker stats`, `docker inspect`, `docker logs` and `docker ps` are enough — so if you find yourself
+reaching for `compose` mid-measurement, stop and ask why.
+
 ### 5.2 Fire the scenarios — one scenario at a time, on a barrier
 
 Run **the same scenario on all three laptops at once**, then stop and regroup. This is not
@@ -243,32 +264,27 @@ scenario 2 while another runs scenario 1 spends one budget on two workloads, and
 then describes a different mix of traffic from its neighbours'. Announce "go" on a call/chat and
 start within a couple of seconds of each other.
 
-On laptop `i` (1, 2, 3), with `MACHINE` distinct per laptop:
+Once per laptop (`i` = its shard number, `MACHINE` distinct per laptop):
 
 ```bash
 cd server
+i=1                        # THIS laptop's shard number: 1, 2 or 3
 export MACHINE=laptop-$i
-
-SHARD=$i/3 k6 run -o experimental-prometheus-rw --insecure-skip-tls-verify \
-  --tag testid="$TESTID" --tag machine="$MACHINE" test/k6/01-read-products.js
+shot() { SHARD=$i/3 k6 run -o experimental-prometheus-rw --insecure-skip-tls-verify \
+  --tag testid="$TESTID" --tag machine="$MACHINE" "$@"; }
 ```
 
-Then, on a fresh barrier each time:
+Then, on a fresh barrier each time, in this order:
 
 ```bash
-SHARD=$i/3 k6 run -o experimental-prometheus-rw --insecure-skip-tls-verify \
-  --tag testid="$TESTID" --tag machine="$MACHINE" test/k6/02-write-sales-contention.js
+shot test/k6/01-read-products.js
+shot test/k6/02-write-sales-contention.js          # then §5.5, before anything re-seeds
+shot test/k6/03-idempotent-replay.js
+shot -e DURATION=10m test/k6/04-mixed-workload.js
 ```
 
-```bash
-SHARD=$i/3 k6 run -o experimental-prometheus-rw --insecure-skip-tls-verify \
-  --tag testid="$TESTID" --tag machine="$MACHINE" test/k6/03-idempotent-replay.js
-```
-
-```bash
-SHARD=$i/3 k6 run -o experimental-prometheus-rw --insecure-skip-tls-verify \
-  --tag testid="$TESTID" --tag machine="$MACHINE" -e DURATION=10m test/k6/04-mixed-workload.js
-```
+🔴 Those are four separate barriers, not a script — wait for all three laptops to finish a line
+before anyone starts the next.
 
 `--insecure-skip-tls-verify` is needed because the VM serves a self-signed placeholder cert
 (`certgen`). `-e DURATION=10m` on scenario 4 is what makes it the rubric's 10-minute mixed run; its
@@ -362,18 +378,33 @@ Read it **per machine** in Grafana, filtered to your `testid`, on the five `k6:`
 the three is not a valid combined percentile (k6's remote-write computes each percentile locally —
 `server/test/k6/README.md`, "Reading the numbers").
 
+The first block below is `02 §9`'s own four rows, transcribed from
+`docs/Backend_design/02_API_SCREENS.md:900-904`. The two rows marked *(script threshold, not §9)*
+come from the k6 scripts' own `thresholds` and from `server/test/k6/README.md` — useful, but do not
+present them as §9 criteria.
+
 | `02 §9` row | PromQL / source | Threshold | laptop-1 | laptop-2 | laptop-3 |
-|---|---|---|---|---|---|
-| `GET /products` p95 | `k6_http_req_duration_p95{scenario="read_heavy"}` | < 0.2 (seconds) | | | |
-| `GET /products` cache hit | `k6_cache_hits_rate{scenario="read_heavy"}` | > 0.90 | | | |
-| `GET /products` error rate | `k6_http_req_failed_rate{scenario="read_heavy"}` | < 0.001 | | | |
-| `POST /sales` p95 | `k6_http_req_duration_p95{scenario="write_contention"}` | < 0.5 | | | |
-| stock never negative / no duplicate bills | `pnpm k6:verify` (§5.5) | all PASS | (one result, not per machine) | | |
-| replay: one bill, one decrement | `pnpm k6:verify` + `k6_replay_server_errors_rate{scenario="idempotent_replay"}` | == 0 | | | |
-| mixed p95 | `k6_http_req_duration_p95{scenario="mixed_workload"}` | < 0.5 | | | |
-| mixed error rate | `k6_http_req_failed_rate{scenario="mixed_workload"}` | < 0.001 | | | |
-| mixed: no pool exhaustion | `k6_pool_exhaustion_errors_rate{scenario="mixed_workload"}` | == 0 | | | |
-| **clean-measurement canary** | `sum(increase(k6_http_reqs_total{status="429"}[$__range])) by (machine)` | **== 0 for every machine** | | | |
+|---|---|---|---|---|---|---|
+| §9 read-heavy: p95 | `k6_http_req_duration_p95{scenario="read_heavy"}` | < 0.2 (seconds) | | | |
+| §9 read-heavy: cache hit | `k6_cache_hits_rate{scenario="read_heavy"}` | > 0.90 | | | |
+| §9 read-heavy: error rate | `k6_http_req_failed_rate{scenario="read_heavy"}` | < 0.001 | | | |
+| §9 write: stock never negative, no duplicate bills | `pnpm k6:verify` (§5.5) | all PASS | (one result, not per machine) | | |
+| §9 write: p95 | `k6_http_req_duration_p95{scenario="write_contention"}` | < 0.5 | | | |
+| §9 replay: one bill, one stock decrement | `pnpm k6:verify` + `k6_replay_server_errors_rate{scenario="idempotent_replay"}` | == 0 | | | |
+| §9 mixed: no connection-pool exhaustion | `k6_pool_exhaustion_errors_rate{scenario="mixed_workload"}` | == 0 | | | |
+| **§9 mixed: `replication lag < 1s`** | **no metric exists — see below** | **N/A, and say why** | | | |
+| mixed p95 *(script threshold, not §9)* | `k6_http_req_duration_p95{scenario="mixed_workload"}` | < 0.5 | | | |
+| mixed error rate *(script threshold, not §9)* | `k6_http_req_failed_rate{scenario="mixed_workload"}` | < 0.001 | | | |
+| **clean-measurement canary (#251)** | `sum(increase(k6_http_reqs_total{status="429"}[$__range])) by (machine)` | **== 0 for every machine** | | | |
+
+🔴 **`02 §9`'s mixed row asks for `replication lag < 1s` and nothing in this stack can produce that
+number.** There is no read replica: `server/docker-compose.yml` and `deploy/compose/vm.override.yml`
+define a single `postgres` service (zero hits for "replica" in either), and `03_ARCHITECTURE.md §2`
+marks streaming replication as *"เฟส 2"*. Write **N/A — single-node Postgres, no replica deployed**
+in that cell with that evidence. Do not drop the row silently and do not substitute another number
+for it: an AC that says *"เทียบเกณฑ์ `02 §9`"* has to account for every §9 criterion including the
+one that cannot be met yet, and whether an N/A there is acceptable is the owner's call — part of
+what #251 still owes (§3).
 
 `k6_http_req_duration_p95` is in **seconds** despite the bare metric name (k6 converts
 `Time`-valued trends; the four `*_duration_ms` custom trends the scripts define stay in
@@ -396,6 +427,8 @@ measurement, and #288's backup AC was ticked on a closed issue while nothing had
 * ❌ Numbers from **`k6` executed on the VM**, or through an **SSH tunnel to `api-1`** — both are
   explicitly not §9 evidence (`03 §8`, close3 §4.1). Diagnostics only.
 * ❌ Numbers taken while the three laptops were running **different scenarios** (see §5.3).
+* ❌ The two *(script threshold, not §9)* rows of §6.2 presented as §9 criteria, or `replication
+  lag < 1s` recorded as anything but **N/A with its reason**.
 * ❌ An **idle** RSS table presented as "under load". AC 3 says *ขณะมีโหลด*; the ~1.1 GB figure is
   #246's idle measurement and is already recorded as such.
 * ❌ Ticking `03_ARCHITECTURE.md §8`'s *"k6 ผ่านเกณฑ์ใน §9"* box. That is #251's to release (§3).
@@ -416,7 +449,7 @@ Tick an AC only with pasted output in the comment. If a scenario was skipped, sa
 | **F4** | The sampler says `docker: permission denied` | you are `cloud` without `sudo`, or `deploy` with `sudo`. See §5.1 |
 | **F5** | `/opt/pos/scripts/measure-container-rss.sh` does not exist (P6 fails) | `provision.yml` has not been re-run since #346. Only `provision.yml` installs it — `deploy.yml` never copies `deploy/scripts/`. `ticket-343-vm-deploy.md` §7 step 3 |
 | **F6** | `pnpm k6:setup` cannot reach Postgres | the tunnel, or a stale container IP. Re-read the IPs (§4.4); they are dynamic |
-| **F7** | `pnpm k6:setup` fails on `argon2` | a Windows/native mismatch. Run it in a Linux container with its own `pnpm install` (close3, §4.4) |
+| **F7** | `pnpm k6:setup` fails on `argon2` | a Windows/native mismatch. Run it in a Linux container with its own `pnpm install` (close3 §2, "How it was run (Windows controller)") |
 | **F8** | Scenario 3 throws before sending a request | `shard.assertBurstSafe` refused the plan: `ceil(TOTAL_REPLAY_VUS / N) > 45`. With the default 100 that needs `N ≥ 3`. **Raise N or lower the total — never the safety margin** |
 | **F9** | Scenario 2 sells 0 bills, everything 409 | `p12` stock was already consumed. Re-seed (§5.4) |
 | **F10** | Grafana panels stay *No data* after a run | check the `testid` filter first, then that the shards really used `-o experimental-prometheus-rw` (the flag is silently skipped if `K6_PROMETHEUS_RW_SERVER_URL` is unset), then Prometheus's own retention (7 d / 2 GB, `deploy/compose/monitoring.yml`) |
@@ -451,3 +484,6 @@ Everything else was checked against the files named beside it. These were not:
   of a second, so the real sampling interval is ≥ 2 s, and the sampler itself uses a little of the
   4 vCPU it is measuring. Not quantified.
 * **1800 s** in §5.1 is sized from the scenarios' declared stage durations, not from a timed run.
+* **GitHub state as of 2026-09-21** — that #184 is reopened with four unticked ACs, that #251 is
+  `OPEN`, and PR #357's "4 files, +409/−0". Read from `gh` on that date; re-check before relying on
+  any of them.
