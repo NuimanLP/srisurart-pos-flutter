@@ -76,6 +76,21 @@ Postgres. Four scenarios, each run against `deploy/scripts/backup-db.sh` unmodif
 
 Full command transcripts for all four scenarios are pasted in the PR description.
 
+## Code review (`/code-review`, Standards + Spec in parallel)
+
+- **Standards:** no hard `CLAUDE.md` violations. Flagged one Duplicated-Code judgement call — the
+  two `rclone copyto` calls (dump, then checksum) repeated the same check-then-error shape — fixed
+  by extracting a `copy_offsite()` helper before this PR was opened; re-ran all 4 dry-run scenarios
+  afterward with identical results. The verbose `::error::` text (vs. the file's terser existing
+  style) was flagged but kept: it's intentional, matches the "equally loud, documented outcome you
+  justify" requirement, and is explained in the script's own header comment.
+- **Spec:** traced the actual bash (not just the docs) and confirmed the non-zero-exit,
+  never-prune-an-unconfirmed-upload, and no-credentials-in-logs claims are all true of the code,
+  with no scope creep beyond "build the mechanism, document it, leave the VM ACs open." Flagged
+  that the #288 comment hadn't landed yet at the instant it checked — a timing artifact of the
+  parallel review running before the comment step in this same session; confirmed after landing
+  (`gh issue view 288 --json comments -q '.comments | length'` → `1`).
+
 ## Shellcheck
 
 `docker run --rm koalaman/shellcheck:stable deploy/scripts/backup-db.sh` — one pre-existing

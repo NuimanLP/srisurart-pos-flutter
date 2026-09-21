@@ -127,6 +127,17 @@ echo "  -> Backup created successfully ($BACKUP_SIZE)."
 # credential value -- only the configured remote *name* (not a secret; the secret lives in
 # rclone.conf) appears in output.
 UPLOAD_MARKER="${BACKUP_FILE}.uploaded"
+
+# Copies one file to $BACKUP_RCLONE_REMOTE using the module-level $RCLONE_ARGS (same pattern as
+# $COMPOSE_ARGS above for exec_pg_dump). Shared by both copyto calls in offsite_upload() below.
+copy_offsite() {
+  local file="$1"
+  if ! rclone "${RCLONE_ARGS[@]}" copyto "$file" "${BACKUP_RCLONE_REMOTE%/}/$(basename "$file")"; then
+    echo "::error::OFFSITE BACKUP FAILED — rclone could not copy $(basename "$file") to '$BACKUP_RCLONE_REMOTE'." >&2
+    return 1
+  fi
+}
+
 offsite_upload() {
   if [[ -z "${BACKUP_RCLONE_REMOTE:-}" ]]; then
     echo "::error::OFFSITE BACKUP DISABLED — BACKUP_RCLONE_REMOTE is not set, so this backup was NOT copied off the VM. This is expected until the owner wires a real destination (#363 AC1; docs/Backend_design/07_CICD_DEPLOY.md §7a). The local backup above was still created and kept. Exiting non-zero only so this stays visible in backup-cron.log." >&2
@@ -140,18 +151,14 @@ offsite_upload() {
     echo "::error::OFFSITE BACKUP FAILED — BACKUP_RCLONE_CONFIG='$BACKUP_RCLONE_CONFIG' does not exist." >&2
     return 1
   fi
-  local rclone_args=()
+  RCLONE_ARGS=()
   if [[ -n "${BACKUP_RCLONE_CONFIG:-}" ]]; then
-    rclone_args+=(--config "$BACKUP_RCLONE_CONFIG")
+    RCLONE_ARGS+=(--config "$BACKUP_RCLONE_CONFIG")
   fi
   echo "Uploading $(basename "$BACKUP_FILE") to '$BACKUP_RCLONE_REMOTE'..."
-  if ! rclone "${rclone_args[@]}" copyto "$BACKUP_FILE" "${BACKUP_RCLONE_REMOTE%/}/$(basename "$BACKUP_FILE")"; then
-    echo "::error::OFFSITE BACKUP FAILED — rclone could not copy $(basename "$BACKUP_FILE") to '$BACKUP_RCLONE_REMOTE'." >&2
-    return 1
-  fi
-  if [[ -f "$CHECKSUM_FILE" ]] && ! rclone "${rclone_args[@]}" copyto "$CHECKSUM_FILE" "${BACKUP_RCLONE_REMOTE%/}/$(basename "$CHECKSUM_FILE")"; then
-    echo "::error::OFFSITE BACKUP FAILED — rclone could not copy $(basename "$CHECKSUM_FILE") to '$BACKUP_RCLONE_REMOTE'." >&2
-    return 1
+  copy_offsite "$BACKUP_FILE" || return 1
+  if [[ -f "$CHECKSUM_FILE" ]]; then
+    copy_offsite "$CHECKSUM_FILE" || return 1
   fi
   echo "  -> Offsite upload confirmed ($BACKUP_RCLONE_REMOTE)."
 }
