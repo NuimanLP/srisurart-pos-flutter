@@ -34,11 +34,11 @@
 | #339 | `metrics.serve` | B | ✅ **merged** | #349 | PR เปิดแล้ว · text format, bypass envelope, Nginx 404 block, route pattern label, e2e ผ่าน |
 | #340 | `dashboard` | B | ✅ **merged** | #350 | PR เปิดแล้ว · base #349 · scrape target api-metrics, panel titles, 07_CICD_DEPLOY.md |
 | #341 | `replay` counter | B | ✅ **merged** | #351 | PR เปิดแล้ว · base #350 · pos_idempotency_replay_total (no tenant_id), onTransactionCommit, panels 11 & 12, e2e ผ่าน (commit vs rollback) |
-| #342 | `web.server-build` | C | ❓ ยังไม่รายงาน | — | เริ่มได้ทันที ไม่ต้องรอใคร |
-| #346 | `ops.backup-scripts` | C | ❓ ยังไม่รายงาน | — | อิสระ ไม่บล็อกใคร |
-| #343 | `vm.deploy` 🔒 | C | ⏸️ รอ VPN | — | #336 ปลดแล้ว เหลือรอเจ้าของต่อ VPN |
+| #342 | `web.server-build` | C | ✅ **merged** `c8eb552` | #353 | CI สร้าง image ของ merge commit สำเร็จแล้ว (Flutter CI #35554301669) |
+| #346 | `ops.backup-scripts` | C | 🔄 AC1/AC3 ค้าง | #356 + #361 (merged) | คัดลอกสคริปต์ ops ครบสามตัวขึ้น VM + cron เก็บ log แล้ว · 🔴 **AC1 premise กลับด้าน**: `crontab -l -u deploy` ว่าง ⇒ cron ไม่เคยถูกติดตั้งเลย ไม่ใช่ล้มเงียบ · AC3 รอ `provision.yml` รันบน VM · off-site backup แยกเป็น #363 |
+| #343 | `vm.deploy` 🔒 | C | 🔄 pre-flight เสร็จ รอเจ้าของรัน | #362 | VPN ต่อแล้ว · `-m ping` SUCCESS · D9 เคลียร์ 5/6 · **ยังไม่ติ้ก AC ข้อใด** · 🔴 บล็อกเกอร์: `/opt/pos/.env` (2026-09-15) ขาด `K6_REMOTE_WRITE_BASIC_AUTH_*` ⇒ `:?` ทำให้ `docker compose pull` ตายก่อน — `provision.yml` (user `cloud`) ปลด · `deploy.yml` ต้องใช้ user `deploy` |
 | #344 | `vm.demo` 🔒 | — | ⏸️ รอทั้งสามเลน | — | งานรวมตอนท้าย ไม่มอบให้เลนใด |
-| #345 | `reconcile` | — | ⏸️ รอ #344 | — | ปิดท้าย |
+| #345 | `reconcile` | C | ✅ **ทำแล้ว** | — | #184 เปิดกลับพร้อมคอมเมนต์แจ้งเจ้าของใบ **ไม่ติ้กช่องใด** (AC ว่างทั้งสี่ ไม่มีหลักฐาน) · #196 ลบ *needs owner secrets* แล้วแทนด้วยบล็อกเกอร์จริง · ติ้ก #292–#297 ครบหก แต่กำกับว่าห้ามใช้ติ้กช่อง `03 §8` |
 
 สถานะ: ✅ merged · 🔨 กำลังทำ · 👀 รอรีวิว/CI · ⏸️ รอใบอื่น · 🛑 ติดบล็อกเกอร์ · ❓ ยังไม่รายงาน
 
@@ -81,6 +81,13 @@
   · มี platform admin `vmform-337` ค้างไว้ใน dev DB **โดยตั้งใจ** เพื่อให้ #338 ยิง
   `POST /api/v1/platform/tenants` ต่อได้ (รหัสอยู่ใน `ticket-337-admin-bootstrap.md` §6 — dev เท่านั้น)
   · วิธีสร้าง admin ของตัวเองอยู่ใน runbook ของ #337
+
+- **2026-09-21 09:40 · lane C** — ⚠️ `Deploy (demo)` ถูก trigger อัตโนมัติหลัง CI ของ
+  merge commit แม้ #343 ยังเป็น HITL: run `35554527721` (commit `c8eb552`) ไปถึง
+  `resolve release` แต่ job `deploy to demo` **ไม่มี runner และไม่มี step เริ่ม** ก่อนถูกยกเลิก;
+  run ของ `325bf80` (`35554800740`, `35554806746`) ก็ถูกยกเลิกแล้ว → จึง **ไม่มีหลักฐานว่า VM
+  ถูก deploy** จากสอง merge นี้ และห้ามนับเป็นการรัน #343. ต้องให้เจ้าของตัดสินว่าจะปิด/ปรับ
+  auto-deploy อย่างไร ก่อนอนุญาต VM runbook.
 
 - **2026-09-20 23:00 · lane B** — ✅ **#339, #340, #341 เสร็จครบทั้ง 3 ใบ — เปิด PR #349, #350, #351 แล้ว**
   เลน B ปิดงาน observability: `/metrics` พร้อมให้ Prometheus scrape, dashboard มี 12 panels ครบ
@@ -184,13 +191,75 @@
 **อาณาเขตไฟล์:** `.github/workflows/flutter.yml` · `deploy/ansible/` · `deploy/scripts/`
 **ห้ามแตะ:** `server/src/` · `server/docker/nginx/nginx.conf` · `server/.env`
 
+#### อัปเดต 2026-09-21 — pre-flight #343 เสร็จ (อ่านอย่างเดียว) · #346 รอบสอง · #345 เสร็จ
+
+> ⚠️ **เซสชันนี้ไม่ได้เปลี่ยนสถานะอะไรบน VM เลย** — อ่านอย่างเดียว + `ansible -m ping` + `--check --diff`
+> เท่านั้น · ไม่มีค่า secret ใดถูกอ่านหรือบันทึก อ่านแต่ **ชื่อคีย์** · **ห้ามติ๊ก AC ของ #343 ข้อใด**
+
 | ใบ | สถานะ | หลักฐาน |
 |---|---|---|
-| #342 `web.server-build` | ❓ ยังไม่รายงาน | _(lane C เติมตรงนี้)_ |
-| #346 `ops.backup-scripts` | ❓ ยังไม่รายงาน | — |
-| #343 `vm.deploy` 🔒 | ⏸️ รอ VPN | #336 ปลดแล้ว |
+| #343 `vm.deploy` 🔒 | 🛑 **pre-flight เสร็จ 5/6 · ติด 1 บล็อกเกอร์ · รอเจ้าของกดรัน** | PR **#362** → `ticket-343-vm-deploy.md` (ตาราง D9 6 ข้อ + คำสั่ง copy-paste + ผล `-m ping`/`--check` verbatim §6) |
+| #346 `ops.backup-scripts` | 🛑 **ปิดไม่ได้** — AC2/AC4 ปิดแล้ว · AC1 ได้ผล**ตรงข้าม**กับที่ใบเขียน · AC3 รอเจ้าของ | PR **#361** (`References #346`) · `ticket-346-backup-script-install.md` รอบสอง |
+| #345 `reconcile` | ✅ **เสร็จ** (ทำก่อน #344 เพราะหลักฐานพร้อมและ D10 สั่งให้แก้ใบ) | #184 **reopen** + คอมเมนต์ข้อเท็จจริง · #196 แก้บรรทัด #184 + ติ๊ก dod หกใบ + คอมเมนต์สรุป |
+
+**สิ่งที่ตรวจได้จริงบน `mob04` (172.30.58.20, 2026-09-21, read-only):**
+- `.current_sha` = `8e873cd56a4e3012c0474ebf20027987203a35aa` (merge #234) — **ตามหลัง `main` 188 commit**
+  container 13 ตัว `Up 5 days` → **VM ยังไม่เคยถูก deploy จาก `main`**
+- 🛑 **บล็อกเกอร์เดียว:** `/opt/pos/.env` เขียน 2026-09-15 ก่อน #251 → **ไม่มี**
+  `K6_REMOTE_WRITE_BASIC_AUTH_USER/_PASSWORD` ซึ่ง `server/docker-compose.yml:103-104` บังคับด้วย `:?`
+  → `docker compose pull` ตัวแรกของ `deploy.yml` ตายที่ interpolation **ต้องรัน `provision.yml` ด้วย
+  `DEMO_ENV_FILE` ของ #336 ก่อน** (คีย์ที่มีอยู่ครบอีก 12 ตัว รวม `ETCD_ROOT_PASSWORD` /
+  `GRAFANA_ADMIN_PASSWORD`)
+- ✅ **ไม่ต้องยอมดาวน์ไทม์** — `docker network inspect srisurart-pos_default` →
+  `IPRange: "172.30.0.128/25"` → assert ที่ `deploy.yml:96-104` ผ่าน · 07 §7 ไม่ต้องทำ **ห้ามทำเผื่อ**
+- SHA ที่ควร deploy: **`cd8989b44912076aaa93b347d62c7eaf1530fa82`** (head ของ `main`, image ทั้งสอง
+  HTTP 200, Server CI + Flutter CI เขียว, ไม่ต้อง `force_redeploy`) · ซ้อม rollback ที่
+  **`325bf802641372b307c791363e890a1cb01a5e5f`** (image ครบ, สูงกว่า `ROLLBACK_FLOOR` `4f3a244`,
+  และอยู่หลัง #342 จึงเป็น web image โหมด server แล้ว — `8e873cd` มี image แต่เป็น build ออฟไลน์)
+
+**🔴 สามข้อที่เลนอื่นและคนรัน playbook ต้องรู้:**
+1. **`deploy.yml` รันเป็น `cloud` ไม่ได้** — มันเป็น `become: false`, `/opt/pos` เป็น
+   `drwxr-xr-x deploy:deploy`, `cloud` fail `test -w /opt/pos` และเข้า docker socket ไม่ได้ ·
+   ส่วน **`provision.yml` รันเป็น `deploy` ไม่ได้** เพราะ `deploy` ไม่มี sudo เลย
+   → **`provision.yml` = `DEMO_SSH_USER=cloud` (key `mob04-SriStore`) · `deploy.yml` = `deploy`
+   (key `deploy_ed25519`)** · `--check` ปิดบั๊กนี้ไว้ (copy เทียบ checksum ไม่เขียน, `command` ถูก skip)
+   → default `deploy` ใน `hosts.ini` **ถูกแล้ว ไม่ต้องแก้** (ถูกสำหรับ playbook ที่รันทุก release
+   และที่ `pos-deploy.sh` เรียก) — ที่ขาดคือตารางนี้ ไม่ใช่ default อื่น
+2. **bind mount ของ Windows เป็น world-writable → Ansible ทิ้ง `ansible.cfg` เงียบ ๆ**
+   (`config file = None` แล้ว ping ล้มด้วย `Host key verification failed`) แม้จะ `cd` เข้า
+   `deploy/ansible/` ตาม D9 แล้วก็ไม่พอ → **ต้องส่ง `ANSIBLE_CONFIG` ตรง ๆ**
+   เครื่องนี้ไม่มี `ansible-core` จึงรันในคอนเทนเนอร์ pin digest
+   `alpine/ansible@sha256:22227b578da3371267201879f44de86569e9b531db536e1d9d2b83aed35b6cfc`
+3. **`--check` พิสูจน์ playbook เหล่านี้ไม่ได้เลยเกิน `command` ตัวแรก** — assert เรื่อง network
+   fail ใน check mode เพราะ `pos_network.stdout` ว่าง (**false positive** ไม่ใช่ข้อ 4 ของ D9 ล้ม)
+
+**บั๊กที่เจอและแก้แล้วใน PR #361:** `restore-db.sh` และ `measure-container-rss.sh` **ไม่เคย**ถูกคัดลอก
+ขึ้น VM โดย playbook ใดเลย · `slice-22 §2.2` สั่ง `./deploy/scripts/measure-container-rss.sh` จาก
+`/opt/pos` ซึ่งไม่มีอยู่ (`/opt/pos/deploy/` มีแค่ `prometheus/`, `grafana/`) → **runbook ของ #184
+รันไม่ได้ตามที่เขียน** · cron ของ backup ไม่เคยถูกติดตั้งเลย (`crontab -l -u deploy` **ว่าง**)
+จึงไม่ใช่ "ล้มเงียบทุกคืน" แต่เป็น "ไม่มีอะไรจะล้ม" ซึ่งเงียบกว่า · redirect `>/dev/null 2>&1`
+เปลี่ยนเป็น `>>/opt/pos/backups/backup-cron.log 2>&1`
+
+**อีกสองเรื่องที่เจอตอนอ่าน VM (ไม่ใช่ของเลน C แก้):**
+- 🔴 `/opt/pos/docker/etcd/etcd-init.sh` ยังเป็น**ไดเรกทอรีของ root** → **etcd ตัวนี้ไม่เคยเปิด auth**
+  (07 §7) · `deploy.yml` ซ่อมเองตอน deploy จริงครั้งถัดไป
+- `CORS_ORIGINS` / `PLATFORM_ADMIN_IPS` ไม่อยู่ใน `.env` **และไม่มี compose ไฟล์ใดส่งเข้า container**
+  (ตรงกับที่ lane A ประกาศไว้ §2) → ใส่ใน `DEMO_ENV_FILE` ก็ไม่ปิด CORS **ห้ามใครเขียน AC ว่าปิดแล้ว**
+
+---
+
+**ประวัติก่อนหน้า (2026-09-21 รอบแรก):**
+
+| ใบ | สถานะ | หลักฐาน |
+|---|---|---|
+| #342 `web.server-build` | ✅ merged `c8eb552` | PR #353 · CI run `35554301669` สร้าง web image ของ merge commit สำเร็จ · image digest `sha256:e699667945cb48283d556b717ccab2c89c4c2c0bd3dffa31131c4fa03472bd6e` ถูก pull/run พิสูจน์จริง |
+| #346 `ops.backup-scripts` | 🛑 ติด VM validation | PR #356 merged `325bf80` · `deploy/scripts/validate.sh` และ CI (`35554355118` / `35554355151`) ผ่าน · ยังไม่ tick AC ที่ต้อง cron log + backup/restore บน VM จริง |
+| #343 `vm.deploy` 🔒 | 🛑 รอ secret + VPN + HITL | #336 ปลดแล้ว; ตรวจ `gh secret list` แล้วไม่มี `DEMO_ENV_FILE`, ไม่มี `DEMO_SSH_*` / `ansible-playbook` ในเครื่อง และต้องได้คำสั่งเจ้าของก่อนรัน playbook |
 
 **เตือนจาก D8/D9/D10 — อ่านก่อนลงมือ:**
+- 2026-09-21: workflow `Deploy (demo)` ทำงานอัตโนมัติหลัง CI จึงไม่ใช่หลักฐานการ deploy ที่
+  อนุญาตตาม D9/HITL; run ที่สั่งยกเลิกของ `c8eb552` / `325bf80` ไม่มี deployment step เริ่ม
+  (รายละเอียด §2) และต้องรอคำตัดสินเจ้าของก่อน VM runbook
 - D8: image เว็บจะไม่ใช่ build ออฟไลน์อีกต่อไป · **ต้องรอ CI build image ของ commit นั้นเสร็จก่อน deploy**
 - D9: `/opt/pos/.env` วางโดย `provision.yml` ไม่ใช่ `deploy.yml` · ต้องรันจาก `deploy/ansible/` ·
   ต้องส่ง `-e image_tag=<40-hex>` (+ `force_redeploy=true` ถ้า SHA ซ้ำ) ·
