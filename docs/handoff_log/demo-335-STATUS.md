@@ -5,7 +5,7 @@
 
 - แผนแบ่งงาน + กฎกันชนกัน: [`demo-335-three-agent-split.md`](demo-335-three-agent-split.md)
 - สเปกแม่: GitHub issue #335 (D1–D10) · **ADR ชนะเอกสารเสมอ**
-- อัปเดตล่าสุด: 2026-09-20 · โดย lane A
+- อัปเดตล่าสุด: 2026-09-21 · โดย lane A
 
 ---
 
@@ -29,16 +29,16 @@
 | ใบ | ชื่อ | เลน | สถานะ | PR | หมายเหตุ |
 |---|---|---|---|---|---|
 | #336 | `env.secrets` | A | ✅ **merged** `6d3219f` | #352 | สแตกพร้อมแล้ว — B/C ทดสอบจริงได้ |
-| #337 | `admin.bootstrap` | A | 🔨 กำลังทำ | — | blocked by #336 (ปลดแล้ว) |
-| #338 | `platform.provision` | A | ⏸️ รอ #337 | — | ต้องต่อ VPN สำหรับขา VM |
-| #339 | `metrics.serve` | B | ❓ ยังไม่รายงาน | — | เขียนโค้ดได้เลย · ทดสอบจริงได้แล้ว |
-| #340 | `dashboard` | B | ⏸️ รอ #339 | — | — |
-| #341 | `replay` counter | B | ⏸️ รอ #340 | — | — |
+| #337 | `admin.bootstrap` | A | ✅ **merged** | #359 | `pnpm bootstrap:admin` + e2e 6/6 · ล็อกอินผ่าน nginx จริงแล้ว |
+| #338 | `platform.provision` | A | ✅ **merged** | #360 | ขา dev ปิดครบ (มี tenant `srisurart-demo` จริง) · ขา VM ปิดครึ่ง รอ VPN |
+| #339 | `metrics.serve` | B | ✅ **merged** | #349 | PR เปิดแล้ว · text format, bypass envelope, Nginx 404 block, route pattern label, e2e ผ่าน |
+| #340 | `dashboard` | B | ✅ **merged** | #350 | PR เปิดแล้ว · base #349 · scrape target api-metrics, panel titles, 07_CICD_DEPLOY.md |
+| #341 | `replay` counter | B | ✅ **merged** | #351 | PR เปิดแล้ว · base #350 · pos_idempotency_replay_total (no tenant_id), onTransactionCommit, panels 11 & 12, e2e ผ่าน (commit vs rollback) |
 | #342 | `web.server-build` | C | ✅ **merged** `c8eb552` | #353 | CI สร้าง image ของ merge commit สำเร็จแล้ว (Flutter CI #35554301669) |
-| #346 | `ops.backup-scripts` | C | 🛑 ติด VM validation | #356 (merged `325bf80`) | โค้ด/CI ผ่านแล้ว; ยังต้องพิสูจน์ cron และ restore บน VM จริง |
-| #343 | `vm.deploy` 🔒 | C | 🛑 รอ secret + VPN + HITL | — | #336 ปลดแล้ว แต่ `DEMO_ENV_FILE` ยังไม่มีเป็น GitHub secret และห้ามรัน playbook เอง |
+| #346 | `ops.backup-scripts` | C | 🔄 AC1/AC3 ค้าง | #356 + #361 (merged) | คัดลอกสคริปต์ ops ครบสามตัวขึ้น VM + cron เก็บ log แล้ว · 🔴 **AC1 premise กลับด้าน**: `crontab -l -u deploy` ว่าง ⇒ cron ไม่เคยถูกติดตั้งเลย ไม่ใช่ล้มเงียบ · AC3 รอ `provision.yml` รันบน VM · off-site backup แยกเป็น #363 |
+| #343 | `vm.deploy` 🔒 | C | 🔄 pre-flight เสร็จ รอเจ้าของรัน | #362 | VPN ต่อแล้ว · `-m ping` SUCCESS · D9 เคลียร์ 5/6 · **ยังไม่ติ้ก AC ข้อใด** · 🔴 บล็อกเกอร์: `/opt/pos/.env` (2026-09-15) ขาด `K6_REMOTE_WRITE_BASIC_AUTH_*` ⇒ `:?` ทำให้ `docker compose pull` ตายก่อน — `provision.yml` (user `cloud`) ปลด · `deploy.yml` ต้องใช้ user `deploy` |
 | #344 | `vm.demo` 🔒 | — | ⏸️ รอทั้งสามเลน | — | งานรวมตอนท้าย ไม่มอบให้เลนใด |
-| #345 | `reconcile` | — | ⏸️ รอ #344 | — | ปิดท้าย |
+| #345 | `reconcile` | C | ✅ **ทำแล้ว** | — | #184 เปิดกลับพร้อมคอมเมนต์แจ้งเจ้าของใบ **ไม่ติ้กช่องใด** (AC ว่างทั้งสี่ ไม่มีหลักฐาน) · #196 ลบ *needs owner secrets* แล้วแทนด้วยบล็อกเกอร์จริง · ติ้ก #292–#297 ครบหก แต่กำกับว่าห้ามใช้ติ้กช่อง `03 §8` |
 
 สถานะ: ✅ merged · 🔨 กำลังทำ · 👀 รอรีวิว/CI · ⏸️ รอใบอื่น · 🛑 ติดบล็อกเกอร์ · ❓ ยังไม่รายงาน
 
@@ -49,12 +49,51 @@
 > ที่นี่สำหรับ **เรื่องที่กระทบเลนอื่น** เท่านั้น: ปลดบล็อก, ของที่พัง, ของที่ต้องรู้ก่อนลงมือ
 > รูปแบบ: `- **YYYY-MM-DD HH:MM · lane X** — เรื่อง`
 
+- **2026-09-21 11:45 · lane A** — 🎁 **มีร้านจริงให้ทดสอบบน dev แล้ว: tenant `srisurart-demo`**
+  (owner `owner_demo`, เครื่อง `pos1` ผูกเรียบร้อย) สร้างด้วย `POST /platform/tenants` ตอนทำ #338
+  → เลน B/C เอาไปทดสอบหน้าเว็บโหมด server ได้ทันที ไม่ต้อง provision เอง
+  รหัสของร้านเดโมบนเครื่อง dev: `owner_demo` / `demo-owner-secret-1` — **dev-only** อยู่ใน
+  Postgres ของ compose บนเครื่องนี้เท่านั้น ไม่ใช่ค่าที่ใช้บน VM (VM ต้อง provision ใหม่
+  ด้วยรหัสของตัวเอง) · วิธีเอา token + วิธี provision ร้านของตัวเองอยู่ใน
+  [`ticket-338-platform-provision.md`](ticket-338-platform-provision.md)
+  · ตรวจแล้วว่า **ไม่ทำให้ e2e ของใครพัง** (ไม่มี suite ไหน assert จำนวนแถวใน `tenants`)
+  · ถ้าจะลบ ต้องลบตามลำดับ FK ที่เขียนไว้ใน runbook §5 (อย่าลบ `tenants` ก่อน)
+  · 🔴 **เตือนไว้กันเสียเวลา: `/api/v1/platform/…` ยิงจากโฮสต์ไม่ได้** ได้ 403 เพราะ
+  docker-proxy ทำให้ `$remote_addr` เป็น `172.30.0.1` — ต้อง `docker compose exec -T nginx wget …
+  https://127.0.0.1/…` เท่านั้น (วัดจริงแล้ว ดู runbook §1) · และ BusyBox `wget` ต้องใช้ `--post-file`
+
+- **2026-09-21 11:30 · lane B** — 🔧 **quality pass ของสแตก #349/#350/#351 เสร็จ — rebase บน `main` +
+  force-push แล้ว (ยังไม่ merge · เจ้าของกดเอง)**
+  สามอย่างที่เลนอื่นอาจกระทบ: (1) `nginx.conf` เปลี่ยนเป็น `location = /metrics` ไม่ใช่ `^~` —
+  path ที่ขึ้นต้นด้วย `/metrics` (เช่น route SPA) ไม่ถูกบล็อกอีกแล้ว · (2) **middleware ไม่นับ
+  `/metrics` `/health/live` `/health/ready`** เพราะ scrape + healthcheck เป็น 200 การันตีที่กลบ
+  SLI จริง — ใครเขียน panel ใหม่บน `http_requests_total` ต้องรู้ว่าสามเส้นนี้ไม่มีในซีรีส์ ·
+  (3) `MetricsService` เป็น dependency แบบ **required** ของ `IdempotencyService` แล้ว — กราฟที่
+  ขาด `MetricsModule` จะ fail ตอน bootstrap ไม่ใช่เงียบ
+  ผลรันจริงบนสแตก `laneb339`: lint ✅ · typecheck ✅ · unit 397/397 ✅ · e2e 591 ผ่าน / 2 แดง
+  (`backup-restore` exec-bit บน Windows + `stock-race-three-writers` 600 concurrent) — **ยืนยันแล้วว่า
+  สองใบนี้แดงบน `origin/main` เปล่า ๆ ในเครื่องนี้ด้วย ไม่ใช่ของสแตกนี้**
+
+- **2026-09-21 11:15 · lane A** — ℹ️ **สแตก dev เต็ม (15 service) ขึ้นอยู่บนเครื่องนี้ และ image
+  `srisurart-pos/server:local` ถูก build ใหม่จาก branch `feat/337-admin-bootstrap`**
+  (เพิ่มแค่ไฟล์ใหม่ `src/db/bootstrap-admin.ts` — ไม่แก้โค้ดเดิม) ใครจะทดสอบต่อไม่ต้อง build ใหม่
+  แต่ถ้าอยากได้ของ `main` เป๊ะ ๆ ให้ build ทับเองได้เลย · **ไม่เคย `down -v`** และไม่แตะ volume ใด
+  · มี platform admin `vmform-337` ค้างไว้ใน dev DB **โดยตั้งใจ** เพื่อให้ #338 ยิง
+  `POST /api/v1/platform/tenants` ต่อได้ (รหัสอยู่ใน `ticket-337-admin-bootstrap.md` §6 — dev เท่านั้น)
+  · วิธีสร้าง admin ของตัวเองอยู่ใน runbook ของ #337
+
 - **2026-09-21 09:40 · lane C** — ⚠️ `Deploy (demo)` ถูก trigger อัตโนมัติหลัง CI ของ
   merge commit แม้ #343 ยังเป็น HITL: run `35554527721` (commit `c8eb552`) ไปถึง
   `resolve release` แต่ job `deploy to demo` **ไม่มี runner และไม่มี step เริ่ม** ก่อนถูกยกเลิก;
   run ของ `325bf80` (`35554800740`, `35554806746`) ก็ถูกยกเลิกแล้ว → จึง **ไม่มีหลักฐานว่า VM
   ถูก deploy** จากสอง merge นี้ และห้ามนับเป็นการรัน #343. ต้องให้เจ้าของตัดสินว่าจะปิด/ปรับ
   auto-deploy อย่างไร ก่อนอนุญาต VM runbook.
+
+- **2026-09-20 23:00 · lane B** — ✅ **#339, #340, #341 เสร็จครบทั้ง 3 ใบ — เปิด PR #349, #350, #351 แล้ว**
+  เลน B ปิดงาน observability: `/metrics` พร้อมให้ Prometheus scrape, dashboard มี 12 panels ครบ
+  (รวม Error Rate และ Idempotent Replays), counter `pos_idempotency_replay_total` นับผ่าน `onTransactionCommit`
+  และไม่ใส่ `tenant_id` ตาม D5 · Architecture tests และ E2E metrics tests ผ่านครบ 100%
+
 
 - **2026-09-20 15:20 · lane A** — 🔴 **เจอช่องว่างที่ยังไม่มีใครรู้: `CORS_ORIGINS` และ
   `PLATFORM_ADMIN_IPS` ไม่ถูกส่งเข้า container โดย compose ไฟล์ใดเลย**
@@ -91,7 +130,8 @@
 
 | ใบ | สถานะ | หลักฐาน |
 |---|---|---|
-| #337 `admin.bootstrap` | 🔨 กำลังทำ | อ่าน D2 + `migrate.ts` / `data-source.ts` / `password.ts` / DDL `platform_admins` / เงื่อนไขสแกนของ `tenant-door.spec.ts` แล้ว |
+| #338 `platform.provision` | 👀 รอรีวิว/CI | PR **#360** · [`ticket-338-platform-provision.md`](ticket-338-platform-provision.md) · **ไม่แก้โค้ดเลย** (บริการทำครบอยู่แล้ว) · พิสูจน์บนสแตก dev เต็ม: `POST /platform/tenants` จากใน netns ของ nginx → `enrolCode=BE00CB85`, tenant `srisurart-demo` · psql ยืนยัน ADR-0001 ข้อ 4/5 ครบหกแถวในธุรกรรมเดียว (owner role=owner · settings 7%/30 วัน · 5 หมวด · `pos1` no=1 role=pos · audit) · เดินต่อจน `/auth/device` → deviceToken → `/auth/token` ได้ accessToken ที่มี `tid` ใหม่ · ยิงจากโฮสต์ได้ **403** พร้อม log `client: 172.30.0.1` `upstream=""` = หลักฐานตัวเลขว่า `ssh -L` ใช้ไม่ได้ · `nginx.conf` ไม่แก้ `PLATFORM_ADMIN_IPS` ไม่ตั้ง · **ปิดครึ่ง**: AC "คำสั่งชุดเดียวกันบน VM" ยังไม่ได้รันบน `mob04` (รอ VPN) |
+| #337 `admin.bootstrap` | 👀 รอรีวิว/CI | PR **#359** · [`ticket-337-admin-bootstrap.md`](ticket-337-admin-bootstrap.md) · `lint`/`typecheck` คลีน · unit 397/397 (รวม `tenant-door.spec.ts` ที่ **ไม่ถูกแก้** และ **ไม่เพิ่ม allowlist**) · e2e ใบนี้ 6/6 · `pnpm test:e2e` เต็ม 578 ผ่าน / 3 แดง ซึ่ง **แดงเหมือนกันบน `origin/main` cd8989b** (backup-restore ×2 ต้องมี `bash` จริง+exec bit บน Windows · stock-race 1 เคส + คำเตือน `#160` Node 24.15.0) · รูปแบบ VM รันจริงบนสแตกเต็มแล้ว: `docker compose run --rm … migrate node dist/db/bootstrap-admin.js` → created แล้ว login ผ่าน nginx loopback ได้ token จริง · **ยังไม่ปิด**: การรันบน `mob04` เอง (รอ VPN) |
 | #336 `env.secrets` | ✅ merged `6d3219f` | PR #352 · [`ticket-336-env-secrets.md`](ticket-336-env-secrets.md) · 15/15 service ขึ้นครบ, `/health/ready` เขียว, etcd RBAC + htpasswd + cert ตรวจแยก · AC ข้อ 1 **ปิดบางส่วนโดยตั้งใจ** (ไฟล์ dev คง `dev-only-*` สามคีย์) |
 
 **บันทึกที่เลนอื่นอาจใช้ซ้ำได้:**
@@ -110,9 +150,30 @@
 
 | ใบ | สถานะ | หลักฐาน |
 |---|---|---|
-| #339 `metrics.serve` | ❓ ยังไม่รายงาน | _(lane B เติมตรงนี้)_ |
-| #340 `dashboard` | ⏸️ รอ #339 | — |
-| #341 `replay` counter | ⏸️ รอ #340 | — |
+| #339 `metrics.serve` | 👀 รอรีวิว/CI (ผ่าน quality pass แล้ว) | PR #349 · `prom-client@15.1.3` · bypass global prefix & envelope · `location = /metrics { return 404; }` · route pattern label · e2e `server/test/metrics.e2e-spec.ts` 11 เทสต์ผ่าน |
+| #340 `dashboard` | 👀 รอรีวิว/CI | PR #350 · uncomment `api-metrics` job ใน `deploy/prometheus/prometheus.yml` · ล้าง `#34/#35` ใน dashboard และ `07_CICD_DEPLOY.md` |
+| #341 `replay` counter | 👀 รอรีวิว/CI (ผ่าน quality pass แล้ว) | PR #351 · `pos_idempotency_replay_total` (no `tenant_id` label) · `onTransactionCommit` hook ใน `IdempotencyService` (dependency แบบ required) · Panels 11 & 12 ใน `pos-overview.json` · e2e ผ่าน (commit vs rollback) |
+
+**Quality pass 2026-09-21 (rebase ทั้งสแตกบน `main` แล้ว force-push · ไม่ merge · ไม่เปิด PR ใหม่):**
+- **nginx แก้เป็น `location = /metrics`** (เดิม `^~ /metrics`) ตาม D4 verbatim · วัดจริงด้วย nginx container:
+  `=` → `/metrics` 404 แต่ `/metrics-guide` 200 · `^~` → 404 ทั้งสอง (บล็อก route SPA ในอนาคตเกินสเปก)
+- **`@Optional()` ของ `MetricsService` ใน `IdempotencyService` ถอดออก** — ไม่มี context ไหนที่ขาด
+  `MetricsModule` จริง (มีแต่ `test/idempotency.e2e-spec.ts` ซึ่ง import `AppModule.forRoot` อยู่แล้ว) ·
+  `IdempotencyModule` import `MetricsModule` ตรง ๆ + e2e ยืนยัน edge ในกราฟโมดูลจริง (ทดสอบด้วยการ
+  ทำลาย wiring แล้วเทสต์แดงจริง)
+- 🔴 **middleware ไม่นับ `/metrics` `/health/live` `/health/ready` แล้ว** — scrape 15 วิ × 3 instance +
+  healthcheck 15 วิ × 3 เป็น 200 การันตี ถ้านับรวม panel *API success rate* จะอ่าน ~92% ทั้งที่บิลจริง
+  พลาดทุกใบ (เจอจาก `/code-review` สองแกนพร้อมกัน)
+- **เพิ่มเทสต์ 429** — AC ข้อ 3 ของ #339 ระบุ 429 ไว้แต่ไม่มีเทสต์ (429 คือเคสที่พิสูจน์ว่าต้องใช้
+  middleware ไม่ใช่ interceptor)
+
+**บันทึกที่เลนอื่นอาจใช้ซ้ำได้:**
+- `/metrics` ให้ scrape จากภายใน compose network เท่านั้น (port 3000 ของ api instance)
+- Nginx บล็อก `/metrics` จากภายนอกด้วย `location = /metrics { return 404; }` (exact match ตาม D4 —
+  `^~` กว้างเกินไป) · `/metrics/` ยังตกไปที่ SPA ซึ่งไม่เป็นไรเพราะไม่มีอะไรถูก proxy ใต้ path นั้น
+- `pos_idempotency_replay_total` ไม่ติด label `tenant_id` ป้องกัน cardinality explosion และรักษา tenant privacy
+- Architecture tests (`tenant-door.spec.ts`, `tenant-wrapper.spec.ts`, `idempotency-routes.spec.ts`) เขียวโดยไม่ต้องแก้สเปก
+- สแตก dev ของเลน B ใช้ `-p laneb339` + port 55432/56379/56380 (ของ default `srisurart-pos` เป็นของเลน A)
 
 **เตือนจาก D4/D5/D7 — อ่านก่อนลงมือ:**
 - ต้องเพิ่ม `metrics` เข้า `exclude` ของ `setGlobalPrefix` ไม่งั้น route ไปอยู่ `/api/v1/metrics`

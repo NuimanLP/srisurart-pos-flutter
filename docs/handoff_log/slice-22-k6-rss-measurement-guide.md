@@ -29,9 +29,21 @@ cd /opt/pos
 
 Launch the automated RSS sampler:
 ```bash
-sudo ./deploy/scripts/measure-container-rss.sh 600 /opt/pos/container-rss-report.md
+sudo /opt/pos/scripts/measure-container-rss.sh 600 /opt/pos/container-rss-report.md
 ```
 *(The script continuously records per-container RSS and CPU. Pressing Ctrl+C or letting the 600s duration finish will produce the Markdown summary).*
+
+> 🔴 **The script has to be on the VM first, and until #346 is run it is not.** `provision.yml`
+> installs it to `/opt/pos/scripts/` (owner `deploy`, mode 0755); nothing else copies it, and
+> `deploy.yml` does not. Verified read-only on `mob04` 2026-09-21: `/opt/pos/scripts` did not
+> exist. `/opt/pos/deploy/` holds only `prometheus/` and `grafana/`, so the earlier
+> `./deploy/scripts/…` form in this step could never have run. If the path is missing, ask the
+> owner to re-run `provision.yml` (see [`ticket-343-vm-deploy.md`](ticket-343-vm-deploy.md)).
+>
+> `sudo` is required and not incidental: `cloud` is **not** in the `docker` group
+> (`id -nG` → `cloud adm cdrom sudo dip lxd`) and the sampler shells out to `docker stats` /
+> `docker inspect`. Running it as `deploy` instead needs no `sudo` (that user *is* in `docker`),
+> but `deploy` has no sudo rights at all, so pick one user and stay with it.
 
 ---
 
