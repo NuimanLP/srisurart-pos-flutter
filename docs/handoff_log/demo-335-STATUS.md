@@ -34,9 +34,9 @@
 | #339 | `metrics.serve` | B | ❓ ยังไม่รายงาน | — | เขียนโค้ดได้เลย · ทดสอบจริงได้แล้ว |
 | #340 | `dashboard` | B | ⏸️ รอ #339 | — | — |
 | #341 | `replay` counter | B | ⏸️ รอ #340 | — | — |
-| #342 | `web.server-build` | C | ❓ ยังไม่รายงาน | — | เริ่มได้ทันที ไม่ต้องรอใคร |
-| #346 | `ops.backup-scripts` | C | ❓ ยังไม่รายงาน | — | อิสระ ไม่บล็อกใคร |
-| #343 | `vm.deploy` 🔒 | C | ⏸️ รอ VPN | — | #336 ปลดแล้ว เหลือรอเจ้าของต่อ VPN |
+| #342 | `web.server-build` | C | ✅ **merged** `c8eb552` | #353 | CI สร้าง image ของ merge commit สำเร็จแล้ว (Flutter CI #35554301669) |
+| #346 | `ops.backup-scripts` | C | 🛑 ติด VM validation | #356 (merged `325bf80`) | โค้ด/CI ผ่านแล้ว; ยังต้องพิสูจน์ cron และ restore บน VM จริง |
+| #343 | `vm.deploy` 🔒 | C | 🛑 รอ secret + VPN + HITL | — | #336 ปลดแล้ว แต่ `DEMO_ENV_FILE` ยังไม่มีเป็น GitHub secret และห้ามรัน playbook เอง |
 | #344 | `vm.demo` 🔒 | — | ⏸️ รอทั้งสามเลน | — | งานรวมตอนท้าย ไม่มอบให้เลนใด |
 | #345 | `reconcile` | — | ⏸️ รอ #344 | — | ปิดท้าย |
 
@@ -48,6 +48,13 @@
 
 > ที่นี่สำหรับ **เรื่องที่กระทบเลนอื่น** เท่านั้น: ปลดบล็อก, ของที่พัง, ของที่ต้องรู้ก่อนลงมือ
 > รูปแบบ: `- **YYYY-MM-DD HH:MM · lane X** — เรื่อง`
+
+- **2026-09-21 09:40 · lane C** — ⚠️ `Deploy (demo)` ถูก trigger อัตโนมัติหลัง CI ของ
+  merge commit แม้ #343 ยังเป็น HITL: run `35554527721` (commit `c8eb552`) ไปถึง
+  `resolve release` แต่ job `deploy to demo` **ไม่มี runner และไม่มี step เริ่ม** ก่อนถูกยกเลิก;
+  run ของ `325bf80` (`35554800740`, `35554806746`) ก็ถูกยกเลิกแล้ว → จึง **ไม่มีหลักฐานว่า VM
+  ถูก deploy** จากสอง merge นี้ และห้ามนับเป็นการรัน #343. ต้องให้เจ้าของตัดสินว่าจะปิด/ปรับ
+  auto-deploy อย่างไร ก่อนอนุญาต VM runbook.
 
 - **2026-09-20 15:20 · lane A** — 🔴 **เจอช่องว่างที่ยังไม่มีใครรู้: `CORS_ORIGINS` และ
   `PLATFORM_ADMIN_IPS` ไม่ถูกส่งเข้า container โดย compose ไฟล์ใดเลย**
@@ -125,11 +132,14 @@
 
 | ใบ | สถานะ | หลักฐาน |
 |---|---|---|
-| #342 `web.server-build` | ❓ ยังไม่รายงาน | _(lane C เติมตรงนี้)_ |
-| #346 `ops.backup-scripts` | ❓ ยังไม่รายงาน | — |
-| #343 `vm.deploy` 🔒 | ⏸️ รอ VPN | #336 ปลดแล้ว |
+| #342 `web.server-build` | ✅ merged `c8eb552` | PR #353 · CI run `35554301669` สร้าง web image ของ merge commit สำเร็จ · image digest `sha256:e699667945cb48283d556b717ccab2c89c4c2c0bd3dffa31131c4fa03472bd6e` ถูก pull/run พิสูจน์จริง |
+| #346 `ops.backup-scripts` | 🛑 ติด VM validation | PR #356 merged `325bf80` · `deploy/scripts/validate.sh` และ CI (`35554355118` / `35554355151`) ผ่าน · ยังไม่ tick AC ที่ต้อง cron log + backup/restore บน VM จริง |
+| #343 `vm.deploy` 🔒 | 🛑 รอ secret + VPN + HITL | #336 ปลดแล้ว; ตรวจ `gh secret list` แล้วไม่มี `DEMO_ENV_FILE`, ไม่มี `DEMO_SSH_*` / `ansible-playbook` ในเครื่อง และต้องได้คำสั่งเจ้าของก่อนรัน playbook |
 
 **เตือนจาก D8/D9/D10 — อ่านก่อนลงมือ:**
+- 2026-09-21: workflow `Deploy (demo)` ทำงานอัตโนมัติหลัง CI จึงไม่ใช่หลักฐานการ deploy ที่
+  อนุญาตตาม D9/HITL; run ที่สั่งยกเลิกของ `c8eb552` / `325bf80` ไม่มี deployment step เริ่ม
+  (รายละเอียด §2) และต้องรอคำตัดสินเจ้าของก่อน VM runbook
 - D8: image เว็บจะไม่ใช่ build ออฟไลน์อีกต่อไป · **ต้องรอ CI build image ของ commit นั้นเสร็จก่อน deploy**
 - D9: `/opt/pos/.env` วางโดย `provision.yml` ไม่ใช่ `deploy.yml` · ต้องรันจาก `deploy/ansible/` ·
   ต้องส่ง `-e image_tag=<40-hex>` (+ `force_redeploy=true` ถ้า SHA ซ้ำ) ·
