@@ -5,7 +5,7 @@
 
 - แผนแบ่งงาน + กฎกันชนกัน: [`demo-335-three-agent-split.md`](demo-335-three-agent-split.md)
 - สเปกแม่: GitHub issue #335 (D1–D10) · **ADR ชนะเอกสารเสมอ**
-- อัปเดตล่าสุด: 2026-09-20 · โดย lane A
+- อัปเดตล่าสุด: 2026-09-21 · โดย lane A
 
 ---
 
@@ -29,8 +29,8 @@
 | ใบ | ชื่อ | เลน | สถานะ | PR | หมายเหตุ |
 |---|---|---|---|---|---|
 | #336 | `env.secrets` | A | ✅ **merged** `6d3219f` | #352 | สแตกพร้อมแล้ว — B/C ทดสอบจริงได้ |
-| #337 | `admin.bootstrap` | A | 🔨 กำลังทำ | — | blocked by #336 (ปลดแล้ว) |
-| #338 | `platform.provision` | A | ⏸️ รอ #337 | — | ต้องต่อ VPN สำหรับขา VM |
+| #337 | `admin.bootstrap` | A | 👀 รอรีวิว/CI | #359 | `pnpm bootstrap:admin` + e2e 6/6 · ล็อกอินผ่าน nginx จริงแล้ว |
+| #338 | `platform.provision` | A | 🔨 กำลังทำ | — | ขา dev ทำได้เลย (สแตกเต็มขึ้นอยู่) · ขา VM รอ VPN |
 | #339 | `metrics.serve` | B | ❓ ยังไม่รายงาน | — | เขียนโค้ดได้เลย · ทดสอบจริงได้แล้ว |
 | #340 | `dashboard` | B | ⏸️ รอ #339 | — | — |
 | #341 | `replay` counter | B | ⏸️ รอ #340 | — | — |
@@ -48,6 +48,14 @@
 
 > ที่นี่สำหรับ **เรื่องที่กระทบเลนอื่น** เท่านั้น: ปลดบล็อก, ของที่พัง, ของที่ต้องรู้ก่อนลงมือ
 > รูปแบบ: `- **YYYY-MM-DD HH:MM · lane X** — เรื่อง`
+
+- **2026-09-21 11:15 · lane A** — ℹ️ **สแตก dev เต็ม (15 service) ขึ้นอยู่บนเครื่องนี้ และ image
+  `srisurart-pos/server:local` ถูก build ใหม่จาก branch `feat/337-admin-bootstrap`**
+  (เพิ่มแค่ไฟล์ใหม่ `src/db/bootstrap-admin.ts` — ไม่แก้โค้ดเดิม) ใครจะทดสอบต่อไม่ต้อง build ใหม่
+  แต่ถ้าอยากได้ของ `main` เป๊ะ ๆ ให้ build ทับเองได้เลย · **ไม่เคย `down -v`** และไม่แตะ volume ใด
+  · มี platform admin `vmform-337` ค้างไว้ใน dev DB **โดยตั้งใจ** เพื่อให้ #338 ยิง
+  `POST /api/v1/platform/tenants` ต่อได้ (รหัสอยู่ใน `ticket-337-admin-bootstrap.md` §6 — dev เท่านั้น)
+  · วิธีสร้าง admin ของตัวเองอยู่ใน runbook ของ #337
 
 - **2026-09-20 15:20 · lane A** — 🔴 **เจอช่องว่างที่ยังไม่มีใครรู้: `CORS_ORIGINS` และ
   `PLATFORM_ADMIN_IPS` ไม่ถูกส่งเข้า container โดย compose ไฟล์ใดเลย**
@@ -84,7 +92,7 @@
 
 | ใบ | สถานะ | หลักฐาน |
 |---|---|---|
-| #337 `admin.bootstrap` | 🔨 กำลังทำ | อ่าน D2 + `migrate.ts` / `data-source.ts` / `password.ts` / DDL `platform_admins` / เงื่อนไขสแกนของ `tenant-door.spec.ts` แล้ว |
+| #337 `admin.bootstrap` | 👀 รอรีวิว/CI | PR **#359** · [`ticket-337-admin-bootstrap.md`](ticket-337-admin-bootstrap.md) · `lint`/`typecheck` คลีน · unit 397/397 (รวม `tenant-door.spec.ts` ที่ **ไม่ถูกแก้** และ **ไม่เพิ่ม allowlist**) · e2e ใบนี้ 6/6 · `pnpm test:e2e` เต็ม 578 ผ่าน / 3 แดง ซึ่ง **แดงเหมือนกันบน `origin/main` cd8989b** (backup-restore ×2 ต้องมี `bash` จริง+exec bit บน Windows · stock-race 1 เคส + คำเตือน `#160` Node 24.15.0) · รูปแบบ VM รันจริงบนสแตกเต็มแล้ว: `docker compose run --rm … migrate node dist/db/bootstrap-admin.js` → created แล้ว login ผ่าน nginx loopback ได้ token จริง · **ยังไม่ปิด**: การรันบน `mob04` เอง (รอ VPN) |
 | #336 `env.secrets` | ✅ merged `6d3219f` | PR #352 · [`ticket-336-env-secrets.md`](ticket-336-env-secrets.md) · 15/15 service ขึ้นครบ, `/health/ready` เขียว, etcd RBAC + htpasswd + cert ตรวจแยก · AC ข้อ 1 **ปิดบางส่วนโดยตั้งใจ** (ไฟล์ dev คง `dev-only-*` สามคีย์) |
 
 **บันทึกที่เลนอื่นอาจใช้ซ้ำได้:**
