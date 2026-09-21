@@ -2,7 +2,46 @@
 
 **Date:** 2026-09-21
 **Branch:** `feat/363-backup-offsite`
-**Parent:** #288 (closed, but its "backups leave the VM daily" AC is unticked) · found during #346
+**Parent:** #288 (**reopened 2026-09-21** by the owner, because its "backups leave the VM daily" AC
+never actually happened) · found during #346
+
+> ## 🔴 Superseded in part — owner decision, 2026-09-21 (later the same day), branch `fix/363-offsite-optional`
+>
+> The owner ruled that offsite upload is an **optional feature, not a requirement**. The
+> "unconfigured = loud `::error::` + non-zero exit" behaviour recorded below (and its knock-on
+> claim that the nightly cron on `mob04` would show a failure every night until credentials
+> exist) **is no longer the behaviour** — it would have made the nightly cron fail every night
+> for an indefinite period, which trains everyone to ignore `backup-cron.log`. The split now is:
+>
+> | state | log | exit |
+> |---|---|---|
+> | `BACKUP_RCLONE_REMOTE` unset/empty | one `::warning::` line: offsite upload disabled | **0** |
+> | configured, upload succeeded | `-> Offsite upload confirmed (…)` + `.uploaded` marker | **0** |
+> | configured but broken (no `rclone` / missing `BACKUP_RCLONE_CONFIG` / `copyto` failed) | `::error::OFFSITE BACKUP FAILED — …` | **non-zero** |
+>
+> The loud half is deliberately untouched: a *configured* destination that silently fails is the
+> exact bug #363 exists for. The `disabled` state is reachable only from an empty
+> `BACKUP_RCLONE_REMOTE`; every other path still runs `offsite_upload()`, so a configured
+> destination can never be skipped quietly. The prune safety rule is unchanged (a dump is pruned
+> only once its `.uploaded` marker confirms the offsite copy, once offsite is configured; age-based
+> while unconfigured) — with one addition: the unconfigured age-based prune now also matches
+> `*.sql.gz.uploaded`, so markers left by an earlier configured run are removed with the dump they
+> describe instead of orphaning forever. Credentials still never appear in logs.
+>
+> Also newly documented in `07 §7a`: on the first day offsite is really turned on, every dump
+> created during the unconfigured period has no marker and never will, so all of them are kept past
+> retention with a `::warning::` — a one-time manual upload-or-delete for the owner, not a bug.
+>
+> Nothing keys off the old non-zero exit: `grep -rn backup-db` shows the only runtime consumer is
+> `provision.yml`'s cron `job:` (a plain `>>backup-cron.log 2>&1`, no `&&`/`||`, no systemd unit,
+> no alert rule) and `validate.sh:110`, which only asserts the file exists. `provision.yml`'s 🔴
+> comment about the non-zero exit was rewritten in the same PR.
+>
+> ⚠️ Consequence to know: a "clean" `backup-cron.log` no longer proves a backup left the VM — read
+> the `::warning::`/`::error::` lines, not just the exit status.
+>
+> All four dry-run scenarios below were re-run against the new script; only scenario 1's exit code
+> changed (1 → 0). Transcripts are in the `fix/363-offsite-optional` PR body.
 
 ## Owner decision this session worked to
 
@@ -31,7 +70,9 @@ Added an `offsite_upload()` step, called after the local checksum and before pru
   - `BACKUP_RCLONE_REMOTE` — `remote:path`, e.g. `supabase-backup:pos-backups/mob04`.
   - `BACKUP_RCLONE_CONFIG` — path to `rclone.conf`. Must live outside the repo; not committed
     anywhere. Defaults to rclone's own lookup (`$HOME/.config/rclone/rclone.conf`).
-- **Cannot silently no-op:** if `BACKUP_RCLONE_REMOTE` is unset, if `rclone` is not installed, if
+- **Cannot silently no-op** *(the unconfigured half of this bullet is superseded — see the box at
+  the top of this file; unconfigured is now one `::warning::` + exit 0)***:** if
+  `BACKUP_RCLONE_REMOTE` is unset, if `rclone` is not installed, if
   `BACKUP_RCLONE_CONFIG` is set but missing, or if the `rclone copyto` call itself fails, the
   script logs a `::error::` line naming exactly what's wrong and the run's **final exit code is
   non-zero**. The local `.sql.gz`/`.sha256` are still produced and kept — only the *offsite*
@@ -62,6 +103,9 @@ Postgres. Four scenarios, each run against `deploy/scripts/backup-db.sh` unmodif
 
 1. **Offsite unset (today's real `mob04` state).** Exit code 1. Local `.sql.gz`/`.sha256` created
    and kept. Log: `::error::OFFSITE BACKUP DISABLED — BACKUP_RCLONE_REMOTE is not set...`.
+   🔴 **Superseded the same day:** this scenario is now **exit code 0** with
+   `::warning::Offsite upload is disabled (BACKUP_RCLONE_REMOTE is not set) — …` (see the box at
+   the top). Scenarios 2–4 are unchanged.
 2. **`BACKUP_RCLONE_REMOTE` set, `rclone` missing from `PATH`.** Exit code 1. Log:
    `::error::OFFSITE BACKUP FAILED — ... 'rclone' binary is not installed...`.
 3. **`BACKUP_RCLONE_REMOTE` set, stub `rclone` simulates a failed upload.** Exit code 1. Stub log
@@ -110,7 +154,8 @@ Full command transcripts for all four scenarios are pasted in the PR description
 Posted a comment on #288 stating its "ไฟล์ backup ออกนอก VM อัตโนมัติทุกวัน" AC is still unticked
 despite the issue being closed, linking this PR as the mechanism (not the proof), and proposing the
 owner consider reopening it or accepting the tracked gap lives on in #363. Nothing on #288 was
-ticked or edited otherwise.
+ticked or edited otherwise. **The owner reopened #288 later the same day**, so the gap is tracked
+on both issues now.
 
 ## What is still open — do not claim otherwise
 

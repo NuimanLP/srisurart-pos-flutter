@@ -165,7 +165,7 @@
     # `>/dev/null 2>&1` was the whole mechanism of #346: the script was missing, cron said so on
     # stderr, and the redirect threw the message away, so the backup could fail every night for a
     # week and look exactly like success. Append to a log instead -- one file to read to answer "did
-    # last night's backup run?". The prune in backup-db.sh:108 matches only `*_backup_*.sql.gz[.sha256]`,
+    # last night's backup run?". The prune in backup-db.sh matches only `*_backup_*.sql.gz[.sha256|.uploaded]`,
     # so the log survives it. Still not an alarm: nothing pages on a failed backup (see #346).
     # Deliberately no rotation, with the arithmetic so nobody re-litigates it: backup-db.sh prints
     # ~10 short lines per run, once a day -- order of 100 KB/year against 42 GB free on this VM.
@@ -174,9 +174,12 @@
     # Note the redirect is opened by the shell BEFORE backup-db.sh runs, so it depends on the
     # `backups` directory task above having succeeded; that task is immediately above this one for
     # exactly that reason -- do not reorder them.
-    # 🔴 #363: backup-db.sh now exits non-zero (logged to backup-cron.log above) whenever offsite
-    # upload is not configured -- which is the case here, on purpose, until the owner picks a
-    # destination and creates credentials (#363 AC1; docs/Backend_design/07_CICD_DEPLOY.md §7a).
+    # 🔴 #363 (owner decision 2026-09-21): offsite upload is OPTIONAL. With no
+    # BACKUP_RCLONE_REMOTE set -- which is the case here, until the owner picks a destination and
+    # creates credentials (#363 AC1; docs/Backend_design/07_CICD_DEPLOY.md §7a) -- backup-db.sh
+    # logs one `::warning::` to backup-cron.log and exits 0, so this cron job is quiet but honest
+    # instead of failing every night. Once BACKUP_RCLONE_REMOTE *is* set, a broken offsite step
+    # (no rclone, missing config, failed copy) still exits non-zero on purpose.
     # This job is NOT changed by #363 and does not yet set BACKUP_RCLONE_REMOTE/BACKUP_RCLONE_CONFIG
     # -- when the owner is ready, add an `environment:` block to this task (or prefix `job:`) with
     # those two vars, pointing BACKUP_RCLONE_CONFIG at a file this playbook does NOT manage (no
