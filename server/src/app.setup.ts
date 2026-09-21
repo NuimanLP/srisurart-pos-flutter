@@ -81,13 +81,18 @@ export async function configureApp(
   });
 
   app.use(requestLogger(logger));
+  // The lookup is lenient for exactly one reason: `app.setup.spec.ts` calls `configureApp` on
+  // bare probe modules that never import `AppModule`, so `MetricsService` is genuinely absent
+  // there. It is NOT a defence against losing the wiring in production — a real app that lost
+  // `MetricsModule` fails `metrics.e2e-spec.ts` twice over (`GET /metrics` 404s because the
+  // controller is gone, and the `http_requests_total` assertions find nothing).
   try {
     const metricsService = app.get(MetricsService, { strict: false });
     if (metricsService) {
       app.use(createMetricsMiddleware(metricsService));
     }
   } catch {
-    // MetricsService not bound
+    // Not bound: a unit-test app built without AppModule. See the comment above.
   }
   // #185: the tenant import's body is a whole shop's backup (`sa_*` + `__meta`) — about 2 MiB
   // for four months of a mid-size shop — and Nest's own JSON parser stops at 100 KiB, so every
