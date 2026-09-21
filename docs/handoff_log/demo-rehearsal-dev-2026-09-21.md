@@ -364,6 +364,28 @@ Prometheus targets: `api-metrics` **up 3/3** (`api-1:3000`, `api-2:3000`, `api-3
 **แทนที่** list ไม่ได้ merge · **ไม่ commit และไม่แก้ไฟล์ใน repo**
 บน VM ไม่ต้องทำอะไร — เป็นความต่างของ dev อย่างเดียว
 
+overlay ทั้งไฟล์ (รวม `tlswrap` ของ §9.7) — วางไว้นอก repo แล้วต่อด้วย `-f` ทุกครั้ง:
+
+```yaml
+name: srisurart-pos
+services:
+  nginx:
+    volumes:
+      - D:/Beestation/Sri_POS/Flutter/server/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certs:/etc/nginx/certs:ro
+      - nginx-auth:/etc/nginx/auth:ro
+      - D:/Beestation/Sri_POS/Flutter/frontend/build/web:/usr/share/nginx/html:ro
+
+  tlswrap:
+    image: alpine/socat
+    restart: unless-stopped
+    depends_on:
+      nginx: { condition: service_started }
+    command: TCP-LISTEN:8081,fork,reuseaddr OPENSSL:nginx:443,verify=0
+    ports:
+      - "127.0.0.1:8081:8081"
+```
+
 ### 9.2 🔴 `docker compose run` โดยไม่ใส่ `-f` ชุดเดิม → recreate postgres ทิ้ง port ของ dev
 รัน `docker compose run --rm … migrate` จากใน `server/` โดยไม่ต่อ `-f docker-compose.dev.yml`
 ทำให้ compose เห็นสแตกที่ "ต่างจากไฟล์" แล้ว **recreate `postgres`** (หาย `127.0.0.1:5432`)
