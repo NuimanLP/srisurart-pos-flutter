@@ -7,9 +7,11 @@
 
 ก่อนใบนี้ การมี platform admin คนแรกต้องเปิด `psql` แล้วเขียน argon2 hash ด้วยมือ (ทุก e2e
 ที่ต้องใช้ admin seed แถวเอง — `platform.e2e-spec.ts:34`, `import-snapshot.e2e-spec.ts:63`)
-ตอนนี้มีคำสั่งเดียว:
+ตอนนี้มีคำสั่งเดียว (script ชี้ไปที่ `dist/` เหมือน `db:migrate` ทุกตัว ดังนั้นบนเครื่อง dev
+ต้อง `corepack pnpm build` มาก่อนหนึ่งครั้ง · บน VM ไม่ต้องเพราะ image มี `dist/` มาแล้ว):
 
 ```
+corepack pnpm build                  # ครั้งแรก / หลังแก้โค้ด
 DATABASE_URL=postgres://postgres:<POSTGRES_PASSWORD>@127.0.0.1:5432/pos \
 BOOTSTRAP_ADMIN_USERNAME=admin \
 BOOTSTRAP_ADMIN_PASSWORD='<อย่างน้อย 12 ตัวอักษร>' \
@@ -73,6 +75,10 @@ corepack pnpm bootstrap:admin        # เพิ่ม --force เพื่อ�
 
 ## 4. รันบน VM ที่มีแต่ image ไม่มี checkout
 
+> ✅ **รูปแบบนี้ถูกรันจริงแล้วบนสแตก dev** (สแตกเต็ม 15 service, 2026-09-21) ด้วยคำสั่ง
+> เดียวกันคำต่อคำ ต่างแค่ `sudo` และไดเรกทอรี — ดูผลใน §6 · ส่วนที่ยังไม่ได้พิสูจน์คือ
+> การรันบน `mob04` เอง (§7)
+
 `pnpm` ไม่มีบน VM และไม่มีซอร์ส — แต่ service `migrate` ใช้ image เดียวกับ api และมี
 `dist/` อยู่แล้ว จึงยิงคำสั่งครั้งเดียวผ่าน `docker compose run --rm` (one-shot, ไม่แตะ
 คอนเทนเนอร์ที่รันอยู่ และไม่ต้องรอ service อื่น):
@@ -93,13 +99,19 @@ sudo docker compose run --rm \
 - 🔴 รหัสจะไปอยู่ใน history ของ shell — ใช้ `history -d` หรือเว้นวรรคนำหน้าคำสั่ง
   (`HISTCONTROL=ignorespace`) และ **ห้าม** เขียนลง `/opt/pos/.env`
 - ตรวจผลจากภายใน netns ของ nginx ตาม D3 (loopback ของ nginx คือ loopback จริง จึงผ่านทั้ง
-  `allow 127.0.0.1` ของ nginx และ `isAllowedIp` ของ guard):
+  `allow 127.0.0.1` ของ nginx และ `isAllowedIp` ของ guard) · 🔴 `wget` ใน container ของ
+  nginx เป็น **BusyBox**: รับ `--header STR` / `--post-data STR` แบบ **เว้นวรรค** เท่านั้น
+  (รูป `--header=...` เป็น usage error) และการยัด JSON ผ่าน shell หลายชั้นมักถูกกินเครื่องหมาย
+  คำพูดจนได้ `400` — ทางที่ไม่พลาดคือส่งเป็นไฟล์:
 
 ```bash
+printf '%s' '{"username":"admin","password":"<รหัส>"}' > /tmp/login.json
+sudo docker cp /tmp/login.json "$(sudo docker compose ps -q nginx)":/tmp/login.json
 sudo docker compose exec -T nginx wget -qO- --no-check-certificate \
-  --post-data='{"username":"admin","password":"<รหัส>"}' \
-  --header='Content-Type: application/json' \
+  --header 'Content-Type: application/json' \
+  --post-file /tmp/login.json \
   https://127.0.0.1/api/v1/platform/auth/token
+rm -f /tmp/login.json    # แล้วลบในคอนเทนเนอร์ด้วย: … exec -T nginx rm -f /tmp/login.json
 ```
 
 ## 5. เทสต์
@@ -151,6 +163,28 @@ URL ของ pos_app  → DATABASE_URL must be the owner role: connected as "po
 ```
 
 (แถว `cli-smoke-337` ถูกลบออกจาก dev DB หลังทดสอบแล้ว)
+
+**รูปแบบของ VM (§4) รันจริงบนสแตก dev เต็มแล้ว** — image สร้างใหม่จาก branch นี้
+(`docker build -t srisurart-pos/server:local .`) แล้วสแตกเต็มขึ้นด้วย
+`docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`:
+
+```
+docker compose run --rm -e BOOTSTRAP_ADMIN_USERNAME='vmform-337' \
+  -e BOOTSTRAP_ADMIN_PASSWORD='vmform-secret-1234' \
+  -e BOOTSTRAP_ADMIN_DISPLAY_NAME='ผู้ดูแลระบบ' \
+  migrate node dist/db/bootstrap-admin.js
+→ platform admin "vmform-337": created          (ไม่ต้องส่ง DATABASE_URL — service migrate มีอยู่แล้ว)
+
+docker exec <nginx> wget -qO- --no-check-certificate \
+  --header 'Content-Type: application/json' --post-file /tmp/login.json \
+  https://127.0.0.1/api/v1/platform/auth/token
+→ {"status":"success","data":{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…",
+   "admin":{"id":"82f765db-…","username":"vmform-337","displayName":"ผู้ดูแลระบบ"}}}
+```
+
+คือ **AC ข้อ 1 ปิดสองทาง**: ทั้งผ่าน e2e (supertest ตรงเข้าแอป) และผ่าน nginx จริงบนสแตกเต็ม
+· แถว `vmform-337` **ยังอยู่ใน dev DB โดยตั้งใจ** เพื่อให้ #338 ใช้ยิง
+`POST /api/v1/platform/tenants` ต่อได้ (dev เท่านั้น ไม่เกี่ยวกับ VM)
 
 ## 7. สิ่งที่ยังไม่ได้พิสูจน์
 
