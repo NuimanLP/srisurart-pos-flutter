@@ -117,8 +117,14 @@ history -d $(history 1)     # หรือเว้นวรรคนำหน�
 ### 🔴 `enrolCode` คืนกลับมาครั้งเดียว
 
 DB เก็บแต่ `sha256` (`devices.enrol_code_hash`) และหมดอายุใน **7 วัน**
-(`platform-tenants.service.ts:96-104`) → **เอาคืนไม่ได้** ถ้าหายต้องออกเครื่องใหม่ผ่าน
-`POST /api/v1/devices` (เจ้าของร้านเป็นคนทำ ได้รหัสใหม่) · จดไว้ทันทีที่ได้
+(`platform-tenants.service.ts:96-104`) → **เอาคืนไม่ได้** · จดไว้ทันทีที่ได้
+
+🔴 **และนี่คือกับดักที่ต้องรู้ก่อนวันเดโม:** ทางออกปกติคือออกเครื่องใหม่ผ่าน
+`POST /api/v1/devices` — แต่ route นั้นเรียก `requireEnrolledDevice(req)`
+(`devices.controller.ts:57-67`) คือ **ต้องมีเครื่องที่ผูกแล้วอยู่ก่อน** ดังนั้นถ้ารหัสของ
+เครื่องแรกหาย/หมดอายุ **ก่อน** ที่จะเคยผูกเครื่องได้สำเร็จเลย จะไม่มีทางออกทาง API เลย
+→ ต้อง provision tenant ใหม่ (code ใหม่) หรือแก้ `devices.enrol_code_hash`/`enrol_expires_at`
+ในฐานข้อมูลด้วยมือ · **ผูกเครื่องแรกให้เสร็จทันทีหลัง provision** อย่าทิ้งไว้ข้ามวัน
 
 ---
 
@@ -148,7 +154,7 @@ $DC exec -T postgres psql -U postgres -d pos -t -c "
  audit      : platform.tenant.create
 ```
 
-ครบทั้งหกอย่างในธุรกรรมเดียว (`platform-tenants.service.ts:63` `adminDs.transaction`) —
+ครบทั้งหกอย่างในธุรกรรมเดียว (`platform-tenants.service.ts:64` `adminDs.transaction`) —
 ถ้าข้อใดล้ม ไม่มีอะไรถูกเขียนเลย (`platform.e2e-spec.ts` มีเคส rollback คุมไว้)
 
 ### แล้วพิสูจน์ว่า "ใช้งานได้จริง" ไม่ใช่แค่มีแถว
@@ -161,20 +167,39 @@ $DC exec -T nginx wget -qO- --no-check-certificate --header 'Content-Type: appli
 # → {"status":"success","data":{"deviceToken":"131a5f4f-…-f620e58a-…"}}
 
 # 2) เจ้าของร้าน login บนเครื่องนั้นได้
-printf '%s' '{"username":"owner_demo","password":"<รหัสเจ้าของร้าน>"}' > /tmp/body.json
+#    🔴 deviceToken ไป "ใน body" ไม่ใช่ header — ดูกับดักใต้บล็อกนี้
+printf '%s' '{"username":"owner_demo","password":"<รหัสเจ้าของร้าน>","deviceToken":"<DEVICE_TOKEN>"}' > /tmp/body.json
 $DC cp /tmp/body.json nginx:/tmp/body.json
 $DC exec -T nginx wget -qO- --no-check-certificate --header 'Content-Type: application/json' \
-  --header "X-Device-Token: <DEVICE_TOKEN>" --post-file /tmp/body.json \
-  https://127.0.0.1/api/v1/auth/token
+  --post-file /tmp/body.json https://127.0.0.1/api/v1/auth/token
 # → {"status":"success","data":{"accessToken":"eyJhbGciOiJSUzI1NiIsImtpZCI6ImtleS0xIn0…"}}
-#    payload มี "tid" ของ tenant ใหม่ และ "role":"owner"
+#    payload: {"tid":"<tenant ใหม่>","role":"owner","did":"pos1","drole":"pos"}
 
 # 3) เห็นในรายการของ platform
 $DC exec -T nginx wget -qO- --no-check-certificate \
   --header "Authorization: Bearer $TOKEN" https://127.0.0.1/api/v1/platform/tenants
 ```
 
-ทั้งสามข้อรันจริงบน dev แล้วและผ่าน — **เส้น provision → enrol → owner login เดินได้จริง**
+### 🔴 กับดักที่ `/code-review` จับได้ และวัดซ้ำแล้ว: `deviceToken` อยู่ใน body ไม่ใช่ header
+
+รอบแรกเขียนไว้ว่าส่ง `X-Device-Token` — **ผิด** และที่แย่กว่าคือ **ผิดแบบเงียบ**
+`AuthController.login` (`auth.controller.ts:15-22`) รับแค่ `@Body() dto: LoginDto` และ
+`LoginDto.deviceToken` (`auth.service.ts:16-19`) ถูกอ่านจาก body (`auth.service.ts:71-72`)
+· header `X-Device-Token` เป็นของ `DeviceTokenGuard` ซึ่งผูกกับ `/sync/push` เท่านั้น
+(`common/tenant-door.spec.ts:135-136`)
+
+ถ้าส่งเป็น header จะยัง **ได้ 200 และได้ accessToken** (เพราะชื่อผู้ใช้ไม่ซ้ำข้ามร้าน
+ADR-0004 จึงหาเจอได้) แต่ token นั้น **ไม่มี `did`/`drole`** — วัดด้วย tenant ทิ้งหนึ่งตัว:
+
+```
+ส่งเป็น header (ผิด):  {"tid":"db88370f-…","role":"owner"}
+ส่งใน body  (ถูก):     {"tid":"db88370f-…","role":"owner","did":"pos1","drole":"pos"}
+```
+
+→ ใครก๊อป command แบบผิดไปใช้จะได้ token ที่ไม่มีตัวตนของเครื่อง แล้วไปตายที่ route
+ที่ต้องมี device (เช่นเส้นขาย/`requireEnrolledDevice`) โดยที่ขั้น login ดู "ผ่าน" แล้ว
+
+ทั้งสามข้อรันจริงบน dev แล้วและผ่าน (ข้อ 2 รันซ้ำด้วยรูปที่ถูกแล้ว) — **เส้น provision → enrol → owner login เดินได้จริง**
 (ไม่ทำส่วน "sell" ต่อ เพราะเป็นของ #293 เลน C ตามสเปกแม่: *"ไม่ทำซ้ำ"*)
 
 ---
@@ -184,9 +209,15 @@ $DC exec -T nginx wget -qO- --no-check-certificate \
 - tenant `srisurart-demo` + owner `owner_demo` + เครื่อง `pos1` **ยังอยู่ใน dev DB โดยตั้งใจ**
   เผื่อเลน B/C อยากทดสอบหน้าเว็บโหมด server กับร้านจริง ๆ หนึ่งร้าน
   (`enrolCode` ตัวแรกถูกใช้ผูกเครื่องไปแล้ว ถ้าต้องผูกเครื่องใหม่ให้ออกรหัสใหม่ผ่าน `POST /devices`)
-- ตรวจแล้วว่า **ไม่ทำให้ e2e ของใครพัง**: ไม่มี suite ไหน assert จำนวนแถวใน `tenants`
-  (ทุก suite ใช้ tenant id ของตัวเองแบบ `test-<uuid>` และเก็บกวาดเอง)
-- ถ้าจะลบทิ้ง ต้องลบตามลำดับ FK:
+- ตรวจแล้วว่า **ไม่ทำให้ e2e ของใครพัง**: grep ทั้ง `server/test/*.e2e-spec.ts` แล้ว
+  ไม่มี suite ไหน `SELECT count(*) FROM tenants` หรือ assert จำนวนแถว — แต่ละ suite ถือ
+  UUID ของตัวเองแบบค่าคงที่ (เช่น `sales.e2e-spec.ts:18`) และลบ tenant ของตัวเองด้วย
+  `DELETE FROM tenants WHERE id = …`
+- ถ้าจะลบทิ้ง ให้ลบตามลำดับนี้ · 🔴 **ไม่ใช่ทุกตารางที่มี FK ไป `tenants`**: `users`
+  (`InitialSchema:52`), `categories` (`:144`) และ `settings` (`:512`) มี
+  `REFERENCES tenants(id) ON DELETE CASCADE` แต่ **`devices` กับ `audit_log` ไม่มี FK ไป
+  `tenants` เลย** (`:65`, `:113`) → ต้องลบสองตารางนี้ **เอง** ไม่งั้นจะเหลือแถวกำพร้าแบบเงียบ
+  (ไม่มี constraint ไหนร้อง) ลำดับข้างล่างปลอดภัยทั้งสองกรณี:
 
 ```bash
 $DC exec -T postgres psql -U postgres -d pos -c "
