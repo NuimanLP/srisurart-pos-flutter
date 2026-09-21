@@ -45,7 +45,7 @@ void main() {
       expect(ServerErrorResolver.resolve('CLIENT_ID_REUSED'), 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ');
       expect(ServerErrorResolver.resolve('DEVICE_HAS_UNSYNCED_OPS'), 'เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง');
       // #364 — provisioning refuses an owner password under 12 characters.
-      expect(ServerErrorResolver.resolve('WEAK_PASSWORD'), 'รหัสผ่านสั้นเกินไป ต้องมีอย่างน้อย 12 ตัวอักษร');
+      expect(ServerErrorResolver.resolve('WEAK_PASSWORD'), 'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร');
       // The server sends an English `message` here (it is for ops, not the counter), so
       // the canonical Thai mapping must win over it — same rule as #83 below.
       expect(
@@ -53,7 +53,7 @@ void main() {
           'WEAK_PASSWORD',
           serverMessage: 'ownerPassword is too weak: at least 12 characters required',
         ),
-        'รหัสผ่านสั้นเกินไป ต้องมีอย่างน้อย 12 ตัวอักษร',
+        'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
       );
       expect(ServerErrorResolver.resolve('SHIFT_NOT_FOUND'), 'ไม่พบข้อมูลกะ');
       expect(ServerErrorResolver.resolve('UNAUTHENTICATED'), 'กรุณาเข้าสู่ระบบ');

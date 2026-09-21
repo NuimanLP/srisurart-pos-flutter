@@ -266,9 +266,13 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
         `owner_${code}`,
       ]);
       expect(users.length).toBe(0);
+      // Scoped by this request's own tenant code, not by `platform_admin_id`: the admin
+      // is shared with every other case in this file, so an admin-wide count would both
+      // prove nothing about *this* refusal and go red on someone else's leaked row.
       const audit = await adminDs.query(
-        `SELECT id FROM audit_log WHERE platform_admin_id = $1 AND action = 'platform.tenant.create'`,
-        [adminId],
+        `SELECT id FROM audit_log
+          WHERE action = 'platform.tenant.create' AND after->>'code' = $1`,
+        [code],
       );
       expect(audit.length).toBe(0);
     };

@@ -2,7 +2,6 @@ import { pathToFileURL } from 'node:url';
 import { createMigrationDataSource } from './data-source.js';
 import {
   hashPassword,
-  MIN_PASSWORD_LENGTH,
   passwordPolicyMessage,
   passwordPolicyViolation,
 } from '../common/password.js';
@@ -23,10 +22,6 @@ import {
  *
  * ADR-0001 is unchanged: admins are created out of band by the team. No API creates one.
  */
-
-// The password floor moved to `common/password.ts` (#364) so `POST /platform/tenants`
-// enforces the same one. Re-exported here because this module was its original home.
-export { MIN_PASSWORD_LENGTH };
 
 export interface BootstrapAdminOptions {
   /** Owner-role connection string. Defaults to `DATABASE_URL`. */
