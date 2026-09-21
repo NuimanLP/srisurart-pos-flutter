@@ -240,7 +240,8 @@ develops against a demo tenant.
     (`MIN_PASSWORD_LENGTH`/`passwordPolicyViolation`), both callers use it, and
     `createTenant` refuses with `WEAK_PASSWORD` **before** `hashPassword` and before the
     transaction opens (argon2 also moved out of the transaction). The Thai string for
-    `WEAK_PASSWORD` in `02_API_SCREENS.md §8.1` is marked `agent ร่าง` — **owner-unratified**.
+    `WEAK_PASSWORD` in `02_API_SCREENS.md §8`/`§8.1` was **ratified by the owner on
+    2026-09-21** — the `agent ร่าง` marker is gone.
   - **#365** — `etcd-init.sh` on the VM is a root-owned *directory*, so etcd never had
     auth enabled. Every AC is VM-gated; the reset-without-data-loss path is named
     (`etcdctl user passwd root`, never `down -v`) but **no runnable command sequence
