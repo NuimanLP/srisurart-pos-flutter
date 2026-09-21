@@ -2,6 +2,8 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
+- 2026-09-20 — [Ticket #346 `ops.backup-scripts` install the cron target](ticket-346-backup-script-install.md) — `provision.yml` now creates `/opt/pos/scripts` and installs `backup-db.sh` as `deploy:deploy` mode `0755` before the daily cron; records that #288 supplied only offline/static evidence and that VM pre-fix log plus a real backup artifact remain blocked on owner VPN and credentials, so the PR references rather than closes #346.
+
 - 2026-09-20 — [📋 STATUS BOARD ชุดใบงานเดโม #335 (สามเลนขนานกัน)](demo-335-STATUS.md) — กระดานสถานะที่ทั้งสามเลนเข้าไปอัปเดตเอง: ตารางใบ #336–#345 พร้อมสถานะ/PR/หลักฐาน · ประกาศข้ามเลน (ใหม่→เก่า) · บล็อกของแต่ละเลนพร้อมอาณาเขตไฟล์และข้อเตือนจาก D4–D10 · กฎการแก้ไฟล์ร่วม (แก้เฉพาะบล็อกตัวเอง เติมบนสุด commit แยก rebase ก่อน push ห้ามติ๊ก AC ที่ยังไม่ได้รันจริง) · คู่กับแผนแบ่งงาน [demo-335-three-agent-split.md](demo-335-three-agent-split.md)
 
 - 2026-09-20 — [Slice 22 (#184) Container RSS Measurement & Distributed k6 Load Test Guide](slice-22-k6-rss-measurement-guide.md) — ระบบวัดและบันทึกหน่วยความจำ Memory RSS ต่อคอนเทนเนอร์ภายใต้โหลดจริงบน VM `mob04` (`deploy/scripts/measure-container-rss.sh`) พิสูจน์เพดาน 6.0 GB host ceiling ตาม `03_ARCHITECTURE.md §8` และ `08_PHASE2_SPEC.md §17` · สคริปต์รัน distributed load test `server/test/k6/run-shard-test.sh` แบ่ง 3 เครื่อง (`SHARD=i/3`) ป้องกันชน per-IP rate limit (0 `429` errors) พร้อมคำสั่ง `k6:verify` ยืนยัน data integrity
