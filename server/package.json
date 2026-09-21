@@ -19,6 +19,7 @@
     "db:migrate": "node dist/db/migrate.js up",
     "db:migrate:down": "node dist/db/migrate.js down",
     "db:migrate:status": "node dist/db/migrate.js status",
+    "bootstrap:admin": "node dist/db/bootstrap-admin.js",
     "lint": "oxlint src/ test/",
     "typecheck": "tsc --noEmit",
     "check": "oxlint src/ test/ && tsc --noEmit",
