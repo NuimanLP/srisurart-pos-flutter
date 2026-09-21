@@ -29,11 +29,11 @@
 | ใบ | ชื่อ | เลน | สถานะ | PR | หมายเหตุ |
 |---|---|---|---|---|---|
 | #336 | `env.secrets` | A | ✅ **merged** `6d3219f` | #352 | สแตกพร้อมแล้ว — B/C ทดสอบจริงได้ |
-| #337 | `admin.bootstrap` | A | 👀 รอรีวิว/CI | #359 | `pnpm bootstrap:admin` + e2e 6/6 · ล็อกอินผ่าน nginx จริงแล้ว |
-| #338 | `platform.provision` | A | 👀 รอรีวิว/CI | #360 | ขา dev ปิดครบ (มี tenant `srisurart-demo` จริง) · ขา VM ปิดครึ่ง รอ VPN |
-| #339 | `metrics.serve` | B | ❓ ยังไม่รายงาน | — | เขียนโค้ดได้เลย · ทดสอบจริงได้แล้ว |
-| #340 | `dashboard` | B | ⏸️ รอ #339 | — | — |
-| #341 | `replay` counter | B | ⏸️ รอ #340 | — | — |
+| #337 | `admin.bootstrap` | A | ✅ **merged** | #359 | `pnpm bootstrap:admin` + e2e 6/6 · ล็อกอินผ่าน nginx จริงแล้ว |
+| #338 | `platform.provision` | A | ✅ **merged** | #360 | ขา dev ปิดครบ (มี tenant `srisurart-demo` จริง) · ขา VM ปิดครึ่ง รอ VPN |
+| #339 | `metrics.serve` | B | ✅ **merged** | #349 | PR เปิดแล้ว · text format, bypass envelope, Nginx 404 block, route pattern label, e2e ผ่าน |
+| #340 | `dashboard` | B | ✅ **merged** | #350 | PR เปิดแล้ว · base #349 · scrape target api-metrics, panel titles, 07_CICD_DEPLOY.md |
+| #341 | `replay` counter | B | ✅ **merged** | #351 | PR เปิดแล้ว · base #350 · pos_idempotency_replay_total (no tenant_id), onTransactionCommit, panels 11 & 12, e2e ผ่าน (commit vs rollback) |
 | #342 | `web.server-build` | C | ❓ ยังไม่รายงาน | — | เริ่มได้ทันที ไม่ต้องรอใคร |
 | #346 | `ops.backup-scripts` | C | ❓ ยังไม่รายงาน | — | อิสระ ไม่บล็อกใคร |
 | #343 | `vm.deploy` 🔒 | C | ⏸️ รอ VPN | — | #336 ปลดแล้ว เหลือรอเจ้าของต่อ VPN |
@@ -62,6 +62,18 @@
   docker-proxy ทำให้ `$remote_addr` เป็น `172.30.0.1` — ต้อง `docker compose exec -T nginx wget …
   https://127.0.0.1/…` เท่านั้น (วัดจริงแล้ว ดู runbook §1) · และ BusyBox `wget` ต้องใช้ `--post-file`
 
+- **2026-09-21 11:30 · lane B** — 🔧 **quality pass ของสแตก #349/#350/#351 เสร็จ — rebase บน `main` +
+  force-push แล้ว (ยังไม่ merge · เจ้าของกดเอง)**
+  สามอย่างที่เลนอื่นอาจกระทบ: (1) `nginx.conf` เปลี่ยนเป็น `location = /metrics` ไม่ใช่ `^~` —
+  path ที่ขึ้นต้นด้วย `/metrics` (เช่น route SPA) ไม่ถูกบล็อกอีกแล้ว · (2) **middleware ไม่นับ
+  `/metrics` `/health/live` `/health/ready`** เพราะ scrape + healthcheck เป็น 200 การันตีที่กลบ
+  SLI จริง — ใครเขียน panel ใหม่บน `http_requests_total` ต้องรู้ว่าสามเส้นนี้ไม่มีในซีรีส์ ·
+  (3) `MetricsService` เป็น dependency แบบ **required** ของ `IdempotencyService` แล้ว — กราฟที่
+  ขาด `MetricsModule` จะ fail ตอน bootstrap ไม่ใช่เงียบ
+  ผลรันจริงบนสแตก `laneb339`: lint ✅ · typecheck ✅ · unit 397/397 ✅ · e2e 591 ผ่าน / 2 แดง
+  (`backup-restore` exec-bit บน Windows + `stock-race-three-writers` 600 concurrent) — **ยืนยันแล้วว่า
+  สองใบนี้แดงบน `origin/main` เปล่า ๆ ในเครื่องนี้ด้วย ไม่ใช่ของสแตกนี้**
+
 - **2026-09-21 11:15 · lane A** — ℹ️ **สแตก dev เต็ม (15 service) ขึ้นอยู่บนเครื่องนี้ และ image
   `srisurart-pos/server:local` ถูก build ใหม่จาก branch `feat/337-admin-bootstrap`**
   (เพิ่มแค่ไฟล์ใหม่ `src/db/bootstrap-admin.ts` — ไม่แก้โค้ดเดิม) ใครจะทดสอบต่อไม่ต้อง build ใหม่
@@ -69,6 +81,12 @@
   · มี platform admin `vmform-337` ค้างไว้ใน dev DB **โดยตั้งใจ** เพื่อให้ #338 ยิง
   `POST /api/v1/platform/tenants` ต่อได้ (รหัสอยู่ใน `ticket-337-admin-bootstrap.md` §6 — dev เท่านั้น)
   · วิธีสร้าง admin ของตัวเองอยู่ใน runbook ของ #337
+
+- **2026-09-20 23:00 · lane B** — ✅ **#339, #340, #341 เสร็จครบทั้ง 3 ใบ — เปิด PR #349, #350, #351 แล้ว**
+  เลน B ปิดงาน observability: `/metrics` พร้อมให้ Prometheus scrape, dashboard มี 12 panels ครบ
+  (รวม Error Rate และ Idempotent Replays), counter `pos_idempotency_replay_total` นับผ่าน `onTransactionCommit`
+  และไม่ใส่ `tenant_id` ตาม D5 · Architecture tests และ E2E metrics tests ผ่านครบ 100%
+
 
 - **2026-09-20 15:20 · lane A** — 🔴 **เจอช่องว่างที่ยังไม่มีใครรู้: `CORS_ORIGINS` และ
   `PLATFORM_ADMIN_IPS` ไม่ถูกส่งเข้า container โดย compose ไฟล์ใดเลย**
@@ -125,9 +143,30 @@
 
 | ใบ | สถานะ | หลักฐาน |
 |---|---|---|
-| #339 `metrics.serve` | ❓ ยังไม่รายงาน | _(lane B เติมตรงนี้)_ |
-| #340 `dashboard` | ⏸️ รอ #339 | — |
-| #341 `replay` counter | ⏸️ รอ #340 | — |
+| #339 `metrics.serve` | 👀 รอรีวิว/CI (ผ่าน quality pass แล้ว) | PR #349 · `prom-client@15.1.3` · bypass global prefix & envelope · `location = /metrics { return 404; }` · route pattern label · e2e `server/test/metrics.e2e-spec.ts` 11 เทสต์ผ่าน |
+| #340 `dashboard` | 👀 รอรีวิว/CI | PR #350 · uncomment `api-metrics` job ใน `deploy/prometheus/prometheus.yml` · ล้าง `#34/#35` ใน dashboard และ `07_CICD_DEPLOY.md` |
+| #341 `replay` counter | 👀 รอรีวิว/CI (ผ่าน quality pass แล้ว) | PR #351 · `pos_idempotency_replay_total` (no `tenant_id` label) · `onTransactionCommit` hook ใน `IdempotencyService` (dependency แบบ required) · Panels 11 & 12 ใน `pos-overview.json` · e2e ผ่าน (commit vs rollback) |
+
+**Quality pass 2026-09-21 (rebase ทั้งสแตกบน `main` แล้ว force-push · ไม่ merge · ไม่เปิด PR ใหม่):**
+- **nginx แก้เป็น `location = /metrics`** (เดิม `^~ /metrics`) ตาม D4 verbatim · วัดจริงด้วย nginx container:
+  `=` → `/metrics` 404 แต่ `/metrics-guide` 200 · `^~` → 404 ทั้งสอง (บล็อก route SPA ในอนาคตเกินสเปก)
+- **`@Optional()` ของ `MetricsService` ใน `IdempotencyService` ถอดออก** — ไม่มี context ไหนที่ขาด
+  `MetricsModule` จริง (มีแต่ `test/idempotency.e2e-spec.ts` ซึ่ง import `AppModule.forRoot` อยู่แล้ว) ·
+  `IdempotencyModule` import `MetricsModule` ตรง ๆ + e2e ยืนยัน edge ในกราฟโมดูลจริง (ทดสอบด้วยการ
+  ทำลาย wiring แล้วเทสต์แดงจริง)
+- 🔴 **middleware ไม่นับ `/metrics` `/health/live` `/health/ready` แล้ว** — scrape 15 วิ × 3 instance +
+  healthcheck 15 วิ × 3 เป็น 200 การันตี ถ้านับรวม panel *API success rate* จะอ่าน ~92% ทั้งที่บิลจริง
+  พลาดทุกใบ (เจอจาก `/code-review` สองแกนพร้อมกัน)
+- **เพิ่มเทสต์ 429** — AC ข้อ 3 ของ #339 ระบุ 429 ไว้แต่ไม่มีเทสต์ (429 คือเคสที่พิสูจน์ว่าต้องใช้
+  middleware ไม่ใช่ interceptor)
+
+**บันทึกที่เลนอื่นอาจใช้ซ้ำได้:**
+- `/metrics` ให้ scrape จากภายใน compose network เท่านั้น (port 3000 ของ api instance)
+- Nginx บล็อก `/metrics` จากภายนอกด้วย `location = /metrics { return 404; }` (exact match ตาม D4 —
+  `^~` กว้างเกินไป) · `/metrics/` ยังตกไปที่ SPA ซึ่งไม่เป็นไรเพราะไม่มีอะไรถูก proxy ใต้ path นั้น
+- `pos_idempotency_replay_total` ไม่ติด label `tenant_id` ป้องกัน cardinality explosion และรักษา tenant privacy
+- Architecture tests (`tenant-door.spec.ts`, `tenant-wrapper.spec.ts`, `idempotency-routes.spec.ts`) เขียวโดยไม่ต้องแก้สเปก
+- สแตก dev ของเลน B ใช้ `-p laneb339` + port 55432/56379/56380 (ของ default `srisurart-pos` เป็นของเลน A)
 
 **เตือนจาก D4/D5/D7 — อ่านก่อนลงมือ:**
 - ต้องเพิ่ม `metrics` เข้า `exclude` ของ `setGlobalPrefix` ไม่งั้น route ไปอยู่ `/api/v1/metrics`

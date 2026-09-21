@@ -1,4 +1,11 @@
-# Ticket #346 — install the backup script targeted by cron
+# Ticket #346 — install the ops scripts the VM is told to run
+
+> Two rounds. **Round 1 (2026-09-20)** installed `backup-db.sh`, the file the cron entry names.
+> **Round 2 (2026-09-21)** — below the rule — adds `restore-db.sh` and `measure-container-rss.sh`,
+> stops the cron discarding its output, and records read-only evidence from `mob04` that inverts
+> AC1's premise. Read both before touching either.
+
+## Round 1 — 2026-09-20
 
 **Date:** 2026-09-20
 **Lane:** C
@@ -106,3 +113,113 @@ The VM commands above remain unrun until VPN and provisioning credentials are av
   missing-file reproduction.
 - AC1 and AC3 remain intentionally open pending owner VPN and VM credentials; this is reflected in
   the handoff and PR wording rather than hidden by an auto-close keyword.
+
+---
+
+# Round 2 — 2026-09-21: read-only VM evidence, and what it changes
+
+**Branch:** `fix/346-ops-scripts-install` · **Base:** `origin/main` at `cd8989b`
+**Access:** owner on VPN; `mob04` = `172.30.58.20`. Two accounts exist and they are **not**
+interchangeable — see [`ticket-343-vm-deploy.md`](ticket-343-vm-deploy.md) §3. Everything below was
+**read-only**; this session changed no VM state.
+
+## AC1: the premise was wrong, and the truth is quieter
+
+AC1 asks for a log proving cron called a file that does not exist. That log cannot exist:
+
+```
+$ crontab -l                       # as deploy
+no crontab for deploy
+$ sudo -n crontab -l -u deploy     # as cloud
+no crontab for deploy
+$ sudo -n journalctl -u cron --no-pager -n 15
+... only (root) CMD (cd / && run-parts --report /etc/cron.hourly) and e2scrub_all
+$ ls -la /opt/pos/scripts
+ls: cannot access '/opt/pos/scripts': No such file or directory
+$ ls -la /opt/pos/backups
+ls: cannot access '/opt/pos/backups': No such file or directory
+```
+
+`ansible-playbook provision.yml --check --diff` agrees from the other side:
+
+```
+TASK [Create backup directory (0700 mode, Slice 23 /] ***
+--- before
++++ after
+     path: /opt/pos/backups
+-    state: absent
++    state: directory
+
+TASK [Configure daily database backup cron job (Slice 23 /] ***
+--- before: crontab for user "deploy"
++++ after: crontab for user "deploy"
+@@ -0,0 +1,2 @@
++#Ansible: Srisurart POS Daily Database Backup
++0 3 * * * /opt/pos/scripts/backup-db.sh /opt/pos/backups >>/opt/pos/backups/backup-cron.log 2>&1
+```
+
+`@@ -0,0` — the crontab is empty. **No backup job was ever scheduled on `mob04`**, because
+`provision.yml` has not been re-run since #288 added the cron task. The failure mode is not "cron
+fails nightly and hides it"; it is "there is nothing to fail", which is worse, because a missing
+cron entry emits no signal at all. Round 1's fix and this round's are still the right fixes — the
+ticket merely described the symptom it *would* have had.
+
+## What round 2 changes
+
+1. The single-file copy becomes a `loop` over the three scripts whose runtime **is** the VM:
+   `backup-db.sh` (cron target), `restore-db.sh` (#288's recovery half — useless on the day it is
+   needed if it lives only in the repo, and #288's AC cannot be shown on the VM without it), and
+   `measure-container-rss.sh` (#184 runbook step 2.2 invokes it by absolute path).
+   Excluded on purpose: `pos-deploy.sh` / `runner-job-started.sh` (the owner installs those into
+   `/usr/local/bin`, 07 §6.2) and `setup-mob04-runner.sh` / `validate.sh` / `verify-ghcr-tags.sh`
+   (repo- and CI-side).
+2. The cron redirect `>/dev/null 2>&1` becomes `>>/opt/pos/backups/backup-cron.log 2>&1`. That
+   redirect *was* the mechanism this ticket is named after. The prune in `backup-db.sh:108` matches
+   only `*_backup_*.sql.gz[.sha256]`, so the log survives it. This is still not an alarm — nothing
+   pages on a failed backup.
+3. `docs/handoff_log/slice-22-k6-rss-measurement-guide.md` step 2.2 ran
+   `sudo ./deploy/scripts/measure-container-rss.sh` after `cd /opt/pos`. `/opt/pos/deploy/` holds
+   only `prometheus/` and `grafana/`, so that command could never have worked — the #184 runbook was
+   unrunnable as written. Fixed to the absolute `/opt/pos/scripts/…`: the one place `provision.yml`
+   installs to and the path the cron already uses.
+
+`provision.yml` stays the installer rather than `deploy.yml`, and that is now measured, not assumed:
+`deploy.yml` is `become: false`, `/opt/pos` is `drwxr-xr-x deploy:deploy`, and `cloud` is not in
+group `deploy` (`test -w /opt/pos` → not writable). The cost of the choice, stated so nobody is
+surprised: **editing one of these scripts in the repo does not reach the VM on the next release —
+`provision.yml` must be re-run.**
+
+## Same-shape silent-failure audit, round 2 (AC4)
+
+Round 1's audit stands. Two additions found by running `--check` against the real host:
+
+- **`when: demo_env_content != ""`** (the `.env` task) — running `provision.yml` without
+  `DEMO_ENV_FILE` **silently skips** writing `/opt/pos/.env`. That is protective (it is why a re-run
+  cannot wipe the VM's secrets; the task reported `skipping` in the `--check` run above) but it is
+  also how a stale `.env` survives a re-run unnoticed — which is exactly the state `mob04` is in
+  today. `DEMO_SSH_KEY_PUB` has the same shape. The owner must know which mode they are in;
+  `ticket-343-vm-deploy.md` says so at the point of use.
+- **`/opt/pos/docker/etcd` is still root-owned** — `--check` reported `changed` for that loop item,
+  and `ls -la` shows `drwxr-xr-x root root` with `etcd-init.sh` as a **directory**. That is the
+  etcd-init bug's residue (07 §7). `deploy.yml` repairs it on the next real deploy; nothing here
+  does.
+
+And one about **#288 itself**, which #346 explicitly asks about ("ตรวจด้วยว่าตอนนั้นเคยพิสูจน์บน VM
+จริงหรือพิสูจน์แค่ในเครื่อง"):
+
+- 🔴 **`backup-db.sh` has no off-VM step at all.** `grep -nE 'scp|rsync|aws |s3|rclone|curl -T|sftp|supabase'`
+  over it returns nothing; the script ends at the local prune (`backup-db.sh:107-108`). #288's own
+  acceptance criterion **"ไฟล์ backup ออกนอก VM อัตโนมัติทุกวัน + ตรวจว่ากู้ได้"** is still
+  unticked **in #288**, and it will remain unmet even after `provision.yml` runs — a daily backup
+  that never leaves the machine it is protecting does not survive the failure it exists for.
+  That is bigger than #346 and not in lane C's gift to decide: **it needs its own ticket and an
+  owner decision on the destination** (the Supabase snapshot path in `CLAUDE.md`'s "Pending
+  follow-ups — Phase 7a" is stubbed and unwired). Recorded here rather than silently absorbed.
+
+## Is #346 closeable?
+
+**Not by this PR.** AC2 is met in code and proven in `--check`; AC4 is met. AC1 is answered with the
+opposite finding, which the owner should accept explicitly rather than have an agent decide. AC3 —
+"a backup runs for real and leaves a file" — needs `provision.yml` to actually run on the VM, which
+is owner-only under the demo scope. The commands are in
+[`ticket-343-vm-deploy.md`](ticket-343-vm-deploy.md) §7. So: `References #346`, not `Closes #346`.

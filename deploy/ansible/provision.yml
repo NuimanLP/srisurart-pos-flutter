@@ -122,13 +122,28 @@
         - "{{ app_dir }}/docker/postgres/init"
         - '{{ app_dir }}/scripts'
 
-    - name: Install database backup script (Slice 23 / #288, #346)
+    # The ops scripts a person runs ON the VM. This playbook is the only installer for them, and it
+    # is `become: true` -- deploy.yml cannot do this job: it runs `become: false` as the release
+    # user, /opt/pos is `drwxr-xr-x deploy:deploy`, and the release user is not in group `deploy`.
+    # Consequence to know: editing one of these scripts in the repo does NOT reach the VM on the
+    # next release -- re-run THIS playbook.
+    # Only scripts whose runtime is the VM belong here. Deliberately excluded: pos-deploy.sh and
+    # runner-job-started.sh (the owner installs those into /usr/local/bin, 07 §6.2), and
+    # setup-mob04-runner.sh / validate.sh / verify-ghcr-tags.sh (repo- and CI-side).
+    - name: Install the ops scripts the VM runs (Slice 23 / #288, #184, #346)
       ansible.builtin.copy:
-        src: '{{ playbook_dir }}/../scripts/backup-db.sh'
-        dest: '{{ app_dir }}/scripts/backup-db.sh'
+        src: '{{ playbook_dir }}/../scripts/{{ item }}'
+        dest: '{{ app_dir }}/scripts/{{ item }}'
         owner: '{{ deploy_user }}'
         group: '{{ deploy_user }}'
         mode: '0755'
+      loop:
+        # the daily cron target below
+        - backup-db.sh
+        # the recovery half of #288 -- useless on the day it is needed if it lives only in the repo
+        - restore-db.sh
+        # step 2.2 of the #184 RSS runbook invokes this by absolute path
+        - measure-container-rss.sh
 
     - name: Write server .env configuration (0600 mode)
       ansible.builtin.copy:
@@ -147,11 +162,23 @@
         group: "{{ deploy_user }}"
         mode: "0700"
 
-    - name: Configure daily database backup cron job (Slice 23 / #288)
+    # `>/dev/null 2>&1` was the whole mechanism of #346: the script was missing, cron said so on
+    # stderr, and the redirect threw the message away, so the backup could fail every night for a
+    # week and look exactly like success. Append to a log instead -- one file to read to answer "did
+    # last night's backup run?". The prune in backup-db.sh:108 matches only `*_backup_*.sql.gz[.sha256]`,
+    # so the log survives it. Still not an alarm: nothing pages on a failed backup (see #346).
+    # Deliberately no rotation, with the arithmetic so nobody re-litigates it: backup-db.sh prints
+    # ~10 short lines per run, once a day -- order of 100 KB/year against 42 GB free on this VM.
+    # Rotation would be more moving parts than the thing it guards. If the log is ever made chatty
+    # (per-table output, a verbose pg_dump), add logrotate at the same time.
+    # Note the redirect is opened by the shell BEFORE backup-db.sh runs, so it depends on the
+    # `backups` directory task above having succeeded; that task is immediately above this one for
+    # exactly that reason -- do not reorder them.
+    - name: Configure daily database backup cron job (Slice 23 / #288, #346)
       ansible.builtin.cron:
         name: "Srisurart POS Daily Database Backup"
         user: "{{ deploy_user }}"
         minute: "0"
         hour: "3"
-        job: "{{ app_dir }}/scripts/backup-db.sh {{ app_dir }}/backups >/dev/null 2>&1"
+        job: "{{ app_dir }}/scripts/backup-db.sh {{ app_dir }}/backups >>{{ app_dir }}/backups/backup-cron.log 2>&1"
         state: present

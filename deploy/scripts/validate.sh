@@ -104,8 +104,12 @@ REQUIRED_FILES=(
   "deploy/ansible/inventory/hosts.ini"
   "deploy/ansible/provision.yml"
   "deploy/ansible/deploy.yml"
+  # Every script provision.yml's install loop names must be listed here: `copy: src` is not
+  # resolved by --syntax-check, so a renamed or deleted script would otherwise surface only
+  # during an owner-run playbook on the VM (#346).
   "deploy/scripts/backup-db.sh"
   "deploy/scripts/restore-db.sh"
+  "deploy/scripts/measure-container-rss.sh"
 )
 
 for file in "${REQUIRED_FILES[@]}"; do
