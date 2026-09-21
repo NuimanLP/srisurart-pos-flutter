@@ -429,6 +429,12 @@ on:
 | `BACKUP_RCLONE_REMOTE` | `remote:path` ของ rclone เช่น `supabase-backup:pos-backups/mob04` — ไม่ตั้ง = offsite **ปิด** |
 | `BACKUP_RCLONE_CONFIG` | path ไปยังไฟล์ credential ของ rclone (`rclone.conf`) — **ต้องอยู่นอก repo เสมอ**, mode `0600`; ไม่ตั้ง = ใช้ที่ rclone หาเองตามปกติ (`$HOME/.config/rclone/rclone.conf`) |
 
+🔴 **`BACKUP_RCLONE_REMOTE` ต้องเป็นชื่อ remote ที่นิยามไว้ใน `rclone.conf` เท่านั้น**
+(`ชื่อ:path`) — ห้ามใช้ "connection string" แบบใส่ค่าในบรรทัดเดียวของ rclone
+(`:s3,access_key_id=…,secret_access_key=…:bucket`) เพราะค่านั้นคือ secret และตัวแปรนี้ถูก log ·
+สคริปต์ป้องกันไว้ชั้นหนึ่งแล้ว (`OFFSITE_LABEL` ตัดทุกอย่างหลัง `,` ตัวแรกออกก่อน echo) แต่อย่าพึ่ง
+ชั้นนั้นแทนการตั้งค่าให้ถูกตั้งแต่ต้น
+
 ไม่มี credential ตัวไหนอยู่ใน repo หรือใน `.env.example` — `rclone.conf` ตั้งอยู่บนดิสก์ VM เท่านั้น
 (เจ้าของสร้างเอง เมื่อเลือกปลายทางแล้ว) และสคริปต์ log แค่**ชื่อ** remote (`BACKUP_RCLONE_REMOTE`) ไม่ log
 เนื้อหาไฟล์ credential
@@ -470,7 +476,8 @@ retention พร้อม `::warning::` ตลอดไป** — เมื่อ
 ให้เป็น optional (2026-09-21): **ยังไม่ตั้งค่า (exit 0** + `::warning::` บรรทัดเดียว, backup ในเครื่อง
 ยังอยู่**)** · ตั้งค่าแต่ไม่มี `rclone` ติดตั้ง (exit 1) · ตั้งค่าแล้ว upload ล้มเหลว (exit 1, ไม่มี marker,
 ไฟล์เก่าที่ยังไม่ confirm ไม่ถูกลบ) · ตั้งค่าแล้วสำเร็จ (exit 0, มี marker, prune ลบเฉพาะของเก่าที่ confirm
-แล้ว) — คำสั่งและ output เต็มอยู่ใน PR ที่อ้างถึง #363
+แล้ว) — คำสั่งและ output เต็มของรอบ optional อยู่ใน PR ของ branch `fix/363-offsite-optional` (รอบแรกอยู่ใน PR #372
+ซึ่งสถานการณ์ที่ 1 ยังเป็น exit 1 — อ่านรอบใหม่เป็นหลัก)
 
 🔴 **ยังไม่ได้ทำ (เปิดค้างไว้ตามคำสั่งเจ้าของ 2026-09-21 — ห้ามอ้างว่าทำแล้ว):**
 - เจ้าของยังไม่เลือกปลายทางจริงและยังไม่สร้าง credential (#363 AC1)

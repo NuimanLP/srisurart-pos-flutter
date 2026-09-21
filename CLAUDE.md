@@ -234,11 +234,11 @@ develops against a demo tenant.
     missing `BACKUP_RCLONE_CONFIG`, failed `copyto`) → unchanged loud `::error::` +
     **non-zero exit**, because a configured destination that silently fails is the exact
     bug #363 exists for. A green `backup-cron.log` therefore does **not** prove a backup
-    left the VM — read the `::warning::`/`::error::` lines. Local prune only deletes a dump
-    once its offsite copy is confirmed
-    (`.uploaded` marker) once offsite is actually configured, and behaves exactly as
-    before this ticket while it stays unconfigured (so an indefinite "not wired yet"
-    period does not fill the disk). **Still open, real infra required — do not claim
+    left the VM — read the `::warning::`/`::error::` lines. Once offsite is configured,
+    local prune deletes a dump only after its `.uploaded` marker confirms the offsite
+    copy (unconfirmed dumps are kept with a `::warning::`); while it stays unconfigured
+    prune is age-based as before this ticket, so an indefinite "not wired yet" period
+    does not fill the disk. **Still open, real infra required — do not claim
     done:** owner has not chosen a destination or created credentials (AC1), no real
     upload has ever left a VM (AC2), no restore from an offsite copy has been proven
     (AC3), `rclone` is not installed on `mob04`. #288's "backups leave the VM daily" AC is

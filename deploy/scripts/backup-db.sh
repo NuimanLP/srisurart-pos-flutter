@@ -130,16 +130,25 @@ echo "  -> Backup created successfully ($BACKUP_SIZE)."
 
 # --- Offsite upload (#363) ---------------------------------------------------------------------
 # Copies this run's backup + checksum off the VM via rclone. Never echoes rclone.conf or any
-# credential value -- only the configured remote *name* (not a secret; the secret lives in
+# credential value -- only $OFFSITE_LABEL below (the configured remote's name; the secret lives in
 # rclone.conf) appears in output.
 UPLOAD_MARKER="${BACKUP_FILE}.uploaded"
+
+# What every message below is allowed to print instead of $BACKUP_RCLONE_REMOTE. A named remote
+# ("supabase-backup:pos-backups/mob04" — the documented shape, §7a) is printed as-is, but rclone
+# also accepts an on-the-fly connection string (":s3,access_key_id=…,secret_access_key=…:bucket"),
+# which would put a secret in backup-cron.log. Keep only the part before the first comma.
+OFFSITE_LABEL="${BACKUP_RCLONE_REMOTE:-}"
+if [[ "$OFFSITE_LABEL" == *,* ]]; then
+  OFFSITE_LABEL="${OFFSITE_LABEL%%,*},<redacted>"
+fi
 
 # Copies one file to $BACKUP_RCLONE_REMOTE using the module-level $RCLONE_ARGS (same pattern as
 # $COMPOSE_ARGS above for exec_pg_dump). Shared by both copyto calls in offsite_upload() below.
 copy_offsite() {
   local file="$1"
   if ! rclone "${RCLONE_ARGS[@]}" copyto "$file" "${BACKUP_RCLONE_REMOTE%/}/$(basename "$file")"; then
-    echo "::error::OFFSITE BACKUP FAILED — rclone could not copy $(basename "$file") to '$BACKUP_RCLONE_REMOTE'." >&2
+    echo "::error::OFFSITE BACKUP FAILED — rclone could not copy $(basename "$file") to '$OFFSITE_LABEL'." >&2
     return 1
   fi
 }
@@ -148,7 +157,7 @@ copy_offsite() {
 # return path here is a *configured* destination failing: all of them are loud and fail the run.
 offsite_upload() {
   if ! command -v rclone >/dev/null 2>&1; then
-    echo "::error::OFFSITE BACKUP FAILED — BACKUP_RCLONE_REMOTE is set to '$BACKUP_RCLONE_REMOTE' but the 'rclone' binary is not installed on this host." >&2
+    echo "::error::OFFSITE BACKUP FAILED — BACKUP_RCLONE_REMOTE is set to '$OFFSITE_LABEL' but the 'rclone' binary is not installed on this host." >&2
     return 1
   fi
   if [[ -n "${BACKUP_RCLONE_CONFIG:-}" && ! -f "$BACKUP_RCLONE_CONFIG" ]]; then
@@ -159,12 +168,12 @@ offsite_upload() {
   if [[ -n "${BACKUP_RCLONE_CONFIG:-}" ]]; then
     RCLONE_ARGS+=(--config "$BACKUP_RCLONE_CONFIG")
   fi
-  echo "Uploading $(basename "$BACKUP_FILE") to '$BACKUP_RCLONE_REMOTE'..."
+  echo "Uploading $(basename "$BACKUP_FILE") to '$OFFSITE_LABEL'..."
   copy_offsite "$BACKUP_FILE" || return 1
   if [[ -f "$CHECKSUM_FILE" ]]; then
     copy_offsite "$CHECKSUM_FILE" || return 1
   fi
-  echo "  -> Offsite upload confirmed ($BACKUP_RCLONE_REMOTE)."
+  echo "  -> Offsite upload confirmed ($OFFSITE_LABEL)."
 }
 
 # disabled = not configured (exit 0) · ok = uploaded (exit 0) · failed = configured and broken (exit 1).
@@ -182,7 +191,9 @@ else
 fi
 
 if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
-  if [[ -n "${BACKUP_RCLONE_REMOTE:-}" ]]; then
+  # Branch on the state decided above, not on the raw env var again: one discriminator, so a future
+  # way of disabling offsite cannot leave prune in its age-based mode while offsite is live.
+  if [[ "$OFFSITE_STATE" != disabled ]]; then
     # Offsite is configured: only prune a backup once its own offsite copy is confirmed, so a
     # local copy is never the last copy of data whose upload never succeeded (#363).
     echo "Pruning backups older than $BACKUP_KEEP_DAYS days in $BACKUP_DIR with a confirmed offsite copy..."
@@ -212,6 +223,11 @@ case "$OFFSITE_STATE" in
   disabled) echo "=== Backup Complete (local only -- offsite upload not configured, see the warning above) ===" ;;
   failed)
     echo "=== Backup Complete LOCALLY ONLY -- see the OFFSITE BACKUP error above (#363) ==="
+    exit 1
+    ;;
+  *)
+    # Unreachable today; here so a future state added above fails loudly instead of exiting 0.
+    echo "::error::Unknown OFFSITE_STATE '$OFFSITE_STATE' -- the offsite outcome of this run is undetermined." >&2
     exit 1
     ;;
 esac

@@ -40,8 +40,19 @@ never actually happened) · found during #346
 > ⚠️ Consequence to know: a "clean" `backup-cron.log` no longer proves a backup left the VM — read
 > the `::warning::`/`::error::` lines, not just the exit status.
 >
+> **Credential-in-logs hardening found by that PR's `/code-review` (Spec axis):** rclone also
+> accepts an on-the-fly *connection string* as a remote
+> (`:s3,access_key_id=…,secret_access_key=…:bucket`), and `$BACKUP_RCLONE_REMOTE` is echoed in four
+> messages — so a plausible owner configuration would have written a live secret into
+> `backup-cron.log`. The script now echoes `$OFFSITE_LABEL` instead, which keeps only the part
+> before the first comma (`:s3,<redacted>`); `rclone copyto` still receives the real value. 🔴
+> `07 §7a` additionally states that `BACKUP_RCLONE_REMOTE` **must** be a named `rclone.conf` remote
+> — the redaction is a second line of defence, not a licence to put secrets in the env var.
+>
 > All four dry-run scenarios below were re-run against the new script; only scenario 1's exit code
-> changed (1 → 0). Transcripts are in the `fix/363-offsite-optional` PR body.
+> changed (1 → 0). A fifth (stale `.uploaded` marker while unconfigured) and a sixth (connection
+> string with fake credentials — nothing leaked) were added. Transcripts are in the
+> `fix/363-offsite-optional` PR body.
 
 ## Owner decision this session worked to
 
