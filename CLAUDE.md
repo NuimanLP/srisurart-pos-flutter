@@ -219,9 +219,21 @@ develops against a demo tenant.
   every Compose subcommand died before pulling anything). **No AC of #343 is ticked.**
 - #272 — drop `Products.offlineOk` (Drift schema v7) — in progress on `LomerAlloys`'
   `lane2` branch as of 2026-09-17.
-- Opened 2026-09-21 from verified findings, all unstarted: #363 (`backup-db.sh` never
-  copies a backup off the VM although #288's AC for it is still `[ ]` on a closed
-  ticket), #364 (`ownerPassword` has no server-side length rule while `bootstrap:admin`
+- Opened 2026-09-21 from verified findings: #363 — `backup-db.sh` never copied a backup
+  off the VM although #288's AC for it is still `[ ]` on a closed ticket. 🔴 **Mechanism
+  built same day, not wired**: `backup-db.sh` gained a pluggable `offsite_upload()` via
+  `rclone` (`BACKUP_RCLONE_REMOTE`/`BACKUP_RCLONE_CONFIG`, unset = disabled), proven only
+  against a local stub/fake destination — see `docs/handoff_log/ticket-363-backup-offsite.md`.
+  An unconfigured or failed offsite step is a loud `::error::` + non-zero exit, not a
+  quiet success; local prune only deletes a dump once its offsite copy is confirmed
+  (`.uploaded` marker) once offsite is actually configured, and behaves exactly as before
+  this ticket while it stays unconfigured (so an indefinite "not wired yet" period does
+  not fill the disk). **Still open, real infra required — do not claim done:** owner has
+  not chosen a destination or created credentials (#363 AC1), no real upload has ever
+  left a VM (AC2), no restore from an offsite copy has been proven (AC3), `rclone` is not
+  installed on `mob04`. #288's "backups leave the VM daily" AC is still unticked; see the
+  comment on #288 for the correction. #364 (`ownerPassword` has no server-side length
+  rule while `bootstrap:admin`
   demands 12), #365 (`etcd-init.sh` on the VM is a root-owned *directory*, so etcd never
   had auth enabled), #366 (`Deploy (demo)` fires on every green `main`, contradicting
   D9's manual-deploy decision — an owner call, due before #67 installs the runner),

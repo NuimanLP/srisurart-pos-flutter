@@ -174,6 +174,13 @@
     # Note the redirect is opened by the shell BEFORE backup-db.sh runs, so it depends on the
     # `backups` directory task above having succeeded; that task is immediately above this one for
     # exactly that reason -- do not reorder them.
+    # 🔴 #363: backup-db.sh now exits non-zero (logged to backup-cron.log above) whenever offsite
+    # upload is not configured -- which is the case here, on purpose, until the owner picks a
+    # destination and creates credentials (#363 AC1; docs/Backend_design/07_CICD_DEPLOY.md §7a).
+    # This job is NOT changed by #363 and does not yet set BACKUP_RCLONE_REMOTE/BACKUP_RCLONE_CONFIG
+    # -- when the owner is ready, add an `environment:` block to this task (or prefix `job:`) with
+    # those two vars, pointing BACKUP_RCLONE_CONFIG at a file this playbook does NOT manage (no
+    # credential belongs in this repo or in `demo_env_content`).
     - name: Configure daily database backup cron job (Slice 23 / #288, #346)
       ansible.builtin.cron:
         name: "Srisurart POS Daily Database Backup"

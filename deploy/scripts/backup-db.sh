@@ -10,11 +10,30 @@
 #   ./backup-db.sh [backup_dir]
 #
 # Environment variables:
-#   APP_DIR           Application directory (default: /opt/pos, fallback to repo root/server)
-#   BACKUP_DIR        Target backup directory (default: $APP_DIR/backups)
-#   BACKUP_KEEP_DAYS  Number of days to keep local backups (default: 7)
-#   POSTGRES_DB       Database name to dump (default: pos)
-#   POSTGRES_USER     Superuser name for pg_dump (default: postgres)
+#   APP_DIR              Application directory (default: /opt/pos, fallback to repo root/server)
+#   BACKUP_DIR           Target backup directory (default: $APP_DIR/backups)
+#   BACKUP_KEEP_DAYS     Number of days to keep local backups (default: 7)
+#   POSTGRES_DB          Database name to dump (default: pos)
+#   POSTGRES_USER        Superuser name for pg_dump (default: postgres)
+#
+# Offsite upload (#363 — the dump above never left the VM before this):
+#   BACKUP_RCLONE_REMOTE  rclone remote:path to copy each backup to, e.g. "supabase-backup:pos-backups/mob04".
+#                         Unset by default = offsite upload DISABLED. rclone (not this script) is the
+#                         pluggable part: the same `rclone copyto` call works against Supabase Storage,
+#                         any S3-compatible bucket, or SFTP to a lab machine — whichever the owner
+#                         configures as this remote in rclone.conf (#363 AC1, still an owner decision).
+#   BACKUP_RCLONE_CONFIG  Path to rclone's config file holding the remote's credentials. Must live
+#                         outside this repo (default: rclone's own lookup, $HOME/.config/rclone/rclone.conf).
+#                         Never commit this file. See docs/Backend_design/07_CICD_DEPLOY.md §7a.
+#
+# Offsite upload is NOT optional-and-silent: when BACKUP_RCLONE_REMOTE is unset, or `rclone` is
+# missing, or the upload itself fails, this script logs a loud `::error::` and exits non-zero —
+# the local .sql.gz/.sha256 are still produced and kept, but the run is NOT reported as a success,
+# because a backup that never leaves this VM does not survive the disk failure it exists for (#363).
+# While offsite is unconfigured, local pruning below is unchanged (age-based, as before this ticket)
+# so an indefinitely-long "not configured yet" period does not fill the disk. Once BACKUP_RCLONE_REMOTE
+# is set, pruning switches to only removing backups with a confirmed `.uploaded` marker, so a local
+# copy is never deleted before its offsite copy is confirmed to exist.
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/pos}"
@@ -103,9 +122,73 @@ fi
 BACKUP_SIZE="$(ls -lh "$BACKUP_FILE" | awk '{print $5}')"
 echo "  -> Backup created successfully ($BACKUP_SIZE)."
 
-if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
-  echo "Pruning backups older than $BACKUP_KEEP_DAYS days in $BACKUP_DIR..."
-  find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+# --- Offsite upload (#363) ---------------------------------------------------------------------
+# Copies this run's backup + checksum off the VM via rclone. Never echoes rclone.conf or any
+# credential value -- only the configured remote *name* (not a secret; the secret lives in
+# rclone.conf) appears in output.
+UPLOAD_MARKER="${BACKUP_FILE}.uploaded"
+offsite_upload() {
+  if [[ -z "${BACKUP_RCLONE_REMOTE:-}" ]]; then
+    echo "::error::OFFSITE BACKUP DISABLED — BACKUP_RCLONE_REMOTE is not set, so this backup was NOT copied off the VM. This is expected until the owner wires a real destination (#363 AC1; docs/Backend_design/07_CICD_DEPLOY.md §7a). The local backup above was still created and kept. Exiting non-zero only so this stays visible in backup-cron.log." >&2
+    return 1
+  fi
+  if ! command -v rclone >/dev/null 2>&1; then
+    echo "::error::OFFSITE BACKUP FAILED — BACKUP_RCLONE_REMOTE is set to '$BACKUP_RCLONE_REMOTE' but the 'rclone' binary is not installed on this host." >&2
+    return 1
+  fi
+  if [[ -n "${BACKUP_RCLONE_CONFIG:-}" && ! -f "$BACKUP_RCLONE_CONFIG" ]]; then
+    echo "::error::OFFSITE BACKUP FAILED — BACKUP_RCLONE_CONFIG='$BACKUP_RCLONE_CONFIG' does not exist." >&2
+    return 1
+  fi
+  local rclone_args=()
+  if [[ -n "${BACKUP_RCLONE_CONFIG:-}" ]]; then
+    rclone_args+=(--config "$BACKUP_RCLONE_CONFIG")
+  fi
+  echo "Uploading $(basename "$BACKUP_FILE") to '$BACKUP_RCLONE_REMOTE'..."
+  if ! rclone "${rclone_args[@]}" copyto "$BACKUP_FILE" "${BACKUP_RCLONE_REMOTE%/}/$(basename "$BACKUP_FILE")"; then
+    echo "::error::OFFSITE BACKUP FAILED — rclone could not copy $(basename "$BACKUP_FILE") to '$BACKUP_RCLONE_REMOTE'." >&2
+    return 1
+  fi
+  if [[ -f "$CHECKSUM_FILE" ]] && ! rclone "${rclone_args[@]}" copyto "$CHECKSUM_FILE" "${BACKUP_RCLONE_REMOTE%/}/$(basename "$CHECKSUM_FILE")"; then
+    echo "::error::OFFSITE BACKUP FAILED — rclone could not copy $(basename "$CHECKSUM_FILE") to '$BACKUP_RCLONE_REMOTE'." >&2
+    return 1
+  fi
+  echo "  -> Offsite upload confirmed ($BACKUP_RCLONE_REMOTE)."
+}
+
+OFFSITE_OK=1
+if offsite_upload; then
+  OFFSITE_OK=0
+  : > "$UPLOAD_MARKER"
+  chmod 0600 "$UPLOAD_MARKER"
 fi
 
-echo "=== Backup Complete ==="
+if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
+  if [[ -n "${BACKUP_RCLONE_REMOTE:-}" ]]; then
+    # Offsite is configured: only prune a backup once its own offsite copy is confirmed, so a
+    # local copy is never the last copy of data whose upload never succeeded (#363).
+    echo "Pruning backups older than $BACKUP_KEEP_DAYS days in $BACKUP_DIR with a confirmed offsite copy..."
+    while IFS= read -r -d '' marker; do
+      base="${marker%.uploaded}"
+      rm -f "$base" "${base}.sha256" "$marker"
+    done < <(find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -mtime +"$BACKUP_KEEP_DAYS" -print0)
+    while IFS= read -r -d '' stale; do
+      if [[ ! -f "${stale}.uploaded" ]]; then
+        echo "::warning::Keeping $(basename "$stale") past the ${BACKUP_KEEP_DAYS}-day retention window -- its offsite upload was never confirmed." >&2
+      fi
+    done < <(find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz" -mtime +"$BACKUP_KEEP_DAYS" -print0)
+  else
+    # Offsite is not configured at all -- prune exactly as before this ticket (age-based, no
+    # confirmation concept applies), so an indefinitely-long "not configured yet" period does not
+    # fill the disk.
+    echo "Pruning backups older than $BACKUP_KEEP_DAYS days in $BACKUP_DIR..."
+    find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+  fi
+fi
+
+if [[ "$OFFSITE_OK" -eq 0 ]]; then
+  echo "=== Backup Complete (local + offsite) ==="
+else
+  echo "=== Backup Complete LOCALLY ONLY -- see the OFFSITE BACKUP error above (#363) ==="
+  exit 1
+fi
