@@ -219,7 +219,8 @@ develops against a demo tenant.
   every Compose subcommand died before pulling anything). **No AC of #343 is ticked.**
 - #272 — drop `Products.offlineOk` (Drift schema v7) — in progress on `LomerAlloys`'
   `lane2` branch as of 2026-09-17.
-- Opened 2026-09-21 from verified findings, all unstarted: #363 (`backup-db.sh` never
+- Opened 2026-09-21 from verified findings (all unstarted except #366, decided the same
+  day — see below): #363 (`backup-db.sh` never
   copies a backup off the VM although #288's AC for it is still `[ ]` on a closed
   ticket), #364 (`ownerPassword` has no server-side length rule while `bootstrap:admin`
   demands 12), #365 (`etcd-init.sh` on the VM is a root-owned *directory*, so etcd never

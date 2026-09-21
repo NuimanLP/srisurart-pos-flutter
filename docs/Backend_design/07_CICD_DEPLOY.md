@@ -166,8 +166,10 @@ checks" เท่านั้น — ห้ามเพิ่มชื่อ job
 **`demo` = VM คณะ** (`mob04`, `172.30.58.20`, 4 vCPU · 6 GB · 48 GB) — ~~รับ inbound จากนอกมหาวิทยาลัยได้ (2026-09-04)~~
 **แก้ 2026-09-15:** address อยู่ในเครือข่ายมหาวิทยาลัย ต่อจากนอกไม่ได้ ไม่มี public address/port · ขาออกผ่าน NAT ได้ →
 Actions ต่อ VM ด้วย self-hosted runner บน VM (ADR-0013 addendum, §6.2)
-ใช้สาธิต/ส่งงานเท่านั้น ไม่ใช่ที่ของร้าน · **production host ยังไม่เลือก** เมื่อเลือกจะเป็น inventory
-ที่สอง + GitHub Environment ใหม่ที่เปิด *required reviewer*
+ใช้สาธิต/ส่งงานเท่านั้น ไม่ใช่ที่ของร้าน · ~~**production host ยังไม่เลือก** เมื่อเลือกจะเป็น inventory
+ที่สอง + GitHub Environment ใหม่ที่เปิด *required reviewer*~~ — **แก้:** #242 (2026-09-15) เคาะแล้วว่า
+`mob04`/`demo` **คือ** production ตัวเดียว ไม่มี host ที่สองรอ · required reviewer จึงเปิดอยู่บน
+`demo` ตัวนี้เลย ไม่ใช่ environment ใหม่ (#366, 2026-09-21 — ADR-0013 addendum)
 
 GitHub Environment `demo` ถือ secret ทั้งหมด (ไม่มีอะไรอยู่ใน repo):
 
@@ -310,17 +312,20 @@ on:
    gh api -X PUT repos/NuimanLP/srisurart-pos-flutter/actions/permissions/fork-pr-contributor-approval \
      -f approval_policy=all_external_contributors
    ```
-2. **Environment `demo` + deployment branch `main`** — 🔴 **แก้ 2026-09-21 (#366, ADR-0013 addendum):**
-   ตอนเขียนขั้นตอนนี้ครั้งแรก `demo` ยังตั้งใจให้ deploy อัตโนมัติไม่มีคนอนุมัติ ตอนนี้ **ไม่ใช่แล้ว** — เจ้าของ
-   เลือก option 3 ของ #366: auto-trigger เดิมอยู่ แต่ `demo` ต้องมี **required reviewer (`NuimanLP`)**
-   เปิดอยู่เสมอ ก่อนรันคำสั่งด้านล่าง (deployment branch policy) **ให้ตรวจก่อนว่า required reviewer ยัง
-   อยู่** — `gh api repos/NuimanLP/srisurart-pos-flutter/environments/demo --jq '.protection_rules'` ต้องมี
-   `required_reviewers` ที่มี `NuimanLP`; ถ้าไม่มีให้เปิดใหม่ก่อน (คำสั่งเปิด reviewer อยู่ใน ADR-0013
-   addendum 2026-09-21) — **ห้าม** ทำ `PUT` ที่ไม่ใส่ `reviewers` เข้าใจว่าจะ "ไม่แตะ" แล้วพบว่า reviewer
-   หาย (ยังไม่เคยพิสูจน์ว่า endpoint นี้คง field ที่ไม่ได้ส่งไว้เสมอ — ตรวจซ้ำทุกครั้งหลัง PUT ใด ๆ):
+2. **Environment `demo` + deployment branch `main` + required reviewer** — 🔴 **แก้ 2026-09-21 (#366,
+   ADR-0013 addendum):** ตอนเขียนขั้นตอนนี้ครั้งแรก `demo` ยังตั้งใจให้ deploy อัตโนมัติไม่มีคนอนุมัติ ตอนนี้
+   **ไม่ใช่แล้ว** — เจ้าของเลือก option 3 ของ #366: auto-trigger เดิมอยู่ แต่ `demo` ต้องมี **required
+   reviewer (`NuimanLP`, user id `64192543`) เปิดอยู่เสมอ** คำสั่งด้านล่างใส่ `reviewers` ไว้ใน `PUT` เดียวกับ
+   deployment branch policy แล้ว (ไม่ใช่คนละคำสั่ง) เพื่อไม่ให้การรันซ้ำครั้งไหนพลาดตัดมันทิ้ง — ยังไม่เคย
+   พิสูจน์ว่า endpoint นี้คง field ที่ไม่ได้ส่งไว้เสมอ ใส่ตรง ๆ ทุกครั้งปลอดภัยกว่าเดา — **หลังรันให้ตรวจ**
+   `gh api repos/NuimanLP/srisurart-pos-flutter/environments/demo --jq '.protection_rules'` ต้องเห็น
+   `required_reviewers` ที่มี `NuimanLP`:
    ```bash
    gh api -X PUT repos/NuimanLP/srisurart-pos-flutter/environments/demo --input - <<'JSON'
-   { "deployment_branch_policy": { "protected_branches": false, "custom_branch_policies": true } }
+   {
+     "deployment_branch_policy": { "protected_branches": false, "custom_branch_policies": true },
+     "reviewers": [{ "type": "User", "id": 64192543 }]
+   }
    JSON
    gh api -X POST repos/NuimanLP/srisurart-pos-flutter/environments/demo/deployment-branch-policies \
      -f name=main -f type=branch
