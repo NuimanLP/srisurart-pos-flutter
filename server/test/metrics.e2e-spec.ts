@@ -12,6 +12,7 @@ import {
   type TenantFixture,
 } from './support/fixture.js';
 import { IdempotencyService } from '../src/idempotency/idempotency.service.js';
+import { MetricsService } from '../src/metrics/metrics.service.js';
 import { TenantService } from '../src/common/database/tenant.service.js';
 import {
   runInTenantScope,
@@ -47,6 +48,22 @@ describe('metrics (e2e)', () => {
 
   afterAll(async () => {
     await app.close();
+  });
+
+  // The replay counter is only as trustworthy as its wiring. A lost edge — an `@Optional()`
+  // re-added on the constructor parameter, `MetricsModule` dropped from the graph — does show
+  // up in the delta assertions further down, but as "expected 1, got 0", which reads like a
+  // counting bug at the commit hook rather than a missing dependency. This asserts the edge
+  // itself in the real production module graph `createTestApp()` boots, so the failure names
+  // its own cause.
+  it('injects the app-wide MetricsService into IdempotencyService (real module graph)', () => {
+    const idempotency = app.get(IdempotencyService);
+    const injected = (idempotency as unknown as { metrics?: MetricsService }).metrics;
+
+    expect(injected).toBeInstanceOf(MetricsService);
+    // The same singleton the scrape endpoint renders — not a second registry whose counters
+    // would never appear in `GET /metrics`.
+    expect(injected).toBe(app.get(MetricsService));
   });
 
   it('GET /metrics → 200 with raw text format, NOT wrapped in JSON envelope', async () => {
