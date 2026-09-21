@@ -34,6 +34,21 @@ x-app-env: &app-env
   # the store's root user with, so RuntimeConfigService authenticates against the same store.
   ETCD_URL: http://etcd:2379
   ETCD_ROOT_PASSWORD: ${ETCD_ROOT_PASSWORD:?ETCD_ROOT_PASSWORD is required}
+  # Compose's `.env` is interpolation-only — there is no `env_file:` anywhere in this stack and
+  # the image does not load dotenv, so a key is only inside the container if it is listed here.
+  # Both are OPTIONAL and default to empty on purpose: config.ts's `csvAllowlist` reads blank as
+  # "unset", which keeps the historical behaviour (CORS `*`, allowlist = loopback only), while a
+  # value that lists no entry (`,`) throws at boot instead of silently reopening CORS. A `:?`
+  # form here would break every existing .env. Set them on the demo/VM host (#367).
+  #   CORS_ORIGINS       comma-separated exact origins, e.g. https://mob04.example.ac.th
+  #   PLATFORM_ADMIN_IPS comma-separated IPs allowed on /api/v1/platform/ IN ADDITION to loopback,
+  #                      which platform-auth.guard.ts:43 allows before it reads this list (#270).
+  #                      nginx's own `allow 127.0.0.1` on that location is unchanged, so an IP
+  #                      added here is still refused a hop earlier unless nginx.conf follows.
+  # Both also land on `worker` and `bull-board` through this anchor; neither serves the API, so
+  # CORS_ORIGINS is inert there — bull-board is protected by its loopback port + basic auth only.
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  PLATFORM_ADMIN_IPS: ${PLATFORM_ADMIN_IPS:-}
 
 # Only api-1 carries `build:`; every other process reuses the image it produced
 # (parallel builds of one tag race on the name).

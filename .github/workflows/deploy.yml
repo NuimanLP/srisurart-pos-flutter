@@ -1,7 +1,17 @@
 name: Deploy (demo)
 
-# #67 cd.2 — every green `main` reaches the demo VM on its own, and any earlier release can be put
-# back with a manual run (07_CICD_DEPLOY.md §6, §6.1, §6.2; ADR-0013 + its 2026-09-15 addendum).
+# #67 cd.2 — every green `main` triggers a deploy of its own accord, and any earlier release can be
+# put back with a manual run (07_CICD_DEPLOY.md §6, §6.1, §6.2; ADR-0013 + its 2026-09-15 addendum).
+#
+# 🔴 #366 (2026-09-21, ADR-0013 addendum) — "triggers" is not "reaches the VM": the `deploy` job below
+# runs under the `demo` GitHub environment, which now carries a required-reviewer rule (NuimanLP).
+# GitHub pauses the job in "Waiting" state before it is ever handed to a runner until that reviewer
+# approves it — so a merge queues a deploy, it does not complete one. This is what keeps an automatic
+# run off the VM mid-demo: the approver simply does not click approve. It reconciles this workflow's
+# auto-trigger (ADR-0013/#67) with #335 D9 ("deploy ด้วยมือ"): the pipeline is still automatic, a
+# human approval is now the manual step, and D9's by-hand `ansible-playbook` run remains the fallback
+# for when the runner is offline (07_CICD_DEPLOY.md §6.1's own rollback row already documented that
+# fallback before this change).
 #
 # The demo VM (172.30.58.20) is campus-internal: a GitHub-hosted runner cannot reach it, so the
 # deploy job runs on a SELF-HOSTED runner installed on the VM itself (outbound HTTPS only, no open
@@ -134,6 +144,8 @@ jobs:
           && github.event.workflow_run.head_branch == 'main')
         || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: [self-hosted, srisurart-demo-deploy]
+    # required-reviewer protection rule on this environment (#366, 2026-09-21) — this is the gate,
+    # not just bookkeeping. GitHub will not dispatch this job to the runner until NuimanLP approves.
     environment: demo
     # Serialised and never cancelled mid-flight: cancelling between two API restarts leaves the VM
     # running two versions (07 §6.1). GitHub keeps one *pending* run per group; a newer run replaces
