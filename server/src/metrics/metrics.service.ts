@@ -7,20 +7,22 @@ import {
 } from 'prom-client';
 
 const HTTP_METRIC_LABELS = ['method', 'route', 'status_code'] as const;
+type HttpMetricLabel = (typeof HTTP_METRIC_LABELS)[number];
 
 @Injectable()
 export class MetricsService {
   private readonly registry = new Registry();
 
-  private readonly httpRequestsTotal: Counter<'method' | 'route' | 'status_code'>;
-  private readonly httpRequestDurationSeconds: Histogram<
-    'method' | 'route' | 'status_code'
-  >;
+  private readonly httpRequestsTotal: Counter<HttpMetricLabel>;
+  private readonly httpRequestDurationSeconds: Histogram<HttpMetricLabel>;
+  private readonly idempotencyReplayTotal: Counter<string>;
 
   constructor() {
     collectDefaultMetrics({ register: this.registry });
 
-    // Metric names are pinned by existing Grafana panel queries (pos-overview.json:86,104).
+    // Metric names are pinned by the exprs of the *API success rate* and *API p95 latency*
+    // panels in deploy/grafana/dashboards/pos-overview.json — renaming either one here is a
+    // two-sided change (D4 #335).
     this.httpRequestsTotal = new Counter({
       name: 'http_requests_total',
       help: 'Total number of HTTP requests',
@@ -35,6 +37,14 @@ export class MetricsService {
       buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
       registers: [this.registry],
     });
+
+    // Business counter per D5 of #335: counts idempotent request replays after commit.
+    // Intentionally carries NO tenant_id label to avoid cardinality explosion and preserve privacy.
+    this.idempotencyReplayTotal = new Counter({
+      name: 'pos_idempotency_replay_total',
+      help: 'Total number of idempotent request replays',
+      registers: [this.registry],
+    });
   }
 
   get contentType(): string {
@@ -43,6 +53,10 @@ export class MetricsService {
 
   metrics(): Promise<string> {
     return this.registry.metrics();
+  }
+
+  recordReplay(): void {
+    this.idempotencyReplayTotal.inc();
   }
 
   recordRequest(
