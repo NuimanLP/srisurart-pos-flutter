@@ -245,6 +245,9 @@
   (07 §7) · `deploy.yml` ซ่อมเองตอน deploy จริงครั้งถัดไป
 - `CORS_ORIGINS` / `PLATFORM_ADMIN_IPS` ไม่อยู่ใน `.env` **และไม่มี compose ไฟล์ใดส่งเข้า container**
   (ตรงกับที่ lane A ประกาศไว้ §2) → ใส่ใน `DEMO_ENV_FILE` ก็ไม่ปิด CORS **ห้ามใครเขียน AC ว่าปิดแล้ว**
+  · **addendum 2026-09-21 (#367):** ขา compose แก้แล้ว — สองคีย์อยู่ใน `x-app-env` ของ
+  `server/docker-compose.yml` แล้ว แต่ `/opt/pos/.env` บน VM ยังว่างเหมือนเดิม
+  ⇒ ข้อห้ามข้างบนยังมีผล จนกว่าเพิ่มค่าใน `DEMO_ENV_FILE` แล้วรัน `provision.yml` ใหม่
 
 ---
 
