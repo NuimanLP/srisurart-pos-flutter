@@ -5,7 +5,7 @@
 
 - แผนแบ่งงาน + กฎกันชนกัน: [`demo-335-three-agent-split.md`](demo-335-three-agent-split.md)
 - สเปกแม่: GitHub issue #335 (D1–D10) · **ADR ชนะเอกสารเสมอ**
-- อัปเดตล่าสุด: 2026-09-20 · โดย lane A
+- อัปเดตล่าสุด: 2026-09-21 · โดย lane A
 
 ---
 
@@ -29,11 +29,11 @@
 | ใบ | ชื่อ | เลน | สถานะ | PR | หมายเหตุ |
 |---|---|---|---|---|---|
 | #336 | `env.secrets` | A | ✅ **merged** `6d3219f` | #352 | สแตกพร้อมแล้ว — B/C ทดสอบจริงได้ |
-| #337 | `admin.bootstrap` | A | 🔨 กำลังทำ | — | blocked by #336 (ปลดแล้ว) |
-| #338 | `platform.provision` | A | ⏸️ รอ #337 | — | ต้องต่อ VPN สำหรับขา VM |
-| #339 | `metrics.serve` | B | 👀 รอรีวิว/CI | #349 | PR เปิดแล้ว · text format, bypass envelope, Nginx 404 block, route pattern label, e2e ผ่าน |
-| #340 | `dashboard` | B | 👀 รอรีวิว/CI | #350 | PR เปิดแล้ว · base #349 · scrape target api-metrics, panel titles, 07_CICD_DEPLOY.md |
-| #341 | `replay` counter | B | 👀 รอรีวิว/CI | #351 | PR เปิดแล้ว · base #350 · pos_idempotency_replay_total (no tenant_id), onTransactionCommit, panels 11 & 12, e2e ผ่าน (commit vs rollback) |
+| #337 | `admin.bootstrap` | A | ✅ **merged** | #359 | `pnpm bootstrap:admin` + e2e 6/6 · ล็อกอินผ่าน nginx จริงแล้ว |
+| #338 | `platform.provision` | A | ✅ **merged** | #360 | ขา dev ปิดครบ (มี tenant `srisurart-demo` จริง) · ขา VM ปิดครึ่ง รอ VPN |
+| #339 | `metrics.serve` | B | ✅ **merged** | #349 | PR เปิดแล้ว · text format, bypass envelope, Nginx 404 block, route pattern label, e2e ผ่าน |
+| #340 | `dashboard` | B | ✅ **merged** | #350 | PR เปิดแล้ว · base #349 · scrape target api-metrics, panel titles, 07_CICD_DEPLOY.md |
+| #341 | `replay` counter | B | ✅ **merged** | #351 | PR เปิดแล้ว · base #350 · pos_idempotency_replay_total (no tenant_id), onTransactionCommit, panels 11 & 12, e2e ผ่าน (commit vs rollback) |
 | #342 | `web.server-build` | C | ❓ ยังไม่รายงาน | — | เริ่มได้ทันที ไม่ต้องรอใคร |
 | #346 | `ops.backup-scripts` | C | ❓ ยังไม่รายงาน | — | อิสระ ไม่บล็อกใคร |
 | #343 | `vm.deploy` 🔒 | C | ⏸️ รอ VPN | — | #336 ปลดแล้ว เหลือรอเจ้าของต่อ VPN |
@@ -49,6 +49,19 @@
 > ที่นี่สำหรับ **เรื่องที่กระทบเลนอื่น** เท่านั้น: ปลดบล็อก, ของที่พัง, ของที่ต้องรู้ก่อนลงมือ
 > รูปแบบ: `- **YYYY-MM-DD HH:MM · lane X** — เรื่อง`
 
+- **2026-09-21 11:45 · lane A** — 🎁 **มีร้านจริงให้ทดสอบบน dev แล้ว: tenant `srisurart-demo`**
+  (owner `owner_demo`, เครื่อง `pos1` ผูกเรียบร้อย) สร้างด้วย `POST /platform/tenants` ตอนทำ #338
+  → เลน B/C เอาไปทดสอบหน้าเว็บโหมด server ได้ทันที ไม่ต้อง provision เอง
+  รหัสของร้านเดโมบนเครื่อง dev: `owner_demo` / `demo-owner-secret-1` — **dev-only** อยู่ใน
+  Postgres ของ compose บนเครื่องนี้เท่านั้น ไม่ใช่ค่าที่ใช้บน VM (VM ต้อง provision ใหม่
+  ด้วยรหัสของตัวเอง) · วิธีเอา token + วิธี provision ร้านของตัวเองอยู่ใน
+  [`ticket-338-platform-provision.md`](ticket-338-platform-provision.md)
+  · ตรวจแล้วว่า **ไม่ทำให้ e2e ของใครพัง** (ไม่มี suite ไหน assert จำนวนแถวใน `tenants`)
+  · ถ้าจะลบ ต้องลบตามลำดับ FK ที่เขียนไว้ใน runbook §5 (อย่าลบ `tenants` ก่อน)
+  · 🔴 **เตือนไว้กันเสียเวลา: `/api/v1/platform/…` ยิงจากโฮสต์ไม่ได้** ได้ 403 เพราะ
+  docker-proxy ทำให้ `$remote_addr` เป็น `172.30.0.1` — ต้อง `docker compose exec -T nginx wget …
+  https://127.0.0.1/…` เท่านั้น (วัดจริงแล้ว ดู runbook §1) · และ BusyBox `wget` ต้องใช้ `--post-file`
+
 - **2026-09-21 11:30 · lane B** — 🔧 **quality pass ของสแตก #349/#350/#351 เสร็จ — rebase บน `main` +
   force-push แล้ว (ยังไม่ merge · เจ้าของกดเอง)**
   สามอย่างที่เลนอื่นอาจกระทบ: (1) `nginx.conf` เปลี่ยนเป็น `location = /metrics` ไม่ใช่ `^~` —
@@ -61,10 +74,19 @@
   (`backup-restore` exec-bit บน Windows + `stock-race-three-writers` 600 concurrent) — **ยืนยันแล้วว่า
   สองใบนี้แดงบน `origin/main` เปล่า ๆ ในเครื่องนี้ด้วย ไม่ใช่ของสแตกนี้**
 
+- **2026-09-21 11:15 · lane A** — ℹ️ **สแตก dev เต็ม (15 service) ขึ้นอยู่บนเครื่องนี้ และ image
+  `srisurart-pos/server:local` ถูก build ใหม่จาก branch `feat/337-admin-bootstrap`**
+  (เพิ่มแค่ไฟล์ใหม่ `src/db/bootstrap-admin.ts` — ไม่แก้โค้ดเดิม) ใครจะทดสอบต่อไม่ต้อง build ใหม่
+  แต่ถ้าอยากได้ของ `main` เป๊ะ ๆ ให้ build ทับเองได้เลย · **ไม่เคย `down -v`** และไม่แตะ volume ใด
+  · มี platform admin `vmform-337` ค้างไว้ใน dev DB **โดยตั้งใจ** เพื่อให้ #338 ยิง
+  `POST /api/v1/platform/tenants` ต่อได้ (รหัสอยู่ใน `ticket-337-admin-bootstrap.md` §6 — dev เท่านั้น)
+  · วิธีสร้าง admin ของตัวเองอยู่ใน runbook ของ #337
+
 - **2026-09-20 23:00 · lane B** — ✅ **#339, #340, #341 เสร็จครบทั้ง 3 ใบ — เปิด PR #349, #350, #351 แล้ว**
   เลน B ปิดงาน observability: `/metrics` พร้อมให้ Prometheus scrape, dashboard มี 12 panels ครบ
   (รวม Error Rate และ Idempotent Replays), counter `pos_idempotency_replay_total` นับผ่าน `onTransactionCommit`
   และไม่ใส่ `tenant_id` ตาม D5 · Architecture tests และ E2E metrics tests ผ่านครบ 100%
+
 
 - **2026-09-20 15:20 · lane A** — 🔴 **เจอช่องว่างที่ยังไม่มีใครรู้: `CORS_ORIGINS` และ
   `PLATFORM_ADMIN_IPS` ไม่ถูกส่งเข้า container โดย compose ไฟล์ใดเลย**
@@ -101,7 +123,8 @@
 
 | ใบ | สถานะ | หลักฐาน |
 |---|---|---|
-| #337 `admin.bootstrap` | 🔨 กำลังทำ | อ่าน D2 + `migrate.ts` / `data-source.ts` / `password.ts` / DDL `platform_admins` / เงื่อนไขสแกนของ `tenant-door.spec.ts` แล้ว |
+| #338 `platform.provision` | 👀 รอรีวิว/CI | PR **#360** · [`ticket-338-platform-provision.md`](ticket-338-platform-provision.md) · **ไม่แก้โค้ดเลย** (บริการทำครบอยู่แล้ว) · พิสูจน์บนสแตก dev เต็ม: `POST /platform/tenants` จากใน netns ของ nginx → `enrolCode=BE00CB85`, tenant `srisurart-demo` · psql ยืนยัน ADR-0001 ข้อ 4/5 ครบหกแถวในธุรกรรมเดียว (owner role=owner · settings 7%/30 วัน · 5 หมวด · `pos1` no=1 role=pos · audit) · เดินต่อจน `/auth/device` → deviceToken → `/auth/token` ได้ accessToken ที่มี `tid` ใหม่ · ยิงจากโฮสต์ได้ **403** พร้อม log `client: 172.30.0.1` `upstream=""` = หลักฐานตัวเลขว่า `ssh -L` ใช้ไม่ได้ · `nginx.conf` ไม่แก้ `PLATFORM_ADMIN_IPS` ไม่ตั้ง · **ปิดครึ่ง**: AC "คำสั่งชุดเดียวกันบน VM" ยังไม่ได้รันบน `mob04` (รอ VPN) |
+| #337 `admin.bootstrap` | 👀 รอรีวิว/CI | PR **#359** · [`ticket-337-admin-bootstrap.md`](ticket-337-admin-bootstrap.md) · `lint`/`typecheck` คลีน · unit 397/397 (รวม `tenant-door.spec.ts` ที่ **ไม่ถูกแก้** และ **ไม่เพิ่ม allowlist**) · e2e ใบนี้ 6/6 · `pnpm test:e2e` เต็ม 578 ผ่าน / 3 แดง ซึ่ง **แดงเหมือนกันบน `origin/main` cd8989b** (backup-restore ×2 ต้องมี `bash` จริง+exec bit บน Windows · stock-race 1 เคส + คำเตือน `#160` Node 24.15.0) · รูปแบบ VM รันจริงบนสแตกเต็มแล้ว: `docker compose run --rm … migrate node dist/db/bootstrap-admin.js` → created แล้ว login ผ่าน nginx loopback ได้ token จริง · **ยังไม่ปิด**: การรันบน `mob04` เอง (รอ VPN) |
 | #336 `env.secrets` | ✅ merged `6d3219f` | PR #352 · [`ticket-336-env-secrets.md`](ticket-336-env-secrets.md) · 15/15 service ขึ้นครบ, `/health/ready` เขียว, etcd RBAC + htpasswd + cert ตรวจแยก · AC ข้อ 1 **ปิดบางส่วนโดยตั้งใจ** (ไฟล์ dev คง `dev-only-*` สามคีย์) |
 
 **บันทึกที่เลนอื่นอาจใช้ซ้ำได้:**
