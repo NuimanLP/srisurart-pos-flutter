@@ -14,6 +14,8 @@ import {
 import { requestLogger } from './common/logger.js';
 import { APP_CONFIG, type AppConfig } from './config/config.js';
 import { platformTokenFromHeader } from './platform/platform-auth.guard.js';
+import { createMetricsMiddleware } from './metrics/metrics.middleware.js';
+import { MetricsService } from './metrics/metrics.service.js';
 
 /** `POST /platform/tenants/:id/import` (ADR-0005), as Express sees it under the global prefix. */
 export const IMPORT_ROUTE = '/api/v1/platform/tenants/:id/import';
@@ -79,6 +81,19 @@ export async function configureApp(
   });
 
   app.use(requestLogger(logger));
+  // The lookup is lenient for exactly one reason: `app.setup.spec.ts` calls `configureApp` on
+  // bare probe modules that never import `AppModule`, so `MetricsService` is genuinely absent
+  // there. It is NOT a defence against losing the wiring in production — a real app that lost
+  // `MetricsModule` fails `metrics.e2e-spec.ts` twice over (`GET /metrics` 404s because the
+  // controller is gone, and the `http_requests_total` assertions find nothing).
+  try {
+    const metricsService = app.get(MetricsService, { strict: false });
+    if (metricsService) {
+      app.use(createMetricsMiddleware(metricsService));
+    }
+  } catch {
+    // Not bound: a unit-test app built without AppModule. See the comment above.
+  }
   // #185: the tenant import's body is a whole shop's backup (`sa_*` + `__meta`) — about 2 MiB
   // for four months of a mid-size shop — and Nest's own JSON parser stops at 100 KiB, so every
   // real file died as a 500. Only this route gets the larger limit, which matches nginx's
@@ -106,6 +121,7 @@ export async function configureApp(
     exclude: [
       { path: 'health/live', method: RequestMethod.GET },
       { path: 'health/ready', method: RequestMethod.GET },
+      { path: 'metrics', method: RequestMethod.GET },
     ],
   });
   // The envelope wraps whatever comes back, a replayed idempotent body included. There is
