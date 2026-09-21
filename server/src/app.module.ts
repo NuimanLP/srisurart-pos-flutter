@@ -7,6 +7,7 @@ import {
 import type { Logger } from 'pino';
 import { APP_CONFIG, type AppConfig } from './config/config.js';
 import { HealthModule } from './health/health.module.js';
+import { MetricsModule } from './metrics/metrics.module.js';
 import { DbModule } from './infra/db.module.js';
 import { LOGGER } from './infra/logger.provider.js';
 import { RedisModule } from './infra/redis.module.js';
@@ -78,6 +79,7 @@ export class AppModule implements NestModule {
         RedisModule,
         TenantCacheModule,
         HealthModule,
+        MetricsModule,
         PlatformModule,
         AuditModule,
         AuthModule,
