@@ -222,19 +222,27 @@ develops against a demo tenant.
 - Opened 2026-09-21 from verified findings. **#364, #366 and #367 were closed the same
   day (PRs #374 / #371 / #373); #363 and #365 are still open.**
   - **#363** — `backup-db.sh` never copied a backup off the VM although #288's AC for it
-    is still `[ ]` on a closed ticket. 🔴 **Mechanism built same day, not wired**:
+    is still `[ ]` on a reopened ticket (#288 was **reopened 2026-09-21** by the owner).
+    🔴 **Mechanism built same day, not wired**:
     `backup-db.sh` gained a pluggable `offsite_upload()` via `rclone`
     (`BACKUP_RCLONE_REMOTE`/`BACKUP_RCLONE_CONFIG`, unset = disabled), proven only against
     a local stub/fake destination — see `docs/handoff_log/ticket-363-backup-offsite.md`.
-    An unconfigured or failed offsite step is a loud `::error::` + non-zero exit, not a
-    quiet success; local prune only deletes a dump once its offsite copy is confirmed
-    (`.uploaded` marker) once offsite is actually configured, and behaves exactly as
-    before this ticket while it stays unconfigured (so an indefinite "not wired yet"
-    period does not fill the disk). **Still open, real infra required — do not claim
+    🔴 **Offsite upload is OPTIONAL (owner decision, 2026-09-21 — this replaces the
+    behaviour PR #372 shipped):** `BACKUP_RCLONE_REMOTE` unset/empty → one `::warning::`
+    line and **exit 0**, so the nightly cron on `mob04` is quiet-but-honest instead of
+    failing every night until credentials exist; **configured but broken** (no `rclone`,
+    missing `BACKUP_RCLONE_CONFIG`, failed `copyto`) → unchanged loud `::error::` +
+    **non-zero exit**, because a configured destination that silently fails is the exact
+    bug #363 exists for. A green `backup-cron.log` therefore does **not** prove a backup
+    left the VM — read the `::warning::`/`::error::` lines. Once offsite is configured,
+    local prune deletes a dump only after its `.uploaded` marker confirms the offsite
+    copy (unconfirmed dumps are kept with a `::warning::`); while it stays unconfigured
+    prune is age-based as before this ticket, so an indefinite "not wired yet" period
+    does not fill the disk. **Still open, real infra required — do not claim
     done:** owner has not chosen a destination or created credentials (AC1), no real
     upload has ever left a VM (AC2), no restore from an offsite copy has been proven
     (AC3), `rclone` is not installed on `mob04`. #288's "backups leave the VM daily" AC is
-    still unticked; see the comment on #288 for the correction.
+    still unticked; #288 is reopened and the correction is recorded in its comments.
   - **#364** (closed, PR #374) — `ownerPassword` had no server-side length rule while
     `bootstrap:admin` demanded 12. The floor now lives once in `src/common/password.ts`
     (`MIN_PASSWORD_LENGTH`/`passwordPolicyViolation`), both callers use it, and
