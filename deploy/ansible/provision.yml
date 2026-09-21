@@ -167,6 +167,13 @@
     # week and look exactly like success. Append to a log instead -- one file to read to answer "did
     # last night's backup run?". The prune in backup-db.sh:108 matches only `*_backup_*.sql.gz[.sha256]`,
     # so the log survives it. Still not an alarm: nothing pages on a failed backup (see #346).
+    # Deliberately no rotation, with the arithmetic so nobody re-litigates it: backup-db.sh prints
+    # ~10 short lines per run, once a day -- order of 100 KB/year against 42 GB free on this VM.
+    # Rotation would be more moving parts than the thing it guards. If the log is ever made chatty
+    # (per-table output, a verbose pg_dump), add logrotate at the same time.
+    # Note the redirect is opened by the shell BEFORE backup-db.sh runs, so it depends on the
+    # `backups` directory task above having succeeded; that task is immediately above this one for
+    # exactly that reason -- do not reorder them.
     - name: Configure daily database backup cron job (Slice 23 / #288, #346)
       ansible.builtin.cron:
         name: "Srisurart POS Daily Database Backup"

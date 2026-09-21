@@ -1,4 +1,11 @@
-# Ticket #346 — install the backup script targeted by cron
+# Ticket #346 — install the ops scripts the VM is told to run
+
+> Two rounds. **Round 1 (2026-09-20)** installed `backup-db.sh`, the file the cron entry names.
+> **Round 2 (2026-09-21)** — below the rule — adds `restore-db.sh` and `measure-container-rss.sh`,
+> stops the cron discarding its output, and records read-only evidence from `mob04` that inverts
+> AC1's premise. Read both before touching either.
+
+## Round 1 — 2026-09-20
 
 **Date:** 2026-09-20
 **Lane:** C
@@ -196,6 +203,18 @@ Round 1's audit stands. Two additions found by running `--check` against the rea
   and `ls -la` shows `drwxr-xr-x root root` with `etcd-init.sh` as a **directory**. That is the
   etcd-init bug's residue (07 §7). `deploy.yml` repairs it on the next real deploy; nothing here
   does.
+
+And one about **#288 itself**, which #346 explicitly asks about ("ตรวจด้วยว่าตอนนั้นเคยพิสูจน์บน VM
+จริงหรือพิสูจน์แค่ในเครื่อง"):
+
+- 🔴 **`backup-db.sh` has no off-VM step at all.** `grep -nE 'scp|rsync|aws |s3|rclone|curl -T|sftp|supabase'`
+  over it returns nothing; the script ends at the local prune (`backup-db.sh:107-108`). #288's own
+  acceptance criterion **"ไฟล์ backup ออกนอก VM อัตโนมัติทุกวัน + ตรวจว่ากู้ได้"** is still
+  unticked **in #288**, and it will remain unmet even after `provision.yml` runs — a daily backup
+  that never leaves the machine it is protecting does not survive the failure it exists for.
+  That is bigger than #346 and not in lane C's gift to decide: **it needs its own ticket and an
+  owner decision on the destination** (the Supabase snapshot path in `CLAUDE.md`'s "Pending
+  follow-ups — Phase 7a" is stubbed and unwired). Recorded here rather than silently absorbed.
 
 ## Is #346 closeable?
 
