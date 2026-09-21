@@ -214,6 +214,8 @@ src/db/migrations/       the schema (27 tables, indexes, pg_trgm) + RLS/grants �
 src/db/data-source.ts    owner-role DataSource with the static MIGRATIONS list
 src/db/migrate.ts        up | down | status                → node dist/db/migrate.js (compose `migrate` job)
 src/db/seed.ts           SEED_CATEGORIES + seedCategories(db, tenantId) for provisioning (#5)
+src/db/bootstrap-admin.ts bootstrapAdmin() — the first platform admin (#337), [--force] resets
+                         its password    → node dist/db/bootstrap-admin.js (pnpm bootstrap:admin)
 src/health/              /health/live (touches nothing) · /health/ready (Postgres + both Redis)
 docker/nginx/nginx.conf  least_conn, TLS, per-IP limit_req, timeouts, /platform/ allowlist
 docker/postgres/init/    creates the non-superuser pos_app role on first boot
