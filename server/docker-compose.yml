@@ -34,6 +34,16 @@ x-app-env: &app-env
   # the store's root user with, so RuntimeConfigService authenticates against the same store.
   ETCD_URL: http://etcd:2379
   ETCD_ROOT_PASSWORD: ${ETCD_ROOT_PASSWORD:?ETCD_ROOT_PASSWORD is required}
+  # Compose's `.env` is interpolation-only — there is no `env_file:` anywhere in this stack and
+  # the image does not load dotenv, so a key is only inside the container if it is listed here.
+  # Both are OPTIONAL and default to empty on purpose: config.ts:95,100 test truthiness, so an
+  # empty value means "unset" and keeps the historical behaviour (CORS `*`, allowlist = loopback
+  # only). A `:?` form here would break every existing .env. Set them on the demo/VM host (#367).
+  #   CORS_ORIGINS       comma-separated exact origins, e.g. https://mob04.example.ac.th
+  #   PLATFORM_ADMIN_IPS comma-separated IPs allowed on /api/v1/platform/ IN ADDITION to loopback,
+  #                      which platform-auth.guard.ts:43 allows before it reads this list (#270).
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  PLATFORM_ADMIN_IPS: ${PLATFORM_ADMIN_IPS:-}
 
 # Only api-1 carries `build:`; every other process reuses the image it produced
 # (parallel builds of one tag race on the name).

@@ -36,6 +36,16 @@
 - `BULL_BOARD_USER` — `docker-compose.yml:168` ใส่ default `admin` ให้ แต่ `src/bull-board.ts:20` เรียก `requiredEnv()` · รอดได้เพราะ default ของ compose เท่านั้น ใส่ไว้ตรง ๆ ดีกว่า
 - `DB_POOL_SIZE` / `LOG_LEVEL` / `REDIS_COMMAND_TIMEOUT_MS` — มี default อยู่แล้ว ใส่ไว้ให้อ่านง่าย
 
+**สองคีย์ที่เพิ่มใน #367 (optional — ไม่ใช่ `:?`):**
+
+| คีย์ | ส่งเข้า container ที่ | หมายเหตุ |
+|---|---|---|
+| `CORS_ORIGINS` | `docker-compose.yml` `x-app-env` (#367) | รายชื่อ origin คั่นด้วย comma ต้องตรงเป๊ะ (scheme+host+port ไม่มี `/` ท้าย) · **ว่าง = คงพฤติกรรมเดิม `'*'`** (`config.ts:95` เช็ค truthiness · `app.setup.ts:45`) · ตั้งผิด origin = web client พังทั้งใบ |
+| `PLATFORM_ADMIN_IPS` | `docker-compose.yml` `x-app-env` (#367) | IP ที่เข้า `/api/v1/platform/` ได้ **เพิ่มเติมจาก loopback** — `platform-auth.guard.ts:43` อนุมัติ `127.0.0.1`/`::1` ก่อนอ่านรายการนี้ (`:46`) ตั้งแล้วจึงไม่ทำให้ loopback พัง (#270) · ชั้น nginx (`allow 127.0.0.1`) ไม่เกี่ยวกับคีย์นี้ |
+
+🔴 สองคีย์นี้ **ไม่ต้องมี** ใน `.env` — ไม่ใส่คือพฤติกรรมเดิม (`'*'` + loopback-only)
+ที่ dev/CI/e2e คาดหมายอยู่ · ทั้งสองตัวไม่ใช่ secret — ใส่ใน `DEMO_ENV_FILE` ได้ตามปกติ
+
 **คีย์ที่ห้ามใส่:**
 
 - `IMAGE_TAG` — `deploy/compose/vm.override.yml:10` บังคับก็จริง แต่ `deploy/ansible/deploy.yml:186` ส่งเป็น shell env var ซึ่ง **ชนะไฟล์ `.env`** · ค่าที่ปักไว้ในไฟล์จะกลายเป็น tag เก่าค้างที่ไม่มีใครสังเกต
@@ -88,6 +98,10 @@ openssl rsa -in jwt.key -pubout -out jwt.pub
 🔴 **AC ข้อ 1 ของ #336 จึงปิดแบบ "ปิดบางส่วนโดยตั้งใจ"**: ไฟล์ VM สุ่มครบทุกคีย์ ส่วนไฟล์ dev
 เหลือสามคีย์เป็นค่า `dev-only-*` ตามเดิม ไม่ใช่การลืม — ถ้าจะสุ่มจริงเมื่อไหร่ ต้องแก้ default
 ในแปดไฟล์นั้นก่อน แล้วประกาศให้ทุกเลนรู้
+
+> ✅ **ปิดแล้วที่ #367** (2026-09-21) — สองคีย์ถูกส่งเข้า container ผ่าน `x-app-env`
+> ของ `server/docker-compose.yml` แล้ว (พิสูจน์ด้วย `docker compose exec api-1 printenv`)
+> — หัวข้อด้านล่างเก็บไว้เป็นบันทึกของสิ่งที่พบตอนทำใบนี้
 
 ### ⚠️ ช่องว่างที่พบระหว่างทำใบนี้ (ไม่ได้แก้ในใบนี้)
 
