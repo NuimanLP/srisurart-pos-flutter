@@ -493,17 +493,20 @@ conf ปัจจุบันไม่มี ทำให้ `.js`/`.wasm` ข�
 * Prometheus scrape สอง job: `node` (node-exporter, ให้ 3 panel แรกของ dashboard) และ
   `api-readiness` (`/health/ready` บน `api-1..3:3000` ตรง ๆ ไม่ผ่าน Nginx — endpoint ยังไม่มี
   prefix `api/v1` เหมือน `/health/live`) — job ที่สาม `api-metrics` (`/metrics`, unprefixed ตาม
-  `02_API_SCREENS.md` แถว `GET /metrics | internal`) คอมเมนต์ไว้รอ #34/#35
+  `02_API_SCREENS.md` แถว `GET /metrics | internal`) เปิดใช้งานใน #339/#340
   🔴 **พบระหว่างสร้างไฟล์นี้ (วัดจริงกับ Prometheus container):** `up` ของ Prometheus วัดจากว่า
   parse body เป็น Prometheus text-exposition format ได้ไหม ไม่ใช่แค่ HTTP 200 — `/health/ready`
   ตอบ JSON ซึ่ง parse ไม่ผ่าน ทำให้ target ทั้งสามขึ้น **DOWN ใน Prometheus UI ตลอดเวลา แม้ API จะ
   รันอยู่จริง** จนกว่า job `api-metrics` จะเปิดใช้งาน — เป็นข้อจำกัดที่รับทราบแล้ว ไม่ใช่บั๊กของ
   overlay นี้ (ตั้งใจไม่เพิ่ม `blackbox_exporter` หรือ exporter อื่นเพื่อแก้ ตามสโคปของ #63)
-* dashboard เดียว (provisioned, ห้า panel): CPU / RAM / disk ของ VM (query จาก node-exporter,
+* dashboard เดียว (provisioned): CPU / RAM / disk ของ VM (query จาก node-exporter,
   มีค่าจริงทันทีที่ stack รัน) + **SLI จาก `02_API_SCREENS §9`**: success rate และ p95 —
-  สอง panel นี้ตั้งใจให้อ่าน "no data" จนกว่า #34/#35 จะทำ `/metrics` เสร็จ (query ที่ผูกไว้เป็น
-  ชื่อ metric ทั่วไปตามธรรมเนียม prom-client — `http_requests_total` / `http_request_duration_seconds_bucket`
-  — ให้ #34/#35 ยืนยันหรือแก้ชื่อจริงตอนต่อ)
+  สอง panel นี้มีข้อมูลจริงแล้วตั้งแต่ #339/#340 (ชื่อ metric ที่ผูกไว้ตามธรรมเนียม prom-client —
+  `http_requests_total` / `http_request_duration_seconds_bucket` — ยืนยันตรงกับที่ API ส่งออกแล้ว)
+  🔴 middleware **ไม่นับ** `/metrics` และ `/health/live` `/health/ready` เพราะ scrape ของ Prometheus
+  (15 วิ × 3 instance) กับ healthcheck ของ compose (15 วิ × 3) เป็น 200 ที่การันตี ถ้านับรวม
+  จะกลบอัตราพลาดของคำขอจริงบน panel ทั้งสอง (`server/src/metrics/metrics.middleware.ts`)
+  + panel error rate แยก status code และ panel `pos_idempotency_replay_total` เพิ่มใน #341
 * ไม่มี Alertmanager · ทุกอย่างผูก `127.0.0.1` เข้าผ่าน SSH tunnel (§7) · Grafana admin password
   ต้องมาจาก `GRAFANA_ADMIN_PASSWORD` ใน `.env` (`.env.example` มีตัวอย่าง) — stack fail fast ถ้าไม่ตั้ง
   เหมือน secret ของ datastore ตัวอื่น
