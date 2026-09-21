@@ -196,11 +196,38 @@ claiming phase 1 is "done". No cutover: the shop still runs the Drift build; the
 develops against a demo tenant.
 
 **Still open (phase 1):**
+- 🔴 **CD to the demo VM is blocked by the faculty network, not by anything in this
+  repo** (2026-09-21). The campus FortiGate does SSL deep inspection on `mob04`'s
+  outbound HTTPS and answers for `ghcr.io` with its own device certificate
+  (`O=Fortinet, OU=FortiGate, CN=FG3K4ETB19900078`), which carries **no SAN at all**, so
+  `docker compose pull` fails with `x509: certificate is not valid for any names`.
+  Trusting the Fortinet CA does **not** fix it — hostname verification fails regardless.
+  This kills both delivery paths at once: the manual Ansible run (#335 D9) and the
+  self-hosted runner (#67), since the runner would use the same Docker daemon. The only
+  real fix is the network team exempting `ghcr.io` (and `registry-1.docker.io`, `gcr.io`)
+  for `172.30.58.20`. `docker save`/`load` by hand is a demo-day rescue, **not** CD, and
+  must never be recorded as one. Full evidence and the cleared pre-flight:
+  `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`.
 - #67 — self-hosted deploy runner: workflow merged (PR #237), but not installed on the
-  demo VM; real-run ACs unproven (`PattaraponKitcharoen`).
-- #184 / #251 — the three-laptop k6 load-test run (`PattaraponKitcharoen`).
+  demo VM; real-run ACs unproven (`PattaraponKitcharoen`). Blocked by the item above.
+- #184 / #251 — the three-laptop k6 load-test run (`PattaraponKitcharoen`). **#184 was
+  closed on 2026-09-17 with all four ACs unticked and no closing comment, and was
+  reopened on 2026-09-21 per #335 D10** — nothing in it is proven yet.
+- #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. Pre-flight
+  is done and the `/opt/pos/.env` blocker is cleared (it was missing
+  `K6_REMOTE_WRITE_BASIC_AUTH_*`, which #251 added to compose with `:?` afterwards, so
+  every Compose subcommand died before pulling anything). **No AC of #343 is ticked.**
 - #272 — drop `Products.offlineOk` (Drift schema v7) — in progress on `LomerAlloys`'
   `lane2` branch as of 2026-09-17.
+- Opened 2026-09-21 from verified findings, all unstarted: #363 (`backup-db.sh` never
+  copies a backup off the VM although #288's AC for it is still `[ ]` on a closed
+  ticket), #364 (`ownerPassword` has no server-side length rule while `bootstrap:admin`
+  demands 12), #365 (`etcd-init.sh` on the VM is a root-owned *directory*, so etcd never
+  had auth enabled), #366 (`Deploy (demo)` fires on every green `main`, contradicting
+  D9's manual-deploy decision — an owner call, due before #67 installs the runner),
+  #367 (`CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` reach no container, so CORS is `'*'`;
+  deliberately scheduled after the demo — **nobody may claim CORS is closed until it
+  merges**).
 - Phase-2 kickoff order for the remaining hub tickets: #228 → #229 → #212/#211/#189 →
   #230 → #190 → #231.
 
@@ -264,6 +291,50 @@ on void/return paths. Keep this order in any new write touching more than one of
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
+- **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
+  `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
+  images for that SHA are not on GHCR yet the job is skipped and the workflow still
+  reports *success* with only `resolve release` having run. The VM's `/opt/pos/.current_sha`
+  is the only proof.
+- **Never `gh pr merge --delete-branch` on a stacked PR.** Deleting a branch that is
+  another PR's base makes GitHub close that PR, and a closed PR's base cannot be
+  changed — recovery is push the old tip back, `gh pr reopen`, `gh pr edit --base main`.
+  Clean up branches once, after the whole stack has landed.
+- **`ansible-playbook deploy.yml --check` proves almost nothing.** `ansible.builtin.command`
+  has no check mode, so it is skipped and the network pre-flight assertion then fails on
+  an empty `stdout` — a false positive that reads like a disaster. It also never reaches
+  any task past the first `command`. Never cite a `--check` run as evidence.
+- `deploy.yml` and `provision.yml` need **different SSH users and are not interchangeable**:
+  `deploy.yml` runs as `deploy` (owns `/opt/pos`, in group `docker`, **no sudo**),
+  `provision.yml` as `cloud` (has sudo, **not** in group `docker`, cannot write
+  `/opt/pos`). `--check` hides this because `copy` compares checksums without writing.
+- Never pass `--diff` to `provision.yml` — it prints the whole `/opt/pos/.env`.
+- When editing a `.env` by hand, anchor every check with `^` (`grep -c KEY` counts lines
+  *containing* the name, so a key glued onto the previous line by a missing trailing
+  newline looks present while Compose still reports it missing) and append a blank line
+  first. `pgdata`/`etcd-data`/`nginx-auth` bake their secrets in at first bootstrap only:
+  changing those passwords in `.env` does not re-key an existing volume, and re-keying is
+  a separate owner decision, never an improvised step.
+
+**Metrics (`server/src/metrics/`, `deploy/prometheus/`, `deploy/grafana/`) — landed 2026-09-21:**
+- `http_requests_total` and `http_request_duration_seconds` are **named by the existing
+  Grafana panel expressions** — renaming either silently blanks the dashboard.
+- The counting happens in **middleware**, not an interceptor, because requests a guard
+  rejects (401/429) must still be counted, and `route` must be the pattern, not the
+  concrete path. `GET /metrics` returns text format and is **not** wrapped in the
+  envelope; Nginx answers `location = /metrics` with 404 (exactly `=`, not `^~`, which
+  would also block any future path merely starting with `/metrics`).
+- `/metrics`, `/health/live` and `/health/ready` are **excluded from the SLI**
+  (`UNMEASURED_PATHS`). Owner-approved 2026-09-21 as an addendum to #335 D6: scrape every
+  15 s × 3 instances plus healthchecks manufactures ~36 guaranteed `200`s a minute, and
+  the success-rate and p95 panels average every series, so a day where every real bill
+  failed would still read ~92% healthy.
+- `pos_idempotency_replay_total` carries **no `tenant_id` label** (panels use
+  `sum()`/`increase()`), and is incremented **only inside `onTransactionCommit`** in the
+  replay branch, so a rolled-back write is never counted. `MetricsService` is a
+  **required** dependency of `IdempotencyService` — if that wiring is ever loosened back
+  to `@Optional()`, a broken graph silently zeroes the counter instead of failing at
+  bootstrap.
 
 **Nginx / auth / rate limiting:**
 - Nginx must be the only reverse proxy in front of the API — `trust proxy` is exactly
