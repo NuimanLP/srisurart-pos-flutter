@@ -156,6 +156,10 @@ Two facts that make step 3 safe, both verified in the `--check` run:
 > announcement of 2026-09-20 15:20 on the status board, reported at #335). Putting them in
 > `DEMO_ENV_FILE` will therefore not close CORS. Nobody may write an AC saying CORS is closed on the
 > VM. It does not block the deploy.
+>
+> *Addendum 2026-09-21: the Compose half is fixed by #367 — both keys now sit in
+> `server/docker-compose.yml`'s `x-app-env`. The `/opt/pos/.env` half is unchanged, so the
+> conclusion above still stands until `DEMO_ENV_FILE` carries them and `provision.yml` is re-run.*
 
 ---
 
@@ -475,6 +479,7 @@ plus that output.
    in §7 step 3 creates all three.
 3. **`CORS_ORIGINS` / `PLATFORM_ADMIN_IPS` are not wired through Compose at all** — §5's callout.
    Lane A reported it at #335; it needs an owner decision, not a workaround here.
+   *Addendum 2026-09-21: wired through Compose at #367; still unset in `/opt/pos/.env`.*
 4. **`--check` is near-useless past the first `command` task** in these playbooks (§6.4). If future
    work wants a real dry-run gate, that needs `check_mode: false` + `changed_when` on the read-only
    `command` tasks, which is a design change, not a flag.

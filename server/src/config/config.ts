@@ -54,6 +54,28 @@ function positiveInt(env: NodeJS.ProcessEnv, name: string, fallback: number): nu
   return n;
 }
 
+/**
+ * A comma-separated allowlist, or `undefined` when the variable is absent or blank.
+ *
+ * Compose always *sets* these (`${KEY:-}` in docker-compose.yml's `x-app-env`, #367), so blank
+ * has to mean "unset" — that is what keeps the historical default (CORS `'*'`, platform
+ * allowlist = loopback only). But a value with content that yields no entry — `","`, `";"`,
+ * `",,"` — is a typo, and silently degrading it to `undefined` would reopen CORS to `'*'` with
+ * nothing in the log to say so. Validate first, then fall back (CLAUDE.md, learned at #22/#24).
+ */
+function csvAllowlist(env: NodeJS.ProcessEnv, name: string): string[] | undefined {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const items = raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (items.length === 0) {
+    throw new Error(`${name} is set but lists no entry (got '${raw}') — leave it empty to disable`);
+  }
+  return items;
+}
+
 function parsePublicKeys(raw: string): string[] {
   const trimmed = raw.trim();
   if (trimmed.startsWith('{')) {
@@ -92,14 +114,10 @@ export function loadConfig(env = process.env): AppConfig {
     jwtPrivateKey: isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined,
     jwtPublicKeys: isApi ? parsePublicKeys(required(env, 'JWT_PUBLIC_KEYS')) : undefined,
     jwtKeyId: env.JWT_KEY_ID ?? 'key-1',
-    corsOrigins: env.CORS_ORIGINS
-      ? env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
-      : undefined,
+    corsOrigins: csvAllowlist(env, 'CORS_ORIGINS'),
     etcdUrl: env.ETCD_URL,
     etcdPassword: env.ETCD_ROOT_PASSWORD ?? env.ETCD_PASSWORD,
-    platformAdminIps: env.PLATFORM_ADMIN_IPS
-      ? env.PLATFORM_ADMIN_IPS.split(',').map((ip) => ip.trim()).filter(Boolean)
-      : undefined,
+    platformAdminIps: csvAllowlist(env, 'PLATFORM_ADMIN_IPS'),
     docNumberFallback: env.DOC_NUMBER_FALLBACK !== 'false',
   };
 }

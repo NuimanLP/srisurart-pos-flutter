@@ -40,7 +40,7 @@
 
 | คีย์ | ส่งเข้า container ที่ | หมายเหตุ |
 |---|---|---|
-| `CORS_ORIGINS` | `docker-compose.yml` `x-app-env` (#367) | รายชื่อ origin คั่นด้วย comma ต้องตรงเป๊ะ (scheme+host+port ไม่มี `/` ท้าย) · **ว่าง = คงพฤติกรรมเดิม `'*'`** (`config.ts:95` เช็ค truthiness · `app.setup.ts:45`) · ตั้งผิด origin = web client พังทั้งใบ |
+| `CORS_ORIGINS` | `docker-compose.yml` `x-app-env` (#367) | รายชื่อ origin คั่นด้วย comma ต้องตรงเป๊ะ (scheme+host+port ไม่มี `/` ท้าย) · **ว่าง = คงพฤติกรรมเดิม `'*'`** (`config.ts` หักค่าว่างทิ้ง · `app.setup.ts:47`) · ตั้งผิด origin = web client พังทั้งใบ |
 | `PLATFORM_ADMIN_IPS` | `docker-compose.yml` `x-app-env` (#367) | IP ที่เข้า `/api/v1/platform/` ได้ **เพิ่มเติมจาก loopback** — `platform-auth.guard.ts:43` อนุมัติ `127.0.0.1`/`::1` ก่อนอ่านรายการนี้ (`:46`) ตั้งแล้วจึงไม่ทำให้ loopback พัง (#270) · ชั้น nginx (`allow 127.0.0.1`) ไม่เกี่ยวกับคีย์นี้ |
 
 🔴 สองคีย์นี้ **ไม่ต้องมี** ใน `.env` — ไม่ใส่คือพฤติกรรมเดิม (`'*'` + loopback-only)
@@ -99,8 +99,10 @@ openssl rsa -in jwt.key -pubout -out jwt.pub
 เหลือสามคีย์เป็นค่า `dev-only-*` ตามเดิม ไม่ใช่การลืม — ถ้าจะสุ่มจริงเมื่อไหร่ ต้องแก้ default
 ในแปดไฟล์นั้นก่อน แล้วประกาศให้ทุกเลนรู้
 
-> ✅ **ปิดแล้วที่ #367** (2026-09-21) — สองคีย์ถูกส่งเข้า container ผ่าน `x-app-env`
-> ของ `server/docker-compose.yml` แล้ว (พิสูจน์ด้วย `docker compose exec api-1 printenv`)
+> 🔧 **สายต่อแล้วที่ #367** (2026-09-21) — `x-app-env` ของ `server/docker-compose.yml`
+> ส่งสองคีย์เข้า container แล้ว (อ่านกลับได้จากในด้วย `docker compose exec api-1 printenv`)
+> 🔴 แต่ **นี่คือการต่อสาย ไม่ใช่ "ปิด CORS แล้ว"** — บน VM ค่ายังว่างอยู่
+> จนกว่าจะใส่สองคีย์นี้ใน `DEMO_ENV_FILE` แล้วรัน `provision.yml` ใหม่ (`07_CICD_DEPLOY.md §5`)
 > — หัวข้อด้านล่างเก็บไว้เป็นบันทึกของสิ่งที่พบตอนทำใบนี้
 
 ### ⚠️ ช่องว่างที่พบระหว่างทำใบนี้ (ไม่ได้แก้ในใบนี้)
