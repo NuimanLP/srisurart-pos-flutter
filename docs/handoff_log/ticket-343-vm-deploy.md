@@ -157,6 +157,12 @@ Two facts that make step 3 safe, both verified in the `--check` run:
 > `DEMO_ENV_FILE` will therefore not close CORS. Nobody may write an AC saying CORS is closed on the
 > VM. It does not block the deploy.
 >
+> *Addendum 2026-09-21 (#367, PR #373):* **the Compose half is fixed** — both keys now reach the
+> containers through the `x-app-env` anchor, verified from inside `api-1`, and a set-but-empty list
+> (`,`) throws at boot instead of silently falling back to `'*'`. What remains true: `/opt/pos/.env`
+> still carries no value, so **`mob04` is still `'*'`** until `DEMO_ENV_FILE` carries the keys and
+> `provision.yml` is re-run. The ban on writing "CORS is closed on the VM" stands until then.
+>
 > *Addendum 2026-09-21: the Compose half is fixed by #367 — both keys now sit in
 > `server/docker-compose.yml`'s `x-app-env`. The `/opt/pos/.env` half is unchanged, so the
 > conclusion above still stands until `DEMO_ENV_FILE` carries them and `provision.yml` is re-run.*

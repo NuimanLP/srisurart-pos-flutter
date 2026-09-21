@@ -59,6 +59,15 @@ What works on a non-ASCII path: `flutter create`, `pub get`, `dart analyze`, `fl
   `database.dart`), first **copy or `git clone` the repo to an ASCII path** (e.g.
   `C:\srisurart_pos`), run codegen there, then commit the regenerated `*.g.dart`.
 - **Always use `dart analyze`**, NEVER `flutter analyze`.
+- 🔴 **BeeStation cloud placeholders break `docker build` on this checkout** (found
+  2026-09-21, `docs/handoff_log/demo-rehearsal-dev-2026-09-21.md`). After a `git pull`,
+  most files under `server/src/` can be dehydrated placeholders (`Attributes` =
+  `Archive, ReparsePoint`), and BuildKit refuses the context with
+  *`load build context: invalid file request …`*. `builder prune` does not help. Build
+  from a clean git-object context instead:
+  `git archive HEAD server | tar -x -C <ascii-tmp>/ctx && docker build …`, then
+  `docker compose up -d` **without** `--build`. This is a *different* cause from the
+  non-ASCII-path rule above, and it cannot happen on `mob04` (no build there).
 
 ### Build / test commands
 
@@ -189,10 +198,12 @@ touches frontend, backend *and* CI/CD (course rule, 2026-09-05).
 lanes' slices) and the frontend API-write layer (`fe.0`–`fe.3`) are merged. CI/CD levels
 1–3 are done (Flutter CI, backend CI, GHCR release images with Trivy gating); level 4
 (Ansible deploy to the demo VM, monitoring, etcd/`RuntimeConfigService`) is **partial**
-— see "Still open". The 2026-09-16 DoD audit (PR #265) ticked 5 of 13
-`03_ARCHITECTURE.md §8` boxes with file:line evidence; the other 8 are documented open
-gaps, not fabricated ticks — check that section for the current real count before
-claiming phase 1 is "done". No cutover: the shop still runs the Drift build; the server
+— see "Still open". **Recount the `03_ARCHITECTURE.md §8` DoD boxes before claiming
+phase 1 is "done" — this sentence has gone stale twice.** Verified 2026-09-21: **17
+boxes, 16 ticked, 1 open** — the open one is the k6 box at `03_ARCHITECTURE.md:55`,
+i.e. exactly #184/#251's remainder. 🔴 The six boxes labelled "#196 2026-09-17" rest on
+merged PR #306, **not** on #292–#296, which were closed by hand with no PR attached —
+never use that set to tick a `§8` box. No cutover: the shop still runs the Drift build; the server
 develops against a demo tenant.
 
 **Still open (phase 1):**
