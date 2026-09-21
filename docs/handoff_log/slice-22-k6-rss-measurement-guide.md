@@ -4,6 +4,8 @@ This document provides the complete execution procedure and verification criteri
 
 ---
 
+> 🔴 **Superseded for the actual run by [`ticket-184-k6-rss-runbook.md`](ticket-184-k6-rss-runbook.md)** (2026-09-21). That document carries the prerequisites with their proof commands, the failure branches, the per-AC pass/fail and the scope limit #251 imposes. Two steps below are known wrong or incomplete: §3.1's `BASE_URL=… pnpm k6:setup` cannot work from a laptop (`setup.ts` needs a direct Postgres connection, `redis-cache` and `JWT_PRIVATE_KEY`; the VM publishes no datastore port — see the new runbook §4.4), and §2.2's `600`s sampler duration is shorter than a `DURATION=10m` mixed run (new runbook §5.1).
+
 ## 1. Objectives & Definition of Done (DoD)
 
 1. **Distributed k6 Load Test**: Execute all 4 load scenarios against `mob04` from 3 physical machines simultaneously (`SHARD=1/3`, `SHARD=2/3`, `SHARD=3/3`) so that each machine stays comfortably under Nginx's `perip` token bucket (24 r/s sustained vs 30 r/s limit).
