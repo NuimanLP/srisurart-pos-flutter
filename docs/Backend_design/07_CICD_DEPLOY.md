@@ -406,10 +406,62 @@ on:
 | runner ของ deploy offline / ต้องลงใหม่ | §6.2 ข้อ 4–6 · job ที่รอ runner ค้างในคิว (ไม่ fail ทันที) — ดูใน Actions |
 | 🔴 **ครั้งเดียว: network สร้างก่อน `ip_range` (#148)** | `docker-compose.yml` เพิ่ม `ip_range: 172.30.0.128/25` + `gateway: 172.30.0.1` ให้ network `default` (IP คงที่ `.11–.13` อยู่นอกช่วง dynamic) · Docker เปลี่ยน IPAM ของ network ที่มี container ต่ออยู่ไม่ได้ — วัดกับ compose v5.0.2: `run --rm` สลับ network ใต้ container ที่รันอยู่แล้วต่อกลับ**โดยไม่มี `ipv4_address`** (api-N เสีย `.11–.13` → Nginx ไม่มี upstream) ส่วน `up -d <บาง service>` หยุด service นั้นแล้ว error · `deploy.yml` จึงเช็ค `srisurart-pos_default` ก่อนแตะอะไรและ **fail ทันที**ถ้ายังไม่มี `ip_range` · ทางแก้ (POS ดับสั้น ๆ, volume ไม่หาย — **ห้าม `-v`**): บน VM `cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml down --remove-orphans` (orphans = container monitoring) แล้วรัน `deploy.yml` ด้วย **SHA ใหม่** ทันที — SHA เดิมจบที่ข้อ 1 ของ §6 และไม่ start อะไรเลย (ถ้าจำเป็นต้องใช้ SHA เดิม ใส่ `-e force_redeploy=true`) · เครื่อง dev ที่รัน stack อยู่: `docker compose down` (ไม่ใส่ `-v`) ครั้งเดียวใน `server/` · VM ที่ยังไม่เคยมี network นี้ผ่านเช็คเอง |
 | 🔴 **etcd ไม่มี auth บน VM ที่ deploy ก่อน fix `etcd-init`** | บั๊กเดิม: `deploy.yml` ไม่เคย copy `server/docker/etcd/etcd-init.sh` ไป VM → Docker สร้าง path bind mount นั้นเป็น**ไดเรกทอรีว่างของ root** (`/opt/pos/docker/etcd/` ก็เป็นของ root) → `etcd-init` รัน `sh <ไดเรกทอรี>` แล้ว **exit 0 ไม่มี log** → auth ไม่เคยเปิด (ใครอยู่บน compose network อ่าน/เขียน etcd ได้) และ `up -d` ไม่รอ one-shot job จึงเขียวตลอด · **ตรวจ** (บน VM): `ls -la /opt/pos/docker/etcd` (`etcd-init.sh` ต้องเป็น**ไฟล์** `-rwxr-xr-x deploy`, ไม่ใช่ `d… root`) · `cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml logs etcd-init` (บั๊ก = ว่างเปล่า) · `docker run --rm --network srisurart-pos_default curlimages/curl:8.16.0 -sS -X POST http://etcd:2379/v3/kv/range -d '{"key":"Lw=="}'` ต้องได้ `user name is empty` (บั๊ก = ได้ `{"header":…}`) · **fix ทำเองตอน deploy ถัดไป ไม่ต้องทำมือ:** เจอ `etcd-init.sh` เป็นไดเรกทอรี → `rmdir` มันกับ `docker/etcd` ผ่าน container root (user `deploy` ไม่มี sudo; `rmdir` ลบแค่ไดเรกทอรีว่าง มีของอื่นอยู่ = fail ดัง ๆ แทนการลบ) → สร้าง `docker/etcd` ของ `deploy` → copy สคริปต์ 0755 → `run --rm etcd-init` เปิด auth + seed key → assert anonymous ถูกปฏิเสธ · deploy ด้วย **SHA ใหม่** (SHA เดิมจบที่ข้อ 1 ของ §6 — หรือใส่ `-e force_redeploy=true`) · ถ้า `etcd-init` fail ด้วย `root cannot authenticate` = รหัสใน volume ไม่ตรง `ETCD_ROOT_PASSWORD` ใน `.env` (§8) — ไม่ใช่บั๊กนี้ |
-| VM พัง/ย้ายเครื่อง | เครื่องใหม่ + `provision.yml` + `deploy.yml` — ข้อมูลใน volume ของ Postgres **ไม่ได้ย้ายตาม** (demo ไม่มีข้อมูลจริง; production ต้องมีแผน backup ก่อน — ยังไม่มีเอกสาร) |
+| VM พัง/ย้ายเครื่อง | เครื่องใหม่ + `provision.yml` + `deploy.yml` — ข้อมูลใน volume ของ Postgres **ไม่ได้ย้ายตาม** (demo ไม่มีข้อมูลจริง; production ต้องมีแผน backup ก่อน — กลไก offsite upload มีแล้วในโค้ด แต่**ยังไม่เปิดใช้งานจริงบน VM ไหนเลย** ดู §7a) |
 | 🔴 **`nginx.conf` เปลี่ยนแล้วไม่มีผลตอน deploy (#249, กลไกเดียวกับ #148)** | `nginx.conf` เป็น single-file bind mount · `ansible.builtin.copy` เขียนไฟล์ temp แล้ว rename ทับ — inode ใหม่ path เดิม — ส่วน container ที่รันอยู่ mount ค้างที่ inode ตอน start จึง**ไม่เห็น**ไฟล์ใหม่เลย; `up -d --no-deps nginx` เป็น no-op เพราะ compose service definition ไม่เปลี่ยน และ `nginx -s reload` ก็ช่วยไม่ได้เพราะ reload อ่านผ่าน mount เดิม (พิสูจน์กับ bind mount ของ Linux จริงใน `docker:27-dind` — bind mount ของ Docker Desktop บน Windows host path **ไม่โชว์บั๊กนี้** เพราะ resolve ด้วย path ไม่ใช่ inode ปักหมุด ห้ามใช้เป็น local repro) · **fix (merge แล้ว, #249):** `deploy.yml` แยก task "Restart worker and bull-board" ออกจาก Nginx แล้วเพิ่ม "Validate the copied Nginx configuration" (`docker compose run --rm --no-deps nginx nginx -t` ในคอนเทนเนอร์แยกทิ้ง ไม่แตะตัวที่รันอยู่ — config พังจะ fail deploy โดย Nginx เดิมยังเสิร์ฟอยู่) ตามด้วย "Recreate Nginx so it loads the copied config" (`up -d --no-deps --force-recreate nginx` **ทุกครั้ง** ไม่ใช่แค่ตอน copy เปลี่ยนไฟล์ในรอบนั้น — เหตุผลเดียวกับ #148: รอบที่ copy แล้ว fail งานถัดไป (เช่น health check ของ rolling restart) รอบต่อไป copy จะไม่เห็นความต่างและถ้า gate ด้วย "เปลี่ยนไหม" จะข้าม Nginx ตลอดไป) · **ผลข้างเคียงที่ยอมรับ:** Nginx blip สั้น ๆ ทุก deploy แม้ `nginx.conf` ไม่เปลี่ยน (§6 ย่อหน้า "ข้อจำกัดที่รู้แล้วยอมรับ") |
 | เพิ่ม required check | **อย่า** — ต่อ job ใหม่เป็น `needs:` ของ status job แทน (§4) |
 | bump base image | base ถูก pin ด้วย digest และ Dependabot ตั้งเป็น **security-only** จึงไม่มีอะไรมาอัปเดตให้เอง — **CVE ที่ประกาศทีหลังจะทำให้ gate แดงตอน push ขึ้น `main` ครั้งถัดไป ซึ่งมักเป็น commit ที่ไม่เกี่ยวกับ image เลย** คนที่เจอบิลด์แดงจึงไม่ใช่คนก่อเหตุ · แก้ด้วยการ**เปลี่ยน digest**: `docker buildx imagetools inspect node:22-alpine` แล้ววาง index digest ลงทั้งสอง `FROM` ใน `server/Dockerfile` → Trivy ใน CI เป็นคนตัดสิน · **ห้ามแก้ด้วย `.trivyignore` หรือไฟล์ยกเว้นใด ๆ** (ADR-0013) |
+
+---
+
+## 7a. Offsite backup upload — กลไกพร้อมแล้ว แต่ยังไม่เปิดใช้งาน (#363, 2026-09-21)
+
+`deploy/scripts/backup-db.sh` (Slice 23 / #288) เดิมจบที่ prune ในเครื่อง — ไฟล์ backup ไม่เคยออกนอก VM
+เลย แม้ #288 จะปิดไปแล้ว (พบตอนทำ #346, เปิดเป็น #363) สคริปต์เพิ่ม**ขั้น upload ที่เสียบปลายทางได้**
+(`offsite_upload()`) ผ่าน `rclone` — เลือก `rclone` เพราะครอบคลุม**ทั้งสามตัวเลือกที่ #363 AC1 ให้เจ้าของ
+เลือก**อยู่แล้วในตัวมันเอง (remote เดียวกันของ rclone ตั้งเป็น Supabase Storage, bucket S3-compatible ใด
+ก็ได้, หรือ SFTP ไปเครื่องในคณะ ก็ได้ทั้งหมด) โดยตัว `backup-db.sh` เองไม่ต้องรู้ความต่าง — ปลายทาง
+เปลี่ยนแค่ที่ `rclone.conf` เท่านั้น ไม่ต้องแก้สคริปต์
+
+**ตัวแปร env ใหม่ (ไม่ตั้ง = offsite ปิดโดย default):**
+
+| ตัวแปร | ใช้ทำอะไร |
+|---|---|
+| `BACKUP_RCLONE_REMOTE` | `remote:path` ของ rclone เช่น `supabase-backup:pos-backups/mob04` — ไม่ตั้ง = offsite **ปิด** |
+| `BACKUP_RCLONE_CONFIG` | path ไปยังไฟล์ credential ของ rclone (`rclone.conf`) — **ต้องอยู่นอก repo เสมอ**, mode `0600`; ไม่ตั้ง = ใช้ที่ rclone หาเองตามปกติ (`$HOME/.config/rclone/rclone.conf`) |
+
+ไม่มี credential ตัวไหนอยู่ใน repo หรือใน `.env.example` — `rclone.conf` ตั้งอยู่บนดิสก์ VM เท่านั้น
+(เจ้าของสร้างเอง เมื่อเลือกปลายทางแล้ว) และสคริปต์ log แค่**ชื่อ** remote (`BACKUP_RCLONE_REMOTE`) ไม่ log
+เนื้อหาไฟล์ credential
+
+**พฤติกรรมเมื่อยังไม่ตั้งค่า (สถานะจริงบน `mob04` ตอนนี้) — ตั้งใจให้ดังและเห็นได้ ไม่ใช่ผ่านเงียบ ๆ:**
+dump + checksum ในเครื่องยังสำเร็จตามเดิม แต่สคริปต์ log `::error::` บอกชัดว่า offsite ปิดอยู่ แล้ว
+**exit ไม่ใช่ 0** — เพื่อให้ `backup-cron.log` (ที่ #346 แก้ให้ cron เลิก discard output) โชว์ความล้มเหลว
+ทุกคืน แทนที่จะอ่านเป็น "สำเร็จ" ทั้งที่ backup ไม่เคยออกนอกเครื่องเลย (นี่คือบั๊กเดิมที่ #363 รายงาน) ·
+วันนี้ไม่มีอะไร page เมื่อ backup fail (#346) จึงยังไม่กระทบใคร นอกจาก log จะโชว์ error ทุกคืนจนกว่าเจ้าของ
+จะตั้งค่าจริง — เป็นผลข้างเคียงที่ตั้งใจและมีเอกสารรองรับ (ดูคอมเมนต์ในสคริปต์)
+
+**local prune ปลอดภัยขึ้นด้วย:** ตราบใดที่ `BACKUP_RCLONE_REMOTE` ยังไม่ตั้ง prune ทำงานแบบเดิมทุกประการ
+(ตัดตามอายุ, ไม่เปลี่ยนพฤติกรรมเดิมก่อน #363) — เมื่อไหร่ตั้งค่าแล้ว prune จะลบเฉพาะไฟล์ที่มี marker
+`*.sql.gz.uploaded` (สร้างหลัง upload สำเร็จเท่านั้น) ไฟล์เก่าที่ยัง upload ไม่สำเร็จจะถูก**เก็บไว้**พร้อม
+`::warning::` แทนการลบทิ้งเงียบ ๆ — นี่คือประเด็นหลักที่ #363 ชี้ไว้ ("local prune ต้องไม่ลบ dump ที่ upload
+ยังไม่สำเร็จ")
+
+**พิสูจน์แล้วด้วย dry-run ในเครื่อง dev** (stub `rclone` ที่ทำ `copyto` จริงไปยังโฟลเดอร์ปลอมแทนปลายทาง —
+ไม่ใช่ปลายทางจริง เพราะยังไม่มี credential ตามคำสั่งเจ้าของ) ครบ 4 สถานการณ์: ปิด (exit 1, backup ในเครื่อง
+ยังอยู่) · ตั้งค่าแต่ไม่มี `rclone` ติดตั้ง (exit 1) · ตั้งค่าแล้ว upload ล้มเหลว (exit 1, ไม่มี marker,
+ไฟล์เก่าที่ยังไม่ confirm ไม่ถูกลบ) · ตั้งค่าแล้วสำเร็จ (exit 0, มี marker, prune ลบเฉพาะของเก่าที่ confirm
+แล้ว) — คำสั่งและ output เต็มอยู่ใน PR ที่อ้างถึง #363
+
+🔴 **ยังไม่ได้ทำ (เปิดค้างไว้ตามคำสั่งเจ้าของ 2026-09-21 — ห้ามอ้างว่าทำแล้ว):**
+- เจ้าของยังไม่เลือกปลายทางจริงและยังไม่สร้าง credential (#363 AC1)
+- ยังไม่มี upload จริงออกนอก VM สักครั้ง (#363 AC2) — บน `mob04` วันนี้ `BACKUP_RCLONE_REMOTE` ไม่ได้ตั้ง
+  ค่า cron จึง exit ไม่ใช่ 0 ทุกคืนจนกว่าเจ้าของจะตั้งค่า (ตั้งใจ — ดูย่อหน้าบน)
+- ยังไม่มีการกู้จริงจากสำเนานอก VM (#363 AC3) — เมื่อมีปลายทางจริงแล้ว วิธีกู้คือ
+  `rclone copy <remote>/<ไฟล์> .` แล้วรัน `restore-db.sh` ตามเดิม (`restore-db.sh` ไม่ต้องแก้โค้ดเพิ่ม)
+- `rclone` ต้องถูกติดตั้งบน `mob04` เอง (เช่น `apt install rclone`) — `provision.yml`/`deploy.yml` ยังไม่ได้
+  เพิ่ม package นี้ (ยังไม่จำเป็นเพราะ offsite ยังไม่เปิดใช้งาน)
+
+อ่านคู่กับ §7 (runbook แถว "VM พัง/ย้ายเครื่อง")
 
 ---
 

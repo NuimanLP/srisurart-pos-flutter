@@ -219,16 +219,40 @@ develops against a demo tenant.
   every Compose subcommand died before pulling anything). **No AC of #343 is ticked.**
 - #272 — drop `Products.offlineOk` (Drift schema v7) — in progress on `LomerAlloys`'
   `lane2` branch as of 2026-09-17.
-- Opened 2026-09-21 from verified findings (all unstarted except #366, decided the same
-  day — see below): #363 (`backup-db.sh` never
-  copies a backup off the VM although #288's AC for it is still `[ ]` on a closed
-  ticket), #364 (`ownerPassword` has no server-side length rule while `bootstrap:admin`
-  demands 12), #365 (`etcd-init.sh` on the VM is a root-owned *directory*, so etcd never
-  had auth enabled), #366 (owner picked option 3 2026-09-21 — see the binding CI/CD
-  rule below; auto-deploy stays, gated by a required reviewer),
-  #367 (`CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` reach no container, so CORS is `'*'`;
-  deliberately scheduled after the demo — **nobody may claim CORS is closed until it
-  merges**).
+- Opened 2026-09-21 from verified findings. **#364, #366 and #367 were closed the same
+  day (PRs #374 / #371 / #373); #363 and #365 are still open.**
+  - **#363** — `backup-db.sh` never copied a backup off the VM although #288's AC for it
+    is still `[ ]` on a closed ticket. 🔴 **Mechanism built same day, not wired**:
+    `backup-db.sh` gained a pluggable `offsite_upload()` via `rclone`
+    (`BACKUP_RCLONE_REMOTE`/`BACKUP_RCLONE_CONFIG`, unset = disabled), proven only against
+    a local stub/fake destination — see `docs/handoff_log/ticket-363-backup-offsite.md`.
+    An unconfigured or failed offsite step is a loud `::error::` + non-zero exit, not a
+    quiet success; local prune only deletes a dump once its offsite copy is confirmed
+    (`.uploaded` marker) once offsite is actually configured, and behaves exactly as
+    before this ticket while it stays unconfigured (so an indefinite "not wired yet"
+    period does not fill the disk). **Still open, real infra required — do not claim
+    done:** owner has not chosen a destination or created credentials (AC1), no real
+    upload has ever left a VM (AC2), no restore from an offsite copy has been proven
+    (AC3), `rclone` is not installed on `mob04`. #288's "backups leave the VM daily" AC is
+    still unticked; see the comment on #288 for the correction.
+  - **#364** (closed, PR #374) — `ownerPassword` had no server-side length rule while
+    `bootstrap:admin` demanded 12. The floor now lives once in `src/common/password.ts`
+    (`MIN_PASSWORD_LENGTH`/`passwordPolicyViolation`), both callers use it, and
+    `createTenant` refuses with `WEAK_PASSWORD` **before** `hashPassword` and before the
+    transaction opens (argon2 also moved out of the transaction). The Thai string for
+    `WEAK_PASSWORD` in `02_API_SCREENS.md §8.1` is marked `agent ร่าง` — **owner-unratified**.
+  - **#365** — `etcd-init.sh` on the VM is a root-owned *directory*, so etcd never had
+    auth enabled. Every AC is VM-gated; the reset-without-data-loss path is named
+    (`etcdctl user passwd root`, never `down -v`) but **no runnable command sequence
+    exists yet**.
+  - **#366** (closed, PR #371) — owner picked option 3 2026-09-21: auto-deploy stays,
+    gated by a required reviewer on the `demo` environment. See the binding CI/CD rule
+    below.
+  - **#367** (closed, PR #373) — `CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` now reach the
+    containers via the `x-app-env` anchor, and a set-but-empty list throws at boot instead
+    of silently falling back to `'*'`. 🔴 **`mob04` is still `'*'`** until `DEMO_ENV_FILE`
+    carries the keys and `provision.yml` is re-run — nobody may claim CORS is closed on the
+    VM before that.
 - Phase-2 kickoff order for the remaining hub tickets: #228 → #229 → #212/#211/#189 →
   #230 → #190 → #231.
 
