@@ -596,8 +596,14 @@ describe('shifts and the cash drawer (e2e)', () => {
       .send({ code: enrolCode });
     expect(replay.status).toBe(401);
 
+    // A unique source IP, same as every other e2e file that logs in for real
+    // (devices.e2e-spec.ts, no-device-session.e2e-spec.ts): the brute-force limiter's
+    // bucket is keyed per IP with no per-file reset, so an unset X-Forwarded-For here
+    // shares 127.0.0.1 with security.e2e-spec.ts's rate-limit tests and can 429.
+    const loginIp = `203.0.113.${Math.floor(Math.random() * 250) + 1}`;
     const login = await request(app.getHttpServer())
       .post('/api/v1/auth/token')
+      .set('X-Forwarded-For', loginIp)
       .send({ username: fixture.username, password: PASSWORD, deviceToken });
     expect(login.status).toBe(200);
     const replacementToken: string = login.body.data.accessToken;
