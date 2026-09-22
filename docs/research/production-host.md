@@ -1,5 +1,19 @@
 # Production host options for cutover (#242)
 
+> ℹ️ **Archived research — merged to `main` on 2026-09-22 from the branch `research/production-host`,
+> which was then deleted.** The doc was written on 2026-09-15 and never merged at the time; it is kept
+> here as background, **not as a live plan**. What happened since:
+> - **The owner decided against every option below on 2026-09-15** (#242's closing comment): the host is
+>   the department VM `mob04` (4 vCPU / 6 GB / 48 GB, campus-internal `172.30.58.20`), **one environment
+>   only, and it is production**. A shop reaching the server from outside campus is a future phase — and
+>   the owner said explicitly that this research stays as the input for *then*, which is why it is here.
+> - **The "#67 angle" section below is stale.** #67 is closed (2026-09-20). The live blocker on CD is not
+>   the missing public IP it describes but the campus FortiGate's SSL deep inspection of `ghcr.io`
+>   (`docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`).
+> - **Every price below is a list price seen on 2026-09-15** and was already flagged unverified then.
+>   Re-quote before using any of it.
+
+
 > Wayfinder research ticket. Parent map: #243. Related: #231 (`q4.cutover`), #67 (auto-deploy
 > blocked — GitHub-hosted runners cannot reach the campus VM `mob04`, which is campus-internal
 > with no public IP), `docs/Backend_design/07_CICD_DEPLOY.md`, ADR-0013.

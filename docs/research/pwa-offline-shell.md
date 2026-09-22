@@ -1,5 +1,14 @@
 # Research: PWA offline shell for the Flutter Web client
 
+> ℹ️ **Archived research — merged to `main` on 2026-09-22 from the branch `research/pwa-offline-shell`,
+> which was then deleted.** Written 2026-09-15 and never merged at the time; kept as background.
+> **Research only, nothing was implemented** — #241 was closed the same day on that basis.
+> Since then: **#266 (the `xFileControl` `LinkError` that blocked precaching) is fixed and closed**, and
+> the PWA / service-worker work itself belongs to **lane B** in phase 2 (`09_PHASE2_LANES.md`), not to
+> this doc. The findings are grounded on commit `8e873cd` and Flutter 3.44.3 — re-verify against the
+> pinned version in `.github/workflows/flutter.yml` before building on them.
+
+
 Ticket: [#241](https://github.com/NuimanLP/srisurart-pos-flutter/issues/241) (map: #243, owner decisions: #240 D2/D10).
 Question: how does the Flutter Web POS client open and reload with **no network**, served by our own
 nginx, precaching the app shell + `sqlite3.wasm` + `drift_worker.js` + CanvasKit/fonts, with a safe
