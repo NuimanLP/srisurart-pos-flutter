@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
+import { hashPassword } from '../src/common/password.js';
 import {
   accessToken,
   createTestApp,
@@ -13,6 +14,9 @@ import {
 // reproduced at the HTTP seam, plus the two rules the Dart version has no concept of:
 // device roles, and the `shift_id` stamp on a bill.
 const TENANT = 'ffffffff-6666-4666-8666-ffffffffffff';
+// #384 — only the replacement-device test below needs a real login (POST /auth/token),
+// so this is a fixed password for that one path, same pattern as devices.e2e-spec.ts.
+const PASSWORD = 'shift-repl-384';
 
 describe('shifts and the cash drawer (e2e)', () => {
   let app: INestApplication;
@@ -52,6 +56,10 @@ describe('shifts and the cash drawer (e2e)', () => {
 
   beforeEach(async () => {
     fixture = await resetTenant(admin, TENANT, { posDeviceNo: 5, cache });
+    await admin.query(
+      `UPDATE users SET password_hash = $3 WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+      [TENANT, fixture.userId, await hashPassword(PASSWORD)],
+    );
     posToken = accessToken({
       tenantId: TENANT,
       userId: fixture.userId,
@@ -571,14 +579,34 @@ describe('shifts and the cash drawer (e2e)', () => {
       .send({ label: 'เครื่องขายใหม่', role: 'pos' });
     expect(created.status).toBe(201);
     const replacementId: string = created.body.data.device.id;
+    const enrolCode: string = created.body.data.enrolCode;
     expect(created.body.data.device.deviceNo).not.toBe(fixture.posDeviceNo);
-    const replacementToken = accessToken({
-      tenantId: TENANT,
-      userId: fixture.userId,
-      role: 'owner',
-      deviceId: replacementId,
-      deviceRole: 'pos',
-    });
+
+    // #384: the real enrol path — exchange the code for a device token, then log in
+    // with it, instead of minting an accessToken({...}) that skips enrol entirely.
+    const enrol = await request(app.getHttpServer())
+      .post('/api/v1/auth/device')
+      .send({ code: enrolCode });
+    expect(enrol.status).toBe(200);
+    const deviceToken: string = enrol.body.data.deviceToken;
+
+    // enrolCode is single-use: replaying it must be refused, not silently accepted.
+    const replay = await request(app.getHttpServer())
+      .post('/api/v1/auth/device')
+      .send({ code: enrolCode });
+    expect(replay.status).toBe(401);
+
+    // A unique source IP, same as every other e2e file that logs in for real
+    // (devices.e2e-spec.ts, no-device-session.e2e-spec.ts): the brute-force limiter's
+    // bucket is keyed per IP with no per-file reset, so an unset X-Forwarded-For here
+    // shares 127.0.0.1 with security.e2e-spec.ts's rate-limit tests and can 429.
+    const loginIp = `203.0.113.${Math.floor(Math.random() * 250) + 1}`;
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/token')
+      .set('X-Forwarded-For', loginIp)
+      .send({ username: fixture.username, password: PASSWORD, deviceToken });
+    expect(login.status).toBe(200);
+    const replacementToken: string = login.body.data.accessToken;
 
     // The retired machine's last day is in history, with its entries, and nothing the
     // new machine does can reach it.
@@ -604,6 +632,12 @@ describe('shifts and the cash drawer (e2e)', () => {
       cost: 100,
       stock: 10,
     });
+    const stockBefore = await admin.query(
+      `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, 'p-repl-sell'],
+    );
+    expect(stockBefore[0].stock).toBe(10);
+
     const sale = await request(app.getHttpServer())
       .post('/api/v1/sales')
       .set('Authorization', `Bearer ${replacementToken}`)
@@ -631,6 +665,13 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(sale.body.data.receiptNo).toMatch(
       new RegExp(`^RC${padNo}-\\d{4}-\\d{2}-\\d{4}$`),
     );
+
+    // Stock really moved, not just a 201 with no side effect.
+    const stockAfter = await admin.query(
+      `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, 'p-repl-sell'],
+    );
+    expect(stockAfter[0].stock).toBe(9);
   });
 
   it('the idempotency key really guards open, not just the same-day rule', async () => {
