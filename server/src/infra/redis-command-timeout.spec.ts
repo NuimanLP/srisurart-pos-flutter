@@ -1,10 +1,9 @@
-import { createServer, type Server, type Socket } from 'node:net';
-import type { AddressInfo } from 'node:net';
 import { Redis } from 'ioredis';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { runInTenantScope } from '../common/request-context.js';
 import { loadConfig } from '../config/config.js';
+import { fakeRedis, untilReady, type FakeRedis } from '../../test/support/fake-redis.js';
 import { createRedisClient } from './redis.module.js';
 import { TenantCache } from './tenant-cache.service.js';
 
@@ -18,80 +17,6 @@ const TIMEOUT_MS = 100;
 /** Generous against CI jitter, and still far below "hangs forever". */
 const BOUND_MS = 1500;
 const TID = '00000000-0000-4000-8000-000000000140';
-
-/** One RESP array of bulk strings off the front of `buf`, or null if it is not all here yet. */
-function parseCommand(buf: string): { args: string[]; consumed: number } | null {
-  if (!buf.startsWith('*')) return null;
-  let pos = buf.indexOf('\r\n');
-  if (pos < 0) return null;
-  const n = Number(buf.slice(1, pos));
-  pos += 2;
-  const args: string[] = [];
-  for (let i = 0; i < n; i++) {
-    const end = buf.indexOf('\r\n', pos);
-    if (end < 0) return null;
-    const len = Number(buf.slice(pos + 1, end));
-    const start = end + 2;
-    if (buf.length < start + len + 2) return null;
-    args.push(buf.slice(start, start + len));
-    pos = start + len + 2;
-  }
-  return { args, consumed: pos };
-}
-
-/** Just enough of a Redis to get ioredis to `ready`: refuse RESP3, answer INFO, OK the rest. */
-function reply(args: string[]): string {
-  const cmd = (args[0] ?? '').toUpperCase();
-  if (cmd === 'HELLO') return "-ERR unknown command 'HELLO'\r\n";
-  if (cmd === 'INFO') {
-    const body = '# Server\r\nredis_version:7.2.0\r\nloading:0\r\n';
-    return `$${Buffer.byteLength(body)}\r\n${body}\r\n`;
-  }
-  return '+OK\r\n';
-}
-
-interface FakeRedis {
-  url: string;
-  /** From now on, read every byte and answer none of them. */
-  hang(): void;
-  close(): Promise<void>;
-}
-
-async function fakeRedis(): Promise<FakeRedis> {
-  let answering = true;
-  const sockets = new Set<Socket>();
-  const server: Server = createServer((socket) => {
-    sockets.add(socket);
-    let buf = '';
-    socket.on('data', (chunk) => {
-      if (!answering) return;
-      buf += chunk.toString('utf8');
-      for (let parsed = parseCommand(buf); parsed; parsed = parseCommand(buf)) {
-        buf = buf.slice(parsed.consumed);
-        socket.write(reply(parsed.args));
-      }
-    });
-    socket.on('error', () => {});
-    socket.on('close', () => sockets.delete(socket));
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    url: `redis://127.0.0.1:${port}`,
-    hang: () => {
-      answering = false;
-    },
-    close: async () => {
-      for (const s of sockets) s.destroy();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    },
-  };
-}
-
-async function untilReady(client: Redis): Promise<void> {
-  if (client.status === 'ready') return;
-  await new Promise<void>((resolve) => client.once('ready', () => resolve()));
-}
 
 async function timed<T>(run: () => Promise<T>): Promise<{ value: T; ms: number }> {
   const started = Date.now();

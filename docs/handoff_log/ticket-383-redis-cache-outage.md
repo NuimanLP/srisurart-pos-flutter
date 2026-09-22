@@ -36,18 +36,19 @@ Postgres" — has real value, but it is not this DoD line.
 
 ## What changed
 
-**New file** `server/test/redis-cache-outage.e2e-spec.ts` (293 lines): two `describe` blocks,
+**New file** `server/test/redis-cache-outage.e2e-spec.ts` (269 lines): two `describe` blocks,
 each booting its own app instance (via `createTestApp()`) against a genuinely broken
 `REDIS_CACHE_URL` — no `vi.spyOn` anywhere in the file:
 
-1. **"connection refused"** (`:181`–`:236`) — `REDIS_CACHE_URL` points at a port opened and
-   closed immediately before boot (`closedPort()`, `:35`), so every Redis command ioredis makes
+1. **"connection refused"** (`:137`–`:195`) — `REDIS_CACHE_URL` points at a port opened and
+   closed immediately before boot (`closedPort()`, `:36`), so every Redis command ioredis makes
    rejects with a real `ECONNREFUSED`.
-2. **"connected but silent until timeout"** (`:238`–`:301`) — a real `net.Server`
-   (`fakeRedis()`, `:79`) speaks just enough RESP to get ioredis to `ready` (refuses `HELLO`,
-   answers `INFO`, `OK`s the rest — the same technique `src/infra/redis-command-timeout.spec.ts`
-   uses for the #140 unit coverage), then goes silent. The app's own client is allowed to reach
-   `ready` first (`untilReady(cache)`, `:273`) before the fake stops answering, so this is
+2. **"connected but silent until timeout"** (`:201`–`:269`) — a real `net.Server`
+   (`fakeRedis()`, shared from `test/support/fake-redis.ts`) speaks just enough RESP to get
+   ioredis to `ready` (refuses `HELLO`, answers `INFO`, `OK`s the rest — the same technique
+   `src/infra/redis-command-timeout.spec.ts` uses for the #140 unit coverage, now factored into
+   one shared helper both files import), then goes silent. The app's own client is allowed to
+   reach `ready` first (`untilReady(cache)`, `:230`) before the fake stops answering, so this is
    specifically the "open socket, no reply" case `commandTimeout` exists for — not "never
    connects at all", which the first describe block already covers. `REDIS_COMMAND_TIMEOUT_MS`
    is overridden to `300` for this app only, so the suite's several guarded requests (each
@@ -55,11 +56,16 @@ each booting its own app instance (via `createTestApp()`) against a genuinely br
    own unit spec already proves the timeout mechanism works at any value.
 
 Both scenarios run the same shared assertion (`assertActiveSellsAndSuspendedIsRejectedAtOnce`,
-`:120`–`:167`) against a real HTTP app:
+`:57`–`:135`) against a real HTTP app:
 
 - `GET /products` → `200`, the seeded product is in the list.
 - `POST /sales` → `201`, and `stock` is read from Postgres **before and after** the sale
   (`10 → 9`) — not just the status code.
+- The **same** `Idempotency-Key` is replayed immediately after: `201` again, an identical
+  body, and stock still `9` — proving `IdempotencyService`'s own Redis-touching replay path
+  (`readCache`/`writeCache`, a fail-open mechanism entirely separate from `TenantGuard`'s and
+  `TenantCache`'s) also survives the outage, not just the first-time-claim path a fresh key
+  alone would exercise.
 - The tenant is then flipped to `suspended` directly in Postgres, and the **very next**
   request gets `403 TENANT_SUSPENDED` — with `redis-cache` still down, `TenantGuard` reads
   `tenants.status` fresh from Postgres on every single request (its own cache write also fails
@@ -70,8 +76,48 @@ Both scenarios run the same shared assertion (`assertActiveSellsAndSuspendedIsRe
 a comment pointing at the new file. Nothing else in that file changed — `cache` is still used
 by three other tests in it.
 
+**New file** `server/test/support/fake-redis.ts`: the fake-Redis TCP server
+(`parseCommand`/`reply`/`fakeRedis`/`untilReady`) factored out of
+`src/infra/redis-command-timeout.spec.ts`, which now imports it too, so the one RESP-parsing
+implementation only needs fixing in one place if it's ever wrong.
+
 No production code changed — this is a test-only fix, matching the shape #384 took for the
 sibling DoD box.
+
+## Self-review pass
+
+Ran `/code-review` (high effort) against this branch before opening the PR. One CONFIRMED and
+three PLAUSIBLE findings survived verification, all fixed in the same PR:
+
+- **CONFIRMED** — both `afterAll` hooks called `app.close()`, which triggers
+  `RedisModule.onModuleDestroy`'s `cache.quit()`; but with `enableOfflineQueue: false`, ioredis
+  rejects a command outright when the client isn't currently writable *before* `quit()`'s own
+  `disconnect()` branch is ever reached. The "refused" client never reaches `ready` at all, and
+  the "hung" client is later cut off by `fake.close()` — either way, `quit()` alone never clears
+  `retryStrategy`'s reconnect timer, so the client kept retrying a dead target forever in the
+  background for the rest of the single-process `pnpm test:e2e` run
+  (`fileParallelism: false`). Fixed by calling `cache.disconnect()` explicitly in both
+  `afterAll` hooks before `app.close()`.
+- **PLAUSIBLE** — the fake-Redis server was a byte-for-byte duplicate of
+  `src/infra/redis-command-timeout.spec.ts`'s own copy. Fixed by extracting
+  `test/support/fake-redis.ts` and having both files import it.
+- **PLAUSIBLE** — every `POST /sales` used a fresh `Idempotency-Key`, so
+  `IdempotencyService`'s own Redis-outage handling (a fail-open path separate from
+  `TenantGuard`'s) was never exercised — only a *replayed* key reaches it. Fixed by replaying
+  the same key right after the first sale and asserting an identical `201` with no second
+  stock decrement (see "What changed" above).
+- **PLAUSIBLE** — both `afterAll` hooks ran their cleanup as a bare sequential `await` chain
+  with no `try`/`finally`, so a throw partway through (e.g. from `resetTenant`) would skip
+  `app.close()`/`fake.close()` entirely. Fixed by wrapping the DB cleanup in `try` and moving
+  `app.close()`/`fake.close()` into `finally`.
+
+One finding was reported but left unfixed: a low-probability TOCTOU race in `closedPort()`
+(the OS could theoretically rebind the freed port before the app connects) — accepted as the
+established convention for "guaranteed free port" tricks elsewhere in this suite, with no
+cheaper fix available.
+
+All of the above were re-verified: `redis-cache-outage.e2e-spec.ts` 2/2, full `pnpm test:e2e`
+607/607 (2 pre-existing skips), full `pnpm test` 412/412, lint and typecheck clean.
 
 ## Falsification
 
@@ -117,6 +163,8 @@ through to Postgres. Reverted immediately after confirming the red run; `git dif
   outage mechanisms.
 - `CLAUDE.md` — DoD count corrected from "17 boxes, 15 ticked, 2 open" to "17 boxes, 16 ticked,
   1 open"; the one still open is `#380` (k6). `#383` is no longer listed as open.
+- `server/src/infra/redis-command-timeout.spec.ts` — now imports the fake-Redis helper from
+  `test/support/fake-redis.ts` instead of carrying its own copy (see "Self-review pass").
 
 ## Not in scope
 

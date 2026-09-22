@@ -1,9 +1,10 @@
-import { createServer, type Server, type Socket } from 'node:net';
+import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import type { INestApplication } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
+import { fakeRedis, untilReady, type FakeRedis } from './support/fake-redis.js';
 import {
   accessToken,
   createTestApp,
@@ -38,80 +39,6 @@ async function closedPort(): Promise<number> {
   const { port } = srv.address() as AddressInfo;
   await new Promise<void>((resolve) => srv.close(() => resolve()));
   return port;
-}
-
-/** One RESP array of bulk strings off the front of `buf`, or null if it is not all here yet. */
-function parseCommand(buf: string): { args: string[]; consumed: number } | null {
-  if (!buf.startsWith('*')) return null;
-  let pos = buf.indexOf('\r\n');
-  if (pos < 0) return null;
-  const n = Number(buf.slice(1, pos));
-  pos += 2;
-  const args: string[] = [];
-  for (let i = 0; i < n; i++) {
-    const end = buf.indexOf('\r\n', pos);
-    if (end < 0) return null;
-    const len = Number(buf.slice(pos + 1, end));
-    const start = end + 2;
-    if (buf.length < start + len + 2) return null;
-    args.push(buf.slice(start, start + len));
-    pos = start + len + 2;
-  }
-  return { args, consumed: pos };
-}
-
-/** Just enough of a Redis to get ioredis to `ready`: refuse RESP3, answer INFO, OK the rest. */
-function reply(args: string[]): string {
-  const cmd = (args[0] ?? '').toUpperCase();
-  if (cmd === 'HELLO') return "-ERR unknown command 'HELLO'\r\n";
-  if (cmd === 'INFO') {
-    const body = '# Server\r\nredis_version:7.2.0\r\nloading:0\r\n';
-    return `$${Buffer.byteLength(body)}\r\n${body}\r\n`;
-  }
-  return '+OK\r\n';
-}
-
-interface FakeRedis {
-  url: string;
-  /** From now on, read every byte and answer none of them. */
-  hang(): void;
-  close(): Promise<void>;
-}
-
-async function fakeRedis(): Promise<FakeRedis> {
-  let answering = true;
-  const sockets = new Set<Socket>();
-  const server: Server = createServer((socket) => {
-    sockets.add(socket);
-    let buf = '';
-    socket.on('data', (chunk) => {
-      if (!answering) return;
-      buf += chunk.toString('utf8');
-      for (let parsed = parseCommand(buf); parsed; parsed = parseCommand(buf)) {
-        buf = buf.slice(parsed.consumed);
-        socket.write(reply(parsed.args));
-      }
-    });
-    socket.on('error', () => {});
-    socket.on('close', () => sockets.delete(socket));
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    url: `redis://127.0.0.1:${port}`,
-    hang: () => {
-      answering = false;
-    },
-    close: async () => {
-      for (const s of sockets) s.destroy();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    },
-  };
-}
-
-async function untilReady(client: Redis): Promise<void> {
-  if (client.status === 'ready') return;
-  await new Promise<void>((resolve) => client.once('ready', () => resolve()));
 }
 
 interface Scenario {
@@ -154,20 +81,25 @@ async function assertActiveSellsAndSuspendedIsRejectedAtOnce(s: Scenario): Promi
   )) as { stock: number }[];
   expect(stockBefore[0].stock).toBe(10);
 
-  const sale = await http()
-    .post('/api/v1/sales')
-    .set('Authorization', `Bearer ${s.token}`)
-    .set('Idempotency-Key', `k-outage-${s.tenantId}-${Date.now()}`)
-    .send({
-      id: `s-outage-${s.tenantId}`,
-      subtotal: '100.00',
-      discount: '0.00',
-      total: '100.00',
-      paymentMethod: 'เงินสด',
-      items: [
-        { lineNo: 1, productId, name: 'Outage Test Part', qty: 1, price: '100.00' },
-      ],
-    });
+  const idempotencyKey = `k-outage-${s.tenantId}-${Date.now()}`;
+  const saleBody = {
+    id: `s-outage-${s.tenantId}`,
+    subtotal: '100.00',
+    discount: '0.00',
+    total: '100.00',
+    paymentMethod: 'เงินสด',
+    items: [
+      { lineNo: 1, productId, name: 'Outage Test Part', qty: 1, price: '100.00' },
+    ],
+  };
+  const postSale = () =>
+    http()
+      .post('/api/v1/sales')
+      .set('Authorization', `Bearer ${s.token}`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send(saleBody);
+
+  const sale = await postSale();
   expect(sale.status).toBe(201);
 
   // Stock really moved, not just a 201 with no side effect.
@@ -176,6 +108,19 @@ async function assertActiveSellsAndSuspendedIsRejectedAtOnce(s: Scenario): Promi
     [s.tenantId, productId],
   )) as { stock: number }[];
   expect(stockAfter[0].stock).toBe(9);
+
+  // IdempotencyService's own Redis use (readCache/writeCache) is a separate fail-open
+  // path from TenantGuard's and TenantCache's — replaying the same key is the only way
+  // to reach it, so a bare 201 above would leave it completely unexercised. It must
+  // fail open here too: same response, no second decrement.
+  const replay = await postSale();
+  expect(replay.status).toBe(201);
+  expect(replay.body).toEqual(sale.body);
+  const stockAfterReplay = (await s.admin.query(
+    `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`,
+    [s.tenantId, productId],
+  )) as { stock: number }[];
+  expect(stockAfterReplay[0].stock).toBe(9);
 
   await s.admin.query(
     `UPDATE tenants SET status = 'suspended' WHERE id = $1::uuid`,
@@ -192,6 +137,7 @@ async function assertActiveSellsAndSuspendedIsRejectedAtOnce(s: Scenario): Promi
 describe('redis-cache unreachable: connection refused (e2e, #383)', () => {
   let app: INestApplication;
   let admin: DataSource;
+  let cache: Redis;
   let token: string;
 
   beforeAll(async () => {
@@ -201,7 +147,7 @@ describe('redis-cache unreachable: connection refused (e2e, #383)', () => {
     // one of those calls fails fast rather than queueing behind a reconnect.
     process.env.REDIS_CACHE_URL = `redis://127.0.0.1:${await closedPort()}`;
     try {
-      ({ app, admin } = await createTestApp());
+      ({ app, admin, cache } = await createTestApp());
     } finally {
       if (before === undefined) delete process.env.REDIS_CACHE_URL;
       else process.env.REDIS_CACHE_URL = before;
@@ -223,12 +169,23 @@ describe('redis-cache unreachable: connection refused (e2e, #383)', () => {
   });
 
   afterAll(async () => {
-    // Wipes every child table first (FK order), same as `beforeEach`, before dropping
-    // the tenant row itself — the sale above left a `movements` row referencing the
-    // product, which a bare `DELETE FROM tenants` cannot cascade through.
-    await resetTenant(admin, TENANT_REFUSED, { posDeviceNo: 33 });
-    await admin.query(`DELETE FROM tenants WHERE id = $1::uuid`, [TENANT_REFUSED]);
-    await app.close();
+    try {
+      // Wipes every child table first (FK order), same as `beforeEach`, before dropping
+      // the tenant row itself — the sale above left a `movements` row referencing the
+      // product, which a bare `DELETE FROM tenants` cannot cascade through.
+      await resetTenant(admin, TENANT_REFUSED, { posDeviceNo: 33 });
+      await admin.query(`DELETE FROM tenants WHERE id = $1::uuid`, [TENANT_REFUSED]);
+    } finally {
+      // This client never reached `ready`, so `RedisModule.onModuleDestroy`'s own
+      // `cache.quit()` (run inside `app.close()` below) rejects instantly without ever
+      // calling `disconnect()` — `enableOfflineQueue: false` makes ioredis refuse the
+      // command outright instead of reaching `quit`'s own disconnect path. Left alone,
+      // the client's `retryStrategy` would keep retrying this dead port forever, in the
+      // background, for the rest of the single-process `pnpm test:e2e` run
+      // (`fileParallelism: false`). Disconnect it directly first.
+      cache.disconnect();
+      await app.close();
+    }
   });
 
   it('an active tenant still sells for real, and a suspended tenant is rejected at once', async () => {
@@ -287,10 +244,18 @@ describe('redis-cache unreachable: connected but silent until timeout (e2e, #140
   });
 
   afterAll(async () => {
-    await resetTenant(admin, TENANT_HANG, { posDeviceNo: 34 });
-    await admin.query(`DELETE FROM tenants WHERE id = $1::uuid`, [TENANT_HANG]);
-    await app.close();
-    await fake.close();
+    try {
+      await resetTenant(admin, TENANT_HANG, { posDeviceNo: 34 });
+      await admin.query(`DELETE FROM tenants WHERE id = $1::uuid`, [TENANT_HANG]);
+    } finally {
+      // Same reasoning as the "connection refused" describe's afterAll: `app.close()`
+      // alone leaves `cache` retrying this fake forever in the background once
+      // `fake.close()` tears down its socket, because `quit()` never reaches its own
+      // disconnect path when the client isn't currently writable. Disconnect first.
+      cache.disconnect();
+      await app.close();
+      await fake.close();
+    }
   });
 
   it('an active tenant still sells for real, and a suspended tenant is rejected at once', async () => {
