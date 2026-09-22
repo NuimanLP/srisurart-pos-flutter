@@ -199,11 +199,19 @@ lanes' slices) and the frontend API-write layer (`fe.0`–`fe.3`) are merged. CI
 1–3 are done (Flutter CI, backend CI, GHCR release images with Trivy gating); level 4
 (Ansible deploy to the demo VM, monitoring, etcd/`RuntimeConfigService`) is **partial**
 — see "Still open". **Recount the `03_ARCHITECTURE.md §8` DoD boxes before claiming
-phase 1 is "done" — this sentence has gone stale twice.** Verified 2026-09-21: **17
-boxes, 16 ticked, 1 open** — the open one is the k6 box at `03_ARCHITECTURE.md:55`,
-i.e. exactly #184/#251's remainder. 🔴 The six boxes labelled "#196 2026-09-17" rest on
-merged PR #306, **not** on #292–#296, which were closed by hand with no PR attached —
-never use that set to tick a `§8` box. No cutover: the shop still runs the Drift build; the server
+phase 1 is "done" — this sentence has gone stale twice.** Re-verified 2026-09-22 against the tests
+themselves, not against ticket state: **17 boxes, 14 ticked, 3 open.** The three open are
+the k6 box (→ **#380**), the `redis-cache` outage box (→ **#383**) and the retire/enrol box
+(→ **#384**). 🔴 **Two of them were unticked on 2026-09-22 because the tests they cited
+prove something else:** `tenant-scope.e2e-spec.ts:186` `vi.spyOn`s the cache client's
+methods instead of making `redis-cache` unreachable, and asserts against `/api/v1/tx4-probe`
+rather than the `GET /products` + `POST /sales` (with stock actually decremented) that
+#294's own AC demands; `shifts.e2e-spec.ts:575` **mints** the replacement device's token
+instead of exchanging its `enrolCode` through `POST /auth/device`, so it never tests the
+enrol path the box names. Neither #294 nor #296 was reopened — each did deliver a real
+part. 🔴 The six boxes labelled "#196 2026-09-17" rest on merged PR #306, **not** on
+#292–#296, which were closed by hand with no PR attached — never use that set to tick a
+`§8` box. No cutover: the shop still runs the Drift build; the server
 develops against a demo tenant.
 
 **Still open (phase 1):**
@@ -232,6 +240,12 @@ develops against a demo tenant.
   remote-write. 🔴 **Exempting the load-generator IP from `perip` was considered and
   explicitly rejected** — never add that carve-out to `nginx.conf` without asking the owner.
   The `§8` k6 DoD box stays unticked until #380 produces real numbers.
+- **Auditing tickets? `closedByPullRequestsReferences` lies here.** GitHub links no PR at
+  all when the PR carries no closing keyword — **93 of this repo's 201 merged PRs** are like
+  that — and it never reads a keyword placed in the PR **title** (4 more: #328/#329/#332).
+  PR **#306** is the engine behind #293/#294/#296 and part of #292 yet cites only `#196`.
+  Cross-check with `git log --all --grep` before concluding that nothing shipped (#345,
+  2026-09-22).
 - #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. Pre-flight
   is done and the `/opt/pos/.env` blocker is cleared (it was missing
   `K6_REMOTE_WRITE_BASIC_AUTH_*`, which #251 added to compose with `:?` afterwards, so
