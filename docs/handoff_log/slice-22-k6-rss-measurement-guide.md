@@ -4,7 +4,10 @@ This document provides the complete execution procedure and verification criteri
 
 ---
 
-> 🔴 **Superseded for the actual run by [`ticket-184-k6-rss-runbook.md`](ticket-184-k6-rss-runbook.md)** (2026-09-21). That document carries the prerequisites with their proof commands, the failure branches, the per-AC pass/fail and the scope limit #251 imposes. Two steps below are known wrong or incomplete: §3.1's `BASE_URL=… pnpm k6:setup` cannot work from a laptop (`setup.ts` needs a direct Postgres connection, `redis-cache` and `JWT_PRIVATE_KEY`; the VM publishes no datastore port — see the new runbook §4.4), and §2.2's `600`s sampler duration is shorter than a `DURATION=10m` mixed run (new runbook §5.1).
+> ℹ️ **See also, for the actual run: [`ticket-184-k6-rss-runbook.md`](ticket-184-k6-rss-runbook.md)** (2026-09-21).
+> This guide stays the background document for *why* the measurement is shaped this way; the runbook is the one to
+> execute from. (Wording softened from "superseded" on 2026-09-22 by owner decision — this is lane C's document and
+> lane A does not retire it.) The runbook carries the prerequisites with their proof commands, the failure branches, the per-AC pass/fail and the scope limit #251 imposes. Two steps below are known wrong or incomplete: §3.1's `BASE_URL=… pnpm k6:setup` cannot work from a laptop (`setup.ts` needs a direct Postgres connection, `redis-cache` and `JWT_PRIVATE_KEY`; the VM publishes no datastore port — see the new runbook §4.4), and §2.2's `600`s sampler duration is shorter than a `DURATION=10m` mixed run (new runbook §5.1).
 
 ## 1. Objectives & Definition of Done (DoD)
 

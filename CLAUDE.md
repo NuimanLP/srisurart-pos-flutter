@@ -221,9 +221,17 @@ develops against a demo tenant.
   `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`.
 - #67 — self-hosted deploy runner: workflow merged (PR #237), but not installed on the
   demo VM; real-run ACs unproven (`PattaraponKitcharoen`). Blocked by the item above.
-- #184 / #251 — the three-laptop k6 load-test run (`PattaraponKitcharoen`). **#184 was
-  closed on 2026-09-17 with all four ACs unticked and no closing comment, and was
-  reopened on 2026-09-21 per #335 D10** — nothing in it is proven yet.
+- **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
+  Nothing in it is measured yet. It replaces **#184**, which was closed→reopened→closed
+  three times in two days and finally closed by the owner on 2026-09-21 with all four ACs
+  unticked; **do not reopen #184** (owner decision 2026-09-22). PR #357's `Closes #184`
+  shipped tooling + a runbook and no measurement at all — never read that PR as evidence.
+  **#251 is closed (2026-09-22): the *method* is settled, the *measurement* is not.**
+  The method is `03_ARCHITECTURE.md §8.1`, decided 2026-09-15 and re-confirmed 2026-09-22:
+  three machines each under their own `perip`, results streamed to the VM's Prometheus over
+  remote-write. 🔴 **Exempting the load-generator IP from `perip` was considered and
+  explicitly rejected** — never add that carve-out to `nginx.conf` without asking the owner.
+  The `§8` k6 DoD box stays unticked until #380 produces real numbers.
 - #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. Pre-flight
   is done and the `/opt/pos/.env` blocker is cleared (it was missing
   `K6_REMOTE_WRITE_BASIC_AUTH_*`, which #251 added to compose with `:?` afterwards, so
@@ -250,10 +258,27 @@ develops against a demo tenant.
     copy (unconfirmed dumps are kept with a `::warning::`); while it stays unconfigured
     prune is age-based as before this ticket, so an indefinite "not wired yet" period
     does not fill the disk. **Still open, real infra required — do not claim
-    done:** owner has not chosen a destination or created credentials (AC1), no real
-    upload has ever left a VM (AC2), no restore from an offsite copy has been proven
-    (AC3), `rclone` is not installed on `mob04`. #288's "backups leave the VM daily" AC is
-    still unticked; #288 is reopened and the correction is recorded in its comments.
+    done:** no real upload has ever left a VM (AC2), no restore from an offsite copy has
+    been proven (AC3), `rclone` is not installed on `mob04`. #288's "backups leave the VM
+    daily" AC is still unticked; #288 is reopened and the correction is recorded in its
+    comments. **Destination decided 2026-09-22: the shop's own NAS, not a cloud provider**
+    — a cloud target would have to cross the same FortiGate that already breaks `ghcr.io`.
+    🔴 **The protocol is NOT settled: SFTP was chosen, then research killed it** —
+    a Synology **BeeStation runs BSM, not DSM, and exposes no usable SSH/SFTP** (its only
+    SSH surface is a 14-day Synology-support diagnostic channel). Either use rclone's
+    `smb` backend against the BeeStation, or buy a DSM-based (DS-series) NAS for SFTP.
+    Evidence, both example configs, and the still-unverified network questions:
+    `docs/handoff_log/research-363-sftp-nas-offsite.md`. AC1 (destination **and**
+    credentials) stays unticked until a protocol is picked and creds exist.
+    🔴 **PARKED until after the `mob04` demo (owner, 2026-09-22).** #363/#288 are both
+    still open but `ready-for-agent` was removed from #288 — do not start this work; #343
+    → #344 come first. The cost is accepted knowingly: **no backup leaves the VM at all
+    meanwhile**, so a dead `mob04` disk loses the demo tenant. Never write "backups are
+    ready" anywhere while this is parked.
+    **First-run rule (owner, 2026-09-22):** dumps written while offsite was unconfigured
+    have no `.uploaded` marker and prune keeps them forever by design — on the day offsite
+    is switched on, upload the backlog **by hand once**, then let prune resume. No
+    auto-backfill logic goes into `backup-db.sh` for a one-time event.
   - **#364** (closed, PR #374) — `ownerPassword` had no server-side length rule while
     `bootstrap:admin` demanded 12. The floor now lives once in `src/common/password.ts`
     (`MIN_PASSWORD_LENGTH`/`passwordPolicyViolation`), both callers use it, and
