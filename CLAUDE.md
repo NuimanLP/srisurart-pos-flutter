@@ -200,15 +200,16 @@ lanes' slices) and the frontend API-write layer (`fe.0`–`fe.3`) are merged. CI
 (Ansible deploy to the demo VM, monitoring, etcd/`RuntimeConfigService`) is **partial**
 — see "Still open". **Recount the `03_ARCHITECTURE.md §8` DoD boxes before claiming
 phase 1 is "done" — this sentence has gone stale twice.** Re-verified 2026-09-22 against the tests
-themselves, not against ticket state: **17 boxes, 14 ticked, 3 open.** The three open are
-the k6 box (→ **#380**), the `redis-cache` outage box (→ **#383**) and the retire/enrol box
-(→ **#384**). 🔴 **Two of them were unticked on 2026-09-22 because the tests they cited
-prove something else:** `tenant-scope.e2e-spec.ts:186` `vi.spyOn`s the cache client's
-methods instead of making `redis-cache` unreachable, and asserts against `/api/v1/tx4-probe`
-rather than the `GET /products` + `POST /sales` (with stock actually decremented) that
-#294's own AC demands; `shifts.e2e-spec.ts:575` **mints** the replacement device's token
-instead of exchanging its `enrolCode` through `POST /auth/device`, so it never tests the
-enrol path the box names. Neither #294 nor #296 was reopened — each did deliver a real
+themselves, not against ticket state: **17 boxes, 15 ticked, 2 open.** The two still open are
+the k6 box (→ **#380**) and the `redis-cache` outage box (→ **#383**). The retire/enrol box
+closed the same day — **#384** (`server/test/shifts.e2e-spec.ts:562`) now exchanges a real
+`enrolCode` through `POST /auth/device` and logs in via `POST /auth/token` instead of minting
+a token, plus a stock-before/after assertion on the replacement sale. 🔴 **Both remaining boxes
+were unticked on 2026-09-22 because the tests cited for them prove something else:**
+`tenant-scope.e2e-spec.ts:186` `vi.spyOn`s the cache client's methods instead of making
+`redis-cache` unreachable, and asserts against `/api/v1/tx4-probe` rather than the
+`GET /products` + `POST /sales` (with stock actually decremented) that #294's own AC demands —
+closing that gap is **#383**. Neither #294 nor #296 was reopened — each did deliver a real
 part. 🔴 The six boxes labelled "#196 2026-09-17" rest on merged PR #306, **not** on
 #292–#296, which were closed by hand with no PR attached — never use that set to tick a
 `§8` box. No cutover: the shop still runs the Drift build; the server
