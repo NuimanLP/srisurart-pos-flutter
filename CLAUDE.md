@@ -270,6 +270,11 @@ develops against a demo tenant.
     Evidence, both example configs, and the still-unverified network questions:
     `docs/handoff_log/research-363-sftp-nas-offsite.md`. AC1 (destination **and**
     credentials) stays unticked until a protocol is picked and creds exist.
+    🔴 **PARKED until after the `mob04` demo (owner, 2026-09-22).** #363/#288 are both
+    still open but `ready-for-agent` was removed from #288 — do not start this work; #343
+    → #344 come first. The cost is accepted knowingly: **no backup leaves the VM at all
+    meanwhile**, so a dead `mob04` disk loses the demo tenant. Never write "backups are
+    ready" anywhere while this is parked.
     **First-run rule (owner, 2026-09-22):** dumps written while offsite was unconfigured
     have no `.uploaded` marker and prune keeps them forever by design — on the day offsite
     is switched on, upload the backlog **by hand once**, then let prune resume. No
