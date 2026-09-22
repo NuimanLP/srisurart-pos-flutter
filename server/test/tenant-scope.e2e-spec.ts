@@ -183,36 +183,13 @@ describe('the tenant scope without a request transaction (e2e, tx.4 #153)', () =
     );
   });
 
-  it('when redis-cache fails (e.g. connection error), active tenant still succeeds and suspended tenant is still rejected (DoD line 10, ADR-0003)', async () => {
-    // Simulate Redis cache outage (throws ECONNREFUSED)
-    vi.spyOn(cache, 'get').mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:6379'));
-    vi.spyOn(cache, 'set').mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:6379'));
-
-    // 1. Active tenant request succeeds (200) via Postgres fallback
-    const activeRes = await http()
-      .get('/api/v1/tx4-probe')
-      .set('Authorization', `Bearer ${token}`);
-    expect(activeRes.status).toBe(200);
-    expect(activeRes.body.data).toBeDefined();
-
-    // 2. Suspended tenant request is still rejected (403) via Postgres fallback
-    await admin.query(
-      `UPDATE tenants SET status = 'suspended' WHERE id = $1::uuid`,
-      [TENANT],
-    );
-
-    const suspendedRes = await http()
-      .get('/api/v1/tx4-probe')
-      .set('Authorization', `Bearer ${token}`);
-    expect(suspendedRes.status).toBe(403);
-    expect(suspendedRes.body.error.code).toBe('TENANT_SUSPENDED');
-
-    // Restore tenant status
-    await admin.query(
-      `UPDATE tenants SET status = 'active' WHERE id = $1::uuid`,
-      [TENANT],
-    );
-  });
+  // #383: the test that used to live here only `vi.spyOn`'d `cache.get`/`cache.set`
+  // to reject — proving the guard's own `catch` runs, not that the app survives a
+  // `redis-cache` that is genuinely unreachable — and hit this file's internal
+  // `/tx4-probe` route rather than the `GET /products` + `POST /sales` (with a real
+  // stock decrement) that #294's AC names. Real coverage, with `redis-cache`
+  // actually unreachable two different ways, now lives in
+  // `redis-cache-outage.e2e-spec.ts`.
 
   it('/health/live touches no Postgres connection and /health/ready exactly one, off the request pool', async () => {
     const runners = vi.spyOn(ds, 'createQueryRunner');
