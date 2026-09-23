@@ -7,6 +7,10 @@
 > - **เนื้อหาอ้างอิง**: โค้ดเบสจริงในโฟลเดอร์ `server/src/`, `server/docker-compose.yml`, [`01_DATABASE.md`](01_DATABASE.md), [`02_API_SCREENS.md`](02_API_SCREENS.md), [`03_ARCHITECTURE.md`](03_ARCHITECTURE.md), และ ADR-0001 ถึง ADR-0013 ณ วันที่ 2026-09-21
 > </สัญญาของเอกสาร>
 
+> 📚 **งงกับ `PRIMARY KEY`/`FOREIGN KEY` ที่ §0 สมมติว่ารู้อยู่แล้ว?** อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) (ฉบับเต็ม)
+> หรือฉบับย่อ [`01_DATABASE.md#keys`](01_DATABASE.md#keys) — `(tenant_id, id)` คือ **composite primary key**
+> อันเดียวที่ประกอบจาก 2 คอลัมน์ ไม่ใช่ PK สองอัน
+
 ---
 
 ## 🗺️ §0 แผนที่การอ่าน (Reading Map)

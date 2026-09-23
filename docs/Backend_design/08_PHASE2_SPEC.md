@@ -10,6 +10,10 @@
 
 สถานะ 2026-09-15: รอบ 3 · ยังไม่มีโค้ด
 
+> 📚 **งงกับ key?** อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) หรือฉบับย่อ [`01_DATABASE.md#keys`](01_DATABASE.md#keys) —
+> `(tenant_id, id)` คือ composite primary key อันเดียว ไม่ใช่ PK สองอัน
+> สเปกนี้ยังมี **partial unique index** เช่น `uq_users_one_active ON users (tenant_id) WHERE is_active` — คนละเรื่องกับ PK แต่หลักการ constraint คล้ายกัน
+
 ---
 
 ## 0. สรุปหน้าเดียว
