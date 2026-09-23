@@ -20,8 +20,10 @@
 
 ## เอกสารในชุดนี้
 
-> **แก้ 2026-09-23:** ตารางเดิมขาด `07`, `09`, `checklist.md`, `architecture-primer-audit/qa.md`,
+> **แก้ 2026-09-23:** ตารางเดิมขาด `07`, `09`, `checklist.md`,
 > `fixtures/` และแผนย้ายของ ADR-0003 — เติมครบทุกไฟล์ในโฟลเดอร์แล้ว + เพิ่มคอลัมน์ **สถานะ**
+> · `architecture-primer-audit.md` / `architecture-primer-qa.md` ถูกลบทิ้งวันเดียวกัน
+> (บันทึกการตรวจรอบเดียวจบ เก็บไว้ก็เป็น noise) — ประวัติยังอยู่ใน git
 > · กติกาเดิมยังใช้: **เอกสารขัดกับ ADR → ยึด ADR** · `08` ชนะ `09` · สถานะ "ของจริงวันนี้" ให้เช็คกับโค้ด/ticket เสมอ
 
 ### สเปกหลัก (ยังมีผล)
@@ -46,8 +48,6 @@
 | ⭐ [`architecture-primer.md`](architecture-primer.md) | **ปูพื้นสถาปัตยกรรม** — concurrency / lock order, RLS + handler-level `runTx`, idempotency, caching, วงจรชีวิตบิล, ตารางความล้มเหลว, self-test | 📚 สื่อสอน (อ้างโค้ด ณ 2026-09-21) | คนที่อ่าน 00_BASICS แล้วอยากลึกขึ้น + สื่อการสอน |
 | [`architecture.md`](architecture.md) | blueprint สถาปัตยกรรมรวมเล่ม — Nginx, โมดูล NestJS, auth/device, tenancy (§5), **concurrency & lock order (§6)**, idempotency (§7), **caching (§8)**, BullMQ, กะ, observability, failure matrix | 📚 อ้างอิงเสริม (ไม่ใช่สเปก) | ทีม backend + architecture review |
 | [`checklist.md`](checklist.md) | กฎจากคอร์ส Backend01–06 → ใช้จริงที่ไฟล์/บรรทัดไหนในโค้ด | 📚 snapshot — `file:line` และตัวเลขเทสต์เปลี่ยนตามโค้ด ตรวจซ้ำก่อนอ้าง | คนทำรายงาน/สไลด์ส่งอาจารย์ |
-| [`architecture-primer-audit.md`](architecture-primer-audit.md) | ผลตรวจโครงสร้างของ `architecture-primer.md` (15 ข้อ A1–A15) | 🗄️ บันทึกการตรวจ | คนแก้ primer |
-| [`architecture-primer-qa.md`](architecture-primer-qa.md) | บันทึก adversarial review ของ `architecture-primer.md` | 🗄️ บันทึกการตรวจ | คนแก้ primer |
 
 ### ประวัติ (อ่านเพื่อรู้ "ทำไม" — ไม่มีผลบังคับ)
 
