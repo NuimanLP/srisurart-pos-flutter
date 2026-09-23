@@ -297,6 +297,14 @@ develops against a demo tenant.
     have no `.uploaded` marker and prune keeps them forever by design — on the day offsite
     is switched on, upload the backlog **by hand once**, then let prune resume. No
     auto-backfill logic goes into `backup-db.sh` for a one-time event.
+    **Assigned to all three members 2026-09-22** (both #363 and #288, which had one
+    assignee each) — that is ownership for when the work resumes, **not** a signal to
+    start. Split of labour when it does resume: **#363 owns the whole offsite path**
+    (pick the protocol → prove the network route → credentials → install `rclone` →
+    first real upload → restore from the off-VM copy); **#288 is the parent** and only
+    closes afterwards, against #363's evidence. 🔴 Test the network route from `mob04`
+    to the shop **before** creating any credential — it is still unverified and it is a
+    bigger unknown than the protocol.
   - **#364** (closed, PR #374) — `ownerPassword` had no server-side length rule while
     `bootstrap:admin` demanded 12. The floor now lives once in `src/common/password.ts`
     (`MIN_PASSWORD_LENGTH`/`passwordPolicyViolation`), both callers use it, and
@@ -307,7 +315,12 @@ develops against a demo tenant.
   - **#365** — `etcd-init.sh` on the VM is a root-owned *directory*, so etcd never had
     auth enabled. Every AC is VM-gated; the reset-without-data-loss path is named
     (`etcdctl user passwd root`, never `down -v`) but **no runnable command sequence
-    exists yet**.
+    exists yet**. Assigned to all three members 2026-09-22 (it had no assignee at all).
+    **Do it on the same VM trip as #343** — every AC is VM-gated, none of it can be
+    proven from a laptop. 🔴 A password mismatch between `.env` and what the `etcd-data`
+    volume baked in surfaces as "the service is not green", never as a message about a
+    password. AC1 needs proof **both ways**: a command that uses the password succeeds
+    *and* one that omits it is refused — `etcd-init` exiting 0 is not evidence.
   - **#366** (closed, PR #371) — owner picked option 3 2026-09-21: auto-deploy stays,
     gated by a required reviewer on the `demo` environment. See the binding CI/CD rule
     below.
@@ -319,7 +332,24 @@ develops against a demo tenant.
 - Phase-2 kickoff order for the remaining hub tickets: #228 → #229 → #212/#211/#189 →
   #230 → #190 → #231.
 
-The repo's only long-lived branches are `main` and `POC_sample_offline_first`.
+The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
+2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving
+exactly those two. 🔴 **Before deleting a branch, check it is actually merged** — two
+branches (`research/production-host`, `research/pwa-offline-shell`) held the only copy of
+`docs/research/*.md` (424 lines, closed tickets #241/#242 whose closing comments linked
+straight at the files), had **no PR at all**, and would have been destroyed silently.
+`git merge-base --is-ancestor <branch> origin/main` per branch is the check;
+`git log --all --diff-filter=A -- '<path>'` is how to prove a file exists nowhere else.
+Both docs were merged to `main` first (PR #386) with a banner saying what has since
+overridden them — **`production-host.md` recommends a cloud host the owner decided
+against on 2026-09-15**; it is kept only because #242's own closing comment says to keep
+it as input for the future outside-campus phase.
+
+**#243 (the phase-2 wayfinder map) was closed 2026-09-22** after checking each of its own
+"not yet specified" items: lane split ✅ (`09_PHASE2_LANES.md`), Thai phase-2 copy ✅
+(#268 → PR #305), and every phase-2 slice ticket it points at is closed except #288. Its
+third item — load-time RAM of the full stack on `mob04` — says "measured in #184" and
+**was never measured**; that gap lives on **#380** now, not on a map.
 
 ---
 
