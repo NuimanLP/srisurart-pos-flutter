@@ -4,6 +4,10 @@
 1 ไฟล์ = 1 การตัดสินใจ เขียนตอนตัดสินใจ ไม่ใช่เขียนย้อนหลัง — ของที่ยังไม่เคาะอยู่ในหัวข้อ
 "ยังไม่เคาะ" ท้ายไฟล์ ไม่ใช่หายไปเฉย ๆ
 
+> 📚 **งงกับ key?** อ่าน [`../00_BASICS.md#keys`](../00_BASICS.md#keys) (ฉบับเต็ม)
+> หรือฉบับย่อ [`../01_DATABASE.md#keys`](../01_DATABASE.md#keys) — `(tenant_id, id)` คือ **composite primary key** อันเดียวที่ประกอบจาก 2 คอลัมน์ ไม่ใช่ PK สองอัน
+> (ที่โผล่ในไฟล์นี้: `audit_log` ซึ่ง migration จริงใช้ PK `(tenant_id, id)` — เป็นจุดที่ **ต่างจาก DDL ในเอกสาร** ดูหัวข้อ "ที่ต่างจาก DDL ในเอกสาร" ท้ายไฟล์)
+
 | # | เรื่อง | ข้อสรุปสั้น ๆ | สถานะ |
 |---|---|---|---|
 | [0001](0001-tenant-provisioning.md) | ร้านใหม่เข้าระบบยังไง | platform admin สร้างให้ผ่าน `POST /platform/tenants` (ทรานแซกชันเดียว ได้ tenant+owner+settings+seed) — ยังไม่ทำ self-service signup | Accepted |

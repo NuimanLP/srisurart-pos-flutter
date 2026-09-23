@@ -9,6 +9,9 @@
 >
 > 📚 **ต้องการปูพื้นฐานสถาปัตยกรรม & เจาะลึก Concurrency / Caching?**
 > อ่าน [`architecture-primer.md`](architecture-primer.md) (18 ศัพท์สำคัญ, Optimistic vs Pessimistic vs Distributed vs Row Lock, Stock Overlay, Single-Flight Memo, Jitter) และสเปกอ้างอิง [`architecture.md`](architecture.md)
+>
+> งงกับ "Composite FK" ที่พูดถึงด้านล่าง หรือ `(tenant_id, id)` ว่ามี PK กี่อัน? อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys)
+> หรือฉบับย่อ [`01_DATABASE.md#keys`](01_DATABASE.md#keys) — เป็น **composite key** อันเดียวที่ประกอบจากหลายคอลัมน์ ไม่ใช่หลายอัน
 
 ---
 
