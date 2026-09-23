@@ -98,7 +98,7 @@ pnpm test:e2e
 frontend/
   lib/
     core/
-      router/app_router.dart   ← GoRouter + AppRoutes (the 11 routes). ShellRoute → AppShell.
+      router/app_router.dart   ← GoRouter + AppRoutes (13 shell routes + /login). ShellRoute → AppShell.
       theme/                   ← navy/orange brand, Sarabun (Thai) + Barlow type
       utils/                   ← newId/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
@@ -113,10 +113,11 @@ frontend/
                                  (ADR-0010). Opt-in: --dart-define=USE_API_WRITES=true
     domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
     presentation/
-      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (13 repos
-                                 + AuthRepository/ApiClient); `useApi` swaps in the #56 API repos
+      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (21 entries:
+                                 17 repos incl. AuthRepository, + ApiClient/BootstrapService/
+                                 DocCounterSeeder/SyncFacade); `useApi` swaps in the #56 API repos
       blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
-      screens/                  ← 11 screens, 1:1 with the JS screens
+      screens/                  ← 14 screen files: 12 in the AppShell nav + /devices + /login
       widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
                                   label printer, closing report)
     app.dart / main.dart       ← MaterialApp.router + MultiRepositoryProvider/MultiBlocProvider
