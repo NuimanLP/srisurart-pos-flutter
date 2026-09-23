@@ -22,7 +22,7 @@
 | [2](#2-มี-backend-แปลว่าอะไรกันแน่) | "มี backend" แปลว่าอะไร | จะเปลี่ยนไปเป็นแบบไหน |
 | [3](#3-client--server--api-101) | Client / Server / API 101 | สองฝั่งคุยกันยังไง |
 | [4](#4-database-server-ต่างจาก-sqlite-ยังไง) | Database server vs SQLite | ทำไมต้องเปลี่ยนฐานข้อมูล |
-| [5](#5-ศัพท์-sql-ที่ต้องรู้) | ศัพท์ SQL ที่ต้องรู้ | PK, FK, index, transaction คืออะไร |
+| [5](#5-ศัพท์-sql-ที่ต้องรู้) | ศัพท์ SQL ที่ต้องรู้ | key แต่ละชนิด (PK / composite / FK / unique / candidate / alternate / natural / surrogate), index, transaction คืออะไร |
 | [6](#6-multi-tenant--ร้านหลายร้านใน-database-เดียว) | Multi-tenant | "หลายร้าน" ทำยังไง |
 | [7](#7-authentication--jwt) | Authentication / JWT | ล็อกอินยังไงให้ scale ได้ |
 | [8](#8-cache--redis) | Cache / Redis | ทำไมต้องมี และพังยังไงได้บ้าง |
@@ -191,11 +191,32 @@ sequenceDiagram
 └── แถว (row)     = สินค้า 1 ชิ้น
 ```
 
+<a id="keys"></a>
+
+#### ชนิดของ key ที่ต้องแยกให้ออก
+
+| Key | เอาไว้ทำอะไร | ตัวอย่างในร้านเรา |
+|---|---|---|
+| **Primary Key (PK)** | ชุดคอลัมน์ที่ใช้ระบุแถวได้แน่นอน ห้ามซ้ำ ห้ามว่าง — **1 ตารางมีได้อันเดียว** · พูดให้ตรงคือ **candidate key อันที่ถูกเลือก** ฉะนั้นกฎ "เล็กที่สุด" ใช้กับ PK ด้วย | `tenants.id`; ตารางธุรกิจใช้ `PRIMARY KEY (tenant_id, id)` |
+| **Composite (เป็นคุณสมบัติ ไม่ใช่ชนิด)** | "composite" = ประกอบจากหลายคอลัมน์ แต่นับรวมกันเป็น **อันเดียว** — เป็นคำขยาย ใช้ได้กับทั้ง composite PK / composite FK / composite UNIQUE ไม่ใช่ key คนละชนิดจาก PK/FK | composite PK: `(tenant_id, id)` ของ `products`, `(tenant_id, sale_id, line_no)` ของ `sale_items`; composite FK: `(tenant_id, sale_id)`; composite UNIQUE: `(tenant_id, receipt_no)` |
+| **Foreign Key (FK)** | คอลัมน์ที่ชี้ไปหาแถวในตารางอื่น ฐานข้อมูลกันไม่ให้ชี้ไปที่ไม่มีอยู่จริง | `FOREIGN KEY (tenant_id, sale_id) REFERENCES sales (tenant_id, id)` ใน `sale_items` |
+| **Unique Key** | กฎ "ห้ามค่าซ้ำ" ที่ไม่ใช่ PK (ว่างได้ ถ้าคอลัมน์ยอมให้ NULL) · ใส่ NULL ได้**หลายแถว** เพราะ NULL ไม่ถือว่าเท่ากัน (PostgreSQL 15+ สั่ง `NULLS NOT DISTINCT` ได้ถ้าไม่ต้องการแบบนั้น) — ต่างจาก PK ที่ห้าม NULL และมีได้ตารางละอันเดียว | `UNIQUE (tenant_id, receipt_no)` บน `sales` — เลขใบเสร็จซ้ำในร้านเดียวกันไม่ได้ แต่คนละร้านซ้ำได้ |
+| **Superkey** | ชุดคอลัมน์ที่ระบุแถวได้จริง แต่ **ไม่จำเป็นต้องเล็กที่สุด** — มีคอลัมน์เกินมาก็ยังเป็น superkey | `(tenant_id, id, part_no)` ของ `products` — ระบุแถวได้ แต่ `part_no` เกินมา ตัดทิ้งก็ยังระบุได้ |
+| **Candidate Key** | superkey ที่ **เล็กที่สุดแล้ว (minimal)** — ตัดคอลัมน์ไหนออกก็ระบุแถวไม่ได้อีกต่อไป จึง "มีสิทธิ์" ถูกเลือกเป็น PK | ตาราง `tenants` มี 2 อัน: `id` และ `code` (`'srisurart'`) · `(tenant_id, id, part_no)` **ไม่ใช่** เพราะยังตัดออกได้ |
+| **Alternate Key** | candidate key ที่ไม่ได้ถูกเลือกเป็น PK — สุดท้ายกลายเป็น unique key | `tenants.code` (เลือก `id` เป็น PK ไปแล้ว) |
+| **Natural Key** | key ที่มีความหมายในโลกจริง คนอ่านแล้วรู้เรื่อง | `products.part_no` = เลขอะไหล่ที่พิมพ์บนกล่อง — บังคับไม่ซ้ำด้วย `uq_products_partno` ซึ่งไม่ซ้ำ **ต่อร้าน** และ **เฉพาะแถวที่ยังไม่ถูกลบ** (`WHERE deleted_at IS NULL`) จึงยังไม่ใช่ candidate key เต็มตัว ซึ่งเป็นเหตุผลที่เราใช้ surrogate key เป็น PK |
+| **Surrogate Key** | key ที่ระบบสร้างเอง ไม่มีความหมาย ไว้กันวันที่ natural key เปลี่ยน | `products.id` = `"p12"`, `tenants.id` = UUID จาก `gen_random_uuid()` |
+
+> **อ่านให้ถูก — `PRIMARY KEY (tenant_id, id)` ไม่ใช่ "PK สองอัน"**
+> 1 ตารางมี primary key ได้ **อันเดียวเท่านั้น** บรรทัดนั้นคือ PK **อันเดียว** ที่ประกอบขึ้นจาก 2 คอลัมน์ (= composite PK)
+> ไม่ใช่ "PK ของ `tenant_id`" กับ "PK ของ `id`" แยกกันคนละอัน
+> เทียบกับตึกหอพัก: เลขห้อง `"101"` ซ้ำได้ทุกตึก บอกแค่ "ห้อง 101" ยังชี้ไม่ถูกว่าห้องไหน ต้องบอก "ตึก A ห้อง 101" ถึงจะได้ห้องเดียวในโลก
+> → `(tenant_id, id)` = `(ตึก, ห้อง)` — `id` ซ้ำข้ามร้านได้ แต่พอคู่กับ `tenant_id` แล้วไม่ซ้ำแน่นอน
+
+#### กฎอื่นที่เจอในตาราง
+
 | คำ | คืออะไร | ตัวอย่างในร้านเรา |
 |---|---|---|
-| **Primary Key (PK)** | คอลัมน์ที่ใช้ระบุตัวตนของแถว ห้ามซ้ำ ห้ามว่าง | `products.id` = `"p12"` |
-| **Foreign Key (FK)** | คอลัมน์ที่ชี้ไปหาแถวในตารางอื่น | `sale_items.sale_id` ชี้ไปหา `sales.id` |
-| **Unique** | ห้ามค่าซ้ำกัน | `receipt_no` ห้ามมีเลขที่ใบเสร็จซ้ำ |
 | **Index** | สารบัญที่ทำให้ค้นเร็วขึ้น | มี index ที่ `part_no` → ยิงบาร์โค้ดแล้วเจอทันที |
 | **Constraint** | กฎที่ฐานข้อมูลบังคับเอง | `CHECK (stock >= 0)` = สต็อกติดลบไม่ได้เด็ดขาด |
 | **NULL** | "ไม่มีค่า" (ต่างจาก 0 หรือ "") | ลูกค้าที่ไม่ได้กรอกเบอร์โทร → `phone = NULL` |
@@ -714,6 +735,13 @@ float เก็บทศนิยมได้ไม่แม่น (0.1 + 0.2 �
 เพราะถ้ามีสองเครื่องขายออฟไลน์พร้อมกัน ทั้งคู่จะเห็นสต็อกชุดเดียวกันแล้วขายชิ้นสุดท้ายซ้ำได้
 ให้เขียนออฟไลน์ได้แค่เครื่อง `pos` เครื่องเดียว (ADR-0004) ทางชนก็เหลือน้อยมาก
 และถ้ายังชนจริง บิลนั้นจะไปอยู่หน้า "รอ owner" ให้คนตัดสิน ไม่หายเงียบ
+</details>
+
+<details>
+<summary><b>9. `PRIMARY KEY (tenant_id, id)` มี primary key กี่อัน?</b></summary>
+
+อันเดียว เป็น composite PK ที่ประกอบจาก 2 คอลัมน์
+ไม่ใช่ "PK ของ `tenant_id`" กับ "PK ของ `id`" แยกกัน — 1 ตารางมี primary key ได้อันเดียวเท่านั้น
 </details>
 
 ---

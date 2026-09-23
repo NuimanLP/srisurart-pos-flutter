@@ -11,6 +11,10 @@
 สถานะ 2026-09-15: รอบ 3 · ยังไม่มีโค้ด
 
 > **สถานะ 2026-09-23** (ข้อเท็จจริง ไม่ใช่การตัดสินใจใหม่): slice 0a–21 และ 24 merge แล้ว — รายใบ + PR ที่ §16 · ที่ยังเปิด: slice 22/23/25 (ops บน `mob04`) และ #231 · migration server ที่ไฟล์นี้ทำให้เกิด: `1788652803001-SingleOwnerRole` (§3) · `…3002-OwnerReviewItems` (C6) · `…3003-SyncPushColumns` (C3, C12, §12) · `…4000-CustomersMechanicsSyncIndex` (slice 13a) — DDL อยู่ที่ `01_DATABASE.md §5` · ⚠️ `01 §11` บันทึกบั๊กสองข้อของ `…3002` (policy RLS ไม่มี `NULLIF`, FK `ON DELETE SET NULL` ทั้งสองคอลัมน์) — ยังไม่แก้
+>
+> 📚 **งงกับ key?** อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) หรือฉบับย่อ [`01_DATABASE.md#keys`](01_DATABASE.md#keys) —
+> `(tenant_id, id)` คือ composite primary key อันเดียว ไม่ใช่ PK สองอัน
+> สเปกนี้ยังมี **partial unique index** เช่น `uq_users_one_active ON users (tenant_id) WHERE is_active` — คนละเรื่องกับ PK แต่หลักการ constraint คล้ายกัน
 
 ---
 

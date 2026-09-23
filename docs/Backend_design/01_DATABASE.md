@@ -42,13 +42,51 @@
 
 ## 2. Multi-tenant model ที่เอกสารนี้ใช้
 
+<a id="keys"></a>
+
+### 2.0 ก่อนอ่าน DDL — เรื่อง key ที่ต้องเข้าใจก่อน
+
+DDL ใน [§5](#5-ddl-เต็ม) เขียนบรรทัด `PRIMARY KEY (tenant_id, id)` แทบทุกตาราง
+อ่านผ่าน ๆ แล้วเหมือนมี primary key สองอัน — **ไม่ใช่** อ่านตารางนี้ก่อน
+
+| Key | เอาไว้ทำอะไร | ตัวอย่างในเอกสารนี้ |
+|---|---|---|
+| **Primary Key (PK)** | ระบุแถวได้แน่นอน ห้ามซ้ำ ห้ามว่าง — **1 ตารางมีได้อันเดียว** | `PRIMARY KEY (tenant_id, id)` ของ `products` |
+| **Composite Key** | key อันเดียวที่ประกอบจากหลายคอลัมน์ | `sale_items` ใช้ `(tenant_id, sale_id, line_no)` |
+| **Foreign Key (FK)** | ชี้ไปหาแถวในตารางอื่น — ของเราพา `tenant_id` ไปด้วยเสมอ | `(tenant_id, sale_id) → sales (tenant_id, id)` |
+| **Unique Key** | ห้ามค่าซ้ำ แต่ไม่ใช่ PK | `UNIQUE (tenant_id, receipt_no)` บน `sales` |
+| **Natural Key** | key ที่มีความหมายในโลกจริง | `products.part_no` (เลขอะไหล่บนกล่อง) — บังคับด้วย `uq_products_partno` ซึ่งไม่ซ้ำ **ต่อร้าน** และ **เฉพาะแถวที่ยังไม่ถูกลบ** (`WHERE deleted_at IS NULL`) → ยังไม่ใช่ candidate key เต็มตัว **นี่คือเหตุผลที่เราใช้ surrogate key เป็น PK แทน** |
+| **Surrogate Key** | key ที่ระบบสร้างเอง ไม่มีความหมาย | `products.id` = `"p12"`, `tenants.id` = UUID |
+
+> **`PRIMARY KEY (tenant_id, id)` คือ PK อันเดียว ที่ประกอบจาก 2 คอลัมน์**
+> ไม่ใช่ "PK ของ `tenant_id`" กับ "PK ของ `id`" แยกกันคนละอัน — 1 ตารางมี PK ได้อันเดียวเท่านั้น
+> เทียบกับตึกหอพัก: เลขห้อง `"101"` ซ้ำได้ทุกตึก บอกแค่ "ห้อง 101" ยังชี้ไม่ถูก ต้องบอก "ตึก A ห้อง 101"
+> → `(tenant_id, id)` = `(ตึก, ห้อง)` — `id` ซ้ำข้ามร้านได้ แต่คู่กับ `tenant_id` แล้วไม่ซ้ำแน่นอน
+> คำอธิบายเต็ม (candidate / alternate key ด้วย) อยู่ที่ [`00_BASICS.md` §5.1](00_BASICS.md#keys)
+
+```sql
+-- (ย่อ — ของจริงอยู่ที่ §5 เช่น ON DELETE CASCADE ของ FK)
+CREATE TABLE sale_items (
+  tenant_id  UUID NOT NULL,
+  sale_id    TEXT NOT NULL,
+  line_no    INT  NOT NULL,
+  ...
+  PRIMARY KEY (tenant_id, sale_id, line_no),   -- PK "อันเดียว" ที่ประกอบจาก 3 คอลัมน์ (composite)
+  FOREIGN KEY (tenant_id, sale_id)             -- FK ก็ composite: พา tenant_id ไปด้วย
+    REFERENCES sales (tenant_id, id)           -- ชี้ไปที่ PK ของ sales ซึ่งก็คือ (tenant_id, id)
+);
+```
+
+### 2.1 โมเดลที่เลือก
+
 เลือก **Shared database + shared schema + `tenant_id` ทุกตาราง + PostgreSQL RLS**
 (เหตุผลและทางเลือกอื่นอยู่ใน [`03_ARCHITECTURE.md` §5](03_ARCHITECTURE.md#5-multi-tenant--3-ทางเลือก))
 
 กติกา 4 ข้อ ที่ต้องทำให้ครบ ไม่งั้น multi-tenant จะรั่ว:
 
 1. **ทุกตารางธุรกิจมี `tenant_id UUID NOT NULL`** — ไม่มีข้อยกเว้น
-2. **Primary key เป็น composite `(tenant_id, id)`** และ **foreign key ก็พา `tenant_id` ไปด้วย**
+2. **Primary key มีอันเดียว แต่เป็นแบบ composite คือประกอบจาก 2 คอลัมน์ `(tenant_id, id)`**
+   (ไม่ใช่ PK สองอัน — ดู [§2.0](#20-ก่อนอ่าน-ddl--เรื่อง-key-ที่ต้องเข้าใจก่อน)) และ **foreign key ก็พา `tenant_id` ไปด้วย**
    ```sql
    FOREIGN KEY (tenant_id, sale_id) REFERENCES sales (tenant_id, id)
    ```
@@ -87,6 +125,8 @@ flowchart LR
 ## 3. ER Diagram
 
 แบ่ง 3 รูปเพื่อให้อ่านออก (ทุกตารางมี `tenant_id` เหมือนกันหมด จึงไม่วาดเส้นไป `tenants` ทุกเส้น)
+
+> ⚠️ Mermaid เขียน composite key ไม่ได้ — คอลัมน์ที่ติดป้าย `PK` สองบรรทัดในตารางเดียวกัน คือ PK **อันเดียว** ที่ประกอบจากสองคอลัมน์ (ดู [§2.0](#20-ก่อนอ่าน-ddl--เรื่อง-key-ที่ต้องเข้าใจก่อน)) · ป้าย `UK` ก็เหมือนกัน ของจริงคือ `UNIQUE (tenant_id, receipt_no)` ไม่ใช่ `receipt_no` เดี่ยว
 
 ### 3.1 Selling & Returns
 

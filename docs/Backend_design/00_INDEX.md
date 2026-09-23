@@ -12,6 +12,9 @@
 >
 > สรุปสั้น ๆ สำหรับคนที่ไม่มีเวลาอ่านหมด: อ่าน [`03_ARCHITECTURE.md` §7 ข้อสรุป](03_ARCHITECTURE.md#7-สรุป--แนะนำอะไร)
 > แล้วดู [`01_DATABASE.md` §3 ER Diagram](01_DATABASE.md#3-er-diagram)
+>
+> งงว่าทำไม `(tenant_id, id)` เขียนเป็น PK คู่? อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) (ฉบับเต็ม) หรือ
+> [`01_DATABASE.md#keys`](01_DATABASE.md#keys) (ฉบับย่อ) — เป็น **composite primary key** อันเดียวที่ประกอบจาก 2 คอลัมน์ ไม่ใช่ PK สองอัน
 
 ---
 

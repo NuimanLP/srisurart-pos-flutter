@@ -506,6 +506,29 @@ on void/return paths. Keep this order in any new write touching more than one of
   `Future`** — the arrow form trips a Flutter assertion (compiled out in release builds,
   which is why it hid for a while).
 
+**Writing in `docs/Backend_design/` (added 2026-09-23, PR #391 —
+`handoff_log/session-2026-09-23-key-primer-docs.md`):**
+- **Never cite a `-- 🆕 migration NNNN:` comment as a live constraint.** `01_DATABASE.md §5`
+  carries both shipped DDL and not-yet-applied migrations in the same code fences; the
+  key primer cited `uq_products_partno_ci` (not applied) when the enforcing index is
+  `uq_products_partno`. Check which side of that line an identifier sits on before quoting it.
+- **Mermaid ER diagrams cannot express a composite key** — `§3` renders `tenant_id PK` and
+  `id PK` as two rows, which is exactly what made a reviewer read it as two primary keys, and
+  labels `receipt_no UK` although the real constraint is `UNIQUE (tenant_id, receipt_no)`.
+  The warning under `## 3. ER Diagram` covers all three diagrams; keep it if you touch them.
+- **A cross-reference to another doc's section must be grepped before it is written.** Three
+  pointers shipped in the first pass named things that do not exist (`ADR-0003` has no
+  `PRIMARY KEY` in it at all; `architecture-primer.md §4` is about architecture options, not FKs).
+  Restating a *definition* in several files is fine — it does not drift; inventing a
+  *file-specific example* is what produced every false claim.
+- Two known doc-vs-reality divergences, both annotated, neither reconciled: `architecture.md`'s
+  DDL is an old sketch (single-column PK, still has `offline_ok`, dropped per #272) while
+  `00_INDEX.md` advertises it as the reference spec — `01_DATABASE.md §5` binds; and
+  `audit_log` is `id BIGSERIAL PRIMARY KEY` in the docs but `(tenant_id, id)` in the shipped
+  migration (recorded at the end of `adr/README.md`).
+- The key terminology primer has **one** home: `00_BASICS.md#keys` (full) and
+  `01_DATABASE.md#keys` (short). Link to them; do not copy the table into a third file.
+
 **General lesson, learned the expensive way more than once (#22, #24, #260's import
 pre-flight):** **validate input first, then clamp** — a `GREATEST`/`Math.max` clamp on
 an unvalidated value turns a loud corruption into a quiet one.

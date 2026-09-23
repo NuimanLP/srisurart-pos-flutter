@@ -7,6 +7,10 @@
 > 2. **Multi-Tenant Isolation 100%**: แยกข้อมูลระหว่างร้านค้าด้วย PostgreSQL Row-Level Security (RLS) ผ่าน Handler-level `TenantService.runTx` (ADR-0003 Amendment)
 > 3. **Strict Idempotency**: รับประกันว่าการส่งซ้ำของคำขอ (Network Glitch / Retry) จะไม่เกิดการหักเงิน ซ้ำบิล หรือตัดสต็อกเบิ้ล (#18)
 > 4. **Physical Device Role & Security**: ควบคุมเครื่องที่มีสิทธิ์เปิดลิ้นชักและออกบิลขายจริง (`role='pos'`) ตามข้อจำกัดทางกายภาพ (ADR-0004)
+>
+> งงกับ key? อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) (ฉบับเต็ม) หรือ [`01_DATABASE.md#keys`](01_DATABASE.md#keys) (ฉบับย่อ) —
+> `(tenant_id, id)` คือ **composite primary key** อันเดียวที่ประกอบจาก 2 คอลัมน์ ไม่ใช่ PK สองอัน
+> 🔴 DDL ในไฟล์นี้เป็น **ร่างรุ่นเก่า** (`id ... PRIMARY KEY` เดี่ยว + `tenant_id` แยก) ฉบับที่ผูกพันคือ [`01_DATABASE.md §5`](01_DATABASE.md#5-ddl-เต็ม) — ขัดกันเมื่อไหร่ให้ยึด `01`
 
 > 🔄 **ทบทวนกับโค้ด, migration และ ADR เมื่อ 2026-09-23** — ฉบับก่อนมีคอนฟิกและโค้ดหลายก้อนที่เขียนขึ้นเองไม่ตรงกับ repo
 > (`nginx.conf`, โครงไฟล์ `server/src/`, DDL, `TenantService.runTx`, ชื่อคิว BullMQ, สถานะ idempotency, อัลกอริทึม JWT, พอร์ต Redis)

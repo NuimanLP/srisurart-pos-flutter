@@ -5,6 +5,11 @@
 > แล้วแปลง repository method → REST endpoint
 >
 > **สำหรับทีม Flutter:** ตารางเดียวกันนี้บอกว่า repository ตัวไหนต้องเปลี่ยนไปเรียก HTTP
+>
+> งงกับ key? อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) หรือฉบับย่อ [`01_DATABASE.md#keys`](01_DATABASE.md#keys) —
+> `(tenant_id, id)` คือ **composite primary key** อันเดียว ไม่ใช่ PK สองอัน
+>
+> **อย่าสับสน:** `Idempotency-Key` (HTTP header กันยิงซ้ำ) ในเอกสารนี้ ≠ database key ข้างต้น — คนละเรื่องกัน
 
 ---
 
