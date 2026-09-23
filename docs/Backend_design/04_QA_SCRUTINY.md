@@ -1,5 +1,17 @@
 # 04 — บันทึกการถกเถียง (Design Scrutiny Q&A)
 
+> **สถานะ (ทบทวน 2026-09-23): 📜 บันทึกประวัติ — ไม่ใช่สเปก ไม่มีผลบังคับ**
+> หน้านี้เก็บ *การถกเถียง* รอบ 1–4 (2026-09-04 → 2026-09-09) ไว้ตามที่เกิดจริง **ห้ามแก้เนื้อหา/finding ย้อนหลัง**
+> ถ้าขัดกับที่อื่น ให้เชื่อตามลำดับนี้: **ADR ใน [`adr/`](adr/README.md)** (ADR ชนะเอกสารเสมอ) →
+> [`01_DATABASE.md`](01_DATABASE.md) (ปรับให้ตรงกับ migration จริงแล้ว) · [`02_API_SCREENS.md`](02_API_SCREENS.md) ·
+> [`08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md) (§20 บอกว่าแทนที่อะไรไปบ้าง) → [`CLAUDE.md`](../../CLAUDE.md) (สถานะปัจจุบัน)
+>
+> * **รอบ 1–2:** 18 finding → ข้อตัดสิน #1–#22 ลงเอกสารแล้วตั้งแต่ 2026-09-04 · **แต่ #1 (scarcity rule / `offline_ok`)
+>   ถูกยกเลิก 2026-09-15** (08 D3 + E10 — คอลัมน์ `offlineOk` ถูกลบ)
+> * **รอบ 3:** ข้อเสนอ #23–#34 — ข้อที่ตรวจเจอหลักฐานว่าปิดแล้ว/ถูกแทนที่ ติดป้าย ✅ / 🔁 ไว้ในตารางพร้อมที่มา · ข้อที่ไม่มีป้าย = ยังไม่ได้ตรวจหรือยังไม่แก้
+> * **"รอบ 4" มีสองรอบ:** CouchDB (2026-09-08) อยู่ใน [`06 §9`](06_COUCHDB_REVISION.md#9-บันทึก-scrutinize-รอบ-4-2026-09-08--ยิงใส่ข้อเสนอนี้) — ถูกปฏิเสธโดย ADR-0012 ·
+>   ความปลอดภัย (2026-09-09) อยู่ท้ายไฟล์นี้
+
 เอกสาร `01`–`03` ถูกส่งให้ **agent 3 ตัว** review คนละมุม แต่ละตัวไปอ่านโค้ดจริงมาเทียบ
 แล้ว **ยิงคำถามใส่กันเอง 1 รอบ** ก่อนสรุป หน้านี้คือบันทึกว่าเถียงอะไรกัน และตกลงอะไรได้
 
@@ -245,7 +257,7 @@ flowchart LR
 
 | # | ตัดสินใจ | แก้ที่ |
 |---|---|---|
-| 1 | **ทิ้ง stock lease** ใช้ scarcity rule (`offline_ok`) แทน | `03 §4` |
+| 1 | **ทิ้ง stock lease** ใช้ scarcity rule (`offline_ok`) แทน | `03 §4` · 🔁 *scarcity rule ถูกยกเลิก 2026-09-15 — ไม่มี `offlineOk` แล้ว ([`08 §20`](08_PHASE2_SPEC.md#20-แทนที่อะไร-superseded), D3 + E10); การทิ้ง lease ยังยืน* |
 | 2 | `stock` = ของบนชั้นเท่านั้น ห้ามมี `reserved` | `01 §5.2, §7` |
 | 3 | ตัดสต็อกด้วย `SELECT … ORDER BY id FOR UPDATE` ในtxn แล้วค่อย UPDATE | `01 §7.1` |
 | 4 | clamp ในโค้ด (`GREATEST(0,…)`), CHECK เป็น assertion | `01 §5.3` |
@@ -274,7 +286,9 @@ flowchart LR
 
 1. **รูปแบบเลขที่ใบเสร็จ** — คงของเดิม (`RC…` แบบสุ่ม) หรือเปลี่ยนเป็นเลขเรียงต่อเครื่อง?
    *เปลี่ยน = ใบเสร็จหน้าตาเปลี่ยน ต้องถามเจ้าของร้าน ไม่ใช่ตัดสินในเอกสาร design*
+   ✅ แก้แล้ว — format `RC01-2569-08-0042` อนุมัติใน ADR-0007 (ดูกล่องอัปเดตใต้ Q4)
 2. **เกณฑ์ `offline_ok`** — `stock ≥ max(5, 3×เฉลี่ยต่อบิล)` เป็นแค่ข้อเสนอ ต้องดูข้อมูลขายจริงก่อนตั้งค่า
+   🔁 ไม่ต้องตัดสินแล้ว — `offlineOk` ถูกยกเลิก 2026-09-15 (`08` D3 + E10)
 3. **ข้อความไทยของ error ใหม่** (`OFFLINE_NOT_ALLOWED`, `TOTAL_MISMATCH`, `PO_ALREADY_RECEIVED`) —
    ไม่มีใน `db.js` ห้ามแต่งเอง ต้องให้เจ้าของร้าน/คนหน้าร้านเป็นคนเลือกคำ
 4. **จะ cutover ร้านจริงเมื่อไหร่** — ข้อเสนอคือหลังเฟส 2 แต่เป็นการตัดสินใจทางธุรกิจ
@@ -466,15 +480,15 @@ stateDiagram-v2
 | 23 | **เขียน §7 ให้ตรง:** "เลือก A + T1 · เก็บ C เป็น option ด้วยงาน additive 3 ชิ้น (`updatedAt/deletedAt`, `?updatedSince=`, `offlineOk`)" ไม่ใช่ "เลือก C" | `03 §7` | 🟡 |
 | 24 | B ตกเพราะ #13/#20/ADR-0007 — เขียนเหตุผลลง §3 และตัด B ออกจากตาราง §6 หรือติดป้าย ❌ | `03 §3, §6` | 🟡 |
 | 25 | แก้ตาราง §6 4 ช่อง (C สต็อก 🟡 · C เสี่ยง 🟡 · C debug 🔴 · ตัดแถว "ทำเป็นเฟส") + เพิ่มแถว latency | `03 §6` | 🟡 |
-| 26 | ADR-0010 ต้องระบุ **เจ้าของ offline write path** ก่อนเปิดเฟส 2 (ตอนนี้บอกว่าเหลือแค่ฝั่งอ่าน) | `adr/0010` | 🟡 |
-| 27 | เฟส 2 prerequisite ฝั่ง DDL: `sales.sync_status` + `CHECK (… OR voided)` · แถว rejected ต้อง INSERT ครองเลข · ที่เก็บ `avg qty` | `01 §5.2, §11` | 🟡 |
-| 28 | op `void_offline_sale` ให้บิล rejected กลายเป็น void ที่นับในปิดกะ | `02 §7` | 🟡 |
-| 29 | ordering ของ replay = `client_seq` + `devices.last_applied_seq` + lock แถว `devices` — **ไม่ใช้ BullMQ group** | ADR ใหม่ | 🟡 |
-| 30 | ถอด state `Conflict` · `Syncing` สตรีมเดียว ห้าม POST ขนาน ห้ามปิดกะ | `03 §4` | 🟡 |
-| 31 | idempotency key = `sales.id` จาก client ทุกเฟส · request หลุดกลางทาง → 200 คืนแถวเดิม | `02 §1.2, §7` | 🟡 |
-| 32 | server validate เลขคณิตในบิลเท่านั้น **ไม่เทียบ `products.price` ปัจจุบัน** | `02 §1.2` | 🟡 |
+| 26 | ADR-0010 ต้องระบุ **เจ้าของ offline write path** ก่อนเปิดเฟส 2 (ตอนนี้บอกว่าเหลือแค่ฝั่งอ่าน) | `adr/0010` | ✅ แก้แล้ว — ADR-0010 Addendum 2026-09-15: offline write = op ใน `outbox_ops` ของเครื่อง `pos` (ADR-0004) ผู้ตัดสินยังเป็น server ตอน push |
+| 27 | เฟส 2 prerequisite ฝั่ง DDL: `sales.sync_status` + `CHECK (… OR voided)` · แถว rejected ต้อง INSERT ครองเลข · ที่เก็บ `avg qty` | `01 §5.2, §11` | 🔁 ถูกแทนที่ — ไม่ทำ `sales.sync_status`, สถานะอยู่ใน outbox (`08 §7`, `08 §20`, `01 §11`) · `avg qty` ไม่ต้องมีเพราะ `offlineOk` ถูกยกเลิก (D3) |
+| 28 | op `void_offline_sale` ให้บิล rejected กลายเป็น void ที่นับในปิดกะ | `02 §7` | 🔁 ถูกแทนที่ — บิลที่ถูกปฏิเสธไปอยู่หน้า "รอ owner" ให้ส่งใหม่ (key เดิม เลขเดิม) หรือทิ้ง (`08 §14`) · `02 §7` เองถูก `08 §8.2` แทน |
+| 29 | ordering ของ replay = `client_seq` + `devices.last_applied_seq` + lock แถว `devices` — **ไม่ใช้ BullMQ group** | ADR ใหม่ | 🔁 ถูกแทนที่ — ไม่มี `client_seq`: client ส่งทีละคำขอ (single flight) + server `runTx` ต่อ op ทีละตัว ไม่ใช้ BullMQ (`08 §8.3–§8.4`) |
+| 30 | ถอด state `Conflict` · `Syncing` สตรีมเดียว ห้าม POST ขนาน ห้ามปิดกะ | `03 §4` | ✅ แก้แล้ว (ใน `08` ไม่ใช่ `03`) — state diagram ไม่มี `Conflict`, rejected = ป้าย, write ใหม่ต่อท้าย outbox (`08 §5`) · ปิดกะต้อง outbox ว่าง (`08 §11`) |
+| 31 | idempotency key = `sales.id` จาก client ทุกเฟส · request หลุดกลางทาง → 200 คืนแถวเดิม | `02 §1.2, §7` | ✅ แก้แล้วในรูปที่ต่างเล็กน้อย — id + `Idempotency-Key` สร้างครั้งเดียวต่อบิลโดย client (key แยกจาก `sales.id`) · replay ด้วย key แล้วด้วย client id → `applied` ผลเดิม (`08 §7`, `08 §8.3`) |
+| 32 | server validate เลขคณิตในบิลเท่านั้น **ไม่เทียบ `products.price` ปัจจุบัน** | `02 §1.2` | ✅ แก้แล้วในโค้ด — `server/src/sales/sales.service.ts` `assertTotals`/`assertSaleTotals` ตรวจแค่ Σ qty×price ของบรรทัด "never compares a line price against the catalogue price" |
 | 33 | backoffice ลดสต็อกตอน pos ออฟไลน์ → `409 POS_OFFLINE` (`devices.last_seen_at` > 5 นาที) | `02 §8` | 🟡 |
-| 34 | DoD k6: `POST /sales` p95 ≤ 300 ms @ 50 VU · end-to-end ≤ 800 ms บน 4G | `03 §8` | 🟡 |
+| 34 | DoD k6: `POST /sales` p95 ≤ 300 ms @ 50 VU · end-to-end ≤ 800 ms บน 4G | `03 §8` | 🟡 ยังเปิด (ตรวจ 2026-09-23) — กล่อง k6 ใน `03 §8` ยังไม่ติ๊ก → #380 |
 
 ### ❗ รอบ 3 — ตกลงไม่ได้ ต้องให้คนตัดสิน
 
@@ -518,9 +532,9 @@ ticket `sec.1` (CVE gate + OWASP checklist), job `audit` ใน `server.yml`, jo
 | A02 | Cryptographic Failures | Argon2id · RS256 + `kid` · access ใน memory · redact log (ADR-0009 addendum) · TLS ที่ Nginx | ยังไม่มี TLS config จริงเพราะยังไม่มี host (ADR-0011 / #40) |
 | A03 | Injection | TypeORM parameterized · `SET LOCAL app.tenant_id` รับค่าจาก UUID ที่ parse แล้ว · JSON body only | negative-path e2e: SQLi ทุก string field, `tid` ที่ไม่ใช่ UUID → `sec.1` |
 | A04 | Insecure Design | idempotency key (#18) · `TOTAL_MISMATCH` (§1.3) · row lock บนสต็อก · one `pos` per tenant · ADR ทั้งชุด | — |
-| A05 | Security Misconfiguration | `synchronize` false ทุกที่ · `pos_app` ไม่ใช่ owner · Redis policy ตรงกับ prod ใน CI (#38) · **ใหม่ 2026-09-09:** Redis ทั้งสองตัวมี `--requirepass` และ datastore ไม่ publish port ออก host เลย (ดูกล่องด้านล่าง) | **Helmet + CORS allowlist + Nginx hardening ยังไม่ระบุที่ไหนเลย** → `sec.1` (ลงใน #4/#14) · Trivy misconfig scan ของ Dockerfile → job `audit` |
+| A05 | Security Misconfiguration | `synchronize` false ทุกที่ · `pos_app` ไม่ใช่ owner · Redis policy ตรงกับ prod ใน CI (#38) · **ใหม่ 2026-09-09:** Redis ทั้งสองตัวมี `--requirepass` และ datastore ไม่ publish port ออก host เลย (ดูกล่องด้านล่าง) | **Helmet + CORS allowlist + Nginx hardening ยังไม่ระบุที่ไหนเลย** → `sec.1` (ลงใน #4/#14) — ✅ Helmet + CORS allowlist แก้แล้วในโค้ด (`server/src/app.setup.ts`; CORS ว่าง = throw ตอน boot, #367 / PR #373) แต่ `mob04` ยังเป็น `'*'` จนกว่าจะ re-provision (CLAUDE.md) · Trivy misconfig scan ของ Dockerfile → job `audit` |
 | A06 | Vulnerable & Outdated Components | **ใหม่:** `pnpm audit --audit-level=high` + Trivy fs (`server.yml`) · OSV-Scanner บน `pubspec.lock` (`flutter.yml`) · Dependabot **security-only** (ไม่ใช่ version bump รายสัปดาห์ — ดูกล่องด้านบน) | image scan ของ container ที่ build จริง → #40 |
-| A07 | Identification & Auth Failures | access 15 นาที / refresh ตี 4 · refresh เช็ค DB 3 ค่า · `typ` แยก access/refresh · device token opaque hash | **rate limit ต่อ user/IP บน `/auth/token` และ PIN** — #33 เป็นต่อ tenant ไม่พอ → `sec.1` เพิ่มลง #33 · e2e brute-force PIN |
+| A07 | Identification & Auth Failures | access 15 นาที / refresh ตี 4 · refresh เช็ค DB 3 ค่า · `typ` แยก access/refresh · device token opaque hash | **rate limit ต่อ user/IP บน `/auth/token` และ PIN** — #33 เป็นต่อ tenant ไม่พอ → `sec.1` เพิ่มลง #33 · e2e brute-force PIN — ✅ rate limit ต่อ IP บน login แก้แล้ว (`server/src/auth/auth.service.ts` นับทุกครั้งแบบ atomic ก่อนรู้ผล, #138) |
 | A08 | Software & Data Integrity | migration one-shot job, ไม่รันตอน boot · `--frozen-lockfile` ทุก job · `pnpm.overrides` แทนการ patch มือ | pin GitHub Actions ด้วย SHA — **ทำมือ** เพราะ Dependabot ปิด version update แล้ว → `sec.1` · image signing ไม่ทำในเฟส 1 |
 | A09 | Logging & Monitoring Failures | JSON log (pino) + health probes (#14) · **`audit_log` writer (#43)** · auth events ทุกตัวลง audit | alerting ไม่มี (ไม่มี host) · `GET /audit` สำหรับ owner เป็น slice หลัง |
 | A10 | SSRF | ไม่เกี่ยว — server ไม่ fetch URL ที่ผู้ใช้กำหนด (export สร้างลิงก์ขาออกเท่านั้น) | — |

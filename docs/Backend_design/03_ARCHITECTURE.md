@@ -7,6 +7,12 @@
 > **Nginx (LB) → NestJS ≥3 instances → PostgreSQL (TypeORM) + Redis (cache) + BullMQ (queue), JWT stateless, Docker Compose**
 > ที่ต่างกันคือ **"ข้อมูลตัวจริงอยู่ที่ไหน"** และ **"ตอนเน็ตล่มเกิดอะไรขึ้น"**
 >
+> *(แก้ 2026-09-23 — สแตกที่รันจริงมีเพิ่มจากบรรทัดบน ตาม [ADR-0013](adr/0013-cicd-toolchain.md):
+> `etcd` เก็บ dynamic config ที่ไม่ใช่ความลับ (`RuntimeConfigService`, แอป boot ได้แม้ไม่มี etcd) +
+> overlay monitoring `deploy/compose/monitoring.yml` = Prometheus + Grafana + node-exporter ·
+> service จริงใน `server/docker-compose.yml`: `nginx`, `api-1..3`, `worker`, `bull-board`, `postgres`,
+> `redis-cache`, `redis-queue`, `etcd` + one-shot `certgen`/`htpasswd-gen`/`migrate`/`etcd-init`)*
+>
 > 📚 **ต้องการปูพื้นฐานสถาปัตยกรรม & เจาะลึก Concurrency / Caching?**
 > อ่าน [`architecture-primer.md`](architecture-primer.md) (18 ศัพท์สำคัญ, Optimistic vs Pessimistic vs Distributed vs Row Lock, Stock Overlay, Single-Flight Memo, Jitter) และสเปกอ้างอิง [`architecture.md`](architecture.md)
 
@@ -80,7 +86,11 @@ flowchart TB
 > | | ใน **A** | ใน **C** |
 > |---|---|---|
 > | บทบาท | **read cache อย่างเดียว** ไม่มี write path ไม่มี business logic | read cache + **outbox** |
-> | cache อะไร | `products` (+`offlineOk`, `cached_stock`), `categories`, `customers`, `mechanics`, `settings` | ชุดเดียวกันเป๊ะ |
+> | cache อะไร | `products` (+~~`offlineOk`~~, `cached_stock`), `categories`, `customers`, `mechanics`, `settings` | ชุดเดียวกันเป๊ะ |
+>
+> *(แก้ 2026-09-23: `Products.offlineOk` ถูกลบจาก Drift แล้วใน schema v7 — #272, merge ผ่าน PR #310 —
+> ตาม 08 E10 · Drift ปัจจุบันคือ schema v11 (`frontend/lib/data/db/database.dart:72`) และใน C มีตาราง
+> `OutboxOps` แล้ว (`frontend/lib/data/db/tables.dart:430`))*
 > | **ไม่** cache | sales, returns, PO, quotes, shifts, movements, reports — ยิงสดทุกครั้ง | เหมือนกัน |
 > | refresh ยังไง | `?updatedSince=<iso>` ไม่ใช่โหลดใหม่ทั้งก้อน | เหมือนกัน |
 >
@@ -100,6 +110,13 @@ src/
   shifts/       reports/      backup/      tenancy/  (guard + interceptor)
   common/       (filters, interceptors, idempotency, cache, health)
 ```
+
+> *(แก้ 2026-09-23 — ผังข้างบนเป็นร่างแรก ของจริงใน `server/src/` ไม่มีโมดูล `tenancy/` และ**ไม่มี
+> tenant interceptor**: `TenantGuard` อยู่ที่ `common/guards/tenant.guard.ts`, `TenantService.runTx(fn)`
+> อยู่ที่ `common/database/tenant.service.ts`, `TenantScopeMiddleware` ที่ `common/tenant-scope.middleware.ts`
+> (ADR-0003 amendment) · โมดูลที่มีจริงเพิ่มจากผัง: `audit/ config/ db/ devices/ documents/ health/
+> idempotency/ infra/ metrics/ parked-sales/ people/ platform/ queue/ rate-limit/ review-items/
+> settings/ sync/`)*
 
 ### ข้อดี
 * **ง่ายที่สุด และตรงกับที่ทีมเพิ่งเรียนมาที่สุด** — เอา pattern จาก Flash Sale assignment มาใช้ได้แทบ 1:1
@@ -223,7 +240,7 @@ flowchart LR
       UI["Flutter UI"] --> API["ApiRepository<br/>(interface เดิมของ 13 repos)"]
       API -->|online| HTTP["HTTP client"]
       API -->|offline| OB[["Outbox (Drift)"]]
-      CACHE[("Drift = read cache<br/>products + offlineOk<br/>categories/customers/mechanics/settings")]
+      CACHE[("Drift = read cache<br/>products (offlineOk ลบแล้ว v7)<br/>categories/customers/mechanics/settings")]
       API --- CACHE
     end
     HTTP --> NG["Nginx"]
@@ -271,7 +288,7 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 ### ข้อดี
 * 🟢 ได้ **ทั้งความเรียบง่ายของ A** (สต็อกมีเจ้าของชัดเจน) **และความอึดของ B** (เน็ตล่มยังขายได้)
 * ~~**ลดโอกาส conflict ลงมากโดยไม่เพิ่ม state ฝั่ง server เลย** — `offlineOk` เป็นแค่ boolean ที่ derive ได้~~ *(D3 — ความขัดแย้งถูกจำกัดด้วย `pos` เครื่องเดียวแทน)*
-* ทำเป็นเฟสได้: **เฟส 1 = A ล้วน** (ส่งอาจารย์ได้แล้ว) → **เฟส 2 ค่อยเติม outbox + `offlineOk`**
+* ทำเป็นเฟสได้: **เฟส 1 = A ล้วน** (ส่งอาจารย์ได้แล้ว) → **เฟส 2 ค่อยเติม outbox + ~~`offlineOk`~~** *(แก้ 2026-09-23: `offlineOk` ยกเลิก D3/E10 — เฟส 2 = outbox + `pos` เครื่องเดียวเป็นผู้เขียนออฟไลน์, ADR-0004)*
 * ขอบเขตของ "สิ่งที่ทำตอนออฟไลน์ได้" ชัดเจน → test ได้ครบจริง (ต่างจาก B ที่ทำได้ทุกอย่าง = test ไม่หมด)
 * ยัง demo ให้อาจารย์เห็นครบทุก requirement (LB, cache, queue, JWT, k6) เพราะ path หลักคือ A
 
@@ -357,16 +374,27 @@ offlineOk = stock >= max(5, 3 × qty เฉลี่ยต่อบิลขอ�
 > TypeORM transaction วิ่งเข้า master เสมอ → replica ในไดอะแกรมจะไม่ได้รับ traffic
 > **ทางเลือกที่แนะนำ: เฟส 1 ยังไม่ต้องมี replica** (ร้านเดียวไม่ต้องใช้) แล้วค่อยแก้ตอนโหลดจริงเริ่มขึ้น
 >
+> *(แก้ 2026-09-23: หลัง ADR-0003 amendment ทรานแซกชันไม่คลุมทั้ง request แล้ว แต่อยู่ใน handler ผ่าน
+> `TenantService.runTx(fn)` — ข้อสรุปเรื่อง replica ไม่เปลี่ยน เพราะทุกการแตะตารางของร้านยังต้องผ่าน `runTx`
+> ซึ่งวิ่งเข้า primary · compose ปัจจุบันไม่มี replica)*
+>
 > **3. BullMQ worker ทำ tenant รั่วได้ง่ายกว่าที่คิด** — ถ้า job throw นอก transaction
 > ค่า `app.tenant_id` จะค้างบน connection ใน pool แล้ว job ของร้านถัดไปสืบทอด tenant ผิด
 > → **บังคับให้ทุก job body ห่อ transaction เสมอ** ไม่มีข้อยกเว้น
+> *(แก้ 2026-09-23: ทำแล้วเป็น `TenantJobRunner` — `server/src/queue/tenant-job-runner.ts` — ซึ่งเช็คสถานะร้าน
+> ก่อนรัน job และมี commit-ceiling guard 25 s แบบเดียวกับ `runTx`)*
+
+> *(แก้ 2026-09-23 — ไดอะแกรมล่างตาม ADR-0003 amendment, Accepted มีผลตั้งแต่ `tx.4` 2026-09-14:
+> `TenantGuard` แค่ตัดสิน + `setRequestTenant()` ลง request scope; **`runTx(fn)` ใน handler** เป็นคน
+> `set_config('app.tenant_id', …, true)` — ไม่มี `TenantInterceptor` และ `runTx` ไม่รับ tenant id)*
 
 ```mermaid
 flowchart LR
   R1["ร้าน A"] --> J["JWT: sub=user, tid=A"]
   R2["ร้าน B"] --> J2["JWT: sub=user, tid=B"]
-  J & J2 --> GD["TenantGuard<br/>+ SET LOCAL app.tenant_id"]
-  GD --> PG[("PostgreSQL<br/>RLS filter อัตโนมัติ")]
+  J & J2 --> GD["TenantGuard<br/>เช็ค tenants.status<br/>+ setRequestTenant()"]
+  GD --> TX["Handler → TenantService.runTx(fn)<br/>BEGIN + set_config('app.tenant_id', …, true)"]
+  TX --> PG[("PostgreSQL<br/>RLS filter อัตโนมัติ")]
   GD --> RC[("Redis<br/>key = t:{tid}:*")]
   style PG fill:#1e3a5f,color:#fff
   style RC fill:#7f1d1d,color:#fff
@@ -388,6 +416,9 @@ flowchart LR
 | ตรงกับ requirement อาจารย์ | ✅ ตรงเป๊ะ | 🟡 sync ไม่อยู่ในคอร์ส | ✅ path หลักตรง |
 | เสี่ยงต่อธุรกิจร้าน | 🔴 หยุดขายเมื่อเน็ตล่ม | 🟡 เงินอาจไม่ตรง | 🟢 ต่ำสุด |
 | ทำเป็นเฟสได้ไหม | – | ❌ ต้องคิดครบตั้งแต่แรก | ✅ A ก่อน แล้วเติมทีหลัง |
+
+*(หมายเหตุ 2026-09-23: คำว่า "โควตา" ในคอลัมน์ C คือ scarcity rule ซึ่งยกเลิกแล้ว (08 D3) — ของจริงเฟส 2
+กันความขัดแย้งด้วย `pos` เครื่องเดียวต่อร้านเป็นผู้เขียนออฟไลน์ (ADR-0004) · ตารางคงไว้เป็นเหตุผลตอนเลือก)*
 
 > ### 📌 หมายเหตุเรื่องตัวเลข effort (แก้แล้วหลัง review)
 > เวอร์ชันแรกเขียน 100 / 180 / 125% ซึ่ง **คำนวณผิดทิศ** เพราะ:
@@ -444,7 +475,7 @@ sync engine ที่ทำไม่จบคือแหล่งของ "เ
 > | | ทำอะไร |
 > |---|---|
 > | **เฟส 1** | ส่งอาจารย์บน **tenant สาธิต** ที่ import ข้อมูลจริงเข้าไป (พิสูจน์ integrity ได้ครบ)<br/>**เครื่องหน้าร้านยังรัน Drift build เดิมต่อไปตามปกติ** |
-> | **เฟส 2** | เติม offline shell (outbox + `offlineOk`) ให้ครบก่อน **แล้วค่อย cutover** |
+> | **เฟส 2** | เติม offline shell (outbox + ~~`offlineOk`~~) ให้ครบก่อน **แล้วค่อย cutover** *(แก้ 2026-09-23: `offlineOk` ยกเลิก 08 D3/E10 · cutover ร้านจริงจากนอกมหาวิทยาลัยย้ายไปเฟสถัดไป #231 — ดู §8 "เครื่องที่รันจริง")* |
 >
 > ถ้าทีมยืนยันจะ cutover ตั้งแต่เฟส 1 → **เจ้าของร้านต้องเป็นคนตัดสินใจเอง**
 > และต้องเตรียม 4G สำรอง + ขั้นตอน "เน็ตล่มให้เขียนบิลมือ" ไว้ก่อน
@@ -475,7 +506,7 @@ gantt
     k6 load test + tuning                      :p10, after p9b, 4d
     section เฟส 2 — Offline shell (ส่วนเพิ่มของ C)
     Flutter ApiRepository (write-through cache) :q1, after p5, 20d
-    Outbox + SyncService + offlineOk           :q2, after p10, 10d
+    Outbox + SyncService (offlineOk ยกเลิก)    :q2, after p10, 10d
     หน้าจอ reconciliation + คู่มือร้าน          :q3, after q2, 5d
     Cutover ร้านจริง                            :q4, after q3, 3d
 ```
@@ -498,10 +529,22 @@ gantt
 > ~~**งานที่ต้องแทรกก่อนทุกอย่าง:** เพิ่ม `updatedAt` + `deletedAt` ให้ `customers` / `mechanics` /
 > `settings` ใน Drift~~ — **ทำแล้ว 2026-09-04** (Drift schema v2, ADR-0008) งานที่เหลือฝั่ง Drift คือ
 > **schema v3** ก่อน `q1` เสร็จ: `Sales.shiftId`, `Shifts.id → TEXT`, `Products.offlineOk` (ADR-0010 ข้อ 2)
+> *(แก้ 2026-09-23: schema v3 ลงแล้ว (#53) · `Products.offlineOk` ที่เพิ่มใน v3 ถูกลบอีกครั้งใน v7 (#272, PR #310)
+> · Drift ปัจจุบัน v11 และ schema bump ทุกครั้งเป็นของเลน B ตาม `09_PHASE2_LANES.md`)*
 >
 > **งาน `p3c` ต้องรวม device enrolment** (`POST /devices`, `POST /auth/device`, `/retire`,
 > `deviceToken` ใน `/auth/token`) ตาม ADR-0004 "การผูกเครื่อง" — ไม่ใช่แค่ guard ตรวจ `drole`
 > และ **`p5` ต้องมีตัวออกเลขเอกสารฝั่ง server** (ADR-0007: เฟส 1 server ออกทุกเลข)
+
+> ### 📍 สถานะจริงเทียบ Gantt (ตรวจ 2026-09-23 — อย่าเชื่อข้อนี้โดยไม่นับกล่อง DoD ข้างล่างใหม่)
+> | งาน | สถานะ |
+> |---|---|
+> | `p1`–`p9b` | **ลงแล้ว** — server + RLS + transaction/idempotency seam (handler-scoped, ADR-0003 amendment) + ทั้ง 3 เลน · `/metrics` + Prometheus/Grafana ลง 2026-09-21 |
+> | `p10` k6 | 🔴 **ยังไม่มีตัวเลขวัดจริงเลย** — วิธีวัดเคาะแล้ว (§8.1) การรันจริงคือ **#380** |
+> | `q1` ApiRepository | **ลงแล้ว** (`fe.0`–`fe.3`) — ยัง opt-in ด้วย `--dart-define=USE_API_WRITES=true` (#56) |
+> | `q2` outbox + SyncService | **เริ่มแล้ว ยังไม่ปิด** — มี `OutboxOps` (Drift), `frontend/lib/data/sync/`, `server/src/sync/` · ลำดับใบที่เหลือดู `CLAUDE.md` / #243 lanes (`09_PHASE2_LANES.md`) |
+> | `q4` cutover | **ย้ายไปเฟสถัดไป** (#231, เคาะ 2026-09-15 #242) — ร้านยังรัน Drift build เดิม ไม่มี cutover |
+> | CI/CD | level 1–3 ลงแล้ว · level 4 (deploy ไป `mob04` + monitoring + etcd) **ลงบางส่วน** — 🔴 CD ไป `mob04` **ติด FortiGate ของคณะ** (2026-09-21, ดูหัวข้อ "เครื่องที่รันจริง" ด้านล่าง) · deploy จริงครั้งแรก #343 ยังไม่มี AC ไหนติ๊ก (→ demo #344) |
 
 **เกณฑ์ปิดเฟส 1 (definition of done):**
 - [x] `docker compose up` ครั้งเดียวได้ครบ Nginx + NestJS×3 + Postgres + Redis + worker + Bull-Board — **#14 `p1` 2026-09-06**
@@ -541,6 +584,10 @@ gantt
   SSH tunnel
 * 🔴 **`/platform/*` ต้องกันไม่ให้ออกอินเทอร์เน็ต** (internal network / allowlist IP) — แนวเดียวกับ
   Bull-Board ด้านบน endpoint กลุ่มนี้เห็น/แก้ได้ทุกร้าน พลาดครั้งเดียว = รั่วทั้งแพลตฟอร์ม (ADR-0002)
+  *(แก้ 2026-09-23 — ทำแล้วใน #270/PR #308: path จริงคือ **`/api/v1/platform/`** (มี global prefix)
+  Nginx `allow` แค่ loopback แล้ว `deny all` (`server/docker/nginx/nginx.conf:87-95`) และแอปเช็คซ้ำด้วย
+  `PLATFORM_ADMIN_IPS` (`server/src/platform/platform-auth.guard.ts`) · IP แอดมินจากนอกเครื่องยังเป็น
+  `TODO(owner)` ใน `nginx.conf`)*
 * 🔴 **JWT TTL + revoke — เคาะแล้ว ([ADR-0009](adr/0009-jwt-session-lifetime.md))** — access 15 นาที,
   refresh หมดอายุ 04:00 ตาม `tenants.timezone`, `/auth/refresh` เช็ค `users.is_active` +
   `tenants.status` + `devices.retired_at` จาก DB ทุกครั้ง **ไม่มี refresh rotation ไม่มี denylist ใน Redis**
@@ -552,7 +599,19 @@ gantt
 * ห้าม `synchronize: true` ใน production, ใช้ migration เท่านั้น
 * ห้าม log เลขบัตร/เบอร์โทร/ชื่อลูกค้าเต็ม (PDPA)
 
-**เครื่องที่รันจริง — ยังไม่เคาะ (2026-09-04):**
+**เครื่องที่รันจริง — ยังไม่เคาะ (2026-09-04):** *(แก้ 2026-09-23: เคาะแล้ว = `mob04` ดูข้อที่ขีดฆ่าด้านล่าง)*
+
+> 🔴 **สถานะ deploy 2026-09-23 — ห้ามอ้างว่า deploy/CD/backup เสร็จ:**
+> * **CD ไป `mob04` ติดเครือข่ายคณะ ไม่ใช่ติดโค้ดใน repo** (2026-09-21) — FortiGate ของคณะทำ SSL deep
+>   inspection แล้วตอบ `ghcr.io` ด้วย cert ของตัวเองที่ไม่มี SAN → `docker compose pull` ล้ม `x509` ·
+>   ทางแก้จริงทางเดียวคือฝ่ายเครือข่ายยกเว้น `ghcr.io` (+ `registry-1.docker.io`, `gcr.io`) ให้ VM ·
+>   ทั้งทาง Ansible มือ (#335 D9) และ self-hosted runner (#67 — workflow merge แล้ว แต่ยังไม่ติดตั้งบน VM)
+>   ตายพร้อมกัน · `docker save`/`load` มือ = กู้สถานการณ์วัน demo **ไม่ใช่ CD** · หลักฐาน:
+>   `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`
+> * `deploy` job ของ `deploy.yml` ต้องผ่าน **required reviewer ของ Environment `demo`** ก่อนถึง VM
+>   (ADR-0013 addendum 2026-09-21, #366) · run ที่เขียวไม่ใช่หลักฐานว่า deploy — ดู `/opt/pos/.current_sha` บน VM
+> * **backup ยังไม่ออกจาก VM เลย** — `backup-db.sh` มีกลไก offsite (`rclone`) แต่ยังไม่ต่อสาย และ #363/#288
+>   **พักไว้จนหลัง demo** (เจ้าของ 2026-09-22) · ปลายทางเคาะแล้วว่าเป็น NAS ของร้าน แต่ protocol ยังไม่เคาะ
 * เฟส 1 รันบน **VM ของคณะ (Docker)** — ใช้สำหรับ**สาธิต/ส่งงานเท่านั้น**
 * โควตาที่คณะให้ (ดู 2026-09-04): **4 vCPU · 6 GB RAM · disk 50 GB (จัดสรรแล้ว 30 GB)** — ใช้โควตา
   CPU/RAM เต็มแล้ว ขยายไม่ได้ · สแตกเฟส 1 ทั้งชุดกินราว 3–3.5 GB จึงพอ แต่ให้ใส่ `mem_limit`
@@ -587,8 +646,10 @@ tunnel ก็วัดได้แค่ tunnel; หลักฐานทั้�
 `perip` ของตัวเอง **ไม่มีข้อยกเว้นให้ `perip`** — ผลรวมสตรีมเข้า Prometheus ของ VM ผ่าน
 `--web.enable-remote-write-receiver` แล้วดูรวมกันใน Grafana:
 * `deploy/compose/monitoring.yml`: `prometheus` เปิด `--web.enable-remote-write-receiver`
-* `server/docker/nginx/nginx.conf`: `location /prometheus-remote-write/` — allowlist (RFC1918 +
-  campus CIDR ที่ owner ต้องเติม) **และ** HTTP Basic Auth (`satisfy all` ของ Nginx โดย default)
+* `server/docker/nginx/nginx.conf`: `location = /prometheus-remote-write/api/v1/write` *(แก้ 2026-09-23:
+  ของจริงเป็น exact match เฉพาะ endpoint เขียน ไม่ใช่ prefix — path อื่นใต้ prefix นี้ตอบ `404`,
+  `nginx.conf:113-148`)* — allowlist (RFC1918 + campus CIDR ที่ owner ต้องเติม — **ยังเป็น `TODO(owner)`
+  ณ 2026-09-23**) **และ** HTTP Basic Auth (`satisfy all` ของ Nginx โดย default)
   proxy ไปที่ `prometheus:9090` แบบ resolve เฉพาะตอนมี request (`resolver` + ตัวแปร) ไม่ใช่ที่
   startup — Nginx เองจึงยัง start ได้ปกติแม้ไม่มี monitoring overlay (dev/CI)
 * `server/docker-compose.yml`: `htpasswd-gen` (one-shot, เหมือน `certgen`) สร้าง htpasswd จาก

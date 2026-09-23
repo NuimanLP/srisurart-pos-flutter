@@ -2,6 +2,7 @@
 
 **สถานะ:** เจ้าของเคาะ 2026-09-16 · **ทาง C** (ผ่าฮับตามฝั่ง client/server) + ปรับตามความถนัดของทีม
 · ผ่าน `/scrutinize` หนึ่งรอบ (บันทึกที่ §11)
+**สถานะ 2026-09-23:** 32 จาก 35 ใบ merge แล้ว (รายใบ + PR ที่ §12) · lane A ครบ 3 ใบ 2026-09-17 · ที่เหลือคือ ops ของ lane C (22/23/25) · map #243 ปิด 2026-09-22 · ส่วนที่เหลือของไฟล์นี้คงไว้ตามที่เจ้าของเคาะ — เป็นบันทึกแผน ไม่ใช่สถานะปัจจุบัน
 **ต้นทาง:** [`08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md) §16 · [`handoff_log/phase2-wayfinder-spec-2026-09-15.md`](../handoff_log/phase2-wayfinder-spec-2026-09-15.md) §5 · map [#243](https://github.com/NuimanLP/srisurart-pos-flutter/issues/243) · decisions [#240](https://github.com/NuimanLP/srisurart-pos-flutter/issues/240)
 
 > ไฟล์นี้บอก **ใครทำอะไร ลำดับไหน และเส้นแบ่งอยู่ตรงไหน** · *อะไร* อยู่ที่ `08`
@@ -44,18 +45,18 @@ A เบาโดยตั้งใจ (เจ้าของสั่ง) แ�
 
 | slice | ticket | เนื้อใน | บล็อกโดย |
 |---|---|---|---|
-| 0c | #268 `copy.phase2` (F10) | **ใบแรกของ A** — เป็นคิวเดียวในแผนที่รอ *คน* · ร่างข้อความไทย 2–3 แบบต่อข้อ (รายการใน `08 §18 Q1`) → เจ้าของเลือก (Option A, 2026-09-17) → ลง `02 §8.1` · เพิ่ม mapping ของ 5 code ใหม่ใน `frontend/lib/core/network/server_error_resolver.dart` (`DOC_NUMBER_REQUIRED` `DOC_NUMBER_INVALID` `VOID_NEEDS_ONLINE` `CLIENT_ID_REUSED` `DEVICE_HAS_UNSYNCED_OPS`) · **ห้ามคิดคำเอง** ต้องให้เจ้าของเลือก | – |
-| 0d | **NEW** `sync.seam` | **contract ทั้งสองเส้น** ในใบเดียว: (1) `frontend/lib/data/sync/sync_facade.dart` ตาม §4.2 — abstract + โมเดล (**มี `payload`**) + **`NullSyncFacade` ใช้จริงตอนรันไทม์** + ลงทะเบียนใน `repository_providers.dart` (2) `frontend/test/support/fake_sync_facade.dart` (3) **`docs/Backend_design/fixtures/sync-push/*.json`** ตาม §4.1 · ไม่มี logic ทั้งใบ | – |
-| 24 | **NEW** `sec.platform-allowlist` | `nginx.conf`: `/api/v1/platform/` เหลือ loopback + IP admin · เช็ค IP ซ้ำใน `PlatformAuthGuard` (กันคนที่ข้าม nginx) · **+ `location = /sw.js` ใส่ `Cache-Control: no-cache`** (`08 §4` ข้อ 8 — B ต้องใช้ใน slice 3 แต่ไฟล์นี้เป็นของ A) · `nginx -t` + e2e ใน `server.yml` | – |
+| 0c | #268 `copy.phase2` (F10) ✅ **merge แล้ว** (PR #305, 2026-09-17) | **ใบแรกของ A** — เป็นคิวเดียวในแผนที่รอ *คน* · ร่างข้อความไทย 2–3 แบบต่อข้อ (รายการใน `08 §18 Q1`) → เจ้าของเลือก (Option A, 2026-09-17) → ลง `02 §8.1` · เพิ่ม mapping ของ 5 code ใหม่ใน `frontend/lib/core/network/server_error_resolver.dart` (`DOC_NUMBER_REQUIRED` `DOC_NUMBER_INVALID` `VOID_NEEDS_ONLINE` `CLIENT_ID_REUSED` `DEVICE_HAS_UNSYNCED_OPS`) · **ห้ามคิดคำเอง** ต้องให้เจ้าของเลือก | – |
+| 0d | #269 `sync.seam` ✅ **merge แล้ว** (PR #307, 2026-09-17 — 18 fixture) | **contract ทั้งสองเส้น** ในใบเดียว: (1) `frontend/lib/data/sync/sync_facade.dart` ตาม §4.2 — abstract + โมเดล (**มี `payload`**) + **`NullSyncFacade` ใช้จริงตอนรันไทม์** + ลงทะเบียนใน `repository_providers.dart` (2) `frontend/test/support/fake_sync_facade.dart` (3) **`docs/Backend_design/fixtures/sync-push/*.json`** ตาม §4.1 · ไม่มี logic ทั้งใบ | – |
+| 24 | #270 `sec.platform-allowlist` ✅ **merge แล้ว** (PR #308, 2026-09-17 — + job `nginx-check`) | `nginx.conf`: `/api/v1/platform/` เหลือ loopback + IP admin · เช็ค IP ซ้ำใน `PlatformAuthGuard` (กันคนที่ข้าม nginx) · **+ `location = /sw.js` ใส่ `Cache-Control: no-cache`** (`08 §4` ข้อ 8 — B ต้องใช้ใน slice 3 แต่ไฟล์นี้เป็นของ A) · `nginx -t` + e2e ใน `server.yml` | – |
 
 ### lane B — `team/2` LomerAlloys · ฝั่งเครื่อง
 
 | slice | ticket | เนื้อใน | บล็อกโดย |
 |---|---|---|---|
 | 0a | #245 ✅ **เสร็จแล้ว** (PR #267, 2026-09-16) | asset skew: `sqlite3.wasm` 3.3.3 → 3.4.0, `drift_worker.js` 2.34.0 → 2.34.1 ให้ตรง `pubspec.lock` + assertion ใน `flutter.yml` | – |
-| 0a′ | #266 🔴 **ใหม่ — เจอตอนตรวจ 0a** | **web DB ไม่บูตเลย** ในเบราว์เซอร์ที่ไม่มี `dedicatedWorkersInSharedWorkers`: `LinkError … "xFileControl": function import requires a callable` กับคู่ asset ที่ตรงเวอร์ชันแล้ว (ไม่ใช่ปัญหา skew) · ต้องแก้ก่อน PWA เพราะ offline shell ต้องเปิด DB ได้ | 0a |
+| 0a′ | #266 — เจอตอนตรวจ 0a · ✅ แก้ใน PR #310 (2026-09-17, stub `xFileControl`) · issue ปิด 2026-09-19 | **web DB ไม่บูตเลย** ในเบราว์เซอร์ที่ไม่มี `dedicatedWorkersInSharedWorkers`: `LinkError … "xFileControl": function import requires a callable` กับคู่ asset ที่ตรงเวอร์ชันแล้ว (ไม่ใช่ปัญหา skew) · ต้องแก้ก่อน PWA เพราะ offline shell ต้องเปิด DB ได้ | 0a |
 | 0b | **NEW** `fe.fonts` | bundle Sarabun/Barlow เป็น asset · `GoogleFonts.config.allowRuntimeFetching = false` (flutter#163554) | – |
-| 18 | **NEW** `fe.drop-offlineok` | ลบ `Products.offlineOk` (`tables.dart:33`) → **Drift schema v7** + `onUpgrade` · แก้ `api_products_repository.dart:37,55`, `bootstrap_service.dart:188` · Postgres ไม่มีคอลัมน์นี้ (X1) · CI `build_runner` no-diff คือตัวตรวจ · **ทำก่อน PR อื่นที่แตะ schema** (§6 กติกา schema) | – |
+| 18 | #272 `fe.drop-offlineok` ✅ **merge แล้ว** (PR #310, 2026-09-17 · Drift v7) | ลบ `Products.offlineOk` (`tables.dart:33`) → **Drift schema v7** + `onUpgrade` · แก้ `api_products_repository.dart:37,55`, `bootstrap_service.dart:188` · Postgres ไม่มีคอลัมน์นี้ (X1) · CI `build_runner` no-diff คือตัวตรวจ · **ทำก่อน PR อื่นที่แตะ schema** (§6 กติกา schema) | – |
 | 3 | **NEW** `pwa.1` | ⚠️ ต้องแก้ #266 (0a′) ก่อน ไม่งั้น DB ไม่บูตอยู่ดี · SW เขียนเอง (Workbox) · precache shell + `sqlite3.wasm` + `drift_worker.js` + CanvasKit ในเครื่อง · build `--no-web-resources-cdn` · cache = `github.sha` ลบของเก่าตอน activate · **ถามก่อนโหลดรุ่นใหม่ ห้าม `skipWaiting` อัตโนมัติ** · `storage.persist()` + บันทึก `persisted()` · Web Locks แท็บเดียว + หน้า "เปิดอยู่แล้ว" (`08 §4`) · header `no-cache` ของ `/sw.js` มากับ A/24 — ถ้ายังไม่ลง ให้ทดสอบด้วย nginx ในเครื่อง อย่าแก้ `nginx.conf` | 0a′, 0b |
 | 4-c | **NEW** `num.1-client` | เครื่อง `pos` ออก RC/CN จาก `DocCounters` (key `deviceId`, #188) · period = **นาฬิกาเครื่องเท่านั้น** · ขึ้นเดือนใหม่ออฟไลน์ = `0001` · `9999` → `DOC_NUMBER_EXHAUSTED` ไม่วนกลับ · เลขถูกใช้เมื่อ 2xx หรือเข้าคิว (C8) · migration ล้าง `doc_counter_seeds` ตอนอัปเกรด (C16) | 18 |
 | 5 | #189 **แก้ AC** | ไม่มี seed marker (เพิ่ง enrol หรือเพิ่งอัปเกรด) → **ห้ามออกเลขออฟไลน์** ปฏิเสธก่อนเขียน/ก่อนพิมพ์ | 4-c |
@@ -87,9 +88,9 @@ A เบาโดยตั้งใจ (เจ้าของสั่ง) แ�
 | 19 | #195 **แก้ AC** (FE) | แถบสถานะ Online / Degraded / Syncing (อ่านจาก `SyncFacade`) + ป้าย "มีรายการรอ owner" · คู่มือร้าน รวมวิธีคีย์บิลใหม่มือเมื่อ storage หาย — **ได้เลขใหม่ ไม่ใช่เลขบนใบเดิม เขียนเลขเดิมในหมายเหตุ** (X7) · ⚠️ ticket เดิมเขียน "ป้ายเทาขายออฟไลน์ไม่ได้" — **ตัดทิ้ง** (ไม่มี `offlineOk` แล้ว) | 16, **0c ของ lane A (soft)** |
 | 21 | #192 **แก้ AC** (FE) | หน้าจัดการเครื่อง (รายการ, enrol, retire, สถานะ op ค้าง) · ใช้/ขยาย `widgets/device_enrolment_dialog.dart` ที่มีอยู่แล้ว · **re-enrol = `device_no` ใหม่เสมอ** · ⚠️ ticket เดิมเสนอ "ออกโค้ดใหม่คงเลขเดิม" ขัด F8 — ตัดทิ้ง · แก้ป้ายชื่อเครื่อง = เฟสถัดไป | 2, 4-s |
 | 20-s | #193 (ครึ่ง server) **แก้ AC** | e2e `/sync/push` จาก fixture §4.1 ใน `server.yml`: B1 (บิล commit แล้วตอบหาย → `applied` + `audit_log` แถวเดียว) · B2 (ลบ `idempotency_keys` แล้ว push **ทุก type** → `applied` เงิน/สต็อกไม่ขยับซ้ำ) · B3 (op N ติด → N+1 `retry` ไม่ประมวลผล) · ไม่มี user active = 403 · `idempotency-routes.spec.ts` ครอบ `/sync/push` | 8-s, **11-s** (`sale.void_offline` อยู่ใน "ทุก type") |
-| 22 | #184 | deploy `mob04` + วัด RSS ต่อ container **ขณะมีโหลด** (เพดาน 6 GB) · k6 หลายเครื่อง `SHARD=i/N` ตาม #257 | – |
-| 23 | **NEW** `ops.backup` | `pg_dump --create` รายวันส่งออกนอก VM + ซ้อม restore 1 ครั้ง · `--create` พา `ALTER ROLE pos_app IN DATABASE … SET` (#213) มาด้วย — `pg_dumpall --roles-only` ไม่พา · หลัง restore `DbModule` ต้องไม่เตือน | 22 |
-| 25 | #67 (ใบใหม่ `cd.2-run`) | ติดตั้ง self-hosted runner + job-started hook + `pos-deploy` wrapper บน `mob04` ตาม `07 §6.2` แล้ว**พิสูจน์ AC ด้วย run จริง** (push `main` → `.current_sha` ใหม่ · job จาก branch อื่น/fork ถูกปฏิเสธ · playbook fail → rollback อัตโนมัติ run ยังแดง) | 22 |
+| 22 | #184 | deploy `mob04` + วัด RSS ต่อ container **ขณะมีโหลด** (เพดาน 6 GB) · k6 หลายเครื่อง `SHARD=i/N` ตาม #257 · 🔴 **2026-09-23:** #184 ถูกเจ้าของปิด 2026-09-21 โดยไม่มี AC ติ๊ก (ห้ามเปิดใหม่) → การวัดย้ายไป **#380** · deploy จริง #343/#344 · วิธีวัดยืนยันใน #251 (`03 §8.1`) | – |
+| 23 | #288 `ops.backup` · 🔴 **2026-09-23: เปิดอยู่** (reopen 2026-09-21) · offsite แยกไป #363 — **พักไว้หลังเดโม `mob04`** (เจ้าของ 2026-09-22) ยังไม่มี backup ออกนอก VM | `pg_dump --create` รายวันส่งออกนอก VM + ซ้อม restore 1 ครั้ง · `--create` พา `ALTER ROLE pos_app IN DATABASE … SET` (#213) มาด้วย — `pg_dumpall --roles-only` ไม่พา · หลัง restore `DbModule` ต้องไม่เตือน | 22 |
+| 25 | #67 (ใบใหม่ `cd.2-run`) · 🔴 **2026-09-23:** issue ปิดแล้ว (PR #348) แต่ runner ยังไม่ได้ติดตั้งบน `mob04` — AC run จริงยังไม่พิสูจน์ · ติด FortiGate ของคณะตัด `ghcr.io` | ติดตั้ง self-hosted runner + job-started hook + `pos-deploy` wrapper บน `mob04` ตาม `07 §6.2` แล้ว**พิสูจน์ AC ด้วย run จริง** (push `main` → `.current_sha` ใหม่ · job จาก branch อื่น/fork ถูกปฏิเสธ · playbook fail → rollback อัตโนมัติ run ยังแดง) | 22 |
 
 ---
 
@@ -182,8 +183,8 @@ abstract class SyncFacade {
 
 | ไฟล์ | กติกา |
 |---|---|
-| `frontend/lib/data/db/database.dart` + `database.g.dart` + `tables.dart` | **lane B เจ้าเดียว** · ทุก schema bump อยู่ในlaneเดียว (v7 = 18, แล้ว 8-c / 4-c / 10 / 11-c / 13b เรียงกันไป) · **หนึ่ง PR หนึ่งเวอร์ชัน rebase ก่อน merge** · CI `build_runner` no-diff จะจับถ้าลืม regenerate |
-| `server/src/db/migrations/` | **จองเลขต่อ lane**: C = `1788652803xxx` · B = `1788652804xxx` (13a) · ห้ามใช้เลขซ้ำข้าม branch (🔴 `CLAUDE.md` Lane B) |
+| `frontend/lib/data/db/database.dart` + `database.g.dart` + `tables.dart` | **lane B เจ้าเดียว** · ทุก schema bump อยู่ในlaneเดียว (v7 = 18, แล้ว 8-c / 4-c / 10 / 11-c / 13b เรียงกันไป — 2026-09-23: `main` อยู่ที่ **v11**) · **หนึ่ง PR หนึ่งเวอร์ชัน rebase ก่อน merge** · CI `build_runner` no-diff จะจับถ้าลืม regenerate |
+| `server/src/db/migrations/` | **จองเลขต่อ lane**: C = `1788652803xxx` · B = `1788652804xxx` (13a) · ห้ามใช้เลขซ้ำข้าม branch (🔴 `CLAUDE.md` Lane B) · ใช้จริง (2026-09-23): C = `…3001-SingleOwnerRole` (1) · `…3002-OwnerReviewItems` (6) · `…3003-SyncPushColumns` (8-s/11-s/17) · B = `…4000-CustomersMechanicsSyncIndex` (13a) |
 | `server/src/customers/customers.service.ts` | สองครึ่งคนละ hunk: **B/13a** = keyset + `nextCursor` (บรรทัด ~95, ~107) · **C/8-s** = client id ของ `customer.create` (~150) · ใครลงก่อน rebase ให้คนหลัง |
 | `.github/workflows/server.yml` | A (24: `nginx -t` + e2e) และ C (20-s) — **เพิ่ม job ของตัวเอง ห้ามจัดโครงใหม่** · 🔴 job ใหม่ต้องถูกใส่ใน `needs` ของ `server-ci-status` ด้วย ไม่งั้นได้เขียวปลอม |
 | `.github/workflows/flutter.yml` | B เท่านั้น (0a asset assertion, 18 `build_runner` no-diff, 20-c contract test) — กติกา `flutter-ci-status` เดียวกัน |
@@ -326,8 +327,18 @@ C:  1 ──► 2 ──┐
 
 ใบที่เป็นตัวหนา = เปิดใหม่ · ที่เหลือ = ใบเดิมที่เขียน AC ใหม่ตาม `08`/`09` แล้ว
 🔴 **slice 25 ใช้ #67** (ถูกเปิดใหม่โดยอีก session วันเดียวกัน) — #289 ที่ผมเปิดไว้ถูกปิดและย้ายเนื้อไปต่อท้าย #67 แล้ว
-🔴 **0a ปิดแล้ว แต่ 0a′ #266 เพิ่งเปิด**: คู่ asset ที่ตรงเวอร์ชันแล้วยังทำให้ web DB ไม่บูตในเบราว์เซอร์ที่ไม่มี `dedicatedWorkersInSharedWorkers` — บล็อก #273 (PWA)
+~~🔴 **0a ปิดแล้ว แต่ 0a′ #266 เพิ่งเปิด**: คู่ asset ที่ตรงเวอร์ชันแล้วยังทำให้ web DB ไม่บูตในเบราว์เซอร์ที่ไม่มี `dedicatedWorkersInSharedWorkers` — บล็อก #273 (PWA)~~ · 2026-09-23: #266 แก้ใน PR #310 (issue ปิด 2026-09-19) · #273 merge แล้ว PR #322
 **ใบที่ถูกผ่าครึ่ง:** #228 = 8-client (ครึ่ง server = #283) · #212 = 13b (keyset server = #277) · #194 = 14-client (ครึ่ง server = #285) · #193 = 20-client (ครึ่ง server = #287)
+
+**สถานะ 2026-09-23** — เทียบ `gh issue view` + `git log --grep` / merge บน `main` (ไม่เชื่อ `closedByPullRequestsReferences` อย่างเดียว — หลาย PR ไม่มี closing keyword) · merge = มี PR บน `main` ไม่ได้แปลว่า AC ใน `08` ติ๊กแล้ว
+
+| lane | merge แล้ว (issue → PR) | ยังไม่จบ |
+|---|---|---|
+| **A** | #268 → #305 · #269 → #307 · #270 → #308 (ทั้งหมด 2026-09-17) | – |
+| **B** | #245 → #267 · #266 → #310 · #271 → #299 · #272 → #310 · #273, #274, #189 → #322 · #228 → #324 · #275 → #329 · #211 → #332 · #276 → #334 · #229 → #330 · #277 → #309 · #212 → #347 · #194 → #328 · #193 → #331 | – |
+| **C** | #278 → #300 · #279 → #301 · #280 → #312 · #281 → #303 · #282 → #311 · #283 → #313 · #284 → #316 · #285 → #317 · #190 → #315 · #286 → #314 · #230 → #318 · #195 → #321 · #192 → #326 · #287 → #323 | 🔴 #184 (22) ปิดโดยไม่มีการวัด → #380 · 🔴 #288 (23) เปิดอยู่ + #363 พักหลังเดโม · 🔴 #67 (25) ปิดแล้วแต่ run จริงบน `mob04` ยังไม่พิสูจน์ |
+
+ทั้งสี่ใบที่ถูกผ่าครึ่ง merge ครบทั้งสองครึ่งแล้ว — แต่เกณฑ์ข้อ "ใช้ได้กับของจริง" ต้องพิสูจน์ด้วย integration บน `main` ไม่ใช่อนุมานจากการที่ทั้งสองครึ่งปิด (§1 "integration ไม่ใช่ ticket ของใคร")
 
 ---
 

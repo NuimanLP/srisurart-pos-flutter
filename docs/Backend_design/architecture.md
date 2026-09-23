@@ -8,6 +8,12 @@
 > 3. **Strict Idempotency**: รับประกันว่าการส่งซ้ำของคำขอ (Network Glitch / Retry) จะไม่เกิดการหักเงิน ซ้ำบิล หรือตัดสต็อกเบิ้ล (#18)
 > 4. **Physical Device Role & Security**: ควบคุมเครื่องที่มีสิทธิ์เปิดลิ้นชักและออกบิลขายจริง (`role='pos'`) ตามข้อจำกัดทางกายภาพ (ADR-0004)
 
+> 🔄 **ทบทวนกับโค้ด, migration และ ADR เมื่อ 2026-09-23** — ฉบับก่อนมีคอนฟิกและโค้ดหลายก้อนที่เขียนขึ้นเองไม่ตรงกับ repo
+> (`nginx.conf`, โครงไฟล์ `server/src/`, DDL, `TenantService.runTx`, ชื่อคิว BullMQ, สถานะ idempotency, อัลกอริทึม JWT, พอร์ต Redis)
+> ทุกจุดที่แก้มีหมายเหตุ `🔄 แก้ 2026-09-23` กำกับ · **เอกสารนี้ไม่ใช่สเปก:** ขัดกับ ADR ให้ยึด ADR ([`adr/README.md`](adr/README.md)),
+> ขัดกับ schema ให้ยึด `server/src/db/migrations/` และ [`01_DATABASE.md`](01_DATABASE.md), ขัดกับคอนฟิกให้ยึด `server/docker-compose.yml` / `server/docker/nginx/nginx.conf`
+> · สถานะที่ยัง**ไม่เสร็จ**และห้ามอ่านจากเอกสารนี้ว่าเสร็จ: CD ขึ้น VM `mob04` (ติด FortiGate ของคณะ), การวัด k6 (#380), backup ออกนอก VM (#363/#288 พักไว้)
+
 ---
 
 ## 0. 🎯 Requirement Traceability & Architectural Invariants (สเปก → สถาปัตยกรรม)
@@ -16,14 +22,14 @@
 
 | # | ข้อกำหนดทางสถาปัตยกรรม | การนำไปใช้จริงในโปรเจกต์ Srisurart POS | ที่อยู่ในเอกสารนี้ |
 | :-- | :--- | :--- | :--- |
-| **1.1** | **Load Balancer & Edge**: Nginx Reverse Proxy (≥ 3 API nodes) | รัน Nginx 1 ตัว ทำหน้าที่เป็น Reverse Proxy กระจายโหลดแบบ `least_conn` ไปยัง NestJS 3 instances (`api-1`, `api-2`, `api-3`) พร้อม Rate Limiting per Tenant | §2 |
-| **1.2** | **Backend Structure**: NestJS Modular Monolith | จัดโครงสร้างแบบ Feature-based Modules ครอบคลุม 29 โมดูลหลักใน `server/src/` (198 ไฟล์) | §3 |
-| **1.3** | **Database & RLS**: PostgreSQL 16 + TypeORM + Pool Math | จัดการ Connection Pool คำนวณตายตัว 62/100 connections พร้อมบังคับใช้ Row-Level Security (RLS) ทุกตารางของ Tenant | §5, §8 |
-| **1.4** | **Caching & Invalidation**: Redis Dual-Node | แยกโหนดเด็ดขาดระหว่าง `redis-cache` (LRU 256MB สำหรับ Read Cache) และ `redis-queue` (noeviction + AOF สำหรับ BullMQ) | §8 |
-| **1.5** | **Message Queue**: BullMQ + Dedicated Worker | แยกคอนเทนเนอร์ `worker` (Concurrency 1, Pool 5) ดึงงานประมวลผลอะซิงโครนัส เช่น รายงานสรุปยอดขาย และแดชบอร์ด Bull-Board | §9 |
-| **1.6** | **Stateless Auth & Device Roles**: JWT + Device Tokens | JWT HS256 อายุสั้น 15 นาที ตรวจ `devices.retired_at` ตอน Refresh (ADR-0009) และออก Device Token ผูกบทบาท `pos`/`backoffice` จากเซิร์ฟเวอร์เท่านั้น (ADR-0004) | §4 |
-| **1.7** | **Concurrency & Race Condition Safety** | ป้องกันสต็อกติดลบและวงเงินเครดิตช่างทะลุด้วย Strict Row Lock Order (`Sale → Mechanic → Products → DocCounters → Customer`) | §6 |
-| **1.8** | **Idempotency Module**: Transactional Safety | โมดูล `IdempotencyService` ตรวจจับคำขอซ้ำด้วย SHA-256 Request Fingerprint และ Rollback การเคลมพร้อม Business Transaction | §7 |
+| **1.1** | **Load Balancer & Edge**: Nginx Reverse Proxy (≥ 3 API nodes) | รัน Nginx 1 ตัว (TLS ที่ `:443`, `:80` redirect) กระจายโหลดแบบ `least_conn` ไปยัง NestJS 3 instances (`api-1`, `api-2`, `api-3`) · Nginx จำกัด**ต่อ IP** (`perip`) ส่วนจำกัด**ต่อร้าน**อยู่ที่ NestJS guard + Redis (ADR-0006) *(🔄 แก้ 2026-09-23: เดิมเขียนว่า Nginx จำกัดต่อ tenant)* | §2 |
+| **1.2** | **Backend Structure**: NestJS Modular Monolith | จัดโครงสร้างแบบ Feature-based Modules — 29 โฟลเดอร์ใน `server/src/` (201 ไฟล์ `.ts` รวม spec, นับ 2026-09-23) | §3 |
+| **1.3** | **Database & RLS**: PostgreSQL 16 + TypeORM + Pool Math | จัดการ Connection Pool คำนวณตายตัว 62/100 connections พร้อมบังคับใช้ Row-Level Security (RLS) บน 26 ตาราง (จากทั้งหมด 29 — `tenants`/`platform_admins` เป็น global, `import_jobs` ไม่ติด RLS โดยตั้งใจ) *(🔄 แก้ 2026-09-23)* | §1.1, §5 |
+| **1.4** | **Caching & Invalidation**: Redis Dual-Node | แยกโหนดเด็ดขาดระหว่าง `redis-cache` (`allkeys-lru`, `maxmemory 192mb`, ไม่ persist) และ `redis-queue` (`noeviction` + AOF สำหรับ BullMQ) — คอนเทนเนอร์ละ `mem_limit 256m` | §8 |
+| **1.5** | **Message Queue**: BullMQ + Dedicated Worker | แยกคอนเทนเนอร์ `worker` (`node dist/worker.js`, Pool 5) ดึงงานจากคิว `sale-post`, `inventory`, `maintenance`, `backup`, `tenant-import`, `dlq` · ดูคิวผ่าน Bull-Board (`127.0.0.1:3100` + Basic Auth) *(🔄 แก้ 2026-09-23: เดิมอ้างคิว "รายงานสรุปยอดขาย" ที่ไม่มีอยู่จริง)* | §9 |
+| **1.6** | **Stateless Auth & Device Roles**: JWT + Device Tokens | JWT **RS256** อายุ access 15 นาที ตรวจ `devices.retired_at` ตอน Refresh (ADR-0009) และออก Device Token ผูกบทบาท `pos`/`backoffice` จากเซิร์ฟเวอร์เท่านั้น (ADR-0004) *(🔄 แก้ 2026-09-23: เดิมเขียน HS256 — ADR-0009 ห้าม HS256 สำหรับ token ของร้าน; HS256 ใช้เฉพาะ token ของ platform admin ผ่าน `JWT_PLATFORM_SECRET`)* | §4 |
+| **1.7** | **Concurrency & Race Condition Safety** | ป้องกันสต็อกติดลบและวงเงินเครดิตช่างทะลุด้วย Strict Row Lock Order (`Sale → Mechanic → Products → DocCounters → Customer` โดยอ่าน `shifts` แบบ `FOR SHARE` คั่นระหว่าง Sale กับ Mechanic) | §6 |
+| **1.8** | **Idempotency Module**: Transactional Safety | โมดูล `IdempotencyService` ตรวจจับคำขอซ้ำด้วย SHA-256 ของ body + method/path **จริง** (ไม่ใช่ pattern) และ Rollback การเคลมพร้อม Business Transaction | §7 |
 | **1.9** | **Shifts & Cash Drawer Mechanics** | ควบคุมลิ้นชักเก็บเงินหน้าร้าน บังคับผูก `shift_id` กับทุกการขายและการคืน Auto-archive กะเก่า และตัดสิทธิ์เมื่อเครื่อง POS ถูกปลดระวาง | §10 |
 | **1.10** | **Observability & Probes**: Prom-client + Health Checks | แยก `/health/live` และ `/health/ready` ส่งออก Metrics ตามมาตรฐาน Prometheus และ JSON Logging ผ่าน Pino | §11 |
 
@@ -37,12 +43,14 @@
    ทุกทรานแซกชันที่เกี่ยวข้องกับเงินและสต็อกต้องขอคิวล็อคตามลำดับ:
    $$\text{Sale} \longrightarrow \text{Mechanic} \longrightarrow \text{Products (เรียงตาม id ASC)} \longrightarrow \text{DocCounters} \longrightarrow \text{Customer}$$
    การสลับลำดับล็อคแม้แต่ตำแหน่งเดียวจะนำไปสู่ภาวะ Deadlock (`40P01`) ในระดับฐานข้อมูล
+   *(🔄 แก้ 2026-09-23: บน path void/return มีการอ่าน `shifts` แบบ `FOR SHARE` แทรกระหว่าง Sale กับ Mechanic — ส่วน `POST /sales` อ่านลิ้นชัก `FOR SHARE` ก่อนล็อคช่าง · ดู §6.2)*
 3. **บิลเป็นตัวกำหนดราคาคืน (Bill Decides Price):**
    ในการออกใบลดหนี้/คืนสินค้า (`POST /returns`) ระบบจะไม่อนุญาตให้ไคลเอนต์ระบุราคาคืนเอง แต่ต้องอ่านราคาและต้นทุนขายจาก `sale_items` ของบิลเดิม (`cost_at_sale` ตาม ADR-0008) หากราคาไม่ตรงกันระบบจะปฏิเสธด้วย `409 RETURN_PRICE_MISMATCH`
 4. **หนึ่งร้านค้ามีเครื่อง POS ที่เปิดลิ้นชักได้เพียง 1 เครื่อง (`one_pos_per_tenant`):**
    ตามข้อจำกัดทางกายภาพ ลิ้นชักเก็บเงินสดของร้านค้ามีเพียงชุดเดียว จึงอนุญาตให้มีอุปกรณ์ที่มีสิทธิ์ `drole='pos'` ได้เพียง 1 เครื่องต่อร้านค้า เพื่อขจัดปัญหาการขายของแย่งสต็อกและการเปิดลิ้นชักชนกัน (ADR-0004)
 5. **สต็อกและยอดเงินสดต้องสดจาก PostgreSQL เสมอ (PostgreSQL as Authority):**
-   ข้อมูลสต็อกคงเหลือ ยอดเงินในลิ้นชัก และยอดหนี้เครดิตช่าง **ห้ามถูกนำไปแคชใน Redis เด็ดขาด** ทุกคำขอที่มีผลต่อยอดเงินต้อง Query ผ่าน PostgreSQL พร้อมสิทธิ์ RLS เสมอ
+   ข้อมูลสต็อกคงเหลือ ยอดเงินในลิ้นชัก และยอดหนี้เครดิตช่าง **ห้ามใช้ค่าจาก Redis ในการตัดสินใจเขียน** ทุกคำขอที่มีผลต่อยอดเงินต้อง Query ผ่าน PostgreSQL พร้อมสิทธิ์ RLS (และล็อคแถว) เสมอ
+   *(🔄 แก้ 2026-09-23: ฝั่ง**อ่าน**มีแคช — `GET /products` / customers / mechanics เป็น cache-aside ใน `redis-cache` (products 300 s ± 60 s, customers/mechanics 60 s) ล้างด้วยการขยับ generation หลัง commit (`server/src/infra/tenant-cache.service.ts`) · ตัวตัดสินตอนขายยังเป็นแถวที่ `FOR UPDATE` ใน PostgreSQL เสมอ)*
 
 ---
 
@@ -51,12 +59,12 @@
 ```mermaid
 flowchart TD
     subgraph Clients["👥 อุปกรณ์และเครื่องลูกข่าย (Clients Tier)"]
-        POS_DEV["💻 POS Terminal (Flutter Desktop/Tablet)<br/>role='pos' · มีลิ้นชักเก็บเงิน · Drift DB v3"]
+        POS_DEV["💻 POS Terminal (Flutter Web/Desktop/Tablet)<br/>role='pos' · มีลิ้นชักเก็บเงิน · Drift read cache"]
         BO_DEV["🌐 Backoffice Web / Mobile App<br/>role='backoffice' · จัดการสต็อก/ดูรายงาน"]
     end
 
-    subgraph EdgeLayer["⚖️ ประตูด่านหน้า (Edge Layer: Nginx Reverse Proxy :80)"]
-        NGINX["Nginx Reverse Proxy<br/>least_conn · keepalive 64 · proxy_http_version 1.1<br/>Rate Limit: 100 req/min ต่อ Tenant (X-Tenant-Id)"]
+    subgraph EdgeLayer["⚖️ ประตูด่านหน้า (Edge Layer: Nginx :443 TLS, :80 → 301)"]
+        NGINX["Nginx Reverse Proxy<br/>least_conn · keepalive 32 · proxy_http_version 1.1<br/>Rate Limit ต่อ IP: perip 30 r/s burst 60 (เฉพาะ /api/)"]
     end
 
     subgraph BackendCluster["🚀 คลัสเตอร์แอปพลิเคชัน (NestJS Cluster - 3 Nodes)"]
@@ -66,28 +74,27 @@ flowchart TD
     end
 
     subgraph SecurityBoundary["🛡️ สิทธิ์และความปลอดภัย (Security & Multi-Tenancy)"]
-        GUARD["TenantGuard & DeviceGuard<br/>ถอดรหัส JWT (15m) · เช็คสถานะร้านใน Redis<br/>กำหนด Scope ไม่ถือ Connection Pool"]
+        GUARD["TenantGuard + TenantRateLimitGuard<br/>ตรวจ JWT RS256 (15m) + drole · เช็คสถานะร้านใน Redis<br/>setRequestTenant() — ไม่เปิดทรานแซกชัน"]
         RUN_TX["TenantService.runTx (Handler-level)<br/>เปิดทรานแซกชันในจุดที่ต้องเขียน<br/>SELECT set_config('app.tenant_id', tid, true)"]
     end
 
-    subgraph RedisCacheNode["⚡ redis-cache :6379 (allkeys-lru, 256MB)"]
-        RC_STATUS["Tenant Active Status<br/>t:{tid}:status"]
-        RC_META["Catalog Metadata Cache<br/>หมวดหมู่และข้อมูลสินค้าทั่วไป"]
-        RC_RATELIMIT["Rate Limit Slotted Counters"]
+    subgraph RedisCacheNode["⚡ redis-cache :6379 (allkeys-lru, maxmemory 192mb, ไม่ persist)"]
+        RC_STATUS["Tenant Status / Plan<br/>t:{tid}:status"]
+        RC_META["Cache-aside แบบ generation<br/>products · categories · settings · customers · mechanics"]
+        RC_RATELIMIT["Rate Limit Counters (ADR-0006)<br/>+ Idempotency replay cache t:{tid}:idem:{key}"]
     end
 
-    subgraph RedisQueueNode["🔒 redis-queue :6380 (noeviction + AOF, 256MB)"]
-        BQ_JOBS["BullMQ Queues<br/>รายงานยอดขายประจำวัน · Data Export"]
-        IDEM_EXP["Idempotency Expiry Keys"]
+    subgraph RedisQueueNode["🔒 redis-queue :6379 (noeviction + AOF, maxmemory 192mb)"]
+        BQ_JOBS["BullMQ Queues<br/>sale-post · inventory · maintenance<br/>backup · tenant-import · dlq"]
     end
 
     subgraph WorkerTier["⚙️ โพรเซสทำงานเบื้องหลัง (Async Worker Tier)"]
-        WORKER["Dedicated Worker (node dist/worker.js)<br/>Concurrency: 1 · DB Pool: 5 req + 2 audit + 1 health"]
-        BOARD["Bull-Board Dashboard :3100<br/>Internal Network Only (HTTP Basic Auth)"]
+        WORKER["Dedicated Worker (node dist/worker.js)<br/>TenantJobRunner · DB Pool: 5 req + 2 audit + 1 health"]
+        BOARD["Bull-Board Dashboard<br/>127.0.0.1:3100 เท่านั้น (Basic Auth, SSH tunnel)"]
     end
 
     subgraph DatabaseTier["🗄️ ฐานข้อมูลหลัก (PostgreSQL 16 Primary)"]
-        PG_CORE[("PostgreSQL 16 Engine<br/>max_connections: 100 · Shared Buffer: 256MB<br/>Active Connections: 62 / 100 (62% Pool Math)")]
+        PG_CORE[("PostgreSQL 16 Engine<br/>max_connections: 100 · shm_size 256m<br/>Pool สูงสุด: 62 / 100 (62% Pool Math)")]
         RLS_POL["Row-Level Security (RLS)<br/>บังคับ tenant_id = current_setting('app.tenant_id')<br/>User Role: pos_app (Non-superuser)"]
     end
 
@@ -98,7 +105,7 @@ flowchart TD
     GUARD -.->|เช็คสถานะร้าน| RC_STATUS
     GUARD --> RUN_TX
 
-    RUN_TX -->|SET LOCAL app.tenant_id| PG_CORE
+    RUN_TX -->|set_config app.tenant_id, true| PG_CORE
     PG_CORE --- RLS_POL
 
     API1 & API2 & API3 -.->|ดึงแคชสินค้าทั่วไป| RC_META
@@ -108,6 +115,11 @@ flowchart TD
     WORKER -->|ดึงข้อมูลสรุปยอดขาย| PG_CORE
     BQ_JOBS --- BOARD
 ```
+
+> 🔄 **แก้ 2026-09-23 (แผนภาพ):** Nginx ฟัง `:443` ไม่ใช่ `:80` อย่างเดียว, `keepalive 32`, จำกัดต่อ IP ไม่ใช่ต่อ tenant ·
+> `redis-queue` ฟังพอร์ต `6379` ภายใน compose (เดิมเขียน `6380`) และไม่มี Redis ตัวใดเปิดพอร์ตออก host ·
+> idempotency ไม่ได้อยู่ในคิว — แถวจริงอยู่ในตาราง `idempotency_keys` ของ PostgreSQL ส่วนใน `redis-cache` เป็นแค่แคชสำหรับ replay ·
+> ชื่อคิวตาม `server/src/queue/queue.constants.ts` · PostgreSQL ไม่ได้ตั้ง `shared_buffers` เอง (ใช้ค่า default)
 
 ---
 
@@ -132,15 +144,19 @@ $$\text{Total Connections} = (N_{\text{api}} \times (\text{Pool}_{\text{req}} + 
 
 | คอนเทนเนอร์ (Container) | บทบาทหน้าที่ | เมมโมรีที่จำกัด (Limit) | หมายเหตุ |
 | :--- | :--- | :---: | :--- |
-| **postgres** | ฐานข้อมูลหลัก (PostgreSQL 16) | **1024 MB** | `shared_buffers = 256MB`, `work_mem = 16MB` |
+| **postgres** | ฐานข้อมูลหลัก (PostgreSQL 16) | **1024 MB** | `max_connections=100`, `shm_size: 256m` (ไม่ได้ตั้ง `shared_buffers`/`work_mem` — ค่า default) |
 | **api-1, api-2, api-3** | โหนดประมวลผลคำขอ (NestJS) | **3 × 384 MB = 1152 MB** | Node.js V8 Heap ขนาด 256MB + Overhead |
-| **redis-cache** | แคชข้อมูลทั่วไป (LRU) | **256 MB** | `maxmemory-policy allkeys-lru` |
-| **redis-queue** | คิวงาน BullMQ (AOF) | **256 MB** | `maxmemory-policy noeviction` |
+| **redis-cache** | แคชข้อมูลทั่วไป (LRU) | **256 MB** | `maxmemory 192mb` + `allkeys-lru`, ไม่ persist |
+| **redis-queue** | คิวงาน BullMQ (AOF) | **256 MB** | `maxmemory 192mb` + `noeviction`, `appendfsync everysec` |
 | **worker** | โพรเซสประมวลผลงานเบื้องหลัง | **256 MB** | Single process สำหรับงานสรุปยอดและรีพอร์ต |
 | **bull-board** | แดชบอร์ดมอนิเตอร์คิว | **128 MB** | Express UI หลังระบบรักษาความปลอดภัย |
 | **nginx** | ตัวกระจายภาระและ Reverse Proxy | **64 MB** | Event-driven C architecture กินแรมน้อยมาก |
-| **etcd** | ระบบ Configuration / Coordination | **256 MB** | Metadata coordination สำหรับงานสเกล |
-| **รวมทั้งระบบ (Total)** | **สแตกบริการทั้งหมด** | **~3,368 MB (~3.3 GB)** | **คิดเป็น 56% ของ RAM 6 GB** (ปลอดภัยจาก OOM Killer) |
+| **etcd** | KV สำหรับ config ที่ไม่ใช่ความลับ (ADR-0013) | **256 MB** | วันนี้มีคีย์เดียว `/pos/config/log_level` (`RuntimeConfigService`) — ไม่ใช่ coordination ของงานสเกล |
+| **รวมทั้งระบบ (Total)** | **สแตกบริการทั้งหมด** | **~3,392 MB (~3.3 GB)** | **คิดเป็น ~55% ของ RAM 6 GB** |
+
+> 🔄 **แก้ 2026-09-23:** ผลรวมเดิม 3,368 MB บวกเลขผิด — ตาม `mem_limit` ใน `server/docker-compose.yml` ได้ 1024 + 3×384 + 2×256 + 256 + 128 + 64 + 256 = **3,392 MB**
+> (ไม่นับ one-shot `migrate` 128m / `etcd-init` 32m และไม่นับ overlay monitoring `deploy/compose/monitoring.yml`) ·
+> ตัวเลขนี้คือ**เพดานที่ตั้งไว้ ไม่ใช่ค่าที่วัดได้** — RAM จริงของทั้งสแตกบน `mob04` ยังไม่เคยวัด (ย้ายไปอยู่ใน #380)
 
 ---
 
@@ -150,207 +166,126 @@ Nginx ทำหน้าที่เป็นปราการด่านห�
 
 ### 2.1 โครงสร้างการตั้งค่าจริง (`server/docker/nginx/nginx.conf`)
 
-```nginx
-# server/docker/nginx/nginx.conf
+> 🔄 **แก้ 2026-09-23:** ฉบับก่อนแสดง config ที่ไม่มีอยู่จริง (`limit_req_zone $http_x_tenant_id … rate=100r/m`, `upstream nestjs_backend`, `listen 80` อย่างเดียว,
+> `proxy_next_upstream … http_502 http_503`, `location /admin/queues`) — ข้างล่างคือ**ตัดตอน**จากไฟล์จริง อ่านฉบับเต็มในไฟล์
+> ข้อที่ต่างจากเดิมและสำคัญ: (1) Nginx **อ่าน `X-Tenant-Id` ไม่ได้และไม่ควรอ่าน** — header นี้ปลอมได้ การจำกัดต่อร้านจึงอยู่ที่ `TenantRateLimitGuard`
+> ซึ่งอ่าน `tid` จาก JWT ที่ตรวจแล้วเท่านั้น (ADR-0006, ค่าเริ่มต้น 300 ครั้ง/60 วินาทีต่อร้านต่อ route, plan `loadtest` ไม่จำกัด)
+> (2) failover **เฉพาะ connection-level (`error timeout`) ไม่เคยใช้ `http_5xx`** เพราะ `/health/ready` ตอบ 503 โดยตั้งใจตอน outage
+> (3) Nginx ต้องเป็น proxy ตัวเดียวหน้า API (`trust proxy = 1`, `clientIp()` อ่าน `X-Forwarded-For` ตัวขวาสุด)
+> 🔴 การยกเว้น IP ของเครื่องยิง k6 ออกจาก `perip` **ถูกพิจารณาแล้วและปฏิเสธ** — ห้ามเพิ่มโดยไม่ถามเจ้าของโปรเจกต์
 
-# 1. การจำกัดอัตราเร็วคำขอรายร้านค้า (Per-tenant Rate Limiting - ADR-0006)
-limit_req_zone $http_x_tenant_id zone=tenant_limit:10m rate=100r/m;
+```nginx
+# server/docker/nginx/nginx.conf (ตัดตอน)
+limit_req_zone $binary_remote_addr zone=perip:10m rate=30r/s;   # ต่อ IP — ต่อ tenant อยู่ใน NestJS (#33, ADR-0006)
 limit_req_status 429;
 
-upstream nestjs_backend {
-    least_conn;                         # กระจายไปยังอินสแตนซ์ที่มี in-flight connection น้อยที่สุด
-
-    server api-1:3000 max_fails=2 fail_timeout=10s;
-    server api-2:3000 max_fails=2 fail_timeout=10s;
-    server api-3:3000 max_fails=2 fail_timeout=10s;
-
-    keepalive 64;                       # รักษา TCP connection pool คุยกับ backend
+upstream api {
+  least_conn;
+  server 172.30.0.11:3000 max_fails=2 fail_timeout=10s;   # IP คงที่ (docker-compose.yml) — DNS ไม่อยู่ใน path failover
+  server 172.30.0.12:3000 max_fails=2 fail_timeout=10s;
+  server 172.30.0.13:3000 max_fails=2 fail_timeout=10s;
+  keepalive 32;
 }
+
+server { listen 80; return 301 https://$host$request_uri; }
 
 server {
-    listen 80;
-    server_name localhost;
+  listen 443 ssl;
+  http2 on;
+  client_max_body_size 10m;
+  proxy_connect_timeout 2s;  proxy_send_timeout 30s;  proxy_read_timeout 30s;
+  proxy_next_upstream error timeout;      # ไม่เคย http_5xx — /health/ready ตอบ 503 โดยตั้งใจ
+  proxy_next_upstream_tries 3;            # POST ที่ส่งไปแล้วไม่ถูก retry
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Correlation-ID $corr_id;
 
-    # บัฟเฟอร์ขนาดคำขอ ป้องกัน Slowloris attack
-    client_body_buffer_size 128k;
-    client_max_body_size 10m;
-    proxy_buffers 8 16k;
-    proxy_buffer_size 16k;
-
-    # ปิดการแสดงเวอร์ชันของ Nginx
-    server_tokens off;
-
-    # Health check endpoint ไม่ติด rate limit และไม่บันทึก access log บ่อยเกินจำเป็น
-    location /health/ {
-        proxy_pass http://nestjs_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        access_log off;
-    }
-
-    # API endpoints หลัก
-    location / {
-        # บังคับใช้ Rate Limit แยกตาม Tenant ID
-        limit_req zone=tenant_limit burst=20 nodelay;
-
-        proxy_pass http://nestjs_backend;
-
-        # บังคับ HTTP/1.1 และล้าง Header Connection เพื่อให้ keepalive ทำงานจริง
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Tenant-Id $http_x_tenant_id;
-
-        # การตั้งเวลาตัดการเชื่อมต่อที่รัดกุม
-        proxy_connect_timeout 5s;
-        proxy_send_timeout 15s;
-        proxy_read_timeout 15s;
-
-        # ไม่ retry ซ้ำหากเกิดความล่าช้า (ป้องกัน duplicate write multiplier)
-        proxy_next_upstream error invalid_header http_502 http_503;
-    }
-
-    # บล็อกเส้นทางบริหารจัดการภายใน ไม่ให้เข้าถึงจากภายนอกโดยตรง
-    location /admin/queues {
-        # บังคับให้เข้าผ่าน Internal Network หรือผ่าน SSH Tunnel พอร์ต 3100 เท่านั้น
-        deny all;
-    }
+  location /health/            { proxy_pass http://api; }                       # ไม่ติด rate limit
+  location /api/v1/platform/   { allow 127.0.0.1; allow ::1; deny all;          # admin plane (ADR-0002, #270)
+                                 limit_req zone=perip burst=60 nodelay; proxy_pass http://api; }
+  location /api/               { limit_req zone=perip burst=60 nodelay; proxy_pass http://api; }
+  location = /metrics          { return 404; }   # Prometheus scrape ตรงจาก compose network
+  location = /sw.js            { add_header Cache-Control "no-cache"; … }        # service worker ห้ามแคช
+  location = /prometheus-remote-write/api/v1/write { … }   # k6 remote-write: allowlist + Basic Auth (#251)
+  location /                   { root /usr/share/nginx/html; try_files $uri $uri/ /index.html; }  # Flutter web
 }
 ```
+
+Bull-Board **ไม่ผ่าน Nginx เลย** — publish แค่ `127.0.0.1:3100` บน host ต้องเข้าผ่าน SSH tunnel
 
 ---
 
 ## 3. 🧱 NestJS Modular Structure & Domain Design
 
-เซิร์ฟเวอร์ถูกพัฒนาด้วย NestJS โดยจัดระเบียบตาม **Domain-Driven Modular Monolith** แยกฟังก์ชันการทำงานออกเป็น 29 โดเมนโมดูลที่เป็นอิสระต่อกัน:
+เซิร์ฟเวอร์ถูกพัฒนาด้วย NestJS โดยจัดระเบียบตาม **Domain-Driven Modular Monolith** — `server/src/` มี 29 โฟลเดอร์ (รวมโฟลเดอร์โครงสร้างพื้นฐานอย่าง `common/`, `infra/`, `config/`, `db/`)
+
+> 🔄 **แก้ 2026-09-23:** ต้นไม้ฉบับก่อนมีไฟล์ที่ไม่มีอยู่จริง (`common/database/database.module.ts`, `guards/auth.guard.ts`, `guards/device.guard.ts`,
+> `interceptors/logging.interceptor.ts`, `po/`, `queue/worker.ts`) — ข้างล่างเขียนใหม่จาก `ls` ของ repo (เลือกเฉพาะไฟล์ที่เกี่ยวกับเอกสารนี้)
 
 ```
 server/src/
-├── main.ts                        # จุดเริ่มต้นของระบบ, Global Pipes, Shutdown Hooks
-├── app.module.ts                  # Root Module รวบรวม Dependencies ทั้งหมด
-├── app.setup.ts                   # การตั้งค่า Middleware, Filters, Interceptors, Pino Logger
-├── common/                        # โมดูลและยูทิลิตี้ส่วนกลาง
+├── main.ts / worker.ts / bull-board.ts  # entry point ของ api-N, worker และ bull-board (คนละ process)
+├── app.module.ts / app.setup.ts         # root module · global prefix 'api/v1', trust proxy, filters, envelope
+├── common/
 │   ├── database/
-│   │   ├── database.module.ts     # TypeOrmModule.forRootAsync และ Connection Pooling
-│   │   └── tenant.service.ts      # 🌟 TenantService.runTx (หัวใจของ Multi-Tenancy RLS)
+│   │   ├── tenant.service.ts          # 🌟 TenantService.runTx(fn) — ประตูเดียวสู่ EntityManager ที่ติด RLS
+│   │   └── commit-ceiling.ts          # เพดาน 25 s ก่อน COMMIT (#213)
 │   ├── guards/
-│   │   ├── auth.guard.ts          # ตรวจสอบความถูกต้องของ JWT Token
-│   │   ├── tenant.guard.ts        # ตรวจสอบสถานะร้านค้า (Active) และผูก Request Context
-│   │   └── device.guard.ts        # ตรวจสอบสิทธิ์เครื่อง POS / Backoffice (ADR-0004)
-│   ├── interceptors/
-│   │   └── logging.interceptor.ts # Pino Structured Request Logging
-│   └── request-context.ts         # AsyncLocalStorage สำหรับเก็บ State ของ Request ปัจจุบัน
-├── idempotency/                   # 🌟 ระบบ Idempotency-Key Module (#18)
-│   ├── idempotency.service.ts     # SHA256 Fingerprint, Claim Lock, Transactional Safety
-│   └── idempotency.module.ts
-├── sales/                         # 🌟 โดเมนการขายหน้าร้าน (POST /sales, Void, Lock Products)
-│   ├── sales.service.ts           # Strict Lock Order, ตัดสต็อก, คำนวณยอดเงิน
-│   ├── void.service.ts            # การยกเลิกบิล, ตรวจสอบ PIN ผู้จัดการ, คืนสต็อก
-│   └── sales.controller.ts
-├── returns/                       # 🌟 โดเมนการคืนสินค้าและใบลดหนี้ (POST /returns)
-│   ├── returns.service.ts         # Over-refund Guard, คืนเงินตามบิลเดิม, คำนวณบัญชีช่าง
-│   └── returns.controller.ts
-├── shifts/                        # 🌟 โดเมนกะและลิ้นชักเก็บเงิน (POST /shifts, Drawer Entries)
-│   ├── shifts.service.ts          # Auto-archive กะเก่า, บันทึกเงินเข้า-ออก, ปิดกะ
-│   └── shifts.controller.ts
-├── products/                      # จัดการสินค้าและสต็อก (Query, ปรับปรุง, ประวัติการเคลื่อนไหว)
-├── customers/                     # จัดการข้อมูลลูกค้าและแต้มสะสม
-├── mechanics/                     # จัดการข้อมูลช่าง ยอดหนี้เครดิต และวงเงินสูงสุด
-├── po/                            # การสั่งซื้อสินค้าและรับของเข้าโกดัง (คำนวณ Weighted Average Cost)
-├── devices/                       # จัดการการลงทะเบียนและปลดระวางเครื่อง POS (ADR-0004, ADR-0009)
-├── queue/                         # BullMQ Queues, Worker Processor และ Constants
-│   ├── queue.constants.ts         # นิยามชื่อคิว QUEUE_DAILY_REPORT, QUEUE_DATA_SYNC
-│   └── worker.ts                  # Worker Process Entry Point
-├── metrics/                       # Prometheus Metrics Service (prom-client)
-└── health/                        # Health Checks Controller (/health/live, /health/ready)
+│   │   ├── tenant.guard.ts            # ตรวจ JWT + aud + drole + tenants.status → setRequestTenant()
+│   │   ├── device-token.guard.ts      # ยืนยันตัวด้วย device token (POST /sync/push — ADR-0004 D8)
+│   │   └── tenant-or-device.guard.ts
+│   ├── request-context.ts             # AsyncLocalStorage: tenant ที่ guard อนุมัติ + ทรานแซกชันที่เปิดอยู่ + post-commit hooks
+│   ├── envelope.interceptor.ts / http-exception.filter.ts
+│   ├── password.ts                    # MIN_PASSWORD_LENGTH ที่เดียว (#364)
+│   └── tenant-door.spec.ts / tenant-wrapper.spec.ts   # architecture spec ที่เฝ้า seam นี้
+├── infra/                              # db.module (pool), redis.module (REDIS_CACHE/REDIS_QUEUE), tenant-cache.service, logger
+├── auth/                               # login/refresh/device token · JwtSigner/JwtVerifier (RS256)
+├── rate-limit/                         # TenantRateLimitGuard + RateLimitService (ADR-0006)
+├── idempotency/                        # 🌟 IdempotencyService.runIdempotent · idempotency-routes.spec.ts
+├── sales/                              # 🌟 sales.service.ts (lock order), void.service.ts, sale-reads.service.ts
+├── returns/                            # 🌟 returns.service.ts — over-refund guard, ราคาจากบิลเดิม
+├── shifts/                             # 🌟 เปิด/ปิดกะ, auto-archive, drawer entries
+├── documents/                          # doc-number.service.ts — รับเลข RC/CN จากเครื่อง pos / fallback (ADR-0007)
+├── sync/                               # POST /sync/push, /sync/discards (เฟส 2, 08_PHASE2_SPEC)
+├── review-items/                       # owner_review_items (เฟส 2)
+├── products/ customers/ mechanics/ purchasing/ quotes/ parked-sales/ settings/ reports/ people/
+├── devices/                            # enrol / retire (ADR-0004, ADR-0009)
+├── platform/ backup/ audit/            # admin plane (ADR-0002), export/import, audit_log
+├── queue/                              # queue.constants.ts, tenant-job-runner.ts, processors/*.processor.ts
+├── metrics/                            # prom-client — middleware ไม่ใช่ interceptor
+├── health/                             # /health/live, /health/ready
+├── config/                             # config.ts, runtime-config.service.ts (etcd)
+└── db/                                 # data-source.ts, migrate.ts, migrations/ (14 ไฟล์), seed.ts, bootstrap-admin.ts
 ```
 
 ---
 
 ### 3.1 สเปกฐานข้อมูลและตารางหลัก (Core Database Tables & DDL)
 
-ฐานข้อมูลของระบบถูกออกแบบอย่างรัดกุม โดยมี **27 ตารางหลัก** ที่สร้างผ่าน TypeORM Migrations ตารางทุกตัวที่ขึ้นตรงกับร้านค้าจะมีคอลัมน์ `tenant_id` และถูกคุ้มครองด้วยนโยบาย Row-Level Security:
+> 🔄 **แก้ 2026-09-23:** ฉบับก่อนเขียน "27 ตาราง" และแสดง DDL ที่ไม่ตรง schema จริง (`id UUID` เดี่ยว, `products.code/price/offline_ok`,
+> `sales.doc_no/status/net_amount`, `CHECK (stock >= 0)`) — ลบออกแล้ว เพื่อไม่ให้มีสำเนา DDL ที่สองซึ่งเพี้ยนจากของจริง
+> **แหล่งความจริงคือ `server/src/db/migrations/`** · ภาพอธิบายพร้อมเหตุผลอยู่ที่ [`01_DATABASE.md`](01_DATABASE.md) (อัปเดต 2026-09-23)
+
+ข้อเท็จจริงที่เอกสารนี้ต้องใช้ (ตรวจกับ migration 2026-09-23):
+
+- **29 ตาราง** = 27 จาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (เฟส 2) · `change_log` **ไม่สร้าง** (#191)
+- **RLS 26 ตาราง** (`FORCE ROW LEVEL SECURITY` + policy `tenant_isolation`) · global 2 ตาราง (`tenants`, `platform_admins`) · `import_jobs` ไม่ติด RLS โดยตั้งใจ (อ่านจาก platform plane เท่านั้น)
+- ทุกตารางของร้านมี PK ขึ้นต้นด้วย `tenant_id` — `PRIMARY KEY (tenant_id, id)` และ `id` ส่วนใหญ่เป็น `TEXT` (id จาก client/`newId`) ไม่ใช่ `UUID` เดี่ยว
+- `users.role` เหลือ `CHECK (role = 'owner')` และ active ได้ 1 บัญชีต่อร้าน · `users.pin_hash` **ถูกลบแล้ว** (migration `…3001-SingleOwnerRole`, 08 E1/E2/E3)
+- `sales.void_reason`, `sales.sold_offline`, `devices.unsynced_ops` มาจาก migration `…3003-SyncPushColumns`
+- `movements.type` มี 6 ค่า (`sale`, `return`, `void`, `receive`, `adjustment-in`, `adjustment-out`) และ `pos_app` ได้แค่ `SELECT, INSERT` (append-only)
+- สินค้าฝั่ง server **ไม่มี** `offline_ok` — คอลัมน์ `offlineOk` เป็นของ Drift ฝั่ง client และถูกยกเลิกในเฟส 2 (ADR-0004 D3, #272)
+
+นโยบาย RLS จริง (`server/src/db/migrations/1788652800001-RowLevelSecurity.ts`) ใช้ประโยคเดียวกันทุกตาราง:
 
 ```sql
--- ตัวอย่าง DDL ตารางสำคัญและการตั้งค่านโยบาย RLS
-
--- 1. ตารางร้านค้า (Tenants) - อยู่ในระดับ Global ไม่ติด RLS
-CREATE TABLE tenants (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code          VARCHAR(32) NOT NULL UNIQUE,
-    name          VARCHAR(255) NOT NULL,
-    status        VARCHAR(16) NOT NULL DEFAULT 'active',    -- 'active', 'suspended', 'closed'
-    plan          VARCHAR(32) NOT NULL DEFAULT 'standard',
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 2. ตารางสินค้า (Products) - ติด RLS
-CREATE TABLE products (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    code          VARCHAR(64) NOT NULL,
-    name          VARCHAR(255) NOT NULL,
-    price         NUMERIC(12,2) NOT NULL,
-    cost          NUMERIC(12,2) NOT NULL DEFAULT 0.00,      -- Weighted Average Cost
-    stock         INTEGER NOT NULL DEFAULT 0,
-    min_stock     INTEGER NOT NULL DEFAULT 0,
-    offline_ok    BOOLEAN NOT NULL DEFAULT false,           -- Drift Sync Support (ADR-0010)
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    CONSTRAINT uq_product_tenant_code UNIQUE (tenant_id, code),
-    CONSTRAINT chk_positive_stock CHECK (stock >= 0),       -- สต็อกห้ามติดลบเด็ดขาด
-    CONSTRAINT chk_positive_price CHECK (price >= 0)
-);
-
--- 3. ตารางการขาย (Sales) - ติด RLS
-CREATE TABLE sales (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    doc_no          VARCHAR(32) NOT NULL,                   -- เช่น 'INV-202609-0001'
-    shift_id        UUID NOT NULL,                          -- ผูกกับกะลิ้นชักเสมอ
-    customer_id     UUID,
-    mechanic_id     UUID,
-    payment_method  VARCHAR(32) NOT NULL,                   -- 'cash', 'transfer', 'credit_mechanic'
-    total_amount    NUMERIC(12,2) NOT NULL,
-    discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
-    net_amount      NUMERIC(12,2) NOT NULL,
-    points_granted  INTEGER NOT NULL DEFAULT 0,
-    status          VARCHAR(16) NOT NULL DEFAULT 'completed', -- 'completed', 'voided'
-    void_reason     TEXT,
-    voided_at       TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    CONSTRAINT uq_sale_tenant_docno UNIQUE (tenant_id, doc_no)
-);
-
--- 4. ตารางรายการสินค้าในบิล (Sale Items) - แช่แข็งต้นทุนขาย (ADR-0008)
-CREATE TABLE sale_items (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    sale_id       UUID NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
-    product_id    UUID NOT NULL REFERENCES products(id),
-    qty           INTEGER NOT NULL,
-    price         NUMERIC(12,2) NOT NULL,
-    cost_at_sale  NUMERIC(12,2) NOT NULL,                   -- แช่แข็งต้นทุน ณ เสี้ยววินาทีที่ขาย
-    total_amount  NUMERIC(12,2) NOT NULL,
-
-    CONSTRAINT chk_sale_item_qty CHECK (qty > 0)
-);
-
--- 5. การเปิดใช้งาน Row-Level Security (RLS) และบังคับใช้
-ALTER TABLE products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE products FORCE ROW LEVEL SECURITY;
-
-CREATE POLICY tenant_isolation_products ON products
-    FOR ALL
-    USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
-    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+ALTER TABLE <t> ENABLE ROW LEVEL SECURITY;
+ALTER TABLE <t> FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON <t>
+  USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+-- ไม่มี app.tenant_id = NULL → ไม่เห็นแถวไหนเลย (fail closed)
 ```
 
 ---
@@ -360,17 +295,21 @@ CREATE POLICY tenant_isolation_products ON products
 ระบบรักษาความปลอดภัยถูกแบ่งออกเป็น 2 ชั้นอย่างเคร่งครัดตามข้อกำหนดทางสถาปัตยกรรม:
 
 ### 4.1 สิทธิ์ผู้ใช้งาน: User Stateless JWT (15-Minute Lifetime - ADR-0009)
-- **Token Signing**: ลงลายมือชื่อด้วยอัลกอริทึม `HS256` โดยใช้ค่าความลับจาก `JWT_SECRET`
-- **Zero I/O Verification**: การตรวจสอบ Token ใน `AuthGuard` ไม่มีการอ่านฐานข้อมูลหรือ Redis ในคำขอปกติ เพื่อรักษาประสิทธิภาพที่ความเร็วสูงสุด
+- **Token Signing**: ลงลายมือชื่อด้วย **`RS256`** — `JWT_PRIVATE_KEY` อยู่เฉพาะใน `api-*` (ตัวที่มี `/auth/*`), ตัวตรวจใช้ `JWT_PUBLIC_KEYS` (หลายตัว key ด้วย `kid`) และล็อก `algorithms: ['RS256']` (`server/src/auth/jwt-keys.service.ts`) · claim `typ` แยก `access`/`refresh`
+  *(🔄 แก้ 2026-09-23: เดิมเขียน `HS256` + `JWT_SECRET` ซึ่งขัดกับ ADR-0009 หัวข้อ "การเซ็นและที่เก็บ token" — HS256 เหลือเฉพาะ token ของ platform admin ที่เซ็นด้วย `JWT_PLATFORM_SECRET`)*
+- **การตรวจ Token ไม่แตะ DB**: ลายเซ็นตรวจด้วย public key ในหน่วยความจำ แต่ `TenantGuard` ยังอ่านสถานะร้าน `t:{tid}:status` จาก `redis-cache` ทุกคำขอ (TTL 300 s + jitter) — cache miss หรือ Redis ล่มจะตกไปอ่าน `tenants` ตรงหนึ่งครั้งด้วย connection แรกของคำขอ ก่อนที่ handler จะขอ connection *(🔄 แก้ 2026-09-23: เดิมเขียนว่า "ไม่อ่านฐานข้อมูลหรือ Redis")*
 - **อายุ Token สั้นพิเศษ (15 นาที)**: ป้องกันความเสียหายในกรณีที่ Token รั่วไหล
-- **การเพิกถอนสิทธิ์เมื่อ Refresh**: เมื่อ Access Token หมดอายุ ไคลเอนต์ต้องส่ง Refresh Token กลับมาที่ `/auth/refresh` ซึ่งในจุดนี้เซิร์ฟเวอร์จะตรวจสอบสถานะของร้านค้าใน `tenants` และตรวจสอบว่าเครื่องดังกล่าวถูกปลดระวางหรือไม่ผ่าน `devices.retired_at` (ADR-0009)
+- **การเพิกถอนสิทธิ์เมื่อ Refresh**: เมื่อ Access Token หมดอายุ ไคลเอนต์ต้องส่ง Refresh Token กลับมาที่ `/auth/refresh` ซึ่งในจุดนี้เซิร์ฟเวอร์จะตรวจ `users.is_active`, สถานะของร้านค้าใน `tenants` และตรวจสอบว่าเครื่องดังกล่าวถูกปลดระวางหรือไม่ผ่าน `devices.retired_at` (ADR-0009) · refresh หมดอายุตี 4 ตามเวลาร้าน
+- 🔄 **เฟส 2 (ADR-0009 addenda 2026-09-15, เพิ่ม 2026-09-23):** role ของคนเหลือ `owner` เดียว + บัญชีร้าน active 1 บัญชี · เข้าระบบตอนออฟไลน์ด้วย **PIN 1 ตัวต่อเครื่อง `pos`** ซึ่งบังคับที่ฝั่งเครื่องเท่านั้น (ดู [`08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md))
 
 ### 4.2 สิทธิ์เครื่องลูกข่าย: Device Token & Role Boundary (ADR-0004)
 ในระบบ POS หน้าร้าน ข้อผิดพลาดที่ร้ายแรงที่สุดคือการอนุญาตให้คอมพิวเตอร์เครื่องใดก็ได้ในเครือข่ายยิงคำขอเปิดลิ้นชักและออกบิลขาย:
 - **Server-issued Token Only**: ค่า `did` (Device ID) และ `drole` (Device Role) **ต้องถูกออกโดยเซิร์ฟเวอร์เท่านั้น** ผ่านขั้นตอนการผูกเครื่อง (`POST /devices` และ `POST /auth/device`) ไคลเอนต์ไม่มีสิทธิ์ส่งค่า `drole` มาใน Request Body เองเด็ดขาด
 - **บทบาทอุปกรณ์ (Device Roles):**
-  - `role='pos'`: สิทธิ์ของเครื่องขายหน้าร้าน ได้รับอนุญาตให้เปิดกะลิ้นชัก (`POST /shifts`), บันทึกรายการขายเงินสด (`POST /sales`), และสั่งพิมพ์ใบเสร็จ (จำกัด 1 เครื่องต่อร้านค้า)
-  - `role='backoffice'`: สิทธิ์ของเครื่องหลังร้าน ได้รับอนุญาตให้ดูรายงาน, จัดการสต็อก, แก้ไขข้อมูลลูกค้า แต่ **ไม่มีสิทธิ์เปิดกะหรือออกบิลขายเงินสดหน้าร้าน**
+  - `role='pos'`: สิทธิ์ของเครื่องขายหน้าร้าน — เปิด/ปิดกะ (`POST /shifts/open`, `POST /shifts/close`), เงินเข้า-ออกลิ้นชัก (`POST /shifts/current/entries`), ขาย (`POST /sales`), ยกเลิกบิล (`POST /sales/:id/void`), รับคืน (`POST /returns`) และทำทุกอย่างที่ `backoffice` ทำได้ (จำกัด 1 เครื่องต่อร้านค้าด้วย partial unique index `one_pos_per_tenant`) — บังคับด้วย `@RequireDeviceRole('pos')`
+  - `role='backoffice'`: สิทธิ์ของเครื่องหลังร้าน ได้รับอนุญาตให้ดูรายงาน, จัดการสต็อก, แก้ไขข้อมูลลูกค้า แต่ **ไม่มีสิทธิ์แตะลิ้นชัก — เปิดกะ ขาย ยกเลิกบิล หรือรับคืน** (กฎจำง่ายของ ADR-0004: "อะไรก็ตามที่เกี่ยวกับบิล ทำที่เครื่องขาย")
+  - *(🔄 แก้ 2026-09-23: ชื่อ route เดิม `POST /shifts` ไม่มีอยู่จริง)*
+- 🔄 **เฟส 2 (ADR-0004 addenda 2026-09-15, เพิ่ม 2026-09-23):** device role `pos`/`backoffice` **ไม่เปลี่ยน** (E1) · `POST /devices`, `POST /devices/{id}/retire`, `POST /backup/export` ต้องล็อกอินจากเครื่องที่ enrol แล้ว (F6) · retire เครื่องที่ยังมี op ค้าง (`devices.unsynced_ops > 0`) → `409 DEVICE_HAS_UNSYNCED_OPS` เว้นแต่ `force` (F7) · `POST /sync/push` ยืนยันตัวด้วย device token (D8) · `pos` เปิดได้แท็บเดียว (D10)
 
 ---
 
@@ -386,88 +325,79 @@ sequenceDiagram
     autonumber
     actor Client as 💻 Flutter POS Client
     participant Nginx as ⚖️ Nginx Proxy
-    participant Guard as 🛡️ TenantGuard (Controller)
+    participant Guard as 🛡️ TenantGuard
     participant Redis as ⚡ Redis Cache
     participant Service as 💼 SalesService (runTx)
     participant Postgres as 🗄️ PostgreSQL (Pool)
 
-    Client->>Nginx: POST /sales (Bearer JWT + X-Tenant-Id)
-    Nginx->>Guard: Forward Request
+    Client->>Nginx: POST /api/v1/sales (Bearer JWT + Idempotency-Key)
+    Nginx->>Guard: Forward Request (least_conn)
     Note over Guard: ยังไม่มีการดึง Connection จาก Pool!
-    Guard->>Guard: 1. ตรวจสอบ Signature ของ JWT & ดึง tid
+    Guard->>Guard: 1. ตรวจ Signature (RS256) + aud='tenant' + drole & ดึง tid จาก JWT
     Guard->>Redis: 2. ตรวจสอบสถานะร้าน (t:{tid}:status)
-    Redis-->>Guard: สถานะ "active"
-    Guard->>Guard: 3. บันทึก tid ลง RequestContext (AsyncLocalStorage)
+    Redis-->>Guard: สถานะ "active" (miss → SELECT status FROM tenants ครั้งเดียว)
+    Guard->>Guard: 3. setRequestTenant(tid) ลง RequestContext (AsyncLocalStorage)
     
     Guard->>Service: ส่งต่อให้ Handler ประมวลผล
-    Note over Service: เริ่มต้นการลงมือใน TenantService.runTx
+    Note over Service: runIdempotent → TenantService.runTx (ทรานแซกชันเดียวทั้งคำขอ)
     Service->>Postgres: 4. ดึง Connection จาก Pool & BEGIN Transaction
     Service->>Postgres: 5. SELECT set_config('app.tenant_id', tid, true)
-    Note over Postgres: RLS Policy เปิดใช้งานในระดับ Session ทันที!
+    Note over Postgres: RLS ใช้ค่านี้เฉพาะในทรานแซกชันนี้ (is_local = true)
     
-    Service->>Postgres: 6. ล็อคช่าง -> ล็อคสินค้า -> ตัดสต็อก -> ออกบิล
+    Service->>Postgres: 6. claim idempotency → ลิ้นชัก FOR SHARE → ล็อคช่าง → ล็อคสินค้า → ตัดสต็อก → เลขบิล
     Postgres-->>Service: ธุรกรรมสำเร็จ
     Service->>Postgres: 7. COMMIT Transaction & คืน Connection เข้า Pool
     Service-->>Client: 201 Created (ใบเสร็จรับเงินสมบูรณ์)
 ```
 
+> 🔄 **แก้ 2026-09-23 (แผนภาพ):** ไม่มี header `X-Tenant-Id` ในระบบ — ร้านมาจาก `tid` ใน JWT ที่ตรวจแล้วเท่านั้น (header ปลอมถูกเมินโดยตั้งใจ, ADR-0006) ·
+> `set_config(…, true)` มีผล**ระดับทรานแซกชัน** ไม่ใช่ระดับ session (ถ้าเป็น session ค่าจะติดไปกับ connection ถัดไปใน pool)
+
 ### 5.1 โค้ดหลักการทำงานของ `TenantService.runTx` (`server/src/common/database/tenant.service.ts`)
 
+> 🔄 **แก้ 2026-09-23:** ฉบับก่อนแสดงคลาสที่เขียนขึ้นเอง (`RequestContextService`, `ForbiddenException('TENANT_CONTEXT_MISSING')`,
+> ตั้ง `setEntityManager` เอง) — ข้างล่างคือ**ตัดตอนจากไฟล์จริง** (ตัดคอมเมนต์ยาวออก) · หลักที่ ADR-0003 amendment (Accepted, มีผลตั้งแต่ `tx.4`) บังคับ:
+> (1) ทรานแซกชันอยู่ใน **handler** ไม่ใช่ middleware/guard/interceptor · (2) `runTx(fn)` **ไม่รับ tenant id** — ห้ามกลับไปเป็น `runTx(tid, fn)` ·
+> (3) `TenantGuard` ทำแค่ `setRequestTenant()` · (4) **ห้ามขอ pool connection ใบที่สองภายในคำขอเดียว** (#162) — `Promise.all([runTx(a), runTx(b)])` ก็เป็นรูปเดียวกัน ให้รวมไว้ใน `runTx` เดียว
+
 ```typescript
-// server/src/common/database/tenant.service.ts
+// server/src/common/database/tenant.service.ts (ตัดตอน)
+async runTx<T>(fn: (manager: EntityManager) => Promise<T>): Promise<T> {
+  const tenantId = authorisedTenantId();      // มาจาก scope ที่ TenantGuard ตั้ง — ไม่มีก็ throw ก่อนแตะ pool
+  const open = currentTransaction();
+  if (open) return fn(open);                  // joins, never nests: ไม่มี connection ที่สอง ไม่มี savepoint
 
-@Injectable()
-export class TenantService {
-  constructor(
-    @InjectDataSource() private readonly dataSource: DataSource,
-    private readonly requestContext: RequestContextService,
-  ) {}
-
-  /**
-   * รันฟังก์ชันทางธุรกิจภายใน Transaction ที่ถูกผูกมัดด้วย Tenant ID และ RLS เสมอ
-   * ⚠️ ห้ามรับ tid เป็นพารามิเตอร์เด็ดขาด เพื่อป้องกันการแอบอ้างสิทธิ์ข้ามร้าน
-   */
-  async runTx<T>(work: (entityManager: EntityManager) => Promise<T>): Promise<T> {
-    const tenantId = this.requestContext.getTenantId();
-    if (!tenantId) {
-      throw new ForbiddenException('TENANT_CONTEXT_MISSING');
-    }
-
-    // หากมี Transaction เปิดอยู่แล้วใน Scope เดียวกัน ให้ Join ทันที ไม่เปิด Connection ซ้ำ
-    const existingManager = this.requestContext.getEntityManager();
-    if (existingManager) {
-      return work(existingManager);
-    }
-
-    // ดึง Connection จาก Pool และเริ่มต้น Transaction
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      // 🌟 ตั้งค่า Session Config สำหรับ RLS (พารามิเตอร์ที่ 3 = true หมายถึงมีผลเฉพาะในทรานแซกชันนี้)
-      await queryRunner.query(
-        `SELECT set_config('app.tenant_id', $1, true)`,
-        [tenantId],
-      );
-
-      // บันทึก EntityManager ลง Context เพื่อให้คำสั่งภายในแชร์ Transaction เดียวกัน
-      this.requestContext.setEntityManager(queryRunner.manager);
-
-      const result = await work(queryRunner.manager);
-
-      await queryRunner.commitTransaction();
+  const qr = this.ds.createQueryRunner();
+  let value: T;
+  let hooks: ReturnType<typeof takePostCommitHooks> = [];
+  try {
+    await qr.connect();
+    const startedAt = commitClockStart();
+    await qr.startTransaction();
+    value = await runInTransaction({ tenantId, manager: qr.manager }, async () => {
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
+      const result = await fn(qr.manager);
+      hooks = takePostCommitHooks();
       return result;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      this.requestContext.setEntityManager(null);
-      await queryRunner.release(); // คืน Connection กลับสู่ Pool เสมอ
-    }
+    });
+    assertWithinCommitCeiling(startedAt, this.commitCeilingMs);   // #213: เกิน 25 s → rollback + CommitCeilingExceededError
+    await qr.commitTransaction();
+  } catch (err) {
+    if (qr.isTransactionActive) await qr.rollbackTransaction();
+    throw err;
+  } finally {
+    if (!qr.isReleased) await qr.release();
   }
+  await executePostCommitHooks(                        // invalidate cache / enqueue job — หลัง COMMIT เท่านั้น
+    (err) => this.logger.warn({ err }, 'post-commit hook failed'),
+    hooks,
+  );
+  return value;
 }
 ```
+
+ข้อควรรู้ที่โค้ดข้างบนไม่ได้บอกเอง: การเรียก `runTx` ซ้อนที่ join เข้ามา **ไม่ rollback เอง** — ถ้าไป catch error ของมัน แถวที่มันเขียนไปแล้วจะ commit ไปกับเจ้าของทรานแซกชัน ·
+`pos_app` มี `statement_timeout = 25s` และต้องมากกว่า `CLAIM_LOCK_TIMEOUT` (5 s) เสมอ · สเปกสถาปัตยกรรม 3 ตัวเฝ้า seam นี้: `tenant-door.spec.ts`, `tenant-wrapper.spec.ts`, `idempotency-routes.spec.ts`
 
 ---
 
@@ -487,63 +417,41 @@ export class TenantService {
 [1. Sale Record]  (เฉพาะกรณี Void หรือ Return บิลเดิม)
        │
        ▼
+[1½. Shift / ลิ้นชัก]  (SELECT ... FOR SHARE — ให้การปิดกะรอบิลที่กำลังเขียนอยู่ · POST /sales อ่านตรงนี้เป็นขั้นแรก)
+       │
+       ▼
 [2. Mechanic Record] (SELECT ... FOR UPDATE แถวข้อมูลช่าง เพื่อล็อคยอดหนี้)
        │
        ▼
 [3. Product Records] (SELECT ... FOR UPDATE แถวสินค้า โดยต้องเรียงตาม ID จากน้อยไปมากเสมอ!)
        │
        ▼
-[4. DocCounters]  (SELECT ... FOR UPDATE เพื่อออกเลขที่เอกสารเรียงลำดับ)
+[4. DocCounters]  (แถว counter ของเครื่อง — เฟส 2 เป็น upsert GREATEST ของเลขที่เครื่อง pos ส่งมา, ADR-0007 D4)
        │
        ▼
 [5. Customer Record] (SELECT ... FOR UPDATE เพื่อสะสมแต้มและยอดซื้อสะสม)
 ```
 
+> 🔄 **แก้ 2026-09-23:** เพิ่มขั้น `shifts FOR SHARE` ที่ขาดไป (ตรงกับกฎ lock order ใน `CLAUDE.md`) · โค้ดฉบับก่อนตรงนี้เป็น QueryBuilder ที่เขียนขึ้นเอง
+> และรวมการตรวจสต็อกไว้ในฟังก์ชันล็อค — ของจริงแยกเป็นสองขั้น: `lockProducts` (SQL ดิบ `ORDER BY id FOR UPDATE`) แล้วค่อยสร้างข้อความ `สต็อกไม่พอ…` ครบทุกบรรทัดจากแถวที่ล็อคแล้ว
+> จากนั้นตัดสต็อกด้วย `UPDATE … WHERE stock >= qty` ซึ่งเป็น assertion ไม่ใช่ตัวตรวจหลัก
+
 ```typescript
-// server/src/sales/sales.service.ts
-// ฟังก์ชันการล็อคสินค้าที่ป้องกัน Deadlock ได้อย่างเด็ดขาด
-
-private async lockProducts(
-  manager: EntityManager,
-  items: Array<{ productId: string; qty: number }>,
-): Promise<Map<string, Product>> {
-  // 🌟 จุดตายที่ 1: ต้องดึงเฉพาะ ID ที่ไม่ซ้ำ และเรียงลำดับจากน้อยไปมากเสมอ!
-  const productIds = Array.from(new Set(items.map((i) => i.productId))).sort();
-
-  // 🌟 จุดตายที่ 2: ใช้คำสั่ง SELECT FOR UPDATE เพื่อจองคิวล็อคตามลำดับ ID
-  const lockedProducts = await manager
-    .createQueryBuilder(Product, 'p')
-    .setLock('pessimistic_write')
-    .where('p.id IN (:...ids)', { ids: productIds })
-    .orderBy('p.id', 'ASC') // บังคับทิศทางการล็อค
-    .getMany();
-
-  // ตรวจสอบความถูกต้องของสต็อกและรวบรวม Error
-  const productMap = new Map(lockedProducts.map((p) => [p.id, p]));
-  const insufficientErrors: string[] = [];
-
-  for (const item of items) {
-    const product = productMap.get(item.productId);
-    if (!product) {
-      throw new NotFoundException(`PRODUCT_NOT_FOUND: ${item.productId}`);
-    }
-    if (product.stock < item.qty) {
-      insufficientErrors.push(
-        `${product.name} (มี ${product.stock} ต้องการ ${item.qty})`,
-      );
-    }
-  }
-
-  // ส่งแจ้งเตือนครั้งเดียวครบทุกรายการขาด
-  if (insufficientErrors.length > 0) {
-    throw new ConflictException(
-      `สต็อกไม่พอ: ${insufficientErrors.join(', ')}`,
-    );
-  }
-
-  return productMap;
+// server/src/sales/sales.service.ts (ตัดตอน)
+private lockProducts(manager: EntityManager, tenantId: string, demands: Demand[]): Promise<LockedProduct[]> {
+  return manager.query(
+    `SELECT id, part_no, name, name_th, cost, stock
+       FROM products
+      WHERE tenant_id = $1::uuid AND id = ANY($2::text[]) AND deleted_at IS NULL
+      ORDER BY id
+        FOR UPDATE`,                       // ลำดับคือตัวกัน deadlock ไม่ใช่ของประดับ
+    [tenantId, demands.map((d) => d.productId)],
+  ) as Promise<LockedProduct[]>;
 }
+// ต่อด้วย: สร้างข้อความ `สต็อกไม่พอ…` ครั้งเดียวครบทุกบรรทัด → 409 INSUFFICIENT_STOCK
 ```
+
+ลำดับเต็มของ `POST /sales` อยู่ในคอมเมนต์หัวคลาส `SalesService`: idempotency claim → replay ด้วย client `id` → ลิ้นชัก `FOR SHARE` (`409 NO_OPEN_SHIFT`) → ช่าง `FOR UPDATE` + วงเงิน (`409 CREDIT_LIMIT_EXCEEDED`) → สินค้า `ORDER BY id FOR UPDATE` → ตัดสต็อก → เลขใบเสร็จ → header + lines (`cost_at_sale`) → `movements` → ledger ลูกค้า/ช่าง → commit
 
 ---
 
@@ -555,27 +463,36 @@ private async lockProducts(
 
 ```mermaid
 flowchart TD
-    REQ["HTTP Request พร้อม Header:<br/>Idempotency-Key: &lt;uuid&gt;"] --> HASH["1. คำนวณ SHA-256 Fingerprint:<br/>method + concrete path + body"]
-    
-    HASH --> TX_START["2. เริ่มต้น runTx"]
-    TX_START --> CHECK{"3. มี Key นี้ใน<br/>idempotency_keys หรือยัง?"}
-    
-    CHECK -- มีแล้ว และสถานะ 'completed' --> RETURN_CACHED["4. ส่งผลลัพธ์เดิมกลับทันที<br/>(200 OK จาก response_body)"]
-    CHECK -- มีแล้ว แต่สถานะ 'in_flight' --> ERR_CONFLICT["409 IDEMPOTENCY_CONFLICT<br/>(คำขอกำลังประมวลผลอยู่)"]
-    
-    CHECK -- ยังไม่มี --> INSERT_CLAIM["5. INSERT INTO idempotency_keys<br/>สถานะ 'in_flight'"]
-    INSERT_CLAIM --> EXEC_BIZ["6. ประมวลผลการขาย/ตัดสต็อก (Business Logic)"]
-    
-    EXEC_BIZ -- สำเร็จ --> UPDATE_DONE["7. UPDATE สถานะเป็น 'completed'<br/>พร้อมบันทึก response_body"]
-    UPDATE_DONE --> COMMIT["8. COMMIT Transaction"]
-    COMMIT --> RES["201 Created ส่งผลลัพธ์กลับ"]
-    
-    EXEC_BIZ -- ผิดพลาด (เช่น สต็อกไม่พอ) --> ROLLBACK["Rollback Transaction ทั้งหมด<br/>(แถว in_flight ถูกล้างทิ้งอัตโนมัติ)"]
-    ROLLBACK --> RES_ERR["409 Conflict<br/>(อนุญาตให้ส่ง Key เดิมซ้ำได้เมื่อแก้ไขปัญหา)"]
+    REQ["HTTP Request พร้อม Header:<br/>Idempotency-Key: &lt;≤ 200 ตัวอักษร&gt;"] --> HASH["1. requestHash = SHA-256(body)<br/>endpoint = method + path จริง (ไม่ใช่ pattern)"]
+
+    HASH --> TX_START["2. runIdempotent เปิด TenantService.runTx"]
+    TX_START --> CLAIM["3. INSERT INTO idempotency_keys (…, status='in_progress')<br/>ON CONFLICT (tenant_id, key) DO NOTHING"]
+
+    CLAIM -- ได้แถว (claimed) --> EXEC_BIZ["4. ประมวลผลการขาย/ตัดสต็อก (Business Logic)<br/>ในทรานแซกชันเดียวกัน"]
+    CLAIM -- ชน: แถวเดิม commit แล้ว --> SAME{"endpoint + requestHash<br/>ตรงกับของเดิม?"}
+    CLAIM -- ชน: เจ้าของเดิมยังไม่ commit --> WAIT["รอ lock ไม่เกิน CLAIM_LOCK_TIMEOUT (5 s)"]
+    WAIT -- เกินเวลา --> ERR_INFLIGHT["503 IDEMPOTENCY_KEY_IN_FLIGHT"]
+    WAIT -- เจ้าของเดิม commit แล้ว --> SAME
+
+    SAME -- ตรง และ status='done' --> RETURN_CACHED["5. replay: ส่ง response_code + response_body เดิม<br/>(เช่น 201 ไม่ใช่ 200)"]
+    SAME -- ไม่ตรง --> ERR_REUSED["409 IDEMPOTENCY_KEY_REUSED"]
+
+    EXEC_BIZ -- สำเร็จ --> UPDATE_DONE["6. UPDATE status='done'<br/>+ response_code + response_body"]
+    UPDATE_DONE --> COMMIT["7. COMMIT (ผ่านเพดาน 25 s)"]
+    COMMIT --> RES["201 Created"]
+
+    EXEC_BIZ -- ผิดพลาด (เช่น สต็อกไม่พอ) --> ROLLBACK["Rollback ทั้งหมด<br/>(แถว claim หายไปด้วย)"]
+    ROLLBACK --> RES_ERR["409 Conflict<br/>(ส่ง key เดิมซ้ำได้หลังแก้ปัญหา)"]
 ```
+
+> 🔄 **แก้ 2026-09-23:** สถานะจริงในตารางคือ `'in_progress'` / `'done'` (CHECK ยอม `'failed'` แต่ไม่มีใครเขียน) ไม่ใช่ `'in_flight'` / `'completed'` ·
+> คำขอที่ชนกับเจ้าของที่ยังไม่ commit ได้ **`503 IDEMPOTENCY_KEY_IN_FLIGHT`** หลังรอ 5 s ไม่ใช่ `409 IDEMPOTENCY_CONFLICT` (ไม่มีรหัสนี้) ·
+> key เดิมกับคำขอต่างกัน → **`409 IDEMPOTENCY_KEY_REUSED`** · replay ส่งสถานะเดิมที่เก็บไว้ ไม่ใช่ 200 เสมอ ·
+> ฝั่ง client: 4xx เท่านั้นที่เป็นคำตัดสิน — 5xx/429/หมดเวลาแปลว่า "ไม่รู้ผล" ห้าม fallback ไปเขียนในเครื่อง และ bill id + key ออก**ครั้งเดียวต่อตะกร้า**
 
 > 💡 **ความปลอดภัยระดับธุรกรรม (Transactional Rollback Safety):**  
 > เนื่องจากแถวข้อมูลในตาราง `idempotency_keys` ถูกบันทึกภายใน Transaction เดียวกันกับคำสั่งขาย หากคำขอขายล้มเหลว (เช่น วงเงินช่างไม่พอ หรือสต็อกขาด) แถว Idempotency จะถูก Rollback ไปด้วย ทำให้แคชเชียร์สามารถส่งคำขอซ้ำด้วยคีย์เดิมได้ทันทีหลังจากปรับยอดสินค้า
+> ตัวนับ `pos_idempotency_replay_total` เพิ่มเฉพาะใน `onTransactionCommit` ของ replay เท่านั้น
 
 ---
 
@@ -583,49 +500,52 @@ flowchart TD
 
 การแคชข้อมูลในระบบ POS มีข้อกำหนดพิเศษ: **ข้อมูลสต็อกและยอดเงินห้ามผิดพลาดแม้แต่ชิ้นเดียว** ดังนั้นระบบจึงแยกสถาปัตยกรรม Redis ออกเป็น 2 คอนเทนเนอร์เด็ดขาด:
 
-| มิติการเปรียบเทียบ | โหนดที่ 1: `redis-cache` (Port 6379) | โหนดที่ 2: `redis-queue` (Port 6380) |
+| มิติการเปรียบเทียบ | โหนดที่ 1: `redis-cache` (`redis-cache:6379`) | โหนดที่ 2: `redis-queue` (`redis-queue:6379`) |
 | :--- | :--- | :--- |
 | **นโยบายหน่วยความจำ** | `maxmemory-policy allkeys-lru` | `maxmemory-policy noeviction` |
-| **ความคงทน (Persistence)** | RDB Snapshot ทั่วไป (ยอมรับข้อมูลหายได้) | เปิด **AOF (`appendonly yes`)** เพื่อป้องกัน Job หาย |
-| **ชนิดข้อมูลที่จัดเก็บ** | 1. สถานะร้านค้า (`t:{tid}:status`)<br/>2. แคชหมวดหมู่สินค้าทั่วไป<br/>3. อัตราการยิงคำขอ (Rate Limit Counters) | 1. คิวงานเบื้องหลังของ BullMQ<br/>2. ข้อมูลการแจ้งเตือนและการซิงค์ข้อมูล |
-| **ผลกระทบหากโหนดนี้ล่ม** | ระบบสลับไปอ่าน PostgreSQL ตรงทันที (Fail-Open) หน้าจอขายทำงานต่อได้ปกติ | งานพิมพ์รายงานจะค้างอยู่ในคิว แต่ไม่กระทบการขายหน้าร้าน |
+| **ความคงทน (Persistence)** | **ไม่ persist เลย** (`--save ""`, `--appendonly no`) — ทุกอย่างในนี้สร้างใหม่ได้ | เปิด **AOF (`appendonly yes`, `appendfsync everysec`)** บน volume `redis-queue-data` |
+| **ชนิดข้อมูลที่จัดเก็บ** | 1. สถานะ/plan ร้านค้า (`t:{tid}:status`)<br/>2. cache-aside แบบ generation: products, categories, settings, customers, mechanics<br/>3. ตัวนับ rate limit (ADR-0006)<br/>4. แคช replay ของ idempotency (`t:{tid}:idem:{key}`, ตัวจริงอยู่ใน Postgres) | คิว BullMQ: `sale-post`, `inventory`, `maintenance`, `backup`, `tenant-import`, `dlq` |
+| **ผลกระทบหากโหนดนี้ล่ม** | ระบบตกไปอ่าน PostgreSQL ตรง (Fail-Open) — `GET /products` และ `POST /sales` ยังทำงาน, ร้านที่ `suspended` ยังถูกปฏิเสธ (พิสูจน์ใน `server/test/redis-cache-outage.e2e-spec.ts`, #383) | งานเบื้องหลังค้างในคิว (/health/ready ตอบ 503) แต่ไม่กระทบการขายหน้าร้าน |
+
+> 🔄 **แก้ 2026-09-23 (ตาราง):** `redis-queue` ฟังพอร์ต `6379` ภายใน compose (เดิมเขียน `6380`) · `redis-cache` ไม่มี RDB snapshot · ทั้งสองตัวตั้ง `--requirepass` และไม่เปิดพอร์ตออก host · ชื่อคิวตาม `queue.constants.ts`
 
 ### 8.1 การล้างแคชด้วย Post-Commit Hooks (ป้องกัน Stale Read - B04-89)
-เมื่อมีการแก้ไขข้อมูลสินค้าหรือเปลี่ยนสถานะร้านค้า การสั่งล้างแคชใน Redis (`DEL`) **จะต้องเกิดขึ้นหลังจาก Transaction ในฐานข้อมูล COMMIT สำเร็จแล้วเท่านั้น** หากสั่งล้างแคชภายใน Transaction แล้วเกิด Rollback แคชที่ถูกลบไปจะถูกเติมใหม่ด้วยข้อมูลเก่าทันที
+เมื่อมีการแก้ไขข้อมูลสินค้าหรือเปลี่ยนสถานะร้านค้า การล้างแคชใน Redis **จะต้องเกิดขึ้นหลังจาก Transaction ในฐานข้อมูล COMMIT สำเร็จแล้วเท่านั้น** (`onTransactionCommit` → hook ที่ `TenantService.runTx` รันหลัง commit) หากล้างแคชภายใน Transaction แล้วมีคำขออื่นอ่านระหว่างนั้น แคชจะถูกเติมใหม่ด้วยข้อมูลก่อน commit
+
+> 🔄 **แก้ 2026-09-23:** กลไกจริงไม่ใช่ `DEL` ทีละคีย์ แต่เป็นการขยับ **generation** ต่อร้านต่อ namespace ที่ฝังอยู่ในทุกคีย์ (`server/src/infra/tenant-cache.service.ts`)
+> เพราะ `redis-cache` เป็น `allkeys-lru` — tag set ที่ถูก evict จะทำให้คีย์ลูกกลายเป็นกำพร้าแบบเงียบ ๆ คีย์รุ่นเก่าหมดอายุไปเองตาม TTL
 
 ---
 
 ## 9. ⚙️ Background Worker & Async Queue (BullMQ)
 
-เพื่อป้องกันไม่ให้คำขอประมวลผลหนักๆ (เช่น การสร้างรายงานยอดขายสิ้นวัน PDF ขนาดหลายสิบหน้า หรือการสำรองข้อมูลร้าน) มาดึง CPU ของ Event Loop หน้าร้าน ระบบจึงส่งต่องานเหล่านี้ไปยัง **Dedicated Worker**:
+เพื่อป้องกันไม่ให้งานหนักหรืองานที่ไม่ต้องรอ (หลังขาย, ตรวจสต็อก, ล้าง idempotency เก่า, export/import ข้อมูลร้าน) มาดึง CPU ของ Event Loop หน้าร้าน ระบบจึงส่งต่องานเหล่านี้ไปยัง **Dedicated Worker** (`node dist/worker.js`):
+
+> 🔄 **แก้ 2026-09-23:** ฉบับก่อนแสดง `QUEUE_DAILY_REPORT` / `QUEUE_DATA_SYNC` / `DailyReportProcessor` ที่สร้าง PDF — **ไม่มีอยู่จริง** และ worker **ไม่ได้ใช้ `TenantService.runTx`**
+> (ไม่มี request scope ใน worker) แต่ใช้ `TenantJobRunner.runWithTenantContext` ข้างล่างคือของจริง
 
 ```typescript
-// server/src/queue/queue.constants.ts
-export const QUEUE_DAILY_REPORT = 'queue_daily_report';
-export const QUEUE_DATA_SYNC    = 'queue_data_sync';
+// server/src/queue/queue.constants.ts (ตัดตอน)
+export const QUEUE_SALE_POST     = 'sale-post';      // job 'sale.created', 'return.created'
+export const QUEUE_INVENTORY     = 'inventory';      // 'inventory.check'
+export const QUEUE_MAINTENANCE   = 'maintenance';    // 'idem.cleanup' (ทุกชั่วโมง), 'quotes.purge'
+export const QUEUE_BACKUP        = 'backup';         // 'tenant.export'
+export const QUEUE_TENANT_IMPORT = 'tenant-import';  // 'tenant.import' — คิวแยก (#239) กัน Worker สองตัวแย่ง job กัน
+export const QUEUE_DLQ           = 'dlq';
 
-// server/src/queue/daily-report.processor.ts
-@Processor(QUEUE_DAILY_REPORT)
-export class DailyReportProcessor extends WorkerHost {
-  constructor(private readonly tenantService: TenantService) {
-    super();
-  }
+export interface BaseJobPayload { tenantId: string; correlationId: string; [key: string]: unknown }
 
-  async process(job: Job<{ tenantId: string; shiftId: string }>): Promise<any> {
-    const { tenantId, shiftId } = job.data;
-
-    // 🌟 บังคับรันงาน Worker ภายใต้ Context ของร้านค้านั้นๆ เสมอ
-    return this.tenantService.runTx(async (manager) => {
-      // ดึงข้อมูลยอดขายประจำกะภายใต้สิทธิ์ RLS
-      const sales = await manager.find(Sale, { where: { shiftId } });
-      // สร้างไฟล์ PDF และบันทึกผลลัพธ์
-      return this.generateReportPdf(sales);
-    });
-  }
-}
+export const DEFAULT_JOB_OPTIONS: JobsOptions = {
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 1000, jitter: 1 },   // full jitter แบบ builtin ของ BullMQ (#201)
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: false,
+};
 ```
 
-- **คอนฟิกของ Worker:** คอนเทนเนอร์ `worker` ถูกจำกัด Concurrency ไว้ที่ `1` และมีขนาด Pool แยกต่างหากที่ `5 connections` เพื่อรับประกันว่าจะไม่รุมแย่ง CPU หรือแย่ง Connection จนกระทบการขายหน้าร้าน
+- **`TenantJobRunner.runWithTenantContext(job, fn)`** (`server/src/queue/tenant-job-runner.ts`): payload ต้องมี `tenantId` · อ่าน `tenants.status` ก่อน — ร้าน `suspended`/ไม่พบ → ข้าม job · แล้วเปิดทรานแซกชันที่ตั้ง `app.tenant_id` ให้ `fn` · throw → rollback · ผ่านเพดาน commit 25 s เดียวกับ `runTx` (มีแค่ tenant export ที่ขอยกเว้น)
+- **job ถูก enqueue หลัง COMMIT เท่านั้น** (post-commit hook) — ทรานแซกชันที่ rollback จะไม่ทิ้ง job ผีไว้ในคิว
+- **คอนฟิกของ Worker:** คอนเทนเนอร์ `worker` มี Pool แยก `DB_POOL_SIZE=5` และไม่ได้ตั้ง `concurrency` เอง (ใช้ค่า default ของ BullMQ = 1 ต่อ processor) เพื่อไม่ให้แย่ง connection จนกระทบการขายหน้าร้าน
 
 ---
 
@@ -637,14 +557,14 @@ export class DailyReportProcessor extends WorkerHost {
 stateDiagram-v2
     [*] --> NO_SHIFT: ระบบเริ่มต้นวันใหม่ / ยังไม่มีการเปิดกะ
     
-    NO_SHIFT --> SHIFT_OPEN: แคชเชียร์นับเงินทอนตั้งต้น<br/>(POST /shifts)
+    NO_SHIFT --> SHIFT_OPEN: แคชเชียร์นับเงินทอนตั้งต้น<br/>(POST /shifts/open)
     
     SHIFT_OPEN --> SHIFT_OPEN: บันทึกการขาย (POST /sales)<br/>ประทับตรา shift_id ในบิล
-    SHIFT_OPEN --> SHIFT_OPEN: นำเงินเข้า/เบิกเงินออก<br/>(POST /shifts/drawer-entry)
+    SHIFT_OPEN --> SHIFT_OPEN: นำเงินเข้า/เบิกเงินออก<br/>(POST /shifts/current/entries)
     
     SHIFT_OPEN --> SHIFT_CLOSED: นับเงินปิดกะ ส่งรายงานสิ้นวัน<br/>(POST /shifts/close)
     
-    SHIFT_OPEN --> AUTO_ARCHIVED: แคชเชียร์ลืมปิดกะ แล้วเปิดกะใหม่ในวันถัดไป<br/>(ระบบ Auto-archive กะเก่าอัตโนมัติ)
+    SHIFT_OPEN --> AUTO_ARCHIVED: แคชเชียร์ลืมปิดกะ แล้วเปิดกะใหม่<br/>(ระบบ Auto-archive กะเก่าอัตโนมัติ)
     
     SHIFT_OPEN --> FORCE_CLOSED: เครื่อง POS ถูกกดปลดระวาง (Retire Device)<br/>(ปิดกะทันทีใน Transaction เดียวกัน)
     
@@ -653,8 +573,11 @@ stateDiagram-v2
     FORCE_CLOSED --> [*]
 ```
 
-- **Auto-archive Prior Shift:** หากแคชเชียร์ลืมปิดกะในวันก่อนหน้า แล้วมาเปิดกะใหม่ในเช้าวันรุ่งขึ้น ระบบจะไม่ปฏิเสธ แต่จะทำการปิดและจัดเก็บกะก่อนหน้าให้อัตโนมัติ (`auto_archived = true`) เพื่อให้หน้าร้านเปิดขายต่อได้ทันทีโดยที่ประวัติทางการเงินไม่สูญหาย
-- **การบล็อกเงินลอย:** หากไม่มีกะเปิดอยู่ คำสั่งเพิ่มรายการเงินเข้า-ออกลิ้นชัก (`drawer-entry`) จะถูกปฏิเสธด้วย `409 NO_OPEN_SHIFT`
+- **Auto-archive Prior Shift:** หากแคชเชียร์ลืมปิดกะ แล้วมาเปิดกะใหม่ ระบบจะไม่ปฏิเสธ แต่จะจัดเก็บกะก่อนหน้าให้อัตโนมัติ (`auto_archived = true`) และลงรายการ `shift_uncounted` ใน `owner_review_items` ให้เจ้าของตรวจ เพื่อให้หน้าร้านเปิดขายต่อได้ทันทีโดยที่ประวัติทางการเงินไม่สูญหาย
+- **`is_active` ไม่ได้แปลว่า "เปิดอยู่":** ปิดกะแล้ว `is_active` ยังเป็น `true` (เป็น "กะล่าสุดของเครื่องนี้") — "เปิดอยู่" คือ `closed_at IS NULL`
+- **การบล็อกเงินลอย:** หากไม่มีกะเปิดอยู่ การขายและการคืนเงินสดจะถูกปฏิเสธด้วย `409 NO_OPEN_SHIFT` และการบันทึกเงินเข้า-ออกหลังปิดกะถูกปฏิเสธเช่นกัน
+- **ยกเลิกบิลได้เฉพาะบิลของกะที่เปิดอยู่บนเครื่องนี้** (`409 SALE_NOT_IN_OPEN_SHIFT`) · บิลที่มีใบลดหนี้แล้ว void ไม่ได้ (`409 SALE_HAS_RETURNS`) · void ออนไลน์ใช้**เหตุผลอย่างเดียว ไม่ใช้ PIN** (08 E3)
+- *(🔄 แก้ 2026-09-23: route เดิม `POST /shifts` / `/shifts/drawer-entry` ไม่มีอยู่จริง · เฟส 2 อนุญาตหลายกะต่อวัน — [`08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md) · ตัวอย่าง "เปิดกะใหม่วันถัดไป" จึงไม่ใช่เงื่อนไข)*
 
 ---
 
@@ -663,14 +586,18 @@ stateDiagram-v2
 ### 11.1 Health Check Endpoints
 ระบบแยกจุดตรวจวัดสุขภาพของคอนเทนเนอร์ออกเป็น 2 ระดับอย่างชัดเจนใน [`server/src/health/health.controller.ts`](../../server/src/health/health.controller.ts):
 1. **Liveness Probe (`/health/live`):** ตรวจสอบว่าโพรเซส Node.js ยังมีชีวิตอยู่และ Event Loop ไม่ติดขัด (คืนค่า `200 OK` ทันทีโดยไม่แตะฐานข้อมูล)
-2. **Readiness Probe (`/health/ready`):** ตรวจสอบว่าระบบมีความพร้อมในการรับทราฟฟิก โดยทดสอบการเชื่อมต่อกับ PostgreSQL Pool และ Redis หากจุดใดจุดหนึ่งขาดการเชื่อมต่อ จะตอบกลับ `503 Service Unavailable` เพื่อให้ Nginx ตัดโหนดนั้นออกจาก Upstream ชั่วคราว
+2. **Readiness Probe (`/health/ready`):** ตรวจสอบการเชื่อมต่อกับ PostgreSQL และ Redis ทั้งสองตัว หากจุดใดจุดหนึ่งขาดการเชื่อมต่อ จะตอบกลับ `503 NOT_READY`
+   *(🔄 แก้ 2026-09-23: Nginx **ไม่ได้**ใช้ 503 นี้ตัดโหนด — Nginx ฟรีทำได้แค่ passive health (`max_fails` บน connection error) และตั้งใจไม่ failover บน `http_5xx` เพราะตอน Postgres/Redis ล่ม ทุก instance จะตอบ 503 พร้อมกัน · Docker healthcheck ของ `api-*` ใช้ `/health/live`)*
 
 ### 11.2 Prometheus Metrics (`/metrics`)
 ระบบติดตั้ง `prom-client` เพื่อส่งออกข้อมูลมอนิเตอร์ระดับโปรดักชัน:
 - `http_request_duration_seconds`: Histogram บันทึกความล่าช้าของคำขอ (p50, p95, p99)
-- `http_requests_total`: Counter นับจำนวนคำขอแยกตาม Method, Route, และ HTTP Status
-- `nodejs_heap_size_used_bytes`: ขนาดหน่วยความจำที่ Node.js ใช้งานจริง
-- `db_pool_active_connections`: จำนวน Connection ที่กำลังถูกใช้งานอยู่ใน Pool
+- `http_requests_total`: Counter นับจำนวนคำขอแยกตาม Method, Route (**pattern** ไม่ใช่ path จริง), และ HTTP Status — ชื่อทั้งสองนี้ถูกอ้างโดย panel ใน Grafana ห้ามเปลี่ยนชื่อ
+- `pos_idempotency_replay_total`: Counter จำนวน replay (ไม่มี label `tenant_id`, นับหลัง commit เท่านั้น)
+- ค่า default ของ `prom-client` (`collectDefaultMetrics`) เช่น `nodejs_heap_size_used_bytes`
+
+> 🔄 **แก้ 2026-09-23:** ไม่มี metric `db_pool_active_connections` ในโค้ด (ลบออกแล้ว) · การนับอยู่ใน **middleware** ไม่ใช่ interceptor เพื่อให้คำขอที่ guard ปฏิเสธ (401/429) ถูกนับด้วย ·
+> `/metrics`, `/health/live`, `/health/ready` ไม่ถูกนับใน SLI (`UNMEASURED_PATHS`) · `GET /metrics` ไม่ห่อ envelope และ Nginx ตอบ `location = /metrics` ด้วย 404 — Prometheus scrape ตรงจาก compose network (`deploy/prometheus/`)
 
 ---
 
@@ -680,10 +607,13 @@ stateDiagram-v2
 
 | ระดับการทดสอบ | เครื่องมือที่ใช้ | จำนวนที่ครอบคลุม | วัตถุประสงค์ในการตรวจสอบ |
 | :--- | :---: | :---: | :--- |
-| **Unit Tests** | Vitest | **397 passed / 47 files** | ตรวจสอบ Business Invariants, กฎการคำนวณแต้ม, การถัวเฉลี่ยต้นทุน, และ DTO Validations |
-| **E2E Tests** | Vitest E2E | **51 test files** | ทดสอบการทำงานจริงบน PostgreSQL และ Redis (RLS isolation, Idempotency rollback, Strict lock order) |
-| **Stress / Load Tests** | k6 | **4 test suites** | จำลองการแย่งซื้อสินค้าเดียวกัน (Concurrent Sales) และการส่งคำขอซ้ำภายใต้โหลดจำลอง |
-| **Static Verification** | Oxlint + `tsc --noEmit` | **Clean (0 errors)** | รับประกันความถูกต้องของ Type และโครงสร้างโค้ดตามมาตรฐาน TypeScript ล่าสุด |
+| **Unit Tests** | Vitest | **49 ไฟล์ `*.spec.ts`** (`server/src/` + `server/test/`) | ตรวจสอบ Business Invariants, กฎการคำนวณแต้ม, การถัวเฉลี่ยต้นทุน, DTO Validations และ architecture spec ของ seam ทรานแซกชัน |
+| **E2E Tests** | Vitest E2E | **53 ไฟล์ `*.e2e-spec.ts`** (`server/test/`) | ทดสอบการทำงานจริงบน PostgreSQL และ Redis (RLS isolation, Idempotency rollback, Strict lock order, 200 บิลแย่งของ 50 ชิ้นใน `sales.e2e-spec.ts`, Redis cache ล่มจริงใน `redis-cache-outage.e2e-spec.ts`) |
+| **Stress / Load Tests** | k6 | **4 สคริปต์** (`server/test/k6/01`–`04`) | จำลองการอ่านสินค้า, การแย่งซื้อสินค้าเดียวกัน, การส่งคำขอซ้ำ และ workload ผสม — 🔴 **ยังไม่เคยวัดจริงบน `mob04`** (#380): ช่อง k6 ใน `03_ARCHITECTURE.md §8` ยังไม่ติ๊ก |
+| **Static Verification** | Oxlint + `tsc --noEmit` | ต้องผ่านใน CI (`server-ci-status`) | รับประกันความถูกต้องของ Type และโครงสร้างโค้ด |
+
+> 🔄 **แก้ 2026-09-23:** ตัวเลขเดิม (397 passed / 47 files, 51 e2e files, "Clean 0 errors") เป็นภาพ ณ วันเขียนครั้งแรก — ตอนนี้นับเป็น**จำนวนไฟล์** จาก repo แทน
+> เพราะจำนวน test ที่ผ่านขึ้นกับเครื่องที่รัน · หลักฐานที่ใช้อ้างได้คือผลของ required check `server-ci-status` / `flutter-ci-status` บน `main` · k6 มีแค่เครื่องมือและ runbook ยังไม่มีตัวเลข (PR #357 ไม่ใช่หลักฐานการวัด)
 
 ---
 
@@ -691,13 +621,15 @@ stateDiagram-v2
 
 | เหตุการณ์ความล้มเหลว | ผลกระทบต่อระบบ | ระบบตรวจจับได้อย่างไร | กลยุทธ์การฟื้นฟูและการรับมือ |
 | :--- | :--- | :---: | :--- |
-| **Nginx ล่ม** | ทราฟฟิกทั้งหมดจากภายนอกเข้าสู่ระบบไม่ได้ | ✅ ทันที (Docker Healthcheck) | Docker Compose Restart Policy (`unless-stopped`) สตาร์ท Nginx ตัวใหม่ขึ้นมาแทนที่ในเวลา < 2 วินาที |
+| **Nginx ล่ม** | ทราฟฟิกทั้งหมดจากภายนอกเข้าสู่ระบบไม่ได้ | ✅ ทันที (process ตาย) | Restart Policy (`unless-stopped`) สตาร์ท Nginx ใหม่ *(🔄 2026-09-23: `nginx` ไม่มี healthcheck ใน compose และตัวเลข "< 2 วินาที" ไม่เคยวัด — ตัดออก)* |
 | **API Instance ดับ (1 ตัว)** | กำลังการประมวลผลลดลง 33% | ✅ ทันที (Nginx Passive Failover) | Nginx ตรวจพบผ่าน `max_fails=2` และเบนทราฟฟิกไปยังอีก 2 ตัวที่เหลือทันทีโดยผู้ใช้ไม่รู้สึกถึงความสะดุด |
-| **PostgreSQL คอนเนกชันเต็ม** | คำขอใหม่ต้องรอใน Pool Queue | 🟡 Latency สูงขึ้นชั่วขณะ | Nginx ควบคุม Rate Limit ไว้ที่ 100 req/min ต่อร้านค้า และ Pool Math (62/100) ป้องกันไม่ให้เกิดปัญหานี้ตั้งแต่ต้น |
-| **Redis Cache ดับ** | แคชสถานะร้านค้าและ Metadata หาย | 🟡 ตกไป Query ที่ DB | โค้ดถูกเขียนแบบ **Fail-Open**: หากอ่านแคชไม่สำเร็จจะตกไปอ่านจาก PostgreSQL โดยตรง ระบบไม่ล่ม |
-| **Redis Queue ดับ** | งานพิมพ์รายงานเบื้องหลังหยุดชะงัก | ❌ งานค้างในคิว | เปิดโหมด **AOF (`appendonly yes`)** เมื่อ Redis รีบูตกลับมา BullMQ จะดึง Job เดิมมาทำต่อได้อย่างถูกต้อง |
-| **เน็ตหน้าร้านหลุด (Internet Outage)** | เครื่อง POS ส่งข้อมูลขึ้นเซิร์ฟเวอร์ไม่ได้ | 🟡 หน้าจอแจ้งเตือน Offline | **เฟส 1:** หยุดรอสัญญาณเน็ตและกดยืนยันใหม่<br/>**เฟส 2 (ADR-0010):** สลับเข้าสู่โหมด Degraded บันทึกลง Outbox ชั่วคราว |
+| **PostgreSQL คอนเนกชันเต็ม** | คำขอใหม่ต้องรอใน Pool Queue | 🟡 Latency สูงขึ้นชั่วขณะ | Pool Math (62/100), ห้ามถือ connection ใบที่สองต่อคำขอ (#162), `statement_timeout 25s` + เพดาน commit 25 s และ rate limit (Nginx ต่อ IP `30r/s`, NestJS ต่อร้าน ADR-0006) *(🔄 2026-09-23: เดิมเขียน "Nginx 100 req/min ต่อร้าน" ซึ่งไม่มีจริง)* |
+| **Redis Cache ดับ** | แคชสถานะร้านค้าและ Metadata หาย | 🟡 ตกไป Query ที่ DB | โค้ดถูกเขียนแบบ **Fail-Open**: หากอ่านแคชไม่สำเร็จ (รวมกรณีเปิดพอร์ตแต่เงียบจน `commandTimeout` — #140) จะตกไปอ่านจาก PostgreSQL โดยตรง · พิสูจน์ด้วย Redis ที่ต่อไม่ได้จริงใน `redis-cache-outage.e2e-spec.ts` (#383) |
+| **Redis Queue ดับ** | งานเบื้องหลัง (หลังขาย, ตรวจสต็อก, export) หยุดชะงัก | 🟡 `/health/ready` ตอบ 503 | เปิดโหมด **AOF (`appendonly yes`, fsync ทุกวินาที)** เมื่อ Redis รีบูตกลับมา BullMQ จะดึง Job เดิมมาทำต่อ (อาจเสีย job ในวินาทีสุดท้าย) |
+| **เน็ตหน้าร้านหลุด (Internet Outage)** | เครื่อง POS ส่งข้อมูลขึ้นเซิร์ฟเวอร์ไม่ได้ | 🟡 หน้าจอแจ้งเตือน Offline | **เฟส 1:** ร้านยังรัน Drift build แบบออฟไลน์อยู่ (ไม่มี cutover) · client โหมด API ห้ามเขียนในเครื่องเมื่อผลไม่แน่นอน<br/>**เฟส 2 ([`08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md), ADR-0004/0007/0010 addenda):** เครื่อง `pos` ขายต่อถ้าสต็อกในเครื่องพอ ออกเลข RC/CN เอง ลง outbox แล้ว `POST /sync/push` ด้วย device token — กำลังทำ |
 
 ---
 
-> 📌 **บทสรุปทางวิศวกรรม**: เอกสารสถาปัตยกรรมฉบับนี้เป็นข้อกำหนดผูกพัน (Binding Architectural Contract) สำหรับระบบ **Srisurart Autopart POS** ทุกการแก้ไขโค้ดใน `server/` และ `frontend/` ต้องสอดคล้องกับลำดับการถือล็อค, การจัดการสิทธิ์ Multi-Tenant RLS, และการคำนวณ Connection Pool ที่ระบุไว้ในเอกสารนี้เสมอ
+> 📌 **บทสรุปทางวิศวกรรม**: เอกสารนี้เป็น**ภาพรวมเพื่ออธิบาย** สถาปัตยกรรมของ **Srisurart Autopart POS** — ลำดับการถือล็อค, การแยกร้านด้วย RLS + handler-level `runTx`, และ Pool Math ที่เล่าไว้ต้องถูกเคารพเมื่อแก้โค้ดใน `server/` และ `frontend/`
+> แต่**ตัวผูกพันจริง**คือ ADR ใน [`adr/`](adr/README.md) (ADR ชนะเอกสารอื่นเสมอ), migration ใน `server/src/db/migrations/`, และกฎใน `CLAUDE.md`
+> *(🔄 แก้ 2026-09-23: ฉบับก่อนประกาศตัวเองเป็น "Binding Architectural Contract" ซึ่งขัดกับกติกา "ADR ชนะ" ของ repo)*

@@ -2,13 +2,15 @@
 
 > **เอกสารเจ้าของสเปกเฟส 2** (Architecture C — `03_ARCHITECTURE.md §4`)
 > ที่มา: เจ้าของโปรเจกต์ใน #240 — **D1–D15** (รอบ 1) · **E1–E11** (รอบ 2) · **F1–F10** (รอบ 3) · **F4′** (รอบ 4: กลับ F4) — **รอบหลังชนะรอบก่อนเมื่อขัดกัน** ·
-> host: #242 (owner 2026-09-15) · แผนที่งาน #243 · review รอบ 1–2 ของ PR #254
+> host: #242 (owner 2026-09-15) · แผนที่งาน #243 (ปิด 2026-09-22) · review รอบ 1–2 ของ PR #254
 > ADR ที่แก้ตาม: [0004](adr/0004-device-roles.md) · [0007](adr/0007-receipt-numbering.md) · [0009](adr/0009-jwt-session-lifetime.md) · [0010](adr/0010-client-write-through-cache.md) · [0013](adr/0013-cicd-toolchain.md)
 > **ขัดกับ ADR → ยึด ADR** · ไฟล์นี้เก็บกติกา + ตัวอย่าง + เกณฑ์รับงาน เหตุผลยาวอยู่ใน ADR
 >
 > 🔴 **ห้ามแต่งข้อความไทยใหม่** (`02 §8.1`) — ทุกคำไทยที่เป็นป้าย/ปุ่ม/ชื่อแท็บในไฟล์นี้เป็น **placeholder** รอ ticket ข้อความ (F10, §18)
 
 สถานะ 2026-09-15: รอบ 3 · ยังไม่มีโค้ด
+
+> **สถานะ 2026-09-23** (ข้อเท็จจริง ไม่ใช่การตัดสินใจใหม่): slice 0a–21 และ 24 merge แล้ว — รายใบ + PR ที่ §16 · ที่ยังเปิด: slice 22/23/25 (ops บน `mob04`) และ #231 · migration server ที่ไฟล์นี้ทำให้เกิด: `1788652803001-SingleOwnerRole` (§3) · `…3002-OwnerReviewItems` (C6) · `…3003-SyncPushColumns` (C3, C12, §12) · `…4000-CustomersMechanicsSyncIndex` (slice 13a) — DDL อยู่ที่ `01_DATABASE.md §5` · ⚠️ `01 §11` บันทึกบั๊กสองข้อของ `…3002` (policy RLS ไม่มี `NULLIF`, FK `ON DELETE SET NULL` ทั้งสองคอลัมน์) — ยังไม่แก้
 
 ---
 
@@ -41,7 +43,7 @@
 
 | อยู่ในเฟส 2 | ไม่อยู่ |
 |---|---|
-| offline shell, `POST /sync/push`, เลข RC/CN ที่เครื่อง, PIN ออฟไลน์, หน้า "รอ owner", production บน `mob04` | cutover ร้านจริงจากนอกมหาวิทยาลัย (#231 — เฟสถัดไป; ผลเทียบ cloud: branch `research/production-host`) · หลาย `pos` ต่อร้าน · `change_log`/CRDT (#191) · CouchDB (ADR-0012) · ใบกำกับภาษีเต็มรูป |
+| offline shell, `POST /sync/push`, เลข RC/CN ที่เครื่อง, PIN ออฟไลน์, หน้า "รอ owner", production บน `mob04` | cutover ร้านจริงจากนอกมหาวิทยาลัย (#231 — เฟสถัดไป; ผลเทียบ cloud: `docs/research/production-host.md` — ย้ายขึ้น `main` แล้ว PR #386, branch เดิมถูกลบ 2026-09-22 · แนะนำ cloud host ที่เจ้าของไม่เอาแล้ว 2026-09-15 เก็บไว้เป็น input เท่านั้น) · หลาย `pos` ต่อร้าน · `change_log`/CRDT (#191) · CouchDB (ADR-0012) · ใบกำกับภาษีเต็มรูป |
 
 ข้อเท็จจริงที่ทั้งไฟล์ยืนอยู่: ร้านมี `pos` เครื่องเดียว (`one_pos_per_tenant`) = ผู้ขาย ผู้ถือลิ้นชัก ผู้ออก RC/CN คนเดียว · ความขัดแย้งมาจาก `backoffice` แก้ข้อมูลระหว่างนั้นเท่านั้น
 
@@ -102,6 +104,8 @@
 | `idempotency-routes.spec.ts` | regex ของ void ที่ปักรูป `authorise` |
 | `server/test` ~41 ไฟล์ · `frontend/test` 5 ไฟล์ | fixture role |
 
+> สถานะ 2026-09-23: ตารางข้างบนเป็นภาพของ `8e873cd` (ก่อนลงมือ) · slice 1 (#278) merge แล้ว PR #300 → migration `1788652803001-SingleOwnerRole` (CHECK `role = 'owner'`, `uq_users_one_active`, ลบ `pin_hash`) · commit `225ecf7` แก้ `InitialSchema.ts` ด้วย (ดูข้อควรระวังใน `01 §11`) · slice 2 (#279) merge แล้ว PR #301 · checkbox ข้างล่างไม่ได้ติ๊กในไฟล์นี้ — หลักฐานอยู่ที่ issue/PR
+
 **เกณฑ์รับงาน**
 - [ ] migration: ร้านที่มี 3 user → 1 active (เก่าสุด) · สร้าง user active คนที่สอง → 23505
 - [ ] grep `'manager'`/`'cashier'` ใน `server/src` + `frontend/lib` = 0
@@ -112,7 +116,8 @@
 
 ## 4. PWA shell + แท็บเดียว (D2, D10, F8)
 
-ผลวิจัย #241: `docs/research/pwa-offline-shell.md` (branch `research/pwa-offline-shell`)
+ผลวิจัย #241: `docs/research/pwa-offline-shell.md` (อยู่บน `main` แล้ว — PR #386, 2026-09-22; branch `research/pwa-offline-shell` ถูกลบ)
+· สถานะ 2026-09-23: slice 3 (#273) merge แล้ว PR #322 · ข้อ 8 (`/sw.js` no-cache) มากับ #270 PR #308 · ข้อ 9 (#245) PR #267 · web DB LinkError #266 แก้ใน PR #310 (issue ปิด 2026-09-19)
 
 | # | ต้องมี | เหตุผลย่อ |
 |---|---|---|
@@ -213,6 +218,7 @@ stateDiagram-v2
 - id + key สร้างก่อนส่ง · แถวที่ op สร้าง + แถว outbox ใน **local transaction เดียว** · ห้ามเรียก transactional service ของ Drift
 - ลบ op เมื่อ `applied` และ patch สำเร็จ · patch ไม่เขียนทับ `stock` ของสินค้าที่ยังมี op ค้าง
 - เลข schema ของ Drift ใส่ตอน merge
+  · สถานะ 2026-09-23: `outbox_ops` + `SyncService` merge แล้ว (#228, PR #324) · `pending_credit_payments` ย้ายเข้า (#275, PR #329) · Drift บน `main` = **schema v11** (v7 = ลบ `offlineOk`, #272 PR #310)
 
 **เกณฑ์รับงาน**
 - [ ] kill แอประหว่างขาย → บิลกับ op มีทั้งคู่หรือไม่มีทั้งคู่
@@ -221,6 +227,8 @@ stateDiagram-v2
 ---
 
 ## 8. `POST /sync/push`
+
+> สถานะ 2026-09-23: ครึ่ง server merge แล้ว (#283, PR #313 — `server/src/sync/`) · ครึ่ง client (#228, PR #324) · e2e จาก fixture ทั้งสองฝั่ง (#287 PR #323 · #193 PR #331) · คอลัมน์ `devices.unsynced_ops`/`unsynced_reported_at` + `sales.sold_offline` + ฟังก์ชัน `auth_lookup_device_and_active_user` (C13) อยู่ใน migration `1788652803003-SyncPushColumns` · fixture อยู่ที่ `fixtures/sync-push/` (18 ไฟล์, #269 PR #307)
 
 ### 8.1 การยืนยันตัวและผู้กระทำ (D8, F3)
 - `X-Device-Token` → `tid`/`did`/`drole` · `drole = pos` · tenant active · endpoint เดียวที่รับ device token แทน access token
@@ -361,6 +369,7 @@ stateDiagram-v2
 | undo | ไม่มี | ไม่มี |
 
 - `sales.void_reason TEXT` (ทั้งสองทาง) · `sales.sold_offline BOOLEAN NOT NULL DEFAULT false` · Drift `Sales.soldOffline`
+  (2026-09-23: ทั้งสองคอลัมน์มาใน migration `1788652803003-SyncPushColumns` · server #284 PR #316 · client #276 PR #334)
 - ข้อตรวจเดิมคงอยู่ · push void ของบิลที่ไม่ใช่ `sold_offline` → `rejected` `VOID_NEEDS_ONLINE`
 
 **เกณฑ์รับงาน**
@@ -416,6 +425,8 @@ stateDiagram-v2
 | บังคับ | `{force: true, note}` → retire + รายการตรวจ `device_force_retired` |
 | ข้อจำกัด | ค่าเป็น "ล่าสุดที่เครื่องรายงาน" — เครื่องที่ออฟไลน์แล้วมี op เพิ่มหลังรายงานครั้งสุดท้าย server ไม่เห็น |
 
+> สถานะ 2026-09-23: ตาราง `owner_review_items` = migration `1788652803002-OwnerReviewItems` (#281, PR #303 — มีคอลัมน์ `created_at`, `reviewed_by` เพิ่มจาก C6) · หน้า "รอ owner" + `POST /sync/discards` (#230, PR #318) · retire guard (#286, PR #314) · หน้าจัดการเครื่อง (#192, PR #326)
+
 **เกณฑ์รับงาน**
 - [ ] ป้ายนับถูก · ส่งใหม่ผ่าน → หายจากแท็บ
 - [ ] ทิ้ง `customer.create` ที่ server มีแถว → แถวในเครื่องยังอยู่ ค่าตรง server
@@ -435,6 +446,8 @@ stateDiagram-v2
 | tombstone | `deleted_at IS NOT NULL` → ลบ/ซ่อน · รวมแถว `import-tombstone` ที่ import สร้างให้ประวัติที่อ้างแถวที่ลบไปแล้ว (#238/#252) — ห้ามแสดงในรายการเลือกสินค้า/ลูกค้า |
 | สต็อก | ไม่เขียนทับสินค้าที่มี op ค้าง |
 | ปลอดภัยเพราะ | commit ceiling 25 วินาที (#213) · import ประทับ `clock_timestamp()` (#217 ปิดแล้ว PR #224) |
+
+> สถานะ 2026-09-23: คำว่า "วันนี้" ในตารางข้างบนเป็นภาพก่อนลงมือ — keyset + `nextCursor` ของ customers/mechanics merge แล้ว (#277, PR #309) พร้อม index `idx_customers_sync`/`idx_mechanics_sync` (migration `1788652804000-CustomersMechanicsSyncIndex`) · `sync_cursors` ใน Drift + ไม่ทับสต็อกใต้ op ค้าง (#212, PR #347)
 
 **เกณฑ์รับงาน**
 - [ ] นาฬิกาเครื่องเร็ว 10 นาที + backoffice แก้ราคา → pull เห็น
@@ -483,11 +496,36 @@ stateDiagram-v2
 | 25 | run จริงของ `deploy.yml` บน runner ของ #237 (ตั้ง runner + hook + wrapper ตาม `07 §6.2`, ตรวจ log run แรกว่า hook เห็นตัวแปรครบ) | #67 | 22 |
 | – | cutover ร้านจริง | #231 — เฟสถัดไป | – |
 
+**สถานะ 2026-09-23** — "NEW:" ข้างบนออกเลขแล้วทุกใบ (เลขครบที่ `09 §12`) · เทียบ `gh issue view` + `git log --grep` (ไม่เชื่อ `closedByPullRequestsReferences` อย่างเดียว) · merge = มี PR บน `main` ไม่ได้แปลว่า AC ในไฟล์นี้ติ๊กแล้ว
+
+| slice | issue | สถานะ |
+|---|---|---|
+| 0a · 0b · 0c | #245 · #271 · #268 | merge แล้ว — PR #267 · #299 · #305 (0c 2026-09-17) |
+| 1 · 2 | #278 · #279 | merge แล้ว — PR #300 · #301 |
+| 3 · 4-c · 5 | #273 · #274 · #189 | merge แล้ว — PR #322 |
+| 4-s | #280 | merge แล้ว — PR #312 |
+| 6 · 7 | #281 · #282 | merge แล้ว — PR #303 · #311 |
+| 8-c · 8-s | #228 · #283 | merge แล้ว — PR #324 · #313 (ทั้งสองครึ่ง) |
+| 9 · 10 · 11-c · 11-s | #275 · #211 · #276 · #284 | merge แล้ว — PR #329 · #332 · #334 · #316 |
+| 12 | #229 | merge แล้ว — PR #330 |
+| 13a · 13b | #277 · #212 | merge แล้ว — PR #309 · #347 |
+| 14-c · 14-s · 15 | #194 · #285 · #190 | merge แล้ว — PR #328 · #317 · #315 |
+| 16 · 17 · 19 · 21 | #230 · #286 · #195 · #192 | merge แล้ว — PR #318 · #314 · #321 · #326 |
+| 18 | #272 | merge แล้ว — PR #310 (2026-09-17) → Drift v7 |
+| 20-c · 20-s | #193 · #287 | merge แล้ว — PR #331 · #323 |
+| 24 | #270 | merge แล้ว — PR #308 (2026-09-17) |
+| 22 | #184 | 🔴 **ปิดโดยเจ้าของ 2026-09-21 โดยไม่มี AC ติ๊กเลย** — การวัดย้ายไป **#380** (ยังไม่มีตัวเลข) · deploy จริง = #343/#344 · **ห้ามเปิด #184 ใหม่** |
+| 23 | #288 | 🔴 **เปิดอยู่** (reopen 2026-09-21) · ส่วน offsite อยู่ที่ #363 — **พักไว้หลังเดโม `mob04`** (เจ้าของ 2026-09-22) · ยังไม่มี backup ออกนอก VM |
+| 25 | #67 | ปิดแล้ว (PR #348 2026-09-20) แต่ 🔴 runner ยังไม่ได้ติดตั้งบน `mob04` — AC run จริงยังไม่พิสูจน์ · CD ติด FortiGate ของคณะ (`ghcr.io`) ดู `CLAUDE.md` "Still open" |
+| map | #243 | ปิด 2026-09-22 — ช่องว่าง RAM ขณะโหลดย้ายไป #380 |
+
 ---
 
 ## 17. Production ในมหาวิทยาลัย (#242, F4)
 
 `mob04` (4 vCPU / 6 GB / 48 GB, `172.30.58.20`) = production เดียว · ร้านจริงยังใช้ Drift build
+
+> สถานะ 2026-09-23 (ตารางข้างล่างคือเกณฑ์ ไม่ได้เปลี่ยน): deploy+rollback/RAM — #184 ปิดโดยไม่มีการวัด → **#380** (k6 + RSS สามเครื่อง ยังไม่มีตัวเลข) และ deploy จริง #343/#344 (ยังไม่มี AC ติ๊ก) · วิธีวัด `03 §8.1` ยืนยันแล้วใน #251 (ปิด 2026-09-22) — **ห้ามยกเว้น IP ตัวยิงโหลดจาก `perip`** · backup — #288 เปิดอยู่, #363 พักหลังเดโม, ปลายทางเคาะแล้วเป็น NAS ที่ร้าน แต่โปรโตคอลยังไม่ตัดสิน · deploy F4′ — #67 ปิดแต่ runner ยังไม่ติดตั้ง และ FortiGate ของคณะตัด `ghcr.io` (ต้องให้ฝ่ายเครือข่ายยกเว้น) · platform plane — #270 merge แล้ว (PR #308) · `CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` ส่งเข้า container แล้ว (#367) แต่บน `mob04` ยังเป็น `'*'` จนกว่าจะรัน `provision.yml` ใหม่
 
 | ต้องมี | เกณฑ์รับงาน |
 |---|---|
@@ -511,7 +549,7 @@ stateDiagram-v2
 
 | # | จุด | ผล |
 |---|---|---|
-| X1 | E10 สั่งลบ `offlineOk` "Drift + Postgres" แต่ Postgres ไม่มีคอลัมน์ (`sales.service.ts:351`) | slice 18 ลบฝั่ง Drift |
+| X1 | E10 สั่งลบ `offlineOk` "Drift + Postgres" แต่ Postgres ไม่มีคอลัมน์ (`sales.service.ts:351`) | slice 18 ลบฝั่ง Drift — ✅ merge แล้ว (#272, PR #310, Drift v7) |
 | X2 | D15 ใน #240 เขียน "ยังไม่เคาะ" — การตัดสินอยู่ที่ #242 | อ้าง #242 |
 | X3 | ADR-0013/07 เรียก environment `demo` แต่ `mob04` คือ production · E11 → F4 (pull) → **F4′ กลับไปใช้ runner ของ #237** | addendum ADR-0013 (#237 + รอบ 4) · ชื่อ environment คงไว้ตาม #237 |
 | X4 | `audit_log` CHECK ต้องมี `user_id` แต่ push ไม่มีผู้ใช้ | F3 / C13 |
