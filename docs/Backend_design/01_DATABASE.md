@@ -7,9 +7,14 @@
 
 > **สำหรับทีม backend:** นี่คือ "หน้าตาของ database" ที่ถามถึง
 > แอปเดิมเก็บทุกอย่างใน SQLite บนเครื่อง (Drift) **20 ตาราง** — เอกสารนี้แปลงเป็น PostgreSQL
-> พร้อมเพิ่มอีก **8 ตาราง** ที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant) → **รวม 28 ตาราง**
-> (เฟส 1 สร้างจริงแค่ 27 — `change_log` เป็นของเฟส 2)
-> ตารางที่ 8 คือ `platform_admins` ซึ่งเพิ่มเข้ามาตาม [ADR-0002](adr/0002-platform-admin-plane.md)
+> พร้อมเพิ่มตารางที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant)
+> **ฐานข้อมูลจริงวันนี้มี 29 ตาราง** (ตรวจกับ `server/src/db/migrations/` 2026-09-23):
+> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6)
+> — `change_log` **ไม่สร้าง** (เคาะ 2026-09-15, #191 — ดู §5.1)
+> `platform_admins` เพิ่มเข้ามาตาม [ADR-0002](adr/0002-platform-admin-plane.md)
+>
+> 🔴 **แหล่งความจริงของ schema คือไฟล์ migration** ไม่ใช่ DDL ในเอกสารนี้ — DDL ข้างล่างเป็นภาพอธิบาย
+> ถ้าสองที่ไม่ตรงกัน ให้เชื่อ migration แล้วแก้เอกสารนี้
 >
 > Business rule ทั้งหมดที่เขียนในนี้ถอดมาจาก `pos/db.js` (แอป JS ตัวเดิม) และ `CONTRACT.md`
 > **ห้ามแก้ค่าคงที่/สูตร** โดยไม่คุยกัน เพราะมันคือ behaviour ที่ร้านใช้จริงอยู่ทุกวัน
@@ -93,21 +98,27 @@ CREATE TABLE sale_items (
 ```mermaid
 flowchart LR
   subgraph app["NestJS instance"]
-    G["JwtAuthGuard<br/>ตรวจลายเซ็น + aud"] --> T["TenantGuard<br/>เช็ค tenants.status (ADR-0003)<br/>แล้ว SET LOCAL app.tenant_id"]
-    T --> S["Service / Repository"]
+    G["JwtAuthGuard<br/>ตรวจลายเซ็น + aud"] --> T["TenantGuard<br/>เช็ค tenants.status (ADR-0003)<br/>แล้ว setRequestTenant()"]
+    T --> H["Handler → TenantService.runTx(fn)<br/>BEGIN + set_config('app.tenant_id', …, true)"]
+    H --> S["Service / Repository"]
   end
   S --> PG[("PostgreSQL<br/>RLS: tenant_id = current_setting('app.tenant_id')")]
   style PG fill:#1e3a5f,color:#fff
 ```
 
-**ข้อควรระวัง:** `SET LOCAL` มีผลเฉพาะใน transaction ถ้าใช้ connection pool แล้วไม่ได้อยู่ใน
-transaction ค่าอาจติดไปกับ connection ตัวถัดไป → บังคับให้ทุก request ที่แตะ DB
-ทำงานใน transaction (หรือใช้ `set_config('app.tenant_id', $1, true)`)
+**ข้อควรระวัง:** `set_config(…, true)` (= `SET LOCAL`) มีผลเฉพาะใน transaction ถ้าใช้ connection pool
+แล้วไม่ได้อยู่ใน transaction ค่าอาจติดไปกับ connection ตัวถัดไป → ทุกการแตะ DB ของร้านต้องผ่าน
+`TenantService.runTx(fn)` เสมอ
 
-> **แก้ 2026-09-04 (ADR-0003 ข้อ 3):** ฉบับก่อนวาด `TenantInterceptor` แยกจาก guard ให้เป็นคนทำ
-> `SET LOCAL` ซึ่งทำให้ route ที่ลืมใส่ guard ยังได้ `SET LOCAL` และเห็นข้อมูลของร้านที่ถูกระงับ —
-> **การเช็คสถานะกับ `SET LOCAL` ต้องอยู่ใน `TenantGuard` ตัวเดียว** ไม่มี interceptor แยก
-> (ตรงกับที่ `03_ARCHITECTURE.md §5` วาดไว้อยู่แล้ว)
+> **แก้ 2026-09-23 ตาม ADR-0003 amendment (Accepted, มีผลตั้งแต่ `tx.4` 2026-09-14):**
+> แยก **"ใครตัดสิน"** ออกจาก **"ใครลงมือ"**
+> - `TenantGuard` ยังเป็นที่เดียวที่ตัดสินว่า request เป็นร้านไหนและเช็ค `tenants.status` —
+>   แต่แค่เก็บคำตัดสินลง request scope ด้วย `setRequestTenant()` **ไม่ได้** `SET LOCAL` เอง
+> - transaction อยู่ใน **handler**: `TenantService.runTx(fn)` เปิด/commit เอง และเป็นคนเรียก
+>   `set_config('app.tenant_id', …, true)` จากค่าใน scope
+> - 🔴 `runTx` **ไม่รับ tenant id เป็นพารามิเตอร์** — ห้ามกลับไปเป็น `runTx(tid, fn)`
+> - ยังไม่มี `TenantInterceptor` แยก (ข้อห้ามเดิมของ ADR-0003 ข้อ 3 ยังอยู่)
+> - ห้าม component ใดขอ pool connection ใบที่สองภายใน request เดียว (#162 — pool deadlock)
 
 ---
 
@@ -228,6 +239,8 @@ erDiagram
     SHIFTS ||--o{ DRAWER_ENTRIES : "เงินเข้า-ออก"
     USERS ||--o{ AUDIT_LOG : "ทำอะไรไว้"
     DEVICES ||--o{ IDEMPOTENCY_KEYS : "ยิงซ้ำกันชน"
+    TENANTS ||--o{ OWNER_REVIEW_ITEMS : "รอ owner ตรวจ"
+    TENANTS ||--o{ IMPORT_JOBS : "นำเข้าข้อมูล"
 
     TENANTS {
         uuid id PK
@@ -242,8 +255,8 @@ erDiagram
         uuid id PK
         text username UK
         text password_hash
-        text role
-        text pin_hash
+        text role "เหลือ 'owner' ค่าเดียว"
+        boolean is_active "active ได้ 1 คนต่อร้าน"
     }
     SHIFTS {
         uuid tenant_id PK
@@ -255,13 +268,20 @@ erDiagram
         numeric physical_cash
         boolean is_active
     }
-    CHANGE_LOG {
-        bigserial server_seq PK
-        uuid tenant_id
-        text entity
-        text entity_id
-        text op
-        timestamptz changed_at
+    OWNER_REVIEW_ITEMS {
+        uuid tenant_id PK
+        text id PK
+        text kind
+        text ref_id
+        jsonb details
+        timestamptz reviewed_at
+    }
+    IMPORT_JOBS {
+        uuid tenant_id PK
+        text id PK
+        text status
+        jsonb payload
+        timestamptz finished_at
     }
 ```
 
@@ -306,7 +326,8 @@ CREATE TABLE tenants (
   code          TEXT NOT NULL UNIQUE,           -- 'srisurart'
   shop_name     TEXT NOT NULL,                  -- 'ศรีสุรัตน์อะไหล่ยนต์'
   shop_name_en  TEXT NOT NULL DEFAULT '',
-  plan          TEXT NOT NULL DEFAULT 'basic',  -- โควตา rate limit ต่อ tenant (ADR-0006): 'basic' = โควตาปกติ, 'loadtest' = ไม่จำกัด ใช้ตอนทำ k6
+  plan          TEXT NOT NULL DEFAULT 'basic'   -- โควตา rate limit ต่อ tenant (ADR-0006): 'basic' = โควตาปกติ,
+                CHECK (plan IN ('basic','demo','loadtest')),  -- 'demo' = ร้านสาธิต, 'loadtest' = ไม่จำกัด ใช้ตอนทำ k6
   status        TEXT NOT NULL DEFAULT 'active'
                 CHECK (status IN ('active','suspended','closed')),  -- (ADR-0003) บังคับที่ TenantGuard ไม่ใช่ใน RLS predicate — ดู §8
   timezone      TEXT NOT NULL DEFAULT 'Asia/Bangkok',  -- (ADR-0003) shifts.date_str และรายงานรายวันทุกใบขึ้นกับค่านี้ — เฟส 1 โค้ดสมมติเวลาไทยได้
@@ -332,13 +353,15 @@ CREATE TABLE users (
   username      TEXT NOT NULL,
   password_hash TEXT NOT NULL,                  -- argon2id
   display_name  TEXT NOT NULL,
-  role          TEXT NOT NULL CHECK (role IN ('owner','manager','cashier')),  -- ⚠️ 2026-09-15 (#240 E1/E2/F9): เฟส 2 เหลือ CHECK (role IN ('owner')) · user active หนึ่งคนต่อร้าน (UNIQUE INDEX ON users(tenant_id) WHERE is_active) — 08 §3
-  pin_hash      TEXT,                           -- manager PIN สำหรับยืนยันงานเสี่ยง (void/ลดราคาเกิน) · ⚠️ 2026-09-15 (#240 E3): void ไม่ใช้ PIN แล้ว → ลบคอลัมน์ในเฟส 2 (08 §3)
+  role          TEXT NOT NULL CHECK (role = 'owner'),  -- (#240 E1/E2/F9, migration …3001) เหลือ role เดียว — เดิม owner/manager/cashier
+  -- pin_hash ถูกลบแล้ว (#240 E3, migration …3001): void ออนไลน์ใช้แค่เหตุผล ไม่ใช้ PIN
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, username)
 );
+-- user ที่ active ได้ 1 คนต่อร้าน (08 §3, migration …3001)
+CREATE UNIQUE INDEX uq_users_one_active ON users (tenant_id) WHERE is_active;
 
 -- เครื่องของร้าน (ใช้ตอน sync + ออกเลขเอกสารไม่ให้ชน) — แบ่งด้วย role ไม่ใช่นับจำนวนเครื่อง (ADR-0004)
 -- เส้นแบ่งคือ "แตะลิ้นชักไหม" ไม่ใช่ "แตะสต็อกไหม": role='pos' เท่านั้นที่ขาย/รับคืน/เปิดปิดกะ/
@@ -348,15 +371,17 @@ CREATE TABLE devices (
   tenant_id     UUID NOT NULL,
   id            TEXT NOT NULL,                  -- server-generated ตอน POST /devices (ADR-0004 "การผูกเครื่อง") — ไม่รับจาก client
   label         TEXT NOT NULL,                  -- 'เคาน์เตอร์หน้าร้าน'
-  device_no     SMALLINT NOT NULL,              -- 1..99 ใช้เป็น prefix เลขเอกสาร — server กำหนดเลขถัดไปที่ไม่เคยใช้ ห้ามใช้ซ้ำแม้เครื่องเดิม retire แล้ว
+  device_no     SMALLINT NOT NULL CHECK (device_no BETWEEN 1 AND 99),  -- prefix เลขเอกสาร (ซีโร่แพด 2 หลัก, ADR-0007) — server กำหนดเลขถัดไปที่ไม่เคยใช้ ห้ามใช้ซ้ำแม้เครื่องเดิม retire แล้ว
   role          TEXT NOT NULL DEFAULT 'backoffice'
                 CHECK (role IN ('pos','backoffice')),  -- (ADR-0004)
   retired_at    TIMESTAMPTZ,                    -- (ADR-0004) เครื่องแทนที่ต้องปลดตรงนี้ก่อน แล้วสร้างเครื่องใหม่ด้วย device_no ใหม่เสมอ ห้ามใช้ซ้ำ ไม่งั้นชุดเลขใบเสร็จชน · /auth/refresh ต้องเช็คคอลัมน์นี้ (ADR-0009)
   enrol_code_hash  TEXT,                        -- (ADR-0004) hash ของ enrolment code ใช้ครั้งเดียว — ล้างเป็น NULL เมื่อ POST /auth/device สำเร็จ
   enrol_expires_at TIMESTAMPTZ,                 -- (ADR-0004) อายุของ code (เสนอ 15 นาที)
   token_hash    TEXT,                           -- (ADR-0004) hash ของ device token ที่ browser ถือ — JWT claim did/drole มาจากการ resolve token นี้เท่านั้น
-  last_pull_seq BIGINT NOT NULL DEFAULT 0,      -- cursor ของ change_log
+  last_pull_seq BIGINT NOT NULL DEFAULT 0,      -- เดิมเป็น cursor ของ change_log — ไม่มีใครใช้แล้ว (change_log ไม่สร้าง, pull ใช้ keyset ตาม ADR-0010)
   last_seen_at  TIMESTAMPTZ,
+  unsynced_ops         INT NOT NULL DEFAULT 0,  -- (migration …3003) จำนวน op ที่ค้างใน outbox ตามที่เครื่องรายงานล่าสุด
+  unsynced_reported_at TIMESTAMPTZ,             -- (migration …3003) เวลาที่เครื่องรายงานค่าข้างบน
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, device_no),
   UNIQUE (token_hash)                           -- token ต้อง lookup ได้โดยไม่รู้ tenant (ตอน POST /auth/token)
@@ -410,19 +435,22 @@ CREATE TABLE doc_counters (
 
 -- audit (PDPA + สืบสวนเวลาเงินไม่ตรง)
 CREATE TABLE audit_log (
-  id            BIGSERIAL PRIMARY KEY,          -- ⚠️ ต่างจากของจริง: migration ที่ ship ไปแล้วใช้ PK เป็น `(tenant_id, id)` (ดู `adr/README.md`)
   tenant_id     UUID NOT NULL,                  -- ร้านที่ถูกแตะ — แถวจาก /platform/* ก็ต้องใส่ (ร้านที่ admin แตะ)
+  id            BIGSERIAL,
   user_id       UUID,                           -- actor ฝั่งร้าน (users) — NULL เมื่อ actor เป็น platform admin
   platform_admin_id UUID REFERENCES platform_admins (id),  -- (ADR-0002, เพิ่ม 2026-09-04) actor ฝั่ง admin plane — user_id ใส่ admin ไม่ได้เพราะเป็น UUID ของ users ในร้าน
   device_id     TEXT,
-  CHECK (user_id IS NOT NULL OR platform_admin_id IS NOT NULL OR action LIKE 'system.%'),  -- ต้องรู้ว่าใครทำ ยกเว้น job ของระบบ
   action        TEXT NOT NULL,                  -- 'sale.void' | 'product.price_change' | 'backup.import'
   entity        TEXT,
   entity_id     TEXT,
   before        JSONB,
   after         JSONB,
   ip            INET,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, id),                  -- (#2 กติกาข้อ 2) PK ขึ้นต้นด้วย tenant_id เหมือนทุกตาราง
+  -- ต้องรู้ว่าใครทำ ยกเว้น job ของระบบ / เหตุการณ์ของเครื่องหรือการล็อกอิน (ขยายใน migration …002)
+  CHECK (user_id IS NOT NULL OR platform_admin_id IS NOT NULL
+         OR action LIKE 'system.%' OR action LIKE 'device.%' OR action LIKE 'auth.%')
 );
 CREATE INDEX idx_audit_tenant_time ON audit_log (tenant_id, created_at DESC);
 ```
@@ -484,6 +512,9 @@ CREATE UNIQUE INDEX uq_products_partno ON products (tenant_id, part_no) WHERE de
 CREATE INDEX idx_products_cat   ON products (tenant_id, category) WHERE deleted_at IS NULL;
 CREATE INDEX idx_products_low   ON products (tenant_id) WHERE stock <= min_stock AND deleted_at IS NULL;
 CREATE INDEX idx_products_updat ON products (tenant_id, updated_at);
+-- รหัสอะไหล่ห้ามซ้ำแบบไม่สนตัวพิมพ์ (db.js addProduct, migration 1788652800007) —
+-- เป็นตัวบังคับจริงของ "part_no ซ้ำ" · uq_products_partno ข้างบนยังอยู่แต่ถูกครอบโดยตัวนี้
+CREATE UNIQUE INDEX uq_products_partno_ci ON products (tenant_id, lower(part_no)) WHERE deleted_at IS NULL;
 -- ค้นหาชื่อไทย/อังกฤษ/เบอร์อะไหล่/รุ่นรถ ในช่องเดียว (หน้า Checkout + Vehicle Search)
 -- ⚠️ ต้องใช้ pg_trgm ไม่ใช่ to_tsvector — เหตุผลใต้บล็อกนี้
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -491,7 +522,8 @@ CREATE INDEX idx_products_search ON products USING GIN (
   lower(part_no || ' ' || name || ' ' || name_th || ' ' || COALESCE(compat,'')) gin_trgm_ops
 );
 -- ⚠️ คำถามออกแบบที่ยังเปิด (#16, 2026-09-14): ใต้ RLS (role `pos_app`) planner ไม่ใช้ index นี้กับ LIKE เพราะ `textlike` ไม่ใช่ LEAKPROOF — ค้นหาจริงเป็น tenant index + filter (e2e `catalogue.e2e-spec.ts` ปักไว้ทั้งสองแผน)
--- 🆕 migration 1788652800007: CREATE UNIQUE INDEX uq_products_partno_ci ON products (tenant_id, lower(part_no)) WHERE deleted_at IS NULL;  -- รหัสอะไหล่ห้ามซ้ำแบบไม่สนตัวพิมพ์ (db.js addProduct)
+-- ⚠️ `GET /products?updatedSince=&afterId=` เป็น keyset cursor ความละเอียด **ไมโครวินาที** — ห้ามตัดเหลือมิลลิวินาที
+--    (แถวที่บิลเดียวกัน stamp ด้วย now() เดียวกันจะถูกข้ามหรือส่งซ้ำ)
 
 > ### ⚠️ ทำไมไม่ใช้ full-text (`to_tsvector`) กับภาษาไทย
 > ภาษาไทย**ไม่มีช่องว่างระหว่างคำ** — parser มาตรฐานของ PostgreSQL จะมอง `"ผ้าเบรกหน้า"`
@@ -520,11 +552,10 @@ CREATE TABLE movements (
   part_no     TEXT NOT NULL,
   name        TEXT NOT NULL,
   delta       INT  NOT NULL,      -- ลบ = ขายออก, บวก = รับเข้า
-  type        TEXT NOT NULL,      -- ⚠️ ค่าที่ระบบเขียนจริงวันนี้มีแค่ 3 ค่า:
-                                  --    'receive' (รับของเข้า PO)
-                                  --    'adjustment-in' / 'adjustment-out' (ปรับสต็อกมือ)
-                                  --    'sale' / 'return' เป็น "ของใหม่" — ดูกล่องเตือนใต้ DDL
-                                  --    'void' (ยกเลิกบิล — คืนสต็อก)
+  type        TEXT NOT NULL       -- 6 ค่า (migration …003 เพิ่ม 'void'):
+              CHECK (type IN ('sale','return','void','receive','adjustment-in','adjustment-out')),
+                                  --    'receive' (รับของเข้า PO) · 'adjustment-in' / 'adjustment-out' (ปรับสต็อกมือ)
+                                  --    'sale' / 'return' / 'void' — server เขียน ไม่ได้ port มาจาก Dart (ดูกล่องเตือนใต้ DDL)
   note        TEXT,
   stock_after INT  NOT NULL,
   ref_id      TEXT,               -- ⭐ เพิ่มใหม่: sale_id / return_id / po_id ที่ทำให้เกิดแถวนี้
@@ -533,22 +564,27 @@ CREATE TABLE movements (
   FOREIGN KEY (tenant_id, product_id) REFERENCES products (tenant_id, id)
 );
 CREATE INDEX idx_movements_product ON movements (tenant_id, product_id, date DESC);
+-- กัน replay/retry เขียนซ้ำ — partial เพราะแถว adjustment เก่าที่ import มาไม่มี ref_id
+CREATE UNIQUE INDEX uq_movements_ref ON movements (tenant_id, type, ref_id, product_id)
+  WHERE ref_id IS NOT NULL;
+-- pos_app ได้สิทธิ์แค่ SELECT, INSERT บนตารางนี้ (migration …001) — append-only บังคับด้วย GRANT
 ```
 
 > **⭐ `movements.ref_id` เป็นคอลัมน์ใหม่ที่แอปเดิมไม่มี** — แนะนำให้ใส่ เพราะเวลาสต็อกไม่ตรง
 > ตอนนี้ไล่กลับไปหาบิลต้นทางไม่ได้เลย ต้องเดาจากเวลา
 
 > ### ⚠️ เรื่อง `movements` ที่ต้องรู้ก่อน implement
-> **วันนี้การขายและการรับคืน *ไม่* เขียน `movements` เลย** — `saveSale()` และ `createReturn()`
+> **ฝั่ง Dart (แอปเดิม) การขายและการรับคืน *ไม่* เขียน `movements` เลย** — `saveSale()` และ `createReturn()`
 > แตะแค่ `products.stock` ตรง ๆ (ตรวจแล้วใน `sales_repository.dart` / `returns_repository.dart`)
-> ค่าที่ระบบเขียนจริงมีแค่ `'receive'` (รับของ PO) และ `'adjustment-in'` / `'adjustment-out'` (ปรับมือ)
+> ค่าที่ Drift เขียนมีแค่ `'receive'` (รับของ PO) และ `'adjustment-in'` / `'adjustment-out'` (ปรับมือ)
 >
-> การเพิ่ม `type='sale'` / `'return'` จึงเป็น **พฤติกรรมใหม่ ไม่ใช่การ port** — ดีสำหรับการตรวจสอบ
-> แต่ต้องกันสองอย่าง:
+> การที่ server เขียน `type='sale'` / `'return'` / `'void'` จึงเป็น **พฤติกรรมใหม่ ไม่ใช่การ port** — ดีสำหรับการตรวจสอบ
+> และมีตัวกันสามอย่าง:
 > 1. **ให้ server เป็นคนเขียน `movements` เท่านั้น** ห้ามให้ client เขียนแล้ว push ขึ้นมา
 >    ไม่งั้น 1 บิลจะได้ movement 2 แถว (ของเครื่อง + ของ server) และ `stock_after` จากเครื่องออฟไลน์ไม่มีความหมาย
-> 2. กันซ้ำด้วย `UNIQUE (tenant_id, type, ref_id, product_id)` — ทำให้ replay/retry ปลอดภัย
-> 3. ตอน migrate ต้อง map ค่า type เดิมให้ครบ อย่าเผลอเขียน `'po'` / `'adjust'` ตามที่คนมักเดา
+> 2. กันซ้ำด้วย `uq_movements_ref` (partial `WHERE ref_id IS NOT NULL`) — ทำให้ replay/retry ปลอดภัย
+>    ผลข้างเคียง: part_no เดียวกันหลายบรรทัดใน PO เดียว → เขียน `movements` แถวเดียวต่อสินค้า (`02 §3.3`)
+> 3. ตอน migrate ต้อง map ค่า type เดิมให้ครบ อย่าเผลอเขียน `'po'` / `'adjust'` ตามที่คนมักเดา (CHECK จะปฏิเสธ)
 
 ### 5.3 People & Credit
 
@@ -570,6 +606,8 @@ CREATE TABLE customers (
   UNIQUE (tenant_id, code)
 );
 CREATE INDEX idx_customers_phone ON customers (tenant_id, phone);
+-- keyset pull ?updatedSince=&afterId= (ADR-0010, migration …4000)
+CREATE INDEX idx_customers_sync  ON customers (tenant_id, updated_at ASC, id ASC);
 
 CREATE TABLE mechanics (
   tenant_id      UUID NOT NULL,
@@ -593,6 +631,7 @@ CREATE TABLE mechanics (
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, code)
 );
+CREATE INDEX idx_mechanics_sync ON mechanics (tenant_id, updated_at ASC, id ASC);  -- (migration …4000)
 
 CREATE TABLE credit_payments (
   tenant_id      UUID NOT NULL,
@@ -607,6 +646,8 @@ CREATE TABLE credit_payments (
                                     -- endpoint บังคับให้ส่งเสมอ (parseCreateCreditPayment)
   shift_id       TEXT,              -- #24: แสตมป์เดียวกับ sales/returns — รายงานปิดร้าน
                                     -- คิดจาก shift_id ไม่ใช่ช่วงเวลา · null = ไม่ได้เปิดลิ้นชัก
+                                    -- ตั้งใจไม่มี FK: แสตมป์เป็น report key และการจ่ายต้องไม่เขียนไม่ได้
+                                    -- เพราะแถวลิ้นชักถูก archive ไปแล้ว (เหตุผลเดียวกับ sales.shift_id)
   note           TEXT,
   date           TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, id),
@@ -641,7 +682,9 @@ CREATE TABLE sales (
   date           TIMESTAMPTZ NOT NULL DEFAULT now(),
   voided         BOOLEAN NOT NULL DEFAULT FALSE,
   voided_at      TIMESTAMPTZ,
-  shift_id       TEXT,              -- ⭐ เพิ่มใหม่: ผูกบิลกับรอบขาย (ดู §7.4)
+  void_reason    TEXT,              -- (08 §2, migration …3003) void ออนไลน์ = เหตุผลอย่างเดียว ไม่ใช้ PIN
+  sold_offline   BOOLEAN NOT NULL DEFAULT FALSE,  -- (migration …3003) บิลที่มาทาง POST /sync/push
+  shift_id       TEXT,              -- ⭐ เพิ่มใหม่: ผูกบิลกับรอบขาย (ดู §7.5) — ตั้งใจไม่มี FK (report key)
   user_id        UUID,              -- ⭐ ใครขาย
   device_id      TEXT,              -- ⭐ ขายจากเครื่องไหน
   PRIMARY KEY (tenant_id, id),
@@ -734,7 +777,7 @@ CREATE TABLE po_items (
   part_no   TEXT NOT NULL,     -- match กับ products.part_no ตอนรับของ (อาจไม่เจอ → คืน unmatched)
   name      TEXT NOT NULL,
   qty       INT  NOT NULL CHECK (qty > 0),
-  cost      NUMERIC(12,2) NOT NULL,
+  cost      NUMERIC(12,2) NOT NULL CHECK (cost >= 0),  -- 0 ได้ (ของแถม) → §7.4 fallback ใช้ทุนเดิม
   PRIMARY KEY (tenant_id, po_id, line_no),
   FOREIGN KEY (tenant_id, po_id) REFERENCES purchase_orders (tenant_id, id) ON DELETE CASCADE
 );
@@ -824,7 +867,7 @@ CREATE TABLE drawer_entries (
   tenant_id  UUID NOT NULL,
   id         TEXT NOT NULL,
   shift_id   TEXT NOT NULL,
-  type       TEXT NOT NULL,             -- 'in' | 'out'
+  type       TEXT NOT NULL CHECK (type IN ('in','out')),
   amount     NUMERIC(12,2) NOT NULL CHECK (amount > 0),
   note       TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -853,22 +896,77 @@ CREATE TABLE settings (
 );
 ```
 
+### 5.8 ตารางที่เพิ่มหลัง InitialSchema
+
+```sql
+-- (#239, migration 1788652802200) งาน import snapshot แบบ background (ดู §9 ข้อ 3)
+-- ⚠️ ตั้งใจไม่เปิด RLS: pos_app ไม่เคยแตะตารางนี้ — อ่าน/เขียนผ่าน ADMIN_DATA_SOURCE (platform plane) เท่านั้น
+CREATE TABLE import_jobs (
+  tenant_id    UUID NOT NULL,
+  id           TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'queued'
+               CHECK (status IN ('queued','running','succeeded','failed')),
+  payload      JSONB,                  -- snapshot ทั้งก้อน (≤10 MiB) — worker ล้างเป็น NULL เมื่องานจบ
+  result       JSONB,
+  error        TEXT,
+  requested_by UUID,
+  ip           INET,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at   TIMESTAMPTZ,
+  finished_at  TIMESTAMPTZ,
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id) REFERENCES tenants (id),
+  FOREIGN KEY (requested_by) REFERENCES platform_admins (id)
+);
+-- import ได้ทีละงานต่อร้าน: INSERT ครั้งที่สองขณะงานแรกยัง queued/running ชน index นี้ → 409
+CREATE UNIQUE INDEX uq_import_jobs_active ON import_jobs (tenant_id) WHERE status IN ('queued','running');
+CREATE INDEX idx_import_jobs_tenant ON import_jobs (tenant_id, created_at DESC);
+
+-- (08 §2 C6, migration 1788652803002) คิว "รอ owner" — รายการที่ระบบยกให้เจ้าของร้านตรวจ
+CREATE TABLE owner_review_items (
+  tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  id           TEXT NOT NULL,
+  kind         TEXT NOT NULL CHECK (kind IN (
+                 'void_offline','credit_override','shift_uncounted','date_flag','device_force_retired')),
+  ref_id       TEXT NOT NULL,
+  details      JSONB NOT NULL DEFAULT '{}',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_at  TIMESTAMPTZ,
+  reviewed_by  UUID,
+  CONSTRAINT pk_owner_review_items PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, reviewed_by) REFERENCES users (tenant_id, id) ON DELETE SET NULL  -- 🔴 บั๊ก ดู §11
+);
+CREATE INDEX idx_owner_review_items_created ON owner_review_items (tenant_id, created_at DESC);
+CREATE INDEX idx_owner_review_items_pending ON owner_review_items (tenant_id, created_at DESC)
+  WHERE reviewed_at IS NULL;
+-- RLS เปิด + FORCE แต่ policy ชื่อ tenant_isolation_policy และ **ไม่มี NULLIF** — 🔴 บั๊ก ดู §11
+```
+
 ---
 
 ## 6. สรุป Index ทั้งหมด (ไว้ตรวจตอน review)
 
+> ตารางนี้สรุปจาก migration จริง (2026-09-23) — DDL เต็มอยู่ใน §5 · ถ้าไม่ตรงกัน เชื่อ migration
+
 | ตาราง | Index | ใช้ตอนไหน |
 |---|---|---|
-| `products` | `(tenant_id, part_no)` UNIQUE | ยิงบาร์โค้ด / รับของ PO |
-| `products` | GIN full-text | ช่องค้นหาหน้า Checkout & Vehicle Search |
-| `products` | partial `WHERE stock <= min_stock` | LowStockAlert + รายงานของใกล้หมด |
+| `products` | `uq_products_partno_ci` UNIQUE `(tenant_id, lower(part_no)) WHERE deleted_at IS NULL` | ยิงบาร์โค้ด / รับของ PO — ตัวบังคับ part_no ซ้ำตัวจริง |
+| `products` | `uq_products_partno` UNIQUE `(tenant_id, part_no) WHERE deleted_at IS NULL` | ของเดิม ถูกตัว `_ci` ครอบแล้ว |
+| `products` | `idx_products_search` GIN **pg_trgm** (ไม่ใช่ full-text) | ช่องค้นหาหน้า Checkout & Vehicle Search — ใต้ RLS planner ยังไม่ใช้ (#16) |
+| `products` | partial `WHERE stock <= min_stock AND deleted_at IS NULL` | LowStockAlert + รายงานของใกล้หมด |
+| `products` | `(tenant_id, updated_at)` | keyset pull (ADR-0010) |
+| `customers` / `mechanics` | `(tenant_id, updated_at, id)` | keyset pull (ADR-0010) |
 | `sales` | `(tenant_id, date DESC)` | หน้า Reports, ปิดกะ, ประวัติบิล |
 | `sales` | `(tenant_id, receipt_no)` UNIQUE | หน้า Returns ค้นบิลด้วยเลขที่ |
+| `sales` / `returns` / `credit_payments` | `(tenant_id, shift_id)` | รายงานปิดกะ (คิดจาก shift_id ไม่ใช่ช่วงเวลา) |
 | `sale_items` | `(tenant_id, product_id)` | รายงาน "สินค้าขายดี" |
 | `movements` | `(tenant_id, product_id, date DESC)` | ประวัติสต็อกรายชิ้น |
+| `movements` | `uq_movements_ref` partial UNIQUE `WHERE ref_id IS NOT NULL` | กัน replay เขียน movement ซ้ำ |
+| `users` | `uq_users_one_active` partial UNIQUE `(tenant_id) WHERE is_active` | owner active 1 คนต่อร้าน (08 §3) |
 | `devices` | partial UNIQUE `one_pos_per_tenant`<br/>`WHERE role='pos' AND retired_at IS NULL` | บังคับ 1 เครื่องขายต่อร้าน (ADR-0004) |
-| `shifts` | partial UNIQUE `WHERE is_active` | บังคับ 1 กะ active |
-| `change_log` | `(tenant_id, server_seq)` | sync pull |
+| `shifts` | `uq_shift_active` partial UNIQUE `(tenant_id, device_id) WHERE is_active` | **ลิ้นชักปัจจุบัน 1 ใบต่อเครื่อง** (ไม่ใช่ "1 กะที่เปิดอยู่" — ดูกล่องใต้ §5.6) |
+| `import_jobs` | `uq_import_jobs_active` partial UNIQUE `WHERE status IN ('queued','running')` | import ทีละงานต่อร้าน |
+| `owner_review_items` | partial `WHERE reviewed_at IS NULL` | หน้า "รอ owner" |
 | `audit_log` | `(tenant_id, created_at DESC)` | ตรวจย้อนหลัง |
 
 > **หลักการ:** index ทุกตัว **ขึ้นต้นด้วย `tenant_id`** เพราะทุก query มี `WHERE tenant_id = ?` เสมอ
@@ -888,18 +986,26 @@ sequenceDiagram
     participant A as NestJS
     participant D as PostgreSQL
     C->>A: POST /v1/sales (Idempotency-Key)
-    A->>D: BEGIN
-    A->>D: 1. เช็ค idempotency_keys
-    A->>D: 2. SELECT id,name,stock WHERE id = ANY(...)<br/>ORDER BY id FOR UPDATE
+    A->>D: BEGIN (TenantService.runTx ใน handler)
+    A->>D: 1. claim idempotency_keys → replay ด้วย client id
+    A->>D: 2. SELECT ลิ้นชักของเครื่องนี้ FOR SHARE<br/>(ไม่มี → 409 NO_OPEN_SHIFT)
+    A->>D: 3. ล็อกแถวช่าง (ถ้ามี) + เช็ควงเงินเครดิต
+    A->>D: 4. SELECT id,name,stock WHERE id = ANY(...)<br/>ORDER BY id FOR UPDATE
     Note over A,D: ประกอบข้อความไทย "ครบทุกบรรทัด" จากผลนี้<br/>ถ้ามีบรรทัดไหนไม่พอ → throw ทั้งบิล
-    A->>D: 3. UPDATE products SET stock = stock - qty<br/>WHERE stock >= qty (assertion)
-    A->>D: 3. INSERT sales + sale_items
-    A->>D: 4. INSERT movements (type='sale', ref_id=sale.id)
-    A->>D: 5. UPDATE customers points/total_spend<br/>หรือ mechanics credit_balance
+    A->>D: 5. UPDATE products SET stock = stock - qty<br/>WHERE stock >= qty (assertion)
+    A->>D: 6. ออกเลขใบเสร็จ (doc_counters)
+    A->>D: 7. INSERT sales + sale_items (cost_at_sale)
+    A->>D: 8. INSERT movements (type='sale', ref_id=sale.id)
+    A->>D: 9. UPDATE customers points/total_spend<br/>+ mechanics credit_balance/สถิติ
     A->>D: COMMIT
     A-->>C: 201 + ใบเสร็จ
     A->>A: enqueue: invalidate cache, ยิง webhook, สรุปยอด
 ```
+
+**ลำดับล็อก (บังคับ — ทุก write ที่แตะเงิน/สต็อกมากกว่าหนึ่งตาราง):**
+`sales` → mechanic → products → `doc_counters` → customer
+โดยทาง void/return ให้แทรกการอ่าน `shifts … FOR SHARE` ระหว่างล็อกบิลกับล็อกช่าง
+(ตรงกับ `server/src/sales/sales.service.ts` ขั้น 1–10) — ลำดับต่างกันระหว่างสอง code path = deadlock
 
 กติกาที่ห้ามเพี้ยน:
 
@@ -908,7 +1014,7 @@ sequenceDiagram
 | ตัดสต็อกแบบ **strict** | ห้าม clamp เป็น 0 — ถ้าไม่พอต้อง **throw** ทั้งบิล (ต่างจาก `adjustStock` ที่ clamp ที่ 0) |
 | ข้อความ error | `สต็อกไม่พอ:\n` + ต่อบรรทัด `<name>: สต็อก <stock> แต่ต้องการ <qty>` หรือ `<name>: ไม่พบในสต็อก` — **คัดลอกตรงตัว ห้ามแปล** |
 | แต้มลูกค้า | `points_granted = floor(total / 10)` |
-| ปัดเงิน | `round2(v) = round(v * 100) / 100` (แบบ JS) |
+| ปัดเงิน | ฝั่ง client: `round2(v) = round(v * 100) / 100` (แบบ JS) · ฝั่ง server คำนวณเป็น `NUMERIC`/สตางค์จำนวนเต็ม ปัดครึ่งขึ้น — ค่าที่ตกครึ่งสตางค์พอดีอาจต่างจาก Dart **โดยตั้งใจ** (ดู §7.4) |
 | **ต้นทุน ณ วันที่ขาย** (ADR-0008) | `sale_items.cost_at_sale = products.cost` ที่อ่านได้ใน `SELECT … FOR UPDATE` เดียวกับที่ตัดสต็อก — ห้ามอ่านซ้ำนอก transaction และห้ามรับจาก client |
 | ขายเงินเชื่อช่าง | เมื่อ `payment_method = 'เครดิตช่าง'` → `mechanics.credit_balance += total` |
 | สถิติช่าง | `total_sales += total`, `total_discount`/`total_markup` จาก `mechanic_delta` — `total_credit` **ไม่เขียน** (legacy alias ของ `total_discount` จาก JS, ตัดสินใจใน #11; `POST /returns` ใช้เป็น fallback ของฐานส่วนลดเท่านั้น) |
@@ -953,7 +1059,7 @@ UPDATE products SET stock = stock - $qty, updated_at = now()
 | | RC / CN (เครื่อง `pos`) | PO / QT / CP (ทุกเครื่อง) |
 |---|---|---|
 | เฟส 1 (ออนไลน์ล้วน) | **server ออก** จาก `doc_counters` ใต้ row lock ใน transaction เดียวกับบิล — client ไม่ส่ง `receiptNo` | **server ออก** |
-| เฟส 2 (offline shell) | **เครื่อง `pos` ออกเอง** จาก counter ใน Drift ต่อ `(device_no, doc_type, period)` server เก็บ high-water mark + `UNIQUE` | **server ออกตลอด** (เครื่องเหล่านี้ออนไลน์เสมอ) |
+| เฟส 2 (offline shell) | **เครื่อง `pos` ออกเอง ทั้งออนไลน์และออฟไลน์** (ADR-0007 addendum D4) จาก counter ใน Drift ต่อ `(device_no, doc_type, period)` server เก็บ high-water mark ด้วย `INSERT … ON CONFLICT DO UPDATE SET last_no = GREATEST(…)` + `UNIQUE` · period = นาฬิกาเครื่อง (F8/C2) · ช่วงสลับรุ่น server ยังออกให้เมื่อ body ไม่มีเลข จนปิด `DOC_NUMBER_FALLBACK` (C16) | **server ออกตลอด** (เครื่องเหล่านี้ออนไลน์เสมอ) |
 
 เหตุผลเดิม "ถ้า server ออกเลข = ออฟไลน์ออกบิลไม่ได้" จริงเฉพาะเครื่อง `pos` ในเฟส 2 เท่านั้น
 ให้เครื่องที่ออนไลน์เสมอออกเลขเองคือจ่ายค่า seed/retry โดยไม่ได้อะไร และทำให้ PO/QT ของ `backoffice`
@@ -979,14 +1085,25 @@ seed ไม่ได้ (`GET /doc-counters` เป็น `pos` เท่าน�
 #### 🔴 counter ในเครื่องหายได้ (Flutter Web = IndexedDB/OPFS ผู้ใช้ล้างได้)
 
 แอปรันบน Flutter Web — Drift เก็บ counter ใน IndexedDB/OPFS ซึ่ง**ผู้ใช้หรือเบราว์เซอร์ล้างได้**
-(ล้างข้อมูลเว็บไซต์, เปลี่ยนเบราว์เซอร์, โหมดส่วนตัว, ลง Windows ใหม่) ถ้า counter รีเซ็ตเป็น 0
-เลขที่ออกใหม่จะ**ชนกับใบเสร็จเดิมทั้งเดือน** → `UNIQUE (tenant_id, receipt_no)` เด้งทุกบิล →
-**ขายไม่ได้เลยจนกว่าจะมีคนแก้ให้** ต้องมี 2 อย่างนี้ ไม่ใช่ทางเลือก (ADR-0007):
+(ล้างข้อมูลเว็บไซต์, เปลี่ยนเบราว์เซอร์, โหมดส่วนตัว, ลง Windows ใหม่)
+
+**แก้ 2026-09-23 ตาม ADR-0007 (แก้ความเข้าใจ 2026-09-04 + addendum F8):** device token อยู่ใน
+IndexedDB ก้อนเดียวกับ counter — **ล้าง storage = เครื่องนั้นหายไปทั้งเครื่อง** ร้านต้อง enrol ใหม่และ
+ได้ **`device_no` ใหม่เสมอ** ซึ่งชุดเลขไม่ชนกับของเก่าโดยธรรมชาติ (บิลที่หายไปคีย์ใหม่มือด้วยเลขของเครื่องใหม่
+แล้วเขียนเลขใบเดิมในหมายเหตุ) ดังนั้น seed จาก server เป็น**ตาข่ายรอง** ไม่ใช่ทางหลัก
+
+เฟส 2 ต้องมี 3 อย่างนี้ ไม่ใช่ทางเลือก (ADR-0007):
 
 1. **seed counter จาก server ทุกครั้งที่เปิดแอป/ล็อกอิน** — `GET /doc-counters` คืน high-water
    mark ของ `(device_id, doc_type, period)` แล้วตั้ง `local = max(local, server)`
-2. **ชน `UNIQUE (tenant_id, receipt_no)` แล้วต้องขยับเลขแล้วลองใหม่ ห้ามให้บิลตก** — เป็นตาข่ายชั้นสุดท้าย
-   ลูกค้ายืนรออยู่หน้าเคาน์เตอร์ บั๊กเรื่องเลขที่ต้องไม่ทำให้ขายไม่ได้
+   (ครอบเคส counter เพี้ยนทั้งที่ token ยังอยู่ เช่น restore Drift จากไฟล์เก่า)
+2. **เครื่องที่ไม่เคย seed เลยห้ามออกเลขออฟไลน์** (E8) — ส่วนขึ้นเดือนใหม่ตอนออฟไลน์ เริ่ม `0001` ได้เลย
+   เพราะเครื่อง `pos` เป็นผู้ออก RC/CN คนเดียว
+3. **ใบเสร็จที่พิมพ์ไปแล้วห้ามเปลี่ยนเลข** — "ชน UNIQUE แล้วขยับเลขแล้วลองใหม่" ใช้ได้เฉพาะ
+   **ออนไลน์ก่อน server ตอบ 2xx** (`409 RECEIPT_NO_CONFLICT` → client ขยับเลขแล้วส่งซ้ำด้วย key เดิม)
+   ถ้าบิลออฟไลน์ที่พิมพ์แล้วมาชนตอน `POST /sync/push` → server ตอบ `rejected` + `RECEIPT_NO_CONFLICT`
+   แล้วบิลเข้าคิวให้เจ้าของร้านเคลียร์ — เลขบนกระดาษที่ลูกค้าถือไปแล้วคือเอกสารทางบัญชี
+   (ตรวจชน**หลัง** replay ด้วย key และ client id — 08 B1/B2)
 
 ### 7.3 การรับคืน (`createReturn`)
 
@@ -998,6 +1115,8 @@ seed ไม่ได้ (`GET /doc-counters` เป็น `pos` เท่าน�
   `totalSales`, `credit_balance` ของเดิม clamp หมด นี่เป็น invariant ที่ตั้งใจ ไม่ใช่บั๊ก
   ส่วน `CHECK (… >= 0)` ใน DDL มีไว้เป็น **assertion กันบั๊กของเราเอง** เท่านั้น —
   ถ้า CHECK ยิงเมื่อไหร่ แปลว่าโค้ดเราลืม clamp ไม่ใช่ผู้ใช้ทำอะไรผิด
+  ⚠️ **วันนี้มี CHECK แค่ `customers.points` กับ `mechanics.credit_balance`** — `total_spend` และ
+  `total_sales` ไม่มี assertion ในฐานข้อมูล การ clamp ของสองตัวนี้พึ่งโค้ดอย่างเดียว (ดู §11)
 * คืนครบทั้งบิล → `sales.voided = TRUE` อัตโนมัติ
 * บิลที่ `voided` แล้วห้ามคืนซ้ำ (`Bill already voided`)
 
@@ -1007,14 +1126,18 @@ seed ไม่ได้ (`GET /doc-counters` เป็น `pos` เท่าน�
 effective_new_cost = (po_item.cost > 0) ? po_item.cost : old_cost      ← ⚠️ fallback ที่ห้ามลืม
 total_qty          = old_stock + new_qty
 new_cost           = (total_qty > 0)
-                     ? round2( (old_stock*old_cost + new_qty*effective_new_cost) / total_qty )
+                     ? round_satang_half_up( (old_stock*old_cost + new_qty*effective_new_cost) / total_qty )
                      : effective_new_cost                              ← ⚠️ กันหารศูนย์
 ```
+
+> **การปัด (แก้ 2026-09-23):** server คิดเป็นสตางค์จำนวนเต็มแล้ว**ปัดครึ่งขึ้นตามค่าจริง** ไม่ใช่ `round2`
+> แบบ float ของ Dart — จึง**ต่างกันโดยตั้งใจ**ในค่าที่ตกครึ่งสตางค์พอดี เช่น 1@1.00 + 1@1.01 →
+> server `1.01`, Dart `1.00` (`02_API_SCREENS.md §3.3` #26) · ลำดับล็อก: แถว PO → products เรียงตาม id
 
 > **ทำไม fallback สองบรรทัดนี้สำคัญ:** ถ้า implement ตามสูตรกลางเปล่า ๆ ใบสั่งซื้อที่พนักงาน
 > กรอกทุนเป็น 0 (เกิดบ่อยมาก — ของแถม/ของที่ยังไม่รู้ราคา) จะ **ดึงต้นทุนเฉลี่ยของสินค้านั้นลงเข้าใกล้ 0 อย่างถาวร**
 > แล้วรายงานกำไรจะบวมผิดไปตลอด โค้ดเดิมกันไว้แล้ว (`purchase_orders_repository.dart:121-125`) — ต้องพกมาด้วย
-> เสริมเกราะอีกชั้นด้วย `CHECK (cost >= 0)` ที่ `po_items`
+> เสริมเกราะอีกชั้นด้วย `CHECK (cost >= 0)` ที่ `po_items` (มีแล้วใน migration)
 
 * จับคู่ด้วย `part_no` — บรรทัดที่ไม่เจอสินค้า **ไม่ error** แต่คืนกลับมาเป็น list `unmatched`
 * รับของแล้ว `status = 'received'` — **รับซ้ำไม่ได้** (endpoint ต้อง idempotent, เช็ค status ใน transaction)
@@ -1047,8 +1170,22 @@ ALTER TABLE products FORCE ROW LEVEL SECURITY;   -- ให้มีผลกั�
 CREATE POLICY tenant_isolation ON products
   USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
--- ทำซ้ำกับทุกตารางธุรกิจ (เขียนเป็น DO $$ ... $$ loop ใน migration)
+-- ทำซ้ำกับทุกตารางธุรกิจ — migration 1788652800001 วน TENANT_SCOPED_TABLES (25 ตาราง)
+-- ตารางที่เพิ่มทีหลังต้องต่อท้าย list นั้น (schema test ตรวจว่าทุกตารางมี RLS + grant)
 ```
+
+**ตารางที่อยู่นอก policy ข้างบน (ตรวจกับ migration 2026-09-23):**
+- `tenants`, `platform_admins` — ตาราง global ไม่มี `tenant_id`
+- `import_jobs` — ตั้งใจไม่เปิด RLS เพราะ `pos_app` ไม่เคยแตะ (platform plane เท่านั้น)
+- `owner_review_items` — เปิด RLS แล้วแต่ policy เขียนแยกเอง **ไม่มี `NULLIF`** → 🔴 บั๊ก ดู §11
+
+**สิ่งที่ตั้งไว้ที่ role `pos_app` (migration 1788652800001 / 1788652802131):**
+- `GRANT SELECT, INSERT, UPDATE, DELETE` ทุกตาราง **ยกเว้น `movements` = `SELECT, INSERT` เท่านั้น**
+- `statement_timeout = 25s`, `idle_in_transaction_session_timeout = 5s`
+  (ห้ามตั้ง `statement_timeout` ≤ `CLAIM_LOCK_TIMEOUT` — ทำให้ `503 IDEMPOTENCY_KEY_IN_FLIGHT` ไม่มีทางเกิด)
+- ฟังก์ชัน `SECURITY DEFINER` สำหรับงานที่ต้องหาข้ามร้านก่อนรู้ tenant (migration …002 / …3003):
+  `auth_lookup_device_by_token`, `auth_lookup_user_for_login`, `auth_enrol_device`,
+  `auth_lookup_device_and_active_user` — ทุกตัว `SET search_path = public` และ `GRANT EXECUTE` ให้ `pos_app`
 
 * app เชื่อมด้วย role ที่ **ไม่ใช่** superuser และ **ไม่ใช่** table owner (ไม่งั้น RLS ถูกข้าม)
 * งาน background (BullMQ worker) ก็ต้อง `SET LOCAL app.tenant_id` เหมือนกัน — เอา `tenantId` ใส่ใน job payload
@@ -1061,9 +1198,9 @@ CREATE POLICY tenant_isolation ON products
 
 > ### สถานะร้าน (`tenants.status`) บังคับที่ `TenantGuard` ไม่ใช่ใน RLS predicate (ADR-0003)
 > `TenantGuard` อ่าน `tid` จาก JWT แล้วเช็ค `tenants.status` **ก่อน** ทุกครั้ง — ถ้าไม่ `active`
-> ให้ปฏิเสธคำขอและ **ไม่** `SET LOCAL app.tenant_id` เลย connection นั้นจึงไม่มีค่า GUC
-> `app.tenant_id` → policy ด้านบนคืน 0 แถวเองโดยอัตโนมัติอยู่แล้ว (จาก `NULLIF(..., '')`) —
-> ได้ defence-in-depth ฟรี โดยไม่ต้องแตะ policy สักตัว
+> ให้ปฏิเสธคำขอและ **ไม่** เรียก `setRequestTenant()` → `TenantService.runTx` ไม่มีค่าให้
+> `set_config('app.tenant_id', …)` เอาไปใช้ (ADR-0003 amendment) → policy ด้านบนคืน 0 แถวเอง
+> โดยอัตโนมัติอยู่แล้ว (จาก `NULLIF(..., '')`) — ได้ defence-in-depth ฟรี โดยไม่ต้องแตะ policy สักตัว
 >
 > **ห้ามใส่ `status` ลงใน policy** (เช่น `AND EXISTS (SELECT 1 FROM tenants WHERE id = tenant_id
 > AND status = 'active')`) เพราะจะกลายเป็น subquery ที่วิ่ง**ต่อแถว ทุกตาราง ทุก query** —
@@ -1184,7 +1321,7 @@ flowchart LR
 | `mechanics` | **soft delete** | เหมือนกัน + ยอดเครดิตค้างต้องตามได้ |
 | `categories` | **hard delete ได้** | ของเดิมลบแค่แถวในตาราง **ไม่แตะ `products.category`** — เป็น orphan by design และ `catColor()` มี hash fallback → **ห้ามใส่ FK `products → categories`** |
 | `suppliers`, `parked_sales`, `quotes` | hard delete | ไม่มีใครอ้างถึง |
-| `sales`, `returns`, `movements`, `credit_payments`, `shifts` | **ห้ามลบเลย** | เป็น ledger การเงิน — ยกเลิกด้วย `voided` / `cancelled` เท่านั้น |
+| `sales`, `returns`, `movements`, `credit_payments`, `shifts` | **ห้ามลบเลย** | เป็น ledger การเงิน — ยกเลิกด้วย `voided` / `cancelled` เท่านั้น · ⚠️ บังคับที่ฐานข้อมูลได้แค่ `movements` (GRANT แค่ SELECT/INSERT) — อีก 4 ตาราง `pos_app` ยังมีสิทธิ์ DELETE จึงพึ่งโค้ดอย่างเดียว (ดู §11) |
 
 **ผลต่อ API:** `DELETE` ที่เป็น soft delete ต้องคืน `200` เสมอเหมือนเดิม client ไม่ต้องรู้ว่าเปลี่ยนวิธี
 และ `GET` ทุกตัวต้องกรอง `WHERE deleted_at IS NULL` (ยกเว้น endpoint sync ที่ต้องเห็น tombstone)
@@ -1192,7 +1329,7 @@ flowchart LR
 > **ทำไมตารางข้างบนต้องแม่นเป๊ะ (ADR-0005):** ระบบ**ไม่มี point-in-time restore รายร้าน** —
 > เลือกรับปาก export (`POST /backup/export`) แต่ไม่รับปาก restore เพราะ restore รายร้านบน
 > shared-schema ต้องมี nightly per-tenant dump แยกทุกร้าน + สคริปต์ลบ-แล้ว-โหลดกลับที่เรียงตาม FK
-> ให้ถูกทั้ง 28 ตาราง ทำครึ่ง ๆ กลาง ๆ แย่กว่าไม่ทำ (restore พลาด = ข้อมูลร้านอื่นเสียหายด้วย)
+> ให้ถูกทุกตาราง ทำครึ่ง ๆ กลาง ๆ แย่กว่าไม่ทำ (restore พลาด = ข้อมูลร้านอื่นเสียหายด้วย)
 > **soft delete จึงเป็นกลไกเดียวที่กู้ "ลบผิด" ได้** — ต้องตรวจให้แน่ใจว่าทุกตารางที่ผู้ใช้กดลบได้
 > เอง (ผ่านหน้าจอ ไม่ใช่แค่ระบบภายใน) เป็น soft delete จริงตามตารางนี้ ไม่ใช่หลุด hard delete ไป
 
@@ -1206,7 +1343,12 @@ flowchart LR
 | ~~`sales` ไม่เก็บ `cost` ตอนขาย~~ **เคาะแล้ว (ADR-0008)** | เพิ่ม `sale_items.cost_at_sale` ใน DDL §5.4 + กฎใน §7.1 แล้ว (2026-09-04) — ฝั่ง Drift ทำเสร็จก่อนหน้า (schema v2) |
 | **ไม่มี soft delete ครบทุกตาราง** | ตอน sync การลบต้องส่งเป็น tombstone ไม่งั้นเครื่องอื่นจะ resurrect ข้อมูลที่ลบไปแล้ว |
 | ~~หลายร้าน = หลาย timezone?~~ **เคาะแล้ว (ADR-0003)** | เพิ่ม `tenants.timezone TEXT DEFAULT 'Asia/Bangkok'` แล้ว (§5.1) เพราะ `shifts.date_str` และรายงานรายวันทุกใบขึ้นกับค่านี้ |
-| **`customers` / `mechanics` / `settings` ยังไม่มี `updated_at`** | มีแต่ `products` ที่มี → refresh cache ด้วย `?updatedSince=` ทำไม่ได้กับ 3 ตารางนี้ **เป็น Drift schema change ที่ต้องรัน `build_runner` บน ASCII path** ควรทำรวดเดียวตอนนี้ ไม่ใช่ไปเจอตอนเฟส 2 |
+| ~~`customers` / `mechanics` / `settings` ยังไม่มี `updated_at`~~ **ปิดแล้ว** | ทั้งสามตารางมี `updated_at` ใน Postgres แล้ว และ `customers`/`mechanics` มี keyset index `(tenant_id, updated_at, id)` (migration …4000) |
+| 🔴 **บั๊ก: policy RLS ของ `owner_review_items` ไม่มี `NULLIF`** (migration …3002 บรรทัด 55–56) | request ที่ไม่มี `app.tenant_id` จะได้ `''::uuid` → error 22P02 = HTTP 500 แทนที่จะได้ 0 แถว (ผิดกติกา §8) และชื่อ policy เป็น `tenant_isolation_policy` ไม่ใช่ `tenant_isolation` — **แก้ด้วย migration ใหม่ ห้ามแก้ไฟล์เดิม** |
+| 🔴 **บั๊ก: FK `(tenant_id, reviewed_by) … ON DELETE SET NULL`** ของ `owner_review_items` (…3002 บรรทัด 34) | ตั้งทั้งสองคอลัมน์เป็น NULL แต่ `tenant_id` เป็น NOT NULL → ลบ user ที่เคยรีวิวรายการแล้ว error · แก้เป็น `ON DELETE SET NULL (reviewed_by)` (Postgres 15+) |
+| **"ห้ามลบ" ledger ยังพึ่งโค้ดอย่างเดียว** | `pos_app` มี DELETE บน `sales`/`returns`/`credit_payments`/`shifts` — ถ้าอยากให้ DB บังคับ ต้อง REVOKE (ตรวจก่อนว่า import/rollback ไม่ได้ใช้ DELETE ผ่าน role นี้) |
+| **ยอดสะสมที่ไม่มี CHECK** | `customers.total_spend`, `mechanics.total_sales` ไม่มี `CHECK (>= 0)` เป็น assertion แบบ `points`/`credit_balance` (§7.3) |
+| **`InitialSchema` ถูกแก้หลังรันไปแล้ว** (commit `225ecf7`: role CHECK, ลบ `pin_hash`) | DB ใหม่กับ DB ที่ migrate มาได้ schema เดียวกันแต่คนละทาง (`…3001` ใช้ `IF EXISTS` จึงไม่พัง) — กติกาต่อไป: migration ที่รันแล้วห้ามแก้ ให้เพิ่มไฟล์ใหม่ |
 | ~~**`sales.sync_status`**~~ | ~~ถ้าจะทำโหมดออฟไลน์ ต้องมี `('local'\|'confirmed'\|'rejected')`~~ + คิวให้เจ้าของร้านเคลียร์บิลที่ server ปฏิเสธหลังพิมพ์ใบเสร็จไปแล้ว — ซ่อนไว้ใน log ไม่ได้ · **2026-09-15: ไม่ทำคอลัมน์ — สถานะอยู่ใน outbox ของเครื่อง, คิวคือหน้า "รอ owner" (08 §7, §14)** |
 
 ---

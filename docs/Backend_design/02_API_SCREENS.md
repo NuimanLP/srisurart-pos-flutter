@@ -19,10 +19,10 @@
 
 | หัวข้อ | ข้อกำหนด |
 |---|---|
-| Base path | `/api/v1` (ล็อกเวอร์ชันไว้ตั้งแต่วันแรก) |
-| Auth | `Authorization: Bearer <JWT>` ทุก endpoint ยกเว้น `/auth/*` และ `/health/*` |
+| Base path | `/api/v1` (ล็อกเวอร์ชันไว้ตั้งแต่วันแรก) · *(2026-09-23 ตรวจกับโค้ด: admin plane ก็อยู่ใต้ prefix นี้ด้วยเป็น `/api/v1/platform/*` — ดู §4.1 · ส่วน `GET /health/live`, `/health/ready`, `/metrics` **อยู่นอก prefix** ที่ root — `app.setup.ts:120-126`)* |
+| Auth | `Authorization: Bearer <JWT>` ทุก endpoint ยกเว้น `/auth/*` และ `/health/*` · *(2026-09-23: ยกเว้น `/metrics` ด้วย (Nginx ตอบ 404 จากข้างนอก) · `GET /auth/me` ต้องมี JWT · `POST /sync/push` ใช้ `X-Device-Token` แทน JWT และ `POST /sync/discards` รับได้ทั้งสองแบบ — `sync.controller.ts:56,77`)* |
 | Tenant | **อ่านจาก JWT claim `tid` เท่านั้น** — ห้ามรับ `tenantId` จาก body/query เด็ดขาด (ไม่งั้นปลอมข้ามร้านได้) |
-| Device | JWT พก `did` (device id) + `drole` (`pos` / `backoffice`) เพิ่มจาก `tid` — guard ตรวจ `drole` **ต่อ endpoint** ตามคอลัมน์ "Device role" ใน §4 (ADR-0004) · **ที่มา:** `POST /auth/token` รับ `deviceToken` (ได้จาก `POST /auth/device` ด้วย enrolment code ที่ owner ออกผ่าน `POST /devices`) แล้ว server resolve เป็น `did`/`drole` เอง **ห้ามรับ `deviceId` จาก body** ไม่มี token = ไม่มี `drole` = เรียกได้เฉพาะแถว "ทั้งคู่" ในฐานะ `backoffice` (ADR-0004 "การผูกเครื่อง") |
+| Device | JWT พก `did` (device id) + `drole` (`pos` / `backoffice`) เพิ่มจาก `tid` — guard ตรวจ `drole` **ต่อ endpoint** ตามคอลัมน์ "Device role" ใน §4 (ADR-0004) · **ที่มา:** `POST /auth/token` รับ `deviceToken` (ได้จาก `POST /auth/device` ด้วย enrolment code ที่ owner ออกผ่าน `POST /devices`) แล้ว server resolve เป็น `did`/`drole` เอง **ห้ามรับ `deviceId` จาก body** ไม่มี token = ไม่มี `drole` = เรียกได้เฉพาะแถว "ทั้งคู่" ในฐานะ `backoffice` (ADR-0004 "การผูกเครื่อง") · *(2026-09-23: ยกเว้น route ที่ต้องมี `did` ตาม F6 และ route ที่ออกเลขเอกสารในชุดของเครื่อง — ไม่มี `did` = `403 DEVICE_ROLE_FORBIDDEN` ดูคอลัมน์ Auth ใน §4.2)* · 🔴 **role ของคนมีค่าเดียว `owner`** (2026-09-15 E1, ADR-0004/0009 addendum รอบ 2) — ไม่มี guard ตรวจ role คน เหลือแค่ "ล็อกอินแล้ว" + device role |
 | อายุ token (ADR-0009) | **access 15 นาที** · **refresh หมดอายุ 04:00 ตาม `tenants.timezone`** (ไม่ใช่ 24 ชม.นับจากล็อกอิน; refresh ที่ออกหลัง 03:00 หมดอายุ 04:00 ของวันถัดไป) · `/auth/refresh` ต้องเช็ค `users.is_active` + `tenants.status` + `devices.retired_at` ของ `did` ทุกครั้ง · **ไม่มี** refresh rotation และ **ไม่มี** denylist ใน Redis |
 | Token audience | guard ของ `/api/*` **ปฏิเสธ token ที่ `aud != "tenant"`** และ guard ของ `/platform/*` **ปฏิเสธ `aud != "platform"`** — token ข้ามฝั่งกันไม่ได้แม้แต่กรณีเดียว **ไม่มี role ของร้านไหนเรียก `/platform/*` ได้ แม้แต่ `owner`** (ADR-0002) |
 | ลายเซ็น / ที่เก็บ token (ADR-0009 addendum 2026-09-09) | **RS256** + header `kid` · verifier รับเฉพาะ `RS256` (ห้าม HS256 / `none`) · private key มีเฉพาะ process ที่มี `/auth/*` · claim บังคับ `iss`, `aud`, `sub`, `iat`, `exp`, `jti`, **`typ`** (`access`/`refresh` — `/api/*` รับเฉพาะ `access`, `/auth/refresh` รับเฉพาะ `refresh`) · skew 30 วินาที · web: **access ใน memory, refresh ใน IndexedDB** ห้าม localStorage · token ทาง header เท่านั้น ห้าม query string · `pino` redact `authorization` + body ของ `/auth/*` · **ทุก endpoint ใน `/auth/*` เขียน `audit_log`** |
@@ -85,14 +85,17 @@ Idempotency-Key: 9f3c…   ← client สร้าง 1 ครั้งต่อ
 | 3 | **Purchase Orders** `/purchase-orders` | `GET /purchase-orders`, `GET /products` | `POST /purchase-orders`, `POST /:id/receive` ⭐, `POST /:id/cancel`, `DELETE /:id` |
 | 4 | **Vehicle Search** `/vehicle-search` | `GET /products?compat=…`, `GET /categories` | — (อ่านอย่างเดียว) |
 | 5 | **Customers** `/customers` | `GET /customers`, `GET /customers/:id/sales` | `POST/PATCH/DELETE /customers` |
-| 6 | **Mechanics** `/mechanics` | `GET /mechanics`, `/mechanics/:id/sales`, `/credit-payments` | `POST/PATCH/DELETE /mechanics`, `POST /mechanics/:id/credit-payments` |
+| 6 | **Mechanics** `/mechanics` | `GET /mechanics`, `/mechanics/:id/sales`, `/credit-payments` *(2026-09-23: ยังไม่มีใน server — ดู §3.6)* | `POST/PATCH/DELETE /mechanics`, `POST /mechanics/:id/credit-payments` |
 | 7 | **Returns** `/returns` | `GET /sales?search=`, `GET /sales/:id/refunded-qty`, `GET /returns`, `/settings` | `POST /returns` ⭐ |
 | 8 | **Quotes** `/quotes` | `GET /quotes`, `/settings` | `POST /quotes`, `PATCH /quotes/:id`, `POST /:id/duplicate`, `POST /:id/convert`, `DELETE /:id`, `POST /quotes/purge` |
 | 9 | **Reports** `/reports` | `GET /reports/summary`, `/reports/top-products`, `/reports/by-category`, `/reports/stock-value` | — |
-| 10 | **Settings** `/settings` | `GET /settings` | `PATCH /settings`, `POST /backup/export`, `POST /backup/import`, `GET /export/:entity.csv` |
+| 10 | **Settings** `/settings` | `GET /settings` | `PATCH /settings`, `POST /backup/export`, ~~`POST /backup/import`~~ (ย้ายไป admin plane §4.1), `GET /export/:entity.csv` *(2026-09-23: CSV ยังไม่มีใน server)* |
 | 11 | **Cash Drawer** `/cash-drawer` | `GET /shifts/current`, `/shifts/history`, `/reports/closing?shiftId=` | `POST /shifts/open`, `POST /shifts/close`, `POST /shifts/current/entries` |
 
 ⭐ = endpoint ที่ต้อง **transaction + idempotent + invalidate cache** (3 ตัวนี้คือหัวใจของระบบ)
+
+> *(2026-09-23 — Phase 2)* หน้า **"รอ owner"** (08 §14) เป็นหน้าใหม่นอก 11 หน้าข้างบน: READ `GET /review-items?status=pending` ·
+> WRITE `POST /review-items/:id/reviewed`, `POST /sync/discards` · หน้าจัดการเครื่องใช้ `GET/POST /devices`, `POST /devices/:id/retire` (ดู §4.2)
 
 > ### 🆕 endpoint ที่เป็น "ของใหม่" ไม่ใช่การ port จากโค้ดเดิม
 > อย่าเข้าใจผิดว่าทั้งตารางคือ behaviour parity — endpoint กลุ่มนี้ **ไม่มีในแอปวันนี้**
@@ -101,6 +104,10 @@ Idempotency-Key: 9f3c…   ← client สร้าง 1 ครั้งต่อ
 > `GET /customers/:id/summary` · `GET /mechanics/:id/statement` · `GET /reports/by-payment` ·
 > `GET /reports/daily` · `GET /quotes/:id/pdf` · `POST /quotes/:id/convert` (ของเดิมโยนตะกร้ากลับหน้า Checkout) ·
 > `GET /bootstrap` · `POST /customers` จากหน้า Checkout (ของเดิมเพิ่มลูกค้าได้จากหน้า Customers เท่านั้น)
+>
+> *(2026-09-23 ตรวจกับ controller:* ทำแล้ว = `POST /sales/:id/void`, `POST /quotes/:id/convert`, `GET /bootstrap`, `POST /customers` ·
+> **ยังไม่มีใน server** = `GET /customers/:id/summary`, `GET /mechanics/:id/statement`, `GET /reports/by-payment`,
+> `GET /reports/daily`, `GET /quotes/:id/pdf` *— ยังเป็นข้อเสนอ ไม่ใช่สัญญา)*
 >
 > **นอกจากนี้ `AppShell` (กรอบนำทางที่อยู่ทุกหน้า) เรียก `watchSettings()` เป็น live stream** —
 > เป็น stream เดียวที่ยัง wire อยู่จริงในแอป ต้องมีที่ทางในเฟส 1 (ดู `03_ARCHITECTURE.md §2`)
@@ -181,6 +188,7 @@ sequenceDiagram
 {
   "id": "s1a2b3c4",                 // client สร้าง (รองรับ offline) — server ใช้เป็น natural idempotency key ด้วย
   // "receiptNo": "RC01-2569-08-0042",   ← เฟส 1 ไม่ส่ง (server ออกให้) · เฟส 2 เครื่อง pos ส่งมาได้ และ prefix/device_no ต้องตรงกับ did ของ token (ADR-0007)
+  //                                       (2026-09-23: เฟส 2 D4 = pos ออก RC เอง **ทั้งออนไลน์และออฟไลน์** · ไม่ส่ง = server ออกให้เฉพาะตอน DOC_NUMBER_FALLBACK เปิด — ดูหมายเหตุข้อ 2)
   "subtotal": "1500.00",
   "discount": "100.00",
   "total": "1400.00",
@@ -204,7 +212,7 @@ sequenceDiagram
             "mechanicAfter": { "id": "m2", "totalSales": "182000.00", "totalDiscount": "3100.00",   // ⭐ #82 — ครบทั้งสี่ยอดสะสม
                                "totalMarkup": "0.00", "creditBalance": "5400.00" },                 // 🔴 ไม่มี total_credit (ข้อตัดสิน #11)
             "customerAfter": { "id": "c3", "points": 1340, "totalSpend": "58200.00" },   // ⭐ เพิ่ม (ADR-0010 ข้อ 3) — ไม่งั้น Drift ฝั่ง client ค้างค่าเก่าจนกว่า /bootstrap รอบถัดไป
-            "products": [ { "id": "p12", "stock": 8 } ],   // ไม่มี offlineOk — เฟส 1 ยังไม่มีที่เก็บ (`sales.service.ts`), ADR-0010 ข้อ 4
+            "products": [ { "id": "p12", "stock": 8 } ],   // ไม่มี offlineOk — เฟส 1 ยังไม่มีที่เก็บ (`sales.service.ts`), ADR-0010 ข้อ 4 · (2026-09-23: ยกเลิกถาวรแล้ว D3 — ไม่มี `offlineOk` ทั้งระบบ)
             "items": [ { "lineNo": 1, "productId": "p12", "costAtSale": "480.00" } ],    // ⭐ #82 — ต้นทุน ณ วันที่ขาย (ADR-0008) กู้คืนทีหลังไม่ได้
             "movements": [ { "id": "mv…", "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",   // ⭐ #82 — แถว ledger ที่บิลนี้เขียน
                              "delta": -2, "type": "sale", "note": null, "stockAfter": 8,
@@ -230,6 +238,11 @@ sequenceDiagram
 >    reconciliation (ADR-0007)
 >    ✅ รูปแบบ `RC01-2569-08-0042` **อนุมัติแล้ว** (ADR-0007, grill รอบ 2) — ยังต้องให้เจ้าของร้านเห็นใบเสร็จ
 >    ตัวอย่างจริงก่อนพิมพ์ใบแรก แต่ไม่ใช่ "รูปแบบที่เสนอ" อีกต่อไป
+>    🔄 **แก้ 2026-09-23 ตาม ADR-0007 addendum D4 + รอบ 3 C16 (08 §9):** เฟส 2 เครื่อง `pos` ออก RC/CN เอง
+>    **ทั้งออนไลน์และออฟไลน์** (ไม่ใช่เฉพาะออฟไลน์) · server ตรวจ prefix + `device_no` ของ `did` + ช่วง 0001–9999
+>    (ไม่ผ่าน = `400 DOC_NUMBER_INVALID`) แล้วยก high-water mark ใน `doc_counters` ด้วย `GREATEST` ·
+>    body ไม่มีเลข → server ออกให้ **เฉพาะตอน `DOC_NUMBER_FALLBACK` เปิด** (ค่าเริ่มต้น) ปิดแล้ว = `400 DOC_NUMBER_REQUIRED`
+>    (`documents/doc-number.service.ts` `resolveDocNumber`) · PO/QT/CP server ยังออกเองตลอด
 > 3. **`shiftId` ไม่อยู่ใน request body** — server ประทับให้เองจากลิ้นชักที่เปิดอยู่ของเครื่องนั้น (#28)
 >    ส่งมาก็ไม่อ่าน · รายงานปิดร้านคิดจาก `shift_id` ถ้ารับจาก body เครื่องหนึ่งเขียนเข้ากะของอีกเครื่องได้
 >    **แต่อยู่ใน response** (#82) เพราะ client ไม่มีทางรู้ค่าที่ server ประทับ
@@ -248,7 +261,7 @@ sequenceDiagram
 
 | ตอนไหน | Method + Path |
 |---|---|
-| รายการสินค้า | `GET /products?page&limit&search&category&sort` |
+| รายการสินค้า | `GET /products?page&limit&search&category&sort` · *(2026-09-23: โค้ดรับ `search`, `partNo`, `category`, `updatedSince`, `afterId`, `page`, `limit` — **ไม่มี `sort`** · `products.controller.ts:45-51`)* |
 | หมวดหมู่ | `GET /categories` / `POST /categories` / `DELETE /categories/:name` |
 | เพิ่ม/แก้/ลบ | `POST /products` · `PATCH /products/:id` · `DELETE /products/:id` (soft delete) |
 | ปรับสต็อกมือ | `POST /products/:id/adjust-stock` `{ delta, type, note }` → **clamp ที่ 0** + สร้าง movement |
@@ -267,7 +280,8 @@ sequenceDiagram
 | ตอนไหน | Method + Path | หมายเหตุ |
 |---|---|---|
 | รายการ PO | `GET /purchase-orders?status=open` | |
-| สร้าง PO | `POST /purchase-orders` | ไม่แตะสต็อก |
+| ดูใบเดียว | `GET /purchase-orders/:id` | *(2026-09-23: มีใน server แต่เอกสารเดิมไม่ได้ระบุ)* |
+| สร้าง PO | `POST /purchase-orders` | ไม่แตะสต็อก · *(2026-09-23: เลข PO ออกในชุดของเครื่องที่เรียก จึง**ต้องมี `did`** — ไม่มี = `403 DEVICE_ROLE_FORBIDDEN`, `purchase-orders.controller.ts:72`)* |
 | **รับของ** | `POST /purchase-orders/:id/receive` | ⭐ transaction: บวกสต็อก + คำนวณต้นทุนเฉลี่ยถ่วงน้ำหนัก + สร้าง movement + `status='received'` |
 | ยกเลิก | `POST /purchase-orders/:id/cancel` | |
 | ลบ | `DELETE /purchase-orders/:id` | ลบได้เฉพาะที่ยังไม่รับของ |
@@ -293,29 +307,31 @@ sequenceDiagram
 
 | Method + Path | หมายเหตุ |
 |---|---|
-| `GET /products?compat=vigo&search=&category=` | ค้นในฟิลด์ `compat` — ตอนนี้ client โหลดสินค้าทั้งหมดมา filter ใน Dart → ย้ายมาเป็น full-text index ฝั่ง server (`01_DATABASE.md §5.2`) |
+| `GET /products?compat=vigo&search=&category=` | ค้นในฟิลด์ `compat` — ตอนนี้ client โหลดสินค้าทั้งหมดมา filter ใน Dart → ย้ายมาเป็น full-text index ฝั่ง server (`01_DATABASE.md §5.2`) · *(2026-09-23: server **ไม่มี param `compat`** — `compat` อยู่ในนิพจน์ของ `?search=` แล้ว (`SEARCH_EXPRESSION`, `products.service.ts:94`) จึงใช้ `GET /products?search=vigo&category=`)* |
 | `GET /categories` | สำหรับ chip กรองหมวด |
 
 ### 3.5 Customers
 
 | Method + Path | หมายเหตุ |
 |---|---|
-| `GET /customers?search=&page=` | |
+| `GET /customers?search=&page=` | *(2026-09-23: รับ `?updatedSince=&afterId=` แบบ keyset + `meta.nextCursor` ด้วยแล้ว สำหรับ pull ของ 08 §15 — `customers.controller.ts:38-65`)* |
+| `GET /customers/:id` | *(2026-09-23: มีใน server แต่เอกสารเดิมไม่ได้ระบุ)* |
 | `POST /customers` | server ออก `code` = `CUS###` (ต้อง lock กันชนตอนหลายเครื่องเพิ่มพร้อมกัน) |
 | `PATCH /customers/:id` · `DELETE /customers/:id` | |
 | **`GET /customers/:id/sales?page=`** | ⚠️ ของเดิมโหลดบิลทั้งหมดแล้ว filter ใน client → ต้องเป็น endpoint แยก |
-| `GET /customers/:id/summary` | แต้มคงเหลือ, ยอดซื้อสะสม, ซื้อล่าสุดเมื่อไหร่ |
+| `GET /customers/:id/summary` | แต้มคงเหลือ, ยอดซื้อสะสม, ซื้อล่าสุดเมื่อไหร่ · *(2026-09-23: **ยังไม่มีใน server**)* |
 
 ### 3.6 Mechanics (ช่าง + เครดิต)
 
 | Method + Path | หมายเหตุ |
 |---|---|
-| `GET /mechanics?search=` | ส่ง `creditBalance` / `creditLimit` มาด้วยเสมอ |
+| `GET /mechanics?search=` | ส่ง `creditBalance` / `creditLimit` มาด้วยเสมอ · *(2026-09-23: รับ `?updatedSince=&afterId=` keyset ด้วยแล้ว — `mechanics.controller.ts:50-54`)* |
+| `GET /mechanics/:id` | *(2026-09-23: มีใน server แต่เอกสารเดิมไม่ได้ระบุ)* |
 | `POST /mechanics` (`code` = `M###`) · `PATCH` · `DELETE` | |
 | **`POST /mechanics/:id/credit-payments`** | ช่างมาจ่ายหนี้ — ลด `credit_balance` (clamp ที่ 0), ออกเลขใบเสร็จรับเงิน (series **CP**), ต้อง idempotent · **pos เท่านั้น** · body `{ id?, amount, paymentMethod, note?, allowOverpayment? }` — `paymentMethod` เป็น `'เงินสด'` \| `'โอน/QR'` **บังคับ** (รายงานปิดร้านต้องแยกเงินสดออกจากเงินโอน) · จ่ายเกินยอดค้างโดยไม่มี `allowOverpayment: true` = `409 CREDIT_PAYMENT_EXCEEDS_BALANCE` (§8.1) · ตอบ payment + `mechanicCreditBalanceAfter` · server แสตมป์ `shift_id` จากลิ้นชักที่เปิดอยู่ของเครื่องนั้นเอง (#24) · 🔴 เครื่องไม่มีกะเปิด = `409 NO_OPEN_SHIFT` ทั้งเงินสดและโอน ไม่มีอะไรถูกเขียน ไม่กินเลข CP (ข้อตัดสินเจ้าของร้าน 2026-09-13) — ตรวจ**หลัง** replay ด้วย `id` เดิม จึงยิงซ้ำหลังปิดกะยังได้รายการเดิม |
-| `GET /credit-payments?mechanicId=&from=&to=` | |
+| `GET /credit-payments?mechanicId=&from=&to=` | *(2026-09-23: **ยังไม่มีใน server** — ไม่มี controller `credit-payments`)* |
 | **`GET /mechanics/:id/sales?page=`** | ⚠️ เหมือนข้อ 3.5 — เดิม filter ใน client |
-| `GET /mechanics/:id/statement?from=&to=` | ใบแจ้งหนี้: ยอดยกมา + ซื้อ + จ่าย + คงเหลือ |
+| `GET /mechanics/:id/statement?from=&to=` | ใบแจ้งหนี้: ยอดยกมา + ซื้อ + จ่าย + คงเหลือ · *(2026-09-23: **ยังไม่มีใน server**)* |
 
 ### 3.7 Returns (รับคืน / ใบลดหนี้)
 
@@ -349,6 +365,9 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 บวกผลที่ client ต้อง patch: `saleVoided`, `products[] {id, stock}`, `customerAfter`,
 `mechanicCreditBalanceAfter` และ **#82 เพิ่มอีกสอง field**
 
+*(2026-09-23 — D4, ADR-0007 addendum:* request รับ `cnNo` (optional) ที่เครื่อง `pos` ออกเอง ตรวจแบบเดียวกับ `receiptNo`
+ของ §3.1 หมายเหตุข้อ 2 · ไม่ส่ง = server ออกให้เฉพาะตอน `DOC_NUMBER_FALLBACK` เปิด — `returns.dto.ts:18,49`, `returns.service.ts:259)*
+
 ```jsonc
   "movements": [ { "id": "mv…", "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",
                    "delta": 2, "type": "return", "note": null, "stockAfter": 10,
@@ -370,7 +389,11 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 | `POST /quotes/:id/duplicate` | ก๊อปปี้เป็นใบใหม่ status `open` |
 | **`POST /quotes/:id/convert`** | แปลงเป็นบิลขาย → **สร้าง sale จริง (ตัดสต็อกตรงนี้)** + ตั้ง `converted_at`, `converted_sale_id` |
 | `POST /quotes/purge` `{ olderThanDays: 90 }` | ลบใบเก่า — งานหนัก ควรโยนเข้า BullMQ แล้วตอบ `202 Accepted` |
-| `GET /quotes/:id/pdf` | (ทางเลือก) ให้ server เรนเดอร์ A4 PDF แทนที่จะเรนเดอร์บนมือถือ |
+| `GET /quotes/:id/pdf` | (ทางเลือก) ให้ server เรนเดอร์ A4 PDF แทนที่จะเรนเดอร์บนมือถือ · *(2026-09-23: **ยังไม่มีใน server**)* |
+
+> *(2026-09-23 ตรวจกับ `quotes.controller.ts:94-97`)* `POST /quotes`, `POST /quotes/:id/duplicate` และ `/convert`
+> **ต้องมี `did`** (เลข QT ออกในชุดของเครื่อง) — ไม่มี = `403 DEVICE_ROLE_FORBIDDEN` · มี `GET /quotes/:id` ด้วย ·
+> ใบเสนอราคาเป็นงาน**ออนไลน์เท่านั้น**ในเฟส 2 (E6, 08 §6)
 
 > **จุดที่ design เดิมกำกวม:** การ "แปลงใบเสนอราคาเป็นบิล" ตอนนี้ทำโดยโยนตะกร้ากลับไปหน้า Checkout
 > แล้วให้พนักงานกดขายอีกที ทำให้ถ้าปิดแอปกลางทาง ใบเสนอราคาจะค้างสถานะ
@@ -402,10 +425,11 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 | `GET /reports/summary?from=&to=` | ยอดขาย, จำนวนบิล, บิลเฉลี่ย, ยอดคืน, ยอดสุทธิ, กำไรขั้นต้น (+ `estimatedCostRows`/`unknownCostRows`) | `SUM/COUNT/AVG` บน `sales` + `returns` — #95: ทุกตัวเลขใช้บิลชุดเดียวกับรายงานปิดร้าน (void เองไม่นับ, void อัตโนมัติจากคืนครบยังนับแล้วหักใบลดหนี้), สูตรกำไรเดียวกับ §3.11, คืนสินค้าลงวันตาม `returns.date` |
 | `GET /reports/top-products?from=&to=&limit=10` | สินค้าขายดี | `GROUP BY product_id` บน `sale_items` — #97: บิลชุดเดียวกับ summary (void เองไม่นับ, void อัตโนมัติจากคืนครบยังนับแล้วหักใบลดหนี้) |
 | `GET /reports/by-category?from=&to=` | ยอดขายแยกหมวด | join `sale_items → products` — #97: บิลชุดเดียวกับ summary (void เองไม่นับ, void อัตโนมัติจากคืนครบยังนับแล้วหักใบลดหนี้) |
-| `GET /reports/by-payment?from=&to=` | แยกตามวิธีชำระ (เงินสด/โอน/เครดิต) | |
-| `GET /reports/daily?from=&to=` | ยอดรายวัน (กราฟ) | `GROUP BY date_trunc('day', date)` |
+| `GET /reports/by-payment?from=&to=` | แยกตามวิธีชำระ (เงินสด/โอน/เครดิต) | *(2026-09-23: **ยังไม่มีใน server**)* |
+| `GET /reports/daily?from=&to=` | ยอดรายวัน (กราฟ) | `GROUP BY date_trunc('day', date)` · *(2026-09-23: **ยังไม่มีใน server**)* |
 | `GET /reports/stock-value` | มูลค่าสต็อกรวม = `SUM(stock × cost)` | |
-| `GET /reports/low-stock` | รายการของใกล้หมด | ใช้ partial index |
+| `GET /reports/low-stock` | รายการของใกล้หมด | ใช้ partial index · *(2026-09-23: รับ `?page=&limit=`)* |
+| `GET /reports/closing?shiftId=` · `GET /reports/product-sales?productId=&from=&to=` | *(2026-09-23: สองตัวนี้มีใน `reports.controller.ts` ด้วย — รายละเอียดที่ §3.11 และ §3.2)* | |
 
 > รายงานพวกนี้ **cache ได้ยาว** (TTL 5–15 นาที) เพราะไม่มีใครดูยอดขายแบบวินาทีต่อวินาที
 > ถ้าข้อมูลโตมาก ค่อยทำเป็น **materialized view** refresh ทุก 15 นาทีด้วย BullMQ repeatable job
@@ -415,11 +439,11 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 | Method + Path | หมายเหตุ |
 |---|---|
 | `GET /settings` · `PATCH /settings` | ข้อมูลร้าน, VAT, อายุใบเสนอราคา |
-| `POST /backup/export` | → `202 Accepted` + `jobId` (งานหนัก เข้า BullMQ) → ได้ signed URL ตอนเสร็จ |
+| `POST /backup/export` | → `202 Accepted` + `jobId` (งานหนัก เข้า BullMQ) → ได้ signed URL ตอนเสร็จ · *(2026-09-23: ต้องมี `did` (F6) — ทั้งตัวนี้และ `GET /backup/jobs/:id` ไม่มี = `403 DEVICE_ROLE_FORBIDDEN`, `backup.controller.ts:53,86`)* |
 | ~~`POST /backup/import`~~ | **ย้ายไป admin plane แล้ว** → `POST /platform/tenants/{id}/import` (ดู §4.1) |
 | `GET /backup/jobs/:id` | เช็คสถานะงาน export (tenant plane, tenant JWT) |
 | `GET /platform/tenants/{id}/import/{jobId}` | เช็คสถานะงาน **import** (#239) — คนละ endpoint กับแถวบน: import อยู่ admin plane (platform admin token, ไม่มี `tid`) ไม่ใช่ tenant plane เหมือน export — ดู §4.1 |
-| `GET /export/products.csv` `?…` | CSV — ทุกช่องผ่าน `csvSafe()` กัน formula injection |
+| `GET /export/products.csv` `?…` | CSV — ทุกช่องผ่าน `csvSafe()` กัน formula injection · *(2026-09-23: **ยังไม่มีใน server**)* |
 
 > ### ⚠️ ทำไม import ถึงไม่ใช่ปุ่มของร้านอีกต่อไป (ADR-0005)
 > เดิมออกแบบให้ `owner` + PIN กดเองได้ ซึ่ง**ขัดกับ ADR-0005** ที่ประกาศว่า
@@ -438,9 +462,9 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 | Method + Path | หมายเหตุ |
 |---|---|
 | `GET /shifts/current` | กะที่ active + รายการเงินเข้า-ออก |
-| `POST /shifts/open` `{ startingCash }` | เปิดกะวันเดิมซ้ำ → คืนกะเดิม; เปิดวันใหม่ → archive กะเก่าก่อน |
-| `POST /shifts/close` `{ physicalCash }` | บันทึกเงินที่นับได้จริง |
-| `POST /shifts/current/entries` `{ type, amount, note }` | ปิดกะแล้วยิงมาต้องได้ `409` + ข้อความไทย `ลิ้นชักปิดแล้ว…` |
+| `POST /shifts/open` `{ startingCash }` | ~~เปิดกะวันเดิมซ้ำ → คืนกะเดิม; เปิดวันใหม่ → archive กะเก่าก่อน~~ · 🔄 **แก้ 2026-09-23 ตาม 08 §11 (E7) และ `shifts.service.ts:168-205`:** body `{ id?, startingCash, openedAt? }` · `id` ที่มีอยู่แล้ว → คืนกะนั้นไม่ archive · มีกะ active อื่นของเครื่องนี้ → archive (ไม่ได้นับเงิน = `auto_archived` + รายการตรวจ `shift_uncounted`) แล้วเปิดกะใหม่ — **หลายกะต่อวันได้** |
+| `POST /shifts/close` `{ physicalCash }` | บันทึกเงินที่นับได้จริง · ปิดซ้ำ = `409 SHIFT_ALREADY_CLOSED` (§8.1) |
+| `POST /shifts/current/entries` `{ type, amount, note }` | ปิดกะแล้วยิงมาต้องได้ `409` + ข้อความไทย `ลิ้นชักปิดแล้ว…` · *(2026-09-23: body รับ `id?` และ `createdAt?` เพิ่ม — `shifts.controller.ts:117-126`)* |
 | `GET /shifts/history?page=` | |
 | **`GET /reports/closing?shiftId=`** | ⭐ รายงานปิดร้าน — ดูสูตรเต็มด้านล่าง |
 
@@ -467,7 +491,7 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 > fallback `products.cost` เฉพาะแถว NULL (ADR-0008)
 >
 > **ข้อจำกัดที่รู้แล้ว (#30):**
-> (ก) ~~void เอง (`POST /sales/:id/void`) บิลของกะที่ปิดไปแล้ว ทำให้รายงานของกะที่ปิดแล้วนั้นเปลี่ยน และลิ้นชักปัจจุบันไม่แสดงเงินออก~~ — **ปิดแล้วโดย #94** (ข้อตัดสินเจ้าของร้าน 2026-09-13, ทางเลือก A): void ได้เฉพาะบิลของกะที่เปิดอยู่ของเครื่องนั้น นอกนั้น `409 SALE_NOT_IN_OPEN_SHIFT` แล้วออกใบลดหนี้แทน ซึ่งลงกะปัจจุบัน รายงานกะที่ปิดแล้วจึงไม่เปลี่ยนย้อนหลัง · ⚠️ ใบลดหนี้เงินสดออกได้**เฉพาะตอนมีกะเปิดอยู่** — ถ้าปิดลิ้นชักวันนี้ไปแล้วจะได้ `409 NO_OPEN_SHIFT` และกดเปิดกะซ้ำวันเดียวกันไม่ช่วย (`POST /shifts/open` คืนกะที่ปิดแล้วของวันนี้) **คืนเงินสดได้อีกทีเมื่อเปิดกะวันถัดไป** (เจ้าของร้านรับผลนี้ตอนเลือกทางเลือก A) ส่วนคืนแบบ `'โอน'` ยังทำได้ (ข้อ (ข) ข้างล่าง, #100) · ⚠️ กะที่ไม่เคยปิดและไม่เคย archive (ไม่มีใครกดเปิดกะวันถัดไป) ยังนับว่าเปิดอยู่ บิลเก่าหลายวันในกะนั้นจึงยัง void ได้
+> (ก) ~~void เอง (`POST /sales/:id/void`) บิลของกะที่ปิดไปแล้ว ทำให้รายงานของกะที่ปิดแล้วนั้นเปลี่ยน และลิ้นชักปัจจุบันไม่แสดงเงินออก~~ — **ปิดแล้วโดย #94** (ข้อตัดสินเจ้าของร้าน 2026-09-13, ทางเลือก A): void ได้เฉพาะบิลของกะที่เปิดอยู่ของเครื่องนั้น นอกนั้น `409 SALE_NOT_IN_OPEN_SHIFT` แล้วออกใบลดหนี้แทน ซึ่งลงกะปัจจุบัน รายงานกะที่ปิดแล้วจึงไม่เปลี่ยนย้อนหลัง · ⚠️ ใบลดหนี้เงินสดออกได้**เฉพาะตอนมีกะเปิดอยู่** — ถ้าปิดลิ้นชักวันนี้ไปแล้วจะได้ `409 NO_OPEN_SHIFT` และกดเปิดกะซ้ำวันเดียวกันไม่ช่วย (`POST /shifts/open` คืนกะที่ปิดแล้วของวันนี้) **คืนเงินสดได้อีกทีเมื่อเปิดกะวันถัดไป** (เจ้าของร้านรับผลนี้ตอนเลือกทางเลือก A) *(🔄 2026-09-23: ประโยคนี้ถูกแทนโดย 08 §11 E7 — หลายกะต่อวัน `POST /shifts/open` หลังปิดกะเปิดกะใหม่ได้เลย ใบลดหนี้เงินสดไม่ต้องรอพรุ่งนี้)* ส่วนคืนแบบ `'โอน'` ยังทำได้ (ข้อ (ข) ข้างล่าง, #100) · ⚠️ กะที่ไม่เคยปิดและไม่เคย archive (ไม่มีใครกดเปิดกะวันถัดไป) ยังนับว่าเปิดอยู่ บิลเก่าหลายวันในกะนั้นจึงยัง void ได้
 > (ข) ~~`POST /returns` ตอนไม่มีกะเปิด แสตมป์ `shift_id` เป็น null ยอดคืนเงินนั้นจึงไม่อยู่ในรายงานปิดร้านใดเลย~~ — **ปิดแล้วสำหรับเงินสดโดย #100** (ข้อตัดสินเจ้าของร้าน 2026-09-13, ทางเลือก A เฉพาะเงินสด): คืนเป็น `'เงินสด'` โดยไม่มีกะเปิด = `409 NO_OPEN_SHIFT` ไม่มีอะไรถูกเขียน — ตรวจหลัง guard ของบิล (`SALE_VOIDED`, `REFUND_METHOD_NOT_ALLOWED`, `RETURN_PRICE_MISMATCH`, `OVER_REFUND`) และอ่านลิ้นชัก `FOR SHARE` (ปิดกะรอใบลดหนี้เงินสดที่กำลังทำ) · replay ด้วย `Idempotency-Key` เดิมหลังปิดกะยังได้ผลเดิม · ⚠️ `'โอน'`/`'หักจากเครดิต'` ยังรับได้โดยไม่มีกะ และแสตมป์ `shift_id` null — ไม่กระทบเงินสดที่ควรมี แต่หักเข้า `grossProfit` ของกะนั้น จึงอ่านลิ้นชัก `FOR SHARE` เช่นกัน (ปิดกะรอใบลดหนี้ทุกวิธีที่กำลังทำ รายงานกะที่ปิดแล้วไม่เปลี่ยนย้อนหลัง)
 
 > ⚠️ **บั๊กที่จะโผล่ทันทีตอนมี 2 เครื่อง:** ตอนนี้รายงานปิดกะคำนวณจาก "บิลทั้งหมดที่เวลาอยู่ในช่วงกะ"
@@ -483,6 +507,13 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 อยู่ใต้ **`/platform/*`** ไม่ใช่ `/api/v1/*` — auth คนละ audience (`aud: "platform"`, **ไม่มี `tid`**)
 guard ของ `/platform/*` ปฏิเสธ token ที่ `aud != "platform"` เสมอ **ไม่มี role ของร้านไหนเรียกได้
 แม้แต่ `owner`** (ADR-0002) — ร้านแต่ละ tenant เป็นคนละเจ้าของกันจริง ข้ามร้านมาเห็นกันไม่ได้เด็ดขาด
+
+> 🔄 **แก้ 2026-09-23 ตามโค้ด:** path จริงคือ **`/api/v1/platform/*`** (global prefix ครอบด้วย — `app.setup.ts:21,120`;
+> Nginx `location /api/v1/platform/`) ไม่ใช่ `/platform/*` ที่ root · path ในตารางด้านล่างเขียนแบบย่อ ·
+> เพิ่มชั้น IP allowlist (#270): Nginx ให้เฉพาะ loopback และ guard ตรวจ `PLATFORM_ADMIN_IPS` — IP อื่น = `403 PLATFORM_IP_FORBIDDEN`
+> (`platform-auth.guard.ts:60`) · คอลัมน์ *Idempotent* ✔ ข้างล่าง **ยังไม่มี `Idempotency-Key` ในโค้ด** ของ platform controller ใดเลย
+> (import กันซ้ำด้วย `409` เมื่อมีงาน import ค้างอยู่แล้ว — `tenant-import.service.ts:861`) · enrolment code ของเครื่อง `pos` แรกที่
+> `POST /platform/tenants` คืนมา อายุ **7 วัน** (`platform-tenants.service.ts:122`) ไม่ใช่ 15 นาทีแบบ `POST /devices`
 
 | Method | Path | Auth | Idempotent | หมายเหตุ |
 |---|---|---|---|---|
@@ -507,6 +538,11 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 > `pos` รอยืนยัน"** — แถวที่ไม่ตรงกับหมวดในตารางความสามารถของ ADR ตรง ๆ (เช่น `/sales/:id/void`,
 > `/shifts/*`, `/sync/*`) ใช้หลักการเดียวกัน **"อะไรก็ตามที่เกี่ยวกับบิล ทำที่เครื่องขาย"** เป็นการตีความ
 > ของเอกสารนี้ ควรให้เจ้าของโปรเจกต์ยืนยันอีกรอบก่อน implement
+> *(2026-09-23: ADR-0004 "ยังไม่เคาะ" บันทึกว่าเคาะแล้ว 2026-09-04 — "เอาตามตารางเดิม" · "อะไรก็ตามที่เกี่ยวกับบิล ทำที่เครื่องขาย")*
+>
+> 🔄 **คอลัมน์ Auth — แก้ 2026-09-23 ตาม E1 (ADR-0004/0009 addendum รอบ 2, 08 §3):** role คนเหลือ `owner` ค่าเดียว
+> (migration `1788652803001-SingleOwnerRole`) และไม่มี guard ตรวจ role คนเหลืออยู่ใน `server/src` — ช่องที่เคยเขียน
+> ~~`manager`~~ จึงหมายถึง **"ล็อกอินแล้ว" (✔)** เท่ากับแถวอื่น · ที่ยังเข้มกว่า ✔ มีแค่ "ต้องมี `did`" (F6 + route ที่ออกเลขเอกสาร)
 
 | Method | Path | Auth | Device role | Cache | Queue | Idempotent |
 |---|---|---|---|---|---|---|
@@ -516,55 +552,61 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | GET | `/auth/me` | ✔ | ทั้งคู่ | – | – | – |
 | GET | `/devices` 🆕 | ~~owner~~ **ต้องมี `did`** (2026-09-15 F6, 08 §3) | ทั้งคู่ | – | – | – |
 | POST | `/devices` `{label, role}` 🆕 | ~~owner~~ **ต้องมี `did`** (2026-09-15 F6, 08 §3) | ทั้งคู่ | – | – | ✔ |
-| POST | `/devices/{id}/retire` `{physicalCash?}` 🆕 (#144) | ~~owner~~ **ต้องมี `did`** (2026-09-15 F6, 08 §3) | ทั้งคู่ | – | – | ✔ |
+| POST | `/devices/{id}/retire` `{physicalCash?}` 🆕 (#144) · *(2026-09-23, F7: body รับ `{force?, note?}` ด้วย — `force: true` ต้องมี `note` ไม่งั้น 400 · op ค้างและไม่ force = `409 DEVICE_HAS_UNSYNCED_OPS`, `devices.controller.ts:104-114`)* | ~~owner~~ **ต้องมี `did`** (2026-09-15 F6, 08 §3) | ทั้งคู่ | – | – | ✔ |
 | **GET** | **`/bootstrap`** 🆕 (#25) | ✔ | ทั้งคู่ | `ETag`/`304`, ไม่ใช่ Redis — ดู §3.1 (#32 ไม่ทำ Redis cache ให้ bootstrap — ไม่มีใน §5) | – | – |
-| GET | `/products` (`?search=` / `?partNo=` / `?updatedSince=`) | ✔ | ทั้งคู่ | ✅ 5m | – | – |
+| GET | `/products` (`?search=` / `?partNo=` / `?updatedSince=`) *(+ `&afterId=` keyset, `?category=`)* | ✔ | ทั้งคู่ | ✅ 5m | – | – |
 | GET | `/products/:id` | ✔ | ทั้งคู่ | ✅ 5m | – | – |
-| POST | `/products` | manager | ทั้งคู่ | invalidate | – | ✔ |
-| PATCH | `/products/:id` | manager | ทั้งคู่ | invalidate | – | ✔ |
-| DELETE | `/products/:id` | manager | ทั้งคู่ | invalidate | – | ✔ |
-| POST | `/products/:id/adjust-stock` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| POST | `/products` | ~~manager~~ ✔ | ทั้งคู่ | invalidate | – | ✔ |
+| PATCH | `/products/:id` | ~~manager~~ ✔ | ทั้งคู่ | invalidate | – | ✔ |
+| DELETE | `/products/:id` | ~~manager~~ ✔ | ทั้งคู่ | invalidate | – | ✔ |
+| POST | `/products/:id/adjust-stock` | ~~manager~~ ✔ | ทั้งคู่ | invalidate | – | ✔ |
 | GET | `/categories` (คืน `[{name,color}]`) | ✔ | ทั้งคู่ | ✅ 3600s ±10% (#32) | – | – |
-| POST/DELETE | `/categories` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| POST/DELETE | `/categories` | ~~manager~~ ✔ | ทั้งคู่ | invalidate | – | ✔ |
 | GET | `/products/:id/suppliers` | ✔ | ทั้งคู่ | – | – | – |
-| POST/PATCH/DELETE | `/suppliers/:id?` | manager | ทั้งคู่ | – | – | ✔ |
+| POST/PATCH/DELETE | `/suppliers/:id?` | ~~manager~~ ✔ | ทั้งคู่ | – | – | ✔ |
 | GET | `/movements` | ✔ | ทั้งคู่ | – | – | – |
 | GET | `/customers` | ✔ | ทั้งคู่ | ✅ 1m ±10% (#32 — เฉพาะ list; ล้างเมื่อ customers CRUD / ขาย / void / คืน ที่ระบุลูกค้า / import) | – | – |
 | POST/PATCH/DELETE | `/customers/:id?` | ✔ | ทั้งคู่ | invalidate | – | ✔ |
+| GET | `/customers/:id` *(เพิ่ม 2026-09-23 — มีในโค้ดแต่ตกหล่น)* | ✔ | ทั้งคู่ | – | – | – |
 | GET | `/customers/:id/sales` | ✔ | ทั้งคู่ | – | – | – |
 | GET | `/mechanics` | ✔ | ทั้งคู่ | ✅ 1m ±10% (#32 — เฉพาะ list; ล้างเมื่อ mechanics CRUD / ขาย / void / คืน ที่ระบุช่าง / credit-payments / import) | – | – |
-| POST/PATCH/DELETE | `/mechanics/:id?` | manager | ทั้งคู่ | invalidate | – | ✔ |
+| POST/PATCH/DELETE | `/mechanics/:id?` | ~~manager~~ ✔ | ทั้งคู่ | invalidate | – | ✔ |
+| GET | `/mechanics/:id` · `/mechanics/:id/sales` *(เพิ่ม 2026-09-23 — มีในโค้ดแต่ตกหล่น)* | ✔ | ทั้งคู่ | – | – | – |
 | POST | `/mechanics/:id/credit-payments` | ✔ | **pos เท่านั้น** | invalidate | – | **✔ บังคับ** |
 | **POST** | **`/sales`** | ✔ | **pos เท่านั้น** | invalidate | ✅ post-process | **✔ บังคับ** |
 | GET | `/sales` | ✔ | ทั้งคู่ | – | – | – |
 | GET | `/sales/:id` · `/sales/:id/refunded-qty` | ✔ | ทั้งคู่ | – | – | – |
-| POST | `/sales/:id/void` 🆕 | manager+PIN *(รวม `owner` — #23 ตีความว่าเจ้าของร้านไม่ได้ต่ำกว่า manager `users.role` เป็น flat list ไม่ได้บอกลำดับ ถ้าไม่ใช่แบบนี้ต้องแก้ที่นี่)* · 🔴 **#94 (ข้อตัดสินเจ้าของร้าน 2026-09-13): void ได้เฉพาะบิลที่ `shift_id` ตรงกับกะที่เปิดอยู่ของเครื่องที่เรียก** — ไม่มีกะเปิด = `409 NO_OPEN_SHIFT` · บิลของกะอื่น (ปิดแล้ว, ของเครื่องอื่น, หรือ `shift_id` null จากบิลนำเข้า) = `409 SALE_NOT_IN_OPEN_SHIFT` → ให้ออกใบลดหนี้ (`POST /returns`) แทน ซึ่งลงกะปัจจุบัน · ตรวจหลัง `SALE_VOIDED`/`SALE_HAS_RETURNS` และอ่านลิ้นชัก `FOR SHARE` (ปิดกะรอ void ที่กำลังทำ) · replay ด้วย `Idempotency-Key` เดิมหลังปิดกะยังได้ผลเดิม | **pos เท่านั้น** | invalidate | – | ✔ |
+| POST | `/sales/:id/void` 🆕 | ~~manager+PIN *(รวม `owner` — #23 ตีความว่าเจ้าของร้านไม่ได้ต่ำกว่า manager `users.role` เป็น flat list ไม่ได้บอกลำดับ ถ้าไม่ใช่แบบนี้ต้องแก้ที่นี่)*~~ 🔄 **แก้ 2026-09-23 ตาม E3 (ADR-0009 addendum รอบ 2, 08 §3/§12): ✔ + body `{ reason }` บังคับ ไม่มี PIN** — ไม่มีเหตุผล/ว่าง = `400` (`sales.controller.ts:136-146`) · ตอบ `200` · 🔴 **#94 (ข้อตัดสินเจ้าของร้าน 2026-09-13): void ได้เฉพาะบิลที่ `shift_id` ตรงกับกะที่เปิดอยู่ของเครื่องที่เรียก** — ไม่มีกะเปิด = `409 NO_OPEN_SHIFT` · บิลของกะอื่น (ปิดแล้ว, ของเครื่องอื่น, หรือ `shift_id` null จากบิลนำเข้า) = `409 SALE_NOT_IN_OPEN_SHIFT` → ให้ออกใบลดหนี้ (`POST /returns`) แทน ซึ่งลงกะปัจจุบัน · ตรวจหลัง `SALE_VOIDED`/`SALE_HAS_RETURNS` และอ่านลิ้นชัก `FOR SHARE` (ปิดกะรอ void ที่กำลังทำ) · replay ด้วย `Idempotency-Key` เดิมหลังปิดกะยังได้ผลเดิม | **pos เท่านั้น** | invalidate | – | ✔ |
 | **POST** | **`/returns`** · 🔴 #100: `refundMethod = 'เงินสด'` ไม่มีกะเปิด = `409 NO_OPEN_SHIFT` (วิธีอื่นรับได้ `shift_id` null) | ✔ | **pos เท่านั้น** | invalidate | ✅ post-process | **✔ บังคับ** |
 | GET | `/returns` | ✔ | ทั้งคู่ | – | – | – |
-| GET | `/purchase-orders` | ✔ | ทั้งคู่ | – | – | – |
-| POST | `/purchase-orders` | manager | ทั้งคู่ | – | – | ✔ |
-| **POST** | **`/purchase-orders/:id/receive`** | manager | ทั้งคู่ | invalidate | ✅ | **✔ บังคับ** |
-| POST | `/purchase-orders/:id/cancel` · DELETE | manager | ทั้งคู่ | – | – | ✔ |
-| GET/POST/PATCH/DELETE | `/quotes/:id?` | ✔ | ทั้งคู่ | – | – | ✔ |
-| POST | `/quotes/:id/duplicate` | ✔ | ทั้งคู่ | – | – | ✔ |
+| GET | `/purchase-orders` · `/purchase-orders/:id` *(ตัวหลังเพิ่ม 2026-09-23)* | ✔ | ทั้งคู่ | – | – | – |
+| POST | `/purchase-orders` | ~~manager~~ **ต้องมี `did`** (เลข PO ของเครื่อง, 2026-09-23) | ทั้งคู่ | – | – | ✔ |
+| **POST** | **`/purchase-orders/:id/receive`** | ~~manager~~ ✔ | ทั้งคู่ | invalidate | – *(2026-09-23: ไม่ enqueue งานใด — ดู §6)* | **✔ บังคับ** |
+| POST | `/purchase-orders/:id/cancel` · DELETE | ~~manager~~ ✔ | ทั้งคู่ | – | – | ✔ |
+| GET/POST/PATCH/DELETE | `/quotes/:id?` | ✔ · *(2026-09-23: `POST` ต้องมี `did` — เลข QT ของเครื่อง)* | ทั้งคู่ | – | – | ✔ |
+| POST | `/quotes/:id/duplicate` | ✔ · *(2026-09-23: ต้องมี `did`)* | ทั้งคู่ | – | – | ✔ |
 | POST | `/quotes/:id/convert` | ✔ | **pos เท่านั้น** | invalidate | ✅ | **✔ บังคับ** |
-| POST | `/quotes/purge` | manager | ทั้งคู่ | – | ✅ 202 | ✔ |
+| POST | `/quotes/purge` | ~~manager~~ ✔ | ทั้งคู่ | – | ✅ 202 | ✔ |
 | GET | `/parked-sales` · POST · DELETE | ✔ | **pos เท่านั้น** | – | – | ✔ |
 | GET | `/shifts/current` · `/shifts/history` | ✔ | ทั้งคู่ | – | – | – |
 | POST | `/shifts/open` · `/close` · `/current/entries` | ✔ | **pos เท่านั้น** | – | – | ✔ |
 | GET | `/reports/*` | ✔ | ทั้งคู่ | – *(ยังไม่ cache — §5 บอก "ปล่อยหมดอายุเอง" ขัดกับ AC3 ของ #32 ที่ให้อ่านหลังเขียนต้องสด → คำถามถึงเจ้าของโปรเจกต์ ดู `server/README.md` The server cache)* | – | – |
 | GET | `/settings` | ✔ (ทุก role) | ทั้งคู่ | ✅ 3600s ±10% (#32) | – | – |
-| PATCH | `/settings` | manager | ทั้งคู่ | invalidate (#32) | – | ✔ |
-| POST | `/backup/export` | ~~**owner เท่านั้น**~~ **ต้องมี `did`** (2026-09-15 F6) | ทั้งคู่ | – | ✅ `tenant-export` | ✔ |
+| PATCH | `/settings` | ~~manager~~ ✔ | ทั้งคู่ | invalidate (#32) | – | ✔ |
+| POST | `/backup/export` | ~~**owner เท่านั้น**~~ **ต้องมี `did`** (2026-09-15 F6) | ทั้งคู่ | – | ✅ ~~`tenant-export`~~ คิว `backup` job `tenant.export` *(2026-09-23 ตาม `queue.constants.ts`)* | ~~✔~~ *(2026-09-23: ไม่ผ่าน `runIdempotent` — ยิงซ้ำ = job ใหม่, `backup.controller.ts:46-78`)* |
+| GET | `/backup/jobs/:id` *(เพิ่ม 2026-09-23 — อยู่ §3.10 แต่ตกจากตารางนี้)* | **ต้องมี `did`** | ทั้งคู่ | – | – | – |
+| GET | `/review-items?status=` 🆕 *(เพิ่ม 2026-09-23 — 08 §14, หน้า "รอ owner")* | ✔ | ทั้งคู่ | – | – | – |
+| POST | `/review-items/:id/reviewed` 🆕 *(เพิ่ม 2026-09-23 — ตอบ `200`, ไม่แตะเงิน/สต็อก)* | ✔ | ทั้งคู่ | – | – | ✔ |
 | ~~POST~~ | ~~`/backup/import`~~ → ย้ายไป **§4.1 admin plane** | – | – | – | – | – |
 | **GET** | **`/doc-counters`** 🆕 | ✔ | **pos เท่านั้น** | – | – | – |
-| GET | `/export/:entity.csv` | manager | ทั้งคู่ | – | – | – |
+| GET | `/export/:entity.csv` | ~~manager~~ ✔ *(2026-09-23: ยังไม่มีใน server)* | ทั้งคู่ | – | – | – |
 | ~~POST~~ | ~~`/sync/push` · GET `/sync/pull` · `/sync/bootstrap`~~ | ~~✔~~ | ~~**pos เท่านั้น**~~ | – | – | ~~**✔ บังคับ**~~ |
 | POST | `/sync/push` (2026-09-15, 08 §8 — `/sync/pull`/`/sync/bootstrap` ไม่ทำ) | **device token** (`X-Device-Token`) ไม่ใช่ JWT | **pos เท่านั้น** | – | – | **✔ บังคับ ต่อ op** |
-| GET | `/health/live` · `/health/ready` | – | – | – | – | – |
-| GET | `/metrics` | internal | – | – | – | – |
+| POST | `/sync/discards` 🆕 *(เพิ่ม 2026-09-23 — 08 §14 C15, ตอบ `200 {serverHasRow}`)* | JWT **หรือ** `X-Device-Token` (`TenantOrDeviceTokenGuard`) | ทั้งคู่ | – | – | ✔ |
+| GET | `/health/live` · `/health/ready` *(2026-09-23: อยู่นอก `/api/v1` — §1.1)* | – | – | – | – | – |
+| GET | `/metrics` *(2026-09-23: อยู่นอก `/api/v1`, Nginx ตอบ 404 จากข้างนอก)* | internal | – | – | – | – |
 
-**`POST /backup/export`** (ADR-0005) — เจ้าของร้าน (`role='owner'`) เท่านั้น
+**`POST /backup/export`** (ADR-0005) — เจ้าของร้าน (`role='owner'`) เท่านั้น *(🔄 2026-09-23: ตาม F6 เงื่อนไขจริงคือ **ต้องมี `did`** — role คนมีแค่ `owner` อยู่แล้ว)*
 
 > 📌 **ยุบ endpoint ซ้ำ (2026-09-04):** ADR-0005 เคยเสนอ `POST /tenant/export` เป็นของใหม่
 > แต่ `POST /backup/export` เดิม**ทำสิ่งเดียวกันเป๊ะ** (202 + BullMQ + signed URL + โครง `sa_*`)
@@ -579,6 +621,10 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
   (ADR-0005 รับปากแค่ "ขอไฟล์ข้อมูลร้านตัวเอง" ไม่รับปาก "ย้อนข้อมูล/กู้ของที่ลบผิด")
 
 **Device enrolment** (ADR-0004 "การผูกเครื่อง" — เพิ่ม 2026-09-04)
+
+> 🔄 *(2026-09-23)* ทุกคำว่า "`owner` เท่านั้น" ในรายการข้างล่าง **ถูกแทนด้วย F6** (ADR-0004 addendum รอบ 3): ต้องมี **`did`**
+> (ล็อกอินพร้อม device token ที่ enrol แล้ว `pos` หรือ `backoffice`) · ไม่มี = `403 DEVICE_ROLE_FORBIDDEN` (`devices.controller.ts` `requireEnrolledDevice`)
+> · retire รับ `{force, note}` เพิ่ม (F7 — ดูแถวในตาราง §4.2)
 
 * `POST /devices` `{label, role}` — `owner` เท่านั้น · server กำหนด `device_no` ถัดไปที่ไม่เคยใช้
   (ห้ามใช้ซ้ำแม้เครื่องเดิม retire แล้ว) · คืน **enrolment code ใช้ครั้งเดียว** อายุสั้น · ถ้า `role='pos'`
@@ -613,6 +659,8 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
   แต่**ทำไว้ล่วงหน้าแล้วใน #188** พร้อม seed ฝั่ง client — ตัวที่ใช้ผลจริง (ห้ามออกเลขออฟไลน์ ฯลฯ) คือเฟส 2
 * เฟส 2 เครื่อง `pos` เรียกตอน **เปิดแอป/ล็อกอิน** เพื่อ seed counter ในเครื่อง: `local = max(local, server)`
   และ**ห้ามออกเลขออฟไลน์ถ้า period ปัจจุบันยังไม่เคยได้ seed** (`OFFLINE_NOT_ALLOWED`)
+  *(🔄 2026-09-23: แทนโดย E8/C16 (ADR-0007 addendum รอบ 2–3, 08 §9) — ห้ามเฉพาะเครื่องที่**ไม่เคย seed เลย**/เพิ่งอัปเกรด ·
+  ขึ้นเดือนใหม่ออฟไลน์เริ่ม `0001` ได้ · `OFFLINE_NOT_ALLOWED` ถูกยกเลิกแล้ว (§8.1) ข้อความเตือนฝั่งเครื่องอยู่ที่ §8.1.1 "เครื่องยังไม่ Seed เลขเอกสาร")*
 * กันกรณี counter ใน Drift เพี้ยนโดยที่ device token ยังอยู่ (เช่น restore Drift จากไฟล์เก่า) —
   ส่วนกรณี IndexedDB ถูกล้างทั้งก้อน device token หายไปด้วย จึงเป็นการ enrol เครื่องใหม่ ไม่ใช่ seed
 
@@ -690,7 +738,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 |---|---|---|---|
 | `sale-post` | `sale.created` | หลังขายสำเร็จ | อัปเดต materialized report, LINE notify ยอดขาย, พิมพ์สำรอง (invalidate cache **ไม่ได้อยู่ที่นี่** — ทำใน request หลัง commit, #32) |
 | `sale-post` | `return.created` | หลังคืนสำเร็จ | เหมือนบน |
-| `inventory` | `po.received` | รับของ | คำนวณต้นทุนใหม่, เตือนของใกล้หมด |
+| `inventory` | ~~`po.received`~~ **`inventory.check`** | ~~รับของ~~ | ~~คำนวณต้นทุนใหม่,~~ เตือนของใกล้หมด · 🔄 *(2026-09-23 ตามโค้ด: job จริงชื่อ `inventory.check` enqueue โดย worker ของ `sale-post` เมื่อสินค้าบนบิล/ใบลดหนี้ `stock <= min_stock` — `sale-post.processor.ts:36-70` · รับของ PO ไม่ enqueue อะไร ต้นทุนเฉลี่ยคิดใน request เอง)* |
 | `maintenance` | `quotes.purge` | manual / cron | ลบใบเสนอราคาเก่า |
 | `maintenance` | `idem.cleanup` | repeatable ทุกชั่วโมง | ลบ idempotency key > 24h |
 | `backup` | `tenant.export` | `POST /backup/export` (ADR-0005) | export ข้อมูลร้านเดียว (ไม่ใช่ทั้ง cluster) เป็นโครง `sa_*` + `__meta` เดิม, สร้างลิงก์ดาวน์โหลดที่หมดอายุ, เขียน `audit_log` — **ไม่ใช่ backup สำหรับ restore** |
@@ -711,6 +759,8 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 > (ยืนยันด้วย device token, ผลต่อ op `applied`/`rejected`/`retry`, service เดียวกับ endpoint ออนไลน์) ·
 > `GET /sync/pull?since=serverSeq` / `GET /sync/bootstrap` / `change_log` **ไม่ทำ** (#191 — pull ใช้ keyset `GET /products?updatedSince=&afterId=` + `meta.nextCursor`, 08 §15) ·
 > job `sync.apply` ใน §6 ไม่ทำ — push ตอบผลในคำขอเดียวกัน · ตารางและตัวอย่างข้างล่างเก็บไว้เป็นประวัติ
+> *(2026-09-23: ที่ server มีจริงใน `sync.controller.ts` = `POST /sync/push` (`X-Device-Token`, `200`) และ `POST /sync/discards` (08 §14) เท่านั้น ·
+> body ของ push ไม่มี `deviceId` แล้ว — เครื่องมาจาก token)*
 
 | Method + Path | ทำอะไร |
 |---|---|
@@ -750,7 +800,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 404 | `SHIFT_NOT_FOUND` | – (ไม่แสดงให้ผู้ใช้เห็น · `GET /reports/closing?shiftId=` กับกะที่ไม่มี หรือเป็นของร้านอื่น — เพิ่มตอน #30) |
 | 409 | `SALE_VOIDED` | `Bill already voided` |
 | 409 | `DRAWER_CLOSED` | `ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้` |
-| 400 | `INVALID_BACKUP` | `ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta` |
+| 400 | `INVALID_BACKUP` | `ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta` *(2026-09-23 ตรวจกับโค้ด: ข้อความนี้ออกจาก `POST /platform/tenants/{id}/import` ผ่าน `BadRequestException` ธรรมดา `code` ที่ได้จริงจึงเป็น `BAD_REQUEST` ไม่ใช่ `INVALID_BACKUP` — `tenant-import.service.ts:139`, `http-exception.filter.ts:37`)* |
 | 409 | `NO_OPEN_SHIFT` | `No open shift` (ลิ้นชัก/ปิดกะ และตั้งแต่ 2026-09-13 `POST /sales` + `POST /mechanics/:id/credit-payments` ด้วย — ไม่มีกะเปิด = ไม่รับเงิน · #94: `POST /sales/:id/void` ด้วย · #100: `POST /returns` ที่คืนเป็น `'เงินสด'` ด้วย) |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | – (ไม่แสดงให้ผู้ใช้เห็น) |
 | 400 | `IDEMPOTENCY_KEY_INVALID` | – (ไม่แสดงให้ผู้ใช้เห็น · header หาย หรือยาวเกิน 200 ตัวอักษร — เพิ่มตอน #18) |
@@ -782,8 +832,17 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 409 | `CLIENT_ID_REUSED` | `รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
 | 409 | `DEVICE_HAS_UNSYNCED_OPS` | `เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
 | 400 | `WEAK_PASSWORD` | `รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร` (#364, เจ้าของโปรเจกต์ 2026-09-21 — ops เห็นเท่านั้น ไม่ขึ้นที่หน้าร้าน) |
-| 401/403 | `UNAUTHENTICATED` / `FORBIDDEN` | – |
+| 401/403 | ~~`UNAUTHENTICATED`~~ **`UNAUTHORIZED`** / `FORBIDDEN` | – *(2026-09-23: 401 ที่ไม่ได้ตั้ง code ตกไปใช้ชื่อ `HttpStatus` = `UNAUTHORIZED` — `http-exception.filter.ts:37`)* |
+| 404 | `CUSTOMER_NOT_FOUND` · `MECHANIC_NOT_FOUND` · `PRODUCT_NOT_FOUND` · `SUPPLIER_NOT_FOUND` | – *(เพิ่ม 2026-09-23 — มีในโค้ดแต่ตกหล่น · ไม่มีข้อความไทย)* |
+| 403 | `PLATFORM_IP_FORBIDDEN` | – *(เพิ่ม 2026-09-23 — admin plane จาก IP นอก allowlist, #270 · `platform-auth.guard.ts:60`)* |
+| 409 | `SHIFT_ALREADY_CLOSED` | – **ยังไม่มีข้อความไทย** *(เพิ่มในตารางนี้ 2026-09-23 — อยู่ §8.1 แล้วแต่ตกจากตารางรวม)* |
 | 429 | `RATE_LIMITED` | `ระบบกำลังทำงานหนัก กรุณารอสักครู่` | – |
+
+> ⚠️ **พบ 2026-09-23 — ผล `rejected` ของ `POST /sync/push` ไม่ตรงกับตารางนี้ (รอเจ้าของโปรเจกต์ ไม่ได้แก้ข้อความในตาราง):**
+> `sync.service.ts` `mapOpError` (บรรทัด ~826-930) เขียน `code`/`message` ของ op ใหม่เอง — `CREDIT_PAYMENT_EXCEEDS_BALANCE` → code
+> **`OVERPAYMENT`** (ไม่มีในตารางนี้) · มี code **`UNKNOWN_OP_TYPE`** (ไม่มีในตารางนี้) · และข้อความไทยที่**ไม่เคยผ่านการเคาะ**:
+> `สต็อกไม่พอ` (สั้นกว่าข้อความ `db.js` แถว `INSUFFICIENT_STOCK`), `ยอดชำระเกินยอดหนี้คงค้าง`, `ราคาคืนไม่ตรงกับราคาที่ขายจริง`,
+> `เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่` — ขัดกติกา §1.2 / §8.1 ("ห้ามแต่งข้อความไทยเอง")
 
 ### 8.1 Error ที่เป็น **ของใหม่** (ไม่มีใน `db.js`)
 

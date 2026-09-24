@@ -5,6 +5,11 @@
 > เหตุผลอยู่ใน [ADR-0012 §"ผลการตัดสิน"](adr/0012-couchdb-replaces-postgres.md) · `01`–`03`, `server/`,
 > ticket #4–#37 เป็นของจริงตามเดิม **ไม่ต้องอ่านไฟล์นี้ก่อนหยิบงาน** · เก็บไว้เพื่อไม่ต้องวิเคราะห์ซ้ำถ้าหัวข้อนี้กลับมา
 > และเพราะ §9 (scrutinize รอบ 4) อ้างบรรทัด Dart ที่คนเขียน #20–#24 ต้องใช้
+>
+> **ทบทวน 2026-09-23:** สถานะยังเป็น ❌ Rejected — PostgreSQL คือ source of truth · ของจริงปัจจุบันอยู่ที่
+> **ADR ใน [`adr/`](adr/README.md)** (ADR ชนะเอกสารเสมอ) · [`01_DATABASE.md`](01_DATABASE.md) (ปรับให้ตรงกับ migration จริงแล้ว) ·
+> [`08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md) (offline shell เฟส 2 บน Postgres) · [`CLAUDE.md`](../../CLAUDE.md) ·
+> ข้อสมมติในไฟล์นี้ที่อ้าง `offlineOk` / scarcity rule ก็ล้าสมัยด้วย — ยกเลิก 2026-09-15 (`08` D3 + E10)
 
 ---
 

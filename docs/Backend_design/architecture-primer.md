@@ -5,6 +5,7 @@
 > - **ไม่ใช่สเปก** — เมื่อข้อความขัดแย้งกับสเปกหลักหรือ ADR ให้ยึดเอกสารต้นฉบับ ([`docs/Backend_design/`](00_INDEX.md) และ ADR-0001 ถึง ADR-0013) เป็นสำคัญ
 > - **อ่านจบแล้วต้องทำได้**: อธิบายสถาปัตยกรรม Multi-Tenant POS ของ Srisurart Autopart, เข้าใจแก่นของ Concurrency & Invariants (Sale, Void, Return, Shifts), ลำดับการถือ Lock (Lock Hierarchy) เพื่อป้องกัน Deadlock, กลไกแยกร้านระดับแถว (RLS + Handler-level `runTx`), และวิเคราะห์ความคุ้มค่าของแต่ละเลเยอร์ในระบบ
 > - **เนื้อหาอ้างอิง**: โค้ดเบสจริงในโฟลเดอร์ `server/src/`, `server/docker-compose.yml`, [`01_DATABASE.md`](01_DATABASE.md), [`02_API_SCREENS.md`](02_API_SCREENS.md), [`03_ARCHITECTURE.md`](03_ARCHITECTURE.md), และ ADR-0001 ถึง ADR-0013 ณ วันที่ 2026-09-21
+> - **ทบทวนกับโค้ดและ ADR อีกรอบ 2026-09-23** — จุดที่แก้มีหมายเหตุ `🔄 แก้ 2026-09-23` กำกับ เรื่องหลักคือ: DB จริงมี 29 ตาราง (RLS 26), void ออนไลน์ใช้แค่เหตุผลไม่ใช้ PIN แล้ว (08 E3), และเฟส 2 ให้เครื่อง `pos` ออกเลข RC/CN เอง (ADR-0007 addendum D4)
 > </สัญญาของเอกสาร>
 
 > 📚 **งงกับ `PRIMARY KEY`/`FOREIGN KEY` ที่ §0 สมมติว่ารู้อยู่แล้ว?** อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) (ฉบับเต็ม)
@@ -140,7 +141,7 @@ async createSale(@Body() body: any) {
 > - **T1 (ปัญหาเดิม):** ระบบแบบ SaaS ที่ให้บริการหลายร้านบนฐานข้อมูลเดียวกัน หากพึ่งพาแค่โปรแกรมเมอร์ไม่ลืมเขียน `WHERE tenant_id = :tid` ในทุก SQL query หากมีใครลืมแม้แต่จุดเดียว ข้อมูลของร้านหนึ่งจะรั่วไหลไปยังอีกร้านทันที
 > - **T2 (นิยาม):** Multi-Tenancy คือสถาปัตยกรรมที่หลายองค์กร/ร้านค้าใช้ทรัพยากรระบบร่วมกันอย่างเป็นอิสระ ส่วน Row-Level Security (RLS) คือกลไกความปลอดภัยระดับ Engine ของ PostgreSQL ที่กรองแถวข้อมูลตามตัวแปร Session ของฐานข้อมูลโดยอัตโนมัติ ไม่ว่า Query จะเขียนอย่างไร
 > - **T3 (อุปมา):** เหมือนตู้ล็อกเกอร์ฝากของที่มีกุญแจส่วนตัว แม้ตู้จะตั้งอยู่ในห้องโถงรวมเดียวกัน แต่ลูกค้าแต่ละคนจะเปิดดูและแตะต้องได้เฉพาะช่องล็อกเกอร์ของตัวเองเท่านั้น
-> - **T4 (ในระบบจริง):** นโยบาย RLS บน 25 ตารางใน PostgreSQL ควบคุมด้วยคำสั่ง `SELECT set_config('app.tenant_id', $1, true)` ภายใน `TenantService.runTx` ([`server/src/common/database/tenant.service.ts`](../../server/src/common/database/tenant.service.ts))
+> - **T4 (ในระบบจริง):** นโยบาย RLS บน 26 ตารางใน PostgreSQL *(🔄 แก้ 2026-09-23: เดิมเขียน 25 — 25 ตารางจาก migration `…0001-RowLevelSecurity` + `owner_review_items`; ส่วน `tenants`, `platform_admins` เป็นตาราง global และ `import_jobs` ตั้งใจไม่ติด RLS เพราะอ่านจาก platform plane เท่านั้น)* ควบคุมด้วยคำสั่ง `SELECT set_config('app.tenant_id', $1, true)` ภายใน `TenantService.runTx` ([`server/src/common/database/tenant.service.ts`](../../server/src/common/database/tenant.service.ts))
 > - **T5 (กับดัก):** เข้าใจผิดว่าสร้างตารางแยก schema หรือแยกฐานข้อมูลต่อร้านจะปลอดภัยกว่าเสมอ — การแยก schema ทำให้การรัน Database Migration ซับซ้อนมหาศาล (100 ร้าน = รัน migration 100 รอบ) และกิน Connection Pool จนระบบล่ม
 
 > 📖 **Handler-level `runTx` & Transaction Scope**
@@ -222,7 +223,8 @@ pnpm test:e2e test/sales.e2e-spec.ts
 **คำตอบ:** ในระบบหน้าร้านจริง **Client ไม่ใช่ผู้ถือความจริง (Client is NEVER the source of truth):**
 1. **นาฬิกาและแคชของเครื่องหน้าร้านไม่ตรงกัน:** หากร้านมีเครื่อง POS 1 เครื่อง และเครื่องหลังร้าน (Backoffice) อีก 2 เครื่อง ข้อมูลสต็อกบนเครื่องหน้าร้านเป็นเพียงแคชที่อาจล้าสมัยไปแล้ว 10 วินาที
 2. **การทุจริตและการปลอมแปลงข้อมูล:** หาก Server เชื่อยอดเงินหรือราคาสินค้าที่ส่งมาจาก Client อุปกรณ์ที่ถูกดัดแปลง (หรือคำขอที่ถูกยิงผ่าน Postman) สามารถส่งบิลราคา 0.01 บาท หรือส่งใบลดหนี้คืนเงิน 999,999 บาทเข้ามาได้
-3. **Server ต้องเป็นผู้อนุมัติขั้นสุดท้าย:** ข้อมูลราคาทุนตอนขาย (`cost_at_sale`), การออกเลขที่ใบเสร็จ (`receipt_no`), ยอดหนี้ช่าง, และการตัดสต็อก ต้องคำนวณและยืนยันบน PostgreSQL ที่มี ACID Transaction ภายใต้การควบคุมของ Server เท่านั้น ([ADR-0008](adr/0008-cost-at-sale.md))
+3. **Server ต้องเป็นผู้อนุมัติขั้นสุดท้าย:** ข้อมูลราคาทุนตอนขาย (`cost_at_sale`), ยอดหนี้ช่าง, และการตัดสต็อก ต้องคำนวณและยืนยันบน PostgreSQL ที่มี ACID Transaction ภายใต้การควบคุมของ Server เท่านั้น ([ADR-0008](adr/0008-cost-at-sale.md))
+   > 🔄 **แก้ 2026-09-23 — เลขใบเสร็จ (`receipt_no`) เป็นข้อยกเว้น:** ตาม [ADR-0007 addendum D4](adr/0007-receipt-numbering.md) เครื่อง `pos` ออกเลข RC/CN **เอง** ทั้งออนไลน์และออฟไลน์ server แค่ตรวจ prefix/`device_no` แล้วยก high-water mark ของ `doc_counters` (`GREATEST`) · ระหว่างช่วงสลับ server ยังออกเลขให้เมื่อ body ไม่มีเลข จนกว่าจะปิด `DOC_NUMBER_FALLBACK` (C16 — `server/src/documents/doc-number.service.ts`) · เลข PO/QT/CP server ยังออกเองตลอด
 
 ---
 
@@ -284,7 +286,7 @@ flowchart TB
 > - **T1 (ปัญหาเดิม):** หากเซิร์ฟเวอร์หลังบ้านมีหลายตัว แต่ไม่มีตัวกลางแจกจ่ายงาน เซิร์ฟเวอร์ตัวแรกอาจทำงานหนักจนล่ม ขณะที่ตัวอื่นว่างงาน
 > - **T2 (นิยาม):** ตัวกลางที่รับคำขอจากผู้ใช้แล้วส่งต่อให้เซิร์ฟเวอร์ภายใน โดยใช้อัลกอริทึมเลือกส่งไปยังเครื่องที่มีการเชื่อมต่อค้างอยู่น้อยที่สุด ณ ขณะนั้น (`least_conn`)
 > - **T3 (อุปมา):** ผู้จัดการคิวหน้าร้านอาหารที่คอยมองดูว่าบริกรคนไหนกำลังว่าง แล้วพาแขกโต๊ะใหม่ไปให้บริกรคนนั้นดูแล
-> - **T4 (ในระบบจริง):** Directive `upstream backend { least_conn; server 172.30.0.11:3000; server 172.30.0.12:3000; server 172.30.0.13:3000; }` ใน [`server/docker/nginx/nginx.conf`](../../server/docker/nginx/nginx.conf)
+> - **T4 (ในระบบจริง):** Directive `upstream api { least_conn; server 172.30.0.11:3000; server 172.30.0.12:3000; server 172.30.0.13:3000; }` ใน [`server/docker/nginx/nginx.conf`](../../server/docker/nginx/nginx.conf)
 > - **T5 (กับดัก):** คิดว่า Nginx ทำ Rate Limit ระดับร้านค้า (Per-Tenant) ได้ — Nginx ไม่สามารถถอดรหัสและอ่าน JSON Payload ใน JWT ได้ง่ายๆ การจำกัดความถี่ระดับร้านค้าต้องทำที่ Application Layer ([ADR-0006](adr/0006-per-tenant-rate-limit.md))
 
 ---
@@ -328,13 +330,14 @@ flowchart TB
 - **c. ในระบบจริงคือตัวไหน:**
   - `redis-cache`: พอร์ต internal `6379`, นโยบาย `maxmemory 192mb` + `--maxmemory-policy allkeys-lru`, ไม่เปิด AOF
   - `redis-queue`: พอร์ต internal `6379`, นโยบาย `maxmemory 192mb` + `--maxmemory-policy noeviction`, เปิด AOF (`--appendonly yes`) บันทึกลงดิสก์ทุกวินาที
+  - *(🔄 แก้ 2026-09-23: `redis-cache` ปิด persistence ทั้งหมด — `--save ""` + `--appendonly no` · ทั้งสองตัวตั้ง `--requirepass` · ตัวนับ rate limit (ADR-0006) และแคช idempotency `t:{tid}:idem:{key}` อยู่ใน `redis-cache` ไม่ใช่คิว)*
 - **d. ศัพท์ที่มากับตัวละครนี้:**
 
 > 📖 **Cache Eviction Policy (`allkeys-lru` vs `noeviction`)**
 > - **T1 (ปัญหาเดิม):** หน่วยความจำมีจำกัด หากระบบไม่กำหนดนโยบายการเคลียร์ข้อมูล เมื่อเมมโมรีเต็ม Redis จะหยุดรับคำสั่งใหม่ หรือลบข้อมูลสำคัญทิ้งโดยไม่เลือกหน้า
 > - **T2 (นิยาม):** นโยบายการจัดการข้อมูลเมื่อหน่วยความจำเต็ม: `allkeys-lru` จะเลือกทิ้งคีย์ที่ถูกใช้งานล่าสุดน้อยที่สุดออกไปเพื่อให้มีที่ว่าง ส่วน `noeviction` จะปฏิเสธคำสั่งเขียนใหม่ทั้งหมดและรักษาข้อมูลเดิมไว้ 100%
 > - **T3 (อุปมา):** `allkeys-lru` เหมือนโต๊ะทำงานที่รกจนต้องกวาดเอกสารเก่าลงถังขยะ ส่วน `noeviction` เหมือนตู้เซฟเก็บโฉนดที่ถ้าเต็มแล้วจะล็อคกุญแจไม่ให้ยัดของเพิ่ม แต่ห้ามทิ้งของเก่าเด็ดขาด
-> - **T4 (ในระบบจริง):** ตั้งค่าแยกขาดกันในไฟล์ [`server/docker-compose.yml`](../../server/docker-compose.yml) บรรทัดที่ 209 (`allkeys-lru` สำหรับแคช) และบรรทัดที่ 234 (`noeviction` สำหรับคิว)
+> - **T4 (ในระบบจริง):** ตั้งค่าแยกขาดกันในไฟล์ [`server/docker-compose.yml`](../../server/docker-compose.yml) บรรทัดที่ 224 (`allkeys-lru` สำหรับแคช) และบรรทัดที่ 250 (`noeviction` สำหรับคิว) *(🔄 แก้ 2026-09-23: เดิมอ้างบรรทัด 209/234 — ไฟล์ยาวขึ้นแล้ว เลขบรรทัดเลื่อนได้อีก ให้ค้นด้วยชื่อ policy)*
 > - **T5 (กับดัก):** แชร์ Redis ตัวเดียวระหว่าง Cache และ Queue เพื่อประหยัดทรัพยากร — เมื่อมีโหลดค้นหาสินค้าสูง แคชจะดันพื้นที่จน Redis ทิ้ง Job ในคิวขายทิ้งไปโดยไม่มี Error แจ้งเตือน!
 
 ---
@@ -368,6 +371,8 @@ flowchart TB
 > - **T3 (อุปมา):** บัตรผ่านเข้าห้องนิรภัย — มีกุญแจเปิดตู้เซฟได้เพียงดอกเดียวมอบให้หัวหน้าแคชเชียร์ ส่วนพนักงานคนอื่นได้คีย์การ์ดสำหรับเข้าตรวจนับเอกสารบนโต๊ะเท่านั้น
 > - **T4 (ในระบบจริง):** Partial Unique Index `one_pos_per_tenant` ในฐานข้อมูล ([ADR-0004](adr/0004-device-roles.md)) และการตรวจสิทธิ์ผ่าน `TenantGuard` ([`server/src/common/guards/tenant.guard.ts`](../../server/src/common/guards/tenant.guard.ts))
 > - **T5 (กับดัก):** คิดว่าอ่าน `role` จาก Request Body — ค่า Device Role ต้องอ่านจาก Claims ที่เข้ารหัสใน JWT เท่านั้น ห้ามเชื่อค่าจาก Body เป็นอันขาด!
+
+> 🔄 **แก้ 2026-09-23 — ADR-0004 addenda เฟส 2 (2026-09-15, #240):** role ของ**คน**เหลือ `owner` ค่าเดียวและบัญชีร้านที่ active ได้ 1 บัญชี (E1/E2 — migration `…3001-SingleOwnerRole`) แต่ role ของ**เครื่อง** `pos`/`backoffice` เหมือนเดิมทุกข้อ · `POST /devices`, `POST /devices/{id}/retire`, `POST /backup/export` ต้องล็อกอินจากเครื่องที่ enrol แล้ว (มี `did`) (F6) · `POST /sync/push` ยืนยันตัวด้วย device token ไม่ใช่ JWT ของคน (D8) · เครื่อง `pos` เปิดได้แท็บเดียว (D10)
 
 ---
 
@@ -419,7 +424,7 @@ sequenceDiagram
     S->>S: 7. ตรวจสต็อก (assertStock) -> สร้างข้อความไทยครบทุกบรรทัดถ้าขาด
     S->>P: 8. ตัดสต็อก: UPDATE products SET stock = stock - qty<br/>WHERE id = $1 AND stock >= qty (Assertion Predicate)
     
-    S->>P: 9. ออกเลขที่ใบเสร็จ: SELECT next_val FROM doc_counters<br/>WHERE doc_type = 'receipt' FOR UPDATE
+    S->>P: 9. เลขที่ใบเสร็จ (DocNumberService.resolveDocNumber):<br/>รับเลขจากเครื่อง pos แล้ว upsert doc_counters ด้วย GREATEST<br/>หรือออกให้เองถ้า body ไม่มีเลข (ช่วง DOC_NUMBER_FALLBACK)
     S->>P: 10. INSERT sales & INSERT sale_items (บันทึก cost_at_sale แช่แข็งไว้)
     S->>P: 11. INSERT movements (type = 'sale')
     S->>P: 12. อัปเดตยอดแต้มลูกค้า และสมุดบัญชีช่าง (Customer & Mechanic Ledger)
@@ -432,6 +437,8 @@ sequenceDiagram
     S--)W: Enqueue BullMQ Job (sale-created)
     S-->>C: 201 Created (ReceiptNo, Stock หลังหัก, Ledger Updates)
 ```
+
+> 🔄 **แก้ 2026-09-23 (ขั้นที่ 9):** ฉบับก่อนวาดว่า server `SELECT … FOR UPDATE` นับเลขใบเสร็จเองเสมอ — ตั้งแต่ [ADR-0007 addendum D4/C16](adr/0007-receipt-numbering.md) เครื่อง `pos` เป็นผู้ออกเลข RC/CN และ server รับเลขนั้นแล้วยก `last_no` ด้วย `INSERT … ON CONFLICT … DO UPDATE SET last_no = GREATEST(…)` · ลำดับล็อค `… → DocCounters → Customer` ไม่เปลี่ยน
 
 #### 3. สี่จุดตายทางสถาปัตยกรรมที่ต้องเข้าใจให้ครบถ้วน
 1. **ลำดับการถือล็อคที่ห้ามสลับเด็ดขาด (Strict Lock Hierarchy):**
@@ -478,7 +485,7 @@ sequenceDiagram
 | :--- | :--- | :--- |
 | **ความหมายทางธุรกิจ** | พิมพ์บิลผิด / ลูกค้าเปลี่ยนใจหน้าเคาน์เตอร์ทันที | ลูกค้านำของมาเปลี่ยน/คืนหลังจบการขายไปแล้ว |
 | **เงื่อนไขเวลาและกะ** | **ต้องอยู่ในกะปัจจุบันของเครื่องเดิมเท่านั้น** (หากกะปิดแล้วห้าม Void เด็ดขาด) | ทำข้ามกะ ข้ามวัน หรือข้ามสาขาได้ |
-| **การตรวจสอบสิทธิ์** | **ต้องใส่ PIN ผู้จัดการ** ตรวจสอบผ่าน Argon2 นอก Transaction ก่อนเสมอ | แคชเชียร์ทั่วไปทำได้ตามนโยบายร้าน |
+| **การตรวจสอบสิทธิ์** | ~~ต้องใส่ PIN ผู้จัดการ ตรวจสอบผ่าน Argon2 นอก Transaction ก่อนเสมอ~~ **🔄 แก้ 2026-09-23: ใส่เหตุผล (`void_reason`) อย่างเดียว ไม่ใช้ PIN** — ต้องเป็นเครื่อง `role='pos'` (08 E3, migration `…3001-SingleOwnerRole` ลบ `users.pin_hash`) | ต้องเป็นเครื่อง `role='pos'` เช่นกัน (ADR-0004) |
 | **ผลต่อรายงานกะ** | บิลถูกตัดออกจากการนับเงินของกะ เสมือนไม่เคยเกิดขึ้น | บันทึกเป็นเงินไหลออกจากลิ้นชักกะปัจจุบัน |
 | **บันทึกใน Stock Movement** | บันทึกประเภทแถวเป็น `'void'` | บันทึกประเภทแถวเป็น `'return'` |
 | **กรณีมีใบลดหนี้บางส่วนแล้ว** | ❌ **ห้าม Void เด็ดขาด (`409 SALE_HAS_RETURNS`)** ต้องออกใบลดหนี้ต่อเท่านั้น | ✅ สามารถคืนสินค้าส่วนที่เหลือได้จนครบ |
@@ -556,7 +563,7 @@ sequenceDiagram
   2. 🔴 **ต้องมีหน้าจอสะสางรายการผิดพลาด (Reconciliation UI):** หากมีการแก้ไขข้อมูลจากเครื่องหลังร้านระหว่างที่หน้าร้านออฟไลน์ เมื่อ Sync กลับมาเจ้าของร้านต้องมานั่งกดยืนยันด้วยมือ
   3. 🔴 **ภาระงานรวมสูงที่สุด:** ต้องรื้อ 13 Repositories ในเฟส 1 และต้องมาเขียน Sync Engine + Outbox เพิ่มในเฟส 2 ปริมาณงานประเมินอยู่ที่ 150–160% ของแบบ A
   4. 🔴 **การควบคุมวงเงินเครดิตช่างทำไม่ได้สมบูรณ์ตอนออฟไลน์:** หน้าร้านทำได้เพียงแจ้งเตือนและบันทึกประวัติ Override เท่านั้น
-  5. 🔴 **ความซับซ้อนของ Migration ตอน Cutover:** การโอนย้ายข้อมูลจาก SQLite ของเดิมขึ้นสู่ PostgreSQL บนคลาวด์ ต้องมีสคริปต์ตรวจสอบความถูกต้องและแปลงโครงสร้างข้อมูลที่ใช้เวลาเตรียมการสูง
+  5. 🔴 **ความซับซ้อนของ Migration ตอน Cutover:** การโอนย้ายข้อมูลจาก SQLite ของเดิมขึ้นสู่ PostgreSQL บนเซิร์ฟเวอร์ *(🔄 แก้ 2026-09-23: เดิมเขียน "บนคลาวด์" — production คือ VM ของภาควิชา `mob04` ตามที่เจ้าของโปรเจกต์เคาะ 2026-09-15 ไม่ใช่คลาวด์)* ต้องมีสคริปต์ตรวจสอบความถูกต้องและแปลงโครงสร้างข้อมูลที่ใช้เวลาเตรียมการสูง
 - **d. เหมาะสำหรับ:** ระบบที่ต้องการทั้งการส่งมอบงานทางวิชาการที่สอดคล้องตามเกณฑ์ และสามารถนำไปใช้งานในชีวิตจริงกับร้านค้าได้โดยไม่ล่มสลาย
 
 ---
@@ -629,7 +636,7 @@ flowchart TD
 
 ### เหตุผลที่ยกเลิกการเปิด Transaction ใน Middleware
 ในสถาปัตยกรรมดั้งเดิม ระบบเคยเปิด Transaction ไว้ตั้งแต่ Middleware เพื่อเรียกคำสั่ง `SET LOCAL app.tenant_id` แต่ถูกยกเลิกเพราะปัญหา 3 ประการ:
-1. **การยึดครอง Connection นานเกินไป (Connection Pool Waste):** คำขอที่ต้องรอการประมวลผลภายนอก (เช่น การถอดรหัส Argon2 ของ PIN ผู้จัดการ) จะดึง Connection จาก Pool แช่ทิ้งไว้ ทำให้ระบบรับคำขอพร้อมกันได้น้อยลงมาก (วัดจริง: ลำดับการ Void 4 รายการที่ `DB_POOL_SIZE=2` กินเวลาค้างทรานแซกชันลดลงจาก 112ms เหลือเพียง 18–28ms เมื่อย้ายมาเปิดใน Handler)
+1. **การยึดครอง Connection นานเกินไป (Connection Pool Waste):** คำขอที่ต้องรอการประมวลผลภายนอก (เช่น การถอดรหัส Argon2 ของ PIN ผู้จัดการ — *🔄 2026-09-23: PIN ของ void ถูกถอดไปแล้วในเฟส 2 (08 E3) แต่บทเรียนเรื่อง "งานช้าต้องอยู่นอกทรานแซกชัน" ยังใช้กับ argon2 ของการล็อกอิน*) จะดึง Connection จาก Pool แช่ทิ้งไว้ ทำให้ระบบรับคำขอพร้อมกันได้น้อยลงมาก (วัดจริง: ลำดับการ Void 4 รายการที่ `DB_POOL_SIZE=2` กินเวลาค้างทรานแซกชันลดลงจาก 112ms เหลือเพียง 18–28ms เมื่อย้ายมาเปิดใน Handler)
 2. **ปัญหา Deadlock ใน Connection Pool (#162):** หาก Middleware ถือ Connection แรกไว้ แล้ว Guard หรือ Service พยายามขอ Connection ที่สองเพื่ออ่านข้อมูลร้าน ระบบจะเกิดภาวะติดตายภายใน Pool ตัวเองทันทีเมื่อมีโหลดพร้อมกัน
 3. **การเชื่อมต่อทรานแซกชันซ้อน (Joins, Never Nests):** `TenantService.runTx` ถูกออกแบบให้หากตรวจพบว่ามี Transaction เปิดอยู่แล้วใน Scope เดียวกัน คำสั่งภายในจะเข้าร่วมกับ Transaction เดิมทันที ไม่เปิด Connection ซ้ำ และ **ห้ามส่งพารามิเตอร์ `tenant_id` เข้ามาในฟังก์ชันเด็ดขาด** เพื่อป้องกันไม่ให้โค้ดส่วนใดแอบอ้างสิทธิ์ข้ามร้าน
 
@@ -678,7 +685,7 @@ stateDiagram-v2
     
     REJECTED --> [*]: ปลดล็อคทรัพยากรคืนสู่ระบบ
     
-    COMMITTED --> VOIDED: ยกเลิกบิลในกะปัจจุบัน<br/>(POST /sales/:id/void + PIN ผู้จัดการ)
+    COMMITTED --> VOIDED: ยกเลิกบิลในกะปัจจุบัน<br/>(POST /sales/:id/void + เหตุผล)
     
     COMMITTED --> FULLY_RETURNED: ลูกค้าคืนสินค้าครบทุกชิ้น<br/>(Auto-void ผ่าน POST /returns)
     
@@ -698,7 +705,7 @@ stateDiagram-v2
 | **💥 STOCK_LOCKED** | ระบบสั่ง `SELECT ... FOR UPDATE` บนสินค้าครบทุกชิ้น | `COMMITTED`, `REJECTED` | `SalesService` (ภายใน Transaction) |
 | **COMMITTED** | Transaction บันทึกข้อมูลครบ 5 ตารางและ Commit สำเร็จ | `VOIDED`, `FULLY_RETURNED`, จบกระบวนการ | PostgreSQL Engine |
 | **REJECTED** | เงื่อนไขไม่ผ่าน (สต็อกไม่พอ, กะปิด, ทรานแซกชันล้มเหลว) | สิ้นสุดกระบวนการ (`[*]`) | Exception Filters / Database Rollback |
-| **VOIDED** | ผู้จัดการใส่ PIN อนุมัติยกเลิกบิลภายในกะเดียวกัน | สิ้นสุดกระบวนการ (`[*]`) | `VoidService` (ร่วมกับ PIN ผู้จัดการ) |
+| **VOIDED** | เครื่อง `pos` ยกเลิกบิลของกะที่เปิดอยู่พร้อมใส่เหตุผล *(🔄 แก้ 2026-09-23: เดิมเขียน "ผู้จัดการใส่ PIN" — PIN ถูกถอดใน 08 E3)* | สิ้นสุดกระบวนการ (`[*]`) | `VoidService` |
 | **FULLY_RETURNED** | ใบลดหนี้รับคืนสินค้าครบตามจำนวนเดิมของบิลทั้งหมด | สิ้นสุดกระบวนการ (`[*]`) | `ReturnsService` (Auto-void Invariant) |
 
 ### 💥 การพิสูจน์ความปลอดภัยของ Dangerous State (`STOCK_LOCKED`)
@@ -735,10 +742,10 @@ stateDiagram-v2
 
 | หัวข้อที่ตัดออกไป | เหตุผลที่ไม่ได้ลงลึกในเอกสารนี้ | เอกสารที่ต้องไปอ่านต่อ |
 | :--- | :--- | :--- |
-| **โครงสร้าง DDL และชนิดข้อมูลของทั้ง 27 ตาราง** | เอกสารนี้เน้นที่การไหลของทรานแซกชันและสถาปัตยกรรม ไม่ใช่พจนานุกรมข้อมูล | [`docs/Backend_design/01_DATABASE.md`](01_DATABASE.md) |
+| **โครงสร้าง DDL และชนิดข้อมูลของทั้ง 29 ตาราง** *(🔄 2026-09-23: เดิม 27 — เพิ่ม `import_jobs`, `owner_review_items`)* | เอกสารนี้เน้นที่การไหลของทรานแซกชันและสถาปัตยกรรม ไม่ใช่พจนานุกรมข้อมูล | [`docs/Backend_design/01_DATABASE.md`](01_DATABASE.md) |
 | **รายละเอียด Request/Response JSON ของทุก Endpoint** | สเปกของ API แต่ละหน้าจอมีระบุไว้อย่างละเอียดตามคู่มือหน้าจอขายแล้ว | [`docs/Backend_design/02_API_SCREENS.md`](02_API_SCREENS.md) |
 | **ขั้นตอนการติดตั้ง Pipeline CI/CD และการตั้งค่าเซิร์ฟเวอร์** | เป็นเรื่องของการ Deploy และ Infrastructure จัดการผ่าน GitHub Actions | [`docs/Backend_design/07_CICD_DEPLOY.md`](07_CICD_DEPLOY.md) |
-| **ข้อกำหนดทางเทคนิคของการ Sync ออฟไลน์ในเฟส 2** | เป็นขอบเขตการทำงานของเฟสถัดไปหลังจากตัดถ่ายระบบขึ้นเซิร์ฟเวอร์แล้ว | [`docs/Backend_design/08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md) |
+| **ข้อกำหนดทางเทคนิคของการ Sync ออฟไลน์ในเฟส 2** | เป็นขอบเขตการทำงานของเฟส 2 *(🔄 แก้ 2026-09-23: เฟส 2 เริ่มแล้ว — server มี `POST /sync/push` (`server/src/sync/`) และ `owner_review_items` แล้ว ไม่ต้องรอ cutover · ร้านยังรัน Drift build อยู่)* | [`docs/Backend_design/08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md) |
 
 ---
 
@@ -874,7 +881,7 @@ stateDiagram-v2
 
 | ลำดับ | เอกสารที่ต้องอ่าน | สิ่งที่คุณจะได้รับจากเอกสารนั้น |
 | :---: | :--- | :--- |
-| **1** | [`docs/Backend_design/01_DATABASE.md`](01_DATABASE.md) | โครงสร้าง DDL ครบทั้ง 27 ตาราง, ดัชนี (Indexes), และนโยบาย RLS ฉบับสมบูรณ์ |
+| **1** | [`docs/Backend_design/01_DATABASE.md`](01_DATABASE.md) | โครงสร้าง DDL ของทั้ง 29 ตาราง (🔄 2026-09-23: เดิม 27), ดัชนี (Indexes), และนโยบาย RLS — ถ้า DDL ในเอกสารไม่ตรง migration ให้เชื่อ `server/src/db/migrations/` |
 | **2** | [`docs/Backend_design/02_API_SCREENS.md`](02_API_SCREENS.md) | สเปก Request / Response และรหัสข้อผิดพลาดของทั้ง 11 หน้าจอ |
 | **3** | [`docs/Backend_design/adr/0003-tenant-lifecycle.md`](adr/0003-tenant-lifecycle.md) | บันทึกการตัดสินใจเรื่อง Tenant Isolation และการปรับปรุงสถาปัตยกรรมสู่ `runTx` |
 | **4** | [`docs/Backend_design/07_CICD_DEPLOY.md`](07_CICD_DEPLOY.md) | สเปกการติดตั้งระบบบน Docker Compose, การตั้งค่าความปลอดภัย, และการ Deploy |

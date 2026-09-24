@@ -98,12 +98,13 @@ pnpm test:e2e
 frontend/
   lib/
     core/
-      router/app_router.dart   ← GoRouter + AppRoutes (the 11 routes). ShellRoute → AppShell.
+      router/app_router.dart   ← GoRouter + AppRoutes (13 shell routes + /login). ShellRoute → AppShell.
       theme/                   ← navy/orange brand, Sarabun (Thai) + Barlow type
       utils/                   ← newId/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
     data/
-      db/tables.dart           ← 21 Drift tables (20 ported sa_* stores + #24's credit-payment outbox)
+      db/tables.dart           ← 25 Drift tables, schemaVersion 11 (20 ported sa_* stores + #24's
+                                 credit-payment outbox + phase-2 tables incl. OutboxOps) — recounted 2026-09-23
       db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
       db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
       repositories/            ← one repo per domain; transactional services mirror db.js
@@ -112,10 +113,11 @@ frontend/
                                  (ADR-0010). Opt-in: --dart-define=USE_API_WRITES=true
     domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
     presentation/
-      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (13 repos
-                                 + AuthRepository/ApiClient); `useApi` swaps in the #56 API repos
+      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (21 entries:
+                                 17 repos incl. AuthRepository, + ApiClient/BootstrapService/
+                                 DocCounterSeeder/SyncFacade); `useApi` swaps in the #56 API repos
       blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
-      screens/                  ← 11 screens, 1:1 with the JS screens
+      screens/                  ← 14 screen files: 12 in the AppShell nav + /devices + /login
       widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
                                   label printer, closing report)
     app.dart / main.dart       ← MaterialApp.router + MultiRepositoryProvider/MultiBlocProvider
@@ -171,9 +173,9 @@ matching GitHub release tags and update the version file** — a skew changes SQ
 or worker-cancellation behaviour, it isn't cosmetic. 🔴 **#266** (browsers without
 `dedicatedWorkersInSharedWorkers` hit a `LinkError` on `xFileControl` in drift's
 non-OPFS fallback): a fix (stub `xFileControl` → `SQLITE_NOTFOUND`) merged 2026-09-17
-by `LomerAlloys` (`docs/handoff_log/ticket-266-web-db-linkerror.md`), but the GitHub
-issue itself is still open — verify it's actually closed before assuming #241 (PWA
-precache manifest) is unblocked.
+by `LomerAlloys` (`docs/handoff_log/ticket-266-web-db-linkerror.md`, PR #310), and the
+GitHub issue was closed 2026-09-19 (verified 2026-09-23) — #241 (PWA precache manifest)
+is no longer blocked on it.
 
 **CouchDB was considered and rejected (2026-09-08)** — PostgreSQL stays source of truth.
 Reasoning: `docs/Backend_design/adr/0012-couchdb-replaces-postgres.md` (**Rejected**).
@@ -231,8 +233,17 @@ develops against a demo tenant.
   for `172.30.58.20`. `docker save`/`load` by hand is a demo-day rescue, **not** CD, and
   must never be recorded as one. Full evidence and the cleared pre-flight:
   `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`.
-- #67 — self-hosted deploy runner: workflow merged (PR #237), but not installed on the
-  demo VM; real-run ACs unproven (`PattaraponKitcharoen`). Blocked by the item above.
+- #67 — self-hosted deploy runner: workflow merged (PR #237). 🔴 **The issue was closed
+  2026-09-20 (commit `b687411` added only a setup script + runbook), but the runner is NOT
+  installed** — `gh api …/actions/runners` reports **0 runners** (verified 2026-09-23); real-run
+  ACs unproven (`PattaraponKitcharoen`). Blocked by the item above. Never read the closed
+  state as "CD works"; whether to reopen is an owner call.
+- 🔴 **Deploy queue (2026-09-23):** a `Deploy (demo)` run for `d3a2801` has sat in
+  "waiting" (required reviewer) since 2026-09-22, with a newer `616c187` run pending behind
+  it — approving the first one ships the **older** SHA first. Also: the `demo` environment's
+  `deployment_branch_policy` is `null` (the "`main` only" rule in `07 §6.2` is **not** in
+  force), and fork-PR approval is `first_time_contributors`, looser than the
+  `all_external_contributors` the ADR requires before a runner is registered. Owner decisions.
 - **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
   Nothing in it is measured yet. It replaces **#184**, which was closed→reopened→closed
   three times in two days and finally closed by the owner on 2026-09-21 with all four ACs
@@ -254,8 +265,20 @@ develops against a demo tenant.
   is done and the `/opt/pos/.env` blocker is cleared (it was missing
   `K6_REMOTE_WRITE_BASIC_AUTH_*`, which #251 added to compose with `:?` afterwards, so
   every Compose subcommand died before pulling anything). **No AC of #343 is ticked.**
-- #272 — drop `Products.offlineOk` (Drift schema v7) — in progress on `LomerAlloys`'
-  `lane2` branch as of 2026-09-17.
+- ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
+  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v11.
+- 🔴 **Two real bugs in migration `1788652803002-OwnerReviewItems.ts`** (found 2026-09-23,
+  recorded in `01_DATABASE.md §11`, **not yet fixed**):
+  (1) its RLS policy casts `current_setting('app.tenant_id', true)::uuid` **without
+  `NULLIF(…,'')`** — an unset tenant gives 22P02 → HTTP 500 instead of fail-closed 0 rows
+  (every other policy uses `NULLIF`); (2) `FOREIGN KEY (tenant_id, reviewed_by) … ON DELETE
+  SET NULL` also nulls the NOT NULL `tenant_id`, so deleting a user who reviewed an item
+  errors — use `ON DELETE SET NULL (reviewed_by)`. Fix with a **new** migration, never by
+  editing the applied one (commit `225ecf7` already edited `InitialSchema.ts` in place once).
+- **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
+  `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
+  ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
+  DDL in `01_DATABASE.md` is illustration.
 - Opened 2026-09-21 from verified findings. **#364, #366 and #367 were closed the same
   day (PRs #374 / #371 / #373); #363 and #365 are still open.**
   - **#363** — `backup-db.sh` never copied a backup off the VM although #288's AC for it
