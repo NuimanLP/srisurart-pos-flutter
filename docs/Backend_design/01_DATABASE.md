@@ -126,7 +126,7 @@ flowchart LR
 
 แบ่ง 3 รูปเพื่อให้อ่านออก (ทุกตารางมี `tenant_id` เหมือนกันหมด จึงไม่วาดเส้นไป `tenants` ทุกเส้น)
 
-> ⚠️ Mermaid เขียน composite key ไม่ได้ — คอลัมน์ที่ติดป้าย `PK` สองบรรทัดในตารางเดียวกัน คือ PK **อันเดียว** ที่ประกอบจากสองคอลัมน์ (ดู [§2.0](#20-ก่อนอ่าน-ddl--เรื่อง-key-ที่ต้องเข้าใจก่อน)) · ป้าย `UK` ก็เหมือนกัน ของจริงคือ `UNIQUE (tenant_id, receipt_no)` ไม่ใช่ `receipt_no` เดี่ยว
+> ⚠️ Mermaid ติดป้าย `PK` ได้ทีละคอลัมน์ เขียน composite key ไม่ได้ — ถ้าติด `PK` สองบรรทัดจะอ่านเหมือน PK สองอัน รูปข้างล่างจึง**ไม่ใช้ป้าย `PK`/`UK` กับ key ที่ประกอบจากหลายคอลัมน์** แต่เขียนไว้ในช่องหมายเหตุแทน: `"PK ร่วม (tenant_id, id)"` แปลว่าทุกคอลัมน์ที่มีหมายเหตุนี้ **รวมกันเป็น PK อันเดียว** (ดู [§2.0](#20-ก่อนอ่าน-ddl--เรื่อง-key-ที่ต้องเข้าใจก่อน)) · ป้าย `FK` บน `tenant_id` คือ FK ไป `tenants` · `UNIQUE (tenant_id, receipt_no)` ก็คือ unique ต่อร้าน ไม่ใช่ `receipt_no` เดี่ยว · ป้าย `PK`/`UK` ที่เหลือ (ตาราง `TENANTS`) เป็น key คอลัมน์เดียวจริง
 
 ### 3.1 Selling & Returns
 
@@ -143,9 +143,9 @@ erDiagram
     QUOTES ||--|{ QUOTE_ITEMS : "มี"
 
     SALES {
-        uuid tenant_id PK
-        text id PK
-        text receipt_no UK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
+        text receipt_no "UNIQUE (tenant_id, receipt_no)"
         numeric subtotal
         numeric discount
         numeric total
@@ -158,27 +158,27 @@ erDiagram
         boolean voided
     }
     SALE_ITEMS {
-        uuid tenant_id PK
-        text sale_id PK
-        int line_no PK
+        uuid tenant_id FK "PK ร่วม (tenant_id, sale_id, line_no)"
+        text sale_id FK "PK ร่วม (tenant_id, sale_id, line_no)"
+        int line_no "PK ร่วม (tenant_id, sale_id, line_no)"
         text product_id
         text name
         int qty
         numeric price
     }
     RETURNS {
-        uuid tenant_id PK
-        text id PK
-        text cn_no UK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
+        text cn_no "UNIQUE (tenant_id, cn_no)"
         text sale_id FK
         numeric refund_total
         text refund_method
         timestamptz date
     }
     QUOTES {
-        uuid tenant_id PK
-        text id PK
-        text quote_no UK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
+        text quote_no "UNIQUE (tenant_id, quote_no)"
         text status
         timestamptz valid_until
         numeric total
@@ -196,9 +196,9 @@ erDiagram
     PO_ITEMS }o--o| PRODUCTS : "match ด้วย part_no"
 
     PRODUCTS {
-        uuid tenant_id PK
-        text id PK
-        text part_no UK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
+        text part_no "UNIQUE (tenant_id, part_no) เฉพาะแถวที่ยังไม่ถูกลบ"
         text name
         text name_th
         text category FK
@@ -211,8 +211,8 @@ erDiagram
         timestamptz updated_at
     }
     MOVEMENTS {
-        uuid tenant_id PK
-        text id PK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
         text product_id FK
         int delta
         text type
@@ -220,9 +220,9 @@ erDiagram
         timestamptz date
     }
     PURCHASE_ORDERS {
-        uuid tenant_id PK
-        text id PK
-        text po_no UK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
+        text po_no "UNIQUE (tenant_id, po_no)"
         text supplier
         text status
         timestamptz received_at
@@ -251,16 +251,16 @@ erDiagram
         text timezone
     }
     USERS {
-        uuid tenant_id PK
-        uuid id PK
-        text username UK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
+        text username "UNIQUE (tenant_id, username)"
         text password_hash
         text role "เหลือ 'owner' ค่าเดียว"
         boolean is_active "active ได้ 1 คนต่อร้าน"
     }
     SHIFTS {
-        uuid tenant_id PK
-        text id PK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
         text date_str
         numeric starting_cash
         timestamptz opened_at
@@ -269,16 +269,16 @@ erDiagram
         boolean is_active
     }
     OWNER_REVIEW_ITEMS {
-        uuid tenant_id PK
-        text id PK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
         text kind
         text ref_id
         jsonb details
         timestamptz reviewed_at
     }
     IMPORT_JOBS {
-        uuid tenant_id PK
-        text id PK
+        uuid tenant_id FK "PK ร่วม (tenant_id, id)"
+        text id "PK ร่วม (tenant_id, id)"
         text status
         jsonb payload
         timestamptz finished_at

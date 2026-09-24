@@ -513,10 +513,12 @@ on void/return paths. Keep this order in any new write touching more than one of
   carries both shipped DDL and not-yet-applied migrations in the same code fences; the
   key primer cited `uq_products_partno_ci` (not applied) when the enforcing index is
   `uq_products_partno`. Check which side of that line an identifier sits on before quoting it.
-- **Mermaid ER diagrams cannot express a composite key** — `§3` renders `tenant_id PK` and
-  `id PK` as two rows, which is exactly what made a reviewer read it as two primary keys, and
-  labels `receipt_no UK` although the real constraint is `UNIQUE (tenant_id, receipt_no)`.
-  The warning under `## 3. ER Diagram` covers all three diagrams; keep it if you touch them.
+- **Mermaid ER diagrams cannot express a composite key** — labelling `tenant_id PK` and `id PK`
+  as two rows made readers see two primary keys, even with a warning above the diagram. Since
+  2026-09-24 `§3` never puts a `PK`/`UK` label on a multi-column key: those columns carry the
+  comment `"PK ร่วม (tenant_id, id)"` / `"UNIQUE (tenant_id, receipt_no)"` instead, and
+  `tenant_id` is labelled `FK` (to `tenants`). Only single-column keys (`TENANTS`) keep
+  `PK`/`UK`. Keep that convention if you add a table to a diagram.
 - **A cross-reference to another doc's section must be grepped before it is written.** Three
   pointers shipped in the first pass named things that do not exist (`ADR-0003` has no
   `PRIMARY KEY` in it at all; `architecture-primer.md §4` is about architecture options, not FKs).
