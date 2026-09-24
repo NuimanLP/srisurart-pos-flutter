@@ -1,7 +1,7 @@
 # Handoff — ปูพื้นฐานเรื่อง key ในเอกสาร Backend_design (PR #391)
 
 **Date:** 2026-09-23
-**Branch:** `docs/2026-09-23-key-primer` · **PR:** [#391](https://github.com/NuimanLP/srisurart-pos-flutter/pull/391) (CI เขียว, `mergeStateStatus: CLEAN`, ยังไม่ merge)
+**Branch:** `docs/2026-09-23-key-primer` · **PR:** [#391](https://github.com/NuimanLP/srisurart-pos-flutter/pull/391) (merged 2026-09-23 — `4cdc9c6`)
 **ขอบเขต:** เอกสารล้วน 10 ไฟล์ +105/−6 · ไม่มีโค้ด ไม่มี schema เปลี่ยน ไม่ต้องรัน `build_runner`
 **ไม่มีใบ:** งานนี้มาจากคำถามของอาจารย์ระหว่าง review ไม่ได้มาจาก GitHub issue
 

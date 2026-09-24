@@ -493,6 +493,7 @@ Backups, offsite copies, PDPA handling and an audit log are specified and not ye
 | [`docs/Backend_design/00_INDEX.md`](docs/Backend_design/00_INDEX.md) | The backend package; start at `00_BASICS.md` if backend is new to you |
 | [`docs/Backend_design/adr/`](docs/Backend_design/adr/) | The decision record. **Binding** — where a doc contradicts an ADR, the ADR wins |
 | [`docs/handoff_log/`](docs/handoff_log/) | Dated session records: what changed, what broke, and why |
+| [`docs/tutorial/testing-tutorial.md`](docs/tutorial/testing-tutorial.md) | What each of the 12 test suites checks, how to run it, where to read the result (Thai) |
 
 ---
 
