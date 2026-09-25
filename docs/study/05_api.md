@@ -406,7 +406,7 @@ repo ใช้ **ทั้งสอง แยกตามงาน**: หน้�
 | | `POST /shifts/open` · `POST /shifts/close` · `POST /shifts/current/entries` | Tenant + **pos** | ✔ | Cash Drawer |
 | **reports** | `GET /reports/summary` · `/closing` · `/top-products` · `/by-category` · `/stock-value` · `/low-stock` · `/product-sales` | Tenant | – | Reports, Cash Drawer (closing), Products |
 | **settings** | `GET /settings` · `PATCH /settings` | Tenant | ✔ (PATCH) | Settings |
-| **backup** | `POST /backup/export` (ตอบ `202`) · `GET /backup/jobs/:id` | Tenant | ✘ | Settings |
+| **backup** | `POST /backup/export` (ตอบ `202`) · `GET /backup/jobs/:id` · `GET /backup/jobs/:id/download` | Tenant | ✘ | Settings |
 | **doc-counters** | `GET /doc-counters` | Tenant + **pos** | – | (เปิดแอป — seed เลขเอกสาร) |
 | **devices** | `GET /devices` · `POST /devices` · `POST /devices/:id/retire` | Tenant | ✔ (write) | `/devices` |
 | **review-items** | `GET /review-items` · `POST /review-items/:id/reviewed` | Tenant | ✔ (write) | หน้า "รอ owner" (phase 2) |

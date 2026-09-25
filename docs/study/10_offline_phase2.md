@@ -132,7 +132,7 @@
 ในทางเทคนิค client ติดป้าย **`Idempotency-Key`** (รหัสสุ่มที่สร้าง **ครั้งเดียวต่อการกระทำหนึ่งครั้ง**) มากับ request server จำว่า "key นี้ + request หน้าตานี้ → ตอบอะไรไป" ถ้ามาซ้ำก็ **replay** (ตอบของเดิม) ไม่ทำใหม่ (บท 02 อธิบายเวอร์ชันออนไลน์ไว้แล้ว)
 
 สองจุดที่ต้องเข้าใจให้ขาด:
-1. server เก็บ **fingerprint** (ลายนิ้วมือ) ของ request คู่กับ key — ถ้า key เดิมแต่ fingerprint ต่าง = มีคนเอา key เดิมไปใช้กับงานอื่น → ปฏิเสธ (`IDEMPOTENCY_KEY_REUSED`) **fingerprint ต้องคำนวณแบบเดียวกันทุกทางที่ request เดียวกันจะเข้ามาได้** ไม่งั้นการส่งซ้ำของจริงจะถูกมองว่าเป็นการขโมย key (จำข้อนี้ไว้ — บั๊ก HIGH ตัวแรกของบทนี้คือข้อนี้พอดี)
+1. server เก็บ **fingerprint** (ลายนิ้วมือ) ของ request คู่กับ key — ถ้า key เดิมแต่ fingerprint ต่าง = มีคนเอา key เดิมไปใช้กับงานอื่น → ปฏิเสธ (`IDEMPOTENCY_KEY_REUSED`) **fingerprint ต้องคำนวณแบบเดียวกันทุกทางที่ request เดียวกันจะเข้ามาได้** ไม่งั้นการส่งซ้ำของจริงจะถูกมองว่าเป็นการขโมย key (จำข้อนี้ไว้ — บั๊ก HIGH ตัวแรกของบทนี้เคยพลาดตรงข้อนี้พอดี ก่อนแก้ด้วย #413)
 2. key มีอายุ (ในโปรเจกต์นี้ 24 ชม. — `08_PHASE2_SPEC.md §2` B2) ถ้าเน็ตล่มนานกว่านั้น key หมดอายุ → ต้องมีตาข่ายชั้นที่สอง: **id ของแถวที่ client สร้างเอง** (client-generated id) ถ้า server เจอ id บิลนี้อยู่แล้ว ก็รู้ว่าเป็นบิลเดิม
 
 ### 9. Outbox pattern — ตะกร้าจดหมายรอส่ง
@@ -250,7 +250,7 @@ outbox + idempotency = คู่หู: outbox รับประกัน "ส�
 | เชื่อ `date` จากเครื่องเสมอ | นาฬิกาโกหก (หัวข้อ 7) |
 | **online = `now()` · push = เชื่อเครื่องถ้าอยู่ในกรอบ `[opened_at − 5 นาที, now() + 5 นาที]` นอกนั้น clamp + ติดธง** ✅ | ต้องมีคนดูธง `date_flag` |
 
-เพราะ บิลออฟไลน์มี "เวลาจริง" ที่ server ไม่รู้ → จึงยอมเชื่อเครื่องแบบมีกรอบ → ราคาที่จ่ายคือ ต้องมีรายการให้เจ้าของตรวจ และ **route ออนไลน์ต้องไม่อ่าน `date` ใน body เลย** (ข้อนี้ถูกละเมิดในโค้ดจริง — ดูบทเรียนท้ายบท)
+เพราะ บิลออฟไลน์มี "เวลาจริง" ที่ server ไม่รู้ → จึงยอมเชื่อเครื่องแบบมีกรอบ → ราคาที่จ่ายคือ ต้องมีรายการให้เจ้าของตรวจ และ **route ออนไลน์ต้องไม่อ่าน `date` ใน body เลย** (ข้อนี้เคยถูกละเมิดในโค้ดจริงช่วงหนึ่ง แก้แล้วด้วย #414 — ดูบทเรียนท้ายบท)
 
 ---
 
@@ -508,7 +508,7 @@ class OutboxOps extends Table {
             idempotencyKey: attempt.headers['Idempotency-Key']!,
 ```
 
-- **จุดที่ต้องสังเกตมาก:** op ที่เข้าคิวใช้ **id + key เดิม** ของความพยายามออนไลน์ครั้งนั้น เพราะบิลนั้น **อาจ commit ที่ server ไปแล้ว** (หัวข้อ 1: ไม่ได้คำตอบ ≠ ไม่สำเร็จ) ตอน push server ต้องจำได้ว่าเป็นบิลเดียวกันแล้ว replay — **ถ้า fingerprint ของสองทางไม่ตรงกัน ตรงนี้แหละที่พัง** (บั๊ก HIGH #1)
+- **จุดที่ต้องสังเกตมาก:** op ที่เข้าคิวใช้ **id + key เดิม** ของความพยายามออนไลน์ครั้งนั้น เพราะบิลนั้น **อาจ commit ที่ server ไปแล้ว** (หัวข้อ 1: ไม่ได้คำตอบ ≠ ไม่สำเร็จ) ตอน push server ต้องจำได้ว่าเป็นบิลเดียวกันแล้ว replay — **fingerprint ของสองทางต้องตรงกัน** (เคยพังตรงนี้ — บั๊ก HIGH #1, แก้แล้ว #413)
 
 แล้ว `_saveOffline` เขียนทุกอย่างใน transaction เดียว — `api_sales_repository.dart:536-543` และ `:616-627`
 
@@ -755,7 +755,7 @@ class NullSyncFacade implements SyncFacade {
 - **สองชั้นของ replay:**
   1. ด้วย key (ปกติ)
   2. ด้วย client id (B2) — ตาข่ายเมื่อ key หมดอายุ (เน็ตล่มนานกว่า 24 ชม.) server เทียบ **เฉพาะฟิลด์ที่ไม่เปลี่ยน** (เช่น `total` ของบิล) ถ้าไม่ตรง → `CLIENT_ID_REUSED`
-- `endpoint: ep.endpoint` มาจาก `endpointForOp` — **ตรงนี้คือต้นเหตุบั๊ก HIGH #1** ดูข้างล่าง
+- `endpoint: ep.endpoint` มาจาก `endpointForOp` — **ตรงนี้คือจุดที่เคยเป็นต้นเหตุบั๊ก HIGH #1** (แก้แล้ว #413) ดูข้างล่าง
 
 ### 9. `clampOpDate` — เชื่อนาฬิกาเครื่องแบบมีกรอบ
 
@@ -915,7 +915,7 @@ sequenceDiagram
 - **คืออะไร:** server จำคำตอบที่เคยตอบคู่กับ `Idempotency-Key`; ถ้า key หมดอายุ (>24 ชม.) ใช้ id ที่ client สร้างเป็นตาข่ายชั้นสอง
 - **ปัญหาที่แก้:** at-least-once delivery ทำให้ client ส่งซ้ำได้เสมอ ถ้าไม่มี replay การส่งซ้ำจะตัดสต็อก/แต้มซ้ำ
 - **ทำไมเลือกท่านี้ (เทียบกับ "เช็คกฎธุรกิจก่อนแล้วค่อยดู key"):** ถ้าตรวจกฎก่อน บิลที่ commit ไปแล้วจะเจอสต็อกที่ตัวเองตัดไปแล้ว แล้วถูกปฏิเสธผิดๆ ("บิลสำเร็จถูกรายงานว่าล้ม") — ต้องถาม "เคยทำหรือยัง" ก่อน "ทำได้ไหม" เสมอ (B1)
-- **ดี/ราคา:** ดี — ส่งซ้ำได้อย่างปลอดภัย; ราคา — endpoint fingerprint ต้องคำนวณจากฟังก์ชันเดียวกันทุกทาง ไม่งั้นพังแบบเงียบ (ดูบั๊ก HIGH #1 ท้ายบท)
+- **ดี/ราคา:** ดี — ส่งซ้ำได้อย่างปลอดภัย; ราคา — endpoint fingerprint ต้องคำนวณจากฟังก์ชันเดียวกันทุกทาง ไม่งั้นพังแบบเงียบ (เคยพังจริง — ดูบั๊ก HIGH #1 ท้ายบท, แก้แล้ว #413)
 - **อยู่ตรงไหน:** `server/src/sync/sync.service.ts:136-173` (`processSingleOpIn`), ตาราง idempotency: `server/src/idempotency/idempotency.service.ts:335-340`
 
 ### 3. Single-writer (`one_pos_per_tenant`)
@@ -1011,9 +1011,9 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
 
 ## ⚠️ บทเรียนจากของจริง
 
-### บทเรียน 1 — บั๊ก HIGH: fingerprint ของสองทางไม่ตรงกัน (idempotency พัง)
+### บทเรียน 1 — บั๊ก HIGH ที่เคยพบ: fingerprint ของสองทางไม่ตรงกัน (idempotency พัง) — แก้แล้ว
 
-**ที่มา:** รีวิวทั้ง codebase 2026-09-24 — `docs/handoff_log/session-2026-09-24-whole-codebase-review.md §2` ข้อ 1 · **ยังไม่แก้ และยังไม่มี GitHub issue** (ตามบันทึกนั้น)
+**ที่มา:** รีวิวทั้ง codebase 2026-09-24 — `docs/handoff_log/session-2026-09-24-whole-codebase-review.md §2` ข้อ 1 · **แก้แล้วด้วย PR #413** (2026-09-25, ปิด #409)
 
 ทางออนไลน์เก็บ endpoint แบบนี้ — `server/src/idempotency/idempotency.runner.ts:40`
 
@@ -1023,7 +1023,7 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
 
 ซึ่งสำหรับการขายได้ `POST /api/v1/sales` (เพราะ `app.setGlobalPrefix('api/v1', …)` ที่ `server/src/app.setup.ts:120`)
 
-แต่ทาง push เก็บ — `server/src/sync/sync.service.ts:200-201`
+แต่ทาง push **เดิม**เก็บ — `server/src/sync/sync.service.ts` (ก่อนแก้)
 
 ```ts
       case 'sale.create':
@@ -1041,21 +1041,23 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
     }
 ```
 
-**เล่าเป็นเหตุการณ์:**
+**เล่าเป็นเหตุการณ์ (ก่อนแก้ #413):**
 1. แคชเชียร์กดขายตอนออนไลน์ server **commit** บิลแล้ว เก็บ key คู่กับ `POST /api/v1/sales`
 2. คำตอบหายกลางทาง (timeout) → `ApiSalesRepository` ทำถูกตามสเปก: เข้า Degraded แล้วเอาบิลเข้า outbox ด้วย **id + key เดิม** (หัวข้อ 🔍 3)
 3. เน็ตกลับ → push → server claim key เดิมด้วย endpoint `POST /sales` → **endpoint ไม่ตรง** → `reused` → `409 IDEMPOTENCY_KEY_REUSED`
 4. บิลที่ **สำเร็จไปแล้ว** ถูกรายงานว่าถูกปฏิเสธ → ไปโผล่ในหน้า "รอ owner" ทั้งที่ไม่มีอะไรผิด (และถ้า owner กด "ทิ้ง" แถวบิลในเครื่องจะวุ่น — ดู C15)
 
-**ผูกกับ concept:** หัวข้อ 🧱 8 ข้อ 1 — "fingerprint ต้องคำนวณแบบเดียวกันทุกทาง" นี่คือ AC **B1** ของ 08 §8.4 ที่ยังไม่ผ่าน และ test ที่มีอยู่ (`sync-push.e2e-spec.ts` ~บรรทัด 1238 ตามบันทึกรีวิว) ทดสอบแค่ push→push ซึ่งทั้งสองครั้งใช้ `POST /sales` เหมือนกัน จึงเขียวทั้งที่เส้นทางจริง (online→push) พัง
+**ทางแก้ (#413):** `sync.service.ts` เก็บ `ONLINE_PREFIX = '/api/v1'` ไว้ตัวเดียว แล้ว `endpointForOp` คืน `` `POST ${ONLINE_PREFIX}/sales` `` (และ endpoint อื่นทุกตัวที่พอร์ตมาจาก route ออนไลน์) — เพื่อไม่ทำลายบิลที่ค้างจากก่อนแก้ `replayKeyOfSameDocument` เทียบ endpoint แบบตัด prefix `/api/v1` ออกก่อน ทำให้ key เก่าที่บันทึกเป็น `POST /sales` ยัง replay ได้ภายในอายุ 24 ชม. ของมัน
+
+**ผูกกับ concept:** หัวข้อ 🧱 8 ข้อ 1 — "fingerprint ต้องคำนวณแบบเดียวกันทุกทาง" นี่คือ AC **B1** ของ 08 §8.4 ซึ่งตอนนี้ผ่านแล้ว และ test เดิม (`sync-push.e2e-spec.ts` ~บรรทัด 1238 ตามบันทึกรีวิว) ทดสอบแค่ push→push ซึ่งทั้งสองครั้งใช้ endpoint เดียวกัน จึงเขียวทั้งที่เส้นทางจริง (online→push) เคยพัง — นี่คือเหตุผลที่ #413 ต้องเพิ่ม test ข้ามเส้นทางด้วย
 
 **บทเรียนทั่วไป:** ถ้ามีสองเส้นทางที่ต้อง "เป็นเรื่องเดียวกัน" ให้คำนวณจาก **ฟังก์ชันเดียว** ไม่ใช่เขียนสตริงซ้ำสองที่ และ test ต้องครอบ **เส้นทางข้ามกัน** ไม่ใช่เส้นทางเดิมซ้ำ
 
-### บทเรียน 2 — บั๊ก HIGH: route ออนไลน์เชื่อ `date` และ `soldOffline` จาก client
+### บทเรียน 2 — บั๊ก HIGH ที่เคยพบ: route ออนไลน์เชื่อ `date` และ `soldOffline` จาก client — แก้แล้ว
 
-**ที่มา:** บันทึกรีวิวเดียวกัน §2 ข้อ 2 · **ยังไม่แก้**
+**ที่มา:** บันทึกรีวิวเดียวกัน §2 ข้อ 2 · **แก้แล้วด้วย PR #414** (2026-09-25, ปิด #411)
 
-08 §10 กำหนดว่า route ออนไลน์ใช้ `now()` **ไม่อ่าน `date` ใน body** แต่ `server/src/sales/sales.service.ts:764-770` และ `:777`
+08 §10 กำหนดว่า route ออนไลน์ใช้ `now()` **ไม่อ่าน `date` ใน body** แต่ `server/src/sales/sales.service.ts` **เคย** (ก่อนแก้) รับ `dto.date`/`dto.soldOffline` จาก body ของ route ออนไลน์แล้วส่งต่อให้ `insertSale`:
 
 ```ts
     const soldOffline = dto.soldOffline === true;
@@ -1068,11 +1070,11 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
        VALUES (..., $16, $17, COALESCE($18::timestamptz, now()))
 ```
 
-`insertSale` นี้ใช้ร่วมทั้งทางออนไลน์และทาง push — ทาง push ส่ง `date` ที่ผ่าน `clampOpDate` มาแล้ว แต่ทางออนไลน์ส่ง `date` จาก body ตรงๆ → ใครก็ส่ง `POST /api/v1/sales` พร้อม `"date": "เมื่อวาน"` แล้วบิลจะลงยอดเมื่อวานโดยไม่มีธง บันทึกรีวิวระบุว่า returns (`returns.dto.ts:73`) และ shifts (`openedAt`, `createdAt`) เป็นแบบเดียวกัน และ client ก็ส่ง `date` ในทางออนไลน์จริง (`_saleBody` ที่ `api_sales_repository.dart:233`)
+`insertSale` นี้ใช้ร่วมทั้งทางออนไลน์และทาง push — ทาง push ส่ง `date` ที่ผ่าน `clampOpDate` มาแล้ว แต่ทางออนไลน์ **เคย**ส่ง `date` จาก body ตรงๆ → ใครก็ส่ง `POST /api/v1/sales` พร้อม `"date": "เมื่อวาน"` แล้วบิลจะลงยอดเมื่อวานโดยไม่มีธง บันทึกรีวิวระบุว่า returns (`returns.dto.ts:73`) และ shifts (`openedAt`, `createdAt`) เคยเป็นแบบเดียวกัน
 
-ส่วน `soldOffline: true` ใน body ออนไลน์ ทำให้บิลออนไลน์กลายเป็นบิลที่ void ออฟไลน์ได้ ซึ่งขัด 08 §12 (`VOID_NEEDS_ONLINE`) และ C3 ที่ตั้งใจให้ **server** เป็นคนติดป้าย `sold_offline` ("เชื่อป้ายจากเครื่อง" ถูกตัดทิ้งไว้ในตาราง 08 §2)
+**ทางแก้ (#414):** `parseCreateSale` (`server/src/sales/sales.dto.ts:67` และตาม) ไม่อ่าน `date`/`soldOffline` จาก body ของ route ออนไลน์อีกต่อไป — ค่าสองตัวนี้มาจาก `/sync/push` เท่านั้น (`sales.dto.spec.ts:111` เป็น test ที่ล็อกกฎนี้ไว้ตรงๆ: `` never reads `date` or `soldOffline` from a body: only /sync/push sets them ``) route ออนไลน์จึงลง `sold_at`/`updated_at` ด้วย `now()` ของ server เสมอ และ `soldOffline` เป็น `false` เสมอสำหรับบิลที่มาจากทางออนไลน์
 
-**ผูกกับ concept:** 🧱 7 "นาฬิกาโกหก" + "เวลาจาก client เป็นข้อมูลอ้างอิง ไม่ใช่ความจริง" — ทาง push มีกรอบ ทางออนไลน์ลืมกรอบ ช่องโหว่อยู่ที่ **ทางที่ดูปลอดภัยกว่า** นี่คือเหตุผลที่ CLAUDE.md มีบทเรียนซ้ำๆ ว่า **validate input ก่อน แล้วค่อย clamp** และ "field ที่ client ส่งมาได้ ไม่ได้แปลว่า server ต้องอ่าน"
+**ผูกกับ concept:** 🧱 7 "นาฬิกาโกหก" + "เวลาจาก client เป็นข้อมูลอ้างอิง ไม่ใช่ความจริง" — ทาง push มีกรอบ ทางออนไลน์เคยลืมกรอบ ช่องโหว่เคยอยู่ที่ **ทางที่ดูปลอดภัยกว่า** นี่คือเหตุผลที่ CLAUDE.md มีบทเรียนซ้ำๆ ว่า **validate input ก่อน แล้วค่อย clamp** และ "field ที่ client ส่งมาได้ ไม่ได้แปลว่า server ต้องอ่าน"
 
 ### บทเรียน 3 — `offlineOk`: ออกแบบ → ใส่ schema → ลบทิ้ง
 
@@ -1082,10 +1084,10 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
 
 ### บทเรียน 4 — สถานะที่ยังไม่เสร็จ (บอกตรงๆ)
 
-- **ลำดับ kickoff ใน CLAUDE.md** (#228 → #229 → #212/#211/#189 → #230 → #190 → #231) เป็นแผนตอนเริ่ม — ตรวจด้วย `gh issue view` วันที่ 2026-09-25: **ปิดแล้วทุกใบยกเว้น #231** (cutover ร้านจริง = เฟสถัดไป) แต่ "ปิด" ไม่ได้แปลว่า AC ทุกข้อพิสูจน์แล้ว — บั๊ก HIGH #1 คือ AC B1 ที่ยังไม่ผ่าน
+- **ลำดับ kickoff ใน CLAUDE.md** (#228 → #229 → #212/#211/#189 → #230 → #190 → #231) เป็นแผนตอนเริ่ม — ตรวจด้วย `gh issue view` วันที่ 2026-09-25: **ปิดแล้วทุกใบยกเว้น #231** (cutover ร้านจริง = เฟสถัดไป) แต่ "ปิด" ไม่ได้แปลว่า AC ทุกข้อพิสูจน์แล้วเสมอไป — AC B1 (บั๊ก HIGH #1 เดิม) ผ่านแล้วหลัง #413
 - **ร้านจริงยังรัน Drift build** — phase 2 ยังไม่เคยถูกใช้กับเน็ตล่มจริงในร้าน
 - **MED 4 ข้อจากรีวิวเดียวกัน** (สรุป): push reply ของ `sale.create` บางกว่าที่ 08 §8.2 ว่า (และ fixture ก็บางเหมือนกัน — ต้องให้เจ้าของตัดสินว่าใครถูก); client ยังเข้าคิวแค่ `sale.create`, ชำระเครดิต, ลูกค้า — ยังไม่เข้าคิว `shift.open`/`return.create`/`drawer.entry` ตาม 08 §6.1; Drift `openShift` ยังคืนกะเดิมของวันเดียวกันซึ่ง 08 §11 สั่งลบ
-- **migration `1788652803002-OwnerReviewItems`** (ตารางของหน้า "รอ owner") มีบั๊กสองข้อที่ยังไม่แก้: RLS policy ไม่มี `NULLIF(…,'')` และ FK `ON DELETE SET NULL` ที่จะ null `tenant_id` ด้วย — ต้องแก้ด้วย migration **ใหม่**
+- **migration `1788652803002-OwnerReviewItems`** (ตารางของหน้า "รอ owner") เคยมีบั๊กสองข้อ: RLS policy ไม่มี `NULLIF(…,'')` และ FK `ON DELETE SET NULL` ที่จะ null `tenant_id` ด้วย — **แก้แล้ว** ด้วย migration ใหม่ `1788652804200-OwnerReviewItemsFixes.ts` (#420)
 - **ops ของ phase 2 บน `mob04`** (slice 22/23/25) ยังเปิด: การวัดโหลด #380 ยังไม่มีตัวเลข, backup offsite #363 พักไว้, CD ติด FortiGate ของคณะ (รายละเอียดบท 14/15)
 - **ยังไม่อยู่ใน phase 2 เลย:** หลาย `pos` ต่อร้าน, `change_log`/CRDT, CouchDB (rejected), ใบกำกับภาษีเต็มรูป (08 §1)
 
@@ -1098,9 +1100,9 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
 > - CAP: ตอนสายขาดต้องเลือก C หรือ A — Architecture C เลือก C ตอนปกติ และเลือก A **แบบมีขอบเขต** ตอน Degraded
 > - conflict ถูกจำกัดด้วย **writer ออฟไลน์เดียว** (`one_pos_per_tenant`, ADR-0004) — เหตุผลคือ **ลิ้นชักใบเดียว + เลขใบเสร็จชุดเดียว** ไม่ใช่สต็อก; stock lease ตก 3 ข้อ, `offlineOk` ถูกลบ (#272)
 > - **outbox** (บิล + op ใน transaction เดียว) + **idempotency** (key + client id) = ส่งซ้ำได้ ไม่เกิดผลซ้ำ; server **replay ก่อนตรวจ** และหยุดที่ผลแรกที่ไม่ใช่ verdict
-> - นาฬิกาเครื่องโกหก → push เชื่อแบบมีกรอบ ±5 นาที + clamp + `date_flag`; online ต้องใช้ `now()` (ซึ่งโค้ดยังละเมิดอยู่)
+> - นาฬิกาเครื่องโกหก → push เชื่อแบบมีกรอบ ±5 นาที + clamp + `date_flag`; online ใช้ `now()` ของ server เสมอ (แก้แล้ว #414 — โค้ดเคยละเมิดอยู่ช่วงหนึ่ง)
 > - `SyncFacade` + fixture เป็น **contract** ที่ให้สาม lane ทำงานขนานกัน — blocked-by ไม่ข้าม lane
-> - Phase 2 ส่วนใหญ่ merge แล้วแต่ **ยังมีบั๊ก HIGH 2 ตัว** (fingerprint, client date) และร้านจริงยังไม่ cutover
+> - Phase 2 ส่วนใหญ่ merge แล้ว — **บั๊ก HIGH 2 ตัวที่พบจากรีวิว 2026-09-24 (fingerprint, client date) แก้แล้วทั้งคู่** (#413, #414) และร้านจริงยังไม่ cutover
 
 ---
 
@@ -1122,7 +1124,7 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
 
 </details>
 
-**3. ในบั๊ก HIGH #1 ถ้าทีมแก้โดย "ให้ push ไม่ต้องเช็ค endpoint เลย เช็คแค่ hash ของ body" จะปลอดภัยไหม?**
+**3. ในบั๊ก HIGH #1 (เคยพบ, แก้แล้วด้วย #413) ถ้าทีมแก้โดย "ให้ push ไม่ต้องเช็ค endpoint เลย เช็คแค่ hash ของ body" จะปลอดภัยไหม?**
 
 <details><summary>เฉลย</summary>
 
@@ -1171,5 +1173,5 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
   - [`../Backend_design/03_ARCHITECTURE.md`](../Backend_design/03_ARCHITECTURE.md) §4 — Architecture C และเหตุผลที่ไม่ใช้ stock lease
   - [`../Backend_design/fixtures/sync-push/`](../Backend_design/fixtures/sync-push/) — 18 fixture ของ `/sync/push`
   - [`../Shop_manual/01_offline_sync_and_recovery.md`](../Shop_manual/01_offline_sync_and_recovery.md) — คู่มือฝั่งร้าน (มุมผู้ใช้ของทุกอย่างในบทนี้)
-  - [`../handoff_log/session-2026-09-24-whole-codebase-review.md`](../handoff_log/session-2026-09-24-whole-codebase-review.md) — ที่มาของบั๊ก HIGH สองตัว
+  - [`../handoff_log/session-2026-09-24-whole-codebase-review.md`](../handoff_log/session-2026-09-24-whole-codebase-review.md) — ที่มาของบั๊ก HIGH สองตัว (ทั้งคู่แก้แล้ว: #413, #414)
   - [`../handoff_log/phase2-lane-split-and-tickets-2026-09-16.md`](../handoff_log/phase2-lane-split-and-tickets-2026-09-16.md) — ทำไมแบ่ง lane แบบนี้

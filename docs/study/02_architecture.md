@@ -883,8 +883,9 @@ export class SalesController {
 ```yaml
 # Memory budget (faculty VM 4 vCPU / 6 GB): 1024 + 2×256 + 3×384 + 256 + 128 + 64 + 256 (etcd)
 # ≈ 3.3 GB.
-# Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health) + worker ×
-# (5 + 2 + 1) = 62 ≤ 80 (80%). The admin pool is platform-plane only (server/README.md *Invariants this stack enforces*).
+# Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health + 2 admin) +
+# worker × (5 + 2 + 1 + 2) = 70 ≤ 80 (80%). The admin pool is platform-plane only, fixed at 2
+# (server/README.md *Invariants this stack enforces*).
 ```
 
 **งบหน่วยความจำ** — แต่ละกล่องมี `mem_limit` ถ้าเกิน Docker ฆ่าทิ้ง
@@ -908,9 +909,9 @@ Prometheus ตั้ง retention ทั้งเวลาและขนาด 
 **งบ connection** — Postgres รับได้ `max_connections=100` (compose บรรทัด 195)
 
 ```
-api   : 3 ตัว × (15 pool request + 2 audit + 1 health) = 54
-worker: 1 ตัว × ( 5 pool         + 2 audit + 1 health) =  8
-                                                  รวม = 62  ≤ 80 (80% ของ 100)
+api   : 3 ตัว × (15 pool request + 2 audit + 1 health + 2 admin) = 60
+worker: 1 ตัว × ( 5 pool         + 2 audit + 1 health + 2 admin) = 10
+                                                          รวม = 70  ≤ 80 (80% ของ 100)
 ```
 
 - **connection pool** (กลุ่ม connection ที่เปิดค้างไว้ให้ request หยิบใช้) — เปิด connection ใหม่ทุก request แพงมาก จึงเปิดไว้ก่อน 15 เส้นต่อ api (`DB_POOL_SIZE: 15`)

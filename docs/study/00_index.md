@@ -615,8 +615,8 @@ server) เก็บไว้เพื่อพิสูจน์กติกา
 
 ไม่ใช่คำตอบใช่/ไม่ใช่เดียว — ต้องแยกส่วน: backend phase 1 เกือบเสร็จ (16/17 DoD) แต่ยังไม่เคย deploy
 ไป production จริงสักครั้ง (ติดปัญหาเครือข่าย FortiGate ไม่ใช่โค้ด) มี load test ที่ยังไม่วัดผล
-(#380), backup offsite ที่ parked ไว้, และบั๊กหลายจุดที่ยังเปิดอยู่ (migration RLS/FK, `/sync/push`
-fingerprint) — การตอบว่า "เสร็จแล้ว" เฉยๆ ถือว่าผิดกติกาความซื่อสัตย์ของเอกสารชุดนี้
+(#380), backup offsite ที่ parked ไว้ — บั๊กที่เคยเปิดอยู่ (migration RLS/FK #420, `/sync/push`
+fingerprint #413, client date #414) แก้ครบแล้วเมื่อ 2026-09-25 — การตอบว่า "เสร็จแล้ว" เฉยๆ ก็ยังถือว่าผิดกติกาความซื่อสัตย์ของเอกสารชุดนี้ เพราะ deploy จริง/load test/backup offsite ยังไม่จบ
 
 </details>
 

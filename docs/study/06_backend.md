@@ -392,7 +392,7 @@ repo นี้ใช้ **TypeORM 1.1.1** แต่ใช้แค่ 3 อย�
 
 compose รัน `api-1`, `api-2`, `api-3` (`server/docker-compose.yml:135-151`) หลัง Nginx ตัวเดียว
 
-เพราะ **instance ไหนก็ได้ต้องตอบ request ไหนก็ได้** → จึงต้องไม่เก็บอะไรใน memory ของ process (session อยู่ใน JWT, cache/rate-limit อยู่ใน Redis, ข้อมูลอยู่ใน Postgres) → ราคาที่จ่ายคือ ทุกอย่างที่ต้อง "จำ" ต้องวิ่งไป Redis/Postgres และงบ connection ต้องหารด้วย 3 ([02_architecture.md](02_architecture.md) หัวข้อ งบ connection: `3 api × 18 + worker 8 = 62 ≤ 80`)
+เพราะ **instance ไหนก็ได้ต้องตอบ request ไหนก็ได้** → จึงต้องไม่เก็บอะไรใน memory ของ process (session อยู่ใน JWT, cache/rate-limit อยู่ใน Redis, ข้อมูลอยู่ใน Postgres) → ราคาที่จ่ายคือ ทุกอย่างที่ต้อง "จำ" ต้องวิ่งไป Redis/Postgres และงบ connection ต้องหารด้วย 3 ([02_architecture.md](02_architecture.md) หัวข้อ งบ connection: `3 api × 20 + worker 10 = 70 ≤ 80`)
 
 ### 4. Transaction อยู่ที่ไหน: middleware/interceptor vs handler
 
@@ -1409,7 +1409,7 @@ VALUES (..., $17, COALESCE($18::timestamptz, now()))
 > - **Concurrency**: ป้องกันขายเกินด้วย `FOR UPDATE` + lock order คงที่ พิสูจน์ด้วย e2e 200 บิล/50 ชิ้น
 > - **Commit ceiling 25 วินาที** กันแถวหลุดจาก cursor ที่ถอย 30 วินาที; rate limit ใช้ Lua INCR atomic; cache/rate-limit/etcd **fail-open** เพื่อให้ร้านขายต่อได้
 > - **Test**: unit (vitest) + e2e 53 ไฟล์กับ Postgres จริง + architecture spec 3 ตัวที่ scan source code
-> - **ยังพังอยู่**: migration OwnerReviewItems (NULLIF, ON DELETE), `/sync/push` fingerprint, `COALESCE(dto.date)`, clamp ใน quotes — อย่าเขียนที่ไหนว่า "backend เสร็จแล้ว"
+> - **แก้แล้ว 2026-09-25**: migration OwnerReviewItems (NULLIF, ON DELETE — #420), `/sync/push` fingerprint (#413), `COALESCE(dto.date)`/`soldOffline` ทางออนไลน์ (#414) — **ยังพังอยู่**: clamp ใน quotes — อย่าเขียนที่ไหนว่า "backend เสร็จแล้ว"
 
 ---
 
@@ -1419,7 +1419,7 @@ VALUES (..., $17, COALESCE($18::timestamptz, now()))
 
 <details><summary>เฉลย</summary>
 
-connection ถูกถือระหว่างที่ argon2 กิน CPU + RAM 64 MiB ต่อครั้ง ถ้า login พร้อมกันเท่ากับ `DB_POOL_SIZE` pool ของ instance นั้นหมด request อื่น (แม้แต่การขายหรือค้นสินค้า) ต้องรอ argon2 ของคนอื่น — เป็นปัญหาเดียวกับที่ tx.5 (#154) แก้ในการ void: ของที่ช้าแต่ไม่ต้องใช้ DB ต้องทำนอก transaction
+connection ถูกถือระหว่างที่ argon2 กิน CPU + RAM 64 MiB ต่อครั้ง ถ้า login พร้อมกันเท่ากับ `DB_POOL_SIZE` pool ของ instance นั้นหมด request อื่น (แม้แต่การขายหรือค้นสินค้า) ต้องรอ argon2 ของคนอื่น — เป็นปัญหาเดียวกับที่ tx.5 (#154) แก้ในการ void: ของที่ช้าแต่ไม่ต้องใช้ DB ต้องทำนอก transaction (จริงๆ แล้ว `login` เคยมีปัญหาคล้ายกันมาก่อน — เดิมเปิด `QueryRunner` เดียวค้างไว้ตลอดทั้ง method รวมช่วง argon2 ด้วย แก้แล้วด้วย #421 ให้แต่ละ lookup ใช้ `this.ds.query(...)` แยกกัน ไม่มี connection ไหนถูกถือคร่อม argon2 อีก)
 
 </details>
 

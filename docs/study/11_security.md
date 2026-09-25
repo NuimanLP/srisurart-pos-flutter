@@ -282,7 +282,7 @@ flowchart LR
 | T7 | Outsider ต่อ DB/Redis ตรง | สแกน port 5432/6379 บน VM | ไม่ publish port datastore + Redis `requirepass` | `server/docker-compose.yml:190-205`, `:213-220` | ✅ |
 | T8 | Tenant อื่นอ่านข้อมูล | ร้าน B เปลี่ยน id ใน URL เป็นบิลร้าน A | `tid` มาจาก JWT เท่านั้น → `SET LOCAL app.tenant_id` → RLS fail-closed | `server/src/common/database/tenant.service.ts:86-88`, `server/src/db/migrations/1788652800001-RowLevelSecurity.ts:58-63` | 🟡 ตารางหนึ่ง (`owner_review_items`) policy ไม่มี `NULLIF` |
 | T9 | Tenant อื่นแย่งโควตา | ร้านหนึ่งยิงหนักจนร้านอื่นช้า | per-tenant rate limit (Redis) | `server/src/rate-limit/` (ADR-0006) | ✅ |
-| T10 | เครื่องถูกขโมย / เครื่องสาธารณะ | tablet หาย, session ค้าง | access 15 นาที, refresh หมดตี 4, retire เครื่อง → refresh ถูกปฏิเสธ | ADR-0009, `auth.service.ts:226-298` | 🟡 access token ฝั่ง web ถูกเก็บถาวร (ดู ⚠️) |
+| T10 | เครื่องถูกขโมย / เครื่องสาธารณะ | tablet หาย, session ค้าง | access 15 นาที, refresh หมดตี 4, retire เครื่อง → refresh ถูกปฏิเสธ | ADR-0009, `auth.service.ts:226-298` | ✅ (access token ฝั่ง web อยู่ใน memory เท่านั้น #404; refresh/device token ใน IndexedDB ไม่มี localStorage fallback #400/#419) |
 | T11 | เครื่อง backoffice ปลอมเป็น pos | ส่ง `deviceId` ของเครื่องขาย | `did`/`drole` มาจาก device token ที่ server hash แล้วเท่านั้น | `auth.service.ts:71-88`, `server/src/devices/devices.service.ts:157-159` | ✅ |
 | T12 | Insider ที่ถูกไล่ออก | token ยังใช้ได้ | `users.is_active` ตรวจตอน refresh ≤ 15 นาที | ADR-0009 ข้อ 3 | ✅ (ยอมรับช่อง 15 นาที) |
 | T13 | Insider แก้ยอดเงียบๆ | void บิลแล้วเก็บเงินสด | `audit_log` + `movements` เป็น ledger (INSERT/SELECT เท่านั้น) | `server/src/audit/audit.service.ts:27-45`, `RowLevelSecurity.ts:70-74` | 🟡 `pos_app` ยัง UPDATE/DELETE `audit_log` ได้ |
@@ -495,14 +495,16 @@ export function clientIp(req: { headers: IncomingHttpHeaders; ip?: string }): st
       }
     }
 
-    const qr = this.ds.createQueryRunner();
-    await qr.connect();
+    // No connection is held across this method (#421) — see บทเรียนของบท backend ข้อ argon2:
+    // the two lookups below are `this.ds.query(...)`, each a plain pool query that returns its
+    // connection at once; argon2 runs with none held.
 ```
 
 อ่านทีละประเด็น:
 
-1. **ถัง IP: 10 ครั้ง/60 วินาที** เช็ค **ก่อน** `qr.connect()` — IP ที่ถูกล็อกไม่เสีย connection ของ pool เลย
+1. **ถัง IP: 10 ครั้ง/60 วินาที** เช็ค **ก่อน** เปิด connection ใดๆ — IP ที่ถูกล็อกไม่เสีย connection ของ pool เลย
    (connection มีจำกัด ถ้าคนร้ายทำให้ login กิน connection ได้ = ทำให้ทั้งร้านขายของไม่ได้ = โจมตี **A**)
+   เดิม (ก่อน #421) `login` เปิด `QueryRunner` เดียวค้างไว้ตลอดทั้ง method (รวมช่วง argon2) ตอนนี้แต่ละ lookup เรียก `this.ds.query(...)` แยกกัน connection จึงถูกถือสั้นลงมาก — ไม่มี connection ไหนถูกถือคร่อมช่วง argon2 เลย (ดู [backend บทเรียน argon2](06_backend.md))
 2. **"นับก่อนรู้ผล" (#138):** แบบเดิม "เช็คก่อน แล้วค่อยบวก" มี **race condition** — ยิง 50 request พร้อมกัน ทุกตัวเห็นค่า 9 แล้วผ่านหมด
    `INCR` ใน Lua ทำ "บวก + อ่าน" เป็นก้อนเดียว (**atomic**) จึงไม่มีช่องให้แทรก
 3. **ทุกการปฏิเสธนับ** แม้แต่ "ไม่มี username นี้" — ถ้าไม่นับ คนร้ายใช้เดาว่า username ไหนมีจริงได้ฟรี
@@ -780,7 +782,7 @@ superuser และเจ้าของตาราง **ข้าม RLS ไ�
 
 ทั้งสองแบบ "ไม่รั่ว" แต่แบบไม่มี `NULLIF` ทำให้ bug กลายเป็น 500 ที่ไม่สม่ำเสมอ (ขึ้นกับว่าได้ connection ไหน) — ตรงข้ามกับหลัก "ผิดแล้วคืนผลแบบคาดเดาได้"
 
-**กรณีที่พลาด (ยังเปิดอยู่):** `server/src/db/migrations/1788652803002-OwnerReviewItems.ts:53-57`
+**กรณีที่เคยพลาด (แก้แล้ว):** `server/src/db/migrations/1788652803002-OwnerReviewItems.ts:53-57` เคยสร้าง policy แบบนี้
 
 ```ts
       CREATE POLICY tenant_isolation_policy ON owner_review_items
@@ -789,9 +791,9 @@ superuser และเจ้าของตาราง **ข้าม RLS ไ�
         WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)
 ```
 
-ไม่มี `NULLIF` → tenant ที่ไม่ได้ตั้งค่าได้ **22P02 → HTTP 500** แทน 0 แถว (บันทึกใน CLAUDE.md และ `01_DATABASE.md §11` เมื่อ 2026-09-23 — **ยังไม่แก้**)
+ไม่มี `NULLIF` → tenant ที่ไม่ได้ตั้งค่าได้ **22P02 → HTTP 500** แทน 0 แถว (บันทึกใน CLAUDE.md และ `01_DATABASE.md §11` เมื่อ 2026-09-23)
 migration เดียวกันยังมีบั๊กที่สอง — `:34` `FOREIGN KEY (tenant_id, reviewed_by) … ON DELETE SET NULL` จะพยายาม null `tenant_id` ที่เป็น NOT NULL ด้วย
-ทางแก้ต้องเป็น **migration ใหม่** ห้ามแก้ไฟล์ที่ apply ไปแล้ว
+ทางแก้ต้องเป็น **migration ใหม่** ห้ามแก้ไฟล์ที่ apply ไปแล้ว — **แก้แล้ว**: `1788652804200-OwnerReviewItemsFixes.ts` (PR #420) `DROP`/`CREATE POLICY` ใหม่ชื่อ `tenant_isolation` พร้อม `NULLIF`, และแก้ FK เป็น `ON DELETE SET NULL (reviewed_by)`
 
 บทเรียน: กติกา "ทุกตารางต้องมี RLS" มี test ตรวจ (comment ที่ `RowLevelSecurity.ts:49-51` ว่า schema test ตรวจว่าทุกตารางมี RLS + grants)
 แต่ test ตรวจแค่ว่า *มี policy* ไม่ได้ตรวจว่า *policy มีหน้าตาถูก* — ตารางใหม่ที่เขียน policy เองจึงหลุด
@@ -1117,21 +1119,22 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 | G1 | **TLS cert บน demo เป็น self-signed** | ผู้ใช้ตรวจตัวตน server ไม่ได้ → MITM ได้ในทางทฤษฎี, browser เตือน | `docker-compose.yml:90-101`; ไม่พบ cert จริงใน `vm.override.yml` |
 | G2 | **`mob04` CORS ยังเป็น `'*'`** | เว็บอื่นเรียก API ได้จาก browser | CLAUDE.md (#367) |
 | G3 | **etcd auth ไม่เคยเปิดบน VM (#365)** | `etcd-init.sh` บน VM กลายเป็น directory ของ root → RBAC ไม่ถูกเปิด; ทุก AC ต้องทำบน VM | CLAUDE.md "Still open" |
-| G4 | **RLS ของ `owner_review_items` ไม่มี `NULLIF`** + FK `ON DELETE SET NULL` ผิด | tenant ไม่ได้ตั้ง → 500 แทน 0 แถว; ลบ user ที่เคย review → error | `1788652803002-OwnerReviewItems.ts:34,53-57` |
+| ~~G4~~ | ~~RLS ของ `owner_review_items` ไม่มี `NULLIF` + FK `ON DELETE SET NULL` ผิด~~ — **แก้แล้ว** | เดิม: tenant ไม่ได้ตั้ง → 500 แทน 0 แถว; ลบ user ที่เคย review → error | `1788652804200-OwnerReviewItemsFixes.ts` (#420) |
 | G5 | **ไม่มี backup ออกจาก VM (#363 parked)** | ดิสก์พัง = ข้อมูลร้าน demo หาย (A ใน CIA) | CLAUDE.md, [devops](14_devops.md) |
 | G6 | **`config.ts:113` ยังมี fallback `'dev-only-platform-secret'`** | กันอยู่แค่ชั้น compose; รันนอก compose = ช่อง #184 กลับมา | `server/src/config/config.ts:113` |
 | G7 | **Platform admin ไม่มี MFA** | รหัสผ่านเดียวหลุด = ทุกร้าน | ADR-0002 "ยังไม่เคาะ" |
 | G8 | **`audit_log` แก้/ลบได้โดย `pos_app`** | app ถูกเจาะ → ลบร่องรอยได้ | `RowLevelSecurity.ts:70-74` (มีแค่ `movements` ที่ INSERT/SELECT) |
-| G9 | **Flutter เก็บ access token ถาวรใน `SharedPreferences`** (บน web = localStorage) | ขัด ADR-0009 ที่สั่ง "access token อยู่ใน memory เท่านั้น ห้าม localStorage" → XSS อ่าน token ได้ | `frontend/lib/data/storage/token_storage.dart:30-58`, ใช้จริงที่ `frontend/lib/presentation/repositories/repository_providers.dart:61` |
+| ~~G9~~ | ~~Flutter เก็บ access token ถาวรใน `SharedPreferences` (บน web = localStorage)~~ — **แก้แล้ว** | เดิม: ขัด ADR-0009 ที่สั่ง "access token อยู่ใน memory เท่านั้น ห้าม localStorage" → XSS อ่าน token ได้ | access token: `token_storage.dart` (#404); refresh/device token ไม่มี localStorage fallback อีกแล้ว, ไม่มีที่เก็บก็โยน `TokenStoreUnavailableException` (#400/#419) |
 | G10 | **image ใน compose ไม่ pin digest** | `postgres:16-alpine`, `redis:7-alpine`, `nginx:1.29-alpine`, `alpine/openssl` เปลี่ยนไส้ได้ | `server/docker-compose.yml:73,92,191,214` |
 | G11 | **PDPA / hardening ยังไม่ทำ (Phase 8a)** | ยังไม่มีนโยบายเก็บ/ลบข้อมูลส่วนบุคคลลูกค้า/ช่าง | CLAUDE.md "Pending follow-ups" |
-| G12 | **HIGH bug ใน `/sync/push`** (fingerprint path ไม่ตรง, ใช้ `date` จาก client) | ด้าน integrity ของบิล — เป็น bug ความถูกต้องมากกว่าช่องโหว่ แต่ client ควบคุม timestamp ได้ | CLAUDE.md, [offline/phase 2](10_offline_phase2.md) บทเรียน 1 |
+| ~~G12~~ | ~~HIGH bug ใน `/sync/push` (fingerprint path ไม่ตรง, ใช้ `date` จาก client)~~ — **แก้แล้ว** | เดิม: ด้าน integrity ของบิล — เป็น bug ความถูกต้องมากกว่าช่องโหว่ แต่ client ควบคุม timestamp ได้ | fingerprint: #413 (`ONLINE_PREFIX` ใน `sync.service.ts`); server time: #414 — online route ไม่อ่าน `dto.date`/`soldOffline` จาก body แล้ว, [offline/phase 2](10_offline_phase2.md) บทเรียน 1 |
 
-> G8, G9, G10 และ fallback ใน G6 **พบระหว่างเขียนบทนี้จากการอ่านโค้ด** — ไม่พบ issue ที่บันทึกไว้ใน `docs/` ถ้าจะแก้ ควรเปิด issue ก่อน
+> G8, G10 และ fallback ใน G6 **พบระหว่างเขียนบทนี้จากการอ่านโค้ด** — ไม่พบ issue ที่บันทึกไว้ใน `docs/` ถ้าจะแก้ ควรเปิด issue ก่อน
 > ส่วน G1 เป็นข้อสรุปจากการที่ไม่พบหลักฐานใน repo — สถานะจริงบน `mob04` ต้องตรวจที่เครื่อง
+> G4, G9 และ G12 **แก้แล้วหลัง 2026-09-25** (#420, #400/#419/#404, #413/#414 ตามลำดับ) — คงแถวไว้เพื่อไม่ให้เลขอ้างอิงขยับ
 
 **บทเรียนใหญ่ที่สุดของบทนี้:** เกือบทุกช่องในตารางไม่ใช่ "ไม่มีใครคิดถึง" แต่เป็น **"คิดแล้ว เขียนแล้ว แต่ไม่ได้ไปถึงเครื่องจริง"** (CORS, etcd)
-หรือ **"กฎเขียนสองที่แล้วเลื่อนออกจากกัน"** (#364, `NULLIF`, ADR-0009 vs `token_storage.dart`)
+หรือ **"กฎเขียนสองที่แล้วเลื่อนออกจากกัน"** (#364, `NULLIF` — แก้แล้ว #420)
 security ไม่ได้จบที่ PR merge — จบเมื่อพิสูจน์บนเครื่องที่รันจริงได้
 
 ---
@@ -1145,7 +1148,7 @@ security ไม่ได้จบที่ PR merge — จบเมื่อพ
 > - ชั้นป้องกันเรียงจากนอกเข้าใน: **Nginx (TLS, perip, allowlist) → guard (JWT, aud, drole, rate limit) → handler (validate, `$1`) → RLS (`pos_app`, `NULLIF`)**
 > - **ตัวตนมาจาก server เสมอ** — `tid` จาก JWT, `did`/`drole` จาก device token ที่ server hash เอง, IP จาก XFF ตัวขวาสุด
 > - **Fail-closed / fail-loud:** RLS คืน 0 แถว, CORS ผิดรูป throw, secret ขาด compose ไม่รัน
-> - **ยังเปิดอยู่:** self-signed cert, CORS `'*'` บน mob04, etcd auth (#365), `owner_review_items` RLS, ไม่มี backup offsite, ไม่มี MFA, access token ใน localStorage
+> - **ยังเปิดอยู่:** self-signed cert, CORS `'*'` บน mob04, etcd auth (#365), ไม่มี backup offsite, ไม่มี MFA, `audit_log` แก้/ลบได้โดย `pos_app` — `owner_review_items` RLS (#420) และ access token ใน localStorage (#404/#419) **แก้แล้ว**
 
 ---
 
@@ -1205,16 +1208,16 @@ comment ที่ `app.setup.ts:33-35` และ CLAUDE.md เตือนไว
 
 </details>
 
-**6.** ADR-0009 สั่งให้ access token อยู่ใน memory เท่านั้น แต่ `token_storage.dart` เก็บลง `SharedPreferences` ถ้ามีช่อง XSS (สคริปต์แปลกปลอมรันในหน้าเว็บ) จะต่างกันยังไงระหว่างสองแบบ? แล้วทำไม refresh token เก็บถาวรได้?
+**6.** ADR-0009 สั่งให้ access token อยู่ใน memory เท่านั้นบน web ถ้ามีช่อง XSS (สคริปต์แปลกปลอมรันในหน้าเว็บ) จะต่างกันยังไงระหว่างเก็บใน memory กับเก็บใน `SharedPreferences`/localStorage? แล้วทำไม refresh/device token เก็บถาวรได้โดยไม่ผิดหลักเดียวกัน?
 
 <details><summary>เฉลย</summary>
 
 บน web `SharedPreferences` คือ localStorage — สคริปต์ XSS อ่านได้ตรงๆ แล้วส่งออกไปใช้จากเครื่องคนร้าย **ได้นานเท่าอายุ token**
 ถ้าอยู่ใน memory ของ Dart เท่านั้น สคริปต์แปลกปลอมหยิบยากกว่ามาก และ reload หน้าแล้วหายไป
 (XSS ยังทำร้ายได้อยู่ดีขณะหน้าเปิด — memory-only ลดความเสียหาย ไม่ได้ป้องกันทั้งหมด)
-refresh token ต้องเก็บถาวร เพราะไม่งั้น reload หน้าแล้วต้อง login ใหม่ทุกครั้ง — ADR-0009 ยอมเก็บใน IndexedDB แต่จำกัดความเสียหายด้วย
-(1) หมดอายุตี 4, (2) `typ=refresh` ใช้ยิง API ไม่ได้ (`jwt-keys.service.ts:109`), (3) ตอน refresh ตรวจ `is_active`/`retired_at` ใน DB
-การที่ access token ถูกเก็บถาวรด้วยจึงเป็นช่องที่ ADR ตั้งใจปิดแต่โค้ดไม่ได้ทำตาม
+`token_storage.dart` ทำตาม ADR-0009 อยู่แล้ว: `persistAccessToken` เป็น `!kIsWeb` — บน web access token อยู่ใน `_memoryAccessToken` เท่านั้น ไม่แตะ `SharedPreferences` เลย reload หน้าจึงต้องขอใหม่ผ่าน refresh token (`ApiClient`: ไม่มี Bearer → 401 → `/auth/refresh` → retry)
+refresh/device token ต้องเก็บถาวร เพราะไม่งั้น reload หน้าแล้วต้อง login/ผูกเครื่องใหม่ทุกครั้ง — ADR-0009 ยอมเก็บใน IndexedDB (ไม่ใช่ localStorage) และตั้งแต่ #400/PR #419 **ไม่มี fallback ไป localStorage อีกแล้ว**: ถ้าเปิด IndexedDB ไม่ได้ โค้ดโยน `TokenStoreUnavailableException` แทนที่จะเงียบๆ ถือว่า "ยังไม่ได้ผูกเครื่อง" ความเสียหายจาก XSS ต่อ refresh/device token ยังถูกจำกัดด้วย
+(1) refresh หมดอายุตี 4, (2) `typ=refresh` ใช้ยิง API ไม่ได้ (`jwt-keys.service.ts:109`), (3) ตอน refresh ตรวจ `is_active`/`retired_at` ใน DB
 
 </details>
 
