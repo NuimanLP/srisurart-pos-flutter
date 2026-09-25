@@ -58,12 +58,12 @@ void main() {
       final db = AppDatabase(NativeDatabase.opened(rawDb));
       addTearDown(() => db.close());
 
-      // Verify PRAGMA user_version is bumped to 11
+      // Verify PRAGMA user_version is bumped to 12
       final userVersion = await db
           .customSelect('PRAGMA user_version')
           .map((r) => r.data.values.first as int)
           .getSingle();
-      expect(userVersion, 11);
+      expect(userVersion, 12);
 
       // Verify existing product rows are intact with all fields preserved
       final products = await (db.select(db.products)

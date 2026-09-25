@@ -13222,6 +13222,46 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $AppMetaTable appMeta = $AppMetaTable(this);
   late final $OutboxOpsTable outboxOps = $OutboxOpsTable(this);
   late final $SyncCursorsTable syncCursors = $SyncCursorsTable(this);
+  late final Index idxProductsPartNoLower = Index(
+    'idx_products_part_no_lower',
+    'CREATE INDEX idx_products_part_no_lower ON products (lower(part_no))',
+  );
+  late final Index idxProductsPartNo = Index(
+    'idx_products_part_no',
+    'CREATE INDEX idx_products_part_no ON products (part_no)',
+  );
+  late final Index idxSalesDate = Index(
+    'idx_sales_date',
+    'CREATE INDEX idx_sales_date ON sales (date)',
+  );
+  late final Index idxSaleItemsSaleId = Index(
+    'idx_sale_items_sale_id',
+    'CREATE INDEX idx_sale_items_sale_id ON sale_items (sale_id)',
+  );
+  late final Index idxPoItemsPoId = Index(
+    'idx_po_items_po_id',
+    'CREATE INDEX idx_po_items_po_id ON po_items (po_id)',
+  );
+  late final Index idxReturnsSaleId = Index(
+    'idx_returns_sale_id',
+    'CREATE INDEX idx_returns_sale_id ON returns (sale_id)',
+  );
+  late final Index idxReturnItemsReturnId = Index(
+    'idx_return_items_return_id',
+    'CREATE INDEX idx_return_items_return_id ON return_items (return_id)',
+  );
+  late final Index idxQuoteItemsQuoteId = Index(
+    'idx_quote_items_quote_id',
+    'CREATE INDEX idx_quote_items_quote_id ON quote_items (quote_id)',
+  );
+  late final Index idxSuppliersProductId = Index(
+    'idx_suppliers_product_id',
+    'CREATE INDEX idx_suppliers_product_id ON suppliers (product_id)',
+  );
+  late final Index idxDrawerEntriesShiftId = Index(
+    'idx_drawer_entries_shift_id',
+    'CREATE INDEX idx_drawer_entries_shift_id ON drawer_entries (shift_id)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -13252,6 +13292,16 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     appMeta,
     outboxOps,
     syncCursors,
+    idxProductsPartNoLower,
+    idxProductsPartNo,
+    idxSalesDate,
+    idxSaleItemsSaleId,
+    idxPoItemsPoId,
+    idxReturnsSaleId,
+    idxReturnItemsReturnId,
+    idxQuoteItemsQuoteId,
+    idxSuppliersProductId,
+    idxDrawerEntriesShiftId,
   ];
 }
 

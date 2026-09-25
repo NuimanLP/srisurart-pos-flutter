@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart' as raw;
 import 'package:srisurart_pos/data/db/database.dart';
 
+import 'support/legacy_schema_ddl.dart';
+
 const _v3Ddl = [
   'CREATE TABLE "shifts" ("id" TEXT NOT NULL, "date_str" TEXT NOT NULL, '
       '"starting_cash" REAL NOT NULL, "opened_at" INTEGER NOT NULL, '
@@ -63,7 +65,7 @@ void main() {
     file = File('${dir.path}/app.sqlite');
 
     final v3 = raw.sqlite3.open(file.path);
-    for (final ddl in _v3Ddl) {
+    for (final ddl in [..._v3Ddl, saleItemsV2Ddl, ...untouchedTablesDdl]) {
       v3.execute(ddl);
     }
     v3.execute(
@@ -91,7 +93,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 11);
+    expect(version, 12);
 
     final product = await (db.select(
       db.products,

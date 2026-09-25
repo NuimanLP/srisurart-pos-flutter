@@ -69,7 +69,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -155,6 +155,24 @@ class AppDatabase extends _$AppDatabase {
       // for keyset pull sync and 30s rewind window.
       if (from < 11) {
         await m.createTable(syncCursors);
+      }
+      // v11 → v12 (#417): indexes only (declared by @TableIndex in
+      // tables.dart). No data is rewritten.
+      if (from < 12) {
+        for (final index in [
+          idxProductsPartNoLower,
+          idxProductsPartNo,
+          idxSalesDate,
+          idxSaleItemsSaleId,
+          idxPoItemsPoId,
+          idxReturnsSaleId,
+          idxReturnItemsReturnId,
+          idxQuoteItemsQuoteId,
+          idxSuppliersProductId,
+          idxDrawerEntriesShiftId,
+        ]) {
+          await m.createIndex(index);
+        }
       }
     },
   );

@@ -449,12 +449,12 @@ void main() {
       final upgradedDb = AppDatabase(NativeDatabase.opened(rawDb));
       addTearDown(() => upgradedDb.close());
 
-      // Verify PRAGMA user_version is 11
+      // Verify PRAGMA user_version is 12
       final version = await upgradedDb
           .customSelect('PRAGMA user_version')
           .map((r) => r.data.values.first)
           .getSingle();
-      expect(version, 11);
+      expect(version, 12);
 
       // Verify doc_counter_seeds is completely wiped (C16)
       final seeds = await upgradedDb.select(upgradedDb.docCounterSeeds).get();

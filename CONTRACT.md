@@ -111,9 +111,10 @@ Screens & services consume these row classes DIRECTLY for flat entities.
   as a JSON string.
 - AppMeta seeds `schema_version=2` and `backup_format_version=2` (these are the
   JS `SCHEMA_VERSION` / `BACKUP_FORMAT_VERSION`).
-- Drift's own `schemaVersion => 3` (v2 = sync bookkeeping + costAtSale; v3 =
-  the columns the server's shape forces, ADR-0010); the JS migration counter
-  value (2) lives in AppMeta, NOT in Drift's schemaVersion — the two numbers
+- Drift's own `schemaVersion => 12` (each step is in `database.dart`
+  onUpgrade; e.g. v2 = sync bookkeeping + costAtSale; v3 = the columns the
+  server's shape forces, ADR-0010; v12 = #417 indexes via `@TableIndex`);
+  the JS migration counter value (2) lives in AppMeta, NOT in Drift's schemaVersion — the two numbers
   are unrelated and coincide only by accident.
 - Every write that changes a `Products` row stamps `updatedAt` via
   `ProductsCompanion.stamped` (ADR-0010: the client fetches with

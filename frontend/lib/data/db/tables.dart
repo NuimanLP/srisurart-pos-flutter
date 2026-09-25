@@ -10,6 +10,13 @@
 
 import 'package:drift/drift.dart';
 
+// Schema v12 (#417) indexes. Each one backs a real query in lib/data — the
+// product dup-check filters `lower(part_no) = ?` (expression index), while
+// api_purchase_orders_repository looks up the exact `part_no = ?`.
+@TableIndex.sql(
+  'CREATE INDEX idx_products_part_no_lower ON products (lower(part_no))',
+)
+@TableIndex(name: 'idx_products_part_no', columns: {#partNo})
 @DataClassName('ProductRow')
 class Products extends Table {
   TextColumn get id => text()();
@@ -90,6 +97,7 @@ class Mechanics extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@TableIndex(name: 'idx_sales_date', columns: {#date}) // #417: ORDER BY date
 @DataClassName('SaleRow')
 class Sales extends Table {
   TextColumn get id => text()();
@@ -125,6 +133,7 @@ class Sales extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@TableIndex(name: 'idx_sale_items_sale_id', columns: {#saleId}) // #417
 @DataClassName('SaleItemRow')
 class SaleItems extends Table {
   IntColumn get rowId => integer().autoIncrement()();
@@ -156,6 +165,7 @@ class PurchaseOrders extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@TableIndex(name: 'idx_po_items_po_id', columns: {#poId}) // #417
 @DataClassName('PoItemRow')
 class PoItems extends Table {
   IntColumn get rowId => integer().autoIncrement()();
@@ -166,6 +176,7 @@ class PoItems extends Table {
   RealColumn get cost => real()();
 }
 
+@TableIndex(name: 'idx_returns_sale_id', columns: {#saleId}) // #417
 @DataClassName('ReturnRow')
 class Returns extends Table {
   TextColumn get id => text()();
@@ -186,6 +197,7 @@ class Returns extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@TableIndex(name: 'idx_return_items_return_id', columns: {#returnId}) // #417
 @DataClassName('ReturnItemRow')
 class ReturnItems extends Table {
   IntColumn get rowId => integer().autoIncrement()();
@@ -217,6 +229,7 @@ class Quotes extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@TableIndex(name: 'idx_quote_items_quote_id', columns: {#quoteId}) // #417
 @DataClassName('QuoteItemRow')
 class QuoteItems extends Table {
   IntColumn get rowId => integer().autoIncrement()();
@@ -248,6 +261,7 @@ class Movements extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@TableIndex(name: 'idx_suppliers_product_id', columns: {#productId}) // #417
 @DataClassName('SupplierRow')
 class Suppliers extends Table {
   TextColumn get id => text()();
@@ -324,6 +338,7 @@ class Shifts extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+@TableIndex(name: 'idx_drawer_entries_shift_id', columns: {#shiftId}) // #417
 @DataClassName('DrawerEntryRow')
 class DrawerEntries extends Table {
   TextColumn get id => text()();
