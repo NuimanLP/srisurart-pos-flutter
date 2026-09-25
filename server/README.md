@@ -1581,7 +1581,8 @@ Negatives, all in the same spec:
   `getFailureStatus` then `recordFailure` pair was check-then-increment: 15 concurrent bad logins all
   read the same count and all answered 401 (measured on `main` by `security.e2e-spec.ts`, now 10×401
   and 5×429). So every refusal counts — invalid or retired device token (IP bucket only), unknown or
-  ambiguous username, inactive user, suspended tenant, wrong password. Responses are unchanged.
+  ambiguous username, wrong password, and (after a correct password) inactive user or suspended
+  tenant.
 - 🔴 **A success never clears the IP bucket.** It gives back only its own attempt
   (`refundAttempt`, which never creates a key). Clearing it let one valid account reset the bucket
   every 9 failures and spray usernames. A success still clears that username's bucket.
@@ -1591,9 +1592,14 @@ Negatives, all in the same spec:
 - The client address comes from `clientIp(req)`, the same helper the audit services use; nginx must be
   the only proxy in front of the API (07 §9).
 - Redis errors fail open, like the rest of `RateLimitService`.
-- **Not changed:** the void manager-PIN path (`sales/void.service.ts`) still uses check-then-increment,
-  and `User is inactive` / `TENANT_SUSPENDED` are answered before the password is checked, which tells a
-  caller that a username exists. Both are follow-ups, not part of #138.
+- **Not changed:** the void manager-PIN path (`sales/void.service.ts`) still uses check-then-increment
+  (a follow-up, not part of #138).
+- **Password first, status second (owner decision 2026-09-25).** `User is inactive` /
+  `TENANT_SUSPENDED` are answered only after the correct password. A wrong password on any account,
+  an unknown user and an ambiguous username (one name in several shops, no device token) all get
+  the same `401 Invalid credentials` after exactly one argon2 verify. A wrong password is audited as
+  `invalid_password` whatever the account's status; `tenant_inactive` / `user_inactive` rows need
+  the correct password.
 
 ## Conventions these slices set
 
