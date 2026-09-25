@@ -6,6 +6,8 @@ import 'package:srisurart_pos/data/storage/token_kv_store.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 
+final throwsStoreUnavailable = throwsA(isA<TokenStoreUnavailableException>());
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -215,8 +217,8 @@ void main() {
       store.failPutOn = 'auth_device_token'; // refresh succeeds, device fails
       final web = webStorage();
 
-      await expectLater(web.getDeviceToken(), throwsA(isA<TokenStoreUnavailableException>()));
-      await expectLater(web.getRefreshToken(), throwsA(isA<TokenStoreUnavailableException>()));
+      await expectLater(web.getDeviceToken(), throwsStoreUnavailable);
+      await expectLater(web.getRefreshToken(), throwsStoreUnavailable);
       expect(prefs.getString('auth_refresh_token'), 'legacy-refresh');
       expect(prefs.getString('auth_device_token'), 'legacy-device');
 
@@ -233,7 +235,7 @@ void main() {
       prefs = await SharedPreferences.getInstance();
       store.dropWrites = true;
 
-      await expectLater(webStorage().getDeviceToken(), throwsA(isA<TokenStoreUnavailableException>()));
+      await expectLater(webStorage().getDeviceToken(), throwsStoreUnavailable);
       expect(prefs.getString('auth_device_token'), 'legacy-device');
     });
 
@@ -241,9 +243,9 @@ void main() {
       store.failAll = true;
       final web = webStorage();
 
-      await expectLater(web.setDeviceToken('device-1'), throwsA(isA<TokenStoreUnavailableException>()));
-      await expectLater(web.setRefreshToken('refresh-1'), throwsA(isA<TokenStoreUnavailableException>()));
-      await expectLater(web.getDeviceToken(), throwsA(isA<TokenStoreUnavailableException>()));
+      await expectLater(web.setDeviceToken('device-1'), throwsStoreUnavailable);
+      await expectLater(web.setRefreshToken('refresh-1'), throwsStoreUnavailable);
+      await expectLater(web.getDeviceToken(), throwsStoreUnavailable);
       expect(prefs.getString('auth_device_token'), isNull);
       expect(prefs.getString('auth_refresh_token'), isNull);
     });
@@ -257,10 +259,10 @@ void main() {
       store.failAll = true;
       final web = webStorage();
 
-      await expectLater(web.getDeviceToken(), throwsA(isA<TokenStoreUnavailableException>()));
-      await expectLater(web.getRefreshToken(), throwsA(isA<TokenStoreUnavailableException>()));
-      await expectLater(web.clearAuthTokens(), throwsA(isA<TokenStoreUnavailableException>()));
-      await expectLater(web.clearAll(), throwsA(isA<TokenStoreUnavailableException>()));
+      await expectLater(web.getDeviceToken(), throwsStoreUnavailable);
+      await expectLater(web.getRefreshToken(), throwsStoreUnavailable);
+      await expectLater(web.clearAuthTokens(), throwsStoreUnavailable);
+      await expectLater(web.clearAll(), throwsStoreUnavailable);
       expect(prefs.getString('auth_refresh_token'), 'legacy-refresh');
       expect(prefs.getString('auth_device_token'), 'legacy-device');
 
@@ -302,13 +304,12 @@ void main() {
       SharedPreferences.setMockInitialValues({'auth_device_token': 'enrolled-device'});
       prefs = await SharedPreferences.getInstance();
       expect(await webStorage().getDeviceToken(), 'enrolled-device'); // migrates
-      expect(prefs.getBool('auth_tokens_in_store'), isTrue);
 
       store.failAll = true; // a later run: IndexedDB will not open
       final laterRun = webStorage();
-      await expectLater(laterRun.getDeviceToken(), throwsA(isA<TokenStoreUnavailableException>()));
-      await expectLater(laterRun.setDeviceToken('re-enrolled'), throwsA(isA<TokenStoreUnavailableException>()));
-      await expectLater(laterRun.getRefreshToken(), throwsA(isA<TokenStoreUnavailableException>()));
+      await expectLater(laterRun.getDeviceToken(), throwsStoreUnavailable);
+      await expectLater(laterRun.setDeviceToken('re-enrolled'), throwsStoreUnavailable);
+      await expectLater(laterRun.getRefreshToken(), throwsStoreUnavailable);
       expect(prefs.getString('auth_device_token'), isNull);
 
       // The store comes back mid-run: the next access retries and recovers.
@@ -316,44 +317,33 @@ void main() {
       expect(await laterRun.getDeviceToken(), 'enrolled-device');
     });
 
-    test('a fresh install marks the store as the token home even with nothing to migrate', () async {
-      await webStorage().getDeviceToken();
-      expect(prefs.getBool('auth_tokens_in_store'), isTrue);
-    });
-
-    // Review finding (#404): a partial migration left a store copy without the
-    // marker, and a #404-era build's localStorage fallback run then logged out
-    // or unbound in localStorage only. This build never produces that state,
-    // but a till that ran #404 may carry it: the next healthy run must not
-    // revive the store copy.
-    test('state left by a #404 fallback logout after a partial migration: the refresh token is not revived', () async {
-      store.data['auth_refresh_token'] = 'legacy-refresh';
-      SharedPreferences.setMockInitialValues({'auth_device_token': 'legacy-device'});
+    // Spec review of this PR: #404 kept a "store mirrors localStorage until a
+    // marker is set" step. With the fallback gone nothing can log out in
+    // localStorage only, so the step only did harm: clearing localStorage
+    // alone (marker included) made the next run wipe the migrated device token.
+    test('localStorage cleared alone after migration: the store tokens survive', () async {
+      SharedPreferences.setMockInitialValues({
+        'auth_refresh_token': 'legacy-refresh',
+        'auth_device_token': 'enrolled-device',
+      });
       prefs = await SharedPreferences.getInstance();
+      expect(await webStorage().getDeviceToken(), 'enrolled-device'); // migrates
 
+      SharedPreferences.setMockInitialValues({}); // localStorage wiped alone
+      prefs = await SharedPreferences.getInstance();
       final nextRun = webStorage();
-      expect(await nextRun.getRefreshToken(), isNull);
-      expect(await nextRun.getDeviceToken(), 'legacy-device');
-      expect(store.data, {'auth_device_token': 'legacy-device'});
+      expect(await nextRun.getDeviceToken(), 'enrolled-device');
+      expect(await nextRun.getRefreshToken(), 'legacy-refresh');
     });
 
-    test('state left by a #404 fallback unbind after a partial migration: the device token is not revived', () async {
-      store.data['auth_device_token'] = 'old-device';
-      SharedPreferences.setMockInitialValues({});
-      prefs = await SharedPreferences.getInstance();
-
-      expect(await webStorage().getDeviceToken(), isNull);
-      expect(store.data, isEmpty);
-      expect(prefs.getBool('auth_tokens_in_store'), isTrue);
-    });
-
-    test('a failed migration does not set the marker', () async {
+    test('a failed migration leaves localStorage exactly as it was', () async {
       SharedPreferences.setMockInitialValues({'auth_device_token': 'legacy-device'});
       prefs = await SharedPreferences.getInstance();
       store.failAll = true;
 
-      await expectLater(webStorage().getDeviceToken(), throwsA(isA<TokenStoreUnavailableException>()));
-      expect(prefs.getBool('auth_tokens_in_store'), isNull);
+      await expectLater(webStorage().getDeviceToken(), throwsStoreUnavailable);
+      expect(prefs.getKeys(), {'auth_device_token'});
+      expect(prefs.getString('auth_device_token'), 'legacy-device');
     });
   });
 }

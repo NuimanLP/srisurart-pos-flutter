@@ -18,8 +18,8 @@ class IndexedDbTokenKvStore implements TokenKvStore {
   static const String _store = 'tokens';
 
   /// An open that never answers (a `blocked` that never clears, a wedged
-  /// browser) must fail rather than hang app startup, so the caller can fall
-  /// back — see `SharedPrefsTokenStorage._migrateToStore`.
+  /// browser) must fail rather than hang app startup, so the caller can show
+  /// `TokenStoreUnavailableException` — see `SharedPrefsTokenStorage._migrateToStore`.
   static const Duration openTimeout = Duration(seconds: 5);
 
   Future<web.IDBDatabase>? _db;

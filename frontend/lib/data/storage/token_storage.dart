@@ -91,11 +91,6 @@ class SharedPrefsTokenStorage implements TokenStorage {
   static const String _keyDeviceToken = 'auth_device_token';
   static const String _keyUser = 'auth_user_json';
 
-  /// Non-secret marker in SharedPreferences: "a migration into [_store] has
-  /// completed once". Until it is set, [_store] mirrors SharedPreferences (see
-  /// [_migrateToStore]).
-  static const String _keyTokensInStore = 'auth_tokens_in_store';
-
   /// The tokens that live in [_store] when there is one.
   static const List<String> _storeKeys = [_keyRefreshToken, _keyDeviceToken];
 
@@ -118,7 +113,7 @@ class SharedPrefsTokenStorage implements TokenStorage {
     // Builds before #400 wrote the access token to localStorage on web.
     if (!persistAccessToken) await p.remove(_keyAccessToken);
     await _migrateToStore(p);
-    // The tokens are in a store we cannot reach: try again on the next call
+    // The store is unreachable: try again on the next call
     // instead of settling for an error for the rest of the run.
     if (_mode == _StoreMode.unavailable) _ready = null;
   }
@@ -133,12 +128,10 @@ class SharedPrefsTokenStorage implements TokenStorage {
   ///  * a SharedPreferences value overwrites the store's — this build never
   ///    writes one there, so a token found there comes from an older build
   ///    and is as new or newer;
-  ///  * until [_keyTokensInStore] is set, a store token with no
-  ///    SharedPreferences counterpart is deleted (the store mirrors
-  ///    SharedPreferences) — a #404-era build could leave a partial
-  ///    migration's store copy and then log out/unbind in localStorage only
-  ///    (its fallback run); keeping that copy would revive the token. This
-  ///    build cannot create that state, but a till that ran #404 may carry it;
+  ///  * a store token with no SharedPreferences counterpart is kept: with no
+  ///    fallback, no run can log out/unbind in SharedPreferences only, so
+  ///    such a copy is simply a migrated token (#404's mirror step is gone —
+  ///    it would wipe an enrolled till whose localStorage alone was cleared);
   ///  * re-running it after a crash half-way is harmless (idempotent);
   ///  * if the store is unusable (IndexedDB blocked, missing or timing out)
   ///    the run is [_StoreMode.unavailable]: token access throws
@@ -166,18 +159,9 @@ class SharedPrefsTokenStorage implements TokenStorage {
           throw StateError('token store read-back mismatch for $key');
         }
       }
-      // Until the marker is set SharedPreferences is the only truth, so the
-      // store must mirror it: a store copy with no SharedPreferences
-      // counterpart was left by a partial migration and then logged out or
-      // unbound by a fallback run — keeping it would revive that token.
-      if (!(p.getBool(_keyTokensInStore) ?? false)) {
-        for (final key in _storeKeys) {
-          if (!legacy.containsKey(key)) await store.delete(key);
-        }
-      }
-      // Marker before removal: a crash in between leaves both copies, and the
-      // next run overwrites the store with the (equal) SharedPreferences ones.
-      await p.setBool(_keyTokensInStore, true);
+      // Every token is in the store and verified: only now remove the
+      // SharedPreferences copies. A crash in between leaves both, and the next
+      // run overwrites the store with the (equal) SharedPreferences ones.
       for (final key in legacy.keys) {
         await p.remove(key);
       }

@@ -168,6 +168,15 @@ guard ของ `/api/*` อื่นยังรับเฉพาะ `typ=acce
 | F6 | retire / enrol / export ต้องมี `did` (ล็อกอินพร้อม device token ที่ enrol แล้ว) · รหัสผ่านอย่างเดียวไม่พอ · เครื่องแรกใช้ enrolment code ของ provisioning | "`owner` เท่านั้น" ของ #163 (บัญชีร้านเดียว = ทุกคนรู้รหัส) |
 | F9 | **user active หนึ่งคนต่อร้าน** (`uq_users_one_active`) · ร้านเดิมที่มีหลายคน: เก็บคนแรก ที่เหลือ `is_active=false` | – |
 
+## Addendum 2026-09-25 — owner decision on #400 (Flutter Web token storage)
+
+* **ไม่มี fallback ไป localStorage** สำหรับ refresh / device token บน web — ถ้าเปิดหรือเขียน IndexedDB ไม่ได้
+  client โยน `TokenStoreUnavailableException` (ข้อความไทยที่ owner รับรองแล้ว: `02_API_SCREENS.md §8.1.1`)
+  ให้ผู้ใช้รีโหลดหน้า ไม่ใช่ถอยไปเก็บ/อ่านใน localStorage และไม่รายงานว่า "ยังไม่ผูกเครื่อง" (ADR-0004 F8)
+* token ที่ build เก่าทิ้งไว้ใน localStorage ถูก **ย้าย** เข้า IndexedDB ครั้งเดียว (เขียนแล้วอ่านกลับตรงก่อน จึงลบจาก
+  localStorage) · ตอน IndexedDB ใช้ไม่ได้ ของเก่าไม่ถูกอ่านและไม่ถูกลบ รอรอบที่ใช้ได้ค่อยย้าย
+* แถว "ที่เก็บฝั่ง Flutter Web" ด้านบนจึงตรงกับโค้ด (`frontend/lib/data/storage/token_storage.dart`) โดยไม่มีข้อยกเว้น
+
 ## ผลที่ตามมา
 
 * `02_API_SCREENS.md §1.1` ต้องระบุอายุ token ทั้งสองตัวให้ชัด ไม่ใช่ปล่อยว่าง

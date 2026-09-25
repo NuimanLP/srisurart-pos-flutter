@@ -70,7 +70,8 @@ class AuthRepository {
     final normalizedCode = code.trim().toUpperCase();
 
     // #400: touch the token storage BEFORE spending the code. If the web token
-    // store holding this till's device token is unreachable this throws
+    // store (IndexedDB) is unreachable — on an enrolled till or a fresh
+    // browser alike, there is no localStorage fallback — this throws
     // TokenStoreUnavailableException, rather than minting a new device_no on
     // the server that could then not even be saved (ADR-0004 F8).
     await tokenStorage.getDeviceToken();
