@@ -1,11 +1,14 @@
 // Unit tests for AuthRepository: login, enrolment, logout, and device binding rules.
 
 import 'dart:convert';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
+import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 
@@ -51,6 +54,12 @@ class FakeTokenStorage implements TokenStorage {
   }
 }
 
+class _UnavailableDeviceTokenStorage extends FakeTokenStorage {
+  @override
+  Future<String?> getDeviceToken() async =>
+      throw const TokenStoreUnavailableException();
+}
+
 void main() {
   late FakeTokenStorage storage;
 
@@ -76,6 +85,22 @@ void main() {
     final token = await repo.enrolDevice('  enrol-1234  ');
     expect(token, 'dev-token-uuid-123');
     expect(storage.deviceToken, 'dev-token-uuid-123');
+  });
+
+  // #400 / ADR-0004 F8: with the device token in an unreachable web token
+  // store, enrolling must not spend the code (a new device_no) on the server.
+  test('enrolDevice does not call the server when the token store is unavailable', () async {
+    var calls = 0;
+    final mockClient = MockClient((req) async {
+      calls++;
+      return http.Response(jsonEncode({'deviceToken': 'new'}), 200);
+    });
+    final unavailable = _UnavailableDeviceTokenStorage();
+    final apiClient = ApiClient(baseUrl: 'http://test', httpClient: mockClient, tokenStorage: unavailable);
+    final repo = AuthRepository(apiClient: apiClient, tokenStorage: unavailable);
+
+    await expectLater(repo.enrolDevice('ENROL-1'), throwsA(isA<TokenStoreUnavailableException>()));
+    expect(calls, 0);
   });
 
   test('login automatically passes deviceToken if device is already enrolled', () async {
@@ -132,5 +157,27 @@ void main() {
     expect(storage.refreshToken, isNull);
     expect(storage.user, isNull);
     expect(storage.deviceToken, 'hardware-device-token');
+  });
+
+  // #400: on web the access token is memory-only, so right after a reload there
+  // is no JWT to read `did`/`drole` from until the first API call refreshes it.
+  // The device id/role recorded at the last online login stand in for it.
+  test('getDeviceId/getDeviceRole fall back to the values recorded at login when no access token', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final apiClient = ApiClient(baseUrl: 'http://test', tokenStorage: storage);
+    final pinRepo = OfflinePinRepository(db: db, tokenStorage: storage);
+    final repo = AuthRepository(
+      apiClient: apiClient,
+      tokenStorage: storage,
+      offlinePinRepository: pinRepo,
+    );
+    await pinRepo.recordOnlineLogin(iat: 1, deviceId: 'dev-42', deviceRole: 'pos');
+
+    storage.accessToken = null; // reload: memory-only token is gone
+    storage.refreshToken = 'refresh';
+
+    expect(await repo.getDeviceId(), 'dev-42');
+    expect(await repo.getDeviceRole(), 'pos');
   });
 }

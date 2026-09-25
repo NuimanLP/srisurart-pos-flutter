@@ -69,6 +69,12 @@ class AuthRepository {
   Future<String> enrolDevice(String code) async {
     final normalizedCode = code.trim().toUpperCase();
 
+    // #400: touch the token storage BEFORE spending the code. If the web token
+    // store holding this till's device token is unreachable this throws
+    // TokenStoreUnavailableException, rather than minting a new device_no on
+    // the server that could then not even be saved (ADR-0004 F8).
+    await tokenStorage.getDeviceToken();
+
     final response = await apiClient.post(
       '/api/v1/auth/device',
       body: {'code': normalizedCode},
@@ -127,17 +133,24 @@ class AuthRepository {
   }
 
   /// Inspects the device role ('pos' or 'backoffice') from the current access token claims.
+  ///
+  /// With no access token it falls back to the role recorded at the last
+  /// online login. Needed on web right after a reload, where the access token
+  /// is memory-only (#400, ADR-0009); on any platform it also applies after
+  /// logout, which is what AuthCubit already did by hand.
   Future<String?> getDeviceRole() async {
     final token = await tokenStorage.getAccessToken();
-    if (token == null) return null;
+    if (token == null) return offlinePinRepository?.getDeviceRole();
     final claims = JwtClaims.tryParse(token);
     return claims?.drole;
   }
 
   /// Inspects the server-assigned deviceId from the current access token claims.
+  ///
+  /// Same no-access-token fallback as [getDeviceRole] (#400).
   Future<String?> getDeviceId() async {
     final token = await tokenStorage.getAccessToken();
-    if (token == null) return null;
+    if (token == null) return offlinePinRepository?.getStoredDeviceId();
     final claims = JwtClaims.tryParse(token);
     return claims?.did;
   }

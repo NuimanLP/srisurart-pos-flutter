@@ -51,8 +51,13 @@ class StubAuthRepo extends AuthRepository {
     mockDeviceRole = null;
   }
 
+  bool throwStoreUnavailable = false;
+
   @override
-  Future<String?> getDeviceToken() async => mockDeviceToken;
+  Future<String?> getDeviceToken() async {
+    if (throwStoreUnavailable) throw const TokenStoreUnavailableException();
+    return mockDeviceToken;
+  }
 
   @override
   Future<String?> getDeviceRole() async => mockDeviceRole;
@@ -109,6 +114,18 @@ void main() {
   test('init emits Unauthenticated when no stored session', () async {
     await cubit.init();
     expect(cubit.state, isA<Unauthenticated>());
+  });
+
+  // #400: device token in an unreachable web token store — say so, don't
+  // throw on a blank start screen.
+  test('init emits Unauthenticated with the Thai message when the token store is unavailable', () async {
+    repo.throwStoreUnavailable = true;
+
+    await cubit.init();
+
+    final state = cubit.state as Unauthenticated;
+    expect(state.errorMessage, TokenStoreUnavailableException.message);
+    expect(state.deviceToken, isNull);
   });
 
   test('init emits Authenticated when active session exists', () async {

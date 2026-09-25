@@ -11,6 +11,7 @@ import '../../core/network/api_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/offline_pin_repository.dart';
+import '../../data/storage/token_storage.dart' show TokenStoreUnavailableException;
 import '../../domain/models/auth_models.dart';
 
 abstract class AuthState extends Equatable {
@@ -137,7 +138,15 @@ class AuthCubit extends Cubit<AuthState> {
 
   /// Initializes authentication state from local storage.
   Future<void> init() async {
-    final deviceToken = await _repo.getDeviceToken();
+    final String? deviceToken;
+    try {
+      deviceToken = await _repo.getDeviceToken();
+    } on TokenStoreUnavailableException catch (e) {
+      // #400: the device token is in a web token store we cannot open this
+      // run. Say so, instead of an unhandled error on a blank start screen.
+      emit(Unauthenticated(errorMessage: e.toString()));
+      return;
+    }
     var deviceRole = await _repo.getDeviceRole();
     deviceRole ??= await _pinRepo?.getDeviceRole();
     final isAuth = await _repo.isAuthenticated();
