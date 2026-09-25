@@ -127,17 +127,23 @@ class AuthRepository {
   }
 
   /// Inspects the device role ('pos' or 'backoffice') from the current access token claims.
+  ///
+  /// With no access token — on web right after a reload, where it is
+  /// memory-only (#400, ADR-0009) — falls back to the role recorded at the
+  /// last online login.
   Future<String?> getDeviceRole() async {
     final token = await tokenStorage.getAccessToken();
-    if (token == null) return null;
+    if (token == null) return offlinePinRepository?.getDeviceRole();
     final claims = JwtClaims.tryParse(token);
     return claims?.drole;
   }
 
   /// Inspects the server-assigned deviceId from the current access token claims.
+  ///
+  /// Same no-access-token fallback as [getDeviceRole] (#400).
   Future<String?> getDeviceId() async {
     final token = await tokenStorage.getAccessToken();
-    if (token == null) return null;
+    if (token == null) return offlinePinRepository?.getStoredDeviceId();
     final claims = JwtClaims.tryParse(token);
     return claims?.did;
   }

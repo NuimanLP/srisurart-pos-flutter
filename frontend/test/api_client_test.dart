@@ -144,6 +144,37 @@ void main() {
     expect(tokenStorage.refreshToken, 'new-refresh-token');
   });
 
+  // #400: on web the access token is memory-only, so a reload starts with the
+  // refresh token alone. The first call goes out without a Bearer, the server's
+  // guard answers 401, and the client refreshes and retries.
+  test('after a reload (refresh token only) the first call refreshes and succeeds', () async {
+    tokenStorage.accessToken = null;
+    tokenStorage.refreshToken = 'good-refresh-token';
+
+    final mockClient = MockClient((req) async {
+      if (req.url.path == '/api/v1/auth/refresh') {
+        return http.Response(
+          jsonEncode({'accessToken': 'fresh', 'refreshToken': 'rotated'}),
+          200,
+        );
+      }
+      if (req.headers['authorization'] == 'Bearer fresh') {
+        return http.Response(jsonEncode({'status': 'success', 'data': 'ok'}), 200);
+      }
+      expect(req.headers.containsKey('authorization'), isFalse);
+      return http.Response(jsonEncode({'statusCode': 401, 'message': 'Missing'}), 401);
+    });
+
+    final client = ApiClient(
+      baseUrl: 'http://example.com',
+      httpClient: mockClient,
+      tokenStorage: tokenStorage,
+    );
+
+    expect(await client.get('/protected'), 'ok');
+    expect(tokenStorage.accessToken, 'fresh');
+  });
+
   test('handles 429 RATE_LIMITED with Retry-After header', () async {
     final mockClient = MockClient((req) async {
       final body = jsonEncode({

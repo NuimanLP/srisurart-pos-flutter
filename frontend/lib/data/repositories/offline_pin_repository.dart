@@ -107,6 +107,11 @@ class OfflinePinRepository {
     return _getMeta(keyDeviceRole);
   }
 
+  /// Returns the server-assigned deviceId recorded at the last online login.
+  Future<String?> getStoredDeviceId() async {
+    return _getMeta(keyDeviceId);
+  }
+
   /// Checks if PIN login is eligible to be offered and used:
   /// - Device is enrolled as POS (`deviceRole == 'pos'` or stored role is 'pos')
   /// - PIN is configured

@@ -1,11 +1,14 @@
 // Unit tests for AuthRepository: login, enrolment, logout, and device binding rules.
 
 import 'dart:convert';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
+import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 
@@ -132,5 +135,27 @@ void main() {
     expect(storage.refreshToken, isNull);
     expect(storage.user, isNull);
     expect(storage.deviceToken, 'hardware-device-token');
+  });
+
+  // #400: on web the access token is memory-only, so right after a reload there
+  // is no JWT to read `did`/`drole` from until the first API call refreshes it.
+  // The device id/role recorded at the last online login stand in for it.
+  test('getDeviceId/getDeviceRole fall back to the values recorded at login when no access token', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final apiClient = ApiClient(baseUrl: 'http://test', tokenStorage: storage);
+    final pinRepo = OfflinePinRepository(db: db, tokenStorage: storage);
+    final repo = AuthRepository(
+      apiClient: apiClient,
+      tokenStorage: storage,
+      offlinePinRepository: pinRepo,
+    );
+    await pinRepo.recordOnlineLogin(iat: 1, deviceId: 'dev-42', deviceRole: 'pos');
+
+    storage.accessToken = null; // reload: memory-only token is gone
+    storage.refreshToken = 'refresh';
+
+    expect(await repo.getDeviceId(), 'dev-42');
+    expect(await repo.getDeviceRole(), 'pos');
   });
 }

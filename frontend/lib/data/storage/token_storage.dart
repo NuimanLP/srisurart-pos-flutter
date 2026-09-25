@@ -1,6 +1,7 @@
 // Persistent storage for authentication tokens and device tokens.
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/auth_models.dart';
 
@@ -28,9 +29,19 @@ abstract class TokenStorage {
 }
 
 class SharedPrefsTokenStorage implements TokenStorage {
-  SharedPrefsTokenStorage({this.prefs});
+  SharedPrefsTokenStorage({this.prefs, bool? persistAccessToken})
+      : persistAccessToken = persistAccessToken ?? !kIsWeb;
 
   SharedPreferences? prefs;
+
+  /// ADR-0009 (#400): on Flutter Web SharedPreferences IS localStorage, where
+  /// any injected script can read it — so there the access token lives in
+  /// [_memoryAccessToken] only, and a reload gets a new one through the refresh
+  /// token (`ApiClient`: no Bearer → 401 → `/auth/refresh` → retry).
+  /// Mobile keeps persisting it; ADR-0009 sets no rule there.
+  final bool persistAccessToken;
+  String? _memoryAccessToken;
+  bool _legacyAccessCleared = false;
 
   static const String _keyAccessToken = 'auth_access_token';
   static const String _keyRefreshToken = 'auth_refresh_token';
@@ -38,18 +49,30 @@ class SharedPrefsTokenStorage implements TokenStorage {
   static const String _keyUser = 'auth_user_json';
 
   Future<SharedPreferences> _getPrefs() async {
-    return prefs ??= await SharedPreferences.getInstance();
+    final p = prefs ??= await SharedPreferences.getInstance();
+    // One-time cleanup on the first storage access of a run (AuthCubit.init
+    // at startup): builds before #400 wrote the access token to localStorage.
+    if (!persistAccessToken && !_legacyAccessCleared) {
+      _legacyAccessCleared = true;
+      await p.remove(_keyAccessToken);
+    }
+    return p;
   }
 
   @override
   Future<String?> getAccessToken() async {
     final prefs = await _getPrefs();
+    if (!persistAccessToken) return _memoryAccessToken;
     return prefs.getString(_keyAccessToken);
   }
 
   @override
   Future<void> setAccessToken(String? token) async {
     final prefs = await _getPrefs();
+    if (!persistAccessToken) {
+      _memoryAccessToken = token;
+      return;
+    }
     if (token == null) {
       await prefs.remove(_keyAccessToken);
     } else {
@@ -115,6 +138,7 @@ class SharedPrefsTokenStorage implements TokenStorage {
   @override
   Future<void> clearAuthTokens() async {
     final prefs = await _getPrefs();
+    _memoryAccessToken = null;
     await prefs.remove(_keyAccessToken);
     await prefs.remove(_keyRefreshToken);
     await prefs.remove(_keyUser);
@@ -124,6 +148,7 @@ class SharedPrefsTokenStorage implements TokenStorage {
   @override
   Future<void> clearAll() async {
     final prefs = await _getPrefs();
+    _memoryAccessToken = null;
     await prefs.remove(_keyAccessToken);
     await prefs.remove(_keyRefreshToken);
     await prefs.remove(_keyUser);

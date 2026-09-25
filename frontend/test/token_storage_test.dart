@@ -73,4 +73,69 @@ void main() {
     expect(await storage.getDeviceToken(), isNull);
     expect(await storage.getUser(), isNull);
   });
+
+  // #400 / ADR-0009 "ที่เก็บฝั่ง Flutter Web": the access token lives in memory
+  // only — never in localStorage, which is what SharedPreferences is on web.
+  group('#400 access token in memory only (web)', () {
+    test('setAccessToken does not write the access token to SharedPreferences', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final web = SharedPrefsTokenStorage(prefs: prefs, persistAccessToken: false);
+
+      await web.setAccessToken('access-in-memory');
+      await web.setRefreshToken('refresh-456');
+
+      expect(await web.getAccessToken(), 'access-in-memory');
+      expect(prefs.getString('auth_access_token'), isNull);
+      expect(
+        prefs.getKeys().map(prefs.get).contains('access-in-memory'),
+        isFalse,
+      );
+    });
+
+    test('a reload (new storage instance) starts with no access token', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await SharedPrefsTokenStorage(prefs: prefs, persistAccessToken: false)
+          .setAccessToken('access-in-memory');
+
+      final afterReload =
+          SharedPrefsTokenStorage(prefs: prefs, persistAccessToken: false);
+      expect(await afterReload.getAccessToken(), isNull);
+    });
+
+    test('startup removes an access token a previous build left in SharedPreferences', () async {
+      SharedPreferences.setMockInitialValues({
+        'auth_access_token': 'legacy-leaked-access',
+        'auth_refresh_token': 'refresh-456',
+        'auth_device_token': 'device-789',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final web = SharedPrefsTokenStorage(prefs: prefs, persistAccessToken: false);
+
+      // Any first read triggers it (AuthCubit.init reads the device token first).
+      expect(await web.getDeviceToken(), 'device-789');
+
+      expect(prefs.getString('auth_access_token'), isNull);
+      expect(await web.getAccessToken(), isNull);
+      // Refresh token untouched — a reload re-obtains the access token with it.
+      expect(await web.getRefreshToken(), 'refresh-456');
+    });
+
+    test('clearAuthTokens and clearAll drop the in-memory access token', () async {
+      final web = SharedPrefsTokenStorage(persistAccessToken: false);
+      await web.setAccessToken('a');
+      await web.clearAuthTokens();
+      expect(await web.getAccessToken(), isNull);
+
+      await web.setAccessToken('b');
+      await web.clearAll();
+      expect(await web.getAccessToken(), isNull);
+    });
+
+    test('persistAccessToken: true (mobile) keeps persisting as before', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final mobile = SharedPrefsTokenStorage(prefs: prefs, persistAccessToken: true);
+      await mobile.setAccessToken('access-123');
+      expect(prefs.getString('auth_access_token'), 'access-123');
+    });
+  });
 }
