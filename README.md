@@ -252,9 +252,8 @@ that overlay on a shared host.**
 
 ### Dev secrets
 
-`server/.env.example` ships public `dev-only-*` placeholder passwords and a public dummy JWT
-(RS256) key pair, purely so `cp .env.example .env && docker compose up` boots a local dev/CI
-stack as-is. Since #410/#416, `api-*`/`worker`/`bull-board` **refuse to boot** with any of
+`server/.env.example` ships the public `dev-only-*` placeholders and dummy JWT key pair used
+above. Since #410/#416, `api-*`/`worker`/`bull-board` **refuse to boot** with any of
 those placeholders — in a bare password variable or hidden inside `DATABASE_URL` /
 `DATABASE_ADMIN_URL` / `REDIS_CACHE_URL` / `REDIS_QUEUE_URL` — unless
 `ALLOW_DEV_SECRETS=true` is set exactly. `.env.example` already sets it, so a fresh clone
@@ -515,7 +514,7 @@ Backups, offsite copies, PDPA handling and an audit log are specified and not ye
 | Start here | |
 |---|---|
 | [`docs/00_LANE_PRIMER.md`](docs/00_LANE_PRIMER.md) | เริ่มอ่านตรงนี้ก่อน — system overview and the ticket split, in Thai |
-| [`docs/study/00_index.md`](docs/study/00_index.md) | The Thai self-study pack — start here (see below) |
+| [`docs/study/00_index.md`](docs/study/00_index.md) | The Thai self-study pack, 19 chapters — start here |
 | [`CLAUDE.md`](CLAUDE.md) | Conventions, constraints, current status — read before changing anything |
 | [`CONTRACT.md`](CONTRACT.md) | The binding client spec |
 | [`docs/Backend_design/00_INDEX.md`](docs/Backend_design/00_INDEX.md) | The backend package; start at `00_BASICS.md` if backend is new to you |
