@@ -1019,6 +1019,19 @@ void main() {
             .getSingle())
         .cnNo;
 
+    test('sale.create: patched receiptNo also updates its local returns',
+        () async {
+      await seedOfflineSale();
+      await seedOfflineReturn();
+      await pushFixture('sale-create.applied.json',
+          (r) => r['receiptNo'] = 'RC01-2569-09-0043');
+      final ret = await (db.select(db.returns)
+            ..where((t) => t.id.equals('ret_off_001')))
+          .getSingle();
+      expect(ret.receiptNo, 'RC01-2569-09-0043');
+      expect(ret.cnNo, 'CN01-2569-09-0005', reason: 'CN number untouched');
+    });
+
     test('return.create: server cnNo differs → local row patched', () async {
       await seedOfflineReturn();
       await pushFixture('return-create.applied.json',

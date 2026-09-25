@@ -525,7 +525,8 @@ class SyncService implements SyncFacade {
   /// Owner decision 2026-09-25: the server is the source of truth for RC/CN
   /// numbers. When an `applied` (incl. replayed) `sale.create`/`return.create`
   /// comes back with a number that differs from the local row's offline one,
-  /// the local row takes the server's. A missing field leaves the row alone.
+  /// the local row takes the server's (a sale's local returns follow, since
+  /// they carry a copy of its `receiptNo`). A missing field leaves rows alone.
   ///
   /// The offline number printed on the paper receipt is not kept anywhere
   /// locally after this (no column for it; the outbox op is deleted in the
@@ -549,6 +550,12 @@ class SyncService implements SyncFacade {
             ..where((t) =>
                 t.id.equals(clientId!) & t.receiptNo.equals(serverNo).not()))
           .write(SalesCompanion(receiptNo: Value(serverNo)));
+      // Local returns carry a copy of the parent sale's number.
+      await (db.update(db.returns)
+            ..where((t) =>
+                t.saleId.equals(clientId!) &
+                t.receiptNo.equals(serverNo).not()))
+          .write(ReturnsCompanion(receiptNo: Value(serverNo)));
     } else if (op.type == 'return.create') {
       final serverNo = response['cnNo'];
       if (serverNo is! String || serverNo.isEmpty) return;
