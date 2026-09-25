@@ -128,9 +128,10 @@ class AuthRepository {
 
   /// Inspects the device role ('pos' or 'backoffice') from the current access token claims.
   ///
-  /// With no access token — on web right after a reload, where it is
-  /// memory-only (#400, ADR-0009) — falls back to the role recorded at the
-  /// last online login.
+  /// With no access token it falls back to the role recorded at the last
+  /// online login. Needed on web right after a reload, where the access token
+  /// is memory-only (#400, ADR-0009); on any platform it also applies after
+  /// logout, which is what AuthCubit already did by hand.
   Future<String?> getDeviceRole() async {
     final token = await tokenStorage.getAccessToken();
     if (token == null) return offlinePinRepository?.getDeviceRole();

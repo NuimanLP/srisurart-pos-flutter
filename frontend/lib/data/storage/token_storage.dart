@@ -48,15 +48,19 @@ class SharedPrefsTokenStorage implements TokenStorage {
   static const String _keyDeviceToken = 'auth_device_token';
   static const String _keyUser = 'auth_user_json';
 
+  /// Every method goes through here, so the legacy cleanup runs on the first
+  /// storage access of a run (AuthCubit.init at startup).
   Future<SharedPreferences> _getPrefs() async {
     final p = prefs ??= await SharedPreferences.getInstance();
-    // One-time cleanup on the first storage access of a run (AuthCubit.init
-    // at startup): builds before #400 wrote the access token to localStorage.
-    if (!persistAccessToken && !_legacyAccessCleared) {
-      _legacyAccessCleared = true;
-      await p.remove(_keyAccessToken);
-    }
+    await _removeLegacyAccessTokenOnce(p);
     return p;
+  }
+
+  /// Builds before #400 wrote the access token to localStorage on web.
+  Future<void> _removeLegacyAccessTokenOnce(SharedPreferences p) async {
+    if (persistAccessToken || _legacyAccessCleared) return;
+    _legacyAccessCleared = true;
+    await p.remove(_keyAccessToken);
   }
 
   @override
