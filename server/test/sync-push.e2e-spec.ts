@@ -1417,6 +1417,186 @@ describe('POST /sync/push (e2e)', () => {
       expect(mechanicRow[0].credit_balance).toBe('100.00');
     });
 
+    describe('#409 / 08 §8.4 AC B1: a bill committed ONLINE whose reply was lost, then pushed', () => {
+      // `ApiSalesRepository.saveSale` falls back to the outbox with the SAME bill id and
+      // `Idempotency-Key` when `POST /api/v1/sales` gets no answer. The server may already
+      // have committed that bill; the push must then replay it, never refuse it.
+      const onlineBody = {
+        id: 's_b1_online',
+        subtotal: '100.00',
+        discount: '0.00',
+        total: '100.00',
+        paymentMethod: 'เครดิตช่าง',
+        customerId: null,
+        customerName: null,
+        mechanicId: 'm_b1',
+        mechanicName: 'ช่าง B1',
+        mechanicDelta: null,
+        overrideCreditLimit: true,
+        items: [
+          { lineNo: 1, productId: 'p_b1', partNo: 'HN-B1', name: 'Brake Pad B1', nameTH: null, qty: 2, price: '50.00' },
+        ],
+      };
+      // What `_saveOffline` puts in the outbox: the online body plus the offline
+      // receipt number and the local date.
+      const { id: onlineId, ...onlineRest } = onlineBody;
+      const outboxPayload = {
+        id: onlineId,
+        receiptNo: 'RC01-2569-09-0777',
+        date: '2026-09-25T02:00:00.000Z',
+        ...onlineRest,
+      };
+
+      const postOnline = (key: string, body: object) =>
+        request(app.getHttpServer())
+          .post('/api/v1/sales')
+          .set(
+            'Authorization',
+            `Bearer ${accessToken({
+              tenantId: TENANT,
+              userId: fixture.userId,
+              deviceId: fixture.posDeviceId,
+              deviceRole: 'pos',
+            })}`,
+          )
+          .set('Idempotency-Key', key)
+          .send(body);
+
+      const stockOf = async (id: string) =>
+        (
+          (await admin.query(
+            `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`,
+            [TENANT, id],
+          )) as { stock: number }[]
+        )[0].stock;
+
+      beforeEach(async () => {
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_b1', startingCash: 500 });
+        await seedProduct(admin, TENANT, {
+          id: 'p_b1',
+          partNo: 'HN-B1',
+          name: 'Brake Pad B1',
+          price: 50,
+          cost: 30,
+          stock: 20,
+        });
+        await seedMechanic(admin, TENANT, {
+          id: 'm_b1',
+          code: 'MB1',
+          name: 'ช่าง B1',
+          creditLimit: 50,
+          creditBalance: 0,
+        });
+      });
+
+      it('push of the outbox op (receiptNo + date added) → applied with the server bill, stock and audit moved once', async () => {
+        const online = await postOnline('k_b1', onlineBody);
+        expect(online.status).toBe(201);
+        const serverReceiptNo = online.body.data.receiptNo as string;
+        expect(await stockOf('p_b1')).toBe(18);
+
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: 'op_b1', idempotencyKey: 'k_b1', type: 'sale.create', payload: outboxPayload }],
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.results[0]).toMatchObject({
+          opId: 'op_b1',
+          status: 'applied',
+          response: { id: 's_b1_online', receiptNo: serverReceiptNo, total: '100.00' },
+        });
+        // Replayed, not re-run: one bill, stock down once, the override audited once.
+        expect(await stockOf('p_b1')).toBe(18);
+        const sales = await admin.query(
+          `SELECT receipt_no FROM sales WHERE tenant_id = $1::uuid AND id = 's_b1_online'`,
+          [TENANT],
+        );
+        expect(sales).toEqual([{ receipt_no: serverReceiptNo }]);
+        const audits = await admin.query(
+          `SELECT user_id FROM audit_log
+            WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = 'm_b1'`,
+          [TENANT],
+        );
+        expect(audits).toEqual([{ user_id: fixture.userId }]);
+        const mech = await admin.query(
+          `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = 'm_b1'`,
+          [TENANT],
+        );
+        expect(mech[0].credit_balance).toBe('100.00');
+      });
+
+      it('an op whose body equals the online body replays the stored online response by key (step 1)', async () => {
+        const online = await postOnline('k_b1_same', onlineBody);
+        expect(online.status).toBe(201);
+
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: 'op_b1_same', idempotencyKey: 'k_b1_same', type: 'sale.create', payload: onlineBody }],
+        });
+
+        // The full online response — only a key replay returns it; the client-id replay
+        // answers with the push-shaped subset.
+        expect(res.body.data.results[0]).toEqual({
+          opId: 'op_b1_same',
+          status: 'applied',
+          response: online.body.data,
+        });
+        expect(await stockOf('p_b1')).toBe(18);
+      });
+
+      it('the same key on a DIFFERENT bill is still refused IDEMPOTENCY_KEY_REUSED', async () => {
+        expect((await postOnline('k_b1_reuse', onlineBody)).status).toBe(201);
+        // A second, genuinely different bill already on the server under its own key.
+        const other = { ...onlineBody, id: 's_b1_other', overrideCreditLimit: false, paymentMethod: 'เงินสด', mechanicId: null, mechanicName: null };
+        expect((await postOnline('k_b1_other', other)).status).toBe(201);
+        expect(await stockOf('p_b1')).toBe(16);
+
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [
+            // A bill the server has never seen, carrying k_b1_reuse.
+            {
+              opId: 'op_new_bill',
+              idempotencyKey: 'k_b1_reuse',
+              type: 'sale.create',
+              payload: { ...outboxPayload, id: 's_b1_new', receiptNo: 'RC01-2569-09-0778' },
+            },
+          ],
+        });
+        expect(res.body.data.results[0]).toMatchObject({
+          opId: 'op_new_bill',
+          status: 'rejected',
+          code: 'IDEMPOTENCY_KEY_REUSED',
+        });
+
+        const res2 = await push({
+          outboxRemaining: 0,
+          ops: [
+            // An existing bill (s_b1_other), but under the key that belongs to s_b1_online.
+            {
+              opId: 'op_other_bill',
+              idempotencyKey: 'k_b1_reuse',
+              type: 'sale.create',
+              payload: { ...other, receiptNo: 'RC01-2569-09-0779', date: outboxPayload.date },
+            },
+          ],
+        });
+        expect(res2.body.data.results[0]).toMatchObject({
+          opId: 'op_other_bill',
+          status: 'rejected',
+          code: 'IDEMPOTENCY_KEY_REUSED',
+        });
+
+        const n = await admin.query(
+          `SELECT count(*)::int AS n FROM sales WHERE tenant_id = $1::uuid`,
+          [TENANT],
+        );
+        expect(n[0].n).toBe(2);
+        expect(await stockOf('p_b1')).toBe(16);
+      });
+    });
+
     it('Issue #190: rejects sale or return with RECEIPT_NO_CONFLICT when document number collides', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: 'sh_190',
