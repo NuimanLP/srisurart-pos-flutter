@@ -61,6 +61,13 @@ after an `merge-base --is-ancestor` check.
      `ssh … "sudo grep -c 'dev-only' /opt/pos/.env; sudo grep -c '^ALLOW_DEV_SECRETS' /opt/pos/.env"`
 - A new `.env` still cannot bring new images: FortiGate blocks `ghcr.io` (see CLAUDE.md, "Still
   open"). The #67 runner is also not installed yet, so `deploy.yml` has to be run by hand too.
+**Testing tutorial updated (2026-09-25, `docs/tutorial/testing-tutorial.md`):**
+- `ALLOW_DEV_SECRETS` for dev `.env`, and the real refusal message.
+- macOS `somaxconn` → `ECONNRESET` on the race e2e tests (CI decides).
+- How to run your own isolated stack when the `172.30.0.0/24` subnet is taken.
+- `import-snapshot` timeouts on a busy Docker host.
+- v12 migration and report-parity tests.
+- Current `flutter test` count (608).
 
 **Still on humans (not code):**
 1. Post the `ALLOW_DEV_SECRETS` lane announcement (draft at the end of this file).
