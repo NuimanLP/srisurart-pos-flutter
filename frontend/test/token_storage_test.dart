@@ -293,6 +293,54 @@ void main() {
       expect(prefs.getBool('auth_tokens_in_store'), isTrue);
     });
 
+    // Review finding (#404): a partial migration leaves a store copy without
+    // the marker; a fallback run then logs out / unbinds in localStorage only.
+    // The next healthy run must not revive the store copy.
+    test('logout in a fallback run after a partial migration: the next run does not revive the refresh token', () async {
+      SharedPreferences.setMockInitialValues({
+        'auth_refresh_token': 'legacy-refresh',
+        'auth_device_token': 'legacy-device',
+      });
+      prefs = await SharedPreferences.getInstance();
+
+      // 1. Partial migration: refresh reaches the store, device write fails.
+      store.failPutOn = 'auth_device_token';
+      expect(await webStorage().getRefreshToken(), 'legacy-refresh');
+      expect(store.data['auth_refresh_token'], 'legacy-refresh');
+      expect(prefs.getBool('auth_tokens_in_store'), isNull);
+
+      // 2. A fallback run logs out (localStorage only).
+      store.failPutOn = null;
+      store.failAll = true;
+      await webStorage().clearAuthTokens();
+      expect(prefs.getString('auth_refresh_token'), isNull);
+
+      // 3. A healthy run: the logged-out token stays gone.
+      store.failAll = false;
+      final nextRun = webStorage();
+      expect(await nextRun.getRefreshToken(), isNull);
+      expect(await nextRun.getDeviceToken(), 'legacy-device');
+      expect(store.data, {'auth_device_token': 'legacy-device'});
+    });
+
+    test('unbind in a fallback run after a partial migration: the next run does not revive the device token', () async {
+      // 1. A partial migration left a store copy of the device token, no marker.
+      store.data['auth_device_token'] = 'old-device';
+      SharedPreferences.setMockInitialValues({'auth_device_token': 'old-device'});
+      prefs = await SharedPreferences.getInstance();
+
+      // 2. A fallback run unbinds (localStorage only).
+      store.failAll = true;
+      await webStorage().clearAll();
+      expect(prefs.getString('auth_device_token'), isNull);
+
+      // 3. A healthy run: the till reads as un-enrolled, as it was left.
+      store.failAll = false;
+      expect(await webStorage().getDeviceToken(), isNull);
+      expect(store.data, isEmpty);
+      expect(prefs.getBool('auth_tokens_in_store'), isTrue);
+    });
+
     test('a failed migration does not set the marker (fallback stays a plain pre-#400 run)', () async {
       SharedPreferences.setMockInitialValues({'auth_device_token': 'legacy-device'});
       prefs = await SharedPreferences.getInstance();

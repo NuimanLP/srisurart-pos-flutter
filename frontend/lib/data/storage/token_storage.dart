@@ -100,6 +100,9 @@ class SharedPrefsTokenStorage implements TokenStorage {
   /// un-enrolled — and a re-enrolment mints a new `device_no` (ADR-0004 F8).
   static const String _keyTokensInStore = 'auth_tokens_in_store';
 
+  /// The tokens that live in [_store] when there is one.
+  static const List<String> _storeKeys = [_keyRefreshToken, _keyDeviceToken];
+
   /// Every method goes through here, so [_init] runs before the first storage
   /// access of a run (AuthCubit.init at startup), and no token read or write
   /// can overtake it.
@@ -133,6 +136,10 @@ class SharedPrefsTokenStorage implements TokenStorage {
   ///    usable no token is ever written to SharedPreferences, so a token found
   ///    there is as new or newer (a pre-#400 build, or a run that fell back
   ///    below);
+  ///  * until [_keyTokensInStore] is set, a store token with no
+  ///    SharedPreferences counterpart is deleted (the store mirrors
+  ///    SharedPreferences) — else a logout/unbind done in a fallback run
+  ///    after a partial migration would come back (#404 review);
   ///  * re-running it after a crash half-way is harmless (idempotent);
   ///  * if the store is unusable (IndexedDB blocked, missing or timing out):
   ///    - before any token ever moved there, the run falls back to
@@ -148,7 +155,7 @@ class SharedPrefsTokenStorage implements TokenStorage {
     }
     try {
       final legacy = <String, String>{
-        for (final key in const [_keyRefreshToken, _keyDeviceToken])
+        for (final key in _storeKeys)
           key: ?p.getString(key),
       };
       // Probe even with nothing to move, so an unusable store is found here
@@ -158,6 +165,15 @@ class SharedPrefsTokenStorage implements TokenStorage {
         await store.put(key, value);
         if (await store.get(key) != value) {
           throw StateError('token store read-back mismatch for $key');
+        }
+      }
+      // Until the marker is set SharedPreferences is the only truth, so the
+      // store must mirror it: a store copy with no SharedPreferences
+      // counterpart was left by a partial migration and then logged out or
+      // unbound by a fallback run — keeping it would revive that token.
+      if (!(p.getBool(_keyTokensInStore) ?? false)) {
+        for (final key in _storeKeys) {
+          if (!legacy.containsKey(key)) await store.delete(key);
         }
       }
       // Marker before removal: a crash in between leaves both copies, and the
