@@ -200,7 +200,7 @@ stateDiagram-v2
 พักบิล (`parked_sales`) — ไม่ sync
 
 ### 6.4 กติการ่วม
-- 🔴 **body ออนไลน์ = payload ของ op** (fingerprint `idempotency.runner.ts:40`) · ฟิลด์ใหม่ `id`, `date`, `receiptNo`/`cnNo`, `openedAt` อยู่ใน body ออนไลน์ด้วย · ไม่มี `shiftId`, ไม่มี `userId`
+- 🔴 **body ออนไลน์ = payload ของ op** (fingerprint `idempotency.runner.ts:40`) · ฟิลด์ใหม่ `id`, `date`, `receiptNo`/`cnNo` อยู่ใน body ออนไลน์ด้วย · ไม่มี `shiftId`, ไม่มี `userId` · 🔄 **แก้ 2026-09-25 (owner):** `openedAt` เป็นฟิลด์ของ op `shift.open` ใน `/sync/push` เท่านั้น — route ออนไลน์ `POST /shifts/open` ไม่อ่าน `openedAt` (ดู §11)
 - `api_*.dart`: ทุก write เป็น op หรือถูกปฏิเสธ — fallback `super.<write>()` หาย (#229)
 
 **เกณฑ์รับงาน**
@@ -347,7 +347,7 @@ stateDiagram-v2
 | | |
 |---|---|
 | หลายกะต่อวัน | ได้ · `uq_shift_active` (active ละหนึ่งต่อเครื่อง) คงเดิม |
-| `POST /shifts/open` | body `{ id, startingCash, openedAt }` · id มีแล้ว → คืนกะนั้น · มีกะ active อื่น → archive (`auto_archived=true`, ไม่มี `physical_cash`) + `shift_uncounted` · insert ด้วย id ของ client · `date_str` จาก `opened_at` (§10) ตาม `tenants.timezone` |
+| `POST /shifts/open` | body `{ id, startingCash }` — 🔄 **แก้ 2026-09-25 (owner):** ไม่มี `openedAt` ในบอดี้ออนไลน์ (§10: route ออนไลน์ใช้ `now()` เสมอ ไม่อ่านวันที่จาก body) · `openedAt` เป็นฟิลด์ของ op `shift.open` ใน `/sync/push` เท่านั้น · id มีแล้ว → คืนกะนั้น · มีกะ active อื่น → archive (`auto_archived=true`, ไม่มี `physical_cash`) + `shift_uncounted` · insert ด้วย id ของ client · `date_str` จาก `opened_at` (§10) ตาม `tenants.timezone` |
 | ลบของเดิม | "active วันเดียวกัน → คืนกะเดิม" + `today()` (`shifts.service.ts:160-176`) |
 | ⚠️ ผลข้างออนไลน์ | กด "เปิดกะ" ขณะมีกะ active → กะเดิมถูก archive ไม่ได้นับเงิน (เดิมคืนกะเดิม) · หลังปิดกะ ใบลดหนี้เงินสด (#100) ไม่ต้องรอพรุ่งนี้แล้ว เปิดกะใหม่ได้เลย |
 | ปิดกะ | ออนไลน์ + outbox ไม่มี `pending`/`stuck`/`rejected` — **client บังคับ** (server ไม่เห็น outbox) |

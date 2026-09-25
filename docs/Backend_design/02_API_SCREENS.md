@@ -465,7 +465,7 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 | Method + Path | หมายเหตุ |
 |---|---|
 | `GET /shifts/current` | กะที่ active + รายการเงินเข้า-ออก |
-| `POST /shifts/open` `{ startingCash }` | ~~เปิดกะวันเดิมซ้ำ → คืนกะเดิม; เปิดวันใหม่ → archive กะเก่าก่อน~~ · 🔄 **แก้ 2026-09-23 ตาม 08 §11 (E7) และ `shifts.service.ts:168-205`:** body `{ id?, startingCash, openedAt? }` · `id` ที่มีอยู่แล้ว → คืนกะนั้นไม่ archive · มีกะ active อื่นของเครื่องนี้ → archive (ไม่ได้นับเงิน = `auto_archived` + รายการตรวจ `shift_uncounted`) แล้วเปิดกะใหม่ — **หลายกะต่อวันได้** |
+| `POST /shifts/open` `{ startingCash }` | ~~เปิดกะวันเดิมซ้ำ → คืนกะเดิม; เปิดวันใหม่ → archive กะเก่าก่อน~~ · 🔄 **แก้ 2026-09-23 ตาม 08 §11 (E7) และ `shifts.service.ts:168-205`:** body `{ id?, startingCash }` · `id` ที่มีอยู่แล้ว → คืนกะนั้นไม่ archive · มีกะ active อื่นของเครื่องนี้ → archive (ไม่ได้นับเงิน = `auto_archived` + รายการตรวจ `shift_uncounted`) แล้วเปิดกะใหม่ — **หลายกะต่อวันได้** · 🔄 **แก้ 2026-09-25 (owner):** ไม่มี `openedAt` ในบอดี้ออนไลน์ — server ใช้ `now()` เสมอ (08 §10); `openedAt` เป็นฟิลด์ของ op `shift.open` ใน `/sync/push` เท่านั้น |
 | `POST /shifts/close` `{ physicalCash }` | บันทึกเงินที่นับได้จริง · ปิดซ้ำ = `409 SHIFT_ALREADY_CLOSED` (§8.1) |
 | `POST /shifts/current/entries` `{ type, amount, note }` | ปิดกะแล้วยิงมาต้องได้ `409` + ข้อความไทย `ลิ้นชักปิดแล้ว…` · *(2026-09-23: body รับ `id?` และ `createdAt?` เพิ่ม — `shifts.controller.ts:117-126`)* |
 | `GET /shifts/history?page=` | |
