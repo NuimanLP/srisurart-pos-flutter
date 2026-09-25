@@ -572,21 +572,23 @@ describe('AuthService', () => {
         ]);
       });
 
-      // #138 item 4: every refusal counts against both buckets; the responses are unchanged.
+      // #138 item 4: every refusal counts against both buckets. Status refusals are only
+      // reached with the correct password (owner decision 2026-09-25).
       it.each([
-        ['an ambiguous username', {}, 2, 'Ambiguous username'],
-        ['an inactive user', { is_active: false }, 1, 'User is inactive'],
-        ['a suspended tenant', { tenant_status: 'suspended' }, 1, 'ร้านนี้ถูกระงับการใช้งาน'],
-      ])('counts %s against the ip and username buckets', async (_l, overrides, count, message) => {
-        const { service } = build('not-an-argon2-hash', {}, overrides, count as number);
+        ['an ambiguous username', {}, 2, 'wrong', 'Invalid credentials'],
+        ['an inactive user', { is_active: false }, 1, 'password123', 'User is inactive'],
+        ['a suspended tenant', { tenant_status: 'suspended' }, 1, 'password123', 'ร้านนี้ถูกระงับการใช้งาน'],
+      ])('counts %s against the ip and username buckets', async (_l, overrides, count, password, message) => {
+        const argon2 = await import('argon2');
+        const { service } = build(await argon2.hash('password123'), {}, overrides, count as number);
         rateLimitMock.consumeAttempt.mockClear();
         rateLimitMock.recordFailure.mockClear();
         rateLimitMock.refundAttempt.mockClear();
         rateLimitMock.clearKey.mockClear();
 
-        await expect(service.login({ username: 'owner', password: 'x' }, '10.0.0.13')).rejects.toThrow(
-          message as string,
-        );
+        await expect(
+          service.login({ username: 'owner', password: password as string }, '10.0.0.13'),
+        ).rejects.toThrow(message as string);
 
         const counted = [
           ...rateLimitMock.consumeAttempt.mock.calls,
@@ -595,6 +597,77 @@ describe('AuthService', () => {
         expect(counted).toEqual(expect.arrayContaining(['auth:ip:10.0.0.13', 'auth:user:-:owner']));
         expect(rateLimitMock.refundAttempt).not.toHaveBeenCalled();
         expect(rateLimitMock.clearKey).not.toHaveBeenCalled();
+      });
+
+      // Owner decision 2026-09-25: a wrong password never learns the account's status. Inactive
+      // user, suspended tenant and an ambiguous username all answer exactly like a wrong password
+      // on an active account, after exactly one argon2 verify.
+      it.each([
+        ['an inactive user', { is_active: false }, 1, 'invalid_password'],
+        ['a suspended tenant', { tenant_status: 'suspended' }, 1, 'invalid_password'],
+        ['an ambiguous username', {}, 2, null],
+      ])('a wrong password on %s gets the generic 401 after one argon2 verify', async (_l, overrides, count, reason) => {
+        const argon2 = await import('argon2');
+        const { service, auditMock } = build(await argon2.hash('password123'), {}, overrides, count as number);
+        let verifies = 0;
+        argonHook.onVerify = () => verifies++;
+        let caught: unknown;
+        try {
+          await service.login({ username: 'owner', password: 'wrong' }, '10.0.0.31');
+        } catch (err) {
+          caught = err;
+        } finally {
+          argonHook.onVerify = null;
+        }
+
+        expect(verifies).toBe(1);
+        expect(caught).toBeInstanceOf(UnauthorizedException);
+        expect((caught as UnauthorizedException).getResponse()).toEqual({
+          statusCode: 401,
+          message: 'Invalid credentials',
+          error: 'Unauthorized',
+        });
+        if (reason) {
+          expect(auditMock.log).toHaveBeenCalledTimes(1);
+          expect(auditMock.log.mock.calls[0][1]).toMatchObject({
+            action: 'auth.login_failed',
+            before: { reason },
+          });
+        } else {
+          // No single tenant to audit under, as for an unknown user.
+          expect(auditMock.log).not.toHaveBeenCalled();
+        }
+      });
+
+      it.each([
+        ['an inactive user', { is_active: false }, 401, 'user_inactive'],
+        ['a suspended tenant', { tenant_status: 'suspended' }, 403, 'tenant_inactive'],
+      ])('the correct password on %s still gets its specific refusal', async (_l, overrides, status, reason) => {
+        const argon2 = await import('argon2');
+        const { service, auditMock } = build(await argon2.hash('password123'), {}, overrides);
+        let verifies = 0;
+        argonHook.onVerify = () => verifies++;
+        let caught: any;
+        try {
+          await service.login({ username: 'owner', password: 'password123' }, '10.0.0.32');
+        } catch (err) {
+          caught = err;
+        } finally {
+          argonHook.onVerify = null;
+        }
+
+        expect(verifies).toBe(1);
+        expect(caught.getStatus()).toBe(status);
+        if (status === 403) {
+          expect(caught.getResponse()).toMatchObject({ code: 'TENANT_SUSPENDED' });
+        } else {
+          expect(caught.getResponse()).toMatchObject({ message: 'User is inactive' });
+        }
+        expect(auditMock.log).toHaveBeenCalledTimes(1);
+        expect(auditMock.log.mock.calls[0][1]).toMatchObject({
+          action: 'auth.login_failed',
+          before: { reason },
+        });
       });
 
       // A burst of logins used to pin every pool slot through argon2 (the connection was taken
