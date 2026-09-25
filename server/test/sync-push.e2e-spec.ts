@@ -286,6 +286,31 @@ describe('POST /sync/push (e2e)', () => {
       ]);
     });
 
+    it('shift.open refuses an unparseable openedAt instead of failing the batch', async () => {
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_bad_open',
+            idempotencyKey: 'k_bad_open',
+            type: 'shift.open',
+            payload: { id: 'sh_bad', startingCash: '100.00', openedAt: 'not-a-date' },
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.data.results[0]).toMatchObject({
+        opId: 'op_bad_open',
+        status: 'rejected',
+        code: 'BAD_REQUEST',
+      });
+      const rows = await admin.query(
+        `SELECT id FROM shifts WHERE tenant_id = $1::uuid AND id = 'sh_bad'`,
+        [TENANT],
+      );
+      expect(rows).toHaveLength(0);
+    });
+
     it('sale.create and return.create keep the device date and mark the bill sold_offline', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {

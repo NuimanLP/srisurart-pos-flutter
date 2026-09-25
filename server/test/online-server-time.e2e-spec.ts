@@ -34,10 +34,10 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
       .send(body as object);
 
   /** Seconds between a stored timestamp and the database's own `now()`. */
-  const skewSeconds = async (sql: string, id: string): Promise<number> => {
+  const skewSeconds = async (table: string, column: string, id: string): Promise<number> => {
     const rows = (await admin.query(
-      `SELECT abs(extract(epoch FROM (${sql} - now())))::float AS skew
-         FROM ${sql.split('.')[0]} WHERE tenant_id = $1::uuid AND id = $2`,
+      `SELECT abs(extract(epoch FROM (${column} - now())))::float AS skew
+         FROM ${table} WHERE tenant_id = $1::uuid AND id = $2`,
       [TENANT, id],
     )) as { skew: number }[];
     expect(rows).toHaveLength(1);
@@ -93,7 +93,7 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
     expect(res.status).toBe(201);
     expect(new Date(res.body.data.date as string).getUTCFullYear()).not.toBe(2020);
 
-    expect(await skewSeconds('sales.date', 's-411-1')).toBeLessThan(120);
+    expect(await skewSeconds('sales', 'date', 's-411-1')).toBeLessThan(120);
     const rows = (await admin.query(
       `SELECT sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's-411-1'`,
       [TENANT],
@@ -139,7 +139,7 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
       items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
     });
     expect(res.status).toBe(201);
-    expect(await skewSeconds('returns.date', res.body.data.id as string)).toBeLessThan(120);
+    expect(await skewSeconds('returns', 'date', res.body.data.id as string)).toBeLessThan(120);
   });
 
   it('POST /shifts/open ignores a past `openedAt` in the body', async () => {
@@ -149,7 +149,7 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
       openedAt: PAST,
     });
     expect(res.status).toBe(200);
-    expect(await skewSeconds('shifts.opened_at', 'sh-411')).toBeLessThan(120);
+    expect(await skewSeconds('shifts', 'opened_at', 'sh-411')).toBeLessThan(120);
     const today = (await admin.query(
       `SELECT to_char(now() AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS d`,
     )) as { d: string }[];
@@ -166,6 +166,6 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
       createdAt: PAST,
     });
     expect(res.status).toBe(201);
-    expect(await skewSeconds('drawer_entries.created_at', 'de-411')).toBeLessThan(120);
+    expect(await skewSeconds('drawer_entries', 'created_at', 'de-411')).toBeLessThan(120);
   });
 });

@@ -19,7 +19,7 @@ import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { ReturnsService } from '../returns/returns.service.js';
 import { parseCreateReturn } from '../returns/returns.dto.js';
 import { SalesService } from '../sales/sales.service.js';
-import { parseCreateSale } from '../sales/sales.dto.js';
+import { parseCreateSale, type SaleWrite } from '../sales/sales.dto.js';
 import { VoidService } from '../sales/void.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import {
@@ -504,12 +504,17 @@ export class SyncService {
           [tenantId, device.id],
         )) as { id: string }[];
 
+        // Refused (400 → `rejected`) when unparseable, instead of an Invalid Date → 500.
+        // Not clamped: `clampOpDate` measures against the device's *previous* shift,
+        // which would pull a legitimate earlier offline open forward.
+        const openedAt = deviceIsoDate(op.payload.openedAt, 'openedAt');
+
         const opened = await this.shifts.open(
           { userId: actor.userId, deviceId: device.id },
           {
             id: op.payload.id,
             startingCashSatang: toSatang(op.payload.startingCash, 'startingCash'),
-            openedAt: op.payload.openedAt ? new Date(op.payload.openedAt) : undefined,
+            openedAt,
           },
         );
 
@@ -531,13 +536,9 @@ export class SyncService {
           op,
         );
 
-        // `parseCreateSale` is the ONLINE body parser and never reads `date`/`soldOffline`
-        // (#411): only this replay path may stamp the device's date and mark the bill
-        // offline (08 §10/§12), so both are set after parsing.
-        const saleInput = {
-          ...parseCreateSale(op.payload),
+        const saleInput: SaleWrite = {
+          ...deviceDated(parseCreateSale(op.payload), clampedDate),
           soldOffline: true,
-          date: clampedDate ? clampedDate.toISOString() : null,
         };
 
         const created = await this.sales.create(saleInput, {
@@ -562,11 +563,7 @@ export class SyncService {
           op,
         );
 
-        // As for `sale.create`: the online parser ignores `date` (#411); push sets it.
-        const returnInput = {
-          ...parseCreateReturn(op.payload),
-          date: clampedDate ? clampedDate.toISOString() : null,
-        };
+        const returnInput = deviceDated(parseCreateReturn(op.payload), clampedDate);
 
         const created = await this.returns.create(returnInput, {
           userId: actor.userId,
@@ -1028,3 +1025,21 @@ export class SyncService {
   }
 }
 
+/**
+ * The device's own (clamped) date on a replayed write. The online parsers never read
+ * one, so a push is the only way a bill or credit note is dated by the till rather than
+ * by the server's `now()` (08 §10/§12, #411).
+ */
+function deviceDated<T>(input: T, clamped: Date | null): T & { date: string | null } {
+  return { ...input, date: clamped ? clamped.toISOString() : null };
+}
+
+/** An optional ISO timestamp from a push payload — refused (400) when present but unparseable. */
+function deviceIsoDate(value: unknown, field: string): Date | undefined {
+  if (value === undefined || value === null) return undefined;
+  const date = typeof value === 'string' ? new Date(value) : null;
+  if (!date || isNaN(date.getTime())) {
+    throw new BadRequestException(`${field} must be a valid ISO date string`);
+  }
+  return date;
+}

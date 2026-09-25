@@ -122,7 +122,7 @@ describe('parseCreateSale — push-only fields (#411)', () => {
       date: '2020-01-01T00:00:00.000Z',
       soldOffline: true,
     });
-    expect(sale.date).toBeUndefined();
-    expect(sale.soldOffline).toBeUndefined();
+    expect(sale).not.toHaveProperty('date');
+    expect(sale).not.toHaveProperty('soldOffline');
   });
 });

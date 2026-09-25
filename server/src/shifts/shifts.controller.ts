@@ -69,8 +69,8 @@ export class ShiftsController {
       res,
       () => {
         const b = asObject(body);
-        // `openedAt` is deliberately not read (#411, 08 §10): an online open is stamped
-        // with the server's `now()`. Only `/sync/push` passes a device-recorded time.
+        // No `openedAt`/`createdAt` online (here or in `addEntry`): the server's `now()`
+        // dates both; only `/sync/push` passes a device time (08 §10, #411).
         return this.shifts.open(actorOf(req), {
           id: asOptionalString(b.id, 'id'),
           startingCashSatang: cash(b.startingCash, 'startingCash'),
@@ -120,8 +120,6 @@ export class ShiftsController {
           throw new BadRequestException('amount must be greater than zero');
         const id = typeof b.id === 'string' && b.id.trim() ? b.id.trim() : null;
         const note = b.note === undefined || b.note === null ? null : String(b.note);
-        // `createdAt` is deliberately not read (#411, 08 §10) — server `now()` online;
-        // only `/sync/push` passes a device-recorded time.
         return this.shifts.addEntry(actorOf(req), {
           id,
           type: b.type,
