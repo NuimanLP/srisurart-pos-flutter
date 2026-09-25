@@ -93,7 +93,7 @@ describe('the request-context seam (e2e)', () => {
     expect(rows[0].n).toBeGreaterThan(0);
   });
 
-  it('refuses a username two shops share, and says a device token is required', async () => {
+  it('refuses a username two shops share with the generic 401', async () => {
     // The cross-tenant lookup in `AuthService.login` is production behaviour (ADR-0004:
     // a shop is identified by its device token, so a bare username that two shops both
     // use cannot be resolved). It used to be exercised by accident — the fixture named
@@ -117,8 +117,10 @@ describe('the request-context seam (e2e)', () => {
         .post('/api/v1/auth/token')
         .send({ username: fixture.username, password: 'wrong' });
 
+      // Owner decision 2026-09-25: an ambiguous username is refused exactly like a wrong
+      // password, so a caller without the password learns nothing about which shops use it.
       expect(res.status).toBe(401);
-      expect(res.body.error.message).toBe('Ambiguous username. Device token is required.');
+      expect(res.body.error.message).toBe('Invalid credentials');
     } finally {
       // ON DELETE CASCADE from `tenants` takes the user with it.
       await admin.query(`DELETE FROM tenants WHERE id = $1::uuid`, [twinTenant]);

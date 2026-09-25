@@ -42,9 +42,10 @@ export class AuthService {
     //
     // Every attempt is counted up front, atomically (#138): a separate check then increment let N
     // concurrent attempts all pass. So every refusal counts — bad device token, unknown or ambiguous
-    // username, inactive user, suspended tenant, wrong password — and only a successful login gives
-    // its own attempt back. The IP bucket is never cleared on success: that let one valid account
-    // reset the bucket every 9 failures and spray usernames with no IP limit.
+    // username, wrong password, and (after a correct password) inactive user or suspended tenant —
+    // and only a successful login gives its own attempt back. The IP bucket is never cleared on
+    // success: that let one valid account reset the bucket every 9 failures and spray usernames
+    // with no IP limit.
     const ipKey = clientIp ? `auth:ip:${clientIp}` : null;
     if (ipKey) {
       const ipStatus = await this.rateLimit.consumeAttempt(ipKey, 10, 60);
@@ -116,51 +117,28 @@ export class AuthService {
       [dto.username, deviceTenantId ?? null],
     );
 
-    if (userRows.length > 1) {
-      throw new UnauthorizedException('Ambiguous username. Device token is required.');
-    }
-
-    if (userRows.length === 0) {
-      // Burn the same argon2 time a wrong password costs, so latency does not reveal which
-      // usernames exist (#425). No connection is held here (see above).
+    // Owner decision 2026-09-25: the password is verified FIRST, and account status (tenant
+    // suspended, user inactive) is only revealed to a caller who supplied the correct password.
+    // Every other refusal — wrong password on any account, unknown user, ambiguous username —
+    // is the same generic 401 after exactly one argon2 verify, so a password guesser never
+    // learns an account's status. (A known user's failure still writes an audit row that an
+    // unknown/ambiguous one does not; that small latency gap predates this and is out of scope.)
+    if (userRows.length !== 1) {
+      // 0 rows: unknown user (#425). >1 rows: the username exists in several shops and no
+      // device token picks one. Establishing which (if any) password is right would need one
+      // verify per candidate, so it is refused like a wrong password: one dummy verify, the
+      // generic 401, and no audit row (there is no single tenant to audit under).
       await verifyAgainstDummyHash(dto.password);
-      this.logger.warn(`Login failed: user not found for username=${dto.username}`);
+      this.logger.warn(
+        `Login failed: ${userRows.length === 0 ? 'user not found' : 'ambiguous username'} for username=${dto.username}`,
+      );
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const user = userRows[0];
     const tenantId = user.tenant_id;
 
-    // Check tenant status (ADR-0003)
-    if (user.tenant_status !== 'active') {
-      await this.logAuthEvent(tenantId, {
-        tenantId,
-        userId: user.id,
-        deviceId: did,
-        ip: clientIp,
-        action: 'auth.login_failed',
-        before: { reason: 'tenant_inactive' },
-      });
-      throw new ForbiddenException({
-        code: 'TENANT_SUSPENDED',
-        message: 'ร้านนี้ถูกระงับการใช้งาน',
-      });
-    }
-
-    // Check user active
-    if (!user.is_active) {
-      await this.logAuthEvent(tenantId, {
-        tenantId,
-        userId: user.id,
-        deviceId: did,
-        ip: clientIp,
-        action: 'auth.login_failed',
-        before: { reason: 'user_inactive' },
-      });
-      throw new UnauthorizedException('User is inactive');
-    }
-
-    // Verify Password (Argon2id)
+    // Verify Password (Argon2id) — before any status check (see above).
     let valid = false;
     try {
       valid = await argon2.verify(user.password_hash, dto.password);
@@ -178,6 +156,35 @@ export class AuthService {
         before: { reason: 'invalid_password' },
       });
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Check tenant status (ADR-0003) — only reached with the correct password.
+    if (user.tenant_status !== 'active') {
+      await this.logAuthEvent(tenantId, {
+        tenantId,
+        userId: user.id,
+        deviceId: did,
+        ip: clientIp,
+        action: 'auth.login_failed',
+        before: { reason: 'tenant_inactive' },
+      });
+      throw new ForbiddenException({
+        code: 'TENANT_SUSPENDED',
+        message: 'ร้านนี้ถูกระงับการใช้งาน',
+      });
+    }
+
+    // Check user active — only reached with the correct password.
+    if (!user.is_active) {
+      await this.logAuthEvent(tenantId, {
+        tenantId,
+        userId: user.id,
+        deviceId: did,
+        ip: clientIp,
+        action: 'auth.login_failed',
+        before: { reason: 'user_inactive' },
+      });
+      throw new UnauthorizedException('User is inactive');
     }
 
     // A correct password clears this username's failures; the IP bucket only gets this one
