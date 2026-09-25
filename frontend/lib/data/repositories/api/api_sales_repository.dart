@@ -146,8 +146,9 @@ class ApiSalesRepository implements SalesRepository {
         }
         rethrow;
       } catch (_) {
-        // Transport failure only (ApiTimeoutException, dropped socket) — a 5xx
-        // or 429 is an ApiException and was rethrown above, never queued here:
+        // Anything that is not an ApiException — meant for transport failure
+        // (ApiTimeoutException, dropped socket). A 5xx or 429 is an ApiException
+        // and was rethrown above, so it never reaches this queue:
         // Transition to Degraded and queue offline into outbox with same attempt id & key.
         final sync = syncService ??
             (syncFacade is SyncService ? syncFacade as SyncService : null);
