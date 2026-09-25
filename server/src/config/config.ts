@@ -40,6 +40,27 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   return v;
 }
 
+const DEV_ONLY_PREFIX = 'dev-only-';
+
+/**
+ * #410 (follow-up to #398): `server/.env.example` ships public `dev-only-*` placeholder
+ * secrets so `cp .env.example .env` boots local dev / CI without any setup. That is fine on
+ * a laptop or in CI, but the exact same placeholder is public in this repo's history, so it
+ * must never be trusted on a real deployment. Dockerfile's runtime stage sets
+ * `NODE_ENV=production` unconditionally — that is the only boot-time signal this repo already
+ * has for "this is a real deployment, not a test run" (vitest sets `NODE_ENV=test`; nothing
+ * sets `development`). Refuses only when both the value looks like a shipped placeholder AND
+ * we're in that production boot — local dev / CI (`NODE_ENV` unset or `test`) is unaffected.
+ */
+function refuseDevOnlyValue(env: NodeJS.ProcessEnv, name: string, value: string | undefined): void {
+  if (value !== undefined && value.startsWith(DEV_ONLY_PREFIX) && env.NODE_ENV === 'production') {
+    throw new Error(
+      `${name} is still the placeholder value from server/.env.example — refusing to boot ` +
+        `with NODE_ENV=production. Set a real value for ${name}.`,
+    );
+  }
+}
+
 /**
  * A positive integer, or `fallback` when unset. Refuses `0` and garbage outright: ioredis
  * takes any number as a timeout, so `0` or `NaN` would time every command out at once.
@@ -93,12 +114,21 @@ export function loadConfig(env = process.env): AppConfig {
   const instanceId = env.INSTANCE_ID ?? 'local';
   const isApi = instanceId.startsWith('api') || instanceId === 'local';
   const dbUrl = required(env, 'DATABASE_URL');
-  const adminDbUrl =
-    env.DATABASE_ADMIN_URL ??
-    dbUrl.replace(
+  let adminDbUrl = env.DATABASE_ADMIN_URL;
+  if (adminDbUrl === undefined) {
+    const postgresPassword = env.POSTGRES_PASSWORD ?? 'dev-only-postgres';
+    refuseDevOnlyValue(env, 'POSTGRES_PASSWORD', postgresPassword);
+    adminDbUrl = dbUrl.replace(
       /\/\/[^@]*@/,
-      `//${env.POSTGRES_USER ?? 'postgres'}:${env.POSTGRES_PASSWORD ?? 'dev-only-postgres'}@`,
+      `//${env.POSTGRES_USER ?? 'postgres'}:${postgresPassword}@`,
     );
+  }
+
+  const jwtPlatformSecret = required(env, 'JWT_PLATFORM_SECRET');
+  refuseDevOnlyValue(env, 'JWT_PLATFORM_SECRET', jwtPlatformSecret);
+
+  const etcdPassword = env.ETCD_ROOT_PASSWORD ?? env.ETCD_PASSWORD;
+  refuseDevOnlyValue(env, 'ETCD_ROOT_PASSWORD', etcdPassword);
 
   return {
     port: Number(env.PORT ?? 3000),
@@ -110,13 +140,13 @@ export function loadConfig(env = process.env): AppConfig {
     redisCacheUrl: required(env, 'REDIS_CACHE_URL'),
     redisQueueUrl: required(env, 'REDIS_QUEUE_URL'),
     redisCommandTimeoutMs: positiveInt(env, 'REDIS_COMMAND_TIMEOUT_MS', 1000),
-    jwtPlatformSecret: required(env, 'JWT_PLATFORM_SECRET'),
+    jwtPlatformSecret,
     jwtPrivateKey: isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined,
     jwtPublicKeys: isApi ? parsePublicKeys(required(env, 'JWT_PUBLIC_KEYS')) : undefined,
     jwtKeyId: env.JWT_KEY_ID ?? 'key-1',
     corsOrigins: csvAllowlist(env, 'CORS_ORIGINS'),
     etcdUrl: env.ETCD_URL,
-    etcdPassword: env.ETCD_ROOT_PASSWORD ?? env.ETCD_PASSWORD,
+    etcdPassword,
     platformAdminIps: csvAllowlist(env, 'PLATFORM_ADMIN_IPS'),
     docNumberFallback: env.DOC_NUMBER_FALLBACK !== 'false',
   };

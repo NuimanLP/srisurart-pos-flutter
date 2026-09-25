@@ -81,3 +81,73 @@ describe('loadConfig — JWT_PLATFORM_SECRET is required (#398)', () => {
     expect(cfg.jwtPlatformSecret).toBe('a-real-secret');
   });
 });
+
+/**
+ * #410 (follow-up to #398): `server/.env.example` ships public `dev-only-*` placeholders
+ * (JWT_PLATFORM_SECRET, POSTGRES_PASSWORD, ETCD_ROOT_PASSWORD — the only ones `config.ts` reads
+ * as a named scalar env var; see the PR's decision table for why POS_APP_PASSWORD/REDIS_PASSWORD
+ * are out of scope). `NODE_ENV=production` (set unconditionally by `Dockerfile`'s runtime stage)
+ * is the only boot-time signal for "this is a real deployment" — local dev / CI, which both
+ * copy `.env.example` verbatim and never set `NODE_ENV=production`, must keep booting.
+ */
+describe('loadConfig — refuses dev-only-* secrets in production (#410)', () => {
+  const base: NodeJS.ProcessEnv = {
+    INSTANCE_ID: 'worker',
+    DATABASE_URL: 'postgres://pos_app:pw@localhost:5432/pos',
+    // Set explicitly so these tests isolate one variable at a time — otherwise the
+    // POSTGRES_PASSWORD fallback (unset here) would also be a dev-only value and fire first.
+    DATABASE_ADMIN_URL: 'postgres://postgres:a-real-secret@localhost:5432/pos',
+    REDIS_CACHE_URL: 'redis://localhost:6379',
+    REDIS_QUEUE_URL: 'redis://localhost:6380',
+    JWT_PLATFORM_SECRET: 'a-real-secret',
+  };
+
+  it('throws naming JWT_PLATFORM_SECRET when NODE_ENV=production and the value is the .env.example placeholder', () => {
+    expect(() =>
+      loadConfig({ ...base, NODE_ENV: 'production', JWT_PLATFORM_SECRET: 'dev-only-platform-secret' }),
+    ).toThrow(/JWT_PLATFORM_SECRET is still the placeholder value/);
+  });
+
+  it('throws naming POSTGRES_PASSWORD when NODE_ENV=production and DATABASE_ADMIN_URL is unset (falls back to the dev-only default)', () => {
+    const { DATABASE_ADMIN_URL: _omit, ...withoutAdminUrl } = base;
+    expect(() => loadConfig({ ...withoutAdminUrl, NODE_ENV: 'production' })).toThrow(
+      /POSTGRES_PASSWORD is still the placeholder value/,
+    );
+  });
+
+  it('does not check POSTGRES_PASSWORD when DATABASE_ADMIN_URL is set explicitly (never used to build it)', () => {
+    const cfg = loadConfig({ ...base, NODE_ENV: 'production' });
+    expect(cfg.adminDatabaseUrl).toBe('postgres://postgres:a-real-secret@localhost:5432/pos');
+  });
+
+  it('throws naming ETCD_ROOT_PASSWORD when NODE_ENV=production and it is the .env.example placeholder', () => {
+    expect(() =>
+      loadConfig({ ...base, NODE_ENV: 'production', ETCD_ROOT_PASSWORD: 'dev-only-etcd' }),
+    ).toThrow(/ETCD_ROOT_PASSWORD is still the placeholder value/);
+  });
+
+  it('never names the value in the error, only the variable', () => {
+    let message = '';
+    try {
+      loadConfig({ ...base, NODE_ENV: 'production', JWT_PLATFORM_SECRET: 'dev-only-platform-secret' });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/JWT_PLATFORM_SECRET/);
+    expect(message).not.toContain('platform-secret');
+  });
+
+  it('allows the same dev-only-* values when NODE_ENV is unset (local dev)', () => {
+    const cfg = loadConfig({ ...base, JWT_PLATFORM_SECRET: 'dev-only-platform-secret' });
+    expect(cfg.jwtPlatformSecret).toBe('dev-only-platform-secret');
+  });
+
+  it('allows the same dev-only-* values when NODE_ENV=test (CI/unit tests)', () => {
+    const cfg = loadConfig({
+      ...base,
+      NODE_ENV: 'test',
+      JWT_PLATFORM_SECRET: 'dev-only-platform-secret',
+    });
+    expect(cfg.jwtPlatformSecret).toBe('dev-only-platform-secret');
+  });
+});
