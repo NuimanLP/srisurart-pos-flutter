@@ -22,7 +22,7 @@ import {
   type MovementOut,
   type MovementRow,
 } from '../sales/sales.service.js';
-import type { CreateReturn, ReturnLine } from './returns.dto.js';
+import type { ReturnLine, ReturnWrite } from './returns.dto.js';
 
 /** Who is taking the goods back — read from the token, never from the body. */
 export interface ReturnActor {
@@ -195,14 +195,14 @@ export class ReturnsService {
   ) {}
 
   create(
-    dto: CreateReturn,
+    dto: ReturnWrite,
     actor: ReturnActor,
   ): Promise<CreateReturnResult> {
     return this.tenants.runTx(() => this.createIn(dto, actor));
   }
 
   private async createIn(
-    dto: CreateReturn,
+    dto: ReturnWrite,
     actor: ReturnActor,
   ): Promise<CreateReturnResult> {
     const { tenantId, manager } = currentRequestContext();
@@ -695,7 +695,7 @@ export class ReturnsService {
     tenantId: string,
     returnId: string,
     cnNo: string,
-    dto: CreateReturn,
+    dto: ReturnWrite,
     sale: LockedSale,
     money: RefundAmounts,
     shiftId: string | null,

@@ -19,7 +19,7 @@ import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { ReturnsService } from '../returns/returns.service.js';
 import { parseCreateReturn } from '../returns/returns.dto.js';
 import { SalesService } from '../sales/sales.service.js';
-import { parseCreateSale } from '../sales/sales.dto.js';
+import { parseCreateSale, type SaleWrite } from '../sales/sales.dto.js';
 import { VoidService } from '../sales/void.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import {
@@ -29,6 +29,13 @@ import {
   type SyncPushDto,
   type SyncPushResponse,
 } from './sync.dto.js';
+
+/**
+ * The global prefix `app.setup.ts` gives every route (`setGlobalPrefix('api/v1')`).
+ * 08 §8.3 step 1 fingerprints an op exactly as its online route does, and the online
+ * route records `${req.method} ${req.baseUrl}${req.path}` — prefix included (#409).
+ */
+const ONLINE_PREFIX = '/api/v1';
 
 export interface PushActor {
   userId: string;
@@ -150,6 +157,17 @@ export class SyncService {
     }
 
     if (claim.outcome === 'reused') {
+      // #409: the key is already recorded against a different fingerprint. The usual
+      // cause is not a misused key: the bill was committed ONLINE, its reply was lost,
+      // and the client queued it with the same id and key — adding `receiptNo`/`date`,
+      // so the body hash cannot match. 08 §8.3 makes a key miss fall through to the
+      // client-id replay (step 2) and §8.4 AC B1 expects `applied` for exactly this.
+      // Only when the key was recorded for THIS op's own document, though — the same
+      // key on a different bill stays refused.
+      const ownReplay = await this.replayKeyOfSameDocument(manager, tenantId, op, ep.endpoint);
+      if (ownReplay !== null) {
+        return { opId: op.opId, status: 'applied', response: ownReplay };
+      }
       throw new ConflictException({
         code: 'IDEMPOTENCY_KEY_REUSED',
         message: 'Idempotency-Key already used for a different request',
@@ -198,23 +216,23 @@ export class SyncService {
   private endpointForOp(op: SyncOpDto): { endpoint: string; successCode: number } {
     switch (op.type) {
       case 'sale.create':
-        return { endpoint: 'POST /sales', successCode: 201 };
+        return { endpoint: `POST ${ONLINE_PREFIX}/sales`, successCode: 201 };
       case 'return.create':
-        return { endpoint: 'POST /returns', successCode: 201 };
+        return { endpoint: `POST ${ONLINE_PREFIX}/returns`, successCode: 201 };
       case 'shift.open':
-        return { endpoint: 'POST /shifts/open', successCode: 200 };
+        return { endpoint: `POST ${ONLINE_PREFIX}/shifts/open`, successCode: 200 };
       case 'drawer.entry':
-        return { endpoint: 'POST /shifts/current/entries', successCode: 201 };
+        return { endpoint: `POST ${ONLINE_PREFIX}/shifts/current/entries`, successCode: 201 };
       case 'credit_payment.create':
         return {
-          endpoint: `POST /mechanics/${op.payload.mechanicId}/credit-payments`,
+          endpoint: `POST ${ONLINE_PREFIX}/mechanics/${op.payload.mechanicId}/credit-payments`,
           successCode: 201,
         };
       case 'customer.create':
-        return { endpoint: 'POST /customers', successCode: 201 };
+        return { endpoint: `POST ${ONLINE_PREFIX}/customers`, successCode: 201 };
       case 'customer.update':
         return {
-          endpoint: `PATCH /customers/${op.payload.id}`,
+          endpoint: `PATCH ${ONLINE_PREFIX}/customers/${op.payload.id}`,
           successCode: 200,
         };
       case 'sale.void_offline':
@@ -225,6 +243,42 @@ export class SyncService {
       default:
         return { endpoint: `POST /sync/${op.type}`, successCode: 200 };
     }
+  }
+
+  /**
+   * The client-id replay (step 2) for an op whose key is recorded under a different
+   * fingerprint — but only if that record answered for this op's own document (its
+   * stored response names the same id, on this op's own route). Otherwise null, and the
+   * caller refuses the key. A mismatch between the op and the stored row still throws
+   * `CLIENT_ID_REUSED`.
+   *
+   * The route is compared with the `/api/v1` prefix stripped, so a key an older push
+   * recorded as `POST /sales` (before #409) still replays within its 24 h life.
+   */
+  private async replayKeyOfSameDocument(
+    manager: EntityManager,
+    tenantId: string,
+    op: SyncOpDto,
+    endpoint: string,
+  ): Promise<any | null> {
+    const idField = op.type === 'sale.void_offline' ? 'saleId' : 'id';
+    const clientId: unknown = op.payload?.[idField];
+    if (typeof clientId !== 'string' || clientId.trim() === '') return null;
+    const rows = (await manager.query(
+      `SELECT endpoint, response_body ->> $3 AS stored_id FROM idempotency_keys
+        WHERE tenant_id = $1::uuid AND key = $2`,
+      [tenantId, op.idempotencyKey, idField],
+    )) as { endpoint: string; stored_id: string | null }[];
+    const unprefixed = (e: string) => e.replace(` ${ONLINE_PREFIX}/`, ' /');
+    const stored = rows[0];
+    if (
+      !stored ||
+      unprefixed(stored.endpoint) !== unprefixed(endpoint) ||
+      stored.stored_id !== clientId.trim()
+    ) {
+      return null;
+    }
+    return this.checkClientIdReplay(manager, tenantId, op);
   }
 
   private async checkClientIdReplay(
@@ -504,12 +558,17 @@ export class SyncService {
           [tenantId, device.id],
         )) as { id: string }[];
 
+        // Refused (400 → `rejected`) when unparseable, instead of an Invalid Date → 500.
+        // Not clamped: `clampOpDate` measures against the device's *previous* shift,
+        // which would pull a legitimate earlier offline open forward.
+        const openedAt = deviceIsoDate(op.payload.openedAt, 'openedAt');
+
         const opened = await this.shifts.open(
           { userId: actor.userId, deviceId: device.id },
           {
             id: op.payload.id,
             startingCashSatang: toSatang(op.payload.startingCash, 'startingCash'),
-            openedAt: op.payload.openedAt ? new Date(op.payload.openedAt) : undefined,
+            openedAt,
           },
         );
 
@@ -531,11 +590,10 @@ export class SyncService {
           op,
         );
 
-        const saleInput = parseCreateSale({
-          ...op.payload,
+        const saleInput: SaleWrite = {
+          ...deviceDated(parseCreateSale(op.payload), clampedDate),
           soldOffline: true,
-          date: clampedDate ? clampedDate.toISOString() : undefined,
-        });
+        };
 
         const created = await this.sales.create(saleInput, {
           userId: actor.userId,
@@ -559,10 +617,7 @@ export class SyncService {
           op,
         );
 
-        const returnInput = parseCreateReturn({
-          ...op.payload,
-          date: clampedDate ? clampedDate.toISOString() : undefined,
-        });
+        const returnInput = deviceDated(parseCreateReturn(op.payload), clampedDate);
 
         const created = await this.returns.create(returnInput, {
           userId: actor.userId,
@@ -1024,3 +1079,21 @@ export class SyncService {
   }
 }
 
+/**
+ * The device's own (clamped) date on a replayed write. The online parsers never read
+ * one, so a push is the only way a bill or credit note is dated by the till rather than
+ * by the server's `now()` (08 §10/§12, #411).
+ */
+function deviceDated<T>(input: T, clamped: Date | null): T & { date: string | null } {
+  return { ...input, date: clamped ? clamped.toISOString() : null };
+}
+
+/** An optional ISO timestamp from a push payload — refused (400) when present but unparseable. */
+function deviceIsoDate(value: unknown, field: string): Date | undefined {
+  if (value === undefined || value === null) return undefined;
+  const date = typeof value === 'string' ? new Date(value) : null;
+  if (!date || isNaN(date.getTime())) {
+    throw new BadRequestException(`${field} must be a valid ISO date string`);
+  }
+  return date;
+}

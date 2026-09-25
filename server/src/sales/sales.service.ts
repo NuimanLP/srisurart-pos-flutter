@@ -13,7 +13,7 @@ import { TenantCache } from '../infra/tenant-cache.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { JOB_SALE_CREATED, QUEUE_SALE_POST } from '../queue/queue.constants.js';
-import type { CreateSale, SaleLine } from './sales.dto.js';
+import type { CreateSale, SaleLine, SaleWrite } from './sales.dto.js';
 
 /** Who is ringing the bill up — read from the token, never from the body. */
 export interface SaleActor {
@@ -207,12 +207,12 @@ export class SalesService {
     @Optional() @InjectQueue(QUEUE_SALE_POST) private readonly salePostQueue?: Queue,
   ) {}
 
-  create(dto: CreateSale, actor: SaleActor): Promise<CreateSaleResult> {
+  create(dto: SaleWrite, actor: SaleActor): Promise<CreateSaleResult> {
     return this.tenants.runTx(() => this.createIn(dto, actor));
   }
 
   private async createIn(
-    dto: CreateSale,
+    dto: SaleWrite,
     actor: SaleActor,
   ): Promise<CreateSaleResult> {
     const { tenantId, manager } = currentRequestContext();
@@ -630,7 +630,7 @@ export class SalesService {
   private async existingSale(
     manager: EntityManager,
     tenantId: string,
-    dto: CreateSale,
+    dto: SaleWrite,
   ): Promise<CreateSaleResult | null> {
     const rows = (await manager.query(
       `SELECT receipt_no, total, points_granted, date, voided, shift_id
@@ -755,7 +755,7 @@ export class SalesService {
   private async insertSale(
     manager: EntityManager,
     tenantId: string,
-    dto: CreateSale,
+    dto: SaleWrite,
     actor: SaleActor,
     receiptNo: string,
     pointsGranted: number,

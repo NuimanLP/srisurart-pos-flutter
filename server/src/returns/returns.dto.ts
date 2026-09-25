@@ -19,8 +19,14 @@ export interface CreateReturn {
   refundMethod: string;
   reason: string;
   items: ReturnLine[];
-  date?: Date | string | null;
 }
+
+/**
+ * What `ReturnsService.create` takes. `date` is set ONLY by the `/sync/push` replay; no
+ * body parser reads it, so an online credit note is dated by the server's `now()`
+ * (08 §10, #411).
+ */
+export type ReturnWrite = CreateReturn & { date?: Date | string | null };
 
 /** The most one credit note may carry — the same bound `POST /sales` puts on a bill. */
 const MAX_LINES = 200;
@@ -45,7 +51,8 @@ const REFUND_METHODS = ['เงินสด', 'โอน', 'หักจาก�
  * `class-validator`, which this server does not depend on.
  *
  * Two things are deliberately not read even when present: `shiftId` (stamped from
- * the device's own open drawer) and anything naming a tenant or a device (ADR-0004).
+ * the device's own open drawer) and anything naming a tenant or a device (ADR-0004);
+ * nor `date` (see `ReturnWrite`).
  * `cnNo` is optional (Phase 2): when present, the server validates it against the
  * caller's device token and records the high-water mark; when omitted, the server
  * falls back to issuing one (C16). The credit note's `id` is the server's too —
@@ -70,7 +77,6 @@ export function parseCreateReturn(body: unknown): CreateReturn {
     // typed nothing (`input.reason ?? ''`).
     reason: b.reason === undefined || b.reason === null ? '' : String(b.reason),
     items: items.map((raw, i) => parseLine(raw, i)),
-    date: optionalString(b.date, 'date'),
   };
 }
 

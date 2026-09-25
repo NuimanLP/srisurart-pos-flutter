@@ -18,6 +18,7 @@ describe('health (e2e)', () => {
       REDIS_QUEUE_URL: 'redis://:dev-only-redis@127.0.0.1:6380',
       JWT_PRIVATE_KEY: 'dummy',
       JWT_PUBLIC_KEYS: 'dummy',
+      JWT_PLATFORM_SECRET: 'dummy', // #398: now required unconditionally
       ...process.env,
     });
     const logger = pino({ level: 'silent' });

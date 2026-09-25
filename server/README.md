@@ -95,8 +95,8 @@ passes only `success`/`skipped` and fails on anything else. `flutter.yml` has th
   `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid`. With the GUC unset
   `pos_app` reads zero rows (no error) and cannot insert. `set_config('app.tenant_id', …, true)` inside a
   `TenantService.runTx` transaction, under the tenant `TenantGuard` named, is the only way in (#4, tx.4 #153). `pos_app` cannot `SET row_security = off`.
-- Grants: `pos_app` has `SELECT/INSERT/UPDATE/DELETE` on every table except `movements`
-  (`SELECT/INSERT` — it is a ledger) and nothing on `migrations` or `import_jobs` (#239 — only
+- Grants: `pos_app` has `SELECT/INSERT/UPDATE/DELETE` on every table except `movements` and
+  `audit_log` (`SELECT/INSERT` — append-only; `audit_log` since #399) and nothing on `migrations` or `import_jobs` (#239 — only
   `ADMIN_DATA_SOURCE` ever touches that one; it carries `tenant_id` but no RLS policy, since a
   policy would guard a role that never queries it).
 - Product search is `pg_trgm` + `ILIKE '%…%'` over `lower(part_no||' '||name||' '||name_th||' '||compat)`

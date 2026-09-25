@@ -30,6 +30,7 @@ describe('REDIS_COMMAND_TIMEOUT_MS (#140)', () => {
     DATABASE_URL: 'postgres://u:p@h/db',
     REDIS_CACHE_URL: 'redis://h:6379',
     REDIS_QUEUE_URL: 'redis://h:6380',
+    JWT_PLATFORM_SECRET: 'test-only-platform-secret', // #398: required unconditionally
   };
 
   it('defaults to 1000 ms and takes a positive integer', () => {

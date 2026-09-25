@@ -69,10 +69,11 @@ export class ShiftsController {
       res,
       () => {
         const b = asObject(body);
+        // No `openedAt`/`createdAt` online (here or in `addEntry`): the server's `now()`
+        // dates both; only `/sync/push` passes a device time (08 §10, #411).
         return this.shifts.open(actorOf(req), {
           id: asOptionalString(b.id, 'id'),
           startingCashSatang: cash(b.startingCash, 'startingCash'),
-          openedAt: asOptionalIsoDate(b.openedAt, 'openedAt'),
         });
       },
     );
@@ -119,13 +120,11 @@ export class ShiftsController {
           throw new BadRequestException('amount must be greater than zero');
         const id = typeof b.id === 'string' && b.id.trim() ? b.id.trim() : null;
         const note = b.note === undefined || b.note === null ? null : String(b.note);
-        const createdAt = b.createdAt ? String(b.createdAt) : null;
         return this.shifts.addEntry(actorOf(req), {
           id,
           type: b.type,
           amountSatang,
           note,
-          createdAt,
         });
       },
     );
@@ -173,16 +172,4 @@ function asOptionalString(value: unknown, field: string): string | undefined {
     throw new BadRequestException(`${field} must be a non-empty string`);
   }
   return value.trim();
-}
-
-function asOptionalIsoDate(value: unknown, field: string): Date | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new BadRequestException(`${field} must be a valid ISO date string`);
-  }
-  const date = new Date(value);
-  if (isNaN(date.getTime())) {
-    throw new BadRequestException(`${field} must be a valid ISO date string`);
-  }
-  return date;
 }

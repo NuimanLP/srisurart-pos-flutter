@@ -109,6 +109,10 @@ export async function createTestApp(
     // tokens this file mints.
     JWT_PRIVATE_KEY: privateKey,
     JWT_PUBLIC_KEYS: publicKey,
+    // #398: JWT_PLATFORM_SECRET is now required unconditionally (no dev fallback), and
+    // this fixture must not depend on the runner shell happening to export it — only
+    // server/.env (which `docker compose` reads) is guaranteed to carry it in CI.
+    JWT_PLATFORM_SECRET: 'test-only-platform-secret',
   });
   // Silent unless a run asks otherwise: `TEST_LOG_LEVEL=error pnpm test:e2e` is how
   // you see why a suite is getting a 500.

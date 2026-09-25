@@ -1139,6 +1139,83 @@ void main() {
       expect(payload['overrideCreditLimit'], isTrue);
     });
 
+    group('#409: only a transport failure may become an offline bill', () {
+      SyncService syncWith(_MemoryTokenStorage tokenStorage) => SyncService(
+            db: db,
+            apiClient: ApiClient(
+              baseUrl: 'http://server.test',
+              httpClient: MockClient((req) async => fail('the probe is not under test')),
+              tokenStorage: tokenStorage,
+            ),
+            tokenStorage: tokenStorage,
+            autoStartHealthProbe: false,
+          );
+
+      test('a 2xx whose body cannot be read is NOT queued offline — Thai error, attempt stays parked', () async {
+        // The server answered 201, so the bill is committed; only its body is
+        // unreadable. Queuing it would push the same id+key later with an offline
+        // receipt number the customer already holds — the #409 shape.
+        final sync = syncWith(_MemoryTokenStorage());
+        var attempt = 0;
+        final repo = repoWith((req) async {
+          attempt++;
+          return http.Response(
+            attempt == 1
+                ? jsonEncode({'status': 'success', 'data': 'not a bill'})
+                : _ok(created()),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }, syncService: sync);
+
+        final thrown = await repo.saveSale(input()).then<Object?>((_) => null, onError: (Object e) => e);
+        expect(thrown, isA<PosException>());
+        expect(thrown.toString(), 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+        expect(await db.select(db.outboxOps).get(), isEmpty);
+        expect(await db.select(db.sales).get(), isEmpty);
+        expect(sync.currentStatus, SyncStatus.online);
+
+        // The next press replays the same bill id and key instead of ringing a second bill.
+        await repo.saveSale(input());
+        final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+        expect(posts, hasLength(2));
+        expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(1));
+        expect(posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(), hasLength(1));
+        expect(await db.select(db.outboxOps).get(), isEmpty);
+      });
+
+      test('an http.ClientException (what IOClient/BrowserClient raise) still falls back to the outbox', () async {
+        final sync = syncWith(_MemoryTokenStorage());
+        final repo = repoWith(
+          (req) async => throw http.ClientException('Connection reset', req.url),
+          syncService: sync,
+        );
+
+        final sale = await repo.saveSale(input());
+
+        expect(sale.soldOffline, isTrue);
+        expect(await db.select(db.outboxOps).get(), hasLength(1));
+        expect(sync.currentStatus, SyncStatus.degraded);
+      });
+
+      test('an ApiTimeoutException falls back to the outbox with the same id and key', () async {
+        final sync = syncWith(_MemoryTokenStorage());
+        final repo = repoWith(
+          (req) => Completer<http.Response>().future, // never answers
+          syncService: sync,
+          writeTimeout: const Duration(milliseconds: 100),
+        );
+
+        final sale = await repo.saveSale(input());
+
+        final ops = await db.select(db.outboxOps).get();
+        expect(ops, hasLength(1));
+        final post = sent.singleWhere((r) => r.url.path == '/api/v1/sales');
+        expect(ops.single.idempotencyKey, post.headers['Idempotency-Key']);
+        expect(sale.id, (jsonDecode(post.body) as Map)['id']);
+      });
+    });
+
     test('offline stock pre-validation refuses sale with insufficient stock', () async {
       final repo = ApiSalesRepository(
         api: ApiClient(
