@@ -36,6 +36,7 @@ describe('#201: the default backoff is BullMQ\'s own builtin, not a custom type'
     REDIS_QUEUE_URL: 'redis://:dev-only-redis@127.0.0.1:6380',
     JWT_PRIVATE_KEY: 'dummy',
     JWT_PUBLIC_KEYS: 'dummy',
+    JWT_PLATFORM_SECRET: 'dummy', // #398: now required unconditionally
     ...process.env,
   });
   const url = new URL(config.redisQueueUrl);
