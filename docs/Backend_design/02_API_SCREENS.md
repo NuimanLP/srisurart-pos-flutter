@@ -859,7 +859,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 > (ไม่มีต้นฉบับให้ลอก) เจ้าของโปรเจกต์รับไว้เพื่อไม่ให้ block การ implement
 >
 > 🔴 **ตัวเหล่านี้ขึ้นที่หน้าร้านตอนมีลูกค้ายืนรอ ต้องให้พ่อแม่/คนขายอ่านแล้วแก้คำก่อนใช้จริง:**
-> `DEVICE_ROLE_FORBIDDEN` · `TENANT_SUSPENDED` · `OFFLINE_NOT_ALLOWED` · `SALE_NOT_IN_OPEN_SHIFT` (#145)
+> `DEVICE_ROLE_FORBIDDEN` · `TENANT_SUSPENDED` · ~~`OFFLINE_NOT_ALLOWED`~~ (ยกเลิก 2026-09-15, D3 #240 — ไม่มี `offlineOk` แล้ว) · `SALE_NOT_IN_OPEN_SHIFT` (#145)
 >
 > **2026-09-15 (#145, #163):** เจ้าของโปรเจกต์เลือกข้อความจากร่างของ agent ให้ `SALE_NOT_IN_OPEN_SHIFT`
 > และ error ของการจัดการเครื่องสี่ตัว (`POS_DEVICE_EXISTS` · `DEVICE_NO_EXHAUSTED` · `DEVICE_ALREADY_RETIRED` ·
