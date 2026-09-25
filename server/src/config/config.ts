@@ -70,9 +70,10 @@ function isPublicDummyKey(pem: string): boolean {
  *
  * Checked: POSTGRES_PASSWORD (only when it builds `adminDatabaseUrl`), JWT_PLATFORM_SECRET,
  * ETCD_ROOT_PASSWORD / legacy ETCD_PASSWORD, JWT_PRIVATE_KEY / JWT_PUBLIC_KEYS (api instances),
- * BULL_BOARD_PASSWORD (`bull-board.ts`). Not checked: POS_APP_PASSWORD / REDIS_PASSWORD reach
- * this process only baked into connection URLs; GRAFANA_* / K6_* never reach `server/src`.
- * The error names the variable, never the value.
+ * BULL_BOARD_PASSWORD (`bull-board.ts`), and the password inside DATABASE_URL /
+ * DATABASE_ADMIN_URL / REDIS_CACHE_URL / REDIS_QUEUE_URL (`refusePublicSecretInUrl`) — the only
+ * way POS_APP_PASSWORD / REDIS_PASSWORD reach this process. Not checked: GRAFANA_* / K6_* never
+ * reach `server/src`. The error names the variable, never the value.
  */
 export function refusePublicSecret(
   env: NodeJS.ProcessEnv,
@@ -86,6 +87,30 @@ export function refusePublicSecret(
         `Set a real value for ${name} (ALLOW_DEV_SECRETS=true is for a local dev/CI stack only).`,
     );
   }
+}
+
+/**
+ * `refusePublicSecret` for the password component of a connection URL (`postgres://u:pw@…`,
+ * `redis://:pw@…`), percent-decoded. An unparseable URL is left to the driver to reject.
+ */
+export function refusePublicSecretInUrl(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  url: string | undefined,
+): void {
+  if (url === undefined || env.ALLOW_DEV_SECRETS === 'true') return;
+  let password: string;
+  try {
+    password = new URL(url).password;
+  } catch {
+    return;
+  }
+  try {
+    password = decodeURIComponent(password);
+  } catch {
+    // malformed %-escape: check the raw form
+  }
+  refusePublicSecret(env, `the password in ${name}`, password);
 }
 
 /**
@@ -141,7 +166,9 @@ export function loadConfig(env = process.env): AppConfig {
   const instanceId = env.INSTANCE_ID ?? 'local';
   const isApi = instanceId.startsWith('api') || instanceId === 'local';
   const dbUrl = required(env, 'DATABASE_URL');
+  refusePublicSecretInUrl(env, 'DATABASE_URL', dbUrl);
   let adminDbUrl = env.DATABASE_ADMIN_URL;
+  refusePublicSecretInUrl(env, 'DATABASE_ADMIN_URL', adminDbUrl);
   if (adminDbUrl === undefined) {
     const postgresPassword = env.POSTGRES_PASSWORD ?? 'dev-only-postgres';
     refusePublicSecret(env, 'POSTGRES_PASSWORD', postgresPassword);
@@ -150,6 +177,11 @@ export function loadConfig(env = process.env): AppConfig {
       `//${env.POSTGRES_USER ?? 'postgres'}:${postgresPassword}@`,
     );
   }
+
+  const redisCacheUrl = required(env, 'REDIS_CACHE_URL');
+  refusePublicSecretInUrl(env, 'REDIS_CACHE_URL', redisCacheUrl);
+  const redisQueueUrl = required(env, 'REDIS_QUEUE_URL');
+  refusePublicSecretInUrl(env, 'REDIS_QUEUE_URL', redisQueueUrl);
 
   const jwtPlatformSecret = required(env, 'JWT_PLATFORM_SECRET');
   refusePublicSecret(env, 'JWT_PLATFORM_SECRET', jwtPlatformSecret);
@@ -176,8 +208,8 @@ export function loadConfig(env = process.env): AppConfig {
     databaseUrl: dbUrl,
     adminDatabaseUrl: adminDbUrl,
     dbPoolSize: Number(env.DB_POOL_SIZE ?? 5),
-    redisCacheUrl: required(env, 'REDIS_CACHE_URL'),
-    redisQueueUrl: required(env, 'REDIS_QUEUE_URL'),
+    redisCacheUrl,
+    redisQueueUrl,
     redisCommandTimeoutMs: positiveInt(env, 'REDIS_COMMAND_TIMEOUT_MS', 1000),
     jwtPlatformSecret,
     jwtPrivateKey,
