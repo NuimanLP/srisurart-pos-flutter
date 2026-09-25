@@ -54,6 +54,12 @@ class FakeTokenStorage implements TokenStorage {
   }
 }
 
+class _UnavailableDeviceTokenStorage extends FakeTokenStorage {
+  @override
+  Future<String?> getDeviceToken() async =>
+      throw const TokenStoreUnavailableException();
+}
+
 void main() {
   late FakeTokenStorage storage;
 
@@ -79,6 +85,22 @@ void main() {
     final token = await repo.enrolDevice('  enrol-1234  ');
     expect(token, 'dev-token-uuid-123');
     expect(storage.deviceToken, 'dev-token-uuid-123');
+  });
+
+  // #400 / ADR-0004 F8: with the device token in an unreachable web token
+  // store, enrolling must not spend the code (a new device_no) on the server.
+  test('enrolDevice does not call the server when the token store is unavailable', () async {
+    var calls = 0;
+    final mockClient = MockClient((req) async {
+      calls++;
+      return http.Response(jsonEncode({'deviceToken': 'new'}), 200);
+    });
+    final unavailable = _UnavailableDeviceTokenStorage();
+    final apiClient = ApiClient(baseUrl: 'http://test', httpClient: mockClient, tokenStorage: unavailable);
+    final repo = AuthRepository(apiClient: apiClient, tokenStorage: unavailable);
+
+    await expectLater(repo.enrolDevice('ENROL-1'), throwsA(isA<TokenStoreUnavailableException>()));
+    expect(calls, 0);
   });
 
   test('login automatically passes deviceToken if device is already enrolled', () async {

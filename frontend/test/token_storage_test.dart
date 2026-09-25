@@ -148,7 +148,7 @@ void main() {
     late SharedPreferences prefs;
 
     SharedPrefsTokenStorage webStorage() => SharedPrefsTokenStorage(
-        prefs: prefs, persistAccessToken: false, secureStore: store);
+        prefs: prefs, persistAccessToken: false, tokenStore: store);
 
     setUp(() async {
       store = FakeKvStore();
@@ -266,14 +266,40 @@ void main() {
       expect(await web.getDeviceToken(), isNull);
     });
 
-    test('a logout on a fallback run also removes the store copy, so it does not come back', () async {
-      store.data['auth_refresh_token'] = 'old-refresh';
-      store.failGet = true; // startup probe fails → fallback run
-      final web = webStorage();
-      await web.clearAuthTokens();
+    // Review finding: once the tokens moved to the store, a run that cannot
+    // open it must NOT fall back to (now empty) localStorage — that shows an
+    // enrolled till as un-enrolled and invites a re-enrolment (new device_no,
+    // ADR-0004 F8), whose token would later overwrite the real one.
+    test('store unreachable after the tokens moved there: token access throws, nothing reads as un-enrolled', () async {
+      SharedPreferences.setMockInitialValues({'auth_device_token': 'enrolled-device'});
+      prefs = await SharedPreferences.getInstance();
+      expect(await webStorage().getDeviceToken(), 'enrolled-device'); // migrates
+      expect(prefs.getBool('auth_tokens_in_store'), isTrue);
 
-      store.failGet = false;
-      expect(await webStorage().getRefreshToken(), isNull);
+      store.failAll = true; // a later run: IndexedDB will not open
+      final laterRun = webStorage();
+      await expectLater(laterRun.getDeviceToken(), throwsA(isA<TokenStoreUnavailableException>()));
+      await expectLater(laterRun.setDeviceToken('re-enrolled'), throwsA(isA<TokenStoreUnavailableException>()));
+      await expectLater(laterRun.getRefreshToken(), throwsA(isA<TokenStoreUnavailableException>()));
+      expect(prefs.getString('auth_device_token'), isNull);
+
+      // The store comes back mid-run: the next access retries and recovers.
+      store.failAll = false;
+      expect(await laterRun.getDeviceToken(), 'enrolled-device');
+    });
+
+    test('a fresh install marks the store as the token home even with nothing to migrate', () async {
+      await webStorage().getDeviceToken();
+      expect(prefs.getBool('auth_tokens_in_store'), isTrue);
+    });
+
+    test('a failed migration does not set the marker (fallback stays a plain pre-#400 run)', () async {
+      SharedPreferences.setMockInitialValues({'auth_device_token': 'legacy-device'});
+      prefs = await SharedPreferences.getInstance();
+      store.failAll = true;
+
+      expect(await webStorage().getDeviceToken(), 'legacy-device');
+      expect(prefs.getBool('auth_tokens_in_store'), isNull);
     });
   });
 }

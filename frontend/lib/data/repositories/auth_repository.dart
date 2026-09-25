@@ -69,6 +69,12 @@ class AuthRepository {
   Future<String> enrolDevice(String code) async {
     final normalizedCode = code.trim().toUpperCase();
 
+    // #400: touch the token storage BEFORE spending the code. If the web token
+    // store holding this till's device token is unreachable this throws
+    // TokenStoreUnavailableException, rather than minting a new device_no on
+    // the server that could then not even be saved (ADR-0004 F8).
+    await tokenStorage.getDeviceToken();
+
     final response = await apiClient.post(
       '/api/v1/auth/device',
       body: {'code': normalizedCode},

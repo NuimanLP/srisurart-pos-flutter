@@ -17,26 +17,52 @@ class IndexedDbTokenKvStore implements TokenKvStore {
   static const String _dbName = 'srisurart_auth';
   static const String _store = 'tokens';
 
+  /// An open that never answers (a `blocked` that never clears, a wedged
+  /// browser) must fail rather than hang app startup, so the caller can fall
+  /// back — see `SharedPrefsTokenStorage._migrateToStore`.
+  static const Duration openTimeout = Duration(seconds: 5);
+
   Future<web.IDBDatabase>? _db;
 
   Future<web.IDBDatabase> _open() {
     final cached = _db;
     if (cached != null) return cached;
     final completer = Completer<web.IDBDatabase>();
+    void fail(String why) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('IndexedDB open failed: $why'));
+      }
+    }
+
     final req = web.window.indexedDB.open(_dbName, 1);
     req.onupgradeneeded = ((web.Event _) {
       final db = req.result as web.IDBDatabase;
       if (!db.objectStoreNames.contains(_store)) db.createObjectStore(_store);
     }).toJS;
     req.onsuccess = ((web.Event _) {
-      completer.complete(req.result as web.IDBDatabase);
+      final db = req.result as web.IDBDatabase;
+      // The browser can close the connection under us (storage cleared,
+      // another tab upgrading); drop it so the next call reopens.
+      db.onclose = ((web.Event _) => _db = null).toJS;
+      db.onversionchange = ((web.Event _) {
+        db.close();
+        _db = null;
+      }).toJS;
+      if (completer.isCompleted) {
+        db.close(); // answered after the timeout — nobody is waiting
+      } else {
+        completer.complete(db);
+      }
     }).toJS;
-    req.onerror = ((web.Event _) {
-      _db = null; // never cache a failed open — the next call retries
-      completer.completeError(
-          StateError('IndexedDB open failed: ${req.error?.message}'));
-    }).toJS;
-    return _db = completer.future;
+    req.onerror = ((web.Event _) => fail('${req.error?.message}')).toJS;
+    req.onblocked = ((web.Event _) => fail('blocked')).toJS;
+    Timer(openTimeout, () => fail('timed out after $openTimeout'));
+    final opened = completer.future;
+    // Never cache a failed open — the next call retries.
+    opened.then<void>((_) {}, onError: (Object _) {
+      if (identical(_db, opened)) _db = null;
+    });
+    return _db = opened;
   }
 
   /// Runs [op] in one transaction and resolves only on the transaction's
