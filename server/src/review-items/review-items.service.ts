@@ -180,17 +180,32 @@ export class ReviewItemsService {
 
   /**
    * Helper for other services executing within an existing transaction.
+   * `{ onConflictDoNothing: true }` skips a row a unique index already holds (e.g.
+   * `uq_owner_review_items_renumbered`) and returns null instead of throwing.
    */
   static async insertIn(
     manager: EntityManager,
     tenantId: string,
     input: CreateReviewItemInput,
-  ): Promise<ReviewItem> {
+  ): Promise<ReviewItem>;
+  static async insertIn(
+    manager: EntityManager,
+    tenantId: string,
+    input: CreateReviewItemInput,
+    opts: { onConflictDoNothing: true },
+  ): Promise<ReviewItem | null>;
+  static async insertIn(
+    manager: EntityManager,
+    tenantId: string,
+    input: CreateReviewItemInput,
+    opts?: { onConflictDoNothing: true },
+  ): Promise<ReviewItem | null> {
     const id = input.id ?? newId('rev_');
     const rows = returning<ReviewItemRow>(
       await manager.query(
         `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, details)
          VALUES ($1::uuid, $2, $3, $4, $5::jsonb)
+         ${opts?.onConflictDoNothing ? 'ON CONFLICT DO NOTHING' : ''}
          RETURNING ${REVIEW_ITEM_COLUMNS}`,
         [
           tenantId,
@@ -202,6 +217,6 @@ export class ReviewItemsService {
       ),
     );
 
-    return toReviewItem(rows[0]);
+    return rows.length > 0 ? toReviewItem(rows[0]) : null;
   }
 }

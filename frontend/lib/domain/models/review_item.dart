@@ -7,7 +7,7 @@ enum ReviewItemKind {
   shiftUncounted('shift_uncounted', 'กะไม่ได้นับเงินสด'),
   dateFlag('date_flag', 'วันที่ถูกปรับ (clamp)'),
   deviceForceRetired('device_force_retired', 'ปลดเครื่องที่ค้างส่ง'),
-  receiptRenumbered('receipt_renumbered', 'เลขใบเสร็จออฟไลน์ไม่ตรงกับระบบ'),
+  receiptRenumbered('receipt_renumbered', 'เลขเอกสารออฟไลน์ไม่ตรงกับระบบ'),
   unknown('unknown', 'รายการตรวจสอบ');
 
   final String value;

@@ -1777,6 +1777,50 @@ describe('POST /sync/push (e2e)', () => {
         expect(await stockOf('p_b1')).toBe(18);
       });
 
+      it('the credit-note side: a replayed return whose offline cnNo differs → one receipt_renumbered item; a junk cnNo raises none', async () => {
+        const cashSale = { ...onlineBody, id: 's_cn_ren', paymentMethod: 'เงินสด', mechanicId: null, mechanicName: null, overrideCreditLimit: false };
+        expect((await postOnline('k_cn_ren_sale', cashSale)).status).toBe(201);
+        const retBody = {
+          id: 'cn_ren',
+          saleId: 's_cn_ren',
+          refundMethod: 'เงินสด',
+          items: [{ productId: 'p_b1', name: 'Brake Pad B1', qty: 1, price: '50.00' }],
+        };
+        const online = await request(app.getHttpServer())
+          .post('/api/v1/returns')
+          .set(
+            'Authorization',
+            `Bearer ${accessToken({ tenantId: TENANT, userId: fixture.userId, deviceId: fixture.posDeviceId, deviceRole: 'pos' })}`,
+          )
+          .set('Idempotency-Key', 'k_cn_ren')
+          .send(retBody);
+        expect(online.status).toBe(201);
+        const serverCnNo = online.body.data.cnNo as string;
+
+        const op = (cnNo: string) => ({
+          opId: 'op_cn_ren',
+          idempotencyKey: 'k_cn_ren',
+          type: 'return.create',
+          payload: { ...retBody, cnNo, date: outboxPayload.date },
+        });
+        // Junk number first: not an RC/CN number → no item, still applied.
+        expect((await push({ outboxRemaining: 0, ops: [op('garbage')] })).body.data.results[0].status).toBe('applied');
+        for (let i = 0; i < 2; i++) {
+          const res = await push({ outboxRemaining: 0, ops: [op('CN01-2569-09-0555')] });
+          expect(res.body.data.results[0]).toMatchObject({ status: 'applied', response: { id: 'cn_ren', cnNo: serverCnNo } });
+        }
+        const items = await admin.query(
+          `SELECT ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'receipt_renumbered'`,
+          [TENANT],
+        );
+        expect(items).toEqual([
+          {
+            ref_id: 'cn_ren',
+            details: { opId: 'op_cn_ren', type: 'return.create', id: 'cn_ren', offlineNo: 'CN01-2569-09-0555', serverNo: serverCnNo },
+          },
+        ]);
+      });
+
       it('a replay carrying the SAME number as the stored bill raises no receipt_renumbered item', async () => {
         const online = await postOnline('k_b1_samenum', onlineBody);
         const payload = { ...outboxPayload, receiptNo: online.body.data.receiptNo };
@@ -1823,6 +1867,51 @@ describe('POST /sync/push (e2e)', () => {
         const res = await push({ outboxRemaining: 0, ops: [saleOp('s_bad_date', 'not-a-date')] });
         expect(res.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'BAD_REQUEST' });
         expect(await admin.query(`SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = 's_bad_date'`, [TENANT])).toHaveLength(0);
+      });
+
+      it('an empty-string date is rejected (never falls through to createdAt or now()); an absent date → now(), unflagged', async () => {
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+        const noDate = saleOp('s_no_date', undefined);
+        const before = Date.now();
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [
+            { ...saleOp('s_empty_date', ''), payload: { ...saleOp('s_empty_date', '').payload, createdAt: new Date().toISOString() } },
+            noDate,
+          ],
+        });
+        expect(res.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'BAD_REQUEST' });
+        expect(res.body.data.results[1].status).toBe('applied');
+        const rows = (await admin.query(
+          `SELECT id, date FROM sales WHERE tenant_id = $1::uuid ORDER BY id`,
+          [TENANT],
+        )) as { id: string; date: Date }[];
+        expect(rows.map((r) => r.id)).toEqual(['s_no_date']);
+        expect(rows[0].date.getTime()).toBeGreaterThanOrEqual(before - 1000);
+        expect(await flags()).toHaveLength(0);
+      });
+
+      it('a clamped op with a wrong period gets ONE flag carrying both; a rejected op leaves no flag', async () => {
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+        const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        const both = saleOp('s_both', future);
+        const tooMany = saleOp('s_nostock', future);
+        tooMany.payload.items[0].qty = 999;
+        Object.assign(tooMany.payload, { subtotal: '84915.00', total: '84915.00' });
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [{ ...both, payload: { ...both.payload, receiptNo: 'RC01-2500-01-0201' } }, tooMany],
+        });
+        expect(res.body.data.results[0].status).toBe('applied');
+        expect(res.body.data.results[1]).toMatchObject({ status: 'rejected', code: 'INSUFFICIENT_STOCK' });
+
+        const f = await flags();
+        expect(f).toHaveLength(1);
+        expect(f[0]).toMatchObject({
+          ref_id: 's_both',
+          details: { originalDate: future, docNo: 'RC01-2500-01-0201', docPeriod: '2500-01' },
+        });
+        expect(f[0].details.clampedDate).not.toBe(future);
       });
 
       it('no active shift: a date 10 min ahead → now() + date_flag; a past date is kept unflagged', async () => {
