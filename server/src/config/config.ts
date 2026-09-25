@@ -51,6 +51,17 @@ const DEV_ONLY_PREFIX = 'dev-only-';
  * has for "this is a real deployment, not a test run" (vitest sets `NODE_ENV=test`; nothing
  * sets `development`). Refuses only when both the value looks like a shipped placeholder AND
  * we're in that production boot — local dev / CI (`NODE_ENV` unset or `test`) is unaffected.
+ *
+ * Decision, per `dev-only-*` value `server/.env.example` ships (full table in #410's PR):
+ * checked here — JWT_PLATFORM_SECRET, POSTGRES_PASSWORD (builds `adminDatabaseUrl`),
+ * ETCD_ROOT_PASSWORD / the legacy ETCD_PASSWORD — because these are the only ones this file
+ * reads as a named scalar env var. Not checked: POS_APP_PASSWORD and REDIS_PASSWORD are
+ * compose-only — `docker-compose.yml`'s `x-app-env` bakes them into `DATABASE_URL` /
+ * `REDIS_CACHE_URL` / `REDIS_QUEUE_URL` before this process ever starts, so this file never
+ * sees either name, only the already-built URL (parsing a password substring out of a
+ * connection URI is a different, riskier check, deferred); BULL_BOARD_PASSWORD is read by
+ * `bull-board.ts`, not this file; GRAFANA_ADMIN_PASSWORD and K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD
+ * are consumed only by compose/Nginx, never by any `server/src` code.
  */
 function refuseDevOnlyValue(env: NodeJS.ProcessEnv, name: string, value: string | undefined): void {
   if (value !== undefined && value.startsWith(DEV_ONLY_PREFIX) && env.NODE_ENV === 'production') {
@@ -127,8 +138,15 @@ export function loadConfig(env = process.env): AppConfig {
   const jwtPlatformSecret = required(env, 'JWT_PLATFORM_SECRET');
   refuseDevOnlyValue(env, 'JWT_PLATFORM_SECRET', jwtPlatformSecret);
 
+  // Name whichever variable actually supplied the value — ETCD_PASSWORD is the legacy name
+  // (etcdPassword falls back to it), so a placeholder reaching config only through ETCD_PASSWORD
+  // must not be reported as ETCD_ROOT_PASSWORD, a variable that was never even read.
+  if (env.ETCD_ROOT_PASSWORD !== undefined) {
+    refuseDevOnlyValue(env, 'ETCD_ROOT_PASSWORD', env.ETCD_ROOT_PASSWORD);
+  } else if (env.ETCD_PASSWORD !== undefined) {
+    refuseDevOnlyValue(env, 'ETCD_PASSWORD', env.ETCD_PASSWORD);
+  }
   const etcdPassword = env.ETCD_ROOT_PASSWORD ?? env.ETCD_PASSWORD;
-  refuseDevOnlyValue(env, 'ETCD_ROOT_PASSWORD', etcdPassword);
 
   return {
     port: Number(env.PORT ?? 3000),

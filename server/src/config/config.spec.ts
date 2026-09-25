@@ -126,6 +126,12 @@ describe('loadConfig — refuses dev-only-* secrets in production (#410)', () =>
     ).toThrow(/ETCD_ROOT_PASSWORD is still the placeholder value/);
   });
 
+  it('throws naming the legacy ETCD_PASSWORD (not ETCD_ROOT_PASSWORD) when only that is set', () => {
+    expect(() =>
+      loadConfig({ ...base, NODE_ENV: 'production', ETCD_PASSWORD: 'dev-only-etcd' }),
+    ).toThrow(/ETCD_PASSWORD is still the placeholder value/);
+  });
+
   it('never names the value in the error, only the variable', () => {
     let message = '';
     try {
