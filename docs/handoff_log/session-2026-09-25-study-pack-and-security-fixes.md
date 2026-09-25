@@ -2,7 +2,39 @@
 
 Read the root `CLAUDE.md` first (binding rules). The owner wants reports **extremely concise**, and writes in Thai.
 
-## State (updated 2026-09-25, post-merge sync)
+## Round 3 (2026-09-25, late) — read this first
+**Merged (round 2):** #415 docs sync · #416 dev-only passwords inside connection URLs ·
+#418 customer non-Map responses + reload→init test · #419 web localStorage token fallback
+removed, **closes #400** (owner decision 2026-09-25, ADR-0009 addendum; Thai text of
+`TokenStoreUnavailableException` ratified) · #420 OwnerReviewItems RLS/FK fix migration
+`…4200` + quotes purge validate-first · #421 login releases the pool connection before argon2, admin
+pool = 2 (budget 70 ≤ 80) · #422 `TokenStoreUnavailableException` passes through the API repos ·
+#423 targeted Drift queries (`saveSale`/`receivePO`/partNo dup) · #424 backup export
+written to a file + `GET /backup/jobs/:id/download` (no longer in `redis-queue`).
+
+**Open — merge next (all agent-reviewed: karpathy → scrutinize → code-review):**
+| PR | What | Note |
+|---|---|---|
+| #426 | login timing: dummy argon2 for unknown username (closes #425) | still leaks via inactive/suspended/ambiguous messages + legacy PBKDF2 admin hashes — owner/UX call |
+| #427 | Reports / Closing / Cash drawer load only the date range (Refs #417) | parity tests prove identical numbers |
+| #428 | `docs/study/*` factual sync | docs only |
+| #429 | server: no `count(*)` on sync pages, products `(tenant_id, updated_at, id)` index `…4300`, shift-history N+1 | `meta.total` dropped on sync pages (client never read it) |
+| #430 | Drift schema **v12**: 10 indexes (Refs #417) | CLAUDE.md says lane B owns Drift bumps → lane-B review; may conflict with #427 in `CONTRACT.md` |
+
+**#417** was taken over by lane A (`team/1`, NuimanLP) on 2026-09-25. After #427/#429/#430 merge,
+the only part left is tenant-import row-by-row INSERTs (one-time job, deliberately skipped) and
+a `movements.date` index (not added). Close #417 then, or split those two out.
+
+**Still on the owner / humans:**
+- Post the `ALLOW_DEV_SECRETS` lane announcement (draft at the end of this file). Check that
+  `DEMO_ENV_FILE` for mob04 has no `dev-only-*` or dummy JWT pair — #412/#416 refuse to boot on them.
+- Owner decisions still open: `08 §11` `POST /shifts/open` `openedAt` vs §10; the client never
+  patches `receiptNo` from an `applied` push (#413); `clampOpDate` is silent and `shift.open`
+  has no `date_flag` (#414); unify the login error messages (#426).
+- Merge is manual: the auto-mode classifier refuses `gh pr merge`, even when asked. Add a Bash
+  allow rule `Bash(gh pr merge:*)` to let an agent merge.
+
+## State (updated 2026-09-25, post-merge sync — round 1, historical)
 - **Study pack:** a 19-chapter Thai study pack and a 103-slide deck were built.
 - **Review findings:** reviewing the pack surfaced security gaps and HIGH bugs. They were filed as issues and fixed in separate PRs.
 - **All 9 PRs below are now merged to `main`** (UTC times via `gh pr view N --json mergedAt`):
