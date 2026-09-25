@@ -444,7 +444,7 @@ load path that does not pass through the limiter the shop itself lives behind.
 | # | Bottleneck | Where it bites | Path forward |
 |---|---|---|---|
 | 1 | **Single VM, single Postgres, single disk** | No high availability. A dead disk loses the tenant. | Managed Postgres or a replica. This is the first thing to fix for real multi-tenant traffic. |
-| 2 | **Postgres `max_connections=100`, budget 62** | 3 API × (15 request + 2 audit + 1 health) + worker. A fourth instance breaches the budget. | PgBouncer in transaction mode. Scaling API instances without it exhausts the pool before it exhausts the CPU. |
+| 2 | **Postgres `max_connections=100`, budget 70** | 3 API × (15 request + 2 audit + 1 health + 2 admin) + worker. A fourth instance breaches the budget. | PgBouncer in transaction mode. Scaling API instances without it exhausts the pool before it exhausts the CPU. |
 | 3 | **Writes serialize on row locks** in a fixed order — sales → mechanic → products → `doc_counters` → customer, with a `shifts` `FOR SHARE` read between the sale and mechanic locks on void and return paths | One very hot part number is the throughput ceiling for that tenant, no matter how many instances run. | Correct by design; fix by sharding tenants, not by loosening the locks. |
 | 4 | **25-second commit ceiling** | Any transaction open longer is rolled back before `COMMIT`; `statement_timeout` is 25 s and `idle_in_transaction` 5 s. | Keeps a slow query from holding locks across a shop's whole afternoon. Long work belongs on the queue. |
 | 5 | **Per-IP rate limit, 30 r/s burst 60** | A whole shop behind one NAT address shares a single bucket. | Per-tenant limiting exists as an application guard; the Nginx limit is only a pre-auth flood guard. |
