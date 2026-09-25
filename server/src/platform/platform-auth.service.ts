@@ -3,7 +3,7 @@ import { DataSource } from 'typeorm';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { signJwt } from '../common/jwt.js';
-import { verifyPassword } from '../common/password.js';
+import { verifyAgainstDummyHash, verifyPassword } from '../common/password.js';
 import { AuditService } from './audit.service.js';
 
 @Injectable()
@@ -21,7 +21,10 @@ export class PlatformAuthService {
     );
 
     const admin = res[0];
-    const isValid = admin ? await verifyPassword(password, admin.password_hash) : false;
+    // An unknown admin still pays one argon2 verify, so latency does not reveal usernames (#425).
+    const isValid = admin
+      ? await verifyPassword(password, admin.password_hash)
+      : await verifyAgainstDummyHash(password);
     if (!admin || !admin.is_active || !isValid) {
       throw new UnauthorizedException('Invalid platform admin credentials');
     }

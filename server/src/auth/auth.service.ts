@@ -12,6 +12,7 @@ import * as argon2 from 'argon2';
 import { JwtSigner, type JwtPayload } from './jwt-keys.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
+import { verifyAgainstDummyHash } from '../common/password.js';
 
 export interface LoginDto {
   username: string;
@@ -120,6 +121,9 @@ export class AuthService {
     }
 
     if (userRows.length === 0) {
+      // Burn the same argon2 time a wrong password costs, so latency does not reveal which
+      // usernames exist (#425). No connection is held here (see above).
+      await verifyAgainstDummyHash(dto.password);
       this.logger.warn(`Login failed: user not found for username=${dto.username}`);
       throw new UnauthorizedException('Invalid credentials');
     }

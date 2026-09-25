@@ -10,6 +10,21 @@ export async function hashPassword(password: string): Promise<string> {
   });
 }
 
+/**
+ * A real argon2id hash of a random, discarded secret, made with exactly `hashPassword`'s
+ * parameters (`password.spec.ts` pins that). Login verifies against it when the username
+ * does not exist, so an unknown user costs the same argon2 time as a wrong password and
+ * response latency does not reveal which usernames exist (#425).
+ */
+export const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=65536,p=1,t=3$DoqUEQ2wG5VUZO8UBPB2Bg$BX3C6V1Z/PScI3i9qWDn0uzBQtGbQEcK7sjjpGdYH7M';
+
+/** Spend one argon2 verify's worth of time on a login that is already refused. Always false. */
+export async function verifyAgainstDummyHash(password: string): Promise<false> {
+  await verifyPassword(password, DUMMY_PASSWORD_HASH);
+  return false;
+}
+
 export async function verifyPassword(password: string, combinedHash: string): Promise<boolean> {
   if (combinedHash.startsWith('$argon2')) {
     try {
