@@ -18,6 +18,10 @@ export default defineConfig({
     fileParallelism: false,
     // The sale-concurrency case fires 200 requests at once and is slow by design.
     testTimeout: 60_000,
+    // #410: the suites boot against the compose datastores with .env.example's public
+    // `dev-only-*` passwords (config.ts falls back to `dev-only-postgres` for the admin URL),
+    // which loadConfig refuses unless this is set. Every loadConfig call here spreads process.env.
+    env: { ALLOW_DEV_SECRETS: 'true' },
     hookTimeout: 60_000,
   },
 });

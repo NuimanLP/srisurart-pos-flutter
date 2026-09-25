@@ -56,6 +56,9 @@ x-app-env: &app-env
   # CORS_ORIGINS is inert there — bull-board is protected by its loopback port + basic auth only.
   CORS_ORIGINS: ${CORS_ORIGINS:-}
   PLATFORM_ADMIN_IPS: ${PLATFORM_ADMIN_IPS:-}
+  # #410: only `true` lets the app boot with the public placeholders from .env.example
+  # (config.ts `refusePublicSecret`). Local dev / CI only; vm.override.yml forces it empty.
+  ALLOW_DEV_SECRETS: ${ALLOW_DEV_SECRETS:-}
 
 # Only api-1 carries `build:`; every other process reuses the image it produced
 # (parallel builds of one tag race on the name).

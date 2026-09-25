@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export interface AppConfig {
   port: number;
   instanceId: string;
@@ -38,6 +40,52 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   const v = env[name];
   if (!v) throw new Error(`Missing required environment variable ${name}`);
   return v;
+}
+
+const DEV_ONLY_PREFIX = 'dev-only-';
+
+/**
+ * sha256 of the dummy RS256 pair `server/.env.example` ships (JWT_PRIVATE_KEY / JWT_PUBLIC_KEYS),
+ * taken over the PEM with whitespace and literal `\n` / `\r` escapes removed — a hash, so the key
+ * material is not copied into src. That private key is public in this repo's history: trusting
+ * either half lets anyone forge a tenant token.
+ */
+const PUBLIC_DUMMY_KEY_SHA256 = new Set([
+  'd65b21f4fac0719ba91f5060027add194b90785095c15eb96a13fbf70b890ef6', // JWT_PRIVATE_KEY
+  '9de63fe69c04d6eef2bec3fd421384a73c62b9523da916051cf6e15bd8b33e07', // JWT_PUBLIC_KEYS
+]);
+
+function isPublicDummyKey(pem: string): boolean {
+  const normalized = pem.replace(/\\[rn]/g, '').replace(/\s/g, '');
+  return PUBLIC_DUMMY_KEY_SHA256.has(createHash('sha256').update(normalized).digest('hex'));
+}
+
+/**
+ * #410 (follow-up to #398): `server/.env.example` ships public placeholder secrets
+ * (`dev-only-*` values and a dummy RS256 pair) so `cp .env.example .env` boots local dev / CI
+ * without setup. They are public in this repo's history, so a process holding one refuses to
+ * boot unless `ALLOW_DEV_SECRETS` is exactly `true` — set only by `.env.example` and the e2e
+ * vitest config, never on a real host. Deliberately NOT keyed off `NODE_ENV`: the Dockerfile
+ * sets `NODE_ENV=production` unconditionally, so the dev compose stack is "production" too.
+ *
+ * Checked: POSTGRES_PASSWORD (only when it builds `adminDatabaseUrl`), JWT_PLATFORM_SECRET,
+ * ETCD_ROOT_PASSWORD / legacy ETCD_PASSWORD, JWT_PRIVATE_KEY / JWT_PUBLIC_KEYS (api instances),
+ * BULL_BOARD_PASSWORD (`bull-board.ts`). Not checked: POS_APP_PASSWORD / REDIS_PASSWORD reach
+ * this process only baked into connection URLs; GRAFANA_* / K6_* never reach `server/src`.
+ * The error names the variable, never the value.
+ */
+export function refusePublicSecret(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  value: string | undefined,
+): void {
+  if (value === undefined || env.ALLOW_DEV_SECRETS === 'true') return;
+  if (value.startsWith(DEV_ONLY_PREFIX) || isPublicDummyKey(value)) {
+    throw new Error(
+      `${name} is still the public placeholder from server/.env.example — refusing to boot. ` +
+        `Set a real value for ${name} (ALLOW_DEV_SECRETS=true is for a local dev/CI stack only).`,
+    );
+  }
 }
 
 /**
@@ -93,12 +141,33 @@ export function loadConfig(env = process.env): AppConfig {
   const instanceId = env.INSTANCE_ID ?? 'local';
   const isApi = instanceId.startsWith('api') || instanceId === 'local';
   const dbUrl = required(env, 'DATABASE_URL');
-  const adminDbUrl =
-    env.DATABASE_ADMIN_URL ??
-    dbUrl.replace(
+  let adminDbUrl = env.DATABASE_ADMIN_URL;
+  if (adminDbUrl === undefined) {
+    const postgresPassword = env.POSTGRES_PASSWORD ?? 'dev-only-postgres';
+    refusePublicSecret(env, 'POSTGRES_PASSWORD', postgresPassword);
+    adminDbUrl = dbUrl.replace(
       /\/\/[^@]*@/,
-      `//${env.POSTGRES_USER ?? 'postgres'}:${env.POSTGRES_PASSWORD ?? 'dev-only-postgres'}@`,
+      `//${env.POSTGRES_USER ?? 'postgres'}:${postgresPassword}@`,
     );
+  }
+
+  const jwtPlatformSecret = required(env, 'JWT_PLATFORM_SECRET');
+  refusePublicSecret(env, 'JWT_PLATFORM_SECRET', jwtPlatformSecret);
+
+  // Name whichever variable actually supplied the value — ETCD_PASSWORD is the legacy name
+  // (etcdPassword falls back to it), so a placeholder reaching config only through ETCD_PASSWORD
+  // must not be reported as ETCD_ROOT_PASSWORD, a variable that was never even read.
+  if (env.ETCD_ROOT_PASSWORD !== undefined) {
+    refusePublicSecret(env, 'ETCD_ROOT_PASSWORD', env.ETCD_ROOT_PASSWORD);
+  } else if (env.ETCD_PASSWORD !== undefined) {
+    refusePublicSecret(env, 'ETCD_PASSWORD', env.ETCD_PASSWORD);
+  }
+  const etcdPassword = env.ETCD_ROOT_PASSWORD ?? env.ETCD_PASSWORD;
+
+  const jwtPrivateKey = isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined;
+  refusePublicSecret(env, 'JWT_PRIVATE_KEY', jwtPrivateKey);
+  const jwtPublicKeys = isApi ? parsePublicKeys(required(env, 'JWT_PUBLIC_KEYS')) : undefined;
+  for (const key of jwtPublicKeys ?? []) refusePublicSecret(env, 'JWT_PUBLIC_KEYS', key);
 
   return {
     port: Number(env.PORT ?? 3000),
@@ -110,13 +179,13 @@ export function loadConfig(env = process.env): AppConfig {
     redisCacheUrl: required(env, 'REDIS_CACHE_URL'),
     redisQueueUrl: required(env, 'REDIS_QUEUE_URL'),
     redisCommandTimeoutMs: positiveInt(env, 'REDIS_COMMAND_TIMEOUT_MS', 1000),
-    jwtPlatformSecret: required(env, 'JWT_PLATFORM_SECRET'),
-    jwtPrivateKey: isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined,
-    jwtPublicKeys: isApi ? parsePublicKeys(required(env, 'JWT_PUBLIC_KEYS')) : undefined,
+    jwtPlatformSecret,
+    jwtPrivateKey,
+    jwtPublicKeys,
     jwtKeyId: env.JWT_KEY_ID ?? 'key-1',
     corsOrigins: csvAllowlist(env, 'CORS_ORIGINS'),
     etcdUrl: env.ETCD_URL,
-    etcdPassword: env.ETCD_ROOT_PASSWORD ?? env.ETCD_PASSWORD,
+    etcdPassword,
     platformAdminIps: csvAllowlist(env, 'PLATFORM_ADMIN_IPS'),
     docNumberFallback: env.DOC_NUMBER_FALLBACK !== 'false',
   };
