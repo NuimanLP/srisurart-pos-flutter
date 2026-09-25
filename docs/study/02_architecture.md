@@ -1,4 +1,4 @@
-# 01 — System Architecture Overview: ทุกชิ้นส่วนเชื่อมกันยังไง
+# 02 — System Architecture Overview: ทุกชิ้นส่วนเชื่อมกันยังไง
 
 > บทนี้ตอบคำถามเดียว: **"ตอนแคชเชียร์กดปุ่มขาย 1 ครั้ง มีกล่องอะไรบ้างที่ทำงาน แต่ละกล่องมีไว้ทำไม และถ้าเอากล่องไหนออกจะพังยังไง"**
 
@@ -179,7 +179,7 @@
 **ตัดสิน: เลือก C และ "เฟส 1 ของ C = A เป๊ะๆ"** (`03_ARCHITECTURE.md §7`)
 
 - เพราะเฟส 1 = A → ส่งงานอาจารย์ได้ตรงทุกข้อโดยไม่ต้องรอ sync engine
-- เพราะเป็น C → ไม่ทิ้งความสามารถ "ขายตอนเน็ตล่ม" ที่ร้านมีอยู่แล้ว มันกลับมาใน **เฟส 2** (outbox + sync — ดู [06_offline_phase2.md](06_offline_phase2.md))
+- เพราะเป็น C → ไม่ทิ้งความสามารถ "ขายตอนเน็ตล่ม" ที่ร้านมีอยู่แล้ว มันกลับมาใน **เฟส 2** (outbox + sync — ดู [10_offline_phase2.md](10_offline_phase2.md))
 - ราคาที่จ่าย: ต้องรื้อ repository ฝั่ง Flutter ให้เรียก API และในเฟส 2 ต้องดูแล 2 code path (ออนไลน์/ออฟไลน์)
 
 ### Multi-tenant: แยกข้อมูลแต่ละร้านยังไง
@@ -403,7 +403,7 @@ flowchart TB
 
 ### 5. เส้นทางโค้ด: dev → GitHub → CI → GHCR → VM
 
-รายละเอียดทุก stage อยู่ใน [07_devops.md](07_devops.md) และ [08_cicd.md](08_cicd.md) ตรงนี้แค่ภาพรวม:
+รายละเอียดทุก stage อยู่ใน [14_devops.md](14_devops.md) และ [15_cicd.md](15_cicd.md) ตรงนี้แค่ภาพรวม:
 
 ```mermaid
 flowchart LR
@@ -541,7 +541,7 @@ sequenceDiagram
 - `attempt` มาจาก `_pending.of(_cartKey(input))` (บรรทัด 118) — **bill id และ `Idempotency-Key` ถูกสร้างครั้งเดียวต่อตะกร้า** ไม่ใช่ต่อการกด
 - **ทำไม:** เน็ตร้านไม่เสถียร กรณีที่เจอบ่อยคือ "server บันทึกบิลแล้ว แต่คำตอบหายระหว่างทาง" ถ้ากดซ้ำแล้วสร้าง key ใหม่ server จะคิดว่าเป็นบิลใหม่ → ลูกค้าโดนคิดเงินสองรอบ สต็อกหายสองเท่า (คอมเมนต์บรรทัด 179–189 อธิบายไว้ละเอียด)
 - **verdict** (คำตัดสิน) = คำตอบ 4xx เช่น 409 สต็อกไม่พอ → server ตอบชัดแล้วว่า "ไม่รับ" จึงปิด attempt ได้ ส่วน 5xx/429/timeout = **ไม่รู้ชะตากรรม** ต้องเก็บ id+key เดิมไว้ retry
-- ส่วน `catch (_)` ถัดไป (บรรทัด 148–164) คือเส้นทางเฟส 2: เมื่อ network ล้มแบบไม่มีคำตัดสิน จะเก็บบิลลง outbox ด้วย id+key เดิม — รายละเอียดอยู่ใน [06_offline_phase2.md](06_offline_phase2.md)
+- ส่วน `catch (_)` ถัดไป (บรรทัด 148–164) คือเส้นทางเฟส 2: เมื่อ network ล้มแบบไม่มีคำตัดสิน จะเก็บบิลลง outbox ด้วย id+key เดิม — รายละเอียดอยู่ใน [10_offline_phase2.md](10_offline_phase2.md)
 
 `frontend/lib/core/network/api_client.dart:36-45` — ทำไมรอ write ได้นานถึง 40 วินาที
 
@@ -921,29 +921,157 @@ worker: 1 ตัว × ( 5 pool         + 2 audit + 1 health) =  8
 
 ---
 
+## 🛠️ เทคนิคในบทนี้
+
+### 1. Reverse proxy + Load balancing (`least_conn`)
+
+**คืออะไร**: ตัวรับคำขอหน้าด่านตัวเดียว (**reverse proxy**) ที่กระจายงานต่อให้ server จริงหลายตัว
+(**load balancer**) — เหมือนพนักงานต้อนรับร้านอาหารที่ส่งออเดอร์ให้เชฟที่มือว่างที่สุด ไม่ใช่วนตาม
+คิว (round-robin) เฉยๆ
+
+**ปัญหาที่มันแก้**: ถ้าไม่มีตัวกลาง ลูกค้า (Flutter) ต้องรู้ IP ของ api ทั้ง 3 ตัวเอง และเลือกเองว่าจะยิง
+ตัวไหน — ถ้า api-1 กำลังประมวลผลบิลหนัก (รอ row lock) อยู่ request ใหม่ก็ยังถูกส่งไปกองที่ตัวเดิมอยู่ดี
+
+**ทำไมเลือกท่านี้ (เทียบกับ round-robin)**: round-robin ส่ง request ใหม่สลับตัวไปเรื่อยๆ โดยไม่สนใจว่า
+ตัวไหนกำลังหนักอยู่ — request ขาย (ต้องรอ lock) ช้ากว่า request อ่านมาก `least_conn` เลือกตัวที่ถือ
+connection ค้างน้อยที่สุด จึงไม่ยัด request ใหม่ให้ตัวที่ติดงานหนักซ้ำเข้าไปอีก
+
+**ดียังไง / ราคาที่จ่าย**: กระจายโหลดได้จริงตามภาระงาน ไม่ใช่แค่ตามจำนวนครั้ง — ราคาคือ Nginx ต้องจำ
+สถานะ connection ของแต่ละ upstream ไว้ (ซับซ้อนกว่า round-robin เล็กน้อย แต่ Nginx ทำให้ฟรีอยู่แล้ว)
+
+**อยู่ตรงไหนใน repo**: `server/docker/nginx/nginx.conf:24-39` (`upstream api { least_conn; ... }`)
+
+### 2. Rate limiting แบบ leaky-bucket ต่อ IP (`limit_req_zone`)
+
+**คืออะไร**: จำกัดจำนวนคำขอต่อวินาทีจาก IP เดียวกัน — เหมือนก๊อกน้ำที่ไหลได้คงที่ ต่อให้เทน้ำเข้าไปเร็ว
+แค่ไหน น้ำก็ไหลออกในอัตราเดิม (leaky bucket) ส่วนเกินโดนปฏิเสธ
+
+**ปัญหาที่มันแก้**: ถ้าไม่มี rate limit สคริปต์หรือบั๊กฝั่งไหนก็ตามที่ยิง request รัวๆ จะกิน connection
+ของ Nginx/api จนร้านอื่นที่ใช้ระบบเดียวกัน (multi-tenant) โดนหางเลขไปด้วย
+
+**ทำไมเลือกท่านี้ (เทียบกับจำกัดต่อร้าน/tenant)**: การจำกัดที่ Nginx ทำได้แค่ "หยาบ ต่อ IP" เพราะ Nginx
+อ่าน JWT ข้างในไม่ได้ (ไม่รู้ว่า request เป็นของร้านไหน) — การจำกัดที่ละเอียดกว่านั้น (ต่อร้าน) ต้องทำใน
+ชั้น NestJS guard + Redis (ADR-0006) ระบบนี้เลยใช้ **สองชั้น**: Nginx กันน้ำท่วมหยาบๆ ก่อนถึง app, แล้ว
+guard กันเจาะจงต่อร้านอีกที
+
+**ดียังไง / ราคาที่จ่าย**: กันการยิงถล่มได้ตั้งแต่ก่อนถึง NestJS (ประหยัด CPU/connection ของ app) — ราคาคือ
+ต้องดูแลสองชั้นแยกกัน (ตัวเลข limit ที่ Nginx กับที่ guard ไม่จำเป็นต้องเท่ากัน และอาจลืมอัปเดตพร้อมกัน)
+
+**อยู่ตรงไหนใน repo**: `server/docker/nginx/nginx.conf:24-39` (`limit_req_zone ... rate=30r/s`),
+`nginx.conf:97-100` (`limit_req zone=perip burst=60 nodelay`)
+
+### 3. Retry เฉพาะตอนปลอดภัย (never retry a non-idempotent POST)
+
+**คืออะไร**: กติกาว่า proxy จะลองเซิร์ฟเวอร์ตัวถัดไปได้ **เฉพาะตอนที่ยังไม่ได้ส่ง request ไปถึงใครเลย**
+(เช่น connect ไม่ติด, timeout ตอน connect) แต่จะไม่ retry ถ้า request (โดยเฉพาะ `POST`) ถูกส่งไปแล้ว
+
+**ปัญหาที่มันแก้**: ถ้า Nginx ส่ง `POST /sales` ไปที่ api-1 แล้ว api-1 ประมวลผลสำเร็จ (ตัดสต็อกไปแล้ว)
+แต่ตอบกลับช้า/หลุดกลางทาง แล้ว Nginx คิดว่า "ยังไม่ได้คำตอบ ลองใหม่กับ api-2" — บิลจะถูกสร้างซ้ำสอง
+ครั้งจริง (ขายซ้ำ ตัดสต็อกซ้ำ)
+
+**ทำไมเลือกท่านี้ (เทียบกับ retry ทุกกรณีที่ error)**: retry ทุกกรณีดูปลอดภัยกว่าในมุมของ "ทำให้ user
+เห็น error น้อยลง" แต่จริงๆ อันตรายกว่า เพราะไม่รู้ว่า request ที่ "ดูเหมือนพัง" นั้นจริงๆ สำเร็จไปแล้ว
+หรือยัง — โปรเจกต์นี้เลือกฝั่งปลอดภัย: ไม่รู้ผล = ไม่ retry เอง ปล่อยให้ชั้น idempotency (ฝั่ง client มี
+`Idempotency-Key` เดิม) เป็นคนตัดสินใจแทน ไม่ใช่ proxy
+
+**ดียังไง / ราคาที่จ่าย**: ไม่มีทางขายซ้ำเพราะ proxy retry มั่ว — ราคาคือ error ที่เกิดจากการเชื่อมต่อ
+หลุดกลางทางจริงๆ (rare) จะกลายเป็น "ไม่รู้ผล" ที่ฝั่ง client ต้องจัดการเอง (ดู `isVerdict` ในบท 04)
+แทนที่ Nginx จะช่วยลองใหม่ให้เงียบๆ
+
+**อยู่ตรงไหนใน repo**: `server/docker/nginx/nginx.conf:59-64`
+(`proxy_next_upstream error timeout; proxy_next_upstream_tries 3;` + คอมเมนต์อธิบาย)
+
+### 4. Stateless auth ด้วย JWT
+
+**คืออะไร**: server ไม่เก็บ "ใคร login อยู่" ไว้ในหน่วยความจำของตัวเอง — ทุก request พก **JWT**
+(ตั๋วเซ็นลายเซ็นดิจิทัล บอกว่าเป็นใคร ร้านไหน เครื่องไหน) มาเองในทุกครั้ง
+
+**ปัญหาที่มันแก้**: ถ้า server จำ session ไว้ในหน่วยความจำของตัวเอง (stateful) request ของคนคนเดียวกัน
+ต้องถูกส่งไปหา server ตัวเดิมเสมอ (sticky session) — ขัดกับการมี api 3 ตัวที่กระจายโหลดกันแบบสุ่ม
+
+**ทำไมเลือกท่านี้ (เทียบกับ session ฝั่ง server + sticky load balancing)**: sticky session ทำให้ scale
+แนวนอนยากขึ้น (ต้องผูก client กับ instance เดิม, instance ตายก็เสีย session ทุกคนที่ผูกไว้) JWT ทำให้
+"เครื่องไหนตอบก็ได้ผลเหมือนกัน" (ดูปูพื้นฐานข้อ 6)
+
+**ดียังไง / ราคาที่จ่าย**: scale แนวนอนได้อิสระ, ไม่มี single point of failure ที่ "จำ session" — ราคาคือ
+ยกเลิก token กลางคันทำไม่ได้ทันที (ต้องรอหมดอายุเอง เพราะไม่มีที่เก็บ state ส่วนกลางให้เช็ค — ADR-0009)
+
+**อยู่ตรงไหนใน repo**: `server/src/common/guards/tenant.guard.ts:124-137` (verify JWT แล้ว
+`setRequestTenant` ต่อ request เดียว ไม่เก็บอะไรข้ามคำขอ)
+
+### 5. Cache-aside พร้อมนโยบาย eviction ที่ตั้งใจให้ตรงข้ามกับ queue
+
+**คืออะไร**: **cache** (redis-cache) เก็บสำเนาชั่วคราวของคำตอบที่ถามบ่อย ถ้า memory เต็มลบทิ้งได้เสมอ
+(`allkeys-lru`) ตรงข้ามกับ **queue** (redis-queue) ที่ห้ามลบงานทิ้งเด็ดขาด (`noeviction` + AOF persist)
+
+**ปัญหาที่มันแก้**: ถ้าใช้ Redis ตัวเดียวรวมกัน ต้องเลือก policy เดียวสำหรับทั้งสองงาน — ถ้าเลือก LRU
+(ลบง่าย) งานในคิวอาจถูกลบทิ้งไปเงียบๆ ตอน memory เต็ม (งานขายที่ค้างส่งหายจริง) ถ้าเลือก noeviction
+(ห้ามลบ) cache ที่ memory เต็มจะเขียนไม่ได้จนกว่าจะมีคนลบเอง (ทำให้ cache กลายเป็นคอขวด)
+
+**ทำไมเลือกท่านี้ (เทียบกับ Redis ตัวเดียวรวมกัน)**: แยกสองตัวทำให้แต่ละตัวได้ policy ที่ "ถูกที่สุดสำหรับ
+งานของมัน" โดยไม่ต้องประนีประนอม
+
+**ดียังไง / ราคาที่จ่าย**: cache หายได้โดยไม่มีอะไรเสีย, queue ไม่หายแม้ restart (AOF) — ราคาคือใช้ RAM
+เพิ่มอีกก้อนสำหรับตัวที่สอง (โปรเจกต์นี้ยอมจ่าย ~256 MB เพิ่ม)
+
+**อยู่ตรงไหนใน repo**: `server/docker-compose.yml:212-228` (redis-cache), `server/docker-compose.yml:238-254`
+(redis-queue)
+
+### 6. Migration แยกเป็น one-shot container ก่อน replica เริ่ม
+
+**คืออะไร**: การเปลี่ยนโครงสร้างฐานข้อมูล (**migration**) รันใน container แยกต่างหาก ครั้งเดียว
+ก่อนที่ api ทั้ง 3 ตัวจะเริ่มทำงาน แทนที่จะให้ api แต่ละตัวรัน migration ของตัวเองตอนเปิด
+
+**ปัญหาที่มันแก้**: ถ้าปล่อยให้ api ทั้ง 3 ตัวรัน migration เองตอน boot พร้อมกัน จะเกิด **race condition**
+(แย่งกันแก้ schema ตารางเดียวกัน) ผลลัพธ์ไม่แน่นอนว่าใครจะชนะ หรืออาจพังกลางทาง
+
+**ทำไมเลือกท่านี้ (เทียบกับให้แต่ละ instance migrate เอง)**: การรันครั้งเดียวก่อนใครทั้งหมดตัดปัญหา race
+ตั้งแต่ต้น — ราคาคือต้องมี `depends_on: migrate: service_completed_successfully` ผูกไว้ทุกตัว (ถ้าลืมผูก
+api บางตัวอาจเริ่มทำงานก่อน schema พร้อม)
+
+**ดียังไง / ราคาที่จ่าย**: schema เปลี่ยนแบบแน่นอน ไม่มี race — ราคาคือ deploy ช้าลงนิดหน่อย (ต้องรอ
+migrate จบก่อนเสมอ) และต้องเผื่อ container พิเศษที่ไม่ได้รันตลอดเวลา (one-shot)
+
+**อยู่ตรงไหนใน repo**: `server/docker-compose.yml:123-133`
+
+---
+
+## 🛠️ ตารางสรุปเทคนิคของบทนี้
+
+| เทคนิค | แก้ปัญหาอะไร | ราคาที่จ่าย | file |
+|---|---|---|---|
+| Reverse proxy + `least_conn` | กระจายโหลดตามภาระงานจริง ไม่ใช่แค่จำนวนครั้ง | ต้องจำสถานะ connection ของ upstream | `nginx.conf:24-39` |
+| Rate limiting ต่อ IP (`limit_req_zone`) | กันสคริปต์ยิงถล่มก่อนถึง app | หยาบกว่าการจำกัดต่อร้านจริง ต้องมีอีกชั้นที่ guard | `nginx.conf:24-39,97-100` |
+| ไม่ retry POST ที่ส่งไปแล้ว | กันขาย/ตัดสต็อกซ้ำจาก proxy retry ผิดจังหวะ | error ที่ "ไม่รู้ผล" ต้องผลักภาระไปให้ client จัดการ | `nginx.conf:59-64` |
+| Stateless auth (JWT) | scale แนวนอนได้อิสระ ไม่ต้อง sticky session | ยกเลิก token กลางคันทำทันทีไม่ได้ | `tenant.guard.ts:124-137` |
+| Cache/Queue แยก eviction policy | cache หายได้ไม่เสียหาย, queue ห้ามหายเด็ดขาด | RAM เพิ่มอีกก้อนสำหรับ instance ที่สอง | `docker-compose.yml:212-254` |
+| Migration แบบ one-shot ก่อน replica | กัน 3 instance แย่งกันแก้ schema พร้อมกัน | deploy ช้าลงเล็กน้อย ต้องรอ migrate จบก่อน | `docker-compose.yml:123-133` |
+
+---
+
 ## 📚 Tech stack ของบทนี้ (ภาพรวม — เจาะลึกในบทถัดไป)
 
 version มาจาก `frontend/pubspec.yaml`, `frontend/.fvmrc`, `server/package.json`, `server/Dockerfile`, `server/docker-compose.yml`, `deploy/compose/monitoring.yml`, `.github/workflows/*.yml`
 
 | ชั้น | เครื่องมือ | version จริง | หน้าที่ | ทำไมเลือก | ทางเลือกที่ไม่เลือก | เจาะลึก |
 |---|---|---|---|---|---|---|
-| Client UI | Flutter / Dart | Flutter 3.44.3, Dart SDK ^3.12.2 | แอปเดียว Android/iOS/Web | โค้ดชุดเดียวหลายแพลตฟอร์ม | React (แอปเดิม), native แยก | [03](03_frontend.md) |
-| Client state | flutter_bloc | ^9.1.1 | จัดการ state หน้าจอ | ย้ายมาจาก Riverpod (2026-07-14) | Riverpod | [03](03_frontend.md) |
-| Client routing | go_router | ^17.3.0 | เส้นทางหน้าจอ | รองรับ URL บนเว็บ | Navigator ดิบ | [03](03_frontend.md) |
-| Client DB | Drift (SQLite) | ^2.34.0 | cache / offline shell | transaction จริง, type-safe | localStorage (เดิม) | [03](03_frontend.md), [05](05_database.md) |
-| Client HTTP | http | ^1.5.0 | ยิง API | เรียบง่าย | dio (ความเห็นผู้เขียน — ไม่มี ADR/เอกสารบันทึกการเทียบนี้) | [03](03_frontend.md) |
-| Edge | Nginx | `nginx:1.29-alpine` | TLS, LB, rate limit, static | อาจารย์กำหนด, เบา (64m) | HAProxy, Traefik (ความเห็นผู้เขียน — ไม่มี ADR/เอกสารบันทึกการเทียบนี้) | [07](07_devops.md) |
-| Runtime | Node.js | 22 (`node:22-alpine` pin digest) | รัน NestJS | LTS | Bun, Deno | [04](04_backend.md) |
-| Backend | NestJS | ^12.0.1 | framework API (module, guard, DI) | อาจารย์กำหนด | Express เปล่า | [04](04_backend.md) |
-| ORM / driver | TypeORM + pg | ^1.1.1 / ^8.23.0 | ต่อ Postgres, transaction | อาจารย์กำหนด TypeORM | Prisma (ความเห็นผู้เขียน — `checklist.md` มีแค่กรณีตัวอย่างโค้ดสไลด์ใช้ Prisma ผิดหลักสูตรแล้วแก้กลับ ไม่ใช่การเทียบเลือกสถาปัตยกรรม) | [04](04_backend.md) |
-| Auth | jsonwebtoken (RS256) + argon2 | ^9.0.3 / ^0.45.1 | ออก/ตรวจ JWT, hash รหัสผ่าน | stateless | session ใน DB | [04](04_backend.md) |
-| Queue | BullMQ + ioredis | ^6.3.4 / ^6.0.0 | คิวงานบน Redis | อาจารย์กำหนด | RabbitMQ (ความเห็นผู้เขียน — ไม่มี ADR/เอกสารบันทึกการเทียบนี้) | [04](04_backend.md) |
-| Database | PostgreSQL | `postgres:16-alpine` | source of truth, RLS | transaction + row lock + RLS | CouchDB (ADR-0012 ปฏิเสธ) | [05](05_database.md) |
-| Cache / queue store | Redis | `redis:7-alpine` ×2 | cache (lru) / queue (AOF) | อาจารย์กำหนด | Memcached | [05](05_database.md) |
-| Dynamic config | etcd | `gcr.io/etcd-development/etcd:v3.6.12` | config เปลี่ยนตอนรัน | ADR-0013 | env var อย่างเดียว | [05](05_database.md), [07](07_devops.md) |
-| Metrics | prom-client, Prometheus, Grafana, node-exporter | ^15.1.3, v2.55.1, 11.2.0, v1.8.2 | วัดและแสดงผล | มาตรฐานวงการ | — | [07](07_devops.md) |
-| Container | Docker Compose | — | รันทุกกล่องด้วยคำสั่งเดียว | อาจารย์กำหนด | Kubernetes — ปฏิเสธจริง (ADR-0013 §Config & Deploy: "ไม่ใช้ Kubernetes — 1 VM, 4 vCPU"; ไม่ใช่เพราะ RAM ไม่พอ) | [07](07_devops.md) |
-| CI/CD | GitHub Actions, GHCR, Trivy, Ansible | trivy-action v0.36.0 | build/test/scan/ส่งของ | ADR-0013 | Jenkins | [08](08_cicd.md) |
+| Client UI | Flutter / Dart | Flutter 3.44.3, Dart SDK ^3.12.2 | แอปเดียว Android/iOS/Web | โค้ดชุดเดียวหลายแพลตฟอร์ม | React (แอปเดิม), native แยก | [03](04_frontend.md) |
+| Client state | flutter_bloc | ^9.1.1 | จัดการ state หน้าจอ | ย้ายมาจาก Riverpod (2026-07-14) | Riverpod | [03](04_frontend.md) |
+| Client routing | go_router | ^17.3.0 | เส้นทางหน้าจอ | รองรับ URL บนเว็บ | Navigator ดิบ | [03](04_frontend.md) |
+| Client DB | Drift (SQLite) | ^2.34.0 | cache / offline shell | transaction จริง, type-safe | localStorage (เดิม) | [03](04_frontend.md), [05](07_database.md) |
+| Client HTTP | http | ^1.5.0 | ยิง API | เรียบง่าย | dio (ความเห็นผู้เขียน — ไม่มี ADR/เอกสารบันทึกการเทียบนี้) | [03](04_frontend.md) |
+| Edge | Nginx | `nginx:1.29-alpine` | TLS, LB, rate limit, static | อาจารย์กำหนด, เบา (64m) | HAProxy, Traefik (ความเห็นผู้เขียน — ไม่มี ADR/เอกสารบันทึกการเทียบนี้) | [07](14_devops.md) |
+| Runtime | Node.js | 22 (`node:22-alpine` pin digest) | รัน NestJS | LTS | Bun, Deno | [04](06_backend.md) |
+| Backend | NestJS | ^12.0.1 | framework API (module, guard, DI) | อาจารย์กำหนด | Express เปล่า | [04](06_backend.md) |
+| ORM / driver | TypeORM + pg | ^1.1.1 / ^8.23.0 | ต่อ Postgres, transaction | อาจารย์กำหนด TypeORM | Prisma (ความเห็นผู้เขียน — `checklist.md` มีแค่กรณีตัวอย่างโค้ดสไลด์ใช้ Prisma ผิดหลักสูตรแล้วแก้กลับ ไม่ใช่การเทียบเลือกสถาปัตยกรรม) | [04](06_backend.md) |
+| Auth | jsonwebtoken (RS256) + argon2 | ^9.0.3 / ^0.45.1 | ออก/ตรวจ JWT, hash รหัสผ่าน | stateless | session ใน DB | [04](06_backend.md) |
+| Queue | BullMQ + ioredis | ^6.3.4 / ^6.0.0 | คิวงานบน Redis | อาจารย์กำหนด | RabbitMQ (ความเห็นผู้เขียน — ไม่มี ADR/เอกสารบันทึกการเทียบนี้) | [04](06_backend.md) |
+| Database | PostgreSQL | `postgres:16-alpine` | source of truth, RLS | transaction + row lock + RLS | CouchDB (ADR-0012 ปฏิเสธ) | [05](07_database.md) |
+| Cache / queue store | Redis | `redis:7-alpine` ×2 | cache (lru) / queue (AOF) | อาจารย์กำหนด | Memcached | [05](07_database.md) |
+| Dynamic config | etcd | `gcr.io/etcd-development/etcd:v3.6.12` | config เปลี่ยนตอนรัน | ADR-0013 | env var อย่างเดียว | [05](07_database.md), [07](14_devops.md) |
+| Metrics | prom-client, Prometheus, Grafana, node-exporter | ^15.1.3, v2.55.1, 11.2.0, v1.8.2 | วัดและแสดงผล | มาตรฐานวงการ | — | [07](14_devops.md) |
+| Container | Docker Compose | — | รันทุกกล่องด้วยคำสั่งเดียว | อาจารย์กำหนด | Kubernetes — ปฏิเสธจริง (ADR-0013 §Config & Deploy: "ไม่ใช้ Kubernetes — 1 VM, 4 vCPU"; ไม่ใช่เพราะ RAM ไม่พอ) | [07](14_devops.md) |
+| CI/CD | GitHub Actions, GHCR, Trivy, Ansible | trivy-action v0.36.0 | build/test/scan/ส่งของ | ADR-0013 | Jenkins | [08](15_cicd.md) |
 
 ---
 
@@ -1075,8 +1203,8 @@ client เก็บ bill id + key ไว้ต่อ **ตะกร้า** (`Pe
 
 ## ➡️ อ่านต่อ
 
-- **บทถัดไป:** [02_use_case.md](02_use_case.md) — ใครใช้ระบบนี้บ้าง (owner, พนักงาน, เครื่อง pos/backoffice, platform admin)
-- เจาะแต่ละชั้น: [03_frontend.md](03_frontend.md) · [04_backend.md](04_backend.md) · [05_database.md](05_database.md) · [06_offline_phase2.md](06_offline_phase2.md) · [07_devops.md](07_devops.md) · [08_cicd.md](08_cicd.md)
+- **บทถัดไป:** [03_use_case.md](03_use_case.md) — ใครใช้ระบบนี้บ้าง (owner, พนักงาน, เครื่อง pos/backoffice, platform admin)
+- เจาะแต่ละชั้น: [04_frontend.md](04_frontend.md) · [06_backend.md](06_backend.md) · [07_database.md](07_database.md) · [10_offline_phase2.md](10_offline_phase2.md) · [14_devops.md](14_devops.md) · [15_cicd.md](15_cicd.md)
 - เอกสารลึกสำหรับคนอยากเจาะ:
   - [`../Backend_design/03_ARCHITECTURE.md`](../Backend_design/03_ARCHITECTURE.md) — ทางเลือก A/B/C และ T1/T2/T3 ฉบับเต็ม
   - [`../Backend_design/architecture-primer.md`](../Backend_design/architecture-primer.md) — race condition, lock แบบต่างๆ, ตัวละคร 6 ตัว, เส้นทาง `POST /sales` ละเอียด
