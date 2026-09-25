@@ -126,7 +126,8 @@ class GrossProfitResult {
   /// Lines with no `costAtSale`, costed at today's product cost instead.
   final int estimatedCostLines;
   /// Lines with no `costAtSale` AND no current product cost — costed at 0
-  /// (excluded from the cost side, never silently treated as free stock).
+  /// (profit reads higher than true; flagged via [costDisclosureLines]
+  /// rather than excluded from the cost side).
   final int unknownCostLines;
   const GrossProfitResult(
     this.profit,
@@ -140,9 +141,10 @@ class GrossProfitResult {
 /// Cost per line prefers `item.costAtSale` — the cost recorded on the bill
 /// (ADR-0008) — over today's product cost, because `products.cost` is
 /// recomputed on every weighted-average PO receive and would make a past
-/// bill's profit drift. When neither is available the line is excluded from
-/// the cost side rather than silently costed at 0 (which would read as 100%
-/// margin). This matches `products_screen.dart`'s `_monthly` fallback chain
+/// bill's profit drift. When neither is available the line is costed at 0
+/// (profit reads higher than true) and disclosed via [costDisclosureLines]
+/// rather than excluded from the cost side. This matches
+/// `products_screen.dart`'s `_monthly` fallback chain
 /// and `reports.service.ts`'s `grossProfitCtes`
 /// (`COALESCE(cost_at_sale, current_cost, 0)` with `estimated_cost_rows`/
 /// `unknown_cost_rows` tracked alongside for disclosure).
