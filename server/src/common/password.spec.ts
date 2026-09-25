@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DUMMY_PASSWORD_HASH,
+  hashPassword,
+  verifyAgainstDummyHash,
   MIN_PASSWORD_LENGTH,
   passwordPolicyMessage,
   passwordPolicyViolation,
@@ -47,5 +50,23 @@ describe('passwordPolicyMessage', () => {
     expect(passwordPolicyMessage('too_short', 'ownerPassword')).toBe(
       'ownerPassword is too weak: at least 12 characters required',
     );
+  });
+});
+
+// #425 — login verifies unknown usernames against this hash so they cost the same argon2
+// time as a wrong password. That only holds while its parameters match `hashPassword`'s.
+describe('DUMMY_PASSWORD_HASH', () => {
+  const params = (h: string) => h.split('$').slice(1, 4).join('$'); // argon2id$v=19$m=…,p=…,t=…
+  const lengths = (h: string) => h.split('$').slice(4).map((p) => p.length); // salt, hash
+
+  it('uses exactly the parameters and sizes hashPassword produces', async () => {
+    const real = await hashPassword('any-password-at-all');
+    expect(params(DUMMY_PASSWORD_HASH)).toBe(params(real));
+    expect(lengths(DUMMY_PASSWORD_HASH)).toEqual(lengths(real));
+  });
+
+  it('never accepts a password', async () => {
+    expect(await verifyAgainstDummyHash('')).toBe(false);
+    expect(await verifyAgainstDummyHash('password123')).toBe(false);
   });
 });

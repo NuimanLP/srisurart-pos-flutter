@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 
 // Pass-through, with a hook so a test can look at the pool at the moment argon2 runs.
@@ -656,6 +657,35 @@ describe('AuthService', () => {
         expect(maxHeld).toBe(1);
         expect(held).toBe(0);
         expect(auditMock.log).toHaveBeenCalledTimes(1);
+      });
+
+      // #425: an unknown username must cost the same one argon2 verify as a wrong password,
+      // and answer with the same error, so neither latency nor body reveals which names exist.
+      it.each([
+        ['an unknown username', 0],
+        ['a wrong password', 1],
+      ])('runs argon2 verify exactly once and says Invalid credentials for %s', async (_l, count) => {
+        const argon2 = await import('argon2');
+        const { service, auditMock } = build(await argon2.hash('password123'), {}, {}, count as number);
+        let verifies = 0;
+        argonHook.onVerify = () => verifies++;
+        let caught: unknown;
+        try {
+          await service.login({ username: 'owner', password: 'wrong' }, '10.0.0.30');
+        } catch (err) {
+          caught = err;
+        } finally {
+          argonHook.onVerify = null;
+        }
+
+        expect(verifies).toBe(1);
+        expect(caught).toBeInstanceOf(UnauthorizedException);
+        expect((caught as UnauthorizedException).getResponse()).toMatchObject({
+          statusCode: 401,
+          message: 'Invalid credentials',
+        });
+        // Unchanged: an unknown user has no tenant to audit under; a wrong password is audited.
+        expect(auditMock.log).toHaveBeenCalledTimes(count === 0 ? 0 : 1);
       });
 
       it('records the client ip on auth.login_failed and auth.login', async () => {
