@@ -59,166 +59,165 @@ export class AuthService {
       }
     }
 
-    const qr = this.ds.createQueryRunner();
-    await qr.connect();
-    
-    try {
-      // 1. Resolve device info from deviceToken if provided (ADR-0004)
-      let deviceTenantId: string | null = null;
-      let did: string | undefined;
-      let drole: string | undefined;
+    // No connection is held across this method (perf: a burst of logins used to pin every
+    // `pos_app` pool slot through argon2's ~100-300 ms and starve sales). The two lookups are
+    // SECURITY DEFINER functions that need no `app.tenant_id`, so each is a plain pool query
+    // that returns its connection at once; argon2 runs with none held; each audit row takes
+    // its own short connection afterwards. Never more than one at a time.
 
-      if (dto.deviceToken) {
-        const hash = await this.hashDeviceToken(dto.deviceToken);
-        const devRes = await qr.query(
-          `SELECT tenant_id, id, role, retired_at FROM auth_lookup_device_by_token($1)`,
-          [hash],
-        );
-        if (devRes.length === 1) {
-          const dev = devRes[0];
-          if (dev.retired_at) {
-            throw new UnauthorizedException('Device has been retired');
-          }
-          deviceTenantId = dev.tenant_id;
-          did = dev.id;
-          drole = dev.role;
-        } else {
-          throw new UnauthorizedException('Invalid device token');
-        }
-      }
+    // 1. Resolve device info from deviceToken if provided (ADR-0004)
+    let deviceTenantId: string | null = null;
+    let did: string | undefined;
+    let drole: string | undefined;
 
-      // The username bucket is scoped to the device's tenant: usernames like `owner` repeat
-      // across shops, so an unscoped key let failures in one shop lock that name in all of them.
-      const userKey = dto.username
-        ? `auth:user:${deviceTenantId ?? '-'}:${dto.username}`
-        : null;
-
-      if (userKey) {
-        const userStatus = await this.rateLimit.consumeAttempt(userKey, 5, 60);
-        if (!userStatus.allowed) {
-          throw new HttpException(
-            {
-              code: 'RATE_LIMITED',
-              message: 'Too many failed login attempts. Please try again later.',
-              retryAfter: userStatus.retryAfter ?? 60,
-            },
-            HttpStatus.TOO_MANY_REQUESTS,
-          );
-        }
-      }
-
-      // 2. Find User via SECURITY DEFINER function to respect RLS
-      const userRows = await qr.query(
-        `SELECT * FROM auth_lookup_user_for_login($1, $2)`,
-        [dto.username, deviceTenantId ?? null],
+    if (dto.deviceToken) {
+      const hash = await this.hashDeviceToken(dto.deviceToken);
+      const devRes = await this.ds.query(
+        `SELECT tenant_id, id, role, retired_at FROM auth_lookup_device_by_token($1)`,
+        [hash],
       );
-
-      if (userRows.length > 1) {
-        throw new UnauthorizedException('Ambiguous username. Device token is required.');
+      if (devRes.length === 1) {
+        const dev = devRes[0];
+        if (dev.retired_at) {
+          throw new UnauthorizedException('Device has been retired');
+        }
+        deviceTenantId = dev.tenant_id;
+        did = dev.id;
+        drole = dev.role;
+      } else {
+        throw new UnauthorizedException('Invalid device token');
       }
+    }
 
-      if (userRows.length === 0) {
-        this.logger.warn(`Login failed: user not found for username=${dto.username}`);
-        throw new UnauthorizedException('Invalid credentials');
+    // The username bucket is scoped to the device's tenant: usernames like `owner` repeat
+    // across shops, so an unscoped key let failures in one shop lock that name in all of them.
+    const userKey = dto.username
+      ? `auth:user:${deviceTenantId ?? '-'}:${dto.username}`
+      : null;
+
+    if (userKey) {
+      const userStatus = await this.rateLimit.consumeAttempt(userKey, 5, 60);
+      if (!userStatus.allowed) {
+        throw new HttpException(
+          {
+            code: 'RATE_LIMITED',
+            message: 'Too many failed login attempts. Please try again later.',
+            retryAfter: userStatus.retryAfter ?? 60,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
       }
+    }
 
-      const user = userRows[0];
-      const tenantId = user.tenant_id;
+    // 2. Find User via SECURITY DEFINER function to respect RLS
+    const userRows = await this.ds.query(
+      `SELECT * FROM auth_lookup_user_for_login($1, $2)`,
+      [dto.username, deviceTenantId ?? null],
+    );
 
-      // Check tenant status (ADR-0003)
-      if (user.tenant_status !== 'active') {
-        await this.logAuthEventWithRls(qr, tenantId, {
-          tenantId,
-          userId: user.id,
-          deviceId: did,
-          ip: clientIp,
-          action: 'auth.login_failed',
-          before: { reason: 'tenant_inactive' },
-        });
-        throw new ForbiddenException({
-          code: 'TENANT_SUSPENDED',
-          message: 'ร้านนี้ถูกระงับการใช้งาน',
-        });
-      }
+    if (userRows.length > 1) {
+      throw new UnauthorizedException('Ambiguous username. Device token is required.');
+    }
 
-      // Check user active
-      if (!user.is_active) {
-        await this.logAuthEventWithRls(qr, tenantId, {
-          tenantId,
-          userId: user.id,
-          deviceId: did,
-          ip: clientIp,
-          action: 'auth.login_failed',
-          before: { reason: 'user_inactive' },
-        });
-        throw new UnauthorizedException('User is inactive');
-      }
+    if (userRows.length === 0) {
+      this.logger.warn(`Login failed: user not found for username=${dto.username}`);
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
-      // Verify Password (Argon2id)
-      let valid = false;
-      try {
-        valid = await argon2.verify(user.password_hash, dto.password);
-      } catch (err) {
-        this.logger.warn(`Password verification failed to parse hash for userId=${user.id}: ${err}`);
-        valid = false;
-      }
-      if (!valid) {
-        await this.logAuthEventWithRls(qr, tenantId, {
-          tenantId,
-          userId: user.id,
-          deviceId: did,
-          ip: clientIp,
-          action: 'auth.login_failed',
-          before: { reason: 'invalid_password' },
-        });
-        throw new UnauthorizedException('Invalid credentials');
-      }
+    const user = userRows[0];
+    const tenantId = user.tenant_id;
 
-      // A correct password clears this username's failures; the IP bucket only gets this one
-      // attempt back, so failures against other usernames from the same address stay counted.
-      if (userKey) await this.rateLimit.clearKey(userKey, 60);
-      if (ipKey) await this.rateLimit.refundAttempt(ipKey, 60);
-
-      // 3. Issue Tokens
-      const payload: Omit<JwtPayload, 'iss' | 'iat' | 'exp'> = {
-        aud: 'tenant',
-        sub: user.id,
-        jti: crypto.randomUUID(),
-        typ: 'access',
-        tid: tenantId,
-        role: user.role,
-        did,
-        drole,
-      };
-
-      const accessToken = this.jwtSigner.sign(payload, '15m');
-      
-      const refreshPayload = { ...payload, typ: 'refresh' as const, jti: crypto.randomUUID() };
-      const expUnix = this.calculateRefreshExpiry(user.timezone || 'Asia/Bangkok');
-      const refreshToken = this.jwtSigner.sign(refreshPayload, expUnix);
-
-      // Log success
-      await this.logAuthEventWithRls(qr, tenantId, {
+    // Check tenant status (ADR-0003)
+    if (user.tenant_status !== 'active') {
+      await this.logAuthEvent(tenantId, {
         tenantId,
         userId: user.id,
         deviceId: did,
         ip: clientIp,
-        action: 'auth.login',
+        action: 'auth.login_failed',
+        before: { reason: 'tenant_inactive' },
       });
-
-      return {
-        accessToken,
-        refreshToken,
-        user: {
-          id: user.id,
-          username: user.username,
-          role: user.role,
-          displayName: user.display_name,
-        },
-      };
-    } finally {
-      await qr.release();
+      throw new ForbiddenException({
+        code: 'TENANT_SUSPENDED',
+        message: 'ร้านนี้ถูกระงับการใช้งาน',
+      });
     }
+
+    // Check user active
+    if (!user.is_active) {
+      await this.logAuthEvent(tenantId, {
+        tenantId,
+        userId: user.id,
+        deviceId: did,
+        ip: clientIp,
+        action: 'auth.login_failed',
+        before: { reason: 'user_inactive' },
+      });
+      throw new UnauthorizedException('User is inactive');
+    }
+
+    // Verify Password (Argon2id)
+    let valid = false;
+    try {
+      valid = await argon2.verify(user.password_hash, dto.password);
+    } catch (err) {
+      this.logger.warn(`Password verification failed to parse hash for userId=${user.id}: ${err}`);
+      valid = false;
+    }
+    if (!valid) {
+      await this.logAuthEvent(tenantId, {
+        tenantId,
+        userId: user.id,
+        deviceId: did,
+        ip: clientIp,
+        action: 'auth.login_failed',
+        before: { reason: 'invalid_password' },
+      });
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // A correct password clears this username's failures; the IP bucket only gets this one
+    // attempt back, so failures against other usernames from the same address stay counted.
+    if (userKey) await this.rateLimit.clearKey(userKey, 60);
+    if (ipKey) await this.rateLimit.refundAttempt(ipKey, 60);
+
+    // 3. Issue Tokens
+    const payload: Omit<JwtPayload, 'iss' | 'iat' | 'exp'> = {
+      aud: 'tenant',
+      sub: user.id,
+      jti: crypto.randomUUID(),
+      typ: 'access',
+      tid: tenantId,
+      role: user.role,
+      did,
+      drole,
+    };
+
+    const accessToken = this.jwtSigner.sign(payload, '15m');
+    
+    const refreshPayload = { ...payload, typ: 'refresh' as const, jti: crypto.randomUUID() };
+    const expUnix = this.calculateRefreshExpiry(user.timezone || 'Asia/Bangkok');
+    const refreshToken = this.jwtSigner.sign(refreshPayload, expUnix);
+
+    // Log success
+    await this.logAuthEvent(tenantId, {
+      tenantId,
+      userId: user.id,
+      deviceId: did,
+      ip: clientIp,
+      action: 'auth.login',
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        displayName: user.display_name,
+      },
+    };
   }
 
   /**
@@ -385,6 +384,23 @@ export class AuthService {
   private async hashDeviceToken(token: string): Promise<string> {
     const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
     return Buffer.from(hash).toString('hex');
+  }
+
+  /** `logAuthEventWithRls` on a connection of its own, taken and released here (best-effort). */
+  private async logAuthEvent(
+    tenantId: string,
+    params: Parameters<AuditService['log']>[1],
+  ): Promise<void> {
+    const qr = this.ds.createQueryRunner();
+    try {
+      await qr.connect();
+      await this.logAuthEventWithRls(qr, tenantId, params);
+    } catch (err) {
+      // Only `connect()` lands here: logAuthEventWithRls catches its own failures.
+      this.logger.error(`Failed to take a connection for the auth audit log: ${err}`);
+    } finally {
+      await qr.release();
+    }
   }
 
   private async logAuthEventWithRls(

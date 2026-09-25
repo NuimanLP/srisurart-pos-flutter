@@ -1,5 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { Writable } from 'node:stream';
 import { pino } from 'pino';
 import { NotFoundException } from '@nestjs/common';
 import { DeviceRoleForbiddenException } from '../src/common/device-role-forbidden.exception.js';
@@ -9,12 +14,30 @@ import {
   JOB_TENANT_EXPORT,
 } from '../src/queue/queue.constants.js';
 import { runInRequestContext } from '../src/common/request-context.js';
+import {
+  EXPORT_TTL_MS,
+  exportFilePath,
+  pruneExportFiles,
+} from '../src/backup/export-file.js';
 
 const logger = pino({ level: 'silent' });
 
 describe('Backup Module (unit)', () => {
   const TENANT_ID = '11111111-1111-1111-1111-111111111111';
   const USER_ID = '22222222-2222-2222-2222-222222222222';
+  let exportRoot: string;
+  const prevExportDir = process.env.EXPORT_DIR;
+
+  beforeAll(() => {
+    exportRoot = mkdtempSync(join(tmpdir(), 'backup-spec-'));
+    process.env.EXPORT_DIR = exportRoot;
+  });
+
+  afterAll(() => {
+    rmSync(exportRoot, { recursive: true, force: true });
+    if (prevExportDir === undefined) delete process.env.EXPORT_DIR;
+    else process.env.EXPORT_DIR = prevExportDir;
+  });
 
   describe('BackupProcessor', () => {
     let mockEm: { query: ReturnType<typeof vi.fn> };
@@ -301,7 +324,17 @@ describe('Backup Module (unit)', () => {
 
       const execution = await processor.process(job) as { skipped: boolean; result: any };
       expect(execution.skipped).toBe(false);
-      const snapshot = execution.result;
+
+      // The job's result is only a small descriptor — the snapshot is a file, never Redis.
+      const descriptor = execution.result;
+      expect(Object.keys(descriptor).sort()).toEqual(
+        ['exportedAt', 'recordCounts', 'sha256', 'sizeBytes'],
+      );
+      const bytes = readFileSync(exportFilePath(TENANT_ID, 'job-export-1'));
+      expect(descriptor.sizeBytes).toBe(bytes.length);
+      expect(descriptor.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+      const snapshot = JSON.parse(bytes.toString('utf8'));
+      expect(descriptor.recordCounts).toEqual(snapshot.__meta.recordCounts);
 
       // Validate core snapshot structure
       expect(snapshot.sa_categories).toEqual(['กรองน้ำมัน', 'เบรก']);
@@ -373,11 +406,7 @@ describe('Backup Module (unit)', () => {
         add: vi.fn(),
         getJob: vi.fn(),
       };
-      controller = new BackupController(mockQueue as any, {
-        // The role checks run before any context exists here; runTx itself is covered by
-        // tenant.service.spec.ts (tx.2, #151).
-        runTx: (fn: () => Promise<unknown>) => fn(),
-      } as any);
+      controller = new BackupController(mockQueue as any);
     });
 
     describe('POST /backup/export (AC1 & AC2)', () => {
@@ -444,14 +473,14 @@ describe('Backup Module (unit)', () => {
         ).rejects.toThrow(NotFoundException);
       });
 
-      it('AC5: returns status and snapshot result for owner', async () => {
-        const mockSnapshot = { sa_products: [], __meta: { version: 2 } };
+      it('AC5: returns status and the file descriptor, never the snapshot inline', async () => {
+        const descriptor = { sizeBytes: 2, sha256: 'abc', exportedAt: '2026-09-25T00:00:00.000Z', recordCounts: {} };
         mockQueue.getJob.mockResolvedValueOnce({
           id: 'job-mine',
           data: { tenantId: TENANT_ID },
           getState: vi.fn().mockResolvedValue('completed'),
           progress: 100,
-          returnvalue: { skipped: false, result: mockSnapshot },
+          returnvalue: { skipped: false, result: descriptor },
           failedReason: undefined,
         });
         const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
@@ -462,8 +491,114 @@ describe('Backup Module (unit)', () => {
 
         expect(res.id).toBe('job-mine');
         expect(res.status).toBe('completed');
-        expect(res.data).toEqual(mockSnapshot);
+        expect(res.data).toEqual({
+          ...descriptor,
+          downloadPath: '/api/v1/backup/jobs/job-mine/download',
+        });
       });
+
+      it('opens no transaction: needs only the guard-authorised tenant', async () => {
+        mockQueue.getJob.mockResolvedValueOnce(null);
+        const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
+        // manager: null — a runTx here would be the only way to need one.
+        await expect(
+          runInRequestContext(
+            { tenantId: TENANT_ID, manager: null as any },
+            () => controller.getJobStatus(req, 'job-x'),
+          ),
+        ).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('GET /backup/jobs/:id/download', () => {
+      const completedJob = (tenantId: string, id = 'dl-1') => ({
+        id,
+        data: { tenantId },
+        getState: vi.fn().mockResolvedValue('completed'),
+        returnvalue: {
+          skipped: false,
+          result: { sizeBytes: 0, sha256: 'x', exportedAt: '2026-09-25T01:02:03.000Z', recordCounts: {} },
+        },
+      });
+
+      function fakeRes() {
+        const chunks: Buffer[] = [];
+        const res: any = new Writable({
+          write(chunk, _enc, cb) {
+            chunks.push(Buffer.from(chunk));
+            cb();
+          },
+        });
+        res.headers = {} as Record<string, string>;
+        res.status = vi.fn(() => res);
+        res.setHeader = (k: string, v: string) => { res.headers[k] = v; };
+        res.body = () => Buffer.concat(chunks).toString('utf8');
+        res.done = new Promise((r) => res.on('finish', r));
+        return res;
+      }
+
+      const download = (tenantId: string, id: string, res: any) =>
+        runInRequestContext({ tenantId, manager: null as any }, () =>
+          controller.downloadExport({ user: { deviceId: 'dev-1' } } as any, id, res),
+        );
+
+      it('streams the tenant\'s own export file with attachment headers', async () => {
+        const file = exportFilePath(TENANT_ID, 'dl-1');
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, '{"sa_products":[]}');
+        mockQueue.getJob.mockResolvedValueOnce(completedJob(TENANT_ID));
+        const res = fakeRes();
+        await download(TENANT_ID, 'dl-1', res);
+        await res.done;
+        expect(res.body()).toBe('{"sa_products":[]}');
+        expect(res.headers['Content-Length']).toBe('18');
+        expect(res.headers['Content-Disposition']).toBe('attachment; filename="backup-2026-09-25.json"');
+      });
+
+      it('404s another tenant\'s job without touching its file', async () => {
+        const OTHER = '33333333-3333-3333-3333-333333333333';
+        mockQueue.getJob.mockResolvedValueOnce(completedJob(OTHER, 'dl-other'));
+        await expect(download(TENANT_ID, 'dl-other', fakeRes())).rejects.toThrow(NotFoundException);
+      });
+
+      it('404s when the file has expired or the job is not finished', async () => {
+        mockQueue.getJob.mockResolvedValueOnce(completedJob(TENANT_ID, 'dl-gone'));
+        await expect(download(TENANT_ID, 'dl-gone', fakeRes())).rejects.toThrow(NotFoundException);
+
+        mockQueue.getJob.mockResolvedValueOnce({
+          ...completedJob(TENANT_ID, 'dl-1'),
+          getState: vi.fn().mockResolvedValue('active'),
+          returnvalue: null,
+        });
+        await expect(download(TENANT_ID, 'dl-1', fakeRes())).rejects.toThrow(NotFoundException);
+      });
+
+      it('rejects a token without deviceId', async () => {
+        await expect(
+          controller.downloadExport({ user: {} } as any, 'dl-1', fakeRes()),
+        ).rejects.toThrow(DeviceRoleForbiddenException);
+      });
+    });
+  });
+
+  describe('export files', () => {
+    it('refuses a path built from anything but a uuid tenant and a plain job id', () => {
+      expect(() => exportFilePath('../etc', '1')).toThrow();
+      expect(() => exportFilePath(TENANT_ID, '../../x')).toThrow();
+      expect(exportFilePath(TENANT_ID, '42')).toBe(join(exportRoot, TENANT_ID, '42.json'));
+    });
+
+    it('prunes only files older than the TTL', async () => {
+      const oldFile = exportFilePath(TENANT_ID, 'old');
+      const newFile = exportFilePath(TENANT_ID, 'new');
+      mkdirSync(dirname(oldFile), { recursive: true });
+      writeFileSync(oldFile, '{}');
+      writeFileSync(newFile, '{}');
+      const past = (Date.now() - EXPORT_TTL_MS - 60_000) / 1000;
+      utimesSync(oldFile, past, past);
+      await pruneExportFiles();
+      expect(existsSync(oldFile)).toBe(false);
+      expect(existsSync(newFile)).toBe(true);
     });
   });
 });

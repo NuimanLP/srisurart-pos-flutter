@@ -57,7 +57,12 @@ export const HEALTH_DATA_SOURCE = Symbol('HEALTH_DATA_SOURCE');
           synchronize: false,
           migrationsRun: false,
           entities: [],
-          poolSize: cfg.dbPoolSize,
+          // Two, not `cfg.dbPoolSize`: sized at 15 it sat outside the `max_connections`
+          // budget (docker-compose.yml header) and could take it past 100. Only the platform
+          // plane uses it, and no caller nests a second `adminDs` call inside an `adminDs`
+          // transaction, so one slot can hold a long tenant-import transaction (worker,
+          // BullMQ concurrency 1) while the other serves a platform request.
+          poolSize: 2,
           extra: { connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 },
         });
         return ds.initialize();

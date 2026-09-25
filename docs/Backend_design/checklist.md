@@ -19,7 +19,7 @@
 | **E2E tests** | **53 files (`*.e2e-spec.ts`) — 607 passed, 2 skipped** (2026-09-23) | `server/test/*.e2e-spec.ts` ทดสอบ RLS, Idempotency, Lock order บน PostgreSQL 16 จริง — CI job `integration`, run เดียวกัน |
 | **ไฟล์ใน `server/src/`** | **201 files** (2026-09-23) | ครอบคลุม 29 โดเมนโมดูลหลัก |
 | **App instances** | **3 API instances** (`api-1`, `api-2`, `api-3`), **1 worker**, **1 bull-board**, **1 nginx**, **1 postgres** (PG 16 alpine), **2 redis** (`redis-cache` + `redis-queue`), **1 etcd** (v3.6.12) | `server/docker-compose.yml:56-328` |
-| **DB Pool Math** | **62 / 100** connections (**62%** ≤ 80% ceiling) | `3 api × (15 request + 2 audit + 1 health) + worker × (5 + 2 + 1) = 62` (`server/docker-compose.yml:13-14`) |
+| **DB Pool Math** | **70 / 100** connections (**70%** ≤ 80% ceiling) | `3 api × (15 request + 2 audit + 1 health + 2 admin) + worker × (5 + 2 + 1 + 2) = 70` (`server/docker-compose.yml:13-15`) |
 | **Memory Budget** | **~3.3 GB** (จากโควตา VM คณะ 4 vCPU / 6 GB = 55%) | `1024 (pg) + 2×256 (redis) + 3×384 (api) + 256 (worker) + 128 (bull-board) + 64 (nginx) + 256 (etcd)` |
 | **Worker Concurrency** | **1** (CPU/DB-bound transaction isolation) | `server/docker-compose.yml:149-155` (`DB_POOL_SIZE: 5`) |
 | **Static Analysis** | **Clean (0 errors, 0 warnings)** | `server/package.json:24` (`pnpm check` = `oxlint src/ test/ && tsc --noEmit`) |
@@ -154,7 +154,7 @@
 | 71 | Eager-load ลึกๆ ทำให้ cartesian blowup | ⚪ | Schema การออกแบบ | Schema เป็น Flat Ledgers ไม่มีความสัมพันธ์ซ้อนลึกหลายทอด |
 | 72 | SQL logging ใน dev · `pg_stat_statements` ใน prod | 🟡 | `server/src/infra/db.module.ts:38` | มี error logging ใน dev แต่ยังไม่ได้ติดตั้ง extension `pg_stat_statements` บน PG image |
 | 73 | `onDelete:'CASCADE'` อันตราย | 🟡 | `server/src/db/migrations/1788652800000-InitialSchema.ts:196, 342, 387, 418, 456, 504` | (2026-09-23) **มี** `ON DELETE CASCADE` บนตารางลูกของเอกสารการเงิน (`sale_items`→`sales`, return items→`returns`, PO/quote/shift lines, `suppliers`→`products`) และจาก `tenants` — ปลอดภัยในทางปฏิบัติเพราะแม่ไม่ถูก hard-delete (products ใช้ `deleted_at`, บิลใช้ void) แต่ไม่ใช่ "ไม่ใช้ CASCADE เด็ดขาด" อย่างที่ฉบับก่อนเขียน |
-| 74 | **Pool: `instances × (1+replicas) × poolSize ≤ 80% max_connections`** | ✅ | `server/docker-compose.yml:13-14`<br>`server/README.md` | `3 api × (15+2+1) + worker × (5+2+1) = 62 ≤ 80` (คำนวณถูกต้องตามสูตรบทเรียน) |
+| 74 | **Pool: `instances × (1+replicas) × poolSize ≤ 80% max_connections`** | ✅ | `server/docker-compose.yml:13-15`<br>`server/README.md` | `3 api × (15+2+1+2) + worker × (5+2+1+2) = 70 ≤ 80` (คำนวณถูกต้องตามสูตรบทเรียน; admin pool นับรวมแล้ว, คงที่ 2) |
 | 75 | `(cores*2)+spindles` ใช้ size ตัว DB server ไม่ใช่ app pool | ✅ | `server/src/config/config.ts:7-8` | แยกการคิดโควตาฝั่งเซิร์ฟเวอร์ออกจากพูลของแอปพลิเคชันอย่างชัดเจน |
 | 76 | Map PG error code → HTTP (23505→409 ฯลฯ) | ✅ | `server/src/sales/sales.service.ts:165-168`<br>`server/src/products/products.service.ts:102`<br>`server/src/documents/doc-number.service.ts:35`<br>`server/src/idempotency/idempotency.service.ts:42` | (แก้ 2026-09-23) แมปราย service ไม่ใช่ใน `http-exception.filter.ts`: 23505/23503/23514 → 4xx ที่มีรหัสธุรกิจ, 55P03 → `503 IDEMPOTENCY_KEY_IN_FLIGHT` (ไม่ใช่ 409) |
 | 77 | `synchronize:true, dropSchema:true` ในเทสต์ = ไม่เคยเทสต์ migration (errata #5) | ✅ | `server/test/schema.e2e-spec.ts` | ทดสอบกับ Migration จริงเสมอ `synchronize` เป็น `false` ทุกที่ |
@@ -241,7 +241,7 @@
 | 137 | JWT เพิกถอนไม่ได้ ต้องมี TTL สั้น + refresh (errata #8) | ✅ | `docs/Backend_design/adr/0009-jwt-session-lifetime.md`<br>`server/src/auth/auth.service.ts` | Access Token อายุเพียง 15 นาที ส่วน Refresh Token บังคับตรวจสอบ `devices.retired_at` ใน DB ทุกครั้ง |
 | 138 | ทุก instance รันเวอร์ชันเดียวกัน | ✅ | `server/docker-compose.yml:41, 120-148`<br>`.github/workflows/deploy.yml` | API ทั้ง 3 ตัวบิลด์จาก Docker Image แท็ก Commit SHA เดียวกัน |
 | 139 | Graceful shutdown (หยุดรับ → drain → ปิด) | ✅ | `server/src/app.setup.ts:127`<br>`server/docker-compose.yml:44` (`stop_grace_period: 30s`) | มี Grace Period 30 วินาทีให้ประมวลผลคำขอที่ค้างอยู่ก่อนตัดการเชื่อมต่อ |
-| 140 | **`instances × (1+replicas) × poolSize ≤ 80% max_connections`** | ✅ | `server/docker-compose.yml:13-14` | รวม 62 คอนเนกชัน อยู่ภายใต้เพดาน 80% ของ max_connections 100 |
+| 140 | **`instances × (1+replicas) × poolSize ≤ 80% max_connections`** | ✅ | `server/docker-compose.yml:13-15` | รวม 70 คอนเนกชัน (นับ admin pool แล้ว) อยู่ภายใต้เพดาน 80% ของ max_connections 100 |
 | 141 | `least_conn` สำหรับ request ที่ยาวไม่เท่ากัน | ✅ | `server/docker/nginx/nginx.conf:34` (`least_conn;`) | คำขออ่านแคตตาล็อกกับเขียนบิลใช้เวลาต่างกัน จึงกระจายโหลดแบบ Least Connection |
 | 142 | เลี่ยง `ip_hash` / sticky session | ✅ | `server/docker/nginx/nginx.conf:33-39` | ไม่ใช้ `ip_hash` กระจายโหลดได้อย่างสมดุล |
 | 143 | ตั้ง `max_fails` + `fail_timeout` | ✅ | `server/docker/nginx/nginx.conf:35-37` (`max_fails=2 fail_timeout=10s`) | ดีด Instance ที่ล่มออกจาก upstream ชั่วคราว |
@@ -312,7 +312,7 @@
 | **B06#2** | เข้าใจผิดว่า `HEALTHCHECK` ใน Dockerfile ช่วยให้ Nginx รู้สถานะ | ใช้ `condition: service_healthy` ใน Docker Compose ในการลำดับการบูต |
 | **B06#3** | รวม `/health` ตัวเดียวตรวจสอบทั้ง Liveness และ Readiness | `server/src/health/health.controller.ts` แยก `/health/live` และ `/health/ready` ชัดเจน |
 | **B06#4** | เคลมว่า TypeORM ตรวจสอบ Replica ล่มแล้วสลับ Master ให้อัตโนมัติ | ไม่พึ่งพาฟีเจอร์นี้ ออกแบบเส้นทางเขียนตรงไปยัง Primary เสมอ |
-| **B06#5** | คำนวณ Connection Pool ผิดพลาดโดยลืมนับ Pool ต่อ Replica | `server/docker-compose.yml:13-14` คำนวณครบถ้วนทุก Instance และ Worker (62/100) |
+| **B06#5** | คำนวณ Connection Pool ผิดพลาดโดยลืมนับ Pool ต่อ Replica | `server/docker-compose.yml:13-15` คำนวณครบถ้วนทุก Instance และ Worker รวม admin pool (70/100) |
 | **B06#6** | ไม่พูดถึงความเสี่ยง Replication Slot ทำให้ดิสก์ Primary เต็ม | มีการคำนวณและจำกัดขนาด WAL |
 | **B06#7** | อ้างว่าระบบ High Availability แต่มี Nginx เดี่ยวในไดอะแกรม | ยอมรับว่าเป็น Single Point of Failure สำหรับ Phase 1 และระบุแนวทาง ALB ในอนาคต |
 | **B06#8** | ชูจุดเด่น JWT ว่า "Zero DB Query" โดยละเลยปัญหาการ Revoke สิทธิ์ | ออกแบบอายุ Token สั้นเพียง 15 นาที และตรวจ `devices.retired_at` ตอน Refresh (ADR-0009) |

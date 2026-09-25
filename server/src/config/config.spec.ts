@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { loadConfig, refusePublicSecret } from './config.js';
+import { loadConfig, refusePublicSecret, refusePublicSecretInUrl } from './config.js';
 
 /**
  * #367: compose passes `CORS_ORIGINS` / `PLATFORM_ADMIN_IPS` into every api container as
@@ -198,6 +198,56 @@ describe('loadConfig — refuses public placeholder secrets unless ALLOW_DEV_SEC
         loadConfig({ ...base, ALLOW_DEV_SECRETS, JWT_PLATFORM_SECRET: 'dev-only-platform-secret' }),
       ).toThrow(/JWT_PLATFORM_SECRET/);
     }
+  });
+
+  it('refuses a dev-only-* password inside each connection URL, naming the variable only', () => {
+    const cases: [string, string][] = [
+      ['DATABASE_URL', 'postgres://pos_app:dev-only-pos-app@localhost:5432/pos'],
+      ['DATABASE_ADMIN_URL', 'postgres://postgres:dev-only-postgres@localhost:5432/pos'],
+      ['REDIS_CACHE_URL', 'redis://:dev-only-redis@localhost:6379'],
+      ['REDIS_QUEUE_URL', 'redis://:dev-only-redis@localhost:6380'],
+    ];
+    for (const [name, url] of cases) {
+      let message = '';
+      try {
+        loadConfig({ ...base, [name]: url });
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).toMatch(new RegExp(`the password in ${name} is still the public placeholder`));
+      expect(message).not.toContain('dev-only-');
+      expect(() => loadConfig({ ...base, ALLOW_DEV_SECRETS: 'true', [name]: url })).not.toThrow();
+    }
+  });
+
+  it('percent-decodes the URL password and ignores dev-only- outside the password', () => {
+    expect(() =>
+      loadConfig({ ...base, REDIS_CACHE_URL: 'redis://:dev%2Donly-redis@localhost:6379' }),
+    ).toThrow(/the password in REDIS_CACHE_URL/);
+    expect(() =>
+      loadConfig({ ...base, DATABASE_URL: 'postgres://dev-only-user:pw@dev-only-host:5432/dev-only-db' }),
+    ).not.toThrow();
+    // Malformed %-escape: checked raw, not crashed on.
+    expect(() => refusePublicSecretInUrl({}, 'REDIS_QUEUE_URL', 'redis://:dev-only-%zz@h:1')).toThrow(
+      /REDIS_QUEUE_URL/,
+    );
+  });
+
+  it('checks ?password= and URLs WHATWG cannot parse (both drivers accept them)', () => {
+    for (const [name, url] of [
+      ['REDIS_CACHE_URL', 'redis://localhost:6379?password=dev-only-redis'],
+      ['DATABASE_URL', 'postgres://pos_app@localhost/pos?password=dev-only-pos-app'],
+      ['REDIS_QUEUE_URL', 'localhost:6380?password=dev-only-redis'], // scheme-less
+      ['DATABASE_URL', 'postgres://pos_app:dev-only-pos-app@/pos?host=/var/run/pg'], // unix socket
+    ]) {
+      expect(() => refusePublicSecretInUrl({}, name, url)).toThrow(
+        new RegExp(`the password in ${name}`),
+      );
+    }
+    expect(() => refusePublicSecretInUrl({}, 'DATABASE_URL', 'not a url')).not.toThrow();
+    expect(() =>
+      refusePublicSecretInUrl({}, 'DATABASE_URL', 'postgres://u:real-pw@/pos?host=/var/run/pg'),
+    ).not.toThrow();
   });
 
   it('refuses via the exported helper too (bull-board.ts BULL_BOARD_PASSWORD)', () => {

@@ -1,5 +1,6 @@
 import { getQueueToken } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { createHash } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -165,8 +166,32 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
       expect(jobRes.body.data.status).toBe('completed');
       expect(jobRes.body.data.error).toBeNull();
 
-      // 4. AC4: Verify standard snapshot JSON structure
-      const snapshot = jobRes.body.data.data;
+      // The job (i.e. redis-queue) holds only the small descriptor, never the snapshot.
+      const stored = await backupQueue.getJob(jobId);
+      expect(JSON.stringify(stored!.returnvalue)).not.toContain('sa_products');
+      const descriptor = jobRes.body.data.data;
+      expect(descriptor).toMatchObject({
+        sizeBytes: expect.any(Number),
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        downloadPath: `/api/v1/backup/jobs/${jobId}/download`,
+      });
+
+      // 4. AC4: download streams the standard snapshot JSON
+      const dlRes = await request(fixture.app.getHttpServer())
+        .get(descriptor.downloadPath)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        });
+      expect(dlRes.status).toBe(200);
+      expect(dlRes.headers['content-disposition']).toMatch(/^attachment; filename="backup-/);
+      const bytes = dlRes.body as Buffer;
+      expect(bytes.length).toBe(descriptor.sizeBytes);
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(descriptor.sha256);
+      const snapshot = JSON.parse(bytes.toString('utf8'));
       expect(snapshot).toBeDefined();
       expect(snapshot.__meta).toMatchObject({
         version: 2,
@@ -245,6 +270,14 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
 
       expect(crossRes.status).toBe(404);
       expect(crossRes.body.error.code).toBe('NOT_FOUND');
+
+      // …nor download its file, once it exists.
+      await waitFor(async () => (await (await backupQueue.getJob(jobId))?.getState()) === 'completed');
+      const crossDl = await request(fixture.app.getHttpServer())
+        .get(`/api/v1/backup/jobs/${jobId}/download`)
+        .set('Authorization', `Bearer ${otherOwnerToken}`);
+      expect(crossDl.status).toBe(404);
+      expect(crossDl.body.error.code).toBe('NOT_FOUND');
     });
 
     it('AC5: returns 404 for non-existent job ID', async () => {

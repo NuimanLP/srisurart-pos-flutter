@@ -11,6 +11,12 @@ import {
   type TenantExportJobPayload,
 } from '../queue.constants.js';
 import { TenantJobRunner } from '../tenant-job-runner.js';
+import {
+  exportFilePath,
+  pruneExportFiles,
+  writeExportFile,
+  type ExportDescriptor,
+} from '../../backup/export-file.js';
 
 function iso(d: Date | string | null | undefined): string | null {
   if (!d) return null;
@@ -79,7 +85,10 @@ export class BackupProcessor extends WorkerHost {
       return { skipped: true, reason: 'UNKNOWN_JOB' };
     }
 
-    return this.tenantJobRunner.runWithTenantContext(job, async (em: EntityManager) => {
+    // Files outlive their job only by up to one TTL: every export sweeps the expired ones.
+    await pruneExportFiles();
+
+    return this.tenantJobRunner.runWithTenantContext(job, async (em: EntityManager): Promise<ExportDescriptor> => {
       const tenantId = data.tenantId;
 
       // The one `pos_app` transaction whose statements scale with a tenant's whole history
@@ -598,7 +607,15 @@ export class BackupProcessor extends WorkerHost {
         }
       }
 
-      // 17. AC3: Write audit_log entry
+      // 17. The snapshot goes to a file, never into the job's `returnvalue`: that would park a
+      // whole shop's history in `redis-queue` (192 MB, noeviction) for the job's lifetime.
+      // Written before the audit row so a failed write fails the job without an audit entry.
+      const { sizeBytes, sha256 } = await writeExportFile(
+        exportFilePath(tenantId, String(job.id)),
+        snapshot,
+      );
+
+      // 18. AC3: Write audit_log entry
       await this.auditService.log(em, {
         tenantId,
         userId: data.requestedByUserId || undefined,
@@ -613,11 +630,11 @@ export class BackupProcessor extends WorkerHost {
       });
 
       this.logger.info(
-        { tenantId, recordCounts },
+        { tenantId, recordCounts, sizeBytes },
         'Tenant data export completed successfully',
       );
 
-      return snapshot;
+      return { sizeBytes, sha256, exportedAt, recordCounts };
     }, { exemptFromCommitCeiling: true });
   }
 }
