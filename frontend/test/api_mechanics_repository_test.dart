@@ -12,6 +12,7 @@ import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
 import 'package:srisurart_pos/data/repositories/mechanics_repository.dart';
+import 'package:srisurart_pos/data/storage/token_storage.dart';
 
 void main() {
   late AppDatabase db;
@@ -291,6 +292,40 @@ void main() {
           ),
           throwsA(isA<PosException>().having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')),
         );
+        expect(await localPayments(), 0);
+        expect(await balance(), 2000.0);
+        expect(await repo.getPendingCreditPayments(), isEmpty);
+      },
+    );
+
+    test(
+      'TokenStoreUnavailableException surfaces as-is (#token-store-unavailable) — '
+      'not UNREADABLE_RESPONSE, not queued offline',
+      () async {
+        // The web token store (IndexedDB) being unreachable on the 401→refresh
+        // path is neither a transport failure nor "the server answered and
+        // probably committed" — the 401 that triggered the refresh already
+        // refused this write.
+        await seedTarget();
+        final repo = ApiMechanicsRepository(
+          db,
+          ApiClient(httpClient: MockClient((_) async => throw const TokenStoreUnavailableException())),
+        );
+
+        Object? thrown;
+        try {
+          await repo.addCreditPayment(
+            mechanicId: 'm_target',
+            amount: 500.0,
+            paymentMethod: 'เงินสด',
+          );
+        } catch (e) {
+          thrown = e;
+        }
+
+        expect(thrown, isA<TokenStoreUnavailableException>());
+        expect(thrown, isNot(isA<PosException>()));
+        expect(thrown.toString(), TokenStoreUnavailableException.message);
         expect(await localPayments(), 0);
         expect(await balance(), 2000.0);
         expect(await repo.getPendingCreditPayments(), isEmpty);
