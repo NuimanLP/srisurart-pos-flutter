@@ -115,7 +115,7 @@ const ALLOWED: Record<string, string> = {
   'health/health.controller.ts':
     '/health/ready probes Postgres with SELECT 1 on HEALTH_DATA_SOURCE only (pos_app, pool of 1, #248): no tenant, no table, deliberately outside any transaction, and never the request pool, whose saturation would read as a dead database.',
   'auth/auth.service.ts':
-    'ADR-0009: a failed login must leave its audit_log row, which a rolled-back request transaction would erase, and /auth/token must not hold an idle transaction across its argon2 verify; so /auth/token and /auth/refresh carry no TenantGuard and set app.tenant_id on their own runners.',
+    'ADR-0009: a failed login must leave its audit_log row, which a rolled-back request transaction would erase, and /auth/token must not hold a connection (let alone a transaction) across its argon2 verify; so /auth/token does its lookups as plain pool queries (SECURITY DEFINER functions) and its audit writes on short runners of their own, and /auth/refresh carries no TenantGuard and sets app.tenant_id on its own runner.',
   'rate-limit/rate-limit.service.ts':
     'readPlan reads tenants.plan (no RLS) on the pool from the global rate-limit guard, before any runTx holds a connection — since tx.4 (#153) there is no request transaction to hold one first (#162).',
   'queue/tenant-job-runner.ts':

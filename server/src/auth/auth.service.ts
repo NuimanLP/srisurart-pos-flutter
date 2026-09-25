@@ -396,7 +396,8 @@ export class AuthService {
       await qr.connect();
       await this.logAuthEventWithRls(qr, tenantId, params);
     } catch (err) {
-      this.logger.error(`Failed to write auth audit log: ${err}`);
+      // Only `connect()` lands here: logAuthEventWithRls catches its own failures.
+      this.logger.error(`Failed to take a connection for the auth audit log: ${err}`);
     } finally {
       await qr.release();
     }
