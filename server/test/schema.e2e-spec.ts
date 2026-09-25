@@ -259,7 +259,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     await app.query('ROLLBACK');
   });
 
-  it('audit_log is append-only for pos_app: INSERT/SELECT work under RLS, UPDATE/DELETE denied (#399)', async () => {
+  it('audit_log is append-only for pos_app: INSERT/SELECT work under RLS, UPDATE/DELETE/TRUNCATE denied (#399)', async () => {
     await app.query('BEGIN');
     await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
     await app.query(

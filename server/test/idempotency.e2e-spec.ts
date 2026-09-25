@@ -21,9 +21,9 @@ import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { loadConfig } from '../src/config/config.js';
 import { IdempotencyModule } from '../src/idempotency/idempotency.module.js';
-import { ADMIN_DATA_SOURCE } from '../src/infra/db.module.js';
 import { idempotencyParamsOf } from '../src/idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../src/idempotency/idempotency.service.js';
+import { ADMIN_DATA_SOURCE } from '../src/infra/db.module.js';
 import {
   currentRequestContext,
   setRequestTenant,

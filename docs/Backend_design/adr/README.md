@@ -205,7 +205,7 @@ schema ทั้ง 27 ตารางของ `01_DATABASE.md §5` เป็�
 * **migration รันเป็น job `migrate` ใน compose ครั้งเดียวก่อน `api-*` ขึ้น** (role `postgres`) ไม่รันตอน boot ·
   เพิ่ม migration = เพิ่มไฟล์ + ต่อท้าย `MIGRATIONS` ใน `data-source.ts` + ถ้ามีตารางใหม่ต้องใส่ใน
   `TENANT_SCOPED_TABLES` (test ตรวจ RLS/grant ทุกตาราง ลืมแล้ว suite แดง)
-* **`movements` ให้ `pos_app` แค่ SELECT/INSERT** — ledger append-only บังคับที่ DB · ตารางอื่น DML ครบ
+* **`movements` และ `audit_log` ให้ `pos_app` แค่ SELECT/INSERT** — append-only บังคับที่ DB (`audit_log` ตั้งแต่ #399) · ตารางอื่น DML ครบ
 * **seed = 5 หมวดเท่านั้น** (ADR-0001) เป็นฟังก์ชัน `seedCategories(db, tenantId)` ให้ #5 เรียกใน
   transaction เดียวกับการสร้างร้าน ไม่ใช่ script ที่รันตอน migrate
 * ที่ต่างจาก DDL ในเอกสาร (บันทึกไว้ในหัวไฟล์ migration): `audit_log` PK เป็น `(tenant_id, id)`,

@@ -354,32 +354,32 @@ describe('tenant-isolation-sweep (Issue #292)', () => {
     }
 
     // 1. append-only tables: pos_app has no UPDATE or DELETE privilege (audit_log: #399)
-    for (const [table, op] of APPEND_ONLY_TABLES.flatMap((t) =>
-      (['UPDATE', 'DELETE'] as const).map((o) => [t, o] as const),
-    )) {
-      let caughtErr: any = null;
-      try {
-        await asTenant(ds, TENANT_A, async (query) => {
-          if (op === 'UPDATE') {
-            await query(
-              `UPDATE ${table} SET tenant_id = tenant_id WHERE tenant_id = $1::uuid`,
-              [TENANT_B],
-            );
-          } else {
-            await query(
-              `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
-              [TENANT_B],
-            );
-          }
-        });
-      } catch (err) {
-        caughtErr = err;
+    for (const table of APPEND_ONLY_TABLES) {
+      for (const op of ['UPDATE', 'DELETE'] as const) {
+        let caughtErr: any = null;
+        try {
+          await asTenant(ds, TENANT_A, async (query) => {
+            if (op === 'UPDATE') {
+              await query(
+                `UPDATE ${table} SET tenant_id = tenant_id WHERE tenant_id = $1::uuid`,
+                [TENANT_B],
+              );
+            } else {
+              await query(
+                `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
+                [TENANT_B],
+              );
+            }
+          });
+        } catch (err) {
+          caughtErr = err;
+        }
+        expect(caughtErr, `${op} on ${table} should be rejected`).toBeDefined();
+        expect(caughtErr.code, `SQLSTATE for ${op} on ${table}`).toBe('42501');
+        expect(caughtErr.message, `Error message for ${op} on ${table}`).toMatch(
+          /permission denied/,
+        );
       }
-      expect(caughtErr, `${op} on ${table} should be rejected`).toBeDefined();
-      expect(caughtErr.code, `SQLSTATE for ${op} on ${table}`).toBe('42501');
-      expect(caughtErr.message, `Error message for ${op} on ${table}`).toMatch(
-        /permission denied/,
-      );
     }
 
     // 2. all other tenant-scoped tables: UPDATE and DELETE affect 0 rows
