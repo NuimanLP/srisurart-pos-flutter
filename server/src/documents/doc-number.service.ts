@@ -25,11 +25,14 @@ export const DOC_NUMBER_REGEX = /^([A-Z]{2})(\d{2})-(\d{4}-\d{2})-(\d{4})$/;
  * The tenant's current `doc_counters.period` — Buddhist year and month in the tenant's
  * own timezone — as a SQL expression over a `tenants` row aliased `t`. The one
  * definition: `GET /doc-counters` hands this period to the device as "seeded", so it
- * must be exactly the period the issuer numbers into.
+ * must be exactly the period the issuer numbers into. `tenantPeriodSql(ts)` is the same
+ * calendar for any timestamptz expression (`/sync/push` checks an RC/CN period against the
+ * bill's stored date, 08 §10).
  */
-export const TENANT_PERIOD_SQL = `(EXTRACT(YEAR FROM now() AT TIME ZONE t.timezone)::int + 543)
+export const tenantPeriodSql = (ts: string) => `(EXTRACT(YEAR FROM ${ts} AT TIME ZONE t.timezone)::int + 543)
                   || '-' ||
-                  to_char(now() AT TIME ZONE t.timezone, 'MM')`;
+                  to_char(${ts} AT TIME ZONE t.timezone, 'MM')`;
+export const TENANT_PERIOD_SQL = tenantPeriodSql('now()');
 
 /** Postgres `check_violation` — what the counter's own CHECK raises past 9999. */
 const CHECK_VIOLATION = '23514';

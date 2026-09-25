@@ -9,7 +9,7 @@ import {
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { TenantService } from '../common/database/tenant.service.js';
-import { newId } from '../common/ids.js';
+import { DOC_NUMBER_REGEX, tenantPeriodSql } from '../documents/doc-number.service.js';
 import { fromSatang, satangOf, toSatang } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { CustomersService } from '../customers/customers.service.js';
@@ -807,12 +807,18 @@ export class SyncService {
 
   /**
    * The device's date for a queued write, per 08 §10 (owner 2026-09-25):
-   * - field absent → null (the service stamps `now()`; §10 does not refuse a missing date);
-   * - present but unparseable → 400 → the op is `rejected` (never silently `now()`);
-   * - active shift → window `[opened_at − 5 min, now() + 5 min]`, outside it clamp into
-   *   `[opened_at, now()]` + `date_flag`;
-   * - no active shift → only the future side is checked: `> now() + 5 min` → `now()` +
-   *   `date_flag`; a past date is kept, unflagged (nothing to measure it against).
+   * - field absent (`undefined`/`null`) → null (the service stamps `now()`; §10 does not
+   *   refuse a missing date);
+   * - present but unparseable — the empty string included → 400 → the op is `rejected`
+   *   (never silently `now()`, never a fall-through to the other field);
+   * - the device's OPEN shift (`is_active AND closed_at IS NULL` — the only shift a bill or
+   *   cash refund can land in, `ShiftsService.requireOpenShiftIdFor`) → window
+   *   `[opened_at − 5 min, now() + 5 min]`, outside it clamp into `[opened_at, now()]`;
+   * - no open shift → only the future side is checked: `> now() + 5 min` → `now()`; a past
+   *   date is kept (nothing to measure it against);
+   * - the document number's period (RC/CN, device clock, C2) ≠ the Buddhist year-month of
+   *   the stored date in the tenant's timezone → flagged, never refused.
+   * Any clamp or period mismatch → ONE `date_flag` for the op.
    */
   private async clampOpDate(
     manager: EntityManager,
@@ -820,64 +826,87 @@ export class SyncService {
     deviceId: string,
     op: SyncOpDto,
   ): Promise<Date | null> {
-    const field = op.payload.date ? 'date' : 'createdAt';
-    const opDate = deviceIsoDate(op.payload.date || op.payload.createdAt || undefined, field);
-    if (!opDate) return null;
+    // `sale.create`/`return.create` carry `date`; `drawer.entry` carries `createdAt`.
+    const field = op.payload.date !== undefined && op.payload.date !== null ? 'date' : 'createdAt';
+    const opDate = deviceIsoDate(op.payload[field], field) ?? null;
 
     const shiftRows = (await manager.query(
-      `SELECT opened_at FROM shifts WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active ORDER BY opened_at DESC LIMIT 1`,
+      `SELECT opened_at FROM shifts
+        WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active AND closed_at IS NULL
+        ORDER BY opened_at DESC LIMIT 1`,
       [tenantId, deviceId],
     )) as { opened_at: Date }[];
+    const openedAt = shiftRows.length > 0 ? new Date(shiftRows[0].opened_at) : null;
 
     const now = new Date();
-    const maxWindow = new Date(now.getTime() + DATE_TOLERANCE_MS);
-
-    if (shiftRows.length === 0) {
-      if (opDate <= maxWindow) return opDate;
-      await insertDateFlag(manager, tenantId, op, opDate, now, null);
-      return now;
+    let stored = opDate;
+    if (opDate && opDate.getTime() > now.getTime() + DATE_TOLERANCE_MS) {
+      stored = now;
+    } else if (opDate && openedAt && opDate.getTime() < openedAt.getTime() - DATE_TOLERANCE_MS) {
+      stored = openedAt;
     }
 
-    const openedAt = new Date(shiftRows[0].opened_at);
-    const minWindow = new Date(openedAt.getTime() - DATE_TOLERANCE_MS);
-
-    if (opDate >= minWindow && opDate <= maxWindow) {
-      return opDate;
+    // One clock: a bill with no date is measured at the same `now` the clamp used.
+    const periodFlag = await this.periodMismatch(manager, tenantId, op, stored ?? now);
+    if (stored !== opDate || periodFlag) {
+      await insertDateFlag(manager, tenantId, op, opDate, stored, openedAt, periodFlag);
     }
-
-    const clampedDate = opDate < openedAt ? openedAt : now;
-    await insertDateFlag(manager, tenantId, op, opDate, clampedDate, openedAt);
-    return clampedDate;
+    return stored;
   }
 
   /**
-   * Owner 2026-09-25: a replayed bill (or credit note) whose number on the device's paper
-   * differs from the number the server stored — it was committed online, the reply was
-   * lost, and the till queued it under a fresh offline number (#409/#413). The customer
-   * may hold a receipt the system does not know, so the owner gets a review item holding
-   * both numbers. The #409 fall-through re-runs this on every re-push (its key row keeps
-   * the online fingerprint), so the insert is deduplicated by a partial unique index.
+   * 08 §10 / C2: the period printed in the op's RC/CN number vs the Buddhist year-month of
+   * the date it is stored under, in the tenant's own timezone — the same calendar the
+   * issuer numbers into (`tenantPeriodSql`). Null when they agree, or when the op carries
+   * no well-formed number (the service validates it later).
+   */
+  private async periodMismatch(
+    manager: EntityManager,
+    tenantId: string,
+    op: SyncOpDto,
+    date: Date,
+  ): Promise<PeriodFlag | null> {
+    const docNo = wellFormedDocNo(op.type === 'return.create' ? op.payload.cnNo : op.payload.receiptNo);
+    if (!docNo) return null;
+    const docPeriod = DOC_NUMBER_REGEX.exec(docNo)![3];
+    const rows = (await manager.query(
+      `SELECT ${tenantPeriodSql('$2::timestamptz')} AS period FROM tenants t WHERE t.id = $1::uuid`,
+      [tenantId, date],
+    )) as { period: string }[];
+    const datePeriod = rows[0]?.period;
+    if (!datePeriod || datePeriod === docPeriod) return null;
+    return { docNo, docPeriod, datePeriod };
+  }
+
+  /**
+   * Owner 2026-09-25: a replayed bill (or credit note — "receipt" covers both) whose number
+   * on the device's paper differs from the number the server stored — it was committed
+   * online, the reply was lost, and the till queued it under a fresh offline number
+   * (#409/#413). The customer may hold a paper the system does not know, so the owner gets
+   * a review item holding both numbers. The #409 fall-through re-runs this on every
+   * re-push (its key row keeps the online fingerprint), so the insert is deduplicated by
+   * the partial unique index `uq_owner_review_items_renumbered`. A payload number that is
+   * not a well-formed RC/CN number is ignored — junk must not raise an item.
    */
   private async flagRenumbered(
     manager: EntityManager,
     tenantId: string,
     op: SyncOpDto,
     id: string,
-    offlineNo: unknown,
+    rawOfflineNo: unknown,
     serverNo: string,
   ): Promise<void> {
-    if (typeof offlineNo !== 'string' || offlineNo.trim() === '') return;
-    if (offlineNo.trim() === serverNo) return;
-    await manager.query(
-      `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, details)
-       VALUES ($1::uuid, $2, 'receipt_renumbered', $3, $4::jsonb)
-       ON CONFLICT (tenant_id, ref_id) WHERE kind = 'receipt_renumbered' DO NOTHING`,
-      [
-        tenantId,
-        newId('rev_'),
-        id,
-        JSON.stringify({ opId: op.opId, type: op.type, id, offlineNo: offlineNo.trim(), serverNo }),
-      ],
+    const offlineNo = wellFormedDocNo(rawOfflineNo);
+    if (!offlineNo || offlineNo === serverNo) return;
+    await ReviewItemsService.insertIn(
+      manager,
+      tenantId,
+      {
+        kind: 'receipt_renumbered',
+        refId: id,
+        details: { opId: op.opId, type: op.type, id, offlineNo, serverNo },
+      },
+      { onConflictDoNothing: true },
     );
   }
 
@@ -1123,14 +1152,21 @@ export class SyncService {
 /** 08 §10's tolerance around a shift's `opened_at` and the server's `now()`. */
 const DATE_TOLERANCE_MS = 5 * 60 * 1000;
 
-/** A `date_flag` review item for a device date the push moved (08 §10). */
+interface PeriodFlag {
+  docNo: string;
+  docPeriod: string;
+  datePeriod: string;
+}
+
+/** A `date_flag` review item for a device date the push moved or mis-periodised (08 §10). */
 async function insertDateFlag(
   manager: EntityManager,
   tenantId: string,
   op: SyncOpDto,
-  originalDate: Date,
-  clampedDate: Date,
+  originalDate: Date | null,
+  clampedDate: Date | null,
   openedAt: Date | null,
+  periodFlag: PeriodFlag | null = null,
 ): Promise<void> {
   await ReviewItemsService.insertIn(manager, tenantId, {
     kind: 'date_flag',
@@ -1138,11 +1174,19 @@ async function insertDateFlag(
     details: {
       opId: op.opId,
       type: op.type,
-      originalDate: originalDate.toISOString(),
-      clampedDate: clampedDate.toISOString(),
+      originalDate: originalDate ? originalDate.toISOString() : null,
+      clampedDate: clampedDate ? clampedDate.toISOString() : null,
       openedAt: openedAt ? openedAt.toISOString() : null,
+      ...periodFlag,
     },
   });
+}
+
+/** A trimmed RC/CN number when it matches `DOC_NUMBER_REGEX`, else null. */
+function wellFormedDocNo(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const docNo = raw.trim();
+  return DOC_NUMBER_REGEX.test(docNo) ? docNo : null;
 }
 
 /**
