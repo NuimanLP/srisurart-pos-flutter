@@ -121,12 +121,14 @@ export class CustomersService {
       : 'updated_at DESC, id DESC';
     const clause = where.join(' AND ');
     // #417: no count on a keyset sync read — see ProductsService.listUncachedIn.
-    const totals = query.updatedSince
-      ? null
-      : ((await manager.query(
-          `SELECT count(*)::int AS n FROM customers WHERE ${clause}`,
-          params,
-        )) as { n: number }[]);
+    const total = query.updatedSince
+      ? undefined
+      : (
+          (await manager.query(
+            `SELECT count(*)::int AS n FROM customers WHERE ${clause}`,
+            params,
+          )) as { n: number }[]
+        )[0].n;
     params.push(query.limit, (query.page - 1) * query.limit);
     const rows = (await manager.query(
       `SELECT ${COLUMNS}, ${CURSOR_TIMESTAMP} AS updated_at_cursor FROM customers
@@ -136,7 +138,6 @@ export class CustomersService {
       params,
     )) as (CustomerRow & { updated_at_cursor: string })[];
     const items = rows.map(toCustomer);
-    const total = totals === null ? undefined : (totals[0]?.n ?? 0);
     const last = rows[rows.length - 1];
     const nextCursor = query.updatedSince
       ? last

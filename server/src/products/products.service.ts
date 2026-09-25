@@ -101,7 +101,11 @@ const INT4_MAX = 2_147_483_647;
 /** Postgres `unique_violation`. */
 const UNIQUE_VIOLATION = '23505';
 
-type CachedList = { items: Product[]; total?: number; nextCursor?: SyncCursor | null };
+type CachedList = {
+  items: Product[];
+  total?: number;
+  nextCursor?: SyncCursor | null;
+};
 
 @Injectable()
 export class ProductsService {
@@ -230,12 +234,14 @@ export class ProductsService {
     const clause = where.join(' AND ');
     // #417: a sync read is keyset-paged and walked until an empty page, so a count
     // would re-scan every remaining row on every page for a number nobody reads.
-    const totals = query.updatedSince
-      ? null
-      : ((await manager.query(
-          `SELECT count(*)::int AS n FROM products WHERE ${clause}`,
-          params,
-        )) as { n: number }[]);
+    const total = query.updatedSince
+      ? undefined
+      : (
+          (await manager.query(
+            `SELECT count(*)::int AS n FROM products WHERE ${clause}`,
+            params,
+          )) as { n: number }[]
+        )[0].n;
 
     params.push(query.limit, (query.page - 1) * query.limit);
     const rows = (await manager.query(
@@ -247,7 +253,6 @@ export class ProductsService {
     )) as (ProductRow & { updated_at_cursor: string })[];
 
     const items = rows.map(toProduct);
-    const total = totals === null ? undefined : (totals[0]?.n ?? 0);
     // The cursor is the last row's key at full precision. `updatedAt` on the wire is a
     // JS `toISOString()` — milliseconds — and a truncated cursor sits *below* every row
     // in its millisecond, so a tie larger than a page would be served again forever.
