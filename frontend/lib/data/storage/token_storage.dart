@@ -29,15 +29,16 @@ abstract class TokenStorage {
   Future<void> clearAll();
 }
 
-/// Thrown by [SharedPrefsTokenStorage] token reads/writes when the refresh and
-/// device tokens are known to live in the web token store (IndexedDB) but it
-/// cannot be opened this run. Reporting "no device token" instead would show an
-/// enrolled till as un-enrolled, and re-enrolling mints a new `device_no`
-/// (ADR-0004 F8). `toString()` is the Thai sentence alone, like `PosException`.
+/// Thrown by [SharedPrefsTokenStorage] refresh/device token reads/writes when
+/// the web token store (IndexedDB) cannot be opened or written this run. There
+/// is no localStorage fallback (ADR-0009, owner decision 2026-09-25, #400):
+/// reporting "no device token" instead would show an enrolled till as
+/// un-enrolled, and re-enrolling mints a new `device_no` (ADR-0004 F8).
+/// `toString()` is the Thai sentence alone, like `PosException`.
 class TokenStoreUnavailableException implements Exception {
   const TokenStoreUnavailableException();
 
-  // agent draft — not yet ratified by the owner (#400).
+  // Ratified by the owner 2026-09-25 (#400) — 02_API_SCREENS.md §8.1.1.
   static const String message =
       'เปิดที่เก็บข้อมูลผูกเครื่องในเบราว์เซอร์ไม่ได้ กรุณารีโหลดหน้า — อย่าผูกเครื่องใหม่';
 
@@ -53,12 +54,8 @@ enum _StoreMode {
   /// The token store (IndexedDB on web).
   store,
 
-  /// Store unusable and no token ever moved there: SharedPreferences, as
-  /// before #400.
-  fallback,
-
-  /// Store unusable but the tokens are in it: token access throws
-  /// [TokenStoreUnavailableException].
+  /// Store unusable this run: token access throws
+  /// [TokenStoreUnavailableException] — never a SharedPreferences fallback.
   unavailable,
 }
 
@@ -94,12 +91,6 @@ class SharedPrefsTokenStorage implements TokenStorage {
   static const String _keyDeviceToken = 'auth_device_token';
   static const String _keyUser = 'auth_user_json';
 
-  /// Non-secret marker in SharedPreferences: "the tokens now live in
-  /// [_store]". Without it a later run that cannot open the store would read
-  /// SharedPreferences, find no device token, and show an enrolled till as
-  /// un-enrolled — and a re-enrolment mints a new `device_no` (ADR-0004 F8).
-  static const String _keyTokensInStore = 'auth_tokens_in_store';
-
   /// The tokens that live in [_store] when there is one.
   static const List<String> _storeKeys = [_keyRefreshToken, _keyDeviceToken];
 
@@ -122,31 +113,32 @@ class SharedPrefsTokenStorage implements TokenStorage {
     // Builds before #400 wrote the access token to localStorage on web.
     if (!persistAccessToken) await p.remove(_keyAccessToken);
     await _migrateToStore(p);
-    // The tokens are in a store we cannot reach: try again on the next call
+    // The store is unreachable: try again on the next call
     // instead of settling for an error for the rest of the run.
     if (_mode == _StoreMode.unavailable) _ready = null;
   }
 
-  /// One-time move of the refresh/device tokens out of SharedPreferences
-  /// (localStorage on web) into [_store]. Losing the device token would force
-  /// a re-enrolment with a new `device_no` (ADR-0004 F8), so:
+  /// Moves refresh/device tokens that older builds left in SharedPreferences
+  /// (localStorage on web) into [_store]. This is the only place that reads
+  /// them from SharedPreferences, and nothing writes them there any more.
+  /// Losing the device token would force a re-enrolment with a new
+  /// `device_no` (ADR-0004 F8), so:
   ///  * nothing is removed from SharedPreferences until EVERY token has been
   ///    written to the store and read back equal;
-  ///  * a SharedPreferences value overwrites the store's — while the store is
-  ///    usable no token is ever written to SharedPreferences, so a token found
-  ///    there is as new or newer (a pre-#400 build, or a run that fell back
-  ///    below);
-  ///  * until [_keyTokensInStore] is set, a store token with no
-  ///    SharedPreferences counterpart is deleted (the store mirrors
-  ///    SharedPreferences) — else a logout/unbind done in a fallback run
-  ///    after a partial migration would come back (#404 review);
+  ///  * a SharedPreferences value overwrites the store's — this build never
+  ///    writes one there, so a token found there comes from an older build
+  ///    and is as new or newer;
+  ///  * a store token with no SharedPreferences counterpart is kept: with no
+  ///    fallback, no run can log out/unbind in SharedPreferences only, so
+  ///    such a copy is simply a migrated token (#404's mirror step is gone —
+  ///    it would wipe an enrolled till whose localStorage alone was cleared);
   ///  * re-running it after a crash half-way is harmless (idempotent);
-  ///  * if the store is unusable (IndexedDB blocked, missing or timing out):
-  ///    - before any token ever moved there, the run falls back to
-  ///      SharedPreferences exactly as before #400; the next run retries;
-  ///    - once [_keyTokensInStore] is set, token reads/writes throw
-  ///      [TokenStoreUnavailableException] instead — never a silent
-  ///      "not enrolled" that invites a re-enrolment.
+  ///  * if the store is unusable (IndexedDB blocked, missing or timing out)
+  ///    the run is [_StoreMode.unavailable]: token access throws
+  ///    [TokenStoreUnavailableException], any legacy SharedPreferences copy
+  ///    is left untouched (and never served), and the next call retries.
+  ///    Never a silent "not enrolled", never a localStorage fallback
+  ///    (ADR-0009, owner decision 2026-09-25, #400).
   Future<void> _migrateToStore(SharedPreferences p) async {
     final store = _store;
     if (store == null) {
@@ -167,35 +159,23 @@ class SharedPrefsTokenStorage implements TokenStorage {
           throw StateError('token store read-back mismatch for $key');
         }
       }
-      // Until the marker is set SharedPreferences is the only truth, so the
-      // store must mirror it: a store copy with no SharedPreferences
-      // counterpart was left by a partial migration and then logged out or
-      // unbound by a fallback run — keeping it would revive that token.
-      if (!(p.getBool(_keyTokensInStore) ?? false)) {
-        for (final key in _storeKeys) {
-          if (!legacy.containsKey(key)) await store.delete(key);
-        }
-      }
-      // Marker before removal: a crash in between leaves both copies, and the
-      // next run overwrites the store with the (equal) SharedPreferences ones.
-      await p.setBool(_keyTokensInStore, true);
+      // Every token is in the store and verified: only now remove the
+      // SharedPreferences copies. A crash in between leaves both, and the next
+      // run overwrites the store with the (equal) SharedPreferences ones.
       for (final key in legacy.keys) {
         await p.remove(key);
       }
       _mode = _StoreMode.store;
     } catch (e) {
-      final inStore = p.getBool(_keyTokensInStore) ?? false;
-      debugPrint('TokenStorage: token store unusable '
-          '(${inStore ? 'tokens are there — refusing' : 'falling back to SharedPreferences'}'
-          ' this run): $e');
-      _mode = inStore ? _StoreMode.unavailable : _StoreMode.fallback;
+      debugPrint('TokenStorage: token store unusable, refusing token access: $e');
+      _mode = _StoreMode.unavailable;
     }
   }
 
   /// The store to use for refresh/device tokens, `null` for SharedPreferences.
   TokenKvStore? _tokenHome() => switch (_mode) {
         _StoreMode.store => _store,
-        _StoreMode.none || _StoreMode.fallback => null,
+        _StoreMode.none => null,
         _StoreMode.unavailable => throw const TokenStoreUnavailableException(),
       };
 
@@ -217,11 +197,14 @@ class SharedPrefsTokenStorage implements TokenStorage {
   }
 
   /// Removes [key] from SharedPreferences and, when the tokens live in the
-  /// store, from the store. An unreachable store throws: a logout or unbind
-  /// that only half-happened must not report success.
+  /// store, from the store. An unreachable store throws before anything is
+  /// removed: a logout or unbind that only half-happened must not report
+  /// success, and a not-yet-migrated legacy token must survive for the next
+  /// healthy run to move.
   Future<void> _removeToken(SharedPreferences p, String key) async {
+    final store = _tokenHome();
     await p.remove(key);
-    await _tokenHome()?.delete(key);
+    await store?.delete(key);
   }
 
   @override
