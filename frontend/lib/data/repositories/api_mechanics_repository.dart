@@ -15,6 +15,7 @@ import '../../core/network/server_error_resolver.dart';
 import '../../core/network/transport_failure.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
+import '../storage/token_storage.dart' show TokenStoreUnavailableException;
 import '../sync/sync_facade.dart';
 import '../sync/sync_service.dart';
 import 'api/api_wire.dart';
@@ -379,6 +380,14 @@ class ApiMechanicsRepository extends MechanicsRepository {
       // a payment, say — means the server answered and may have committed;
       // queuing it would create a second credit-payment receipt.
       if (e is PosException) rethrow;
+      // 🔴 #token-store-unavailable: the web token store could not be opened on
+      // the 401→refresh path (`ApiClient._executeRefresh` reads the refresh
+      // token before sending anything, so this throws before any refresh
+      // request goes out). The triggering 401 already refused THIS write, so
+      // nothing was committed — never queue offline, never mark
+      // UNREADABLE_RESPONSE. Rethrow as-is so the screen shows its own Thai
+      // sentence.
+      if (e is TokenStoreUnavailableException) rethrow;
       if (!isTransportFailure(e)) {
         throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
       }

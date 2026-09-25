@@ -420,6 +420,81 @@ void main() {
     },
   );
 
+  test(
+    'addCustomer: TokenStoreUnavailableException surfaces as-is (#token-store-unavailable) — '
+    'not UNREADABLE_RESPONSE, not queued offline',
+    () async {
+      // The web token store (IndexedDB) being unreachable on the 401→refresh
+      // path is neither a transport failure nor "the server answered and
+      // probably committed" — the 401 that triggered the refresh already
+      // refused this write.
+      final repo = ApiCustomersRepository(
+        db,
+        ApiClient(httpClient: MockClient((_) async => throw const TokenStoreUnavailableException())),
+      );
+
+      Object? thrown;
+      try {
+        await repo.addCustomer(
+          CustomersCompanion.insert(
+            id: 'c_store_unavailable',
+            code: 'CUS_Z',
+            name: 'Store Unavailable',
+            nameTH: 'เปิดที่เก็บข้อมูลไม่ได้',
+            createdAt: '2026-09-25T10:00:00.000Z',
+          ),
+        );
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown, isA<TokenStoreUnavailableException>());
+      expect(thrown, isNot(isA<PosException>()));
+      expect(thrown.toString(), TokenStoreUnavailableException.message);
+
+      final row = await (db.select(db.customers)..where((t) => t.id.equals('c_store_unavailable'))).getSingleOrNull();
+      expect(row, isNull, reason: 'a refused write must not create a local row');
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+    },
+  );
+
+  test(
+    'updateCustomer: TokenStoreUnavailableException surfaces as-is (#token-store-unavailable) — '
+    'not UNREADABLE_RESPONSE, not queued offline',
+    () async {
+      await db.into(db.customers).insert(
+        CustomersCompanion.insert(
+          id: 'c_store_unavailable_2',
+          code: 'CUS_W',
+          name: 'Before',
+          nameTH: 'ก่อน',
+          createdAt: '2026-09-25T10:00:00.000Z',
+        ),
+      );
+      final repo = ApiCustomersRepository(
+        db,
+        ApiClient(httpClient: MockClient((_) async => throw const TokenStoreUnavailableException())),
+      );
+
+      Object? thrown;
+      try {
+        await repo.updateCustomer(
+          'c_store_unavailable_2',
+          const CustomersCompanion(nameTH: Value('หลัง')),
+        );
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown, isA<TokenStoreUnavailableException>());
+      expect(thrown, isNot(isA<PosException>()));
+
+      final row = await (db.select(db.customers)..where((t) => t.id.equals('c_store_unavailable_2'))).getSingle();
+      expect(row.nameTH, 'ก่อน', reason: 'a refused write must not patch the local row');
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+    },
+  );
+
   test('deleteCustomer in degraded mode throws PosException and does not delete locally (08 §6.2)', () async {
     await db.into(db.customers).insert(
       CustomersCompanion.insert(

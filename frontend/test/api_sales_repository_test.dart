@@ -59,6 +59,39 @@ class _MemoryTokenStorage implements TokenStorage {
   Future<void> clearAll() async => clearAuthTokens();
 }
 
+/// A `TokenStorage` whose refresh-token read throws
+/// [TokenStoreUnavailableException] — the web IndexedDB token store being
+/// unreachable on the 401→refresh path. `getAccessToken` still answers
+/// normally: only the refresh/device tokens ever live in that store.
+class _TokenStoreUnavailableStorage implements TokenStorage {
+  String? accessToken = 'access-1';
+
+  @override
+  Future<String?> getAccessToken() async => accessToken;
+  @override
+  Future<void> setAccessToken(String? t) async => accessToken = t;
+  @override
+  Future<String?> getRefreshToken() async =>
+      throw const TokenStoreUnavailableException();
+  @override
+  Future<void> setRefreshToken(String? t) async =>
+      throw const TokenStoreUnavailableException();
+  @override
+  Future<String?> getDeviceToken() async =>
+      throw const TokenStoreUnavailableException();
+  @override
+  Future<void> setDeviceToken(String? t) async =>
+      throw const TokenStoreUnavailableException();
+  @override
+  Future<AuthUser?> getUser() async => null;
+  @override
+  Future<void> setUser(AuthUser? u) async {}
+  @override
+  Future<void> clearAuthTokens() async {}
+  @override
+  Future<void> clearAll() async {}
+}
+
 String _ok(Map<String, dynamic> data) =>
     jsonEncode({'status': 'success', 'data': data});
 
@@ -604,6 +637,118 @@ void main() {
       expect(msg, isNot(contains('ApiException')));
     },
   );
+
+  group('TokenStoreUnavailableException on the 401→refresh path (#token-store-unavailable)', () {
+    test(
+      'surfaces as-is — not UNREADABLE_RESPONSE, not queued offline',
+      () async {
+        // Simulates the web token store (IndexedDB) being unreachable when a
+        // 401 triggers `ApiClient`'s refresh. The repository must never read
+        // this as "the server answered and probably committed" (#413).
+        final repo = ApiSalesRepository(
+          api: ApiClient(
+            baseUrl: 'http://server.test',
+            httpClient: MockClient((req) async {
+              sent.add(req);
+              throw const TokenStoreUnavailableException();
+            }),
+            tokenStorage: _MemoryTokenStorage(),
+          ),
+          db: db,
+          drift: SalesRepository(db),
+        );
+
+        await expectLater(
+          () => repo.saveSale(input()),
+          throwsA(isA<TokenStoreUnavailableException>()),
+        );
+
+        expect(await db.select(db.sales).get(), isEmpty);
+        expect(await db.select(db.outboxOps).get(), isEmpty);
+      },
+    );
+
+    test(
+      'the till shows the exception\'s own Thai sentence, not "ยังไม่ได้เชื่อมต่อ"',
+      () async {
+        final repo = ApiSalesRepository(
+          api: ApiClient(
+            baseUrl: 'http://server.test',
+            httpClient: MockClient((req) async => http.Response('', 401)),
+            tokenStorage: _TokenStoreUnavailableStorage(),
+          ),
+          db: db,
+          drift: SalesRepository(db),
+        );
+
+        Object? thrown;
+        try {
+          await repo.saveSale(input());
+        } catch (e) {
+          thrown = e;
+        }
+        expect(thrown, isA<TokenStoreUnavailableException>());
+        expect(thrown.toString(), TokenStoreUnavailableException.message);
+      },
+    );
+
+    test(
+      'the attempt stays parked: once the store is reachable again a retry '
+      'reuses the SAME bill id and Idempotency-Key',
+      () async {
+        // The real wiring end to end: `_executeRefresh` reads the refresh
+        // token BEFORE sending anything, so it throws before any
+        // `/auth/refresh` request goes out — the POST /sales that got the 401
+        // is the only request this attempt ever sent, and it was refused, not
+        // committed.
+        var salesAttempts = 0;
+        final client = MockClient((req) async {
+          sent.add(req);
+          if (req.url.path == '/api/v1/sales') {
+            salesAttempts++;
+            if (salesAttempts == 1) return http.Response('', 401);
+            return http.Response(
+              _ok(created()),
+              201,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response('', 404);
+        });
+        final repo = ApiSalesRepository(
+          api: ApiClient(
+            baseUrl: 'http://server.test',
+            httpClient: client,
+            tokenStorage: _TokenStoreUnavailableStorage(),
+          ),
+          db: db,
+          drift: SalesRepository(db),
+        );
+
+        await expectLater(
+          () => repo.saveSale(input()),
+          throwsA(isA<TokenStoreUnavailableException>()),
+        );
+        // A brand-new SaleInput, as `checkout_screen.dart` builds on every press.
+        final sale = await repo.saveSale(input());
+
+        final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+        expect(posts, hasLength(2));
+        expect(
+          posts.map((r) => r.headers['Idempotency-Key']).toSet(),
+          hasLength(1),
+          reason: 'a fresh key would defeat the server idempotency module',
+        );
+        expect(
+          posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+          hasLength(1),
+          reason: "a fresh bill id would defeat the server's existingSale check",
+        );
+        expect(sale.receiptNo, 'RC-00042');
+        expect(await db.select(db.sales).get(), hasLength(1));
+      },
+    );
+  });
 
   group('a lost reply must not become a second bill (AC2)', () {
     test(

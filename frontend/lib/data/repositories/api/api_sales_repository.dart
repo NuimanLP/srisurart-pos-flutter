@@ -41,6 +41,7 @@ import '../../../core/utils/ids.dart';
 import '../../../core/utils/money.dart';
 import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
+import '../../storage/token_storage.dart' show TokenStoreUnavailableException;
 import '../../services/doc_number_service.dart';
 import '../../sync/sync_facade.dart';
 import '../../sync/sync_service.dart';
@@ -148,6 +149,20 @@ class ApiSalesRepository implements SalesRepository {
         }
         rethrow;
       } catch (e) {
+        // 🔴 #token-store-unavailable: the web token store (IndexedDB) could not
+        // be opened when a 401 on this POST triggered `ApiClient`'s refresh —
+        // `_executeRefresh` reads the refresh token from `TokenStorage` BEFORE
+        // it sends anything, so this throws before any `/auth/refresh` request
+        // goes out. The 401 that triggered it is itself the server's answer to
+        // THIS attempt (unauthenticated → refused before any transaction), so
+        // nothing was committed — this is neither a transport failure (nothing
+        // is wrong with the socket) nor "the server answered and probably
+        // committed" (#413's UNREADABLE_RESPONSE case). Rethrow as-is so the
+        // till shows its own Thai sentence ("เปิดที่เก็บข้อมูล…"), never queue
+        // offline (there is nothing to replay under an offline receipt number),
+        // and leave the attempt parked (no `_pending.close`) so a retry once the
+        // store is reachable again reuses the same id + Idempotency-Key.
+        if (e is TokenStoreUnavailableException) rethrow;
         // 🔴 #409: only a TRANSPORT failure (timeout, dropped socket) may become
         // an offline bill. Anything else here — a 2xx whose body is not a bill,
         // so `_post`'s cast throws — means the server answered and has probably
