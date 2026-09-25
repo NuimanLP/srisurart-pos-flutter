@@ -4,6 +4,7 @@ import request from 'supertest';
 import type { DataSource } from 'typeorm';
 import {
   accessToken,
+  clearTenantCache,
   createTestApp,
   resetTenant,
   seedMechanic,
@@ -1542,6 +1543,27 @@ describe('POST /sync/push (e2e)', () => {
           status: 'applied',
           response: online.body.data,
         });
+        expect(await stockOf('p_b1')).toBe(18);
+      });
+
+      it('a key an older push recorded as `POST /sales` (before #409) still replays, and a key recorded on another route does not', async () => {
+        const op = { opId: 'op_b1_legacy', idempotencyKey: 'k_b1_legacy', type: 'sale.create', payload: outboxPayload };
+        expect((await push({ outboxRemaining: 0, ops: [op] })).body.data.results[0].status).toBe('applied');
+        await admin.query(
+          `UPDATE idempotency_keys SET endpoint = 'POST /sales' WHERE tenant_id = $1::uuid AND key = 'k_b1_legacy'`,
+          [TENANT],
+        );
+        await clearTenantCache(cache, TENANT);
+        const replay = await push({ outboxRemaining: 0, ops: [op] });
+        expect(replay.body.data.results[0]).toMatchObject({ status: 'applied', response: { id: 's_b1_online' } });
+
+        await admin.query(
+          `UPDATE idempotency_keys SET endpoint = 'POST /api/v1/returns' WHERE tenant_id = $1::uuid AND key = 'k_b1_legacy'`,
+          [TENANT],
+        );
+        await clearTenantCache(cache, TENANT);
+        const wrongRoute = await push({ outboxRemaining: 0, ops: [op] });
+        expect(wrongRoute.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'IDEMPOTENCY_KEY_REUSED' });
         expect(await stockOf('p_b1')).toBe(18);
       });
 

@@ -164,7 +164,7 @@ export class SyncService {
       // client-id replay (step 2) and §8.4 AC B1 expects `applied` for exactly this.
       // Only when the key was recorded for THIS op's own document, though — the same
       // key on a different bill stays refused.
-      const ownReplay = await this.replayKeyOfSameDocument(manager, tenantId, op);
+      const ownReplay = await this.replayKeyOfSameDocument(manager, tenantId, op, ep.endpoint);
       if (ownReplay !== null) {
         return { opId: op.opId, status: 'applied', response: ownReplay };
       }
@@ -248,23 +248,36 @@ export class SyncService {
   /**
    * The client-id replay (step 2) for an op whose key is recorded under a different
    * fingerprint — but only if that record answered for this op's own document (its
-   * stored response names the same id). Otherwise null, and the caller refuses the key.
-   * A mismatch between the op and the stored row still throws `CLIENT_ID_REUSED`.
+   * stored response names the same id, on this op's own route). Otherwise null, and the
+   * caller refuses the key. A mismatch between the op and the stored row still throws
+   * `CLIENT_ID_REUSED`.
+   *
+   * The route is compared with the `/api/v1` prefix stripped, so a key an older push
+   * recorded as `POST /sales` (before #409) still replays within its 24 h life.
    */
   private async replayKeyOfSameDocument(
     manager: EntityManager,
     tenantId: string,
     op: SyncOpDto,
-  ): Promise<unknown> {
+    endpoint: string,
+  ): Promise<any | null> {
     const idField = op.type === 'sale.void_offline' ? 'saleId' : 'id';
     const clientId: unknown = op.payload?.[idField];
     if (typeof clientId !== 'string' || clientId.trim() === '') return null;
     const rows = (await manager.query(
-      `SELECT response_body ->> $3 AS stored_id FROM idempotency_keys
+      `SELECT endpoint, response_body ->> $3 AS stored_id FROM idempotency_keys
         WHERE tenant_id = $1::uuid AND key = $2`,
       [tenantId, op.idempotencyKey, idField],
-    )) as { stored_id: string | null }[];
-    if (rows[0]?.stored_id !== clientId.trim()) return null;
+    )) as { endpoint: string; stored_id: string | null }[];
+    const unprefixed = (e: string) => e.replace(` ${ONLINE_PREFIX}/`, ' /');
+    const stored = rows[0];
+    if (
+      !stored ||
+      unprefixed(stored.endpoint) !== unprefixed(endpoint) ||
+      stored.stored_id !== clientId.trim()
+    ) {
+      return null;
+    }
     return this.checkClientIdReplay(manager, tenantId, op);
   }
 
