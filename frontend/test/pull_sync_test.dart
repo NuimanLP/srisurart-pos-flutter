@@ -82,7 +82,7 @@ void main() {
 
   group('Drift Schema v11 - sync_cursors table', () {
     test('sync_cursors table exists and supports upsert', () async {
-      expect(db.schemaVersion, 11);
+      expect(db.schemaVersion, 12);
 
       // Insert new cursor
       await db.into(db.syncCursors).insert(

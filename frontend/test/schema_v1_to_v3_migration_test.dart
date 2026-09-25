@@ -22,6 +22,8 @@ import 'package:sqlite3/sqlite3.dart' as raw;
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/shifts_repository.dart';
 
+import 'support/legacy_schema_ddl.dart';
+
 const _v1Ddl = [
   // ── touched by the v2 block (sync bookkeeping + cost at sale) ──
   'CREATE TABLE "customers" ("id" TEXT NOT NULL, "code" TEXT NOT NULL, '
@@ -87,7 +89,7 @@ void main() {
     file = File('${dir.path}/app.sqlite');
 
     final v1 = raw.sqlite3.open(file.path);
-    for (final ddl in _v1Ddl) {
+    for (final ddl in [..._v1Ddl, ...untouchedTablesDdl]) {
       v1.execute(ddl);
     }
     // Two shifts: 1 = an archived day, 2 = the drawer left open.
@@ -149,12 +151,12 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  test('a v1 file lands on the current schema (v11) in a single open', () async {
+  test('a v1 file lands on the current schema (v12) in a single open', () async {
     final version = await db
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 11);
+    expect(version, 12);
   });
 
   test('the v2 block still applies on the way through', () async {
