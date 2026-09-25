@@ -418,8 +418,13 @@ class SyncService implements SyncFacade {
             final currentAll = await (db.select(db.outboxOps)).get();
             final remainingOps =
                 currentAll.where((o) => o.opId != opId).toList();
+            final appliedOp =
+                batchOps.where((o) => o.opId == opId).firstOrNull;
             await db.transaction(() async {
               await _patchAppliedEntity(resp, remainingOps);
+              if (appliedOp != null) {
+                await _patchDocNo(appliedOp, resp);
+              }
               await (db.delete(db.outboxOps)
                     ..where((t) => t.opId.equals(opId)))
                   .go();
@@ -514,6 +519,43 @@ class SyncService implements SyncFacade {
         ),
       );
       await _refreshOutbox();
+    }
+  }
+
+  /// Owner decision 2026-09-25: the server is the source of truth for RC/CN
+  /// numbers. When an `applied` (incl. replayed) `sale.create`/`return.create`
+  /// comes back with a number that differs from the local row's offline one,
+  /// the local row takes the server's. A missing field leaves the row alone.
+  ///
+  /// The offline number printed on the paper receipt is not kept anywhere
+  /// locally after this (no column for it; the outbox op is deleted in the
+  /// same transaction) — the server records both in an owner review item.
+  Future<void> _patchDocNo(
+    OutboxOpRow op,
+    Map<String, dynamic>? response,
+  ) async {
+    if (response == null) return;
+    String? clientId;
+    try {
+      final payload = jsonDecode(op.payload);
+      if (payload is Map) clientId = payload['id'] as String?;
+    } catch (_) {}
+    if (clientId == null) return;
+
+    if (op.type == 'sale.create') {
+      final serverNo = response['receiptNo'];
+      if (serverNo is! String || serverNo.isEmpty) return;
+      await (db.update(db.sales)
+            ..where((t) =>
+                t.id.equals(clientId!) & t.receiptNo.equals(serverNo).not()))
+          .write(SalesCompanion(receiptNo: Value(serverNo)));
+    } else if (op.type == 'return.create') {
+      final serverNo = response['cnNo'];
+      if (serverNo is! String || serverNo.isEmpty) return;
+      await (db.update(db.returns)
+            ..where((t) =>
+                t.id.equals(clientId!) & t.cnNo.equals(serverNo).not()))
+          .write(ReturnsCompanion(cnNo: Value(serverNo)));
     }
   }
 
