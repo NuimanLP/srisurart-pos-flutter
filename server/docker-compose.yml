@@ -12,6 +12,13 @@
 # ≈ 3.3 GB.
 # Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health) + worker ×
 # (5 + 2 + 1) = 62 ≤ 80 (80%). The admin pool is platform-plane only (server/README.md *Invariants this stack enforces*).
+#
+# Every external `image:` below is pinned `name:tag@sha256:<digest>` (#401), same policy as
+# the base images in Dockerfile ("Base image digests are pinned and bumped by hand" — CLAUDE.md).
+# Dependabot's `docker` ecosystem for `/server` (.github/dependabot.yml) opens a security-update
+# PR that bumps the digest by hand, same as it does for Dockerfile; routine version bumps stay
+# human-timed. `srisurart-pos/server:local` (built here) and the GHCR images in
+# deploy/compose/vm.override.yml (built/pinned by our own CI) are out of scope for this pin.
 
 name: srisurart-pos
 
@@ -70,7 +77,7 @@ x-api: &api
 
 services:
   nginx:
-    image: nginx:1.29-alpine
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
     restart: unless-stopped
     mem_limit: 64m
     ports:
@@ -89,7 +96,9 @@ services:
 
   # Self-signed TLS for dev/demo. Replace the volume contents with a real cert on the VM.
   certgen:
-    image: alpine/openssl
+    # No versioned tag is published upstream for this image — pinned against `latest` as of
+    # 2026-09-25 (#401); the digest, not the tag, is what makes this reproducible.
+    image: alpine/openssl:latest@sha256:6aa2be0ed55a61fff35583e5763c2ea8288bcd3549d316b954b01eec32fb7006
     entrypoint: sh
     command:
       - -c
@@ -106,7 +115,8 @@ services:
   # writes an APR1-MD5 hash, a format Nginx's auth_basic accepts. dev-only credentials by default
   # (.env.example) — never committed for real; on the VM they come from DEMO_ENV_FILE (07 §10.3).
   htpasswd-gen:
-    image: alpine/openssl
+    # Same image/digest as `certgen` above — no versioned tag upstream (#401).
+    image: alpine/openssl:latest@sha256:6aa2be0ed55a61fff35583e5763c2ea8288bcd3549d316b954b01eec32fb7006
     entrypoint: sh
     command:
       - -c
@@ -188,7 +198,7 @@ services:
       - "127.0.0.1:3100:3100"
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     restart: unless-stopped
     mem_limit: 1024m
     shm_size: 256m
@@ -211,7 +221,7 @@ services:
 
   # Cache: evict freely, nothing here is authoritative.
   redis-cache:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     restart: unless-stopped
     mem_limit: 256m
     command:
@@ -237,7 +247,7 @@ services:
 
   # Queue: never evict (a dropped job is a lost sale), persist with AOF.
   redis-queue:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     restart: unless-stopped
     mem_limit: 256m
     command:
@@ -283,7 +293,7 @@ services:
   # extra chown step this ticket doesn't add (nothing else in this compose file runs as a
   # pinned non-root user either).
   etcd:
-    image: gcr.io/etcd-development/etcd:v3.6.12
+    image: gcr.io/etcd-development/etcd:v3.6.12@sha256:3c2ced08f23b1183e8bd4613064c3fb6b8db5057a4d1f13c3518c76e357a07a8
     restart: unless-stopped
     mem_limit: 256m
     command:
@@ -327,7 +337,7 @@ services:
   # design is that the API must boot with no working etcd at all. The VM deploy
   # (deploy/ansible/deploy.yml) runs it with `run --rm` instead, so a failure fails the deploy.
   etcd-init:
-    image: curlimages/curl:8.16.0
+    image: curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
     restart: "no"
     mem_limit: 32m
     entrypoint: sh
