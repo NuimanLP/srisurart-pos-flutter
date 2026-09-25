@@ -1,6 +1,19 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { AuthService } from './auth.service.js';
 
+// Pass-through, with a hook so a test can look at the pool at the moment argon2 runs.
+const argonHook = vi.hoisted(() => ({ onVerify: null as null | (() => void) }));
+vi.mock('argon2', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('argon2')>();
+  return {
+    ...orig,
+    verify: (...args: Parameters<typeof orig.verify>) => {
+      argonHook.onVerify?.();
+      return orig.verify(...args);
+    },
+  };
+});
+
 describe('AuthService', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -336,7 +349,7 @@ describe('AuthService', () => {
       };
 
       const authService = new AuthService(
-        { createQueryRunner: () => qrMock } as any,
+        { createQueryRunner: () => qrMock, query: qrMock.query } as any,
         signerMock as any,
         auditMock as any,
         rateLimitMock as any,
@@ -384,7 +397,7 @@ describe('AuthService', () => {
       };
 
       const authService = new AuthService(
-        { createQueryRunner: () => qrMock } as any,
+        { createQueryRunner: () => qrMock, query: qrMock.query } as any,
         {} as any,
         { log: vi.fn() } as any,
         rateLimitMock as any,
@@ -442,7 +455,7 @@ describe('AuthService', () => {
           isTransactionActive: false,
         };
         const service = new AuthService(
-          { createQueryRunner: () => qrMock } as any,
+          { createQueryRunner: () => qrMock, query: qrMock.query } as any,
           { sign: vi.fn().mockReturnValue('tok') } as any,
           auditMock as any,
           rateLimitMock as any,
@@ -489,8 +502,9 @@ describe('AuthService', () => {
 
       it('refuses a locked-out ip before taking a database connection', async () => {
         const createQueryRunner = vi.fn();
+        const query = vi.fn();
         const service = new AuthService(
-          { createQueryRunner } as any,
+          { createQueryRunner, query } as any,
           {} as any,
           {} as any,
           rateLimitMock as any,
@@ -502,6 +516,7 @@ describe('AuthService', () => {
             service.login({ username: 'owner', password: 'x', deviceToken: 'tokA' }, '10.0.0.9'),
           ).rejects.toMatchObject({ status: 429 });
           expect(createQueryRunner).not.toHaveBeenCalled();
+          expect(query).not.toHaveBeenCalled();
         } finally {
           // A pre-fix service throws before consuming the Once value; don't leak it into the next test.
           rateLimitMock.consumeAttempt.mockReset();
@@ -579,6 +594,68 @@ describe('AuthService', () => {
         expect(counted).toEqual(expect.arrayContaining(['auth:ip:10.0.0.13', 'auth:user:-:owner']));
         expect(rateLimitMock.refundAttempt).not.toHaveBeenCalled();
         expect(rateLimitMock.clearKey).not.toHaveBeenCalled();
+      });
+
+      // A burst of logins used to pin every pool slot through argon2 (the connection was taken
+      // before the lookup and released only at the end), starving sales on the same pool.
+      it.each([
+        ['a successful login', 'password123', undefined],
+        ['a wrong password', 'wrong', 'Invalid credentials'],
+      ])('holds no connection during argon2 and never two at once: %s', async (_l, password, error) => {
+        const argon2 = await import('argon2');
+        const passHash = await argon2.hash('password123');
+        let held = 0;
+        let maxHeld = 0;
+        const heldAtVerify: number[] = [];
+        const take = () => {
+          held++;
+          maxHeld = Math.max(maxHeld, held);
+        };
+        const lookup = vi.fn().mockImplementation(async (sql: string) => {
+          take();
+          await Promise.resolve();
+          held--;
+          return sql.includes('auth_lookup_user_for_login')
+            ? [{ id: 'u1', tenant_id: 't1', username: 'owner', password_hash: passHash, role: 'owner',
+                 display_name: 'O', is_active: true, tenant_status: 'active', timezone: 'Asia/Bangkok' }]
+            : [{ tenant_id: 't1', id: 'd1', role: 'pos', retired_at: null }];
+        });
+        const auditMock = { log: vi.fn() };
+        const service = new AuthService(
+          {
+            query: lookup,
+            createQueryRunner: () => ({
+              connect: vi.fn().mockImplementation(async () => take()),
+              release: vi.fn().mockImplementation(async () => { held--; }),
+              startTransaction: vi.fn(),
+              commitTransaction: vi.fn(),
+              rollbackTransaction: vi.fn(),
+              // Lookups answer here too, so a service that reads through its own runner
+              // still gets rows and fails on the connection count, not on a missing mock.
+              query: vi.fn().mockImplementation((sql: string) =>
+                sql.includes('auth_lookup_') ? lookup(sql) : [],
+              ),
+              manager: {},
+              isTransactionActive: false,
+            }),
+          } as any,
+          { sign: vi.fn().mockReturnValue('tok') } as any,
+          auditMock as any,
+          rateLimitMock as any,
+        );
+        argonHook.onVerify = () => heldAtVerify.push(held);
+        try {
+          const attempt = service.login({ username: 'owner', password, deviceToken: 'tok' }, '10.0.0.20');
+          if (error) await expect(attempt).rejects.toThrow(error);
+          else await attempt;
+        } finally {
+          argonHook.onVerify = null;
+        }
+
+        expect(heldAtVerify).toEqual([0]);
+        expect(maxHeld).toBe(1);
+        expect(held).toBe(0);
+        expect(auditMock.log).toHaveBeenCalledTimes(1);
       });
 
       it('records the client ip on auth.login_failed and auth.login', async () => {

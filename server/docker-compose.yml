@@ -10,8 +10,9 @@
 #
 # Memory budget (faculty VM 4 vCPU / 6 GB): 1024 + 2×256 + 3×384 + 256 + 128 + 64 + 256 (etcd)
 # ≈ 3.3 GB.
-# Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health) + worker ×
-# (5 + 2 + 1) = 62 ≤ 80 (80%). The admin pool is platform-plane only (server/README.md *Invariants this stack enforces*).
+# Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health + 2 admin) +
+# worker × (5 + 2 + 1 + 2) = 70 ≤ 80 (80%). The admin pool is platform-plane only, fixed at 2
+# (server/README.md *Invariants this stack enforces*).
 #
 # Every external `image:` below is pinned `name:tag@sha256:<digest>` (#401), same policy as
 # the base images in Dockerfile ("Base image digests are pinned and bumped by hand" — CLAUDE.md).

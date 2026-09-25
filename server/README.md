@@ -1706,10 +1706,10 @@ Redis, mints access tokens from a per-run RSA key pair, and resets one tenant pe
 - Every request carries `X-Correlation-ID` (client's, else Nginx `$request_id`) into the JSON
   log line and back out in the response. Request bodies are never logged.
 - `mem_limit` per container totals ≈ 3.3 GB (includes `etcd`'s 256m); `max_connections=100`,
-  steady-state pools 3 api × (15 request + 2 audit + 1 health) + worker (5 + 2 + 1) = 62 ≤ 80
-  (80%). `ADMIN_DATA_SOURCE` (sized `DB_POOL_SIZE`, owner role) is outside that figure: it is
-  touched only by the platform plane and at boot, and its idle connections close after 30 s —
-  a burst of platform calls on all three instances at once is the one way past 80.
+  pools 3 api × (15 request + 2 audit + 1 health + 2 admin) + worker (5 + 2 + 1 + 2) = 70 ≤ 80
+  (80%). `ADMIN_DATA_SOURCE` (owner role, platform plane only) is fixed at 2 per process — it
+  used to be sized `DB_POOL_SIZE` and sat outside this figure, so a burst of platform calls on
+  every instance could reach 112 > 100.
 - The app connects as `pos_app` (`NOSUPERUSER NOBYPASSRLS`, not the table owner) so RLS
   cannot be bypassed by accident. Migrations run as `postgres`, once, before the app starts.
 
