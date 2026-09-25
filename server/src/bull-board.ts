@@ -9,7 +9,7 @@ import express, {
   type Response,
 } from 'express';
 import { createLogger } from './common/logger.js';
-import { refusePublicSecret } from './config/config.js';
+import { refusePublicSecret, refusePublicSecretInUrl } from './config/config.js';
 import { ALL_QUEUES } from './queue/queue.constants.js';
 
 function requiredEnv(name: string): string {
@@ -22,6 +22,7 @@ const user = requiredEnv('BULL_BOARD_USER');
 const password = requiredEnv('BULL_BOARD_PASSWORD');
 refusePublicSecret(process.env, 'BULL_BOARD_PASSWORD', password); // #410
 const redisQueueUrl = requiredEnv('REDIS_QUEUE_URL');
+refusePublicSecretInUrl(process.env, 'REDIS_QUEUE_URL', redisQueueUrl); // #410
 const port = Number(process.env.PORT ?? 3100);
 const logger = createLogger({
   level: process.env.LOG_LEVEL ?? 'info',
