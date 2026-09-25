@@ -19,6 +19,9 @@ curl -k https://localhost/health/live     # → {"status":"success","data":{"sta
 curl -k https://localhost/health/ready    # checks Postgres + both Redis
 ```
 
+An `.env` made before #410 lacks `ALLOW_DEV_SECRETS=true`, so `api-*`/`worker`/`bull-board` now
+refuse its `dev-only-*` values at boot — append that line (local dev/CI only, never on a real host).
+
 That is the whole stack: Nginx (TLS, self-signed) → `api-1..3` → PostgreSQL, `redis-cache`,
 `redis-queue`, `etcd`, plus the BullMQ `worker` and `bull-board` (http://127.0.0.1:3100, basic
 auth). The one-shot `migrate` job applies the schema as the owner role before any `api-*`

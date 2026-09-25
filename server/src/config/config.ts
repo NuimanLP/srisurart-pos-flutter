@@ -46,7 +46,7 @@ const DEV_ONLY_PREFIX = 'dev-only-';
 
 /**
  * sha256 of the dummy RS256 pair `server/.env.example` ships (JWT_PRIVATE_KEY / JWT_PUBLIC_KEYS),
- * taken over the PEM with whitespace and literal `\n` escapes removed — a hash, so the key
+ * taken over the PEM with whitespace and literal `\n` / `\r` escapes removed — a hash, so the key
  * material is not copied into src. That private key is public in this repo's history: trusting
  * either half lets anyone forge a tenant token.
  */
@@ -56,7 +56,7 @@ const PUBLIC_DUMMY_KEY_SHA256 = new Set([
 ]);
 
 function isPublicDummyKey(pem: string): boolean {
-  const normalized = pem.replace(/\\n/g, '').replace(/\s/g, '');
+  const normalized = pem.replace(/\\[rn]/g, '').replace(/\s/g, '');
   return PUBLIC_DUMMY_KEY_SHA256.has(createHash('sha256').update(normalized).digest('hex'));
 }
 

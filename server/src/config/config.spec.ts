@@ -116,7 +116,7 @@ describe('loadConfig — refuses public placeholder secrets unless ALLOW_DEV_SEC
     JWT_PUBLIC_KEYS: 'a-real-public-key',
   };
 
-  it('refuses JWT_PLATFORM_SECRET=dev-only-* even with NODE_ENV unset or test', () => {
+  it('refuses JWT_PLATFORM_SECRET=dev-only-* whatever NODE_ENV is (unset, test, production)', () => {
     for (const NODE_ENV of [undefined, 'test', 'production']) {
       expect(() =>
         loadConfig({ ...base, NODE_ENV, JWT_PLATFORM_SECRET: 'dev-only-platform-secret' }),
