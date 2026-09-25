@@ -311,14 +311,15 @@ const DEFAULT_WINDOW_SEC = 60;
 ```yaml
 # Memory budget (faculty VM 4 vCPU / 6 GB): 1024 + 2×256 + 3×384 + 256 + 128 + 64 + 256 (etcd)
 # ≈ 3.3 GB.
-# Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health) + worker ×
-# (5 + 2 + 1) = 62 ≤ 80 (80%). The admin pool is platform-plane only (server/README.md *Invariants this stack enforces*).
+# Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health + 2 admin) +
+# worker × (5 + 2 + 1 + 2) = 70 ≤ 80 (80%). The admin pool is platform-plane only, fixed at 2
+# (server/README.md *Invariants this stack enforces*).
 ```
 อ่านทีละส่วน:
 - **RAM:** Postgres 1024 MB + Redis 2 ตัว × 256 + API 3 × 384 + worker 256 + bull-board 128 + nginx 64 + etcd 256 ≈ 3.3 GB → เหลือหัวให้ OS และ monitoring ใน 6 GB. ทุกตัวมี `mem_limit` (เช่น `docker-compose.yml:58` `mem_limit: 384m` ของ API) เพื่อว่า NestJS รั่วแล้วโดน OOM kill **คนเดียว** ไม่ลาก Postgres ตายไปด้วย
-- **Connection:** 3 × (15 + 2 + 1) + (5 + 2 + 1) = 54 + 8 = **62** ≤ 80 (80% ของ `max_connections=100`) — กฎจาก `03_ARCHITECTURE.md`: `instances × (1 + replicas) × poolSize ≤ 80%` "สาเหตุอันดับ 1 ของ too many connections"
-- **ทำไมเผื่อ 20%:** ให้ superuser/psql ของคนดูแล, migration, และ pool ของ platform plane ยังเข้าได้ตอนระบบเต็ม
-- **ถ้าจะ scale เป็น API 4 ตัว:** 4 × 18 + 8 = 80 → ชนเพดาน 80% พอดี ต้องลด pool หรือเพิ่ม `max_connections` ก่อน — **การเพิ่ม instance ไม่ฟรี**
+- **Connection:** 3 × (15 + 2 + 1 + 2) + (5 + 2 + 1 + 2) = 60 + 10 = **70** ≤ 80 (80% ของ `max_connections=100`) — กฎจาก `03_ARCHITECTURE.md`: `instances × (1 + replicas) × poolSize ≤ 80%` "สาเหตุอันดับ 1 ของ too many connections" — `ADMIN_DATA_SOURCE` (owner role, platform plane เท่านั้น) เคยเป็นขนาด `DB_POOL_SIZE` และอยู่นอกตัวเลขนี้ ตอนนี้ตรึงไว้ที่ 2 ต่อ process แล้วนับรวม (#421)
+- **ทำไมเผื่อ 20%:** ให้ superuser/psql ของคนดูแล, migration, และ burst ตอนระบบเต็ม
+- **ถ้าจะ scale เป็น API 4 ตัว:** 4 × 20 + 10 = 90 → ทะลุเพดาน 80% ไปแล้ว (เดิมตอน admin pool ยังไม่นับรวม 4 × 18 + 8 = 80 พอดีเพดาน) ต้องลด pool หรือเพิ่ม `max_connections` ก่อน — **การเพิ่ม instance ไม่ฟรี**
 
 `DB_POOL_SIZE` ถูกตั้งเป็น 15 ต่อ API ใน compose (`docker-compose.yml:142`) ส่วน worker ตั้ง `"5"` (`:169`); ค่า default ในโค้ดถ้าไม่ตั้งคือ 5 (`server/src/config/config.ts:109`)
 
@@ -725,7 +726,7 @@ guard อ่าน `tenants.plan` ตอน cache เย็น ขณะที�
 
 > - **latency ≠ throughput**; ผูกกันด้วย Little's law `L = λ × W` (demo: 10 VU / 0.1097 s ≈ 91 r/s ตรงกับที่วัดได้)
 > - **ใช้ percentile (p95/p99) ไม่ใช่ค่าเฉลี่ย** — ค่าเฉลี่ยซ่อน tail; และ percentile **รวมข้ามเครื่องไม่ได้** → §8.1 ต้องผ่านทีละเครื่อง
-> - คอขวดของ stack นี้ที่ต้องคิด: DB connection (62 ≤ 80), RAM (~3.3 GB จาก 6 GB), lock บนแถวสินค้า, และ **rate limiter 2 ชั้นที่เราตั้งเอง**
+> - คอขวดของ stack นี้ที่ต้องคิด: DB connection (70 ≤ 80), RAM (~3.3 GB จาก 6 GB), lock บนแถวสินค้า, และ **rate limiter 2 ชั้นที่เราตั้งเอง**
 > - **contamination** คือศัตรูหลัก: เครื่องยิงเดียวกับ server, IP เดียวโดน `perip`, 429 ที่เร็วดึง p95 ให้ดูดี, tenant limiter ถ้าไม่ใช้ plan `loadtest`
 > - วิธีทางการ (§8.1): **3 เครื่อง × 24 r/s, ไม่มีข้อยกเว้น `perip`, remote-write เข้า Prometheus, canary = 429 ต้องเป็น 0 ทุกเครื่อง**
 > - **correctness test (200 บน 50 → 50 บิล) ผ่านแล้ว; performance test ยังไม่เคยวัดสะอาด** — กล่อง DoD เดียวที่เปิดอยู่ → #380

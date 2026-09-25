@@ -408,9 +408,9 @@ client: "ไม่รู้ผล" → ต้องส่งซ้ำ (key=k1 �
 | กฎ | สำเนาที่ 1 | สำเนาที่ 2 | ผล | ที่มา |
 |---|---|---|---|---|
 | ความยาวรหัสผ่าน (#364) | CLI `bootstrap:admin` บังคับ 12 ตัว | API สร้างร้าน ไม่บังคับเลย | รหัส owner `1234` ผ่านได้ | แก้แล้ว: รวมที่ `server/src/common/password.ts` |
-| idempotency fingerprint | `idempotency.runner.ts:40` | `sync.service.ts:201` | HIGH bug (หลักการ 9) | ยังไม่แก้ |
-| RLS policy | ลูปเดียวใน migration `…0001` ใช้ `NULLIF` | `OwnerReviewItems.ts` เขียนเองไม่มี `NULLIF` | tenant ไม่ได้ตั้ง → HTTP 500 แทน 0 แถว | ยังไม่แก้ ([database](07_database.md)) |
-| การเก็บ access token | ADR-0009: "memory เท่านั้น ห้าม localStorage" | `token_storage.dart` ใช้ `SharedPreferences` (บน web = localStorage) | XSS อ่าน token ได้ | ยังไม่แก้ ([security](11_security.md) G9) |
+| idempotency fingerprint | `idempotency.runner.ts:40` | `sync.service.ts` (เดิม) | HIGH bug (หลักการ 9) | แก้แล้ว: `ONLINE_PREFIX` ตัวเดียว (#413) |
+| RLS policy | ลูปเดียวใน migration `…0001` ใช้ `NULLIF` | `OwnerReviewItems.ts` เขียนเองไม่มี `NULLIF` (เดิม) | tenant ไม่ได้ตั้ง → HTTP 500 แทน 0 แถว | แก้แล้ว: migration ใหม่ `…OwnerReviewItemsFixes.ts` (#420, [database](07_database.md)) |
+| การเก็บ access token | ADR-0009: "memory เท่านั้น ห้าม localStorage" | `token_storage.dart` เคยใช้ `SharedPreferences` บน web (= localStorage) | XSS อ่าน token ได้ | แก้แล้ว: access token memory-only บน web (#404); refresh/device token ไม่มี localStorage fallback แล้ว (#400/#419, [security](11_security.md) G9) |
 | เลข schema ปัจจุบัน | Drift `schemaVersion` | hard-code "9" ใน test 6 ไฟล์ | PR #276 CI แดง ต้องแก้ 6 ไฟล์ | [CI/CD](15_cicd.md) บทเรียน 1 |
 
 **ส่วน ข — คอมเมนต์/เอกสารที่ตามโค้ดไม่ทัน** (หลายอันพบระหว่างเขียนชุดเอกสารนี้เอง)
@@ -481,7 +481,7 @@ DB ใหม่ (สร้างหลัง commit):          รัน Initial
 |---|---|---|
 | G6 | `server/src/config/config.ts:113` `?? 'dev-only-platform-secret'` | compose กันไว้ แต่รันนอก compose = ช่อง #184 กลับมา |
 | G8 | `RowLevelSecurity.ts:70-74` | `pos_app` แก้/ลบ `audit_log` ได้ → app ถูกเจาะ = ลบร่องรอยได้ |
-| G9 | `frontend/lib/data/storage/token_storage.dart` | ขัด ADR-0009 ที่ห้ามเก็บ access token ใน localStorage |
+| ~~G9~~ | `frontend/lib/data/storage/token_storage.dart` | **แก้แล้ว** — เดิมขัด ADR-0009 ที่ห้ามเก็บ access token ใน localStorage (#404, #400/#419) |
 | G10 | `server/docker-compose.yml:73,92,191,214` | image `postgres:16-alpine`, `redis:7-alpine` ฯลฯ ไม่ pin digest → ไส้เปลี่ยนได้ |
 
 และช่องที่ปิดแล้วก็มีรูปแบบเดียวกัน:
@@ -509,10 +509,10 @@ DB ใหม่ (สร้างหลัง commit):          รัน Initial
 | 6 | Fail loud | #184 secret, #367 CORS, #363 backup | ส่วนใหญ่แก้; G6 ยังค้าง |
 | 7 | ปัญหาก่อนเครื่องมือ | A/B/C, ADR-0012 CouchDB | ตัดสินแล้ว |
 | 8 | Single writer | ADR-0004, #272 | ใช้อยู่ |
-| 9 | Idempotent retry | fingerprint concrete path, HIGH bug | HIGH ยังไม่แก้ |
+| 9 | Idempotent retry | fingerprint concrete path, HIGH bug | แก้แล้ว (#413) |
 | 10 | ความจริงมีบ้านเดียว | #364, stale comments ~10 จุด | บางส่วนแก้ |
-| 11 | ห้ามแก้ประวัติ | `225ecf7`, `OwnerReviewItems` | บั๊กยังรอ migration ใหม่ |
-| 12 | อ่านอย่างตั้งใจหาช่อง | G6/G8/G9/G10, #134, #270 | G-series ยังเปิด |
+| 11 | ห้ามแก้ประวัติ | `225ecf7`, `OwnerReviewItems` | บั๊กแก้แล้วด้วย migration ใหม่ (#420) |
+| 12 | อ่านอย่างตั้งใจหาช่อง | G6/G8/G10, #134, #270 | G4/G9/G12 แก้แล้ว; ที่เหลือยังเปิด |
 
 ---
 
@@ -759,7 +759,7 @@ flowchart TB
 > - **ความจริงและหลักฐาน:** สถานะไม่ใช่หลักฐาน (2) · mock นอกคำถามเท่านั้น (3) · ความจริงมีบ้านเดียว สำเนาจะลอย (10) · ประวัติห้ามแก้ เขียนต่อท้าย (11)
 > - **การตัดสินใจ:** เริ่มจากปัญหาไม่ใช่เครื่องมือ (7) · ทุกทางเลือกมีราคา เขียนราคาไว้ใน ADR รวมถึงทางที่ปฏิเสธ
 > - **Security:** ช่องส่วนใหญ่เจอได้ด้วยการอ่านอย่างตั้งใจ และจบเมื่อพิสูจน์บนเครื่องจริง (12)
-> - **ซื่อสัตย์:** CD ยังติด FortiGate, backup ยังไม่ออกจาก VM, k6 ยังไม่วัด, HIGH bug 2 ตัวยังเปิด — การบอกสิ่งนี้ตรงๆ คือส่วนหนึ่งของงานวิศวกรรม ไม่ใช่ความล้มเหลว
+> - **ซื่อสัตย์:** CD ยังติด FortiGate, backup ยังไม่ออกจาก VM, k6 ยังไม่วัด — HIGH bug 2 ตัวที่เคยเปิด (fingerprint, client date) แก้ครบแล้ว (#413, #414) — การบอกสถานะจริงตรงๆ ไม่ว่าจะยังเปิดหรือปิดแล้ว คือส่วนหนึ่งของงานวิศวกรรม ไม่ใช่ความล้มเหลว
 
 ---
 

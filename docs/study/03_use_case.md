@@ -455,6 +455,7 @@ flow คือ owner กด "สร้างเครื่องใหม่" (
 |---|---|---|
 | สั่ง export ข้อมูลร้าน (async job) | `POST /backup/export` | `backup.controller.ts:46` |
 | ดูสถานะงาน export | `GET /backup/jobs/:id` | `backup.controller.ts:80` |
+| ดาวน์โหลดไฟล์ snapshot ที่ export เสร็จแล้ว | `GET /backup/jobs/:id/download` | `backup.controller.ts:108` |
 
 ### Sync push (phase 2 — ยังกำลังพัฒนา)
 

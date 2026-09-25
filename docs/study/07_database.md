@@ -1238,9 +1238,9 @@ commit `225ecf7` (ปิด #278, ทำ "เจ้าของร้านค�
 
 บทเรียน: Postgres จำแค่ **ชื่อ** ไฟล์ที่รันแล้ว ไม่ได้จำเนื้อหา แก้ไฟล์เก่าแล้ว DB ที่รันไปแล้วจะไม่มีวันรันเนื้อหาใหม่ schema ของแต่ละเครื่องจะค่อยๆ ไม่ตรงกันแบบที่ไม่มีใครเห็น **กฎ: migration ที่ apply แล้วห้ามแก้ ให้เพิ่มไฟล์ใหม่เสมอ**
 
-### 2. บั๊กสองตัวใน `OwnerReviewItems` ที่ยังไม่แก้
+### 2. บั๊กสองตัวใน `OwnerReviewItems` — แก้แล้วด้วย migration ใหม่ (ไม่ใช่แก้ไฟล์เดิม)
 
-`server/src/db/migrations/1788652803002-OwnerReviewItems.ts:33-34, 52-57`
+`server/src/db/migrations/1788652803002-OwnerReviewItems.ts:33-34, 52-57` เดิมมีบั๊กสองตัว:
 
 ```ts
         CONSTRAINT pk_owner_review_items PRIMARY KEY (tenant_id, id),
@@ -1257,9 +1257,9 @@ commit `225ecf7` (ปิด #278, ทำ "เจ้าของร้านค�
 1. **ไม่มี `NULLIF(…, '')`** บน connection ที่เคยถูกตั้ง `app.tenant_id` มาก่อน ค่าจะเป็น `''` แล้ว `''::uuid` → error `22P02` → **HTTP 500** แทนที่จะได้ 0 แถวอย่างสงบ (ผิดหลัก fail-closed ที่ทุก policy อื่นทำ) ชื่อ policy ก็ไม่ตรงกับตัวอื่น (`tenant_isolation_policy` แทน `tenant_isolation`)
 2. **`ON DELETE SET NULL` บน FK สองคอลัมน์** จะตั้ง **ทั้ง** `tenant_id` และ `reviewed_by` เป็น `NULL` แต่ `tenant_id` เป็น `NOT NULL` → ลบ user ที่เคยรีวิวรายการจะ error วิธีที่ถูกคือ `ON DELETE SET NULL (reviewed_by)` (ระบุเฉพาะคอลัมน์ ใช้ได้ตั้งแต่ Postgres 15)
 
-ทั้งสองข้อบันทึกไว้ใน `01_DATABASE.md §11` และ CLAUDE.md "Still open" ว่า **ยังไม่แก้** และเมื่อแก้ต้องทำด้วย **migration ใหม่** ไม่ใช่แก้ไฟล์นี้ (บทเรียนข้อ 1)
+ตอนพบ (บันทึกไว้ใน `01_DATABASE.md §11`) กฎ "ห้ามแก้ migration ที่รันแล้ว" (บทเรียนข้อ 1) จึงหมายความว่าต้องแก้ด้วย **migration ใหม่** — `1788652804200-OwnerReviewItemsFixes.ts` (PR #420) `DROP POLICY tenant_isolation_policy` แล้ว `CREATE POLICY tenant_isolation` ใหม่พร้อม `NULLIF` (ชื่อ policy ตรงกับตารางอื่นแล้ว), และ `DROP`/`ADD CONSTRAINT` FK ใหม่เป็น `ON DELETE SET NULL (reviewed_by)` ทั้งสองข้อ **ปิดแล้ว**
 
-บทเรียน: policy ที่ "เขียนเองแยกจากลูป" คือจุดที่หลุดมาตรฐาน migration `…0001` มีลูปเดียวสร้าง policy ให้ทุกตาราง ตารางที่เพิ่มทีหลังควรใช้รูปแบบเดียวกันเป๊ะ
+บทเรียน: policy ที่ "เขียนเองแยกจากลูป" คือจุดที่หลุดมาตรฐาน migration `…0001` มีลูปเดียวสร้าง policy ให้ทุกตาราง ตารางที่เพิ่มทีหลังควรใช้รูปแบบเดียวกันเป๊ะ — และตอนแก้ ก็ยังต้องแก้ด้วย **ไฟล์ migration ใหม่เสมอ** ไม่ใช่ย้อนไปแก้ไฟล์ที่รันไปแล้ว (สอดคล้องกับบทเรียนข้อ 1 ด้านบน)
 
 ### 3. เอกสารกับ migration ไม่ตรงกัน: `audit_log`
 
@@ -1294,7 +1294,7 @@ commit `225ecf7` (ปิด #278, ทำ "เจ้าของร้านค�
 > - ร้านเดินทางจาก localStorage → Drift/SQLite → **PostgreSQL เป็น source of truth** (Drift เหลือเป็น cache) และยังไม่ได้ cutover
 > - Multi-tenant แบบ **T1** (ตารางร่วม + `tenant_id`) ถูกที่สุดแต่รั่วง่ายที่สุด จึงต้องมี **RLS แบบ fail-closed** (`NULLIF` + `set_config(…, true)` ใน `runTx`) และ app ต้องต่อด้วย **`pos_app`** ที่ `NOBYPASSRLS`
 > - **Redis-cache** (`allkeys-lru`, ไม่มีอะไรเป็นความจริง) แยกจาก **redis-queue** (`noeviction` + AOF) **etcd** เก็บแค่ config ที่ไม่ใช่ความลับ **CouchDB ถูกปฏิเสธ** (ADR-0012)
-> - Migration คือความจริงของ schema (29 ตารางบน Postgres, 25 ตารางบนเครื่อง Drift v11) **ห้ามแก้ migration ที่รันแล้ว** และยังมีบั๊กเปิดอยู่ใน `OwnerReviewItems` กับ backup ที่ยังไม่ออกจาก VM
+> - Migration คือความจริงของ schema (29 ตารางบน Postgres, 25 ตารางบนเครื่อง Drift v11) **ห้ามแก้ migration ที่รันแล้ว** — บั๊กสองตัวใน `OwnerReviewItems` แก้แล้วด้วย migration ใหม่ (#420); backup ที่ยังไม่ออกจาก VM ยังเปิดอยู่
 
 ---
 
@@ -1328,7 +1328,7 @@ commit `225ecf7` (ปิด #278, ทำ "เจ้าของร้านค�
 
 <details><summary>เฉลย</summary>
 
-`missing_ok` ช่วยแค่กรณีที่ connection ไม่เคยตั้งค่านี้เลย แต่ connection ใน pool ถูกใช้ซ้ำ connection ที่เคยตั้งค่าแบบ transaction-local ไปแล้ว หลัง transaction จบจะอ่านได้ `''` (สตริงว่าง) ไม่ใช่ `NULL` แล้ว `''::uuid` คือ error `22P02` → HTTP 500 แบบสุ่มๆ ขึ้นกับว่าได้ connection ตัวไหน `NULLIF` แปลง `''` เป็น `NULL` → เงื่อนไขไม่เป็นจริง → 0 แถว (fail-closed) บั๊กนี้มีอยู่จริงใน policy ของ `owner_review_items`
+`missing_ok` ช่วยแค่กรณีที่ connection ไม่เคยตั้งค่านี้เลย แต่ connection ใน pool ถูกใช้ซ้ำ connection ที่เคยตั้งค่าแบบ transaction-local ไปแล้ว หลัง transaction จบจะอ่านได้ `''` (สตริงว่าง) ไม่ใช่ `NULL` แล้ว `''::uuid` คือ error `22P02` → HTTP 500 แบบสุ่มๆ ขึ้นกับว่าได้ connection ตัวไหน `NULLIF` แปลง `''` เป็น `NULL` → เงื่อนไขไม่เป็นจริง → 0 แถว (fail-closed) บั๊กนี้เคยมีอยู่จริงใน policy ของ `owner_review_items` (ตอนที่ยังใช้ policy `tenant_isolation_policy` จาก `…3002`) แก้แล้วด้วย `1788652804200-OwnerReviewItemsFixes.ts` (#420)
 
 </details>
 
