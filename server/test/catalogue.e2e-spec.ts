@@ -693,7 +693,10 @@ describe('catalogue (e2e)', () => {
         'p1',
       ]);
       expect(res.body.data[1].deletedAt).not.toBeNull();
-      expect(res.body.meta.total).toBe(2);
+      // #417: a keyset sync read carries no count — the reader follows `nextCursor`.
+      expect(res.body.meta).not.toHaveProperty('total');
+      expect(res.body.meta).not.toHaveProperty('totalPages');
+      expect(res.body.meta.nextCursor).toMatchObject({ afterId: 'p1' });
       expect((await get('/products?updatedSince=not-a-date')).status).toBe(400);
       expect((await get('/products?afterId=p1')).status).toBe(400);
       expect(

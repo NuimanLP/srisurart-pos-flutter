@@ -124,10 +124,29 @@ export class ShiftsService {
         LIMIT $2 OFFSET $3`,
       [tenantId, limit, (page - 1) * limit],
     )) as ShiftRow[];
-    const items = [];
-    for (const row of rows)
-      items.push(await this.withEntries(manager, tenantId, row));
-    return { items, total: totalRows[0].n };
+    if (rows.length === 0) return { items: [], total: totalRows[0].n };
+
+    // #417: one query for the whole page's drawer entries, not one per shift.
+    const entries = (await manager.query(
+      `SELECT id, shift_id, type, amount, note, created_at
+         FROM drawer_entries
+        WHERE tenant_id = $1::uuid AND shift_id = ANY($2::text[])
+        ORDER BY shift_id, created_at DESC`,
+      [tenantId, rows.map((r) => r.id)],
+    )) as EntryRow[];
+    const byShift = new Map<string, DrawerEntry[]>();
+    for (const entry of entries) {
+      const list = byShift.get(entry.shift_id) ?? [];
+      list.push(toEntry(entry));
+      byShift.set(entry.shift_id, list);
+    }
+    return {
+      items: rows.map((row) => ({
+        ...toShift(row),
+        entries: byShift.get(row.id) ?? [],
+      })),
+      total: totalRows[0].n,
+    };
   }
 
   /**
@@ -582,14 +601,7 @@ export class ShiftsService {
         WHERE tenant_id = $1::uuid AND shift_id = $2
         ORDER BY created_at DESC`,
       [tenantId, shift.id],
-    )) as {
-      id: string;
-      shift_id: string;
-      type: 'in' | 'out';
-      amount: string;
-      note: string;
-      created_at: Date;
-    }[];
+    )) as EntryRow[];
     return { ...toShift(shift), entries: rows.map(toEntry) };
   }
 }
@@ -617,14 +629,16 @@ function toShift(row: ShiftRow): Shift {
   };
 }
 
-function toEntry(row: {
+type EntryRow = {
   id: string;
   shift_id: string;
   type: 'in' | 'out';
   amount: string;
   note: string;
   created_at: Date;
-}): DrawerEntry {
+};
+
+function toEntry(row: EntryRow): DrawerEntry {
   return {
     id: row.id,
     shiftId: row.shift_id,

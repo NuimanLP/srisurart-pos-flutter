@@ -208,6 +208,7 @@ describe('customers and mechanics (e2e)', () => {
       .get(`/api/v1/customers?updatedSince=${encodeURIComponent(cursor)}`)
       .set(auth());
     expect(sync.body.data).toHaveLength(1);
+    expect(sync.body.meta).not.toHaveProperty('total'); // #417
     expect(sync.body.data[0]).toMatchObject({
       id,
       deletedAt: expect.any(String),
@@ -375,6 +376,7 @@ describe('customers and mechanics (e2e)', () => {
       .get(`/api/v1/mechanics?updatedSince=${encodeURIComponent(cursor)}`)
       .set(auth());
     expect(sync.body.data).toHaveLength(1);
+    expect(sync.body.meta).not.toHaveProperty('total'); // #417
     expect(sync.body.data[0].id).toBe(id);
     expect(sync.body.data[0].deletedAt).not.toBeNull();
   });
