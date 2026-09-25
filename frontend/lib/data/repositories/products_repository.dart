@@ -28,6 +28,17 @@ class ProductsRepository {
   final AppDatabase db;
   ProductsRepository(this.db);
 
+  /// SQLite's `lower()` only case-folds ASCII; Dart's `String.toLowerCase()`
+  /// is Unicode-aware (matching db.js's JS `.toLowerCase()`). partNo values
+  /// are ASCII manufacturer SKUs in every real case here (see the seed
+  /// data), so the targeted `WHERE lower(part_no) = ?` query below is safe
+  /// for them — but whenever the value being compared isn't pure ASCII, the
+  /// dup/collision check falls back to the old Dart-side full-table scan so
+  /// the comparison stays exactly Unicode-aware. (Thai script has no case
+  /// distinction at all, so Thai text is unaffected either way — this only
+  /// matters for cased non-ASCII scripts, e.g. Cyrillic/Greek/Turkish.)
+  static bool _isAsciiOnly(String s) => s.codeUnits.every((c) => c < 128);
+
   /// SEED_CATEGORIES from db.js — fallback when the Categories table is empty.
   static const List<String> seedCategories = [
     'เครื่องยนต์',
@@ -96,14 +107,18 @@ class ProductsRepository {
     final partNo = (data.partNo.present ? data.partNo.value : '').trim();
     if (partNo.isEmpty) return null;
 
-    // SQLite's lower() is ASCII-only (unlike Dart's Unicode-aware
-    // toLowerCase()), but partNo is always an ASCII part code in this
-    // domain, so the comparison stays equivalent.
     final lower = partNo.toLowerCase();
-    final dup = await (db.select(db.products)
-          ..where((t) => t.partNo.lower().equals(lower)))
-        .get();
-    if (dup.isNotEmpty) return null;
+    final bool dup;
+    if (_isAsciiOnly(lower)) {
+      final rows = await (db.select(
+        db.products,
+      )..where((t) => t.partNo.lower().equals(lower))).get();
+      dup = rows.isNotEmpty;
+    } else {
+      final existing = await db.select(db.products).get();
+      dup = existing.any((x) => x.partNo.toLowerCase() == lower);
+    }
+    if (dup) return null;
 
     final row = data.copyWith(id: Value(newId('p')), partNo: Value(partNo)).stamped;
     return db.into(db.products).insertReturning(row);
@@ -114,10 +129,19 @@ class ProductsRepository {
   Future<bool> update(String id, ProductsCompanion patch) async {
     if (patch.partNo.present) {
       final newPart = patch.partNo.value.trim().toLowerCase();
-      final collision = await (db.select(db.products)
-            ..where((t) => t.id.equals(id).not() & t.partNo.lower().equals(newPart)))
-          .get();
-      if (collision.isNotEmpty) return false;
+      final bool collides;
+      if (_isAsciiOnly(newPart)) {
+        final rows = await (db.select(db.products)..where(
+          (t) => t.id.equals(id).not() & t.partNo.lower().equals(newPart),
+        )).get();
+        collides = rows.isNotEmpty;
+      } else {
+        final all = await db.select(db.products).get();
+        collides = all.any(
+          (p) => p.id != id && p.partNo.toLowerCase() == newPart,
+        );
+      }
+      if (collides) return false;
     }
     await (db.update(
       db.products,
