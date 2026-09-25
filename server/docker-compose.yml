@@ -175,8 +175,8 @@ services:
     mem_limit: 128m
     depends_on:
       api-1: { condition: service_started }
-    # No Redis connection yet — it registers no queue until #34. That slice must merge
-    # `<<: *app-env` in here so it reaches redis-queue with the password.
+    # Registers every queue in ALL_QUEUES (src/bull-board.ts) against redis-queue;
+    # `<<: *app-env` below carries REDIS_QUEUE_URL with the password.
     environment:
       <<: *app-env
       PORT: "3100"

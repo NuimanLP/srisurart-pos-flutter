@@ -1,5 +1,5 @@
-// flutter_bloc RepositoryProvider tree — the 13 repository providers, all
-// reading the same AppDatabase. Ported off Riverpod's providers.dart +
+// flutter_bloc RepositoryProvider tree — 21 providers: 17 repositories plus
+// ApiClient, BootstrapService, DocCounterSeeder and SyncFacade. Ported off Riverpod's providers.dart +
 // shift_providers.dart (see docs/plans/riverpod-to-bloc.md).
 
 import 'package:flutter_bloc/flutter_bloc.dart';

@@ -331,7 +331,7 @@ export class IdempotencyService {
     // POST /sales and then POST /returns would otherwise replay the sale and
     // silently perform no return. It is the CONCRETE target, path parameters and
     // all, so the same key against two bills' /void is caught here too — the body
-    // of a void is just `{pin}` and cannot tell them apart.
+    // of a void is just `{reason}` and cannot tell them apart.
     if (
       stored.hash !== params.requestHash ||
       stored.endpoint !== params.endpoint

@@ -360,7 +360,13 @@ develops against a demo tenant.
     carries the keys and `provision.yml` is re-run — nobody may claim CORS is closed on the
     VM before that.
 - Phase-2 kickoff order for the remaining hub tickets: #228 → #229 → #212/#211/#189 →
-  #230 → #190 → #231.
+  #230 → #190 → #231. As of 2026-09-25 all but **#231** (q4.cutover) are closed
+  (2026-09-18 → 09-20); #231 is the only one still open.
+- **Found by the study-pack review (PR #397), 2026-09-25 — open, not fixed:** #398
+  (`JWT_PLATFORM_SECRET` falls back to a public dev value), #399 (`pos_app` can
+  UPDATE/DELETE `audit_log` — should be append-only), #400 (Flutter Web keeps the access
+  token in `localStorage`, against ADR-0009), #401 (compose images not digest-pinned),
+  #402 (closing report profit uses current cost, not `costAtSale` — ADR-0008).
 
 The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
 2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving
@@ -517,9 +523,12 @@ on void/return paths. Keep this order in any new write touching more than one of
 **Writing in `docs/Backend_design/` (added 2026-09-23, PR #391 —
 `handoff_log/session-2026-09-23-key-primer-docs.md`):**
 - **Never cite a `-- 🆕 migration NNNN:` comment as a live constraint.** `01_DATABASE.md §5`
-  carries both shipped DDL and not-yet-applied migrations in the same code fences; the
-  key primer cited `uq_products_partno_ci` (not applied) when the enforcing index is
-  `uq_products_partno`. Check which side of that line an identifier sits on before quoting it.
+  can carry both shipped DDL and not-yet-applied migrations in the same code fences. Check
+  which side of that line an identifier sits on — and that its migration is in `MIGRATIONS`
+  (`server/src/db/data-source.ts`) — before quoting it. 🔴 **Corrected 2026-09-25:** the
+  example first recorded here was itself backwards — `uq_products_partno_ci` (migration
+  `1788652800007`) **is** applied and is the enforcing case-insensitive index;
+  `uq_products_partno` still exists but is subsumed by it.
 - **Mermaid ER diagrams cannot express a composite key** — labelling `tenant_id PK` and `id PK`
   as two rows made readers see two primary keys, even with a warning above the diagram. Since
   2026-09-24 `§3` never puts a `PK`/`UK` label on a multi-column key: those columns carry the
