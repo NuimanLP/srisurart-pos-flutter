@@ -21,7 +21,7 @@ run on it. **The shop still runs the offline build — nothing has been cut over
 - [Features](#features)
 - [Architecture](#architecture)
 - [Repository layout](#repository-layout)
-- [Installation](#installation)
+- [Setup / Quickstart](#setup--quickstart)
 - [Environment](#environment)
 - [Deployment](#deployment)
 - [Testing and CI/CD](#testing-and-cicd)
@@ -181,12 +181,14 @@ CLAUDE.md                  project knowledge base — read this before changing 
 
 ---
 
-## Installation
+## Setup / Quickstart
 
 ### Prerequisites
 
-Flutter 3.44.3 (pinned in `frontend/.fvmrc`), Node 22 with `pnpm` via corepack, and Docker
-with the Compose plugin.
+Flutter 3.44.3 (pinned in `frontend/.fvmrc`, `sdk: ^3.12.2` in `frontend/pubspec.yaml`), Node
+`>=22` with `pnpm` (`server/package.json` pins `packageManager: pnpm@10.34.5`, used via
+`corepack`), and Docker with the Compose plugin. These are the exact versions CI uses
+(`.github/workflows/flutter.yml`, `.github/workflows/server.yml`).
 
 ### Frontend
 
@@ -220,7 +222,7 @@ flutter build web --no-tree-shake-icons
 
 ```bash
 cd server
-cp .env.example .env          # ships a dummy RSA keypair for local use only
+cp .env.example .env          # ships dev-only-* placeholders + a dummy RSA keypair — see "Dev secrets" below
 docker compose up -d --build
 curl -k https://localhost/health/live
 curl -k https://localhost/health/ready
@@ -234,14 +236,38 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait \
   postgres redis-cache redis-queue
 corepack pnpm build
 DATABASE_URL=postgres://postgres:dev-only-postgres@127.0.0.1:5432/pos corepack pnpm db:migrate
+DATABASE_URL=postgres://pos_app:dev-only-pos-app@127.0.0.1:5432/pos \
+REDIS_CACHE_URL=redis://:dev-only-redis@127.0.0.1:6379 \
+REDIS_QUEUE_URL=redis://:dev-only-redis@127.0.0.1:6380 \
+ALLOW_DEV_SECRETS=true \
 corepack pnpm start:dev
 ```
 
 Checks: `pnpm typecheck && pnpm lint && pnpm test`, then `pnpm test:e2e` for the integration
-suite (real Postgres, real Redis, real migrations).
+suite (real Postgres, real Redis, real migrations). A first admin user for a tenant is created
+with `pnpm bootstrap:admin` (see `server/README.md`).
 
 The dev overlay publishes Postgres and both Redis instances on `127.0.0.1` only. **Never use
 that overlay on a shared host.**
+
+### Dev secrets
+
+`server/.env.example` ships the public `dev-only-*` placeholders and dummy JWT key pair used
+above. Since #410/#416, `api-*`/`worker`/`bull-board` **refuse to boot** with any of
+those placeholders — in a bare password variable or hidden inside `DATABASE_URL` /
+`DATABASE_ADMIN_URL` / `REDIS_CACHE_URL` / `REDIS_QUEUE_URL` — unless
+`ALLOW_DEV_SECRETS=true` is set exactly. `.env.example` already sets it, so a fresh clone
+works; an **existing `server/.env` made before #412** needs it appended by hand:
+
+```bash
+echo 'ALLOW_DEV_SECRETS=true' >> server/.env
+```
+
+**Never set `ALLOW_DEV_SECRETS` on a real host** — the demo VM's
+`deploy/compose/vm.override.yml` forces it empty regardless of what `.env` says. For
+generating real secrets (VM/production), follow the existing runbook in
+[`docs/handoff_log/ticket-336-env-secrets.md`](docs/handoff_log/ticket-336-env-secrets.md)
+rather than improvising new values by hand.
 
 ---
 
@@ -488,12 +514,29 @@ Backups, offsite copies, PDPA handling and an audit log are specified and not ye
 | Start here | |
 |---|---|
 | [`docs/00_LANE_PRIMER.md`](docs/00_LANE_PRIMER.md) | เริ่มอ่านตรงนี้ก่อน — system overview and the ticket split, in Thai |
+| [`docs/study/00_index.md`](docs/study/00_index.md) | The Thai self-study pack, 19 chapters — start here |
 | [`CLAUDE.md`](CLAUDE.md) | Conventions, constraints, current status — read before changing anything |
 | [`CONTRACT.md`](CONTRACT.md) | The binding client spec |
 | [`docs/Backend_design/00_INDEX.md`](docs/Backend_design/00_INDEX.md) | The backend package; start at `00_BASICS.md` if backend is new to you |
 | [`docs/Backend_design/adr/`](docs/Backend_design/adr/) | The decision record. **Binding** — where a doc contradicts an ADR, the ADR wins |
 | [`docs/handoff_log/`](docs/handoff_log/) | Dated session records: what changed, what broke, and why |
 | [`docs/tutorial/testing-tutorial.md`](docs/tutorial/testing-tutorial.md) | What each of the 12 test suites checks, how to run it, where to read the result (Thai) |
+
+### Thai self-study pack (`docs/study/`)
+
+19 chapters (`00`–`18`), in Thai, meant to be read start to finish. Entry point:
+[`docs/study/00_index.md`](docs/study/00_index.md) — the map and the concepts each later
+chapter assumes.
+
+| Chapters | Group |
+|---|---|
+| [`00`](docs/study/00_index.md) | Intro and map |
+| [`01`](docs/study/01_pitch.md)–[`03`](docs/study/03_use_case.md) | Pitch, architecture, use case |
+| [`04`](docs/study/04_frontend.md)–[`07`](docs/study/07_database.md) | Frontend, API, backend, database |
+| [`08`](docs/study/08_money_thai.md)–[`10`](docs/study/10_offline_phase2.md) | Money/Thai handling, data migration, offline phase 2 |
+| [`11`](docs/study/11_security.md)–[`12`](docs/study/12_testing.md) | Security, testing |
+| [`13`](docs/study/13_team_workflow.md)–[`16`](docs/study/16_performance.md) | Team workflow, devops, CI/CD, performance |
+| [`17`](docs/study/17_lab.md)–[`18`](docs/study/18_capstone.md) | Lab, capstone |
 
 ---
 
