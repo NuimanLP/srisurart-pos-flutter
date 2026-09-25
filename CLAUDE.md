@@ -267,21 +267,22 @@ develops against a demo tenant.
   every Compose subcommand died before pulling anything). **No AC of #343 is ticked.**
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
   (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v11.
-- 🔴 **Two real bugs in migration `1788652803002-OwnerReviewItems.ts`** (found 2026-09-23,
-  recorded in `01_DATABASE.md §11`, **not yet fixed**):
-  (1) its RLS policy casts `current_setting('app.tenant_id', true)::uuid` **without
-  `NULLIF(…,'')`** — an unset tenant gives 22P02 → HTTP 500 instead of fail-closed 0 rows
-  (every other policy uses `NULLIF`); (2) `FOREIGN KEY (tenant_id, reviewed_by) … ON DELETE
-  SET NULL` also nulls the NOT NULL `tenant_id`, so deleting a user who reviewed an item
-  errors — use `ON DELETE SET NULL (reviewed_by)`. Fix with a **new** migration, never by
-  editing the applied one (commit `225ecf7` already edited `InitialSchema.ts` in place once).
+- ~~Two real bugs in migration `1788652803002-OwnerReviewItems.ts`~~ — **fixed 2026-09-25**
+  by the new migration `1788652804200-OwnerReviewItemsFixes.ts`, proven in
+  `server/test/schema.e2e-spec.ts` (found 2026-09-23, `01_DATABASE.md §11`): (1) its RLS
+  policy cast `current_setting('app.tenant_id', true)::uuid` without `NULLIF(…,'')` — an
+  emptied tenant gave 22P02 → HTTP 500 instead of 0 rows; now `tenant_isolation` with
+  `NULLIF` like every other table; (2) `FOREIGN KEY (tenant_id, reviewed_by) … ON DELETE
+  SET NULL` also nulled the NOT NULL `tenant_id`; now `ON DELETE SET NULL (reviewed_by)`.
+  Applied migrations are never edited (commit `225ecf7` edited `InitialSchema.ts` once).
 - 🔴 **Two HIGH phase-2 bugs found by the 2026-09-24 whole-codebase review — not fixed, no issue
   yet** (`docs/handoff_log/session-2026-09-24-whole-codebase-review.md` §2): (1) `/sync/push`
   fingerprints ops as `POST /sales` while the online runner stores `POST /api/v1/sales`, so a bill
   committed online whose reply was lost is refused `IDEMPOTENCY_KEY_REUSED` on push (08 §8.4 AC B1);
   (2) online sales/returns/shifts store the client body's `date` (`COALESCE(dto.date, now())`)
   and honour `soldOffline`, against 08 §10. The same log lists 4 MED spec gaps and the
-  standards findings (e.g. unvalidated `Math.max` clamp in `quotes.controller.ts:113`).
+  standards findings (e.g. unvalidated `Math.max` clamp in `quotes.controller.ts:113` —
+  fixed 2026-09-25, now validated by `parsePurgeOlderThanDays`).
 - **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
   `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the

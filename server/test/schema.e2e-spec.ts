@@ -289,6 +289,72 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     await app.query('ROLLBACK');
   });
 
+  it('owner_review_items: an emptied app.tenant_id fails closed with 0 rows, not 22P02 (…4200)', async () => {
+    await owner.query(
+      `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id) VALUES ($1, 'ri-null', 'date_flag', 's1')`,
+      [TENANT_A],
+    );
+    try {
+      // A fresh connection returns NULL for the unset GUC and never exposed the bug;
+      // after a SET LOCAL + COMMIT on the same (pooled) connection it reads back '',
+      // which is what `''::uuid` choked on.
+      await app.query('BEGIN');
+      await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
+      const inTx = await app.query(
+        `SELECT count(*)::int AS n FROM owner_review_items WHERE id = 'ri-null'`,
+      );
+      expect(inTx.rows[0].n).toBe(1);
+      await app.query('COMMIT');
+      const guc = await app.query(
+        `SELECT current_setting('app.tenant_id', true) AS v`,
+      );
+      expect(guc.rows[0].v).toBe('');
+
+      const after = await app.query(
+        `SELECT count(*)::int AS n FROM owner_review_items`,
+      );
+      expect(after.rows[0].n).toBe(0);
+      await expect(
+        app.query(
+          `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id) VALUES ($1, 'ri-x', 'date_flag', 's1')`,
+          [TENANT_A],
+        ),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await owner.query(`DELETE FROM owner_review_items WHERE id = 'ri-null'`);
+    }
+  });
+
+  it('owner_review_items: deleting the reviewer nulls only reviewed_by, the item keeps its tenant (…4200)', async () => {
+    const user = await owner.query<{ id: string }>(
+      `INSERT INTO users (tenant_id, username, password_hash, display_name, role)
+       VALUES ($1, 'reviewer-4200', 'x', 'Reviewer', 'owner') RETURNING id`,
+      [TENANT_A],
+    );
+    const reviewer = user.rows[0].id;
+    await owner.query(
+      `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, reviewed_at, reviewed_by)
+       VALUES ($1, 'ri-fk', 'void_offline', 's1', now(), $2)`,
+      [TENANT_A, reviewer],
+    );
+    try {
+      await owner.query(`DELETE FROM users WHERE tenant_id = $1 AND id = $2`, [
+        TENANT_A,
+        reviewer,
+      ]);
+      const r = await owner.query(
+        `SELECT tenant_id, reviewed_by, reviewed_at IS NOT NULL AS reviewed
+           FROM owner_review_items WHERE id = 'ri-fk'`,
+      );
+      expect(r.rows).toEqual([
+        { tenant_id: TENANT_A, reviewed_by: null, reviewed: true },
+      ]);
+    } finally {
+      await owner.query(`DELETE FROM owner_review_items WHERE id = 'ri-fk'`);
+      await owner.query(`DELETE FROM users WHERE username = 'reviewer-4200'`);
+    }
+  });
+
   it(`${APP_ROLE} has DML on every table (movements and audit_log insert-only) and none on the migrations table`, async () => {
     const APPEND_ONLY: readonly string[] = ['movements', 'audit_log'];
     for (const t of ALL_TABLES) {
