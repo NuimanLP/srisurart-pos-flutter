@@ -251,6 +251,102 @@ describe('POST /sync/push (e2e)', () => {
       expect(prior[0].auto_archived).toBe(true);
     });
 
+    // 08 §11's example and the tenant-timezone `date_str` rule. Moved here from
+    // `shifts.e2e-spec.ts` (#411): the online `POST /shifts/open` no longer reads
+    // `openedAt`, so a device-recorded open time only ever arrives through a push.
+    it('shift.open keeps the device openedAt: A date_str = 15, B = 16, and 23:30Z lands on the Bangkok day', async () => {
+      const open = (id: string, openedAt: string) => ({
+        opId: `op_${id}`,
+        idempotencyKey: `k_${id}`,
+        type: 'shift.open',
+        payload: { id, startingCash: '1000.00', openedAt },
+      });
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          open('sh_A', '2026-09-15T08:00:00.000Z'),
+          open('sh_B', '2026-09-16T08:00:00.000Z'),
+          // 2026-09-16 23:30 UTC = 2026-09-17 06:30 in Asia/Bangkok (+07:00)
+          open('sh_late_utc', '2026-09-16T23:30:00.000Z'),
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(
+        (res.body.data.results as { status: string }[]).map((r) => r.status),
+      ).toEqual(['applied', 'applied', 'applied']);
+
+      const rows = (await admin.query(
+        `SELECT id, date_str, opened_at FROM shifts WHERE tenant_id = $1::uuid ORDER BY id`,
+        [TENANT],
+      )) as { id: string; date_str: string; opened_at: Date }[];
+      expect(rows.map((r) => [r.id, r.date_str, r.opened_at.toISOString()])).toEqual([
+        ['sh_A', '2026-09-15', '2026-09-15T08:00:00.000Z'],
+        ['sh_B', '2026-09-16', '2026-09-16T08:00:00.000Z'],
+        ['sh_late_utc', '2026-09-17', '2026-09-16T23:30:00.000Z'],
+      ]);
+    });
+
+    it('sale.create and return.create keep the device date and mark the bill sold_offline', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+      await seedProduct(admin, TENANT, {
+        id: 'p411',
+        partNo: 'P-411',
+        name: 'Filter',
+        price: 85,
+        cost: 50,
+        stock: 10,
+      });
+      // Two minutes ago: inside `[opened_at − 5 min, now + 5 min]`, so kept verbatim (§10).
+      const deviceDate = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_s411',
+            idempotencyKey: 'k_s411',
+            type: 'sale.create',
+            payload: {
+              id: 's_411',
+              date: deviceDate,
+              subtotal: '85.00',
+              discount: '0.00',
+              total: '85.00',
+              paymentMethod: 'เงินสด',
+              items: [{ lineNo: 1, productId: 'p411', name: 'Filter', qty: 1, price: '85.00' }],
+            },
+          },
+          {
+            opId: 'op_r411',
+            idempotencyKey: 'k_r411',
+            type: 'return.create',
+            payload: {
+              id: 'cn_411',
+              saleId: 's_411',
+              date: deviceDate,
+              refundMethod: 'เงินสด',
+              items: [{ productId: 'p411', name: 'Filter', qty: 1, price: '85.00' }],
+            },
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(
+        (res.body.data.results as { status: string }[]).map((r) => r.status),
+      ).toEqual(['applied', 'applied']);
+
+      const sale = (await admin.query(
+        `SELECT date, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's_411'`,
+        [TENANT],
+      )) as { date: Date; sold_offline: boolean }[];
+      expect(sale[0].date.toISOString()).toBe(deviceDate);
+      expect(sale[0].sold_offline).toBe(true);
+      const ret = (await admin.query(
+        `SELECT date FROM returns WHERE tenant_id = $1::uuid AND sale_id = 's_411'`,
+        [TENANT],
+      )) as { date: Date }[];
+      expect(ret[0].date.toISOString()).toBe(deviceDate);
+    });
+
     it('drawer-entry.applied: cash drawer entry pushed to server successfully', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: 'sh_off_001',

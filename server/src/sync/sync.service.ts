@@ -531,11 +531,14 @@ export class SyncService {
           op,
         );
 
-        const saleInput = parseCreateSale({
-          ...op.payload,
+        // `parseCreateSale` is the ONLINE body parser and never reads `date`/`soldOffline`
+        // (#411): only this replay path may stamp the device's date and mark the bill
+        // offline (08 §10/§12), so both are set after parsing.
+        const saleInput = {
+          ...parseCreateSale(op.payload),
           soldOffline: true,
-          date: clampedDate ? clampedDate.toISOString() : undefined,
-        });
+          date: clampedDate ? clampedDate.toISOString() : null,
+        };
 
         const created = await this.sales.create(saleInput, {
           userId: actor.userId,
@@ -559,10 +562,11 @@ export class SyncService {
           op,
         );
 
-        const returnInput = parseCreateReturn({
-          ...op.payload,
-          date: clampedDate ? clampedDate.toISOString() : undefined,
-        });
+        // As for `sale.create`: the online parser ignores `date` (#411); push sets it.
+        const returnInput = {
+          ...parseCreateReturn(op.payload),
+          date: clampedDate ? clampedDate.toISOString() : null,
+        };
 
         const created = await this.returns.create(returnInput, {
           userId: actor.userId,

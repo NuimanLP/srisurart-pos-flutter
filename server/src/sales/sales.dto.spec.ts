@@ -106,3 +106,23 @@ describe('parseCreateSale — overrideCreditLimit', () => {
     }
   });
 });
+
+describe('parseCreateSale — push-only fields (#411)', () => {
+  it('never reads `date` or `soldOffline` from a body: only /sync/push sets them', () => {
+    // 08 §10/§12: an online bill is dated by the server's now() and is never an
+    // offline bill. A body carrying either — a skewed till clock, a crafted request —
+    // must not backdate the bill or make it voidable through `sale.void_offline`.
+    const sale = parseCreateSale({
+      id: 's1',
+      subtotal: '10.00',
+      discount: '0.00',
+      total: '10.00',
+      paymentMethod: 'เงินสด',
+      items: [{ productId: 'p1', name: 'x', qty: 1, price: '10.00' }],
+      date: '2020-01-01T00:00:00.000Z',
+      soldOffline: true,
+    });
+    expect(sale.date).toBeUndefined();
+    expect(sale.soldOffline).toBeUndefined();
+  });
+});

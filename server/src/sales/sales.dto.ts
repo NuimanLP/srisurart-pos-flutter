@@ -28,7 +28,12 @@ export interface CreateSale {
   /** The counter confirmed 'ยืนยันขายเครดิต?' — the bill may push the mechanic past the limit. */
   overrideCreditLimit: boolean;
   items: SaleLine[];
+  /**
+   * Set ONLY by `/sync/push` (`SyncService`), never parsed from a body: an online
+   * bill is `sold_offline = false` and dated by the server's `now()` (08 §10/§12, #411).
+   */
   soldOffline?: boolean;
+  /** The device-recorded (clamped) date — `/sync/push` only, same rule as `soldOffline`. */
   date?: Date | string | null;
 }
 
@@ -56,7 +61,11 @@ const PAYMENT_METHODS = ['เงินสด', 'โอน/QR', 'เครดิ�
  *
  * Two fields are **not** read even when present, because a client that could choose
  * them could choose someone else's: `shiftId` (stamped from the device's own open drawer)
- * and anything naming a tenant or a device (ADR-0004). `receiptNo` is optional (Phase 2):
+ * and anything naming a tenant or a device (ADR-0004). Nor are `date` and `soldOffline`
+ * (#411): an online bill is dated by the server's `now()` and is never an offline bill
+ * (08 §10/§12) — only `/sync/push` sets them, after parsing. They are dropped rather than
+ * refused because they are harmless once ignored, like `shiftId`.
+ * `receiptNo` is optional (Phase 2):
  * when present, the server validates it against the caller's device token and records
  * the high-water mark; when omitted, the server falls back to issuing one (C16).
  */
@@ -70,8 +79,6 @@ export function parseCreateSale(body: unknown): CreateSale {
     totalSatang: toSatang(b.total, 'total'),
     ...parseSaleParty(b),
     items: parseLines(items),
-    soldOffline: b.soldOffline === true,
-    date: optionalString(b.date, 'date'),
   };
   assertMoneyMakesSense(sale);
   return sale;
