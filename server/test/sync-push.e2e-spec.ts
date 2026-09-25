@@ -1871,6 +1871,75 @@ describe('POST /sync/push (e2e)', () => {
         expect(f[0].details).toMatchObject({ opId: 'op_cn_nf', type: 'return.create', originalDate: future, openedAt: null });
       });
 
+      it('a closed (not yet archived) shift is no window: a refund dated before it is kept, unflagged', async () => {
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_closed' });
+        const sale = saleOp('s_closed', new Date().toISOString());
+        expect((await push({ outboxRemaining: 0, ops: [sale] })).body.data.results[0].status).toBe('applied');
+        // Closed by the counter: `is_active` stays true until the next open archives it.
+        await admin.query(
+          `UPDATE shifts SET opened_at = now() - interval '3 hours', closed_at = now()
+            WHERE tenant_id = $1::uuid AND id = 'sh_closed'`,
+          [TENANT],
+        );
+        const past = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [
+            {
+              opId: 'op_cn_closed',
+              idempotencyKey: 'k_cn_closed',
+              type: 'return.create',
+              payload: {
+                id: 'cn_closed',
+                saleId: 's_closed',
+                date: past,
+                refundMethod: 'โอน',
+                items: [{ productId: 'p_d10', name: 'Filter', qty: 1, price: '85.00' }],
+              },
+            },
+          ],
+        });
+        expect(res.body.data.results[0].status).toBe('applied');
+        const ret = (await admin.query(
+          `SELECT date, shift_id FROM returns WHERE tenant_id = $1::uuid AND id = 'cn_closed'`,
+          [TENANT],
+        )) as { date: Date; shift_id: string | null }[];
+        // Before: measured against the closed shift → pulled up to its opened_at + flagged.
+        expect(ret[0].date.toISOString()).toBe(past);
+        expect(ret[0].shift_id).toBeNull();
+        expect(await flags()).toHaveLength(0);
+      });
+
+      it('RC period ≠ the stored date\'s month (tenant tz) → one date_flag; a matching period → none', async () => {
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+        const now = new Date();
+        const bkk = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit' })
+          .formatToParts(now);
+        const currentPeriod = `${Number(bkk.find((p) => p.type === 'year')!.value) + 543}-${bkk.find((p) => p.type === 'month')!.value}`;
+        const withNo = (id: string, receiptNo: string) => {
+          const op = saleOp(id, now.toISOString());
+          return { ...op, payload: { ...op.payload, receiptNo } };
+        };
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [withNo('s_per_ok', `RC01-${currentPeriod}-0101`), withNo('s_per_bad', 'RC01-2500-01-0102')],
+        });
+        expect((res.body.data.results as { status: string }[]).map((r) => r.status)).toEqual(['applied', 'applied']);
+
+        const f = await flags();
+        expect(f).toHaveLength(1);
+        expect(f[0]).toMatchObject({
+          ref_id: 's_per_bad',
+          details: {
+            docNo: 'RC01-2500-01-0102',
+            docPeriod: '2500-01',
+            datePeriod: currentPeriod,
+            originalDate: now.toISOString(),
+            clampedDate: now.toISOString(),
+          },
+        });
+      });
+
       it('shift.open 10 min ahead → opened_at = now() + date_flag; replay adds no second flag', async () => {
         const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
         const op = {

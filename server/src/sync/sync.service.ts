@@ -10,6 +10,7 @@ import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { newId } from '../common/ids.js';
+import { DOC_NUMBER_REGEX } from '../documents/doc-number.service.js';
 import { fromSatang, satangOf, toSatang } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { CustomersService } from '../customers/customers.service.js';
@@ -809,10 +810,14 @@ export class SyncService {
    * The device's date for a queued write, per 08 §10 (owner 2026-09-25):
    * - field absent → null (the service stamps `now()`; §10 does not refuse a missing date);
    * - present but unparseable → 400 → the op is `rejected` (never silently `now()`);
-   * - active shift → window `[opened_at − 5 min, now() + 5 min]`, outside it clamp into
-   *   `[opened_at, now()]` + `date_flag`;
-   * - no active shift → only the future side is checked: `> now() + 5 min` → `now()` +
-   *   `date_flag`; a past date is kept, unflagged (nothing to measure it against).
+   * - the device's OPEN shift (`is_active AND closed_at IS NULL` — the only shift a bill or
+   *   cash refund can land in, `ShiftsService.requireOpenShiftIdFor`) → window
+   *   `[opened_at − 5 min, now() + 5 min]`, outside it clamp into `[opened_at, now()]`;
+   * - no open shift → only the future side is checked: `> now() + 5 min` → `now()`; a past
+   *   date is kept (nothing to measure it against);
+   * - the document number's period (RC/CN, device clock, C2) ≠ the Buddhist year-month of
+   *   the stored date in the tenant's timezone → flagged, never refused.
+   * Any clamp or period mismatch → ONE `date_flag` for the op.
    */
   private async clampOpDate(
     manager: EntityManager,
@@ -822,32 +827,74 @@ export class SyncService {
   ): Promise<Date | null> {
     const field = op.payload.date ? 'date' : 'createdAt';
     const opDate = deviceIsoDate(op.payload.date || op.payload.createdAt || undefined, field);
-    if (!opDate) return null;
 
     const shiftRows = (await manager.query(
-      `SELECT opened_at FROM shifts WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active ORDER BY opened_at DESC LIMIT 1`,
+      `SELECT opened_at FROM shifts
+        WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active AND closed_at IS NULL
+        ORDER BY opened_at DESC LIMIT 1`,
       [tenantId, deviceId],
     )) as { opened_at: Date }[];
+    const openedAt = shiftRows.length > 0 ? new Date(shiftRows[0].opened_at) : null;
 
-    const now = new Date();
-    const maxWindow = new Date(now.getTime() + DATE_TOLERANCE_MS);
-
-    if (shiftRows.length === 0) {
-      if (opDate <= maxWindow) return opDate;
-      await insertDateFlag(manager, tenantId, op, opDate, now, null);
-      return now;
+    let stored = opDate ?? null;
+    let clamped = false;
+    if (opDate) {
+      const now = new Date();
+      if (opDate.getTime() > now.getTime() + DATE_TOLERANCE_MS) {
+        stored = now;
+        clamped = true;
+      } else if (openedAt && opDate.getTime() < openedAt.getTime() - DATE_TOLERANCE_MS) {
+        stored = openedAt;
+        clamped = true;
+      }
     }
 
-    const openedAt = new Date(shiftRows[0].opened_at);
-    const minWindow = new Date(openedAt.getTime() - DATE_TOLERANCE_MS);
-
-    if (opDate >= minWindow && opDate <= maxWindow) {
-      return opDate;
+    const period = await this.periodMismatch(manager, tenantId, op, stored);
+    if (clamped || period) {
+      await ReviewItemsService.insertIn(manager, tenantId, {
+        kind: 'date_flag',
+        refId: op.payload.id || op.opId,
+        details: {
+          opId: op.opId,
+          type: op.type,
+          originalDate: opDate ? opDate.toISOString() : null,
+          clampedDate: stored ? stored.toISOString() : null,
+          openedAt: openedAt ? openedAt.toISOString() : null,
+          ...period,
+        },
+      });
     }
+    return stored;
+  }
 
-    const clampedDate = opDate < openedAt ? openedAt : now;
-    await insertDateFlag(manager, tenantId, op, opDate, clampedDate, openedAt);
-    return clampedDate;
+  /**
+   * 08 §10 / C2: the period printed in the op's RC/CN number vs the Buddhist year-month of
+   * the date it is stored under (server `now()` when there is none), in the tenant's own
+   * timezone — the same calendar `TENANT_PERIOD_SQL` numbers into. Null when they agree,
+   * or when the op carries no well-formed number (the service validates it later).
+   */
+  private async periodMismatch(
+    manager: EntityManager,
+    tenantId: string,
+    op: SyncOpDto,
+    stored: Date | null,
+  ): Promise<{ docNo: string; docPeriod: string; datePeriod: string } | null> {
+    const raw: unknown = op.type === 'return.create' ? op.payload.cnNo : op.payload.receiptNo;
+    if (typeof raw !== 'string') return null;
+    const docNo = raw.trim();
+    const match = DOC_NUMBER_REGEX.exec(docNo);
+    if (!match) return null;
+    const docPeriod = match[3];
+    const rows = (await manager.query(
+      `SELECT (EXTRACT(YEAR FROM d AT TIME ZONE t.timezone)::int + 543)
+                || '-' || to_char(d AT TIME ZONE t.timezone, 'MM') AS period
+         FROM tenants t, COALESCE($2::timestamptz, now()) AS d
+        WHERE t.id = $1::uuid`,
+      [tenantId, stored],
+    )) as { period: string }[];
+    const datePeriod = rows[0]?.period;
+    if (!datePeriod || datePeriod === docPeriod) return null;
+    return { docNo, docPeriod, datePeriod };
   }
 
   /**
