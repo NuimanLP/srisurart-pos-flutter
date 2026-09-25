@@ -23,6 +23,7 @@ import { loadConfig } from '../src/config/config.js';
 import { IdempotencyModule } from '../src/idempotency/idempotency.module.js';
 import { idempotencyParamsOf } from '../src/idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../src/idempotency/idempotency.service.js';
+import { ADMIN_DATA_SOURCE } from '../src/infra/db.module.js';
 import {
   currentRequestContext,
   setRequestTenant,
@@ -181,6 +182,7 @@ describe('idempotency (e2e)', () => {
       REDIS_QUEUE_URL: 'redis://:dev-only-redis@127.0.0.1:6380',
       JWT_PRIVATE_KEY: 'dummy',
       JWT_PUBLIC_KEYS: 'dummy',
+      JWT_PLATFORM_SECRET: 'dummy', // #398: now required unconditionally
       ...process.env,
     });
     const logger = pino({ level: 'silent' });
@@ -197,12 +199,14 @@ describe('idempotency (e2e)', () => {
   });
 
   afterAll(async () => {
+    // `audit_log` is append-only for `pos_app` (#399): its cleanup runs as the owner.
+    const admin = app.get<DataSource>(ADMIN_DATA_SOURCE);
     for (const t of [TENANT_A, TENANT_B]) {
+      await admin.query(
+        `DELETE FROM audit_log WHERE tenant_id = $1::uuid AND action = 'system.test-write'`,
+        [t],
+      );
       await asTenant(t, async (qr) => {
-        await qr.query(
-          `DELETE FROM audit_log WHERE tenant_id = $1::uuid AND action = 'system.test-write'`,
-          [t],
-        );
         await qr.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid`, [t]);
       });
     }

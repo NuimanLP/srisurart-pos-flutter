@@ -49,7 +49,12 @@
 | OSV-Scanner (ถ้าจะสแกนเอง) | Flutter audit | `brew install osv-scanner` |
 | k6 | performance | `brew install k6` |
 
-ติดตั้ง dependency ครั้งแรก:
+> ⚠️ **เช็ค Node ก่อนเสมอ:** server ต้องใช้ Node **22 ขึ้นไป** (`"engines": { "node": ">=22" }` ใน `server/package.json`)
+> รัน `node -v` ก่อน ถ้าได้ v19/v20/v21 (เช่นจาก nvm) `pnpm lint`/`pnpm test` จะพังด้วย error ที่ไม่เกี่ยวกับโค้ดเลย
+> เช่น `ERR_UNKNOWN_FILE_EXTENSION` หรือ `Cannot find native binding`
+> ให้สลับไป Node 22+ แล้วรัน `pnpm install --frozen-lockfile` ใหม่ทุกครั้งที่เปลี่ยนเวอร์ชัน (native binding ผูกกับ Node ที่ใช้ตอนติดตั้ง)
+
+ติดตั้ง dependency ครั้งแรก (และทุกครั้งหลัง `git pull` ที่มี lockfile เปลี่ยน):
 
 ```bash
 cd server && pnpm install --frozen-lockfile
@@ -76,7 +81,7 @@ cd frontend && flutter pub get
 pnpm lint && pnpm typecheck
 ```
 
-- **ผ่านเมื่อเห็น:** `Found 0 warnings and 0 errors.` และ `tsc` ไม่พิมพ์ error ใดๆ
+- **ผ่านเมื่อ:** คำสั่งจบโดยไม่มี error (exit code 0) · บน CI oxlint พิมพ์ `Found 0 warnings and 0 errors.` แต่บางเวอร์ชันไม่พิมพ์อะไรเลยเมื่อไม่มีปัญหา · `tsc` ไม่พิมพ์ error ใดๆ
 - **ถ้าแดง:** ข้อความจะบอกชื่อไฟล์และบรรทัด ให้แก้ตามนั้น
 
 ### 2.2 Unit test — "ทดสอบชิ้นส่วนทีละชิ้น"
@@ -122,8 +127,17 @@ pnpm vitest run --reporter=verbose
 - **เพื่ออะไร:** บั๊กจำนวนมากเกิดตรงรอยต่อระหว่างโค้ดกับฐานข้อมูล ซึ่ง unit test จับไม่ได้ แอปรันในสิทธิ์ `pos_app` ที่โดน Row Level Security บังคับ ถ้าข้อมูลรั่วข้ามร้าน test จะจับได้
 - **คำสั่ง** (ทำตามลำดับเดียวกับ CI):
 
+  เช็คก่อนว่ามี Postgres/Redis ของรอบก่อนเปิดค้างอยู่หรือไม่ (Docker Desktop จะเปิด container เดิมขึ้นมาเองตอนเปิดโปรแกรม)
+  ถ้ามี `srisurart-pos-postgres-1` / `redis-cache-1` / `redis-queue-1` รันอยู่แล้ว ข้ามขั้น `up` ไปได้เลย แต่ถ้าเป็น container ของโปรเจกต์อื่นที่จอง port 5432/6379/6380 ไว้ ต้องปิดตัวนั้นก่อน:
+
 ```bash
-cp .env.example .env
+docker ps --format '{{.Names}}  {{.Ports}}'
+```
+
+  ถ้ายังไม่มี `server/.env` ให้สร้างจากตัวอย่าง (ถ้ามีอยู่แล้ว **อย่าทับ**):
+
+```bash
+cp -n .env.example .env
 ```
 
 ```bash
@@ -455,6 +469,7 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/jobs/107022509504/logs
 | สแกนช่องโหว่ Flutter | root | `osv-scanner --lockfile=frontend/pubspec.lock` |
 | codegen | `frontend/` | `dart run build_runner build --delete-conflicting-outputs` |
 | performance | `server/` | `pnpm k6:setup` แล้ว `pnpm k6:read` / `k6:write` / `k6:idem` / `k6:mixed` แล้ว `pnpm k6:verify` |
+| performance (ซ้อมเครื่องเดียว) | `server/` | `pnpm k6:all` (รวมทุกขั้นในคำสั่งเดียว และเรียก `k6:verify` หลัง write, idem, mixed ทุกรอบ) · ตัวเลขใช้เป็นผลจริงไม่ได้ เพราะเครื่องเดียวโดน rate limit |
 | ดูผล CI | ไหนก็ได้ | `gh run list` / `gh run view <id>` |
 
 ---

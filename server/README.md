@@ -95,8 +95,8 @@ passes only `success`/`skipped` and fails on anything else. `flutter.yml` has th
   `tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid`. With the GUC unset
   `pos_app` reads zero rows (no error) and cannot insert. `set_config('app.tenant_id', …, true)` inside a
   `TenantService.runTx` transaction, under the tenant `TenantGuard` named, is the only way in (#4, tx.4 #153). `pos_app` cannot `SET row_security = off`.
-- Grants: `pos_app` has `SELECT/INSERT/UPDATE/DELETE` on every table except `movements`
-  (`SELECT/INSERT` — it is a ledger) and nothing on `migrations` or `import_jobs` (#239 — only
+- Grants: `pos_app` has `SELECT/INSERT/UPDATE/DELETE` on every table except `movements` and
+  `audit_log` (`SELECT/INSERT` — append-only; `audit_log` since #399) and nothing on `migrations` or `import_jobs` (#239 — only
   `ADMIN_DATA_SOURCE` ever touches that one; it carries `tenant_id` but no RLS policy, since a
   policy would guard a role that never queries it).
 - Product search is `pg_trgm` + `ILIKE '%…%'` over `lower(part_no||' '||name||' '||name_th||' '||compat)`
@@ -1801,9 +1801,9 @@ ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 deploy@
 Grafana's datasource and its one dashboard (`deploy/grafana/dashboards/pos-overview.json`) are
 provisioned from files under `deploy/grafana/provisioning/` — nothing to click, and a rebuilt
 Grafana volume comes back identical. The dashboard has the VM's CPU/memory/disk (live from
-node-exporter) plus two SLI panels — success rate and p95 — that read "no data" until #34/#35
-add a real `/metrics` endpoint; `deploy/prometheus/prometheus.yml` has that scrape job
-commented out, ready to enable.
+node-exporter) plus two SLI panels — success rate and p95 — fed by the API's `/metrics`
+endpoint (#339/#340); `deploy/prometheus/prometheus.yml`'s `api-metrics` job scrapes it live on
+`api-1..3:3000`.
 
 🔴 **Prometheus's `up` reflects whether the response body parses as its text format, not just
 the HTTP status.** `/health/ready` answers 200 with a JSON body, which fails that parse, so the
@@ -1811,7 +1811,8 @@ interim `api-readiness` job (scraping `/health/ready` directly on `api-1..3:3000
 three instances as DOWN in the Prometheus UI even while the API is actually up — confirmed
 against a real `prom/prometheus` container while building this overlay. This is a known,
 accepted gap (adding `blackbox_exporter` to work around it would be scope beyond what #63
-asks for) that closes itself once the commented `api-metrics` job above is turned on.
+asks for); the live `api-metrics` job is the real signal, `api-readiness` is kept only as a
+placeholder.
 
 Every relative path in `monitoring.yml` is written against `server/`, not against
 `deploy/compose/` where the file itself lives — Compose resolves bind-mount paths against the

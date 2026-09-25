@@ -52,7 +52,7 @@ class AppRoutes {
   static const String login = '/login';
 }
 
-/// The Drift-only shop build's router: the 11 routes, no auth, no redirect.
+/// The Drift-only shop build's router: the 13 shell routes (no /login), no auth, no redirect.
 final GoRouter appRouter = buildAppRouter();
 
 /// Builds the app router.

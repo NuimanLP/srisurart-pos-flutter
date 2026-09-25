@@ -14,7 +14,7 @@
 # `server/.env` (or the VM's copy) must carry GRAFANA_ADMIN_PASSWORD — see .env.example.
 #
 # Memory budget (07 §5): node-exporter 64m + prometheus 512m + grafana 256m = 832m, on top of
-# the base stack's ~3.1 GB — well inside the ~4.2 GB / 6 GB target once etcd (#64) also lands.
+# the base stack's ≈3.3 GB (etcd included — server/docker-compose.yml header) ≈ 4.2 GB of 6 GB.
 #
 # Every `image:` below is pinned `name:tag@sha256:<digest>` (#401), same policy as
 # server/docker-compose.yml and Dockerfile — see the note there.

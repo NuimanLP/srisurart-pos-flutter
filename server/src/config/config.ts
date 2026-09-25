@@ -110,7 +110,7 @@ export function loadConfig(env = process.env): AppConfig {
     redisCacheUrl: required(env, 'REDIS_CACHE_URL'),
     redisQueueUrl: required(env, 'REDIS_QUEUE_URL'),
     redisCommandTimeoutMs: positiveInt(env, 'REDIS_COMMAND_TIMEOUT_MS', 1000),
-    jwtPlatformSecret: env.JWT_PLATFORM_SECRET ?? 'dev-only-platform-secret',
+    jwtPlatformSecret: required(env, 'JWT_PLATFORM_SECRET'),
     jwtPrivateKey: isApi ? required(env, 'JWT_PRIVATE_KEY') : undefined,
     jwtPublicKeys: isApi ? parsePublicKeys(required(env, 'JWT_PUBLIC_KEYS')) : undefined,
     jwtKeyId: env.JWT_KEY_ID ?? 'key-1',

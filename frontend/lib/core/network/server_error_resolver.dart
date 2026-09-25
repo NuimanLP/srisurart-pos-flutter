@@ -57,7 +57,6 @@ class ServerErrorResolver {
     'PO_ALREADY_RECEIVED': 'ใบสั่งซื้อนี้รับของแล้ว',
     'DUPLICATE_PART_NO': 'รหัสอะไหล่นี้มีอยู่แล้ว',
     'TOTAL_MISMATCH': 'ยอดเงินไม่ตรงกัน กรุณาทำรายการใหม่',
-    'OFFLINE_NOT_ALLOWED': 'สินค้านี้ขายตอนออฟไลน์ไม่ได้',
     'TENANT_SUSPENDED': 'ร้านนี้ถูกระงับการใช้งาน',
     'DEVICE_ROLE_FORBIDDEN': 'เครื่องนี้ขายของไม่ได้',
     'RATE_LIMITED': 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',

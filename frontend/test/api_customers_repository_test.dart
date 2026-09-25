@@ -360,6 +360,66 @@ void main() {
     expect(payload['phone'], '0899998888');
   });
 
+  test(
+    'addCustomer: an unreadable/unknown-fate error is NOT queued offline (#413) — only a transport failure may fall back',
+    () async {
+      // Not an ApiException (no verdict), not a transport failure either — the
+      // server's fate is unknown, so queuing would risk a second customer.
+      final repo = ApiCustomersRepository(
+        db,
+        ApiClient(httpClient: MockClient((_) async => throw Exception('unexpected'))),
+      );
+
+      await expectLater(
+        repo.addCustomer(
+          CustomersCompanion.insert(
+            id: 'c_unknown_fate',
+            code: 'CUS_X',
+            name: 'Unknown Fate',
+            nameTH: 'ไม่ทราบผล',
+            createdAt: '2026-09-25T10:00:00.000Z',
+          ),
+        ),
+        throwsA(isA<PosException>().having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')),
+      );
+
+      final row = await (db.select(db.customers)..where((t) => t.id.equals('c_unknown_fate'))).getSingleOrNull();
+      expect(row, isNull, reason: 'unknown-fate errors must not create a local row');
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+    },
+  );
+
+  test(
+    'updateCustomer: an unreadable/unknown-fate error is NOT queued offline (#413) — only a transport failure may fall back',
+    () async {
+      await db.into(db.customers).insert(
+        CustomersCompanion.insert(
+          id: 'c_unknown_fate_2',
+          code: 'CUS_Y',
+          name: 'Before',
+          nameTH: 'ก่อน',
+          createdAt: '2026-09-25T10:00:00.000Z',
+        ),
+      );
+      final repo = ApiCustomersRepository(
+        db,
+        ApiClient(httpClient: MockClient((_) async => throw Exception('unexpected'))),
+      );
+
+      await expectLater(
+        repo.updateCustomer(
+          'c_unknown_fate_2',
+          const CustomersCompanion(nameTH: Value('หลัง')),
+        ),
+        throwsA(isA<PosException>().having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')),
+      );
+
+      final row = await (db.select(db.customers)..where((t) => t.id.equals('c_unknown_fate_2'))).getSingle();
+      expect(row.nameTH, 'ก่อน', reason: 'unknown-fate errors must not patch the local row');
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+    },
+  );
+
   test('deleteCustomer in degraded mode throws PosException and does not delete locally (08 §6.2)', () async {
     await db.into(db.customers).insert(
       CustomersCompanion.insert(

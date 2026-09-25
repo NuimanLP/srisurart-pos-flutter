@@ -4,6 +4,7 @@ import request from 'supertest';
 import type { DataSource } from 'typeorm';
 import {
   accessToken,
+  clearTenantCache,
   createTestApp,
   resetTenant,
   seedMechanic,
@@ -249,6 +250,127 @@ describe('POST /sync/push (e2e)', () => {
       );
       expect(prior[0].is_active).toBe(false);
       expect(prior[0].auto_archived).toBe(true);
+    });
+
+    // 08 §11's example and the tenant-timezone `date_str` rule. Moved here from
+    // `shifts.e2e-spec.ts` (#411): the online `POST /shifts/open` no longer reads
+    // `openedAt`, so a device-recorded open time only ever arrives through a push.
+    it('shift.open keeps the device openedAt: A date_str = 15, B = 16, and 23:30Z lands on the Bangkok day', async () => {
+      const open = (id: string, openedAt: string) => ({
+        opId: `op_${id}`,
+        idempotencyKey: `k_${id}`,
+        type: 'shift.open',
+        payload: { id, startingCash: '1000.00', openedAt },
+      });
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          open('sh_A', '2026-09-15T08:00:00.000Z'),
+          open('sh_B', '2026-09-16T08:00:00.000Z'),
+          // 2026-09-16 23:30 UTC = 2026-09-17 06:30 in Asia/Bangkok (+07:00)
+          open('sh_late_utc', '2026-09-16T23:30:00.000Z'),
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(
+        (res.body.data.results as { status: string }[]).map((r) => r.status),
+      ).toEqual(['applied', 'applied', 'applied']);
+
+      const rows = (await admin.query(
+        `SELECT id, date_str, opened_at FROM shifts WHERE tenant_id = $1::uuid ORDER BY id`,
+        [TENANT],
+      )) as { id: string; date_str: string; opened_at: Date }[];
+      expect(rows.map((r) => [r.id, r.date_str, r.opened_at.toISOString()])).toEqual([
+        ['sh_A', '2026-09-15', '2026-09-15T08:00:00.000Z'],
+        ['sh_B', '2026-09-16', '2026-09-16T08:00:00.000Z'],
+        ['sh_late_utc', '2026-09-17', '2026-09-16T23:30:00.000Z'],
+      ]);
+    });
+
+    it('shift.open refuses an unparseable openedAt instead of failing the batch', async () => {
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_bad_open',
+            idempotencyKey: 'k_bad_open',
+            type: 'shift.open',
+            payload: { id: 'sh_bad', startingCash: '100.00', openedAt: 'not-a-date' },
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.data.results[0]).toMatchObject({
+        opId: 'op_bad_open',
+        status: 'rejected',
+        code: 'BAD_REQUEST',
+      });
+      const rows = await admin.query(
+        `SELECT id FROM shifts WHERE tenant_id = $1::uuid AND id = 'sh_bad'`,
+        [TENANT],
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it('sale.create and return.create keep the device date and mark the bill sold_offline', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+      await seedProduct(admin, TENANT, {
+        id: 'p411',
+        partNo: 'P-411',
+        name: 'Filter',
+        price: 85,
+        cost: 50,
+        stock: 10,
+      });
+      // Two minutes ago: inside `[opened_at − 5 min, now + 5 min]`, so kept verbatim (§10).
+      const deviceDate = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_s411',
+            idempotencyKey: 'k_s411',
+            type: 'sale.create',
+            payload: {
+              id: 's_411',
+              date: deviceDate,
+              subtotal: '85.00',
+              discount: '0.00',
+              total: '85.00',
+              paymentMethod: 'เงินสด',
+              items: [{ lineNo: 1, productId: 'p411', name: 'Filter', qty: 1, price: '85.00' }],
+            },
+          },
+          {
+            opId: 'op_r411',
+            idempotencyKey: 'k_r411',
+            type: 'return.create',
+            payload: {
+              id: 'cn_411',
+              saleId: 's_411',
+              date: deviceDate,
+              refundMethod: 'เงินสด',
+              items: [{ productId: 'p411', name: 'Filter', qty: 1, price: '85.00' }],
+            },
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(
+        (res.body.data.results as { status: string }[]).map((r) => r.status),
+      ).toEqual(['applied', 'applied']);
+
+      const sale = (await admin.query(
+        `SELECT date, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's_411'`,
+        [TENANT],
+      )) as { date: Date; sold_offline: boolean }[];
+      expect(sale[0].date.toISOString()).toBe(deviceDate);
+      expect(sale[0].sold_offline).toBe(true);
+      const ret = (await admin.query(
+        `SELECT date FROM returns WHERE tenant_id = $1::uuid AND sale_id = 's_411'`,
+        [TENANT],
+      )) as { date: Date }[];
+      expect(ret[0].date.toISOString()).toBe(deviceDate);
     });
 
     it('drawer-entry.applied: cash drawer entry pushed to server successfully', async () => {
@@ -1415,6 +1537,207 @@ describe('POST /sync/push (e2e)', () => {
         [TENANT],
       );
       expect(mechanicRow[0].credit_balance).toBe('100.00');
+    });
+
+    describe('#409 / 08 §8.4 AC B1: a bill committed ONLINE whose reply was lost, then pushed', () => {
+      // `ApiSalesRepository.saveSale` falls back to the outbox with the SAME bill id and
+      // `Idempotency-Key` when `POST /api/v1/sales` gets no answer. The server may already
+      // have committed that bill; the push must then replay it, never refuse it.
+      const onlineBody = {
+        id: 's_b1_online',
+        subtotal: '100.00',
+        discount: '0.00',
+        total: '100.00',
+        paymentMethod: 'เครดิตช่าง',
+        customerId: null,
+        customerName: null,
+        mechanicId: 'm_b1',
+        mechanicName: 'ช่าง B1',
+        mechanicDelta: null,
+        overrideCreditLimit: true,
+        items: [
+          { lineNo: 1, productId: 'p_b1', partNo: 'HN-B1', name: 'Brake Pad B1', nameTH: null, qty: 2, price: '50.00' },
+        ],
+      };
+      // What `_saveOffline` puts in the outbox: the online body plus the offline
+      // receipt number and the local date.
+      const { id: onlineId, ...onlineRest } = onlineBody;
+      const outboxPayload = {
+        id: onlineId,
+        receiptNo: 'RC01-2569-09-0777',
+        date: '2026-09-25T02:00:00.000Z',
+        ...onlineRest,
+      };
+
+      const postOnline = (key: string, body: object) =>
+        request(app.getHttpServer())
+          .post('/api/v1/sales')
+          .set(
+            'Authorization',
+            `Bearer ${accessToken({
+              tenantId: TENANT,
+              userId: fixture.userId,
+              deviceId: fixture.posDeviceId,
+              deviceRole: 'pos',
+            })}`,
+          )
+          .set('Idempotency-Key', key)
+          .send(body);
+
+      const stockOf = async (id: string) =>
+        (
+          (await admin.query(
+            `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`,
+            [TENANT, id],
+          )) as { stock: number }[]
+        )[0].stock;
+
+      beforeEach(async () => {
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_b1', startingCash: 500 });
+        await seedProduct(admin, TENANT, {
+          id: 'p_b1',
+          partNo: 'HN-B1',
+          name: 'Brake Pad B1',
+          price: 50,
+          cost: 30,
+          stock: 20,
+        });
+        await seedMechanic(admin, TENANT, {
+          id: 'm_b1',
+          code: 'MB1',
+          name: 'ช่าง B1',
+          creditLimit: 50,
+          creditBalance: 0,
+        });
+      });
+
+      it('push of the outbox op (receiptNo + date added) → applied with the server bill, stock and audit moved once', async () => {
+        const online = await postOnline('k_b1', onlineBody);
+        expect(online.status).toBe(201);
+        const serverReceiptNo = online.body.data.receiptNo as string;
+        expect(await stockOf('p_b1')).toBe(18);
+
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: 'op_b1', idempotencyKey: 'k_b1', type: 'sale.create', payload: outboxPayload }],
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.results[0]).toMatchObject({
+          opId: 'op_b1',
+          status: 'applied',
+          response: { id: 's_b1_online', receiptNo: serverReceiptNo, total: '100.00' },
+        });
+        // Replayed, not re-run: one bill, stock down once, the override audited once.
+        expect(await stockOf('p_b1')).toBe(18);
+        const sales = await admin.query(
+          `SELECT receipt_no FROM sales WHERE tenant_id = $1::uuid AND id = 's_b1_online'`,
+          [TENANT],
+        );
+        expect(sales).toEqual([{ receipt_no: serverReceiptNo }]);
+        const audits = await admin.query(
+          `SELECT user_id FROM audit_log
+            WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = 'm_b1'`,
+          [TENANT],
+        );
+        expect(audits).toEqual([{ user_id: fixture.userId }]);
+        const mech = await admin.query(
+          `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = 'm_b1'`,
+          [TENANT],
+        );
+        expect(mech[0].credit_balance).toBe('100.00');
+      });
+
+      it('an op whose body equals the online body replays the stored online response by key (step 1)', async () => {
+        const online = await postOnline('k_b1_same', onlineBody);
+        expect(online.status).toBe(201);
+
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: 'op_b1_same', idempotencyKey: 'k_b1_same', type: 'sale.create', payload: onlineBody }],
+        });
+
+        // The full online response — only a key replay returns it; the client-id replay
+        // answers with the push-shaped subset.
+        expect(res.body.data.results[0]).toEqual({
+          opId: 'op_b1_same',
+          status: 'applied',
+          response: online.body.data,
+        });
+        expect(await stockOf('p_b1')).toBe(18);
+      });
+
+      it('a key an older push recorded as `POST /sales` (before #409) still replays, and a key recorded on another route does not', async () => {
+        const op = { opId: 'op_b1_legacy', idempotencyKey: 'k_b1_legacy', type: 'sale.create', payload: outboxPayload };
+        expect((await push({ outboxRemaining: 0, ops: [op] })).body.data.results[0].status).toBe('applied');
+        await admin.query(
+          `UPDATE idempotency_keys SET endpoint = 'POST /sales' WHERE tenant_id = $1::uuid AND key = 'k_b1_legacy'`,
+          [TENANT],
+        );
+        await clearTenantCache(cache, TENANT);
+        const replay = await push({ outboxRemaining: 0, ops: [op] });
+        expect(replay.body.data.results[0]).toMatchObject({ status: 'applied', response: { id: 's_b1_online' } });
+
+        await admin.query(
+          `UPDATE idempotency_keys SET endpoint = 'POST /api/v1/returns' WHERE tenant_id = $1::uuid AND key = 'k_b1_legacy'`,
+          [TENANT],
+        );
+        await clearTenantCache(cache, TENANT);
+        const wrongRoute = await push({ outboxRemaining: 0, ops: [op] });
+        expect(wrongRoute.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'IDEMPOTENCY_KEY_REUSED' });
+        expect(await stockOf('p_b1')).toBe(18);
+      });
+
+      it('the same key on a DIFFERENT bill is still refused IDEMPOTENCY_KEY_REUSED', async () => {
+        expect((await postOnline('k_b1_reuse', onlineBody)).status).toBe(201);
+        // A second, genuinely different bill already on the server under its own key.
+        const other = { ...onlineBody, id: 's_b1_other', overrideCreditLimit: false, paymentMethod: 'เงินสด', mechanicId: null, mechanicName: null };
+        expect((await postOnline('k_b1_other', other)).status).toBe(201);
+        expect(await stockOf('p_b1')).toBe(16);
+
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [
+            // A bill the server has never seen, carrying k_b1_reuse.
+            {
+              opId: 'op_new_bill',
+              idempotencyKey: 'k_b1_reuse',
+              type: 'sale.create',
+              payload: { ...outboxPayload, id: 's_b1_new', receiptNo: 'RC01-2569-09-0778' },
+            },
+          ],
+        });
+        expect(res.body.data.results[0]).toMatchObject({
+          opId: 'op_new_bill',
+          status: 'rejected',
+          code: 'IDEMPOTENCY_KEY_REUSED',
+        });
+
+        const res2 = await push({
+          outboxRemaining: 0,
+          ops: [
+            // An existing bill (s_b1_other), but under the key that belongs to s_b1_online.
+            {
+              opId: 'op_other_bill',
+              idempotencyKey: 'k_b1_reuse',
+              type: 'sale.create',
+              payload: { ...other, receiptNo: 'RC01-2569-09-0779', date: outboxPayload.date },
+            },
+          ],
+        });
+        expect(res2.body.data.results[0]).toMatchObject({
+          opId: 'op_other_bill',
+          status: 'rejected',
+          code: 'IDEMPOTENCY_KEY_REUSED',
+        });
+
+        const n = await admin.query(
+          `SELECT count(*)::int AS n FROM sales WHERE tenant_id = $1::uuid`,
+          [TENANT],
+        );
+        expect(n[0].n).toBe(2);
+        expect(await stockOf('p_b1')).toBe(16);
+      });
     });
 
     it('Issue #190: rejects sale or return with RECEIPT_NO_CONFLICT when document number collides', async () => {

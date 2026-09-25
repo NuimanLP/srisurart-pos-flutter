@@ -13,6 +13,7 @@ describe('loadConfig — CORS_ORIGINS / PLATFORM_ADMIN_IPS (#367)', () => {
     DATABASE_URL: 'postgres://pos_app:pw@localhost:5432/pos',
     REDIS_CACHE_URL: 'redis://localhost:6379',
     REDIS_QUEUE_URL: 'redis://localhost:6380',
+    JWT_PLATFORM_SECRET: 'test-only-platform-secret', // #398: required unconditionally
   };
 
   it('treats an absent variable as unset', () => {
@@ -42,5 +43,41 @@ describe('loadConfig — CORS_ORIGINS / PLATFORM_ADMIN_IPS (#367)', () => {
     expect(() => loadConfig({ ...base, PLATFORM_ADMIN_IPS: ',,' })).toThrow(
       /PLATFORM_ADMIN_IPS is set/,
     );
+  });
+});
+
+/**
+ * #398: `JWT_PLATFORM_SECRET` used to fall back to the public constant
+ * `'dev-only-platform-secret'` when unset, so any deployment that didn't happen to go through
+ * `docker-compose.yml`'s `${JWT_PLATFORM_SECRET:?...}` guard (a bare `node dist/main.js`, a
+ * different compose file, a test harness) could boot with a secret anyone can read in this
+ * repo's history — enough to forge a platform-admin (HS256) token. It is now required the same
+ * way `DATABASE_URL` / `REDIS_CACHE_URL` are: unconditionally, for every instance, matching how
+ * `docker-compose.yml`'s shared `x-app-env` already treats it (unlike `JWT_PRIVATE_KEY`, which
+ * is api-instance-only there).
+ */
+describe('loadConfig — JWT_PLATFORM_SECRET is required (#398)', () => {
+  const base: NodeJS.ProcessEnv = {
+    INSTANCE_ID: 'worker',
+    DATABASE_URL: 'postgres://pos_app:pw@localhost:5432/pos',
+    REDIS_CACHE_URL: 'redis://localhost:6379',
+    REDIS_QUEUE_URL: 'redis://localhost:6380',
+  };
+
+  it('throws a clear error when JWT_PLATFORM_SECRET is missing', () => {
+    expect(() => loadConfig({ ...base })).toThrow(
+      /Missing required environment variable JWT_PLATFORM_SECRET/,
+    );
+  });
+
+  it('throws when JWT_PLATFORM_SECRET is blank', () => {
+    expect(() => loadConfig({ ...base, JWT_PLATFORM_SECRET: '' })).toThrow(
+      /Missing required environment variable JWT_PLATFORM_SECRET/,
+    );
+  });
+
+  it('accepts a real value, on a worker instance too (no isApi gate)', () => {
+    const cfg = loadConfig({ ...base, JWT_PLATFORM_SECRET: 'a-real-secret' });
+    expect(cfg.jwtPlatformSecret).toBe('a-real-secret');
   });
 });

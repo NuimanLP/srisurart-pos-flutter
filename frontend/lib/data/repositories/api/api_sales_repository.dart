@@ -35,6 +35,8 @@ import 'package:drift/drift.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/server_error_resolver.dart';
+import '../../../core/network/transport_failure.dart';
 import '../../../core/utils/ids.dart';
 import '../../../core/utils/money.dart';
 import '../../../domain/models/aggregates.dart';
@@ -145,8 +147,17 @@ class ApiSalesRepository implements SalesRepository {
           throw PosException(e.code, noOpenShiftForSale, e.details);
         }
         rethrow;
-      } catch (_) {
-        // Non-verdict network failure (timeout, dropped socket, 5xx):
+      } catch (e) {
+        // 🔴 #409: only a TRANSPORT failure (timeout, dropped socket) may become
+        // an offline bill. Anything else here — a 2xx whose body is not a bill,
+        // so `_post`'s cast throws — means the server answered and has probably
+        // committed; queuing it would push the same id+key later under an offline
+        // receipt number the customer already holds. The attempt stays parked, so
+        // the next press replays the committed bill. (A 5xx is an ApiException,
+        // handled above.)
+        if (!isTransportFailure(e)) {
+          throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
+        }
         // Transition to Degraded and queue offline into outbox with same attempt id & key.
         final sync = syncService ??
             (syncFacade is SyncService ? syncFacade as SyncService : null);

@@ -28,9 +28,17 @@ export interface CreateSale {
   /** The counter confirmed 'ยืนยันขายเครดิต?' — the bill may push the mechanic past the limit. */
   overrideCreditLimit: boolean;
   items: SaleLine[];
+}
+
+/**
+ * What `SalesService.create` takes. The two extra fields are set ONLY by the
+ * `/sync/push` replay (`SyncService`); no body parser reads them, so an online bill is
+ * dated by the server's `now()` and is never `sold_offline` (08 §10/§12, #411).
+ */
+export type SaleWrite = CreateSale & {
   soldOffline?: boolean;
   date?: Date | string | null;
-}
+};
 
 /**
  * The most a single bill may carry — a guard against a body that is an attack. Shared
@@ -56,7 +64,8 @@ const PAYMENT_METHODS = ['เงินสด', 'โอน/QR', 'เครดิ�
  *
  * Two fields are **not** read even when present, because a client that could choose
  * them could choose someone else's: `shiftId` (stamped from the device's own open drawer)
- * and anything naming a tenant or a device (ADR-0004). `receiptNo` is optional (Phase 2):
+ * and anything naming a tenant or a device (ADR-0004); nor `date`/`soldOffline` (see
+ * `SaleWrite`). `receiptNo` is optional (Phase 2):
  * when present, the server validates it against the caller's device token and records
  * the high-water mark; when omitted, the server falls back to issuing one (C16).
  */
@@ -70,8 +79,6 @@ export function parseCreateSale(body: unknown): CreateSale {
     totalSatang: toSatang(b.total, 'total'),
     ...parseSaleParty(b),
     items: parseLines(items),
-    soldOffline: b.soldOffline === true,
-    date: optionalString(b.date, 'date'),
   };
   assertMoneyMakesSense(sale);
   return sale;

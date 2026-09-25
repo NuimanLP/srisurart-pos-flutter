@@ -222,8 +222,8 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         `${r.route} ${r.successCode}${r.successCode === r.declared ? '' : ` (declares ${r.declared})`}${r.passthrough ? '' : ' (no @Res passthrough)'}${r.precheck ? ' (PIN pre-check)' : ''}`,
       ]),
     );
-    // The 38 routes that carried `@UseInterceptors(IdempotencyInterceptor)` before tx.3.
-    // 37 are live: `PurchasingController` is registered in no module (dead code, follow-up).
+    // Every live idempotent write route (39). The dead `PurchasingController` (registered
+    // in no module) was deleted 2026-09-25 — `PurchaseOrdersController` serves its routes.
     expect(summary).toEqual({
       'CustomersController.create': 'POST /customers 201',
       'CustomersController.update': 'PATCH /customers/:id 200',
@@ -251,7 +251,6 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         'POST /purchase-orders/:id/receive 200',
       'PurchaseOrdersController.cancel': 'POST /purchase-orders/:id/cancel 200',
       'PurchaseOrdersController.delete': 'DELETE /purchase-orders/:id 200',
-      'PurchasingController.receive': 'POST /purchase-orders/:id/receive 201',
       'QuotesController.purgeQuotes': 'POST /quotes/purge 202',
       'QuotesController.create': 'POST /quotes 201',
       'QuotesController.update': 'PATCH /quotes/:id 200',
