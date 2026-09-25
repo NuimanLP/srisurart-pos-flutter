@@ -560,4 +560,24 @@ void main() {
     final repo = repoWith((req) async => http.Response('unexpected', 500));
     expect(await repo.getReturns(), isEmpty);
   });
+
+  test('getReturns passes the #417 date bounds through to Drift', () async {
+    final repo = repoWith((req) async => http.Response('unexpected', 500));
+    await db.into(db.returns).insert(
+      ReturnsCompanion.insert(
+        id: 'old',
+        cnNo: 'CN-old',
+        saleId: 's',
+        receiptNo: 'RC',
+        refundSubtotal: 1,
+        refundDiscount: 0,
+        refundTotal: 1,
+        refundMethod: 'เงินสด',
+        date: DateTime(2020, 1, 1),
+      ),
+    );
+    expect(await repo.getReturns(), hasLength(1));
+    expect(await repo.getReturns(from: DateTime(2021)), isEmpty);
+    expect(await repo.getReturns(to: DateTime(2020)), isEmpty);
+  });
 }

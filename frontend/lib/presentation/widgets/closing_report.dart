@@ -205,9 +205,13 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final settingsRepo = context.read<SettingsRepository>();
   final shiftsRepo = context.read<ShiftsRepository>();
 
-  final today = todayKey();
-  final salesAgg = await salesRepo.getSales();
-  final returns = await returnsRepo.getReturns();
+  final now = DateTime.now();
+  final today = dateKey(now);
+  // Only today's bills/returns are read (#417); the dateKey filters below
+  // stay as the definition of "today" and are now a no-op guard.
+  final day = dayBounds(now);
+  final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
+  final returns = await returnsRepo.getReturns(from: day.from, to: day.to);
   final creditPayments = await mechanicsRepo.getCreditPayments();
   final products = await productsRepo.getAll();
   final settings = await settingsRepo.getSettings();

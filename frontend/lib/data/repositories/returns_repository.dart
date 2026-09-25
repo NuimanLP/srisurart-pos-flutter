@@ -203,11 +203,17 @@ class ReturnsRepository {
     });
   }
 
-  /// All returns, newest first (with their items).
-  Future<List<ReturnWithItems>> getReturns() async {
-    final headers = await (db.select(
-      db.returns,
-    )..orderBy([(t) => OrderingTerm.desc(t.date)])).get();
+  /// Returns, newest first (with their items). With no bounds: all returns.
+  /// [from] is inclusive, [to] exclusive (#417).
+  Future<List<ReturnWithItems>> getReturns({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final query = db.select(db.returns)
+      ..orderBy([(t) => OrderingTerm.desc(t.date)]);
+    if (from != null) query.where((t) => t.date.isBiggerOrEqualValue(from));
+    if (to != null) query.where((t) => t.date.isSmallerThanValue(to));
+    final headers = await query.get();
     final result = <ReturnWithItems>[];
     for (final r in headers) {
       final items = await (db.select(

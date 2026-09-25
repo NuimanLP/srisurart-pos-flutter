@@ -670,7 +670,8 @@ class ApiSalesRepository implements SalesRepository {
   // delegate so the screens keep working against the cache unchanged.
 
   @override
-  Future<List<SaleWithItems>> getSales() => drift.getSales();
+  Future<List<SaleWithItems>> getSales({DateTime? from, DateTime? to}) =>
+      drift.getSales(from: from, to: to);
 
   @override
   Stream<List<SaleWithItems>> watchSales() => drift.watchSales();

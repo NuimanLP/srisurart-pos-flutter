@@ -1451,4 +1451,21 @@ void main() {
     expect(await repo.getSales(), isEmpty);
     expect(await repo.getRefundedQty('nope'), isEmpty);
   });
+
+  test('getSales passes the #417 date bounds through to Drift', () async {
+    final repo = repoWith((req) async => http.Response('unexpected', 500));
+    await db.into(db.sales).insert(
+      SalesCompanion.insert(
+        id: 'old',
+        receiptNo: 'RC-old',
+        subtotal: 1,
+        total: 1,
+        paymentMethod: 'เงินสด',
+        date: DateTime(2020, 1, 1),
+      ),
+    );
+    expect(await repo.getSales(), hasLength(1));
+    expect(await repo.getSales(from: DateTime(2021)), isEmpty);
+    expect(await repo.getSales(to: DateTime(2020)), isEmpty);
+  });
 }

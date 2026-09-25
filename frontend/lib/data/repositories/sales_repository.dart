@@ -166,12 +166,15 @@ class SalesRepository {
     });
   }
 
-  /// All sales, newest first (with their items).
-  Future<List<SaleWithItems>> getSales() async {
-    final sales = await (db.select(
-      db.sales,
-    )..orderBy([(t) => OrderingTerm.desc(t.date)])).get();
-    return _attachItems(sales);
+  /// Sales, newest first (with their items). With no bounds: all sales.
+  /// [from] is inclusive, [to] exclusive (#417 — reports load one range, not
+  /// the whole history).
+  Future<List<SaleWithItems>> getSales({DateTime? from, DateTime? to}) async {
+    final query = db.select(db.sales)
+      ..orderBy([(t) => OrderingTerm.desc(t.date)]);
+    if (from != null) query.where((t) => t.date.isBiggerOrEqualValue(from));
+    if (to != null) query.where((t) => t.date.isSmallerThanValue(to));
+    return _attachItems(await query.get());
   }
 
   Stream<List<SaleWithItems>> watchSales() {
