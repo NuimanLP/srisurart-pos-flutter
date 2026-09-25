@@ -207,8 +207,8 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
 
   final now = DateTime.now();
   final today = dateKey(now);
-  // Only today's bills/returns are read (#417); the dateKey filters below
-  // stay as the definition of "today" and are now a no-op guard.
+  // Only today's bills/returns are read (#417) — the same rows the old
+  // `dateKey(x) == today` in-memory filter kept.
   final day = dayBounds(now);
   final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
   final returns = await returnsRepo.getReturns(from: day.from, to: day.to);
@@ -222,7 +222,6 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final sales = <SaleLite>[];
   for (final s in salesAgg) {
     final sale = s.sale;
-    if (dateKey(sale.date) != today) continue;
     sales.add(
       SaleLite(
         subtotal: sale.subtotal,
@@ -246,9 +245,7 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
 
   // Cash refunds today reduce the drawer.
   final cashRefundsToday = returns
-      .where(
-        (r) => dateKey(r.ret.date) == today && r.ret.refundMethod == 'เงินสด',
-      )
+      .where((r) => r.ret.refundMethod == 'เงินสด')
       .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
   // Cash credit-payments today increase the drawer. The JS filtered

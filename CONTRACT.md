@@ -154,8 +154,8 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 | File | Class | Owning agent | Method signatures |
 |---|---|---|---|
 | `products_repository.dart` | `ProductsRepository` | **Products** | `Future<List<ProductRow>> getAll()`; `Stream<List<ProductRow>> watchAll()`; `Future<ProductRow?> getById(id)`; `Future<ProductRow?> add(ProductsCompanion)` (null on dup/blank partNo); `Future<bool> update(id, ProductsCompanion)` (false on partNo collision); `Future<void> delete(id)`; `Future<void> adjustStock(productId,delta,type,note?)` (CLAMPS at 0 + movement); `Future<List<String>> getCategories()`; `Future<void> addCategory(name)`; `Future<void> deleteCategory(name)`; `Future<String> catColor(name)` |
-| `sales_repository.dart` | `SalesRepository` | **Sales** | `Future<SaleRow> saveSale(SaleInput)` (transactional, Thai 'สต็อกไม่พอ…' throw, strict stock); `Future<List<SaleWithItems>> getSales()`; `Stream<List<SaleWithItems>> watchSales()`; `Future<Map<String,int>> getRefundedQty(saleId)` |
-| `returns_repository.dart` | `ReturnsRepository` | **Returns** | `Future<ReturnRow> createReturn(ReturnInput)` (transactional, over-refund/void Thai throws, auto-void parent); `Future<List<ReturnWithItems>> getReturns()` |
+| `sales_repository.dart` | `SalesRepository` | **Sales** | `Future<SaleRow> saveSale(SaleInput)` (transactional, Thai 'สต็อกไม่พอ…' throw, strict stock); `Future<List<SaleWithItems>> getSales({DateTime? from, DateTime? to})` (from inclusive, to exclusive, none = all; #417); `Stream<List<SaleWithItems>> watchSales()`; `Future<Map<String,int>> getRefundedQty(saleId)` |
+| `returns_repository.dart` | `ReturnsRepository` | **Returns** | `Future<ReturnRow> createReturn(ReturnInput)` (transactional, over-refund/void Thai throws, auto-void parent); `Future<List<ReturnWithItems>> getReturns({DateTime? from, DateTime? to})` (same bounds as getSales) |
 | `purchase_orders_repository.dart` | `PurchaseOrdersRepository` | **Purchase Orders** | `Future<List<PurchaseOrderWithItems>> getPOs()`; `Future<PurchaseOrderRow> savePO(PoInput)`; `Future<List<String>> receivePO(id)` (weighted-avg cost, returns unmatched partNos); `Future<void> cancelPO(id)`; `Future<void> deletePO(id)` |
 | `quotes_repository.dart` | `QuotesRepository` | **Quotes** | `Future<List<QuoteWithItems>> getQuotes()`; `Future<QuoteRow> saveQuote(QuoteInput)`; `Future<void> updateQuote(id, QuotesCompanion)`; `Future<QuoteRow?> duplicateQuote(id)`; `Future<int> purgeOldQuotes({olderThanDays=90})`; `Future<void> deleteQuote(id)` |
 | `parked_repository.dart` | `ParkedRepository` | **Parked** | `Future<List<ParkedSaleRow>> getParked()`; `Future<ParkedSaleRow> parkSale(ParkedInput)`; `Future<void> deleteParked(id)` |
@@ -336,7 +336,7 @@ those are NOT input fields.
 - `String baht2(num v)` — `'฿' + #,##0.00` (fixed 2-decimal, for cost/margin views)
 - `String csvSafe(Object? v)` — prefixes `'` when value starts with `= + - @ \t \r`
 - `dates.dart`: `String dateKey(DateTime)` (yyyy-MM-dd), `String todayKey()`,
-  `String monthKey()` (yyyy-MM) — the db.js `toISOString().slice(…)` key idiom,
+  `String monthKey()` (yyyy-MM), `dayBounds(DateTime)` ([midnight, next midnight) for a SQL WHERE) — the db.js `toISOString().slice(…)` key idiom,
   in LOCAL time; never re-slice `toIso8601String()` inline
 
 **Use these — never inline equivalents.** All CSV exporters MUST pass values

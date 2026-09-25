@@ -118,9 +118,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final returnsRepo = context.read<ReturnsRepository>();
     final productsRepo = context.read<ProductsRepository>();
 
-    final b = reportRangeBounds(range, DateTime.now());
-    final sales = await salesRepo.getSales(from: b.from, to: b.to);
-    final returns = await returnsRepo.getReturns(from: b.from, to: b.to);
+    final bounds = reportRangeBounds(range, DateTime.now());
+    final sales = await salesRepo.getSales(from: bounds.from, to: bounds.to);
+    final returns = await returnsRepo.getReturns(
+      from: bounds.from,
+      to: bounds.to,
+    );
     final products = await productsRepo.getAll();
 
     // Pre-resolve a color per distinct category we will plot (catColor is async).
