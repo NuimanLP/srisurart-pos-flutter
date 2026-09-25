@@ -11,6 +11,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/core/utils/dates.dart';
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/repositories/mechanics_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
@@ -63,6 +64,7 @@ void main() {
   late AppDatabase db;
   late SalesRepository sales;
   late ReturnsRepository returns;
+  late MechanicsRepository mechanics;
 
   var n = 0;
 
@@ -71,6 +73,7 @@ void main() {
     db = AppDatabase(NativeDatabase.memory());
     sales = SalesRepository(db);
     returns = ReturnsRepository(db);
+    mechanics = MechanicsRepository(db);
   });
 
   tearDown(() async => db.close());
@@ -119,6 +122,17 @@ void main() {
             refundDiscount: 0,
             refundTotal: 1,
             refundMethod: 'เงินสด',
+            date: date,
+          ),
+        );
+    await db
+        .into(db.creditPayments)
+        .insert(
+          CreditPaymentsCompanion.insert(
+            id: 'cp$n',
+            receiptNo: 'CP$n',
+            mechanicId: 'm1',
+            amount: 1,
             date: date,
           ),
         );
@@ -186,36 +200,52 @@ void main() {
       );
     }
 
-    test('closing report "today" at $now: bounded == dateKey filter', () async {
-      await seedAround(now);
-      final today = dateKey(now);
-      final b = dayBounds(now);
+    test(
+      'closing report / cash drawer "today" at $now: bounded == dateKey filter',
+      () async {
+        await seedAround(now);
+        final today = dateKey(now);
+        final b = dayBounds(now);
 
-      final legacySales = (await sales.getSales())
-          .where((s) => dateKey(s.sale.date) == today)
-          .map((s) => s.sale.id)
-          .toList();
-      expect(
-        (await sales.getSales(
-          from: b.from,
-          to: b.to,
-        )).map((s) => s.sale.id).toList(),
-        legacySales,
-      );
-      expect(legacySales, isNotEmpty);
+        final legacySales = (await sales.getSales())
+            .where((s) => dateKey(s.sale.date) == today)
+            .map((s) => s.sale.id)
+            .toList();
+        expect(
+          (await sales.getSales(
+            from: b.from,
+            to: b.to,
+          )).map((s) => s.sale.id).toList(),
+          legacySales,
+        );
+        expect(legacySales, isNotEmpty);
 
-      final legacyReturns = (await returns.getReturns())
-          .where((r) => dateKey(r.ret.date) == today)
-          .map((r) => r.ret.id)
-          .toList();
-      expect(
-        (await returns.getReturns(
-          from: b.from,
-          to: b.to,
-        )).map((r) => r.ret.id).toList(),
-        legacyReturns,
-      );
-    });
+        final legacyReturns = (await returns.getReturns())
+            .where((r) => dateKey(r.ret.date) == today)
+            .map((r) => r.ret.id)
+            .toList();
+        expect(
+          (await returns.getReturns(
+            from: b.from,
+            to: b.to,
+          )).map((r) => r.ret.id).toList(),
+          legacyReturns,
+        );
+
+        final legacyPayments = (await mechanics.getCreditPayments())
+            .where((p) => dateKey(p.date) == today)
+            .map((p) => p.id)
+            .toList();
+        expect(
+          (await mechanics.getCreditPayments(
+            from: b.from,
+            to: b.to,
+          )).map((p) => p.id).toList(),
+          legacyPayments,
+        );
+        expect(legacyPayments, isNotEmpty);
+      },
+    );
   }
 
   test(
@@ -224,6 +254,7 @@ void main() {
       await seedAround(DateTime(2026, 9, 25, 12));
       expect((await sales.getSales()).length, 12);
       expect((await returns.getReturns()).length, 12);
+      expect((await mechanics.getCreditPayments()).length, 12);
     },
   );
 

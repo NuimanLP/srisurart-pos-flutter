@@ -97,35 +97,38 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final returnsRepo = context.read<ReturnsRepository>();
     final mechanicsRepo = context.read<MechanicsRepository>();
 
-    final today = todayKey();
+    final now = DateTime.now();
+    final today = dateKey(now);
+    // Only today's rows are read (#417) — the same rows the old
+    // `dateKey(x) == today` in-memory filters kept.
+    final day = dayBounds(now);
     final drawer = await shiftsRepo.getCashDrawer();
     // db.js: only treat the drawer as today's shift if its date matches today.
     final shift = (drawer != null && drawer.shift.dateStr == today)
         ? drawer
         : null;
 
-    final salesAgg = await salesRepo.getSales();
+    final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
     final cashSalesTotal = salesAgg
-        .where(
-          (s) =>
-              dateKey(s.sale.date) == today && s.sale.paymentMethod == 'เงินสด',
-        )
+        .where((s) => s.sale.paymentMethod == 'เงินสด')
         .fold<double>(0, (sum, s) => sum + s.sale.total);
 
-    final returns = await returnsRepo.getReturns();
+    final returns = await returnsRepo.getReturns(from: day.from, to: day.to);
     final cashRefundsToday = returns
-        .where(
-          (r) => dateKey(r.ret.date) == today && r.ret.refundMethod == 'เงินสด',
-        )
+        .where((r) => r.ret.refundMethod == 'เงินสด')
         .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
     // The Drift CreditPayments table has no `method` column (the JS filtered
     // p.method === 'เงินสด'); we treat every same-day credit settlement as a
     // cash drawer inflow.
-    final creditPayments = await mechanicsRepo.getCreditPayments();
-    final cashCreditPaymentsToday = creditPayments
-        .where((p) => dateKey(p.date) == today)
-        .fold<double>(0, (s, p) => s + p.amount);
+    final creditPayments = await mechanicsRepo.getCreditPayments(
+      from: day.from,
+      to: day.to,
+    );
+    final cashCreditPaymentsToday = creditPayments.fold<double>(
+      0,
+      (s, p) => s + p.amount,
+    );
 
     return _DrawerData(
       shift: shift,

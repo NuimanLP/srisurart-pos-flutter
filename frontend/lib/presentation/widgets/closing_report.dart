@@ -207,12 +207,15 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
 
   final now = DateTime.now();
   final today = dateKey(now);
-  // Only today's bills/returns are read (#417) — the same rows the old
-  // `dateKey(x) == today` in-memory filter kept.
+  // Only today's bills/returns/credit payments are read (#417) — the same
+  // rows the old `dateKey(x) == today` in-memory filters kept.
   final day = dayBounds(now);
   final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
   final returns = await returnsRepo.getReturns(from: day.from, to: day.to);
-  final creditPayments = await mechanicsRepo.getCreditPayments();
+  final creditPayments = await mechanicsRepo.getCreditPayments(
+    from: day.from,
+    to: day.to,
+  );
   final products = await productsRepo.getAll();
   final settings = await settingsRepo.getSettings();
   final drawer = await shiftsRepo.getCashDrawer();
@@ -256,7 +259,7 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   // recover the method from that prefix and count only cash settlements,
   // matching ClosingReport.jsx (and keeping the drawer math consistent).
   final cashCreditPaymentsToday = creditPayments
-      .where((p) => dateKey(p.date) == today && _isCashCreditPayment(p.note))
+      .where((p) => _isCashCreditPayment(p.note))
       .fold<double>(0, (s, p) => s + p.amount);
 
   final drawerToday = drawer != null && drawer.shift.dateStr == today;
