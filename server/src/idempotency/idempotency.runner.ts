@@ -32,8 +32,9 @@ export function idempotencyParamsOf(
   return {
     key,
     // The CONCRETE target, not `req.route.path`: that is the route pattern, so every
-    // bill sent to `POST /sales/:id/void` — whose whole body is `{pin}` — would share
-    // one fingerprint, and a reused key would replay the first bill's receipt while
+    // bill sent to `POST /sales/:id/void` — whose whole body is `{reason}` (phase 2
+    // dropped the PIN, 08_PHASE2_SPEC) — would share one fingerprint whenever the
+    // reason text matched, and a reused key would replay the first bill's receipt while
     // the bill the clerk meant to void stayed live. The path parameter identifies
     // what is being written, so it belongs in `endpoint` (what was addressed) rather
     // than in `request_hash`, which `01_DATABASE.md` defines as the hash of the body.

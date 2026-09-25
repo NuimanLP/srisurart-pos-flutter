@@ -16,7 +16,6 @@ void main() {
       expect(ServerErrorResolver.resolve('PO_ALREADY_RECEIVED'), 'ใบสั่งซื้อนี้รับของแล้ว');
       expect(ServerErrorResolver.resolve('DUPLICATE_PART_NO'), 'รหัสอะไหล่นี้มีอยู่แล้ว');
       expect(ServerErrorResolver.resolve('TOTAL_MISMATCH'), 'ยอดเงินไม่ตรงกัน กรุณาทำรายการใหม่');
-      expect(ServerErrorResolver.resolve('OFFLINE_NOT_ALLOWED'), 'สินค้านี้ขายตอนออฟไลน์ไม่ได้');
       expect(ServerErrorResolver.resolve('TENANT_SUSPENDED'), 'ร้านนี้ถูกระงับการใช้งาน');
       expect(ServerErrorResolver.resolve('DEVICE_ROLE_FORBIDDEN'), 'เครื่องนี้ขายของไม่ได้');
       expect(ServerErrorResolver.resolve('RATE_LIMITED'), 'ระบบกำลังทำงานหนัก กรุณารอสักครู่');
@@ -106,6 +105,10 @@ void main() {
       expect(ServerErrorResolver.resolve('SOME_RANDOM_CODE'), 'เกิดข้อผิดพลาด (SOME_RANDOM_CODE)');
       expect(ServerErrorResolver.resolve('', serverMessage: 'Custom error'), 'Custom error');
       expect(ServerErrorResolver.resolve(null), 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+    });
+
+    test('OFFLINE_NOT_ALLOWED is retired (02 §8, D3: offlineOk dropped, #272) — no mapping', () {
+      expect(ServerErrorResolver.resolve('OFFLINE_NOT_ALLOWED'), 'เกิดข้อผิดพลาด (OFFLINE_NOT_ALLOWED)');
     });
   });
 
