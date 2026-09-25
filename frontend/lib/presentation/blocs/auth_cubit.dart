@@ -149,11 +149,12 @@ class AuthCubit extends Cubit<AuthState> {
     }
     var deviceRole = await _repo.getDeviceRole();
     // Not a duplicate of AuthRepository.getDeviceRole's #400 fallback, which
-    // only fires when there is NO access token. This one (and the same line in
-    // logout/sessionExpired) also fires when a token IS present but carries no
-    // `drole` claim — the server omits it for a login made without a device
-    // token — and it reads the cubit's own `_pinRepo`, which callers may wire
-    // differently from the repository's. Removing it changes behaviour.
+    // only fires when there is NO access token. This one (and the similar
+    // `_pinRepo` fallback in logout/sessionExpired) also fires when a token IS
+    // present but carries no `drole` claim — the server omits it for a login
+    // made without a device token — and then returns the role stored at an
+    // earlier login where the repository returns null. Removing it changes
+    // behaviour.
     deviceRole ??= await _pinRepo?.getDeviceRole();
     final isAuth = await _repo.isAuthenticated();
     final user = await _repo.getCurrentUser();
