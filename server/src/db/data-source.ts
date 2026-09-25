@@ -15,6 +15,7 @@ import { SyncPushColumns1788652803003 } from './migrations/1788652803003-SyncPus
 import { CustomersMechanicsSyncIndex1788652804000 } from './migrations/1788652804000-CustomersMechanicsSyncIndex.js';
 import { AuditLogAppendOnly1788652804100 } from './migrations/1788652804100-AuditLogAppendOnly.js';
 import { OwnerReviewItemsFixes1788652804200 } from './migrations/1788652804200-OwnerReviewItemsFixes.js';
+import { ProductsSyncIndex1788652804300 } from './migrations/1788652804300-ProductsSyncIndex.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -34,6 +35,7 @@ export const MIGRATIONS = [
   CustomersMechanicsSyncIndex1788652804000,
   AuditLogAppendOnly1788652804100,
   OwnerReviewItemsFixes1788652804200,
+  ProductsSyncIndex1788652804300,
 ];
 
 /**

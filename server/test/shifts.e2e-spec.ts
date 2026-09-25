@@ -363,8 +363,18 @@ describe('shifts and the cash drawer (e2e)', () => {
   });
 
   it('history is paginated and holds only archived shifts', async () => {
+    const expected = new Map<string, string[]>();
     for (let i = 0; i < 3; i++) {
       const opened = await post('/open', { startingCash: `${100 + i}.00` });
+      // #417: history loads every shift's entries in one query — each shift must still
+      // get exactly its own, newest first. Shift i gets i entries (the first gets none).
+      const amounts: string[] = [];
+      for (let j = 1; j <= i; j++) {
+        const amount = `${i}${j}.00`;
+        expect((await post('/current/entries', { type: 'in', amount })).status).toBe(201);
+        amounts.unshift(amount);
+      }
+      expected.set(opened.body.data.id, amounts);
       await admin.query(
         `UPDATE shifts SET date_str = $3 WHERE tenant_id = $1::uuid AND id = $2`,
         [TENANT, opened.body.data.id, `2000-01-0${i + 1}`],
@@ -382,6 +392,13 @@ describe('shifts and the cash drawer (e2e)', () => {
 
     const ids = [...page1.body.data, ...page2.body.data].map((sh: { id: string }) => sh.id);
     expect(ids).not.toContain(live.body.data.id);
+    for (const sh of [...page1.body.data, ...page2.body.data] as {
+      id: string;
+      entries: { shiftId: string; amount: string }[];
+    }[]) {
+      expect(sh.entries.map((e) => e.amount)).toEqual(expected.get(sh.id));
+      expect(sh.entries.every((e) => e.shiftId === sh.id)).toBe(true);
+    }
     expect((await get('/history?page=0')).status).toBe(400);
   });
 

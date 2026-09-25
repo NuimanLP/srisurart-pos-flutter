@@ -57,7 +57,7 @@ export class CustomersService {
     limit: number;
   }): Promise<{
     items: Customer[];
-    total: number;
+    total?: number;
     nextCursor?: { updatedSince: string; afterId: string } | null;
     fromCache: boolean;
   }> {
@@ -72,7 +72,7 @@ export class CustomersService {
     limit: number;
   }): Promise<{
     items: Customer[];
-    total: number;
+    total?: number;
     nextCursor?: { updatedSince: string; afterId: string } | null;
     fromCache: boolean;
   }> {
@@ -120,10 +120,13 @@ export class CustomersService {
       ? 'updated_at ASC, id ASC'
       : 'updated_at DESC, id DESC';
     const clause = where.join(' AND ');
-    const totals = (await manager.query(
-      `SELECT count(*)::int AS n FROM customers WHERE ${clause}`,
-      params,
-    )) as { n: number }[];
+    // #417: no count on a keyset sync read — see ProductsService.listUncachedIn.
+    const totals = query.updatedSince
+      ? null
+      : ((await manager.query(
+          `SELECT count(*)::int AS n FROM customers WHERE ${clause}`,
+          params,
+        )) as { n: number }[]);
     params.push(query.limit, (query.page - 1) * query.limit);
     const rows = (await manager.query(
       `SELECT ${COLUMNS}, ${CURSOR_TIMESTAMP} AS updated_at_cursor FROM customers
@@ -133,7 +136,7 @@ export class CustomersService {
       params,
     )) as (CustomerRow & { updated_at_cursor: string })[];
     const items = rows.map(toCustomer);
-    const total = totals[0]?.n ?? 0;
+    const total = totals === null ? undefined : (totals[0]?.n ?? 0);
     const last = rows[rows.length - 1];
     const nextCursor = query.updatedSince
       ? last

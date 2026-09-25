@@ -36,6 +36,8 @@
 ```jsonc
 // สำเร็จ
 { "status": "success", "data": { /* ... */ }, "meta": { "total": 120, "page": 1, "limit": 50, "totalPages": 3 } }
+// sync read แบบ keyset (`?updatedSince=` บน products/customers/mechanics): ไม่มี total/totalPages (#417 — ไม่ count ทุกหน้า) ผู้อ่านตาม meta.nextCursor จนได้หน้าว่าง
+// { "status": "success", "data": [ /* ... */ ], "meta": { "page": 1, "limit": 100, "nextCursor": { "updatedSince": "…", "afterId": "…" } } }
 
 // ผิดพลาด
 { "status": "error",

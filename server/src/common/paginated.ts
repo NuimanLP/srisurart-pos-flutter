@@ -2,10 +2,11 @@ import { BadRequestException } from '@nestjs/common';
 
 /** `meta` for a paginated response (02_API_SCREENS.md §1.2). */
 export interface PaginationMeta {
-  total: number;
+  /** Absent on a keyset sync read (#417): the reader follows `nextCursor`, not a count. */
+  total?: number;
   page: number;
   limit: number;
-  totalPages: number;
+  totalPages?: number;
   /**
    * Keyset cursor for a sync read (#16 `GET /products?updatedSince=`): the query
    * parameters that fetch the rows after this page. Absent on ordinary lists.
@@ -27,17 +28,21 @@ export class Paginated<T> {
   constructor(
     readonly items: T[],
     page: {
-      total: number;
+      total?: number;
       page: number;
       limit: number;
       nextCursor?: PaginationMeta['nextCursor'];
     },
   ) {
     this.meta = {
-      total: page.total,
+      ...(page.total !== undefined
+        ? {
+            total: page.total,
+            totalPages: Math.max(1, Math.ceil(page.total / page.limit)),
+          }
+        : {}),
       page: page.page,
       limit: page.limit,
-      totalPages: Math.max(1, Math.ceil(page.total / page.limit)),
       ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
     };
   }

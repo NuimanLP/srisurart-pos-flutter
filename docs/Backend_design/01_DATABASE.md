@@ -511,7 +511,7 @@ CREATE TABLE products (
 CREATE UNIQUE INDEX uq_products_partno ON products (tenant_id, part_no) WHERE deleted_at IS NULL;
 CREATE INDEX idx_products_cat   ON products (tenant_id, category) WHERE deleted_at IS NULL;
 CREATE INDEX idx_products_low   ON products (tenant_id) WHERE stock <= min_stock AND deleted_at IS NULL;
-CREATE INDEX idx_products_updat ON products (tenant_id, updated_at);
+CREATE INDEX idx_products_sync  ON products (tenant_id, updated_at ASC, id ASC);  -- (migration …4300 แทน idx_products_updat (tenant_id, updated_at), #417)
 -- รหัสอะไหล่ห้ามซ้ำแบบไม่สนตัวพิมพ์ (db.js addProduct, migration 1788652800007) —
 -- เป็นตัวบังคับจริงของ "part_no ซ้ำ" · uq_products_partno ข้างบนยังอยู่แต่ถูกครอบโดยตัวนี้
 CREATE UNIQUE INDEX uq_products_partno_ci ON products (tenant_id, lower(part_no)) WHERE deleted_at IS NULL;
