@@ -899,4 +899,150 @@ void main() {
       syncService.dispose();
     });
   });
+
+  // Owner decision 2026-09-25: an `applied` push result carrying a server
+  // doc number that differs from the offline one patches the local row
+  // (server is the source of truth). Absent field → row left alone.
+  group('Applied result patches local doc number', () {
+    /// Pushes the op from [fixtureName] with the fixture's own response,
+    /// after [editResponse] tweaks that op's `response` map.
+    Future<void> pushFixture(
+      String fixtureName,
+      void Function(Map<String, dynamic> response) editResponse,
+    ) async {
+      final fixture = loadFixture(fixtureName);
+      final opReq = ((fixture['request']['body']['ops']) as List).first
+          as Map<String, dynamic>;
+      final body = fixture['response']['body'] as Map<String, dynamic>;
+      final result =
+          (body['data']['results'] as List).first as Map<String, dynamic>;
+      editResponse(result['response'] as Map<String, dynamic>);
+
+      final mockClient = MockClient((_) async => http.Response(
+            jsonEncode(body),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          ));
+      final syncService = SyncService(
+        db: db,
+        apiClient:
+            ApiClient(baseUrl: 'http://example.com', httpClient: mockClient),
+        tokenStorage: tokenStorage,
+        httpClient: mockClient,
+        autoStartHealthProbe: false,
+      );
+      await db.into(db.outboxOps).insert(
+            OutboxOpsCompanion.insert(
+              opId: opReq['opId'] as String,
+              idempotencyKey: opReq['idempotencyKey'] as String,
+              type: opReq['type'] as String,
+              payload: jsonEncode(opReq['payload']),
+              aggregates: jsonEncode(['x:${opReq['payload']['id']}']),
+              createdAt: DateTime.now().toUtc(),
+              status: 'pending',
+            ),
+          );
+      await syncService.push();
+      final left = await (db.select(db.outboxOps)
+            ..where((t) => t.opId.equals(opReq['opId'] as String)))
+          .getSingleOrNull();
+      expect(left, isNull, reason: 'applied op is removed');
+      syncService.dispose();
+    }
+
+    Future<void> seedOfflineSale() => db.into(db.sales).insert(
+          SaleRow(
+            id: 's_off_001',
+            receiptNo: 'RC01-2569-09-0042',
+            subtotal: 255,
+            discount: 0,
+            total: 255,
+            paymentMethod: 'เงินสด',
+            date: DateTime.utc(2026, 9, 15, 2),
+            pointsGranted: 25,
+            voided: false,
+            soldOffline: true,
+          ),
+        );
+
+    Future<String> localReceiptNo() async => (await (db.select(db.sales)
+              ..where((t) => t.id.equals('s_off_001')))
+            .getSingle())
+        .receiptNo;
+
+    test('sale.create: server receiptNo differs → local row patched',
+        () async {
+      await seedOfflineSale();
+      await pushFixture('sale-create.applied.json',
+          (r) => r['receiptNo'] = 'RC01-2569-09-0043');
+      expect(await localReceiptNo(), 'RC01-2569-09-0043');
+    });
+
+    test('sale.create: replay result with a different receiptNo → patched',
+        () async {
+      await seedOfflineSale();
+      await pushFixture('sale-create.replay-by-key.json',
+          (r) => r['receiptNo'] = 'RC01-2569-09-0050');
+      expect(await localReceiptNo(), 'RC01-2569-09-0050');
+    });
+
+    test('sale.create: receiptNo absent → local row unchanged', () async {
+      await seedOfflineSale();
+      await pushFixture(
+          'sale-create.applied.json', (r) => r.remove('receiptNo'));
+      expect(await localReceiptNo(), 'RC01-2569-09-0042');
+    });
+
+    test('sale.create: same receiptNo → no-op', () async {
+      await seedOfflineSale();
+      await pushFixture('sale-create.applied.json', (_) {});
+      expect(await localReceiptNo(), 'RC01-2569-09-0042');
+    });
+
+    Future<void> seedOfflineReturn() => db.into(db.returns).insert(
+          ReturnRow(
+            id: 'ret_off_001',
+            cnNo: 'CN01-2569-09-0005',
+            saleId: 's_off_001',
+            receiptNo: 'RC01-2569-09-0042',
+            refundSubtotal: 85,
+            refundDiscount: 0,
+            refundTotal: 85,
+            refundMethod: 'เงินสด',
+            reason: 'สินค้าชำรุด',
+            date: DateTime.utc(2026, 9, 15, 3),
+          ),
+        );
+
+    Future<String> localCnNo() async => (await (db.select(db.returns)
+              ..where((t) => t.id.equals('ret_off_001')))
+            .getSingle())
+        .cnNo;
+
+    test('sale.create: patched receiptNo also updates its local returns',
+        () async {
+      await seedOfflineSale();
+      await seedOfflineReturn();
+      await pushFixture('sale-create.applied.json',
+          (r) => r['receiptNo'] = 'RC01-2569-09-0043');
+      final ret = await (db.select(db.returns)
+            ..where((t) => t.id.equals('ret_off_001')))
+          .getSingle();
+      expect(ret.receiptNo, 'RC01-2569-09-0043');
+      expect(ret.cnNo, 'CN01-2569-09-0005', reason: 'CN number untouched');
+    });
+
+    test('return.create: server cnNo differs → local row patched', () async {
+      await seedOfflineReturn();
+      await pushFixture('return-create.applied.json',
+          (r) => r['cnNo'] = 'CN01-2569-09-0006');
+      expect(await localCnNo(), 'CN01-2569-09-0006');
+    });
+
+    test('return.create: cnNo absent → local row unchanged', () async {
+      await seedOfflineReturn();
+      await pushFixture('return-create.applied.json', (r) => r.remove('cnNo'));
+      expect(await localCnNo(), 'CN01-2569-09-0005');
+    });
+  });
 }
