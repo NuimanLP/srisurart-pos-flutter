@@ -157,7 +157,10 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(revs[0].n).toBe(0);
   });
 
-  it('e2e multi-shift: A date_str = 15, B = 16, no bills rejected and both stamped correctly', async () => {
+  // The dated half of 08 §11's example (A = 15, B = 16) is a `/sync/push` scenario and
+  // lives in `sync-push.e2e-spec.ts`: an online open is stamped with the server's `now()`
+  // and never reads `openedAt` (08 §10, #411).
+  it('e2e multi-shift: opening B archives A, no bills rejected and both stamped correctly', async () => {
     await seedProduct(admin, TENANT, {
       id: 'p1',
       partNo: 'OF-1',
@@ -181,30 +184,26 @@ describe('shifts and the cash drawer (e2e)', () => {
           items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
         });
 
-    // Open shift A on day 15 (openedAt 2026-09-15T08:00:00Z)
+    // Open shift A
     const shiftA = await post('/open', {
       id: 'sh_A',
       startingCash: '1000.00',
-      openedAt: '2026-09-15T08:00:00.000Z',
     });
     expect(shiftA.status).toBe(200);
     expect(shiftA.body.data.id).toBe('sh_A');
-    expect(shiftA.body.data.dateStr).toBe('2026-09-15');
 
     // Sell in shift A
     const saleA = await sell('s-shift-A-1');
     expect(saleA.status).toBe(201);
     expect(saleA.body.data.shiftId).toBe('sh_A');
 
-    // Open shift B on day 16 (openedAt 2026-09-16T08:00:00Z) without closing A
+    // Open shift B without closing A (several shifts a day are allowed, 08 §11)
     const shiftB = await post('/open', {
       id: 'sh_B',
       startingCash: '1500.00',
-      openedAt: '2026-09-16T08:00:00.000Z',
     });
     expect(shiftB.status).toBe(200);
     expect(shiftB.body.data.id).toBe('sh_B');
-    expect(shiftB.body.data.dateStr).toBe('2026-09-16');
 
     // Shift A is archived with auto_archived = true and shift_uncounted item
     const rowA = await shiftRow('sh_A');
@@ -223,23 +222,12 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(saleB.body.data.shiftId).toBe('sh_B');
   });
 
-  it('date_str formats correctly according to tenant timezone across UTC midnight', async () => {
-    // 2026-09-15 23:30:00 UTC = 2026-09-16 06:30:00 in Asia/Bangkok (+07:00)
-    const late = await post('/open', {
-      id: 'sh_late_utc',
-      startingCash: '500.00',
-      openedAt: '2026-09-15T23:30:00.000Z',
-    });
-    expect(late.status).toBe(200);
-    expect(late.body.data.dateStr).toBe('2026-09-16');
-  });
+  // The tenant-timezone `date_str` case across UTC midnight moved to
+  // `sync-push.e2e-spec.ts`: only a push may carry a device-recorded `openedAt` (#411).
 
-  it('validates id and openedAt input formats', async () => {
+  it('validates the id input format', async () => {
     const badId = await post('/open', { id: '   ', startingCash: '100.00' });
     expect(badId.status).toBe(400);
-
-    const badDate = await post('/open', { startingCash: '100.00', openedAt: 'not-a-date' });
-    expect(badDate.status).toBe(400);
   });
 
   it('opening on a new day archives the previous shift first', async () => {
