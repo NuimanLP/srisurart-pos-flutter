@@ -3,6 +3,7 @@
 # - Removes `build:` from api-1 so Compose doesn't expect source code on the VM
 # - Adds one-shot `web-sync` container to populate the shared `web` volume
 # - Mounts `web` volume into Nginx container at /usr/share/nginx/html
+# - Forces ALLOW_DEV_SECRETS empty on every app process (#410), whatever the VM .env says
 
 name: srisurart-pos
 
@@ -13,18 +14,23 @@ services:
   api-1:
     image: ghcr.io/nuimanlp/srisurart-pos-server:${IMAGE_TAG:?IMAGE_TAG is required}
     build: !reset []
+    environment: { ALLOW_DEV_SECRETS: "" } # #410: never trust .env.example placeholders here
 
   api-2:
     image: ghcr.io/nuimanlp/srisurart-pos-server:${IMAGE_TAG:?IMAGE_TAG is required}
+    environment: { ALLOW_DEV_SECRETS: "" } # #410: never trust .env.example placeholders here
 
   api-3:
     image: ghcr.io/nuimanlp/srisurart-pos-server:${IMAGE_TAG:?IMAGE_TAG is required}
+    environment: { ALLOW_DEV_SECRETS: "" } # #410: never trust .env.example placeholders here
 
   worker:
     image: ghcr.io/nuimanlp/srisurart-pos-server:${IMAGE_TAG:?IMAGE_TAG is required}
+    environment: { ALLOW_DEV_SECRETS: "" } # #410: never trust .env.example placeholders here
 
   bull-board:
     image: ghcr.io/nuimanlp/srisurart-pos-server:${IMAGE_TAG:?IMAGE_TAG is required}
+    environment: { ALLOW_DEV_SECRETS: "" } # #410: never trust .env.example placeholders here
 
   nginx:
     volumes:
