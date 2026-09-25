@@ -1179,8 +1179,8 @@ CREATE POLICY tenant_isolation ON products
 - `import_jobs` — ตั้งใจไม่เปิด RLS เพราะ `pos_app` ไม่เคยแตะ (platform plane เท่านั้น)
 - `owner_review_items` — เปิด RLS แล้วแต่ policy เขียนแยกเอง **ไม่มี `NULLIF`** → 🔴 บั๊ก ดู §11
 
-**สิ่งที่ตั้งไว้ที่ role `pos_app` (migration 1788652800001 / 1788652802131):**
-- `GRANT SELECT, INSERT, UPDATE, DELETE` ทุกตาราง **ยกเว้น `movements` = `SELECT, INSERT` เท่านั้น**
+**สิ่งที่ตั้งไว้ที่ role `pos_app` (migration 1788652800001 / 1788652802131 / 1788652804100):**
+- `GRANT SELECT, INSERT, UPDATE, DELETE` ทุกตาราง **ยกเว้น `movements` และ `audit_log` = `SELECT, INSERT` เท่านั้น** (`audit_log` ถูก REVOKE UPDATE/DELETE ใน …4100, #399)
 - `statement_timeout = 25s`, `idle_in_transaction_session_timeout = 5s`
   (ห้ามตั้ง `statement_timeout` ≤ `CLAIM_LOCK_TIMEOUT` — ทำให้ `503 IDEMPOTENCY_KEY_IN_FLIGHT` ไม่มีทางเกิด)
 - ฟังก์ชัน `SECURITY DEFINER` สำหรับงานที่ต้องหาข้ามร้านก่อนรู้ tenant (migration …002 / …3003):

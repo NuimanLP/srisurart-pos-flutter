@@ -259,17 +259,47 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     await app.query('ROLLBACK');
   });
 
-  it(`${APP_ROLE} has DML on every table (movements insert-only) and none on the migrations table`, async () => {
+  it('audit_log is append-only for pos_app: INSERT/SELECT work under RLS, UPDATE/DELETE denied (#399)', async () => {
+    await app.query('BEGIN');
+    await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
+    await app.query(
+      `INSERT INTO audit_log (tenant_id, action, entity) VALUES ($1, 'system.test-399', 'audit_log')`,
+      [TENANT_A],
+    );
+    const seen = await app.query(
+      `SELECT count(*)::int AS n FROM audit_log WHERE action = 'system.test-399'`,
+    );
+    expect(seen.rows[0].n).toBe(1);
+    // RLS still scopes the read: the same row is invisible under another tenant.
+    await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_B]);
+    const other = await app.query(
+      `SELECT count(*)::int AS n FROM audit_log WHERE action = 'system.test-399'`,
+    );
+    expect(other.rows[0].n).toBe(0);
+    await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
+    for (const sql of [
+      `UPDATE audit_log SET action = 'system.tampered' WHERE action = 'system.test-399'`,
+      `DELETE FROM audit_log WHERE action = 'system.test-399'`,
+      `TRUNCATE audit_log`,
+    ]) {
+      await app.query('SAVEPOINT denied');
+      await expect(app.query(sql), sql).rejects.toMatchObject({ code: '42501' });
+      await app.query('ROLLBACK TO SAVEPOINT denied');
+    }
+    await app.query('ROLLBACK');
+  });
+
+  it(`${APP_ROLE} has DML on every table (movements and audit_log insert-only) and none on the migrations table`, async () => {
+    const APPEND_ONLY: readonly string[] = ['movements', 'audit_log'];
     for (const t of ALL_TABLES) {
       const r = await owner.query(
         `SELECT has_table_privilege($1, $2, 'SELECT') AS s, has_table_privilege($1, $2, 'INSERT') AS i,
                 has_table_privilege($1, $2, 'UPDATE') AS u, has_table_privilege($1, $2, 'DELETE') AS d`,
         [APP_ROLE, t],
       );
-      const expected =
-        t === 'movements'
-          ? { s: true, i: true, u: false, d: false }
-          : { s: true, i: true, u: true, d: true };
+      const expected = APPEND_ONLY.includes(t)
+        ? { s: true, i: true, u: false, d: false }
+        : { s: true, i: true, u: true, d: true };
       expect(r.rows[0], t).toEqual(expected);
     }
     const mig = await owner.query(

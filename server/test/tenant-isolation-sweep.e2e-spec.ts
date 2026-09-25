@@ -15,6 +15,9 @@ const TENANT_B = '29229229-2921-4292-8292-292292292292';
 
 type TenantScopedTable = (typeof TENANT_SCOPED_TABLES)[number];
 
+/** Ledgers `pos_app` may only INSERT/SELECT: `movements` (…001) and `audit_log` (#399). */
+const APPEND_ONLY_TABLES: readonly TenantScopedTable[] = ['movements', 'audit_log'];
+
 /**
  * Insertion order respecting foreign keys: reverse of TENANT_TABLES_DEPTH_FIRST
  * (with products preceding suppliers to satisfy the foreign key dependency).
@@ -343,26 +346,28 @@ describe('tenant-isolation-sweep (Issue #292)', () => {
     });
   });
 
-  it('cross-tenant update/delete: affects 0 rows under TENANT_A (movements denied with 42501)', async () => {
+  it('cross-tenant update/delete: affects 0 rows under TENANT_A (movements/audit_log denied with 42501)', async () => {
     class RollbackSentinel extends Error {
       constructor() {
         super('ROLLBACK_SENTINEL');
       }
     }
 
-    // 1. movements table: pos_app has no UPDATE or DELETE privilege
-    for (const op of ['UPDATE', 'DELETE'] as const) {
+    // 1. append-only tables: pos_app has no UPDATE or DELETE privilege (audit_log: #399)
+    for (const [table, op] of APPEND_ONLY_TABLES.flatMap((t) =>
+      (['UPDATE', 'DELETE'] as const).map((o) => [t, o] as const),
+    )) {
       let caughtErr: any = null;
       try {
         await asTenant(ds, TENANT_A, async (query) => {
           if (op === 'UPDATE') {
             await query(
-              `UPDATE movements SET tenant_id = tenant_id WHERE tenant_id = $1::uuid`,
+              `UPDATE ${table} SET tenant_id = tenant_id WHERE tenant_id = $1::uuid`,
               [TENANT_B],
             );
           } else {
             await query(
-              `DELETE FROM movements WHERE tenant_id = $1::uuid`,
+              `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
               [TENANT_B],
             );
           }
@@ -370,16 +375,16 @@ describe('tenant-isolation-sweep (Issue #292)', () => {
       } catch (err) {
         caughtErr = err;
       }
-      expect(caughtErr, `${op} on movements should be rejected`).toBeDefined();
-      expect(caughtErr.code, `SQLSTATE for ${op} on movements`).toBe('42501');
-      expect(caughtErr.message, `Error message for ${op} on movements`).toMatch(
+      expect(caughtErr, `${op} on ${table} should be rejected`).toBeDefined();
+      expect(caughtErr.code, `SQLSTATE for ${op} on ${table}`).toBe('42501');
+      expect(caughtErr.message, `Error message for ${op} on ${table}`).toMatch(
         /permission denied/,
       );
     }
 
     // 2. all other tenant-scoped tables: UPDATE and DELETE affect 0 rows
     for (const table of TENANT_SCOPED_TABLES) {
-      if (table === 'movements') continue;
+      if (APPEND_ONLY_TABLES.includes(table)) continue;
 
       let sentinelThrown = false;
       try {
