@@ -41,6 +41,27 @@ after an `merge-base --is-ancestor` check.
 - #417 was closed. Two parts were skipped on purpose: tenant-import batching and the
   `movements.date` index.
 
+**How the mob04 `.env` gets onto the VM (answered 2026-09-25):**
+- Ansible runs on the owner's Mac and connects to mob04 over SSH. Nothing is cloned or built on
+  the VM: it pulls GHCR images, and Ansible copies the compose files and scripts.
+- `provision.yml` writes `DEMO_ENV_FILE` to `/opt/pos/.env` (owner `deploy`, mode 0600,
+  `provision.yml:148`). Never copy the file onto the VM by hand.
+- The two playbooks run as different users: `provision.yml` as `cloud` (has sudo, key
+  `~/.ssh/mob04-SriStore`), `deploy.yml` as `deploy` (in group `docker`, key
+  `~/.ssh/deploy_ed25519`). The host and keys come from the 2026-09-21 handoff; check them first.
+- Steps, run on the Mac:
+  1. Read the 4 baked values from mob04's current `.env`. This prints secrets, so don't
+     share the screen:
+     `ssh -i ~/.ssh/mob04-SriStore cloud@172.30.58.20 "sudo grep -E '^(POSTGRES_PASSWORD|POS_APP_PASSWORD|ETCD_ROOT_PASSWORD|K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD)=' /opt/pos/.env"`
+     Then fill them into `~/Downloads/mob04-demo.env`.
+  2. `export DEMO_ENV_FILE="$(cat ~/Downloads/mob04-demo.env)"`
+  3. `cd deploy/ansible && DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud DEMO_SSH_KEY_PATH=~/.ssh/mob04-SriStore ansible-playbook provision.yml`
+     🔴 Never pass `--diff`.
+  4. Verify. Both counts must be `0`:
+     `ssh … "sudo grep -c 'dev-only' /opt/pos/.env; sudo grep -c '^ALLOW_DEV_SECRETS' /opt/pos/.env"`
+- A new `.env` still cannot bring new images: FortiGate blocks `ghcr.io` (see CLAUDE.md, "Still
+  open"). The #67 runner is also not installed yet, so `deploy.yml` has to be run by hand too.
+
 **Still on humans (not code):**
 1. Post the `ALLOW_DEV_SECRETS` lane announcement (draft at the end of this file).
    - The owner's own `server/.env` already has it (main checkout, 2026-09-25).
