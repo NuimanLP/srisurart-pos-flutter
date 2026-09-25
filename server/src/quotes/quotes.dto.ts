@@ -148,28 +148,23 @@ export function parseQuoteFilter(
 }
 
 /** `POST /quotes/purge` with no `olderThanDays` purges past 90 days, as the Dart repo does. */
-export const DEFAULT_PURGE_OLDER_THAN_DAYS = 90;
+const DEFAULT_PURGE_OLDER_THAN_DAYS = 90;
+
+/**
+ * No person types this, yet `now() - n days` stays inside Postgres's timestamptz range
+ * (4713 BC), so the job's `$2::int * interval '1 day'` can never overflow.
+ */
+const MAX_PURGE_DAYS = 1_000_000;
 
 /**
  * `POST /quotes/purge` body. Validated, never clamped: `Math.max(1, Number(x))` used to
- * turn `"abc"` into `NaN` and `-5` into `1` (purge everything older than a day). The
- * upper bound also keeps the value inside the job's `$2::int` cast.
+ * turn `"abc"` into `NaN` and `-5` into `1` (purge everything older than a day).
  */
 export function parsePurgeOlderThanDays(body: unknown): number {
   if (body === undefined || body === null) return DEFAULT_PURGE_OLDER_THAN_DAYS;
   const value = asObject(body, 'body').olderThanDays;
   if (value === undefined || value === null) return DEFAULT_PURGE_OLDER_THAN_DAYS;
-  if (
-    typeof value !== 'number' ||
-    !Number.isInteger(value) ||
-    value < 1 ||
-    value > MAX_VALID_DAYS
-  ) {
-    throw new BadRequestException(
-      `olderThanDays must be an integer between 1 and ${MAX_VALID_DAYS}`,
-    );
-  }
-  return value;
+  return dayCount(value, 'olderThanDays', MAX_PURGE_DAYS);
 }
 
 function parseLine(raw: unknown, index: number): QuoteLine {
@@ -188,14 +183,18 @@ function parseLine(raw: unknown, index: number): QuoteLine {
 
 function parseValidDays(value: unknown): number | null {
   if (value === undefined || value === null) return null;
+  return dayCount(value, 'validDays', MAX_VALID_DAYS);
+}
+
+function dayCount(value: unknown, field: string, max: number): number {
   if (
     typeof value !== 'number' ||
     !Number.isInteger(value) ||
     value < 1 ||
-    value > MAX_VALID_DAYS
+    value > max
   ) {
     throw new BadRequestException(
-      `validDays must be an integer between 1 and ${MAX_VALID_DAYS}`,
+      `${field} must be an integer between 1 and ${max}`,
     );
   }
   return value;

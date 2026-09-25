@@ -103,7 +103,7 @@ describe('parsePurgeOlderThanDays', () => {
   it('passes a valid integer through unchanged', () => {
     expect(parsePurgeOlderThanDays({ olderThanDays: 1 })).toBe(1);
     expect(parsePurgeOlderThanDays({ olderThanDays: 30 })).toBe(30);
-    expect(parsePurgeOlderThanDays({ olderThanDays: 36_500 })).toBe(36_500);
+    expect(parsePurgeOlderThanDays({ olderThanDays: 1_000_000 })).toBe(1_000_000);
   });
 
   it.each([
@@ -113,7 +113,7 @@ describe('parsePurgeOlderThanDays', () => {
     ['zero', 0],
     ['a negative', -5],
     ['a fraction', 1.5],
-    ['past the int-safe cap', 36_501],
+    ['past the timestamp-safe cap', 1_000_001],
     ['Infinity', Number.POSITIVE_INFINITY],
   ])('refuses %s with 400 instead of clamping it', (_label, olderThanDays) => {
     expect(() => parsePurgeOlderThanDays({ olderThanDays })).toThrow(

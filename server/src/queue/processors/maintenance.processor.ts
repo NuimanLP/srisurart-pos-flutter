@@ -97,7 +97,8 @@ export class MaintenanceProcessor extends WorkerHost {
   }
 
   private async handleQuotesPurge(job: Job<QuotesPurgeJobPayload>): Promise<unknown> {
-    const olderThanDays = Math.max(1, job.data?.olderThanDays ?? 90);
+    // Validated at the only producer (`parsePurgeOlderThanDays`) — trusted, never clamped.
+    const olderThanDays = job.data.olderThanDays;
 
     return this.tenantJobRunner.runWithTenantContext(job, async (em) => {
       const result = await em.query(

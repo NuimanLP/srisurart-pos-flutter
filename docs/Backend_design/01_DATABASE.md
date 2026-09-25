@@ -934,12 +934,12 @@ CREATE TABLE owner_review_items (
   reviewed_at  TIMESTAMPTZ,
   reviewed_by  UUID,
   CONSTRAINT pk_owner_review_items PRIMARY KEY (tenant_id, id),
-  FOREIGN KEY (tenant_id, reviewed_by) REFERENCES users (tenant_id, id) ON DELETE SET NULL  -- แก้เป็น SET NULL (reviewed_by) ใน …4200 ดู §11
+  FOREIGN KEY (tenant_id, reviewed_by) REFERENCES users (tenant_id, id) ON DELETE SET NULL (reviewed_by)  -- …4200 (เดิม …3002 ไม่มี (reviewed_by)) ดู §11
 );
 CREATE INDEX idx_owner_review_items_created ON owner_review_items (tenant_id, created_at DESC);
 CREATE INDEX idx_owner_review_items_pending ON owner_review_items (tenant_id, created_at DESC)
   WHERE reviewed_at IS NULL;
--- RLS เปิด + FORCE · policy เดิม tenant_isolation_policy ไม่มี NULLIF — แทนด้วย tenant_isolation (มี NULLIF) ใน …4200 ดู §11
+-- RLS เปิด + FORCE · policy tenant_isolation แบบมี NULLIF เหมือนตารางอื่น (…4200 แทน tenant_isolation_policy ของ …3002) ดู §11
 ```
 
 ---

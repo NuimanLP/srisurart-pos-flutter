@@ -24,6 +24,7 @@ export class OwnerReviewItemsFixes1788652804200 implements MigrationInterface {
         USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
         WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)`);
 
+    // …3002 left the FK unnamed; this is Postgres's default name for it, kept as is.
     await q.query(
       `ALTER TABLE owner_review_items DROP CONSTRAINT owner_review_items_tenant_id_reviewed_by_fkey`,
     );
