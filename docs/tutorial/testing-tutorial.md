@@ -140,6 +140,16 @@ docker ps --format '{{.Names}}  {{.Ports}}'
 cp -n .env.example .env
 ```
 
+  > 🔑 **`ALLOW_DEV_SECRETS` (ตั้งแต่ PR #412/#416, 2026-09-25):** ค่าใน `.env.example` เป็นรหัสตัวอย่างที่ทุกคนเห็น (`dev-only-*` และ JWT key ตัวอย่าง)
+  > api/worker/bull-board จะ**ไม่ยอม boot** ถ้าเจอค่าพวกนี้ เว้นแต่ `.env` มี `ALLOW_DEV_SECRETS=true` (ไฟล์ตัวอย่างมีให้แล้ว)
+  > ถ้า `server/.env` ของคุณสร้างไว้ก่อนวันนั้น ให้เพิ่มเอง (ขึ้นบรรทัดใหม่ก่อนเสมอ):
+  >
+  > ```bash
+  > printf '\nALLOW_DEV_SECRETS=true\n' >> .env
+  > ```
+  >
+  > `pnpm test:e2e` ตั้งค่านี้ให้เองอยู่แล้ว (`vitest.config.e2e.ts`) แต่ `pnpm start:dev` / `docker compose up` ใช้ค่าจาก `.env` · 🔴 **ห้ามตั้งบนเครื่องจริง** (mob04 บังคับเป็นค่าว่างใน `vm.override.yml`)
+
 ```bash
 COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose up -d --wait postgres redis-cache redis-queue
 ```
@@ -168,7 +178,7 @@ pnpm test:e2e test/sales.e2e-spec.ts
 COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose down
 ```
 
-- **ผ่านเมื่อเห็น:**
+- **ผ่านเมื่อเห็น** (ตัวอย่างจาก 2026-09-24 — จำนวนเพิ่มขึ้นเรื่อยๆ ทุกครั้งที่มี test ใหม่ ให้ดูว่า `failed` เป็น 0):
   ```
   Test Files  52 passed | 1 skipped (53)
        Tests  607 passed | 2 skipped (609)
@@ -178,6 +188,11 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose down
   - test รัน**ทีละไฟล์** (`fileParallelism: false`) เพราะแต่ละไฟล์บูตแอปเต็มตัว ถ้ารันพร้อมกัน connection ของ Postgres จะเกิน 100
   - รัน `pnpm test:e2e` **ได้ทีละคนต่อฐานข้อมูล 1 ตัว** ถ้ามีอีกรอบรันค้างอยู่ จะขึ้นว่า `e2e runner lock: another pnpm test:e2e is already running` ให้รอหรือปิดรอบนั้นก่อน
   - **อย่าใช้ `docker compose down -v`** ถ้าเครื่องนั้นมีคนอื่นใช้ Docker ร่วมด้วย เพราะ `-v` ลบ volume ของทุกคน บน CI ใช้ได้เพราะเครื่องถูกทิ้งหลังรันเสร็จ
+  - 🍎 **บน macOS test แย่งกันแก้สต็อก (200–600 request พร้อมกัน) อาจแดงด้วย `ECONNRESET`** เช่น `stock-race-three-writers` และ race test ใน `sales`/`purchasing` —
+    macOS รับ connection ที่รอคิวได้แค่ 128 (`kern.ipc.somaxconn`) ไม่ใช่บั๊กในโค้ด บน CI (Linux) ผ่าน (พบ 2026-09-25) · ถ้าแดงแค่กลุ่มนี้ ให้ดูผล CI `integration` เป็นหลัก
+  - **อยากรันสแตกแยกของตัวเอง** (เช่นเครื่องมีสแตกอื่นเปิดอยู่): `docker-compose.yml` ตรึง subnet `172.30.0.0/24` ถ้ามี network เก่าจองไว้จะขึ้นไม่ได้ —
+    ใช้ `-p <ชื่อไม่ซ้ำ>` + override subnet/port ของตัวเอง หรือเปิด `postgres:16` + `redis` เดี่ยวๆ ด้วย `docker run --rm` บน port อื่นแล้วชี้ `DATABASE_URL`/`REDIS_*_URL` ไปที่นั่น · ลบเฉพาะของที่ตัวเองสร้าง
+  - `import-snapshot` อาจ timeout ถ้ามีสแตกอื่นแย่ง Docker อยู่ รันไฟล์นั้นเดี่ยวๆ ก่อนสรุปว่าพัง
 
 ### 2.4 Audit — "ตรวจอะไหล่ว่ามีของเสียไหม"
 
@@ -257,7 +272,8 @@ dart analyze --fatal-infos
 - **คืออะไร:** test ใน `frontend/test/` มีหลายแบบ
   - **repository test** เช่น บันทึกการขายลงฐานข้อมูลในเครื่อง (SQLite) แล้วอ่านกลับได้ถูก
   - **widget test** เช่น หน้าจอแสดง error ถูกไหม ปุ่มถูกล็อกตอนยังไม่เปิดกะไหม
-  - **migration test** อัปเกรดฐานข้อมูลจาก schema เก่าไปใหม่แล้วข้อมูลไม่หาย
+  - **migration test** อัปเกรดฐานข้อมูลจาก schema เก่าไปใหม่แล้วข้อมูลไม่หาย (ล่าสุด `schema_v12_migration_test.dart` — v11→v12 ต้องได้ index ชุดเดียวกับเครื่องที่ติดตั้งใหม่)
+  - **parity test** เช่น `reports_date_bounds_test.dart` — query แบบกรองช่วงวันที่ต้องได้ตัวเลขเท่ากับแบบเดิมทุกกรณีขอบ
   - **route smoke test** เปิดทุกหน้าในแอปได้โดยไม่ crash
   - **offline test** ขายตอนเน็ตหลุด แล้ว sync ภายหลังได้
 - **เพื่ออะไร:** แอปหน้าร้านห้ามพังระหว่างขาย test ชุดนี้ยืนยันว่าทุกหน้าจอและทุก flow หลักยังใช้ได้
@@ -273,7 +289,7 @@ flutter test --reporter expanded
 flutter test test/sales_repository_test.dart
 ```
 
-- **ผ่านเมื่อเห็น:** `00:52 +533: All tests passed!` ตัวเลขหน้าสุดคือเวลาที่ผ่านไป (52 วินาที) ส่วน `+533` คือจำนวน test ที่ผ่าน
+- **ผ่านเมื่อเห็น:** `01:15 +608: All tests passed!` (2026-09-25) ตัวเลขหน้าสุดคือเวลาที่ผ่านไป ส่วน `+608` คือจำนวน test ที่ผ่าน — จำนวนจะเพิ่มขึ้นเรื่อยๆ สิ่งที่ต้องดูคือคำว่า `All tests passed!`
 
 ### 3.3 Web DB asset check — "เช็คว่าอะไหล่รุ่นตรงกัน"
 
@@ -451,6 +467,9 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/jobs/107022509504/logs
 | e2e เชื่อมฐานข้อมูลไม่ได้ | ยังไม่ได้ `docker compose up` หรือยังไม่ migrate | ทำขั้น 2.3 ให้ครบตามลำดับ |
 | audit/Trivy แดง | library มีช่องโหว่ใหม่ | อัปเดต library ตัวนั้น (ห้ามปิดด้วย `.trivyignore`) |
 | codegen แดง | แก้ตาราง Drift แต่ไม่ได้ generate ใหม่ | รัน build_runner บน path ภาษาอังกฤษแล้ว commit ไฟล์ `*.g.dart` |
+| api/worker ไม่ยอม boot: `… is still the public placeholder from server/.env.example — refusing to boot` | `.env` ใช้รหัสตัวอย่างแต่ไม่มี `ALLOW_DEV_SECRETS=true` | เพิ่มบรรทัดนั้นใน `server/.env` (เครื่อง dev เท่านั้น — ดูขั้น 2.3) |
+| race test แดงด้วย `ECONNRESET` บน Mac | macOS จำกัดคิว connection ที่ 128 | ดูผล CI `integration` (Linux) เป็นหลัก |
+| `docker compose up` ขึ้นไม่ได้เพราะ subnet ชน | network เก่าจอง `172.30.0.0/24` | ใช้ `-p` + subnet ของตัวเอง หรือ container เดี่ยว (ขั้น 2.3) — อย่าลบ network ของคนอื่น |
 | image → GHCR แดงตอน push | registry มีปัญหาชั่วคราว (เคยเจอ `unknown blob`) | กด **Re-run failed jobs** บนหน้า run |
 
 ---

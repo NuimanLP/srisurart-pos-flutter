@@ -41,6 +41,14 @@ after an `merge-base --is-ancestor` check.
 - #417 was closed. Two parts were skipped on purpose: tenant-import batching and the
   `movements.date` index.
 
+**Testing tutorial updated (2026-09-25, `docs/tutorial/testing-tutorial.md`):**
+- `ALLOW_DEV_SECRETS` for dev `.env`, and the real refusal message.
+- macOS `somaxconn` → `ECONNRESET` on the race e2e tests (CI decides).
+- How to run your own isolated stack when the `172.30.0.0/24` subnet is taken.
+- `import-snapshot` timeouts on a busy Docker host.
+- v12 migration and report-parity tests.
+- Current `flutter test` count (608).
+
 **Still on humans (not code):**
 1. Post the `ALLOW_DEV_SECRETS` lane announcement (draft at the end of this file).
    - The owner's own `server/.env` already has it (main checkout, 2026-09-25).
