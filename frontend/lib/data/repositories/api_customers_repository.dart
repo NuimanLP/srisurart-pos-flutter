@@ -245,11 +245,10 @@ class ApiCustomersRepository extends CustomersRepository {
               ..where((t) => t.id.equals(comp.id.value)))
             .getSingle();
       }
-      throw ApiException(
-        statusCode: 500,
-        code: 'SERVER_ERROR',
-        serverMessage: 'บันทึกลูกค้าไม่สำเร็จ',
-      );
+      // A 2xx that is not a customer: the server answered and may have
+      // committed. PosException, not ApiException — an ApiException here
+      // landed in the non-verdict branch below and was queued offline.
+      throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
     } on ApiException catch (e) {
       if (isVerdict(e)) {
         rethrowServerRefusal(e);
@@ -333,6 +332,9 @@ class ApiCustomersRepository extends CustomersRepository {
         await db.into(db.customers).insertOnConflictUpdate(comp);
         return;
       }
+      // Same as addCustomer: a 2xx that is not a customer is an unknown
+      // fate, never a silent success.
+      throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
     } on ApiException catch (e) {
       if (isVerdict(e)) {
         rethrowServerRefusal(e);

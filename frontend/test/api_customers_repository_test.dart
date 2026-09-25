@@ -420,6 +420,75 @@ void main() {
     },
   );
 
+  // A 2xx whose body is not a customer: the server answered and may have
+  // committed, so the write's fate is unknown. It must surface as the Thai
+  // UNREADABLE_RESPONSE — not succeed silently (updateCustomer used to fall
+  // through) and not be queued offline (addCustomer's synthesized 500 used to
+  // land in its own non-verdict branch).
+  group('a 2xx whose body is not a customer', () {
+    late ApiClient apiClient;
+    late SyncService syncService;
+
+    setUp(() {
+      apiClient = ApiClient(
+        httpClient: MockClient((_) async => http.Response(
+              '{"status":"success","data":["not-a-customer"]}',
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            )),
+      );
+      syncService = SyncService(
+        db: db,
+        apiClient: apiClient,
+        tokenStorage: InMemoryTokenStorage(),
+        autoStartHealthProbe: false,
+      );
+    });
+
+    test('updateCustomer throws UNREADABLE_RESPONSE, leaves the row alone, queues nothing', () async {
+      await db.into(db.customers).insert(
+        CustomersCompanion.insert(
+          id: 'c_nonmap_upd',
+          code: 'CUS_U',
+          name: 'Before',
+          nameTH: 'ก่อน',
+          createdAt: '2026-09-25T10:00:00.000Z',
+        ),
+      );
+      final repo = ApiCustomersRepository(db, apiClient, syncService: syncService);
+
+      await expectLater(
+        repo.updateCustomer('c_nonmap_upd', const CustomersCompanion(nameTH: Value('หลัง'))),
+        throwsA(isA<PosException>().having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')),
+      );
+
+      final row = await (db.select(db.customers)..where((t) => t.id.equals('c_nonmap_upd'))).getSingle();
+      expect(row.nameTH, 'ก่อน');
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+    });
+
+    test('addCustomer throws UNREADABLE_RESPONSE, writes no row, queues nothing', () async {
+      final repo = ApiCustomersRepository(db, apiClient, syncService: syncService);
+
+      await expectLater(
+        repo.addCustomer(
+          CustomersCompanion.insert(
+            id: 'c_nonmap_add',
+            code: 'CUS_A',
+            name: 'Nobody',
+            nameTH: 'ไม่มี',
+            createdAt: '2026-09-25T10:00:00.000Z',
+          ),
+        ),
+        throwsA(isA<PosException>().having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')),
+      );
+
+      final row = await (db.select(db.customers)..where((t) => t.id.equals('c_nonmap_add'))).getSingleOrNull();
+      expect(row, isNull);
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+    });
+  });
+
   test('deleteCustomer in degraded mode throws PosException and does not delete locally (08 §6.2)', () async {
     await db.into(db.customers).insert(
       CustomersCompanion.insert(

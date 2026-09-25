@@ -160,4 +160,38 @@ void main() {
       expect(state.errorMessage, contains('รหัส PIN ถูกล็อก'));
     });
   });
+
+  // #400/#404: on web the access token is memory-only, so a reload leaves only
+  // the persisted refresh token, user and device token. init must still land
+  // signed in, with the device role recorded at the last online login.
+  group('AuthCubit.init after a reload', () {
+    test('memory-only access token gone → Authenticated with the recorded role',
+        () async {
+      await pinRepo.recordOnlineLogin(
+        iat: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        deviceId: 'pos-1',
+        deviceRole: 'pos',
+      );
+      tokenStorage
+        ..accessToken = null
+        ..refreshToken = 'persisted-refresh'
+        ..user = const AuthUser(id: 'u-1', username: 'shop', role: 'owner');
+
+      // No offlinePinRepository on the cubit: the role must come through
+      // AuthRepository's own fallback, not the cubit's.
+      final reloaded = AuthCubit(authRepository: authRepo);
+      addTearDown(reloaded.close);
+
+      await reloaded.init();
+
+      expect(
+        reloaded.state,
+        const Authenticated(
+          user: AuthUser(id: 'u-1', username: 'shop', role: 'owner'),
+          deviceToken: 'mock-device-token',
+          deviceRole: 'pos',
+        ),
+      );
+    });
+  });
 }
