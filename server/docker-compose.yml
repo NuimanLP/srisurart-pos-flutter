@@ -15,10 +15,10 @@
 #
 # Every external `image:` below is pinned `name:tag@sha256:<digest>` (#401), same policy as
 # the base images in Dockerfile ("Base image digests are pinned and bumped by hand" — CLAUDE.md).
-# Dependabot's `docker` ecosystem for `/server` (.github/dependabot.yml) opens a security-update
-# PR that bumps the digest by hand, same as it does for Dockerfile; routine version bumps stay
-# human-timed. `srisurart-pos/server:local` (built here) and the GHCR images in
-# deploy/compose/vm.override.yml (built/pinned by our own CI) are out of scope for this pin.
+# Dependabot does not cover compose files (.github/dependabot.yml's `docker` ecosystem for
+# `/server` only scans Dockerfile); these digests are bumped by hand too. `srisurart-pos/server:local`
+# (built here) and the GHCR images in deploy/compose/vm.override.yml (built/pinned by our own CI)
+# are out of scope for this pin.
 
 name: srisurart-pos
 
