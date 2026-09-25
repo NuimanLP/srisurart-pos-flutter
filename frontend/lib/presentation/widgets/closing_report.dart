@@ -46,7 +46,7 @@ Future<void> showClosingReport(BuildContext context) {
 
 /// Aggregated read-model for the closing report (one async load of everything).
 class _ClosingData {
-  final List<_SaleLite> sales;
+  final List<SaleLite> sales;
   final double cashRefundsToday;
   final double cashCreditPaymentsToday;
   final double drawerStarting;
@@ -77,13 +77,15 @@ class _ClosingData {
 }
 
 /// A flattened sale + items (with cost looked up) used by the report math.
-class _SaleLite {
+/// Public (no leading underscore) so [computeGrossProfit] is unit-testable
+/// from `test/` without a widget pump.
+class SaleLite {
   final double subtotal;
   final double discount;
   final double total;
   final String paymentMethod;
-  final List<_ItemLite> items;
-  const _SaleLite({
+  final List<ItemLite> items;
+  const SaleLite({
     required this.subtotal,
     required this.discount,
     required this.total,
@@ -92,20 +94,95 @@ class _SaleLite {
   });
 }
 
-class _ItemLite {
+class ItemLite {
   final String partNo;
   final String name;
   final int qty;
   final double price;
-  final double cost;
-  const _ItemLite({
+  /// Cost recorded on the bill itself at the time of sale (ADR-0008,
+  /// `SaleItems.costAtSale` in `data/db/tables.dart`). Null on a legacy bill
+  /// sold before that column existed.
+  final double? costAtSale;
+  /// Today's `products.cost` for the same part, looked up as a fallback only
+  /// — it drifts on every weighted-average PO receive, so it is never
+  /// preferred over [costAtSale]. Null when the product row is gone too.
+  final double? currentCost;
+  const ItemLite({
     required this.partNo,
     required this.name,
     required this.qty,
     required this.price,
-    required this.cost,
+    required this.costAtSale,
+    required this.currentCost,
   });
 }
+
+/// Result of [computeGrossProfit]: the profit figure plus how much of it is a
+/// guess (ADR-0008) — mirrors `estimatedCostRows`/`unknownCostRows` in
+/// `server/src/reports/reports.service.ts` and `estimatedLines`/`unknownLines`
+/// in `products_screen.dart`'s `_monthly`.
+class GrossProfitResult {
+  final double profit;
+  /// Lines with no `costAtSale`, costed at today's product cost instead.
+  final int estimatedCostLines;
+  /// Lines with no `costAtSale` AND no current product cost — costed at 0
+  /// (excluded from the cost side, never silently treated as free stock).
+  final int unknownCostLines;
+  const GrossProfitResult(
+    this.profit,
+    this.estimatedCostLines,
+    this.unknownCostLines,
+  );
+}
+
+/// Approximate gross profit over [sales] (ports `ClosingReport.jsx`).
+///
+/// Cost per line prefers `item.costAtSale` — the cost recorded on the bill
+/// (ADR-0008) — over today's product cost, because `products.cost` is
+/// recomputed on every weighted-average PO receive and would make a past
+/// bill's profit drift. When neither is available the line is excluded from
+/// the cost side rather than silently costed at 0 (which would read as 100%
+/// margin). This matches `products_screen.dart`'s `_monthly` fallback chain
+/// and `reports.service.ts`'s `grossProfitCtes`
+/// (`COALESCE(cost_at_sale, current_cost, 0)` with `estimated_cost_rows`/
+/// `unknown_cost_rows` tracked alongside for disclosure).
+GrossProfitResult computeGrossProfit(List<SaleLite> sales, double taxRate) {
+  final vatDivisor = 1 + taxRate / 100;
+  var estimatedCostLines = 0;
+  var unknownCostLines = 0;
+  final profit = sales.fold<double>(0, (tot, sale) {
+    final subtotal = sale.subtotal != 0
+        ? sale.subtotal
+        : sale.items.fold<double>(0, (a, i) => a + i.price * i.qty);
+    final discountRatio = subtotal > 0 ? sale.discount / subtotal : 0.0;
+    final itemProfit = sale.items.fold<double>(0, (a, i) {
+      final lineRevenue = i.price * i.qty * (1 - discountRatio);
+      double costPerUnit;
+      if (i.costAtSale != null) {
+        costPerUnit = i.costAtSale!;
+      } else if (i.currentCost != null) {
+        costPerUnit = i.currentCost!;
+        estimatedCostLines++;
+      } else {
+        costPerUnit = 0;
+        unknownCostLines++;
+      }
+      return a + (lineRevenue / vatDivisor) - (costPerUnit * i.qty);
+    });
+    return tot + itemProfit;
+  });
+  return GrossProfitResult(profit, estimatedCostLines, unknownCostLines);
+}
+
+/// Disclosure lines for [GrossProfitResult] — verbatim copy of the warning
+/// `products_screen.dart`'s `_monthly` already shows under "Margin % เดือนนี้"
+/// (reused, not invented, per CONTRACT.md's Thai-string-parity rule).
+List<String> costDisclosureLines(GrossProfitResult r) => [
+  if (r.estimatedCostLines > 0)
+    '${r.estimatedCostLines} รายการคำนวณจากต้นทุนปัจจุบัน ไม่ใช่ ณ วันที่ขาย',
+  if (r.unknownCostLines > 0)
+    '${r.unknownCostLines} รายการไม่มีข้อมูลต้นทุน (กำไรจะสูงกว่าจริง)',
+];
 
 /// Legacy credit payments carried a `method` field (`'เงินสด'` | `'โอน/QR'`)
 /// and only cash settlements counted toward the drawer. The Drift port has no
@@ -136,24 +213,25 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
 
   final costByPart = {for (final p in products) p.partNo: p.cost};
 
-  final sales = <_SaleLite>[];
+  final sales = <SaleLite>[];
   for (final s in salesAgg) {
     final sale = s.sale;
     if (dateKey(sale.date) != today) continue;
     sales.add(
-      _SaleLite(
+      SaleLite(
         subtotal: sale.subtotal,
         discount: sale.discount,
         total: sale.total,
         paymentMethod: sale.paymentMethod,
         items: [
           for (final i in s.items)
-            _ItemLite(
+            ItemLite(
               partNo: i.partNo ?? '',
               name: i.name,
               qty: i.qty,
               price: i.price,
-              cost: costByPart[i.partNo] ?? 0,
+              costAtSale: i.costAtSale,
+              currentCost: costByPart[i.partNo],
             ),
         ],
       ),
@@ -243,10 +321,10 @@ class _ClosingReportState extends State<ClosingReport> {
   double _totalRevenue(_ClosingData d) =>
       d.sales.fold(0, (s, t) => s + t.total);
 
-  List<_SaleLite> _cashSales(_ClosingData d) =>
+  List<SaleLite> _cashSales(_ClosingData d) =>
       d.sales.where((s) => s.paymentMethod == 'เงินสด').toList();
 
-  List<_SaleLite> _qrSales(_ClosingData d) => d.sales
+  List<SaleLite> _qrSales(_ClosingData d) => d.sales
       .where(
         (s) =>
             s.paymentMethod == 'โอน/QR' ||
@@ -255,22 +333,10 @@ class _ClosingReportState extends State<ClosingReport> {
       )
       .toList();
 
-  double _sumTotal(List<_SaleLite> list) => list.fold(0, (s, t) => s + t.total);
+  double _sumTotal(List<SaleLite> list) => list.fold(0, (s, t) => s + t.total);
 
-  double _grossProfit(_ClosingData d) {
-    final vatDivisor = 1 + d.taxRate / 100;
-    return d.sales.fold<double>(0, (tot, sale) {
-      final subtotal = sale.subtotal != 0
-          ? sale.subtotal
-          : sale.items.fold<double>(0, (a, i) => a + i.price * i.qty);
-      final discountRatio = subtotal > 0 ? sale.discount / subtotal : 0.0;
-      final itemProfit = sale.items.fold<double>(0, (a, i) {
-        final lineRevenue = i.price * i.qty * (1 - discountRatio);
-        return a + (lineRevenue / vatDivisor) - (i.cost * i.qty);
-      });
-      return tot + itemProfit;
-    });
-  }
+  GrossProfitResult _grossProfit(_ClosingData d) =>
+      computeGrossProfit(d.sales, d.taxRate);
 
   List<_TopItem> _topItems(_ClosingData d) {
     final map = <String, _TopItem>{};
@@ -325,7 +391,8 @@ class _ClosingReportState extends State<ClosingReport> {
     final qrSales = _qrSales(d);
     final cashTotal = _sumTotal(cashSales);
     final qrTotal = _sumTotal(qrSales);
-    final grossProfit = _grossProfit(d);
+    final profitResult = _grossProfit(d);
+    final grossProfit = profitResult.profit;
     final topItems = _topItems(d);
     final cashExpected = _cashExpected(d);
     final cashActual = _cashActual();
@@ -451,6 +518,14 @@ class _ClosingReportState extends State<ClosingReport> {
               ),
             ),
             row('กำไรประมาณ', baht(grossProfit.round())),
+            for (final line in costDisclosureLines(profitResult))
+              pw.Text(
+                line,
+                style: const pw.TextStyle(
+                  fontSize: 7,
+                  color: PdfColors.orange800,
+                ),
+              ),
             divider(),
             sectionTitle('แบ่งตามวิธีชำระเงิน'),
             row('💵 เงินสด (${cashSales.length} บิล)', baht(cashTotal)),
@@ -591,7 +666,9 @@ class _ClosingReportState extends State<ClosingReport> {
     final qrSales = _qrSales(d);
     final cashTotal = _sumTotal(cashSales);
     final qrTotal = _sumTotal(qrSales);
-    final grossProfit = _grossProfit(d);
+    final profitResult = _grossProfit(d);
+    final grossProfit = profitResult.profit;
+    final profitDisclosure = costDisclosureLines(profitResult);
     final topItems = _topItems(d);
     final cashExpected = _cashExpected(d);
     final cashActual = _cashActual();
@@ -626,6 +703,16 @@ class _ClosingReportState extends State<ClosingReport> {
           ),
           _Kpi('กำไรประมาณ', baht(grossProfit.round()), AppColors.successLight),
         ]),
+        if (profitDisclosure.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              profitDisclosure.join('\n'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.warning,
+              ),
+            ),
+          ),
         const SizedBox(height: 20),
         _SectionTitle('วิธีชำระเงิน'),
         _payRow('💵 เงินสด', cashSales.length, cashTotal, AppColors.orange),
