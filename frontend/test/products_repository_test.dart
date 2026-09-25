@@ -107,6 +107,55 @@ void main() {
   });
 
   test(
+    'add/update with a non-ASCII partNo falls back to Dart-side '
+    'Unicode-aware dup-check (SQLite lower() is ASCII-only)',
+    () async {
+      // Cyrillic 'С' (U+0421) vs 'с' (U+0441) differ only under a
+      // Unicode-aware lowercase — SQLite's lower() would not fold them.
+      final added = await repo.add(
+        ProductsCompanion.insert(
+          id: 'x',
+          partNo: 'СС-100',
+          name: 'Cyrillic Part',
+          nameTH: 'ชิ้นส่วนซีริลลิก',
+          category: 'ไฟฟ้า',
+          brand: 'B',
+          price: 10,
+          cost: 5,
+          stock: 1,
+          minStock: 1,
+        ),
+      );
+      expect(added, isNotNull);
+
+      // Same partNo, lowercased — must be caught as a duplicate.
+      final dup = await repo.add(
+        ProductsCompanion.insert(
+          id: 'y',
+          partNo: 'сс-100',
+          name: 'Dup Cyrillic',
+          nameTH: 'ซ้ำ',
+          category: 'ไฟฟ้า',
+          brand: 'B',
+          price: 10,
+          cost: 5,
+          stock: 1,
+          minStock: 1,
+        ),
+      );
+      expect(dup, isNull);
+
+      // update(): colliding with ANOTHER product's non-ASCII partNo is
+      // still refused.
+      final ok = await repo.update(
+        'p1',
+        const ProductsCompanion(partNo: Value('сс-100')),
+      );
+      expect(ok, isFalse);
+    },
+  );
+
+  test(
     'update to a colliding partNo (another product) returns false',
     () async {
       // Try to set p2's partNo to p1's partNo (case-insensitive collision).

@@ -35,7 +35,12 @@ class SalesRepository {
   /// error (and rolls back) on insufficient stock.
   Future<SaleRow> saveSale(SaleInput input) async {
     // ── 1. Pre-validate stock against current Products (db.js productsSnapshot) ──
-    final products = await db.select(db.products).get();
+    // Only the cart's own product ids are needed — avoids loading the whole
+    // table on every checkout.
+    final cartIds = input.items.map((i) => i.productId).toSet().toList();
+    final products = await (db.select(
+      db.products,
+    )..where((t) => t.id.isIn(cartIds))).get();
     final byId = {for (final p in products) p.id: p};
 
     final insufficient = <String>[];

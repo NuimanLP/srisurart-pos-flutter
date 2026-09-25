@@ -100,6 +100,48 @@ void main() {
     },
   );
 
+  test(
+    'multi-line cart: targeted product lookup still reports every bad line '
+    '(insufficient + missing) and leaves a valid line unaffected',
+    () async {
+      final input = SaleInput(
+        subtotal: 3210,
+        discount: 0,
+        total: 3210,
+        paymentMethod: 'เงินสด',
+        items: const [
+          // p8 stock=5, requesting 6 → insufficient.
+          SaleLineInput(
+            productId: 'p8',
+            name: 'Piston Kit STD',
+            qty: 6,
+            price: 3200,
+          ),
+          // Not a real product → missing.
+          SaleLineInput(productId: 'GHOST', name: 'Ghost', qty: 1, price: 10),
+          // p1 stock=48, requesting 1 → fine, but the whole sale still throws.
+          SaleLineInput(productId: 'p1', name: 'Oil Filter', qty: 1, price: 0),
+        ],
+      );
+
+      await expectLater(
+        repo.saveSale(input),
+        throwsA(
+          predicate(
+            (e) =>
+                e.toString().contains('Piston Kit STD: สต็อก 5 แต่ต้องการ 6') &&
+                e.toString().contains('Ghost: ไม่พบในสต็อก'),
+          ),
+        ),
+      );
+
+      // Nothing committed — including the otherwise-valid p1 line.
+      final p1 = await product('p1');
+      expect(p1.stock, 48);
+      expect(await repo.getSales(), isEmpty);
+    },
+  );
+
   test('missing product throws ไม่พบในสต็อก and records nothing', () async {
     final input = SaleInput(
       subtotal: 10,

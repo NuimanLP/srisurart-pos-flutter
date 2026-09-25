@@ -102,18 +102,23 @@ class PurchaseOrdersRepository {
         db.poItems,
       )..where((t) => t.poId.equals(id))).get();
 
+      // Load every product ONCE (not per PO line) and index by lowercased
+      // partNo — first-match-wins in table order, same as the old per-line
+      // linear scan. Entries are refreshed below after each write so a
+      // partNo repeated across two lines of the same PO sees the running
+      // qty/cost, not the stale pre-loop snapshot.
+      final allProducts = await db.select(db.products).get();
+      final byLowerPartNo = <String, ProductRow>{};
+      for (final prod in allProducts) {
+        final key = prod.partNo.toLowerCase();
+        byLowerPartNo.putIfAbsent(key, () => prod);
+      }
+
       final unmatched = <String>[];
       for (final item in items) {
         // Match product by partNo, case-insensitive (db.js toLowerCase compare).
-        final allProducts = await db.select(db.products).get();
         final partNoLower = item.partNo.toLowerCase();
-        ProductRow? p;
-        for (final prod in allProducts) {
-          if (prod.partNo.toLowerCase() == partNoLower) {
-            p = prod;
-            break;
-          }
-        }
+        final p = byLowerPartNo[partNoLower];
 
         if (p != null) {
           // Weighted-average cost: (oldQty*oldCost + newQty*newCost)/(oldQty+newQty).
@@ -129,7 +134,7 @@ class PurchaseOrdersRepository {
 
           await (db.update(
             db.products,
-          )..where((t) => t.id.equals(p!.id))).write(
+          )..where((t) => t.id.equals(p.id))).write(
             ProductsCompanion(stock: Value(totalQty), cost: Value(wac)).stamped,
           );
 
@@ -149,6 +154,12 @@ class PurchaseOrdersRepository {
                   date: DateTime.now(),
                 ),
               );
+
+          // Keep the map's snapshot fresh so a partNo repeated in this same
+          // PO (two lines matching the same product) computes its weighted
+          // average against the just-updated stock/cost, not the stale
+          // pre-loop values.
+          byLowerPartNo[partNoLower] = p.copyWith(stock: totalQty, cost: wac);
         } else {
           unmatched.add(item.partNo);
         }
