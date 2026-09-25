@@ -2,7 +2,71 @@
 
 Read the root `CLAUDE.md` first (binding rules). The owner wants reports **extremely concise**, and writes in Thai.
 
-## Round 3 (2026-09-25, late) — read this first
+## Round 4 (2026-09-25, night) — read this first
+**Nothing open in code.** No PRs are open. Remote branches: only `main` and
+`POC_sample_offline_first`. Every merged remote and local branch and agent worktree was deleted
+after an `merge-base --is-ancestor` check.
+
+**Merged since round 3:**
+- #426 (closes #425): dummy argon2 verify for unknown usernames.
+- #427: Reports, Closing report and Cash drawer load only the date range.
+- #428: `docs/study` sync.
+- #429: server sync pages skip `count(*)`; products `(tenant_id, updated_at, id)` index `…4300`;
+  shift-history N+1 removed.
+- #430: Drift schema **v12**, 10 indexes.
+- #431: handoff round 3.
+- #432: README setup + dev secrets + study-pack pointer.
+- #433: login verifies the password **before** revealing inactive/suspended status. An ambiguous
+  username always gets the generic 401.
+- #434: 08 §11 — online `POST /shifts/open` body is `{ id?, startingCash }`; `openedAt` is used
+  only in the push op.
+- #435: after push, the client patches the local `receiptNo`/`cnNo` (and `returns.receiptNo`)
+  to the server's number.
+- #436 + #437: sync date rules and receipt renumbering.
+  - A bad or empty date is rejected (400 → `rejected`).
+  - With no open shift, a future date is clamped to now + `date_flag`.
+  - A future `shift.open` is clamped to now + flag.
+  - Period ≠ month → `date_flag`.
+  - The window is measured against the **open** shift only.
+  - A new review kind `receipt_renumbered` (migration `…4400`) records the offline and
+    server numbers.
+  - 🔴 #436 was merged at its first commit only; #437 carried the rest.
+  - **Before merging, check that the PR head equals the agent's last push.**
+
+**Owner decisions made 2026-09-25 (recorded in docs):**
+- The Thai label `เลขเอกสารออฟไลน์ไม่ตรงกับระบบ` is ratified.
+- An op pushed late, after a newer shift opened, is measured against the new shift (clamp + flag).
+- 08 §11 is aligned with §10.
+- Login status is revealed only after a correct password.
+- #417 was closed. Two parts were skipped on purpose: tenant-import batching and the
+  `movements.date` index.
+
+**Still on humans (not code):**
+1. Post the `ALLOW_DEV_SECRETS` lane announcement (draft at the end of this file).
+   - The owner's own `server/.env` already has it (main checkout, 2026-09-25).
+2. **mob04 `DEMO_ENV_FILE`:** a complete file was generated on the owner's Mac at
+   `~/Downloads/mob04-demo.env` (0600, **not in the repo**). It holds fresh random
+   Redis, platform-JWT, Bull Board and Grafana secrets and a fresh RS256 pair.
+   - 🔴 **4 volume-baked keys are left EMPTY on purpose:** `POSTGRES_PASSWORD`,
+     `POS_APP_PASSWORD`, `ETCD_ROOT_PASSWORD` and `K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD`.
+     - Copy them from mob04's current `/opt/pos/.env`, because `pgdata`/`etcd-data`/`nginx-auth`
+       keep their first-bootstrap secret.
+     - Use the fresh values in the file's comments only on a brand-new VM.
+   - `CORS_ORIGINS` is left commented until the real browser origin is confirmed.
+   - A new JWT pair means every till logs in once.
+   - Delete the file after use.
+3. Merge is still manual: auto-mode refuses `gh pr merge`.
+
+**Not done / known leftovers:**
+- `Invalid device token` and `Device has been retired` are still answered before the password
+  check. They concern the device, not the account.
+- Legacy PBKDF2 platform-admin hashes verify fast, so timing still leaks for those accounts.
+- The device keeps no copy of the offline receipt number after a patch; only the server's
+  review item has both.
+- The macOS `somaxconn` limit (128) makes the 200-concurrent race e2e tests fail locally.
+  They pass on CI.
+
+## Round 3 (2026-09-25, late) — historical
 **Merged (round 2):** #415 docs sync · #416 dev-only passwords inside connection URLs ·
 #418 customer non-Map responses + reload→init test · #419 web localStorage token fallback
 removed, **closes #400** (owner decision 2026-09-25, ADR-0009 addendum; Thai text of
