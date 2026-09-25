@@ -90,8 +90,11 @@ export function refusePublicSecret(
 }
 
 /**
- * `refusePublicSecret` for the password component of a connection URL (`postgres://u:pw@…`,
- * `redis://:pw@…`), percent-decoded. An unparseable URL is left to the driver to reject.
+ * `refusePublicSecret` for the password a connection URL carries — the userinfo password
+ * (`postgres://u:pw@…`, `redis://:pw@…`) and the `?password=` query parameter, which both pg and
+ * ioredis also honour. A string WHATWG `URL` cannot parse may still be one the driver accepts
+ * (scheme-less `host:6379?password=…`, a unix-socket `postgres://u:pw@/db`), so it is split on
+ * URL delimiters and every piece is checked instead — the check never depends on the parse.
  */
 export function refusePublicSecretInUrl(
   env: NodeJS.ProcessEnv,
@@ -99,18 +102,22 @@ export function refusePublicSecretInUrl(
   url: string | undefined,
 ): void {
   if (url === undefined || env.ALLOW_DEV_SECRETS === 'true') return;
-  let password: string;
+  let candidates: string[];
   try {
-    password = new URL(url).password;
+    const u = new URL(url);
+    candidates = [safeDecode(u.password), u.searchParams.get('password') ?? ''];
   } catch {
-    return;
+    candidates = safeDecode(url).split(/[:@/?&=#]/);
   }
+  for (const c of candidates) refusePublicSecret(env, `the password in ${name}`, c);
+}
+
+function safeDecode(s: string): string {
   try {
-    password = decodeURIComponent(password);
+    return decodeURIComponent(s);
   } catch {
-    // malformed %-escape: check the raw form
+    return s; // malformed %-escape: check the raw form
   }
-  refusePublicSecret(env, `the password in ${name}`, password);
 }
 
 /**

@@ -231,8 +231,23 @@ describe('loadConfig — refuses public placeholder secrets unless ALLOW_DEV_SEC
     expect(() => refusePublicSecretInUrl({}, 'REDIS_QUEUE_URL', 'redis://:dev-only-%zz@h:1')).toThrow(
       /REDIS_QUEUE_URL/,
     );
-    // Unparseable URL is left to the driver.
+  });
+
+  it('checks ?password= and URLs WHATWG cannot parse (both drivers accept them)', () => {
+    for (const [name, url] of [
+      ['REDIS_CACHE_URL', 'redis://localhost:6379?password=dev-only-redis'],
+      ['DATABASE_URL', 'postgres://pos_app@localhost/pos?password=dev-only-pos-app'],
+      ['REDIS_QUEUE_URL', 'localhost:6380?password=dev-only-redis'], // scheme-less
+      ['DATABASE_URL', 'postgres://pos_app:dev-only-pos-app@/pos?host=/var/run/pg'], // unix socket
+    ]) {
+      expect(() => refusePublicSecretInUrl({}, name, url)).toThrow(
+        new RegExp(`the password in ${name}`),
+      );
+    }
     expect(() => refusePublicSecretInUrl({}, 'DATABASE_URL', 'not a url')).not.toThrow();
+    expect(() =>
+      refusePublicSecretInUrl({}, 'DATABASE_URL', 'postgres://u:real-pw@/pos?host=/var/run/pg'),
+    ).not.toThrow();
   });
 
   it('refuses via the exported helper too (bull-board.ts BULL_BOARD_PASSWORD)', () => {
