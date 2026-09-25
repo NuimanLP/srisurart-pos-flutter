@@ -13,6 +13,7 @@ import {
   type QuotesPurgeJobPayload,
 } from '../queue.constants.js';
 import { TenantJobRunner } from '../tenant-job-runner.js';
+import { pruneExportFiles } from '../../backup/export-file.js';
 
 @Injectable()
 @Processor(QUEUE_MAINTENANCE)
@@ -73,6 +74,13 @@ export class MaintenanceProcessor extends WorkerHost {
     // matched 0 rows while the job reported success. Fanning out keeps the delete under RLS
     // and reuses the runner's suspended-tenant skip, retries and DLQ; ADMIN_DATA_SOURCE
     // would bypass all three. `tenants` has no RLS, so listing it on the pool is safe.
+    // Piggybacks on this hourly, tenant-less run: expired tenant-export files (backup.processor)
+    // must go even when no shop ever exports again.
+    const prunedExports = await pruneExportFiles();
+    if (prunedExports > 0) {
+      this.logger.info({ prunedExports }, 'Expired tenant export files pruned');
+    }
+
     const tenants: Array<{ id: string }> = await this.dataSource.query(
       'SELECT id FROM tenants ORDER BY id',
     );
