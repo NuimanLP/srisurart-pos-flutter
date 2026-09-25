@@ -125,7 +125,13 @@ export class BackupController {
     } catch {
       throw notFound('Export expired');
     }
-    const { size } = await fh.stat();
+    let size: number;
+    try {
+      ({ size } = await fh.stat());
+    } catch (err) {
+      await fh.close();
+      throw err;
+    }
     res.status(HttpStatus.OK);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Length', String(size));
@@ -136,6 +142,8 @@ export class BackupController {
     res.setHeader('Cache-Control', 'no-store');
     const stream = fh.createReadStream();
     stream.on('error', () => res.destroy());
+    // A client that disconnects mid-download must not leave the file handle open.
+    res.on('close', () => stream.destroy());
     stream.pipe(res);
   }
 

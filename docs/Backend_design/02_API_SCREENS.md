@@ -439,10 +439,10 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 | Method + Path | หมายเหตุ |
 |---|---|
 | `GET /settings` · `PATCH /settings` | ข้อมูลร้าน, VAT, อายุใบเสนอราคา |
-| `POST /backup/export` | → `202 Accepted` + `jobId` (งานหนัก เข้า BullMQ) → ได้ signed URL ตอนเสร็จ · *(2026-09-23: ต้องมี `did` (F6) — ทั้งตัวนี้และ `GET /backup/jobs/:id` ไม่มี = `403 DEVICE_ROLE_FORBIDDEN`, `backup.controller.ts:53,86`)* |
+| `POST /backup/export` | → `202 Accepted` + `jobId` (งานหนัก เข้า BullMQ) → ~~ได้ signed URL ตอนเสร็จ~~ *(2026-09-25: ไม่ใช่ signed URL — ได้ `downloadPath` ใน `GET /backup/jobs/:id` ซึ่งต้องใช้ JWT + `did` เหมือนกัน)* · *(2026-09-23: ต้องมี `did` (F6) — ทั้งตัวนี้และ `GET /backup/jobs/:id` ไม่มี = `403 DEVICE_ROLE_FORBIDDEN`, `backup.controller.ts:53,86`)* |
 | ~~`POST /backup/import`~~ | **ย้ายไป admin plane แล้ว** → `POST /platform/tenants/{id}/import` (ดู §4.1) |
 | `GET /backup/jobs/:id` | เช็คสถานะงาน export (tenant plane, tenant JWT) · *(2026-09-25: `data`/`result` ตอนเสร็จ = descriptor เล็ก `{sizeBytes, sha256, exportedAt, recordCounts, downloadPath}` เท่านั้น — **ไม่มี snapshot ฝังมาแล้ว**)* |
-| `GET /backup/jobs/:id/download` 🆕 *(2026-09-25)* | stream ไฟล์ snapshot `sa_*` + `__meta` (`application/json`, `Content-Disposition: attachment`) · ต้องมี `did` · job ต้องเป็นของ tenant ใน token (ไม่ใช่ = `404`) · ยังไม่เสร็จ/ไฟล์หมดอายุ (1 ชม.) = `404 NOT_FOUND` |
+| `GET /backup/jobs/:id/download` 🆕 *(2026-09-25)* | stream ไฟล์ snapshot `sa_*` + `__meta` (`application/json`, `Content-Disposition: attachment`) · ต้องมี `did` · job ต้องเป็นของ tenant ใน token (ไม่ใช่ = `404`) · ยังไม่เสร็จ/job หรือไฟล์หมดอายุ (~1 ชม.) = `404 NOT_FOUND` |
 | `GET /platform/tenants/{id}/import/{jobId}` | เช็คสถานะงาน **import** (#239) — คนละ endpoint กับแถวบน: import อยู่ admin plane (platform admin token, ไม่มี `tid`) ไม่ใช่ tenant plane เหมือน export — ดู §4.1 |
 | `GET /export/products.csv` `?…` | CSV — ทุกช่องผ่าน `csvSafe()` กัน formula injection · *(2026-09-23: **ยังไม่มีใน server**)* |
 
@@ -620,7 +620,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
   *(2026-09-25: ทำจริงแล้ว — worker เขียนไฟล์ลง volume `exports` (`EXPORT_DIR`, api ทั้ง 3 ตัว + worker mount ร่วมกัน)
   job ใน BullMQ เก็บแค่ descriptor ห้ามเก็บ snapshot ใน `returnvalue` อีก: `redis-queue` มีแค่ 192 MB + `noeviction`
   ร้านใหญ่ไม่กี่ครั้งก็เต็ม แล้วทุก BullMQ write ของทุกร้านล้มหมด · ไฟล์อายุ 1 ชม. เท่า `removeOnComplete` ของ job
-  (`EXPORT_TTL_MS`) — export ครั้งถัดไปลบไฟล์ที่หมดอายุทิ้ง · ดาวน์โหลดผ่าน `GET /backup/jobs/:id/download`)*
+  (`EXPORT_TTL_MS` = อายุ job + 15 นาที) — worker ลบไฟล์หมดอายุทุกครั้งที่ export และทุกชั่วโมงกับ `idem.cleanup` · ดาวน์โหลดผ่าน `GET /backup/jobs/:id/download`)*
 * **เขียน `audit_log` ทุกครั้ง** — ไฟล์นี้มีชื่อ/เบอร์โทรลูกค้าทั้งร้าน (PDPA)
 * **จำกัดความถี่** (เช่น วันละครั้ง) — เป็น endpoint ที่หนักที่สุดในระบบ
 * 🔴 **ไม่มี restore รายร้าน** — endpoint นี้ export ได้อย่างเดียว **import กลับมาทับข้อมูลร้านตัวเองไม่ได้**

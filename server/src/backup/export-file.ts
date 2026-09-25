@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { DEFAULT_JOB_OPTIONS } from '../queue/queue.constants.js';
 
 /**
  * Where a finished tenant export lives. The snapshot used to
@@ -18,8 +19,15 @@ export function exportDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.EXPORT_DIR || join(tmpdir(), 'pos-exports');
 }
 
-/** Same as `DEFAULT_JOB_OPTIONS.removeOnComplete.age`: the file lives as long as its job. */
-export const EXPORT_TTL_MS = 60 * 60 * 1000;
+const JOB_AGE_S =
+  (DEFAULT_JOB_OPTIONS.removeOnComplete as { age: number }).age;
+
+/**
+ * The file outlives its job's `removeOnComplete.age` by a margin: the file is written before the
+ * job commits and finishes, so pruning at exactly the job's age could delete a file whose job
+ * still advertises `downloadPath`. Once the job is gone the download 404s anyway.
+ */
+export const EXPORT_TTL_MS = (JOB_AGE_S + 15 * 60) * 1000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const JOB_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -53,7 +61,8 @@ export async function writeExportFile(
   snapshot: Record<string, unknown>,
 ): Promise<{ sizeBytes: number; sha256: string }> {
   await mkdir(dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
+  // Unique per attempt: every container is pid 1, and a stalled attempt can overlap its retry.
+  const tmp = `${file}.${randomUUID()}.tmp`;
   const hash = createHash('sha256');
   let sizeBytes = 0;
   const fh = await open(tmp, 'w');
@@ -82,7 +91,11 @@ export async function writeExportFile(
   return { sizeBytes, sha256: hash.digest('hex') };
 }
 
-/** Deletes every export (any tenant) older than `EXPORT_TTL_MS`. Best effort. */
+/**
+ * Deletes every export (any tenant) older than `EXPORT_TTL_MS`. Best effort. Runs at each
+ * export and on the worker's hourly `idem.cleanup` sweep, so a shop's file (customer names and
+ * phones — PDPA) does not sit on the volume waiting for somebody's next export.
+ */
 export async function pruneExportFiles(now = Date.now()): Promise<number> {
   const root = exportDir();
   let removed = 0;
