@@ -59,6 +59,10 @@ x-app-env: &app-env
   # #410: only `true` lets the app boot with the public placeholders from .env.example
   # (config.ts `refusePublicSecret`). Local dev / CI only; vm.override.yml forces it empty.
   ALLOW_DEV_SECRETS: ${ALLOW_DEV_SECRETS:-}
+  # Tenant exports (`POST /backup/export`) are written here by `worker` and streamed back by
+  # any api instance, so all four mount the `exports` volume below (x-api). Never put the
+  # snapshot back into the BullMQ job: redis-queue is 192 MB with `noeviction`.
+  EXPORT_DIR: /app/exports
 
 # Only api-1 carries `build:`; every other process reuses the image it produced
 # (parallel builds of one tag race on the name).
@@ -67,6 +71,10 @@ x-api: &api
   restart: unless-stopped
   mem_limit: 384m
   stop_grace_period: 30s
+  # Shared by api-1..3 and worker (EXPORT_DIR above). A fresh named volume takes its
+  # node:node ownership from the image's /app/exports (Dockerfile).
+  volumes:
+    - exports:/app/exports
   depends_on:
     migrate: { condition: service_completed_successfully }
     redis-cache: { condition: service_healthy }
@@ -370,6 +378,7 @@ networks:
 
 volumes:
   pgdata:
+  exports:
   redis-queue-data:
   etcd-data:
   certs:
