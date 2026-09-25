@@ -275,13 +275,12 @@ develops against a demo tenant.
   SET NULL` also nulls the NOT NULL `tenant_id`, so deleting a user who reviewed an item
   errors — use `ON DELETE SET NULL (reviewed_by)`. Fix with a **new** migration, never by
   editing the applied one (commit `225ecf7` already edited `InitialSchema.ts` in place once).
-- 🔴 **Two HIGH phase-2 bugs found by the 2026-09-24 whole-codebase review — not fixed, no issue
-  yet** (`docs/handoff_log/session-2026-09-24-whole-codebase-review.md` §2): (1) `/sync/push`
-  fingerprints ops as `POST /sales` while the online runner stores `POST /api/v1/sales`, so a bill
-  committed online whose reply was lost is refused `IDEMPOTENCY_KEY_REUSED` on push (08 §8.4 AC B1);
-  (2) online sales/returns/shifts store the client body's `date` (`COALESCE(dto.date, now())`)
-  and honour `soldOffline`, against 08 §10. The same log lists 4 MED spec gaps and the
-  standards findings (e.g. unvalidated `Math.max` clamp in `quotes.controller.ts:113`).
+- ~~Two HIGH phase-2 bugs found by the 2026-09-24 whole-codebase review~~ — **fixed
+  2026-09-25**: the `/sync/push` fingerprint mismatch (`POST /sales` vs
+  `POST /api/v1/sales`) by PR #413 (#409), and online routes storing the client body's
+  `date` instead of server `now()` by PR #414 (#411). The same review log (`docs/handoff_log/session-2026-09-24-whole-codebase-review.md`
+  §2) still lists 4 MED spec gaps and the standards findings (e.g. unvalidated `Math.max`
+  clamp in `quotes.controller.ts:113`) — not yet triaged.
 - **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
   `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
@@ -362,11 +361,15 @@ develops against a demo tenant.
 - Phase-2 kickoff order for the remaining hub tickets: #228 → #229 → #212/#211/#189 →
   #230 → #190 → #231. As of 2026-09-25 all but **#231** (q4.cutover) are closed
   (2026-09-18 → 09-20); #231 is the only one still open.
-- **Found by the study-pack review (PR #397), 2026-09-25 — open, not fixed:** #398
-  (`JWT_PLATFORM_SECRET` falls back to a public dev value), #399 (`pos_app` can
-  UPDATE/DELETE `audit_log` — should be append-only), #400 (Flutter Web keeps the access
-  token in `localStorage`, against ADR-0009), #401 (compose images not digest-pinned),
-  #402 (closing report profit uses current cost, not `costAtSale` — ADR-0008).
+- **Found by the study-pack review (PR #397), 2026-09-25 — fixed same day except #400:**
+  #398 (`JWT_PLATFORM_SECRET` falls back to a public dev value) by PR #407, #399
+  (`pos_app` can UPDATE/DELETE `audit_log` — should be append-only) by PR #406, #401
+  (compose images not digest-pinned) by PR #403, #402 (closing report profit uses
+  current cost, not `costAtSale` — ADR-0008) by PR #408. 🔴 **#400** (Flutter Web keeps
+  the access token in `localStorage`, against ADR-0009) has a fix pushed (PR #404) but
+  is **still open — owner decision pending** on whether to keep or drop the localStorage
+  fallback before the first migration (keeping it contradicts ADR-0009:101; would need
+  an ADR addendum).
 
 The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
 2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving
@@ -478,6 +481,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   first. `pgdata`/`etcd-data`/`nginx-auth` bake their secrets in at first bootstrap only:
   changing those passwords in `.env` does not re-key an existing volume, and re-keying is
   a separate owner decision, never an improvised step.
+- **Dev `server/.env` needs `ALLOW_DEV_SECRETS=true`** (#410/PR #412, 2026-09-25) — without
+  it the api/worker/bull-board refuse to boot on a `dev-only-*` placeholder secret or the
+  public dummy JWT pair. **Never set it on a real host** — `vm.override.yml` forces it
+  empty on `mob04`.
 
 **Metrics (`server/src/metrics/`, `deploy/prometheus/`, `deploy/grafana/`) — landed 2026-09-21:**
 - `http_requests_total` and `http_request_duration_seconds` are **named by the existing

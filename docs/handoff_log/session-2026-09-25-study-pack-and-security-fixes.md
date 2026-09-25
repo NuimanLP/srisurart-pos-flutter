@@ -2,11 +2,32 @@
 
 Read the root `CLAUDE.md` first (binding rules). The owner wants reports **extremely concise**, and writes in Thai.
 
-## State
+## State (updated 2026-09-25, post-merge sync)
 - **Study pack:** a 19-chapter Thai study pack and a 103-slide deck were built.
 - **Review findings:** reviewing the pack surfaced security gaps and HIGH bugs. They were filed as issues and fixed in separate PRs.
-- **Merged:** only **#407** (fixes #398), merge commit `39e86c4`.
-- **Why merging stopped:** the Claude Code auto-mode permission classifier blocked further merges ("Merge Without Review"). The remaining PRs need a human merge.
+- **All 9 PRs below are now merged to `main`** (UTC times via `gh pr view N --json mergedAt`):
+
+  | PR | Fixes | Merged (UTC) |
+  |---|---|---|
+  | #405 | — (CLAUDE.md drift, stale comments, dead code) | 2026-09-25T09:26:21Z |
+  | #406 | #399 | 2026-09-25T09:15:00Z |
+  | #408 | #402 | 2026-09-25T09:16:04Z |
+  | #413 | #409 | 2026-09-25T09:16:29Z |
+  | #414 | #411 | 2026-09-25T09:17:01Z |
+  | #403 | #401 | 2026-09-25T09:32:31Z |
+  | #397 | docs (study pack) | 2026-09-25T09:33:01Z |
+  | #404 | refs #400 | 2026-09-25T09:36:00Z |
+  | #412 | #410 | 2026-09-25T09:38:46Z |
+
+  (#407, fixing #398, merged earlier the same day at `39e86c4` — see original note below.)
+- **What remains:**
+  - **#400 stays open** — the localStorage-fallback owner decision is still pending (see
+    "Owner decisions pending" below); PR #404 shipped the fix but did not close the issue.
+  - **#412's pre-merge announcement was never posted** — see the "Lane announcement" section
+    at the end of this file (draft only).
+  - The "Follow-ups found by the review agents (not done)" and "Owner decisions pending"
+    sections below are still open as written, except `02_API_SCREENS.md:856` (`OFFLINE_NOT_ALLOWED`
+    still listed live) — struck through 2026-09-25 in the post-merge-sync docs pass.
 - **Local cleanup:** all local agent worktrees and temp branches were deleted. Every PR branch now lives only on GitHub.
 
 ## Artifacts (reference — don't duplicate)
@@ -18,7 +39,7 @@ Read the root `CLAUDE.md` first (binding rules). The owner wants reports **extre
 - The three items below were finished by agents (karpathy-guidelines → scrutinize → tests → code-review) and **pushed to their PR branches**. Nothing was merged: the auto-mode classifier blocked `gh pr merge` again, **even with an explicit owner request**. A human must merge, or add a Bash allow rule for `gh pr merge`.
 - **All 9 open PRs: `CLEAN`, `flutter-ci-status` + `server-ci-status` pass** (checked 2026-09-25).
 
-## PRs still open
+## PRs still open (historical — all 9 merged 2026-09-25; see State above)
 | PR | Fixes | Head | Status / notes |
 |---|---|---|---|
 | #406 | #399 | `deebc50` | ready — revokes UPDATE/DELETE on `audit_log` from `pos_app` |
@@ -52,7 +73,8 @@ Read the root `CLAUDE.md` first (binding rules). The owner wants reports **extre
 - PR follow-ups:
   - The client never patches its local `receiptNo` from an `applied` push (#413).
   - `clampOpDate` maps an invalid device date to `now()` silently, and push `shift.open` has no clamp or `date_flag` (#414).
-  - `02_API_SCREENS.md:856` still lists `OFFLINE_NOT_ALLOWED` (#405).
+  - ~~`02_API_SCREENS.md:856` still lists `OFFLINE_NOT_ALLOWED` (#405).~~ — struck through
+    in the post-merge-sync docs pass, 2026-09-25.
 
 ## Gotchas learned
 - **`gh pr edit`** fails with a Projects (classic) GraphQL error. Use `gh api -X PATCH repos/NuimanLP/srisurart-pos-flutter/pulls/<n> -F body=@file` (or `-f base=main`).
@@ -69,3 +91,24 @@ Read the root `CLAUDE.md` first (binding rules). The owner wants reports **extre
 - **`andrej-karpathy-skills:karpathy-guidelines`:** for the three unfinished fixes (minimal diffs).
 - **`tdd`:** for the #404 migration bug and the #413 extension (tests that fail first).
 - **`code-review`:** on each branch vs `origin/main` before merging.
+
+## Lane announcement (draft — not posted)
+
+_Written 2026-09-25 during the post-merge docs sync, per PR #412's "Announce to all lanes"
+requirement. Not sent to any channel — the owner/lane leads decide where and when to post it._
+
+> 📢 **แจ้งทุก lane: ต้องเพิ่ม `ALLOW_DEV_SECRETS=true` ใน `server/.env` (dev เท่านั้น)**
+>
+> PR #412 (แก้ #410) เพิ่มการเช็ค: ถ้า `server/.env` ของเครื่อง dev ยังมี secret แบบ
+> `dev-only-*` หรือคู่ JWT ตัวอย่างสาธารณะ ระบบจะ **ไม่ยอมให้ api / worker / bull-board
+> เริ่มทำงาน** จนกว่าจะตั้ง flag ยืนยันว่ารู้ตัวแล้ว
+>
+> **ต้องทำ (เฉพาะเครื่อง dev):**
+> ```
+> echo 'ALLOW_DEV_SECRETS=true' >> server/.env
+> ```
+>
+> 🔴 **ห้ามตั้งค่านี้บนเครื่องจริง (VM/production) เด็ดขาด** — `vm.override.yml` บังคับ
+> ค่านี้เป็นค่าว่างบน `mob04` อยู่แล้ว เพื่อกันไม่ให้ secret ตัวอย่างหลุดขึ้นเครื่องจริงโดยไม่ตั้งใจ
+>
+> มีคำถามทักในช่องทีมได้เลยครับ/ค่ะ
