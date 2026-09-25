@@ -2,6 +2,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:srisurart_pos/data/storage/token_kv_store.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 
@@ -138,4 +139,167 @@ void main() {
       expect(prefs.getString('auth_access_token'), 'access-123');
     });
   });
+
+  // #400 / ADR-0009 + ADR-0004: on web the refresh and device tokens live in
+  // IndexedDB (a TokenKvStore), never localStorage. The real IndexedDB store
+  // cannot run on the VM; these drive the same logic through a fake store.
+  group('#400 refresh + device tokens in the secure store (web)', () {
+    late FakeKvStore store;
+    late SharedPreferences prefs;
+
+    SharedPrefsTokenStorage webStorage() => SharedPrefsTokenStorage(
+        prefs: prefs, persistAccessToken: false, secureStore: store);
+
+    setUp(() async {
+      store = FakeKvStore();
+      prefs = await SharedPreferences.getInstance();
+    });
+
+    test('new tokens are written to the store and never to SharedPreferences', () async {
+      final web = webStorage();
+      await web.setRefreshToken('refresh-1');
+      await web.setDeviceToken('device-1');
+
+      expect(await web.getRefreshToken(), 'refresh-1');
+      expect(await web.getDeviceToken(), 'device-1');
+      expect(store.data, {'auth_refresh_token': 'refresh-1', 'auth_device_token': 'device-1'});
+      expect(prefs.getString('auth_refresh_token'), isNull);
+      expect(prefs.getString('auth_device_token'), isNull);
+    });
+
+    test('migration moves existing localStorage tokens so an enrolled till stays enrolled and logged in', () async {
+      SharedPreferences.setMockInitialValues({
+        'auth_refresh_token': 'legacy-refresh',
+        'auth_device_token': 'legacy-device',
+        'auth_access_token': 'legacy-access',
+      });
+      prefs = await SharedPreferences.getInstance();
+      final web = webStorage();
+
+      expect(await web.getDeviceToken(), 'legacy-device');
+      expect(await web.getRefreshToken(), 'legacy-refresh');
+      expect(store.data, {'auth_refresh_token': 'legacy-refresh', 'auth_device_token': 'legacy-device'});
+      expect(prefs.getString('auth_refresh_token'), isNull);
+      expect(prefs.getString('auth_device_token'), isNull);
+      expect(prefs.getString('auth_access_token'), isNull);
+    });
+
+    test('migration is idempotent: a second run (reload) changes nothing', () async {
+      SharedPreferences.setMockInitialValues({'auth_device_token': 'legacy-device'});
+      prefs = await SharedPreferences.getInstance();
+      await webStorage().getDeviceToken();
+      final afterReload = webStorage();
+
+      expect(await afterReload.getDeviceToken(), 'legacy-device');
+      expect(store.data, {'auth_device_token': 'legacy-device'});
+    });
+
+    test('a localStorage token overwrites a stale store copy (store written by an earlier run, localStorage by a later fallback run)', () async {
+      store.data['auth_device_token'] = 'old-device';
+      SharedPreferences.setMockInitialValues({'auth_device_token': 'newer-device'});
+      prefs = await SharedPreferences.getInstance();
+
+      expect(await webStorage().getDeviceToken(), 'newer-device');
+      expect(prefs.getString('auth_device_token'), isNull);
+    });
+
+    test('a failed store write deletes nothing from localStorage and the run falls back to it', () async {
+      SharedPreferences.setMockInitialValues({
+        'auth_refresh_token': 'legacy-refresh',
+        'auth_device_token': 'legacy-device',
+      });
+      prefs = await SharedPreferences.getInstance();
+      store.failPutOn = 'auth_device_token'; // refresh succeeds, device fails
+      final web = webStorage();
+
+      expect(await web.getDeviceToken(), 'legacy-device');
+      expect(await web.getRefreshToken(), 'legacy-refresh');
+      expect(prefs.getString('auth_refresh_token'), 'legacy-refresh');
+      expect(prefs.getString('auth_device_token'), 'legacy-device');
+
+      // Next run, store healthy: the move completes.
+      store.failPutOn = null;
+      final nextRun = webStorage();
+      expect(await nextRun.getDeviceToken(), 'legacy-device');
+      expect(prefs.getString('auth_device_token'), isNull);
+      expect(prefs.getString('auth_refresh_token'), isNull);
+    });
+
+    test('a read-back mismatch deletes nothing from localStorage', () async {
+      SharedPreferences.setMockInitialValues({'auth_device_token': 'legacy-device'});
+      prefs = await SharedPreferences.getInstance();
+      store.dropWrites = true;
+
+      expect(await webStorage().getDeviceToken(), 'legacy-device');
+      expect(prefs.getString('auth_device_token'), 'legacy-device');
+    });
+
+    test('an unusable store (open fails) falls back to localStorage for the whole run', () async {
+      store.failAll = true;
+      final web = webStorage();
+      await web.setDeviceToken('device-1');
+
+      expect(await web.getDeviceToken(), 'device-1');
+      expect(prefs.getString('auth_device_token'), 'device-1');
+    });
+
+    test('clearAuthTokens drops the refresh token from the store but keeps the device token (ADR-0004)', () async {
+      final web = webStorage();
+      await web.setRefreshToken('refresh-1');
+      await web.setDeviceToken('device-1');
+
+      await web.clearAuthTokens();
+
+      expect(await web.getRefreshToken(), isNull);
+      expect(await web.getDeviceToken(), 'device-1');
+      expect(store.data, {'auth_device_token': 'device-1'});
+    });
+
+    test('clearAll removes both tokens from the store', () async {
+      final web = webStorage();
+      await web.setRefreshToken('refresh-1');
+      await web.setDeviceToken('device-1');
+
+      await web.clearAll();
+
+      expect(store.data, isEmpty);
+      expect(await web.getDeviceToken(), isNull);
+    });
+
+    test('a logout on a fallback run also removes the store copy, so it does not come back', () async {
+      store.data['auth_refresh_token'] = 'old-refresh';
+      store.failGet = true; // startup probe fails → fallback run
+      final web = webStorage();
+      await web.clearAuthTokens();
+
+      store.failGet = false;
+      expect(await webStorage().getRefreshToken(), isNull);
+    });
+  });
+}
+
+class FakeKvStore implements TokenKvStore {
+  final Map<String, String> data = {};
+  bool failAll = false;
+  bool failGet = false;
+  bool dropWrites = false;
+  String? failPutOn;
+
+  @override
+  Future<String?> get(String key) async {
+    if (failAll || failGet) throw StateError('idb unavailable');
+    return data[key];
+  }
+
+  @override
+  Future<void> put(String key, String value) async {
+    if (failAll || failPutOn == key) throw StateError('idb put failed');
+    if (!dropWrites) data[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    if (failAll) throw StateError('idb unavailable');
+    data.remove(key);
+  }
 }

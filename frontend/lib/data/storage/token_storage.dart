@@ -1,9 +1,10 @@
 // Persistent storage for authentication tokens and device tokens.
 
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/auth_models.dart';
+import 'token_kv_store.dart';
 
 abstract class TokenStorage {
   Future<String?> getAccessToken();
@@ -29,8 +30,12 @@ abstract class TokenStorage {
 }
 
 class SharedPrefsTokenStorage implements TokenStorage {
-  SharedPrefsTokenStorage({this.prefs, bool? persistAccessToken})
-      : persistAccessToken = persistAccessToken ?? !kIsWeb;
+  SharedPrefsTokenStorage({
+    this.prefs,
+    bool? persistAccessToken,
+    TokenKvStore? secureStore,
+  })  : persistAccessToken = persistAccessToken ?? !kIsWeb,
+        _store = secureStore ?? createPlatformTokenKvStore();
 
   SharedPreferences? prefs;
 
@@ -41,26 +46,108 @@ class SharedPrefsTokenStorage implements TokenStorage {
   /// Mobile keeps persisting it; ADR-0009 sets no rule there.
   final bool persistAccessToken;
   String? _memoryAccessToken;
-  bool _legacyAccessCleared = false;
+
+  /// ADR-0009 + ADR-0004 (#400): the home of the refresh and device tokens when
+  /// the platform has somewhere better than SharedPreferences — IndexedDB on
+  /// web ([createPlatformTokenKvStore]); `null` on every other platform.
+  final TokenKvStore? _store;
+
+  /// False for the rest of a run whose startup could not use [_store]; the run
+  /// then keeps the tokens in SharedPreferences (see [_migrateToStore]).
+  bool _storeUsable = true;
+  Future<void>? _ready;
+
+  TokenKvStore? get _activeStore => _storeUsable ? _store : null;
 
   static const String _keyAccessToken = 'auth_access_token';
   static const String _keyRefreshToken = 'auth_refresh_token';
   static const String _keyDeviceToken = 'auth_device_token';
   static const String _keyUser = 'auth_user_json';
 
-  /// Every method goes through here, so the legacy cleanup runs on the first
-  /// storage access of a run (AuthCubit.init at startup).
+  /// Every method goes through here, so [_init] runs once, before the first
+  /// storage access of a run (AuthCubit.init at startup), and no token read or
+  /// write can overtake it.
   Future<SharedPreferences> _getPrefs() async {
     final p = prefs ??= await SharedPreferences.getInstance();
-    await _removeLegacyAccessTokenOnce(p);
+    await (_ready ??= _init(p));
     return p;
   }
 
-  /// Builds before #400 wrote the access token to localStorage on web.
-  Future<void> _removeLegacyAccessTokenOnce(SharedPreferences p) async {
-    if (persistAccessToken || _legacyAccessCleared) return;
-    _legacyAccessCleared = true;
-    await p.remove(_keyAccessToken);
+  Future<void> _init(SharedPreferences p) async {
+    // Builds before #400 wrote the access token to localStorage on web.
+    if (!persistAccessToken) await p.remove(_keyAccessToken);
+    await _migrateToStore(p);
+  }
+
+  /// One-time move of the refresh/device tokens out of SharedPreferences
+  /// (localStorage on web) into [_store]. Losing the device token would force
+  /// a re-enrolment with a new `device_no` (ADR-0004 F8), so:
+  ///  * nothing is removed from SharedPreferences until EVERY token has been
+  ///    written to the store and read back equal;
+  ///  * a SharedPreferences value overwrites the store's — while the store is
+  ///    usable no token is ever written to SharedPreferences, so a token found
+  ///    there is as new or newer (a pre-#400 build, or a run that fell back
+  ///    below);
+  ///  * re-running it after a crash half-way is harmless (idempotent);
+  ///  * if the store is unusable (IndexedDB blocked or missing) the run falls
+  ///    back to SharedPreferences exactly as before #400 instead of showing an
+  ///    enrolled till as un-enrolled; the next run retries the move.
+  Future<void> _migrateToStore(SharedPreferences p) async {
+    final store = _store;
+    if (store == null) return;
+    try {
+      final legacy = <String, String>{
+        for (final key in const [_keyRefreshToken, _keyDeviceToken])
+          key: ?p.getString(key),
+      };
+      // Probe even with nothing to move, so an unusable store is found here
+      // rather than on the first token read.
+      await store.get(_keyDeviceToken);
+      for (final MapEntry(:key, :value) in legacy.entries) {
+        await store.put(key, value);
+        if (await store.get(key) != value) {
+          throw StateError('token store read-back mismatch for $key');
+        }
+      }
+      for (final key in legacy.keys) {
+        await p.remove(key);
+      }
+    } catch (e) {
+      debugPrint('TokenStorage: token store unusable, keeping tokens in '
+          'SharedPreferences this run: $e');
+      _storeUsable = false;
+    }
+  }
+
+  Future<String?> _getToken(String key) async {
+    final p = await _getPrefs();
+    final store = _activeStore;
+    return store == null ? p.getString(key) : store.get(key);
+  }
+
+  Future<void> _setToken(String key, String? token) async {
+    final p = await _getPrefs();
+    final store = _activeStore;
+    if (token == null) return _removeToken(p, key);
+    if (store == null) {
+      await p.setString(key, token);
+    } else {
+      await store.put(key, token);
+    }
+  }
+
+  /// Removes [key] from both homes. On a fallback run the store may still hold
+  /// a copy from an earlier run, which must not bring a logout (or an
+  /// un-enrolment) back on the next run — so it is deleted best-effort there.
+  Future<void> _removeToken(SharedPreferences p, String key) async {
+    await p.remove(key);
+    final store = _store;
+    if (store == null) return;
+    try {
+      await store.delete(key);
+    } catch (_) {
+      if (_storeUsable) rethrow;
+    }
   }
 
   @override
@@ -85,36 +172,18 @@ class SharedPrefsTokenStorage implements TokenStorage {
   }
 
   @override
-  Future<String?> getRefreshToken() async {
-    final prefs = await _getPrefs();
-    return prefs.getString(_keyRefreshToken);
-  }
+  Future<String?> getRefreshToken() => _getToken(_keyRefreshToken);
 
   @override
-  Future<void> setRefreshToken(String? token) async {
-    final prefs = await _getPrefs();
-    if (token == null) {
-      await prefs.remove(_keyRefreshToken);
-    } else {
-      await prefs.setString(_keyRefreshToken, token);
-    }
-  }
+  Future<void> setRefreshToken(String? token) =>
+      _setToken(_keyRefreshToken, token);
 
   @override
-  Future<String?> getDeviceToken() async {
-    final prefs = await _getPrefs();
-    return prefs.getString(_keyDeviceToken);
-  }
+  Future<String?> getDeviceToken() => _getToken(_keyDeviceToken);
 
   @override
-  Future<void> setDeviceToken(String? token) async {
-    final prefs = await _getPrefs();
-    if (token == null) {
-      await prefs.remove(_keyDeviceToken);
-    } else {
-      await prefs.setString(_keyDeviceToken, token);
-    }
-  }
+  Future<void> setDeviceToken(String? token) =>
+      _setToken(_keyDeviceToken, token);
 
   @override
   Future<AuthUser?> getUser() async {
@@ -144,7 +213,7 @@ class SharedPrefsTokenStorage implements TokenStorage {
     final prefs = await _getPrefs();
     _memoryAccessToken = null;
     await prefs.remove(_keyAccessToken);
-    await prefs.remove(_keyRefreshToken);
+    await _removeToken(prefs, _keyRefreshToken);
     await prefs.remove(_keyUser);
     // Note: _keyDeviceToken is intentionally NOT removed.
   }
@@ -154,8 +223,8 @@ class SharedPrefsTokenStorage implements TokenStorage {
     final prefs = await _getPrefs();
     _memoryAccessToken = null;
     await prefs.remove(_keyAccessToken);
-    await prefs.remove(_keyRefreshToken);
+    await _removeToken(prefs, _keyRefreshToken);
     await prefs.remove(_keyUser);
-    await prefs.remove(_keyDeviceToken);
+    await _removeToken(prefs, _keyDeviceToken);
   }
 }
