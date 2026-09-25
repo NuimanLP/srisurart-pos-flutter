@@ -9,6 +9,7 @@ import {
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { TenantService } from '../common/database/tenant.service.js';
+import { newId } from '../common/ids.js';
 import { fromSatang, satangOf, toSatang } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { CustomersService } from '../customers/customers.service.js';
@@ -332,6 +333,7 @@ export class SyncService {
         if (satangOf(row.total) !== toSatang(op.payload.total, 'total')) {
           throw this.clientIdReused(op.type, op.payload.id);
         }
+        await this.flagRenumbered(manager, tenantId, op, row.id, op.payload.receiptNo, row.receipt_no);
 
         const items = Array.isArray(op.payload.items) ? op.payload.items : [];
         const productIds = items.map((it: any) => it.productId).filter(Boolean);
@@ -390,6 +392,7 @@ export class SyncService {
             throw this.clientIdReused(op.type, op.payload.id);
           }
         }
+        await this.flagRenumbered(manager, tenantId, op, row.id, op.payload.cnNo, row.cn_no);
 
         const productIds = lineRows.map((it) => it.product_id);
         const products =
@@ -559,9 +562,16 @@ export class SyncService {
         )) as { id: string }[];
 
         // Refused (400 → `rejected`) when unparseable, instead of an Invalid Date → 500.
-        // Not clamped: `clampOpDate` measures against the device's *previous* shift,
-        // which would pull a legitimate earlier offline open forward.
-        const openedAt = deviceIsoDate(op.payload.openedAt, 'openedAt');
+        // Not clamped by `clampOpDate`: it measures against the device's *previous* shift,
+        // which would pull a legitimate earlier offline open forward. Only the future side
+        // is checked (owner 2026-09-25, 08 §10): `> now() + 5 min` → `now()` + `date_flag`,
+        // since a future `opened_at` would push every later op of the shift out of its window.
+        let openedAt = deviceIsoDate(op.payload.openedAt, 'openedAt');
+        const now = new Date();
+        if (openedAt && openedAt.getTime() > now.getTime() + DATE_TOLERANCE_MS) {
+          await insertDateFlag(manager, tenantId, op, openedAt, now, null);
+          openedAt = now;
+        }
 
         const opened = await this.shifts.open(
           { userId: actor.userId, deviceId: device.id },
@@ -795,49 +805,80 @@ export class SyncService {
     }
   }
 
+  /**
+   * The device's date for a queued write, per 08 §10 (owner 2026-09-25):
+   * - field absent → null (the service stamps `now()`; §10 does not refuse a missing date);
+   * - present but unparseable → 400 → the op is `rejected` (never silently `now()`);
+   * - active shift → window `[opened_at − 5 min, now() + 5 min]`, outside it clamp into
+   *   `[opened_at, now()]` + `date_flag`;
+   * - no active shift → only the future side is checked: `> now() + 5 min` → `now()` +
+   *   `date_flag`; a past date is kept, unflagged (nothing to measure it against).
+   */
   private async clampOpDate(
     manager: EntityManager,
     tenantId: string,
     deviceId: string,
     op: SyncOpDto,
   ): Promise<Date | null> {
-    const rawDateStr = op.payload.date || op.payload.createdAt;
-    if (!rawDateStr) return null;
-
-    const opDate = new Date(rawDateStr);
-    if (isNaN(opDate.getTime())) return null;
+    const field = op.payload.date ? 'date' : 'createdAt';
+    const opDate = deviceIsoDate(op.payload.date || op.payload.createdAt || undefined, field);
+    if (!opDate) return null;
 
     const shiftRows = (await manager.query(
       `SELECT opened_at FROM shifts WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active ORDER BY opened_at DESC LIMIT 1`,
       [tenantId, deviceId],
     )) as { opened_at: Date }[];
 
-    if (shiftRows.length === 0) return opDate;
+    const now = new Date();
+    const maxWindow = new Date(now.getTime() + DATE_TOLERANCE_MS);
+
+    if (shiftRows.length === 0) {
+      if (opDate <= maxWindow) return opDate;
+      await insertDateFlag(manager, tenantId, op, opDate, now, null);
+      return now;
+    }
 
     const openedAt = new Date(shiftRows[0].opened_at);
-    const now = new Date();
-    const minWindow = new Date(openedAt.getTime() - 5 * 60 * 1000);
-    const maxWindow = new Date(now.getTime() + 5 * 60 * 1000);
+    const minWindow = new Date(openedAt.getTime() - DATE_TOLERANCE_MS);
 
     if (opDate >= minWindow && opDate <= maxWindow) {
       return opDate;
     }
 
     const clampedDate = opDate < openedAt ? openedAt : now;
-
-    await ReviewItemsService.insertIn(manager, tenantId, {
-      kind: 'date_flag',
-      refId: op.payload.id || op.opId,
-      details: {
-        opId: op.opId,
-        type: op.type,
-        originalDate: opDate.toISOString(),
-        clampedDate: clampedDate.toISOString(),
-        openedAt: openedAt.toISOString(),
-      },
-    });
-
+    await insertDateFlag(manager, tenantId, op, opDate, clampedDate, openedAt);
     return clampedDate;
+  }
+
+  /**
+   * Owner 2026-09-25: a replayed bill (or credit note) whose number on the device's paper
+   * differs from the number the server stored — it was committed online, the reply was
+   * lost, and the till queued it under a fresh offline number (#409/#413). The customer
+   * may hold a receipt the system does not know, so the owner gets a review item holding
+   * both numbers. The #409 fall-through re-runs this on every re-push (its key row keeps
+   * the online fingerprint), so the insert is deduplicated by a partial unique index.
+   */
+  private async flagRenumbered(
+    manager: EntityManager,
+    tenantId: string,
+    op: SyncOpDto,
+    id: string,
+    offlineNo: unknown,
+    serverNo: string,
+  ): Promise<void> {
+    if (typeof offlineNo !== 'string' || offlineNo.trim() === '') return;
+    if (offlineNo.trim() === serverNo) return;
+    await manager.query(
+      `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, details)
+       VALUES ($1::uuid, $2, 'receipt_renumbered', $3, $4::jsonb)
+       ON CONFLICT (tenant_id, ref_id) WHERE kind = 'receipt_renumbered' DO NOTHING`,
+      [
+        tenantId,
+        newId('rev_'),
+        id,
+        JSON.stringify({ opId: op.opId, type: op.type, id, offlineNo: offlineNo.trim(), serverNo }),
+      ],
+    );
   }
 
   private async computeShiftBalance(
@@ -1077,6 +1118,31 @@ export class SyncService {
 
       return { serverHasRow };
   }
+}
+
+/** 08 §10's tolerance around a shift's `opened_at` and the server's `now()`. */
+const DATE_TOLERANCE_MS = 5 * 60 * 1000;
+
+/** A `date_flag` review item for a device date the push moved (08 §10). */
+async function insertDateFlag(
+  manager: EntityManager,
+  tenantId: string,
+  op: SyncOpDto,
+  originalDate: Date,
+  clampedDate: Date,
+  openedAt: Date | null,
+): Promise<void> {
+  await ReviewItemsService.insertIn(manager, tenantId, {
+    kind: 'date_flag',
+    refId: op.payload.id || op.opId,
+    details: {
+      opId: op.opId,
+      type: op.type,
+      originalDate: originalDate.toISOString(),
+      clampedDate: clampedDate.toISOString(),
+      openedAt: openedAt ? openedAt.toISOString() : null,
+    },
+  });
 }
 
 /**
