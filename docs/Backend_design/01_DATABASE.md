@@ -927,7 +927,8 @@ CREATE TABLE owner_review_items (
   tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   id           TEXT NOT NULL,
   kind         TEXT NOT NULL CHECK (kind IN (
-                 'void_offline','credit_override','shift_uncounted','date_flag','device_force_retired')),
+                 'void_offline','credit_override','shift_uncounted','date_flag','device_force_retired',
+                 'receipt_renumbered')),  -- ชนิดที่ 6 + ตั้งชื่อ ck_owner_review_items_kind: migration …4400 (owner 2026-09-25)
   ref_id       TEXT NOT NULL,
   details      JSONB NOT NULL DEFAULT '{}',
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -939,6 +940,9 @@ CREATE TABLE owner_review_items (
 CREATE INDEX idx_owner_review_items_created ON owner_review_items (tenant_id, created_at DESC);
 CREATE INDEX idx_owner_review_items_pending ON owner_review_items (tenant_id, created_at DESC)
   WHERE reviewed_at IS NULL;
+-- …4400: หนึ่งรายการ receipt_renumbered ต่อเอกสาร — push replay ซ้ำได้ทุกรอบ (INSERT … ON CONFLICT DO NOTHING)
+CREATE UNIQUE INDEX uq_owner_review_items_renumbered ON owner_review_items (tenant_id, ref_id)
+  WHERE kind = 'receipt_renumbered';
 -- RLS เปิด + FORCE · policy tenant_isolation แบบมี NULLIF เหมือนตารางอื่น (…4200 แทน tenant_isolation_policy ของ …3002) ดู §11
 ```
 

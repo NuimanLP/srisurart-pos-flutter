@@ -576,6 +576,8 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
         return AppColors.steelBlue;
       case ReviewItemKind.deviceForceRetired:
         return Colors.purple;
+      case ReviewItemKind.receiptRenumbered:
+        return Colors.teal;
       case ReviewItemKind.unknown:
         return AppColors.gray500;
     }

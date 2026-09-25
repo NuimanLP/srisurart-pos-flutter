@@ -335,6 +335,17 @@ stateDiagram-v2
 
 รายงานนับตาม `date` — บิลออฟไลน์ 30 ก.ย. ที่ push 1 ต.ค. อยู่ในเดือนกันยายน
 
+**กรณีขอบ (owner 2026-09-25)** — `server/src/sync/sync.service.ts` `clampOpDate`
+| กรณี | ผล |
+|---|---|
+| ไม่มีฟิลด์วันที่ใน payload | ใช้ `now()` ของ server (§10 ไม่ได้สั่งให้ปฏิเสธ) |
+| มีฟิลด์แต่ parse ไม่ได้ (หรือไม่ใช่ string) | op → `rejected` `BAD_REQUEST` (400) · **ไม่** แทนด้วย `now()` เงียบๆ |
+| เครื่องไม่มีกะ active | ตรวจแค่ขาอนาคต: `> now() + 5 นาที` → `now()` + `date_flag` (`openedAt: null`) · วันที่ย้อนหลังเก็บตามเครื่อง ไม่มีธง (ไม่มี `opened_at` ให้วัด) |
+| `shift.open` | ไม่ clamp ขาอดีต (วัดกับกะ*ก่อนหน้า*จะดึงการเปิดกะออฟไลน์ที่ถูกต้องไปข้างหน้า) · `openedAt > now() + 5 นาที` → เก็บ `now()` + `date_flag` — เพราะ `opened_at` ในอนาคตทำให้ทุก op ในกะหลุดหน้าต่าง |
+| push replay (key หรือ client id) | ไม่รันซ้ำ → ไม่มี `date_flag` ซ้ำ · op ที่ถูกปฏิเสธ rollback ธงไปด้วย |
+
+**เลขเอกสารถูกเปลี่ยน (owner 2026-09-25):** push replay `sale.create`/`return.create` ของเอกสารที่ commit ออนไลน์แล้ว (คำตอบหาย, #409) โดย `receiptNo`/`cnNo` ใน payload ≠ เลขที่ server เก็บ → รายการตรวจ `receipt_renumbered` `details { opId, type, id, offlineNo, serverNo }` หนึ่งรายการต่อเอกสาร (unique index บางส่วน, replay ซ้ำไม่เพิ่ม) · คำตอบ `applied` มีเลขของ server ให้เครื่อง patch
+
 **เกณฑ์รับงาน**
 - [ ] push `date` เมื่อวานในกะเมื่อวาน → เก็บเมื่อวาน ไม่มีธง
 - [ ] push `date` อนาคต 3 นาที → เก็บตามเครื่อง ไม่มีธง · อนาคต 10 นาที → `now()` + ธง
@@ -408,7 +419,7 @@ stateDiagram-v2
 | แท็บ (placeholder) | แหล่ง | ปุ่ม (placeholder) |
 |---|---|---|
 | ถูกปฏิเสธ/ค้าง | `outbox_ops` `rejected` + `stuck` (ในเครื่อง) — code, ข้อความ, payload, เลขที่พิมพ์ | ส่งใหม่ (key เดิม · ห้ามเปลี่ยนเลข) · ทิ้ง |
-| รอตรวจ | `GET /review-items?status=pending` — `void_offline` · `credit_override` · `shift_uncounted` · `date_flag` · `device_force_retired` | ตรวจแล้ว `POST /review-items/:id/reviewed` (idempotent, `audit_log`, ไม่แตะเงิน/สต็อก) |
+| รอตรวจ | `GET /review-items?status=pending` — `void_offline` · `credit_override` · `shift_uncounted` · `date_flag` · `device_force_retired` · `receipt_renumbered` (owner 2026-09-25, §10) | ตรวจแล้ว `POST /review-items/:id/reviewed` (idempotent, `audit_log`, ไม่แตะเงิน/สต็อก) |
 
 **ส่งใหม่ลงกะปัจจุบัน:** payload ไม่มี `shiftId` → บิลที่ถูกปฏิเสธในกะ A แล้วส่งใหม่ระหว่างกะ B จะลงกะ B, วันที่ถูก clamp + `date_flag` — ยอมรับ
 

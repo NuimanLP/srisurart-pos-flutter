@@ -1738,6 +1738,162 @@ describe('POST /sync/push (e2e)', () => {
         expect(n[0].n).toBe(2);
         expect(await stockOf('p_b1')).toBe(16);
       });
+
+      it('owner 2026-09-25: a replay whose offline receiptNo differs from the stored one → ONE receipt_renumbered item, even when replayed again', async () => {
+        const online = await postOnline('k_b1_renum', onlineBody);
+        expect(online.status).toBe(201);
+        const serverReceiptNo = online.body.data.receiptNo as string;
+        expect(serverReceiptNo).not.toBe(outboxPayload.receiptNo);
+
+        const op = { opId: 'op_b1_renum', idempotencyKey: 'k_b1_renum', type: 'sale.create', payload: outboxPayload };
+        for (let i = 0; i < 2; i++) {
+          const res = await push({ outboxRemaining: 0, ops: [op] });
+          expect(res.body.data.results[0]).toMatchObject({
+            status: 'applied',
+            response: { id: 's_b1_online', receiptNo: serverReceiptNo },
+          });
+        }
+        // Step 2 as well: key row gone → client-id replay, still no second item.
+        await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_b1_renum'`, [TENANT]);
+        await clearTenantCache(cache, TENANT);
+        expect((await push({ outboxRemaining: 0, ops: [op] })).body.data.results[0].status).toBe('applied');
+
+        const items = await admin.query(
+          `SELECT ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'receipt_renumbered'`,
+          [TENANT],
+        );
+        expect(items).toEqual([
+          {
+            ref_id: 's_b1_online',
+            details: {
+              opId: 'op_b1_renum',
+              type: 'sale.create',
+              id: 's_b1_online',
+              offlineNo: 'RC01-2569-09-0777',
+              serverNo: serverReceiptNo,
+            },
+          },
+        ]);
+        expect(await stockOf('p_b1')).toBe(18);
+      });
+
+      it('a replay carrying the SAME number as the stored bill raises no receipt_renumbered item', async () => {
+        const online = await postOnline('k_b1_samenum', onlineBody);
+        const payload = { ...outboxPayload, receiptNo: online.body.data.receiptNo };
+        const res = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: 'op_b1_samenum', idempotencyKey: 'k_b1_samenum', type: 'sale.create', payload }],
+        });
+        expect(res.body.data.results[0].status).toBe('applied');
+        const items = await admin.query(
+          `SELECT 1 FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'receipt_renumbered'`,
+          [TENANT],
+        );
+        expect(items).toHaveLength(0);
+      });
+    });
+
+    describe('08 §10 edge cases (owner 2026-09-25)', () => {
+      const saleOp = (id: string, date: unknown) => ({
+        opId: `op_${id}`,
+        idempotencyKey: `k_${id}`,
+        type: 'sale.create',
+        payload: {
+          id,
+          date,
+          subtotal: '85.00',
+          discount: '0.00',
+          total: '85.00',
+          paymentMethod: 'เงินสด',
+          items: [{ lineNo: 1, productId: 'p_d10', name: 'Filter', qty: 1, price: '85.00' }],
+        },
+      });
+      const flags = async () =>
+        (await admin.query(
+          `SELECT ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'date_flag' ORDER BY ref_id`,
+          [TENANT],
+        )) as { ref_id: string; details: Record<string, unknown> }[];
+
+      beforeEach(async () => {
+        await seedProduct(admin, TENANT, { id: 'p_d10', partNo: 'P-D10', name: 'Filter', price: 85, cost: 50, stock: 10 });
+      });
+
+      it('an unparseable date is rejected, not silently replaced with now()', async () => {
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+        const res = await push({ outboxRemaining: 0, ops: [saleOp('s_bad_date', 'not-a-date')] });
+        expect(res.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'BAD_REQUEST' });
+        expect(await admin.query(`SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = 's_bad_date'`, [TENANT])).toHaveLength(0);
+      });
+
+      it('no active shift: a date 10 min ahead → now() + date_flag; a past date is kept unflagged', async () => {
+        // A sale needs an open drawer; a non-cash refund does not (#100), so the
+        // no-shift path is reached by a transfer refund after the shift is archived.
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_d10' });
+        const sale = saleOp('s_d10', new Date().toISOString());
+        sale.payload.items[0].qty = 2;
+        Object.assign(sale.payload, { subtotal: '170.00', total: '170.00' });
+        expect((await push({ outboxRemaining: 0, ops: [sale] })).body.data.results[0].status).toBe('applied');
+        await admin.query(
+          `UPDATE shifts SET is_active = false, closed_at = now() WHERE tenant_id = $1::uuid AND id = 'sh_d10'`,
+          [TENANT],
+        );
+
+        const refund = (id: string, date: string) => ({
+          opId: `op_${id}`,
+          idempotencyKey: `k_${id}`,
+          type: 'return.create',
+          payload: {
+            id,
+            saleId: 's_d10',
+            date,
+            refundMethod: 'โอน',
+            items: [{ productId: 'p_d10', name: 'Filter', qty: 1, price: '85.00' }],
+          },
+        });
+        const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        const past = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
+        const before = Date.now();
+        const res = await push({ outboxRemaining: 0, ops: [refund('cn_nf', future), refund('cn_np', past)] });
+        expect((res.body.data.results as { status: string }[]).map((r) => r.status)).toEqual(['applied', 'applied']);
+
+        const rows = (await admin.query(
+          `SELECT id, date FROM returns WHERE tenant_id = $1::uuid ORDER BY id`,
+          [TENANT],
+        )) as { id: string; date: Date }[];
+        const byId = Object.fromEntries(rows.map((r) => [r.id, r.date.getTime()]));
+        expect(byId.cn_np).toBe(new Date(past).getTime());
+        expect(byId.cn_nf).toBeGreaterThanOrEqual(before - 1000);
+        expect(byId.cn_nf).toBeLessThan(new Date(future).getTime() - 60 * 1000);
+
+        const f = await flags();
+        expect(f).toHaveLength(1);
+        expect(f[0].ref_id).toBe('cn_nf');
+        expect(f[0].details).toMatchObject({ opId: 'op_cn_nf', type: 'return.create', originalDate: future, openedAt: null });
+      });
+
+      it('shift.open 10 min ahead → opened_at = now() + date_flag; replay adds no second flag', async () => {
+        const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        const op = {
+          opId: 'op_sh_future',
+          idempotencyKey: 'k_sh_future',
+          type: 'shift.open',
+          payload: { id: 'sh_future', startingCash: '100.00', openedAt: future },
+        };
+        expect((await push({ outboxRemaining: 0, ops: [op] })).body.data.results[0].status).toBe('applied');
+        expect((await push({ outboxRemaining: 0, ops: [op] })).body.data.results[0].status).toBe('applied');
+
+        const sh = (await admin.query(
+          `SELECT opened_at FROM shifts WHERE tenant_id = $1::uuid AND id = 'sh_future'`,
+          [TENANT],
+        )) as { opened_at: Date }[];
+        expect(sh[0].opened_at.getTime()).toBeLessThan(new Date(future).getTime() - 60 * 1000);
+        const f = await flags();
+        expect(f).toHaveLength(1);
+        expect(f[0]).toMatchObject({
+          ref_id: 'sh_future',
+          details: { type: 'shift.open', originalDate: future, openedAt: null },
+        });
+      });
     });
 
     it('Issue #190: rejects sale or return with RECEIPT_NO_CONFLICT when document number collides', async () => {
