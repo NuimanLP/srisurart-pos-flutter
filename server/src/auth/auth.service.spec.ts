@@ -606,14 +606,16 @@ describe('AuthService', () => {
         ['an inactive user', { is_active: false }, 1, 'invalid_password'],
         ['a suspended tenant', { tenant_status: 'suspended' }, 1, 'invalid_password'],
         ['an ambiguous username', {}, 2, null],
-      ])('a wrong password on %s gets the generic 401 after one argon2 verify', async (_l, overrides, count, reason) => {
+        // Even the right password cannot be established without picking a shop.
+        ['an ambiguous username (correct password)', {}, 2, null, 'password123'],
+      ])('a wrong password on %s gets the generic 401 after one argon2 verify', async (_l, overrides, count, reason, password = 'wrong') => {
         const argon2 = await import('argon2');
         const { service, auditMock } = build(await argon2.hash('password123'), {}, overrides, count as number);
         let verifies = 0;
         argonHook.onVerify = () => verifies++;
         let caught: unknown;
         try {
-          await service.login({ username: 'owner', password: 'wrong' }, '10.0.0.31');
+          await service.login({ username: 'owner', password: password as string }, '10.0.0.31');
         } catch (err) {
           caught = err;
         } finally {

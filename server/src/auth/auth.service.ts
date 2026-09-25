@@ -120,8 +120,9 @@ export class AuthService {
     // Owner decision 2026-09-25: the password is verified FIRST, and account status (tenant
     // suspended, user inactive) is only revealed to a caller who supplied the correct password.
     // Every other refusal — wrong password on any account, unknown user, ambiguous username —
-    // is the same generic 401 after exactly one argon2 verify, so neither the body nor the
-    // latency tells a password guesser anything about the account.
+    // is the same generic 401 after exactly one argon2 verify, so a password guesser never
+    // learns an account's status. (A known user's failure still writes an audit row that an
+    // unknown/ambiguous one does not; that small latency gap predates this and is out of scope.)
     if (userRows.length !== 1) {
       // 0 rows: unknown user (#425). >1 rows: the username exists in several shops and no
       // device token picks one. Establishing which (if any) password is right would need one
