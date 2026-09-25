@@ -934,12 +934,12 @@ CREATE TABLE owner_review_items (
   reviewed_at  TIMESTAMPTZ,
   reviewed_by  UUID,
   CONSTRAINT pk_owner_review_items PRIMARY KEY (tenant_id, id),
-  FOREIGN KEY (tenant_id, reviewed_by) REFERENCES users (tenant_id, id) ON DELETE SET NULL  -- 🔴 บั๊ก ดู §11
+  FOREIGN KEY (tenant_id, reviewed_by) REFERENCES users (tenant_id, id) ON DELETE SET NULL  -- แก้เป็น SET NULL (reviewed_by) ใน …4200 ดู §11
 );
 CREATE INDEX idx_owner_review_items_created ON owner_review_items (tenant_id, created_at DESC);
 CREATE INDEX idx_owner_review_items_pending ON owner_review_items (tenant_id, created_at DESC)
   WHERE reviewed_at IS NULL;
--- RLS เปิด + FORCE แต่ policy ชื่อ tenant_isolation_policy และ **ไม่มี NULLIF** — 🔴 บั๊ก ดู §11
+-- RLS เปิด + FORCE · policy เดิม tenant_isolation_policy ไม่มี NULLIF — แทนด้วย tenant_isolation (มี NULLIF) ใน …4200 ดู §11
 ```
 
 ---
@@ -1177,7 +1177,7 @@ CREATE POLICY tenant_isolation ON products
 **ตารางที่อยู่นอก policy ข้างบน (ตรวจกับ migration 2026-09-23):**
 - `tenants`, `platform_admins` — ตาราง global ไม่มี `tenant_id`
 - `import_jobs` — ตั้งใจไม่เปิด RLS เพราะ `pos_app` ไม่เคยแตะ (platform plane เท่านั้น)
-- `owner_review_items` — เปิด RLS แล้วแต่ policy เขียนแยกเอง **ไม่มี `NULLIF`** → 🔴 บั๊ก ดู §11
+- `owner_review_items` — policy เขียนแยกใน …3002 (ไม่มี `NULLIF`) → แก้แล้วใน …4200 เป็น `tenant_isolation` แบบเดียวกับตารางอื่น ดู §11
 
 **สิ่งที่ตั้งไว้ที่ role `pos_app` (migration 1788652800001 / 1788652802131 / 1788652804100):**
 - `GRANT SELECT, INSERT, UPDATE, DELETE` ทุกตาราง **ยกเว้น `movements` และ `audit_log` = `SELECT, INSERT` เท่านั้น** (`audit_log` ถูก REVOKE UPDATE/DELETE ใน …4100, #399)
@@ -1344,8 +1344,8 @@ flowchart LR
 | **ไม่มี soft delete ครบทุกตาราง** | ตอน sync การลบต้องส่งเป็น tombstone ไม่งั้นเครื่องอื่นจะ resurrect ข้อมูลที่ลบไปแล้ว |
 | ~~หลายร้าน = หลาย timezone?~~ **เคาะแล้ว (ADR-0003)** | เพิ่ม `tenants.timezone TEXT DEFAULT 'Asia/Bangkok'` แล้ว (§5.1) เพราะ `shifts.date_str` และรายงานรายวันทุกใบขึ้นกับค่านี้ |
 | ~~`customers` / `mechanics` / `settings` ยังไม่มี `updated_at`~~ **ปิดแล้ว** | ทั้งสามตารางมี `updated_at` ใน Postgres แล้ว และ `customers`/`mechanics` มี keyset index `(tenant_id, updated_at, id)` (migration …4000) |
-| 🔴 **บั๊ก: policy RLS ของ `owner_review_items` ไม่มี `NULLIF`** (migration …3002 บรรทัด 55–56) | request ที่ไม่มี `app.tenant_id` จะได้ `''::uuid` → error 22P02 = HTTP 500 แทนที่จะได้ 0 แถว (ผิดกติกา §8) และชื่อ policy เป็น `tenant_isolation_policy` ไม่ใช่ `tenant_isolation` — **แก้ด้วย migration ใหม่ ห้ามแก้ไฟล์เดิม** |
-| 🔴 **บั๊ก: FK `(tenant_id, reviewed_by) … ON DELETE SET NULL`** ของ `owner_review_items` (…3002 บรรทัด 34) | ตั้งทั้งสองคอลัมน์เป็น NULL แต่ `tenant_id` เป็น NOT NULL → ลบ user ที่เคยรีวิวรายการแล้ว error · แก้เป็น `ON DELETE SET NULL (reviewed_by)` (Postgres 15+) |
+| ~~บั๊ก: policy RLS ของ `owner_review_items` ไม่มี `NULLIF`~~ **แก้แล้ว (migration …4200)** (เดิม …3002 บรรทัด 55–56) | …4200 สร้าง policy ใหม่ชื่อ `tenant_isolation` แบบมี `NULLIF` เหมือนตารางอื่น (เทสต์: `schema.e2e-spec.ts`) · เดิม: request ที่ไม่มี `app.tenant_id` จะได้ `''::uuid` → error 22P02 = HTTP 500 แทนที่จะได้ 0 แถว (ผิดกติกา §8) และชื่อ policy เป็น `tenant_isolation_policy` ไม่ใช่ `tenant_isolation` — **แก้ด้วย migration ใหม่ ห้ามแก้ไฟล์เดิม** |
+| ~~บั๊ก: FK `(tenant_id, reviewed_by) … ON DELETE SET NULL`~~ ของ `owner_review_items` **แก้แล้ว (migration …4200)** (เดิม …3002 บรรทัด 34) | …4200 เปลี่ยนเป็น `ON DELETE SET NULL (reviewed_by)` (เทสต์: `schema.e2e-spec.ts`) · เดิม: ตั้งทั้งสองคอลัมน์เป็น NULL แต่ `tenant_id` เป็น NOT NULL → ลบ user ที่เคยรีวิวรายการแล้ว error · แก้เป็น `ON DELETE SET NULL (reviewed_by)` (Postgres 15+) |
 | **"ห้ามลบ" ledger ยังพึ่งโค้ดอย่างเดียว** | `pos_app` มี DELETE บน `sales`/`returns`/`credit_payments`/`shifts` — ถ้าอยากให้ DB บังคับ ต้อง REVOKE (ตรวจก่อนว่า import/rollback ไม่ได้ใช้ DELETE ผ่าน role นี้) |
 | **ยอดสะสมที่ไม่มี CHECK** | `customers.total_spend`, `mechanics.total_sales` ไม่มี `CHECK (>= 0)` เป็น assertion แบบ `points`/`credit_balance` (§7.3) |
 | **`InitialSchema` ถูกแก้หลังรันไปแล้ว** (commit `225ecf7`: role CHECK, ลบ `pin_hash`) | DB ใหม่กับ DB ที่ migrate มาได้ schema เดียวกันแต่คนละทาง (`…3001` ใช้ `IF EXISTS` จึงไม่พัง) — กติกาต่อไป: migration ที่รันแล้วห้ามแก้ ให้เพิ่มไฟล์ใหม่ |

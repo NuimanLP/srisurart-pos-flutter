@@ -4,6 +4,7 @@ import {
   parseQuoteCreate,
   parseQuoteFilter,
   parseQuotePatch,
+  parsePurgeOlderThanDays,
 } from './quotes.dto.js';
 
 const body = (over: Record<string, unknown> = {}) => ({
@@ -89,5 +90,38 @@ describe('parseQuoteFilter', () => {
     expect(parseQuoteFilter(undefined)).toBeUndefined();
     expect(parseQuoteFilter('expired')).toBe('expired');
     expect(() => parseQuoteFilter('cancelled')).toThrow(BadRequestException);
+  });
+});
+
+describe('parsePurgeOlderThanDays', () => {
+  it('defaults to 90 when the body or the field is absent', () => {
+    expect(parsePurgeOlderThanDays(undefined)).toBe(90);
+    expect(parsePurgeOlderThanDays({})).toBe(90);
+    expect(parsePurgeOlderThanDays({ olderThanDays: null })).toBe(90);
+  });
+
+  it('passes a valid integer through unchanged', () => {
+    expect(parsePurgeOlderThanDays({ olderThanDays: 1 })).toBe(1);
+    expect(parsePurgeOlderThanDays({ olderThanDays: 30 })).toBe(30);
+    expect(parsePurgeOlderThanDays({ olderThanDays: 36_500 })).toBe(36_500);
+  });
+
+  it.each([
+    ['a word', 'abc'],
+    ['a numeric string', '30'],
+    ['NaN', Number.NaN],
+    ['zero', 0],
+    ['a negative', -5],
+    ['a fraction', 1.5],
+    ['past the int-safe cap', 36_501],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('refuses %s with 400 instead of clamping it', (_label, olderThanDays) => {
+    expect(() => parsePurgeOlderThanDays({ olderThanDays })).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('refuses a body that is not an object', () => {
+    expect(() => parsePurgeOlderThanDays([])).toThrow(BadRequestException);
   });
 });

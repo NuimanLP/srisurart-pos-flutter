@@ -36,6 +36,7 @@ import {
   parseQuoteCreate,
   parseQuoteFilter,
   parseQuotePatch,
+  parsePurgeOlderThanDays,
 } from './quotes.dto.js';
 import {
   QuotesService,
@@ -51,10 +52,6 @@ interface AuthenticatedRequest extends Request {
     deviceId?: string;
     deviceRole?: string;
   };
-}
-
-export interface PurgeQuotesDto {
-  olderThanDays?: number;
 }
 
 /**
@@ -94,15 +91,15 @@ export class QuotesController {
   @HttpCode(HttpStatus.ACCEPTED)
   purgeQuotes(
     @Req() req: AuthenticatedRequest,
-    @Body() dto: PurgeQuotesDto,
+    @Body() body: unknown,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.tenants.runTx(() => this.purgeQuotesIn(req, dto, res));
+    return this.tenants.runTx(() => this.purgeQuotesIn(req, body, res));
   }
 
   private purgeQuotesIn(
     req: AuthenticatedRequest,
-    dto: PurgeQuotesDto,
+    body: unknown,
     res: Response,
   ) {
     return this.idempotency.runIdempotent(
@@ -110,7 +107,7 @@ export class QuotesController {
       res,
       async () => {
         const { tenantId } = currentRequestContext();
-        const olderThanDays = Math.max(1, Number(dto?.olderThanDays ?? 90));
+        const olderThanDays = parsePurgeOlderThanDays(body);
         const correlationId = newId('quote_');
         const idemKey = req.headers['idempotency-key'];
         const jobIdKey = idemKey

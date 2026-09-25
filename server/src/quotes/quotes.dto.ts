@@ -147,6 +147,31 @@ export function parseQuoteFilter(
   return raw as QuoteFilter;
 }
 
+/** `POST /quotes/purge` with no `olderThanDays` purges past 90 days, as the Dart repo does. */
+export const DEFAULT_PURGE_OLDER_THAN_DAYS = 90;
+
+/**
+ * `POST /quotes/purge` body. Validated, never clamped: `Math.max(1, Number(x))` used to
+ * turn `"abc"` into `NaN` and `-5` into `1` (purge everything older than a day). The
+ * upper bound also keeps the value inside the job's `$2::int` cast.
+ */
+export function parsePurgeOlderThanDays(body: unknown): number {
+  if (body === undefined || body === null) return DEFAULT_PURGE_OLDER_THAN_DAYS;
+  const value = asObject(body, 'body').olderThanDays;
+  if (value === undefined || value === null) return DEFAULT_PURGE_OLDER_THAN_DAYS;
+  if (
+    typeof value !== 'number' ||
+    !Number.isInteger(value) ||
+    value < 1 ||
+    value > MAX_VALID_DAYS
+  ) {
+    throw new BadRequestException(
+      `olderThanDays must be an integer between 1 and ${MAX_VALID_DAYS}`,
+    );
+  }
+  return value;
+}
+
 function parseLine(raw: unknown, index: number): QuoteLine {
   const l = asObject(raw, `items[${index}]`);
   const qty = parseLineQty(l.qty, index);
