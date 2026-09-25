@@ -96,10 +96,14 @@ class ProductsRepository {
     final partNo = (data.partNo.present ? data.partNo.value : '').trim();
     if (partNo.isEmpty) return null;
 
-    final existing = await db.select(db.products).get();
+    // SQLite's lower() is ASCII-only (unlike Dart's Unicode-aware
+    // toLowerCase()), but partNo is always an ASCII part code in this
+    // domain, so the comparison stays equivalent.
     final lower = partNo.toLowerCase();
-    final dup = existing.any((x) => x.partNo.toLowerCase() == lower);
-    if (dup) return null;
+    final dup = await (db.select(db.products)
+          ..where((t) => t.partNo.lower().equals(lower)))
+        .get();
+    if (dup.isNotEmpty) return null;
 
     final row = data.copyWith(id: Value(newId('p')), partNo: Value(partNo)).stamped;
     return db.into(db.products).insertReturning(row);
@@ -110,11 +114,10 @@ class ProductsRepository {
   Future<bool> update(String id, ProductsCompanion patch) async {
     if (patch.partNo.present) {
       final newPart = patch.partNo.value.trim().toLowerCase();
-      final all = await db.select(db.products).get();
-      final collides = all.any(
-        (p) => p.id != id && p.partNo.toLowerCase() == newPart,
-      );
-      if (collides) return false;
+      final collision = await (db.select(db.products)
+            ..where((t) => t.id.equals(id).not() & t.partNo.lower().equals(newPart)))
+          .get();
+      if (collision.isNotEmpty) return false;
     }
     await (db.update(
       db.products,

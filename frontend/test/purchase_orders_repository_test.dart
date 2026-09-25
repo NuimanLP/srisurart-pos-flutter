@@ -234,6 +234,78 @@ void main() {
     },
   );
 
+  test(
+    'receivePO with the same partNo on two lines applies weighted-average '
+    'cost cumulatively (map stays fresh across the loop)',
+    () async {
+      // start: stock 10 @ cost 100
+      await insertProduct(id: 'tp1', partNo: 'TEST-1', stock: 10, cost: 100);
+
+      final po = await repo.savePO(
+        const PoInput(
+          supplier: 'Acme',
+          items: [
+            PoLineInput(partNo: 'TEST-1', name: 'Widget', qty: 5, cost: 160),
+            PoLineInput(partNo: 'TEST-1', name: 'Widget', qty: 5, cost: 200),
+          ],
+        ),
+      );
+
+      final unmatched = await repo.receivePO(po.id);
+      expect(unmatched, isEmpty);
+
+      // Line 1: (10*100 + 5*160)/15 = 120.0, stock 15
+      // Line 2 (against the UPDATED row, not the stale pre-loop snapshot):
+      //   (15*120 + 5*200)/20 = (1800+1000)/20 = 140.0, stock 20
+      final product = await (db.select(
+        db.products,
+      )..where((t) => t.id.equals('tp1'))).getSingle();
+      expect(product.stock, 20);
+      expect(product.cost, 140.0);
+
+      final movements = await db.select(db.movements).get();
+      expect(movements.length, 2);
+      expect(movements[0].stockAfter, 15);
+      expect(movements[1].stockAfter, 20);
+    },
+  );
+
+  test(
+    'receivePO matches the FIRST product in table order when two products '
+    'share a partNo case-insensitively (first-match-wins parity)',
+    () async {
+      // Two products collide on partNo case-insensitively; insert order
+      // determines which one is "first" — id tp1 is inserted before tp2.
+      await insertProduct(id: 'tp1', partNo: 'DUP-1', stock: 10, cost: 100);
+      await insertProduct(id: 'tp2', partNo: 'dup-1', stock: 50, cost: 500);
+
+      final po = await repo.savePO(
+        const PoInput(
+          supplier: 'Acme',
+          items: [
+            PoLineInput(partNo: 'DUP-1', name: 'Widget', qty: 5, cost: 160),
+          ],
+        ),
+      );
+
+      final unmatched = await repo.receivePO(po.id);
+      expect(unmatched, isEmpty);
+
+      final tp1 = await (db.select(
+        db.products,
+      )..where((t) => t.id.equals('tp1'))).getSingle();
+      final tp2 = await (db.select(
+        db.products,
+      )..where((t) => t.id.equals('tp2'))).getSingle();
+
+      // tp1 (first in table order) received the PO; tp2 untouched.
+      expect(tp1.stock, 15);
+      expect(tp1.cost, 120.0);
+      expect(tp2.stock, 50);
+      expect(tp2.cost, 500.0);
+    },
+  );
+
   test('receivePO on a non-existent PO returns empty list', () async {
     final unmatched = await repo.receivePO('po-missing');
     expect(unmatched, isEmpty);
