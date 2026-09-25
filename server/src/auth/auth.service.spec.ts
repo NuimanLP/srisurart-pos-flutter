@@ -602,7 +602,9 @@ describe('AuthService', () => {
       it.each([
         ['a successful login', 'password123', undefined],
         ['a wrong password', 'wrong', 'Invalid credentials'],
-      ])('holds no connection during argon2 and never two at once: %s', async (_l, password, error) => {
+        // #425: the dummy verify for an unknown user obeys the same rule.
+        ['an unknown username', 'wrong', 'Invalid credentials', 'nobody'],
+      ])('holds no connection during argon2 and never two at once: %s', async (_l, password, error, username = 'owner') => {
         const argon2 = await import('argon2');
         const passHash = await argon2.hash('password123');
         let held = 0;
@@ -612,10 +614,11 @@ describe('AuthService', () => {
           held++;
           maxHeld = Math.max(maxHeld, held);
         };
-        const lookup = vi.fn().mockImplementation(async (sql: string) => {
+        const lookup = vi.fn().mockImplementation(async (sql: string, params?: any[]) => {
           take();
           await Promise.resolve();
           held--;
+          if (sql.includes('auth_lookup_user_for_login') && params?.[0] !== 'owner') return [];
           return sql.includes('auth_lookup_user_for_login')
             ? [{ id: 'u1', tenant_id: 't1', username: 'owner', password_hash: passHash, role: 'owner',
                  display_name: 'O', is_active: true, tenant_status: 'active', timezone: 'Asia/Bangkok' }]
@@ -633,8 +636,8 @@ describe('AuthService', () => {
               rollbackTransaction: vi.fn(),
               // Lookups answer here too, so a service that reads through its own runner
               // still gets rows and fails on the connection count, not on a missing mock.
-              query: vi.fn().mockImplementation((sql: string) =>
-                sql.includes('auth_lookup_') ? lookup(sql) : [],
+              query: vi.fn().mockImplementation((sql: string, params?: any[]) =>
+                sql.includes('auth_lookup_') ? lookup(sql, params) : [],
               ),
               manager: {},
               isTransactionActive: false,
@@ -646,7 +649,7 @@ describe('AuthService', () => {
         );
         argonHook.onVerify = () => heldAtVerify.push(held);
         try {
-          const attempt = service.login({ username: 'owner', password, deviceToken: 'tok' }, '10.0.0.20');
+          const attempt = service.login({ username, password, deviceToken: 'tok' }, '10.0.0.20');
           if (error) await expect(attempt).rejects.toThrow(error);
           else await attempt;
         } finally {
@@ -656,7 +659,8 @@ describe('AuthService', () => {
         expect(heldAtVerify).toEqual([0]);
         expect(maxHeld).toBe(1);
         expect(held).toBe(0);
-        expect(auditMock.log).toHaveBeenCalledTimes(1);
+        // An unknown user has no tenant to audit under (unchanged by #425).
+        expect(auditMock.log).toHaveBeenCalledTimes(username === 'owner' ? 1 : 0);
       });
 
       // #425: an unknown username must cost the same one argon2 verify as a wrong password,
