@@ -205,10 +205,17 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final settingsRepo = context.read<SettingsRepository>();
   final shiftsRepo = context.read<ShiftsRepository>();
 
-  final today = todayKey();
-  final salesAgg = await salesRepo.getSales();
-  final returns = await returnsRepo.getReturns();
-  final creditPayments = await mechanicsRepo.getCreditPayments();
+  final now = DateTime.now();
+  final today = dateKey(now);
+  // Only today's bills/returns/credit payments are read (#417) — the same
+  // rows the old `dateKey(x) == today` in-memory filters kept.
+  final day = dayBounds(now);
+  final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
+  final returns = await returnsRepo.getReturns(from: day.from, to: day.to);
+  final creditPayments = await mechanicsRepo.getCreditPayments(
+    from: day.from,
+    to: day.to,
+  );
   final products = await productsRepo.getAll();
   final settings = await settingsRepo.getSettings();
   final drawer = await shiftsRepo.getCashDrawer();
@@ -218,7 +225,6 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final sales = <SaleLite>[];
   for (final s in salesAgg) {
     final sale = s.sale;
-    if (dateKey(sale.date) != today) continue;
     sales.add(
       SaleLite(
         subtotal: sale.subtotal,
@@ -242,9 +248,7 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
 
   // Cash refunds today reduce the drawer.
   final cashRefundsToday = returns
-      .where(
-        (r) => dateKey(r.ret.date) == today && r.ret.refundMethod == 'เงินสด',
-      )
+      .where((r) => r.ret.refundMethod == 'เงินสด')
       .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
   // Cash credit-payments today increase the drawer. The JS filtered
@@ -255,7 +259,7 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   // recover the method from that prefix and count only cash settlements,
   // matching ClosingReport.jsx (and keeping the drawer math consistent).
   final cashCreditPaymentsToday = creditPayments
-      .where((p) => dateKey(p.date) == today && _isCashCreditPayment(p.note))
+      .where((p) => _isCashCreditPayment(p.note))
       .fold<double>(0, (s, p) => s + p.amount);
 
   final drawerToday = drawer != null && drawer.shift.dateStr == today;

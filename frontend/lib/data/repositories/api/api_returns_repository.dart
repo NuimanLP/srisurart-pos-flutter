@@ -282,5 +282,6 @@ class ApiReturnsRepository implements ReturnsRepository {
   // ── Reads — still Drift (#55 owns them) ───────────────────────────────────
 
   @override
-  Future<List<ReturnWithItems>> getReturns() => drift.getReturns();
+  Future<List<ReturnWithItems>> getReturns({DateTime? from, DateTime? to}) =>
+      drift.getReturns(from: from, to: to);
 }

@@ -133,10 +133,23 @@ class MechanicsRepository {
   /// Drift stores DateTime as unix epoch *seconds*, so two payments in the same
   /// second tie on `date`; we break the tie by SQLite's implicit `rowid` (which
   /// increases monotonically with insertion order) so newest stays first.
-  Future<List<CreditPaymentRow>> getCreditPayments() async {
+  ///
+  /// With no bounds: every payment. [from] is inclusive, [to] exclusive
+  /// (#417 — the drawer/closing views read one day, not the whole history).
+  Future<List<CreditPaymentRow>> getCreditPayments({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final where = [if (from != null) 'date >= ?', if (to != null) 'date < ?'];
     final rows = await db
         .customSelect(
-          'SELECT * FROM credit_payments ORDER BY date DESC, rowid DESC',
+          'SELECT * FROM credit_payments'
+          '${where.isEmpty ? '' : ' WHERE ${where.join(' AND ')}'}'
+          ' ORDER BY date DESC, rowid DESC',
+          variables: [
+            if (from != null) Variable.withDateTime(from),
+            if (to != null) Variable.withDateTime(to),
+          ],
           readsFrom: {db.creditPayments},
         )
         .get();

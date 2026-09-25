@@ -4,13 +4,15 @@
 // (covers partial returns AND voided bills), top products by qty, revenue by
 // category, recent sales, low-stock alert — with a today/7-day/month/all range
 // selector. Data pulled through salesRepoProvider.getSales +
-// returnsRepoProvider.getReturns + productsRepoProvider.getAll. Category bar
-// colors come from ProductsRepository.catColor.
+// returnsRepoProvider.getReturns (bounded to the selected range at the query,
+// #417) + productsRepoProvider.getAll. Category bar colors come from
+// ProductsRepository.catColor.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/products_repository.dart';
@@ -21,9 +23,64 @@ import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/thai_format.dart';
 
-enum _Range { today, week, month, all }
+enum ReportRange { today, week, month, all }
 
-/// Bundled data the reports screen needs in one async pass.
+/// Query bounds for [range] ([from] inclusive, [to] exclusive; null = open).
+/// Selects exactly the rows the JS `inRange(iso)` bucketed: today = this
+/// calendar day; week = from midnight 7 days ago with NO upper bound (the JS
+/// never capped it, so future-dated rows count); month = this calendar month;
+/// all = everything.
+({DateTime? from, DateTime? to}) reportRangeBounds(
+  ReportRange range,
+  DateTime now,
+) {
+  switch (range) {
+    case ReportRange.today:
+      final d = dayBounds(now);
+      return (from: d.from, to: d.to);
+    case ReportRange.week:
+      final weekAgo = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(const Duration(days: 7));
+      return (from: weekAgo, to: null);
+    case ReportRange.month:
+      return (
+        from: DateTime(now.year, now.month, 1),
+        to: DateTime(now.year, now.month + 1, 1),
+      );
+    case ReportRange.all:
+      return (from: null, to: null);
+  }
+}
+
+/// Revenue per category over [sales]' lines: product matched by partNo →
+/// category, else its zone, else อื่นๆ (first catalogue match wins, like the
+/// original linear scan). The lookup map is built once, not per line.
+Map<String, double> revenueByCategory(
+  List<SaleWithItems> sales,
+  List<ProductRow> products,
+) {
+  final byPartNo = <String, ProductRow>{};
+  for (final p in products) {
+    byPartNo.putIfAbsent(p.partNo, () => p);
+  }
+  final zoneMap = <String, double>{};
+  for (final t in sales) {
+    for (final item in t.items) {
+      final p = byPartNo[item.partNo];
+      final z = (p?.category.isNotEmpty ?? false)
+          ? p!.category
+          : (p?.zone ?? 'อื่นๆ');
+      zoneMap[z] = (zoneMap[z] ?? 0) + item.qty * item.price;
+    }
+  }
+  return zoneMap;
+}
+
+/// Bundled data the reports screen needs in one async pass. [sales] and
+/// [returns] are already limited to the selected range.
 class _ReportsData {
   final List<SaleWithItems> sales;
   final List<ReturnWithItems> returns;
@@ -45,7 +102,7 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  _Range _range = _Range.today;
+  ReportRange _range = ReportRange.today;
   // Created in initState — never inline in build — so it doesn't refetch on
   // every rebuild (e.g. every range-selector tap).
   late Future<_ReportsData> _dataFuture;
@@ -53,16 +110,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   void initState() {
     super.initState();
-    _dataFuture = _loadData();
+    _dataFuture = _loadData(_range);
   }
 
-  Future<_ReportsData> _loadData() async {
+  Future<_ReportsData> _loadData(ReportRange range) async {
     final salesRepo = context.read<SalesRepository>();
     final returnsRepo = context.read<ReturnsRepository>();
     final productsRepo = context.read<ProductsRepository>();
 
-    final sales = await salesRepo.getSales();
-    final returns = await returnsRepo.getReturns();
+    final bounds = reportRangeBounds(range, DateTime.now());
+    final sales = await salesRepo.getSales(from: bounds.from, to: bounds.to);
+    final returns = await returnsRepo.getReturns(
+      from: bounds.from,
+      to: bounds.to,
+    );
     final products = await productsRepo.getAll();
 
     // Pre-resolve a color per distinct category we will plot (catColor is async).
@@ -100,7 +161,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
           return _ReportsView(
             data: snap.data!,
             range: _range,
-            onRangeChanged: (r) => setState(() => _range = r),
+            onRangeChanged: (r) => setState(() {
+              _range = r;
+              _dataFuture = _loadData(r);
+            }),
           );
         },
       ),
@@ -110,32 +174,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
 class _ReportsView extends StatelessWidget {
   final _ReportsData data;
-  final _Range range;
-  final ValueChanged<_Range> onRangeChanged;
+  final ReportRange range;
+  final ValueChanged<ReportRange> onRangeChanged;
   const _ReportsView({
     required this.data,
     required this.range,
     required this.onRangeChanged,
   });
-
-  // Port of inRange(iso): bucket a date into the selected range.
-  bool _inRange(DateTime d, _Range range, DateTime now) {
-    switch (range) {
-      case _Range.today:
-        return d.year == now.year && d.month == now.month && d.day == now.day;
-      case _Range.week:
-        final weekAgo = DateTime(
-          now.year,
-          now.month,
-          now.day,
-        ).subtract(const Duration(days: 7));
-        return !d.isBefore(weekAgo);
-      case _Range.month:
-        return d.year == now.year && d.month == now.month;
-      case _Range.all:
-        return true;
-    }
-  }
 
   Color _hex(String h) {
     final v = h.replaceFirst('#', '');
@@ -144,18 +189,16 @@ class _ReportsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-
-    final filtered = data.sales
-        .where((s) => _inRange(s.sale.date, range, now))
-        .toList();
+    // Rows arrive already bounded to [range] by the repository query.
+    final filtered = data.sales;
 
     final totalRevenue = filtered.fold<double>(0, (s, t) => s + t.sale.total);
     // Credit notes in the same range reduce real revenue (partial returns AND
     // voided bills).
-    final totalRefunds = data.returns
-        .where((r) => _inRange(r.ret.date, range, now))
-        .fold<double>(0, (s, r) => s + r.ret.refundTotal);
+    final totalRefunds = data.returns.fold<double>(
+      0,
+      (s, r) => s + r.ret.refundTotal,
+    );
     final netRevenue = totalRevenue - totalRefunds;
     final totalTransactions = filtered.length;
     final avgTicket = totalTransactions > 0
@@ -184,22 +227,7 @@ class _ReportsView extends StatelessWidget {
     final recent = filtered.take(10).toList();
 
     // Category revenue (match product by partNo → category/zone, else อื่นๆ).
-    final zoneMap = <String, double>{};
-    for (final t in filtered) {
-      for (final item in t.items) {
-        ProductRow? p;
-        for (final pr in data.products) {
-          if (pr.partNo == item.partNo) {
-            p = pr;
-            break;
-          }
-        }
-        final z = (p?.category.isNotEmpty ?? false)
-            ? p!.category
-            : (p?.zone ?? 'อื่นๆ');
-        zoneMap[z] = (zoneMap[z] ?? 0) + item.qty * item.price;
-      }
-    }
+    final zoneMap = revenueByCategory(filtered, data.products);
     final zones = zoneMap.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final double maxZoneVal = zones.isNotEmpty ? zones.first.value : 1.0;
@@ -365,15 +393,15 @@ class _Sold {
 
 // ── Range selector bar ────────────────────────────────────────────────────────
 class _RangeBar extends StatelessWidget {
-  final _Range range;
-  final ValueChanged<_Range> onChanged;
+  final ReportRange range;
+  final ValueChanged<ReportRange> onChanged;
   const _RangeBar({required this.range, required this.onChanged});
 
   static const _options = [
-    (_Range.today, 'วันนี้', Icons.today_rounded),
-    (_Range.week, '7 วัน', Icons.date_range_rounded),
-    (_Range.month, 'เดือนนี้', Icons.calendar_month_rounded),
-    (_Range.all, 'ทั้งหมด', Icons.all_inclusive_rounded),
+    (ReportRange.today, 'วันนี้', Icons.today_rounded),
+    (ReportRange.week, '7 วัน', Icons.date_range_rounded),
+    (ReportRange.month, 'เดือนนี้', Icons.calendar_month_rounded),
+    (ReportRange.all, 'ทั้งหมด', Icons.all_inclusive_rounded),
   ];
 
   @override
