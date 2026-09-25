@@ -272,6 +272,31 @@ void main() {
       },
     );
 
+    test(
+      'an unreadable/unknown-fate error is NOT queued offline (#413) — only a transport failure may fall back',
+      () async {
+        // Not an ApiException (no verdict), not a transport failure either — the
+        // server's fate is unknown, so queuing would risk a second payment.
+        await seedTarget();
+        final repo = ApiMechanicsRepository(
+          db,
+          ApiClient(httpClient: MockClient((_) async => throw Exception('unexpected'))),
+        );
+
+        await expectLater(
+          repo.addCreditPayment(
+            mechanicId: 'm_target',
+            amount: 500.0,
+            paymentMethod: 'เงินสด',
+          ),
+          throwsA(isA<PosException>().having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')),
+        );
+        expect(await localPayments(), 0);
+        expect(await balance(), 2000.0);
+        expect(await repo.getPendingCreditPayments(), isEmpty);
+      },
+    );
+
     test('the confirmed resend carries allowOverpayment', () async {
       await seedTarget();
       late Map<String, dynamic> sent;

@@ -4,6 +4,8 @@ import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
+import '../../core/network/transport_failure.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
 import '../sync/sync_facade.dart';
@@ -259,7 +261,15 @@ class ApiCustomersRepository extends CustomersRepository {
         return await queueOfflineCustomer();
       }
       rethrow;
-    } catch (_) {
+    } catch (e) {
+      // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
+      // become an offline write. Anything else here — a 2xx whose body is not
+      // a customer, say — means the server answered and may have committed;
+      // queuing it would create a second customer under a fresh offline id.
+      if (e is PosException) rethrow;
+      if (!isTransportFailure(e)) {
+        throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
+      }
       final sync = syncService ??
           (syncFacade is SyncService ? syncFacade as SyncService : null);
       sync?.recordNonVerdictWrite();
@@ -335,7 +345,15 @@ class ApiCustomersRepository extends CustomersRepository {
         return;
       }
       rethrow;
-    } catch (_) {
+    } catch (e) {
+      // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
+      // become an offline write. Anything else here — a 2xx whose body is not
+      // a customer, say — means the server answered and may have committed;
+      // queuing it would apply the same patch a second time.
+      if (e is PosException) rethrow;
+      if (!isTransportFailure(e)) {
+        throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
+      }
       final sync = syncService ??
           (syncFacade is SyncService ? syncFacade as SyncService : null);
       sync?.recordNonVerdictWrite();
