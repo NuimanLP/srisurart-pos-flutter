@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { EXPORT_TTL_MS, exportFilePath } from '../src/backup/export-file.js';
 import type { Job } from 'bullmq';
 import { pino } from 'pino';
 import { SalePostProcessor } from '../src/queue/processors/sale-post.processor.js';
@@ -311,6 +315,33 @@ describe('Worker Jobs Processors (unit)', () => {
           },
         ]);
       });
+    });
+
+    it('the hourly tenant-less run also prunes expired tenant-export files (PDPA)', async () => {
+      const root = mkdtempSync(join(tmpdir(), 'worker-jobs-exports-'));
+      const prev = process.env.EXPORT_DIR;
+      process.env.EXPORT_DIR = root;
+      try {
+        const file = exportFilePath(TENANT_ID, 'stale');
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, '{}');
+        const past = (Date.now() - EXPORT_TTL_MS - 60_000) / 1000;
+        utimesSync(file, past, past);
+        mockDataSource.query.mockResolvedValueOnce([]);
+
+        await processor.process({
+          id: 'job-idem-global',
+          name: JOB_IDEM_CLEANUP,
+          queueName: QUEUE_MAINTENANCE,
+          data: { correlationId: 'corr-global' },
+        } as unknown as Job<any>);
+
+        expect(existsSync(file)).toBe(false);
+      } finally {
+        if (prev === undefined) delete process.env.EXPORT_DIR;
+        else process.env.EXPORT_DIR = prev;
+        rmSync(root, { recursive: true, force: true });
+      }
     });
 
     describe('AC5: quotes.purge', () => {
