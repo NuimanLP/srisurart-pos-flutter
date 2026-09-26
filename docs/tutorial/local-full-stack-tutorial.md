@@ -115,7 +115,14 @@ docker run -d --name tlswrap --restart unless-stopped \
 
 ฐานข้อมูล dev เพิ่งสร้างใหม่ ยังไม่มี tenant/user เลย — หน้า login ของ Flutter จะขึ้นข้อความ
 "ไม่สามารถใช้ PIN ออฟไลน์ได้ … กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบใหม่" ซึ่งถูกต้องแล้ว
-(ยังไม่เคยมีใคร login ออนไลน์เลยสักครั้ง) ต้องทำ 3 ขั้นตอนนี้ **ครั้งเดียว** ต่อฐานข้อมูล:
+(ยังไม่เคยมีใคร login ออนไลน์เลยสักครั้ง) ต้องทำ 3 ขั้นตอนนี้ **ครั้งเดียว** ต่อฐานข้อมูล
+
+> 🔴 **ไม่มีหน้า UI สำหรับสร้าง tenant/account** — ทั้ง Flutter app (`frontend/lib/presentation/screens/`,
+> 13 หน้าใน shop) และ backend ไม่มีหน้า "admin panel" ให้กรอกฟอร์ม การสร้าง platform admin
+> เป็นการตัดสินใจโดยตั้งใจ (ADR-0001: "admins are created out of band by the team — no API
+> creates one") ส่วนการสร้าง tenant/shop owner ทำผ่าน `POST /platform/tenants` เท่านั้น
+> (เรียกด้วย `curl`/Postman เป็น admin-plane API ไม่มี UI) — 3 ขั้นตอนด้านล่างคือ**ทางเดียว**
+> ที่มีตอนนี้:
 
 ### 5.1 สร้าง platform admin ตัวแรก (ADR-0001 — ทำนอก API เท่านั้น)
 
@@ -206,6 +213,25 @@ lib\main.dart is being served at http://127.0.0.1:8090
 
 Dashboard ของ Grafana ถูก provision มาให้อัตโนมัติจาก `deploy/grafana/provisioning` —
 ไม่ต้องเพิ่ม datasource เอง
+
+### 7.1 คิวงานใน Bull-Board แต่ละอันคืออะไร
+
+Bull-Board แสดง 6 คิว (`server/src/queue/queue.constants.ts` → `ALL_QUEUES`), แต่ละคิวมี
+`@Processor` (worker) ของตัวเองแยกกัน เพื่อไม่ให้สองคลาสแย่งงานคิวเดียวกัน:
+
+| คิว | ใครใส่งานเข้า | ทำอะไร (`server/src/queue/processors/`) |
+|---|---|---|
+| **sale-post** | หลัง `saveSale`/`createReturn` สำเร็จ | งานเบื้องหลังหลังขาย/คืนของ — ไม่บล็อกการตอบ response ให้ลูกค้า (เช่นต่อยอดไปตรวจสต็อกที่ `inventory`) |
+| **inventory** | `sale-post` ต่อยอดมา, หรือเรียกตรง | ตรวจสต็อกสินค้าหลังมีการขาย/คืน (`inventory.check`) |
+| **maintenance** | scheduler รายชั่วโมง (`idem-cleanup-global`) + งาน purge อื่น | งานบ้านทั่วไป: ล้าง idempotency key ที่หมดอายุ, purge ใบเสนอราคาเก่า (`quotes.purge`), ลบไฟล์ export เก่า |
+| **backup** | เรียกจาก `POST /backup/export` | export ข้อมูล tenant เป็นไฟล์ (`tenant.export`) — งานเดียวในคิวนี้ |
+| **tenant-import** | เรียกจาก `POST /platform/tenants/:id/import` | นำเข้าข้อมูลร้านใหม่ตอน onboard (`tenant.import`) — แยกคิวจาก `backup` โดยตั้งใจ แม้เป็นงานฝั่งเดียวกัน เพราะ `@nestjs/bullmq` สร้าง Worker หนึ่งตัวต่อคิวต่อคลาส สองคลาสแย่งคิวเดียวกันจะสุ่มว่าใครได้ job |
+| **dlq** (Dead Letter Queue) | job ไหนก็ตามที่ retry ครบ 3 ครั้ง (`attempts: 3`) แล้วยัง fail | ที่พักงานที่ล้มเหลวถาวรไว้ให้คนดูด้วยตา **ไม่มี worker ประมวลผลอัตโนมัติ** — `No workers` ในภาพที่ส่งมาคือของปกติ ไม่ใช่บั๊ก (`tenant-job-runner.ts`'s `routeToDlq`, `queue.module.ts` ไม่ได้ลงทะเบียน `@Processor(QUEUE_DLQ)` ไว้เลย) |
+
+ในภาพตัวอย่าง `tenant-import` มี **FAILED 4** — เพราะรอบทดสอบก่อนหน้านี้เรียก
+`POST /platform/tenants/:id/import` ด้วยไฟล์/tenant ที่ผิดเงื่อนไข (เช่น tenant มีบิลอยู่แล้ว)
+ไม่ใช่ปัญหาของสแตกที่เพิ่งขึ้นมา — เปิดดู job ที่ fail ใน Bull-Board (คลิกเข้าไปในคิว) เพื่อดู
+error message เต็มได้ ถ้าอยากลองใหม่ให้กด "Retry" บน job นั้นหลังแก้ payload/สาเหตุแล้ว
 
 ---
 
