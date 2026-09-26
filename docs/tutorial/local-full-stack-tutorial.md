@@ -111,7 +111,61 @@ docker run -d --name tlswrap --restart unless-stopped \
 
 ---
 
-## 5) รัน Frontend (Flutter web) ให้พูดกับ backend จริง
+## 5) สร้างผู้ใช้แรก (platform admin → tenant → shop owner)
+
+ฐานข้อมูล dev เพิ่งสร้างใหม่ ยังไม่มี tenant/user เลย — หน้า login ของ Flutter จะขึ้นข้อความ
+"ไม่สามารถใช้ PIN ออฟไลน์ได้ … กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบใหม่" ซึ่งถูกต้องแล้ว
+(ยังไม่เคยมีใคร login ออนไลน์เลยสักครั้ง) ต้องทำ 3 ขั้นตอนนี้ **ครั้งเดียว** ต่อฐานข้อมูล:
+
+### 5.1 สร้าง platform admin ตัวแรก (ADR-0001 — ทำนอก API เท่านั้น)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/compose/monitoring.yml exec -T \
+  -e BOOTSTRAP_ADMIN_USERNAME=devadmin \
+  -e BOOTSTRAP_ADMIN_PASSWORD=<รหัสผ่านอย่างน้อย12ตัวอักษร> \
+  -e BOOTSTRAP_ADMIN_DISPLAY_NAME="Dev Admin" \
+  api-1 sh -c 'DATABASE_URL="postgres://postgres:$POSTGRES_PASSWORD@postgres:5432/pos" node dist/db/bootstrap-admin.js'
+```
+
+### 5.2 ล็อกอินเป็น platform admin แล้วสร้าง tenant + shop owner
+
+🔴 `location /api/v1/platform/` ของ Nginx จำกัดแค่ `127.0.0.1` — บน Docker Desktop
+(Windows/Mac) การ `curl` จากเครื่องจริงไม่นับเป็น loopback ของ container (เห็นเป็น IP
+gateway เช่น `172.30.0.1` แล้วโดน `403 Forbidden`) ให้รันคำสั่งจาก**ภายใน container
+nginx เอง** แทน (`docker compose exec nginx …` เป็น loopback จริง):
+
+```bash
+# ล็อกอิน platform admin
+docker compose exec -T nginx sh -c \
+  'curl -sk https://127.0.0.1/api/v1/platform/auth/token \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"devadmin\",\"password\":\"<รหัสผ่านข้อ5.1>\"}"'
+# → คัดลอกค่า data.token มาใช้ต่อ (TOKEN=...)
+
+# สร้าง tenant + owner แรก
+docker compose exec -T nginx sh -c \
+  "curl -sk https://127.0.0.1/api/v1/platform/tenants \
+    -H 'Content-Type: application/json' \
+    -H 'Authorization: Bearer <TOKEN>' \
+    -d '{\"code\":\"demo-shop\",\"shopName\":\"ร้านตัวอย่าง\",\"plan\":\"demo\",\"ownerUsername\":\"owner\",\"ownerPassword\":\"<รหัสผ่านอย่างน้อย12ตัวอักษร>\",\"ownerDisplayName\":\"Shop Owner\"}'"
+```
+
+Response จะได้ `tenantId`, `enrolCode` (ใช้สำหรับผูกเครื่อง POS Terminal ทีหลังถ้าต้องการ)
+
+### 5.3 ทดสอบ login แบบ shop-level (ไม่ติด loopback restriction — เรียกจาก host ปกติได้)
+
+```bash
+curl -sk https://localhost/api/v1/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"username":"owner","password":"<รหัสผ่านข้อ5.2>"}'
+```
+
+ได้ `accessToken`/`refreshToken` กลับมา = ใช้ username/password นี้ **login ใน Flutter web
+ที่โหมด "Backoffice"** ได้ทันที (role `owner`)
+
+---
+
+## 6) รัน Frontend (Flutter web) ให้พูดกับ backend จริง
 
 จาก `frontend/`:
 
@@ -140,7 +194,7 @@ lib\main.dart is being served at http://127.0.0.1:8090
 
 ---
 
-## 6) URL ทั้งหมดที่ควรเปิดได้ตอนนี้
+## 7) URL ทั้งหมดที่ควรเปิดได้ตอนนี้
 
 | บริการ | URL | login |
 |---|---|---|
@@ -155,7 +209,7 @@ Dashboard ของ Grafana ถูก provision มาให้อัตโน�
 
 ---
 
-## 7) หยุด/เริ่มใหม่
+## 8) หยุด/เริ่มใหม่
 
 **หยุดทุกอย่าง (เก็บข้อมูลไว้):**
 
@@ -185,7 +239,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 
 ---
 
-## 8) แก้ปัญหาที่เจอบ่อย
+## 9) แก้ปัญหาที่เจอบ่อย
 
 | อาการ | สาเหตุ | แก้ |
 |---|---|---|
@@ -194,6 +248,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 | container ไหนก็ตามค้าง `(health: starting)` นาน | Postgres/Redis ยังไม่พร้อม (เครื่องช้าตอน build ครั้งแรก) | รอเพิ่ม แล้วดู log: `docker compose logs <service>` |
 | ลืม `-f` ชุดเดิมตอนรันคำสั่งอื่น (เช่น `docker compose run migrate`) | compose มองว่าสแตกไม่ตรงไฟล์ แล้ว recreate `postgres` ทิ้ง port ของ dev overlay | ใส่ `-f` ชุดเดิมทุกครั้ง แล้ว `up -d` ซ้ำเพื่อคืน port |
 | Grafana panel "Disk usage (/)" ไม่มีข้อมูล | `node-exporter` mount `/:/rootfs:ro` แต่ Docker Desktop รันบน WSL VM ไม่ใช่ดิสก์ Windows ตรง ๆ | รู้ไว้เฉย ๆ ไม่ใช่บั๊ก จะขึ้นปกติบน `mob04` (Linux จริง) |
+| `curl` ไปที่ `/api/v1/platform/...` จาก host ได้ `403 Forbidden` | Docker Desktop (Windows/Mac) ไม่ preserve loopback ผ่าน port publishing — nginx เห็น `remote_addr` เป็น gateway IP (เช่น `172.30.0.1`) ไม่ใช่ `127.0.0.1` ซึ่งเป็นเงื่อนไขเดียวที่ location นี้อนุญาต | รันคำสั่งจาก**ภายใน container `nginx` เอง**: `docker compose exec -T nginx sh -c 'curl -sk https://127.0.0.1/api/v1/platform/...'` (ดูข้อ 5.2) |
 
 ---
 
