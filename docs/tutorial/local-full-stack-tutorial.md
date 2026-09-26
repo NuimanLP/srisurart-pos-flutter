@@ -136,10 +136,12 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 
 ### 5.2 ล็อกอินเป็น platform admin แล้วสร้าง tenant + shop owner
 
-🔴 `location /api/v1/platform/` ของ Nginx จำกัดแค่ `127.0.0.1` — บน Docker Desktop
-(Windows/Mac) การ `curl` จากเครื่องจริงไม่นับเป็น loopback ของ container (เห็นเป็น IP
-gateway เช่น `172.30.0.1` แล้วโดน `403 Forbidden`) ให้รันคำสั่งจาก**ภายใน container
-nginx เอง** แทน (`docker compose exec nginx …` เป็น loopback จริง):
+🔴 `location /api/v1/platform/` ของ Nginx จำกัดแค่ `127.0.0.1` และ `platform-auth.guard.ts`
+เช็คซ้ำอีกชั้น การ `curl` จากโฮสต์เข้า port ที่ publish ไว้ **โดน `403` ทุกเครื่อง ไม่ใช่แค่
+Docker Desktop** (บน Linux/`mob04` ก็เหมือนกัน) เพราะ docker-proxy เปิด connection ใหม่เข้า
+container ทำให้ IP กลายเป็น gateway `172.30.0.1` — และด้วยเหตุผลเดียวกัน **`ssh -L` ก็ใช้ไม่ได้**
+(#335 D3, runbook เต็มอยู่ที่ [`docs/handoff_log/ticket-338-platform-provision.md`](../handoff_log/ticket-338-platform-provision.md))
+ให้รันคำสั่งจาก**ภายใน container nginx เอง** แทน (`docker compose exec nginx …` เป็น loopback จริง):
 
 ```bash
 # ล็อกอิน platform admin
@@ -274,7 +276,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 | container ไหนก็ตามค้าง `(health: starting)` นาน | Postgres/Redis ยังไม่พร้อม (เครื่องช้าตอน build ครั้งแรก) | รอเพิ่ม แล้วดู log: `docker compose logs <service>` |
 | ลืม `-f` ชุดเดิมตอนรันคำสั่งอื่น (เช่น `docker compose run migrate`) | compose มองว่าสแตกไม่ตรงไฟล์ แล้ว recreate `postgres` ทิ้ง port ของ dev overlay | ใส่ `-f` ชุดเดิมทุกครั้ง แล้ว `up -d` ซ้ำเพื่อคืน port |
 | Grafana panel "Disk usage (/)" ไม่มีข้อมูล | `node-exporter` mount `/:/rootfs:ro` แต่ Docker Desktop รันบน WSL VM ไม่ใช่ดิสก์ Windows ตรง ๆ | รู้ไว้เฉย ๆ ไม่ใช่บั๊ก จะขึ้นปกติบน `mob04` (Linux จริง) |
-| `curl` ไปที่ `/api/v1/platform/...` จาก host ได้ `403 Forbidden` | Docker Desktop (Windows/Mac) ไม่ preserve loopback ผ่าน port publishing — nginx เห็น `remote_addr` เป็น gateway IP (เช่น `172.30.0.1`) ไม่ใช่ `127.0.0.1` ซึ่งเป็นเงื่อนไขเดียวที่ location นี้อนุญาต | รันคำสั่งจาก**ภายใน container `nginx` เอง**: `docker compose exec -T nginx sh -c 'curl -sk https://127.0.0.1/api/v1/platform/...'` (ดูข้อ 5.2) |
+| `curl` ไปที่ `/api/v1/platform/...` จาก host (หรือผ่าน `ssh -L`) ได้ `403 Forbidden` | docker-proxy เปิด connection ใหม่เข้า container — nginx และ guard เห็น IP เป็น gateway (`172.30.0.1`) ไม่ใช่ `127.0.0.1` · เกิดบนทุกโฮสต์ รวม `mob04` (#335 D3) | รันคำสั่งจาก**ภายใน container `nginx` เอง**: `docker compose exec -T nginx sh -c 'curl -sk https://127.0.0.1/api/v1/platform/...'` (ดูข้อ 5.2) |
 
 ---
 
