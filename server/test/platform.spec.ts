@@ -410,22 +410,32 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
     });
 
     it('updates tenant status inside transaction and immediately purges Redis cache key', async () => {
-      mockAdminDs.query.mockResolvedValueOnce([{ id: 't1', status: 'suspended' }]);
+      const tenantId = '11111111-1111-1111-1111-111111111111';
+      mockAdminDs.query.mockResolvedValueOnce([{ id: tenantId, status: 'suspended' }]);
 
       const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
-      const res = await service.updateStatus('t1', 'suspended', 'adm1');
+      const res = await service.updateStatus(tenantId, 'suspended', 'adm1');
 
-      expect(res).toEqual({ tenantId: 't1', status: 'suspended' });
+      expect(res).toEqual({ tenantId, status: 'suspended' });
       expect(mockAdminDs.transaction).toHaveBeenCalled();
-      expect(mockRedisCache.del).toHaveBeenCalledWith('t:t1:status');
+      expect(mockRedisCache.del).toHaveBeenCalledWith(`t:${tenantId}:status`);
     });
 
     it('does not purge Redis status cache if updateStatus transaction fails', async () => {
+      const tenantId = '11111111-1111-1111-1111-111111111111';
       mockAdminDs.transaction.mockRejectedValueOnce(new Error('Transaction rolled back'));
 
       const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
-      await expect(service.updateStatus('t1', 'suspended', 'adm1')).rejects.toThrow('Transaction rolled back');
+      await expect(service.updateStatus(tenantId, 'suspended', 'adm1')).rejects.toThrow('Transaction rolled back');
       expect(mockRedisCache.del).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-UUID tenant id with 400 INVALID_TENANT_ID before any query', async () => {
+      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
+      await expect(service.updateStatus('t1', 'suspended', 'adm1')).rejects.toMatchObject({
+        response: { code: 'INVALID_TENANT_ID' },
+      });
+      expect(mockAdminDs.transaction).not.toHaveBeenCalled();
     });
 
     it('listTenants returns list even if audit logging fails (AC4)', async () => {

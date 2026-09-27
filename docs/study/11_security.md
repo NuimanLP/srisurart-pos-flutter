@@ -647,7 +647,7 @@ token ของ platform admin ใช้ **HS256 ด้วย `JWT_PLATFORM_SECR
   ใช้ `timingSafeEqual` เทียบ (กันการวัดเวลาเพื่อเดาทีละ byte) แต่ hash แบบนี้ที่ยังค้างอยู่ใน DB อ่อนกว่า argon2 มาก
 - salt ไม่ต้องทำเอง — library สุ่มให้และฝังไว้ใน string ผลลัพธ์ (`$argon2id$v=19$m=65536,t=3,p=1$<salt>$<hash>`)
 
-`server/src/platform/platform-tenants.service.ts:69-84` (ตัดบางส่วน) — จุดที่กฎ #364 ถูกบังคับใช้จริงตอนสร้างร้านใหม่:
+`server/src/platform/platform-tenants.service.ts:94-109` (ตัดบางส่วน) — จุดที่กฎ #364 ถูกบังคับใช้จริงตอนสร้างร้านใหม่:
 
 ```ts
     const pwViolation = passwordPolicyViolation(dto.ownerPassword);
@@ -996,7 +996,7 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 - **ปัญหาที่แก้:** DB รั่วแล้วคนร้ายแตกรหัสด้วย GPU (SHA-256 เดาได้หลายพันล้านครั้ง/วินาที)
 - **ทำไมเลือก:** เทียบกับ bcrypt (ไม่กิน RAM มาก — GPU ทำขนานได้ง่ายกว่า) และ PBKDF2 (ยิ่งเบากว่า)
 - **ดี / ราคา:** แตกยากมาก / ~100 ms + 64 MiB ต่อครั้งบน server ของเราเอง ต้องวางนอก transaction
-- **ใน repo:** `password.ts:4-11`, `platform-tenants.service.ts:81-84`
+- **ใน repo:** `password.ts:4-11`, `platform-tenants.service.ts:106-109`
 
 ### 5. Asymmetric JWT (RS256) + key rotation ด้วย `kid`
 

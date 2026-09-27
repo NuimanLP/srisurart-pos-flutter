@@ -551,7 +551,7 @@ docker compose -p studylab exec -T nginx curl -sk https://127.0.0.1/api/v1/platf
 ```json
 {"status":"error","error":{"code":"WEAK_PASSWORD","message":"ownerPassword is too weak: at least 12 characters required"}}
 ```
-แล้วสร้างจริง (field ตาม `CreateTenantDto` ใน `server/src/platform/platform-tenants.service.ts:21-30`):
+แล้วสร้างจริง (field ตาม `CreateTenantDto` ใน `server/src/platform/platform-tenants.service.ts:22-31`):
 ```bash
 OWNPW=$(openssl rand -hex 12)
 docker compose -p studylab exec -T nginx curl -sk https://127.0.0.1/api/v1/platform/tenants \

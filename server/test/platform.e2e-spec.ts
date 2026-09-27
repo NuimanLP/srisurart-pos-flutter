@@ -553,4 +553,309 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       }
     });
   });
+
+  // #443 PR2: the answer to "the shop's first device's 7-day enrolCode expired and it
+  // never enrolled" — a platform admin can reissue one, but only for a device that has
+  // never been enrolled, and `GET /platform/tenants/:id` so the CLI/UI has device ids and
+  // import-job status to work from without touching psql.
+  describe('Enrol-code reissue + tenant detail (#443 PR2)', () => {
+    let tenantId: string;
+    let ownerUsername: string;
+    let ownerPassword: string;
+    let provisioningEnrolCode: string;
+
+    beforeEach(async () => {
+      const code = `pr2-${randomUUID().slice(0, 8)}`;
+      ownerUsername = `owner_${code}`;
+      ownerPassword = 'password-123456';
+      const provisionRes = await request(app.getHttpServer())
+        .post('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          code,
+          shopName: 'ร้านทดสอบ ออกโค้ดใหม่',
+          ownerUsername,
+          ownerPassword,
+          ownerDisplayName: 'เจ้าของร้าน',
+        });
+      expect(provisionRes.status).toBe(201);
+      tenantId = provisionRes.body.data.tenantId;
+      provisioningEnrolCode = provisionRes.body.data.enrolCode;
+    });
+
+    afterEach(async () => {
+      for (const table of ['audit_log', 'devices', 'categories', 'settings', 'users']) {
+        await adminDs.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [tenantId]);
+      }
+      await adminDs.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
+      await cache.del(`t:${tenantId}:status`);
+    });
+
+    it('reissues a code for the never-enrolled first device, kills the old code, and the new one enrols', async () => {
+      // The old code (from provisioning) still works before reissue.
+      const reissueRes = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send();
+
+      expect(reissueRes.status).toBe(200);
+      expect(reissueRes.body.data.deviceId).toBe('pos1');
+      expect(reissueRes.body.data.enrolCode).toMatch(/^[0-9A-F]{8}$/);
+      expect(reissueRes.body.data.enrolExpiresAt).toBeDefined();
+      const newCode = reissueRes.body.data.enrolCode;
+
+      // The provisioning-time code is dead: `auth_enrol_device` no longer matches its hash.
+      const oldCodeRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/device')
+        .send({ code: provisioningEnrolCode });
+      expect(oldCodeRes.status).toBe(401);
+
+      // The new code enrols.
+      const newCodeRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/device')
+        .send({ code: newCode });
+      expect(newCodeRes.status).toBe(200);
+      expect(newCodeRes.body.data.deviceToken).toBeDefined();
+
+      // Audit row carries platform_admin_id and never the code.
+      const auditRows = await adminDs.query(
+        `SELECT * FROM audit_log WHERE tenant_id = $1 AND action = 'platform.device.enrol_code_reissued'`,
+        [tenantId],
+      );
+      expect(auditRows.length).toBe(1);
+      expect(auditRows[0].platform_admin_id).toBe(adminId);
+      expect(auditRows[0].entity_id).toBe('pos1');
+      const auditJson = JSON.stringify(auditRows[0]);
+      expect(auditJson).not.toContain(newCode);
+      expect(auditJson).not.toContain(provisioningEnrolCode);
+    });
+
+    it('refuses to reissue for a device that is already enrolled (409)', async () => {
+      const enrolCode = provisioningEnrolCode;
+      const enrolRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/device')
+        .send({ code: enrolCode });
+      expect(enrolRes.status).toBe(200);
+
+      const reissueRes = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send();
+
+      expect(reissueRes.status).toBe(409);
+      expect(reissueRes.body.error.code).toBe('DEVICE_ALREADY_ENROLLED');
+    });
+
+    it('refuses to reissue for a retired device (409)', async () => {
+      // A never-enrolled second device can still be retired directly (retire only requires
+      // the *caller's* session to carry a device id, not that the target is enrolled).
+      const ownerLoginRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/token')
+        .send({ username: ownerUsername, password: ownerPassword });
+      const enrolRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/device')
+        .send({ code: provisioningEnrolCode });
+      const deviceToken = enrolRes.body.data.deviceToken;
+      const posLoginRes = await request(app.getHttpServer())
+        .post('/api/v1/auth/token')
+        .send({ username: ownerUsername, password: ownerPassword, deviceToken });
+      const posToken = posLoginRes.body.data.accessToken;
+
+      const createRes = await request(app.getHttpServer())
+        .post('/api/v1/devices')
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', `k-dev-${randomUUID()}`)
+        .send({ label: 'สำรอง', role: 'backoffice' });
+      expect(createRes.status).toBe(201);
+      const secondDeviceId = createRes.body.data.device.id;
+
+      const retireRes = await request(app.getHttpServer())
+        .post(`/api/v1/devices/${secondDeviceId}/retire`)
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', `k-ret-${randomUUID()}`)
+        .send({});
+      expect(retireRes.status).toBe(200);
+
+      const reissueRes = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/${secondDeviceId}/enrol-code`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send();
+
+      expect(reissueRes.status).toBe(409);
+      expect(reissueRes.body.error.code).toBe('DEVICE_ALREADY_ENROLLED');
+      void ownerLoginRes; // login is exercised only to obtain the device/pos tokens above
+    });
+
+    it('answers 404 for a device id that does not belong to (or exist for) the tenant', async () => {
+      const reissueRes = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/does-not-exist/enrol-code`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send();
+
+      expect(reissueRes.status).toBe(404);
+      expect(reissueRes.body.error.code).toBe('DEVICE_NOT_FOUND');
+    });
+
+    it("answers 404 for another tenant's device id, and never touches that tenant's row", async () => {
+      const otherCode = `pr2o-${randomUUID().slice(0, 8)}`;
+      const otherRes = await request(app.getHttpServer())
+        .post('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          code: otherCode,
+          shopName: 'ร้านอื่น',
+          ownerUsername: `owner_${otherCode}`,
+          ownerPassword: 'password-123456',
+          ownerDisplayName: 'เจ้าของร้านอื่น',
+        });
+      expect(otherRes.status).toBe(201);
+      const otherTenantId: string = otherRes.body.data.tenantId;
+      try {
+        await adminDs.query(
+          `INSERT INTO devices (tenant_id, id, label, device_no, role) VALUES ($1, 'only-in-other', 'x', 2, 'backoffice')`,
+          [otherTenantId],
+        );
+        const before = await adminDs.query(
+          `SELECT id, enrol_code_hash, enrol_expires_at FROM devices WHERE tenant_id = $1 ORDER BY id`,
+          [otherTenantId],
+        );
+
+        const res = await request(app.getHttpServer())
+          .post(`/api/v1/platform/tenants/${tenantId}/devices/only-in-other/enrol-code`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send();
+        expect(res.status).toBe(404);
+        expect(res.body.error.code).toBe('DEVICE_NOT_FOUND');
+
+        // Reissuing `pos1` here must not reach the other tenant's `pos1` either.
+        const ok = await request(app.getHttpServer())
+          .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send();
+        expect(ok.status).toBe(200);
+
+        const after = await adminDs.query(
+          `SELECT id, enrol_code_hash, enrol_expires_at FROM devices WHERE tenant_id = $1 ORDER BY id`,
+          [otherTenantId],
+        );
+        expect(after).toEqual(before);
+      } finally {
+        for (const table of ['audit_log', 'devices', 'categories', 'settings', 'users']) {
+          await adminDs.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [otherTenantId]);
+        }
+        await adminDs.query(`DELETE FROM tenants WHERE id = $1`, [otherTenantId]);
+        await cache.del(`t:${otherTenantId}:status`);
+      }
+    });
+
+    it('refuses both new routes with 403 PLATFORM_IP_FORBIDDEN from an IP outside the allowlist', async () => {
+      const reissueRes = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '203.0.113.195')
+        .send();
+      expect(reissueRes.status).toBe(403);
+      expect(reissueRes.body.error.code).toBe('PLATFORM_IP_FORBIDDEN');
+
+      const detailRes = await request(app.getHttpServer())
+        .get(`/api/v1/platform/tenants/${tenantId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '203.0.113.195');
+      expect(detailRes.status).toBe(403);
+      expect(detailRes.body.error.code).toBe('PLATFORM_IP_FORBIDDEN');
+
+      // Refused at the guard: the code was not rotated.
+      const rows = await adminDs.query(
+        `SELECT 1 FROM audit_log WHERE tenant_id = $1 AND action = 'platform.device.enrol_code_reissued'`,
+        [tenantId],
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it('GET /platform/tenants/:id still shows an expired enrolExpiresAt (the case reissue exists for)', async () => {
+      await adminDs.query(
+        `UPDATE devices SET enrol_expires_at = now() - interval '1 day' WHERE tenant_id = $1 AND id = 'pos1'`,
+        [tenantId],
+      );
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/platform/tenants/${tenantId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      const device = res.body.data.devices[0];
+      expect(device.enrolled).toBe(false);
+      expect(new Date(device.enrolExpiresAt).getTime()).toBeLessThan(Date.now());
+    });
+
+    it('answers 400 INVALID_TENANT_ID for a non-UUID tenant id, on both the reissue and detail routes', async () => {
+      const reissueRes = await request(app.getHttpServer())
+        .post('/api/v1/platform/tenants/not-a-uuid/devices/pos1/enrol-code')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send();
+      expect(reissueRes.status).toBe(400);
+      expect(reissueRes.body.error.code).toBe('INVALID_TENANT_ID');
+
+      const detailRes = await request(app.getHttpServer())
+        .get('/api/v1/platform/tenants/not-a-uuid')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(detailRes.status).toBe(400);
+      expect(detailRes.body.error.code).toBe('INVALID_TENANT_ID');
+
+      const statusRes = await request(app.getHttpServer())
+        .patch('/api/v1/platform/tenants/not-a-uuid/status')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'suspended' });
+      expect(statusRes.status).toBe(400);
+      expect(statusRes.body.error.code).toBe('INVALID_TENANT_ID');
+    });
+
+    it('answers 400 for a malformed UUID even when the request body itself is fine', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}xx/devices/pos1/enrol-code`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send();
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_TENANT_ID');
+    });
+
+    it('GET /platform/tenants/:id answers 404 for an unknown (but well-formed) tenant id', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/platform/tenants/${randomUUID()}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('GET /platform/tenants/:id returns the tenant, its devices with no secrets, and its import jobs', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/platform/tenants/${tenantId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.tenant.id).toBe(tenantId);
+      expect(res.body.data.devices).toHaveLength(1);
+      const device = res.body.data.devices[0];
+      expect(device).toEqual({
+        id: 'pos1',
+        label: 'POS #1',
+        role: 'pos',
+        enrolled: false,
+        enrolExpiresAt: expect.any(String),
+        retiredAt: null,
+      });
+      // No hash of any kind leaves this endpoint.
+      const bodyJson = JSON.stringify(res.body);
+      expect(bodyJson).not.toContain('enrol_code_hash');
+      expect(bodyJson).not.toContain('token_hash');
+      expect(bodyJson.toLowerCase()).not.toMatch(/[0-9a-f]{64}/); // a sha256 hex hash
+
+      expect(res.body.data.importJobs).toEqual([]);
+
+      // Reading the detail is itself audited.
+      const auditRows = await adminDs.query(
+        `SELECT * FROM audit_log WHERE tenant_id = $1 AND action = 'platform.tenant.read'`,
+        [tenantId],
+      );
+      expect(auditRows.length).toBe(1);
+      expect(auditRows[0].platform_admin_id).toBe(adminId);
+    });
+  });
 });

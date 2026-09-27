@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -56,5 +57,24 @@ export class PlatformTenantsController {
   async listTenants(@Req() req: AuthenticatedRequest) {
     const ip = clientIp(req) ?? undefined;
     return this.tenantsService.listTenants(req.platformAdmin.id, ip);
+  }
+
+  /** #443 PR2: a new one-time code for a device that has never been enrolled. */
+  @Post(':id/devices/:deviceId/enrol-code')
+  @HttpCode(200)
+  async reissueEnrolCode(
+    @Param('id') id: string,
+    @Param('deviceId') deviceId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const ip = clientIp(req) ?? undefined;
+    return this.tenantsService.reissueEnrolCode(id, deviceId, req.platformAdmin.id, ip);
+  }
+
+  /** #443 PR2: tenant + its devices (no secrets/hashes) + its recent import jobs. */
+  @Get(':id')
+  async getTenantDetail(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    const ip = clientIp(req) ?? undefined;
+    return this.tenantsService.getTenantDetail(id, req.platformAdmin.id, ip);
   }
 }

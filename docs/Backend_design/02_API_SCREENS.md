@@ -516,7 +516,10 @@ guard ของ `/platform/*` ปฏิเสธ token ที่ `aud != "platfo
 > เพิ่มชั้น IP allowlist (#270): Nginx ให้เฉพาะ loopback และ guard ตรวจ `PLATFORM_ADMIN_IPS` — IP อื่น = `403 PLATFORM_IP_FORBIDDEN`
 > (`platform-auth.guard.ts:60`) · คอลัมน์ *Idempotent* ✔ ข้างล่าง **ยังไม่มี `Idempotency-Key` ในโค้ด** ของ platform controller ใดเลย
 > (import กันซ้ำด้วย `409` เมื่อมีงาน import ค้างอยู่แล้ว — `tenant-import.service.ts:861`) · enrolment code ของเครื่อง `pos` แรกที่
-> `POST /platform/tenants` คืนมา อายุ **7 วัน** (`platform-tenants.service.ts:122`) ไม่ใช่ 15 นาทีแบบ `POST /devices`
+> `POST /platform/tenants` คืนมา อายุ **7 วัน** (`platform-tenants.service.ts:147`) ไม่ใช่ 15 นาทีแบบ `POST /devices`
+> · 🔴 **แก้ 2026-09-27 (#443 PR2):** `{id}` ที่ไม่ใช่ UUID เคยหลุดไป Postgres ตรง ๆ แล้วได้ `22P02` → **500**
+> ไม่ใช่ `400` — แก้แล้วทั้ง `PATCH /platform/tenants/{id}/status` (บั๊กเดิม) และ endpoint ใหม่สองตัวข้างล่าง
+> (`400 INVALID_TENANT_ID`, ตรวจก่อนแตะ Postgres เสมอ)
 
 | Method | Path | Auth | Idempotent | หมายเหตุ |
 |---|---|---|---|---|
@@ -526,6 +529,8 @@ guard ของ `/platform/*` ปฏิเสธ token ที่ `aud != "platfo
 | POST | `/platform/tenants/{id}/import` | platform admin | ✔ | นำเข้า snapshot `sa_*` + `__meta` ตอน **onboard ร้านใหม่เท่านั้น** (ADR-0005) — **ต้องปฏิเสธถ้า tenant นั้นมีบิลอยู่แล้ว** ไม่ใช่ทาง restore ย้อนเวลา · ย้ายมาจาก `POST /backup/import` เดิม · **ตอบ `202 Accepted` + `jobId` (#239, ไม่ใช่ `201` อีกต่อไป)** — pre-flight (`01_DATABASE.md §9` ข้อ 2) รันแบบ synchronous ก่อนตอบ ไฟล์เสีย 400/409 ทันที ส่วนการเขียนจริงเป็น BullMQ job (`QUEUE_TENANT_IMPORT`, แยกจาก `QUEUE_BACKUP` ที่ export ใช้ — เหตุผลใน `server/README.md` §*Tenant import*) |
 | GET | `/platform/tenants/{id}/import/{jobId}` | platform admin | – | สถานะงาน import (#239) — `queued\|running\|succeeded\|failed` + `tombstones`/`droppedSuppliers` ตอนสำเร็จ หรือ `error` ตอนล้ม อ่านจากตาราง `import_jobs` โดยตรง ไม่ผ่าน `GET /backup/jobs/:id` (ตัวนั้นอยู่ tenant plane ใช้ tenant JWT — platform admin ไม่มี token แบบนั้น) |
 | GET | `/platform/tenants` | platform admin | – | รายชื่อร้าน (platform ops เท่านั้น) |
+| POST | `/platform/tenants/{id}/devices/{deviceId}/enrol-code` | platform admin | – | **#443 PR2:** ออก enrolCode ใหม่ให้ device ที่**ยังไม่เคยผูกเครื่องเลย** (`token_hash IS NULL AND retired_at IS NULL`) — คืน `200 {deviceId, enrolCode, enrolExpiresAt}` (โค้ดเห็นครั้งเดียวตอนตอบ ไม่ลง log/`audit_log`) · โค้ดใหม่ทำให้โค้ดเก่าใช้ไม่ได้ทันที (`UPDATE` แถวเดียวกัน) · อายุ **7 วัน** เท่ากับ enrolCode แรกจาก `POST /platform/tenants` (owner ตัดสิน 2026-09-27, Q3) · device ที่ผูกแล้วหรือ retire แล้ว → `409 DEVICE_ALREADY_ENROLLED` · ไม่มี device นั้นในร้านนี้ → `404 DEVICE_NOT_FOUND` · `{id}` ที่ไม่ใช่ UUID → `400 INVALID_TENANT_ID` (ก่อนแตะ Postgres) |
+| GET | `/platform/tenants/{id}` | platform admin | – | **#443 PR2:** รายละเอียดร้านเดียว — `{tenant, devices:[{id,label,role,enrolled,enrolExpiresAt,retiredAt}], importJobs:[20 งานล่าสุดจาก `import_jobs`]}` · `enrolExpiresAt` คืนค่าจริงแม้หมดอายุแล้ว (เห็นได้ว่า "ยังไม่ผูก + โค้ดหมดอายุ" → ออกโค้ดใหม่) และเป็น `null` หลังผูกเครื่อง · `devices` ไม่มี `token_hash`/`enrol_code_hash` เลย · `{id}` ที่ไม่ใช่ UUID → `400 INVALID_TENANT_ID` · ไม่พบร้าน → `404` |
 
 > 🔴 **ทุก endpoint ในตารางนี้ต้องเขียน `audit_log` ทุกครั้งที่ถูกเรียก** (ใคร, endpoint ไหน, แตะ tenant ใด) — ADR-0002 กติกาข้อ 3
 
@@ -840,6 +845,8 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 409 | `CLIENT_ID_REUSED` | `รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
 | 409 | `DEVICE_HAS_UNSYNCED_OPS` | `เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง` (#268, เจ้าของโปรเจกต์ 2026-09-17) |
 | 400 | `WEAK_PASSWORD` | `รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร` (#364, เจ้าของโปรเจกต์ 2026-09-21 — ops เห็นเท่านั้น ไม่ขึ้นที่หน้าร้าน) |
+| 400 | `INVALID_TENANT_ID` | `รหัสร้านไม่ถูกต้อง` — agent ร่าง (#443 PR2, ยังไม่ผ่านเจ้าของโปรเจกต์) — ops เห็นเท่านั้น ไม่ขึ้นที่หน้าร้าน, `message` จริงเป็นอังกฤษ (`tenantId must be a valid UUID`) |
+| 409 | `DEVICE_ALREADY_ENROLLED` | `เครื่องนี้ผูกกับบัญชีไปแล้ว หรือถูกปลดไปแล้ว ออกโค้ดใหม่ไม่ได้` — agent ร่าง (#443 PR2, ยังไม่ผ่านเจ้าของโปรเจกต์) — ops เห็นเท่านั้น ไม่ขึ้นที่หน้าร้าน, `message` จริงเป็นอังกฤษ |
 | 401/403 | ~~`UNAUTHENTICATED`~~ **`UNAUTHORIZED`** / `FORBIDDEN` | – *(2026-09-23: 401 ที่ไม่ได้ตั้ง code ตกไปใช้ชื่อ `HttpStatus` = `UNAUTHORIZED` — `http-exception.filter.ts:37`)* |
 | 404 | `CUSTOMER_NOT_FOUND` · `MECHANIC_NOT_FOUND` · `PRODUCT_NOT_FOUND` · `SUPPLIER_NOT_FOUND` | – *(เพิ่ม 2026-09-23 — มีในโค้ดแต่ตกหล่น · ไม่มีข้อความไทย)* |
 | 403 | `PLATFORM_IP_FORBIDDEN` | – *(เพิ่ม 2026-09-23 — admin plane จาก IP นอก allowlist, #270 · `platform-auth.guard.ts:60`)* |
@@ -904,6 +911,8 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | 409 | `CLIENT_ID_REUSED` | `รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ` — เจ้าของโปรเจกต์เลือก 2026-09-17 (#268 Option A) | `client_id` (natural key) ซ้ำกับรายการอื่นแต่ payload ต่างกัน · Phase 2 |
 | 409 | `DEVICE_HAS_UNSYNCED_OPS` | `เครื่องนี้ยังมีรายการขายค้างส่ง กรุณาเชื่อมต่อเน็ตเพื่อส่งข้อมูลก่อนปลดเครื่อง` — เจ้าของโปรเจกต์เลือก 2026-09-17 (#268 Option A) | `POST /devices/:id/retire` ขณะยังมี unsynced ops ใน outbox และไม่ได้ force · ADR-0004 / Phase 2 |
 | 400 | `WEAK_PASSWORD` | `รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร` — เจ้าของโปรเจกต์เลือก 2026-09-21 (#364) | `POST /platform/tenants` ที่ `ownerPassword` ว่าง หรือสั้นกว่า **12 ตัวอักษร** — เกณฑ์เดียวกับ `bootstrap:admin` (#337) จากฟังก์ชันเดียวกัน (`common/password.ts` → `passwordPolicyViolation` / `MIN_PASSWORD_LENGTH`) · ปฏิเสธ**ก่อน** hash argon2 และ**ก่อน**เปิดธุรกรรม จึงไม่มี tenant/owner ค้าง · **ไม่ขึ้นที่หน้าร้าน** — เห็นเฉพาะคนที่ provision ร้าน (`message` เป็นอังกฤษสำหรับ ops) จึงไม่ต้องรอเจ้าของร้านเคาะคำ |
+| 400 | `INVALID_TENANT_ID` | `รหัสร้านไม่ถูกต้อง` — agent ร่าง (#443 PR2, 2026-09-27) ยังไม่ผ่านเจ้าของโปรเจกต์ | `:id` ของ `PATCH /platform/tenants/{id}/status`, `POST /platform/tenants/{id}/devices/{deviceId}/enrol-code` และ `GET /platform/tenants/{id}` ไม่ใช่รูปแบบ UUID — ของเดิม (`updateStatus`) ปล่อยให้ Postgres ปฏิเสธเองด้วย `22P02` ซึ่งกลายเป็น `500` ไม่ใช่ `400` (พบและแก้พร้อมกันตอนเพิ่ม endpoint ใหม่สองตัว, #443 PR2) · ตรวจรูปแบบ**ก่อน**ทุกคำสั่ง SQL เสมอ (CLAUDE.md: validate first) · **ไม่ขึ้นที่หน้าร้าน** — เห็นเฉพาะ platform admin, `message` จริงเป็นอังกฤษสำหรับ ops |
+| 409 | `DEVICE_ALREADY_ENROLLED` | `เครื่องนี้ผูกกับบัญชีไปแล้ว หรือถูกปลดไปแล้ว ออกโค้ดใหม่ไม่ได้` — agent ร่าง (#443 PR2, 2026-09-27) ยังไม่ผ่านเจ้าของโปรเจกต์ | `POST /platform/tenants/{id}/devices/{deviceId}/enrol-code` กับ device ที่มี `token_hash` แล้ว (เคยผูกเครื่องผ่าน `POST /auth/device`) หรือ `retired_at` ไม่เป็น null — endpoint นี้ออกโค้ดใหม่ได้เฉพาะ device ที่**ยังไม่เคยผูกเครื่องเลย**เท่านั้น (ต่างจาก `POST /devices` ที่สร้าง device ใหม่ทั้งแถว) ไม่งั้นจะกลายเป็นทางเข้าไปสวมสิทธิ์เครื่องที่ร้านใช้งานอยู่แล้วโดย platform admin · **ไม่ขึ้นที่หน้าร้าน** — เห็นเฉพาะ platform admin, `message` จริงเป็นอังกฤษสำหรับ ops |
 
 ### 8.1.1 ข้อความ UI ของ Phase 2 (เคาะแล้ว 2026-09-17, #268 Option A)
 
