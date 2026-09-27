@@ -371,6 +371,13 @@ develops against a demo tenant.
   is **still open — owner decision pending** on whether to keep or drop the localStorage
   fallback before the first migration (keeping it contradicts ADR-0009:101; would need
   an ADR addendum).
+- **#443 `platform.admin-ui` — code merged 2026-09-27, issue still open.** Platform CLI
+  (#445), enrolCode reissue + tenant detail (#446), owner temp password + forced change
+  (#447, migration `1788652804500`; `POST /platform/tenants` now **rejects**
+  `ownerPassword`), web dashboard `platform-ui` on `127.0.0.1:3200` (#448), phone-width fix
+  + tutorial (#450). Open: the 403-at-both-layers proof on Linux/`mob04` (measured on
+  Docker Desktop only) and owner answers listed in
+  `docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md` §6. Nothing is deployed.
 
 The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
 2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving
@@ -467,6 +474,9 @@ on void/return paths. Keep this order in any new write touching more than one of
   another PR's base makes GitHub close that PR, and a closed PR's base cannot be
   changed — recovery is push the old tip back, `gh pr reopen`, `gh pr edit --base main`.
   Clean up branches once, after the whole stack has landed.
+- **Retarget a stacked PR to `main` once its base PR has merged, before merging it.**
+  #447 was merged into PR2's already-merged branch, so its code reached `main` only
+  because #448 happened to contain it.
 - **`ansible-playbook deploy.yml --check` proves almost nothing.** `ansible.builtin.command`
   has no check mode, so it is skipped and the network pre-flight assertion then fails on
   an empty `stdout` — a false positive that reads like a disaster. It also never reaches
@@ -514,6 +524,15 @@ on void/return paths. Keep this order in any new write touching more than one of
 - Login throttles **before** it spends a DB connection and counts **before** it knows
   the outcome (one atomic Lua `INCR`); every refusal counts, a success only refunds its
   own IP attempt.
+- An e2e file that logs in more than 10 times must send its own `X-Forwarded-For` per
+  login (as `devices.e2e-spec.ts` does): the per-IP login bucket is 10/60 s and lives in
+  the Redis every e2e file shares, so a fixed IP turns red by run order (#449).
+- `platform-ui` reaches the API as `172.30.0.20`; that IP, the `allow` line in
+  `nginx.conf` and `PLATFORM_ADMIN_IPS` change together or the UI gets a silent 403 —
+  `07_CICD_DEPLOY.md` row "ดู platform-ui".
+- Password verify is **NFC first, raw form as fallback** (`auth.service.ts`): NFC reorders
+  Thai tone/below-vowel marks, and hashes made before #443 are of the raw string —
+  dropping the fallback locks those owners out.
 
 **Catalogue/sync (`server/src/products/`):**
 - `GET /products?updatedSince=&afterId=` is a **microsecond**-precision keyset cursor —
