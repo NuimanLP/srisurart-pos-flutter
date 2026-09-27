@@ -844,6 +844,26 @@ class SyncService implements SyncFacade {
     } catch (_) {}
 
     final clientId = payload['id'] as String?;
+
+    // #473: a bill that later local writes (a credit note, an offline void)
+    // already moved has no single effect left to undo — refused before the
+    // server records the discard. Policy for this case is open on #473.
+    if (op.type == 'sale.create' && clientId != null) {
+      final sale = await (db.select(db.sales)
+            ..where((t) => t.id.equals(clientId)))
+          .getSingleOrNull();
+      final hasReturns = await (db.select(db.returns)
+                ..where((t) => t.saleId.equals(clientId))
+                ..limit(1))
+              .getSingleOrNull() !=
+          null;
+      if ((sale?.voided ?? false) || hasReturns) {
+        throw StateError(
+          'บิลนี้มีการคืนสินค้าหรือยกเลิกในเครื่องแล้ว ไม่สามารถทิ้งได้',
+        );
+      }
+    }
+
     final discardBody = <String, dynamic>{
       'opId': op.opId,
       'type': op.type,
@@ -886,11 +906,13 @@ class SyncService implements SyncFacade {
 
       if (!serverHasRow && clientId != null) {
         if (op.type == 'sale.create') {
+          await _reverseOfflineSale(clientId);
           await (db.delete(db.sales)..where((t) => t.id.equals(clientId))).go();
           await (db.delete(db.saleItems)
                 ..where((t) => t.saleId.equals(clientId)))
               .go();
         } else if (op.type == 'return.create') {
+          await _reverseOfflineReturn(clientId);
           await (db.delete(db.returns)..where((t) => t.id.equals(clientId)))
               .go();
           await (db.delete(db.returnItems)
@@ -903,6 +925,144 @@ class SyncService implements SyncFacade {
     await _refreshOutbox();
 
     return DiscardResult(serverHasRow: serverHasRow);
+  }
+
+  /// #473: undoes what `ApiSalesRepository._saveOffline` applied — stock back,
+  /// customer spend/points and mechanic stats out, credit only for
+  /// 'เครดิตช่าง'. Runs inside [discard]'s transaction, before the row goes.
+  Future<void> _reverseOfflineSale(String saleId) async {
+    final sale = await (db.select(db.sales)..where((t) => t.id.equals(saleId)))
+        .getSingleOrNull();
+    if (sale == null) return;
+    final items = await (db.select(db.saleItems)
+          ..where((t) => t.saleId.equals(saleId)))
+        .get();
+    for (final item in items) {
+      final p = await (db.select(db.products)
+            ..where((t) => t.id.equals(item.productId)))
+          .getSingleOrNull();
+      if (p != null) {
+        await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
+          ProductsCompanion(stock: Value(p.stock + item.qty)),
+        );
+      }
+    }
+
+    if (sale.customerId != null) {
+      final c = await (db.select(db.customers)
+            ..where((t) => t.id.equals(sale.customerId!)))
+          .getSingleOrNull();
+      if (c != null) {
+        await (db.update(db.customers)..where((t) => t.id.equals(c.id))).write(
+          CustomersCompanion(
+            totalSpend: Value(max(0.0, c.totalSpend - sale.total)),
+            points: Value(max(0, c.points - sale.pointsGranted)),
+          ),
+        );
+      }
+    }
+
+    if (sale.mechanicId != null) {
+      final m = await (db.select(db.mechanics)
+            ..where((t) => t.id.equals(sale.mechanicId!)))
+          .getSingleOrNull();
+      if (m != null) {
+        final delta = sale.mechanicDelta ?? 0;
+        final isCredit = sale.paymentMethod == 'เครดิตช่าง';
+        await (db.update(db.mechanics)..where((t) => t.id.equals(m.id))).write(
+          MechanicsCompanion(
+            totalSales: Value(max(0.0, m.totalSales - sale.total)),
+            totalDiscount:
+                Value(max(0.0, m.totalDiscount - (delta < 0 ? -delta : 0))),
+            totalMarkup:
+                Value(max(0.0, m.totalMarkup - (delta > 0 ? delta : 0))),
+            creditBalance: Value(
+              max(0.0, m.creditBalance - (isCredit ? sale.total : 0)),
+            ),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
+      }
+    }
+  }
+
+  /// #473: undoes what `ApiReturnsRepository._createOffline` applied, from the
+  /// same proportions `planReturn` used — stock off the shelf again, customer
+  /// and mechanic reversal added back, credit only for 'หักจากเครดิต', and the
+  /// parent bill un-voided.
+  Future<void> _reverseOfflineReturn(String returnId) async {
+    final ret = await (db.select(db.returns)
+          ..where((t) => t.id.equals(returnId)))
+        .getSingleOrNull();
+    if (ret == null) return;
+    final items = await (db.select(db.returnItems)
+          ..where((t) => t.returnId.equals(returnId)))
+        .get();
+    for (final item in items) {
+      final p = await (db.select(db.products)
+            ..where((t) => t.id.equals(item.productId)))
+          .getSingleOrNull();
+      if (p != null) {
+        await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
+          ProductsCompanion(stock: Value(max(0, p.stock - item.qty))),
+        );
+      }
+    }
+
+    final sale = await (db.select(db.sales)
+          ..where((t) => t.id.equals(ret.saleId)))
+        .getSingleOrNull();
+    if (sale == null) return;
+    final ratio = sale.total > 0 ? ret.refundTotal / sale.total : 0.0;
+
+    if (ret.customerId != null) {
+      final c = await (db.select(db.customers)
+            ..where((t) => t.id.equals(ret.customerId!)))
+          .getSingleOrNull();
+      if (c != null) {
+        final basePoints = sale.pointsGranted > 0
+            ? sale.pointsGranted
+            : (sale.total / 10).floor();
+        await (db.update(db.customers)..where((t) => t.id.equals(c.id))).write(
+          CustomersCompanion(
+            totalSpend: Value(c.totalSpend + ret.refundTotal),
+            points: Value(c.points + (basePoints * ratio).floor()),
+          ),
+        );
+      }
+    }
+
+    if (ret.mechanicId != null) {
+      final m = await (db.select(db.mechanics)
+            ..where((t) => t.id.equals(ret.mechanicId!)))
+          .getSingleOrNull();
+      if (m != null) {
+        final delta = sale.mechanicDelta ?? 0;
+        await (db.update(db.mechanics)..where((t) => t.id.equals(m.id))).write(
+          MechanicsCompanion(
+            totalSales: Value(m.totalSales + ret.refundTotal),
+            totalDiscount:
+                Value(m.totalDiscount + (delta < 0 ? -delta * ratio : 0.0)),
+            totalMarkup:
+                Value(m.totalMarkup + (delta > 0 ? delta * ratio : 0.0)),
+            creditBalance: Value(
+              m.creditBalance +
+                  (ret.refundMethod == 'หักจากเครดิต' ? ret.refundTotal : 0.0),
+            ),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
+      }
+    }
+
+    // A bill with a credit note can only be voided by a full return's
+    // auto-void (every void path refuses with SALE_HAS_RETURNS), and with this
+    // note gone the bill is no longer fully returned.
+    if (sale.voided) {
+      await (db.update(db.sales)..where((t) => t.id.equals(sale.id))).write(
+        const SalesCompanion(voided: Value(false), voidedAt: Value(null)),
+      );
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
