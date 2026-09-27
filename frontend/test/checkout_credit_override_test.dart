@@ -336,6 +336,7 @@ void main() {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
 
+      final numbers = DocNumberService(db: db);
       final apiRepo = ApiSalesRepository(
         api: ApiClient(
           baseUrl: 'http://server.test',
@@ -344,7 +345,7 @@ void main() {
         ),
         db: db,
         drift: SalesRepository(db),
-        docNumberService: DocNumberService(db: db),
+        docNumberService: numbers,
         isOffline: true,
       );
 
@@ -374,8 +375,7 @@ void main() {
             lastNo: 0,
           ),
         );
-        await DocNumberService(db: db)
-            .recordSeedMarker(deviceId: 'dev-pos-01', period: period);
+        await numbers.recordSeedMarker(deviceId: 'dev-pos-01', period: period);
 
         final mechanics = await db.select(db.mechanics).get();
         final mech = mechanics.first;

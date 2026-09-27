@@ -366,6 +366,7 @@ class DocNumberService {
               ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
               ..limit(1))
             .getSingleOrNull();
+    // Any row of the device will do: `device_no` is fixed per `devices.id`.
     final counter = seed == null
         ? null
         : await (db.select(db.docCounters)
