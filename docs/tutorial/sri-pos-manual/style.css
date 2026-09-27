@@ -1,7 +1,7 @@
 /* Srisurart POS manual — shared stylesheet.
    Visual language taken from the JS-era manual (docs/tutorial/JS/): A4 pages,
    navy/orange brand, Sarabun + Barlow Condensed. Additions: role box,
-   limitations box, tables, command blocks, screenshot placeholders, part nav,
+   limitations box, tables, command blocks, annotated screenshots, part nav,
    and a narrow-screen layout so the pages read on a phone. */
 
 :root {
@@ -145,12 +145,6 @@ ol.annot-legend li::before {
   position: absolute; left: 0; top: 1px; width: 24px; height: 24px; border-radius: 50%;
   background: var(--orange); color: #fff; font-family: 'Barlow Condensed', sans-serif;
   font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center;
-}
-.shot-placeholder {
-  border: 2px dashed #C9C4B5; border-radius: 8px; background: repeating-linear-gradient(
-    45deg, var(--cream), var(--cream) 12px, #F4F0E4 12px, #F4F0E4 24px);
-  color: var(--ink-soft); text-align: center; padding: 34px 16px; font-weight: 600;
-  font-size: 14px;
 }
 
 /* ── STEPS ───────────────────────────────────── */

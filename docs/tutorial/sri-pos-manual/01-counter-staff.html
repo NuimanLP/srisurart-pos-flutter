@@ -46,7 +46,7 @@
     <a class="toc-row" href="#receipt"><span class="n">4</span><span class="t">ราคาช่าง · เครดิตช่าง · ใบเสร็จ <span class="en">Mechanic &amp; receipt</span></span><span class="pg">5</span></a>
     <a class="toc-row" href="#park"><span class="n">5</span><span class="t">พักบิล · ใบเสนอราคา <span class="en">Park &amp; quotes</span></span><span class="pg">6</span></a>
     <a class="toc-row" href="#returns"><span class="n">6</span><span class="t">คืนสินค้า · ยกเลิกบิล <span class="en">Returns &amp; void</span></span><span class="pg">7</span></a>
-    <a class="toc-row" href="#close"><span class="n">7</span><span class="t">เงินเข้า-ออก · ปิดกะ · เปิดกะถัดไป <span class="en">Drawer &amp; close</span></span><span class="pg">8</span></a>
+    <a class="toc-row" href="#close"><span class="n">7</span><span class="t">เงินเข้า-ออก · ปิดกะ · เปิดกะถัดไป <span class="en">Drawer, close &amp; next shift</span></span><span class="pg">8</span></a>
     <a class="toc-row" href="#offline"><span class="n">8</span><span class="t">เมื่อเน็ตหลุด · สถานะซิงก์ <span class="en">Offline &amp; sync</span></span><span class="pg">9</span></a>
     <a class="toc-row" href="#errors"><span class="n">9</span><span class="t">ข้อความผิดพลาดที่พบบ่อย · ข้อจำกัด <span class="en">Errors</span></span><span class="pg">10</span></a>
   </div>
@@ -157,7 +157,7 @@
     <tr><th>ถ้าเห็น</th><th>หมายความว่า / ทำอย่างไร</th></tr>
     <tr><td><span class="msg">ไม่พบอะไหล่สำหรับ "{query}"</span> · <span class="msg">ลองค้นหาด้วยชื่ออื่น หรือตรวจสอบฟิลด์ Compat ในสต็อก</span></td><td>ลองคำสั้นลง (เช่น "Vigo" แทน "Toyota Vigo 2010") · ถ้ารู้ว่ามีของแต่ไม่ขึ้น ให้เจ้าของร้านเติมช่อง "ใช้กับรถรุ่น" ของสินค้านั้น (ภาค 02 หัวข้อ 4)</td></tr>
   </table>
-  <p class="muted">ผลค้นหาดีแค่ไหนขึ้นกับการกรอกช่อง "ใช้กับรถรุ่น" ตอนเพิ่มสินค้า · ในภาพ คำที่ตรงกับคำค้นถูกไฮไลต์สีส้มทับจนอ่านยาก (ข้อสังเกตจากการถ่ายภาพ ยังไม่มี issue)</p>
+  <p class="muted">ผลค้นหาดีแค่ไหนขึ้นกับการกรอกช่อง "ใช้กับรถรุ่น" ตอนเพิ่มสินค้า</p>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">4.1</span></div>
 </section>
 
@@ -218,7 +218,7 @@
 
   <h2 class="sub" id="quote-a4">พิมพ์ใบเสนอราคา A4 ให้ลูกค้า <span class="en">A4 quote</span></h2>
   <ol class="steps">
-    <li><span class="st-title">เมนู <span class="ui ghost">ใบเสนอราคา</span> → ค้นในช่อง <span class="ui ghost">🔍 ค้นเลขที่ / ลูกค้า / ช่าง</span></span>หรือกรองด้วย <span class="ui ghost">ยังใช้ได้</span> — ป้ายบนแถวบอก <span class="msg">ยังใช้ได้ {validDays} วัน</span> (วันที่เหลือ) ·<span class="msg">หมดอายุ</span> · <span class="msg">✓ แปลงแล้ว</span></li>
+    <li><span class="st-title">เมนู <span class="ui ghost">ใบเสนอราคา</span> → ค้นในช่อง <span class="ui ghost">🔍 ค้นเลขที่ / ลูกค้า / ช่าง</span></span>หรือกรองด้วย <span class="ui ghost">ยังใช้ได้</span> — ป้ายบนแถวบอก <span class="msg">ยังใช้ได้ {validDays} วัน</span> (วันที่เหลือ) · <span class="msg">หมดอายุ</span> · <span class="msg">✓ แปลงแล้ว</span></li>
     <li><span class="st-title">กด <span class="ui ghost">ดู</span> ที่แถว</span><span class="see">ใบ A4 หัว <span class="msg">ใบเสนอราคา</span> / <span class="msg">QUOTATION</span> ชื่อลูกค้า (<span class="msg">— ลูกค้าทั่วไป —</span> ถ้าไม่ได้เลือก) วันที่ <span class="msg">ใช้ได้ถึง</span> รายการ ยอดรวม เงื่อนไข และช่องลายมือชื่อ</span></li>
     <li><span class="st-title">กดไอคอนเครื่องพิมพ์ในแถบสีส้มด้านล่าง</span>→ หน้าต่างพิมพ์ของเครื่อง (เลือก A4 หรือบันทึกเป็น PDF) · ไอคอนแชร์ข้าง ๆ ใช้ส่งไฟล์</li>
     <li><span class="st-title">ปิดด้วย ✕ มุมซ้ายบน</span>หรือกด <span class="ui ghost">✓ แปลงเป็นการขาย</span> มุมขวาบนถ้าลูกค้าตกลงซื้อเลย (มีเฉพาะใบที่ยังไม่หมดอายุและยังไม่แปลง)</li>
@@ -293,7 +293,7 @@
   <p>ระบบรองรับหลายกะต่อวัน (08 §11 · #452) — เช่น เปลี่ยนคนเฝ้าเคาน์เตอร์ตอนบ่าย</p>
   <ol class="steps">
     <li><span class="st-title">ปิดกะปัจจุบันให้เรียบร้อยตามขั้นตอนด้านบน</span></li>
-    <li><span class="st-title">ที่หน้า <span class="ui ghost">ลิ้นชัก</span> ทั้งสองแท็บจะมีการ์ด <span class="msg">เปิดกะใหม่</span></span><span class="msg">กรอกเงินตั้งต้นในลิ้นชักก่อนเริ่มขาย</span></li>
+    <li><span class="st-title">ที่หน้า <span class="ui ghost">ลิ้นชัก</span> ทั้งสองแท็บจะมีการ์ด <span class="msg">เปิดกะใหม่</span></span><span class="see">การ์ดบอก <span class="msg">กรอกเงินตั้งต้นในลิ้นชักก่อนเริ่มขาย</span> พร้อมช่องเงินตั้งต้นและปุ่มลัด</span></li>
     <li><span class="st-title">นับเงินที่ส่งต่อในลิ้นชัก กรอก <span class="ui ghost">เงินตั้งต้น ฿</span> (หรือปุ่มลัด) → กด <span class="ui">เปิดกะใหม่</span></span><span class="see">กลับไปแท็บ <span class="ui ghost">💵 รายการเงิน</span> ของกะใหม่ — ยอดเงินสดที่ควรมีนับเฉพาะตั้งแต่เปิดกะนี้</span></li>
   </ol>
   <p class="muted">ข้อความ <span class="msg">เปิดกะใหม่</span> ยังเป็นร่างที่ทีมเขียน (02_API_SCREENS §8.1.1) · ภาพหน้าจอในคู่มือถ่ายก่อนมีการ์ดนี้</p>

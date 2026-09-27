@@ -47,7 +47,7 @@
     <a class="toc-row" href="#po"><span class="n">5</span><span class="t">ใบสั่งซื้อ · รับของ <span class="en">Purchase orders</span></span><span class="pg">6</span></a>
     <a class="toc-row" href="#people"><span class="n">6</span><span class="t">ลูกค้า · ช่าง · รับชำระเครดิต <span class="en">Customers &amp; mechanics</span></span><span class="pg">7</span></a>
     <a class="toc-row" href="#reports"><span class="n">7</span><span class="t">รายงาน · สรุปยอดปิดร้าน <span class="en">Reports</span></span><span class="pg">8</span></a>
-    <a class="toc-row" href="#settings"><span class="n">8</span><span class="t">ตั้งค่า · ธีม · สำรอง/กู้คืน · ส่งออก CSV <span class="en">Settings</span></span><span class="pg">9</span></a>
+    <a class="toc-row" href="#settings"><span class="n">8</span><span class="t">ตั้งค่า · ธีม · สำรอง/กู้คืน · ส่งออก CSV <span class="en">Settings &amp; theme</span></span><span class="pg">9</span></a>
     <a class="toc-row" href="#review"><span class="n">9</span><span class="t">หน้า รอเจ้าของ <span class="en">Owner review</span></span><span class="pg">10</span></a>
     <a class="toc-row" href="#eod"><span class="n">10</span><span class="t">SOP สิ้นวัน · ข้อจำกัด <span class="en">End of day</span></span><span class="pg">11</span></a>
   </div>
@@ -166,12 +166,9 @@
   <ol class="steps">
     <li><span class="st-title">แถวสินค้า → <span class="ui ghost">ปรับสต็อก</span></span></li>
     <li><span class="st-title">กรอก <span class="ui ghost">จำนวนที่ปรับ (+ เพิ่ม / - ลด)</span> เช่น <code>+10</code> หรือ <code>-3</code> และ <span class="ui ghost">หมายเหตุ</span></span><span class="see"><span class="msg">สต็อกหลังปรับ</span> — ลดต่ำกว่า 0 ไม่ได้ ระบบหยุดที่ 0 และบันทึกประวัติทุกครั้ง</span></li>
-  </ol>
-
-  <figure><img src="img/adjust-stock.png" alt="หน้าต่าง ปรับสต็อก · Adjust Stock — สต็อกปัจจุบัน 2 จำนวนที่ปรับ +6 สต็อกหลังปรับ 8" loading="lazy"><figcaption>ปรับสต็อก — กรอก +6 แล้วเห็น "สต็อกหลังปรับ" 8 ก่อนกด บันทึก</figcaption></figure>
-  <ol class="steps" style="counter-reset: step 2">
     <li><span class="st-title">กด <span class="ui">บันทึก</span></span>ประวัติอยู่ที่แท็บ <span class="ui ghost">รายงานสต็อก · Reports</span> → <span class="ui ghost">ประวัติสต็อก</span></li>
   </ol>
+  <figure><img src="img/adjust-stock.png" alt="หน้าต่าง ปรับสต็อก · Adjust Stock — สต็อกปัจจุบัน 2 จำนวนที่ปรับ +6 สต็อกหลังปรับ 8" loading="lazy"><figcaption>ปรับสต็อก — กรอก +6 แล้วเห็น "สต็อกหลังปรับ" 8 ก่อนกด บันทึก</figcaption></figure>
 
   <h2 class="sub">งานอื่นในหน้านี้ <span class="en">Other</span></h2>
   <ul class="ticks">
@@ -328,7 +325,7 @@
   <h2 class="sub">ข้อมูลร้าน <span class="en">General</span></h2>
   <figure><img src="img/settings.png" alt="แท็บ ⚙ ทั่วไป — ข้อมูลร้านค้า · Shop Information" loading="lazy"><figcaption>แท็บ ⚙ ทั่วไป — ข้อมูลร้านค้า · Shop Information</figcaption></figure>
   <ol class="steps">
-    <li><span class="st-title">แท็บ <span class="ui ghost">⚙ ทั่วไป</span></span>ชื่อร้าน (TH/EN) เบอร์ ชื่อแคชเชียร์ ที่อยู่ VAT (%) <span class="ui ghost">ใบเสนอราคา · มีอายุ (วัน)</span></li>
+    <li><span class="st-title">แท็บ <span class="ui ghost">⚙ ทั่วไป</span></span>ชื่อร้าน (TH/EN) เบอร์ ชื่อแคชเชียร์ ที่อยู่ VAT (%) <span class="ui ghost">ใบเสนอราคา · มีอายุ (วัน)</span> (ใช้กับใบเสนอราคาที่ออกหลังบันทึก — ภาค 01 หัวข้อ 5)</li>
     <li><span class="st-title">กด <span class="ui">บันทึกการตั้งค่า</span></span><span class="see"><span class="msg">✓ บันทึกแล้ว</span> (ปุ่มกดได้เฉพาะตอนออนไลน์)</span></li>
   </ol>
   <div class="note key"><span class="nt">ค่าตั้งร้านอยู่ที่เซิร์ฟเวอร์ (API build)</span>ปุ่ม <span class="ui">บันทึกการตั้งค่า</span> ส่งค่าขึ้นเซิร์ฟเวอร์ (<code>PATCH /settings</code>) — ตอนออฟไลน์ถูกปฏิเสธด้วย <span class="msg">ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกการตั้งค่าได้</span> ไม่มีการเก็บไว้ส่งทีหลัง · ทุกเครื่องดึงค่าตั้งล่าสุดจากเซิร์ฟเวอร์เองทุกครั้งที่เข้าสู่ระบบ (#460) — ชื่อร้านที่ทีมแพลตฟอร์มตั้งตอนสร้างร้านจึงขึ้นบนหัวจอและใบเสร็จตั้งแต่เข้าสู่ระบบครั้งแรก · เครื่องที่เปิดค้างไว้จะเห็นค่าที่แก้จากเครื่องอื่นเมื่อเข้าสู่ระบบใหม่หรือรีโหลดหน้าเว็บ</div>
@@ -358,7 +355,6 @@
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
       <li>สำรอง/กู้คืนในหน้านี้ทำกับ <strong>ฐานข้อมูลในเครื่องนี้</strong> — เหมาะกับ Drift build · ใน API build ข้อมูลจริงอยู่บนเซิร์ฟเวอร์ และการกู้คืนในหน้านี้ <strong>ไม่ได้เขียนกลับขึ้นเซิร์ฟเวอร์</strong> · เซิร์ฟเวอร์มีงานส่งออกข้อมูลร้าน (<code>POST /backup/export</code>) แต่แอปยังไม่มีปุ่มเรียก</li>
-      <li>ช่อง <span class="ui ghost">ใบเสนอราคา · มีอายุ (วัน)</span> ใช้กับใบเสนอราคาที่ออก <strong>หลัง</strong> บันทึกค่าเท่านั้น (#464) — ใบที่ออกไปแล้วไม่เปลี่ยนตาม</li>
       <li>การสำรองข้อมูลฝั่งเซิร์ฟเวอร์ยังไม่ออกนอก VM (ภาค 04)</li>
     </ul>
   </div>
