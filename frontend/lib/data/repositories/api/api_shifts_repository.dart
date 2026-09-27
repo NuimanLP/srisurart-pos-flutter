@@ -175,6 +175,7 @@ class ApiShiftsRepository implements ShiftsRepository {
       }
       final unsent = (await db.select(db.outboxOps).get()).length;
       if (unsent > 0) {
+        // agent ร่าง, awaiting the owner — catalogued in 02_API_SCREENS §8.1.1.
         throw PosException(
           'OUTBOX_NOT_EMPTY',
           'ยังมี $unsent รายการติดปัญหา / ค้างส่ง '
@@ -344,10 +345,10 @@ class ApiShiftsRepository implements ShiftsRepository {
       archivedAt: null,
     );
     final row = await db.transaction(() async {
-      final same = await (db.select(
+      final existingById = await (db.select(
         db.shifts,
       )..where((t) => t.id.equals(id))).getSingleOrNull();
-      if (same != null) return same;
+      if (existingById != null) return existingById;
 
       final prior = await (db.select(
         db.shifts,
@@ -483,18 +484,16 @@ class ApiShiftsRepository implements ShiftsRepository {
     final entries = (json['entries'] as List<dynamic>?) ?? const [];
     for (final e in entries) {
       final entry = e as Map<String, dynamic>;
-      await db
-          .into(db.drawerEntries)
-          .insertOnConflictUpdate(
-            DrawerEntryRow(
-              id: entry['id'] as String,
-              shiftId: entry['shiftId'] as String,
-              type: entry['type'] as String,
-              amount: money(entry['amount']),
-              note: (entry['note'] as String?) ?? '',
-              createdAt: stamp(entry['createdAt']),
-            ),
-          );
+      await db.into(db.drawerEntries).insertOnConflictUpdate(
+        DrawerEntryRow(
+          id: entry['id'] as String,
+          shiftId: entry['shiftId'] as String,
+          type: entry['type'] as String,
+          amount: money(entry['amount']),
+          note: (entry['note'] as String?) ?? '',
+          createdAt: stamp(entry['createdAt']),
+        ),
+      );
     }
     return shift;
   }
@@ -524,8 +523,9 @@ class ApiShiftsRepository implements ShiftsRepository {
     // a `WHERE isActive` update on a fact the response already asserted, not
     // a call to `ShiftsRepository.openShift`'s archiving logic.
     if (row.isActive) {
-      await (db.update(db.shifts)
-            ..where((t) => t.isActive.equals(true) & t.id.equals(row.id).not()))
+      await (db.update(db.shifts)..where(
+            (t) => t.isActive.equals(true) & t.id.equals(row.id).not(),
+          ))
           .write(const ShiftsCompanion(isActive: Value(false)));
     }
     return row;

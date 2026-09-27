@@ -843,6 +843,53 @@ void main() {
       expect((jsonDecode(queued.payload) as Map)['id'], entry.id);
     });
 
+    test(
+      'an applied shift.open deletes the op and takes the server openedAt',
+      () async {
+        final repo = offlineRepo((_) async => fail('no online call'));
+        sync.recordNonVerdictWrite();
+        final row = await repo.openShift(1500);
+        final op = (await ops()).single;
+
+        // The server clamped a future device time to its own now() (08 §10).
+        final pusher = SyncService(
+          db: db,
+          apiClient: ApiClient(baseUrl: 'http://example.com'),
+          tokenStorage: _MemTokenStorage(),
+          httpClient: MockClient((req) async {
+            expect(req.url.path, '/api/v1/sync/push');
+            return _successResponse({
+              'results': [
+                {
+                  'opId': op.opId,
+                  'status': 'applied',
+                  'response': {
+                    'id': row.id,
+                    'startingCash': '1500.00',
+                    'openedAt': '2019-03-04T02:00:00.000Z',
+                    'autoArchived': false,
+                  },
+                },
+              ],
+            });
+          }),
+          autoStartHealthProbe: false,
+        );
+        addTearDown(pusher.dispose);
+
+        await pusher.push();
+
+        expect(await ops(), isEmpty);
+        final local = await (db.select(
+          db.shifts,
+        )..where((t) => t.id.equals(row.id))).getSingle();
+        expect(
+          local.openedAt,
+          DateTime.parse('2019-03-04T02:00:00.000Z').toLocal(),
+        );
+      },
+    );
+
     test('Degraded with the drawer closed: refused, nothing written', () async {
       await seedShift('sh-closed', closedAt: DateTime(2019, 3, 4, 18));
       final repo = offlineRepo((_) async => fail('no online call'));

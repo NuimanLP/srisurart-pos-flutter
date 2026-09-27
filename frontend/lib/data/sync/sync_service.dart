@@ -424,6 +424,7 @@ class SyncService implements SyncFacade {
               await _patchAppliedEntity(resp, remainingOps);
               if (appliedOp != null) {
                 await _patchDocNo(appliedOp, resp);
+                await _patchShiftOpen(appliedOp, resp);
               }
               await (db.delete(db.outboxOps)
                     ..where((t) => t.opId.equals(opId)))
@@ -564,6 +565,25 @@ class SyncService implements SyncFacade {
                 t.id.equals(clientId!) & t.cnNo.equals(serverNo).not()))
           .write(ReturnsCompanion(cnNo: Value(serverNo)));
     }
+  }
+
+  /// An applied `shift.open` (#452): the local shift takes the server's
+  /// `openedAt` — it may have clamped a future device time to `now()` (08 §10).
+  /// The response carries no `dateStr`, so that column is left as it is; a
+  /// missing field never means "work it out here" (ADR-0010 §3).
+  Future<void> _patchShiftOpen(
+    OutboxOpRow op,
+    Map<String, dynamic>? response,
+  ) async {
+    if (op.type != 'shift.open' || response == null) return;
+    final id = response['id'];
+    final openedAt = response['openedAt'];
+    if (id is! String || openedAt is! String) return;
+    final parsed = DateTime.tryParse(openedAt);
+    if (parsed == null) return;
+    await (db.update(db.shifts)..where((t) => t.id.equals(id))).write(
+      ShiftsCompanion(openedAt: Value(parsed.toLocal())),
+    );
   }
 
   Future<void> _patchAppliedEntity(

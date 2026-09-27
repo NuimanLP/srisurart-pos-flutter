@@ -74,10 +74,10 @@ class ShiftsRepository {
   Future<ShiftRow> openShift(double startingCash, {String? id}) {
     return db.transaction(() async {
       if (id != null) {
-        final same = await (db.select(
+        final existingById = await (db.select(
           db.shifts,
         )..where((t) => t.id.equals(id))).getSingleOrNull();
-        if (same != null) return same;
+        if (existingById != null) return existingById;
       }
 
       final existing =
