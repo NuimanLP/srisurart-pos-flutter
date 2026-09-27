@@ -193,7 +193,7 @@ stateDiagram-v2
 - override วงเงิน = `overrideCreditLimit` ใน `sale.create` · ทาง push → รายการตรวจ `credit_override`
 - id ชน + ฟิลด์ที่เทียบไม่ตรง → `rejected` **`CLIENT_ID_REUSED`** `details: {type, id}` (code เดียวแทน `SALE_ID_REUSED`/`CREDIT_PAYMENT_ID_REUSED` บนทาง push; ทางออนไลน์คง code เดิม)
 
-> สถานะ 2026-09-27 (ฝั่ง client): เข้าคิวได้แล้ว `sale.create` · `credit_payment.create` · `customer.*` · `sale.void_offline` · **`shift.open` + `drawer.entry`** (PR #456, #452 slice — body ออนไลน์มี `id` แล้ว) · **`return.create` ยังไม่เข้าคิว** — ค้างที่ #452 (เปิดอยู่) พร้อม replay test ของ op ใหม่ · ⚠️ ข้อเบี่ยงจาก §5 ที่ยังไม่ได้เคาะ: API build เข้าคิวเฉพาะ transport failure — 5xx/429 จอดความพยายามไว้ (id + key เดิม) เหมือน `ApiSalesRepository`
+> สถานะ 2026-09-27 (ฝั่ง client): เข้าคิวได้แล้ว `sale.create` · `credit_payment.create` · `customer.*` · `sale.void_offline` · **`shift.open` + `drawer.entry`** (PR #456, #452 slice — body ออนไลน์มี `id` แล้ว) · **`return.create`** (#452 — body ออนไลน์มี `id` · ออฟไลน์เขียนใบลดหนี้ + เลข CN ของเครื่อง + คืนสต็อก/ลูกค้า/ช่าง + void บิลที่คืนครบ + แถว outbox ใน local transaction เดียว ผ่านกฎ pure `planReturn` ที่ใช้ร่วมกับ Drift build) · client test ผูก replay by key + `CLIENT_ID_REUSED` ของสาม op นี้แล้ว (`sync_service_contract_test.dart` กลุ่ม 8) · ⚠️ ข้อเบี่ยงจาก §5 ที่ยังไม่ได้เคาะ: API build เข้าคิวเฉพาะ transport failure — 5xx/429 จอดความพยายามไว้ (id + key เดิม) เหมือน `ApiSalesRepository`
 
 ### 6.2 ออนไลน์เท่านั้น
 สินค้า · หมวด · ซัพพลายเออร์ · PO · ช่าง · **ใบเสนอราคาทั้งหมด** · settings · การลบ · void บิลออนไลน์ · ปิดกะ · discard · ตั้ง PIN ออฟไลน์ · import · จัดการเครื่อง · export
@@ -225,7 +225,7 @@ stateDiagram-v2
 - ลบ op เมื่อ `applied` และ patch สำเร็จ · patch ไม่เขียนทับ `stock` ของสินค้าที่ยังมี op ค้าง
 - เลข schema ของ Drift ใส่ตอน merge
   · สถานะ 2026-09-23: `outbox_ops` + `SyncService` merge แล้ว (#228, PR #324) · `pending_credit_payments` ย้ายเข้า (#275, PR #329) · Drift บน `main` = **schema v11** (v7 = ลบ `offlineOk`, #272 PR #310)
-  · สถานะ 2026-09-27: Drift บน `main` = **schema v12** (v12 = index ของ #417) · `shift.open` / `drawer.entry` เขียนแถวของตัวเอง + แถว `outbox_ops` ใน local transaction เดียว (PR #456) · ไม่มี schema bump ใน #456/#458
+  · สถานะ 2026-09-27: Drift บน `main` = **schema v12** (v12 = index ของ #417) · `shift.open` / `drawer.entry` เขียนแถวของตัวเอง + แถว `outbox_ops` ใน local transaction เดียว (PR #456) · `return.create` เช่นกัน (#452) · ไม่มี schema bump ใน #456/#458/#452
 
 **เกณฑ์รับงาน**
 - [ ] kill แอประหว่างขาย → บิลกับ op มีทั้งคู่หรือไม่มีทั้งคู่
@@ -373,7 +373,7 @@ stateDiagram-v2
 | รายการในคิว | server ประทับกะ active ณ ตอนนั้น — ลำดับ push ทำให้ตรง |
 | กะที่มาจาก import (#244) | ถูก archive ทุกกะ (`auto_archived` ถ้าไม่เคยปิด) โดย import เอง — **ไม่สร้าง** `shift_uncounted` (รายการตรวจเกิดจาก `open` เท่านั้น) · บิลที่ import ไม่มี `shift_id` → void ไม่ได้ ต้องออกใบลดหนี้ (#94 เดิม) |
 
-> สถานะ 2026-09-27: Drift `openShift(startingCash, {id})` หลายกะต่อวันแล้ว — ลบ "active วันเดียวกัน → คืนกะเดิม" (#453, PR #456) · ปิดกะบน API build ส่ง outbox ก่อน แล้วปฏิเสธ `OUTBOX_NOT_EMPTY` ถ้ายังเหลือ op ใด ๆ + ปุ่มปิดกะปิดเมื่อ `outboxRemaining > 0` (PR #456 — ข้อความไทยยังเป็น **agent ร่าง** ใน `02 §8.1.1`) · 🔴 ยังขาด (#452): หน้าลิ้นชักแสดงฟอร์มเปิดกะเฉพาะเมื่อไม่มีกะ active แต่กะที่ปิดแล้วยัง active → "ปิดกะแล้วเปิดกะใหม่ได้เลย" ทำได้ใน repository แต่ยังกดจากหน้าจอไม่ได้
+> สถานะ 2026-09-27: Drift `openShift(startingCash, {id})` หลายกะต่อวันแล้ว — ลบ "active วันเดียวกัน → คืนกะเดิม" (#453, PR #456) · ปิดกะบน API build ส่ง outbox ก่อน แล้วปฏิเสธ `OUTBOX_NOT_EMPTY` ถ้ายังเหลือ op ใด ๆ + ปุ่มปิดกะปิดเมื่อ `outboxRemaining > 0` (PR #456 — ข้อความไทยยังเป็น **agent ร่าง** ใน `02 §8.1.1`) · หน้าลิ้นชักแสดงฟอร์ม `เปิดกะใหม่` เมื่อกะปัจจุบันปิดแล้ว (#452 — ข้อความ **agent ร่าง** ใน `02 §8.1.1`) และกะที่สองของวันนับเงินสดตั้งแต่เวลาเปิดกะของตัวเอง ไม่ใช่ตั้งแต่เที่ยงคืน
 
 **ตัวอย่าง:** เน็ตล่มสองวัน: `open A`(15) → 20 บิล → `open B`(16) → 30 บิล → push ตามลำดับ → A archive + `shift_uncounted` · บิลลงกะของตัวเองครบ
 

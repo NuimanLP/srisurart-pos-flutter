@@ -24,6 +24,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/core/utils/dates.dart';
+import 'package:srisurart_pos/core/utils/money.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api/api_shifts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
@@ -304,6 +305,73 @@ void main() {
         expect(closes, 0, reason: 'the close must never be sent');
         final shift = await db.select(db.shifts).getSingle();
         expect(shift.closedAt, isNull);
+        await db.close();
+      });
+    },
+  );
+
+  testWidgets(
+    'D — after closing a shift, the next one opens from the screen the same day '
+    'and counts only its own cash (08 §11, #452)',
+    (tester) async {
+      sizeView(tester);
+      final db = AppDatabase(NativeDatabase.memory());
+      final midnight = dayBounds(DateTime.now()).from;
+      await tester.runAsync(() async {
+        // Today's first shift: opened, one cash sale of 250, counted and closed.
+        await db
+            .into(db.shifts)
+            .insert(
+              ShiftsCompanion.insert(
+                id: 'sh-first',
+                dateStr: todayKey(),
+                startingCash: 1000,
+                openedAt: midnight.add(const Duration(minutes: 1)),
+                closedAt: Value(midnight.add(const Duration(minutes: 3))),
+                physicalCash: const Value(1250),
+                isActive: const Value(true),
+              ),
+            );
+        await db
+            .into(db.sales)
+            .insert(
+              SaleRow(
+                id: 's-first',
+                receiptNo: 'RC-FIRST',
+                subtotal: 250,
+                discount: 0,
+                total: 250,
+                paymentMethod: 'เงินสด',
+                pointsGranted: 25,
+                date: midnight.add(const Duration(minutes: 2)),
+                voided: false,
+                shiftId: 'sh-first',
+                soldOffline: false,
+              ),
+            );
+        await pumpScreen(tester, db, const CashDrawerScreen());
+
+        // The closed shift offers the next one (heading + button).
+        expect(find.text('เปิดกะใหม่'), findsNWidgets(2));
+        await tester.enterText(find.byType(TextField).first, '700');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('เปิดกะใหม่').last);
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+        final shifts = await db.select(db.shifts).get();
+        expect(shifts, hasLength(2));
+        final first = shifts.singleWhere((s) => s.id == 'sh-first');
+        expect(first.isActive, isFalse);
+        final next = shifts.singleWhere((s) => s.id != 'sh-first');
+        expect(next.isActive, isTrue);
+        expect(next.closedAt, isNull);
+        expect(next.startingCash, 700);
+
+        // The new drawer is open, and the first shift's 250 is not its cash.
+        expect(find.text('เปิดกะใหม่'), findsNothing);
+        expect(find.text('เงินในลิ้นชักที่ควรมี'), findsOneWidget);
+        expect(find.text(baht(950)), findsNothing);
+        expect(find.text(baht(700)), findsWidgets);
         await db.close();
       });
     },
