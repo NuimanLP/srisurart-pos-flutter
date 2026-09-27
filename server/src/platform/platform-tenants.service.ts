@@ -11,11 +11,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
-import {
-  hashPassword,
-  passwordPolicyMessage,
-  passwordPolicyViolation,
-} from '../common/password.js';
+import { generateTempPassword, hashPassword } from '../common/password.js';
 import { returning } from '../common/sql.js';
 import { AuditService } from './audit.service.js';
 
@@ -26,9 +22,16 @@ export class CreateTenantDto {
   plan?: 'basic' | 'demo' | 'loadtest';
   timezone?: string;
   ownerUsername!: string;
-  ownerPassword!: string;
   ownerDisplayName!: string;
 }
+
+/**
+ * #443 PR3 (v2 condition 2, owner decision 2026-09-26): a temporary owner password lives
+ * 7 days from provisioning and 24 hours from a reset. Unused past that, the platform team
+ * issues a new one.
+ */
+const CREATE_TEMP_PASSWORD_TTL_HOURS = 7 * 24;
+const RESET_TEMP_PASSWORD_TTL_HOURS = 24;
 
 
 export const SEED_CATEGORIES = [
@@ -82,31 +85,31 @@ export class PlatformTenantsService {
     // transaction opens (#364): argon2 costs 64 MiB and ~100 ms, and a refusal that
     // happened mid-transaction would have already burnt that and taken a pool
     // connection with it. Validate the input first, then use it (CLAUDE.md).
+    // #443 PR3 (owner decision 2026-09-26/27): the admin never chooses — or knows past this
+    // one response — the owner's password. A caller still sending `ownerPassword` is running
+    // the old contract and is refused loudly rather than having the field silently ignored.
+    if (dto && Object.prototype.hasOwnProperty.call(dto, 'ownerPassword')) {
+      throw new BadRequestException({
+        code: 'OWNER_PASSWORD_NOT_ACCEPTED',
+        message:
+          'ownerPassword is no longer accepted: the server generates a temporary password and returns it once',
+      });
+    }
     if (!dto.code || !dto.shopName || !dto.ownerUsername) {
       throw new BadRequestException('code, shopName, and ownerUsername are required');
-    }
-
-    // The same floor `bootstrap:admin` enforces, from the same function — this is a
-    // shop's `owner` account, the highest-privileged login in that tenant, and until
-    // #364 the endpoint accepted `1234`. `WEAK_PASSWORD` is the client-translatable
-    // code from `02_API_SCREENS.md §8.1`; the English `message` is for the operator
-    // running the provisioning call.
-    const pwViolation = passwordPolicyViolation(dto.ownerPassword);
-    if (pwViolation) {
-      throw new BadRequestException({
-        code: 'WEAK_PASSWORD',
-        message: passwordPolicyMessage(pwViolation, 'ownerPassword'),
-      });
     }
 
     const plan = dto.plan ?? 'basic';
     const timezone = dto.timezone ?? 'Asia/Bangkok';
     const shopNameEn = dto.shopNameEn ?? '';
     const enrolCode = randomBytes(4).toString('hex').toUpperCase(); // e.g. "A1B2C3D4"
+    // Server-generated (CSPRNG, v2 condition 1), returned once below, never logged or audited.
+    const tempPassword = generateTempPassword();
     // Hashed out here rather than inside the transaction: argon2id at 64 MiB / 3 passes
     // is the slowest thing on this path, and holding an open transaction (and its pool
     // connection) across it buys nothing — the hash depends on no row we read.
-    const ownerPasswordHash = await hashPassword(dto.ownerPassword);
+    const ownerPasswordHash = await hashPassword(tempPassword);
+    let tempPasswordExpiresAt!: Date;
 
     let tenantId: string;
 
@@ -121,12 +124,22 @@ export class PlatformTenantsService {
         );
         const tid = tenantRes[0].id;
 
-        // 2. Owner user
-        await manager.query(
-          `INSERT INTO users (tenant_id, username, password_hash, display_name, role, is_active)
-           VALUES ($1, $2, $3, $4, 'owner', true)`,
-          [tid, dto.ownerUsername, ownerPasswordHash, dto.ownerDisplayName || dto.ownerUsername],
+        // 2. Owner user — on a temporary password that must be changed at first login.
+        const userRes = await manager.query(
+          `INSERT INTO users (tenant_id, username, password_hash, display_name, role, is_active,
+                              must_change_password, temp_password_expires_at)
+           VALUES ($1, $2, $3, $4, 'owner', true,
+                   true, now() + make_interval(hours => $5))
+           RETURNING temp_password_expires_at`,
+          [
+            tid,
+            dto.ownerUsername,
+            ownerPasswordHash,
+            dto.ownerDisplayName || dto.ownerUsername,
+            CREATE_TEMP_PASSWORD_TTL_HOURS,
+          ],
         );
+        tempPasswordExpiresAt = userRes[0].temp_password_expires_at;
 
         // 3. Settings row
         await manager.query(
@@ -176,7 +189,69 @@ export class PlatformTenantsService {
       code: dto.code,
       shopName: dto.shopName,
       ownerUsername: dto.ownerUsername,
+      // Shown exactly once. The admin hands it to the shop in person/by phone; the owner
+      // must replace it at first login (v2 condition 3).
+      tempPassword,
+      tempPasswordExpiresAt: new Date(tempPasswordExpiresAt).toISOString(),
       enrolCode,
+    };
+  }
+
+  /**
+   * `POST /platform/tenants/:id/owner/temp-password` (#443 PR3, v2 condition 7) — the answer
+   * to "the owner forgot the password" after the team has verified the caller out of band
+   * (a call back to the number/e-mail recorded at provisioning — never the incoming one).
+   *
+   * Issues a new server-generated temporary password (24 h). The old password — temporary or
+   * the owner's own — stops working in the same UPDATE, and `password_changed_at = now()`
+   * kills every refresh token issued before it (ADR-0009 addendum 2026-09-27) and every
+   * `pwchange` token of an earlier temp password. Generated and hashed before the
+   * transaction; the audit row names the admin and never carries the secret.
+   */
+  async issueOwnerTempPassword(tenantId: string, adminId: string, ip?: string) {
+    assertValidTenantId(tenantId);
+
+    const tempPassword = generateTempPassword();
+    const passwordHash = await hashPassword(tempPassword);
+
+    const row = await this.adminDs.transaction(async (manager) => {
+      // One active user per tenant (`uq_users_one_active`), so this touches at most one row.
+      const rows = returning<{ id: string; username: string; temp_password_expires_at: Date }>(
+        await manager.query(
+          `UPDATE users SET password_hash = $2,
+                  must_change_password = TRUE,
+                  temp_password_expires_at = now() + make_interval(hours => $3),
+                  password_changed_at = now()
+            WHERE tenant_id = $1 AND is_active
+          RETURNING id, username, temp_password_expires_at`,
+          [tenantId, passwordHash, RESET_TEMP_PASSWORD_TTL_HOURS],
+        ),
+      );
+      if (rows.length === 0) {
+        const tenant = await manager.query(`SELECT 1 FROM tenants WHERE id = $1`, [tenantId]);
+        throw new NotFoundException(
+          tenant.length === 0
+            ? `Tenant ${tenantId} not found`
+            : { code: 'OWNER_NOT_FOUND', message: 'This tenant has no active owner' },
+        );
+      }
+      await this.auditService.log(manager, {
+        tenantId,
+        platformAdminId: adminId,
+        action: 'platform.owner.temp_password_issued',
+        entity: 'users',
+        entityId: rows[0].id,
+        after: { tempPasswordExpiresAt: rows[0].temp_password_expires_at },
+        ip,
+      });
+      return rows[0];
+    });
+
+    return {
+      tenantId,
+      ownerUsername: row.username,
+      tempPassword,
+      tempPasswordExpiresAt: new Date(row.temp_password_expires_at).toISOString(),
     };
   }
 

@@ -8,6 +8,34 @@ import { pinoHttp } from 'pino-http';
  * not include them), so customer names / phone numbers never reach the log
  * through this layer. Business modules must log ids, not names or phones.
  */
+/**
+ * Body fields that carry a secret (#443 PR3, ADR-0009 "redact the body of /auth/*"). pino-http
+ * does not serialise bodies today, so this is defence in depth for the day something logs
+ * `req.body` or a DTO: both the request-body path and any top-level object's field of that
+ * name. `code` is redacted only under `req.body` — a bare `*.code` would also blank
+ * `err.code` (the Postgres SQLSTATE) in every 5xx log line, which is what ops read first.
+ */
+const SECRET_FIELDS = [
+  'password',
+  'newPassword',
+  'currentPassword',
+  'ownerPassword',
+  'tempPassword',
+  'passwordChangeToken',
+  'refreshToken',
+  'deviceToken',
+  'enrolCode',
+] as const;
+
+export const REDACT_PATHS: readonly string[] = [
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'req.headers["x-device-token"]',
+  ...SECRET_FIELDS.map((f) => `req.body.${f}`),
+  'req.body.code',
+  ...SECRET_FIELDS.map((f) => `*.${f}`),
+];
+
 export function createLogger(opts: {
   level: string;
   instanceId: string;
@@ -16,11 +44,7 @@ export function createLogger(opts: {
     level: opts.level,
     base: { instance: opts.instanceId },
     redact: {
-      paths: [
-        'req.headers.authorization',
-        'req.headers.cookie',
-        'req.headers["x-device-token"]',
-      ],
+      paths: [...REDACT_PATHS],
       censor: '[redacted]',
     },
   });

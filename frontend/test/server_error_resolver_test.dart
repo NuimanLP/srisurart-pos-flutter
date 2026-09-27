@@ -54,6 +54,23 @@ void main() {
         ),
         'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
       );
+      // #443 PR3 — agent ร่าง.
+      expect(ServerErrorResolver.resolve('TEMP_PASSWORD_EXPIRED'), 'รหัสผ่านชั่วคราวหมดอายุแล้ว กรุณาติดต่อทีมงานเพื่อขอรหัสใหม่');
+      expect(ServerErrorResolver.resolve('PASSWORD_CHANGE_REQUIRED'), 'เจ้าของร้านต้องเปลี่ยนรหัสผ่านชั่วคราวก่อน จึงจะใช้งานเครื่องนี้ได้');
+      expect(ServerErrorResolver.resolve('OWNER_PASSWORD_NOT_ACCEPTED'), 'ระบบไม่รับรหัสผ่านเจ้าของร้านจากผู้ดูแลแล้ว ระบบจะสุ่มรหัสชั่วคราวให้เอง');
+      expect(ServerErrorResolver.resolve('OWNER_NOT_FOUND'), 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่');
+      for (final (reason, thai) in [
+        ('required', 'กรุณากรอกรหัสผ่านใหม่'),
+        ('too_short', 'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร'),
+        ('too_long', 'รหัสผ่านยาวเกินไป ต้องไม่เกิน 128 ตัวอักษร'),
+        ('common', 'รหัสผ่านนี้เดาง่ายเกินไป หรือมีชื่อร้านอยู่ในรหัส กรุณาตั้งรหัสอื่น'),
+        ('same_as_temp', 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว'),
+      ]) {
+        expect(
+          ServerErrorResolver.resolve('WEAK_PASSWORD', serverMessage: 'English', details: {'reason': reason}),
+          thai,
+        );
+      }
       expect(ServerErrorResolver.resolve('SHIFT_NOT_FOUND'), 'ไม่พบข้อมูลกะ');
       expect(ServerErrorResolver.resolve('UNAUTHENTICATED'), 'กรุณาเข้าสู่ระบบ');
       expect(ServerErrorResolver.resolve('FORBIDDEN'), 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้');

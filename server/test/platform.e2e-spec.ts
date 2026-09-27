@@ -7,6 +7,7 @@ import { signJwt } from '../src/common/jwt.js';
 import { hashPassword } from '../src/common/password.js';
 import { APP_CONFIG, type AppConfig } from '../src/config/config.js';
 import { createTestApp } from './support/fixture.js';
+import { activateOwner, OWNER_CHOSEN_PASSWORD } from './support/owner-password.js';
 
 describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
   let app: INestApplication;
@@ -103,7 +104,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/platform/tenants')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ code, shopName: 'ร้านทดสอบ', ownerUsername: `owner_${code}`, ownerPassword: 'password-123456' });
+        .send({ code, shopName: 'ร้านทดสอบ', ownerUsername: `owner_${code}` });
 
       expect(res.status).toBe(401);
       const tenantRows = await adminDs.query(`SELECT id FROM tenants WHERE code = $1`, [code]);
@@ -169,7 +170,6 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
           code,
           shopName: 'ร้านทดสอบ อะตอมมิก',
           ownerUsername: `owner_${code}`,
-          ownerPassword: 'password-123456',
           ownerDisplayName: 'เจ้าของร้าน',
         });
 
@@ -220,7 +220,6 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
           code,
           shopName: 'ร้านทดสอบ โรลแบ็ค',
           ownerUsername: `owner_${code}`,
-          ownerPassword: 'password-123456',
           ownerDisplayName: 'เจ้าของร้าน',
         });
 
@@ -238,82 +237,37 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     });
   });
 
-  // #364 — `ownerPassword` used to be checked only for presence, so `1234` provisioned a
-  // shop `owner` (the highest-privileged login in that tenant). The floor is now the one
-  // `bootstrap:admin` uses, from the same function (`common/password.ts`), and it is
-  // applied before the argon2 hash and before the transaction opens — so a refusal must
-  // leave nothing behind at all.
-  describe('ownerPassword length policy (#364)', () => {
-    const provision = (code: string, ownerPassword: unknown) =>
-      request(app.getHttpServer())
-        .post('/api/v1/platform/tenants')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          code,
-          shopName: 'ร้านทดสอบ รหัสผ่าน',
-          ownerUsername: `owner_${code}`,
-          ownerDisplayName: 'เจ้าของร้าน',
-          // `undefined` is dropped by supertest's JSON encoder, which is exactly the
-          // "field absent" case we want to cover.
-          ...(ownerPassword === undefined ? {} : { ownerPassword }),
-        });
-
-    /** Ground truth: a refusal may not leave a tenant, an owner row or an audit row. */
-    const expectNothingPersisted = async (code: string) => {
-      const tenants = await adminDs.query(`SELECT id FROM tenants WHERE code = $1`, [code]);
-      expect(tenants.length).toBe(0);
-      const users = await adminDs.query(`SELECT id FROM users WHERE username = $1`, [
-        `owner_${code}`,
-      ]);
-      expect(users.length).toBe(0);
-      // Scoped by this request's own tenant code, not by `platform_admin_id`: the admin
-      // is shared with every other case in this file, so an admin-wide count would both
-      // prove nothing about *this* refusal and go red on someone else's leaked row.
-      const audit = await adminDs.query(
-        `SELECT id FROM audit_log
-          WHERE action = 'platform.tenant.create' AND after->>'code' = $1`,
-        [code],
-      );
-      expect(audit.length).toBe(0);
-    };
-
-    // One case per way a password can be unacceptable. `1234` is the one from the issue.
+  // #443 PR3 (owner decision 2026-09-27, Q6): the admin never chooses the owner's password.
+  // A caller still sending `ownerPassword` — any value, even a strong one — is on the old
+  // contract and gets a loud 400 before argon2 and before the transaction, so nothing is left.
+  describe('ownerPassword is refused (#443 PR3, supersedes the #364 length policy)', () => {
     for (const [label, password] of [
-      ['a short numeric password (the one from the issue)', '1234'],
-      ['an 11-character password, one under the floor', 'password123'],
+      ['a strong password', 'password-123456'],
+      ['a short password', '1234'],
       ['an empty password', ''],
-      ['a whitespace-only password', '            '],
-      ['an absent password', undefined],
-      // A JSON number reached `argon2.hash` before #364 and blew up inside the
-      // transaction as a 500; it must be an ordinary 400 verdict.
       ['a non-string password', 1234],
     ] as const) {
-      it(`refuses ${label} and creates nothing`, async () => {
-        const code = `weakpw-${randomUUID().slice(0, 8)}`;
-        const res = await provision(code, password);
+      it(`refuses ${label} with 400 OWNER_PASSWORD_NOT_ACCEPTED and creates nothing`, async () => {
+        const code = `legacypw-${randomUUID().slice(0, 8)}`;
+        const res = await request(app.getHttpServer())
+          .post('/api/v1/platform/tenants')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            code,
+            shopName: 'ร้านทดสอบ สัญญาเก่า',
+            ownerUsername: `owner_${code}`,
+            ownerDisplayName: 'เจ้าของร้าน',
+            ownerPassword: password,
+          });
 
         expect(res.status).toBe(400);
-        expect(res.body.error.code).toBe('WEAK_PASSWORD');
-        await expectNothingPersisted(code);
+        expect(res.body.error.code).toBe('OWNER_PASSWORD_NOT_ACCEPTED');
+        expect(await adminDs.query(`SELECT id FROM tenants WHERE code = $1`, [code])).toEqual([]);
+        expect(
+          await adminDs.query(`SELECT id FROM users WHERE username = $1`, [`owner_${code}`]),
+        ).toEqual([]);
       });
     }
-
-    it('accepts a password of exactly the minimum length', async () => {
-      const code = `okpw-${randomUUID().slice(0, 8)}`;
-      // Exactly MIN_PASSWORD_LENGTH (12) — the boundary must be inclusive.
-      const res = await provision(code, 'aaaabbbbcccc');
-
-      expect(res.status).toBe(201);
-      const tenantId = res.body.data.tenantId;
-      expect(tenantId).toBeDefined();
-
-      await adminDs.query(`DELETE FROM audit_log WHERE tenant_id = $1`, [tenantId]);
-      await adminDs.query(`DELETE FROM devices WHERE tenant_id = $1`, [tenantId]);
-      await adminDs.query(`DELETE FROM categories WHERE tenant_id = $1`, [tenantId]);
-      await adminDs.query(`DELETE FROM settings WHERE tenant_id = $1`, [tenantId]);
-      await adminDs.query(`DELETE FROM users WHERE tenant_id = $1`, [tenantId]);
-      await adminDs.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
-    });
   });
 
   describe('Atomic updateStatus and cache purge (AC3)', () => {
@@ -327,7 +281,6 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
           code,
           shopName: 'ร้านทดสอบ สเตตัส',
           ownerUsername: `owner_${code}`,
-          ownerPassword: 'password-123456',
         });
       const tenantId = createRes.body.data.tenantId;
 
@@ -375,7 +328,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       const createRes = await request(app.getHttpServer())
         .post('/api/v1/platform/tenants')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ code, shopName: 'ร้านทดสอบ โรลแบ็ค', ownerUsername: `owner_${code}`, ownerPassword: 'password-123456' });
+        .send({ code, shopName: 'ร้านทดสอบ โรลแบ็ค', ownerUsername: `owner_${code}` });
       expect(createRes.status).toBe(201);
       tenantId = createRes.body.data.tenantId;
 
@@ -426,9 +379,10 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     it('creates tenant, logs in as owner, creates product, enrols POS device, logs in on POS, opens shift, and sells', async () => {
       const code = `loop-${randomUUID().slice(0, 8)}`;
       const ownerUsername = `owner_${code}`;
-      const ownerPassword = 'password-123456';
+      const ownerPassword = OWNER_CHOSEN_PASSWORD;
 
-      // 1. POST /platform/tenants: platform admin provisions tenant
+      // 1. POST /platform/tenants: platform admin provisions tenant (#443 PR3: the server
+      //    generates the owner's temporary password and returns it once)
       const provisionRes = await request(app.getHttpServer())
         .post('/api/v1/platform/tenants')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -436,23 +390,20 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
           code,
           shopName: 'ร้านทดสอบ ลูปเต็ม',
           ownerUsername,
-          ownerPassword,
           ownerDisplayName: 'เจ้าของร้าน',
         });
 
       expect(provisionRes.status).toBe(201);
-      const { tenantId, enrolCode } = provisionRes.body.data;
+      const { tenantId, enrolCode, tempPassword } = provisionRes.body.data;
       expect(tenantId).toBeDefined();
       expect(enrolCode).toBeDefined();
+      expect(tempPassword).toBeDefined();
 
       try {
-        // 2. POST /auth/token: Owner logs in without device token (backoffice session)
-        const ownerLoginRes = await request(app.getHttpServer())
-          .post('/api/v1/auth/token')
-          .send({ username: ownerUsername, password: ownerPassword });
-
-        expect(ownerLoginRes.status).toBe(200);
-        const ownerToken = ownerLoginRes.body.data.accessToken;
+        // 2. The owner replaces the temporary password (forced at first login), which
+        //    yields the full backoffice session.
+        const ownerSession = await activateOwner(app, ownerUsername, tempPassword, ownerPassword);
+        const ownerToken = ownerSession.accessToken;
         expect(ownerToken).toBeDefined();
 
         // 3. POST /products: Owner adds a product to inventory via backoffice session
@@ -567,7 +518,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     beforeEach(async () => {
       const code = `pr2-${randomUUID().slice(0, 8)}`;
       ownerUsername = `owner_${code}`;
-      ownerPassword = 'password-123456';
+      ownerPassword = OWNER_CHOSEN_PASSWORD;
       const provisionRes = await request(app.getHttpServer())
         .post('/api/v1/platform/tenants')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -575,12 +526,12 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
           code,
           shopName: 'ร้านทดสอบ ออกโค้ดใหม่',
           ownerUsername,
-          ownerPassword,
           ownerDisplayName: 'เจ้าของร้าน',
         });
       expect(provisionRes.status).toBe(201);
       tenantId = provisionRes.body.data.tenantId;
       provisioningEnrolCode = provisionRes.body.data.enrolCode;
+      await activateOwner(app, ownerUsername, provisionRes.body.data.tempPassword, ownerPassword);
     });
 
     afterEach(async () => {

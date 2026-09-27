@@ -1,5 +1,6 @@
 import * as argon2 from 'argon2';
-import { pbkdf2Sync, timingSafeEqual } from 'node:crypto';
+import { pbkdf2Sync, randomInt, timingSafeEqual } from 'node:crypto';
+import { COMMON_PASSWORDS, SHOP_WORDS } from './common-passwords.js';
 
 export async function hashPassword(password: string): Promise<string> {
   return argon2.hash(password, {
@@ -58,8 +59,74 @@ export async function verifyPassword(password: string, combinedHash: string): Pr
  */
 export const MIN_PASSWORD_LENGTH = 12;
 
-/** Why a password was refused. `required` = absent/blank · `too_short` = under the floor. */
-export type PasswordPolicyViolation = 'required' | 'too_short';
+/**
+ * Upper bound for a password a person chooses (#443 PR3). Not a strength rule — it caps the
+ * work an attacker can make one change-password request cost before argon2 (OWASP ASVS V2.1.2).
+ */
+export const MAX_PASSWORD_LENGTH = 128;
+
+/**
+ * Why a password was refused. `required` = absent/blank · `too_short` = under the floor ·
+ * `too_long` = over `MAX_PASSWORD_LENGTH` · `common` = on the offline blocklist ·
+ * `same_as_temp` = the new password is the temporary one it is replacing.
+ */
+export type PasswordPolicyViolation =
+  | 'required'
+  | 'too_short'
+  | 'too_long'
+  | 'common'
+  | 'same_as_temp';
+
+/**
+ * NFC, applied wherever an owner password is set or checked (#443 PR3), so the same text
+ * typed on two keyboards that emit different code-point sequences hashes the same. Note: NFC
+ * does not reorder Thai tone marks typed in a different order — it helps less for Thai than
+ * the issue hoped (scrutiny note, 2026-09-27).
+ */
+export function normalizePassword(password: string): string {
+  return password.normalize('NFC');
+}
+
+/** Offline blocklist check: exact common password, or contains the shop's own name. */
+export function isCommonPassword(password: string): boolean {
+  const lower = normalizePassword(password).toLowerCase();
+  if (COMMON_PASSWORDS.has(lower)) return true;
+  const squashed = lower.replace(/[\s\-_.]/g, '');
+  return SHOP_WORDS.some((w) => squashed.includes(w));
+}
+
+/**
+ * The policy for a password a shop owner *chooses* (`POST /auth/change-password`, #443 PR3):
+ * `passwordPolicyViolation`'s floor, plus the upper bound and the blocklist — all pure string
+ * checks, so a caller runs them before any argon2 and before any transaction. `same_as_temp`
+ * needs an argon2 verify and is therefore the caller's own, later step.
+ */
+export function chosenPasswordViolation(password: unknown): PasswordPolicyViolation | null {
+  if (typeof password !== 'string') return 'required';
+  const normalized = normalizePassword(password);
+  const base = passwordPolicyViolation(normalized);
+  if (base) return base;
+  if (normalized.length > MAX_PASSWORD_LENGTH) return 'too_long';
+  if (isCommonPassword(normalized)) return 'common';
+  return null;
+}
+
+/**
+ * A server-generated temporary owner password (#443 PR3, v2 condition 1): CSPRNG, 16
+ * characters from an alphabet with the confusable `0 O 1 l I` removed (56 symbols ≈ 93 bits),
+ * so it survives being read aloud over the phone. The admin never chooses it.
+ */
+export const TEMP_PASSWORD_ALPHABET =
+  'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+export const TEMP_PASSWORD_LENGTH = 16;
+
+export function generateTempPassword(): string {
+  let out = '';
+  for (let i = 0; i < TEMP_PASSWORD_LENGTH; i++) {
+    out += TEMP_PASSWORD_ALPHABET[randomInt(TEMP_PASSWORD_ALPHABET.length)];
+  }
+  return out;
+}
 
 /**
  * The shared policy check: returns `null` when `password` is acceptable, otherwise why not.
@@ -85,7 +152,16 @@ export function passwordPolicyMessage(
   violation: PasswordPolicyViolation,
   field: string,
 ): string {
-  return violation === 'required'
-    ? `${field} is required`
-    : `${field} is too weak: at least ${MIN_PASSWORD_LENGTH} characters required`;
+  switch (violation) {
+    case 'required':
+      return `${field} is required`;
+    case 'too_short':
+      return `${field} is too weak: at least ${MIN_PASSWORD_LENGTH} characters required`;
+    case 'too_long':
+      return `${field} is too long: at most ${MAX_PASSWORD_LENGTH} characters allowed`;
+    case 'common':
+      return `${field} is too common or contains the shop's name`;
+    case 'same_as_temp':
+      return `${field} must differ from the temporary password`;
+  }
 }
