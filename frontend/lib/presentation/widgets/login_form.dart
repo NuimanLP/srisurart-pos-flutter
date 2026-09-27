@@ -124,9 +124,29 @@ class _LoginFormState extends State<LoginForm> {
     if (authState is AuthPasswordChangeRequired) {
       return ChangePasswordForm(onSuccess: widget.onSuccess);
     }
-    final isPosDevice = authState is Authenticated
+    // #465c: `isPos` only ever becomes true from an access token's `drole`
+    // claim (Authenticated) or the role recorded at a PAST online login
+    // (Unauthenticated's fallback) — `POST /auth/device` (enrol) never learns
+    // the device's role at all; only an actual `POST /auth/token` login does
+    // (server resolves `did`/`drole` there). So right after a fresh enrol,
+    // `isPos` is still whatever it was from the LAST session (often false, or
+    // some other device's role) even though this browser just stored a brand
+    // new device token. The old banner used `isPos` alone and so kept saying
+    // "ยังไม่ได้ผูกเครื่อง POS" (POS not bound yet) for an already-enrolled
+    // device until the next login.
+    final isPos = authState is Authenticated
         ? authState.isPos
         : (authState is Unauthenticated ? authState.isPos : false);
+    // The stale-banner gap only exists between a successful enrol and the
+    // NEXT login: `Unauthenticated.hasDeviceEnrolled` is derived from the
+    // stored device token (set the moment `AuthCubit.enrolDevice` succeeds),
+    // so `!isPos` there is genuinely "role not confirmed yet", not "not pos".
+    // Once actually `Authenticated`, `isPos` already came from THIS session's
+    // own login-confirmed `drole` — there is no gap to bridge, so this must
+    // never touch the Authenticated branch (a confirmed, logged-in backoffice
+    // device must keep the plain "not pos" wording, not an "unconfirmed" one).
+    final hasUnconfirmedEnrolment =
+        authState is Unauthenticated && authState.hasDeviceEnrolled && !isPos;
     final pinRepo = context.read<OfflinePinRepository>();
 
     return SyncStatusBuilder(
@@ -138,12 +158,12 @@ class _LoginFormState extends State<LoginForm> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: isPosDevice
+            color: isPos
                 ? AppColors.success.withValues(alpha: 0.1)
                 : Colors.grey.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: isPosDevice
+              color: isPos
                   ? AppColors.success.withValues(alpha: 0.3)
                   : Colors.grey.withValues(alpha: 0.3),
             ),
@@ -151,20 +171,26 @@ class _LoginFormState extends State<LoginForm> {
           child: Row(
             children: [
               Icon(
-                isPosDevice ? Icons.point_of_sale : Icons.computer,
+                isPos ? Icons.point_of_sale : Icons.computer,
                 size: 18,
-                color: isPosDevice ? AppColors.success : Colors.grey[700],
+                color: isPos ? AppColors.success : Colors.grey[700],
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  isPosDevice
+                  isPos
                       ? 'เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)'
-                      : 'โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)',
+                      : hasUnconfirmedEnrolment
+                          // #465c agent ร่าง (ยังไม่ผ่านเจ้าของโปรเจกต์) — เครื่องผูกกับ
+                          // ร้านแล้วจริง แต่ role (pos/backoffice) ยังไม่ทราบจนกว่าจะ
+                          // เข้าสู่ระบบสำเร็จครั้งแรก จึงเลี่ยงข้อความเดิมที่อ้างว่า
+                          // "ยังไม่ได้ผูกเครื่อง POS" ซึ่งไม่จริงอีกต่อไป
+                          ? 'ผูกเครื่องกับร้านแล้ว รอเข้าสู่ระบบเพื่อยืนยันสิทธิ์การใช้งาน'
+                          : 'โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: isPosDevice ? AppColors.success : Colors.grey[800],
+                    color: isPos ? AppColors.success : Colors.grey[800],
                   ),
                 ),
               ),
@@ -179,7 +205,7 @@ class _LoginFormState extends State<LoginForm> {
         ] else ...[
           // Degraded mode: check offline PIN eligibility (08 §13, F5, C5)
           FutureBuilder<_PinFormEligibility>(
-            future: _checkEligibility(pinRepo, isPosDevice),
+            future: _checkEligibility(pinRepo, isPos),
             builder: (context, snapshot) {
               final eligibility = snapshot.data;
               if (eligibility == null) {
@@ -256,7 +282,7 @@ class _LoginFormState extends State<LoginForm> {
               }
 
               // Degraded + not configured
-              if (!eligibility.isConfigured || !isPosDevice) {
+              if (!eligibility.isConfigured || !isPos) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

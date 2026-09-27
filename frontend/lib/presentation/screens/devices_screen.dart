@@ -864,7 +864,9 @@ class _EnrolCodeDisplayDialog extends StatelessWidget {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'นำรหัส 6 หลักนี้ไปกรอกที่หน้าผูกเครื่องของเบราว์เซอร์เป้าหมาย รหัสนี้มีอายุ 15 นาที',
+                      // #462 agent ร่าง — เดิม "6 หลัก" ไม่ตรงกับโค้ด 8 ตัวอักษร hex ที่ server ออกจริง
+                      // (devices.service.ts createIn); ยังไม่ผ่านเจ้าของโปรเจกต์
+                      'นำรหัส 8 ตัวอักษรนี้ไปกรอกที่หน้าผูกเครื่องของเบราว์เซอร์เป้าหมาย รหัสนี้มีอายุ 15 นาที',
                       style: TextStyle(fontSize: 12, height: 1.4),
                     ),
                   ),

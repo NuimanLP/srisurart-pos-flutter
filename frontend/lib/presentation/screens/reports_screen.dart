@@ -591,14 +591,31 @@ class _KpiRow extends StatelessWidget {
       ),
     ];
 
-    final crossAxisCount = narrow ? 2 : 4;
-    return GridView.count(
-      crossAxisCount: crossAxisCount,
+    // #463: at phone width (~390px) a fixed `childAspectRatio` shrinks 2-column
+    // cards below the height `_StatCard`'s content needs, so FittedBox scales the
+    // value/label text down to near-zero — the card renders but looks blank. A
+    // fixed `mainAxisExtent` guarantees enough height regardless of card width.
+    // 132 = _StatCard's fixed chrome (16+16 vertical padding, 36 icon, 12
+    // spacing = 80) plus comfortable room for its FittedBox value+label(+sub)
+    // stack to render near natural size instead of being squeezed to a sliver.
+    // Desktop (4 columns) keeps its original `childAspectRatio` look unchanged.
+    final gridDelegate = narrow
+        ? const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            mainAxisExtent: 132,
+          )
+        : const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 4,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: 2.2,
+          );
+    return GridView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 16,
-      mainAxisSpacing: 16,
-      childAspectRatio: narrow ? 1.9 : 2.2,
+      gridDelegate: gridDelegate,
       children: cards,
     );
   }
