@@ -169,8 +169,9 @@ export class PlatformApiError extends Error {
   constructor(
     public readonly httpStatus: number,
     public readonly code: string,
+    detail: string,
   ) {
-    super(`platform API refused (${httpStatus} ${code})`);
+    super(`platform API refused (${httpStatus} ${code}): ${detail}`);
     this.name = 'PlatformApiError';
   }
 }
@@ -198,9 +199,7 @@ async function apiRequest<T>(
   if (!res.ok || !json || json.status !== 'success') {
     const code = json && json.status === 'error' ? json.error.code : 'UNKNOWN_ERROR';
     const message = json && json.status === 'error' ? json.error.message : `HTTP ${res.status}`;
-    const err = new PlatformApiError(res.status, code);
-    err.message = `platform API refused (${res.status} ${code}): ${message}`;
-    throw err;
+    throw new PlatformApiError(res.status, code, message);
   }
   return json.data;
 }

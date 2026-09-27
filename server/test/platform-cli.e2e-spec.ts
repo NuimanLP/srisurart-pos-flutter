@@ -105,6 +105,7 @@ describe('platform CLI (e2e, #443 PR1)', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain(`logged in as ${adminUsername}`);
     expect(result.stdout).not.toContain(ADMIN_PASSWORD);
+    expect(result.stderr).not.toContain(ADMIN_PASSWORD);
   }, 30_000);
 
   it('tenants:create: provisions a real tenant and never echoes either password', async () => {
@@ -126,6 +127,8 @@ describe('platform CLI (e2e, #443 PR1)', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).not.toContain(ADMIN_PASSWORD);
     expect(result.stdout).not.toContain(ownerPassword);
+    expect(result.stderr).not.toContain(ADMIN_PASSWORD);
+    expect(result.stderr).not.toContain(ownerPassword);
 
     const parsed = JSON.parse(result.stdout);
     expect(parsed.code).toBe(code);

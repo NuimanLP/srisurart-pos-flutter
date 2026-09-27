@@ -11,8 +11,10 @@
 `dist/cli/platform.js`) — ไม่มี JSON ที่ต้อง escape เอง ไม่มี `/tmp/body.json` ไม่มีการ copy
 token ด้วยมือ (แต่ละคำสั่ง login เองทุกครั้งแล้วทิ้ง token ทันที) และรหัสผ่านอ่านจาก stdin/TTY
 เท่านั้น (ไม่เคยอยู่ใน argv หรือ log) §1 ยังเป็นบันทึกประวัติที่ใช้ได้จริง (เหตุผลเรื่อง
-loopback/guard เดียวกันยังผูกกับ CLI) ส่วน §2 (กับดัก `wget`) **เลิกเกี่ยวข้องแล้ว** เพราะ CLI
-ไม่ใช้ `wget`/`curl` เลย — ข้ามไปที่ §3 สำหรับขั้นตอนปัจจุบัน
+loopback/guard เดียวกันยังผูกกับ CLI) ส่วน §2 (กับดัก `wget`) **ไม่เกี่ยวกับ §3 แล้ว** เพราะ CLI
+ไม่ใช้ `wget`/`curl` เลย — ข้ามไปที่ §3 สำหรับขั้นตอนปัจจุบัน · 🔴 แต่ §4 ข้อ 1-2 (ยิง
+`/auth/device` + `/auth/token` ของ**หน้าร้าน** ซึ่ง CLI ไม่ครอบคลุม) **ยังใช้ `wget` +
+`/tmp/body.json` อยู่** กับดักใน §2 จึงยังใช้กับสองข้อนั้น
 
 ---
 
@@ -64,11 +66,12 @@ CLI แต่เหตุผลเดิมของ `isAllowedIp` (`platform-au
 
 ---
 
-## 2. กับดัก `wget` ที่จะทำให้เสียเวลาเป็นชั่วโมง (ประวัติ — เลิกเกี่ยวข้องแล้ว)
+## 2. กับดัก `wget` ที่จะทำให้เสียเวลาเป็นชั่วโมง (ไม่เกี่ยวกับ §3 แล้ว — ยังใช้กับ §4 ข้อ 1-2)
 
-🔴 **เลิกเกี่ยวข้องตั้งแต่ #443 PR1 (2026-09-27):** platform CLI ไม่ใช้ `wget`/`curl` เลย —
-มันคุยกับ api ด้วย `fetch` ของ Node เอง ไม่มี body ที่ต้องยัดเป็น string ผ่าน shell หลายชั้น
-เก็บหัวข้อนี้ไว้เป็นบันทึกว่าทำไมถึงเปลี่ยนมาใช้ CLI:
+🔴 **ไม่เกี่ยวกับการ provision (§3) ตั้งแต่ #443 PR1 (2026-09-27):** platform CLI ไม่ใช้
+`wget`/`curl` เลย — มันคุยกับ api ด้วย `fetch` ของ Node เอง ไม่มี body ที่ต้องยัดเป็น string
+ผ่าน shell หลายชั้น แต่ขั้นพิสูจน์ใน §4 ข้อ 1-2 (endpoint หน้าร้าน) ยังยิงด้วย `wget` อยู่
+ข้อควรระวังด้านล่างจึงยังใช้กับสองข้อนั้น:
 
 `wget` ในคอนเทนเนอร์ nginx เป็น **BusyBox**:
 
@@ -108,7 +111,8 @@ $DC run --rm \
 # แบบ interactive (พิมพ์รหัสเอง ไม่โชว์บนจอ):
 $DC exec api-1 node dist/cli/platform.js login --user admin
 # แบบ non-interactive (CI/สคริปต์ — ใช้ -T ปิด pseudo-TTY แล้ว pipe รหัสเข้า stdin):
-printf '%s\n' '<รหัส admin>' | $DC exec -T api-1 node dist/cli/platform.js login --user admin
+read -rs ADMIN_PW   # พิมพ์รหัส admin (ไม่โชว์ ไม่ติด history)
+printf '%s\n' "$ADMIN_PW" | $DC exec -T api-1 node dist/cli/platform.js login --user admin
 # → logged in as admin (id …)
 
 # ── 2. provision tenant + owner ───────────────────────────────────────────
@@ -123,20 +127,23 @@ $DC exec api-1 node dist/cli/platform.js tenants:create \
   --owner-display-name 'เจ้าของร้าน'
 # Platform admin password: <พิมพ์รหัส admin>
 # New owner password: <พิมพ์รหัสเจ้าของร้าน — อย่างน้อย 12 ตัวอักษร>
-# → {"tenantId":"…","code":"srisurart-demo","shopName":"…","ownerUsername":"owner_demo","enrolCode":"BE00CB85"}
+# → JSON (พิมพ์แบบหลายบรรทัด) มี tenantId, code, shopName, ownerUsername, enrolCode (เช่น "BE00CB85")
 
 # non-interactive: สองรหัสเรียงบรรทัดตามลำดับที่ถูกถาม (admin ก่อน แล้วค่อย owner)
-printf '%s\n%s\n' '<รหัส admin>' '<รหัสเจ้าของร้าน>' | \
+# อ่านรหัสเข้าตัวแปรด้วย `read -rs` ก่อน — อย่าพิมพ์รหัสตรง ๆ ในบรรทัด printf (จะติด history)
+read -rs OWNER_PW   # ADMIN_PW อ่านไว้แล้วในข้อ 1
+printf '%s\n%s\n' "$ADMIN_PW" "$OWNER_PW" | \
   $DC exec -T api-1 node dist/cli/platform.js tenants:create \
     --user admin --code srisurart-demo --shop-name 'ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)' \
     --shop-name-en 'Srisurart Autopart (demo)' --plan demo \
     --owner-username owner_demo --owner-display-name 'เจ้าของร้าน'
 ```
 
-ไม่มีขั้น "ล้างร่องรอยรหัสผ่าน" อีกต่อไป — ไม่มีไฟล์ชั่วคราวให้ลบ (`--post-file` เดิมหายไปพร้อม
-`wget`) และรหัสผ่านไม่เคยผ่าน `history` ของ shell เลย (`printf … | …` ที่ใช้ใน non-interactive
-ก็ยังทำให้รหัสอยู่ใน `.bash_history` ได้ถ้า shell history เปิดไว้ — เว้นวรรคนำหน้าเหมือนเดิม
-ถ้ากังวลเรื่องนี้)
+ไม่มีขั้น "ล้างร่องรอยรหัสผ่าน" สำหรับ §3 อีกต่อไป — ไม่มีไฟล์ชั่วคราวให้ลบ (`--post-file` เดิม
+หายไปพร้อม `wget`) · แบบ interactive รหัสไม่เข้า `history` ของ shell เลย · แบบ non-interactive
+รหัสจะไม่เข้า `history` **ก็ต่อเมื่อ**ส่งผ่านตัวแปรจาก `read -rs` แบบข้างบน — ถ้าพิมพ์รหัสตรง ๆ
+ใน `printf '…'` มันจะติด `.bash_history` (เว้นวรรคนำหน้าช่วยได้เฉพาะเมื่อ `HISTCONTROL` มี
+`ignorespace`)
 
 คำสั่งอื่นที่ CLI มีให้ (ดู `runPlatformCli` ใน `server/src/cli/platform.ts` สำหรับ flags ทั้งหมด):
 
@@ -226,7 +233,7 @@ $DC exec -T nginx wget -qO- --no-check-certificate --header 'Content-Type: appli
 #    payload: {"tid":"<tenant ใหม่>","role":"owner","did":"pos1","drole":"pos"}
 
 # 3) เห็นในรายการของ platform — ตอนนี้ใช้ CLI แทน (ไม่ต้องถือ $TOKEN ไว้เองอีกแล้ว, #443 PR1)
-printf '%s\n' '<รหัส admin>' | $DC exec -T api-1 node dist/cli/platform.js tenants:list --user admin
+printf '%s\n' "$ADMIN_PW" | $DC exec -T api-1 node dist/cli/platform.js tenants:list --user admin   # ADMIN_PW จาก read -rs ใน §3
 ```
 
 ### 🔴 กับดักที่ `/code-review` จับได้ และวัดซ้ำแล้ว: `deviceToken` อยู่ใน body ไม่ใช่ header
