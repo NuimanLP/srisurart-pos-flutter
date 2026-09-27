@@ -117,12 +117,12 @@ docker run -d --name tlswrap --restart unless-stopped \
 "ไม่สามารถใช้ PIN ออฟไลน์ได้ … กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบใหม่" ซึ่งถูกต้องแล้ว
 (ยังไม่เคยมีใคร login ออนไลน์เลยสักครั้ง) ต้องทำ 3 ขั้นตอนนี้ **ครั้งเดียว** ต่อฐานข้อมูล
 
-> 🔴 **ไม่มีหน้า UI สำหรับสร้าง tenant/account** — ทั้ง Flutter app (`frontend/lib/presentation/screens/`,
-> 13 หน้าใน shop) และ backend ไม่มีหน้า "admin panel" ให้กรอกฟอร์ม การสร้าง platform admin
-> เป็นการตัดสินใจโดยตั้งใจ (ADR-0001: "admins are created out of band by the team — no API
-> creates one") ส่วนการสร้าง tenant/shop owner ทำผ่าน `POST /platform/tenants` เท่านั้น
-> เรียกผ่าน **platform CLI** (`server/src/cli/platform.ts`, #443 PR1) ซึ่งเป็น admin-plane
-> API ไม่มี UI — 3 ขั้นตอนด้านล่างคือ**ทางเดียว**ที่มีตอนนี้:
+> 🟢 **มีหน้าเว็บ platform admin แล้ว** (`platform-ui`, #443 PR4) ที่ **http://127.0.0.1:3200** —
+> สร้างร้าน, ระงับ/เปิดร้าน, ดูอุปกรณ์ + งาน import, ออก enrolCode ใหม่, ออกรหัสผ่านชั่วคราวให้เจ้าของร้าน
+> (แยกจากแอป Flutter ของร้านโดยตั้งใจ — ADR-0002) · 🔴 **สร้าง platform admin ทำได้ทางเดียวคือคำสั่ง
+> `bootstrap-admin` ในข้อ 5.1** — ไม่มีปุ่มหรือ API สำหรับเรื่องนี้ (ADR-0001: "admins are created out
+> of band by the team — no API creates one") · ขั้น 5.2 ทำได้สองทาง: หน้าเว็บ หรือ platform CLI
+> (`server/src/cli/platform.ts`, #443 PR1)
 
 ### 5.1 สร้าง platform admin ตัวแรก (ADR-0001 — ทำนอก API เท่านั้น)
 
@@ -139,9 +139,19 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 🔴 `location /api/v1/platform/` ของ Nginx จำกัดแค่ `127.0.0.1` และ `platform-auth.guard.ts`
 เช็คซ้ำอีกชั้น การยิงจากโฮสต์เข้า port ที่ publish ไว้ **โดน `403` ทุกเครื่อง ไม่ใช่แค่
 Docker Desktop** (บน Linux/`mob04` ก็เหมือนกัน) เพราะ docker-proxy เปิด connection ใหม่เข้า
-container ทำให้ IP กลายเป็น gateway `172.30.0.1` — และด้วยเหตุผลเดียวกัน **`ssh -L` ก็ใช้ไม่ได้**
+container ทำให้ IP กลายเป็น gateway `172.30.0.1` — และด้วยเหตุผลเดียวกัน **`ssh -L` เข้า nginx ตรง ๆ ก็ใช้ไม่ได้**
 (#335 D3, runbook เต็มอยู่ที่ [`docs/handoff_log/ticket-338-platform-provision.md`](../handoff_log/ticket-338-platform-provision.md))
-platform CLI (#443 PR1) จึงรันจาก**ภายใน container `api-1` เอง** ยิงตรงไปที่พอร์ต 3000 ของ
+จึงมีสองทางที่ใช้ได้:
+
+**ทาง A — หน้าเว็บ (ง่ายสุด):** เปิด **http://127.0.0.1:3200** แล้ว login ด้วย admin จากข้อ 5.1 →
+กรอกฟอร์ม "สร้างร้านใหม่" (ไม่มีช่องรหัสผ่านเจ้าของร้าน — server สุ่มให้) → หน้าต่างสีส้มจะแสดง
+`tempPassword` + `enrolCode` **ครั้งเดียว** กดคัดลอกเก็บไว้ทันที · ทำงานได้เพราะคอนเทนเนอร์
+`platform-ui` มี IP ตายตัว `172.30.0.20` ซึ่งอยู่ใน allowlist ทั้งของ nginx และของ guard
+(`PLATFORM_ADMIN_IPS`) · token อยู่ 1 ชม. เก็บใน `sessionStorage` (ปิดแท็บ = ต้อง login ใหม่) ·
+บน `mob04` ใช้ `ssh -L 3200:127.0.0.1:3200 deploy@<vm>` แล้วเปิด URL เดียวกัน
+([`07_CICD_DEPLOY.md`](../Backend_design/07_CICD_DEPLOY.md) แถว "ดู platform-ui")
+
+**ทาง B — platform CLI:** รันจาก**ภายใน container `api-1` เอง** ยิงตรงไปที่พอร์ต 3000 ของ
 api (ไม่ผ่าน nginx เลยด้วยซ้ำ) — เป็น loopback จริงเสมอ รหัสผ่านพิมพ์ตอนถูกถาม (stdin/TTY)
 ไม่มี `--password` ไม่มี JSON ให้ escape เอง และไม่ต้อง copy token ข้ามคำสั่ง (CLI login เอง
 ให้ทุกครั้ง):
@@ -225,7 +235,8 @@ lib\main.dart is being served at http://127.0.0.1:8090
 
 | บริการ | URL | login |
 |---|---|---|
-| **Frontend (Flutter web)** | http://127.0.0.1:8090 | ตาม tenant ที่ bootstrap ไว้ (`pnpm bootstrap:admin`) |
+| **Frontend (Flutter web)** | http://127.0.0.1:8090 | owner ของร้านที่สร้างในข้อ 5.2 (รหัสชั่วคราว → ตั้งรหัสใหม่ ข้อ 5.3) |
+| **Platform admin (หน้าเว็บ)** | http://127.0.0.1:3200 | platform admin จากข้อ 5.1 (`bootstrap-admin`) |
 | **Backend health** | https://localhost/health/live , https://localhost/health/ready | ไม่ต้อง login |
 | **Bull-Board** (คิวงาน) | http://127.0.0.1:3100 | Basic Auth: `BULL_BOARD_USER` / `BULL_BOARD_PASSWORD` ใน `server/.env` |
 | **Prometheus** | http://127.0.0.1:9090 | ไม่ต้อง login |
@@ -294,7 +305,8 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 | container ไหนก็ตามค้าง `(health: starting)` นาน | Postgres/Redis ยังไม่พร้อม (เครื่องช้าตอน build ครั้งแรก) | รอเพิ่ม แล้วดู log: `docker compose logs <service>` |
 | ลืม `-f` ชุดเดิมตอนรันคำสั่งอื่น (เช่น `docker compose run migrate`) | compose มองว่าสแตกไม่ตรงไฟล์ แล้ว recreate `postgres` ทิ้ง port ของ dev overlay | ใส่ `-f` ชุดเดิมทุกครั้ง แล้ว `up -d` ซ้ำเพื่อคืน port |
 | Grafana panel "Disk usage (/)" ไม่มีข้อมูล | `node-exporter` mount `/:/rootfs:ro` แต่ Docker Desktop รันบน WSL VM ไม่ใช่ดิสก์ Windows ตรง ๆ | รู้ไว้เฉย ๆ ไม่ใช่บั๊ก จะขึ้นปกติบน `mob04` (Linux จริง) |
-| ยิงตรงไปที่ `/api/v1/platform/...` จาก host (หรือผ่าน `ssh -L`) ได้ `403 Forbidden` | docker-proxy เปิด connection ใหม่เข้า container — nginx และ guard เห็น IP เป็น gateway (`172.30.0.1`) ไม่ใช่ `127.0.0.1` · เกิดบนทุกโฮสต์ รวม `mob04` (#335 D3) | ใช้ platform CLI จาก**ภายใน container `api-1` เอง**: `docker compose exec api-1 node dist/cli/platform.js login --user <admin>` (ดูข้อ 5.2) — ไม่ต้องยิงเข้า port ที่ publish ไว้เลย |
+| ยิงตรงไปที่ `/api/v1/platform/...` จาก host (หรือผ่าน `ssh -L`) ได้ `403 Forbidden` | docker-proxy เปิด connection ใหม่เข้า container — nginx และ guard เห็น IP เป็น gateway (`172.30.0.1`) ไม่ใช่ `127.0.0.1` · เกิดบนทุกโฮสต์ รวม `mob04` (#335 D3) | ใช้หน้าเว็บ http://127.0.0.1:3200 (ข้อ 5.2 ทาง A) หรือ platform CLI จาก**ภายใน container `api-1` เอง**: `docker compose exec api-1 node dist/cli/platform.js login --user <admin>` (ข้อ 5.2 ทาง B) |
+| หน้าเว็บ `:3200` เปิดได้ แต่ login/โหลดรายชื่อร้านได้ `403` | IP ของ `platform-ui` ไม่อยู่ใน allowlist ชั้นใดชั้นหนึ่ง: `server/.env` ตั้ง `PLATFORM_ADMIN_IPS` ทับโดยไม่มี `172.30.0.20` (ผ่าน nginx แต่ตายที่ guard) หรือ network ถูกสร้างใหม่จน `platform-ui` เสีย IP ตายตัว | ลบ `PLATFORM_ADMIN_IPS` ออกจาก `.env` (ค่า default คือ `172.30.0.20`) หรือใส่ `172.30.0.20` เพิ่มในลิสต์ แล้ว `up -d` · เช็ค IP: `docker inspect srisurart-pos-platform-ui-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'` ต้องได้ `172.30.0.20` |
 
 ---
 

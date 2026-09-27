@@ -121,6 +121,13 @@ th, td {
   font-size: 14px;
 }
 
+/* Long unbroken values (tenant codes, device ids, ISO dates) make a table wider than a
+   phone-width viewport. Scroll the table inside its card instead of the whole page —
+   breaking the text anywhere instead split Thai headers one letter per line. */
+.table-scroll {
+  overflow-x: auto;
+}
+
 .pill {
   display: inline-block;
   padding: 2px 8px;
