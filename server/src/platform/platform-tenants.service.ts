@@ -16,6 +16,7 @@ import {
   passwordPolicyMessage,
   passwordPolicyViolation,
 } from '../common/password.js';
+import { returning } from '../common/sql.js';
 import { AuditService } from './audit.service.js';
 
 export class CreateTenantDto {
@@ -37,6 +38,30 @@ export const SEED_CATEGORIES = [
   'เบรก',
   'ตัวถัง',
 ] as const;
+
+/**
+ * #443 PR2: a non-UUID `:id` used to reach Postgres unvalidated and come back as a driver-level
+ * 22P02 — a 500, not a 400 — on `updateStatus`; the two new methods below would have had the
+ * same bug. Validate the shape before any query (CLAUDE.md: validate first, then use).
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertValidTenantId(tenantId: string): void {
+  if (!UUID_RE.test(tenantId)) {
+    throw new BadRequestException({
+      code: 'INVALID_TENANT_ID',
+      message: 'tenantId must be a valid UUID',
+    });
+  }
+}
+
+/**
+ * Owner decision 2026-09-27 (#443 PR2, Q3): a reissued code lives 7 days, the same as the
+ * first device's code from `createTenant` below — not 15 minutes like `POST /devices`,
+ * because a platform admin reissuing one is handing it to a shop over the phone or in
+ * person, not a browser that will redeem it within the next few minutes.
+ */
+const REISSUE_ENROL_CODE_TTL_DAYS = 7;
 
 @Injectable()
 export class PlatformTenantsService {
@@ -161,6 +186,7 @@ export class PlatformTenantsService {
     adminId: string,
     ip?: string,
   ) {
+    assertValidTenantId(tenantId);
     if (!['active', 'suspended', 'closed'].includes(status)) {
       throw new BadRequestException('Status must be active, suspended, or closed');
     }
@@ -188,6 +214,165 @@ export class PlatformTenantsService {
     await this.redisCache.del(`t:${tenantId}:status`);
 
     return { tenantId, status };
+  }
+
+  /**
+   * `POST /platform/tenants/:id/devices/:deviceId/enrol-code` (#443 PR2) — the answer to
+   * "the shop's first device's enrolCode expired and it never enrolled": a platform admin
+   * can issue a fresh one, but only for a device row that has **never** been enrolled
+   * (`token_hash IS NULL`) and is not retired. Once a device is enrolled, adding a second
+   * POS-role device or re-provisioning is `POST /devices` from an already-bound session
+   * (ADR-0004) — this endpoint never touches a device that already has an owner-visible
+   * token, so it can never be used to silently swap out a shop's working device.
+   *
+   * Single `UPDATE … WHERE token_hash IS NULL AND retired_at IS NULL`, atomic against a
+   * concurrent `POST /auth/device` (`auth_enrol_device` takes `FOR UPDATE` on the same row)
+   * and against a concurrent retire: whichever commits first decides the row, and the loser
+   * sees the post-image (rows.length === 0, then the SELECT below explains why).
+   *
+   * The code itself is generated and hashed exactly as `createTenant` (above) and
+   * `DevicesService.createIn` do — 8 upper-case hex characters, SHA-256 hex at rest — and,
+   * like both of those, it is returned to the caller exactly once and never logged or put
+   * in `audit_log`.
+   */
+  async reissueEnrolCode(
+    tenantId: string,
+    deviceId: string,
+    adminId: string,
+    ip?: string,
+  ): Promise<{ deviceId: string; enrolCode: string; enrolExpiresAt: string }> {
+    assertValidTenantId(tenantId);
+
+    const enrolCode = randomBytes(4).toString('hex').toUpperCase();
+    const enrolCodeHash = createHash('sha256').update(enrolCode).digest('hex');
+
+    const enrolExpiresAt = await this.adminDs.transaction(async (manager) => {
+      // `returning()`: TypeORM's Postgres driver hands `manager.query` back as
+      // `[rows, affectedCount]` for an UPDATE, not `rows` directly (common/sql.ts) — reading
+      // `rows[0]` straight off the raw result silently yields `undefined` here.
+      const rows = returning<{ enrol_expires_at: Date }>(
+        await manager.query(
+          `UPDATE devices
+              SET enrol_expires_at = now() + make_interval(days => $4), enrol_code_hash = $3
+            WHERE tenant_id = $1 AND id = $2
+              AND token_hash IS NULL AND retired_at IS NULL
+          RETURNING enrol_expires_at`,
+          [tenantId, deviceId, enrolCodeHash, REISSUE_ENROL_CODE_TTL_DAYS],
+        ),
+      );
+
+      if (rows.length === 0) {
+        // Distinguish "no such device" from "this device already has an owner" — the SELECT
+        // costs nothing extra (the UPDATE above already proved there is no row to lock) and
+        // ops needs to know which one it is. Neither message is shown to a shop.
+        const existing = await manager.query(
+          `SELECT 1 FROM devices WHERE tenant_id = $1 AND id = $2`,
+          [tenantId, deviceId],
+        );
+        if (existing.length === 0) {
+          throw new NotFoundException({
+            code: 'DEVICE_NOT_FOUND',
+            message: 'Device not found',
+          });
+        }
+        throw new ConflictException({
+          code: 'DEVICE_ALREADY_ENROLLED',
+          message:
+            'This device has already been enrolled, or is retired; a new enrolment code cannot be issued for it.',
+        });
+      }
+
+      // Never the code itself: `audit_log` is read by people who must not be able to enrol
+      // (same rule as `DevicesService.createIn`).
+      await this.auditService.log(manager, {
+        tenantId,
+        platformAdminId: adminId,
+        action: 'platform.device.enrol_code_reissued',
+        entity: 'devices',
+        entityId: deviceId,
+        after: { enrolExpiresAt: rows[0].enrol_expires_at },
+        ip,
+      });
+
+      return rows[0].enrol_expires_at as Date;
+    });
+
+    return {
+      deviceId,
+      enrolCode,
+      enrolExpiresAt: new Date(enrolExpiresAt).toISOString(),
+    };
+  }
+
+  /**
+   * `GET /platform/tenants/:id` (#443 PR2) — the tenant row, its devices (never a secret or
+   * a hash), and its 20 most recent import jobs. This is the read the platform CLI/UI needs
+   * to show a shop's device ids before calling `reissueEnrolCode` above, and to see whether
+   * an import ever failed — neither is answerable from `GET /platform/tenants` today.
+   */
+  async getTenantDetail(tenantId: string, adminId: string, ip?: string) {
+    assertValidTenantId(tenantId);
+
+    const tenantRows = await this.adminDs.query(
+      `SELECT id, code, shop_name, shop_name_en, plan, status, timezone, created_at
+         FROM tenants WHERE id = $1`,
+      [tenantId],
+    );
+    if (tenantRows.length === 0) {
+      throw new NotFoundException(`Tenant ${tenantId} not found`);
+    }
+
+    const deviceRows = await this.adminDs.query(
+      `SELECT id, label, role,
+              token_hash IS NOT NULL AS enrolled,
+              CASE WHEN enrol_expires_at > now() THEN enrol_expires_at END AS enrol_expires_at,
+              retired_at
+         FROM devices
+        WHERE tenant_id = $1
+        ORDER BY device_no`,
+      [tenantId],
+    );
+
+    const importJobRows = await this.adminDs.query(
+      `SELECT id, status, error, created_at, started_at, finished_at
+         FROM import_jobs
+        WHERE tenant_id = $1
+        ORDER BY created_at DESC
+        LIMIT 20`,
+      [tenantId],
+    );
+
+    try {
+      await this.auditService.log(this.adminDs, {
+        tenantId,
+        platformAdminId: adminId,
+        action: 'platform.tenant.read',
+        ip,
+      });
+    } catch (err) {
+      // Same rule as listTenants below: a read must not fail the request over an audit hiccup.
+      this.logger.warn(`Failed to write audit log for getTenantDetail: ${err}`);
+    }
+
+    return {
+      tenant: tenantRows[0],
+      devices: (deviceRows as Array<{
+        id: string;
+        label: string;
+        role: string;
+        enrolled: boolean;
+        enrol_expires_at: Date | null;
+        retired_at: Date | null;
+      }>).map((d) => ({
+        id: d.id,
+        label: d.label,
+        role: d.role,
+        enrolled: d.enrolled,
+        enrolExpiresAt: d.enrol_expires_at ? new Date(d.enrol_expires_at).toISOString() : null,
+        retiredAt: d.retired_at ? new Date(d.retired_at).toISOString() : null,
+      })),
+      importJobs: importJobRows,
+    };
   }
 
   async listTenants(adminId: string, ip?: string) {

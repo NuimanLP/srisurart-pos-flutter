@@ -8,6 +8,8 @@ describe('PlatformTenantsController client ip', () => {
     createTenant: vi.fn().mockResolvedValue({}),
     updateStatus: vi.fn().mockResolvedValue({}),
     listTenants: vi.fn().mockResolvedValue([]),
+    reissueEnrolCode: vi.fn().mockResolvedValue({}),
+    getTenantDetail: vi.fn().mockResolvedValue({}),
   };
   const controller = new PlatformTenantsController(service as any);
   const req = {
@@ -29,5 +31,15 @@ describe('PlatformTenantsController client ip', () => {
   it('updateStatus', async () => {
     await controller.updateStatus('t1', { status: 'suspended' }, req);
     expect(service.updateStatus).toHaveBeenCalledWith('t1', 'suspended', 'admin-1', '10.0.0.5');
+  });
+
+  it('reissueEnrolCode', async () => {
+    await controller.reissueEnrolCode('t1', 'dv1', req);
+    expect(service.reissueEnrolCode).toHaveBeenCalledWith('t1', 'dv1', 'admin-1', '10.0.0.5');
+  });
+
+  it('getTenantDetail', async () => {
+    await controller.getTenantDetail('t1', req);
+    expect(service.getTenantDetail).toHaveBeenCalledWith('t1', 'admin-1', '10.0.0.5');
   });
 });
