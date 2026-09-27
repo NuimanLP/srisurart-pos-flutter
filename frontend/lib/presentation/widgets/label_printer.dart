@@ -8,12 +8,14 @@
 
 import 'package:barcode_widget/barcode_widget.dart' as bw;
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/settings_repository.dart';
 
 // Fixed brand hexes used on the white printed label (parity with the JSX).
 const _navyLabel = Color(0xFF0B2444);
@@ -59,12 +61,28 @@ class LabelPrinter extends StatefulWidget {
 class _LabelPrinterState extends State<LabelPrinter> {
   int _copies = 1;
   late Set<String> _selected;
+  // #480: shelf labels hard-coded "รวม VAT 7%" regardless of the shop's
+  // configured VAT (%); this is the same taxRate the settings screen and the
+  // price-calculator tab (products_screen.dart) already read.
+  double _taxRate = 7;
 
   @override
   void initState() {
     super.initState();
     _selected = {...widget.selectedIds};
+    _loadTax();
   }
+
+  Future<void> _loadTax() async {
+    final s = await context.read<SettingsRepository>().getSettings();
+    if (!mounted) return;
+    setState(() => _taxRate = s.taxRate);
+  }
+
+  String get _taxLabel =>
+      _taxRate == _taxRate.roundToDouble()
+          ? _taxRate.toInt().toString()
+          : _taxRate.toString();
 
   List<ProductRow> get _printProducts =>
       widget.products.where((p) => _selected.contains(p.id)).toList();
@@ -220,7 +238,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
                       ),
                     ),
                     pw.Text(
-                      'รวม VAT 7%',
+                      'รวม VAT $_taxLabel%',
                       style: pw.TextStyle(
                         color: const PdfColor.fromInt(0x59FFFFFF),
                         fontSize: 7,
@@ -532,6 +550,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
                               child: _ShelfLabel(
                                 product: p,
                                 zoneColor: _catColor(p.category),
+                                taxLabel: _taxLabel,
                               ),
                             ),
                           ],
@@ -571,7 +590,12 @@ class _LabelPrinterState extends State<LabelPrinter> {
 class _ShelfLabel extends StatelessWidget {
   final ProductRow product;
   final Color zoneColor;
-  const _ShelfLabel({required this.product, required this.zoneColor});
+  final String taxLabel;
+  const _ShelfLabel({
+    required this.product,
+    required this.zoneColor,
+    required this.taxLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -681,16 +705,19 @@ class _ShelfLabel extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Column(
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'ราคา · Price',
                       style: TextStyle(color: Color(0x80FFFFFF), fontSize: 8),
                     ),
                     Text(
-                      'รวม VAT 7%',
-                      style: TextStyle(color: Color(0x66FFFFFF), fontSize: 8),
+                      'รวม VAT $taxLabel%',
+                      style: const TextStyle(
+                        color: Color(0x66FFFFFF),
+                        fontSize: 8,
+                      ),
                     ),
                   ],
                 ),

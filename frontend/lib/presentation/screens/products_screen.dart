@@ -1780,6 +1780,12 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
 
   double get _vat => 1 + _taxRate / 100;
 
+  // #480: "ราคาขาย (รวม VAT 7%)" in _resultCard was hard-coded; other labels
+  // in this tab already compute this from _taxRate (see `taxN` in build()).
+  String get _taxLabel => _taxRate == _taxRate.roundToDouble()
+      ? _taxRate.toInt().toString()
+      : _taxRate.toString();
+
   _PriceCalcResult? _calc(String sell) {
     final c = double.tryParse(_cost.text) ?? 0;
     final f = double.tryParse(_freight.text) ?? 0;
@@ -1809,9 +1815,7 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
     final theme = Theme.of(context);
     final retail = _calc(_retail.text);
     final garage = _calc(_garage.text);
-    final taxN = _taxRate == _taxRate.roundToDouble()
-        ? _taxRate.toInt().toString()
-        : _taxRate.toString();
+    final taxN = _taxLabel;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(28),
@@ -2005,7 +2009,7 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
           ),
           const SizedBox(height: 4),
           Text(
-            'ราคาขาย (รวม VAT 7%)',
+            'ราคาขาย (รวม VAT $_taxLabel%)',
             style: TextStyle(fontSize: 13, color: theme.colorScheme.secondary),
           ),
           const SizedBox(height: 12),
