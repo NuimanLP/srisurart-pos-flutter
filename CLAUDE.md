@@ -663,8 +663,10 @@ Deployment/hosting is owned by `docs/Backend_design/07_CICD_DEPLOY.md` (ADR-0013
   kick / barcode scanning — scan actions currently use manual entry.
 - **Security** — compose hardening done (Redis `--requirepass`, no datastore ports
   published beyond dev/CI loopback); ADR-0009 addendum covers token signing/storage.
-- Re-capture tutorial screenshots from the Flutter app (current images are from the JS
-  app). Full tax invoice (ใบกำกับภาษีเต็มรูป) stays out of scope for v1.
+- Fill the screenshot placeholders left in `docs/tutorial/sri-pos-manual/` (the Thai SOP
+  manual that replaced `docs/tutorial/flutter/` on 2026-09-27): each dashed box reads
+  `(ภาพหน้าจอ: <name> — รอเพิ่ม)` — add `img/<name>.png` and swap the box for an `<img>`.
+  Full tax invoice (ใบกำกับภาษีเต็มรูป) stays out of scope for v1.
 
 ---
 

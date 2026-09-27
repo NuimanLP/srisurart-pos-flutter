@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือผู้ดูแลแพลตฟอร์ม</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="partnav">
+  <a href="index.html">หน้าแรก</a>
+  <a href="01-counter-staff.html">01 พนักงานหน้าร้าน</a>
+  <a href="02-owner-backoffice.html">02 เจ้าของร้าน</a>
+  <a class="cur" href="03-platform-admin.html">03 ผู้ดูแลแพลตฟอร์ม</a>
+  <a href="04-it-operations.html">04 IT / ผู้ดูแลระบบ</a>
+  <a href="05-dashboards.html">05 แดชบอร์ด</a>
+</nav>
+
+<!-- ════════════════ 1 · PART HEADER ════════════════ -->
+<section class="page" id="top">
+  <div class="runhead"><span>Srisurart POS · ภาค 03</span><span class="r">ผู้ดูแลแพลตฟอร์ม</span></div>
+  <div class="sec-no">Part 03</div>
+  <h1 class="sec">ผู้ดูแลแพลตฟอร์ม <span class="en">Platform admin</span></h1>
+  <p class="sec-lede">ทีมงานที่ดูแล "ทุกร้าน" บนระบบเดียว — สร้างผู้ดูแลคนแรก เปิดร้านใหม่ ส่งรหัสให้เจ้าของร้าน ระงับ/เปิดร้าน ออกรหัสผูกเครื่องใหม่ และออกรหัสผ่านชั่วคราวเมื่อเจ้าของร้านลืม</p>
+
+  <div class="rolebox"><span class="nt">บทบาทและสิทธิ์ · Role &amp; permission</span>
+    <dl>
+      <dt>ใครใช้</dt><dd>ทีมงาน (ไม่ใช่คนของร้าน) — บัญชีอยู่ในตาราง <code>platform_admins</code> แยกจากบัญชีร้านโดยสิ้นเชิง (ADR-0002)</dd>
+      <dt>ต้องมี</dt><dd>สิทธิ์เข้าเครื่องเซิร์ฟเวอร์ (หรือ SSH tunnel) — หน้า <strong>platform-ui</strong> เปิดได้เฉพาะ <code>127.0.0.1:3200</code></dd>
+      <dt>ทำได้</dt><dd>สร้างร้าน · ดูรายชื่อ/รายละเอียดร้าน · เปลี่ยนสถานะ <code>active</code>/<code>suspended</code>/<code>closed</code> · ออกรหัสผูกเครื่องใหม่ (เครื่องที่ยังไม่เคยผูก) · ออกรหัสผ่านชั่วคราวให้เจ้าของร้าน · ดูงานนำเข้าข้อมูล</dd>
+      <dt>ทำไม่ได้</dt><dd><strong>สร้างผู้ดูแลแพลตฟอร์มผ่านเว็บหรือ API</strong> (ต้องใช้คำสั่งบนเซิร์ฟเวอร์เท่านั้น — ADR-0001) · ตั้งรหัสผ่านเจ้าของร้านเอง (เซิร์ฟเวอร์สุ่มให้) · เห็นข้อมูลขายของร้าน</dd>
+    </dl>
+  </div>
+
+  <h2 class="sub">ในภาคนี้ <span class="en">Contents</span></h2>
+  <div class="toc">
+    <a class="toc-row" href="#bootstrap"><span class="n">1</span><span class="t">สร้างผู้ดูแลคนแรก (bootstrap-admin) <span class="en">Bootstrap</span></span><span class="pg">2</span></a>
+    <a class="toc-row" href="#create"><span class="n">2</span><span class="t">platform-ui: เข้าสู่ระบบ · สร้างร้าน · ส่งมอบรหัส <span class="en">Create tenant</span></span><span class="pg">3</span></a>
+    <a class="toc-row" href="#detail"><span class="n">3</span><span class="t">รายละเอียดร้าน: สถานะ · เครื่อง · รหัสผ่านเจ้าของ <span class="en">Tenant detail</span></span><span class="pg">4</span></a>
+    <a class="toc-row" href="#cli"><span class="n">4</span><span class="t">Platform CLI <span class="en">Command line</span></span><span class="pg">5</span></a>
+    <a class="toc-row" href="#403"><span class="n">5</span><span class="t">แก้ปัญหา 403 · allowlist · ข้อจำกัด <span class="en">Troubleshooting</span></span><span class="pg">6</span></a>
+  </div>
+  <div class="note key"><span class="nt">หลักความปลอดภัย</span>รหัสผ่านชั่วคราวและรหัสผูกเครื่องแสดง <strong>ครั้งเดียว</strong> (ฐานข้อมูลเก็บแค่ค่าแฮช) · ห้ามส่งทางช่องทางสาธารณะ · ก่อนออกรหัสผ่านใหม่ให้เจ้าของร้าน ต้อง <strong>โทรกลับ</strong> ไปเบอร์ที่บันทึกไว้เสมอ</div>
+  <div class="runfoot"><span>ภาค 03 · ผู้ดูแลแพลตฟอร์ม</span><span class="pagenum">1</span></div>
+</section>
+
+<!-- ════════════════ 2 · BOOTSTRAP ════════════════ -->
+<section class="page" id="bootstrap">
+  <div class="runhead"><span>Srisurart POS · ภาค 03</span><span class="r">1 · bootstrap-admin</span></div>
+  <div class="sec-no">Section 1</div>
+  <h1 class="sec">สร้างผู้ดูแลคนแรก <span class="en">bootstrap-admin</span></h1>
+  <p class="sec-lede">ทำครั้งเดียวต่อฐานข้อมูล บนเครื่องที่รันสแตกอยู่ (ดูวิธีรันในภาค 04) — ไม่มีปุ่มหรือ API ให้ทำเรื่องนี้</p>
+  <ol class="steps">
+    <li><span class="st-title">เข้าโฟลเดอร์ <code>server/</code> ของเครื่องที่รันสแตก</span></li>
+    <li><span class="st-title">รันคำสั่งในคอนเทนเนอร์ <code>api-1</code></span>รหัสผ่านอย่างน้อย 12 ตัวอักษร
+<pre class="cmd">docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/compose/monitoring.yml exec -T \
+  -e BOOTSTRAP_ADMIN_USERNAME=&lt;admin&gt; \
+  -e BOOTSTRAP_ADMIN_PASSWORD=&lt;รหัสผ่านอย่างน้อย12ตัวอักษร&gt; \
+  -e BOOTSTRAP_ADMIN_DISPLAY_NAME="&lt;ชื่อที่แสดง&gt;" \
+  api-1 sh -c 'DATABASE_URL="postgres://postgres:$POSTGRES_PASSWORD@postgres:5432/pos" node dist/db/bootstrap-admin.js'</pre>
+    <span class="see">ข้อความ <code>created</code></span></li>
+    <li><span class="st-title">ถ้าขึ้น <code>already exists — password left alone</code></span>บัญชีนี้มีอยู่แล้ว และ <strong>รหัสใหม่ไม่ได้ถูกบันทึก</strong> — รันคำสั่งเดิมโดยเติม <code>--force</code> ท้าย <code>bootstrap-admin.js</code> แล้วต้องเห็น <code>password reset</code> (ข้อความเต็มตอนแรกคือ <code>already exists — password left alone (pass --force to reset it)</code>)</li>
+    <li><span class="st-title">ทดสอบเข้าสู่ระบบที่ platform-ui (หัวข้อ 2) หรือ CLI <code>login</code> (หัวข้อ 4)</span></li>
+  </ol>
+  <div class="note warn"><span class="nt">อย่าใส่รหัสผ่านใน history</span>คำสั่งนี้ส่งรหัสทางตัวแปรแวดล้อม — บนเครื่องที่ใช้ร่วมกัน ให้ล้าง shell history หลังใช้ หรือใช้ <code>--force</code> เปลี่ยนรหัสทันทีหลังทดสอบ</div>
+  <div class="note key"><span class="nt">dev กับ VM จริง</span>ตัวอย่างข้างบนคือชุด <code>-f</code> ของเครื่อง dev (<a href="../local-full-stack-tutorial.md">local-full-stack-tutorial.md</a> ข้อ 5.1) — บน <code>mob04</code> อิมเมจจริงไม่มี <code>pnpm</code> จึงต้องเรียก <code>node dist/…</code> แบบเดียวกันนี้ และ <strong>ยังไม่เคยทำบน <code>mob04</code></strong> เพราะยังไม่เคย deploy สำเร็จ</div>
+  <div class="runfoot"><span>ภาค 03 · ผู้ดูแลแพลตฟอร์ม</span><span class="pagenum">2</span></div>
+</section>
+
+<!-- ════════════════ 3 · CREATE TENANT ════════════════ -->
+<section class="page" id="create">
+  <div class="runhead"><span>Srisurart POS · ภาค 03</span><span class="r">2 · สร้างร้าน</span></div>
+  <div class="sec-no">Section 2</div>
+  <h1 class="sec">platform-ui: สร้างร้าน · ส่งมอบรหัส <span class="en">Create tenant</span></h1>
+  <p class="sec-lede">หน้าเว็บ <strong>Srisurart POS — แผงควบคุมแพลตฟอร์ม (Platform Admin)</strong> ที่ <code>http://127.0.0.1:3200</code> — บน VM ให้เปิด tunnel ก่อน: <code>ssh -L 3200:127.0.0.1:3200 deploy@&lt;vm&gt;</code> แล้วเปิด URL เดียวกัน</p>
+  <figure><img src="img/platform-ui-login.png" alt="เข้าสู่ระบบผู้ดูแลแพลตฟอร์ม" loading="lazy"><figcaption>เข้าสู่ระบบผู้ดูแลแพลตฟอร์ม</figcaption></figure>
+  <ol class="steps">
+    <li><span class="st-title">กรอก <span class="ui ghost">ชื่อผู้ใช้ (Username)</span> / <span class="ui ghost">รหัสผ่าน (Password)</span> → <span class="ui">เข้าสู่ระบบ</span></span><span class="see">การ์ด <span class="msg">สร้างร้านใหม่ (Create tenant)</span> และ <span class="msg">รายชื่อร้านทั้งหมด (Tenants)</span> — session อยู่ 1 ชั่วโมง ปิดแท็บ = ต้องเข้าใหม่</span></li>
+    <li><span class="st-title">กรอกฟอร์มสร้างร้าน</span><span class="ui ghost">รหัสร้าน (code)</span> · <span class="ui ghost">ชื่อร้าน (shopName)</span> · <span class="ui ghost">ชื่อร้าน (อังกฤษ, ถ้ามี)</span> · <span class="ui ghost">ชื่อผู้ใช้เจ้าของร้าน (ownerUsername)</span> · <span class="ui ghost">ชื่อที่แสดงของเจ้าของร้าน (ownerDisplayName)</span> — <span class="msg">ระบบจะสร้างรหัสผ่านชั่วคราวให้เจ้าของร้านเอง — ไม่มีช่องให้ตั้งรหัสผ่านที่นี่</span></li>
+    <li><span class="st-title">กด <span class="ui">สร้างร้าน</span></span><span class="see">หน้าต่าง <span class="msg">สร้างร้าน "{shopName}" สำเร็จ</span> พร้อมคำเตือน <span class="msg">ข้อมูลนี้จะแสดงครั้งเดียวเท่านั้น — คัดลอกและส่งให้ร้านทันที</span></span></li>
+    <li><span class="st-title">กด <span class="ui ghost">คัดลอก (Copy)</span> ทั้ง 2 รายการ</span><span class="msg">รหัสผ่านชั่วคราวของเจ้าของร้าน ({ownerUsername})</span> — อายุ 7 วัน เจ้าของร้านต้องเปลี่ยนตอนเข้าครั้งแรก · <span class="msg">รหัสลงทะเบียนอุปกรณ์ (enrolCode)</span> — ใช้ได้ 7 วัน สำหรับเครื่องขายเครื่องแรก (<code>pos1</code>)</li>
+    <li><span class="st-title">กด <span class="ui">ปิด (Close)</span> แล้วส่งมอบให้เจ้าของร้านแบบตัวต่อตัว</span>ส่งชื่อผู้ใช้ + รหัสผ่านชั่วคราว + รหัสผูกเครื่อง แล้วชี้ไปที่ภาค 02 หัวข้อ 1</li>
+  </ol>
+  <figure><img src="img/platform-ui-create-tenant.png" alt="ฟอร์มสร้างร้านใหม่ (กรอกแล้ว) — ไม่มีช่องรหัสผ่านเจ้าของร้าน" loading="lazy"><figcaption>ฟอร์มสร้างร้านใหม่ (กรอกแล้ว) — ไม่มีช่องรหัสผ่านเจ้าของร้าน</figcaption></figure>
+  <p class="muted">การสร้างร้านทำในธุรกรรมเดียว: ร้าน + บัญชีเจ้าของ + ค่าตั้งเริ่มต้น + หมวดสินค้า 5 หมวด + เครื่อง <code>pos1</code> · รหัสร้านหรือชื่อผู้ใช้ซ้ำจะได้ <code>409 … already exists</code> — ใช้ค่าใหม่</p>
+  <div class="runfoot"><span>ภาค 03 · ผู้ดูแลแพลตฟอร์ม</span><span class="pagenum">3</span></div>
+</section>
+
+<!-- ════════════════ 4 · TENANT DETAIL ════════════════ -->
+<section class="page" id="detail">
+  <div class="runhead"><span>Srisurart POS · ภาค 03</span><span class="r">3 · รายละเอียดร้าน</span></div>
+  <div class="sec-no">Section 3</div>
+  <h1 class="sec">รายละเอียดร้าน <span class="en">Tenant detail</span></h1>
+  <figure><img src="img/platform-ui-tenants.png" alt="รายชื่อร้านทั้งหมด — รหัส / ชื่อร้าน / แผน / สถานะ" loading="lazy"><figcaption>รายชื่อร้านทั้งหมด — รหัส / ชื่อร้าน / แผน / สถานะ</figcaption></figure>
+  <p>ในตารางรายชื่อร้าน กด <span class="ui ghost">โหลดใหม่ (Refresh)</span> เพื่ออัปเดต แล้วกด <span class="ui ghost">ดูรายละเอียด (detail)</span> ที่แถวร้าน — หัวร้านแสดง <span class="msg">แผน: … · เขตเวลา: … · สถานะปัจจุบัน: … · สร้างเมื่อ: …</span></p>
+  <figure><img src="img/platform-ui-tenant-detail.png" alt="รายละเอียดร้าน — สถานะ / รหัสผ่านเจ้าของร้าน / อุปกรณ์ / งานนำเข้าข้อมูล" loading="lazy"><figcaption>รายละเอียดร้าน — สถานะ / รหัสผ่านเจ้าของร้าน / อุปกรณ์ / งานนำเข้าข้อมูล</figcaption></figure>
+
+  <h2 class="sub">เปลี่ยนสถานะร้าน <span class="en">Status</span></h2>
+  <ul class="ticks">
+    <li><span class="ui ghost">เปิดใช้งาน (activate)</span> → <span class="msg">ยืนยันเปิดใช้งานร้านนี้หรือไม่?</span></li>
+    <li><span class="ui ghost">ระงับชั่วคราว (suspend)</span> → <span class="msg">ยืนยันระงับการใช้งานร้านนี้ชั่วคราวหรือไม่?</span> — ร้านจะเห็น <span class="msg">ร้านนี้ถูกระงับการใช้งาน</span></li>
+    <li><span class="ui">ปิดร้านถาวร (close)</span> → <span class="msg">ยืนยันปิดร้านนี้ถาวรหรือไม่? การกระทำนี้ควรทำเมื่อแน่ใจแล้วเท่านั้น</span></li>
+  </ul>
+
+  <h2 class="sub">อุปกรณ์ · ออกรหัสผูกเครื่องใหม่ <span class="en">Devices</span></h2>
+  <p>ตาราง <span class="msg">อุปกรณ์ (Devices)</span> แสดงสถานะ <span class="msg">ผูกเครื่องแล้ว (enrolled)</span> / <span class="msg">ยังไม่ผูกเครื่อง (not enrolled)</span> / <span class="msg">ยังไม่ผูกเครื่อง — รหัสหมดอายุ (code expired)</span> / <span class="msg">ยกเลิกแล้ว (retired)</span></p>
+  <ol class="steps">
+    <li><span class="st-title">ใช้เมื่อร้านทำรหัสผูกเครื่องแรกหาย ก่อนเคยผูกเครื่องใดเลย</span>ปุ่มมีเฉพาะเครื่องที่ <strong>ยังไม่เคยผูก</strong></li>
+    <li><span class="st-title">กด <span class="ui ghost">ออกรหัสใหม่ (reissue code)</span></span><span class="see"><span class="msg">รหัสลงทะเบียนใหม่สำหรับอุปกรณ์ {deviceId}</span> — แสดงครั้งเดียว มีอายุ 7 วัน</span></li>
+  </ol>
+  <p class="muted">เครื่องที่ผูกแล้วและต้องเปลี่ยน — เจ้าของร้านปลดเครื่องและออกรหัสใหม่เองจากแอป (ภาค 02 หัวข้อ 2)</p>
+
+  <h2 class="sub">รหัสผ่านเจ้าของร้าน (ลืมรหัส) <span class="en">Owner temp password</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">โทรกลับไปที่เบอร์/อีเมลที่ร้านให้ไว้ตอนเปิดร้าน</span><strong>ห้ามเชื่อเบอร์ที่ผู้โทรเข้ามาแจ้งเอง</strong></li>
+    <li><span class="st-title">กด <span class="ui">ออกรหัสผ่านชั่วคราวใหม่ (reset)</span> → ยืนยันว่าโทรกลับแล้ว</span>รหัสเดิมของเจ้าของร้านใช้ไม่ได้ทันที</li>
+    <li><span class="st-title">คัดลอกรหัสจากหน้าต่าง</span><span class="see"><span class="msg">หมดอายุใน 24 ชม.: … — เจ้าของร้านต้องเปลี่ยนรหัสตอนล็อกอินครั้งถัดไป</span></span></li>
+  </ol>
+  <figure><img src="img/platform-ui-owner-temp-password.png" alt="หน้าต่างรหัสผ่านชั่วคราวใหม่ (ในภาพปิดรหัสไว้) — แสดงครั้งเดียว อายุ 24 ชม." loading="lazy"><figcaption>หน้าต่างรหัสผ่านชั่วคราวใหม่ (ในภาพปิดรหัสไว้) — แสดงครั้งเดียว อายุ 24 ชม.</figcaption></figure>
+  <p>การ์ด <span class="msg">งานนำเข้าข้อมูลล่าสุด (Recent import jobs)</span> แสดงงานนำเข้า 20 รายการล่าสุด พร้อมสถานะและข้อผิดพลาด (ดูรายละเอียดงานเสียใน Bull-Board ภาค 05)</p>
+  <div class="runfoot"><span>ภาค 03 · ผู้ดูแลแพลตฟอร์ม</span><span class="pagenum">4</span></div>
+</section>
+
+<!-- ════════════════ 5 · CLI ════════════════ -->
+<section class="page" id="cli">
+  <div class="runhead"><span>Srisurart POS · ภาค 03</span><span class="r">4 · CLI</span></div>
+  <div class="sec-no">Section 4</div>
+  <h1 class="sec">Platform CLI <span class="en">server/src/cli/platform.ts</span></h1>
+  <p class="sec-lede">ทำได้ทุกอย่างเหมือน platform-ui รันจาก <strong>ภายในคอนเทนเนอร์ <code>api-1</code></strong> ยิงตรงเข้า API พอร์ต 3000 (ไม่ผ่าน Nginx จึงไม่ติด allowlist) — รหัสผ่านพิมพ์ตอนถูกถามเท่านั้น ไม่มี flag <code>--password</code> และไม่เก็บ token</p>
+<pre class="cmd">docker compose exec api-1 node dist/cli/platform.js &lt;คำสั่ง&gt; --user &lt;admin&gt; …
+# Platform admin password: &lt;พิมพ์&gt;</pre>
+  <div class="tbl-scroll">
+  <table class="grid">
+    <tr><th>คำสั่ง</th><th>ใช้ทำอะไร</th></tr>
+    <tr><td><code>login --user &lt;admin&gt;</code></td><td>ทดสอบเข้าสู่ระบบ (ไม่จำเป็นก่อนคำสั่งอื่น)</td></tr>
+    <tr><td><code>tenants:create --user &lt;admin&gt; --code &lt;c&gt; --shop-name &lt;n&gt; [--shop-name-en] [--plan basic|demo|loadtest] [--timezone] --owner-username &lt;u&gt; [--owner-display-name]</code></td><td>สร้างร้าน — ได้ <code>tenantId</code>, <code>tempPassword</code>, <code>enrolCode</code> (แสดงครั้งเดียว อายุ 7 วัน) · ค่าเริ่มต้น <code>--plan basic</code>, <code>--timezone Asia/Bangkok</code></td></tr>
+    <tr><td><code>tenants:list --user &lt;admin&gt;</code></td><td>รายชื่อร้าน (JSON)</td></tr>
+    <tr><td><code>tenants:show &lt;tenantId&gt; --user &lt;admin&gt;</code></td><td>ร้าน + รายการเครื่อง + งานนำเข้า 20 รายการล่าสุด</td></tr>
+    <tr><td><code>tenants:status &lt;tenantId&gt; &lt;active|suspended|closed&gt; --user &lt;admin&gt;</code></td><td>เปลี่ยนสถานะร้าน</td></tr>
+    <tr><td><code>devices:reissue-code &lt;tenantId&gt; &lt;deviceId&gt; --user &lt;admin&gt;</code></td><td>ออกรหัสผูกเครื่องใหม่ (เครื่องที่ยังไม่เคยผูก) อายุ 7 วัน</td></tr>
+    <tr><td><code>owner:temp-password &lt;tenantId&gt; --user &lt;admin&gt;</code></td><td>ออกรหัสผ่านชั่วคราวใหม่ อายุ 24 ชม. — โทรกลับยืนยันตัวตนก่อน</td></tr>
+    <tr><td><code>owner:set-password &lt;username&gt;</code></td><td>เข้าด้วยรหัสชั่วคราวแล้วตั้งรหัสจริงในคำสั่งเดียว — <strong>ใช้กับร้าน demo/loadtest ของทีมเท่านั้น ห้ามใช้กับร้านจริง</strong></td></tr>
+  </table>
+  </div>
+  <div class="note warn"><span class="nt">PowerShell</span>การ pipe รหัสผ่านจาก PowerShell เข้า stdin ได้รหัสที่เพี้ยน (encoding/บรรทัดท้าย) → เข้าไม่ได้ทั้งที่รหัสถูก ให้พิมพ์แบบ interactive (ไม่ใส่ <code>-T</code>) หรือใช้ Git Bash:
+<pre class="cmd">printf '%s\n' '&lt;รหัส admin&gt;' | docker compose exec -T api-1 node dist/cli/platform.js login --user &lt;admin&gt;</pre></div>
+  <p class="muted">ส่ง <code>ownerPassword</code> ไปที่ API ตรง ๆ จะถูกปฏิเสธ <code>400 OWNER_PASSWORD_NOT_ACCEPTED</code> ก่อนสร้างอะไร (ข้อความตอบกลับเป็นภาษาอังกฤษ) · รายละเอียดเพิ่ม: <code>docs/handoff_log/ticket-338-platform-provision.md</code> §3</p>
+  <div class="runfoot"><span>ภาค 03 · ผู้ดูแลแพลตฟอร์ม</span><span class="pagenum">5</span></div>
+</section>
+
+<!-- ════════════════ 6 · 403 ════════════════ -->
+<section class="page" id="403">
+  <div class="runhead"><span>Srisurart POS · ภาค 03</span><span class="r">5 · 403</span></div>
+  <div class="sec-no">Section 5</div>
+  <h1 class="sec">แก้ปัญหา 403 · allowlist <span class="en">Troubleshooting</span></h1>
+  <p class="sec-lede"><code>/api/v1/platform/</code> ถูกกันสองชั้น: Nginx (<code>allow</code>) และ guard ของ API (<code>PLATFORM_ADMIN_IPS</code>) — platform-ui ผ่านได้เพราะคอนเทนเนอร์มี IP ตายตัว <code>172.30.0.20</code> และเรียก API ผ่าน Nginx หลักเสมอ</p>
+  <table class="grid">
+    <tr><th>อาการ</th><th>สาเหตุ</th><th>แก้</th></tr>
+    <tr><td>เรียก <code>/api/v1/platform/…</code> จากโฮสต์ หรือผ่าน <code>ssh -L</code> เข้า Nginx ตรง ๆ ได้ <code>403</code></td><td>docker-proxy เปิด connection ใหม่ IP ต้นทางกลายเป็น gateway <code>172.30.0.1</code> — เกิดทุกโฮสต์ รวม <code>mob04</code></td><td>ใช้ platform-ui <code>:3200</code> หรือ CLI จากในคอนเทนเนอร์ <code>api-1</code></td></tr>
+    <tr><td>เปิด <code>:3200</code> ได้ แต่เข้าสู่ระบบ/โหลดรายชื่อร้านได้ <code>403</code></td><td><code>PLATFORM_ADMIN_IPS</code> ถูกตั้งทับโดยไม่มี <code>172.30.0.20</code> หรือ network ถูกสร้างใหม่จนเสีย IP ตายตัว</td><td>ลบค่าที่ตั้งทับ หรือเพิ่ม <code>172.30.0.20</code> แล้ว <code>up -d</code> · ตรวจ IP ด้วย <code>docker inspect</code></td></tr>
+    <tr><td>เรียก API <code>:3000</code> ตรงพร้อม XFF นอก allowlist ได้ <code>403 PLATFORM_IP_FORBIDDEN</code></td><td>guard ของ API ทำงานตามปกติ</td><td>ไม่ต้องแก้ — ใช้ช่องทางที่ถูก</td></tr>
+    <tr><td><span class="msg">เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ (session expired)</span></td><td>token 1 ชม. ไม่มี refresh</td><td>เข้าสู่ระบบใหม่</td></tr>
+    <tr><td><span class="msg">เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ (network error)</span></td><td>สแตก/Nginx ไม่ทำงาน</td><td>ตรวจตามภาค 04 หัวข้อ health check</td></tr>
+  </table>
+  <div class="note warn"><span class="nt">3 ค่าที่ต้องเปลี่ยนพร้อมกัน</span>ถ้าจะเปลี่ยน IP ของ platform-ui ต้องแก้ครบ 3 ที่ ไม่เช่นนั้นจะได้ 403 แบบเงียบ ๆ:
+    <ul class="ticks">
+      <li><code>ipv4_address: 172.30.0.20</code> ใน <code>server/docker-compose.yml</code></li>
+      <li><code>allow 172.30.0.20;</code> ใน <code>server/docker/nginx/nginx.conf</code> (location <code>/api/v1/platform/</code>)</li>
+      <li><code>PLATFORM_ADMIN_IPS</code> (ค่าเริ่มต้นใน compose คือ <code>172.30.0.20</code>)</li>
+    </ul>
+  </div>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
+    <ul class="ticks">
+      <li>platform-ui และ CLI (#443) รวมโค้ดแล้ว แต่ <strong>ยังไม่ได้ deploy</strong> — ใช้ได้เฉพาะสแตก dev/ทดสอบ</li>
+      <li>ผลวัด 403 สองชั้นวัดบน Docker Desktop เท่านั้น ยังไม่ได้วัดบน Linux/<code>mob04</code> จริง</li>
+      <li>ตั๋ว #443 ยังเปิดอยู่ รอคำตอบจากเจ้าของโปรเจกต์บางข้อ (<code>docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md</code> §6)</li>
+      <li>ยังไม่มีร้านจริงบนแพลตฟอร์ม — ร้านจริงยังใช้ Drift build</li>
+    </ul>
+  </div>
+  <div class="runfoot"><span>ภาค 03 · ผู้ดูแลแพลตฟอร์ม</span><span class="pagenum">6</span></div>
+</section>
+
+</body>
+</html>
