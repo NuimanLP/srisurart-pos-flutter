@@ -282,25 +282,31 @@ develops against a demo tenant.
   2026-09-25**: the `/sync/push` fingerprint mismatch (`POST /sales` vs
   `POST /api/v1/sales`) by PR #413 (#409), and online routes storing the client body's
   `date` instead of server `now()` by PR #414 (#411). The same review log (`docs/handoff_log/session-2026-09-24-whole-codebase-review.md`
-  §2) also lists 4 MED spec gaps and the standards findings (e.g. unvalidated `Math.max`
+  §2) also lists 3 MED + 1 LOW spec gaps and the standards findings (e.g. unvalidated `Math.max`
   clamp in `quotes.controller.ts:113` — fixed 2026-09-25 by PR #420, now validated by
-  `parsePurgeOlderThanDays`). MED status 2026-09-27: item 3 (thin `sale.create` push
-  reply) fixed by PR #458 (#455 — owner chose the spec); item 5 (Drift `openShift`
-  same-day) fixed by PR #456 (#453); item 4 (client queueing) **partial** — #456 queues
-  `shift.open`/`drawer.entry`, **#452 stays open** for `return.create`, replay tests, and
-  the missing UI to open a second shift the same day. Item 6 (LOW) and the rest are not
-  yet triaged.
-- 🔴 **Deliberate deviation from 08 §5 (PR #456, flagged to the owner on #452, not decided):** on the API build a
-  5xx/429 does **not** queue to the outbox — the attempt stays parked (same id + key) and
-  the error shows, exactly like `ApiSalesRepository`; only a transport failure queues.
-  Aligning with §5 must be one change for sales and shifts together, never a shifts-only
-  divergence.
-- **Bugs filed 2026-09-27** (none fixed; table in
-  `docs/handoff_log/session-2026-09-27-local-stack-med-fixes-manual.md` §2): #460
-  `BootstrapService.bootstrap()` is never called, so tenant `settings` are never pulled ·
-  #461 closing report lacks a `เครดิตช่าง` row (owner call) · #462 enrol code "6 digits"
-  vs 8 hex · #463 reports KPIs blank at 390 px · #464 `quoteValidDays` ignored (owner
-  call) · #465 minor UI.
+  `parsePurgeOlderThanDays`). **All three MED items are fixed (2026-09-27):** item 3 by
+  PR #458 (#455), item 5 by PR #456 (#453), item 4 by PR #456 + PR #469 (#452 closed).
+  Still open: item 6 (LOW — online `POST /shifts/open` with an existing `id` ignores
+  `startingCash`, `shifts.service.ts:190-198`) and the standards findings (§3) beyond the
+  `Math.max` one, none re-triaged.
+- **5xx does not queue — owner decision 2026-09-27, `08 §5` amended (PR #469).** On the
+  API build a 5xx/429 leaves the attempt parked (same id + key) and shows the error, for
+  sales, shifts and returns alike; only a transport failure queues to the outbox.
+- **Bugs filed 2026-09-27 are all closed:** #460 by PR #467, #461/#464 by PR #468 (owner
+  chose: add the `เครดิตช่าง` row; take quote validity from Settings), #462/#463/#465 by
+  PR #470, #452 by PR #469. 🔴 **Three Thai strings from those PRs are still `agent ร่าง`**
+  — `เปิดกะใหม่` (#469), the 8-character enrol-code wording (#470,
+  `devices_screen.dart:869`, `device_enrolment_dialog.dart:97`), and the post-enrol banner
+  (#470, `login_form.dart:188`); all three are in `02 §8.1.1` for the owner to ratify.
+- **Follow-ups filed 2026-09-28** (verified in code, table in
+  `docs/handoff_log/session-2026-09-28-overnight-bug-sweep.md` §2): #472 offline RC
+  numbering still guesses `deviceNo ?? 1` and falls back to `docNo('RC')` (the defect #469
+  fixed for CN) · #473 discarding a `sale.create`/`return.create` does not undo local
+  stock/ledger · #474 settings are not re-pulled when the link returns · #475 new device
+  with no counter rows cannot number an offline CN (enhancement) · #476 device-management
+  dead end after the last enrolled browser is lost (owner call) · #477 reports
+  `_RecentRow` overflow at 390 px · #478 vehicle-search highlight hides the match · #479
+  A4 quote PDF detaches Thai tone marks · #480 shelf labels hard-code `รวม VAT 7%`.
 - **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
   `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
@@ -471,7 +477,26 @@ on void/return paths. Keep this order in any new write touching more than one of
   row remains — `pending`, `stuck` or `rejected`, of any type — and the close button is
   disabled while `outboxRemaining > 0`. The server cannot see the outbox, so this check is
   client-only; never narrow it back to one op type (it replaced the cash-credit-only
-  `CASH_CREDIT_PAYMENTS_UNSENT`). Its Thai string is still **agent ร่าง** in `02 §8.1.1`.
+  `CASH_CREDIT_PAYMENTS_UNSENT`). Its Thai string was ratified by the owner 2026-09-27.
+- **Expected drawer cash has one counting window** (#452, PR #469): the cash-drawer
+  screen and the closing report's drawer check both use `ShiftsRepository.cashCountFrom(shift)`
+  — the first shift of a day counts from midnight, a later shift from its own opening —
+  and both count a credit payment only when `isCashCreditPayment()`. Never compute
+  expected cash a second way; the report's revenue/payment/top-item sections stay whole-day.
+- **Returns share one pure rule set:** `planReturn()` + `refundedQtyOf()`
+  (`return_plan.dart`) are used by both `ReturnsRepository` and `ApiReturnsRepository`;
+  the offline `return.create` numbers its CN inside the local transaction, after every
+  guard, and refuses `OFFLINE_SEED_REQUIRED` rather than guess a `device_no` (#469).
+- **Settings writes are online-only on the API build** (#460, PR #467):
+  `ApiSettingsRepository.updateSettings` is `PATCH /settings` with an `Idempotency-Key`,
+  refuses when Degraded, and writes Drift **only** from the server's accepted reply —
+  never a local-first write, never on a failure; `pullFromServer` (`GET
+  /settings`) runs on app open/login only (#474 tracks re-pulling on reconnect).
+  🔴 **Do not wire `BootstrapService.bootstrap()` as it stands** — its product upsert
+  skips the pending-outbox stock guard (08 §15), nulls `zone`, and its settings mapping
+  reads `shopNameEN` where the server sends `shopNameEn` and ignores `quoteValidDays`
+  (the `bootstrap_service.dart` header names the stock guard; all three are in PR #467's
+  body).
 
 **CI/CD (`.github/workflows/`, `deploy/`):**
 - Both `flutter.yml` and `server.yml` trigger unfiltered on every push/PR; a `changes`

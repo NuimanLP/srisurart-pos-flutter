@@ -1281,9 +1281,11 @@ the per-tenant shop-settings row (`01_DATABASE.md §5.7`), ported from `settings
   `02_API_SCREENS.md` says it may be blank), `taxRate` in `[0, 100]` at two decimals, and
   `quoteValidDays` a positive integer up to 3650. This is deliberate (validate before storing,
   not clamp — the same lesson as #22's `RETURN_PRICE_MISMATCH`), but it means a value the
-  offline Drift build accepts today answers `400` from the server — #55/#56's client work needs
-  to know this before wiring `PATCH /settings` through, and the Drift build itself enforces
-  none of it (the phase-1 divergence this ticket accepts, same shape as #24's).
+  offline Drift build accepts today answers `400` from the server, and the Drift build itself
+  enforces none of it (the phase-1 divergence this ticket accepts, same shape as #24's). The
+  API build has sent edits to `PATCH /settings` since #460 (PR #467,
+  `ApiSettingsRepository`); a `400` reaches the settings screen as a Thai refusal
+  (`rethrowServerRefusal`), never a local write.
 
 ## Quotes and parked sales (#27)
 
