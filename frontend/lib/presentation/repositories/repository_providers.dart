@@ -149,13 +149,15 @@ List<RepositoryProvider> repositoryProviders(
       : MechanicsRepository(db);
 
   // Built after the mechanics repository: closing a shift on the API build
-  // sends the credit-payment outbox first and refuses while cash is unsent.
+  // sends the outbox first and refuses while anything is left in it (08 §11).
   final shiftsRepository = useApi
       ? ApiShiftsRepository(
           api: client,
           db: db,
           drift: driftShifts,
           mechanics: mechanicsRepo,
+          syncService: realSyncService,
+          syncFacade: syncFacade,
         )
       : driftShifts;
   final poRepo = useApiRepositories

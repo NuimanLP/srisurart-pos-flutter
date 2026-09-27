@@ -33,16 +33,45 @@ void main() {
     expect(drawer.entries, isEmpty);
   });
 
-  test('opening again the same day returns the same shift', () async {
-    final first = await repo.openShift(1000);
-    final second = await repo.openShift(9999);
-    expect(second.id, first.id);
-    expect(second.startingCash, 1000); // unchanged
-    // Still exactly one shift in the DB, and it is active.
-    final all = await db.select(db.shifts).get();
-    expect(all.length, 1);
-    expect(all.single.isActive, isTrue);
-  });
+  test(
+    'opening again the same day archives the prior shift and opens a new one '
+    '(08 §11, #453 — several shifts a day)',
+    () async {
+      final first = await repo.openShift(1000);
+      final second = await repo.openShift(9999);
+      expect(second.id, isNot(first.id));
+      expect(second.startingCash, 9999);
+      expect(second.dateStr, today());
+      expect(second.isActive, isTrue);
+
+      final prior = await (db.select(
+        db.shifts,
+      )..where((t) => t.id.equals(first.id))).getSingle();
+      expect(prior.isActive, isFalse);
+      expect(prior.autoArchived, isTrue); // never counted
+      expect(prior.archivedAt, isNotNull);
+
+      final drawer = await repo.getCashDrawer();
+      expect(drawer!.shift.id, second.id);
+    },
+  );
+
+  test(
+    'opening with an existing id returns that shift, archives nothing',
+    () async {
+      final first = await repo.openShift(1000, id: 'sh_client_1');
+      expect(first.id, 'sh_client_1');
+
+      final again = await repo.openShift(9999, id: 'sh_client_1');
+      expect(again.id, 'sh_client_1');
+      expect(again.startingCash, 1000); // unchanged
+      expect(again.isActive, isTrue);
+
+      final all = await db.select(db.shifts).get();
+      expect(all.length, 1);
+      expect(all.single.autoArchived, isFalse);
+    },
+  );
 
   test(
     'opening on a different day archives the prior (never-closed → auto)',

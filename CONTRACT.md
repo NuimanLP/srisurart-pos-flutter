@@ -148,7 +148,7 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 | `movements_repository.dart` | `MovementsRepository` | `Future<List<MovementRow>> getMovements()`; `Future<MovementRow> addMovement({productId,partNo,name,delta,type,note?,stockAfter})` |
 | `suppliers_repository.dart` | `SuppliersRepository` | `getSuppliers()`; `getSuppliersForProduct(productId)`; `addSupplier({productId,name,unitCost,freight=0})`; `updateSupplier(id,{...Value patches})`; `deleteSupplier(id)` |
 | `settings_repository.dart` | `SettingsRepository` | `Future<SettingsRowData> getSettings()`; `Stream<SettingsRowData> watchSettings()`; `Future<void> updateSettings(SettingsRowCompanion patch)` |
-| `shifts_repository.dart` | `ShiftsRepository` | `Future<ShiftWithEntries?> getCashDrawer()` (single active shift, entries newest-first, or null); `Future<List<ShiftWithEntries>> getShiftHistory()` (inactive shifts, newest openedAt first); `Future<ShiftRow> openShift(double startingCash)` (same-day → returns existing unchanged; else archives prior active shift FIRST — autoArchived+archivedAt if it was never closed — then inserts a new active shift; wrapped in a txn); `Future<DrawerEntryRow> addDrawerEntry(String type, double amount, String? note)` (throws `'No open shift'` if none active; throws Thai `'ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้'` once the active shift is closed); `Future<ShiftRow?> closeShift(double physicalCash)` (stamps closedAt+physicalCash, shift stays isActive=true as the current drawer until next openShift archives it; null if none) |
+| `shifts_repository.dart` | `ShiftsRepository` | `Future<ShiftWithEntries?> getCashDrawer()` (single active shift, entries newest-first, or null); `Future<List<ShiftWithEntries>> getShiftHistory()` (inactive shifts, newest openedAt first); `Future<ShiftRow> openShift(double startingCash, {String? id})` (08 §11, #453 — several shifts a day: an `id` that already exists → returns that shift unchanged; else archives the prior active shift FIRST, even one opened today — autoArchived+archivedAt if it was never closed — then inserts a new active shift under `id` or a fresh one; wrapped in a txn); `Future<DrawerEntryRow> addDrawerEntry(String type, double amount, String? note)` (throws `'No open shift'` if none active; throws Thai `'ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้'` once the active shift is closed); `Future<ShiftRow?> closeShift(double physicalCash)` (stamps closedAt+physicalCash, shift stays isActive=true as the current drawer until next openShift archives it; null if none) |
 
 ### Stubs (each owned by a service agent)
 
@@ -216,9 +216,10 @@ the interface: `ApiSalesRepository.saveSale` and
 no outbox, no shift check)
 refuse with `PosException('NO_OPEN_SHIFT', …)` while the cached drawer is not
 open (`isActive && closedAt == null`, `api_wire.dart hasOpenShift`), and
-`ApiShiftsRepository(…, mechanics:)` flushes the credit-payment outbox before
-`closeShift` and refuses (`CASH_CREDIT_PAYMENTS_UNSENT`) while a queued `เงินสด`
-row remains. With `useApi` false none of this runs.
+`ApiShiftsRepository(…, mechanics:, syncService:)` sends the outbox before
+`closeShift` and refuses (`OUTBOX_NOT_EMPTY`) while ANY `outbox_ops` row remains
+— `pending`, `stuck` or `rejected`, any type (08 §11, #452) — and queues
+`shift.open` / `drawer.entry` offline under the client id + key it minted. With `useApi` false none of this runs.
 
 | Repository | Type |
 |---|---|
