@@ -48,8 +48,10 @@
           <input type="text" id="ctOwnerUsername" required />
           <label for="ctOwnerDisplayName">ชื่อที่แสดงของเจ้าของร้าน (ownerDisplayName)</label>
           <input type="text" id="ctOwnerDisplayName" />
-          <label for="ctOwnerPassword">รหัสผ่านเจ้าของร้าน (อย่างน้อย 12 ตัวอักษร)</label>
-          <input type="password" id="ctOwnerPassword" required />
+          <p class="muted">
+            ระบบจะสร้างรหัสผ่านชั่วคราวให้เจ้าของร้านเอง — ไม่มีช่องให้ตั้งรหัสผ่านที่นี่
+            (the server generates the owner's temporary password; there is no field to set one).
+          </p>
           <p class="mt-16">
             <button type="submit" class="primary">สร้างร้าน</button>
           </p>
@@ -88,6 +90,17 @@
       </div>
 
       <div class="card">
+        <h2>รหัสผ่านเจ้าของร้าน (Owner password)</h2>
+        <p class="muted">
+          ใช้เมื่อเจ้าของร้านลืมรหัสผ่านเท่านั้น — <strong>ต้องโทรกลับ</strong>ไปที่เบอร์โทร/อีเมล
+          ที่บันทึกไว้ตอนเปิดร้าน เพื่อยืนยันตัวตนก่อนเสมอ ห้ามเชื่อเบอร์/อีเมลที่ผู้โทรเข้ามาแจ้งเอง
+          (call back the shop's phone/email on file to verify identity — never trust an inbound
+          caller's own number).
+        </p>
+        <button id="resetOwnerPasswordBtn" class="danger">ออกรหัสผ่านชั่วคราวใหม่ (reset)</button>
+      </div>
+
+      <div class="card">
         <h2>อุปกรณ์ (Devices)</h2>
         <table id="deviceTable">
           <thead>
@@ -119,18 +132,16 @@
       </div>
     </section>
 
-    <!-- One-time secret code modal -->
+    <!-- One-time secret modal — can hold one or more items (e.g. tempPassword + enrolCode) -->
     <div id="codeModalBackdrop" class="hidden modal-backdrop">
       <div class="card modal-card">
         <h2 id="codeModalTitle"></h2>
         <p class="warn-note">
-          รหัสนี้จะแสดง<strong>ครั้งเดียว</strong>เท่านั้น — คัดลอกและส่งให้ร้านทันที
-          (This code is shown once only — copy and hand it to the shop now.)
+          ข้อมูลนี้จะแสดง<strong>ครั้งเดียว</strong>เท่านั้น — คัดลอกและส่งให้ร้านทันที
+          (This information is shown once only — copy and hand it to the shop now.)
         </p>
-        <div class="code-box" id="codeModalValue"></div>
-        <p class="muted" id="codeModalExpiry"></p>
+        <div id="codeModalItems"></div>
         <p>
-          <button id="codeModalCopyBtn">คัดลอก (Copy)</button>
           <button id="codeModalCloseBtn" class="primary">ปิด (Close)</button>
         </p>
       </div>

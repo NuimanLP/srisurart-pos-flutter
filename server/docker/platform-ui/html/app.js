@@ -25,10 +25,9 @@ const els = {
   importJobTableBody: document.getElementById('importJobTableBody'),
   codeModalBackdrop: document.getElementById('codeModalBackdrop'),
   codeModalTitle: document.getElementById('codeModalTitle'),
-  codeModalValue: document.getElementById('codeModalValue'),
-  codeModalExpiry: document.getElementById('codeModalExpiry'),
-  codeModalCopyBtn: document.getElementById('codeModalCopyBtn'),
+  codeModalItems: document.getElementById('codeModalItems'),
   codeModalCloseBtn: document.getElementById('codeModalCloseBtn'),
+  resetOwnerPasswordBtn: document.getElementById('resetOwnerPasswordBtn'),
 };
 
 let currentTenantId = null;
@@ -210,21 +209,32 @@ async function loadTenantList() {
 async function handleCreateTenant(evt) {
   evt.preventDefault();
   clearError();
+  // #443 PR3 (server, merged): ownerPassword is no longer part of this contract — the server
+  // generates a temporary password and returns it once. There is no field for it in this form.
   const body = {
     code: document.getElementById('ctCode').value.trim(),
     shopName: document.getElementById('ctShopName').value.trim(),
     shopNameEn: document.getElementById('ctShopNameEn').value.trim() || undefined,
     ownerUsername: document.getElementById('ctOwnerUsername').value.trim(),
     ownerDisplayName: document.getElementById('ctOwnerDisplayName').value.trim() || undefined,
-    ownerPassword: document.getElementById('ctOwnerPassword').value,
   };
   try {
     const data = await api('/tenants', { method: 'POST', body });
     els.createTenantForm.reset();
     showCodeModal({
-      title: `สร้างร้าน "${data.shopName}" สำเร็จ — รหัสลงทะเบียนอุปกรณ์ (enrolCode)`,
-      code: data.enrolCode,
-      expiryText: 'ใช้ได้ 7 วัน (valid for 7 days)',
+      title: `สร้างร้าน "${data.shopName}" สำเร็จ`,
+      items: [
+        {
+          label: `รหัสผ่านชั่วคราวของเจ้าของร้าน (${data.ownerUsername})`,
+          value: data.tempPassword,
+          note: `หมดอายุ: ${data.tempPasswordExpiresAt} (7 วัน) — เจ้าของร้านต้องเปลี่ยนรหัสตอนล็อกอินครั้งแรก`,
+        },
+        {
+          label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
+          value: data.enrolCode,
+          note: 'ใช้ได้ 7 วัน (valid for 7 days)',
+        },
+      ],
     });
     await loadTenantList();
   } catch (err) {
@@ -309,10 +319,51 @@ async function handleReissueCode(tenantId, deviceId) {
     );
     showCodeModal({
       title: `รหัสลงทะเบียนใหม่สำหรับอุปกรณ์ ${deviceId}`,
-      code: data.enrolCode,
-      expiryText: `หมดอายุ: ${data.enrolExpiresAt}`,
+      items: [
+        {
+          label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
+          value: data.enrolCode,
+          note: `หมดอายุ: ${data.enrolExpiresAt}`,
+        },
+      ],
     });
     await openTenantDetail(tenantId);
+  } catch (err) {
+    showError(err.message);
+  }
+}
+
+/**
+ * `POST /platform/tenants/:id/owner/temp-password` (#443 PR3) — for a forgotten owner
+ * password. The confirm dialog is the one control point forcing the admin to have already
+ * verified the caller's identity by calling the shop's own phone/e-mail on file, never an
+ * inbound caller's own number (owner decision) — there is no way to skip past it in this UI.
+ */
+async function handleResetOwnerPassword() {
+  if (!currentTenantId) return;
+  const confirmed = window.confirm(
+    'ยืนยันหรือไม่ว่าได้ "โทรกลับ" ไปที่เบอร์โทร/อีเมลที่บันทึกไว้ตอนเปิดร้านเพื่อยืนยันตัวตนแล้ว ' +
+    '(ห้ามเชื่อเบอร์/อีเมลที่ผู้โทรเข้ามาแจ้งเอง) — การกดตกลงจะออกรหัสผ่านชั่วคราวใหม่ทันที ' +
+    'และรหัสเดิมของเจ้าของร้านจะใช้ไม่ได้อีกต่อไป',
+  );
+  if (!confirmed) return;
+
+  clearError();
+  try {
+    const data = await api(
+      `/tenants/${encodeURIComponent(currentTenantId)}/owner/temp-password`,
+      { method: 'POST' },
+    );
+    showCodeModal({
+      title: `รหัสผ่านชั่วคราวใหม่สำหรับเจ้าของร้าน (${data.ownerUsername})`,
+      items: [
+        {
+          label: `รหัสผ่านชั่วคราว (${data.ownerUsername})`,
+          value: data.tempPassword,
+          note: `หมดอายุใน 24 ชม.: ${data.tempPasswordExpiresAt} — เจ้าของร้านต้องเปลี่ยนรหัสตอนล็อกอินครั้งถัดไป`,
+        },
+      ],
+    });
   } catch (err) {
     showError(err.message);
   }
@@ -339,26 +390,59 @@ async function handleStatusChange(status) {
   }
 }
 
-// ---- one-time code modal --------------------------------------------------------------
+// ---- one-time secret modal --------------------------------------------------------------
 
-function showCodeModal({ title, code, expiryText }) {
+/**
+ * Renders one or more one-time secrets (e.g. a temp password AND an enrolCode from the same
+ * create-tenant call). Each item gets its own copy button; everything is built with
+ * createElement/textContent, never innerHTML, so a value the server returns can never run as
+ * markup.
+ */
+function showCodeModal({ title, items }) {
   els.codeModalTitle.textContent = title;
-  els.codeModalValue.textContent = code;
-  els.codeModalExpiry.textContent = expiryText || '';
+  clearChildren(els.codeModalItems);
+
+  for (const item of items) {
+    const wrap = document.createElement('div');
+    wrap.className = 'code-item';
+
+    const label = document.createElement('label');
+    label.textContent = item.label;
+    wrap.appendChild(label);
+
+    const box = document.createElement('div');
+    box.className = 'code-box';
+    box.textContent = item.value;
+    wrap.appendChild(box);
+
+    if (item.note) {
+      const note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = item.note;
+      wrap.appendChild(note);
+    }
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'คัดลอก (Copy)';
+    copyBtn.addEventListener('click', () => copyText(item.value));
+    wrap.appendChild(copyBtn);
+
+    els.codeModalItems.appendChild(wrap);
+  }
+
   els.codeModalBackdrop.classList.remove('hidden');
 }
 
 function hideCodeModal() {
   els.codeModalBackdrop.classList.add('hidden');
-  els.codeModalValue.textContent = '';
+  clearChildren(els.codeModalItems);
 }
 
-async function copyModalCode() {
-  const text = els.codeModalValue.textContent;
+async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    // Clipboard API unavailable (no permission, insecure context) — the code is still
+    // Clipboard API unavailable (no permission, insecure context) — the value is still
     // selectable text on screen, so this is a convenience failure only.
   }
 }
@@ -373,8 +457,8 @@ els.backToListBtn.addEventListener('click', () => {
   currentTenantId = null;
   showView(els.tenantListView);
 });
-els.codeModalCopyBtn.addEventListener('click', copyModalCode);
 els.codeModalCloseBtn.addEventListener('click', hideCodeModal);
+els.resetOwnerPasswordBtn.addEventListener('click', handleResetOwnerPassword);
 
 for (const btn of document.querySelectorAll('#tenantDetailView [data-status]')) {
   btn.addEventListener('click', () => handleStatusChange(btn.dataset.status));
