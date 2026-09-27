@@ -56,8 +56,6 @@ class ApiSalesRepository implements SalesRepository {
     this.syncService,
     this.syncFacade,
     this.docNumberService,
-    this.deviceId,
-    this.deviceNo,
     this.isOffline = false,
   });
 
@@ -74,8 +72,6 @@ class ApiSalesRepository implements SalesRepository {
   final SyncService? syncService;
   final SyncFacade? syncFacade;
   final DocNumberService? docNumberService;
-  final String? deviceId;
-  final int? deviceNo;
   bool isOffline;
 
   /// The bill id + `Idempotency-Key` of an attempt that never got a verdict,
@@ -474,64 +470,12 @@ class ApiSalesRepository implements SalesRepository {
 
     final date = DateTime.now();
 
-    // 2. Document numbering
-    String receiptNo;
-    if (docNumberService != null) {
-      final counter =
-          await (db.select(db.docCounters)..limit(1)).getSingleOrNull();
-      final seed =
-          await (db.select(db.docCounterSeeds)..limit(1)).getSingleOrNull();
-      final devId = deviceId ?? counter?.deviceId ?? seed?.deviceId;
-      final devNo = deviceNo ?? counter?.deviceNo ?? 1;
-      if (devId != null) {
-        receiptNo = await docNumberService!.issueAndCommit(
-          deviceId: devId,
-          deviceNo: devNo,
-          docType: 'receipt',
-          now: date,
-          isOffline: true,
-        );
-      } else {
-        receiptNo = docNo('RC');
-      }
-    } else {
-      receiptNo = docNo('RC');
-    }
-
-    // 3. Shift
+    // 2. Shift
     final activeShift = await (db.select(db.shifts)
           ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
           ..limit(1))
         .getSingleOrNull();
     final effectiveShiftId = shiftId ?? activeShift?.id;
-
-    final sale = SaleRow(
-      id: saleId,
-      receiptNo: receiptNo,
-      subtotal: input.subtotal,
-      discount: input.discount,
-      total: input.total,
-      paymentMethod: input.paymentMethod,
-      customerId: input.customerId,
-      customerName: input.customerName,
-      mechanicId: input.mechanicId,
-      mechanicName: input.mechanicName,
-      mechanicDelta: input.mechanicDelta,
-      pointsGranted: pointsFor(input.total),
-      date: date,
-      voided: false,
-      voidedAt: null,
-      shiftId: effectiveShiftId,
-      soldOffline: true,
-      voidReason: null,
-    );
-
-    final payload = _saleBody(
-      saleId,
-      input,
-      receiptNo: receiptNo,
-      date: date,
-    );
 
     final opId = newId('op');
     final aggregates = [
@@ -541,7 +485,46 @@ class ApiSalesRepository implements SalesRepository {
       if (input.mechanicId != null) 'mechanic:${input.mechanicId}',
     ];
 
+    late final SaleRow sale;
+    late final Map<String, dynamic> payload;
     await db.transaction(() async {
+      // 3. Document numbering — inside the transaction that writes the bill, so
+      // a refused or failed write burns no number (#472, same rule as CN).
+      final numbers = docNumberService;
+      if (numbers == null) throw const OfflineSeedRequiredException();
+      final receiptNo = await numbers.issueOffline(
+        docType: 'receipt',
+        now: date,
+      );
+
+      sale = SaleRow(
+        id: saleId,
+        receiptNo: receiptNo,
+        subtotal: input.subtotal,
+        discount: input.discount,
+        total: input.total,
+        paymentMethod: input.paymentMethod,
+        customerId: input.customerId,
+        customerName: input.customerName,
+        mechanicId: input.mechanicId,
+        mechanicName: input.mechanicName,
+        mechanicDelta: input.mechanicDelta,
+        pointsGranted: pointsFor(input.total),
+        date: date,
+        voided: false,
+        voidedAt: null,
+        shiftId: effectiveShiftId,
+        soldOffline: true,
+        voidReason: null,
+      );
+
+      payload = _saleBody(
+        saleId,
+        input,
+        receiptNo: receiptNo,
+        date: date,
+      );
+
       await db.into(db.sales).insert(sale);
 
       await db.batch((b) {

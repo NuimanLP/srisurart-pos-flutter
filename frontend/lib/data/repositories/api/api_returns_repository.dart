@@ -378,37 +378,11 @@ class ApiReturnsRepository implements ReturnsRepository {
   }
 
   /// The next CN number from this device's own counter (08 §9), committed in
-  /// the caller's transaction.
-  ///
-  /// The device is the one most recently seeded from `GET /doc-counters` (a
-  /// re-enrolled browser seeds under its new `devices.id`), and its series is
-  /// the `device_no` a counter row of THAT device carries. When either is
-  /// unknown the note is refused (`OFFLINE_SEED_REQUIRED`) rather than guessed:
-  /// the server refuses a number whose `device_no` is not the caller's
-  /// (`DOC_NUMBER_INVALID`), and the paper would already be printed.
+  /// the caller's transaction. See [DocNumberService.issueOffline].
   Future<String> _issueOfflineCnNo(DateTime now) async {
     final numbers = docNumberService;
-    final seed =
-        await (db.select(db.docCounterSeeds)
-              ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
-              ..limit(1))
-            .getSingleOrNull();
-    final counter = seed == null
-        ? null
-        : await (db.select(db.docCounters)
-                ..where((t) => t.deviceId.equals(seed.deviceId))
-                ..limit(1))
-              .getSingleOrNull();
-    if (numbers == null || seed == null || counter == null) {
-      throw const OfflineSeedRequiredException();
-    }
-    return numbers.issueAndCommit(
-      deviceId: seed.deviceId,
-      deviceNo: counter.deviceNo,
-      docType: 'cn',
-      now: now,
-      isOffline: true,
-    );
+    if (numbers == null) throw const OfflineSeedRequiredException();
+    return numbers.issueOffline(docType: 'cn', now: now);
   }
 
   /// Identifies "the same refund, sent again": the bill, how it is refunded, and

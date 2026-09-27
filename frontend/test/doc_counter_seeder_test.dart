@@ -10,6 +10,7 @@ import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/services/doc_counter_seeder.dart';
+import 'package:srisurart_pos/data/services/doc_number_service.dart';
 
 http.Response _ok(Object data) => http.Response(
   jsonEncode({'status': 'success', 'data': data}),
@@ -170,6 +171,21 @@ void main() {
       ('receipt', '2569-09', 3),
     ]);
     expect(await markersOfNew(), hasLength(1));
+  });
+
+  // #475: a brand-new device has no counter rows on the server yet, but its
+  // `deviceNo` still has to reach the till or it cannot number offline.
+  test('a device with no counter rows yet can still number an offline CN', () async {
+    final seeder = seederReplying((_) async => _ok(_reply([], deviceNo: 3)));
+
+    expect(await seeder.seed(), isTrue);
+    expect(await localCounters(), {'$_dev#3/receipt/2569-09': 0});
+
+    final cnNo = await DocNumberService(db: db).issueOffline(
+      docType: 'cn',
+      now: DateTime(2026, 9, 15), // 2569-09, the seeded period
+    );
+    expect(cnNo, 'CN03-2569-09-0001');
   });
 
   group('a failed fetch leaves local untouched and does not throw', () {

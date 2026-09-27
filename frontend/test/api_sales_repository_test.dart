@@ -112,8 +112,6 @@ void main() {
     Duration writeTimeout = ApiClient.defaultWriteTimeout,
     SyncService? syncService,
     DocNumberService? docNumberService,
-    String? deviceId,
-    int? deviceNo,
   }) {
     final client = MockClient((req) async {
       sent.add(req);
@@ -137,8 +135,6 @@ void main() {
       drift: SalesRepository(db),
       syncService: syncService,
       docNumberService: docNumberService,
-      deviceId: deviceId,
-      deviceNo: deviceNo,
     );
   }
 
@@ -1114,6 +1110,25 @@ void main() {
   });
 
   group('offline sales & overrideCreditLimit (Slice 14-c / Issue #194)', () {
+    // A seeded device (08 §9): offline RC numbers come only from its counter (#472).
+    const deviceId = 'dev-pos-01';
+    late DocNumberService numbers;
+    late String period;
+    setUp(() async {
+      numbers = DocNumberService(db: db);
+      period = DocNumberService.formatPeriod(DateTime.now());
+      await db.into(db.docCounters).insert(
+        DocCountersCompanion.insert(
+          deviceId: deviceId,
+          deviceNo: 1,
+          docType: 'receipt',
+          period: period,
+          lastNo: 41,
+        ),
+      );
+      await numbers.recordSeedMarker(deviceId: deviceId, period: period);
+    });
+
     test('offline credit sale with overrideCreditLimit: true inserts outbox_ops with overrideCreditLimit: true', () async {
       final repo = ApiSalesRepository(
         api: ApiClient(
@@ -1123,6 +1138,7 @@ void main() {
         ),
         db: db,
         drift: SalesRepository(db),
+        docNumberService: numbers,
         isOffline: true,
       );
 
@@ -1187,6 +1203,7 @@ void main() {
         ),
         db: db,
         drift: SalesRepository(db),
+        docNumberService: numbers,
         isOffline: true,
       );
 
@@ -1229,6 +1246,7 @@ void main() {
         db: db,
         drift: SalesRepository(db),
         syncService: syncService,
+        docNumberService: numbers,
       );
 
       final sale = await repo.saveSale(
@@ -1266,6 +1284,7 @@ void main() {
         db: db,
         drift: SalesRepository(db),
         syncService: syncService,
+        docNumberService: numbers,
       );
 
       final sale = await repo.saveSale(
@@ -1334,6 +1353,7 @@ void main() {
         final repo = repoWith(
           (req) async => throw http.ClientException('Connection reset', req.url),
           syncService: sync,
+          docNumberService: numbers,
         );
 
         final sale = await repo.saveSale(input());
@@ -1348,6 +1368,7 @@ void main() {
         final repo = repoWith(
           (req) => Completer<http.Response>().future, // never answers
           syncService: sync,
+          docNumberService: numbers,
           writeTimeout: const Duration(milliseconds: 100),
         );
 
@@ -1370,6 +1391,7 @@ void main() {
         ),
         db: db,
         drift: SalesRepository(db),
+        docNumberService: numbers,
         isOffline: true,
       );
 
@@ -1410,20 +1432,6 @@ void main() {
     });
 
     test('offline sale with DocNumberService issues and commits offline receipt number', () async {
-      final docNumberService = DocNumberService(db: db);
-      const deviceId = 'dev-pos-01';
-      final period = DocNumberService.formatPeriod(DateTime.now());
-      await db.into(db.docCounters).insert(
-        DocCountersCompanion.insert(
-          deviceId: deviceId,
-          deviceNo: 1,
-          docType: 'receipt',
-          period: period,
-          lastNo: 41,
-        ),
-      );
-      await docNumberService.recordSeedMarker(deviceId: deviceId, period: period);
-
       final repo = ApiSalesRepository(
         api: ApiClient(
           baseUrl: 'http://server.test',
@@ -1432,7 +1440,7 @@ void main() {
         ),
         db: db,
         drift: SalesRepository(db),
-        docNumberService: docNumberService,
+        docNumberService: numbers,
         isOffline: true,
       );
 
@@ -1443,6 +1451,89 @@ void main() {
       final payload = jsonDecode(ops.single.payload) as Map<String, dynamic>;
       expect(payload['receiptNo'], 'RC01-$period-0042');
       expect(payload['overrideCreditLimit'], isTrue);
+    });
+
+    group('#472: offline RC numbering follows the CN rule', () {
+      ApiSalesRepository offlineRepo({bool withNumbers = true}) =>
+          ApiSalesRepository(
+            api: ApiClient(
+              baseUrl: 'http://server.test',
+              httpClient: MockClient((req) async => fail('HTTP should not be called')),
+              tokenStorage: _MemoryTokenStorage(),
+            ),
+            db: db,
+            drift: SalesRepository(db),
+            docNumberService: withNumbers ? numbers : null,
+            isOffline: true,
+          );
+
+      Future<int> stock() async =>
+          (await (db.select(db.products)..where((t) => t.id.equals('tp1')))
+                  .getSingle())
+              .stock;
+
+      Future<void> expectNothingWritten() async {
+        expect(await db.select(db.sales).get(), isEmpty);
+        expect(await db.select(db.outboxOps).get(), isEmpty);
+        expect(await stock(), 10);
+        expect(await numbers.getLastNo(deviceId: deviceId, docType: 'receipt'), 41);
+      }
+
+      test('a re-enrolled browser numbers under its NEW device, not the first counter row', () async {
+        // The new device is seeded later and carries its own series (RC02).
+        await db.into(db.docCounters).insert(
+          DocCountersCompanion.insert(
+            deviceId: 'dev-new',
+            deviceNo: 2,
+            docType: 'receipt',
+            period: period,
+            lastNo: 6,
+          ),
+        );
+        await numbers.recordSeedMarker(
+          deviceId: 'dev-new',
+          period: period,
+          seededAt: DateTime.now().add(const Duration(minutes: 1)),
+        );
+
+        final sale = await offlineRepo().saveSale(input());
+
+        expect(sale.receiptNo, 'RC02-$period-0007');
+        expect(await numbers.getLastNo(deviceId: 'dev-new', docType: 'receipt'), 7);
+        expect(await numbers.getLastNo(deviceId: deviceId, docType: 'receipt'), 41);
+      });
+
+      test('seeded but the device number is unknown: refused, never guessed as 01', () async {
+        await numbers.recordSeedMarker(
+          deviceId: 'dev-new',
+          period: period,
+          seededAt: DateTime.now().add(const Duration(minutes: 1)),
+        );
+
+        await expectLater(
+          () => offlineRepo().saveSale(input()),
+          throwsA(isA<OfflineSeedRequiredException>()),
+        );
+        await expectNothingWritten();
+      });
+
+      test('no DocNumberService: refused, no legacy docNo(RC) fallback', () async {
+        await expectLater(
+          () => offlineRepo(withNumbers: false).saveSale(input()),
+          throwsA(isA<OfflineSeedRequiredException>()),
+        );
+        await expectNothingWritten();
+      });
+
+      test('an insert failing mid-transaction burns no number', () async {
+        await db.customStatement(
+          'CREATE TRIGGER boom BEFORE INSERT ON outbox_ops '
+          "BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        );
+
+        await expectLater(() => offlineRepo().saveSale(input()), throwsA(anything));
+        await expectNothingWritten();
+      });
     });
   });
 

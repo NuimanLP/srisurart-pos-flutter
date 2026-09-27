@@ -34,6 +34,7 @@ import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api/api_sales_repository.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
+import 'package:srisurart_pos/data/services/doc_number_service.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
@@ -343,6 +344,7 @@ void main() {
         ),
         db: db,
         drift: SalesRepository(db),
+        docNumberService: DocNumberService(db: db),
         isOffline: true,
       );
 
@@ -361,6 +363,19 @@ void main() {
             isActive: const Value(true),
           ),
         );
+        // A seeded device: offline RC numbers come only from its counter (#472).
+        final period = DocNumberService.formatPeriod(DateTime.now());
+        await db.into(db.docCounters).insert(
+          DocCountersCompanion.insert(
+            deviceId: 'dev-pos-01',
+            deviceNo: 1,
+            docType: 'receipt',
+            period: period,
+            lastNo: 0,
+          ),
+        );
+        await DocNumberService(db: db)
+            .recordSeedMarker(deviceId: 'dev-pos-01', period: period);
 
         final mechanics = await db.select(db.mechanics).get();
         final mech = mechanics.first;
