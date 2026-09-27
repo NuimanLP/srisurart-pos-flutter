@@ -195,10 +195,10 @@ repo นี้ tag image ด้วย **commit SHA** (รหัส 40 ตัว�
 
 เพราะโค้ดอยู่ GitHub อยู่แล้ว + ไม่มีเครื่องเหลือ → จึงเลือก Actions → ราคาที่จ่ายคือ ผูกกับ GitHub และ runner ของ GitHub เข้า VM ในมหาวิทยาลัยไม่ได้ (ต้องไปแก้ด้วย self-hosted runner)
 
-> 🔎 **แล้ว `Jenkinsfile` ที่ root ของ repo ล่ะ?** ตรวจแล้ว: มาจาก PR #320 (commit `266a036`, "Add Jenkinsfile for Lab 03") —
+> 🔎 **แล้ว `Jenkinsfile` ที่เคยอยู่ root ของ repo ล่ะ?** มาจาก PR #320 (commit `266a036`, "Add Jenkinsfile for Lab 03") —
 > เป็น **แบบฝึกหัดของคอร์ส** (มี `jenkin-lab.pdf` มาคู่กัน) ข้างในตั้ง `APP_NAME = 'taskflow-api'` (ไม่ใช่ชื่อโปรเจกต์นี้), ใช้ `npm` ทั้งที่ server ใช้ `pnpm`,
-> lint เขียน `npm run lint || true` (ไม่มีวันล้ม) และขั้น deploy แค่ `echo deploying to production...` (`Jenkinsfile:33`, `:65`)
-> **ไม่มี Jenkins server ไหนรันไฟล์นี้ในระบบจริง** — pipeline จริงคือ 3 ไฟล์ใน `.github/workflows/` เท่านั้น
+> lint เขียน `npm run lint || true` (ไม่มีวันล้ม) และขั้น deploy แค่ `echo deploying to production...` (ดูได้ด้วย `git show 266a036:Jenkinsfile`)
+> **ไม่มี Jenkins server ไหนเคยรันไฟล์นี้** และถูกลบออกจาก repo แล้ว (2026-09-27) — pipeline จริงคือ 3 ไฟล์ใน `.github/workflows/` เท่านั้น
 > มันเป็นตัวอย่างดีของ "gate ปลอม": `|| true` ทำให้ step เขียวเสมอ อย่าเอาแบบนี้ไปใช้
 
 ### ข. จะกรองว่า "PR นี้ต้องรัน job ไหน" ที่ชั้นไหน
@@ -1180,7 +1180,7 @@ merge → CI ✅ → image บน GHCR ✅ → Deploy run #1 ✅(skip) → Deplo
 | self-hosted runner | ป้าย `srisurart-demo-deploy` — **ยังไม่ติดตั้ง (0)** | รับงาน deploy บน VM | VM อยู่หลัง firewall | SSH จาก GitHub-hosted |
 | Ansible | `ansible-core` จาก apt (`deploy/scripts/setup-mob04-runner.sh:46`) — **repo ไม่ pin เวอร์ชัน** | ขั้นตอน deploy บน VM | ดู [14_devops.md](14_devops.md) | Kubernetes (VM เดียว) |
 | Dependabot | security-only | แจ้ง CVE | ลด noise | version updates รายสัปดาห์ |
-| `Jenkinsfile` | — | **แบบฝึกหัดคอร์ส Lab 03 ไม่ได้ใช้จริง** | — | — |
+| `Jenkinsfile` | — | **แบบฝึกหัดคอร์ส Lab 03 ไม่เคยใช้จริง — ลบแล้ว 2026-09-27** | — | — |
 
 **คำเตือนที่เห็นใน log ทุก job (deprecation):**
 
@@ -1272,7 +1272,7 @@ gh api repos/NuimanLP/srisurart-pos-flutter/environments/demo --jq '.protection_
 > - Trivy scan **ก่อน** push: ล้ม = registry ไม่ได้ tag เลย · แก้ด้วยการทำ image ให้สะอาด (pin digest, ลบ npm, `apk upgrade`) ไม่ใช่ `.trivyignore`
 > - **green ≠ deployed**: Deploy run แรกของทุก merge เขียวโดย skip · ด่านอนุมัติค้าง · runner = 0 · FortiGate ตัด TLS ไป `ghcr.io` (x509 no SAN) → หลักฐานเดียวคือ `/opt/pos/.current_sha`
 > - skip ที่ไม่ควรเกิดคือ bug ที่เงียบที่สุด (#39 → #184) — ต้องเขียน check ให้แดงเมื่อของสำคัญถูกข้าม
-> - `Jenkinsfile` ที่ root คือแบบฝึกหัดคอร์ส ไม่ใช่ pipeline จริง
+> - `Jenkinsfile` ที่เคยอยู่ root คือแบบฝึกหัดคอร์ส ไม่ใช่ pipeline จริง (ลบแล้ว 2026-09-27)
 
 ---
 
