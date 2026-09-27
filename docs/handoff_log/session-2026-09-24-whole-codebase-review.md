@@ -37,21 +37,23 @@ Items 1–2 re-verified by reading the code after the review.
    `costAtSale`, `movements`, `shiftId`, `date`, customer/mechanic balances that 08 §8.2 says it
    carries. The fixture `fixtures/sync-push/sale-create.applied.json` has the same thin shape —
    **spec vs contract disagree; owner call** which one is right.
-   → **สถานะ 2026-09-27: แก้แล้ว** — owner เลือก spec (#455) · PR #458: reply `applied` =
-   คำตอบของ `POST /sales` (replay ด้วย id ใช้ `SalesService.existingSale` ตัวเดียวกับ route
-   ออนไลน์) · fixture 4 ไฟล์อัปเดต · client patch ผ่าน `patchSaleFromPushReply`
+   → **Status 2026-09-27: fixed.** Owner chose the spec (#455). PR #458: the `applied` reply
+   is the `POST /sales` response (replay by id uses `SalesService.existingSale`, the same
+   function as the online route); the 4 sale fixtures were updated; the client patches the
+   offline bill with `patchSaleFromPushReply`.
 4. MED — the client only queues `sale.create`, credit payments and customer ops; 08 §6.1 also
    lists `shift.open`, `return.create`, `drawer.entry`. `api_shifts_repository.dart:80-87` sends
    no client `id`/`openedAt`; shift close checks only queued credit payments (§11 wants the whole
    outbox).
-   → **สถานะ 2026-09-27: แก้บางส่วน** — PR #456 queue `shift.open` + `drawer.entry` ด้วย client
-   id, body ออนไลน์มี `id`, ปิดกะต้อง outbox ว่างทั้งหมด (`OUTBOX_NOT_EMPTY`, ข้อความไทย
-   **agent ร่าง**) · **#452 ยังเปิด**: `return.create`, replay test ของ op ใหม่, และหน้าจอยังเปิด
-   กะที่สองในวันเดียวกันไม่ได้ · ข้อเบี่ยง: 5xx ไม่เข้าคิว (เหมือน sales) ต่างจาก 08 §5
+   → **Status 2026-09-27: partial.** PR #456 queues `shift.open` + `drawer.entry` under a
+   client id, sends the `id` in the online bodies, and closing a shift now needs the whole
+   outbox empty (`OUTBOX_NOT_EMPTY`; Thai string still **agent ร่าง**). **#452 stays open**
+   for `return.create`, replay tests of the new ops, and the missing UI to open a second
+   shift the same day. Deviation: a 5xx does not queue (same as sales), unlike 08 §5.
 5. MED — Drift `openShift` still returns the same-day shift (`shifts_repository.dart:69-83`),
    removed by 08 §11.
-   → **สถานะ 2026-09-27: แก้แล้ว** — PR #456 (#453): id ที่มีอยู่แล้ว → คืนกะนั้น · ไม่งั้น
-   archive กะก่อนแล้วเปิดใหม่ แม้เปิดวันเดียวกัน
+   → **Status 2026-09-27: fixed** by PR #456 (#453): an existing `id` returns that shift;
+   otherwise the prior shift is archived and a new one opened, even on the same day.
 6. LOW — online `POST /shifts/open` with an existing `id` does not compare `startingCash`
    (`shifts.service.ts:170-180`); the push path does.
 
