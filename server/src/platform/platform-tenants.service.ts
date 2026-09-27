@@ -325,7 +325,9 @@ export class PlatformTenantsService {
     const deviceRows = await this.adminDs.query(
       `SELECT id, label, role,
               token_hash IS NOT NULL AS enrolled,
-              CASE WHEN enrol_expires_at > now() THEN enrol_expires_at END AS enrol_expires_at,
+              -- Raw, even when past: "never enrolled, code expired" is exactly the case ops
+              -- needs to see before reissuing (auth_enrol_device NULLs it on enrol anyway).
+              enrol_expires_at,
               retired_at
          FROM devices
         WHERE tenant_id = $1

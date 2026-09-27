@@ -516,7 +516,7 @@ guard ของ `/platform/*` ปฏิเสธ token ที่ `aud != "platfo
 > เพิ่มชั้น IP allowlist (#270): Nginx ให้เฉพาะ loopback และ guard ตรวจ `PLATFORM_ADMIN_IPS` — IP อื่น = `403 PLATFORM_IP_FORBIDDEN`
 > (`platform-auth.guard.ts:60`) · คอลัมน์ *Idempotent* ✔ ข้างล่าง **ยังไม่มี `Idempotency-Key` ในโค้ด** ของ platform controller ใดเลย
 > (import กันซ้ำด้วย `409` เมื่อมีงาน import ค้างอยู่แล้ว — `tenant-import.service.ts:861`) · enrolment code ของเครื่อง `pos` แรกที่
-> `POST /platform/tenants` คืนมา อายุ **7 วัน** (`platform-tenants.service.ts:122`) ไม่ใช่ 15 นาทีแบบ `POST /devices`
+> `POST /platform/tenants` คืนมา อายุ **7 วัน** (`platform-tenants.service.ts:147`) ไม่ใช่ 15 นาทีแบบ `POST /devices`
 > · 🔴 **แก้ 2026-09-27 (#443 PR2):** `{id}` ที่ไม่ใช่ UUID เคยหลุดไป Postgres ตรง ๆ แล้วได้ `22P02` → **500**
 > ไม่ใช่ `400` — แก้แล้วทั้ง `PATCH /platform/tenants/{id}/status` (บั๊กเดิม) และ endpoint ใหม่สองตัวข้างล่าง
 > (`400 INVALID_TENANT_ID`, ตรวจก่อนแตะ Postgres เสมอ)
@@ -530,7 +530,7 @@ guard ของ `/platform/*` ปฏิเสธ token ที่ `aud != "platfo
 | GET | `/platform/tenants/{id}/import/{jobId}` | platform admin | – | สถานะงาน import (#239) — `queued\|running\|succeeded\|failed` + `tombstones`/`droppedSuppliers` ตอนสำเร็จ หรือ `error` ตอนล้ม อ่านจากตาราง `import_jobs` โดยตรง ไม่ผ่าน `GET /backup/jobs/:id` (ตัวนั้นอยู่ tenant plane ใช้ tenant JWT — platform admin ไม่มี token แบบนั้น) |
 | GET | `/platform/tenants` | platform admin | – | รายชื่อร้าน (platform ops เท่านั้น) |
 | POST | `/platform/tenants/{id}/devices/{deviceId}/enrol-code` | platform admin | – | **#443 PR2:** ออก enrolCode ใหม่ให้ device ที่**ยังไม่เคยผูกเครื่องเลย** (`token_hash IS NULL AND retired_at IS NULL`) — คืน `200 {deviceId, enrolCode, enrolExpiresAt}` (โค้ดเห็นครั้งเดียวตอนตอบ ไม่ลง log/`audit_log`) · โค้ดใหม่ทำให้โค้ดเก่าใช้ไม่ได้ทันที (`UPDATE` แถวเดียวกัน) · อายุ **7 วัน** เท่ากับ enrolCode แรกจาก `POST /platform/tenants` (owner ตัดสิน 2026-09-27, Q3) · device ที่ผูกแล้วหรือ retire แล้ว → `409 DEVICE_ALREADY_ENROLLED` · ไม่มี device นั้นในร้านนี้ → `404 DEVICE_NOT_FOUND` · `{id}` ที่ไม่ใช่ UUID → `400 INVALID_TENANT_ID` (ก่อนแตะ Postgres) |
-| GET | `/platform/tenants/{id}` | platform admin | – | **#443 PR2:** รายละเอียดร้านเดียว — `{tenant, devices:[{id,label,role,enrolled,enrolExpiresAt,retiredAt}], importJobs:[20 งานล่าสุดจาก `import_jobs`]}` · `devices` ไม่มี `token_hash`/`enrol_code_hash` เลย · `{id}` ที่ไม่ใช่ UUID → `400 INVALID_TENANT_ID` · ไม่พบร้าน → `404` |
+| GET | `/platform/tenants/{id}` | platform admin | – | **#443 PR2:** รายละเอียดร้านเดียว — `{tenant, devices:[{id,label,role,enrolled,enrolExpiresAt,retiredAt}], importJobs:[20 งานล่าสุดจาก `import_jobs`]}` · `enrolExpiresAt` คืนค่าจริงแม้หมดอายุแล้ว (เห็นได้ว่า "ยังไม่ผูก + โค้ดหมดอายุ" → ออกโค้ดใหม่) และเป็น `null` หลังผูกเครื่อง · `devices` ไม่มี `token_hash`/`enrol_code_hash` เลย · `{id}` ที่ไม่ใช่ UUID → `400 INVALID_TENANT_ID` · ไม่พบร้าน → `404` |
 
 > 🔴 **ทุก endpoint ในตารางนี้ต้องเขียน `audit_log` ทุกครั้งที่ถูกเรียก** (ใคร, endpoint ไหน, แตะ tenant ใด) — ADR-0002 กติกาข้อ 3
 

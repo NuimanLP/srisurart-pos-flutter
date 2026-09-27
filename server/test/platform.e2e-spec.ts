@@ -696,6 +696,96 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       expect(reissueRes.body.error.code).toBe('DEVICE_NOT_FOUND');
     });
 
+    it("answers 404 for another tenant's device id, and never touches that tenant's row", async () => {
+      const otherCode = `pr2o-${randomUUID().slice(0, 8)}`;
+      const otherRes = await request(app.getHttpServer())
+        .post('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          code: otherCode,
+          shopName: 'ร้านอื่น',
+          ownerUsername: `owner_${otherCode}`,
+          ownerPassword: 'password-123456',
+          ownerDisplayName: 'เจ้าของร้านอื่น',
+        });
+      expect(otherRes.status).toBe(201);
+      const otherTenantId: string = otherRes.body.data.tenantId;
+      try {
+        await adminDs.query(
+          `INSERT INTO devices (tenant_id, id, label, device_no, role) VALUES ($1, 'only-in-other', 'x', 2, 'backoffice')`,
+          [otherTenantId],
+        );
+        const before = await adminDs.query(
+          `SELECT id, enrol_code_hash, enrol_expires_at FROM devices WHERE tenant_id = $1 ORDER BY id`,
+          [otherTenantId],
+        );
+
+        const res = await request(app.getHttpServer())
+          .post(`/api/v1/platform/tenants/${tenantId}/devices/only-in-other/enrol-code`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send();
+        expect(res.status).toBe(404);
+        expect(res.body.error.code).toBe('DEVICE_NOT_FOUND');
+
+        // Reissuing `pos1` here must not reach the other tenant's `pos1` either.
+        const ok = await request(app.getHttpServer())
+          .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send();
+        expect(ok.status).toBe(200);
+
+        const after = await adminDs.query(
+          `SELECT id, enrol_code_hash, enrol_expires_at FROM devices WHERE tenant_id = $1 ORDER BY id`,
+          [otherTenantId],
+        );
+        expect(after).toEqual(before);
+      } finally {
+        for (const table of ['audit_log', 'devices', 'categories', 'settings', 'users']) {
+          await adminDs.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [otherTenantId]);
+        }
+        await adminDs.query(`DELETE FROM tenants WHERE id = $1`, [otherTenantId]);
+        await cache.del(`t:${otherTenantId}:status`);
+      }
+    });
+
+    it('refuses both new routes with 403 PLATFORM_IP_FORBIDDEN from an IP outside the allowlist', async () => {
+      const reissueRes = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '203.0.113.195')
+        .send();
+      expect(reissueRes.status).toBe(403);
+      expect(reissueRes.body.error.code).toBe('PLATFORM_IP_FORBIDDEN');
+
+      const detailRes = await request(app.getHttpServer())
+        .get(`/api/v1/platform/tenants/${tenantId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '203.0.113.195');
+      expect(detailRes.status).toBe(403);
+      expect(detailRes.body.error.code).toBe('PLATFORM_IP_FORBIDDEN');
+
+      // Refused at the guard: the code was not rotated.
+      const rows = await adminDs.query(
+        `SELECT 1 FROM audit_log WHERE tenant_id = $1 AND action = 'platform.device.enrol_code_reissued'`,
+        [tenantId],
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it('GET /platform/tenants/:id still shows an expired enrolExpiresAt (the case reissue exists for)', async () => {
+      await adminDs.query(
+        `UPDATE devices SET enrol_expires_at = now() - interval '1 day' WHERE tenant_id = $1 AND id = 'pos1'`,
+        [tenantId],
+      );
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/platform/tenants/${tenantId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      const device = res.body.data.devices[0];
+      expect(device.enrolled).toBe(false);
+      expect(new Date(device.enrolExpiresAt).getTime()).toBeLessThan(Date.now());
+    });
+
     it('answers 400 INVALID_TENANT_ID for a non-UUID tenant id, on both the reissue and detail routes', async () => {
       const reissueRes = await request(app.getHttpServer())
         .post('/api/v1/platform/tenants/not-a-uuid/devices/pos1/enrol-code')
