@@ -372,6 +372,48 @@ void main() {
         expect(find.text('เงินในลิ้นชักที่ควรมี'), findsOneWidget);
         expect(find.text(baht(950)), findsNothing);
         expect(find.text(baht(700)), findsWidgets);
+
+        // Two credit settlements in the new shift: only the CASH one enters
+        // the drawer — on this screen AND in the closing report.
+        final later = next.openedAt.add(const Duration(seconds: 1));
+        for (final (id, amount, note) in [
+          ('cp-cash', 100.0, 'เงินสด'),
+          ('cp-transfer', 40.0, 'โอน/QR · ค่าอะไหล่'),
+        ]) {
+          await db
+              .into(db.creditPayments)
+              .insert(
+                CreditPaymentsCompanion.insert(
+                  id: id,
+                  receiptNo: 'CP-$id',
+                  mechanicId: 'm_guard',
+                  amount: amount,
+                  date: later,
+                  note: Value(note),
+                ),
+              );
+        }
+        // A fresh screen (new key) so the drawer is read again.
+        await pumpScreen(tester, db, CashDrawerScreen(key: UniqueKey()));
+        expect(find.text(baht(800)), findsWidgets);
+        expect(find.text(baht(840)), findsNothing);
+
+        await tester.tap(find.text('📊 สรุปยอดปิดร้าน'));
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        final report = find.byType(Dialog);
+        expect(report, findsOneWidget);
+        // Same expected cash as the screen: 700 + 100, never the first
+        // shift's 250 nor the transfer's 40.
+        expect(
+          find.descendant(of: report, matching: find.text(baht(800))),
+          findsWidgets,
+        );
+        for (final wrong in [1050, 840, 1090]) {
+          expect(
+            find.descendant(of: report, matching: find.text(baht(wrong))),
+            findsNothing,
+          );
+        }
         await db.close();
       });
     },

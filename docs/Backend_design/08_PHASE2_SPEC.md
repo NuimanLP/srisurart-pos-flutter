@@ -164,7 +164,7 @@ stateDiagram-v2
 | Degraded | op ในคิว (§6) → outbox · ออนไลน์เท่านั้น → ปุ่มปิด |
 | Syncing | ต่อท้าย outbox · ออนไลน์เท่านั้น → รอ |
 
-ค่าคงที่ (ปรับใน PR ได้): health = `GET /health/ready` (probe ใช้ pool ของตัวเองขนาด 1 ตั้งแต่ #253 — health เขียวไม่ได้แปลว่า pool ของ request ว่าง; write ที่ค้างยังทำให้ Degraded ตามข้อ "ไม่ได้คำตัดสิน") · ตรวจทุก 5 วินาที timeout 5 วินาที · "ไม่ได้คำตัดสิน" = ที่ `isVerdict` ไม่นับ (timeout, socket, 5xx, 429, `503 IDEMPOTENCY_KEY_IN_FLIGHT`) → เข้า outbox ด้วย id + key เดิม · 4xx = คำตัดสิน
+ค่าคงที่ (ปรับใน PR ได้): health = `GET /health/ready` (probe ใช้ pool ของตัวเองขนาด 1 ตั้งแต่ #253 — health เขียวไม่ได้แปลว่า pool ของ request ว่าง; write ที่ค้างยังทำให้ Degraded ตามข้อ "ไม่ได้คำตัดสิน") · ตรวจทุก 5 วินาที timeout 5 วินาที · "ไม่ได้คำตัดสิน" = ที่ `isVerdict` ไม่นับ (timeout, socket, 5xx, 429, `503 IDEMPOTENCY_KEY_IN_FLIGHT`) → Degraded · 4xx = คำตัดสิน · 🔄 **แก้ 2026-09-27 (owner, #452):** เข้า outbox ด้วย id + key เดิม**เฉพาะ transport failure** (timeout, socket) — 5xx/429/`IN_FLIGHT` **ไม่เข้าคิว** จอดความพยายามไว้ (id + key เดิม) ให้กดซ้ำ replay เหมือน `ApiSalesRepository` (CLAUDE.md: "never fall back to a local write on anything but a genuine transport failure")
 
 กติกาลำดับ: มี op `pending` ที่ส่งได้ → write ใหม่ต่อท้าย outbox (op `stuck` และ op ที่รอมันไม่นับ — §8.4)
 
@@ -193,7 +193,7 @@ stateDiagram-v2
 - override วงเงิน = `overrideCreditLimit` ใน `sale.create` · ทาง push → รายการตรวจ `credit_override`
 - id ชน + ฟิลด์ที่เทียบไม่ตรง → `rejected` **`CLIENT_ID_REUSED`** `details: {type, id}` (code เดียวแทน `SALE_ID_REUSED`/`CREDIT_PAYMENT_ID_REUSED` บนทาง push; ทางออนไลน์คง code เดิม)
 
-> สถานะ 2026-09-27 (ฝั่ง client): เข้าคิวได้แล้ว `sale.create` · `credit_payment.create` · `customer.*` · `sale.void_offline` · **`shift.open` + `drawer.entry`** (PR #456, #452 slice — body ออนไลน์มี `id` แล้ว) · **`return.create`** (#452 — body ออนไลน์มี `id` · ออฟไลน์เขียนใบลดหนี้ + เลข CN ของเครื่อง + คืนสต็อก/ลูกค้า/ช่าง + void บิลที่คืนครบ + แถว outbox ใน local transaction เดียว ผ่านกฎ pure `planReturn` ที่ใช้ร่วมกับ Drift build) · client test ผูก replay by key + `CLIENT_ID_REUSED` ของสาม op นี้แล้ว (`sync_service_contract_test.dart` กลุ่ม 8) · ⚠️ ข้อเบี่ยงจาก §5 ที่ยังไม่ได้เคาะ: API build เข้าคิวเฉพาะ transport failure — 5xx/429 จอดความพยายามไว้ (id + key เดิม) เหมือน `ApiSalesRepository`
+> สถานะ 2026-09-27 (ฝั่ง client): เข้าคิวได้แล้ว `sale.create` · `credit_payment.create` · `customer.*` · `sale.void_offline` · **`shift.open` + `drawer.entry`** (PR #456, #452 slice — body ออนไลน์มี `id` แล้ว) · **`return.create`** (#452 — body ออนไลน์มี `id` · ออฟไลน์เขียนใบลดหนี้ + เลข CN ของเครื่อง + คืนสต็อก/ลูกค้า/ช่าง + void บิลที่คืนครบ + แถว outbox ใน local transaction เดียว ผ่านกฎ pure `planReturn` ที่ใช้ร่วมกับ Drift build) · client test ผูก replay by key + `CLIENT_ID_REUSED` ของสาม op นี้แล้ว (`sync_service_contract_test.dart` กลุ่ม 8) · API build เข้าคิวเฉพาะ transport failure — 5xx/429 จอดความพยายามไว้ (id + key เดิม) เหมือน `ApiSalesRepository` (owner เคาะ 2026-09-27, §5 แก้ตามแล้ว)
 
 ### 6.2 ออนไลน์เท่านั้น
 สินค้า · หมวด · ซัพพลายเออร์ · PO · ช่าง · **ใบเสนอราคาทั้งหมด** · settings · การลบ · void บิลออนไลน์ · ปิดกะ · discard · ตั้ง PIN ออฟไลน์ · import · จัดการเครื่อง · export
@@ -373,7 +373,7 @@ stateDiagram-v2
 | รายการในคิว | server ประทับกะ active ณ ตอนนั้น — ลำดับ push ทำให้ตรง |
 | กะที่มาจาก import (#244) | ถูก archive ทุกกะ (`auto_archived` ถ้าไม่เคยปิด) โดย import เอง — **ไม่สร้าง** `shift_uncounted` (รายการตรวจเกิดจาก `open` เท่านั้น) · บิลที่ import ไม่มี `shift_id` → void ไม่ได้ ต้องออกใบลดหนี้ (#94 เดิม) |
 
-> สถานะ 2026-09-27: Drift `openShift(startingCash, {id})` หลายกะต่อวันแล้ว — ลบ "active วันเดียวกัน → คืนกะเดิม" (#453, PR #456) · ปิดกะบน API build ส่ง outbox ก่อน แล้วปฏิเสธ `OUTBOX_NOT_EMPTY` ถ้ายังเหลือ op ใด ๆ + ปุ่มปิดกะปิดเมื่อ `outboxRemaining > 0` (PR #456 — ข้อความไทยยังเป็น **agent ร่าง** ใน `02 §8.1.1`) · หน้าลิ้นชักแสดงฟอร์ม `เปิดกะใหม่` เมื่อกะปัจจุบันปิดแล้ว (#452 — ข้อความ **agent ร่าง** ใน `02 §8.1.1`) และกะที่สองของวันนับเงินสดตั้งแต่เวลาเปิดกะของตัวเอง ไม่ใช่ตั้งแต่เที่ยงคืน
+> สถานะ 2026-09-27: Drift `openShift(startingCash, {id})` หลายกะต่อวันแล้ว — ลบ "active วันเดียวกัน → คืนกะเดิม" (#453, PR #456) · ปิดกะบน API build ส่ง outbox ก่อน แล้วปฏิเสธ `OUTBOX_NOT_EMPTY` ถ้ายังเหลือ op ใด ๆ + ปุ่มปิดกะปิดเมื่อ `outboxRemaining > 0` (PR #456 — ข้อความไทย owner รับรอง 2026-09-27) · หน้าลิ้นชักแสดงฟอร์ม `เปิดกะใหม่` เมื่อกะปัจจุบันปิดแล้ว (#452 — ข้อความ **agent ร่าง** ใน `02 §8.1.1`) · เงินสดที่ควรมีของกะที่สองของวันนับตั้งแต่เวลาเปิดกะของตัวเอง ไม่ใช่ตั้งแต่เที่ยงคืน — หน้าลิ้นชักและส่วนตรวจนับของรายงานปิดร้านใช้จุดเริ่มเดียวกัน (`ShiftsRepository.cashCountFrom`) · กะแรกของวัน (รวมทุกกะที่เปิดก่อนมีหลายกะต่อวัน) ยังนับตั้งแต่เที่ยงคืนเหมือนเดิม · รับชำระเครดิตนับเข้าลิ้นชักเฉพาะเงินสดทั้งสองที่ (หน้าลิ้นชักเคยนับเงินโอนด้วย)
 
 **ตัวอย่าง:** เน็ตล่มสองวัน: `open A`(15) → 20 บิล → `open B`(16) → 30 บิล → push ตามลำดับ → A archive + `shift_uncounted` · บิลลงกะของตัวเองครบ
 

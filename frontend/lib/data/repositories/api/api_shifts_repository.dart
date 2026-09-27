@@ -118,6 +118,9 @@ class ApiShiftsRepository implements ShiftsRepository {
   @override
   Future<List<ShiftWithEntries>> getShiftHistory() => drift.getShiftHistory();
 
+  @override
+  Future<DateTime?> cashCountFrom(ShiftRow shift) => drift.cashCountFrom(shift);
+
   // ── Writes — hit the server, then patch Drift from the response. ──────
 
   /// `POST /shifts/open` with body `{ id, startingCash }` (08 §11). The server
@@ -175,7 +178,7 @@ class ApiShiftsRepository implements ShiftsRepository {
       }
       final unsent = (await db.select(db.outboxOps).get()).length;
       if (unsent > 0) {
-        // agent ร่าง, awaiting the owner — catalogued in 02_API_SCREENS §8.1.1.
+        // Ratified by the owner 2026-09-27 (#452) — 02_API_SCREENS §8.1.1.
         throw PosException(
           'OUTBOX_NOT_EMPTY',
           'ยังมี $unsent รายการติดปัญหา / ค้างส่ง '

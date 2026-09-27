@@ -121,19 +121,11 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         : null;
 
     // Several shifts a day (08 §11, #452): a later shift counts only its own
-    // cash — from its own opening, not from midnight — or its expected cash
-    // would include the earlier shift's sales. The day's first shift keeps the
-    // midnight bound, as before.
-    var from = day.from;
-    if (shift != null) {
-      final history = await shiftsRepo.getShiftHistory();
-      final earlierToday = history.any(
-        (h) =>
-            h.shift.dateStr == today &&
-            h.shift.openedAt.isBefore(shift.shift.openedAt),
-      );
-      if (earlierToday) from = shift.shift.openedAt;
-    }
+    // cash — from its own opening, not from midnight. The day's first shift
+    // keeps the midnight bound, as before. Same rule as the closing report.
+    final from = shift == null
+        ? day.from
+        : (await shiftsRepo.cashCountFrom(shift.shift) ?? day.from);
 
     final salesAgg = await salesRepo.getSales(from: from, to: day.to);
     final cashSalesTotal = salesAgg
@@ -145,17 +137,17 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         .where((r) => r.ret.refundMethod == 'เงินสด')
         .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
-    // The Drift CreditPayments table has no `method` column (the JS filtered
-    // p.method === 'เงินสด'); we treat every same-day credit settlement as a
-    // cash drawer inflow.
+    // Only CASH settlements enter the drawer (the JS filtered
+    // p.method === 'เงินสด'). The Drift table has no method column; the method
+    // is the note's leading segment — the same test the closing report uses, so
+    // the two expect the same cash (#452; this screen used to count transfers).
     final creditPayments = await mechanicsRepo.getCreditPayments(
       from: from,
       to: day.to,
     );
-    final cashCreditPaymentsToday = creditPayments.fold<double>(
-      0,
-      (s, p) => s + p.amount,
-    );
+    final cashCreditPaymentsToday = creditPayments
+        .where((p) => isCashCreditPayment(p.note))
+        .fold<double>(0, (s, p) => s + p.amount);
 
     return _DrawerData(
       shift: shift,
@@ -189,8 +181,11 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     try {
       await repo.openShift(v);
       _startCtl.clear();
-      _tab = 0; // a new shift starts on its money tab, not the closed count
-      _refresh();
+      // A new shift starts on its money tab, not the closed count.
+      setState(() {
+        _tab = 0;
+        _dataFuture = _loadData();
+      });
     } catch (e) {
       // Opening the drawer could not fail while ShiftsRepository was Drift-only,
       // so this had no catch. ApiShiftsRepository (#56) makes it a network call,
