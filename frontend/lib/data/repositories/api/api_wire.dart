@@ -136,6 +136,38 @@ Future<bool> hasOpenShift(AppDatabase db) async {
 Value<double> keepMoney(double? v) =>
     v == null ? const Value.absent() : Value(v);
 
+/// A sale reply's `customerAfter` → the local customer row: points and spend
+/// AS THE SERVER HAS THEM. Shared by the online sale (`ApiSalesRepository`) and
+/// the pushed offline one (`patchSaleFromPushReply`, #455) so the two cannot
+/// drift. `updatedAt` is not touched: it is a sync cursor and the reply has none.
+Future<void> patchCustomerAfter(AppDatabase db, Map<dynamic, dynamic> c) async {
+  final id = c['id'];
+  if (id is! String) return;
+  final points = c['points'];
+  final companion = CustomersCompanion(
+    points: points is int ? Value(points) : const Value.absent(),
+    totalSpend: keepMoney(moneyOrNull(c['totalSpend'])),
+  );
+  if (companion == const CustomersCompanion()) return;
+  await (db.update(db.customers)..where((t) => t.id.equals(id))).write(companion);
+}
+
+/// A sale reply's `mechanicAfter` → all four running totals as the server has
+/// them (#82). 🔴 `totalCredit` is NOT written: it is the legacy alias of
+/// `totalDiscount` settled in #11, and the server never moves it either.
+Future<void> patchMechanicAfter(AppDatabase db, Map<dynamic, dynamic> m) async {
+  final id = m['id'];
+  if (id is! String) return;
+  final companion = MechanicsCompanion(
+    totalSales: keepMoney(moneyOrNull(m['totalSales'])),
+    totalDiscount: keepMoney(moneyOrNull(m['totalDiscount'])),
+    totalMarkup: keepMoney(moneyOrNull(m['totalMarkup'])),
+    creditBalance: keepMoney(moneyOrNull(m['creditBalance'])),
+  );
+  if (companion == const MechanicsCompanion()) return;
+  await (db.update(db.mechanics)..where((t) => t.id.equals(id))).write(companion);
+}
+
 /// One `movements[]` entry from a server response → the local log row.
 ///
 /// Every number is the server's: `delta` and `stockAfter` are what it actually

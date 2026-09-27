@@ -117,12 +117,37 @@
               "receiptNo": "RC01-2569-09-0050",
               "total": "100.00",
               "pointsGranted": 10,
+              "date": "2026-09-15T05:00:00.000Z",
+              "shiftId": "sh_batch_001",
               "products": [
                 {
                   "id": "p1",
                   "stock": 9
                 }
-              ]
+              ],
+              "items": [
+                {
+                  "lineNo": 1,
+                  "productId": "p1",
+                  "costAtSale": "50.00"
+                }
+              ],
+              "movements": [
+                {
+                  "id": "mv_example_s_batch_1_1",
+                  "productId": "p1",
+                  "partNo": "HN-15412-KVB",
+                  "name": "Oil Filter",
+                  "delta": -1,
+                  "type": "sale",
+                  "note": null,
+                  "stockAfter": 9,
+                  "date": "2026-09-15T02:05:00.000Z"
+                }
+              ],
+              "mechanicCreditBalanceAfter": null,
+              "mechanicAfter": null,
+              "customerAfter": null
             }
           },
           {

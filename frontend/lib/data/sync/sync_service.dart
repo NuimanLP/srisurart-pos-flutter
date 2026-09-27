@@ -13,6 +13,7 @@ import '../../core/network/server_error_resolver.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
 import '../storage/token_storage.dart';
+import 'sale_push_patch.dart';
 import 'sync_facade.dart';
 
 class SyncService implements SyncFacade {
@@ -425,6 +426,7 @@ class SyncService implements SyncFacade {
               if (appliedOp != null) {
                 await _patchDocNo(appliedOp, resp);
                 await _patchShiftOpen(appliedOp, resp);
+                await patchSaleFromPushReply(db, appliedOp, resp, remainingOps);
               }
               await (db.delete(db.outboxOps)
                     ..where((t) => t.opId.equals(opId)))
