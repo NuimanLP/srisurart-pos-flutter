@@ -25,13 +25,32 @@
 // server that predates #82 answers without them and a missing field must not
 // crash the counter — and absent means the local table is left as it was, never
 // that the value is worked out here (ADR-0010 §3).
+//
+// Phase 2 (#452, 08 §6.1/§7): `return.create` is a queued op. The online body
+// carries the client's `id`, minted ONCE per attempt with its `Idempotency-Key`
+// ([PendingWrites]). Degraded, or a lost connection with the sync engine wired
+// → the credit note is written locally in ONE transaction with its CN number and
+// its `outbox_ops` row, under that same id + key ([_createOffline]). The local
+// arithmetic comes from the pure [planReturn], never from the Drift service. A
+// 5xx does NOT queue (owner 2026-09-27, parity with sales): the attempt stays
+// parked for the retry.
+
+import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/server_error_resolver.dart';
+import '../../../core/network/transport_failure.dart';
+import '../../../core/utils/ids.dart';
 import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
+import '../../services/doc_number_service.dart';
+import '../../sync/sync_facade.dart';
+import '../../sync/sync_service.dart';
+import '../return_plan.dart';
 import '../returns_repository.dart';
 import 'api_wire.dart';
 
@@ -40,9 +59,18 @@ class ApiReturnsRepository implements ReturnsRepository {
     required this.api,
     required this.db,
     required this.drift,
+    this.syncService,
+    this.docNumberService,
   });
 
   final ApiClient api;
+
+  /// The sync engine — null on a build without the outbox, which then never
+  /// queues (every failure surfaces as before).
+  final SyncService? syncService;
+
+  /// Issues the offline CN number (08 §9). Without it nothing can be queued.
+  final DocNumberService? docNumberService;
 
   /// Plain row patches only — never `db.transaction` around the network call,
   /// never a Drift transactional service.
@@ -52,43 +80,41 @@ class ApiReturnsRepository implements ReturnsRepository {
   /// Reads stay on Drift until the read slice (#55) replaces them.
   final ReturnsRepository drift;
 
-  /// The `Idempotency-Key` of a credit note that never got a verdict, keyed by
-  /// the refund it was for.
+  /// The id + `Idempotency-Key` of a credit note that never got a verdict,
+  /// keyed by the refund it was for.
   ///
-  /// 🔴 `POST /returns` does NOT take a client-generated id — `returns.service.ts`
-  /// mints it — so the header is the ONLY thing standing between a lost reply and
-  /// a second credit note, and the over-refund guard does not catch it: it
-  /// enforces `requested ≤ sold − refunded`, so returning 3 of 10 twice is two
-  /// legal credit notes and ฿600 refunded for ฿300 of goods.
+  /// 🔴 The over-refund guard does not catch a resend: it enforces
+  /// `requested ≤ sold − refunded`, so returning 3 of 10 twice is two legal
+  /// credit notes and ฿600 refunded for ฿300 of goods. The key, and since #452
+  /// the client `id` the server records the note under, are what make the
+  /// second press a replay of the first.
   final PendingWrites _pending = PendingWrites('r');
+
+  /// Same rule as `ApiSalesRepository._isDegraded` (08 §5): Degraded or
+  /// Syncing, or anything already queued → a new write joins the outbox.
+  bool get _isDegraded {
+    final sync = syncService;
+    if (sync == null) return false;
+    return sync.currentStatus == SyncStatus.degraded ||
+        sync.currentStatus == SyncStatus.syncing ||
+        sync.currentOutboxRemaining > 0;
+  }
 
   @override
   Future<ReturnRow> createReturn(ReturnInput input) {
     return rethrowThai(() async {
-      final body = {
-        'saleId': input.saleId,
-        'refundMethod': input.refundMethod,
-        // `returns.reason` is NOT NULL DEFAULT '' on both sides, and the old app
-        // stores '' when staff typed nothing.
-        'reason': input.reason ?? '',
-        'items': [
-          for (final i in input.items)
-            {
-              'productId': i.productId,
-              'name': i.name,
-              'qty': i.qty,
-              // Sent verbatim. See the file header: the bill decides the price.
-              'price': wireMoney(i.price),
-              'originalQty': i.originalQty,
-            },
-        ],
-      };
-
-      // One key for this attempt, reused by `ApiClient`'s 401 → refresh → retry
-      // AND by the counter's own second press. A credit note is money leaving
-      // the drawer; a second one is a second refund for goods that came back
-      // once.
+      // One id + key for this attempt, reused by `ApiClient`'s 401 → refresh →
+      // retry, by the counter's own second press AND by the offline queue. A
+      // credit note is money leaving the drawer; a second one is a second
+      // refund for goods that came back once.
       final attempt = _pending.of(_refundKey(input));
+      final body = _returnBody(attempt.id, input);
+
+      if (_isDegraded) {
+        final ret = await _createOffline(attempt, input, body);
+        _pending.close(attempt);
+        return ret;
+      }
 
       final Map<String, dynamic> res;
       try {
@@ -103,6 +129,18 @@ class ApiReturnsRepository implements ReturnsRepository {
       } on ApiException catch (e) {
         _pending.closeIfVerdict(attempt, e);
         rethrow;
+      } catch (e) {
+        // Only a TRANSPORT failure (timeout, dropped socket) with the sync
+        // engine wired becomes an offline credit note, under the SAME id + key:
+        // if the lost request had in fact committed, the push replays it (08 §5).
+        // Anything else — a reply that arrived but was not readable (#409) — is
+        // rethrown with the attempt still parked.
+        final sync = syncService;
+        if (sync == null || !isTransportFailure(e)) rethrow;
+        sync.recordNonVerdictWrite();
+        final ret = await _createOffline(attempt, input, body);
+        _pending.close(attempt);
+        return ret;
       }
 
       final row = await _patchFromResponse(res);
@@ -110,6 +148,258 @@ class ApiReturnsRepository implements ReturnsRepository {
       _pending.close(attempt);
       return row;
     });
+  }
+
+  /// Exactly the fields `parseCreateReturn` reads. `cnNo` and `date` join it
+  /// only on the queued op (08 §6.4, same as `sale.create`).
+  Map<String, dynamic> _returnBody(String id, ReturnInput input) => {
+    'id': id,
+    'saleId': input.saleId,
+    'refundMethod': input.refundMethod,
+    // `returns.reason` is NOT NULL DEFAULT '' on both sides, and the old app
+    // stores '' when staff typed nothing.
+    'reason': input.reason ?? '',
+    'items': [
+      for (final i in input.items)
+        {
+          'productId': i.productId,
+          'name': i.name,
+          'qty': i.qty,
+          // Sent verbatim. See the file header: the bill decides the price.
+          'price': wireMoney(i.price),
+          'originalQty': i.originalQty,
+        },
+    ],
+  };
+
+  // ── Offline credit note (08 §6.1/§7/§9) ─────────────────────────────────
+
+  /// Queues `return.create`: the credit note, its lines, the stock put back,
+  /// the customer/mechanic reversal, the auto-void of a fully returned bill,
+  /// the CN number and the `outbox_ops` row — ALL in one local transaction, so
+  /// the note and its op exist together or not at all, and the CN number is
+  /// consumed only when the op is queued (C8). The rules come from the pure
+  /// [planReturn]; the Drift `createReturn` is never called.
+  Future<ReturnRow> _createOffline(
+    PendingWrite attempt,
+    ReturnInput input,
+    Map<String, dynamic> body,
+  ) async {
+    final openShift =
+        await (db.select(db.shifts)
+              ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
+              ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    // A cash refund is money leaving the drawer: the server refuses it with no
+    // open drawer (#100), so it is refused here before anything is written.
+    if (input.refundMethod == 'เงินสด' && openShift == null) {
+      throw PosException(
+        'NO_OPEN_SHIFT',
+        ServerErrorResolver.resolve('NO_OPEN_SHIFT'),
+      );
+    }
+
+    final now = DateTime.now();
+    final ret = await db.transaction(() async {
+      final sale = await (db.select(
+        db.sales,
+      )..where((t) => t.id.equals(input.saleId))).getSingleOrNull();
+      if (sale == null) {
+        throw PosException(
+          'SALE_NOT_FOUND',
+          ServerErrorResolver.resolve('SALE_NOT_FOUND'),
+        );
+      }
+      if (sale.voided) {
+        throw PosException(
+          'SALE_VOIDED',
+          ServerErrorResolver.resolve('SALE_VOIDED'),
+        );
+      }
+      // Only a bill naming a mechanic has a tab to deduct from — the server's
+      // `REFUND_METHOD_NOT_ALLOWED`.
+      if (input.refundMethod == 'หักจากเครดิต' && sale.mechanicId == null) {
+        throw PosException(
+          'REFUND_METHOD_NOT_ALLOWED',
+          ServerErrorResolver.resolve('REFUND_METHOD_NOT_ALLOWED'),
+        );
+      }
+
+      final soldItems = await (db.select(
+        db.saleItems,
+      )..where((t) => t.saleId.equals(sale.id))).get();
+      final customer = sale.customerId == null
+          ? null
+          : await (db.select(
+              db.customers,
+            )..where((t) => t.id.equals(sale.customerId!))).getSingleOrNull();
+      final mechanic = sale.mechanicId == null
+          ? null
+          : await (db.select(
+              db.mechanics,
+            )..where((t) => t.id.equals(sale.mechanicId!))).getSingleOrNull();
+      final plan = planReturn(
+        sale: sale,
+        soldItems: soldItems,
+        refundedSoFar: await _refundedQty(sale.id),
+        input: input,
+        customer: customer,
+        mechanic: mechanic,
+      );
+
+      // After every guard, so a refused credit note burns no number.
+      final cnNo = await _issueOfflineCnNo(now);
+
+      final row = ReturnRow(
+        id: attempt.id,
+        cnNo: cnNo,
+        saleId: sale.id,
+        receiptNo: sale.receiptNo,
+        refundSubtotal: plan.refundSubtotal,
+        refundDiscount: plan.refundDiscount,
+        refundTotal: plan.refundTotal,
+        refundMethod: input.refundMethod,
+        reason: input.reason ?? '',
+        customerId: sale.customerId,
+        mechanicId: sale.mechanicId,
+        mechanicName: sale.mechanicName,
+        date: now,
+      );
+      await db.into(db.returns).insert(row);
+      for (final i in input.items) {
+        await db
+            .into(db.returnItems)
+            .insert(
+              ReturnItemsCompanion.insert(
+                returnId: row.id,
+                productId: i.productId,
+                name: i.name,
+                qty: i.qty,
+                price: i.price,
+                originalQty: Value(i.originalQty),
+              ),
+            );
+      }
+
+      // Stock back on the shelf. Not `.stamped` — same reason as the offline
+      // sale: `updatedAt` is the pull cursor, and a local clock pushes it past
+      // server changes it has not seen yet.
+      for (final i in input.items) {
+        final p = await (db.select(
+          db.products,
+        )..where((t) => t.id.equals(i.productId))).getSingleOrNull();
+        if (p != null) {
+          await (db.update(db.products)..where((t) => t.id.equals(p.id)))
+              .write(ProductsCompanion(stock: Value(p.stock + i.qty)));
+        }
+      }
+
+      final c = plan.customerAfter;
+      if (c != null) {
+        await (db.update(
+          db.customers,
+        )..where((t) => t.id.equals(sale.customerId!))).write(
+          CustomersCompanion(
+            totalSpend: Value(c.totalSpend),
+            points: Value(c.points),
+          ),
+        );
+      }
+      final m = plan.mechanicAfter;
+      if (m != null) {
+        await (db.update(
+          db.mechanics,
+        )..where((t) => t.id.equals(sale.mechanicId!))).write(
+          MechanicsCompanion(
+            totalSales: Value(m.totalSales),
+            totalDiscount: Value(m.totalDiscount),
+            totalMarkup: Value(m.totalMarkup),
+            creditBalance: Value(m.creditBalance),
+            updatedAt: Value(now),
+          ),
+        );
+      }
+      if (plan.voidsSale) {
+        await (db.update(db.sales)..where((t) => t.id.equals(sale.id))).write(
+          SalesCompanion(voided: const Value(true), voidedAt: Value(now)),
+        );
+      }
+
+      await db
+          .into(db.outboxOps)
+          .insert(
+            OutboxOpsCompanion.insert(
+              opId: newId('op'),
+              idempotencyKey: attempt.headers['Idempotency-Key']!,
+              type: 'return.create',
+              // = the online body + the device's CN number and clock (08 §6.4).
+              payload: jsonEncode({
+                ...body,
+                'cnNo': cnNo,
+                'date': now.toUtc().toIso8601String(),
+              }),
+              aggregates: jsonEncode([
+                'return:${row.id}',
+                'sale:${sale.id}',
+                if (openShift != null) 'shift:${openShift.id}',
+              ]),
+              createdAt: now.toUtc(),
+              status: 'pending',
+            ),
+          );
+      return row;
+    });
+
+    final sync = syncService;
+    if (sync != null) {
+      await sync.refreshOutbox();
+      if (sync.currentStatus != SyncStatus.degraded) unawaited(sync.push());
+    }
+    return ret;
+  }
+
+  /// The next CN number from this device's own counter (08 §9), committed in
+  /// the caller's transaction. A device that was never seeded cannot number a
+  /// credit note the server will accept, so it is refused rather than given a
+  /// legacy number (`OFFLINE_SEED_REQUIRED`).
+  Future<String> _issueOfflineCnNo(DateTime now) async {
+    final numbers = docNumberService;
+    final counter = await (db.select(
+      db.docCounters,
+    )..limit(1)).getSingleOrNull();
+    final seed = await (db.select(
+      db.docCounterSeeds,
+    )..limit(1)).getSingleOrNull();
+    final deviceId = counter?.deviceId ?? seed?.deviceId;
+    if (numbers == null || deviceId == null) {
+      throw const OfflineSeedRequiredException();
+    }
+    return numbers.issueAndCommit(
+      deviceId: deviceId,
+      deviceNo: counter?.deviceNo ?? 1,
+      docType: 'cn',
+      now: now,
+      isOffline: true,
+    );
+  }
+
+  /// Qty per productId already refunded on [saleId], across every local credit
+  /// note — the same sum `ReturnsRepository` feeds its guard.
+  Future<Map<String, int>> _refundedQty(String saleId) async {
+    final rows =
+        await (db.select(db.returnItems).join([
+          innerJoin(
+            db.returns,
+            db.returns.id.equalsExp(db.returnItems.returnId),
+          ),
+        ])..where(db.returns.saleId.equals(saleId))).get();
+    final result = <String, int>{};
+    for (final row in rows) {
+      final item = row.readTable(db.returnItems);
+      result[item.productId] = (result[item.productId] ?? 0) + item.qty;
+    }
+    return result;
   }
 
   /// Identifies "the same refund, sent again": the bill, how it is refunded, and
