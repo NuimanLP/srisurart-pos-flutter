@@ -6,6 +6,26 @@
 ที่ยิงได้จริง** แล้วเขียนขั้นตอนที่ใช้คำสั่งชุดเดียวกันทั้งบน dev และบน VM
 🔴 ขั้นที่ 1 ใช้สคริปต์ของ #337 (PR #359) — ถ้า PR นั้นยังไม่ merge ให้ seed admin ด้วยมือชั่วคราว
 
+🔴 **อัปเดต 2026-09-27 (#443 PR1):** ขั้นตอน `curl`/`wget` ผ่าน nginx loopback ใน §2-§3 เดิม
+ถูกแทนที่ด้วย **platform CLI** แล้ว (`server/src/cli/platform.ts` → build เป็น
+`dist/cli/platform.js`) — ไม่มี JSON ที่ต้อง escape เอง ไม่มี `/tmp/body.json` ไม่มีการ copy
+token ด้วยมือ (แต่ละคำสั่ง login เองทุกครั้งแล้วทิ้ง token ทันที) และรหัสผ่านอ่านจาก stdin/TTY
+เท่านั้น (ไม่เคยอยู่ใน argv หรือ log) §1 ยังเป็นบันทึกประวัติที่ใช้ได้จริง (เหตุผลเรื่อง
+loopback/guard เดียวกันยังผูกกับ CLI) ส่วน §2 (กับดัก `wget`) **ไม่เกี่ยวกับ §3 แล้ว** เพราะ CLI
+ไม่ใช้ `wget`/`curl` เลย — ข้ามไปที่ §3 สำหรับขั้นตอนปัจจุบัน · 🔴 แต่ §4 ข้อ 1-2 (ยิง
+`/auth/device` + `/auth/token` ของ**หน้าร้าน** ซึ่ง CLI ไม่ครอบคลุม) **ยังใช้ `wget` +
+`/tmp/body.json` อยู่** กับดักใน §2 จึงยังใช้กับสองข้อนั้น
+
+🔴 **อัปเดต 2026-09-27 (#443 PR2+PR3, บนกิ่งนี้):** `tenants:create` **ไม่ถามรหัส owner อีก
+ต่อไป** (พรอมป์เดียวเหลือแค่รหัส platform admin) — server สุ่ม**รหัสผ่านชั่วคราว**ให้เองและคืนใน
+`tempPassword`/`tempPasswordExpiresAt` ของผลลัพธ์ ครั้งเดียว (ดูรายละเอียดสัญญาใหม่ใน §3) ·
+CLI มีคำสั่งเพิ่มอีกสี่ตัว: `tenants:show <id>` (PR2, ดูอุปกรณ์ของ tenant + import job ล่าสุด),
+`devices:reissue-code <tenantId> <deviceId>` (PR2, ออกรหัสผูกเครื่องใหม่ให้เครื่องที่ยังไม่เคย
+ผูก — แก้กับดัก "enrolCode หายแล้วไม่มีทางออก" ใน §3 ด้านล่าง), `owner:temp-password <tenantId>`
+(PR3, ออกรหัสผ่านชั่วคราวใหม่ 24 ชม. เมื่อ owner ลืมรหัส/รหัสหมดอายุ) และ `owner:set-password
+<username>` (PR3, สำหรับ tenant demo/loadtest ที่ทีมเป็นเจ้าของบัญชีเองเท่านั้น — ล็อกอินด้วย
+รหัสชั่วคราวแล้วตั้งรหัสจริงในคำสั่งเดียว **ไม่ใช่**สำหรับ owner ร้านจริง)
+
 ---
 
 ## 1. ทำไมต้องยิงจากในคอนเทนเนอร์ (และทำไม `ssh -L` ใช้ไม่ได้)
@@ -46,9 +66,22 @@ location /api/v1/platform/ {
 IP ภายนอก ซึ่ง D3 ไม่ต้องการ และ `PLATFORM_ADMIN_IPS` ก็ยังส่งเข้า container ไม่ได้อยู่ดี
 — ดูช่องว่างที่รายงานไว้ใน `demo-335-STATUS.md` §2)
 
+🔴 **CLI (#443 PR1) เดินคนละเส้นทางกับข้างบนนี้ทั้งหมด และง่ายกว่า:** มันรันจาก**ใน
+container `api-1` เอง** ยิงตรงไปที่ `http://127.0.0.1:3000` (พอร์ตของ api เอง) — **ไม่ผ่าน
+nginx เลยด้วยซ้ำ** ดังนั้น `location /api/v1/platform/` ของ nginx ที่พูดถึงข้างบนไม่เกี่ยวกับ
+CLI แต่เหตุผลเดิมของ `isAllowedIp` (`platform-auth.guard.ts`) ยังใช้: คำขอจาก `127.0.0.1`
+ภายใน container เดียวกันไม่มี `X-Forwarded-For` เลย จึง `clientIp()` อ่านได้ `req.ip` ตรง ๆ
+เป็น loopback จริงเสมอ — เหตุผลที่ `ssh -L`/docker-proxy ใช้ไม่ได้ (ข้างบน) ก็ยังใช้ได้เหมือน
+เดิม: ต้องรันคำสั่งจาก**ใน** container ไม่ใช่ยิงเข้า port ที่ publish ไว้จากโฮสต์
+
 ---
 
-## 2. กับดัก `wget` ที่จะทำให้เสียเวลาเป็นชั่วโมง
+## 2. กับดัก `wget` ที่จะทำให้เสียเวลาเป็นชั่วโมง (ไม่เกี่ยวกับ §3 แล้ว — ยังใช้กับ §4 ข้อ 1-2)
+
+🔴 **ไม่เกี่ยวกับการ provision (§3) ตั้งแต่ #443 PR1 (2026-09-27):** platform CLI ไม่ใช้
+`wget`/`curl` เลย — มันคุยกับ api ด้วย `fetch` ของ Node เอง ไม่มี body ที่ต้องยัดเป็น string
+ผ่าน shell หลายชั้น แต่ขั้นพิสูจน์ใน §4 ข้อ 1-2 (endpoint หน้าร้าน) ยังยิงด้วย `wget` อยู่
+ข้อควรระวังด้านล่างจึงยังใช้กับสองข้อนั้น:
 
 `wget` ในคอนเทนเนอร์ nginx เป็น **BusyBox**:
 
@@ -57,14 +90,19 @@ IP ภายนอก ซึ่ง D3 ไม่ต้องการ และ `
 - การยัด JSON ผ่าน shell หลายชั้น (PowerShell → docker → sh) มัก **ถูกกินเครื่องหมายคำพูด**
   จน body กลายเป็น `{username:admin,password:x}` แล้วได้ **400** โดยที่ทั้ง nginx และ api
   ตอบว่า "สำเร็จในการรับคำขอ" (ดูได้จาก `content-length` ใน log ที่สั้นกว่าที่ส่ง)
-- 🔴 **ทางที่ไม่พลาด: ส่ง body เป็นไฟล์** ด้วย `--post-file` ทุกครั้ง
-- ถ้ารันบน **Windows + Git Bash** (เครื่อง dev ของเลน A) ต้อง `MSYS_NO_PATHCONV=1` และใช้
-  path แบบ Windows เป็นต้นทางของ `docker compose cp` ไม่งั้น `/tmp/body.json` จะถูกแปลเป็น
-  `D:\tmp\body.json` · บน VM (Linux) เขียน `/tmp/body.json` ได้ตามปกติ ไม่ต้องทำอะไรเพิ่ม
+- ทางที่ไม่พลาดตอนนั้น: ส่ง body เป็นไฟล์ด้วย `--post-file` ทุกครั้ง — ต้องมี `/tmp/body.json`
+  บนทั้งสองฝั่ง (host + container) และลบทิ้งเองหลังใช้ (ร่องรอยรหัสผ่านค้างในไฟล์ชั่วคราวได้)
+- ถ้ารันบน **Windows + Git Bash** ต้อง `MSYS_NO_PATHCONV=1` ไม่งั้น path ถูกแปลงข้าม OS
 
 ---
 
-## 3. ขั้นตอน (คำสั่งชุดเดียวกัน · dev กับ VM ต่างแค่ `cd` และ `sudo`)
+## 3. ขั้นตอน (platform CLI · คำสั่งชุดเดียวกันทั้ง dev และ VM)
+
+CLI: `server/src/cli/platform.ts` → build แล้วอยู่ที่ `dist/cli/platform.js`
+(`pnpm build` ที่ `server/` ก็ได้มาแล้ว ไม่ต้องแก้ `nest-cli.json`/`tsconfig` เพิ่ม)
+รหัสผ่านทุกตัว (ของ platform admin เอง และรหัสชั่วคราว/รหัสใหม่ของ owner ใน `owner:set-password`) **อ่านจาก stdin/TTY เท่านั้น**
+— ไม่มี flag `--password` (CLI ปฏิเสธทันทีถ้าเจอ flag ที่ชื่อมี "pass") ไม่เคยอยู่ใน `ps`/log
+และไม่มี token ให้ copy ข้ามคำสั่ง (แต่ละคำสั่ง login เองใหม่ทุกครั้งจาก `--user` + รหัสที่พิมพ์)
 
 ```bash
 # ── ตัวแปรที่ต่างกันสองที่ (นอกจากนี้เหมือนกันทุกบรรทัด) ───────────────────
@@ -79,58 +117,92 @@ $DC run --rm \
   -e BOOTSTRAP_ADMIN_DISPLAY_NAME='ผู้ดูแลระบบ' \
   migrate node dist/db/bootstrap-admin.js
 
-# ── 1. login เอา token (ผ่าน nginx loopback) ─────────────────────────────
-printf '%s' '{"username":"admin","password":"<รหัส>"}' > /tmp/body.json
-$DC cp /tmp/body.json nginx:/tmp/body.json
-$DC exec -T nginx wget -qO- --no-check-certificate \
-  --header 'Content-Type: application/json' \
-  --post-file /tmp/body.json \
-  https://127.0.0.1/api/v1/platform/auth/token
-# → {"status":"success","data":{"token":"eyJ…","admin":{…}}}   เก็บ token ไว้เป็น $TOKEN
+# ── 1. ทดสอบว่า admin login ได้ (ไม่บังคับ แต่กันเสียเวลาถ้าตอบ 401) ───────
+# แบบ interactive (พิมพ์รหัสเอง ไม่โชว์บนจอ):
+$DC exec api-1 node dist/cli/platform.js login --user admin
+# แบบ non-interactive (CI/สคริปต์ — ใช้ -T ปิด pseudo-TTY แล้ว pipe รหัสเข้า stdin):
+read -rs ADMIN_PW   # พิมพ์รหัส admin (ไม่โชว์ ไม่ติด history)
+printf '%s\n' "$ADMIN_PW" | $DC exec -T api-1 node dist/cli/platform.js login --user admin
+# → logged in as admin (id …)
 
-# ── 2. provision tenant ──────────────────────────────────────────────────
-printf '%s' '{"code":"srisurart-demo","shopName":"ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)",
-"shopNameEn":"Srisurart Autopart (demo)","plan":"demo","ownerUsername":"owner_demo",
-"ownerDisplayName":"เจ้าของร้าน"}' > /tmp/body.json
-$DC cp /tmp/body.json nginx:/tmp/body.json
-$DC exec -T nginx wget -qO- --no-check-certificate \
-  --header 'Content-Type: application/json' \
-  --header "Authorization: Bearer $TOKEN" \
-  --post-file /tmp/body.json \
-  https://127.0.0.1/api/v1/platform/tenants
-# → {"status":"success","data":{"tenantId":"…","code":"srisurart-demo",
-#    "shopName":"…","ownerUsername":"owner_demo","tempPassword":"…16 ตัว…",
-#    "tempPasswordExpiresAt":"…","enrolCode":"BE00CB85"}}
+# ── 2. provision tenant (ไม่มีรหัส owner ให้ตั้งอีกแล้ว — #443 PR3) ─────────
+# interactive: CLI ถามแค่รหัส admin ตัวเดียว
+$DC exec api-1 node dist/cli/platform.js tenants:create \
+  --user admin \
+  --code srisurart-demo \
+  --shop-name 'ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)' \
+  --shop-name-en 'Srisurart Autopart (demo)' \
+  --plan demo \
+  --owner-username owner_demo \
+  --owner-display-name 'เจ้าของร้าน'
+# Platform admin password: <พิมพ์รหัส admin>
+# → JSON (พิมพ์แบบหลายบรรทัด) มี tenantId, code, shopName, ownerUsername, enrolCode
+#   (เช่น "BE00CB85"), tempPassword (16 ตัว, สุ่มโดย server), tempPasswordExpiresAt (+7 วัน)
+# stderr (ไม่ปนกับ JSON): "Note: tempPassword and enrolCode above are shown once …" — จดทันที เอาคืนไม่ได้
 
-# ── 3. ล้างร่องรอยรหัสผ่าน ───────────────────────────────────────────────
-$DC exec -T nginx rm -f /tmp/body.json
-rm -f /tmp/body.json
-history -d $(history 1)     # หรือเว้นวรรคนำหน้าทุกคำสั่งที่มีรหัส
+# non-interactive: รหัส admin ตัวเดียว (ไม่มี OWNER_PW แล้ว)
+printf '%s\n' "$ADMIN_PW" | \
+  $DC exec -T api-1 node dist/cli/platform.js tenants:create \
+    --user admin --code srisurart-demo --shop-name 'ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)' \
+    --shop-name-en 'Srisurart Autopart (demo)' --plan demo \
+    --owner-username owner_demo --owner-display-name 'เจ้าของร้าน'
 ```
 
-ฟิลด์ของ body: `code` (ต้องไม่ซ้ำ — ซ้ำได้ `409 Tenant code or username already exists`) ·
-`shopName` · `shopNameEn` (ไม่ใส่ = `''`) · `plan` `basic|demo|loadtest` (ไม่ใส่ = `basic`) ·
-`timezone` (ไม่ใส่ = `Asia/Bangkok`) · `ownerUsername` ·
-`ownerDisplayName` (ไม่ใส่ = ใช้ `ownerUsername`)
-🔴 **#443 PR3 (2026-09-27): ไม่มี `ownerPassword` แล้ว** — ส่งมา (ค่าอะไรก็ตาม) = **`400
-OWNER_PASSWORD_NOT_ACCEPTED`** โดยยังไม่สร้างอะไรเลย · server สุ่ม**รหัสผ่านชั่วคราว**ให้และคืนใน
-`tempPassword` **ครั้งเดียว** (อายุ **7 วัน**, เก็บแค่ hash — เอาคืนไม่ได้เหมือน `enrolCode`) ·
-ส่ง `ownerUsername` + `tempPassword` + `enrolCode` ให้ร้าน**ตัวต่อตัว** · owner ต้องตั้งรหัสเองตอน
-login ครั้งแรก (ADR-0001 addendum 2026-09-26) · ลืมรหัส/หมดอายุ →
-`POST /api/v1/platform/tenants/{id}/owner/temp-password` (24 ชม., ยืนยันตัวตนโดยโทร/อีเมล**กลับ**ไปที่
-ข้อมูลที่บันทึกไว้ตอนเปิดร้านเท่านั้น) · CLI ของ PR1 ยังไม่รองรับสองข้อนี้ — ตามใน follow-up
+ไม่มีขั้น "ล้างร่องรอยรหัสผ่าน" สำหรับ §3 อีกต่อไป — ไม่มีไฟล์ชั่วคราวให้ลบ (`--post-file` เดิม
+หายไปพร้อม `wget`) · แบบ interactive รหัสไม่เข้า `history` ของ shell เลย · แบบ non-interactive
+รหัสจะไม่เข้า `history` **ก็ต่อเมื่อ**ส่งผ่านตัวแปรจาก `read -rs` แบบข้างบน — ถ้าพิมพ์รหัสตรง ๆ
+ใน `printf '…'` มันจะติด `.bash_history` (เว้นวรรคนำหน้าช่วยได้เฉพาะเมื่อ `HISTCONTROL` มี
+`ignorespace`)
+
+คำสั่งอื่นที่ CLI มีให้ (ดู `runPlatformCli` ใน `server/src/cli/platform.ts` สำหรับ flags ทั้งหมด):
+
+- `tenants:list --user <admin>` — แสดงรายการ tenant ทั้งหมดเป็น JSON
+- `tenants:status <tenantId> <active|suspended|closed> --user <admin>` — เปลี่ยนสถานะ tenant
+- `tenants:show <tenantId> --user <admin>` (#443 PR2) — tenant + รายการอุปกรณ์ (id, label,
+  role, enrolled, enrolExpiresAt, retiredAt — ไม่มี hash/secret) + import job ล่าสุด 20 รายการ
+- `devices:reissue-code <tenantId> <deviceId> --user <admin>` (#443 PR2) — ออกรหัสผูกเครื่องใหม่
+  ให้เครื่องที่**ยังไม่เคย**ผูก (อายุ 7 วันเท่ากับตอน provision) — คำตอบมี `deviceId`,
+  `enrolCode`, `enrolExpiresAt` และ stderr เตือนว่าโชว์ครั้งเดียวเหมือน `tenants:create`
+- `owner:temp-password <tenantId> --user <admin>` (#443 PR3) — owner ลืมรหัส/รหัสหมดอายุ:
+  ออกรหัสผ่านชั่วคราวใหม่ (24 ชม.) รหัสเก่า (ไม่ว่าจะเป็นรหัสชั่วคราวหรือรหัสที่ owner ตั้งเอง)
+  ตายทันที ยืนยันตัวตนผู้ขอ**โดยโทร/อีเมลกลับ**ไปที่ข้อมูลที่บันทึกไว้ตอนเปิดร้านเท่านั้น
+  ก่อนรันคำสั่งนี้
+- `owner:set-password <username>` (#443 PR3) — ล็อกอินฝั่ง**หน้าร้าน** (ไม่ใช่ platform plane)
+  ด้วยรหัสชั่วคราว แล้วตั้งรหัสจริงในคำสั่งเดียว (สองพรอมป์: รหัสชั่วคราว, รหัสใหม่) —
+  **สำหรับ tenant demo/loadtest ที่ทีมเป็นเจ้าของบัญชีเองเท่านั้น** (มติเจ้าของ 2026-09-27)
+  ห้ามใช้กับ owner ร้านจริงเด็ดขาด — owner ร้านจริงต้องตั้งรหัสเองผ่านแอป
+
+Dev-only convenience: จาก `server/` เรียก `pnpm platform <command> …` แทน
+`node dist/cli/platform.js <command> …` ได้ (ต้อง `pnpm build` ก่อน) — **ใช้ไม่ได้บน mob04**
+เพราะ runtime image ลบ npm/corepack ออกหมดแล้ว (`server/Dockerfile`) ต้องเรียก
+`node dist/cli/platform.js` ตรง ๆ ผ่าน `docker compose exec api-1` เท่านั้น
+
+ฟิลด์ของ `tenants:create` (#443 PR3 — ไม่มี `--owner-password`/prompt รหัส owner อีกแล้ว):
+`--code` (ต้องไม่ซ้ำ — ซ้ำได้ `409 Tenant code or username already exists`) ·
+`--shop-name` · `--shop-name-en` (ไม่ใส่ = `''`) · `--plan` `basic|demo|loadtest` (ไม่ใส่ =
+`basic`) · `--timezone` (ไม่ใส่ = `Asia/Bangkok`) · `--owner-username` ·
+`--owner-display-name` (ไม่ใส่ = ใช้ `--owner-username`)
+🔴 **ส่ง `--owner-password`/ฟิลด์ `ownerPassword` อะไรก็ตามจะโดนปฏิเสธทันที** ด้วย **`400
+OWNER_PASSWORD_NOT_ACCEPTED`** ก่อนสร้างอะไรเลย (แม้ค่าจะว่าง) — server สุ่ม**รหัสผ่านชั่วคราว**
+ให้เองเสมอ (16 ตัว, ตัด `0 O 1 l I` ที่สับสนออก) และคืนใน `tempPassword` **ครั้งเดียว** (อายุ
+**7 วัน**, เก็บแค่ hash — เอาคืนไม่ได้เหมือน `enrolCode`) · ส่ง `ownerUsername` + `tempPassword`
++ `enrolCode` ให้ร้าน**ตัวต่อตัว** · owner ต้องตั้งรหัสเองตอน login ครั้งแรก (ADR-0001 addendum
+2026-09-26, `POST /auth/change-password`) · ลืมรหัส/หมดอายุ → `owner:temp-password` ข้างบน ·
+CLI ไม่ตรวจรหัสอะไรของ owner เองอีกต่อไป (ไม่มีรหัสให้ตรวจ) ส่วนรหัส **admin** เองยังต้องผ่าน
+`MIN_PASSWORD_LENGTH` (12 ตัว) ตอน `bootstrap:admin` (#337) เหมือนเดิม
 
 ### 🔴 `enrolCode` คืนกลับมาครั้งเดียว
 
 DB เก็บแต่ `sha256` (`devices.enrol_code_hash`) และหมดอายุใน **7 วัน**
 (`platform-tenants.service.ts:96-104`) → **เอาคืนไม่ได้** · จดไว้ทันทีที่ได้
 
-🔴 **และนี่คือกับดักที่ต้องรู้ก่อนวันเดโม:** ทางออกปกติคือออกเครื่องใหม่ผ่าน
-`POST /api/v1/devices` — แต่ route นั้นเรียก `requireEnrolledDevice(req)`
-(`devices.controller.ts:57-67`) คือ **ต้องมีเครื่องที่ผูกแล้วอยู่ก่อน** ดังนั้นถ้ารหัสของ
-เครื่องแรกหาย/หมดอายุ **ก่อน** ที่จะเคยผูกเครื่องได้สำเร็จเลย จะไม่มีทางออกทาง API เลย
-→ ต้อง provision tenant ใหม่ (code ใหม่) หรือแก้ `devices.enrol_code_hash`/`enrol_expires_at`
-ในฐานข้อมูลด้วยมือ · **ผูกเครื่องแรกให้เสร็จทันทีหลัง provision** อย่าทิ้งไว้ข้ามวัน
+🔴 **กับดักนี้ตอนนี้แก้ทาง API ได้แล้ว (#443 PR2) — เดิมต้อง provision ใหม่เท่านั้น:** ถ้ารหัส
+ของเครื่องแรกหาย/หมดอายุ **ก่อน** ที่จะเคยผูกเครื่องได้สำเร็จเลย ทางออกปกติ (`POST
+/api/v1/devices`) ใช้ไม่ได้เพราะ route นั้นเรียก `requireEnrolledDevice(req)`
+(`devices.controller.ts:57-67`) คือ **ต้องมีเครื่องที่ผูกแล้วอยู่ก่อน** — ตอนนี้ใช้
+`devices:reissue-code <tenantId> pos1 --user admin` แทนได้ (ใช้ได้เฉพาะเครื่องที่**ยังไม่เคย**
+ผูก, `token_hash IS NULL`) โดยไม่ต้อง provision tenant ใหม่หรือแก้ฐานข้อมูลด้วยมือ ·
+**ผูกเครื่องแรกให้เสร็จทันทีหลัง provision** ยังเป็นแนวปฏิบัติที่ดีอยู่ดี อย่าทิ้งไว้ข้ามวัน
 
 ---
 
@@ -172,18 +244,31 @@ $DC exec -T nginx wget -qO- --no-check-certificate --header 'Content-Type: appli
   --post-file /tmp/body.json https://127.0.0.1/api/v1/auth/device
 # → {"status":"success","data":{"deviceToken":"131a5f4f-…-f620e58a-…"}}
 
-# 2) เจ้าของร้าน login บนเครื่องนั้นได้
-#    🔴 deviceToken ไป "ใน body" ไม่ใช่ header — ดูกับดักใต้บล็อกนี้
-printf '%s' '{"username":"owner_demo","password":"<รหัสเจ้าของร้าน>","deviceToken":"<DEVICE_TOKEN>"}' > /tmp/body.json
+# 2) เจ้าของร้าน login บนเครื่องนั้นได้ — ด้วย tempPassword จากขั้น 2 ใน §3 (ไม่ใช่รหัสที่ตั้งเอง
+#    เพราะยังไม่เคยตั้ง) 🔴 deviceToken ไป "ใน body" ไม่ใช่ header — ดูกับดักใต้บล็อกนี้
+printf '%s' '{"username":"owner_demo","password":"<TEMP_PASSWORD จาก tenants:create>","deviceToken":"<DEVICE_TOKEN>"}' > /tmp/body.json
 $DC cp /tmp/body.json nginx:/tmp/body.json
 $DC exec -T nginx wget -qO- --no-check-certificate --header 'Content-Type: application/json' \
   --post-file /tmp/body.json https://127.0.0.1/api/v1/auth/token
+# → {"status":"success","data":{"passwordChangeRequired":true,"passwordChangeToken":"eyJ…"}}
+#    (#443 PR3: ยังไม่มี accessToken จนกว่า owner จะตั้งรหัสใหม่ — ดูข้อ 2b)
+
+# 2b) ตั้งรหัสจริงด้วย passwordChangeToken ข้างบน (10 นาที, ใช้ได้ครั้งเดียว)
+printf '%s' '{"newPassword":"<รหัสจริงของเจ้าของร้าน — อย่างน้อย 12 ตัว>"}' > /tmp/body.json
+$DC cp /tmp/body.json nginx:/tmp/body.json
+$DC exec -T nginx wget -qO- --no-check-certificate --header 'Content-Type: application/json' \
+  --header "Authorization: Bearer <PASSWORD_CHANGE_TOKEN>" \
+  --post-file /tmp/body.json https://127.0.0.1/api/v1/auth/change-password
 # → {"status":"success","data":{"accessToken":"eyJhbGciOiJSUzI1NiIsImtpZCI6ImtleS0xIn0…"}}
 #    payload: {"tid":"<tenant ใหม่>","role":"owner","did":"pos1","drole":"pos"}
+#    (device-bound เพราะขั้น 2 ส่ง deviceToken มาด้วย — change-password เก็บ did/drole จาก token เดิม)
+#
+#    ทางลัดสำหรับ tenant demo/loadtest ที่ทีมเป็นเจ้าของเอง (ไม่ต้องผูกกับเครื่องใดเครื่องหนึ่ง):
+#    `owner:set-password owner_demo` (§3) ทำข้อ 2-2b ให้ในคำสั่งเดียว — แต่ไม่ผ่าน deviceToken
+#    เข้าไป จึง token ที่ได้จะไม่มี did/drole เหมือนเส้นข้างบน
 
-# 3) เห็นในรายการของ platform
-$DC exec -T nginx wget -qO- --no-check-certificate \
-  --header "Authorization: Bearer $TOKEN" https://127.0.0.1/api/v1/platform/tenants
+# 3) เห็นในรายการของ platform — ตอนนี้ใช้ CLI แทน (ไม่ต้องถือ $TOKEN ไว้เองอีกแล้ว, #443 PR1)
+printf '%s\n' "$ADMIN_PW" | $DC exec -T api-1 node dist/cli/platform.js tenants:list --user admin   # ADMIN_PW จาก read -rs ใน §3
 ```
 
 ### 🔴 กับดักที่ `/code-review` จับได้ และวัดซ้ำแล้ว: `deviceToken` อยู่ใน body ไม่ใช่ header
@@ -238,6 +323,13 @@ $DC exec -T postgres psql -U postgres -d pos -c "
 ---
 
 ## 6. AC ของ #338 — ปิดจริงข้อไหน
+
+🔴 ตารางนี้เป็นหลักฐานของการรันจริงวันที่ 2026-09-21 ด้วยคำสั่ง `curl`/`wget` ชุดเดิม (ก่อน
+CLI ของ #443 PR1) — คอลัมน์ "หลักฐาน" ที่อ้าง "§3" หมายถึงคำสั่งชุดนั้น ไม่ใช่คำสั่ง CLI ที่
+เขียนแทนใน §3 ตอนนี้ ผลลัพธ์ (`enrolCode=BE00CB85` ฯลฯ) และเส้น provision → enrol → owner
+login ที่วัดไว้ยังเป็นความจริงของวันนั้น (PR1 เปลี่ยนแค่**เครื่องมือที่ใช้ยิง**) — แต่ 🔴 #443 PR3
+เปลี่ยน contract ของ `POST /platform/tenants` แล้ว (ไม่รับ `ownerPassword`, คืน `tempPassword`,
+login แรกได้ `passwordChangeRequired` แทน `accessToken`) จึงรันซ้ำด้วยคำสั่งชุดเดิมไม่ได้ — ใช้ §3/§4 ปัจจุบัน
 
 | AC | สถานะ | หลักฐาน |
 |---|---|---|

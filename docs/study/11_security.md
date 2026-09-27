@@ -647,6 +647,8 @@ token ของ platform admin ใช้ **HS256 ด้วย `JWT_PLATFORM_SECR
   ใช้ `timingSafeEqual` เทียบ (กันการวัดเวลาเพื่อเดาทีละ byte) แต่ hash แบบนี้ที่ยังค้างอยู่ใน DB อ่อนกว่า argon2 มาก
 - salt ไม่ต้องทำเอง — library สุ่มให้และฝังไว้ใน string ผลลัพธ์ (`$argon2id$v=19$m=65536,t=3,p=1$<salt>$<hash>`)
 
+> ⚠️ **ล้าสมัยตั้งแต่ #443 PR3 (2026-09-27):** `POST /platform/tenants` ไม่รับ `ownerPassword` แล้ว — server สุ่มรหัสชั่วคราวให้เอง และกฎ ≥ 12 ตัวย้ายไปบังคับที่ `POST /auth/change-password` (`server/src/auth/auth.service.ts`) · ลำดับ "ตรวจ → hash นอกทรานแซกชัน → เปิดทรานแซกชัน" ข้างล่างยังเป็นหลักเดียวกัน โค้ดด้านล่างเก็บไว้เป็นตัวอย่างของหลักนั้น
+
 `server/src/platform/platform-tenants.service.ts:94-109` (ตัดบางส่วน) — จุดที่กฎ #364 ถูกบังคับใช้จริงตอนสร้างร้านใหม่:
 
 ```ts

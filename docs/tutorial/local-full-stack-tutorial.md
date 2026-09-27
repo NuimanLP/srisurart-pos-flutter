@@ -121,8 +121,8 @@ docker run -d --name tlswrap --restart unless-stopped \
 > 13 หน้าใน shop) และ backend ไม่มีหน้า "admin panel" ให้กรอกฟอร์ม การสร้าง platform admin
 > เป็นการตัดสินใจโดยตั้งใจ (ADR-0001: "admins are created out of band by the team — no API
 > creates one") ส่วนการสร้าง tenant/shop owner ทำผ่าน `POST /platform/tenants` เท่านั้น
-> (เรียกด้วย `curl`/Postman เป็น admin-plane API ไม่มี UI) — 3 ขั้นตอนด้านล่างคือ**ทางเดียว**
-> ที่มีตอนนี้:
+> เรียกผ่าน **platform CLI** (`server/src/cli/platform.ts`, #443 PR1) ซึ่งเป็น admin-plane
+> API ไม่มี UI — 3 ขั้นตอนด้านล่างคือ**ทางเดียว**ที่มีตอนนี้:
 
 ### 5.1 สร้าง platform admin ตัวแรก (ADR-0001 — ทำนอก API เท่านั้น)
 
@@ -137,31 +137,36 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 ### 5.2 ล็อกอินเป็น platform admin แล้วสร้าง tenant + shop owner
 
 🔴 `location /api/v1/platform/` ของ Nginx จำกัดแค่ `127.0.0.1` และ `platform-auth.guard.ts`
-เช็คซ้ำอีกชั้น การ `curl` จากโฮสต์เข้า port ที่ publish ไว้ **โดน `403` ทุกเครื่อง ไม่ใช่แค่
+เช็คซ้ำอีกชั้น การยิงจากโฮสต์เข้า port ที่ publish ไว้ **โดน `403` ทุกเครื่อง ไม่ใช่แค่
 Docker Desktop** (บน Linux/`mob04` ก็เหมือนกัน) เพราะ docker-proxy เปิด connection ใหม่เข้า
 container ทำให้ IP กลายเป็น gateway `172.30.0.1` — และด้วยเหตุผลเดียวกัน **`ssh -L` ก็ใช้ไม่ได้**
 (#335 D3, runbook เต็มอยู่ที่ [`docs/handoff_log/ticket-338-platform-provision.md`](../handoff_log/ticket-338-platform-provision.md))
-ให้รันคำสั่งจาก**ภายใน container nginx เอง** แทน (`docker compose exec nginx …` เป็น loopback จริง):
+platform CLI (#443 PR1) จึงรันจาก**ภายใน container `api-1` เอง** ยิงตรงไปที่พอร์ต 3000 ของ
+api (ไม่ผ่าน nginx เลยด้วยซ้ำ) — เป็น loopback จริงเสมอ รหัสผ่านพิมพ์ตอนถูกถาม (stdin/TTY)
+ไม่มี `--password` ไม่มี JSON ให้ escape เอง และไม่ต้อง copy token ข้ามคำสั่ง (CLI login เอง
+ให้ทุกครั้ง):
 
 ```bash
-# ล็อกอิน platform admin
-docker compose exec -T nginx sh -c \
-  'curl -sk https://127.0.0.1/api/v1/platform/auth/token \
-    -H "Content-Type: application/json" \
-    -d "{\"username\":\"devadmin\",\"password\":\"<รหัสผ่านข้อ5.1>\"}"'
-# → คัดลอกค่า data.token มาใช้ต่อ (TOKEN=...)
+# ล็อกอิน platform admin (ทดสอบเฉย ๆ ก็ได้ ไม่จำเป็นสำหรับขั้นถัดไป)
+docker compose exec api-1 node dist/cli/platform.js login --user devadmin
+# Platform admin password: <พิมพ์รหัสผ่านข้อ 5.1>
+# → logged in as devadmin (id …)
 
-# สร้าง tenant + owner แรก
-docker compose exec -T nginx sh -c \
-  "curl -sk https://127.0.0.1/api/v1/platform/tenants \
-    -H 'Content-Type: application/json' \
-    -H 'Authorization: Bearer <TOKEN>' \
-    -d '{\"code\":\"demo-shop\",\"shopName\":\"ร้านตัวอย่าง\",\"plan\":\"demo\",\"ownerUsername\":\"owner\",\"ownerDisplayName\":\"Shop Owner\"}'"
+# สร้าง tenant + owner แรก — CLI ถามแค่รหัส admin ตัวเดียว (#443 PR3: ไม่มีรหัส owner ให้ตั้งแล้ว)
+docker compose exec api-1 node dist/cli/platform.js tenants:create \
+  --user devadmin --code demo-shop --shop-name 'ร้านตัวอย่าง' --plan demo \
+  --owner-username owner --owner-display-name 'Shop Owner'
+# Platform admin password: <พิมพ์รหัสผ่านข้อ 5.1>
 ```
 
 Response จะได้ `tenantId`, `tempPassword` (รหัสผ่าน**ชั่วคราว**ของ owner ที่ server สุ่มให้ — เห็น**ครั้งเดียว**
-อายุ 7 วัน, #443) และ `enrolCode` (ใช้สำหรับผูกเครื่อง POS Terminal ทีหลังถ้าต้องการ) · **ห้ามส่ง
-`ownerPassword`** แล้ว — ส่งมาจะได้ `400 OWNER_PASSWORD_NOT_ACCEPTED`
+อายุ 7 วัน, #443 PR3) และ `enrolCode` (ใช้สำหรับผูกเครื่อง POS Terminal ทีหลังถ้าต้องการ) · **ห้ามส่ง
+`ownerPassword`** แล้ว — CLI ตัวนี้ไม่มี flag ให้ส่งอยู่แล้ว แต่ถ้ายิง API ตรง ๆ แล้วส่งเข้าไปจะได้
+`400 OWNER_PASSWORD_NOT_ACCEPTED` · stderr ของ CLI จะเตือนด้วยว่า `tempPassword` โชว์ครั้งเดียว —
+จดทันที รายละเอียด flags ทั้งหมด คำสั่งอื่น (`tenants:show`, `devices:reissue-code`,
+`owner:temp-password`, `owner:set-password`) และตัวอย่างแบบ non-interactive (pipe รหัสเข้า
+stdin สำหรับสคริปต์/CI) อยู่ที่
+[`docs/handoff_log/ticket-338-platform-provision.md`](../handoff_log/ticket-338-platform-provision.md) §3
 
 ### 5.3 ทดสอบ login แบบ shop-level (ไม่ติด loopback restriction — เรียกจาก host ปกติได้)
 
@@ -289,7 +294,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 | container ไหนก็ตามค้าง `(health: starting)` นาน | Postgres/Redis ยังไม่พร้อม (เครื่องช้าตอน build ครั้งแรก) | รอเพิ่ม แล้วดู log: `docker compose logs <service>` |
 | ลืม `-f` ชุดเดิมตอนรันคำสั่งอื่น (เช่น `docker compose run migrate`) | compose มองว่าสแตกไม่ตรงไฟล์ แล้ว recreate `postgres` ทิ้ง port ของ dev overlay | ใส่ `-f` ชุดเดิมทุกครั้ง แล้ว `up -d` ซ้ำเพื่อคืน port |
 | Grafana panel "Disk usage (/)" ไม่มีข้อมูล | `node-exporter` mount `/:/rootfs:ro` แต่ Docker Desktop รันบน WSL VM ไม่ใช่ดิสก์ Windows ตรง ๆ | รู้ไว้เฉย ๆ ไม่ใช่บั๊ก จะขึ้นปกติบน `mob04` (Linux จริง) |
-| `curl` ไปที่ `/api/v1/platform/...` จาก host (หรือผ่าน `ssh -L`) ได้ `403 Forbidden` | docker-proxy เปิด connection ใหม่เข้า container — nginx และ guard เห็น IP เป็น gateway (`172.30.0.1`) ไม่ใช่ `127.0.0.1` · เกิดบนทุกโฮสต์ รวม `mob04` (#335 D3) | รันคำสั่งจาก**ภายใน container `nginx` เอง**: `docker compose exec -T nginx sh -c 'curl -sk https://127.0.0.1/api/v1/platform/...'` (ดูข้อ 5.2) |
+| ยิงตรงไปที่ `/api/v1/platform/...` จาก host (หรือผ่าน `ssh -L`) ได้ `403 Forbidden` | docker-proxy เปิด connection ใหม่เข้า container — nginx และ guard เห็น IP เป็น gateway (`172.30.0.1`) ไม่ใช่ `127.0.0.1` · เกิดบนทุกโฮสต์ รวม `mob04` (#335 D3) | ใช้ platform CLI จาก**ภายใน container `api-1` เอง**: `docker compose exec api-1 node dist/cli/platform.js login --user <admin>` (ดูข้อ 5.2) — ไม่ต้องยิงเข้า port ที่ publish ไว้เลย |
 
 ---
 
