@@ -801,27 +801,35 @@ class _GeneralTabState extends State<_GeneralTab> {
   Future<void> _save() async {
     if (context.isDegraded) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกการตั้งค่าได้'),
-        ),
+        const SnackBar(content: Text(settingsOfflineRefusal)),
       );
       return;
     }
     final taxRate = double.tryParse(_taxRate.text.trim()) ?? 7;
     final validDays = int.tryParse(_quoteValidDays.text.trim()) ?? 30;
-    await context.read<SettingsRepository>().updateSettings(
-      SettingsRowCompanion(
-        shopName: Value(_shopName.text),
-        shopNameEN: Value(_shopNameEN.text),
-        phone: Value(_phone.text.isEmpty ? null : _phone.text),
-        cashierName: Value(
-          _cashierName.text.isEmpty ? null : _cashierName.text,
+    try {
+      await context.read<SettingsRepository>().updateSettings(
+        SettingsRowCompanion(
+          shopName: Value(_shopName.text),
+          shopNameEN: Value(_shopNameEN.text),
+          phone: Value(_phone.text.isEmpty ? null : _phone.text),
+          cashierName: Value(
+            _cashierName.text.isEmpty ? null : _cashierName.text,
+          ),
+          address: Value(_address.text.isEmpty ? null : _address.text),
+          taxRate: Value(taxRate),
+          quoteValidDays: Value(validDays),
         ),
-        address: Value(_address.text.isEmpty ? null : _address.text),
-        taxRate: Value(taxRate),
-        quoteValidDays: Value(validDays),
-      ),
-    );
+      );
+    } catch (e) {
+      // #460: on the API build this is `PATCH /settings`, which the server
+      // or the link can refuse — the repository hands back a Thai sentence.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+      return;
+    }
     if (!mounted) return;
     setState(() => _saved = true);
     Future.delayed(const Duration(seconds: 2), () {

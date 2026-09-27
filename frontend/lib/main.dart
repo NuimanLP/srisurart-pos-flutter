@@ -9,12 +9,15 @@ import 'app.dart';
 import 'core/network/api_client.dart';
 import 'data/db/database.dart';
 import 'data/repositories/auth_repository.dart';
+import 'data/repositories/api_settings_repository.dart';
 import 'data/repositories/offline_pin_repository.dart';
+import 'data/repositories/settings_repository.dart';
 import 'data/services/doc_counter_seeder.dart';
 import 'presentation/blocs/auth_cubit.dart';
 import 'presentation/blocs/cart_cubit.dart';
 import 'presentation/blocs/doc_counter_seeding.dart';
 import 'presentation/blocs/pending_quote_cubit.dart';
+import 'presentation/blocs/settings_pull.dart';
 import 'presentation/repositories/repository_providers.dart';
 import 'presentation/widgets/font_scale_controller.dart';
 import 'presentation/widgets/theme_controller.dart';
@@ -45,6 +48,11 @@ void main() {
               // Only the API build has a server to seed from.
               if (const bool.fromEnvironment('USE_API_WRITES')) {
                 seedDocCountersOnSignIn(cubit, ctx.read<DocCounterSeeder>());
+              }
+              // #460: the tenant's settings replace the Drift seed's.
+              final settings = ctx.read<SettingsRepository>();
+              if (settings is ApiSettingsRepository) {
+                pullSettingsOnSignIn(cubit, settings);
               }
               cubit.init();
               // The refresh path clears the tokens and calls this; without the

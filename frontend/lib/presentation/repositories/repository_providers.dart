@@ -34,6 +34,7 @@ import '../../data/repositories/api_mechanics_repository.dart';
 import '../../data/repositories/api_products_repository.dart';
 import '../../data/repositories/api_purchase_orders_repository.dart';
 import '../../data/repositories/api_quotes_repository.dart';
+import '../../data/repositories/api_settings_repository.dart';
 import '../../data/repositories/review_items_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
@@ -179,7 +180,17 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
     RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
     RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
-    RepositoryProvider<SettingsRepository>.value(value: SettingsRepository(db)),
+    // #460: on the API build a settings edit is `PATCH /settings` (online
+    // only, 08 §6.2) and sign-in pulls `GET /settings` (main.dart).
+    RepositoryProvider<SettingsRepository>.value(
+      value: useApi
+          ? ApiSettingsRepository(
+              db,
+              client,
+              syncFacade: syncFacade ?? realSyncService,
+            )
+          : SettingsRepository(db),
+    ),
     RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db)),
     RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),
     RepositoryProvider<AuthRepository>.value(value: authRepo),
