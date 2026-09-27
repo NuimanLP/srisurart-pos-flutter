@@ -92,7 +92,7 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
     const res = await request(app.getHttpServer())
       .post('/api/v1/platform/tenants')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ code, shopName: 'ร้านสาธิตนำเข้าข้อมูล', shopNameEn: 'Import Demo', plan: 'demo', ownerUsername: `owner-${code}`, ownerPassword: 'import-owner-185' });
+      .send({ code, shopName: 'ร้านสาธิตนำเข้าข้อมูล', shopNameEn: 'Import Demo', plan: 'demo', ownerUsername: `owner-${code}` });
     expect(res.status).toBe(201);
     tenants.push(res.body.data.tenantId);
     return res.body.data.tenantId as string;

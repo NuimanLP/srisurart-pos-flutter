@@ -50,6 +50,22 @@ export class AuthController {
     return this.authService.refreshTokenPayload(payload);
   }
 
+  /**
+   * #443 PR3: the only route a `typ:'pwchange'` token opens. Verified here rather than by
+   * `TenantGuard`, which demands `typ:'access'` and so refuses this token everywhere else.
+   */
+  @Post('change-password')
+  @HttpCode(200)
+  async changePassword(@Body() dto: { newPassword?: unknown }, @Req() req: Request) {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : undefined;
+    if (!token) {
+      throw new UnauthorizedException('Password change token is required');
+    }
+    const payload = this.jwtVerifier.verify(token, 'pwchange');
+    return this.authService.changePassword(payload, dto?.newPassword, clientIp(req) ?? undefined);
+  }
+
   @Post('device')
   @HttpCode(200)
   async enrolDevice(@Body() dto: { code: string }) {

@@ -304,7 +304,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
     it('creates tenant in 1 transaction including audit log with 5 seed categories and initial POS device', async () => {
       mockAdminDs.query
         .mockResolvedValueOnce([{ id: 'tenant-123' }]) // INSERT INTO tenants
-        .mockResolvedValueOnce([]) // INSERT INTO users
+        .mockResolvedValueOnce([{ temp_password_expires_at: new Date() }]) // INSERT INTO users
         .mockResolvedValueOnce([]) // INSERT INTO settings
         .mockResolvedValue([]) // INSERT INTO categories (5x)
         .mockResolvedValueOnce([]) // INSERT INTO devices
@@ -316,7 +316,6 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
           code: 'shop01',
           shopName: 'ร้านอะไหล่ 1',
           ownerUsername: 'owner1',
-          ownerPassword: 'pass123456789',
           ownerDisplayName: 'เจ้าของร้าน',
         },
         'adm1',
@@ -324,6 +323,16 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
 
       expect(result.tenantId).toBe('tenant-123');
       expect(result.enrolCode).toBeDefined();
+      // #443 PR3: a server-generated temporary password, returned once, never sent to SQL raw.
+      expect(result.tempPassword).toMatch(/^[A-HJ-NP-Za-km-z2-9]{16}$/);
+      expect(result.tempPasswordExpiresAt).toBeDefined();
+      const everyParam = JSON.stringify(mockAdminDs.query.mock.calls.map((c: any) => c[1]));
+      expect(everyParam).not.toContain(result.tempPassword);
+      const userInsert = mockAdminDs.query.mock.calls.find((c: any) =>
+        c[0].includes('INSERT INTO users'),
+      );
+      expect(userInsert[0]).toContain('must_change_password');
+      expect(userInsert[1][2]).toMatch(/^\$argon2id\$/);
       expect(mockAdminDs.transaction).toHaveBeenCalled();
 
       // Verify seed categories were inserted
@@ -343,62 +352,37 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       );
     });
 
-    // #364 — the policy must bite before the transaction opens, so nothing can be left
-    // half-created and the argon2 hash is never paid for a request we are refusing.
-    // `mockAdminDs.transaction` not being called is the proof; the e2e suite proves the
-    // ground truth (no rows) against a real database.
+    // #443 PR3: the admin never chooses the owner's password. A caller still on the old
+    // contract is refused before argon2 and before any transaction, so nothing is half-made.
     it.each([
-      ['a short numeric password', '1234'],
-      ['an 11-character password', 'password123'],
+      ['a strong password', 'pass123456789'],
+      ['a short password', '1234'],
       ['an empty password', ''],
-      ['a whitespace-only password', '            '],
-      ['a non-string password', 1234 as unknown as string],
-    ])('refuses %s before opening a transaction', async (_label, ownerPassword) => {
+      ['a non-string password', 1234],
+    ])('refuses a body carrying ownerPassword (%s) with 400 before any query', async (_label, ownerPassword) => {
       const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
 
       await expect(
         service.createTenant(
           {
-            code: 'shop-weak',
-            shopName: 'ร้านอะไหล่อ่อนแอ',
-            ownerUsername: 'owner-weak',
+            code: 'shop-legacy',
+            shopName: 'ร้านอะไหล่สัญญาเก่า',
+            ownerUsername: 'owner-legacy',
             ownerPassword,
             ownerDisplayName: 'เจ้าของร้าน',
-          },
+          } as any,
           'adm1',
         ),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toMatchObject({ response: { code: 'OWNER_PASSWORD_NOT_ACCEPTED' } });
 
       expect(mockAdminDs.transaction).not.toHaveBeenCalled();
       expect(mockAdminDs.query).not.toHaveBeenCalled();
     });
 
-    it('carries the WEAK_PASSWORD code so the client can translate it (02_API_SCREENS.md §8.1)', async () => {
-      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
-
-      await expect(
-        service.createTenant(
-          {
-            code: 'shop-weak-2',
-            shopName: 'ร้านอะไหล่อ่อนแอ 2',
-            ownerUsername: 'owner-weak-2',
-            ownerPassword: '1234',
-            ownerDisplayName: 'เจ้าของร้าน',
-          },
-          'adm1',
-        ),
-      ).rejects.toMatchObject({
-        response: {
-          code: 'WEAK_PASSWORD',
-          message: 'ownerPassword is too weak: at least 12 characters required',
-        },
-      });
-    });
-
     it('rolls back and propagates error if audit logging fails during tenant creation', async () => {
       mockAdminDs.query
         .mockResolvedValueOnce([{ id: 'tenant-123' }]) // INSERT INTO tenants
-        .mockResolvedValueOnce([]) // INSERT INTO users
+        .mockResolvedValueOnce([{ temp_password_expires_at: new Date() }]) // INSERT INTO users
         .mockResolvedValueOnce([]) // INSERT INTO settings
         .mockResolvedValue([]) // INSERT INTO categories
         .mockResolvedValueOnce([]); // INSERT INTO devices
@@ -413,7 +397,6 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
             code: 'shop02',
             shopName: 'ร้านอะไหล่ 2',
             ownerUsername: 'owner2',
-            ownerPassword: 'pass123456789',
             ownerDisplayName: 'เจ้าของร้าน 2',
           },
           'deleted-adm',

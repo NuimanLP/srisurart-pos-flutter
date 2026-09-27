@@ -15,6 +15,7 @@ import '../../domain/models/auth_models.dart';
 import '../blocs/auth_cubit.dart';
 import 'app_button.dart';
 import 'app_text_field.dart';
+import 'change_password_form.dart';
 import 'sync_status_builder.dart';
 
 class LoginForm extends StatefulWidget {
@@ -107,6 +108,9 @@ class _LoginFormState extends State<LoginForm> {
       final state = cubit.state;
       setState(() {
         _busy = false;
+        // #443 PR3: a temporary password is not a refusal — build() swaps to
+        // the change-password form, with no error line.
+        if (state is AuthPasswordChangeRequired) return;
         _errorMessage = (state is Unauthenticated)
             ? state.errorMessage ?? 'เข้าสู่ระบบไม่สำเร็จ'
             : 'เข้าสู่ระบบไม่สำเร็จ';
@@ -117,6 +121,9 @@ class _LoginFormState extends State<LoginForm> {
   @override
   Widget build(BuildContext context) {
     final authState = context.watch<AuthCubit>().state;
+    if (authState is AuthPasswordChangeRequired) {
+      return ChangePasswordForm(onSuccess: widget.onSuccess);
+    }
     final isPosDevice = authState is Authenticated
         ? authState.isPos
         : (authState is Unauthenticated ? authState.isPos : false);

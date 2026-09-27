@@ -52,16 +52,20 @@ class LoginScreen extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Row(
+                            Row(
                               children: [
-                                Icon(
+                                const Icon(
                                   Icons.lock_outline,
                                   color: AppColors.orange,
                                 ),
-                                SizedBox(width: 8),
+                                const SizedBox(width: 8),
                                 Text(
-                                  'เข้าสู่ระบบ',
-                                  style: TextStyle(
+                                  // #443 PR3: LoginForm has swapped to the
+                                  // change-password form (agent ร่าง).
+                                  authState is AuthPasswordChangeRequired
+                                      ? 'ตั้งรหัสผ่านใหม่'
+                                      : 'เข้าสู่ระบบ',
+                                  style: const TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.w600,
                                   ),

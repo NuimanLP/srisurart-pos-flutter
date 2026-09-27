@@ -21,13 +21,33 @@ class StubAuthRepo extends AuthRepository {
   AuthUser? mockUser;
   bool isAuth = false;
 
+  /// #443 PR3: when set, login answers with a temporary-password result.
+  String? pwchangeToken;
+  Object? changePasswordError;
+  String? lastNewPassword;
+
   @override
-  Future<AuthUser> login({required String username, required String password}) async {
+  Future<LoginResult> login({required String username, required String password}) async {
     await Future<void>.delayed(const Duration(milliseconds: 1));
     if (shouldFailLogin) {
       throw errorToThrow ?? ApiException(statusCode: 401, code: 'UNAUTHENTICATED');
     }
-    mockUser = AuthUser(id: 'u-1', username: username, role: 'cashier');
+    final user = AuthUser(id: 'u-1', username: username, role: 'owner');
+    if (pwchangeToken != null) return LoginPasswordChangeRequired(user, pwchangeToken!);
+    mockUser = user;
+    isAuth = true;
+    return LoginSucceeded(mockUser!);
+  }
+
+  @override
+  Future<AuthUser> changePassword({
+    required String passwordChangeToken,
+    required String newPassword,
+  }) async {
+    lastNewPassword = newPassword;
+    if (changePasswordError != null) throw changePasswordError!;
+    expect(passwordChangeToken, pwchangeToken);
+    mockUser = const AuthUser(id: 'u-1', username: 'owner', role: 'owner');
     isAuth = true;
     return mockUser!;
   }
@@ -216,5 +236,72 @@ void main() {
     final state = cubit.state as Unauthenticated;
     expect(state.deviceToken, 'preserved-token');
     expect(state.errorMessage, isNull);
+  });
+
+  // #443 PR3 — temporary owner password → forced change → normal session.
+  group('owner password change (#443 PR3)', () {
+    test('a temporary-password login lands in AuthPasswordChangeRequired, not Authenticated', () async {
+      repo.pwchangeToken = 'pwchange-token';
+      final ok = await cubit.login(username: 'owner', password: 'TempPassw0rdXyz');
+      expect(ok, isFalse);
+      expect(cubit.state, isA<AuthPasswordChangeRequired>());
+      expect((cubit.state as AuthPasswordChangeRequired).errorMessage, isNull);
+      expect(repo.isAuth, isFalse);
+    });
+
+    test('changePassword success continues as a normal signed-in session', () async {
+      repo.pwchangeToken = 'pwchange-token';
+      await cubit.login(username: 'owner', password: 'TempPassw0rdXyz');
+      final ok = await cubit.changePassword('my own long passphrase');
+      expect(ok, isTrue);
+      expect(repo.lastNewPassword, 'my own long passphrase');
+      expect(cubit.state, isA<Authenticated>());
+    });
+
+    test('a WEAK_PASSWORD refusal stays on the form with the reason in Thai', () async {
+      repo.pwchangeToken = 'pwchange-token';
+      await cubit.login(username: 'owner', password: 'TempPassw0rdXyz');
+      repo.changePasswordError = ApiException(
+        statusCode: 400,
+        code: 'WEAK_PASSWORD',
+        serverMessage: 'newPassword must differ from the temporary password',
+        details: {'reason': 'same_as_temp'},
+      );
+      expect(await cubit.changePassword('TempPassw0rdXyz'), isFalse);
+      final state = cubit.state as AuthPasswordChangeRequired;
+      expect(state.errorMessage, 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว');
+    });
+
+    test('a 401 (token expired or used) ends the attempt: back to login with a Thai sentence', () async {
+      repo.pwchangeToken = 'pwchange-token';
+      await cubit.login(username: 'owner', password: 'TempPassw0rdXyz');
+      repo.changePasswordError = ApiException(statusCode: 401, code: 'UNAUTHORIZED');
+      expect(await cubit.changePassword('my own long passphrase'), isFalse);
+      final state = cubit.state as Unauthenticated;
+      expect(state.errorMessage, AuthCubit.passwordChangeSessionExpired);
+      // The token is gone: a second attempt does nothing.
+      expect(await cubit.changePassword('my own long passphrase'), isFalse);
+    });
+
+    test('cancel returns to the login form', () async {
+      repo.pwchangeToken = 'pwchange-token';
+      await cubit.login(username: 'owner', password: 'TempPassw0rdXyz');
+      cubit.cancelPasswordChange();
+      expect(cubit.state, isA<Unauthenticated>());
+      expect(await cubit.changePassword('my own long passphrase'), isFalse);
+    });
+
+    test('TEMP_PASSWORD_EXPIRED is the one 401 that is not "เข้าสู่ระบบไม่สำเร็จ"', () {
+      expect(
+        AuthCubit.loginRefusalMessage(
+          ApiException(statusCode: 401, code: 'TEMP_PASSWORD_EXPIRED'),
+        ),
+        'รหัสผ่านชั่วคราวหมดอายุแล้ว กรุณาติดต่อทีมงานเพื่อขอรหัสใหม่',
+      );
+      expect(
+        AuthCubit.loginRefusalMessage(ApiException(statusCode: 401, code: 'UNAUTHORIZED')),
+        'เข้าสู่ระบบไม่สำเร็จ',
+      );
+    });
   });
 }

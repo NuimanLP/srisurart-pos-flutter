@@ -50,6 +50,27 @@ class AuthUser extends Equatable {
   List<Object?> get props => [id, username, role, displayName];
 }
 
+/// What `POST /auth/token` produced (#443 PR3).
+sealed class LoginResult {
+  const LoginResult(this.user);
+  final AuthUser user;
+}
+
+/// A full session: tokens are stored. [passwordChangedAt] drives the
+/// "รหัสผ่านถูกเปลี่ยนเมื่อ …" banner.
+final class LoginSucceeded extends LoginResult {
+  const LoginSucceeded(super.user, {this.passwordChangedAt});
+  final DateTime? passwordChangedAt;
+}
+
+/// The password was a temporary one: the server issued only a restricted
+/// `typ:'pwchange'` token (no refresh token) that `POST /auth/change-password`
+/// alone accepts. Nothing is stored — the token lives in memory only (#400).
+final class LoginPasswordChangeRequired extends LoginResult {
+  const LoginPasswordChangeRequired(super.user, this.passwordChangeToken);
+  final String passwordChangeToken;
+}
+
 class AuthTokens extends Equatable {
   const AuthTokens({
     required this.accessToken,

@@ -20,7 +20,12 @@ class AuthRepository {
   /// Logs in with username and password.
   ///
   /// Automatically binds the deviceToken if the device was previously enrolled (ADR-0004).
-  Future<AuthUser> login({
+  ///
+  /// #443 PR3: a temporary owner password yields [LoginPasswordChangeRequired]
+  /// — the response then carries no `accessToken`/`refreshToken` at all, so
+  /// this branches before reading them. That token is never stored and never
+  /// recorded as the online login that opens the 3-day offline-PIN window.
+  Future<LoginResult> login({
     required String username,
     required String password,
   }) async {
@@ -40,12 +45,59 @@ class AuthRepository {
     );
 
     final map = response as Map<String, dynamic>;
-    final accessToken = map['accessToken'] as String;
-    final refreshToken = map['refreshToken'] as String;
-    final userJson = map['user'] as Map<String, dynamic>;
+    final user = AuthUser.fromJson(map['user'] as Map<String, dynamic>);
 
-    final user = AuthUser.fromJson(userJson);
+    if (map['passwordChangeRequired'] == true) {
+      return LoginPasswordChangeRequired(
+        user,
+        map['passwordChangeToken'] as String,
+      );
+    }
 
+    await _storeSession(
+      accessToken: map['accessToken'] as String,
+      refreshToken: map['refreshToken'] as String,
+      user: user,
+    );
+    final changedAt = map['passwordChangedAt'];
+    return LoginSucceeded(
+      user,
+      passwordChangedAt:
+          changedAt is String ? DateTime.tryParse(changedAt)?.toLocal() : null,
+    );
+  }
+
+  /// Replaces the temporary owner password with [newPassword] (#443 PR3),
+  /// authorised by the restricted token from [login]. Success is a full
+  /// session, stored exactly like a normal login.
+  ///
+  /// `skipAuth: true` so the client neither attaches a stored access token nor
+  /// tries a refresh on a 401 — the pwchange token is the only credential here.
+  Future<AuthUser> changePassword({
+    required String passwordChangeToken,
+    required String newPassword,
+  }) async {
+    final response = await apiClient.post(
+      '/api/v1/auth/change-password',
+      body: {'newPassword': newPassword},
+      headers: {'Authorization': 'Bearer $passwordChangeToken'},
+      skipAuth: true,
+    );
+    final map = response as Map<String, dynamic>;
+    final user = AuthUser.fromJson(map['user'] as Map<String, dynamic>);
+    await _storeSession(
+      accessToken: map['accessToken'] as String,
+      refreshToken: map['refreshToken'] as String,
+      user: user,
+    );
+    return user;
+  }
+
+  Future<void> _storeSession({
+    required String accessToken,
+    required String refreshToken,
+    required AuthUser user,
+  }) async {
     await tokenStorage.setAccessToken(accessToken);
     await tokenStorage.setRefreshToken(refreshToken);
     await tokenStorage.setUser(user);
@@ -59,8 +111,6 @@ class AuthRepository {
         deviceRole: claims.drole,
       );
     }
-
-    return user;
   }
 
   /// Enrols a device with a one-time enrolment code issued by the shop owner (ADR-0004).

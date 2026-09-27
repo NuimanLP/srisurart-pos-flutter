@@ -28,9 +28,9 @@ class _Auth extends AuthRepository {
   bool signedIn;
 
   @override
-  Future<AuthUser> login({required String username, required String password}) async {
+  Future<LoginResult> login({required String username, required String password}) async {
     signedIn = true;
-    return AuthUser(id: 'u1', username: username, role: 'cashier');
+    return LoginSucceeded(AuthUser(id: 'u1', username: username, role: 'cashier'));
   }
 
   @override

@@ -355,6 +355,47 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     }
   });
 
+  it('users: must_change_password and temp_password_expires_at can never disagree (…4500, #443)', async () => {
+    // Existing rows default to "no temporary password".
+    const def = await owner.query(
+      `INSERT INTO users (tenant_id, username, password_hash, display_name, role)
+       VALUES ($1, 'ck-4500-default', 'x', 'X', 'owner')
+       RETURNING must_change_password, temp_password_expires_at, password_changed_at`,
+      [TENANT_A],
+    );
+    try {
+      expect(def.rows).toEqual([
+        { must_change_password: false, temp_password_expires_at: null, password_changed_at: null },
+      ]);
+      for (const [flag, expiry] of [
+        ['true', 'NULL'],
+        ['false', "now() + interval '1 day'"],
+      ]) {
+        await expect(
+          owner.query(
+            `UPDATE users SET must_change_password = ${flag}, temp_password_expires_at = ${expiry}
+              WHERE tenant_id = $1 AND username = 'ck-4500-default'`,
+            [TENANT_A],
+          ),
+        ).rejects.toThrow(/ck_users_temp_password_expiry/);
+      }
+      await owner.query(
+        `UPDATE users SET must_change_password = true, temp_password_expires_at = now() + interval '1 day'
+          WHERE tenant_id = $1 AND username = 'ck-4500-default'`,
+        [TENANT_A],
+      );
+      // The re-created lookup returns the new columns to the app role.
+      const r = await app.query(
+        `SELECT must_change_password, temp_password_expires_at IS NOT NULL AS has_expiry
+           FROM auth_lookup_user_for_login('ck-4500-default', $1)`,
+        [TENANT_A],
+      );
+      expect(r.rows).toEqual([{ must_change_password: true, has_expiry: true }]);
+    } finally {
+      await owner.query(`DELETE FROM users WHERE username = 'ck-4500-default'`);
+    }
+  });
+
   it(`${APP_ROLE} has DML on every table (movements and audit_log insert-only) and none on the migrations table`, async () => {
     const APPEND_ONLY: readonly string[] = ['movements', 'audit_log'];
     for (const t of ALL_TABLES) {
