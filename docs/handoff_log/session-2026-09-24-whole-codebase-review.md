@@ -17,8 +17,9 @@ so this is a **sampled** review, not an audit. A clean area here is not proof of
 ## 2. Spec findings (vs `08_PHASE2_SPEC.md`, ADRs, `CONTRACT.md`)
 
 Items 1–2 re-verified by reading the code after the review.
-**Status 2026-09-27:** items 1–2 fixed 2026-09-25 (PR #413 / #409, PR #414 / #411 — see
-`CLAUDE.md` "Still open"); items 3–5 carry their own status lines below; item 6 untriaged.
+**Status 2026-09-28:** items 1–2 fixed 2026-09-25 (PR #413 / #409, PR #414 / #411 — see
+`CLAUDE.md` "Still open"); items 3–5 (all MED) fixed by 2026-09-27 — see their status lines
+below; item 6 (LOW) still present and untriaged.
 
 1. 🔴 **HIGH — `/sync/push` fingerprint ≠ online route's.** 08 §8.3 step 1 requires the same
    fingerprint as the online route. `sync.service.ts:201-229` (`endpointForOp`) stores
@@ -50,6 +51,10 @@ Items 1–2 re-verified by reading the code after the review.
    outbox empty (`OUTBOX_NOT_EMPTY`; Thai string still **agent ร่าง**). **#452 stays open**
    for `return.create`, replay tests of the new ops, and the missing UI to open a second
    shift the same day. Deviation: a 5xx does not queue (same as sales), unlike 08 §5.
+   → **Status 2026-09-28: fixed.** PR #469 closed #452: `return.create` queued offline via
+   the pure `planReturn()`, replay-by-key / by-id / `CLIENT_ID_REUSED` tests for all three
+   ops, and `เปิดกะใหม่` on the cash-drawer screen. The owner ratified the
+   `OUTBOX_NOT_EMPTY` string and decided a 5xx does not queue; `08 §5` was amended to match.
 5. MED — Drift `openShift` still returns the same-day shift (`shifts_repository.dart:69-83`),
    removed by 08 §11.
    → **Status 2026-09-27: fixed** by PR #456 (#453): an existing `id` returns that shift;
@@ -58,7 +63,8 @@ Items 1–2 re-verified by reading the code after the review.
    (`shifts.service.ts:170-180`); the push path does.
 
 Still unfixed from before: the two `1788652803002-OwnerReviewItems.ts` bugs (`NULLIF`, FK
-`SET NULL`) — see `CLAUDE.md` "Still open".
+`SET NULL`) — see `CLAUDE.md` "Still open". → **Status 2026-09-28:** fixed 2026-09-25 by
+migration `1788652804200-OwnerReviewItemsFixes.ts`.
 
 ## 3. Standards findings (vs `CLAUDE.md` binding rules + Conventions)
 
