@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Srisurart Platform Admin</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Srisurart POS — แผงควบคุมแพลตฟอร์ม (Platform Admin)</h1>
+    <button id="logoutBtn" class="hidden">ออกจากระบบ</button>
+  </header>
+
+  <main>
+    <div id="globalError" class="error-box hidden" role="alert"></div>
+
+    <!-- Login view -->
+    <section id="loginView" class="card">
+      <h2>เข้าสู่ระบบผู้ดูแลแพลตฟอร์ม</h2>
+      <form id="loginForm">
+        <label for="loginUsername">ชื่อผู้ใช้ (Username)</label>
+        <input type="text" id="loginUsername" autocomplete="username" required />
+        <label for="loginPassword">รหัสผ่าน (Password)</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" required />
+        <p class="mt-16">
+          <button type="submit" class="primary">เข้าสู่ระบบ</button>
+        </p>
+      </form>
+      <p class="muted">
+        หน้านี้ไม่มีการสร้างผู้ดูแลแพลตฟอร์มใหม่ — ใช้ CLI บนเซิร์ฟเวอร์เท่านั้น
+        (No admin-creation page here — use the server CLI.)
+      </p>
+    </section>
+
+    <!-- Tenant list view -->
+    <section id="tenantListView" class="hidden">
+      <div class="card">
+        <h2>สร้างร้านใหม่ (Create tenant)</h2>
+        <form id="createTenantForm">
+          <label for="ctCode">รหัสร้าน (code)</label>
+          <input type="text" id="ctCode" required />
+          <label for="ctShopName">ชื่อร้าน (shopName)</label>
+          <input type="text" id="ctShopName" required />
+          <label for="ctShopNameEn">ชื่อร้าน (อังกฤษ, ถ้ามี)</label>
+          <input type="text" id="ctShopNameEn" />
+          <label for="ctOwnerUsername">ชื่อผู้ใช้เจ้าของร้าน (ownerUsername)</label>
+          <input type="text" id="ctOwnerUsername" required />
+          <label for="ctOwnerDisplayName">ชื่อที่แสดงของเจ้าของร้าน (ownerDisplayName)</label>
+          <input type="text" id="ctOwnerDisplayName" />
+          <label for="ctOwnerPassword">รหัสผ่านเจ้าของร้าน (อย่างน้อย 12 ตัวอักษร)</label>
+          <input type="password" id="ctOwnerPassword" required />
+          <p class="mt-16">
+            <button type="submit" class="primary">สร้างร้าน</button>
+          </p>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>รายชื่อร้านทั้งหมด (Tenants)</h2>
+        <button id="refreshTenantsBtn">โหลดใหม่ (Refresh)</button>
+        <table id="tenantTable">
+          <thead>
+            <tr>
+              <th>รหัส</th>
+              <th>ชื่อร้าน</th>
+              <th>แผน</th>
+              <th>สถานะ</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tenantTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Tenant detail view -->
+    <section id="tenantDetailView" class="hidden">
+      <button id="backToListBtn" class="link">&larr; กลับไปหน้ารายชื่อร้าน</button>
+      <div class="card">
+        <h2 id="tdShopName"></h2>
+        <p class="muted" id="tdMeta"></p>
+        <div class="row-actions">
+          <button data-status="active">เปิดใช้งาน (activate)</button>
+          <button data-status="suspended">ระงับชั่วคราว (suspend)</button>
+          <button data-status="closed" class="danger">ปิดร้านถาวร (close)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>อุปกรณ์ (Devices)</h2>
+        <table id="deviceTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>ป้ายชื่อ</th>
+              <th>บทบาท</th>
+              <th>สถานะการผูกเครื่อง</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="deviceTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>งานนำเข้าข้อมูลล่าสุด (Recent import jobs)</h2>
+        <table id="importJobTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>สถานะ</th>
+              <th>สร้างเมื่อ</th>
+              <th>ผิดพลาด</th>
+            </tr>
+          </thead>
+          <tbody id="importJobTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- One-time secret code modal -->
+    <div id="codeModalBackdrop" class="hidden modal-backdrop">
+      <div class="card modal-card">
+        <h2 id="codeModalTitle"></h2>
+        <p class="warn-note">
+          รหัสนี้จะแสดง<strong>ครั้งเดียว</strong>เท่านั้น — คัดลอกและส่งให้ร้านทันที
+          (This code is shown once only — copy and hand it to the shop now.)
+        </p>
+        <div class="code-box" id="codeModalValue"></div>
+        <p class="muted" id="codeModalExpiry"></p>
+        <p>
+          <button id="codeModalCopyBtn">คัดลอก (Copy)</button>
+          <button id="codeModalCloseBtn" class="primary">ปิด (Close)</button>
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

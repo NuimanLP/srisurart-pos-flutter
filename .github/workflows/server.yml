@@ -165,6 +165,15 @@ jobs:
             -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
             -v "$PWD/.tmp-nginx/auth:/etc/nginx/auth:ro" \
             nginx:1.29-alpine nginx -t
+      # #443 PR4: the platform-ui dashboard is also nginx, and its config needs `proxy_ssl_trusted_
+      # certificate` (a real, readable PEM) to test clean — reuse the same throwaway cert above.
+      - name: test platform-ui nginx configuration (nginx -t)
+        run: |
+          docker run --rm \
+            -v "$PWD/server/docker/platform-ui/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$PWD/server/docker/platform-ui/html:/usr/share/nginx/html:ro" \
+            -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
+            nginx:1.29-alpine nginx -t
       - name: cleanup temporary files
         if: always()
         run: rm -rf .tmp-nginx

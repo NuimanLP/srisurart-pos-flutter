@@ -27,6 +27,11 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
   let mockRedisCache: any;
   let tenantCache: { invalidate: ReturnType<typeof vi.fn> };
   let mockImportQueue: { add: ReturnType<typeof vi.fn> };
+  let mockRateLimit: {
+    consumeAttempt: ReturnType<typeof vi.fn>;
+    clearKey: ReturnType<typeof vi.fn>;
+    refundAttempt: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     mockAdminDs = {
@@ -37,6 +42,13 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       get: vi.fn().mockResolvedValue(null),
       setex: vi.fn().mockResolvedValue('OK'),
       del: vi.fn().mockResolvedValue(1),
+    };
+    // Always-allow stand-in for RateLimitService (#443 PR4) — the throttle itself has its own
+    // focused unit tests in platform-auth.service.spec.ts.
+    mockRateLimit = {
+      consumeAttempt: vi.fn().mockResolvedValue({ allowed: true }),
+      clearKey: vi.fn().mockResolvedValue(undefined),
+      refundAttempt: vi.fn().mockResolvedValue(undefined),
     };
     auditService = new AuditService();
     tenantCache = { invalidate: vi.fn() };
@@ -266,7 +278,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
         { id: 'adm1', username: 'superadmin', password_hash: passHash, display_name: 'Admin', is_active: true },
       ]);
 
-      const authService = new PlatformAuthService(mockAdminDs, mockConfig, auditService);
+      const authService = new PlatformAuthService(mockAdminDs, mockConfig, auditService, mockRateLimit as any);
       const result = await authService.login('superadmin', 'secret123', '127.0.0.1');
 
       expect(result.token).toBeDefined();
@@ -283,7 +295,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
         { id: 'adm1', username: 'superadmin', password_hash: passHash, display_name: 'Admin', is_active: true },
       ]);
 
-      const authService = new PlatformAuthService(mockAdminDs, mockConfig, auditService);
+      const authService = new PlatformAuthService(mockAdminDs, mockConfig, auditService, mockRateLimit as any);
       await expect(authService.login('superadmin', 'wrongpass')).rejects.toThrow(UnauthorizedException);
     }, 15000);
   });
