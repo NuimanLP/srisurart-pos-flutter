@@ -61,7 +61,7 @@ class ReturnsRepository {
       final plan = planReturn(
         sale: sale,
         soldItems: soldItems,
-        refundedSoFar: await _refundedQty(saleId),
+        refundedSoFar: await refundedQtyOf(db, saleId),
         input: input,
         customer: customer,
         mechanic: mechanic,
@@ -174,22 +174,6 @@ class ReturnsRepository {
         db.returnItems,
       )..where((i) => i.returnId.equals(r.id))).get();
       result.add(ReturnWithItems(r, items));
-    }
-    return result;
-  }
-
-  /// How much of each item has already been returned for a given sale.
-  /// Mirrors db.js getRefundedQty: sums ReturnItems.qty per productId across all
-  /// returns whose saleId matches.
-  Future<Map<String, int>> _refundedQty(String saleId) async {
-    final query = db.select(db.returnItems).join([
-      innerJoin(db.returns, db.returns.id.equalsExp(db.returnItems.returnId)),
-    ])..where(db.returns.saleId.equals(saleId));
-    final rows = await query.get();
-    final result = <String, int>{};
-    for (final row in rows) {
-      final item = row.readTable(db.returnItems);
-      result[item.productId] = (result[item.productId] ?? 0) + item.qty;
     }
     return result;
   }

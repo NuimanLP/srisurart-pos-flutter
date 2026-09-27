@@ -830,6 +830,99 @@ void main() {
       expect(await stock(), 3);
     });
 
+    test(
+      'seeded but the device number is unknown: refused, never guessed as 01',
+      () async {
+        final repo = offlineRepo((_) async => fail('no online call'));
+        // A new device: seeded, but `GET /doc-counters` had no counter row yet.
+        await numbers.recordSeedMarker(deviceId: 'dev-new', period: period);
+        await openShift();
+        sync.recordNonVerdictWrite();
+
+        await expectLater(
+          () => repo.createReturn(oneBack),
+          throwsA(isA<OfflineSeedRequiredException>()),
+        );
+        expect(await db.select(db.returns).get(), isEmpty);
+        expect(await ops(), isEmpty);
+      },
+    );
+
+    test(
+      'a re-enrolled browser numbers under its NEW device, not the old one',
+      () async {
+        final repo = offlineRepo((_) async => fail('no online call'));
+        // The old device's counter and seed, then a newer seed for the new one.
+        await numbers.commitDocNo(
+          deviceId: 'dev-old',
+          deviceNo: 1,
+          docType: 'cn',
+          period: period,
+          seq: 40,
+        );
+        await numbers.recordSeedMarker(
+          deviceId: 'dev-old',
+          period: period,
+          seededAt: DateTime(2026, 1, 1),
+        );
+        await numbers.commitDocNo(
+          deviceId: 'dev-new',
+          deviceNo: 7,
+          docType: 'receipt',
+          period: period,
+          seq: 2,
+        );
+        await numbers.recordSeedMarker(
+          deviceId: 'dev-new',
+          period: period,
+          seededAt: DateTime(2026, 9, 1),
+        );
+        await openShift();
+        sync.recordNonVerdictWrite();
+
+        final cn = await repo.createReturn(oneBack);
+
+        expect(cn.cnNo, 'CN07-$period-0001');
+        expect(await numbers.getLastNo(deviceId: 'dev-old', docType: 'cn'), 40);
+      },
+    );
+
+    test(
+      'a 2xx that is not a credit note: UNREADABLE_RESPONSE, nothing queued, '
+      'the next press replays the same key (#409)',
+      () async {
+        final repo = offlineRepo(
+          (_) async => http.Response(
+            jsonEncode({'status': 'success', 'data': 'not a credit note'}),
+            201,
+            headers: {'content-type': 'application/json'},
+          ),
+        );
+        await seedDevice();
+        await openShift();
+
+        await expectLater(
+          () => repo.createReturn(oneBack),
+          throwsA(
+            isA<PosException>().having(
+              (e) => e.code,
+              'code',
+              'UNREADABLE_RESPONSE',
+            ),
+          ),
+        );
+        await expectLater(
+          () => repo.createReturn(oneBack),
+          throwsA(isA<PosException>()),
+        );
+        expect(await ops(), isEmpty);
+        expect(await db.select(db.returns).get(), isEmpty);
+        final keys = sent.map((r) => r.headers['Idempotency-Key']).toSet();
+        expect(sent, hasLength(2));
+        expect(keys, hasLength(1));
+      },
+    );
+
     test('a 5xx does NOT queue (owner 2026-09-27, parity with sales)', () async {
       final repo = offlineRepo(
         (_) async => http.Response('<html>502 Bad Gateway</html>', 502),

@@ -18,9 +18,35 @@
 
 import 'dart:math' as math;
 
+import 'package:drift/drift.dart';
+
 import '../../core/utils/money.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
+
+/// A mechanic's four running totals, as a credit note leaves them.
+typedef MechanicTotals = ({
+  double totalSales,
+  double totalDiscount,
+  double totalMarkup,
+  double creditBalance,
+});
+
+/// Qty per productId already refunded on [saleId], across every local credit
+/// note (db.js getRefundedQty) — the `refundedSoFar` [planReturn] takes. A
+/// plain read, safe inside or outside the caller's transaction.
+Future<Map<String, int>> refundedQtyOf(AppDatabase db, String saleId) async {
+  final rows =
+      await (db.select(db.returnItems).join([
+        innerJoin(db.returns, db.returns.id.equalsExp(db.returnItems.returnId)),
+      ])..where(db.returns.saleId.equals(saleId))).get();
+  final result = <String, int>{};
+  for (final row in rows) {
+    final item = row.readTable(db.returnItems);
+    result[item.productId] = (result[item.productId] ?? 0) + item.qty;
+  }
+  return result;
+}
 
 class ReturnPlan {
   const ReturnPlan({
@@ -42,13 +68,7 @@ class ReturnPlan {
 
   /// The mechanic's four running totals after the reversal — null when no
   /// mechanic row was given.
-  final ({
-    double totalSales,
-    double totalDiscount,
-    double totalMarkup,
-    double creditBalance,
-  })?
-  mechanicAfter;
+  final MechanicTotals? mechanicAfter;
 
   /// This credit note brings the last unit of the bill back.
   final bool voidsSale;
@@ -102,13 +122,7 @@ ReturnPlan planReturn({
     );
   }
 
-  ({
-    double totalSales,
-    double totalDiscount,
-    double totalMarkup,
-    double creditBalance,
-  })?
-  mechanicAfter;
+  MechanicTotals? mechanicAfter;
   if (mechanic != null) {
     final origDelta = sale.mechanicDelta ?? 0;
     final reverseCredit = origDelta < 0 ? -origDelta * ratio : 0.0;

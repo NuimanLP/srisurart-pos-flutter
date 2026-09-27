@@ -48,6 +48,7 @@ import '../../../core/utils/ids.dart';
 import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
 import '../../services/doc_number_service.dart';
+import '../../storage/token_storage.dart' show TokenStoreUnavailableException;
 import '../../sync/sync_facade.dart';
 import '../../sync/sync_service.dart';
 import '../return_plan.dart';
@@ -130,13 +131,24 @@ class ApiReturnsRepository implements ReturnsRepository {
         _pending.closeIfVerdict(attempt, e);
         rethrow;
       } catch (e) {
+        // The web token store could not be opened for the 401 → refresh: the
+        // server refused this attempt before any transaction, so nothing is
+        // queued and the till shows the store's own sentence (same as sales).
+        if (e is TokenStoreUnavailableException) rethrow;
+        // #409: a reply that arrived but is not a credit note means the server
+        // answered and has probably committed — never an offline note. The
+        // attempt stays parked so the next press replays it.
+        if (!isTransportFailure(e)) {
+          throw PosException(
+            'UNREADABLE_RESPONSE',
+            ServerErrorResolver.resolve(null),
+          );
+        }
         // Only a TRANSPORT failure (timeout, dropped socket) with the sync
         // engine wired becomes an offline credit note, under the SAME id + key:
         // if the lost request had in fact committed, the push replays it (08 §5).
-        // Anything else — a reply that arrived but was not readable (#409) — is
-        // rethrown with the attempt still parked.
         final sync = syncService;
-        if (sync == null || !isTransportFailure(e)) rethrow;
+        if (sync == null) rethrow;
         sync.recordNonVerdictWrite();
         final ret = await _createOffline(attempt, input, body);
         _pending.close(attempt);
@@ -180,28 +192,34 @@ class ApiReturnsRepository implements ReturnsRepository {
   /// the note and its op exist together or not at all, and the CN number is
   /// consumed only when the op is queued (C8). The rules come from the pure
   /// [planReturn]; the Drift `createReturn` is never called.
+  ///
+  /// A refusal here leaves the attempt parked on purpose: after a transport
+  /// failure the online request may have committed, so the next press must
+  /// still carry the same id + key.
   Future<ReturnRow> _createOffline(
     PendingWrite attempt,
     ReturnInput input,
     Map<String, dynamic> body,
   ) async {
-    final openShift =
-        await (db.select(db.shifts)
-              ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
-              ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
-              ..limit(1))
-            .getSingleOrNull();
-    // A cash refund is money leaving the drawer: the server refuses it with no
-    // open drawer (#100), so it is refused here before anything is written.
-    if (input.refundMethod == 'เงินสด' && openShift == null) {
-      throw PosException(
-        'NO_OPEN_SHIFT',
-        ServerErrorResolver.resolve('NO_OPEN_SHIFT'),
-      );
-    }
-
     final now = DateTime.now();
     final ret = await db.transaction(() async {
+      final openShift =
+          await (db.select(db.shifts)
+                ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
+                ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
+                ..limit(1))
+              .getSingleOrNull();
+      // A cash refund is money leaving the drawer: the server refuses it with
+      // no open drawer (#100), so it is refused here before anything is
+      // written. A transfer or a tab deduction may go with no drawer, and then
+      // has no `shift:` aggregate to wait on.
+      if (input.refundMethod == 'เงินสด' && openShift == null) {
+        throw PosException(
+          'NO_OPEN_SHIFT',
+          ServerErrorResolver.resolve('NO_OPEN_SHIFT'),
+        );
+      }
+
       final sale = await (db.select(
         db.sales,
       )..where((t) => t.id.equals(input.saleId))).getSingleOrNull();
@@ -242,7 +260,7 @@ class ApiReturnsRepository implements ReturnsRepository {
       final plan = planReturn(
         sale: sale,
         soldItems: soldItems,
-        refundedSoFar: await _refundedQty(sale.id),
+        refundedSoFar: await refundedQtyOf(db, sale.id),
         input: input,
         customer: customer,
         mechanic: mechanic,
@@ -360,46 +378,37 @@ class ApiReturnsRepository implements ReturnsRepository {
   }
 
   /// The next CN number from this device's own counter (08 §9), committed in
-  /// the caller's transaction. A device that was never seeded cannot number a
-  /// credit note the server will accept, so it is refused rather than given a
-  /// legacy number (`OFFLINE_SEED_REQUIRED`).
+  /// the caller's transaction.
+  ///
+  /// The device is the one most recently seeded from `GET /doc-counters` (a
+  /// re-enrolled browser seeds under its new `devices.id`), and its series is
+  /// the `device_no` a counter row of THAT device carries. When either is
+  /// unknown the note is refused (`OFFLINE_SEED_REQUIRED`) rather than guessed:
+  /// the server refuses a number whose `device_no` is not the caller's
+  /// (`DOC_NUMBER_INVALID`), and the paper would already be printed.
   Future<String> _issueOfflineCnNo(DateTime now) async {
     final numbers = docNumberService;
-    final counter = await (db.select(
-      db.docCounters,
-    )..limit(1)).getSingleOrNull();
-    final seed = await (db.select(
-      db.docCounterSeeds,
-    )..limit(1)).getSingleOrNull();
-    final deviceId = counter?.deviceId ?? seed?.deviceId;
-    if (numbers == null || deviceId == null) {
+    final seed =
+        await (db.select(db.docCounterSeeds)
+              ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    final counter = seed == null
+        ? null
+        : await (db.select(db.docCounters)
+                ..where((t) => t.deviceId.equals(seed.deviceId))
+                ..limit(1))
+              .getSingleOrNull();
+    if (numbers == null || seed == null || counter == null) {
       throw const OfflineSeedRequiredException();
     }
     return numbers.issueAndCommit(
-      deviceId: deviceId,
-      deviceNo: counter?.deviceNo ?? 1,
+      deviceId: seed.deviceId,
+      deviceNo: counter.deviceNo,
       docType: 'cn',
       now: now,
       isOffline: true,
     );
-  }
-
-  /// Qty per productId already refunded on [saleId], across every local credit
-  /// note — the same sum `ReturnsRepository` feeds its guard.
-  Future<Map<String, int>> _refundedQty(String saleId) async {
-    final rows =
-        await (db.select(db.returnItems).join([
-          innerJoin(
-            db.returns,
-            db.returns.id.equalsExp(db.returnItems.returnId),
-          ),
-        ])..where(db.returns.saleId.equals(saleId))).get();
-    final result = <String, int>{};
-    for (final row in rows) {
-      final item = row.readTable(db.returnItems);
-      result[item.productId] = (result[item.productId] ?? 0) + item.qty;
-    }
-    return result;
   }
 
   /// Identifies "the same refund, sent again": the bill, how it is refunded, and

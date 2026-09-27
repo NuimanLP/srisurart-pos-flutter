@@ -923,6 +923,40 @@ void main() {
         );
 
         test(
+          '$type: replay by id — under a key the server no longer holds, the '
+          'op still carries the local row\'s client id, and the replayed reply '
+          'is patched once',
+          () async {
+            final fixture = loadFixture(file);
+            await seedLocalRowsFor(type);
+            await enqueueOpsFromFixture(db, fixture);
+            // As in `sale-create.replay-by-id.json`: a fresh key, the same id.
+            await db.update(db.outboxOps).write(
+                  const OutboxOpsCompanion(
+                    idempotencyKey: drift.Value('k_fresh_key'),
+                  ),
+                );
+            final server = scripted([fixture.responseBody]);
+            final sync = syncWith(server.client);
+
+            await sync.push();
+
+            expect(await db.select(db.outboxOps).get(), isEmpty);
+            final sent = (server.bodies.single['ops'] as List).single as Map;
+            expect(sent['idempotencyKey'], 'k_fresh_key');
+            final id = (opOf(fixture)['payload'] as Map)['id'];
+            expect((sent['payload'] as Map)['id'], id);
+            expect(
+              ((fixture.responseBody['data'] as Map)['results'] as List)
+                  .single['response']['id'],
+              id,
+              reason: 'the server answers with the row it holds under that id',
+            );
+            await expectPatchedOnceFor(type);
+          },
+        );
+
+        test(
           '$type: same id, different compared fields → rejected '
           'CLIENT_ID_REUSED, local rows kept, shown to the owner',
           () async {
