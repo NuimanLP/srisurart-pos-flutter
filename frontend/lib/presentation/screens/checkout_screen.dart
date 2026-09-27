@@ -513,18 +513,28 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _warn('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกใบเสนอราคาได้');
       return;
     }
+    final quotesRepo = context.read<QuotesRepository>();
+    final settingsRepo = context.read<SettingsRepository>();
     final cart = _cart.state;
     if (cart.isEmpty) {
       _warn('ตะกร้าว่าง');
       return;
     }
-    await context.read<QuotesRepository>().saveQuote(
+    // #464: pass the shop's configured "ใบเสนอราคา · มีอายุ (วัน)" setting
+    // instead of leaving validDays null — QuotesRepository.saveQuote's own
+    // fallback (`validDays ?? 30`) never reads settings itself, exactly as
+    // db.js's DB.saveQuote never did; CheckoutScreen.jsx passed
+    // `DB.getSettings().quoteValidDays || 30`, so this call is the port of
+    // that, not a new behaviour.
+    final settings = await settingsRepo.getSettings();
+    await quotesRepo.saveQuote(
       QuoteInput(
         subtotal: _subtotal,
         discount: _discount,
         total: _total,
         customerName: _selectedCustomer?.nameTH ?? '',
         customerPhone: _selectedCustomer?.phone ?? '',
+        validDays: settings.quoteValidDays,
         items: [
           for (final it in cart)
             QuoteLineInput(

@@ -5,6 +5,10 @@
 //  • Batch writes products, categories, customers, mechanics, settings into Drift.
 //  • Supports ETag 304 Not Modified when cache is already warm and unchanged.
 //  • Supports fallback to individual GETs if /bootstrap is not yet deployed on server.
+//
+// 🔴 Not called at runtime (#460). Before wiring it in, note that its product
+// upsert skips the pending-outbox stock guard `ApiProductsRepository.syncFromServer`
+// has (08 §15). Settings reach Drift through `ApiSettingsRepository.pullFromServer`.
 
 import 'package:drift/drift.dart';
 

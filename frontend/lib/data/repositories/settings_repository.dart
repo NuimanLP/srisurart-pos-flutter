@@ -11,6 +11,12 @@ import 'package:drift/drift.dart';
 
 import '../db/database.dart';
 
+/// What the counter reads when a settings edit is refused while Degraded —
+/// settings are online-only (08 §6.2). Shared by the Settings screen's
+/// pre-check and `ApiSettingsRepository` so both say the same words.
+const settingsOfflineRefusal =
+    'ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกการตั้งค่าได้';
+
 class SettingsRepository {
   final AppDatabase db;
   SettingsRepository(this.db);

@@ -18,15 +18,13 @@
 //    refundMethod == 'หักจากเครดิต'.
 //  • Auto-void parent sale when total refunded qty ≥ total sold qty.
 
-import 'dart:math' as math;
-
 import 'package:drift/drift.dart';
 
 import '../../core/utils/ids.dart';
-import '../../core/utils/money.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
 import '../db/product_stamp.dart';
+import 'return_plan.dart';
 
 class ReturnsRepository {
   final AppDatabase db;
@@ -47,35 +45,27 @@ class ReturnsRepository {
       final soldItems = await (db.select(
         db.saleItems,
       )..where((i) => i.saleId.equals(saleId))).get();
+      final customer = sale.customerId == null
+          ? null
+          : await (db.select(
+              db.customers,
+            )..where((c) => c.id.equals(sale.customerId!))).getSingleOrNull();
+      final mechanic = sale.mechanicId == null
+          ? null
+          : await (db.select(
+              db.mechanics,
+            )..where((m) => m.id.equals(sale.mechanicId!))).getSingleOrNull();
 
-      // 2. Over-refund guard — qty per line must not exceed (sold − already refunded).
-      final refunded = await _refundedQty(saleId);
-      final overs = <String>[];
-      for (final i in input.items) {
-        final sold = soldItems
-            .where((x) => x.productId == i.productId)
-            .fold<int?>(null, (acc, x) => (acc ?? 0) + x.qty);
-        final remaining = (sold ?? 0) - (refunded[i.productId] ?? 0);
-        if (sold == null) {
-          overs.add('${i.name}: ไม่อยู่ในบิลนี้');
-        } else if (i.qty > remaining) {
-          overs.add('${i.name}: คืนได้อีก $remaining แต่ขอคืน ${i.qty}');
-        }
-      }
-      if (overs.isNotEmpty) {
-        throw Exception('คืนเกินจำนวนที่ขาย:\n${overs.join('\n')}');
-      }
-
-      // 3. Compute refund amounts (apply same discount ratio as the original sale).
-      final refundSubtotal = input.items.fold<double>(
-        0,
-        (s, i) => s + i.price * i.qty,
+      // 2-3. Over-refund guard, refund amounts, ledger reversals, auto-void —
+      // the pure rules shared with the API build's offline credit note.
+      final plan = planReturn(
+        sale: sale,
+        soldItems: soldItems,
+        refundedSoFar: await refundedQtyOf(db, saleId),
+        input: input,
+        customer: customer,
+        mechanic: mechanic,
       );
-      final discountRatio = sale.subtotal > 0
-          ? (sale.discount) / sale.subtotal
-          : 0.0;
-      final refundDiscount = round2(refundSubtotal * discountRatio);
-      final refundTotal = round2(refundSubtotal - refundDiscount);
 
       final cnNo = docNo('CN');
       final returnId = newId('r');
@@ -86,9 +76,9 @@ class ReturnsRepository {
         cnNo: cnNo,
         saleId: saleId,
         receiptNo: sale.receiptNo,
-        refundSubtotal: refundSubtotal,
-        refundDiscount: refundDiscount,
-        refundTotal: refundTotal,
+        refundSubtotal: plan.refundSubtotal,
+        refundDiscount: plan.refundDiscount,
+        refundTotal: plan.refundTotal,
         refundMethod: input.refundMethod,
         reason: input.reason ?? '',
         customerId: sale.customerId,
@@ -126,74 +116,38 @@ class ReturnsRepository {
         }
       }
 
-      // 5. Reverse customer spend & points — points reversal proportional to the
-      // refund ratio of THIS sale's originally-granted points.
-      if (sale.customerId != null) {
-        final cust = await (db.select(
+      // 5. Reverse customer spend & points.
+      final c = plan.customerAfter;
+      if (c != null) {
+        await (db.update(
           db.customers,
-        )..where((c) => c.id.equals(sale.customerId!))).getSingleOrNull();
-        if (cust != null) {
-          final ratio = sale.total > 0 ? refundTotal / sale.total : 0.0;
-          final basePoints = sale.pointsGranted > 0
-              ? sale.pointsGranted
-              : (sale.total / 10).floor();
-          final pointsToReverse = (basePoints * ratio).floor();
-          await (db.update(
-            db.customers,
-          )..where((c) => c.id.equals(sale.customerId!))).write(
-            CustomersCompanion(
-              totalSpend: Value(math.max(0.0, cust.totalSpend - refundTotal)),
-              points: Value(math.max(0, cust.points - pointsToReverse)),
-              updatedAt: Value(DateTime.now()),
-            ),
-          );
-        }
+        )..where((x) => x.id.equals(sale.customerId!))).write(
+          CustomersCompanion(
+            totalSpend: Value(c.totalSpend),
+            points: Value(c.points),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
       }
 
-      // 6. Reverse mechanic stats — only if this sale was a mechanic sale.
-      if (sale.mechanicId != null) {
-        final mech = await (db.select(
+      // 6. Reverse mechanic stats.
+      final m = plan.mechanicAfter;
+      if (m != null) {
+        await (db.update(
           db.mechanics,
-        )..where((m) => m.id.equals(sale.mechanicId!))).getSingleOrNull();
-        if (mech != null) {
-          final ratio = sale.total > 0 ? refundTotal / sale.total : 0.0;
-          final origDelta = sale.mechanicDelta ?? 0;
-          final reverseCredit = origDelta < 0 ? -origDelta * ratio : 0.0;
-          final reverseMarkup = origDelta > 0 ? origDelta * ratio : 0.0;
-          // Reduce mechanic's credit balance ONLY when explicitly refunding to credit.
-          final reduceBalance = input.refundMethod == 'หักจากเครดิต'
-              ? refundTotal
-              : 0.0;
-          // db.js used (totalDiscount || totalCredit) for the discount base.
-          final discountBase = mech.totalDiscount != 0
-              ? mech.totalDiscount
-              : mech.totalCredit;
-          await (db.update(
-            db.mechanics,
-          )..where((m) => m.id.equals(sale.mechanicId!))).write(
-            MechanicsCompanion(
-              totalSales: Value(math.max(0.0, mech.totalSales - refundTotal)),
-              totalDiscount: Value(math.max(0.0, discountBase - reverseCredit)),
-              totalMarkup: Value(
-                math.max(0.0, mech.totalMarkup - reverseMarkup),
-              ),
-              creditBalance: Value(
-                math.max(0.0, mech.creditBalance - reduceBalance),
-              ),
-              updatedAt: Value(DateTime.now()),
-            ),
-          );
-        }
+        )..where((x) => x.id.equals(sale.mechanicId!))).write(
+          MechanicsCompanion(
+            totalSales: Value(m.totalSales),
+            totalDiscount: Value(m.totalDiscount),
+            totalMarkup: Value(m.totalMarkup),
+            creditBalance: Value(m.creditBalance),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
       }
 
-      // 7. Mark sale as fully voided if all items returned (this new return included).
-      final allReturns = await _refundedQty(saleId);
-      final totalRefundedSoFar = allReturns.values.fold<int>(
-        0,
-        (s, q) => s + q,
-      );
-      final totalSoldQty = soldItems.fold<int>(0, (s, i) => s + i.qty);
-      if (totalRefundedSoFar >= totalSoldQty) {
+      // 7. Mark sale as fully voided if all items returned (this return included).
+      if (plan.voidsSale) {
         await (db.update(db.sales)..where((s) => s.id.equals(saleId))).write(
           SalesCompanion(voided: const Value(true), voidedAt: Value(now)),
         );
@@ -220,22 +174,6 @@ class ReturnsRepository {
         db.returnItems,
       )..where((i) => i.returnId.equals(r.id))).get();
       result.add(ReturnWithItems(r, items));
-    }
-    return result;
-  }
-
-  /// How much of each item has already been returned for a given sale.
-  /// Mirrors db.js getRefundedQty: sums ReturnItems.qty per productId across all
-  /// returns whose saleId matches.
-  Future<Map<String, int>> _refundedQty(String saleId) async {
-    final query = db.select(db.returnItems).join([
-      innerJoin(db.returns, db.returns.id.equalsExp(db.returnItems.returnId)),
-    ])..where(db.returns.saleId.equals(saleId));
-    final rows = await query.get();
-    final result = <String, int>{};
-    for (final row in rows) {
-      final item = row.readTable(db.returnItems);
-      result[item.productId] = (result[item.productId] ?? 0) + item.qty;
     }
     return result;
   }
