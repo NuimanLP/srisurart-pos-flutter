@@ -1,7 +1,7 @@
 /* Srisurart POS manual — shared stylesheet.
    Visual language taken from the JS-era manual (docs/tutorial/JS/): A4 pages,
    navy/orange brand, Sarabun + Barlow Condensed. Additions: role box,
-   limitations box, tables, command blocks, screenshot placeholders, part nav,
+   limitations box, tables, command blocks, annotated screenshots, part nav,
    and a narrow-screen layout so the pages read on a phone. */
 
 :root {
@@ -128,11 +128,23 @@ figcaption {
   color: var(--ink-soft); margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--orange);
   font-weight: 600;
 }
-.shot-placeholder {
-  border: 2px dashed #C9C4B5; border-radius: 8px; background: repeating-linear-gradient(
-    45deg, var(--cream), var(--cream) 12px, #F4F0E4 12px, #F4F0E4 24px);
-  color: var(--ink-soft); text-align: center; padding: 34px 16px; font-weight: 600;
-  font-size: 14px;
+/* Annotated screenshot: numbered pins placed by % over the image, legend below */
+.annot { position: relative; display: block; max-width: 100%; margin: 0 auto; }
+.annot img { max-height: none; }
+.annot .pin {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 26px; height: 26px; border-radius: 50%; background: var(--orange); color: #fff;
+  border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+}
+ol.annot-legend { list-style: none; counter-reset: pin; margin: 10px 0 6px; font-size: 14px; }
+ol.annot-legend li { position: relative; padding-left: 34px; margin-bottom: 6px; }
+ol.annot-legend li::before {
+  counter-increment: pin; content: counter(pin);
+  position: absolute; left: 0; top: 1px; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--orange); color: #fff; font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center;
 }
 
 /* ── STEPS ───────────────────────────────────── */
@@ -260,6 +272,10 @@ table.grid th { background: var(--cream); color: var(--navy); font-weight: 700; 
   .navgrid, .twocol { grid-template-columns: 1fr; }
   .rolebox dl { grid-template-columns: 1fr; }
   table.grid { font-size: 12.5px; }
+  /* long code tokens (URLs, env names) must wrap inside table cells, or the table
+     pushes the whole page sideways on a 390 px phone */
+  table.grid code, table.grid a { overflow-wrap: anywhere; }
+  .annot .pin { width: 20px; height: 20px; font-size: 12px; border-width: 1.5px; }
 }
 
 @media print {
@@ -267,5 +283,10 @@ table.grid th { background: var(--cream); color: var(--navy); font-weight: 700; 
   .partnav { display: none; }
   .page { margin: 0; box-shadow: none; width: auto; min-height: 297mm; page-break-after: always; }
   .page:last-child { page-break-after: auto; }
+  /* smaller screenshots on paper: a 150 mm-tall figure next to a page break leaves most
+     of the page empty (figures never split) */
+  figure img { max-height: 105mm; }
+  .twocol figure img { max-height: 120mm; }
+  .annot img { max-height: none; }
   @page { size: A4; margin: 0; }
 }
