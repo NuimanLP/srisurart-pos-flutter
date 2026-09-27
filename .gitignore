@@ -52,6 +52,10 @@ app.*.map.json
 **/android/.gradle/
 **/android/local.properties
 
+# The Flutter app lives in frontend/; platform dirs at the root are stray codegen
+/android/
+/ios/
+
 # FVM Version Cache
 **/.fvm/
 # NestJS backend (ADR-0011: server/ lives in this repo)

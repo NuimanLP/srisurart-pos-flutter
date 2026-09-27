@@ -60,9 +60,9 @@ class _StubShiftsRepo extends ShiftsRepository {
   Object? errorToThrow;
 
   @override
-  Future<ShiftRow> openShift(double startingCash) async {
+  Future<ShiftRow> openShift(double startingCash, {String? id}) async {
     if (errorToThrow != null) throw errorToThrow!;
-    return super.openShift(startingCash);
+    return super.openShift(startingCash, id: id);
   }
 
   @override

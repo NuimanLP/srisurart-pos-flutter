@@ -362,15 +362,17 @@ develops against a demo tenant.
 - Phase-2 kickoff order for the remaining hub tickets: #228 → #229 → #212/#211/#189 →
   #230 → #190 → #231. As of 2026-09-25 all but **#231** (q4.cutover) are closed
   (2026-09-18 → 09-20); #231 is the only one still open.
-- **Found by the study-pack review (PR #397), 2026-09-25 — fixed same day except #400:**
+- **Found by the study-pack review (PR #397), 2026-09-25 — all fixed same day:**
   #398 (`JWT_PLATFORM_SECRET` falls back to a public dev value) by PR #407, #399
   (`pos_app` can UPDATE/DELETE `audit_log` — should be append-only) by PR #406, #401
   (compose images not digest-pinned) by PR #403, #402 (closing report profit uses
-  current cost, not `costAtSale` — ADR-0008) by PR #408. 🔴 **#400** (Flutter Web keeps
-  the access token in `localStorage`, against ADR-0009) has a fix pushed (PR #404) but
-  is **still open — owner decision pending** on whether to keep or drop the localStorage
-  fallback before the first migration (keeping it contradicts ADR-0009:101; would need
-  an ADR addendum).
+  current cost, not `costAtSale` — ADR-0008) by PR #408, and **#400** (Flutter Web kept
+  the access token in `localStorage`, against ADR-0009) by PR #404 + commit `68a6c2d`
+  (issue closed 2026-09-25, verified 2026-09-27). The owner decision it waited on is
+  recorded as the **ADR-0009 addendum 2026-09-25**: web access token in memory only,
+  refresh/device token in IndexedDB, **no localStorage fallback** — if IndexedDB fails
+  the user reloads; tokens a legacy build left in localStorage are migrated once
+  (write, read back, then delete). Never reintroduce a localStorage fallback.
 - **#443 `platform.admin-ui` — code merged 2026-09-27, issue still open.** Platform CLI
   (#445), enrolCode reissue + tenant detail (#446), owner temp password + forced change
   (#447, migration `1788652804500`; `POST /platform/tenants` now **rejects**
