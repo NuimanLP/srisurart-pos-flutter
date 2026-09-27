@@ -46,7 +46,7 @@
     <a class="toc-row" href="#receipt"><span class="n">4</span><span class="t">ราคาช่าง · เครดิตช่าง · ใบเสร็จ <span class="en">Mechanic &amp; receipt</span></span><span class="pg">5</span></a>
     <a class="toc-row" href="#park"><span class="n">5</span><span class="t">พักบิล · ใบเสนอราคา <span class="en">Park &amp; quotes</span></span><span class="pg">6</span></a>
     <a class="toc-row" href="#returns"><span class="n">6</span><span class="t">คืนสินค้า · ยกเลิกบิล <span class="en">Returns &amp; void</span></span><span class="pg">7</span></a>
-    <a class="toc-row" href="#close"><span class="n">7</span><span class="t">เงินเข้า-ออก · ปิดกะ <span class="en">Drawer &amp; close</span></span><span class="pg">8</span></a>
+    <a class="toc-row" href="#close"><span class="n">7</span><span class="t">เงินเข้า-ออก · ปิดกะ · เปิดกะถัดไป <span class="en">Drawer &amp; close</span></span><span class="pg">8</span></a>
     <a class="toc-row" href="#offline"><span class="n">8</span><span class="t">เมื่อเน็ตหลุด · สถานะซิงก์ <span class="en">Offline &amp; sync</span></span><span class="pg">9</span></a>
     <a class="toc-row" href="#errors"><span class="n">9</span><span class="t">ข้อความผิดพลาดที่พบบ่อย · ข้อจำกัด <span class="en">Errors</span></span><span class="pg">10</span></a>
   </div>
@@ -233,7 +233,7 @@
     <li>ใบเสนอราคา <strong>ไม่ตัดสต็อก</strong> (ในใบ A4 เขียนไว้ว่า <span class="msg">• สินค้าตามใบเสนอราคานี้ ยังไม่ได้ตัดสต็อก</span>)</li>
     <li>ใบเสนอราคาทุกงาน <strong>ต้องออนไลน์</strong> — ตอนออฟไลน์จะขึ้น เช่น <span class="msg">ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกใบเสนอราคาได้</span> (ปุ่ม <span class="ui ghost">ดู</span> กับ <span class="ui ghost">CSV</span> ยังใช้ได้)</li>
   </ul>
-  <div class="note warn"><span class="nt">อายุใบเสนอราคา — พฤติกรรมปัจจุบัน</span><!-- ISSUE:#464 -->ใบที่บันทึกจากปุ่ม <span class="ui ghost">ใบเสนอราคา</span> ในหน้าขาย <strong>มีอายุ 30 วันเสมอ</strong> ไม่ว่าจะตั้ง <span class="ui ghost">ใบเสนอราคา · มีอายุ (วัน)</span> ในหน้าตั้งค่าไว้เท่าไร (#464 — รอเจ้าของโปรเจกต์ตัดสินว่าตั้งใจหรือบั๊ก) · ใบ A4 พิมพ์จำนวนวันตามอายุจริงของใบนั้น</div>
+  <div class="note key"><span class="nt">อายุใบเสนอราคา</span>ใบที่บันทึกจากปุ่ม <span class="ui ghost">ใบเสนอราคา</span> ในหน้าขายมีอายุตามช่อง <span class="ui ghost">ใบเสนอราคา · มีอายุ (วัน)</span> ในหน้าตั้งค่า (ภาค 02 หัวข้อ 8 · แก้ใน #464) · ใบที่ออกไปแล้วไม่เปลี่ยนตามเมื่อแก้ค่าภายหลัง · ใบ A4 พิมพ์จำนวนวันตามอายุของใบนั้น</div>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">6</span></div>
 </section>
 
@@ -260,7 +260,7 @@
     <li><strong>ออนไลน์:</strong> กด <span class="ui ghost">✕ ยกเลิกบิลทั้งบิล</span> → <span class="msg">ยกเลิกบิล {receiptNo} ทั้งบิล?<br><br>คืนสินค้าทุกรายการ + คืนเงินทั้งหมด</span> (ไม่ต้องใช้ PIN) · บิลที่คืนครบแล้วขึ้น <span class="msg">บิลนี้คืนหมดแล้ว</span></li>
     <li><strong>ออฟไลน์:</strong> ยกเลิกได้เฉพาะบิลที่ <strong>ขายตอนออฟไลน์</strong> — ปุ่มเปลี่ยนเป็น <span class="ui ghost">✕ ยกเลิกบิลออฟไลน์</span> และ <strong>ต้องใส่เหตุผล</strong> (<span class="msg">กรุณาระบุเหตุผลในการยกเลิกบิล</span>) บิลที่ขายตอนออนไลน์ยกเลิกตอนออฟไลน์ไม่ได้ (กฎ <span class="msg">บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น</span>) — รอเน็ตกลับ</li>
   </ul>
-  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span><!-- ISSUE:#452 -->ใน API build <strong>การคืนสินค้าแบบเลือกรายการยังต้องมีเน็ต</strong> — หน้าคืนสินค้าส่งไปเซิร์ฟเวอร์โดยตรง ยังไม่เข้าคิวรอส่ง (แม้สเปก phase 2 จะวางไว้ว่าคืนออฟไลน์ได้) ถ้าเน็ตหลุด ให้จดบิลไว้แล้วทำคืนเมื่อเน็ตกลับ (#452)</div>
+  <div class="note tip"><span class="nt">คืนสินค้าตอนเน็ตหลุด (API build)</span>คืนสินค้าได้ตามขั้นตอนเดิม — ระบบออกใบลดหนี้เลข <code>CN</code> ในเครื่อง เก็บเข้าคิวรอส่ง แล้วส่งขึ้นเซิร์ฟเวอร์เองเมื่อเน็ตกลับ (#452) · คืนเป็น <span class="ui ghost">เงินสด</span> ตอนออฟไลน์ต้องมีกะเปิดอยู่ (ไม่เช่นนั้นขึ้น <span class="msg">กรุณาเปิดกะก่อน</span>) · เซิร์ฟเวอร์ตรวจซ้ำตอนรับ ถ้าไม่ผ่าน รายการจะไปอยู่หน้า <span class="ui ghost">รอเจ้าของ</span> (ภาค 02 หัวข้อ 9)</div>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">7</span></div>
 </section>
 
@@ -283,13 +283,20 @@
     <li><span class="st-title">ตรวจว่าไม่มีรายการค้างส่ง</span>ป้ายมุมบนต้องเป็น <span class="msg">ออนไลน์</span> ไม่มีตัวเลขค้าง (ดูหัวข้อ 8)</li>
     <li><span class="st-title">แท็บ <span class="ui ghost">🔒 ปิดลิ้นชัก</span> — อ่าน "สรุปยอดเงินสด"</span><span class="see"><span class="msg">เงินที่ควรมีในลิ้นชัก</span> = ตั้งต้น + ขายเงินสด + รับชำระเครดิต (เงินสด) − คืนเงินสด + เงินเพิ่ม − เงินออก</span></li>
     <li><span class="st-title">นับเงินจริง กรอก <span class="ui ghost">นับเงินสดจริงได้ ฿</span></span><span class="see"><span class="msg">ผลต่าง</span>: <span class="msg">✓ ตรงยอด</span> / <span class="msg">เงินเกิน +{baht}</span> / <span class="msg">เงินขาด −{baht}</span></span></li>
-    <li><span class="st-title">กด <span class="ui">🔒 ยืนยันปิดลิ้นชัก</span></span><span class="see"><span class="msg">✓ ปิดลิ้นชักแล้วเวลา {hh:mm} · นับจริง {baht}</span> — หลังจากนี้บันทึกเงินเข้า-ออกไม่ได้แล้ว</span></li>
+    <li><span class="st-title">กด <span class="ui">🔒 ยืนยันปิดลิ้นชัก</span></span><span class="see"><span class="msg">✓ ปิดลิ้นชักแล้วเวลา {hh:mm} · นับจริง {baht}</span> — หลังจากนี้บันทึกเงินเข้า-ออกในกะนี้ไม่ได้แล้ว (ขายต่อ = เปิดกะใหม่ ด้านล่าง)</span></li>
     <li><span class="st-title">(แนะนำ) พิมพ์สรุปยอด</span>ปุ่ม <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> → <span class="ui">🖨 พิมพ์รายงานปิดร้าน</span></li>
   </ol>
-  <figure><img src="img/closing-report.png" alt="สรุปยอดปิดร้าน · Daily Closing Report" loading="lazy"><figcaption>สรุปยอดปิดร้าน · Daily Closing Report — ในภาพ แถว เงินสด + โอน/QR ไม่เท่า รวมทั้งหมด เพราะไม่มีแถวเครดิตช่าง (#461)</figcaption></figure>
-  <div class="note warn"><span class="nt">อ่านสรุปยอดปิดร้านให้ถูก — พฤติกรรมปัจจุบัน</span><!-- ISSUE:#461 -->ส่วน <span class="msg">วิธีชำระเงิน</span> มีแค่แถว <span class="msg">💵 เงินสด</span> กับ <span class="msg">📱 โอน/QR</span> แต่ <span class="msg">รวมทั้งหมด</span> นับทุกบิล — ถ้าวันนั้นมีบิล <span class="ui ghost">เครดิตช่าง</span> สองแถวบวกกันจะ <strong>น้อยกว่า</strong> ยอดรวมเท่ากับยอดเครดิตช่าง ไม่ใช่เงินหาย (#461) · ยอดเงินสดที่ต้องนับให้ดูจากแท็บ <span class="ui ghost">🔒 ปิดลิ้นชัก</span> หรือส่วน "ตรวจนับเงินสดในลิ้นชัก" ของรายงานนี้</div>
+  <figure><img src="img/closing-report.png" alt="สรุปยอดปิดร้าน · Daily Closing Report" loading="lazy"><figcaption>สรุปยอดปิดร้าน · Daily Closing Report — ภาพถ่ายก่อนแก้ #461: เวอร์ชันปัจจุบันมีแถว 🔧 เครดิตช่าง เพิ่มใต้ โอน/QR</figcaption></figure>
+  <div class="note key"><span class="nt">อ่านสรุปยอดปิดร้าน</span>ส่วน <span class="msg">วิธีชำระเงิน</span> มี 3 แถว <span class="msg">💵 เงินสด</span> · <span class="msg">📱 โอน/QR</span> · <span class="msg">🔧 เครดิตช่าง</span> ซึ่งบวกกันเท่า <span class="msg">รวมทั้งหมด</span> (#461) — ยอดขาย วิธีชำระ และสินค้าขายดีเป็นของ <strong>ทั้งวัน</strong> ส่วน "ตรวจนับเงินสดในลิ้นชัก" นับเฉพาะเงินสดของ <strong>กะที่เปิดอยู่</strong> (กะแรกของวันนับตั้งแต่เที่ยงคืน กะถัดไปนับตั้งแต่เวลาเปิดกะนั้น) ตรงกับแท็บ <span class="ui ghost">🔒 ปิดลิ้นชัก</span></div>
   <div class="note warn"><span class="nt">ทำไมปุ่มปิดลิ้นชักกดไม่ได้</span>ปุ่มจะกดได้เมื่อ <strong>ครบ 3 ข้อ</strong>: กรอกยอดนับจริงแล้ว · ไม่อยู่ในโหมดออฟไลน์ · <strong>ไม่มีรายการค้างส่ง</strong> (PR #456) ถ้ายังค้างอยู่ ระบบจะบอก <span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง — ต้องส่งเข้าระบบให้หมดก่อนปิดกะ</span> — รอให้ส่งหมด หรือให้เจ้าของร้านจัดการรายการที่ถูกปฏิเสธในหน้า <span class="ui ghost">รอเจ้าของ</span></div>
-  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span><!-- ISSUE:#452 -->ระบบและเซิร์ฟเวอร์รองรับ <strong>หลายกะต่อวัน</strong> (08 §11, PR #456) แต่ <strong>หน้า ลิ้นชัก ยังไม่มีปุ่มเปิดกะใหม่</strong> หลังปิดลิ้นชักไปแล้วในวันเดียวกัน — ฟอร์ม <span class="ui">เปิดร้าน</span> ขึ้นเฉพาะตอนที่วันนั้นยังไม่มีกะ ถ้าร้านต้องการกะที่สองในวันเดียวกัน ให้แจ้งทีมพัฒนา อย่าพยายามแก้เอง (#452)</div>
+  <h2 class="sub" id="next-shift">เปิดกะถัดไปในวันเดียวกัน <span class="en">Next shift, same day</span></h2>
+  <p>ระบบรองรับหลายกะต่อวัน (08 §11 · #452) — เช่น เปลี่ยนคนเฝ้าเคาน์เตอร์ตอนบ่าย</p>
+  <ol class="steps">
+    <li><span class="st-title">ปิดกะปัจจุบันให้เรียบร้อยตามขั้นตอนด้านบน</span></li>
+    <li><span class="st-title">ที่หน้า <span class="ui ghost">ลิ้นชัก</span> ทั้งสองแท็บจะมีการ์ด <span class="msg">เปิดกะใหม่</span></span><span class="msg">กรอกเงินตั้งต้นในลิ้นชักก่อนเริ่มขาย</span></li>
+    <li><span class="st-title">นับเงินที่ส่งต่อในลิ้นชัก กรอก <span class="ui ghost">เงินตั้งต้น ฿</span> (หรือปุ่มลัด) → กด <span class="ui">เปิดกะใหม่</span></span><span class="see">กลับไปแท็บ <span class="ui ghost">💵 รายการเงิน</span> ของกะใหม่ — ยอดเงินสดที่ควรมีนับเฉพาะตั้งแต่เปิดกะนี้</span></li>
+  </ol>
+  <p class="muted">ข้อความ <span class="msg">เปิดกะใหม่</span> ยังเป็นร่างที่ทีมเขียน (02_API_SCREENS §8.1.1) · ภาพหน้าจอในคู่มือถ่ายก่อนมีการ์ดนี้</p>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">8</span></div>
 </section>
 
@@ -316,7 +323,7 @@
     <div>
       <h3 class="mini">ทำได้ (เข้าคิวรอส่ง)</h3>
       <ul class="ticks">
-        <li>ขายสินค้า</li>
+        <li>ขายสินค้า · คืนสินค้า (ออกใบลดหนี้ CN ในเครื่อง)</li>
         <li>เปิดกะ · เงินเข้า-ออกลิ้นชัก</li>
         <li>รับชำระเครดิตช่าง</li>
         <li>เพิ่ม/แก้ลูกค้า</li>
@@ -327,7 +334,7 @@
     <div>
       <h3 class="mini">ต้องออนไลน์</h3>
       <ul class="ticks">
-        <li><!-- ISSUE:#452 -->ปิดกะ · คืนสินค้า (ดูข้อจำกัดหัวข้อ 6 · #452)</li>
+        <li>ปิดกะ</li>
         <li>ยกเลิกบิลที่ขายตอนออนไลน์</li>
         <li>ใบเสนอราคาทุกงาน</li>
         <li>สินค้า หมวด ซัพพลายเออร์ ใบสั่งซื้อ ช่าง (เพิ่ม/แก้)</li>
@@ -355,7 +362,7 @@
     <tr><td><span class="msg">ร้านนี้ถูกระงับการใช้งาน</span></td><td>ผู้ดูแลแพลตฟอร์มระงับร้าน</td><td>เจ้าของร้านติดต่อทีมงาน</td></tr>
     <tr><td><span class="msg">ระบบกำลังทำงานหนัก กรุณารอสักครู่</span></td><td>ส่งคำขอถี่เกิน</td><td>รอสักครู่แล้วลองใหม่ อย่ากดรัว</td></tr>
     <tr><td><span class="msg">คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่</span></td><td>บิลเดิมยังบันทึกไม่เสร็จ</td><td>รอ แล้วกดใหม่ — ระบบไม่ขายซ้ำ</td></tr>
-    <tr><td><span class="msg">ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้</span> / <span class="msg">ปิดลิ้นชักแล้ว — ไม่สามารถบันทึกรายการเงินเพิ่มได้</span></td><td>ปิดกะแล้ว</td><td><!-- ISSUE:#452 -->บันทึกหลังปิดกะไม่ได้ และยังเปิดกะที่สองในวันเดียวกันจากหน้าจอไม่ได้ (ดูข้อจำกัดหัวข้อ 7 · #452)</td></tr>
+    <tr><td><span class="msg">ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้</span> / <span class="msg">ปิดลิ้นชักแล้ว — ไม่สามารถบันทึกรายการเงินเพิ่มได้</span></td><td>ปิดกะแล้ว</td><td>บันทึกหลังปิดกะไม่ได้ — ถ้าจะขายต่อ ให้เปิดกะใหม่ด้วยการ์ด <span class="msg">เปิดกะใหม่</span> (หัวข้อ 7)</td></tr>
     <tr><td><span class="msg">บิลนี้ไม่ได้อยู่ในกะที่เปิดอยู่ ยกเลิกบิลไม่ได้ กรุณาทำรายการคืนสินค้า (ใบลดหนี้) แทน</span></td><td>ยกเลิกบิลของกะก่อน</td><td>ใช้การคืนสินค้าแทน</td></tr>
     <tr><td><span class="msg">บิลนี้มีใบลดหนี้แล้ว ไม่สามารถยกเลิกบิลได้</span></td><td>บิลเคยคืนบางส่วนแล้ว</td><td>คืนรายการที่เหลือแทนการยกเลิก</td></tr>
     <tr><td><span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง — ต้องส่งเข้าระบบให้หมดก่อนปิดกะ</span></td><td>คิวรอส่งยังไม่ว่าง</td><td>รอออนไลน์ให้ส่งหมด / เจ้าของร้านจัดการที่ <span class="ui ghost">รอเจ้าของ</span></td></tr>
@@ -365,7 +372,6 @@
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
       <li>ร้านจริงยังใช้ Drift build — หัวข้อ 1, 8 และข้อความที่เกี่ยวกับกะ/เครื่อง/ซิงก์ ใช้กับ API build เท่านั้น</li>
-      <li><!-- ISSUE:#452 -->ยังไม่มีปุ่มเปิดกะที่สองในวันเดียวกัน (หัวข้อ 7) · คืนสินค้าตอนออฟไลน์ยังไม่ได้ (หัวข้อ 6) — #452</li>
       <li>ข้อความ <span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง…</span> ยังเป็นร่างที่ทีมเขียน ยังไม่ผ่านการรับรองจากเจ้าของโปรเจกต์ — อาจเปลี่ยนถ้อยคำ</li>
       <li>สแกนบาร์โค้ดใช้เครื่องยิงแบบคีย์บอร์ดหรือพิมพ์เอง · พิมพ์ผ่านหน้าต่างพิมพ์ของเครื่อง ไม่มีการสั่งเครื่องพิมพ์หรือเด้งลิ้นชักโดยตรง</li>
     </ul>
