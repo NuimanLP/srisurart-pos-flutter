@@ -10,7 +10,7 @@ import { APP_ROLE } from './1788652800001-RowLevelSecurity.js';
  * - `temp_password_expires_at` — 7 days from `POST /platform/tenants`, 24 h from a reset. The
  *   CHECK ties it to the flag so the two can never disagree.
  * - `password_changed_at` — set by a reset and by a successful change; `/auth/refresh` refuses
- *   a refresh token whose `iat` is older (ADR-0009 addendum 2026-09-27).
+ *   a refresh token whose `iat` is older (ADR-0009 addendum 2026-09-26).
  *
  * Existing owners get `false` / NULL / NULL: nothing changes for them.
  *

@@ -181,6 +181,15 @@ describe('owner password lifecycle v2 (#443 PR3)', () => {
       ).rejects.toMatchObject({ status: 401, response: { message: 'Invalid credentials' } });
     });
 
+    it('a pre-PR3 hash of a non-NFC password still logs in (NFC reorders Thai marks)', async () => {
+      // Tone mark (U+0E48) typed before the below-vowel (U+0E39): NFC swaps them.
+      const typed = 'รหัสผ่านป\u0e48\u0e39ของร้าน';
+      expect(typed.normalize('NFC')).not.toBe(typed);
+      const { svc } = await loginWith({ password_hash: await hashPassword(typed) });
+      const res = await svc.login({ username: 'owner', password: typed });
+      expect(res.accessToken).toBe('token-access-15m');
+    });
+
     it('a normal login carries passwordChangedAt for the banner', async () => {
       const changed = new Date('2026-09-26T03:00:00Z');
       const { svc } = await loginWith({ password_changed_at: changed });
@@ -351,7 +360,7 @@ describe('owner password lifecycle v2 (#443 PR3)', () => {
     });
   });
 
-  describe('refreshTokenPayload — ADR-0009 addendum 2026-09-27', () => {
+  describe('refreshTokenPayload — ADR-0009 addendum 2026-09-26', () => {
     const refreshWith = async (iat: number, epoch: string | null) => {
       const audit = { log: vi.fn() };
       const qr = queryRunner((sql) =>

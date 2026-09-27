@@ -79,9 +79,9 @@ export type PasswordPolicyViolation =
 
 /**
  * NFC, applied wherever an owner password is set or checked (#443 PR3), so the same text
- * typed on two keyboards that emit different code-point sequences hashes the same. Note: NFC
- * does not reorder Thai tone marks typed in a different order — it helps less for Thai than
- * the issue hoped (scrutiny note, 2026-09-27).
+ * typed on two keyboards that emit different code-point sequences hashes the same. For Thai
+ * it canonically reorders a tone mark (ccc 107) typed before a below-vowel (ccc 103), but not
+ * marks of equal class. Login also retries the raw form, for hashes made before PR3.
  */
 export function normalizePassword(password: string): string {
   return password.normalize('NFC');
@@ -113,7 +113,7 @@ export function chosenPasswordViolation(password: unknown): PasswordPolicyViolat
 
 /**
  * A server-generated temporary owner password (#443 PR3, v2 condition 1): CSPRNG, 16
- * characters from an alphabet with the confusable `0 O 1 l I` removed (56 symbols ≈ 93 bits),
+ * characters from an alphabet with the confusable `0 O 1 l I` removed (57 symbols — lowercase `o` is kept — ≈ 93 bits),
  * so it survives being read aloud over the phone. The admin never chooses it.
  */
 export const TEMP_PASSWORD_ALPHABET =

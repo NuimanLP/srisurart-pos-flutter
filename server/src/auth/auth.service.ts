@@ -157,6 +157,9 @@ export class AuthService {
       // verify per candidate, so it is refused like a wrong password: one dummy verify, the
       // generic 401, and no audit row (there is no single tenant to audit under).
       await verifyAgainstDummyHash(password);
+      // Same argon2 count as the legacy-form retry below, so a non-NFC input does not time
+      // an existing username apart from an unknown one.
+      if (password !== dto.password) await verifyAgainstDummyHash(dto.password);
       this.logger.warn(
         `Login failed: ${userRows.length === 0 ? 'user not found' : 'ambiguous username'} for username=${dto.username}`,
       );
@@ -170,6 +173,13 @@ export class AuthService {
     let valid = false;
     try {
       valid = await argon2.verify(user.password_hash, password);
+      // Hashes made before #443 PR3 are of the password exactly as typed, not its NFC form.
+      // NFC reorders e.g. a Thai tone mark typed before a below-vowel (ปู่ → ปู่), so without
+      // this retry such an owner would be locked out. Costs a second argon2 only for input
+      // that NFC actually changed.
+      if (!valid && password !== dto.password) {
+        valid = await argon2.verify(user.password_hash, dto.password);
+      }
     } catch (err) {
       this.logger.warn(`Password verification failed to parse hash for userId=${user.id}: ${err}`);
       valid = false;
@@ -383,7 +393,7 @@ export class AuthService {
         throw new UnauthorizedException('User is inactive');
       }
 
-      // ADR-0009 addendum 2026-09-27 (#443): the fourth DB check. A refresh token issued
+      // ADR-0009 addendum 2026-09-26 (#443): the fourth DB check. A refresh token issued
       // before the password last changed (a reset, or the owner's own change) is dead —
       // the same column-check pattern as the three above, not a denylist. Strict `<`: a
       // token issued in the same second as the change survives (accepted — `iat` is whole

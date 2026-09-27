@@ -17,6 +17,7 @@ import { pinoHttp } from 'pino-http';
  */
 const SECRET_FIELDS = [
   'password',
+  'pin',
   'newPassword',
   'currentPassword',
   'ownerPassword',

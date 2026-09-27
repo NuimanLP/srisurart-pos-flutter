@@ -22,6 +22,7 @@ describe('logger redaction', () => {
     const { logger, lines } = capture();
     const secrets = {
       password: 'pw-secret-1',
+      pin: '482913',
       newPassword: 'pw-secret-2',
       currentPassword: 'pw-secret-3',
       ownerPassword: 'pw-secret-4',

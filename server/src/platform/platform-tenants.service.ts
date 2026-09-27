@@ -204,7 +204,7 @@ export class PlatformTenantsService {
    *
    * Issues a new server-generated temporary password (24 h). The old password — temporary or
    * the owner's own — stops working in the same UPDATE, and `password_changed_at = now()`
-   * kills every refresh token issued before it (ADR-0009 addendum 2026-09-27) and every
+   * kills every refresh token issued before it (ADR-0009 addendum 2026-09-26) and every
    * `pwchange` token of an earlier temp password. Generated and hashed before the
    * transaction; the audit row names the admin and never carries the secret.
    */
