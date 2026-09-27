@@ -628,7 +628,9 @@ export class SalesService {
    * A **voided** bill is the one id that is not replayed: see below.
    *
    * Public for `POST /sync/push`'s client-id replay of `sale.create` (#455): its
-   * reply must be this route's reply, so it is built here, in one place.
+   * reply must be this route's reply, so it is built here, in one place. The push
+   * passes `soldOffline: true`, which makes a voided bill replay instead of `409
+   * SALE_VOIDED`, as the push's own replay did before #455.
    */
   async existingSale(
     manager: EntityManager,

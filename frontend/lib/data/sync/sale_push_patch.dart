@@ -44,17 +44,22 @@ Future<void> patchSaleFromPushReply(
   final saleId = payload['id'];
   if (saleId is! String) return;
 
-  // Header: the date the server stored (clamped into the shift, 08 §10) and the
-  // drawer it filed the bill under. A null `shiftId` (a bill predating #28)
-  // does not wipe the local one.
+  // Header: the date the server stored (clamped into the shift, 08 §10), the
+  // drawer it filed the bill under, and its points (never the till's own
+  // `pointsFor`). A null `shiftId` (a bill predating #28) does not wipe the
+  // local one.
   final date = response['date'];
   final shiftId = response['shiftId'];
+  final points = response['pointsGranted'];
   final header = SalesCompanion(
     date: date is String ? Value(stamp(date)) : const Value.absent(),
     shiftId: shiftId is String ? Value(shiftId) : const Value.absent(),
+    pointsGranted: points is int ? Value(points) : const Value.absent(),
   );
   if (header != const SalesCompanion()) {
-    await (db.update(db.sales)..where((t) => t.id.equals(saleId))).write(header);
+    await (db.update(
+      db.sales,
+    )..where((t) => t.id.equals(saleId))).write(header);
   }
 
   // Lines: the cost the SERVER locked at the moment of sale (ADR-0008), joined
@@ -72,11 +77,13 @@ Future<void> patchSaleFromPushReply(
   }
   final payloadItems = payload['items'];
   if (costByLineNo.isNotEmpty && payloadItems is List) {
-    final lines = await (db.select(db.saleItems)
-          ..where((t) => t.saleId.equals(saleId))
-          ..orderBy([(t) => OrderingTerm.asc(t.rowId)]))
-        .get();
-    final paired = lines.length == payloadItems.length &&
+    final lines =
+        await (db.select(db.saleItems)
+              ..where((t) => t.saleId.equals(saleId))
+              ..orderBy([(t) => OrderingTerm.asc(t.rowId)]))
+            .get();
+    final paired =
+        lines.length == payloadItems.length &&
         [
           for (var i = 0; i < lines.length; i++)
             payloadItems[i] is Map &&
@@ -99,23 +106,27 @@ Future<void> patchSaleFromPushReply(
 
   // Customer: points and spend as the server has them.
   final c = response['customerAfter'];
-  if (c is Map && c['id'] is String && !pending.contains('customer:${c['id']}')) {
+  if (c is Map &&
+      c['id'] is String &&
+      !pending.contains('customer:${c['id']}')) {
     final points = c['points'];
     final companion = CustomersCompanion(
       points: points is int ? Value(points) : const Value.absent(),
       totalSpend: keepMoney(moneyOrNull(c['totalSpend'])),
     );
     if (companion != const CustomersCompanion()) {
-      await (db.update(db.customers)
-            ..where((t) => t.id.equals(c['id'] as String)))
-          .write(companion);
+      await (db.update(
+        db.customers,
+      )..where((t) => t.id.equals(c['id'] as String))).write(companion);
     }
   }
 
   // Mechanic: all four running totals as the server has them (never
   // `totalCredit`, the legacy alias the server does not move — #11).
   final m = response['mechanicAfter'];
-  if (m is Map && m['id'] is String && !pending.contains('mechanic:${m['id']}')) {
+  if (m is Map &&
+      m['id'] is String &&
+      !pending.contains('mechanic:${m['id']}')) {
     final companion = MechanicsCompanion(
       totalSales: keepMoney(moneyOrNull(m['totalSales'])),
       totalDiscount: keepMoney(moneyOrNull(m['totalDiscount'])),
@@ -123,9 +134,9 @@ Future<void> patchSaleFromPushReply(
       creditBalance: keepMoney(moneyOrNull(m['creditBalance'])),
     );
     if (companion != const MechanicsCompanion()) {
-      await (db.update(db.mechanics)
-            ..where((t) => t.id.equals(m['id'] as String)))
-          .write(companion);
+      await (db.update(
+        db.mechanics,
+      )..where((t) => t.id.equals(m['id'] as String))).write(companion);
     }
   }
 
