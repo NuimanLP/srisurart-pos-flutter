@@ -17,6 +17,8 @@ so this is a **sampled** review, not an audit. A clean area here is not proof of
 ## 2. Spec findings (vs `08_PHASE2_SPEC.md`, ADRs, `CONTRACT.md`)
 
 Items 1–2 re-verified by reading the code after the review.
+**Status 2026-09-27:** items 1–2 fixed 2026-09-25 (PR #413 / #409, PR #414 / #411 — see
+`CLAUDE.md` "Still open"); items 3–5 carry their own status lines below; item 6 untriaged.
 
 1. 🔴 **HIGH — `/sync/push` fingerprint ≠ online route's.** 08 §8.3 step 1 requires the same
    fingerprint as the online route. `sync.service.ts:201-229` (`endpointForOp`) stores
@@ -35,12 +37,21 @@ Items 1–2 re-verified by reading the code after the review.
    `costAtSale`, `movements`, `shiftId`, `date`, customer/mechanic balances that 08 §8.2 says it
    carries. The fixture `fixtures/sync-push/sale-create.applied.json` has the same thin shape —
    **spec vs contract disagree; owner call** which one is right.
+   → **สถานะ 2026-09-27: แก้แล้ว** — owner เลือก spec (#455) · PR #458: reply `applied` =
+   คำตอบของ `POST /sales` (replay ด้วย id ใช้ `SalesService.existingSale` ตัวเดียวกับ route
+   ออนไลน์) · fixture 4 ไฟล์อัปเดต · client patch ผ่าน `patchSaleFromPushReply`
 4. MED — the client only queues `sale.create`, credit payments and customer ops; 08 §6.1 also
    lists `shift.open`, `return.create`, `drawer.entry`. `api_shifts_repository.dart:80-87` sends
    no client `id`/`openedAt`; shift close checks only queued credit payments (§11 wants the whole
    outbox).
+   → **สถานะ 2026-09-27: แก้บางส่วน** — PR #456 queue `shift.open` + `drawer.entry` ด้วย client
+   id, body ออนไลน์มี `id`, ปิดกะต้อง outbox ว่างทั้งหมด (`OUTBOX_NOT_EMPTY`, ข้อความไทย
+   **agent ร่าง**) · **#452 ยังเปิด**: `return.create`, replay test ของ op ใหม่, และหน้าจอยังเปิด
+   กะที่สองในวันเดียวกันไม่ได้ · ข้อเบี่ยง: 5xx ไม่เข้าคิว (เหมือน sales) ต่างจาก 08 §5
 5. MED — Drift `openShift` still returns the same-day shift (`shifts_repository.dart:69-83`),
    removed by 08 §11.
+   → **สถานะ 2026-09-27: แก้แล้ว** — PR #456 (#453): id ที่มีอยู่แล้ว → คืนกะนั้น · ไม่งั้น
+   archive กะก่อนแล้วเปิดใหม่ แม้เปิดวันเดียวกัน
 6. LOW — online `POST /shifts/open` with an existing `id` does not compare `startingCash`
    (`shifts.service.ts:170-180`); the push path does.
 

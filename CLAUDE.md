@@ -143,7 +143,9 @@ idiomatic replacement for the JS snapshot/rollback):
   discount/points/mechanic reversal; credit-balance reduced ONLY for `หักจากเครดิต`; auto-void
   the parent sale on full return.
 - **receivePO** — weighted-average cost `round2((oldQty·oldCost + newQty·newCost)/total)`.
-- **openShift** archives the prior shift (never lose a day); `addDrawerEntry` blocked after close.
+- **openShift** allows several shifts a day (08 §11, #453): an `id` that already exists
+  returns that shift unchanged; otherwise it archives the prior active shift first (even
+  one opened today — never lose a day) and inserts a new one. `addDrawerEntry` blocked after close.
 - **quotes / parked** never touch stock. **adjustStock** DOES clamp at 0 (manual adjustment).
 - **snapshot** — `exportSnapshot()` emits the JS `sa_*` + `__meta` backup shape;
   `importLegacyBackup()` atomically imports a JS `DB.exportSnapshot()` JSON (zone→category
@@ -279,9 +281,27 @@ develops against a demo tenant.
   2026-09-25**: the `/sync/push` fingerprint mismatch (`POST /sales` vs
   `POST /api/v1/sales`) by PR #413 (#409), and online routes storing the client body's
   `date` instead of server `now()` by PR #414 (#411). The same review log (`docs/handoff_log/session-2026-09-24-whole-codebase-review.md`
-  §2) still lists 4 MED spec gaps and the standards findings (e.g. unvalidated `Math.max`
+  §2) also lists 4 MED spec gaps and the standards findings (e.g. unvalidated `Math.max`
   clamp in `quotes.controller.ts:113` — fixed 2026-09-25 by PR #420, now validated by
-  `parsePurgeOlderThanDays`); the rest is not yet triaged.
+  `parsePurgeOlderThanDays`). MED status 2026-09-27: item 3 (thin `sale.create` push
+  reply) fixed by PR #458 (#455 — owner chose the spec); item 5 (Drift `openShift`
+  same-day) fixed by PR #456 (#453); item 4 (client queueing) **partial** — #456 queues
+  `shift.open`/`drawer.entry`, **#452 stays open** for `return.create`, replay tests, and
+  the missing UI to open a second shift the same day. Item 6 (LOW) and the rest are not
+  yet triaged.
+- 🔴 **Deliberate deviation from 08 §5 (PR #456, flagged to the owner on #452, not decided):** on the API build a
+  5xx/429 does **not** queue to the outbox — the attempt stays parked (same id + key) and
+  the error shows, exactly like `ApiSalesRepository`; only a transport failure queues.
+  Aligning with §5 must be one change for sales and shifts together, never a shifts-only
+  divergence.
+- **Bugs filed 2026-09-27** from running the local stack and writing the manual (none
+  fixed): #460 `BootstrapService.bootstrap()` never called — tenant `settings` never
+  pulled, the till shows the Drift seed shop name (team/2) · #461 closing report has no
+  `เครดิตช่าง` payment row, rows don't sum to `รวมทั้งหมด` — parity unknown, owner call
+  (team/2) · #462 devices screen says a 6-digit enrol code, server issues 8 hex chars
+  (team/3) · #463 reports KPI cards blank at 390 px (team/1) · #464 checkout ignores
+  `settings.quoteValidDays`, quotes always 30 days — owner call (team/2) · #465 minor UI:
+  Rail 4 px overflow, `/devices` highlights ขายสินค้า, stale Backoffice login banner (team/3).
 - **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
   `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
@@ -444,7 +464,14 @@ on void/return paths. Keep this order in any new write touching more than one of
 - Consent (e.g. `overrideCreditLimit`) is carried explicitly from a dialog the counter
   was actually shown — never inferred by re-running a stale local check.
 - Money crosses the wire as the string `"1234.50"`; a field the response omits leaves
-  its row alone.
+  its row alone — the online customer/mechanic patch and the `/sync/push` reply patch
+  share `patchCustomerAfter`/`patchMechanicAfter` (`api_wire.dart`, #455) for this.
+- **Closing a shift needs the whole outbox empty** (08 §11, #456): `ApiShiftsRepository.closeShift`
+  sends the outbox first, then refuses with `OUTBOX_NOT_EMPTY` while **any** `outbox_ops`
+  row remains — `pending`, `stuck` or `rejected`, of any type — and the close button is
+  disabled while `outboxRemaining > 0`. The server cannot see the outbox, so this check is
+  client-only; never narrow it back to one op type (it replaced the cash-credit-only
+  `CASH_CREDIT_PAYMENTS_UNSENT`). Its Thai string is still **agent ร่าง** in `02 §8.1.1`.
 
 **CI/CD (`.github/workflows/`, `deploy/`):**
 - Both `flutter.yml` and `server.yml` trigger unfiltered on every push/PR; a `changes`
