@@ -67,13 +67,15 @@ which is binding — **where a document contradicts an ADR, the ADR wins.**
 
 | Checkout (ขายสินค้า) | Products and stock (สินค้า/สต็อก) |
 |---|---|
-| ![Checkout](docs/tutorial/flutter/img/checkout.png) | ![Products](docs/tutorial/flutter/img/products.png) |
+| ![Checkout](docs/tutorial/sri-pos-manual/img/checkout.png) | ![Products](docs/tutorial/sri-pos-manual/img/products.png) |
 
 | Reports (รายงาน) | Shift closing report (ปิดกะ) |
 |---|---|
-| ![Reports](docs/tutorial/flutter/img/reports.png) | ![Closing report](docs/tutorial/flutter/img/closing-report.png) |
+| ![Reports](docs/tutorial/sri-pos-manual/img/reports.png) | ![Closing report](docs/tutorial/sri-pos-manual/img/closing-report.png) |
 
-More in [`docs/tutorial/flutter/`](docs/tutorial/flutter/) (Thai user manual).
+Captured from the API build against a local dev stack with a demo tenant. More in
+[`docs/tutorial/sri-pos-manual/`](docs/tutorial/sri-pos-manual/) — the Thai SOP user manual,
+one part per role (counter staff, owner, platform admin, IT operations, dashboards).
 
 ---
 

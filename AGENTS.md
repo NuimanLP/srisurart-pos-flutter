@@ -533,7 +533,7 @@ back** (decided 2026-09-04). Recover from git history if you ever need the Supab
   then the outbox + `offlineOk` shell. Thai strings for the 7 new server errors now have
   **agent-drafted placeholders** accepted by the project owner (`02_API_SCREENS.md §8.1`) — three
   of them are counter-facing and still need the shop's own wording. Never invent new ones.
-- **Re-capture tutorial screenshots** from the Flutter app (current images are from the JS app).
+- **Fill the screenshot placeholders** left in `docs/tutorial/sri-pos-manual/` (dashed boxes reading `(ภาพหน้าจอ: <name> — รอเพิ่ม)`) — add `img/<name>.png` and swap the box for an `<img>`.
 - Carried from JS (beyond 8a): full tax invoice (ใบกำกับภาษีเต็มรูป) — out of scope for v1.
 
 ---

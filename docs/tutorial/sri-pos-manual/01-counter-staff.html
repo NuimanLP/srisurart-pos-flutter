@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือพนักงานหน้าร้าน</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="partnav">
+  <a href="index.html">หน้าแรก</a>
+  <a class="cur" href="01-counter-staff.html">01 พนักงานหน้าร้าน</a>
+  <a href="02-owner-backoffice.html">02 เจ้าของร้าน</a>
+  <a href="03-platform-admin.html">03 ผู้ดูแลแพลตฟอร์ม</a>
+  <a href="04-it-operations.html">04 IT / ผู้ดูแลระบบ</a>
+  <a href="05-dashboards.html">05 แดชบอร์ด</a>
+</nav>
+
+<!-- ════════════════ 1 · PART HEADER ════════════════ -->
+<section class="page" id="top">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">พนักงานหน้าร้าน</span></div>
+  <div class="sec-no">Part 01</div>
+  <h1 class="sec">พนักงานหน้าร้าน / เครื่อง POS <span class="en">Counter staff</span></h1>
+  <p class="sec-lede">งานประจำวันที่เคาน์เตอร์ — เข้าสู่ระบบ เปิดกะ ขาย พิมพ์ใบเสร็จ พักบิล ออกใบเสนอราคา คืนสินค้า บันทึกเงินเข้า-ออก และปิดกะ รวมถึงสิ่งที่เกิดขึ้นเมื่อเน็ตหลุด</p>
+
+  <div class="rolebox"><span class="nt">บทบาทและสิทธิ์ · Role &amp; permission</span>
+    <dl>
+      <dt>ใครใช้</dt><dd>คนที่ยืนเคาน์เตอร์ ใช้บัญชีร้าน (บัญชีเดียวของร้าน) บนเครื่องที่ผูกเป็น <strong>เครื่องขาย (POS)</strong></dd>
+      <dt>ต้องมี</dt><dd>ชื่อผู้ใช้/รหัสผ่านของร้าน หรือ PIN ออฟไลน์ (เจ้าของร้านตั้งให้ — ภาค 02)</dd>
+      <dt>ทำได้</dt><dd>ขาย คืนสินค้า ยกเลิกบิล รับชำระเครดิตช่าง เปิด/ปิดกะ เงินเข้า-ออกลิ้นชัก พักบิล ใบเสนอราคา</dd>
+      <dt>ทำไม่ได้</dt><dd>บนเครื่อง Backoffice จะขาย/คืน/ใช้ลิ้นชักไม่ได้ (เซิร์ฟเวอร์ปฏิเสธ) · งานหลังร้าน เช่น แก้สินค้า ใบสั่งซื้อ ดูภาค 02</dd>
+      <dt>Drift build</dt><dd>ร้านที่ยังใช้แบบออฟไลน์ <strong>ไม่มีหน้าเข้าสู่ระบบ</strong> ไม่ต้องผูกเครื่อง และไม่มีสถานะซิงก์ — ข้ามหัวข้อ 1 และ 8 ได้ ที่เหลือใช้เหมือนกัน</dd>
+    </dl>
+  </div>
+
+  <h2 class="sub">ในภาคนี้ <span class="en">Contents</span></h2>
+  <div class="toc">
+    <a class="toc-row" href="#login"><span class="n">1</span><span class="t">เข้าสู่ระบบ (ออนไลน์ / PIN ออฟไลน์) <span class="en">Login</span></span><span class="pg">2</span></a>
+    <a class="toc-row" href="#open"><span class="n">2</span><span class="t">เปิดกะ — ลิ้นชักเงินสด <span class="en">Open shift</span></span><span class="pg">3</span></a>
+    <a class="toc-row" href="#sell"><span class="n">3</span><span class="t">ขายสินค้า <span class="en">Checkout</span></span><span class="pg">4</span></a>
+    <a class="toc-row" href="#receipt"><span class="n">4</span><span class="t">ราคาช่าง · เครดิตช่าง · ใบเสร็จ <span class="en">Mechanic &amp; receipt</span></span><span class="pg">5</span></a>
+    <a class="toc-row" href="#park"><span class="n">5</span><span class="t">พักบิล · ใบเสนอราคา <span class="en">Park &amp; quotes</span></span><span class="pg">6</span></a>
+    <a class="toc-row" href="#returns"><span class="n">6</span><span class="t">คืนสินค้า · ยกเลิกบิล <span class="en">Returns &amp; void</span></span><span class="pg">7</span></a>
+    <a class="toc-row" href="#close"><span class="n">7</span><span class="t">เงินเข้า-ออก · ปิดกะ <span class="en">Drawer &amp; close</span></span><span class="pg">8</span></a>
+    <a class="toc-row" href="#offline"><span class="n">8</span><span class="t">เมื่อเน็ตหลุด · สถานะซิงก์ <span class="en">Offline &amp; sync</span></span><span class="pg">9</span></a>
+    <a class="toc-row" href="#errors"><span class="n">9</span><span class="t">ข้อความผิดพลาดที่พบบ่อย · ข้อจำกัด <span class="en">Errors</span></span><span class="pg">10</span></a>
+  </div>
+
+  <h2 class="sub">เมนูหลัก 12 หน้า <span class="en">Navigation</span></h2>
+  <p>เมนูอยู่ด้านซ้าย (จอกว้าง) หรือในปุ่มเมนู ☰ (จอแคบ/มือถือ — ภาพ nav-menu-mobile ในหัวข้อ 3) เรียงตามนี้: <span class="ui ghost">ขายสินค้า</span> <span class="ui ghost">สินค้า/สต็อก</span> <span class="ui ghost">สั่งซื้อ</span> <span class="ui ghost">ค้นหารุ่น</span> <span class="ui ghost">ลูกค้า</span> <span class="ui ghost">ช่าง</span> <span class="ui ghost">คืนสินค้า</span> <span class="ui ghost">ใบเสนอราคา</span> <span class="ui ghost">รายงาน</span> <span class="ui ghost">ตั้งค่า</span> <span class="ui ghost">ลิ้นชัก</span> <span class="ui ghost">รอเจ้าของ</span></p>
+  <figure><img src="img/checkout.png" alt="หน้าจอหลัก — เมนูซ้าย · สินค้ากลาง · ตะกร้าและการชำระเงินขวา · ป้ายสถานะ ออนไลน์ มุมขวาบน" loading="lazy"><figcaption>หน้าจอหลัก — เมนูซ้าย · สินค้ากลาง · ตะกร้าและการชำระเงินขวา · ป้ายสถานะ <span class="msg">ออนไลน์</span> มุมขวาบน</figcaption></figure>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">1</span></div>
+</section>
+
+<!-- ════════════════ 2 · LOGIN ════════════════ -->
+<section class="page" id="login">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">1 · เข้าสู่ระบบ</span></div>
+  <div class="sec-no">Section 1</div>
+  <h1 class="sec">เข้าสู่ระบบ <span class="en">Login (API build)</span></h1>
+  <p class="sec-lede">เข้าสู่ระบบทุกเช้า — ระบบตั้งใจให้ session หมดอายุตอน <strong>04:00 ทุกวัน</strong> (ADR-0009) ถ้าหมดอายุระหว่างใช้งาน ระบบจะพากลับมาหน้านี้เองโดยไม่มีข้อความเตือน</p>
+  <figure><img src="img/login-pos.png" alt="หน้าเข้าสู่ระบบบนเครื่อง POS — ป้าย เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)" loading="lazy"><figcaption>หน้าเข้าสู่ระบบบนเครื่อง POS — ป้าย เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)</figcaption></figure>
+
+  <h2 class="sub">ออนไลน์ — ใช้รหัสผ่าน <span class="en">Online</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">ดูป้ายสถานะเครื่องเหนือฟอร์ม</span>ต้องเป็น <span class="msg">เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)</span> ถ้าเห็น <span class="msg">โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)</span> เครื่องนี้ยังขายไม่ได้ — แจ้งเจ้าของร้านให้ผูกเครื่อง (ภาค 02)</li>
+    <li><span class="st-title">กรอก <span class="ui ghost">ชื่อผู้ใช้ (Username)</span> และ <span class="ui ghost">รหัสผ่าน (Password)</span></span></li>
+    <li><span class="st-title">กด <span class="ui">เข้าสู่ระบบ</span></span><span class="see">หน้า ขายสินค้า และแถบเมนู</span></li>
+  </ol>
+  <div class="note tip"><span class="nt">ถ้าขึ้นหน้า "ตั้งรหัสผ่านใหม่"</span>แปลว่ากำลังใช้รหัสผ่านชั่วคราว — เป็นงานของเจ้าของร้าน ดูภาค 02 หัวข้อ 1</div>
+
+  <h2 class="sub">ออฟไลน์ — ใช้ PIN <span class="en">Offline PIN</span></h2>
+  <p>เมื่อเน็ตหลุด หน้าเข้าสู่ระบบบนเครื่อง POS ที่ตั้ง PIN ไว้แล้วจะขึ้น <span class="msg">โหมดออฟไลน์: เข้าสู่ระบบหน้าร้านด้วย PIN 4-6 หลัก เพื่อขายของและบันทึกรายการ</span></p>
+  <figure><div class="shot-placeholder" data-shot="offline-pin-login">(ภาพหน้าจอ: offline-pin-login — รอเพิ่ม)</div><figcaption>ฟอร์มเข้าสู่ระบบด้วย PIN ออฟไลน์</figcaption></figure>
+  <ol class="steps">
+    <li><span class="st-title">กรอก <span class="ui ghost">รหัส PIN ออฟไลน์ (4-6 หลัก)</span></span>PIN เดียวทั้งร้าน ผูกกับเครื่องนี้เท่านั้น</li>
+    <li><span class="st-title">กด <span class="ui">เข้าสู่ระบบ (PIN ออฟไลน์)</span></span><span class="see">หน้าขาย พร้อมแถบสีเหลือง "ออฟไลน์ (ขายสำรอง)"</span></li>
+  </ol>
+  <table class="grid">
+    <tr><th>ถ้าเห็นข้อความนี้</th><th>หมายความว่า / ทำอย่างไร</th></tr>
+    <tr><td><span class="msg">เครื่องนี้ยังไม่ได้ตั้งค่า PIN ออฟไลน์ กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบ</span></td><td>ไม่ใช่เครื่อง POS หรือยังไม่ตั้ง PIN — รอเน็ตกลับ</td></tr>
+    <tr><td><span class="msg">ไม่สามารถใช้ PIN ออฟไลน์ได้เนื่องจากเกินกำหนด 3 วัน กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบใหม่</span></td><td>PIN ใช้ได้ 3 วันนับจากเข้าสู่ระบบออนไลน์ครั้งล่าสุด</td></tr>
+    <tr><td><span class="msg">รหัส PIN ถูกล็อกเนื่องจากใส่ผิดครบ 5 ครั้ง กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบด้วยรหัสผ่านหลัก</span></td><td>ต้องเข้าด้วยรหัสผ่านตอนออนไลน์ แล้วให้เจ้าของร้านตั้ง PIN ใหม่</td></tr>
+  </table>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">2</span></div>
+</section>
+
+<!-- ════════════════ 3 · OPEN SHIFT ════════════════ -->
+<section class="page" id="open">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">2 · เปิดกะ</span></div>
+  <div class="sec-no">Section 2</div>
+  <h1 class="sec">เปิดกะ — ลิ้นชักเงินสด <span class="en">Open shift</span></h1>
+  <p class="sec-lede">ต้องเปิดกะก่อนขาย — ใน API build ถ้ายังไม่เปิดกะ กดชำระเงินจะขึ้น <span class="msg">กรุณาเปิดกะก่อนขาย</span> และรับชำระเครดิตช่างจะขึ้น <span class="msg">กรุณาเปิดกะก่อนรับชำระ</span></p>
+  <figure><img src="img/cash-drawer-open-shift.png" alt="หน้า ลิ้นชัก — ยังไม่ได้เปิดร้านวันนี้" loading="lazy"><figcaption>หน้า ลิ้นชัก — ยังไม่ได้เปิดร้านวันนี้</figcaption></figure>
+  <ol class="steps">
+    <li><span class="st-title">นับเงินทอนที่ใส่ลิ้นชัก</span></li>
+    <li><span class="st-title">กดเมนู <span class="ui ghost">ลิ้นชัก</span></span><span class="see"><span class="msg">ยังไม่ได้เปิดร้านวันนี้</span> / <span class="msg">กรอกเงินตั้งต้นในลิ้นชักก่อนเริ่มขาย</span></span></li>
+    <li><span class="st-title">กรอก <span class="ui ghost">เงินตั้งต้น ฿</span></span>หรือกดปุ่มลัด <span class="ui ghost">฿500</span> <span class="ui ghost">฿1,000</span> <span class="ui ghost">฿2,000</span> <span class="ui ghost">฿3,000</span> (ต้องมากกว่า 0 ไม่เช่นนั้นขึ้น <span class="msg">กรุณากรอกเงินตั้งต้นให้ถูกต้อง</span>)</li>
+    <li><span class="st-title">กด <span class="ui">เปิดร้าน</span></span><span class="see">2 แท็บ <span class="ui ghost">💵 รายการเงิน</span> / <span class="ui ghost">🔒 ปิดลิ้นชัก</span> และประวัติ <span class="msg">เปิดร้าน {hh:mm} · ตั้งต้น {baht}</span></span></li>
+  </ol>
+  <div class="note tip"><span class="nt">เปิดกะตอนเน็ตหลุด</span>ใน API build การเปิดกะและการบันทึกเงินเข้า-ออกทำได้ตอนออฟไลน์ — ระบบเก็บไว้ในเครื่องแล้วส่งขึ้นเซิร์ฟเวอร์เองเมื่อเน็ตกลับ</div>
+  <div class="note warn"><span class="nt">กะที่ไม่ได้ปิด</span>ถ้าลืมปิดกะ เมื่อเปิดกะใหม่ ระบบจะเก็บกะเก่าเข้าประวัติเองแบบ "ไม่ได้นับเงิน" และขึ้นให้เจ้าของร้านตรวจในหน้า <span class="ui ghost">รอเจ้าของ</span> เป็นรายการ <span class="msg">กะไม่ได้นับเงินสด</span> — นับเงินและปิดกะทุกครั้งดีที่สุด</div>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">3</span></div>
+</section>
+
+<!-- ════════════════ 4 · SELL ════════════════ -->
+<section class="page" id="sell">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">3 · ขายสินค้า</span></div>
+  <div class="sec-no">Section 3</div>
+  <h1 class="sec">ขายสินค้า <span class="en">Checkout</span></h1>
+  <p class="sec-lede">หน้าแรกของระบบ ซ้ายคือรายการสินค้า ขวาคือตะกร้าและการชำระเงิน (บนมือถือแยกเป็น 2 แท็บ <span class="ui ghost">สินค้า</span> / <span class="ui ghost">ตะกร้า</span>)</p>
+  <figure><img src="img/checkout-payment.png" alt="ตะกร้า ยอดรวม วิธีชำระ ปุ่มลัดรับเงิน และปุ่ม ชำระเงิน" loading="lazy"><figcaption>ตะกร้า ยอดรวม วิธีชำระ ปุ่มลัดรับเงิน และปุ่ม ชำระเงิน</figcaption></figure>
+  <ol class="steps">
+    <li><span class="st-title">เพิ่มสินค้า</span>ยิงบาร์โค้ด/พิมพ์รหัสในช่อง <span class="ui ghost">สแกนบาร์โค้ด / รหัสอะไหล่</span> แล้วกด Enter หรือค้นชื่อในช่อง <span class="ui ghost">ค้นหาชื่อสินค้า…</span> แล้วแตะการ์ดสินค้า (กรองหมวดด้วยชิป <span class="ui ghost">ทั้งหมด</span> ฯลฯ) <span class="see">สินค้าลงตะกร้า — ถ้ารหัสไม่มีจะขึ้น <span class="msg">ไม่พบรหัส: {val}</span></span></li>
+    <li><span class="st-title">ปรับจำนวน</span>ขายเกินสต็อกไม่ได้: <span class="msg">สต็อก "{name}" เหลือเพียง {stock} ชิ้น</span> · การ์ดที่ขึ้น <span class="msg">สินค้าหมด</span> กดไม่ได้</li>
+    <li><span class="st-title">เลือกลูกค้า (ถ้ามี)</span>ช่อง <span class="ui ghost">ลูกค้า</span> ค้นด้วยชื่อหรือเบอร์ — ลูกค้าได้แต้ม <strong>1 แต้มต่อทุก ฿10</strong> (ปัดลง)</li>
+    <li><span class="st-title">เลือกช่าง (ถ้าเป็นงานช่าง)</span>ช่อง <span class="ui ghost">🔧 ช่าง (ปรับราคาช่าง)</span> — ดูหัวข้อ 4</li>
+    <li><span class="st-title">ใส่ส่วนลด (ถ้ามี)</span>ช่อง <span class="ui ghost">ส่วนลด</span> — เกินยอดรวมไม่ได้ (<span class="msg">ส่วนลด {baht} เกินยอดรวม {baht}</span>)</li>
+    <li><span class="st-title">เลือกวิธีชำระ</span><span class="ui ghost">เงินสด</span> · <span class="ui ghost">โอน/QR</span> · <span class="ui ghost">เครดิตช่าง</span> (ขึ้นเฉพาะเมื่อเลือกช่าง)</li>
+    <li><span class="st-title">เงินสด: กรอกเงินที่รับ</span>ช่อง <span class="ui ghost">รับเงิน ฿…</span> หรือปุ่มลัด <span class="see">แถว <span class="msg">เงินทอน</span> — ถ้าเงินไม่พอกดขายจะขึ้น <span class="msg">รับเงินไม่ครบ</span></span></li>
+    <li><span class="st-title">กด <span class="ui">ชำระเงิน {baht}</span></span>ระหว่างบันทึกปุ่มเป็น <span class="msg">กำลังบันทึก…</span><span class="see">ใบเสร็จ (หัวข้อ 4)</span></li>
+  </ol>
+  <div class="note warn"><span class="nt">อย่ากดซ้ำเมื่อเน็ตช้า</span>ระบบใช้เลขบิลและ <code>Idempotency-Key</code> เดิมทุกครั้งที่ลองใหม่กับตะกร้าเดิม จึงไม่ขายซ้ำ — แต่ถ้าขึ้น <span class="msg">ขายไม่สำเร็จ: {msg}</span> ให้อ่านข้อความก่อนลองใหม่ ถ้าเป็นเรื่องสต็อกจะขึ้น <span class="msg">สต็อกไม่พอ:</span> พร้อมรายการที่ขาด</div>
+  <div class="twocol"><figure><img src="img/checkout-mobile.png" alt="มือถือ — แท็บ สินค้า" loading="lazy"><figcaption>มือถือ — แท็บ สินค้า</figcaption></figure><figure><img src="img/checkout-cart-mobile.png" alt="มือถือ — แท็บ ตะกร้า" loading="lazy"><figcaption>มือถือ — แท็บ ตะกร้า</figcaption></figure></div>
+  <figure><img src="img/nav-menu-mobile.png" alt="มือถือ — เมนู ☰ เรียง 12 หน้า" loading="lazy"><figcaption>มือถือ — เมนู ☰ เรียง 12 หน้า</figcaption></figure>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">4</span></div>
+</section>
+
+<!-- ════════════════ 5 · MECHANIC / RECEIPT ════════════════ -->
+<section class="page" id="receipt">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">4 · ช่าง · ใบเสร็จ</span></div>
+  <div class="sec-no">Section 4</div>
+  <h1 class="sec">ราคาช่าง · เครดิตช่าง · ใบเสร็จ <span class="en">Mechanic price, credit &amp; receipt</span></h1>
+
+  <h2 class="sub">ปรับราคาช่างรายรายการ <span class="en">Per-line price</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">เลือกช่างก่อน</span><span class="see">คำใบ้ <span class="msg">คลิกราคาเพื่อปรับ</span> ในตะกร้า</span></li>
+    <li><span class="st-title">แตะราคาของรายการ แล้วพิมพ์ราคาใหม่</span><span class="see">ราคาใหม่มี ✎ และราคาปกติขีดฆ่า <span class="msg">ปกติ {originalBaht}</span> พร้อมปุ่มคืนราคาเดิม</span></li>
+  </ol>
+  <p>ต่ำกว่าทุนไม่ได้: <span class="msg">ราคา ฿{p} ต่ำกว่าทุน ฿{cost} — ห้ามขายต่ำกว่าทุน</span> · ส่วนต่างแสดงเป็น <span class="msg">↑ ช่างได้ส่วนต่าง</span> หรือ <span class="msg">↓ เครดิตช่าง (ลดราคา)</span></p>
+
+  <h2 class="sub">ขายเครดิตช่าง <span class="en">Mechanic credit</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">เลือกช่าง → กด <span class="ui ghost">เครดิตช่าง</span></span><span class="see">กล่องยอดค้างเดิม / +บิลนี้ / ยอดค้างหลังบิลนี้ / วงเงิน · ถ้าเกินจะขึ้น <span class="msg">⚠ เกินวงเงินเครดิต!</span> และปุ่มมี ⚠</span></li>
+    <li><span class="st-title">กด <span class="ui">ชำระเงิน {baht}</span></span>ถ้าเกินวงเงินจะถามยืนยัน <span class="msg">เกินวงเงินเครดิต! ยอดค้างใหม่ {baht} &gt; วงเงิน {baht}<br><br>ยืนยันขายเครดิต?</span> กดยืนยันเฉพาะเมื่อเจ้าของร้านอนุญาต</li>
+    <li><span class="st-title">ถ้าเซิร์ฟเวอร์ยังเห็นว่าเกินวงเงิน</span>ระบบจะถามยืนยันอีกครั้งด้วยตัวเลขจากเซิร์ฟเวอร์ — ทุกครั้งที่ยืนยันขายเกินวงเงิน เซิร์ฟเวอร์บันทึกลง audit log และถ้าเป็นบิลที่ขายตอนออฟไลน์ จะขึ้นให้เจ้าของร้านตรวจในหน้า <span class="ui ghost">รอเจ้าของ</span> เป็น <span class="msg">วงเงินเกิน (อนุมัติพิเศษ)</span></li>
+  </ol>
+  <p class="muted">ถ้ายังไม่เลือกช่างแต่เลือกเครดิต จะขึ้น <span class="msg">ต้องเลือกช่างก่อนใช้เครดิต</span></p>
+  <figure><img src="img/checkout-mechanic-credit.png" alt="เลือกช่าง — ราคาช่าง ✎ ราคาปกติขีดฆ่า แถบ ↓ เครดิตช่าง (ลดราคา) และปุ่ม เครดิตช่าง" loading="lazy"><figcaption>เลือกช่าง — ราคาช่าง ✎ ราคาปกติขีดฆ่า แถบ ↓ เครดิตช่าง (ลดราคา) และปุ่ม เครดิตช่าง</figcaption></figure>
+
+  <h2 class="sub">ใบเสร็จ <span class="en">Receipt</span></h2>
+  <div class="twocol"><figure><img src="img/receipt.png" alt="ใบเสร็จเงินสด — เงินทอน และแต้มสะสมของลูกค้า" loading="lazy"><figcaption>ใบเสร็จเงินสด — เงินทอน และแต้มสะสมของลูกค้า</figcaption></figure><figure><img src="img/receipt-mechanic-credit.png" alt="ใบเสร็จเครดิตช่าง — ค้างชำระ (เครดิตช่าง)" loading="lazy"><figcaption>ใบเสร็จเครดิตช่าง — ค้างชำระ (เครดิตช่าง)</figcaption></figure></div>
+  <ul class="ticks">
+    <li>มี <span class="msg">เลขที่</span> / <span class="msg">วันที่</span> / <span class="msg">แคชเชียร์</span> / ลูกค้าและช่าง (ถ้ามี) — เลขบิลขึ้นต้น <code>RC</code> ใช้ค้นตอนคืนสินค้า</li>
+    <li>บิลเครดิตช่างแสดง <span class="msg">ค้างชำระ (เครดิตช่าง)</span> แทนเงินทอน · ถ้ามีลูกค้าแสดง <span class="msg">แต้มสะสม +{n} แต้ม</span></li>
+    <li>กด <span class="ui">พิมพ์ใบเสร็จ</span> → หน้าต่างพิมพ์ของเครื่อง หรือ <span class="ui ghost">ปิด</span> เพื่อเริ่มบิลถัดไป</li>
+  </ul>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">5</span></div>
+</section>
+
+<!-- ════════════════ 6 · PARK / QUOTES ════════════════ -->
+<section class="page" id="park">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">5 · พักบิล · ใบเสนอราคา</span></div>
+  <div class="sec-no">Section 5</div>
+  <h1 class="sec">พักบิล · ใบเสนอราคา <span class="en">Park &amp; quotes</span></h1>
+
+  <h2 class="sub">พักบิล <span class="en">Park a bill</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">กด <span class="ui ghost">พักบิล</span> ใต้ตะกร้า</span><span class="see"><span class="msg">⏸ พักบิลแล้ว — กดที่แถบด้านบนเพื่อเรียกคืน</span> และแถบ <span class="msg">⏸ บิลที่พัก ({n})</span></span></li>
+    <li><span class="st-title">ขายคนถัดไปตามปกติ</span></li>
+    <li><span class="st-title">แตะบิลในแถบบิลที่พักเพื่อเรียกคืน</span>ถ้าตะกร้ามีของอยู่ ระบบจะพักให้ก่อน: <span class="msg">⏸ พักบิลปัจจุบันถูกพักอัตโนมัติก่อนเรียกคืนบิลนี้</span> · ถ้าสต็อกเปลี่ยนระหว่างพัก จะขึ้น <span class="msg">ข้อมูลเปลี่ยนระหว่างพักบิล:</span> พร้อมรายการ</li>
+  </ol>
+  <figure><img src="img/checkout-parked-bill.png" alt="แถบ ⏸ บิลที่พัก (1) ด้านบนตะกร้า และข้อความ พักบิลแล้ว" loading="lazy"><figcaption>แถบ ⏸ บิลที่พัก (1) ด้านบนตะกร้า และข้อความ พักบิลแล้ว</figcaption></figure>
+  <div class="note key"><span class="nt">รู้ไว้</span>บิลที่พัก <strong>ไม่ตัดสต็อก</strong> และ <strong>อยู่ในเครื่องนี้เท่านั้น</strong> — ไม่ส่งขึ้นเซิร์ฟเวอร์ เปลี่ยนเครื่องหรือล้างเบราว์เซอร์แล้วหาย</div>
+
+  <h2 class="sub">ออกใบเสนอราคา <span class="en">Save a quote</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">ใส่สินค้าลงตะกร้าเหมือนขาย</span></li>
+    <li><span class="st-title">กด <span class="ui ghost">ใบเสนอราคา</span> ใต้ตะกร้า</span><span class="see"><span class="msg">บันทึกใบเสนอราคาแล้ว</span></span></li>
+    <li><span class="st-title">ไปเมนู <span class="ui ghost">ใบเสนอราคา</span> → กด <span class="ui ghost">ดู</span></span>เพื่อดูแบบ A4 แล้วพิมพ์ให้ลูกค้า</li>
+  </ol>
+  <figure><img src="img/quotes.png" alt="หน้า ใบเสนอราคา — กรอง ทั้งหมด / ยังใช้ได้ / หมดอายุ / แปลงแล้ว" loading="lazy"><figcaption>หน้า ใบเสนอราคา — กรอง ทั้งหมด / ยังใช้ได้ / หมดอายุ / แปลงแล้ว</figcaption></figure>
+  <ul class="ticks">
+    <li><span class="ui ghost">→ ขาย</span> แปลงเป็นการขาย: <span class="msg">แปลง {quoteNo} เป็นการขาย? ระบบจะใส่รายการนี้กลับเข้าตะกร้า</span> แล้วชำระเงินที่หน้าขายตามปกติ</li>
+    <li>✎ แก้ไข = ลบใบเดิมแล้วใส่ตะกร้าให้บันทึกใหม่ · ⎘ ทำซ้ำ = ออกใบใหม่ต่ออายุ · 🗑 ลบ</li>
+    <li>ใบเสนอราคา <strong>ไม่ตัดสต็อก</strong> (ในใบ A4 เขียนไว้ว่า <span class="msg">• สินค้าตามใบเสนอราคานี้ ยังไม่ได้ตัดสต็อก</span>)</li>
+    <li>ใบเสนอราคาทุกงาน <strong>ต้องออนไลน์</strong> — ตอนออฟไลน์จะขึ้น เช่น <span class="msg">ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกใบเสนอราคาได้</span></li>
+  </ul>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">6</span></div>
+</section>
+
+<!-- ════════════════ 7 · RETURNS ════════════════ -->
+<section class="page" id="returns">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">6 · คืนสินค้า</span></div>
+  <div class="sec-no">Section 6</div>
+  <h1 class="sec">คืนสินค้า · ยกเลิกบิล <span class="en">Returns &amp; void</span></h1>
+  <p class="sec-lede">การคืนจะออกใบลดหนี้ (เลข <code>CN</code>) คืนสต็อก และหักยอดลูกค้า/ช่างตามสัดส่วนให้เอง คืนครบทุกชิ้น = บิลถูกยกเลิกอัตโนมัติ</p>
+  <figure><img src="img/returns.png" alt="หน้า คืนสินค้า · Returns" loading="lazy"><figcaption>หน้า คืนสินค้า · Returns</figcaption></figure>
+  <ol class="steps">
+    <li><span class="st-title">เมนู <span class="ui ghost">คืนสินค้า</span> → แท็บ <span class="ui ghost">ค้นหาบิล</span></span>ค้นด้วยเลข RC ชื่อสินค้า หรือชื่อช่าง · บิลที่มี <span class="msg">✕ ยกเลิกแล้ว</span> เลือกไม่ได้</li>
+    <li><span class="st-title">แตะบิล แล้วเลือกจำนวนที่คืนแต่ละรายการ</span>ปุ่ม +/− จำกัดไว้ไม่ให้เกินที่คืนได้ · <span class="ui ghost">คืนหมด</span> = คืนเต็มจำนวนที่เหลือ</li>
+    <li><span class="st-title">เลือกวิธีคืนเงิน</span><span class="ui ghost">เงินสด</span> · <span class="ui ghost">โอน</span> · <span class="ui ghost">หักจากเครดิต</span> (เฉพาะบิลที่มีช่าง — บิลเครดิตตั้งค่าเริ่มต้นเป็นแบบนี้)</li>
+    <li><span class="st-title">ใส่เหตุผล (ไม่บังคับ)</span>เช่น <span class="msg">เช่น ลูกค้าเปลี่ยนใจ, สินค้าชำรุด, ขายผิดรุ่น</span></li>
+    <li><span class="st-title">กดยืนยัน</span><span class="see"><span class="msg">ยืนยันการคืนสินค้า {n} รายการ มูลค่า {baht}?</span> → <span class="ui">ตกลง</span> → ใบลดหนี้ (เลข <code>CN</code>) พร้อมปุ่ม <span class="ui">พิมพ์ใบลดหนี้</span> และรายการขึ้นในแท็บ <span class="ui ghost">ประวัติการคืน ({n})</span></span></li>
+  </ol>
+  <div class="twocol"><figure><img src="img/returns-confirm.png" alt="กล่อง ยืนยันการคืนสินค้า" loading="lazy"><figcaption>กล่อง ยืนยันการคืนสินค้า</figcaption></figure><figure><img src="img/credit-note.png" alt="ใบลดหนี้ · CREDIT NOTE" loading="lazy"><figcaption>ใบลดหนี้ · CREDIT NOTE</figcaption></figure></div>
+  <figure><img src="img/returns-history.png" alt="แท็บ ประวัติการคืน — เลข CN อ้างอิงบิล RC และเหตุผล" loading="lazy"><figcaption>แท็บ ประวัติการคืน — เลข CN อ้างอิงบิล RC และเหตุผล</figcaption></figure>
+  <div class="note warn"><span class="nt">บิลเครดิต แต่คืนเป็นเงินสด</span>ระบบเตือน <span class="msg">คืนเป็นเงินสด?</span> เพราะ <span class="msg">การคืนเป็นเงินสดจะไม่ลดยอดเครดิตของช่าง</span> — ปกติให้ใช้ <span class="ui ghost">หักจากเครดิต</span></div>
+
+  <h2 class="sub">ยกเลิกทั้งบิล <span class="en">Void</span></h2>
+  <ul class="ticks">
+    <li><strong>ออนไลน์:</strong> กด <span class="ui ghost">✕ ยกเลิกบิลทั้งบิล</span> → <span class="msg">ยกเลิกบิล {receiptNo} ทั้งบิล?<br><br>คืนสินค้าทุกรายการ + คืนเงินทั้งหมด</span> (ไม่ต้องใช้ PIN) · บิลที่คืนครบแล้วขึ้น <span class="msg">บิลนี้คืนหมดแล้ว</span></li>
+    <li><strong>ออฟไลน์:</strong> ยกเลิกได้เฉพาะบิลที่ <strong>ขายตอนออฟไลน์</strong> — ปุ่มเปลี่ยนเป็น <span class="ui ghost">✕ ยกเลิกบิลออฟไลน์</span> และ <strong>ต้องใส่เหตุผล</strong> (<span class="msg">กรุณาระบุเหตุผลในการยกเลิกบิล</span>) บิลที่ขายตอนออนไลน์ยกเลิกตอนออฟไลน์ไม่ได้ (กฎ <span class="msg">บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น</span>) — รอเน็ตกลับ</li>
+  </ul>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>ใน API build <strong>การคืนสินค้าแบบเลือกรายการยังต้องมีเน็ต</strong> — หน้าคืนสินค้าส่งไปเซิร์ฟเวอร์โดยตรง ยังไม่เข้าคิวรอส่ง (แม้สเปก phase 2 จะวางไว้ว่าคืนออฟไลน์ได้) ถ้าเน็ตหลุด ให้จดบิลไว้แล้วทำคืนเมื่อเน็ตกลับ</div>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">7</span></div>
+</section>
+
+<!-- ════════════════ 8 · DRAWER & CLOSE ════════════════ -->
+<section class="page" id="close">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">7 · ปิดกะ</span></div>
+  <div class="sec-no">Section 7</div>
+  <h1 class="sec">เงินเข้า-ออก · ปิดกะ <span class="en">Drawer entries &amp; close shift</span></h1>
+
+  <h2 class="sub">บันทึกเงินเข้า-ออกระหว่างวัน <span class="en">Cash in / out</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">เมนู <span class="ui ghost">ลิ้นชัก</span> → แท็บ <span class="ui ghost">💵 รายการเงิน</span></span></li>
+    <li><span class="st-title">เลือก <span class="ui ghost">💸 เงินออก</span> หรือ <span class="ui ghost">💰 เงินเข้า</span> ใส่จำนวนและหมายเหตุ</span>เช่น <span class="msg">หมายเหตุ เช่น จ่ายซัพ / เติมทอน / ค่าน้ำมัน</span></li>
+    <li><span class="st-title">กด <span class="ui ghost">+ เพิ่ม</span></span><span class="see">รายการใน <span class="msg">ประวัติรายการวันนี้</span> และยอด "เงินในลิ้นชักที่ควรมี" เปลี่ยนตาม</span></li>
+  </ol>
+  <figure><img src="img/cash-drawer.png" alt="แท็บ 💵 รายการเงิน — การ์ดสรุป 6 ช่อง เงินในลิ้นชักที่ควรมี และประวัติรายการวันนี้" loading="lazy"><figcaption>แท็บ 💵 รายการเงิน — การ์ดสรุป 6 ช่อง เงินในลิ้นชักที่ควรมี และประวัติรายการวันนี้</figcaption></figure>
+
+  <h2 class="sub">ปิดกะ <span class="en">Close shift</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">ตรวจว่าไม่มีรายการค้างส่ง</span>ป้ายมุมบนต้องเป็น <span class="msg">ออนไลน์</span> ไม่มีตัวเลขค้าง (ดูหัวข้อ 8)</li>
+    <li><span class="st-title">แท็บ <span class="ui ghost">🔒 ปิดลิ้นชัก</span> — อ่าน "สรุปยอดเงินสด"</span><span class="see"><span class="msg">เงินที่ควรมีในลิ้นชัก</span> = ตั้งต้น + ขายเงินสด + รับชำระเครดิต (เงินสด) − คืนเงินสด + เงินเพิ่ม − เงินออก</span></li>
+    <li><span class="st-title">นับเงินจริง กรอก <span class="ui ghost">นับเงินสดจริงได้ ฿</span></span><span class="see"><span class="msg">ผลต่าง</span>: <span class="msg">✓ ตรงยอด</span> / <span class="msg">เงินเกิน +{baht}</span> / <span class="msg">เงินขาด −{baht}</span></span></li>
+    <li><span class="st-title">กด <span class="ui">🔒 ยืนยันปิดลิ้นชัก</span></span><span class="see"><span class="msg">✓ ปิดลิ้นชักแล้วเวลา {hh:mm} · นับจริง {baht}</span> — หลังจากนี้บันทึกเงินเข้า-ออกไม่ได้แล้ว</span></li>
+    <li><span class="st-title">(แนะนำ) พิมพ์สรุปยอด</span>ปุ่ม <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> → <span class="ui">🖨 พิมพ์รายงานปิดร้าน</span></li>
+  </ol>
+  <figure><img src="img/closing-report.png" alt="สรุปยอดปิดร้าน · Daily Closing Report" loading="lazy"><figcaption>สรุปยอดปิดร้าน · Daily Closing Report</figcaption></figure>
+  <div class="note warn"><span class="nt">ทำไมปุ่มปิดลิ้นชักกดไม่ได้</span>ปุ่มจะกดได้เมื่อ <strong>ครบ 3 ข้อ</strong>: กรอกยอดนับจริงแล้ว · ไม่อยู่ในโหมดออฟไลน์ · <strong>ไม่มีรายการค้างส่ง</strong> (PR #456) ถ้ายังค้างอยู่ ระบบจะบอก <span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง — ต้องส่งเข้าระบบให้หมดก่อนปิดกะ</span> — รอให้ส่งหมด หรือให้เจ้าของร้านจัดการรายการที่ถูกปฏิเสธในหน้า <span class="ui ghost">รอเจ้าของ</span></div>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>ระบบและเซิร์ฟเวอร์รองรับ <strong>หลายกะต่อวัน</strong> (08 §11, PR #456) แต่ <strong>หน้า ลิ้นชัก ยังไม่มีปุ่มเปิดกะใหม่</strong> หลังปิดลิ้นชักไปแล้วในวันเดียวกัน — ฟอร์ม <span class="ui">เปิดร้าน</span> ขึ้นเฉพาะตอนที่วันนั้นยังไม่มีกะ ถ้าร้านต้องการกะที่สองในวันเดียวกัน ให้แจ้งทีมพัฒนา อย่าพยายามแก้เอง</div>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">8</span></div>
+</section>
+
+<!-- ════════════════ 9 · OFFLINE ════════════════ -->
+<section class="page" id="offline">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">8 · ออฟไลน์</span></div>
+  <div class="sec-no">Section 8</div>
+  <h1 class="sec">เมื่อเน็ตหลุด · สถานะซิงก์ <span class="en">Offline &amp; sync (API build)</span></h1>
+  <p class="sec-lede">เครื่อง POS ขายต่อได้ตอนเน็ตหลุด ระบบเก็บรายการไว้ในเครื่อง (คิวรอส่ง / outbox) แล้วส่งขึ้นเซิร์ฟเวอร์เองเมื่อเน็ตกลับ</p>
+  <div class="twocol"><figure><img src="img/sync-status-offline.png" alt="ออฟไลน์ — ป้าย ออฟไลน์ (ขายสำรอง) และแถบเหลืองใต้แถบบน" loading="lazy"><figcaption>ออฟไลน์ — ป้าย ออฟไลน์ (ขายสำรอง) และแถบเหลืองใต้แถบบน</figcaption></figure><figure><img src="img/sync-status.png" alt="ออนไลน์ — ป้าย ออนไลน์ สีเขียว" loading="lazy"><figcaption>ออนไลน์ — ป้าย ออนไลน์ สีเขียว</figcaption></figure></div>
+
+  <h2 class="sub">อ่านป้ายสถานะมุมบน <span class="en">Status pill</span></h2>
+  <table class="grid">
+    <tr><th>ป้าย</th><th>ความหมาย</th></tr>
+    <tr><td><span class="msg">ออนไลน์</span> (เขียว)</td><td>ปกติ ทุกอย่างส่งถึงเซิร์ฟเวอร์ทันที</td></tr>
+    <tr><td><span class="msg">ออฟไลน์ (ขายสำรอง)</span> หรือ <span class="msg">ออฟไลน์ (ขายสำรอง) · ค้าง {N}</span> (เหลือง)</td><td>เน็ตหลุดหรือเซิร์ฟเวอร์ตอบช้า — ขายต่อได้ รายการเก็บในเครื่อง</td></tr>
+    <tr><td><span class="msg">กำลังส่งข้อมูล...</span> / <span class="msg">กำลังส่งข้อมูล... ({N})</span> (ฟ้า หมุน)</td><td>เน็ตกลับแล้ว กำลังส่งรายการที่ค้าง</td></tr>
+    <tr><td><span class="msg">รอตรวจสอบ ({N})</span> (แดง)</td><td>มีรายการที่เซิร์ฟเวอร์ปฏิเสธหรือค้าง — กดเพื่อไปหน้า <span class="ui ghost">รอเจ้าของ</span> (งานของเจ้าของร้าน)</td></tr>
+  </table>
+  <p>ระหว่างออฟไลน์จะมีแถบเหลือง <span class="msg">ออฟไลน์ (ขายสำรอง) — ระบบจะบันทึกรายการขายในเครื่อง และส่งข้อมูลไปยังเซิร์ฟเวอร์โดยอัตโนมัติเมื่อเชื่อมต่ออินเทอร์เน็ต</span></p>
+
+  <h2 class="sub">ออฟไลน์ทำอะไรได้บ้าง <span class="en">What works offline</span></h2>
+  <div class="twocol">
+    <div>
+      <h3 class="mini">ทำได้ (เข้าคิวรอส่ง)</h3>
+      <ul class="ticks">
+        <li>ขายสินค้า</li>
+        <li>เปิดกะ · เงินเข้า-ออกลิ้นชัก</li>
+        <li>รับชำระเครดิตช่าง</li>
+        <li>เพิ่ม/แก้ลูกค้า</li>
+        <li>ยกเลิกบิลที่ขายตอนออฟไลน์</li>
+        <li>พักบิล (เก็บในเครื่องอยู่แล้ว)</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="mini">ต้องออนไลน์</h3>
+      <ul class="ticks">
+        <li>ปิดกะ · คืนสินค้า (ดูข้อจำกัดหัวข้อ 6)</li>
+        <li>ยกเลิกบิลที่ขายตอนออนไลน์</li>
+        <li>ใบเสนอราคาทุกงาน</li>
+        <li>สินค้า หมวด ซัพพลายเออร์ ใบสั่งซื้อ ช่าง (เพิ่ม/แก้)</li>
+        <li>ตั้งค่า ลบข้อมูลทุกชนิด ตั้ง PIN จัดการเครื่อง สำรอง/นำเข้า</li>
+      </ul>
+    </div>
+  </div>
+  <p>ปุ่มที่ต้องออนไลน์จะกดไม่ได้ หรือขึ้นข้อความขึ้นต้นด้วย <span class="msg">ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถ…</span></p>
+  <div class="note warn"><span class="nt">ห้ามทำตอนมีรายการค้าง</span>อย่าล้างข้อมูลเบราว์เซอร์ อย่าปิดแท็บแล้วเปิดเครื่องอื่นมาขายแทน — รายการที่ยังไม่ได้ส่งอยู่ในเครื่องนี้เครื่องเดียว</div>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">9</span></div>
+</section>
+
+<!-- ════════════════ 10 · ERRORS ════════════════ -->
+<section class="page" id="errors">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">9 · ข้อความผิดพลาด</span></div>
+  <div class="sec-no">Section 9</div>
+  <h1 class="sec">ข้อความผิดพลาดที่พบบ่อย <span class="en">Common messages</span></h1>
+  <div class="tbl-scroll">
+  <table class="grid">
+    <tr><th>ข้อความบนจอ</th><th>สาเหตุ</th><th>ทำอย่างไร</th></tr>
+    <tr><td><span class="msg">กรุณาเปิดกะก่อนขาย</span> · <span class="msg">กรุณาเปิดกะก่อนรับชำระ</span> · <span class="msg">กรุณาเปิดกะก่อน</span></td><td>ยังไม่ได้เปิดกะ (ข้อความต่างกันตามงานที่ทำ)</td><td>เปิดกะที่หน้า ลิ้นชัก (หัวข้อ 2)</td></tr>
+    <tr><td><span class="msg">สต็อกไม่พอ:</span> + รายการ</td><td>สต็อกบนระบบไม่พอกับตะกร้า</td><td>ลดจำนวน หรือแจ้งเจ้าของร้านเช็กสต็อก</td></tr>
+    <tr><td><span class="msg">เกินวงเงินเครดิต</span></td><td>ยอดค้างช่างเกินวงเงิน</td><td>ถามเจ้าของร้านก่อนกดยืนยันขาย</td></tr>
+    <tr><td><span class="msg">เครื่องนี้ขายของไม่ได้</span></td><td>เครื่องนี้ไม่ใช่เครื่อง POS</td><td>ใช้เครื่อง POS หรือให้เจ้าของร้านผูกเครื่อง</td></tr>
+    <tr><td><span class="msg">ร้านนี้ถูกระงับการใช้งาน</span></td><td>ผู้ดูแลแพลตฟอร์มระงับร้าน</td><td>เจ้าของร้านติดต่อทีมงาน</td></tr>
+    <tr><td><span class="msg">ระบบกำลังทำงานหนัก กรุณารอสักครู่</span></td><td>ส่งคำขอถี่เกิน</td><td>รอสักครู่แล้วลองใหม่ อย่ากดรัว</td></tr>
+    <tr><td><span class="msg">คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่</span></td><td>บิลเดิมยังบันทึกไม่เสร็จ</td><td>รอ แล้วกดใหม่ — ระบบไม่ขายซ้ำ</td></tr>
+    <tr><td><span class="msg">ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้</span> / <span class="msg">ปิดลิ้นชักแล้ว — ไม่สามารถบันทึกรายการเงินเพิ่มได้</span></td><td>ปิดกะแล้ว</td><td>บันทึกหลังปิดกะไม่ได้ (ดูข้อจำกัดหัวข้อ 7)</td></tr>
+    <tr><td><span class="msg">บิลนี้ไม่ได้อยู่ในกะที่เปิดอยู่ ยกเลิกบิลไม่ได้ กรุณาทำรายการคืนสินค้า (ใบลดหนี้) แทน</span></td><td>ยกเลิกบิลของกะก่อน</td><td>ใช้การคืนสินค้าแทน</td></tr>
+    <tr><td><span class="msg">บิลนี้มีใบลดหนี้แล้ว ไม่สามารถยกเลิกบิลได้</span></td><td>บิลเคยคืนบางส่วนแล้ว</td><td>คืนรายการที่เหลือแทนการยกเลิก</td></tr>
+    <tr><td><span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง — ต้องส่งเข้าระบบให้หมดก่อนปิดกะ</span></td><td>คิวรอส่งยังไม่ว่าง</td><td>รอออนไลน์ให้ส่งหมด / เจ้าของร้านจัดการที่ <span class="ui ghost">รอเจ้าของ</span></td></tr>
+    <tr><td><span class="msg">กรุณาเข้าสู่ระบบ</span> หรือกลับมาหน้าเข้าสู่ระบบเอง</td><td>session หมดอายุ (ทุกวัน 04:00)</td><td>เข้าสู่ระบบใหม่</td></tr>
+  </table>
+  </div>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
+    <ul class="ticks">
+      <li>ร้านจริงยังใช้ Drift build — หัวข้อ 1, 8 และข้อความที่เกี่ยวกับกะ/เครื่อง/ซิงก์ ใช้กับ API build เท่านั้น</li>
+      <li>ยังไม่มีปุ่มเปิดกะที่สองในวันเดียวกัน (หัวข้อ 7) · คืนสินค้าตอนออฟไลน์ยังไม่ได้ (หัวข้อ 6)</li>
+      <li>ข้อความ <span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง…</span> ยังเป็นร่างที่ทีมเขียน ยังไม่ผ่านการรับรองจากเจ้าของโปรเจกต์ — อาจเปลี่ยนถ้อยคำ</li>
+      <li>สแกนบาร์โค้ดใช้เครื่องยิงแบบคีย์บอร์ดหรือพิมพ์เอง · พิมพ์ผ่านหน้าต่างพิมพ์ของเครื่อง ไม่มีการสั่งเครื่องพิมพ์หรือเด้งลิ้นชักโดยตรง</li>
+    </ul>
+  </div>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">10</span></div>
+</section>
+
+</body>
+</html>
