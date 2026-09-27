@@ -73,6 +73,11 @@ docker ps --format '{{.Names}}: {{.Status}}'
 
 รอจนไม่มีบรรทัดไหนเขียนว่า `(health: starting)` ค้างอยู่ (ปกติ ~30-40 วินาที)
 
+> 🟠 **ถ้า `etcd` ขึ้น `(unhealthy)` ค้างตลอด** — เกือบทุกครั้งคือ volume `etcd-data` เหลือจากรอบก่อน
+> และรหัสผ่านที่ bake ไว้ใน volume ไม่ตรงกับ `.env` ปัจจุบัน (#365 — อาการจะเป็น "ไม่ green"
+> ไม่ใช่ข้อความเรื่องรหัสผ่าน) **ไม่บล็อกส่วนอื่น** api/nginx/platform-ui/Flutter ใช้งานได้ตามปกติ
+> ข้ามไปขั้นต่อไปได้เลย อย่าแก้ด้วย `down -v` (ลบ Postgres ของทุกคนไปด้วย — ดูข้อ 8)
+
 **เช็ค backend ตอบจริง:**
 
 ```bash
@@ -117,6 +122,11 @@ docker run -d --name tlswrap --restart unless-stopped \
 "ไม่สามารถใช้ PIN ออฟไลน์ได้ … กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบใหม่" ซึ่งถูกต้องแล้ว
 (ยังไม่เคยมีใคร login ออนไลน์เลยสักครั้ง) ต้องทำ 3 ขั้นตอนนี้ **ครั้งเดียว** ต่อฐานข้อมูล
 
+> 🟠 **ฐานข้อมูลอาจไม่ได้ว่างจริง** — volume `pgdata` อยู่รอดข้าม `stop`/`up` และข้าม session
+> ถ้าเครื่องนี้เคยรันสแตกมาก่อน admin/tenant จากรอบนั้นยังอยู่ครบ เช็คก่อนได้ด้วย
+> `docker volume inspect srisurart-pos_pgdata --format '{{.CreatedAt}}'` (วันที่เก่า = มีข้อมูลเดิม)
+> แล้วดูหมายเหตุในข้อ 5.1 และ 5.2 ว่าต้องทำอะไรต่างไปจากฐานว่าง
+
 > 🟢 **มีหน้าเว็บ platform admin แล้ว** (`platform-ui`, #443 PR4) ที่ **http://127.0.0.1:3200** —
 > สร้างร้าน, ระงับ/เปิดร้าน, ดูอุปกรณ์ + งาน import, ออก enrolCode ใหม่, ออกรหัสผ่านชั่วคราวให้เจ้าของร้าน
 > (แยกจากแอป Flutter ของร้านโดยตั้งใจ — ADR-0002) · 🔴 **สร้าง platform admin ทำได้ทางเดียวคือคำสั่ง
@@ -133,6 +143,20 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
   -e BOOTSTRAP_ADMIN_DISPLAY_NAME="Dev Admin" \
   api-1 sh -c 'DATABASE_URL="postgres://postgres:$POSTGRES_PASSWORD@postgres:5432/pos" node dist/db/bootstrap-admin.js'
 ```
+
+🔴 **ถ้าผลลัพธ์บอก `already exists — password left alone`** แปลว่า `devadmin` มีอยู่แล้วจาก volume
+รอบก่อน และ **รหัสผ่านที่เพิ่งพิมพ์ไม่ได้ถูกบันทึก** (คำสั่งจบแบบไม่ error — login ด้วยรหัสใหม่จะไม่ผ่าน)
+รันคำสั่งเดิมซ้ำโดยเติม `--force` ท้าย `bootstrap-admin.js` เพื่อตั้งรหัสใหม่ทับ:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/compose/monitoring.yml exec -T \
+  -e BOOTSTRAP_ADMIN_USERNAME=devadmin \
+  -e BOOTSTRAP_ADMIN_PASSWORD=<รหัสผ่านอย่างน้อย12ตัวอักษร> \
+  -e BOOTSTRAP_ADMIN_DISPLAY_NAME="Dev Admin" \
+  api-1 sh -c 'DATABASE_URL="postgres://postgres:$POSTGRES_PASSWORD@postgres:5432/pos" node dist/db/bootstrap-admin.js --force'
+```
+
+ต้องเห็นคำว่า `updated` (รีเซ็ตรหัสแล้ว) หรือ `created` (สร้างใหม่) — ถ้ายังเห็น `unchanged` แปลว่ายังไม่ได้ตั้งรหัส
 
 ### 5.2 ล็อกอินเป็น platform admin แล้วสร้าง tenant + shop owner
 
@@ -177,6 +201,18 @@ Response จะได้ `tenantId`, `tempPassword` (รหัสผ่าน**�
 `owner:temp-password`, `owner:set-password`) และตัวอย่างแบบ non-interactive (pipe รหัสเข้า
 stdin สำหรับสคริปต์/CI) อยู่ที่
 [`docs/handoff_log/ticket-338-platform-provision.md`](../handoff_log/ticket-338-platform-provision.md) §3
+
+> 🟠 **`409 Tenant code or username already exists`** — `--code` หรือ `--owner-username` ซ้ำกับของที่มีอยู่แล้ว
+> (มักเป็น volume รอบก่อน) ใช้ค่าใหม่ทั้งคู่ เช่น `--code demo-shop-2 --owner-username owner2`
+> ดูร้านที่มีอยู่แล้วได้ที่หน้าเว็บ `:3200` · ห้ามแก้ด้วยการลบ volume
+>
+> 🟠 **รันจาก PowerShell แล้ว pipe รหัสผ่านเข้า stdin** (เช่น `'รหัส' | docker compose exec -T …`)
+> จะได้รหัสที่ผิด (PowerShell ส่ง encoding/บรรทัดท้ายไม่ตรง) → login ไม่ผ่านทั้งที่รหัสถูก
+> ให้พิมพ์รหัสตอนถูกถามใน terminal แบบ interactive (ไม่ใส่ `-T`) หรือใช้ **Git Bash**:
+>
+> ```bash
+> printf '%s\n' '<รหัส admin>' | docker compose exec -T api-1 node dist/cli/platform.js login --user devadmin
+> ```
 
 ### 5.3 ทดสอบ login แบบ shop-level (ไม่ติด loopback restriction — เรียกจาก host ปกติได้)
 
@@ -304,6 +340,10 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 | `docker compose up --build` fail ที่ "load build context" / "invalid file request" | checkout อยู่บนโฟลเดอร์ BeeStation sync แล้วไฟล์กลายเป็น cloud placeholder | build จาก git object สะอาด: `git archive HEAD server \| tar -x -C <ascii-tmp>/ctx && docker build -t srisurart-pos/server:local <ascii-tmp>/ctx/server` แล้ว `up -d` ไม่ต้อง `--build` |
 | container ไหนก็ตามค้าง `(health: starting)` นาน | Postgres/Redis ยังไม่พร้อม (เครื่องช้าตอน build ครั้งแรก) | รอเพิ่ม แล้วดู log: `docker compose logs <service>` |
 | ลืม `-f` ชุดเดิมตอนรันคำสั่งอื่น (เช่น `docker compose run migrate`) | compose มองว่าสแตกไม่ตรงไฟล์ แล้ว recreate `postgres` ทิ้ง port ของ dev overlay | ใส่ `-f` ชุดเดิมทุกครั้ง แล้ว `up -d` ซ้ำเพื่อคืน port |
+| `etcd` ค้าง `(unhealthy)` ตลอด ส่วนอื่น healthy หมด | volume `etcd-data` จากรอบก่อน bake รหัสผ่านไม่ตรง `.env` (#365) | ไม่บล็อกอะไร ใช้งานต่อได้ — อย่า `down -v` (ข้อ 3) |
+| `bootstrap-admin` บอก `already exists — password left alone` แล้ว login admin ไม่ผ่าน | admin มีอยู่แล้วใน `pgdata` รอบก่อน รหัสใหม่ไม่ถูกบันทึก | รันซ้ำพร้อม `--force` (ข้อ 5.1) ต้องเห็น `updated` |
+| `tenants:create` ได้ `409 … already exists` | `--code`/`--owner-username` ซ้ำของเดิมใน volume | ใช้ code + username ใหม่ (ข้อ 5.2) |
+| platform CLI login ไม่ผ่านทั้งที่รหัสถูก (pipe จาก PowerShell) | PowerShell pipe ส่งข้อความเข้า stdin ไม่ตรงตัว | พิมพ์รหัสแบบ interactive หรือใช้ Git Bash `printf '%s\n'` (ข้อ 5.2) |
 | Grafana panel "Disk usage (/)" ไม่มีข้อมูล | `node-exporter` mount `/:/rootfs:ro` แต่ Docker Desktop รันบน WSL VM ไม่ใช่ดิสก์ Windows ตรง ๆ | รู้ไว้เฉย ๆ ไม่ใช่บั๊ก จะขึ้นปกติบน `mob04` (Linux จริง) |
 | ยิงตรงไปที่ `/api/v1/platform/...` จาก host (หรือผ่าน `ssh -L`) ได้ `403 Forbidden` | docker-proxy เปิด connection ใหม่เข้า container — nginx และ guard เห็น IP เป็น gateway (`172.30.0.1`) ไม่ใช่ `127.0.0.1` · เกิดบนทุกโฮสต์ รวม `mob04` (#335 D3) | ใช้หน้าเว็บ http://127.0.0.1:3200 (ข้อ 5.2 ทาง A) หรือ platform CLI จาก**ภายใน container `api-1` เอง**: `docker compose exec api-1 node dist/cli/platform.js login --user <admin>` (ข้อ 5.2 ทาง B) |
 | หน้าเว็บ `:3200` เปิดได้ แต่ login/โหลดรายชื่อร้านได้ `403` | IP ของ `platform-ui` ไม่อยู่ใน allowlist ชั้นใดชั้นหนึ่ง: `server/.env` ตั้ง `PLATFORM_ADMIN_IPS` ทับโดยไม่มี `172.30.0.20` (ผ่าน nginx แต่ตายที่ guard) หรือ network ถูกสร้างใหม่จน `platform-ui` เสีย IP ตายตัว | ลบ `PLATFORM_ADMIN_IPS` ออกจาก `.env` (ค่า default คือ `172.30.0.20`) หรือใส่ `172.30.0.20` เพิ่มในลิสต์ แล้ว `up -d` · เช็ค IP: `docker inspect srisurart-pos-platform-ui-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'` ต้องได้ `172.30.0.20` |
