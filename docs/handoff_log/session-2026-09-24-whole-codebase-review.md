@@ -19,7 +19,8 @@ so this is a **sampled** review, not an audit. A clean area here is not proof of
 Items 1–2 re-verified by reading the code after the review.
 **Status 2026-09-28:** items 1–2 fixed 2026-09-25 (PR #413 / #409, PR #414 / #411 — see
 `CLAUDE.md` "Still open"); items 3–5 (all MED) fixed by 2026-09-27 — see their status lines
-below; item 6 (LOW) still present and untriaged.
+below; item 6 (LOW) still present and untriaged (the code has moved: now
+`shifts.service.ts:190-198`).
 
 1. 🔴 **HIGH — `/sync/push` fingerprint ≠ online route's.** 08 §8.3 step 1 requires the same
    fingerprint as the online route. `sync.service.ts:201-229` (`endpointForOp`) stores

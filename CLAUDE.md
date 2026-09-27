@@ -282,7 +282,7 @@ develops against a demo tenant.
   2026-09-25**: the `/sync/push` fingerprint mismatch (`POST /sales` vs
   `POST /api/v1/sales`) by PR #413 (#409), and online routes storing the client body's
   `date` instead of server `now()` by PR #414 (#411). The same review log (`docs/handoff_log/session-2026-09-24-whole-codebase-review.md`
-  §2) also lists 4 MED spec gaps and the standards findings (e.g. unvalidated `Math.max`
+  §2) also lists 3 MED + 1 LOW spec gaps and the standards findings (e.g. unvalidated `Math.max`
   clamp in `quotes.controller.ts:113` — fixed 2026-09-25 by PR #420, now validated by
   `parsePurgeOlderThanDays`). **All three MED items are fixed (2026-09-27):** item 3 by
   PR #458 (#455), item 5 by PR #456 (#453), item 4 by PR #456 + PR #469 (#452 closed).
@@ -296,10 +296,10 @@ develops against a demo tenant.
   chose: add the `เครดิตช่าง` row; take quote validity from Settings), #462/#463/#465 by
   PR #470, #452 by PR #469. 🔴 **Three Thai strings from those PRs are still `agent ร่าง`**
   — `เปิดกะใหม่` (#469), the 8-character enrol-code wording (#470,
-  `devices_screen.dart:867`, `device_enrolment_dialog.dart:95`), and the post-enrol banner
-  (#470, `login_form.dart:184`); all three are in `02 §8.1.1` for the owner to ratify.
+  `devices_screen.dart:869`, `device_enrolment_dialog.dart:97`), and the post-enrol banner
+  (#470, `login_form.dart:188`); all three are in `02 §8.1.1` for the owner to ratify.
 - **Follow-ups filed 2026-09-28** (verified in code, table in
-  `docs/handoff_log/session-2026-09-28-overnight-bug-sweep.md` §6): #472 offline RC
+  `docs/handoff_log/session-2026-09-28-overnight-bug-sweep.md` §2): #472 offline RC
   numbering still guesses `deviceNo ?? 1` and falls back to `docNo('RC')` (the defect #469
   fixed for CN) · #473 discarding a `sale.create`/`return.create` does not undo local
   stock/ledger · #474 settings are not re-pulled when the link returns · #475 new device
@@ -489,12 +489,14 @@ on void/return paths. Keep this order in any new write touching more than one of
   guard, and refuses `OFFLINE_SEED_REQUIRED` rather than guess a `device_no` (#469).
 - **Settings writes are online-only on the API build** (#460, PR #467):
   `ApiSettingsRepository.updateSettings` is `PATCH /settings` with an `Idempotency-Key`,
-  refuses when Degraded, and **never** writes Drift locally; `pullFromServer` (`GET
+  refuses when Degraded, and writes Drift **only** from the server's accepted reply —
+  never a local-first write, never on a failure; `pullFromServer` (`GET
   /settings`) runs on app open/login only (#474 tracks re-pulling on reconnect).
   🔴 **Do not wire `BootstrapService.bootstrap()` as it stands** — its product upsert
   skips the pending-outbox stock guard (08 §15), nulls `zone`, and its settings mapping
   reads `shopNameEN` where the server sends `shopNameEn` and ignores `quoteValidDays`
-  (`bootstrap_service.dart` header, PR #467 body).
+  (the `bootstrap_service.dart` header names the stock guard; all three are in PR #467's
+  body).
 
 **CI/CD (`.github/workflows/`, `deploy/`):**
 - Both `flutter.yml` and `server.yml` trigger unfiltered on every push/PR; a `changes`

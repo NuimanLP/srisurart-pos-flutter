@@ -49,11 +49,11 @@
 - **5xx ไม่เข้าคิว** — ทุก write path บน API build (ขาย, กะ, คืนสินค้า) เข้าคิวเฉพาะ transport failure · 5xx/429 จอดความพยายามไว้ (id + key เดิม) · `08 §5` แก้ตามแล้ว (PR #469) — ประเด็น "deviation ที่ยังไม่ตัดสิน" ของ handoff 2026-09-27 จบแล้ว
 
 **ที่ agent ตัดสินเอง (ในกรอบของ ticket):**
-- **#460 ไม่ใช้ `BootstrapService.bootstrap()` ตามที่ใบเสนอ** — product upsert ข้าม stock guard ของ outbox (08 §15) + เขียน `zone` เป็น null · settings อ่าน `shopNameEN` แต่ server ส่ง `shopNameEn` (ทุก pull จะรีเซ็ตชื่อ EN) · ไม่อ่าน `quoteValidDays` → ทำ settings-only pull แทน, `BootstrapService` ค้างไว้พร้อมคอมเมนต์เตือน (`bootstrap_service.dart` หัวไฟล์)
+- **#460 ไม่ใช้ `BootstrapService.bootstrap()` ตามที่ใบเสนอ** — product upsert ข้าม stock guard ของ outbox (08 §15) + เขียน `zone` เป็น null · settings อ่าน `shopNameEN` แต่ server ส่ง `shopNameEn` (ทุก pull จะรีเซ็ตชื่อ EN) · ไม่อ่าน `quoteValidDays` → ทำ settings-only pull แทน, `BootstrapService` ค้างไว้พร้อมคอมเมนต์เตือน (หัวไฟล์ `bootstrap_service.dart` ระบุแค่เรื่อง stock guard · อีกสองข้อเห็นในโค้ด `:139`, `:191` และครบทั้งสามข้อใน body ของ PR #467)
 - **กฎคืนสินค้าอยู่ที่เดียว (`return_plan.dart`)** ใช้ร่วม Drift/API build — API repo ห้ามเรียก Drift `createReturn` (กฎ double-decrement เดิม)
 - **จุดเริ่มนับเงินลิ้นชักจุดเดียว (`cashCountFrom`)** ใช้ทั้งหน้าลิ้นชักและใบปิดกะ — กะแรกของวันนับจากเที่ยงคืน (ทุกกะก่อนมีหลายกะต่อวันจึง reconcile เหมือนเดิม) กะถัดไปนับจากเวลาเปิดของตัวเอง
 - **เพิ่มข้อความ agent ร่างของ #462/#465 ลง `02 §8.1.1`** (รอบนี้) — PR #470 ใส่ไว้แค่คอมเมนต์ในโค้ด owner จึงไม่มีที่ให้เคาะ
-- **ทีมของ follow-up:** ตาม `09 §6` — outbox/`SyncService`/เลข RC-CN/pull = lane B (`team/2`) · server + หน้าจัดการเครื่อง + platform = lane C (`team/3`) · `reports_screen.dart` ไม่มีเจ้าของ → `team/1` ตาม #463 · ใบเสนอราคา/แคตตาล็อก/ป้าย → `team/2` ตาม #464 (ผลคือ `team/2` ได้ 7/9 ใบ — owner ย้ายได้)
+- **ทีมของ follow-up:** ตาม `09 §6` เท่าที่ระบุ — `frontend/lib/data/**` (outbox/`SyncService`/เลข RC-CN/pull) = lane B (`team/2`) · `server/src/devices` + `devices_screen.dart` = lane C (`team/3`; `server/src/platform/**` ของ lane A มีแค่ส่วน guard) · ไฟล์ที่ `09 §6` ไม่ระบุเจ้าของตามใบก่อนหน้า: `reports_screen.dart` → `team/1` ตาม #463 · ใบเสนอราคา/แคตตาล็อก/ป้าย → `team/2` ตาม #464 (ผลคือ `team/2` ได้ 7/9 ใบ — owner ย้ายได้)
 
 ## 4. ลองแล้วไม่เวิร์ก (ทางตัน)
 
@@ -62,9 +62,9 @@
 ## 5. ยังไม่ชัวร์ / สมมติฐานที่ยังไม่พิสูจน์
 
 - **ข้อความไทย agent ร่าง 3 จุด รอ owner เคาะ** (ทั้งหมดอยู่ใน `02 §8.1.1` แล้ว):
-  1. `เปิดกะใหม่` — หัวข้อ + ปุ่ม (#452, PR #469) · `cash_drawer_screen.dart:433`
-  2. รหัสผูกเครื่อง: `นำรหัส 8 ตัวอักษรนี้ไปกรอกที่หน้าผูกเครื่องของเบราว์เซอร์เป้าหมาย รหัสนี้มีอายุ 15 นาที` + hint `เช่น 3F9A0C1B (8 ตัวอักษร)` (#462, PR #470) · `devices_screen.dart:867`, `device_enrolment_dialog.dart:95`
-  3. ป้ายหลังผูกเครื่อง: `ผูกเครื่องกับร้านแล้ว รอเข้าสู่ระบบเพื่อยืนยันสิทธิ์การใช้งาน` (#465, PR #470) · `login_form.dart:184`
+  1. `เปิดกะใหม่` — หัวข้อ + ปุ่ม (#452, PR #469) · `cash_drawer_screen.dart:434`
+  2. รหัสผูกเครื่อง: `นำรหัส 8 ตัวอักษรนี้ไปกรอกที่หน้าผูกเครื่องของเบราว์เซอร์เป้าหมาย รหัสนี้มีอายุ 15 นาที` + hint `เช่น 3F9A0C1B (8 ตัวอักษร)` (#462, PR #470) · `devices_screen.dart:869`, `device_enrolment_dialog.dart:97`
+  3. ป้ายหลังผูกเครื่อง: `ผูกเครื่องกับร้านแล้ว รอเข้าสู่ระบบเพื่อยืนยันสิทธิ์การใช้งาน` (#465, PR #470) · `login_form.dart:188`
   - `grep -rn "agent ร่าง"` ยังเจอของรอบ #443 PR2/PR3 อีกหลายจุด (`02 §8.1`/`§8.1.1`, `change_password_form.dart`, `password_changed_banner.dart`, `server_error_resolver.dart` ฯลฯ) — ของเก่า ไม่ใช่ของคืนนี้
 - #477: Row ที่ล้นจริงยังไม่ได้ trace ด้วย DevTools · #479: สาเหตุ (package `pdf` เว้นระยะ combining mark) เป็นสมมติฐาน · #478/#480: แอป JS เดิมไม่อยู่ใน repo → ยืนยันไม่ได้ว่าของเดิมเป็นแบบเดียวกัน (parity)
 - **สแตก local:** container server สร้างเมื่อ 2026-09-27 14:52Z — ไม่ได้ตรวจว่ารวม #458 (merge 14:53Z) หรือเปล่า · #467–#470 ไม่แตะ server code จึงไม่ต้อง rebuild เพื่อพวกนี้ · Flutter web ที่รันอยู่เป็น build **ก่อน** #469/#470 (PR #471 บอกไว้) → จะดู `เปิดกะใหม่`/หน้ารายงาน/รหัส enrol ใหม่ต้อง build ใหม่
