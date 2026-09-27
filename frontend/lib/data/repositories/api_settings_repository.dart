@@ -49,6 +49,9 @@ class ApiSettingsRepository extends SettingsRepository {
 
   @override
   Future<void> updateSettings(SettingsRowCompanion patch) async {
+    // Degraded only — the Settings screen's own pre-check (`context.isDegraded`).
+    // Unlike a queued customer write, a settings edit does not wait behind the
+    // outbox, so `syncing` / a non-empty outbox do not refuse it.
     if (syncFacade?.currentStatus == SyncStatus.degraded) {
       throw const PosException(
         'OFFLINE_ACTION_NOT_ALLOWED',
@@ -66,13 +69,14 @@ class ApiSettingsRepository extends SettingsRepository {
     } on ApiException catch (e) {
       rethrowServerRefusal(e);
     } catch (e) {
+      // Its `toString()` is already the Thai sentence (#400).
       if (e is TokenStoreUnavailableException) rethrow;
       // No local write either way. A timed-out PATCH may still have committed;
       // the next pull shows whatever the server kept.
-      if (isTransportFailure(e)) {
-        throw PosException('NETWORK_ERROR', ServerErrorResolver.resolve(null));
-      }
-      rethrow;
+      throw PosException(
+        isTransportFailure(e) ? 'NETWORK_ERROR' : 'UNREADABLE_RESPONSE',
+        ServerErrorResolver.resolve(null),
+      );
     }
     if (res is! Map) {
       throw PosException(
@@ -111,7 +115,10 @@ class ApiSettingsRepository extends SettingsRepository {
     final shopNameEn = s['shopNameEn'];
     final taxRate = s['taxRate'];
     final quoteValidDays = s['quoteValidDays'];
-    final updatedAt = s['updatedAt'];
+    // tryParse, not `stamp`: after a committed PATCH an unreadable stamp must
+    // not surface as an error for an edit the server already kept.
+    final updatedAt =
+        s['updatedAt'] is String ? DateTime.tryParse(s['updatedAt'] as String) : null;
     final companion = SettingsRowCompanion(
       shopName: shopName is String ? Value(shopName) : const Value.absent(),
       shopNameEN: shopNameEn is String ? Value(shopNameEn) : const Value.absent(),
@@ -124,7 +131,7 @@ class ApiSettingsRepository extends SettingsRepository {
       cashierName: nullable('cashierName'),
       taxId: nullable('taxId'),
       branchNo: nullable('branchNo'),
-      updatedAt: updatedAt is String ? Value(stamp(updatedAt)) : const Value.absent(),
+      updatedAt: updatedAt != null ? Value(updatedAt.toLocal()) : const Value.absent(),
     );
     if (companion == const SettingsRowCompanion()) return;
     await (db.update(db.settingsRow)..where((t) => t.id.equals(0)))
