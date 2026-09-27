@@ -149,7 +149,7 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <p><strong>อัตโนมัติ:</strong> playbook ล้มหรือเกิน 20 นาที → <code>pos-deploy</code> redeploy SHA ใน <code>.current_sha</code> (รันยังขึ้นแดง ให้ตามดูสาเหตุ)</p>
   <p><strong>ด้วยมือ</strong> (release ใหม่ขึ้นแล้วแต่ใช้งานไม่ได้):</p>
   <ol class="steps">
-    <li><span class="st-title">หา SHA ที่จะถอยกลับ</span>ต้อง (1) อยู่บน <code>main</code> (2) เป็น commit rollback floor (<code>4f3a244</code>) หรือใหม่กว่า — <code>pos-deploy</code> ปฏิเสธ SHA ที่เก่ากว่านั้น (3) มีอิมเมจทั้ง server และ web บน GHCR</li>
+    <li><span class="st-title">หา SHA ที่จะถอยกลับ</span>ต้อง (1) อยู่บน <code>main</code> (2) เป็น commit rollback floor (<code>4f3a244</code>) หรือ commit ที่ต่อมาจากมันบน <code>main</code> — <code>pos-deploy</code> ปฏิเสธ SHA อื่น (3) มีอิมเมจทั้ง server และ web บน GHCR</li>
     <li><span class="st-title">GitHub → Actions → <strong>Deploy (demo)</strong> → Run workflow → ใส่ <code>image_tag</code> = SHA นั้น</span></li>
     <li><span class="st-title">ผู้อนุมัติ (<code>NuimanLP</code>) กด approve งาน <code>deploy</code></span>ถ้ามีรันอื่นรออนุมัติค้างอยู่ ให้ปฏิเสธ/ยกเลิกก่อน ไม่งั้นอาจส่ง SHA ผิดตัวขึ้นก่อน</li>
     <li><span class="st-title">ยืนยันบน VM</span><code>ssh deploy@&lt;vm&gt; cat /opt/pos/.current_sha</code> ต้องเท่ากับ SHA ที่เลือก · <code>curl -sk https://localhost/health/ready</code> บน VM ต้อง 200<span class="see">เขียวใน Actions อย่างเดียว <strong>ไม่นับ</strong> (ดูกล่องด้านบน)</span></li>
@@ -201,7 +201,7 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
     <span class="see">ภายในไม่กี่วินาที log ของ API (<code>docker compose logs -f api-1</code>) ละเอียดขึ้น</span></li>
     <li><span class="st-title">เก็บข้อมูลที่ต้องการแล้ว <strong>ตั้งกลับเป็น <code>info</code></strong></span>คำสั่งเดิม เปลี่ยน <code>debug</code> เป็น <code>info</code> — log debug ใช้ดิสก์เร็ว</li>
   </ol>
-  <p class="muted">ถ้ายังไม่เคยตั้งคีย์นี้ <code>get</code> จะไม่คืนอะไรเลย และระบบใช้ <code>LOG_LEVEL</code> ใน <code>.env</code> · ถ้า etcd ล่มหรือรหัสไม่ตรง API ยังทำงานต่อด้วยค่าใน <code>.env</code> (fail-open) — คำสั่งละเอียดและวิธีพิสูจน์ว่า etcd ปฏิเสธผู้ไม่ระบุตัว อยู่ใน <code>server/README.md</code> หัวข้อ <em>Dynamic config</em></p>
+  <p class="muted"><code>etcd-init</code> ใส่ค่าเริ่มต้นให้คีย์นี้จาก <code>LOG_LEVEL</code> ใน <code>.env</code> ตอนบูตครั้งแรก (ไม่ทับค่าที่ตั้งเองภายหลัง) — ถ้า <code>get</code> ไม่คืนอะไร แปลว่า <code>etcd-init</code> ยังไม่เคยรันสำเร็จบนเครื่องนั้น และระบบใช้ <code>LOG_LEVEL</code> ใน <code>.env</code> · ถ้า etcd ล่มหรือรหัสไม่ตรง API ยังทำงานต่อด้วยค่าใน <code>.env</code> (fail-open) — คำสั่งละเอียดและวิธีพิสูจน์ว่า etcd ปฏิเสธผู้ไม่ระบุตัว อยู่ใน <code>server/README.md</code> หัวข้อ <em>Dynamic config</em></p>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>บน <code>mob04</code> <strong>etcd ยังไม่เคยเปิด auth</strong> (#365) — <code>etcd-init.sh</code> บน VM เป็นโฟลเดอร์ว่างของ root ต้องทำพร้อมรอบขึ้น VM ของ #343 และพิสูจน์ทั้งสองทาง (ใส่รหัสผ่านได้ / ไม่ใส่ถูกปฏิเสธ)</div>
   <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">6</span></div>
 </section>

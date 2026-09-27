@@ -95,7 +95,8 @@
     <li><span class="st-title">ยืนยัน</span><span class="see">หน้าต่าง <span class="msg">รหัสผูกเครื่องของคุณ</span> — รหัส 8 ตัวอักษร (0–9, A–F) มีปุ่มคัดลอก และ <span class="msg">นำรหัส 8 ตัวอักษรนี้ไปกรอกที่หน้าผูกเครื่องของเบราว์เซอร์เป้าหมาย รหัสนี้มีอายุ 15 นาที</span> — กรอกให้ครบทั้ง 8 ตัว (ข้อความนี้แก้ใน #462 ยังเป็นร่างที่ทีมเขียน)</span></li>
     <li><span class="st-title">ที่เครื่องเป้าหมาย: หน้าเข้าสู่ระบบ → <span class="ui ghost">ผูกเครื่องขาย (POS Terminal)</span> → กรอกรหัส → <span class="ui">ยืนยันผูกเครื่อง</span></span>(ประเภทเครื่องติดมากับรหัสแล้ว)</li>
   </ol>
-  <figure><img src="img/device-enrol.png" alt="ผูกเครื่องขาย (POS Terminal) — กรอกรหัสบนเครื่องเป้าหมาย" loading="lazy"><figcaption>ผูกเครื่องขาย (POS Terminal) — กรอกรหัสบนเครื่องเป้าหมาย · ภาพถ่ายก่อนแก้ #462: ตัวอย่างในช่องตอนนี้คือ "เช่น 3F9A0C1B (8 ตัวอักษร)"</figcaption></figure>
+  <figure><img src="img/device-code.png" alt="หน้าต่าง รหัสผูกเครื่องของคุณ — รหัสถูกปิดไว้ ข้อความบอก 8 ตัวอักษร อายุ 15 นาที" loading="lazy"><figcaption>หน้าต่าง รหัสผูกเครื่องของคุณ (ในภาพปิดรหัสไว้) — "นำรหัส 8 ตัวอักษรนี้ไป… รหัสนี้มีอายุ 15 นาที" · ด้านหลังเห็นเครื่องใหม่สถานะ รอผูกเครื่อง</figcaption></figure>
+  <figure><img src="img/device-enrol.png" alt="ผูกเครื่องขาย (POS Terminal) — กรอกรหัสบนเครื่องเป้าหมาย" loading="lazy"><figcaption>ผูกเครื่องขาย (POS Terminal) — กรอกรหัส 8 ตัวบนเครื่องเป้าหมาย (ตัวอย่างในช่อง "เช่น 3F9A0C1B (8 ตัวอักษร)")</figcaption></figure>
   <p>ถ้ามีเครื่องขายอยู่แล้วจะขึ้น <span class="msg">ร้านมีเครื่องขายอยู่แล้ว 1 เครื่อง กรุณาปลดเครื่องขายเดิมก่อนเพิ่มเครื่องใหม่</span></p>
 
   <h2 class="sub">ปลดเครื่อง (ย้าย/เปลี่ยนเครื่องขาย) <span class="en">Retire</span></h2>
@@ -109,7 +110,7 @@
   <p>ใช้เมื่อจะเลิกใช้ <strong>เครื่องนี้</strong> (เช่น คืนโน้ตบุ๊ก) — ต่างจาก "ปลดเครื่อง" ที่ทำกับเครื่องใดก็ได้จากรายการ</p>
   <ol class="steps">
     <li><span class="st-title"><span class="ui ghost">ตั้งค่า</span> → <span class="ui ghost">🔐 บัญชี / ผูกเครื่อง</span> → <span class="ui ghost">ยกเลิกการผูกเครื่อง</span></span><span class="see"><span class="msg">ยืนยันยกเลิกการผูกเครื่อง</span> — <span class="msg">หากยกเลิกการผูกเครื่องนี้ สิทธิ์ของเครื่อง POS จะถูกถอนออก และต้องให้เจ้าของร้านออกรหัสผูกเครื่องใหม่หากต้องการเชื่อมต่ออีกครั้ง</span></span></li>
-    <li><span class="st-title">ยืนยัน</span>ระบบลบ device token และ PIN ออฟไลน์ออกจากเบราว์เซอร์นี้ แล้วกลับไปหน้าเข้าสู่ระบบ — <strong>เซิร์ฟเวอร์ยังนับเครื่องนี้อยู่</strong> ต้องไป <span class="ui ghost">ปลดเครื่อง</span> ในหน้าจัดการเครื่องจากเครื่องอื่นที่ผูกไว้ ไม่เช่นนั้นจะออกรหัสเครื่อง POS ใหม่ไม่ได้</li>
+    <li><span class="st-title">กด <span class="ui">ยืนยันถอนการผูกเครื่อง</span></span>ระบบลบ device token และ PIN ออฟไลน์ออกจากเบราว์เซอร์นี้ แล้วกลับไปหน้าเข้าสู่ระบบ — <strong>เซิร์ฟเวอร์ยังนับเครื่องนี้อยู่</strong> ต้องไป <span class="ui ghost">ปลดเครื่อง</span> ในหน้าจัดการเครื่องจากเครื่องอื่นที่ผูกไว้ ไม่เช่นนั้นจะออกรหัสเครื่อง POS ใหม่ไม่ได้</li>
   </ol>
   <div class="note warn"><span class="nt">ก่อนยกเลิกการผูกเครื่อง</span>
     <ul class="ticks">
@@ -312,6 +313,7 @@
     <li><strong>ประวัติสต็อก / สินค้าดี-แย่:</strong> แท็บย่อยในหน้าเดียวกัน</li>
     <li><strong>สรุปยอดปิดร้าน:</strong> หน้า <span class="ui ghost">ลิ้นชัก</span> → <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> — รายได้ วิธีชำระ (เงินสด · โอน/QR · เครดิตช่าง) สินค้าขายดีวันนี้ ตรวจนับเงินของกะที่เปิดอยู่ และพิมพ์รายงาน 80 มม. มีช่องลายมือชื่อ (ภาค 01 หัวข้อ 7)</li>
   </ul>
+  <figure><img src="img/reports-mobile.png" alt="หน้า รายงาน บนมือถือ 390 px ช่วง ทั้งหมด — การ์ด รายได้สุทธิ จำนวนบิล ยอดเฉลี่ยต่อบิล ชิ้นสินค้าที่ขาย" loading="lazy" style="max-width:300px"><figcaption>บนมือถือ — การ์ดตัวเลขหลักเรียง 2×2 (ช่วง ทั้งหมด) · ปุ่มช่วงเวลาเลื่อนซ้าย-ขวาได้</figcaption></figure>
   <div class="note warn"><span class="nt">อ่านตัวเลขให้ถูก</span>ช่วง <span class="ui ghost">7 วัน</span> ไม่มีเพดานวันสิ้นสุด — ถ้ามีบิลวันที่ในอนาคต (เช่น นาฬิกาเครื่องผิด) จะถูกนับด้วย</div>
   <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">8</span></div>
 </section>
@@ -320,7 +322,7 @@
 <section class="page" id="settings">
   <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">8 · ตั้งค่า</span></div>
   <div class="sec-no">Section 8</div>
-  <h1 class="sec">ตั้งค่า · สำรอง/กู้คืน · ส่งออก CSV <span class="en">Settings</span></h1>
+  <h1 class="sec">ตั้งค่า · ธีม · สำรอง/กู้คืน · ส่งออก CSV <span class="en">Settings &amp; theme</span></h1>
   <p class="sec-lede">เมนู <span class="ui ghost">ตั้งค่า</span> มี 5 แท็บ: <span class="ui ghost">⚙ ทั่วไป</span> <span class="ui ghost">🔐 บัญชี / ผูกเครื่อง</span> <span class="ui ghost">🎨 ธีม</span> <span class="ui ghost">💾 สำรอง/กู้คืน</span> <span class="ui ghost">📤 ส่งออก CSV</span></p>
   <h2 class="sub">ข้อมูลร้าน <span class="en">General</span></h2>
   <figure><img src="img/settings.png" alt="แท็บ ⚙ ทั่วไป — ข้อมูลร้านค้า · Shop Information" loading="lazy"><figcaption>แท็บ ⚙ ทั่วไป — ข้อมูลร้านค้า · Shop Information</figcaption></figure>
