@@ -317,41 +317,17 @@ export class SyncService {
 
       case 'sale.create': {
         if (!op.payload.id) return null;
-        const rows = (await manager.query(
-          `SELECT id, receipt_no, total, points_granted, voided, shift_id FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
-          [tenantId, String(op.payload.id).trim()],
-        )) as {
-          id: string;
-          receipt_no: string;
-          total: string;
-          points_granted: number;
-          voided: boolean;
-          shift_id: string | null;
-        }[];
-        if (rows.length === 0) return null;
-        const row = rows[0];
-        if (satangOf(row.total) !== toSatang(op.payload.total, 'total')) {
-          throw this.clientIdReused(op.type, op.payload.id);
-        }
-        await this.flagRenumbered(manager, tenantId, op, row.id, op.payload.receiptNo, row.receipt_no);
-
-        const items = Array.isArray(op.payload.items) ? op.payload.items : [];
-        const productIds = items.map((it: any) => it.productId).filter(Boolean);
-        const products =
-          productIds.length > 0
-            ? ((await manager.query(
-                `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
-                [tenantId, productIds],
-              )) as { id: string; stock: number }[])
-            : [];
-
-        return {
-          id: row.id,
-          receiptNo: row.receipt_no,
-          total: fromSatang(satangOf(row.total)),
-          pointsGranted: row.points_granted,
-          products,
-        };
+        // #455 / 08 §8.2: the reply IS the `POST /sales` reply, so it comes from the
+        // very function that route answers a replay-by-id with — never a second
+        // hand-built shape. Its `SALE_ID_REUSED` (total differs) maps to
+        // `CLIENT_ID_REUSED` in `mapOpError`.
+        const existing = await this.sales.existingSale(manager, tenantId, {
+          ...parseCreateSale(op.payload),
+          soldOffline: true,
+        });
+        if (existing === null) return null;
+        await this.flagRenumbered(manager, tenantId, op, existing.id, op.payload.receiptNo, existing.receiptNo);
+        return existing;
       }
 
       case 'return.create': {
@@ -605,18 +581,12 @@ export class SyncService {
           soldOffline: true,
         };
 
-        const created = await this.sales.create(saleInput, {
+        // #455 / 08 §8.2: the whole `POST /sales` reply — `items[].costAtSale`,
+        // `movements`, `shiftId`, `date` and the ledgers included.
+        return this.sales.create(saleInput, {
           userId: actor.userId,
           deviceId: device.id,
         });
-
-        return {
-          id: created.id,
-          receiptNo: created.receiptNo,
-          total: created.total,
-          pointsGranted: created.pointsGranted,
-          products: created.products,
-        };
       }
 
       case 'return.create': {

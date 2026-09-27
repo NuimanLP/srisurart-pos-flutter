@@ -626,8 +626,11 @@ export class SalesService {
    * now, which is what the client's cache should hold either way.
    *
    * A **voided** bill is the one id that is not replayed: see below.
+   *
+   * Public for `POST /sync/push`'s client-id replay of `sale.create` (#455): its
+   * reply must be this route's reply, so it is built here, in one place.
    */
-  private async existingSale(
+  async existingSale(
     manager: EntityManager,
     tenantId: string,
     dto: SaleWrite,

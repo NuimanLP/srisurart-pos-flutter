@@ -224,6 +224,67 @@ void main() {
         expect(server.lastRequest?.headers['x-device-token'], 'pos-device-token-01');
       });
 
+      test('sale-create.applied.json: patches the offline bill from the full POST /sales reply (#455)', () async {
+        final fixture = loadFixture('sale-create.applied.json');
+        final server = FakeSyncServer(fixture);
+        final mockHttp = server.createHttpClient();
+        final sync = SyncService(
+          db: db,
+          apiClient: ApiClient(httpClient: mockHttp),
+          tokenStorage: tokenStorage,
+          httpClient: mockHttp,
+          autoStartHealthProbe: false,
+        );
+
+        // The bill as `_saveOffline` left it: device clock, local shift, no cost.
+        await db.into(db.sales).insert(
+              SaleRow(
+                id: 's_off_001',
+                receiptNo: 'RC01-2569-09-0042',
+                subtotal: 255,
+                discount: 0,
+                total: 255,
+                paymentMethod: 'เงินสด',
+                pointsGranted: 25,
+                date: DateTime.utc(2026, 9, 15, 1, 0),
+                voided: false,
+                shiftId: 'sh_local',
+                soldOffline: true,
+              ),
+            );
+        await db.into(db.saleItems).insert(
+              SaleItemsCompanion.insert(
+                saleId: 's_off_001',
+                productId: 'p1',
+                name: 'Oil Filter',
+                qty: 3,
+                price: 85,
+              ),
+            );
+        await enqueueOpsFromFixture(db, fixture);
+
+        await sync.push();
+
+        expect(await db.select(db.outboxOps).get(), isEmpty);
+        final reply = ((fixture.responseBody['data'] as Map)['results'] as List)
+            .first['response'] as Map<String, dynamic>;
+        final sale = await (db.select(db.sales)
+              ..where((t) => t.id.equals('s_off_001')))
+            .getSingle();
+        expect(sale.shiftId, 'sh_off_001');
+        expect(sale.date.isAtSameMomentAs(DateTime.parse(reply['date'] as String)), isTrue);
+        final line = await (db.select(db.saleItems)
+              ..where((t) => t.saleId.equals('s_off_001')))
+            .getSingle();
+        expect(line.costAtSale, 50.0);
+        final movements = await (db.select(db.movements)
+              ..where((t) => t.productId.equals('p1') & t.type.equals('sale')))
+            .get();
+        expect(movements, hasLength(1));
+        expect(movements.single.delta, -3);
+        expect(movements.single.stockAfter, 45);
+      });
+
       test('sale-create.rejected-stock.json: marks op rejected with code and message', () async {
         final fixture = loadFixture('sale-create.rejected-stock.json');
         final server = FakeSyncServer(fixture);

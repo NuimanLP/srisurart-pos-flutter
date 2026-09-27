@@ -466,6 +466,7 @@ describe('POST /sync/push (e2e)', () => {
       });
 
       expect(res1.status).toBe(200);
+      // #455 / 08 §8.2: the full `POST /sales` reply, not a push-shaped subset.
       expect(res1.body).toEqual({
         status: 'success',
         data: {
@@ -478,12 +479,32 @@ describe('POST /sync/push (e2e)', () => {
                 receiptNo: 'RC01-2569-09-0042',
                 total: '255.00',
                 pointsGranted: 25,
+                date: expect.any(String),
+                shiftId: 'sh_off_001',
                 products: [{ id: 'p1', stock: 45 }],
+                items: [{ lineNo: 1, productId: 'p1', costAtSale: '50.00' }],
+                movements: [
+                  {
+                    id: expect.any(String),
+                    productId: 'p1',
+                    partNo: 'HN-15412-KVB',
+                    name: 'Oil Filter',
+                    delta: -3,
+                    type: 'sale',
+                    note: null,
+                    stockAfter: 45,
+                    date: expect.any(String),
+                  },
+                ],
+                mechanicCreditBalanceAfter: null,
+                mechanicAfter: null,
+                customerAfter: null,
               },
             },
           ],
         },
       });
+      const applied = res1.body.data.results[0].response;
 
       // Verify sold_offline column in DB
       const saleRow = await admin.query(
@@ -508,13 +529,7 @@ describe('POST /sync/push (e2e)', () => {
       expect(res2.body.data.results[0]).toEqual({
         opId: 'op_sale_001_retry',
         status: 'applied',
-        response: {
-          id: 's_off_001',
-          receiptNo: 'RC01-2569-09-0042',
-          total: '255.00',
-          pointsGranted: 25,
-          products: [{ id: 'p1', stock: 45 }],
-        },
+        response: applied,
       });
 
       // 3. sale-create.replay-by-id (idempotency key expired/deleted)
@@ -534,13 +549,7 @@ describe('POST /sync/push (e2e)', () => {
       expect(res3.body.data.results[0]).toEqual({
         opId: 'op_sale_001_reid',
         status: 'applied',
-        response: {
-          id: 's_off_001',
-          receiptNo: 'RC01-2569-09-0042',
-          total: '255.00',
-          pointsGranted: 25,
-          products: [{ id: 'p1', stock: 45 }],
-        },
+        response: applied,
       });
 
       // 4. sale-create.client-id-reused (mismatched total)
@@ -1223,13 +1232,14 @@ describe('POST /sync/push (e2e)', () => {
             {
               opId: 'op_1',
               status: 'applied',
-              response: {
+              response: expect.objectContaining({
                 id: 's_batch_1',
                 receiptNo: 'RC01-2569-09-0050',
                 total: '100.00',
                 pointsGranted: 10,
                 products: [{ id: 'p1', stock: 9 }],
-              },
+                items: [{ lineNo: 1, productId: 'p1', costAtSale: '50.00' }],
+              }),
             },
             {
               opId: 'op_2',
@@ -1623,10 +1633,20 @@ describe('POST /sync/push (e2e)', () => {
         });
 
         expect(res.status).toBe(200);
-        expect(res.body.data.results[0]).toMatchObject({
+        // #455 / 08 §8.2: the client-id replay answers with exactly what `POST /sales`
+        // answered — `items[].costAtSale`, `movements`, `shiftId`, `date`, ledgers.
+        expect(res.body.data.results[0]).toEqual({
           opId: 'op_b1',
           status: 'applied',
-          response: { id: 's_b1_online', receiptNo: serverReceiptNo, total: '100.00' },
+          response: online.body.data,
+        });
+        expect(online.body.data).toMatchObject({
+          id: 's_b1_online',
+          receiptNo: serverReceiptNo,
+          total: '100.00',
+          shiftId: 'sh_b1',
+          items: [{ lineNo: 1, productId: 'p_b1', costAtSale: '30.00' }],
+          mechanicAfter: { id: 'm_b1', creditBalance: '100.00' },
         });
         // Replayed, not re-run: one bill, stock down once, the override audited once.
         expect(await stockOf('p_b1')).toBe(18);
@@ -1657,8 +1677,8 @@ describe('POST /sync/push (e2e)', () => {
           ops: [{ opId: 'op_b1_same', idempotencyKey: 'k_b1_same', type: 'sale.create', payload: onlineBody }],
         });
 
-        // The full online response — only a key replay returns it; the client-id replay
-        // answers with the push-shaped subset.
+        // The full online response, replayed from the key row (the client-id replay
+        // answers with the same body since #455 — see the test above).
         expect(res.body.data.results[0]).toEqual({
           opId: 'op_b1_same',
           status: 'applied',

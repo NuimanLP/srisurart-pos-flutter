@@ -42,6 +42,27 @@ function loadFixture(filename: string): FixtureFile {
   return JSON.parse(readFileSync(join(FIXTURES_DIR, filename), 'utf8'));
 }
 
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * #455: a `sale.create` reply is the full `POST /sales` reply, which carries values
+ * the server stamps — the stored `date` (clamped to the seeded shift's `opened_at`,
+ * which is `now()`), and each movement's own `id` and `date`. Those are matched by
+ * format; every other field of the fixture must match exactly.
+ */
+function withServerStamps(body: any): any {
+  const copy = structuredClone(body);
+  for (const r of copy.data?.results ?? []) {
+    if (r.status !== 'applied' || !Array.isArray(r.response?.movements)) continue;
+    r.response.date = expect.stringMatching(ISO_TIMESTAMP);
+    for (const m of r.response.movements) {
+      m.id = expect.stringMatching(/^mv/);
+      m.date = expect.stringMatching(ISO_TIMESTAMP);
+    }
+  }
+  return copy;
+}
+
 describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)', () => {
   let app: INestApplication;
   let admin: DataSource;
@@ -169,7 +190,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
 
   describe('Sales, Stock & Returns Fixtures', () => {
     it('sale-create.applied.json, replay-by-key, replay-by-id, client-id-reused, rejected-stock', async () => {
-      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_off_001' });
       await seedProduct(admin, TENANT, {
         id: 'p1',
         partNo: 'HN-15412-KVB',
@@ -183,19 +204,23 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
       const fSaleApplied = loadFixture('sale-create.applied.json');
       const resSaleApplied = await push(fSaleApplied.request.body);
       expect(resSaleApplied.status).toBe(fSaleApplied.response.status);
-      expect(resSaleApplied.body).toEqual(fSaleApplied.response.body);
+      expect(resSaleApplied.body).toEqual(withServerStamps(fSaleApplied.response.body));
+      const applied = resSaleApplied.body.data.results[0].response;
 
       // 2. sale-create.replay-by-key.json (B1 replay with same idempotency key)
       const fReplayKey = loadFixture('sale-create.replay-by-key.json');
       const resReplayKey = await push(fReplayKey.request.body);
       expect(resReplayKey.status).toBe(fReplayKey.response.status);
-      expect(resReplayKey.body).toEqual(fReplayKey.response.body);
+      expect(resReplayKey.body).toEqual(withServerStamps(fReplayKey.response.body));
+      // #455: the very same body the first push answered with, stamps included.
+      expect(resReplayKey.body.data.results[0].response).toEqual(applied);
 
       // 3. sale-create.replay-by-id.json (B2 replay by client id with fresh key)
       const fReplayId = loadFixture('sale-create.replay-by-id.json');
       const resReplayId = await push(fReplayId.request.body);
       expect(resReplayId.status).toBe(fReplayId.response.status);
-      expect(resReplayId.body).toEqual(fReplayId.response.body);
+      expect(resReplayId.body).toEqual(withServerStamps(fReplayId.response.body));
+      expect(resReplayId.body.data.results[0].response).toEqual(applied);
 
       // 4. sale-create.client-id-reused.json (client id matches but total differs -> CLIENT_ID_REUSED)
       const fIdReused = loadFixture('sale-create.client-id-reused.json');
@@ -286,7 +311,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
 
   describe('Batch Fixtures & Invariants B3 and C13', () => {
     it('batch.stop-at-retry.json: Invariant B3 stops at first retry and leaves subsequent ops unprocessed', async () => {
-      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_batch_001' });
       await seedProduct(admin, TENANT, {
         id: 'p1',
         partNo: 'HN-15412-KVB',
@@ -314,7 +339,7 @@ describe('POST /sync/push Contract Tests against Fixtures (09 §4.1, slice 20-s)
       spy.mockRestore();
 
       expect(res.status).toBe(fStopRetry.response.status);
-      expect(res.body).toEqual(fStopRetry.response.body);
+      expect(res.body).toEqual(withServerStamps(fStopRetry.response.body));
 
       // Assert that ops 3 and 4 were never executed / written to database
       const sales = (await admin.query(
