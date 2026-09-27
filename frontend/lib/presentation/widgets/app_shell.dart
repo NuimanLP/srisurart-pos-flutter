@@ -90,18 +90,38 @@ class AppShell extends StatelessWidget {
   final Widget child;
   const AppShell({super.key, required this.child});
 
-  int _selectedIndex(BuildContext context) {
+  // #465(b): `/devices` (and any future route reachable outside the rail/
+  // drawer, e.g. opened from Settings) is not one of the 12 [_destinations],
+  // so `indexWhere` returns -1. Returning `null` here (instead of the old
+  // `idx < 0 ? 0 : idx` fallback) means "no menu item matches" — the rail and
+  // drawer accept a null `selectedIndex`/no `selected` match, so nothing gets
+  // wrongly highlighted (it used to fall back to index 0, "ขายสินค้า").
+  int? _selectedIndex(BuildContext context) {
     final loc = GoRouterState.of(context).uri.path;
     final idx = _destinations.indexWhere(
       (d) =>
           d.path == AppRoutes.checkout ? loc == d.path : loc.startsWith(d.path),
     );
-    return idx < 0 ? 0 : idx;
+    return idx < 0 ? null : idx;
+  }
+
+  /// Topbar title for the current route: the matched destination's label, or
+  /// a route-specific fallback for a route outside [_destinations] (#465b).
+  /// Reuses `DevicesScreen`'s own heading text verbatim — never invents new
+  /// Thai copy for a title bar.
+  String _title(BuildContext context, int? selected) {
+    if (selected != null) return _destinations[selected].label;
+    final loc = GoRouterState.of(context).uri.path;
+    if (loc.startsWith(AppRoutes.devices)) {
+      return 'จัดการเครื่อง (Device Management)';
+    }
+    return '';
   }
 
   @override
   Widget build(BuildContext context) {
     final selected = _selectedIndex(context);
+    final title = _title(context, selected);
     // Persistent NavigationRail from tablet width up; Drawer below. Lowered
     // from 1000 to AppBreakpoints.rail (760) so iPad portrait gets the Rail.
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.rail;
@@ -110,7 +130,7 @@ class AppShell extends StatelessWidget {
       return Scaffold(
         body: Column(
           children: [
-            _TopBar(title: _destinations[selected].label),
+            _TopBar(title: title),
             const SyncAlertBanner(),
             const PasswordChangedBanner(),
             Expanded(
@@ -131,7 +151,7 @@ class AppShell extends StatelessWidget {
       drawer: _NavDrawer(selected: selected),
       body: Column(
         children: [
-          _TopBar(title: _destinations[selected].label, showMenu: true),
+          _TopBar(title: title, showMenu: true),
           const SyncAlertBanner(),
           const PasswordChangedBanner(),
           Expanded(child: child),
@@ -142,45 +162,56 @@ class AppShell extends StatelessWidget {
 }
 
 class _Rail extends StatelessWidget {
-  final int selected;
+  final int? selected;
   const _Rail({required this.selected});
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          minHeight: MediaQuery.sizeOf(context).height - 68,
-        ),
-        child: IntrinsicHeight(
-          child: NavigationRail(
-            selectedIndex: selected,
-            labelType: NavigationRailLabelType.all,
-            backgroundColor: AppColors.navyDeep,
-            selectedIconTheme: const IconThemeData(color: AppColors.orange),
-            selectedLabelTextStyle: const TextStyle(
-              color: AppColors.orange,
-              fontWeight: FontWeight.w700,
-            ),
-            unselectedIconTheme: const IconThemeData(color: AppColors.gray300),
-            unselectedLabelTextStyle: const TextStyle(color: AppColors.gray300),
-            onDestinationSelected: (i) => context.go(_destinations[i].path),
-            destinations: [
-              for (final d in _destinations)
-                NavigationRailDestination(
-                  icon: _NavIcon(destination: d),
-                  label: Text(d.label),
-                ),
-            ],
-          ),
-        ),
+    // #465a: at some viewport heights (e.g. 1440x900) 12 destinations at
+    // `labelType.all` don't fit, and the rail overflowed by a few px. The
+    // previous `SingleChildScrollView(child: ConstrainedBox(minHeight:
+    // MediaQuery.height - 68, child: IntrinsicHeight(NavigationRail(...))))`
+    // both (a) guessed the topbar's real height with a bare `- 68` that never
+    // accounted for safe-area top padding, the topbar's own border, or the
+    // sync/password-changed banners, and (b) leaned on `IntrinsicHeight`,
+    // which Flutter's own docs call unreliable for a RenderFlex with
+    // Flexible/Expanded descendants — NavigationRail's internals use
+    // `Flexible` for the destination list, so its speculative intrinsic-size
+    // pass could under-report the real height needed, and the *actual* layout
+    // pass would then overflow inside NavigationRail itself.
+    //
+    // `NavigationRail.scrollable` is the supported fix for "the destinations
+    // don't fit": it scrolls just the destination list internally, sized
+    // against the real height the parent Row gives it — no guessing, no
+    // IntrinsicHeight. The rail still fills the full available height (its
+    // outer Column defaults to `mainAxisSize.max`), so the navy background
+    // still reaches the bottom when there IS enough room.
+    return NavigationRail(
+      selectedIndex: selected,
+      labelType: NavigationRailLabelType.all,
+      scrollable: true,
+      backgroundColor: AppColors.navyDeep,
+      selectedIconTheme: const IconThemeData(color: AppColors.orange),
+      selectedLabelTextStyle: const TextStyle(
+        color: AppColors.orange,
+        fontWeight: FontWeight.w700,
       ),
+      unselectedIconTheme: const IconThemeData(color: AppColors.gray300),
+      unselectedLabelTextStyle: const TextStyle(color: AppColors.gray300),
+      onDestinationSelected: (i) => context.go(_destinations[i].path),
+      destinations: [
+        for (final d in _destinations)
+          NavigationRailDestination(
+            icon: _NavIcon(destination: d),
+            label: Text(d.label),
+          ),
+      ],
     );
   }
 }
 
 class _NavDrawer extends StatelessWidget {
-  final int selected;
+  final int? selected;
   const _NavDrawer({required this.selected});
 
   @override
