@@ -92,7 +92,9 @@ class _DeviceEnrolmentDialogState extends State<DeviceEnrolmentDialog> {
             const SizedBox(height: 16),
             AppTextField(
               label: 'รหัสผูกเครื่อง (Enrolment Code)',
-              hint: 'เช่น POS-ABCD หรือรหัส 6 หลัก',
+              // #462 agent ร่าง — เดิม "6 หลัก" ไม่ตรงกับโค้ด 8 ตัวอักษร hex ที่ server ออกจริง
+              // (devices.service.ts createIn); ยังไม่ผ่านเจ้าของโปรเจกต์
+              hint: 'เช่น 3F9A0C1B (8 ตัวอักษร)',
               controller: _codeController,
               autofocus: true,
               enabled: !_busy,

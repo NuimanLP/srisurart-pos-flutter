@@ -29,7 +29,9 @@ class DevicesRepository {
         .toList();
   }
 
-  /// Creates a new device enrolment request and returns the device info + 6-digit enrolment code.
+  /// Creates a new device enrolment request and returns the device info + 8-character
+  /// (hex) enrolment code (#462 — was documented as 6-digit; server issues 8 upper-case
+  /// hex chars, see devices.service.ts createIn).
   Future<({DeviceModel device, String enrolCode})> createDevice({
     required String label,
     required String role,
