@@ -9,6 +9,7 @@ import 'package:drift/drift.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
@@ -858,7 +859,9 @@ class SyncService implements SyncFacade {
               .getSingleOrNull() !=
           null;
       if ((sale?.voided ?? false) || hasReturns) {
-        throw StateError(
+        // agent ร่าง — Thai copy awaiting owner ratification (#473).
+        throw const PosException(
+          'DISCARD_HAS_LOCAL_DEPENDENTS',
           'บิลนี้มีการคืนสินค้าหรือยกเลิกในเครื่องแล้ว ไม่สามารถทิ้งได้',
         );
       }

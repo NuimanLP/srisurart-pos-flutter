@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api/api_returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/api/api_sales_repository.dart';
@@ -301,7 +302,13 @@ void main() {
 
         await expectLater(
           sync.discard(await onlyOpId(), 'ทดสอบ'),
-          throwsA(isA<StateError>()),
+          throwsA(
+            isA<PosException>().having(
+              (e) => e.code,
+              'code',
+              'DISCARD_HAS_LOCAL_DEPENDENTS',
+            ),
+          ),
         );
 
         expect(
@@ -312,6 +319,18 @@ void main() {
         expect(await db.select(db.outboxOps).get(), hasLength(1));
       },
     );
+    test('a bill voided locally is refused too', () async {
+      final sale = await salesRepo().saveSale(creditSale);
+      await (db.update(db.sales)..where((t) => t.id.equals(sale.id))).write(
+        const SalesCompanion(voided: Value(true)),
+      );
+
+      await expectLater(
+        sync.discard(await onlyOpId(), 'ทดสอบ'),
+        throwsA(isA<PosException>()),
+      );
+      expect(sent.where((r) => r.url.path == '/api/v1/sync/discards'), isEmpty);
+    });
   });
 
   group('discard return.create', () {
