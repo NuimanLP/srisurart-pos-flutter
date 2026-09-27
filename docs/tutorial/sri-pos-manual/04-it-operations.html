@@ -42,7 +42,7 @@
     <a class="toc-row" href="#map"><span class="n">2</span><span class="t">แผนผังบริการ · URL <span class="en">Service map</span></span><span class="pg">3</span></a>
     <a class="toc-row" href="#health"><span class="n">3</span><span class="t">ตรวจสุขภาพระบบ <span class="en">Health checks</span></span><span class="pg">4</span></a>
     <a class="toc-row" href="#deploy"><span class="n">4</span><span class="t">Deploy ขึ้น mob04 · อนุมัติ · ย้อนเวอร์ชัน <span class="en">Deploy &amp; rollback</span></span><span class="pg">5</span></a>
-    <a class="toc-row" href="#backup"><span class="n">5</span><span class="t">สำรองข้อมูล · etcd <span class="en">Backup &amp; etcd</span></span><span class="pg">6</span></a>
+    <a class="toc-row" href="#backup"><span class="n">5</span><span class="t">สำรองข้อมูล · etcd · log level <span class="en">Backup &amp; etcd</span></span><span class="pg">6</span></a>
     <a class="toc-row" href="#secrets"><span class="n">6</span><span class="t">ความลับ · กฎ <code>.env</code> <span class="en">Secrets</span></span><span class="pg">7</span></a>
     <a class="toc-row" href="#trouble"><span class="n">7</span><span class="t">แก้ปัญหา · ข้อจำกัด <span class="en">Troubleshooting</span></span><span class="pg">8</span></a>
   </div>
@@ -145,12 +145,16 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   </ol>
   <div class="note warn"><span class="nt">หลักฐานเดียวที่นับ</span>รัน Deploy (demo) ที่ขึ้น <strong>เขียว</strong> ไม่ได้แปลว่าขึ้นเครื่อง — ถ้าอิมเมจยังไม่ครบ งาน <code>deploy</code> ถูกข้ามแต่ workflow ยังรายงานสำเร็จ · ตรวจ <code>/opt/pos/.current_sha</code> บน VM เท่านั้น · ถ้ามีหลายรันรออนุมัติ การอนุมัติรันเก่าก่อนจะส่ง SHA เก่าขึ้นก่อน</div>
 
-  <h2 class="sub">ย้อนเวอร์ชัน <span class="en">Rollback</span></h2>
-  <ul class="ticks">
-    <li><strong>อัตโนมัติ:</strong> playbook ล้มหรือเกิน 20 นาที → <code>pos-deploy</code> redeploy SHA ใน <code>.current_sha</code> (รันยังแดง)</li>
-    <li><strong>ด้วยมือ:</strong> Actions → <strong>Deploy (demo)</strong> → Run workflow → ใส่ <code>image_tag</code> = SHA ก่อนหน้า (ต้องอยู่บน <code>main</code>, ใหม่กว่า rollback floor และมีอิมเมจบน GHCR) → รอผู้อนุมัติ</li>
-    <li><strong>schema ไม่ถอยหลังเด็ดขาด</strong> — migration ต้องเป็นแบบ expand/contract เพราะโค้ดเก่าต้องรันบน schema ใหม่ได้ระหว่าง rolling restart</li>
-  </ul>
+  <h2 class="sub" id="rollback">ย้อนเวอร์ชัน <span class="en">Rollback</span></h2>
+  <p><strong>อัตโนมัติ:</strong> playbook ล้มหรือเกิน 20 นาที → <code>pos-deploy</code> redeploy SHA ใน <code>.current_sha</code> (รันยังขึ้นแดง ให้ตามดูสาเหตุ)</p>
+  <p><strong>ด้วยมือ</strong> (release ใหม่ขึ้นแล้วแต่ใช้งานไม่ได้):</p>
+  <ol class="steps">
+    <li><span class="st-title">หา SHA ที่จะถอยกลับ</span>ต้อง (1) อยู่บน <code>main</code> (2) เป็น commit rollback floor (<code>4f3a244</code>) หรือใหม่กว่า — <code>pos-deploy</code> ปฏิเสธ SHA ที่เก่ากว่านั้น (3) มีอิมเมจทั้ง server และ web บน GHCR</li>
+    <li><span class="st-title">GitHub → Actions → <strong>Deploy (demo)</strong> → Run workflow → ใส่ <code>image_tag</code> = SHA นั้น</span></li>
+    <li><span class="st-title">ผู้อนุมัติ (<code>NuimanLP</code>) กด approve งาน <code>deploy</code></span>ถ้ามีรันอื่นรออนุมัติค้างอยู่ ให้ปฏิเสธ/ยกเลิกก่อน ไม่งั้นอาจส่ง SHA ผิดตัวขึ้นก่อน</li>
+    <li><span class="st-title">ยืนยันบน VM</span><code>ssh deploy@&lt;vm&gt; cat /opt/pos/.current_sha</code> ต้องเท่ากับ SHA ที่เลือก · <code>curl -sk https://localhost/health/ready</code> บน VM ต้อง 200<span class="see">เขียวใน Actions อย่างเดียว <strong>ไม่นับ</strong> (ดูกล่องด้านบน)</span></li>
+  </ol>
+  <div class="note warn"><span class="nt">schema ไม่ถอยหลังเด็ดขาด</span>rollback ถอยแค่โค้ด ไม่ถอย migration — migration ต้องเป็นแบบ expand/contract เพราะโค้ดเก่าต้องรันบน schema ใหม่ได้ (ระหว่าง rolling restart และหลัง rollback)</div>
   <h2 class="sub">Playbook 2 ตัว คนละ user <span class="en">Two playbooks</span></h2>
   <table class="grid">
     <tr><th>Playbook</th><th>SSH user</th><th>ทำอะไร</th></tr>
@@ -189,6 +193,15 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
     <li>รหัส root ถูกฝังตอนบูตครั้งแรกเท่านั้น — แก้ <code>ETCD_ROOT_PASSWORD</code> ใน <code>.env</code> ภายหลังไม่เปลี่ยนรหัสจริง อาการคือ "ไม่ green" ไม่ใช่ข้อความเรื่องรหัส</li>
     <li>รีเซ็ตให้ใช้ <code>etcdctl user passwd root</code> <strong>ห้าม <code>down -v</code></strong> — แต่ลำดับคำสั่งที่รันได้จริงยังไม่มี</li>
   </ul>
+  <h3 class="mini" id="loglevel">เปิด log ละเอียดชั่วคราว (ไม่ต้อง restart)</h3>
+  <ol class="steps">
+    <li><span class="st-title">ตั้งเป็น <code>debug</code></span>(ใส่ชุด <code>-f</code> เดิมของเครื่องนั้นหลัง <code>docker compose</code>)
+<pre class="cmd">docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 put /pos/config/log_level debug
+docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/config/log_level</pre>
+    <span class="see">ภายในไม่กี่วินาที log ของ API (<code>docker compose logs -f api-1</code>) ละเอียดขึ้น</span></li>
+    <li><span class="st-title">เก็บข้อมูลที่ต้องการแล้ว <strong>ตั้งกลับเป็น <code>info</code></strong></span>คำสั่งเดิม เปลี่ยน <code>debug</code> เป็น <code>info</code> — log debug ใช้ดิสก์เร็ว</li>
+  </ol>
+  <p class="muted">ถ้ายังไม่เคยตั้งคีย์นี้ <code>get</code> จะไม่คืนอะไรเลย และระบบใช้ <code>LOG_LEVEL</code> ใน <code>.env</code> · ถ้า etcd ล่มหรือรหัสไม่ตรง API ยังทำงานต่อด้วยค่าใน <code>.env</code> (fail-open) — คำสั่งละเอียดและวิธีพิสูจน์ว่า etcd ปฏิเสธผู้ไม่ระบุตัว อยู่ใน <code>server/README.md</code> หัวข้อ <em>Dynamic config</em></p>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>บน <code>mob04</code> <strong>etcd ยังไม่เคยเปิด auth</strong> (#365) — <code>etcd-init.sh</code> บน VM เป็นโฟลเดอร์ว่างของ root ต้องทำพร้อมรอบขึ้น VM ของ #343 และพิสูจน์ทั้งสองทาง (ใส่รหัสผ่านได้ / ไม่ใส่ถูกปฏิเสธ)</div>
   <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">6</span></div>
 </section>

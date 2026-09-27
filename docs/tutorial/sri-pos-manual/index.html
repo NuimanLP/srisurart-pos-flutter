@@ -60,10 +60,11 @@
     <a class="toc-row" href="#roles"><span class="n">0.2</span><span class="t">ใครอ่านภาคไหน · ระบบมี 2 แบบ <span class="en">Roles &amp; builds</span></span><span class="pg">4</span></a>
     <a class="toc-row" href="#arch"><span class="n">0.3</span><span class="t">ภาพรวมสถาปัตยกรรม <span class="en">Architecture</span></span><span class="pg">5</span></a>
     <a class="toc-row" href="#status"><span class="n">0.4</span><span class="t">สถานะจริงวันนี้ <span class="en">Honest status</span></span><span class="pg">6</span></a>
-    <a class="toc-row" href="01-counter-staff.html"><span class="n">01</span><span class="t">พนักงานหน้าร้าน / เครื่อง POS <span class="en">Counter staff</span><span class="who">เข้าสู่ระบบ · เปิดกะ · ขาย · ใบเสร็จ · พักบิล · ใบเสนอราคา · คืน/ยกเลิกบิล · ลิ้นชัก · ปิดกะ · ออฟไลน์</span></span><span class="pg">ภาค 01 →</span></a>
-    <a class="toc-row" href="02-owner-backoffice.html"><span class="n">02</span><span class="t">เจ้าของร้าน / หลังร้าน <span class="en">Owner &amp; back office</span><span class="who">เปลี่ยนรหัสผ่านครั้งแรก · ผูก/ปลดเครื่อง · สินค้า · สั่งซื้อ · ลูกค้า · ช่าง · รายงาน · ตั้งค่า/สำรอง · รอเจ้าของ</span></span><span class="pg">ภาค 02 →</span></a>
-    <a class="toc-row" href="03-platform-admin.html"><span class="n">03</span><span class="t">ผู้ดูแลแพลตฟอร์ม <span class="en">Platform admin</span><span class="who">bootstrap-admin · platform-ui · สร้างร้าน · ระงับ/เปิด · ออกรหัสใหม่ · CLI · 403</span></span><span class="pg">ภาค 03 →</span></a>
-    <a class="toc-row" href="04-it-operations.html"><span class="n">04</span><span class="t">IT / ผู้ดูแลระบบ <span class="en">IT operations</span><span class="who">รันเครื่องตัวเอง · แผนผังบริการ · health check · deploy mob04 · rollback · backup · .env · แก้ปัญหา</span></span><span class="pg">ภาค 04 →</span></a>
+    <a class="toc-row" href="#coverage"><span class="n">0.5</span><span class="t">ดัชนีหน้าจอ · บทบาท · แดชบอร์ด <span class="en">Coverage map</span></span><span class="pg">7</span></a>
+    <a class="toc-row" href="01-counter-staff.html"><span class="n">01</span><span class="t">พนักงานหน้าร้าน / เครื่อง POS <span class="en">Counter staff</span><span class="who">เข้าสู่ระบบ · เปิดกะ · ขาย · ค้นหารุ่นรถ · ใบเสร็จ · พักบิล · ใบเสนอราคา/ใบ A4 · คืน/ยกเลิกบิล · ลิ้นชัก · ปิดกะ · ออฟไลน์</span></span><span class="pg">ภาค 01 →</span></a>
+    <a class="toc-row" href="02-owner-backoffice.html"><span class="n">02</span><span class="t">เจ้าของร้าน / หลังร้าน <span class="en">Owner &amp; back office</span><span class="who">เปลี่ยนรหัสผ่านครั้งแรก · ผูก/ปลดเครื่อง · สินค้า/ปรับสต็อก · หมวด · ซัพพลายเออร์ · ป้ายราคา · สั่งซื้อ · ลูกค้า · ช่าง · รายงาน · ตั้งค่า/ธีม/สำรอง · รอเจ้าของ</span></span><span class="pg">ภาค 02 →</span></a>
+    <a class="toc-row" href="03-platform-admin.html"><span class="n">03</span><span class="t">ผู้ดูแลแพลตฟอร์ม <span class="en">Platform admin</span><span class="who">bootstrap-admin · platform-ui · สร้างร้าน · ระงับ/เปิด · ออกรหัสใหม่ · นำเข้าข้อมูล · CLI · 403</span></span><span class="pg">ภาค 03 →</span></a>
+    <a class="toc-row" href="04-it-operations.html"><span class="n">04</span><span class="t">IT / ผู้ดูแลระบบ <span class="en">IT operations</span><span class="who">รันเครื่องตัวเอง · แผนผังบริการ · health check · deploy mob04 · rollback · backup · etcd/log level · .env · แก้ปัญหา</span></span><span class="pg">ภาค 04 →</span></a>
     <a class="toc-row" href="05-dashboards.html"><span class="n">05</span><span class="t">แดชบอร์ด <span class="en">Dashboards</span><span class="who">Grafana · Prometheus · Bull-Board · "ปกติ" หน้าตาเป็นอย่างไร</span></span><span class="pg">ภาค 05 →</span></a>
   </div>
   <div class="note key">
@@ -98,8 +99,22 @@
   <div class="note warn"><span class="nt">ระวัง</span>สิ่งที่ทำแล้วย้อนกลับไม่ได้ หรือทำให้ยอดเงิน/สต็อกคลาดเคลื่อน</div>
 
   <h2 class="sub">ภาพหน้าจอ <span class="en">Screenshots</span></h2>
-  <p>ภาพหน้าจออยู่ในโฟลเดอร์ <code>img/</code> ข้างไฟล์นี้ ภาพที่ยังไม่ได้ถ่ายจะแสดงเป็นกรอบเส้นประแบบนี้ — เติมได้โดยวางไฟล์ <code>img/&lt;ชื่อ&gt;.png</code> แล้วเปลี่ยนกรอบเป็นแท็ก <code>&lt;img&gt;</code> · ภาพทั้งหมดถ่ายจากสแตก dev ของ <strong>ร้านตัวอย่าง</strong> (ชื่อร้าน ลูกค้า ช่าง เป็นข้อมูลสมมุติ) บน API build — ข้อมูล seed ของ Drift ปนกับข้อมูลเซิร์ฟเวอร์ จึงอาจเห็นรหัสซ้ำ ซึ่งไม่ใช่บั๊ก</p>
-  <figure><div class="shot-placeholder" data-shot="example">(ภาพหน้าจอ: example — รอเพิ่ม)</div><figcaption>ตัวอย่างกรอบภาพที่รอเพิ่ม</figcaption></figure>
+  <p>ภาพหน้าจออยู่ในโฟลเดอร์ <code>img/</code> ข้างไฟล์นี้ ถ่ายจากสแตก dev ของ <strong>ร้านตัวอย่าง</strong> (ชื่อร้าน ลูกค้า ช่าง เป็นข้อมูลสมมุติ) บน API build — ข้อมูล seed ของ Drift ปนกับข้อมูลเซิร์ฟเวอร์ จึงอาจเห็นรหัสซ้ำ ซึ่งไม่ใช่บั๊ก · รหัสผ่านและ token ในภาพถูกปิดไว้ทุกภาพ</p>
+  <h3 class="mini">ตัวอย่าง: อ่านภาพคู่กับขั้นตอน</h3>
+  <p>ภาพในคู่มือใช้คู่กับขั้นตอนเรียงเลข — ตัวอย่างนี้คือหน้า <span class="ui ghost">ขายสินค้า</span> ที่มีของในตะกร้า 3 รายการ เลขในวงกลมชี้ส่วนที่ขั้นตอนในภาค 01 หัวข้อ 3 พูดถึง</p>
+  <figure>
+    <span class="annot"><img src="img/checkout-payment.png" alt="หน้าขายสินค้า พร้อมหมุดเลข 1–7 ชี้เมนู ช่องสแกน ป้ายสถานะ ตะกร้า วิธีชำระ ช่องรับเงิน และปุ่มชำระเงิน" loading="lazy"><span class="pin" style="left:3%;top:19%">1</span><span class="pin" style="left:8.5%;top:12.5%">2</span><span class="pin" style="left:79%;top:9%">3</span><span class="pin" style="left:95%;top:22%">4</span><span class="pin" style="left:73%;top:68%">5</span><span class="pin" style="left:95%;top:76.5%">6</span><span class="pin" style="left:95%;top:95%">7</span></span>
+    <figcaption>ตัวอย่างภาพพร้อมหมุด — หน้า ขายสินค้า (ภาค 01 หัวข้อ 3)</figcaption>
+  </figure>
+  <ol class="annot-legend">
+    <li><strong>เมนูหลัก</strong> — แถบซ้ายบนจอกว้าง (บนมือถือเป็นปุ่ม ☰) แถบที่เลือกอยู่เป็นสีส้ม</li>
+    <li><strong>ช่อง <span class="ui ghost">สแกนบาร์โค้ด / รหัสอะไหล่</span></strong> — ขั้นที่ 1 "เพิ่มสินค้า"</li>
+    <li><strong>ป้ายสถานะ</strong> <span class="msg">ออนไลน์</span> — ดูความหมายทุกสีในภาค 01 หัวข้อ 8</li>
+    <li><strong>ตะกร้า</strong> — ปุ่ม − / + คือขั้นที่ 2 "ปรับจำนวน"</li>
+    <li><strong>วิธีชำระ</strong> <span class="ui ghost">เงินสด</span> / <span class="ui ghost">โอน/QR</span> — ขั้นที่ 6</li>
+    <li><strong>ช่อง <span class="ui ghost">รับเงิน ฿…</span></strong> และปุ่มลัดจำนวนเงิน — ขั้นที่ 7</li>
+    <li><strong>ปุ่มหลัก</strong> <span class="ui">ชำระเงิน {baht}</span> — ขั้นที่ 8 (ปุ่มสีส้มในคู่มือ = ปุ่มหลักบนจอ)</li>
+  </ol>
 
   <div class="note key"><span class="nt">พิมพ์เป็นเล่ม</span>เปิดไฟล์ในเบราว์เซอร์ → สั่งพิมพ์ (Ctrl+P) → ขนาด A4 ขอบกระดาษ "ไม่มี" — แต่ละกรอบสีขาวคือหนึ่งหน้า ถ้าเนื้อหาหน้าไหนยาวเกิน A4 จะล้นไปหน้าถัดไปเอง</div>
   <div class="runfoot"><span>Srisurart POS · หน้าแรก</span><span class="pagenum">3</span></div>
@@ -197,11 +212,24 @@
       <li><strong>etcd บน <code>mob04</code> ยังไม่เปิดระบบรหัสผ่าน</strong> (#365) และ <code>CORS_ORIGINS</code> บน VM ยังเป็น <code>'*'</code></li>
       <li><strong>ยังไม่ได้วัดโหลด</strong> (#380) — แผง k6 ใน Grafana จึงว่าง</li>
       <li><strong>platform-ui</strong> (#443) รวมโค้ดแล้วแต่ยังไม่ deploy การทดสอบ 403 สองชั้นวัดบน Docker Desktop เท่านั้น ยังไม่ได้วัดบน Linux/<code>mob04</code></li>
-      <li><strong>หน้า ลิ้นชัก</strong>: ระบบรองรับหลายกะต่อวัน แต่หน้าจอยังไม่มีปุ่มเปิดกะใหม่หลังปิดลิ้นชักไปแล้วในวันเดียวกัน (ดูภาค 01)</li>
-      <li><strong>คืนสินค้าตอนออฟไลน์</strong>: หน้าคืนสินค้าใน API build ยังส่งไปเซิร์ฟเวอร์โดยตรง ไม่ได้เข้าคิวรอส่ง — ต้องมีเน็ต (ดูภาค 01)</li>
+      <li><!-- ISSUE:#452 --><strong>หน้า ลิ้นชัก</strong>: ระบบรองรับหลายกะต่อวัน แต่หน้าจอยังไม่มีปุ่มเปิดกะใหม่หลังปิดลิ้นชักไปแล้วในวันเดียวกัน (ดูภาค 01 · #452)</li>
+      <li><!-- ISSUE:#452 --><strong>คืนสินค้าตอนออฟไลน์</strong>: หน้าคืนสินค้าใน API build ยังส่งไปเซิร์ฟเวอร์โดยตรง ไม่ได้เข้าคิวรอส่ง — ต้องมีเน็ต (ดูภาค 01 · #452)</li>
       <li>ฮาร์ดแวร์หน้าร้าน (เครื่องพิมพ์ความร้อนสั่งตรง ลิ้นชักเด้ง สแกนบาร์โค้ดด้วยกล้อง) ยังไม่ทำ — การพิมพ์ใช้หน้าต่างพิมพ์ของระบบปฏิบัติการ</li>
     </ul>
   </div>
+
+  <h2 class="sub">บั๊กที่รู้แล้ว กำลังแก้ <span class="en">Known bugs (open issues)</span></h2>
+  <p>คู่มือเขียนตาม <strong>พฤติกรรมปัจจุบัน</strong> ของโปรแกรม ทุกจุดที่เกี่ยวกับบั๊กเหล่านี้มีเลข issue กำกับ — เมื่อแก้แล้วต้องกลับมาแก้คู่มือตรงนั้นด้วย</p>
+  <table class="grid">
+    <tr><th>Issue</th><th>อาการที่ผู้ใช้เห็นวันนี้</th><th>อยู่ในคู่มือที่</th></tr>
+    <tr><td><!-- ISSUE:#460 -->#460</td><td>ค่าตั้งร้านบนเซิร์ฟเวอร์ไม่ถูกดึงลงเครื่อง และการ <span class="ui">บันทึกการตั้งค่า</span> เก็บแค่ในเครื่องนั้น — ชื่อร้านบนหัวจอ/ใบเสร็จอาจเป็นค่าเริ่มต้น</td><td>ภาค 02 หัวข้อ 8</td></tr>
+    <tr><td><!-- ISSUE:#461 -->#461</td><td>สรุปยอดปิดร้าน: แถว "วิธีชำระเงิน" ไม่มีเครดิตช่าง ยอดสองแถวบวกกันไม่เท่า "รวมทั้งหมด"</td><td>ภาค 01 หัวข้อ 7 · ภาค 02 หัวข้อ 7</td></tr>
+    <tr><td><!-- ISSUE:#462 -->#462</td><td>หน้าจัดการเครื่องเขียนว่ารหัสผูกเครื่อง "6 หลัก" แต่รหัสจริงมี 8 ตัว</td><td>ภาค 02 หัวข้อ 2</td></tr>
+    <tr><td><!-- ISSUE:#463 -->#463</td><td>หน้า รายงาน บนมือถือ (กว้าง ~390 px): การ์ดตัวเลขหลัก 4 ใบว่าง</td><td>ภาค 02 หัวข้อ 7</td></tr>
+    <tr><td><!-- ISSUE:#464 -->#464</td><td>ใบเสนอราคาที่บันทึกจากหน้าขายมีอายุ 30 วันเสมอ ไม่ตามค่าในหน้าตั้งค่า</td><td>ภาค 01 หัวข้อ 5 · ภาค 02 หัวข้อ 8</td></tr>
+    <tr><td><!-- ISSUE:#465 -->#465</td><td>หลังผูกเครื่องเสร็จ ป้ายบนหน้าเข้าสู่ระบบยังเขียนว่า Backoffice จนกว่าจะเข้าสู่ระบบครั้งแรก · หน้าจัดการเครื่องไฮไลต์เมนู "ขายสินค้า" · แถบเมนูล้นเล็กน้อยที่จอสูง 900 px</td><td>ภาค 02 หัวข้อ 1–2</td></tr>
+    <tr><td><!-- ISSUE:#452 -->#452</td><td>ไม่มีปุ่มเปิดกะที่สองในวันเดียวกัน · คืนสินค้าไม่เข้าคิวตอนออฟไลน์</td><td>ภาค 01 หัวข้อ 6–8 · ภาค 02 หัวข้อ 10</td></tr>
+  </table>
 
   <h2 class="sub">เอกสารอ้างอิงที่ผูกมัด <span class="en">Binding references</span></h2>
   <ul class="ticks">
@@ -212,6 +240,54 @@
     <li><code>docs/tutorial/local-full-stack-tutorial.md</code> — รันทั้งระบบบนเครื่องตัวเอง (คำสั่งครบ)</li>
   </ul>
   <div class="runfoot"><span>Srisurart POS · หน้าแรก</span><span class="pagenum">6</span></div>
+</section>
+
+<!-- ════════════════ COVERAGE MAP ════════════════ -->
+<section class="page" id="coverage">
+  <div class="runhead"><span>Srisurart POS · คู่มือ</span><span class="r">ดัชนีหน้าจอ</span></div>
+  <div class="sec-no">Section 00</div>
+  <h1 class="sec">ดัชนีหน้าจอ · บทบาท · แดชบอร์ด <span class="en">Coverage map</span></h1>
+  <p class="sec-lede">ทุกหน้าจอของแอป ทุกบทบาท และทุกแดชบอร์ด พร้อมลิงก์ไปหัวข้อ SOP ที่อธิบาย — ใช้ตรวจว่าคู่มือครอบคลุมครบ และใช้เป็นดัชนีเวลาหาเรื่องใดเรื่องหนึ่ง</p>
+
+  <h2 class="sub">หน้าจอแอป (14 route) <span class="en">App routes</span></h2>
+  <div class="tbl-scroll">
+  <table class="grid">
+    <tr><th>Route</th><th>เมนู / ชื่อหน้า</th><th>ใครใช้</th><th>SOP</th></tr>
+    <tr><td><code>/login</code></td><td>เข้าสู่ระบบ · ตั้งรหัสผ่านใหม่ · PIN ออฟไลน์ · ผูกเครื่อง (API build เท่านั้น)</td><td>ทุกคน</td><td><a href="01-counter-staff.html#login">01 §1</a> · <a href="02-owner-backoffice.html#first">02 §1</a></td></tr>
+    <tr><td><code>/</code></td><td>ขายสินค้า</td><td>หน้าร้าน</td><td><a href="01-counter-staff.html#sell">01 §3</a> · <a href="01-counter-staff.html#receipt">§4</a> · <a href="01-counter-staff.html#park">§5</a></td></tr>
+    <tr><td><code>/products</code></td><td>สินค้า/สต็อก (4 แท็บ)</td><td>เจ้าของร้าน</td><td><a href="02-owner-backoffice.html#products">02 §4</a> · <a href="02-owner-backoffice.html#catalog">§4.1</a></td></tr>
+    <tr><td><code>/purchase-orders</code></td><td>สั่งซื้อ</td><td>เจ้าของร้าน</td><td><a href="02-owner-backoffice.html#po">02 §5</a></td></tr>
+    <tr><td><code>/vehicle-search</code></td><td>ค้นหารุ่น</td><td>หน้าร้าน · เจ้าของร้าน</td><td><a href="01-counter-staff.html#vehicle">01 §3.1</a></td></tr>
+    <tr><td><code>/customers</code></td><td>ลูกค้า</td><td>เจ้าของร้าน (หน้าร้านเลือกลูกค้าตอนขาย)</td><td><a href="02-owner-backoffice.html#people">02 §6</a></td></tr>
+    <tr><td><code>/mechanics</code></td><td>ช่าง · รับชำระเครดิต</td><td>เจ้าของร้าน · หน้าร้าน (รับชำระ)</td><td><a href="02-owner-backoffice.html#people">02 §6</a></td></tr>
+    <tr><td><code>/returns</code></td><td>คืนสินค้า · ยกเลิกบิล</td><td>หน้าร้าน</td><td><a href="01-counter-staff.html#returns">01 §6</a></td></tr>
+    <tr><td><code>/quotes</code></td><td>ใบเสนอราคา · ใบ A4</td><td>หน้าร้าน</td><td><a href="01-counter-staff.html#park">01 §5</a></td></tr>
+    <tr><td><code>/reports</code></td><td>รายงาน</td><td>เจ้าของร้าน</td><td><a href="02-owner-backoffice.html#reports">02 §7</a></td></tr>
+    <tr><td><code>/settings</code></td><td>ตั้งค่า (5 แท็บ)</td><td>เจ้าของร้าน</td><td><a href="02-owner-backoffice.html#settings">02 §8</a> · <a href="02-owner-backoffice.html#pin">§3</a></td></tr>
+    <tr><td><code>/cash-drawer</code></td><td>ลิ้นชัก · สรุปยอดปิดร้าน</td><td>หน้าร้าน</td><td><a href="01-counter-staff.html#open">01 §2</a> · <a href="01-counter-staff.html#close">§7</a></td></tr>
+    <tr><td><code>/owner-review</code></td><td>รอเจ้าของ (API build)</td><td>เจ้าของร้าน</td><td><a href="02-owner-backoffice.html#review">02 §9</a></td></tr>
+    <tr><td><code>/devices</code></td><td>จัดการเครื่อง (ไม่มีในเมนู — เข้าจาก ตั้งค่า)</td><td>เจ้าของร้าน</td><td><a href="02-owner-backoffice.html#devices">02 §2</a></td></tr>
+  </table>
+  </div>
+
+  <h2 class="sub">บทบาท <span class="en">Roles</span></h2>
+  <table class="grid">
+    <tr><th>บทบาท</th><th>ภาค</th></tr>
+    <tr><td>พนักงานหน้าร้าน / เครื่อง POS</td><td><a href="01-counter-staff.html">ภาค 01</a></td></tr>
+    <tr><td>เจ้าของร้าน / เครื่อง Backoffice</td><td><a href="02-owner-backoffice.html">ภาค 02</a> (+ ภาค 01)</td></tr>
+    <tr><td>ผู้ดูแลแพลตฟอร์ม (platform-ui · CLI)</td><td><a href="03-platform-admin.html">ภาค 03</a></td></tr>
+    <tr><td>IT / ผู้ดูแลระบบ</td><td><a href="04-it-operations.html">ภาค 04</a> · <a href="05-dashboards.html">ภาค 05</a></td></tr>
+  </table>
+
+  <h2 class="sub">แดชบอร์ดและหน้าเว็บของทีม <span class="en">Dashboards &amp; admin pages</span></h2>
+  <table class="grid">
+    <tr><th>หน้า</th><th>ครอบคลุม</th><th>SOP</th></tr>
+    <tr><td>platform-ui <code>:3200</code></td><td>เข้าสู่ระบบ · สร้างร้าน · รายชื่อร้าน · รายละเอียดร้าน (สถานะ · อุปกรณ์ · รหัสผ่านเจ้าของ · งานนำเข้า)</td><td><a href="03-platform-admin.html#create">03 §2</a> · <a href="03-platform-admin.html#detail">§3</a></td></tr>
+    <tr><td>Grafana <code>:3000</code></td><td>แผงทั้ง 12 แผง (7 แผงระบบ/API + 5 แผง k6)</td><td><a href="05-dashboards.html#grafana">05 §1</a></td></tr>
+    <tr><td>Prometheus <code>:9090</code></td><td>3 job: <code>node</code> · <code>api-metrics</code> · <code>api-readiness</code></td><td><a href="05-dashboards.html#prom">05 §2</a></td></tr>
+    <tr><td>Bull-Board <code>:3100</code></td><td>6 คิว: <code>sale-post</code> · <code>inventory</code> · <code>maintenance</code> · <code>backup</code> · <code>tenant-import</code> · <code>dlq</code></td><td><a href="05-dashboards.html#bull">05 §3</a></td></tr>
+  </table>
+  <div class="runfoot"><span>Srisurart POS · หน้าแรก</span><span class="pagenum">7</span></div>
 </section>
 
 </body>

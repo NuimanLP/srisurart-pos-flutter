@@ -40,7 +40,7 @@
   <div class="toc">
     <a class="toc-row" href="#bootstrap"><span class="n">1</span><span class="t">สร้างผู้ดูแลคนแรก (bootstrap-admin) <span class="en">Bootstrap</span></span><span class="pg">2</span></a>
     <a class="toc-row" href="#create"><span class="n">2</span><span class="t">platform-ui: เข้าสู่ระบบ · สร้างร้าน · ส่งมอบรหัส <span class="en">Create tenant</span></span><span class="pg">3</span></a>
-    <a class="toc-row" href="#detail"><span class="n">3</span><span class="t">รายละเอียดร้าน: สถานะ · เครื่อง · รหัสผ่านเจ้าของ <span class="en">Tenant detail</span></span><span class="pg">4</span></a>
+    <a class="toc-row" href="#detail"><span class="n">3</span><span class="t">รายละเอียดร้าน: สถานะ · เครื่อง · รหัสผ่านเจ้าของ · นำเข้าข้อมูล <span class="en">Tenant detail</span></span><span class="pg">4</span></a>
     <a class="toc-row" href="#cli"><span class="n">4</span><span class="t">Platform CLI <span class="en">Command line</span></span><span class="pg">5</span></a>
     <a class="toc-row" href="#403"><span class="n">5</span><span class="t">แก้ปัญหา 403 · allowlist · ข้อจำกัด <span class="en">Troubleshooting</span></span><span class="pg">6</span></a>
   </div>
@@ -121,7 +121,14 @@
     <li><span class="st-title">คัดลอกรหัสจากหน้าต่าง</span><span class="see"><span class="msg">หมดอายุใน 24 ชม.: … — เจ้าของร้านต้องเปลี่ยนรหัสตอนล็อกอินครั้งถัดไป</span></span></li>
   </ol>
   <figure><img src="img/platform-ui-owner-temp-password.png" alt="หน้าต่างรหัสผ่านชั่วคราวใหม่ (ในภาพปิดรหัสไว้) — แสดงครั้งเดียว อายุ 24 ชม." loading="lazy"><figcaption>หน้าต่างรหัสผ่านชั่วคราวใหม่ (ในภาพปิดรหัสไว้) — แสดงครั้งเดียว อายุ 24 ชม.</figcaption></figure>
-  <p>การ์ด <span class="msg">งานนำเข้าข้อมูลล่าสุด (Recent import jobs)</span> แสดงงานนำเข้า 20 รายการล่าสุด พร้อมสถานะและข้อผิดพลาด (ดูรายละเอียดงานเสียใน Bull-Board ภาค 05)</p>
+  <h2 class="sub" id="import">นำเข้าข้อมูลร้านเดิม <span class="en">Tenant import (onboarding)</span></h2>
+  <p>ใช้ครั้งเดียวตอนย้ายร้านที่ใช้ Drift build/แอป JS เดิมขึ้นเซิร์ฟเวอร์ — นำไฟล์ backup (.json) ที่ร้านดาวน์โหลดจาก <span class="ui ghost">ตั้งค่า</span> → <span class="ui ghost">💾 สำรอง/กู้คืน</span> (ภาค 02 หัวข้อ 8) เข้าร้านที่เพิ่งสร้าง (ADR-0005)</p>
+  <ul class="ticks">
+    <li><strong>ยังไม่มีปุ่มใน platform-ui และไม่มีคำสั่ง CLI</strong> — เรียกได้ทาง API เท่านั้น: <code>POST /api/v1/platform/tenants/{id}/import</code> (body = เนื้อหาไฟล์ backup, ใช้ token ผู้ดูแลแพลตฟอร์ม) → ตอบ <code>202</code> + <code>jobId</code> · ตรวจไฟล์เบื้องต้นก่อนตอบ ไฟล์เสียได้ <code>400</code>/<code>409</code> ทันที</li>
+    <li><strong>รับเฉพาะร้านที่ยังไม่มีบิล</strong> — ไม่ใช่ทางกู้ข้อมูลย้อนหลัง · มีงานนำเข้าค้างอยู่แล้วจะได้ <code>409</code></li>
+    <li>ติดตามผล: การ์ด <span class="msg">งานนำเข้าข้อมูลล่าสุด (Recent import jobs)</span> ในหน้ารายละเอียดร้าน (20 งานล่าสุด พร้อมสถานะ <code>queued</code>/<code>running</code>/<code>succeeded</code>/<code>failed</code> และข้อผิดพลาด) · <code>GET /api/v1/platform/tenants/{id}/import/{jobId}</code> · คิว <code>tenant-import</code> ใน Bull-Board (ภาค 05)</li>
+  </ul>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Not rehearsed</span></span>ขั้นตอนนำเข้าแบบครบวงจร (เอาไฟล์จากเครื่องร้าน → เรียก API จากในคอนเทนเนอร์ → ตรวจผลในแอป) <strong>ยังไม่มี runbook ที่ซ้อมแล้ว</strong> และเป็นส่วนหนึ่งของการย้ายร้านจริง (#231) ที่ยังเปิดอยู่ — อย่านำเข้าข้อมูลร้านจริงก่อนมี runbook · รายละเอียด endpoint: <code>docs/Backend_design/02_API_SCREENS.md</code> §4.1</div>
   <div class="runfoot"><span>ภาค 03 · ผู้ดูแลแพลตฟอร์ม</span><span class="pagenum">4</span></div>
 </section>
 

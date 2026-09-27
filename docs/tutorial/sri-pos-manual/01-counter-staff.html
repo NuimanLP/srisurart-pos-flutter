@@ -42,6 +42,7 @@
     <a class="toc-row" href="#login"><span class="n">1</span><span class="t">เข้าสู่ระบบ (ออนไลน์ / PIN ออฟไลน์) <span class="en">Login</span></span><span class="pg">2</span></a>
     <a class="toc-row" href="#open"><span class="n">2</span><span class="t">เปิดกะ — ลิ้นชักเงินสด <span class="en">Open shift</span></span><span class="pg">3</span></a>
     <a class="toc-row" href="#sell"><span class="n">3</span><span class="t">ขายสินค้า <span class="en">Checkout</span></span><span class="pg">4</span></a>
+    <a class="toc-row" href="#vehicle"><span class="n">3.1</span><span class="t">ค้นหาอะไหล่ตามรุ่นรถ <span class="en">Search by vehicle</span></span><span class="pg">4.1</span></a>
     <a class="toc-row" href="#receipt"><span class="n">4</span><span class="t">ราคาช่าง · เครดิตช่าง · ใบเสร็จ <span class="en">Mechanic &amp; receipt</span></span><span class="pg">5</span></a>
     <a class="toc-row" href="#park"><span class="n">5</span><span class="t">พักบิล · ใบเสนอราคา <span class="en">Park &amp; quotes</span></span><span class="pg">6</span></a>
     <a class="toc-row" href="#returns"><span class="n">6</span><span class="t">คืนสินค้า · ยกเลิกบิล <span class="en">Returns &amp; void</span></span><span class="pg">7</span></a>
@@ -61,7 +62,14 @@
   <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">1 · เข้าสู่ระบบ</span></div>
   <div class="sec-no">Section 1</div>
   <h1 class="sec">เข้าสู่ระบบ <span class="en">Login (API build)</span></h1>
-  <p class="sec-lede">เข้าสู่ระบบทุกเช้า — ระบบตั้งใจให้ session หมดอายุตอน <strong>04:00 ทุกวัน</strong> (ADR-0009) ถ้าหมดอายุระหว่างใช้งาน ระบบจะพากลับมาหน้านี้เองโดยไม่มีข้อความเตือน</p>
+  <p class="sec-lede">เข้าสู่ระบบทุกเช้า — ระบบตั้งใจให้ session หมดอายุตอน <strong>04:00 ทุกวัน</strong> ตามเวลาของร้าน (ADR-0009) ถ้าหมดอายุระหว่างใช้งาน ระบบจะพากลับมาหน้านี้เองโดยไม่มีข้อความเตือน</p>
+  <div class="note key"><span class="nt">session หมดอายุตอนไหน</span>
+    <ul class="ticks">
+      <li>เข้าสู่ระบบก่อน 03:00 → ใช้ได้ถึง 04:00 ของเช้าวันนั้น · เข้าสู่ระบบหลัง 03:00 → ใช้ได้ถึง 04:00 ของวันถัดไป (ร้านที่เปิดตอนตีสามครึ่งจึงไม่ถูกเด้งออกในอีกครึ่งชั่วโมง)</li>
+      <li>ระหว่างวันระบบต่ออายุให้เองเบื้องหลัง ไม่ต้องทำอะไร</li>
+      <li>ร้านที่เปิดข้ามคืน: ตอน 04:00 จะกลับมาหน้าเข้าสู่ระบบ — <strong>ของในตะกร้าไม่หาย</strong> (ถ้าไม่ได้รีโหลดหน้าเว็บ) เข้าสู่ระบบใหม่แล้วขายต่อ ถ้าตอนนั้นเน็ตหลุดให้ใช้ PIN ออฟไลน์ (ด้านล่าง)</li>
+    </ul>
+  </div>
   <figure><img src="img/login-pos.png" alt="หน้าเข้าสู่ระบบบนเครื่อง POS — ป้าย เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)" loading="lazy"><figcaption>หน้าเข้าสู่ระบบบนเครื่อง POS — ป้าย เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)</figcaption></figure>
 
   <h2 class="sub">ออนไลน์ — ใช้รหัสผ่าน <span class="en">Online</span></h2>
@@ -74,10 +82,12 @@
 
   <h2 class="sub">ออฟไลน์ — ใช้ PIN <span class="en">Offline PIN</span></h2>
   <p>เมื่อเน็ตหลุด หน้าเข้าสู่ระบบบนเครื่อง POS ที่ตั้ง PIN ไว้แล้วจะขึ้น <span class="msg">โหมดออฟไลน์: เข้าสู่ระบบหน้าร้านด้วย PIN 4-6 หลัก เพื่อขายของและบันทึกรายการ</span></p>
-  <figure><div class="shot-placeholder" data-shot="offline-pin-login">(ภาพหน้าจอ: offline-pin-login — รอเพิ่ม)</div><figcaption>ฟอร์มเข้าสู่ระบบด้วย PIN ออฟไลน์</figcaption></figure>
+  <figure><img src="img/offline-pin-login.png" alt="ฟอร์มเข้าสู่ระบบด้วย PIN ออฟไลน์ บนเครื่อง POS ขณะเชื่อมต่อเซิร์ฟเวอร์ไม่ได้" loading="lazy"><figcaption>ฟอร์มเข้าสู่ระบบด้วย PIN ออฟไลน์ — ขึ้นเองเมื่อเครื่อง POS ติดต่อเซิร์ฟเวอร์ไม่ได้ (ถ่ายโดยปิดทางเข้า API ของสแตก dev)</figcaption></figure>
   <ol class="steps">
+    <li><span class="st-title">รอให้ระบบรู้ว่าเน็ตหลุด</span>ระบบตรวจการเชื่อมต่อเป็นระยะ — ฟอร์ม PIN ขึ้นหลังตรวจไม่ผ่านติดกัน 3 ครั้ง (ประมาณครึ่งนาที) ถ้ายังเห็นช่องชื่อผู้ใช้/รหัสผ่าน ให้รอสักครู่</li>
     <li><span class="st-title">กรอก <span class="ui ghost">รหัส PIN ออฟไลน์ (4-6 หลัก)</span></span>PIN เดียวทั้งร้าน ผูกกับเครื่องนี้เท่านั้น</li>
     <li><span class="st-title">กด <span class="ui">เข้าสู่ระบบ (PIN ออฟไลน์)</span></span><span class="see">หน้าขาย พร้อมแถบสีเหลือง "ออฟไลน์ (ขายสำรอง)"</span></li>
+    <li><span class="st-title">เมื่อเน็ตกลับ</span>รายการที่ขายไว้ส่งขึ้นเซิร์ฟเวอร์เอง (หัวข้อ 8) — ลิงก์ <span class="ui ghost">เข้าสู่ระบบด้วยชื่อผู้ใช้และรหัสผ่าน</span> ใต้ปุ่มใช้สลับกลับไปฟอร์มรหัสผ่าน</li>
   </ol>
   <table class="grid">
     <tr><th>ถ้าเห็นข้อความนี้</th><th>หมายความว่า / ทำอย่างไร</th></tr>
@@ -129,6 +139,28 @@
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">4</span></div>
 </section>
 
+<!-- ════════════════ 4b · VEHICLE SEARCH ════════════════ -->
+<section class="page" id="vehicle">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">3.1 · ค้นหาตามรุ่นรถ</span></div>
+  <div class="sec-no">Section 3.1</div>
+  <h1 class="sec">ค้นหาอะไหล่ตามรุ่นรถ <span class="en">Search by vehicle</span></h1>
+  <p class="sec-lede">ใช้เมื่อลูกค้าบอกรุ่นรถแต่ไม่รู้รหัสอะไหล่ — ระบบค้นจากช่อง "ใช้กับรถรุ่น" ของสินค้าทุกตัว แล้วให้คัดลอกรหัสไปวางในช่องสแกนของหน้าขาย</p>
+  <figure><img src="img/vehicle-search.png" alt="หน้า ค้นหาตามรุ่นรถ — ค้นคำว่า Vigo พบ 7 รายการ พร้อมราคา สต็อก และปุ่มคัดลอกรหัส" loading="lazy"><figcaption>ค้นหาตามรุ่นรถ — ค้น "Vigo" พบ 7 รายการ · ป้ายเขียว/ส้มมุมขวาคือจำนวนคงเหลือ</figcaption></figure>
+  <ol class="steps">
+    <li><span class="st-title">เมนู <span class="ui ghost">ค้นหารุ่น</span></span>หรือจากหน้า <span class="ui ghost">สินค้า/สต็อก</span> กดปุ่ม <span class="ui ghost">ค้นหาตามรุ่นรถ</span> มุมขวาบน (เปิดเป็นหน้าต่าง)<span class="see"><span class="msg">🔍 ค้นหาตามรุ่นรถ · Search by Vehicle</span> และ <span class="msg">เลือกรุ่นรถหรือพิมพ์ชื่อรุ่น</span></span></li>
+    <li><span class="st-title">พิมพ์รุ่นในช่องค้นหา</span>เช่น <span class="msg">เช่น Toyota Hilux, Honda Civic, Isuzu D-Max...</span> หรือแตะชิปใน <span class="msg">รุ่นยอดนิยม:</span> (แตะซ้ำเพื่อยกเลิก) — ค้นแบบ "มีคำนี้อยู่" ไม่สนตัวพิมพ์เล็ก-ใหญ่<span class="see"><span class="msg">พบ {n} รายการ สำหรับ "{query}"</span></span></li>
+    <li><span class="st-title">อ่านการ์ดผลลัพธ์</span>ชื่อ/ชื่อไทย รหัส ราคา และป้ายสต็อก <span class="msg">หมด</span> · <span class="msg">เหลือ {n}</span> (ต่ำกว่าขั้นต่ำ) · <span class="msg">{n} ชิ้น</span></li>
+    <li><span class="st-title">กด <span class="ui ghost">📋 คัดลอกรหัส</span></span>การ์ดกดเปิดไม่ได้ — มีแค่ปุ่มคัดลอก</li>
+    <li><span class="st-title">กลับไปเมนู <span class="ui ghost">ขายสินค้า</span> → วางรหัสในช่อง <span class="ui ghost">สแกนบาร์โค้ด / รหัสอะไหล่</span> → Enter</span><span class="see">สินค้าลงตะกร้า (หัวข้อ 3)</span></li>
+  </ol>
+  <table class="grid">
+    <tr><th>ถ้าเห็น</th><th>หมายความว่า / ทำอย่างไร</th></tr>
+    <tr><td><span class="msg">ไม่พบอะไหล่สำหรับ "{query}"</span> · <span class="msg">ลองค้นหาด้วยชื่ออื่น หรือตรวจสอบฟิลด์ Compat ในสต็อก</span></td><td>ลองคำสั้นลง (เช่น "Vigo" แทน "Toyota Vigo 2010") · ถ้ารู้ว่ามีของแต่ไม่ขึ้น ให้เจ้าของร้านเติมช่อง "ใช้กับรถรุ่น" ของสินค้านั้น (ภาค 02 หัวข้อ 4)</td></tr>
+  </table>
+  <p class="muted">ผลค้นหาดีแค่ไหนขึ้นกับการกรอกช่อง "ใช้กับรถรุ่น" ตอนเพิ่มสินค้า · ในภาพ คำที่ตรงกับคำค้นถูกไฮไลต์สีส้มทับจนอ่านยาก (ข้อสังเกตจากการถ่ายภาพ ยังไม่มี issue)</p>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">4.1</span></div>
+</section>
+
 <!-- ════════════════ 5 · MECHANIC / RECEIPT ════════════════ -->
 <section class="page" id="receipt">
   <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">4 · ช่าง · ใบเสร็จ</span></div>
@@ -158,6 +190,7 @@
     <li>บิลเครดิตช่างแสดง <span class="msg">ค้างชำระ (เครดิตช่าง)</span> แทนเงินทอน · ถ้ามีลูกค้าแสดง <span class="msg">แต้มสะสม +{n} แต้ม</span></li>
     <li>กด <span class="ui">พิมพ์ใบเสร็จ</span> → หน้าต่างพิมพ์ของเครื่อง หรือ <span class="ui ghost">ปิด</span> เพื่อเริ่มบิลถัดไป</li>
   </ul>
+  <div class="note warn"><span class="nt">พิมพ์ใบเสร็จซ้ำไม่ได้</span>หน้าต่างใบเสร็จขึ้นครั้งเดียวหลังกดชำระเงิน — ไม่มีเมนูพิมพ์ใบเสร็จย้อนหลัง ถ้าลูกค้าต้องการใบเสร็จ ให้กด <span class="ui">พิมพ์ใบเสร็จ</span> ก่อนกด <span class="ui ghost">ปิด</span> (เลขบิลยังดูได้ในหน้า <span class="ui ghost">คืนสินค้า</span> และ <span class="ui ghost">รายงาน</span> → รายการล่าสุด)</div>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">5</span></div>
 </section>
 
@@ -180,15 +213,27 @@
   <ol class="steps">
     <li><span class="st-title">ใส่สินค้าลงตะกร้าเหมือนขาย</span></li>
     <li><span class="st-title">กด <span class="ui ghost">ใบเสนอราคา</span> ใต้ตะกร้า</span><span class="see"><span class="msg">บันทึกใบเสนอราคาแล้ว</span></span></li>
-    <li><span class="st-title">ไปเมนู <span class="ui ghost">ใบเสนอราคา</span> → กด <span class="ui ghost">ดู</span></span>เพื่อดูแบบ A4 แล้วพิมพ์ให้ลูกค้า</li>
   </ol>
   <figure><img src="img/quotes.png" alt="หน้า ใบเสนอราคา — กรอง ทั้งหมด / ยังใช้ได้ / หมดอายุ / แปลงแล้ว" loading="lazy"><figcaption>หน้า ใบเสนอราคา — กรอง ทั้งหมด / ยังใช้ได้ / หมดอายุ / แปลงแล้ว</figcaption></figure>
+
+  <h2 class="sub" id="quote-a4">พิมพ์ใบเสนอราคา A4 ให้ลูกค้า <span class="en">A4 quote</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">เมนู <span class="ui ghost">ใบเสนอราคา</span> → ค้นในช่อง <span class="ui ghost">🔍 ค้นเลขที่ / ลูกค้า / ช่าง</span></span>หรือกรองด้วย <span class="ui ghost">ยังใช้ได้</span> — ป้ายบนแถวบอก <span class="msg">ยังใช้ได้ {validDays} วัน</span> (วันที่เหลือ) ·<span class="msg">หมดอายุ</span> · <span class="msg">✓ แปลงแล้ว</span></li>
+    <li><span class="st-title">กด <span class="ui ghost">ดู</span> ที่แถว</span><span class="see">ใบ A4 หัว <span class="msg">ใบเสนอราคา</span> / <span class="msg">QUOTATION</span> ชื่อลูกค้า (<span class="msg">— ลูกค้าทั่วไป —</span> ถ้าไม่ได้เลือก) วันที่ <span class="msg">ใช้ได้ถึง</span> รายการ ยอดรวม เงื่อนไข และช่องลายมือชื่อ</span></li>
+    <li><span class="st-title">กดไอคอนเครื่องพิมพ์ในแถบสีส้มด้านล่าง</span>→ หน้าต่างพิมพ์ของเครื่อง (เลือก A4 หรือบันทึกเป็น PDF) · ไอคอนแชร์ข้าง ๆ ใช้ส่งไฟล์</li>
+    <li><span class="st-title">ปิดด้วย ✕ มุมซ้ายบน</span>หรือกด <span class="ui ghost">✓ แปลงเป็นการขาย</span> มุมขวาบนถ้าลูกค้าตกลงซื้อเลย (มีเฉพาะใบที่ยังไม่หมดอายุและยังไม่แปลง)</li>
+  </ol>
+  <div class="twocol"><figure><img src="img/quote-a4.png" alt="ใบเสนอราคา A4 — หัวร้าน เสนอแก่ เลขที่ วันที่ ใช้ได้ถึง รายการสินค้า" loading="lazy"><figcaption>ใบ A4 — ส่วนหัวและรายการ</figcaption></figure><figure><img src="img/quote-a4-terms.png" alt="ใบเสนอราคา A4 — หมายเหตุ เงื่อนไข 3 ข้อ ยอดรวม และช่องลายมือชื่อ" loading="lazy"><figcaption>ใบ A4 — เงื่อนไข ยอดรวม ช่องลายมือชื่อ</figcaption></figure></div>
+
+  <h2 class="sub">จัดการใบเสนอราคา <span class="en">Manage</span></h2>
   <ul class="ticks">
-    <li><span class="ui ghost">→ ขาย</span> แปลงเป็นการขาย: <span class="msg">แปลง {quoteNo} เป็นการขาย? ระบบจะใส่รายการนี้กลับเข้าตะกร้า</span> แล้วชำระเงินที่หน้าขายตามปกติ</li>
-    <li>✎ แก้ไข = ลบใบเดิมแล้วใส่ตะกร้าให้บันทึกใหม่ · ⎘ ทำซ้ำ = ออกใบใหม่ต่ออายุ · 🗑 ลบ</li>
+    <li><span class="ui ghost">→ ขาย</span> แปลงเป็นการขาย: <span class="msg">แปลง {quoteNo} เป็นการขาย? ระบบจะใส่รายการนี้กลับเข้าตะกร้า</span> แล้วชำระเงินที่หน้าขายตามปกติ — ถ้าสต็อกเปลี่ยนไปตั้งแต่ออกใบ ระบบจะขึ้น <span class="msg">สต็อกเปลี่ยนแปลงตั้งแต่ออกใบเสนอ:</span> พร้อมรายการ</li>
+    <li>✎ แก้ไข = ลบใบเดิมแล้วใส่ตะกร้าให้บันทึกใหม่ (ได้เลขใบใหม่) · ⎘ ทำซ้ำ = ออกใบใหม่ต่ออายุ · 🗑 ลบ</li>
+    <li><span class="ui ghost">CSV</span> ดาวน์โหลดรายการใบเสนอราคาเป็นไฟล์ · <span class="ui ghost">ล้างเก่า</span> ลบใบที่หมดอายุ/แปลงแล้วเกินจำนวนวันที่กรอก (ค่าเริ่มต้น 90 วัน)</li>
     <li>ใบเสนอราคา <strong>ไม่ตัดสต็อก</strong> (ในใบ A4 เขียนไว้ว่า <span class="msg">• สินค้าตามใบเสนอราคานี้ ยังไม่ได้ตัดสต็อก</span>)</li>
-    <li>ใบเสนอราคาทุกงาน <strong>ต้องออนไลน์</strong> — ตอนออฟไลน์จะขึ้น เช่น <span class="msg">ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกใบเสนอราคาได้</span></li>
+    <li>ใบเสนอราคาทุกงาน <strong>ต้องออนไลน์</strong> — ตอนออฟไลน์จะขึ้น เช่น <span class="msg">ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกใบเสนอราคาได้</span> (ปุ่ม <span class="ui ghost">ดู</span> กับ <span class="ui ghost">CSV</span> ยังใช้ได้)</li>
   </ul>
+  <div class="note warn"><span class="nt">อายุใบเสนอราคา — พฤติกรรมปัจจุบัน</span><!-- ISSUE:#464 -->ใบที่บันทึกจากปุ่ม <span class="ui ghost">ใบเสนอราคา</span> ในหน้าขาย <strong>มีอายุ 30 วันเสมอ</strong> ไม่ว่าจะตั้ง <span class="ui ghost">ใบเสนอราคา · มีอายุ (วัน)</span> ในหน้าตั้งค่าไว้เท่าไร (#464 — รอเจ้าของโปรเจกต์ตัดสินว่าตั้งใจหรือบั๊ก) · ใบ A4 พิมพ์จำนวนวันตามอายุจริงของใบนั้น</div>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">6</span></div>
 </section>
 
@@ -215,7 +260,7 @@
     <li><strong>ออนไลน์:</strong> กด <span class="ui ghost">✕ ยกเลิกบิลทั้งบิล</span> → <span class="msg">ยกเลิกบิล {receiptNo} ทั้งบิล?<br><br>คืนสินค้าทุกรายการ + คืนเงินทั้งหมด</span> (ไม่ต้องใช้ PIN) · บิลที่คืนครบแล้วขึ้น <span class="msg">บิลนี้คืนหมดแล้ว</span></li>
     <li><strong>ออฟไลน์:</strong> ยกเลิกได้เฉพาะบิลที่ <strong>ขายตอนออฟไลน์</strong> — ปุ่มเปลี่ยนเป็น <span class="ui ghost">✕ ยกเลิกบิลออฟไลน์</span> และ <strong>ต้องใส่เหตุผล</strong> (<span class="msg">กรุณาระบุเหตุผลในการยกเลิกบิล</span>) บิลที่ขายตอนออนไลน์ยกเลิกตอนออฟไลน์ไม่ได้ (กฎ <span class="msg">บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น</span>) — รอเน็ตกลับ</li>
   </ul>
-  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>ใน API build <strong>การคืนสินค้าแบบเลือกรายการยังต้องมีเน็ต</strong> — หน้าคืนสินค้าส่งไปเซิร์ฟเวอร์โดยตรง ยังไม่เข้าคิวรอส่ง (แม้สเปก phase 2 จะวางไว้ว่าคืนออฟไลน์ได้) ถ้าเน็ตหลุด ให้จดบิลไว้แล้วทำคืนเมื่อเน็ตกลับ</div>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span><!-- ISSUE:#452 -->ใน API build <strong>การคืนสินค้าแบบเลือกรายการยังต้องมีเน็ต</strong> — หน้าคืนสินค้าส่งไปเซิร์ฟเวอร์โดยตรง ยังไม่เข้าคิวรอส่ง (แม้สเปก phase 2 จะวางไว้ว่าคืนออฟไลน์ได้) ถ้าเน็ตหลุด ให้จดบิลไว้แล้วทำคืนเมื่อเน็ตกลับ (#452)</div>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">7</span></div>
 </section>
 
@@ -231,7 +276,7 @@
     <li><span class="st-title">เลือก <span class="ui ghost">💸 เงินออก</span> หรือ <span class="ui ghost">💰 เงินเข้า</span> ใส่จำนวนและหมายเหตุ</span>เช่น <span class="msg">หมายเหตุ เช่น จ่ายซัพ / เติมทอน / ค่าน้ำมัน</span></li>
     <li><span class="st-title">กด <span class="ui ghost">+ เพิ่ม</span></span><span class="see">รายการใน <span class="msg">ประวัติรายการวันนี้</span> และยอด "เงินในลิ้นชักที่ควรมี" เปลี่ยนตาม</span></li>
   </ol>
-  <figure><img src="img/cash-drawer.png" alt="แท็บ 💵 รายการเงิน — การ์ดสรุป 6 ช่อง เงินในลิ้นชักที่ควรมี และประวัติรายการวันนี้" loading="lazy"><figcaption>แท็บ 💵 รายการเงิน — การ์ดสรุป 6 ช่อง เงินในลิ้นชักที่ควรมี และประวัติรายการวันนี้</figcaption></figure>
+  <div class="twocol"><figure><img src="img/cash-drawer.png" alt="แท็บ 💵 รายการเงิน — การ์ดสรุป 6 ช่อง เงินในลิ้นชักที่ควรมี และประวัติรายการวันนี้" loading="lazy"><figcaption>แท็บ 💵 รายการเงิน — การ์ดสรุป 6 ช่อง เงินในลิ้นชักที่ควรมี และประวัติรายการวันนี้</figcaption></figure><figure><img src="img/cash-drawer-mobile.png" alt="หน้า ลิ้นชัก บนมือถือ — การ์ดสรุปเรียง 2 คอลัมน์ ฟอร์มเงินออก/เงินเข้า" loading="lazy"><figcaption>บนมือถือ — การ์ดเรียง 2 คอลัมน์ แท็บ ปิดลิ้นชัก อยู่ด้านบนขวา</figcaption></figure></div>
 
   <h2 class="sub">ปิดกะ <span class="en">Close shift</span></h2>
   <ol class="steps">
@@ -241,9 +286,10 @@
     <li><span class="st-title">กด <span class="ui">🔒 ยืนยันปิดลิ้นชัก</span></span><span class="see"><span class="msg">✓ ปิดลิ้นชักแล้วเวลา {hh:mm} · นับจริง {baht}</span> — หลังจากนี้บันทึกเงินเข้า-ออกไม่ได้แล้ว</span></li>
     <li><span class="st-title">(แนะนำ) พิมพ์สรุปยอด</span>ปุ่ม <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> → <span class="ui">🖨 พิมพ์รายงานปิดร้าน</span></li>
   </ol>
-  <figure><img src="img/closing-report.png" alt="สรุปยอดปิดร้าน · Daily Closing Report" loading="lazy"><figcaption>สรุปยอดปิดร้าน · Daily Closing Report</figcaption></figure>
+  <figure><img src="img/closing-report.png" alt="สรุปยอดปิดร้าน · Daily Closing Report" loading="lazy"><figcaption>สรุปยอดปิดร้าน · Daily Closing Report — ในภาพ แถว เงินสด + โอน/QR ไม่เท่า รวมทั้งหมด เพราะไม่มีแถวเครดิตช่าง (#461)</figcaption></figure>
+  <div class="note warn"><span class="nt">อ่านสรุปยอดปิดร้านให้ถูก — พฤติกรรมปัจจุบัน</span><!-- ISSUE:#461 -->ส่วน <span class="msg">วิธีชำระเงิน</span> มีแค่แถว <span class="msg">💵 เงินสด</span> กับ <span class="msg">📱 โอน/QR</span> แต่ <span class="msg">รวมทั้งหมด</span> นับทุกบิล — ถ้าวันนั้นมีบิล <span class="ui ghost">เครดิตช่าง</span> สองแถวบวกกันจะ <strong>น้อยกว่า</strong> ยอดรวมเท่ากับยอดเครดิตช่าง ไม่ใช่เงินหาย (#461) · ยอดเงินสดที่ต้องนับให้ดูจากแท็บ <span class="ui ghost">🔒 ปิดลิ้นชัก</span> หรือส่วน "ตรวจนับเงินสดในลิ้นชัก" ของรายงานนี้</div>
   <div class="note warn"><span class="nt">ทำไมปุ่มปิดลิ้นชักกดไม่ได้</span>ปุ่มจะกดได้เมื่อ <strong>ครบ 3 ข้อ</strong>: กรอกยอดนับจริงแล้ว · ไม่อยู่ในโหมดออฟไลน์ · <strong>ไม่มีรายการค้างส่ง</strong> (PR #456) ถ้ายังค้างอยู่ ระบบจะบอก <span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง — ต้องส่งเข้าระบบให้หมดก่อนปิดกะ</span> — รอให้ส่งหมด หรือให้เจ้าของร้านจัดการรายการที่ถูกปฏิเสธในหน้า <span class="ui ghost">รอเจ้าของ</span></div>
-  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>ระบบและเซิร์ฟเวอร์รองรับ <strong>หลายกะต่อวัน</strong> (08 §11, PR #456) แต่ <strong>หน้า ลิ้นชัก ยังไม่มีปุ่มเปิดกะใหม่</strong> หลังปิดลิ้นชักไปแล้วในวันเดียวกัน — ฟอร์ม <span class="ui">เปิดร้าน</span> ขึ้นเฉพาะตอนที่วันนั้นยังไม่มีกะ ถ้าร้านต้องการกะที่สองในวันเดียวกัน ให้แจ้งทีมพัฒนา อย่าพยายามแก้เอง</div>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span><!-- ISSUE:#452 -->ระบบและเซิร์ฟเวอร์รองรับ <strong>หลายกะต่อวัน</strong> (08 §11, PR #456) แต่ <strong>หน้า ลิ้นชัก ยังไม่มีปุ่มเปิดกะใหม่</strong> หลังปิดลิ้นชักไปแล้วในวันเดียวกัน — ฟอร์ม <span class="ui">เปิดร้าน</span> ขึ้นเฉพาะตอนที่วันนั้นยังไม่มีกะ ถ้าร้านต้องการกะที่สองในวันเดียวกัน ให้แจ้งทีมพัฒนา อย่าพยายามแก้เอง (#452)</div>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">8</span></div>
 </section>
 
@@ -281,7 +327,7 @@
     <div>
       <h3 class="mini">ต้องออนไลน์</h3>
       <ul class="ticks">
-        <li>ปิดกะ · คืนสินค้า (ดูข้อจำกัดหัวข้อ 6)</li>
+        <li><!-- ISSUE:#452 -->ปิดกะ · คืนสินค้า (ดูข้อจำกัดหัวข้อ 6 · #452)</li>
         <li>ยกเลิกบิลที่ขายตอนออนไลน์</li>
         <li>ใบเสนอราคาทุกงาน</li>
         <li>สินค้า หมวด ซัพพลายเออร์ ใบสั่งซื้อ ช่าง (เพิ่ม/แก้)</li>
@@ -309,7 +355,7 @@
     <tr><td><span class="msg">ร้านนี้ถูกระงับการใช้งาน</span></td><td>ผู้ดูแลแพลตฟอร์มระงับร้าน</td><td>เจ้าของร้านติดต่อทีมงาน</td></tr>
     <tr><td><span class="msg">ระบบกำลังทำงานหนัก กรุณารอสักครู่</span></td><td>ส่งคำขอถี่เกิน</td><td>รอสักครู่แล้วลองใหม่ อย่ากดรัว</td></tr>
     <tr><td><span class="msg">คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่</span></td><td>บิลเดิมยังบันทึกไม่เสร็จ</td><td>รอ แล้วกดใหม่ — ระบบไม่ขายซ้ำ</td></tr>
-    <tr><td><span class="msg">ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้</span> / <span class="msg">ปิดลิ้นชักแล้ว — ไม่สามารถบันทึกรายการเงินเพิ่มได้</span></td><td>ปิดกะแล้ว</td><td>บันทึกหลังปิดกะไม่ได้ (ดูข้อจำกัดหัวข้อ 7)</td></tr>
+    <tr><td><span class="msg">ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้</span> / <span class="msg">ปิดลิ้นชักแล้ว — ไม่สามารถบันทึกรายการเงินเพิ่มได้</span></td><td>ปิดกะแล้ว</td><td><!-- ISSUE:#452 -->บันทึกหลังปิดกะไม่ได้ และยังเปิดกะที่สองในวันเดียวกันจากหน้าจอไม่ได้ (ดูข้อจำกัดหัวข้อ 7 · #452)</td></tr>
     <tr><td><span class="msg">บิลนี้ไม่ได้อยู่ในกะที่เปิดอยู่ ยกเลิกบิลไม่ได้ กรุณาทำรายการคืนสินค้า (ใบลดหนี้) แทน</span></td><td>ยกเลิกบิลของกะก่อน</td><td>ใช้การคืนสินค้าแทน</td></tr>
     <tr><td><span class="msg">บิลนี้มีใบลดหนี้แล้ว ไม่สามารถยกเลิกบิลได้</span></td><td>บิลเคยคืนบางส่วนแล้ว</td><td>คืนรายการที่เหลือแทนการยกเลิก</td></tr>
     <tr><td><span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง — ต้องส่งเข้าระบบให้หมดก่อนปิดกะ</span></td><td>คิวรอส่งยังไม่ว่าง</td><td>รอออนไลน์ให้ส่งหมด / เจ้าของร้านจัดการที่ <span class="ui ghost">รอเจ้าของ</span></td></tr>
@@ -319,7 +365,7 @@
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
       <li>ร้านจริงยังใช้ Drift build — หัวข้อ 1, 8 และข้อความที่เกี่ยวกับกะ/เครื่อง/ซิงก์ ใช้กับ API build เท่านั้น</li>
-      <li>ยังไม่มีปุ่มเปิดกะที่สองในวันเดียวกัน (หัวข้อ 7) · คืนสินค้าตอนออฟไลน์ยังไม่ได้ (หัวข้อ 6)</li>
+      <li><!-- ISSUE:#452 -->ยังไม่มีปุ่มเปิดกะที่สองในวันเดียวกัน (หัวข้อ 7) · คืนสินค้าตอนออฟไลน์ยังไม่ได้ (หัวข้อ 6) — #452</li>
       <li>ข้อความ <span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง…</span> ยังเป็นร่างที่ทีมเขียน ยังไม่ผ่านการรับรองจากเจ้าของโปรเจกต์ — อาจเปลี่ยนถ้อยคำ</li>
       <li>สแกนบาร์โค้ดใช้เครื่องยิงแบบคีย์บอร์ดหรือพิมพ์เอง · พิมพ์ผ่านหน้าต่างพิมพ์ของเครื่อง ไม่มีการสั่งเครื่องพิมพ์หรือเด้งลิ้นชักโดยตรง</li>
     </ul>
