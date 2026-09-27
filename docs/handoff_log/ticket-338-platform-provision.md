@@ -6,6 +6,14 @@
 ที่ยิงได้จริง** แล้วเขียนขั้นตอนที่ใช้คำสั่งชุดเดียวกันทั้งบน dev และบน VM
 🔴 ขั้นที่ 1 ใช้สคริปต์ของ #337 (PR #359) — ถ้า PR นั้นยังไม่ merge ให้ seed admin ด้วยมือชั่วคราว
 
+🔴 **อัปเดต 2026-09-27 (#443 PR1):** ขั้นตอน `curl`/`wget` ผ่าน nginx loopback ใน §2-§3 เดิม
+ถูกแทนที่ด้วย **platform CLI** แล้ว (`server/src/cli/platform.ts` → build เป็น
+`dist/cli/platform.js`) — ไม่มี JSON ที่ต้อง escape เอง ไม่มี `/tmp/body.json` ไม่มีการ copy
+token ด้วยมือ (แต่ละคำสั่ง login เองทุกครั้งแล้วทิ้ง token ทันที) และรหัสผ่านอ่านจาก stdin/TTY
+เท่านั้น (ไม่เคยอยู่ใน argv หรือ log) §1 ยังเป็นบันทึกประวัติที่ใช้ได้จริง (เหตุผลเรื่อง
+loopback/guard เดียวกันยังผูกกับ CLI) ส่วน §2 (กับดัก `wget`) **เลิกเกี่ยวข้องแล้ว** เพราะ CLI
+ไม่ใช้ `wget`/`curl` เลย — ข้ามไปที่ §3 สำหรับขั้นตอนปัจจุบัน
+
 ---
 
 ## 1. ทำไมต้องยิงจากในคอนเทนเนอร์ (และทำไม `ssh -L` ใช้ไม่ได้)
@@ -46,9 +54,21 @@ location /api/v1/platform/ {
 IP ภายนอก ซึ่ง D3 ไม่ต้องการ และ `PLATFORM_ADMIN_IPS` ก็ยังส่งเข้า container ไม่ได้อยู่ดี
 — ดูช่องว่างที่รายงานไว้ใน `demo-335-STATUS.md` §2)
 
+🔴 **CLI (#443 PR1) เดินคนละเส้นทางกับข้างบนนี้ทั้งหมด และง่ายกว่า:** มันรันจาก**ใน
+container `api-1` เอง** ยิงตรงไปที่ `http://127.0.0.1:3000` (พอร์ตของ api เอง) — **ไม่ผ่าน
+nginx เลยด้วยซ้ำ** ดังนั้น `location /api/v1/platform/` ของ nginx ที่พูดถึงข้างบนไม่เกี่ยวกับ
+CLI แต่เหตุผลเดิมของ `isAllowedIp` (`platform-auth.guard.ts`) ยังใช้: คำขอจาก `127.0.0.1`
+ภายใน container เดียวกันไม่มี `X-Forwarded-For` เลย จึง `clientIp()` อ่านได้ `req.ip` ตรง ๆ
+เป็น loopback จริงเสมอ — เหตุผลที่ `ssh -L`/docker-proxy ใช้ไม่ได้ (ข้างบน) ก็ยังใช้ได้เหมือน
+เดิม: ต้องรันคำสั่งจาก**ใน** container ไม่ใช่ยิงเข้า port ที่ publish ไว้จากโฮสต์
+
 ---
 
-## 2. กับดัก `wget` ที่จะทำให้เสียเวลาเป็นชั่วโมง
+## 2. กับดัก `wget` ที่จะทำให้เสียเวลาเป็นชั่วโมง (ประวัติ — เลิกเกี่ยวข้องแล้ว)
+
+🔴 **เลิกเกี่ยวข้องตั้งแต่ #443 PR1 (2026-09-27):** platform CLI ไม่ใช้ `wget`/`curl` เลย —
+มันคุยกับ api ด้วย `fetch` ของ Node เอง ไม่มี body ที่ต้องยัดเป็น string ผ่าน shell หลายชั้น
+เก็บหัวข้อนี้ไว้เป็นบันทึกว่าทำไมถึงเปลี่ยนมาใช้ CLI:
 
 `wget` ในคอนเทนเนอร์ nginx เป็น **BusyBox**:
 
@@ -57,14 +77,19 @@ IP ภายนอก ซึ่ง D3 ไม่ต้องการ และ `
 - การยัด JSON ผ่าน shell หลายชั้น (PowerShell → docker → sh) มัก **ถูกกินเครื่องหมายคำพูด**
   จน body กลายเป็น `{username:admin,password:x}` แล้วได้ **400** โดยที่ทั้ง nginx และ api
   ตอบว่า "สำเร็จในการรับคำขอ" (ดูได้จาก `content-length` ใน log ที่สั้นกว่าที่ส่ง)
-- 🔴 **ทางที่ไม่พลาด: ส่ง body เป็นไฟล์** ด้วย `--post-file` ทุกครั้ง
-- ถ้ารันบน **Windows + Git Bash** (เครื่อง dev ของเลน A) ต้อง `MSYS_NO_PATHCONV=1` และใช้
-  path แบบ Windows เป็นต้นทางของ `docker compose cp` ไม่งั้น `/tmp/body.json` จะถูกแปลเป็น
-  `D:\tmp\body.json` · บน VM (Linux) เขียน `/tmp/body.json` ได้ตามปกติ ไม่ต้องทำอะไรเพิ่ม
+- ทางที่ไม่พลาดตอนนั้น: ส่ง body เป็นไฟล์ด้วย `--post-file` ทุกครั้ง — ต้องมี `/tmp/body.json`
+  บนทั้งสองฝั่ง (host + container) และลบทิ้งเองหลังใช้ (ร่องรอยรหัสผ่านค้างในไฟล์ชั่วคราวได้)
+- ถ้ารันบน **Windows + Git Bash** ต้อง `MSYS_NO_PATHCONV=1` ไม่งั้น path ถูกแปลงข้าม OS
 
 ---
 
-## 3. ขั้นตอน (คำสั่งชุดเดียวกัน · dev กับ VM ต่างแค่ `cd` และ `sudo`)
+## 3. ขั้นตอน (platform CLI · คำสั่งชุดเดียวกันทั้ง dev และ VM)
+
+CLI: `server/src/cli/platform.ts` → build แล้วอยู่ที่ `dist/cli/platform.js`
+(`pnpm build` ที่ `server/` ก็ได้มาแล้ว ไม่ต้องแก้ `nest-cli.json`/`tsconfig` เพิ่ม)
+รหัสผ่านทุกตัว (ของ platform admin เอง และของ owner ร้านใหม่) **อ่านจาก stdin/TTY เท่านั้น**
+— ไม่มี flag `--password` (CLI ปฏิเสธทันทีถ้าเจอ flag ที่ชื่อมี "pass") ไม่เคยอยู่ใน `ps`/log
+และไม่มี token ให้ copy ข้ามคำสั่ง (แต่ละคำสั่ง login เองใหม่ทุกครั้งจาก `--user` + รหัสที่พิมพ์)
 
 ```bash
 # ── ตัวแปรที่ต่างกันสองที่ (นอกจากนี้เหมือนกันทุกบรรทัด) ───────────────────
@@ -79,46 +104,65 @@ $DC run --rm \
   -e BOOTSTRAP_ADMIN_DISPLAY_NAME='ผู้ดูแลระบบ' \
   migrate node dist/db/bootstrap-admin.js
 
-# ── 1. login เอา token (ผ่าน nginx loopback) ─────────────────────────────
-printf '%s' '{"username":"admin","password":"<รหัส>"}' > /tmp/body.json
-$DC cp /tmp/body.json nginx:/tmp/body.json
-$DC exec -T nginx wget -qO- --no-check-certificate \
-  --header 'Content-Type: application/json' \
-  --post-file /tmp/body.json \
-  https://127.0.0.1/api/v1/platform/auth/token
-# → {"status":"success","data":{"token":"eyJ…","admin":{…}}}   เก็บ token ไว้เป็น $TOKEN
+# ── 1. ทดสอบว่า admin login ได้ (ไม่บังคับ แต่กันเสียเวลาถ้าตอบ 401) ───────
+# แบบ interactive (พิมพ์รหัสเอง ไม่โชว์บนจอ):
+$DC exec api-1 node dist/cli/platform.js login --user admin
+# แบบ non-interactive (CI/สคริปต์ — ใช้ -T ปิด pseudo-TTY แล้ว pipe รหัสเข้า stdin):
+printf '%s\n' '<รหัส admin>' | $DC exec -T api-1 node dist/cli/platform.js login --user admin
+# → logged in as admin (id …)
 
-# ── 2. provision tenant ──────────────────────────────────────────────────
-printf '%s' '{"code":"srisurart-demo","shopName":"ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)",
-"shopNameEn":"Srisurart Autopart (demo)","plan":"demo","ownerUsername":"owner_demo",
-"ownerPassword":"<รหัสเจ้าของร้าน · อย่างน้อย 12 ตัวอักษร>","ownerDisplayName":"เจ้าของร้าน"}' > /tmp/body.json
-$DC cp /tmp/body.json nginx:/tmp/body.json
-$DC exec -T nginx wget -qO- --no-check-certificate \
-  --header 'Content-Type: application/json' \
-  --header "Authorization: Bearer $TOKEN" \
-  --post-file /tmp/body.json \
-  https://127.0.0.1/api/v1/platform/tenants
-# → {"status":"success","data":{"tenantId":"…","code":"srisurart-demo",
-#    "shopName":"…","ownerUsername":"owner_demo","enrolCode":"BE00CB85"}}
+# ── 2. provision tenant + owner ───────────────────────────────────────────
+# interactive: CLI จะถามรหัส admin ก่อน แล้วถามรหัส owner ร้านใหม่ต่อ (คนละพรอมป์)
+$DC exec api-1 node dist/cli/platform.js tenants:create \
+  --user admin \
+  --code srisurart-demo \
+  --shop-name 'ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)' \
+  --shop-name-en 'Srisurart Autopart (demo)' \
+  --plan demo \
+  --owner-username owner_demo \
+  --owner-display-name 'เจ้าของร้าน'
+# Platform admin password: <พิมพ์รหัส admin>
+# New owner password: <พิมพ์รหัสเจ้าของร้าน — อย่างน้อย 12 ตัวอักษร>
+# → {"tenantId":"…","code":"srisurart-demo","shopName":"…","ownerUsername":"owner_demo","enrolCode":"BE00CB85"}
 
-# ── 3. ล้างร่องรอยรหัสผ่าน ───────────────────────────────────────────────
-$DC exec -T nginx rm -f /tmp/body.json
-rm -f /tmp/body.json
-history -d $(history 1)     # หรือเว้นวรรคนำหน้าทุกคำสั่งที่มีรหัส
+# non-interactive: สองรหัสเรียงบรรทัดตามลำดับที่ถูกถาม (admin ก่อน แล้วค่อย owner)
+printf '%s\n%s\n' '<รหัส admin>' '<รหัสเจ้าของร้าน>' | \
+  $DC exec -T api-1 node dist/cli/platform.js tenants:create \
+    --user admin --code srisurart-demo --shop-name 'ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)' \
+    --shop-name-en 'Srisurart Autopart (demo)' --plan demo \
+    --owner-username owner_demo --owner-display-name 'เจ้าของร้าน'
 ```
 
-ฟิลด์ของ body: `code` (ต้องไม่ซ้ำ — ซ้ำได้ `409 Tenant code or username already exists`) ·
-`shopName` · `shopNameEn` (ไม่ใส่ = `''`) · `plan` `basic|demo|loadtest` (ไม่ใส่ = `basic`) ·
-`timezone` (ไม่ใส่ = `Asia/Bangkok`) · `ownerUsername` · `ownerPassword` ·
-`ownerDisplayName` (ไม่ใส่ = ใช้ `ownerUsername`)
-🔴 `ownerPassword` **ต้องยาวอย่างน้อย 12 ตัวอักษร** (แก้แล้วที่ #364 — เดิมตรวจแค่ว่ามีค่า
+ไม่มีขั้น "ล้างร่องรอยรหัสผ่าน" อีกต่อไป — ไม่มีไฟล์ชั่วคราวให้ลบ (`--post-file` เดิมหายไปพร้อม
+`wget`) และรหัสผ่านไม่เคยผ่าน `history` ของ shell เลย (`printf … | …` ที่ใช้ใน non-interactive
+ก็ยังทำให้รหัสอยู่ใน `.bash_history` ได้ถ้า shell history เปิดไว้ — เว้นวรรคนำหน้าเหมือนเดิม
+ถ้ากังวลเรื่องนี้)
+
+คำสั่งอื่นที่ CLI มีให้ (ดู `runPlatformCli` ใน `server/src/cli/platform.ts` สำหรับ flags ทั้งหมด):
+
+- `tenants:list --user <admin>` — แสดงรายการ tenant ทั้งหมดเป็น JSON
+- `tenants:status <tenantId> <active|suspended|closed> --user <admin>` — เปลี่ยนสถานะ tenant
+
+Dev-only convenience: จาก `server/` เรียก `pnpm platform <command> …` แทน
+`node dist/cli/platform.js <command> …` ได้ (ต้อง `pnpm build` ก่อน) — **ใช้ไม่ได้บน mob04**
+เพราะ runtime image ลบ npm/corepack ออกหมดแล้ว (`server/Dockerfile`) ต้องเรียก
+`node dist/cli/platform.js` ตรง ๆ ผ่าน `docker compose exec api-1` เท่านั้น
+
+ฟิลด์ของ `tenants:create` (ตรงกับ body เดิมทุกตัว ไม่มีการเปลี่ยน contract ใน PR1):
+`--code` (ต้องไม่ซ้ำ — ซ้ำได้ `409 Tenant code or username already exists`) ·
+`--shop-name` · `--shop-name-en` (ไม่ใส่ = `''`) · `--plan` `basic|demo|loadtest` (ไม่ใส่ =
+`basic`) · `--timezone` (ไม่ใส่ = `Asia/Bangkok`) · `--owner-username` · รหัส owner (พิมพ์ตอน
+ถูกถาม) · `--owner-display-name` (ไม่ใส่ = ใช้ `--owner-username`)
+🔴 รหัส owner **ต้องยาวอย่างน้อย 12 ตัวอักษร** (แก้แล้วที่ #364 — เดิมตรวจแค่ว่ามีค่า
 จึงตั้ง `1234` ได้) เกณฑ์เดียวกับ `bootstrap:admin` ของ #337 เพราะมาจาก**ฟังก์ชันเดียวกัน**
 (`server/src/common/password.ts` → `passwordPolicyViolation` / `MIN_PASSWORD_LENGTH`)
 ถ้าไม่ผ่านจะได้ **`400 WEAK_PASSWORD`** (`02_API_SCREENS.md §8.1`) โดยที่ยัง**ไม่ได้**
 สร้าง tenant / owner / settings / categories / device อะไรเลย — เพราะตรวจก่อน hash argon2
-และก่อนเปิดธุรกรรม (`platform-tenants.service.ts` `createTenant()` ต้นฟังก์ชัน)
-`message` ของ error เป็นภาษาอังกฤษสำหรับคนที่รัน (`ownerPassword is too weak: at least 12
-characters required`) ส่วนข้อความไทยอยู่ใน `server_error_resolver.dart`
+และก่อนเปิดธุรกรรม (`platform-tenants.service.ts` `createTenant()` ต้นฟังก์ชัน) CLI แสดง
+error นี้ตรง ๆ ตามที่ api ตอบกลับมา (ไม่มี validation ซ้ำฝั่ง CLI — ปล่อยให้ server ตัดสินเส้น
+เดียว) ส่วนข้อความไทยสำหรับหน้าร้านอยู่ใน `server_error_resolver.dart`
+🔴 **`ownerPassword` ยังอยู่ใน contract เดิมใน PR1** — การเปลี่ยนไปใช้รหัสผ่านชั่วคราวที่ระบบ
+สุ่มให้ (ตัด `ownerPassword` ออกจาก request) เป็นของ #443 PR3 เท่านั้น
 
 ### 🔴 `enrolCode` คืนกลับมาครั้งเดียว
 
@@ -181,9 +225,8 @@ $DC exec -T nginx wget -qO- --no-check-certificate --header 'Content-Type: appli
 # → {"status":"success","data":{"accessToken":"eyJhbGciOiJSUzI1NiIsImtpZCI6ImtleS0xIn0…"}}
 #    payload: {"tid":"<tenant ใหม่>","role":"owner","did":"pos1","drole":"pos"}
 
-# 3) เห็นในรายการของ platform
-$DC exec -T nginx wget -qO- --no-check-certificate \
-  --header "Authorization: Bearer $TOKEN" https://127.0.0.1/api/v1/platform/tenants
+# 3) เห็นในรายการของ platform — ตอนนี้ใช้ CLI แทน (ไม่ต้องถือ $TOKEN ไว้เองอีกแล้ว, #443 PR1)
+printf '%s\n' '<รหัส admin>' | $DC exec -T api-1 node dist/cli/platform.js tenants:list --user admin
 ```
 
 ### 🔴 กับดักที่ `/code-review` จับได้ และวัดซ้ำแล้ว: `deviceToken` อยู่ใน body ไม่ใช่ header
@@ -238,6 +281,12 @@ $DC exec -T postgres psql -U postgres -d pos -c "
 ---
 
 ## 6. AC ของ #338 — ปิดจริงข้อไหน
+
+🔴 ตารางนี้เป็นหลักฐานของการรันจริงวันที่ 2026-09-21 ด้วยคำสั่ง `curl`/`wget` ชุดเดิม (ก่อน
+CLI ของ #443 PR1) — คอลัมน์ "หลักฐาน" ที่อ้าง "§3" หมายถึงคำสั่งชุดนั้น ไม่ใช่คำสั่ง CLI ที่
+เขียนแทนใน §3 ตอนนี้ ผลลัพธ์ (`enrolCode=BE00CB85` ฯลฯ) และเส้น provision → enrol → owner
+login ที่วัดไว้ยังเป็นความจริงเหมือนเดิม เพราะ contract ของ `POST /platform/tenants` ไม่ได้
+เปลี่ยน (PR1 ไม่แตะ API เลย) — เปลี่ยนแค่**เครื่องมือที่ใช้ยิง**
 
 | AC | สถานะ | หลักฐาน |
 |---|---|---|
