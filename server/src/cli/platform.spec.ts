@@ -4,6 +4,7 @@ import {
   assertNoPasswordFlags,
   createPrompter,
   parseArgv,
+  PlatformApiError,
   readSecret,
   runPlatformCli,
   type FetchLike,
@@ -311,7 +312,7 @@ describe('runPlatformCli', () => {
       { input, output, log, fetchImpl },
     );
 
-    expect(written).toContain('shown once');
+    expect(written).toContain('tempPassword and enrolCode above are shown once');
     expect(log.mock.calls.flat().join('\n')).not.toContain('shown once');
   });
 
@@ -468,6 +469,44 @@ describe('runPlatformCli', () => {
     await expect(
       runPlatformCli(['owner:set-password', 'owner1'], { input, output, log, fetchImpl }),
     ).rejects.toThrow(/did not ask for a password change/);
+  });
+
+  it('owner:set-password: surfaces WEAK_PASSWORD with its reason, never the new password', async () => {
+    const { fetchImpl } = mockFetch((url) => {
+      if (url.endsWith('/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: {
+            passwordChangeRequired: true,
+            passwordChangeToken: 'pwchange-tok',
+            user: { id: 'u1', username: 'owner1', role: 'owner', displayName: 'Owner' },
+          },
+        });
+      }
+      return jsonResponse(400, {
+        status: 'error',
+        error: {
+          code: 'WEAK_PASSWORD',
+          message: 'newPassword must differ from the temporary password',
+          details: { reason: 'same_as_temp' },
+        },
+      });
+    });
+    const { input, output, log } = io({ input: 'temppw-secret\ntemppw-secret\n', fetchImpl });
+
+    const err = (await runPlatformCli(['owner:set-password', 'owner1'], {
+      input,
+      output,
+      log,
+      fetchImpl,
+    }).catch((e: unknown) => e)) as Error;
+
+    expect(err).toBeInstanceOf(PlatformApiError);
+    expect(err.message).toContain('400 WEAK_PASSWORD');
+    expect(err.message).toContain('must differ from the temporary password');
+    expect(err.message).not.toContain('temppw-secret');
+    expect(err.message).not.toContain('pwchange-tok');
+    expect(log).not.toHaveBeenCalled();
   });
 
   it('owner:set-password: requires the username positional', async () => {

@@ -100,7 +100,7 @@ CLI แต่เหตุผลเดิมของ `isAllowedIp` (`platform-au
 
 CLI: `server/src/cli/platform.ts` → build แล้วอยู่ที่ `dist/cli/platform.js`
 (`pnpm build` ที่ `server/` ก็ได้มาแล้ว ไม่ต้องแก้ `nest-cli.json`/`tsconfig` เพิ่ม)
-รหัสผ่านทุกตัว (ของ platform admin เอง และของ owner ร้านใหม่) **อ่านจาก stdin/TTY เท่านั้น**
+รหัสผ่านทุกตัว (ของ platform admin เอง และรหัสชั่วคราว/รหัสใหม่ของ owner ใน `owner:set-password`) **อ่านจาก stdin/TTY เท่านั้น**
 — ไม่มี flag `--password` (CLI ปฏิเสธทันทีถ้าเจอ flag ที่ชื่อมี "pass") ไม่เคยอยู่ใน `ps`/log
 และไม่มี token ให้ copy ข้ามคำสั่ง (แต่ละคำสั่ง login เองใหม่ทุกครั้งจาก `--user` + รหัสที่พิมพ์)
 
@@ -138,7 +138,7 @@ $DC exec api-1 node dist/cli/platform.js tenants:create \
 # Platform admin password: <พิมพ์รหัส admin>
 # → JSON (พิมพ์แบบหลายบรรทัด) มี tenantId, code, shopName, ownerUsername, enrolCode
 #   (เช่น "BE00CB85"), tempPassword (16 ตัว, สุ่มโดย server), tempPasswordExpiresAt (+7 วัน)
-# stderr (ไม่ปนกับ JSON): "Note: tempPassword above is shown once …" — จดทันที เอาคืนไม่ได้
+# stderr (ไม่ปนกับ JSON): "Note: tempPassword and enrolCode above are shown once …" — จดทันที เอาคืนไม่ได้
 
 # non-interactive: รหัส admin ตัวเดียว (ไม่มี OWNER_PW แล้ว)
 printf '%s\n' "$ADMIN_PW" | \
@@ -327,8 +327,9 @@ $DC exec -T postgres psql -U postgres -d pos -c "
 🔴 ตารางนี้เป็นหลักฐานของการรันจริงวันที่ 2026-09-21 ด้วยคำสั่ง `curl`/`wget` ชุดเดิม (ก่อน
 CLI ของ #443 PR1) — คอลัมน์ "หลักฐาน" ที่อ้าง "§3" หมายถึงคำสั่งชุดนั้น ไม่ใช่คำสั่ง CLI ที่
 เขียนแทนใน §3 ตอนนี้ ผลลัพธ์ (`enrolCode=BE00CB85` ฯลฯ) และเส้น provision → enrol → owner
-login ที่วัดไว้ยังเป็นความจริงเหมือนเดิม เพราะ contract ของ `POST /platform/tenants` ไม่ได้
-เปลี่ยน (PR1 ไม่แตะ API เลย) — เปลี่ยนแค่**เครื่องมือที่ใช้ยิง**
+login ที่วัดไว้ยังเป็นความจริงของวันนั้น (PR1 เปลี่ยนแค่**เครื่องมือที่ใช้ยิง**) — แต่ 🔴 #443 PR3
+เปลี่ยน contract ของ `POST /platform/tenants` แล้ว (ไม่รับ `ownerPassword`, คืน `tempPassword`,
+login แรกได้ `passwordChangeRequired` แทน `accessToken`) จึงรันซ้ำด้วยคำสั่งชุดเดิมไม่ได้ — ใช้ §3/§4 ปัจจุบัน
 
 | AC | สถานะ | หลักฐาน |
 |---|---|---|

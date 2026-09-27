@@ -457,7 +457,7 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
       // stderr, not stdout: keeps `tenants:create | jq .`/an e2e test's stdout capture
       // as clean JSON, same reason prompts go to stderr (see `createPrompter` above).
       prompter.write(
-        'Note: tempPassword above is shown once and cannot be retrieved again — record it now.\n',
+        'Note: tempPassword and enrolCode above are shown once and cannot be retrieved again — record them now.\n',
       );
     } finally {
       prompter.close();
