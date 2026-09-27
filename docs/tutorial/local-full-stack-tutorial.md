@@ -156,7 +156,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
   api-1 sh -c 'DATABASE_URL="postgres://postgres:$POSTGRES_PASSWORD@postgres:5432/pos" node dist/db/bootstrap-admin.js --force'
 ```
 
-ต้องเห็นคำว่า `updated` (รีเซ็ตรหัสแล้ว) หรือ `created` (สร้างใหม่) — ถ้ายังเห็น `unchanged` แปลว่ายังไม่ได้ตั้งรหัส
+ต้องเห็นบรรทัด `platform admin "devadmin": password reset` (รีเซ็ตรหัสแล้ว) หรือ `platform admin "devadmin": created` (สร้างใหม่) — ถ้าเห็น `already exists — password left alone (pass --force to reset it)` แปลว่ายังไม่ได้ตั้งรหัส (ลืม `--force`) · ข้อความทั้งสามมาจาก `MESSAGES` ใน `server/src/db/bootstrap-admin.ts`
 
 ### 5.2 ล็อกอินเป็น platform admin แล้วสร้าง tenant + shop owner
 
@@ -341,7 +341,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 | container ไหนก็ตามค้าง `(health: starting)` นาน | Postgres/Redis ยังไม่พร้อม (เครื่องช้าตอน build ครั้งแรก) | รอเพิ่ม แล้วดู log: `docker compose logs <service>` |
 | ลืม `-f` ชุดเดิมตอนรันคำสั่งอื่น (เช่น `docker compose run migrate`) | compose มองว่าสแตกไม่ตรงไฟล์ แล้ว recreate `postgres` ทิ้ง port ของ dev overlay | ใส่ `-f` ชุดเดิมทุกครั้ง แล้ว `up -d` ซ้ำเพื่อคืน port |
 | `etcd` ค้าง `(unhealthy)` ตลอด ส่วนอื่น healthy หมด | volume `etcd-data` จากรอบก่อน bake รหัสผ่านไม่ตรง `.env` (#365) | ไม่บล็อกอะไร ใช้งานต่อได้ — อย่า `down -v` (ข้อ 3) |
-| `bootstrap-admin` บอก `already exists — password left alone` แล้ว login admin ไม่ผ่าน | admin มีอยู่แล้วใน `pgdata` รอบก่อน รหัสใหม่ไม่ถูกบันทึก | รันซ้ำพร้อม `--force` (ข้อ 5.1) ต้องเห็น `updated` |
+| `bootstrap-admin` บอก `already exists — password left alone` แล้ว login admin ไม่ผ่าน | admin มีอยู่แล้วใน `pgdata` รอบก่อน รหัสใหม่ไม่ถูกบันทึก | รันซ้ำพร้อม `--force` (ข้อ 5.1) ต้องเห็น `password reset` |
 | `tenants:create` ได้ `409 … already exists` | `--code`/`--owner-username` ซ้ำของเดิมใน volume | ใช้ code + username ใหม่ (ข้อ 5.2) |
 | platform CLI login ไม่ผ่านทั้งที่รหัสถูก (pipe จาก PowerShell) | PowerShell pipe ส่งข้อความเข้า stdin ไม่ตรงตัว | พิมพ์รหัสแบบ interactive หรือใช้ Git Bash `printf '%s\n'` (ข้อ 5.2) |
 | Grafana panel "Disk usage (/)" ไม่มีข้อมูล | `node-exporter` mount `/:/rootfs:ro` แต่ Docker Desktop รันบน WSL VM ไม่ใช่ดิสก์ Windows ตรง ๆ | รู้ไว้เฉย ๆ ไม่ใช่บั๊ก จะขึ้นปกติบน `mob04` (Linux จริง) |

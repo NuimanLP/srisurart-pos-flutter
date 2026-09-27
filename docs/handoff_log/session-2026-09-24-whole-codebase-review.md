@@ -17,6 +17,8 @@ so this is a **sampled** review, not an audit. A clean area here is not proof of
 ## 2. Spec findings (vs `08_PHASE2_SPEC.md`, ADRs, `CONTRACT.md`)
 
 Items 1–2 re-verified by reading the code after the review.
+**Status 2026-09-27:** items 1–2 fixed 2026-09-25 (PR #413 / #409, PR #414 / #411 — see
+`CLAUDE.md` "Still open"); items 3–5 carry their own status lines below; item 6 untriaged.
 
 1. 🔴 **HIGH — `/sync/push` fingerprint ≠ online route's.** 08 §8.3 step 1 requires the same
    fingerprint as the online route. `sync.service.ts:201-229` (`endpointForOp`) stores
@@ -35,12 +37,23 @@ Items 1–2 re-verified by reading the code after the review.
    `costAtSale`, `movements`, `shiftId`, `date`, customer/mechanic balances that 08 §8.2 says it
    carries. The fixture `fixtures/sync-push/sale-create.applied.json` has the same thin shape —
    **spec vs contract disagree; owner call** which one is right.
+   → **Status 2026-09-27: fixed.** Owner chose the spec (#455). PR #458: the `applied` reply
+   is the `POST /sales` response (replay by id uses `SalesService.existingSale`, the same
+   function as the online route); the 4 sale fixtures were updated; the client patches the
+   offline bill with `patchSaleFromPushReply`.
 4. MED — the client only queues `sale.create`, credit payments and customer ops; 08 §6.1 also
    lists `shift.open`, `return.create`, `drawer.entry`. `api_shifts_repository.dart:80-87` sends
    no client `id`/`openedAt`; shift close checks only queued credit payments (§11 wants the whole
    outbox).
+   → **Status 2026-09-27: partial.** PR #456 queues `shift.open` + `drawer.entry` under a
+   client id, sends the `id` in the online bodies, and closing a shift now needs the whole
+   outbox empty (`OUTBOX_NOT_EMPTY`; Thai string still **agent ร่าง**). **#452 stays open**
+   for `return.create`, replay tests of the new ops, and the missing UI to open a second
+   shift the same day. Deviation: a 5xx does not queue (same as sales), unlike 08 §5.
 5. MED — Drift `openShift` still returns the same-day shift (`shifts_repository.dart:69-83`),
    removed by 08 §11.
+   → **Status 2026-09-27: fixed** by PR #456 (#453): an existing `id` returns that shift;
+   otherwise the prior shift is archived and a new one opened, even on the same day.
 6. LOW — online `POST /shifts/open` with an existing `id` does not compare `startingCash`
    (`shifts.service.ts:170-180`); the push path does.
 
