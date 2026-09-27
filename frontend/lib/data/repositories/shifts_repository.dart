@@ -7,10 +7,11 @@
 // isActive == true; all other Shifts rows are the history.
 //
 // Behaviour parity points:
-//   - openShift: same-day re-open returns the existing active shift unchanged;
-//     otherwise the prior active shift is archived FIRST (isActive=false, and
-//     if it was never closed: autoArchived=true + archivedAt=now) so a day is
-//     never lost, then a fresh active shift is inserted. Wrapped in a txn.
+//   - openShift (08 §11, #453 — several shifts a day): re-opening with an id
+//     that already exists returns that shift unchanged; otherwise the prior
+//     active shift is archived FIRST (isActive=false, and if it was never
+//     closed: autoArchived=true + archivedAt=now) so a shift is never lost,
+//     then a fresh active shift is inserted. Wrapped in a txn.
 //   - addDrawerEntry: throws 'No open shift' if none active; blocks new money
 //     entries once the active shift is closed (CLAUDE.md: the cash drawer
 //     blocks new money entries after close).
@@ -65,12 +66,19 @@ class ShiftsRepository {
         .get();
   }
 
-  /// Open a shift for today. If an active shift already exists for the same
-  /// dateStr, returns it unchanged. Otherwise archives the prior active shift
-  /// FIRST (never lose a day) and inserts a new active shift.
-  Future<ShiftRow> openShift(double startingCash) {
+  /// Open a new shift (08 §11 — several shifts a day are allowed). If [id]
+  /// names a shift that already exists, returns it unchanged and archives
+  /// nothing. Otherwise archives the prior active shift FIRST (never lose a
+  /// shift), even one opened today, and inserts a new active shift under [id]
+  /// (or a fresh one).
+  Future<ShiftRow> openShift(double startingCash, {String? id}) {
     return db.transaction(() async {
-      final today = todayKey();
+      if (id != null) {
+        final same = await (db.select(
+          db.shifts,
+        )..where((t) => t.id.equals(id))).getSingleOrNull();
+        if (same != null) return same;
+      }
 
       final existing =
           await (db.select(db.shifts)
@@ -78,10 +86,6 @@ class ShiftsRepository {
                 ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
                 ..limit(1))
               .getSingleOrNull();
-
-      if (existing != null && existing.dateStr == today) {
-        return existing;
-      }
 
       // Archive the prior active shift BEFORE opening a new one.
       if (existing != null) {
@@ -100,20 +104,22 @@ class ShiftsRepository {
         );
       }
 
-      final id = newId('sh');
+      final shiftId = id ?? newId('sh');
       await db
           .into(db.shifts)
           .insert(
             ShiftsCompanion.insert(
-              id: id,
-              dateStr: today,
+              id: shiftId,
+              dateStr: todayKey(),
               startingCash: startingCash,
               openedAt: DateTime.now(),
               isActive: const Value(true),
             ),
           );
 
-      return (db.select(db.shifts)..where((t) => t.id.equals(id))).getSingle();
+      return (db.select(
+        db.shifts,
+      )..where((t) => t.id.equals(shiftId))).getSingle();
     });
   }
 

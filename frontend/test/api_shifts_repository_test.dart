@@ -21,6 +21,10 @@ import 'package:srisurart_pos/data/repositories/api/api_shifts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
 import 'package:srisurart_pos/data/repositories/mechanics_repository.dart';
 import 'package:srisurart_pos/data/repositories/shifts_repository.dart';
+import 'package:srisurart_pos/data/storage/token_storage.dart';
+import 'package:srisurart_pos/data/sync/sync_facade.dart';
+import 'package:srisurart_pos/data/sync/sync_service.dart';
+import 'package:srisurart_pos/domain/models/auth_models.dart';
 
 /// Builds the success envelope as UTF-8 bytes — `http.Response(String, ...)`
 /// encodes as Latin-1 by default, which throws on the Thai text several
@@ -45,6 +49,30 @@ http.Response _errorResponse(int status, String code, String message) {
     status,
     headers: {'content-type': 'application/json; charset=utf-8'},
   );
+}
+
+/// Enough of a token store for `SyncService` to be constructed.
+class _MemTokenStorage implements TokenStorage {
+  @override
+  Future<String?> getAccessToken() async => null;
+  @override
+  Future<void> setAccessToken(String? token) async {}
+  @override
+  Future<String?> getRefreshToken() async => null;
+  @override
+  Future<void> setRefreshToken(String? token) async {}
+  @override
+  Future<String?> getDeviceToken() async => 'pos-device-token-01';
+  @override
+  Future<void> setDeviceToken(String? token) async {}
+  @override
+  Future<AuthUser?> getUser() async => null;
+  @override
+  Future<void> setUser(AuthUser? user) async {}
+  @override
+  Future<void> clearAuthTokens() async {}
+  @override
+  Future<void> clearAll() async {}
 }
 
 void main() {
@@ -85,6 +113,10 @@ void main() {
 
           final body = jsonDecode(req.body) as Map<String, dynamic>;
           expect(body['startingCash'], '1500.00');
+          // 08 §11: the client's shift id rides in the online body; the
+          // device time does not (08 §10 — `openedAt` is push-only).
+          expect(body['id'], startsWith('sh'));
+          expect(body.containsKey('openedAt'), isFalse);
 
           return _successResponse({
             // A server-issued TEXT id shaped nothing like newId('sh') —
@@ -263,7 +295,7 @@ void main() {
     );
   });
 
-  group('closeShift sends the credit-payment outbox first (owner, 2026-09-13)', () {
+  group('closeShift sends the outbox first and needs it empty (08 §11)', () {
     Map<String, dynamic> closedShift() => {
       'id': 'srv-shift-9f3a',
       'dateStr': '2019-03-04',
@@ -347,8 +379,8 @@ void main() {
         expect(thrown, isA<PosException>());
         expect(
           thrown.toString(),
-          'ยังมีรับชำระเงินสด 2 รายการที่ส่งเข้าระบบไม่สำเร็จ '
-          '— ต้องต่อระบบให้ส่งได้ก่อนปิดกะ',
+          'ยังมี 2 รายการติดปัญหา / ค้างส่ง '
+          '— ต้องส่งเข้าระบบให้หมดก่อนปิดกะ',
         );
       },
     );
@@ -396,9 +428,8 @@ void main() {
       expect(await db.select(db.pendingCreditPayments).get(), isEmpty);
     });
 
-    test('a transfer or a REFUSED cash row does not block the close', () async {
-      // A transfer never touches the drawer; a refused row will never be
-      // stamped on any shift and waits for a person on the Mechanics screen.
+    test('a transfer or a REFUSED row blocks the close too — 08 §11 replaces '
+        'the cash-only rule of 2026-09-13', () async {
       await queue('cp-qr', method: 'โอน/QR');
       await queue('cp-refused', rejectedCode: 'CREDIT_PAYMENT_EXCEEDS_BALANCE');
       var closes = 0;
@@ -410,9 +441,40 @@ void main() {
         },
       );
 
-      await repo.closeShift(100);
+      await expectLater(
+        () => repo.closeShift(100),
+        throwsA(
+          isA<PosException>().having((e) => e.code, 'code', 'OUTBOX_NOT_EMPTY'),
+        ),
+      );
+      expect(closes, 0);
+    });
 
-      expect(closes, 1);
+    test('any queued op type blocks the close, not only credit payments', () async {
+      await db
+          .into(db.outboxOps)
+          .insert(
+            OutboxOpsCompanion.insert(
+              opId: 'op-sale',
+              idempotencyKey: 'k-sale',
+              type: 'sale.create',
+              payload: '{"id":"s_1"}',
+              aggregates: '["sale:s_1"]',
+              createdAt: DateTime.utc(2019, 3, 4, 3),
+              status: 'stuck',
+            ),
+          );
+      var closes = 0;
+      final repo = closeRepo(
+        outbox((_) async => throw http.ClientException('Offline')),
+        (_) async {
+          closes++;
+          return _successResponse(closedShift());
+        },
+      );
+
+      await expectLater(() => repo.closeShift(100), throwsA(isA<PosException>()));
+      expect(closes, 0);
     });
   });
 
@@ -437,6 +499,7 @@ void main() {
         expect(body['type'], 'in');
         expect(body['amount'], '300.00');
         expect(body['note'], 'ทอนเงิน');
+        expect(body['id'], startsWith('de'));
 
         return _successResponse({
           'id': 'srv-de-77',
@@ -612,6 +675,187 @@ void main() {
       await repo.addDrawerEntry('in', 300, 'ทอนเงิน');
 
       expect(keys.toSet(), hasLength(2));
+    });
+  });
+
+  group('offline: shift.open / drawer.entry are queued (#452, 08 §6.1)', () {
+    late SyncService sync;
+    late List<http.Request> sent;
+
+    ApiShiftsRepository offlineRepo(
+      Future<http.Response> Function(http.Request) handler,
+    ) {
+      sent = [];
+      final client = ApiClient(
+        baseUrl: 'http://example.com',
+        httpClient: MockClient((req) {
+          sent.add(req);
+          return handler(req);
+        }),
+      );
+      sync = SyncService(
+        db: db,
+        apiClient: client,
+        tokenStorage: _MemTokenStorage(),
+        httpClient: MockClient(
+          (_) async => throw http.ClientException('Offline'),
+        ),
+        autoStartHealthProbe: false,
+      );
+      addTearDown(sync.dispose);
+      return ApiShiftsRepository(
+        api: client,
+        db: db,
+        drift: drift,
+        syncService: sync,
+      );
+    }
+
+    Future<List<OutboxOpRow>> ops() => db.select(db.outboxOps).get();
+
+    Future<void> seedShift(String id, {DateTime? closedAt}) => db
+        .into(db.shifts)
+        .insert(
+          ShiftsCompanion.insert(
+            id: id,
+            dateStr: '2019-03-04',
+            startingCash: 500,
+            openedAt: DateTime(2019, 3, 4, 8),
+            closedAt: Value(closedAt),
+            isActive: const Value(true),
+          ),
+        );
+
+    test(
+      'Degraded: openShift writes the shift + one shift.open op, archives the '
+      'prior shift, and sends nothing online',
+      () async {
+        await seedShift('sh-prior');
+        final repo = offlineRepo((_) async => fail('no online call'));
+        sync.recordNonVerdictWrite();
+
+        final row = await repo.openShift(1500);
+
+        expect(row.id, startsWith('sh'));
+        expect(row.isActive, isTrue);
+        expect(sent, isEmpty);
+
+        final prior = await (db.select(
+          db.shifts,
+        )..where((t) => t.id.equals('sh-prior'))).getSingle();
+        expect(prior.isActive, isFalse);
+        expect(prior.autoArchived, isTrue);
+
+        final queued = await ops();
+        expect(queued, hasLength(1));
+        expect(queued.single.type, 'shift.open');
+        expect(queued.single.status, 'pending');
+        expect(queued.single.idempotencyKey, isNotEmpty);
+        expect(jsonDecode(queued.single.aggregates), ['shift:${row.id}']);
+        final payload = jsonDecode(queued.single.payload) as Map;
+        expect(payload['id'], row.id);
+        expect(payload['startingCash'], '1500.00');
+        expect(payload['openedAt'], isA<String>());
+      },
+    );
+
+    test('Degraded: re-opening an id already cached queues nothing', () async {
+      await seedShift('sh-mine');
+      final repo = offlineRepo((_) async => fail('no online call'));
+      sync.recordNonVerdictWrite();
+
+      final row = await repo.openShift(9999, id: 'sh-mine');
+
+      expect(row.id, 'sh-mine');
+      expect(row.startingCash, 500);
+      expect(row.isActive, isTrue);
+      expect(await ops(), isEmpty);
+    });
+
+    test(
+      'a lost connection queues shift.open under the SAME id + key it was sent '
+      'with',
+      () async {
+        final repo = offlineRepo(
+          (_) async => throw http.ClientException('socket dropped'),
+        );
+
+        final row = await repo.openShift(800);
+
+        final online = sent.singleWhere(
+          (r) => r.url.path == '/api/v1/shifts/open',
+        );
+        final sentBody = jsonDecode(online.body) as Map;
+        final queued = (await ops()).single;
+        expect(queued.idempotencyKey, online.headers['Idempotency-Key']);
+        expect((jsonDecode(queued.payload) as Map)['id'], sentBody['id']);
+        expect(row.id, sentBody['id']);
+        expect(sync.currentStatus, SyncStatus.degraded);
+      },
+    );
+
+    test(
+      'Degraded: addDrawerEntry writes the entry + one drawer.entry op that '
+      'waits on its shift',
+      () async {
+        await seedShift('sh-open');
+        final repo = offlineRepo((_) async => fail('no online call'));
+        sync.recordNonVerdictWrite();
+
+        final entry = await repo.addDrawerEntry('out', 120.5, 'ค่าน้ำแข็ง');
+
+        expect(entry.id, startsWith('de'));
+        expect(entry.shiftId, 'sh-open');
+        final local = await (db.select(
+          db.drawerEntries,
+        )..where((t) => t.id.equals(entry.id))).getSingle();
+        expect(local.amount, 120.5);
+
+        final queued = (await ops()).single;
+        expect(queued.type, 'drawer.entry');
+        expect(jsonDecode(queued.aggregates), [
+          'drawer:${entry.id}',
+          'shift:sh-open',
+        ]);
+        final payload = jsonDecode(queued.payload) as Map;
+        expect(payload['id'], entry.id);
+        expect(payload['type'], 'out');
+        expect(payload['amount'], '120.50');
+        expect(payload['note'], 'ค่าน้ำแข็ง');
+        expect(payload['createdAt'], isA<String>());
+      },
+    );
+
+    test('a lost connection queues drawer.entry under the SAME id + key', () async {
+      await seedShift('sh-open');
+      final repo = offlineRepo(
+        (_) async => throw http.ClientException('socket dropped'),
+      );
+
+      final entry = await repo.addDrawerEntry('in', 50, null);
+
+      final online = sent.singleWhere(
+        (r) => r.url.path == '/api/v1/shifts/current/entries',
+      );
+      final queued = (await ops()).single;
+      expect(queued.idempotencyKey, online.headers['Idempotency-Key']);
+      expect((jsonDecode(online.body) as Map)['id'], entry.id);
+      expect((jsonDecode(queued.payload) as Map)['id'], entry.id);
+    });
+
+    test('Degraded with the drawer closed: refused, nothing written', () async {
+      await seedShift('sh-closed', closedAt: DateTime(2019, 3, 4, 18));
+      final repo = offlineRepo((_) async => fail('no online call'));
+      sync.recordNonVerdictWrite();
+
+      await expectLater(
+        () => repo.addDrawerEntry('in', 100, null),
+        throwsA(
+          isA<PosException>().having((e) => e.code, 'code', 'DRAWER_CLOSED'),
+        ),
+      );
+      expect(await db.select(db.drawerEntries).get(), isEmpty);
+      expect(await ops(), isEmpty);
     });
   });
 

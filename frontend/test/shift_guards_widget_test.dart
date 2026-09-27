@@ -1,9 +1,9 @@
 // The counter-side guards of the owner's 2026-09-13 decisions, driven through
 // the real screens.
 //
-//  A — closing the drawer on the API build sends the credit-payment outbox first
-//      and is refused while a CASH payment is still unsent (the server stamps
-//      `shift_id` on arrival, so a late one lands in the next shift).
+//  A — closing the drawer on the API build sends the outbox first and is
+//      refused while anything is still in it (08 §11 — the server stamps
+//      `shift_id` on arrival, so a late write lands in the next shift).
 //  B — no open shift, no credit payment taken: refused at the dialog, never
 //      queued (offline it would only be refused during a later flush).
 //  C — the overpayment question counts this mechanic's QUEUED payments: debt
@@ -255,7 +255,7 @@ void main() {
   );
 
   testWidgets(
-    'A — API build: closing with a cash payment still unsent is refused',
+    'A — API build: closing with a payment still unsent is refused',
     (tester) async {
       sizeView(tester);
       final db = AppDatabase(NativeDatabase.memory());
@@ -296,8 +296,8 @@ void main() {
 
         expect(
           find.text(
-            'ยังมีรับชำระเงินสด 1 รายการที่ส่งเข้าระบบไม่สำเร็จ '
-            '— ต้องต่อระบบให้ส่งได้ก่อนปิดกะ',
+            'ยังมี 1 รายการติดปัญหา / ค้างส่ง '
+            '— ต้องส่งเข้าระบบให้หมดก่อนปิดกะ',
           ),
           findsOneWidget,
         );

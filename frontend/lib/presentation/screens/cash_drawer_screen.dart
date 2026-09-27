@@ -25,6 +25,7 @@ import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/shifts_repository.dart';
+import '../../data/sync/sync_facade.dart';
 import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
@@ -84,11 +85,20 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
   bool _busy = false;
   // Created in initState/_refresh — never inline in build.
   late Future<_DrawerData> _dataFuture;
+  // How many ops are still in the outbox — closing waits for zero (08 §11).
+  late final Stream<int> _outboxRemaining;
 
   @override
   void initState() {
     super.initState();
     _dataFuture = _loadData();
+    Stream<int> remaining;
+    try {
+      remaining = context.read<SyncFacade>().outboxRemaining;
+    } catch (_) {
+      remaining = Stream.value(0);
+    }
+    _outboxRemaining = remaining;
   }
 
   Future<_DrawerData> _loadData() async {
@@ -875,11 +885,20 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 ),
               SyncStatusBuilder(
                 builder: (context, status, isDegraded) {
-                  return AppButton(
-                    label: '🔒 ยืนยันปิดลิ้นชัก',
-                    busy: _busy,
-                    fullWidth: true,
-                    onPressed: (hasPhys && !isDegraded) ? _handleClose : null,
+                  return StreamBuilder<int>(
+                    stream: _outboxRemaining,
+                    initialData: 0,
+                    builder: (context, snap) {
+                      final queued = (snap.data ?? 0) > 0;
+                      return AppButton(
+                        label: '🔒 ยืนยันปิดลิ้นชัก',
+                        busy: _busy,
+                        fullWidth: true,
+                        onPressed: (hasPhys && !isDegraded && !queued)
+                            ? _handleClose
+                            : null,
+                      );
+                    },
                   );
                 },
               ),
