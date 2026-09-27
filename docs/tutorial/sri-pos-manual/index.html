@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือระบบ Srisurart POS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="partnav">
+  <a class="cur" href="index.html">หน้าแรก</a>
+  <a href="01-counter-staff.html">01 พนักงานหน้าร้าน</a>
+  <a href="02-owner-backoffice.html">02 เจ้าของร้าน</a>
+  <a href="03-platform-admin.html">03 ผู้ดูแลแพลตฟอร์ม</a>
+  <a href="04-it-operations.html">04 IT / ผู้ดูแลระบบ</a>
+  <a href="05-dashboards.html">05 แดชบอร์ด</a>
+</nav>
+
+<!-- ════════════════ COVER ════════════════ -->
+<section class="page cover">
+  <div class="cover-wrap">
+    <div class="cover-top-rule"></div>
+    <div class="cover-body">
+      <div class="cover-brand">
+        <div class="logo-mark">⚡</div>
+        <div>
+          <div class="name">ศรีสุราษฎร์เจริญยนต์</div>
+          <div class="sub">Srisurart POS · Multi-tenant</div>
+        </div>
+      </div>
+      <div class="cover-spacer"></div>
+      <div class="cover-eyebrow">User Manual · SOP · คู่มือการใช้งาน</div>
+      <div class="cover-title">คู่มือการใช้งาน<br><span class="accent">ระบบ Srisurart POS</span></div>
+      <div class="cover-lede">ขั้นตอนปฏิบัติงาน (SOP) แยกตามบทบาท — พนักงานหน้าร้าน เจ้าของร้าน ผู้ดูแลแพลตฟอร์ม และทีม IT ตั้งแต่เข้าสู่ระบบ ขาย คืนสินค้า ปิดกะ ไปจนถึงสร้างร้านใหม่ รันระบบ และอ่านแดชบอร์ด</div>
+      <div class="cover-meta">
+        <div><div class="lbl">สำหรับ</div><div class="val">หน้าร้าน · เจ้าของร้าน · แพลตฟอร์ม · IT</div></div>
+        <div><div class="lbl">ฉบับ</div><div class="val">2.0 (2026-09-27)</div></div>
+        <div><div class="lbl">ภาษา</div><div class="val">ไทย (มีคำอังกฤษกำกับ)</div></div>
+      </div>
+    </div>
+    <div class="cover-foot">
+      <span>ฉบับนี้แทนคู่มือ Flutter ฉบับเดิม (ลบแล้ว)</span>
+      <span>Srisurart POS Operating Guide</span>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ TOC ════════════════ -->
+<section class="page" id="toc">
+  <div class="runhead"><span>Srisurart POS · คู่มือ</span><span class="r">สารบัญ</span></div>
+  <div class="sec-no">Contents</div>
+  <h1 class="sec">สารบัญ <span class="en">Contents</span></h1>
+  <p class="sec-lede">คู่มือแบ่งเป็น <strong>หน้าแรก (ไฟล์นี้)</strong> + <strong>5 ภาค</strong> แยกไฟล์ตามบทบาท แต่ละภาคพิมพ์แยกเป็นเล่มได้ เลขหน้าในสารบัญของแต่ละภาคนับภายในไฟล์นั้น</p>
+  <div class="toc">
+    <a class="toc-row" href="#how"><span class="n">0.1</span><span class="t">วิธีใช้คู่มือนี้ <span class="en">How to read</span></span><span class="pg">3</span></a>
+    <a class="toc-row" href="#roles"><span class="n">0.2</span><span class="t">ใครอ่านภาคไหน · ระบบมี 2 แบบ <span class="en">Roles &amp; builds</span></span><span class="pg">4</span></a>
+    <a class="toc-row" href="#arch"><span class="n">0.3</span><span class="t">ภาพรวมสถาปัตยกรรม <span class="en">Architecture</span></span><span class="pg">5</span></a>
+    <a class="toc-row" href="#status"><span class="n">0.4</span><span class="t">สถานะจริงวันนี้ <span class="en">Honest status</span></span><span class="pg">6</span></a>
+    <a class="toc-row" href="01-counter-staff.html"><span class="n">01</span><span class="t">พนักงานหน้าร้าน / เครื่อง POS <span class="en">Counter staff</span><span class="who">เข้าสู่ระบบ · เปิดกะ · ขาย · ใบเสร็จ · พักบิล · ใบเสนอราคา · คืน/ยกเลิกบิล · ลิ้นชัก · ปิดกะ · ออฟไลน์</span></span><span class="pg">ภาค 01 →</span></a>
+    <a class="toc-row" href="02-owner-backoffice.html"><span class="n">02</span><span class="t">เจ้าของร้าน / หลังร้าน <span class="en">Owner &amp; back office</span><span class="who">เปลี่ยนรหัสผ่านครั้งแรก · ผูก/ปลดเครื่อง · สินค้า · สั่งซื้อ · ลูกค้า · ช่าง · รายงาน · ตั้งค่า/สำรอง · รอเจ้าของ</span></span><span class="pg">ภาค 02 →</span></a>
+    <a class="toc-row" href="03-platform-admin.html"><span class="n">03</span><span class="t">ผู้ดูแลแพลตฟอร์ม <span class="en">Platform admin</span><span class="who">bootstrap-admin · platform-ui · สร้างร้าน · ระงับ/เปิด · ออกรหัสใหม่ · CLI · 403</span></span><span class="pg">ภาค 03 →</span></a>
+    <a class="toc-row" href="04-it-operations.html"><span class="n">04</span><span class="t">IT / ผู้ดูแลระบบ <span class="en">IT operations</span><span class="who">รันเครื่องตัวเอง · แผนผังบริการ · health check · deploy mob04 · rollback · backup · .env · แก้ปัญหา</span></span><span class="pg">ภาค 04 →</span></a>
+    <a class="toc-row" href="05-dashboards.html"><span class="n">05</span><span class="t">แดชบอร์ด <span class="en">Dashboards</span><span class="who">Grafana · Prometheus · Bull-Board · "ปกติ" หน้าตาเป็นอย่างไร</span></span><span class="pg">ภาค 05 →</span></a>
+  </div>
+  <div class="note key">
+    <span class="nt">อ่านก่อนเริ่ม</span>
+    ร้านยังใช้ <strong>ระบบแบบออฟไลน์ (Drift build)</strong> อยู่ — <strong>ยังไม่ได้ย้ายไปใช้เซิร์ฟเวอร์</strong> (no cutover) ส่วนที่เขียนถึงการเข้าสู่ระบบ ผูกเครื่อง ส่งข้อมูลขึ้นเซิร์ฟเวอร์ และทุกอย่างในภาค 03–05 คือระบบใหม่ที่ทีมรันใน dev/ทดสอบ ดูรายละเอียดที่หน้า <a href="#status">สถานะจริงวันนี้</a>
+  </div>
+  <div class="runfoot"><span>Srisurart POS · หน้าแรก</span><span class="pagenum">2</span></div>
+</section>
+
+<!-- ════════════════ HOW TO READ ════════════════ -->
+<section class="page" id="how">
+  <div class="runhead"><span>Srisurart POS · คู่มือ</span><span class="r">วิธีใช้คู่มือ</span></div>
+  <div class="sec-no">Section 00</div>
+  <h1 class="sec">วิธีใช้คู่มือนี้ <span class="en">How to read</span></h1>
+  <p class="sec-lede">ทุกภาคเขียนเป็น <strong>SOP</strong> — ขั้นตอนเรียงเลข แต่ละขั้นบอกว่า <strong>ทำอะไร → กดอะไร → เห็นอะไร</strong> ข้อความบนหน้าจอคัดลอกมาจากโค้ดตรงตัว ไม่ได้แปลหรือเรียบเรียงใหม่</p>
+
+  <h2 class="sub">สัญลักษณ์ที่ใช้ <span class="en">Legend</span></h2>
+  <table class="grid">
+    <tr><th>เห็นในคู่มือ</th><th>ความหมาย</th></tr>
+    <tr><td><span class="ui">ชำระเงิน</span></td><td>ปุ่มหลักที่ต้องกด (ข้อความตรงกับบนจอ)</td></tr>
+    <tr><td><span class="ui ghost">ลิ้นชัก</span></td><td>เมนู แท็บ ช่องกรอก หรือปุ่มรอง</td></tr>
+    <tr><td><span class="msg">รับเงินไม่ครบ</span></td><td>ข้อความที่ระบบแสดงบนจอ (แจ้งเตือน / กล่องยืนยัน)</td></tr>
+    <tr><td><code>{N}</code> <code>{baht}</code></td><td>ส่วนที่ระบบเติมตัวเลขจริงให้ เช่น จำนวนรายการ หรือยอดเงิน</td></tr>
+    <tr><td><span style="color:var(--green);font-weight:700">เห็น →</span></td><td>ผลลัพธ์ที่ควรเห็นหลังทำขั้นนั้น — ถ้าไม่เห็น ให้ดูหัวข้อ "ปัญหาที่พบบ่อย" ของภาคนั้น</td></tr>
+    <tr><td><code>USE_API_WRITES=true</code></td><td>คำศัพท์เทคนิค / ชื่อไฟล์ / คำสั่ง</td></tr>
+  </table>
+
+  <h2 class="sub">กล่องที่พบในทุกภาค <span class="en">Boxes</span></h2>
+  <div class="rolebox"><span class="nt">บทบาทและสิทธิ์ · Role &amp; permission</span>อยู่บนสุดของทุกภาค — บอกว่าใครใช้ ต้องใช้เครื่องแบบไหน และทำอะไรไม่ได้</div>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>สิ่งที่ <strong>ยังไม่ทำงาน</strong> หรือ <strong>ยังไม่ได้พิสูจน์</strong> — อ่านก่อนสัญญาอะไรกับลูกค้าหรือเจ้าของร้าน</div>
+  <div class="note tip"><span class="nt">เคล็ดลับ</span>วิธีทำให้เร็วขึ้นหรือหลีกเลี่ยงความผิดพลาด</div>
+  <div class="note warn"><span class="nt">ระวัง</span>สิ่งที่ทำแล้วย้อนกลับไม่ได้ หรือทำให้ยอดเงิน/สต็อกคลาดเคลื่อน</div>
+
+  <h2 class="sub">ภาพหน้าจอ <span class="en">Screenshots</span></h2>
+  <p>ภาพหน้าจออยู่ในโฟลเดอร์ <code>img/</code> ข้างไฟล์นี้ ภาพที่ยังไม่ได้ถ่ายจะแสดงเป็นกรอบเส้นประแบบนี้ — เติมได้โดยวางไฟล์ <code>img/&lt;ชื่อ&gt;.png</code> แล้วเปลี่ยนกรอบเป็นแท็ก <code>&lt;img&gt;</code> · ภาพทั้งหมดถ่ายจากสแตก dev ของ <strong>ร้านตัวอย่าง</strong> (ชื่อร้าน ลูกค้า ช่าง เป็นข้อมูลสมมุติ) บน API build — ข้อมูล seed ของ Drift ปนกับข้อมูลเซิร์ฟเวอร์ จึงอาจเห็นรหัสซ้ำ ซึ่งไม่ใช่บั๊ก</p>
+  <figure><div class="shot-placeholder" data-shot="example">(ภาพหน้าจอ: example — รอเพิ่ม)</div><figcaption>ตัวอย่างกรอบภาพที่รอเพิ่ม</figcaption></figure>
+
+  <div class="note key"><span class="nt">พิมพ์เป็นเล่ม</span>เปิดไฟล์ในเบราว์เซอร์ → สั่งพิมพ์ (Ctrl+P) → ขนาด A4 ขอบกระดาษ "ไม่มี" — แต่ละกรอบสีขาวคือหนึ่งหน้า ถ้าเนื้อหาหน้าไหนยาวเกิน A4 จะล้นไปหน้าถัดไปเอง</div>
+  <div class="runfoot"><span>Srisurart POS · หน้าแรก</span><span class="pagenum">3</span></div>
+</section>
+
+<!-- ════════════════ ROLES & BUILDS ════════════════ -->
+<section class="page" id="roles">
+  <div class="runhead"><span>Srisurart POS · คู่มือ</span><span class="r">ใครอ่านภาคไหน</span></div>
+  <div class="sec-no">Section 00</div>
+  <h1 class="sec">ใครอ่านภาคไหน <span class="en">Who reads what</span></h1>
+  <p class="sec-lede">ระบบมี <strong>บัญชีร้านเพียงบัญชีเดียว</strong> ต่อร้าน (บทบาท <code>owner</code>) — ไม่มีบัญชีแยกของแคชเชียร์หรือผู้จัดการ สิ่งที่ทำได้จึงขึ้นกับ <strong>ประเภทเครื่อง</strong> ที่ผูกไว้ มากกว่าตัวบุคคล</p>
+
+  <div class="navgrid">
+    <a class="navcard" href="01-counter-staff.html"><span class="ic">💳</span><span class="tx"><b>01 พนักงานหน้าร้าน</b><span>ใช้เครื่อง POS ขาย คืน ลิ้นชัก ปิดกะ</span></span></a>
+    <a class="navcard" href="02-owner-backoffice.html"><span class="ic">🏪</span><span class="tx"><b>02 เจ้าของร้าน</b><span>อ่านภาค 01 ด้วย + ผูกเครื่อง สินค้า รายงาน ตรวจรายการ</span></span></a>
+    <a class="navcard" href="03-platform-admin.html"><span class="ic">🛡</span><span class="tx"><b>03 ผู้ดูแลแพลตฟอร์ม</b><span>ทีมงานที่เปิดร้านใหม่ ระงับร้าน ออกรหัสผ่านชั่วคราว</span></span></a>
+    <a class="navcard" href="04-it-operations.html"><span class="ic">🖥</span><span class="tx"><b>04 IT / ผู้ดูแลระบบ</b><span>รันเซิร์ฟเวอร์ deploy สำรองข้อมูล แก้ปัญหา</span></span></a>
+    <a class="navcard" href="05-dashboards.html"><span class="ic">📈</span><span class="tx"><b>05 แดชบอร์ด</b><span>IT อ่านสุขภาพระบบจาก Grafana / Prometheus / Bull-Board</span></span></a>
+  </div>
+
+  <h2 class="sub">ประเภทเครื่อง <span class="en">Device roles (ADR-0004)</span></h2>
+  <table class="grid">
+    <tr><th>ประเภท</th><th>มีได้กี่เครื่อง</th><th>ทำได้</th><th>ทำไม่ได้</th></tr>
+    <tr><td><strong>เครื่องขาย (POS)</strong></td><td>1 เครื่องต่อร้าน</td><td>ขาย คืนสินค้า รับชำระเครดิตช่าง เปิด/ปิดกะ บันทึกเงินเข้า-ออกลิ้นชัก พักบิล ออกเลขใบเสร็จ/ใบลดหนี้ ขายต่อได้ตอนเน็ตหลุด</td><td>—</td></tr>
+    <tr><td><strong>Backoffice</strong></td><td>หลายเครื่อง — เลขเครื่อง 1–99 ใช้ร่วมกันทั้งร้าน (นับ POS ด้วย) และเลขของเครื่องที่ปลดแล้วไม่ถูกนำกลับมาใช้</td><td>สินค้า ลูกค้า ช่าง ซัพพลายเออร์ ใบสั่งซื้อ ปรับสต็อก ใบเสนอราคา ดูรายงาน</td><td>ขาย คืน ลิ้นชัก รับชำระเครดิตช่าง — และต้องออนไลน์ตลอด</td></tr>
+    <tr><td>ยังไม่ผูกเครื่อง</td><td>—</td><td>เปิดหน้าเข้าสู่ระบบ และผูกเครื่องได้</td><td>งานที่ต้องใช้สิทธิ์เครื่อง (เซิร์ฟเวอร์ตอบ <span class="msg">เครื่องนี้ขายของไม่ได้</span>)</td></tr>
+  </table>
+  <p class="muted">เส้นแบ่งคือ "แตะลิ้นชักไหม" ไม่ใช่ "แตะสต็อกไหม" — การแบ่งสิทธิ์นี้บังคับที่ <strong>เซิร์ฟเวอร์</strong> หน้าจอส่วนใหญ่ไม่ได้ซ่อนปุ่มตามประเภทเครื่อง (ยกเว้นส่วนตั้งค่า PIN ออฟไลน์)</p>
+
+  <h2 class="sub">ระบบมี 2 แบบจากโค้ดชุดเดียว <span class="en">Two builds</span></h2>
+  <table class="grid">
+    <tr><th></th><th>แบบออฟไลน์ (Drift build)</th><th>แบบเชื่อมเซิร์ฟเวอร์ (API build)</th></tr>
+    <tr><td>ตั้งค่าตอน build</td><td><code>USE_API_WRITES</code> ไม่ได้ตั้ง (ค่าเริ่มต้น)</td><td><code>--dart-define=USE_API_WRITES=true</code></td></tr>
+    <tr><td>ใครใช้ตอนนี้</td><td><strong>ร้านจริงใช้อยู่ทุกวัน</strong></td><td>ทีมพัฒนา / ร้านทดสอบ (demo tenant)</td></tr>
+    <tr><td>หน้าเข้าสู่ระบบ</td><td class="no">ไม่มี</td><td class="ok">มี (<code>/login</code>)</td></tr>
+    <tr><td>ข้อมูลจริงอยู่ที่</td><td>ฐานข้อมูลในเครื่อง (SQLite)</td><td>PostgreSQL บนเซิร์ฟเวอร์ (เครื่องเก็บสำเนา)</td></tr>
+    <tr><td>ผูกเครื่อง / PIN ออฟไลน์ / สถานะซิงก์ / ต้องเปิดกะก่อนขาย</td><td class="no">ไม่มีผล</td><td class="ok">ใช้งาน</td></tr>
+    <tr><td>เมนูทั้ง 12 หน้า + <code>/devices</code></td><td class="ok">มี</td><td class="ok">มี</td></tr>
+  </table>
+  <p>ภาค 01–02 เขียนตามแบบ <strong>API build</strong> เป็นหลัก และบอกไว้ทุกครั้งที่แบบออฟไลน์ต่างออกไป</p>
+  <div class="runfoot"><span>Srisurart POS · หน้าแรก</span><span class="pagenum">4</span></div>
+</section>
+
+<!-- ════════════════ ARCHITECTURE ════════════════ -->
+<section class="page" id="arch">
+  <div class="runhead"><span>Srisurart POS · คู่มือ</span><span class="r">สถาปัตยกรรม</span></div>
+  <div class="sec-no">Section 00</div>
+  <h1 class="sec">ภาพรวมสถาปัตยกรรม <span class="en">Architecture</span></h1>
+  <p class="sec-lede">แอป Flutter (เว็บ/มือถือ) คุยกับเซิร์ฟเวอร์ผ่าน Nginx ตัวเดียว เซิร์ฟเวอร์ NestJS 3 ตัวแชร์ PostgreSQL ที่แยกข้อมูลแต่ละร้านด้วย Row-Level Security (RLS)</p>
+
+<div class="arch">  เครื่องหน้าร้าน / หลังร้าน                       เครื่องเซิร์ฟเวอร์ (VM เดียว · 4 vCPU · 6 GB)
+ ┌──────────────────────────┐          ┌────────────────────────────────────────────────┐
+ │ Flutter app              │  HTTPS   │ Nginx :443  (TLS · rate limit · เว็บ static)    │
+ │  ├ Drift/SQLite (สำเนา)   │ ───────► │     │ least_conn                               │
+ │  └ outbox (คิวรอส่ง)      │   JWT    │     ▼                                          │
+ └──────────────────────────┘          │ api-1   api-2   api-3   (NestJS)               │
+                                       │     │                                          │
+ platform-ui :3200 (loopback) ──► Nginx│     ├─► PostgreSQL 16 — ข้อมูลจริง · RLS ต่อร้าน   │
+                                       │     ├─► redis-cache (ไล่ทิ้งได้)                 │
+                                       │     ├─► redis-queue (ห้ามทิ้ง) ─► worker (BullMQ) │
+                                       │     └─► etcd (ค่าตั้งแบบเปลี่ยนสดได้)             │
+                                       │ Bull-Board :3100 · Prometheus :9090 · Grafana :3000│
+                                       │ (เปิดเฉพาะ 127.0.0.1 — เข้าผ่าน SSH tunnel)       │
+                                       └────────────────────────────────────────────────┘</div>
+
+  <ul class="ticks">
+    <li><strong>Nginx ต้องเป็น proxy ตัวเดียว</strong> หน้า API — ระบบอ่าน IP ลูกค้าจาก <code>X-Forwarded-For</code> ตัวขวาสุด ถ้ามี proxy/CDN ซ้อน ลูกค้าทุกคนจะถูกนับเป็น IP เดียว</li>
+    <li><strong>Redis 2 ตัวโดยตั้งใจ</strong> — ตัว cache ไล่ข้อมูลเก่าทิ้งได้ ตัว queue ห้ามทิ้งเด็ดขาด (ถ้ารวมเป็นตัวเดียว งานในคิวอาจหายเงียบ ๆ)</li>
+    <li><strong>worker</strong> ทำงานเบื้องหลัง 5 คิว (หลังขาย ตรวจสต็อก บำรุงรักษา ส่งออกข้อมูล นำเข้าข้อมูล) — งานที่ล้มครบ 3 ครั้งไปพักในคิว <code>dlq</code> ซึ่งไม่มี worker — ดูภาค 05</li>
+    <li><strong>etcd</strong> เก็บเฉพาะค่าตั้งที่ไม่ลับ (วันนี้มีคีย์เดียว <code>/pos/config/log_level</code>) ไม่ใช่ข้อมูลธุรกิจ</li>
+  </ul>
+
+  <h2 class="sub">ระยะที่ 1 กับระยะที่ 2 <span class="en">Phase 1 vs 2</span></h2>
+  <table class="grid">
+    <tr><th>ระยะ</th><th>คืออะไร</th><th>สถานะ</th></tr>
+    <tr><td><strong>Phase 1</strong></td><td>เซิร์ฟเวอร์ + RLS + transaction/idempotency + ชั้นเขียนผ่าน API ของแอป (ข้อมูลจริงอยู่บนเซิร์ฟเวอร์ เครื่องเป็นแค่สำเนา)</td><td>โค้ดรวมเข้า <code>main</code> แล้ว — เกณฑ์เสร็จ 16 จาก 17 ข้อ (ค้างข้อทดสอบโหลด k6)</td></tr>
+    <tr><td><strong>Phase 2</strong></td><td>ขายต่อได้ตอนเน็ตหลุด: outbox คิวรอส่ง, เครื่อง POS เครื่องเดียวต่อร้าน, PIN ออฟไลน์, ออกเลข RC/CN ได้ทั้งออนไลน์และออฟไลน์, หน้า "รอเจ้าของ"</td><td>กำลังทำ — ตั๋วหลักเหลือ #231 (การย้ายร้านจริง / cutover)</td></tr>
+  </table>
+  <div class="note key"><span class="nt">ร้านจริงวันนี้</span>ร้านยังใช้ <strong>Drift build</strong> บนเครื่องหน้าร้าน ข้อมูลอยู่ในเครื่องนั้นเครื่องเดียว — เซิร์ฟเวอร์ข้างบนมีอยู่จริง รันและทดสอบได้ แต่ <strong>ยังไม่มีร้านจริงเชื่อมต่อ</strong> และ <strong>ยังไม่เคย deploy ขึ้น VM ของคณะ (<code>mob04</code>) สำเร็จ</strong></div>
+  <div class="runfoot"><span>Srisurart POS · หน้าแรก</span><span class="pagenum">5</span></div>
+</section>
+
+<!-- ════════════════ STATUS ════════════════ -->
+<section class="page" id="status">
+  <div class="runhead"><span>Srisurart POS · คู่มือ</span><span class="r">สถานะจริง</span></div>
+  <div class="sec-no">Section 00</div>
+  <h1 class="sec">สถานะจริงวันนี้ <span class="en">Honest status · 2026-09-27</span></h1>
+  <p class="sec-lede">รายการนี้มีไว้กันการเข้าใจผิด — ถ้าคู่มือส่วนใดขัดกับกล่องนี้ ให้เชื่อกล่องนี้ และเช็กสถานะล่าสุดใน <code>README.md</code> (Known bottlenecks / Roadmap) และ GitHub issues</p>
+
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
+    <ul class="ticks">
+      <li><strong>ยังไม่ cutover</strong> — ร้านใช้ Drift build แบบออฟไลน์ ไม่มีการเข้าสู่ระบบ ไม่มีการผูกเครื่อง</li>
+      <li><strong>CD ขึ้น <code>mob04</code> ยังไม่เคยสำเร็จ</strong> — firewall ของมหาวิทยาลัยตรวจ SSL แล้วตอบ <code>ghcr.io</code> ด้วยใบรับรองที่ไม่มี SAN ทำให้ <code>docker compose pull</code> ล้ม และยังไม่มี self-hosted runner ลงทะเบียนเลย (0 ตัว) — การ Deploy (demo) ที่ขึ้นเขียวใน GitHub <strong>ไม่ได้แปลว่าขึ้นเครื่องแล้ว</strong></li>
+      <li><strong>ยังไม่มี backup ออกนอก VM</strong> — งาน offsite ถูกพักไว้จนหลังเดโม ถ้าดิสก์ <code>mob04</code> เสีย ข้อมูลร้าน demo หายหมด</li>
+      <li><strong>etcd บน <code>mob04</code> ยังไม่เปิดระบบรหัสผ่าน</strong> (#365) และ <code>CORS_ORIGINS</code> บน VM ยังเป็น <code>'*'</code></li>
+      <li><strong>ยังไม่ได้วัดโหลด</strong> (#380) — แผง k6 ใน Grafana จึงว่าง</li>
+      <li><strong>platform-ui</strong> (#443) รวมโค้ดแล้วแต่ยังไม่ deploy การทดสอบ 403 สองชั้นวัดบน Docker Desktop เท่านั้น ยังไม่ได้วัดบน Linux/<code>mob04</code></li>
+      <li><strong>หน้า ลิ้นชัก</strong>: ระบบรองรับหลายกะต่อวัน แต่หน้าจอยังไม่มีปุ่มเปิดกะใหม่หลังปิดลิ้นชักไปแล้วในวันเดียวกัน (ดูภาค 01)</li>
+      <li><strong>คืนสินค้าตอนออฟไลน์</strong>: หน้าคืนสินค้าใน API build ยังส่งไปเซิร์ฟเวอร์โดยตรง ไม่ได้เข้าคิวรอส่ง — ต้องมีเน็ต (ดูภาค 01)</li>
+      <li>ฮาร์ดแวร์หน้าร้าน (เครื่องพิมพ์ความร้อนสั่งตรง ลิ้นชักเด้ง สแกนบาร์โค้ดด้วยกล้อง) ยังไม่ทำ — การพิมพ์ใช้หน้าต่างพิมพ์ของระบบปฏิบัติการ</li>
+    </ul>
+  </div>
+
+  <h2 class="sub">เอกสารอ้างอิงที่ผูกมัด <span class="en">Binding references</span></h2>
+  <ul class="ticks">
+    <li><code>CONTRACT.md</code> — สเปกของแอป (ตาราง, repository, route, กฎข้อความไทย)</li>
+    <li><code>docs/Backend_design/adr/</code> — บันทึกการตัดสินใจ <strong>ถ้าเอกสารใดขัดกับ ADR ให้ยึด ADR</strong></li>
+    <li><code>docs/Backend_design/08_PHASE2_SPEC.md</code> — พฤติกรรมออฟไลน์ phase 2</li>
+    <li><code>docs/Backend_design/07_CICD_DEPLOY.md</code> — deploy และ runbook</li>
+    <li><code>docs/tutorial/local-full-stack-tutorial.md</code> — รันทั้งระบบบนเครื่องตัวเอง (คำสั่งครบ)</li>
+  </ul>
+  <div class="runfoot"><span>Srisurart POS · หน้าแรก</span><span class="pagenum">6</span></div>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือแดชบอร์ด</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="partnav">
+  <a href="index.html">หน้าแรก</a>
+  <a href="01-counter-staff.html">01 พนักงานหน้าร้าน</a>
+  <a href="02-owner-backoffice.html">02 เจ้าของร้าน</a>
+  <a href="03-platform-admin.html">03 ผู้ดูแลแพลตฟอร์ม</a>
+  <a href="04-it-operations.html">04 IT / ผู้ดูแลระบบ</a>
+  <a class="cur" href="05-dashboards.html">05 แดชบอร์ด</a>
+</nav>
+
+<!-- ════════════════ 1 · PART HEADER ════════════════ -->
+<section class="page" id="top">
+  <div class="runhead"><span>Srisurart POS · ภาค 05</span><span class="r">แดชบอร์ด</span></div>
+  <div class="sec-no">Part 05</div>
+  <h1 class="sec">แดชบอร์ด <span class="en">Dashboards</span></h1>
+  <p class="sec-lede">อ่านสุขภาพระบบจาก 3 หน้า: <strong>Grafana</strong> (ภาพรวม), <strong>Prometheus</strong> (แหล่งตัวเลข/เป้าที่เก็บข้อมูล), <strong>Bull-Board</strong> (คิวงานเบื้องหลัง) — และรู้ว่า "ปกติ" หน้าตาเป็นอย่างไร</p>
+
+  <div class="rolebox"><span class="nt">บทบาทและสิทธิ์ · Role &amp; permission</span>
+    <dl>
+      <dt>ใครใช้</dt><dd>ทีม IT / ผู้ดูแลระบบ</dd>
+      <dt>เข้าทาง</dt><dd>เปิดเฉพาะ <code>127.0.0.1</code> — บน VM ต้องใช้ SSH tunnel (<code>ssh -L 3000:127.0.0.1:3000</code>, <code>9090</code>, <code>3100</code>)</dd>
+      <dt>รหัส</dt><dd>Grafana: <code>GRAFANA_ADMIN_USER</code>/<code>GRAFANA_ADMIN_PASSWORD</code> · Bull-Board: <code>BULL_BOARD_USER</code>/<code>BULL_BOARD_PASSWORD</code> · Prometheus: ไม่มีรหัส (จึงห้ามเปิดออกนอก loopback)</dd>
+      <dt>ข้อควรรู้</dt><dd><strong>ไม่มีระบบแจ้งเตือนอัตโนมัติ</strong> (ไม่มี Alertmanager โดยตั้งใจ เพราะงบ RAM 6 GB) — ต้องเปิดดูเอง</dd>
+    </dl>
+  </div>
+
+  <h2 class="sub">ในภาคนี้ <span class="en">Contents</span></h2>
+  <div class="toc">
+    <a class="toc-row" href="#grafana"><span class="n">1</span><span class="t">Grafana — แผงแต่ละตัว <span class="en">Panels</span></span><span class="pg">2</span></a>
+    <a class="toc-row" href="#prom"><span class="n">2</span><span class="t">Prometheus — targets <span class="en">Scrape targets</span></span><span class="pg">3</span></a>
+    <a class="toc-row" href="#bull"><span class="n">3</span><span class="t">Bull-Board — คิวและ DLQ <span class="en">Queues</span></span><span class="pg">4</span></a>
+    <a class="toc-row" href="#healthy"><span class="n">4</span><span class="t">"ปกติ" คืออะไร · ทำอะไรเมื่อผิดปกติ <span class="en">Healthy &amp; response</span></span><span class="pg">5</span></a>
+  </div>
+  <div class="runfoot"><span>ภาค 05 · แดชบอร์ด</span><span class="pagenum">1</span></div>
+</section>
+
+<!-- ════════════════ 2 · GRAFANA ════════════════ -->
+<section class="page" id="grafana">
+  <div class="runhead"><span>Srisurart POS · ภาค 05</span><span class="r">1 · Grafana</span></div>
+  <div class="sec-no">Section 1</div>
+  <h1 class="sec">Grafana <span class="en">Srisurart POS — overview</span></h1>
+  <p class="sec-lede">เปิด <code>http://127.0.0.1:3000</code> → เข้าสู่ระบบ → แดชบอร์ด <strong>Srisurart POS — overview</strong> (ตั้งค่าไว้ให้อัตโนมัติ ไม่ต้องเพิ่ม datasource) · รีเฟรชทุก 30 วินาที ช่วงเริ่มต้น 6 ชั่วโมงล่าสุด</p>
+  <figure><img src="img/grafana-dashboard.png" alt="Srisurart POS — overview" loading="lazy"><figcaption>Srisurart POS — overview</figcaption></figure>
+  <div class="tbl-scroll">
+  <table class="grid">
+    <tr><th>แผง</th><th>บอกอะไร</th><th>ปกติ</th></tr>
+    <tr><td><strong>CPU usage</strong></td><td>CPU ของเครื่อง (node-exporter)</td><td>ไม่ค้างสูงต่อเนื่อง</td></tr>
+    <tr><td><strong>Memory usage</strong></td><td>RAM ที่ใช้ของเครื่อง</td><td>ต่ำกว่างบ ~4.2 จาก 6 GB</td></tr>
+    <tr><td><strong>Disk usage (/)</strong></td><td>พื้นที่ดิสก์ root</td><td>มีที่เหลือพอ — <strong>บน Docker Desktop จะว่าง</strong> (ดิสก์ของ WSL VM) ไม่ใช่บั๊ก</td></tr>
+    <tr><td><strong>API success rate</strong></td><td>สัดส่วนคำขอที่ไม่ใช่ 5xx</td><td>ใกล้ 100% (ไม่นับ <code>/metrics</code> และ <code>/health/*</code>)</td></tr>
+    <tr><td><strong>API p95 latency</strong></td><td>เวลาตอบ percentile ที่ 95</td><td>คงที่ ไม่พุ่ง</td></tr>
+    <tr><td><strong>API error rate by status code</strong></td><td>อัตรา 4xx/5xx แยกตามรหัส</td><td>4xx ประปราย (เช่น 409 สต็อกไม่พอ) ได้ · 5xx ควรเป็น 0</td></tr>
+    <tr><td><strong>Idempotent replays</strong></td><td>จำนวนครั้งที่คำขอซ้ำถูกตอบด้วยผลเดิม (กันขายซ้ำ)</td><td>มีบ้างเมื่อเน็ตช้า — ไม่ใช่ข้อผิดพลาด</td></tr>
+    <tr><td><strong>k6: …</strong> (5 แผง)</td><td>ผลทดสอบโหลดแบบกระจาย 3 เครื่อง</td><td><strong>"No data" คือปกติ</strong> — ยังไม่เคยรัน (#380) · แผง 429 ต้องเป็น 0 เมื่อรันจริง</td></tr>
+  </table>
+  </div>
+  <div class="note key"><span class="nt">ชื่อ metric ห้ามเปลี่ยน</span>แผงอ่าน <code>http_requests_total</code>, <code>http_request_duration_seconds</code> และ <code>pos_idempotency_replay_total</code> — เปลี่ยนชื่อ metric ในโค้ดแล้วแผงจะว่างเงียบ ๆ</div>
+  <div class="runfoot"><span>ภาค 05 · แดชบอร์ด</span><span class="pagenum">2</span></div>
+</section>
+
+<!-- ════════════════ 3 · PROMETHEUS ════════════════ -->
+<section class="page" id="prom">
+  <div class="runhead"><span>Srisurart POS · ภาค 05</span><span class="r">2 · Prometheus</span></div>
+  <div class="sec-no">Section 2</div>
+  <h1 class="sec">Prometheus <span class="en">Targets</span></h1>
+  <p class="sec-lede">เปิด <code>http://127.0.0.1:9090/targets</code> — เก็บข้อมูลทุก 15 วินาที เก็บย้อนหลัง 7 วันหรือ 2 GB แล้วแต่ถึงก่อน</p>
+  <figure><img src="img/prometheus-targets.png" alt="Prometheus — Targets" loading="lazy"><figcaption>Prometheus — Targets</figcaption></figure>
+  <table class="grid">
+    <tr><th>Job</th><th>เก็บจาก</th><th>สถานะที่ถูกต้อง</th></tr>
+    <tr><td><code>node</code></td><td><code>node-exporter:9100</code></td><td class="ok">UP — ป้อนแผง CPU/Memory/Disk</td></tr>
+    <tr><td><code>api-metrics</code></td><td><code>/metrics</code> ของ <code>api-1..3:3000</code> (ภายในเท่านั้น)</td><td class="ok">UP ทั้ง 3 — ป้อนแผง API ทั้งหมด</td></tr>
+    <tr><td><code>api-readiness</code></td><td><code>/health/ready</code> ของ <code>api-1..3</code></td><td class="no">DOWN — ปกติ! endpoint ตอบ JSON ซึ่ง Prometheus อ่านไม่ได้ (เก็บไว้เป็นตัวยึดตำแหน่ง)</td></tr>
+  </table>
+  <ol class="steps">
+    <li><span class="st-title">ดูว่า <code>node</code> และ <code>api-metrics</code> ครบ 3 ตัวเป็น UP</span>ถ้า <code>api-N</code> ของ <code>api-metrics</code> DOWN = instance นั้นมีปัญหา → ดู <code>docker compose logs api-N</code></li>
+    <li><span class="st-title">ถ้าจะลองค่าเอง ไปที่ <code>/graph</code></span>พิมพ์ <code>up</code> → Execute<span class="see">1 = เก็บได้ · 0 = เก็บไม่ได้</span></li>
+  </ol>
+  <p class="muted">Prometheus ยังรับข้อมูล k6 แบบ remote-write ผ่าน Nginx ที่ <code>/prometheus-remote-write/api/v1/write</code> (กัน IP + Basic Auth) — ใช้ตอนทดสอบโหลดเท่านั้น · ไม่มี <code>rule_files</code> ไม่มี alert</p>
+  <div class="runfoot"><span>ภาค 05 · แดชบอร์ด</span><span class="pagenum">3</span></div>
+</section>
+
+<!-- ════════════════ 4 · BULL-BOARD ════════════════ -->
+<section class="page" id="bull">
+  <div class="runhead"><span>Srisurart POS · ภาค 05</span><span class="r">3 · Bull-Board</span></div>
+  <div class="sec-no">Section 3</div>
+  <h1 class="sec">Bull-Board <span class="en">Queues &amp; DLQ</span></h1>
+  <p class="sec-lede">เปิด <code>http://127.0.0.1:3100</code> (Basic Auth) — แสดง 6 คิว: 5 คิวมี worker ของตัวเอง (ไม่แย่งงานกัน) ส่วน <code>dlq</code> ไม่มี worker</p>
+  <figure><img src="img/bull-board.png" alt="Bull-Board — 6 คิว" loading="lazy"><figcaption>Bull-Board — 6 คิว</figcaption></figure>
+  <table class="grid">
+    <tr><th>คิว</th><th>ใครใส่งาน</th><th>ทำอะไร</th></tr>
+    <tr><td><code>sale-post</code></td><td>หลังขาย/คืนสำเร็จ</td><td>งานเบื้องหลังหลังขาย ไม่บล็อกการตอบลูกค้า</td></tr>
+    <tr><td><code>inventory</code></td><td>ต่อจาก <code>sale-post</code></td><td>ตรวจสต็อก (<code>inventory.check</code>)</td></tr>
+    <tr><td><code>maintenance</code></td><td>ตั้งเวลาทุกชั่วโมง (<code>idem-cleanup-global</code>) + งาน purge</td><td>ล้าง idempotency key หมดอายุ, ใบเสนอราคาเก่า, ไฟล์ export เก่า</td></tr>
+    <tr><td><code>backup</code></td><td><code>POST /backup/export</code></td><td>ส่งออกข้อมูลร้าน (<code>tenant.export</code>)</td></tr>
+    <tr><td><code>tenant-import</code></td><td><code>POST /platform/tenants/:id/import</code></td><td>นำเข้าข้อมูลร้านใหม่ (<code>tenant.import</code>)</td></tr>
+    <tr><td><code>dlq</code></td><td>งานที่ลองครบ 3 ครั้งแล้วยังล้ม</td><td>ที่พักงานเสียให้คนดู — <strong>"No workers" เป็นเรื่องปกติ</strong> ไม่มีใครประมวลผลอัตโนมัติ</td></tr>
+  </table>
+  <h2 class="sub">จัดการงานที่ล้ม <span class="en">Failed jobs</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">คลิกคิวที่มี <strong>FAILED</strong> → คลิกงาน</span>อ่านข้อความผิดพลาดเต็ม</li>
+    <li><span class="st-title">แก้สาเหตุก่อน</span>เช่น งาน <code>tenant-import</code> ล้มเพราะร้านมีบิลอยู่แล้ว หรือไฟล์ผิดรูปแบบ</li>
+    <li><span class="st-title">กด <strong>Retry</strong> ที่งานนั้น</span>อย่ากด Retry ซ้ำ ๆ โดยไม่แก้สาเหตุ</li>
+    <li><span class="st-title">งานใน <code>dlq</code></span>อ่าน บันทึกสาเหตุ และตัดสินใจร่วมกับทีม — ไม่มี worker มาหยิบไปทำเอง</li>
+  </ol>
+  <div class="runfoot"><span>ภาค 05 · แดชบอร์ด</span><span class="pagenum">4</span></div>
+</section>
+
+<!-- ════════════════ 5 · HEALTHY ════════════════ -->
+<section class="page" id="healthy">
+  <div class="runhead"><span>Srisurart POS · ภาค 05</span><span class="r">4 · ปกติ / ผิดปกติ</span></div>
+  <div class="sec-no">Section 4</div>
+  <h1 class="sec">"ปกติ" คืออะไร · ทำอะไรเมื่อผิดปกติ <span class="en">Healthy &amp; response</span></h1>
+  <h2 class="sub">เช็กลิสต์ระบบปกติ <span class="en">Healthy checklist</span></h2>
+  <ul class="ticks">
+    <li><code>/health/ready</code> ตอบ 200 และทุกคอนเทนเนอร์ <code>(healthy)</code></li>
+    <li>Prometheus: <code>node</code> + <code>api-metrics</code> ×3 เป็น UP (<code>api-readiness</code> DOWN ได้)</li>
+    <li>Grafana: API success rate ใกล้ 100% · 5xx เป็น 0 · p95 นิ่ง · Memory ต่ำกว่างบ</li>
+    <li>Bull-Board: ไม่มี FAILED ใหม่ · <code>dlq</code> ว่าง</li>
+  </ul>
+  <h2 class="sub">เมื่อเห็นความผิดปกติ <span class="en">What to do</span></h2>
+  <table class="grid">
+    <tr><th>เห็น</th><th>ทำ</th></tr>
+    <tr><td>success rate ตก / 5xx ขึ้น</td><td>ดูแผง error by status code ว่ารหัสอะไร → <code>docker compose logs api-1</code> (…2, 3) → ตรวจ <code>/health/ready</code> ว่า Postgres/Redis ตัวไหนล้ม</td></tr>
+    <tr><td>p95 พุ่ง</td><td>ดู CPU/Memory · มีงานหนักในคิวไหม · ธุรกรรมที่นานเกิน 25 วินาทีจะถูก rollback เอง</td></tr>
+    <tr><td>4xx 429 เยอะ</td><td>มีเครื่องยิงถี่เกิน rate limit (30 r/s ต่อ IP) — ร้านหลัง NAT เดียวกันแชร์ bucket เดียว</td></tr>
+    <tr><td>Memory ใกล้ 6 GB</td><td>ดูคอนเทนเนอร์ที่กินเกินงบด้วย <code>docker stats</code> — ห้ามเพิ่มบริการใหม่บน VM นี้</td></tr>
+    <tr><td>Disk ใกล้เต็ม</td><td>ตรวจ <code>/opt/pos/backups</code> และ log · ห้ามลบ volume</td></tr>
+    <tr><td>Idempotent replays พุ่ง</td><td>เครื่องหน้าร้านลองส่งซ้ำบ่อย = เน็ตร้านไม่เสถียร — ระบบกันขายซ้ำให้แล้ว</td></tr>
+    <tr><td>FAILED ใน Bull-Board</td><td>ตามหัวข้อ 3</td></tr>
+  </table>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
+    <ul class="ticks">
+      <li>ไม่มี alert อัตโนมัติ — ต้องมีคนเปิดดู</li>
+      <li>monitoring ยังไม่เคยรันบน <code>mob04</code> (ยัง deploy ไม่สำเร็จ) — ทุกอย่างในภาคนี้ดูได้บนเครื่อง dev</li>
+      <li>แผง k6 ว่างจนกว่าจะรันทดสอบโหลด 3 เครื่อง (#380)</li>
+      <li>แผง Disk ว่างบน Docker Desktop</li>
+    </ul>
+  </div>
+  <div class="runfoot"><span>ภาค 05 · แดชบอร์ด</span><span class="pagenum">5</span></div>
+</section>
+
+</body>
+</html>

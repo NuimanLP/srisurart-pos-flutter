@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือเจ้าของร้าน</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="partnav">
+  <a href="index.html">หน้าแรก</a>
+  <a href="01-counter-staff.html">01 พนักงานหน้าร้าน</a>
+  <a class="cur" href="02-owner-backoffice.html">02 เจ้าของร้าน</a>
+  <a href="03-platform-admin.html">03 ผู้ดูแลแพลตฟอร์ม</a>
+  <a href="04-it-operations.html">04 IT / ผู้ดูแลระบบ</a>
+  <a href="05-dashboards.html">05 แดชบอร์ด</a>
+</nav>
+
+<!-- ════════════════ 1 · PART HEADER ════════════════ -->
+<section class="page" id="top">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">เจ้าของร้าน</span></div>
+  <div class="sec-no">Part 02</div>
+  <h1 class="sec">เจ้าของร้าน / หลังร้าน <span class="en">Owner &amp; back office</span></h1>
+  <p class="sec-lede">งานที่เจ้าของร้านทำครั้งแรกและทำประจำ — ตั้งรหัสผ่าน ผูกเครื่อง ตั้ง PIN ออฟไลน์ ดูแลสินค้า ใบสั่งซื้อ ลูกค้า ช่าง รายงาน สำรองข้อมูล และตรวจรายการที่ระบบส่งมาให้ตัดสินใจ</p>
+
+  <div class="rolebox"><span class="nt">บทบาทและสิทธิ์ · Role &amp; permission</span>
+    <dl>
+      <dt>ใครใช้</dt><dd>เจ้าของร้าน — ถือบัญชีร้าน (บทบาท <code>owner</code> เป็นบทบาทเดียวในระบบ)</dd>
+      <dt>ต้องมี</dt><dd>รหัสผ่านชั่วคราว + รหัสผูกเครื่อง จากผู้ดูแลแพลตฟอร์ม (ภาค 03) ในวันเปิดร้าน</dd>
+      <dt>เครื่อง</dt><dd>งานหลังร้าน (สินค้า ใบสั่งซื้อ ช่าง ใบเสนอราคา รายงาน) ทำได้ทั้งเครื่อง POS และ Backoffice · <strong>ผูก/ปลดเครื่องต้องทำจากเครื่องที่ผูกแล้ว</strong> (มี device token)</dd>
+      <dt>ทำไม่ได้</dt><dd>สร้างร้านใหม่ ระงับร้าน หรือออกรหัสผ่านชั่วคราวให้ตัวเอง — เป็นงานของทีมแพลตฟอร์ม</dd>
+      <dt>อ่านคู่กับ</dt><dd>ภาค 01 (งานหน้าร้านทั้งหมด) — เจ้าของร้านมักขายเองด้วย</dd>
+    </dl>
+  </div>
+
+  <h2 class="sub">ในภาคนี้ <span class="en">Contents</span></h2>
+  <div class="toc">
+    <a class="toc-row" href="#first"><span class="n">1</span><span class="t">เข้าสู่ระบบครั้งแรก · เปลี่ยนรหัสผ่าน <span class="en">First login</span></span><span class="pg">2</span></a>
+    <a class="toc-row" href="#devices"><span class="n">2</span><span class="t">ผูกเครื่อง · ปลดเครื่อง <span class="en">Devices</span></span><span class="pg">3</span></a>
+    <a class="toc-row" href="#pin"><span class="n">3</span><span class="t">ตั้ง PIN ออฟไลน์ <span class="en">Offline PIN</span></span><span class="pg">4</span></a>
+    <a class="toc-row" href="#products"><span class="n">4</span><span class="t">สินค้า · สต็อก · หมวด · ป้ายราคา <span class="en">Products</span></span><span class="pg">5</span></a>
+    <a class="toc-row" href="#po"><span class="n">5</span><span class="t">ใบสั่งซื้อ · รับของ <span class="en">Purchase orders</span></span><span class="pg">6</span></a>
+    <a class="toc-row" href="#people"><span class="n">6</span><span class="t">ลูกค้า · ช่าง · รับชำระเครดิต <span class="en">Customers &amp; mechanics</span></span><span class="pg">7</span></a>
+    <a class="toc-row" href="#reports"><span class="n">7</span><span class="t">รายงาน · สรุปยอดปิดร้าน <span class="en">Reports</span></span><span class="pg">8</span></a>
+    <a class="toc-row" href="#settings"><span class="n">8</span><span class="t">ตั้งค่า · สำรอง/กู้คืน · ส่งออก CSV <span class="en">Settings</span></span><span class="pg">9</span></a>
+    <a class="toc-row" href="#review"><span class="n">9</span><span class="t">หน้า รอเจ้าของ <span class="en">Owner review</span></span><span class="pg">10</span></a>
+    <a class="toc-row" href="#eod"><span class="n">10</span><span class="t">SOP สิ้นวัน · ข้อจำกัด <span class="en">End of day</span></span><span class="pg">11</span></a>
+  </div>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">1</span></div>
+</section>
+
+<!-- ════════════════ 2 · FIRST LOGIN ════════════════ -->
+<section class="page" id="first">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">1 · เข้าสู่ระบบครั้งแรก</span></div>
+  <div class="sec-no">Section 1</div>
+  <h1 class="sec">เข้าสู่ระบบครั้งแรก · เปลี่ยนรหัสผ่าน <span class="en">First login</span></h1>
+  <p class="sec-lede">ทีมแพลตฟอร์มให้ <strong>รหัสผ่านชั่วคราว</strong> (อายุ 7 วัน) และ <strong>รหัสผูกเครื่อง</strong> ของเครื่องขายเครื่องแรก — ทั้งสองอย่างแสดงให้ทีมงานเห็นครั้งเดียว เก็บให้ดี</p>
+  <ol class="steps">
+    <li><span class="st-title">เปิดแอปบนเครื่องที่จะใช้เป็นเครื่องขาย</span>กด <span class="ui ghost">ผูกเครื่องขาย (POS Terminal)</span> ใต้ฟอร์มเข้าสู่ระบบ (แสดงเฉพาะเครื่องที่ยังไม่ผูก — ป้ายจะเป็น <span class="msg">โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)</span>)</li>
+    <li><span class="st-title">กรอก <span class="ui ghost">รหัสผูกเครื่อง (Enrolment Code)</span> → <span class="ui">ยืนยันผูกเครื่อง</span></span><span class="see"><span class="msg">ผูกเครื่องสำเร็จ! เครื่องนี้ได้รับการตั้งค่าเป็น POS Terminal แล้ว</span> — ถ้าผิดหรือหมดอายุ: <span class="msg">รหัสผูกเครื่องไม่ถูกต้อง หรือหมดอายุแล้ว</span></span></li>
+    <li><span class="st-title">เข้าสู่ระบบด้วยชื่อผู้ใช้ + รหัสผ่านชั่วคราว</span><span class="see">หัวข้อเปลี่ยนเป็น <span class="msg">ตั้งรหัสผ่านใหม่</span> และ <span class="msg">คุณเข้าสู่ระบบด้วยรหัสผ่านชั่วคราว กรุณาตั้งรหัสผ่านของคุณเองก่อนใช้งาน</span></span></li>
+    <li><span class="st-title">กรอก <span class="ui ghost">รหัสผ่านใหม่</span> และ <span class="ui ghost">ยืนยันรหัสผ่านใหม่</span></span><span class="msg">อย่างน้อย 12 ตัวอักษร เว้นวรรคหรือพิมพ์ภาษาไทยได้</span> — ห้ามซ้ำรหัสชั่วคราว ห้ามเดาง่ายหรือมีชื่อร้าน</li>
+    <li><span class="st-title">กด <span class="ui">บันทึกรหัสผ่าน</span> ภายใน 10 นาที</span><span class="see">หน้าขายสินค้า — ถ้าช้าเกิน: <span class="msg">หมดเวลาเปลี่ยนรหัสผ่าน กรุณาเข้าสู่ระบบใหม่ด้วยรหัสผ่านชั่วคราว</span></span></li>
+    <li><span class="st-title">ต่อด้วยหัวข้อ 3 (ตั้ง PIN ออฟไลน์) และตั้งค่าร้าน (หัวข้อ 8)</span></li>
+  </ol>
+  <div class="twocol"><figure><img src="img/login.png" alt="เครื่องที่ยังไม่ผูก — ลิงก์ ผูกเครื่องขาย (POS Terminal) ใต้ฟอร์ม" loading="lazy"><figcaption>เครื่องที่ยังไม่ผูก — ลิงก์ ผูกเครื่องขาย (POS Terminal) ใต้ฟอร์ม</figcaption></figure><figure><img src="img/password-change.png" alt="ฟอร์มตั้งรหัสผ่านใหม่ (บังคับครั้งแรก)" loading="lazy"><figcaption>ฟอร์มตั้งรหัสผ่านใหม่ (บังคับครั้งแรก)</figcaption></figure></div>
+  <table class="grid">
+    <tr><th>ข้อความ</th><th>ทำอย่างไร</th></tr>
+    <tr><td><span class="msg">รหัสผ่านชั่วคราวหมดอายุแล้ว กรุณาติดต่อทีมงานเพื่อขอรหัสใหม่</span></td><td>ให้ทีมแพลตฟอร์มออกรหัสใหม่ (ภาค 03)</td></tr>
+    <tr><td><span class="msg">รหัสผ่านทั้งสองช่องไม่ตรงกัน</span> / <span class="msg">รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร</span></td><td>กรอกใหม่</td></tr>
+    <tr><td><span class="msg">รหัสผ่านถูกเปลี่ยนเมื่อ {วันเวลา} ถ้าไม่ใช่คุณ กรุณาติดต่อทีมงานทันที</span> (แถบบนทุกหน้า 7 วัน)</td><td>ถ้าคุณเปลี่ยนเอง กด <span class="ui ghost">รับทราบ</span> — ถ้าไม่ใช่ ติดต่อทีมงานทันที</td></tr>
+  </table>
+  <div class="note key"><span class="nt">ลืมรหัสผ่าน</span>ไม่มีปุ่ม "ลืมรหัสผ่าน" ในแอป — โทรหาทีมงาน ทีมงานจะ <strong>โทรกลับ</strong> ไปที่เบอร์ที่ร้านให้ไว้ก่อนออกรหัสชั่วคราวใหม่ (อายุ 24 ชม.) รหัสเดิมจะใช้ไม่ได้ทันที</div>
+  <p class="muted">ข้อความในฟอร์มเปลี่ยนรหัสผ่าน (#443) ยังเป็นร่างที่ทีมเขียน รอเจ้าของโปรเจกต์รับรอง — ถ้อยคำอาจเปลี่ยน</p>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">2</span></div>
+</section>
+
+<!-- ════════════════ 3 · DEVICES ════════════════ -->
+<section class="page" id="devices">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">2 · ผูกเครื่อง</span></div>
+  <div class="sec-no">Section 2</div>
+  <h1 class="sec">ผูกเครื่อง · ปลดเครื่อง <span class="en">Device management</span></h1>
+  <p class="sec-lede">เข้าหน้า <strong>จัดการเครื่อง (Device Management)</strong> จาก <span class="ui ghost">ตั้งค่า</span> → แท็บ <span class="ui ghost">🔐 บัญชี / ผูกเครื่อง</span> → <span class="ui ghost">เปิดหน้าจัดการเครื่อง</span> (ไม่มีในเมนูหลัก)</p>
+  <div class="note key"><span class="nt">กติกาการใช้งานเครื่อง (ตามที่หน้าจอแสดง)</span>เครื่องขาย POS อนุญาตให้มีได้ 1 เครื่องต่อร้านค้า · หากต้องการเปลี่ยนเครื่องขาย ให้ปลดระวาง (Retire) เครื่องเดิมก่อน · กรณีเครื่องล้างเบราว์เซอร์หรือ IndexedDB หาย จะต้องออกรหัสผูกเครื่องใหม่ และจะได้รับเลขเครื่อง (#No) ใหม่เสมอ (กฎ F8)</div>
+  <figure><img src="img/devices.png" alt="จัดการเครื่อง — แยก POS / Backoffice / ปลดระวางแล้ว" loading="lazy"><figcaption>จัดการเครื่อง — แยก POS / Backoffice / ปลดระวางแล้ว</figcaption></figure>
+
+  <h2 class="sub">เพิ่มเครื่อง (ออกรหัสผูกเครื่อง) <span class="en">Enrol</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">กด <span class="ui">ออกรหัสผูกเครื่องใหม่</span></span>เลือก <span class="ui ghost">เครื่องขาย (POS)</span> หรือ <span class="ui ghost">Backoffice</span> แล้วตั้ง <span class="ui ghost">ชื่อเรียกเครื่อง (Device Label)</span></li>
+    <li><span class="st-title">ยืนยัน</span><span class="see">หน้าต่าง <span class="msg">รหัสผูกเครื่องของคุณ</span> — รหัส 8 ตัวอักษร (0–9, A–F) มีปุ่มคัดลอก และ <span class="msg">นำรหัส 6 หลักนี้ไปกรอกที่หน้าผูกเครื่องของเบราว์เซอร์เป้าหมาย รหัสนี้มีอายุ 15 นาที</span> (ข้อความบนจอเขียนว่า "6 หลัก" แต่รหัสจริงมี 8 ตัว — กรอกให้ครบทุกตัว)</span></li>
+    <li><span class="st-title">ที่เครื่องเป้าหมาย: หน้าเข้าสู่ระบบ → <span class="ui ghost">ผูกเครื่องขาย (POS Terminal)</span> → กรอกรหัส → <span class="ui">ยืนยันผูกเครื่อง</span></span>(ประเภทเครื่องติดมากับรหัสแล้ว)</li>
+  </ol>
+  <figure><img src="img/device-enrol.png" alt="ผูกเครื่องขาย (POS Terminal) — กรอกรหัสบนเครื่องเป้าหมาย" loading="lazy"><figcaption>ผูกเครื่องขาย (POS Terminal) — กรอกรหัสบนเครื่องเป้าหมาย</figcaption></figure>
+  <p>ถ้ามีเครื่องขายอยู่แล้วจะขึ้น <span class="msg">ร้านมีเครื่องขายอยู่แล้ว 1 เครื่อง กรุณาปลดเครื่องขายเดิมก่อนเพิ่มเครื่องใหม่</span></p>
+
+  <h2 class="sub">ปลดเครื่อง (ย้าย/เปลี่ยนเครื่องขาย) <span class="en">Retire</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">กด <span class="ui ghost">ปลดเครื่อง</span> ที่การ์ดเครื่อง</span><span class="see"><span class="msg">คุณแน่ใจหรือไม่ว่าต้องการปลดระวางเครื่อง "{label}"?</span></span></li>
+    <li><span class="st-title">ถ้าเป็นเครื่อง POS ที่ยังมีกะเปิด</span>นับเงินแล้วกรอก <span class="ui ghost">ยอดเงินสดนับจริงในลิ้นชัก (บาท)</span></li>
+    <li><span class="st-title">ถ้าการ์ดขึ้น <span class="msg">มีรายการขายค้างส่ง {N} รายการ</span></span>ดีที่สุดคือให้เครื่องนั้นต่อเน็ตส่งให้หมดก่อน · ถ้าเครื่องเสียจริง ติ๊ก <span class="ui ghost">ยืนยันบังคับปลดเครื่องแม้มีรายการค้าง</span> และใส่ <span class="ui ghost">เหตุผลในการบังคับปลดเครื่อง (จำเป็น)</span></li>
+    <li><span class="st-title">ยืนยัน</span><span class="see"><span class="msg">ปลดระวางเครื่อง #{NN} ({label}) เรียบร้อยแล้ว</span> — แล้วออกรหัสใหม่ให้เครื่องใหม่ได้</span></li>
+  </ol>
+  <div class="note warn"><span class="nt">บังคับปลดเครื่อง</span>รายการที่ค้างในเครื่องเก่าอาจไม่เคยถึงเซิร์ฟเวอร์ — ระบบจะบันทึกเป็นรายการตรวจ <span class="msg">ปลดเครื่องที่ค้างส่ง</span> ในหน้า รอเจ้าของ</div>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">3</span></div>
+</section>
+
+<!-- ════════════════ 4 · OFFLINE PIN ════════════════ -->
+<section class="page" id="pin">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">3 · PIN ออฟไลน์</span></div>
+  <div class="sec-no">Section 3</div>
+  <h1 class="sec">ตั้ง PIN ออฟไลน์ <span class="en">Offline PIN (08 §13)</span></h1>
+  <p class="sec-lede"><span class="msg">PIN ออฟไลน์ช่วยให้แคชเชียร์ขายของหน้าร้านได้ต่อเนื่องเมื่ออินเทอร์เน็ตหลุด โดยมีอายุ 3 วันนับจากที่ล็อกอินออนไลน์ครั้งล่าสุด และต้องไม่ตรงกับรหัสผ่านหลักของร้าน</span></p>
+  <ol class="steps">
+    <li><span class="st-title">ทำบน <strong>เครื่อง POS</strong> ขณะออนไลน์</span>เครื่องอื่นจะเห็น <span class="msg">ฟังก์ชัน PIN ออฟไลน์ใช้ได้เฉพาะเครื่องที่ผูกเป็นเครื่อง POS เท่านั้น</span></li>
+    <li><span class="st-title"><span class="ui ghost">ตั้งค่า</span> → <span class="ui ghost">🔐 บัญชี / ผูกเครื่อง</span> → ส่วน PIN ออฟไลน์ → <span class="ui">ตั้งค่า PIN</span> (หรือ <span class="ui">เปลี่ยน PIN</span>)</span><span class="see">หน้าต่าง <span class="msg">ตั้งค่ารหัส PIN ออฟไลน์</span></span></li>
+    <li><span class="st-title">กรอก 3 ช่อง</span><span class="ui ghost">รหัสผ่านบัญชีร้านปัจจุบัน (Password)</span> · <span class="ui ghost">รหัส PIN ออฟไลน์ใหม่ (4-6 หลัก)</span> · <span class="ui ghost">ยืนยันรหัส PIN ออฟไลน์ใหม่อีกครั้ง</span></li>
+    <li><span class="st-title">บันทึก</span><span class="see"><span class="msg">บันทึกรหัส PIN ออฟไลน์เรียบร้อยแล้ว</span> และสถานะ <span class="msg">ตั้งค่า PIN แล้ว (พร้อมใช้งานออฟไลน์)</span></span></li>
+  </ol>
+  <table class="grid">
+    <tr><th>ข้อความ</th><th>สาเหตุ</th></tr>
+    <tr><td><span class="msg">รหัส PIN ต้องไม่ตรงกับรหัสผ่านของบัญชี</span></td><td>PIN เหมือนรหัสผ่าน</td></tr>
+    <tr><td><span class="msg">รหัส PIN ต้องเป็นตัวเลข 4-6 หลัก</span> / <span class="msg">รหัส PIN และการยืนยันไม่ตรงกัน</span></td><td>รูปแบบไม่ถูก</td></tr>
+    <tr><td><span class="msg">รหัสผ่านบัญชีไม่ถูกต้อง</span></td><td>รหัสผ่านร้านผิด</td></tr>
+    <tr><td><span class="msg">ต้องเปลี่ยนรหัสผ่านชั่วคราวก่อน จึงจะตั้งรหัส PIN ได้</span></td><td>ยังไม่ได้ทำหัวข้อ 1</td></tr>
+    <tr><td><span class="msg">รหัส PIN ถูกล็อก (ใส่ผิดครบ 5 ครั้ง)</span></td><td>กดตั้งค่าใหม่เพื่อปลดล็อก</td></tr>
+  </table>
+  <div class="twocol"><figure><img src="img/settings-account.png" alt="แท็บ 🔐 บัญชี / ผูกเครื่อง — สถานะเครื่อง POS และส่วน PIN ออฟไลน์" loading="lazy"><figcaption>แท็บ 🔐 บัญชี / ผูกเครื่อง — สถานะเครื่อง POS และส่วน PIN ออฟไลน์</figcaption></figure><figure><img src="img/offline-pin.png" alt="หน้าต่าง ตั้งค่ารหัส PIN ออฟไลน์" loading="lazy"><figcaption>หน้าต่าง ตั้งค่ารหัส PIN ออฟไลน์</figcaption></figure></div>
+  <div class="note key"><span class="nt">ความปลอดภัย</span>PIN ไม่ถูกส่งออกจากเครื่อง ระบบเก็บเฉพาะค่าแฮชไว้ในเครื่อง POS — ช่วง 3 วันตรวจที่เครื่องเท่านั้น รายการที่ขายตอนออฟไลน์จะถูกตรวจซ้ำที่เซิร์ฟเวอร์ตอนส่งขึ้น</div>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">4</span></div>
+</section>
+
+<!-- ════════════════ 5 · PRODUCTS ════════════════ -->
+<section class="page" id="products">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">4 · สินค้า</span></div>
+  <div class="sec-no">Section 4</div>
+  <h1 class="sec">สินค้า · สต็อก · หมวด · ป้ายราคา <span class="en">Products</span></h1>
+  <p class="sec-lede">เมนู <span class="ui ghost">สินค้า/สต็อก</span> มี 4 แท็บ: <span class="ui ghost">สต็อก · Stock</span> <span class="ui ghost">คำนวณราคา · Price Calc</span> <span class="ui ghost">ซัพพลายเออร์ · Suppliers</span> <span class="ui ghost">รายงานสต็อก · Reports</span> — ทุกงานแก้ไขต้องออนไลน์</p>
+  <figure><img src="img/products.png" alt="สินค้า/สต็อก — แท็บ สต็อก" loading="lazy"><figcaption>สินค้า/สต็อก — แท็บ สต็อก</figcaption></figure>
+
+  <h2 class="sub">เพิ่มสินค้า <span class="en">Add</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">กด <span class="ui">เพิ่มสินค้า</span></span><span class="see">หน้าต่าง <span class="msg">เพิ่มสินค้าใหม่</span></span></li>
+    <li><span class="st-title">กรอกรหัสสินค้า ชื่อ (EN/TH) แบรนด์ ประเภท รุ่นรถที่ใช้ สต็อก สต็อกขั้นต่ำ</span>กล่องคำนวณราคาในหน้าต่างบอก <span class="msg">กำไรดี ✓</span> / <span class="msg">พอได้</span> / <span class="msg">ต่ำเกิน ⚠</span></li>
+    <li><span class="st-title">บันทึก</span>รหัสซ้ำ (ไม่สนตัวพิมพ์เล็ก-ใหญ่) จะขึ้น <span class="msg">รหัส "{partNo}" มีอยู่แล้วในระบบ</span></li>
+  </ol>
+  <div class="note warn"><span class="nt">แก้ไขสินค้า</span>รหัสสินค้าแก้ไม่ได้ (<span class="msg">รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)</span>) และสต็อกแก้ในหน้าต่างนี้ไม่ได้ — ใช้ <span class="ui ghost">ปรับสต็อก</span></div>
+
+  <h2 class="sub">ปรับสต็อก <span class="en">Adjust stock</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">แถวสินค้า → <span class="ui ghost">ปรับสต็อก</span></span></li>
+    <li><span class="st-title">กรอก <span class="ui ghost">จำนวนที่ปรับ (+ เพิ่ม / - ลด)</span> เช่น <code>+10</code> หรือ <code>-3</code> และ <span class="ui ghost">หมายเหตุ</span></span><span class="see"><span class="msg">สต็อกหลังปรับ</span> — ลดต่ำกว่า 0 ไม่ได้ ระบบหยุดที่ 0 และบันทึกประวัติทุกครั้ง</span></li>
+  </ol>
+
+  <h2 class="sub">งานอื่นในหน้านี้ <span class="en">Other</span></h2>
+  <ul class="ticks">
+    <li><strong>หมวดสินค้า:</strong> <span class="ui ghost">จัดการประเภท</span> → พิมพ์ในช่อง <span class="ui ghost">ประเภทใหม่…</span> → <span class="ui ghost">+ เพิ่ม</span></li>
+    <li><strong>ป้ายราคา:</strong> <span class="ui ghost">พิมพ์ป้าย</span> → เลือกสินค้า/จำนวนชุด → <span class="ui">พิมพ์ป้ายราคา</span> (ป้าย 58 มม. มีบาร์โค้ด Code128)</li>
+    <li><strong>ซัพพลายเออร์:</strong> แท็บซัพพลายเออร์ → เลือกสินค้า → <span class="ui ghost">เพิ่มซัพฯ</span> · ร้านที่รวมถูกสุดได้ป้าย <span class="msg">✓ ราคาถูกสุด</span> (ลบซัพฯ ไม่มีถามยืนยัน)</li>
+    <li><strong>ค้นหาตามรุ่นรถ:</strong> ปุ่ม <span class="ui ghost">ค้นหาตามรุ่นรถ</span> หรือเมนู <span class="ui ghost">ค้นหารุ่น</span> — ค้นจากช่อง "ใช้กับรถรุ่น" และมีปุ่ม <span class="ui ghost">📋 คัดลอกรหัส</span></li>
+    <li><strong>ลบสินค้า:</strong> <span class="msg">การลบจะไม่สามารถกู้คืนได้</span> — ประวัติการขายยังอยู่</li>
+  </ul>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">5</span></div>
+</section>
+
+<!-- ════════════════ 6 · PURCHASE ORDERS ════════════════ -->
+<section class="page" id="po">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">5 · ใบสั่งซื้อ</span></div>
+  <div class="sec-no">Section 5</div>
+  <h1 class="sec">ใบสั่งซื้อ · รับของเข้าสต็อก <span class="en">Purchase orders</span></h1>
+  <figure><img src="img/orders.png" alt="สั่งซื้อ — สถานะ รอรับสินค้า / รับแล้ว / ยกเลิก" loading="lazy"><figcaption>สั่งซื้อ — สถานะ รอรับสินค้า / รับแล้ว / ยกเลิก</figcaption></figure>
+  <h2 class="sub">สร้างใบสั่งซื้อ <span class="en">Create</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">เมนู <span class="ui ghost">สั่งซื้อ</span> → <span class="ui">สร้างใบสั่งซื้อ</span></span><span class="see"><span class="msg">สร้างใบสั่งซื้อใหม่ · New Purchase Order</span></span></li>
+    <li><span class="st-title">กรอก <span class="ui ghost">ซัพพลายเออร์ · Supplier</span></span></li>
+    <li><span class="st-title">ค้นสินค้าในช่อง <span class="ui ghost">เพิ่มสินค้า · Add Items</span> แล้วแตะเพื่อเพิ่ม</span>แก้จำนวนและราคาทุนได้ · แตะสินค้าเดิมซ้ำ = เพิ่มจำนวน</li>
+    <li><span class="st-title">กด <span class="ui">บันทึกใบสั่งซื้อ</span></span>(กดได้เมื่อมีซัพพลายเออร์และสินค้าอย่างน้อย 1 รายการ)<span class="see">การ์ดสถานะ <span class="msg">รอรับสินค้า</span></span></li>
+  </ol>
+  <div class="note tip"><span class="nt">ทางลัดจากหน้าขาย</span>ครั้งแรกที่เปิดหน้าขายในแต่ละรอบการใช้แอป (รีโหลดหน้าแล้วจะขึ้นอีก) ถ้ามีสินค้าหมด/ต่ำกว่าขั้นต่ำ หน้าขายจะเด้ง <span class="msg">แจ้งเตือนสต็อก · Stock Alert</span> — มีปุ่ม <span class="ui ghost">🛒 ไปหน้าสั่งซื้อ</span> และ <span class="ui ghost">🖨 พิมพ์ใบสั่งซื้อ</span></div>
+
+  <h2 class="sub">รับของ <span class="en">Receive</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">ตรวจของจริงกับใบสั่งซื้อ</span></li>
+    <li><span class="st-title">กด <span class="ui">รับสินค้า</span></span><span class="see"><span class="msg">ยืนยันรับสินค้าเข้าสต็อก?</span> <span class="msg">(ต้นทุนสินค้าจะถูกอัปเดตตามราคาในใบสั่งซื้อ)</span></span></li>
+    <li><span class="st-title">ยืนยัน</span><span class="see">สต็อกเพิ่ม ต้นทุนใหม่ = ถัวเฉลี่ยถ่วงน้ำหนัก (ของเก่า × ทุนเก่า + ของใหม่ × ทุนใหม่) ÷ จำนวนรวม — ประวัติสต็อกบันทึก <span class="msg">PO {poNo} จาก {supplier} · ทุนใหม่ ฿{wac}</span></span></li>
+  </ol>
+  <div class="note warn"><span class="nt">รหัสไม่ตรงกับในระบบ</span>ถ้าขึ้น <span class="msg">⚠ รับสินค้าแล้ว แต่ไม่พบรหัสสินค้าต่อไปนี้ในระบบ (สต็อกไม่ถูกอัปเดต):</span> ให้เพิ่มสินค้านั้นแล้วปรับสต็อกเอง</div>
+  <ul class="ticks">
+    <li><span class="ui ghost">ยกเลิก</span> = เปลี่ยนสถานะเป็น "ยกเลิก" ไม่ลบข้อมูล · <span class="ui ghost">ลบถาวร</span> = ลบจริง กู้คืนไม่ได้</li>
+  </ul>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">6</span></div>
+</section>
+
+<!-- ════════════════ 7 · CUSTOMERS & MECHANICS ════════════════ -->
+<section class="page" id="people">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">6 · ลูกค้า · ช่าง</span></div>
+  <div class="sec-no">Section 6</div>
+  <h1 class="sec">ลูกค้า · ช่าง · รับชำระเครดิต <span class="en">Customers &amp; mechanics</span></h1>
+  <div class="twocol">
+    <figure><img src="img/customers.png" alt="ลูกค้า — รหัส CUS### แต้ม ยอดซื้อรวม (ข้อมูลตัวอย่าง dev: รหัสซ้ำเพราะ seed ของ Drift ปนกับข้อมูลเซิร์ฟเวอร์ ไม่ใช่บั๊ก)" loading="lazy"><figcaption>ลูกค้า — รหัส CUS### แต้ม ยอดซื้อรวม (ข้อมูลตัวอย่าง dev: รหัสซ้ำเพราะ seed ของ Drift ปนกับข้อมูลเซิร์ฟเวอร์ ไม่ใช่บั๊ก)</figcaption></figure>
+    <figure><img src="img/mechanics.png" alt="ช่าง · Mechanics — ยอดค้าง วงเงิน แถบความคืบหน้า" loading="lazy"><figcaption>ช่าง · Mechanics — ยอดค้าง วงเงิน แถบความคืบหน้า</figcaption></figure>
+  </div>
+  <h2 class="sub">ลูกค้า <span class="en">Customers</span></h2>
+  <ul class="ticks">
+    <li><span class="ui">เพิ่มลูกค้า</span> → ชื่อ (TH/EN อย่างน้อยหนึ่งช่อง) เบอร์ ที่อยู่ — รหัส <code>CUS###</code> ออกให้เอง</li>
+    <li>แต้มและยอดซื้อ <strong>แก้เองไม่ได้</strong> เปลี่ยนตามการขาย/คืนเท่านั้น</li>
+    <li>ลบลูกค้าต้องออนไลน์ — ประวัติการขายยังอยู่ แต่ไม่มีชื่อลูกค้าผูก</li>
+  </ul>
+  <h2 class="sub">ช่าง <span class="en">Mechanics</span></h2>
+  <ul class="ticks">
+    <li><span class="ui">+ เพิ่มช่าง</span> → <span class="ui ghost">ชื่อ-สกุล (ภาษาไทย) *</span> ชื่อเล่น เบอร์ อู่ และ <span class="ui ghost">วงเงินเครดิต (บาท) — 0 = ไม่ให้เครดิต</span> — รหัส <code>M###</code> ออกให้เอง</li>
+    <li>แท็บ <span class="ui ghost">มียอดค้าง ({n})</span> ดูเฉพาะช่างที่ค้าง · หัวหน้าบอก <span class="msg">⚠ เกินวงเงิน {n} คน</span></li>
+  </ul>
+  <h2 class="sub">รับชำระเครดิตช่าง <span class="en">Credit payment</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">ต้องเปิดกะอยู่ (ทำบนเครื่อง POS)</span></li>
+    <li><span class="st-title">เลือกช่าง → <span class="ui">💵 รับชำระ</span></span><span class="see"><span class="msg">💵 รับชำระเครดิต — {nameTH}</span> พร้อม <span class="msg">ยอดค้างปัจจุบัน</span></span></li>
+    <li><span class="st-title">กรอก <span class="ui ghost">จำนวนเงินที่รับ *</span></span>หรือปุ่มลัด <span class="ui ghost">+฿100</span> … <span class="ui ghost">เต็มจำนวน</span> แล้วเลือก <span class="ui ghost">เงินสด</span> / <span class="ui ghost">โอน/QR</span></li>
+    <li><span class="st-title">กด <span class="ui">✓ บันทึกการรับเงิน</span></span><span class="see"><span class="msg">รับชำระ {baht} เรียบร้อย</span> — ถ้าเกินยอดค้างจะถาม <span class="msg">ยืนยันรับเงิน</span> ก่อน</span></li>
+  </ol>
+  <div class="note tip"><span class="nt">เน็ตหลุดตอนรับชำระ</span>ระบบเก็บไว้ในเครื่อง: <span class="msg">บันทึกการรับชำระไว้ในเครื่องแล้ว — ยังส่งเข้าระบบไม่ได้ จะส่งให้อัตโนมัติ (ยอดค้างจะลดเมื่อส่งสำเร็จ) ไม่ต้องกดรับชำระซ้ำ</span> ดูสถานะได้จากแถบ <span class="msg">⏳ รับชำระรอส่งเข้าระบบ {n} รายการ ({baht})</span> → <span class="ui ghost">ดูรายการ ›</span></div>
+  <p class="muted">ใน Drift build การรับชำระไม่ถามยืนยันเมื่อเกินยอดค้าง — ยอดค้างจะถูกหยุดที่ 0</p>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">7</span></div>
+</section>
+
+<!-- ════════════════ 8 · REPORTS ════════════════ -->
+<section class="page" id="reports">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">7 · รายงาน</span></div>
+  <div class="sec-no">Section 7</div>
+  <h1 class="sec">รายงาน · สรุปยอดปิดร้าน <span class="en">Reports</span></h1>
+  <figure><img src="img/reports.png" alt="รายงานยอดขาย" loading="lazy"><figcaption>รายงานยอดขาย</figcaption></figure>
+  <ol class="steps">
+    <li><span class="st-title">เมนู <span class="ui ghost">รายงาน</span> → เลือกช่วง</span><span class="ui ghost">วันนี้</span> <span class="ui ghost">7 วัน</span> <span class="ui ghost">เดือนนี้</span> <span class="ui ghost">ทั้งหมด</span></li>
+    <li><span class="st-title">อ่านตัวเลขหลัก 4 ช่อง</span><span class="msg">รายได้สุทธิ</span> (ขาย − คืน) · <span class="msg">จำนวนบิล</span> · <span class="msg">ยอดเฉลี่ย/บิล</span> · <span class="msg">ชิ้นสินค้าที่ขาย</span></li>
+    <li><span class="st-title">ดู <span class="msg">สินค้าขายดี</span> · <span class="msg">รายได้ตามประเภท</span> · <span class="msg">สต็อกต่ำ · Low Stock</span> · <span class="msg">รายการล่าสุด</span></span></li>
+  </ol>
+  <ul class="ticks">
+    <li><strong>กำไร:</strong> <span class="ui ghost">สินค้า/สต็อก</span> → <span class="ui ghost">รายงานสต็อก · Reports</span> → <span class="ui ghost">กำไรเดือนนี้</span> — คิดจากต้นทุน ณ วันที่ขาย ถ้าไม่มีจะบอก <span class="msg">{n} รายการคำนวณจากต้นทุนปัจจุบัน ไม่ใช่ ณ วันที่ขาย</span></li>
+    <li><strong>ประวัติสต็อก / สินค้าดี-แย่:</strong> แท็บย่อยในหน้าเดียวกัน</li>
+    <li><strong>สรุปยอดปิดร้าน:</strong> หน้า <span class="ui ghost">ลิ้นชัก</span> → <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> — รายได้ วิธีชำระ สินค้าขายดีวันนี้ ตรวจนับเงิน และพิมพ์รายงาน 80 มม. มีช่องลายมือชื่อ</li>
+  </ul>
+  <div class="note warn"><span class="nt">อ่านตัวเลขให้ถูก</span>ช่วง <span class="ui ghost">7 วัน</span> ไม่มีเพดานวันสิ้นสุด — ถ้ามีบิลวันที่ในอนาคต (เช่น นาฬิกาเครื่องผิด) จะถูกนับด้วย</div>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">8</span></div>
+</section>
+
+<!-- ════════════════ 9 · SETTINGS ════════════════ -->
+<section class="page" id="settings">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">8 · ตั้งค่า</span></div>
+  <div class="sec-no">Section 8</div>
+  <h1 class="sec">ตั้งค่า · สำรอง/กู้คืน · ส่งออก CSV <span class="en">Settings</span></h1>
+  <p class="sec-lede">เมนู <span class="ui ghost">ตั้งค่า</span> มี 5 แท็บ: <span class="ui ghost">⚙ ทั่วไป</span> <span class="ui ghost">🔐 บัญชี / ผูกเครื่อง</span> <span class="ui ghost">🎨 ธีม</span> <span class="ui ghost">💾 สำรอง/กู้คืน</span> <span class="ui ghost">📤 ส่งออก CSV</span></p>
+  <h2 class="sub">ข้อมูลร้าน <span class="en">General</span></h2>
+  <figure><img src="img/settings.png" alt="แท็บ ⚙ ทั่วไป — ข้อมูลร้านค้า · Shop Information" loading="lazy"><figcaption>แท็บ ⚙ ทั่วไป — ข้อมูลร้านค้า · Shop Information</figcaption></figure>
+  <ol class="steps">
+    <li><span class="st-title">แท็บ <span class="ui ghost">⚙ ทั่วไป</span></span>ชื่อร้าน (TH/EN) เบอร์ ชื่อแคชเชียร์ ที่อยู่ VAT (%) <span class="ui ghost">ใบเสนอราคา · มีอายุ (วัน)</span></li>
+    <li><span class="st-title">กด <span class="ui">บันทึกการตั้งค่า</span></span><span class="see"><span class="msg">✓ บันทึกแล้ว</span> (ต้องออนไลน์)</span></li>
+  </ol>
+  <h2 class="sub">สำรองข้อมูล <span class="en">Backup</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">แท็บ <span class="ui ghost">💾 สำรอง/กู้คืน</span> → <span class="ui ghost">💾 สำรองข้อมูล</span></span>ดูจำนวนระเบียน 14 ประเภท</li>
+    <li><span class="st-title">กด <span class="ui">⬇ ดาวน์โหลดไฟล์ backup (.json)</span></span><span class="see"><span class="msg">ดาวน์โหลดไฟล์ backup สำเร็จ</span> — เก็บไฟล์ไว้นอกเครื่อง</span></li>
+  </ol>
+  <h2 class="sub">กู้คืน <span class="en">Restore</span></h2>
+  <ol class="steps">
+    <li><span class="st-title"><span class="ui ghost">📥 กู้คืนข้อมูล</span> → <span class="ui ghost">คลิกเพื่อเลือกไฟล์ backup</span> (การ์ดไอคอน 📁)</span>เวอร์ชันนี้ยังเลือกไฟล์ไม่ได้ — ให้ <strong>วางเนื้อหาไฟล์ .json</strong> ลงช่อง แล้วกด <span class="ui ghost">ตรวจสอบไฟล์</span></li>
+    <li><span class="st-title">ตรวจชื่อร้านและวันที่สำรองในการ์ด <span class="msg">ข้อมูลในไฟล์ที่เลือก</span></span></li>
+    <li><span class="st-title">กด <span class="ui">✓ ยืนยัน</span></span><span class="see"><span class="msg">นำเข้าข้อมูลสำเร็จ — กำลังโหลดหน้าใหม่…</span></span></li>
+  </ol>
+  <div class="note warn"><span class="nt">การกู้คืนแทนที่ทั้งหมด</span><span class="msg">⚠️ การกู้คืนจะแทนที่ข้อมูลทั้งหมด — ตรวจสอบไฟล์ให้ถูกต้องก่อนกด "กู้คืน"</span></div>
+  <h2 class="sub">ส่งออก CSV <span class="en">Export</span></h2>
+  <p>แท็บ <span class="ui ghost">📤 ส่งออก CSV</span> → เลือกช่วงวัน → <span class="ui ghost">⬇ ดาวน์โหลด</span> ที่ <span class="msg">📋 ยอดขายรายบิล</span> / <span class="msg">📦 รายการสินค้าที่ขาย</span> / <span class="msg">🗂 สต็อกปัจจุบัน</span> — เปิดใน Excel ภาษาไทยได้</p>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
+    <ul class="ticks">
+      <li>สำรอง/กู้คืนในหน้านี้ทำกับ <strong>ฐานข้อมูลในเครื่องนี้</strong> — เหมาะกับ Drift build · ใน API build ข้อมูลจริงอยู่บนเซิร์ฟเวอร์ และการกู้คืนในหน้านี้ <strong>ไม่ได้เขียนกลับขึ้นเซิร์ฟเวอร์</strong> · เซิร์ฟเวอร์มีงานส่งออกข้อมูลร้าน (<code>POST /backup/export</code>) แต่แอปยังไม่มีปุ่มเรียก</li>
+      <li>ช่อง <span class="ui ghost">ใบเสนอราคา · มีอายุ (วัน)</span>: ในโค้ดปัจจุบัน ใบเสนอราคาที่บันทึกจากหน้าขายไม่ได้ส่งค่านี้ไป จึงได้อายุเริ่มต้น 30 วันเสมอ — ยังไม่ได้ยืนยันกับเจ้าของโปรเจกต์ว่าตั้งใจหรือเป็นบั๊ก</li>
+      <li>การสำรองข้อมูลฝั่งเซิร์ฟเวอร์ยังไม่ออกนอก VM (ภาค 04)</li>
+    </ul>
+  </div>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">9</span></div>
+</section>
+
+<!-- ════════════════ 10 · OWNER REVIEW ════════════════ -->
+<section class="page" id="review">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">9 · รอเจ้าของ</span></div>
+  <div class="sec-no">Section 9</div>
+  <h1 class="sec">หน้า รอเจ้าของ <span class="en">Owner review (API build)</span></h1>
+  <p class="sec-lede">เมนู <span class="ui ghost">รอเจ้าของ</span> (มีตัวเลขแดงเมื่อมีงาน) — หัวข้อ <span class="msg">รายการรอเจ้าของ</span> มี 2 แท็บ: <span class="ui ghost">ถูกปฏิเสธ / ค้าง</span> และ <span class="ui ghost">รอตรวจ</span></p>
+  <figure><img src="img/owner-review.png" alt="รายการรอเจ้าของ" loading="lazy"><figcaption>รายการรอเจ้าของ</figcaption></figure>
+
+  <h2 class="sub">แท็บ ถูกปฏิเสธ / ค้าง <span class="en">Rejected / stuck</span></h2>
+  <p>รายการที่เครื่องส่งขึ้นเซิร์ฟเวอร์ไม่ผ่าน เช่น <span class="msg">ขายสินค้า</span> <span class="msg">เปิดกะ</span> <span class="msg">เงินเข้า/ออกลิ้นชัก</span> <span class="msg">เพิ่มลูกค้า</span> <span class="msg">ชำระหนี้ช่าง</span> — ป้าย <span class="msg">ถูกปฏิเสธ</span> (แดง) หรือ <span class="msg">ค้างส่ง</span> (เหลือง)</p>
+  <ol class="steps">
+    <li><span class="st-title">อ่านรหัส/ข้อความผิดพลาด และ <span class="ui ghost">ดูข้อมูล payload</span></span>เพื่อรู้ว่าเป็นบิลไหน ยอดเท่าไร</li>
+    <li><span class="st-title">ถ้าแก้สาเหตุได้แล้ว (เช่น เน็ตกลับ เติมสต็อกแล้ว) กด <span class="ui">ส่งใหม่</span></span>ส่งซ้ำด้วยคีย์เดิม ไม่เกิดบิลซ้ำ</li>
+    <li><span class="st-title">ถ้าต้องทิ้ง กด <span class="ui ghost">ทิ้ง</span> → ใส่ <span class="ui ghost">หมายเหตุการทิ้งรายการ *</span> (บังคับ)</span><span class="see"><span class="msg">ทิ้งรายการแล้ว (เซิร์ฟเวอร์มีข้อมูลนี้อยู่ จะดึงข้อมูลล่าสุดในการซิงค์)</span> หรือ <span class="msg">ทิ้งรายการและลบข้อมูลในเครื่องเรียบร้อยแล้ว</span></span></li>
+  </ol>
+  <div class="note warn"><span class="nt">ก่อนกดทิ้ง</span>ถ้าเป็นบิลขายที่รับเงินลูกค้าไปแล้ว การทิ้งหมายถึงบิลนั้นจะไม่อยู่ในระบบ — ต้องจัดการเงิน/สต็อกเองให้ตรง</div>
+
+  <h2 class="sub">แท็บ รอตรวจ <span class="en">To review</span></h2>
+  <p>เหตุการณ์ที่ระบบยอมให้ผ่าน แต่อยากให้เจ้าของรู้ อ่านแล้วกด <span class="ui">ตรวจแล้ว</span> (<span class="msg">บันทึกการตรวจสอบเรียบร้อยแล้ว</span>)</p>
+  <table class="grid">
+    <tr><th>ป้าย</th><th>เกิดเมื่อ</th></tr>
+    <tr><td><span class="msg">ยกเลิกบิลออฟไลน์</span></td><td>ยกเลิกบิลตอนออฟไลน์</td></tr>
+    <tr><td><span class="msg">วงเงินเกิน (อนุมัติพิเศษ)</span></td><td>ขายเครดิตเกินวงเงินตอนออฟไลน์</td></tr>
+    <tr><td><span class="msg">กะไม่ได้นับเงินสด</span></td><td>กะถูกเก็บเข้าประวัติโดยไม่ได้ปิด/นับเงิน</td></tr>
+    <tr><td><span class="msg">วันที่ถูกปรับ (clamp)</span></td><td>วันที่ของรายการออฟไลน์ผิดปกติ เซิร์ฟเวอร์ปรับให้</td></tr>
+    <tr><td><span class="msg">ปลดเครื่องที่ค้างส่ง</span></td><td>บังคับปลดเครื่องที่ยังมีรายการค้าง</td></tr>
+    <tr><td><span class="msg">เลขเอกสารออฟไลน์ไม่ตรงกับระบบ</span></td><td>เลขใบเสร็จ/ใบลดหนี้ที่ออกตอนออฟไลน์ถูกเปลี่ยนเลข</td></tr>
+  </table>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">10</span></div>
+</section>
+
+<!-- ════════════════ 11 · END OF DAY ════════════════ -->
+<section class="page" id="eod">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">10 · สิ้นวัน</span></div>
+  <div class="sec-no">Section 10</div>
+  <h1 class="sec">SOP สิ้นวันของเจ้าของร้าน <span class="en">End of day</span></h1>
+  <ol class="steps">
+    <li><span class="st-title">ดูป้ายสถานะ — ต้องเป็น <span class="msg">ออนไลน์</span> และไม่มีตัวเลขค้าง</span>ถ้ามี <span class="msg">รอตรวจสอบ ({N})</span> เข้าหน้า รอเจ้าของ ก่อน</li>
+    <li><span class="st-title">หน้า รอเจ้าของ: แท็บ <span class="ui ghost">ถูกปฏิเสธ / ค้าง</span> ต้องว่าง</span><span class="see"><span class="msg">ไม่มีรายการที่ถูกปฏิเสธหรือค้างส่ง</span></span></li>
+    <li><span class="st-title">ให้พนักงานปิดกะ (ภาค 01 หัวข้อ 7)</span>ตรวจ <span class="msg">ผลต่าง</span> ถ้าขาด/เกินให้หาสาเหตุวันนั้น</li>
+    <li><span class="st-title">พิมพ์ <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> แล้วเซ็นชื่อ</span></li>
+    <li><span class="st-title">แท็บ <span class="ui ghost">รอตรวจ</span>: อ่านและกด <span class="ui">ตรวจแล้ว</span> ทุกรายการ</span></li>
+    <li><span class="st-title">ดูหน้าต่างแจ้งเตือนสต็อก / รายงานสต็อกต่ำ → สร้างใบสั่งซื้อพรุ่งนี้</span></li>
+    <li><span class="st-title">Drift build: ดาวน์โหลดไฟล์ backup (.json) เก็บนอกเครื่อง</span>ข้อมูลร้านอยู่ในเครื่องนี้เครื่องเดียว</li>
+  </ol>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
+    <ul class="ticks">
+      <li>ร้านจริงยังใช้ Drift build — หัวข้อ 1–3 และ 9 ใช้กับ API build เท่านั้น</li>
+      <li>สิทธิ์ POS/Backoffice บังคับที่เซิร์ฟเวอร์ หน้าจอส่วนใหญ่ไม่ได้ซ่อนปุ่ม — กดบนเครื่อง Backoffice แล้วเซิร์ฟเวอร์จะปฏิเสธ</li>
+      <li>รหัสผูกเครื่องที่ออกจากแอปมีอายุ 15 นาที แต่รหัสผูกเครื่องแรกที่ทีมแพลตฟอร์มออกให้ตอนเปิดร้านมีอายุ 7 วัน</li>
+      <li>ยังไม่มีปุ่มเปิดกะที่สองในวันเดียวกัน · คืนสินค้าตอนออฟไลน์ยังไม่ได้ (ภาค 01)</li>
+      <li>ข้อความในหน้า รอเจ้าของ (<span class="msg">ถูกปฏิเสธ / ค้าง</span> / <span class="msg">รอตรวจ</span>) ต่างเล็กน้อยจากถ้อยคำที่รับรองไว้ในสเปก (<span class="msg">รายการติดปัญหา / ค้างส่ง</span> / <span class="msg">รายการรอตรวจสอบ</span>) — คู่มือนี้ใช้คำที่อยู่บนจอจริง</li>
+    </ul>
+  </div>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">11</span></div>
+</section>
+
+</body>
+</html>

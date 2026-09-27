@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>คู่มือ IT และผู้ดูแลระบบ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="partnav">
+  <a href="index.html">หน้าแรก</a>
+  <a href="01-counter-staff.html">01 พนักงานหน้าร้าน</a>
+  <a href="02-owner-backoffice.html">02 เจ้าของร้าน</a>
+  <a href="03-platform-admin.html">03 ผู้ดูแลแพลตฟอร์ม</a>
+  <a class="cur" href="04-it-operations.html">04 IT / ผู้ดูแลระบบ</a>
+  <a href="05-dashboards.html">05 แดชบอร์ด</a>
+</nav>
+
+<!-- ════════════════ 1 · PART HEADER ════════════════ -->
+<section class="page" id="top">
+  <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">IT / ผู้ดูแลระบบ</span></div>
+  <div class="sec-no">Part 04</div>
+  <h1 class="sec">IT / ผู้ดูแลระบบ <span class="en">IT operations</span></h1>
+  <p class="sec-lede">รันทั้งสแตกบนเครื่องตัวเอง รู้จักบริการแต่ละตัว ตรวจสุขภาพ deploy ขึ้น VM <code>mob04</code> พร้อมการอนุมัติ ย้อนเวอร์ชัน สำรองข้อมูล และกฎเรื่องความลับใน <code>.env</code></p>
+
+  <div class="rolebox"><span class="nt">บทบาทและสิทธิ์ · Role &amp; permission</span>
+    <dl>
+      <dt>ใครใช้</dt><dd>ทีมพัฒนา / ผู้ดูแลเซิร์ฟเวอร์</dd>
+      <dt>ต้องมี</dt><dd>Docker Desktop (หรือ Docker Engine) + สำเนา repo · สำหรับ VM: SSH user ที่ถูกต้อง (ดูหัวข้อ 4) และสิทธิ์ GitHub environment <code>demo</code></dd>
+      <dt>ผู้อนุมัติ deploy</dt><dd><code>NuimanLP</code> (required reviewer ของ environment <code>demo</code>)</dd>
+      <dt>ห้ามทำ</dt><dd><code>docker compose down -v</code> บน Docker daemon ที่ใช้ร่วมกัน · ตั้ง <code>ALLOW_DEV_SECRETS</code> บนโฮสต์จริง · ส่ง <code>--diff</code> ให้ <code>provision.yml</code> · อ้าง <code>--check</code> เป็นหลักฐาน</dd>
+    </dl>
+  </div>
+
+  <h2 class="sub">ในภาคนี้ <span class="en">Contents</span></h2>
+  <div class="toc">
+    <a class="toc-row" href="#local"><span class="n">1</span><span class="t">รันทั้งระบบบนเครื่องตัวเอง <span class="en">Run locally</span></span><span class="pg">2</span></a>
+    <a class="toc-row" href="#map"><span class="n">2</span><span class="t">แผนผังบริการ · URL <span class="en">Service map</span></span><span class="pg">3</span></a>
+    <a class="toc-row" href="#health"><span class="n">3</span><span class="t">ตรวจสุขภาพระบบ <span class="en">Health checks</span></span><span class="pg">4</span></a>
+    <a class="toc-row" href="#deploy"><span class="n">4</span><span class="t">Deploy ขึ้น mob04 · อนุมัติ · ย้อนเวอร์ชัน <span class="en">Deploy &amp; rollback</span></span><span class="pg">5</span></a>
+    <a class="toc-row" href="#backup"><span class="n">5</span><span class="t">สำรองข้อมูล · etcd <span class="en">Backup &amp; etcd</span></span><span class="pg">6</span></a>
+    <a class="toc-row" href="#secrets"><span class="n">6</span><span class="t">ความลับ · กฎ <code>.env</code> <span class="en">Secrets</span></span><span class="pg">7</span></a>
+    <a class="toc-row" href="#trouble"><span class="n">7</span><span class="t">แก้ปัญหา · ข้อจำกัด <span class="en">Troubleshooting</span></span><span class="pg">8</span></a>
+  </div>
+  <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">1</span></div>
+</section>
+
+<!-- ════════════════ 2 · LOCAL ════════════════ -->
+<section class="page" id="local">
+  <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">1 · รันเครื่องตัวเอง</span></div>
+  <div class="sec-no">Section 1</div>
+  <h1 class="sec">รันทั้งระบบบนเครื่องตัวเอง <span class="en">Run locally (dev only)</span></h1>
+  <p class="sec-lede">คำสั่งครบทุกขั้นอยู่ใน <a href="../local-full-stack-tutorial.md"><code>docs/tutorial/local-full-stack-tutorial.md</code></a> — หน้านี้คือลำดับ SOP ย่อ ใช้ค่า placeholder และ cert self-signed <strong>เฉพาะ dev</strong></p>
+  <ol class="steps">
+    <li><span class="st-title">เปิด Docker Desktop</span>รอจน <code>docker ps</code> ไม่ error</li>
+    <li><span class="st-title">เตรียม <code>server/.env</code> (ครั้งเดียว)</span><code>cd server &amp;&amp; cp .env.example .env</code> — ไฟล์ตั้ง <code>ALLOW_DEV_SECRETS=true</code> ให้ (ไฟล์ <code>.env</code> เก่าก่อน #412 ต้องเติมบรรทัดนี้เอง)</li>
+    <li><span class="st-title">ขึ้นสแตก + monitoring</span>
+<pre class="cmd">docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/compose/monitoring.yml up -d --build</pre>
+    <span class="see">รอ ~30–40 วินาทีให้ <code>docker ps --format '{{.Names}}: {{.Status}}'</code> ไม่มี <code>(health: starting)</code></span></li>
+    <li><span class="st-title">ตรวจ API</span><code>curl -sk https://localhost/health/live</code> และ <code>/health/ready</code><span class="see"><code>{"status":"success","data":{"status":"up",…}}</code></span></li>
+    <li><span class="st-title">รัน <code>tlswrap</code> (dev เท่านั้น)</span>เพราะ Flutter web ใช้ <code>fetch()</code> กับ cert self-signed ไม่ได้ — คำสั่งอยู่ในบทเรียนข้อ 4 (ข้ามได้ถ้ารันอยู่แล้ว)</li>
+    <li><span class="st-title">สร้างผู้ดูแลแพลตฟอร์ม + ร้านแรก</span>ตามภาค 03 หัวข้อ 1–2</li>
+    <li><span class="st-title">รัน Flutter web ชี้ไปที่ backend</span>
+<pre class="cmd">cd frontend &amp;&amp; flutter pub get
+flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
+  --dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL=http://127.0.0.1:8081</pre>
+    <span class="see">เปิด <code>http://127.0.0.1:8090</code> (HTTP ธรรมดา ไม่ใช่ <code>https://localhost</code>) — สินค้า seed ของ Drift ปนกับของเซิร์ฟเวอร์ ไม่ใช่บั๊ก</span></li>
+    <li><span class="st-title">หยุด (เก็บข้อมูล)</span>ใช้ <code>stop</code> ด้วยชุด <code>-f</code> เดิม และ <code>docker stop tlswrap</code></li>
+  </ol>
+  <div class="note warn"><span class="nt">ใส่ชุด <code>-f</code> เดิมทุกคำสั่ง</span>ลืม <code>-f</code> ในคำสั่งตามหลัง (เช่น <code>run migrate</code>) → Compose สร้าง <code>postgres</code> ใหม่และพอร์ตของ dev overlay หาย · <code>down -v</code> ลบ volume ของทุก session บน daemon เดียวกัน</div>
+  <div class="note key"><span class="nt">โฟลเดอร์ BeeStation</span>ถ้า <code>docker build</code> ล้มด้วย <code>load build context: invalid file request</code> — ไฟล์เป็น placeholder ของคลาวด์ ให้ build จาก <code>git archive HEAD server</code> ไปโฟลเดอร์ ASCII แล้ว <code>up -d</code> โดยไม่ใส่ <code>--build</code></div>
+  <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">2</span></div>
+</section>
+
+<!-- ════════════════ 3 · MAP ════════════════ -->
+<section class="page" id="map">
+  <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">2 · แผนผังบริการ</span></div>
+  <div class="sec-no">Section 2</div>
+  <h1 class="sec">แผนผังบริการ · URL <span class="en">Service map</span></h1>
+  <table class="grid">
+    <tr><th>บริการ</th><th>หน้าที่</th><th>หมายเหตุ</th></tr>
+    <tr><td><code>nginx</code></td><td>TLS, rate limit, เสิร์ฟเว็บ Flutter, proxy <code>/api/</code> <code>/health/</code></td><td>ต้องเป็น proxy ตัวเดียวหน้า API · <code>/api/v1/platform/</code> เปิดเฉพาะ loopback + <code>172.30.0.20</code></td></tr>
+    <tr><td><code>api-1</code>..<code>api-3</code></td><td>NestJS (<code>172.30.0.11–13:3000</code>)</td><td>Nginx แบ่งแบบ <code>least_conn</code> · restart ทีละตัวตอน deploy</td></tr>
+    <tr><td><code>worker</code></td><td>BullMQ worker 1 ตัว</td><td>ไม่เสิร์ฟ HTTP</td></tr>
+    <tr><td><code>postgres</code></td><td>PostgreSQL 16 — ข้อมูลจริง, RLS ทุกตารางของร้าน</td><td>29 ตาราง · migration คือความจริงของ schema</td></tr>
+    <tr><td><code>redis-cache</code> / <code>redis-queue</code></td><td>cache (<code>allkeys-lru</code>) / คิว (<code>noeviction</code> + AOF)</td><td>ตั้งใจแยก 2 ตัว</td></tr>
+    <tr><td><code>etcd</code> + <code>etcd-init</code></td><td>ค่าตั้งแบบเปลี่ยนสด (ไม่ลับ)</td><td>API บูตได้แม้ etcd ล่ม (fail-open)</td></tr>
+    <tr><td><code>bull-board</code></td><td>หน้าเว็บดูคิว</td><td><code>127.0.0.1:3100</code> · Basic Auth</td></tr>
+    <tr><td><code>platform-ui</code></td><td>หน้าเว็บผู้ดูแลแพลตฟอร์ม</td><td><code>127.0.0.1:3200</code> · IP คอนเทนเนอร์ <code>172.30.0.20</code></td></tr>
+    <tr><td><code>node-exporter</code> / <code>prometheus</code> / <code>grafana</code></td><td>monitoring overlay</td><td>Prometheus <code>127.0.0.1:9090</code> · Grafana <code>127.0.0.1:3000</code></td></tr>
+  </table>
+  <h2 class="sub">URL บนเครื่อง dev <span class="en">Dev URLs</span></h2>
+  <table class="grid">
+    <tr><th>บริการ</th><th>URL</th><th>เข้าสู่ระบบ</th></tr>
+    <tr><td>Flutter web</td><td><code>http://127.0.0.1:8090</code></td><td>บัญชีร้าน</td></tr>
+    <tr><td>platform-ui</td><td><code>http://127.0.0.1:3200</code></td><td>ผู้ดูแลแพลตฟอร์ม</td></tr>
+    <tr><td>Health</td><td><code>https://localhost/health/live</code>, <code>/health/ready</code></td><td>ไม่ต้อง</td></tr>
+    <tr><td>Bull-Board</td><td><code>http://127.0.0.1:3100</code></td><td><code>BULL_BOARD_USER</code>/<code>BULL_BOARD_PASSWORD</code></td></tr>
+    <tr><td>Prometheus</td><td><code>http://127.0.0.1:9090</code></td><td>ไม่ต้อง</td></tr>
+    <tr><td>Grafana</td><td><code>http://127.0.0.1:3000</code></td><td><code>GRAFANA_ADMIN_USER</code>/<code>GRAFANA_ADMIN_PASSWORD</code></td></tr>
+  </table>
+  <p>บน VM ทุกพอร์ต <code>127.0.0.1</code> เข้าผ่าน SSH tunnel เท่านั้น เช่น <code>ssh -L 3000:127.0.0.1:3000 deploy@&lt;vm&gt;</code> — ไฟร์วอลล์ของ VM เปิดแค่ 22/80/443</p>
+  <p class="muted">งบหน่วยความจำ (VM 4 vCPU / 6 GB): สแตกหลักราว 3.35 GB + monitoring ราว 0.8 GB ≈ 4.2 GB — เป็นเหตุผลที่ไม่มี Alertmanager/ELK</p>
+  <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">3</span></div>
+</section>
+
+<!-- ════════════════ 4 · HEALTH ════════════════ -->
+<section class="page" id="health">
+  <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">3 · Health check</span></div>
+  <div class="sec-no">Section 3</div>
+  <h1 class="sec">ตรวจสุขภาพระบบ <span class="en">Health checks</span></h1>
+  <ol class="steps">
+    <li><span class="st-title">ทุกคอนเทนเนอร์ healthy</span><code>docker ps --format '{{.Names}}: {{.Status}}'</code><span class="see">ทุกตัว <code>(healthy)</code> — ยกเว้น <code>etcd</code> ที่อาจ <code>(unhealthy)</code> บนเครื่อง dev ที่มี volume เก่า (#365) ซึ่งไม่บล็อกอะไร</span></li>
+    <li><span class="st-title"><code>GET /health/live</code></span>บอกแค่ว่า process ยังอยู่ ไม่แตะฐานข้อมูล (ตั้งใจ — ฐานข้อมูลล่มต้องไม่ทำให้ API ถูก restart ทั้งหมด)</li>
+    <li><span class="st-title"><code>GET /health/ready</code></span>เช็ก Postgres + Redis ทั้งสองตัว timeout 2 วินาที<span class="see">200 = พร้อม · 503 = มีรายละเอียดว่าตัวไหนล้ม (ไม่ได้เช็ก etcd โดยตั้งใจ)</span></li>
+    <li><span class="st-title">ดู log ของตัวที่มีปัญหา</span><code>docker compose logs &lt;service&gt;</code> (ใส่ชุด <code>-f</code> เดิม)</li>
+    <li><span class="st-title">ดูแดชบอร์ด</span>อัตราสำเร็จของ API และ p95 ใน Grafana (ภาค 05)</li>
+  </ol>
+  <div class="note tip"><span class="nt">ทดสอบเข้าสู่ระบบของร้าน</span>
+<pre class="cmd">curl -sk https://localhost/api/v1/auth/token -H "Content-Type: application/json" \
+  -d '{"username":"&lt;owner&gt;","password":"&lt;รหัส&gt;"}'</pre>
+  ครั้งแรกด้วยรหัสชั่วคราวจะได้ <code>passwordChangeRequired: true</code> + <code>passwordChangeToken</code> (10 นาที) ไม่ใช่ access token — ตั้งรหัสใหม่ผ่าน <code>POST /api/v1/auth/change-password</code> (ดูบทเรียนข้อ 5.3)</div>
+  <div class="note key"><span class="nt">ทำไม SLI ไม่นับ health</span><code>/metrics</code>, <code>/health/live</code>, <code>/health/ready</code> ถูกตัดออกจากตัวเลขอัตราสำเร็จ — ถ้านับ การ scrape ทุก 15 วิ × 3 instance + healthcheck จะสร้าง 200 ปลอม ~36 ครั้ง/นาที จนวันที่ขายพังทั้งวันยังดูปกติ ~92%</div>
+  <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">4</span></div>
+</section>
+
+<!-- ════════════════ 5 · DEPLOY ════════════════ -->
+<section class="page" id="deploy">
+  <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">4 · Deploy</span></div>
+  <div class="sec-no">Section 4</div>
+  <h1 class="sec">Deploy ขึ้น mob04 · อนุมัติ · ย้อนเวอร์ชัน <span class="en">Deploy &amp; rollback</span></h1>
+  <div class="limits"><span class="nt">อ่านก่อน — ยังไม่เคย deploy สำเร็จ <span class="en">Not yet delivered</span></span>ขั้นตอนข้างล่างคือสิ่งที่ pipeline และ playbook <strong>ออกแบบไว้</strong> · ยังไม่เคยมี release ขึ้น <code>mob04</code> จริง: firewall ของคณะตอบ <code>ghcr.io</code> ด้วยใบรับรองไม่มี SAN (<code>x509: certificate is not valid for any names</code>) และ self-hosted runner ยังไม่ได้ติดตั้ง (0 ตัว) · <code>docker save</code>/<code>load</code> ด้วยมือเป็นแค่ทางกู้วันเดโม <strong>ไม่ใช่ CD</strong></div>
+
+  <h2 class="sub">ลำดับที่ pipeline ทำ <span class="en">Pipeline</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">PR ผ่าน CI (<code>flutter-ci-status</code>, <code>server-ci-status</code>) → merge เข้า <code>main</code></span></li>
+    <li><span class="st-title">build + Trivy + push อิมเมจ server และ web ขึ้น GHCR (แท็ก SHA)</span></li>
+    <li><span class="st-title">workflow <strong>Deploy (demo)</strong> งาน <code>resolve</code> เช็กว่าอิมเมจทั้งสองของ SHA นั้นมีครบ</span></li>
+    <li><span class="st-title">งาน <code>deploy</code> ค้างที่ "Waiting for review" จนผู้อนุมัติ (<code>NuimanLP</code>) กด approve</span>นี่คือกลไกเดียวที่กันไม่ให้ merge ระหว่างเดโมขึ้น VM</li>
+    <li><span class="st-title">runner บน VM เรียก <code>pos-deploy</code> → <code>ansible-playbook deploy.yml</code></span>pull → <code>web-sync</code> → <code>migrate</code> (schema ก่อนโค้ดเสมอ) → <code>etcd-init</code> → restart <code>api-1</code>→<code>api-2</code>→<code>api-3</code>→<code>worker</code>/<code>bull-board</code> → ตรวจ <code>nginx -t</code> แล้วสร้าง nginx ใหม่ → <code>/health/ready</code> ต้อง 200 → เขียน <code>/opt/pos/.current_sha</code> → monitoring (ล้มได้แค่เตือน)</li>
+  </ol>
+  <div class="note warn"><span class="nt">หลักฐานเดียวที่นับ</span>รัน Deploy (demo) ที่ขึ้น <strong>เขียว</strong> ไม่ได้แปลว่าขึ้นเครื่อง — ถ้าอิมเมจยังไม่ครบ งาน <code>deploy</code> ถูกข้ามแต่ workflow ยังรายงานสำเร็จ · ตรวจ <code>/opt/pos/.current_sha</code> บน VM เท่านั้น · ถ้ามีหลายรันรออนุมัติ การอนุมัติรันเก่าก่อนจะส่ง SHA เก่าขึ้นก่อน</div>
+
+  <h2 class="sub">ย้อนเวอร์ชัน <span class="en">Rollback</span></h2>
+  <ul class="ticks">
+    <li><strong>อัตโนมัติ:</strong> playbook ล้มหรือเกิน 20 นาที → <code>pos-deploy</code> redeploy SHA ใน <code>.current_sha</code> (รันยังแดง)</li>
+    <li><strong>ด้วยมือ:</strong> Actions → <strong>Deploy (demo)</strong> → Run workflow → ใส่ <code>image_tag</code> = SHA ก่อนหน้า (ต้องอยู่บน <code>main</code>, ใหม่กว่า rollback floor และมีอิมเมจบน GHCR) → รอผู้อนุมัติ</li>
+    <li><strong>schema ไม่ถอยหลังเด็ดขาด</strong> — migration ต้องเป็นแบบ expand/contract เพราะโค้ดเก่าต้องรันบน schema ใหม่ได้ระหว่าง rolling restart</li>
+  </ul>
+  <h2 class="sub">Playbook 2 ตัว คนละ user <span class="en">Two playbooks</span></h2>
+  <table class="grid">
+    <tr><th>Playbook</th><th>SSH user</th><th>ทำอะไร</th></tr>
+    <tr><td><code>provision.yml</code></td><td><code>cloud</code> (มี sudo, ไม่อยู่กลุ่ม docker)</td><td>เครื่องเปล่า → พร้อม deploy: Docker, user <code>deploy</code>, ufw, <code>/opt/pos</code>, <code>.env</code> (0600), สคริปต์ ops, cron backup 03:00 · <strong>ห้ามใส่ <code>--diff</code></strong> (พิมพ์ <code>.env</code> ทั้งไฟล์)</td></tr>
+    <tr><td><code>deploy.yml</code></td><td><code>deploy</code> (เจ้าของ <code>/opt/pos</code>, กลุ่ม docker, ไม่มี sudo)</td><td>release หนึ่งตัว · <code>-e force_redeploy=true</code> เพื่อลงซ้ำ SHA เดิม · <code>--check</code> พิสูจน์แทบไม่ได้อะไร</td></tr>
+  </table>
+  <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">5</span></div>
+</section>
+
+<!-- ════════════════ 6 · BACKUP / ETCD ════════════════ -->
+<section class="page" id="backup">
+  <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">5 · Backup · etcd</span></div>
+  <div class="sec-no">Section 5</div>
+  <h1 class="sec">สำรองข้อมูล · etcd <span class="en">Backup &amp; etcd</span></h1>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน — ยังไม่มี backup ออกนอก VM <span class="en">No offsite backup</span></span>
+    <ul class="ticks">
+      <li><strong>ไม่เคยมี backup ออกจาก VM เลย</strong> และไม่เคยพิสูจน์การกู้จากสำเนานอก VM — ดิสก์ <code>mob04</code> เสีย = ข้อมูลร้าน demo หาย</li>
+      <li>ตาม <code>README.md</code> (หัวข้อ Deployment → Operations) cron backup ยังไม่ได้ถูก apply บน <code>mob04</code> (crontab ว่าง ไม่มีโฟลเดอร์ backups) — บน VM จึงยังไม่มี backup รันเลย</li>
+      <li>งาน offsite (#363/#288) <strong>พักไว้จนหลังเดโม</strong> · ปลายทางตัดสินแล้วคือ NAS ของร้าน แต่โปรโตคอลยังไม่ได้เลือก (BeeStation ไม่มี SFTP — เหลือ <code>smb</code> ของ rclone หรือซื้อ NAS ที่เป็น DSM)</li>
+      <li><strong>ห้ามเขียนว่า "backup พร้อมแล้ว" ที่ไหนก็ตาม</strong></li>
+    </ul>
+  </div>
+  <h2 class="sub"><code>backup-db.sh</code> ทำอะไร (เมื่อติดตั้งแล้ว) <span class="en">What the script does</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">cron ของ user <code>deploy</code> เวลา 03:00</span></li>
+    <li><span class="st-title"><code>pg_dump --create</code> → gzip → checksum → <code>/opt/pos/backups</code> (0700)</span>เก็บ <code>BACKUP_KEEP_DAYS</code> วัน (ค่าเริ่มต้น 7)</li>
+    <li><span class="st-title">offsite ผ่าน <code>rclone</code> (ถ้าตั้งค่า)</span><code>BACKUP_RCLONE_REMOTE</code> ว่าง → เตือน <code>::warning::</code> 1 บรรทัด แล้ว exit 0 · ตั้งไว้แต่พัง → <code>::error::</code> + exit ไม่เป็น 0</li>
+  </ol>
+  <div class="note warn"><span class="nt">อ่าน log ให้ถูก</span><code>backup-cron.log</code> ที่ไม่มี error <strong>ไม่ได้พิสูจน์</strong> ว่าสำเนาออกจาก VM — ต้องอ่านบรรทัด <code>::warning::</code>/<code>::error::</code> · วันที่เปิดใช้ offsite ครั้งแรก ให้ upload ไฟล์เก่าที่ไม่มี marker <code>.uploaded</code> ด้วยมือหนึ่งครั้ง</div>
+  <p>กู้คืนจาก dump ในเครื่อง: <code>deploy/scripts/restore-db.sh &lt;ไฟล์.sql.gz&gt; [ฐานข้อมูล]</code> — ตรวจ checksum และตรวจค่า timeout ของ <code>pos_app</code> หลังกู้</p>
+
+  <h2 class="sub">etcd <span class="en">Runtime config</span></h2>
+  <ul class="ticks">
+    <li>เก็บเฉพาะค่าตั้งไม่ลับ วันนี้มีคีย์เดียว <code>/pos/config/log_level</code></li>
+    <li><code>etcd-init</code> สร้าง root เปิด RBAC แล้ว <strong>ตรวจ</strong> ว่า root เข้าได้และผู้ไม่ระบุตัวถูกปฏิเสธ</li>
+    <li>รหัส root ถูกฝังตอนบูตครั้งแรกเท่านั้น — แก้ <code>ETCD_ROOT_PASSWORD</code> ใน <code>.env</code> ภายหลังไม่เปลี่ยนรหัสจริง อาการคือ "ไม่ green" ไม่ใช่ข้อความเรื่องรหัส</li>
+    <li>รีเซ็ตให้ใช้ <code>etcdctl user passwd root</code> <strong>ห้าม <code>down -v</code></strong> — แต่ลำดับคำสั่งที่รันได้จริงยังไม่มี</li>
+  </ul>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>บน <code>mob04</code> <strong>etcd ยังไม่เคยเปิด auth</strong> (#365) — <code>etcd-init.sh</code> บน VM เป็นโฟลเดอร์ว่างของ root ต้องทำพร้อมรอบขึ้น VM ของ #343 และพิสูจน์ทั้งสองทาง (ใส่รหัสผ่านได้ / ไม่ใส่ถูกปฏิเสธ)</div>
+  <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">6</span></div>
+</section>
+
+<!-- ════════════════ 7 · SECRETS ════════════════ -->
+<section class="page" id="secrets">
+  <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">6 · ความลับ</span></div>
+  <div class="sec-no">Section 6</div>
+  <h1 class="sec">ความลับ · กฎ <code>.env</code> <span class="en">Secrets</span></h1>
+  <ul class="ticks">
+    <li><strong><code>ALLOW_DEV_SECRETS=true</code></strong> ให้ api/worker/bull-board บูตด้วยค่า <code>dev-only-*</code> ได้ — dev/CI เท่านั้น · <code>vm.override.yml</code> บังคับให้ว่างบน <code>mob04</code></li>
+    <li>ตัวแปรที่จำเป็นใช้รูป <code>${VAR:?…}</code> — ขาดตัวไหน <code>docker compose</code> ล้มทันทีแบบเสียงดัง</li>
+    <li>ความลับจริงทั้งหมดอยู่ใน GitHub environment <code>demo</code> (<code>DEMO_SSH_*</code>, <code>DEMO_ENV_FILE</code>) ไม่มีใน repo · <code>DEMO_ENV_FILE</code> คือเนื้อหา <code>server/.env</code> ทั้งไฟล์ที่ <code>provision.yml</code> เขียนลง VM (0600)</li>
+    <li>สร้างค่าลับจริงตาม runbook <code>docs/handoff_log/ticket-336-env-secrets.md</code> อย่าคิดค่าเอง</li>
+    <li>ตัวแปรที่มีใน <code>.env</code> แต่ไม่อยู่ใน anchor <code>x-app-env</code> จะไม่ถึงคอนเทนเนอร์</li>
+    <li><code>CORS_ORIGINS</code> ว่าง = ค่าเดิมคือ CORS <code>*</code> (เปิดทุก origin — ใช้ได้แค่ dev/CI บน VM ต้องตั้ง) · <code>PLATFORM_ADMIN_IPS</code> ใน compose มีค่าเริ่มต้น <code>172.30.0.20</code> · ค่าที่มีเนื้อหาแต่ได้รายการว่าง (เช่น <code>,</code>) = บูตไม่ขึ้นโดยตั้งใจ</li>
+  </ul>
+  <h2 class="sub">แก้ <code>.env</code> บน VM ด้วยมือ <span class="en">Editing by hand</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">เพิ่มบรรทัดว่างท้ายไฟล์ก่อน</span>กันคีย์ใหม่ไปต่อท้ายบรรทัดเดิม</li>
+    <li><span class="st-title">ตรวจด้วย <code>grep -c '^KEY=' .env</code> เสมอ</span><code>grep -c KEY</code> เฉย ๆ นับบรรทัดที่ "มีคำนี้" — คีย์ที่ติดท้ายบรรทัดอื่นจะดูเหมือนมี แต่ Compose ยังหาไม่เจอ</li>
+    <li><span class="st-title">อย่าหวังว่าเปลี่ยนรหัสแล้ว volume จะเปลี่ยนตาม</span><code>pgdata</code>/<code>etcd-data</code>/<code>nginx-auth</code> ฝังรหัสตอนบูตครั้งแรกเท่านั้น — การเปลี่ยนรหัสของ volume ที่มีอยู่เป็นการตัดสินใจของเจ้าของโปรเจกต์ ไม่ใช่ขั้นตอนด้นสด</li>
+  </ol>
+  <div class="note warn"><span class="nt">ห้าม</span>พิมพ์ <code>.env</code> ลง log/แชต · ใส่ <code>--diff</code> ให้ <code>provision.yml</code> · commit ค่าจริง</div>
+  <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">7</span></div>
+</section>
+
+<!-- ════════════════ 8 · TROUBLESHOOTING ════════════════ -->
+<section class="page" id="trouble">
+  <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">7 · แก้ปัญหา</span></div>
+  <div class="sec-no">Section 7</div>
+  <h1 class="sec">แก้ปัญหา <span class="en">Troubleshooting</span></h1>
+  <div class="tbl-scroll">
+  <table class="grid">
+    <tr><th>อาการ</th><th>สาเหตุ</th><th>แก้</th></tr>
+    <tr><td>แอปค้างหน้าโหลด</td><td>เบราว์เซอร์ปฏิเสธ cert self-signed ตอน <code>fetch()</code></td><td>ใช้ <code>tlswrap</code> + <code>API_BASE_URL=http://127.0.0.1:8081</code></td></tr>
+    <tr><td><code>load build context / invalid file request</code></td><td>ไฟล์เป็น placeholder ของ BeeStation</td><td>build จาก <code>git archive</code> ไปโฟลเดอร์ ASCII</td></tr>
+    <tr><td>คอนเทนเนอร์ค้าง <code>(health: starting)</code></td><td>Postgres/Redis ยังไม่พร้อม</td><td>รอ แล้วดู <code>docker compose logs</code></td></tr>
+    <tr><td><code>etcd</code> <code>(unhealthy)</code> ตลอด ตัวอื่นปกติ</td><td>volume เก่ารหัสไม่ตรง <code>.env</code> (#365)</td><td>ใช้งานต่อได้ — ห้าม <code>down -v</code></td></tr>
+    <tr><td>หลังรันคำสั่งหนึ่ง พอร์ต Postgres หาย</td><td>ใช้ชุด <code>-f</code> ไม่ครบ</td><td>ใส่ชุด <code>-f</code> เดิม แล้ว <code>up -d</code></td></tr>
+    <tr><td>api/worker บูตไม่ขึ้น บ่นเรื่อง dev secret</td><td><code>.env</code> เก่าไม่มี <code>ALLOW_DEV_SECRETS=true</code></td><td>เติมบรรทัด (dev เท่านั้น)</td></tr>
+    <tr><td><code>docker compose pull</code> บน VM: <code>x509: certificate is not valid for any names</code></td><td>FortiGate ตรวจ SSL ของ <code>ghcr.io</code></td><td>แก้ใน repo ไม่ได้ — ต้องให้ทีมเครือข่ายยกเว้น <code>ghcr.io</code>/<code>registry-1.docker.io</code>/<code>gcr.io</code> สำหรับ <code>172.30.58.20</code></td></tr>
+    <tr><td>Compose ทุกคำสั่งบน VM ตายก่อน pull</td><td>คีย์ที่ <code>:?</code> บังคับขาดใน <code>/opt/pos/.env</code></td><td>ตรวจด้วย <code>grep -c '^KEY='</code></td></tr>
+    <tr><td>แก้ <code>nginx.conf</code> แล้วไม่เห็นผล</td><td>bind mount ไฟล์เดี่ยวค้าง inode เก่า</td><td>deploy สร้าง nginx ใหม่ทุกครั้งแล้ว (#249) — บน dev ให้ <code>up -d --force-recreate nginx</code></td></tr>
+    <tr><td>Prometheus ขึ้น <code>api-readiness</code> DOWN ทั้งที่ API ปกติ</td><td><code>/health/ready</code> ตอบ JSON ไม่ใช่รูปแบบ metric</td><td>ปกติ ดู job <code>api-metrics</code> แทน (ภาค 05)</td></tr>
+    <tr><td>platform-ui ได้ 403</td><td>allowlist</td><td>ภาค 03 หัวข้อ 5</td></tr>
+  </table>
+  </div>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
+    <ul class="ticks">
+      <li>CD ขึ้น <code>mob04</code> ยังไม่เคยสำเร็จ · runner 0 ตัว · #343/#344 (deploy จริงครั้งแรก + เดโม) ยังไม่มี AC ใดติ๊ก</li>
+      <li>environment <code>demo</code>: <code>deployment_branch_policy</code> ยังเป็น <code>null</code> และการอนุมัติ fork PR ยังหลวมกว่าที่ ADR กำหนด — รอเจ้าของโปรเจกต์ตัดสิน</li>
+      <li>ไม่มี backup ออกนอก VM · etcd ไม่มี auth บน VM · <code>CORS_ORIGINS</code> บน VM ยังเป็น <code>'*'</code></li>
+      <li>monitoring บน VM ยังไม่เคยรันจริง</li>
+    </ul>
+  </div>
+  <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">8</span></div>
+</section>
+
+</body>
+</html>
