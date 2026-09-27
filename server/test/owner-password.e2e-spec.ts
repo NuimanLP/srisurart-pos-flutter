@@ -71,8 +71,16 @@ describe('owner password lifecycle v2 (#443 PR3)', () => {
       body: res.body,
     };
   };
+  // Each login gets its own source IP: this file logs in far more than the per-IP login
+  // throttle allows (10/60 s, auth.service.ts) and the Redis bucket is shared with every
+  // other e2e file, so a fixed IP made these tests fail by run order (429). The per-username
+  // throttle still applies. Same trick as devices.e2e-spec.ts (per-file TEST-NET-3 IP).
+  let ipSeq = 0;
   const login = (username: string, password: string, deviceToken?: string) =>
-    http().post('/api/v1/auth/token').send({ username, password, ...(deviceToken ? { deviceToken } : {}) });
+    http()
+      .post('/api/v1/auth/token')
+      .set('X-Forwarded-For', `198.18.${Math.floor(Math.random() * 250)}.${(ipSeq++ % 250) + 1}`)
+      .send({ username, password, ...(deviceToken ? { deviceToken } : {}) });
   const change = (token: string, newPassword: unknown) =>
     http().post('/api/v1/auth/change-password').set('Authorization', `Bearer ${token}`).send({ newPassword });
   const reset = (tenantId: string) =>
