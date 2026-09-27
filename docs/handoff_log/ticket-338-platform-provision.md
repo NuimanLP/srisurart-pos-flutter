@@ -91,7 +91,7 @@ $DC exec -T nginx wget -qO- --no-check-certificate \
 # ── 2. provision tenant ──────────────────────────────────────────────────
 printf '%s' '{"code":"srisurart-demo","shopName":"ศรีสุรัตน์ อะไหล่ยนต์ (เดโม)",
 "shopNameEn":"Srisurart Autopart (demo)","plan":"demo","ownerUsername":"owner_demo",
-"ownerPassword":"<รหัสเจ้าของร้าน · อย่างน้อย 12 ตัวอักษร>","ownerDisplayName":"เจ้าของร้าน"}' > /tmp/body.json
+"ownerDisplayName":"เจ้าของร้าน"}' > /tmp/body.json
 $DC cp /tmp/body.json nginx:/tmp/body.json
 $DC exec -T nginx wget -qO- --no-check-certificate \
   --header 'Content-Type: application/json' \
@@ -99,7 +99,8 @@ $DC exec -T nginx wget -qO- --no-check-certificate \
   --post-file /tmp/body.json \
   https://127.0.0.1/api/v1/platform/tenants
 # → {"status":"success","data":{"tenantId":"…","code":"srisurart-demo",
-#    "shopName":"…","ownerUsername":"owner_demo","enrolCode":"BE00CB85"}}
+#    "shopName":"…","ownerUsername":"owner_demo","tempPassword":"…16 ตัว…",
+#    "tempPasswordExpiresAt":"…","enrolCode":"BE00CB85"}}
 
 # ── 3. ล้างร่องรอยรหัสผ่าน ───────────────────────────────────────────────
 $DC exec -T nginx rm -f /tmp/body.json
@@ -109,16 +110,15 @@ history -d $(history 1)     # หรือเว้นวรรคนำหน�
 
 ฟิลด์ของ body: `code` (ต้องไม่ซ้ำ — ซ้ำได้ `409 Tenant code or username already exists`) ·
 `shopName` · `shopNameEn` (ไม่ใส่ = `''`) · `plan` `basic|demo|loadtest` (ไม่ใส่ = `basic`) ·
-`timezone` (ไม่ใส่ = `Asia/Bangkok`) · `ownerUsername` · `ownerPassword` ·
+`timezone` (ไม่ใส่ = `Asia/Bangkok`) · `ownerUsername` ·
 `ownerDisplayName` (ไม่ใส่ = ใช้ `ownerUsername`)
-🔴 `ownerPassword` **ต้องยาวอย่างน้อย 12 ตัวอักษร** (แก้แล้วที่ #364 — เดิมตรวจแค่ว่ามีค่า
-จึงตั้ง `1234` ได้) เกณฑ์เดียวกับ `bootstrap:admin` ของ #337 เพราะมาจาก**ฟังก์ชันเดียวกัน**
-(`server/src/common/password.ts` → `passwordPolicyViolation` / `MIN_PASSWORD_LENGTH`)
-ถ้าไม่ผ่านจะได้ **`400 WEAK_PASSWORD`** (`02_API_SCREENS.md §8.1`) โดยที่ยัง**ไม่ได้**
-สร้าง tenant / owner / settings / categories / device อะไรเลย — เพราะตรวจก่อน hash argon2
-และก่อนเปิดธุรกรรม (`platform-tenants.service.ts` `createTenant()` ต้นฟังก์ชัน)
-`message` ของ error เป็นภาษาอังกฤษสำหรับคนที่รัน (`ownerPassword is too weak: at least 12
-characters required`) ส่วนข้อความไทยอยู่ใน `server_error_resolver.dart`
+🔴 **#443 PR3 (2026-09-27): ไม่มี `ownerPassword` แล้ว** — ส่งมา (ค่าอะไรก็ตาม) = **`400
+OWNER_PASSWORD_NOT_ACCEPTED`** โดยยังไม่สร้างอะไรเลย · server สุ่ม**รหัสผ่านชั่วคราว**ให้และคืนใน
+`tempPassword` **ครั้งเดียว** (อายุ **7 วัน**, เก็บแค่ hash — เอาคืนไม่ได้เหมือน `enrolCode`) ·
+ส่ง `ownerUsername` + `tempPassword` + `enrolCode` ให้ร้าน**ตัวต่อตัว** · owner ต้องตั้งรหัสเองตอน
+login ครั้งแรก (ADR-0001 addendum 2026-09-26) · ลืมรหัส/หมดอายุ →
+`POST /api/v1/platform/tenants/{id}/owner/temp-password` (24 ชม., ยืนยันตัวตนโดยโทร/อีเมล**กลับ**ไปที่
+ข้อมูลที่บันทึกไว้ตอนเปิดร้านเท่านั้น) · CLI ของ PR1 ยังไม่รองรับสองข้อนี้ — ตามใน follow-up
 
 ### 🔴 `enrolCode` คืนกลับมาครั้งเดียว
 

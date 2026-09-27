@@ -177,6 +177,26 @@ guard ของ `/api/*` อื่นยังรับเฉพาะ `typ=acce
   localStorage) · ตอน IndexedDB ใช้ไม่ได้ ของเก่าไม่ถูกอ่านและไม่ถูกลบ รอรอบที่ใช้ได้ค่อยย้าย
 * แถว "ที่เก็บฝั่ง Flutter Web" ด้านบนจึงตรงกับโค้ด (`frontend/lib/data/storage/token_storage.dart`) โดยไม่มีข้อยกเว้น
 
+## Addendum 2026-09-26 (#443) — ตัด refresh token เก่าหลังเปลี่ยนรหัสผ่าน · implement 2026-09-27 (#443 PR3)
+
+> **Addendum 2026-09-26 (#443):** `/auth/refresh` เช็คเพิ่มข้อที่ 4 — ปฏิเสธ refresh token ที่ `iat < users.password_changed_at`
+> (`auth.refresh_rejected` เหตุผล `password_changed`) · ช่องที่เหลือ ≤ 15 นาที (อายุ access token) เท่ากับกรณีปิด `users.is_active` ·
+> token จำกัดสิทธิ์ของรหัสชั่วคราวไม่มี refresh token และไม่นับเป็น `iat` สำหรับหน้าต่าง PIN ออฟไลน์ 3 วัน (F5)
+
+*(ข้อความข้างบนคือร่างที่ owner อนุมัติในคอมเมนต์ #443 — คงไว้ตามคำ)* รายละเอียดตอน implement:
+
+* เป็น**แพตเทิร์นเดียวกับสามข้อเดิม** (`users.is_active`, `tenants.status`, `devices.retired_at`) — เช็คคอลัมน์ใน DB ตอน refresh
+  ไม่ใช่ denylist ไม่ใช่ rotation ไม่มี state ใน Redis
+* `password_changed_at` ถูกตั้งโดย (1) platform admin ออกรหัสชั่วคราวใหม่ (`POST /platform/tenants/{id}/owner/temp-password`)
+  และ (2) owner เปลี่ยนรหัสสำเร็จ (`POST /auth/change-password`) · ตอนเปิดร้านเป็น `NULL`
+* เทียบ `payload.iat < floor(epoch(password_changed_at))` แบบ **strict `<`** — token ที่ออกในวินาทีเดียวกับการเปลี่ยนรอด
+  (ยอมรับ: `iat` เป็นหน่วยวินาที และ `<=` จะฆ่า token ที่ change-password เพิ่งคืนให้เอง) · สมมติว่านาฬิกา api กับ Postgres ตรงกัน
+  (compose บนเครื่องเดียวกัน) — ถ้าเหลื่อมเกิน 1 วินาที token ใหม่อาจโดนปฏิเสธ
+* **`typ` ใหม่ `pwchange`** (ต่อจาก `access`/`refresh` ในหัวข้อ *"การเซ็นและที่เก็บ token"*): อายุ 10 นาที ไม่มี refresh ·
+  รับเฉพาะ `POST /auth/change-password` · guard ทุกตัวที่ขอ `access` และ `/auth/refresh` ที่ขอ `refresh` ปฏิเสธเองโดยไม่ต้องแก้ (fail-closed) ·
+  token `pwchange` ที่ `iat` ก่อน `password_changed_at` (คือของรหัสชั่วคราวที่ถูกรีเซ็ตทับไปแล้ว) ก็ใช้ไม่ได้ด้วยกฎเดียวกัน
+* client: response ของ login แบบรหัสชั่วคราวไม่มี `accessToken` → ไม่เรียก `recordOnlineLogin` และ `OfflinePinRepository.setPin` ปฏิเสธ
+
 ## ผลที่ตามมา
 
 * `02_API_SCREENS.md §1.1` ต้องระบุอายุ token ทั้งสองตัวให้ชัด ไม่ใช่ปล่อยว่าง

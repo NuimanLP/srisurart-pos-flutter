@@ -656,7 +656,6 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
           code: otherCode,
           shopName: 'ร้านอื่น',
           ownerUsername: `owner_${otherCode}`,
-          ownerPassword: 'password-123456',
           ownerDisplayName: 'เจ้าของร้านอื่น',
         });
       expect(otherRes.status).toBe(201);

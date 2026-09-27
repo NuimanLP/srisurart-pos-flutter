@@ -156,21 +156,34 @@ docker compose exec -T nginx sh -c \
   "curl -sk https://127.0.0.1/api/v1/platform/tenants \
     -H 'Content-Type: application/json' \
     -H 'Authorization: Bearer <TOKEN>' \
-    -d '{\"code\":\"demo-shop\",\"shopName\":\"ร้านตัวอย่าง\",\"plan\":\"demo\",\"ownerUsername\":\"owner\",\"ownerPassword\":\"<รหัสผ่านอย่างน้อย12ตัวอักษร>\",\"ownerDisplayName\":\"Shop Owner\"}'"
+    -d '{\"code\":\"demo-shop\",\"shopName\":\"ร้านตัวอย่าง\",\"plan\":\"demo\",\"ownerUsername\":\"owner\",\"ownerDisplayName\":\"Shop Owner\"}'"
 ```
 
-Response จะได้ `tenantId`, `enrolCode` (ใช้สำหรับผูกเครื่อง POS Terminal ทีหลังถ้าต้องการ)
+Response จะได้ `tenantId`, `tempPassword` (รหัสผ่าน**ชั่วคราว**ของ owner ที่ server สุ่มให้ — เห็น**ครั้งเดียว**
+อายุ 7 วัน, #443) และ `enrolCode` (ใช้สำหรับผูกเครื่อง POS Terminal ทีหลังถ้าต้องการ) · **ห้ามส่ง
+`ownerPassword`** แล้ว — ส่งมาจะได้ `400 OWNER_PASSWORD_NOT_ACCEPTED`
 
 ### 5.3 ทดสอบ login แบบ shop-level (ไม่ติด loopback restriction — เรียกจาก host ปกติได้)
 
 ```bash
 curl -sk https://localhost/api/v1/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"username":"owner","password":"<รหัสผ่านข้อ5.2>"}'
+  -d '{"username":"owner","password":"<tempPassword จากข้อ 5.2>"}'
 ```
 
-ได้ `accessToken`/`refreshToken` กลับมา = ใช้ username/password นี้ **login ใน Flutter web
-ที่โหมด "Backoffice"** ได้ทันที (role `owner`)
+ครั้งแรกจะได้ `passwordChangeRequired: true` + `passwordChangeToken` (อายุ 10 นาที) **ไม่ใช่**
+`accessToken` — ต้องตั้งรหัสของตัวเองก่อน (≥ 12 ตัว, ห้ามซ้ำรหัสชั่วคราว):
+
+```bash
+curl -sk https://localhost/api/v1/auth/change-password \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <passwordChangeToken>" \
+  -d '{"newPassword":"<รหัสผ่านใหม่ของคุณ>"}'
+```
+
+ได้ `accessToken`/`refreshToken` กลับมา = ใช้ username + **รหัสใหม่** นี้ **login ใน Flutter web
+ที่โหมด "Backoffice"** ได้ทันที (role `owner`) · หรือจะ login ด้วยรหัสชั่วคราวใน Flutter เลยก็ได้ —
+แอปจะเปิดหน้า "ตั้งรหัสผ่านใหม่" ให้เอง
 
 ---
 
