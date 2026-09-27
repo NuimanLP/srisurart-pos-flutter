@@ -186,6 +186,35 @@ List<String> costDisclosureLines(GrossProfitResult r) => [
     '${r.unknownCostLines} รายการไม่มีข้อมูลต้นทุน (กำไรจะสูงกว่าจริง)',
 ];
 
+/// Sales paid in cash — one of the three groups a `SaleLite` list is split
+/// into for the "วิธีชำระเงิน" breakdown (#461). Extracted to a top-level pure
+/// function (like [computeGrossProfit]) so the grouping is unit-testable
+/// without a widget pump.
+List<SaleLite> cashSales(List<SaleLite> sales) =>
+    sales.where((s) => s.paymentMethod == 'เงินสด').toList();
+
+/// Sales paid by transfer/QR. Three spellings are accepted because both the
+/// current UI copy (`'โอน/QR'`) and older `db.js`-era values (`'PromptPay'`,
+/// `'โอนเงิน'`) can appear on rows saved before a copy change.
+List<SaleLite> qrSales(List<SaleLite> sales) => sales
+    .where(
+      (s) =>
+          s.paymentMethod == 'โอน/QR' ||
+          s.paymentMethod == 'PromptPay' ||
+          s.paymentMethod == 'โอนเงิน',
+    )
+    .toList();
+
+/// Sales paid via `เครดิตช่าง` (mechanic credit) — settled later through
+/// `CreditPayments`, never touching the cash drawer directly (only a cash
+/// *settlement* of that credit does, tracked separately as
+/// `cashCreditPaymentsToday`). Before #461 the payment-method breakdown only
+/// showed [cashSales]/[qrSales], so a day with a เครดิตช่าง bill made those two
+/// rows sum to less than `รวมทั้งหมด` (which totals every sale). This group
+/// closes that gap.
+List<SaleLite> creditSales(List<SaleLite> sales) =>
+    sales.where((s) => s.paymentMethod == 'เครดิตช่าง').toList();
+
 /// Legacy credit payments carried a `method` field (`'เงินสด'` | `'โอน/QR'`)
 /// and only cash settlements counted toward the drawer. The Drift port has no
 /// `method` column; MechanicsScreen instead encodes the method as the `note`
@@ -327,17 +356,11 @@ class _ClosingReportState extends State<ClosingReport> {
   double _totalRevenue(_ClosingData d) =>
       d.sales.fold(0, (s, t) => s + t.total);
 
-  List<SaleLite> _cashSales(_ClosingData d) =>
-      d.sales.where((s) => s.paymentMethod == 'เงินสด').toList();
+  List<SaleLite> _cashSales(_ClosingData d) => cashSales(d.sales);
 
-  List<SaleLite> _qrSales(_ClosingData d) => d.sales
-      .where(
-        (s) =>
-            s.paymentMethod == 'โอน/QR' ||
-            s.paymentMethod == 'PromptPay' ||
-            s.paymentMethod == 'โอนเงิน',
-      )
-      .toList();
+  List<SaleLite> _qrSales(_ClosingData d) => qrSales(d.sales);
+
+  List<SaleLite> _creditSales(_ClosingData d) => creditSales(d.sales);
 
   double _sumTotal(List<SaleLite> list) => list.fold(0, (s, t) => s + t.total);
 
@@ -395,8 +418,10 @@ class _ClosingReportState extends State<ClosingReport> {
     final totalRevenue = _totalRevenue(d);
     final cashSales = _cashSales(d);
     final qrSales = _qrSales(d);
+    final creditSales = _creditSales(d);
     final cashTotal = _sumTotal(cashSales);
     final qrTotal = _sumTotal(qrSales);
+    final creditTotal = _sumTotal(creditSales);
     final profitResult = _grossProfit(d);
     final grossProfit = profitResult.profit;
     final topItems = _topItems(d);
@@ -536,6 +561,7 @@ class _ClosingReportState extends State<ClosingReport> {
             sectionTitle('แบ่งตามวิธีชำระเงิน'),
             row('💵 เงินสด (${cashSales.length} บิล)', baht(cashTotal)),
             row('📱 โอน/QR (${qrSales.length} บิล)', baht(qrTotal)),
+            row('🔧 เครดิตช่าง (${creditSales.length} บิล)', baht(creditTotal)),
             row('รวมทั้งหมด', baht(totalRevenue), big: true),
             divider(),
             sectionTitle('ตรวจนับเงินสดในลิ้นชัก'),
@@ -670,8 +696,10 @@ class _ClosingReportState extends State<ClosingReport> {
     final totalRevenue = _totalRevenue(d);
     final cashSales = _cashSales(d);
     final qrSales = _qrSales(d);
+    final creditSales = _creditSales(d);
     final cashTotal = _sumTotal(cashSales);
     final qrTotal = _sumTotal(qrSales);
+    final creditTotal = _sumTotal(creditSales);
     final profitResult = _grossProfit(d);
     final grossProfit = profitResult.profit;
     final profitDisclosure = costDisclosureLines(profitResult);
@@ -723,6 +751,12 @@ class _ClosingReportState extends State<ClosingReport> {
         _SectionTitle('วิธีชำระเงิน'),
         _payRow('💵 เงินสด', cashSales.length, cashTotal, AppColors.orange),
         _payRow('📱 โอน/QR', qrSales.length, qrTotal, AppColors.steelBlue),
+        _payRow(
+          '🔧 เครดิตช่าง',
+          creditSales.length,
+          creditTotal,
+          AppColors.warning,
+        ),
         Container(
           decoration: BoxDecoration(
             border: Border(
