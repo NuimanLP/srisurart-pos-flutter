@@ -21,17 +21,15 @@ void main() {
     expect(latinOnlySpacing('ผู้เสนอราคา · QUOTED BY', 1.6), isNull);
   });
 
-  test('only the two EN-only headings use a raw letterSpacing', () {
+  test('only the constant QUOTATION heading uses a raw letterSpacing', () {
+    // Tripwire (run from frontend/, like `flutter test`): every other label
+    // — including the user-editable shopNameEN — must go through
+    // latinOnlySpacing so a Thai label never gets `Tc`.
     final src = File(
       'lib/presentation/widgets/quote_a4_view.dart',
     ).readAsStringSync();
-    // shopNameEN (2.2) and 'QUOTATION' (3.2); every other label must go
-    // through latinOnlySpacing so a Thai label never gets `Tc`.
     final raw = RegExp(r'letterSpacing:\s*[\d.]+').allMatches(src).toList();
-    expect(raw.map((m) => m.group(0)), [
-      'letterSpacing: 2.2',
-      'letterSpacing: 3.2',
-    ]);
+    expect(raw.map((m) => m.group(0)), ['letterSpacing: 3.2']);
   });
 
   test('A4 quote renders to a PDF', () async {

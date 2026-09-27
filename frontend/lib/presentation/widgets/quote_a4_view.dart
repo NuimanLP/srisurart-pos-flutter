@@ -163,7 +163,7 @@ class QuoteA4View extends StatelessWidget {
                     font: cond,
                     fontSize: 12,
                     color: _orange,
-                    letterSpacing: 2.2,
+                    letterSpacing: latinOnlySpacing(s.shopNameEN, 2.2),
                   ),
                 ),
                 pw.SizedBox(height: 4),
