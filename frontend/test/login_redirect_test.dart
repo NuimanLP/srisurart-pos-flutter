@@ -36,6 +36,8 @@ import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
 import 'package:srisurart_pos/presentation/screens/login_screen.dart';
+import 'package:srisurart_pos/presentation/widgets/change_password_form.dart';
+import 'package:srisurart_pos/presentation/widgets/password_changed_banner.dart';
 import 'package:srisurart_pos/presentation/screens/settings_screen.dart';
 import 'package:srisurart_pos/presentation/widgets/app_button.dart';
 import 'package:srisurart_pos/presentation/widgets/app_shell.dart';
@@ -77,14 +79,31 @@ class _StubAuthRepo extends AuthRepository {
   String? deviceToken = 'dt-1';
   Object? loginError;
 
+  /// #443 PR3: when set, login answers with a temporary-password result.
+  String? pwchangeToken;
+  DateTime? passwordChangedAt;
+
   @override
-  Future<AuthUser> login({
+  Future<LoginResult> login({
     required String username,
     required String password,
   }) async {
     if (loginError != null) throw loginError!;
+    final u = AuthUser(id: 'u-1', username: username, role: 'cashier');
+    if (pwchangeToken != null) return LoginPasswordChangeRequired(u, pwchangeToken!);
     isAuth = true;
-    user = AuthUser(id: 'u-1', username: username, role: 'cashier');
+    user = u;
+    return LoginSucceeded(user!, passwordChangedAt: passwordChangedAt);
+  }
+
+  @override
+  Future<AuthUser> changePassword({
+    required String passwordChangeToken,
+    required String newPassword,
+  }) async {
+    pwchangeToken = null;
+    isAuth = true;
+    user = const AuthUser(id: 'u-1', username: 'owner', role: 'owner');
     return user!;
   }
 
@@ -413,6 +432,68 @@ void main() {
           expect(find.text('เข้าสู่ระบบไม่สำเร็จ'), findsOneWidget);
           expect(find.textContaining('Invalid credentials'), findsNothing);
           expect(find.byType(LoginScreen), findsOneWidget);
+          await finish(tester);
+        });
+      },
+    );
+
+    testWidgets(
+      'flag on: a temporary password swaps the form for the change form, then signs in (#443 PR3)',
+      (tester) async {
+        await tester.runAsync(() async {
+          await cubit.init();
+          await pumpApp(tester, requireLogin: true);
+          await settle(tester);
+
+          repo.pwchangeToken = 'pwchange-token';
+          await tester.enterText(find.byType(TextField).at(0), 'owner');
+          await tester.enterText(find.byType(TextField).at(1), 'TempPassw0rdXyz');
+          await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+          await settle(tester);
+
+          expect(find.byType(LoginScreen), findsOneWidget);
+          expect(find.byType(ChangePasswordForm), findsOneWidget);
+          expect(find.text('ตั้งรหัสผ่านใหม่'), findsOneWidget);
+          expect(find.text('เข้าสู่ระบบไม่สำเร็จ'), findsNothing);
+          expect(find.byType(CheckoutScreen), findsNothing);
+
+          await tester.enterText(find.byKey(const Key('change-password-new')), 'my own long passphrase');
+          await tester.enterText(find.byKey(const Key('change-password-confirm')), 'something else entirely');
+          await tester.tap(find.text(ChangePasswordForm.submit));
+          await settle(tester);
+          expect(find.text(ChangePasswordForm.mismatch), findsOneWidget);
+
+          await tester.enterText(find.byKey(const Key('change-password-confirm')), 'my own long passphrase');
+          await tester.tap(find.text(ChangePasswordForm.submit));
+          await settle(tester);
+
+          expect(cubit.state, isA<Authenticated>());
+          expect(find.byType(LoginScreen), findsNothing);
+          expect(find.byType(CheckoutScreen), findsOneWidget);
+          await finish(tester);
+        });
+      },
+    );
+
+    testWidgets(
+      'flag on: a recent passwordChangedAt shows the banner in the shell until dismissed (#443 PR3)',
+      (tester) async {
+        await tester.runAsync(() async {
+          await cubit.init();
+          await pumpApp(tester, requireLogin: true);
+          await settle(tester);
+
+          repo.passwordChangedAt = DateTime.now().subtract(const Duration(hours: 2));
+          await tester.enterText(find.byType(TextField).at(0), 'owner');
+          await tester.enterText(find.byType(TextField).at(1), 'my own long passphrase');
+          await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+          await settle(tester);
+
+          expect(find.byType(CheckoutScreen), findsOneWidget);
+          expect(find.textContaining('รหัสผ่านถูกเปลี่ยนเมื่อ'), findsOneWidget);
+          await tester.tap(find.text(PasswordChangedBanner.dismiss));
+          await settle(tester);
+          expect(find.textContaining('รหัสผ่านถูกเปลี่ยนเมื่อ'), findsNothing);
           await finish(tester);
         });
       },

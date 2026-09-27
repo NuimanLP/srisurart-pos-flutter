@@ -71,6 +71,14 @@ export class PlatformTenantsController {
     return this.tenantsService.reissueEnrolCode(id, deviceId, req.platformAdmin.id, ip);
   }
 
+  /** #443 PR3: forgotten owner password → a new 24 h temporary one; the old one dies now. */
+  @Post(':id/owner/temp-password')
+  @HttpCode(200)
+  async issueOwnerTempPassword(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    const ip = clientIp(req) ?? undefined;
+    return this.tenantsService.issueOwnerTempPassword(id, req.platformAdmin.id, ip);
+  }
+
   /** #443 PR2: tenant + its devices (no secrets/hashes) + its recent import jobs. */
   @Get(':id')
   async getTenantDetail(@Param('id') id: string, @Req() req: AuthenticatedRequest) {

@@ -29,6 +29,7 @@ export async function hashDeviceToken(token: string): Promise<string> {
  * - Requires `role === 'pos'` and `retired_at IS NULL`.
  * - Checks tenant status is 'active'.
  * - Finds single active user of tenant. If none -> 403 FORBIDDEN ("No active user found for tenant").
+ * - Refuses while that user is still on a temporary password -> 403 PASSWORD_CHANGE_REQUIRED (#443).
  * - Sets tenant on request scope via `setRequestTenant`.
  */
 @Injectable()
@@ -53,7 +54,8 @@ export class DeviceTokenGuard implements CanActivate {
 
     // 1. Lookup device, tenant status, and active user via SECURITY DEFINER function
     const rows = (await this.ds.query(
-      `SELECT tenant_id, id, role, retired_at, tenant_status, active_user_id
+      `SELECT tenant_id, id, role, retired_at, tenant_status, active_user_id,
+              active_user_must_change_password
          FROM auth_lookup_device_and_active_user($1)`,
       [tokenHash],
     )) as {
@@ -63,6 +65,7 @@ export class DeviceTokenGuard implements CanActivate {
       retired_at: Date | null;
       tenant_status: string;
       active_user_id: string | null;
+      active_user_must_change_password: boolean | null;
     }[];
 
     if (rows.length === 0) {
@@ -90,6 +93,19 @@ export class DeviceTokenGuard implements CanActivate {
         {
           code: 'FORBIDDEN',
           message: 'No active user found for tenant',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // #443 PR3 (owner decision 2026-09-27, Q1): this guard acts *as the owner* on a device
+    // token alone. While the owner is still on a temporary password, an enrolCode would
+    // otherwise be enough to act as them — so nothing passes until they change it.
+    if (dev.active_user_must_change_password) {
+      throw new HttpException(
+        {
+          code: 'PASSWORD_CHANGE_REQUIRED',
+          message: 'The shop owner must change the temporary password first',
         },
         HttpStatus.FORBIDDEN,
       );

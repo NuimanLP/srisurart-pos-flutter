@@ -4,6 +4,7 @@ import {
   assertNoPasswordFlags,
   createPrompter,
   parseArgv,
+  PlatformApiError,
   readSecret,
   runPlatformCli,
   type FetchLike,
@@ -236,7 +237,7 @@ describe('runPlatformCli', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('tenants:create: sends both the admin login and the create body built from flags + prompted owner password', async () => {
+  it('tenants:create: sends the admin login then the create body built from flags only (#443 PR3: no ownerPassword)', async () => {
     const { fetchImpl, calls } = mockFetch((url) => {
       if (url.endsWith('/platform/auth/token')) {
         return jsonResponse(200, {
@@ -246,11 +247,11 @@ describe('runPlatformCli', () => {
       }
       return jsonResponse(200, {
         status: 'success',
-        data: { tenantId: 't1', code: 'demo', enrolCode: 'ABCD1234' },
+        data: { tenantId: 't1', code: 'demo', tempPassword: 'servergenerated1', enrolCode: 'ABCD1234' },
       });
     });
-    // Both secrets arrive as one chunk, exactly like `printf 'adminpw\nownerpw\n' | …`.
-    const { input, output, log } = io({ input: 'adminpw\nownerpw\n', fetchImpl });
+    // Only one secret is ever prompted for now — the admin's own password.
+    const { input, output, log } = io({ input: 'adminpw\n', fetchImpl });
 
     await runPlatformCli(
       [
@@ -274,12 +275,246 @@ describe('runPlatformCli', () => {
       plan: undefined,
       timezone: undefined,
       ownerUsername: 'owner1',
-      ownerPassword: 'ownerpw',
       ownerDisplayName: undefined,
     });
+    expect(createBody).not.toHaveProperty('ownerPassword');
     expect(log).toHaveBeenCalledWith(
-      JSON.stringify({ tenantId: 't1', code: 'demo', enrolCode: 'ABCD1234' }, null, 2),
+      JSON.stringify(
+        { tenantId: 't1', code: 'demo', tempPassword: 'servergenerated1', enrolCode: 'ABCD1234' },
+        null,
+        2,
+      ),
     );
+  });
+
+  it('tenants:create: writes a one-time-secret note to stderr, not stdout', async () => {
+    const { fetchImpl } = mockFetch((url) => {
+      if (url.endsWith('/platform/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: { token: 'tok-abc', admin: { id: 'a1', username: 'devadmin', displayName: 'Dev' } },
+        });
+      }
+      return jsonResponse(200, {
+        status: 'success',
+        data: { tenantId: 't1', code: 'demo', tempPassword: 'x', enrolCode: 'ABCD1234' },
+      });
+    });
+    const input = fakeStream(false);
+    const output = fakeStream(false);
+    let written = '';
+    output.on('data', (chunk: Buffer) => (written += chunk.toString('utf8')));
+    const log = vi.fn();
+    queueMicrotask(() => input.write('adminpw\n'));
+
+    await runPlatformCli(
+      ['tenants:create', '--user', 'devadmin', '--code', 'demo', '--shop-name', 'ร้านทดสอบ', '--owner-username', 'owner1'],
+      { input, output, log, fetchImpl },
+    );
+
+    expect(written).toContain('tempPassword and enrolCode above are shown once');
+    expect(log.mock.calls.flat().join('\n')).not.toContain('shown once');
+  });
+
+  it('tenants:show: logs in then GETs the tenant detail', async () => {
+    const { fetchImpl, calls } = mockFetch((url) => {
+      if (url.endsWith('/platform/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: { token: 'tok-abc', admin: { id: 'a1', username: 'devadmin', displayName: 'Dev' } },
+        });
+      }
+      return jsonResponse(200, { status: 'success', data: { tenant: { id: 't1' }, devices: [], importJobs: [] } });
+    });
+    const { input, output, log } = io({ input: 'right-pw\n', fetchImpl });
+
+    await runPlatformCli(['tenants:show', 't1', '--user', 'devadmin'], { input, output, log, fetchImpl });
+
+    expect(calls[1][0]).toContain('/api/v1/platform/tenants/t1');
+    expect(calls[1][1].method).toBe('GET');
+    expect(log).toHaveBeenCalledWith(
+      JSON.stringify({ tenant: { id: 't1' }, devices: [], importJobs: [] }, null, 2),
+    );
+  });
+
+  it('tenants:show: requires the tenantId positional', async () => {
+    const fetchImpl = vi.fn();
+    await expect(
+      runPlatformCli(['tenants:show', '--user', 'devadmin'], { fetchImpl }),
+    ).rejects.toThrow(/usage: tenants:show/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('devices:reissue-code: logs in then POSTs to the enrol-code route', async () => {
+    const { fetchImpl, calls } = mockFetch((url) => {
+      if (url.endsWith('/platform/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: { token: 'tok-abc', admin: { id: 'a1', username: 'devadmin', displayName: 'Dev' } },
+        });
+      }
+      return jsonResponse(200, {
+        status: 'success',
+        data: { deviceId: 'pos1', enrolCode: 'NEWCODE1', enrolExpiresAt: '2026-10-04T00:00:00.000Z' },
+      });
+    });
+    const { input, output, log } = io({ input: 'right-pw\n', fetchImpl });
+
+    await runPlatformCli(['devices:reissue-code', 't1', 'pos1', '--user', 'devadmin'], {
+      input,
+      output,
+      log,
+      fetchImpl,
+    });
+
+    expect(calls[1][0]).toContain('/api/v1/platform/tenants/t1/devices/pos1/enrol-code');
+    expect(calls[1][1].method).toBe('POST');
+    expect(log).toHaveBeenCalledWith(
+      JSON.stringify(
+        { deviceId: 'pos1', enrolCode: 'NEWCODE1', enrolExpiresAt: '2026-10-04T00:00:00.000Z' },
+        null,
+        2,
+      ),
+    );
+  });
+
+  it('devices:reissue-code: requires both positionals', async () => {
+    const fetchImpl = vi.fn();
+    await expect(
+      runPlatformCli(['devices:reissue-code', 't1', '--user', 'devadmin'], { fetchImpl }),
+    ).rejects.toThrow(/usage: devices:reissue-code/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('owner:temp-password: logs in then POSTs to the reset route', async () => {
+    const { fetchImpl, calls } = mockFetch((url) => {
+      if (url.endsWith('/platform/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: { token: 'tok-abc', admin: { id: 'a1', username: 'devadmin', displayName: 'Dev' } },
+        });
+      }
+      return jsonResponse(200, {
+        status: 'success',
+        data: { tenantId: 't1', ownerUsername: 'owner1', tempPassword: 'freshtemp1', tempPasswordExpiresAt: '2026-09-28T00:00:00.000Z' },
+      });
+    });
+    const { input, output, log } = io({ input: 'right-pw\n', fetchImpl });
+
+    await runPlatformCli(['owner:temp-password', 't1', '--user', 'devadmin'], { input, output, log, fetchImpl });
+
+    expect(calls[1][0]).toContain('/api/v1/platform/tenants/t1/owner/temp-password');
+    expect(calls[1][1].method).toBe('POST');
+    expect(log.mock.calls.flat().join('\n')).toContain('freshtemp1');
+  });
+
+  it('owner:temp-password: requires the tenantId positional', async () => {
+    const fetchImpl = vi.fn();
+    await expect(
+      runPlatformCli(['owner:temp-password', '--user', 'devadmin'], { fetchImpl }),
+    ).rejects.toThrow(/usage: owner:temp-password/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('owner:set-password: logs in as the owner with the temp password, then changes it — no platform admin, no tokens printed', async () => {
+    const { fetchImpl, calls } = mockFetch((url) => {
+      if (url.endsWith('/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: {
+            passwordChangeRequired: true,
+            passwordChangeToken: 'pwchange-tok',
+            user: { id: 'u1', username: 'owner1', role: 'owner', displayName: 'Owner' },
+          },
+        });
+      }
+      return jsonResponse(200, {
+        status: 'success',
+        data: {
+          accessToken: 'access-secret',
+          refreshToken: 'refresh-secret',
+          user: { id: 'u1', username: 'owner1', role: 'owner', displayName: 'Owner' },
+        },
+      });
+    });
+    const { input, output, log } = io({ input: 'temppw\nnewpw12345678\n', fetchImpl });
+
+    await runPlatformCli(['owner:set-password', 'owner1'], { input, output, log, fetchImpl });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0][0]).toContain('/api/v1/auth/token');
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({ username: 'owner1', password: 'temppw' });
+    expect(calls[1][0]).toContain('/api/v1/auth/change-password');
+    expect((calls[1][1].headers as Record<string, string>).Authorization).toBe('Bearer pwchange-tok');
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({ newPassword: 'newpw12345678' });
+    expect(log).toHaveBeenCalledWith(JSON.stringify({ username: 'owner1', passwordChanged: true }, null, 2));
+    expect(log.mock.calls.flat().join('\n')).not.toContain('access-secret');
+    expect(log.mock.calls.flat().join('\n')).not.toContain('refresh-secret');
+    expect(log.mock.calls.flat().join('\n')).not.toContain('pwchange-tok');
+  });
+
+  it('owner:set-password: refuses when login does not ask for a password change', async () => {
+    const { fetchImpl } = mockFetch(() =>
+      jsonResponse(200, {
+        status: 'success',
+        data: {
+          accessToken: 'a',
+          refreshToken: 'r',
+          user: { id: 'u1', username: 'owner1', role: 'owner', displayName: 'Owner' },
+        },
+      }),
+    );
+    const { input, output, log } = io({ input: 'alreadyrealpw\nnewpw12345678\n', fetchImpl });
+
+    await expect(
+      runPlatformCli(['owner:set-password', 'owner1'], { input, output, log, fetchImpl }),
+    ).rejects.toThrow(/did not ask for a password change/);
+  });
+
+  it('owner:set-password: surfaces WEAK_PASSWORD with its reason, never the new password', async () => {
+    const { fetchImpl } = mockFetch((url) => {
+      if (url.endsWith('/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: {
+            passwordChangeRequired: true,
+            passwordChangeToken: 'pwchange-tok',
+            user: { id: 'u1', username: 'owner1', role: 'owner', displayName: 'Owner' },
+          },
+        });
+      }
+      return jsonResponse(400, {
+        status: 'error',
+        error: {
+          code: 'WEAK_PASSWORD',
+          message: 'newPassword must differ from the temporary password',
+          details: { reason: 'same_as_temp' },
+        },
+      });
+    });
+    const { input, output, log } = io({ input: 'temppw-secret\ntemppw-secret\n', fetchImpl });
+
+    const err = (await runPlatformCli(['owner:set-password', 'owner1'], {
+      input,
+      output,
+      log,
+      fetchImpl,
+    }).catch((e: unknown) => e)) as Error;
+
+    expect(err).toBeInstanceOf(PlatformApiError);
+    expect(err.message).toContain('400 WEAK_PASSWORD');
+    expect(err.message).toContain('must differ from the temporary password');
+    expect(err.message).not.toContain('temppw-secret');
+    expect(err.message).not.toContain('pwchange-tok');
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('owner:set-password: requires the username positional', async () => {
+    const fetchImpl = vi.fn();
+    await expect(runPlatformCli(['owner:set-password'], { fetchImpl })).rejects.toThrow(
+      /usage: owner:set-password/,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('tenants:status: validates the status value before logging in', async () => {

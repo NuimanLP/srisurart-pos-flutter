@@ -391,6 +391,12 @@ route but `/login` redirects to `/login?from=<requested>` unless `AuthCubit` is 
 signed-in session on `/login` returns to `from` (in-app paths only). With the flag off the router is
 the 11 routes above, unchanged.
 
+**#443 PR3 amendment.** No new route. A login with a temporary owner password puts `AuthCubit` in
+`AuthPasswordChangeRequired` (not `Authenticated`), so the redirect above keeps it on `/login`, where
+`LoginForm` swaps itself for `ChangePasswordForm` (`widgets/change_password_form.dart`) — the same
+swap happens inside the Settings `LoginDialog`. A successful change is an ordinary `Authenticated`.
+`AppShell` also hosts `PasswordChangedBanner` under `SyncAlertBanner`.
+
 ---
 
 ## 10. Workflow reminder for every later agent

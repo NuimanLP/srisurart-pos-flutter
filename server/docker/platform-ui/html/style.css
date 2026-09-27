@@ -1,0 +1,208 @@
+:root {
+  color-scheme: light;
+  --navy: #0f2540;
+  --orange: #e8823a;
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --border: #d8dde3;
+  --text: #1c2733;
+  --muted: #6b7684;
+  --danger: #b3261e;
+  --ok: #1e7a3c;
+  --warn: #9a6a00;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Noto Sans Thai", Tahoma, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header.topbar {
+  background: var(--navy);
+  color: #fff;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+header.topbar h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+header.topbar button {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+main {
+  max-width: 960px;
+  margin: 20px auto;
+  padding: 0 16px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 16px;
+  color: var(--navy);
+}
+
+label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 10px 0 4px;
+}
+
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+button {
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 8px 14px;
+}
+
+button.primary {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #fff;
+}
+
+button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--navy);
+  text-decoration: underline;
+  padding: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+th, td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pill.active { background: #e5f5ea; color: var(--ok); }
+.pill.suspended { background: #fff3d6; color: var(--warn); }
+.pill.closed { background: #f1d9d7; color: var(--danger); }
+.pill.enrolled { background: #e5f5ea; color: var(--ok); }
+.pill.not-enrolled { background: #eceff2; color: var(--muted); }
+.pill.retired { background: #f1d9d7; color: var(--danger); }
+
+.error-box {
+  background: #fdecea;
+  color: var(--danger);
+  border: 1px solid #f3c2bd;
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.hidden { display: none !important; }
+
+.code-box {
+  font-family: "Cascadia Mono", monospace;
+  font-size: 20px;
+  letter-spacing: 2px;
+  background: var(--bg);
+  border: 1px dashed var(--orange);
+  padding: 12px 16px;
+  border-radius: 6px;
+  text-align: center;
+  margin: 10px 0;
+}
+
+.code-item {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.code-item:last-of-type {
+  border-bottom: none;
+}
+
+.code-item label {
+  margin-top: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.warn-note {
+  color: var(--warn);
+  font-size: 13px;
+}
+
+.row-actions button {
+  margin-right: 6px;
+  margin-bottom: 4px;
+}
+
+.muted { color: var(--muted); font-size: 13px; }
+
+/* #443 PR4: the CSP (`default-src 'self'`) blocks inline `style="..."` attributes, so every
+   one-off layout tweak lives here as a class instead. */
+.mt-16 { margin-top: 16px; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-card {
+  max-width: 420px;
+  width: 90%;
+}

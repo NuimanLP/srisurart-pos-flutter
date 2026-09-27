@@ -543,6 +543,8 @@ docker compose -p studylab exec -T nginx curl -sk https://127.0.0.1/api/v1/platf
 
 **(3) สร้างร้าน (tenant)** — ลองรหัสอ่อนก่อน เพื่อดูว่า server ปฏิเสธจริง:
 ```bash
+> ⚠️ **ล้าสมัยตั้งแต่ #443 PR3 (2026-09-27):** `POST /platform/tenants` ไม่รับ `ownerPassword` แล้ว (ส่งมา → `400 OWNER_PASSWORD_NOT_ACCEPTED`) และ response มี `tempPassword` ที่ต้องเปลี่ยนตอน login ครั้งแรก · ใช้ CLI แทน curl ตาม `docs/handoff_log/ticket-338-platform-provision.md` §3 (`tenants:create` แล้ว `owner:set-password`) · คำสั่ง curl ข้างล่างใช้ไม่ได้กับ server ปัจจุบัน
+
 PT=<token จากข้อ 2>
 docker compose -p studylab exec -T nginx curl -sk https://127.0.0.1/api/v1/platform/tenants \
   -H "authorization: Bearer $PT" -H 'content-type: application/json' \

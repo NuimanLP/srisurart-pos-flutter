@@ -97,9 +97,29 @@ class ServerErrorResolver {
     // no screen in this app provisions a tenant, so this entry exists so the code can
     // never surface as a raw English sentence if a tool ever does.
     'WEAK_PASSWORD': 'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
+    // #443 PR3 — agent ร่าง (02_API_SCREENS.md §8.1), not yet ratified by the owner.
+    'TEMP_PASSWORD_EXPIRED':
+        'รหัสผ่านชั่วคราวหมดอายุแล้ว กรุณาติดต่อทีมงานเพื่อขอรหัสใหม่',
+    'PASSWORD_CHANGE_REQUIRED':
+        'เจ้าของร้านต้องเปลี่ยนรหัสผ่านชั่วคราวก่อน จึงจะใช้งานเครื่องนี้ได้',
+    // Ops-facing only (platform plane) — here so it never surfaces as raw English.
+    'OWNER_PASSWORD_NOT_ACCEPTED':
+        'ระบบไม่รับรหัสผ่านเจ้าของร้านจากผู้ดูแลแล้ว ระบบจะสุ่มรหัสชั่วคราวให้เอง',
+    'OWNER_NOT_FOUND': 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่',
     'SHIFT_NOT_FOUND': 'ไม่พบข้อมูลกะ',
     'UNAUTHENTICATED': 'กรุณาเข้าสู่ระบบ',
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
+  };
+
+  /// `WEAK_PASSWORD` `details.reason` → Thai (#443 PR3) — agent ร่าง
+  /// (02_API_SCREENS.md §8.1), not yet ratified by the owner. `too_short`
+  /// keeps the owner-ratified #364 sentence.
+  static const Map<String, String> _weakPasswordReasons = {
+    'required': 'กรุณากรอกรหัสผ่านใหม่',
+    'too_short': 'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
+    'too_long': 'รหัสผ่านยาวเกินไป ต้องไม่เกิน 128 ตัวอักษร',
+    'common': 'รหัสผ่านนี้เดาง่ายเกินไป หรือมีชื่อร้านอยู่ในรหัส กรุณาตั้งรหัสอื่น',
+    'same_as_temp': 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว',
   };
 
   /// Resolves an error code and optional server-provided message into a user-facing string.
@@ -131,6 +151,13 @@ class ServerErrorResolver {
         serverMessage.trim().isNotEmpty &&
         _startsWithThai(serverMessage)) {
       return serverMessage.trim();
+    }
+
+    // #443 PR3: `POST /auth/change-password` says *why* in `details.reason`,
+    // and the owner at the counter needs the specific rule, not the #364 one.
+    if (upperCode == 'WEAK_PASSWORD' && details is Map) {
+      final reason = _weakPasswordReasons[details['reason']];
+      if (reason != null) return reason;
     }
 
     // Look up canonical message

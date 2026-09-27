@@ -152,28 +152,43 @@ docker compose exec api-1 node dist/cli/platform.js login --user devadmin
 # Platform admin password: <พิมพ์รหัสผ่านข้อ 5.1>
 # → logged in as devadmin (id …)
 
-# สร้าง tenant + owner แรก — CLI จะถามรหัส admin ก่อน แล้วถามรหัส owner ร้านใหม่ต่อ
+# สร้าง tenant + owner แรก — CLI ถามแค่รหัส admin ตัวเดียว (#443 PR3: ไม่มีรหัส owner ให้ตั้งแล้ว)
 docker compose exec api-1 node dist/cli/platform.js tenants:create \
   --user devadmin --code demo-shop --shop-name 'ร้านตัวอย่าง' --plan demo \
   --owner-username owner --owner-display-name 'Shop Owner'
 # Platform admin password: <พิมพ์รหัสผ่านข้อ 5.1>
-# New owner password: <พิมพ์รหัสผ่านอย่างน้อย 12 ตัวอักษร>
 ```
 
-Response จะได้ `tenantId`, `enrolCode` (ใช้สำหรับผูกเครื่อง POS Terminal ทีหลังถ้าต้องการ)
-รายละเอียด flags ทั้งหมดและตัวอย่างแบบ non-interactive (pipe รหัสเข้า stdin สำหรับสคริปต์/CI)
-อยู่ที่ [`docs/handoff_log/ticket-338-platform-provision.md`](../handoff_log/ticket-338-platform-provision.md) §3
+Response จะได้ `tenantId`, `tempPassword` (รหัสผ่าน**ชั่วคราว**ของ owner ที่ server สุ่มให้ — เห็น**ครั้งเดียว**
+อายุ 7 วัน, #443 PR3) และ `enrolCode` (ใช้สำหรับผูกเครื่อง POS Terminal ทีหลังถ้าต้องการ) · **ห้ามส่ง
+`ownerPassword`** แล้ว — CLI ตัวนี้ไม่มี flag ให้ส่งอยู่แล้ว แต่ถ้ายิง API ตรง ๆ แล้วส่งเข้าไปจะได้
+`400 OWNER_PASSWORD_NOT_ACCEPTED` · stderr ของ CLI จะเตือนด้วยว่า `tempPassword` โชว์ครั้งเดียว —
+จดทันที รายละเอียด flags ทั้งหมด คำสั่งอื่น (`tenants:show`, `devices:reissue-code`,
+`owner:temp-password`, `owner:set-password`) และตัวอย่างแบบ non-interactive (pipe รหัสเข้า
+stdin สำหรับสคริปต์/CI) อยู่ที่
+[`docs/handoff_log/ticket-338-platform-provision.md`](../handoff_log/ticket-338-platform-provision.md) §3
 
 ### 5.3 ทดสอบ login แบบ shop-level (ไม่ติด loopback restriction — เรียกจาก host ปกติได้)
 
 ```bash
 curl -sk https://localhost/api/v1/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"username":"owner","password":"<รหัสผ่านข้อ5.2>"}'
+  -d '{"username":"owner","password":"<tempPassword จากข้อ 5.2>"}'
 ```
 
-ได้ `accessToken`/`refreshToken` กลับมา = ใช้ username/password นี้ **login ใน Flutter web
-ที่โหมด "Backoffice"** ได้ทันที (role `owner`)
+ครั้งแรกจะได้ `passwordChangeRequired: true` + `passwordChangeToken` (อายุ 10 นาที) **ไม่ใช่**
+`accessToken` — ต้องตั้งรหัสของตัวเองก่อน (≥ 12 ตัว, ห้ามซ้ำรหัสชั่วคราว):
+
+```bash
+curl -sk https://localhost/api/v1/auth/change-password \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <passwordChangeToken>" \
+  -d '{"newPassword":"<รหัสผ่านใหม่ของคุณ>"}'
+```
+
+ได้ `accessToken`/`refreshToken` กลับมา = ใช้ username + **รหัสใหม่** นี้ **login ใน Flutter web
+ที่โหมด "Backoffice"** ได้ทันที (role `owner`) · หรือจะ login ด้วยรหัสชั่วคราวใน Flutter เลยก็ได้ —
+แอปจะเปิดหน้า "ตั้งรหัสผ่านใหม่" ให้เอง
 
 ---
 

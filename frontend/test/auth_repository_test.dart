@@ -134,7 +134,9 @@ void main() {
     final apiClient = ApiClient(baseUrl: 'http://test', httpClient: mockClient, tokenStorage: storage);
     final repo = AuthRepository(apiClient: apiClient, tokenStorage: storage);
 
-    final user = await repo.login(username: 'cashier1', password: 'secret123');
+    final result = await repo.login(username: 'cashier1', password: 'secret123');
+    expect(result, isA<LoginSucceeded>());
+    final user = result.user;
     expect(user.id, 'u100');
     expect(user.displayName, 'คุณสมชาย');
     expect(storage.accessToken, 'header.payload.signature');
@@ -179,5 +181,125 @@ void main() {
 
     expect(await repo.getDeviceId(), 'dev-42');
     expect(await repo.getDeviceRole(), 'pos');
+  });
+
+  // #443 PR3: a temporary owner password answers with a restricted token and
+  // no accessToken/refreshToken — the old `as String` casts crashed on it.
+  group('temporary owner password (#443 PR3)', () {
+    String jwt(Map<String, dynamic> claims) =>
+        'h.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.s';
+
+    http.Response json(Object body) => http.Response.bytes(
+          utf8.encode(jsonEncode(body)),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+
+    test('login → LoginPasswordChangeRequired; nothing stored, no online-login iat recorded', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final pinRepo = OfflinePinRepository(db: db, tokenStorage: storage);
+      final client = ApiClient(
+        baseUrl: 'http://test',
+        tokenStorage: storage,
+        httpClient: MockClient((_) async => json({
+              'passwordChangeRequired': true,
+              'passwordChangeToken': 'pwchange-jwt',
+              'user': {'id': 'u1', 'username': 'owner', 'role': 'owner'},
+            })),
+      );
+      final repo = AuthRepository(
+        apiClient: client,
+        tokenStorage: storage,
+        offlinePinRepository: pinRepo,
+      );
+
+      final result = await repo.login(username: 'owner', password: 'TempPassw0rdXyz');
+      expect(result, isA<LoginPasswordChangeRequired>());
+      expect((result as LoginPasswordChangeRequired).passwordChangeToken, 'pwchange-jwt');
+      expect(storage.accessToken, isNull);
+      expect(storage.refreshToken, isNull);
+      expect(storage.user, isNull);
+      expect(await pinRepo.getLastLoginIat(), isNull);
+    });
+
+    test('changePassword sends the pwchange token as the bearer and stores the full session', () async {
+      final access = jwt({'iat': 1790000000, 'did': 'pos1', 'drole': 'pos', 'typ': 'access'});
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final pinRepo = OfflinePinRepository(db: db, tokenStorage: storage);
+      storage.accessToken = 'stale-access-that-must-not-be-sent';
+      final client = ApiClient(
+        baseUrl: 'http://test',
+        tokenStorage: storage,
+        httpClient: MockClient((req) async {
+          expect(req.url.path, '/api/v1/auth/change-password');
+          expect(req.headers['Authorization'], 'Bearer pwchange-jwt');
+          expect(jsonDecode(req.body), {'newPassword': 'my own long passphrase'});
+          return json({
+            'accessToken': access,
+            'refreshToken': 'refresh-1',
+            'user': {'id': 'u1', 'username': 'owner', 'role': 'owner'},
+          });
+        }),
+      );
+      final repo = AuthRepository(apiClient: client, tokenStorage: storage, offlinePinRepository: pinRepo);
+
+      final user = await repo.changePassword(
+        passwordChangeToken: 'pwchange-jwt',
+        newPassword: 'my own long passphrase',
+      );
+      expect(user.username, 'owner');
+      expect(storage.accessToken, access);
+      expect(storage.refreshToken, 'refresh-1');
+      // Only the full session counts as the online login for the offline-PIN window.
+      expect(await pinRepo.getLastLoginIat(), 1790000000);
+    });
+
+    test('a normal login carries passwordChangedAt for the banner', () async {
+      final client = ApiClient(
+        baseUrl: 'http://test',
+        tokenStorage: storage,
+        httpClient: MockClient((_) async => json({
+              'accessToken': 'a.b.c',
+              'refreshToken': 'r',
+              'user': {'id': 'u1', 'username': 'owner', 'role': 'owner'},
+              'passwordChangedAt': '2026-09-26T03:00:00.000Z',
+            })),
+      );
+      final repo = AuthRepository(apiClient: client, tokenStorage: storage);
+      final result = await repo.login(username: 'owner', password: 'pw') as LoginSucceeded;
+      expect(result.passwordChangedAt!.toUtc(), DateTime.utc(2026, 9, 26, 3));
+    });
+
+    test('offline PIN cannot be set with a temporary password', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final client = ApiClient(
+        baseUrl: 'http://test',
+        tokenStorage: storage,
+        httpClient: MockClient((_) async => json({
+              'passwordChangeRequired': true,
+              'passwordChangeToken': 'pwchange-jwt',
+              'user': {'id': 'u1', 'username': 'owner', 'role': 'owner'},
+            })),
+      );
+      final pinRepo = OfflinePinRepository(db: db, tokenStorage: storage, apiClient: client);
+      await expectLater(
+        pinRepo.setPin(
+          password: 'TempPassw0rdXyz',
+          newPin: '1234',
+          username: 'owner',
+          deviceId: 'pos1',
+        ),
+        throwsA(isA<ArgumentError>().having(
+          (e) => e.message,
+          'message',
+          OfflinePinRepository.passwordChangeRequiredMessage,
+        )),
+      );
+      expect(await pinRepo.isPinConfigured(), isFalse);
+      expect(await pinRepo.getLastLoginIat(), isNull);
+    });
   });
 }

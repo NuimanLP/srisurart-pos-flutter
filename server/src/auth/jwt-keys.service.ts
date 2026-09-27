@@ -11,7 +11,12 @@ export interface JwtPayload {
   iat: number;
   exp: number;
   jti: string;
-  typ: 'access' | 'refresh';
+  /**
+   * `pwchange` (#443 PR3): the restricted token a login with a temporary owner password
+   * yields. Only `POST /auth/change-password` accepts it; every guard that asks for `access`
+   * and `/auth/refresh` (which asks for `refresh`) refuse it here, fail-closed.
+   */
+  typ: 'access' | 'refresh' | 'pwchange';
   tid?: string;     // tenant_id (absent for platform admin)
   role?: string;    // user role
   did?: string;     // device id
@@ -78,7 +83,7 @@ export class JwtVerifier {
     }
   }
 
-  verify(token: string, expectedTyp: 'access' | 'refresh'): JwtPayload {
+  verify(token: string, expectedTyp: JwtPayload['typ']): JwtPayload {
     let decoded: Jwt | null = null;
     try {
       decoded = jwt.decode(token, { complete: true });

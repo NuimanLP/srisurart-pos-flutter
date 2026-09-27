@@ -123,6 +123,29 @@
         dest: "{{ app_dir }}/docker/nginx/nginx.conf"
         mode: "0644"
 
+    # #443 PR4: platform-ui's own nginx.conf + static dashboard files (server/docker-compose.yml
+    # service `platform-ui`). Same single-file/tree copy shape as the main nginx.conf and the
+    # Postgres init scripts just above. provision.yml never created docker/platform-ui, and `copy`
+    # of a single file refuses a missing parent ("Destination directory ... does not exist").
+    - name: Ensure the platform-ui config directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}/docker/platform-ui"
+        state: directory
+        mode: "0755"
+
+    - name: Copy platform-ui Nginx configuration
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/server/docker/platform-ui/nginx.conf"
+        dest: "{{ app_dir }}/docker/platform-ui/nginx.conf"
+        mode: "0644"
+
+    - name: Copy platform-ui static dashboard files
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/server/docker/platform-ui/html/"
+        dest: "{{ app_dir }}/docker/platform-ui/html/"
+        mode: "0644"
+        directory_mode: "0755"
+
     - name: Copy Postgres initialization scripts
       ansible.builtin.copy:
         src: "{{ repo_root }}/server/docker/postgres/init/"
@@ -345,6 +368,34 @@
     # one that didn't touch nginx.conf; the task above has already proven the config valid.
     - name: Recreate Nginx so it loads the copied config
       ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d --no-deps --force-recreate nginx"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    # #443 PR4: platform-ui's nginx.conf is bind-mounted the same single-file way as the main
+    # nginx.conf above, so it has the exact same #249 stale-inode problem — validate the just-
+    # copied config in a disposable container, then always force-recreate. Nothing here is run
+    # against `mob04`; the demo VM's rollout is a separate, owner-gated step (#343/#344).
+    # Never `run ... platform-ui`: that service holds a fixed ipv4_address, so while the running
+    # one owns it a `run` container fails with "Address already in use" (measured, compose
+    # v2.30) and every deploy after the first would stop here. The `nginx` service is the same
+    # pinned image with the same `certs` volume and no fixed IP; mount the copied file beside its
+    # own config and test it with -c.
+    - name: Validate the copied platform-ui Nginx configuration
+      ansible.builtin.command: >-
+        docker compose {{ pos_compose_files }} run --rm --no-deps
+        -v {{ app_dir }}/docker/platform-ui/nginx.conf:/etc/nginx/platform-ui.conf:ro
+        nginx nginx -t -c /etc/nginx/platform-ui.conf
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      changed_when: false
+
+    - name: Recreate platform-ui so it loads the copied config and dashboard files
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d --no-deps --force-recreate platform-ui"
       environment:
         IMAGE_TAG: "{{ image_tag }}"
       args:

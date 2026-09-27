@@ -34,16 +34,44 @@ class Authenticated extends AuthState {
     required this.user,
     this.deviceToken,
     this.deviceRole,
+    this.passwordChangedAt,
   });
 
   final AuthUser user;
   final String? deviceToken;
   final String? deviceRole;
 
+  /// From the login response (#443 PR3): when the password last changed, for
+  /// the "รหัสผ่านถูกเปลี่ยนเมื่อ …" banner. Null when unknown or never.
+  final DateTime? passwordChangedAt;
+
   bool get isPos => deviceRole == 'pos';
 
   @override
-  List<Object?> get props => [user, deviceToken, deviceRole];
+  List<Object?> get props => [user, deviceToken, deviceRole, passwordChangedAt];
+}
+
+/// #443 PR3: the owner signed in with a temporary password and must set their
+/// own before anything else. The restricted token stays inside [AuthCubit]
+/// (memory only) — it is not part of the state.
+class AuthPasswordChangeRequired extends AuthState {
+  const AuthPasswordChangeRequired({
+    required this.user,
+    this.deviceToken,
+    this.deviceRole,
+    this.errorMessage,
+    this.submitting = false,
+  });
+
+  final AuthUser user;
+  final String? deviceToken;
+  final String? deviceRole;
+  final String? errorMessage;
+  final bool submitting;
+
+  @override
+  List<Object?> get props =>
+      [user, deviceToken, deviceRole, errorMessage, submitting];
 }
 
 class Unauthenticated extends AuthState {
@@ -74,6 +102,10 @@ class AuthCubit extends Cubit<AuthState> {
 
   final AuthRepository _repo;
   final OfflinePinRepository? _pinRepo;
+
+  /// #443 PR3: the `typ:'pwchange'` token, held only while the state is
+  /// [AuthPasswordChangeRequired]. Never written to storage (#400).
+  String? _passwordChangeToken;
 
   /// Logs in with offline PIN when in degraded mode on a POS terminal (08 §13).
   Future<PinVerifyResult> loginWithOfflinePin(String pin) async {
@@ -184,14 +216,26 @@ class AuthCubit extends Cubit<AuthState> {
     emit(const AuthLoading());
 
     try {
-      final user = await _repo.login(username: username, password: password);
-      final role = await _repo.getDeviceRole() ?? prevDeviceRole;
-      emit(Authenticated(
-        user: user,
-        deviceToken: prevDeviceToken,
-        deviceRole: role,
-      ));
-      return true;
+      final result = await _repo.login(username: username, password: password);
+      switch (result) {
+        case LoginPasswordChangeRequired(:final user, :final passwordChangeToken):
+          _passwordChangeToken = passwordChangeToken;
+          emit(AuthPasswordChangeRequired(
+            user: user,
+            deviceToken: prevDeviceToken,
+            deviceRole: prevDeviceRole,
+          ));
+          return false;
+        case LoginSucceeded(:final user, :final passwordChangedAt):
+          final role = await _repo.getDeviceRole() ?? prevDeviceRole;
+          emit(Authenticated(
+            user: user,
+            deviceToken: prevDeviceToken,
+            deviceRole: role,
+            passwordChangedAt: passwordChangedAt,
+          ));
+          return true;
+      }
     } catch (e) {
       emit(Unauthenticated(
         deviceToken: prevDeviceToken,
@@ -201,6 +245,68 @@ class AuthCubit extends Cubit<AuthState> {
       return false;
     }
   }
+
+  /// #443 PR3: sets the owner's own password with the restricted token from
+  /// [login], then continues as a normal signed-in session.
+  Future<bool> changePassword(String newPassword) async {
+    final current = state;
+    final token = _passwordChangeToken;
+    if (current is! AuthPasswordChangeRequired || token == null) return false;
+
+    emit(AuthPasswordChangeRequired(
+      user: current.user,
+      deviceToken: current.deviceToken,
+      deviceRole: current.deviceRole,
+      submitting: true,
+    ));
+    try {
+      final user = await _repo.changePassword(
+        passwordChangeToken: token,
+        newPassword: newPassword,
+      );
+      _passwordChangeToken = null;
+      final role = await _repo.getDeviceRole() ?? current.deviceRole;
+      emit(Authenticated(
+        user: user,
+        deviceToken: current.deviceToken,
+        deviceRole: role,
+      ));
+      return true;
+    } catch (e) {
+      // 401: the 10-minute token expired or was already used — only a fresh
+      // login with the temporary password can continue.
+      if (e is ApiException && e.statusCode == 401) {
+        _passwordChangeToken = null;
+        emit(Unauthenticated(
+          deviceToken: current.deviceToken,
+          deviceRole: current.deviceRole,
+          errorMessage: passwordChangeSessionExpired,
+        ));
+        return false;
+      }
+      emit(AuthPasswordChangeRequired(
+        user: current.user,
+        deviceToken: current.deviceToken,
+        deviceRole: current.deviceRole,
+        errorMessage: ServerErrorResolver.resolveCounterError(e),
+      ));
+      return false;
+    }
+  }
+
+  /// Leaves the change-password screen without changing anything.
+  void cancelPasswordChange() {
+    final current = state;
+    _passwordChangeToken = null;
+    emit(Unauthenticated(
+      deviceToken: current is AuthPasswordChangeRequired ? current.deviceToken : null,
+      deviceRole: current is AuthPasswordChangeRequired ? current.deviceRole : null,
+    ));
+  }
+
+  /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
+  static const String passwordChangeSessionExpired =
+      'หมดเวลาเปลี่ยนรหัสผ่าน กรุณาเข้าสู่ระบบใหม่ด้วยรหัสผ่านชั่วคราว';
 
   /// The sentence the login form shows for a failed `POST /auth/token` (#143).
   ///
@@ -219,6 +325,9 @@ class AuthCubit extends Cubit<AuthState> {
   @visibleForTesting
   static String loginRefusalMessage(Object error) {
     if (error is ApiException) {
+      // #443 PR3: the one 401 that must NOT read as "wrong password" — the
+      // password was right, the temporary one simply expired.
+      if (error.code == 'TEMP_PASSWORD_EXPIRED') return error.thaiMessage;
       if (error.statusCode == 401) return 'เข้าสู่ระบบไม่สำเร็จ';
       if (error.statusCode >= 500) return ServerErrorResolver.resolve(null);
       return error.thaiMessage;

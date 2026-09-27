@@ -15,11 +15,18 @@ import { pathToFileURL } from 'node:url';
  *
  * Every command logs in for itself — there is no persisted session and no token is
  * ever written to disk or printed. A password (the operator's own platform-admin
- * password, or a new tenant's owner password) is read from `stdin`/the TTY only:
- * never a `--flag` (it would sit in `ps` and shell history) and never an env var
- * (it would sit in the process's environment block, which `docker inspect`/`/proc`
- * can read). `assertNoPasswordFlags` turns an attempt to pass one into a loud,
- * immediate refusal rather than a silently-accepted leak.
+ * password, an owner's temporary password, or a chosen replacement) is read from
+ * `stdin`/the TTY only: never a `--flag` (it would sit in `ps` and shell history) and
+ * never an env var (it would sit in the process's environment block, which
+ * `docker inspect`/`/proc` can read). `assertNoPasswordFlags` turns an attempt to pass
+ * one into a loud, immediate refusal rather than a silently-accepted leak.
+ *
+ * #443 PR3: `POST /platform/tenants` no longer takes an `ownerPassword` — the server
+ * generates a temporary one and returns it once (`tempPassword`/`enrolCode`). This CLI
+ * never prompts for it. `owner:set-password` is the one command on the *tenant* plane
+ * (not the platform plane): it logs in as the owner with the temporary password and
+ * changes it in the same run, for teams that legitimately own a demo/loadtest tenant's
+ * credentials (owner decision 2026-09-27) — never for a real shop's owner account.
  */
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3000';
@@ -233,7 +240,12 @@ export function listTenants(
   return apiRequest(baseUrl, 'GET', '/api/v1/platform/tenants', { token }, fetchImpl);
 }
 
-/** Same shape as `PlatformTenantsService.CreateTenantDto` — PR1 does not change the contract. */
+/**
+ * Same shape as `PlatformTenantsService.CreateTenantDto` (#443 PR3): there is no
+ * `ownerPassword` any more — the server generates a temporary one and returns it once
+ * in the response (`tempPassword`/`tempPasswordExpiresAt`). Sending `ownerPassword` at
+ * all is refused with `400 OWNER_PASSWORD_NOT_ACCEPTED`, so this type does not offer it.
+ */
 export interface CreateTenantArgs {
   code: string;
   shopName: string;
@@ -241,7 +253,6 @@ export interface CreateTenantArgs {
   plan?: string;
   timezone?: string;
   ownerUsername: string;
-  ownerPassword: string;
   ownerDisplayName?: string;
 }
 
@@ -268,6 +279,96 @@ export function updateTenantStatus(
     'PATCH',
     `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/status`,
     { token, body: { status } },
+    fetchImpl,
+  );
+}
+
+/** `GET /platform/tenants/:id` (#443 PR2) — tenant + devices + last 20 import jobs. */
+export function getTenantDetail(
+  baseUrl: string,
+  token: string,
+  tenantId: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  return apiRequest(
+    baseUrl,
+    'GET',
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}`,
+    { token },
+    fetchImpl,
+  );
+}
+
+/** `POST /platform/tenants/:id/devices/:deviceId/enrol-code` (#443 PR2). */
+export function reissueEnrolCode(
+  baseUrl: string,
+  token: string,
+  tenantId: string,
+  deviceId: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  return apiRequest(
+    baseUrl,
+    'POST',
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/devices/${encodeURIComponent(deviceId)}/enrol-code`,
+    { token },
+    fetchImpl,
+  );
+}
+
+/** `POST /platform/tenants/:id/owner/temp-password` (#443 PR3) — issues a fresh 24 h temp password. */
+export function issueOwnerTempPassword(
+  baseUrl: string,
+  token: string,
+  tenantId: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  return apiRequest(
+    baseUrl,
+    'POST',
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/owner/temp-password`,
+    { token },
+    fetchImpl,
+  );
+}
+
+/**
+ * The tenant plane (#443 PR3), used only by `owner:set-password` below. Unlike the
+ * platform plane, `/auth/*` carries no `PlatformAuthGuard`/IP allowlist, so it is
+ * reachable the same way — plain HTTP on loopback, straight to the api container.
+ */
+export function tenantLogin(
+  baseUrl: string,
+  username: string,
+  password: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<{
+  passwordChangeRequired?: boolean;
+  passwordChangeToken?: string;
+  accessToken?: string;
+  user: { id: string; username: string; role: string; displayName: string };
+}> {
+  return apiRequest(
+    baseUrl,
+    'POST',
+    '/api/v1/auth/token',
+    { body: { username, password } },
+    fetchImpl,
+  );
+}
+
+/** `POST /auth/change-password`, Bearer the restricted `typ:'pwchange'` token login just returned. */
+export function changeOwnerPassword(
+  baseUrl: string,
+  passwordChangeToken: string,
+  newPassword: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<{ user: { id: string; username: string; role: string; displayName: string } }> {
+  return apiRequest(
+    baseUrl,
+    'POST',
+    '/api/v1/auth/change-password',
+    { token: passwordChangeToken, body: { newPassword } },
     fetchImpl,
   );
 }
@@ -326,19 +427,18 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
 
   if (command === 'tenants:create') {
     const user = requireFlag(flags, 'user');
-    // Validate every non-secret field before asking for either password (CLAUDE.md:
+    // Validate every non-secret field before asking for the admin password (CLAUDE.md:
     // validate the input first, then use it) — a typo in `--code` should not cost the
-    // operator two password prompts before it is refused.
+    // operator a password prompt before it is refused.
     const code = requireFlag(flags, 'code');
     const shopName = requireFlag(flags, 'shop-name');
     const ownerUsername = requireFlag(flags, 'owner-username');
     const prompter = createPrompter(io.input, io.output);
     try {
       const adminPassword = await readSecret(prompter, 'Platform admin password: ');
-      // The contract still requires ownerPassword until #443 PR3 drops it in favour of
-      // a generated temp password — this CLI passes it through, read the same way.
-      const ownerPassword = await readSecret(prompter, 'New owner password: ');
       const { token } = await platformLogin(baseUrl, user, adminPassword, fetchImpl);
+      // #443 PR3: no owner password to read or send — the server generates one and
+      // returns it once as `tempPassword` below.
       const result = await createTenant(
         baseUrl,
         token,
@@ -349,12 +449,112 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
           plan: flags.plan,
           timezone: flags.timezone,
           ownerUsername,
-          ownerPassword,
           ownerDisplayName: flags['owner-display-name'],
         },
         fetchImpl,
       );
       log(JSON.stringify(result, null, 2));
+      // stderr, not stdout: keeps `tenants:create | jq .`/an e2e test's stdout capture
+      // as clean JSON, same reason prompts go to stderr (see `createPrompter` above).
+      prompter.write(
+        'Note: tempPassword and enrolCode above are shown once and cannot be retrieved again — record them now.\n',
+      );
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
+  if (command === 'tenants:show') {
+    const [tenantId] = positionals;
+    if (!tenantId) {
+      throw new Error('usage: tenants:show <tenantId> --user <admin username>');
+    }
+    const user = requireFlag(flags, 'user');
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      const result = await getTenantDetail(baseUrl, token, tenantId, fetchImpl);
+      log(JSON.stringify(result, null, 2));
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
+  if (command === 'devices:reissue-code') {
+    const [tenantId, deviceId] = positionals;
+    if (!tenantId || !deviceId) {
+      throw new Error(
+        'usage: devices:reissue-code <tenantId> <deviceId> --user <admin username>',
+      );
+    }
+    const user = requireFlag(flags, 'user');
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      const result = await reissueEnrolCode(baseUrl, token, tenantId, deviceId, fetchImpl);
+      log(JSON.stringify(result, null, 2));
+      prompter.write(
+        'Note: enrolCode above is shown once and cannot be retrieved again — record it now.\n',
+      );
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
+  if (command === 'owner:temp-password') {
+    const [tenantId] = positionals;
+    if (!tenantId) {
+      throw new Error('usage: owner:temp-password <tenantId> --user <admin username>');
+    }
+    const user = requireFlag(flags, 'user');
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      const result = await issueOwnerTempPassword(baseUrl, token, tenantId, fetchImpl);
+      log(JSON.stringify(result, null, 2));
+      prompter.write(
+        'Note: tempPassword above is shown once and cannot be retrieved again — record it now.\n',
+      );
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
+  if (command === 'owner:set-password') {
+    // Tenant plane, not platform plane: this logs in AS the owner, with the temporary
+    // password, and changes it in the same run. Owner decision 2026-09-27: for a
+    // demo/loadtest tenant the team legitimately owns, not for a real shop's owner —
+    // a real owner changes their own password through the app, not this CLI.
+    const [username] = positionals;
+    if (!username) {
+      throw new Error('usage: owner:set-password <username> [--base-url <url>]');
+    }
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const tempPassword = await readSecret(prompter, 'Temporary owner password: ');
+      const newPassword = await readSecret(prompter, 'New owner password: ');
+      const loginResult = await tenantLogin(baseUrl, username, tempPassword, fetchImpl);
+      if (!loginResult.passwordChangeRequired || !loginResult.passwordChangeToken) {
+        throw new Error(
+          'login did not ask for a password change — this account may already have a real password',
+        );
+      }
+      const result = await changeOwnerPassword(
+        baseUrl,
+        loginResult.passwordChangeToken,
+        newPassword,
+        fetchImpl,
+      );
+      // Never the tokens `changeOwnerPassword` returns — same rule as every other
+      // command here (see the module doc comment).
+      log(JSON.stringify({ username: result.user.username, passwordChanged: true }, null, 2));
     } finally {
       prompter.close();
     }
@@ -391,7 +591,8 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
   }
 
   throw new Error(
-    `unknown command "${command}" — expected one of: login, tenants:list, tenants:create, tenants:status`,
+    `unknown command "${command}" — expected one of: login, tenants:list, tenants:create, ` +
+      'tenants:status, tenants:show, devices:reissue-code, owner:temp-password, owner:set-password',
   );
 }
 

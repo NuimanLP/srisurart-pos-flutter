@@ -108,9 +108,8 @@ describe('platform CLI (e2e, #443 PR1)', () => {
     expect(result.stderr).not.toContain(ADMIN_PASSWORD);
   }, 30_000);
 
-  it('tenants:create: provisions a real tenant and never echoes either password', async () => {
+  it('tenants:create: provisions a real tenant with a server-generated temp password (#443 PR3), never echoing the admin password', async () => {
     const code = `cli-${randomUUID().slice(0, 8)}`;
-    const ownerPassword = 'cli-e2e-owner-secret-1';
 
     const result = await runCli(
       [
@@ -121,18 +120,21 @@ describe('platform CLI (e2e, #443 PR1)', () => {
         '--shop-name', 'ร้านทดสอบ CLI',
         '--owner-username', `owner_${code}`,
       ],
-      [ADMIN_PASSWORD, ownerPassword],
+      [ADMIN_PASSWORD],
     );
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).not.toContain(ADMIN_PASSWORD);
-    expect(result.stdout).not.toContain(ownerPassword);
     expect(result.stderr).not.toContain(ADMIN_PASSWORD);
-    expect(result.stderr).not.toContain(ownerPassword);
+    expect(result.stderr).toContain('shown once');
 
     const parsed = JSON.parse(result.stdout);
     expect(parsed.code).toBe(code);
     expect(parsed.enrolCode).toEqual(expect.any(String));
+    expect(parsed.tempPassword).toMatch(/^[A-HJ-NP-Za-km-z2-9]{16}$/);
+    // The temp password appears once in stdout (the JSON result) and nowhere else.
+    expect(result.stdout.split(parsed.tempPassword).length - 1).toBe(1);
+    expect(result.stderr).not.toContain(parsed.tempPassword);
     tenantsToClean.push(parsed.tenantId);
 
     const rows = await adminDs.query(`SELECT status FROM tenants WHERE id = $1`, [parsed.tenantId]);
@@ -150,7 +152,7 @@ describe('platform CLI (e2e, #443 PR1)', () => {
         '--shop-name', 'ร้านทดสอบ CLI list',
         '--owner-username', `owner_${code}`,
       ],
-      [ADMIN_PASSWORD, 'cli-e2e-owner-secret-2'],
+      [ADMIN_PASSWORD],
     );
     expect(created.exitCode).toBe(0);
     const tenantId = JSON.parse(created.stdout).tenantId;
@@ -176,7 +178,7 @@ describe('platform CLI (e2e, #443 PR1)', () => {
         '--shop-name', 'ร้านทดสอบ CLI status',
         '--owner-username', `owner_${code}`,
       ],
-      [ADMIN_PASSWORD, 'cli-e2e-owner-secret-3'],
+      [ADMIN_PASSWORD],
     );
     const tenantId = JSON.parse(created.stdout).tenantId;
     tenantsToClean.push(tenantId);
@@ -190,6 +192,147 @@ describe('platform CLI (e2e, #443 PR1)', () => {
     expect(JSON.parse(result.stdout)).toEqual({ tenantId, status: 'suspended' });
     const rows = await adminDs.query(`SELECT status FROM tenants WHERE id = $1`, [tenantId]);
     expect(rows).toEqual([{ status: 'suspended' }]);
+  }, 30_000);
+
+  it('tenants:show: returns the tenant, its seed device, and no import jobs yet', async () => {
+    const code = `cli-show-${randomUUID().slice(0, 8)}`;
+    const created = await runCli(
+      [
+        'tenants:create',
+        '--user', adminUsername,
+        '--base-url', baseUrl,
+        '--code', code,
+        '--shop-name', 'ร้านทดสอบ CLI show',
+        '--owner-username', `owner_${code}`,
+      ],
+      [ADMIN_PASSWORD],
+    );
+    const tenantId = JSON.parse(created.stdout).tenantId;
+    tenantsToClean.push(tenantId);
+
+    const result = await runCli(
+      ['tenants:show', tenantId, '--user', adminUsername, '--base-url', baseUrl],
+      [ADMIN_PASSWORD],
+    );
+
+    expect(result.exitCode).toBe(0);
+    const detail = JSON.parse(result.stdout);
+    expect(detail.tenant.id).toBe(tenantId);
+    expect(detail.devices).toEqual([
+      expect.objectContaining({ id: 'pos1', role: 'pos', enrolled: false }),
+    ]);
+    expect(detail.importJobs).toEqual([]);
+  }, 30_000);
+
+  it('devices:reissue-code: issues a fresh code that enrols after the tenant is created', async () => {
+    const code = `cli-reissue-${randomUUID().slice(0, 8)}`;
+    const created = await runCli(
+      [
+        'tenants:create',
+        '--user', adminUsername,
+        '--base-url', baseUrl,
+        '--code', code,
+        '--shop-name', 'ร้านทดสอบ CLI reissue',
+        '--owner-username', `owner_${code}`,
+      ],
+      [ADMIN_PASSWORD],
+    );
+    const tenantId = JSON.parse(created.stdout).tenantId;
+    tenantsToClean.push(tenantId);
+
+    const result = await runCli(
+      ['devices:reissue-code', tenantId, 'pos1', '--user', adminUsername, '--base-url', baseUrl],
+      [ADMIN_PASSWORD],
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain('shown once');
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.deviceId).toBe('pos1');
+    expect(parsed.enrolCode).toMatch(/^[0-9A-F]{8}$/);
+
+    const enrolRes = await fetch(`${baseUrl}/api/v1/auth/device`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: parsed.enrolCode }),
+    });
+    expect(enrolRes.status).toBe(200);
+  }, 30_000);
+
+  it('owner:temp-password: issues a new temp password, and the old one stops working', async () => {
+    const code = `cli-reset-${randomUUID().slice(0, 8)}`;
+    const ownerUsername = `owner_${code}`;
+    const created = await runCli(
+      [
+        'tenants:create',
+        '--user', adminUsername,
+        '--base-url', baseUrl,
+        '--code', code,
+        '--shop-name', 'ร้านทดสอบ CLI reset',
+        '--owner-username', ownerUsername,
+      ],
+      [ADMIN_PASSWORD],
+    );
+    const { tenantId, tempPassword: firstTemp } = JSON.parse(created.stdout);
+    tenantsToClean.push(tenantId);
+
+    const result = await runCli(
+      ['owner:temp-password', tenantId, '--user', adminUsername, '--base-url', baseUrl],
+      [ADMIN_PASSWORD],
+    );
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ownerUsername).toBe(ownerUsername);
+    expect(parsed.tempPassword).toMatch(/^[A-HJ-NP-Za-km-z2-9]{16}$/);
+    expect(parsed.tempPassword).not.toBe(firstTemp);
+
+    const oldLogin = await fetch(`${baseUrl}/api/v1/auth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: ownerUsername, password: firstTemp }),
+    });
+    expect(oldLogin.status).toBe(401);
+  }, 30_000);
+
+  it('owner:set-password: logs in the owner with the temp password and sets a real one', async () => {
+    const code = `cli-setpw-${randomUUID().slice(0, 8)}`;
+    const ownerUsername = `owner_${code}`;
+    const created = await runCli(
+      [
+        'tenants:create',
+        '--user', adminUsername,
+        '--base-url', baseUrl,
+        '--code', code,
+        '--shop-name', 'ร้านทดสอบ CLI setpw',
+        '--owner-username', ownerUsername,
+      ],
+      [ADMIN_PASSWORD],
+    );
+    const { tenantId, tempPassword } = JSON.parse(created.stdout);
+    tenantsToClean.push(tenantId);
+    const newPassword = 'cli-e2e-real-owner-password-1';
+
+    const result = await runCli(['owner:set-password', ownerUsername, '--base-url', baseUrl], [
+      tempPassword,
+      newPassword,
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain(tempPassword);
+    expect(result.stdout).not.toContain(newPassword);
+    expect(result.stderr).not.toContain(tempPassword);
+    expect(result.stderr).not.toContain(newPassword);
+    expect(JSON.parse(result.stdout)).toEqual({ username: ownerUsername, passwordChanged: true });
+
+    const loggedIn = await fetch(`${baseUrl}/api/v1/auth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: ownerUsername, password: newPassword }),
+    });
+    expect(loggedIn.status).toBe(200);
+    const body = (await loggedIn.json()) as { data: { passwordChangeRequired?: boolean } };
+    expect(body.data.passwordChangeRequired).toBeUndefined();
   }, 30_000);
 
   it('rejects a password passed on argv before ever dialling the network', async () => {

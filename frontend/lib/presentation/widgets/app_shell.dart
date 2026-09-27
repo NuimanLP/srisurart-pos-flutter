@@ -18,6 +18,7 @@ import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/sync/sync_facade.dart';
+import 'password_changed_banner.dart';
 import 'thai_format.dart';
 import 'theme_controller.dart';
 
@@ -111,6 +112,7 @@ class AppShell extends StatelessWidget {
           children: [
             _TopBar(title: _destinations[selected].label),
             const SyncAlertBanner(),
+            const PasswordChangedBanner(),
             Expanded(
               child: Row(
                 children: [
@@ -131,6 +133,7 @@ class AppShell extends StatelessWidget {
         children: [
           _TopBar(title: _destinations[selected].label, showMenu: true),
           const SyncAlertBanner(),
+          const PasswordChangedBanner(),
           Expanded(child: child),
         ],
       ),

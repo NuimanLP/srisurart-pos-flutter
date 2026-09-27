@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   UnauthorizedException,
   Logger,
@@ -12,12 +13,37 @@ import * as argon2 from 'argon2';
 import { JwtSigner, type JwtPayload } from './jwt-keys.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { RateLimitService } from '../rate-limit/rate-limit.service.js';
-import { verifyAgainstDummyHash } from '../common/password.js';
+import {
+  chosenPasswordViolation,
+  hashPassword,
+  normalizePassword,
+  passwordPolicyMessage,
+  verifyAgainstDummyHash,
+  verifyPassword,
+  type PasswordPolicyViolation,
+} from '../common/password.js';
+import { returning } from '../common/sql.js';
 
 export interface LoginDto {
   username: string;
   password?: string;
   deviceToken?: string;
+}
+
+/**
+ * #443 PR3: lifetime of the restricted `typ:'pwchange'` token a temporary-password login
+ * yields. Long enough to type a new password twice, short enough that a token left on a
+ * shared screen is dead before anyone else sits down. It has no refresh token.
+ */
+export const PWCHANGE_TOKEN_TTL = '10m';
+
+/** `WEAK_PASSWORD` (02_API_SCREENS.md §8.1) with the reason, for a password the owner chose. */
+function weakPassword(violation: PasswordPolicyViolation): BadRequestException {
+  return new BadRequestException({
+    code: 'WEAK_PASSWORD',
+    message: passwordPolicyMessage(violation, 'newPassword'),
+    details: { reason: violation },
+  });
 }
 
 @Injectable()
@@ -32,9 +58,11 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto, clientIp?: string) {
-    if (!dto.password) {
+    if (!dto.password || typeof dto.password !== 'string') {
       throw new UnauthorizedException('Password is required');
     }
+    // #443 PR3: the same NFC form every owner password is hashed in (common/password.ts).
+    const password = normalizePassword(dto.password);
 
     // Brute-force checks (OWASP A07). The IP bucket needs no tenant, so it is checked before a
     // pool connection is taken: a locked-out IP must not cost a connection and a device lookup.
@@ -128,7 +156,10 @@ export class AuthService {
       // device token picks one. Establishing which (if any) password is right would need one
       // verify per candidate, so it is refused like a wrong password: one dummy verify, the
       // generic 401, and no audit row (there is no single tenant to audit under).
-      await verifyAgainstDummyHash(dto.password);
+      await verifyAgainstDummyHash(password);
+      // Same argon2 count as the legacy-form retry below, so a non-NFC input does not time
+      // an existing username apart from an unknown one.
+      if (password !== dto.password) await verifyAgainstDummyHash(dto.password);
       this.logger.warn(
         `Login failed: ${userRows.length === 0 ? 'user not found' : 'ambiguous username'} for username=${dto.username}`,
       );
@@ -141,7 +172,14 @@ export class AuthService {
     // Verify Password (Argon2id) — before any status check (see above).
     let valid = false;
     try {
-      valid = await argon2.verify(user.password_hash, dto.password);
+      valid = await argon2.verify(user.password_hash, password);
+      // Hashes made before #443 PR3 are of the password exactly as typed, not its NFC form.
+      // NFC reorders e.g. a Thai tone mark typed before a below-vowel (ปู่ → ปู่), so without
+      // this retry such an owner would be locked out. Costs a second argon2 only for input
+      // that NFC actually changed.
+      if (!valid && password !== dto.password) {
+        valid = await argon2.verify(user.password_hash, dto.password);
+      }
     } catch (err) {
       this.logger.warn(`Password verification failed to parse hash for userId=${user.id}: ${err}`);
       valid = false;
@@ -187,6 +225,30 @@ export class AuthService {
       throw new UnauthorizedException('User is inactive');
     }
 
+    // #443 PR3 (v2 condition 2): a temporary password nobody used in time is dead — the
+    // platform team issues a new one. Only reached with the correct password, like the two
+    // status checks above, so it tells a guesser nothing. Its own code, so the login screen
+    // can say "ask for a new one" instead of "wrong password".
+    if (user.must_change_password) {
+      const expiresAt = user.temp_password_expires_at
+        ? new Date(user.temp_password_expires_at).getTime()
+        : 0;
+      if (expiresAt <= Date.now()) {
+        await this.logAuthEvent(tenantId, {
+          tenantId,
+          userId: user.id,
+          deviceId: did,
+          ip: clientIp,
+          action: 'auth.login_failed',
+          before: { reason: 'temp_password_expired' },
+        });
+        throw new UnauthorizedException({
+          code: 'TEMP_PASSWORD_EXPIRED',
+          message: 'The temporary password has expired; ask the platform team for a new one',
+        });
+      }
+    }
+
     // A correct password clears this username's failures; the IP bucket only gets this one
     // attempt back, so failures against other usernames from the same address stay counted.
     if (userKey) await this.rateLimit.clearKey(userKey, 60);
@@ -203,6 +265,35 @@ export class AuthService {
       did,
       drole,
     };
+
+    const userView = {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      displayName: user.display_name,
+    };
+
+    // #443 PR3 (v2 condition 3): a temporary password buys only a restricted token that
+    // `POST /auth/change-password` alone accepts — enforced by the JWT `typ`, so every
+    // `TenantGuard` route and `/auth/refresh` refuse it without a check of their own. No
+    // refresh token, and no `accessToken` field: the client can neither keep a session nor
+    // record this as the online login that opens the 3-day offline-PIN window (F5). The
+    // `deviceToken` path runs through here too, so it cannot skip the change.
+    if (user.must_change_password) {
+      const passwordChangeToken = this.jwtSigner.sign(
+        { ...payload, typ: 'pwchange' },
+        PWCHANGE_TOKEN_TTL,
+      );
+      await this.logAuthEvent(tenantId, {
+        tenantId,
+        userId: user.id,
+        deviceId: did,
+        ip: clientIp,
+        action: 'auth.login',
+        after: { passwordChangeRequired: true },
+      });
+      return { passwordChangeRequired: true, passwordChangeToken, user: userView };
+    }
 
     const accessToken = this.jwtSigner.sign(payload, '15m');
     
@@ -222,12 +313,12 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        displayName: user.display_name,
-      },
+      user: userView,
+      // #443 PR3 (v2 condition 7): the client shows "รหัสผ่านถูกเปลี่ยนเมื่อ …" when this is
+      // recent, so a reset nobody at the shop asked for does not go unnoticed.
+      passwordChangedAt: user.password_changed_at
+        ? new Date(user.password_changed_at).toISOString()
+        : null,
     };
   }
 
@@ -263,7 +354,10 @@ export class AuthService {
 
       // Check tenant and user under RLS
       const userRows = await qr.query(
-        `SELECT u.is_active, t.status, t.timezone FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE u.tenant_id = $1 AND u.id = $2`,
+        `SELECT u.is_active, t.status, t.timezone,
+                floor(extract(epoch FROM u.password_changed_at))::bigint AS password_changed_epoch
+           FROM users u JOIN tenants t ON u.tenant_id = t.id
+          WHERE u.tenant_id = $1 AND u.id = $2`,
         [tenantId, userId],
       );
       if (userRows.length === 0) {
@@ -297,6 +391,27 @@ export class AuthService {
         });
         await qr.commitTransaction();
         throw new UnauthorizedException('User is inactive');
+      }
+
+      // ADR-0009 addendum 2026-09-26 (#443): the fourth DB check. A refresh token issued
+      // before the password last changed (a reset, or the owner's own change) is dead —
+      // the same column-check pattern as the three above, not a denylist. Strict `<`: a
+      // token issued in the same second as the change survives (accepted — `iat` is whole
+      // seconds, and a `<=` would kill the very token change-password just returned).
+      if (
+        u.password_changed_epoch !== null &&
+        u.password_changed_epoch !== undefined &&
+        payload.iat < Number(u.password_changed_epoch)
+      ) {
+        await this.audit.log(qr.manager, {
+          tenantId,
+          userId,
+          deviceId: did,
+          action: 'auth.refresh_rejected',
+          before: { reason: 'password_changed' },
+        });
+        await qr.commitTransaction();
+        throw new UnauthorizedException('Password has been changed');
       }
 
       // Check device if bound
@@ -346,6 +461,159 @@ export class AuthService {
       if (qr.isTransactionActive) {
         await qr.rollbackTransaction();
       }
+      throw err;
+    } finally {
+      await qr.release();
+    }
+  }
+
+  /**
+   * `POST /auth/change-password` (#443 PR3, v2 conditions 5-6): the owner replaces the
+   * temporary password with their own, using the `typ:'pwchange'` token that login issued.
+   *
+   * Order is the CLAUDE.md rule — validate, then argon2 with no connection held, then one
+   * short transaction:
+   *   1. pure string checks (NFC → 12..128 → blocklist) — a refusal here costs no argon2 and
+   *      no pool connection;
+   *   2. read the current (temporary) hash on a connection released at once;
+   *   3. argon2 verify "new ≠ temp", then argon2 hash — no connection held;
+   *   4. one transaction: `UPDATE … WHERE must_change_password AND password_hash = <the hash
+   *      we compared against> AND temp_password_expires_at > now()` — 0 rows means the token
+   *      was already used, a reset happened meanwhile, or the temp password expired, and it is
+   *      a 401. That predicate is what makes the token single-use.
+   * Full tokens are signed only after the commit.
+   */
+  async changePassword(payload: JwtPayload, newPassword: unknown, clientIp?: string) {
+    const violation = chosenPasswordViolation(newPassword);
+    if (violation) throw weakPassword(violation);
+    const password = normalizePassword(newPassword as string);
+
+    const tenantId = payload.tid;
+    const userId = payload.sub;
+    if (payload.aud !== 'tenant' || !tenantId) {
+      throw new UnauthorizedException('Invalid token audience');
+    }
+
+    const rows = (await this.readUnderTenant(
+      tenantId,
+      `SELECT u.password_hash, u.must_change_password, u.is_active, u.username, u.role,
+              u.display_name, t.status, t.timezone,
+              floor(extract(epoch FROM u.password_changed_at))::bigint AS password_changed_epoch
+         FROM users u JOIN tenants t ON t.id = u.tenant_id
+        WHERE u.tenant_id = $1 AND u.id = $2`,
+      [tenantId, userId],
+    )) as Array<{
+      password_hash: string;
+      must_change_password: boolean;
+      is_active: boolean;
+      username: string;
+      role: string;
+      display_name: string;
+      status: string;
+      timezone: string | null;
+      password_changed_epoch: string | null;
+    }>;
+    const current = rows[0];
+    // A pwchange token minted before a reset (which sets `password_changed_at`) belongs to
+    // the temporary password that reset just killed — same `iat` rule as `/auth/refresh`.
+    if (
+      !current ||
+      !current.must_change_password ||
+      (current.password_changed_epoch !== null &&
+        payload.iat < Number(current.password_changed_epoch))
+    ) {
+      throw new UnauthorizedException('Password change token is no longer valid');
+    }
+    if (current.status !== 'active') {
+      throw new ForbiddenException({ code: 'TENANT_SUSPENDED', message: 'ร้านนี้ถูกระงับการใช้งาน' });
+    }
+    if (!current.is_active) {
+      throw new UnauthorizedException('User is inactive');
+    }
+
+    if (await verifyPassword(password, current.password_hash)) {
+      throw weakPassword('same_as_temp');
+    }
+    const newHash = await hashPassword(password);
+
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    try {
+      await qr.startTransaction();
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
+      const updated = returning(
+        await qr.query(
+          `UPDATE users SET password_hash = $3,
+                  must_change_password = FALSE,
+                  temp_password_expires_at = NULL,
+                  password_changed_at = now()
+            WHERE tenant_id = $1 AND id = $2
+              AND must_change_password
+              AND password_hash = $4
+              AND temp_password_expires_at > now()
+          RETURNING password_changed_at`,
+          [tenantId, userId, newHash, current.password_hash],
+        ),
+      );
+      if (updated.length === 0) {
+        await qr.rollbackTransaction();
+        throw new UnauthorizedException('Password change token is no longer valid');
+      }
+      // Never the password or its hash (v2 condition 1 / OWASP checklist).
+      await this.audit.log(qr.manager, {
+        tenantId,
+        userId,
+        deviceId: payload.did,
+        ip: clientIp,
+        action: 'auth.password_changed',
+      });
+      await qr.commitTransaction();
+    } catch (err) {
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+
+    const accessPayload: Omit<JwtPayload, 'iss' | 'iat' | 'exp'> = {
+      aud: 'tenant',
+      sub: userId,
+      jti: crypto.randomUUID(),
+      typ: 'access',
+      tid: tenantId,
+      role: payload.role,
+      did: payload.did,
+      drole: payload.drole,
+    };
+    const accessToken = this.jwtSigner.sign(accessPayload, '15m');
+    const refreshToken = this.jwtSigner.sign(
+      { ...accessPayload, typ: 'refresh', jti: crypto.randomUUID() },
+      this.calculateRefreshExpiry(current.timezone || 'Asia/Bangkok'),
+    );
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: userId,
+        username: current.username,
+        role: current.role,
+        displayName: current.display_name,
+      },
+    };
+  }
+
+  /** One read under RLS on a connection of its own, released before this returns. */
+  private async readUnderTenant(tenantId: string, sql: string, params: unknown[]) {
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    try {
+      await qr.startTransaction();
+      await qr.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
+      const rows = await qr.query(sql, params);
+      await qr.commitTransaction();
+      return rows;
+    } catch (err) {
+      if (qr.isTransactionActive) await qr.rollbackTransaction();
       throw err;
     } finally {
       await qr.release();

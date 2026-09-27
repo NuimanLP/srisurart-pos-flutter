@@ -9,7 +9,7 @@
 # Never add that overlay on the VM.
 #
 # Memory budget (faculty VM 4 vCPU / 6 GB): 1024 + 2×256 + 3×384 + 256 + 128 + 64 + 256 (etcd)
-# ≈ 3.3 GB.
+# + 32 (platform-ui, #443 PR4) ≈ 3.35 GB.
 # Connections: max_connections=100 → 3 api × (15 request + 2 audit + 1 health + 2 admin) +
 # worker × (5 + 2 + 1 + 2) = 70 ≤ 80 (80%). The admin pool is platform-plane only, fixed at 2
 # (server/README.md *Invariants this stack enforces*).
@@ -44,19 +44,26 @@ x-app-env: &app-env
   ETCD_ROOT_PASSWORD: ${ETCD_ROOT_PASSWORD:?ETCD_ROOT_PASSWORD is required}
   # Compose's `.env` is interpolation-only — there is no `env_file:` anywhere in this stack and
   # the image does not load dotenv, so a key is only inside the container if it is listed here.
-  # Both are OPTIONAL and default to empty on purpose: config.ts's `csvAllowlist` reads blank as
-  # "unset", which keeps the historical behaviour (CORS `*`, allowlist = loopback only), while a
-  # value that lists no entry (`,`) throws at boot instead of silently reopening CORS. A `:?`
-  # form here would break every existing .env. Set them on the demo/VM host (#367).
+  # CORS_ORIGINS defaults to empty on purpose: config.ts's `csvAllowlist` reads blank as
+  # "unset", which keeps the historical behaviour (CORS `*`), while a value that lists no entry
+  # (`,`) throws at boot instead of silently reopening CORS. A `:?` form here would break every
+  # existing .env. Set it on the demo/VM host (#367).
   #   CORS_ORIGINS       comma-separated exact origins, e.g. https://mob04.example.ac.th
   #   PLATFORM_ADMIN_IPS comma-separated IPs allowed on /api/v1/platform/ IN ADDITION to loopback,
   #                      which platform-auth.guard.ts:43 allows before it reads this list (#270).
   #                      nginx's own `allow 127.0.0.1` on that location is unchanged, so an IP
   #                      added here is still refused a hop earlier unless nginx.conf follows.
+  # PLATFORM_ADMIN_IPS defaults to the platform-ui container's fixed address (#443 PR4, owner
+  # confirmed Q1-B) rather than empty: platform-ui is a permanent part of THIS compose file (not
+  # an opt-in overlay), so a fresh `cp .env.example .env && docker compose up -d --build` must
+  # already let it through the guard. 🔴 If this default is ever overridden on a host, the
+  # override must still include 172.30.0.20, or platform-ui passes nginx's `allow` and then
+  # dies at the guard (see docker-compose.yml's `platform-ui` service and
+  # docs/Backend_design/07_CICD_DEPLOY.md "platform-ui" for the three things that move together).
   # Both also land on `worker` and `bull-board` through this anchor; neither serves the API, so
-  # CORS_ORIGINS is inert there — bull-board is protected by its loopback port + basic auth only.
+  # both variables are inert there — bull-board is protected by its loopback port + basic auth.
   CORS_ORIGINS: ${CORS_ORIGINS:-}
-  PLATFORM_ADMIN_IPS: ${PLATFORM_ADMIN_IPS:-}
+  PLATFORM_ADMIN_IPS: ${PLATFORM_ADMIN_IPS:-172.30.0.20}
   # #410: only `true` lets the app boot with the public placeholders from .env.example
   # (config.ts `refusePublicSecret`). Local dev / CI only; vm.override.yml forces it empty.
   ALLOW_DEV_SECRETS: ${ALLOW_DEV_SECRETS:-}
@@ -105,6 +112,37 @@ services:
       api-1: { condition: service_healthy }
       api-2: { condition: service_healthy }
       api-3: { condition: service_healthy }
+
+  # #443 PR4: static platform-admin web dashboard. Published ONLY on the host loopback
+  # (127.0.0.1:3200, reached over `ssh -L`, same pattern as Grafana/Bull-Board) — never the
+  # public interface. A fixed compose-network address is required because the main nginx's
+  # `/api/v1/platform/` allowlist (docker/nginx/nginx.conf) and PLATFORM_ADMIN_IPS below both
+  # name this container by IP, not by its (unstable across recreates) DNS name.
+  # 🔴 Three things change together: this IP, the `allow` line in docker/nginx/nginx.conf, and
+  # PLATFORM_ADMIN_IPS — see docs/Backend_design/07_CICD_DEPLOY.md "platform-ui".
+  # 🔴 `deploy.yml:79-83` records that recreating this network drops every `ipv4_address`,
+  # this one included — the same risk already documented there for api-1..3.
+  # It never talks to `api` directly (see docker/platform-ui/nginx.conf): that would give the
+  # API's guard an XFF rightmost of the bridge gateway unless the gateway itself were
+  # allow-listed, which would turn `/api/v1/platform/` into an open relay for every other
+  # container on this network. It proxies through the MAIN nginx instead — the plane's one
+  # trusted hop (`trust proxy` = 1) — the same way a browser reaching the real thing would.
+  platform-ui:
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    restart: unless-stopped
+    mem_limit: 32m
+    networks: { default: { ipv4_address: 172.30.0.20 } }
+    ports:
+      - "127.0.0.1:3200:80"
+    volumes:
+      - ./docker/platform-ui/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/platform-ui/html:/usr/share/nginx/html:ro
+      - certs:/etc/nginx/certs:ro
+    depends_on:
+      # Needs the shared cert to trust the main nginx over HTTPS (its own nginx.conf) — NOT
+      # the main `nginx` service itself, which it resolves lazily so it can start (and serve
+      # the dashboard's static files) before `nginx` exists.
+      certgen: { condition: service_completed_successfully }
 
   # Self-signed TLS for dev/demo. Replace the volume contents with a real cert on the VM.
   certgen:

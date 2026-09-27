@@ -31,6 +31,10 @@ class OfflinePinRepository {
   final TokenStorage tokenStorage;
   final ApiClient? apiClient;
 
+  /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
+  static const String passwordChangeRequiredMessage =
+      'ต้องเปลี่ยนรหัสผ่านชั่วคราวก่อน จึงจะตั้งรหัส PIN ได้';
+
   // AppMeta keys
   static const String keyPinHash = 'offline_pin_hash';
   static const String keyPinSalt = 'offline_pin_salt';
@@ -193,6 +197,12 @@ class OfflinePinRepository {
     );
 
     final map = response as Map<String, dynamic>;
+    // #443 PR3: a temporary owner password answers 200 with only a restricted
+    // `pwchange` token and no access token. It must never set a PIN, nor stand
+    // in as the online login (the `iat` fallback below would do exactly that).
+    if (map['passwordChangeRequired'] == true) {
+      throw ArgumentError(passwordChangeRequiredMessage);
+    }
     final accessToken = map['accessToken'] as String?;
     final claims = JwtClaims.tryParse(accessToken);
     final iat = claims?.iat ?? (DateTime.now().millisecondsSinceEpoch ~/ 1000);
