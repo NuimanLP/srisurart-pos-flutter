@@ -220,6 +220,12 @@ open (`isActive && closedAt == null`, `api_wire.dart hasOpenShift`), and
 `closeShift` and refuses (`OUTBOX_NOT_EMPTY`) while ANY `outbox_ops` row remains
 — `pending`, `stuck` or `rejected`, any type (08 §11, #452) — and queues
 `shift.open` / `drawer.entry` offline under the client id + key it minted. With `useApi` false none of this runs.
+`useApi` also swaps `SettingsRepository` → `ApiSettingsRepository`
+(`lib/data/repositories/api_settings_repository.dart`, #460): reads stay on
+the Drift row, `updateSettings` is `PATCH /settings` (online-only, 08 §6.2 —
+Degraded or no link → a Thai `PosException`, never a local write), and
+`pullFromServer` (`GET /settings`) runs on app open / login via
+`pullSettingsOnSignIn` in `main.dart`. `BootstrapService` stays unwired.
 
 | Repository | Type |
 |---|---|

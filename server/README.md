@@ -1297,10 +1297,13 @@ ledger's row count across the whole lifecycle.
   `Idempotency-Key`. A QT number comes from `DocNumberService` in the token's device series, so a
   session with no device token is `403 DEVICE_ROLE_FORBIDDEN`.
 - **`validUntil = now + (validDays ?? 30) × 24h`.** This is the Dart data layer's literal. The
-  server never reads `settings.quote_valid_days`, and neither does the Flutter client:
-  `_handleSaveQuote` (`checkout_screen.dart:515`) passes no `validDays`, so every quote gets 30
-  days whatever the setting says. The JS screen used to pass `quoteValidDays`; that is a
-  pre-existing JS→Flutter gap, not something this server closes.
+  server never reads `settings.quote_valid_days` itself — the caller is expected to pass it.
+  🔴 **Fixed 2026-09-27 (#464):** `_handleSaveQuote` (`checkout_screen.dart`) was found not
+  passing `validDays` at all, so every quote got 30 days whatever `settings.quoteValidDays` said
+  — a gap that survived the JS→Flutter port (the JS screen passed `DB.getSettings().quoteValidDays`).
+  It now reads `settingsRepo.getSettings().quoteValidDays` and forwards it in `QuoteInput`, in
+  both the Drift and API (`ApiQuotesRepository`, which already forwarded `input.validDays` to
+  this endpoint) builds.
 - **`isExpired` is `valid_until < now()`, evaluated at read time on every quote whatever its
   status. `isConverted` is `status = 'converted'`** — `QuoteRowStatus`. The stored status is never
   rewritten to `'expired'`. `?status=open|expired|converted` is `quotes_screen.dart`'s
