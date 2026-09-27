@@ -122,7 +122,14 @@ List<RepositoryProvider> repositoryProviders(
         )
       : driftSales;
   final returnsRepository = useApi
-      ? ApiReturnsRepository(api: client, db: db, drift: driftReturns)
+      ? ApiReturnsRepository(
+          api: client,
+          db: db,
+          drift: driftReturns,
+          // A credit note is a queued op (08 §6.1, #452).
+          syncService: realSyncService,
+          docNumberService: docNumberService,
+        )
       : driftReturns;
   // The five read paths of #55, switched by their own flag.
   productsRepo = useApiRepositories

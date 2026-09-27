@@ -47,6 +47,10 @@ Future<void> showClosingReport(BuildContext context) {
 /// Aggregated read-model for the closing report (one async load of everything).
 class _ClosingData {
   final List<SaleLite> sales;
+
+  /// Cash bills since the drawer's count began ([ShiftsRepository.cashCountFrom])
+  /// — the day's cash sales unless a later shift of the day is the drawer.
+  final double drawerCashSales;
   final double cashRefundsToday;
   final double cashCreditPaymentsToday;
   final double drawerStarting;
@@ -61,6 +65,7 @@ class _ClosingData {
   final String? cashierName;
   const _ClosingData({
     required this.sales,
+    required this.drawerCashSales,
     required this.cashRefundsToday,
     required this.cashCreditPaymentsToday,
     required this.drawerStarting,
@@ -220,7 +225,7 @@ List<SaleLite> creditSales(List<SaleLite> sales) =>
 /// `method` column; MechanicsScreen instead encodes the method as the `note`
 /// prefix (`'<method>'` or `'<method> · <note>'`). Treat a payment as cash only
 /// when that leading segment is exactly `'เงินสด'`, mirroring `p.method === 'เงินสด'`.
-bool _isCashCreditPayment(String? note) {
+bool isCashCreditPayment(String? note) {
   if (note == null) return false;
   final method = note.split(' · ').first.trim();
   return method == 'เงินสด';
@@ -239,15 +244,23 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   // Only today's bills/returns/credit payments are read (#417) — the same
   // rows the old `dateKey(x) == today` in-memory filters kept.
   final day = dayBounds(now);
+  final drawer = await shiftsRepo.getCashDrawer();
+  final drawerToday = drawer != null && drawer.shift.dateStr == today;
+  // The drawer check counts from the same point as the cash-drawer screen
+  // (08 §11, #452): midnight for the day's first shift, a later shift's own
+  // opening otherwise. Revenue, the payment breakdown and top items stay the
+  // whole day — this is the DAILY closing report.
+  final countFrom = drawerToday
+      ? (await shiftsRepo.cashCountFrom(drawer.shift) ?? day.from)
+      : day.from;
   final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
-  final returns = await returnsRepo.getReturns(from: day.from, to: day.to);
+  final returns = await returnsRepo.getReturns(from: countFrom, to: day.to);
   final creditPayments = await mechanicsRepo.getCreditPayments(
-    from: day.from,
+    from: countFrom,
     to: day.to,
   );
   final products = await productsRepo.getAll();
   final settings = await settingsRepo.getSettings();
-  final drawer = await shiftsRepo.getCashDrawer();
 
   final costByPart = {for (final p in products) p.partNo: p.cost};
 
@@ -288,10 +301,18 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   // recover the method from that prefix and count only cash settlements,
   // matching ClosingReport.jsx (and keeping the drawer math consistent).
   final cashCreditPaymentsToday = creditPayments
-      .where((p) => _isCashCreditPayment(p.note))
+      .where((p) => isCashCreditPayment(p.note))
       .fold<double>(0, (s, p) => s + p.amount);
 
-  final drawerToday = drawer != null && drawer.shift.dateStr == today;
+  // Cash bills in the drawer's window — the "+ ยอดขายเงินสด" of the check.
+  final drawerCashSales = salesAgg
+      .where(
+        (s) =>
+            s.sale.paymentMethod == 'เงินสด' &&
+            !s.sale.date.isBefore(countFrom),
+      )
+      .fold<double>(0, (sum, s) => sum + s.sale.total);
+
   final drawerStarting = drawerToday ? drawer.shift.startingCash : 0.0;
   final drawerOut = drawerToday
       ? drawer.entries
@@ -306,6 +327,7 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
 
   return _ClosingData(
     sales: sales,
+    drawerCashSales: drawerCashSales,
     cashRefundsToday: cashRefundsToday,
     cashCreditPaymentsToday: cashCreditPaymentsToday,
     drawerStarting: drawerStarting,
@@ -385,9 +407,8 @@ class _ClosingReportState extends State<ClosingReport> {
   }
 
   double _cashExpected(_ClosingData d) {
-    final cashTotal = _sumTotal(_cashSales(d));
     return d.drawerStarting +
-        cashTotal +
+        d.drawerCashSales +
         d.cashCreditPaymentsToday -
         d.cashRefundsToday -
         d.drawerOut +
@@ -567,7 +588,7 @@ class _ClosingReportState extends State<ClosingReport> {
             sectionTitle('ตรวจนับเงินสดในลิ้นชัก'),
             if (d.drawerToday) ...[
               row('เงินตั้งต้น', baht(d.drawerStarting)),
-              row('+ ยอดขายเงินสด', baht(cashTotal)),
+              row('+ ยอดขายเงินสด', baht(d.drawerCashSales)),
               if (d.cashCreditPaymentsToday > 0)
                 row(
                   '+ รับชำระเครดิต (เงินสด)',
@@ -860,10 +881,10 @@ class _ClosingReportState extends State<ClosingReport> {
         if (d.drawerToday) ...[
           if (d.drawerStarting > 0)
             _miniRow('เงินตั้งต้น', baht(d.drawerStarting), null),
-          if (cashTotal > 0)
+          if (d.drawerCashSales > 0)
             _miniRow(
               '+ ยอดขายเงินสด',
-              '+${baht(cashTotal)}',
+              '+${baht(d.drawerCashSales)}',
               AppColors.successLight,
             ),
           if (d.cashCreditPaymentsToday > 0)

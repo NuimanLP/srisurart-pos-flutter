@@ -18,7 +18,36 @@ import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api/api_returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
+import 'package:srisurart_pos/data/services/doc_number_service.dart';
+import 'package:srisurart_pos/data/storage/token_storage.dart';
+import 'package:srisurart_pos/data/sync/sync_facade.dart';
+import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
+import 'package:srisurart_pos/domain/models/auth_models.dart';
+
+/// Enough of a token store for `SyncService` to be constructed.
+class _MemTokenStorage implements TokenStorage {
+  @override
+  Future<String?> getAccessToken() async => null;
+  @override
+  Future<void> setAccessToken(String? token) async {}
+  @override
+  Future<String?> getRefreshToken() async => null;
+  @override
+  Future<void> setRefreshToken(String? token) async {}
+  @override
+  Future<String?> getDeviceToken() async => 'pos-device-token-01';
+  @override
+  Future<void> setDeviceToken(String? token) async {}
+  @override
+  Future<AuthUser?> getUser() async => null;
+  @override
+  Future<void> setUser(AuthUser? user) async {}
+  @override
+  Future<void> clearAuthTokens() async {}
+  @override
+  Future<void> clearAll() async {}
+}
 
 String _ok(Map<String, dynamic> data) =>
     jsonEncode({'status': 'success', 'data': data});
@@ -296,7 +325,9 @@ void main() {
       expect(line['price'], '100.00');
       expect(line['qty'], 1);
       expect(line['originalQty'], 5);
-      // Server-owned document fields the client must never claim.
+      // The client's id (#452, 08 §6.1) — the server records the note under it.
+      expect(body['id'], startsWith('r'));
+      // Online, the number is still the server's (parity with `POST /sales`).
       expect(body.containsKey('cnNo'), isFalse);
       expect(body.containsKey('shiftId'), isFalse);
 
@@ -470,11 +501,9 @@ void main() {
 
   group('a lost reply must not become a second credit note', () {
     test('a dropped connection then a second press replays the SAME key', () async {
-      // 🔴 `POST /returns` takes no client-generated id, so the
-      // `Idempotency-Key` is the ONLY thing between a lost reply and a second
-      // refund — and `assertRefundable` will not catch it: it allows anything
-      // up to `sold - refunded`, so returning 1 of 5 twice is two legal credit
-      // notes and twice the money out of the drawer.
+      // 🔴 `assertRefundable` will not catch a resend: it allows anything up to
+      // `sold - refunded`, so returning 1 of 5 twice is two legal credit notes
+      // and twice the money out of the drawer. Same key AND same client id.
       var attempt = 0;
       final repo = repoWith((req) async {
         attempt++;
@@ -498,6 +527,10 @@ void main() {
         posts.map((r) => r.headers['Idempotency-Key']).toSet(),
         hasLength(1),
         reason: 'a fresh key here refunds the same goods twice',
+      );
+      expect(
+        posts.map((r) => (jsonDecode(r.body) as Map)['id']).toSet(),
+        hasLength(1),
       );
       expect(cn.id, 'r-server');
       expect(await db.select(db.returns).get(), hasLength(1));
@@ -554,6 +587,414 @@ void main() {
       final posts = sent.where((r) => r.url.path == '/api/v1/returns').toList();
       expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(2));
     });
+  });
+
+  group('offline: return.create is queued (#452, 08 §6.1)', () {
+    late SyncService sync;
+    late DocNumberService numbers;
+    final period = DocNumberService.formatPeriod(DateTime.now());
+
+    ApiReturnsRepository offlineRepo(
+      Future<http.Response> Function(http.Request req) handler,
+    ) {
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        httpClient: MockClient((req) async {
+          sent.add(req);
+          return handler(req);
+        }),
+      );
+      sync = SyncService(
+        db: db,
+        apiClient: client,
+        tokenStorage: _MemTokenStorage(),
+        httpClient: MockClient(
+          (_) async => throw http.ClientException('Offline'),
+        ),
+        autoStartHealthProbe: false,
+      );
+      addTearDown(sync.dispose);
+      numbers = DocNumberService(db: db);
+      return ApiReturnsRepository(
+        api: client,
+        db: db,
+        drift: ReturnsRepository(db),
+        syncService: sync,
+        docNumberService: numbers,
+      );
+    }
+
+    /// This device (no. 3) is seeded for this period and last issued CN 0004.
+    Future<void> seedDevice() async {
+      await numbers.recordSeedMarker(deviceId: 'dev-1', period: period);
+      await numbers.commitDocNo(
+        deviceId: 'dev-1',
+        deviceNo: 3,
+        docType: 'cn',
+        period: period,
+        seq: 4,
+      );
+    }
+
+    Future<void> openShift() => db
+        .into(db.shifts)
+        .insert(
+          ShiftsCompanion.insert(
+            id: 'sh-open',
+            dateStr: '2026-09-27',
+            startingCash: 500,
+            openedAt: DateTime(2026, 9, 27, 8),
+            isActive: const Value(true),
+          ),
+        );
+
+    Future<List<OutboxOpRow>> ops() => db.select(db.outboxOps).get();
+
+    Future<int> stock() async => (await (db.select(
+      db.products,
+    )..where((t) => t.id.equals('tp1'))).getSingle()).stock;
+
+    test(
+      'Degraded: the credit note, its reversals, the CN number and one '
+      'return.create op are written together, nothing sent online',
+      () async {
+        final repo = offlineRepo((_) async => fail('no online call'));
+        await seedDevice();
+        await openShift();
+        sync.recordNonVerdictWrite();
+
+        final cn = await repo.createReturn(oneBack);
+
+        expect(sent, isEmpty);
+        expect(cn.id, startsWith('r'));
+        expect(cn.cnNo, 'CN03-$period-0005');
+        expect(cn.receiptNo, 'RC-00042');
+        expect(cn.refundTotal, 100);
+        expect(await numbers.getLastNo(deviceId: 'dev-1', docType: 'cn'), 5);
+
+        expect(await db.select(db.returns).get(), hasLength(1));
+        final line = (await db.select(db.returnItems).get()).single;
+        expect(line.returnId, cn.id);
+        expect(line.qty, 1);
+        expect(await stock(), 4);
+
+        // 100 of a 500 bill: a fifth of its 50 points and ฿100 of spend.
+        final c = await (db.select(
+          db.customers,
+        )..where((t) => t.id.equals('tc1'))).getSingle();
+        expect(c.points, 40);
+        expect(c.totalSpend, 400);
+        // A cash refund never touches the mechanic's tab.
+        final m = await (db.select(
+          db.mechanics,
+        )..where((t) => t.id.equals('tm1'))).getSingle();
+        expect(m.creditBalance, 500);
+
+        final sale = await (db.select(
+          db.sales,
+        )..where((t) => t.id.equals('sale-1'))).getSingle();
+        expect(sale.voided, isFalse, reason: '1 of 5 is a partial return');
+
+        final op = (await ops()).single;
+        expect(op.type, 'return.create');
+        expect(op.status, 'pending');
+        expect(jsonDecode(op.aggregates), [
+          'return:${cn.id}',
+          'sale:sale-1',
+          'shift:sh-open',
+        ]);
+        final payload = jsonDecode(op.payload) as Map<String, dynamic>;
+        expect(payload['id'], cn.id);
+        expect(payload['saleId'], 'sale-1');
+        expect(payload['cnNo'], cn.cnNo);
+        expect(payload['date'], isA<String>());
+        expect(payload['refundMethod'], 'เงินสด');
+        expect(payload['reason'], 'ของชำรุด');
+        final item = (payload['items'] as List).single as Map;
+        expect(item['productId'], 'tp1');
+        expect(item['qty'], 1);
+        expect(item['price'], '100.00');
+        expect(payload.containsKey('shiftId'), isFalse);
+      },
+    );
+
+    test('a lost connection queues it under the SAME id + key', () async {
+      final repo = offlineRepo(
+        (_) async => throw http.ClientException('socket dropped'),
+      );
+      await seedDevice();
+      await openShift();
+
+      final cn = await repo.createReturn(oneBack);
+
+      final online = sent.singleWhere((r) => r.url.path == '/api/v1/returns');
+      final op = (await ops()).single;
+      expect(op.idempotencyKey, online.headers['Idempotency-Key']);
+      expect((jsonDecode(online.body) as Map)['id'], cn.id);
+      expect((jsonDecode(op.payload) as Map)['id'], cn.id);
+      expect(sync.currentStatus, SyncStatus.degraded);
+    });
+
+    test('a full return offline voids the parent bill', () async {
+      final repo = offlineRepo((_) async => fail('no online call'));
+      await seedDevice();
+      await openShift();
+      sync.recordNonVerdictWrite();
+
+      await repo.createReturn(
+        const ReturnInput(
+          saleId: 'sale-1',
+          refundMethod: 'โอน',
+          items: [
+            ReturnLineInput(
+              productId: 'tp1',
+              name: 'Brake Pad',
+              qty: 5,
+              price: 100,
+            ),
+          ],
+        ),
+      );
+
+      final sale = await (db.select(
+        db.sales,
+      )..where((t) => t.id.equals('sale-1'))).getSingle();
+      expect(sale.voided, isTrue);
+      expect(await stock(), 8);
+    });
+
+    test(
+      'over-refund offline: refused, nothing written, no number burnt',
+      () async {
+        final repo = offlineRepo((_) async => fail('no online call'));
+        await seedDevice();
+        await openShift();
+        sync.recordNonVerdictWrite();
+
+        await expectLater(
+          () => repo.createReturn(
+            const ReturnInput(
+              saleId: 'sale-1',
+              refundMethod: 'เงินสด',
+              items: [
+                ReturnLineInput(
+                  productId: 'tp1',
+                  name: 'Brake Pad',
+                  qty: 6,
+                  price: 100,
+                ),
+              ],
+            ),
+          ),
+          throwsA(
+            predicate(
+              (e) => e.toString().contains(
+                'คืนเกินจำนวนที่ขาย:\nBrake Pad: คืนได้อีก 5 แต่ขอคืน 6',
+              ),
+            ),
+          ),
+        );
+        expect(await db.select(db.returns).get(), isEmpty);
+        expect(await ops(), isEmpty);
+        expect(await stock(), 3);
+        expect(await numbers.getLastNo(deviceId: 'dev-1', docType: 'cn'), 4);
+      },
+    );
+
+    test('a cash refund with no open drawer is refused offline', () async {
+      final repo = offlineRepo((_) async => fail('no online call'));
+      await seedDevice();
+      sync.recordNonVerdictWrite();
+
+      await expectLater(
+        () => repo.createReturn(oneBack),
+        throwsA(
+          isA<PosException>().having((e) => e.code, 'code', 'NO_OPEN_SHIFT'),
+        ),
+      );
+      expect(await db.select(db.returns).get(), isEmpty);
+      expect(await ops(), isEmpty);
+    });
+
+    test('an unseeded device cannot number a credit note offline', () async {
+      final repo = offlineRepo((_) async => fail('no online call'));
+      await openShift();
+      sync.recordNonVerdictWrite();
+
+      await expectLater(
+        () => repo.createReturn(oneBack),
+        throwsA(isA<OfflineSeedRequiredException>()),
+      );
+      expect(await db.select(db.returns).get(), isEmpty);
+      expect(await ops(), isEmpty);
+      expect(await stock(), 3);
+    });
+
+    test(
+      'seeded but the device number is unknown: refused, never guessed as 01',
+      () async {
+        final repo = offlineRepo((_) async => fail('no online call'));
+        // A new device: seeded, but `GET /doc-counters` had no counter row yet.
+        await numbers.recordSeedMarker(deviceId: 'dev-new', period: period);
+        await openShift();
+        sync.recordNonVerdictWrite();
+
+        await expectLater(
+          () => repo.createReturn(oneBack),
+          throwsA(isA<OfflineSeedRequiredException>()),
+        );
+        expect(await db.select(db.returns).get(), isEmpty);
+        expect(await ops(), isEmpty);
+      },
+    );
+
+    test(
+      'a re-enrolled browser numbers under its NEW device, not the old one',
+      () async {
+        final repo = offlineRepo((_) async => fail('no online call'));
+        // The old device's counter and seed, then a newer seed for the new one.
+        await numbers.commitDocNo(
+          deviceId: 'dev-old',
+          deviceNo: 1,
+          docType: 'cn',
+          period: period,
+          seq: 40,
+        );
+        await numbers.recordSeedMarker(
+          deviceId: 'dev-old',
+          period: period,
+          seededAt: DateTime(2026, 1, 1),
+        );
+        await numbers.commitDocNo(
+          deviceId: 'dev-new',
+          deviceNo: 7,
+          docType: 'receipt',
+          period: period,
+          seq: 2,
+        );
+        await numbers.recordSeedMarker(
+          deviceId: 'dev-new',
+          period: period,
+          seededAt: DateTime(2026, 9, 1),
+        );
+        await openShift();
+        sync.recordNonVerdictWrite();
+
+        final cn = await repo.createReturn(oneBack);
+
+        expect(cn.cnNo, 'CN07-$period-0001');
+        expect(await numbers.getLastNo(deviceId: 'dev-old', docType: 'cn'), 40);
+      },
+    );
+
+    test(
+      'a 2xx that is not a credit note: UNREADABLE_RESPONSE, nothing queued, '
+      'the next press replays the same key (#409)',
+      () async {
+        final repo = offlineRepo(
+          (_) async => http.Response(
+            jsonEncode({'status': 'success', 'data': 'not a credit note'}),
+            201,
+            headers: {'content-type': 'application/json'},
+          ),
+        );
+        await seedDevice();
+        await openShift();
+
+        await expectLater(
+          () => repo.createReturn(oneBack),
+          throwsA(
+            isA<PosException>().having(
+              (e) => e.code,
+              'code',
+              'UNREADABLE_RESPONSE',
+            ),
+          ),
+        );
+        await expectLater(
+          () => repo.createReturn(oneBack),
+          throwsA(isA<PosException>()),
+        );
+        expect(await ops(), isEmpty);
+        expect(await db.select(db.returns).get(), isEmpty);
+        final keys = sent.map((r) => r.headers['Idempotency-Key']).toSet();
+        expect(sent, hasLength(2));
+        expect(keys, hasLength(1));
+      },
+    );
+
+    test('a 5xx does NOT queue (owner 2026-09-27, parity with sales)', () async {
+      final repo = offlineRepo(
+        (_) async => http.Response('<html>502 Bad Gateway</html>', 502),
+      );
+      await seedDevice();
+      await openShift();
+
+      await expectLater(
+        () => repo.createReturn(oneBack),
+        throwsA(isA<Exception>()),
+      );
+      expect(await ops(), isEmpty);
+      expect(await db.select(db.returns).get(), isEmpty);
+    });
+
+    test(
+      'an applied return.create deletes the op and takes the server CN number',
+      () async {
+        final repo = offlineRepo((_) async => fail('no online call'));
+        await seedDevice();
+        await openShift();
+        sync.recordNonVerdictWrite();
+        final cn = await repo.createReturn(oneBack);
+        final op = (await ops()).single;
+
+        final pusher = SyncService(
+          db: db,
+          apiClient: ApiClient(baseUrl: 'http://server.test'),
+          tokenStorage: _MemTokenStorage(),
+          httpClient: MockClient(
+            (req) async => http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'status': 'success',
+                  'data': {
+                    'results': [
+                      {
+                        'opId': op.opId,
+                        'status': 'applied',
+                        'response': {
+                          'id': cn.id,
+                          'cnNo': 'CN03-$period-0042',
+                          'saleId': 'sale-1',
+                          'total': '100.00',
+                          'refundMethod': 'เงินสด',
+                          'stockRestored': [
+                            {'id': 'tp1', 'stock': 41},
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                }),
+              ),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            ),
+          ),
+          autoStartHealthProbe: false,
+        );
+        addTearDown(pusher.dispose);
+
+        await pusher.push();
+
+        expect(await ops(), isEmpty);
+        final local = await (db.select(
+          db.returns,
+        )..where((t) => t.id.equals(cn.id))).getSingle();
+        expect(local.cnNo, 'CN03-$period-0042');
+        expect(await stock(), 41);
+      },
+    );
   });
 
   test('reads still come from Drift', () async {

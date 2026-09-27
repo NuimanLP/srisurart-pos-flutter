@@ -58,6 +58,28 @@ class ShiftsRepository {
     return result;
   }
 
+  /// Where the drawer's cash count for [shift] starts (08 §11 — several shifts
+  /// a day, #452): null for the first shift of its day — the caller counts from
+  /// midnight, exactly as before multi-shift, so every shift opened before
+  /// then reconciles as it always did — else [shift]'s own opening, so a later
+  /// shift never counts an earlier one's takings.
+  ///
+  /// One read, shared by the cash-drawer screen and the closing report so the
+  /// two always expect the same cash.
+  Future<DateTime?> cashCountFrom(ShiftRow shift) async {
+    final earlier =
+        await (db.select(db.shifts)
+              ..where(
+                (t) =>
+                    t.dateStr.equals(shift.dateStr) &
+                    t.openedAt.isSmallerThanValue(shift.openedAt) &
+                    t.id.equals(shift.id).not(),
+              )
+              ..limit(1))
+            .getSingleOrNull();
+    return earlier == null ? null : shift.openedAt;
+  }
+
   /// Drawer entries for a shift, newest first.
   Future<List<DrawerEntryRow>> _entriesFor(String shiftId) {
     return (db.select(db.drawerEntries)

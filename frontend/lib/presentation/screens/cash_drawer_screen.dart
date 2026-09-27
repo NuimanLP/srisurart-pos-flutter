@@ -7,7 +7,9 @@
 //     − cash refunds − cash out + cash in),
 //   • close shift (physical cash count + variance vs expected),
 //   • blocks new money entries after close (addDrawerEntry throws the Thai
-//     message once the shift is closed — we surface it).
+//     message once the shift is closed — we surface it),
+//   • once closed, open the next shift the same day (08 §11, #452); a later
+//     shift counts cash from its own opening, not from midnight.
 // Plus a button to open the daily ClosingReport popup.
 //
 // State is read THROUGH the repo providers (never AppDatabase). The cash-drawer
@@ -118,27 +120,34 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         ? drawer
         : null;
 
-    final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
+    // Several shifts a day (08 §11, #452): a later shift counts only its own
+    // cash — from its own opening, not from midnight. The day's first shift
+    // keeps the midnight bound, as before. Same rule as the closing report.
+    final from = shift == null
+        ? day.from
+        : (await shiftsRepo.cashCountFrom(shift.shift) ?? day.from);
+
+    final salesAgg = await salesRepo.getSales(from: from, to: day.to);
     final cashSalesTotal = salesAgg
         .where((s) => s.sale.paymentMethod == 'เงินสด')
         .fold<double>(0, (sum, s) => sum + s.sale.total);
 
-    final returns = await returnsRepo.getReturns(from: day.from, to: day.to);
+    final returns = await returnsRepo.getReturns(from: from, to: day.to);
     final cashRefundsToday = returns
         .where((r) => r.ret.refundMethod == 'เงินสด')
         .fold<double>(0, (s, r) => s + r.ret.refundTotal);
 
-    // The Drift CreditPayments table has no `method` column (the JS filtered
-    // p.method === 'เงินสด'); we treat every same-day credit settlement as a
-    // cash drawer inflow.
+    // Only CASH settlements enter the drawer (the JS filtered
+    // p.method === 'เงินสด'). The Drift table has no method column; the method
+    // is the note's leading segment — the same test the closing report uses, so
+    // the two expect the same cash (#452; this screen used to count transfers).
     final creditPayments = await mechanicsRepo.getCreditPayments(
-      from: day.from,
+      from: from,
       to: day.to,
     );
-    final cashCreditPaymentsToday = creditPayments.fold<double>(
-      0,
-      (s, p) => s + p.amount,
-    );
+    final cashCreditPaymentsToday = creditPayments
+        .where((p) => isCashCreditPayment(p.note))
+        .fold<double>(0, (s, p) => s + p.amount);
 
     return _DrawerData(
       shift: shift,
@@ -172,7 +181,11 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     try {
       await repo.openShift(v);
       _startCtl.clear();
-      _refresh();
+      // A new shift starts on its money tab, not the closed count.
+      setState(() {
+        _tab = 0;
+        _dataFuture = _loadData();
+      });
     } catch (e) {
       // Opening the drawer could not fail while ShiftsRepository was Drift-only,
       // so this had no catch. ApiShiftsRepository (#56) makes it a network call,
@@ -332,59 +345,103 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Wrap(
-              alignment: WrapAlignment.center,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                Text(
-                  'เงินตั้งต้น ฿',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: AppColors.steelBlue,
-                  ),
-                ),
-                SizedBox(
-                  width: 160,
-                  child: TextField(
-                    controller: _startCtl,
-                    autofocus: true,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      hintText: '0',
-                    ),
-                    onSubmitted: (_) => _handleOpen(),
-                  ),
-                ),
-                AppButton(
-                  label: 'เปิดร้าน',
-                  busy: _busy,
-                  onPressed: _handleOpen,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [500, 1000, 2000, 3000]
-                  .map(
-                    (n) => _quickChip(
-                      baht(n),
-                      () => setState(() => _startCtl.text = '$n'),
-                    ),
-                  )
-                  .toList(),
-            ),
+            _openShiftForm(context, label: 'เปิดร้าน', autofocus: true),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Starting cash + the open button + quick amounts. Used before the day's
+  /// first shift and, once a shift is closed, to open the next one straight
+  /// away (08 §11 — several shifts a day, #452).
+  Widget _openShiftForm(
+    BuildContext context, {
+    required String label,
+    bool autofocus = false,
+  }) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            Text(
+              'เงินตั้งต้น ฿',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: AppColors.steelBlue,
+              ),
+            ),
+            SizedBox(
+              width: 160,
+              child: TextField(
+                controller: _startCtl,
+                autofocus: autofocus,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: '0',
+                ),
+                onSubmitted: (_) => _handleOpen(),
+              ),
+            ),
+            AppButton(label: label, busy: _busy, onPressed: _handleOpen),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          children: [500, 1000, 2000, 3000]
+              .map(
+                (n) => _quickChip(
+                  baht(n),
+                  () => setState(() => _startCtl.text = '$n'),
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+
+  /// Shown on both tabs once the current shift is closed: the next shift can be
+  /// opened at once, no need to wait for tomorrow (08 §11).
+  Widget _reopenCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border.all(color: AppColors.orange.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // agent ร่าง — catalogued in 02_API_SCREENS §8.1.1.
+          _sectionTitle('เปิดกะใหม่'),
+          Text(
+            'กรอกเงินตั้งต้นในลิ้นชักก่อนเริ่มขาย',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: AppColors.steelBlue,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _openShiftForm(context, label: 'เปิดกะใหม่'),
+        ],
       ),
     );
   }
@@ -479,6 +536,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (closed) _reopenCard(context),
         // Summary cards — fixed pixel height (was childAspectRatio:2.8, whose
         // width-derived height clipped the baht value + label under text scale).
         GridView(
@@ -759,6 +817,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                     ),
                   ),
                 ),
+              if (closed) _reopenCard(context),
               _sectionTitle('สรุปยอดเงินสด'),
               for (final r in rows)
                 Container(

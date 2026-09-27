@@ -742,5 +742,262 @@ void main() {
         expect(op.attempts, 0);
       });
     });
+
+    // ── 8. Replay semantics of the #452 ops (08 §6.4 AC) ─────────────────────
+    //
+    // The server half (replay by key / by id, `CLIENT_ID_REUSED`) is
+    // `server/test/sync-push.e2e-spec.ts`. These tie the CLIENT to it, using the
+    // committed `.applied` fixtures for the reply and the
+    // `sale-create.client-id-reused` fixture for the refusal shape (retargeted at
+    // each op — no new fixture file, the server e2e consumes that directory).
+    group('8. replay semantics: shift.open / drawer.entry / return.create (#452)', () {
+      /// A push server that answers each call with the next of [replies]; a
+      /// null reply is a lost reply (the request went out, nothing came back).
+      ({http.Client client, List<Map<String, dynamic>> bodies}) scripted(
+        List<Map<String, dynamic>?> replies,
+      ) {
+        final bodies = <Map<String, dynamic>>[];
+        var call = 0;
+        final client = MockClient((request) async {
+          expect(request.url.path, '/api/v1/sync/push');
+          bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+          final reply = replies[call++];
+          if (reply == null) throw http.ClientException('reply lost');
+          return http.Response.bytes(
+            utf8.encode(jsonEncode(reply)),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        });
+        return (client: client, bodies: bodies);
+      }
+
+      SyncService syncWith(http.Client client) {
+        final sync = SyncService(
+          db: db,
+          apiClient: ApiClient(httpClient: client),
+          tokenStorage: tokenStorage,
+          httpClient: client,
+          autoStartHealthProbe: false,
+        );
+        addTearDown(sync.dispose);
+        return sync;
+      }
+
+      /// `sale-create.client-id-reused.json`'s refusal, retargeted at [op].
+      Map<String, dynamic> clientIdReusedFor(Map<String, dynamic> op) {
+        final base = loadFixture('sale-create.client-id-reused.json');
+        final result = Map<String, dynamic>.from(
+          ((base.responseBody['data'] as Map)['results'] as List).single as Map,
+        );
+        result['opId'] = op['opId'];
+        result['details'] = {
+          'type': op['type'],
+          'id': (op['payload'] as Map)['id'],
+        };
+        return {
+          'status': 'success',
+          'data': {
+            'results': [result],
+          },
+        };
+      }
+
+      Map<String, dynamic> opOf(FixtureFile f) =>
+          (f.requestBody['ops'] as List).single as Map<String, dynamic>;
+
+      Future<void> seedLocalRowsFor(String type) async {
+        switch (type) {
+          case 'shift.open':
+            await db.into(db.shifts).insert(
+                  ShiftsCompanion.insert(
+                    id: 'sh_off_001',
+                    dateStr: '2026-09-15',
+                    startingCash: 1000,
+                    // The device clock — the reply's openedAt must win.
+                    openedAt: DateTime.utc(2026, 9, 15, 0, 55),
+                    isActive: const drift.Value(true),
+                  ),
+                );
+          case 'drawer.entry':
+            await db.into(db.shifts).insert(
+                  ShiftsCompanion.insert(
+                    id: 'sh_local',
+                    dateStr: '2026-09-15',
+                    startingCash: 1000,
+                    openedAt: DateTime.utc(2026, 9, 15, 1),
+                    isActive: const drift.Value(true),
+                  ),
+                );
+            await db.into(db.drawerEntries).insert(
+                  DrawerEntryRow(
+                    id: 'de_off_001',
+                    shiftId: 'sh_local',
+                    type: 'in',
+                    amount: 500,
+                    note: 'สำรองเงินทอน',
+                    createdAt: DateTime.utc(2026, 9, 15, 1, 30),
+                  ),
+                );
+          case 'return.create':
+            // Stock as the offline credit note left it (45 + 1 back = 46 on
+            // the server; the local cache says 45 before the reply lands).
+            await (db.update(db.products)..where((t) => t.id.equals('p1')))
+                .write(const ProductsCompanion(stock: drift.Value(45)));
+            await db.into(db.returns).insert(
+                  ReturnsCompanion.insert(
+                    id: 'ret_off_001',
+                    cnNo: 'CN01-2569-09-0005',
+                    saleId: 's_off_001',
+                    receiptNo: 'RC01-2569-09-0042',
+                    refundSubtotal: 85,
+                    refundDiscount: 0,
+                    refundTotal: 85,
+                    refundMethod: 'เงินสด',
+                    date: DateTime.utc(2026, 9, 15, 3),
+                  ),
+                );
+        }
+      }
+
+      Future<void> expectPatchedOnceFor(String type) async {
+        switch (type) {
+          case 'shift.open':
+            final shift = await (db.select(db.shifts)
+                  ..where((t) => t.id.equals('sh_off_001')))
+                .getSingle();
+            expect(
+              shift.openedAt.isAtSameMomentAs(
+                DateTime.parse('2026-09-15T01:00:00.000Z'),
+              ),
+              isTrue,
+            );
+            expect(await db.select(db.shifts).get(), hasLength(1));
+          case 'drawer.entry':
+            // One entry — the replay did not add a second one.
+            expect(await db.select(db.drawerEntries).get(), hasLength(1));
+          case 'return.create':
+            final p1 = await (db.select(db.products)
+                  ..where((t) => t.id.equals('p1')))
+                .getSingle();
+            // The server's number once — never 45 + 1 + 1.
+            expect(p1.stock, 46);
+            final ret = await db.select(db.returns).get();
+            expect(ret, hasLength(1));
+            expect(ret.single.cnNo, 'CN01-2569-09-0005');
+        }
+      }
+
+      for (final (file, type) in [
+        ('shift-open.applied.json', 'shift.open'),
+        ('drawer-entry.applied.json', 'drawer.entry'),
+        ('return-create.applied.json', 'return.create'),
+      ]) {
+        test(
+          '$type: a lost push reply is re-sent under the SAME key + payload, and '
+          'the replayed reply is patched once',
+          () async {
+            final fixture = loadFixture(file);
+            await seedLocalRowsFor(type);
+            await enqueueOpsFromFixture(db, fixture);
+            final server = scripted([null, fixture.responseBody]);
+            final sync = syncWith(server.client);
+
+            await sync.push(); // committed server-side, reply lost
+            final parked = await db.select(db.outboxOps).getSingle();
+            expect(parked.status, 'pending');
+            expect(parked.attempts, 1);
+
+            await sync.push(); // the server replays by key → same result
+
+            expect(await db.select(db.outboxOps).get(), isEmpty);
+            expect(server.bodies, hasLength(2));
+            final first = (server.bodies[0]['ops'] as List).single as Map;
+            final second = (server.bodies[1]['ops'] as List).single as Map;
+            expect(second['idempotencyKey'], first['idempotencyKey']);
+            expect(second['idempotencyKey'], opOf(fixture)['idempotencyKey']);
+            expect(second['payload'], first['payload']);
+            expect(second['payload'], opOf(fixture)['payload']);
+            await expectPatchedOnceFor(type);
+          },
+        );
+
+        test(
+          '$type: replay by id — under a key the server no longer holds, the '
+          'op still carries the local row\'s client id, and the replayed reply '
+          'is patched once',
+          () async {
+            final fixture = loadFixture(file);
+            await seedLocalRowsFor(type);
+            await enqueueOpsFromFixture(db, fixture);
+            // As in `sale-create.replay-by-id.json`: a fresh key, the same id.
+            await db.update(db.outboxOps).write(
+                  const OutboxOpsCompanion(
+                    idempotencyKey: drift.Value('k_fresh_key'),
+                  ),
+                );
+            final server = scripted([fixture.responseBody]);
+            final sync = syncWith(server.client);
+
+            await sync.push();
+
+            expect(await db.select(db.outboxOps).get(), isEmpty);
+            final sent = (server.bodies.single['ops'] as List).single as Map;
+            expect(sent['idempotencyKey'], 'k_fresh_key');
+            final id = (opOf(fixture)['payload'] as Map)['id'];
+            expect((sent['payload'] as Map)['id'], id);
+            expect(
+              ((fixture.responseBody['data'] as Map)['results'] as List)
+                  .single['response']['id'],
+              id,
+              reason: 'the server answers with the row it holds under that id',
+            );
+            await expectPatchedOnceFor(type);
+          },
+        );
+
+        test(
+          '$type: same id, different compared fields → rejected '
+          'CLIENT_ID_REUSED, local rows kept, shown to the owner',
+          () async {
+            final fixture = loadFixture(file);
+            await seedLocalRowsFor(type);
+            await enqueueOpsFromFixture(db, fixture);
+            final op = opOf(fixture);
+            final sync = syncWith(scripted([clientIdReusedFor(op)]).client);
+
+            await sync.push();
+
+            final row = await db.select(db.outboxOps).getSingle();
+            expect(row.status, 'rejected');
+            expect(row.attempts, 0);
+            expect(row.lastCode, 'CLIENT_ID_REUSED');
+            expect(jsonDecode(row.lastDetails!), {
+              'type': type,
+              'id': (op['payload'] as Map)['id'],
+            });
+            // Nothing is rolled back locally: the owner decides (08 §14).
+            switch (type) {
+              case 'shift.open':
+                expect(await db.select(db.shifts).get(), hasLength(1));
+              case 'drawer.entry':
+                expect(await db.select(db.drawerEntries).get(), hasLength(1));
+              case 'return.create':
+                expect(await db.select(db.returns).get(), hasLength(1));
+            }
+            final needsOwner = await sync.needsOwner.first;
+            expect(
+              needsOwner.any(
+                (o) =>
+                    o.opId == op['opId'] &&
+                    o.status == OutboxOpStatus.rejected &&
+                    o.lastCode == 'CLIENT_ID_REUSED',
+              ),
+              isTrue,
+            );
+          },
+        );
+      }
+    });
   });
 }
