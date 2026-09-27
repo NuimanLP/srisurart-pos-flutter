@@ -392,19 +392,7 @@ class ApiSalesRepository implements SalesRepository {
 
       // Customer: points and spend AS THE SERVER HAS THEM.
       final customerAfter = res['customerAfter'];
-      if (customerAfter is Map) {
-        final c = customerAfter.cast<String, dynamic>();
-        await (db.update(
-          db.customers,
-        )..where((t) => t.id.equals(c['id'] as String))).write(
-          CustomersCompanion(
-            points: Value(c['points'] as int),
-            totalSpend: Value(money(c['totalSpend'])),
-            // Same reasoning as products above: this is a sync cursor field and
-            // the response has none, so it is not touched.
-          ),
-        );
-      }
+      if (customerAfter is Map) await patchCustomerAfter(db, customerAfter);
 
       // Mechanic: all four running totals as the server has them (#82).
       // `applyMechanic` moves `totalSales`, `totalDiscount` and `totalMarkup`
@@ -413,23 +401,9 @@ class ApiSalesRepository implements SalesRepository {
       // write. `mechanicCreditBalanceAfter` is kept as the fallback for a server
       // that predates #82 — and where neither field is present the row is left
       // untouched rather than recomputed from the cart.
-      //
-      // 🔴 `totalCredit` is NOT written: it is the legacy alias of
-      // `totalDiscount` settled in #11, and the server never moves it either.
       final mechanicAfter = res['mechanicAfter'];
       if (mechanicAfter is Map) {
-        final m = mechanicAfter.cast<String, dynamic>();
-        final companion = MechanicsCompanion(
-          totalSales: keepMoney(moneyOrNull(m['totalSales'])),
-          totalDiscount: keepMoney(moneyOrNull(m['totalDiscount'])),
-          totalMarkup: keepMoney(moneyOrNull(m['totalMarkup'])),
-          creditBalance: keepMoney(moneyOrNull(m['creditBalance'])),
-        );
-        if (companion != const MechanicsCompanion()) {
-          await (db.update(db.mechanics)
-                ..where((t) => t.id.equals(m['id'] as String)))
-              .write(companion);
-        }
+        await patchMechanicAfter(db, mechanicAfter);
       } else {
         final creditAfter = moneyOrNull(res['mechanicCreditBalanceAfter']);
         if (creditAfter != null && input.mechanicId != null) {

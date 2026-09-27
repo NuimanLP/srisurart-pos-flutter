@@ -104,40 +104,15 @@ Future<void> patchSaleFromPushReply(
     for (final o in remainingOps) ...SyncService.parseAggregates(o.aggregates),
   };
 
-  // Customer: points and spend as the server has them.
+  // Customer and mechanic running totals as the server has them — the same
+  // helpers the online sale patches with.
   final c = response['customerAfter'];
-  if (c is Map &&
-      c['id'] is String &&
-      !pending.contains('customer:${c['id']}')) {
-    final points = c['points'];
-    final companion = CustomersCompanion(
-      points: points is int ? Value(points) : const Value.absent(),
-      totalSpend: keepMoney(moneyOrNull(c['totalSpend'])),
-    );
-    if (companion != const CustomersCompanion()) {
-      await (db.update(
-        db.customers,
-      )..where((t) => t.id.equals(c['id'] as String))).write(companion);
-    }
+  if (c is Map && !pending.contains('customer:${c['id']}')) {
+    await patchCustomerAfter(db, c);
   }
-
-  // Mechanic: all four running totals as the server has them (never
-  // `totalCredit`, the legacy alias the server does not move — #11).
   final m = response['mechanicAfter'];
-  if (m is Map &&
-      m['id'] is String &&
-      !pending.contains('mechanic:${m['id']}')) {
-    final companion = MechanicsCompanion(
-      totalSales: keepMoney(moneyOrNull(m['totalSales'])),
-      totalDiscount: keepMoney(moneyOrNull(m['totalDiscount'])),
-      totalMarkup: keepMoney(moneyOrNull(m['totalMarkup'])),
-      creditBalance: keepMoney(moneyOrNull(m['creditBalance'])),
-    );
-    if (companion != const MechanicsCompanion()) {
-      await (db.update(
-        db.mechanics,
-      )..where((t) => t.id.equals(m['id'] as String))).write(companion);
-    }
+  if (m is Map && !pending.contains('mechanic:${m['id']}')) {
+    await patchMechanicAfter(db, m);
   }
 
   // The สต็อก log rows the server wrote for this bill. The offline write adds
