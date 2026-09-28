@@ -1537,6 +1537,101 @@ void main() {
     });
   });
 
+  group('#489: an online receipt number moves the local counter', () {
+    const deviceId = 'dev-pos-01';
+    late DocNumberService numbers;
+    late String period;
+    setUp(() async {
+      numbers = DocNumberService(db: db);
+      period = DocNumberService.formatPeriod(DateTime.now());
+      // Seeded at login: last RC 0100 for device no. 1.
+      await numbers.commitDocNo(
+        deviceId: deviceId,
+        deviceNo: 1,
+        docType: 'receipt',
+        period: period,
+        seq: 100,
+      );
+      await numbers.recordSeedMarker(deviceId: deviceId, period: period);
+    });
+
+    http.Response billNo(String receiptNo, {String id = 's-server'}) =>
+        http.Response(
+          _ok(
+            created(id: id)
+              ..['receiptNo'] = receiptNo
+              // One server movement row per bill id, or two bills collide on it.
+              ..['movements'] = [
+                {...(created()['movements'] as List).single as Map, 'id': 'mv-$id'},
+              ],
+          ),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+
+    Future<int> lastNo() =>
+        numbers.getLastNo(deviceId: deviceId, docType: 'receipt');
+
+    test('online sale then offline sale → offline is the server\'s last + 1', () async {
+      final repo = repoWith(
+        (req) async => billNo('RC01-$period-0105'),
+        docNumberService: numbers,
+      );
+
+      final online = await repo.saveSale(input());
+      expect(online.receiptNo, 'RC01-$period-0105');
+      expect(await lastNo(), 105);
+
+      repo.isOffline = true;
+      final offline = await repo.saveSale(input(total: 150));
+      expect(offline.receiptNo, 'RC01-$period-0106');
+    });
+
+    test('a replayed response advances the counter; an older number never lowers it', () async {
+      var calls = 0;
+      final repo = repoWith((req) async {
+        calls++;
+        // First press: the reply is lost (5xx, not a verdict) — then replayed.
+        if (calls == 1) return http.Response(_err('INTERNAL', 'x'), 502);
+        if (calls == 2) return billNo('RC01-$period-0105');
+        return billNo('RC01-$period-0103', id: 's-server-old');
+      }, docNumberService: numbers);
+
+      await expectLater(() => repo.saveSale(input()), throwsA(anything));
+      expect(await lastNo(), 100);
+      final replayed = await repo.saveSale(input());
+      expect(replayed.receiptNo, 'RC01-$period-0105');
+      expect(await lastNo(), 105);
+
+      await repo.saveSale(input(total: 150));
+      expect(await lastNo(), 105);
+    });
+
+    test('another device\'s series is never filed under this one', () async {
+      final repo = repoWith(
+        (req) async => billNo('RC02-$period-0500'),
+        docNumberService: numbers,
+      );
+      await repo.saveSale(input());
+      expect(await lastNo(), 100);
+    });
+
+    test('no number is committed when the patch transaction fails', () async {
+      await db.customStatement(
+        'CREATE TRIGGER boom BEFORE INSERT ON movements '
+        "BEGIN SELECT RAISE(ABORT, 'boom'); END",
+      );
+      final repo = repoWith(
+        (req) async => billNo('RC01-$period-0105'),
+        docNumberService: numbers,
+      );
+
+      await expectLater(() => repo.saveSale(input()), throwsA(anything));
+      expect(await db.select(db.sales).get(), isEmpty);
+      expect(await lastNo(), 100);
+    });
+  });
+
   test('reads still come from Drift', () async {
     final repo = repoWith((req) async => http.Response('unexpected', 500));
     expect(await repo.getSales(), isEmpty);

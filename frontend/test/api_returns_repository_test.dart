@@ -735,6 +735,45 @@ void main() {
       expect(sync.currentStatus, SyncStatus.degraded);
     });
 
+    test('#489: an online credit note then an offline one → server\'s last + 1', () async {
+      final repo = offlineRepo(
+        (_) async => http.Response(
+          _ok(creditNote()..['cnNo'] = 'CN03-$period-0009'),
+          201,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      await seedDevice();
+      await openShift();
+
+      final online = await repo.createReturn(oneBack);
+      expect(online.cnNo, 'CN03-$period-0009');
+      expect(await numbers.getLastNo(deviceId: 'dev-1', docType: 'cn'), 9);
+
+      sync.recordNonVerdictWrite();
+      final offline = await repo.createReturn(oneBack);
+      expect(offline.cnNo, 'CN03-$period-0010');
+    });
+
+    test('#489: no CN number is committed when the patch transaction fails', () async {
+      final repo = offlineRepo(
+        (_) async => http.Response(
+          _ok(creditNote()..['cnNo'] = 'CN03-$period-0009'),
+          201,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      await seedDevice();
+      await db.customStatement(
+        'CREATE TRIGGER boom BEFORE INSERT ON movements '
+        "BEGIN SELECT RAISE(ABORT, 'boom'); END",
+      );
+
+      await expectLater(() => repo.createReturn(oneBack), throwsA(anything));
+      expect(await db.select(db.returns).get(), isEmpty);
+      expect(await numbers.getLastNo(deviceId: 'dev-1', docType: 'cn'), 4);
+    });
+
     test('a full return offline voids the parent bill', () async {
       final repo = offlineRepo((_) async => fail('no online call'));
       await seedDevice();

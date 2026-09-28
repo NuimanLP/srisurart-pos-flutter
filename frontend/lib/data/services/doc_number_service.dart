@@ -361,28 +361,63 @@ class DocNumberService {
   /// than guessed: the server refuses a number whose `device_no` is not the
   /// caller's (`DOC_NUMBER_INVALID`), and the paper would already be printed.
   Future<String> issueOffline({required String docType, DateTime? now}) async {
+    final device = await _seededDevice();
+    if (device == null) throw const OfflineSeedRequiredException();
+    return issueAndCommit(
+      deviceId: device.deviceId,
+      deviceNo: device.deviceNo,
+      docType: docType,
+      now: now,
+      isOffline: true,
+    );
+  }
+
+  /// Records a number the SERVER issued for this device online (#489), so a
+  /// later [issueOffline] continues after it instead of reissuing it. Call it
+  /// inside the transaction that patches the server's response.
+  ///
+  /// The response carries no device id, so the number is filed under the same
+  /// device [issueOffline] numbers from (the most recently seeded one), and only
+  /// when its `device_no` is that device's series. No seed, no counter row, a
+  /// different series or an unparseable number → nothing is recorded: offline
+  /// issuing for that device is refused anyway, and failing the patch would
+  /// leave a committed bill unrecorded. `MAX()` high-water, never lowers.
+  Future<void> commitServerIssued(String docNo) async {
+    final ParsedDocNo parsed;
+    try {
+      parsed = parseDocNo(docNo);
+    } on FormatException {
+      return;
+    }
+    final device = await _seededDevice();
+    if (device == null || device.deviceNo != parsed.deviceNo) return;
+    await commitDocNo(
+      deviceId: device.deviceId,
+      deviceNo: parsed.deviceNo,
+      docType: parsed.docType,
+      period: parsed.period,
+      seq: parsed.seq,
+    );
+  }
+
+  /// The device this browser numbers RC/CN under: the one most recently seeded,
+  /// with the `device_no` a counter row of it carries. Null when either is
+  /// unknown. [issueOffline] and [commitServerIssued] MUST agree on it (#489).
+  Future<({String deviceId, int deviceNo})?> _seededDevice() async {
     final seed =
         await (db.select(db.docCounterSeeds)
               ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
               ..limit(1))
             .getSingleOrNull();
+    if (seed == null) return null;
     // Any row of the device will do: `device_no` is fixed per `devices.id`.
-    final counter = seed == null
-        ? null
-        : await (db.select(db.docCounters)
-                ..where((t) => t.deviceId.equals(seed.deviceId))
-                ..limit(1))
-              .getSingleOrNull();
-    if (seed == null || counter == null) {
-      throw const OfflineSeedRequiredException();
-    }
-    return issueAndCommit(
-      deviceId: seed.deviceId,
-      deviceNo: counter.deviceNo,
-      docType: docType,
-      now: now,
-      isOffline: true,
-    );
+    final counter =
+        await (db.select(db.docCounters)
+              ..where((t) => t.deviceId.equals(seed.deviceId))
+              ..limit(1))
+            .getSingleOrNull();
+    if (counter == null) return null;
+    return (deviceId: seed.deviceId, deviceNo: counter.deviceNo);
   }
 
   /// Returns the current lastNo recorded in [DocCounters] for `(deviceId, docType, period)`.
