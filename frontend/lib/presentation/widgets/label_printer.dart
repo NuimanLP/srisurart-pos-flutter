@@ -14,6 +14,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/settings_repository.dart';
 
@@ -79,10 +80,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
     setState(() => _taxRate = s.taxRate);
   }
 
-  String get _taxLabel =>
-      _taxRate == _taxRate.roundToDouble()
-          ? _taxRate.toInt().toString()
-          : _taxRate.toString();
+  String get _taxLabel => formatRate(_taxRate);
 
   List<ProductRow> get _printProducts =>
       widget.products.where((p) => _selected.contains(p.id)).toList();

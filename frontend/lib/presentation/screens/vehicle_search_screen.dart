@@ -562,8 +562,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     // #478: the old fixed `Color(0xFFFFCC88)` (pale orange) text on the
     // `Color(0x59E8601C)` orange-tinted background is unreadable on a light
     // theme card — it was tuned for a dark background only. Pick the match
-    // text color from the theme, like the rest of this screen's isDark
-    // branches, so it stays readable in both themes.
+    // text color from the theme brightness (the `isDark` pattern other
+    // screens in this app already use for the same purpose), so it stays
+    // readable in both themes.
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return RichText(
       text: TextSpan(

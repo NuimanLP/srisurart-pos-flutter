@@ -116,4 +116,21 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    '_RecentRow still renders the same sale without overflow at desktop width (#477)',
+    (tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await pumpReports(tester);
+
+      expect(find.text('เครดิตช่าง'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

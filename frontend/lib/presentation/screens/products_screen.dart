@@ -1782,9 +1782,7 @@ class _PriceCalcTabState extends State<_PriceCalcTab> {
 
   // #480: "ราคาขาย (รวม VAT 7%)" in _resultCard was hard-coded; other labels
   // in this tab already compute this from _taxRate (see `taxN` in build()).
-  String get _taxLabel => _taxRate == _taxRate.roundToDouble()
-      ? _taxRate.toInt().toString()
-      : _taxRate.toString();
+  String get _taxLabel => formatRate(_taxRate);
 
   _PriceCalcResult? _calc(String sell) {
     final c = double.tryParse(_cost.text) ?? 0;
