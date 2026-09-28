@@ -44,6 +44,43 @@ elif [[ -f "$REPO_ROOT/deploy/compose/vm.override.yml" ]]; then
   COMPOSE_ARGS+=(-f "$REPO_ROOT/deploy/compose/vm.override.yml")
 fi
 
+# vm.override.yml pins every image to ${IMAGE_TAG:?IMAGE_TAG is required}, but /opt/pos/.env never
+# carries IMAGE_TAG by design (ticket-336) -- only /opt/pos/.current_sha does. Without this, any
+# `docker compose ...` call below fails interpolation before it can even list services (same bug
+# as backup-db.sh).
+USES_VM_OVERRIDE=false
+for arg in "${COMPOSE_ARGS[@]}"; do
+  case "$arg" in
+    */vm.override.yml) USES_VM_OVERRIDE=true ;;
+  esac
+done
+
+if [[ -z "${IMAGE_TAG:-}" && -f "$APP_DIR/.current_sha" ]]; then
+  IMAGE_TAG="$(tr -d '[:space:]' < "$APP_DIR/.current_sha")"
+  if [[ -n "$IMAGE_TAG" ]]; then
+    export IMAGE_TAG
+    echo "IMAGE_TAG was unset; resolved from $APP_DIR/.current_sha: $IMAGE_TAG"
+  fi
+fi
+
+if $USES_VM_OVERRIDE && [[ -z "${IMAGE_TAG:-}" ]]; then
+  echo "::error::IMAGE_TAG is required by deploy/compose/vm.override.yml but is unset, and $APP_DIR/.current_sha is missing or empty. Set IMAGE_TAG (e.g. IMAGE_TAG=\$(cat $APP_DIR/.current_sha)) before running this script -- refusing to silently fall back to a local psql on a VM." >&2
+  exit 1
+fi
+
+# Returns 0 if a `postgres` compose service is present, 1 if compose resolved cleanly but has no
+# such service. Exits loudly (instead of letting callers fall through to a misleading "neither
+# container nor local psql found" message) if compose itself failed to resolve the configuration.
+compose_has_postgres() {
+  local services
+  if ! services="$(docker compose "${COMPOSE_ARGS[@]}" ps --services 2>&1)"; then
+    echo "::error::docker compose could not resolve the compose configuration (docker compose ${COMPOSE_ARGS[*]} ps --services):" >&2
+    echo "$services" >&2
+    exit 1
+  fi
+  grep -q postgres <<<"$services"
+}
+
 echo "=== Srisurart POS Database Restore ==="
 echo "  Backup Archive: $BACKUP_FILE"
 echo "  Target Database: $TARGET_DB"
@@ -68,7 +105,7 @@ fi
 exec_psql() {
   local db="${1:-postgres}"
   shift
-  if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null | grep -q postgres; then
+  if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && compose_has_postgres; then
     docker compose "${COMPOSE_ARGS[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d "$db" "$@"
   elif command -v psql >/dev/null 2>&1; then
     psql -U "$POSTGRES_USER" -d "$db" "$@"
@@ -81,7 +118,7 @@ exec_psql() {
 exec_psql_app() {
   local db="${1:-pos}"
   shift
-  if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null | grep -q postgres; then
+  if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && compose_has_postgres; then
     docker compose "${COMPOSE_ARGS[@]}" exec -T postgres psql -U pos_app -d "$db" "$@"
   elif command -v psql >/dev/null 2>&1; then
     psql -U pos_app -d "$db" "$@"
@@ -97,7 +134,7 @@ exec_psql postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WH
 
 # 3. Restore database from gzip stream
 echo "Restoring database stream..."
-if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null | grep -q postgres; then
+if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && compose_has_postgres; then
   gzip -dc "$BACKUP_FILE" | docker compose "${COMPOSE_ARGS[@]}" exec -T postgres psql -U "$POSTGRES_USER" -d postgres --quiet
 else
   gzip -dc "$BACKUP_FILE" | psql -U "$POSTGRES_USER" -d postgres --quiet

@@ -602,7 +602,16 @@ ssh mob04-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT
 ✅ ทุกตัว `=1` และ `-rw------- deploy:deploy` · 🛑 มี `=0` → แจ้ง owner (§2.5) — deploy จะล้มที่คำสั่ง compose แรกด้วย `<KEY> is required`
 
 **8. backup ฐานข้อมูลก่อน deploy** — migration ย้อนไม่ได้ · `backup-db.sh` เรียก `docker compose` พร้อม `vm.override.yml` ซึ่งบังคับ `IMAGE_TAG`
-จึงต้องส่ง `IMAGE_TAG` ของ release ที่รันอยู่ (ไม่ส่ง = compose ล้มเงียบ แล้วสคริปต์ไปจบที่ `Neither active docker compose postgres container nor local pg_dump command found.`):
+🔴 **แก้แล้ว (branch `fix/backup-scripts-image-tag`):** `backup-db.sh`/`restore-db.sh` เดี๋ยวนี้ resolve `IMAGE_TAG`
+จาก `/opt/pos/.current_sha` เองถ้า `IMAGE_TAG` ว่าง — **แต่ต้องรัน `provision.yml` ใหม่ก่อน** VM จะได้สคริปต์เวอร์ชันแก้แล้ว
+(`provision.yml` copy สคริปต์ลง `/opt/pos/scripts` ครั้งเดียวตอน provision, ไม่ auto-sync) จึงเรียกเฉย ๆ ได้:
+
+```bash
+ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
+```
+
+ถ้ายังไม่ได้รัน `provision.yml` ใหม่ (สคริปต์บน VM ยังเป็นเวอร์ชันเก่า) ใช้ workaround เดิมไปก่อน — ไม่ส่ง `IMAGE_TAG` = compose ล้มเงียบ
+แล้วสคริปต์เก่าไปจบที่ `Neither active docker compose postgres container nor local pg_dump command found.`:
 
 ```bash
 ssh mob04-deploy 'IMAGE_TAG=$(cat /opt/pos/.current_sha) /opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
