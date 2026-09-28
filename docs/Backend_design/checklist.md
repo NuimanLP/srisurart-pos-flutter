@@ -81,7 +81,7 @@
 | 12 | Secret ส่งตอน runtime ห้าม bake เข้า image | ✅ | `server/Dockerfile`<br>`server/docker-compose.yml:18-36` | ไม่มี secret ใน Dockerfile; ส่งผ่าน environment variables พร้อม `:?required` |
 | 13 | `.env` อยู่ใน `.gitignore` | ✅ | `.gitignore:61-63` (`/server/.env`, `/server/.env.*`, `!/server/.env.example`) | ป้องกัน secret หลุดเข้า git อย่างเด็ดขาด |
 | 14 | แยก secret dev/prod | ✅ | `server/.env.example` vs `deploy/ansible/provision.yml` | Dev ใช้ default ในตัวอย่าง; Prod สร้างรหัสผ่านสุ่มความปลอดภัยสูงบน VM `/opt/pos/.env` |
-| 15 | Prod secret จาก secrets manager | 🟡 | `deploy/ansible/provision.yml`<br>`deploy/scripts/pos-deploy.sh` | (แก้ 2026-09-23: ไม่มี Ansible Vault ในรีโป) `provision.yml:18, 148-154` อ่านเนื้อหา `.env` จากตัวแปร `DEMO_ENV_FILE` แล้วเขียน `/opt/pos/.env` สิทธิ์ 0600 (ไม่ใช่ secrets manager แต่ปลอดภัยตามขอบเขต VM) |
+| 15 | Prod secret จาก secrets manager | 🟡 | `deploy/ansible/provision.yml`<br>`deploy/scripts/pos-deploy.sh` | (แก้ 2026-09-23: ไม่มี Ansible Vault ในรีโป) `provision.yml:18, 151-158` อ่านเนื้อหา `.env` จากตัวแปร `DEMO_ENV_FILE` แล้วเขียน `/opt/pos/.env` สิทธิ์ 0600 (ไม่ใช่ secrets manager แต่ปลอดภัยตามขอบเขต VM) |
 | 16 | `--env-file` ใช้ได้เฉพาะ dev | ⚪ | `server/docker-compose.yml:19-36` | ไม่ได้ใช้ `--env-file` ในการรัน prod แต่ interpolate ผ่าน compose environment |
 | 17 | Validate env ตอน boot แล้ว crash ทันทีถ้าผิด | ✅ | `server/src/config/config.ts:37-41, 70-105` | มีฟังก์ชัน `required(env, name)` ตรวจสอบตัวแปรจำเป็น หากขาดจะโยน Error หยุดการทำงานทันที |
 | 18 | ตั้ง `--memory` `--cpus` `--pids-limit` ทุก container | 🟡 | `server/docker-compose.yml:43, 60, 114, 152, 160, 178, 201, 227, 273, 317` | ตั้ง `mem_limit` ครบทุกคอนเทนเนอร์ (รวม ~3.3 GB) แต่ยังไม่ได้ระบุ `pids-limit` และ `cpus` |
