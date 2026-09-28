@@ -39,6 +39,17 @@ const String kQuoteDefaultNotes =
 
 final DateFormat _thLongDate = DateFormat('d MMMM yyyy', 'th');
 
+final RegExp _thaiChar = RegExp('[฀-๿]');
+
+/// Letter-spacing for a label: [spacing] for Latin-only text, `null` when the
+/// text holds any Thai character (#479). The `pdf` package emits letterSpacing
+/// as the PDF `Tc` operator, applied after EVERY glyph — Thai tone marks and
+/// upper/lower vowels are zero-advance glyphs, so `Tc` pushes each one off its
+/// consonant.
+@visibleForTesting
+double? latinOnlySpacing(String text, double spacing) =>
+    _thaiChar.hasMatch(text) ? null : spacing;
+
 String _longThaiDate(DateTime d) {
   // Buddhist year (พ.ศ.) like toLocaleDateString('th-TH', {year:'numeric',...}).
   final be = d.year + 543;
@@ -63,7 +74,7 @@ class QuoteA4View extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PdfPreview(
-      build: (format) => _buildPdf(format),
+      build: (format) => buildPdf(format),
       canChangePageFormat: false,
       canChangeOrientation: false,
       canDebug: false,
@@ -71,7 +82,8 @@ class QuoteA4View extends StatelessWidget {
     );
   }
 
-  Future<Uint8List> _buildPdf(PdfPageFormat format) async {
+  @visibleForTesting
+  Future<Uint8List> buildPdf(PdfPageFormat format) async {
     final base = await PosPdfFonts.sarabunRegular();
     final bold = await PosPdfFonts.sarabunBold();
     final semi = await PosPdfFonts.sarabunSemiBold();
@@ -151,7 +163,7 @@ class QuoteA4View extends StatelessWidget {
                     font: cond,
                     fontSize: 12,
                     color: _orange,
-                    letterSpacing: 2.2,
+                    letterSpacing: latinOnlySpacing(s.shopNameEN, 2.2),
                   ),
                 ),
                 pw.SizedBox(height: 4),
@@ -290,7 +302,7 @@ class QuoteA4View extends StatelessWidget {
       font: cond,
       fontSize: 9,
       color: _steel,
-      letterSpacing: 1.6,
+      letterSpacing: latinOnlySpacing(t, 1.6),
     ),
   );
 
@@ -314,7 +326,7 @@ class QuoteA4View extends StatelessWidget {
               font: cond,
               fontSize: 9,
               color: _steel,
-              letterSpacing: 1.6,
+              letterSpacing: latinOnlySpacing(label, 1.6),
             ),
           ),
           pw.SizedBox(width: 10),
@@ -343,7 +355,7 @@ class QuoteA4View extends StatelessWidget {
               font: cond,
               fontSize: 9,
               color: _steel,
-              letterSpacing: 1.4,
+              letterSpacing: latinOnlySpacing(t, 1.4),
             ),
           ),
         );
@@ -539,7 +551,7 @@ class QuoteA4View extends StatelessWidget {
               font: cond,
               fontSize: 10,
               color: _navy,
-              letterSpacing: 1.6,
+              letterSpacing: latinOnlySpacing(label, 1.6),
             ),
           ),
           pw.SizedBox(height: 4),
