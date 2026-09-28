@@ -270,7 +270,10 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
    (แบบเดียวกับ `certgen`) · Nginx ยังเป็น `nginx:1.29-alpine` + `server/docker/nginx/nginx.conf` เดิม ·
    🔴 **รันหลัง API ทุกตัวเป็น release ใหม่แล้ว** (ในข้อ 6 ต่อจาก `worker`/`bull-board`, 2026-09-28) — web ใหม่
    คู่ API เก่าอาจเรียก endpoint/field ที่ยังไม่มี ส่วน web เก่าคู่ API ใหม่เป็นกรณีที่ server ต้องรับอยู่แล้ว
-   (outbox ของ build เก่าที่ offline) · ห้ามย้ายกลับไปก่อน `migrate`
+   (outbox ของ build เก่าที่ offline) · ห้ามย้ายกลับไปก่อน `migrate` · **ไม่ล้าง volume ก่อน copy**: ทุกไฟล์
+   เขียนเป็นชื่อชั่วคราวแล้ว rename ทับ, `index.html` ท้ายสุด, แล้วค่อยลบไฟล์ที่ไม่อยู่ใน release — ไม่มีช่วงที่
+   ไฟล์หาย/ครึ่งไฟล์ (ของเดิม `rm -rf` + `cp` วัดได้ 25 read เสียใน 10 รอบ sync, ของใหม่ 0) · ชื่อไฟล์ของ
+   Flutter ไม่มี hash จึงยังมีโอกาสที่ page load หนึ่งคร่อมการสลับแล้วได้ไฟล์สอง release ปนกัน
 5. `docker compose run --rm migrate` — **schema ก่อนโค้ด** ครั้งเดียว
 6. rolling: `up -d --no-deps api-1` → รอ healthy → `api-2` → `api-3` → `worker`, `bull-board` → `web-sync` (ข้อ 4) → validate
    `nginx.conf` ที่เพิ่ง copy (`run --rm --no-deps nginx nginx -t` ในคอนเทนเนอร์แยก ไม่แตะตัวที่รันอยู่) →
