@@ -15,6 +15,7 @@ import '../../core/utils/ids.dart';
 import '../db/database.dart';
 import '../services/doc_number_service.dart';
 import '../storage/token_storage.dart';
+import 'applied_effects.dart';
 import 'sale_push_patch.dart';
 import 'sync_facade.dart';
 
@@ -438,6 +439,7 @@ class SyncService implements SyncFacade {
               await (db.delete(db.outboxOps)
                     ..where((t) => t.opId.equals(opId)))
                   .go();
+              await AppliedEffects.forget(db, opId);
             });
           } else if (status == 'rejected') {
             final code = r['code'] as String?;
@@ -846,23 +848,98 @@ class SyncService implements SyncFacade {
       throw ArgumentError('ไม่พบรายการ opId: $opId ใน outbox');
     }
 
-    Map<String, dynamic> payload = {};
-    try {
-      final decoded = jsonDecode(op.payload);
-      if (decoded is Map<String, dynamic>) {
-        payload = decoded;
-      }
-    } catch (_) {}
-
+    final payload = _payloadOf(op);
     final clientId = payload['id'] as String?;
 
-    // #473: a bill that later local writes (a credit note, an offline void)
-    // already moved has no single effect left to undo — refused before the
-    // server records the discard. Policy for this case is open on #473.
+    // #473: a bill that later local writes (a credit note) already moved has
+    // no single effect left to undo — refused before the server records the
+    // discard (owner kept "refuse", 2026-09-28). #488: a bill voided offline
+    // whose void is still queued is the exception — both ops go together.
+    var voidOps = const <OutboxOpRow>[];
     if (op.type == 'sale.create' && clientId != null) {
-      await _refuseIfSaleHasLocalDependents(clientId);
+      voidOps = await _queuedVoidsOf(clientId);
+      await _refuseIfSaleHasLocalDependents(
+        clientId,
+        voidQueued: voidOps.isNotEmpty,
+      );
     }
 
+    final serverHasRow = await _postDiscard(op, payload, clientId, note);
+    // The void rides along with its bill; recorded on the server too.
+    if (!serverHasRow) {
+      for (final v in voidOps) {
+        await _postDiscard(v, _payloadOf(v), null, note);
+      }
+    }
+
+    await db.transaction(() async {
+      await (db.delete(db.outboxOps)..where((t) => t.opId.equals(opId))).go();
+
+      if (!serverHasRow && clientId != null) {
+        if (op.type == 'sale.create') {
+          // Again inside the tx: a credit note may have landed during the POST.
+          final voids = await _queuedVoidsOf(clientId);
+          await _refuseIfSaleHasLocalDependents(
+            clientId,
+            voidQueued: voids.isNotEmpty,
+          );
+          if (voids.isEmpty) {
+            await _undoOrLegacy(
+              opId,
+              () => _legacyReverseOfflineSale(clientId),
+            );
+          } else {
+            await _discardSaleWithVoids(opId, voids);
+          }
+          await (db.delete(db.sales)..where((t) => t.id.equals(clientId))).go();
+          await (db.delete(db.saleItems)
+                ..where((t) => t.saleId.equals(clientId)))
+              .go();
+        } else if (op.type == 'return.create') {
+          await _undoOrLegacy(
+            opId,
+            () => _legacyReverseOfflineReturn(clientId),
+          );
+          await (db.delete(db.returns)..where((t) => t.id.equals(clientId)))
+              .go();
+          await (db.delete(db.returnItems)
+                ..where((t) => t.returnId.equals(clientId)))
+              .go();
+        }
+      }
+
+      // #488: the void never reaches the server, so the bill stands again —
+      // stock off the shelf, ledger re-applied, `voided` cleared.
+      final voidedSaleId = payload['saleId'] as String?;
+      if (op.type == 'sale.void_offline' && voidedSaleId != null) {
+        await _undoOrLegacy(
+          opId,
+          () => _legacyReapplyVoidedSale(voidedSaleId),
+        );
+      }
+      await AppliedEffects.forget(db, opId);
+    });
+
+    await _refreshOutbox();
+
+    return DiscardResult(serverHasRow: serverHasRow);
+  }
+
+  Map<String, dynamic> _payloadOf(OutboxOpRow op) {
+    try {
+      final decoded = jsonDecode(op.payload);
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {}
+    return {};
+  }
+
+  /// `POST /sync/discards` for [op]; returns the server's `serverHasRow`.
+  Future<bool> _postDiscard(
+    OutboxOpRow op,
+    Map<String, dynamic> payload,
+    String? clientId,
+    String note,
+  ) async {
     final discardBody = <String, dynamic>{
       'opId': op.opId,
       'type': op.type,
@@ -876,59 +953,37 @@ class SyncService implements SyncFacade {
       discardBody['lastCode'] = op.lastCode;
     }
 
-    final headers = <String, String>{
-      'Idempotency-Key': newId('idem'),
-    };
-
     final res = await apiClient.post(
       '/api/v1/sync/discards',
       body: discardBody,
-      headers: headers,
+      headers: {'Idempotency-Key': newId('idem')},
     );
 
-    final bool serverHasRow;
     if (res is Map) {
       final data = res['data'];
       if (data is Map && data['serverHasRow'] != null) {
-        serverHasRow = data['serverHasRow'] as bool;
+        return data['serverHasRow'] as bool;
       } else if (res['serverHasRow'] != null) {
-        serverHasRow = res['serverHasRow'] as bool;
-      } else {
-        serverHasRow = false;
+        return res['serverHasRow'] as bool;
       }
-    } else {
-      serverHasRow = false;
     }
-
-    await db.transaction(() async {
-      await (db.delete(db.outboxOps)..where((t) => t.opId.equals(opId))).go();
-
-      if (!serverHasRow && clientId != null) {
-        if (op.type == 'sale.create') {
-          // Again inside the tx: a credit note may have landed during the POST.
-          await _refuseIfSaleHasLocalDependents(clientId);
-          await _reverseOfflineSale(clientId);
-          await (db.delete(db.sales)..where((t) => t.id.equals(clientId))).go();
-          await (db.delete(db.saleItems)
-                ..where((t) => t.saleId.equals(clientId)))
-              .go();
-        } else if (op.type == 'return.create') {
-          await _reverseOfflineReturn(clientId);
-          await (db.delete(db.returns)..where((t) => t.id.equals(clientId)))
-              .go();
-          await (db.delete(db.returnItems)
-                ..where((t) => t.returnId.equals(clientId)))
-              .go();
-        }
-      }
-    });
-
-    await _refreshOutbox();
-
-    return DiscardResult(serverHasRow: serverHasRow);
+    return false;
   }
 
-  Future<void> _refuseIfSaleHasLocalDependents(String saleId) async {
+  Future<List<OutboxOpRow>> _queuedVoidsOf(String saleId) async {
+    final ops = await (db.select(db.outboxOps)
+          ..where((t) => t.type.equals('sale.void_offline')))
+        .get();
+    return [
+      for (final o in ops)
+        if (_payloadOf(o)['saleId'] == saleId) o,
+    ];
+  }
+
+  Future<void> _refuseIfSaleHasLocalDependents(
+    String saleId, {
+    required bool voidQueued,
+  }) async {
     final sale = await (db.select(db.sales)..where((t) => t.id.equals(saleId)))
         .getSingleOrNull();
     final hasReturns = await (db.select(db.returns)
@@ -936,8 +991,7 @@ class SyncService implements SyncFacade {
               ..limit(1))
             .getSingleOrNull() !=
         null;
-    if ((sale?.voided ?? false) || hasReturns) {
-      // agent ร่าง — Thai copy awaiting owner ratification (#473).
+    if (((sale?.voided ?? false) && !voidQueued) || hasReturns) {
       throw const PosException(
         'DISCARD_HAS_LOCAL_DEPENDENTS',
         'บิลนี้มีการคืนสินค้าหรือยกเลิกในเครื่องแล้ว ไม่สามารถทิ้งได้',
@@ -945,10 +999,49 @@ class SyncService implements SyncFacade {
     }
   }
 
-  /// #473: undoes what `ApiSalesRepository._saveOffline` applied — stock back,
+  /// #488: reverses [opId] from its recorded deltas, exactly. An op queued
+  /// before schema v13 has no record and falls back to [legacy].
+  Future<void> _undoOrLegacy(
+    String opId,
+    Future<void> Function() legacy,
+  ) async {
+    final effects = await AppliedEffects.load(db, opId);
+    if (effects != null) {
+      await effects.undo(db);
+    } else {
+      await legacy();
+    }
+  }
+
+  /// #488: a bill and its queued offline void(s) go together. The void
+  /// already undid the bill, so with every record present undoing both nets
+  /// to the pre-sale ledger exactly (clamps included); with any record missing
+  /// (queued before v13) the ledger is left as the void left it.
+  Future<void> _discardSaleWithVoids(
+    String saleOpId,
+    List<OutboxOpRow> voids,
+  ) async {
+    final records = [
+      await AppliedEffects.load(db, saleOpId),
+      for (final v in voids) await AppliedEffects.load(db, v.opId),
+    ];
+    if (records.every((r) => r != null)) {
+      for (final r in records) {
+        await r!.undo(db);
+      }
+    }
+    for (final v in voids) {
+      await (db.delete(db.outboxOps)..where((t) => t.opId.equals(v.opId)))
+          .go();
+      await AppliedEffects.forget(db, v.opId);
+    }
+  }
+
+  /// LEGACY (ops queued before schema v13, no `op_effects` record): #473's
+  /// recompute of what `ApiSalesRepository._saveOffline` applied — stock back,
   /// customer spend/points and mechanic stats out, credit only for
-  /// 'เครดิตช่าง'. Runs inside [discard]'s transaction, before the row goes.
-  Future<void> _reverseOfflineSale(String saleId) async {
+  /// 'เครดิตช่าง'. Not exact when the forward write clamped (#488).
+  Future<void> _legacyReverseOfflineSale(String saleId) async {
     final sale = await (db.select(db.sales)..where((t) => t.id.equals(saleId)))
         .getSingleOrNull();
     if (sale == null) return;
@@ -1004,11 +1097,12 @@ class SyncService implements SyncFacade {
     }
   }
 
-  /// #473: undoes what `ApiReturnsRepository._createOffline` applied, from the
-  /// same proportions `planReturn` used — stock off the shelf again, customer
-  /// and mechanic reversal added back, credit only for 'หักจากเครดิต', and the
-  /// parent bill un-voided.
-  Future<void> _reverseOfflineReturn(String returnId) async {
+  /// LEGACY (no `op_effects` record): #473's recompute of what
+  /// `ApiReturnsRepository._createOffline` applied, from the same proportions
+  /// `planReturn` used — stock off the shelf again, customer and mechanic
+  /// reversal added back, credit only for 'หักจากเครดิต', and the parent bill
+  /// un-voided. Not exact when the forward write clamped (#488).
+  Future<void> _legacyReverseOfflineReturn(String returnId) async {
     final ret = await (db.select(db.returns)
           ..where((t) => t.id.equals(returnId)))
         .getSingleOrNull();
@@ -1089,6 +1183,68 @@ class SyncService implements SyncFacade {
         const SalesCompanion(voided: Value(false), voidedAt: Value(null)),
       );
     }
+  }
+
+  /// LEGACY (no `op_effects` record): re-applies what
+  /// `ApiSalesRepository.voidSaleOffline` reversed, recomputed from the bill
+  /// the way `_saveOffline` first applied it, and clears the void.
+  Future<void> _legacyReapplyVoidedSale(String saleId) async {
+    final sale = await (db.select(db.sales)..where((t) => t.id.equals(saleId)))
+        .getSingleOrNull();
+    if (sale == null) return;
+    final items = await (db.select(db.saleItems)
+          ..where((t) => t.saleId.equals(saleId)))
+        .get();
+    for (final item in items) {
+      final p = await (db.select(db.products)
+            ..where((t) => t.id.equals(item.productId)))
+          .getSingleOrNull();
+      if (p != null) {
+        await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
+          ProductsCompanion(stock: Value(p.stock - item.qty)),
+        );
+      }
+    }
+    if (sale.customerId != null) {
+      final c = await (db.select(db.customers)
+            ..where((t) => t.id.equals(sale.customerId!)))
+          .getSingleOrNull();
+      if (c != null) {
+        await (db.update(db.customers)..where((t) => t.id.equals(c.id))).write(
+          CustomersCompanion(
+            totalSpend: Value(c.totalSpend + sale.total),
+            points: Value(c.points + sale.pointsGranted),
+          ),
+        );
+      }
+    }
+    if (sale.mechanicId != null) {
+      final m = await (db.select(db.mechanics)
+            ..where((t) => t.id.equals(sale.mechanicId!)))
+          .getSingleOrNull();
+      if (m != null) {
+        final delta = sale.mechanicDelta ?? 0;
+        final isCredit = sale.paymentMethod == 'เครดิตช่าง';
+        await (db.update(db.mechanics)..where((t) => t.id.equals(m.id))).write(
+          MechanicsCompanion(
+            totalSales: Value(m.totalSales + sale.total),
+            totalDiscount: Value(m.totalDiscount + (delta < 0 ? -delta : 0)),
+            totalMarkup: Value(m.totalMarkup + (delta > 0 ? delta : 0)),
+            creditBalance: Value(
+              m.creditBalance + (isCredit ? sale.total : 0),
+            ),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
+      }
+    }
+    await (db.update(db.sales)..where((t) => t.id.equals(saleId))).write(
+      const SalesCompanion(
+        voided: Value(false),
+        voidedAt: Value(null),
+        voidReason: Value(null),
+      ),
+    );
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

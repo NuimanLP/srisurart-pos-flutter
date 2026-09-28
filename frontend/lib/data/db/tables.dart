@@ -471,3 +471,17 @@ class SyncCursors extends Table {
   Set<Column> get primaryKey => {entity};
 }
 
+/// Schema v13 (#488): the ledger deltas an offline `sale.create`,
+/// `return.create` or `sale.void_offline` actually applied (after any clamp),
+/// written in the same tx as its op. Discard reverses from this, exactly. Kept
+/// out of the op payload, which is idempotency-fingerprinted. JSON shape:
+/// `AppliedEffects` (`data/sync/applied_effects.dart`).
+@DataClassName('OpEffectRow')
+class OpEffects extends Table {
+  TextColumn get opId => text()();
+  TextColumn get effects => text()();
+
+  @override
+  Set<Column> get primaryKey => {opId};
+}
+

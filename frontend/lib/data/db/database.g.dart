@@ -13191,6 +13191,216 @@ class SyncCursorsCompanion extends UpdateCompanion<SyncCursorRow> {
   }
 }
 
+class $OpEffectsTable extends OpEffects
+    with TableInfo<$OpEffectsTable, OpEffectRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $OpEffectsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _opIdMeta = const VerificationMeta('opId');
+  @override
+  late final GeneratedColumn<String> opId = GeneratedColumn<String>(
+    'op_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _effectsMeta = const VerificationMeta(
+    'effects',
+  );
+  @override
+  late final GeneratedColumn<String> effects = GeneratedColumn<String>(
+    'effects',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [opId, effects];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'op_effects';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<OpEffectRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('op_id')) {
+      context.handle(
+        _opIdMeta,
+        opId.isAcceptableOrUnknown(data['op_id']!, _opIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_opIdMeta);
+    }
+    if (data.containsKey('effects')) {
+      context.handle(
+        _effectsMeta,
+        effects.isAcceptableOrUnknown(data['effects']!, _effectsMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_effectsMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {opId};
+  @override
+  OpEffectRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return OpEffectRow(
+      opId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}op_id'],
+      )!,
+      effects: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}effects'],
+      )!,
+    );
+  }
+
+  @override
+  $OpEffectsTable createAlias(String alias) {
+    return $OpEffectsTable(attachedDatabase, alias);
+  }
+}
+
+class OpEffectRow extends DataClass implements Insertable<OpEffectRow> {
+  final String opId;
+  final String effects;
+  const OpEffectRow({required this.opId, required this.effects});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['op_id'] = Variable<String>(opId);
+    map['effects'] = Variable<String>(effects);
+    return map;
+  }
+
+  OpEffectsCompanion toCompanion(bool nullToAbsent) {
+    return OpEffectsCompanion(opId: Value(opId), effects: Value(effects));
+  }
+
+  factory OpEffectRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return OpEffectRow(
+      opId: serializer.fromJson<String>(json['opId']),
+      effects: serializer.fromJson<String>(json['effects']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'opId': serializer.toJson<String>(opId),
+      'effects': serializer.toJson<String>(effects),
+    };
+  }
+
+  OpEffectRow copyWith({String? opId, String? effects}) =>
+      OpEffectRow(opId: opId ?? this.opId, effects: effects ?? this.effects);
+  OpEffectRow copyWithCompanion(OpEffectsCompanion data) {
+    return OpEffectRow(
+      opId: data.opId.present ? data.opId.value : this.opId,
+      effects: data.effects.present ? data.effects.value : this.effects,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OpEffectRow(')
+          ..write('opId: $opId, ')
+          ..write('effects: $effects')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(opId, effects);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is OpEffectRow &&
+          other.opId == this.opId &&
+          other.effects == this.effects);
+}
+
+class OpEffectsCompanion extends UpdateCompanion<OpEffectRow> {
+  final Value<String> opId;
+  final Value<String> effects;
+  final Value<int> rowid;
+  const OpEffectsCompanion({
+    this.opId = const Value.absent(),
+    this.effects = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  OpEffectsCompanion.insert({
+    required String opId,
+    required String effects,
+    this.rowid = const Value.absent(),
+  }) : opId = Value(opId),
+       effects = Value(effects);
+  static Insertable<OpEffectRow> custom({
+    Expression<String>? opId,
+    Expression<String>? effects,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (opId != null) 'op_id': opId,
+      if (effects != null) 'effects': effects,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  OpEffectsCompanion copyWith({
+    Value<String>? opId,
+    Value<String>? effects,
+    Value<int>? rowid,
+  }) {
+    return OpEffectsCompanion(
+      opId: opId ?? this.opId,
+      effects: effects ?? this.effects,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (opId.present) {
+      map['op_id'] = Variable<String>(opId.value);
+    }
+    if (effects.present) {
+      map['effects'] = Variable<String>(effects.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OpEffectsCompanion(')
+          ..write('opId: $opId, ')
+          ..write('effects: $effects, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -13222,6 +13432,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $AppMetaTable appMeta = $AppMetaTable(this);
   late final $OutboxOpsTable outboxOps = $OutboxOpsTable(this);
   late final $SyncCursorsTable syncCursors = $SyncCursorsTable(this);
+  late final $OpEffectsTable opEffects = $OpEffectsTable(this);
   late final Index idxProductsPartNoLower = Index(
     'idx_products_part_no_lower',
     'CREATE INDEX idx_products_part_no_lower ON products (lower(part_no))',
@@ -13292,6 +13503,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     appMeta,
     outboxOps,
     syncCursors,
+    opEffects,
     idxProductsPartNoLower,
     idxProductsPartNo,
     idxSalesDate,
@@ -21059,6 +21271,149 @@ typedef $$SyncCursorsTableProcessedTableManager =
       SyncCursorRow,
       PrefetchHooks Function()
     >;
+typedef $$OpEffectsTableCreateCompanionBuilder =
+    OpEffectsCompanion Function({
+      required String opId,
+      required String effects,
+      Value<int> rowid,
+    });
+typedef $$OpEffectsTableUpdateCompanionBuilder =
+    OpEffectsCompanion Function({
+      Value<String> opId,
+      Value<String> effects,
+      Value<int> rowid,
+    });
+
+class $$OpEffectsTableFilterComposer
+    extends Composer<_$AppDatabase, $OpEffectsTable> {
+  $$OpEffectsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get opId => $composableBuilder(
+    column: $table.opId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get effects => $composableBuilder(
+    column: $table.effects,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$OpEffectsTableOrderingComposer
+    extends Composer<_$AppDatabase, $OpEffectsTable> {
+  $$OpEffectsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get opId => $composableBuilder(
+    column: $table.opId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get effects => $composableBuilder(
+    column: $table.effects,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$OpEffectsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $OpEffectsTable> {
+  $$OpEffectsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get opId =>
+      $composableBuilder(column: $table.opId, builder: (column) => column);
+
+  GeneratedColumn<String> get effects =>
+      $composableBuilder(column: $table.effects, builder: (column) => column);
+}
+
+class $$OpEffectsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $OpEffectsTable,
+          OpEffectRow,
+          $$OpEffectsTableFilterComposer,
+          $$OpEffectsTableOrderingComposer,
+          $$OpEffectsTableAnnotationComposer,
+          $$OpEffectsTableCreateCompanionBuilder,
+          $$OpEffectsTableUpdateCompanionBuilder,
+          (
+            OpEffectRow,
+            BaseReferences<_$AppDatabase, $OpEffectsTable, OpEffectRow>,
+          ),
+          OpEffectRow,
+          PrefetchHooks Function()
+        > {
+  $$OpEffectsTableTableManager(_$AppDatabase db, $OpEffectsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$OpEffectsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$OpEffectsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$OpEffectsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> opId = const Value.absent(),
+                Value<String> effects = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OpEffectsCompanion(
+                opId: opId,
+                effects: effects,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String opId,
+                required String effects,
+                Value<int> rowid = const Value.absent(),
+              }) => OpEffectsCompanion.insert(
+                opId: opId,
+                effects: effects,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$OpEffectsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $OpEffectsTable,
+      OpEffectRow,
+      $$OpEffectsTableFilterComposer,
+      $$OpEffectsTableOrderingComposer,
+      $$OpEffectsTableAnnotationComposer,
+      $$OpEffectsTableCreateCompanionBuilder,
+      $$OpEffectsTableUpdateCompanionBuilder,
+      (
+        OpEffectRow,
+        BaseReferences<_$AppDatabase, $OpEffectsTable, OpEffectRow>,
+      ),
+      OpEffectRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -21113,4 +21468,6 @@ class $AppDatabaseManager {
       $$OutboxOpsTableTableManager(_db, _db.outboxOps);
   $$SyncCursorsTableTableManager get syncCursors =>
       $$SyncCursorsTableTableManager(_db, _db.syncCursors);
+  $$OpEffectsTableTableManager get opEffects =>
+      $$OpEffectsTableTableManager(_db, _db.opEffects);
 }

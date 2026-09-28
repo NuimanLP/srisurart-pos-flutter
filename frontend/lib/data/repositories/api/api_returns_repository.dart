@@ -49,6 +49,7 @@ import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
 import '../../services/doc_number_service.dart';
 import '../../storage/token_storage.dart' show TokenStoreUnavailableException;
+import '../../sync/applied_effects.dart';
 import '../../sync/sync_facade.dart';
 import '../../sync/sync_service.dart';
 import '../return_plan.dart';
@@ -300,6 +301,10 @@ class ApiReturnsRepository implements ReturnsRepository {
             );
       }
 
+      // #488: what this note actually applies, for an exact discard.
+      final opId = newId('op');
+      final effects = AppliedEffects();
+
       // Stock back on the shelf. Not `.stamped` — same reason as the offline
       // sale: `updatedAt` is the pull cursor, and a local clock pushes it past
       // server changes it has not seen yet.
@@ -310,10 +315,14 @@ class ApiReturnsRepository implements ReturnsRepository {
         if (p != null) {
           await (db.update(db.products)..where((t) => t.id.equals(p.id)))
               .write(ProductsCompanion(stock: Value(p.stock + i.qty)));
+          effects.addStock(p.id, i.qty);
         }
       }
 
       final c = plan.customerAfter;
+      if (c != null && customer != null) {
+        effects.customer(customer.id, customer, c.totalSpend, c.points);
+      }
       if (c != null) {
         await (db.update(
           db.customers,
@@ -325,6 +334,16 @@ class ApiReturnsRepository implements ReturnsRepository {
         );
       }
       final m = plan.mechanicAfter;
+      if (m != null && mechanic != null) {
+        effects.mechanic(
+          mechanic.id,
+          mechanic,
+          sales: m.totalSales,
+          discount: m.totalDiscount,
+          markup: m.totalMarkup,
+          credit: m.creditBalance,
+        );
+      }
       if (m != null) {
         await (db.update(
           db.mechanics,
@@ -342,13 +361,15 @@ class ApiReturnsRepository implements ReturnsRepository {
         await (db.update(db.sales)..where((t) => t.id.equals(sale.id))).write(
           SalesCompanion(voided: const Value(true), voidedAt: Value(now)),
         );
+        effects.voidedSaleId = sale.id;
       }
+      await effects.record(db, opId);
 
       await db
           .into(db.outboxOps)
           .insert(
             OutboxOpsCompanion.insert(
-              opId: newId('op'),
+              opId: opId,
               idempotencyKey: attempt.headers['Idempotency-Key']!,
               type: 'return.create',
               // = the online body + the device's CN number and clock (08 §6.4).

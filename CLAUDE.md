@@ -103,8 +103,8 @@ frontend/
       utils/                   ← newId/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
     data/
-      db/tables.dart           ← 25 Drift tables, schemaVersion 12 (20 ported sa_* stores + #24's
-                                 credit-payment outbox + phase-2 tables incl. OutboxOps) — recounted 2026-09-23
+      db/tables.dart           ← 26 Drift tables, schemaVersion 13 (20 ported sa_* stores + #24's
+                                 credit-payment outbox + phase-2 tables incl. OutboxOps, OpEffects) — recounted 2026-09-28
       db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
       db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
       repositories/            ← one repo per domain; transactional services mirror db.js
@@ -269,7 +269,9 @@ develops against a demo tenant.
   `K6_REMOTE_WRITE_BASIC_AUTH_*`, which #251 added to compose with `:?` afterwards, so
   every Compose subcommand died before pulling anything). **No AC of #343 is ticked.**
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
-  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v12 (v12 = #417 indexes).
+  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v13 (v12 = #417 indexes; v13 = #488
+  `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
+  exactly — ops queued before v13 have no row and take the legacy recompute path).
 - ~~Two real bugs in migration `1788652803002-OwnerReviewItems.ts`~~ — **fixed 2026-09-25**
   by the new migration `1788652804200-OwnerReviewItemsFixes.ts`, proven in
   `server/test/schema.e2e-spec.ts` (found 2026-09-23, `01_DATABASE.md §11`): (1) its RLS
