@@ -1048,7 +1048,7 @@ class SyncService implements SyncFacade {
             ..where((t) => t.id.equals(entry.key)))
           .getSingleOrNull();
       if (p != null && p.stock - entry.value < 0) {
-        // agent ร่าง — Thai copy awaiting owner ratification (#488).
+        // Thai copy ratified by the owner 2026-09-28 (#488).
         throw const PosException(
           'DISCARD_STOCK_ALREADY_SOLD',
           'สินค้าที่คืนถูกขายออกไปแล้ว ไม่สามารถทิ้งรายการนี้ได้ กรุณาปรับสต็อกก่อน',
