@@ -1607,6 +1607,73 @@ void main() {
       expect(await lastNo(), 105);
     });
 
+    test('lost POST → offline bill → push replay with the server\'s number → counter reaches it', () async {
+      // The online attempt committed server-side as S; the reply was lost, so
+      // the till fell back offline under L. The push replays by key → S.
+      final now = DateTime.now();
+      final serverPeriod =
+          DocNumberService.formatPeriod(DateTime(now.year, now.month + 1, 1));
+      final serverNo = 'RC01-$serverPeriod-0001';
+      final tokenStorage = _MemoryTokenStorage();
+      final pushClient = MockClient((req) async {
+        expect(req.url.path, '/api/v1/sync/push');
+        final op = ((jsonDecode(req.body) as Map)['ops'] as List).single as Map;
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'results': [
+                {
+                  'opId': op['opId'],
+                  'status': 'applied',
+                  'response': {
+                    'id': (op['payload'] as Map)['id'],
+                    'receiptNo': serverNo,
+                  },
+                },
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final sync = SyncService(
+        db: db,
+        apiClient: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: pushClient,
+          tokenStorage: tokenStorage,
+        ),
+        tokenStorage: tokenStorage,
+        httpClient: pushClient,
+        autoStartHealthProbe: false,
+        docNumberService: numbers,
+      );
+      addTearDown(sync.dispose);
+      final repo = repoWith(
+        (req) async => throw const SocketException('reply lost'),
+        syncService: sync,
+        docNumberService: numbers,
+      );
+
+      final offline = await repo.saveSale(input());
+      expect(offline.receiptNo, 'RC01-$period-0101');
+
+      await sync.push();
+
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+      expect((await db.select(db.sales).getSingle()).receiptNo, serverNo);
+      expect(
+        await numbers.getLastNo(
+          deviceId: deviceId,
+          docType: 'receipt',
+          period: serverPeriod,
+        ),
+        1,
+      );
+    });
+
     test('another device\'s series is never filed under this one', () async {
       final repo = repoWith(
         (req) async => billNo('RC02-$period-0500'),

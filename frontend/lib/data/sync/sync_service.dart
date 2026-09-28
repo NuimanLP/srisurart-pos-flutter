@@ -13,6 +13,7 @@ import '../../core/network/api_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
+import '../services/doc_number_service.dart';
 import '../storage/token_storage.dart';
 import 'sale_push_patch.dart';
 import 'sync_facade.dart';
@@ -23,6 +24,7 @@ class SyncService implements SyncFacade {
     required this.apiClient,
     required this.tokenStorage,
     this.onPull,
+    this.docNumberService,
     http.Client? httpClient,
     this.healthInterval = const Duration(seconds: 5),
     this.healthTimeout = const Duration(seconds: 5),
@@ -38,6 +40,10 @@ class SyncService implements SyncFacade {
   final ApiClient apiClient;
   final TokenStorage tokenStorage;
   final Future<void> Function()? onPull;
+
+  /// Files the server's RC/CN number from an applied push into the local
+  /// counter (#489). Null → not recorded (tests that don't number anything).
+  final DocNumberService? docNumberService;
   final http.Client _httpClient;
   final Duration healthInterval;
   final Duration healthTimeout;
@@ -550,6 +556,9 @@ class SyncService implements SyncFacade {
     if (op.type == 'sale.create') {
       final serverNo = response['receiptNo'];
       if (serverNo is! String || serverNo.isEmpty) return;
+      // #489: a replay may answer with the number an online attempt already
+      // got (not the offline one) — the counter must reach it too.
+      await docNumberService?.commitServerIssued(serverNo);
       await (db.update(db.sales)
             ..where((t) =>
                 t.id.equals(clientId!) & t.receiptNo.equals(serverNo).not()))
@@ -563,6 +572,7 @@ class SyncService implements SyncFacade {
     } else if (op.type == 'return.create') {
       final serverNo = response['cnNo'];
       if (serverNo is! String || serverNo.isEmpty) return;
+      await docNumberService?.commitServerIssued(serverNo);
       await (db.update(db.returns)
             ..where((t) =>
                 t.id.equals(clientId!) & t.cnNo.equals(serverNo).not()))

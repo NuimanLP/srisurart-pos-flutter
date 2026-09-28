@@ -101,6 +101,7 @@ List<RepositoryProvider> repositoryProviders(
     await Future.wait(futures);
   }
 
+  final docNumberService = DocNumberService(db: db);
   final realSyncService = syncFacade is SyncService
       ? syncFacade
       : (syncFacade == null
@@ -109,9 +110,9 @@ List<RepositoryProvider> repositoryProviders(
               apiClient: client,
               tokenStorage: storage,
               onPull: triggerEntityPull,
+              docNumberService: docNumberService,
             )
           : null);
-  final docNumberService = DocNumberService(db: db);
 
   // The three write paths of #56. Each API implementation keeps a Drift
   // instance of the same repository to delegate its READS to — those belong to
