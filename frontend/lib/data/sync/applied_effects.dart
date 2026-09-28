@@ -6,11 +6,17 @@
 // arithmetic asked for. Discarding the op subtracts exactly these deltas; no
 // clamp on the way back (a credit note of ฿180 against a ฿50 balance moved it
 // by −50, and discard gives back 50, never 180).
+//
+// Known limit: exact per op, not across interleaved clamps. Spend 100, note
+// R1 −150 applies −100, note R2 −50 applies 0; discarding R1 gives back 100
+// although R2 alone would have left 50. Money results are round2'd so float
+// residue never flips a `!= 0` test (the db.js `totalDiscount || totalCredit`).
 
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../core/utils/money.dart';
 import '../db/database.dart';
 
 class AppliedEffects {
@@ -136,7 +142,7 @@ class AppliedEffects {
       if (c != null) {
         await (db.update(db.customers)..where((t) => t.id.equals(c.id))).write(
           CustomersCompanion(
-            totalSpend: Value(c.totalSpend - spend),
+            totalSpend: Value(round2(c.totalSpend - spend)),
             points: Value(c.points - points),
           ),
         );
@@ -149,10 +155,10 @@ class AppliedEffects {
       if (m != null) {
         await (db.update(db.mechanics)..where((t) => t.id.equals(m.id))).write(
           MechanicsCompanion(
-            totalSales: Value(m.totalSales - mSales),
-            totalDiscount: Value(m.totalDiscount - mDiscount),
-            totalMarkup: Value(m.totalMarkup - mMarkup),
-            creditBalance: Value(m.creditBalance - mCredit),
+            totalSales: Value(round2(m.totalSales - mSales)),
+            totalDiscount: Value(round2(m.totalDiscount - mDiscount)),
+            totalMarkup: Value(round2(m.totalMarkup - mMarkup)),
+            creditBalance: Value(round2(m.creditBalance - mCredit)),
             updatedAt: Value(DateTime.now()),
           ),
         );

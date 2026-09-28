@@ -13,6 +13,7 @@ import '../../core/network/api_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
+import '../repositories/return_plan.dart' show refundedQtyOf;
 import '../services/doc_number_service.dart';
 import '../storage/token_storage.dart';
 import 'applied_effects.dart';
@@ -863,6 +864,10 @@ class SyncService implements SyncFacade {
         voidQueued: voidOps.isNotEmpty,
       );
     }
+    // #488 (owner 2026-09-28): an undo that takes stock off the shelf is
+    // refused when those units were sold again meanwhile — never negative,
+    // never silently clamped. Checked again inside the tx.
+    await _refuseIfStockAlreadySold(op, payload);
 
     final serverHasRow = await _postDiscard(op, payload, clientId, note);
     // The void rides along with its bill; recorded on the server too.
@@ -896,6 +901,10 @@ class SyncService implements SyncFacade {
                 ..where((t) => t.saleId.equals(clientId)))
               .go();
         } else if (op.type == 'return.create') {
+          await _refuseIfStockAlreadySold(op, payload);
+          final ret = await (db.select(db.returns)
+                ..where((t) => t.id.equals(clientId)))
+              .getSingleOrNull();
           await _undoOrLegacy(
             opId,
             () => _legacyReverseOfflineReturn(clientId),
@@ -905,15 +914,19 @@ class SyncService implements SyncFacade {
           await (db.delete(db.returnItems)
                 ..where((t) => t.returnId.equals(clientId)))
               .go();
+          if (ret != null) await _unvoidIfNoLongerFullyReturned(ret.saleId);
         }
       }
 
-      // #488: the void never reaches the server, so the bill stands again —
-      // stock off the shelf, ledger re-applied, `voided` cleared. Not gated on
-      // serverHasRow: a void payload carries `saleId`, not `id`, so the server
-      // has no row of its own to report (it would only ever mean the bill).
+      // #488: the void never reached the server (serverHasRow = the server's
+      // bill is not voided), so the bill stands again — stock off the shelf,
+      // ledger re-applied, `voided` cleared. When the server already voided
+      // it, the till's void is the truth: only the op and its record go.
       final voidedSaleId = payload['saleId'] as String?;
-      if (op.type == 'sale.void_offline' && voidedSaleId != null) {
+      if (op.type == 'sale.void_offline' &&
+          voidedSaleId != null &&
+          !serverHasRow) {
+        await _refuseIfStockAlreadySold(op, payload);
         await _undoOrLegacy(
           opId,
           () => _legacyReapplyVoidedSale(voidedSaleId),
@@ -997,6 +1010,72 @@ class SyncService implements SyncFacade {
       throw const PosException(
         'DISCARD_HAS_LOCAL_DEPENDENTS',
         'บิลนี้มีการคืนสินค้าหรือยกเลิกในเครื่องแล้ว ไม่สามารถทิ้งได้',
+      );
+    }
+  }
+
+  /// #488: refuses the discard of a `return.create` / `sale.void_offline`
+  /// whose undo would take off the shelf units that were sold again — from
+  /// the recorded deltas, or (legacy) the note's / bill's lines.
+  Future<void> _refuseIfStockAlreadySold(
+    OutboxOpRow op,
+    Map<String, dynamic> payload,
+  ) async {
+    final take = <String, int>{};
+    final effects = await AppliedEffects.load(db, op.opId);
+    if (effects != null) {
+      effects.stock.forEach((id, d) {
+        if (d > 0) take[id] = d;
+      });
+    } else if (op.type == 'return.create' && payload['id'] is String) {
+      final items = await (db.select(db.returnItems)
+            ..where((t) => t.returnId.equals(payload['id'] as String)))
+          .get();
+      for (final i in items) {
+        take[i.productId] = (take[i.productId] ?? 0) + i.qty;
+      }
+    } else if (op.type == 'sale.void_offline' && payload['saleId'] is String) {
+      final items = await (db.select(db.saleItems)
+            ..where((t) => t.saleId.equals(payload['saleId'] as String)))
+          .get();
+      for (final i in items) {
+        take[i.productId] = (take[i.productId] ?? 0) + i.qty;
+      }
+    }
+    if (op.type != 'return.create' && op.type != 'sale.void_offline') return;
+    for (final entry in take.entries) {
+      final p = await (db.select(db.products)
+            ..where((t) => t.id.equals(entry.key)))
+          .getSingleOrNull();
+      if (p != null && p.stock - entry.value < 0) {
+        // agent ร่าง — Thai copy awaiting owner ratification (#488).
+        throw const PosException(
+          'DISCARD_STOCK_ALREADY_SOLD',
+          'สินค้าที่คืนถูกขายออกไปแล้ว ไม่สามารถทิ้งรายการนี้ได้ กรุณาปรับสต็อกก่อน',
+        );
+      }
+    }
+  }
+
+  /// #488: after a credit note goes, the bill is voided only if its remaining
+  /// notes still bring back every unit — re-derived from the notes left, not
+  /// from which note happened to auto-void it.
+  Future<void> _unvoidIfNoLongerFullyReturned(String saleId) async {
+    final sale = await (db.select(db.sales)..where((t) => t.id.equals(saleId)))
+        .getSingleOrNull();
+    if (sale == null || !sale.voided) return;
+    final sold = (await (db.select(db.saleItems)
+              ..where((t) => t.saleId.equals(saleId)))
+            .get())
+        .fold<int>(0, (s, i) => s + i.qty);
+    final refunded = (await refundedQtyOf(db, saleId))
+        .values
+        .fold<int>(0, (s, q) => s + q);
+    // A bill with a credit note is voided only by a full return's auto-void
+    // (every void path refuses SALE_HAS_RETURNS), so short of full = not void.
+    if (refunded < sold) {
+      await (db.update(db.sales)..where((t) => t.id.equals(saleId))).write(
+        const SalesCompanion(voided: Value(false), voidedAt: Value(null)),
       );
     }
   }
@@ -1118,7 +1197,7 @@ class SyncService implements SyncFacade {
           .getSingleOrNull();
       if (p != null) {
         await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
-          ProductsCompanion(stock: Value(max(0, p.stock - item.qty))),
+          ProductsCompanion(stock: Value(p.stock - item.qty)),
         );
       }
     }
