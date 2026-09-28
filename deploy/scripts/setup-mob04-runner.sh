@@ -7,14 +7,14 @@
 #
 # Examples:
 #   sudo ./setup-mob04-runner.sh AABBCCDDEEFFGG123456789
-#   sudo ./setup-mob04-runner.sh AABBCCDDEEFFGG123456789 2.322.0
+#   sudo ./setup-mob04-runner.sh AABBCCDDEEFFGG123456789 2.337.0
 #
 set -euo pipefail
 
 readonly REPO_URL="https://github.com/NuimanLP/srisurart-pos-flutter"
 readonly RUNNER_NAME="mob04-demo"
 readonly RUNNER_LABELS="srisurart-demo-deploy"
-readonly DEFAULT_RUNNER_VER="2.322.0"
+readonly DEFAULT_RUNNER_VER="2.337.0"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Error: this script must be run as root (or with sudo)." >&2
