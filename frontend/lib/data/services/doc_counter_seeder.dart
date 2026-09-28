@@ -51,6 +51,24 @@ class DocCounterSeeder {
             updates: {db.docCounters},
           );
         }
+        // #475: a device that has issued nothing yet gets no counter rows back,
+        // and `device_no` is only kept on a counter row — without one it could
+        // not number an offline RC/CN. So a device with no row at all gets one
+        // `last_no = 0` row: the true high-water mark ("nothing issued").
+        await db.customInsert(
+          'INSERT INTO doc_counters '
+          '(device_id, device_no, doc_type, period, last_no) '
+          "SELECT ?, ?, 'receipt', ?, 0 "
+          'WHERE NOT EXISTS '
+          '(SELECT 1 FROM doc_counters WHERE device_id = ?)',
+          variables: [
+            Variable.withString(seed.deviceId),
+            Variable.withInt(seed.deviceNo),
+            Variable.withString(seed.period),
+            Variable.withString(seed.deviceId),
+          ],
+          updates: {db.docCounters},
+        );
         await db
             .into(db.docCounterSeeds)
             .insertOnConflictUpdate(

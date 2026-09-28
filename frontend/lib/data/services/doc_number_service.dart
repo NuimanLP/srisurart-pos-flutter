@@ -351,6 +351,40 @@ class DocNumberService {
     return docNo;
   }
 
+  /// The next offline RC/CN number from THIS device's own counter (08 §9),
+  /// committed in the caller's transaction.
+  ///
+  /// The device is the one most recently seeded from `GET /doc-counters` (a
+  /// re-enrolled browser seeds under its new `devices.id`), and its series is
+  /// the `device_no` a counter row of THAT device carries. When either is
+  /// unknown the document is refused ([OfflineSeedRequiredException]) rather
+  /// than guessed: the server refuses a number whose `device_no` is not the
+  /// caller's (`DOC_NUMBER_INVALID`), and the paper would already be printed.
+  Future<String> issueOffline({required String docType, DateTime? now}) async {
+    final seed =
+        await (db.select(db.docCounterSeeds)
+              ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    // Any row of the device will do: `device_no` is fixed per `devices.id`.
+    final counter = seed == null
+        ? null
+        : await (db.select(db.docCounters)
+                ..where((t) => t.deviceId.equals(seed.deviceId))
+                ..limit(1))
+              .getSingleOrNull();
+    if (seed == null || counter == null) {
+      throw const OfflineSeedRequiredException();
+    }
+    return issueAndCommit(
+      deviceId: seed.deviceId,
+      deviceNo: counter.deviceNo,
+      docType: docType,
+      now: now,
+      isOffline: true,
+    );
+  }
+
   /// Returns the current lastNo recorded in [DocCounters] for `(deviceId, docType, period)`.
   /// Returns 0 if no counter row exists.
   Future<int> getLastNo({

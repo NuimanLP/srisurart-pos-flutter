@@ -150,8 +150,6 @@ void main() {
       api: apiClient,
       db: db,
       drift: SalesRepository(db),
-      deviceId: devId,
-      deviceNo: devNo,
       syncService: syncService,
       docNumberService: docNumberService,
     );
