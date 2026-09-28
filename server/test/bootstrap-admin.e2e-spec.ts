@@ -118,6 +118,12 @@ describe('platform admin bootstrap (e2e, #337)', () => {
       force: true,
     });
     expect(forced).toMatchObject({ action: 'updated', username });
+    // #443: a --force reset kills older platform tokens via password_changed_at.
+    const [{ password_changed_at: changedAt }] = await adminDs.query(
+      `SELECT password_changed_at FROM platform_admins WHERE username = $1`,
+      [username],
+    );
+    expect(changedAt).not.toBeNull();
 
     expect((await login(username, 'rotated-secret-1234')).status).toBe(200);
     expect((await login(username, 'bootstrap-secret-1')).status).toBe(401);

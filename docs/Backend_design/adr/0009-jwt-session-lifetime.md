@@ -195,6 +195,7 @@ guard ของ `/api/*` อื่นยังรับเฉพาะ `typ=acce
 * **`typ` ใหม่ `pwchange`** (ต่อจาก `access`/`refresh` ในหัวข้อ *"การเซ็นและที่เก็บ token"*): อายุ 10 นาที ไม่มี refresh ·
   รับเฉพาะ `POST /auth/change-password` · guard ทุกตัวที่ขอ `access` และ `/auth/refresh` ที่ขอ `refresh` ปฏิเสธเองโดยไม่ต้องแก้ (fail-closed) ·
   token `pwchange` ที่ `iat` ก่อน `password_changed_at` (คือของรหัสชั่วคราวที่ถูกรีเซ็ตทับไปแล้ว) ก็ใช้ไม่ได้ด้วยกฎเดียวกัน
+* **2026-09-28 (#443, owner):** กฎ `iat < floor(epoch(password_changed_at))` เดียวกันนี้ใช้กับ **platform admin** ด้วย — `platform_admins.password_changed_at` (migration `1788652804600`) ถูกตั้งโดย sync `PLATFORM_ADMINS` ตอน api boot และ `bootstrap-admin --force` · `PlatformAuthGuard` เช็คทุกคำขอ (cache `pa:<id>:exists` 60 วิ เก็บ cutoff ไว้ด้วย; `main.ts` ลบ key ของ admin ที่ถูกเปลี่ยนรหัสหลัง sync — `--force` ไม่ลบ จึงอาจเหลือช่อง ≤ 60 วิ) · platform token ออก `iat` ตั้งแต่รอบนี้ token เก่าที่ไม่มี `iat` นับว่าเก่ากว่า cutoff ทุกค่า
 * client: response ของ login แบบรหัสชั่วคราวไม่มี `accessToken` → ไม่เรียก `recordOnlineLogin` และ `OfflinePinRepository.setPin` ปฏิเสธ
 
 ## ผลที่ตามมา

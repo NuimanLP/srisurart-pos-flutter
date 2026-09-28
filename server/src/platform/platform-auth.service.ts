@@ -92,6 +92,8 @@ export class PlatformAuthService {
         aud: 'platform',
         sub: admin.id,
         username: admin.username,
+        // `iat` lets PlatformAuthGuard refuse a token older than password_changed_at (#443).
+        iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + PLATFORM_TOKEN_TTL_SEC,
       },
       this.config.jwtPlatformSecret,
