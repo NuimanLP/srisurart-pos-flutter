@@ -62,7 +62,7 @@ jobs:
     outputs:
       server: ${{ steps.filter.outputs.server }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -84,8 +84,8 @@ jobs:
     # decides, on both push and pull_request.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: corepack enable
@@ -104,8 +104,8 @@ jobs:
     # decides, on both push and pull_request.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: corepack enable
@@ -134,8 +134,8 @@ jobs:
     # decides, on both push and pull_request.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: corepack enable
@@ -151,7 +151,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: generate test TLS cert and htpasswd for syntax validation
         run: |
           mkdir -p .tmp-nginx/certs .tmp-nginx/auth
@@ -191,8 +191,8 @@ jobs:
       # publishes no datastore port; only the overlay does, and only on 127.0.0.1.
       COMPOSE_FILE: docker-compose.yml:docker-compose.dev.yml
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: corepack enable
@@ -254,7 +254,7 @@ jobs:
     # #39: this job is a `needs:` of server-ci-status below; it is never itself a required
     # check (07 §4).
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: docker build (tagged with the commit)
         run: docker build -t "$IMAGE:$GITHUB_SHA" .
@@ -298,7 +298,7 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
