@@ -43,6 +43,7 @@ import '../../../domain/models/aggregates.dart';
 import '../../db/database.dart';
 import '../../storage/token_storage.dart' show TokenStoreUnavailableException;
 import '../../services/doc_number_service.dart';
+import '../../sync/applied_effects.dart';
 import '../../sync/sync_facade.dart';
 import '../../sync/sync_service.dart';
 import '../sales_repository.dart';
@@ -550,6 +551,9 @@ class ApiSalesRepository implements SalesRepository {
         }
       });
 
+      // #488: what this write actually applies, for an exact discard.
+      final effects = AppliedEffects();
+
       // Strict stock decrement (never clamp)
       for (final item in input.items) {
         final p = byId[item.productId]!;
@@ -560,6 +564,7 @@ class ApiSalesRepository implements SalesRepository {
         await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
           ProductsCompanion(stock: Value(newStock)),
         );
+        effects.addStock(p.id, -item.qty);
       }
 
       if (input.customerId != null) {
@@ -567,14 +572,17 @@ class ApiSalesRepository implements SalesRepository {
               ..where((t) => t.id.equals(input.customerId!)))
             .getSingleOrNull();
         if (c != null) {
+          final spend = c.totalSpend + input.total;
+          final points = c.points + pointsFor(input.total);
           await (db.update(db.customers)
                 ..where((t) => t.id.equals(input.customerId!)))
               .write(
             CustomersCompanion(
-              totalSpend: Value(c.totalSpend + input.total),
-              points: Value(c.points + pointsFor(input.total)),
+              totalSpend: Value(spend),
+              points: Value(points),
             ),
           );
+          effects.customer(c.id, c, spend, points);
         }
       }
 
@@ -585,21 +593,32 @@ class ApiSalesRepository implements SalesRepository {
         if (m != null) {
           final isCredit = input.paymentMethod == 'เครดิตช่าง';
           final delta = input.mechanicDelta ?? 0;
+          final sales = m.totalSales + input.total;
+          final discount = m.totalDiscount + (delta < 0 ? -delta : 0);
+          final markup = m.totalMarkup + (delta > 0 ? delta : 0);
+          final credit = m.creditBalance + (isCredit ? input.total : 0);
           await (db.update(db.mechanics)
                 ..where((t) => t.id.equals(input.mechanicId!)))
               .write(
             MechanicsCompanion(
-              totalSales: Value(m.totalSales + input.total),
-              totalDiscount: Value(m.totalDiscount + (delta < 0 ? -delta : 0)),
-              totalMarkup: Value(m.totalMarkup + (delta > 0 ? delta : 0)),
-              creditBalance: Value(
-                m.creditBalance + (isCredit ? input.total : 0),
-              ),
+              totalSales: Value(sales),
+              totalDiscount: Value(discount),
+              totalMarkup: Value(markup),
+              creditBalance: Value(credit),
               updatedAt: Value(DateTime.now()),
             ),
           );
+          effects.mechanic(
+            m.id,
+            m,
+            sales: sales,
+            discount: discount,
+            markup: markup,
+            credit: credit,
+          );
         }
       }
+      await effects.record(db, opId);
 
       await db.into(db.outboxOps).insert(
             OutboxOpsCompanion.insert(
@@ -697,6 +716,9 @@ class ApiSalesRepository implements SalesRepository {
         ),
       );
 
+      // #488: what this void actually applies, for an exact discard.
+      final effects = AppliedEffects()..voidedSaleId = saleId;
+
       // 2. Restore stock locally
       for (final item in items) {
         final p = await (db.select(db.products)..where((t) => t.id.equals(item.productId))).getSingleOrNull();
@@ -704,6 +726,7 @@ class ApiSalesRepository implements SalesRepository {
           await (db.update(db.products)..where((t) => t.id.equals(p.id))).write(
             ProductsCompanion(stock: Value(p.stock + item.qty)),
           );
+          effects.addStock(p.id, item.qty);
         }
       }
 
@@ -711,12 +734,15 @@ class ApiSalesRepository implements SalesRepository {
       if (sale.customerId != null) {
         final c = await (db.select(db.customers)..where((t) => t.id.equals(sale.customerId!))).getSingleOrNull();
         if (c != null) {
+          final spend = (c.totalSpend - sale.total).clamp(0.0, double.infinity);
+          final points = (c.points - sale.pointsGranted).clamp(0, 999999999);
           await (db.update(db.customers)..where((t) => t.id.equals(sale.customerId!))).write(
             CustomersCompanion(
-              totalSpend: Value((c.totalSpend - sale.total).clamp(0.0, double.infinity)),
-              points: Value((c.points - sale.pointsGranted).clamp(0, 999999999)),
+              totalSpend: Value(spend),
+              points: Value(points),
             ),
           );
+          effects.customer(c.id, c, spend, points);
         }
       }
 
@@ -729,17 +755,30 @@ class ApiSalesRepository implements SalesRepository {
           final reverseDiscount = delta < 0 ? -delta : 0.0;
           final reverseMarkup = delta > 0 ? delta : 0.0;
           final discountBase = m.totalDiscount != 0 ? m.totalDiscount : m.totalCredit;
+          final sales = (m.totalSales - sale.total).clamp(0.0, double.infinity);
+          final discount = (discountBase - reverseDiscount).clamp(0.0, double.infinity);
+          final markup = (m.totalMarkup - reverseMarkup).clamp(0.0, double.infinity);
+          final credit = (m.creditBalance - (isCredit ? sale.total : 0.0)).clamp(0.0, double.infinity);
           await (db.update(db.mechanics)..where((t) => t.id.equals(sale.mechanicId!))).write(
             MechanicsCompanion(
-              totalSales: Value((m.totalSales - sale.total).clamp(0.0, double.infinity)),
-              totalDiscount: Value((discountBase - reverseDiscount).clamp(0.0, double.infinity)),
-              totalMarkup: Value((m.totalMarkup - reverseMarkup).clamp(0.0, double.infinity)),
-              creditBalance: Value((m.creditBalance - (isCredit ? sale.total : 0.0)).clamp(0.0, double.infinity)),
+              totalSales: Value(sales),
+              totalDiscount: Value(discount),
+              totalMarkup: Value(markup),
+              creditBalance: Value(credit),
               updatedAt: Value(now),
             ),
           );
+          effects.mechanic(
+            m.id,
+            m,
+            sales: sales,
+            discount: discount,
+            markup: markup,
+            credit: credit,
+          );
         }
       }
+      await effects.record(db, opId);
 
       // 5. Insert op into outbox_ops
       await db.into(db.outboxOps).insert(

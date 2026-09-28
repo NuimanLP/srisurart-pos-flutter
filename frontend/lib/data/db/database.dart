@@ -43,6 +43,7 @@ part 'database.g.dart';
     AppMeta,
     OutboxOps,
     SyncCursors,
+    OpEffects,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -69,7 +70,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -173,6 +174,11 @@ class AppDatabase extends _$AppDatabase {
         ]) {
           await m.createIndex(index);
         }
+      }
+      // v12 → v13 (#488): op_effects, the applied deltas discard reverses
+      // from. Starts empty — ops queued before it take the legacy path.
+      if (from < 13) {
+        await m.createTable(opEffects);
       }
     },
   );

@@ -2385,6 +2385,66 @@ describe('POST /sync/push (e2e)', () => {
       expect(res.body.data).toEqual({ serverHasRow: true });
     });
 
+    it('sale.void_offline: serverHasRow follows the bill being voided (payload.saleId) (#488)', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+      await seedProduct(admin, TENANT, {
+        id: 'p_disc_v',
+        partNo: 'DV-1',
+        name: 'Pad',
+        price: 100,
+        cost: 50,
+        stock: 10,
+      });
+      await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_sale_disc_v',
+            idempotencyKey: 'k_sale_disc_v',
+            type: 'sale.create',
+            payload: {
+              id: 's_disc_v',
+              receiptNo: 'RC01-2569-09-0077',
+              subtotal: '100.00',
+              discount: '0.00',
+              total: '100.00',
+              paymentMethod: 'เงินสด',
+              items: [{ lineNo: 1, productId: 'p_disc_v', name: 'Pad', qty: 1, price: '100.00' }],
+            },
+          },
+        ],
+      });
+      const voidOp = {
+        opId: 'op_void_disc_v',
+        type: 'sale.void_offline',
+        payload: { saleId: 's_disc_v', reason: 'ลูกค้ายกเลิก' },
+        note: 'void never sent',
+      };
+
+      // Bill on the server, not voided: the void did not land.
+      const before = await discard(voidOp, POS_DEVICE_TOKEN, 'k_disc_v_1');
+      expect(before.status).toBe(200);
+      expect(before.body.data).toEqual({ serverHasRow: false });
+
+      await push({
+        outboxRemaining: 0,
+        ops: [{ ...voidOp, idempotencyKey: 'k_void_disc_v', note: undefined }],
+      });
+
+      // The void landed: the discard must not un-void the till's copy.
+      const after = await discard(voidOp, POS_DEVICE_TOKEN, 'k_disc_v_2');
+      expect(after.status).toBe(200);
+      expect(after.body.data).toEqual({ serverHasRow: true });
+      const audit = await admin.query(
+        `SELECT after FROM audit_log WHERE tenant_id = $1::uuid AND action = 'sync.op.discarded' AND entity_id = 'op_void_disc_v' ORDER BY id`,
+        [TENANT],
+      );
+      expect(audit.map((r: { after: { clientId: string } }) => r.after.clientId)).toEqual([
+        's_disc_v',
+        's_disc_v',
+      ]);
+    });
+
     it('works with Bearer JWT token (owner login)', async () => {
       const userToken = accessToken({
         tenantId: TENANT,

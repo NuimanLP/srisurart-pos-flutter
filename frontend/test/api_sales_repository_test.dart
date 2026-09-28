@@ -1659,10 +1659,13 @@ void main() {
 
       final offline = await repo.saveSale(input());
       expect(offline.receiptNo, 'RC01-$period-0101');
+      expect(await db.select(db.opEffects).get(), hasLength(1));
 
       await sync.push();
 
       expect(await db.select(db.outboxOps).get(), isEmpty);
+      // #488: an applied op's recorded deltas go with it.
+      expect(await db.select(db.opEffects).get(), isEmpty);
       expect((await db.select(db.sales).getSingle()).receiptNo, serverNo);
       expect(
         await numbers.getLastNo(

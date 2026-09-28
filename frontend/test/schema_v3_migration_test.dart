@@ -127,7 +127,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first)
         .getSingle();
-    expect(version, 12);
+    expect(version, 13);
   });
 
   test('every drawer entry stays attached to the shift it had', () async {

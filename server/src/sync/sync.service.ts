@@ -1053,12 +1053,27 @@ export class SyncService {
     const { tenantId, manager } = currentRequestContext();
     let serverHasRow = false;
 
-      const targetId =
-        dto.clientId ??
-        (dto.payload?.id ? String(dto.payload.id).trim() : undefined);
+      // #488: a void's payload names its bill as `saleId`, not `id` — the same
+      // field the push path's client-id replay reads (`replayKeyOfSameDocument`).
+      const isVoid = dto.type === 'sale.void_offline';
+      const targetId = isVoid
+        ? dto.payload?.saleId
+          ? String(dto.payload.saleId).trim()
+          : undefined
+        : (dto.clientId ??
+          (dto.payload?.id ? String(dto.payload.id).trim() : undefined));
 
       if (targetId) {
-        if (dto.type.startsWith('sale.')) {
+        if (isVoid) {
+          // "The server has this op" = the bill is already voided: exactly
+          // when a push of this op would replay as applied
+          // (`checkClientIdReplay`, case 'sale.void_offline').
+          const rows = await manager.query(
+            `SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2 AND voided`,
+            [tenantId, targetId],
+          );
+          serverHasRow = rows.length > 0;
+        } else if (dto.type.startsWith('sale.')) {
           const rows = await manager.query(
             `SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
             [tenantId, targetId],

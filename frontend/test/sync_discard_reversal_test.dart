@@ -343,18 +343,153 @@ void main() {
       db.outboxOps,
     )..where((t) => t.type.equals('sale.create'))).getSingle()).opId;
 
-    test('a bill voided offline (voidSaleOffline) is refused too', () async {
+    test('#488: a bill with its queued offline void — both ops and the rows '
+        'go, the ledger stays at before the sale', () async {
+      final repo = salesRepo();
+      final before = await ledger();
+      final sale = await repo.saveSale(creditSale);
+      await repo.voidSaleOffline(sale.id, 'ลูกค้ายกเลิก');
+
+      await sync.discard(await saleOpId(), 'ทดสอบ');
+
+      expect(await ledger(), before);
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+      expect(await db.select(db.opEffects).get(), isEmpty);
+      expect(await db.select(db.sales).get(), isEmpty);
+      expect(await db.select(db.saleItems).get(), isEmpty);
+      // Both discards are on the server's audit trail.
+      final bodies = sent
+          .where((r) => r.url.path == '/api/v1/sync/discards')
+          .map((r) => (jsonDecode(r.body) as Map)['type'])
+          .toList();
+      expect(bodies, ['sale.create', 'sale.void_offline']);
+    });
+
+    test('#488: the pair with serverHasRow=true — only sale.create goes, the '
+        'void stays queued', () async {
+      serverHasRow = true;
       final repo = salesRepo();
       final sale = await repo.saveSale(creditSale);
       await repo.voidSaleOffline(sale.id, 'ลูกค้ายกเลิก');
       final afterVoid = await ledger();
 
+      await sync.discard(await saleOpId(), 'ทดสอบ');
+
+      expect(await ledger(), afterVoid);
+      final left = await db.select(db.outboxOps).get();
+      expect(left.single.type, 'sale.void_offline');
+      expect(await db.select(db.opEffects).get(), hasLength(1));
+      expect(
+        sent.where((r) => r.url.path == '/api/v1/sync/discards'),
+        hasLength(1),
+      );
+    });
+
+    test('#488: discarding a lone sale.void_offline re-applies the bill',
+        () async {
+      final repo = salesRepo();
+      final sale = await repo.saveSale(creditSale);
+      // The bill synced: its op and record went with the applied reply.
+      await db.delete(db.outboxOps).go();
+      await db.delete(db.opEffects).go();
+      final afterSale = await ledger();
+      await repo.voidSaleOffline(sale.id, 'ลูกค้ายกเลิก');
+      expect(await ledger(), isNot(afterSale));
+
+      await sync.discard(await onlyOpId(), 'ทดสอบ');
+
+      expect(await ledger(), afterSale);
+      final row = await (db.select(
+        db.sales,
+      )..where((t) => t.id.equals(sale.id))).getSingle();
+      expect(row.voided, isFalse);
+      expect(row.voidedAt, isNull);
+      expect(row.voidReason, isNull);
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+      expect(await db.select(db.opEffects).get(), isEmpty);
+    });
+
+    test('#488: lone void discard when the server already voided the bill — '
+        'the void stands, only the op and its record go', () async {
+      final repo = salesRepo();
+      final sale = await repo.saveSale(creditSale);
+      await db.delete(db.outboxOps).go();
+      await db.delete(db.opEffects).go();
+      await repo.voidSaleOffline(sale.id, 'ลูกค้ายกเลิก');
+      final afterVoid = await ledger();
+      serverHasRow = true;
+
+      final result = await sync.discard(await onlyOpId(), 'ทดสอบ');
+
+      expect(result.serverHasRow, isTrue);
+      expect(await ledger(), afterVoid);
+      expect(
+        (await (db.select(
+          db.sales,
+        )..where((t) => t.id.equals(sale.id))).getSingle()).voided,
+        isTrue,
+      );
+      expect(await db.select(db.outboxOps).get(), isEmpty);
+      expect(await db.select(db.opEffects).get(), isEmpty);
+    });
+
+    test('#488: lone void discard refused when the restocked units were sold '
+        'again', () async {
+      final repo = salesRepo();
+      final sale = await repo.saveSale(creditSale);
+      await db.delete(db.outboxOps).go();
+      await db.delete(db.opEffects).go();
+      await repo.voidSaleOffline(sale.id, 'ลูกค้ายกเลิก');
+      await (db.update(db.products)..where((t) => t.id.equals('tp1')))
+          .write(const ProductsCompanion(stock: Value(1)));
+      final afterResale = await ledger();
+
       await expectLater(
-        sync.discard(await saleOpId(), 'ทดสอบ'),
-        throwsA(isA<PosException>()),
+        sync.discard(await onlyOpId(), 'ทดสอบ'),
+        throwsA(
+          isA<PosException>().having(
+            (e) => e.code,
+            'code',
+            'DISCARD_STOCK_ALREADY_SOLD',
+          ),
+        ),
       );
       expect(sent.where((r) => r.url.path == '/api/v1/sync/discards'), isEmpty);
-      expect(await ledger(), afterVoid);
+      expect(await ledger(), afterResale);
+      expect(await db.select(db.outboxOps).get(), hasLength(1));
+    });
+
+    test('#488: a lone void_offline queued before v13 re-applies by recompute',
+        () async {
+      final repo = salesRepo();
+      final sale = await repo.saveSale(creditSale);
+      await db.delete(db.outboxOps).go();
+      await db.delete(db.opEffects).go();
+      final afterSale = await ledger();
+      await repo.voidSaleOffline(sale.id, 'ลูกค้ายกเลิก');
+      await db.delete(db.opEffects).go(); // no record: legacy op
+
+      await sync.discard(await onlyOpId(), 'ทดสอบ');
+
+      expect(await ledger(), afterSale);
+      expect(
+        (await (db.select(
+          db.sales,
+        )..where((t) => t.id.equals(sale.id))).getSingle()).voided,
+        isFalse,
+      );
+    });
+
+    test('#488: a sale.create queued before v13 still uses the legacy path',
+        () async {
+      final before = await ledger();
+      await salesRepo().saveSale(creditSale);
+      await db.delete(db.opEffects).go(); // no record: legacy op
+
+      await sync.discard(await onlyOpId(), 'ทดสอบ');
+
+      expect(await ledger(), before);
+      expect(await db.select(db.sales).get(), isEmpty);
     });
 
     test(
@@ -572,6 +707,115 @@ void main() {
       await repo.createReturn(back(2, 'โอน'));
       // planReturn wrote max(0, totalCredit 30 − 8).
       expect((await ledger()).mDiscount, 22);
+
+      await sync.discard(await onlyOpId(), 'คืนผิดบิล');
+
+      expect(await ledger(), before);
+    });
+
+    test('#488: a clamped หักจากเครดิต note — balance 50, note 180 — '
+        'discard restores exactly 50', () async {
+      await (db.update(db.mechanics)..where((t) => t.id.equals('tm1')))
+          .write(const MechanicsCompanion(creditBalance: Value(50)));
+      final repo = returnsRepo();
+      await seedDevice();
+      sync.recordNonVerdictWrite();
+      final before = await ledger();
+
+      final ret = await repo.createReturn(back(2, 'หักจากเครดิต'));
+      expect(ret.refundTotal, 180);
+      expect((await ledger()).mCredit, 0, reason: 'forward clamped at 0');
+
+      await sync.discard(await onlyOpId(), 'คืนผิดบิล');
+
+      expect((await ledger()).mCredit, 50);
+      expect(await ledger(), before);
+      expect(await db.select(db.opEffects).get(), isEmpty);
+    });
+
+    test('#488: totalDiscount == totalCredit — the old heuristic misfired, '
+        'the record does not', () async {
+      await (db.update(db.mechanics)..where((t) => t.id.equals('tm1'))).write(
+        const MechanicsCompanion(
+          totalDiscount: Value(30),
+          totalCredit: Value(30),
+        ),
+      );
+      final repo = returnsRepo();
+      await seedDevice();
+      sync.recordNonVerdictWrite();
+      final before = await ledger();
+
+      await repo.createReturn(back(2, 'โอน'));
+      expect((await ledger()).mDiscount, 22);
+
+      await sync.discard(await onlyOpId(), 'คืนผิดบิล');
+
+      expect((await ledger()).mDiscount, 30);
+      expect(await ledger(), before);
+    });
+
+    for (final legacy in [false, true]) {
+      test('#488: units resold meanwhile — refused, nothing changes '
+          '(${legacy ? 'legacy' : 'recorded'})', () async {
+        final repo = returnsRepo();
+        await seedDevice();
+        sync.recordNonVerdictWrite();
+
+        await repo.createReturn(back(2, 'โอน'));
+        if (legacy) await db.delete(db.opEffects).go();
+        // The two returned pads (and more) went out again on a synced bill.
+        await (db.update(db.products)..where((t) => t.id.equals('tp1')))
+            .write(const ProductsCompanion(stock: Value(1)));
+        final afterResale = await ledger();
+
+        await expectLater(
+          sync.discard(await onlyOpId(), 'คืนผิดบิล'),
+          throwsA(
+            isA<PosException>().having(
+              (e) => e.code,
+              'code',
+              'DISCARD_STOCK_ALREADY_SOLD',
+            ),
+          ),
+        );
+
+        expect(
+          sent.where((r) => r.url.path == '/api/v1/sync/discards'),
+          isEmpty,
+        );
+        expect(await ledger(), afterResale);
+        expect(await db.select(db.outboxOps).get(), hasLength(1));
+        expect(await db.select(db.returns).get(), hasLength(1));
+      });
+    }
+
+    test('#488: discarding the partial note does not leave the bill voided by '
+        'the note that completed it', () async {
+      final repo = returnsRepo();
+      await seedDevice();
+      sync.recordNonVerdictWrite();
+
+      final first = await repo.createReturn(back(2, 'โอน'));
+      await repo.createReturn(back(3, 'โอน'));
+      expect((await parent()).voided, isTrue, reason: 'R2 completed it');
+
+      await sync.discard(await opIdFor(first.id), 'คืนผิดบิล');
+
+      final sale = await parent();
+      expect(sale.voided, isFalse);
+      expect(sale.voidedAt, isNull);
+    });
+
+    test('#488: a return.create queued before v13 still uses the legacy path',
+        () async {
+      final repo = returnsRepo();
+      await seedDevice();
+      sync.recordNonVerdictWrite();
+      final before = await ledger();
+
+      await repo.createReturn(back(2, 'หักจากเครดิต'));
+      await db.delete(db.opEffects).go(); // no record: legacy op
 
       await sync.discard(await onlyOpId(), 'คืนผิดบิล');
 
