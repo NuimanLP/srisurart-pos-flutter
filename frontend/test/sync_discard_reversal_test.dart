@@ -365,6 +365,26 @@ void main() {
       expect(bodies, ['sale.create', 'sale.void_offline']);
     });
 
+    test('#488: the pair with serverHasRow=true — only sale.create goes, the '
+        'void stays queued', () async {
+      serverHasRow = true;
+      final repo = salesRepo();
+      final sale = await repo.saveSale(creditSale);
+      await repo.voidSaleOffline(sale.id, 'ลูกค้ายกเลิก');
+      final afterVoid = await ledger();
+
+      await sync.discard(await saleOpId(), 'ทดสอบ');
+
+      expect(await ledger(), afterVoid);
+      final left = await db.select(db.outboxOps).get();
+      expect(left.single.type, 'sale.void_offline');
+      expect(await db.select(db.opEffects).get(), hasLength(1));
+      expect(
+        sent.where((r) => r.url.path == '/api/v1/sync/discards'),
+        hasLength(1),
+      );
+    });
+
     test('#488: discarding a lone sale.void_offline re-applies the bill',
         () async {
       final repo = salesRepo();

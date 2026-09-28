@@ -116,7 +116,9 @@ class AppliedEffects {
       (db.delete(db.opEffects)..where((t) => t.opId.equals(opId))).go();
 
   /// Subtracts every recorded delta and clears [voidedSaleId]'s void. Exact,
-  /// no clamp. Runs inside the caller's transaction.
+  /// no clamp. Runs inside the caller's transaction. Stock is not `.stamped`,
+  /// like the offline writes it undoes: `updatedAt` is the pull cursor, and a
+  /// local clock pushes it past server changes it has not seen yet.
   Future<void> undo(AppDatabase db) async {
     for (final entry in stock.entries) {
       final p = await (db.select(db.products)

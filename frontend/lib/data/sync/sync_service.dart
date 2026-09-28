@@ -909,7 +909,9 @@ class SyncService implements SyncFacade {
       }
 
       // #488: the void never reaches the server, so the bill stands again —
-      // stock off the shelf, ledger re-applied, `voided` cleared.
+      // stock off the shelf, ledger re-applied, `voided` cleared. Not gated on
+      // serverHasRow: a void payload carries `saleId`, not `id`, so the server
+      // has no row of its own to report (it would only ever mean the bill).
       final voidedSaleId = payload['saleId'] as String?;
       if (op.type == 'sale.void_offline' && voidedSaleId != null) {
         await _undoOrLegacy(
