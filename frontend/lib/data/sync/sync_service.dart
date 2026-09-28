@@ -1021,6 +1021,7 @@ class SyncService implements SyncFacade {
     OutboxOpRow op,
     Map<String, dynamic> payload,
   ) async {
+    if (op.type != 'return.create' && op.type != 'sale.void_offline') return;
     final take = <String, int>{};
     final effects = await AppliedEffects.load(db, op.opId);
     if (effects != null) {
@@ -1042,7 +1043,6 @@ class SyncService implements SyncFacade {
         take[i.productId] = (take[i.productId] ?? 0) + i.qty;
       }
     }
-    if (op.type != 'return.create' && op.type != 'sale.void_offline') return;
     for (final entry in take.entries) {
       final p = await (db.select(db.products)
             ..where((t) => t.id.equals(entry.key)))
