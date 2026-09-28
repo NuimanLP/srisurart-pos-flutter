@@ -5,7 +5,10 @@
 // so reads stay on the Drift parent and only two things change here:
 //
 //  • [pullFromServer] — `GET /settings` after sign-in patches the cache, so
-//    the till stops showing the Drift seed's shop name.
+//    the till stops showing the Drift seed's shop name. Also fired from
+//    `SyncService.onPull` (`triggerEntityPull`, #474) so a session that
+//    survived a restart while offline still gets fresh settings once the
+//    link comes back, instead of waiting for the next login.
 //  • [updateSettings] — a settings edit is `PATCH /settings`. Settings are
 //    online-only (08 §6.2): when the server cannot take the edit it is
 //    refused, never written locally.
@@ -33,8 +36,10 @@ class ApiSettingsRepository extends SettingsRepository {
   final ApiClient apiClient;
   final SyncFacade? syncFacade;
 
-  /// Pulls the tenant's settings into the Drift row. Never throws — it runs
-  /// unawaited on sign-in and must not block it; `false` means the cache was
+  /// Pulls the tenant's settings into the Drift row. Never throws — sign-in
+  /// fires it unawaited (must not block the first screen), and
+  /// `triggerEntityPull` fires it inside its own `Future.wait` (#474) since
+  /// it never rejects that batch either way; `false` means the cache was
   /// left as it was.
   Future<bool> pullFromServer() async {
     try {

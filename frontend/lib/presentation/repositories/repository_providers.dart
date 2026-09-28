@@ -78,18 +78,27 @@ List<RepositoryProvider> repositoryProviders(
   late final ProductsRepository productsRepo;
   late final CustomersRepository customersRepo;
   late final MechanicsRepository mechanicsRepo;
+  late final SettingsRepository settingsRepo;
 
   Future<void> triggerEntityPull() async {
+    // #474: settings ride the same reconnect hook as products/customers/
+    // mechanics — gated on the repo actually being the API one (useApi),
+    // not on useApiRepositories, since that's what selects it below.
+    final s = settingsRepo;
+    final futures = <Future<void>>[
+      if (s is ApiSettingsRepository) s.pullFromServer().then((_) {}),
+    ];
     if (useApiRepositories) {
       final p = productsRepo;
       final c = customersRepo;
       final m = mechanicsRepo;
-      await Future.wait([
+      futures.addAll([
         if (p is ApiProductsRepository) p.syncFromServer(),
         if (c is ApiCustomersRepository) c.syncFromServer(),
         if (m is ApiMechanicsRepository) m.syncFromServer(),
       ]);
     }
+    await Future.wait(futures);
   }
 
   final realSyncService = syncFacade is SyncService
@@ -175,6 +184,16 @@ List<RepositoryProvider> repositoryProviders(
       ? ApiQuotesRepository(db, client)
       : QuotesRepository(db);
   final bootstrapService = BootstrapService(db: db, apiClient: client);
+  // #460: on the API build a settings edit is `PATCH /settings` (online
+  // only, 08 §6.2) and sign-in pulls `GET /settings` (main.dart); #474: the
+  // reconnect hook (`triggerEntityPull` above) pulls it too.
+  settingsRepo = useApi
+      ? ApiSettingsRepository(
+          db,
+          client,
+          syncFacade: syncFacade ?? realSyncService,
+        )
+      : SettingsRepository(db);
 
   return [
     RepositoryProvider<ProductsRepository>.value(value: productsRepo),
@@ -187,17 +206,7 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
     RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
     RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
-    // #460: on the API build a settings edit is `PATCH /settings` (online
-    // only, 08 §6.2) and sign-in pulls `GET /settings` (main.dart).
-    RepositoryProvider<SettingsRepository>.value(
-      value: useApi
-          ? ApiSettingsRepository(
-              db,
-              client,
-              syncFacade: syncFacade ?? realSyncService,
-            )
-          : SettingsRepository(db),
-    ),
+    RepositoryProvider<SettingsRepository>.value(value: settingsRepo),
     RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db)),
     RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),
     RepositoryProvider<AuthRepository>.value(value: authRepo),
