@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { signJwt } from '../src/common/jwt.js';
 import { hashPassword } from '../src/common/password.js';
-import { PlatformAuthGuard } from '../src/platform/platform-auth.guard.js';
+import { PlatformAuthGuard, platformAdminCacheKey } from '../src/platform/platform-auth.guard.js';
 import { PlatformAuthService } from '../src/platform/platform-auth.service.js';
 import { PlatformTenantsService, SEED_CATEGORIES } from '../src/platform/platform-tenants.service.js';
 import { TenantImportService } from '../src/platform/tenant-import.service.js';
@@ -230,7 +230,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       } as any;
 
       expect(await guard.canActivate(context)).toBe(true);
-      expect(mockRedisCache.setex).toHaveBeenCalledWith('pa:adm1:exists', 60, '1');
+      expect(mockRedisCache.setex).toHaveBeenCalledWith(platformAdminCacheKey('adm1'), 60, '1');
     });
 
     it('rejects with UnauthorizedException when admin is cached as inactive or deleted (0)', async () => {
@@ -267,7 +267,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       } as any;
 
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
-      expect(mockRedisCache.setex).toHaveBeenCalledWith('pa:adm1:exists', 60, '0');
+      expect(mockRedisCache.setex).toHaveBeenCalledWith(platformAdminCacheKey('adm1'), 60, '0');
     });
 
     it('refuses a token older than password_changed_at and caches the cutoff (#443)', async () => {
@@ -282,13 +282,32 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       mockRedisCache.get.mockResolvedValueOnce(null);
       mockAdminDs.query.mockResolvedValueOnce([{ cutoff: '1000' }]);
       await expect(guard.canActivate(ctxFor(999))).rejects.toThrow(UnauthorizedException);
-      expect(mockRedisCache.setex).toHaveBeenCalledWith('pa:adm1:exists', 60, '1000');
+      expect(mockRedisCache.setex).toHaveBeenCalledWith(platformAdminCacheKey('adm1'), 60, '1000');
 
       mockRedisCache.get.mockResolvedValueOnce('1000');
       expect(await guard.canActivate(ctxFor(1000))).toBe(true); // same second survives
 
       mockRedisCache.get.mockResolvedValueOnce('1000');
       await expect(guard.canActivate(ctxFor())).rejects.toThrow(UnauthorizedException); // no iat
+    });
+
+    it('never reads the pre-#443-fix-round `:exists` key — a value cached there is a miss, not a hit (#443)', async () => {
+      const platformToken = signJwt(
+        { aud: 'platform', sub: 'adm1', username: 'admin' }, // no iat, like a pre-deploy token
+        mockConfig.jwtPlatformSecret,
+      );
+      const req = { headers: { authorization: `Bearer ${platformToken}` }, ip: '127.0.0.1' } as any;
+      const context = { switchToHttp: () => ({ getRequest: () => req }) } as any;
+
+      // mockRedisCache.get always returns null here (default from beforeEach) regardless of
+      // key, standing in for a real Redis where only the OLD key ('pa:adm1:exists') has a
+      // value and the new one ('pa:adm1:cutoff') is unset — the guard must ask Redis for the
+      // new key, not the old one, or a stale pre-deploy '1' would let this no-iat token through.
+      mockAdminDs.query.mockResolvedValueOnce([{ cutoff: '1000' }]);
+      expect(mockRedisCache.get).not.toHaveBeenCalled();
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      expect(mockRedisCache.get).toHaveBeenCalledWith(platformAdminCacheKey('adm1'));
+      expect(mockRedisCache.get).not.toHaveBeenCalledWith('pa:adm1:exists');
     });
   });
 
