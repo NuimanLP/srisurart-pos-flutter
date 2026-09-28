@@ -196,6 +196,19 @@ guard ของ `/api/*` อื่นยังรับเฉพาะ `typ=acce
   รับเฉพาะ `POST /auth/change-password` · guard ทุกตัวที่ขอ `access` และ `/auth/refresh` ที่ขอ `refresh` ปฏิเสธเองโดยไม่ต้องแก้ (fail-closed) ·
   token `pwchange` ที่ `iat` ก่อน `password_changed_at` (คือของรหัสชั่วคราวที่ถูกรีเซ็ตทับไปแล้ว) ก็ใช้ไม่ได้ด้วยกฎเดียวกัน
 * **2026-09-28 (#443, owner):** กฎ `iat < floor(epoch(password_changed_at))` เดียวกันนี้ใช้กับ **platform admin** ด้วย — `platform_admins.password_changed_at` (migration `1788652804600`) ถูกตั้งโดย sync `PLATFORM_ADMINS` ตอน api boot และ `bootstrap-admin --force` · `PlatformAuthGuard` เช็คทุกคำขอ (cache `pa:<id>:exists` 60 วิ เก็บ cutoff ไว้ด้วย; `main.ts` ลบ key ของ admin ที่ถูกเปลี่ยนรหัสหลัง sync — `--force` ไม่ลบ จึงอาจเหลือช่อง ≤ 60 วิ) · platform token ออก `iat` ตั้งแต่รอบนี้ token เก่าที่ไม่มี `iat` นับว่าเก่ากว่า cutoff ทุกค่า
+* **2026-09-28 (#443, fix round, owner):** deploy ครั้งนี้ต้อง **บังคับ logout platform token เก่าทุกใบครั้งเดียว** — migration
+  `1788652804600` ไม่ปล่อย `password_changed_at` เป็น NULL ให้ admin ที่มีอยู่ก่อนแล้วอีกต่อไป แต่ `UPDATE ... SET
+  password_changed_at = now()` ทั้งตาราง (admin ที่สร้างหลัง migration ยังเริ่มที่ NULL เหมือนเดิม) — token ก่อน #443's fix
+  round ไม่มี `iat` เลยจึงเก่ากว่า cutoff เสมอ ใช้ไม่ได้ทันทีที่ migration รันเสร็จ ไม่ใช่รอ TTL หมด · cache key ของ guard เปลี่ยนชื่อ
+  จาก `pa:<id>:exists` เป็น `pa:<id>:cutoff` (ฟังก์ชันเดียว `platformAdminCacheKey()` ใน `platform-auth.guard.ts` ใช้ร่วมกับ
+  `main.ts` และ e2e) — ไม่ใช่แค่ cosmetic: ถ้าใช้ชื่อ key เดิม replica ที่ยังไม่ deploy อาจฝากค่า `'1'` เก่าไว้ใน Redis
+  แล้ว replica ใหม่มาอ่านเจอ ตีความว่า "ไม่มี cutoff" ปล่อย token ที่ไม่มี `iat` ผ่านไปได้จนกว่า TTL 60 วิจะหมด — ซึ่งขัดกับที่
+  ย่อหน้านี้เพิ่งบอกว่า migration ต้อง logout ทันที เปลี่ยนชื่อ key ทำให้ค่าเก่าเป็น cache miss เสมอ แก้ปัญหานี้ตรง ๆ
+  **หน้าต่าง ≤ 60 วินาที (Redis cache TTL) ที่ owner ยอมรับ (2026-09-28) มีอยู่จริงในสองทาง**: (1) `bootstrap-admin --force`
+  ไม่ลบ cache เลย เหมือนเดิม (ไม่ได้แก้ตอนนี้) ดังนั้น token เก่าของ admin คนที่ถูก `--force` อาจใช้ได้ต่ออีกไม่เกิน 60 วิถ้าคำขอ
+  ก่อนหน้ามาแคชไว้แล้ว; (2) `PLATFORM_ADMINS` env sync ระหว่าง rolling deploy — api replica ที่ยังรอ restart อาจตอบคำขอด้วยค่า
+  cache ที่แคชไว้ก่อน sync จนกว่า TTL หมดหรือ `main.ts` ของ replica นั้นเองมาถึงขั้นลบ key (ลบเฉพาะของตัวเอง ไม่ broadcast ไป
+  replica อื่น) · ทั้งสองกรณีคือ trade-off ที่ยอมรับแล้ว ไม่ใช่บั๊ก — ไม่ต้องเปลี่ยน caching logic เพิ่มเพื่อปิดช่องนี้ให้เหลือ 0
 * client: response ของ login แบบรหัสชั่วคราวไม่มี `accessToken` → ไม่เรียก `recordOnlineLogin` และ `OfflinePinRepository.setPin` ปฏิเสธ
 
 ## ผลที่ตามมา

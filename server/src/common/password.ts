@@ -138,6 +138,9 @@ export function generateTempPassword(): string {
  * The password itself is never trimmed — its spaces are part of it — but a value that is
  * *only* whitespace counts as absent. A non-string (e.g. the JSON number `1234`) is
  * `required`, not a crash: validate the input first, then measure it (CLAUDE.md).
+ *
+ * The one owner-ratified exception (2026-09-28): `PLATFORM_ADMINS` (`db/platform-admins-env.ts`)
+ * trims each password before it reaches this check — see that file for why.
  */
 export function passwordPolicyViolation(
   password: unknown,

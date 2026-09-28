@@ -28,6 +28,19 @@ export function platformTokenFromHeader(header: unknown, secret: string): JwtPay
   return payload && payload.aud === 'platform' ? payload : null;
 }
 
+/**
+ * The Redis key `PlatformAuthGuard` caches a platform admin's existence + password cutoff
+ * under. Renamed from `pa:<id>:exists` to `pa:<id>:cutoff` on 2026-09-28 (#443 fix round):
+ * the old key held a plain `'1'`/`'0'` exists flag, and reusing it for the cutoff value would
+ * let a value a pre-deploy replica cached survive into the new code for up to its 60s TTL —
+ * exactly the no-`iat`-token window the migration backfill (`…4600`) exists to close. A new
+ * key name makes any old cached value a guaranteed miss instead. One helper so the guard, the
+ * cache-bust in `main.ts`, and the e2e suites can never drift apart on the key shape.
+ */
+export function platformAdminCacheKey(adminId: string): string {
+  return `pa:${adminId}:cutoff`;
+}
+
 @Injectable()
 export class PlatformAuthGuard implements CanActivate {
   constructor(
@@ -89,7 +102,7 @@ export class PlatformAuthGuard implements CanActivate {
     // Verify platform admin exists and is active (cache in Redis with 60s TTL). The cached
     // value also carries the password cutoff (#443, 2026-09-28): '0' = missing/inactive,
     // '1' = active with no `password_changed_at`, otherwise floor(epoch(password_changed_at)).
-    const cacheKey = `pa:${adminId}:exists`;
+    const cacheKey = platformAdminCacheKey(adminId);
     let cached: string | null = null;
     try {
       cached = await this.redisCache.get(cacheKey);

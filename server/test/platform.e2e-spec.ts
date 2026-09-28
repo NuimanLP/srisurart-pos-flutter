@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { signJwt } from '../src/common/jwt.js';
 import { hashPassword } from '../src/common/password.js';
 import { APP_CONFIG, type AppConfig } from '../src/config/config.js';
+import { platformAdminCacheKey } from '../src/platform/platform-auth.guard.js';
 import { createTestApp } from './support/fixture.js';
 import { activateOwner, OWNER_CHOSEN_PASSWORD } from './support/owner-password.js';
 
@@ -50,7 +51,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
   afterEach(async () => {
     // Clean up cached keys and admin
-    await cache.del(`pa:${adminId}:exists`);
+    await cache.del(platformAdminCacheKey(adminId));
     await adminDs.query(`DELETE FROM audit_log WHERE platform_admin_id = $1`, [adminId]);
     await adminDs.query(`DELETE FROM platform_admins WHERE id = $1`, [adminId]);
   });
@@ -64,9 +65,9 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       expect(res.status).toBe(200);
 
       // Verify cached in Redis
-      const cached = await cache.get(`pa:${adminId}:exists`);
+      const cached = await cache.get(platformAdminCacheKey(adminId));
       expect(cached).toBe('1');
-      const ttl = await cache.ttl(`pa:${adminId}:exists`);
+      const ttl = await cache.ttl(platformAdminCacheKey(adminId));
       expect(ttl).toBeGreaterThan(0);
       expect(ttl).toBeLessThanOrEqual(60);
     });
@@ -91,14 +92,14 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       expect(res.body.error.message).toContain('Platform admin does not exist or is inactive');
 
       // Redis should have cached '0'
-      const cached = await cache.get(`pa:${nonExistentAdminId}:exists`);
+      const cached = await cache.get(platformAdminCacheKey(nonExistentAdminId));
       expect(cached).toBe('0');
-      await cache.del(`pa:${nonExistentAdminId}:exists`);
+      await cache.del(platformAdminCacheKey(nonExistentAdminId));
     });
 
     it('rejects a tenant create with 401 once the admin is deleted, and writes no tenant', async () => {
       await adminDs.query(`DELETE FROM platform_admins WHERE id = $1`, [adminId]);
-      await cache.del(`pa:${adminId}:exists`);
+      await cache.del(platformAdminCacheKey(adminId));
       const code = `gone-${randomUUID().slice(0, 8)}`;
 
       const res = await request(app.getHttpServer())
@@ -113,7 +114,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
     it('rejects with 401 when platform admin is marked inactive', async () => {
       await adminDs.query(`UPDATE platform_admins SET is_active = false WHERE id = $1`, [adminId]);
-      await cache.del(`pa:${adminId}:exists`);
+      await cache.del(platformAdminCacheKey(adminId));
 
       const res = await request(app.getHttpServer())
         .get('/api/v1/platform/tenants')
@@ -201,7 +202,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
       // Use a token with a deleted platform admin, but bypass the guard check by pre-populating the Redis cache with '1'
       const deletedAdminId = randomUUID();
-      await cache.setex(`pa:${deletedAdminId}:exists`, 60, '1');
+      await cache.setex(platformAdminCacheKey(deletedAdminId), 60, '1');
 
       const deletedAdminToken = signJwt(
         {
@@ -233,7 +234,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       const userRows = await adminDs.query(`SELECT id FROM users WHERE username = $1`, [`owner_${code}`]);
       expect(userRows.length).toBe(0);
 
-      await cache.del(`pa:${deletedAdminId}:exists`);
+      await cache.del(platformAdminCacheKey(deletedAdminId));
     });
   });
 
@@ -333,7 +334,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       tenantId = createRes.body.data.tenantId;
 
       ghostAdminId = randomUUID();
-      await cache.setex(`pa:${ghostAdminId}:exists`, 60, '1');
+      await cache.setex(platformAdminCacheKey(ghostAdminId), 60, '1');
       ghostToken = signJwt(
         { iss: 'srisurart-pos', aud: 'platform', sub: ghostAdminId, username: 'ghost-admin' },
         config.jwtPlatformSecret,
@@ -341,7 +342,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     });
 
     afterEach(async () => {
-      await cache.del(`pa:${ghostAdminId}:exists`);
+      await cache.del(platformAdminCacheKey(ghostAdminId));
       for (const table of ['audit_log', 'products', 'devices', 'categories', 'settings', 'users']) {
         await adminDs.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [tenantId]);
       }

@@ -12,6 +12,7 @@ import {
   syncPlatformAdmins,
   type PlatformAdminSyncResult,
 } from './db/platform-admins-env.js';
+import { platformAdminCacheKey } from './platform/platform-auth.guard.js';
 
 const config = loadConfig();
 const logger = createLogger({
@@ -49,8 +50,8 @@ await configureApp(app, logger);
 for (const r of platformAdminResults.filter((x) => x.action === 'updated')) {
   await app
     .get<Redis>(REDIS_CACHE)
-    .del(`pa:${r.id}:exists`)
-    .catch((err: Error) => logger.warn({ err: err.message }, 'could not drop pa:*:exists cache'));
+    .del(platformAdminCacheKey(r.id))
+    .catch((err: Error) => logger.warn({ err: err.message }, 'could not drop pa:*:cutoff cache'));
 }
 
 // Keep-alive must outlive Nginx's upstream keepalive (60s) or Nginx reuses a

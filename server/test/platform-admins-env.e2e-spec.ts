@@ -6,6 +6,7 @@ import type { Redis } from 'ioredis';
 import { parsePlatformAdmins, syncPlatformAdmins } from '../src/db/platform-admins-env.js';
 import { APP_CONFIG, type AppConfig } from '../src/config/config.js';
 import { REDIS_CACHE } from '../src/infra/redis.module.js';
+import { platformAdminCacheKey } from '../src/platform/platform-auth.guard.js';
 import { createTestApp } from './support/fixture.js';
 
 /**
@@ -102,7 +103,7 @@ describe('PLATFORM_ADMINS boot sync (e2e, #443)', () => {
       [a],
     );
     expect(await sync(`${a}:second-password-2`)).toEqual([[a, 'updated']]);
-    await cache.del(`pa:${aId}:exists`); // what main.ts does after an `updated` result
+    await cache.del(platformAdminCacheKey(aId)); // what main.ts does after an `updated` result
     expect((await tenants(oldToken)).status).toBe(401);
     expect((await login(a, 'first-password-1')).status).toBe(401);
     const second = await login(a, 'second-password-2');
