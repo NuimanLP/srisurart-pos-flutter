@@ -315,18 +315,20 @@ develops against a demo tenant.
   Thai text).
 - **#489/#490 fixed 2026-09-28** (PR #491, PR #492) — an online-issued `receiptNo`/`cnNo`
   was never written to the local `DocCounters`, so an offline sale/CN after an online one
-  could reissue a number the server had already given out. 🔴 **Rule: any RC/CN number the
-  server issues online must be committed into the local `DocCounters` via
-  `DocNumberService.commitServerIssued`** before offline issuing can trust its own
-  high-water mark (offline issuing depends on it) — `ApiSalesRepository._patchFromResponse`
-  and `ApiReturnsRepository`'s equivalent do this today. 🔴 **PR #491's own description
-  claims this also covers a `/sync/push` replay reply — verified false against the merged
-  diff:** `SyncService` (`sync_service.dart`) has no reference to `DocNumberService` at all,
-  and `_patchDocNo`/`patchSaleFromPushReply` (the actual replay-reply patchers) only copy
-  `receiptNo`/`cnNo` onto rows, never commit them into `DocCounters`. **A number the server
-  issues by replaying a queued `sale.create`/`return.create` through `/sync/push` is
-  therefore still not protected against reissue offline** — needs its own follow-up issue,
-  never assume the PR body's AC3 claim is shipped. This unblocked #490: `ensureSeedMarker`
+  could reissue a number the server had already given out. **Rule: any RC/CN number the
+  server issues — the online reply *and* a `/sync/push` replay — must be committed into the
+  local `DocCounters` via `DocNumberService.commitServerIssued`** before offline issuing can
+  trust its own high-water mark (offline issuing depends on it) — `ApiSalesRepository
+  ._patchFromResponse` and `ApiReturnsRepository`'s equivalent do this today. 🔴 **The
+  `/sync/push` replay half of that rule (`SyncService._patchDocNo`) was pushed as commit
+  `dbaa7e5` *after* PR #491/#492 had already merged, so it never reached `main` from those
+  two PRs** — verified 2026-09-28 by diffing `main` against `dbaa7e5`: `sync_service.dart`
+  on `main` had no reference to `DocNumberService` at all. Cherry-picked into **PR #494**
+  (`fix/489-push-replay-counter`, open, not merged) — its own replay tests fail without the
+  commit. 🔴 **Lesson: check a PR's head SHA at merge time
+  (`gh pr view N --json headRefOid`) — a review-fix pushed after the merge button is
+  clicked silently misses `main`, and the PR body describing it reads as done when it
+  isn't.** This unblocked #490: `ensureSeedMarker`
   now accepts a seed from **any** period, so an offline sale after a month rollover starts
   at `0001` instead of refusing with
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).

@@ -13,10 +13,10 @@
 | #485 | #477, #478, #480 | `_RecentRow` หน้ารายงานล้นที่ 390 px (ห่อด้วย `Wrap`/`Flexible`) · ไฮไลต์คำค้นหน้าค้นรุ่นรถตามธีมสว่าง/มืด · ป้ายชั้นวางอ่าน VAT จาก `settings.taxRate` แทนเลข `7%` ตายตัว |
 | #486 | #474 | settings ถูก pull ซ้ำจาก `triggerEntityPull` (`SyncService.onPull`) ทุกครั้งที่เน็ตกลับ ไม่ต้องรอ login/reload รอบถัดไป |
 | #487 | – (test-only) | ซ่อม CI แดงบน `main` ที่เกิดจาก #483 × #484 ชนกัน (ดู §2) |
-| #491 | #489 | เลข RC/CN ที่ server ออกตอน **ขายออนไลน์ตรง ๆ** ถูก commit เข้า `DocCounters` ในเครื่องแล้ว (`DocNumberService.commitServerIssued`, เรียกจาก `ApiSalesRepository._patchFromResponse` / `ApiReturnsRepository` เทียบเท่า) — แก้เลขซ้ำหลังขายออนไลน์แล้วขายออฟไลน์ต่อ · 🔴 **คำอธิบายใน PR #491 เองอ้างว่าครอบ `/sync/push` replay ด้วย — ไม่จริงเมื่อตรวจโค้ดที่ merge จริง** (ดู §4) |
+| #491 | #489 | เลข RC/CN ที่ server ออกตอน **ขายออนไลน์ตรง ๆ** ถูก commit เข้า `DocCounters` ในเครื่องแล้ว (`DocNumberService.commitServerIssued`, เรียกจาก `ApiSalesRepository._patchFromResponse` / `ApiReturnsRepository` เทียบเท่า) — แก้เลขซ้ำหลังขายออนไลน์แล้วขายออฟไลน์ต่อ · 🔴 **ครึ่ง `/sync/push` replay ของฟิกซ์นี้ (`SyncService._patchDocNo`) เป็น commit `dbaa7e5` ที่ push ขึ้นมา *หลัง* PR #491/#492 merge ไปแล้ว จึงไม่ติดมากับสอง PR นี้บน `main`** — cherry-pick เข้า **PR #494** (`fix/489-push-replay-counter`, ยังไม่ merge) ดู §4 |
 | #492 | #490 | ขึ้นเดือนใหม่ตอนออฟไลน์เริ่ม `0001` ได้จริงแล้ว (`ensureSeedMarker` รับ marker จาก period ใดก็ได้ ไม่ใช่แค่เดือนปัจจุบัน) — สอดคล้อง `08_PHASE2_SPEC.md §9` E8 ที่เขียนสเปกไว้ถูกอยู่แล้ว แต่โค้ดไม่ทำตามจนถึงตอนนี้ |
 
-**ยังเปิด:** #476 (ทางตันจัดการเครื่อง — owner call, ไม่ใช่ของรอบนี้) · #488 (ตามข้างล่าง)
+**ยังเปิด:** #476 (ทางตันจัดการเครื่อง — owner call, ไม่ใช่ของรอบนี้) · #488 (ตามข้างล่าง) · **PR #494** (ครึ่ง `/sync/push` replay ของ #489, ยังไม่ merge)
 
 ## 2. บทเรียน: #483 × #484 ชนกันแบบ semantic (ไม่ใช่บั๊กโค้ด)
 
@@ -34,18 +34,21 @@
 
 ## 4. ยังเปิดอยู่
 
-- 🔴 **พบระหว่างตรวจเอกสารรอบนี้ (2026-09-28) — PR #491's own body oversells its fix.** ข้อความใน PR อ้างว่า
-  "`SyncService._patchDocNo` now also calls `commitServerIssued` inside the push transaction"
-  (ครอบ `/sync/push` replay ด้วย) — **ตรวจโค้ดจริงที่ merge แล้วไม่จริง**: `sync_service.dart`
-  ไม่มีการอ้างถึง `DocNumberService`/`commitServerIssued` เลยสักจุด, `_patchDocNo` และ
-  `patchSaleFromPushReply` (ตัว patch คำตอบ replay จริง) แค่ก็อปปี้ `receiptNo`/`cnNo` ลงแถว
-  ไม่ได้ commit เข้า `DocCounters` — เลขที่ server ออกให้ตอน replay บิลที่คิวไว้ผ่าน
-  `/sync/push` (เช่น บิลที่ยิงออนไลน์ไม่ผ่านตอนแรก แล้วคิวไปออกทาง `/sync/push` ทีหลัง)
-  **ยังไม่มีการป้องกันไม่ให้ออกซ้ำตอนออฟไลน์** เหมือนที่ #489 แก้ให้เส้นทางออนไลน์ตรง ๆ
-  แล้ว — ยังไม่มี issue เปิดสำหรับช่องโหว่นี้โดยเฉพาะ ควรเปิดใหม่ (ไม่ใช่งานเอกสาร, ไม่แก้ในรอบนี้)
-  · เจอจุดเล็กอีกจุด: คอมเมนต์ในโค้ด `sync_service.dart:924` ("agent ร่าง — Thai copy awaiting
-  owner ratification (#473)") ยังไม่ได้อัปเดตให้ตรงกับที่ owner รับรองข้อความแล้ว 2026-09-28 —
-  ไม่ใช่ความผิดของเอกสาร แต่ทิ้งไว้เป็น cosmetic follow-up
+- 🔴 **แก้ไขจากที่บันทึกไว้ตอนแรก (2026-09-28):** ตอนตรวจเอกสารรอบนี้ ผลตรวจโค้ดบน `main` ตอนนั้น
+  (`sync_service.dart` ไม่มีการอ้างถึง `DocNumberService`/`commitServerIssued` เลยสักจุด) ทำให้บันทึกไว้ว่า
+  "PR #491's own body oversells its fix — the `/sync/push` replay half was never implemented"
+  **ข้อสรุปนั้นผิด** — ฟิกซ์ฝั่ง replay (`SyncService._patchDocNo` เรียก `commitServerIssued`)
+  **มีจริงและถูกต้อง** เป็นคอมมิต `dbaa7e5` แต่ push ขึ้น remote **หลัง** ปุ่ม merge ของ PR #491/#492
+  ถูกกดไปแล้ว จึงไม่ติดมากับสอง PR นั้นตอน merge — เท่ากับ "หายไปเงียบ ๆ" จาก `main` ทั้งที่คำอธิบายใน
+  PR อ่านแล้วเหมือนได้ทำแล้ว ผู้ประสานงาน (coordinator) cherry-pick คอมมิตนี้เข้า **PR #494**
+  (`fix/489-push-replay-counter`, เปิดอยู่ ยังไม่ merge) — เทสต์ replay ใหม่ของ PR นั้น**พังถ้าไม่มีคอมมิตนี้**
+  ยืนยันว่าฟิกซ์จริงและจำเป็น
+  **บทเรียน:** ตรวจ **head SHA ของ PR ตอนที่ merge จริง** (`gh pr view N --json headRefOid`
+  เทียบกับ commit ที่คาดว่าจะอยู่ใน diff) ก่อนสรุปว่า "โค้ดที่ PR บอกว่าทำ ไม่มีอยู่จริง" — การพุชคอมมิตแก้ไข
+  (เช่นตอบ code review) **หลัง** merge ไปแล้ว จะหายไปเงียบ ๆ จาก `main` โดยที่ PR ยังปิดสถานะว่า merged
+  ปกติ และคำอธิบายใน PR ก็ยังอ่านเหมือนได้ทำครบ — วิธีตรวจของฉันตอนนั้น (`gh pr diff N --name-only`,
+  `grep` บน `main`) จับ "ไม่มีในโค้ดตอนนี้" ได้ถูก แต่ตีความสาเหตุผิด (คิดว่า PR อธิบายเกินจริง
+  ทั้งที่จริง ๆ คือ commit หลุดไปจากรอบ merge) — ยังไม่ใช่งานเอกสารที่จะแก้เอง ให้ PR #494 จัดการ
 - **#488** (`sync.discard-exact`) — follow-up ของ #473/PR #483 เอง (ระบุไว้ในตัว PR body แล้ว, ไม่ใช่เพิ่งเจอ):
   1. การคืนค่าตอน discard **ไม่ตรงเป๊ะ** เมื่อ forward write เคย clamp ที่ 0 (เช่น creditBalance เหลือ 50 → คืนหนี้ `หักจากเครดิต` 180 → forward clamp เป็น 0 → discard คืนกลับ 180 — สร้างหนี้ 130 บาทที่ไม่เคยมีจริง) — ทางแก้ต้องเก็บ delta จริงตอนเขียน (Drift schema bump v13, lane B), ไม่ใช่คำนวณใหม่จากสูตร
   2. บิลที่ยกเลิกออฟไลน์แล้ว (`sale.void_offline`) ทิ้งไม่ได้เลย (ติดการ์ด "มี dependent" ของตัวเอง) และการทิ้ง op `sale.void_offline` เองไม่ได้ถูกรองรับ (บั๊กคลาสเดียวกับ #473)
@@ -67,7 +70,7 @@
 
 ## 6. อ้างอิง
 
-- PR #482 #483 #484 #485 #486 #487 #491 #492 · issues #472 #473 #474 #475 #477 #478 #479 #480 #489 #490 (ปิด) · #476 #488 (เปิด)
+- PR #482 #483 #484 #485 #486 #487 #491 #492 · PR #494 (เปิด, ครึ่ง replay ของ #489) · issues #472 #473 #474 #475 #477 #478 #479 #480 #489 #490 (ปิด) · #476 #488 (เปิด)
 - `docs/Backend_design/02_API_SCREENS.md §8.1` (แถวใหม่ `DISCARD_HAS_LOCAL_DEPENDENTS`)
 - `docs/Shop_manual/01_offline_sync_and_recovery.md` §2 (ข้อความทิ้งรายการ)
 - `docs/tutorial/sri-pos-manual/02-owner-backoffice.html` (ป้าย VAT, ทิ้งรายการ, settings pull)
