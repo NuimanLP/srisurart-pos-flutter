@@ -225,8 +225,9 @@ class DocNumberService {
   /// If [isOffline] is true, verifies that a seed marker exists in [DocCounterSeeds]
   /// for [deviceId] (#189), throwing [OfflineSeedRequiredException] if absent.
   /// Any period will do (#490, 08 §9 E8): a new month offline starts at `0001`,
-  /// because the counter already holds every number the server issued online
-  /// for this device (#489), so a period with no row means nothing was issued.
+  /// because the counter already holds every number the server issued for this
+  /// device, via both the online reply and the `/sync/push` replay (#489), so a
+  /// period with no row means nothing was issued.
   ///
   /// 🔴 Does NOT write or consume the number in the database:
   /// A document number is committed/consumed only when write succeeds (2xx)
