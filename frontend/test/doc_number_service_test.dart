@@ -662,7 +662,7 @@ void main() {
       expect(offlineDocNo, 'RC01-2569-09-0016');
     });
 
-    test('offline cross-month with new month seed marker works correctly at 0001', () async {
+    test('offline cross-month with only a September marker starts October at 0001 (#490, E8)', () async {
       const devCross = 'dev_cross_month';
       final sepTime = DateTime(2026, 9, 30, 22, 0);
 
@@ -685,18 +685,6 @@ void main() {
       // Advance clock past midnight into October (new period 2569-10)
       final octTime = DateTime(2026, 10, 1, 8, 30);
 
-      // Before October has seed marker: offline generation is prohibited!
-      expect(
-        () => service.generateNextDocNo(
-          deviceId: devCross,
-          deviceNo: 1,
-          docType: 'receipt',
-          now: octTime,
-          isOffline: true,
-        ),
-        throwsA(isA<OfflineSeedRequiredException>()),
-      );
-
       // Online generation works even without October marker
       final octOnline = await service.generateNextDocNo(
         deviceId: devCross,
@@ -707,10 +695,7 @@ void main() {
       );
       expect(octOnline, 'RC01-2569-10-0001');
 
-      // Record October seed marker
-      await service.recordSeedMarker(deviceId: devCross, period: '2569-10');
-
-      // Now offline generation in October succeeds and starts at 0001!
+      // No October marker: the device's September one is enough (08 §9 E8).
       final oct1 = await service.issueAndCommit(
         deviceId: devCross,
         deviceNo: 1,
@@ -791,6 +776,91 @@ void main() {
         isOffline: true,
       );
       expect(docNo, 'RC01-2569-09-0011');
+    });
+  });
+
+  group('#490: offline month rollover (08 §9 E8)', () {
+    const dev = 'dev_rollover';
+    final sepTime = DateTime(2026, 9, 30, 23, 0);
+    final octTime = DateTime(2026, 10, 1, 0, 30);
+
+    /// Seeded in September only: last RC 0141, last CN 0012, device no. 1.
+    Future<void> seedSeptember() async {
+      await service.commitDocNo(
+        deviceId: dev,
+        deviceNo: 1,
+        docType: 'receipt',
+        period: '2569-09',
+        seq: 141,
+      );
+      await service.commitDocNo(
+        deviceId: dev,
+        deviceNo: 1,
+        docType: 'cn',
+        period: '2569-09',
+        seq: 12,
+      );
+      await service.recordSeedMarker(
+        deviceId: dev,
+        period: '2569-09',
+        seededAt: sepTime,
+      );
+    }
+
+    test('Sep marker, clock rolls to Oct offline → RC and CN start at 0001', () async {
+      await seedSeptember();
+
+      expect(
+        await service.issueOffline(docType: 'receipt', now: octTime),
+        'RC01-2569-10-0001',
+      );
+      expect(
+        await service.issueOffline(docType: 'cn', now: octTime),
+        'CN01-2569-10-0001',
+      );
+      expect(
+        await service.getLastNo(deviceId: dev, docType: 'receipt', period: '2569-09'),
+        141,
+      );
+    });
+
+    test('no marker at all → still refused, nothing committed', () async {
+      await service.commitDocNo(
+        deviceId: dev,
+        deviceNo: 1,
+        docType: 'receipt',
+        period: '2569-09',
+        seq: 141,
+      );
+
+      await expectLater(
+        () => service.issueOffline(docType: 'receipt', now: octTime),
+        throwsA(isA<OfflineSeedRequiredException>()),
+      );
+      await expectLater(
+        () => service.issueAndCommit(
+          deviceId: dev,
+          deviceNo: 1,
+          docType: 'receipt',
+          now: octTime,
+          isOffline: true,
+        ),
+        throwsA(isA<OfflineSeedRequiredException>()),
+      );
+      expect(
+        await service.getLastNo(deviceId: dev, docType: 'receipt', period: '2569-10'),
+        0,
+      );
+    });
+
+    test('online sale in Oct then offline → continues after the server\'s number', () async {
+      await seedSeptember();
+      await service.commitServerIssued('RC01-2569-10-0003');
+
+      expect(
+        await service.issueOffline(docType: 'receipt', now: octTime),
+        'RC01-2569-10-0004',
+      );
     });
   });
 }

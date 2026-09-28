@@ -180,16 +180,14 @@ class DocNumberService {
   }
 
   /// Asserts that a valid seed record exists in [DocCounterSeeds] for [deviceId]
-  /// and [period] (#189).
+  /// (#189) — for [period] if given, else for any period.
   ///
-  /// Throws [OfflineSeedRequiredException] if no seed marker exists for the period.
+  /// Throws [OfflineSeedRequiredException] if no such seed marker exists.
   Future<void> ensureSeedMarker({
     required String deviceId,
     String? period,
-    DateTime? now,
   }) async {
-    final p = period ?? formatPeriod(now ?? clock());
-    final seeded = await hasSeedMarker(deviceId: deviceId, period: p);
+    final seeded = await hasSeedMarker(deviceId: deviceId, period: period);
     if (!seeded) {
       throw const OfflineSeedRequiredException();
     }
@@ -225,7 +223,10 @@ class DocNumberService {
   /// based on local clock and [DocCounters].
   ///
   /// If [isOffline] is true, verifies that a seed marker exists in [DocCounterSeeds]
-  /// for `(deviceId, period)` (#189), throwing [OfflineSeedRequiredException] if absent.
+  /// for [deviceId] (#189), throwing [OfflineSeedRequiredException] if absent.
+  /// Any period will do (#490, 08 §9 E8): a new month offline starts at `0001`,
+  /// because the counter already holds every number the server issued online
+  /// for this device (#489), so a period with no row means nothing was issued.
   ///
   /// 🔴 Does NOT write or consume the number in the database:
   /// A document number is committed/consumed only when write succeeds (2xx)
@@ -250,7 +251,7 @@ class DocNumberService {
     final period = formatPeriod(dt);
 
     if (isOffline) {
-      await ensureSeedMarker(deviceId: deviceId, period: period);
+      await ensureSeedMarker(deviceId: deviceId);
     }
 
     final row = await (db.select(db.docCounters)
