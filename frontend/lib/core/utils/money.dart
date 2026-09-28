@@ -21,3 +21,11 @@ double round2(num v) => (v * 100).round() / 100;
 
 /// Loyalty points granted for a sale total: `Math.floor(total / 10)`.
 int pointsFor(num total) => (total / 10).floor();
+
+/// A rate (e.g. `Settings.taxRate`) as a trimmed string for display in
+/// "... N%" labels: whole numbers drop the decimal (`7` not `7.0`), a
+/// fractional rate keeps it (`7.5`). Not currency — use `baht`/`baht2` for
+/// money. #480: shared by the price-calculator tab and the shelf-label VAT%
+/// text so both format a non-default VAT the same way.
+String formatRate(num v) =>
+    v == v.roundToDouble() ? v.toInt().toString() : v.toString();

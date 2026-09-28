@@ -559,6 +559,13 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     final before = text.substring(0, idx);
     final match = text.substring(idx, idx + q.length);
     final after = text.substring(idx + q.length);
+    // #478: the old fixed `Color(0xFFFFCC88)` (pale orange) text on the
+    // `Color(0x59E8601C)` orange-tinted background is unreadable on a light
+    // theme card — it was tuned for a dark background only. Pick the match
+    // text color from the theme brightness (the `isDark` pattern other
+    // screens in this app already use for the same purpose), so it stays
+    // readable in both themes.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return RichText(
       text: TextSpan(
         style: baseStyle,
@@ -566,9 +573,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           TextSpan(text: before),
           TextSpan(
             text: match,
-            style: const TextStyle(
-              backgroundColor: Color(0x59E8601C), // rgba(232,96,28,0.35)
-              color: Color(0xFFFFCC88),
+            style: TextStyle(
+              backgroundColor: const Color(0x59E8601C), // rgba(232,96,28,0.35)
+              color: isDark ? Colors.white : AppColors.navy,
               fontWeight: FontWeight.w700,
             ),
           ),
