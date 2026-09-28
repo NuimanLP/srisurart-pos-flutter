@@ -75,15 +75,53 @@ elif [[ -f "$REPO_ROOT/deploy/compose/vm.override.yml" ]]; then
   COMPOSE_ARGS+=(-f "$REPO_ROOT/deploy/compose/vm.override.yml")
 fi
 
+# vm.override.yml pins every image to ${IMAGE_TAG:?IMAGE_TAG is required}, but /opt/pos/.env never
+# carries IMAGE_TAG by design (ticket-336) -- only /opt/pos/.current_sha does. Without this, any
+# `docker compose ...` call below fails interpolation before it can even list services. Resolve it
+# from .current_sha so the nightly cron (which sets no IMAGE_TAG) doesn't fail every night.
+USES_VM_OVERRIDE=false
+for arg in "${COMPOSE_ARGS[@]}"; do
+  case "$arg" in
+    */vm.override.yml) USES_VM_OVERRIDE=true ;;
+  esac
+done
+
+if [[ -z "${IMAGE_TAG:-}" && -f "$APP_DIR/.current_sha" ]]; then
+  IMAGE_TAG="$(tr -d '[:space:]' < "$APP_DIR/.current_sha")"
+  if [[ -n "$IMAGE_TAG" ]]; then
+    export IMAGE_TAG
+    echo "IMAGE_TAG was unset; resolved from $APP_DIR/.current_sha: $IMAGE_TAG"
+  fi
+fi
+
+if $USES_VM_OVERRIDE && [[ -z "${IMAGE_TAG:-}" ]]; then
+  echo "::error::IMAGE_TAG is required by deploy/compose/vm.override.yml but is unset, and $APP_DIR/.current_sha is missing or empty. Set IMAGE_TAG (e.g. IMAGE_TAG=\$(cat $APP_DIR/.current_sha)) before running this script -- refusing to silently fall back to a local pg_dump on a VM." >&2
+  exit 1
+fi
+
 echo "=== Srisurart POS Database Backup ==="
 echo "  Timestamp:    $TIMESTAMP"
 echo "  Target File:  $BACKUP_FILE"
 echo "  Database:     $POSTGRES_DB"
 
 exec_pg_dump() {
-  if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]] && docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null | grep -q postgres; then
-    docker compose "${COMPOSE_ARGS[@]}" exec -T postgres pg_dump -U "$POSTGRES_USER" --create --clean --if-exists "$POSTGRES_DB"
-  elif command -v pg_dump >/dev/null 2>&1; then
+  if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
+    local services
+    # Capture stdout+stderr and check the exit status explicitly (not via a pipeline, which used
+    # to discard compose's own error -- e.g. a missing IMAGE_TAG -- and fall through to the
+    # misleading "neither container nor pg_dump found" message below).
+    if services="$(docker compose "${COMPOSE_ARGS[@]}" ps --services 2>&1)"; then
+      if grep -q postgres <<<"$services"; then
+        docker compose "${COMPOSE_ARGS[@]}" exec -T postgres pg_dump -U "$POSTGRES_USER" --create --clean --if-exists "$POSTGRES_DB"
+        return
+      fi
+    else
+      echo "::error::docker compose could not resolve the compose configuration (docker compose ${COMPOSE_ARGS[*]} ps --services):" >&2
+      echo "$services" >&2
+      exit 1
+    fi
+  fi
+  if command -v pg_dump >/dev/null 2>&1; then
     pg_dump -U "$POSTGRES_USER" --create --clean --if-exists "$POSTGRES_DB"
   else
     echo "::error::Neither active docker compose postgres container nor local pg_dump command found." >&2
