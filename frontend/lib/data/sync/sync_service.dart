@@ -850,21 +850,7 @@ class SyncService implements SyncFacade {
     // already moved has no single effect left to undo — refused before the
     // server records the discard. Policy for this case is open on #473.
     if (op.type == 'sale.create' && clientId != null) {
-      final sale = await (db.select(db.sales)
-            ..where((t) => t.id.equals(clientId)))
-          .getSingleOrNull();
-      final hasReturns = await (db.select(db.returns)
-                ..where((t) => t.saleId.equals(clientId))
-                ..limit(1))
-              .getSingleOrNull() !=
-          null;
-      if ((sale?.voided ?? false) || hasReturns) {
-        // agent ร่าง — Thai copy awaiting owner ratification (#473).
-        throw const PosException(
-          'DISCARD_HAS_LOCAL_DEPENDENTS',
-          'บิลนี้มีการคืนสินค้าหรือยกเลิกในเครื่องแล้ว ไม่สามารถทิ้งได้',
-        );
-      }
+      await _refuseIfSaleHasLocalDependents(clientId);
     }
 
     final discardBody = <String, dynamic>{
@@ -909,6 +895,8 @@ class SyncService implements SyncFacade {
 
       if (!serverHasRow && clientId != null) {
         if (op.type == 'sale.create') {
+          // Again inside the tx: a credit note may have landed during the POST.
+          await _refuseIfSaleHasLocalDependents(clientId);
           await _reverseOfflineSale(clientId);
           await (db.delete(db.sales)..where((t) => t.id.equals(clientId))).go();
           await (db.delete(db.saleItems)
@@ -928,6 +916,23 @@ class SyncService implements SyncFacade {
     await _refreshOutbox();
 
     return DiscardResult(serverHasRow: serverHasRow);
+  }
+
+  Future<void> _refuseIfSaleHasLocalDependents(String saleId) async {
+    final sale = await (db.select(db.sales)..where((t) => t.id.equals(saleId)))
+        .getSingleOrNull();
+    final hasReturns = await (db.select(db.returns)
+              ..where((t) => t.saleId.equals(saleId))
+              ..limit(1))
+            .getSingleOrNull() !=
+        null;
+    if ((sale?.voided ?? false) || hasReturns) {
+      // agent ร่าง — Thai copy awaiting owner ratification (#473).
+      throw const PosException(
+        'DISCARD_HAS_LOCAL_DEPENDENTS',
+        'บิลนี้มีการคืนสินค้าหรือยกเลิกในเครื่องแล้ว ไม่สามารถทิ้งได้',
+      );
+    }
   }
 
   /// #473: undoes what `ApiSalesRepository._saveOffline` applied — stock back,
@@ -1041,11 +1046,19 @@ class SyncService implements SyncFacade {
           .getSingleOrNull();
       if (m != null) {
         final delta = sale.mechanicDelta ?? 0;
+        final reverseCredit = delta < 0 ? -delta * ratio : 0.0;
+        // planReturn's db.js base is (totalDiscount || totalCredit): when the
+        // note found totalDiscount at 0 it wrote max(0, totalCredit − credit),
+        // so the value before it was 0. totalCredit is never written locally,
+        // so the same expression recognises that case here.
+        final usedCreditBase = m.totalCredit != 0 &&
+            m.totalDiscount == max(0.0, m.totalCredit - reverseCredit);
         await (db.update(db.mechanics)..where((t) => t.id.equals(m.id))).write(
           MechanicsCompanion(
             totalSales: Value(m.totalSales + ret.refundTotal),
-            totalDiscount:
-                Value(m.totalDiscount + (delta < 0 ? -delta * ratio : 0.0)),
+            totalDiscount: Value(
+              usedCreditBase ? 0.0 : m.totalDiscount + reverseCredit,
+            ),
             totalMarkup:
                 Value(m.totalMarkup + (delta > 0 ? delta * ratio : 0.0)),
             creditBalance: Value(

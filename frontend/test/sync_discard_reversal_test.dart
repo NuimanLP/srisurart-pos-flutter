@@ -66,12 +66,16 @@ void main() {
   late SyncService sync;
   late bool serverHasRow;
 
+  /// Runs while the server is "handling" POST /sync/discards.
+  Future<void> Function()? duringDiscardPost;
+
   ApiClient client() => ApiClient(
     baseUrl: 'http://server.test',
     tokenStorage: _MemTokenStorage(),
     httpClient: MockClient((req) async {
       sent.add(req);
       if (req.url.path == '/api/v1/sync/discards') {
+        await duringDiscardPost?.call();
         return http.Response(
           jsonEncode({
             'status': 'success',
@@ -113,6 +117,7 @@ void main() {
     db = AppDatabase(NativeDatabase.memory());
     sent = [];
     serverHasRow = false;
+    duringDiscardPost = null;
     sync = SyncService(
       db: db,
       apiClient: client(),
@@ -319,18 +324,66 @@ void main() {
         expect(await db.select(db.outboxOps).get(), hasLength(1));
       },
     );
-    test('a bill voided locally is refused too', () async {
-      final sale = await salesRepo().saveSale(creditSale);
-      await (db.update(db.sales)..where((t) => t.id.equals(sale.id))).write(
-        const SalesCompanion(voided: Value(true)),
-      );
+    Future<String> saleOpId() async => (await (db.select(
+      db.outboxOps,
+    )..where((t) => t.type.equals('sale.create'))).getSingle()).opId;
+
+    test('a bill voided offline (voidSaleOffline) is refused too', () async {
+      final repo = salesRepo();
+      final sale = await repo.saveSale(creditSale);
+      await repo.voidSaleOffline(sale.id, 'ลูกค้ายกเลิก');
+      final afterVoid = await ledger();
 
       await expectLater(
-        sync.discard(await onlyOpId(), 'ทดสอบ'),
+        sync.discard(await saleOpId(), 'ทดสอบ'),
         throwsA(isA<PosException>()),
       );
       expect(sent.where((r) => r.url.path == '/api/v1/sync/discards'), isEmpty);
+      expect(await ledger(), afterVoid);
     });
+
+    test(
+      'a credit note written during the POST is caught inside the tx',
+      () async {
+        final sale = await salesRepo().saveSale(creditSale);
+        final afterWrite = await ledger();
+        duringDiscardPost = () => db
+            .into(db.returns)
+            .insert(
+              ReturnRow(
+                id: 'r-late',
+                cnNo: 'CN-2',
+                saleId: sale.id,
+                receiptNo: sale.receiptNo,
+                refundSubtotal: 100,
+                refundDiscount: 0,
+                refundTotal: 100,
+                refundMethod: 'เงินสด',
+                reason: '',
+                date: DateTime.now(),
+              ),
+            );
+
+        await expectLater(
+          sync.discard(await onlyOpId(), 'ทดสอบ'),
+          throwsA(
+            isA<PosException>().having(
+              (e) => e.code,
+              'code',
+              'DISCARD_HAS_LOCAL_DEPENDENTS',
+            ),
+          ),
+        );
+        expect(await ledger(), afterWrite);
+        expect(await db.select(db.outboxOps).get(), hasLength(1));
+        expect(
+          await (db.select(
+            db.sales,
+          )..where((t) => t.id.equals(sale.id))).getSingleOrNull(),
+          isNotNull,
+        );
+      },
+    );
   });
 
   group('discard return.create', () {
@@ -450,6 +503,64 @@ void main() {
       final sale = await parent();
       expect(sale.voided, isFalse);
       expect(sale.voidedAt, isNull);
+    });
+
+    Future<String> opIdFor(String returnId) async =>
+        (await db.select(db.outboxOps).get())
+            .singleWhere(
+              (o) => (jsonDecode(o.payload) as Map)['id'] == returnId,
+            )
+            .opId;
+
+    test(
+      'discarding the earlier of two partial notes leaves only the later one',
+      () async {
+        final repo = returnsRepo();
+        await seedDevice();
+        sync.recordNonVerdictWrite();
+        final l0 = await ledger();
+
+        final first = await repo.createReturn(back(2, 'หักจากเครดิต'));
+        final l1 = await ledger();
+        await repo.createReturn(back(1, 'หักจากเครดิต'));
+        final l2 = await ledger();
+
+        await sync.discard(await opIdFor(first.id), 'คืนผิดบิล');
+
+        expect(await ledger(), (
+          stock: l0.stock + (l2.stock - l1.stock),
+          spend: l0.spend + (l2.spend - l1.spend),
+          points: l0.points + (l2.points - l1.points),
+          mSales: l0.mSales + (l2.mSales - l1.mSales),
+          mDiscount: l0.mDiscount + (l2.mDiscount - l1.mDiscount),
+          mMarkup: l0.mMarkup + (l2.mMarkup - l1.mMarkup),
+          mCredit: l0.mCredit + (l2.mCredit - l1.mCredit),
+        ));
+        expect(await db.select(db.returns).get(), hasLength(1));
+        expect((await parent()).voided, isFalse);
+      },
+    );
+
+    test('mechanic with totalDiscount 0: the (totalDiscount || totalCredit) '
+        'base is undone too', () async {
+      await (db.update(db.mechanics)..where((t) => t.id.equals('tm1'))).write(
+        const MechanicsCompanion(
+          totalDiscount: Value(0),
+          totalCredit: Value(30),
+        ),
+      );
+      final repo = returnsRepo();
+      await seedDevice();
+      sync.recordNonVerdictWrite();
+      final before = await ledger();
+
+      await repo.createReturn(back(2, 'โอน'));
+      // planReturn wrote max(0, totalCredit 30 − 8).
+      expect((await ledger()).mDiscount, 22);
+
+      await sync.discard(await onlyOpId(), 'คืนผิดบิล');
+
+      expect(await ledger(), before);
     });
 
     test('serverHasRow=true: the credit note and its effects stay', () async {
