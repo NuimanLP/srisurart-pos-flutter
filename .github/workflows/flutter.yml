@@ -216,6 +216,12 @@ jobs:
           --dart-define=USE_API_WRITES=true
           --dart-define=API_BASE_URL=
 
+      - name: version the entry point
+        # main.dart.js → main.<sha12>.dart.js, rewritten in flutter_bootstrap.js and sw.js, so a
+        # page load spanning a web-sync swap never runs one release's bootstrap against the
+        # other's main (07_CICD_DEPLOY.md §6). Fails if the bootstrap's shape ever changes.
+        run: ../deploy/version-web-build.sh build/web "$(echo "${{ github.sha }}" | cut -c1-12)"
+
       - name: check web DB assets shipped
         # A version skew between these and the drift/sqlite3 pub versions breaks
         # the web DB at boot with no error until the app is opened (CLAUDE.md).
@@ -254,6 +260,9 @@ jobs:
             test -f /web/index.html &&
             test -f /web/sqlite3.wasm &&
             test -f /web/drift_worker.js &&
+            main=$(grep -o "main\.[0-9a-z][0-9a-z]*\.dart\.js" /web/flutter_bootstrap.js) &&
+            test -f "/web/$main" && ! test -e /web/main.dart.js &&
+            grep -qF "$main" /web/sw.js &&
             ! command -v nginx
           ' || { echo "::error::web image contents are wrong"; exit 1; }
           [ "$(docker image inspect "$WEB_IMAGE:${{ github.sha }}" --format '{{len .Config.ExposedPorts}}')" = 0 ] \

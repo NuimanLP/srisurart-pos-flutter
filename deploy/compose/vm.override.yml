@@ -38,10 +38,14 @@ services:
 
   # One-shot container to copy Flutter web assets into the shared volume Nginx is serving from.
   # Never empty the volume first: every file is written to a temp name and renamed over the old one
-  # (rename is atomic), so a request never sees a missing or half-written file. index.html goes
-  # last, then files not in this release (the stock Nginx index/50x pages on a fresh volume, the
-  # previous release's leftovers, a killed run's temp files) are removed. Flutter's file names
-  # carry no content hash, so a page load that spans the swap can still mix two releases.
+  # (rename is atomic), so a request never sees a missing or half-written file. The files that
+  # name other files go last — flutter_bootstrap.js, sw.js, then index.html — so nothing new ever
+  # points at a file not copied yet. Then files not in this release (the stock Nginx index/50x
+  # pages on a fresh volume, the previous release's leftovers, a killed run's temp files) are
+  # removed — except the previous release's `main.<release>.dart.js` (deploy/version-web-build.sh),
+  # so a page load that fetched the old flutter_bootstrap.js before the swap still finds its own
+  # entry point. That file goes on the next deploy: exactly one old entry point is ever kept.
+  # Other unversioned files (assets/, drift_worker.js, sqlite3.wasm) can still mix across a swap.
   # `$$` is Compose's escape for a literal `$`.
   web-sync:
     image: ghcr.io/nuimanlp/srisurart-pos-web:${IMAGE_TAG:?IMAGE_TAG is required}
@@ -50,16 +54,20 @@ services:
       - sh
       - -euc
       - |
+        prev=$$(grep -o 'main\.[0-9a-z][0-9a-z]*\.dart\.js' /target/flutter_bootstrap.js 2>/dev/null | head -n 1 || true)
+        put() {
+          cp -p "$$1" "/target/$$1.web-sync-tmp"
+          mv -f "/target/$$1.web-sync-tmp" "/target/$$1"
+        }
         cd /web
         find . -type d | while IFS= read -r d; do mkdir -p "/target/$$d"; done
-        find . -type f ! -path ./index.html | while IFS= read -r f; do
-          cp -p "$$f" "/target/$$f.web-sync-tmp"
-          mv -f "/target/$$f.web-sync-tmp" "/target/$$f"
-        done
-        cp -p index.html /target/index.html.web-sync-tmp
-        mv -f /target/index.html.web-sync-tmp /target/index.html
+        find . -type f ! -path ./flutter_bootstrap.js ! -path ./sw.js ! -path ./index.html |
+          while IFS= read -r f; do put "$$f"; done
+        for f in ./flutter_bootstrap.js ./sw.js ./index.html; do put "$$f"; done
         cd /target
-        find . ! -type d | while IFS= read -r f; do [ -e "/web/$$f" ] || rm -f "$$f"; done
+        find . ! -type d | while IFS= read -r f; do
+          [ -e "/web/$$f" ] || [ "$$f" = "./$$prev" ] || rm -f "$$f"
+        done
         find . -depth -type d ! -path . | while IFS= read -r d; do [ -d "/web/$$d" ] || rmdir "$$d"; done
     volumes:
       - web:/target

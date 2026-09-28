@@ -279,9 +279,16 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
    🔴 **รันหลัง API ทุกตัวเป็น release ใหม่แล้ว** (ต่อจาก `worker`/`bull-board` ในข้อ 6, 2026-09-28) — web ใหม่
    คู่ API เก่าอาจเรียก endpoint/field ที่ยังไม่มี ส่วน web เก่าคู่ API ใหม่เป็นกรณีที่ server ต้องรับอยู่แล้ว
    (outbox ของ build เก่าที่ offline) · ห้ามย้ายกลับไปก่อน `migrate` · **ไม่ล้าง volume ก่อน copy**: ทุกไฟล์
-   เขียนเป็นชื่อชั่วคราวแล้ว rename ทับ, `index.html` ท้ายสุด, แล้วค่อยลบไฟล์ที่ไม่อยู่ใน release — ไม่มีช่วงที่
-   ไฟล์หาย/ครึ่งไฟล์ (ของเดิม `rm -rf` + `cp` วัดได้ 25 read เสียใน 10 รอบ sync, ของใหม่ 0) · ชื่อไฟล์ของ
-   Flutter ไม่มี hash จึงยังมีโอกาสที่ page load หนึ่งคร่อมการสลับแล้วได้ไฟล์สอง release ปนกัน
+   เขียนเป็นชื่อชั่วคราวแล้ว rename ทับ, ไฟล์ที่อ้างถึงไฟล์อื่นไปท้ายสุดตามลำดับ `flutter_bootstrap.js` →
+   `sw.js` → `index.html`, แล้วค่อยลบไฟล์ที่ไม่อยู่ใน release — ไม่มีช่วงที่ไฟล์หาย/ครึ่งไฟล์ (ของเดิม `rm -rf` +
+   `cp` วัดได้ 25 read เสียใน 10 รอบ sync, ของใหม่ 0) · **entry point มีเวอร์ชัน (2026-09-28):** CI เปลี่ยนชื่อ
+   `main.dart.js` → `main.<sha12>.dart.js` และแก้ชื่อใน `flutter_bootstrap.js` + `sw.js` (`deploy/version-web-build.sh`,
+   ขั้น *version the entry point* ใน `flutter.yml`) · ตอนลบ web-sync **เก็บ `main.*.dart.js` ของ release ก่อนหน้าไว้
+   หนึ่ง release** (ชื่อที่ `flutter_bootstrap.js` เดิมบน volume อ้างถึง) — page load ที่ได้ bootstrap เก่าก่อนการสลับ
+   จึงยังโหลด main ของตัวเองได้ ไม่ปน release · ของ release ก่อนหน้านั้นถูกลบ · ยังเหลือ: ไฟล์ที่ไม่มีเวอร์ชัน
+   (`assets/`, `drift_worker.js`, `sqlite3.wasm`) ยังปนข้าม release ได้ถ้า load คร่อมการสลับพอดี (เปลี่ยนน้อย —
+   `drift_worker.js`/`sqlite3.wasm` เปลี่ยนเฉพาะตอน bump drift/sqlite3) · deploy SHA เดิมซ้ำจะทำให้ main ของ release
+   ก่อนหน้าหลุด (prev = ตัวเอง)
    → validate `nginx.conf` ที่เพิ่ง copy (`run --rm --no-deps nginx nginx -t` ในคอนเทนเนอร์แยก ไม่แตะตัวที่รันอยู่) →
    `up -d --no-deps --force-recreate nginx` **ทุกครั้ง** (#249 — bind mount ไฟล์เดี่ยวยึด inode เก่าหลัง
    `copy` เหมือนกรณี Prometheus/Grafana ข้อ 9 ด้านล่าง แม้แต่ `nginx -s reload` ก็ไม่ช่วยเพราะ reload
@@ -671,6 +678,13 @@ conf ปัจจุบันไม่มี ทำให้ `.js`/`.wasm` ข�
 > อยู่ที่บรรทัด 7 และ `location /api/v1/platform/` พร้อม allow loopback + `deny all` อยู่ที่บรรทัด 87 (#270, PR #308) ·
 > IP แอดมินจากนอกเครื่องยังเป็น `TODO(owner)` ในไฟล์ (Nginx ไม่อ่าน `PLATFORM_ADMIN_IPS` — ตัวแปรนั้นเป็นชั้นของแอป, #367) · ไฟล์จริงยังมี `location = /metrics` (404), `location = /sw.js` (no-cache) และ
 > `location = /prometheus-remote-write/api/v1/write` (§10.3) นอกเหนือจากสี่บล็อกข้างบน
+
+**Cache ของ web (2026-09-28):** `location /` ส่ง `Cache-Control: no-cache` ทุกไฟล์ (browser ต้อง revalidate —
+ไม่เปลี่ยนได้ 304 ถูก ๆ) เพราะชื่อไฟล์ Flutter ไม่เปลี่ยนข้าม release · ข้อยกเว้นเดียวคือ regex location
+`^/main\.[0-9a-z]+\.dart\.js$` → `public, max-age=31536000, immutable` และ `try_files $uri =404` (ห้าม fallback เป็น
+`index.html` — main ที่หายต้องเป็น 404 ไม่ใช่ HTML ที่ไป parse เป็น JS) · `sw.js` มี `CACHE_NAME = srisurart-pos-<sha12>`
+ต่อ release (byte เปลี่ยน → browser ติดตั้ง SW ตัวใหม่ แล้วขึ้นแถบ "มีเวอร์ชันใหม่") — ของเดิม `srisurart-pos-v1` คงที่
+ทำให้ SW แบบ cache-first เสิร์ฟ release เก่าตลอดไป
 
 🔴 **Nginx ต้องเป็น proxy ตัวเดียวหน้า API (#134):** `configureApp` ตั้ง `trust proxy` = 1 ให้ `req.ip` คือ
 ค่าขวาสุดของ `X-Forwarded-For` ที่ Nginx ต่อท้ายจาก `$remote_addr` — rate limit ของ login (`auth:ip:*`) และ IP ใน

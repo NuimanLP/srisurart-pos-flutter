@@ -3,6 +3,8 @@
 // Invariant: NEVER call self.skipWaiting() automatically on install.
 // Cache updates must be confirmed by the cashier to prevent reloads mid-sale.
 
+// CI rewrites this line and the 'main.dart.js' entry below to the release SHA
+// (deploy/version-web-build.sh) — keep both spelled exactly as they are.
 const CACHE_NAME = 'srisurart-pos-v1';
 
 const PRECACHE_ASSETS = [

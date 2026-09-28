@@ -791,7 +791,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | 9 | `Bootstrap etcd auth ... (etcd-init)` → `Assert etcd refuses an unauthenticated read` | เปิด auth แล้ว assert HTTP 400 |
 | 10 | `Restart instance api-1` → `Wait for api-1 health check to pass` → api-2 → api-3 | rolling ทีละตัว รอ healthy ≤ 25×3 วิ |
 | 11 | `Restart worker and bull-board` | |
-| 12 | `Populate shared web volume from web image (web-sync)` | หลัง API ทุกตัว · copy เป็นชื่อชั่วคราวแล้ว `mv` ทับ, `index.html` ท้ายสุด, แล้วลบไฟล์เก่า (`vm.override.yml`) |
+| 12 | `Populate shared web volume from web image (web-sync)` | หลัง API ทุกตัว · copy เป็นชื่อชั่วคราวแล้ว `mv` ทับ, `flutter_bootstrap.js` → `sw.js` → `index.html` ท้ายสุด, แล้วลบไฟล์เก่า — ยกเว้น `main.<sha>.dart.js` ของ release ก่อนหน้า (เก็บไว้หนึ่ง release ให้ page load ที่คร่อมการสลับ) (`vm.override.yml`) |
 | 13 | `Validate the copied Nginx configuration` → `Recreate Nginx so it loads the copied config` | `nginx -t` ใน container ทิ้ง แล้ว force-recreate ทุกครั้ง (#249) |
 | 14 | `Validate the copied platform-ui Nginx configuration` → `Recreate platform-ui ...` | แบบเดียวกัน |
 | 15 | `Verify cluster readiness via Nginx (GET /health/ready)` | ต้อง 200 (≤ 15×3 วิ) |
