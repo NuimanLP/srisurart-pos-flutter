@@ -108,6 +108,15 @@ class ApiSettingsRepository extends SettingsRepository {
 
   /// A server `Settings` object → the Drift row. 🔴 A key the reply omits
   /// leaves its column alone (ADR-0010); a key sent as `null` clears it.
+  ///
+  /// `pullFromServer` and `updateSettings` both funnel their reply through
+  /// here, and both can be in flight at once (#474 pull-on-reconnect made a
+  /// `GET` a lot more frequent). If a `GET` started before a `PATCH` but its
+  /// response lands after the `PATCH`'s, applying it would clobber the newer
+  /// row with stale data — so a reply whose own `updatedAt` is not after the
+  /// row's *current* `updatedAt` is dropped instead of written (PR #486
+  /// review). The read-then-write is one transaction so two concurrent
+  /// callers can't interleave between the check and the write.
   Future<void> _patchFromWire(Map<dynamic, dynamic> s) async {
     Value<String?> nullable(String key) {
       if (!s.containsKey(key)) return const Value.absent();
@@ -139,7 +148,20 @@ class ApiSettingsRepository extends SettingsRepository {
       updatedAt: updatedAt != null ? Value(updatedAt.toLocal()) : const Value.absent(),
     );
     if (companion == const SettingsRowCompanion()) return;
-    await (db.update(db.settingsRow)..where((t) => t.id.equals(0)))
-        .write(companion);
+
+    await db.transaction(() async {
+      if (updatedAt != null) {
+        final current = await (db.select(
+          db.settingsRow,
+        )..where((t) => t.id.equals(0))).getSingleOrNull();
+        final currentUpdatedAt = current?.updatedAt;
+        if (currentUpdatedAt != null &&
+            !updatedAt.toLocal().isAfter(currentUpdatedAt)) {
+          return;
+        }
+      }
+      await (db.update(db.settingsRow)..where((t) => t.id.equals(0)))
+          .write(companion);
+    });
   }
 }

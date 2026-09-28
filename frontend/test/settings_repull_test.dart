@@ -6,8 +6,10 @@
 // `onPull` callback `SyncService` fires after every push while online,
 // including right after a reconnect — pulls settings too.
 
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -18,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
 import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
@@ -177,6 +180,63 @@ void main() {
         sync.dispose();
         await tester.pump(const Duration(milliseconds: 1));
       }
+    },
+  );
+
+  test(
+    'PR #486: a GET /settings started before a PATCH, but whose response '
+    'lands after it, must not clobber the PATCH result in the Drift cache',
+    () async {
+      // The GET is held open with a Completer so its (older) response lands
+      // strictly after the PATCH's (newer) response has already been
+      // written — the exact interleaving triggerEntityPull's more frequent
+      // GET (#474) made newly reachable.
+      final releaseGet = Completer<void>();
+
+      final client = ApiClient(
+        httpClient: MockClient((req) async {
+          if (req.method == 'GET') {
+            await releaseGet.future;
+            return http.Response(
+              jsonEncode({
+                'shopName': 'ชื่อเก่า',
+                'shopNameEn': 'Old Name',
+                'updatedAt': '2026-09-28T00:00:00.000Z', // older
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          // PATCH — answered immediately, "wins" the race.
+          return http.Response(
+            jsonEncode({
+              'shopName': 'ชื่อใหม่',
+              'shopNameEn': 'New Name',
+              'updatedAt': '2026-09-28T00:00:05.000Z', // newer
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final settings = ApiSettingsRepository(db, client);
+
+      final getFuture = settings.pullFromServer(); // starts first, blocks
+      final patchFuture = settings.updateSettings(
+        const SettingsRowCompanion(shopNameEN: Value('New Name')),
+      );
+
+      await patchFuture; // PATCH's (newer) reply is written first.
+      releaseGet.complete(); // now let the stale GET's reply through.
+      await getFuture;
+
+      final row = await db.select(db.settingsRow).getSingle();
+      expect(
+        row.shopNameEN,
+        'New Name',
+        reason: 'the stale GET clobbered the newer PATCH result',
+      );
     },
   );
 }
