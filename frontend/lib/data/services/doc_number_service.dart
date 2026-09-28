@@ -361,24 +361,11 @@ class DocNumberService {
   /// than guessed: the server refuses a number whose `device_no` is not the
   /// caller's (`DOC_NUMBER_INVALID`), and the paper would already be printed.
   Future<String> issueOffline({required String docType, DateTime? now}) async {
-    final seed =
-        await (db.select(db.docCounterSeeds)
-              ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
-              ..limit(1))
-            .getSingleOrNull();
-    // Any row of the device will do: `device_no` is fixed per `devices.id`.
-    final counter = seed == null
-        ? null
-        : await (db.select(db.docCounters)
-                ..where((t) => t.deviceId.equals(seed.deviceId))
-                ..limit(1))
-              .getSingleOrNull();
-    if (seed == null || counter == null) {
-      throw const OfflineSeedRequiredException();
-    }
+    final device = await _seededDevice();
+    if (device == null) throw const OfflineSeedRequiredException();
     return issueAndCommit(
-      deviceId: seed.deviceId,
-      deviceNo: counter.deviceNo,
+      deviceId: device.deviceId,
+      deviceNo: device.deviceNo,
       docType: docType,
       now: now,
       isOffline: true,
@@ -402,25 +389,35 @@ class DocNumberService {
     } on FormatException {
       return;
     }
-    final seed =
-        await (db.select(db.docCounterSeeds)
-              ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
-              ..limit(1))
-            .getSingleOrNull();
-    if (seed == null) return;
-    final counter =
-        await (db.select(db.docCounters)
-              ..where((t) => t.deviceId.equals(seed.deviceId))
-              ..limit(1))
-            .getSingleOrNull();
-    if (counter == null || counter.deviceNo != parsed.deviceNo) return;
+    final device = await _seededDevice();
+    if (device == null || device.deviceNo != parsed.deviceNo) return;
     await commitDocNo(
-      deviceId: seed.deviceId,
+      deviceId: device.deviceId,
       deviceNo: parsed.deviceNo,
       docType: parsed.docType,
       period: parsed.period,
       seq: parsed.seq,
     );
+  }
+
+  /// The device this browser numbers RC/CN under: the one most recently seeded,
+  /// with the `device_no` a counter row of it carries. Null when either is
+  /// unknown. [issueOffline] and [commitServerIssued] MUST agree on it (#489).
+  Future<({String deviceId, int deviceNo})?> _seededDevice() async {
+    final seed =
+        await (db.select(db.docCounterSeeds)
+              ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    if (seed == null) return null;
+    // Any row of the device will do: `device_no` is fixed per `devices.id`.
+    final counter =
+        await (db.select(db.docCounters)
+              ..where((t) => t.deviceId.equals(seed.deviceId))
+              ..limit(1))
+            .getSingleOrNull();
+    if (counter == null) return null;
+    return (deviceId: seed.deviceId, deviceNo: counter.deviceNo);
   }
 
   /// Returns the current lastNo recorded in [DocCounters] for `(deviceId, docType, period)`.
