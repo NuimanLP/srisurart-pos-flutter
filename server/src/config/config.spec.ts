@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { loadConfig, refusePublicSecret, refusePublicSecretInUrl } from './config.js';
+import {
+  loadConfig,
+  parsePlatformAdmins,
+  refusePublicSecret,
+  refusePublicSecretInUrl,
+} from './config.js';
 
 /**
  * #367: compose passes `CORS_ORIGINS` / `PLATFORM_ADMIN_IPS` into every api container as
@@ -258,5 +263,67 @@ describe('loadConfig — refuses public placeholder secrets unless ALLOW_DEV_SEC
       refusePublicSecret({ ALLOW_DEV_SECRETS: 'true' }, 'BULL_BOARD_PASSWORD', 'dev-only-bull-board'),
     ).not.toThrow();
     expect(() => refusePublicSecret({}, 'BULL_BOARD_PASSWORD', 'a-real-password')).not.toThrow();
+  });
+});
+
+/** #443: `PLATFORM_ADMINS=user:password,…` — validated first, a bad entry fails the boot. */
+describe('parsePlatformAdmins (PLATFORM_ADMINS, #443)', () => {
+  const PW = 'twelve-chars-ok';
+
+  it('treats absent and blank as unset', () => {
+    expect(parsePlatformAdmins(undefined)).toBeUndefined();
+    expect(parsePlatformAdmins('')).toBeUndefined();
+    expect(parsePlatformAdmins('   ')).toBeUndefined();
+  });
+
+  it('parses a list and trims whitespace around names and passwords', () => {
+    expect(parsePlatformAdmins(` alice : ${PW} ,bob:${PW}2`)).toEqual([
+      { username: 'alice', password: PW },
+      { username: 'bob', password: `${PW}2` },
+    ]);
+  });
+
+  it('splits on the first colon only, so a password may contain `:`', () => {
+    expect(parsePlatformAdmins('root:a:b:c:dddddddddd')).toEqual([
+      { username: 'root', password: 'a:b:c:dddddddddd' },
+    ]);
+  });
+
+  it('refuses a duplicate username', () => {
+    expect(() => parsePlatformAdmins(`a:${PW},a:${PW}x`)).toThrow(/entry #2 repeats username "a"/);
+  });
+
+  it('refuses a password under the 12-character floor, without echoing it', () => {
+    let err: Error | undefined;
+    try {
+      parsePlatformAdmins('alice:short-pw');
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err?.message).toMatch(/entry #1 \("alice"\) password is too weak: at least 12/);
+    expect(err?.message).not.toContain('short-pw');
+    expect(() => parsePlatformAdmins('alice:   ')).toThrow(/password is required/);
+  });
+
+  it('refuses a malformed entry, an empty entry and an empty username', () => {
+    expect(() => parsePlatformAdmins('alice-no-colon')).toThrow(/entry #1 is malformed/);
+    expect(() => parsePlatformAdmins(`a:${PW},`)).toThrow(/entry #2 is malformed/);
+    expect(() => parsePlatformAdmins(`a:${PW},,b:${PW}`)).toThrow(/entry #2 is malformed/);
+    expect(() => parsePlatformAdmins(` :${PW}`)).toThrow(/entry #1 has an empty username/);
+  });
+
+  it('is read by api instances only', () => {
+    const env: NodeJS.ProcessEnv = {
+      DATABASE_URL: 'postgres://pos_app:pw@localhost:5432/pos',
+      REDIS_CACHE_URL: 'redis://localhost:6379',
+      REDIS_QUEUE_URL: 'redis://localhost:6380',
+      JWT_PLATFORM_SECRET: 'test-only-platform-secret',
+      POSTGRES_PASSWORD: 'test-only-postgres',
+      PLATFORM_ADMINS: 'broken',
+    };
+    expect(loadConfig({ ...env, INSTANCE_ID: 'worker' }).platformAdmins).toBeUndefined();
+    expect(() =>
+      loadConfig({ ...env, INSTANCE_ID: 'api-1', JWT_PRIVATE_KEY: 'k', JWT_PUBLIC_KEYS: 'k' }),
+    ).toThrow(/PLATFORM_ADMINS entry #1 is malformed/);
   });
 });

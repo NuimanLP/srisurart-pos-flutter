@@ -116,6 +116,9 @@ $DC run --rm \
   -e BOOTSTRAP_ADMIN_PASSWORD='<อย่างน้อย 12 ตัวอักษร>' \
   -e BOOTSTRAP_ADMIN_DISPLAY_NAME='ผู้ดูแลระบบ' \
   migrate node dist/db/bootstrap-admin.js
+# ทางเลือก (#443, 2026-09-28): ใส่ PLATFORM_ADMINS=admin:<อย่างน้อย 12 ตัวอักษร> ใน server/.env
+# (บน VM = DEMO_ENV_FILE แล้วรัน provision.yml ใหม่) แล้ว restart api — api ทุกตัว upsert ให้ตอน boot
+# (ไม่มี → สร้าง · รหัสไม่ตรง → hash ใหม่ · ชื่อที่ลบออกจาก env ยังอยู่ใน DB) · display_name = username
 
 # ── 1. ทดสอบว่า admin login ได้ (ไม่บังคับ แต่กันเสียเวลาถ้าตอบ 401) ───────
 # แบบ interactive (พิมพ์รหัสเอง ไม่โชว์บนจอ):

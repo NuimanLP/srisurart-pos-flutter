@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { passwordPolicyMessage, passwordPolicyViolation } from '../common/password.js';
 
 export interface AppConfig {
   port: number;
@@ -32,6 +33,16 @@ export interface AppConfig {
   platformAdminIps?: string[];
   /** Whether the server falls back to issuing RC/CN when omitted by client (C16, default: true). */
   docNumberFallback?: boolean;
+  /**
+   * `PLATFORM_ADMINS` (#443): platform admins the api upserts at boot (`main.ts` →
+   * `db/platform-admins-env.ts`). Parsed on api instances only; `undefined` = unset/blank.
+   */
+  platformAdmins?: PlatformAdminEntry[];
+}
+
+export interface PlatformAdminEntry {
+  username: string;
+  password: string;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -156,6 +167,39 @@ function csvAllowlist(env: NodeJS.ProcessEnv, name: string): string[] | undefine
   return items;
 }
 
+/**
+ * `PLATFORM_ADMINS=user:password,user:password` (#443, owner decision 2026-09-28). Entries are
+ * split on `,`, each entry on its FIRST `:` (so a password may contain `:` but never `,`), and
+ * both halves are trimmed. Blank/absent = `undefined` (nothing to sync). Anything else that is
+ * not a clean list — an empty entry, no `:`, an empty username, a duplicate username, or a
+ * password under `passwordPolicyViolation`'s floor — throws, so a typo fails the boot instead
+ * of silently skipping an admin (CLAUDE.md: validate first). Errors name the entry's position
+ * and username, never a password.
+ */
+export function parsePlatformAdmins(raw: string | undefined): PlatformAdminEntry[] | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const seen = new Set<string>();
+  return raw.split(',').map((entry, i) => {
+    const where = `PLATFORM_ADMINS entry #${i + 1}`;
+    const colon = entry.indexOf(':');
+    if (colon === -1) {
+      throw new Error(`${where} is malformed: expected user:password`);
+    }
+    const username = entry.slice(0, colon).trim();
+    const password = entry.slice(colon + 1).trim();
+    if (!username) throw new Error(`${where} has an empty username`);
+    if (seen.has(username)) {
+      throw new Error(`${where} repeats username "${username}"`);
+    }
+    seen.add(username);
+    const violation = passwordPolicyViolation(password);
+    if (violation) {
+      throw new Error(passwordPolicyMessage(violation, `${where} ("${username}") password`));
+    }
+    return { username, password };
+  });
+}
+
 function parsePublicKeys(raw: string): string[] {
   const trimmed = raw.trim();
   if (trimmed.startsWith('{')) {
@@ -227,5 +271,7 @@ export function loadConfig(env = process.env): AppConfig {
     etcdPassword,
     platformAdminIps: csvAllowlist(env, 'PLATFORM_ADMIN_IPS'),
     docNumberFallback: env.DOC_NUMBER_FALLBACK !== 'false',
+    // Api only: worker/bull-board get the same key through compose's `x-app-env` and ignore it.
+    platformAdmins: isApi ? parsePlatformAdmins(env.PLATFORM_ADMINS) : undefined,
   };
 }

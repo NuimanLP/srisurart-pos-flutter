@@ -64,6 +64,11 @@ x-app-env: &app-env
   # both variables are inert there — bull-board is protected by its loopback port + basic auth.
   CORS_ORIGINS: ${CORS_ORIGINS:-}
   PLATFORM_ADMIN_IPS: ${PLATFORM_ADMIN_IPS:-172.30.0.20}
+  # #443: `user:password,user:password` — platform admins every api instance upserts at boot
+  # (config.ts `parsePlatformAdmins`, db/platform-admins-env.ts). Optional: blank = no sync. A bad
+  # entry (no `:`, empty user, duplicate, password < 12 chars) fails the api boot. Names dropped
+  # from the list are kept in the DB. Inert on worker/bull-board (config.ts reads it on api only).
+  PLATFORM_ADMINS: ${PLATFORM_ADMINS:-}
   # #410: only `true` lets the app boot with the public placeholders from .env.example
   # (config.ts `refusePublicSecret`). Local dev / CI only; vm.override.yml forces it empty.
   ALLOW_DEV_SECRETS: ${ALLOW_DEV_SECRETS:-}
