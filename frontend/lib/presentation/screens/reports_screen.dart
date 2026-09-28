@@ -1309,13 +1309,19 @@ class _RecentRow extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 2),
-                Row(
+                // #477: at 390px width, a plain `Row` of two `_InfoChip`s
+                // overflowed once the payment-method chip held a long string
+                // (e.g. "เครดิตช่าง") at the largest font scale — `Wrap` lets
+                // the second chip fall to its own line instead of forcing
+                // the Row past the Expanded's width.
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 2,
                   children: [
                     _InfoChip(
                       label: '${sale.items.length} รายการ',
                       isDark: isDark,
                     ),
-                    const SizedBox(width: 6),
                     _InfoChip(label: s.paymentMethod, isDark: isDark),
                   ],
                 ),
@@ -1323,11 +1329,18 @@ class _RecentRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            baht(s.total),
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: isDark ? Colors.white : AppColors.navy,
+          // #477: the total (unbounded width, w800 titleMedium) could still
+          // squeeze the Expanded column below its content's needed width at
+          // 390px on a six-figure sale — Flexible + ellipsis lets it shrink
+          // instead of forcing the Row to overflow.
+          Flexible(
+            child: Text(
+              baht(s.total),
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: isDark ? Colors.white : AppColors.navy,
+              ),
             ),
           ),
         ],

@@ -192,8 +192,23 @@ void main() {
       api: client(),
       db: db,
       drift: SalesRepository(db),
+      docNumberService: DocNumberService(db: db),
       isOffline: true,
     );
+
+    // #472: an offline RC needs a seeded device (no docNo('RC') fallback).
+    setUp(() async {
+      final numbers = DocNumberService(db: db);
+      final period = DocNumberService.formatPeriod(DateTime.now());
+      await numbers.recordSeedMarker(deviceId: 'dev-1', period: period);
+      await numbers.commitDocNo(
+        deviceId: 'dev-1',
+        deviceNo: 3,
+        docType: 'receipt',
+        period: period,
+        seq: 4,
+      );
+    });
 
     const creditSale = SaleInput(
       subtotal: 215,
