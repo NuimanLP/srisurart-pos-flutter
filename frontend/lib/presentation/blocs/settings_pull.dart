@@ -5,6 +5,12 @@
 // restart, `login()` after the form. Unlike the seed, every device role pulls —
 // `GET /settings` is open to any signed-in device and a backoffice screen
 // prints the shop name too.
+//
+// Not the only pull: a build with a `SyncService` also pulls settings from
+// `triggerEntityPull` (`repository_providers.dart`, #474) on reconnect, so a
+// session that survived an offline app-open doesn't wait for the next login
+// here. This file stays as-is because a backoffice build has no
+// `SyncService` and still needs this one.
 
 import 'dart:async';
 

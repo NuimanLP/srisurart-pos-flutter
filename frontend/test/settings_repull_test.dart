@@ -111,4 +111,72 @@ void main() {
       }
     },
   );
+
+  testWidgets(
+    '#474 AC2: a failing GET /api/v1/settings does not stop products/'
+    'customers/mechanics from being pulled in the same triggerEntityPull',
+    (tester) async {
+      var settingsRequested = false;
+      var productsRequested = false;
+      var customersRequested = false;
+      var mechanicsRequested = false;
+
+      final client = ApiClient(
+        httpClient: MockClient((req) async {
+          if (req.url.path == '/api/v1/settings') {
+            settingsRequested = true;
+            return http.Response('server error', 500);
+          }
+          if (req.url.path == '/api/v1/products') productsRequested = true;
+          if (req.url.path == '/api/v1/customers') customersRequested = true;
+          if (req.url.path == '/api/v1/mechanics') mechanicsRequested = true;
+          return http.Response(
+            jsonEncode({
+              'data': [],
+              'meta': {'total': 0, 'page': 1, 'limit': 100, 'totalPages': 1},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      SyncFacade? syncFacade;
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: repositoryProviders(db, apiClient: client, useApi: true),
+          child: Builder(
+            builder: (context) {
+              syncFacade = context.read<SyncFacade>();
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+
+      final sync = syncFacade! as SyncService;
+
+      try {
+        // No exception should escape — `pull()`'s own try/catch aside, the
+        // `Future.wait` in `triggerEntityPull` must not let the settings
+        // future's rejection stop the others from running.
+        await sync.pull();
+
+        expect(settingsRequested, isTrue);
+        expect(productsRequested, isTrue,
+            reason: 'products pull was skipped when settings failed');
+        expect(customersRequested, isTrue,
+            reason: 'customers pull was skipped when settings failed');
+        expect(mechanicsRequested, isTrue,
+            reason: 'mechanics pull was skipped when settings failed');
+
+        // The 500 must not have written anything to the settings cache.
+        final row = await db.select(db.settingsRow).getSingle();
+        expect(row.shopName, isNot('ร้านศรีใหม่'));
+      } finally {
+        sync.dispose();
+        await tester.pump(const Duration(milliseconds: 1));
+      }
+    },
+  );
 }

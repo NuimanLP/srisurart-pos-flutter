@@ -225,7 +225,10 @@ open (`isActive && closedAt == null`, `api_wire.dart hasOpenShift`), and
 the Drift row, `updateSettings` is `PATCH /settings` (online-only, 08 §6.2 —
 Degraded or no link → a Thai `PosException`, never a local write), and
 `pullFromServer` (`GET /settings`) runs on app open / login via
-`pullSettingsOnSignIn` in `main.dart`. `BootstrapService` stays unwired.
+`pullSettingsOnSignIn` in `main.dart`, and again from `triggerEntityPull`
+(`SyncService.onPull`, #474) so a reconnect after an offline app-open
+refreshes it without waiting for the next login. `BootstrapService` stays
+unwired.
 
 | Repository | Type |
 |---|---|

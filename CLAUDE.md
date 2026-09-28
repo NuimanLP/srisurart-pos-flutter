@@ -491,7 +491,8 @@ on void/return paths. Keep this order in any new write touching more than one of
   `ApiSettingsRepository.updateSettings` is `PATCH /settings` with an `Idempotency-Key`,
   refuses when Degraded, and writes Drift **only** from the server's accepted reply —
   never a local-first write, never on a failure; `pullFromServer` (`GET
-  /settings`) runs on app open/login only (#474 tracks re-pulling on reconnect).
+  /settings`) runs on app open/login and again from `triggerEntityPull`
+  (`SyncService.onPull`) on reconnect (#474, fixed).
   🔴 **Do not wire `BootstrapService.bootstrap()` as it stands** — its product upsert
   skips the pending-outbox stock guard (08 §15), nulls `zone`, and its settings mapping
   reads `shopNameEN` where the server sends `shopNameEn` and ignores `quoteValidDays`
