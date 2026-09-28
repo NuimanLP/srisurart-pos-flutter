@@ -547,6 +547,10 @@ class ApiReturnsRepository implements ReturnsRepository {
           }
         });
       }
+
+      // #489: the server's CN number into the local counter, in this same
+      // transaction — else a later offline credit note reissues it.
+      await docNumberService?.commitServerIssued(ret.cnNo);
     });
 
     return ret;

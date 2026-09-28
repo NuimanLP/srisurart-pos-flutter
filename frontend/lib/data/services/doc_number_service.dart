@@ -385,6 +385,44 @@ class DocNumberService {
     );
   }
 
+  /// Records a number the SERVER issued for this device online (#489), so a
+  /// later [issueOffline] continues after it instead of reissuing it. Call it
+  /// inside the transaction that patches the server's response.
+  ///
+  /// The response carries no device id, so the number is filed under the same
+  /// device [issueOffline] numbers from (the most recently seeded one), and only
+  /// when its `device_no` is that device's series. No seed, no counter row, a
+  /// different series or an unparseable number → nothing is recorded: offline
+  /// issuing for that device is refused anyway, and failing the patch would
+  /// leave a committed bill unrecorded. `MAX()` high-water, never lowers.
+  Future<void> commitServerIssued(String docNo) async {
+    final ParsedDocNo parsed;
+    try {
+      parsed = parseDocNo(docNo);
+    } on FormatException {
+      return;
+    }
+    final seed =
+        await (db.select(db.docCounterSeeds)
+              ..orderBy([(t) => OrderingTerm.desc(t.seededAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    if (seed == null) return;
+    final counter =
+        await (db.select(db.docCounters)
+              ..where((t) => t.deviceId.equals(seed.deviceId))
+              ..limit(1))
+            .getSingleOrNull();
+    if (counter == null || counter.deviceNo != parsed.deviceNo) return;
+    await commitDocNo(
+      deviceId: seed.deviceId,
+      deviceNo: parsed.deviceNo,
+      docType: parsed.docType,
+      period: parsed.period,
+      seq: parsed.seq,
+    );
+  }
+
   /// Returns the current lastNo recorded in [DocCounters] for `(deviceId, docType, period)`.
   /// Returns 0 if no counter row exists.
   Future<int> getLastNo({

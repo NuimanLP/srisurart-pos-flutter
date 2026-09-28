@@ -428,6 +428,10 @@ class ApiSalesRepository implements SalesRepository {
           }
         });
       }
+
+      // #489: the server's number into the local counter, in this same
+      // transaction — else a later offline sale reissues it.
+      await docNumberService?.commitServerIssued(sale.receiptNo);
     });
 
     return sale;
