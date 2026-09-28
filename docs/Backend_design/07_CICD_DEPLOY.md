@@ -267,9 +267,12 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
    จาก source ที่ไม่มีบน VM)
 3. `docker compose pull`
 4. `docker compose run --rm web-sync` — copy `/web` จาก image web ลง volume `web` ที่ Nginx mount อ่าน
-   (แบบเดียวกับ `certgen`) · Nginx ยังเป็น `nginx:1.29-alpine` + `server/docker/nginx/nginx.conf` เดิม
+   (แบบเดียวกับ `certgen`) · Nginx ยังเป็น `nginx:1.29-alpine` + `server/docker/nginx/nginx.conf` เดิม ·
+   🔴 **รันหลัง API ทุกตัวเป็น release ใหม่แล้ว** (ในข้อ 6 ต่อจาก `worker`/`bull-board`, 2026-09-28) — web ใหม่
+   คู่ API เก่าอาจเรียก endpoint/field ที่ยังไม่มี ส่วน web เก่าคู่ API ใหม่เป็นกรณีที่ server ต้องรับอยู่แล้ว
+   (outbox ของ build เก่าที่ offline) · ห้ามย้ายกลับไปก่อน `migrate`
 5. `docker compose run --rm migrate` — **schema ก่อนโค้ด** ครั้งเดียว
-6. rolling: `up -d --no-deps api-1` → รอ healthy → `api-2` → `api-3` → `worker`, `bull-board` → validate
+6. rolling: `up -d --no-deps api-1` → รอ healthy → `api-2` → `api-3` → `worker`, `bull-board` → `web-sync` (ข้อ 4) → validate
    `nginx.conf` ที่เพิ่ง copy (`run --rm --no-deps nginx nginx -t` ในคอนเทนเนอร์แยก ไม่แตะตัวที่รันอยู่) →
    `up -d --no-deps --force-recreate nginx` **ทุกครั้ง** (#249 — bind mount ไฟล์เดี่ยวยึด inode เก่าหลัง
    `copy` เหมือนกรณี Prometheus/Grafana ข้อ 9 ด้านล่าง แม้แต่ `nginx -s reload` ก็ไม่ช่วยเพราะ reload
