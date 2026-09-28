@@ -172,4 +172,29 @@ void main() {
       expect(indexContent, contains('flutter_bootstrap.js'));
     });
   });
+
+  group('Flutter bootstrap template (web/flutter_bootstrap.js)', () {
+    late String bootstrap;
+
+    setUpAll(() {
+      final file = File('web/flutter_bootstrap.js');
+      expect(file.existsSync(), isTrue,
+          reason: 'without it Flutter generates a bootstrap that registers its own '
+              'service worker over sw.js');
+      bootstrap = file.readAsStringSync();
+    });
+
+    test('keeps the build placeholders', () {
+      expect(bootstrap, contains('{{flutter_js}}'));
+      expect(bootstrap, contains('{{flutter_build_config}}'));
+    });
+
+    test('loads Flutter without serviceWorkerSettings — sw.js must stay the only worker', () {
+      // Flutter's default passes serviceWorkerSettings, which registers the deprecated
+      // flutter_service_worker.js: it replaces sw.js, unregisters itself and reloads the tab.
+      expect(bootstrap, contains('_flutter.loader.load();'));
+      expect(bootstrap, isNot(contains('serviceWorkerSettings:')));
+      expect(bootstrap, isNot(contains('{{flutter_service_worker_version}}')));
+    });
+  });
 }
