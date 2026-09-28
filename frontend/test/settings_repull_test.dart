@@ -190,7 +190,10 @@ void main() {
       // The GET is held open with a Completer so its (older) response lands
       // strictly after the PATCH's (newer) response has already been
       // written — the exact interleaving triggerEntityPull's more frequent
-      // GET (#474) made newly reachable.
+      // GET (#474) made newly reachable. The guard is the `_writeGen`
+      // counter, not `updatedAt` (round 2 of the PR #486 review) — these
+      // wire timestamps only document which reply is "older" in the
+      // scenario, they aren't what the repository compares.
       final releaseGet = Completer<void>();
 
       final client = ApiClient(
@@ -237,6 +240,46 @@ void main() {
         'New Name',
         reason: 'the stale GET clobbered the newer PATCH result',
       );
+    },
+  );
+
+  test(
+    'PR #486 round 2: a local row whose updatedAt is far in the future '
+    '(device clock skew, or a snapshot import that kept the backup\'s own '
+    'stamp) still accepts a normal GET /settings — the guard is not clock-based',
+    () async {
+      // Simulates the Drift-only build's `SettingsRepository.updateSettings`
+      // stamping `DateTime.now()`, or `importLegacyBackup` keeping an old
+      // backup's own `updatedAt` — neither is server-derived, so a guard
+      // keyed on it would drop every future GET forever (#474 again, but
+      // permanent). Year 2099 stands in for "whatever is later than the
+      // server's real clock".
+      await (db.update(
+        db.settingsRow,
+      )..where((t) => t.id.equals(0))).write(
+        SettingsRowCompanion(updatedAt: Value(DateTime.utc(2099))),
+      );
+
+      final client = ApiClient(
+        httpClient: MockClient((req) async {
+          return http.Response(
+            jsonEncode({
+              'shopName': 'ร้านศรีจากเซิร์ฟเวอร์',
+              'shopNameEn': 'Server Sri Shop',
+              'updatedAt': '2026-09-28T00:00:00.000Z', // "older" than 2099
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final settings = ApiSettingsRepository(db, client);
+      final applied = await settings.pullFromServer();
+
+      expect(applied, isTrue);
+      final row = await db.select(db.settingsRow).getSingle();
+      expect(row.shopNameEN, 'Server Sri Shop');
     },
   );
 }
