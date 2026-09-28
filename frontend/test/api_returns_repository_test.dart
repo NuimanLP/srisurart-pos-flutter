@@ -774,6 +774,76 @@ void main() {
       expect(await numbers.getLastNo(deviceId: 'dev-1', docType: 'cn'), 4);
     });
 
+    test('#489: lost POST → offline CN → push replay with the server\'s number → counter reaches it', () async {
+      final now = DateTime.now();
+      final serverPeriod =
+          DocNumberService.formatPeriod(DateTime(now.year, now.month + 1, 1));
+      final serverNo = 'CN03-$serverPeriod-0001';
+      final pushClient = MockClient((req) async {
+        final op = ((jsonDecode(req.body) as Map)['ops'] as List).single as Map;
+        return http.Response(
+          jsonEncode({
+            'status': 'success',
+            'data': {
+              'results': [
+                {
+                  'opId': op['opId'],
+                  'status': 'applied',
+                  'response': {
+                    'id': (op['payload'] as Map)['id'],
+                    'cnNo': serverNo,
+                  },
+                },
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final client = ApiClient(
+        baseUrl: 'http://server.test',
+        httpClient: MockClient(
+          (_) async => throw http.ClientException('reply lost'),
+        ),
+      );
+      numbers = DocNumberService(db: db);
+      sync = SyncService(
+        db: db,
+        apiClient: client,
+        tokenStorage: _MemTokenStorage(),
+        httpClient: pushClient,
+        autoStartHealthProbe: false,
+        docNumberService: numbers,
+      );
+      addTearDown(sync.dispose);
+      final repo = ApiReturnsRepository(
+        api: client,
+        db: db,
+        drift: ReturnsRepository(db),
+        syncService: sync,
+        docNumberService: numbers,
+      );
+      await seedDevice();
+      await openShift();
+
+      final offline = await repo.createReturn(oneBack);
+      expect(offline.cnNo, 'CN03-$period-0005');
+
+      await sync.push();
+
+      expect(await ops(), isEmpty);
+      expect((await db.select(db.returns).getSingle()).cnNo, serverNo);
+      expect(
+        await numbers.getLastNo(
+          deviceId: 'dev-1',
+          docType: 'cn',
+          period: serverPeriod,
+        ),
+        1,
+      );
+    });
+
     test('a full return offline voids the parent bill', () async {
       final repo = offlineRepo((_) async => fail('no online call'));
       await seedDevice();
