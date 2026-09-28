@@ -36,12 +36,31 @@ services:
     volumes:
       - web:/usr/share/nginx/html:ro
 
-  # One-shot container to copy Flutter web assets into the shared volume.
-  # Overwrites stock Nginx default index.html on volume initialization.
+  # One-shot container to copy Flutter web assets into the shared volume Nginx is serving from.
+  # Never empty the volume first: every file is written to a temp name and renamed over the old one
+  # (rename is atomic), so a request never sees a missing or half-written file. index.html goes
+  # last, then files not in this release (the stock Nginx index/50x pages on a fresh volume, the
+  # previous release's leftovers, a killed run's temp files) are removed. Flutter's file names
+  # carry no content hash, so a page load that spans the swap can still mix two releases.
+  # `$$` is Compose's escape for a literal `$`.
   web-sync:
     image: ghcr.io/nuimanlp/srisurart-pos-web:${IMAGE_TAG:?IMAGE_TAG is required}
     restart: "no"
-    command: ["sh", "-c", "rm -rf /target/* && cp -a /web/. /target/"]
+    command:
+      - sh
+      - -euc
+      - |
+        cd /web
+        find . -type d | while IFS= read -r d; do mkdir -p "/target/$$d"; done
+        find . -type f ! -path ./index.html | while IFS= read -r f; do
+          cp -p "$$f" "/target/$$f.web-sync-tmp"
+          mv -f "/target/$$f.web-sync-tmp" "/target/$$f"
+        done
+        cp -p index.html /target/index.html.web-sync-tmp
+        mv -f /target/index.html.web-sync-tmp /target/index.html
+        cd /target
+        find . ! -type d | while IFS= read -r f; do [ -e "/web/$$f" ] || rm -f "$$f"; done
+        find . -depth -type d ! -path . | while IFS= read -r d; do [ -d "/web/$$d" ] || rmdir "$$d"; done
     volumes:
       - web:/target
 

@@ -4,10 +4,11 @@
 # 1. Checks if release is already running (early exit if identical SHA)
 # 2. Synchronizes Compose definitions and Nginx configurations
 # 3. Pulls GHCR release images
-# 4. Executes one-shot 'web-sync' container to update the shared 'web' volume
-# 5. Executes database migrations ('migrate' container: schema before code)
-# 6. Performs rolling restart of api-1 -> api-2 -> api-3 with health checks
-# 7. Restarts worker and bull-board, validates the copied nginx.conf in a throwaway container,
+# 4. Executes database migrations ('migrate' container: schema before code)
+# 5. Performs rolling restart of api-1 -> api-2 -> api-3 with health checks
+# 6. Restarts worker and bull-board
+# 7. Executes one-shot 'web-sync' container to update the shared 'web' volume (web after API),
+#    validates the copied nginx.conf in a throwaway container,
 #    then force-recreates Nginx unconditionally (#249: a single-file bind mount keeps the old
 #    inode after 'copy' renames a new file into place, so 'up -d --no-deps' alone -- and even
 #    'nginx -s reload' -- would leave the OLD config running; same mechanism and fix as #148's
@@ -210,13 +211,6 @@
       args:
         chdir: "{{ app_dir }}"
 
-    - name: Populate shared web volume from web image (web-sync)
-      ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm web-sync"
-      environment:
-        IMAGE_TAG: "{{ image_tag }}"
-      args:
-        chdir: "{{ app_dir }}"
-
     - name: Apply database schema migrations (schema before code)
       ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm migrate"
       environment:
@@ -335,6 +329,16 @@
     # Background workers
     - name: Restart worker and bull-board
       ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d --no-deps worker bull-board"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+
+    # Web last, after every API instance runs the new release: a new web against an old API can
+    # call an endpoint or field that does not exist yet, while an old web against a new API is the
+    # case the server must handle anyway (offline clients replay old builds' outbox).
+    - name: Populate shared web volume from web image (web-sync)
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm web-sync"
       environment:
         IMAGE_TAG: "{{ image_tag }}"
       args:
