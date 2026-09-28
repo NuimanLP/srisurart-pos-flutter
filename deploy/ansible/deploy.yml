@@ -527,8 +527,8 @@
               {{ ansible_failed_result.stderr | default('', true) or ansible_failed_result.msg | default('see task output above') }}.
               Check `docker compose {{ monitoring_compose_files }} ps` in {{ app_dir }}.
               Re-running this playbook with the same image_tag stops at the duplicate-release check,
-              so after fixing the cause either wait for the next release or delete
-              {{ app_dir }}/.current_sha and re-run this tag (that repeats the whole POS rollout).
+              so after fixing the cause either wait for the next release or re-run this tag with
+              -e force_redeploy=true (that repeats the whole POS rollout). Never delete .current_sha.
 
     # The stale monitoring.yml still requires GRAFANA_ADMIN_PASSWORD at interpolation, even for rm;
     # without a placeholder a removed password makes compose refuse and the containers keep running.

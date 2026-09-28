@@ -3,8 +3,8 @@
 #
 #   docker compose -f server/docker-compose.yml -f deploy/compose/monitoring.yml up -d
 #
-# On the VM deploy/ansible/deploy.yml composes it alongside vm.override.yml (#121, 07 §6 steps
-# 2 and 6). Run by hand from /opt/pos/, it needs the config root the playbook sets:
+# On the VM deploy/ansible/deploy.yml composes it alongside vm.override.yml (#121, 07 §6 step
+# 9). Run by hand from /opt/pos/, it needs the config root the playbook sets:
 #
 #   MONITORING_CONFIG_DIR=./deploy docker compose -f docker-compose.yml -f vm.override.yml -f monitoring.yml up -d
 #
