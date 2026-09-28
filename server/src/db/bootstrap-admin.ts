@@ -88,27 +88,7 @@ export async function bootstrapAdmin(
   try {
     await ds.initialize();
 
-    // Ask Postgres who we are rather than parsing the URL: a URL can say `postgres` and
-    // still land on a role that only inherits `pos_app`'s rights.
-    const [role] = await ds.query(
-      `SELECT current_user AS current_role_name,
-              pg_get_userbyid(c.relowner) AS table_owner,
-              pg_has_role(current_user, c.relowner, 'MEMBER') AS is_owner
-         FROM pg_class c
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relname = 'platform_admins'`,
-    );
-    if (!role) {
-      throw new Error(
-        'platform_admins does not exist — run the migrations first (node dist/db/migrate.js up)',
-      );
-    }
-    if (!role.is_owner) {
-      throw new Error(
-        `DATABASE_URL must be the owner role: connected as "${role.current_role_name}", ` +
-          `but platform_admins is owned by "${role.table_owner}"`,
-      );
-    }
+    await assertOwnerOfPlatformAdmins(ds);
 
     const passwordHash = await hashPassword(password);
     if (opts.force) {
@@ -117,7 +97,8 @@ export async function bootstrapAdmin(
       const [row] = await ds.query(
         `INSERT INTO platform_admins (username, password_hash, display_name)
          VALUES ($1, $2, $3)
-         ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash
+         ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash,
+                                              password_changed_at = now()
          RETURNING id, (xmax = 0) AS inserted`,
         [username, passwordHash, displayName],
       );
@@ -140,6 +121,37 @@ export async function bootstrapAdmin(
       : { action: 'unchanged', username, id: null };
   } finally {
     if (ds.isInitialized) await ds.destroy();
+  }
+}
+
+/**
+ * Refuses unless this connection owns `platform_admins` (and the table exists), with an
+ * operator-facing message. Shared by this CLI and the `PLATFORM_ADMINS` boot sync.
+ */
+export async function assertOwnerOfPlatformAdmins(
+  db: { query(sql: string): Promise<Array<Record<string, unknown>>> },
+  urlName = 'DATABASE_URL',
+): Promise<void> {
+  // Ask Postgres who we are rather than parsing the URL: a URL can say `postgres` and
+  // still land on a role that only inherits `pos_app`'s rights.
+  const [role] = await db.query(
+    `SELECT current_user AS current_role_name,
+            pg_get_userbyid(c.relowner) AS table_owner,
+            pg_has_role(current_user, c.relowner, 'MEMBER') AS is_owner
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relname = 'platform_admins'`,
+  );
+  if (!role) {
+    throw new Error(
+      'platform_admins does not exist — run the migrations first (node dist/db/migrate.js up)',
+    );
+  }
+  if (!role.is_owner) {
+    throw new Error(
+      `${urlName} must be the owner role: connected as "${role.current_role_name}", ` +
+        `but platform_admins is owned by "${role.table_owner}"`,
+    );
   }
 }
 

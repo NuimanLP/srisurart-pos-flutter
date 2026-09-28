@@ -86,33 +86,42 @@ export class PlatformAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token missing platform admin id');
     }
 
-    // Verify platform admin exists and is active (cache in Redis with 60s TTL)
+    // Verify platform admin exists and is active (cache in Redis with 60s TTL). The cached
+    // value also carries the password cutoff (#443, 2026-09-28): '0' = missing/inactive,
+    // '1' = active with no `password_changed_at`, otherwise floor(epoch(password_changed_at)).
     const cacheKey = `pa:${adminId}:exists`;
-    let exists: boolean | null = null;
+    let cached: string | null = null;
     try {
-      const cached = await this.redisCache.get(cacheKey);
-      if (cached !== null) {
-        exists = cached === '1';
-      }
+      cached = await this.redisCache.get(cacheKey);
     } catch {
       // If Redis fails, fall back to DB query
     }
 
-    if (exists === null) {
+    if (cached === null) {
       const res = await this.adminDs.query(
-        `SELECT id FROM platform_admins WHERE id = $1 AND is_active = true`,
+        `SELECT floor(extract(epoch FROM password_changed_at))::bigint AS cutoff
+           FROM platform_admins WHERE id = $1 AND is_active = true`,
         [adminId],
       );
-      exists = Array.isArray(res) && res.length > 0;
+      const row = Array.isArray(res) ? res[0] : undefined;
+      cached = !row ? '0' : row.cutoff == null ? '1' : String(row.cutoff);
       try {
-        await this.redisCache.setex(cacheKey, 60, exists ? '1' : '0');
+        await this.redisCache.setex(cacheKey, 60, cached);
       } catch {
         // Ignore Redis write errors
       }
     }
 
-    if (!exists) {
+    if (cached === '0') {
       throw new UnauthorizedException('Platform admin does not exist or is inactive');
+    }
+
+    // ADR-0009 addendum 2026-09-26 rule, applied to platform admins: a token issued before the
+    // password last changed (PLATFORM_ADMINS sync, `bootstrap-admin --force`) is dead. Strict
+    // `<` on whole seconds, like `/auth/refresh`; a token with no `iat` (minted before #443's
+    // fix round) counts as older than any cutoff.
+    if (cached !== '1' && (payload.iat ?? 0) < Number(cached)) {
+      throw new UnauthorizedException('Platform token predates the last password change');
     }
 
     req.platformAdmin = {

@@ -18,6 +18,7 @@ import { OwnerReviewItemsFixes1788652804200 } from './migrations/1788652804200-O
 import { ProductsSyncIndex1788652804300 } from './migrations/1788652804300-ProductsSyncIndex.js';
 import { ReviewItemReceiptRenumbered1788652804400 } from './migrations/1788652804400-ReviewItemReceiptRenumbered.js';
 import { OwnerTempPassword1788652804500 } from './migrations/1788652804500-OwnerTempPassword.js';
+import { PlatformAdminPasswordChangedAt1788652804600 } from './migrations/1788652804600-PlatformAdminPasswordChangedAt.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -40,6 +41,7 @@ export const MIGRATIONS = [
   ProductsSyncIndex1788652804300,
   ReviewItemReceiptRenumbered1788652804400,
   OwnerTempPassword1788652804500,
+  PlatformAdminPasswordChangedAt1788652804600,
 ];
 
 /**

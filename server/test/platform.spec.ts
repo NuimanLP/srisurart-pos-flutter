@@ -269,6 +269,27 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
       expect(mockRedisCache.setex).toHaveBeenCalledWith('pa:adm1:exists', 60, '0');
     });
+
+    it('refuses a token older than password_changed_at and caches the cutoff (#443)', async () => {
+      const ctxFor = (iat?: number) => {
+        const token = signJwt(
+          { aud: 'platform', sub: 'adm1', username: 'admin', ...(iat ? { iat } : {}) },
+          mockConfig.jwtPlatformSecret,
+        );
+        const req = { headers: { authorization: `Bearer ${token}` }, ip: '127.0.0.1' } as any;
+        return { switchToHttp: () => ({ getRequest: () => req }) } as any;
+      };
+      mockRedisCache.get.mockResolvedValueOnce(null);
+      mockAdminDs.query.mockResolvedValueOnce([{ cutoff: '1000' }]);
+      await expect(guard.canActivate(ctxFor(999))).rejects.toThrow(UnauthorizedException);
+      expect(mockRedisCache.setex).toHaveBeenCalledWith('pa:adm1:exists', 60, '1000');
+
+      mockRedisCache.get.mockResolvedValueOnce('1000');
+      expect(await guard.canActivate(ctxFor(1000))).toBe(true); // same second survives
+
+      mockRedisCache.get.mockResolvedValueOnce('1000');
+      await expect(guard.canActivate(ctxFor())).rejects.toThrow(UnauthorizedException); // no iat
+    });
   });
 
   describe('PlatformAuthService', () => {
