@@ -299,14 +299,40 @@ develops against a demo tenant.
   `devices_screen.dart:869`, `device_enrolment_dialog.dart:97`), and the post-enrol banner
   (#470, `login_form.dart:188`); all three are in `02 §8.1.1` for the owner to ratify.
 - **Follow-ups filed 2026-09-28** (verified in code, table in
-  `docs/handoff_log/session-2026-09-28-overnight-bug-sweep.md` §2): #472 offline RC
-  numbering still guesses `deviceNo ?? 1` and falls back to `docNo('RC')` (the defect #469
-  fixed for CN) · #473 discarding a `sale.create`/`return.create` does not undo local
-  stock/ledger · #474 settings are not re-pulled when the link returns · #475 new device
-  with no counter rows cannot number an offline CN (enhancement) · #476 device-management
-  dead end after the last enrolled browser is lost (owner call) · #477 reports
-  `_RecentRow` overflow at 390 px · #478 vehicle-search highlight hides the match · #479
-  A4 quote PDF detaches Thai tone marks · #480 shelf labels hard-code `รวม VAT 7%`.
+  `docs/handoff_log/session-2026-09-28-overnight-bug-sweep.md` §2) — **all closed same
+  day except #476:** ~~#472 offline RC numbering guessed `deviceNo ?? 1` and fell back to
+  `docNo('RC')`~~ fixed by PR #484 (`DocNumberService.issueOffline`, same rule #469 gave
+  CN) · ~~#473 discarding a `sale.create`/`return.create` did not undo local
+  stock/ledger~~ fixed by PR #483 (reverses stock/customer/mechanic/void inside the
+  discard transaction; refuses `DISCARD_HAS_LOCAL_DEPENDENTS` when the bill already has a
+  local return/void) · ~~#474 settings were not re-pulled when the link returns~~ fixed by
+  PR #486 · ~~#475 a new device with no counter rows could not number an offline CN~~
+  fixed by PR #484 (seeder writes a `last_no = 0` row) · #476 device-management dead end
+  after the last enrolled browser is lost — **still open, owner call** · ~~#477 reports
+  `_RecentRow` overflow at 390 px~~ / ~~#478 vehicle-search highlight hid the match~~ /
+  ~~#480 shelf labels hard-coded `รวม VAT 7%`~~ all fixed by PR #485 · ~~#479 A4 quote PDF
+  detached Thai tone marks~~ fixed by PR #482 (`latinOnlySpacing`, no `letterSpacing` on
+  Thai text).
+- **#489/#490 fixed 2026-09-28** (PR #491, PR #492) — an online-issued `receiptNo`/`cnNo`
+  was never written to the local `DocCounters`, so an offline sale/CN after an online one
+  could reissue a number the server had already given out. **Rule: any RC/CN number the
+  server issues — the online reply *and* a `/sync/push` replay — must be committed into the
+  local `DocCounters` via `DocNumberService.commitServerIssued`** before offline issuing can
+  trust its own high-water mark (offline issuing depends on it) — `ApiSalesRepository
+  ._patchFromResponse` and `ApiReturnsRepository`'s equivalent do this today. 🔴 **The
+  `/sync/push` replay half of that rule (`SyncService._patchDocNo`) was pushed as commit
+  `dbaa7e5` *after* PR #491/#492 had already merged, so it never reached `main` from those
+  two PRs** — verified 2026-09-28 by diffing `main` against `dbaa7e5`: `sync_service.dart`
+  on `main` had no reference to `DocNumberService` at all. Cherry-picked into **PR #494**
+  (`fix/489-push-replay-counter`, open, not merged) — its own replay tests fail without the
+  commit. 🔴 **Lesson: check a PR's head SHA at merge time
+  (`gh pr view N --json headRefOid`) — a review-fix pushed after the merge button is
+  clicked silently misses `main`, and the PR body describing it reads as done when it
+  isn't.** This unblocked #490: `ensureSeedMarker`
+  now accepts a seed from **any** period, so an offline sale after a month rollover starts
+  at `0001` instead of refusing with
+  `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
+  #488 (discard exactness / `void_offline` follow-up) is open.
 - **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
   `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
