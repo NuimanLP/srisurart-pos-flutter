@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `1d80ad9` (รวม PR #498 — web-sync ย้ายไปหลัง API + สลับไฟล์แบบ atomic แล้ว) · 2026-09-28
+**ตรวจกับโค้ดที่:** `origin/main` @ `3cff74e` (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting) · 2026-09-29
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
@@ -399,11 +399,12 @@ authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `mea
 ssh mob04 'sudo -n cp -p /opt/pos/.env /opt/pos/.env.bak-$(date +%F)'
 ```
 
-**② เทียบ hash — จะมีอะไรเปลี่ยนไหม** · `copy content:` เขียนเนื้อหาตามตัวอักษร และ `$(cat ...)` ตัด newline ท้ายไฟล์ทิ้ง →
-ไฟล์บน VM ที่ provision เขียน **ไม่มี newline ท้าย** → ฝั่ง local ต้องคำนวณแบบเดียวกันด้วย `printf '%s'` (พิสูจน์แล้วด้วยไฟล์ dummy + `copy content:` แบบเดียวกันบน localhost, ansible-core 2.21.4 — hash ตรงกัน; ยังไม่เคยเทียบกับไฟล์จริงบน VM):
+**② เทียบ hash — จะมีอะไรเปลี่ยนไหม** · `$(cat ...)` ตัด newline ท้ายไฟล์ทิ้ง แล้วตั้งแต่ #500 `provision.yml` **เติม newline ท้ายกลับหนึ่งตัว**
+(`provision.yml` task `Write server .env configuration (0600 mode)`) → ฝั่ง local ต้องคำนวณแบบเดียวกันด้วย `printf '%s\n'`
+(พิสูจน์แล้วด้วยไฟล์ dummy + `copy content:` expression เดียวกันบน localhost, ansible-core 2.21.4 — hash ตรงกัน; ยังไม่เคยเทียบกับไฟล์จริงบน VM):
 
 ```bash
-printf '%s' "$(cat ~/secrets/mob04-demo.env)" | shasum -a 256
+printf '%s\n' "$(cat ~/secrets/mob04-demo.env)" | shasum -a 256
 ```
 
 (Windows: `sha256sum` แทน `shasum -a 256`)
@@ -413,8 +414,17 @@ ssh mob04 'sudo -n sha256sum /opt/pos/.env'
 ```
 
 ✅ **hash เท่ากัน** → provision จะรายงาน `.env` เป็น `ok` = ปลอดภัย ไม่มี secret เปลี่ยน
-🛑 **hash ต่าง** → provision จะ **เปลี่ยน secret บน VM** · ทำต่อเฉพาะเมื่อตั้งใจเปลี่ยนจริง และคีย์ที่เปลี่ยนไม่ใช่ตัวที่ volume อบไว้ (§2.3) —
-ถ้าไม่แน่ใจ **หยุด** (hash ต่างอาจแปลว่ามีคนแก้ไฟล์บน VM ด้วยมือ)
+⚠️ **ไม่เท่ากัน — เช็คกรณีเปลี่ยนผ่านครั้งเดียวก่อน:** ไฟล์ที่ provision **ก่อน #500** เขียน (รวมไฟล์บน `mob04` วันนี้) ไม่มี newline ท้าย ·
+ลองสูตรเก่า:
+
+```bash
+printf '%s' "$(cat ~/secrets/mob04-demo.env)" | shasum -a 256
+```
+
+* สูตรเก่า **เท่ากับ** hash บน VM → secret เหมือนกันทุกตัว ต่างแค่ newline ท้าย → provision จะรายงาน `changed` **ครั้งเดียว** (เติม newline) = ปลอดภัย ·
+  รอบถัดไปสูตรใหม่ต้องเท่ากันแล้ว
+* 🛑 **ไม่เท่ากันทั้งสองสูตร** → provision จะ **เปลี่ยน secret บน VM** · ทำต่อเฉพาะเมื่อตั้งใจเปลี่ยนจริง และคีย์ที่เปลี่ยนไม่ใช่ตัวที่ volume อบไว้ (§2.3) —
+  ถ้าไม่แน่ใจ **หยุด** (hash ต่างอาจแปลว่ามีคนแก้ไฟล์บน VM ด้วยมือ)
 
 **③ dry-run `--check`** (Mac; Windows ใช้ `... KEYFILE=mob04-SriStore ans ansible-playbook provision.yml --check`) — **ห้ามใส่ `--diff`**:
 
@@ -425,7 +435,7 @@ DEMO_ENV_FILE="$(cat ~/secrets/mob04-demo.env)" DEMO_SSH_KEY_PUB="$(cat ~/.ssh/d
 | task `Write server .env configuration (0600 mode)` | แปลว่า | ทำอะไร |
 |---|---|---|
 | `ok` | เนื้อหาเหมือนบน VM | ไปต่อได้ |
-| `changed` | **secret บน VM จะถูกเขียนทับ** | **STOP** เว้นแต่ตั้งใจเปลี่ยน secret (ตรงกับผล ②) |
+| `changed` | **secret บน VM จะถูกเขียนทับ** — ยกเว้นกรณีเปลี่ยนผ่านใน ② (สูตรเก่า `printf '%s'` เท่ากับ VM) ที่ต่างแค่ newline ท้าย | กรณีเปลี่ยนผ่าน: ไปต่อได้ (ครั้งเดียว) · นอกนั้น **STOP** เว้นแต่ตั้งใจเปลี่ยน secret (ตรงกับผล ②) |
 | `skipping` | `DEMO_ENV_FILE` ไม่ถูกส่ง | แก้คำสั่ง |
 
 **④ รันจริง** — คำสั่งเดียวกับ ③ ไม่มี `--check`:
@@ -459,9 +469,10 @@ PLATFORM_ADMINS=1
 
 (สมาชิกตรวจแบบเดียวกันได้โดยไม่ต้อง sudo — §3 ข้อ 7)
 
-> ⚠️ **ปัญหาที่รู้แล้ว:** เพราะ `$(cat)` ตัด newline ท้าย ไฟล์ `/opt/pos/.env` ที่ provision เขียน **ไม่มี newline บรรทัดสุดท้าย** · ใคร append ด้วยมือ
-> ต้องเติมบรรทัดว่างก่อน ไม่งั้นคีย์ใหม่ไปต่อท้ายบรรทัดสุดท้าย แล้ว `grep -c KEY` (ไม่มี `^`) ยังนับเจอ แต่ Compose บอกว่าขาด · ควรแก้ใน
-> `provision.yml` ให้เขียน `content + "\n"` (ยังไม่แก้ — เป็นงานแยก ซึ่งจะทำให้สูตร hash ใน ② ต้องเปลี่ยนตาม)
+> ✅ **แก้แล้วใน #500:** `provision.yml` เติม newline ท้าย `/opt/pos/.env` ถ้ายังไม่มี (สูตร hash ใน ② จึงเป็น `printf '%s\n'`) ·
+> เฉพาะไฟล์ที่ provision **ก่อน #500** เขียนและยังไม่ถูกเขียนใหม่: บรรทัดสุดท้ายไม่มี newline → ใคร append ด้วยมือต้องเติมบรรทัดว่างก่อน
+> ไม่งั้นคีย์ใหม่ไปต่อท้ายบรรทัดสุดท้าย · ไม่ว่าไฟล์รุ่นไหน ตรวจด้วย `grep -c '^KEY='` เสมอ (`grep -c KEY` ไม่มี `^` ยังนับเจอคีย์ที่ติดท้ายบรรทัดอื่น
+> แต่ Compose บอกว่าขาด)
 
 ---
 
@@ -469,8 +480,9 @@ PLATFORM_ADMINS=1
 
 ทุกข้อมี gate · gate ไหนไม่ผ่าน **หยุดที่ข้อนั้น** · คำสั่ง `git`/`gh` รันที่ root ของ repo หลัก
 
-> **deploy ครั้งแรกหลังปลดบล็อก (เฉพาะ `mob04`):** `.current_sha` ที่บันทึกล่าสุดคือ `8e873cd` (บันทึก 2026-09-21) — ห่างจาก `main` @ `1d80ad9`
-> **514 commit** และมี **ไฟล์ migration ใหม่ 12 ไฟล์** ที่ย้อนไม่ได้ (ไม่มี down-migration) · เป็นครั้งแรกที่จะ: ซ่อม `etcd-init.sh` ที่เป็นไดเรกทอรี
+> **deploy ครั้งแรกหลังปลดบล็อก (เฉพาะ `mob04`):** `.current_sha` ที่บันทึกล่าสุดคือ `8e873cd` (บันทึก 2026-09-21) — ห่างจาก `main`
+> **500+ commit** (ณ 2026-09-29 · นับเองด้วย `git rev-list --count 8e873cd..origin/main`) และมี **ไฟล์ migration ใหม่ 11 ไฟล์** (+ `1788652800000-InitialSchema.ts`
+> ถูกแก้) ที่ย้อนไม่ได้ (ไม่มี down-migration) · ดูรายการ: `git diff --name-status 8e873cd origin/main -- server/src/db/migrations` · เป็นครั้งแรกที่จะ: ซ่อม `etcd-init.sh` ที่เป็นไดเรกทอรี
 > (`rmdir`) และเปิด auth ของ etcd, รัน migration `1788652804600` ที่ **บังคับ logout platform admin ทุกคนหนึ่งครั้ง** · ข้อ 8 (backup DB) จึงห้ามข้าม
 
 **1. ประกาศ + เคลียร์คิว** — ทีละคนเท่านั้น · ประกาศในแชททีมว่า "กำลัง deploy `<sha>`" · owner ปฏิเสธ/ยกเลิก run `Deploy (demo)` ที่ค้างรอ approve ก่อน
@@ -602,31 +614,41 @@ ssh mob04-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT
 ✅ ทุกตัว `=1` และ `-rw------- deploy:deploy` · 🛑 มี `=0` → แจ้ง owner (§2.5) — deploy จะล้มที่คำสั่ง compose แรกด้วย `<KEY> is required`
 
 **8. backup ฐานข้อมูลก่อน deploy** — migration ย้อนไม่ได้ · `backup-db.sh` เรียก `docker compose` พร้อม `vm.override.yml` ซึ่งบังคับ `IMAGE_TAG`
-🔴 **แก้แล้ว (branch `fix/backup-scripts-image-tag`):** `backup-db.sh`/`restore-db.sh` เดี๋ยวนี้ resolve `IMAGE_TAG`
-จาก `/opt/pos/.current_sha` เองถ้า `IMAGE_TAG` ว่าง — **แต่ต้องรัน `provision.yml` ใหม่ก่อน** VM จะได้สคริปต์เวอร์ชันแก้แล้ว
-(`provision.yml` copy สคริปต์ลง `/opt/pos/scripts` ครั้งเดียวตอน provision, ไม่ auto-sync) จึงเรียกเฉย ๆ ได้:
+🔴 **แก้แล้วใน `main` (#501):** `backup-db.sh`/`restore-db.sh` resolve `IMAGE_TAG` จาก `/opt/pos/.current_sha` เองถ้า `IMAGE_TAG` ว่าง —
+**แต่ owner ต้องรัน `provision.yml` ใหม่ก่อน** (แบบ key-only §2.4 ก็พอ) VM จึงจะได้สคริปต์เวอร์ชันนี้ (`provision.yml` copy สคริปต์ลง
+`/opt/pos/scripts` เฉพาะตอน provision ไม่ auto-sync กับ release) หลังจากนั้นเรียกเฉย ๆ ได้:
 
 ```bash
 ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
 ```
 
-ถ้ายังไม่ได้รัน `provision.yml` ใหม่ (สคริปต์บน VM ยังเป็นเวอร์ชันเก่า) ใช้ workaround เดิมไปก่อน — ไม่ส่ง `IMAGE_TAG` = compose ล้มเงียบ
-แล้วสคริปต์เก่าไปจบที่ `Neither active docker compose postgres container nor local pg_dump command found.`:
+**เฉพาะ VM ที่สคริปต์ยังเป็นรุ่นก่อน #501** (ยังไม่ได้ provision ใหม่): ต้องส่ง `IMAGE_TAG` เอง — ไม่ส่ง = compose ล้มเงียบ
+แล้วสคริปต์เก่าไปจบที่ `::error::Neither active docker compose postgres container nor local pg_dump command found.`:
 
 ```bash
 ssh mob04-deploy 'IMAGE_TAG=$(cat /opt/pos/.current_sha) /opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
 ```
 
+ผลที่คาดหวัง (สคริปต์รุ่นใหม่ เรียกเฉย ๆ · บรรทัดแรกไม่ขึ้นถ้าส่ง `IMAGE_TAG` เอง):
+
 ```text
+IMAGE_TAG was unset; resolved from /opt/pos/.current_sha: <sha>
 === Srisurart POS Database Backup ===
 ...
   -> Backup created successfully (<size>).
 ::warning::Offsite upload is disabled (BACKUP_RCLONE_REMOTE is not set) — this backup stays on this VM only. ...
+...
+=== Backup Complete (local only -- offsite upload not configured, see the warning above) ===
 ```
 
 ✅ มี `Backup created successfully` และไฟล์ `pos_backup_<YYYYmmdd_HHMMSSZ>.sql.gz` (+ `.sha256`) บนสุดของ `ls` → **จดชื่อไฟล์** ·
 บรรทัด `::warning::` เรื่อง offsite เป็นเรื่องปกติ (สคริปต์ exit 0) — backup นี้อยู่บน VM เท่านั้น
-❌ `No such file` → ยังไม่มี `/opt/pos/scripts` ให้ owner รัน provision (§2.4) · error อื่น → หยุด ห้าม deploy โดยไม่มี backup
+❌ `No such file` → ยังไม่มี `/opt/pos/scripts` ให้ owner รัน provision (§2.4)
+❌ `::error::IMAGE_TAG is required by deploy/compose/vm.override.yml but is unset, and /opt/pos/.current_sha is missing or empty. ...`
+→ VM ไม่มี `.current_sha` (ยังไม่เคย deploy สำเร็จ) · หยุด ถาม owner
+❌ `::error::docker compose could not resolve the compose configuration (...)` ตามด้วยข้อความของ compose → อ่านบรรทัดถัดไป
+(เช่น `<KEY> is required` = `.env` ขาดคีย์ ข้อ 7)
+❌ error อื่น → หยุด ห้าม deploy โดยไม่มี backup
 
 **9. deploy** (ห้ามทำถ้าข้อ 5 เป็น STOP)
 
@@ -688,6 +710,22 @@ ssh mob04-deploy 'docker ps --format "{{.Names}}|{{.Image}}|{{.Status}}" | grep 
 ```
 
 ✅ ทุกแถวเป็น `ghcr.io/nuimanlp/srisurart-pos-server:<TAG>` และ api เป็น `(healthy)`
+
+**4.3b หน้าเว็บที่เสิร์ฟเป็นของ `$TAG`** — `web-sync` เป็น container `--rm` จึงไม่โผล่ใน `docker ps` · ดูชื่อ entry point ที่ `flutter_bootstrap.js`
+ชี้ไป (CI ตั้งชื่อเป็น `main.<12 ตัวแรกของ SHA>.dart.js`):
+
+```bash
+ssh mob04-deploy 'curl -sk https://127.0.0.1/flutter_bootstrap.js | grep -o "main\.[0-9a-z]*\.dart\.js"'
+```
+
+ชื่อที่ต้องได้ (รันบน notebook):
+
+```bash
+echo "main.${TAG:0:12}.dart.js"
+```
+
+✅ สองบรรทัดตรงกันทุกตัวอักษร · ❌ ไม่ตรง = volume `web` ยังเป็น release อื่น (web-sync ไม่ได้รัน/ล้ม) · ❌ ว่าง = ได้ `main.dart.js` แบบไม่มีเลข
+(image เก่ากว่า #502) หรือ Nginx ไม่ตอบ → จด output แจ้ง owner
 
 **4.4 etcd เปิด auth** — `etcd-init.sh` ต้องเป็น **ไฟล์** `-rwxr-xr-x deploy` ไม่ใช่ไดเรกทอรีของ root:
 
@@ -764,6 +802,7 @@ PLAY RECAP:                   (แปะ แต่ไม่นับเป็น
 .current_sha หลัง:            <TAG>                         ← ต้องเท่ากัน
 health_ready:                 200
 api/worker/bull-board image:  ...srisurart-pos-server:<TAG> (healthy)
+web entry point (4.3b):       main.<TAG 12 ตัวแรก>.dart.js
 etcd-init.sh:                 ไฟล์ -rwxr-xr-x deploy ; anonymous read http=400
 prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 เบราว์เซอร์:                   https://172.30.58.20 login + ขายทดสอบได้
@@ -776,7 +815,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 
 ## 6. Reference
 
-### 6.1 `deploy.yml` ทำอะไรทีละ task (ตามโค้ดใน `main` @ `1d80ad9` — **ลำดับนี้ยังไม่เคยรันครบบน `mob04`**)
+### 6.1 `deploy.yml` ทำอะไรทีละ task (ตามโค้ดใน `origin/main` @ `3cff74e` — **ลำดับนี้ยังไม่เคยรันครบบน `mob04`**)
 
 | # | task (ชื่อที่เห็นใน output) | ทำอะไร |
 |---|---|---|
@@ -791,7 +830,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | 9 | `Bootstrap etcd auth ... (etcd-init)` → `Assert etcd refuses an unauthenticated read` | เปิด auth แล้ว assert HTTP 400 |
 | 10 | `Restart instance api-1` → `Wait for api-1 health check to pass` → api-2 → api-3 | rolling ทีละตัว รอ healthy ≤ 25×3 วิ |
 | 11 | `Restart worker and bull-board` | |
-| 12 | `Populate shared web volume from web image (web-sync)` | หลัง API ทุกตัว · copy เป็นชื่อชั่วคราวแล้ว `mv` ทับ, `flutter_bootstrap.js` → `sw.js` → `index.html` ท้ายสุด, แล้วลบไฟล์เก่า — ยกเว้น `main.<sha>.dart.js` ของ release ก่อนหน้า (เก็บไว้หนึ่ง release ให้ page load ที่คร่อมการสลับ) (`vm.override.yml`) |
+| 12 | `Populate shared web volume from web image (web-sync)` | หลัง API ทุกตัว · copy เป็นชื่อชั่วคราวแล้ว `mv` ทับ, `flutter_bootstrap.js` → `sw.js` → `index.html` ท้ายสุด, แล้วลบไฟล์เก่า — ยกเว้น `main.<sha12>.dart.js` (12 ตัวแรกของ SHA, ตั้งชื่อโดย `deploy/version-web-build.sh` ใน Flutter CI) ของ release ก่อนหน้า (เก็บไว้หนึ่ง release ให้ page load ที่คร่อมการสลับ) · release แรกที่มีชื่อแบบนี้ **ไม่เก็บ** `main.dart.js` เดิม (ชื่อไม่มีเลข release) (`vm.override.yml`) |
 | 13 | `Validate the copied Nginx configuration` → `Recreate Nginx so it loads the copied config` | `nginx -t` ใน container ทิ้ง แล้ว force-recreate ทุกครั้ง (#249) |
 | 14 | `Validate the copied platform-ui Nginx configuration` → `Recreate platform-ui ...` | แบบเดียวกัน |
 | 15 | `Verify cluster readiness via Nginx (GET /health/ready)` | ต้อง 200 (≤ 15×3 วิ) |
@@ -850,10 +889,12 @@ workflow `Deploy (demo)` → self-hosted runner บน VM (#67 — **ยัง�
 | `password authentication failed for user ...` | รหัสใน `pgdata` ≠ `.env` (§2.3) | หยุด รายงาน owner · ห้ามลบ volume |
 | `Validate the copied Nginx configuration` ล้ม | `nginx.conf` ของ SHA นี้พัง | Nginx เดิมยังเสิร์ฟอยู่ · แก้ใน PR → SHA ใหม่ |
 | `Release '<sha>' is already active on vm-demo. Skipping duplicate deployment.` | `.current_sha` = tag | ตั้งใจ rollout ซ้ำ: `-e force_redeploy=true` · **ห้ามลบ `.current_sha`** |
-| `WARNING: release '<sha>' is deployed and healthy, but the monitoring overlay failed ...` | Prometheus/Grafana ขึ้นไม่ได้ (POS ไม่กระทบ) | แก้ต้นเหตุ → release ถัดไป หรือ `force_redeploy=true` · ⚠️ ข้อความนี้แนะนำให้ลบ `.current_sha` — **อย่าทำ** |
+| `WARNING: release '<sha>' is deployed and healthy, but the monitoring overlay failed ...` | Prometheus/Grafana ขึ้นไม่ได้ (POS ไม่กระทบ) | แก้ต้นเหตุ → release ถัดไป หรือรัน tag เดิมด้วย `-e force_redeploy=true` (ข้อความเองก็แนะนำแบบนี้) · **ห้ามลบ `.current_sha`** |
 | platform-ui 403 เงียบ ๆ | สามอย่างของ `172.30.0.20` ไม่ตรงกัน: `ipv4_address` ใน compose, `allow 172.30.0.20;` ใน `nginx.conf`, `PLATFORM_ADMIN_IPS` · หรือ container เสีย IP หลัง network recreate | `ssh mob04-deploy 'docker inspect srisurart-pos-platform-ui-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"'` ต้องได้ `172.30.0.20` |
 | POST จากเบราว์เซอร์ล้มหมด | `CORS_ORIGINS` ไม่ตรง origin | §4.6 |
-| backup: `Neither active docker compose postgres container nor local pg_dump command found.` | ไม่ได้ส่ง `IMAGE_TAG` | ใช้คำสั่ง §3 ข้อ 8 ตามตัวอักษร |
+| backup: `::error::Neither active docker compose postgres container nor local pg_dump command found.` | สคริปต์รุ่นก่อน #501 และไม่ได้ส่ง `IMAGE_TAG` · (รุ่นใหม่: ไม่มีไฟล์ compose ใน `/opt/pos` และไม่มี `pg_dump`) | provision ใหม่ (§2.4) หรือใช้คำสั่ง workaround §3 ข้อ 8 ตามตัวอักษร |
+| backup: `::error::IMAGE_TAG is required by deploy/compose/vm.override.yml but is unset, and /opt/pos/.current_sha is missing or empty. ...` | สคริปต์รุ่นใหม่ หา `IMAGE_TAG` ไม่ได้ (ไม่มี `.current_sha`) | หยุด ถาม owner |
+| backup: `::error::docker compose could not resolve the compose configuration (...)` | compose ล้มตอนอ่าน config — ข้อความถัดไปบอกสาเหตุ (เช่น `<KEY> is required`) | แก้ตามข้อความ · `.env` ขาดคีย์ → owner (§2.5) |
 
 ### 6.5 กฎห้ามทำ
 
