@@ -3,18 +3,20 @@
 # on the demo VM (mob04), complying with 07_CICD_DEPLOY.md §6.2 and ADR-0013.
 #
 # Usage:
-#   sudo ./setup-mob04-runner.sh <RUNNER_REGISTRATION_TOKEN> [RUNNER_VERSION]
+#   sudo ./setup-mob04-runner.sh <RUNNER_REGISTRATION_TOKEN> <RUNNER_VERSION> <RUNNER_SHA256>
 #
-# Examples:
-#   sudo ./setup-mob04-runner.sh AABBCCDDEEFFGG123456789
-#   sudo ./setup-mob04-runner.sh AABBCCDDEEFFGG123456789 2.337.0
+# RUNNER_VERSION and RUNNER_SHA256 come from GitHub Repo -> Settings -> Actions -> Runners ->
+# New self-hosted runner (Linux x64), per 07_CICD_DEPLOY.md §6.2 step 5. No default is pinned
+# here: the tarball is refused unless its sha256 matches the one you pass.
+#
+# Example:
+#   sudo ./setup-mob04-runner.sh AABBCCDDEEFFGG123456789 2.337.0 <sha256 from that page>
 #
 set -euo pipefail
 
 readonly REPO_URL="https://github.com/NuimanLP/srisurart-pos-flutter"
 readonly RUNNER_NAME="mob04-demo"
 readonly RUNNER_LABELS="srisurart-demo-deploy"
-readonly DEFAULT_RUNNER_VER="2.337.0"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Error: this script must be run as root (or with sudo)." >&2
@@ -22,11 +24,13 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 TOKEN="${1:-}"
-RUNNER_VER="${2:-$DEFAULT_RUNNER_VER}"
+RUNNER_VER="${2:-}"
+RUNNER_SHA256="${3:-}"
 
-if [[ -z "$TOKEN" ]]; then
-  echo "Error: GitHub Actions runner registration token is required." >&2
-  echo "Usage: sudo $0 <REGISTRATION_TOKEN> [RUNNER_VERSION]" >&2
+if [[ -z "$TOKEN" || -z "$RUNNER_VER" || ! "$RUNNER_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "Error: registration token, runner version and runner sha256 (64 lowercase hex) are all required." >&2
+  echo "Usage: sudo $0 <REGISTRATION_TOKEN> <RUNNER_VERSION> <RUNNER_SHA256>" >&2
+  echo "Version + sha256: Settings -> Actions -> Runners -> New self-hosted runner (Linux x64)" >&2
   echo "Generate token at: GitHub Repo -> Settings -> Actions -> Runners -> New self-hosted runner" >&2
   echo "or via CLI: gh api -X POST repos/NuimanLP/srisurart-pos-flutter/actions/runners/registration-token --jq .token" >&2
   exit 1
@@ -111,12 +115,15 @@ else
   exit 1
 fi
 
-# Verify sudo execution as deploy
+# Verify sudo execution as deploy. pos-deploy with no args prints usage and exits 1, so capture
+# first: under pipefail that exit 1 would fail `... | grep -q usage` even when grep matches.
 echo "  Testing sudo rule for gha-runner..."
-if sudo -u gha-runner sudo -n -u deploy /usr/local/bin/pos-deploy 2>&1 | grep -q usage; then
+sudo_out="$(sudo -u gha-runner sudo -n -u deploy /usr/local/bin/pos-deploy 2>&1 || true)"
+if grep -q 'pos-deploy: usage' <<<"$sudo_out"; then
   echo "  sudoers verification PASSED (pos-deploy returned expected usage)."
 else
   echo "Error: sudo -n -u deploy /usr/local/bin/pos-deploy failed from gha-runner." >&2
+  echo "$sudo_out" >&2
   exit 1
 fi
 
@@ -139,11 +146,13 @@ sudo -u gha-runner bash -c '
   labels="$4"
   download_url="$5"
   runner_dir="$6"
+  runner_sha256="$7"
 
   cd "$runner_dir"
   if [[ ! -f config.sh ]]; then
     echo "  Downloading $download_url..."
     curl -fsSLo runner.tar.gz "$download_url"
+    echo "$runner_sha256  runner.tar.gz" | sha256sum -c
     tar xzf runner.tar.gz && rm -f runner.tar.gz
   fi
 
@@ -160,7 +169,7 @@ sudo -u gha-runner bash -c '
   if ! grep -q "ACTIONS_RUNNER_HOOK_JOB_STARTED" .env 2>/dev/null; then
     echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/lib/pos-runner/job-started.sh" >> .env
   fi
-' _ "$REPO_URL" "$TOKEN" "$RUNNER_NAME" "$RUNNER_LABELS" "$DOWNLOAD_URL" "$RUNNER_DIR"
+' _ "$REPO_URL" "$TOKEN" "$RUNNER_NAME" "$RUNNER_LABELS" "$DOWNLOAD_URL" "$RUNNER_DIR" "$RUNNER_SHA256"
 
 # 7. Install & Start Systemd Service
 echo "[7/8] Installing and starting runner service..."

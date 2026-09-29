@@ -145,6 +145,15 @@
         dest: "{{ app_dir }}/vm.override.yml"
         mode: "0644"
 
+    # #67: only provision.yml created docker/nginx, so on an emptied /opt/pos the single-file copy
+    # below refused a missing parent. The tree copies (platform-ui html, postgres init, monitoring)
+    # create their own destination; only single-file copies need this.
+    - name: Ensure the Nginx config directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}/docker/nginx"
+        state: directory
+        mode: "0755"
+
     - name: Copy Nginx configuration
       ansible.builtin.copy:
         src: "{{ repo_root }}/server/docker/nginx/nginx.conf"

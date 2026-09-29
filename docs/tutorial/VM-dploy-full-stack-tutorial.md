@@ -7,24 +7,20 @@
 
 ## 0. หน้าแรก — อ่านหน้านี้ก่อนทำอะไร
 
-### 0.1 สถานะวันนี้: 🛑 ยัง deploy ไม่ได้ — **วันนี้ห้ามรัน `deploy.yml`**
+### 0.1 สถานะวันนี้: FortiGate ไม่ตัด `ghcr.io` แล้ว (2026-09-29)
 
-Firewall **FortiGate** ของคณะทำ SSL inspection กับ HTTPS ขาออกของ VM `172.30.58.20` และตอบ `ghcr.io` ด้วยใบรับรองของตัวเอง
-(`O=Fortinet, OU=FortiGate, CN=FG3K4ETB19900078`) ที่ **ไม่มี SAN เลย** → `docker compose pull` บน VM ล้มด้วย:
+เดิม (2026-09-21 → 09-28) Firewall **FortiGate** ของคณะทำ SSL inspection กับ HTTPS ขาออกของ VM `172.30.58.20` และตอบ `ghcr.io`
+ด้วยใบรับรองที่ **ไม่มี SAN** → `docker compose pull` ล้มด้วย `x509: certificate is not valid for any names` ·
+**คลี่คลาย 2026-09-29:** `docker pull ghcr.io/…:<SHA เต็ม>` จาก `mob04` สำเร็จจริง และ TLS จาก VM ไป `ghcr.io`, `registry-1.docker.io`,
+`gcr.io`, `github.com`, `api.github.com`, `*.actions.githubusercontent.com` verify ผ่านหมด (ใบของ FortiGate มี SAN `*.ghcr.io`/`ghcr.io` แล้ว)
 
-```text
-tls: failed to verify certificate: x509: certificate is not valid for any names, but wanted to match ghcr.io
-```
-
-* ทางแก้มีทางเดียว: ฝ่ายเครือข่ายยกเว้น `ghcr.io`, `registry-1.docker.io`, `gcr.io` ให้ `172.30.58.20` · trust CA ของ Fortinet **ไม่ช่วย**
+* ยังคง gate ไว้ที่ §3 ข้อ 5 (`docker pull` จริงจาก VM) — ถ้า inspection กลับมา จะหยุดตรงนั้นก่อน `deploy.yml` แตะอะไร
 * `docker save`/`load` ด้วยมือ = ทางกู้วันเดโมเท่านั้น **ห้ามบันทึกว่าเป็น CD**
-* หลักฐาน: `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md` §4.7
+* ประวัติ: `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md` §4.7
 
-**ทำไม "ลองรันดูเผื่อผ่าน" ไม่ใช่เรื่องไม่เสียหาย:** ใน `deploy.yml` task ที่ **copy ไฟล์ compose / nginx.conf / platform-ui / postgres init / etcd-init.sh
+**ทำไม gate ข้อ 5 ต้องมาก่อน:** ใน `deploy.yml` task ที่ **copy ไฟล์ compose / nginx.conf / platform-ui / postgres init / etcd-init.sh
 ลง `/opt/pos`** และ task ที่ **`rmdir` ไดเรกทอรี `etcd-init.sh` เก่า** รัน **ก่อน** `pull` · ถ้าล้มที่ `pull` VM จะเหลือไฟล์ config ใหม่วางคู่กับ
 container เก่า — ใครพิมพ์ `docker compose` บน VM หลังจากนั้นจะใช้ config ที่ไม่ตรงกับสิ่งที่รันอยู่
-
-➡️ **งานที่ส่งได้วันนี้ = ติดตั้งเครื่อง (§1) + pre-flight ข้อ 1–8 ของ §3 พร้อมหลักฐาน (§5 แบบ "วันนี้")** แล้วหยุดที่ gate FortiGate
 
 ### 0.2 ใครทำอะไร
 
@@ -51,7 +47,7 @@ container เก่า — ใครพิมพ์ `docker compose` บน VM �
 ```text
 merge → main ── Server CI + Flutter CI ──▶ GHCR: srisurart-pos-server:<sha> + srisurart-pos-web:<sha>
                                                       │
-notebook (worktree สะอาดที่ <sha>)                     │ docker compose pull  ◀── 🛑 FortiGate ตัดตรงนี้
+notebook (worktree สะอาดที่ <sha>)                     │ docker compose pull  ◀── gate §3 ข้อ 5
    ├─ ssh เป็น cloud  ─▶ provision.yml (owner)          │
    └─ ssh เป็น deploy ─▶ deploy.yml -e image_tag=<sha> ─┴─▶ VM mob04 /opt/pos ─▶ /opt/pos/.current_sha = <sha>
 ```
@@ -572,18 +568,17 @@ export REPO="$(cd "$MAIN/../pos-deploy" && pwd -W)"
 
 ✅ `git -C "$MAIN/../pos-deploy" rev-parse HEAD` เท่ากับ `$TAG`
 
-**5. 🛑 gate FortiGate** — ดูใบรับรองที่ VM ได้เมื่อต่อ `ghcr.io`:
+**5. 🛑 gate: VM ดึง image ของ `$TAG` จาก GHCR ได้จริง** — ข้อ 3 พิสูจน์จาก notebook ว่า image มี ข้อนี้พิสูจน์ว่า **VM** ดึงได้
+(ผ่าน FortiGate ของคณะ) ด้วย `docker pull` จริงของ SHA เต็ม ไม่ใช่แค่ดูใบรับรอง:
 
 ```bash
-export GHCR_SUBJECT="$(ssh mob04-deploy 'echo | openssl s_client -connect ghcr.io:443 -servername ghcr.io 2>/dev/null | openssl x509 -noout -subject')"
+ssh mob04-deploy "docker pull ghcr.io/nuimanlp/srisurart-pos-server:$TAG" && echo "gate ok" || echo "STOP: VM ดึง image ไม่ได้"
 ```
 
-```bash
-case "$GHCR_SUBJECT" in ""|*Fortinet*) echo "STOP: ห้ามรัน deploy.yml [$GHCR_SUBJECT]";; *) echo "gate ok: $GHCR_SUBJECT";; esac
-```
-
-✅ `gate ok: subject=...` ที่ไม่มีคำว่า `Fortinet` (ค่าว่าง = ssh/openssl ล้ม ก็นับเป็น STOP) (หน้าตา subject หลังได้รับการยกเว้นเป็นการอนุมาน ยังไม่เคยเห็นจริง)
-🛑 มี `STOP` → **จบตรงนี้** เก็บ output เป็นหลักฐาน (§5) · (ซ้ำกับ `registry-1.docker.io` และ `gcr.io` ได้ — ยังไม่เคยมีใครตรวจสองตัวนั้น)
+✅ `gate ok` (ตรวจแล้ว 2026-09-29: `docker pull` SHA เต็มจาก `mob04` สำเร็จ และ TLS ไป `ghcr.io`, `registry-1.docker.io`, `gcr.io`,
+`github.com`, `api.github.com`, `*.actions.githubusercontent.com` verify ผ่าน — ใบของ FortiGate มี SAN `*.ghcr.io`/`ghcr.io` แล้ว) ·
+image ที่ดึงมาแล้วแค่อยู่ใน cache ให้ข้อ 9 ใช้ต่อ ไม่ได้เปลี่ยนอะไรที่รันอยู่
+🛑 `STOP` → **จบตรงนี้** เก็บ output เป็นหลักฐาน (§5) · ถ้าเห็น `x509: certificate is not valid for any names` = FortiGate กลับมาตัดอีก (§6.4)
 
 **6. สถานะ VM: ไปข้างหน้าเท่านั้น, network, ดิสก์**
 
@@ -608,8 +603,10 @@ ssh mob04-deploy 'docker network inspect srisurart-pos_default --format "{{json 
 [{"Subnet":"172.30.0.0/24","IPRange":"172.30.0.128/25","Gateway":"172.30.0.1"}]
 ```
 
-✅ มี `172.30.0.128/25` (หรือ `No such network` บน VM ใหม่) · ❌ ไม่มี `IPRange` → ต้องทำ network recreate ครั้งเดียวตาม 07 §7 (owner) —
-🔴 **ห้ามทำ "เผื่อไว้"** ถ้าผ่านอยู่แล้ว (POS ดับทั้งระบบโดยไม่ได้อะไร)
+✅ มี `172.30.0.128/25` (หรือ `No such network` บน VM ใหม่) · ❌ ไม่มี `IPRange` → `deploy.yml` จะหยุดที่ assert
+`Refuse to deploy onto a network created before ip_range was added` · ต้องทำ network recreate ครั้งเดียวตาม 07 §7 (owner) —
+🔴 **ห้ามทำ "เผื่อไว้"** ถ้าผ่านอยู่แล้ว (POS ดับทั้งระบบโดยไม่ได้อะไร) ·
+ถ้า `/opt/pos/.current_sha` **ไม่มี** (`$CURRENT` ว่าง = ยังไม่เคย deploy สำเร็จ) ก็ **ไม่มี release ให้ rollback กลับ** — ถ้า network เป็นรุ่นเก่า ให้ owner ตัดสินก่อน deploy ครั้งแรก
 
 ```bash
 ssh mob04-deploy 'df -h /; docker ps --format "{{.Names}}|{{.Image}}|{{.Status}}"'
@@ -790,7 +787,7 @@ ssh mob04-deploy 'grep -c "^CORS_ORIGINS=.*https://172\.30\.58\.20" /opt/pos/.en
 
 ## 5. หลักฐานที่แปะใน ticket (#343 / #344)
 
-**แบบ "วันนี้" (ยังบล็อก):**
+**pre-flight (ข้อ 1–8):**
 
 ```text
 วันที่ / ผู้ทำ:
@@ -798,14 +795,13 @@ TAG (origin/main):            <40-hex>
 CI (gh run list --commit):    Server CI success · Flutter CI success
 verify-ghcr-tags.sh:          "Both server and web images ... verified"
 ansible -m ping (deploy):     SUCCESS / pong
-FortiGate gate (ข้อ 5):        subject = ...Fortinet... → STOP, ไม่ได้รัน deploy.yml
+docker pull gate (ข้อ 5):       ...srisurart-pos-server:<TAG> → gate ok
 .current_sha ก่อน:            <sha>
 network IPAM:                 [...IPRange 172.30.0.128/25...]
 .env key counts (ข้อ 7):       ทุกคีย์ =1, -rw------- deploy:deploy
-สถานะ: blocked — รอฝ่ายเครือข่ายยกเว้น ghcr.io / registry-1.docker.io / gcr.io ให้ 172.30.58.20
 ```
 
-**แบบ "หลังได้รับการยกเว้น":** ทุกบรรทัดข้างบน (gate ข้อ 5 ผ่าน) และเพิ่ม:
+**หลัง deploy:** ทุกบรรทัดข้างบน และเพิ่ม:
 
 ```text
 backup ก่อน deploy:           /opt/pos/backups/pos_backup_<...>.sql.gz
@@ -836,7 +832,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | 3 | `Inspect the existing compose network` → `Refuse to deploy onto a network created before ip_range was added` | กัน network รุ่นเก่า (ยังไม่แตะอะไร) |
 | 4 | `Copy docker-compose base configuration` … `Copy Postgres initialization scripts` | copy compose, `vm.override.yml`, `nginx.conf`, platform-ui conf+html, postgres init **จาก tree ของคุณ** |
 | 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) |
-| 6 | `Pull release images from GHCR` | 🛑 FortiGate ล้มตรงนี้ — ข้อ 4–5 เกิดไปแล้ว |
+| 6 | `Pull release images from GHCR` | ถ้าล้มตรงนี้ ข้อ 4–5 เกิดไปแล้ว (เคยล้มเพราะ FortiGate จนถึง 2026-09-28 — กันด้วย gate §3 ข้อ 5) |
 | 7 | `Apply database schema migrations (schema before code)` | `run --rm migrate` (ย้อนไม่ได้) |
 | 8 | `Ensure backing datastores, certgen, htpasswd-gen and etcd are running` | `up -d postgres redis-cache redis-queue certgen htpasswd-gen etcd` |
 | 9 | `Bootstrap etcd auth ... (etcd-init)` → `Assert etcd refuses an unauthenticated read` | เปิด auth แล้ว assert HTTP 400 |
@@ -895,7 +891,7 @@ workflow `Deploy (demo)` → self-hosted runner บน VM (#67 — **ยัง�
 | `Permission denied (publickey)` | key/user ไม่ตรงคู่ · key ยังไม่ติดตั้ง · ACL บน Windows | ตาราง §0.3 · §2.4 · `icacls` §1.3 |
 | `ERROR: Ansible requires blocking IO on stdin/stdout/stderr. Non-blocking file handles detected: <stdout>, <stderr>` | รันจาก shell ที่ไม่ใช่ terminal ปกติ (สคริปต์, agent, IDE บางตัว) | ต่อท้าย `</dev/null 2>&1 \| cat` หรือรันใน Terminal |
 | `<KEY> is required` (เช่น `K6_REMOTE_WRITE_BASIC_AUTH_USER is required`) | `/opt/pos/.env` เก่ากว่า compose — Compose ล้มทุกคำสั่ง | owner เติมคีย์ในไฟล์ secrets แล้ว §2.5 · ห้ามแก้บน VM ด้วยมือ |
-| `x509: certificate is not valid for any names, but wanted to match ghcr.io` | FortiGate (§0.1) | รอฝ่ายเครือข่าย · ห้ามปิด TLS verify |
+| `x509: certificate is not valid for any names, but wanted to match ghcr.io` | FortiGate กลับมาทำ SSL inspection กับ `ghcr.io` (§0.1 — คลี่คลายแล้ว 2026-09-29) | หยุด แจ้ง owner ให้ประสานฝ่ายเครือข่าย · ห้ามปิด TLS verify |
 | `... predates the ip_range ...` | network รุ่นเก่า · หรือรันด้วย `--check` (false positive, `()` ว่าง) | `--check`: ไม่ต้องทำอะไร · รันจริง: owner ทำ network recreate ตาม 07 §7 (ห้าม `-v`) |
 | `Wait for api-N health check to pass` หมด 25 ครั้ง | api boot ไม่ขึ้น (`PLATFORM_ADMINS` ผิดรูป/รหัส < 12, `CORS_ORIGINS=,`, Postgres auth ฯลฯ) | `ssh mob04-deploy 'cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml logs --tail 100 api-1'` (`IMAGE_TAG` จำเป็นให้ compose แทนค่าได้) |
 | `etcd-init: FAILED — root cannot authenticate` | รหัสใน `etcd-data` ≠ `ETCD_ROOT_PASSWORD` (§2.3) | หยุด รายงาน owner (#365) |
@@ -916,7 +912,7 @@ workflow `Deploy (demo)` → self-hosted runner บน VM (#67 — **ยัง�
 - [ ] ห้าม `docker compose down -v` / `docker volume rm srisurart-pos_*`
 - [ ] ห้าม `--diff` กับ `provision.yml` · ห้าม `export DEMO_ENV_FILE`
 - [ ] ห้ามรัน `provision.yml` เป็น `deploy` หรือ `deploy.yml` เป็น `cloud`
-- [ ] ห้ามรัน `deploy.yml` จาก working tree ที่ไม่ใช่ worktree สะอาดที่ `$TAG` · ห้ามรันเมื่อ gate FortiGate เป็น STOP
+- [ ] ห้ามรัน `deploy.yml` จาก working tree ที่ไม่ใช่ worktree สะอาดที่ `$TAG` · ห้ามรันเมื่อ gate `docker pull` ของ §3 ข้อ 5 เป็น STOP
 - [ ] ห้ามแก้ `/opt/pos/.env` ด้วยมือโดยไม่เติมบรรทัดว่างก่อน append และไม่ตรวจด้วย `grep -c '^KEY='`
 - [ ] ห้ามลบ `.current_sha` — ใช้ `-e force_redeploy=true`
 - [ ] ห้าม re-key volume หรือทำ network recreate เอง — owner ตัดสิน
