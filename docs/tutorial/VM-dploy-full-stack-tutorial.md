@@ -572,18 +572,17 @@ export REPO="$(cd "$MAIN/../pos-deploy" && pwd -W)"
 
 ✅ `git -C "$MAIN/../pos-deploy" rev-parse HEAD` เท่ากับ `$TAG`
 
-**5. 🛑 gate FortiGate** — ดูใบรับรองที่ VM ได้เมื่อต่อ `ghcr.io`:
+**5. 🛑 gate: VM ดึง image ของ `$TAG` จาก GHCR ได้จริง** — ข้อ 3 พิสูจน์จาก notebook ว่า image มี ข้อนี้พิสูจน์ว่า **VM** ดึงได้
+(ผ่าน FortiGate ของคณะ) ด้วย `docker pull` จริงของ SHA เต็ม ไม่ใช่แค่ดูใบรับรอง:
 
 ```bash
-export GHCR_SUBJECT="$(ssh mob04-deploy 'echo | openssl s_client -connect ghcr.io:443 -servername ghcr.io 2>/dev/null | openssl x509 -noout -subject')"
+ssh mob04-deploy "docker pull ghcr.io/nuimanlp/srisurart-pos-server:$TAG" && echo "gate ok" || echo "STOP: VM ดึง image ไม่ได้"
 ```
 
-```bash
-case "$GHCR_SUBJECT" in ""|*Fortinet*) echo "STOP: ห้ามรัน deploy.yml [$GHCR_SUBJECT]";; *) echo "gate ok: $GHCR_SUBJECT";; esac
-```
-
-✅ `gate ok: subject=...` ที่ไม่มีคำว่า `Fortinet` (ค่าว่าง = ssh/openssl ล้ม ก็นับเป็น STOP) (หน้าตา subject หลังได้รับการยกเว้นเป็นการอนุมาน ยังไม่เคยเห็นจริง)
-🛑 มี `STOP` → **จบตรงนี้** เก็บ output เป็นหลักฐาน (§5) · (ซ้ำกับ `registry-1.docker.io` และ `gcr.io` ได้ — ยังไม่เคยมีใครตรวจสองตัวนั้น)
+✅ `gate ok` (ตรวจแล้ว 2026-09-29: `docker pull` SHA เต็มจาก `mob04` สำเร็จ และ TLS ไป `ghcr.io`, `registry-1.docker.io`, `gcr.io`,
+`github.com`, `api.github.com`, `*.actions.githubusercontent.com` verify ผ่าน — ใบของ FortiGate มี SAN `*.ghcr.io`/`ghcr.io` แล้ว) ·
+image ที่ดึงมาแล้วแค่อยู่ใน cache ให้ข้อ 9 ใช้ต่อ ไม่ได้เปลี่ยนอะไรที่รันอยู่
+🛑 `STOP` → **จบตรงนี้** เก็บ output เป็นหลักฐาน (§5) · ถ้าเห็น `x509: certificate is not valid for any names` = FortiGate กลับมาตัดอีก (§6.4)
 
 **6. สถานะ VM: ไปข้างหน้าเท่านั้น, network, ดิสก์**
 
