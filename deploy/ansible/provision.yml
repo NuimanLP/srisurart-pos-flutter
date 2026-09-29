@@ -145,9 +145,48 @@
         # step 2.2 of the #184 RSS runbook invokes this by absolute path
         - measure-container-rss.sh
 
+    # An unset DEMO_ENV_FILE is a legitimate re-provision that leaves .env alone — but it used to
+    # happen without a word, and read like the .env had been written.
+    - name: Warn that .env is left untouched (DEMO_ENV_FILE unset)
+      ansible.builtin.debug:
+        msg: "DEMO_ENV_FILE is empty or unset — {{ app_dir }}/.env was NOT written. Export it to change the VM's configuration."
+      when: demo_env_content == ""
+
+    # Every `${KEY:?}` in docker-compose.yml / monitoring.yml (IMAGE_TAG comes from deploy.yml).
+    # A missing one used to surface only later, as a Compose interpolation error mid-deploy.
+    # Loop output names the key, never its value.
+    - name: Check DEMO_ENV_FILE carries every key Compose requires
+      ansible.builtin.assert:
+        that:
+          - demo_env_content is search('(?m)^' ~ item ~ '=\S')
+        fail_msg: "DEMO_ENV_FILE has no non-empty {{ item }}= line. Compose refuses to start without it."
+        quiet: true
+      loop:
+        - POSTGRES_PASSWORD
+        - POS_APP_PASSWORD
+        - REDIS_PASSWORD
+        - ETCD_ROOT_PASSWORD
+        - JWT_PLATFORM_SECRET
+        - JWT_PRIVATE_KEY
+        - JWT_PUBLIC_KEYS
+        - K6_REMOTE_WRITE_BASIC_AUTH_USER
+        - K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD
+        - BULL_BOARD_PASSWORD
+        - GRAFANA_ADMIN_PASSWORD
+      when: demo_env_content != ""
+
+    # PLATFORM_ADMINS is optional to Compose, but without it (and without a bootstrap-admin run)
+    # the stack comes up green with no platform admin, and nobody can log in to platform-ui.
+    - name: Warn when no platform admin is configured
+      ansible.builtin.debug:
+        msg: "DEMO_ENV_FILE has no PLATFORM_ADMINS= line — platform-ui (127.0.0.1:3200) will have no admin to log in with unless one already exists in the database."
+      when: demo_env_content != "" and demo_env_content is not search('(?m)^PLATFORM_ADMINS=\S')
+
     # `DEMO_ENV_FILE="$(cat file)"` strips the file's final newline, so without the
     # fix-up below the last line had none and a key appended by hand later glued onto
     # it (Compose then reports that key missing). Add one newline only when absent.
+    # no_log + diff: false — `--diff` would otherwise print the whole file. The containers pick the
+    # new file up on the next deploy.yml run, which sees the .env checksum change and rolls out.
     - name: Write server .env configuration (0600 mode)
       ansible.builtin.copy:
         content: "{{ demo_env_content if demo_env_content.endswith('\n') else demo_env_content ~ '\n' }}"
@@ -156,6 +195,8 @@
         group: "{{ deploy_user }}"
         mode: "0600"
       when: demo_env_content != ""
+      no_log: true
+      diff: false
 
     - name: Create backup directory (0700 mode, Slice 23 / #288)
       ansible.builtin.file:

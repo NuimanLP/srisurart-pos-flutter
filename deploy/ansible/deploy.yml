@@ -1,7 +1,7 @@
 ---
 # Release Deployment Playbook for Srisurart POS (ADR-0013, 07_CICD_DEPLOY.md §6).
 # Deploys a tagged container release to the demo VM:
-# 1. Checks if release is already running (early exit if identical SHA)
+# 1. Checks if release is already running (early exit if identical SHA and .env unchanged)
 # 2. Synchronizes Compose definitions and Nginx configurations
 # 3. Pulls GHCR release images
 # 4. Executes database migrations ('migrate' container: schema before code)
@@ -64,18 +64,45 @@
       ansible.builtin.set_fact:
         current_sha: "{{ (current_sha_file.content | b64decode | trim) if (current_sha_file is succeeded and current_sha_file.content is defined) else '' }}"
 
+    # provision.yml rewrites .env but restarts nothing, so a new PLATFORM_ADMINS / CORS_ORIGINS used
+    # to wait for the next release: the duplicate-SHA exit below skipped the rollout that would have
+    # recreated the containers. Compare .env with the checksum recorded by the last successful
+    # deploy; a changed .env rolls the same SHA out again. No marker yet (first run after this was
+    # added) counts as changed — one extra rollout, never a skipped one.
+    - name: Checksum the VM's .env
+      ansible.builtin.stat:
+        path: "{{ app_dir }}/.env"
+        checksum_algorithm: sha256
+      register: env_stat
+
+    - name: Read the .env checksum the last deploy applied
+      ansible.builtin.slurp:
+        src: "{{ app_dir }}/.env_applied_sha256"
+      register: env_applied_file
+      ignore_errors: true
+
+    - name: Decide whether .env changed since the last deploy
+      ansible.builtin.set_fact:
+        env_checksum: "{{ env_stat.stat.checksum | default('') }}"
+        env_changed: "{{ env_stat.stat.exists and (env_stat.stat.checksum | default('')) != ((env_applied_file.content | b64decode | trim) if (env_applied_file is succeeded and env_applied_file.content is defined) else '') }}"
+
     # `-e force_redeploy=true` redeploys the SHA .current_sha already names (#67): the automatic
     # rollback needs it, because .current_sha is written only after readiness passes and so still
     # names the previous release after a failed deploy. Never delete .current_sha to force instead:
     # if that redeploy fails too, the VM has lost its only record of what it runs.
     - name: Notify if release is already deployed
       ansible.builtin.debug:
-        msg: "Release '{{ image_tag }}' is already active on {{ inventory_hostname }}. Skipping duplicate deployment."
-      when: current_sha == image_tag and not (force_redeploy | default(false) | bool)
+        msg: "Release '{{ image_tag }}' is already active on {{ inventory_hostname }} and .env is unchanged. Skipping duplicate deployment."
+      when: current_sha == image_tag and not (force_redeploy | default(false) | bool) and not (env_changed | bool)
+
+    - name: Notify that .env changed under the active release
+      ansible.builtin.debug:
+        msg: "Release '{{ image_tag }}' is already active, but {{ app_dir }}/.env changed since the last deploy. Rolling it out again to apply the new configuration."
+      when: current_sha == image_tag and not (force_redeploy | default(false) | bool) and (env_changed | bool)
 
     - name: Early exit on duplicate release deployment
       ansible.builtin.meta: end_play
-      when: current_sha == image_tag and not (force_redeploy | default(false) | bool)
+      when: current_sha == image_tag and not (force_redeploy | default(false) | bool) and not (env_changed | bool)
 
     # docker-compose.yml's network gained ip_range (#148). Compose cannot change the IPAM of a network
     # that has containers attached: measured with compose v5.0.2, `run --rm` swaps the network under
@@ -422,6 +449,15 @@
         content: "{{ image_tag }}\n"
         dest: "{{ app_dir }}/.current_sha"
         mode: "0644"
+
+    # Only after readiness passed, like .current_sha: a failed rollout leaves the old checksum, so
+    # the next run retries the .env change instead of skipping it.
+    - name: Record the .env checksum this deploy applied
+      ansible.builtin.copy:
+        content: "{{ env_checksum }}\n"
+        dest: "{{ app_dir }}/.env_applied_sha256"
+        mode: "0644"
+      when: env_checksum | length > 0
 
     # Monitoring overlay (#121): host loopback only, reached over an SSH tunnel (07 §7).
     # Everything monitoring touches (its compose file, config trees, images) runs here, after the
