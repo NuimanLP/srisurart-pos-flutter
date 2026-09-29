@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `3cff74e` (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting) · 2026-09-29
+**ตรวจกับโค้ดที่:** `origin/main` @ `639238f` (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน) · 2026-09-29
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
@@ -391,7 +391,14 @@ ssh mob04 'sudo -n ssh-keygen -lf /home/deploy/.ssh/authorized_keys'
 
 `provision.yml` ทำตามลำดับ: apt ติด Docker Engine + compose plugin → UFW (deny incoming, allow 22/80/443) → user `deploy` (group `docker`) →
 authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh` ลง `/opt/pos/scripts` →
-**เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง)** → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy`
+**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy`
+
+ตั้งแต่ #506 ก่อนเขียน `.env` provision **ตรวจว่ามีบรรทัด `KEY=<ไม่ว่าง>` ครบทุกคีย์ที่ Compose บังคับ** (11 คีย์ใน §2.2 — ไม่รวม `IMAGE_TAG` ที่ `deploy.yml` ส่งเอง)
+ขาดตัวไหน play **ล้มก่อนแตะ `.env`** พร้อมชื่อคีย์ (ไม่พิมพ์ค่า) · ไม่มี `PLATFORM_ADMINS` = แค่ **เตือน** (Compose ไม่บังคับ แต่ platform-ui จะไม่มี admin ให้ login) ·
+task เขียน `.env` เป็น `no_log` + `diff: false` แล้ว — แต่ **ยังห้ามใส่ `--diff`** อยู่ดี
+
+🔴 **provision ไม่ restart อะไรเลย** — container ยังใช้ `.env` เก่าจนกว่าจะรัน `deploy.yml` รอบถัดไป · ตั้งแต่ #506 `deploy.yml` เทียบ sha256 ของ `.env`
+กับ `/opt/pos/.env_applied_sha256` (hash ของ `.env` ที่ deploy สำเร็จครั้งล่าสุดใช้) → ถ้าต่าง จะ **rollout SHA เดิมซ้ำเอง** ไม่ต้องใส่ `force_redeploy` (§3 ข้อ 6)
 
 **① backup `.env` บน VM ก่อน:**
 
@@ -436,7 +443,10 @@ DEMO_ENV_FILE="$(cat ~/secrets/mob04-demo.env)" DEMO_SSH_KEY_PUB="$(cat ~/.ssh/d
 |---|---|---|
 | `ok` | เนื้อหาเหมือนบน VM | ไปต่อได้ |
 | `changed` | **secret บน VM จะถูกเขียนทับ** — ยกเว้นกรณีเปลี่ยนผ่านใน ② (สูตรเก่า `printf '%s'` เท่ากับ VM) ที่ต่างแค่ newline ท้าย | กรณีเปลี่ยนผ่าน: ไปต่อได้ (ครั้งเดียว) · นอกนั้น **STOP** เว้นแต่ตั้งใจเปลี่ยน secret (ตรงกับผล ②) |
-| `skipping` | `DEMO_ENV_FILE` ไม่ถูกส่ง | แก้คำสั่ง |
+| `skipping` | `DEMO_ENV_FILE` ไม่ถูกส่ง (มี task `Warn that .env is left untouched` ขึ้นเตือนด้วย) | แก้คำสั่ง |
+
+task ตรวจคีย์ (`Check DEMO_ENV_FILE carries every key Compose requires`) รันใน `--check` ด้วย → ❌ `DEMO_ENV_FILE has no non-empty <KEY>= line` = แก้ไฟล์ secrets ก่อน ·
+⚠️ `DEMO_ENV_FILE has no PLATFORM_ADMINS= line` = ไปต่อได้ แต่ platform-ui จะ login ไม่ได้ถ้าใน DB ยังไม่มี admin
 
 **④ รันจริง** — คำสั่งเดียวกับ ③ ไม่มี `--check`:
 
@@ -586,7 +596,9 @@ git merge-base --is-ancestor "$CURRENT" "$TAG" && echo "forward ok" || echo "STO
 ```
 
 ✅ `forward ok` และ `$CURRENT` ≠ `$TAG` · 🛑 `STOP` → เป็น rollback หรือ SHA ผิด — rollback ต้องตั้งใจและทำตาม §6.2 เท่านั้น ·
-`$CURRENT` = `$TAG` → VM รันอยู่แล้ว (ต้องการ rollout ซ้ำจริง ๆ ค่อยใส่ `-e force_redeploy=true` ในข้อ 9)
+`$CURRENT` = `$TAG` → VM รันอยู่แล้ว: ถ้า `.env` **ไม่ได้**เปลี่ยนตั้งแต่ deploy ครั้งล่าสุด `deploy.yml` จะจบเงียบ ๆ (ต้องการ rollout ซ้ำจริง ๆ ค่อยใส่ `-e force_redeploy=true` ในข้อ 9) ·
+ถ้า **เพิ่ง provision `.env` ใหม่** (#506) `deploy.yml` จะ rollout SHA เดิมซ้ำเอง — เห็นข้อความ `... but /opt/pos/.env changed since the last deploy. Rolling it out again ...` ·
+deploy ครั้งแรกหลัง #506 ยังไม่มี `/opt/pos/.env_applied_sha256` → นับว่าเปลี่ยน → rollout ซ้ำหนึ่งครั้งแม้ `.env` เหมือนเดิม (ตั้งใจ — rollout เกินหนึ่งรอบดีกว่าข้ามการเปลี่ยน secret)
 
 ```bash
 ssh mob04-deploy 'docker network inspect srisurart-pos_default --format "{{json .IPAM.Config}}"'
@@ -815,12 +827,12 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 
 ## 6. Reference
 
-### 6.1 `deploy.yml` ทำอะไรทีละ task (ตามโค้ดใน `origin/main` @ `3cff74e` — **ลำดับนี้ยังไม่เคยรันครบบน `mob04`**)
+### 6.1 `deploy.yml` ทำอะไรทีละ task (ตามโค้ดใน `origin/main` @ `639238f` — **ลำดับนี้ยังไม่เคยรันครบบน `mob04`**)
 
 | # | task (ชื่อที่เห็นใน output) | ทำอะไร |
 |---|---|---|
 | 1 | `Validate image_tag parameter` | ต้องมี `image_tag` |
-| 2 | `Check currently deployed SHA on VM` → `Early exit on duplicate release deployment` | `.current_sha` = tag และไม่มี `force_redeploy` → จบ play เงียบ ๆ |
+| 2 | `Check currently deployed SHA on VM` → `Checksum the VM's .env` → `Decide whether .env changed since the last deploy` → `Early exit on duplicate release deployment` | `.current_sha` = tag, ไม่มี `force_redeploy` **และ** sha256 ของ `.env` = `/opt/pos/.env_applied_sha256` → จบ play เงียบ ๆ · `.env` เปลี่ยน (หรือยังไม่มีไฟล์ marker) → rollout SHA เดิมต่อ (#506) |
 | 3 | `Inspect the existing compose network` → `Refuse to deploy onto a network created before ip_range was added` | กัน network รุ่นเก่า (ยังไม่แตะอะไร) |
 | 4 | `Copy docker-compose base configuration` … `Copy Postgres initialization scripts` | copy compose, `vm.override.yml`, `nginx.conf`, platform-ui conf+html, postgres init **จาก tree ของคุณ** |
 | 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) |
@@ -835,6 +847,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | 14 | `Validate the copied platform-ui Nginx configuration` → `Recreate platform-ui ...` | แบบเดียวกัน |
 | 15 | `Verify cluster readiness via Nginx (GET /health/ready)` | ต้อง 200 (≤ 15×3 วิ) |
 | 16 | `Record deployed SHA in .current_sha` | เขียนเฉพาะเมื่อทุกข้อข้างบนผ่าน |
+| 16b | `Record the .env checksum this deploy applied` | เขียน `/opt/pos/.env_applied_sha256` หลัง readiness ผ่านเหมือนกัน — deploy ล้ม = hash เก่ายังอยู่ → รอบหน้ารู้ว่า `.env` ยังไม่ถูกใช้ (#506) |
 | 17 | บล็อก `Monitoring overlay` | copy/prune config, pull, up node-exporter, recreate prometheus+grafana, probe · ล้ม = `WARNING` เท่านั้น |
 
 **`--check` ของ `deploy.yml` พิสูจน์แทบไม่ได้อะไร:** `command` ไม่มี check mode → ถูกข้าม → assert network ล้มแบบ false positive (มี `()` ว่างในข้อความ)
@@ -888,7 +901,9 @@ workflow `Deploy (demo)` → self-hosted runner บน VM (#67 — **ยัง�
 | `etcd-init: FAILED — root cannot authenticate` | รหัสใน `etcd-data` ≠ `ETCD_ROOT_PASSWORD` (§2.3) | หยุด รายงาน owner (#365) |
 | `password authentication failed for user ...` | รหัสใน `pgdata` ≠ `.env` (§2.3) | หยุด รายงาน owner · ห้ามลบ volume |
 | `Validate the copied Nginx configuration` ล้ม | `nginx.conf` ของ SHA นี้พัง | Nginx เดิมยังเสิร์ฟอยู่ · แก้ใน PR → SHA ใหม่ |
-| `Release '<sha>' is already active on vm-demo. Skipping duplicate deployment.` | `.current_sha` = tag | ตั้งใจ rollout ซ้ำ: `-e force_redeploy=true` · **ห้ามลบ `.current_sha`** |
+| `Release '<sha>' is already active on vm-demo and .env is unchanged. Skipping duplicate deployment.` | `.current_sha` = tag และ `.env` ไม่เปลี่ยน | ตั้งใจ rollout ซ้ำ: `-e force_redeploy=true` · **ห้ามลบ `.current_sha`** · แก้ `.env` แล้วยังเห็นข้อความนี้ = provision ยังไม่ได้เขียนไฟล์ (เช็ก `skipping` ใน §2.5) |
+| `Release '<sha>' is already active, but /opt/pos/.env changed since the last deploy. Rolling it out again ...` | provision เขียน `.env` ใหม่ หรือ deploy ครั้งแรกหลัง #506 | ปกติ — ปล่อยให้รันจนจบ แล้วตรวจ §4 |
+| provision: `DEMO_ENV_FILE has no non-empty <KEY>= line ...` | ไฟล์ secrets ขาดคีย์ / ค่าว่าง | เติมคีย์ในไฟล์ secrets (§2.2) แล้วรันใหม่ · `.env` บน VM ยังไม่ถูกแตะ |
 | `WARNING: release '<sha>' is deployed and healthy, but the monitoring overlay failed ...` | Prometheus/Grafana ขึ้นไม่ได้ (POS ไม่กระทบ) | แก้ต้นเหตุ → release ถัดไป หรือรัน tag เดิมด้วย `-e force_redeploy=true` (ข้อความเองก็แนะนำแบบนี้) · **ห้ามลบ `.current_sha`** |
 | platform-ui 403 เงียบ ๆ | สามอย่างของ `172.30.0.20` ไม่ตรงกัน: `ipv4_address` ใน compose, `allow 172.30.0.20;` ใน `nginx.conf`, `PLATFORM_ADMIN_IPS` · หรือ container เสีย IP หลัง network recreate | `ssh mob04-deploy 'docker inspect srisurart-pos-platform-ui-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"'` ต้องได้ `172.30.0.20` |
 | POST จากเบราว์เซอร์ล้มหมด | `CORS_ORIGINS` ไม่ตรง origin | §4.6 |
