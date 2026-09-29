@@ -87,7 +87,7 @@ GitHub ตั้งแล้ว 2026-09-15** (#186) — ค่าอยู่ใ
 | Build & Test (CI) | GitHub Actions · vitest (server) · `flutter test` (client) | `.github/workflows/server.yml`, `flutter.yml` | ✅ |
 | Security Scan | Trivy (fs + **image**) · `pnpm audit` · OSV-Scanner | job `audit`, `deps-audit`, และ scan ใน job build image | fs ✅ · image ฝั่ง server: PR #70 (#61) |
 | Package / Storage | Docker + **GHCR** (public) | job build image ทั้งสอง workflow → `ghcr.io/nuimanlp/srisurart-pos-server`, `…-web` | server: PR #70 (#61, tarball artefact ถูกยกเลิก) · web: PR #69 (#62) |
-| Config & Deploy (CD) | **Ansible** — รันโดย self-hosted runner บน VM (local, addendum ADR-0013 2026-09-15) · มือ: ผ่าน SSH | `deploy/ansible/`, `.github/workflows/deploy.yml` | playbook ✅ · workflow มีแล้ว (#67) · required reviewer `NuimanLP` บน `demo` เปิดแล้ว (#366) · **แก้ 2026-09-23:** runner ยังไม่ติดตั้ง (0 runner) และ `pull` จาก `ghcr.io` บน VM ถูก FortiGate ตัด — **ยังไม่เคย deploy ถึง VM** (ดูสถานะ 2026-09-23 ด้านบน) |
+| Config & Deploy (CD) | **Ansible** — รันโดย self-hosted runner บน VM (local, addendum ADR-0013 2026-09-15) · มือ: ผ่าน SSH | `deploy/ansible/`, `.github/workflows/deploy.yml` | playbook ✅ · workflow มีแล้ว (#67) · required reviewer `NuimanLP` บน `demo` เปิดแล้ว (#366) · **แก้ 2026-09-23:** runner ยังไม่ติดตั้ง (0 runner) — **ยังไม่เคย deploy ถึง VM** (ดูสถานะ 2026-09-23 ด้านบน) · ~~`pull` จาก `ghcr.io` บน VM ถูก FortiGate ตัด~~ คลี่คลาย 2026-09-29 (`docker pull` SHA เต็มจาก `mob04` สำเร็จ) |
 | KV Storage | **etcd** | service ใน compose + `RuntimeConfigService` ฝั่ง NestJS | ✅ service etcd + auth (#64) · `RuntimeConfigService` merge มาก่อนแล้ว (#66, PR #109; watch แก้ใน #120, PR #129) · **แก้ 2026-09-23:** บน `mob04` auth ของ etcd **ยังไม่เคยเปิด** (#365 เปิดอยู่ — §7 runbook แถว etcd, §8) |
 | Monitoring & Operate | **Node Exporter + Prometheus + Grafana (Monitoring)** | `deploy/compose/monitoring.yml`, `deploy/prometheus/`, `deploy/grafana/` | overlay #63 `ops.1` · ต่อเข้า `deploy/ansible/deploy.yml` แล้วใน #121 `ops.5` (ยังไม่ได้รันจริงบน VM) · ปฏิเสธ Wazuh/ELK เพราะกิน RAM 4–5 GB เกินงบ 6 GB |
 
@@ -121,8 +121,8 @@ flowchart LR
 ```
 
 > **แก้ 2026-09-23:** เพิ่ม `nginx-check` (#270) และด่านอนุมัติของ environment `demo` (#366) ลงในภาพ ·
-> 🔴 ขั้น `D`/`V` **ยังไม่เคยเกิดขึ้นจริง** — ไม่มี runner ลงทะเบียน และ `pull` จาก `ghcr.io` บน VM ถูก FortiGate ตัด
-> (สถานะ 2026-09-23 ต้นไฟล์) · ภาพนี้คือ pipeline ที่ออกแบบและ merge แล้ว ไม่ใช่ของที่ทำงานอยู่ครบทั้งเส้น
+> 🔴 ขั้น `D`/`V` **ยังไม่เคยเกิดขึ้นจริง** — ไม่มี runner ลงทะเบียน (สถานะ 2026-09-23 ต้นไฟล์) · ~~`pull` จาก `ghcr.io` บน VM
+> ถูก FortiGate ตัด~~ คลี่คลาย 2026-09-29 · ภาพนี้คือ pipeline ที่ออกแบบและ merge แล้ว ไม่ใช่ของที่ทำงานอยู่ครบทั้งเส้น
 
 กติกา 4 ข้อที่ทำให้ภาพนี้ไม่ค้าง (ที่มา: #39, #40 AC4, scrutinize 2026-09-10):
 

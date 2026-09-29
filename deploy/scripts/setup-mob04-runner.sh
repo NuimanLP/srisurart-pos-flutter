@@ -119,10 +119,11 @@ fi
 # first: under pipefail that exit 1 would fail `... | grep -q usage` even when grep matches.
 echo "  Testing sudo rule for gha-runner..."
 sudo_out="$(sudo -u gha-runner sudo -n -u deploy /usr/local/bin/pos-deploy 2>&1 || true)"
-if grep -q usage <<<"$sudo_out"; then
+if grep -q 'pos-deploy: usage' <<<"$sudo_out"; then
   echo "  sudoers verification PASSED (pos-deploy returned expected usage)."
 else
   echo "Error: sudo -n -u deploy /usr/local/bin/pos-deploy failed from gha-runner." >&2
+  echo "$sudo_out" >&2
   exit 1
 fi
 
