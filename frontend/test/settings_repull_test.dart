@@ -6,8 +6,10 @@
 // `onPull` callback `SyncService` fires after every push while online,
 // including right after a reconnect — pulls settings too.
 
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -18,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
 import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
@@ -177,6 +180,106 @@ void main() {
         sync.dispose();
         await tester.pump(const Duration(milliseconds: 1));
       }
+    },
+  );
+
+  test(
+    'PR #486: a GET /settings started before a PATCH, but whose response '
+    'lands after it, must not clobber the PATCH result in the Drift cache',
+    () async {
+      // The GET is held open with a Completer so its (older) response lands
+      // strictly after the PATCH's (newer) response has already been
+      // written — the exact interleaving triggerEntityPull's more frequent
+      // GET (#474) made newly reachable. The guard is the `_writeGen`
+      // counter, not `updatedAt` (round 2 of the PR #486 review) — these
+      // wire timestamps only document which reply is "older" in the
+      // scenario, they aren't what the repository compares.
+      final releaseGet = Completer<void>();
+
+      final client = ApiClient(
+        httpClient: MockClient((req) async {
+          if (req.method == 'GET') {
+            await releaseGet.future;
+            return http.Response(
+              jsonEncode({
+                'shopName': 'ชื่อเก่า',
+                'shopNameEn': 'Old Name',
+                'updatedAt': '2026-09-28T00:00:00.000Z', // older
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          // PATCH — answered immediately, "wins" the race.
+          return http.Response(
+            jsonEncode({
+              'shopName': 'ชื่อใหม่',
+              'shopNameEn': 'New Name',
+              'updatedAt': '2026-09-28T00:00:05.000Z', // newer
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final settings = ApiSettingsRepository(db, client);
+
+      final getFuture = settings.pullFromServer(); // starts first, blocks
+      final patchFuture = settings.updateSettings(
+        const SettingsRowCompanion(shopNameEN: Value('New Name')),
+      );
+
+      await patchFuture; // PATCH's (newer) reply is written first.
+      releaseGet.complete(); // now let the stale GET's reply through.
+      await getFuture;
+
+      final row = await db.select(db.settingsRow).getSingle();
+      expect(
+        row.shopNameEN,
+        'New Name',
+        reason: 'the stale GET clobbered the newer PATCH result',
+      );
+    },
+  );
+
+  test(
+    'PR #486 round 2: a local row whose updatedAt is far in the future '
+    '(device clock skew, or a snapshot import that kept the backup\'s own '
+    'stamp) still accepts a normal GET /settings — the guard is not clock-based',
+    () async {
+      // Simulates the Drift-only build's `SettingsRepository.updateSettings`
+      // stamping `DateTime.now()`, or `importLegacyBackup` keeping an old
+      // backup's own `updatedAt` — neither is server-derived, so a guard
+      // keyed on it would drop every future GET forever (#474 again, but
+      // permanent). Year 2099 stands in for "whatever is later than the
+      // server's real clock".
+      await (db.update(
+        db.settingsRow,
+      )..where((t) => t.id.equals(0))).write(
+        SettingsRowCompanion(updatedAt: Value(DateTime.utc(2099))),
+      );
+
+      final client = ApiClient(
+        httpClient: MockClient((req) async {
+          return http.Response(
+            jsonEncode({
+              'shopName': 'ร้านศรีจากเซิร์ฟเวอร์',
+              'shopNameEn': 'Server Sri Shop',
+              'updatedAt': '2026-09-28T00:00:00.000Z', // "older" than 2099
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final settings = ApiSettingsRepository(db, client);
+      final applied = await settings.pullFromServer();
+
+      expect(applied, isTrue);
+      final row = await db.select(db.settingsRow).getSingle();
+      expect(row.shopNameEN, 'Server Sri Shop');
     },
   );
 }

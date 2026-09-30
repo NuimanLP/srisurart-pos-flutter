@@ -36,17 +36,39 @@ class ApiSettingsRepository extends SettingsRepository {
   final ApiClient apiClient;
   final SyncFacade? syncFacade;
 
+  /// Bumped every time a `PATCH` reply is applied. `pullFromServer` captures
+  /// this before sending its `GET` and only applies the reply if the count
+  /// is still the same when it lands — deliberately clock-free. A guard
+  /// keyed on `updatedAt` instead (tried in an earlier revision of #474)
+  /// compares against a *local* row that isn't always server-derived: the
+  /// Drift-only build's `SettingsRepository.updateSettings` stamps
+  /// `DateTime.now()`, and `importLegacyBackup` keeps the backup's own
+  /// timestamp — either can already sit ahead of the server's real clock
+  /// (or just be skewed), which would make every future `GET` look "stale"
+  /// and silently stop pulling forever, i.e. #474 again but permanent
+  /// (PR #486 review, round 2).
+  int _writeGen = 0;
+
   /// Pulls the tenant's settings into the Drift row. Never throws — sign-in
   /// fires it unawaited (must not block the first screen), and
   /// `triggerEntityPull` fires it inside its own `Future.wait` (#474) since
   /// it never rejects that batch either way; `false` means the cache was
-  /// left as it was.
+  /// left as it was (including when a `PATCH` reply landed first and this
+  /// reply is the stale one).
   Future<bool> pullFromServer() async {
+    final startGen = _writeGen;
     try {
       final res = await apiClient.get('/api/v1/settings');
       if (res is! Map) return false;
-      await _patchFromWire(res);
-      return true;
+      var applied = false;
+      await db.transaction(() async {
+        // A PATCH applied while this GET was in flight — the GET is for an
+        // older state, drop it rather than clobber the newer one.
+        if (_writeGen != startGen) return;
+        await _patchFromWire(res);
+        applied = true;
+      });
+      return applied;
     } catch (_) {
       return false;
     }
@@ -89,7 +111,14 @@ class ApiSettingsRepository extends SettingsRepository {
         ServerErrorResolver.resolve(null),
       );
     }
-    await _patchFromWire(res);
+    // A PATCH reply always applies — it is by definition the newest write
+    // this device just made. Bumping the generation inside the same
+    // transaction as the write is what makes a `pullFromServer` that is
+    // already in flight recognise it landed too late.
+    await db.transaction(() async {
+      await _patchFromWire(res);
+      _writeGen++;
+    });
   }
 
   /// Only the fields the edit actually set — `PATCH /settings` leaves every
@@ -108,6 +137,11 @@ class ApiSettingsRepository extends SettingsRepository {
 
   /// A server `Settings` object → the Drift row. 🔴 A key the reply omits
   /// leaves its column alone (ADR-0010); a key sent as `null` clears it.
+  ///
+  /// `pullFromServer` and `updateSettings` both funnel their reply through
+  /// here — staleness (a `GET` that lost the race to a newer `PATCH`, #474
+  /// pull-on-reconnect made this reachable) is each caller's own job via
+  /// `_writeGen`, not this method's; it only ever writes what it's given.
   Future<void> _patchFromWire(Map<dynamic, dynamic> s) async {
     Value<String?> nullable(String key) {
       if (!s.containsKey(key)) return const Value.absent();
