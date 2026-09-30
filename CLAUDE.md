@@ -237,10 +237,7 @@ develops against a demo tenant.
   (`docs/handoff_log/session-2026-09-30-first-runner-deploy.md`). Afternoon: merge→CD proven
   on `494ace3` (run `36685602814`), `workflow_dispatch` rollback to `e50f4fa` proven (run
   `36687687309`, schema unchanged), same-SHA rerun = "Skipping duplicate deployment"
-  (`36688248109`). **AC 9/15 — still unproven:** one-image-only then deploy, no concurrent
-  deploys, failing readiness → red, auto-rollback on failure, hook rejects other branch/fork,
-  `log_level` seeding. Owner approved running those deliberate-failure tests **after the #344
-  demo**, not before. The `demo` environment has a `main`-only branch policy and fork-PR
+  (`36688248109`). **AC 14/15 (2026-09-30 evening, issue comment 5912257527):** one-image-only → skip, no concurrent deploys (a job *waiting for approval* already holds the `deploy-demo` slot), `log_level` seeded when missing and a hand-set value survives, failing readiness → red run + auto-rollback by `pos-deploy` re-running the old release (run `36720675552`; not an Ansible `rescue:`), hook refuses a non-`main` branch (run `36721404240`). **Still open: the fork case** of the hook AC — not exercised. The `demo` environment has a `main`-only branch policy and fork-PR
   approval is `all_external_contributors` (owner-approved 2026-09-30). Still verify with
   `.current_sha` before claiming a deploy — a green run alone proves nothing (below).
 - **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
