@@ -276,7 +276,7 @@ develops against a demo tenant.
   dropped)~~ — **installed and verified 2026-09-30 (late):** `sudo install -o deploy -g deploy -m 0755`
   from `origin/main`, sha256 `fa65dbd5…` matches, previous copy kept as
   `/opt/pos/scripts/.backup-db.sh.prev-be9e7f3`; one run in cron's env (`env -i`, cwd
-  `/home/deploy`) → rc=0, 9.6K `.sql.gz`, `gzip -t` ok, sha256 sidecar OK, no `.partial`, offsite
+  `/home/deploy`) → rc=0, 9580-byte `.sql.gz`, `gzip -t` ok, sha256 sidecar OK, no `.partial`, offsite
   `::warning::` as expected (#363 parked). First real 03:00 cron run with it is still 2026-10-01. A foreign `Origin`
   used to get **HTTP 500** (`app.setup.ts` threw; not counted in `http_requests_total`) —
   fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to

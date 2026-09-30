@@ -547,7 +547,7 @@ gantt
 > | `q1` ApiRepository | **ลงแล้ว** (`fe.0`–`fe.3`) — ยัง opt-in ด้วย `--dart-define=USE_API_WRITES=true` (#56) |
 > | `q2` outbox + SyncService | **เริ่มแล้ว ยังไม่ปิด** — มี `OutboxOps` (Drift), `frontend/lib/data/sync/`, `server/src/sync/` · ลำดับใบที่เหลือดู `CLAUDE.md` / #243 lanes (`09_PHASE2_LANES.md`) |
 > | `q4` cutover | **ย้ายไปเฟสถัดไป** (#231, เคาะ 2026-09-15 #242) — ร้านยังรัน Drift build เดิม ไม่มี cutover |
-> | CI/CD | level 1–3 ลงแล้ว · level 4 (deploy ไป `mob04` + monitoring + etcd) **ลงบางส่วน** — ~~🔴 CD ไป `mob04` ติด FortiGate ของคณะ (2026-09-21)~~ **2026-09-30:** FortiGate คลี่คลาย 2026-09-29 · runner `mob04-demo` ติดตั้งแล้ว + deploy จริงครั้งแรก `e50f4fa` ถึง `mob04` (`docs/handoff_log/session-2026-09-30-first-runner-deploy.md`) · rollback ยังไม่พิสูจน์ · #343 ยังไม่มี AC ไหนติ๊ก (→ demo #344 ยังไม่รัน) |
+> | CI/CD | level 1–3 ลงแล้ว · level 4 (deploy ไป `mob04` + monitoring + etcd) **ลงบางส่วน** — ~~🔴 CD ไป `mob04` ติด FortiGate ของคณะ (2026-09-21)~~ **2026-09-30:** FortiGate คลี่คลาย 2026-09-29 · runner `mob04-demo` ติดตั้งแล้ว + deploy จริงครั้งแรก `e50f4fa` ถึง `mob04` (`docs/handoff_log/session-2026-09-30-first-runner-deploy.md`) · ~~rollback ยังไม่พิสูจน์ · #343 ยังไม่มี AC ไหนติ๊ก~~ (**แก้ 2026-09-30:** rollback พิสูจน์แล้วทั้ง `workflow_dispatch` run `36687687309` และอัตโนมัติ run `36720675552` · #67 ปิด · #343 ปิด 5/5 · deploy ล่าสุด `ca2fef1`) (→ demo #344 ยังไม่รัน) |
 
 **เกณฑ์ปิดเฟส 1 (definition of done):**
 - [x] `docker compose up` ครั้งเดียวได้ครบ Nginx + NestJS×3 + Postgres + Redis + worker + Bull-Board — **#14 `p1` 2026-09-06**

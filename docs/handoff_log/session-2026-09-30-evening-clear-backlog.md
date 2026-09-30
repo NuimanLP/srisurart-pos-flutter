@@ -29,7 +29,7 @@
 
 ## สถานะ `backup-db.sh` (#519) บน VM — ~~ยังไม่ได้ติดตั้ง (VPN หลุด)~~ **ติดตั้งแล้ว (แก้ 2026-09-30 ค่ำ)**
 ลงแล้วด้วย `sudo install -o deploy -g deploy -m 0755` จาก `origin/main` · sha256 `fa65dbd5…` ตรง `origin/main` · ไฟล์เดิมเก็บเป็น `/opt/pos/scripts/.backup-db.sh.prev-be9e7f3`
-รันหนึ่งครั้งด้วย env แบบ cron (cwd `/home/deploy`, `env -i PATH=/usr/bin:/bin`) → rc=0 · `pos_backup_20260930_153554Z.sql.gz` 9.6K · `gzip -t` ผ่าน · sha256 sidecar OK · ไม่มี `.partial` · offsite `::warning::` ตามคาด (#363 พัก)
+รันหนึ่งครั้งด้วย env แบบ cron (cwd `/home/deploy`, `env -i PATH=/usr/bin:/bin`) → rc=0 · `pos_backup_20260930_153554Z.sql.gz` 9580 ไบต์ · `gzip -t` ผ่าน · sha256 sidecar OK · ไม่มี `.partial` · offsite `::warning::` ตามคาด (#363 พัก)
 รอบ cron จริงรอบแรกของสคริปต์ที่ติดตั้ง: 03:00 ของ 2026-10-01 — ตรวจ `backup-cron.log` และไฟล์ใน `/opt/pos/backups` (ไม่มี `.partial` ค้าง) · **ยังไม่ได้เห็น** จนกว่าจะถึงรอบนั้น
 
 ## ยังเปิด / ต้องใช้ owner หรือฮาร์ดแวร์
