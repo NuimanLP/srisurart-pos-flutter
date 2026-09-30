@@ -293,6 +293,8 @@ Analogy: อยากเปิดร้านกาแฟ → MVP ไม่ใ�
 | ต่อฮาร์ดแวร์ (เครื่องพิมพ์ความร้อน, ลิ้นชัก, สแกนเนอร์) | 🔜 | Phase 8b |
 | ใบกำกับภาษีเต็มรูป | ⛔ | นอก scope v1 (มีแค่อัตรา VAT ในตั้งค่า `tables.dart:356`) |
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 ---
 
 ## ⚖️ เทียบกับทางเลือกอื่น
@@ -361,6 +363,8 @@ CarSolution เป็นชุดใหญ่ (อะไหล่ + ขายร
 5. **ยังไม่ขึ้น production แบบ server** — CD ติด FortiGate, ไม่มี offsite backup, มีร้านเดียว
 6. **ไม่ใช่ธุรกิจ** — ไม่มีทีมซัพพอร์ต ไม่มี SLA ถ้าทีมนักศึกษาแยกย้าย ความต่อเนื่องมีความเสี่ยงสูง
 7. **ราคาแฝง** — "ไม่มีค่า license" ไม่ได้แปลว่าฟรี ต้นทุนคือเวลาดูแล server, VM, backup
+
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 > 📝 แก้ข้อมูลในไฟล์วิจัย: ไฟล์วิจัยคู่แข่งเขียนว่าเรา "ไม่มีค้นอะไหล่ตามรุ่นรถ" — **ไม่ถูก**
 > เรามีหน้า `/vehicle-search` (`vehicle_search_screen.dart`) แต่เป็นแค่ค้นข้อความในฟิลด์ `compat`
@@ -499,6 +503,8 @@ server ออกแบบให้ฐานข้อมูลเดียวร�
   และ 2 ตัว HIGH ใน phase 2 (fingerprint ของ `/sync/push` ไม่ตรง, วันที่บิล online มาจาก client)
 - ใบปิดร้านยังคิดกำไรจากต้นทุนปัจจุบัน (เจอตอนเขียนบทนี้ — ดูตาราง "ยังไม่ครอบคลุม")
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 ### 🗺️ Roadmap
 
 ```
@@ -554,6 +560,8 @@ CI 1–3                  #380 k6 วัดจริง           #363 backup �
   อ่อนเรื่องภาษี ฮาร์ดแวร์ การชำระเงิน และความพร้อมเชิงธุรกิจ
 - มุมธุรกิจทั้งหมดเป็น**สมมติฐาน** — เรามี product–shop fit กับร้านเดียว ยังไม่มี PMF
 - สถานะตรงๆ: ร้านใช้ build ออฟไลน์; server อยู่บน demo tenant; CD ติด FortiGate; ยังไม่มี offsite backup
+
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 ---
 

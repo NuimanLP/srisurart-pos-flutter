@@ -426,7 +426,8 @@ develops against a demo tenant.
   `ownerPassword`), web dashboard `platform-ui` on `127.0.0.1:3200` (#448), phone-width fix
   + tutorial (#450). Open: the 403-at-both-layers proof on Linux/`mob04` (measured on
   Docker Desktop only) and owner answers listed in
-  `docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md` §6. Nothing is deployed.
+  `docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md` §6. Container runs on `mob04`
+  since the 2026-09-30 deploy, but no platform admin exists (`PLATFORM_ADMINS` unset).
 
 The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
 2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving

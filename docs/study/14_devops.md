@@ -596,6 +596,8 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 - **Observability** ใช้แค่ metrics (Prometheus pull model + Grafana) ไม่มี log รวมศูนย์หรือ tracing เพราะงบ RAM ไม่พอสำหรับ Wazuh/ELK — และชื่อ metric (`http_requests_total` ฯลฯ) ห้ามเปลี่ยนเพราะ dashboard อ้างตรงๆ
 - **สถานะจริงต้องพูดตรงๆ:** CD ยังไม่เคยสำเร็จ (ติด FortiGate), runner ยังไม่ติดตั้ง, backup ยังไม่ออกนอก VM, etcd auth ยังไม่เปิดจริงบน VM, CORS ยังเป็น `'*'` — ทั้งหมดนี้เป็นข้อเท็จจริงจาก CLAUDE.md ไม่ใช่การมองโลกในแง่ร้าย
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 ---
 
 ## ❓ Quiz
@@ -645,6 +647,8 @@ Container นั้นจะใช้ RAM ได้ไม่จำกัด ถ�
 <details><summary>เฉลย</summary>
 
 ยังไม่จริง — CI (build/test/scan/push image ขึ้น GHCR) ทำงานสำเร็จแล้ว แต่ CD (การส่ง image นั้นไปติดตั้งจริงบน VM `mob04`) ไม่เคยสำเร็จสักครั้ง เพราะไฟร์วอลล์ FortiGate ของเครือข่ายมหาวิทยาลัยบล็อกการ pull จาก `ghcr.io` (ปัญหาเครือข่าย ไม่ใช่บั๊กในโค้ด) และ self-hosted runner ที่ควรจะรันขั้นตอน deploy ก็ยังไม่ได้ติดตั้งจริง แม้ ticket ที่เกี่ยวข้องจะถูกปิดไปแล้วก็ตาม การพูดว่า "deploy อัตโนมัติทำงานแล้ว" จะเป็นการรายงานสถานะที่ผิดตามกติกาความซื่อสัตย์ของเอกสารชุดนี้
+
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 </details>
 

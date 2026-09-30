@@ -1398,6 +1398,8 @@ VALUES (..., $17, COALESCE($18::timestamptz, now()))
 
 **(ง) ของ phase 1 ที่ยังค้าง:** k6 load test (#380) ยังไม่มีตัวเลขจริง — ไม่มีใครรู้ว่า backend นี้รับได้กี่บิล/วินาทีบน VM จริง และ CD ไป `mob04` ยังติด FortiGate (รายละเอียดใน [14_devops.md](14_devops.md) / [15_cicd.md](15_cicd.md))
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 ---
 
 ## ✅ สรุป

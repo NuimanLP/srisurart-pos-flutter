@@ -1091,6 +1091,8 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
 - **ops ของ phase 2 บน `mob04`** (slice 22/23/25) ยังเปิด: การวัดโหลด #380 ยังไม่มีตัวเลข, backup offsite #363 พักไว้, CD ติด FortiGate ของคณะ (รายละเอียดบท 14/15)
 - **ยังไม่อยู่ใน phase 2 เลย:** หลาย `pos` ต่อร้าน, `change_log`/CRDT, CouchDB (rejected), ใบกำกับภาษีเต็มรูป (08 §1)
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 ---
 
 ## ✅ สรุป

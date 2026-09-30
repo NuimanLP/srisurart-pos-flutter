@@ -133,7 +133,7 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">4 · Deploy</span></div>
   <div class="sec-no">Section 4</div>
   <h1 class="sec">Deploy ขึ้น mob04 · อนุมัติ · ย้อนเวอร์ชัน <span class="en">Deploy &amp; rollback</span></h1>
-  <div class="limits"><span class="nt">อ่านก่อน — ยังไม่เคย deploy สำเร็จ <span class="en">Not yet delivered</span></span>ขั้นตอนข้างล่างคือสิ่งที่ pipeline และ playbook <strong>ออกแบบไว้</strong> · ยังไม่เคยมี release ขึ้น <code>mob04</code> จริง: firewall ของคณะตอบ <code>ghcr.io</code> ด้วยใบรับรองไม่มี SAN (<code>x509: certificate is not valid for any names</code>) และ self-hosted runner ยังไม่ได้ติดตั้ง (0 ตัว) · <code>docker save</code>/<code>load</code> ด้วยมือเป็นแค่ทางกู้วันเดโม <strong>ไม่ใช่ CD</strong></div>
+  <div class="limits"><span class="nt">อ่านก่อน — deploy จริงครั้งแรกสำเร็จ 2026-09-30 <span class="en">First real deploy</span></span>runner <code>mob04-demo</code> ติดตั้งแล้ว และ release <code>e50f4fa</code> ขึ้น <code>mob04</code> จริงผ่าน pipeline (<code>.current_sha</code> ตรง, <code>/health/ready</code> 200) · firewall ของคณะเลิกตัด <code>ghcr.io</code> แล้ว (2026-09-29) · <strong>ยังไม่พิสูจน์:</strong> ย้อนเวอร์ชันทั้งแบบอัตโนมัติและแบบ Actions (หัวข้อถัดไป) — หลักฐาน <code>docs/handoff_log/session-2026-09-30-first-runner-deploy.md</code> · <code>docker save</code>/<code>load</code> ด้วยมือเป็นแค่ทางกู้วันเดโม <strong>ไม่ใช่ CD</strong></div>
 
   <h2 class="sub">ลำดับที่ pipeline ทำ <span class="en">Pipeline</span></h2>
   <ol class="steps">
@@ -243,7 +243,7 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
     <tr><td><code>etcd</code> <code>(unhealthy)</code> ตลอด ตัวอื่นปกติ</td><td>volume เก่ารหัสไม่ตรง <code>.env</code> (#365)</td><td>ใช้งานต่อได้ — ห้าม <code>down -v</code></td></tr>
     <tr><td>หลังรันคำสั่งหนึ่ง พอร์ต Postgres หาย</td><td>ใช้ชุด <code>-f</code> ไม่ครบ</td><td>ใส่ชุด <code>-f</code> เดิม แล้ว <code>up -d</code></td></tr>
     <tr><td>api/worker บูตไม่ขึ้น บ่นเรื่อง dev secret</td><td><code>.env</code> เก่าไม่มี <code>ALLOW_DEV_SECRETS=true</code></td><td>เติมบรรทัด (dev เท่านั้น)</td></tr>
-    <tr><td><code>docker compose pull</code> บน VM: <code>x509: certificate is not valid for any names</code></td><td>FortiGate ตรวจ SSL ของ <code>ghcr.io</code></td><td>แก้ใน repo ไม่ได้ — ต้องให้ทีมเครือข่ายยกเว้น <code>ghcr.io</code>/<code>registry-1.docker.io</code>/<code>gcr.io</code> สำหรับ <code>172.30.58.20</code></td></tr>
+    <tr><td><code>docker compose pull</code> บน VM: <code>x509: certificate is not valid for any names</code></td><td>FortiGate ตรวจ SSL ของ <code>ghcr.io</code> (คลี่คลาย 2026-09-29 — แถวนี้ใช้เมื่ออาการกลับมา)</td><td>แก้ใน repo ไม่ได้ — ต้องให้ทีมเครือข่ายยกเว้น <code>ghcr.io</code>/<code>registry-1.docker.io</code>/<code>gcr.io</code> สำหรับ <code>172.30.58.20</code></td></tr>
     <tr><td>Compose ทุกคำสั่งบน VM ตายก่อน pull</td><td>คีย์ที่ <code>:?</code> บังคับขาดใน <code>/opt/pos/.env</code></td><td>ตรวจด้วย <code>grep -c '^KEY='</code></td></tr>
     <tr><td>แก้ <code>nginx.conf</code> แล้วไม่เห็นผล</td><td>bind mount ไฟล์เดี่ยวค้าง inode เก่า</td><td>deploy สร้าง nginx ใหม่ทุกครั้งแล้ว (#249) — บน dev ให้ <code>up -d --force-recreate nginx</code></td></tr>
     <tr><td>Prometheus ขึ้น <code>api-readiness</code> DOWN ทั้งที่ API ปกติ</td><td><code>/health/ready</code> ตอบ JSON ไม่ใช่รูปแบบ metric</td><td>ปกติ ดู job <code>api-metrics</code> แทน (ภาค 05)</td></tr>
@@ -252,8 +252,8 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
   </div>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
-      <li>CD ขึ้น <code>mob04</code> ยังไม่เคยสำเร็จ · runner 0 ตัว · #343/#344 (deploy จริงครั้งแรก + เดโม) ยังไม่มี AC ใดติ๊ก</li>
-      <li>environment <code>demo</code>: <code>deployment_branch_policy</code> ยังเป็น <code>null</code> และการอนุมัติ fork PR ยังหลวมกว่าที่ ADR กำหนด — รอเจ้าของโปรเจกต์ตัดสิน</li>
+      <li>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรก 2026-09-30 (runner <code>mob04-demo</code>, <code>e50f4fa</code>) แต่ rollback ยังไม่พิสูจน์ · #343 ยังไม่มี AC ใดติ๊ก · #344 (เดโม) ยังไม่รัน · ยังไม่มี <code>PLATFORM_ADMINS</code> บน VM</li>
+      <li>environment <code>demo</code>: branch policy <code>main</code> และการอนุมัติ fork PR <code>all_external_contributors</code> ตั้งแล้ว 2026-09-30 (เจ้าของอนุมัติ; เดิม <code>null</code>/<code>first_time_contributors</code>)</li>
       <li>ไม่มี backup ออกนอก VM · etcd ไม่มี auth บน VM · <code>CORS_ORIGINS</code> บน VM ยังเป็น <code>'*'</code></li>
       <li>monitoring บน VM ยังไม่เคยรันจริง</li>
     </ul>

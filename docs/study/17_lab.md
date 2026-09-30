@@ -136,6 +136,8 @@ flowchart LR
 | B. Compose แค่ datastore + `pnpm start:dev` บนเครื่อง | แก้โค้ดแล้ว reload ทันที | ไม่มี Nginx/TLS/3 instance — พฤติกรรมไม่เหมือนจริง | เขียนโค้ด backend ทุกวัน (`server/README.md` "Local development without Docker") |
 | C. ใช้ VM `mob04` | ของจริง | ต้องอยู่ในเครือข่ายคณะ, deploy ยังติด FortiGate | demo วันจริง |
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 **เพราะ** เป้าของบทนี้คือ "ดูทุกหน้าให้ครบ" → **จึงเลือก A** → **ราคาที่จ่าย** คือ RAM และเวลาบิลด์ครั้งแรก
 และเพราะเครื่องของคุณอาจมีโปรเจกต์อื่นรันอยู่ → **ทุกคำสั่งใช้ `-p studylab`** → ราคาคือต้องพิมพ์ยาวขึ้นนิดหน่อย
 
@@ -977,6 +979,8 @@ gh run view 35957811225
 run แรก **เขียวทั้งที่ไม่ได้ deploy อะไรเลย** (job deploy ถูกข้ามเพราะ image ยังไม่ครบ) ส่วน run ที่สองค้างรออนุมัติ
 และถึงอนุมัติก็ยังติด FortiGate อยู่ดี — หลักฐานเดียวว่า VM รันเวอร์ชันไหนคือไฟล์ `/opt/pos/.current_sha` บน VM (CLAUDE.md)
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 ### 7.4 อ่าน log ของ job ที่พัง
 ```bash
 gh run list --status failure --limit 5
@@ -1220,6 +1224,8 @@ Nginx อนุญาตเฉพาะ `127.0.0.1`/`::1` บน path นั้�
 
 `gh run view <id>` ดูว่า job `deploy to demo` เป็น `✓` หรือ `-` (ถูกข้าม) — run `35957750138` เขียวทั้งที่ deploy ถูกข้ามเพราะ image บน GHCR ยังไม่ครบ
 และถึง job จะรัน ปัจจุบันก็ยังติด FortiGate ดึง image ไม่ได้ หลักฐานจริงเดียวคือ `/opt/pos/.current_sha` บน VM
+
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 </details>
 
