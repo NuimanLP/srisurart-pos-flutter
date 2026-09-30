@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `639238f` (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน) · 2026-09-29
+**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
@@ -177,6 +177,22 @@ Host mob04-deploy
   IdentitiesOnly yes
 ```
 
+**`DEPLOY_KEY` = private key ที่ user `deploy` ยอมรับ** — ทุกคำสั่ง Mac ข้างล่างอ่านจากตัวแปรนี้ (ประกาศต่อหน้าต่าง terminal):
+
+```bash
+export DEPLOY_KEY=~/.ssh/deploy_ed25519
+```
+
+* **สมาชิก:** ค่าข้างบน (key จาก §1.3)
+* **owner บน Mac ของ owner (ตรวจแล้ว 2026-09-30):** `authorized_keys` ของ `deploy` มี key เดียวคือ `mob04-SriStore` และ `~/.ssh/deploy_ed25519` **ไม่มี**
+  → `export DEPLOY_KEY=~/.ssh/mob04-SriStore` และใน block `Host mob04-deploy` ข้างบนใช้ `IdentityFile ~/.ssh/mob04-SriStore` · Windows: `KEYFILE=mob04-SriStore` แทน `deploy_ed25519`
+
+ด่านก่อนทุกคำสั่งที่ใช้ key (ต้องได้ `key ok`):
+
+```bash
+test -s "$DEPLOY_KEY" && test -s "$DEPLOY_KEY.pub" && echo "key ok" || echo "STOP: ไม่มี $DEPLOY_KEY หรือ .pub"
+```
+
 `ansible.cfg` ตั้ง `host_key_checking = False` → **Ansible จะไม่ตรวจว่าคุยกับเครื่องจริง** · ssh ด้วยมือหนึ่งครั้งเพื่อให้ `known_hosts` จำ key ของ VM:
 
 ```bash
@@ -202,7 +218,7 @@ ssh mob04-deploy 'id; docker ps --format "{{.Names}}" | head -3'
 Mac (ใน `deploy/ansible/`):
 
 ```bash
-DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$HOME/.ssh/deploy_ed25519" ansible demo -m ping
+DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$DEPLOY_KEY" ansible demo -m ping
 ```
 
 Windows (Git Bash ที่ root ของ repo):
@@ -255,7 +271,19 @@ mkdir -p ~/secrets
 chmod 700 ~/secrets
 ```
 
-> สำเนาปัจจุบันของ owner อยู่ที่ `~/Downloads/mob04-demo.env` — **ย้ายไป `~/secrets/`** (แล้ว `chmod 600`)
+> สำเนาปัจจุบันของ owner อยู่ที่ `~/Downloads/mob04-demo.env` (ยังอยู่ตรงนั้น 2026-09-30 — `~/secrets` ยังไม่มี) — **ย้ายไป `~/secrets/`** (แล้ว `chmod 600`)
+
+ทุกคำสั่งข้างล่างอ่านไฟล์ผ่าน **`SECRETS_FILE`** (ประกาศต่อหน้าต่าง terminal · ยังไม่ย้าย = ชี้ `~/Downloads/mob04-demo.env` แทน):
+
+```bash
+export SECRETS_FILE=~/secrets/mob04-demo.env
+```
+
+```bash
+test -s "$SECRETS_FILE" && echo "secrets ok" || echo "STOP: ไม่มี $SECRETS_FILE"
+```
+
+🔴 ไฟล์ไม่มี = `$(cat ...)` ได้ค่าว่าง **เงียบ ๆ** → คำสั่ง provision ใน §2.5 จึงขึ้นต้นด้วย `test -s ... &&` ให้หยุดเองก่อนแตะ VM
 > Windows: ห้ามเก็บในโฟลเดอร์ที่ OneDrive sync (Documents/Desktop มักถูก sync) และ `chmod` ไม่ป้องกันอะไรบน NTFS → ใช้ `icacls` แบบ §1.3
 
 **กฎ:** ห้ามวางค่าลง chat/PR/commit/issue/log/screenshot · ห้ามเก็บใน repo · **ห้าม `--diff` กับ `provision.yml`** (พิมพ์ `.env` ทั้งไฟล์) ·
@@ -264,27 +292,27 @@ chmod 700 ~/secrets
 #### ตรวจไฟล์ — ดูแค่ชื่อคีย์
 
 ```bash
-grep -oE '^[A-Z0-9_]+=' ~/secrets/mob04-demo.env | sort
+grep -oE '^[A-Z0-9_]+=' "$SECRETS_FILE" | sort
 ```
 
 11 คีย์ที่ compose บังคับ (`:?`) ต้องมีและไม่ว่าง:
 
 ```bash
-for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT_PLATFORM_SECRET JWT_PRIVATE_KEY JWT_PUBLIC_KEYS BULL_BOARD_PASSWORD ETCD_ROOT_PASSWORD GRAFANA_ADMIN_PASSWORD K6_REMOTE_WRITE_BASIC_AUTH_USER K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD; do if grep -qE "^${k}=.+" ~/secrets/mob04-demo.env; then echo "ok       $k"; else echo "MISSING  $k"; fi; done
+for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT_PLATFORM_SECRET JWT_PRIVATE_KEY JWT_PUBLIC_KEYS BULL_BOARD_PASSWORD ETCD_ROOT_PASSWORD GRAFANA_ADMIN_PASSWORD K6_REMOTE_WRITE_BASIC_AUTH_USER K6_REMOTE_WRITE_BASIC_AUTH_PASSWORD; do if grep -qE "^${k}=.+" "$SECRETS_FILE"; then echo "ok       $k"; else echo "MISSING  $k"; fi; done
 ```
 
 ของต้องห้าม / CRLF — ทั้งสามต้องได้ `0`:
 
 ```bash
-grep -cE '^(ALLOW_DEV_SECRETS|IMAGE_TAG)=' ~/secrets/mob04-demo.env
+grep -cE '^(ALLOW_DEV_SECRETS|IMAGE_TAG)=' "$SECRETS_FILE"
 ```
 
 ```bash
-grep -c 'dev-only-' ~/secrets/mob04-demo.env
+grep -c 'dev-only-' "$SECRETS_FILE"
 ```
 
 ```bash
-grep -c $'\r' ~/secrets/mob04-demo.env
+grep -c $'\r' "$SECRETS_FILE"
 ```
 
 ✅ ไม่มี `MISSING` และได้ `0` ทั้งสาม · (สำเนาของ owner ตรวจแล้ว 2026-09-28 แบบดูชื่อคีย์เท่านั้น: ครบ 11 คีย์ + `CORS_ORIGINS`, `PLATFORM_ADMINS` ไม่ว่าง,
@@ -328,7 +356,7 @@ openssl rsa -in ~/secrets/jwt.key -pubout -out ~/secrets/jwt.pub
     echo "PLATFORM_ADMINS=admin:$(openssl rand -hex 12)"
     printf 'JWT_PRIVATE_KEY="%s"\n' "$(cat ~/secrets/jwt.key)"
     printf 'JWT_PUBLIC_KEYS="%s"\n' "$(cat ~/secrets/jwt.pub)"
-  } > ~/secrets/mob04-demo.env )
+  } > "$SECRETS_FILE" )
 ```
 
 ```bash
@@ -364,13 +392,13 @@ rm ~/secrets/jwt.key ~/secrets/jwt.pub
 Mac:
 
 ```bash
-DEMO_SSH_KEY_PUB="$(cat ./member.pub)" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud DEMO_SSH_KEY_PATH="$HOME/.ssh/mob04-SriStore" ansible-playbook provision.yml
+test -s ./member.pub && DEMO_SSH_KEY_PUB="$(cat ./member.pub)" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud DEMO_SSH_KEY_PATH="$HOME/.ssh/mob04-SriStore" ansible-playbook provision.yml
 ```
 
 Windows:
 
 ```bash
-DEMO_SSH_KEY_PUB="$(cat ./member.pub)" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud KEYFILE=mob04-SriStore ans ansible-playbook provision.yml
+test -s ./member.pub && DEMO_SSH_KEY_PUB="$(cat ./member.pub)" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud KEYFILE=mob04-SriStore ans ansible-playbook provision.yml
 ```
 
 ✅ `Configure SSH authorized key for deploy user` = `changed` (ใหม่) / `ok` (มีแล้ว) **และ** `Write server .env configuration (0600 mode)` = **`skipping`**
@@ -407,7 +435,7 @@ ssh mob04 'sudo -n cp -p /opt/pos/.env /opt/pos/.env.bak-$(date +%F)'
 (พิสูจน์แล้วด้วยไฟล์ dummy + `copy content:` expression เดียวกันบน localhost, ansible-core 2.21.4 — hash ตรงกัน; ยังไม่เคยเทียบกับไฟล์จริงบน VM):
 
 ```bash
-printf '%s\n' "$(cat ~/secrets/mob04-demo.env)" | shasum -a 256
+printf '%s\n' "$(cat "$SECRETS_FILE")" | shasum -a 256
 ```
 
 (Windows: `sha256sum` แทน `shasum -a 256`)
@@ -421,7 +449,7 @@ ssh mob04 'sudo -n sha256sum /opt/pos/.env'
 ลองสูตรเก่า:
 
 ```bash
-printf '%s' "$(cat ~/secrets/mob04-demo.env)" | shasum -a 256
+printf '%s' "$(cat "$SECRETS_FILE")" | shasum -a 256
 ```
 
 * สูตรเก่า **เท่ากับ** hash บน VM → secret เหมือนกันทุกตัว ต่างแค่ newline ท้าย → provision จะรายงาน `changed` **ครั้งเดียว** (เติม newline) = ปลอดภัย ·
@@ -431,8 +459,12 @@ printf '%s' "$(cat ~/secrets/mob04-demo.env)" | shasum -a 256
 
 **③ dry-run `--check`** (Mac; Windows ใช้ `... KEYFILE=mob04-SriStore ans ansible-playbook provision.yml --check`) — **ห้ามใส่ `--diff`**:
 
+`$DEPLOY_KEY.pub` = key ที่ provision ใส่ให้ `deploy` (§1.4) — owner วันนี้ = `~/.ssh/mob04-SriStore.pub` (ตรงกับ run จริง 2026-09-30,
+`docs/handoff_log/session-2026-09-30-first-runner-deploy.md` ส่วน B) · `test -s ... &&` นำหน้า = ไฟล์ไหนไม่มี คำสั่งไม่รันเลย
+(ไม่งั้น `DEMO_SSH_KEY_PUB` ว่าง → playbook หยิบ `~/.ssh/id_rsa.pub` ไปใส่ให้ `deploy` เงียบ ๆ ตาม §2.4 — บน Mac ของ owner ไฟล์นั้น **มีอยู่และไม่ใช่ key ของ deploy**)
+
 ```bash
-DEMO_ENV_FILE="$(cat ~/secrets/mob04-demo.env)" DEMO_SSH_KEY_PUB="$(cat ~/.ssh/deploy_ed25519.pub)" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud DEMO_SSH_KEY_PATH="$HOME/.ssh/mob04-SriStore" ansible-playbook provision.yml --check
+test -s "$SECRETS_FILE" && test -s "$DEPLOY_KEY.pub" && DEMO_ENV_FILE="$(cat "$SECRETS_FILE")" DEMO_SSH_KEY_PUB="$(cat "$DEPLOY_KEY.pub")" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud DEMO_SSH_KEY_PATH="$HOME/.ssh/mob04-SriStore" ansible-playbook provision.yml --check
 ```
 
 | task `Write server .env configuration (0600 mode)` | แปลว่า | ทำอะไร |
@@ -447,16 +479,16 @@ task ตรวจคีย์ (`Check DEMO_ENV_FILE carries every key Compose re
 **④ รันจริง** — คำสั่งเดียวกับ ③ ไม่มี `--check`:
 
 ```bash
-DEMO_ENV_FILE="$(cat ~/secrets/mob04-demo.env)" DEMO_SSH_KEY_PUB="$(cat ~/.ssh/deploy_ed25519.pub)" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud DEMO_SSH_KEY_PATH="$HOME/.ssh/mob04-SriStore" ansible-playbook provision.yml
+test -s "$SECRETS_FILE" && test -s "$DEPLOY_KEY.pub" && DEMO_ENV_FILE="$(cat "$SECRETS_FILE")" DEMO_SSH_KEY_PUB="$(cat "$DEPLOY_KEY.pub")" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud DEMO_SSH_KEY_PATH="$HOME/.ssh/mob04-SriStore" ansible-playbook provision.yml
 ```
 
 Windows:
 
 ```bash
-DEMO_ENV_FILE="$(cat ~/secrets/mob04-demo.env)" DEMO_SSH_KEY_PUB="$(cat ~/.ssh/deploy_ed25519.pub)" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud KEYFILE=mob04-SriStore ans ansible-playbook provision.yml
+test -s "$SECRETS_FILE" && test -s "$DEPLOY_KEY.pub" && DEMO_ENV_FILE="$(cat "$SECRETS_FILE")" DEMO_SSH_KEY_PUB="$(cat "$DEPLOY_KEY.pub")" DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=cloud KEYFILE=mob04-SriStore ans ansible-playbook provision.yml
 ```
 
-`DEMO_ENV_FILE=...` นำหน้าคำสั่ง = มีผลแค่คำสั่งนี้ ไม่ค้างใน shell · shell history เก็บข้อความ `$(cat ~/secrets/...)` ไม่ใช่ตัว secret — ใช้ได้
+`DEMO_ENV_FILE=...` นำหน้าคำสั่ง = มีผลแค่คำสั่งนี้ ไม่ค้างใน shell · shell history เก็บข้อความ `$(cat "$SECRETS_FILE")` ไม่ใช่ตัว secret — ใช้ได้
 
 ✅ recap `failed=0` · ❌ `UNREACHABLE` / อื่น ๆ → §6.4
 
@@ -484,9 +516,12 @@ PLATFORM_ADMINS=1
 
 ## 3. ทุกครั้งที่ deploy — happy path
 
-ทุกข้อมี gate · gate ไหนไม่ผ่าน **หยุดที่ข้อนั้น** · คำสั่ง `git`/`gh` รันที่ root ของ repo หลัก
+ทุกข้อมี gate · gate ไหนไม่ผ่าน **หยุดที่ข้อนั้น** · คำสั่ง `git`/`gh` รันที่ root ของ repo หลัก (`gh` นอก git repo ต้องใส่ `-R NuimanLP/srisurart-pos-flutter`)
 
-> **deploy ครั้งแรกหลังปลดบล็อก (เฉพาะ `mob04`):** `.current_sha` ที่บันทึกล่าสุดคือ `8e873cd` (บันทึก 2026-09-21) — ห่างจาก `main`
+> ✅ **ผ่านแล้ว 2026-09-30:** deploy ครั้งแรกหลังปลดบล็อกเกิดจริงผ่าน runner (`e50f4fa`, ok=48 failed=0) บน `/opt/pos` ที่ว่าง — migration ทั้งหมดรันแล้ว,
+> `etcd-init.sh` เป็นไฟล์ + etcd auth เปิดแล้ว (#365), `.current_sha` วันนี้ = `494ace3` · กล่องข้างล่างเก็บไว้เป็นประวัติ
+>
+> **(ประวัติ) deploy ครั้งแรกหลังปลดบล็อก (เฉพาะ `mob04`):** `.current_sha` ที่บันทึกล่าสุดคือ `8e873cd` (บันทึก 2026-09-21) — ห่างจาก `main`
 > **500+ commit** (ณ 2026-09-29 · นับเองด้วย `git rev-list --count 8e873cd..origin/main`) และมี **ไฟล์ migration ใหม่ 11 ไฟล์** (+ `1788652800000-InitialSchema.ts`
 > ถูกแก้) ที่ย้อนไม่ได้ (ไม่มี down-migration) · ดูรายการ: `git diff --name-status 8e873cd origin/main -- server/src/db/migrations` · เป็นครั้งแรกที่จะ: ซ่อม `etcd-init.sh` ที่เป็นไดเรกทอรี
 > (`rmdir`) และเปิด auth ของ etcd, รัน migration `1788652804600` ที่ **บังคับ logout platform admin ทุกคนหนึ่งครั้ง** · ข้อ 8 (backup DB) จึงห้ามข้าม
@@ -593,7 +628,7 @@ git merge-base --is-ancestor "$CURRENT" "$TAG" && echo "forward ok" || echo "STO
 ✅ `forward ok` และ `$CURRENT` ≠ `$TAG` · 🛑 `STOP` → เป็น rollback หรือ SHA ผิด — rollback ต้องตั้งใจและทำตาม §6.2 เท่านั้น ·
 `$CURRENT` = `$TAG` → VM รันอยู่แล้ว: ถ้า `.env` **ไม่ได้**เปลี่ยนตั้งแต่ deploy ครั้งล่าสุด `deploy.yml` จะจบเงียบ ๆ (ต้องการ rollout ซ้ำจริง ๆ ค่อยใส่ `-e force_redeploy=true` ในข้อ 9) ·
 ถ้า **เพิ่ง provision `.env` ใหม่** (#506) `deploy.yml` จะ rollout SHA เดิมซ้ำเอง — เห็นข้อความ `... but /opt/pos/.env changed since the last deploy. Rolling it out again ...` ·
-deploy ครั้งแรกหลัง #506 ยังไม่มี `/opt/pos/.env_applied_sha256` → นับว่าเปลี่ยน → rollout ซ้ำหนึ่งครั้งแม้ `.env` เหมือนเดิม (ตั้งใจ — rollout เกินหนึ่งรอบดีกว่าข้ามการเปลี่ยน secret)
+deploy ครั้งแรกหลัง #506 ยังไม่มี `/opt/pos/.env_applied_sha256` → นับว่าเปลี่ยน → rollout ซ้ำหนึ่งครั้งแม้ `.env` เหมือนเดิม (ตั้งใจ — rollout เกินหนึ่งรอบดีกว่าข้ามการเปลี่ยน secret) · บน `mob04` ไฟล์นี้มีแล้ว (2026-09-30)
 
 ```bash
 ssh mob04-deploy 'docker network inspect srisurart-pos_default --format "{{json .IPAM.Config}}"'
@@ -624,14 +659,14 @@ ssh mob04-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT
 
 **8. backup ฐานข้อมูลก่อน deploy** — migration ย้อนไม่ได้ · `backup-db.sh` เรียก `docker compose` พร้อม `vm.override.yml` ซึ่งบังคับ `IMAGE_TAG`
 🔴 **แก้แล้วใน `main` (#501):** `backup-db.sh`/`restore-db.sh` resolve `IMAGE_TAG` จาก `/opt/pos/.current_sha` เองถ้า `IMAGE_TAG` ว่าง —
-**แต่ owner ต้องรัน `provision.yml` ใหม่ก่อน** (แบบ key-only §2.4 ก็พอ) VM จึงจะได้สคริปต์เวอร์ชันนี้ (`provision.yml` copy สคริปต์ลง
+**แต่ owner ต้องรัน `provision.yml` ใหม่ก่อน** (แบบ key-only §2.4 ก็พอ · บน `mob04` ทำแล้ว 2026-09-30 — `/opt/pos/scripts` + cron 03:00 ติดตั้งแล้ว; ก่อนหน้านั้น cron เรียกสคริปต์ที่ไม่มี) VM จึงจะได้สคริปต์เวอร์ชันนี้ (`provision.yml` copy สคริปต์ลง
 `/opt/pos/scripts` เฉพาะตอน provision ไม่ auto-sync กับ release) หลังจากนั้นเรียกเฉย ๆ ได้:
 
 ```bash
 ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
 ```
 
-**เฉพาะ VM ที่สคริปต์ยังเป็นรุ่นก่อน #501** (ยังไม่ได้ provision ใหม่): ต้องส่ง `IMAGE_TAG` เอง — ไม่ส่ง = compose ล้มเงียบ
+**เฉพาะ VM ที่สคริปต์ยังเป็นรุ่นก่อน #501** (ยังไม่ได้ provision ใหม่ — ไม่ใช่ `mob04` แล้ว): ต้องส่ง `IMAGE_TAG` เอง — ไม่ส่ง = compose ล้มเงียบ
 แล้วสคริปต์เก่าไปจบที่ `::error::Neither active docker compose postgres container nor local pg_dump command found.`:
 
 ```bash
@@ -664,7 +699,7 @@ IMAGE_TAG was unset; resolved from /opt/pos/.current_sha: <sha>
 Mac (ใน `../pos-deploy/deploy/ansible`):
 
 ```bash
-DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$HOME/.ssh/deploy_ed25519" ansible-playbook deploy.yml -e image_tag="$TAG"
+test -s "$DEPLOY_KEY" && DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$DEPLOY_KEY" ansible-playbook deploy.yml -e image_tag="$TAG" </dev/null
 ```
 
 Windows:
@@ -676,9 +711,13 @@ DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy KEYFILE=deploy_ed25519 ans ansib
 * ใช้เวลา ~10–20 นาทีครั้งแรก · ช่วง `pull` เงียบนานเป็นปกติ
 * `FAILED - RETRYING: [vm-demo]: Wait for api-1 health check to pass (25 retries left).` ซ้ำหลายรอบ = ปกติระหว่าง api boot
 * ลำดับ task ทั้งหมด: §6.1
+* `</dev/null` ท้ายคำสั่ง Mac: ถ้าไม่ใส่ ansible-core อาจปฏิเสธ stdio แบบ non-blocking (§6.4) — วัดจริงตอน rollback 2026-09-30 (#343)
 
 ✅ recap `failed=0` + `Successfully deployed release '<sha>' to vm-demo.` — **ยังไม่ใช่หลักฐาน** ไปข้อ 10
-❌ จดชื่อ task ที่ล้ม → §6.4 · ถ้าล้มหลัง rolling restart เริ่มแล้ว VM อาจรัน api สองเวอร์ชันปนกัน → แก้แล้วรันคำสั่งเดิม หรือ rollback (§6.2)
+❌ จดชื่อ task ที่ล้ม → §6.4 · ถ้าล้มหลัง rolling restart เริ่มแล้ว VM อาจรัน api สองเวอร์ชันปนกัน → แก้แล้วรันคำสั่งเดิม, rollback (§6.2)
+หรือ **ให้ runner ทำต่อผ่าน dispatch (§6.3)** — ไม่ต้องพึ่ง VPN ของ notebook
+❌ `UNREACHABLE` กลางทาง (VPN หลุด) → VM ค้างครึ่งทาง · เกิดจริง 2026-09-30: หลุดที่ `Wait for api-3 health check` (ok=29) แล้ว **กู้ด้วย dispatch `Deploy (demo)` SHA เดิม**
+(run [36686729879](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36686729879), `failed=0`) · `.current_sha` ยังเป็น SHA เก่า จึงไม่ติด early exit
 
 **10. ตรวจผล** — §4 ทุกข้อ
 
@@ -823,14 +862,14 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 
 ## 6. Reference
 
-### 6.1 `deploy.yml` ทำอะไรทีละ task (ตามโค้ดใน `origin/main` @ `639238f` — **ลำดับนี้ยังไม่เคยรันครบบน `mob04`**)
+### 6.1 `deploy.yml` ทำอะไรทีละ task (ตามโค้ดใน `origin/main` @ `494ace3` — รันครบจริงบน `mob04` แล้ว 2026-09-30: runner `ok=48 failed=0`)
 
 | # | task (ชื่อที่เห็นใน output) | ทำอะไร |
 |---|---|---|
 | 1 | `Validate image_tag parameter` | ต้องมี `image_tag` |
 | 2 | `Check currently deployed SHA on VM` → `Checksum the VM's .env` → `Decide whether .env changed since the last deploy` → `Early exit on duplicate release deployment` | `.current_sha` = tag, ไม่มี `force_redeploy` **และ** sha256 ของ `.env` = `/opt/pos/.env_applied_sha256` → จบ play เงียบ ๆ · `.env` เปลี่ยน (หรือยังไม่มีไฟล์ marker) → rollout SHA เดิมต่อ (#506) |
 | 3 | `Inspect the existing compose network` → `Refuse to deploy onto a network created before ip_range was added` | กัน network รุ่นเก่า (ยังไม่แตะอะไร) |
-| 4 | `Copy docker-compose base configuration` … `Copy Postgres initialization scripts` | copy compose, `vm.override.yml`, `nginx.conf`, platform-ui conf+html, postgres init **จาก tree ของคุณ** |
+| 4 | `Copy docker-compose base configuration` … `Copy Postgres initialization scripts` | copy compose, `vm.override.yml`, สร้าง `docker/nginx` (#508), `nginx.conf`, platform-ui conf+html, postgres init **จาก tree ของคุณ** |
 | 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) |
 | 6 | `Pull release images from GHCR` | ถ้าล้มตรงนี้ ข้อ 4–5 เกิดไปแล้ว (เคยล้มเพราะ FortiGate จนถึง 2026-09-28 — กันด้วย gate §3 ข้อ 5) |
 | 7 | `Apply database schema migrations (schema before code)` | `run --rm migrate` (ย้อนไม่ได้) |
@@ -854,6 +893,10 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 SHA ปลายทางต้อง: อยู่บน `main` · ไม่เก่ากว่า `ROLLBACK_FLOOR` `4f3a24447094547bdcc00486bd29b53833f81c3f` · มี image ครบบน GHCR ·
 **schema ไม่ถอย** (rollback ข้าม migration ที่ลบ/rename คอลัมน์ = owner ตัดสิน)
 
+**ทางหลัก (พิสูจน์แล้ว 2026-09-30): dispatch `Deploy (demo)` ผ่าน runner** ด้วย `image_tag=$OLDTAG` — คำสั่งใน §6.3 ·
+run [36687687309](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36687687309) ถอย `494ace3` → `e50f4fa` (`failed=0`, ตาราง `migrations` เหมือนเดิม) ·
+ทางมือในนาม `deploy` ข้างล่างก็พิสูจน์แล้ววันเดียวกัน (#343) — ใช้เมื่อ runner offline
+
 ```bash
 export OLDTAG=<40-hex-sha>
 ```
@@ -869,16 +912,37 @@ bash deploy/scripts/verify-ghcr-tags.sh "$OLDTAG"
 แล้วทำ §3 ข้อ 1, 4 (worktree ที่ **`$OLDTAG`** — ได้ compose/nginx/playbook ของ release นั้นด้วย), 5, 8 และรัน (Mac):
 
 ```bash
-DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$HOME/.ssh/deploy_ed25519" ansible-playbook deploy.yml -e image_tag="$OLDTAG" -e force_redeploy=true
+test -s "$DEPLOY_KEY" && DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$DEPLOY_KEY" ansible-playbook deploy.yml -e image_tag="$OLDTAG" -e force_redeploy=true </dev/null
 ```
 
 `force_redeploy=true` ใส่เสมอตอน rollback (จำเป็นเมื่อ `.current_sha` ยังชี้ SHA นั้นหลัง deploy ล้ม) · ตรวจด้วย §4 · rollback อัตโนมัติมีแค่ใน
-`pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 แต่เส้นทาง rollback ยังไม่เคยพิสูจน์ด้วย run จริง)
+`pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 · rollback แบบ dispatch พิสูจน์แล้ว แต่ **rollback อัตโนมัติเมื่อ deploy ล้ม ยังไม่เคยพิสูจน์ด้วย run จริง**)
 
 ### 6.3 CD อัตโนมัติ
 
 workflow `Deploy (demo)` → self-hosted runner บน VM (#67 — **ติดตั้งแล้ว 2026-09-30** `mob04-demo` online; deploy จริงครั้งแรก `e50f4fa` สำเร็จ) → required reviewer `NuimanLP` บน environment `demo` ·
-รายละเอียด: `07_CICD_DEPLOY.md` §6.1–§6.2 และ `deploy/scripts/setup-mob04-runner.sh` · การรันด้วยมือตามคู่มือนี้ยังเป็นทางสำรอง (และทางหลักของ rollback จนกว่าจะพิสูจน์เส้นทางอัตโนมัติ)
+รายละเอียด: `07_CICD_DEPLOY.md` §6.1–§6.2 และ `deploy/scripts/setup-mob04-runner.sh` · การรันด้วยมือตามคู่มือนี้เป็นทางสำรองเมื่อ runner offline
+
+**dispatch ด้วยมือ** (rollback, กู้ VM ที่ค้างครึ่งทาง, หรือ rollout SHA ใดก็ได้บน `main`) — input ชื่อ **`image_tag`** (ว่าง = head ของ `main`):
+
+```bash
+gh workflow run deploy.yml -R NuimanLP/srisurart-pos-flutter --ref main -f image_tag=<40-hex-sha>
+```
+
+```bash
+gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --json databaseId,status,headSha,event,createdAt
+```
+
+ดู log งาน `resolve release` ว่าบรรทัด `Release to deploy:` เป็น SHA ที่ตั้งใจ **ก่อน** owner approve (GitHub → Actions → run นั้น → Review deployments → `demo`) ·
+ถ้ามี run อื่นรอ approve อยู่ ให้ยกเลิกก่อน (§3 ข้อ 1) · ตรวจผลด้วย §4 (`.current_sha` คือหลักฐาน ไม่ใช่สีของ run)
+
+พิสูจน์แล้ว 2026-09-30:
+
+| run | ทำอะไร | ผล |
+|---|---|---|
+| [36686729879](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36686729879) | กู้ VM ที่ค้างครึ่งทางหลัง VPN หลุดกลาง playbook ด้วยมือ (`e50f4fa` → `494ace3`) | `failed=0` |
+| [36687687309](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36687687309) | rollback `494ace3` → `e50f4fa` | `failed=0`, schema เหมือนเดิม |
+| [36688248109](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36688248109) | SHA เดิมซ้ำ (`.env` ไม่เปลี่ยน) | จบที่ `Skipping duplicate deployment.` (`ok=7 changed=0`) — container ไม่ถูกแตะ |
 
 ### 6.4 Troubleshooting
 
