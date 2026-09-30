@@ -113,3 +113,59 @@ describe('configureApp body limits', () => {
     expect(small.body.data.length).toBe(3);
   });
 });
+
+@Controller('cors-probe')
+class CorsProbeController {
+  @Get()
+  ok() {
+    return { ok: true };
+  }
+}
+
+@Module({
+  controllers: [CorsProbeController],
+  providers: [{ provide: APP_CONFIG, useValue: { corsOrigins: ['https://shop.example'] } }],
+})
+class CorsProbeModule {}
+
+// A disallowed Origin must never become a 5xx: it would pollute the success-rate SLI
+// (http_requests_total). The browser enforces CORS by the missing ACAO header alone.
+describe('configureApp CORS allowlist', () => {
+  let app: INestApplication;
+  const ACAO = 'access-control-allow-origin';
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [CorsProbeModule] }).compile();
+    app = moduleRef.createNestApplication();
+    await configureApp(app, pino({ level: 'silent' }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('serves a foreign origin normally, without an ACAO header', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/cors-probe')
+      .set('Origin', 'https://evil.example');
+    expect(res.status).toBeLessThan(500);
+    expect(res.headers[ACAO]).toBeUndefined();
+  });
+
+  it('echoes an allowed origin', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/cors-probe')
+      .set('Origin', 'https://shop.example');
+    expect(res.status).toBe(200);
+    expect(res.headers[ACAO]).toBe('https://shop.example');
+  });
+
+  it('answers a foreign-origin preflight without a 5xx or ACAO header', async () => {
+    const res = await request(app.getHttpServer())
+      .options('/api/v1/cors-probe')
+      .set('Origin', 'https://evil.example')
+      .set('Access-Control-Request-Method', 'POST');
+    expect(res.status).toBeLessThan(500);
+    expect(res.headers[ACAO]).toBeUndefined();
+  });
+});

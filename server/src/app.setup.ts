@@ -64,7 +64,9 @@ export async function configureApp(
       if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(new Error('Not allowed by CORS'), false);
+      // Not allowed: omit the CORS headers and let the request proceed. The browser blocks the
+      // response on its own; throwing here made curl/scanners get a 500 that polluted the 5xx SLI.
+      return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
