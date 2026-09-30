@@ -259,9 +259,12 @@ develops against a demo tenant.
 - #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. The
   2026-09-30 runner deploy of `e50f4fa` (see #67) is evidence for #343's "deploy reaches the VM"
   side (`.current_sha`, `/health/ready` 200), but **no AC of #343 is ticked** (nobody ticked
-  them) and **#344 has not been run**. Still missing on `mob04`: `PLATFORM_ADMINS` in
-  `/opt/pos/.env` (no platform admin exists), #365 etcd auth untouched, #367 CORS still `'*'`
-  until `provision.yml` re-runs with the keys.
+  them) and **#344 has not been run**. 2026-09-30 `provision.yml` re-run added only
+  `PLATFORM_ADMINS` to `/opt/pos/.env` (3 admins synced, platform-ui login not yet tested by a
+  human) and installed the missing `/opt/pos/scripts/backup-db.sh` — the 03:00 cron had been
+  calling a script that did not exist, so no local backup ran before that. Still open: #365
+  etcd auth; a foreign `Origin` gets **HTTP 500** (`app.setup.ts:67` throws) instead of a
+  clean refusal, counted as 5xx in the SLI.
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
   (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v13 (v12 = #417 indexes; v13 = #488
   `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
@@ -403,9 +406,9 @@ develops against a demo tenant.
     below.
   - **#367** (closed, PR #373) — `CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` now reach the
     containers via the `x-app-env` anchor, and a set-but-empty list throws at boot instead
-    of silently falling back to `'*'`. 🔴 **`mob04` is still `'*'`** until `DEMO_ENV_FILE`
-    carries the keys and `provision.yml` is re-run — nobody may claim CORS is closed on the
-    VM before that.
+    of silently falling back to `'*'`. `mob04` is **not** `'*'`: its `.env` already had
+    `CORS_ORIGINS=https://172.30.58.20` at the first runner deploy (verified 2026-09-30 —
+    own origin gets ACAO, a foreign one does not).
 - Phase-2 kickoff order for the remaining hub tickets: #228 → #229 → #212/#211/#189 →
   #230 → #190 → #231. As of 2026-09-25 all but **#231** (q4.cutover) are closed
   (2026-09-18 → 09-20); #231 is the only one still open.
@@ -427,7 +430,8 @@ develops against a demo tenant.
   + tutorial (#450). Open: the 403-at-both-layers proof on Linux/`mob04` (measured on
   Docker Desktop only) and owner answers listed in
   `docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md` §6. Container runs on `mob04`
-  since the 2026-09-30 deploy, but no platform admin exists (`PLATFORM_ADMINS` unset).
+  since the 2026-09-30 deploy; 3 platform admins synced from `PLATFORM_ADMINS` the same day
+  (UI login not yet tested by a human).
 
 The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
 2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving

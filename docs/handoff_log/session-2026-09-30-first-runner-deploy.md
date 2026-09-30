@@ -20,8 +20,19 @@
   platform-ui, worker, bull-board · certgen/htpasswd-gen exit 0
 
 ## ยังเปิด (ห้ามอ่านว่าเสร็จ)
-- ไม่มี `PLATFORM_ADMINS` ใน `/opt/pos/.env` → ยังไม่มี platform admin
+- platform-ui login ยังไม่มีคนทดสอบจริง (admin มีแล้ว — ดูหัวข้อ "ต่อมา")
 - auto-rollback และ rollback ด้วย `workflow_dispatch` ของ #67 ยังไม่เคยพิสูจน์ด้วย run จริง
 - #344 (demo e2e) ยังไม่รัน · ไม่มี AC ของ #343 ที่ถูกติ๊ก (run นี้หนุนฝั่ง "deploy ถึง VM")
-- #365 etcd auth ยังไม่แตะ · #367 CORS บน `mob04` ยัง `'*'` จนกว่า `provision.yml` จะรันใหม่พร้อม key
+- #365 etcd auth ยังไม่แตะ
+- CORS: `Origin` แปลกหน้าได้ **HTTP 500** (`app.setup.ts:67` throw `Error('Not allowed by CORS')`) แทนการปฏิเสธเรียบร้อย — พฤติกรรมเดิม นับเป็น 5xx ใน SLI · follow-up ไม่แก้ใน PR นี้
 - #363/#288 backup พักไว้ → ยังไม่มี backup ออกจาก VM
+
+## ต่อมา 2026-09-30 (orchestrator ตรวจบน VM)
+- รัน `provision.yml` จาก `origin/main` สะอาด: `ok=18 changed=3 failed=0` · `.env` เขียนใหม่จากสำเนาของเจ้าของ — คีย์ที่**เพิ่ม**มีแค่
+  `PLATFORM_ADMINS` (3 รายการ) อีก 17 คีย์เหมือนเดิมทุกตัว · สำรองเดิมไว้ที่ `/opt/pos/.env.bak-2026-09-30-0431`
+- `CORS_ORIGINS=https://172.30.58.20` **มีอยู่ใน `.env` ของ VM ก่อนแล้ว** → CORS บน `mob04` ปิดแล้ว (ไม่ใช่ `'*'`) ตั้งแต่ deploy แรกของ runner ·
+  ตรวจ: origin ตัวเองได้ `Access-Control-Allow-Origin: https://172.30.58.20`, origin อื่นไม่ได้ ACAO (แต่ได้ 500 — ดู "ยังเปิด")
+- provision สร้าง `/opt/pos/scripts` + ลง `backup-db.sh`/`restore-db.sh`/`measure-container-rss.sh` — **ก่อนหน้านี้ cron 03:00 เรียกสคริปต์ที่ไม่มีอยู่**
+  (backup ในเครื่องไม่เคยรัน) · offsite ยังพักไว้ (#363)
+- Deploy (demo) แบบ dispatch run `36669582543` (`e50f4fa`) อนุมัติแล้ว สำเร็จ · `.env_applied_sha256` = hash ของ `.env` ใหม่ · api×3 สร้างใหม่ healthy ·
+  `/health/ready` 200 · log api-1 `PLATFORM_ADMINS synced` สร้าง 3 · `platform_admins`: `lomer`, `nuiman`, `pattarapon` active (ไม่บันทึกรหัส)

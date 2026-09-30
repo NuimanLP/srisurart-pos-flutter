@@ -665,7 +665,7 @@ cache-control: no-cache                      ← service worker ห้าม cac
 
 > 🩹 **ถ้าเจอแบบนี้:** ใช้ `flutter run -d chrome --dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL=https://localhost`
 > แล้ว request ไม่ผ่าน — เพราะ (1) หน้าเว็บอยู่คนละ origin กับ API จึงเป็น cross-origin ต้องพึ่ง CORS
-> (dev ปล่อย `*` ไว้เมื่อ `CORS_ORIGINS` ว่าง แต่ **บน VM `mob04` ยังเป็น `*` อยู่** จนกว่าจะรัน `provision.yml` ใหม่ — CLAUDE.md #367)
+> (dev ปล่อย `*` ไว้เมื่อ `CORS_ORIGINS` ว่าง แต่ **บน VM `mob04` ยังเป็น `*` อยู่** จนกว่าจะรัน `provision.yml` ใหม่ — CLAUDE.md #367) (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
 > และ (2) browser ไม่ยอม `fetch()` ไป https ที่ cert เซ็นเอง ถ้ายังไม่เคยกด "Proceed" ที่ origin นั้น
 > **วิธีที่ตรงกับ production ที่สุดคือ same-origin แบบข้างบน**
 

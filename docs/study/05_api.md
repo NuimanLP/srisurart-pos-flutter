@@ -822,7 +822,7 @@ owner: POST /devices {role:'pos'}         → ได้ enrolCode (อายุ�
 - `allowedHeaders` = header ที่ browser ยอมให้ JS **ส่ง** ข้าม origin — ถ้าลืมใส่ `Idempotency-Key` แอป Flutter **web** จะส่ง key ไม่ได้เลย (preflight ตก)
 - `exposedHeaders` = header ที่ JS ฝั่ง browser **อ่านได้** จากคำตอบ — ถ้าไม่ expose `Retry-After` แอป web จะไม่รู้ว่าต้องรอกี่วินาที
 - **default คือ `'*'`** ถ้าไม่ได้ตั้ง `CORS_ORIGINS` — #367 (PR #373) ทำให้ค่า set-แต่-ว่าง throw ตอน boot แทน fallback เงียบ
-  🔴 แต่ CLAUDE.md บันทึกว่า **`mob04` ยังเป็น `'*'` อยู่** จนกว่า env file จะมี key และรัน `provision.yml` ใหม่ — ห้ามเขียนว่า CORS ปิดแล้วบน VM
+  🔴 แต่ CLAUDE.md บันทึกว่า **`mob04` ยังเป็น `'*'` อยู่** จนกว่า env file จะมี key และรัน `provision.yml` ใหม่ — ห้ามเขียนว่า CORS ปิดแล้วบน VM (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
 
 ### แผนภาพ: ชั้นของสัญญา (contract layers)
 

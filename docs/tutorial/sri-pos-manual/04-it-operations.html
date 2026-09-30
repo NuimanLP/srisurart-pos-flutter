@@ -252,9 +252,9 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
   </div>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
-      <li>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรก 2026-09-30 (runner <code>mob04-demo</code>, <code>e50f4fa</code>) แต่ rollback ยังไม่พิสูจน์ · #343 ยังไม่มี AC ใดติ๊ก · #344 (เดโม) ยังไม่รัน · ยังไม่มี <code>PLATFORM_ADMINS</code> บน VM</li>
+      <li>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรก 2026-09-30 (runner <code>mob04-demo</code>, <code>e50f4fa</code>) แต่ rollback ยังไม่พิสูจน์ · #343 ยังไม่มี AC ใดติ๊ก · #344 (เดโม) ยังไม่รัน</li>
       <li>environment <code>demo</code>: branch policy <code>main</code> และการอนุมัติ fork PR <code>all_external_contributors</code> ตั้งแล้ว 2026-09-30 (เจ้าของอนุมัติ; เดิม <code>null</code>/<code>first_time_contributors</code>)</li>
-      <li>ไม่มี backup ออกนอก VM · etcd ไม่มี auth บน VM · <code>CORS_ORIGINS</code> บน VM ยังเป็น <code>'*'</code></li>
+      <li>ไม่มี backup ออกนอก VM · etcd ไม่มี auth บน VM · <code>CORS_ORIGINS</code> บน VM = origin ของตัวเองแล้ว (2026-09-30) แต่ origin แปลกหน้าได้ HTTP 500 · สคริปต์ backup ในเครื่องเพิ่งติดตั้ง 2026-09-30 (ก่อนนั้น cron 03:00 เรียกสคริปต์ที่ไม่มี)</li>
       <li>monitoring บน VM ยังไม่เคยรันจริง</li>
     </ul>
   </div>
