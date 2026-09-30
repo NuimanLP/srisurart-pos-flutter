@@ -128,11 +128,14 @@ class CorsProbeController {
 })
 class CorsProbeModule {}
 
-// A disallowed Origin must never become a 5xx: it would pollute the success-rate SLI
-// (http_requests_total). The browser enforces CORS by the missing ACAO header alone.
+// A disallowed Origin must never become a 5xx. The old throw reached Express's error handler
+// *before* requestLogger and the metrics middleware, so those 500s were never logged or
+// counted in http_requests_total — only nginx and the caller saw them. The browser enforces
+// CORS by the missing ACAO header alone; there is no cookie auth, so nothing ambient leaks.
 describe('configureApp CORS allowlist', () => {
   let app: INestApplication;
   const ACAO = 'access-control-allow-origin';
+  const ACAC = 'access-control-allow-credentials';
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [CorsProbeModule] }).compile();
@@ -148,8 +151,9 @@ describe('configureApp CORS allowlist', () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/cors-probe')
       .set('Origin', 'https://evil.example');
-    expect(res.status).toBeLessThan(500);
+    expect(res.status).toBe(200);
     expect(res.headers[ACAO]).toBeUndefined();
+    expect(res.headers[ACAC]).toBeUndefined();
   });
 
   it('echoes an allowed origin', async () => {
@@ -158,6 +162,7 @@ describe('configureApp CORS allowlist', () => {
       .set('Origin', 'https://shop.example');
     expect(res.status).toBe(200);
     expect(res.headers[ACAO]).toBe('https://shop.example');
+    expect(res.headers[ACAC]).toBe('true');
   });
 
   it('answers a foreign-origin preflight without a 5xx or ACAO header', async () => {
@@ -165,7 +170,11 @@ describe('configureApp CORS allowlist', () => {
       .options('/api/v1/cors-probe')
       .set('Origin', 'https://evil.example')
       .set('Access-Control-Request-Method', 'POST');
-    expect(res.status).toBeLessThan(500);
+    // No CORS headers at all: the cors middleware passes the OPTIONS on, and Nest has no
+    // OPTIONS route, so it is a 404 — a 4xx the browser treats as a failed preflight.
+    expect(res.status).toBe(404);
     expect(res.headers[ACAO]).toBeUndefined();
+    expect(res.headers[ACAC]).toBeUndefined();
+    expect(res.headers['access-control-allow-methods']).toBeUndefined();
   });
 });

@@ -65,7 +65,8 @@ export async function configureApp(
         return callback(null, true);
       }
       // Not allowed: omit the CORS headers and let the request proceed. The browser blocks the
-      // response on its own; throwing here made curl/scanners get a 500 that polluted the 5xx SLI.
+      // response on its own (a preflight falls through to a 404). Throwing here gave curl and
+      // scanners a 500 that skipped requestLogger and the metrics middleware below entirely.
       return callback(null, false);
     },
     credentials: true,
