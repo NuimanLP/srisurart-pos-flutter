@@ -24,7 +24,7 @@
 - auto-rollback และ rollback ด้วย `workflow_dispatch` ของ #67 ยังไม่เคยพิสูจน์ด้วย run จริง
 - #344 (demo e2e) ยังไม่รัน · ไม่มี AC ของ #343 ที่ถูกติ๊ก (run นี้หนุนฝั่ง "deploy ถึง VM")
 - #365 etcd auth ยังไม่แตะ
-- CORS: `Origin` แปลกหน้าได้ **HTTP 500** (`app.setup.ts:67` throw `Error('Not allowed by CORS')`) แทนการปฏิเสธเรียบร้อย — พฤติกรรมเดิม นับเป็น 5xx ใน SLI · follow-up ไม่แก้ใน PR นี้
+- CORS: `Origin` แปลกหน้าได้ **HTTP 500** (`app.setup.ts:67` throw `Error('Not allowed by CORS')`) แทนการปฏิเสธเรียบร้อย — พฤติกรรมเดิม (แก้ 2026-09-30: *ไม่*นับใน `http_requests_total`/SLI) · แก้แล้วใน PR #516, deploy `00d3488`
 - #363/#288 backup พักไว้ → ยังไม่มี backup ออกจาก VM
 
 ## ต่อมา 2026-09-30 (orchestrator ตรวจบน VM)
@@ -354,5 +354,5 @@ AC6 (3 AC ของ #335 พิสูจน์บน VM ตรง ๆ ไม่�
 
 **เครื่องมือบน Mac ของ owner:** `~/.local/bin/mob04-tunnel` (ssh -N forward 3000/3100/3200/9090 ไป loopback ของ `mob04` ผ่าน `cloud@172.30.58.20`) · ไฟล์ secrets ยังอยู่ที่ `~/Downloads/mob04-demo.env`
 
-**ยังเปิด:** CORS `Origin` แปลกหน้า → HTTP 500 (`app.setup.ts:67`) ปนใน SLI · `PLATFORM_ADMINS` ตั้งแล้ว (lomer/nuiman/pattarapon) แต่ยังไม่มีใครล็อกอิน platform-ui ·
+**ยังเปิด:** ~~CORS `Origin` แปลกหน้า → HTTP 500~~ (แก้ PR #516, ไม่เคยปนใน SLI) · `PLATFORM_ADMINS` ตั้งแล้ว (lomer/nuiman/pattarapon) แต่ยังไม่มีใครล็อกอิน platform-ui ·
 backup ออกนอก VM พักไว้ (#363/#288) · #380 k6 ยังไม่วัด

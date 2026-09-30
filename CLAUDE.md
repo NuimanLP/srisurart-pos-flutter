@@ -269,7 +269,9 @@ develops against a demo tenant.
   `provision.yml` re-run added only `PLATFORM_ADMINS` (3 admins synced, no human has logged
   in to platform-ui) and installed the missing `backup-db.sh` — the 03:00 cron had been
   calling a script that did not exist, so no local backup ran before. A foreign `Origin`
-  gets **HTTP 500** (`app.setup.ts:67` throws), counted as 5xx in the SLI.
+  used to get **HTTP 500** (`app.setup.ts` threw; not counted in `http_requests_total`) —
+  fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to
+  `mob04` as `00d3488` 2026-09-30 (run `36717963989`, Ansible `failed=0`).
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
   (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v13 (v12 = #417 indexes; v13 = #488
   `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
