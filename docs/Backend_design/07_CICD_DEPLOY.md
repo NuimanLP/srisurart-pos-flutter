@@ -33,6 +33,7 @@ Ansible ด้วยมือ") จนกระทั่งตีความใ
 
 สถานะ 2026-09-23 (**ตรวจกับของจริง** — ไฟล์ใน repo + `gh api` แบบอ่านอย่างเดียว ไม่ได้แตะ setting ใด ๆ):
 🔴 **CD ยังไม่เคยส่ง release ถึง `mob04` สักครั้ง** — ห้ามอ่านส่วนใดของเอกสารนี้ว่า "deploy ทำงานอยู่บน VM"
+**อัปเดต 2026-09-30:** ข้อความนี้ล้าสมัยแล้ว — runner ลงทะเบียนและ deploy จริงครั้งแรกสำเร็จ (ดูข้อ "runner" ด้านล่าง) · ข้อความสถานะ 2026-09-23 ที่เหลือเก็บไว้เป็นประวัติ ยกเว้นที่มีเครื่องหมายอัปเดตกำกับ
 * ~~**ทางตันหลักอยู่นอก repo:**~~ **คลี่คลายแล้ว 2026-09-29:** `docker pull ghcr.io/…:<SHA เต็ม>` จาก `mob04` สำเร็จจริง และ TLS
   จาก VM ไป `ghcr.io`, `registry-1.docker.io`, `gcr.io`, `github.com`, `api.github.com`, `*.actions.githubusercontent.com`
   verify ผ่านหมด — ใบของ FortiGate ตอนนี้มี SAN `*.ghcr.io`/`ghcr.io` · ข้อความเดิม (2026-09-23) เก็บไว้ด้านล่างเป็นประวัติ ·
@@ -43,22 +44,23 @@ Ansible ด้วยมือ") จนกระทั่งตีความใ
   คือฝ่ายเครือข่ายยกเว้น `ghcr.io` (และ `registry-1.docker.io`, `gcr.io`) ให้ `172.30.58.20` · `docker save`/`load` ด้วยมือ
   เป็นแค่ทางกู้วันเดโม **ไม่ใช่ CD** ห้ามบันทึกว่าเป็น CD · หลักฐาน:
   [`handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`](../handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md) §4.7
-* **runner ยังไม่ติดตั้ง:** `gh api …/actions/runners` = `total_count: 0` (2026-09-23) แม้ issue **#67 จะถูกปิด (COMPLETED)
-  2026-09-20** — ตัวปิดคือ commit `b687411` ("Closes #67") ซึ่งส่งมอบแค่สคริปต์ `deploy/scripts/setup-mob04-runner.sh` +
-  runbook (`docs/handoff_log/slice-25-cd2-runner-guide.md`) ไม่ใช่การติดตั้ง — สถานะ ticket ≠ ของที่ติดตั้ง · AC ของ #67
-  (§6.2 ข้อ 7) ยังไม่เคยพิสูจน์ด้วย run จริง (CLAUDE.md บันทึกว่า #67 "not installed") · ดูหมายเหตุสคริปต์นี้ใน §6.2
-* **Environment `demo`:** `protection_rules` = `required_reviewers` [`NuimanLP`] ✅ (ตรงกับ #366) ·
-  แต่ `deployment_branch_policy` = **`null`** — branch policy "`main` เท่านั้น" ของ §6.2 ข้อ 2 **ไม่ได้มีผล**อยู่
-  (ADR-0013 addendum 2026-09-21 บันทึกค่า `null` นี้ไว้แล้ว) — ดูหมายเหตุใน §6.2 ข้อ 2
-* **fork PR approval** = `first_time_contributors` ไม่ใช่ `all_external_contributors` ที่ §6.2 ข้อ 1 และ ADR-0013 addendum
-  2026-09-15 บังคับให้ตั้ง**ก่อน**ลงทะเบียน runner — วันนี้ยังไม่มี runner จึงยังไม่เปิดช่อง แต่ต้องแก้ก่อนทำ §6.2 ข้อ 5
+* **runner ติดตั้งแล้ว 2026-09-30:** `mob04-demo` (v2.337.0 linux-x64, ตรวจ sha256; label `self-hosted`/`Linux`/`X64`/`srisurart-demo-deploy`;
+  service user `gha-runner` กลุ่มเดียว; `/etc/sudoers.d/pos-deploy` ลงแล้ว sudo self-test ผ่าน) ผ่าน `deploy/scripts/setup-mob04-runner.sh` ·
+  `gh api …/actions/runners` = 1 online · **deploy จริงครั้งแรก:** run `36591519465` (`e50f4fa`) `NuimanLP` อนุมัติ, job ทั้งสองเขียว
+  (deploy 2m3s, hook อนุญาต), Ansible `ok=48 changed=27 failed=0 ignored=2` (ignored 1 = ไม่มี `.current_sha` ครั้งแรก — คาดไว้),
+  pull จาก GHCR ผ่าน · หลักฐานบน VM: `/opt/pos/.current_sha` = `e50f4fa983cada763e1e6ba4d7c84509682f58e0`, `/health/ready` = 200
+  (postgres, redisCache, redisQueue up) · **ยังไม่พิสูจน์:** auto-rollback และ rollback ด้วย `workflow_dispatch` (AC ของ #67 ส่วนนั้น) ·
+  [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+* **Environment `demo`:** `required_reviewers` [`NuimanLP`] ✅ (ตรงกับ #366) · **2026-09-30:** `deployment_branch_policy` =
+  `{protected_branches:false, custom_branch_policies:true}` + branch policy `main` (เจ้าของอนุมัติ) — ข้อ 2 ของ §6.2 มีผลแล้ว
+* **fork PR approval** = `all_external_contributors` ตั้งแล้ว 2026-09-30 (เจ้าของอนุมัติ; เดิม `first_time_contributors`) — ครบตามที่ §6.2 ข้อ 1 และ ADR-0013 addendum 2026-09-15 บังคับก่อนมี runner
 * **run สีเขียวของ *Deploy (demo)* ไม่ใช่หลักฐานว่า deploy แล้ว** — ถ้า GHCR ยังไม่มี image ครบ job `deploy` ถูก skip
   (`needs.resolve.outputs.images_ready == 'true'`, `.github/workflows/deploy.yml:140`) แต่ workflow ยังรายงาน *success* โดยมีแค่
   `resolve release` ที่รัน · หลักฐานเดียวคือ `/opt/pos/.current_sha` บน VM
 * **สังเกตจริง 2026-09-23 (ไม่ใช่ข้อพิสูจน์):** run ของ `d3a2801` มี job `deploy` ค้างสถานะ *waiting* (รออนุมัติ) มาตั้งแต่
   2026-09-22 และ run ของ `616c187` ที่ใหม่กว่ามี job `deploy` เป็น *pending* ต่อคิวอยู่ข้างหลัง — คือ run ที่รออนุมัติ**ไม่ถูกแทน**
   ด้วย run ใหม่ ตรงกับ "ผลเสียที่แย่สุด" ที่ ADR-0013 addendum 2026-09-21 คาดไว้ (ต้อง approve ทีละตัว, SHA เก่า deploy ก่อน) ·
-  ยังไม่มี runner จึงยังไม่เห็นผลปลายทาง — ยืนยันเมื่อมี runner จริง · ก่อนกด approve ให้ดูว่า run ไหนเป็น head ของ `main`
+  (2026-09-30: คิวนี้เคลียร์แล้ว — run เก่าถูกยกเลิก, deploy `e50f4fa` อนุมัติและผ่าน) · ก่อนกด approve ให้ดูว่า run ไหนเป็น head ของ `main`
 
 สถานะ 2026-09-14 (**#39** `ci.2`): §2 กติกา 4 ข้อและ §4 ทำจริงแล้วใน
 `.github/workflows/flutter.yml` / `server.yml` — job `changes` (`dorny/paths-filter@v4`,
@@ -87,7 +89,7 @@ GitHub ตั้งแล้ว 2026-09-15** (#186) — ค่าอยู่ใ
 | Build & Test (CI) | GitHub Actions · vitest (server) · `flutter test` (client) | `.github/workflows/server.yml`, `flutter.yml` | ✅ |
 | Security Scan | Trivy (fs + **image**) · `pnpm audit` · OSV-Scanner | job `audit`, `deps-audit`, และ scan ใน job build image | fs ✅ · image ฝั่ง server: PR #70 (#61) |
 | Package / Storage | Docker + **GHCR** (public) | job build image ทั้งสอง workflow → `ghcr.io/nuimanlp/srisurart-pos-server`, `…-web` | server: PR #70 (#61, tarball artefact ถูกยกเลิก) · web: PR #69 (#62) |
-| Config & Deploy (CD) | **Ansible** — รันโดย self-hosted runner บน VM (local, addendum ADR-0013 2026-09-15) · มือ: ผ่าน SSH | `deploy/ansible/`, `.github/workflows/deploy.yml` | playbook ✅ · workflow มีแล้ว (#67) · required reviewer `NuimanLP` บน `demo` เปิดแล้ว (#366) · **แก้ 2026-09-23:** runner ยังไม่ติดตั้ง (0 runner) — **ยังไม่เคย deploy ถึง VM** (ดูสถานะ 2026-09-23 ด้านบน) · ~~`pull` จาก `ghcr.io` บน VM ถูก FortiGate ตัด~~ คลี่คลาย 2026-09-29 (`docker pull` SHA เต็มจาก `mob04` สำเร็จ) |
+| Config & Deploy (CD) | **Ansible** — รันโดย self-hosted runner บน VM (local, addendum ADR-0013 2026-09-15) · มือ: ผ่าน SSH | `deploy/ansible/`, `.github/workflows/deploy.yml` | playbook ✅ · workflow มีแล้ว (#67) · required reviewer `NuimanLP` บน `demo` เปิดแล้ว (#366) · ~~**แก้ 2026-09-23:** runner ยังไม่ติดตั้ง (0 runner) — ยังไม่เคย deploy ถึง VM~~ **แก้ 2026-09-30:** runner `mob04-demo` online · deploy จริงครั้งแรก `e50f4fa` ถึง VM (ดูสถานะด้านบน) · rollback ยังไม่พิสูจน์ · ~~`pull` จาก `ghcr.io` บน VM ถูก FortiGate ตัด~~ คลี่คลาย 2026-09-29 (`docker pull` SHA เต็มจาก `mob04` สำเร็จ) |
 | KV Storage | **etcd** | service ใน compose + `RuntimeConfigService` ฝั่ง NestJS | ✅ service etcd + auth (#64) · `RuntimeConfigService` merge มาก่อนแล้ว (#66, PR #109; watch แก้ใน #120, PR #129) · **แก้ 2026-09-23:** บน `mob04` auth ของ etcd **ยังไม่เคยเปิด** (#365 เปิดอยู่ — §7 runbook แถว etcd, §8) |
 | Monitoring & Operate | **Node Exporter + Prometheus + Grafana (Monitoring)** | `deploy/compose/monitoring.yml`, `deploy/prometheus/`, `deploy/grafana/` | overlay #63 `ops.1` · ต่อเข้า `deploy/ansible/deploy.yml` แล้วใน #121 `ops.5` (ยังไม่ได้รันจริงบน VM) · ปฏิเสธ Wazuh/ELK เพราะกิน RAM 4–5 GB เกินงบ 6 GB |
 
@@ -121,7 +123,7 @@ flowchart LR
 ```
 
 > **แก้ 2026-09-23:** เพิ่ม `nginx-check` (#270) และด่านอนุมัติของ environment `demo` (#366) ลงในภาพ ·
-> 🔴 ขั้น `D`/`V` **ยังไม่เคยเกิดขึ้นจริง** — ไม่มี runner ลงทะเบียน (สถานะ 2026-09-23 ต้นไฟล์) · ~~`pull` จาก `ghcr.io` บน VM
+> ขั้น `D`/`V` เกิดขึ้นจริงครั้งแรก 2026-09-30 (runner `mob04-demo`, deploy `e50f4fa` — ดูต้นไฟล์; เดิม 2026-09-23 ไม่มี runner ลงทะเบียน) · ~~`pull` จาก `ghcr.io` บน VM
 > ถูก FortiGate ตัด~~ คลี่คลาย 2026-09-29 · ภาพนี้คือ pipeline ที่ออกแบบและ merge แล้ว ไม่ใช่ของที่ทำงานอยู่ครบทั้งเส้น
 
 กติกา 4 ข้อที่ทำให้ภาพนี้ไม่ค้าง (ที่มา: #39, #40 AC4, scrutinize 2026-09-10):
@@ -314,7 +316,7 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
 2 release
 
 **Rollback** = รัน `deploy.yml` ด้วย `image_tag` ของ release ก่อนหน้า (`workflow_dispatch` ของ
-`deploy.yml` รับ SHA — ต้องมี runner #67 ซึ่งยังไม่ได้ติดตั้ง ระหว่างนี้รัน playbook ด้วยมือ ดู §7 แถว rollback) · schema ไม่ถอย
+`deploy.yml` รับ SHA — ต้องมี runner #67 — ติดตั้งแล้ว 2026-09-30 แต่เส้นทาง rollback นี้ยังไม่เคยพิสูจน์ด้วย run จริง; playbook ด้วยมือเป็นทางสำรอง ดู §7 แถว rollback) · schema ไม่ถอย
 
 **ข้อจำกัดที่รู้แล้วยอมรับบน `demo`:** rolling restart ไม่มี drain — Nginx เตะ instance หลัง
 `max_fails=2` ใน 10 วินาที และ**ไม่ retry POST** จึงมี 502 กับ `POST /sales` ที่ค้างอยู่บน instance
@@ -391,17 +393,14 @@ on:
 
 ทำตามลำดับ **ข้อ 1 และ 4 ต้องเสร็จก่อนข้อ 5** (repo public — ADR-0013 addendum 2026-09-15 ข้อบังคับความปลอดภัย)
 
-> **หมายเหตุ 2026-09-23:** ยังไม่มีข้อไหนในหัวข้อนี้ที่ทำเสร็จบน `mob04` — `gh api …/actions/runners` = 0 runner ·
-> ข้อ 1 ยังเป็น `first_time_contributors` · ข้อ 2 มี required reviewer แล้วแต่ `deployment_branch_policy` ยังเป็น `null` ·
-> ~~และต่อให้ติดตั้งครบ deploy แรกก็จะ fail ที่ `docker compose pull` จนกว่า FortiGate จะยกเว้น `ghcr.io`~~ (**คลี่คลาย 2026-09-29:**
-> `docker pull` SHA เต็มจาก `mob04` สำเร็จแล้ว — ดูต้นไฟล์) ·
+> **หมายเหตุ 2026-09-30:** ข้อ 1–6 ทำเสร็จบน `mob04` แล้ว (ข้อ 7 ยังค้างส่วน rollback) (fork approval = `all_external_contributors`, branch policy `main`, runner `mob04-demo` online, deploy จริงครั้งแรกสำเร็จ) — ข้อความ 2026-09-23 เดิมที่ว่า "ยังไม่มีข้อไหนทำเสร็จ / 0 runner" ล้าสมัยแล้ว · FortiGate คลี่คลาย 2026-09-29 (ดูต้นไฟล์) ·
 > มีสคริปต์ `deploy/scripts/setup-mob04-runner.sh` (commit `b687411`) ที่รวมข้อ 4–5 ไว้ในคำสั่งเดียว — **ตรวจก่อนใช้:**
 > สคริปต์นั้น~~**ไม่ได้**ตรวจ sha256 ของ tarball runner ตามข้อ 5~~ (แก้แล้ว #67 2026-09-29: รับ version + sha256 เป็น argument บังคับ
 > และ `sha256sum -c` ก่อนแตกไฟล์) และ**ไม่ได้**ตั้งข้อ 1 (fork approval) ให้ — ข้อ 1 ยังต้องทำก่อนเสมอ
 
 1. **กัน fork PR ไม่ให้รันเองได้** — Settings → Actions → General → *Approval for running fork pull request workflows
-   from contributors* = **Require approval for all external contributors** (🔴 **2026-09-23 ยังเป็น
-   `first_time_contributors`** — `gh api …/actions/permissions/fork-pr-contributor-approval`) หรือ:
+   from contributors* = **Require approval for all external contributors** (✅ ตั้งแล้ว 2026-09-30; เดิม 2026-09-23 เป็น
+   `first_time_contributors` — ตรวจด้วย `gh api …/actions/permissions/fork-pr-contributor-approval`) หรือ:
    ```bash
    gh api -X PUT repos/NuimanLP/srisurart-pos-flutter/actions/permissions/fork-pr-contributor-approval \
      -f approval_policy=all_external_contributors
@@ -424,10 +423,11 @@ on:
    gh api -X POST repos/NuimanLP/srisurart-pos-flutter/environments/demo/deployment-branch-policies \
      -f name=main -f type=branch
    ```
-   🔴 **สถานะจริง 2026-09-23 (`gh api` อ่านอย่างเดียว):** `required_reviewers` = `NuimanLP` ✅ แต่
+   ✅ **2026-09-30:** `deployment_branch_policy` ตั้งเป็น `custom_branch_policies:true` + branch `main` แล้ว (ข้อความถัดไปคือสถานะเดิม 2026-09-23 เก็บเป็นประวัติ)
+   ~~🔴 **สถานะจริง 2026-09-23 (`gh api` อ่านอย่างเดียว):** `required_reviewers` = `NuimanLP` ✅ แต่
    `deployment_branch_policy` = **`null`** — คำสั่ง `POST …/deployment-branch-policies` ด้านบน**ไม่ได้มีผล**อยู่ (หรือไม่เคยรัน)
    ADR-0013 addendum 2026-09-21 บันทึกค่า `null` นี้ไว้ตอนเปิด reviewer · ตอนนี้กันด้วย `if:` ใน workflow + hook + `pos-deploy`
-   ที่รับเฉพาะ `main` อยู่แล้ว แต่ branch policy ที่ขั้นนี้ตั้งใจไว้ไม่มี — **เจ้าของตัดสินว่าจะรันซ้ำหรือไม่** (agent ไม่แตะ setting)
+   ที่รับเฉพาะ `main` อยู่แล้ว แต่ branch policy ที่ขั้นนี้ตั้งใจไว้ไม่มี — **เจ้าของตัดสินว่าจะรันซ้ำหรือไม่** (agent ไม่แตะ setting)~~
    workflow **ไม่ต้องใช้ secret** — ไม่ต้องใส่ `DEMO_SSH_*` ลง GitHub (addendum) · `DEMO_ENV_FILE` ยังเป็นค่าที่
    `provision.yml` ใช้ตอนรันด้วยมือ
 3. **ของที่ VM ต้องมี** (ในฐานะ user ที่มี sudo เช่น `cloud`): `sudo apt-get install -y ansible-core git` ·
@@ -498,11 +498,11 @@ on:
 
 | งาน | ทำอย่างไร |
 |---|---|
-| ครั้งแรก | รัน `provision.yml` ด้วยมือครั้งเดียว (ค่าจาก `DEMO_ENV_FILE`, §5) → §6.2 ข้อ 1–6 (fork approval, Environment `demo` **ไม่มี secret**, `ansible-core`, `gha-runner` + wrapper + hook, runner) → merge อะไรก็ได้ขึ้น main → image ทั้งสองอยู่บน GHCR และ **public อยู่แล้ว** (ไม่ต้องสลับด้วยมือ — ตรวจแล้ว 2026-09-10) → ~~deploy อัตโนมัติ~~ **แก้ 2026-09-23:** job `deploy` ค้าง *Waiting* จน `NuimanLP` approve (#366) แล้วจึง deploy · 🔴 บน `mob04` runner ยังไม่ติดตั้ง · ~~`pull` จาก `ghcr.io` ถูก FortiGate ตัด~~ คลี่คลาย 2026-09-29 (แถวถัดไป) · `provision.yml` รันเป็น `cloud`, `deploy.yml` รันเป็น `deploy` (§6) |
+| ครั้งแรก | รัน `provision.yml` ด้วยมือครั้งเดียว (ค่าจาก `DEMO_ENV_FILE`, §5) → §6.2 ข้อ 1–6 (fork approval, Environment `demo` **ไม่มี secret**, `ansible-core`, `gha-runner` + wrapper + hook, runner) → merge อะไรก็ได้ขึ้น main → image ทั้งสองอยู่บน GHCR และ **public อยู่แล้ว** (ไม่ต้องสลับด้วยมือ — ตรวจแล้ว 2026-09-10) → ~~deploy อัตโนมัติ~~ **แก้ 2026-09-23:** job `deploy` ค้าง *Waiting* จน `NuimanLP` approve (#366) แล้วจึง deploy · ~~🔴 บน `mob04` runner ยังไม่ติดตั้ง~~ (ติดตั้งแล้ว 2026-09-30) · ~~`pull` จาก `ghcr.io` ถูก FortiGate ตัด~~ คลี่คลาย 2026-09-29 (แถวถัดไป) · `provision.yml` รันเป็น `cloud`, `deploy.yml` รันเป็น `deploy` (§6) |
 | **`docker compose pull` บน VM fail ด้วย `x509: certificate is not valid for any names` (เพิ่ม 2026-09-23 · คลี่คลาย 2026-09-29)** | **2026-09-29:** `docker pull` SHA เต็มจาก `mob04` สำเร็จ และ TLS ไป `ghcr.io`, `registry-1.docker.io`, `gcr.io`, `github.com`, `api.github.com`, `*.actions.githubusercontent.com` verify ผ่าน (ใบ FortiGate มี SAN `*.ghcr.io`/`ghcr.io` แล้ว) — แถวนี้เก็บไว้เผื่อ inspection กลับมา · ไม่ใช่บั๊กใน repo — FortiGate ของคณะทำ SSL inspection กับ `ghcr.io` จาก `172.30.58.20` ด้วยใบที่ไม่มี SAN · trust CA ของ Fortinet **ไม่ช่วย** · ทางแก้จริง: ฝ่ายเครือข่ายยกเว้น `ghcr.io`, `registry-1.docker.io`, `gcr.io` ให้ `172.30.58.20` (งานเจ้าของ/ฝ่ายเครือข่าย ไม่ใช่ PR) · `docker save`/`load` ด้วยมือ = ทางกู้วันเดโมเท่านั้น **ห้ามบันทึกว่าเป็น CD** และไม่เขียน `.current_sha` ผ่าน pipeline · หลักฐาน: `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md` §4.7 |
 | ดู Grafana / Prometheus / Bull-Board | `ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 deploy@<vm>` |
 | ดู platform-ui (#443 PR4, แผงควบคุมแพลตฟอร์มแบบเว็บ) | `ssh -L 3200:127.0.0.1:3200 deploy@<vm>` แล้วเปิดเบราว์เซอร์ที่ `http://127.0.0.1:3200` (เหมือน Grafana ข้างบน — SSH tunnel เข้ารหัสอยู่แล้ว, publish แค่ host loopback) · login ด้วย platform admin ที่มีอยู่ (สร้างผู้ดูแลใหม่ทำผ่าน CLI บนเซิร์ฟเวอร์ หรือคีย์ `PLATFORM_ADMINS` ใน `.env` ตอน api boot (#443, ดู §5 `DEMO_ENV_FILE`) — หน้าเว็บนี้ไม่มีปุ่มนั้น) · token เก็บใน `sessionStorage` ของเบราว์เซอร์ อายุ 1 ชม. ไม่มี refresh — หมดอายุแล้ว login ใหม่ · 🔴 **สามอย่างต้องเปลี่ยนพร้อมกันเสมอ** ถ้าจะย้าย/เปลี่ยน IP ของ `platform-ui`: (1) `ipv4_address: 172.30.0.20` ของ service `platform-ui` ใน `server/docker-compose.yml`, (2) `allow 172.30.0.20;` ใน `location /api/v1/platform/` ของ `server/docker/nginx/nginx.conf`, (3) `PLATFORM_ADMIN_IPS` (ต้องมี IP เดียวกันอยู่ในลิสต์ — ค่า default ใน `.env.example`/compose คือ `172.30.0.20` อยู่แล้ว แต่ถ้า host ไหน override ค่านี้ทับ ต้องใส่ `.20` กลับเข้าไปด้วย ไม่งั้นผ่าน nginx แล้วไปตายที่ guard เงียบ ๆ) · **ข้อควรระวังเรื่อง network recreate:** เหมือนกับ api-1..3 ทุกตัว — ถ้า network `srisurart-pos_default` ถูกสร้างใหม่ (ดูแถว "ครั้งเดียว: network สร้างก่อน `ip_range`" ด้านล่าง) `platform-ui` จะเสีย `ipv4_address` ไปด้วย แล้วกลายเป็น 403 เงียบ ๆ ที่ nginx โดยไม่มี error ชัดเจนว่าเพราะอะไร — เช็คด้วย `docker inspect "$(docker ps -qf name=srisurart-pos-platform-ui)" --format '{{(index .NetworkSettings.Networks "srisurart-pos_default").IPAddress}}'` (compose ไม่ได้ตั้ง `container_name` ชื่อจริงคือ `srisurart-pos-platform-ui-1` · ต้องใช้ `index` เพราะ Go template อ่าน `-` ในชื่อ network แบบ `.a.b` ไม่ได้) ว่ายังเป็น `172.30.0.20` อยู่หลัง network recreate ทุกครั้ง · **วัดแล้ว 2026-09-27 (review PR4, stack แยก subnet 172.31.247.0/24, Docker Desktop 27.3 / compose 2.30):** ผ่าน port 3200 ของ host → platform-ui เห็น `$remote_addr` = gateway (`.1`) → login + `GET /tenants` = 200 (XFF ปลอมจาก browser ถูกเขียนทับ ยัง 200) · container อื่น → `https://nginx/api/v1/platform/` = 403 ที่ nginx · container อื่น → `.20:80` = 403 ที่ platform-ui · container อื่น → gateway `:3200` = connection refused (publish แค่ loopback) · ตรงเข้า api `:3000` ด้วย XFF rightmost `203.0.113.9` (หรือ `127.0.0.1, 203.0.113.9`) = 403 `PLATFORM_IP_FORBIDDEN` ที่ guard · บน Linux (`mob04`, docker-proxy/iptables จริง) **ยังไม่ได้วัด** · 🔴 platform-ui trust ใบ `server.crt` ของ `certgen` ตรง ๆ + `proxy_ssl_name localhost` — ถ้าเปลี่ยน volume `certs` เป็นใบจริงที่ CA ออก (ไม่ใช่ self-signed, CN/SAN ไม่ใช่ `localhost`) platform-ui จะ 502 ต้องแก้ `nginx.conf` ของ platform-ui พร้อมกัน · แอดมินทุกคนที่เข้าผ่านหน้าเว็บใช้ bucket login `platform:ip:172.30.0.20` (10 ครั้ง/60 วิ) ร่วมกัน — คนหนึ่งพิมพ์ผิดรัว ๆ ทำให้คนอื่น 429 ไปหนึ่งนาที |
-| rollback | 🔴 **ทั้งแบบอัตโนมัติและแบบ Actions ต้องมี self-hosted runner (#67) บน VM — วันนี้ยังไม่มี (0 runner, ตรวจ 2026-09-23) จึงยังใช้ไม่ได้ทั้งคู่** · **ทางที่ใช้จริงจนกว่าจะมี runner — playbook ด้วยมือ:** สร้าง `git worktree` สะอาดของ SHA เก่า (playbook + config ที่ copy ขึ้น VM มาจาก checkout ที่รัน ไม่ใช่จาก image — ใช้ checkout ปัจจุบันจะได้ compose/`nginx.conf` ของวันนี้คู่ image เก่า) แล้วรัน `deploy.yml` จาก worktree นั้นเป็น user **`deploy`** ด้วย `-e image_tag=<SHA เก่า> -e force_redeploy=true` (`force_redeploy` ใส่เสมอ — ไม่ใส่แล้ว SHA ที่ตรง `.current_sha` จะจบที่ §6 ข้อ 1) · ยืนยันด้วย `/opt/pos/.current_sha` + `GET /health/ready` · ขั้นเต็ม: `docs/handoff_log/ticket-343-vm-deploy.md` §8 (และ `docs/tutorial/VM-dploy-full-stack-tutorial.md` เมื่อ PR #499 merge) · **เมื่อมี runner แล้ว:** **อัตโนมัติ** เมื่อ playbook fail หรือเกิน 20 นาที (`pos-deploy` deploy SHA ใน `.current_sha` ซ้ำด้วย `-e force_redeploy=true`, run ยังแดง — §6.1) · **มือ:** Actions → *Deploy (demo)* → Run workflow (branch `main`) → `image_tag` = SHA ก่อนหน้า (ต้องอยู่บน `main`, ใหม่กว่า #233 และมี image ครบทั้งสองบน GHCR) · **แก้ 2026-09-23:** rollback ด้วยมือผ่าน Actions ก็ต้องรอ `NuimanLP` approve เหมือนกัน (environment `demo`, #366) · schema ไม่ถอย · ถ้า runner offline หรือ release ปลายทางเก่ากว่า `force_redeploy`: ใช้ทาง playbook ด้วยมือข้างต้น |
+| rollback | 🔴 **ทั้งแบบอัตโนมัติและแบบ Actions ต้องมี self-hosted runner (#67) บน VM — runner ติดตั้งแล้ว 2026-09-30 (เดิม 0 runner, 2026-09-23) แต่ทั้งสองทาง rollback ยัง**ไม่เคยพิสูจน์**ด้วย run จริง · **ทางสำรองที่พิสูจน์ได้แน่นอน — playbook ด้วยมือ:** สร้าง `git worktree` สะอาดของ SHA เก่า (playbook + config ที่ copy ขึ้น VM มาจาก checkout ที่รัน ไม่ใช่จาก image — ใช้ checkout ปัจจุบันจะได้ compose/`nginx.conf` ของวันนี้คู่ image เก่า) แล้วรัน `deploy.yml` จาก worktree นั้นเป็น user **`deploy`** ด้วย `-e image_tag=<SHA เก่า> -e force_redeploy=true` (`force_redeploy` ใส่เสมอ — ไม่ใส่แล้ว SHA ที่ตรง `.current_sha` จะจบที่ §6 ข้อ 1) · ยืนยันด้วย `/opt/pos/.current_sha` + `GET /health/ready` · ขั้นเต็ม: `docs/handoff_log/ticket-343-vm-deploy.md` §8 (และ `docs/tutorial/VM-dploy-full-stack-tutorial.md` เมื่อ PR #499 merge) · **เมื่อมี runner แล้ว:** **อัตโนมัติ** เมื่อ playbook fail หรือเกิน 20 นาที (`pos-deploy` deploy SHA ใน `.current_sha` ซ้ำด้วย `-e force_redeploy=true`, run ยังแดง — §6.1) · **มือ:** Actions → *Deploy (demo)* → Run workflow (branch `main`) → `image_tag` = SHA ก่อนหน้า (ต้องอยู่บน `main`, ใหม่กว่า #233 และมี image ครบทั้งสองบน GHCR) · **แก้ 2026-09-23:** rollback ด้วยมือผ่าน Actions ก็ต้องรอ `NuimanLP` approve เหมือนกัน (environment `demo`, #366) · schema ไม่ถอย · ถ้า runner offline หรือ release ปลายทางเก่ากว่า `force_redeploy`: ใช้ทาง playbook ด้วยมือข้างต้น |
 | runner ของ deploy offline / ต้องลงใหม่ | §6.2 ข้อ 4–6 · job ที่รอ runner ค้างในคิว (ไม่ fail ทันที) — ดูใน Actions |
 | 🔴 **ครั้งเดียว: network สร้างก่อน `ip_range` (#148)** | `docker-compose.yml` เพิ่ม `ip_range: 172.30.0.128/25` + `gateway: 172.30.0.1` ให้ network `default` (IP คงที่ `.11–.13` อยู่นอกช่วง dynamic) · Docker เปลี่ยน IPAM ของ network ที่มี container ต่ออยู่ไม่ได้ — วัดกับ compose v5.0.2: `run --rm` สลับ network ใต้ container ที่รันอยู่แล้วต่อกลับ**โดยไม่มี `ipv4_address`** (api-N เสีย `.11–.13` → Nginx ไม่มี upstream) ส่วน `up -d <บาง service>` หยุด service นั้นแล้ว error · `deploy.yml` จึงเช็ค `srisurart-pos_default` ก่อนแตะอะไรและ **fail ทันที**ถ้ายังไม่มี `ip_range` · ทางแก้ (POS ดับสั้น ๆ, volume ไม่หาย — **ห้าม `-v`**): บน VM `cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml down --remove-orphans` (orphans = container monitoring) แล้วรัน `deploy.yml` ด้วย **SHA ใหม่** ทันที — SHA เดิมจบที่ข้อ 1 ของ §6 และไม่ start อะไรเลย (ถ้าจำเป็นต้องใช้ SHA เดิม ใส่ `-e force_redeploy=true`) · เครื่อง dev ที่รัน stack อยู่: `docker compose down` (ไม่ใส่ `-v`) ครั้งเดียวใน `server/` · VM ที่ยังไม่เคยมี network นี้ผ่านเช็คเอง |
 | 🔴 **etcd ไม่มี auth บน VM ที่ deploy ก่อน fix `etcd-init`** | บั๊กเดิม: `deploy.yml` ไม่เคย copy `server/docker/etcd/etcd-init.sh` ไป VM → Docker สร้าง path bind mount นั้นเป็น**ไดเรกทอรีว่างของ root** (`/opt/pos/docker/etcd/` ก็เป็นของ root) → `etcd-init` รัน `sh <ไดเรกทอรี>` แล้ว **exit 0 ไม่มี log** → auth ไม่เคยเปิด (ใครอยู่บน compose network อ่าน/เขียน etcd ได้) และ `up -d` ไม่รอ one-shot job จึงเขียวตลอด · **ตรวจ** (บน VM): `ls -la /opt/pos/docker/etcd` (`etcd-init.sh` ต้องเป็น**ไฟล์** `-rwxr-xr-x deploy`, ไม่ใช่ `d… root`) · `cd /opt/pos && IMAGE_TAG=$(cat .current_sha) docker compose -f docker-compose.yml -f vm.override.yml logs etcd-init` (บั๊ก = ว่างเปล่า) · `docker run --rm --network srisurart-pos_default curlimages/curl:8.16.0 -sS -X POST http://etcd:2379/v3/kv/range -d '{"key":"Lw=="}'` ต้องได้ `user name is empty` (บั๊ก = ได้ `{"header":…}`) · **fix ทำเองตอน deploy ถัดไป ไม่ต้องทำมือ:** เจอ `etcd-init.sh` เป็นไดเรกทอรี → `rmdir` มันกับ `docker/etcd` ผ่าน container root (user `deploy` ไม่มี sudo; `rmdir` ลบแค่ไดเรกทอรีว่าง มีของอื่นอยู่ = fail ดัง ๆ แทนการลบ) → สร้าง `docker/etcd` ของ `deploy` → copy สคริปต์ 0755 → `run --rm etcd-init` เปิด auth + seed key → assert anonymous ถูกปฏิเสธ · deploy ด้วย **SHA ใหม่** (SHA เดิมจบที่ข้อ 1 ของ §6 — หรือใส่ `-e force_redeploy=true`) · ถ้า `etcd-init` fail ด้วย `root cannot authenticate` = รหัสใน volume ไม่ตรง `ETCD_ROOT_PASSWORD` ใน `.env` (§8) — ไม่ใช่บั๊กนี้ · 🔴 **แก้ 2026-09-23 (#365 ยังเปิด):** fix นี้**ยังไม่เคยรันบน `mob04`** เพราะยังไม่มี deploy ไหนถึง VM — บน VM `etcd-init.sh` ยังเป็นไดเรกทอรีของ root และ auth ยังไม่เปิด · ทุก AC ของ #365 ต้องพิสูจน์บน VM (ทำรอบเดียวกับ #343) · AC1 ต้องพิสูจน์**สองทาง**: คำสั่งที่ใช้รหัสผ่านสำเร็จ **และ** คำสั่งที่ไม่ใส่รหัสถูกปฏิเสธ — `etcd-init` exit 0 ไม่ใช่หลักฐาน · รหัสใน `.env` ไม่ตรงกับที่ volume `etcd-data` bake ไว้จะโผล่เป็น "service ไม่เขียว" ไม่ใช่ข้อความเรื่องรหัสผ่าน · ทางรีเซ็ตโดยไม่เสียข้อมูลคือ `etcdctl user passwd root` (**ห้าม `down -v`**) แต่ยังไม่มีลำดับคำสั่งที่รันได้จริง |
@@ -526,7 +526,7 @@ on:
 
 > 🔴 **แก้ 2026-09-23 — ปลายทางและสถานะงานเปลี่ยนแล้ว (มติเจ้าของ 2026-09-22):**
 > * **ปลายทาง = NAS ของร้านเอง ไม่ใช่ cloud** (Supabase/S3 ในย่อหน้าบนและตัวอย่าง `supabase-backup:` ด้านล่างล้าสมัย) —
->   cloud ต้องผ่าน FortiGate ตัวเดียวกับที่ตัด `ghcr.io` อยู่แล้ว
+>   cloud ต้องผ่าน FortiGate ตัวเดียวกับที่เคยตัด `ghcr.io` (คลี่คลาย 2026-09-29)
 > * **protocol ยังไม่ settle:** เลือก SFTP ไปแล้วแต่งานวิจัยล้มมัน — Synology **BeeStation รัน BSM ไม่ใช่ DSM และไม่มี SSH/SFTP
 >   ที่ใช้ได้** · ทางเลือกที่เหลือ: backend `smb` ของ rclone กับ BeeStation หรือซื้อ NAS ที่รัน DSM (DS-series) เพื่อใช้ SFTP ·
 >   หลักฐาน + ตัวอย่าง config ทั้งสองแบบ: [`research-363-sftp-nas-offsite.md`](../handoff_log/research-363-sftp-nas-offsite.md)
@@ -699,7 +699,7 @@ conf ปัจจุบันไม่มี ทำให้ `.js`/`.wasm` ข�
 ~~หน้า web บน VM คือ **build Drift ตัวปัจจุบัน** — POS เดี่ยวที่คุยกับใครไม่ได้ ใช้สาธิต pipeline
 เท่านั้น ไม่มีข้อมูลร้าน · จะเปลี่ยนเมื่อ `q1` ต่อ `ApiRepository` เสร็จ (#52)~~ — **แก้ 2026-09-23:** ตั้งแต่ #342 image web
 build ด้วย `--dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL=` (`flutter.yml` ขั้น *flutter build web*) คือ
-**โหมด server** ที่เขียนผ่าน API origin เดียวกับ Nginx · ยังไม่มีข้อมูลร้าน (demo tenant) และยังไม่เคย deploy ถึง VM
+**โหมด server** ที่เขียนผ่าน API origin เดียวกับ Nginx · ยังไม่มีข้อมูลร้าน (demo tenant) · ~~และยังไม่เคย deploy ถึง VM~~ (**แก้ 2026-09-30:** deploy ถึง `mob04` แล้ว `e50f4fa`)
 
 ---
 

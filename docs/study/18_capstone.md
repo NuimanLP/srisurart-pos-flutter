@@ -158,6 +158,8 @@ clamp ไม่ได้ "แก้" ข้อมูลผิด มัน **ซ
 - **ซื่อสัตย์กับสิ่งที่ยังไม่เสร็จ:** CD ไป `mob04` ติด FortiGate ของคณะ (ตัดสินที่เครือข่าย ไม่ใช่ใน repo) —
   `CLAUDE.md` เขียนตรงๆ ว่า `docker save`/`load` ด้วยมือเป็นแค่ทางกู้วัน demo "**not CD, and must never be recorded as one**"
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 **เอาไปใช้ที่อื่น:** ส่งงานกลุ่มแล้วเพื่อนบอก "push แล้ว" — หลักฐานคือเปิด GitHub ดู commit ด้วยตัวเอง; ร้านอาหารบอก
 "ส่งอาหารแล้ว" — หลักฐานคืออาหารถึงโต๊ะ ไม่ใช่สถานะในแอป ทุกครั้งที่จะพูดว่า "เสร็จ" ให้ถาม
 **"ถ้าคนที่ไม่เชื่อฉันมาตรวจ เขาจะดูที่ไหน?"** แล้วไปดูที่นั่นเอง
@@ -514,6 +516,8 @@ DB ใหม่ (สร้างหลัง commit):          รัน Initial
 | 11 | ห้ามแก้ประวัติ | `225ecf7`, `OwnerReviewItems` | บั๊กแก้แล้วด้วย migration ใหม่ (#420) |
 | 12 | อ่านอย่างตั้งใจหาช่อง | G6/G8/G10, #134, #270 | G4/G9/G12 แก้แล้ว; ที่เหลือยังเปิด |
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 ---
 
 ## 🧰 ชุดเครื่องมือตัดสินใจ
@@ -689,6 +693,8 @@ flowchart TB
 **push** ทีหลัง → ทั้งหมดถูกพิสูจน์ด้วย **test จริง** → ส่งผ่าน **PR + CI** → กลายเป็น **image** → (ควรจะ) ขึ้น VM —
 ซึ่งยังติด FortiGate อยู่
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
 ---
 
 ## 🛠️ เทคนิคทั้งชุด → อยู่บทไหน
@@ -760,6 +766,8 @@ flowchart TB
 > - **การตัดสินใจ:** เริ่มจากปัญหาไม่ใช่เครื่องมือ (7) · ทุกทางเลือกมีราคา เขียนราคาไว้ใน ADR รวมถึงทางที่ปฏิเสธ
 > - **Security:** ช่องส่วนใหญ่เจอได้ด้วยการอ่านอย่างตั้งใจ และจบเมื่อพิสูจน์บนเครื่องจริง (12)
 > - **ซื่อสัตย์:** CD ยังติด FortiGate, backup ยังไม่ออกจาก VM, k6 ยังไม่วัด — HIGH bug 2 ตัวที่เคยเปิด (fingerprint, client date) แก้ครบแล้ว (#413, #414) — การบอกสถานะจริงตรงๆ ไม่ว่าจะยังเปิดหรือปิดแล้ว คือส่วนหนึ่งของงานวิศวกรรม ไม่ใช่ความล้มเหลว
+>
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 ---
 

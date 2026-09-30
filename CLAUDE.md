@@ -224,29 +224,21 @@ Neither #294 nor #296 was reopened — each did deliver a real part. 🔴 The si
 develops against a demo tenant.
 
 **Still open (phase 1):**
-- 🔴 **CD to the demo VM is blocked by the faculty network, not by anything in this
-  repo** (2026-09-21). The campus FortiGate does SSL deep inspection on `mob04`'s
-  outbound HTTPS and answers for `ghcr.io` with its own device certificate
-  (`O=Fortinet, OU=FortiGate, CN=FG3K4ETB19900078`), which carries **no SAN at all**, so
-  `docker compose pull` fails with `x509: certificate is not valid for any names`.
-  Trusting the Fortinet CA does **not** fix it — hostname verification fails regardless.
-  This kills both delivery paths at once: the manual Ansible run (#335 D9) and the
-  self-hosted runner (#67), since the runner would use the same Docker daemon. The only
-  real fix is the network team exempting `ghcr.io` (and `registry-1.docker.io`, `gcr.io`)
-  for `172.30.58.20`. `docker save`/`load` by hand is a demo-day rescue, **not** CD, and
-  must never be recorded as one. Full evidence and the cleared pre-flight:
+- ~~CD to the demo VM blocked by the faculty FortiGate~~ — **resolved 2026-09-29/30**:
+  `mob04` pulls from `ghcr.io` (the FortiGate cert now carries the SAN). If
+  `x509: certificate is not valid for any names` returns, the block is back — fix is the
+  network team exempting `ghcr.io`/`registry-1.docker.io`/`gcr.io` for `172.30.58.20`;
+  `docker save`/`load` by hand is a demo-day rescue, **not** CD. Original evidence:
   `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`.
-- #67 — self-hosted deploy runner: workflow merged (PR #237). 🔴 **The issue was closed
-  2026-09-20 (commit `b687411` added only a setup script + runbook), but the runner is NOT
-  installed** — `gh api …/actions/runners` reports **0 runners** (verified 2026-09-23); real-run
-  ACs unproven (`PattaraponKitcharoen`). Blocked by the item above. Never read the closed
-  state as "CD works"; whether to reopen is an owner call.
-- 🔴 **Deploy queue (2026-09-23):** a `Deploy (demo)` run for `d3a2801` has sat in
-  "waiting" (required reviewer) since 2026-09-22, with a newer `616c187` run pending behind
-  it — approving the first one ships the **older** SHA first. Also: the `demo` environment's
-  `deployment_branch_policy` is `null` (the "`main` only" rule in `07 §6.2` is **not** in
-  force), and fork-PR approval is `first_time_contributors`, looser than the
-  `all_external_contributors` the ADR requires before a runner is registered. Owner decisions.
+- #67 — self-hosted deploy runner: 🔴 **installed 2026-09-30** (`mob04-demo`, service user
+  `gha-runner`, via `setup-mob04-runner.sh`; `gh api …/actions/runners` = 1, online) and the
+  **first real deploy ran**: `Deploy (demo)` for `e50f4fa`, approved by `NuimanLP`, Ansible
+  `failed=0`, `/opt/pos/.current_sha` = `e50f4fa`, `/health/ready` 200 on the VM
+  (`docs/handoff_log/session-2026-09-30-first-runner-deploy.md`). **Still unproven:** the
+  auto-rollback path and the `workflow_dispatch` rollback. The `demo` environment now has a
+  `main`-only branch policy and fork-PR approval is `all_external_contributors` (both
+  owner-approved 2026-09-30). The old "waiting" queue was cleared. Still verify with
+  `.current_sha` before claiming a deploy — a green run alone proves nothing (below).
 - **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
   Nothing in it is measured yet. It replaces **#184**, which was closed→reopened→closed
   three times in two days and finally closed by the owner on 2026-09-21 with all four ACs
@@ -264,10 +256,15 @@ develops against a demo tenant.
   PR **#306** is the engine behind #293/#294/#296 and part of #292 yet cites only `#196`.
   Cross-check with `git log --all --grep` before concluding that nothing shipped (#345,
   2026-09-22).
-- #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. Pre-flight
-  is done and the `/opt/pos/.env` blocker is cleared (it was missing
-  `K6_REMOTE_WRITE_BASIC_AUTH_*`, which #251 added to compose with `:?` afterwards, so
-  every Compose subcommand died before pulling anything). **No AC of #343 is ticked.**
+- #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. The
+  2026-09-30 runner deploy of `e50f4fa` (see #67) is evidence for #343's "deploy reaches the VM"
+  side (`.current_sha`, `/health/ready` 200), but **no AC of #343 is ticked** (nobody ticked
+  them) and **#344 has not been run**. 2026-09-30 `provision.yml` re-run added only
+  `PLATFORM_ADMINS` to `/opt/pos/.env` (3 admins synced, platform-ui login not yet tested by a
+  human) and installed the missing `/opt/pos/scripts/backup-db.sh` — the 03:00 cron had been
+  calling a script that did not exist, so no local backup ran before that. Still open: #365
+  etcd auth; a foreign `Origin` gets **HTTP 500** (`app.setup.ts:67` throws) instead of a
+  clean refusal, counted as 5xx in the SLI.
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
   (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v13 (v12 = #417 indexes; v13 = #488
   `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
@@ -363,7 +360,7 @@ develops against a demo tenant.
     been proven (AC3), `rclone` is not installed on `mob04`. #288's "backups leave the VM
     daily" AC is still unticked; #288 is reopened and the correction is recorded in its
     comments. **Destination decided 2026-09-22: the shop's own NAS, not a cloud provider**
-    — a cloud target would have to cross the same FortiGate that already breaks `ghcr.io`.
+    — a cloud target would have to cross the same FortiGate (which broke `ghcr.io` until 2026-09-29).
     🔴 **The protocol is NOT settled: SFTP was chosen, then research killed it** —
     a Synology **BeeStation runs BSM, not DSM, and exposes no usable SSH/SFTP** (its only
     SSH surface is a 14-day Synology-support diagnostic channel). Either use rclone's
@@ -409,9 +406,9 @@ develops against a demo tenant.
     below.
   - **#367** (closed, PR #373) — `CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` now reach the
     containers via the `x-app-env` anchor, and a set-but-empty list throws at boot instead
-    of silently falling back to `'*'`. 🔴 **`mob04` is still `'*'`** until `DEMO_ENV_FILE`
-    carries the keys and `provision.yml` is re-run — nobody may claim CORS is closed on the
-    VM before that.
+    of silently falling back to `'*'`. `mob04` is **not** `'*'`: its `.env` already had
+    `CORS_ORIGINS=https://172.30.58.20` at the first runner deploy (verified 2026-09-30 —
+    own origin gets ACAO, a foreign one does not).
 - Phase-2 kickoff order for the remaining hub tickets: #228 → #229 → #212/#211/#189 →
   #230 → #190 → #231. As of 2026-09-25 all but **#231** (q4.cutover) are closed
   (2026-09-18 → 09-20); #231 is the only one still open.
@@ -432,7 +429,9 @@ develops against a demo tenant.
   `ownerPassword`), web dashboard `platform-ui` on `127.0.0.1:3200` (#448), phone-width fix
   + tutorial (#450). Open: the 403-at-both-layers proof on Linux/`mob04` (measured on
   Docker Desktop only) and owner answers listed in
-  `docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md` §6. Nothing is deployed.
+  `docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md` §6. Container runs on `mob04`
+  since the 2026-09-30 deploy; 3 platform admins synced from `PLATFORM_ADMINS` the same day
+  (UI login not yet tested by a human).
 
 The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
 2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving

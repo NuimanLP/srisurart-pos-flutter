@@ -873,12 +873,12 @@ DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$HOME/.ssh/de
 ```
 
 `force_redeploy=true` ใส่เสมอตอน rollback (จำเป็นเมื่อ `.current_sha` ยังชี้ SHA นั้นหลัง deploy ล้ม) · ตรวจด้วย §4 · rollback อัตโนมัติมีแค่ใน
-`pos-deploy.sh` บน runner ซึ่งยังไม่ได้ติดตั้ง
+`pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 แต่เส้นทาง rollback ยังไม่เคยพิสูจน์ด้วย run จริง)
 
 ### 6.3 CD อัตโนมัติ
 
-workflow `Deploy (demo)` → self-hosted runner บน VM (#67 — **ยังไม่ได้ติดตั้ง, 0 runner** ตรวจ 2026-09-23) → required reviewer `NuimanLP` บน environment `demo` ·
-รายละเอียด: `07_CICD_DEPLOY.md` §6.1–§6.2 และ `deploy/scripts/setup-mob04-runner.sh` · ระหว่างนี้การรันด้วยมือตามคู่มือนี้คือทางหลัก
+workflow `Deploy (demo)` → self-hosted runner บน VM (#67 — **ติดตั้งแล้ว 2026-09-30** `mob04-demo` online; deploy จริงครั้งแรก `e50f4fa` สำเร็จ) → required reviewer `NuimanLP` บน environment `demo` ·
+รายละเอียด: `07_CICD_DEPLOY.md` §6.1–§6.2 และ `deploy/scripts/setup-mob04-runner.sh` · การรันด้วยมือตามคู่มือนี้ยังเป็นทางสำรอง (และทางหลักของ rollback จนกว่าจะพิสูจน์เส้นทางอัตโนมัติ)
 
 ### 6.4 Troubleshooting
 
