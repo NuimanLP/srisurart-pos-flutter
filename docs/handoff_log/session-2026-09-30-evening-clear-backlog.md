@@ -45,3 +45,9 @@
 - **ล้าง remote branch:** ลบ 35 branch ที่ merge แล้ว หลังตรวจทีละอัน (เป็น ancestor ของ `main` · หรือ PR MERGED และ tip == PR head · หรือ commit หลัง merge patch-id เทียบเท่าบน `main`) · เหลือ `main` + `POC_sample_offline_first`
 - 🔴 **บทเรียน:** ก่อนลบ branch ของ PR ที่ merge แล้ว เทียบ tip ของ branch กับ `headRefOid` ของ PR — ไม่ตรง = มี commit หลัง merge ที่อาจหาย (#486 ถูกพบด้วยวิธีนี้)
 - **Deploy `ca2fef1`:** run ค้างรอ `36733325970` (`b089f36`) ถูก cancel · `36736199413` ได้ approve → "Successfully deployed release ca2fef1…", Ansible `failed=0`, `.current_sha` = `ca2fef1`, `/health/ready` 200
+
+## Final (2026-09-30 ~16:20Z) — #522 merged, deploy `3258b21`
+- **PR #522 merged** (`3258b21`): late docs sweep — this handoff, `CLAUDE.md`, 00/03/07/08/09, ADR-0013 addendum, study notes (old "runner not installed / rollback not proven" statements now carry dated corrections)
+- **Deploy `3258b21`:** run `36740619787` green but deploy job skipped (images not ready yet) · run `36740720083` approved (SHA = `main` head) → success · VM `.current_sha` = `3258b21`, `/health/ready` 200
+- **State at end of day:** GitHub has only `main` + `POC_sample_offline_first` · locally 1 worktree · no open PRs · VM = `main` head
+- **Tomorrow:** after 03:00 (2026-10-01) check `backup-cron.log` + `/opt/pos/backups` (no `.partial` files) — first real cron run with the #519 script
