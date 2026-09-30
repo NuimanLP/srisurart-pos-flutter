@@ -133,7 +133,7 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">4 · Deploy</span></div>
   <div class="sec-no">Section 4</div>
   <h1 class="sec">Deploy ขึ้น mob04 · อนุมัติ · ย้อนเวอร์ชัน <span class="en">Deploy &amp; rollback</span></h1>
-  <div class="limits"><span class="nt">อ่านก่อน — deploy จริงครั้งแรกสำเร็จ 2026-09-30 <span class="en">First real deploy</span></span>runner <code>mob04-demo</code> ติดตั้งแล้ว และ release <code>e50f4fa</code> ขึ้น <code>mob04</code> จริงผ่าน pipeline (<code>.current_sha</code> ตรง, <code>/health/ready</code> 200) · firewall ของคณะเลิกตัด <code>ghcr.io</code> แล้ว (2026-09-29) · <strong>พิสูจน์แล้ว 2026-09-30:</strong> ย้อนเวอร์ชันแบบ Actions (run 36687687309) และรัน SHA เดิมซ้ำจบเอง (run 36688248109) · <strong>ยังไม่พิสูจน์:</strong> ย้อนเวอร์ชันอัตโนมัติเมื่อ deploy ล้ม (หัวข้อถัดไป) — หลักฐาน <code>docs/handoff_log/session-2026-09-30-first-runner-deploy.md</code> · <code>docker save</code>/<code>load</code> ด้วยมือเป็นแค่ทางกู้วันเดโม <strong>ไม่ใช่ CD</strong></div>
+  <div class="limits"><span class="nt">อ่านก่อน — deploy จริงครั้งแรกสำเร็จ 2026-09-30 <span class="en">First real deploy</span></span>runner <code>mob04-demo</code> ติดตั้งแล้ว และ release <code>e50f4fa</code> ขึ้น <code>mob04</code> จริงผ่าน pipeline (<code>.current_sha</code> ตรง, <code>/health/ready</code> 200) · firewall ของคณะเลิกตัด <code>ghcr.io</code> แล้ว (2026-09-29) · <strong>พิสูจน์แล้ว 2026-09-30:</strong> ย้อนเวอร์ชันแบบ Actions (run 36687687309) และรัน SHA เดิมซ้ำจบเอง (run 36688248109) · <strong>พิสูจน์แล้วเย็นวันเดียวกัน:</strong> ย้อนเวอร์ชันอัตโนมัติเมื่อ readiness ล้ม (run 36720675552, run แดง; <code>pos-deploy</code> รัน release ก่อนหน้าซ้ำ ไม่ใช่ <code>rescue:</code> ของ Ansible) (หัวข้อถัดไป) — หลักฐาน <code>docs/handoff_log/session-2026-09-30-first-runner-deploy.md</code> และ <code>session-2026-09-30-evening-clear-backlog.md</code> · <code>docker save</code>/<code>load</code> ด้วยมือเป็นแค่ทางกู้วันเดโม <strong>ไม่ใช่ CD</strong></div>
 
   <h2 class="sub">ลำดับที่ pipeline ทำ <span class="en">Pipeline</span></h2>
   <ol class="steps">
@@ -172,7 +172,7 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน — ยังไม่มี backup ออกนอก VM <span class="en">No offsite backup</span></span>
     <ul class="ticks">
       <li><strong>ไม่เคยมี backup ออกจาก VM เลย</strong> และไม่เคยพิสูจน์การกู้จากสำเนานอก VM — ดิสก์ <code>mob04</code> เสีย = ข้อมูลร้าน demo หาย</li>
-      <li>cron backup 03:00 ของ <code>deploy</code> + <code>/opt/pos/scripts</code> ติดตั้งบน <code>mob04</code> แล้ว 2026-09-30 (รัน <code>provision.yml</code> ใหม่) — ก่อนหน้านั้น cron เรียกสคริปต์ที่ไม่มีอยู่ · backup ในเครื่องยังอยู่บน VM เท่านั้น</li>
+      <li>cron backup 03:00 ของ <code>deploy</code> + <code>/opt/pos/scripts</code> ติดตั้งบน <code>mob04</code> แล้ว 2026-09-30 (รัน <code>provision.yml</code> ใหม่) — ก่อนหน้านั้น: รอบ 03:00 ของ 09-29 สคริปต์มีอยู่แต่ fail (ทิ้ง .gz ว่าง), รอบ 09-30 "not found" (แก้ 2026-09-30 เย็น) · backup ในเครื่องยังอยู่บน VM เท่านั้น</li>
       <li>งาน offsite (#363/#288) <strong>พักไว้จนหลังเดโม</strong> · ปลายทางตัดสินแล้วคือ NAS ของร้าน แต่โปรโตคอลยังไม่ได้เลือก (BeeStation ไม่มี SFTP — เหลือ <code>smb</code> ของ rclone หรือซื้อ NAS ที่เป็น DSM)</li>
       <li><strong>ห้ามเขียนว่า "backup พร้อมแล้ว" ที่ไหนก็ตาม</strong></li>
     </ul>
@@ -252,9 +252,9 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
   </div>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
-      <li>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรก 2026-09-30 (runner <code>mob04-demo</code>, <code>e50f4fa</code>) · rollback แบบ Actions และแบบมือ (user <code>deploy</code>) พิสูจน์แล้ววันเดียวกัน · rollback อัตโนมัติเมื่อล้มยังไม่พิสูจน์ · #343 ติ๊กแล้ว 4 จาก 5 AC · #344 (เดโม) ยังไม่รัน</li>
+      <li>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรก 2026-09-30 (runner <code>mob04-demo</code>, <code>e50f4fa</code>) · rollback แบบ Actions และแบบมือ (user <code>deploy</code>) พิสูจน์แล้ววันเดียวกัน · rollback อัตโนมัติเมื่อล้มพิสูจน์แล้วเย็นวันเดียวกัน (run 36720675552) · #343 ปิดแล้ว 5/5 · #67 ปิด 15/15 · #344 (เดโม) ยังไม่รัน</li>
       <li>environment <code>demo</code>: branch policy <code>main</code> และการอนุมัติ fork PR <code>all_external_contributors</code> ตั้งแล้ว 2026-09-30 (เจ้าของอนุมัติ; เดิม <code>null</code>/<code>first_time_contributors</code>)</li>
-      <li>ไม่มี backup ออกนอก VM · etcd เปิด auth บน VM แล้ว (2026-09-30) · <code>CORS_ORIGINS</code> บน VM = origin ของตัวเองแล้ว (2026-09-30) แต่ origin แปลกหน้าได้ HTTP 500 · สคริปต์ backup ในเครื่องเพิ่งติดตั้ง 2026-09-30 (ก่อนนั้น cron 03:00 เรียกสคริปต์ที่ไม่มี)</li>
+      <li>ไม่มี backup ออกนอก VM · etcd เปิด auth บน VM แล้ว (2026-09-30) · <code>CORS_ORIGINS</code> บน VM = origin ของตัวเองแล้ว (2026-09-30) origin แปลกหน้าเคยได้ HTTP 500 — แก้แล้ว PR #516 (deploy <code>00d3488</code>) ตอนนี้ได้สถานะปกติของ route (เช่น <code>/health/live</code> 200 — ไม่ใช่ 500) ไม่มี ACAO · สคริปต์ backup ในเครื่องเพิ่งติดตั้ง 2026-09-30 (รอบ 03:00 ของ 09-29 สคริปต์มีอยู่แต่ fail, รอบ 09-30 "not found") · CD ไม่อัปเดตสคริปต์บน VM มีแต่ <code>provision.yml</code> — ฉบับ PR #519 (<code>.partial</code>) ยังไม่ได้ลงบน VM</li>
       <li>monitoring บน VM รันจริงแล้ว 2026-09-30 (Grafana 200 + dashboard ที่ provision, Prometheus scrape api×3) — <code>api-readiness</code> ยัง DOWN เพราะ <code>/health/ready</code> ตอบ JSON</li>
     </ul>
   </div>

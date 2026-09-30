@@ -33,7 +33,7 @@
 - `CORS_ORIGINS=https://172.30.58.20` **มีอยู่ใน `.env` ของ VM ก่อนแล้ว** → CORS บน `mob04` ปิดแล้ว (ไม่ใช่ `'*'`) ตั้งแต่ deploy แรกของ runner ·
   ตรวจ: origin ตัวเองได้ `Access-Control-Allow-Origin: https://172.30.58.20`, origin อื่นไม่ได้ ACAO (แต่ได้ 500 — ดู "ยังเปิด")
 - provision สร้าง `/opt/pos/scripts` + ลง `backup-db.sh`/`restore-db.sh`/`measure-container-rss.sh` — **ก่อนหน้านี้ cron 03:00 เรียกสคริปต์ที่ไม่มีอยู่**
-  (backup ในเครื่องไม่เคยรัน) · offsite ยังพักไว้ (#363)
+  (backup ในเครื่องไม่เคยรัน) — ⚠️ แก้ 2026-09-30 เย็น: ไม่ถูกทั้งหมด — 03:00 ของ 09-29 สคริปต์*มีอยู่* แต่ **fail** ("Neither active docker compose postgres container…" ทิ้ง .gz ว่าง 20 ไบต์); เฉพาะ 03:00 ของ 09-30 ที่ "not found" (ดู session-2026-09-30-evening-clear-backlog.md) · offsite ยังพักไว้ (#363)
 - Deploy (demo) แบบ dispatch run `36669582543` (`e50f4fa`) อนุมัติแล้ว สำเร็จ · `.env_applied_sha256` = hash ของ `.env` ใหม่ · api×3 สร้างใหม่ healthy ·
   `/health/ready` 200 · log api-1 `PLATFORM_ADMINS synced` สร้าง 3 · `platform_admins`: `lomer`, `nuiman`, `pattarapon` active (ไม่บันทึกรหัส)
 
@@ -345,6 +345,7 @@ $D docker exec srisurart-pos-prometheus-1 cat /etc/prometheus/prometheus.yml 2>/
 #365 3/4 (เหลือ log คำสั่ง — ครอบคลุมโดย PR #511 ที่ merge แล้ว) ·
 #67 9/15 — ยังเปิด: one-image-only แล้ว deploy (ประวัติของ `494ace3` อาจพิสูจน์ได้ ยังไม่ตรวจ), ไม่มี deploy พร้อมกัน, readiness ล้ม → แดง,
 auto-rollback เมื่อล้ม, hook ปฏิเสธ branch อื่น/fork, seed `log_level` · owner อนุมัติให้รันการทดสอบล้มเหลวโดยตั้งใจเหล่านี้**หลัง demo #344**
+⚠️ แก้ 2026-09-30 เย็น: owner อนุญาตให้รันก่อน #344 และรันแล้ว — #67 ปิด 15/15 (ครึ่ง fork พิสูจน์จากโค้ด + settings เท่านั้น) ดู `session-2026-09-30-evening-clear-backlog.md`
 
 **#344:** เขียน checklist แล้ว `docs/handoff_log/demo-344-checklist-2026-09-30.md` — **ยังไม่รัน** · ตัวขวาง: AC2 (รหัสชั่วคราว + บังคับเปลี่ยนใน 10 นาที,
 ข้อความไทยยังไม่รับรอง `change_password_form.dart:13`), AC3 (tenant ใหม่ไม่มีสินค้า), AC4 (แอปส่ง idempotency key ซ้ำไม่ได้ → DevTools/curl ภายใน token 15 นาที),
