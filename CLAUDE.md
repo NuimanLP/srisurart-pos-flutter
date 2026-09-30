@@ -260,9 +260,9 @@ develops against a demo tenant.
   PR **#306** is the engine behind #293/#294/#296 and part of #292 yet cites only `#196`.
   Cross-check with `git log --all --grep` before concluding that nothing shipped (#345,
   2026-09-22).
-- #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. **#343 is 4/5**
-  (deploy, Grafana checked, manual-Ansible rollback to `e50f4fa` `failed=0`; left: the
-  real-command log, now in the 2026-09-30 handoff). **#344 has not been run**; its
+- ~~#343~~ / #344 — the first real deploy to `mob04` and the end-to-end demo run. **#343
+  closed 2026-09-30 (5/5)** — deploy, Grafana checked, manual-Ansible rollback to `e50f4fa`
+  `failed=0`, command log in the 2026-09-30 handoff (PR #511/#514). **#344 has not been run**; its
   checklist is `docs/handoff_log/demo-344-checklist-2026-09-30.md`, with flagged blockers
   (temp-password + forced change within 10 min, new tenant has no products, the app cannot
   resend an idempotency key, three #335 ACs not provable on the VM, #476). 2026-09-30
@@ -342,7 +342,7 @@ develops against a demo tenant.
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
   DDL in `01_DATABASE.md` is illustration.
 - Opened 2026-09-21 from verified findings. **#364, #366 and #367 were closed the same
-  day (PRs #374 / #371 / #373); #363 and #365 are still open.**
+  day (PRs #374 / #371 / #373); #365 closed 2026-09-30; #363 is still open.**
   - **#363** — `backup-db.sh` never copied a backup off the VM although #288's AC for it
     is still `[ ]` on a reopened ticket (#288 was **reopened 2026-09-21** by the owner).
     🔴 **Mechanism built same day, not wired**:
@@ -374,8 +374,8 @@ develops against a demo tenant.
     `docs/handoff_log/research-363-sftp-nas-offsite.md`. AC1 (destination **and**
     credentials) stays unticked until a protocol is picked and creds exist.
     🔴 **PARKED until after the `mob04` demo (owner, 2026-09-22).** #363/#288 are both
-    still open but `ready-for-agent` was removed from #288 — do not start this work; #343
-    → #344 come first. The cost is accepted knowingly: **no backup leaves the VM at all
+    still open but `ready-for-agent` was removed from #288 — do not start this work; #344
+    (the demo) comes first (#343 closed 2026-09-30). The cost is accepted knowingly: **no backup leaves the VM at all
     meanwhile**, so a dead `mob04` disk loses the demo tenant. Never write "backups are
     ready" anywhere while this is parked.
     **First-run rule (owner, 2026-09-22):** dumps written while offsite was unconfigured
@@ -397,10 +397,10 @@ develops against a demo tenant.
     transaction opens (argon2 also moved out of the transaction). The Thai string for
     `WEAK_PASSWORD` in `02_API_SCREENS.md §8`/`§8.1` was **ratified by the owner on
     2026-09-21** — the `agent ร่าง` marker is gone.
-  - **#365** — `etcd-init.sh` on the VM was a root-owned *directory*, so etcd had no auth.
+  - **#365** (closed 2026-09-30, 4/4) — `etcd-init.sh` on the VM was a root-owned *directory*, so etcd had no auth.
     **Fixed 2026-09-30:** auth on since the first runner deploy, proven both ways, `.env`
     password matches the volume, `RuntimeConfigService` reads `log_level`, snapshot in
-    `/opt/pos/backups/`. AC 3/4; the command-log AC is PR #511 (merged), issue not yet ticked.
+    `/opt/pos/backups/`. Command log in the 2026-09-30 handoff (PR #511/#514).
     🔴 A password mismatch between `.env` and the `etcd-data` volume surfaces as "the
     service is not green", never as a message about a password; never `down -v`.
   - **#366** (closed, PR #371) — owner picked option 3 2026-09-21: auto-deploy stays,
