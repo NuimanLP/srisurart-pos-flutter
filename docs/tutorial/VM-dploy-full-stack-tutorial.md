@@ -822,7 +822,7 @@ ssh mob04-deploy 'grep -c "^CORS_ORIGINS=.*https://172\.30\.58\.20" /opt/pos/.en
 
 🔴 ห้ามเขียนว่า "ปิด CORS บน VM แล้ว" จนกว่า 4.1 และข้อนี้จะผ่านทั้งคู่
 
-> 2026-09-30: `Origin` แปลกหน้าเคยได้ HTTP 500 — แก้แล้ว PR #516 (`00d3488`, run `36717963989`) ตอนนี้ได้ 401 ไม่มี `Access-Control-Allow-Origin` · origin ตัวเอง `https://172.30.58.20` ได้ ACAO
+> 2026-09-30: `Origin` แปลกหน้าเคยได้ HTTP 500 — แก้แล้ว PR #516 (`00d3488`, run `36717963989`) ตอนนี้ได้สถานะปกติของ route (เช่น `/health/live` 200 — ไม่ใช่ 500) ไม่มี `Access-Control-Allow-Origin` · origin ตัวเอง `https://172.30.58.20` ได้ ACAO
 
 ---
 

@@ -5,13 +5,13 @@
 ## ที่ทำ (ตรวจแล้ว 2026-09-30 เย็น)
 - **Deploy ที่อนุมัติ (ตรวจ SHA กับ head ของ `main`):** `4f4d86c` run `36714408818` สำเร็จ (ตรวจ `.current_sha` บน VM, ready 200) ·
   run ซ้ำที่คิวไว้ `36714438828` ยกเลิก · `00d3488` (แก้ CORS #516) run `36717963989` สำเร็จ, Ansible `failed=0`, `.current_sha` = `00d3488` ตรวจบน VM ภายหลัง
-- **CORS:** `Origin` แปลกหน้าตอนนี้ได้ 401 ไม่มี `Access-Control-Allow-Origin` · origin ตัวเอง `https://172.30.58.20` ได้ ACAO
+- **CORS:** `Origin` แปลกหน้าไม่ได้ 500 แล้ว — request เสิร์ฟตามสถานะปกติของ route (เช่น `/health/live` 200 ตาม e2e ของ #516) แต่ไม่มี `Access-Control-Allow-Origin` · origin ตัวเอง `https://172.30.58.20` ได้ ACAO
 - **PR #518 merged** (docs: #516 deployed + แก้ข้อความ SLI — 500 ของ foreign-Origin ไม่เคยถูกนับใน `http_requests_total`) · commit ที่สอง `dc64f2c` ถูก push หลัง merge → cherry-pick มาใน PR นี้
-- **#67 ปิด 15/15** (comment https://github.com/NuimanLP/srisurart-pos-flutter/issues/67#issuecomment-5912257527):
-  - AC4 seed `log_level` — runs `36719282689`, `36720120003` · dispatch SHA เดิมจบก่อน etcd-init และ `deploy.yml` ไม่มี input `force` → ทดสอบ seed ซ้ำต้องเปลี่ยน SHA จริง
-  - AC2 concurrency — `36720120003` / `36720131701` · job ที่รอ approval ถือ slot `deploy-demo` อยู่แล้ว
-  - AC3/AC6 readiness ล้ม → run แดง + rollback อัตโนมัติ — `36720675552` · กลไกคือ `pos-deploy` รัน playbook ของ release ก่อนหน้าซ้ำ **ไม่ใช่** `rescue:` ของ Ansible · readiness พึ่ง `redis-cache` แต่ `/health/live` ไม่พึ่ง
-  - hook ปฏิเสธ branch อื่น — `36721404240` (แดง คาดไว้)
+- **#67 ปิด 15/15** (หลักฐาน 14 ข้อ: comment https://github.com/NuimanLP/srisurart-pos-flutter/issues/67#issuecomment-5912257527 · ปิดด้วย comment 5913430909 ข้างล่าง):
+  - AC seed `log_level` — runs `36719282689`, `36720120003` · dispatch SHA เดิม (และ `.env` ไม่เปลี่ยน) จบก่อน etcd-init และ `deploy.yml` ไม่มี input `force` → ทดสอบ seed ซ้ำต้องเปลี่ยน SHA จริง
+  - AC concurrency (สอง deploy ไม่รันพร้อมกัน) — `36720120003` / `36720131701` · job ที่รอ approval ถือ slot `deploy-demo` อยู่แล้ว
+  - AC readiness ล้ม → run แดง + AC ไทย "playbook fail → rollback อัตโนมัติ" — `36720675552` (หยุด `redis-cache` ระหว่าง deploy) · กลไกคือ `pos-deploy` รัน playbook ของ release ก่อนหน้าซ้ำ **ไม่ใช่** `rescue:` ของ Ansible · readiness พึ่ง `redis-cache` แต่ `/health/live` ไม่พึ่ง
+  - AC ไทย hook ปฏิเสธ branch อื่น — `36721404240` (แดง คาดไว้)
   - ครึ่ง fork: พิสูจน์จากโค้ด + settings เท่านั้น owner ยอมรับ **ไม่มี run fork จริง** (comment https://github.com/NuimanLP/srisurart-pos-flutter/issues/67#issuecomment-5913430909)
 - **ปิด:** #67, #346 (สคริปต์ backup รันใน env ของ cron ผ่าน, dump ตรวจแล้ว — comment 5913495869), #10 (comment 5913517855), #60 (comment 5913538892)
 - **ติ๊กบางส่วน:** #443 — 403-at-both-layers พิสูจน์บน `mob04` (comment 5913452241) · #335 AC7/8/10/11 (comment 5913468668) · #196 ติ๊กกล่อง #67 และแก้บรรทัด #184 ที่ล้าสมัย
@@ -32,6 +32,7 @@
 รอบ cron จริงรอบแรกของสคริปต์ที่ติดตั้ง: 03:00 ของ 2026-10-01 — ตรวจ `backup-cron.log` และไฟล์ใน `/opt/pos/backups` (ไม่มี `.partial` ค้าง)
 
 ## ยังเปิด / ต้องใช้ owner หรือฮาร์ดแวร์
+- **Deploy (demo) ของ `b089f36` (run `36733325970`) รอ approval อยู่** และถือ slot `deploy-demo` — VM ยังเป็น `00d3488` · approve แล้วก็**ไม่**ลง `backup-db.sh` ใหม่ (มีแต่ `provision.yml`) · ห้าม approve ระหว่างเดโม #344 · (run `36721768736` ของ `b4107b0` เขียวแต่ job `deploy` ถูก skip — ไม่มีอะไรถึง VM; `36721921531` ถูก cancel แทนด้วย run ของ `b089f36`)
 - **#344** เดโมคนจริง — checklist `demo-344-checklist-2026-09-30.md` · #338 ครึ่ง VM ต้องรหัสผ่าน admin คนจริง (ทำใน #344)
 - **#380** k6 3 เครื่อง · **#476** owner · **#443** owner ถ้อยคำ + AC "เฉพาะ `bootstrap:admin` สร้าง admin" ขัดกับการ sync `PLATFORM_ADMINS` ที่ owner รับรองแล้ว · **#231** owner · **#363/#288** พักไว้ · **#2/#196** parent
 

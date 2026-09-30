@@ -194,7 +194,7 @@ contradicts an ADR, the ADR wins.** Open questions only the owner can answer are
 collected at the end of `adr/README.md`. Phase-2 spec/lanes: see below.
 
 **Where work lives:** GitHub issues, not this file. `#2` is the phase-1 program brief;
-`#3/#7/#8/#9/#10` are parents (#10 and #60 closed 2026-09-30) (no `ready-for-agent` — don't implement directly);
+`#3/#7/#8/#9/#10` are parents (#10 closed 2026-09-30, as is its CI/CD spec #60) (no `ready-for-agent` — don't implement directly);
 `#11–#13` are owner-only decisions, never settled in a PR. Phase-1 lanes: `NuimanLP`
 (team/1), `LomerAlloys` (team/2), `PattaraponKitcharoen` (team/3) — every member
 touches frontend, backend *and* CI/CD (course rule, 2026-09-05).
@@ -230,15 +230,15 @@ develops against a demo tenant.
   network team exempting `ghcr.io`/`registry-1.docker.io`/`gcr.io` for `172.30.58.20`;
   `docker save`/`load` by hand is a demo-day rescue, **not** CD. Original evidence:
   `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`.
-- #67 — self-hosted deploy runner: 🔴 **installed 2026-09-30** (`mob04-demo`, service user
+- ~~#67~~ (**closed 2026-09-30, 15/15** — kept here for the rules below) — self-hosted deploy runner: 🔴 **installed 2026-09-30** (`mob04-demo`, service user
   `gha-runner`, via `setup-mob04-runner.sh`; `gh api …/actions/runners` = 1, online) and the
   **first real deploy ran**: `Deploy (demo)` for `e50f4fa`, approved by `NuimanLP`, Ansible
   `failed=0`, `.current_sha` = `e50f4fa`, `/health/ready` 200
   (`docs/handoff_log/session-2026-09-30-first-runner-deploy.md`). Afternoon: merge→CD proven
   on `494ace3` (run `36685602814`), `workflow_dispatch` rollback to `e50f4fa` proven (run
   `36687687309`, schema unchanged), same-SHA rerun = "Skipping duplicate deployment"
-  (`36688248109`). **#67 closed 15/15 2026-09-30 evening (comment 5912257527):** one-image-only → skip, no concurrent deploys (a job *waiting for approval* already holds the `deploy-demo` slot), `log_level` seeded when missing and a hand-set value survives, failing readiness → red run + auto-rollback by `pos-deploy` re-running the old release (run `36720675552`; not an Ansible `rescue:`), hook refuses a non-`main` branch (run `36721404240`). The fork half of the hook AC was proven from code + settings only, owner-accepted, **no real fork run** (comment 5913430909): the `demo` environment has a `main`-only branch policy and fork-PR
-  approval is `all_external_contributors` (owner-approved 2026-09-30). A same-SHA `workflow_dispatch` exits before etcd-init and `deploy.yml` has no force input, so re-testing `log_level` seeding needs a real SHA change. Still verify with
+  (`36688248109`). **#67 closed 15/15 2026-09-30 evening (evidence comment 5912257527, closing comment 5913430909):** one-image-only → skip, no concurrent deploys (a job *waiting for approval* already holds the `deploy-demo` slot), `log_level` seeded when missing and a hand-set value survives, failing readiness → red run + auto-rollback by `pos-deploy` re-running the old release (run `36720675552`; not an Ansible `rescue:`), hook refuses a non-`main` branch (run `36721404240`). The fork half of the hook AC was proven from code + settings only, owner-accepted, **no real fork run** (comment 5913430909): the `demo` environment has a `main`-only branch policy and fork-PR
+  approval is `all_external_contributors` (owner-approved 2026-09-30). A same-SHA `workflow_dispatch` (with `.env` unchanged) exits before etcd-init and `deploy.yml` has no force input, so re-testing `log_level` seeding needs a real SHA change. Still verify with
   `.current_sha` before claiming a deploy — a green run alone proves nothing (below).
 - **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
   Nothing in it is measured yet. It replaces **#184**, which was closed→reopened→closed

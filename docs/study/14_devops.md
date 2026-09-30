@@ -575,7 +575,7 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 
 **Backups ยังไม่ออกจาก VM เลย (`#363` parked)** — `backup-db.sh` มีกลไก upload ออกนอกเครื่องผ่าน `rclone` แล้ว (`BACKUP_RCLONE_REMOTE` ที่ยังไม่ตั้งค่า) แต่**ยังไม่มีการ upload จริงเกิดขึ้นแม้แต่ครั้งเดียว** เพราะยังไม่ได้เลือก protocol/ปลายทางที่แน่นอน (SFTP ถูกตัดทิ้งเพราะ BeeStation ของร้านรัน BSM ไม่ใช่ DSM จึงไม่มี SSH/SFTP ใช้งานได้จริง) และงานนี้ถูก**พักไว้ (parked)** จนกว่าจะ deploy demo สำเร็จก่อน — สคริปต์ถูกออกแบบให้ "เงียบแต่ซื่อสัตย์" เวลายังไม่ตั้งค่า (`::warning::` + exit 0) แต่ "ดังและ fail" ทันทีถ้าตั้งค่าแล้วแต่ upload พัง (`::error::` + exit ≠ 0) — เพื่อไม่ให้ log สีเขียวทุกคืนหลอกใครว่า "มี backup ออกนอกเครื่องแล้ว" ทั้งที่ยังไม่มี
 
-> 🟢 **แก้ 2026-09-30 เย็น:** #346 ปิดแล้ว (cron รันในสภาพแวดล้อมจริงได้ + dump ตรวจแล้ว) · รอบ cron 09-29 สคริปต์*มีอยู่แต่ fail* (ทิ้ง .gz ว่าง) ไม่ใช่ "ไม่มีสคริปต์" · PR #519 ทำให้เขียน `.partial` แล้ว `mv` · CD ไม่อัปเดต `/opt/pos/scripts` มีแต่ `provision.yml` · offsite ยังพัก (#363/#288)
+> 🟢 **แก้ 2026-09-30 เย็น:** #346 ปิดแล้ว (รันสคริปต์ด้วย env แบบเดียวกับ cron ผ่าน + dump ตรวจแล้ว — ยังไม่ใช่รอบ cron จริง รอบแรกคือ 03:00 ของ 2026-10-01) · รอบ cron 09-29 สคริปต์*มีอยู่แต่ fail* (ทิ้ง .gz ว่าง) ไม่ใช่ "ไม่มีสคริปต์" · PR #519 ทำให้เขียน `.partial` แล้ว `mv` (merge แล้ว แต่**ยังไม่ได้ลงบน `mob04`**) · CD ไม่อัปเดต `/opt/pos/scripts` มีแต่ `provision.yml` · offsite ยังพัก (#363/#288)
 
 **etcd auth ยังไม่เคยเปิดจริงบน `mob04` (`#365`)** — `etcd-init.sh` บน VM กลายเป็นไดเรกทอรีที่เป็นของ root แทนที่จะเป็นสคริปต์ ทำให้ auth ไม่เคยถูกเปิดใช้งานจริง — ทุก AC ของ ticket นี้ถูก block ด้วยการที่ยังไม่เคยรันบน VM จริงเลย
 
@@ -583,7 +583,7 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 
 **CORS ยังเป็น `'*'` บน `mob04` (`#367` note)** — โค้ดที่ทำให้ `CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` ส่งเข้า container ได้จริง merge แล้ว (ผ่าน `x-app-env` anchor ในหัวข้อ "ของจริงใน repo") แต่ตัว VM เองยังไม่เคยรัน `provision.yml` ใหม่พร้อมค่าเหล่านี้ — จึงยัง**เปิดกว้าง** (`'*'`) อยู่จนกว่าจะ deploy demo รอบถัดไปพร้อมตั้งค่าให้ครบ (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
 
-> 🟢 **แก้ 2026-09-30 เย็น:** ไม่ใช่ `'*'` แล้ว (`CORS_ORIGINS=https://172.30.58.20`) และ `Origin` แปลกหน้าที่เคยได้ HTTP 500 แก้แล้ว PR #516 → deploy `00d3488` (run `36717963989`) ตอนนี้ 401 ไม่มี ACAO · 500 ตัวเก่าไม่เคยถูกนับใน `http_requests_total`
+> 🟢 **แก้ 2026-09-30 เย็น:** ไม่ใช่ `'*'` แล้ว (`CORS_ORIGINS=https://172.30.58.20`) และ `Origin` แปลกหน้าที่เคยได้ HTTP 500 แก้แล้ว PR #516 → deploy `00d3488` (run `36717963989`) ตอนนี้ได้สถานะปกติของ route (เช่น `/health/live` 200 — ไม่ใช่ 500) ไม่มี ACAO · 500 ตัวเก่าไม่เคยถูกนับใน `http_requests_total`
 
 **BeeStation cloud placeholder ทำ `docker build` พังบนเครื่องซิงก์** — เมื่อเก็บ repo ไว้ที่โฟลเดอร์ที่ sync กับ BeeStation หลัง `git pull` ไฟล์ส่วนใหญ่ใต้ `server/src/` อาจกลายเป็น**ไฟล์หลอก (dehydrated placeholder)** ที่มี attribute `Archive, ReparsePoint` ทำให้ BuildKit ปฏิเสธ context ด้วย error `load build context: invalid file request …` (`docker builder prune` ไม่ช่วย) — ทางแก้คือ build จาก git object สดๆ แทนไฟล์บนดิสก์: `git archive HEAD server | tar -x -C <ascii-tmp>/ctx` แล้วค่อย `docker build` บน context ที่ได้จากคำสั่งนั้น
 

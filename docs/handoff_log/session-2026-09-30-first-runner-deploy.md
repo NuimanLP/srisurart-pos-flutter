@@ -345,6 +345,7 @@ $D docker exec srisurart-pos-prometheus-1 cat /etc/prometheus/prometheus.yml 2>/
 #365 3/4 (เหลือ log คำสั่ง — ครอบคลุมโดย PR #511 ที่ merge แล้ว) ·
 #67 9/15 — ยังเปิด: one-image-only แล้ว deploy (ประวัติของ `494ace3` อาจพิสูจน์ได้ ยังไม่ตรวจ), ไม่มี deploy พร้อมกัน, readiness ล้ม → แดง,
 auto-rollback เมื่อล้ม, hook ปฏิเสธ branch อื่น/fork, seed `log_level` · owner อนุมัติให้รันการทดสอบล้มเหลวโดยตั้งใจเหล่านี้**หลัง demo #344**
+⚠️ แก้ 2026-09-30 เย็น: owner อนุญาตให้รันก่อน #344 และรันแล้ว — #67 ปิด 15/15 (ครึ่ง fork พิสูจน์จากโค้ด + settings เท่านั้น) ดู `session-2026-09-30-evening-clear-backlog.md`
 
 **#344:** เขียน checklist แล้ว `docs/handoff_log/demo-344-checklist-2026-09-30.md` — **ยังไม่รัน** · ตัวขวาง: AC2 (รหัสชั่วคราว + บังคับเปลี่ยนใน 10 นาที,
 ข้อความไทยยังไม่รับรอง `change_password_form.dart:13`), AC3 (tenant ใหม่ไม่มีสินค้า), AC4 (แอปส่ง idempotency key ซ้ำไม่ได้ → DevTools/curl ภายใน token 15 นาที),
