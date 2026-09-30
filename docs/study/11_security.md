@@ -879,6 +879,8 @@ function csvAllowlist(env: NodeJS.ProcessEnv, name: string): string[] | undefine
 ```
 
 🔴 **สถานะจริง:** CLAUDE.md บันทึกว่า **`mob04` ยังเป็น `'*'`** จนกว่า `DEMO_ENV_FILE` จะมี key นี้และรัน `provision.yml` ใหม่ — ห้ามใครอ้างว่า CORS ปิดแล้วบน VM (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
+
+> 🟢 **แก้ 2026-09-30 เย็น:** `Origin` แปลกหน้าไม่ได้ 500 แล้ว — PR #516 (`callback(null,false)`) deploy `00d3488` → 401 ไม่มี ACAO · 500 เดิมไม่เคยถูกนับใน `http_requests_total`
 (ผลกระทบจำกัดลงเพราะ token ส่งผ่าน header `Authorization: Bearer` ไม่ใช่ cookie ที่ browser แนบให้อัตโนมัติ — แต่ก็ยังเป็น misconfiguration ที่ต้องปิด)
 
 ### 13. Secrets ผ่าน `.env` + `:?` — และกฎ "ห้าม `--diff`"
@@ -1119,7 +1121,7 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 | # | ช่อง | ผลกระทบ | แหล่งอ้างอิง |
 |---|---|---|---|
 | G1 | **TLS cert บน demo เป็น self-signed** | ผู้ใช้ตรวจตัวตน server ไม่ได้ → MITM ได้ในทางทฤษฎี, browser เตือน | `docker-compose.yml:90-101`; ไม่พบ cert จริงใน `vm.override.yml` |
-| ~~G2~~ | ~~**`mob04` CORS ยังเป็น `'*'`**~~ — **แก้ 2026-09-30:** ไม่ใช่ `'*'` แล้ว (origin แปลกหน้าได้ 500 แทน) | เว็บอื่นเรียก API ได้จาก browser | CLAUDE.md (#367) |
+| ~~G2~~ | ~~**`mob04` CORS ยังเป็น `'*'`**~~ — **แก้ 2026-09-30:** ไม่ใช่ `'*'` แล้ว (origin แปลกหน้าเคยได้ 500 — แก้ PR #516 เย็นวันเดียวกัน ตอนนี้ 401 ไม่มี ACAO) | เว็บอื่นเรียก API ได้จาก browser | CLAUDE.md (#367) |
 | G3 | **etcd auth ไม่เคยเปิดบน VM (#365)** | `etcd-init.sh` บน VM กลายเป็น directory ของ root → RBAC ไม่ถูกเปิด; ทุก AC ต้องทำบน VM | CLAUDE.md "Still open" — **แก้ 2026-09-30:** เปิดแล้วและพิสูจน์ทั้งสองทาง บน `mob04` (#365 AC 3/4) |
 | ~~G4~~ | ~~RLS ของ `owner_review_items` ไม่มี `NULLIF` + FK `ON DELETE SET NULL` ผิด~~ — **แก้แล้ว** | เดิม: tenant ไม่ได้ตั้ง → 500 แทน 0 แถว; ลบ user ที่เคย review → error | `1788652804200-OwnerReviewItemsFixes.ts` (#420) |
 | G5 | **ไม่มี backup ออกจาก VM (#363 parked)** | ดิสก์พัง = ข้อมูลร้าน demo หาย (A ใน CIA) | CLAUDE.md, [devops](14_devops.md) |

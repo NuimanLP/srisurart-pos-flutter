@@ -659,8 +659,8 @@ ssh mob04-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT
 
 **8. backup ฐานข้อมูลก่อน deploy** — migration ย้อนไม่ได้ · `backup-db.sh` เรียก `docker compose` พร้อม `vm.override.yml` ซึ่งบังคับ `IMAGE_TAG`
 🔴 **แก้แล้วใน `main` (#501):** `backup-db.sh`/`restore-db.sh` resolve `IMAGE_TAG` จาก `/opt/pos/.current_sha` เองถ้า `IMAGE_TAG` ว่าง —
-**แต่ owner ต้องรัน `provision.yml` ใหม่ก่อน** (แบบ key-only §2.4 ก็พอ · บน `mob04` ทำแล้ว 2026-09-30 — `/opt/pos/scripts` + cron 03:00 ติดตั้งแล้ว; ก่อนหน้านั้น cron เรียกสคริปต์ที่ไม่มี) VM จึงจะได้สคริปต์เวอร์ชันนี้ (`provision.yml` copy สคริปต์ลง
-`/opt/pos/scripts` เฉพาะตอน provision ไม่ auto-sync กับ release) หลังจากนั้นเรียกเฉย ๆ ได้:
+**แต่ owner ต้องรัน `provision.yml` ใหม่ก่อน** (แบบ key-only §2.4 ก็พอ · บน `mob04` ทำแล้ว 2026-09-30 — `/opt/pos/scripts` + cron 03:00 ติดตั้งแล้ว; ก่อนหน้านั้น cron เรียกสคริปต์ที่ไม่มี — แก้ 2026-09-30 เย็น: เฉพาะรอบ 09-30 ที่ "not found"; รอบ 09-29 สคริปต์มีอยู่แต่ fail และทิ้ง .gz ว่าง 20 ไบต์) VM จึงจะได้สคริปต์เวอร์ชันนี้ (`provision.yml` copy สคริปต์ลง
+`/opt/pos/scripts` เฉพาะตอน provision ไม่ auto-sync กับ release — CD ไม่อัปเดตสคริปต์บน VM · PR #519 `b089f36` (เขียน `.partial` แล้ว `mv`) ก็ต้องลงเองแบบนี้: `sudo install -o deploy -g deploy -m 0755` จาก `origin/main` แล้วเทียบ sha256) หลังจากนั้นเรียกเฉย ๆ ได้:
 
 ```bash
 ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'
@@ -822,6 +822,8 @@ ssh mob04-deploy 'grep -c "^CORS_ORIGINS=.*https://172\.30\.58\.20" /opt/pos/.en
 
 🔴 ห้ามเขียนว่า "ปิด CORS บน VM แล้ว" จนกว่า 4.1 และข้อนี้จะผ่านทั้งคู่
 
+> 2026-09-30: `Origin` แปลกหน้าเคยได้ HTTP 500 — แก้แล้ว PR #516 (`00d3488`, run `36717963989`) ตอนนี้ได้ 401 ไม่มี `Access-Control-Allow-Origin` · origin ตัวเอง `https://172.30.58.20` ได้ ACAO
+
 ---
 
 ## 5. หลักฐานที่แปะใน ticket (#343 / #344)
@@ -916,7 +918,7 @@ test -s "$DEPLOY_KEY" && DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SS
 ```
 
 `force_redeploy=true` ใส่เสมอตอน rollback (จำเป็นเมื่อ `.current_sha` ยังชี้ SHA นั้นหลัง deploy ล้ม) · ตรวจด้วย §4 · rollback อัตโนมัติมีแค่ใน
-`pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 · rollback แบบ dispatch พิสูจน์แล้ว แต่ **rollback อัตโนมัติเมื่อ deploy ล้ม ยังไม่เคยพิสูจน์ด้วย run จริง**)
+`pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 · rollback แบบ dispatch พิสูจน์แล้ว **rollback อัตโนมัติเมื่อ readiness ล้ม พิสูจน์แล้ว 2026-09-30** — run `36720675552` แดง + `pos-deploy` รัน playbook ของ release ก่อนหน้าซ้ำ, ไม่ใช่ `rescue:` ของ Ansible)
 
 ### 6.3 CD อัตโนมัติ
 

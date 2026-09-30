@@ -207,9 +207,9 @@
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
       <li><strong>ยังไม่ cutover</strong> — ร้านใช้ Drift build แบบออฟไลน์ ไม่มีการเข้าสู่ระบบ ไม่มีการผูกเครื่อง</li>
-      <li><strong>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรกเมื่อ 2026-09-30</strong> (runner <code>mob04-demo</code>, release <code>e50f4fa</code>; firewall เลิกตัด <code>ghcr.io</code> ตั้งแต่ 2026-09-29) แต่การย้อนเวอร์ชันยังไม่เคยพิสูจน์ — การ Deploy (demo) ที่ขึ้นเขียวใน GitHub <strong>ไม่ได้แปลว่าขึ้นเครื่องแล้ว</strong></li>
+      <li><strong>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรกเมื่อ 2026-09-30</strong> (runner <code>mob04-demo</code>, release <code>e50f4fa</code>; firewall เลิกตัด <code>ghcr.io</code> ตั้งแต่ 2026-09-29) การย้อนเวอร์ชันอัตโนมัติพิสูจน์แล้วเย็นวันเดียวกัน (run 36720675552) · อย่างไรก็ตาม การ Deploy (demo) ที่ขึ้นเขียวใน GitHub <strong>ไม่ได้แปลว่าขึ้นเครื่องแล้ว</strong></li>
       <li><strong>ยังไม่มี backup ออกนอก VM</strong> — งาน offsite ถูกพักไว้จนหลังเดโม ถ้าดิสก์ <code>mob04</code> เสีย ข้อมูลร้าน demo หายหมด</li>
-      <li><strong>etcd บน <code>mob04</code> ยังไม่เปิดระบบรหัสผ่าน</strong> (#365) · <code>CORS_ORIGINS</code> บน VM ตั้งเป็น origin ของตัวเองแล้ว (ตรวจ 2026-09-30) แต่ origin แปลกหน้าได้ HTTP 500 แทนการปฏิเสธเรียบร้อย</li>
+      <li><strong>etcd บน <code>mob04</code> ยังไม่เปิดระบบรหัสผ่าน</strong> (#365) · <code>CORS_ORIGINS</code> บน VM ตั้งเป็น origin ของตัวเองแล้ว (ตรวจ 2026-09-30) origin แปลกหน้าเคยได้ HTTP 500 (แก้แล้ว PR #516 — ตอนนี้ 401 ไม่มี ACAO)</li>
       <li><strong>ยังไม่ได้วัดโหลด</strong> (#380) — แผง k6 ใน Grafana จึงว่าง</li>
       <li><strong>platform-ui</strong> (#443) ขึ้น <code>mob04</code> แล้ว 2026-09-30 มี platform admin 3 คนแล้ว (ยังไม่มีคนทดสอบ login จริง) · การทดสอบ 403 สองชั้นวัดบน Docker Desktop เท่านั้น ยังไม่ได้วัดบน Linux/<code>mob04</code></li>
       <li>ฮาร์ดแวร์หน้าร้าน (เครื่องพิมพ์ความร้อนสั่งตรง ลิ้นชักเด้ง สแกนบาร์โค้ดด้วยกล้อง) ยังไม่ทำ — การพิมพ์ใช้หน้าต่างพิมพ์ของระบบปฏิบัติการ</li>

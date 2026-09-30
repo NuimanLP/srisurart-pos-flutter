@@ -194,7 +194,7 @@ contradicts an ADR, the ADR wins.** Open questions only the owner can answer are
 collected at the end of `adr/README.md`. Phase-2 spec/lanes: see below.
 
 **Where work lives:** GitHub issues, not this file. `#2` is the phase-1 program brief;
-`#3/#7/#8/#9/#10` are parents (no `ready-for-agent` — don't implement directly);
+`#3/#7/#8/#9/#10` are parents (#10 and #60 closed 2026-09-30) (no `ready-for-agent` — don't implement directly);
 `#11–#13` are owner-only decisions, never settled in a PR. Phase-1 lanes: `NuimanLP`
 (team/1), `LomerAlloys` (team/2), `PattaraponKitcharoen` (team/3) — every member
 touches frontend, backend *and* CI/CD (course rule, 2026-09-05).
@@ -237,8 +237,8 @@ develops against a demo tenant.
   (`docs/handoff_log/session-2026-09-30-first-runner-deploy.md`). Afternoon: merge→CD proven
   on `494ace3` (run `36685602814`), `workflow_dispatch` rollback to `e50f4fa` proven (run
   `36687687309`, schema unchanged), same-SHA rerun = "Skipping duplicate deployment"
-  (`36688248109`). **AC 14/15 (2026-09-30 evening, issue comment 5912257527):** one-image-only → skip, no concurrent deploys (a job *waiting for approval* already holds the `deploy-demo` slot), `log_level` seeded when missing and a hand-set value survives, failing readiness → red run + auto-rollback by `pos-deploy` re-running the old release (run `36720675552`; not an Ansible `rescue:`), hook refuses a non-`main` branch (run `36721404240`). **Still open: the fork case** of the hook AC — not exercised. The `demo` environment has a `main`-only branch policy and fork-PR
-  approval is `all_external_contributors` (owner-approved 2026-09-30). Still verify with
+  (`36688248109`). **#67 closed 15/15 2026-09-30 evening (comment 5912257527):** one-image-only → skip, no concurrent deploys (a job *waiting for approval* already holds the `deploy-demo` slot), `log_level` seeded when missing and a hand-set value survives, failing readiness → red run + auto-rollback by `pos-deploy` re-running the old release (run `36720675552`; not an Ansible `rescue:`), hook refuses a non-`main` branch (run `36721404240`). The fork half of the hook AC was proven from code + settings only, owner-accepted, **no real fork run** (comment 5913430909): the `demo` environment has a `main`-only branch policy and fork-PR
+  approval is `all_external_contributors` (owner-approved 2026-09-30). A same-SHA `workflow_dispatch` exits before etcd-init and `deploy.yml` has no force input, so re-testing `log_level` seeding needs a real SHA change. Still verify with
   `.current_sha` before claiming a deploy — a green run alone proves nothing (below).
 - **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
   Nothing in it is measured yet. It replaces **#184**, which was closed→reopened→closed
@@ -264,8 +264,16 @@ develops against a demo tenant.
   (temp-password + forced change within 10 min, new tenant has no products, the app cannot
   resend an idempotency key, three #335 ACs not provable on the VM, #476). 2026-09-30
   `provision.yml` re-run added only `PLATFORM_ADMINS` (3 admins synced, no human has logged
-  in to platform-ui) and installed the missing `backup-db.sh` — the 03:00 cron had been
-  calling a script that did not exist, so no local backup ran before. A foreign `Origin`
+  in to platform-ui) and installed the missing `backup-db.sh`. 🔴 Correction: on 2026-09-29
+  03:00 the script existed and **failed** ("Neither active docker compose postgres container…",
+  leaving a 20-byte empty `.gz`); only the 2026-09-30 03:00 run was "not found". #346 closed
+  2026-09-30 (script run in cron env OK, dump verified, comment 5913495869); first real 03:00
+  cron run is 2026-10-01 — check `backup-cron.log`. PR #519 (`b089f36`): `backup-db.sh` writes
+  `$BACKUP_FILE.partial` and `mv`s on success, an EXIT trap removes it, prune drops stale
+  `.partial` by age; test `deploy/scripts/test/backup-db.test.sh` runs in `server.yml`
+  `nginx-check`. 🔴 **Only `provision.yml` installs `/opt/pos/scripts` — a CD deploy does NOT
+  update `backup-db.sh` on the VM.** #519's script is **not yet installed on `mob04`** (VPN
+  dropped): `sudo install -o deploy -g deploy -m 0755` it from `origin/main`, verify sha256. A foreign `Origin`
   used to get **HTTP 500** (`app.setup.ts` threw; not counted in `http_requests_total`) —
   fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to
   `mob04` as `00d3488` 2026-09-30 (run `36717963989`, Ansible `failed=0`).
@@ -428,8 +436,8 @@ develops against a demo tenant.
   (#445), enrolCode reissue + tenant detail (#446), owner temp password + forced change
   (#447, migration `1788652804500`; `POST /platform/tenants` now **rejects**
   `ownerPassword`), web dashboard `platform-ui` on `127.0.0.1:3200` (#448), phone-width fix
-  + tutorial (#450). Open: the 403-at-both-layers proof on Linux/`mob04` (measured on
-  Docker Desktop only) and owner answers listed in
+  + tutorial (#450). 403-at-both-layers proven on `mob04` 2026-09-30 (comment 5913452241). Open: the AC
+  "only `bootstrap:admin` creates admins" contradicts the owner-ratified `PLATFORM_ADMINS` sync, and owner answers listed in
   `docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md` §6. Container runs on `mob04`
   since the 2026-09-30 deploy; 3 platform admins synced from `PLATFORM_ADMINS` the same day
   (UI login not yet tested by a human).

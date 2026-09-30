@@ -33,7 +33,7 @@
 - `CORS_ORIGINS=https://172.30.58.20` **มีอยู่ใน `.env` ของ VM ก่อนแล้ว** → CORS บน `mob04` ปิดแล้ว (ไม่ใช่ `'*'`) ตั้งแต่ deploy แรกของ runner ·
   ตรวจ: origin ตัวเองได้ `Access-Control-Allow-Origin: https://172.30.58.20`, origin อื่นไม่ได้ ACAO (แต่ได้ 500 — ดู "ยังเปิด")
 - provision สร้าง `/opt/pos/scripts` + ลง `backup-db.sh`/`restore-db.sh`/`measure-container-rss.sh` — **ก่อนหน้านี้ cron 03:00 เรียกสคริปต์ที่ไม่มีอยู่**
-  (backup ในเครื่องไม่เคยรัน) · offsite ยังพักไว้ (#363)
+  (backup ในเครื่องไม่เคยรัน) — ⚠️ แก้ 2026-09-30 เย็น: ไม่ถูกทั้งหมด — 03:00 ของ 09-29 สคริปต์*มีอยู่* แต่ **fail** ("Neither active docker compose postgres container…" ทิ้ง .gz ว่าง 20 ไบต์); เฉพาะ 03:00 ของ 09-30 ที่ "not found" (ดู session-2026-09-30-evening-clear-backlog.md) · offsite ยังพักไว้ (#363)
 - Deploy (demo) แบบ dispatch run `36669582543` (`e50f4fa`) อนุมัติแล้ว สำเร็จ · `.env_applied_sha256` = hash ของ `.env` ใหม่ · api×3 สร้างใหม่ healthy ·
   `/health/ready` 200 · log api-1 `PLATFORM_ADMINS synced` สร้าง 3 · `platform_admins`: `lomer`, `nuiman`, `pattarapon` active (ไม่บันทึกรหัส)
 
