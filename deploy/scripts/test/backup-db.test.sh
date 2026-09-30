@@ -31,7 +31,8 @@ check() { # description, command...
 
 rc=0
 run_backup() { # dir, fail-flag ; sets rc
-  PATH="$STUBS:$PATH" IMAGE_TAG=test BACKUP_RCLONE_REMOTE='' STUB_PG_DUMP_FAIL="$2" \
+  env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG \
+    PATH="$STUBS:$PATH" IMAGE_TAG=test BACKUP_RCLONE_REMOTE='' STUB_PG_DUMP_FAIL="$2" \
     bash "$SCRIPT" "$1" >"$1.log" 2>&1
   rc=$?
 }
@@ -58,5 +59,30 @@ has_dump_and_ceiling() { gzip -dc "$1" | grep -q 'CREATE TABLE t' && gzip -dc "$
 check "good dump contains the dump and the role ceiling block" has_dump_and_ceiling "$f"
 check "good dump has a sha256 sidecar for the final file" test "$(count "$D" 'pos_backup_*.sql.gz.sha256')" = 1
 check "good dump leaves no .partial" test "$(count "$D" '*.partial')" = 0
+
+# 3. prune: a stale .partial (SIGKILL leftover) is removed by age, a fresh one is kept.
+D="$WORK/prune"
+mkdir -p "$D"
+touch -t 202001010000 "$D/pos_backup_old.sql.gz.partial"
+touch "$D/pos_backup_new.sql.gz.partial"
+run_backup "$D" 0
+check "prune run exits 0" test "$rc" -eq 0
+check "stale .partial is pruned" test ! -e "$D/pos_backup_old.sql.gz.partial"
+check "fresh .partial is kept" test -e "$D/pos_backup_new.sql.gz.partial"
+
+# 4. the real mob04 path: compose lists a postgres service, `exec` fails -> same guarantees.
+cat > "$STUBS/docker" <<'STUB'
+#!/bin/sh
+case "$*" in
+  *"ps --services"*) echo postgres; exit 0 ;;
+  *exec*) echo "Error: service postgres is not running" >&2; exit 1 ;;
+esac
+exit 0
+STUB
+D="$WORK/compose"
+mkdir -p "$D"
+run_backup "$D" 0
+check "failed compose exec exits non-zero" test "$rc" -ne 0
+check "failed compose exec leaves no .sql.gz/.partial" test "$(count "$D" 'pos_backup_*')" = 0
 
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
