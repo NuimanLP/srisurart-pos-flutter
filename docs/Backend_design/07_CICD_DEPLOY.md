@@ -49,7 +49,7 @@ Ansible ด้วยมือ") จนกระทั่งตีความใ
   `gh api …/actions/runners` = 1 online · **deploy จริงครั้งแรก:** run `36591519465` (`e50f4fa`) `NuimanLP` อนุมัติ, job ทั้งสองเขียว
   (deploy 2m3s, hook อนุญาต), Ansible `ok=48 changed=27 failed=0 ignored=2` (ignored 1 = ไม่มี `.current_sha` ครั้งแรก — คาดไว้),
   pull จาก GHCR ผ่าน · หลักฐานบน VM: `/opt/pos/.current_sha` = `e50f4fa983cada763e1e6ba4d7c84509682f58e0`, `/health/ready` = 200
-  (postgres, redisCache, redisQueue up) · **ยังไม่พิสูจน์:** auto-rollback และ rollback ด้วย `workflow_dispatch` (AC ของ #67 ส่วนนั้น) ·
+  (postgres, redisCache, redisQueue up) · **rollback ด้วย `workflow_dispatch` พิสูจน์แล้ว** (run `36687687309`, ภาคบ่ายในไฟล์เดียวกัน) · **ยังไม่พิสูจน์:** auto-rollback เมื่อ deploy ล้ม (AC ของ #67 ส่วนนั้น) ·
   [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 * **Environment `demo`:** `required_reviewers` [`NuimanLP`] ✅ (ตรงกับ #366) · **2026-09-30:** `deployment_branch_policy` =
   `{protected_branches:false, custom_branch_policies:true}` + branch policy `main` (เจ้าของอนุมัติ) — ข้อ 2 ของ §6.2 มีผลแล้ว
@@ -316,7 +316,7 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
 2 release
 
 **Rollback** = รัน `deploy.yml` ด้วย `image_tag` ของ release ก่อนหน้า (`workflow_dispatch` ของ
-`deploy.yml` รับ SHA — ต้องมี runner #67 — ติดตั้งแล้ว 2026-09-30 แต่เส้นทาง rollback นี้ยังไม่เคยพิสูจน์ด้วย run จริง; playbook ด้วยมือเป็นทางสำรอง ดู §7 แถว rollback) · schema ไม่ถอย
+`deploy.yml` รับ SHA — ต้องมี runner #67 — ติดตั้งแล้ว 2026-09-30 และเส้นทาง rollback ด้วย dispatch พิสูจน์แล้ว 2026-09-30 (run `36687687309`; auto-rollback ยังไม่พิสูจน์); playbook ด้วยมือเป็นทางสำรอง ดู §7 แถว rollback) · schema ไม่ถอย
 
 **ข้อจำกัดที่รู้แล้วยอมรับบน `demo`:** rolling restart ไม่มี drain — Nginx เตะ instance หลัง
 `max_fails=2` ใน 10 วินาที และ**ไม่ retry POST** จึงมี 502 กับ `POST /sales` ที่ค้างอยู่บน instance

@@ -577,6 +577,8 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 
 **etcd auth ยังไม่เคยเปิดจริงบน `mob04` (`#365`)** — `etcd-init.sh` บน VM กลายเป็นไดเรกทอรีที่เป็นของ root แทนที่จะเป็นสคริปต์ ทำให้ auth ไม่เคยถูกเปิดใช้งานจริง — ทุก AC ของ ticket นี้ถูก block ด้วยการที่ยังไม่เคยรันบน VM จริงเลย
 
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — etcd auth เปิดอยู่บน `mob04` แล้วตั้งแต่ deploy แรกของ runner และพิสูจน์ทั้งสองทาง (ใช้รหัสได้ / ไม่ใช้ถูกปฏิเสธ), รหัสใน `.env` ตรง volume, snapshot ไว้ที่ `/opt/pos/backups/` (#365 AC 3/4 — ดู `docs/handoff_log/session-2026-09-30-first-runner-deploy.md`)
+
 **CORS ยังเป็น `'*'` บน `mob04` (`#367` note)** — โค้ดที่ทำให้ `CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` ส่งเข้า container ได้จริง merge แล้ว (ผ่าน `x-app-env` anchor ในหัวข้อ "ของจริงใน repo") แต่ตัว VM เองยังไม่เคยรัน `provision.yml` ใหม่พร้อมค่าเหล่านี้ — จึงยัง**เปิดกว้าง** (`'*'`) อยู่จนกว่าจะ deploy demo รอบถัดไปพร้อมตั้งค่าให้ครบ (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
 
 **BeeStation cloud placeholder ทำ `docker build` พังบนเครื่องซิงก์** — เมื่อเก็บ repo ไว้ที่โฟลเดอร์ที่ sync กับ BeeStation หลัง `git pull` ไฟล์ส่วนใหญ่ใต้ `server/src/` อาจกลายเป็น**ไฟล์หลอก (dehydrated placeholder)** ที่มี attribute `Archive, ReparsePoint` ทำให้ BuildKit ปฏิเสธ context ด้วย error `load build context: invalid file request …` (`docker builder prune` ไม่ช่วย) — ทางแก้คือ build จาก git object สดๆ แทนไฟล์บนดิสก์: `git archive HEAD server | tar -x -C <ascii-tmp>/ctx` แล้วค่อย `docker build` บน context ที่ได้จากคำสั่งนั้น
