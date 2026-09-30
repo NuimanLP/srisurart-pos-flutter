@@ -129,6 +129,13 @@ exec_pg_dump() {
   fi
 }
 
+# Dump into "$BACKUP_FILE.partial" and rename only once the whole pipeline succeeded. Redirecting
+# straight into $BACKUP_FILE created a ~20-byte empty gzip whenever pg_dump failed (seen on mob04,
+# 2026-09-29): it passes `gzip -t`, has no .uploaded marker, and prune would keep it forever once
+# offsite is on. `.partial` matches no upload glob; prune removes stale ones by age (SIGKILL case).
+PARTIAL_FILE="${BACKUP_FILE}.partial"
+trap 'rm -f "$PARTIAL_FILE"' EXIT
+
 echo "Dumping database and appending role ceiling configuration (#213)..."
 (
   # 1. Full schema, tables, sequences, data, and constraints
@@ -148,7 +155,8 @@ BEGIN
   END IF;
 END $$;
 EOF
-) | gzip -9 > "$BACKUP_FILE"
+) | gzip -9 > "$PARTIAL_FILE"   # pipefail + set -e: a failed dump aborts here, the trap removes the partial
+mv "$PARTIAL_FILE" "$BACKUP_FILE"
 
 # Set strict permissions
 chmod 0600 "$BACKUP_FILE"
@@ -254,6 +262,9 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
     echo "Pruning backups older than $BACKUP_KEEP_DAYS days in $BACKUP_DIR..."
     find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" -o -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
   fi
+  # A `.partial` is only ever left by a SIGKILL'd run (the EXIT trap covers every other exit). It is
+  # never a backup, has no offsite copy to confirm, so prune it by age in both modes.
+  find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
 fi
 
 case "$OFFSITE_STATE" in
