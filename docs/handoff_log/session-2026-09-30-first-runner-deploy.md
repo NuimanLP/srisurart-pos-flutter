@@ -311,3 +311,48 @@ $D docker exec srisurart-pos-prometheus-1 cat /etc/prometheus/prometheus.yml 2>/
 - The Grafana checks (5) ran after the etcd work (1–4); this is the true order.
 - The Grafana dashboard file (`/tmp/dash.json`) was written and deleted on the VM host.
 - Locally I also ran `git`/`gh` read commands and the two `gh issue comment` posts. None of those touched the VM.
+
+## ต่อมา (บ่าย) 2026-09-30 — CI แดงบล็อก deploy, พิสูจน์ merge→CD และ rollback
+
+ตรวจโดย orchestrator · ไม่มีค่า secret · #343 / #365 / #67 **ไม่ได้ถูกติ๊กในไฟล์นี้** — สถานะ AC ด้านล่างคือสถานะตอนเขียน
+
+**Merge ตามลำดับ:** PR #510 (docs resync) `04c6ea3` → PR #511 (คำสั่งจริง sanitized ในไฟล์นี้) `68c23e3` → PR #512 `494ace3` → PR #513 (แก้ tutorial VM, `c8cce8d`) merge เป็น `5098001`
+
+**สาเหตุที่ deploy ถูกข้ามทุกครั้ง:** Server CI บน `main` แดงที่ `pnpm audit --audit-level=high` — `brace-expansion`
+(GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p) ผ่าน `@nestjs/cli > minimatch` (dev-only) → ไม่มี image ขึ้น GHCR → ทุก Deploy run ข้าม
+ทั้งที่รายงานสำเร็จ · PR #512 แก้ด้วย pnpm override `brace-expansion@>=4.0.0 <5.0.11 → ^5.0.11` และยก override ของ `multer` เป็น `>=2.4.0`
+(GHSA-3pph-fpjx-jg34) · เหลือ moderate 1 ตัว: `fast-uri` (dev-only ผ่าน `@nestjs/cli`)
+บทเรียน: Deploy run สีเขียว ~8 วินาทีหลัง merge อาจแปลว่า "image ยังไม่พร้อม (CI แดง)" ไม่ใช่แค่ "docs-only"
+
+**merge → CD พิสูจน์ด้วยโค้ดใหม่:** Deploy run `36685602814` (`494ace3`, อนุมัติแล้ว) สำเร็จ, api×3/worker รัน `494ace3` · run ของ `68c23e3`
+ปฏิเสธถูกต้องว่า "main has moved on to `494ace3`"
+
+**Rollback / roll-forward (schema ไม่เปลี่ยนตลอด 5 deploy — ตาราง `migrations` 20 แถว, max `1788652804600`):**
+- Manual Ansible ด้วยผู้ใช้ `deploy` ย้อนไป `e50f4fa` — `failed=0` (AC ของ #343):
+  `ansible-playbook deploy.yml -e image_tag=<sha> -e force_redeploy=true </dev/null`
+- ระหว่าง roll-forward มือ **VPN หลุด** → VM ค้างครึ่งทาง: api `494ace3`, worker/bull-board/web `e50f4fa` · กู้ด้วย dispatch run `36686729879`
+- Dispatch rollback ไป `e50f4fa` run `36687687309` (AC ของ #67)
+- รันซ้ำ SHA เดิม run `36688248109`: "Skipping duplicate deployment", `changed=0`, container ID เดิมทุกตัว (AC ของ #67)
+- สุดท้าย: `mob04` บน `494ace3`, `/health/ready` 200, ทุก container healthy
+
+**#365:** etcd auth เปิดอยู่ตั้งแต่ deploy แรกของ runner · พิสูจน์ทั้งสองทาง (ใช้รหัสได้ / ไม่ใช้ถูกปฏิเสธ) · รหัสใน `.env` ตรงกับ volume ·
+`RuntimeConfigService` อ่านการเปลี่ยน `log_level` ได้ · snapshot `/opt/pos/backups/etcd-20260930T071608Z.db` · AC1–3 ติ๊กแล้ว
+
+**#343:** ตรวจ Grafana เองแล้ว (AC ติ๊ก) · Prometheus target `api-readiness` ขึ้น down เพราะ `/health/ready` ตอบ JSON ไม่ใช่ metrics
+(ช่องว่างที่บันทึกไว้แล้ว `docs/study/17_lab.md:730`)
+
+**สถานะ AC ตอนเขียน:** #343 4/5 (เหลือ log คำสั่งจริง — ส่วนคำสั่ง rollback/roll-forward ของบ่ายนี้อยู่ในหัวข้อนี้ด้านบนแล้ว) ·
+#365 3/4 (เหลือ log คำสั่ง — ครอบคลุมโดย PR #511 ที่ merge แล้ว) ·
+#67 9/15 — ยังเปิด: one-image-only แล้ว deploy (ประวัติของ `494ace3` อาจพิสูจน์ได้ ยังไม่ตรวจ), ไม่มี deploy พร้อมกัน, readiness ล้ม → แดง,
+auto-rollback เมื่อล้ม, hook ปฏิเสธ branch อื่น/fork, seed `log_level` · owner อนุมัติให้รันการทดสอบล้มเหลวโดยตั้งใจเหล่านี้**หลัง demo #344**
+
+**#344:** เขียน checklist แล้ว `docs/handoff_log/demo-344-checklist-2026-09-30.md` — **ยังไม่รัน** · ตัวขวาง: AC2 (รหัสชั่วคราว + บังคับเปลี่ยนใน 10 นาที,
+ข้อความไทยยังไม่รับรอง `change_password_form.dart:13`), AC3 (tenant ใหม่ไม่มีสินค้า), AC4 (แอปส่ง idempotency key ซ้ำไม่ได้ → DevTools/curl ภายใน token 15 นาที),
+AC6 (3 AC ของ #335 พิสูจน์บน VM ตรง ๆ ไม่ได้ — owner ตัดสิน), #476 (ล้างข้อมูลเบราว์เซอร์ = ทางตัน) · helper `psql_vm`/`prom_vm` ตรวจแล้วใช้ได้บน VM (ยังไม่มี tenant)
+
+**tutorial audit** พบผิดจริง (fallback เงียบไป `id_rsa.pub`, path secrets, alias `mob04-deploy` ขาด, `docker compose exec etcd` ต้องมี `IMAGE_TAG`, ไม่มีเส้นทาง dispatch rollback/กู้ครึ่งทาง, สถานะเก่า) → แก้ใน PR #513
+
+**เครื่องมือบน Mac ของ owner:** `~/.local/bin/mob04-tunnel` (ssh -N forward 3000/3100/3200/9090 ไป loopback ของ `mob04` ผ่าน `cloud@172.30.58.20`) · ไฟล์ secrets ยังอยู่ที่ `~/Downloads/mob04-demo.env`
+
+**ยังเปิด:** CORS `Origin` แปลกหน้า → HTTP 500 (`app.setup.ts:67`) ปนใน SLI · `PLATFORM_ADMINS` ตั้งแล้ว (lomer/nuiman/pattarapon) แต่ยังไม่มีใครล็อกอิน platform-ui ·
+backup ออกนอก VM พักไว้ (#363/#288) · #380 k6 ยังไม่วัด

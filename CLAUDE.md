@@ -233,11 +233,15 @@ develops against a demo tenant.
 - #67 — self-hosted deploy runner: 🔴 **installed 2026-09-30** (`mob04-demo`, service user
   `gha-runner`, via `setup-mob04-runner.sh`; `gh api …/actions/runners` = 1, online) and the
   **first real deploy ran**: `Deploy (demo)` for `e50f4fa`, approved by `NuimanLP`, Ansible
-  `failed=0`, `/opt/pos/.current_sha` = `e50f4fa`, `/health/ready` 200 on the VM
-  (`docs/handoff_log/session-2026-09-30-first-runner-deploy.md`). **Still unproven:** the
-  auto-rollback path and the `workflow_dispatch` rollback. The `demo` environment now has a
-  `main`-only branch policy and fork-PR approval is `all_external_contributors` (both
-  owner-approved 2026-09-30). The old "waiting" queue was cleared. Still verify with
+  `failed=0`, `.current_sha` = `e50f4fa`, `/health/ready` 200
+  (`docs/handoff_log/session-2026-09-30-first-runner-deploy.md`). Afternoon: merge→CD proven
+  on `494ace3` (run `36685602814`), `workflow_dispatch` rollback to `e50f4fa` proven (run
+  `36687687309`, schema unchanged), same-SHA rerun = "Skipping duplicate deployment"
+  (`36688248109`). **AC 9/15 — still unproven:** one-image-only then deploy, no concurrent
+  deploys, failing readiness → red, auto-rollback on failure, hook rejects other branch/fork,
+  `log_level` seeding. Owner approved running those deliberate-failure tests **after the #344
+  demo**, not before. The `demo` environment has a `main`-only branch policy and fork-PR
+  approval is `all_external_contributors` (owner-approved 2026-09-30). Still verify with
   `.current_sha` before claiming a deploy — a green run alone proves nothing (below).
 - **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
   Nothing in it is measured yet. It replaces **#184**, which was closed→reopened→closed
@@ -256,15 +260,16 @@ develops against a demo tenant.
   PR **#306** is the engine behind #293/#294/#296 and part of #292 yet cites only `#196`.
   Cross-check with `git log --all --grep` before concluding that nothing shipped (#345,
   2026-09-22).
-- #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. The
-  2026-09-30 runner deploy of `e50f4fa` (see #67) is evidence for #343's "deploy reaches the VM"
-  side (`.current_sha`, `/health/ready` 200), but **no AC of #343 is ticked** (nobody ticked
-  them) and **#344 has not been run**. 2026-09-30 `provision.yml` re-run added only
-  `PLATFORM_ADMINS` to `/opt/pos/.env` (3 admins synced, platform-ui login not yet tested by a
-  human) and installed the missing `/opt/pos/scripts/backup-db.sh` — the 03:00 cron had been
-  calling a script that did not exist, so no local backup ran before that. Still open: #365
-  etcd auth; a foreign `Origin` gets **HTTP 500** (`app.setup.ts:67` throws) instead of a
-  clean refusal, counted as 5xx in the SLI.
+- #343 / #344 — the first real deploy to `mob04` and the end-to-end demo run. **#343 is 4/5**
+  (deploy, Grafana checked, manual-Ansible rollback to `e50f4fa` `failed=0`; left: the
+  real-command log, now in the 2026-09-30 handoff). **#344 has not been run**; its
+  checklist is `docs/handoff_log/demo-344-checklist-2026-09-30.md`, with flagged blockers
+  (temp-password + forced change within 10 min, new tenant has no products, the app cannot
+  resend an idempotency key, three #335 ACs not provable on the VM, #476). 2026-09-30
+  `provision.yml` re-run added only `PLATFORM_ADMINS` (3 admins synced, no human has logged
+  in to platform-ui) and installed the missing `backup-db.sh` — the 03:00 cron had been
+  calling a script that did not exist, so no local backup ran before. A foreign `Origin`
+  gets **HTTP 500** (`app.setup.ts:67` throws), counted as 5xx in the SLI.
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
   (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v13 (v12 = #417 indexes; v13 = #488
   `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
@@ -392,15 +397,12 @@ develops against a demo tenant.
     transaction opens (argon2 also moved out of the transaction). The Thai string for
     `WEAK_PASSWORD` in `02_API_SCREENS.md §8`/`§8.1` was **ratified by the owner on
     2026-09-21** — the `agent ร่าง` marker is gone.
-  - **#365** — `etcd-init.sh` on the VM is a root-owned *directory*, so etcd never had
-    auth enabled. Every AC is VM-gated; the reset-without-data-loss path is named
-    (`etcdctl user passwd root`, never `down -v`) but **no runnable command sequence
-    exists yet**. Assigned to all three members 2026-09-22 (it had no assignee at all).
-    **Do it on the same VM trip as #343** — every AC is VM-gated, none of it can be
-    proven from a laptop. 🔴 A password mismatch between `.env` and what the `etcd-data`
-    volume baked in surfaces as "the service is not green", never as a message about a
-    password. AC1 needs proof **both ways**: a command that uses the password succeeds
-    *and* one that omits it is refused — `etcd-init` exiting 0 is not evidence.
+  - **#365** — `etcd-init.sh` on the VM was a root-owned *directory*, so etcd had no auth.
+    **Fixed 2026-09-30:** auth on since the first runner deploy, proven both ways, `.env`
+    password matches the volume, `RuntimeConfigService` reads `log_level`, snapshot in
+    `/opt/pos/backups/`. AC 3/4; the command-log AC is PR #511 (merged), issue not yet ticked.
+    🔴 A password mismatch between `.env` and the `etcd-data` volume surfaces as "the
+    service is not green", never as a message about a password; never `down -v`.
   - **#366** (closed, PR #371) — owner picked option 3 2026-09-21: auto-deploy stays,
     gated by a required reviewer on the `demo` environment. See the binding CI/CD rule
     below.
@@ -547,6 +549,9 @@ on void/return paths. Keep this order in any new write touching more than one of
   with `gh api repos/NuimanLP/srisurart-pos-flutter/environments/demo --jq '.protection_rules'`
   before assuming it's still on. Reconciles #335 D9 (manual Ansible) as the documented
   fallback for when the #67 runner is offline, not a competing trigger policy.
+- **A red `server-ci-status` on `main` = no images on GHCR = every Deploy run skips while
+  reporting success** (2026-09-30: `pnpm audit --audit-level=high` blocked every deploy
+  until PR #512). An ~8 s green run after a merge can mean this, not only "docs-only".
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
   `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
   images for that SHA are not on GHCR yet the job is skipped and the workflow still
