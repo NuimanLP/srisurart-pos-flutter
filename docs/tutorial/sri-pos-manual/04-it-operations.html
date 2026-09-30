@@ -133,7 +133,7 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <div class="runhead"><span>Srisurart POS · ภาค 04</span><span class="r">4 · Deploy</span></div>
   <div class="sec-no">Section 4</div>
   <h1 class="sec">Deploy ขึ้น mob04 · อนุมัติ · ย้อนเวอร์ชัน <span class="en">Deploy &amp; rollback</span></h1>
-  <div class="limits"><span class="nt">อ่านก่อน — deploy จริงครั้งแรกสำเร็จ 2026-09-30 <span class="en">First real deploy</span></span>runner <code>mob04-demo</code> ติดตั้งแล้ว และ release <code>e50f4fa</code> ขึ้น <code>mob04</code> จริงผ่าน pipeline (<code>.current_sha</code> ตรง, <code>/health/ready</code> 200) · firewall ของคณะเลิกตัด <code>ghcr.io</code> แล้ว (2026-09-29) · <strong>ยังไม่พิสูจน์:</strong> ย้อนเวอร์ชันทั้งแบบอัตโนมัติและแบบ Actions (หัวข้อถัดไป) — หลักฐาน <code>docs/handoff_log/session-2026-09-30-first-runner-deploy.md</code> · <code>docker save</code>/<code>load</code> ด้วยมือเป็นแค่ทางกู้วันเดโม <strong>ไม่ใช่ CD</strong></div>
+  <div class="limits"><span class="nt">อ่านก่อน — deploy จริงครั้งแรกสำเร็จ 2026-09-30 <span class="en">First real deploy</span></span>runner <code>mob04-demo</code> ติดตั้งแล้ว และ release <code>e50f4fa</code> ขึ้น <code>mob04</code> จริงผ่าน pipeline (<code>.current_sha</code> ตรง, <code>/health/ready</code> 200) · firewall ของคณะเลิกตัด <code>ghcr.io</code> แล้ว (2026-09-29) · <strong>พิสูจน์แล้ว 2026-09-30:</strong> ย้อนเวอร์ชันแบบ Actions (run 36687687309) และรัน SHA เดิมซ้ำจบเอง (run 36688248109) · <strong>ยังไม่พิสูจน์:</strong> ย้อนเวอร์ชันอัตโนมัติเมื่อ deploy ล้ม (หัวข้อถัดไป) — หลักฐาน <code>docs/handoff_log/session-2026-09-30-first-runner-deploy.md</code> · <code>docker save</code>/<code>load</code> ด้วยมือเป็นแค่ทางกู้วันเดโม <strong>ไม่ใช่ CD</strong></div>
 
   <h2 class="sub">ลำดับที่ pipeline ทำ <span class="en">Pipeline</span></h2>
   <ol class="steps">
@@ -172,7 +172,7 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน — ยังไม่มี backup ออกนอก VM <span class="en">No offsite backup</span></span>
     <ul class="ticks">
       <li><strong>ไม่เคยมี backup ออกจาก VM เลย</strong> และไม่เคยพิสูจน์การกู้จากสำเนานอก VM — ดิสก์ <code>mob04</code> เสีย = ข้อมูลร้าน demo หาย</li>
-      <li>ตาม <code>README.md</code> (หัวข้อ Deployment → Operations) cron backup ยังไม่ได้ถูก apply บน <code>mob04</code> (crontab ว่าง ไม่มีโฟลเดอร์ backups) — บน VM จึงยังไม่มี backup รันเลย</li>
+      <li>cron backup 03:00 ของ <code>deploy</code> + <code>/opt/pos/scripts</code> ติดตั้งบน <code>mob04</code> แล้ว 2026-09-30 (รัน <code>provision.yml</code> ใหม่) — ก่อนหน้านั้น cron เรียกสคริปต์ที่ไม่มีอยู่ · backup ในเครื่องยังอยู่บน VM เท่านั้น</li>
       <li>งาน offsite (#363/#288) <strong>พักไว้จนหลังเดโม</strong> · ปลายทางตัดสินแล้วคือ NAS ของร้าน แต่โปรโตคอลยังไม่ได้เลือก (BeeStation ไม่มี SFTP — เหลือ <code>smb</code> ของ rclone หรือซื้อ NAS ที่เป็น DSM)</li>
       <li><strong>ห้ามเขียนว่า "backup พร้อมแล้ว" ที่ไหนก็ตาม</strong></li>
     </ul>
@@ -195,14 +195,14 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   </ul>
   <h3 class="mini" id="loglevel">เปิด log ละเอียดชั่วคราว (ไม่ต้อง restart)</h3>
   <ol class="steps">
-    <li><span class="st-title">ตั้งเป็น <code>debug</code></span>(ใส่ชุด <code>-f</code> เดิมของเครื่องนั้นหลัง <code>docker compose</code>)
+    <li><span class="st-title">ตั้งเป็น <code>debug</code></span>(เครื่อง dev: ใส่ชุด <code>-f</code> เดิมของเครื่องนั้นหลัง <code>docker compose</code> · <strong>บน VM</strong> ใช้ <code>docker exec srisurart-pos-etcd-1 etcdctl …</code> แทน <code>docker compose exec etcd etcdctl …</code> ในนาม <code>deploy</code> — <code>docker compose</code> บน VM ล้มด้วย <code>IMAGE_TAG is required</code> ถ้าไม่ใส่ <code>IMAGE_TAG=$(cat /opt/pos/.current_sha)</code> · รหัส root มาจาก <code>ETCDCTL_USER</code> ใน env ของ container เอง วิธีนี้ใช้จริงใน #365 2026-09-30)
 <pre class="cmd">docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 put /pos/config/log_level debug
 docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/config/log_level</pre>
     <span class="see">ภายในไม่กี่วินาที log ของ API (<code>docker compose logs -f api-1</code>) ละเอียดขึ้น</span></li>
     <li><span class="st-title">เก็บข้อมูลที่ต้องการแล้ว <strong>ตั้งกลับเป็น <code>info</code></strong></span>คำสั่งเดิม เปลี่ยน <code>debug</code> เป็น <code>info</code> — log debug ใช้ดิสก์เร็ว</li>
   </ol>
   <p class="muted"><code>etcd-init</code> ใส่ค่าเริ่มต้นให้คีย์นี้จาก <code>LOG_LEVEL</code> ใน <code>.env</code> ตอนบูตครั้งแรก (ไม่ทับค่าที่ตั้งเองภายหลัง) — ถ้า <code>get</code> ไม่คืนอะไร แปลว่า <code>etcd-init</code> ยังไม่เคยรันสำเร็จบนเครื่องนั้น และระบบใช้ <code>LOG_LEVEL</code> ใน <code>.env</code> · ถ้า etcd ล่มหรือรหัสไม่ตรง API ยังทำงานต่อด้วยค่าใน <code>.env</code> (fail-open) — คำสั่งละเอียดและวิธีพิสูจน์ว่า etcd ปฏิเสธผู้ไม่ระบุตัว อยู่ใน <code>server/README.md</code> หัวข้อ <em>Dynamic config</em></p>
-  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>บน <code>mob04</code> <strong>etcd ยังไม่เคยเปิด auth</strong> (#365) — <code>etcd-init.sh</code> บน VM เป็นโฟลเดอร์ว่างของ root ต้องทำพร้อมรอบขึ้น VM ของ #343 และพิสูจน์ทั้งสองทาง (ใส่รหัสผ่านได้ / ไม่ใส่ถูกปฏิเสธ)</div>
+  <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>บน <code>mob04</code> <strong>etcd เปิด auth แล้ว</strong> ตั้งแต่ deploy แรก 2026-09-30 (<code>etcd-init.sh</code> เป็นไฟล์ของ <code>deploy</code> แล้ว) · พิสูจน์ทั้งสองทางแล้ว (#365: ไม่ใส่รหัส = HTTP 400, ใส่รหัส = 200) · ที่ยังไม่มีคือลำดับคำสั่งรีเซ็ตรหัสที่รันได้จริง</div>
   <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">6</span></div>
 </section>
 
@@ -252,10 +252,10 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
   </div>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
-      <li>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรก 2026-09-30 (runner <code>mob04-demo</code>, <code>e50f4fa</code>) แต่ rollback ยังไม่พิสูจน์ · #343 ยังไม่มี AC ใดติ๊ก · #344 (เดโม) ยังไม่รัน</li>
+      <li>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรก 2026-09-30 (runner <code>mob04-demo</code>, <code>e50f4fa</code>) · rollback แบบ Actions และแบบมือ (user <code>deploy</code>) พิสูจน์แล้ววันเดียวกัน · rollback อัตโนมัติเมื่อล้มยังไม่พิสูจน์ · #343 ติ๊กแล้ว 4 จาก 5 AC · #344 (เดโม) ยังไม่รัน</li>
       <li>environment <code>demo</code>: branch policy <code>main</code> และการอนุมัติ fork PR <code>all_external_contributors</code> ตั้งแล้ว 2026-09-30 (เจ้าของอนุมัติ; เดิม <code>null</code>/<code>first_time_contributors</code>)</li>
-      <li>ไม่มี backup ออกนอก VM · etcd ไม่มี auth บน VM · <code>CORS_ORIGINS</code> บน VM = origin ของตัวเองแล้ว (2026-09-30) แต่ origin แปลกหน้าได้ HTTP 500 · สคริปต์ backup ในเครื่องเพิ่งติดตั้ง 2026-09-30 (ก่อนนั้น cron 03:00 เรียกสคริปต์ที่ไม่มี)</li>
-      <li>monitoring บน VM ยังไม่เคยรันจริง</li>
+      <li>ไม่มี backup ออกนอก VM · etcd เปิด auth บน VM แล้ว (2026-09-30) · <code>CORS_ORIGINS</code> บน VM = origin ของตัวเองแล้ว (2026-09-30) แต่ origin แปลกหน้าได้ HTTP 500 · สคริปต์ backup ในเครื่องเพิ่งติดตั้ง 2026-09-30 (ก่อนนั้น cron 03:00 เรียกสคริปต์ที่ไม่มี)</li>
+      <li>monitoring บน VM รันจริงแล้ว 2026-09-30 (Grafana 200 + dashboard ที่ provision, Prometheus scrape api×3) — <code>api-readiness</code> ยัง DOWN เพราะ <code>/health/ready</code> ตอบ JSON</li>
     </ul>
   </div>
   <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">8</span></div>
