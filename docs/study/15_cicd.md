@@ -263,7 +263,7 @@ flowchart TD
   V -.->|"🔴 FortiGate: x509 no SAN บน ghcr.io"| STOP3["pull ไม่ได้"]
 ```
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 สรุปเป็นคำ: **CI (สองกล่องบน) ทำงานครบ 100% ทุกวัน** · **ส่วน Delivery (image ขึ้น GHCR) ทำงานจริง** · **ส่วน Deployment (ลงล่าง) ไม่เคยสำเร็จผ่าน pipeline**
 และถึงจะผ่านด่านอนุมัติ ก็ยังติดอีก 2 ด่านถัดไป
@@ -994,7 +994,7 @@ run แรก **เขียว** แต่ไม่ได้ deploy อะไ�
 | run ที่ `pending` | ″ | run 35957811225 ของ `ec5b9a6` |
 | สถิติ 60 run ล่าสุดของ Deploy (demo) | ″ | success 24 · cancelled 33 · skipped 1 · waiting 1 · pending 1 · (runner = 0 จึงอนุมานได้ว่าไม่มี job `deploy` ตัวไหนได้รันบน runner จริง — ไม่ได้เปิด log ทีละ run) |
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 ### ชั้นที่ 1 — run เขียวที่ไม่ได้ทำอะไร
 
@@ -1077,7 +1077,7 @@ merge → CI ✅ → image บน GHCR ✅ → Deploy run #1 ✅(skip) → Deplo
                                                               ❓ .current_sha = ตัวเดียวที่บอกความจริง
 ```
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 **บทเรียนวิศวกรรม:** ทุกชั้นข้างบน **ดูเขียว หรือดูเหมือนทำเสร็จ** ถ้าดูจากที่เดียว (badge, ticket ที่ปิด, เอกสารที่เขียนว่า "auto-deploy") — วิธีเดียวที่ไม่หลอกตัวเองคือ **ถามปลายทางตรงๆ** ว่ารันอะไรอยู่
 
@@ -1188,7 +1188,7 @@ merge → CI ✅ → image บน GHCR ✅ → Deploy run #1 ✅(skip) → Deplo
 | Dependabot | security-only | แจ้ง CVE | ลด noise | version updates รายสัปดาห์ |
 | `Jenkinsfile` | — | **แบบฝึกหัดคอร์ส Lab 03 ไม่เคยใช้จริง — ลบแล้ว 2026-09-27** | — | — |
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 **คำเตือนที่เห็นใน log ทุก job (deprecation):**
 
@@ -1282,7 +1282,7 @@ gh api repos/NuimanLP/srisurart-pos-flutter/environments/demo --jq '.protection_
 > - skip ที่ไม่ควรเกิดคือ bug ที่เงียบที่สุด (#39 → #184) — ต้องเขียน check ให้แดงเมื่อของสำคัญถูกข้าม
 > - `Jenkinsfile` ที่เคยอยู่ root คือแบบฝึกหัดคอร์ส ไม่ใช่ pipeline จริง (ลบแล้ว 2026-09-27)
 >
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 ---
 
@@ -1344,7 +1344,7 @@ run ที่ waiting อยู่คือของ `d3a2801` (2026-09-22) ซ�
 ควรตรวจ SHA ของ run ที่กำลังจะ approve ก่อน และพิจารณา reject run เก่า / สั่ง `workflow_dispatch` ด้วย SHA ที่ต้องการแทน
 นอกจากนี้ก่อนให้ runner ทำงานจริง ควรปิดสองช่องที่ยังหลวม: `deployment_branch_policy` เป็น `null` และ fork-PR approval เป็น `first_time_contributors` (ทั้งคู่เป็นการตัดสินใจของเจ้าของ)
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 </details>
 

@@ -571,6 +571,8 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 
 **self-hosted runner ยังไม่ได้ติดตั้งจริง** — issue `#67` ถูกปิดไปแล้ว (2026-09-20) แต่ `gh api …/actions/runners` ยืนยันว่า `total_count: 0` — สิ่งที่ commit ที่ปิด issue ส่งมอบจริงคือแค่สคริปต์ติดตั้ง + runbook ไม่ใช่การติดตั้งจริง (**สถานะ ticket ปิด ≠ งานเสร็จ** — บทเรียนซ้ำที่ CLAUDE.md เตือนไว้หลายจุด)
 
+> 🟢 **แก้ 2026-09-30:** สองย่อหน้าข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` 2026-09-29 · runner `mob04-demo` ติดตั้งแล้ว · deploy จริงสำเร็จ `e50f4fa` แล้วล่าสุด `ca2fef1` (`.current_sha` + `/health/ready` 200) · rollback พิสูจน์ทั้ง `workflow_dispatch` (run `36687687309`) และอัตโนมัติ (run `36720675552`) · #67 ปิด 2026-09-30
+
 **"run สีเขียว" ไม่ใช่หลักฐานว่า deploy สำเร็จ** — job `deploy` ของ workflow `Deploy (demo)` จะถูก **skip** (ไม่ใช่ fail) ถ้า image ที่ SHA นั้นยังไม่ครบทั้ง 2 ตัวบน GHCR แต่ workflow ทั้งอันยังรายงานว่า **success** ได้ (เพราะมีแค่ job `resolve release` ที่รันจริง) — หลักฐานเดียวที่พิสูจน์ได้จริงว่า deploy สำเร็จคือไฟล์ `/opt/pos/.current_sha` บน VM
 
 **Backups ยังไม่ออกจาก VM เลย (`#363` parked)** — `backup-db.sh` มีกลไก upload ออกนอกเครื่องผ่าน `rclone` แล้ว (`BACKUP_RCLONE_REMOTE` ที่ยังไม่ตั้งค่า) แต่**ยังไม่มีการ upload จริงเกิดขึ้นแม้แต่ครั้งเดียว** เพราะยังไม่ได้เลือก protocol/ปลายทางที่แน่นอน (SFTP ถูกตัดทิ้งเพราะ BeeStation ของร้านรัน BSM ไม่ใช่ DSM จึงไม่มี SSH/SFTP ใช้งานได้จริง) และงานนี้ถูก**พักไว้ (parked)** จนกว่าจะ deploy demo สำเร็จก่อน — สคริปต์ถูกออกแบบให้ "เงียบแต่ซื่อสัตย์" เวลายังไม่ตั้งค่า (`::warning::` + exit 0) แต่ "ดังและ fail" ทันทีถ้าตั้งค่าแล้วแต่ upload พัง (`::error::` + exit ≠ 0) — เพื่อไม่ให้ log สีเขียวทุกคืนหลอกใครว่า "มี backup ออกนอกเครื่องแล้ว" ทั้งที่ยังไม่มี
@@ -602,7 +604,7 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 - **Observability** ใช้แค่ metrics (Prometheus pull model + Grafana) ไม่มี log รวมศูนย์หรือ tracing เพราะงบ RAM ไม่พอสำหรับ Wazuh/ELK — และชื่อ metric (`http_requests_total` ฯลฯ) ห้ามเปลี่ยนเพราะ dashboard อ้างตรงๆ
 - **สถานะจริงต้องพูดตรงๆ:** CD ยังไม่เคยสำเร็จ (ติด FortiGate), runner ยังไม่ติดตั้ง, backup ยังไม่ออกนอก VM, etcd auth ยังไม่เปิดจริงบน VM, CORS ยังเป็น `'*'` (**แก้ 2026-09-30:** CORS บน `mob04` ปิดแล้ว) — ทั้งหมดนี้เป็นข้อเท็จจริงจาก CLAUDE.md ไม่ใช่การมองโลกในแง่ร้าย
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 ---
 
@@ -654,7 +656,7 @@ Container นั้นจะใช้ RAM ได้ไม่จำกัด ถ�
 
 ยังไม่จริง — CI (build/test/scan/push image ขึ้น GHCR) ทำงานสำเร็จแล้ว แต่ CD (การส่ง image นั้นไปติดตั้งจริงบน VM `mob04`) ไม่เคยสำเร็จสักครั้ง เพราะไฟร์วอลล์ FortiGate ของเครือข่ายมหาวิทยาลัยบล็อกการ pull จาก `ghcr.io` (ปัญหาเครือข่าย ไม่ใช่บั๊กในโค้ด) และ self-hosted runner ที่ควรจะรันขั้นตอน deploy ก็ยังไม่ได้ติดตั้งจริง แม้ ticket ที่เกี่ยวข้องจะถูกปิดไปแล้วก็ตาม การพูดว่า "deploy อัตโนมัติทำงานแล้ว" จะเป็นการรายงานสถานะที่ผิดตามกติกาความซื่อสัตย์ของเอกสารชุดนี้
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 </details>
 

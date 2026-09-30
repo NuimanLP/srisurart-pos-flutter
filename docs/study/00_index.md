@@ -535,7 +535,7 @@ twice") การพูดเกินจริงเรื่องสถาน
   foreign key ทำให้ tenant_id ถูก null ผิดที่) และ `/sync/push` ของ phase 2 มีบั๊ก HIGH 2 ตัวที่ยัง
   ไม่มี issue เปิดด้วยซ้ำ — รายละเอียดอยู่ใน `CLAUDE.md` หัวข้อ "Still open"
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 **ทำไมการบอกตรงๆ แบบนี้เป็นนิสัยวิศวกรที่ดี**: ถ้าเอกสารบอกว่า "deploy อัตโนมัติทำงานแล้ว" ทั้งที่
 ยังไม่เคยสำเร็จจริง คนที่มาอ่านทีหลัง (รวมถึงตัวคุณเองอีก 3 เดือนข้างหน้า) จะเชื่อผิด แล้ววางแผนงาน
@@ -620,7 +620,7 @@ server) เก็บไว้เพื่อพิสูจน์กติกา
 (#380), backup offsite ที่ parked ไว้ — บั๊กที่เคยเปิดอยู่ (migration RLS/FK #420, `/sync/push`
 fingerprint #413, client date #414) แก้ครบแล้วเมื่อ 2026-09-25 — การตอบว่า "เสร็จแล้ว" เฉยๆ ก็ยังถือว่าผิดกติกาความซื่อสัตย์ของเอกสารชุดนี้ เพราะ deploy จริง/load test/backup offsite ยังไม่จบ
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · ยังไม่พิสูจน์: rollback ทั้งแบบอัตโนมัติและ `workflow_dispatch` · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 </details>
 

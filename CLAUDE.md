@@ -272,8 +272,12 @@ develops against a demo tenant.
   `$BACKUP_FILE.partial` and `mv`s on success, an EXIT trap removes it, prune drops stale
   `.partial` by age; test `deploy/scripts/test/backup-db.test.sh` runs in `server.yml`
   `nginx-check`. 🔴 **Only `provision.yml` installs `/opt/pos/scripts` — a CD deploy does NOT
-  update `backup-db.sh` on the VM.** #519's script is **not yet installed on `mob04`** (VPN
-  dropped): `sudo install -o deploy -g deploy -m 0755` it from `origin/main`, verify sha256. A foreign `Origin`
+  update `backup-db.sh` on the VM.** ~~#519's script is **not yet installed on `mob04`** (VPN
+  dropped)~~ — **installed and verified 2026-09-30 (late):** `sudo install -o deploy -g deploy -m 0755`
+  from `origin/main`, sha256 `fa65dbd5…` matches, previous copy kept as
+  `/opt/pos/scripts/.backup-db.sh.prev-be9e7f3`; one run in cron's env (`env -i`, cwd
+  `/home/deploy`) → rc=0, 9.6K `.sql.gz`, `gzip -t` ok, sha256 sidecar OK, no `.partial`, offsite
+  `::warning::` as expected (#363 parked). First real 03:00 cron run with it is still 2026-10-01. A foreign `Origin`
   used to get **HTTP 500** (`app.setup.ts` threw; not counted in `http_requests_total`) —
   fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to
   `mob04` as `00d3488` 2026-09-30 (run `36717963989`, Ansible `failed=0`).
@@ -339,7 +343,12 @@ develops against a demo tenant.
   commit. 🔴 **Lesson: check a PR's head SHA at merge time
   (`gh pr view N --json headRefOid`) — a review-fix pushed after the merge button is
   clicked silently misses `main`, and the PR body describing it reads as done when it
-  isn't.** This unblocked #490: `ensureSeedMarker`
+  isn't.** 🔴 **Same trap on the branch side (found 2026-09-30):** before deleting a
+  merged-PR branch, compare its tip with the PR's `headRefOid` — a mismatch means commits
+  pushed after the merge that may exist nowhere else. That is how PR #486's review fix
+  (`_writeGen` guard against a stale `GET /settings` clobbering a newer `PATCH`, commits
+  `47653b1`/`c57019a`, pushed after the 01:21:43Z merge) was found and recovered by PR #521
+  (`ca2fef1`). This unblocked #490: `ensureSeedMarker`
   now accepts a seed from **any** period, so an offline sale after a month rollover starts
   at `0001` instead of refusing with
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
@@ -444,7 +453,9 @@ develops against a demo tenant.
 
 The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
 2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving
-exactly those two. 🔴 **Before deleting a branch, check it is actually merged** — two
+exactly those two. **Re-done 2026-09-30:** 35 merged remote branches deleted after checking
+each (ancestor of `main`, or PR MERGED with tip == PR head, or post-merge commits patch-id-equivalent on `main`);
+only `main` + `POC_sample_offline_first` remain. 🔴 **Before deleting a branch, check it is actually merged** — two
 branches (`research/production-host`, `research/pwa-offline-shell`) held the only copy of
 `docs/research/*.md` (424 lines, closed tickets #241/#242 whose closing comments linked
 straight at the files), had **no PR at all**, and would have been destroyed silently.

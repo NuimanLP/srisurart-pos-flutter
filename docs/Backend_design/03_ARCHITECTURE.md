@@ -605,11 +605,11 @@ gantt
 **เครื่องที่รันจริง — ยังไม่เคาะ (2026-09-04):** *(แก้ 2026-09-23: เคาะแล้ว = `mob04` ดูข้อที่ขีดฆ่าด้านล่าง)*
 
 > 🔴 **สถานะ deploy 2026-09-23 — ห้ามอ้างว่า deploy/CD/backup เสร็จ:**
-> **แก้ 2026-09-30:** ข้อ FortiGate/runner ข้างล่างล้าสมัยแล้ว — FortiGate คลี่คลาย 2026-09-29, runner `mob04-demo` ติดตั้งแล้วและ deploy จริงครั้งแรก `e50f4fa` สำเร็จ (rollback ยังไม่พิสูจน์; backup ยังไม่ออกจาก VM) · `docs/handoff_log/session-2026-09-30-first-runner-deploy.md`
+> **แก้ 2026-09-30:** ข้อ FortiGate/runner ข้างล่างล้าสมัยแล้ว — FortiGate คลี่คลาย 2026-09-29, runner `mob04-demo` ติดตั้งแล้วและ deploy จริงครั้งแรก `e50f4fa` สำเร็จ (rollback พิสูจน์แล้วทั้ง `workflow_dispatch` run `36687687309` และอัตโนมัติ run `36720675552`; #67 ปิด 2026-09-30; deploy ล่าสุด `ca2fef1`; backup ยังไม่ออกจาก VM) · `docs/handoff_log/session-2026-09-30-first-runner-deploy.md`
 > * **CD ไป `mob04` ติดเครือข่ายคณะ ไม่ใช่ติดโค้ดใน repo** (2026-09-21) — FortiGate ของคณะทำ SSL deep
 >   inspection แล้วตอบ `ghcr.io` ด้วย cert ของตัวเองที่ไม่มี SAN → `docker compose pull` ล้ม `x509` ·
 >   ทางแก้จริงทางเดียวคือฝ่ายเครือข่ายยกเว้น `ghcr.io` (+ `registry-1.docker.io`, `gcr.io`) ให้ VM ·
->   ทั้งทาง Ansible มือ (#335 D9) และ self-hosted runner (#67 — workflow merge แล้ว แต่ยังไม่ติดตั้งบน VM)
+>   ทั้งทาง Ansible มือ (#335 D9) และ self-hosted runner (#67 — ~~workflow merge แล้ว แต่ยังไม่ติดตั้งบน VM~~ ติดตั้งแล้ว 2026-09-30)
 >   ตายพร้อมกัน · `docker save`/`load` มือ = กู้สถานการณ์วัน demo **ไม่ใช่ CD** · หลักฐาน:
 >   `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`
 > * `deploy` job ของ `deploy.yml` ต้องผ่าน **required reviewer ของ Environment `demo`** ก่อนถึง VM
