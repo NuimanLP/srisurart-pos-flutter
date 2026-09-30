@@ -660,7 +660,7 @@ ssh mob04-deploy 'for k in POSTGRES_PASSWORD POS_APP_PASSWORD REDIS_PASSWORD JWT
 **8. backup ฐานข้อมูลก่อน deploy** — migration ย้อนไม่ได้ · `backup-db.sh` เรียก `docker compose` พร้อม `vm.override.yml` ซึ่งบังคับ `IMAGE_TAG`
 🔴 **แก้แล้วใน `main` (#501):** `backup-db.sh`/`restore-db.sh` resolve `IMAGE_TAG` จาก `/opt/pos/.current_sha` เองถ้า `IMAGE_TAG` ว่าง —
 **แต่ owner ต้องรัน `provision.yml` ใหม่ก่อน** (แบบ key-only §2.4 ก็พอ · บน `mob04` ทำแล้ว 2026-09-30 — `/opt/pos/scripts` + cron 03:00 ติดตั้งแล้ว; ก่อนหน้านั้น cron เรียกสคริปต์ที่ไม่มี — แก้ 2026-09-30 เย็น: เฉพาะรอบ 09-30 ที่ "not found"; รอบ 09-29 สคริปต์มีอยู่แต่ fail และทิ้ง .gz ว่าง 20 ไบต์) VM จึงจะได้สคริปต์เวอร์ชันนี้ (`provision.yml` copy สคริปต์ลง
-`/opt/pos/scripts` เฉพาะตอน provision ไม่ auto-sync กับ release — CD ไม่อัปเดตสคริปต์บน VM · PR #519 `b089f36` (เขียน `.partial` แล้ว `mv`) ก็ต้องลงเองแบบนี้: `sudo install -o deploy -g deploy -m 0755` จาก `origin/main` แล้วเทียบ sha256) หลังจากนั้นเรียกเฉย ๆ ได้:
+`/opt/pos/scripts` เฉพาะตอน provision ไม่ auto-sync กับ release — CD ไม่อัปเดตสคริปต์บน VM · PR #519 `b089f36` (เขียน `.partial` แล้ว `mv`) ก็ต้องลงเองแบบนี้ (ลงบน `mob04` แล้ว 2026-09-30, sha256 ตรง `origin/main`): `sudo install -o deploy -g deploy -m 0755` จาก `origin/main` แล้วเทียบ sha256) หลังจากนั้นเรียกเฉย ๆ ได้:
 
 ```bash
 ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -3'

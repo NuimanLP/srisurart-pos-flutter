@@ -49,7 +49,7 @@ Ansible ด้วยมือ") จนกระทั่งตีความใ
   `gh api …/actions/runners` = 1 online · **deploy จริงครั้งแรก:** run `36591519465` (`e50f4fa`) `NuimanLP` อนุมัติ, job ทั้งสองเขียว
   (deploy 2m3s, hook อนุญาต), Ansible `ok=48 changed=27 failed=0 ignored=2` (ignored 1 = ไม่มี `.current_sha` ครั้งแรก — คาดไว้),
   pull จาก GHCR ผ่าน · หลักฐานบน VM: `/opt/pos/.current_sha` = `e50f4fa983cada763e1e6ba4d7c84509682f58e0`, `/health/ready` = 200
-  (postgres, redisCache, redisQueue up) · **rollback ด้วย `workflow_dispatch` พิสูจน์แล้ว** (run `36687687309`, ภาคบ่ายในไฟล์เดียวกัน) · **ยังไม่พิสูจน์:** auto-rollback เมื่อ deploy ล้ม (AC ของ #67 ส่วนนั้น) ·
+  (postgres, redisCache, redisQueue up) · **rollback ด้วย `workflow_dispatch` พิสูจน์แล้ว** (run `36687687309`, ภาคบ่ายในไฟล์เดียวกัน) · ~~ยังไม่พิสูจน์: auto-rollback เมื่อ deploy ล้ม~~ (**แก้ 2026-09-30:** พิสูจน์แล้ว run `36720675552` แดงตามออกแบบ) ·
   [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 * **Environment `demo`:** `required_reviewers` [`NuimanLP`] ✅ (ตรงกับ #366) · **2026-09-30:** `deployment_branch_policy` =
   `{protected_branches:false, custom_branch_policies:true}` + branch policy `main` (เจ้าของอนุมัติ) — ข้อ 2 ของ §6.2 มีผลแล้ว
@@ -396,7 +396,7 @@ on:
 
 ทำตามลำดับ **ข้อ 1 และ 4 ต้องเสร็จก่อนข้อ 5** (repo public — ADR-0013 addendum 2026-09-15 ข้อบังคับความปลอดภัย)
 
-> **หมายเหตุ 2026-09-30:** ข้อ 1–6 ทำเสร็จบน `mob04` แล้ว (ข้อ 7 ยังค้างส่วน rollback) (fork approval = `all_external_contributors`, branch policy `main`, runner `mob04-demo` online, deploy จริงครั้งแรกสำเร็จ) — ข้อความ 2026-09-23 เดิมที่ว่า "ยังไม่มีข้อไหนทำเสร็จ / 0 runner" ล้าสมัยแล้ว · FortiGate คลี่คลาย 2026-09-29 (ดูต้นไฟล์) ·
+> **หมายเหตุ 2026-09-30:** ข้อ 1–6 ทำเสร็จบน `mob04` แล้ว (ข้อ 7: rollback พิสูจน์แล้วทั้งสองทาง — ดูแถว rollback §6.3) (fork approval = `all_external_contributors`, branch policy `main`, runner `mob04-demo` online, deploy จริงครั้งแรกสำเร็จ) — ข้อความ 2026-09-23 เดิมที่ว่า "ยังไม่มีข้อไหนทำเสร็จ / 0 runner" ล้าสมัยแล้ว · FortiGate คลี่คลาย 2026-09-29 (ดูต้นไฟล์) ·
 > มีสคริปต์ `deploy/scripts/setup-mob04-runner.sh` (commit `b687411`) ที่รวมข้อ 4–5 ไว้ในคำสั่งเดียว — **ตรวจก่อนใช้:**
 > สคริปต์นั้น~~**ไม่ได้**ตรวจ sha256 ของ tarball runner ตามข้อ 5~~ (แก้แล้ว #67 2026-09-29: รับ version + sha256 เป็น argument บังคับ
 > และ `sha256sum -c` ก่อนแตกไฟล์) และ**ไม่ได้**ตั้งข้อ 1 (fork approval) ให้ — ข้อ 1 ยังต้องทำก่อนเสมอ
