@@ -618,6 +618,38 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
       expect(optionsRes.headers['access-control-allow-methods']).toContain('POST');
     });
 
+    it('refuses a foreign origin with no CORS headers and no 5xx when CORS_ORIGINS is set (PR #516)', async () => {
+      // The shared app runs with CORS `*`; this needs its own app with a real allowlist.
+      const prev = process.env.CORS_ORIGINS;
+      process.env.CORS_ORIGINS = 'https://shop.example';
+      let scoped: INestApplication | undefined;
+      try {
+        ({ app: scoped } = await createTestApp());
+        const server = scoped.getHttpServer();
+
+        const getRes = await request(server).get('/health/live').set('Origin', 'https://evil.example');
+        expect(getRes.status).toBe(200);
+        expect(getRes.headers['access-control-allow-origin']).toBeUndefined();
+        expect(getRes.headers['access-control-allow-credentials']).toBeUndefined();
+
+        const preflight = await request(server)
+          .options('/api/v1/sales')
+          .set('Origin', 'https://evil.example')
+          .set('Access-Control-Request-Method', 'POST');
+        expect(preflight.status).toBeLessThan(500);
+        expect(preflight.headers['access-control-allow-origin']).toBeUndefined();
+        expect(preflight.headers['access-control-allow-credentials']).toBeUndefined();
+        expect(preflight.headers['access-control-allow-methods']).toBeUndefined();
+
+        const allowed = await request(server).get('/health/live').set('Origin', 'https://shop.example');
+        expect(allowed.headers['access-control-allow-origin']).toBe('https://shop.example');
+      } finally {
+        if (prev === undefined) delete process.env.CORS_ORIGINS;
+        else process.env.CORS_ORIGINS = prev;
+        await scoped?.close();
+      }
+    });
+
     it('verifies Nginx platform admin plane has loopback allowlist and deny all (07 §9, #270)', async () => {
       const fs = await import('node:fs');
       const path = await import('node:path');
