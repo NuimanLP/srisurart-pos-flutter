@@ -41,7 +41,7 @@
 1. ~~ลง `backup-db.sh` ใหม่บน `mob04`, ตรวจ sha256~~ (ทำแล้ว ดูหัวข้อ late) · 2. พรุ่งนี้ตรวจ cron 03:00 · 3. #344 ตาม checklist (CORS ข้อ 5 ข้ามได้แล้ว)
 
 ## Late (2026-09-30 ~15:40Z) — #521 recovery, ล้าง branch, deploy `ca2fef1`
-- **PR #521 merged** (`ca2fef1`): กู้ review fix ของ PR #486 (`GET /settings` เก่ากลบ `PATCH` ใหม่ — guard `_writeGen` ใน `frontend/lib/data/repositories/api_settings_repository.dart`) · commit `47653b1`/`c57019a` ถูก push **หลัง** #486 merge (01:21:43Z, head `e81abd9`) จึงไม่เคยถึง `main`
+- **PR #521 merged** (`ca2fef1`): กู้ review fix ของ PR #486 (`GET /settings` เก่ากลบ `PATCH` ใหม่ — guard `_writeGen` ใน `frontend/lib/data/repositories/api_settings_repository.dart`) · commit `47653b1`/`c57019a` ถูก push **หลัง** #486 merge (2026-09-28 01:21:43Z, head `e81abd9`) จึงไม่เคยถึง `main`
 - **ล้าง remote branch:** ลบ 35 branch ที่ merge แล้ว หลังตรวจทีละอัน (เป็น ancestor ของ `main` · หรือ PR MERGED และ tip == PR head · หรือ commit หลัง merge patch-id เทียบเท่าบน `main`) · เหลือ `main` + `POC_sample_offline_first`
 - 🔴 **บทเรียน:** ก่อนลบ branch ของ PR ที่ merge แล้ว เทียบ tip ของ branch กับ `headRefOid` ของ PR — ไม่ตรง = มี commit หลัง merge ที่อาจหาย (#486 ถูกพบด้วยวิธีนี้)
 - **Deploy `ca2fef1`:** run ค้างรอ `36733325970` (`b089f36`) ถูก cancel · `36736199413` ได้ approve → "Successfully deployed release ca2fef1…", Ansible `failed=0`, `.current_sha` = `ca2fef1`, `/health/ready` 200

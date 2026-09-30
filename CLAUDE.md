@@ -347,7 +347,7 @@ develops against a demo tenant.
   merged-PR branch, compare its tip with the PR's `headRefOid` — a mismatch means commits
   pushed after the merge that may exist nowhere else. That is how PR #486's review fix
   (`_writeGen` guard against a stale `GET /settings` clobbering a newer `PATCH`, commits
-  `47653b1`/`c57019a`, pushed after the 01:21:43Z merge) was found and recovered by PR #521
+  `47653b1`/`c57019a`, pushed after the 2026-09-28 01:21:43Z merge) was found and recovered by PR #521
   (`ca2fef1`). This unblocked #490: `ensureSeedMarker`
   now accepts a seed from **any** period, so an offline sale after a month rollover starts
   at `0001` instead of refusing with
