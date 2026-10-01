@@ -570,6 +570,10 @@ on void/return paths. Keep this order in any new write touching more than one of
 - **A red `server-ci-status` on `main` = no images on GHCR = every Deploy run skips while
   reporting success** (2026-09-30: `pnpm audit --audit-level=high` blocked every deploy
   until PR #512). An ~8 s green run after a merge can mean this, not only "docs-only".
+- **Tests must not hardcode the current month** (2026-10-01, PR #525): `sync-push.e2e-spec.ts` used
+  `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
+  (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
+  every Deploy run skipping. Derive RC/CN periods from now in `Asia/Bangkok` (`currentPeriod()`).
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
   `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
   images for that SHA are not on GHCR yet the job is skipped and the workflow still
