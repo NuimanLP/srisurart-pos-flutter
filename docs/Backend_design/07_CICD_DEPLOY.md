@@ -296,7 +296,7 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
 (false positive ที่ดูเหมือนหายนะ) และไม่เคยไปถึง task หลัง `command` ตัวแรก · `copy` ใน check mode แค่เทียบ checksum
 ไม่เขียนจริง จึงซ่อนปัญหาสิทธิ์ของ user ผิดตัวด้วย — **ห้ามอ้าง run `--check` เป็นหลักฐาน**
 
-**`deploy.yml`** (release หนึ่ง → environment หนึ่ง) รับ `image_tag=<sha>`:
+**`deploy.yml`** (release หนึ่ง → environment หนึ่ง) รับ `image_tag=<sha>` (ว่าง = commit ล่าสุดบน `main` ที่แตะ code — เดินย้อน first-parent ด้วย `push-changes-kind.sh`; head ที่เป็น docs ล้วนไม่มี image):
 1. ถ้า VM รัน SHA นี้อยู่แล้ว → จบ (ทำให้ `workflow_run` ที่ยิงซ้ำไม่ deploy สองรอบ) · `-e force_redeploy=true` ข้ามข้อนี้
    (#67 — rollback อัตโนมัติใช้ เพราะหลัง deploy fail `.current_sha` ยังชี้ release ก่อนหน้า) · อย่าลบ `.current_sha` เพื่อบังคับ
    · **เพิ่ม 2026-09-30:** `workflow_dispatch` ด้วย SHA เดิม (และ `.env` ไม่เปลี่ยน) จบตรงข้อนี้ *ก่อน* `etcd-init` และ `deploy.yml` ไม่มี input `force` — จึงทดสอบ seed `log_level` ซ้ำไม่ได้ ต้องเปลี่ยน SHA จริง (#67 comment 5912257527)

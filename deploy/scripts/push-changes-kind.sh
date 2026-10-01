@@ -22,7 +22,7 @@ sha="${SHA:?SHA is required}"
 if [[ -z "$before" || "$before" =~ ^0+$ ]] || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
   emit true "no usable before commit"
 fi
-if ! files=$(git diff --name-only "$before" "$sha"); then
+if ! files=$(git diff --no-renames --name-only "$before" "$sha"); then
   emit true "git diff failed"
 fi
 [[ -n "$files" ]] || emit true "empty diff"

@@ -66,6 +66,8 @@ jobs:
         run: deploy/scripts/push-changes-kind.sh
       - uses: dorny/paths-filter@v4
         id: filter
+        # PR only — on a push its 'false' string would win the `||` below over the push step.
+        if: github.event_name == 'pull_request'
         with:
           filters: |
             frontend:
