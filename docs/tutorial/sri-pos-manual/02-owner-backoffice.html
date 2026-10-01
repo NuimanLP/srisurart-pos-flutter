@@ -93,7 +93,7 @@
   <ol class="steps">
     <li><span class="st-title">กด <span class="ui">ออกรหัสผูกเครื่องใหม่</span></span>เลือก <span class="ui ghost">เครื่องขาย (POS)</span> หรือ <span class="ui ghost">Backoffice</span> แล้วตั้ง <span class="ui ghost">ชื่อเรียกเครื่อง (Device Label)</span></li>
     <li><span class="st-title">ยืนยัน</span><span class="see">หน้าต่าง <span class="msg">รหัสผูกเครื่องของคุณ</span> — รหัส 8 ตัวอักษร (0–9, A–F) มีปุ่มคัดลอก และ <span class="msg">นำรหัส 8 ตัวอักษรนี้ไปกรอกที่หน้าผูกเครื่องของเบราว์เซอร์เป้าหมาย รหัสนี้มีอายุ 15 นาที</span> — กรอกให้ครบทั้ง 8 ตัว (ข้อความนี้แก้ใน #462 ยังเป็นร่างที่ทีมเขียน)</span></li>
-    <li><span class="st-title">ที่เครื่องเป้าหมาย: หน้าเข้าสู่ระบบ → <span class="ui ghost">ผูกเครื่องขาย (POS Terminal)</span> → กรอกรหัส → <span class="ui">ยืนยันผูกเครื่อง</span></span>(ประเภทเครื่องติดมากับรหัสแล้ว)</li>
+    <li><span class="st-title">ที่เครื่องเป้าหมาย: หน้าเข้าสู่ระบบ → <span class="ui ghost">ผูกเครื่องขาย (POS Terminal)</span> → กรอกรหัส → <span class="ui">ยืนยันผูกเครื่อง</span></span>(ประเภทเครื่องติดมากับรหัสแล้ว) · ถ้าเครื่องนั้นยังมีงานค้าง ระบบปฏิเสธ<strong>ก่อนใช้รหัส</strong> (รหัสยังใช้ได้): <span class="msg">ผูกเครื่องใหม่ไม่ได้ เพราะเครื่องนี้ยังมีงานค้างอยู่ (รายการค้างส่ง ชำระเครดิตค้างส่ง หรือบิลพัก) กรุณาส่งหรือยกเลิกรายการให้เรียบร้อยก่อน</span></li>
   </ol>
   <figure><img src="img/device-code.png" alt="หน้าต่าง รหัสผูกเครื่องของคุณ — รหัสถูกปิดไว้ ข้อความบอก 8 ตัวอักษร อายุ 15 นาที" loading="lazy"><figcaption>หน้าต่าง รหัสผูกเครื่องของคุณ (ในภาพปิดรหัสไว้) — "นำรหัส 8 ตัวอักษรนี้ไป… รหัสนี้มีอายุ 15 นาที" · ด้านหลังเห็นเครื่องใหม่สถานะ รอผูกเครื่อง</figcaption></figure>
   <figure><img src="img/device-enrol.png" alt="ผูกเครื่องขาย (POS Terminal) — กรอกรหัสบนเครื่องเป้าหมาย" loading="lazy"><figcaption>ผูกเครื่องขาย (POS Terminal) — กรอกรหัส 8 ตัวบนเครื่องเป้าหมาย (ตัวอย่างในช่อง "เช่น 3F9A0C1B (8 ตัวอักษร)")</figcaption></figure>
@@ -171,9 +171,24 @@
   </ol>
   <figure><img src="img/adjust-stock.png" alt="หน้าต่าง ปรับสต็อก · Adjust Stock — สต็อกปัจจุบัน 2 จำนวนที่ปรับ +6 สต็อกหลังปรับ 8" loading="lazy"><figcaption>ปรับสต็อก — กรอก +6 แล้วเห็น "สต็อกหลังปรับ" 8 ก่อนกด บันทึก</figcaption></figure>
 
+  <h2 class="sub">ลบสินค้าหลายรายการ <span class="en">Bulk delete</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">แท็บ <span class="ui ghost">สต็อก · Stock</span> → กรองให้เหลือรายการที่จะลบ → ปุ่ม <span class="ui ghost">เลือกเพื่อลบ</span> (ข้าง <span class="ui ghost">พิมพ์ป้าย</span>)</span><span class="see">ทุกแถวมีช่องติ๊ก และแถบ <span class="msg">เลือกแล้ว {n} รายการ</span></span></li>
+    <li><span class="st-title">ติ๊กทีละแถว หรือ <span class="ui ghost">เลือกทั้งหมด (ที่กรองอยู่ {N})</span></span><span class="ui ghost">ล้างที่เลือก</span> = เอาติ๊กออกทั้งหมด · <span class="ui ghost">ยกเลิกการเลือก</span> = ออกจากโหมดเลือก</li>
+    <li><span class="st-title">กด <span class="ui">ลบที่เลือก ({n})</span></span><span class="see">หน้าต่าง <span class="msg">ลบสินค้า {n} รายการ</span> แสดงชื่อ รหัส และสต็อกของทุกรายการ พร้อมคำเตือน:</span>
+      <ul class="ticks">
+        <li><span class="msg">⚠ มี {n} รายการที่ยังมีสต็อกคงเหลือ รวม {x} ชิ้น — สต็อกนี้จะหายจากคลังด้วย</span></li>
+        <li><span class="msg">⚠ มี {n} รายการที่อยู่ในใบสั่งซื้อที่ยังไม่รับของ ใบเสนอราคาที่ยังไม่หมดอายุ หรือบิลที่พักในเครื่องนี้ — ยังลบได้ แต่เอกสารเหล่านั้นจะอ้างถึงสินค้าที่ถูกลบ</span> (บอกเลขเอกสารที่เกี่ยวข้อง)</li>
+        <li>สินค้าที่มีรายการขาย/คืน<strong>ยังไม่ได้ส่งขึ้นเซิร์ฟเวอร์</strong>ลบไม่ได้: <span class="msg">ลบไม่ได้ {n} รายการ: มีรายการขาย/คืนที่ยังไม่ได้ส่งขึ้นเซิร์ฟเวอร์ — ซิงก์ให้เสร็จก่อนลบ</span> (ถ้าลบไม่ได้ทุกรายการ หัวหน้าต่างเป็น <span class="msg">ลบสินค้าไม่ได้</span>)</li>
+      </ul></li>
+    <li><span class="st-title">เลือกเกิน 5 รายการ หรือมีรายการที่ยังมีสต็อก: พิมพ์จำนวนในช่อง <span class="ui ghost">พิมพ์ {n} เพื่อยืนยัน</span></span>ปุ่ม <span class="ui ghost">ยกเลิก</span> ถูกเลือกไว้ก่อนเสมอ</li>
+    <li><span class="st-title">กด <span class="ui">ลบ {n} รายการ</span></span><span class="see">สำเร็จทั้งหมด: <span class="msg">ลบแล้ว {n} รายการ</span> · มีที่ไม่สำเร็จ: หน้าต่าง <span class="msg">ผลการลบสินค้า</span> บอกเหตุผลรายตัว รายการที่ยังอยู่ยังติ๊กค้างไว้ให้ลองใหม่</span></li>
+  </ol>
+  <div class="note key"><span class="nt">รู้ไว้</span>ทำได้ทุกเครื่อง (ทั้งเครื่อง POS และ Backoffice) · API build ต้อง<strong>ออนไลน์</strong> (ตอนออฟไลน์ปุ่มกดไม่ได้) และเซิร์ฟเวอร์ลบแบบ soft delete ทีละรายการ · ระหว่างลบ ปุ่มแก้ไข/ปรับสต็อก/เพิ่มสินค้า/จัดการประเภทกดไม่ได้ · ประวัติการขายยังอยู่ แต่<strong>ไม่มีปุ่มกู้คืนในแอป</strong></div>
+
   <h2 class="sub">งานอื่นในหน้านี้ <span class="en">Other</span></h2>
   <ul class="ticks">
-    <li><strong>แก้ไข / ลบสินค้า:</strong> <span class="ui ghost">แก้ไข</span> ที่แถว · ไอคอนถังขยะ = ลบ <span class="msg">การลบจะไม่สามารถกู้คืนได้</span> — ประวัติการขายยังอยู่</li>
+    <li><strong>แก้ไข / ลบสินค้า:</strong> <span class="ui ghost">แก้ไข</span> ที่แถว · ไอคอนถังขยะ = ลบ <span class="msg">ลบสินค้า "{name}" ({partNo}) ? การลบจะไม่สามารถกู้คืนได้</span> — ประวัติการขายยังอยู่ · ใช้กฎเดียวกับการลบหลายรายการ (สินค้าที่มีรายการค้างส่งลบไม่ได้ เหตุผลขึ้นแถบล่างจอ)</li>
     <li><strong>กรอง:</strong> การ์ด <span class="ui ghost">ทั้งหมด</span> / <span class="ui ghost">สต็อกต่ำ</span> / <span class="ui ghost">หมดสต็อก</span> · ช่อง <span class="ui ghost">ค้นหา ชื่อ / รหัส…</span> · ชิปหมวด</li>
     <li><strong>ค้นหาตามรุ่นรถ:</strong> ปุ่ม <span class="ui ghost">ค้นหาตามรุ่นรถ</span> มุมขวาบน — ขั้นตอนอยู่ใน <a href="01-counter-staff.html#vehicle">ภาค 01 หัวข้อ 3.1</a></li>
     <li><strong>หมวด · ซัพพลายเออร์ · ป้ายราคา · คำนวณราคา · รายงานสต็อก:</strong> หัวข้อ 4.1</li>
@@ -338,7 +353,8 @@
     <li>ค่าทั้งสองจำไว้ในเบราว์เซอร์เครื่องนี้ ไม่ต้องออนไลน์ และไม่มีผลกับเครื่องอื่น</li>
   </ul>
   <figure><img src="img/settings-theme.png" alt="แท็บ ธีม — Dark / Light Mode และขนาดตัวอักษร 5 ระดับพร้อมตัวอย่าง" loading="lazy"><figcaption>แท็บ 🎨 ธีม — ธีมมืด/สว่าง และขนาดตัวอักษร</figcaption></figure>
-  <p><strong>ออกจากระบบ:</strong> แท็บ <span class="ui ghost">🔐 บัญชี / ผูกเครื่อง</span> → <span class="ui ghost">ออกจากระบบ</span> — เครื่องยังผูกอยู่และ PIN ออฟไลน์ยังอยู่ (ต่างจาก <span class="ui ghost">ยกเลิกการผูกเครื่อง</span> ในหัวข้อ 2)</p>
+  <p><strong>ออกจากระบบ:</strong> แท็บ <span class="ui ghost">🔐 บัญชี / ผูกเครื่อง</span> → <span class="ui ghost">ออกจากระบบ</span> — เครื่องยังผูกอยู่และ PIN ออฟไลน์ยังอยู่ (ต่างจาก <span class="ui ghost">ยกเลิกการผูกเครื่อง</span> ในหัวข้อ 2) · ตะกร้าและใบเสนอราคาที่ค้างในตะกร้าถูกล้าง รายการรอส่งไม่หาย คนถัดไปเข้าสู่ระบบแล้วไปหน้า ขายสินค้า</p>
+  <div class="note key"><span class="nt">เครื่องเดียวใช้หลายร้าน (API build)</span>ข้อมูลในเครื่องผูกกับร้านที่เข้าสู่ระบบ — เข้าด้วยบัญชีอีกร้าน ระบบล้างข้อมูลร้านเดิมในเครื่องแล้วดึงของร้านใหม่ทั้งหมด (ร้านใหม่ไม่เห็นสินค้า/ลูกค้า/ค่าตั้งของร้านเดิม) · ถ้ายังมีรายการค้างส่ง ชำระเครดิตค้างส่ง หรือบิลพัก ระบบ<strong>ปฏิเสธ</strong>: <span class="msg">เครื่องนี้ยังมีงานของร้านเดิมค้างอยู่ … จึงจะเข้าสู่ระบบร้านอื่นได้</span> — กะที่ยังเปิดอยู่ไม่ขวาง</div>
 
   <h2 class="sub">สำรองข้อมูล <span class="en">Backup</span></h2>
   <ol class="steps">
