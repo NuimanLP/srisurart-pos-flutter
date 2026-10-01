@@ -563,6 +563,9 @@ on void/return paths. Keep this order in any new write touching more than one of
   (history is not rewritten). On a PR, CI reads both files from the **base** commit, so an
   allowlist change takes effect **only after it merges** — land it in its own PR first.
   Inline `gitleaks:allow` is ignored. Details: `07_CICD_DEPLOY.md §2a`.
+  GitHub secret scanning + **push protection are ON since 2026-10-01** (verify with
+  `gh api repos/NuimanLP/srisurart-pos-flutter --jq .security_and_analysis`; ADR-0013 once claimed
+  "on" while off); Dependabot security updates are still disabled.
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
@@ -582,6 +585,8 @@ on void/return paths. Keep this order in any new write touching more than one of
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
   (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
   every Deploy run skipping. Derive RC/CN periods from now in `Asia/Bangkok` (`currentPeriod()`).
+- **Cancel stale waiting Deploy runs before approving a newer one** — a job waiting for approval holds
+  the `deploy-demo` slot and the newer run sits `pending`; the approval API needs a `comment`.
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
   `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
   images for that SHA are not on GHCR yet the job is skipped and the workflow still
@@ -663,6 +668,12 @@ on void/return paths. Keep this order in any new write touching more than one of
 - `setState(() { x = …; })`, never the arrow form, **when the assigned value is a
   `Future`** — the arrow form trips a Flutter assertion (compiled out in release builds,
   which is why it hid for a while).
+
+- **Local cache is tenant-scoped (API build, #539):** `AppMeta tenant_id` + `TenantCacheGuard`;
+  a switch resets via `resetTenantCache`/`resetPulledCache` and is **refused with unsent work**
+  (`TENANT_SWITCH_UNSENT_WORK`, `ENROL_UNSENT_WORK`). `cacheGeneration` fences late pulls/seeds, and
+  `ApiClient` has a session generation so a stale refresh/401/token never acts for the next user
+  (#534/#536). Replies to in-flight online writes are not fenced (accepted limit).
 
 **Writing in `docs/Backend_design/` (added 2026-09-23, PR #391 —
 `handoff_log/session-2026-09-23-key-primer-docs.md`):**

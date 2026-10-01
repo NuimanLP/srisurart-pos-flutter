@@ -2,6 +2,7 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
+- 2026-10-01 — [Handoff — บ่าย: bulk delete/ล้างตะกร้า, auth session, cache แยกร้าน (#539/#541), gitleaks + push protection, deploy `f4c821b`](session-2026-10-01-afternoon-ux-auth-tenant-gitleaks.md) — PR #527–#541 merged
 - 2026-10-01 — [Handoff — CI แดงเพราะข้ามเดือน (PR #525) · บทเรียน 19 deploy mob04 (PR #524) · deploy `4832172`](session-2026-10-01-month-rollover-and-lesson-19.md) — แก้เทสต์ sync-push ที่ hardcode เดือน · cron 03:00 รอบแรกยังไม่ตรวจ
 - 2026-09-30 — [Handoff — เคลียร์ backlog ค่ำ: ปิด #67 (15/15) #346 #10 #60 · แก้ backup-db.sh (PR #519) · deploy `00d3488` (แก้ CORS)](session-2026-09-30-evening-clear-backlog.md) — เอกสารล้วน · แก้ข้อมูลเดิม cron 09-29 fail ไม่ใช่ไม่มีสคริปต์ · backup-db.sh ใหม่ยังไม่ลงบน VM
 - 2026-09-30 — [Checklist — เดโม #344 end-to-end บน `mob04`](demo-344-checklist-2026-09-30.md) — checklist ลงมือทีละขั้น · ยังไม่รัน · ตัวขวาง: รหัสชั่วคราว AC2, tenant ใหม่ไม่มีสินค้า, ส่ง key ซ้ำต้อง DevTools/curl, #335 3 AC, #476
