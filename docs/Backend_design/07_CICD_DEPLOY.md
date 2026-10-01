@@ -131,8 +131,17 @@ flowchart LR
 1. **`paths:` ใช้กับ `pull_request` เท่านั้น และกรอง*ภายใน* workflow** (job `changes` +
    `if:` ราย job) ไม่ใช่ที่ระดับ trigger — PR ที่แตะแค่ `server/` จึงยังได้ `flutter-ci-status` สีเขียว
    (job ฝั่ง Flutter ถูก *skip* ไม่ใช่ *ไม่รัน*) ไม่งั้น required check ค้างตลอดกาล
-2. **`push` ขึ้น `main` ไม่กรองเลย** — ทุก commit บน main รันทั้งสอง workflow เต็ม จึงได้ image
-   ครบ 2 ตัวสำหรับ SHA เดียวเสมอ (= 1 release) และ job ปล่อยของใช้ `needs:` ธรรมดาได้
+2. **`push` ขึ้น `main` กรองแค่ "docs ล้วน" (2026-10-01)** — commit ที่มี code รันทั้งสอง workflow เต็ม
+   จึงได้ image ครบ 2 ตัวสำหรับ SHA เดียวเสมอ (= 1 release) และ job ปล่อยของใช้ `needs:` ธรรมดาได้.
+   แต่ถ้าช่วง `before..sha` เปลี่ยนแค่ `*.md` หรือ `docs/**` (ยกเว้น `docs/Backend_design/fixtures/**` ที่ test
+   อ่าน) — `deploy/scripts/push-changes-kind.sh` ใน job `changes` ตอบ `code=false` → job test/audit/
+   integration/`build-image`/`build-web` ถูก skip, **ไม่มี image ของ SHA นั้น**, `deploy.yml` `resolve` เจอ
+   `images_ready=false` แล้วจบเอง → job `deploy` (ที่ติด environment `demo`) ไม่ถูกเข้า ไม่มี "Waiting for review"
+   · ไฟล์อื่นทุกชนิด (รวม `.yml`, `.json` นอก docs) นับเป็น code · `before` เป็นศูนย์/หาไม่เจอ/diff พัง = รันทั้งหมด ·
+   `workflow_dispatch` ไม่กรอง · `secrets` (gitleaks) รันทุกครั้งและ status job ยังรายงานเขียวเสมอ
+   · 🔴 ผลข้างเคียง: VM อยู่ที่ SHA ของ code ล่าสุด ไม่ใช่ head ของ `main`; และถ้า docs commit ตามหลัง code commit
+   ทันที `resolve` ของ code commit จะเห็น "main has moved on" แล้วไม่ deploy (docs commit ก็ไม่มี image) →
+   ต้องสั่ง `workflow_dispatch` ด้วย SHA ของ code commit นั้นเอง
 3. **job `integration` รันทุก PR ไม่ดู path** — เป็น job ที่ถือ test อ่านข้ามร้าน (กติกา multi-tenant ข้อ 6
    ใน `03_ARCHITECTURE §5`) ~90 วินาที
 4. **status job ชื่อไม่ซ้ำกัน** (`flutter-ci-status`, `server-ci-status`) ใช้ `if: always()`

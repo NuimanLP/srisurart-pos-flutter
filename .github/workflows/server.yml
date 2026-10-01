@@ -24,8 +24,8 @@ name: Server CI
 # #39: path filtering no longer happens at the trigger level (a frontend-only PR must
 # still produce a green, always-reported server-ci-status, or it can never satisfy a
 # required check — CLAUDE.md "Known trap"). "lint"/"audit"/"unit" are gated per-job on the
-# `changes` job instead, and only for pull_request — a push to `main` always runs every
-# job. "integration" is deliberately NEVER gated on path (see its own comment below): it
+# `changes` job instead: a PR by path, a push to `main` runs every job unless it is docs-only
+# (deploy/scripts/push-changes-kind.sh). "integration" is never gated on server path (see its comment): it
 # carries the cross-tenant isolation tests in test/security.e2e-spec.ts, which run on
 # every PR regardless of what changed.
 
@@ -51,20 +51,33 @@ defaults:
 
 jobs:
   changes:
-    name: detect changed paths (pull_request only)
+    name: detect changed paths (pull_request + push)
     runs-on: ubuntu-latest
-    # Push and workflow_dispatch never filter (see the header comment), so this
-    # job — and the path check it feeds — only needs to run for a PR.
-    if: github.event_name == 'pull_request'
+    # PR: dorny/paths-filter. Push to main: deploy/scripts/push-changes-kind.sh over
+    # before..sha — a docs-only push skips the test/image jobs (no image, so no Deploy waiting
+    # for approval). workflow_dispatch never filters: this job is skipped and everything runs.
+    if: github.event_name != 'workflow_dispatch'
     permissions:
       contents: read
       # dorny/paths-filter on a pull_request event calls the PR-files API, which
       # needs this beyond the file-level `contents: read`.
       pull-requests: read
     outputs:
-      server: ${{ steps.filter.outputs.server }}
+      # Exactly one of the two steps runs per event; the other's output is ''.
+      server: ${{ steps.filter.outputs.server || steps.push.outputs.code }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # push: the before..sha range must be present.
+          fetch-depth: ${{ github.event_name == 'push' && 0 || 1 }}
+      - name: classify the pushed commits (docs-only vs code)
+        id: push
+        if: github.event_name == 'push'
+        working-directory: .
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: deploy/scripts/push-changes-kind.sh
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -164,8 +177,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.server == 'true') }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -184,8 +197,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.server == 'true') }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -214,8 +227,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.server == 'true') }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -229,7 +242,7 @@ jobs:
     name: nginx config check (nginx -t)
     runs-on: ubuntu-latest
     needs: [changes]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.server == 'true') }}
     defaults:
       run:
         working-directory: .
@@ -267,11 +280,14 @@ jobs:
   integration:
     name: integration (Postgres + both Redis, real migrations)
     runs-on: ubuntu-latest
-    # #39: deliberately NOT gated on `changes` — this job's `pnpm test:e2e` run
+    needs: [changes]
+    # #39: deliberately NOT gated on the *server path filter* — this job's `pnpm test:e2e` run
     # includes the cross-tenant isolation tests (test/security.e2e-spec.ts,
     # "denies cross-tenant read access" / "denies cross-tenant void" / "ignores
     # tenantId in request body"), which the sixth multi-tenant rule requires on
     # every PR regardless of which paths it touches (07_CICD_DEPLOY.md §2, rule 3).
+    # The only skip is a docs-only push to main (see `changes`): it builds no image either.
+    if: ${{ !cancelled() && (github.event_name != 'push' || needs.changes.outputs.server == 'true') }}
     env:
       # Base + dev overlay for every `docker compose` call in this job. The base file
       # publishes no datastore port; only the overlay does, and only on 127.0.0.1.
@@ -441,9 +457,14 @@ jobs:
             echo "::error::secret scan (gitleaks) did not succeed: ${{ needs.secrets.result }}"
             exit 1
           fi
-          # A skipped release image on a `main` push is not a pass: that is how #39's skip went
-          # unnoticed for every release (#184).
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.build-image.result }}" != "success" ]]; then
+          # On a push, `changes` must have classified it (true = code, false = docs only).
+          if [[ "${{ github.event_name }}" == "push" && "${{ needs.changes.outputs.server }}" != "true" && "${{ needs.changes.outputs.server }}" != "false" ]]; then
+            echo "::error::push was not classified by the changes job: '${{ needs.changes.outputs.server }}'"
+            exit 1
+          fi
+          # A skipped release image on a `main` push of CODE is not a pass: that is how #39's skip
+          # went unnoticed for every release (#184). A docs-only push (changes=false) builds none.
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.build-image.result }}" != "success" ]]; then
             echo "::error::build-image did not run on a main push: ${{ needs.build-image.result }}"
             exit 1
           fi

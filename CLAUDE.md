@@ -585,6 +585,11 @@ on void/return paths. Keep this order in any new write touching more than one of
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
   (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
   every Deploy run skipping. Derive RC/CN periods from now in `Asia/Bangkok` (`currentPeriod()`).
+- **Docs-only push to main skips tests/images → no deploy; the VM stays on the last code SHA** (2026-10-01,
+  `deploy/scripts/push-changes-kind.sh`, 07 §2 rule 2). Docs = `*.md` or `docs/**` except
+  `docs/Backend_design/fixtures/**`; anything else is code. Caveat: a docs commit landing right after a
+  code commit makes that code commit's Deploy say "main has moved on" — re-run via `workflow_dispatch`
+  with the code SHA.
 - **Cancel stale waiting Deploy runs before approving a newer one** — a job waiting for approval holds
   the `deploy-demo` slot and the newer run sits `pending`; the approval API needs a `comment`.
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
