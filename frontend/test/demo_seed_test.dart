@@ -9,6 +9,7 @@ import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/repositories/snapshot_repository.dart';
 
 Future<Map<String, int>> _counts(AppDatabase db) async => {
   'products': (await db.select(db.products).get()).length,
@@ -47,6 +48,12 @@ void main() {
     final db = AppDatabase(NativeDatabase.memory(), seedDemoData: false);
     addTearDown(db.close);
     expect(await _counts(db), _empty);
+    // Marked seed-free at create, so the purge never runs on it.
+    final marker = await (db.select(
+      db.appMeta,
+    )..where((t) => t.key.equals(AppDatabase.demoSeedPurgedKey))).get();
+    expect(marker, hasLength(1));
+    expect(await db.purgeDemoSeed(), isNull);
   });
 
   group('API build opening a DB that was seeded earlier', () {
@@ -78,8 +85,8 @@ void main() {
       final api = AppDatabase(NativeDatabase(file), seedDemoData: false);
       addTearDown(api.close);
       expect(await _counts(api), _empty);
-      // Idempotent: a second run finds nothing.
-      expect(await api.purgeDemoSeed(), 0);
+      // One-time: marked, a second run does not run at all.
+      expect(await api.purgeDemoSeed(), isNull);
     });
 
     test('keeps everything while an outbox op is unsent', () async {
@@ -160,5 +167,49 @@ void main() {
         );
       },
     );
+
+    test('a backup restored after the purge survives the next open', () async {
+      // A legacy backup carrying the db.js seed ids with no updatedAt — the
+      // shape the real shop's JS export has.
+      final src = AppDatabase(NativeDatabase.memory());
+      final backup = await SnapshotRepository(src).exportSnapshot();
+      await src.close();
+
+      var api = AppDatabase(NativeDatabase(file), seedDemoData: false);
+      expect(await _counts(api), _empty); // purged + marked
+      await SnapshotRepository(api).importLegacyBackup(backup);
+      expect(await _counts(api), _seeded);
+      await api.close();
+
+      api = AppDatabase(NativeDatabase(file), seedDemoData: false);
+      addTearDown(api.close);
+      expect(await _counts(api), _seeded);
+    });
+
+    test('a backup restored while the purge is still blocked is never purged '
+        'later', () async {
+      final src = AppDatabase(NativeDatabase.memory());
+      final backup = await SnapshotRepository(src).exportSnapshot();
+      await src.close();
+
+      final api = await withRaw((db) async {
+        await db
+            .into(db.pendingCreditPayments)
+            .insert(
+              PendingCreditPaymentsCompanion.insert(
+                id: 'cp1',
+                idempotencyKey: 'k1',
+                mechanicId: 'm1',
+                amount: '500.00',
+                paymentMethod: 'เงินสด',
+                createdAt: DateTime.utc(2026, 10, 1),
+              ),
+            );
+      });
+      await SnapshotRepository(api).importLegacyBackup(backup);
+      await api.delete(api.pendingCreditPayments).go();
+      expect(await api.purgeDemoSeed(), isNull);
+      expect(await _counts(api), _seeded);
+    });
   });
 }

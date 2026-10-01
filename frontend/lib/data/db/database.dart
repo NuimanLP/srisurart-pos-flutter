@@ -12,6 +12,7 @@
 
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'tables.dart';
 
@@ -88,6 +89,9 @@ class AppDatabase extends _$AppDatabase {
     onCreate: (m) async {
       await m.createAll();
       await _seed();
+      // Nothing to purge on a DB that never had the seed — and the marker
+      // keeps a later restored backup's seed-id rows safe (see purgeDemoSeed).
+      if (!seedDemoData) await _markDemoSeedPurged();
     },
     // API build: a DB created by an older build (or the Drift build) may still
     // hold the demo seed — purge it before the first screen reads anything.
@@ -225,9 +229,20 @@ class AppDatabase extends _$AppDatabase {
     'sup6',
   ];
 
-  /// Removes the untouched demo seed from an existing DB (API build). Returns
-  /// how many rows went, or `null` when it refused to run.
+  /// app_meta key set once the API build's DB is known seed-free.
+  static const demoSeedPurgedKey = 'demo_seed_purged';
+
+  Future<void> _markDemoSeedPurged() => into(appMeta).insertOnConflictUpdate(
+    const AppMetaCompanion(key: Value(demoSeedPurgedKey), value: Value('1')),
+  );
+
+  /// Removes the untouched demo seed from an existing DB (API build), ONCE.
+  /// Returns how many rows went, or `null` when it did not run.
   ///
+  /// • One-time: a successful run (or a fresh API-build create) writes the
+  ///   [demoSeedPurgedKey] marker and every later call is a no-op — a legacy
+  ///   backup restored afterwards (`importLegacyBackup`) may carry `c1`/`p1`…
+  ///   with no `updatedAt`, and must never be deleted on the next open.
   /// • Refuses while ANY `outbox_ops` row (pending/stuck/rejected) or queued
   ///   credit payment exists — unsent local work may name a seed row; the
   ///   next app open retries.
@@ -240,9 +255,20 @@ class AppDatabase extends _$AppDatabase {
   /// same default list the server answers with, and the settings row is the
   /// singleton `GET /settings` patches.
   Future<int?> purgeDemoSeed() => transaction(() async {
+    final marker = await (select(
+      appMeta,
+    )..where((t) => t.key.equals(demoSeedPurgedKey))).getSingleOrNull();
+    if (marker != null) return null;
     final queued = await (select(outboxOps)..limit(1)).get();
     final credit = await (select(pendingCreditPayments)..limit(1)).get();
-    if (queued.isNotEmpty || credit.isNotEmpty) return null;
+    if (queued.isNotEmpty || credit.isNotEmpty) {
+      debugPrint(
+        'purgeDemoSeed: skipped — unsent local work '
+        '(outbox_ops rows: ${queued.isNotEmpty}, pending credit payments: '
+        '${credit.isNotEmpty}); retrying on next open',
+      );
+      return null;
+    }
     var n = await (delete(
       products,
     )..where((t) => t.id.isIn(seedProductIds) & t.updatedAt.isNull())).go();
@@ -261,6 +287,7 @@ class AppDatabase extends _$AppDatabase {
                   ),
             ))
             .go();
+    await _markDemoSeedPurged();
     return n;
   });
 
