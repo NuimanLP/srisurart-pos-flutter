@@ -139,9 +139,9 @@ flowchart LR
    `images_ready=false` แล้วจบเอง → job `deploy` (ที่ติด environment `demo`) ไม่ถูกเข้า ไม่มี "Waiting for review"
    · ไฟล์อื่นทุกชนิด (รวม `.yml`, `.json` นอก docs) นับเป็น code · `before` เป็นศูนย์/หาไม่เจอ/diff พัง = รันทั้งหมด ·
    `workflow_dispatch` ไม่กรอง · `secrets` (gitleaks) รันทุกครั้งและ status job ยังรายงานเขียวเสมอ
-   · 🔴 ผลข้างเคียง: VM อยู่ที่ SHA ของ code ล่าสุด ไม่ใช่ head ของ `main`; และถ้า docs commit ตามหลัง code commit
-   ทันที `resolve` ของ code commit จะเห็น "main has moved on" แล้วไม่ deploy (docs commit ก็ไม่มี image) →
-   ต้องสั่ง `workflow_dispatch` ด้วย SHA ของ code commit นั้นเอง
+   · VM อยู่ที่ SHA ของ code ล่าสุด ไม่ใช่ head ของ `main` · ถ้า docs commit ตามหลัง code commit ทันที `resolve` ของ
+   code commit จะดูช่วงระหว่าง SHA นั้นกับ head ด้วยสคริปต์เดียวกัน: docs ล้วน = ยัง deploy SHA นั้น, มี code = ข้าม
+   ("main has moved on") เหมือนเดิม
 3. **job `integration` รันทุก PR ไม่ดู path** — เป็น job ที่ถือ test อ่านข้ามร้าน (กติกา multi-tenant ข้อ 6
    ใน `03_ARCHITECTURE §5`) ~90 วินาที
 4. **status job ชื่อไม่ซ้ำกัน** (`flutter-ci-status`, `server-ci-status`) ใช้ `if: always()`
