@@ -13,6 +13,7 @@
 // Strings: agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -66,6 +67,10 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
     final ok = await context.read<AuthCubit>().changePassword(
       _newController.text,
     );
+    // Have the browser save the NEW password, not the temporary one it may
+    // have captured at the login just before. Before the mounted check: a
+    // success redirects away and unmounts the form.
+    if (ok) TextInput.finishAutofillContext();
     if (ok && mounted) widget.onSuccess?.call();
   }
 
@@ -77,60 +82,67 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
         ? state.errorMessage
         : null;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(ChangePasswordForm.intro),
-        const SizedBox(height: 16),
-        PasswordField(
-          key: const Key('change-password-new'),
-          controller: _newController,
-          enabled: !busy,
-          decoration: const InputDecoration(
-            labelText: ChangePasswordForm.newLabel,
-            helperText: ChangePasswordForm.hint,
-            prefixIcon: Icon(Icons.lock_outline),
+    // Only a successful save commits to the browser (_submit); leaving the
+    // form any other way (cancel, expired token) saves nothing.
+    return AutofillGroup(
+      onDisposeAction: AutofillContextAction.cancel,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(ChangePasswordForm.intro),
+          const SizedBox(height: 16),
+          PasswordField(
+            key: const Key('change-password-new'),
+            controller: _newController,
+            enabled: !busy,
+            autofillHints: const [AutofillHints.newPassword],
+            decoration: const InputDecoration(
+              labelText: ChangePasswordForm.newLabel,
+              helperText: ChangePasswordForm.hint,
+              prefixIcon: Icon(Icons.lock_outline),
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        PasswordField(
-          key: const Key('change-password-confirm'),
-          controller: _confirmController,
-          enabled: !busy,
-          onSubmitted: (_) => _submit(),
-          decoration: const InputDecoration(
-            labelText: ChangePasswordForm.confirmLabel,
-            prefixIcon: Icon(Icons.lock_reset),
-          ),
-        ),
-        const SizedBox(height: 12),
-        PasswordRequirements(
-          password: _newController.text,
-          confirm: _confirmController.text,
-        ),
-        if (error != null) ...[
           const SizedBox(height: 12),
-          Text(error, style: const TextStyle(color: AppColors.error)),
+          PasswordField(
+            key: const Key('change-password-confirm'),
+            controller: _confirmController,
+            enabled: !busy,
+            autofillHints: const [AutofillHints.newPassword],
+            onSubmitted: (_) => _submit(),
+            decoration: const InputDecoration(
+              labelText: ChangePasswordForm.confirmLabel,
+              prefixIcon: Icon(Icons.lock_reset),
+            ),
+          ),
+          const SizedBox(height: 12),
+          PasswordRequirements(
+            password: _newController.text,
+            confirm: _confirmController.text,
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 12),
+            Text(error, style: const TextStyle(color: AppColors.error)),
+          ],
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: busy || !_rulesMet ? null : _submit,
+            child: busy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text(ChangePasswordForm.submit),
+          ),
+          TextButton(
+            onPressed: busy
+                ? null
+                : () => context.read<AuthCubit>().cancelPasswordChange(),
+            child: const Text(ChangePasswordForm.cancel),
+          ),
         ],
-        const SizedBox(height: 16),
-        FilledButton(
-          onPressed: busy || !_rulesMet ? null : _submit,
-          child: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text(ChangePasswordForm.submit),
-        ),
-        TextButton(
-          onPressed: busy
-              ? null
-              : () => context.read<AuthCubit>().cancelPasswordChange(),
-          child: const Text(ChangePasswordForm.cancel),
-        ),
-      ],
+      ),
     );
   }
 }

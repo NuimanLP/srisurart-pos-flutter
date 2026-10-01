@@ -380,7 +380,7 @@ class ApiClient {
     if (storage == null) return false;
     final currentRefreshToken = await storage.getRefreshToken();
     if (currentRefreshToken == null || currentRefreshToken.isEmpty) {
-      await _expireSession(storage);
+      await _expireSession(storage, currentRefreshToken);
       return false;
     }
 
@@ -403,7 +403,7 @@ class ApiClient {
     final status = response.statusCode;
 
     if (status == 401 || status == 403) {
-      await _expireSession(storage);
+      await _expireSession(storage, currentRefreshToken);
       return false;
     }
 
@@ -438,7 +438,19 @@ class ApiClient {
     throw ApiException(statusCode: status, code: '');
   }
 
-  Future<void> _expireSession(TokenStorage storage) async {
+  /// Ends the session [refusedRefreshToken] belonged to — and only that one.
+  ///
+  /// A refusal can land after the counter logged out and a new person logged
+  /// in (a request that left before the logout, or one sent in between with no
+  /// token at all). The stored refresh token is then the new session's, and
+  /// clearing it would sign that person out. So a newer session is left alone;
+  /// the stale request still fails with its own 401.
+  Future<void> _expireSession(
+    TokenStorage storage,
+    String? refusedRefreshToken,
+  ) async {
+    final stored = await storage.getRefreshToken();
+    if ((stored ?? '') != (refusedRefreshToken ?? '')) return;
     await storage.clearAuthTokens();
     onSessionExpired?.call();
   }

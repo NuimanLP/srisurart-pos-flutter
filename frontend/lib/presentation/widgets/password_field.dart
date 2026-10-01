@@ -40,6 +40,7 @@ class PasswordField extends StatefulWidget {
     this.textInputAction,
     this.onChanged,
     this.onSubmitted,
+    this.autofillHints,
   });
 
   static const String showTooltip = 'แสดงรหัสผ่าน';
@@ -61,6 +62,10 @@ class PasswordField extends StatefulWidget {
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
 
+  /// [AutofillHints.password] on a login, [AutofillHints.newPassword] where a
+  /// password is set — so the browser offers, and later saves, the right one.
+  final Iterable<String>? autofillHints;
+
   @override
   State<PasswordField> createState() => _PasswordFieldState();
 }
@@ -81,6 +86,7 @@ class _PasswordFieldState extends State<PasswordField> {
       textInputAction: widget.textInputAction,
       onChanged: widget.onChanged,
       onFieldSubmitted: widget.onSubmitted,
+      autofillHints: widget.autofillHints,
       decoration: widget.decoration.copyWith(
         suffixIcon: IconButton(
           icon: Icon(_obscured ? Icons.visibility : Icons.visibility_off),

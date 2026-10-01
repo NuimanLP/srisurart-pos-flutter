@@ -86,14 +86,19 @@ GoRouter buildAppRouter({
 ///
 /// Anything but [Authenticated] — including [AuthInitial] while the stored
 /// session is still being read, and [AuthLoading] during a login — belongs on
-/// the login route, which remembers the requested location in `?from=`. A
-/// signed-in session on the login route is sent back there.
+/// the login route, which remembers the requested location in `?from=` —
+/// except after a deliberate logout ([Unauthenticated.signedOut]), whose next
+/// login starts at checkout. A signed-in session on the login route is sent
+/// back there.
 String? authRedirect(AuthState auth, Uri location) {
   final onLogin = location.path == AppRoutes.login;
   if (auth is Authenticated) {
     return onLogin ? safeReturnPath(location.queryParameters['from']) : null;
   }
   if (onLogin) return null;
+  // A deliberate logout hands the till to the next person: they start at
+  // checkout, not on the screen the last one left from.
+  if (auth is Unauthenticated && auth.signedOut) return AppRoutes.login;
   final from = location.toString();
   return Uri(
     path: AppRoutes.login,

@@ -346,6 +346,50 @@ void main() {
     expect(tokenStorage.refreshToken, isNull);
   });
 
+  test('a stale refusal never signs out a session logged in after it', () async {
+    // Logout → re-login while an old request's refresh is still on the wire:
+    // the server refuses the OLD refresh token, but the stored one is now the
+    // new session's. Clearing it would throw the new person back to login.
+    tokenStorage.accessToken = 'old-access';
+    tokenStorage.refreshToken = 'old-refresh';
+    var expired = 0;
+    final client = ApiClient(
+      baseUrl: 'http://server.test',
+      tokenStorage: tokenStorage,
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/auth/refresh')) {
+          // The counter logs out and the next person logs in meanwhile.
+          tokenStorage.accessToken = 'new-access';
+          tokenStorage.refreshToken = 'new-refresh';
+          return http.Response(
+            jsonEncode({
+              'status': 'error',
+              'error': {'code': 'UNAUTHENTICATED', 'message': 'refresh revoked'},
+            }),
+            401,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'status': 'error',
+            'error': {'code': 'UNAUTHENTICATED', 'message': 'token expired'},
+          }),
+          401,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    )..onSessionExpired = () => expired++;
+
+    await expectLater(
+      () => client.get('/api/v1/products'),
+      throwsA(isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401)),
+    );
+    expect(expired, 0);
+    expect(tokenStorage.accessToken, 'new-access');
+    expect(tokenStorage.refreshToken, 'new-refresh');
+  });
+
   group('#161 a refresh whose fate is unknown keeps the session', () {
     const connectionSentence = 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์';
 

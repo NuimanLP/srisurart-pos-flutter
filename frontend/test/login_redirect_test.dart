@@ -29,6 +29,7 @@ import 'package:srisurart_pos/core/router/app_router.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
+import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 import 'package:srisurart_pos/presentation/blocs/auth_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
@@ -167,6 +168,17 @@ void main() {
       );
       expect(authRedirect(signedIn, Uri.parse('/login')), '/');
       expect(authRedirect(signedIn, Uri.parse('/reports')), isNull);
+    });
+
+    test('after a deliberate logout login forgets the last screen', () {
+      const signedOut = Unauthenticated(signedOut: true);
+      expect(authRedirect(signedOut, Uri.parse('/settings')), '/login');
+      expect(authRedirect(signedOut, Uri.parse('/login')), isNull);
+      // A session expiry still remembers it.
+      expect(
+        authRedirect(const Unauthenticated(), Uri.parse('/settings')),
+        '/login?from=%2Fsettings',
+      );
     });
 
     test('only an in-app path is followed back', () {
@@ -531,6 +543,14 @@ void main() {
           await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
           await settle(tester);
 
+          bool saved() => tester.testTextInput.log.any(
+                (c) =>
+                    c.method == 'TextInput.finishAutofillContext' &&
+                    c.arguments == true,
+              );
+          // A temporary password is never offered to the password manager.
+          expect(saved(), isFalse);
+
           final newBox = find.byKey(const Key('change-password-new'));
           await tester.enterText(newBox, chosen);
           // The eye toggle (#529) must not lose or alter what was typed.
@@ -542,6 +562,9 @@ void main() {
           await settle(tester);
           expect(cubit.state, isA<Authenticated>());
           expect(repo.newPasswordSent, chosen);
+          // After the change the browser is told to save — the NEW password.
+          expect(saved(), isTrue);
+          tester.testTextInput.log.clear();
 
           repo.isAuth = false;
           repo.user = null;
@@ -555,6 +578,7 @@ void main() {
           await settle(tester);
           expect(repo.loginPasswords, ['TempPassw0rdXyz', chosen]);
           expect(cubit.state, isA<Authenticated>());
+          expect(saved(), isTrue);
           await finish(tester);
         });
       },
@@ -592,5 +616,122 @@ void main() {
         });
       },
     );
+
+    group('deliberate logout vs session expiry (owner 2026-10-01)', () {
+      const line = CartLine(
+        productId: 'p1',
+        name: 'x',
+        price: 10,
+        originalPrice: 10,
+        cost: 5,
+        qty: 1,
+      );
+      final quote = QuoteWithItems(
+        QuoteRow(
+          id: 'q1',
+          quoteNo: 'QT-1',
+          status: 'open',
+          date: DateTime(2026, 10, 1),
+          validUntil: DateTime(2026, 10, 31),
+        ),
+        const [],
+      );
+
+      Future<BuildContext> signInOnSettingsWithCart(WidgetTester tester) async {
+        repo.isAuth = true;
+        repo.user = const AuthUser(id: 'u-1', username: 'pos', role: 'cashier');
+        await cubit.init();
+        await pumpApp(tester, requireLogin: true);
+        await settle(tester);
+        final ctx = tester.element(find.byType(AppShell));
+        GoRouter.of(ctx).go(AppRoutes.settings);
+        await settle(tester);
+        ctx.read<CartCubit>().setLines(const [line]);
+        ctx.read<PendingQuoteCubit>().set(quote);
+        return ctx;
+      }
+
+      Future<void> signInAgain(WidgetTester tester) async {
+        await tester.enterText(find.byType(TextField).at(0), 'next');
+        await tester.enterText(find.byType(TextField).at(1), 'secret');
+        await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+        await settle(tester);
+        await settle(tester);
+      }
+
+      testWidgets('logout: cart and quote cleared, next login lands on checkout',
+          (tester) async {
+        await tester.runAsync(() async {
+          final ctx = await signInOnSettingsWithCart(tester);
+          final cart = ctx.read<CartCubit>();
+          final pending = ctx.read<PendingQuoteCubit>();
+
+          repo.isAuth = false;
+          repo.user = null;
+          await cubit.logout();
+          await settle(tester);
+          expect(find.byType(LoginScreen), findsOneWidget);
+          expect(
+            location(tester, find.byType(LoginScreen)).queryParameters,
+            isEmpty,
+          );
+          expect(cart.state, isEmpty);
+          expect(pending.state, isNull);
+
+          await signInAgain(tester);
+          expect(find.byType(CheckoutScreen), findsOneWidget);
+          expect(find.byType(SettingsScreen), findsNothing);
+          await finish(tester);
+        });
+      });
+
+      testWidgets('session expiry: cart and quote kept, login returns to the screen',
+          (tester) async {
+        await tester.runAsync(() async {
+          final ctx = await signInOnSettingsWithCart(tester);
+          final cart = ctx.read<CartCubit>();
+          final pending = ctx.read<PendingQuoteCubit>();
+
+          repo.isAuth = false;
+          repo.user = null;
+          await cubit.sessionExpired();
+          await settle(tester);
+          expect(find.byType(LoginScreen), findsOneWidget);
+          expect(cart.state, [line]);
+          expect(pending.state, same(quote));
+
+          await signInAgain(tester);
+          expect(find.byType(SettingsScreen), findsOneWidget);
+          expect(cart.state, [line]);
+          await finish(tester);
+        });
+      });
+    });
+
+    testWidgets('login and change forms carry the browser autofill hints', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        await cubit.init();
+        await pumpApp(tester, requireLogin: true);
+        await settle(tester);
+        List<String>? hints(int i) =>
+            tester.widget<EditableText>(find.byType(EditableText).at(i)).autofillHints?.toList();
+        expect(find.byType(AutofillGroup), findsOneWidget);
+        expect(hints(0), [AutofillHints.username]);
+        expect(hints(1), [AutofillHints.password]);
+
+        repo.pwchangeToken = 'pwchange-token';
+        await tester.enterText(find.byType(TextField).at(0), 'owner');
+        await tester.enterText(find.byType(TextField).at(1), 'TempPassw0rdXyz');
+        await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+        await settle(tester);
+        expect(find.byType(ChangePasswordForm), findsOneWidget);
+        expect(find.byType(AutofillGroup), findsOneWidget);
+        expect(hints(0), [AutofillHints.newPassword]);
+        expect(hints(1), [AutofillHints.newPassword]);
+        await finish(tester);
+      });
+    });
   });
 }
