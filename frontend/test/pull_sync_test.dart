@@ -612,4 +612,127 @@ void main() {
       expect(pullInvoked, isTrue);
     });
   });
+
+  group('Ledger guard on pull (customers/mechanics, twin of 08 §15)', () {
+    ApiClient onePage(List<Map<String, dynamic>> rows) => ApiClient(
+          tokenStorage: tokenStorage,
+          httpClient: MockClient((req) async => http.Response(
+                jsonEncode({
+                  'data': rows,
+                  'meta': {
+                    'total': rows.length,
+                    'page': 1,
+                    'limit': 100,
+                    'totalPages': 1,
+                    'nextCursor': null,
+                  },
+                }),
+                200,
+                headers: {'content-type': 'application/json'},
+              )),
+        );
+
+    Future<void> seedCustomer(String id, {required int points, required double spend}) =>
+        db.into(db.customers).insert(CustomersCompanion.insert(
+              id: id,
+              code: 'C-$id',
+              name: 'old $id',
+              nameTH: 'old $id',
+              createdAt: '2026-09-01',
+              points: drift.Value(points),
+              totalSpend: drift.Value(spend),
+            ));
+
+    Future<void> seedMechanic(String id, {required double balance, required double sales}) =>
+        db.into(db.mechanics).insert(MechanicsCompanion.insert(
+              id: id,
+              code: 'M-$id',
+              name: 'old $id',
+              createdAt: '2026-09-01',
+              creditLimit: const drift.Value(5000),
+              creditBalance: drift.Value(balance),
+              totalSales: drift.Value(sales),
+            ));
+
+    Map<String, dynamic> serverCustomer(String id) => {
+          'id': id,
+          'code': 'C-$id',
+          'name': 'new $id',
+          'nameTH': 'new $id',
+          'points': 1,
+          'totalSpend': '10.00',
+          'updatedAt': '2026-09-20T10:00:00.000Z',
+        };
+
+    Map<String, dynamic> serverMechanic(String id) => {
+          'id': id,
+          'code': 'M-$id',
+          'name': 'new $id',
+          'creditLimit': '9000.00',
+          'creditBalance': '0.00',
+          'totalSales': '0.00',
+          'totalDiscount': '0.00',
+          'totalMarkup': '0.00',
+          'updatedAt': '2026-09-20T10:00:00.000Z',
+        };
+
+    test('customer with a pending outbox op keeps local spend/points; other fields update', () async {
+      await seedCustomer('c1', points: 50, spend: 500);
+      await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+            opId: 'op-1',
+            idempotencyKey: 'k-1',
+            type: 'sale.create',
+            payload: jsonEncode({'customerId': 'c1', 'items': []}),
+            aggregates: jsonEncode(['sale:s1', 'customer:c1']),
+            createdAt: DateTime.now().toUtc(),
+            status: 'pending',
+          ));
+
+      await ApiCustomersRepository(db, onePage([serverCustomer('c1')]))
+          .syncFromServer(forceFull: true);
+
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('c1'))).getSingle();
+      expect(c.points, 50);
+      expect(c.totalSpend, 500);
+      expect(c.name, 'new c1');
+    });
+
+    test('mechanic with a queued credit payment keeps local balance/totals; other fields update', () async {
+      await seedMechanic('m1', balance: 700, sales: 2000);
+      await db.into(db.pendingCreditPayments).insert(PendingCreditPaymentsCompanion.insert(
+            id: 'cp-1',
+            idempotencyKey: 'k-cp-1',
+            mechanicId: 'm1',
+            amount: '300.00',
+            paymentMethod: 'เงินสด',
+            createdAt: DateTime.now().toUtc(),
+          ));
+
+      await ApiMechanicsRepository(db, onePage([serverMechanic('m1')]))
+          .syncFromServer(forceFull: true);
+
+      final m = await (db.select(db.mechanics)..where((t) => t.id.equals('m1'))).getSingle();
+      expect(m.creditBalance, 700);
+      expect(m.totalSales, 2000);
+      expect(m.creditLimit, 9000);
+      expect(m.name, 'new m1');
+    });
+
+    test('no unsent work: pull overwrites customer and mechanic totals', () async {
+      await seedCustomer('c2', points: 50, spend: 500);
+      await seedMechanic('m2', balance: 700, sales: 2000);
+
+      await ApiCustomersRepository(db, onePage([serverCustomer('c2')]))
+          .syncFromServer(forceFull: true);
+      await ApiMechanicsRepository(db, onePage([serverMechanic('m2')]))
+          .syncFromServer(forceFull: true);
+
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('c2'))).getSingle();
+      expect(c.points, 1);
+      expect(c.totalSpend, 10);
+      final m = await (db.select(db.mechanics)..where((t) => t.id.equals('m2'))).getSingle();
+      expect(m.creditBalance, 0);
+      expect(m.totalSales, 0);
+    });
+  });
 }

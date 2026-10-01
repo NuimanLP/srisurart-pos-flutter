@@ -16,6 +16,7 @@ import '../../core/network/transport_failure.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
 import '../storage/token_storage.dart' show TokenStoreUnavailableException;
+import '../sync/outbox_ledger_refs.dart';
 import '../sync/sync_facade.dart';
 import '../sync/sync_service.dart';
 import 'api/api_wire.dart';
@@ -124,6 +125,11 @@ class ApiMechanicsRepository extends MechanicsRepository {
         afterId = null;
       }
 
+      // Ledger guard (twin of the 08 §15 stock guard): a mechanic with unsent
+      // local work (outbox op or queued credit payment) keeps its local
+      // credit balance and running totals — the server has not seen it.
+      final guarded = (await ledgerIdsInOutbox(db)).mechanics;
+
       bool hasMore = true;
       String? latestServerCursor;
 
@@ -138,16 +144,33 @@ class ApiMechanicsRepository extends MechanicsRepository {
         final items = res.data;
 
         if (items.isNotEmpty) {
-          if (!await db.writeCacheIfCurrent(gen, () => db.batch((batch) {
-            for (final item in items) {
-              if (item is Map) {
-                final comp = _mechanicToCompanion(Map<String, dynamic>.from(item));
-                batch.insert(
-                  db.mechanics,
-                  comp,
-                  onConflict: DoUpdate((old) => comp),
-                );
+          final companions = <MechanicsCompanion>[];
+          for (final item in items) {
+            if (item is Map) {
+              var comp = _mechanicToCompanion(Map<String, dynamic>.from(item));
+              if (guarded.contains(comp.id.value)) {
+                final local = await (db.select(db.mechanics)
+                      ..where((t) => t.id.equals(comp.id.value)))
+                    .getSingleOrNull();
+                if (local != null) {
+                  comp = comp.copyWith(
+                    creditBalance: Value(local.creditBalance),
+                    totalSales: Value(local.totalSales),
+                    totalDiscount: Value(local.totalDiscount),
+                    totalMarkup: Value(local.totalMarkup),
+                  );
+                }
               }
+              companions.add(comp);
+            }
+          }
+          if (!await db.writeCacheIfCurrent(gen, () => db.batch((batch) {
+            for (final comp in companions) {
+              batch.insert(
+                db.mechanics,
+                comp,
+                onConflict: DoUpdate((old) => comp),
+              );
             }
           }))) {
             return;
