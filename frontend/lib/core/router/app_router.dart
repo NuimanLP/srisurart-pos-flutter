@@ -95,10 +95,16 @@ String? authRedirect(AuthState auth, Uri location) {
   if (auth is Authenticated) {
     return onLogin ? safeReturnPath(location.queryParameters['from']) : null;
   }
-  if (onLogin) return null;
   // A deliberate logout hands the till to the next person: they start at
-  // checkout, not on the screen the last one left from.
-  if (auth is Unauthenticated && auth.signedOut) return AppRoutes.login;
+  // checkout, not on the screen the last one left from — even if an expiry
+  // put a `?from=` on the login route first.
+  final signedOut = auth is Unauthenticated && auth.signedOut;
+  if (onLogin) {
+    return signedOut && location.queryParameters.containsKey('from')
+        ? AppRoutes.login
+        : null;
+  }
+  if (signedOut) return AppRoutes.login;
   final from = location.toString();
   return Uri(
     path: AppRoutes.login,

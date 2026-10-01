@@ -40,12 +40,6 @@ class _LoginFormState extends State<LoginForm> {
   String? _errorMessage;
   bool _usePin = true;
 
-  // AuthLoading (a login in flight) carries no device role. Read as "not pos"
-  // it flipped the chip to `โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)` on an
-  // enrolled till for the length of every login. Keep the last known answer.
-  bool _lastIsPos = false;
-  bool _lastUnconfirmedEnrolment = false;
-
   @override
   void dispose() {
     _usernameController.dispose();
@@ -144,12 +138,15 @@ class _LoginFormState extends State<LoginForm> {
     // new device token. The old banner used `isPos` alone and so kept saying
     // "ยังไม่ได้ผูกเครื่อง POS" (POS not bound yet) for an already-enrolled
     // device until the next login.
-    final loading = authState is AuthLoading;
-    final isPos = loading
-        ? _lastIsPos
-        : authState is Authenticated
-            ? authState.isPos
-            : (authState is Unauthenticated ? authState.isPos : false);
+    // AuthLoading (a login in flight) carries the device as it was when the
+    // login started. Reading it as "not pos" flipped an enrolled till's chip to
+    // `โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)` for the length of every login.
+    final isPos = switch (authState) {
+      Authenticated() => authState.isPos,
+      Unauthenticated() => authState.isPos,
+      AuthLoading() => authState.isPos,
+      _ => false,
+    };
     // The stale-banner gap only exists between a successful enrol and the
     // NEXT login: `Unauthenticated.hasDeviceEnrolled` is derived from the
     // stored device token (set the moment `AuthCubit.enrolDevice` succeeds),
@@ -158,11 +155,12 @@ class _LoginFormState extends State<LoginForm> {
     // own login-confirmed `drole` — there is no gap to bridge, so this must
     // never touch the Authenticated branch (a confirmed, logged-in backoffice
     // device must keep the plain "not pos" wording, not an "unconfirmed" one).
-    final hasUnconfirmedEnrolment = loading
-        ? _lastUnconfirmedEnrolment
-        : authState is Unauthenticated && authState.hasDeviceEnrolled && !isPos;
-    _lastIsPos = isPos;
-    _lastUnconfirmedEnrolment = hasUnconfirmedEnrolment;
+    final hasUnconfirmedEnrolment = !isPos &&
+        switch (authState) {
+          Unauthenticated() => authState.hasDeviceEnrolled,
+          AuthLoading() => authState.hasDeviceEnrolled,
+          _ => false,
+        };
     final pinRepo = context.read<OfflinePinRepository>();
 
     return SyncStatusBuilder(
