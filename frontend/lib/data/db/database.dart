@@ -1,7 +1,8 @@
 // AppDatabase — Drift database root.
 //
-// Schema v1. Seeds the JS SEED_* demo data and _DEFAULT_SETTINGS on first
-// create (onCreate), matching pos/db.js EXACTLY.
+// Seeds _DEFAULT_SETTINGS + SEED_CATEGORIES on first create (onCreate),
+// matching pos/db.js EXACTLY; the JS SEED_* demo business data only on the
+// Drift-only build (`seedDemoData`) — the API build starts as an empty shop.
 //
 //  • App runtime:   AppDatabase.open()  → drift_flutter driftDatabase(name: 'srisurart')
 //  • Tests:         AppDatabase(NativeDatabase.memory())
@@ -15,6 +16,8 @@ import 'package:drift_flutter/drift_flutter.dart';
 import 'tables.dart';
 
 part 'database.g.dart';
+
+const _useApiWrites = bool.fromEnvironment('USE_API_WRITES');
 
 @DriftDatabase(
   tables: [
@@ -47,7 +50,15 @@ part 'database.g.dart';
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase(super.e);
+  /// [seedDemoData]: whether a fresh DB gets the db.js demo business data
+  /// (products, customers, mechanics, suppliers). The Drift-only build keeps
+  /// it; the API build (`USE_API_WRITES`) must not — there the server is the
+  /// truth and a seeded row reads as the tenant's own (a new tenant is an
+  /// empty shop). On the API build an existing DB also has any untouched
+  /// seed rows purged on open ([purgeDemoSeed]).
+  AppDatabase(super.e, {this.seedDemoData = !_useApiWrites});
+
+  final bool seedDemoData;
 
   /// App entry point — opens the on-device SQLite DB via drift_flutter.
   /// Tests should instead construct `AppDatabase(NativeDatabase.memory())`.
@@ -77,6 +88,11 @@ class AppDatabase extends _$AppDatabase {
     onCreate: (m) async {
       await m.createAll();
       await _seed();
+    },
+    // API build: a DB created by an older build (or the Drift build) may still
+    // hold the demo seed — purge it before the first screen reads anything.
+    beforeOpen: (details) async {
+      if (!seedDemoData && !details.wasCreated) await purgeDemoSeed();
     },
     // v1 → v2: sync bookkeeping columns + the cost snapshot on sale lines.
     // All are nullable, so existing rows stay valid and no data is rewritten —
@@ -183,6 +199,71 @@ class AppDatabase extends _$AppDatabase {
     },
   );
 
+  /// Ids of the db.js SEED_* demo rows [_seed] inserts when [seedDemoData].
+  static const seedProductIds = [
+    'p1',
+    'p2',
+    'p3',
+    'p4',
+    'p5',
+    'p6',
+    'p7',
+    'p8',
+    'p9',
+    'p10',
+    'p11',
+    'p12',
+  ];
+  static const seedCustomerIds = ['c1', 'c2', 'c3'];
+  static const seedMechanicIds = ['m1', 'm2', 'm3'];
+  static const seedSupplierIds = [
+    'sup1',
+    'sup2',
+    'sup3',
+    'sup4',
+    'sup5',
+    'sup6',
+  ];
+
+  /// Removes the untouched demo seed from an existing DB (API build). Returns
+  /// how many rows went, or `null` when it refused to run.
+  ///
+  /// • Refuses while ANY `outbox_ops` row (pending/stuck/rejected) or queued
+  ///   credit payment exists — unsent local work may name a seed row; the
+  ///   next app open retries.
+  /// • Only rows still exactly as seeded go: `updatedAt IS NULL`. A row the
+  ///   server sent (pull/upsert stamps the server's `updatedAt`) or a local
+  ///   edit stamped is kept — a tenant that imported a legacy backup may
+  ///   really own `p1`.
+  /// • Seed suppliers go only once their product is gone.
+  /// Categories, settings and app_meta are left alone: categories are the
+  /// same default list the server answers with, and the settings row is the
+  /// singleton `GET /settings` patches.
+  Future<int?> purgeDemoSeed() => transaction(() async {
+    final queued = await (select(outboxOps)..limit(1)).get();
+    final credit = await (select(pendingCreditPayments)..limit(1)).get();
+    if (queued.isNotEmpty || credit.isNotEmpty) return null;
+    var n = await (delete(
+      products,
+    )..where((t) => t.id.isIn(seedProductIds) & t.updatedAt.isNull())).go();
+    n += await (delete(
+      customers,
+    )..where((t) => t.id.isIn(seedCustomerIds) & t.updatedAt.isNull())).go();
+    n += await (delete(
+      mechanics,
+    )..where((t) => t.id.isIn(seedMechanicIds) & t.updatedAt.isNull())).go();
+    n +=
+        await (delete(suppliers)..where(
+              (t) =>
+                  t.id.isIn(seedSupplierIds) &
+                  t.productId.isNotInQuery(
+                    selectOnly(products)..addColumns([products.id]),
+                  ),
+            ))
+            .go();
+    return n;
+  });
+
   Future<void> _seed() async {
     // ── Categories (SEED_CATEGORIES, order preserved for color palette) ──
     const seedCategories = ['เครื่องยนต์', 'ไฟฟ้า', 'น้ำมัน', 'เบรก', 'ตัวถัง'];
@@ -195,6 +276,14 @@ class AppDatabase extends _$AppDatabase {
       }
     });
 
+    // ── Demo business data — Drift-only build only (see [seedDemoData]) ──
+    if (seedDemoData) await _seedDemoBusinessData();
+
+    // ── Default settings row (_DEFAULT_SETTINGS) — singleton id = 0 ──
+    await _seedSettingsAndMeta();
+  }
+
+  Future<void> _seedDemoBusinessData() async {
     // ── Products (SEED_PRODUCTS) ──
     await batch((b) {
       b.insertAll(products, [
@@ -498,8 +587,9 @@ class AppDatabase extends _$AppDatabase {
         ),
       ]);
     });
+  }
 
-    // ── Default settings row (_DEFAULT_SETTINGS) — singleton id = 0 ──
+  Future<void> _seedSettingsAndMeta() async {
     await into(settingsRow).insert(
       SettingsRowCompanion.insert(
         id: const Value(0),
