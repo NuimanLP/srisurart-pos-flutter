@@ -148,12 +148,152 @@
       ]
     },
     {
+      "id": 13,
+      "title": "API instances up",
+      "type": "stat",
+      "description": "One tile per API instance, from Prometheus's own `up` for the api-metrics scrape job. Nginx keeps serving through the surviving instances, so a dead one is invisible on the success-rate and latency panels — this is the only panel that shows it.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "noValue": "no data", "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "up{job=\"api-metrics\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Request rate (all API traffic)",
+      "type": "timeseries",
+      "description": "How much traffic the success-rate and p95 panels are computed from. A 100% success rate over two requests and over two thousand are not the same statement. /metrics and the health probes are not counted (UNMEASURED_PATHS).",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(http_requests_total[5m]))",
+          "legendFormat": "all requests",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Request rate by route",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(http_requests_total[5m])) by (method, route)",
+          "legendFormat": "{{method}} {{route}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "p95 latency by route",
+      "type": "timeseries",
+      "description": "The single p95 above averages every route together; a slow POST /sales hides behind a fast GET /products. A route with no traffic in the window has no line.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, method, route))",
+          "legendFormat": "{{method}} {{route}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "5xx errors by route",
+      "type": "timeseries",
+      "description": "Which route the server-side failures come from. Empty is the healthy state: a route that has never returned a 5xx has no series at all.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) by (method, route)",
+          "legendFormat": "{{method}} {{route}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "API memory per instance (RSS)",
+      "type": "timeseries",
+      "description": "Each api container is capped at mem_limit 384m (server/docker-compose.yml). A line that only ever climbs is a leak, and the host Memory panel cannot say which instance it is.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "process_resident_memory_bytes{job=\"api-metrics\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Event loop lag p99 per instance",
+      "type": "timeseries",
+      "description": "How long Node.js is kept from picking up the next piece of work. Sustained lag means the process is busy on CPU (e.g. argon2) and every request on that instance waits, whatever the database is doing.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 40 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "nodejs_eventloop_lag_p99_seconds{job=\"api-metrics\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "id": 6,
       "title": "k6: 429s from nginx's perip limiter, by machine (must be zero — #251)",
       "type": "stat",
       "description": "The whole point of #251's distributed run: if this is ever non-zero for a shard, that shard's own source IP tripped nginx's `limit_req zone=perip rate=30r/s burst=60` and every §9 number from it is contaminated the same way a single-machine run always was (docs/handoff_log/close3-demo-deploy-2026-09-15.md §4.1). No data until a k6 run with SHARD set (and --tag machine=...) has pushed.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -183,7 +323,7 @@
       "type": "timeseries",
       "description": "server/test/k6/lib/shard.js SAFE_RATE_PER_SHARD = 24 r/s (80% of nginx's rate=30r/s) — see README.md \"Per-shard math\". A line crossing 24 for more than an instant means that shard's rate override or VU count is unsafe, not just that this one run got unlucky.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
       "fieldConfig": {
         "defaults": { "unit": "reqps", "noValue": "no data" },
         "overrides": []
@@ -203,7 +343,7 @@
       "type": "timeseries",
       "description": "k6's Prometheus remote-write output computes each percentile locally, per k6 process — there is no valid way to recombine three machines' local p95s into one true cross-machine p95 after the fact. §9 evidence is therefore per-machine: every shard's own line must clear the threshold, not an average of them. See README.md \"Reading the numbers\".",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
       "fieldConfig": {
         "defaults": { "unit": "s", "noValue": "no data" },
         "overrides": []
@@ -229,7 +369,7 @@
       "type": "timeseries",
       "description": "k6_http_req_failed_rate is already a 0-1 ratio per push interval (a k6 Rate metric) — do not wrap it in rate() again, that would compute a rate of a ratio.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 64 },
       "fieldConfig": {
         "defaults": { "unit": "percentunit", "noValue": "no data", "max": 1, "min": 0 },
         "overrides": []
@@ -248,7 +388,7 @@
       "title": "k6: 01-read-products cache hit rate (§9 cache hit>90%)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 64 },
       "fieldConfig": {
         "defaults": { "unit": "percentunit", "noValue": "no data", "max": 1, "min": 0 },
         "overrides": []
