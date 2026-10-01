@@ -129,12 +129,23 @@ jobs:
               range="$GITHUB_SHA"
             fi
           fi
-          cfg="$RUNNER_TEMP/gitleaks.toml"
-          ign="$RUNNER_TEMP/gitleaksignore"
+          gl="$RUNNER_TEMP/gl"
+          mkdir -p "$gl"
+          cfg="$gl/gitleaks.toml"
+          ign="$gl/.gitleaksignore"
           # Absent on the trusted commit → default rules only / no ignored fingerprints.
-          git show "$trusted:.gitleaks.toml" > "$cfg" 2>/dev/null \
-            || printf '[extend]\nuseDefault = true\n' > "$cfg"
-          git show "$trusted:.gitleaksignore" > "$ign" 2>/dev/null || : > "$ign"
+          # Any other git error (bad sha, unreadable object) fails the job under `bash -e`.
+          git cat-file -e "$trusted^{commit}"
+          if git cat-file -e "$trusted:.gitleaks.toml" 2>/dev/null; then
+            git show "$trusted:.gitleaks.toml" > "$cfg"
+          else
+            printf '[extend]\nuseDefault = true\n' > "$cfg"
+          fi
+          if git cat-file -e "$trusted:.gitleaksignore" 2>/dev/null; then
+            git show "$trusted:.gitleaksignore" > "$ign"
+          else
+            : > "$ign"
+          fi
           # gitleaks ALSO reads <source>/.gitleaksignore on top of --gitleaks-ignore-path, so
           # the PR's own copies must leave the working tree (history is read from objects).
           rm -f .gitleaks.toml .gitleaksignore
@@ -142,7 +153,7 @@ jobs:
           # -v + --redact: a failure names file/line/rule/fingerprint with the value masked.
           # --ignore-gitleaks-allow: an inline `gitleaks:allow` comment cannot silence a hit.
           "$RUNNER_TEMP/gitleaks" git -v --redact --no-banner --no-color --exit-code 1 \
-            --ignore-gitleaks-allow --config "$cfg" --gitleaks-ignore-path "$ign" \
+            --ignore-gitleaks-allow --config "$cfg" --gitleaks-ignore-path "$gl" \
             --log-opts="$range" .
 
   lint:

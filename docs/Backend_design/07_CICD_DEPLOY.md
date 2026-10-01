@@ -159,6 +159,9 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
 - **บน PR, CI อ่านสองไฟล์นี้จาก commit ของ base ไม่ใช่จาก PR** (ไม่มีไฟล์บน base = กฎ default
   ไม่มี ignore) — PR จึง allowlist secret ของตัวเองไม่ได้ และ **การแก้ allowlist มีผลหลัง merge เท่านั้น**:
   PR ที่ต้องเพิ่ม allowlist ให้ placeholder ใหม่ของตัวเองจะแดงจนกว่าจะแยก PR allowlist ไป merge ก่อน.
+- event ที่ไม่ใช่ PR อ่าน config จาก commit ที่ถูกสแกนเอง: push (`server.yml` trigger push เฉพาะ `main`
+  = ของที่ merge แล้ว) และ `workflow_dispatch` บน branch อื่น = ใช้ config ของ head ของ branch นั้น
+  (ไม่ใช่ของ `main`) — ผลของ dispatch บน branch ที่ไม่ใช่ `main` จึงไม่ใช่หลักฐานว่า allowlist ผ่าน review.
 - comment `gitleaks:allow` ใน code **ไม่มีผล** (`--ignore-gitleaks-allow`).
 - ข้อจำกัดที่รู้อยู่: push ที่ `before` เป็นศูนย์/หาไม่เจอ (เช่น force-push) จะสแกนทั้ง history ·
   บน PR สแกนเฉพาะ commit ใน `base..head` ด้วย `git log -p` ซึ่งไม่แสดง diff ของ merge commit —
