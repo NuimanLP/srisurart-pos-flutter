@@ -169,6 +169,8 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 each stub file** (ported directly from db.js). Read your stub file's header
 comment before implementing.
 
+- API build (`USE_API_WRITES`) never seeds demo business data; an already-seeded DB gets a one-time `purgeDemoSeed()` (skipped while outbox ops or queued credit payments exist; deletes only untouched `updatedAt IS NULL` seed rows no local record references; AppMeta marker `demo_seed_purged`, also set by `importLegacyBackup`). The seeded settings identity persists until the first successful `GET /settings`.
+
 ---
 
 ## 4. Dependency injection (`lib/presentation/repositories/repository_providers.dart` + `lib/presentation/blocs/`)

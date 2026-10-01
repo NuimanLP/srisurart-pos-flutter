@@ -236,6 +236,48 @@ class AppDatabase extends _$AppDatabase {
     const AppMetaCompanion(key: Value(demoSeedPurgedKey), value: Value('1')),
   );
 
+  /// Seed product/customer/mechanic ids that any local record still names —
+  /// sale/return/quote/PO lines, movements, credit payments, parked bills.
+  /// Such a row is real history (a pre-v2/v3 DB has no `updatedAt` even on an
+  /// edited row), so [purgeDemoSeed] keeps it. PO lines carry only a part
+  /// number, so those are matched through the seed product's `partNo`.
+  Future<Set<String>> _seedIdsInUse() async {
+    final ids = <String>{};
+    Future<void> add(TableInfo t, GeneratedColumn<String> c) async {
+      final q = selectOnly(t, distinct: true)..addColumns([c]);
+      for (final r in await q.get()) {
+        final v = r.read(c);
+        if (v != null) ids.add(v);
+      }
+    }
+
+    await add(saleItems, saleItems.productId);
+    await add(returnItems, returnItems.productId);
+    await add(quoteItems, quoteItems.productId);
+    await add(movements, movements.productId);
+    await add(sales, sales.customerId);
+    await add(sales, sales.mechanicId);
+    await add(returns, returns.customerId);
+    await add(returns, returns.mechanicId);
+    await add(creditPayments, creditPayments.mechanicId);
+    final poParts = (await select(poItems).get()).map((r) => r.partNo).toSet();
+    for (final p in await (select(
+      products,
+    )..where((t) => t.id.isIn(seedProductIds))).get()) {
+      if (poParts.contains(p.partNo)) ids.add(p.id);
+    }
+    // Parked bills are a JSON blob; a quoted-id match is conservative.
+    final parked = await select(parkedSales).get();
+    for (final id in [
+      ...seedProductIds,
+      ...seedCustomerIds,
+      ...seedMechanicIds,
+    ]) {
+      if (parked.any((r) => r.payload.contains('"$id"'))) ids.add(id);
+    }
+    return ids;
+  }
+
   /// Removes the untouched demo seed from an existing DB (API build), ONCE.
   /// Returns how many rows went, or `null` when it did not run.
   ///
@@ -250,6 +292,8 @@ class AppDatabase extends _$AppDatabase {
   ///   server sent (pull/upsert stamps the server's `updatedAt`) or a local
   ///   edit stamped is kept — a tenant that imported a legacy backup may
   ///   really own `p1`.
+  /// • Never a seed row any local sale/return/quote/PO/movement/credit
+  ///   payment/parked bill still names ([_seedIdsInUse]).
   /// • Seed suppliers go only once their product is gone.
   /// Categories, settings and app_meta are left alone: categories are the
   /// same default list the server answers with, and the settings row is the
@@ -269,15 +313,28 @@ class AppDatabase extends _$AppDatabase {
       );
       return null;
     }
-    var n = await (delete(
-      products,
-    )..where((t) => t.id.isIn(seedProductIds) & t.updatedAt.isNull())).go();
-    n += await (delete(
-      customers,
-    )..where((t) => t.id.isIn(seedCustomerIds) & t.updatedAt.isNull())).go();
-    n += await (delete(
-      mechanics,
-    )..where((t) => t.id.isIn(seedMechanicIds) & t.updatedAt.isNull())).go();
+    final used = await _seedIdsInUse();
+    var n =
+        await (delete(products)..where(
+              (t) =>
+                  t.id.isIn(seedProductIds.where((i) => !used.contains(i))) &
+                  t.updatedAt.isNull(),
+            ))
+            .go();
+    n +=
+        await (delete(customers)..where(
+              (t) =>
+                  t.id.isIn(seedCustomerIds.where((i) => !used.contains(i))) &
+                  t.updatedAt.isNull(),
+            ))
+            .go();
+    n +=
+        await (delete(mechanics)..where(
+              (t) =>
+                  t.id.isIn(seedMechanicIds.where((i) => !used.contains(i))) &
+                  t.updatedAt.isNull(),
+            ))
+            .go();
     n +=
         await (delete(suppliers)..where(
               (t) =>
