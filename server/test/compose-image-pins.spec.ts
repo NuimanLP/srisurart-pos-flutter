@@ -20,6 +20,7 @@ describe('compose files pin every external image to a digest (#401)', () => {
   it.each([
     ['server/docker-compose.yml', join(__dirname, '..', 'docker-compose.yml')],
     ['deploy/compose/monitoring.yml', join(__dirname, '..', '..', 'deploy', 'compose', 'monitoring.yml')],
+    ['deploy/compose/observability.yml', join(__dirname, '..', '..', 'deploy', 'compose', 'observability.yml')],
   ])('%s', (_label, path) => {
     const imageLines = extractImageLines(path);
     expect(imageLines.length).toBeGreaterThan(0);

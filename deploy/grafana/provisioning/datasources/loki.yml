@@ -1,0 +1,12 @@
+# Loki datasource — log search for the `loki` service in ../../../compose/observability.yml.
+# That overlay is local-development only; where it is not running (the VM) this datasource
+# simply has nothing behind it, and no dashboard panel references it.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

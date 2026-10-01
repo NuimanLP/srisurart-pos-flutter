@@ -1,0 +1,43 @@
+// Log collection for the `alloy` service in ../compose/observability.yml (local only).
+// Finds every container of this compose project and ships its stdout/stderr to Loki.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+
+  // Only this project's containers — a shared Docker daemon runs other stacks too.
+  // COMPOSE_PROJECT comes from observability.yml, so a `-p <name>` run still matches.
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT")]
+  }
+}
+
+discovery.relabel "containers" {
+  targets = []
+
+  // `service` is the compose service name (api-1, postgres, nginx, ...) — the label to
+  // filter by in Grafana. `container` keeps the full container name.
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
