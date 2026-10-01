@@ -12,6 +12,8 @@ name: Server CI
 # Job "audit" (sec.1, 2026-09-09) is the CVE gate for the source tree: `pnpm audit` on the
 # lockfile plus a Trivy filesystem scan (lockfile + Dockerfile misconfiguration). The built
 # *image* is scanned in "build-image" instead, where a finding can still stop a release.
+# Job "secrets" (2026-10-01) runs gitleaks over the commits each PR/push adds — repo-wide,
+# never path-gated, so it lives here, feeding the always-required server-ci-status.
 #
 # Job "build-image" (#61 ci.4, extending #40) is the release half: on a green build of main
 # it builds the server image, smoke-runs it, Trivy-scans it and — only then — pushes it to
@@ -75,6 +77,53 @@ jobs:
               - 'deploy/scripts/test/**'
               # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
+
+  secrets:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    # Deliberately NOT gated on `changes`: a secret can land in any path, so this runs on
+    # every PR/push and server-ci-status (required on main) demands `success` from it —
+    # `skipped` does not count. Scans only the commits being added (PR: base..head; push:
+    # before..sha), so history reviewed once (2026-10-01) is not re-flagged. Allowlists:
+    # .gitleaks.toml (placeholder patterns) + .gitleaksignore (reviewed fingerprints).
+    # Pinned release binary + sha256 instead of gitleaks-action (org licence key, and a
+    # third-party action would see the checkout). Bump both env values together.
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history: the PR base and the push `before` commit must both be present.
+          fetch-depth: 0
+      - name: install gitleaks (pinned, sha256-verified)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tgz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+      - name: scan the commits this event adds (--redact; exit 1 on any finding)
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT" == "pull_request" ]]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif [[ "$EVENT" == "push" && -n "$PUSH_BEFORE" && ! "$PUSH_BEFORE" =~ ^0+$ ]] \
+               && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            range="$PUSH_BEFORE..$GITHUB_SHA"
+          else
+            # workflow_dispatch, or a push whose `before` is unknown: full history.
+            range="$GITHUB_SHA"
+          fi
+          echo "scanning: $range"
+          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 --log-opts="$range" .
 
   lint:
     name: lint + typecheck
@@ -235,11 +284,11 @@ jobs:
   build-image:
     name: server image → GHCR
     runs-on: ubuntu-latest
-    needs: [lint, audit, unit, integration, nginx-check]
+    needs: [secrets, lint, audit, unit, integration, nginx-check]
     # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
     # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
     # docker build + a scan + a push; nothing here should take 20 min, and `docker run` of
     # the app must never be allowed to hang for the 6-hour default.
     timeout-minutes: 20
@@ -323,7 +372,7 @@ jobs:
   server-ci-status:
     name: server-ci-status
     runs-on: ubuntu-latest
-    needs: [changes, lint, audit, unit, integration, build-image, nginx-check]
+    needs: [changes, secrets, lint, audit, unit, integration, build-image, nginx-check]
     # #39: this is the only server-side required check on `main`. It must report
     # on every PR — including a frontend-only one, where "lint"/"audit"/"unit"
     # (and `changes` itself, on push/workflow_dispatch) are legitimately skipped
@@ -356,6 +405,11 @@ jobs:
               exit 1
             fi
           done
+          # The secret scan is never path-gated, so `skipped` here is not a pass.
+          if [[ "${{ needs.secrets.result }}" != "success" ]]; then
+            echo "::error::secret scan (gitleaks) did not succeed: ${{ needs.secrets.result }}"
+            exit 1
+          fi
           # A skipped release image on a `main` push is not a pass: that is how #39's skip went
           # unnoticed for every release (#184).
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.build-image.result }}" != "success" ]]; then

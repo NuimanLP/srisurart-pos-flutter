@@ -145,6 +145,17 @@ flowchart LR
    fail — และ required check ที่ "ถูก skip" GitHub นับเป็นผ่าน (เขียวปลอมอีกแบบหนึ่ง) `always()` การันตี
    ว่า status job รันจริงเสมอ แล้วให้ loop เป็นคนตัดสินสีแทน
 
+### 2a. Secret scan — gitleaks (2026-10-01)
+
+job `secrets` ใน `server.yml` รัน **gitleaks** (binary release pin เวอร์ชัน + ตรวจ sha256, ไม่ใช้
+`gitleaks-action`) ทุก PR/push **ไม่ดู path** และ `server-ci-status` ต้องการผล `success` เท่านั้น
+(`skipped` ไม่นับผ่าน) · `build-image` ก็รอมันด้วย. สแกนเฉพาะ commit ที่ event นั้นเพิ่ม (PR:
+`base..head`, push: `before..sha`; `workflow_dispatch` = ทั้ง history) ด้วย `--redact`. ประวัติทั้งหมด
+ถูกสแกนและคัดแยกครั้งเดียว 2026-10-01 — ไม่พบ secret จริง. allowlist อยู่ 2 ที่: `.gitleaks.toml`
+(pattern ของ placeholder ใน test/dev) และ `.gitleaksignore` (fingerprint ที่ review แล้ว ผูกกับ commit).
+**ห้าม allowlist secret จริง — ให้ rotate แทน** (history ไม่ rewrite). PR ที่แก้สองไฟล์นี้ต้อง review
+ให้ดี เพราะ CI อ่าน config จาก branch ของ PR เอง.
+
 ---
 
 ## 3. Release = image 2 ตัวที่ SHA เดียวกัน

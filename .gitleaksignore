@@ -1,0 +1,13 @@
+# gitleaks fingerprints (commit:file:rule:line) of historical findings reviewed 2026-10-01
+# and judged NOT secrets. Pinned to the commit, so a new occurrence is still reported.
+# Never add a real secret here — rotate it instead.
+
+# Dummy RS256 pair for local/CI ("Dummy keys for local/CI use only"); config refuses it
+# on every boot unless ALLOW_DEV_SECRETS=true (#410), which vm.override.yml forces empty.
+17c1c5c65074b0aff9425eeeb218ea47478cfb73:server/.env.example:private-key:18
+
+# TEMP_PASSWORD_ALPHABET — the character set temp passwords are drawn from, not a value.
+8d51255e7a4b0f3a3b8597a8b53f9587d2b1fbc0:server/src/common/password.ts:generic-api-key:119
+
+# Truncated example JWT header ("eyJhbGci…...") in an API response sample.
+c3597f537cb3427fc88237e912c33ff0b38d9891:docs/Backend_design/architecture.md:generic-api-key:406
