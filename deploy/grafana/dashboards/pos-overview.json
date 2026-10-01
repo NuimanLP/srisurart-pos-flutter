@@ -434,12 +434,90 @@
       ]
     },
     {
+      "id": 27,
+      "title": "Request rate: read vs. write",
+      "type": "timeseries",
+      "description": "How the traffic divides between looking things up and changing things. Read = GET/HEAD, write = every other method except OPTIONS. The split is by HTTP method, so a login (POST /auth/token) and /sync/push count as writes.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 72 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(http_requests_total{method=~\"GET|HEAD\"}[5m]))",
+          "legendFormat": "read",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(http_requests_total{method!~\"GET|HEAD|OPTIONS\"}[5m]))",
+          "legendFormat": "write",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "title": "p95 latency: read vs. write",
+      "type": "timeseries",
+      "description": "Reads are mostly served from the cache and should stay fast; writes take row locks in Postgres and are the ones that slow down under contention. One combined p95 hides which of the two moved. Read = GET/HEAD, write = every other method except OPTIONS. The split is by HTTP method, so a login (POST /auth/token) and /sync/push count as writes.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 72 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{method=~\"GET|HEAD\"}[5m])) by (le))",
+          "legendFormat": "read",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{method!~\"GET|HEAD|OPTIONS\"}[5m])) by (le))",
+          "legendFormat": "write",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "Success rate: read vs. write",
+      "type": "timeseries",
+      "description": "Share of requests that did not end in a 5xx, per class. A shop that can still browse products but cannot ring a bill shows here as a healthy read line and a falling write line. No line while a class has no traffic. Read = GET/HEAD, write = every other method except OPTIONS. The split is by HTTP method, so a login (POST /auth/token) and /sync/push count as writes.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 72 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(http_requests_total{method=~\"GET|HEAD\", status_code!~\"5..\"}[5m])) / sum(rate(http_requests_total{method=~\"GET|HEAD\"}[5m]))",
+          "legendFormat": "read",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(http_requests_total{method!~\"GET|HEAD|OPTIONS\", status_code!~\"5..\"}[5m])) / sum(rate(http_requests_total{method!~\"GET|HEAD|OPTIONS\"}[5m]))",
+          "legendFormat": "write",
+          "refId": "B"
+        }
+      ]
+    },
+    {
       "id": 6,
       "title": "k6: 429s from nginx's perip limiter, by machine (must be zero — #251)",
       "type": "stat",
       "description": "The whole point of #251's distributed run: if this is ever non-zero for a shard, that shard's own source IP tripped nginx's `limit_req zone=perip rate=30r/s burst=60` and every §9 number from it is contaminated the same way a single-machine run always was (docs/handoff_log/close3-demo-deploy-2026-09-15.md §4.1). No data until a k6 run with SHARD set (and --tag machine=...) has pushed.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 72 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 80 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -469,7 +547,7 @@
       "type": "timeseries",
       "description": "server/test/k6/lib/shard.js SAFE_RATE_PER_SHARD = 24 r/s (80% of nginx's rate=30r/s) — see README.md \"Per-shard math\". A line crossing 24 for more than an instant means that shard's rate override or VU count is unsafe, not just that this one run got unlucky.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 80 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 88 },
       "fieldConfig": {
         "defaults": { "unit": "reqps", "noValue": "no data" },
         "overrides": []
@@ -489,7 +567,7 @@
       "type": "timeseries",
       "description": "k6's Prometheus remote-write output computes each percentile locally, per k6 process — there is no valid way to recombine three machines' local p95s into one true cross-machine p95 after the fact. §9 evidence is therefore per-machine: every shard's own line must clear the threshold, not an average of them. See README.md \"Reading the numbers\".",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 80 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 88 },
       "fieldConfig": {
         "defaults": { "unit": "s", "noValue": "no data" },
         "overrides": []
@@ -515,7 +593,7 @@
       "type": "timeseries",
       "description": "k6_http_req_failed_rate is already a 0-1 ratio per push interval (a k6 Rate metric) — do not wrap it in rate() again, that would compute a rate of a ratio.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 88 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 96 },
       "fieldConfig": {
         "defaults": { "unit": "percentunit", "noValue": "no data", "max": 1, "min": 0 },
         "overrides": []
@@ -534,7 +612,7 @@
       "title": "k6: 01-read-products cache hit rate (§9 cache hit>90%)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 88 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 96 },
       "fieldConfig": {
         "defaults": { "unit": "percentunit", "noValue": "no data", "max": 1, "min": 0 },
         "overrides": []
