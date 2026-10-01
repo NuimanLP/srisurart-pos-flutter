@@ -1065,6 +1065,18 @@ class SnapshotRepository {
             );
       }
 
+      // The import just replaced every seeded table, so the API build's
+      // one-time demo-seed purge must never run over the restored rows
+      // (a legacy `c1`/`p1` may have no updatedAt) — AppDatabase.purgeDemoSeed.
+      await db
+          .into(db.appMeta)
+          .insertOnConflictUpdate(
+            const AppMetaCompanion(
+              key: Value(AppDatabase.demoSeedPurgedKey),
+              value: Value('1'),
+            ),
+          );
+
       // ── 18. Carry forward any UNKNOWN sa_* store the file holds ──
       // db.js writes every sa_* key the backup carries, including stores a newer
       // app version added that this build has no table for. We can't materialise
