@@ -1,11 +1,7 @@
-// Bulk product delete — owner decisions 2026-10-01.
-//
-//  • A product in an open PO, an active quote or a parked bill on this device
-//    is WARNED about in the confirm dialog (which document) and stays
-//    deletable.
-//  • Signed-in build: only an `owner` session that is not on the `pos` device
-//    may enter selection mode; otherwise the toggle is disabled with a reason,
-//    and losing the right mid-selection drops the selection.
+// Bulk product delete — owner decision 2026-10-01: a product in an open PO,
+// an active quote or a parked bill on this device is WARNED about in the
+// confirm dialog (which document) and stays deletable. (Bulk delete is open to
+// every device — all users are owner — so there is no session gate to test.)
 
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
@@ -17,16 +13,11 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/data/db/database.dart';
-import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
-import 'package:srisurart_pos/domain/models/auth_models.dart';
-import 'package:srisurart_pos/presentation/blocs/auth_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/products_screen.dart';
-
-const _owner = AuthUser(id: 'u1', username: 'owner', role: 'owner');
 
 void main() {
   setUpAll(() async {
@@ -35,17 +26,11 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  Future<AuthCubit?> pumpScreen(
-    WidgetTester tester,
-    AppDatabase db, {
-    bool requireLogin = false,
-    AuthState? auth,
-  }) async {
+  Future<void> pumpScreen(WidgetTester tester, AppDatabase db) async {
     tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    AuthCubit? cubit;
     await tester.pumpWidget(
       MultiRepositoryProvider(
         providers: repositoryProviders(db, useApiRepositories: false),
@@ -53,22 +38,12 @@ void main() {
           providers: [
             BlocProvider<PendingQuoteCubit>(create: (_) => PendingQuoteCubit()),
             BlocProvider<CartCubit>(create: (_) => CartCubit()),
-            BlocProvider<AuthCubit>(
-              create: (ctx) {
-                cubit = AuthCubit(authRepository: ctx.read<AuthRepository>());
-                if (auth != null) cubit!.emit(auth);
-                return cubit!;
-              },
-            ),
           ],
-          child: MaterialApp(
-            home: Scaffold(body: ProductsScreen(requireLogin: requireLogin)),
-          ),
+          child: const MaterialApp(home: Scaffold(body: ProductsScreen())),
         ),
       ),
     );
     await tester.pumpAndSettle(const Duration(milliseconds: 100));
-    return cubit;
   }
 
   Future<void> settle(WidgetTester tester) async {
@@ -77,8 +52,6 @@ void main() {
   }
 
   Finder toggle() => find.byKey(const Key('bulk-delete-toggle'));
-  VoidCallback? toggleOnPressed(WidgetTester tester) =>
-      tester.widget<ButtonStyleButton>(toggle()).onPressed;
 
   testWidgets('products in an open PO, an active quote and a parked bill are '
       'warned about by document, and still deleted', (tester) async {
@@ -190,77 +163,6 @@ void main() {
         findsNothing,
       );
       await db.close();
-    });
-  });
-
-  group('owner gating (signed-in build)', () {
-    testWidgets('pos device: toggle disabled with the reason', (tester) async {
-      final db = AppDatabase(NativeDatabase.memory());
-      await tester.runAsync(() async {
-        await pumpScreen(
-          tester,
-          db,
-          requireLogin: true,
-          auth: const Authenticated(user: _owner, deviceRole: 'pos'),
-        );
-        await settle(tester);
-        expect(toggleOnPressed(tester), isNull);
-        expect(find.byTooltip(bulkDeleteOwnerOnly), findsOneWidget);
-        await db.close();
-      });
-    });
-
-    testWidgets('not signed in: toggle disabled', (tester) async {
-      final db = AppDatabase(NativeDatabase.memory());
-      await tester.runAsync(() async {
-        await pumpScreen(
-          tester,
-          db,
-          requireLogin: true,
-          auth: const Unauthenticated(),
-        );
-        await settle(tester);
-        expect(toggleOnPressed(tester), isNull);
-        await db.close();
-      });
-    });
-
-    testWidgets('owner on a backoffice device may bulk delete; switching to '
-        'a pos session drops the selection', (tester) async {
-      final db = AppDatabase(NativeDatabase.memory());
-      await tester.runAsync(() async {
-        final cubit = await pumpScreen(
-          tester,
-          db,
-          requireLogin: true,
-          auth: const Authenticated(user: _owner, deviceRole: 'backoffice'),
-        );
-        await settle(tester);
-        expect(toggleOnPressed(tester), isNotNull);
-        expect(find.byTooltip(bulkDeleteOwnerOnly), findsNothing);
-        await tester.tap(toggle());
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('bulk-select-all')));
-        await tester.pumpAndSettle();
-        expect(find.text('เลือกแล้ว 12 รายการ'), findsOneWidget);
-
-        cubit!.emit(const Authenticated(user: _owner, deviceRole: 'pos'));
-        await tester.pumpAndSettle();
-        expect(find.byKey(const Key('bulk-delete-go')), findsNothing);
-        expect(toggleOnPressed(tester), isNull);
-        expect(find.text('เลือกเพื่อลบ'), findsOneWidget);
-        await db.close();
-      });
-    });
-
-    testWidgets('Drift-only build (no login): no gate', (tester) async {
-      final db = AppDatabase(NativeDatabase.memory());
-      await tester.runAsync(() async {
-        await pumpScreen(tester, db, auth: const Unauthenticated());
-        await settle(tester);
-        expect(toggleOnPressed(tester), isNotNull);
-        await db.close();
-      });
     });
   });
 }

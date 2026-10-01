@@ -23,6 +23,7 @@ import 'package:drift/drift.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
+import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
 import '../db/product_stamp.dart';
 import '../sync/outbox_product_refs.dart';
@@ -201,8 +202,7 @@ class ProductsRepository {
   /// select-all of thousands of products is fine):
   ///  • an `open` PO whose line matches by partNo, case-insensitive (PO lines
   ///    carry no productId — `receivePO` matches the same way);
-  ///  • a quote that is neither converted nor expired (same test as
-  ///    `QuoteRowStatus.isConverted` / `isExpired`);
+  ///  • a quote that is neither converted nor expired ([QuoteRowStatus]);
   ///  • a parked bill on THIS device (`parked_sales` never leaves it).
   /// On the API build POs/quotes are the copies last pulled into Drift.
   /// Products with no reference are absent from the map.
@@ -236,21 +236,13 @@ class ProductsRepository {
       }
     }
 
-    final now = DateTime.now();
-    final quoteLines =
-        await (db.select(db.quoteItems).join([
-              innerJoin(
-                db.quotes,
-                db.quotes.id.equalsExp(db.quoteItems.quoteId),
-              ),
-            ])..where(
-              db.quotes.status.equals('converted').not() &
-                  db.quotes.validUntil.isBiggerOrEqualValue(now),
-            ))
-            .get();
+    final quoteLines = await db.select(db.quoteItems).join([
+      innerJoin(db.quotes, db.quotes.id.equalsExp(db.quoteItems.quoteId)),
+    ]).get();
     final seenQuote = <String>{};
     for (final r in quoteLines) {
       final q = r.readTable(db.quotes);
+      if (q.isConverted || q.isExpired) continue; // QuoteRowStatus
       final id = r.readTable(db.quoteItems).productId;
       // Filtered here, not with SQL `IN`: a select-all can exceed SQLite's
       // bound-variable limit.

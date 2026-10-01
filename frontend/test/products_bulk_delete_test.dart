@@ -287,6 +287,21 @@ void main() {
           payload: 'not json',
         ),
       );
+      // `items` not a list, and a productId that is not a string: skipped.
+      await db.into(db.parkedSales).insert(
+        ParkedSalesCompanion.insert(
+          id: 'pk3',
+          parkedAt: now,
+          payload: '{"items":{"productId":"${untouched.id}"}}',
+        ),
+      );
+      await db.into(db.parkedSales).insert(
+        ParkedSalesCompanion.insert(
+          id: 'pk4',
+          parkedAt: now,
+          payload: '{"items":[{"productId":42},{"productId":null},"x"]}',
+        ),
+      );
 
       final refs = await ProductsRepository(
         db,

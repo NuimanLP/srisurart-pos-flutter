@@ -20,7 +20,6 @@ import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../blocs/auth_cubit.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
@@ -29,15 +28,7 @@ import '../widgets/thai_format.dart';
 import 'vehicle_search_screen.dart';
 
 class ProductsScreen extends StatefulWidget {
-  const ProductsScreen({
-    super.key,
-    this.requireLogin = const bool.fromEnvironment('USE_API_WRITES'),
-  });
-
-  /// Same switch as `SrisurartApp.requireLogin`: on the signed-in (API) build
-  /// bulk delete is owner-only and never on a `pos` device (owner decision
-  /// 2026-10-01). The Drift-only shop build has no session, so no gate.
-  final bool requireLogin;
+  const ProductsScreen({super.key});
 
   @override
   State<ProductsScreen> createState() => _ProductsScreenState();
@@ -172,11 +163,11 @@ class _ProductsScreenState extends State<ProductsScreen>
           Expanded(
             child: TabBarView(
               controller: _tabs,
-              children: [
-                _StockTab(requireLogin: widget.requireLogin),
-                const _PriceCalcTab(),
-                const _SuppliersTab(),
-                const _InvReportTab(),
+              children: const [
+                _StockTab(),
+                _PriceCalcTab(),
+                _SuppliersTab(),
+                _InvReportTab(),
               ],
             ),
           ),
@@ -189,22 +180,8 @@ class _ProductsScreenState extends State<ProductsScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 // STOCK TAB
 // ─────────────────────────────────────────────────────────────────────────────
-/// Why the bulk-delete toggle is disabled for this session (agent ร่าง,
-/// 02 §8.1.1).
-const bulkDeleteOwnerOnly =
-    'ลบหลายรายการได้เฉพาะเจ้าของร้านที่ใช้เครื่องหลังร้าน — '
-    'เครื่องขาย (POS) ลบได้ทีละรายการ';
-
-/// Owner decision 2026-10-01: only an `owner` session that is not on the
-/// `pos` device may bulk delete. Client-side only — the server's
-/// `DELETE /products/:id` is "logged in, both device roles" (02 §1) and cannot
-/// tell a bulk delete from a single one.
-bool canBulkDelete(AuthState s) =>
-    s is Authenticated && s.user.role == 'owner' && !s.isPos;
-
 class _StockTab extends StatefulWidget {
-  const _StockTab({required this.requireLogin});
-  final bool requireLogin;
+  const _StockTab();
   @override
   State<_StockTab> createState() => _StockTabState();
 }
@@ -230,9 +207,6 @@ class _StockTabState extends State<_StockTab> {
   /// end. Set BEFORE the first await so a double tap cannot open two dialogs,
   /// and every other product write on this tab is disabled while it holds.
   bool _busy = false;
-
-  bool _bulkAllowed() =>
-      !widget.requireLogin || canBulkDelete(context.read<AuthCubit>().state);
 
   @override
   void initState() {
@@ -398,7 +372,7 @@ class _StockTabState extends State<_StockTab> {
       _showDegradedWarning();
       return;
     }
-    if (_busy || _selected.isEmpty || !_bulkAllowed()) return;
+    if (_busy || _selected.isEmpty) return;
     setState(() => _busy = true);
     try {
       await _bulkDeleteFlow();
@@ -431,13 +405,11 @@ class _StockTabState extends State<_StockTab> {
       ),
     );
     if (ok != true || !mounted || deletable.isEmpty) return;
-    // The link may have dropped, or the session changed, while the dialog
-    // was open.
+    // The link may have dropped while the dialog was open.
     if (context.isDegraded) {
       _showDegradedWarning();
       return;
     }
-    if (!_bulkAllowed()) return;
 
     setState(() => _deleting = true);
     final result = await repo.deleteMany(
@@ -535,15 +507,6 @@ class _StockTabState extends State<_StockTab> {
 
   @override
   Widget build(BuildContext context) {
-    final bulkAllowed =
-        !widget.requireLogin ||
-        canBulkDelete(context.watch<AuthCubit>().state);
-    // Losing the right mid-selection (e.g. re-login on the till) drops the
-    // selection mode; idempotent, so resetting here during build is safe.
-    if (!bulkAllowed && _selecting) {
-      _selecting = false;
-      _selected.clear();
-    }
     if (_loading) return const LoadingView();
     return SyncStatusBuilder(
       builder: (context, status, isDegraded) {
@@ -670,32 +633,26 @@ class _StockTabState extends State<_StockTab> {
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
-                      Tooltip(
-                        message: bulkAllowed ? '' : bulkDeleteOwnerOnly,
-                        triggerMode: TooltipTriggerMode.tap,
-                        child: OutlinedButton.icon(
-                          key: const Key('bulk-delete-toggle'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.error,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                      OutlinedButton.icon(
+                        key: const Key('bulk-delete-toggle'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
                           ),
-                          onPressed: _busy || !bulkAllowed
-                              ? null
-                              : _toggleSelecting,
-                          icon: Icon(
-                            _selecting ? Icons.close : Icons.checklist,
-                            size: 20,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          label: Text(
-                            _selecting ? 'ยกเลิกการเลือก' : 'เลือกเพื่อลบ',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
+                        ),
+                        onPressed: _busy ? null : _toggleSelecting,
+                        icon: Icon(
+                          _selecting ? Icons.close : Icons.checklist,
+                          size: 20,
+                        ),
+                        label: Text(
+                          _selecting ? 'ยกเลิกการเลือก' : 'เลือกเพื่อลบ',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
