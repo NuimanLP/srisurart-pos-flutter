@@ -17,6 +17,17 @@ const TENANT = '28328328-8328-4283-8283-283283283283';
 const POS_DEVICE_TOKEN = 'pos-device-token-01';
 const BO_DEVICE_TOKEN = 'bo-device-token-01';
 
+/**
+ * Today's Buddhist `YYYY-MM` in the test tenant's timezone — the period an RC/CN number
+ * must carry or the push raises a `date_flag` (08 §10). Hardcoding a month breaks the
+ * tests the day that month ends.
+ */
+const currentPeriod = (now = new Date()) => {
+  const bkk = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit' })
+    .formatToParts(now);
+  return `${Number(bkk.find((p) => p.type === 'year')!.value) + 543}-${bkk.find((p) => p.type === 'month')!.value}`;
+};
+
 describe('POST /sync/push (e2e)', () => {
   let app: INestApplication;
   let admin: DataSource;
@@ -1122,7 +1133,7 @@ describe('POST /sync/push (e2e)', () => {
             type: 'sale.create',
             payload: {
               id: 's_batch_001',
-              receiptNo: 'RC01-2569-09-0010',
+              receiptNo: `RC01-${currentPeriod()}-0010`,
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
@@ -1368,6 +1379,7 @@ describe('POST /sync/push (e2e)', () => {
     });
 
     it('Slice 14-s (#285): credit limit override via push creates credit_override review item and single audit_log row, B1 replay preserved', async () => {
+      const receiptNo = `RC01-${currentPeriod()}-0092`;
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: 'sh_co_14',
         startingCash: 500,
@@ -1444,7 +1456,7 @@ describe('POST /sync/push (e2e)', () => {
             type: 'sale.create',
             payload: {
               id: 's_co_14',
-              receiptNo: 'RC01-2569-09-0092',
+              receiptNo,
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
@@ -1510,7 +1522,7 @@ describe('POST /sync/push (e2e)', () => {
             type: 'sale.create',
             payload: {
               id: 's_co_14',
-              receiptNo: 'RC01-2569-09-0092',
+              receiptNo,
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
@@ -2022,16 +2034,14 @@ describe('POST /sync/push (e2e)', () => {
       it('RC period ≠ the stored date\'s month (tenant tz) → one date_flag; a matching period → none', async () => {
         await seedOpenShift(admin, TENANT, fixture.posDeviceId);
         const now = new Date();
-        const bkk = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit' })
-          .formatToParts(now);
-        const currentPeriod = `${Number(bkk.find((p) => p.type === 'year')!.value) + 543}-${bkk.find((p) => p.type === 'month')!.value}`;
+        const period = currentPeriod(now);
         const withNo = (id: string, receiptNo: string) => {
           const op = saleOp(id, now.toISOString());
           return { ...op, payload: { ...op.payload, receiptNo } };
         };
         const res = await push({
           outboxRemaining: 0,
-          ops: [withNo('s_per_ok', `RC01-${currentPeriod}-0101`), withNo('s_per_bad', 'RC01-2500-01-0102')],
+          ops: [withNo('s_per_ok', `RC01-${period}-0101`), withNo('s_per_bad', 'RC01-2500-01-0102')],
         });
         expect((res.body.data.results as { status: string }[]).map((r) => r.status)).toEqual(['applied', 'applied']);
 
@@ -2042,7 +2052,7 @@ describe('POST /sync/push (e2e)', () => {
           details: {
             docNo: 'RC01-2500-01-0102',
             docPeriod: '2500-01',
-            datePeriod: currentPeriod,
+            datePeriod: period,
             originalDate: now.toISOString(),
             clampedDate: now.toISOString(),
           },
