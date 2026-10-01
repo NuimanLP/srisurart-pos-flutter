@@ -34,7 +34,8 @@ class TenantCacheGuard {
 
   /// Ratified by the owner 2026-10-01 — 02_API_SCREENS.md §8.1.1. Trimmed
   /// after ratification ("หรือกะที่ยังไม่ปิด" / "และปิดกะ" dropped when an
-  /// open shift stopped blocking a switch); the trim awaits owner confirmation.
+  /// open shift stopped blocking a switch); the trimmed text was confirmed by
+  /// the owner 2026-10-01.
   static const String unsentWorkMessage =
       'เครื่องนี้ยังมีงานของร้านเดิมค้างอยู่ (รายการค้างส่ง ชำระเครดิตค้างส่ง '
       'หรือบิลพัก) กรุณาเข้าสู่ระบบร้านเดิมเพื่อส่งหรือยกเลิกรายการให้เรียบร้อยก่อน '
@@ -42,14 +43,14 @@ class TenantCacheGuard {
 
   static const String enrolUnsentWorkCode = 'ENROL_UNSENT_WORK';
 
-  /// agent ร่าง (2026-10-01) — 02_API_SCREENS.md §8.1.1, not yet ratified.
+  /// Ratified by the owner 2026-10-01 — 02_API_SCREENS.md §8.1.1.
   static const String enrolUnsentWorkMessage =
       'ผูกเครื่องใหม่ไม่ได้ เพราะเครื่องนี้ยังมีงานค้างอยู่ (รายการค้างส่ง '
       'ชำระเครดิตค้างส่ง หรือบิลพัก) กรุณาส่งหรือยกเลิกรายการให้เรียบร้อยก่อน';
 
   static const String noTenantCode = 'TOKEN_TENANT_MISSING';
 
-  /// agent ร่าง (2026-10-01) — 02_API_SCREENS.md §8.1.1, not yet ratified.
+  /// Ratified by the owner 2026-10-01 — 02_API_SCREENS.md §8.1.1.
   static const String noTenantMessage =
       'เข้าสู่ระบบไม่สำเร็จ ข้อมูลร้านจากระบบไม่ครบ กรุณาลองใหม่';
 

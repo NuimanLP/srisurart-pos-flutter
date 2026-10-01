@@ -32,5 +32,5 @@ DB ปกติ (ตามที่ orchestrator ตรวจ `audit_log`): เ�
 - ข้อความไทยยัง **agent ร่าง** (`02_API_SCREENS.md §8.1.1`): `TENANT_SWITCH_UNSENT_WORK` (ฉบับ trim), `ENROL_UNSENT_WORK`, `TOKEN_TENANT_MISSING`, ข้อความเตือน doc-ref ของ #540
 - **ขีดจำกัดที่ยอมรับ:** reply ของ write ออนไลน์ที่ค้างระหว่าง logout→login คนละร้านยังไม่ถูก fence (เฉพาะ pull/seed) · ไม่มี server logout endpoint
 - full pull ของ customers/mechanics เขียนทับยอดเครดิตที่ยังไม่ส่ง (ไม่มี pending-op guard)
-- Dependabot security updates ยังปิด
+- ~~Dependabot security updates ยังปิด~~ — เปิดแล้ว 2026-10-01 (alerts + security updates) · ข้อความไทยที่ค้าง (ENROL_UNSENT_WORK, TOKEN_TENANT_MISSING, TENANT_SWITCH_UNSENT_WORK ฉบับตัด, คำเตือนเอกสารเปิดของ #540) เจ้าของรับรอง 2026-10-01
 - เดิม: #344 เดโม · #380 k6 · #476 · #443 · #231 · #363/#288 พัก · cron 03:00 `backup-db.sh` ยังไม่ตรวจ
