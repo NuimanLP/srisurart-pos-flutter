@@ -348,7 +348,45 @@ class AppDatabase extends _$AppDatabase {
     return n;
   });
 
+  /// app_meta keys that describe this DB file, not a shop's data — the only
+  /// ones [resetTenantCache] keeps.
+  static const _deviceMetaKeys = {
+    'schema_version',
+    'backup_format_version',
+    demoSeedPurgedKey,
+  };
+
+  /// Empties the shop cache (API build, tenant switch): every table but
+  /// app_meta, and every app_meta key but [_deviceMetaKeys] — that includes
+  /// the offline-PIN keys (the old shop's user) and carried-forward `sa_*`
+  /// stores. Sync cursors go with it, so the next pull starts from zero. The
+  /// default categories and settings row a new DB starts with are put back
+  /// (`SettingsRepository.getSettings` needs the singleton).
+  ///
+  /// Checks nothing: `TenantCacheGuard` decides it is safe and runs this
+  /// inside its own transaction.
+  Future<void> resetTenantCache() async {
+    // Children first: allTables lists every referenced table before its child.
+    for (final table in allTables.toList().reversed) {
+      if (table == appMeta) continue;
+      await delete(table).go();
+    }
+    await (delete(appMeta)..where((t) => t.key.isNotIn(_deviceMetaKeys))).go();
+    await _seedCategories();
+    await _seedDefaultSettings();
+  }
+
   Future<void> _seed() async {
+    await _seedCategories();
+
+    // ── Demo business data — Drift-only build only (see [seedDemoData]) ──
+    if (seedDemoData) await _seedDemoBusinessData();
+
+    // ── Default settings row (_DEFAULT_SETTINGS) — singleton id = 0 ──
+    await _seedSettingsAndMeta();
+  }
+
+  Future<void> _seedCategories() async {
     // ── Categories (SEED_CATEGORIES, order preserved for color palette) ──
     const seedCategories = ['เครื่องยนต์', 'ไฟฟ้า', 'น้ำมัน', 'เบรก', 'ตัวถัง'];
     await batch((b) {
@@ -359,12 +397,6 @@ class AppDatabase extends _$AppDatabase {
         );
       }
     });
-
-    // ── Demo business data — Drift-only build only (see [seedDemoData]) ──
-    if (seedDemoData) await _seedDemoBusinessData();
-
-    // ── Default settings row (_DEFAULT_SETTINGS) — singleton id = 0 ──
-    await _seedSettingsAndMeta();
   }
 
   Future<void> _seedDemoBusinessData() async {
@@ -674,6 +706,21 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> _seedSettingsAndMeta() async {
+    await _seedDefaultSettings();
+
+    // ── AppMeta — schema_version (2) + backup_format_version (2) from db.js ──
+    await batch((b) {
+      b.insertAll(appMeta, const [
+        AppMetaCompanion(key: Value('schema_version'), value: Value('2')),
+        AppMetaCompanion(
+          key: Value('backup_format_version'),
+          value: Value('2'),
+        ),
+      ]);
+    });
+  }
+
+  Future<void> _seedDefaultSettings() async {
     await into(settingsRow).insert(
       SettingsRowCompanion.insert(
         id: const Value(0),
@@ -688,16 +735,5 @@ class AppDatabase extends _$AppDatabase {
         cashierName: const Value('แคชเชียร์'),
       ),
     );
-
-    // ── AppMeta — schema_version (2) + backup_format_version (2) from db.js ──
-    await batch((b) {
-      b.insertAll(appMeta, const [
-        AppMetaCompanion(key: Value('schema_version'), value: Value('2')),
-        AppMetaCompanion(
-          key: Value('backup_format_version'),
-          value: Value('2'),
-        ),
-      ]);
-    });
   }
 }

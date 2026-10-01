@@ -353,6 +353,9 @@ class AuthCubit extends Cubit<AuthState> {
   ///   used to be appended here, which put `ClientException: …` on screen.
   @visibleForTesting
   static String loginRefusalMessage(Object error) {
+    // A client-side refusal already in Thai — `TENANT_SWITCH_UNSENT_WORK`
+    // (TenantCacheGuard) is the one a login can meet.
+    if (error is PosException) return error.message;
     if (error is ApiException) {
       // #443 PR3: the one 401 that must NOT read as "wrong password" — the
       // password was right, the temporary one simply expired.

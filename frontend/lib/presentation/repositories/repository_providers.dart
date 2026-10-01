@@ -39,6 +39,7 @@ import '../../data/repositories/review_items_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
 import '../../data/services/doc_number_service.dart';
+import '../../data/services/tenant_cache_guard.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../data/sync/sync_service.dart';
 
@@ -68,11 +69,15 @@ List<RepositoryProvider> repositoryProviders(
         tokenStorage: storage,
         apiClient: client,
       );
+  late final Future<void> Function() triggerEntityPull;
   final authRepo = authRepository ??
       AuthRepository(
         apiClient: client,
         tokenStorage: storage,
         offlinePinRepository: offlinePinRepo,
+        // Only the API build caches a tenant's data; the Drift build is one shop.
+        tenantGuard: useApi ? TenantCacheGuard(db) : null,
+        onTenantCacheReset: () => triggerEntityPull(),
       );
 
   late final ProductsRepository productsRepo;
@@ -80,7 +85,7 @@ List<RepositoryProvider> repositoryProviders(
   late final MechanicsRepository mechanicsRepo;
   late final SettingsRepository settingsRepo;
 
-  Future<void> triggerEntityPull() async {
+  triggerEntityPull = () async {
     // #474: settings ride the same reconnect hook as products/customers/
     // mechanics — gated on the repo actually being the API one (useApi),
     // not on useApiRepositories, since that's what selects it below.
@@ -99,7 +104,7 @@ List<RepositoryProvider> repositoryProviders(
       ]);
     }
     await Future.wait(futures);
-  }
+  };
 
   final docNumberService = DocNumberService(db: db);
   final realSyncService = syncFacade is SyncService
