@@ -585,6 +585,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
   (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
   every Deploy run skipping. Derive RC/CN periods from now in `Asia/Bangkok` (`currentPeriod()`).
+- **Docs-only push to main skips tests/images → no deploy; the VM stays on the last code SHA** (2026-10-01,
+  `deploy/scripts/push-changes-kind.sh`, 07 §2 rule 2). Docs = `*.md` or `docs/**` except
+  `docs/Backend_design/fixtures/**`; anything else is code. `deploy.yml` `resolve` applies the same rule to
+  the range run-SHA..main-head, so a docs commit after a code commit does not strand that code deploy.
 - **Cancel stale waiting Deploy runs before approving a newer one** — a job waiting for approval holds
   the `deploy-demo` slot and the newer run sits `pending`; the approval API needs a `comment`.
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
@@ -674,6 +678,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   (`TENANT_SWITCH_UNSENT_WORK`, `ENROL_UNSENT_WORK`). `cacheGeneration` fences late pulls/seeds, and
   `ApiClient` has a session generation so a stale refresh/401/token never acts for the next user
   (#534/#536). Replies to in-flight online writes are not fenced (accepted limit).
+- **Customer/mechanic pull keeps local totals under unsent money ops** (`outbox_ledger_refs.dart`): rows referenced by `sale.create`/`sale.void_offline`/`return.create`/`credit_payment.create` (any status) or a queued credit payment keep `points`/`totalSpend` / `creditBalance`/`totalSales`/`totalDiscount`/`totalMarkup`; the guard is recomputed per page inside the write txn and the saved cursor never passes a protected row. A new money-op type must be added to `_moneyOps`.
 
 **Writing in `docs/Backend_design/` (added 2026-09-23, PR #391 —
 `handoff_log/session-2026-09-23-key-primer-docs.md`):**

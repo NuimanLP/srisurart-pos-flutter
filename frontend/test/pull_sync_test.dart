@@ -612,4 +612,225 @@ void main() {
       expect(pullInvoked, isTrue);
     });
   });
+
+  group('Ledger guard on pull (customers/mechanics, twin of 08 §15)', () {
+    ApiClient onePage(List<Map<String, dynamic>> rows) => ApiClient(
+          tokenStorage: tokenStorage,
+          httpClient: MockClient((req) async => http.Response(
+                jsonEncode({
+                  'data': rows,
+                  'meta': {
+                    'total': rows.length,
+                    'page': 1,
+                    'limit': 100,
+                    'totalPages': 1,
+                    'nextCursor': null,
+                  },
+                }),
+                200,
+                headers: {'content-type': 'application/json'},
+              )),
+        );
+
+    Future<void> seedCustomer(String id, {required int points, required double spend}) =>
+        db.into(db.customers).insert(CustomersCompanion.insert(
+              id: id,
+              code: 'C-$id',
+              name: 'old $id',
+              nameTH: 'old $id',
+              createdAt: '2026-09-01',
+              points: drift.Value(points),
+              totalSpend: drift.Value(spend),
+            ));
+
+    Future<void> seedMechanic(String id, {required double balance, required double sales}) =>
+        db.into(db.mechanics).insert(MechanicsCompanion.insert(
+              id: id,
+              code: 'M-$id',
+              name: 'old $id',
+              createdAt: '2026-09-01',
+              creditLimit: const drift.Value(5000),
+              creditBalance: drift.Value(balance),
+              totalSales: drift.Value(sales),
+            ));
+
+    Map<String, dynamic> serverCustomer(String id) => {
+          'id': id,
+          'code': 'C-$id',
+          'name': 'new $id',
+          'nameTH': 'new $id',
+          'points': 1,
+          'totalSpend': '10.00',
+          'updatedAt': '2026-09-20T10:00:00.000Z',
+        };
+
+    Map<String, dynamic> serverMechanic(String id) => {
+          'id': id,
+          'code': 'M-$id',
+          'name': 'new $id',
+          'creditLimit': '9000.00',
+          'creditBalance': '0.00',
+          'totalSales': '0.00',
+          'totalDiscount': '0.00',
+          'totalMarkup': '0.00',
+          'updatedAt': '2026-09-20T10:00:00.000Z',
+        };
+
+    test('customer with a pending outbox op keeps local spend/points; other fields update', () async {
+      await seedCustomer('c1', points: 50, spend: 500);
+      await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+            opId: 'op-1',
+            idempotencyKey: 'k-1',
+            type: 'sale.create',
+            payload: jsonEncode({'customerId': 'c1', 'items': []}),
+            aggregates: jsonEncode(['sale:s1', 'customer:c1']),
+            createdAt: DateTime.now().toUtc(),
+            status: 'pending',
+          ));
+
+      await ApiCustomersRepository(db, onePage([serverCustomer('c1')]))
+          .syncFromServer(forceFull: true);
+
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('c1'))).getSingle();
+      expect(c.points, 50);
+      expect(c.totalSpend, 500);
+      expect(c.name, 'new c1');
+    });
+
+    test('mechanic with a queued credit payment keeps local balance/totals; other fields update', () async {
+      await seedMechanic('m1', balance: 700, sales: 2000);
+      await db.into(db.pendingCreditPayments).insert(PendingCreditPaymentsCompanion.insert(
+            id: 'cp-1',
+            idempotencyKey: 'k-cp-1',
+            mechanicId: 'm1',
+            amount: '300.00',
+            paymentMethod: 'เงินสด',
+            createdAt: DateTime.now().toUtc(),
+          ));
+
+      await ApiMechanicsRepository(db, onePage([serverMechanic('m1')]))
+          .syncFromServer(forceFull: true);
+
+      final m = await (db.select(db.mechanics)..where((t) => t.id.equals('m1'))).getSingle();
+      expect(m.creditBalance, 700);
+      expect(m.totalSales, 2000);
+      expect(m.creditLimit, 9000);
+      expect(m.name, 'new m1');
+    });
+
+    test('no unsent work: pull overwrites customer and mechanic totals', () async {
+      await seedCustomer('c2', points: 50, spend: 500);
+      await seedMechanic('m2', balance: 700, sales: 2000);
+
+      await ApiCustomersRepository(db, onePage([serverCustomer('c2')]))
+          .syncFromServer(forceFull: true);
+      await ApiMechanicsRepository(db, onePage([serverMechanic('m2')]))
+          .syncFromServer(forceFull: true);
+
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('c2'))).getSingle();
+      expect(c.points, 1);
+      expect(c.totalSpend, 10);
+      final m = await (db.select(db.mechanics)..where((t) => t.id.equals('m2'))).getSingle();
+      expect(m.creditBalance, 0);
+      expect(m.totalSales, 0);
+    });
+
+    test('customer.update op (no money) does not freeze points/spend', () async {
+      await seedCustomer('c3', points: 50, spend: 500);
+      await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+            opId: 'op-cu',
+            idempotencyKey: 'k-cu',
+            type: 'customer.update',
+            payload: jsonEncode({'id': 'c3', 'name': 'x'}),
+            aggregates: jsonEncode(['customer:c3']),
+            createdAt: DateTime.now().toUtc(),
+            status: 'pending',
+          ));
+
+      await ApiCustomersRepository(db, onePage([serverCustomer('c3')]))
+          .syncFromServer(forceFull: true);
+
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('c3'))).getSingle();
+      expect(c.points, 1);
+      expect(c.totalSpend, 10);
+    });
+
+    test('op queued while the page is in flight is still protected', () async {
+      await seedCustomer('c4', points: 50, spend: 500);
+      final client = ApiClient(
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((req) async {
+          // The till queues an offline sale while the pull is waiting.
+          await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+                opId: 'op-mid',
+                idempotencyKey: 'k-mid',
+                type: 'sale.create',
+                payload: jsonEncode({'customerId': 'c4', 'items': []}),
+                aggregates: jsonEncode(['sale:s4', 'customer:c4']),
+                createdAt: DateTime.now().toUtc(),
+                status: 'pending',
+              ));
+          return http.Response(
+            jsonEncode({
+              'data': [serverCustomer('c4')],
+              'meta': {'total': 1, 'page': 1, 'limit': 100, 'totalPages': 1, 'nextCursor': null},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await ApiCustomersRepository(db, client).syncFromServer(forceFull: true);
+
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('c4'))).getSingle();
+      expect(c.points, 50);
+      expect(c.totalSpend, 500);
+    });
+
+    test('saved cursor never passes a protected row (re-served next pull)', () async {
+      await seedMechanic('m5', balance: 700, sales: 2000);
+      await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+            opId: 'op-cp',
+            idempotencyKey: 'k-cp',
+            type: 'credit_payment.create',
+            payload: jsonEncode({'mechanicId': 'm5', 'amount': '100.00'}),
+            aggregates: jsonEncode(['cp:x', 'mechanic:m5']),
+            createdAt: DateTime.now().toUtc(),
+            status: 'pending',
+          ));
+      final client = ApiClient(
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((req) async {
+          final page2 = req.url.queryParameters['afterId'] != null;
+          return http.Response(
+            jsonEncode({
+              'data': page2
+                  ? []
+                  : [
+                      {...serverMechanic('m5'), 'updatedAt': '2026-09-20T10:00:00.123456Z'},
+                      {...serverMechanic('m6'), 'updatedAt': '2026-09-20T11:00:00.000000Z'},
+                    ],
+              'meta': {
+                'total': 2,
+                'page': page2 ? 2 : 1,
+                'limit': 100,
+                'totalPages': 2,
+                'nextCursor': page2
+                    ? null
+                    : {'updatedSince': '2026-09-20T11:00:00.000000Z', 'afterId': 'm6'},
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await ApiMechanicsRepository(db, client).syncFromServer(forceFull: true);
+
+      final cur = await (db.select(db.syncCursors)..where((t) => t.entity.equals('mechanics'))).getSingle();
+      expect(cur.cursor, '2026-09-20T10:00:00.123456Z');
+    });
+  });
 }
