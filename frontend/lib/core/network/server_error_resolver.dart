@@ -118,7 +118,9 @@ class ServerErrorResolver {
     'required': 'กรุณากรอกรหัสผ่านใหม่',
     'too_short': 'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
     'too_long': 'รหัสผ่านยาวเกินไป ต้องไม่เกิน 128 ตัวอักษร',
-    'common': 'รหัสผ่านนี้เดาง่ายเกินไป หรือมีชื่อร้านอยู่ในรหัส กรุณาตั้งรหัสอื่น',
+    // The server checks a fixed brand-word list (SHOP_WORDS), not the tenant's own
+    // name, so the message must not promise a shop-name check.
+    'common': 'รหัสผ่านนี้เดาง่ายเกินไป กรุณาตั้งรหัสอื่น',
     'same_as_temp': 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว',
   };
 

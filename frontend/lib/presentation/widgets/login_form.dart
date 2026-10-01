@@ -374,6 +374,7 @@ class _LoginFormState extends State<LoginForm> {
           hint: 'กรอกรหัส PIN',
           controller: _pinController,
           obscureText: true,
+          isPin: true,
           keyboardType: TextInputType.number,
           inputFormatters: [
             FilteringTextInputFormatter.digitsOnly,
