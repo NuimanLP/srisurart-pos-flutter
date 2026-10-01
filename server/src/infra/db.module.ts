@@ -9,6 +9,24 @@ import { LOGGER } from './logger.provider.js';
 export const ADMIN_DATA_SOURCE = Symbol('ADMIN_DATA_SOURCE');
 export const AUDIT_DATA_SOURCE = Symbol('AUDIT_DATA_SOURCE');
 export const HEALTH_DATA_SOURCE = Symbol('HEALTH_DATA_SOURCE');
+/** A reader of the request pool's counters — never the pool itself (tenant-door.spec.ts). */
+export const DB_POOL_STATS = Symbol('DB_POOL_STATS');
+
+export interface DbPoolStats {
+  inUse: number;
+  idle: number;
+  waiting: number;
+  max: number;
+}
+export type DbPoolStatsReader = () => DbPoolStats;
+
+/** The slice of `pg.Pool` the reader touches; TypeORM types `driver.master` as `any`. */
+interface PgPoolLike {
+  totalCount: number;
+  idleCount: number;
+  waitingCount: number;
+  options: { max?: number };
+}
 
 /**
  * Four TypeORM DataSources per process:
@@ -127,10 +145,26 @@ export const HEALTH_DATA_SOURCE = Symbol('HEALTH_DATA_SOURCE');
         return ds.initialize();
       },
     },
+    {
+      // For the pool gauge (metrics/runtime-metrics.service.ts). Handing out this function
+      // instead of the DataSource keeps the consumer from ever taking a connection.
+      provide: DB_POOL_STATS,
+      inject: [DataSource],
+      useFactory: (ds: DataSource): DbPoolStatsReader => {
+        const pool = (ds.driver as unknown as { master: PgPoolLike }).master;
+        return () => ({
+          inUse: pool.totalCount - pool.idleCount,
+          idle: pool.idleCount,
+          waiting: pool.waitingCount,
+          max: pool.options.max ?? 0,
+        });
+      },
+    },
     TenantService,
   ],
   exports: [
     DataSource,
+    DB_POOL_STATS,
     ADMIN_DATA_SOURCE,
     AUDIT_DATA_SOURCE,
     HEALTH_DATA_SOURCE,

@@ -288,12 +288,158 @@
       ]
     },
     {
+      "id": 20,
+      "title": "Bills, voids and returns (selected range)",
+      "type": "stat",
+      "description": "Documents the server committed, counted at commit so a rolled-back write is never included. `sale` also covers a quote converted to a sale and a bill replayed in through /sync/push; a resent Idempotency-Key is not counted twice. No per-tenant split by design. increase() extrapolates, so small counts can read slightly off a whole number.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 48 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "noValue": "0" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(increase(pos_documents_total[$__range])) by (kind)",
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Bills, voids and returns per minute",
+      "type": "timeseries",
+      "description": "The shop's own pulse: during opening hours a flat-zero `sale` line means nobody can ring a bill, whatever the API panels say.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 48 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(pos_documents_total[5m])) by (kind) * 60",
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "title": "DB pool in use per instance",
+      "type": "timeseries",
+      "description": "Connections each api process currently holds out of its request pool (DB_POOL_SIZE). In-use sitting on the max line is the state #162 deadlocked in.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 56 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "pos_db_pool_connections{state=\"in_use\"}",
+          "legendFormat": "in use {{instance}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "pos_db_pool_max_connections",
+          "legendFormat": "max {{instance}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "DB pool waiting per instance",
+      "type": "timeseries",
+      "description": "Requests queued for a connection because the pool is exhausted. Healthy is 0; anything sustained above 0 is latency the database never sees. Sampled at scrape time (every 15s), so a short burst between scrapes can be missed.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 56 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "pos_db_pool_connections{state=\"waiting\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Login refusals per minute",
+      "type": "timeseries",
+      "description": "Refused logins on the shop and platform token routes, from the existing HTTP counter. 401 is a wrong credential, 429 is the login throttle. A burst of either is someone guessing passwords, or a till with a stale password retrying.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 56 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(http_requests_total{route=~\".*/auth/token\", status_code=~\"4..\"}[5m])) by (route, status_code) * 60",
+          "legendFormat": "{{route}} {{status_code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "title": "Background jobs by queue",
+      "type": "timeseries",
+      "description": "BullMQ queue depth, read from redis-queue at scrape time. All api instances report the same Redis numbers, hence max() and never sum(). A `waiting` line that only grows means the worker is down or stuck.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 64 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "max(pos_queue_jobs{state=~\"waiting|active|delayed\"}) by (queue, state)",
+          "legendFormat": "{{queue}} {{state}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "title": "Failed background jobs",
+      "type": "stat",
+      "description": "Jobs BullMQ is currently holding in each queue's failed set (it is a level, not a rate — it drops when failed jobs are removed or retried). `dlq` is where a job lands after exhausting its retries.",
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 64 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "noValue": "no data", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "max(pos_queue_jobs{state=\"failed\"}) by (queue)",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "id": 6,
       "title": "k6: 429s from nginx's perip limiter, by machine (must be zero — #251)",
       "type": "stat",
       "description": "The whole point of #251's distributed run: if this is ever non-zero for a shard, that shard's own source IP tripped nginx's `limit_req zone=perip rate=30r/s burst=60` and every §9 number from it is contaminated the same way a single-machine run always was (docs/handoff_log/close3-demo-deploy-2026-09-15.md §4.1). No data until a k6 run with SHARD set (and --tag machine=...) has pushed.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 72 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -323,7 +469,7 @@
       "type": "timeseries",
       "description": "server/test/k6/lib/shard.js SAFE_RATE_PER_SHARD = 24 r/s (80% of nginx's rate=30r/s) — see README.md \"Per-shard math\". A line crossing 24 for more than an instant means that shard's rate override or VU count is unsafe, not just that this one run got unlucky.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 80 },
       "fieldConfig": {
         "defaults": { "unit": "reqps", "noValue": "no data" },
         "overrides": []
@@ -343,7 +489,7 @@
       "type": "timeseries",
       "description": "k6's Prometheus remote-write output computes each percentile locally, per k6 process — there is no valid way to recombine three machines' local p95s into one true cross-machine p95 after the fact. §9 evidence is therefore per-machine: every shard's own line must clear the threshold, not an average of them. See README.md \"Reading the numbers\".",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 80 },
       "fieldConfig": {
         "defaults": { "unit": "s", "noValue": "no data" },
         "overrides": []
@@ -369,7 +515,7 @@
       "type": "timeseries",
       "description": "k6_http_req_failed_rate is already a 0-1 ratio per push interval (a k6 Rate metric) — do not wrap it in rate() again, that would compute a rate of a ratio.",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 64 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 88 },
       "fieldConfig": {
         "defaults": { "unit": "percentunit", "noValue": "no data", "max": 1, "min": 0 },
         "overrides": []
@@ -388,7 +534,7 @@
       "title": "k6: 01-read-products cache hit rate (§9 cache hit>90%)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 64 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 88 },
       "fieldConfig": {
         "defaults": { "unit": "percentunit", "noValue": "no data", "max": 1, "min": 0 },
         "overrides": []

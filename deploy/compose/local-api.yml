@@ -1,0 +1,15 @@
+# LOCAL DEVELOPMENT ONLY — run the three api instances from this checkout's code instead of
+# the GHCR release image vm.override.yml pins, while everything else stays VM-shaped.
+# Needed whenever the branch changes server code that is not on `main` yet (e.g. new metrics).
+#
+#   docker build -t srisurart-pos-server:develop-local server/
+#   ... -f ../deploy/compose/vm.override.yml -f ../deploy/compose/local-api.yml ... up -d
+#
+# Must come AFTER vm.override.yml on the command line. Never used by deploy/ansible/deploy.yml.
+
+name: srisurart-pos
+
+services:
+  api-1: { image: "srisurart-pos-server:develop-local" }
+  api-2: { image: "srisurart-pos-server:develop-local" }
+  api-3: { image: "srisurart-pos-server:develop-local" }

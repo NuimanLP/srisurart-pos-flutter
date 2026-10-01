@@ -6,6 +6,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { newId } from '../common/ids.js';
 import { fromSatang, pointsFor, satangOf } from '../common/money.js';
 import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
+import { MetricsService } from '../metrics/metrics.service.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
 import { DocNumberService } from '../documents/doc-number.service.js';
@@ -204,6 +205,7 @@ export class SalesService {
     private readonly audit: AuditService,
     private readonly cache: TenantCache,
     private readonly tenants: TenantService,
+    private readonly metrics: MetricsService,
     @Optional() @InjectQueue(QUEUE_SALE_POST) private readonly salePostQueue?: Queue,
   ) {}
 
@@ -330,6 +332,7 @@ export class SalesService {
     this.cache.invalidateAfterCommit(tenantId, 'products');
     if (dto.customerId !== null) this.cache.invalidateAfterCommit(tenantId, 'customers');
     if (dto.mechanicId !== null) this.cache.invalidateAfterCommit(tenantId, 'mechanics');
+    onTransactionCommit(() => this.metrics.recordDocument('sale'));
 
     if (this.salePostQueue) {
       const queue = this.salePostQueue;

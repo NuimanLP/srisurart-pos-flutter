@@ -5,6 +5,7 @@ import type { EntityManager } from 'typeorm';
 import { newId } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
+import { MetricsService } from '../metrics/metrics.service.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
 import { DocNumberService } from '../documents/doc-number.service.js';
@@ -191,6 +192,7 @@ export class ReturnsService {
     private readonly shifts: ShiftsService,
     private readonly cache: TenantCache,
     private readonly tenants: TenantService,
+    private readonly metrics: MetricsService,
     @Optional() @InjectQueue(QUEUE_SALE_POST) private readonly salePostQueue?: Queue,
   ) {}
 
@@ -313,6 +315,7 @@ export class ReturnsService {
     this.cache.invalidateAfterCommit(tenantId, 'products');
     if (sale.customer_id !== null) this.cache.invalidateAfterCommit(tenantId, 'customers');
     if (sale.mechanic_id !== null) this.cache.invalidateAfterCommit(tenantId, 'mechanics');
+    onTransactionCommit(() => this.metrics.recordDocument('return'));
 
     if (this.salePostQueue) {
       const queue = this.salePostQueue;
