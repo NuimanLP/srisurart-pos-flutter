@@ -678,6 +678,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   (`TENANT_SWITCH_UNSENT_WORK`, `ENROL_UNSENT_WORK`). `cacheGeneration` fences late pulls/seeds, and
   `ApiClient` has a session generation so a stale refresh/401/token never acts for the next user
   (#534/#536). Replies to in-flight online writes are not fenced (accepted limit).
+- **Customer/mechanic pull keeps local totals under unsent money ops** (`outbox_ledger_refs.dart`): rows referenced by `sale.create`/`sale.void_offline`/`return.create`/`credit_payment.create` (any status) or a queued credit payment keep `points`/`totalSpend` / `creditBalance`/`totalSales`/`totalDiscount`/`totalMarkup`; the guard is recomputed per page inside the write txn and the saved cursor never passes a protected row. A new money-op type must be added to `_moneyOps`.
 
 **Writing in `docs/Backend_design/` (added 2026-09-23, PR #391 —
 `handoff_log/session-2026-09-23-key-primer-docs.md`):**
