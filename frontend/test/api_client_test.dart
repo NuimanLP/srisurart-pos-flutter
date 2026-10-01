@@ -482,7 +482,10 @@ void main() {
 
   test('a refusal that lands after a deliberate logout is not an expiry', () async {
     // The logout already ended that session; firing onSessionExpired would
-    // replace "signed out" with "expired" and keep ?from=.
+    // replace "signed out" with "expired" and keep ?from=. The request is on
+    // the wire when the counter logs out, so the refresh would then find NO
+    // refresh token at all — "nothing stored" equals "nothing stored", which
+    // a token comparison cannot tell apart from a real expiry.
     tokenStorage.accessToken = 'old-access';
     tokenStorage.refreshToken = 'old-refresh';
     var expired = 0;
@@ -491,8 +494,8 @@ void main() {
       baseUrl: 'http://server.test',
       tokenStorage: tokenStorage,
       httpClient: MockClient((req) async {
-        if (req.url.path.endsWith('/auth/refresh')) {
-          client.beginSession(); // AuthRepository.logout
+        if (!req.url.path.endsWith('/auth/refresh')) {
+          client.beginSession(); // AuthRepository.logout, mid-request
           await tokenStorage.clearAuthTokens();
         }
         return unauthenticated();
@@ -504,6 +507,84 @@ void main() {
       throwsA(isA<ApiException>()),
     );
     expect(expired, 0);
+  });
+
+  group('a login landing while a request reads its token (#536 review)', () {
+    late _HookedTokenStorage storage;
+    late ApiClient client;
+    late List<String?> sent;
+
+    void build(Future<http.Response> Function(http.Request) handler) {
+      storage = _HookedTokenStorage()
+        ..accessToken = 'old-access'
+        ..refreshToken = 'old-refresh';
+      sent = [];
+      client = ApiClient(
+        baseUrl: 'http://server.test',
+        tokenStorage: storage,
+        httpClient: MockClient((req) async {
+          if (!req.url.path.endsWith('/auth/refresh')) {
+            sent.add(req.headers['Authorization']);
+          }
+          return handler(req);
+        }),
+      );
+    }
+
+    // What AuthRepository does on logout -> next login, landing inside the
+    // n-th access-token read.
+    void reLoginOnRead(int n) {
+      storage.onRead = (count) {
+        if (count != n) return;
+        client.beginSession();
+        storage.accessToken = 'new-access';
+        storage.refreshToken = 'new-refresh';
+      };
+    }
+
+    test('first send: the request never leaves with the new person\'s token', () async {
+      build((_) async => http.Response('{"status":"success","data":{}}', 200));
+      // Read 1 is the "sent with" snapshot; read 2 is the header build.
+      reLoginOnRead(2);
+      await expectLater(
+        () => client.post('/api/v1/sales', body: {'x': 1}),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401)),
+      );
+      expect(sent, isEmpty);
+      expect(storage.accessToken, 'new-access');
+    });
+
+    test('retry after a refresh: never resent with the new person\'s token', () async {
+      build((req) async {
+        if (req.url.path.endsWith('/auth/refresh')) {
+          return http.Response(
+            jsonEncode({
+              'status': 'success',
+              'data': {'accessToken': 'old-access-2', 'refreshToken': 'old-refresh-2'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'status': 'error',
+            'error': {'code': 'UNAUTHENTICATED', 'message': 'token expired'},
+          }),
+          401,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      // 1 snapshot, 2 first send, 3 "did someone refresh?", 4 the retry's
+      // header build — the login lands inside that one.
+      reLoginOnRead(4);
+      await expectLater(
+        () => client.post('/api/v1/sales', body: {'x': 1}),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401)),
+      );
+      expect(sent, ['Bearer old-access']);
+      expect(storage.accessToken, 'new-access');
+    });
   });
 
   group('#161 a refresh whose fate is unknown keeps the session', () {
@@ -1025,4 +1106,19 @@ void main() {
       expect(firstAborted, isFalse);
     });
   });
+}
+
+/// Runs [onRead] inside every access-token read, before it returns — the
+/// window an `await getAccessToken()` leaves open.
+class _HookedTokenStorage extends InMemoryTokenStorage {
+  void Function(int count)? onRead;
+  int _reads = 0;
+
+  @override
+  Future<String?> getAccessToken() async {
+    _reads++;
+    await Future<void>.delayed(Duration.zero);
+    onRead?.call(_reads);
+    return accessToken;
+  }
 }
