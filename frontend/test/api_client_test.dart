@@ -346,6 +346,166 @@ void main() {
     expect(tokenStorage.refreshToken, isNull);
   });
 
+  test('a stale refusal never signs out a session logged in after it', () async {
+    // Logout → re-login while an old request's refresh is still on the wire:
+    // the server refuses the OLD refresh token, but the stored one is now the
+    // new session's. Clearing it would throw the new person back to login.
+    tokenStorage.accessToken = 'old-access';
+    tokenStorage.refreshToken = 'old-refresh';
+    var expired = 0;
+    late final ApiClient client;
+    client = ApiClient(
+      baseUrl: 'http://server.test',
+      tokenStorage: tokenStorage,
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/auth/refresh')) {
+          // The counter logs out and the next person logs in meanwhile
+          // (AuthRepository starts a session before storing its tokens).
+          client.beginSession();
+          tokenStorage.accessToken = 'new-access';
+          tokenStorage.refreshToken = 'new-refresh';
+          return http.Response(
+            jsonEncode({
+              'status': 'error',
+              'error': {'code': 'UNAUTHENTICATED', 'message': 'refresh revoked'},
+            }),
+            401,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'status': 'error',
+            'error': {'code': 'UNAUTHENTICATED', 'message': 'token expired'},
+          }),
+          401,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    )..onSessionExpired = () => expired++;
+
+    await expectLater(
+      () => client.get('/api/v1/products'),
+      throwsA(isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401)),
+    );
+    expect(expired, 0);
+    expect(tokenStorage.accessToken, 'new-access');
+    expect(tokenStorage.refreshToken, 'new-refresh');
+  });
+
+  http.Response unauthenticated() => http.Response(
+        jsonEncode({
+          'status': 'error',
+          'error': {'code': 'UNAUTHENTICATED', 'message': 'token expired'},
+        }),
+        401,
+        headers: {'content-type': 'application/json'},
+      );
+
+  test('a stale refresh that SUCCEEDS after a re-login never replaces the new '
+      'session, and the old request is not resent as the new person', () async {
+    tokenStorage.accessToken = 'old-access';
+    tokenStorage.refreshToken = 'old-refresh';
+    final sentWith = <String?>[];
+    var expired = 0;
+    late final ApiClient client;
+    client = ApiClient(
+      baseUrl: 'http://server.test',
+      tokenStorage: tokenStorage,
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/auth/refresh')) {
+          expect(jsonDecode(req.body)['refreshToken'], 'old-refresh');
+          client.beginSession(); // logout -> next person logs in
+          tokenStorage.accessToken = 'new-access';
+          tokenStorage.refreshToken = 'new-refresh';
+          return http.Response(
+            jsonEncode({
+              'status': 'success',
+              'data': {
+                'accessToken': 'old-person-access-2',
+                'refreshToken': 'old-person-refresh-2',
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        sentWith.add(req.headers['Authorization']);
+        return unauthenticated();
+      }),
+    )..onSessionExpired = () => expired++;
+
+    await expectLater(
+      () => client.get('/api/v1/products'),
+      throwsA(isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401)),
+    );
+    expect(tokenStorage.accessToken, 'new-access');
+    expect(tokenStorage.refreshToken, 'new-refresh');
+    expect(sentWith, ['Bearer old-access'],
+        reason: 'never resent under the new identity');
+    expect(expired, 0);
+  });
+
+  test('a 401 for a request sent before a re-login is not retried with the '
+      "new person's token", () async {
+    tokenStorage.accessToken = 'old-access';
+    tokenStorage.refreshToken = 'old-refresh';
+    final sentWith = <String?>[];
+    var refreshes = 0;
+    late final ApiClient client;
+    client = ApiClient(
+      baseUrl: 'http://server.test',
+      tokenStorage: tokenStorage,
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/auth/refresh')) {
+          refreshes++;
+          return http.Response('{}', 500);
+        }
+        sentWith.add(req.headers['Authorization']);
+        if (sentWith.length == 1) {
+          client.beginSession(); // logout -> next person logs in mid-flight
+          tokenStorage.accessToken = 'new-access';
+          tokenStorage.refreshToken = 'new-refresh';
+        }
+        return unauthenticated();
+      }),
+    );
+
+    await expectLater(
+      () => client.post('/api/v1/sales', body: {'x': 1}),
+      throwsA(isA<ApiException>().having((e) => e.statusCode, 'statusCode', 401)),
+    );
+    expect(sentWith, ['Bearer old-access']);
+    expect(refreshes, 0);
+    expect(tokenStorage.refreshToken, 'new-refresh');
+  });
+
+  test('a refusal that lands after a deliberate logout is not an expiry', () async {
+    // The logout already ended that session; firing onSessionExpired would
+    // replace "signed out" with "expired" and keep ?from=.
+    tokenStorage.accessToken = 'old-access';
+    tokenStorage.refreshToken = 'old-refresh';
+    var expired = 0;
+    late final ApiClient client;
+    client = ApiClient(
+      baseUrl: 'http://server.test',
+      tokenStorage: tokenStorage,
+      httpClient: MockClient((req) async {
+        if (req.url.path.endsWith('/auth/refresh')) {
+          client.beginSession(); // AuthRepository.logout
+          await tokenStorage.clearAuthTokens();
+        }
+        return unauthenticated();
+      }),
+    )..onSessionExpired = () => expired++;
+
+    await expectLater(
+      () => client.get('/api/v1/products'),
+      throwsA(isA<ApiException>()),
+    );
+    expect(expired, 0);
+  });
+
   group('#161 a refresh whose fate is unknown keeps the session', () {
     const connectionSentence = 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์';
 

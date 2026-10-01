@@ -152,6 +152,7 @@ idiomatic replacement for the JS snapshot/rollback):
   `importLegacyBackup()` atomically imports a JS `DB.exportSnapshot()` JSON (zone→category
   migration, null-as-absent). This is the Phase-2 data-migration path.
 - IDs/doc-numbers via `newId/docNo` only; CSV via `csvSafe`.
+- API build (`USE_API_WRITES`) never seeds demo business data; an already-seeded DB gets a one-time `purgeDemoSeed()` (skipped while outbox ops or queued credit payments exist; deletes only untouched `updatedAt IS NULL` seed rows no local record references; AppMeta marker `demo_seed_purged`, also set by `importLegacyBackup`). The seeded settings identity persists until the first successful `GET /settings`.
 
 ---
 
@@ -555,6 +556,13 @@ on void/return paths. Keep this order in any new write touching more than one of
 - Branch protection on `main` has been set since 2026-09-15: PR required (0 approvals),
   the two status jobs required, no force-push/delete, admins not enforced.
 - Base image digests are pinned and bumped by hand, never suppressed with `.trivyignore`.
+- **Secret scan = gitleaks** (job `secrets` in `server.yml`, 2026-10-01): never path-gated,
+  scans the commits each PR/push adds (`-v --redact`), and `server-ci-status` requires its
+  `success`. Allowlists live in `.gitleaks.toml` (placeholder patterns) and
+  `.gitleaksignore` (reviewed fingerprints). **Never allowlist a real secret — rotate it**
+  (history is not rewritten). On a PR, CI reads both files from the **base** commit, so an
+  allowlist change takes effect **only after it merges** — land it in its own PR first.
+  Inline `gitleaks:allow` is ignored. Details: `07_CICD_DEPLOY.md §2a`.
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
@@ -570,6 +578,10 @@ on void/return paths. Keep this order in any new write touching more than one of
 - **A red `server-ci-status` on `main` = no images on GHCR = every Deploy run skips while
   reporting success** (2026-09-30: `pnpm audit --audit-level=high` blocked every deploy
   until PR #512). An ~8 s green run after a merge can mean this, not only "docs-only".
+- **Tests must not hardcode the current month** (2026-10-01, PR #525): `sync-push.e2e-spec.ts` used
+  `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
+  (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
+  every Deploy run skipping. Derive RC/CN periods from now in `Asia/Bangkok` (`currentPeriod()`).
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
   `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
   images for that SHA are not on GHCR yet the job is skipped and the workflow still

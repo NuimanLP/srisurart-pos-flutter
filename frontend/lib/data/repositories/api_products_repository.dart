@@ -294,7 +294,11 @@ class ApiProductsRepository extends ProductsRepository {
 
   @override
   Future<void> delete(String id) async {
-    await apiClient.delete('/api/v1/products/$id', headers: idempotencyKey());
+    // rethrowThai: a refusal reaches the screen as its Thai sentence, never as
+    // an ApiException (CLAUDE.md client write path).
+    await rethrowThai(
+      () => apiClient.delete('/api/v1/products/$id', headers: idempotencyKey()),
+    );
     // ADR-0010: soft-delete locally by setting deletedAt WITHOUT stamping client clock on updatedAt
     await (db.update(db.products)..where((t) => t.id.equals(id))).write(
       ProductsCompanion(

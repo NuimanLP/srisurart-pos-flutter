@@ -213,3 +213,24 @@ th, td {
   max-width: 420px;
   width: 90%;
 }
+
+/* Show/hide toggle on the login password (owner feedback 2026-10-01). */
+.password-wrap {
+  position: relative;
+}
+
+.password-wrap input {
+  padding-right: 40px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  line-height: 0;
+}

@@ -29,6 +29,7 @@ import 'package:srisurart_pos/core/router/app_router.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
+import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 import 'package:srisurart_pos/presentation/blocs/auth_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
@@ -83,11 +84,23 @@ class _StubAuthRepo extends AuthRepository {
   String? pwchangeToken;
   DateTime? passwordChangedAt;
 
+  /// What reached the repository, exactly — the round-trip test compares these.
+  final loginPasswords = <String>[];
+  String? newPasswordSent;
+
+  /// Held open by a test to observe the form while a login is in flight.
+  Completer<void>? loginGate;
+
+  /// Held open by a test to land a session expiry in the middle of a logout.
+  Completer<void>? logoutGate;
+
   @override
   Future<LoginResult> login({
     required String username,
     required String password,
   }) async {
+    loginPasswords.add(password);
+    if (loginGate != null) await loginGate!.future;
     if (loginError != null) throw loginError!;
     final u = AuthUser(id: 'u-1', username: username, role: 'cashier');
     if (pwchangeToken != null) return LoginPasswordChangeRequired(u, pwchangeToken!);
@@ -101,6 +114,7 @@ class _StubAuthRepo extends AuthRepository {
     required String passwordChangeToken,
     required String newPassword,
   }) async {
+    newPasswordSent = newPassword;
     pwchangeToken = null;
     isAuth = true;
     user = const AuthUser(id: 'u-1', username: 'owner', role: 'owner');
@@ -109,6 +123,7 @@ class _StubAuthRepo extends AuthRepository {
 
   @override
   Future<void> logout() async {
+    if (logoutGate != null) await logoutGate!.future;
     isAuth = false;
     user = null;
   }
@@ -157,6 +172,22 @@ void main() {
       );
       expect(authRedirect(signedIn, Uri.parse('/login')), '/');
       expect(authRedirect(signedIn, Uri.parse('/reports')), isNull);
+    });
+
+    test('after a deliberate logout login forgets the last screen', () {
+      const signedOut = Unauthenticated(signedOut: true);
+      expect(authRedirect(signedOut, Uri.parse('/settings')), '/login');
+      expect(authRedirect(signedOut, Uri.parse('/login')), isNull);
+      // An expiry that put ?from= on the login route first is dropped too.
+      expect(
+        authRedirect(signedOut, Uri.parse('/login?from=%2Fsettings')),
+        '/login',
+      );
+      // A session expiry still remembers it.
+      expect(
+        authRedirect(const Unauthenticated(), Uri.parse('/settings')),
+        '/login?from=%2Fsettings',
+      );
     });
 
     test('only an in-app path is followed back', () {
@@ -212,6 +243,47 @@ void main() {
       expect(lost, connection);
       expect(lost, isNot(contains('ClientException')));
       expect(AuthCubit.loginRefusalMessage(TimeoutException('t')), connection);
+    });
+  });
+
+  group('logout racing a session expiry', () {
+    test('an expiry during or after a logout leaves it a logout', () async {
+      final repo = _StubAuthRepo()
+        ..isAuth = true
+        ..user = const AuthUser(id: 'u-1', username: 'pos', role: 'cashier');
+      final cubit = AuthCubit(authRepository: repo);
+      await cubit.init();
+      repo.logoutGate = Completer<void>();
+
+      final loggingOut = cubit.logout();
+      await cubit.sessionExpired(); // a stale 401 lands mid-logout
+      repo.logoutGate!.complete();
+      await loggingOut;
+      expect(cubit.state, isA<Unauthenticated>());
+      expect((cubit.state as Unauthenticated).signedOut, isTrue);
+
+      await cubit.sessionExpired(); // and one after it
+      expect((cubit.state as Unauthenticated).signedOut, isTrue);
+      await cubit.close();
+    });
+
+    test('AuthLoading carries the device the login form was showing', () async {
+      final repo = _StubAuthRepo()
+        ..isAuth = true
+        ..user = const AuthUser(id: 'u-1', username: 'pos', role: 'cashier');
+      final cubit = AuthCubit(authRepository: repo);
+      await cubit.init();
+      await cubit.logout(); // keeps role 'pos'; the stub's repo now says null
+      repo.loginGate = Completer<void>();
+      final loggingIn = cubit.login(username: 'pos', password: 'secret');
+      await Future<void>.delayed(Duration.zero);
+      final loading = cubit.state;
+      expect(loading, isA<AuthLoading>());
+      expect((loading as AuthLoading).isPos, isTrue);
+      expect(loading.hasDeviceEnrolled, isTrue);
+      repo.loginGate!.complete();
+      await loggingIn;
+      await cubit.close();
     });
   });
 
@@ -459,11 +531,15 @@ void main() {
 
           await tester.enterText(find.byKey(const Key('change-password-new')), 'my own long passphrase');
           await tester.enterText(find.byKey(const Key('change-password-confirm')), 'something else entirely');
-          await tester.tap(find.text(ChangePasswordForm.submit));
           await settle(tester);
-          expect(find.text(ChangePasswordForm.mismatch), findsOneWidget);
+          // Mismatched boxes: the checklist shows it and submit stays disabled.
+          expect(
+            tester.widget<FilledButton>(find.widgetWithText(FilledButton, ChangePasswordForm.submit)).onPressed,
+            isNull,
+          );
 
           await tester.enterText(find.byKey(const Key('change-password-confirm')), 'my own long passphrase');
+          await tester.pump(); // the checklist enables submit on the next frame
           await tester.tap(find.text(ChangePasswordForm.submit));
           await settle(tester);
 
@@ -498,5 +574,214 @@ void main() {
         });
       },
     );
+
+    testWidgets(
+      'the password set on the change form is the one sent, and the one a '
+      're-login after logout sends',
+      (tester) async {
+        await tester.runAsync(() async {
+          // Thai, inner and trailing spaces, tone mark before the below-vowel
+          // (not NFC): nothing on the way may trim, normalise or swap boxes.
+          const chosen = 'รหัสใหม่ของร้าน ป\u0E48\u0E39 2569 ';
+          await cubit.init();
+          await pumpApp(tester, requireLogin: true);
+          await settle(tester);
+
+          repo.pwchangeToken = 'pwchange-token';
+          await tester.enterText(find.byType(TextField).at(0), 'owner');
+          await tester.enterText(find.byType(TextField).at(1), 'TempPassw0rdXyz');
+          await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+          await settle(tester);
+
+          bool saved() => tester.testTextInput.log.any(
+                (c) =>
+                    c.method == 'TextInput.finishAutofillContext' &&
+                    c.arguments == true,
+              );
+          // A temporary password is never offered to the password manager.
+          expect(saved(), isFalse);
+
+          final newBox = find.byKey(const Key('change-password-new'));
+          await tester.enterText(newBox, chosen);
+          // The eye toggle (#529) must not lose or alter what was typed.
+          await tester.tap(find.descendant(of: newBox, matching: find.byType(IconButton)));
+          await tester.pump();
+          await tester.enterText(find.byKey(const Key('change-password-confirm')), chosen);
+          await tester.pump();
+          await tester.tap(find.text(ChangePasswordForm.submit));
+          await settle(tester);
+          expect(cubit.state, isA<Authenticated>());
+          expect(repo.newPasswordSent, chosen);
+          // After the change the browser is told to save — the NEW password.
+          expect(saved(), isTrue);
+          tester.testTextInput.log.clear();
+
+          repo.isAuth = false;
+          repo.user = null;
+          await cubit.logout();
+          await settle(tester);
+          expect(find.byType(LoginScreen), findsOneWidget);
+
+          await tester.enterText(find.byType(TextField).at(0), 'owner');
+          await tester.enterText(find.byType(TextField).at(1), chosen);
+          await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+          await settle(tester);
+          expect(repo.loginPasswords, ['TempPassw0rdXyz', chosen]);
+          expect(cubit.state, isA<Authenticated>());
+          expect(saved(), isTrue);
+          await finish(tester);
+        });
+      },
+    );
+
+    testWidgets(
+      'a login in flight keeps the device chip: an enrolled POS till is never '
+      'shown as Backoffice while the request runs',
+      (tester) async {
+        await tester.runAsync(() async {
+          repo.isAuth = true;
+          repo.user = const AuthUser(id: 'u-1', username: 'pos', role: 'cashier');
+          await cubit.init();
+          await pumpApp(tester, requireLogin: true);
+          await settle(tester);
+
+          await cubit.logout();
+          await settle(tester);
+          const posChip = 'เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)';
+          expect(find.text(posChip), findsOneWidget);
+
+          repo.loginGate = Completer<void>();
+          await tester.enterText(find.byType(TextField).at(0), 'pos');
+          await tester.enterText(find.byType(TextField).at(1), 'secret');
+          await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+          await tester.pump();
+          expect(cubit.state, isA<AuthLoading>());
+          expect(find.text(posChip), findsOneWidget);
+          expect(find.text('โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)'), findsNothing);
+
+          repo.loginGate!.complete();
+          await settle(tester);
+          expect(cubit.state, isA<Authenticated>());
+          await finish(tester);
+        });
+      },
+    );
+
+    group('deliberate logout vs session expiry (owner 2026-10-01)', () {
+      const line = CartLine(
+        productId: 'p1',
+        name: 'x',
+        price: 10,
+        originalPrice: 10,
+        cost: 5,
+        qty: 1,
+      );
+      final quote = QuoteWithItems(
+        QuoteRow(
+          id: 'q1',
+          quoteNo: 'QT-1',
+          status: 'open',
+          date: DateTime(2026, 10, 1),
+          validUntil: DateTime(2026, 10, 31),
+        ),
+        const [],
+      );
+
+      Future<BuildContext> signInOnSettingsWithCart(WidgetTester tester) async {
+        repo.isAuth = true;
+        repo.user = const AuthUser(id: 'u-1', username: 'pos', role: 'cashier');
+        await cubit.init();
+        await pumpApp(tester, requireLogin: true);
+        await settle(tester);
+        final ctx = tester.element(find.byType(AppShell));
+        GoRouter.of(ctx).go(AppRoutes.settings);
+        await settle(tester);
+        ctx.read<CartCubit>().setLines(const [line]);
+        ctx.read<PendingQuoteCubit>().set(quote);
+        return ctx;
+      }
+
+      Future<void> signInAgain(WidgetTester tester) async {
+        await tester.enterText(find.byType(TextField).at(0), 'next');
+        await tester.enterText(find.byType(TextField).at(1), 'secret');
+        await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+        await settle(tester);
+        await settle(tester);
+      }
+
+      testWidgets('logout: cart and quote cleared, next login lands on checkout',
+          (tester) async {
+        await tester.runAsync(() async {
+          final ctx = await signInOnSettingsWithCart(tester);
+          final cart = ctx.read<CartCubit>();
+          final pending = ctx.read<PendingQuoteCubit>();
+
+          repo.isAuth = false;
+          repo.user = null;
+          await cubit.logout();
+          await settle(tester);
+          expect(find.byType(LoginScreen), findsOneWidget);
+          expect(
+            location(tester, find.byType(LoginScreen)).queryParameters,
+            isEmpty,
+          );
+          expect(cart.state, isEmpty);
+          expect(pending.state, isNull);
+
+          await signInAgain(tester);
+          expect(find.byType(CheckoutScreen), findsOneWidget);
+          expect(find.byType(SettingsScreen), findsNothing);
+          await finish(tester);
+        });
+      });
+
+      testWidgets('session expiry: cart and quote kept, login returns to the screen',
+          (tester) async {
+        await tester.runAsync(() async {
+          final ctx = await signInOnSettingsWithCart(tester);
+          final cart = ctx.read<CartCubit>();
+          final pending = ctx.read<PendingQuoteCubit>();
+
+          repo.isAuth = false;
+          repo.user = null;
+          await cubit.sessionExpired();
+          await settle(tester);
+          expect(find.byType(LoginScreen), findsOneWidget);
+          expect(cart.state, [line]);
+          expect(pending.state, same(quote));
+
+          await signInAgain(tester);
+          expect(find.byType(SettingsScreen), findsOneWidget);
+          expect(cart.state, [line]);
+          await finish(tester);
+        });
+      });
+    });
+
+    testWidgets('login and change forms carry the browser autofill hints', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        await cubit.init();
+        await pumpApp(tester, requireLogin: true);
+        await settle(tester);
+        List<String>? hints(int i) =>
+            tester.widget<EditableText>(find.byType(EditableText).at(i)).autofillHints?.toList();
+        expect(find.byType(AutofillGroup), findsOneWidget);
+        expect(hints(0), [AutofillHints.username]);
+        expect(hints(1), [AutofillHints.password]);
+
+        repo.pwchangeToken = 'pwchange-token';
+        await tester.enterText(find.byType(TextField).at(0), 'owner');
+        await tester.enterText(find.byType(TextField).at(1), 'TempPassw0rdXyz');
+        await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+        await settle(tester);
+        expect(find.byType(ChangePasswordForm), findsOneWidget);
+        expect(find.byType(AutofillGroup), findsOneWidget);
+        expect(hints(0), [AutofillHints.newPassword]);
+        expect(hints(1), [AutofillHints.newPassword]);
+        await finish(tester);
+      });
+    });
   });
 }

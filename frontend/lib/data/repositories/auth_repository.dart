@@ -98,6 +98,9 @@ class AuthRepository {
     required String refreshToken,
     required AuthUser user,
   }) async {
+    // A new person's tokens: anything still in flight for the last one must
+    // not touch them (ApiClient.beginSession).
+    apiClient.beginSession();
     await tokenStorage.setAccessToken(accessToken);
     await tokenStorage.setRefreshToken(refreshToken);
     await tokenStorage.setUser(user);
@@ -165,11 +168,13 @@ class AuthRepository {
   ///
   /// CRITICAL (ADR-0004): Preserves the device enrolment token.
   Future<void> logout() async {
+    apiClient.beginSession();
     await tokenStorage.clearAuthTokens();
   }
 
   /// Unbinds this device by deleting its stored device token.
   Future<void> clearDeviceEnrolment() async {
+    apiClient.beginSession();
     await tokenStorage.clearAll();
   }
 

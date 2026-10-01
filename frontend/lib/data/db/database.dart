@@ -1,7 +1,8 @@
 // AppDatabase — Drift database root.
 //
-// Schema v1. Seeds the JS SEED_* demo data and _DEFAULT_SETTINGS on first
-// create (onCreate), matching pos/db.js EXACTLY.
+// Seeds _DEFAULT_SETTINGS + SEED_CATEGORIES on first create (onCreate),
+// matching pos/db.js EXACTLY; the JS SEED_* demo business data only on the
+// Drift-only build (`seedDemoData`) — the API build starts as an empty shop.
 //
 //  • App runtime:   AppDatabase.open()  → drift_flutter driftDatabase(name: 'srisurart')
 //  • Tests:         AppDatabase(NativeDatabase.memory())
@@ -11,10 +12,13 @@
 
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'tables.dart';
 
 part 'database.g.dart';
+
+const _useApiWrites = bool.fromEnvironment('USE_API_WRITES');
 
 @DriftDatabase(
   tables: [
@@ -47,7 +51,15 @@ part 'database.g.dart';
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase(super.e);
+  /// [seedDemoData]: whether a fresh DB gets the db.js demo business data
+  /// (products, customers, mechanics, suppliers). The Drift-only build keeps
+  /// it; the API build (`USE_API_WRITES`) must not — there the server is the
+  /// truth and a seeded row reads as the tenant's own (a new tenant is an
+  /// empty shop). On the API build an existing DB also has any untouched
+  /// seed rows purged on open ([purgeDemoSeed]).
+  AppDatabase(super.e, {this.seedDemoData = !_useApiWrites});
+
+  final bool seedDemoData;
 
   /// App entry point — opens the on-device SQLite DB via drift_flutter.
   /// Tests should instead construct `AppDatabase(NativeDatabase.memory())`.
@@ -77,6 +89,14 @@ class AppDatabase extends _$AppDatabase {
     onCreate: (m) async {
       await m.createAll();
       await _seed();
+      // Nothing to purge on a DB that never had the seed — and the marker
+      // keeps a later restored backup's seed-id rows safe (see purgeDemoSeed).
+      if (!seedDemoData) await _markDemoSeedPurged();
+    },
+    // API build: a DB created by an older build (or the Drift build) may still
+    // hold the demo seed — purge it before the first screen reads anything.
+    beforeOpen: (details) async {
+      if (!seedDemoData && !details.wasCreated) await purgeDemoSeed();
     },
     // v1 → v2: sync bookkeeping columns + the cost snapshot on sale lines.
     // All are nullable, so existing rows stay valid and no data is rewritten —
@@ -183,6 +203,151 @@ class AppDatabase extends _$AppDatabase {
     },
   );
 
+  /// Ids of the db.js SEED_* demo rows [_seed] inserts when [seedDemoData].
+  static const seedProductIds = [
+    'p1',
+    'p2',
+    'p3',
+    'p4',
+    'p5',
+    'p6',
+    'p7',
+    'p8',
+    'p9',
+    'p10',
+    'p11',
+    'p12',
+  ];
+  static const seedCustomerIds = ['c1', 'c2', 'c3'];
+  static const seedMechanicIds = ['m1', 'm2', 'm3'];
+  static const seedSupplierIds = [
+    'sup1',
+    'sup2',
+    'sup3',
+    'sup4',
+    'sup5',
+    'sup6',
+  ];
+
+  /// app_meta key set once the API build's DB is known seed-free.
+  static const demoSeedPurgedKey = 'demo_seed_purged';
+
+  Future<void> _markDemoSeedPurged() => into(appMeta).insertOnConflictUpdate(
+    const AppMetaCompanion(key: Value(demoSeedPurgedKey), value: Value('1')),
+  );
+
+  /// Seed product/customer/mechanic ids that any local record still names —
+  /// sale/return/quote/PO lines, movements, credit payments, parked bills.
+  /// Such a row is real history (a pre-v2/v3 DB has no `updatedAt` even on an
+  /// edited row), so [purgeDemoSeed] keeps it. PO lines carry only a part
+  /// number, so those are matched through the seed product's `partNo`.
+  Future<Set<String>> _seedIdsInUse() async {
+    final ids = <String>{};
+    Future<void> add(TableInfo t, GeneratedColumn<String> c) async {
+      final q = selectOnly(t, distinct: true)..addColumns([c]);
+      for (final r in await q.get()) {
+        final v = r.read(c);
+        if (v != null) ids.add(v);
+      }
+    }
+
+    await add(saleItems, saleItems.productId);
+    await add(returnItems, returnItems.productId);
+    await add(quoteItems, quoteItems.productId);
+    await add(movements, movements.productId);
+    await add(sales, sales.customerId);
+    await add(sales, sales.mechanicId);
+    await add(returns, returns.customerId);
+    await add(returns, returns.mechanicId);
+    await add(creditPayments, creditPayments.mechanicId);
+    final poParts = (await select(poItems).get()).map((r) => r.partNo).toSet();
+    for (final p in await (select(
+      products,
+    )..where((t) => t.id.isIn(seedProductIds))).get()) {
+      if (poParts.contains(p.partNo)) ids.add(p.id);
+    }
+    // Parked bills are a JSON blob; a quoted-id match is conservative.
+    final parked = await select(parkedSales).get();
+    for (final id in [
+      ...seedProductIds,
+      ...seedCustomerIds,
+      ...seedMechanicIds,
+    ]) {
+      if (parked.any((r) => r.payload.contains('"$id"'))) ids.add(id);
+    }
+    return ids;
+  }
+
+  /// Removes the untouched demo seed from an existing DB (API build), ONCE.
+  /// Returns how many rows went, or `null` when it did not run.
+  ///
+  /// • One-time: a successful run (or a fresh API-build create) writes the
+  ///   [demoSeedPurgedKey] marker and every later call is a no-op — a legacy
+  ///   backup restored afterwards (`importLegacyBackup`) may carry `c1`/`p1`…
+  ///   with no `updatedAt`, and must never be deleted on the next open.
+  /// • Refuses while ANY `outbox_ops` row (pending/stuck/rejected) or queued
+  ///   credit payment exists — unsent local work may name a seed row; the
+  ///   next app open retries.
+  /// • Only rows still exactly as seeded go: `updatedAt IS NULL`. A row the
+  ///   server sent (pull/upsert stamps the server's `updatedAt`) or a local
+  ///   edit stamped is kept — a tenant that imported a legacy backup may
+  ///   really own `p1`.
+  /// • Never a seed row any local sale/return/quote/PO/movement/credit
+  ///   payment/parked bill still names ([_seedIdsInUse]).
+  /// • Seed suppliers go only once their product is gone.
+  /// Categories, settings and app_meta are left alone: categories are the
+  /// same default list the server answers with, and the settings row is the
+  /// singleton `GET /settings` patches.
+  Future<int?> purgeDemoSeed() => transaction(() async {
+    final marker = await (select(
+      appMeta,
+    )..where((t) => t.key.equals(demoSeedPurgedKey))).getSingleOrNull();
+    if (marker != null) return null;
+    final queued = await (select(outboxOps)..limit(1)).get();
+    final credit = await (select(pendingCreditPayments)..limit(1)).get();
+    if (queued.isNotEmpty || credit.isNotEmpty) {
+      debugPrint(
+        'purgeDemoSeed: skipped — unsent local work '
+        '(outbox_ops rows: ${queued.isNotEmpty}, pending credit payments: '
+        '${credit.isNotEmpty}); retrying on next open',
+      );
+      return null;
+    }
+    final used = await _seedIdsInUse();
+    var n =
+        await (delete(products)..where(
+              (t) =>
+                  t.id.isIn(seedProductIds.where((i) => !used.contains(i))) &
+                  t.updatedAt.isNull(),
+            ))
+            .go();
+    n +=
+        await (delete(customers)..where(
+              (t) =>
+                  t.id.isIn(seedCustomerIds.where((i) => !used.contains(i))) &
+                  t.updatedAt.isNull(),
+            ))
+            .go();
+    n +=
+        await (delete(mechanics)..where(
+              (t) =>
+                  t.id.isIn(seedMechanicIds.where((i) => !used.contains(i))) &
+                  t.updatedAt.isNull(),
+            ))
+            .go();
+    n +=
+        await (delete(suppliers)..where(
+              (t) =>
+                  t.id.isIn(seedSupplierIds) &
+                  t.productId.isNotInQuery(
+                    selectOnly(products)..addColumns([products.id]),
+                  ),
+            ))
+            .go();
+    await _markDemoSeedPurged();
+    return n;
+  });
+
   Future<void> _seed() async {
     // ── Categories (SEED_CATEGORIES, order preserved for color palette) ──
     const seedCategories = ['เครื่องยนต์', 'ไฟฟ้า', 'น้ำมัน', 'เบรก', 'ตัวถัง'];
@@ -195,6 +360,14 @@ class AppDatabase extends _$AppDatabase {
       }
     });
 
+    // ── Demo business data — Drift-only build only (see [seedDemoData]) ──
+    if (seedDemoData) await _seedDemoBusinessData();
+
+    // ── Default settings row (_DEFAULT_SETTINGS) — singleton id = 0 ──
+    await _seedSettingsAndMeta();
+  }
+
+  Future<void> _seedDemoBusinessData() async {
     // ── Products (SEED_PRODUCTS) ──
     await batch((b) {
       b.insertAll(products, [
@@ -498,8 +671,9 @@ class AppDatabase extends _$AppDatabase {
         ),
       ]);
     });
+  }
 
-    // ── Default settings row (_DEFAULT_SETTINGS) — singleton id = 0 ──
+  Future<void> _seedSettingsAndMeta() async {
     await into(settingsRow).insert(
       SettingsRowCompanion.insert(
         id: const Value(0),

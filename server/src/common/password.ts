@@ -87,7 +87,7 @@ export function normalizePassword(password: string): string {
   return password.normalize('NFC');
 }
 
-/** Offline blocklist check: exact common password, or contains the shop's own name. */
+/** Offline blocklist check: exact common password, or contains a fixed SHOP_WORDS brand word (common-passwords.ts). */
 export function isCommonPassword(password: string): boolean {
   const lower = normalizePassword(password).toLowerCase();
   if (COMMON_PASSWORDS.has(lower)) return true;

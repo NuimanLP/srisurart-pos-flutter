@@ -7,6 +7,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'password_field.dart';
+
 class AppTextField extends StatelessWidget {
   final String? label;
   final String? hint;
@@ -18,12 +20,18 @@ class AppTextField extends StatelessWidget {
   final bool autofocus;
   final bool enabled;
   final bool obscureText;
+
+  /// With [obscureText]: the secret is a PIN (the eye's tooltip says PIN).
+  final bool isPin;
   final String? errorText;
   final Widget? suffix;
   final TextInputAction? textInputAction;
   final int? maxLines;
   final TextInputType? keyboardType;
   final List<TextInputFormatter>? inputFormatters;
+
+  /// Browser/OS autofill (e.g. [AutofillHints.username]). Null = no autofill.
+  final Iterable<String>? autofillHints;
 
   const AppTextField({
     super.key,
@@ -37,13 +45,20 @@ class AppTextField extends StatelessWidget {
     this.autofocus = false,
     this.enabled = true,
     this.obscureText = false,
+    this.isPin = false,
     this.errorText,
     this.suffix,
     this.textInputAction,
     this.maxLines = 1,
     this.keyboardType,
     this.inputFormatters,
-  });
+    this.autofillHints,
+  }) : assert(
+         !obscureText || suffix == null,
+         'obscureText fields carry the show/hide toggle as their suffix',
+       ),
+       assert(!obscureText || maxLines == 1, 'a secret field is one line'),
+       assert(!isPin || obscureText, 'isPin only applies to a secret field');
 
   const AppTextField.numeric({
     super.key,
@@ -61,38 +76,61 @@ class AppTextField extends StatelessWidget {
     this.inputFormatters,
   }) : numeric = true,
        obscureText = false,
+       isPin = false,
+       autofillHints = null,
        maxLines = 1,
        keyboardType = const TextInputType.numberWithOptions(decimal: true);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final field = TextFormField(
-      controller: controller,
-      initialValue: controller == null ? initialValue : null,
-      autofocus: autofocus,
-      enabled: enabled,
-      obscureText: obscureText,
-      maxLines: maxLines,
-      keyboardType: keyboardType ??
-          (numeric
-              ? const TextInputType.numberWithOptions(decimal: true)
-              : TextInputType.text),
-      inputFormatters: inputFormatters ??
-          (numeric
-              ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
-              : null),
-      textInputAction: textInputAction,
-      onChanged: onChanged,
-      onFieldSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
-      decoration: InputDecoration(
-        hintText: hint,
-        errorText: errorText,
-        suffixIcon: suffix,
-        isDense: true,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-      ),
+    final decoration = InputDecoration(
+      hintText: hint,
+      errorText: errorText,
+      suffixIcon: suffix,
+      isDense: true,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
     );
+    // A secret field always gets the show/hide toggle as its suffix.
+    final Widget field = obscureText
+        ? PasswordField(
+            controller: controller,
+            initialValue: initialValue,
+            isPin: isPin,
+            autofocus: autofocus,
+            enabled: enabled,
+            keyboardType: keyboardType,
+            inputFormatters: inputFormatters,
+            textInputAction: textInputAction,
+            onChanged: onChanged,
+            onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
+            autofillHints: autofillHints,
+            decoration: decoration,
+          )
+        : TextFormField(
+            controller: controller,
+            initialValue: controller == null ? initialValue : null,
+            autofocus: autofocus,
+            enabled: enabled,
+            maxLines: maxLines,
+            keyboardType:
+                keyboardType ??
+                (numeric
+                    ? const TextInputType.numberWithOptions(decimal: true)
+                    : TextInputType.text),
+            inputFormatters:
+                inputFormatters ??
+                (numeric
+                    ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
+                    : null),
+            textInputAction: textInputAction,
+            onChanged: onChanged,
+            onFieldSubmitted: onSubmitted == null
+                ? null
+                : (_) => onSubmitted!(),
+            autofillHints: autofillHints,
+            decoration: decoration,
+          );
 
     if (label == null) return field;
     return Column(

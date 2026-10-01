@@ -155,7 +155,7 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 
 | File | Class | Owning agent | Method signatures |
 |---|---|---|---|
-| `products_repository.dart` | `ProductsRepository` | **Products** | `Future<List<ProductRow>> getAll()`; `Stream<List<ProductRow>> watchAll()`; `Future<ProductRow?> getById(id)`; `Future<ProductRow?> add(ProductsCompanion)` (null on dup/blank partNo); `Future<bool> update(id, ProductsCompanion)` (false on partNo collision); `Future<void> delete(id)`; `Future<void> adjustStock(productId,delta,type,note?)` (CLAMPS at 0 + movement); `Future<List<String>> getCategories()`; `Future<void> addCategory(name)`; `Future<void> deleteCategory(name)`; `Future<String> catColor(name)` |
+| `products_repository.dart` | `ProductsRepository` | **Products** | `Future<List<ProductRow>> getAll()`; `Stream<List<ProductRow>> watchAll()`; `Future<ProductRow?> getById(id)`; `Future<ProductRow?> add(ProductsCompanion)` (null on dup/blank partNo); `Future<bool> update(id, ProductsCompanion)` (false on partNo collision); `Future<void> delete(id)`; `Future<Set<String>> productIdsWithUnsyncedOps()` (ids an unsent outbox op references); `Future<BulkDeleteResult> deleteMany(ids)` (one `delete` per id, refuses outbox-referenced ids, never throws — per-id Thai reasons; `BulkDeleteResult { List<String> deleted; Map<String,String> failed /* id → Thai reason */ }`, same file); `Future<void> adjustStock(productId,delta,type,note?)` (CLAMPS at 0 + movement); `Future<List<String>> getCategories()`; `Future<void> addCategory(name)`; `Future<void> deleteCategory(name)`; `Future<String> catColor(name)` |
 | `sales_repository.dart` | `SalesRepository` | **Sales** | `Future<SaleRow> saveSale(SaleInput)` (transactional, Thai 'สต็อกไม่พอ…' throw, strict stock); `Future<List<SaleWithItems>> getSales({DateTime? from, DateTime? to})` (from inclusive, to exclusive, none = all; #417); `Stream<List<SaleWithItems>> watchSales()`; `Future<Map<String,int>> getRefundedQty(saleId)` |
 | `returns_repository.dart` | `ReturnsRepository` | **Returns** | `Future<ReturnRow> createReturn(ReturnInput)` (transactional, over-refund/void Thai throws, auto-void parent); `Future<List<ReturnWithItems>> getReturns({DateTime? from, DateTime? to})` (same bounds as getSales) |
 | `purchase_orders_repository.dart` | `PurchaseOrdersRepository` | **Purchase Orders** | `Future<List<PurchaseOrderWithItems>> getPOs()`; `Future<PurchaseOrderRow> savePO(PoInput)`; `Future<List<String>> receivePO(id)` (weighted-avg cost, returns unmatched partNos); `Future<void> cancelPO(id)`; `Future<void> deletePO(id)` |
@@ -168,6 +168,8 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 **Behaviour details for the implementers are documented inline at the top of
 each stub file** (ported directly from db.js). Read your stub file's header
 comment before implementing.
+
+- API build (`USE_API_WRITES`) never seeds demo business data; an already-seeded DB gets a one-time `purgeDemoSeed()` (skipped while outbox ops or queued credit payments exist; deletes only untouched `updatedAt IS NULL` seed rows no local record references; AppMeta marker `demo_seed_purged`, also set by `importLegacyBackup`). The seeded settings identity persists until the first successful `GET /settings`.
 
 ---
 

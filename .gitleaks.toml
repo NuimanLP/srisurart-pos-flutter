@@ -1,0 +1,46 @@
+# gitleaks config — read by the `secrets` job in .github/workflows/server.yml.
+# Default ruleset + narrow allowlists for values that are test/dev placeholders, never
+# credentials. NEVER allowlist a real secret: rotate it instead (07_CICD_DEPLOY.md §2a).
+# One-off historical placeholders are pinned by fingerprint in .gitleaksignore instead.
+# On a PR, CI reads this file from the BASE commit: an edit here takes effect only after
+# it is merged, so a PR cannot allowlist its own secret.
+
+[extend]
+useDefault = true
+
+# Fixed passwords used only by unit/e2e tests against throwaway tenants (no real account
+# has them). AND = the whole secret must equal one of these AND sit in a test file; the
+# same value anywhere else, or a longer value containing it, is still reported.
+[[allowlists]]
+description = "test-only fixture passwords"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^frontend/test/''',
+  '''^server/test/''',
+  '''^server/src/.+\.spec\.ts$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^TempPassw0rdXyz$''',
+  '''^pass123456789$''',
+  '''^rotated-secret-1234$''',
+  '''^shift-repl-384$''',
+]
+
+# An Idempotency-Key is a client-minted dedupe id (ADR-0010), not a credential; the
+# generic rule fires only because the header/field name contains "key". Anchored to the
+# start of the match (the key name itself) and limited to tests + docs, so a real secret
+# on a line that merely mentions an idempotency key elsewhere is still reported.
+[[allowlists]]
+description = "idempotency keys in tests/docs are not secrets"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^frontend/test/''',
+  '''^server/test/''',
+  '''^server/src/.+\.spec\.ts$''',
+  '''^docs/''',
+]
+regexTarget = "match"
+regexes = ['''(?i)^idempotency[-_]?key["']?\s*[:=]''']

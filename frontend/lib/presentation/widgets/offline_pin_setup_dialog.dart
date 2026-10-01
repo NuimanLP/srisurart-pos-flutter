@@ -191,6 +191,7 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
                 hint: 'ตัวเลข 4-6 หลัก (ห้ามซ้ำกับรหัสผ่าน)',
                 controller: _pinController,
                 obscureText: true,
+                isPin: true,
                 keyboardType: TextInputType.number,
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,
@@ -204,6 +205,7 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
                 hint: 'กรอกรหัส PIN เดิมซ้ำ',
                 controller: _confirmPinController,
                 obscureText: true,
+                isPin: true,
                 keyboardType: TextInputType.number,
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,

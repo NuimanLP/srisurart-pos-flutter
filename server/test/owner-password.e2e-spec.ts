@@ -206,6 +206,19 @@ describe('owner password lifecycle v2 (#443 PR3)', () => {
     expect(all).not.toContain(t.tempPassword);
   });
 
+  it('a Thai password set through change-password logs in again, typed in either mark order', async () => {
+    // Tone mark before the below-vowel (ป + ่ + ู): NFC reorders it, so change-password
+    // hashes a different string than was sent. Login must still accept what was typed.
+    const typed = 'รหัสใหม่ของร้าน ปู่ 2569';
+    expect(typed.normalize('NFC')).not.toBe(typed);
+    const t = await provision();
+    const token = (await login(t.username, t.tempPassword)).body.data.passwordChangeToken;
+    expect((await change(token, typed)).status).toBe(200);
+    expect((await login(t.username, typed)).status).toBe(200);
+    expect((await login(t.username, typed.normalize('NFC'))).status).toBe(200);
+    expect((await login(t.username, `${typed} `)).status).toBe(401);
+  });
+
   it('an expired temporary password is refused with TEMP_PASSWORD_EXPIRED (only with the right password)', async () => {
     const t = await provision();
     await adminDs.query(
