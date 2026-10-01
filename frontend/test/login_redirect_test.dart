@@ -91,6 +91,9 @@ class _StubAuthRepo extends AuthRepository {
   /// Held open by a test to observe the form while a login is in flight.
   Completer<void>? loginGate;
 
+  /// Held open by a test to land a session expiry in the middle of a logout.
+  Completer<void>? logoutGate;
+
   @override
   Future<LoginResult> login({
     required String username,
@@ -120,6 +123,7 @@ class _StubAuthRepo extends AuthRepository {
 
   @override
   Future<void> logout() async {
+    if (logoutGate != null) await logoutGate!.future;
     isAuth = false;
     user = null;
   }
@@ -174,6 +178,11 @@ void main() {
       const signedOut = Unauthenticated(signedOut: true);
       expect(authRedirect(signedOut, Uri.parse('/settings')), '/login');
       expect(authRedirect(signedOut, Uri.parse('/login')), isNull);
+      // An expiry that put ?from= on the login route first is dropped too.
+      expect(
+        authRedirect(signedOut, Uri.parse('/login?from=%2Fsettings')),
+        '/login',
+      );
       // A session expiry still remembers it.
       expect(
         authRedirect(const Unauthenticated(), Uri.parse('/settings')),
@@ -234,6 +243,47 @@ void main() {
       expect(lost, connection);
       expect(lost, isNot(contains('ClientException')));
       expect(AuthCubit.loginRefusalMessage(TimeoutException('t')), connection);
+    });
+  });
+
+  group('logout racing a session expiry', () {
+    test('an expiry during or after a logout leaves it a logout', () async {
+      final repo = _StubAuthRepo()
+        ..isAuth = true
+        ..user = const AuthUser(id: 'u-1', username: 'pos', role: 'cashier');
+      final cubit = AuthCubit(authRepository: repo);
+      await cubit.init();
+      repo.logoutGate = Completer<void>();
+
+      final loggingOut = cubit.logout();
+      await cubit.sessionExpired(); // a stale 401 lands mid-logout
+      repo.logoutGate!.complete();
+      await loggingOut;
+      expect(cubit.state, isA<Unauthenticated>());
+      expect((cubit.state as Unauthenticated).signedOut, isTrue);
+
+      await cubit.sessionExpired(); // and one after it
+      expect((cubit.state as Unauthenticated).signedOut, isTrue);
+      await cubit.close();
+    });
+
+    test('AuthLoading carries the device the login form was showing', () async {
+      final repo = _StubAuthRepo()
+        ..isAuth = true
+        ..user = const AuthUser(id: 'u-1', username: 'pos', role: 'cashier');
+      final cubit = AuthCubit(authRepository: repo);
+      await cubit.init();
+      await cubit.logout(); // keeps role 'pos'; the stub's repo now says null
+      repo.loginGate = Completer<void>();
+      final loggingIn = cubit.login(username: 'pos', password: 'secret');
+      await Future<void>.delayed(Duration.zero);
+      final loading = cubit.state;
+      expect(loading, isA<AuthLoading>());
+      expect((loading as AuthLoading).isPos, isTrue);
+      expect(loading.hasDeviceEnrolled, isTrue);
+      repo.loginGate!.complete();
+      await loggingIn;
+      await cubit.close();
     });
   });
 
