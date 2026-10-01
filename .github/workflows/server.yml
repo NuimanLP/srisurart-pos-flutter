@@ -145,6 +145,52 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
+  secret-scan:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    # Deliberately NEVER gated on path, like "integration": a leaked credential can sit in
+    # frontend/, deploy/, docs/ or a workflow file just as easily as in server/.
+    defaults:
+      run:
+        working-directory: .
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # sha256 of gitleaks_8.30.1_linux_x64.tar.gz from the release's checksums.txt — bump
+      # both by hand together, same policy as the pinned image digests (ADR-0013).
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The scan walks commits, not the working tree, so it needs the history.
+          fetch-depth: 0
+      - name: install gitleaks (checksum-verified release binary)
+        run: |
+          curl -fsSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          tar -xzf gitleaks.tar.gz -C "$RUNNER_TEMP/gitleaks" gitleaks
+          rm gitleaks.tar.gz
+      # A PR scans only its own commits and a push to main only the pushed range, so a
+      # finding always belongs to the change under review. workflow_dispatch scans the
+      # whole history — that is the audit run, and it may surface old commits.
+      - name: gitleaks — scan the commits this run introduces
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          case "$EVENT_NAME" in
+            pull_request) range="${PR_BASE_SHA}..HEAD" ;;
+            push)         range="${PUSH_BEFORE_SHA}..HEAD" ;;
+            *)            range="" ;;
+          esac
+          if [[ -n "$range" ]]; then
+            "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner --log-opts="$range" .
+          else
+            "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner .
+          fi
+
   nginx-check:
     name: nginx config check (nginx -t)
     runs-on: ubuntu-latest
@@ -323,7 +369,7 @@ jobs:
   server-ci-status:
     name: server-ci-status
     runs-on: ubuntu-latest
-    needs: [changes, lint, audit, unit, integration, build-image, nginx-check]
+    needs: [changes, lint, audit, unit, secret-scan, integration, build-image, nginx-check]
     # #39: this is the only server-side required check on `main`. It must report
     # on every PR — including a frontend-only one, where "lint"/"audit"/"unit"
     # (and `changes` itself, on push/workflow_dispatch) are legitimately skipped
@@ -349,6 +395,7 @@ jobs:
             "${{ needs.audit.result }}" \
             "${{ needs.unit.result }}" \
             "${{ needs.integration.result }}" \
+            "${{ needs.secret-scan.result }}" \
             "${{ needs.build-image.result }}" \
             "${{ needs.nginx-check.result }}"; do
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
