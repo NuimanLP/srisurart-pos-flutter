@@ -556,6 +556,12 @@ on void/return paths. Keep this order in any new write touching more than one of
 - Branch protection on `main` has been set since 2026-09-15: PR required (0 approvals),
   the two status jobs required, no force-push/delete, admins not enforced.
 - Base image digests are pinned and bumped by hand, never suppressed with `.trivyignore`.
+- **Secret scan = gitleaks** (job `secrets` in `server.yml`, 2026-10-01): never path-gated,
+  scans the commits each PR/push adds (`--redact`), and `server-ci-status` requires its
+  `success`. Allowlists live in `.gitleaks.toml` (placeholder patterns) and
+  `.gitleaksignore` (reviewed fingerprints). **Never allowlist a real secret — rotate it**
+  (history is not rewritten). CI reads both files from the PR's own branch, so review
+  any change to them. Details: `07_CICD_DEPLOY.md §2a`.
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
