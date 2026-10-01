@@ -40,6 +40,12 @@ class _LoginFormState extends State<LoginForm> {
   String? _errorMessage;
   bool _usePin = true;
 
+  // AuthLoading (a login in flight) carries no device role. Read as "not pos"
+  // it flipped the chip to `โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)` on an
+  // enrolled till for the length of every login. Keep the last known answer.
+  bool _lastIsPos = false;
+  bool _lastUnconfirmedEnrolment = false;
+
   @override
   void dispose() {
     _usernameController.dispose();
@@ -98,6 +104,10 @@ class _LoginFormState extends State<LoginForm> {
 
     final cubit = context.read<AuthCubit>();
     final success = await cubit.login(username: username, password: password);
+    // Tell the browser the sign-in worked, so its password manager saves this
+    // password (and not, say, a temporary one it captured earlier). Before the
+    // mounted check: a success redirects away and unmounts the form.
+    if (success) TextInput.finishAutofillContext();
 
     // On the login route a success redirects away and unmounts this form.
     if (!mounted) return;
@@ -134,9 +144,12 @@ class _LoginFormState extends State<LoginForm> {
     // new device token. The old banner used `isPos` alone and so kept saying
     // "ยังไม่ได้ผูกเครื่อง POS" (POS not bound yet) for an already-enrolled
     // device until the next login.
-    final isPos = authState is Authenticated
-        ? authState.isPos
-        : (authState is Unauthenticated ? authState.isPos : false);
+    final loading = authState is AuthLoading;
+    final isPos = loading
+        ? _lastIsPos
+        : authState is Authenticated
+            ? authState.isPos
+            : (authState is Unauthenticated ? authState.isPos : false);
     // The stale-banner gap only exists between a successful enrol and the
     // NEXT login: `Unauthenticated.hasDeviceEnrolled` is derived from the
     // stored device token (set the moment `AuthCubit.enrolDevice` succeeds),
@@ -145,8 +158,11 @@ class _LoginFormState extends State<LoginForm> {
     // own login-confirmed `drole` — there is no gap to bridge, so this must
     // never touch the Authenticated branch (a confirmed, logged-in backoffice
     // device must keep the plain "not pos" wording, not an "unconfirmed" one).
-    final hasUnconfirmedEnrolment =
-        authState is Unauthenticated && authState.hasDeviceEnrolled && !isPos;
+    final hasUnconfirmedEnrolment = loading
+        ? _lastUnconfirmedEnrolment
+        : authState is Unauthenticated && authState.hasDeviceEnrolled && !isPos;
+    _lastIsPos = isPos;
+    _lastUnconfirmedEnrolment = hasUnconfirmedEnrolment;
     final pinRepo = context.read<OfflinePinRepository>();
 
     return SyncStatusBuilder(
@@ -420,47 +436,54 @@ class _LoginFormState extends State<LoginForm> {
   }
 
   Widget _buildOnlineForm() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        AppTextField(
-          label: 'ชื่อผู้ใช้ (Username)',
-          hint: 'กรอกชื่อผู้ใช้',
-          controller: _usernameController,
-          autofocus: true,
-          enabled: !_busy,
-          textInputAction: TextInputAction.next,
-        ),
-        const SizedBox(height: 12),
-        AppTextField(
-          label: 'รหัสผ่าน (Password)',
-          hint: 'กรอกรหัสผ่าน',
-          controller: _passwordController,
-          obscureText: true,
-          enabled: !_busy,
-          errorText: _errorMessage,
-          textInputAction: TextInputAction.done,
-          onSubmitted: _submit,
-        ),
-        const SizedBox(height: 20),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            if (widget.onCancel != null) ...[
-              TextButton(
-                onPressed: _busy ? null : widget.onCancel,
-                child: const Text('ยกเลิก'),
+    // Disposed without a success (a refusal, or a temporary password swapping
+    // in the change form) must not save anything — only _submit commits.
+    return AutofillGroup(
+      onDisposeAction: AutofillContextAction.cancel,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppTextField(
+            label: 'ชื่อผู้ใช้ (Username)',
+            hint: 'กรอกชื่อผู้ใช้',
+            controller: _usernameController,
+            autofocus: true,
+            enabled: !_busy,
+            textInputAction: TextInputAction.next,
+            autofillHints: const [AutofillHints.username],
+          ),
+          const SizedBox(height: 12),
+          AppTextField(
+            label: 'รหัสผ่าน (Password)',
+            hint: 'กรอกรหัสผ่าน',
+            controller: _passwordController,
+            obscureText: true,
+            enabled: !_busy,
+            autofillHints: const [AutofillHints.password],
+            errorText: _errorMessage,
+            textInputAction: TextInputAction.done,
+            onSubmitted: _submit,
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (widget.onCancel != null) ...[
+                TextButton(
+                  onPressed: _busy ? null : widget.onCancel,
+                  child: const Text('ยกเลิก'),
+                ),
+                const SizedBox(width: 8),
+              ],
+              AppButton(
+                label: 'เข้าสู่ระบบ',
+                onPressed: _busy ? null : _submit,
+                busy: _busy,
               ),
-              const SizedBox(width: 8),
             ],
-            AppButton(
-              label: 'เข้าสู่ระบบ',
-              onPressed: _busy ? null : _submit,
-              busy: _busy,
-            ),
-          ],
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 

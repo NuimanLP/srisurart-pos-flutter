@@ -79,17 +79,25 @@ class Unauthenticated extends AuthState {
     this.deviceToken,
     this.deviceRole,
     this.errorMessage,
+    this.signedOut = false,
   });
 
   final String? deviceToken;
   final String? deviceRole;
   final String? errorMessage;
 
+  /// True only right after a deliberate [AuthCubit.logout] (owner decision
+  /// 2026-10-01): the next login starts at checkout, not the last screen, and
+  /// the app clears the cart and pending quote. A session expiry is false —
+  /// the same counter signs back in and carries on where it was.
+  final bool signedOut;
+
   bool get hasDeviceEnrolled => deviceToken != null && deviceToken!.isNotEmpty;
   bool get isPos => deviceRole == 'pos';
 
   @override
-  List<Object?> get props => [deviceToken, deviceRole, errorMessage];
+  List<Object?> get props =>
+      [deviceToken, deviceRole, errorMessage, signedOut];
 }
 
 class AuthCubit extends Cubit<AuthState> {
@@ -374,6 +382,7 @@ class AuthCubit extends Cubit<AuthState> {
     emit(Unauthenticated(
       deviceToken: deviceToken,
       deviceRole: effectiveRole,
+      signedOut: true,
     ));
   }
 

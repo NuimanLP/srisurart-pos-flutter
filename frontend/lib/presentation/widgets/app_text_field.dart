@@ -30,6 +30,9 @@ class AppTextField extends StatelessWidget {
   final TextInputType? keyboardType;
   final List<TextInputFormatter>? inputFormatters;
 
+  /// Browser/OS autofill (e.g. [AutofillHints.username]). Null = no autofill.
+  final Iterable<String>? autofillHints;
+
   const AppTextField({
     super.key,
     this.label,
@@ -49,6 +52,7 @@ class AppTextField extends StatelessWidget {
     this.maxLines = 1,
     this.keyboardType,
     this.inputFormatters,
+    this.autofillHints,
   }) : assert(
          !obscureText || suffix == null,
          'obscureText fields carry the show/hide toggle as their suffix',
@@ -73,6 +77,7 @@ class AppTextField extends StatelessWidget {
   }) : numeric = true,
        obscureText = false,
        isPin = false,
+       autofillHints = null,
        maxLines = 1,
        keyboardType = const TextInputType.numberWithOptions(decimal: true);
 
@@ -99,6 +104,7 @@ class AppTextField extends StatelessWidget {
             textInputAction: textInputAction,
             onChanged: onChanged,
             onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
+            autofillHints: autofillHints,
             decoration: decoration,
           )
         : TextFormField(
@@ -122,6 +128,7 @@ class AppTextField extends StatelessWidget {
             onFieldSubmitted: onSubmitted == null
                 ? null
                 : (_) => onSubmitted!(),
+            autofillHints: autofillHints,
             decoration: decoration,
           );
 
