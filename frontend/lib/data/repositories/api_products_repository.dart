@@ -62,6 +62,8 @@ class ApiProductsRepository extends ProductsRepository {
   /// Uses server `meta.nextCursor` stored in `sync_cursors` with 30s rewind window
   /// and protects local stock of products with pending outbox operations (#212, 08 §15).
   Future<void> syncFromServer({bool forceFull = false}) async {
+    // A reset (tenant switch) while this pull is in flight voids its replies.
+    final gen = db.cacheGeneration;
     try {
       String? updatedSince;
       String? afterId;
@@ -147,7 +149,7 @@ class ApiProductsRepository extends ProductsRepository {
           }
 
           if (companions.isNotEmpty) {
-            await db.batch((batch) {
+            if (!await db.writeCacheIfCurrent(gen, () => db.batch((batch) {
               for (final comp in companions) {
                 batch.insert(
                   db.products,
@@ -155,7 +157,9 @@ class ApiProductsRepository extends ProductsRepository {
                   onConflict: DoUpdate((old) => comp),
                 );
               }
-            });
+            }))) {
+              return;
+            }
           }
         }
 
@@ -174,13 +178,13 @@ class ApiProductsRepository extends ProductsRepository {
       }
 
       if (latestServerCursor != null) {
-        await db.into(db.syncCursors).insertOnConflictUpdate(
+        await db.writeCacheIfCurrent(gen, () => db.into(db.syncCursors).insertOnConflictUpdate(
           SyncCursorsCompanion(
             entity: const Value('products'),
             cursor: Value(latestServerCursor),
             updatedAt: Value(DateTime.now().toUtc()),
           ),
-        );
+        ));
       }
     } catch (_) {
       // Network failure or degraded mode: gracefully ignore and rely on Drift cache
@@ -222,11 +226,16 @@ class ApiProductsRepository extends ProductsRepository {
         .getSingleOrNull();
     if (local != null) return local;
 
+    final gen = db.cacheGeneration;
     try {
       final res = await apiClient.get('/api/v1/products/$id');
       if (res is Map) {
         final comp = _productToCompanion(Map<String, dynamic>.from(res));
-        await db.into(db.products).insertOnConflictUpdate(comp);
+        // A reply from before a tenant switch is the old shop's row.
+        if (!await db.writeCacheIfCurrent(
+            gen, () => db.into(db.products).insertOnConflictUpdate(comp))) {
+          return null;
+        }
         return await (db.select(db.products)
               ..where((t) =>
                   t.id.equals(id) &
@@ -357,22 +366,28 @@ class ApiProductsRepository extends ProductsRepository {
 
   @override
   Future<List<String>> getCategories() async {
+    final gen = db.cacheGeneration;
     try {
       final res = await apiClient.get('/api/v1/categories');
       if (res is List) {
         final categoryNames = <String>[];
-        for (var i = 0; i < res.length; i++) {
-          final item = res[i];
-          final name = item is Map ? item['name'] as String? : item.toString();
-          if (name != null && name.isNotEmpty) {
-            categoryNames.add(name);
-            await db.into(db.categories).insert(
-                  CategoriesCompanion.insert(name: name, position: i),
-                  onConflict: DoUpdate((old) => CategoriesCompanion(position: Value(i))),
-                );
+        // A reply from before a tenant switch is the old shop's list.
+        final current = await db.writeCacheIfCurrent(gen, () async {
+          for (var i = 0; i < res.length; i++) {
+            final item = res[i];
+            final name =
+                item is Map ? item['name'] as String? : item.toString();
+            if (name != null && name.isNotEmpty) {
+              categoryNames.add(name);
+              await db.into(db.categories).insert(
+                    CategoriesCompanion.insert(name: name, position: i),
+                    onConflict: DoUpdate(
+                        (old) => CategoriesCompanion(position: Value(i))),
+                  );
+            }
           }
-        }
-        if (categoryNames.isNotEmpty) return categoryNames;
+        });
+        if (current && categoryNames.isNotEmpty) return categoryNames;
       }
     } catch (_) {}
 

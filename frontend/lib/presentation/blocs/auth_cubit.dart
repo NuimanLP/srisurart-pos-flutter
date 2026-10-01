@@ -353,6 +353,9 @@ class AuthCubit extends Cubit<AuthState> {
   ///   used to be appended here, which put `ClientException: …` on screen.
   @visibleForTesting
   static String loginRefusalMessage(Object error) {
+    // A client-side refusal already in Thai — `TENANT_SWITCH_UNSENT_WORK`
+    // (TenantCacheGuard) is the one a login can meet.
+    if (error is PosException) return error.message;
     if (error is ApiException) {
       // #443 PR3: the one 401 that must NOT read as "wrong password" — the
       // password was right, the temporary one simply expired.
@@ -368,6 +371,10 @@ class AuthCubit extends Cubit<AuthState> {
   }
 
   /// Enrols the device using the code from the shop owner (ADR-0004).
+  ///
+  /// A [PosException] (the till still holds local work,
+  /// `TenantCacheGuard.checkEnrolment`) is rethrown so the dialog can show
+  /// its Thai sentence instead of "wrong code"; anything else is `false`.
   Future<bool> enrolDevice(String code) async {
     try {
       final deviceToken = await _repo.enrolDevice(code);
@@ -387,6 +394,8 @@ class AuthCubit extends Cubit<AuthState> {
         ));
       }
       return true;
+    } on PosException {
+      rethrow;
     } catch (_) {
       return false;
     }

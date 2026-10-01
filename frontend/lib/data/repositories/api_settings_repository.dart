@@ -57,14 +57,16 @@ class ApiSettingsRepository extends SettingsRepository {
   /// reply is the stale one).
   Future<bool> pullFromServer() async {
     final startGen = _writeGen;
+    final startCache = db.cacheGeneration;
     try {
       final res = await apiClient.get('/api/v1/settings');
       if (res is! Map) return false;
       var applied = false;
       await db.transaction(() async {
         // A PATCH applied while this GET was in flight — the GET is for an
-        // older state, drop it rather than clobber the newer one.
-        if (_writeGen != startGen) return;
+        // older state, drop it rather than clobber the newer one. Likewise a
+        // cache reset (tenant switch): the reply is the old shop's settings.
+        if (_writeGen != startGen || db.cacheGeneration != startCache) return;
         await _patchFromWire(res);
         applied = true;
       });
@@ -86,6 +88,7 @@ class ApiSettingsRepository extends SettingsRepository {
       );
     }
 
+    final startCache = db.cacheGeneration;
     final dynamic res;
     try {
       res = await apiClient.patch(
@@ -116,6 +119,9 @@ class ApiSettingsRepository extends SettingsRepository {
     // transaction as the write is what makes a `pullFromServer` that is
     // already in flight recognise it landed too late.
     await db.transaction(() async {
+      // The server kept the edit; after a tenant switch it is not this
+      // cache's shop any more.
+      if (db.cacheGeneration != startCache) return;
       await _patchFromWire(res);
       _writeGen++;
     });

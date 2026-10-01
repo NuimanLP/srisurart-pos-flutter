@@ -23,6 +23,8 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
   ApiPurchaseOrdersRepository(super.db, this.apiClient);
 
   Future<void> syncFromServer() async {
+    // A reset (tenant switch) while this pull is in flight voids its replies.
+    final gen = db.cacheGeneration;
     try {
       bool hasMore = true;
       int page = 1;
@@ -34,7 +36,8 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
         );
         final items = res.data;
 
-        if (items.isNotEmpty) {
+        if (items.isNotEmpty &&
+            !await db.writeCacheIfCurrent(gen, () async {
           for (final item in items) {
             if (item is Map) {
               final map = Map<String, dynamic>.from(item);
@@ -88,6 +91,8 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
               }
             }
           }
+        })) {
+          return;
         }
 
         if (page >= res.totalPages || items.isEmpty) {
