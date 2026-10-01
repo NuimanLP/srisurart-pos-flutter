@@ -565,7 +565,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   Inline `gitleaks:allow` is ignored. Details: `07_CICD_DEPLOY.md §2a`.
   GitHub secret scanning + **push protection are ON since 2026-10-01** (verify with
   `gh api repos/NuimanLP/srisurart-pos-flutter --jq .security_and_analysis`; ADR-0013 once claimed
-  "on" while off); Dependabot security updates are still disabled.
+  "on" while off); Dependabot alerts + security updates enabled 2026-10-01.
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
