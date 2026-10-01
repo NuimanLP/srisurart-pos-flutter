@@ -13,7 +13,7 @@
 // decomposed Latin accent could count one higher here — the server stays the
 // authority and answers WEAK_PASSWORD.
 //
-// Strings: agent ร่าง (02_API_SCREENS.md §8.1.1) — not yet ratified.
+// Strings: owner-ratified 2026-10-01 (02_API_SCREENS.md §8.1.1).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

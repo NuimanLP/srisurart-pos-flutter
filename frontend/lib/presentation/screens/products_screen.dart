@@ -20,14 +20,24 @@ import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
+import '../blocs/auth_cubit.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
 import '../widgets/sync_status_builder.dart';
+import '../widgets/thai_format.dart';
 import 'vehicle_search_screen.dart';
 
 class ProductsScreen extends StatefulWidget {
-  const ProductsScreen({super.key});
+  const ProductsScreen({
+    super.key,
+    this.requireLogin = const bool.fromEnvironment('USE_API_WRITES'),
+  });
+
+  /// Same switch as `SrisurartApp.requireLogin`: on the signed-in (API) build
+  /// bulk delete is owner-only and never on a `pos` device (owner decision
+  /// 2026-10-01). The Drift-only shop build has no session, so no gate.
+  final bool requireLogin;
 
   @override
   State<ProductsScreen> createState() => _ProductsScreenState();
@@ -162,11 +172,11 @@ class _ProductsScreenState extends State<ProductsScreen>
           Expanded(
             child: TabBarView(
               controller: _tabs,
-              children: const [
-                _StockTab(),
-                _PriceCalcTab(),
-                _SuppliersTab(),
-                _InvReportTab(),
+              children: [
+                _StockTab(requireLogin: widget.requireLogin),
+                const _PriceCalcTab(),
+                const _SuppliersTab(),
+                const _InvReportTab(),
               ],
             ),
           ),
@@ -179,8 +189,22 @@ class _ProductsScreenState extends State<ProductsScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 // STOCK TAB
 // ─────────────────────────────────────────────────────────────────────────────
+/// Why the bulk-delete toggle is disabled for this session (agent ร่าง,
+/// 02 §8.1.1).
+const bulkDeleteOwnerOnly =
+    'ลบหลายรายการได้เฉพาะเจ้าของร้านที่ใช้เครื่องหลังร้าน — '
+    'เครื่องขาย (POS) ลบได้ทีละรายการ';
+
+/// Owner decision 2026-10-01: only an `owner` session that is not on the
+/// `pos` device may bulk delete. Client-side only — the server's
+/// `DELETE /products/:id` is "logged in, both device roles" (02 §1) and cannot
+/// tell a bulk delete from a single one.
+bool canBulkDelete(AuthState s) =>
+    s is Authenticated && s.user.role == 'owner' && !s.isPos;
+
 class _StockTab extends StatefulWidget {
-  const _StockTab();
+  const _StockTab({required this.requireLogin});
+  final bool requireLogin;
   @override
   State<_StockTab> createState() => _StockTabState();
 }
@@ -206,6 +230,9 @@ class _StockTabState extends State<_StockTab> {
   /// end. Set BEFORE the first await so a double tap cannot open two dialogs,
   /// and every other product write on this tab is disabled while it holds.
   bool _busy = false;
+
+  bool _bulkAllowed() =>
+      !widget.requireLogin || canBulkDelete(context.read<AuthCubit>().state);
 
   @override
   void initState() {
@@ -371,7 +398,7 @@ class _StockTabState extends State<_StockTab> {
       _showDegradedWarning();
       return;
     }
-    if (_busy || _selected.isEmpty) return;
+    if (_busy || _selected.isEmpty || !_bulkAllowed()) return;
     setState(() => _busy = true);
     try {
       await _bulkDeleteFlow();
@@ -392,18 +419,25 @@ class _StockTabState extends State<_StockTab> {
     if (!mounted) return;
     final blocked = chosen.where((p) => unsynced.contains(p.id)).toList();
     final deletable = chosen.where((p) => !unsynced.contains(p.id)).toList();
+    final docRefs = await repo.openDocumentRefs(deletable);
+    if (!mounted) return;
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) =>
-          _BulkDeleteDialog(deletable: deletable, blocked: blocked),
+      builder: (_) => _BulkDeleteDialog(
+        deletable: deletable,
+        blocked: blocked,
+        docRefs: docRefs,
+      ),
     );
     if (ok != true || !mounted || deletable.isEmpty) return;
-    // The link may have dropped while the dialog was open.
+    // The link may have dropped, or the session changed, while the dialog
+    // was open.
     if (context.isDegraded) {
       _showDegradedWarning();
       return;
     }
+    if (!_bulkAllowed()) return;
 
     setState(() => _deleting = true);
     final result = await repo.deleteMany(
@@ -501,6 +535,15 @@ class _StockTabState extends State<_StockTab> {
 
   @override
   Widget build(BuildContext context) {
+    final bulkAllowed =
+        !widget.requireLogin ||
+        canBulkDelete(context.watch<AuthCubit>().state);
+    // Losing the right mid-selection (e.g. re-login on the till) drops the
+    // selection mode; idempotent, so resetting here during build is safe.
+    if (!bulkAllowed && _selecting) {
+      _selecting = false;
+      _selected.clear();
+    }
     if (_loading) return const LoadingView();
     return SyncStatusBuilder(
       builder: (context, status, isDegraded) {
@@ -627,26 +670,32 @@ class _StockTabState extends State<_StockTab> {
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
-                      OutlinedButton.icon(
-                        key: const Key('bulk-delete-toggle'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.error,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 16,
+                      Tooltip(
+                        message: bulkAllowed ? '' : bulkDeleteOwnerOnly,
+                        triggerMode: TooltipTriggerMode.tap,
+                        child: OutlinedButton.icon(
+                          key: const Key('bulk-delete-toggle'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 16,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                          onPressed: _busy || !bulkAllowed
+                              ? null
+                              : _toggleSelecting,
+                          icon: Icon(
+                            _selecting ? Icons.close : Icons.checklist,
+                            size: 20,
                           ),
-                        ),
-                        onPressed: _busy ? null : _toggleSelecting,
-                        icon: Icon(
-                          _selecting ? Icons.close : Icons.checklist,
-                          size: 20,
-                        ),
-                        label: Text(
-                          _selecting ? 'ยกเลิกการเลือก' : 'เลือกเพื่อลบ',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          label: Text(
+                            _selecting ? 'ยกเลิกการเลือก' : 'เลือกเพื่อลบ',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                         ),
                       ),
                     ],
@@ -1232,7 +1281,7 @@ class _StockTabState extends State<_StockTab> {
 
 // ── Product add/edit dialog ──────────────────────────────────────────────────
 /// Above this many items the counter must type the count to confirm; any item
-/// still holding stock also requires it (agent ร่าง — owner to confirm).
+/// still holding stock also requires it (owner decision 2026-10-01: both kept).
 const _typedConfirmAbove = 5;
 
 /// Confirm for a bulk delete: lists every item (name, part no, stock), warns
@@ -1240,9 +1289,16 @@ const _typedConfirmAbove = 5;
 /// focused default; the destructive button stays disabled until a typed
 /// confirmation matches when one is required.
 class _BulkDeleteDialog extends StatefulWidget {
-  const _BulkDeleteDialog({required this.deletable, required this.blocked});
+  const _BulkDeleteDialog({
+    required this.deletable,
+    required this.blocked,
+    required this.docRefs,
+  });
   final List<ProductRow> deletable;
   final List<ProductRow> blocked;
+
+  /// productId → still-open documents naming it (warning only, 2026-10-01).
+  final Map<String, List<ProductDocRef>> docRefs;
 
   @override
   State<_BulkDeleteDialog> createState() => _BulkDeleteDialogState();
@@ -1250,6 +1306,18 @@ class _BulkDeleteDialog extends StatefulWidget {
 
 class _BulkDeleteDialogState extends State<_BulkDeleteDialog> {
   final _typed = TextEditingController();
+
+  static String _refLabel(ProductDocRef r) => switch (r.kind) {
+    ProductDocKind.openPo => 'ใบสั่งซื้อ ${r.docNo}',
+    ProductDocKind.activeQuote => 'ใบเสนอราคา ${r.docNo}',
+    ProductDocKind.parkedBill => 'บิลที่พัก ${thaiDateTime(r.parkedAt!)}',
+  };
+
+  /// "อยู่ใน: ใบสั่งซื้อ PO…, บิลที่พัก …" — null when nothing references it.
+  static String? _refsNote(List<ProductDocRef>? refs) =>
+      refs == null || refs.isEmpty
+      ? null
+      : 'อยู่ใน: ${refs.map(_refLabel).join(', ')}';
 
   @override
   void dispose() {
@@ -1268,6 +1336,9 @@ class _BulkDeleteDialogState extends State<_BulkDeleteDialog> {
     final selectedCount = n + widget.blocked.length;
     final needTyped = selectedCount > _typedConfirmAbove || stocked.isNotEmpty;
     final typedOk = !needTyped || _typed.text.trim() == '$n';
+    final referenced = widget.deletable
+        .where((p) => widget.docRefs[p.id]?.isNotEmpty ?? false)
+        .toList();
 
     Widget row(ProductRow p, {String? note}) => ListTile(
       dense: true,
@@ -1315,6 +1386,23 @@ class _BulkDeleteDialogState extends State<_BulkDeleteDialog> {
                 ),
               ),
             ],
+            if (referenced.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                key: const Key('bulk-delete-docref-warning'),
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '⚠ มี ${referenced.length} รายการที่อยู่ในใบสั่งซื้อที่ยังไม่รับของ '
+                  'ใบเสนอราคาที่ยังไม่หมดอายุ หรือบิลที่พักในเครื่องนี้ '
+                  '— ยังลบได้ แต่เอกสารเหล่านั้นจะอ้างถึงสินค้าที่ถูกลบ',
+                ),
+              ),
+            ],
             if (widget.blocked.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
@@ -1327,7 +1415,8 @@ class _BulkDeleteDialogState extends State<_BulkDeleteDialog> {
               child: ListView(
                 shrinkWrap: true,
                 children: [
-                  for (final p in widget.deletable) row(p),
+                  for (final p in widget.deletable)
+                    row(p, note: _refsNote(widget.docRefs[p.id])),
                   for (final p in widget.blocked) row(p, note: 'ลบไม่ได้'),
                 ],
               ),

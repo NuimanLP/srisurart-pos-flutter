@@ -8,6 +8,7 @@
 //  • API build: one DELETE per id, each with its OWN Idempotency-Key, and the
 //    local soft delete only happens for an id the server accepted.
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -207,6 +208,99 @@ void main() {
         expect(row.deletedAt, isNull, reason: '$id must stay live locally');
       }
       await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+  });
+
+  group('openDocumentRefs (warning only, owner decision 2026-10-01)', () {
+    test('open PO (partNo, case-insensitive), active quote and parked bill '
+        'are listed; received/cancelled PO, converted/expired quote are not',
+        () async {
+      final all = await ProductsRepository(db).getAll();
+      final a = all[0], b = all[1], c = all[2], untouched = all[3];
+      final now = DateTime.now();
+
+      Future<void> po(String id, String status, String partNo) async {
+        await db.into(db.purchaseOrders).insert(
+          PurchaseOrdersCompanion.insert(
+            id: id,
+            poNo: 'PO-$id',
+            supplier: 's',
+            createdAt: now,
+            status: Value(status),
+          ),
+        );
+        await db.into(db.poItems).insert(
+          PoItemsCompanion.insert(
+            poId: id,
+            partNo: partNo,
+            name: 'n',
+            qty: 1,
+            cost: 1,
+          ),
+        );
+      }
+
+      Future<void> quote(
+        String id,
+        String status,
+        DateTime validUntil,
+        String productId,
+      ) async {
+        await db.into(db.quotes).insert(
+          QuotesCompanion.insert(
+            id: id,
+            quoteNo: 'QT-$id',
+            date: now,
+            validUntil: validUntil,
+            status: Value(status),
+          ),
+        );
+        await db.into(db.quoteItems).insert(
+          QuoteItemsCompanion.insert(
+            quoteId: id,
+            productId: Value(productId),
+            name: 'n',
+            qty: 1,
+            price: 1,
+          ),
+        );
+      }
+
+      await po('o1', 'open', a.partNo.toUpperCase());
+      await po('r1', 'received', b.partNo);
+      await po('c1', 'cancelled', b.partNo);
+      await quote('q1', 'open', now.add(const Duration(days: 3)), b.id);
+      await quote('q2', 'converted', now.add(const Duration(days: 3)), a.id);
+      await quote('q3', 'open', now.subtract(const Duration(days: 1)), a.id);
+      await db.into(db.parkedSales).insert(
+        ParkedSalesCompanion.insert(
+          id: 'pk1',
+          parkedAt: now,
+          payload: '{"items":[{"productId":"${c.id}","qty":1},'
+              '{"productId":"${c.id}","qty":2}]}',
+        ),
+      );
+      await db.into(db.parkedSales).insert(
+        ParkedSalesCompanion.insert(
+          id: 'pk2',
+          parkedAt: now,
+          payload: 'not json',
+        ),
+      );
+
+      final refs = await ProductsRepository(
+        db,
+      ).openDocumentRefs([a, b, c, untouched]);
+
+      expect(refs[a.id]!.map((r) => (r.kind, r.docNo)), [
+        (ProductDocKind.openPo, 'PO-o1'),
+      ]);
+      expect(refs[b.id]!.map((r) => (r.kind, r.docNo)), [
+        (ProductDocKind.activeQuote, 'QT-q1'),
+      ]);
+      expect(refs[c.id]!.single.kind, ProductDocKind.parkedBill);
+      expect(refs[c.id]!.single.parkedAt, isNotNull);
+      expect(refs.containsKey(untouched.id), isFalse);
     });
   });
 }

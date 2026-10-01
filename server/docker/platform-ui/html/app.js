@@ -146,7 +146,7 @@ function goToLogin() {
   showView(els.loginView);
 }
 
-/** Show/hide the login password (eye toggle). Strings: agent ร่าง, 02_API_SCREENS.md §8.1.1. */
+/** Show/hide the login password (eye toggle). Strings: owner-ratified 2026-10-01, 02_API_SCREENS.md §8.1.1. */
 function setPasswordVisible(visible) {
   els.loginPassword.type = visible ? 'text' : 'password';
   const label = visible ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน';

@@ -119,7 +119,8 @@ class ServerErrorResolver {
     'too_short': 'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
     'too_long': 'รหัสผ่านยาวเกินไป ต้องไม่เกิน 128 ตัวอักษร',
     // The server checks a fixed brand-word list (SHOP_WORDS), not the tenant's own
-    // name, so the message must not promise a shop-name check.
+    // name, so the message must not promise a shop-name check. This sentence
+    // is owner-ratified 2026-10-01; the other reasons are still agent ร่าง.
     'common': 'รหัสผ่านนี้เดาง่ายเกินไป กรุณาตั้งรหัสอื่น',
     'same_as_temp': 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว',
   };
