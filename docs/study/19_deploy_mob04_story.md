@@ -96,6 +96,7 @@ dev: git push / merge PR เข้า main
 Deploy (demo)
    │
    ├─ job resolve (GitHub-hosted, ubuntu-latest)
+   │     ├─ workflow_run: CI ที่ยิงมาต้องเป็น push บน main และจบ success — CI แดง = job นี้ถูก skip ทั้ง job
    │     ├─ หา SHA: workflow_run.head_sha หรือ input image_tag (ว่าง = head ของ main)
    │     ├─ ต้องเป็น commit บน main · workflow_run ต้องเป็น head ปัจจุบันของ main
    │     └─ verify-ghcr-tags.sh: image สองตัวที่ SHA นี้ครบไหม → images_ready
@@ -176,7 +177,7 @@ Deploy (demo)
   hook จะปฏิเสธก่อน step แรก และต่อให้หลุดมา ก็ทำได้แค่ "deploy commit ที่อยู่บน `main` อยู่แล้ว"
 
 ```text
-Switching ไม่ได้ไปไหน:  gha-runner ──(sudo แค่ 1 คำสั่ง)──▶ deploy ──(docker group, /opt/pos)──▶ container
+สิทธิ์ส่งต่อได้ทางเดียว:  gha-runner ──(sudo แค่ 1 คำสั่ง)──▶ deploy ──(docker group, /opt/pos)──▶ container
                          ❌ docker   ❌ .env   ❌ shell ของ deploy
 ```
 
@@ -257,23 +258,25 @@ Switching ไม่ได้ไปไหน:  gha-runner ──(sudo แค่ 1
 
 ## 🚧 6. สิ่งที่ขวางอยู่ และถูกปลดยังไง
 
+(ช่วงเวลาในไทม์ไลน์ = เวลาไทย · ส่วน cron 03:00 คือเวลาของ VM ซึ่งเป็น UTC = 10:00 เวลาไทย)
+
 ```text
 09-21 ─────── 09-28   FortiGate ทำ SSL inspection กับ ghcr.io (ใบไม่มี SAN) → pull ล้ม
 09-29         ✅ FortiGate ปลด · run 36591519465 (e50f4fa) ถูกสร้าง แต่ยังไม่มี runner รับ
 09-30 เช้า    ✅ ติดตั้ง runner mob04-demo → approve → deploy จริงครั้งแรก
 09-30 เช้า    ✅ provision.yml รันซ้ำ: เพิ่ม PLATFORM_ADMINS + ลง /opt/pos/scripts
-09-30 สาย     ✅ etcd auth พิสูจน์สองทาง (#365)
+09-30 บ่าย    ✅ etcd auth พิสูจน์สองทาง (#365)
 09-30 บ่าย    ✅ PR #512 แก้ pnpm audit แดง → image กลับมา → merge→CD จริง
 09-30 เย็น    ✅ CORS 500 (PR #516) · ทดสอบล้มโดยตั้งใจ (#67) · backup-db.sh (#519) ลงมือ
 09-30 ค่ำ     ✅ deploy ca2fef1 → 3258b21
-10-01 03:00   ⏳ cron backup รอบจริงรอบแรกของสคริปต์ใหม่ — รอตรวจ
+10-01 03:00 UTC ⏳ cron backup รอบจริงรอบแรกของสคริปต์ใหม่ — รอตรวจ
 ```
 
 ### 🧱 ① FortiGate ตัด `ghcr.io` (คลี่คลาย 2026-09-29)
 
 - **อาการ:** `docker compose pull` บน VM ล้มด้วย `x509: certificate is not valid for any names` — firewall ของคณะ
   ทำ SSL inspection และตอบ `ghcr.io` ด้วยใบรับรองที่ไม่มี SAN
-- **ทางแก้:** ไม่ใช่ทางเรา — ฝ่ายเครือข่ายแก้ใบให้มี SAN `ghcr.io`/`*.ghcr.io` · 09-29 `docker pull` จาก `mob04` สำเร็จจริง
+- **ทางแก้:** อยู่นอก repo (ฝั่งเครือข่ายคณะ) — ใบของ FortiGate ตอนนี้มี SAN `ghcr.io`/`*.ghcr.io` แล้ว · 09-29 `docker pull` จาก `mob04` สำเร็จจริง
 - **ถ้ากลับมา:** ให้ฝ่ายเครือข่าย exempt `ghcr.io`/`registry-1.docker.io`/`gcr.io` ให้ `172.30.58.20` ·
   `docker save`/`load` ด้วยมือ = ทางกู้วันเดโมเท่านั้น **ไม่ใช่ CD** · **ห้ามปิด TLS verify**
 
@@ -282,7 +285,8 @@ Switching ไม่ได้ไปไหน:  gha-runner ──(sudo แค่ 1
 - ติดตั้งด้วย `deploy/scripts/setup-mob04-runner.sh`: runner v2.337.0 linux-x64 (**ตรวจ sha256 ก่อนแตกไฟล์**),
   ชื่อ `mob04-demo`, label `srisurart-demo-deploy`, สร้าง `gha-runner` (ปฏิเสธถ้าอยู่ group docker/deploy),
   ลง `pos-deploy` + hook + sudoers (ผ่าน `visudo -cf` ก่อน) แล้ว self-test
-- token ลงทะเบียนส่งทาง **stdin** ไม่โผล่ใน command line หรือ log
+- token ลงทะเบียนส่งเข้า VM ทาง **stdin ของ ssh** (ไม่อยู่ใน command line ฝั่ง notebook และกรองออกจาก output) ·
+  ⚠️ บน VM สคริปต์ยังรับ token เป็น **argument** (`setup-mob04-runner.sh <TOKEN> <VERSION> <SHA256>`) — token ใช้ครั้งเดียวและหมดอายุเร็ว แต่ไม่ได้ "ไม่เคยอยู่ใน command line" เลย
 - ก่อนนั้นตั้ง fork-PR approval และ branch policy ของ `demo` ให้เสร็จก่อน (ลำดับบังคับ เพราะ repo public)
 - ยกเลิก run ค้างเก่าของ `639238f` (`36551431740`) แล้ว approve run `36591519465` (`e50f4fa`) →
   hook อนุญาต · Ansible `ok=48 changed=27 failed=0 ignored=2` (ignored ตัวหนึ่ง = ยังไม่มี `.current_sha` ครั้งแรก) ·
@@ -291,7 +295,8 @@ Switching ไม่ได้ไปไหน:  gha-runner ──(sudo แค่ 1
 ### 🔴 ③ `pnpm audit` แดงบน `main` = ไม่มี image = ทุก deploy ถูกข้ามแบบ "เขียว"
 
 - **กลไก:** `Server CI` แดงที่ `pnpm audit --audit-level=high` (`brace-expansion` ผ่าน `@nestjs/cli > minimatch`, dev-only) →
-  `build-image` ไม่รัน → GHCR ไม่มี server image → `resolve` ได้ exit 1 → notice แล้วจบ **เขียว** → job `deploy` skipped
+  `build-image` ไม่รัน → GHCR ไม่มี server image → run ที่ `Server CI` (แดง) ยิงมา: `resolve` ถูก skip ทั้ง job ·
+  run ที่ `Flutter CI` (เขียว) ยิงมา: `verify-ghcr-tags.sh` ได้ exit 1 → notice แล้วจบ **เขียว** → ทั้งสองแบบ job `deploy` skipped
 - **ทางแก้:** PR #512 (`494ace3`) — pnpm override `brace-expansion` → `^5.0.11` และยก override `multer` เป็น `>=2.4.0`
 - **บทเรียน:** run `Deploy (demo)` เขียวแค่ ~8 วินาทีหลัง merge อาจแปลว่า "CI แดง ไม่มี image" ไม่ใช่แค่ "PR แก้ docs"
 
@@ -398,7 +403,7 @@ playbook ของ 00d3488 (force_redeploy) → up -d datastores ปลุก re
 ทำไมหยุด `redis-cache` และทำไมรอให้ `api-3` healthy ก่อน? เพราะ `/health/ready` เช็ก Postgres + Redis ทั้งสอง
 แต่ healthcheck ของ container api ใช้ `/health/live` ซึ่งไม่เช็ก Redis → api ยัง "healthy" อยู่ แล้วไปล้มที่ด่านชิมสุดท้ายพอดี ·
 ถ้าหยุดเร็วกว่านั้น task `up -d postgres redis-cache …` ของ playbook จะปลุกมันกลับมาเอง ·
-ผลคือ `.current_sha` ไม่เคยเป็น `4f4d86c` เลย
+ผลคือตลอด run นี้ `.current_sha` ไม่เคยถูกเขียนเป็น `4f4d86c` (ยังเป็น `00d3488` mtime 13:16:19Z จาก run A ของข้อ ข)
 
 **ง. hook ปฏิเสธ branch อื่น**
 
@@ -431,7 +436,10 @@ sha256 ของ hook บน VM = ของ `origin/main`, ลองรันส
 
 ```bash
 gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --status waiting --json databaseId,headSha,createdAt
+gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --status pending --json databaseId,headSha,createdAt
 ```
+
+(`waiting` = รอคน approve · `pending` = ถูก concurrency `deploy-demo` กันไว้หลัง run อื่น — ดูทั้งสองแบบ)
 
 **② สั่ง deploy / rollback** (input ชื่อ `image_tag`, ว่าง = head ของ `main`, SHA เก่ากว่า = rollback):
 
@@ -461,6 +469,7 @@ gh run watch <run-id> -R NuimanLP/srisurart-pos-flutter --exit-status --interval
 รันจาก `deploy/ansible/` ใน **worktree สะอาดที่ SHA นั้น** (จะได้ compose/nginx/playbook ของ release นั้นด้วย):
 
 ```bash
+TAG=<40-hex-sha>   # SHA เต็ม 40 ตัวเท่านั้น: tag บน GHCR เป็น SHA เต็ม และค่านี้ถูกเขียนลง .current_sha ตรง ๆ
 DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$DEPLOY_KEY" \
   ansible-playbook deploy.yml -e image_tag="$TAG" </dev/null
 # rollback: เติม -e force_redeploy=true (ห้ามลบ .current_sha แทน)
@@ -598,8 +607,9 @@ run จบแล้ว: .current_sha = SHA นี้ไหม? /health/ready 200
 | **#443** platform admin UI | code merge แล้ว, 403 สองชั้นพิสูจน์บน VM แล้ว · รอ owner เรื่อง AC "เฉพาะ `bootstrap:admin`" ที่ขัดกับ `PLATFORM_ADMINS` sync · ยังไม่มีคน login จริง |
 | **#231** cutover ร้านจาก Drift build ไป server | รอ owner · ร้านจริงยังใช้ Drift build |
 
-สถานะ VM ตอนจบวัน 2026-09-30 (จาก handoff): `.current_sha` = `3258b21`, `/health/ready` 200 ·
-หลังจากนั้น PR #523 merge แล้ว (`6384e20`) — บทนี้ไม่ได้ตรวจว่า VM ขยับตามหรือยัง ให้ดู `.current_sha` เอง
+สถานะ VM ณ เวลาเขียน (2026-10-01): `.current_sha` = `3258b21` (จาก run `36740720083`; `/health/ready` 200 ตอนจบ run นั้น) ·
+PR #523 (docs ล้วน) merge เป็น `6384e20` แล้ว แต่ **ยังไม่ถูก deploy** — run `36742768824` ของ `6384e20` ค้าง *waiting* รอ approve
+และ run `36742775298` ค้าง *pending* อยู่หลังมัน (ตัวอย่างจริงของกับดักข้อ 4) · สถานะเปลี่ยนได้ทุกเมื่อ ให้ดู `.current_sha` เอง
 
 ---
 
