@@ -273,6 +273,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _selectedCustomer = null;
       _selectedMechanic = null;
       _payMethod = 'เงินสด';
+      _editingPriceId = null;
     });
   }
 
@@ -284,7 +285,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<void> _confirmClearCart() async {
     final n = _cart.state.length;
     // Not while a sale/park is in flight: a failed sale must keep its cart.
-    if (n == 0 || _submitting || _parkedBusy) return;
+    if (n == 0 || _submitting || _parkedBusy || _consumingPendingQuote) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

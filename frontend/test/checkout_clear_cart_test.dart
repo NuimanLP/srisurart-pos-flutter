@@ -124,4 +124,26 @@ void main() {
       });
     });
   }
+
+  testWidgets('390px with a mechanic picked: header wraps, no overflow', (
+    tester,
+  ) async {
+    await run(tester, const Size(390, 844), (cart, products) async {
+      cart.add(products.firstWhere((x) => x.stock > 0));
+      await openCart(tester);
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final mech = (await db.select(db.mechanics).get()).first;
+      await tester.enterText(
+        find.widgetWithText(TextField, 'ค้นหาช่าง / ชื่อเล่น / เบอร์…'),
+        mech.nameTH ?? mech.name,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(mech.nameTH ?? mech.name).last);
+      await tester.pumpAndSettle();
+      expect(find.text('คลิกราคาเพื่อปรับ'), findsOneWidget);
+      expect(clearBtn, findsOneWidget);
+      expect(tester.getRect(clearBtn).right, lessThanOrEqualTo(390));
+    });
+  });
 }
