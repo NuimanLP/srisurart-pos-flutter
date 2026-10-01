@@ -267,6 +267,27 @@ void main() {
       await cubit.close();
     });
 
+    test('a late expiry keeps a login spinner and a login error', () async {
+      final repo = _StubAuthRepo();
+      final cubit = AuthCubit(authRepository: repo);
+      await cubit.init();
+      repo.loginGate = Completer<void>();
+      final loggingIn = cubit.login(username: 'pos', password: 'secret');
+      await Future<void>.delayed(Duration.zero);
+      expect(cubit.state, isA<AuthLoading>());
+      await cubit.sessionExpired();
+      expect(cubit.state, isA<AuthLoading>());
+
+      repo.loginError = ApiException(statusCode: 403, code: 'TENANT_SUSPENDED');
+      repo.loginGate!.complete();
+      await loggingIn;
+      final refused = cubit.state as Unauthenticated;
+      expect(refused.errorMessage, isNotNull);
+      await cubit.sessionExpired();
+      expect(cubit.state, same(refused));
+      await cubit.close();
+    });
+
     test('AuthLoading carries the device the login form was showing', () async {
       final repo = _StubAuthRepo()
         ..isAuth = true

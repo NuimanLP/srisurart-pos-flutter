@@ -85,9 +85,14 @@ class ApiClient {
     return uri.replace(queryParameters: cleanParams);
   }
 
+  /// [session]: the session the request was started for. The token is
+  /// attached only if that is still the current session once it has been read
+  /// — otherwise [_StaleSession] is thrown and the request never leaves, so a
+  /// login landing mid-request can never send it as the new person.
   Future<Map<String, String>> _buildHeaders({
     Map<String, String>? extraHeaders,
     bool skipAuth = false,
+    int? session,
   }) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -96,6 +101,7 @@ class ApiClient {
 
     if (!skipAuth && tokenStorage != null) {
       final token = await tokenStorage!.getAccessToken();
+      if (session != null && session != _session) throw const _StaleSession();
       if (token != null && token.isNotEmpty) {
         headers['Authorization'] = 'Bearer $token';
       }
@@ -192,9 +198,13 @@ class ApiClient {
     bool skipAuth = false,
   }) async {
     final response = await _executeWithRetry(
-      (abortTrigger) async {
+      (abortTrigger, session) async {
         final uri = _buildUri(path, queryParameters);
-        final h = await _buildHeaders(extraHeaders: headers, skipAuth: skipAuth);
+        final h = await _buildHeaders(
+          extraHeaders: headers,
+          skipAuth: skipAuth,
+          session: session,
+        );
         return _sendAbortable(
           'GET',
           uri,
@@ -250,9 +260,13 @@ class ApiClient {
     required Duration timeout,
   }) {
     return _sendWithRetry(
-      (abortTrigger) async {
+      (abortTrigger, session) async {
         final uri = _buildUri(path, queryParameters);
-        final h = await _buildHeaders(extraHeaders: headers, skipAuth: skipAuth);
+        final h = await _buildHeaders(
+          extraHeaders: headers,
+          skipAuth: skipAuth,
+          session: session,
+        );
         final encodedBody = body != null ? (body is String ? body : jsonEncode(body)) : null;
         return _sendAbortable(
           method,
@@ -269,7 +283,8 @@ class ApiClient {
   }
 
   Future<http.Response> _executeWithRetry(
-    Future<http.Response> Function(Future<void> abortTrigger) rawExecute, {
+    Future<http.Response> Function(Future<void> abortTrigger, int session)
+        rawExecute, {
     required String path,
     required bool skipAuth,
     required Duration timeout,
@@ -278,9 +293,24 @@ class ApiClient {
     // [timeout], and the refresh in between gets [readTimeout]; so one call
     // waits at most 2 × timeout + readTimeout. A timeout is never retried
     // here: it throws out of this method.
-    Future<http.Response> execute() => _withTimeout(rawExecute, timeout, path);
-
+    //
+    // [session] is captured before the first await: every send attaches a
+    // token only while it is still current (see [_buildHeaders]). A send whose
+    // session ended meanwhile never leaves and reads as a 401 — the same
+    // verdict the server gives a request with no valid token.
     final session = _session;
+    Future<http.Response> execute() async {
+      try {
+        return await _withTimeout(
+          (abortTrigger) => rawExecute(abortTrigger, session),
+          timeout,
+          path,
+        );
+      } on _StaleSession {
+        return _staleSessionResponse();
+      }
+    }
+
     final sentWith = await tokenStorage?.getAccessToken();
     final response = await execute();
 
@@ -307,7 +337,8 @@ class ApiClient {
   }
 
   Future<dynamic> _sendWithRetry(
-    Future<http.Response> Function(Future<void> abortTrigger) execute, {
+    Future<http.Response> Function(Future<void> abortTrigger, int session)
+        execute, {
     required String path,
     required bool skipAuth,
     required Duration timeout,
@@ -604,3 +635,18 @@ class PaginatedResult {
   int get page => (meta['page'] as num?)?.toInt() ?? 1;
   int get totalPages => (meta['totalPages'] as num?)?.toInt() ?? 1;
 }
+
+/// A request's session ended (logout / another login) before its token was
+/// attached. Never escapes [ApiClient]: it becomes [_staleSessionResponse].
+class _StaleSession implements Exception {
+  const _StaleSession();
+}
+
+http.Response _staleSessionResponse() => http.Response(
+      jsonEncode({
+        'status': 'error',
+        'error': {'code': 'UNAUTHENTICATED', 'message': 'Session changed'},
+      }),
+      401,
+      headers: {'content-type': 'application/json'},
+    );

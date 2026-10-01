@@ -430,9 +430,11 @@ class AuthCubit extends Cubit<AuthState> {
   ///
   /// Driven by `ApiClient.onSessionExpired`, wired in `repositoryProviders`.
   Future<void> sessionExpired() async {
-    // Already signed out on purpose (or doing so right now): nothing expired.
+    // No live session to end: signed out (on purpose, or with a login error
+    // on screen), signing out right now, or a login in flight. A late refusal
+    // must not replace the spinner, the error, or the logout.
     final current = state;
-    if (_loggingOut || (current is Unauthenticated && current.signedOut)) {
+    if (_loggingOut || current is Unauthenticated || current is AuthLoading) {
       return;
     }
     final currentDeviceRole = (state is Authenticated)
