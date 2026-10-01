@@ -19,10 +19,31 @@
 
 import 'package:drift/drift.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
 import '../db/product_stamp.dart';
+import '../sync/outbox_product_refs.dart';
 import 'movements_repository.dart';
+
+/// Why a product in a bulk delete was refused before any write (agent ร่าง,
+/// 02 §8.1.1).
+const productHasUnsyncedOps =
+    'มีรายการขาย/คืนที่ยังไม่ได้ส่งขึ้นเซิร์ฟเวอร์ — ซิงก์ให้เสร็จก่อนลบ';
+
+/// A per-item failure whose cause has no Thai sentence of its own (agent ร่าง).
+const productDeleteFailed = 'ลบไม่สำเร็จ กรุณาลองใหม่';
+
+/// What [ProductsRepository.deleteMany] did, item by item.
+class BulkDeleteResult {
+  const BulkDeleteResult(this.deleted, this.failed);
+
+  /// Ids whose delete was accepted, in request order.
+  final List<String> deleted;
+
+  /// id → Thai reason, for every id that was NOT deleted.
+  final Map<String, String> failed;
+}
 
 class ProductsRepository {
   final AppDatabase db;
@@ -151,6 +172,42 @@ class ProductsRepository {
 
   Future<void> delete(String id) async {
     await (db.delete(db.products)..where((t) => t.id.equals(id))).go();
+  }
+
+  /// Products that an unsent outbox op still references — these cannot be
+  /// deleted until the op is sent or discarded (08 §15).
+  Future<Set<String>> productIdsWithUnsyncedOps() => productIdsInOutbox(db);
+
+  /// Bulk delete: one [delete] per id, in order, each its own write (on the API
+  /// build: its own `DELETE /products/:id` + `Idempotency-Key`, a soft delete
+  /// the server answers 200 for an already-deleted id, so a retry is safe).
+  ///
+  /// Not all-or-nothing on purpose — there is no cross-product invariant to
+  /// protect, and one refusal must not hide which others went through. Ids an
+  /// outbox op references are refused up front with [productHasUnsyncedOps];
+  /// every other failure is caught and reported per id, never thrown.
+  Future<BulkDeleteResult> deleteMany(List<String> ids) async {
+    final blocked = await productIdsWithUnsyncedOps();
+    final deleted = <String>[];
+    final failed = <String, String>{};
+    for (final id in ids.toSet()) {
+      if (blocked.contains(id)) {
+        failed[id] = productHasUnsyncedOps;
+        continue;
+      }
+      try {
+        await delete(id);
+        deleted.add(id);
+      } on PosException catch (e) {
+        failed[id] = e.message; // the server's own Thai sentence
+      } on Exception {
+        // Transport failure / timeout: no Thai sentence of its own. The fate
+        // of the write may be unknown, but a retry is a fresh idempotent
+        // soft delete, so "try again" is the honest advice.
+        failed[id] = productDeleteFailed;
+      }
+    }
+    return BulkDeleteResult(deleted, failed);
   }
 
   /// db.js adjustStock — MANUAL adjust CLAMPS at 0 (max(0, stock+delta)),
