@@ -276,6 +276,42 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     });
   }
 
+  // Clear-all (owner request): always confirmed, cancel is the default focus.
+  // Resets exactly what a finished sale / park resets (_clearSaleState), plus
+  // the stale price warning. Touches no repository: PendingWrites keys parked
+  // attempts by cart fingerprint, so an unsent bill's id+key stays parked for
+  // an identical cart and a different cart can never reuse it.
+  Future<void> _confirmClearCart() async {
+    final n = _cart.state.length;
+    // Not while a sale/park is in flight: a failed sale must keep its cart.
+    if (n == 0 || _submitting || _parkedBusy) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ล้างรายการสินค้าทั้งหมด?'),
+        content: Text('จะลบสินค้าทั้ง $n รายการออกจากตะกร้า ย้อนกลับไม่ได้'),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ล้างรายการ'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    _clearSaleState();
+    _clearWarn();
+  }
+
   double get _subtotal => _cart.subtotal;
   double get _total =>
       (_subtotal - _discount) < 0 ? 0 : (_subtotal - _discount);
@@ -1919,27 +1955,57 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         children: [
           Row(
             children: [
-              Expanded(child: _label('รายการสินค้า (${cart.length})')),
-              if (_selectedMechanic != null)
+              // Wrap: with a mechanic picked the chip drops under the title
+              // on a narrow pane instead of overflowing it.
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _label('รายการสินค้า (${cart.length})'),
+                    if (_selectedMechanic != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _orange.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'คลิกราคาเพื่อปรับ',
+                            style: TextStyle(
+                              color: _orange,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (cart.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
+                  // Icon-only (tooltip 'ล้างรายการ') to fit the 400 px pane.
+                  child: IconButton(
+                    key: const Key('cart-clear-all'),
+                    tooltip: 'ล้างรายการ',
+                    onPressed: (_submitting || _parkedBusy)
+                        ? null
+                        : _confirmClearCart,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 30,
                     ),
-                    decoration: BoxDecoration(
-                      color: _orange.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'คลิกราคาเพื่อปรับ',
-                      style: TextStyle(
-                        color: _orange,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    padding: EdgeInsets.zero,
+                    color: Theme.of(context).colorScheme.error,
+                    icon: const Icon(Icons.delete_sweep_outlined, size: 20),
                   ),
                 ),
             ],
