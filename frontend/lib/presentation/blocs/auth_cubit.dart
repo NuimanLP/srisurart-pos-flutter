@@ -371,6 +371,10 @@ class AuthCubit extends Cubit<AuthState> {
   }
 
   /// Enrols the device using the code from the shop owner (ADR-0004).
+  ///
+  /// A [PosException] (the till still holds local work,
+  /// `TenantCacheGuard.checkEnrolment`) is rethrown so the dialog can show
+  /// its Thai sentence instead of "wrong code"; anything else is `false`.
   Future<bool> enrolDevice(String code) async {
     try {
       final deviceToken = await _repo.enrolDevice(code);
@@ -390,6 +394,8 @@ class AuthCubit extends Cubit<AuthState> {
         ));
       }
       return true;
+    } on PosException {
+      rethrow;
     } catch (_) {
       return false;
     }

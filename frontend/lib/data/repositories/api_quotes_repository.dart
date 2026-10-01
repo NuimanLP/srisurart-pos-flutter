@@ -21,6 +21,8 @@ class ApiQuotesRepository extends QuotesRepository {
   ApiQuotesRepository(super.db, this.apiClient);
 
   Future<void> syncFromServer() async {
+    // A reset (tenant switch) while this pull is in flight voids its replies.
+    final gen = db.cacheGeneration;
     try {
       bool hasMore = true;
       int page = 1;
@@ -32,7 +34,8 @@ class ApiQuotesRepository extends QuotesRepository {
         );
         final items = res.data;
 
-        if (items.isNotEmpty) {
+        if (items.isNotEmpty &&
+            !await db.writeCacheIfCurrent(gen, () async {
           for (final item in items) {
             if (item is Map) {
               final map = Map<String, dynamic>.from(item);
@@ -90,6 +93,8 @@ class ApiQuotesRepository extends QuotesRepository {
               }
             }
           }
+        })) {
+          return;
         }
 
         if (page >= res.totalPages || items.isEmpty) {

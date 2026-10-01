@@ -154,6 +154,9 @@ class AuthRepository {
     // TokenStoreUnavailableException, rather than minting a new device_no on
     // the server that could then not even be saved (ADR-0004 F8).
     await tokenStorage.getDeviceToken();
+    // The new enrolment may be another shop's; then the old shop's local work
+    // could never be sent or discarded (login is scoped to the device's shop).
+    await tenantGuard?.checkEnrolment();
 
     final response = await apiClient.post(
       '/api/v1/auth/device',

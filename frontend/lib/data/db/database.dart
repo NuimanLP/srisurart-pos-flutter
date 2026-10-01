@@ -303,13 +303,10 @@ class AppDatabase extends _$AppDatabase {
       appMeta,
     )..where((t) => t.key.equals(demoSeedPurgedKey))).getSingleOrNull();
     if (marker != null) return null;
-    final queued = await (select(outboxOps)..limit(1)).get();
-    final credit = await (select(pendingCreditPayments)..limit(1)).get();
-    if (queued.isNotEmpty || credit.isNotEmpty) {
+    if (await hasUnsentWork()) {
       debugPrint(
-        'purgeDemoSeed: skipped — unsent local work '
-        '(outbox_ops rows: ${queued.isNotEmpty}, pending credit payments: '
-        '${credit.isNotEmpty}); retrying on next open',
+        'purgeDemoSeed: skipped — unsent local work (outbox_ops or pending '
+        'credit payments); retrying on next open',
       );
       return null;
     }
@@ -348,33 +345,107 @@ class AppDatabase extends _$AppDatabase {
     return n;
   });
 
+  /// True while any `outbox_ops` row (pending, stuck or rejected) or queued
+  /// credit payment exists: local writes the server has not settled. Nothing
+  /// that would delete their rows may run then ([purgeDemoSeed], a tenant
+  /// switch).
+  Future<bool> hasUnsentWork() async =>
+      await _any(outboxOps) || await _any(pendingCreditPayments);
+
+  Future<bool> _any(TableInfo table) async =>
+      (await (selectOnly(table)
+                ..addColumns([const Constant(1)])
+                ..limit(1))
+              .get())
+          .isNotEmpty;
+
+  /// app_meta keys from db.js's meta stores.
+  static const schemaVersionKey = 'schema_version';
+  static const backupFormatVersionKey = 'backup_format_version';
+
   /// app_meta keys that describe this DB file, not a shop's data — the only
   /// ones [resetTenantCache] keeps.
-  static const _deviceMetaKeys = {
-    'schema_version',
-    'backup_format_version',
+  static const deviceMetaKeys = {
+    schemaVersionKey,
+    backupFormatVersionKey,
     demoSeedPurgedKey,
   };
 
+  /// Bumped by every cache reset. A server→Drift pull captures it before its
+  /// first request and writes only through [writeCacheIfCurrent], so a reply
+  /// from the old shop's session that lands after a reset writes nothing —
+  /// neither rows nor its sync cursor. In memory only: what it fences is
+  /// in-flight requests, which do not outlive the process either.
+  int get cacheGeneration => _cacheGeneration;
+  int _cacheGeneration = 0;
+
+  /// Runs [write] in a transaction unless the cache was reset since
+  /// [generation] was read; returns whether it ran. The check is inside the
+  /// transaction, so it cannot interleave with a reset (Drift serialises
+  /// transactions). A caller that gets `false` must stop — no next page.
+  Future<bool> writeCacheIfCurrent(
+    int generation,
+    Future<void> Function() write,
+  ) => transaction(() async {
+    if (_cacheGeneration != generation) return false;
+    await write();
+    return true;
+  });
+
   /// Empties the shop cache (API build, tenant switch): every table but
-  /// app_meta, and every app_meta key but [_deviceMetaKeys] — that includes
+  /// app_meta, and every app_meta key but [deviceMetaKeys] — that includes
   /// the offline-PIN keys (the old shop's user) and carried-forward `sa_*`
   /// stores. Sync cursors go with it, so the next pull starts from zero. The
-  /// default categories and settings row a new DB starts with are put back
+  /// default categories and a blank settings row are put back
   /// (`SettingsRepository.getSettings` needs the singleton).
   ///
   /// Checks nothing: `TenantCacheGuard` decides it is safe and runs this
   /// inside its own transaction.
   Future<void> resetTenantCache() async {
+    _cacheGeneration++;
     // Children first: allTables lists every referenced table before its child.
     for (final table in allTables.toList().reversed) {
       if (table == appMeta) continue;
       await delete(table).go();
     }
-    await (delete(appMeta)..where((t) => t.key.isNotIn(_deviceMetaKeys))).go();
+    await (delete(appMeta)..where((t) => t.key.isNotIn(deviceMetaKeys))).go();
     await _seedCategories();
-    await _seedDefaultSettings();
+    await _seedBlankSettings();
   }
+
+  /// The server-pulled part of the cache — catalogue, quotes, POs, settings
+  /// and the sync cursors — for a DB adopted as this tenant's without being
+  /// emptied (`TenantCacheGuard`, legacy DB + device-token login). The next
+  /// pull re-downloads all of it from zero. Kept: the till's own history,
+  /// which no pull ever brings back (sales, returns, shifts, drawer, movements,
+  /// credit payments, doc counters, outbox/op_effects, parked bills) and
+  /// suppliers (Drift-only on every build, never pulled).
+  Future<void> resetPulledCache() async {
+    _cacheGeneration++;
+    for (final table in <TableInfo>[
+      quoteItems,
+      quotes,
+      poItems,
+      purchaseOrders,
+      products,
+      categories,
+      customers,
+      mechanics,
+      settingsRow,
+      syncCursors,
+    ]) {
+      await delete(table).go();
+    }
+    await _seedCategories();
+    await _seedBlankSettings();
+  }
+
+  /// The settings singleton with no shop identity: after a reset the screens
+  /// must not print another shop's (or the db.js demo) name until
+  /// `GET /settings` fills it in.
+  Future<void> _seedBlankSettings() => into(settingsRow).insert(
+    SettingsRowCompanion.insert(id: const Value(0), shopName: '', shopNameEN: ''),
+  );
 
   Future<void> _seed() async {
     await _seedCategories();
@@ -711,9 +782,9 @@ class AppDatabase extends _$AppDatabase {
     // ── AppMeta — schema_version (2) + backup_format_version (2) from db.js ──
     await batch((b) {
       b.insertAll(appMeta, const [
-        AppMetaCompanion(key: Value('schema_version'), value: Value('2')),
+        AppMetaCompanion(key: Value(schemaVersionKey), value: Value('2')),
         AppMetaCompanion(
-          key: Value('backup_format_version'),
+          key: Value(backupFormatVersionKey),
           value: Value('2'),
         ),
       ]);

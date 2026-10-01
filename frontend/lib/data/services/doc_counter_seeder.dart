@@ -30,10 +30,13 @@ class DocCounterSeeder {
   /// the first write, and the writes share one local transaction (nothing is held
   /// open across the wire).
   Future<bool> seed() async {
+    // A cache reset (tenant switch) while the request is in flight: the
+    // reply is the old shop's device counters — write nothing.
+    final gen = db.cacheGeneration;
     try {
       final res = await apiClient.get('/api/v1/doc-counters');
       final seed = _parse(res);
-      await db.transaction(() async {
+      return await db.writeCacheIfCurrent(gen, () async {
         for (final c in seed.counters) {
           await db.customInsert(
             'INSERT INTO doc_counters '
@@ -79,7 +82,6 @@ class DocCounterSeeder {
               ),
             );
       });
-      return true;
     } catch (_) {
       return false;
     }

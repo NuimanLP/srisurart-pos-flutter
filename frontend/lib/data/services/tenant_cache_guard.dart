@@ -14,8 +14,10 @@
 //
 // Not checked at app open: a session that survived a reload was admitted when
 // it was stored, and a refresh never changes the tenant.
-
-import 'package:drift/drift.dart';
+//
+// Also: enrolment is refused while there is local work ([checkEnrolment]), and
+// a reset bumps `AppDatabase.cacheGeneration` so a pull reply from the old
+// session that lands afterwards writes nothing (`writeCacheIfCurrent`).
 
 import '../../core/network/api_exception.dart';
 import '../db/database.dart';
@@ -30,42 +32,59 @@ class TenantCacheGuard {
 
   static const String unsentWorkCode = 'TENANT_SWITCH_UNSENT_WORK';
 
-  /// agent ร่าง (2026-10-01) — 02_API_SCREENS.md §8.1.1, not yet ratified.
+  /// Ratified by the owner 2026-10-01 — 02_API_SCREENS.md §8.1.1.
   static const String unsentWorkMessage =
       'เครื่องนี้ยังมีงานของร้านเดิมค้างอยู่ (รายการค้างส่ง ชำระเครดิตค้างส่ง '
-      'บิลพัก หรือกะที่ยังไม่ปิด) กรุณาเข้าสู่ระบบร้านเดิมเพื่อส่งหรือยกเลิกรายการ '
-      'และปิดกะให้เรียบร้อยก่อน จึงจะเข้าสู่ระบบร้านอื่นได้';
+      'หรือบิลพัก) กรุณาเข้าสู่ระบบร้านเดิมเพื่อส่งหรือยกเลิกรายการให้เรียบร้อยก่อน '
+      'จึงจะเข้าสู่ระบบร้านอื่นได้';
 
-  /// Lets [tenantId] use the local DB. Returns true when the cache was emptied
-  /// (the caller then pulls everything again), false when kept.
+  static const String enrolUnsentWorkCode = 'ENROL_UNSENT_WORK';
+
+  /// agent ร่าง (2026-10-01) — 02_API_SCREENS.md §8.1.1, not yet ratified.
+  static const String enrolUnsentWorkMessage =
+      'ผูกเครื่องใหม่ไม่ได้ เพราะเครื่องนี้ยังมีงานค้างอยู่ (รายการค้างส่ง '
+      'ชำระเครดิตค้างส่ง หรือบิลพัก) กรุณาส่งหรือยกเลิกรายการให้เรียบร้อยก่อน';
+
+  static const String noTenantCode = 'TOKEN_TENANT_MISSING';
+
+  /// agent ร่าง (2026-10-01) — 02_API_SCREENS.md §8.1.1, not yet ratified.
+  static const String noTenantMessage =
+      'เข้าสู่ระบบไม่สำเร็จ ข้อมูลร้านจากระบบไม่ครบ กรุณาลองใหม่';
+
+  /// Lets [tenantId] use the local DB. Returns true when the cache was
+  /// emptied, wholly or its pulled part (the caller then pulls from zero
+  /// cursors), false when kept as it is.
   ///
   /// - same tenant as the marker → kept.
-  /// - another tenant → refused with [unsentWorkCode] while anything local
-  ///   would be lost ([_hasUnsentWork]); otherwise emptied and re-marked.
+  /// - another tenant → refused with [unsentWorkCode] while there is local
+  ///   work a reset would destroy ([hasLocalWork]); otherwise emptied
+  ///   ([AppDatabase.resetTenantCache]) and re-marked.
   /// - no marker (every DB from before this guard) — whose data it holds is
   ///   unknown:
-  ///   * [viaDeviceToken]: the server resolved this login through the
-  ///     device token, i.e. scoped it to the tenant the browser is enrolled
-  ///     to, and a `pos` till's local shift/sales history is never pulled
-  ///     back from the server — so the data is adopted as this tenant's, not
-  ///     wiped (that is the demo till's case).
+  ///   * [viaDeviceToken]: the server resolved this login through the device
+  ///     token, i.e. scoped it to the tenant the browser is enrolled to. The
+  ///     till's own history (sales, shifts, counters, outbox…) is never pulled
+  ///     back, so it is adopted; the pulled part (catalogue, settings,
+  ///     cursors) is re-downloaded fresh ([AppDatabase.resetPulledCache]).
   ///   * otherwise emptied if nothing would be lost, else refused: refusing
   ///     is the only option that neither leaks nor destroys.
-  ///
-  /// A null [tenantId] (a token with no `tid` — the server always sets one)
-  /// changes nothing.
+  /// - a token with no `tid` (the server always sets one) → refused with
+  ///   [noTenantCode]: with no tenant there is nothing to compare.
   Future<bool> admit(String? tenantId, {required bool viaDeviceToken}) {
-    if (tenantId == null || tenantId.isEmpty) return Future.value(false);
+    if (tenantId == null || tenantId.isEmpty) {
+      throw const PosException(noTenantCode, noTenantMessage);
+    }
     return db.transaction(() async {
       final stored = await (db.select(db.appMeta)
             ..where((t) => t.key.equals(tenantKey)))
           .getSingleOrNull();
       if (stored?.value == tenantId) return false;
       if (stored == null && viaDeviceToken) {
+        await db.resetPulledCache();
         await _mark(tenantId);
-        return false;
+        return true;
       }
-      if (await _hasUnsentWork()) {
+      if (await hasLocalWork()) {
         throw const PosException(unsentWorkCode, unsentWorkMessage);
       }
       await db.resetTenantCache();
@@ -74,30 +93,29 @@ class TenantCacheGuard {
     });
   }
 
+  /// Refuses a device enrolment while there is local work: the new
+  /// enrolment may be for another shop, and once it is, login is scoped to
+  /// that shop — the old one's work could then never be sent or discarded.
+  /// Runs before the code is spent.
+  Future<void> checkEnrolment() async {
+    if (await hasLocalWork()) {
+      throw const PosException(enrolUnsentWorkCode, enrolUnsentWorkMessage);
+    }
+  }
+
   Future<void> _mark(String tenantId) => db.into(db.appMeta).insertOnConflictUpdate(
         AppMetaCompanion.insert(key: tenantKey, value: tenantId),
       );
 
-  /// Local work a reset would destroy: any outbox op (pending, stuck or
-  /// rejected — the same rule as closing a shift, 08 §11), an unconfirmed
-  /// credit payment, a parked bill (local-only), or a shift still open.
+  /// Local work a reset would destroy: [AppDatabase.hasUnsentWork] (any
+  /// outbox op — pending, stuck or rejected — or unconfirmed credit payment)
+  /// or a parked bill (local-only). An open shift is not here: on the API
+  /// build its sales and drawer entries are outbox ops or already on the
+  /// server, and the server keeps the shift itself.
   ///
-  /// `PendingWrites` is not here: it is memory-only, holds no data the server
-  /// does not decide, and its cart lives in `CartCubit`.
-  Future<bool> _hasUnsentWork() async {
-    Future<bool> any(TableInfo table, [Expression<bool>? where]) async {
-      final q = db.selectOnly(table)..addColumns([const Constant(1)]);
-      if (where != null) q.where(where);
-      q.limit(1);
-      return (await q.get()).isNotEmpty;
-    }
-
-    return await any(db.outboxOps) ||
-        await any(db.pendingCreditPayments) ||
-        await any(db.parkedSales) ||
-        await any(
-          db.shifts,
-          db.shifts.isActive.equals(true) & db.shifts.closedAt.isNull(),
-        );
-  }
+  /// `PendingWrites` is not here either: it is memory-only, holds no data the
+  /// server does not decide, and its cart lives in `CartCubit`.
+  Future<bool> hasLocalWork() async =>
+      await db.hasUnsentWork() ||
+      (await (db.select(db.parkedSales)..limit(1)).get()).isNotEmpty;
 }

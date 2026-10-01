@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../blocs/auth_cubit.dart';
 import 'app_button.dart';
@@ -49,7 +50,17 @@ class _DeviceEnrolmentDialogState extends State<DeviceEnrolmentDialog> {
     });
 
     final cubit = context.read<AuthCubit>();
-    final success = await cubit.enrolDevice(code);
+    final bool success;
+    try {
+      success = await cubit.enrolDevice(code);
+    } on PosException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _errorMessage = e.message;
+      });
+      return;
+    }
 
     if (!mounted) return;
 
