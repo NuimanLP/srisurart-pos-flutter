@@ -135,7 +135,7 @@ void main() {
       expect(r.deleted, ['p1', 'p4']);
       expect(r.failed.keys, unorderedEquals(['p2', 'p3']));
       // A server refusal is its Thai sentence, never an ApiException string.
-      expect(r.failed['p2'], isNot(contains('ApiException')));
+      expect(r.failed['p2'], 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้');
       expect(r.failed['p3'], productDeleteFailed);
 
       Future<DateTime?> deletedAt(String id) async => (await (db.select(
@@ -164,6 +164,49 @@ void main() {
 
       expect(paths, ['/api/v1/products/p6']);
       expect(r.failed, {'p5': productHasUnsyncedOps});
+    });
+
+    test('5xx and ApiTimeoutException fail per id, Drift row untouched, '
+        'and the batch carries on', () async {
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/p1')) {
+          return http.Response(
+            '{"status":"error","error":{"code":"INTERNAL","message":"x"}}',
+            500,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (req.url.path.endsWith('/p2')) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
+        return http.Response(
+          '{"status":"success","data":{}}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final repo = ApiProductsRepository(
+        db,
+        ApiClient(
+          httpClient: client,
+          writeTimeout: const Duration(milliseconds: 100),
+        ),
+      );
+
+      final r = await repo.deleteMany(['p1', 'p2', 'p3']);
+
+      expect(r.deleted, ['p3']);
+      expect(r.failed.keys, unorderedEquals(['p1', 'p2']));
+      expect(r.failed['p1'], isNotEmpty);
+      expect(r.failed['p1'], isNot(contains('ApiException')));
+      expect(r.failed['p2'], productDeleteFailed, reason: 'timeout');
+      for (final id in ['p1', 'p2']) {
+        final row = await (db.select(
+          db.products,
+        )..where((t) => t.id.equals(id))).getSingle();
+        expect(row.deletedAt, isNull, reason: '$id must stay live locally');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
     });
   });
 }

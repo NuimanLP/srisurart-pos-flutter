@@ -187,7 +187,14 @@ class ProductsRepository {
   /// outbox op references are refused up front with [productHasUnsyncedOps];
   /// every other failure is caught and reported per id, never thrown.
   Future<BulkDeleteResult> deleteMany(List<String> ids) async {
-    final blocked = await productIdsWithUnsyncedOps();
+    final Set<String> blocked;
+    try {
+      blocked = await productIdsWithUnsyncedOps();
+    } catch (_) {
+      return BulkDeleteResult(const [], {
+        for (final id in ids.toSet()) id: productDeleteFailed,
+      });
+    }
     final deleted = <String>[];
     final failed = <String, String>{};
     for (final id in ids.toSet()) {
@@ -200,10 +207,12 @@ class ProductsRepository {
         deleted.add(id);
       } on PosException catch (e) {
         failed[id] = e.message; // the server's own Thai sentence
-      } on Exception {
-        // Transport failure / timeout: no Thai sentence of its own. The fate
-        // of the write may be unknown, but a retry is a fresh idempotent
-        // soft delete, so "try again" is the honest advice.
+      } catch (_) {
+        // Transport failure, timeout, anything that is not a server reply
+        // (a 5xx IS a reply: PosException above) — no Thai sentence of its
+        // own. The fate may be unknown, but a retry is a fresh idempotent soft delete,
+        // so "try again" is the honest advice. Caught broadly on purpose:
+        // this method promises never to throw mid-batch.
         failed[id] = productDeleteFailed;
       }
     }

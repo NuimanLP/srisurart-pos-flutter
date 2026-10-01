@@ -14,10 +14,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
+import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/products_screen.dart';
+
+import 'support/fake_sync_facade.dart';
 
 void main() {
   setUpAll(() {
@@ -25,10 +28,18 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  Future<void> pumpScreen(WidgetTester tester, AppDatabase db) async {
+  Future<void> pumpScreen(
+    WidgetTester tester,
+    AppDatabase db, {
+    SyncFacade? syncFacade,
+  }) async {
     await tester.pumpWidget(
       MultiRepositoryProvider(
-        providers: repositoryProviders(db, useApiRepositories: false),
+        providers: repositoryProviders(
+          db,
+          useApiRepositories: false,
+          syncFacade: syncFacade,
+        ),
         child: MultiBlocProvider(
           providers: [
             BlocProvider<PendingQuoteCubit>(create: (_) => PendingQuoteCubit()),
@@ -145,4 +156,74 @@ void main() {
       },
     );
   }
+
+  Finder deleteGo() => find.byKey(const Key('bulk-delete-go'));
+  ButtonStyleButton button(WidgetTester tester, Finder f) =>
+      tester.widget<ButtonStyleButton>(f);
+
+  testWidgets('double tap on delete opens ONE dialog; while it is open the '
+      'row and toolbar writes are disabled', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(() async {
+      await pumpScreen(tester, db);
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('bulk-delete-toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bulk-select-all')));
+      await tester.pumpAndSettle();
+
+      // Two taps with no frame between them.
+      await tester.tap(deleteGo());
+      await tester.tap(deleteGo());
+      await settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      // Behind the dialog: add product disabled while the flow runs.
+      final add = find.ancestor(
+        of: find.text('เพิ่มสินค้า'),
+        matching: find.bySubtype<ButtonStyleButton>(),
+      );
+      expect(button(tester, add).onPressed, isNull);
+
+      await tester.tap(find.text('ยกเลิก'));
+      await settle(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(button(tester, add).onPressed, isNotNull);
+      expect((await ProductsRepository(db).getAll()).length, 12);
+      await db.close();
+    });
+  });
+
+  testWidgets('Degraded: delete button disabled, reason shown', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(() async {
+      await pumpScreen(
+        tester,
+        db,
+        syncFacade: FakeSyncFacade(initialStatus: SyncStatus.degraded),
+      );
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('bulk-delete-toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bulk-select-all')));
+      await tester.pumpAndSettle();
+      expect(find.text('เลือกแล้ว 12 รายการ'), findsOneWidget);
+      expect(button(tester, deleteGo()).onPressed, isNull);
+      expect(
+        find.text(
+          'ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถดำเนินการเกี่ยวกับสินค้าได้',
+        ),
+        findsOneWidget,
+      );
+      await db.close();
+    });
+  });
 }

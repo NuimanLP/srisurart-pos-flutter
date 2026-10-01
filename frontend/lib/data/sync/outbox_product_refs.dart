@@ -1,5 +1,9 @@
 // Which products an unsent outbox op still points at (bulk delete guard).
 //
+// 🔴 Scope: THIS device's `outbox_ops` only. It cannot see another till's
+// queue, nor parked bills, carts or quotes (those never queue an op) — a
+// product referenced only there is NOT blocked by this guard.
+//
 // An `outbox_ops` row is deleted once the server applies it, so EVERY row left
 // — `pending`, `stuck` or `rejected`, of any type — is a write the server has
 // not taken yet. Its products must not disappear under it: the replay, and a

@@ -202,6 +202,11 @@ class _StockTabState extends State<_StockTab> {
   final Set<String> _selected = {};
   bool _deleting = false;
 
+  /// A delete flow (bulk or single) is running — from the first await to the
+  /// end. Set BEFORE the first await so a double tap cannot open two dialogs,
+  /// and every other product write on this tab is disabled while it holds.
+  bool _busy = false;
+
   @override
   void initState() {
     super.initState();
@@ -311,16 +316,35 @@ class _StockTabState extends State<_StockTab> {
       _showDegradedWarning();
       return;
     }
-    final repo = context.read<ProductsRepository>();
-    final ok = await showConfirm(
-      context,
-      'ลบสินค้า',
-      'ลบสินค้า "${p.name}" (${p.partNo}) ?\nการลบจะไม่สามารถกู้คืนได้',
-      danger: true,
-    );
-    if (!ok) return;
-    await repo.delete(p.id);
-    await _load();
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final repo = context.read<ProductsRepository>();
+      final ok = await showConfirm(
+        context,
+        'ลบสินค้า',
+        'ลบสินค้า "${p.name}" (${p.partNo}) ?\nการลบจะไม่สามารถกู้คืนได้',
+        danger: true,
+      );
+      if (!ok || !mounted) return;
+      if (context.isDegraded) {
+        _showDegradedWarning();
+        return;
+      }
+      // Same guard + per-id error handling as the bulk path: an outbox
+      // reference or a server refusal reaches the counter as Thai text.
+      final result = await repo.deleteMany([p.id]);
+      await _load();
+      if (!mounted) return;
+      final reason = result.failed[p.id];
+      if (reason != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(reason)));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   void _toggleSelecting() {
@@ -347,7 +371,21 @@ class _StockTabState extends State<_StockTab> {
       _showDegradedWarning();
       return;
     }
-    if (_deleting || _selected.isEmpty) return;
+    if (_busy || _selected.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await _bulkDeleteFlow();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _deleting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _bulkDeleteFlow() async {
     final repo = context.read<ProductsRepository>();
     final chosen = _products.where((p) => _selected.contains(p.id)).toList();
     final unsynced = await repo.productIdsWithUnsyncedOps();
@@ -361,16 +399,21 @@ class _StockTabState extends State<_StockTab> {
           _BulkDeleteDialog(deletable: deletable, blocked: blocked),
     );
     if (ok != true || !mounted || deletable.isEmpty) return;
+    // The link may have dropped while the dialog was open.
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
 
     setState(() => _deleting = true);
-    final BulkDeleteResult result;
-    try {
-      result = await repo.deleteMany(deletable.map((p) => p.id).toList());
-    } finally {
-      if (mounted) setState(() => _deleting = false);
-    }
+    final result = await repo.deleteMany(
+      deletable.map((p) => p.id).toList(),
+    );
     if (!mounted) return;
-    setState(() => _selected.removeAll(result.deleted));
+    setState(() {
+      _deleting = false;
+      _selected.removeAll(result.deleted);
+    });
     await _load();
     if (!mounted) return;
 
@@ -381,6 +424,9 @@ class _StockTabState extends State<_StockTab> {
       return;
     }
     final byId = {for (final p in chosen) p.id: p};
+    // A failed item can be gone after the reload (e.g. the server did apply a
+    // delete whose reply was lost) — it is then no longer selected; say so.
+    final live = _products.map((p) => p.id).toSet();
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -393,7 +439,8 @@ class _StockTabState extends State<_StockTab> {
             children: [
               Text('ลบแล้ว ${result.deleted.length} รายการ'),
               Text(
-                'ไม่สำเร็จ ${result.failed.length} รายการ (ยังเลือกค้างไว้)',
+                'ไม่สำเร็จ ${result.failed.length} รายการ '
+                '(รายการที่ยังอยู่ในคลังยังเลือกค้างไว้)',
                 style: const TextStyle(
                   color: AppColors.error,
                   fontWeight: FontWeight.bold,
@@ -411,7 +458,11 @@ class _StockTabState extends State<_StockTab> {
                         title: Text(
                           '${byId[e.key]?.name ?? e.key} (${byId[e.key]?.partNo ?? ''})',
                         ),
-                        subtitle: Text(e.value),
+                        subtitle: Text(
+                          live.contains(e.key)
+                              ? e.value
+                              : '${e.value} · ไม่พบสินค้านี้แล้ว (อาจถูกลบไปแล้ว)',
+                        ),
                       ),
                   ],
                 ),
@@ -547,7 +598,7 @@ class _StockTabState extends State<_StockTab> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: isDegraded ? null : () => _openEdit(null),
+                        onPressed: isDegraded || _busy ? null : () => _openEdit(null),
                         icon: const Icon(Icons.add, size: 20),
                         label: const Text(
                           'เพิ่มสินค้า',
@@ -588,7 +639,7 @@ class _StockTabState extends State<_StockTab> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: _deleting ? null : _toggleSelecting,
+                        onPressed: _busy ? null : _toggleSelecting,
                         icon: Icon(
                           _selecting ? Icons.close : Icons.checklist,
                           size: 20,
@@ -694,7 +745,7 @@ class _StockTabState extends State<_StockTab> {
                             ),
                             child: DataTable(
                               showCheckboxColumn: _selecting,
-                              onSelectAll: _selecting && !_deleting
+                              onSelectAll: _selecting && !_busy
                                   ? (on) =>
                                         _selectAllFiltered(filtered, on == true)
                                   : null,
@@ -754,7 +805,7 @@ class _StockTabState extends State<_StockTab> {
         : ('In Stock', AppColors.successLight);
     return DataRow(
       selected: _selecting && _selected.contains(p.id),
-      onSelectChanged: _selecting && !_deleting
+      onSelectChanged: _selecting && !_busy
           ? (on) => _toggleOne(p.id, on)
           : null,
       cells: [
@@ -887,7 +938,7 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: isDegraded ? null : () => _openAdjust(p),
+                  onPressed: isDegraded || _busy ? null : () => _openAdjust(p),
                   icon: const Icon(Icons.sync_alt, size: 18),
                   label: const Text(
                     'ปรับสต็อก',
@@ -905,7 +956,7 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: isDegraded ? null : () => _openEdit(p),
+                  onPressed: isDegraded || _busy ? null : () => _openEdit(p),
                   icon: const Icon(Icons.edit, size: 18),
                   label: const Text(
                     'แก้ไข',
@@ -937,7 +988,7 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: isDegraded ? null : () => _delete(p),
+                  onPressed: isDegraded || _busy ? null : () => _delete(p),
                 ),
               ],
             ),
@@ -983,7 +1034,7 @@ class _StockTabState extends State<_StockTab> {
                 ),
               TextButton(
                 key: const Key('bulk-select-all'),
-                onPressed: _deleting || filtered.isEmpty
+                onPressed: _busy || filtered.isEmpty
                     ? null
                     : () => _selectAllFiltered(filtered, !allFilteredOn),
                 child: Text(
@@ -993,7 +1044,7 @@ class _StockTabState extends State<_StockTab> {
                 ),
               ),
               TextButton(
-                onPressed: _deleting || n == 0
+                onPressed: _busy || n == 0
                     ? null
                     : () => setState(_selected.clear),
                 child: const Text('ล้างที่เลือก'),
@@ -1004,7 +1055,7 @@ class _StockTabState extends State<_StockTab> {
                   backgroundColor: AppColors.error,
                   foregroundColor: AppColors.white,
                 ),
-                onPressed: isDegraded || _deleting || n == 0
+                onPressed: isDegraded || _busy || n == 0
                     ? null
                     : _bulkDelete,
                 icon: _deleting
@@ -1150,7 +1201,7 @@ class _StockTabState extends State<_StockTab> {
               backgroundColor: color.withValues(alpha: 0.13),
               side: BorderSide(color: color.withValues(alpha: 0.33)),
               deleteIcon: Icon(Icons.close, size: 14, color: color),
-              onDeleted: isDegraded ? null : () => _deleteCat(c),
+              onDeleted: isDegraded || _busy ? null : () => _deleteCat(c),
             );
           }),
           SizedBox(
@@ -1162,7 +1213,7 @@ class _StockTabState extends State<_StockTab> {
                 hintText: 'ประเภทใหม่…',
                 border: OutlineInputBorder(),
               ),
-              onSubmitted: isDegraded ? null : (_) => _addCat(),
+              onSubmitted: isDegraded || _busy ? null : (_) => _addCat(),
             ),
           ),
           FilledButton(
@@ -1170,7 +1221,7 @@ class _StockTabState extends State<_StockTab> {
               backgroundColor: AppColors.orange,
               foregroundColor: AppColors.white,
             ),
-            onPressed: isDegraded ? null : _addCat,
+            onPressed: isDegraded || _busy ? null : _addCat,
             child: const Text('+ เพิ่ม'),
           ),
         ],
@@ -1212,7 +1263,10 @@ class _BulkDeleteDialogState extends State<_BulkDeleteDialog> {
     final n = widget.deletable.length;
     final stocked = widget.deletable.where((p) => p.stock > 0).toList();
     final stockUnits = stocked.fold<int>(0, (a, p) => a + p.stock);
-    final needTyped = n > _typedConfirmAbove || stocked.isNotEmpty;
+    // Threshold counts EVERY selected item (blocked ones too): the counter
+    // picked that many, whatever this run can actually delete.
+    final selectedCount = n + widget.blocked.length;
+    final needTyped = selectedCount > _typedConfirmAbove || stocked.isNotEmpty;
     final typedOk = !needTyped || _typed.text.trim() == '$n';
 
     Widget row(ProductRow p, {String? note}) => ListTile(
