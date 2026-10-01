@@ -6,9 +6,9 @@
 // sign-in that the redirect takes onward.
 //
 // The server enforces the rules (12..128, blocklist, ≠ temporary password) and
-// says why in WEAK_PASSWORD's `details.reason`; the only local checks are the
-// two that need no server — both boxes filled and equal — plus the length
-// floor, so a too-short password is not a round trip.
+// says why in WEAK_PASSWORD's `details.reason`. Locally, PasswordRequirements
+// ticks the rules that need no server (length bounds, both boxes equal) live,
+// and submit stays disabled until they all hold — see password_field.dart.
 //
 // Strings: agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
 
@@ -17,6 +17,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../blocs/auth_cubit.dart';
+import 'password_field.dart';
 
 class ChangePasswordForm extends StatefulWidget {
   const ChangePasswordForm({super.key, this.onSuccess});
@@ -30,9 +31,6 @@ class ChangePasswordForm extends StatefulWidget {
   static const String confirmLabel = 'ยืนยันรหัสผ่านใหม่';
   static const String hint =
       'อย่างน้อย 12 ตัวอักษร เว้นวรรคหรือพิมพ์ภาษาไทยได้';
-  static const String mismatch = 'รหัสผ่านทั้งสองช่องไม่ตรงกัน';
-  static const String tooShort =
-      'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร';
   static const String submit = 'บันทึกรหัสผ่าน';
   static const String cancel = 'ยกเลิก';
 
@@ -43,7 +41,18 @@ class ChangePasswordForm extends StatefulWidget {
 class _ChangePasswordFormState extends State<ChangePasswordForm> {
   final _newController = TextEditingController();
   final _confirmController = TextEditingController();
-  String? _localError;
+
+  bool get _rulesMet =>
+      passwordRulesMet(_newController.text, confirm: _confirmController.text);
+
+  @override
+  void initState() {
+    super.initState();
+    _newController.addListener(_rebuild);
+    _confirmController.addListener(_rebuild);
+  }
+
+  void _rebuild() => setState(() {});
 
   @override
   void dispose() {
@@ -53,23 +62,10 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
   }
 
   Future<void> _submit() async {
-    final pw = _newController.text;
-    if (pw.length < 12) {
-      setState(() {
-        _localError = ChangePasswordForm.tooShort;
-      });
-      return;
-    }
-    if (pw != _confirmController.text) {
-      setState(() {
-        _localError = ChangePasswordForm.mismatch;
-      });
-      return;
-    }
-    setState(() {
-      _localError = null;
-    });
-    final ok = await context.read<AuthCubit>().changePassword(pw);
+    if (!_rulesMet) return;
+    final ok = await context.read<AuthCubit>().changePassword(
+      _newController.text,
+    );
     if (ok && mounted) widget.onSuccess?.call();
   }
 
@@ -77,9 +73,9 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
   Widget build(BuildContext context) {
     final state = context.watch<AuthCubit>().state;
     final busy = state is AuthPasswordChangeRequired && state.submitting;
-    final error =
-        _localError ??
-        (state is AuthPasswordChangeRequired ? state.errorMessage : null);
+    final error = state is AuthPasswordChangeRequired
+        ? state.errorMessage
+        : null;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -87,10 +83,9 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
       children: [
         const Text(ChangePasswordForm.intro),
         const SizedBox(height: 16),
-        TextField(
+        PasswordField(
           key: const Key('change-password-new'),
           controller: _newController,
-          obscureText: true,
           enabled: !busy,
           decoration: const InputDecoration(
             labelText: ChangePasswordForm.newLabel,
@@ -99,10 +94,9 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
           ),
         ),
         const SizedBox(height: 12),
-        TextField(
+        PasswordField(
           key: const Key('change-password-confirm'),
           controller: _confirmController,
-          obscureText: true,
           enabled: !busy,
           onSubmitted: (_) => _submit(),
           decoration: const InputDecoration(
@@ -110,13 +104,18 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
             prefixIcon: Icon(Icons.lock_reset),
           ),
         ),
+        const SizedBox(height: 12),
+        PasswordRequirements(
+          password: _newController.text,
+          confirm: _confirmController.text,
+        ),
         if (error != null) ...[
           const SizedBox(height: 12),
           Text(error, style: const TextStyle(color: AppColors.error)),
         ],
         const SizedBox(height: 16),
         FilledButton(
-          onPressed: busy ? null : _submit,
+          onPressed: busy || !_rulesMet ? null : _submit,
           child: busy
               ? const SizedBox(
                   width: 18,

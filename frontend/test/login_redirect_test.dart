@@ -459,11 +459,15 @@ void main() {
 
           await tester.enterText(find.byKey(const Key('change-password-new')), 'my own long passphrase');
           await tester.enterText(find.byKey(const Key('change-password-confirm')), 'something else entirely');
-          await tester.tap(find.text(ChangePasswordForm.submit));
           await settle(tester);
-          expect(find.text(ChangePasswordForm.mismatch), findsOneWidget);
+          // Mismatched boxes: the checklist shows it and submit stays disabled.
+          expect(
+            tester.widget<FilledButton>(find.widgetWithText(FilledButton, ChangePasswordForm.submit)).onPressed,
+            isNull,
+          );
 
           await tester.enterText(find.byKey(const Key('change-password-confirm')), 'my own long passphrase');
+          await tester.pump(); // the checklist enables submit on the next frame
           await tester.tap(find.text(ChangePasswordForm.submit));
           await settle(tester);
 

@@ -7,6 +7,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'password_field.dart';
+
 class AppTextField extends StatelessWidget {
   final String? label;
   final String? hint;
@@ -67,32 +69,49 @@ class AppTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final field = TextFormField(
-      controller: controller,
-      initialValue: controller == null ? initialValue : null,
-      autofocus: autofocus,
-      enabled: enabled,
-      obscureText: obscureText,
-      maxLines: maxLines,
-      keyboardType: keyboardType ??
-          (numeric
-              ? const TextInputType.numberWithOptions(decimal: true)
-              : TextInputType.text),
-      inputFormatters: inputFormatters ??
-          (numeric
-              ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
-              : null),
-      textInputAction: textInputAction,
-      onChanged: onChanged,
-      onFieldSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
-      decoration: InputDecoration(
-        hintText: hint,
-        errorText: errorText,
-        suffixIcon: suffix,
-        isDense: true,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-      ),
+    final decoration = InputDecoration(
+      hintText: hint,
+      errorText: errorText,
+      suffixIcon: suffix,
+      isDense: true,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
     );
+    // A secret field always gets the show/hide toggle (it replaces [suffix]).
+    final Widget field = obscureText
+        ? PasswordField(
+            controller: controller,
+            autofocus: autofocus,
+            enabled: enabled,
+            keyboardType: keyboardType,
+            inputFormatters: inputFormatters,
+            textInputAction: textInputAction,
+            onChanged: onChanged,
+            onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
+            decoration: decoration,
+          )
+        : TextFormField(
+            controller: controller,
+            initialValue: controller == null ? initialValue : null,
+            autofocus: autofocus,
+            enabled: enabled,
+            maxLines: maxLines,
+            keyboardType:
+                keyboardType ??
+                (numeric
+                    ? const TextInputType.numberWithOptions(decimal: true)
+                    : TextInputType.text),
+            inputFormatters:
+                inputFormatters ??
+                (numeric
+                    ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
+                    : null),
+            textInputAction: textInputAction,
+            onChanged: onChanged,
+            onFieldSubmitted: onSubmitted == null
+                ? null
+                : (_) => onSubmitted!(),
+            decoration: decoration,
+          );
 
     if (label == null) return field;
     return Column(
