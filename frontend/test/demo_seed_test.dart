@@ -168,6 +168,60 @@ void main() {
       },
     );
 
+    test(
+      'keeps seed rows that local records reference, purges the rest',
+      () async {
+        final now = DateTime.utc(2026, 9, 1);
+        final api = await withRaw((db) async {
+          await db
+              .into(db.sales)
+              .insert(
+                SalesCompanion.insert(
+                  id: 's1',
+                  receiptNo: 'RC1',
+                  subtotal: 85,
+                  total: 85,
+                  paymentMethod: 'เงินสด',
+                  date: now,
+                  customerId: const Value('c1'),
+                  mechanicId: const Value('m1'),
+                ),
+              );
+          await db
+              .into(db.saleItems)
+              .insert(
+                SaleItemsCompanion.insert(
+                  saleId: 's1',
+                  productId: 'p1',
+                  name: 'x',
+                  qty: 1,
+                  price: 85,
+                ),
+              );
+          await db
+              .into(db.parkedSales)
+              .insert(
+                ParkedSalesCompanion.insert(
+                  id: 'pk1',
+                  parkedAt: now,
+                  payload: '{"items":[{"productId":"p5"}],"customerId":"c2"}',
+                ),
+              );
+        });
+        expect(
+          (await api.select(api.products).get()).map((r) => r.id).toSet(),
+          {'p1', 'p5'},
+        );
+        expect(
+          (await api.select(api.customers).get()).map((r) => r.id).toSet(),
+          {'c1', 'c2'},
+        );
+        expect((await api.select(api.mechanics).get()).map((r) => r.id), [
+          'm1',
+        ]);
+      },
+    );
+
     test('a backup restored after the purge survives the next open', () async {
       // A legacy backup carrying the db.js seed ids with no updatedAt — the
       // shape the real shop's JS export has.
