@@ -58,6 +58,21 @@ class ApiClient {
   void Function()? onSessionExpired;
 
   Future<bool>? _refreshFuture;
+  int _refreshFutureSession = 0;
+
+  /// Which signed-in person the stored tokens belong to. Bumped by
+  /// [beginSession] on every login and logout (never by a refresh, which is
+  /// the same person). Anything that started under an older number — a
+  /// request, a refresh — belongs to someone who has since left the till: its
+  /// 401 is not retried, its refreshed tokens are not stored, and its refusal
+  /// does not sign anyone out. Without this a refresh sent with the previous
+  /// person's token and answered after the next login overwrote the new
+  /// session, and the new person then acted as the previous one.
+  int _session = 0;
+
+  /// The stored tokens now belong to a different person (login or logout).
+  /// Called by `AuthRepository` before it writes or clears a session.
+  void beginSession() => _session++;
 
   Uri _buildUri(String path, [Map<String, dynamic>? queryParameters]) {
     final cleanPath = path.startsWith('/') ? path : '/$path';
@@ -70,9 +85,14 @@ class ApiClient {
     return uri.replace(queryParameters: cleanParams);
   }
 
+  /// [session]: the session the request was started for. The token is
+  /// attached only if that is still the current session once it has been read
+  /// — otherwise [_StaleSession] is thrown and the request never leaves, so a
+  /// login landing mid-request can never send it as the new person.
   Future<Map<String, String>> _buildHeaders({
     Map<String, String>? extraHeaders,
     bool skipAuth = false,
+    int? session,
   }) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -81,6 +101,7 @@ class ApiClient {
 
     if (!skipAuth && tokenStorage != null) {
       final token = await tokenStorage!.getAccessToken();
+      if (session != null && session != _session) throw const _StaleSession();
       if (token != null && token.isNotEmpty) {
         headers['Authorization'] = 'Bearer $token';
       }
@@ -177,9 +198,13 @@ class ApiClient {
     bool skipAuth = false,
   }) async {
     final response = await _executeWithRetry(
-      (abortTrigger) async {
+      (abortTrigger, session) async {
         final uri = _buildUri(path, queryParameters);
-        final h = await _buildHeaders(extraHeaders: headers, skipAuth: skipAuth);
+        final h = await _buildHeaders(
+          extraHeaders: headers,
+          skipAuth: skipAuth,
+          session: session,
+        );
         return _sendAbortable(
           'GET',
           uri,
@@ -235,9 +260,13 @@ class ApiClient {
     required Duration timeout,
   }) {
     return _sendWithRetry(
-      (abortTrigger) async {
+      (abortTrigger, session) async {
         final uri = _buildUri(path, queryParameters);
-        final h = await _buildHeaders(extraHeaders: headers, skipAuth: skipAuth);
+        final h = await _buildHeaders(
+          extraHeaders: headers,
+          skipAuth: skipAuth,
+          session: session,
+        );
         final encodedBody = body != null ? (body is String ? body : jsonEncode(body)) : null;
         return _sendAbortable(
           method,
@@ -254,7 +283,8 @@ class ApiClient {
   }
 
   Future<http.Response> _executeWithRetry(
-    Future<http.Response> Function(Future<void> abortTrigger) rawExecute, {
+    Future<http.Response> Function(Future<void> abortTrigger, int session)
+        rawExecute, {
     required String path,
     required bool skipAuth,
     required Duration timeout,
@@ -263,13 +293,32 @@ class ApiClient {
     // [timeout], and the refresh in between gets [readTimeout]; so one call
     // waits at most 2 × timeout + readTimeout. A timeout is never retried
     // here: it throws out of this method.
-    Future<http.Response> execute() => _withTimeout(rawExecute, timeout, path);
+    //
+    // [session] is captured before the first await: every send attaches a
+    // token only while it is still current (see [_buildHeaders]). A send whose
+    // session ended meanwhile never leaves and reads as a 401 — the same
+    // verdict the server gives a request with no valid token.
+    final session = _session;
+    Future<http.Response> execute() async {
+      try {
+        return await _withTimeout(
+          (abortTrigger) => rawExecute(abortTrigger, session),
+          timeout,
+          path,
+        );
+      } on _StaleSession {
+        return _staleSessionResponse();
+      }
+    }
 
     final sentWith = await tokenStorage?.getAccessToken();
     final response = await execute();
 
     // 401 Unauthorized handling & automatic token refresh
     if (response.statusCode == 401 && !skipAuth && !_isAuthPath(path)) {
+      // Sent for someone who has since logged out: never resend it as
+      // whoever is signed in now. It fails with its own 401.
+      if (session != _session) return response;
       // A concurrent caller already refreshed while this request was on the
       // wire: retry with the token it stored instead of refreshing again.
       final current = await tokenStorage?.getAccessToken();
@@ -279,7 +328,7 @@ class ApiClient {
       // Throws when the refresh's fate is unknown (transport failure, 5xx,
       // 429) — see [_executeRefresh].
       final refreshed = await _handleTokenRefresh();
-      if (refreshed) {
+      if (refreshed && session == _session) {
         return await execute();
       }
     }
@@ -288,7 +337,8 @@ class ApiClient {
   }
 
   Future<dynamic> _sendWithRetry(
-    Future<http.Response> Function(Future<void> abortTrigger) execute, {
+    Future<http.Response> Function(Future<void> abortTrigger, int session)
+        execute, {
     required String path,
     required bool skipAuth,
     required Duration timeout,
@@ -345,17 +395,21 @@ class ApiClient {
   Future<bool> _handleTokenRefresh() async {
     if (tokenStorage == null) return false;
 
-    // Concurrency lock: reuse ongoing refresh future
-    if (_refreshFuture != null) {
-      return _refreshFuture!;
+    // Concurrency lock: reuse the ongoing refresh — but only one made for the
+    // same person. A refresh still in flight for the previous person is left
+    // to fail on its own; this session starts its own.
+    final pending = _refreshFuture;
+    if (pending != null && _refreshFutureSession == _session) {
+      return pending;
     }
 
-    _refreshFuture = _executeRefresh();
+    final future = _executeRefresh();
+    _refreshFuture = future;
+    _refreshFutureSession = _session;
     try {
-      final success = await _refreshFuture!;
-      return success;
+      return await future;
     } finally {
-      _refreshFuture = null;
+      if (identical(_refreshFuture, future)) _refreshFuture = null;
     }
   }
 
@@ -378,9 +432,10 @@ class ApiClient {
   Future<bool> _executeRefresh() async {
     final storage = tokenStorage;
     if (storage == null) return false;
+    final session = _session;
     final currentRefreshToken = await storage.getRefreshToken();
     if (currentRefreshToken == null || currentRefreshToken.isEmpty) {
-      await _expireSession(storage);
+      await _expireSession(storage, session);
       return false;
     }
 
@@ -403,7 +458,7 @@ class ApiClient {
     final status = response.statusCode;
 
     if (status == 401 || status == 403) {
-      await _expireSession(storage);
+      await _expireSession(storage, session);
       return false;
     }
 
@@ -422,6 +477,9 @@ class ApiClient {
         // refusal either.
         throw http.ClientException('Unreadable refresh response', response.request?.url);
       }
+      // The person who sent this refresh logged out while it was on the wire:
+      // its tokens are theirs, never the new session's. Drop them.
+      if (session != _session) return false;
       await storage.setAccessToken(tokens.accessToken);
       await storage.setRefreshToken(tokens.refreshToken);
       return true;
@@ -438,8 +496,17 @@ class ApiClient {
     throw ApiException(statusCode: status, code: '');
   }
 
-  Future<void> _expireSession(TokenStorage storage) async {
+  /// Ends [session] — and only that one.
+  ///
+  /// A refusal can land after the counter logged out (and maybe a new person
+  /// logged in). Clearing then would sign the new person out, or turn a
+  /// deliberate logout into an "expiry" that keeps `?from=`. So a refusal for
+  /// an older session changes nothing; the stale request fails with its 401.
+  Future<void> _expireSession(TokenStorage storage, int session) async {
+    if (session != _session) return;
     await storage.clearAuthTokens();
+    if (session != _session) return;
+    _session++;
     onSessionExpired?.call();
   }
 
@@ -568,3 +635,18 @@ class PaginatedResult {
   int get page => (meta['page'] as num?)?.toInt() ?? 1;
   int get totalPages => (meta['totalPages'] as num?)?.toInt() ?? 1;
 }
+
+/// A request's session ended (logout / another login) before its token was
+/// attached. Never escapes [ApiClient]: it becomes [_staleSessionResponse].
+class _StaleSession implements Exception {
+  const _StaleSession();
+}
+
+http.Response _staleSessionResponse() => http.Response(
+      jsonEncode({
+        'status': 'error',
+        'error': {'code': 'UNAUTHENTICATED', 'message': 'Session changed'},
+      }),
+      401,
+      headers: {'content-type': 'application/json'},
+    );

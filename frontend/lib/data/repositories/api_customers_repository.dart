@@ -76,6 +76,8 @@ class ApiCustomersRepository extends CustomersRepository {
   }
 
   Future<void> syncFromServer({bool forceFull = false}) async {
+    // A reset (tenant switch) while this pull is in flight voids its replies.
+    final gen = db.cacheGeneration;
     try {
       String? updatedSince;
       String? afterId;
@@ -113,7 +115,7 @@ class ApiCustomersRepository extends CustomersRepository {
         final items = res.data;
 
         if (items.isNotEmpty) {
-          await db.batch((batch) {
+          if (!await db.writeCacheIfCurrent(gen, () => db.batch((batch) {
             for (final item in items) {
               if (item is Map) {
                 final comp = _customerToCompanion(Map<String, dynamic>.from(item));
@@ -124,7 +126,9 @@ class ApiCustomersRepository extends CustomersRepository {
                 );
               }
             }
-          });
+          }))) {
+            return;
+          }
         }
 
         if (items.isEmpty) {
@@ -142,13 +146,13 @@ class ApiCustomersRepository extends CustomersRepository {
       }
 
       if (latestServerCursor != null) {
-        await db.into(db.syncCursors).insertOnConflictUpdate(
+        await db.writeCacheIfCurrent(gen, () => db.into(db.syncCursors).insertOnConflictUpdate(
           SyncCursorsCompanion(
             entity: const Value('customers'),
             cursor: Value(latestServerCursor),
             updatedAt: Value(DateTime.now().toUtc()),
           ),
-        );
+        ));
       }
     } catch (_) {
       // Network failure or degraded mode: gracefully ignore and rely on Drift cache

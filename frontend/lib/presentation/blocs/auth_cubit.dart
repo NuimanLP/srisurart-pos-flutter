@@ -26,7 +26,18 @@ class AuthInitial extends AuthState {
 }
 
 class AuthLoading extends AuthState {
-  const AuthLoading();
+  const AuthLoading({this.deviceToken, this.deviceRole});
+
+  /// The device as it was when the login started, so the login form's device
+  /// chip does not flip to "not POS" for the length of the request.
+  final String? deviceToken;
+  final String? deviceRole;
+
+  bool get hasDeviceEnrolled => deviceToken != null && deviceToken!.isNotEmpty;
+  bool get isPos => deviceRole == 'pos';
+
+  @override
+  List<Object?> get props => [deviceToken, deviceRole];
 }
 
 class Authenticated extends AuthState {
@@ -79,17 +90,25 @@ class Unauthenticated extends AuthState {
     this.deviceToken,
     this.deviceRole,
     this.errorMessage,
+    this.signedOut = false,
   });
 
   final String? deviceToken;
   final String? deviceRole;
   final String? errorMessage;
 
+  /// True only right after a deliberate [AuthCubit.logout] (owner decision
+  /// 2026-10-01): the next login starts at checkout, not the last screen, and
+  /// the app clears the cart and pending quote. A session expiry is false —
+  /// the same counter signs back in and carries on where it was.
+  final bool signedOut;
+
   bool get hasDeviceEnrolled => deviceToken != null && deviceToken!.isNotEmpty;
   bool get isPos => deviceRole == 'pos';
 
   @override
-  List<Object?> get props => [deviceToken, deviceRole, errorMessage];
+  List<Object?> get props =>
+      [deviceToken, deviceRole, errorMessage, signedOut];
 }
 
 class AuthCubit extends Cubit<AuthState> {
@@ -114,10 +133,15 @@ class AuthCubit extends Cubit<AuthState> {
     }
 
     final prevDeviceToken = await _repo.getDeviceToken();
-    final prevDeviceRole = await _repo.getDeviceRole();
+    // The role the login form is showing right now (init/logout already
+    // applied the stored-role fallback), so AuthLoading shows the same chip.
+    final shown = state;
+    final prevDeviceRole =
+        (shown is Unauthenticated ? shown.deviceRole : null) ??
+            await _repo.getDeviceRole();
     final deviceId = await _repo.getDeviceId();
 
-    emit(const AuthLoading());
+    emit(AuthLoading(deviceToken: prevDeviceToken, deviceRole: prevDeviceRole));
 
     final result = await _pinRepo.verifyPin(
       pin: pin,
@@ -211,9 +235,14 @@ class AuthCubit extends Cubit<AuthState> {
     required String password,
   }) async {
     final prevDeviceToken = await _repo.getDeviceToken();
-    final prevDeviceRole = await _repo.getDeviceRole();
+    // The role the login form is showing right now (init/logout already
+    // applied the stored-role fallback), so AuthLoading shows the same chip.
+    final shown = state;
+    final prevDeviceRole =
+        (shown is Unauthenticated ? shown.deviceRole : null) ??
+            await _repo.getDeviceRole();
 
-    emit(const AuthLoading());
+    emit(AuthLoading(deviceToken: prevDeviceToken, deviceRole: prevDeviceRole));
 
     try {
       final result = await _repo.login(username: username, password: password);
@@ -324,6 +353,9 @@ class AuthCubit extends Cubit<AuthState> {
   ///   used to be appended here, which put `ClientException: …` on screen.
   @visibleForTesting
   static String loginRefusalMessage(Object error) {
+    // A client-side refusal already in Thai — `TENANT_SWITCH_UNSENT_WORK`
+    // (TenantCacheGuard) is the one a login can meet.
+    if (error is PosException) return error.message;
     if (error is ApiException) {
       // #443 PR3: the one 401 that must NOT read as "wrong password" — the
       // password was right, the temporary one simply expired.
@@ -339,6 +371,10 @@ class AuthCubit extends Cubit<AuthState> {
   }
 
   /// Enrols the device using the code from the shop owner (ADR-0004).
+  ///
+  /// A [PosException] (the till still holds local work,
+  /// `TenantCacheGuard.checkEnrolment`) is rethrown so the dialog can show
+  /// its Thai sentence instead of "wrong code"; anything else is `false`.
   Future<bool> enrolDevice(String code) async {
     try {
       final deviceToken = await _repo.enrolDevice(code);
@@ -358,6 +394,8 @@ class AuthCubit extends Cubit<AuthState> {
         ));
       }
       return true;
+    } on PosException {
+      rethrow;
     } catch (_) {
       return false;
     }
@@ -365,6 +403,19 @@ class AuthCubit extends Cubit<AuthState> {
 
   /// Logs out the current user while preserving the device token and device role (ADR-0004).
   Future<void> logout() async {
+    _loggingOut = true;
+    try {
+      await _logout();
+    } finally {
+      _loggingOut = false;
+    }
+  }
+
+  /// True while [logout] runs: a session expiry racing it is the same sign-out
+  /// and must not replace it (that would keep `?from=` and the cart).
+  bool _loggingOut = false;
+
+  Future<void> _logout() async {
     final currentDeviceRole = (state is Authenticated)
         ? (state as Authenticated).deviceRole
         : await _repo.getDeviceRole();
@@ -374,6 +425,7 @@ class AuthCubit extends Cubit<AuthState> {
     emit(Unauthenticated(
       deviceToken: deviceToken,
       deviceRole: effectiveRole,
+      signedOut: true,
     ));
   }
 
@@ -387,6 +439,13 @@ class AuthCubit extends Cubit<AuthState> {
   ///
   /// Driven by `ApiClient.onSessionExpired`, wired in `repositoryProviders`.
   Future<void> sessionExpired() async {
+    // No live session to end: signed out (on purpose, or with a login error
+    // on screen), signing out right now, or a login in flight. A late refusal
+    // must not replace the spinner, the error, or the logout.
+    final current = state;
+    if (_loggingOut || current is Unauthenticated || current is AuthLoading) {
+      return;
+    }
     final currentDeviceRole = (state is Authenticated)
         ? (state as Authenticated).deviceRole
         : await _repo.getDeviceRole();

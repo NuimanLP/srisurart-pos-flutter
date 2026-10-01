@@ -99,6 +99,8 @@ class ApiMechanicsRepository extends MechanicsRepository {
   }
 
   Future<void> syncFromServer({bool forceFull = false}) async {
+    // A reset (tenant switch) while this pull is in flight voids its replies.
+    final gen = db.cacheGeneration;
     try {
       String? updatedSince;
       String? afterId;
@@ -136,7 +138,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
         final items = res.data;
 
         if (items.isNotEmpty) {
-          await db.batch((batch) {
+          if (!await db.writeCacheIfCurrent(gen, () => db.batch((batch) {
             for (final item in items) {
               if (item is Map) {
                 final comp = _mechanicToCompanion(Map<String, dynamic>.from(item));
@@ -147,7 +149,9 @@ class ApiMechanicsRepository extends MechanicsRepository {
                 );
               }
             }
-          });
+          }))) {
+            return;
+          }
         }
 
         if (items.isEmpty) {
@@ -165,13 +169,13 @@ class ApiMechanicsRepository extends MechanicsRepository {
       }
 
       if (latestServerCursor != null) {
-        await db.into(db.syncCursors).insertOnConflictUpdate(
+        await db.writeCacheIfCurrent(gen, () => db.into(db.syncCursors).insertOnConflictUpdate(
           SyncCursorsCompanion(
             entity: const Value('mechanics'),
             cursor: Value(latestServerCursor),
             updatedAt: Value(DateTime.now().toUtc()),
           ),
-        );
+        ));
       }
     } catch (_) {
       // Network failure or degraded mode: gracefully ignore and rely on Drift cache

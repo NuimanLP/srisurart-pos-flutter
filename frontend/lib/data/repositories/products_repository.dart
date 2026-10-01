@@ -17,12 +17,50 @@
 //  • getCategories → Categories ordered by position; SEED_CATEGORIES if empty.
 //  • catColor → CAT_PALETTE[index-in-categories % len], hash fallback for unknown.
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
+import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
 import '../db/product_stamp.dart';
+import '../sync/outbox_product_refs.dart';
 import 'movements_repository.dart';
+
+/// Why a product in a bulk delete was refused before any write (owner-ratified
+/// 2026-10-01, 02 §8.1.1).
+const productHasUnsyncedOps =
+    'มีรายการขาย/คืนที่ยังไม่ได้ส่งขึ้นเซิร์ฟเวอร์ — ซิงก์ให้เสร็จก่อนลบ';
+
+/// A per-item failure whose cause has no Thai sentence of its own (owner-ratified
+/// 2026-10-01).
+const productDeleteFailed = 'ลบไม่สำเร็จ กรุณาลองใหม่';
+
+/// Which kind of still-open document a product appears in (bulk delete
+/// warning, owner decision 2026-10-01).
+enum ProductDocKind { openPo, activeQuote, parkedBill }
+
+/// One still-open document that references a product. [docNo] is the PO /
+/// quote number; a parked bill has none and carries [parkedAt] instead.
+class ProductDocRef {
+  const ProductDocRef(this.kind, {this.docNo, this.parkedAt});
+  final ProductDocKind kind;
+  final String? docNo;
+  final DateTime? parkedAt;
+}
+
+/// What [ProductsRepository.deleteMany] did, item by item.
+class BulkDeleteResult {
+  const BulkDeleteResult(this.deleted, this.failed);
+
+  /// Ids whose delete was accepted, in request order.
+  final List<String> deleted;
+
+  /// id → Thai reason, for every id that was NOT deleted.
+  final Map<String, String> failed;
+}
 
 class ProductsRepository {
   final AppDatabase db;
@@ -151,6 +189,131 @@ class ProductsRepository {
 
   Future<void> delete(String id) async {
     await (db.delete(db.products)..where((t) => t.id.equals(id))).go();
+  }
+
+  /// Products that an unsent outbox op still references — these cannot be
+  /// deleted until the op is sent or discarded (08 §15).
+  Future<Set<String>> productIdsWithUnsyncedOps() => productIdsInOutbox(db);
+
+  /// For each of [products], the still-open documents that reference it — a
+  /// WARNING only (owner decision 2026-10-01): the product stays deletable.
+  ///
+  /// Read-only, local Drift only, one query per table (no `IN` list, so a
+  /// select-all of thousands of products is fine):
+  ///  • an `open` PO whose line matches by partNo, case-insensitive (PO lines
+  ///    carry no productId — `receivePO` matches the same way);
+  ///  • a quote that is neither converted nor expired ([QuoteRowStatus]);
+  ///  • a parked bill on THIS device (`parked_sales` never leaves it).
+  /// On the API build POs/quotes are the copies last pulled into Drift.
+  /// Products with no reference are absent from the map.
+  Future<Map<String, List<ProductDocRef>>> openDocumentRefs(
+    List<ProductRow> products,
+  ) async {
+    final out = <String, List<ProductDocRef>>{};
+    if (products.isEmpty) return out;
+    void add(String id, ProductDocRef r) => (out[id] ??= []).add(r);
+    final wanted = {for (final p in products) p.id};
+    final byPartNo = <String, List<String>>{};
+    for (final p in products) {
+      (byPartNo[p.partNo.toLowerCase()] ??= []).add(p.id);
+    }
+
+    final poLines = await (db.select(db.poItems).join([
+      innerJoin(
+        db.purchaseOrders,
+        db.purchaseOrders.id.equalsExp(db.poItems.poId),
+      ),
+    ])..where(db.purchaseOrders.status.equals('open'))).get();
+    final seenPo = <String>{};
+    for (final r in poLines) {
+      final po = r.readTable(db.purchaseOrders);
+      final line = r.readTable(db.poItems);
+      for (final id
+          in byPartNo[line.partNo.toLowerCase()] ?? const <String>[]) {
+        if (seenPo.add('${po.id}|$id')) {
+          add(id, ProductDocRef(ProductDocKind.openPo, docNo: po.poNo));
+        }
+      }
+    }
+
+    final quoteLines = await db.select(db.quoteItems).join([
+      innerJoin(db.quotes, db.quotes.id.equalsExp(db.quoteItems.quoteId)),
+    ]).get();
+    final seenQuote = <String>{};
+    for (final r in quoteLines) {
+      final q = r.readTable(db.quotes);
+      if (q.isConverted || q.isExpired) continue; // QuoteRowStatus
+      final id = r.readTable(db.quoteItems).productId;
+      // Filtered here, not with SQL `IN`: a select-all can exceed SQLite's
+      // bound-variable limit.
+      if (id == null || !wanted.contains(id)) continue;
+      if (seenQuote.add('${q.id}|$id')) {
+        add(id, ProductDocRef(ProductDocKind.activeQuote, docNo: q.quoteNo));
+      }
+    }
+
+    for (final pk in await db.select(db.parkedSales).get()) {
+      final ids = <String>{};
+      try {
+        final items = (jsonDecode(pk.payload) as Map)['items'];
+        if (items is List) {
+          for (final it in items) {
+            final pid = it is Map ? it['productId'] : null;
+            if (pid is String && wanted.contains(pid)) ids.add(pid);
+          }
+        }
+      } catch (_) {
+        // An unreadable blob cannot name a product — skip, never block.
+      }
+      for (final id in ids) {
+        add(
+          id,
+          ProductDocRef(ProductDocKind.parkedBill, parkedAt: pk.parkedAt),
+        );
+      }
+    }
+    return out;
+  }
+
+  /// Bulk delete: one [delete] per id, in order, each its own write (on the API
+  /// build: its own `DELETE /products/:id` + `Idempotency-Key`, a soft delete
+  /// the server answers 200 for an already-deleted id, so a retry is safe).
+  ///
+  /// Not all-or-nothing on purpose — there is no cross-product invariant to
+  /// protect, and one refusal must not hide which others went through. Ids an
+  /// outbox op references are refused up front with [productHasUnsyncedOps];
+  /// every other failure is caught and reported per id, never thrown.
+  Future<BulkDeleteResult> deleteMany(List<String> ids) async {
+    final Set<String> blocked;
+    try {
+      blocked = await productIdsWithUnsyncedOps();
+    } catch (_) {
+      return BulkDeleteResult(const [], {
+        for (final id in ids.toSet()) id: productDeleteFailed,
+      });
+    }
+    final deleted = <String>[];
+    final failed = <String, String>{};
+    for (final id in ids.toSet()) {
+      if (blocked.contains(id)) {
+        failed[id] = productHasUnsyncedOps;
+        continue;
+      }
+      try {
+        await delete(id);
+        deleted.add(id);
+      } on PosException catch (e) {
+        failed[id] = e.message; // the server's own Thai sentence
+      } catch (_) {
+        // Transport failure, timeout, anything that is not a server reply
+        // (a 5xx IS a reply: PosException above) — no Thai sentence of its
+        // own. The fate may be unknown, but a retry is a fresh idempotent soft delete,
+        // so "try again" is the honest advice. Caught broadly on purpose:
+        // this method promises never to throw mid-batch.
+        failed[id] = productDeleteFailed;
+      }
+    }
+    return BulkDeleteResult(deleted, failed);
   }
 
   /// db.js adjustStock — MANUAL adjust CLAMPS at 0 (max(0, stock+delta)),

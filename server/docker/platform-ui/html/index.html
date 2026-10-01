@@ -22,7 +22,14 @@
         <label for="loginUsername">ชื่อผู้ใช้ (Username)</label>
         <input type="text" id="loginUsername" autocomplete="username" required />
         <label for="loginPassword">รหัสผ่าน (Password)</label>
-        <input type="password" id="loginPassword" autocomplete="current-password" required />
+        <div class="password-wrap">
+          <input type="password" id="loginPassword" autocomplete="current-password" required />
+          <button type="button" id="loginPasswordToggle" class="password-toggle"
+                  title="แสดงรหัสผ่าน" aria-label="แสดงรหัสผ่าน" aria-pressed="false">
+            <svg class="eye-open" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-off hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+          </button>
+        </div>
         <p class="mt-16">
           <button type="submit" class="primary">เข้าสู่ระบบ</button>
         </p>

@@ -1,8 +1,11 @@
 // AuthRepository — Handles user login, device enrolment (ADR-0004),
 // token refresh (ADR-0009), and credential lifecycle.
 
+import 'dart:async';
+
 import '../../core/network/api_client.dart';
 import '../../domain/models/auth_models.dart';
+import '../services/tenant_cache_guard.dart';
 import '../storage/token_storage.dart';
 import 'offline_pin_repository.dart';
 
@@ -11,11 +14,21 @@ class AuthRepository {
     required this.apiClient,
     required this.tokenStorage,
     this.offlinePinRepository,
+    this.tenantGuard,
+    this.onTenantCacheReset,
   });
 
   final ApiClient apiClient;
   final TokenStorage tokenStorage;
   final OfflinePinRepository? offlinePinRepository;
+
+  /// API build only: keeps another shop's cached data off screen (see
+  /// [TenantCacheGuard]). Null on the Drift-only build.
+  final TenantCacheGuard? tenantGuard;
+
+  /// Fired (not awaited) after a session is stored on an emptied cache, to
+  /// pull the new shop's data from zero cursors.
+  final Future<void> Function()? onTenantCacheReset;
 
   /// Logs in with username and password.
   ///
@@ -98,18 +111,37 @@ class AuthRepository {
     required String refreshToken,
     required AuthUser user,
   }) async {
+    final claims = JwtClaims.tryParse(accessToken);
+    // Before anything is stored: a refused tenant switch (PosException) must
+    // leave no session behind, and an emptied cache is emptied before any
+    // screen or sign-in pull can read the old shop's rows.
+    final cacheReset = await tenantGuard?.admit(
+          claims?.tid,
+          viaDeviceToken: claims?.did != null,
+        ) ??
+        false;
+
+    // A new person's tokens: anything still in flight for the last one must
+    // not touch them (ApiClient.beginSession).
+    apiClient.beginSession();
+    // A pull that started between the reset and beginSession captured the
+    // reset's generation; void it too.
+    if (cacheReset) tenantGuard!.db.fenceCacheWrites();
     await tokenStorage.setAccessToken(accessToken);
     await tokenStorage.setRefreshToken(refreshToken);
     await tokenStorage.setUser(user);
 
     // Record online login iat for 3-day offline PIN validity window (08 §13 C5)
-    final claims = JwtClaims.tryParse(accessToken);
     if (claims?.iat != null) {
       await offlinePinRepository?.recordOnlineLogin(
         iat: claims!.iat!,
         deviceId: claims.did,
         deviceRole: claims.drole,
       );
+    }
+
+    if (cacheReset) {
+      unawaited(onTenantCacheReset?.call().catchError((Object _) {}));
     }
   }
 
@@ -125,6 +157,9 @@ class AuthRepository {
     // TokenStoreUnavailableException, rather than minting a new device_no on
     // the server that could then not even be saved (ADR-0004 F8).
     await tokenStorage.getDeviceToken();
+    // The new enrolment may be another shop's; then the old shop's local work
+    // could never be sent or discarded (login is scoped to the device's shop).
+    await tenantGuard?.checkEnrolment();
 
     final response = await apiClient.post(
       '/api/v1/auth/device',
@@ -165,11 +200,13 @@ class AuthRepository {
   ///
   /// CRITICAL (ADR-0004): Preserves the device enrolment token.
   Future<void> logout() async {
+    apiClient.beginSession();
     await tokenStorage.clearAuthTokens();
   }
 
   /// Unbinds this device by deleting its stored device token.
   Future<void> clearDeviceEnrolment() async {
+    apiClient.beginSession();
     await tokenStorage.clearAll();
   }
 

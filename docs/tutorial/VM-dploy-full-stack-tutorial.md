@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
+**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
@@ -519,7 +519,7 @@ PLATFORM_ADMINS=1
 ทุกข้อมี gate · gate ไหนไม่ผ่าน **หยุดที่ข้อนั้น** · คำสั่ง `git`/`gh` รันที่ root ของ repo หลัก (`gh` นอก git repo ต้องใส่ `-R NuimanLP/srisurart-pos-flutter`)
 
 > ✅ **ผ่านแล้ว 2026-09-30:** deploy ครั้งแรกหลังปลดบล็อกเกิดจริงผ่าน runner (`e50f4fa`, ok=48 failed=0) บน `/opt/pos` ที่ว่าง — migration ทั้งหมดรันแล้ว,
-> `etcd-init.sh` เป็นไฟล์ + etcd auth เปิดแล้ว (#365), `.current_sha` วันนี้ = `494ace3` · กล่องข้างล่างเก็บไว้เป็นประวัติ
+> `etcd-init.sh` เป็นไฟล์ + etcd auth เปิดแล้ว (#365), `.current_sha` ดูด้วย `cat /opt/pos/.current_sha` (ล่าสุด 2026-10-01 = `4832172`) · กล่องข้างล่างเก็บไว้เป็นประวัติ
 >
 > **(ประวัติ) deploy ครั้งแรกหลังปลดบล็อก (เฉพาะ `mob04`):** `.current_sha` ที่บันทึกล่าสุดคือ `8e873cd` (บันทึก 2026-09-21) — ห่างจาก `main`
 > **500+ commit** (ณ 2026-09-29 · นับเองด้วย `git rev-list --count 8e873cd..origin/main`) และมี **ไฟล์ migration ใหม่ 11 ไฟล์** (+ `1788652800000-InitialSchema.ts`
@@ -626,7 +626,7 @@ git merge-base --is-ancestor "$CURRENT" "$TAG" && echo "forward ok" || echo "STO
 ```
 
 ✅ `forward ok` และ `$CURRENT` ≠ `$TAG` · 🛑 `STOP` → เป็น rollback หรือ SHA ผิด — rollback ต้องตั้งใจและทำตาม §6.2 เท่านั้น ·
-`$CURRENT` = `$TAG` → VM รันอยู่แล้ว: ถ้า `.env` **ไม่ได้**เปลี่ยนตั้งแต่ deploy ครั้งล่าสุด `deploy.yml` จะจบเงียบ ๆ (ต้องการ rollout ซ้ำจริง ๆ ค่อยใส่ `-e force_redeploy=true` ในข้อ 9) ·
+`$CURRENT` = `$TAG` → VM รันอยู่แล้ว: ถ้า `.env` **ไม่ได้**เปลี่ยนตั้งแต่ deploy ครั้งล่าสุด `deploy.yml` จะจบพร้อมข้อความ `Skipping duplicate deployment` (ต้องการ rollout ซ้ำจริง ๆ ค่อยใส่ `-e force_redeploy=true` ในข้อ 9) ·
 ถ้า **เพิ่ง provision `.env` ใหม่** (#506) `deploy.yml` จะ rollout SHA เดิมซ้ำเอง — เห็นข้อความ `... but /opt/pos/.env changed since the last deploy. Rolling it out again ...` ·
 deploy ครั้งแรกหลัง #506 ยังไม่มี `/opt/pos/.env_applied_sha256` → นับว่าเปลี่ยน → rollout ซ้ำหนึ่งครั้งแม้ `.env` เหมือนเดิม (ตั้งใจ — rollout เกินหนึ่งรอบดีกว่าข้ามการเปลี่ยน secret) · บน `mob04` ไฟล์นี้มีแล้ว (2026-09-30)
 
@@ -813,7 +813,7 @@ ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200
 `CN=localhost`) · `http://` redirect ไป `https://`
 
 ✅ หน้า login ขึ้น และ login/ขายทดสอบได้
-❌ หน้าโหลดได้แต่ทุก POST ล้ม → `CORS_ORIGINS`: API ปฏิเสธ request ที่ `Origin` ไม่อยู่ในรายการ (`server/src/app.setup.ts`) และเบราว์เซอร์ส่ง `Origin` กับ POST
+❌ หน้าโหลดได้แต่ทุก POST ล้ม → `CORS_ORIGINS`: `Origin` ที่ไม่อยู่ในรายการ API ยังตอบ แต่ไม่ส่ง header `Access-Control-Allow-Origin` (`server/src/app.setup.ts`, #516) → เบราว์เซอร์บล็อกคำตอบ; เบราว์เซอร์ส่ง `Origin` กับ POST
 แม้ origin เดียวกัน · ตรวจแบบไม่พิมพ์ค่า (ต้องได้ `1`):
 
 ```bash
@@ -869,7 +869,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | # | task (ชื่อที่เห็นใน output) | ทำอะไร |
 |---|---|---|
 | 1 | `Validate image_tag parameter` | ต้องมี `image_tag` |
-| 2 | `Check currently deployed SHA on VM` → `Checksum the VM's .env` → `Decide whether .env changed since the last deploy` → `Early exit on duplicate release deployment` | `.current_sha` = tag, ไม่มี `force_redeploy` **และ** sha256 ของ `.env` = `/opt/pos/.env_applied_sha256` → จบ play เงียบ ๆ · `.env` เปลี่ยน (หรือยังไม่มีไฟล์ marker) → rollout SHA เดิมต่อ (#506) |
+| 2 | `Check currently deployed SHA on VM` → `Checksum the VM's .env` → `Decide whether .env changed since the last deploy` → `Early exit on duplicate release deployment` | `.current_sha` = tag, ไม่มี `force_redeploy` **และ** sha256 ของ `.env` = `/opt/pos/.env_applied_sha256` → จบ play พร้อมข้อความ `Skipping duplicate deployment` · `.env` เปลี่ยน (หรือยังไม่มีไฟล์ marker) → rollout SHA เดิมต่อ (#506) |
 | 3 | `Inspect the existing compose network` → `Refuse to deploy onto a network created before ip_range was added` | กัน network รุ่นเก่า (ยังไม่แตะอะไร) |
 | 4 | `Copy docker-compose base configuration` … `Copy Postgres initialization scripts` | copy compose, `vm.override.yml`, สร้าง `docker/nginx` (#508), `nginx.conf`, platform-ui conf+html, postgres init **จาก tree ของคุณ** |
 | 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) |
@@ -918,7 +918,7 @@ test -s "$DEPLOY_KEY" && DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SS
 ```
 
 `force_redeploy=true` ใส่เสมอตอน rollback (จำเป็นเมื่อ `.current_sha` ยังชี้ SHA นั้นหลัง deploy ล้ม) · ตรวจด้วย §4 · rollback อัตโนมัติมีแค่ใน
-`pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 · rollback แบบ dispatch พิสูจน์แล้ว **rollback อัตโนมัติเมื่อ readiness ล้ม พิสูจน์แล้ว 2026-09-30** — run `36720675552` แดง + `pos-deploy` รัน playbook ของ release ก่อนหน้าซ้ำ, ไม่ใช่ `rescue:` ของ Ansible)
+`pos-deploy.sh` บน runner (ติดตั้งแล้ว 2026-09-30 · rollback แบบ `workflow_dispatch` พิสูจน์แล้ว · **rollback อัตโนมัติเมื่อ readiness ล้ม พิสูจน์แล้ว 2026-09-30** — run `36720675552` แดง + `pos-deploy` รัน playbook ของ release ก่อนหน้าซ้ำ, ไม่ใช่ `rescue:` ของ Ansible)
 
 ### 6.3 CD อัตโนมัติ
 

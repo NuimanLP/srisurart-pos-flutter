@@ -13,6 +13,7 @@ const els = {
   loginForm: document.getElementById('loginForm'),
   loginUsername: document.getElementById('loginUsername'),
   loginPassword: document.getElementById('loginPassword'),
+  loginPasswordToggle: document.getElementById('loginPasswordToggle'),
   tenantListView: document.getElementById('tenantListView'),
   createTenantForm: document.getElementById('createTenantForm'),
   refreshTenantsBtn: document.getElementById('refreshTenantsBtn'),
@@ -145,6 +146,17 @@ function goToLogin() {
   showView(els.loginView);
 }
 
+/** Show/hide the login password (eye toggle). Strings: owner-ratified 2026-10-01, 02_API_SCREENS.md §8.1.1. */
+function setPasswordVisible(visible) {
+  els.loginPassword.type = visible ? 'text' : 'password';
+  const label = visible ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน';
+  els.loginPasswordToggle.title = label;
+  els.loginPasswordToggle.setAttribute('aria-label', label);
+  els.loginPasswordToggle.setAttribute('aria-pressed', String(visible));
+  els.loginPasswordToggle.querySelector('.eye-open').classList.toggle('hidden', visible);
+  els.loginPasswordToggle.querySelector('.eye-off').classList.toggle('hidden', !visible);
+}
+
 async function handleLogin(evt) {
   evt.preventDefault();
   clearError();
@@ -154,6 +166,7 @@ async function handleLogin(evt) {
     const data = await api('/auth/token', { method: 'POST', body: { username, password } });
     setToken(data.token);
     els.loginPassword.value = '';
+    setPasswordVisible(false);
     els.logoutBtn.classList.remove('hidden');
     await loadTenantList();
     showView(els.tenantListView);
@@ -458,6 +471,9 @@ els.backToListBtn.addEventListener('click', () => {
   showView(els.tenantListView);
 });
 els.codeModalCloseBtn.addEventListener('click', hideCodeModal);
+els.loginPasswordToggle.addEventListener('click', () =>
+  setPasswordVisible(els.loginPassword.type === 'password'),
+);
 els.resetOwnerPasswordBtn.addEventListener('click', handleResetOwnerPassword);
 
 for (const btn of document.querySelectorAll('#tenantDetailView [data-status]')) {

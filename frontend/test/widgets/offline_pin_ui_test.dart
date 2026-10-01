@@ -14,6 +14,7 @@ import 'package:srisurart_pos/domain/models/auth_models.dart';
 import 'package:srisurart_pos/presentation/blocs/auth_cubit.dart';
 import 'package:srisurart_pos/presentation/widgets/login_form.dart';
 import 'package:srisurart_pos/presentation/widgets/offline_pin_setup_dialog.dart';
+import 'package:srisurart_pos/presentation/widgets/password_field.dart';
 
 import '../support/fake_sync_facade.dart';
 
@@ -274,6 +275,54 @@ void main() {
       expect(authCubit.state, isA<Authenticated>());
       final auth = authCubit.state as Authenticated;
       expect(auth.isPos, isTrue);
+
+      await authCubit.close();
+    });
+  });
+
+  group('LoginForm secret fields keep their behaviour behind PasswordField', () {
+    testWidgets('Enter on the password field still submits the form', (tester) async {
+      final authCubit = AuthCubit(
+        authRepository: authRepo,
+        offlinePinRepository: pinRepo,
+      );
+      await authCubit.init();
+      syncFacade.emitStatus(SyncStatus.online);
+      await tester.pumpWidget(buildTestWidget(authCubit: authCubit));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip(PasswordField.showTooltip), findsOneWidget);
+      // Username left empty → _submit's own guard answers, proving Enter reached it.
+      await tester.enterText(find.byType(TextFormField).at(1), 'some password');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(find.text('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน'), findsOneWidget);
+
+      await authCubit.close();
+    });
+
+    testWidgets('PIN field: number keyboard, digits only, max 6, PIN tooltip', (tester) async {
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await seedPin(iat: nowSec - 3600);
+      final authCubit = AuthCubit(
+        authRepository: authRepo,
+        offlinePinRepository: pinRepo,
+      );
+      await authCubit.init();
+      syncFacade.emitStatus(SyncStatus.degraded);
+      await tester.pumpWidget(buildTestWidget(authCubit: authCubit));
+      await tester.pumpAndSettle();
+      expect(find.text('รหัส PIN ออฟไลน์ (4-6 หลัก)'), findsOneWidget);
+
+      final field = find.byType(TextFormField).first;
+      final tf = tester.widget<TextField>(
+        find.descendant(of: field, matching: find.byType(TextField)),
+      );
+      expect(tf.keyboardType, TextInputType.number);
+      expect(tf.obscureText, isTrue);
+      await tester.enterText(field, '12ab345678');
+      expect(tf.controller!.text, '123456');
+      expect(find.byTooltip(PasswordField.showPinTooltip), findsOneWidget);
 
       await authCubit.close();
     });

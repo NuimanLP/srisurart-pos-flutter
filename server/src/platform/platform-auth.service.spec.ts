@@ -79,12 +79,15 @@ describe('PlatformAuthService token TTL', () => {
 
     const before = Math.floor(Date.now() / 1000);
     const { token } = await service.login('root', 'right-password-123', '127.0.0.1');
+    // Read the clock again: argon2 verify can cross a second boundary, so `exp` may be
+    // stamped one second after `before` (flaked on main 2026-10-01 as 3601 > 3600).
+    const after = Math.floor(Date.now() / 1000);
     const payload = verifyJwt(token, secret);
 
     expect(payload).not.toBeNull();
-    const ttl = (payload!.exp as number) - before;
-    expect(ttl).toBeGreaterThan(3595);
-    expect(ttl).toBeLessThanOrEqual(3600);
+    const exp = payload!.exp as number;
+    expect(exp).toBeGreaterThanOrEqual(before + 3600);
+    expect(exp).toBeLessThanOrEqual(after + 3600);
   });
 });
 
