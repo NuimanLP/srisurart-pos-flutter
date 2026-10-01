@@ -1,0 +1,25 @@
+# Scrape jobs for the exporters in ../compose/observability.yml (local development only).
+# Mounted by that overlay into /etc/prometheus/scrape.d/, which prometheus.yml includes.
+scrape_configs:
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Multi-target: one exporter, asked to probe each Redis in turn. `instance` ends up as the
+  # Redis being measured (redis-cache / redis-queue), not the exporter.
+  - job_name: redis
+    metrics_path: /scrape
+    static_configs:
+      - targets: ['redis://redis-cache:6379', 'redis://redis-queue:6379']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__address__]
+        regex: 'redis://([^:]+):.*'
+        target_label: instance
+      - target_label: __address__
+        replacement: redis-exporter:9121
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']

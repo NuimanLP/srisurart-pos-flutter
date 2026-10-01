@@ -4,6 +4,12 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Extra jobs dropped in by an overlay (deploy/compose/observability.yml mounts
+# local-scrape.yml here). A glob that matches nothing is not an error, so on the VM — where
+# nothing is mounted — this line does nothing.
+scrape_config_files:
+  - /etc/prometheus/scrape.d/*.yml
+
 scrape_configs:
   # Host CPU / memory / disk — the dashboard's three host panels
   # (../grafana/dashboards/pos-overview.json).

@@ -1,5 +1,6 @@
 # Logs + uptime overlay — LOCAL DEVELOPMENT ONLY (branch `develop`).
-# Loki (log store) + Alloy (log collector) + Uptime Kuma (uptime checks), on top of
+# Loki (log store) + Alloy (log collector) + Uptime Kuma (uptime checks) + the Postgres,
+# Redis and per-container exporters behind the infrastructure dashboard, on top of
 # monitoring.yml, whose Grafana reads Loki through the datasource provisioned in
 # ../grafana/provisioning/datasources/loki.yml:
 #
@@ -8,7 +9,7 @@
 #
 # 🔴 Not part of the VM deploy: deploy/ansible/deploy.yml never loads this file, and the
 # memory budget in 07_CICD_DEPLOY.md §5 does not include it (loki 512m + alloy 256m +
-# uptime-kuma 256m = 1024m more). Putting it on `mob04` is an owner decision.
+# uptime-kuma 256m + postgres-exporter 64m + redis-exporter 64m + cadvisor 256m = 1408m more). Putting it on `mob04` is an owner decision.
 #
 # Everything publishes on host loopback only, same pattern as monitoring.yml.
 # Every `image:` is pinned `name:tag@sha256:<digest>` (#401).
@@ -65,6 +66,55 @@ services:
     ports:
       # 3001, because Grafana already holds 127.0.0.1:3000.
       - "127.0.0.1:3001:3001"
+
+  # --- Dashboard group 3: datastore + per-container metrics --------------------------------
+  # Scraped through ../prometheus/local-scrape.yml, which only this overlay mounts.
+
+  # Connects as the Postgres superuser — acceptable on a developer machine, NOT a pattern for
+  # the VM (that would want a dedicated role with pg_monitor).
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+    restart: unless-stopped
+    mem_limit: 64m
+    environment:
+      DATA_SOURCE_URI: "postgres:5432/pos?sslmode=disable"
+      DATA_SOURCE_USER: postgres
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+
+  # One exporter for both Redis instances: Prometheus passes the instance to probe as
+  # `/scrape?target=...` (multi-target pattern), so no address is configured here.
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.93.0@sha256:6ca518a72f30f7f576ef92963de1b91d3c3f5fd3aeac949f878bfda183587820
+    restart: unless-stopped
+    mem_limit: 64m
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+
+  # CPU / memory / network per container, which node-exporter (whole host) cannot split.
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a
+    restart: unless-stopped
+    mem_limit: 256m
+    privileged: true
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=15s"
+      # Keeps the series count down: only the compose labels the dashboard groups by.
+      - "--store_container_labels=false"
+      - "--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service"
+    volumes:
+      - /:/rootfs:ro
+      # The socket itself, not the /var/run directory: on Docker Desktop /var/run/docker.sock
+      # is a symlink to a host path that does not exist inside the container.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  prometheus:
+    volumes:
+      # prometheus.yml loads /etc/prometheus/scrape.d/*.yml; on the VM that directory is
+      # empty, so these three jobs exist only where this overlay runs.
+      - ${MONITORING_CONFIG_DIR:-../deploy}/prometheus/local-scrape.yml:/etc/prometheus/scrape.d/local-scrape.yml:ro
 
 volumes:
   loki-data:
