@@ -32,7 +32,9 @@ class TenantCacheGuard {
 
   static const String unsentWorkCode = 'TENANT_SWITCH_UNSENT_WORK';
 
-  /// Ratified by the owner 2026-10-01 — 02_API_SCREENS.md §8.1.1.
+  /// Ratified by the owner 2026-10-01 — 02_API_SCREENS.md §8.1.1. Trimmed
+  /// after ratification ("หรือกะที่ยังไม่ปิด" / "และปิดกะ" dropped when an
+  /// open shift stopped blocking a switch); the trim awaits owner confirmation.
   static const String unsentWorkMessage =
       'เครื่องนี้ยังมีงานของร้านเดิมค้างอยู่ (รายการค้างส่ง ชำระเครดิตค้างส่ง '
       'หรือบิลพัก) กรุณาเข้าสู่ระบบร้านเดิมเพื่อส่งหรือยกเลิกรายการให้เรียบร้อยก่อน '
@@ -65,7 +67,9 @@ class TenantCacheGuard {
   ///     token, i.e. scoped it to the tenant the browser is enrolled to. The
   ///     till's own history (sales, shifts, counters, outbox…) is never pulled
   ///     back, so it is adopted; the pulled part (catalogue, settings,
-  ///     cursors) is re-downloaded fresh ([AppDatabase.resetPulledCache]).
+  ///     cursors) is re-downloaded fresh ([AppDatabase.resetPulledCache]) —
+  ///     except products/customers/mechanics while there is unsent work,
+  ///     whose rows carry that work's local effects.
   ///   * otherwise emptied if nothing would be lost, else refused: refusing
   ///     is the only option that neither leaks nor destroys.
   /// - a token with no `tid` (the server always sets one) → refused with
@@ -80,7 +84,9 @@ class TenantCacheGuard {
           .getSingleOrNull();
       if (stored?.value == tenantId) return false;
       if (stored == null && viaDeviceToken) {
-        await db.resetPulledCache();
+        await db.resetPulledCache(
+          keepStockAndLedgers: await db.hasUnsentWork(),
+        );
         await _mark(tenantId);
         return true;
       }

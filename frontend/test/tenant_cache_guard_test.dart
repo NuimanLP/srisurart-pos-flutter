@@ -236,17 +236,15 @@ void main() {
 
   group('legacy DB (no marker)', () {
     test(
-        'device-token login: till history kept, pulled cache re-downloaded '
-        'from zero', () async {
-      await _unsentWork['outbox op (rejected)']!(db);
-      await _unsentWork['parked bill']!(db);
+        'device-token login, nothing unsent: till history kept, pulled cache '
+        're-downloaded from zero', () async {
+      await _unsentWork['parked bill']!(db); // local, but not unsent
       expect(await guard.admit('tenant-A', viaDeviceToken: true), isTrue);
 
       // Kept: the till's own history, which no pull brings back.
       expect(await _count(db, db.sales), 1);
       expect(await _count(db, db.shifts), 1);
       expect(await _count(db, db.docCounters), 1);
-      expect(await _count(db, db.outboxOps), 1);
       expect(await _count(db, db.parkedSales), 1);
       expect(await _meta(db, 'offline_pin_hash'), 'hash-of-A-user');
       // Gone: everything a pull re-downloads, cursors included.
@@ -255,6 +253,75 @@ void main() {
       expect(await _count(db, db.syncCursors), 0);
       await _expectBlankSettingsAndDefaultCategories(db);
       expect(await _meta(db, _key), 'tenant-A');
+    });
+
+    test(
+        'device-token login with unsent work: products/customers/mechanics '
+        'kept, only cursors (+ settings) reset', () async {
+      await _unsentWork['outbox op (rejected)']!(db);
+      expect(await guard.admit('tenant-A', viaDeviceToken: true), isTrue);
+
+      expect(await _count(db, db.products), 1);
+      expect(await _count(db, db.customers), 1);
+      expect(await _count(db, db.outboxOps), 1);
+      expect(await _count(db, db.sales), 1);
+      expect(await _count(db, db.syncCursors), 0);
+      await _expectBlankSettingsAndDefaultCategories(db);
+      expect(await _meta(db, _key), 'tenant-A');
+    });
+
+    test(
+        'device-token login with an unsent sale: its local stock survives '
+        'the full pull', () async {
+      // Local stock 5 already reflects the unsent sale; the server, which
+      // has not seen it, still says 10.
+      await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+            opId: 'op-sale',
+            idempotencyKey: 'k-sale',
+            type: 'sale.create',
+            payload: jsonEncode({
+              'items': [
+                {'productId': 'pA', 'qty': 5},
+              ],
+            }),
+            aggregates: jsonEncode(['product:pA']),
+            createdAt: DateTime(2026, 10, 1),
+            status: 'pending',
+          ));
+      expect(await guard.admit('tenant-A', viaDeviceToken: true), isTrue);
+
+      final asked = <Uri>[];
+      final client = ApiClient(
+        baseUrl: 'http://test',
+        tokenStorage: FakeTokenStorage(),
+        httpClient: MockClient((req) async {
+          asked.add(req.url);
+          return _json({
+            'data': [
+              {
+                'id': 'pA',
+                'partNo': 'A-1',
+                'name': 'A part',
+                'nameTH': 'อะไหล่ร้าน A',
+                'category': 'เครื่องยนต์',
+                'price': 100,
+                'cost': 50,
+                'stock': 10,
+                'updatedAt': '2026-10-01T00:00:00.000Z',
+              }
+            ],
+            'meta': {'nextCursor': null},
+          });
+        }),
+      );
+      await ApiProductsRepository(db, client).syncFromServer();
+
+      expect(asked.single.queryParameters['updatedSince'],
+          '1970-01-01T00:00:00.000Z');
+      final row = await (db.select(db.products)
+            ..where((t) => t.id.equals('pA')))
+          .getSingle();
+      expect(row.stock, 5);
     });
 
     test('no device token, nothing unsent: emptied (owner unknown)', () async {
@@ -405,6 +472,8 @@ void main() {
       await repoFor('tenant-B').login(username: 'owner', password: 'pw');
       expect(storage.refreshToken, 'rt-tenant-B');
       expect(await _count(db, db.products), 0);
+      // Reset, then fenced again after beginSession.
+      expect(db.cacheGeneration, 2);
       await Future<void>.delayed(Duration.zero);
       expect(resets, 1);
     });

@@ -124,6 +124,9 @@ class AuthRepository {
     // A new person's tokens: anything still in flight for the last one must
     // not touch them (ApiClient.beginSession).
     apiClient.beginSession();
+    // A pull that started between the reset and beginSession captured the
+    // reset's generation; void it too.
+    if (cacheReset) tenantGuard!.db.fenceCacheWrites();
     await tokenStorage.setAccessToken(accessToken);
     await tokenStorage.setRefreshToken(refreshToken);
     await tokenStorage.setUser(user);

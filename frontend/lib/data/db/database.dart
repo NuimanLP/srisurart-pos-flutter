@@ -379,6 +379,11 @@ class AppDatabase extends _$AppDatabase {
   int get cacheGeneration => _cacheGeneration;
   int _cacheGeneration = 0;
 
+  /// Voids every pull already in flight without touching the cache — called
+  /// once the new session's tokens are in place, so a pull that started in
+  /// the gap between a reset and the session switch cannot write either.
+  void fenceCacheWrites() => _cacheGeneration++;
+
   /// Runs [write] in a transaction unless the cache was reset since
   /// [generation] was read; returns whether it ran. The check is inside the
   /// transaction, so it cannot interleave with a reset (Drift serialises
@@ -420,17 +425,22 @@ class AppDatabase extends _$AppDatabase {
   /// which no pull ever brings back (sales, returns, shifts, drawer, movements,
   /// credit payments, doc counters, outbox/op_effects, parked bills) and
   /// suppliers (Drift-only on every build, never pulled).
-  Future<void> resetPulledCache() async {
+  ///
+  /// [keepStockAndLedgers] (set while [hasUnsentWork]): products, customers
+  /// and mechanics stay — their local stock / balances include the unsent
+  /// ops' effects, which the pull's stock guard (08 §15) can only protect on
+  /// a row that still exists, and a discard reverses against them. The
+  /// cleared cursors still make the next pull refresh every one of them
+  /// through that guard.
+  Future<void> resetPulledCache({required bool keepStockAndLedgers}) async {
     _cacheGeneration++;
     for (final table in <TableInfo>[
       quoteItems,
       quotes,
       poItems,
       purchaseOrders,
-      products,
+      if (!keepStockAndLedgers) ...[products, customers, mechanics],
       categories,
-      customers,
-      mechanics,
       settingsRow,
       syncCursors,
     ]) {
