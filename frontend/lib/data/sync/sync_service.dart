@@ -17,6 +17,7 @@ import '../repositories/return_plan.dart' show refundedQtyOf;
 import '../services/doc_number_service.dart';
 import '../storage/token_storage.dart';
 import 'applied_effects.dart';
+import 'outbox_ledger_refs.dart';
 import 'sale_push_patch.dart';
 import 'sync_facade.dart';
 
@@ -661,7 +662,10 @@ class SyncService implements SyncFacade {
         response['mechanicCreditBalanceAfter'] ??
         response['mechanic_credit_balance_after'];
     if (mechanicId != null) {
-      if (balanceAfterRaw != null) {
+      // Another unsent op still moves this mechanic: keep the local balance
+      // (it already includes that op; the server's does not yet).
+      if (balanceAfterRaw != null &&
+          !(await ledgerIdsIn(db, remainingOps)).mechanics.contains(mechanicId)) {
         final balance = double.tryParse(balanceAfterRaw.toString());
         if (balance != null) {
           await (db.update(db.mechanics)..where((t) => t.id.equals(mechanicId)))

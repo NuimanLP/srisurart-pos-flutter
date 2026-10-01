@@ -2,10 +2,11 @@
 // totals — the pull's ledger guard (the customer/mechanic twin of the 08 §15
 // stock guard in `ApiProductsRepository.syncFromServer`).
 //
-// Every `outbox_ops` row (pending, stuck or rejected — the same set
+// Every money-moving `outbox_ops` row (pending, stuck or rejected — rows
 // [AppDatabase.hasUnsentWork] counts) and every legacy `pending_credit_payments`
 // row is a write the server has not taken yet, so the server's totals do not
 // include it. A pull must not overwrite the local totals of the rows it moved.
+// `customer.create` / `customer.update` move no money and protect nothing.
 //
 // A customer/mechanic counts as referenced when it appears as:
 //  • an `aggregates` entry `customer:<id>` / `mechanic:<id>`,
@@ -22,12 +23,26 @@ import '../db/database.dart';
 
 typedef LedgerRefs = ({Set<String> customers, Set<String> mechanics});
 
-Future<LedgerRefs> ledgerIdsInOutbox(AppDatabase db) async {
+/// Op types that move a customer's or mechanic's running totals.
+const _moneyOps = {
+  'sale.create',
+  'sale.void_offline',
+  'return.create',
+  'credit_payment.create',
+};
+
+Future<LedgerRefs> ledgerIdsInOutbox(AppDatabase db) async =>
+    ledgerIdsIn(db, await db.select(db.outboxOps).get());
+
+/// [ledgerIdsInOutbox] over [ops] only (e.g. the ops still left after one
+/// was applied), plus the queued credit payments.
+Future<LedgerRefs> ledgerIdsIn(AppDatabase db, List<OutboxOpRow> ops) async {
   final customers = <String>{};
   final mechanics = <String>{};
   final saleIds = <String>{};
+  final money = [for (final op in ops) if (_moneyOps.contains(op.type)) op];
 
-  for (final op in await db.select(db.outboxOps).get()) {
+  for (final op in money) {
     try {
       final aggs = jsonDecode(op.aggregates);
       if (aggs is List) {
@@ -47,7 +62,11 @@ Future<LedgerRefs> ledgerIdsInOutbox(AppDatabase db) async {
       _collect(jsonDecode(op.payload), customers, mechanics);
     } catch (_) {}
   }
-  for (final e in await db.select(db.opEffects).get()) {
+  final opIds = {for (final op in money) op.opId};
+  final effects = opIds.isEmpty
+      ? const <OpEffectRow>[]
+      : await (db.select(db.opEffects)..where((t) => t.opId.isIn(opIds))).get();
+  for (final e in effects) {
     try {
       final j = jsonDecode(e.effects);
       if (j is Map) {
@@ -84,4 +103,14 @@ void _collect(Object? node, Set<String> customers, Set<String> mechanics) {
       _collect(v, customers, mechanics);
     }
   }
+}
+
+/// The earlier of two server `updatedAt` stamps (microsecond precision);
+/// a value that is not a parseable string is ignored.
+String? earlierStamp(Object? a, Object? b) {
+  final da = a is String ? DateTime.tryParse(a) : null;
+  final db = b is String ? DateTime.tryParse(b) : null;
+  if (da == null) return db == null ? null : b as String;
+  if (db == null) return a as String;
+  return db.isBefore(da) ? b as String : a as String;
 }

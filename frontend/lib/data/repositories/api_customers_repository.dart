@@ -103,11 +103,14 @@ class ApiCustomersRepository extends CustomersRepository {
       }
 
       // Ledger guard (twin of the 08 §15 stock guard): a customer with unsent
-      // local work keeps its local spend/points — the server has not seen it.
-      final guarded = (await ledgerIdsInOutbox(db)).customers;
-
+      // money-moving work keeps its local spend/points — the server has not
+      // seen it. The set and the local values are read per page inside the
+      // write transaction, so an op queued mid-pull is still protected.
       bool hasMore = true;
       String? latestServerCursor;
+      // updatedAt of the earliest protected row served: the saved cursor never
+      // passes it, so the row is re-served once its work has been sent.
+      String? protectedFloor;
 
       while (hasMore) {
         final queryParams = <String, dynamic>{
@@ -120,11 +123,14 @@ class ApiCustomersRepository extends CustomersRepository {
         final items = res.data;
 
         if (items.isNotEmpty) {
-          final companions = <CustomersCompanion>[];
-          for (final item in items) {
-            if (item is Map) {
+          if (!await db.writeCacheIfCurrent(gen, () async {
+            final guarded = (await ledgerIdsInOutbox(db)).customers;
+            final companions = <CustomersCompanion>[];
+            for (final item in items) {
+              if (item is! Map) continue;
               var comp = _customerToCompanion(Map<String, dynamic>.from(item));
               if (guarded.contains(comp.id.value)) {
+                protectedFloor = earlierStamp(protectedFloor, item['updatedAt']);
                 final local = await (db.select(db.customers)
                       ..where((t) => t.id.equals(comp.id.value)))
                     .getSingleOrNull();
@@ -137,16 +143,16 @@ class ApiCustomersRepository extends CustomersRepository {
               }
               companions.add(comp);
             }
-          }
-          if (!await db.writeCacheIfCurrent(gen, () => db.batch((batch) {
-            for (final comp in companions) {
-              batch.insert(
-                db.customers,
-                comp,
-                onConflict: DoUpdate((old) => comp),
-              );
-            }
-          }))) {
+            await db.batch((batch) {
+              for (final comp in companions) {
+                batch.insert(
+                  db.customers,
+                  comp,
+                  onConflict: DoUpdate((old) => comp),
+                );
+              }
+            });
+          })) {
             return;
           }
         }
@@ -169,7 +175,7 @@ class ApiCustomersRepository extends CustomersRepository {
         await db.writeCacheIfCurrent(gen, () => db.into(db.syncCursors).insertOnConflictUpdate(
           SyncCursorsCompanion(
             entity: const Value('customers'),
-            cursor: Value(latestServerCursor),
+            cursor: Value(earlierStamp(latestServerCursor, protectedFloor)),
             updatedAt: Value(DateTime.now().toUtc()),
           ),
         ));

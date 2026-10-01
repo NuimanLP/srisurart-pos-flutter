@@ -734,5 +734,103 @@ void main() {
       expect(m.creditBalance, 0);
       expect(m.totalSales, 0);
     });
+
+    test('customer.update op (no money) does not freeze points/spend', () async {
+      await seedCustomer('c3', points: 50, spend: 500);
+      await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+            opId: 'op-cu',
+            idempotencyKey: 'k-cu',
+            type: 'customer.update',
+            payload: jsonEncode({'id': 'c3', 'name': 'x'}),
+            aggregates: jsonEncode(['customer:c3']),
+            createdAt: DateTime.now().toUtc(),
+            status: 'pending',
+          ));
+
+      await ApiCustomersRepository(db, onePage([serverCustomer('c3')]))
+          .syncFromServer(forceFull: true);
+
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('c3'))).getSingle();
+      expect(c.points, 1);
+      expect(c.totalSpend, 10);
+    });
+
+    test('op queued while the page is in flight is still protected', () async {
+      await seedCustomer('c4', points: 50, spend: 500);
+      final client = ApiClient(
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((req) async {
+          // The till queues an offline sale while the pull is waiting.
+          await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+                opId: 'op-mid',
+                idempotencyKey: 'k-mid',
+                type: 'sale.create',
+                payload: jsonEncode({'customerId': 'c4', 'items': []}),
+                aggregates: jsonEncode(['sale:s4', 'customer:c4']),
+                createdAt: DateTime.now().toUtc(),
+                status: 'pending',
+              ));
+          return http.Response(
+            jsonEncode({
+              'data': [serverCustomer('c4')],
+              'meta': {'total': 1, 'page': 1, 'limit': 100, 'totalPages': 1, 'nextCursor': null},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await ApiCustomersRepository(db, client).syncFromServer(forceFull: true);
+
+      final c = await (db.select(db.customers)..where((t) => t.id.equals('c4'))).getSingle();
+      expect(c.points, 50);
+      expect(c.totalSpend, 500);
+    });
+
+    test('saved cursor never passes a protected row (re-served next pull)', () async {
+      await seedMechanic('m5', balance: 700, sales: 2000);
+      await db.into(db.outboxOps).insert(OutboxOpsCompanion.insert(
+            opId: 'op-cp',
+            idempotencyKey: 'k-cp',
+            type: 'credit_payment.create',
+            payload: jsonEncode({'mechanicId': 'm5', 'amount': '100.00'}),
+            aggregates: jsonEncode(['cp:x', 'mechanic:m5']),
+            createdAt: DateTime.now().toUtc(),
+            status: 'pending',
+          ));
+      final client = ApiClient(
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((req) async {
+          final page2 = req.url.queryParameters['afterId'] != null;
+          return http.Response(
+            jsonEncode({
+              'data': page2
+                  ? []
+                  : [
+                      {...serverMechanic('m5'), 'updatedAt': '2026-09-20T10:00:00.123456Z'},
+                      {...serverMechanic('m6'), 'updatedAt': '2026-09-20T11:00:00.000000Z'},
+                    ],
+              'meta': {
+                'total': 2,
+                'page': page2 ? 2 : 1,
+                'limit': 100,
+                'totalPages': 2,
+                'nextCursor': page2
+                    ? null
+                    : {'updatedSince': '2026-09-20T11:00:00.000000Z', 'afterId': 'm6'},
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await ApiMechanicsRepository(db, client).syncFromServer(forceFull: true);
+
+      final cur = await (db.select(db.syncCursors)..where((t) => t.entity.equals('mechanics'))).getSingle();
+      expect(cur.cursor, '2026-09-20T10:00:00.123456Z');
+    });
   });
 }
