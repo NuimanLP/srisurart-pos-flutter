@@ -85,7 +85,8 @@ jobs:
     # every PR/push and server-ci-status (required on main) demands `success` from it —
     # `skipped` does not count. Scans only the commits being added (PR: base..head; push:
     # before..sha), so history reviewed once (2026-10-01) is not re-flagged. Allowlists:
-    # .gitleaks.toml (placeholder patterns) + .gitleaksignore (reviewed fingerprints).
+    # .gitleaks.toml (placeholder patterns) + .gitleaksignore (reviewed fingerprints), read
+    # from the PR's base commit on pull_request (see the scan step).
     # Pinned release binary + sha256 instead of gitleaks-action (org licence key, and a
     # third-party action would see the checkout). Bump both env values together.
     timeout-minutes: 10
@@ -115,15 +116,34 @@ jobs:
         run: |
           if [[ "$EVENT" == "pull_request" ]]; then
             range="$PR_BASE..$PR_HEAD"
-          elif [[ "$EVENT" == "push" && -n "$PUSH_BEFORE" && ! "$PUSH_BEFORE" =~ ^0+$ ]] \
-               && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
-            range="$PUSH_BEFORE..$GITHUB_SHA"
+            # Allowlists come from the BASE commit, never from the PR itself — otherwise a PR
+            # could allowlist its own secret. An allowlist edit takes effect once merged.
+            trusted="$PR_BASE"
           else
-            # workflow_dispatch, or a push whose `before` is unknown: full history.
-            range="$GITHUB_SHA"
+            trusted="$GITHUB_SHA"
+            if [[ "$EVENT" == "push" && -n "$PUSH_BEFORE" && ! "$PUSH_BEFORE" =~ ^0+$ ]] \
+                 && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+              range="$PUSH_BEFORE..$GITHUB_SHA"
+            else
+              # workflow_dispatch, or a push whose `before` is zero/unknown: full history.
+              range="$GITHUB_SHA"
+            fi
           fi
-          echo "scanning: $range"
-          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --exit-code 1 --log-opts="$range" .
+          cfg="$RUNNER_TEMP/gitleaks.toml"
+          ign="$RUNNER_TEMP/gitleaksignore"
+          # Absent on the trusted commit → default rules only / no ignored fingerprints.
+          git show "$trusted:.gitleaks.toml" > "$cfg" 2>/dev/null \
+            || printf '[extend]\nuseDefault = true\n' > "$cfg"
+          git show "$trusted:.gitleaksignore" > "$ign" 2>/dev/null || : > "$ign"
+          # gitleaks ALSO reads <source>/.gitleaksignore on top of --gitleaks-ignore-path, so
+          # the PR's own copies must leave the working tree (history is read from objects).
+          rm -f .gitleaks.toml .gitleaksignore
+          echo "scanning: $range (allowlists from $trusted)"
+          # -v + --redact: a failure names file/line/rule/fingerprint with the value masked.
+          # --ignore-gitleaks-allow: an inline `gitleaks:allow` comment cannot silence a hit.
+          "$RUNNER_TEMP/gitleaks" git -v --redact --no-banner --no-color --exit-code 1 \
+            --ignore-gitleaks-allow --config "$cfg" --gitleaks-ignore-path "$ign" \
+            --log-opts="$range" .
 
   lint:
     name: lint + typecheck

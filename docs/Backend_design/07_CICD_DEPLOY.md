@@ -150,11 +150,20 @@ flowchart LR
 job `secrets` ใน `server.yml` รัน **gitleaks** (binary release pin เวอร์ชัน + ตรวจ sha256, ไม่ใช้
 `gitleaks-action`) ทุก PR/push **ไม่ดู path** และ `server-ci-status` ต้องการผล `success` เท่านั้น
 (`skipped` ไม่นับผ่าน) · `build-image` ก็รอมันด้วย. สแกนเฉพาะ commit ที่ event นั้นเพิ่ม (PR:
-`base..head`, push: `before..sha`; `workflow_dispatch` = ทั้ง history) ด้วย `--redact`. ประวัติทั้งหมด
+`base..head`, push: `before..sha`; `workflow_dispatch` = ทั้ง history) ด้วย `-v --redact` (ล้มแล้วบอก
+file/line/rule/fingerprint แต่ค่าถูกปิด). ประวัติทั้งหมด
 ถูกสแกนและคัดแยกครั้งเดียว 2026-10-01 — ไม่พบ secret จริง. allowlist อยู่ 2 ที่: `.gitleaks.toml`
 (pattern ของ placeholder ใน test/dev) และ `.gitleaksignore` (fingerprint ที่ review แล้ว ผูกกับ commit).
-**ห้าม allowlist secret จริง — ให้ rotate แทน** (history ไม่ rewrite). PR ที่แก้สองไฟล์นี้ต้อง review
-ให้ดี เพราะ CI อ่าน config จาก branch ของ PR เอง.
+**ห้าม allowlist secret จริง — ให้ rotate แทน** (history ไม่ rewrite).
+
+- **บน PR, CI อ่านสองไฟล์นี้จาก commit ของ base ไม่ใช่จาก PR** (ไม่มีไฟล์บน base = กฎ default
+  ไม่มี ignore) — PR จึง allowlist secret ของตัวเองไม่ได้ และ **การแก้ allowlist มีผลหลัง merge เท่านั้น**:
+  PR ที่ต้องเพิ่ม allowlist ให้ placeholder ใหม่ของตัวเองจะแดงจนกว่าจะแยก PR allowlist ไป merge ก่อน.
+- comment `gitleaks:allow` ใน code **ไม่มีผล** (`--ignore-gitleaks-allow`).
+- ข้อจำกัดที่รู้อยู่: push ที่ `before` เป็นศูนย์/หาไม่เจอ (เช่น force-push) จะสแกนทั้ง history ·
+  บน PR สแกนเฉพาะ commit ใน `base..head` ด้วย `git log -p` ซึ่งไม่แสดง diff ของ merge commit —
+  ของที่เข้ามาตอนแก้ conflict ใน merge commit จึงไม่ถูกสแกนบน PR (push ขึ้น `main` ก็เช่นกัน) ·
+  ถ้าเปิด merge queue เมื่อไร ต้องเพิ่ม trigger `merge_group` ให้ `server.yml` ไม่งั้น required check ค้าง.
 
 ---
 
