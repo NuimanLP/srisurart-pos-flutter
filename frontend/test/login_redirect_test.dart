@@ -83,11 +83,20 @@ class _StubAuthRepo extends AuthRepository {
   String? pwchangeToken;
   DateTime? passwordChangedAt;
 
+  /// What reached the repository, exactly — the round-trip test compares these.
+  final loginPasswords = <String>[];
+  String? newPasswordSent;
+
+  /// Held open by a test to observe the form while a login is in flight.
+  Completer<void>? loginGate;
+
   @override
   Future<LoginResult> login({
     required String username,
     required String password,
   }) async {
+    loginPasswords.add(password);
+    if (loginGate != null) await loginGate!.future;
     if (loginError != null) throw loginError!;
     final u = AuthUser(id: 'u-1', username: username, role: 'cashier');
     if (pwchangeToken != null) return LoginPasswordChangeRequired(u, pwchangeToken!);
@@ -101,6 +110,7 @@ class _StubAuthRepo extends AuthRepository {
     required String passwordChangeToken,
     required String newPassword,
   }) async {
+    newPasswordSent = newPassword;
     pwchangeToken = null;
     isAuth = true;
     user = const AuthUser(id: 'u-1', username: 'owner', role: 'owner');
@@ -498,6 +508,86 @@ void main() {
           await tester.tap(find.text(PasswordChangedBanner.dismiss));
           await settle(tester);
           expect(find.textContaining('รหัสผ่านถูกเปลี่ยนเมื่อ'), findsNothing);
+          await finish(tester);
+        });
+      },
+    );
+
+    testWidgets(
+      'the password set on the change form is the one sent, and the one a '
+      're-login after logout sends',
+      (tester) async {
+        await tester.runAsync(() async {
+          // Thai, inner and trailing spaces, tone mark before the below-vowel
+          // (not NFC): nothing on the way may trim, normalise or swap boxes.
+          const chosen = 'รหัสใหม่ของร้าน ป\u0E48\u0E39 2569 ';
+          await cubit.init();
+          await pumpApp(tester, requireLogin: true);
+          await settle(tester);
+
+          repo.pwchangeToken = 'pwchange-token';
+          await tester.enterText(find.byType(TextField).at(0), 'owner');
+          await tester.enterText(find.byType(TextField).at(1), 'TempPassw0rdXyz');
+          await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+          await settle(tester);
+
+          final newBox = find.byKey(const Key('change-password-new'));
+          await tester.enterText(newBox, chosen);
+          // The eye toggle (#529) must not lose or alter what was typed.
+          await tester.tap(find.descendant(of: newBox, matching: find.byType(IconButton)));
+          await tester.pump();
+          await tester.enterText(find.byKey(const Key('change-password-confirm')), chosen);
+          await tester.pump();
+          await tester.tap(find.text(ChangePasswordForm.submit));
+          await settle(tester);
+          expect(cubit.state, isA<Authenticated>());
+          expect(repo.newPasswordSent, chosen);
+
+          repo.isAuth = false;
+          repo.user = null;
+          await cubit.logout();
+          await settle(tester);
+          expect(find.byType(LoginScreen), findsOneWidget);
+
+          await tester.enterText(find.byType(TextField).at(0), 'owner');
+          await tester.enterText(find.byType(TextField).at(1), chosen);
+          await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+          await settle(tester);
+          expect(repo.loginPasswords, ['TempPassw0rdXyz', chosen]);
+          expect(cubit.state, isA<Authenticated>());
+          await finish(tester);
+        });
+      },
+    );
+
+    testWidgets(
+      'a login in flight keeps the device chip: an enrolled POS till is never '
+      'shown as Backoffice while the request runs',
+      (tester) async {
+        await tester.runAsync(() async {
+          repo.isAuth = true;
+          repo.user = const AuthUser(id: 'u-1', username: 'pos', role: 'cashier');
+          await cubit.init();
+          await pumpApp(tester, requireLogin: true);
+          await settle(tester);
+
+          await cubit.logout();
+          await settle(tester);
+          const posChip = 'เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)';
+          expect(find.text(posChip), findsOneWidget);
+
+          repo.loginGate = Completer<void>();
+          await tester.enterText(find.byType(TextField).at(0), 'pos');
+          await tester.enterText(find.byType(TextField).at(1), 'secret');
+          await tester.tap(find.widgetWithText(AppButton, 'เข้าสู่ระบบ'));
+          await tester.pump();
+          expect(cubit.state, isA<AuthLoading>());
+          expect(find.text(posChip), findsOneWidget);
+          expect(find.text('โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)'), findsNothing);
+
+          repo.loginGate!.complete();
+          await settle(tester);
+          expect(cubit.state, isA<Authenticated>());
           await finish(tester);
         });
       },
