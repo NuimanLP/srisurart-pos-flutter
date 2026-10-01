@@ -30,6 +30,8 @@ class PasswordField extends StatefulWidget {
   const PasswordField({
     super.key,
     this.controller,
+    this.initialValue,
+    this.isPin = false,
     this.decoration = const InputDecoration(),
     this.enabled = true,
     this.autofocus = false,
@@ -42,8 +44,14 @@ class PasswordField extends StatefulWidget {
 
   static const String showTooltip = 'แสดงรหัสผ่าน';
   static const String hideTooltip = 'ซ่อนรหัสผ่าน';
+  static const String showPinTooltip = 'แสดงรหัส PIN';
+  static const String hidePinTooltip = 'ซ่อนรหัส PIN';
 
   final TextEditingController? controller;
+  final String? initialValue;
+
+  /// The secret is a PIN, not a password — only changes the eye's tooltip.
+  final bool isPin;
   final InputDecoration decoration;
   final bool enabled;
   final bool autofocus;
@@ -64,6 +72,7 @@ class _PasswordFieldState extends State<PasswordField> {
   Widget build(BuildContext context) {
     return TextFormField(
       controller: widget.controller,
+      initialValue: widget.controller == null ? widget.initialValue : null,
       obscureText: _obscured,
       enabled: widget.enabled,
       autofocus: widget.autofocus,
@@ -75,14 +84,19 @@ class _PasswordFieldState extends State<PasswordField> {
       decoration: widget.decoration.copyWith(
         suffixIcon: IconButton(
           icon: Icon(_obscured ? Icons.visibility : Icons.visibility_off),
-          tooltip: _obscured
-              ? PasswordField.showTooltip
-              : PasswordField.hideTooltip,
-          onPressed: () {
-            setState(() {
-              _obscured = !_obscured;
-            });
+          tooltip: switch ((widget.isPin, _obscured)) {
+            (false, true) => PasswordField.showTooltip,
+            (false, false) => PasswordField.hideTooltip,
+            (true, true) => PasswordField.showPinTooltip,
+            (true, false) => PasswordField.hidePinTooltip,
           },
+          onPressed: widget.enabled
+              ? () {
+                  setState(() {
+                    _obscured = !_obscured;
+                  });
+                }
+              : null,
         ),
       ),
     );
@@ -101,7 +115,8 @@ List<PasswordRule> passwordRules(String password, {String? confirm}) => [
   ),
   (
     label: PasswordRequirements.maxLabel,
-    met: password.length <= kMaxPasswordLength,
+    // Neutral (unticked) while empty — an empty box has met nothing yet.
+    met: password.isNotEmpty && password.length <= kMaxPasswordLength,
   ),
   if (confirm != null)
     (
@@ -120,7 +135,7 @@ class PasswordRequirements extends StatelessWidget {
   static const String maxLabel = 'ไม่เกิน $kMaxPasswordLength ตัวอักษร';
   static const String matchLabel = 'รหัสผ่านทั้งสองช่องตรงกัน';
   static const String serverNote =
-      'เมื่อกดบันทึก ระบบจะตรวจด้วยว่าไม่ใช่รหัสผ่านที่ใช้กันทั่วไป ไม่มีชื่อร้าน และไม่ซ้ำรหัสผ่านชั่วคราว';
+      'เมื่อกดบันทึก ระบบจะตรวจด้วยว่าไม่ใช่รหัสผ่านที่เดาง่าย และไม่ซ้ำรหัสผ่านชั่วคราว';
 
   final String password;
   final String? confirm;

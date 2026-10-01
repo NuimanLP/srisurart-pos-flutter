@@ -60,6 +60,39 @@ void main() {
     );
   });
 
+  group('PasswordField extras', () {
+    testWidgets('disabled field: the eye is disabled too', (tester) async {
+      await tester.pumpWidget(_host(const PasswordField(enabled: false)));
+      final btn = tester.widget<IconButton>(find.byType(IconButton));
+      expect(btn.onPressed, isNull);
+    });
+
+    testWidgets('isPin: the tooltip says PIN', (tester) async {
+      await tester.pumpWidget(
+        _host(const AppTextField(obscureText: true, isPin: true)),
+      );
+      expect(find.byTooltip(PasswordField.showPinTooltip), findsOneWidget);
+      expect(find.byTooltip(PasswordField.showTooltip), findsNothing);
+    });
+
+    testWidgets('AppTextField passes initialValue through', (tester) async {
+      await tester.pumpWidget(
+        _host(const AppTextField(obscureText: true, initialValue: 'abc')),
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'abc',
+      );
+    });
+
+    test('AppTextField refuses a suffix on a secret field', () {
+      expect(
+        () => AppTextField(obscureText: true, suffix: const SizedBox()),
+        throwsAssertionError,
+      );
+    });
+  });
+
   group('passwordRules (mirrors server/src/common/password.ts)', () {
     bool met(String pw, {String? confirm}) =>
         passwordRulesMet(pw, confirm: confirm);
@@ -107,8 +140,9 @@ void main() {
     expect(find.text(PasswordRequirements.maxLabel), findsOneWidget);
     expect(find.text(PasswordRequirements.matchLabel), findsOneWidget);
     expect(find.text(PasswordRequirements.serverNote), findsOneWidget);
-    expect(find.byKey(const Key('pw-rule-met')), findsOneWidget); // only max
-    expect(find.byKey(const Key('pw-rule-unmet')), findsNWidgets(2));
+    // Empty: nothing is ticked, not even the upper bound.
+    expect(find.byKey(const Key('pw-rule-met')), findsNothing);
+    expect(find.byKey(const Key('pw-rule-unmet')), findsNWidgets(3));
 
     await show('my own long passphrase', 'my own long passphrase');
     expect(find.byKey(const Key('pw-rule-met')), findsNWidgets(3));
