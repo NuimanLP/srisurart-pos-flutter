@@ -196,6 +196,17 @@ class _StockTabState extends State<_StockTab> {
   bool _showCatMgr = false;
   final _newCatCtrl = TextEditingController();
 
+  // Bulk delete (selection mode). Selection survives filter changes on
+  // purpose, so the confirm dialog always lists EVERY selected item.
+  bool _selecting = false;
+  final Set<String> _selected = {};
+  bool _deleting = false;
+
+  /// A delete flow (bulk or single) is running — from the first await to the
+  /// end. Set BEFORE the first await so a double tap cannot open two dialogs,
+  /// and every other product write on this tab is disabled while it holds.
+  bool _busy = false;
+
   @override
   void initState() {
     super.initState();
@@ -217,6 +228,9 @@ class _StockTabState extends State<_StockTab> {
       _products = products;
       _categories = cats;
       _loading = false;
+      // A product deleted elsewhere can no longer be selected.
+      final live = products.map((p) => p.id).toSet();
+      _selected.retainWhere(live.contains);
     });
   }
 
@@ -302,16 +316,168 @@ class _StockTabState extends State<_StockTab> {
       _showDegradedWarning();
       return;
     }
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final repo = context.read<ProductsRepository>();
+      final ok = await showConfirm(
+        context,
+        'ลบสินค้า',
+        'ลบสินค้า "${p.name}" (${p.partNo}) ?\nการลบจะไม่สามารถกู้คืนได้',
+        danger: true,
+      );
+      if (!ok || !mounted) return;
+      if (context.isDegraded) {
+        _showDegradedWarning();
+        return;
+      }
+      // Same guard + per-id error handling as the bulk path: an outbox
+      // reference or a server refusal reaches the counter as Thai text.
+      final result = await repo.deleteMany([p.id]);
+      await _load();
+      if (!mounted) return;
+      final reason = result.failed[p.id];
+      if (reason != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(reason)));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _toggleSelecting() {
+    setState(() {
+      _selecting = !_selecting;
+      _selected.clear();
+    });
+  }
+
+  void _toggleOne(String id, bool? on) {
+    setState(() => on == true ? _selected.add(id) : _selected.remove(id));
+  }
+
+  void _selectAllFiltered(List<ProductRow> filtered, bool on) {
+    setState(() {
+      for (final p in filtered) {
+        on ? _selected.add(p.id) : _selected.remove(p.id);
+      }
+    });
+  }
+
+  Future<void> _bulkDelete() async {
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
+    if (_busy || _selected.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await _bulkDeleteFlow();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _deleting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _bulkDeleteFlow() async {
     final repo = context.read<ProductsRepository>();
-    final ok = await showConfirm(
-      context,
-      'ลบสินค้า',
-      'ลบสินค้า "${p.name}" (${p.partNo}) ?\nการลบจะไม่สามารถกู้คืนได้',
-      danger: true,
+    final chosen = _products.where((p) => _selected.contains(p.id)).toList();
+    final unsynced = await repo.productIdsWithUnsyncedOps();
+    if (!mounted) return;
+    final blocked = chosen.where((p) => unsynced.contains(p.id)).toList();
+    final deletable = chosen.where((p) => !unsynced.contains(p.id)).toList();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) =>
+          _BulkDeleteDialog(deletable: deletable, blocked: blocked),
     );
-    if (!ok) return;
-    await repo.delete(p.id);
+    if (ok != true || !mounted || deletable.isEmpty) return;
+    // The link may have dropped while the dialog was open.
+    if (context.isDegraded) {
+      _showDegradedWarning();
+      return;
+    }
+
+    setState(() => _deleting = true);
+    final result = await repo.deleteMany(
+      deletable.map((p) => p.id).toList(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _deleting = false;
+      _selected.removeAll(result.deleted);
+    });
     await _load();
+    if (!mounted) return;
+
+    if (result.failed.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ลบแล้ว ${result.deleted.length} รายการ')),
+      );
+      return;
+    }
+    final byId = {for (final p in chosen) p.id: p};
+    // A failed item can be gone after the reload (e.g. the server did apply a
+    // delete whose reply was lost) — it is then no longer selected; say so.
+    final live = _products.map((p) => p.id).toSet();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ผลการลบสินค้า'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('ลบแล้ว ${result.deleted.length} รายการ'),
+              Text(
+                'ไม่สำเร็จ ${result.failed.length} รายการ '
+                '(รายการที่ยังอยู่ในคลังยังเลือกค้างไว้)',
+                style: const TextStyle(
+                  color: AppColors.error,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final e in result.failed.entries)
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          '${byId[e.key]?.name ?? e.key} (${byId[e.key]?.partNo ?? ''})',
+                        ),
+                        subtitle: Text(
+                          live.contains(e.key)
+                              ? e.value
+                              : '${e.value} · ไม่พบสินค้านี้แล้ว (อาจถูกลบไปแล้ว)',
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('ปิด'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showDegradedWarning() {
@@ -432,7 +598,7 @@ class _StockTabState extends State<_StockTab> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: isDegraded ? null : () => _openEdit(null),
+                        onPressed: isDegraded || _busy ? null : () => _openEdit(null),
                         icon: const Icon(Icons.add, size: 20),
                         label: const Text(
                           'เพิ่มสินค้า',
@@ -459,6 +625,28 @@ class _StockTabState extends State<_StockTab> {
                         label: const Text(
                           'พิมพ์ป้าย',
                           style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        key: const Key('bulk-delete-toggle'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: _busy ? null : _toggleSelecting,
+                        icon: Icon(
+                          _selecting ? Icons.close : Icons.checklist,
+                          size: 20,
+                        ),
+                        label: Text(
+                          _selecting ? 'ยกเลิกการเลือก' : 'เลือกเพื่อลบ',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
@@ -556,6 +744,11 @@ class _StockTabState extends State<_StockTab> {
                               minWidth: constraints.maxWidth,
                             ),
                             child: DataTable(
+                              showCheckboxColumn: _selecting,
+                              onSelectAll: _selecting && !_busy
+                                  ? (on) =>
+                                        _selectAllFiltered(filtered, on == true)
+                                  : null,
                               dataRowMinHeight: 70,
                               dataRowMaxHeight: double.infinity,
                               horizontalMargin: 24,
@@ -596,6 +789,7 @@ class _StockTabState extends State<_StockTab> {
                   ),
                 ),
         ),
+        if (_selecting) _bulkBar(theme, filtered, isDegraded),
       ],
     );
       },
@@ -610,6 +804,10 @@ class _StockTabState extends State<_StockTab> {
         ? ('Low Stock', AppColors.warning)
         : ('In Stock', AppColors.successLight);
     return DataRow(
+      selected: _selecting && _selected.contains(p.id),
+      onSelectChanged: _selecting && !_busy
+          ? (on) => _toggleOne(p.id, on)
+          : null,
       cells: [
         DataCell(
           Text(
@@ -740,7 +938,7 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: isDegraded ? null : () => _openAdjust(p),
+                  onPressed: isDegraded || _busy ? null : () => _openAdjust(p),
                   icon: const Icon(Icons.sync_alt, size: 18),
                   label: const Text(
                     'ปรับสต็อก',
@@ -758,7 +956,7 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: isDegraded ? null : () => _openEdit(p),
+                  onPressed: isDegraded || _busy ? null : () => _openEdit(p),
                   icon: const Icon(Icons.edit, size: 18),
                   label: const Text(
                     'แก้ไข',
@@ -790,13 +988,97 @@ class _StockTabState extends State<_StockTab> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: isDegraded ? null : () => _delete(p),
+                  onPressed: isDegraded || _busy ? null : () => _delete(p),
                 ),
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+
+  /// Sticky bottom bar while selecting: count, select-all-of-filtered, clear,
+  /// and the destructive action (disabled offline / in flight / empty).
+  Widget _bulkBar(
+    ThemeData theme,
+    List<ProductRow> filtered,
+    bool isDegraded,
+  ) {
+    final n = _selected.length;
+    final visible = filtered.map((p) => p.id).toSet();
+    final hidden = _selected.where((id) => !visible.contains(id)).length;
+    final allFilteredOn =
+        filtered.isNotEmpty && filtered.every((p) => _selected.contains(p.id));
+    return Material(
+      elevation: 8,
+      color: theme.colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                'เลือกแล้ว $n รายการ',
+                key: const Key('bulk-delete-count'),
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              if (hidden > 0)
+                Text(
+                  '(ไม่อยู่ในตัวกรอง $hidden)',
+                  style: TextStyle(color: theme.colorScheme.secondary),
+                ),
+              TextButton(
+                key: const Key('bulk-select-all'),
+                onPressed: _busy || filtered.isEmpty
+                    ? null
+                    : () => _selectAllFiltered(filtered, !allFilteredOn),
+                child: Text(
+                  allFilteredOn
+                      ? 'ไม่เลือกทั้งหมด (ที่กรองอยู่)'
+                      : 'เลือกทั้งหมด (ที่กรองอยู่ ${filtered.length})',
+                ),
+              ),
+              TextButton(
+                onPressed: _busy || n == 0
+                    ? null
+                    : () => setState(_selected.clear),
+                child: const Text('ล้างที่เลือก'),
+              ),
+              FilledButton.icon(
+                key: const Key('bulk-delete-go'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.error,
+                  foregroundColor: AppColors.white,
+                ),
+                onPressed: isDegraded || _busy || n == 0
+                    ? null
+                    : _bulkDelete,
+                icon: _deleting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.white,
+                        ),
+                      )
+                    : const Icon(Icons.delete_outline, size: 20),
+                label: Text(_deleting ? 'กำลังลบ…' : 'ลบที่เลือก ($n)'),
+              ),
+              if (isDegraded)
+                const Text(
+                  'ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถดำเนินการเกี่ยวกับสินค้าได้',
+                  style: TextStyle(color: AppColors.error),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -919,7 +1201,7 @@ class _StockTabState extends State<_StockTab> {
               backgroundColor: color.withValues(alpha: 0.13),
               side: BorderSide(color: color.withValues(alpha: 0.33)),
               deleteIcon: Icon(Icons.close, size: 14, color: color),
-              onDeleted: isDegraded ? null : () => _deleteCat(c),
+              onDeleted: isDegraded || _busy ? null : () => _deleteCat(c),
             );
           }),
           SizedBox(
@@ -931,7 +1213,7 @@ class _StockTabState extends State<_StockTab> {
                 hintText: 'ประเภทใหม่…',
                 border: OutlineInputBorder(),
               ),
-              onSubmitted: isDegraded ? null : (_) => _addCat(),
+              onSubmitted: isDegraded || _busy ? null : (_) => _addCat(),
             ),
           ),
           FilledButton(
@@ -939,7 +1221,7 @@ class _StockTabState extends State<_StockTab> {
               backgroundColor: AppColors.orange,
               foregroundColor: AppColors.white,
             ),
-            onPressed: isDegraded ? null : _addCat,
+            onPressed: isDegraded || _busy ? null : _addCat,
             child: const Text('+ เพิ่ม'),
           ),
         ],
@@ -949,6 +1231,145 @@ class _StockTabState extends State<_StockTab> {
 }
 
 // ── Product add/edit dialog ──────────────────────────────────────────────────
+/// Above this many items the counter must type the count to confirm; any item
+/// still holding stock also requires it (agent ร่าง — owner to confirm).
+const _typedConfirmAbove = 5;
+
+/// Confirm for a bulk delete: lists every item (name, part no, stock), warns
+/// about remaining stock, shows what cannot be deleted and why. Cancel is the
+/// focused default; the destructive button stays disabled until a typed
+/// confirmation matches when one is required.
+class _BulkDeleteDialog extends StatefulWidget {
+  const _BulkDeleteDialog({required this.deletable, required this.blocked});
+  final List<ProductRow> deletable;
+  final List<ProductRow> blocked;
+
+  @override
+  State<_BulkDeleteDialog> createState() => _BulkDeleteDialogState();
+}
+
+class _BulkDeleteDialogState extends State<_BulkDeleteDialog> {
+  final _typed = TextEditingController();
+
+  @override
+  void dispose() {
+    _typed.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final n = widget.deletable.length;
+    final stocked = widget.deletable.where((p) => p.stock > 0).toList();
+    final stockUnits = stocked.fold<int>(0, (a, p) => a + p.stock);
+    // Threshold counts EVERY selected item (blocked ones too): the counter
+    // picked that many, whatever this run can actually delete.
+    final selectedCount = n + widget.blocked.length;
+    final needTyped = selectedCount > _typedConfirmAbove || stocked.isNotEmpty;
+    final typedOk = !needTyped || _typed.text.trim() == '$n';
+
+    Widget row(ProductRow p, {String? note}) => ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      title: Text(p.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+      subtitle: Text(note == null ? p.partNo : '${p.partNo} · $note'),
+      trailing: Text(
+        'คงเหลือ ${p.stock}',
+        style: TextStyle(
+          color: p.stock > 0 ? AppColors.error : theme.colorScheme.secondary,
+          fontWeight: p.stock > 0 ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    );
+
+    return AlertDialog(
+      title: Text(n == 0 ? 'ลบสินค้าไม่ได้' : 'ลบสินค้า $n รายการ'),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (n > 0)
+              const Text(
+                'การลบจะไม่สามารถกู้คืนได้',
+                style: TextStyle(
+                  color: AppColors.error,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            if (stocked.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                key: const Key('bulk-delete-stock-warning'),
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '⚠ มี ${stocked.length} รายการที่ยังมีสต็อกคงเหลือ '
+                  'รวม $stockUnits ชิ้น — สต็อกนี้จะหายจากคลังด้วย',
+                ),
+              ),
+            ],
+            if (widget.blocked.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'ลบไม่ได้ ${widget.blocked.length} รายการ: $productHasUnsyncedOps',
+                style: TextStyle(color: theme.colorScheme.secondary),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final p in widget.deletable) row(p),
+                  for (final p in widget.blocked) row(p, note: 'ลบไม่ได้'),
+                ],
+              ),
+            ),
+            if (n > 0 && needTyped) ...[
+              const SizedBox(height: 8),
+              TextField(
+                key: const Key('bulk-delete-typed'),
+                controller: _typed,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                  labelText: 'พิมพ์ $n เพื่อยืนยัน',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          autofocus: true,
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(n == 0 ? 'ปิด' : 'ยกเลิก'),
+        ),
+        if (n > 0)
+          FilledButton(
+            key: const Key('bulk-delete-confirm'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: AppColors.white,
+            ),
+            onPressed: typedOk ? () => Navigator.of(context).pop(true) : null,
+            child: Text('ลบ $n รายการ'),
+          ),
+      ],
+    );
+  }
+}
+
 class _ProductEditDialog extends StatefulWidget {
   final ProductRow? product; // null = new
   final List<String> categories;
