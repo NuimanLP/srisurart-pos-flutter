@@ -6,9 +6,10 @@ on `mob04` (`https://172.30.58.20`) found the bugs, sub-agents fixed them in PRs
 
 **Verification note.** PR numbers, SHAs, merge times, CI results, the Deploy run and its
 approval were checked against GitHub (`gh pr view`, `gh run view`, approvals API) and
-`origin/main` while writing this. The **on-VM** facts (`.current_sha`, `/health/ready`, the
-live drawer walk-through, test data) were reported by the orchestrating session and are
-**not** re-checked here — the writer had no VPN to `mob04`.
+`origin/main` while writing this. The **on-VM** facts — `.current_sha`, `/health/ready` and
+the server rows behind the live drawer check — were verified by the orchestrating session
+over ssh (`deploy@mob04`) / `psql`. The UI messages seen in the browser and the test-data
+cleanup are as reported by that session; the writer of this file had no VPN to `mob04`.
 
 ## Merged this session
 
@@ -21,7 +22,7 @@ live drawer walk-through, test data) were reported by the orchestrating session 
 | #582 | `da17ef9` | `flutter.yml` frontend filter also watches `fixtures/client-requests/**`; guard treats `drawerCash*` as reads — **unbroke `main`** (below) |
 | #583 | `bffd3c3` | `AuthCubit` login / offline-PIN errors always end in a Thai error state |
 | #584 | `48099f4` | Expected drawer cash counted **by shift** (owner decision 2026-10-03, replaces #452's time window); `cashCountFrom`/`drawerCashBetween` deleted; `DRAWER_INSUFFICIENT_CASH` strings ratified. Re-lands `4a5bfb6` |
-| #585 | `11265b4` | Offline cash-out over the drawer, when replayed, creates owner review item `drawer_overdrawn_offline` (migration `1788652804800`, one item per entry). Label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` still **agent ร่าง** on `main` |
+| #585 | `11265b4` | Offline cash-out over the drawer, when replayed, creates owner review item `drawer_overdrawn_offline` (migration `1788652804800`, one item per entry). Label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` ratified by the owner 2026-10-03; `main` still carries the **agent ร่าง** marker until PR #587 flips it |
 
 Also merged on 2026-10-03 between the two handoffs, by work not recorded in either file
 (titles only, not reviewed here): #559 (CA cert commit), #560 (file_picker 13.1.0 for the
@@ -53,15 +54,18 @@ session only added these instances to it.
 - Stale waiting Deploy run `37130734516` (`bffd3c3`) cancelled first.
 - Deploy run `37132624209` for `11265b4` — approved by `NuimanLP`, `resolve release` and
   `deploy to demo` both `success` (verified via `gh`).
-- Reported from the VM: `/opt/pos/.current_sha` = `11265b4a33c7f815723d25e51953c4437d908413`,
-  `/health/ready` 200.
+- Verified on the VM (orchestrator, ssh) right after that run: `/opt/pos/.current_sha` =
+  `11265b4a33c7f815723d25e51953c4437d908413`, `/health/ready` 200.
 
-## Live check on mob04 after the deploy (reported, not re-run)
+## Live check on mob04 after the deploy
 
-- Open shift ฿500 → cash-out ฿600 refused with `เงินในลิ้นชักไม่พอ (มี ฿500)`, nothing
-  recorded. ฿100 out accepted — exactly one `drawer_entries` row on the server.
-- Closing report drawer expected ฿400 (by shift; earlier shifts' cash not counted). Closed the
-  shift counting ฿400 → `ตรงยอด`.
+- Shift `shmusjiw4v_dd97e5ea_1`, opened 2026-10-03 15:22:12Z with starting cash ฿500.
+- Cash-out ฿600 refused in the UI with `เงินในลิ้นชักไม่พอ (มี ฿500)`; ฿100 out accepted.
+  **Verified (psql):** `drawer_entries` for that shift has exactly one row — `out`, `100.00`,
+  `UX test เกินยอด` — so the refused ฿600 left nothing behind.
+- Closing report drawer expected ฿400 (by shift; earlier shifts' cash not counted).
+  **Verified (psql):** the shift was closed at 22:24 Bangkok (15:24Z) with counted ฿400 (the UI
+  showed `ตรงยอด`).
 - The UI pre-check stops an over-limit cash-out before any request, so the server's 409 path
   was **not** exercised live; it is proven by the e2e tests in #580/#584
   (`server/test/shifts.e2e-spec.ts`).
@@ -73,10 +77,11 @@ session only added these instances to it.
 1. **Counted-cash field accepts non-digits.** On close, `a400` → `double.tryParse` gives
    `null`; the preview (`cash_drawer_screen.dart:745`, `?? 0`) shows `เงินขาด −฿400`, and
    `_handleClose` (`?? -1`, line 186) silently does nothing. Fix: **PR #587** (`fix/drawer-cash-input-and-ratify-overdrawn`,
-   **open, not merged**) — money inputs reject letters, and it flips
-   `drawer_overdrawn_offline`'s label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` to ratified
-   (owner 2026-10-03) in 02/08 and `review_item.dart`. Until it merges, `main` still says
-   **agent ร่าง** — do not flip the docs separately.
+   **open, not merged**) — money inputs reject letters. The owner **already ratified**
+   `drawer_overdrawn_offline`'s label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` on 2026-10-03;
+   #587 also carries that marker flip in 02/08 and `review_item.dart`. Until it merges,
+   `main` still shows **agent ร่าง** — a stale marker, not a pending owner question; do not
+   flip the docs separately.
 2. **Owner question — a shift open past midnight.** Counting is by shift, but the drawer
    screen and the closing report only show a shift whose `dateStr` is today
    (`cash_drawer_screen.dart:93-96`, `closing_report.dart:104`), so after midnight the shift
