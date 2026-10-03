@@ -366,7 +366,10 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: docker build (tagged with the commit)
-        run: docker build -t "$IMAGE:$GITHUB_SHA" .
+        # GIT_SHA is baked in so GET /platform/system can say which commit is running (#443):
+        # the container cannot read the VM's /opt/pos/.current_sha. The tag is the same SHA,
+        # so a rollback (which re-runs an older tag) reports the older commit — truthfully.
+        run: docker build --build-arg "GIT_SHA=$GITHUB_SHA" -t "$IMAGE:$GITHUB_SHA" .
 
       - name: smoke — every entrypoint compose runs is present, and the image starts
         # docker-compose.yml runs main.js, worker.js, bull-board.js and db/migrate.js

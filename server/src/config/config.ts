@@ -32,6 +32,12 @@ export interface AppConfig {
   platformAdminIps?: string[];
   /** Whether the server falls back to issuing RC/CN when omitted by client (C16, default: true). */
   docNumberFallback?: boolean;
+  /**
+   * The commit the running image was built from (`GIT_SHA`, a build-arg the release job bakes
+   * into the image — server.yml `build-image`). `null` when unset or not a hex SHA (a local
+   * build), never a guess. Shown by `GET /platform/system`.
+   */
+  gitSha?: string | null;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -227,5 +233,12 @@ export function loadConfig(env = process.env): AppConfig {
     etcdPassword,
     platformAdminIps: csvAllowlist(env, 'PLATFORM_ADMIN_IPS'),
     docNumberFallback: env.DOC_NUMBER_FALLBACK !== 'false',
+    gitSha: parseGitSha(env.GIT_SHA),
   };
+}
+
+/** A 7–40 character lower-case hex commit id, or null — validated, never passed through raw. */
+export function parseGitSha(raw: string | undefined): string | null {
+  const v = raw?.trim().toLowerCase();
+  return v && /^[0-9a-f]{7,40}$/.test(v) ? v : null;
 }

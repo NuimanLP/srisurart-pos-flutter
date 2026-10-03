@@ -35,5 +35,10 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./
 EXPOSE 3000
+# The commit this image was built from, for GET /platform/system (#443). Only the release job
+# (server.yml build-image) passes it; a local build leaves it empty and the API reports null.
+# Declared last so it invalidates no earlier layer.
+ARG GIT_SHA=""
+ENV GIT_SHA=$GIT_SHA
 # Same image runs api (default), worker and bull-board — compose overrides `command`.
 CMD ["node", "dist/main.js"]

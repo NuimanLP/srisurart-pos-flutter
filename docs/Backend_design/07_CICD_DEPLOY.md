@@ -203,6 +203,12 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
   (ปิดข้อ image-scan ของ #44)
 * runtime ไม่มีอะไรเรียก npm อยู่แล้ว: CMD และทุก `command:` ใน compose เป็น `node dist/…`,
   healthcheck ใช้ `wget`, corepack อยู่แค่ stage `deps`
+* **`GIT_SHA` ถูกอบเข้า image server (#443, 2026-10-03):** `build-image` สั่ง
+  `docker build --build-arg GIT_SHA=$GITHUB_SHA` และ `server/Dockerfile` ตั้ง `ENV GIT_SHA` ไว้ท้าย runtime stage
+  → `GET /api/v1/platform/system` ตอบ `gitSha` ได้ (container มองไม่เห็น `/opt/pos/.current_sha` ของ VM) ·
+  ค่าอยู่ใน image ที่ tag ด้วย SHA เดียวกัน จึง**ไม่ต้องแก้ Ansible/`.env`/`provision.yml`** และ rollback (รัน tag เก่า)
+  ก็รายงาน SHA เก่าตามจริง · image ที่ build เองในเครื่องไม่มีค่า → API ตอบ `gitSha: null` (ไม่เดา) ·
+  ยังใช้ `.current_sha` บน VM เป็นหลักฐานการ deploy ตามเดิม — `gitSha` บอกแค่ว่า container ที่ตอบอยู่มาจาก commit ไหน
 * job ปล่อยของต้องมี `permissions: { contents: read, packages: write }` **ระดับ job** — ทั้งสอง
   workflow ประกาศ `permissions: contents: read` ระดับไฟล์ ซึ่ง*แทน* default ทั้งหมด (packages กลายเป็น none)
 * **แก้ 2026-09-23 (ตรวจกับ workflow จริง):** Trivy image scan มีเฉพาะ image **server** (`server.yml:280`) — image web

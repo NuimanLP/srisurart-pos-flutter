@@ -3,40 +3,12 @@ import {
   Get,
   HttpException,
   HttpStatus,
-  Inject,
 } from '@nestjs/common';
-import type { Redis } from 'ioredis';
-import { DataSource } from 'typeorm';
-import { HEALTH_DATA_SOURCE } from '../infra/db.module.js';
-import { REDIS_CACHE, REDIS_QUEUE } from '../infra/redis.module.js';
-
-type Check = 'up' | 'down';
-const CHECK_TIMEOUT_MS = 2000;
-
-async function probe(run: () => Promise<unknown>): Promise<Check> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('timeout')), CHECK_TIMEOUT_MS);
-  });
-  try {
-    await Promise.race([run(), timeout]);
-    return 'up';
-  } catch {
-    return 'down';
-  } finally {
-    clearTimeout(timer);
-  }
-}
+import { HealthService } from './health.service.js';
 
 @Controller('health')
 export class HealthController {
-  constructor(
-    // Its own pool of one, never the request pool (#248): a saturated request pool is a
-    // busy instance, not a dead database.
-    @Inject(HEALTH_DATA_SOURCE) private readonly ds: DataSource,
-    @Inject(REDIS_CACHE) private readonly cache: Redis,
-    @Inject(REDIS_QUEUE) private readonly queue: Redis,
-  ) {}
+  constructor(private readonly health: HealthService) {}
 
   /** Liveness: touches nothing. A DB outage must not restart every instance. */
   @Get('live')
@@ -47,12 +19,7 @@ export class HealthController {
   /** Readiness: Postgres + both Redis. 503 NOT_READY if any is down. */
   @Get('ready')
   async ready() {
-    const [postgres, redisCache, redisQueue] = await Promise.all([
-      probe(() => this.ds.query('SELECT 1')),
-      probe(() => this.cache.ping()),
-      probe(() => this.queue.ping()),
-    ]);
-    const checks = { postgres, redisCache, redisQueue };
+    const checks = await this.health.readiness();
     if (Object.values(checks).some((c) => c === 'down')) {
       throw new HttpException(
         {
