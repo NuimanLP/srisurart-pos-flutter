@@ -33,7 +33,7 @@ h1{font-size:46px;font-weight:700;margin-top:4px}
 .g{border-color:var(--green)}.g .n{color:var(--green)}
 .a{border-color:var(--amber)}.a .n{color:var(--amber)}
 .x{border-color:var(--gray);border-style:dashed}.x .n,.x .v{color:var(--gray)}
-.sum{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:14px;margin-top:20px}
+.sum{display:grid;grid-template-columns:1fr 1.2fr 1.05fr;gap:14px;margin-top:20px}
 .sum div{background:var(--card);border-radius:10px;padding:14px 22px;display:flex;align-items:center;gap:18px;font-size:21px;color:var(--mut)}
 .sum b{font:700 34px Menlo,monospace}
 .foot{position:absolute;left:60px;right:60px;bottom:26px;color:var(--mut);font:400 15px Menlo,monospace;display:flex;justify-content:space-between}
@@ -47,7 +47,7 @@ h1{font-size:46px;font-weight:700;margin-top:4px}
   <div class="src" style="border-color:var(--green)"><div class="badge" style="background:var(--green)">DB</div><div><b>postgres · redis exporter</b><span>การเชื่อมต่อ · หน่วยความจำ · cache</span></div></div>
   <div class="src" style="border-color:var(--green)"><div class="badge" style="background:var(--green)">CT</div><div><b>cAdvisor</b><span>RAM / CPU ราย container</span></div></div>
   <div class="src" style="border-color:var(--green)"><div class="badge" style="background:var(--green)">LOG</div><div><b>Alloy</b><span>log ของทุก container ผ่าน Docker</span></div></div>
-  <div class="src x"><div class="badge" style="background:var(--gray)">k6</div><div><b>k6 load test</b><span>ยังไม่ได้รันกับ stack ชุดนี้ (#380)</span></div></div>
+  <div class="src x"><div class="badge" style="background:var(--gray)">k6</div><div><b>k6 load test</b><span>ผ่าน 27 ก.ย. · ยังไม่ได้รันซ้ำ</span></div></div>
  </div>
  <div class="wire"><div>scrape<br>15 s<i>→</i></div><div>scrape<br>15 s<i>→</i></div><div>scrape<br>15 s<i>→</i></div><div>scrape<br>15 s<i>→</i></div><div>push<i>→</i></div><div>remote-<br>write<i>⇢</i></div></div>
  <div><div class="hd">② เก็บ</div>
@@ -66,14 +66,14 @@ h1{font-size:46px;font-weight:700;margin-top:4px}
    <div class="c a"><div class="t">Container</div><div class="v">20 ตัว</div><div class="d">RAM, CPU รายตัว · เทียบเพดาน</div><div class="n">3 / 4 panel</div></div>
    <div class="c g"><div class="t">Postgres</div><div class="v">5 / 100</div><div class="d">การเชื่อมต่อ · ขนาด 9.2 MB · deadlock 0</div><div class="n">5 / 5 panel</div></div>
    <div class="c a"><div class="t">Redis × 2</div><div class="v">2 / 2 UP</div><div class="d">RAM 1.4% · ไล่ข้อมูลออก 0</div><div class="n">5 / 6 panel</div></div>
-   <div class="c x"><div class="t">k6 load test</div><div class="v">No data</div><div class="d">รอรัน 3 เครื่องตาม #380</div><div class="n">0 / 5 panel</div></div>
+   <div class="c x"><div class="t">k6 load test</div><div class="v" style="font-size:30px">ผ่าน 27 ก.ย.</div><div class="d">4 scenario บนเครื่องเดียว (หน้า 16, 18) · รอรันซ้ำกับ stack นี้ และ 3 เครื่องตาม #380</div><div class="n">0 / 5 panel ตอนนี้</div></div>
   </div>
  </div>
 </div>
 <div class="sum">
  <div><b style="color:var(--green)">29 / 44</b><span>panel มีข้อมูลจริงแม้ตอนระบบว่าง</span></div>
  <div><b style="color:var(--amber)">9</b><span>panel ขึ้นเมื่อมีการใช้งาน หรือเมื่อมีเหตุผิดปกติ (ว่าง = ปกติ)</span></div>
- <div><b style="color:var(--gray)">6</b><span>panel ยังไม่มีข้อมูลบน local (Disk, k6)</span></div>
+ <div><b style="color:var(--gray)">6</b><span>panel ยังไม่มีข้อมูล (Disk บน macOS · k6 รอรันซ้ำ)</span></div>
 </div>
-<div class="foot"><span>pos-overview.json (29) · pos-infra.json (15) · prometheus.yml · observability.yml</span><span>verified local 2 ต.ค. 2026 · branch develop · ยังไม่ได้ขึ้น VM</span></div>
+<div class="foot"><span>pos-overview.json (29) · pos-infra.json (15) · prometheus.yml · observability.yml</span><span>verified local 2 ต.ค. 2026 · branch develop · ยังไม่ได้ขึ้น VM · 20</span></div>
 </body></html>
