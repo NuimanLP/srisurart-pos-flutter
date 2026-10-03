@@ -63,7 +63,10 @@ class ReceiptData {
   });
 }
 
-const _divider = '- - - - - - - - - - - - - - - - - - - - ';
+/// True when an optional labelled value has something to print (null/blank → hide the line).
+bool _filled(String? v) => (v ?? '').trim().isNotEmpty;
+
+const _divider ='- - - - - - - - - - - - - - - - - - - - ';
 
 /// Shows the receipt modal. Returns when the user closes it.
 Future<void> showReceiptDialog(BuildContext context, ReceiptData data) {
@@ -192,13 +195,13 @@ class ReceiptView extends StatelessWidget {
           ),
           center(s.shopNameEN, size: 11, c: const Color(0xFF111111)),
           if ((s.address ?? '').isNotEmpty) center(s.address!),
-          center('โทร ${s.phone ?? ''}'),
+          if (_filled(s.phone)) center('โทร ${s.phone!.trim()}'),
           divider(),
 
           // Receipt info
           row('เลขที่', sale.receiptNo),
           row('วันที่', thaiDateTimeSlash(sale.date)),
-          row('แคชเชียร์', s.cashierName ?? ''),
+          if (_filled(s.cashierName)) row('แคชเชียร์', s.cashierName!.trim()),
           if (data.customerName != null) row('ลูกค้า', data.customerName!),
           if (isMechanicSale) row('ช่าง', sale.mechanicName ?? ''),
           divider(),
@@ -321,11 +324,11 @@ class ReceiptView extends StatelessWidget {
             center(s.shopName, size: 11, bold: true),
             center(s.shopNameEN, size: 8),
             if ((s.address ?? '').isNotEmpty) center(s.address!),
-            center('โทร ${s.phone ?? ''}'),
+            if (_filled(s.phone)) center('โทร ${s.phone!.trim()}'),
             divider(),
             row('เลขที่', sale.receiptNo),
             row('วันที่', thaiDateTimeSlash(sale.date)),
-            row('แคชเชียร์', s.cashierName ?? ''),
+            if (_filled(s.cashierName)) row('แคชเชียร์', s.cashierName!.trim()),
             if (data.customerName != null) row('ลูกค้า', data.customerName!),
             if (isMechanicSale) row('ช่าง', sale.mechanicName ?? ''),
             divider(),
