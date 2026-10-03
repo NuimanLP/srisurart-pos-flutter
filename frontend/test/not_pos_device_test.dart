@@ -25,6 +25,7 @@ import 'package:srisurart_pos/data/repositories/products_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
 import 'package:srisurart_pos/data/repositories/shifts_repository.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
+import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 import 'package:srisurart_pos/presentation/blocs/auth_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
@@ -103,6 +104,17 @@ class _RefusingShifts extends ShiftsRepository {
     calls++;
     throw const PosException('DEVICE_ROLE_FORBIDDEN', 'เครื่องนี้ขายของไม่ได้');
   }
+}
+
+/// The server's answer to `POST /sales` from a non-pos session.
+class _RefusingSales extends SalesRepository {
+  _RefusingSales(super.db);
+
+  @override
+  Future<SaleRow> saveSale(SaleInput input) async => throw const PosException(
+    'DEVICE_ROLE_FORBIDDEN',
+    'เครื่องนี้ขายของไม่ได้',
+  );
 }
 
 Future<AuthCubit> _signedIn({
@@ -235,8 +247,9 @@ void main() {
       Size size,
       AuthCubit? auth,
       Future<void> Function(AppDatabase db, CartCubit cart, List<ProductRow> p)
-      body,
-    ) async {
+      body, {
+      SalesRepository Function(AppDatabase db)? sales,
+    }) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
@@ -253,7 +266,11 @@ void main() {
         final products = await ProductsRepository(db).getAll();
         await tester.pumpWidget(
           MultiRepositoryProvider(
-            providers: repositoryProviders(db),
+            providers: [
+              ...repositoryProviders(db),
+              if (sales != null)
+                RepositoryProvider<SalesRepository>.value(value: sales(db)),
+            ],
             child: MultiBlocProvider(
               providers: [
                 BlocProvider<PendingQuoteCubit>.value(value: pq),
@@ -305,6 +322,51 @@ void main() {
         expect(find.textContaining('กรุณาเปิดกะก่อนขาย'), findsNothing);
         // Nothing was rung.
         expect(await SalesRepository(db).getSales(), isEmpty);
+      });
+    });
+
+    testWidgets('the server refusal on a sale opens the device dialog, not '
+        '"ขายไม่สำเร็จ: เครื่องนี้ขายของไม่ได้"', (tester) async {
+      await run(tester, const Size(1568, 900), null, (
+        db,
+        cart,
+        products,
+      ) async {
+        cart.add(products.firstWhere((x) => x.stock > 0));
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        await tester.enterText(
+          find.widgetWithText(TextField, 'รับเงิน ฿…'),
+          '100000',
+        );
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        await tester.tap(payButton);
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        final dialog = find.byType(AlertDialog);
+        expect(
+          find.descendant(of: dialog, matching: find.text(notPosDeviceMessage)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: dialog, matching: find.text(goToDevicesLabel)),
+          findsOneWidget,
+        );
+        expect(find.textContaining('ขายไม่สำเร็จ'), findsNothing);
+      }, sales: _RefusingSales.new);
+    });
+
+    testWidgets('390px: the pinned pay button is on screen in the cart tab', (
+      tester,
+    ) async {
+      const size = Size(390, 844);
+      await run(tester, size, null, (db, cart, products) async {
+        cart.add(products.firstWhere((x) => x.stock > 0));
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        await tester.tap(find.text('ตะกร้า'));
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        final r = tester.getRect(payButton);
+        expect(r.bottom, lessThanOrEqualTo(size.height));
+        expect(r.left, greaterThanOrEqualTo(0));
+        expect(r.right, lessThanOrEqualTo(size.width));
       });
     });
 

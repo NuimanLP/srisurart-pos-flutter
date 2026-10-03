@@ -264,7 +264,10 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
           action: msg == notPosDeviceMessage
               ? SnackBarAction(
                   label: goToDevicesLabel,
-                  onPressed: () => context.go(AppRoutes.devices),
+                  // The snackbar can outlive this screen.
+                  onPressed: () {
+                    if (mounted) context.go(AppRoutes.devices);
+                  },
                 )
               : null,
         ),
