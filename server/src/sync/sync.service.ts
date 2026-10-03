@@ -888,19 +888,26 @@ export class SyncService {
     sale: CreateSaleResult,
     quote: QuoteLockResult,
   ): Promise<void> {
-    if (quote.state === 'fresh') {
-      await this.quoteSales.markConverted(manager, tenantId, quoteId, sale.id);
-      return;
+    let reason: 'already_converted' | 'expired' | 'not_found';
+    switch (quote.state) {
+      case 'fresh':
+        await this.quoteSales.markConverted(manager, tenantId, quoteId, sale.id);
+        return;
+      case 'replay':
+      // Unreachable on a first apply: the client-id replay runs before this op, and
+      // `sales.create` would refuse a taken id before we got here.
+      case 'sale_id_taken':
+        return;
+      case 'converted':
+        reason = 'already_converted';
+        break;
+      case 'expired':
+        reason = 'expired';
+        break;
+      case 'missing':
+        reason = 'not_found';
+        break;
     }
-    if (quote.state === 'replay') return;
-    const reason =
-      quote.state === 'converted'
-        ? 'already_converted'
-        : quote.state === 'expired'
-          ? 'expired'
-          : quote.state === 'missing'
-            ? 'not_found'
-            : 'sale_id_taken';
     await ReviewItemsService.insertIn(
       manager,
       tenantId,
