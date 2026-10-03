@@ -126,6 +126,23 @@ class ApiShiftsRepository implements ShiftsRepository {
   Future<DrawerCash> drawerCash(ShiftWithEntries drawer) =>
       drift.drawerCash(drawer);
 
+  @override
+  Future<DrawerCash> drawerCashBetween({
+    required DateTime from,
+    required DateTime to,
+    double startingCash = 0,
+    List<DrawerEntryRow> entries = const [],
+  }) => drift.drawerCashBetween(
+    from: from,
+    to: to,
+    startingCash: startingCash,
+    entries: entries,
+  );
+
+  @override
+  Future<void> assertCashOutFits(ShiftRow shift, String type, double amount) =>
+      drift.assertCashOutFits(shift, type, amount);
+
   // ── Writes — hit the server, then patch Drift from the response. ──────
 
   /// `POST /shifts/open` with body `{ id, startingCash }` (08 §11). The server
@@ -424,20 +441,7 @@ class ApiShiftsRepository implements ShiftsRepository {
     // Same refusal as the server's online `DRAWER_INSUFFICIENT_CASH`, against the
     // same local number the screen shows. Once queued, the push replay is never
     // refused — the cash has already left the drawer (owner, 2026-10-03).
-    if (type == 'out') {
-      final entries = await (db.select(
-        db.drawerEntries,
-      )..where((t) => t.shiftId.equals(shift.id))).get();
-      final expected = (await drift.drawerCash(
-        ShiftWithEntries(shift, entries),
-      )).expected;
-      if (exceedsDrawer(amount, expected)) {
-        throw PosException(
-          'DRAWER_INSUFFICIENT_CASH',
-          drawerInsufficientCashMessage(expected),
-        );
-      }
-    }
+    await drift.assertCashOutFits(shift, type, amount);
 
     final now = DateTime.now();
     final row = DrawerEntryRow(

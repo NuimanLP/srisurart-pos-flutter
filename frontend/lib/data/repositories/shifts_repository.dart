@@ -100,24 +100,36 @@ class ShiftsRepository {
   /// counts the same money by `shift_id` (`server/src/reports/drawer-cash.sql.ts`).
   Future<DrawerCash> drawerCash(ShiftWithEntries drawer) async {
     final day = dayBounds(drawer.shift.openedAt.toLocal());
-    final from = await cashCountFrom(drawer.shift) ?? day.from;
+    return drawerCashBetween(
+      from: await cashCountFrom(drawer.shift) ?? day.from,
+      to: day.to,
+      startingCash: drawer.shift.startingCash,
+      entries: drawer.entries,
+    );
+  }
 
-    final sales = await SalesRepository(db).getSales(from: from, to: day.to);
-    final returns = await ReturnsRepository(
-      db,
-    ).getReturns(from: from, to: day.to);
+  /// [drawerCash] over an explicit window [from]–[to] — for the closing
+  /// report on a day with no drawer of its own (starting cash 0, no entries).
+  Future<DrawerCash> drawerCashBetween({
+    required DateTime from,
+    required DateTime to,
+    double startingCash = 0,
+    List<DrawerEntryRow> entries = const [],
+  }) async {
+    final sales = await SalesRepository(db).getSales(from: from, to: to);
+    final returns = await ReturnsRepository(db).getReturns(from: from, to: to);
     final creditPayments = await MechanicsRepository(
       db,
-    ).getCreditPayments(from: from, to: day.to);
+    ).getCreditPayments(from: from, to: to);
 
     double sumEntries(String type) => round2(
-      drawer.entries
+      entries
           .where((e) => e.type == type)
           .fold<double>(0, (s, e) => s + e.amount),
     );
 
     return DrawerCash(
-      startingCash: drawer.shift.startingCash,
+      startingCash: startingCash,
       // Manual voids excluded, auto-voids kept — the closing report's helper.
       cashSales: drawerCashSalesOf(sales, returns, from: from),
       cashCreditPayments: creditPayments
@@ -129,6 +141,28 @@ class ShiftsRepository {
       totalIn: sumEntries('in'),
       totalOut: sumEntries('out'),
     );
+  }
+
+  /// Refuses a cash-out of [amount] from [shift] larger than its expected
+  /// cash ([drawerCash]) — `PosException('DRAWER_INSUFFICIENT_CASH')`. Cash-in
+  /// is never limited. The ONE guard for the Drift build's [addDrawerEntry] and
+  /// the API build's offline queue (owner 2026-10-03); the server's online
+  /// `409 DRAWER_INSUFFICIENT_CASH` is the same refusal.
+  Future<void> assertCashOutFits(
+    ShiftRow shift,
+    String type,
+    double amount,
+  ) async {
+    if (type != 'out') return;
+    final expected = (await drawerCash(
+      ShiftWithEntries(shift, await _entriesFor(shift.id)),
+    )).expected;
+    if (exceedsDrawer(amount, expected)) {
+      throw PosException(
+        'DRAWER_INSUFFICIENT_CASH',
+        drawerInsufficientCashMessage(expected),
+      );
+    }
   }
 
   /// Drawer entries for a shift, newest first.
@@ -213,17 +247,7 @@ class ShiftsRepository {
     if (shift.closedAt != null) {
       throw Exception('ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้');
     }
-    if (type == 'out') {
-      final expected = (await drawerCash(
-        ShiftWithEntries(shift, await _entriesFor(shift.id)),
-      )).expected;
-      if (exceedsDrawer(amount, expected)) {
-        throw PosException(
-          'DRAWER_INSUFFICIENT_CASH',
-          drawerInsufficientCashMessage(expected),
-        );
-      }
-    }
+    await assertCashOutFits(shift, type, amount);
 
     final row = DrawerEntryRow(
       id: newId('de'),
