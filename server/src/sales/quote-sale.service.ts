@@ -97,17 +97,24 @@ export class QuoteSaleService {
    * `/sync/push` replay of an offline `sale.create` needs them as facts, because by
    * then the customer has paid and the bill is accepted whatever the quote says
    * (owner, 2026-10-03; 08 §6.1).
+   *
+   * `soldAt` is when the bill is dated. Expiry is judged against it (owner,
+   * 2026-10-03): an offline bill stores its device date (clamped, 08 §10), and a
+   * quote valid at that moment was sold in time even if it lapsed before the sync.
+   * Null is `now()` — exactly what `insertSale` stores for a bill with no date.
    */
   async lockAndClassify(
     manager: EntityManager,
     tenantId: string,
     quoteId: string,
     saleId: string,
+    soldAt: Date | null = null,
   ): Promise<QuoteLockResult> {
     const rows = (await manager.query(
-      `SELECT status, converted_sale_id, valid_until, (valid_until < now()) AS expired
+      `SELECT status, converted_sale_id, valid_until,
+              (valid_until < COALESCE($3::timestamptz, now())) AS expired
          FROM quotes WHERE tenant_id = $1::uuid AND id = $2 FOR UPDATE`,
-      [tenantId, quoteId],
+      [tenantId, quoteId, soldAt],
     )) as {
       status: string;
       converted_sale_id: string | null;

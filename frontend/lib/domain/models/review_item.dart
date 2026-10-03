@@ -8,7 +8,7 @@ enum ReviewItemKind {
   dateFlag('date_flag', 'วันที่ถูกปรับ (clamp)'),
   deviceForceRetired('device_force_retired', 'ปลดเครื่องที่ค้างส่ง'),
   receiptRenumbered('receipt_renumbered', 'เลขเอกสารออฟไลน์ไม่ตรงกับระบบ'),
-  // #27 follow-up (owner 2026-10-03, 08 §6.1) — agent ร่าง, not yet ratified.
+  // #27 follow-up (08 §6.1) — ratified by the owner 2026-10-03 (#27, PR #575).
   quoteConflict('quote_conflict', 'บิลออฟไลน์จากใบเสนอราคาที่ใช้ไม่ได้แล้ว'),
   unknown('unknown', 'รายการตรวจสอบ');
 

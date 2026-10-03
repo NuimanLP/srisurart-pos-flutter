@@ -2308,13 +2308,13 @@ describe('POST /sync/push (e2e)', () => {
   });
 
   describe('#27 follow-up (owner 2026-10-03, 08 §6.1): an offline bill sold from a quote cart', () => {
-    const quoteSaleOp = (id: string, quoteId: string) => ({
+    const quoteSaleOp = (id: string, quoteId: string, date = new Date().toISOString()) => ({
       opId: `op_${id}`,
       idempotencyKey: `k_${id}`,
       type: 'sale.create',
       payload: {
         id,
-        date: new Date().toISOString(),
+        date,
         subtotal: '85.00',
         discount: '0.00',
         total: '85.00',
@@ -2323,7 +2323,10 @@ describe('POST /sync/push (e2e)', () => {
         items: [{ lineNo: 1, productId: 'p_q27', name: 'Filter', qty: 1, price: '85.00' }],
       },
     });
-    const seedQuote = (id: string, over: { status?: string; convertedSaleId?: string; expired?: boolean } = {}) =>
+    const seedQuote = (
+      id: string,
+      over: { status?: string; convertedSaleId?: string; expired?: boolean; validFor?: string } = {},
+    ) =>
       admin.query(
         `INSERT INTO quotes (tenant_id, id, quote_no, status, valid_until, converted_at, converted_sale_id, subtotal, discount, total)
          VALUES ($1::uuid, $2, $3, $4, now() + ($5::text)::interval, $6, $7, 85, 0, 85)`,
@@ -2332,7 +2335,7 @@ describe('POST /sync/push (e2e)', () => {
           id,
           `QT-${id}`,
           over.status ?? 'open',
-          over.expired ? '-1 day' : '30 days',
+          over.validFor ?? (over.expired ? '-1 day' : '30 days'),
           over.status === 'converted' ? new Date('2026-10-01T03:00:00Z') : null,
           over.convertedSaleId ?? null,
         ],
@@ -2413,6 +2416,48 @@ describe('POST /sync/push (e2e)', () => {
       expect(items).toHaveLength(1);
       expect(items[0].details).toMatchObject({ saleId: 's_q_exp', quoteId: 'q_exp', reason: 'expired' });
       expect(typeof items[0].details.validUntil).toBe('string');
+    });
+
+    // Owner 2026-10-03 (#575): expiry is judged at the bill's own stored date, not at
+    // the sync. The drawer opened 3 h ago, so a bill dated 2 h ago is stored unclamped.
+    const twoHoursAgo = () => new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+    const openDrawerThreeHoursAgo = () =>
+      admin.query(
+        `UPDATE shifts SET opened_at = now() - interval '3 hours' WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active`,
+        [TENANT, fixture.posDeviceId],
+      );
+
+    it('valid when the bill was sold, expired by the sync: converted normally, no review item', async () => {
+      await openDrawerThreeHoursAgo();
+      await seedQuote('q_lapsed', { validFor: '-1 hour' });
+      const soldAt = twoHoursAgo();
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_lapsed', 'q_lapsed', soldAt)] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      const stored = (await admin.query(
+        `SELECT date FROM sales WHERE tenant_id = $1::uuid AND id = 's_q_lapsed'`,
+        [TENANT],
+      )) as { date: Date }[];
+      expect(stored[0].date.toISOString()).toBe(soldAt);
+      const q = await quoteRow('q_lapsed');
+      expect(q.status).toBe('converted');
+      expect(q.converted_sale_id).toBe('s_q_lapsed');
+      expect(await conflicts()).toEqual([]);
+    });
+
+    it('expired before the bill was sold: the bill is accepted, the quote untouched, one review item', async () => {
+      await openDrawerThreeHoursAgo();
+      await seedQuote('q_late', { validFor: '-150 minutes' });
+      const before = await quoteRow('q_late');
+      const soldAt = twoHoursAgo();
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_late', 'q_late', soldAt)] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      const stored = (await admin.query(
+        `SELECT date FROM sales WHERE tenant_id = $1::uuid AND id = 's_q_late'`,
+        [TENANT],
+      )) as { date: Date }[];
+      expect(stored[0].date.toISOString()).toBe(soldAt);
+      expect(await quoteRow('q_late')).toEqual(before);
+      expect((await conflicts()).map((i) => [i.ref_id, i.details.reason])).toEqual([['s_q_late', 'expired']]);
     });
 
     it('a quote that no longer exists: the bill is accepted with one review item (not_found)', async () => {
