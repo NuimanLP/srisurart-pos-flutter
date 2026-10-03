@@ -17,8 +17,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/network/server_error_resolver.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
@@ -31,6 +33,7 @@ import '../../data/sync/sync_facade.dart';
 import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
+import '../widgets/device_role_banner.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/sync_status_builder.dart';
 
@@ -176,6 +179,11 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
       _toast('กรุณากรอกเงินตั้งต้นให้ถูกต้อง');
       return;
     }
+    // #476: only a `pos` session may open a shift — say so before asking.
+    if (isNotPosSession(context)) {
+      _toast(notPosDeviceMessage);
+      return;
+    }
     final repo = context.read<ShiftsRepository>();
     setState(() => _busy = true);
     try {
@@ -240,13 +248,27 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     }
   }
 
-  String _clean(Object e) => ServerErrorResolver.resolveCounterError(e);
+  String _clean(Object e) => isDeviceRoleRefusal(e)
+      // #476: the server's 403 gets the sentence that says what to do.
+      ? notPosDeviceMessage
+      : ServerErrorResolver.resolveCounterError(e);
 
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg)));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          // #476: the device-role refusal carries its next step.
+          action: msg == notPosDeviceMessage
+              ? SnackBarAction(
+                  label: goToDevicesLabel,
+                  onPressed: () => context.go(AppRoutes.devices),
+                )
+              : null,
+        ),
+      );
   }
 
   @override
@@ -273,6 +295,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const NotPosDeviceBanner(),
         // Header
         Container(
           padding: const EdgeInsets.fromLTRB(24, 18, 16, 14),

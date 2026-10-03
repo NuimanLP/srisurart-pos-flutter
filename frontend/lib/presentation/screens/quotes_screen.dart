@@ -477,7 +477,7 @@ class _FilterBar extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           SearchField(
-            hint: '🔍 ค้นเลขที่ / ลูกค้า / ช่าง',
+            hint: 'ค้นเลขที่ / ลูกค้า / ช่าง',
             onChanged: onSearch,
           ),
         ],

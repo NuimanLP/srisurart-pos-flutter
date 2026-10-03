@@ -1618,82 +1618,69 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                 ),
               ),
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 16,
-                runSpacing: 20,
-                children: [
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field(
-                      'รหัสสินค้า',
-                      _partNo,
-                      enabled: _isNew,
-                      hint: _isNew
-                          ? null
-                          : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)',
-                    ),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('ชื่อ (EN)', _name),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('ชื่อ (TH)', _nameTH),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('แบรนด์', _brand),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _categoryField(theme),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('ใช้กับรถรุ่น', _compat),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field(
-                      'สต็อก',
-                      _stock,
-                      enabled: _isNew,
-                      numeric: true,
-                      hint: _isNew
-                          ? null
-                          : 'ใช้ปุ่ม "ปรับสต็อก" เพื่อเปลี่ยนสต็อกอย่างถูกต้อง',
-                    ),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('สต็อกขั้นต่ำ', _minStock, numeric: true),
-                  ),
-                ],
+              // Two columns that fill the dialog (one below 560 px): each
+              // field used to be capped at 300 px, and 2 × 300 + 16 never fit
+              // the 612 px content width, so every field sat alone on half a
+              // row (#476).
+              LayoutBuilder(
+                builder: (context, c) {
+                  final w = c.maxWidth >= 560
+                      ? ((c.maxWidth - 16) / 2).floorToDouble()
+                      : c.maxWidth;
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 20,
+                    children: [
+                      SizedBox(
+                        width: w,
+                        child: _field(
+                          'รหัสสินค้า',
+                          _partNo,
+                          enabled: _isNew,
+                          hint: _isNew
+                              ? null
+                              : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)',
+                        ),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('ชื่อ (EN)', _name),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('ชื่อ (TH)', _nameTH),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('แบรนด์', _brand),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _categoryField(theme),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('ใช้กับรถรุ่น', _compat),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field(
+                          'สต็อก',
+                          _stock,
+                          enabled: _isNew,
+                          numeric: true,
+                          hint: _isNew
+                              ? null
+                              : 'ใช้ปุ่ม "ปรับสต็อก" เพื่อเปลี่ยนสต็อกอย่างถูกต้อง',
+                        ),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('สต็อกขั้นต่ำ', _minStock, numeric: true),
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 16),
               _priceCalcBox(theme),

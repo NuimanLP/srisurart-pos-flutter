@@ -46,11 +46,26 @@ class Authenticated extends AuthState {
     this.deviceToken,
     this.deviceRole,
     this.passwordChangedAt,
+    this.sessionDeviceRole,
   });
 
   final AuthUser user;
   final String? deviceToken;
+
+  /// The browser/till's enrolled role as the login form shows it — may fall
+  /// back to a role remembered from an earlier login. Not what the server
+  /// checks; see [sessionDeviceRole].
   final String? deviceRole;
+
+  /// #476: the device role THIS session was signed for (the refresh token's
+  /// `drole`, `AuthRepository.sessionDeviceRole`) — what the server's
+  /// `RequireDeviceRole('pos')` checks on a sale or a shift. Null for a
+  /// session made without a device token. An offline-PIN login is `'pos'`
+  /// (the PIN refuses anything else).
+  final String? sessionDeviceRole;
+
+  /// Whether this session may sell and open a shift (ADR-0004).
+  bool get isPosSession => sessionDeviceRole == 'pos';
 
   /// From the login response (#443 PR3): when the password last changed, for
   /// the "รหัสผ่านถูกเปลี่ยนเมื่อ …" banner. Null when unknown or never.
@@ -59,7 +74,8 @@ class Authenticated extends AuthState {
   bool get isPos => deviceRole == 'pos';
 
   @override
-  List<Object?> get props => [user, deviceToken, deviceRole, passwordChangedAt];
+  List<Object?> get props =>
+      [user, deviceToken, deviceRole, passwordChangedAt, sessionDeviceRole];
 }
 
 /// #443 PR3: the owner signed in with a temporary password and must set their
@@ -126,6 +142,18 @@ class AuthCubit extends Cubit<AuthState> {
   /// [AuthPasswordChangeRequired]. Never written to storage (#400).
   String? _passwordChangeToken;
 
+  /// The session's own device role (#476, [Authenticated.sessionDeviceRole]).
+  /// A token store that cannot be read right now must not fail the sign-in
+  /// itself, nor read as "not a till" and block selling: it falls back to
+  /// [fallback], the role the state carried before #476.
+  Future<String?> _sessionRole(String? fallback) async {
+    try {
+      return await _repo.sessionDeviceRole();
+    } catch (_) {
+      return fallback;
+    }
+  }
+
   /// Logs in with offline PIN when in degraded mode on a POS terminal (08 §13).
   Future<PinVerifyResult> loginWithOfflinePin(String pin) async {
     if (_pinRepo == null) {
@@ -161,6 +189,7 @@ class AuthCubit extends Cubit<AuthState> {
         user: user,
         deviceToken: prevDeviceToken,
         deviceRole: prevDeviceRole ?? 'pos',
+        sessionDeviceRole: 'pos',
       ));
     } else {
       String errorMessage;
@@ -234,6 +263,7 @@ class AuthCubit extends Cubit<AuthState> {
         user: user,
         deviceToken: deviceToken,
         deviceRole: deviceRole,
+        sessionDeviceRole: await _sessionRole(deviceRole),
       ));
     } else {
       emit(Unauthenticated(
@@ -276,6 +306,7 @@ class AuthCubit extends Cubit<AuthState> {
             deviceToken: prevDeviceToken,
             deviceRole: role,
             passwordChangedAt: passwordChangedAt,
+            sessionDeviceRole: await _sessionRole(role),
           ));
           return true;
       }
@@ -313,6 +344,7 @@ class AuthCubit extends Cubit<AuthState> {
         user: user,
         deviceToken: current.deviceToken,
         deviceRole: role,
+        sessionDeviceRole: await _sessionRole(role),
       ));
       return true;
     } catch (e) {
