@@ -71,7 +71,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        if (e is ApiException && e.code == 'DEVICE_ROLE_FORBIDDEN') {
+        if (e is PosException && e.code == 'DEVICE_ROLE_FORBIDDEN') {
           // A device token is stored but this session was signed without it.
           _notEnrolled = true;
         } else {
@@ -307,7 +307,9 @@ class _DevicesScreenState extends State<DevicesScreen> {
             else if (_notEnrolled)
               SliverFillRemaining(
                 hasScrollBody: false,
-                child: _NotEnrolledPanel(hasDeviceToken: currentDeviceToken != null),
+                child: _NotEnrolledPanel(
+                  hasDeviceToken: currentDeviceToken != null && currentDeviceToken.isNotEmpty,
+                ),
               )
             else if (_error != null)
               SliverFillRemaining(

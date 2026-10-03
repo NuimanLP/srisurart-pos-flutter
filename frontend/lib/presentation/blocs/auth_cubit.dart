@@ -407,6 +407,9 @@ class AuthCubit extends Cubit<AuthState> {
         _loggingOut = true;
         try {
           await _repo.logout();
+        } catch (_) {
+          // The enrolment itself succeeded and its token is stored; a token
+          // store that could not be cleared must not read as "wrong code".
         } finally {
           _loggingOut = false;
         }

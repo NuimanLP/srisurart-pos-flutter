@@ -232,7 +232,8 @@ void main() {
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
-    devicesRepo.listError = ApiException(statusCode: 403, code: 'DEVICE_ROLE_FORBIDDEN');
+    devicesRepo.listError =
+        const PosException('DEVICE_ROLE_FORBIDDEN', 'เครื่องนี้ขายของไม่ได้');
 
     await tester.pumpWidget(buildTestWidget(
       child: const DevicesScreen(),

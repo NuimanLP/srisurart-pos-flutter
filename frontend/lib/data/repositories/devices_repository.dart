@@ -2,6 +2,7 @@
 // Defined in docs/Backend_design/09_PHASE2_LANES.md §3, §88 and 08_PHASE2_SPEC.md §16.
 
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
 import '../../domain/models/device_model.dart';
 
@@ -11,8 +12,18 @@ class DevicesRepository {
   DevicesRepository(this._apiClient);
 
   /// Lists all registered devices for the current tenant.
+  ///
+  /// A server refusal (4xx) arrives as a [PosException] carrying its code —
+  /// the screen tells `DEVICE_ROLE_FORBIDDEN` (no enrolled device in this
+  /// session, #558) apart from the rest without touching an [ApiException].
   Future<List<DeviceModel>> listDevices() async {
-    final res = await _apiClient.get('/api/v1/devices');
+    final dynamic res;
+    try {
+      res = await _apiClient.get('/api/v1/devices');
+    } on ApiException catch (e) {
+      if (e.statusCode < 500) rethrowServerRefusal(e);
+      rethrow;
+    }
     final List<dynamic> list;
     if (res is List) {
       list = res;
