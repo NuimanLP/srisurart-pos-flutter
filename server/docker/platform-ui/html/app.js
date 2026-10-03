@@ -73,14 +73,19 @@ const STATUS_TRANSITIONS = {
   closed: [],
 };
 
-/** Thai text for a server error code — 02_API_SCREENS.md §8 (status of each string noted there). */
+/**
+ * Thai text for a server error code (02_API_SCREENS.md §8). Only codes whose Thai string is
+ * owner-ratified, plus TENANT_CLOSED (new in this change, agent ร่าง). Every other code —
+ * including the platform codes whose §8 string is still an agent draft — shows the Thai prefix
+ * in describeError() + the server's own message.
+ */
 const ERROR_TEXT = {
   RATE_LIMITED: 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
-  INVALID_TENANT_ID: 'รหัสร้านไม่ถูกต้อง',
-  DEVICE_ALREADY_ENROLLED: 'เครื่องนี้ผูกกับบัญชีไปแล้ว หรือถูกปลดไปแล้ว ออกโค้ดใหม่ไม่ได้',
-  OWNER_NOT_FOUND: 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่',
   TENANT_CLOSED: 'ร้านนี้ปิดถาวรแล้ว เปลี่ยนสถานะไม่ได้อีก',
 };
+
+/** Owner-panel empty state — the §8 `OWNER_NOT_FOUND` text (agent ร่าง). */
+const NO_OWNER_TEXT = 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่';
 
 const SESSION_EXPIRED_TEXT = 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่';
 const BAD_LOGIN_TEXT = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
@@ -143,7 +148,7 @@ function emptyRow(tbody, colspan, text) {
 
 function statusPill(status) {
   const pill = labelled('span', STATUS_LABELS, status);
-  pill.className = `pill ${['active', 'suspended', 'closed'].includes(status) ? status : ''}`;
+  pill.className = `pill ${Object.hasOwn(STATUS_LABELS, status) ? status : ''}`;
   return pill;
 }
 
@@ -280,6 +285,7 @@ function route() {
     return;
   }
   els.logoutBtn.classList.remove('hidden');
+  hideCloseModal(); // never confirm a close against a tenant the admin navigated away from
   const m = TENANT_HASH.exec(location.hash);
   if (m) {
     say(els.statusMsg, null, null);
@@ -432,6 +438,7 @@ async function handleCreateTenant(evt) {
 
 // ---- tenant detail --------------------------------------------------------------
 
+/** Loads + renders one tenant. Resolves true when the detail on screen is fresh. */
 async function loadTenantDetail(tenantId) {
   say(els.detailMsg, null, null);
   if (currentTenantId !== tenantId) els.tdBody.classList.add('hidden');
@@ -440,14 +447,25 @@ async function loadTenantDetail(tenantId) {
   try {
     const data = await api(`/tenants/${encodeURIComponent(tenantId)}`);
     // The admin may have gone back (or to another tenant) while this was in flight.
-    if (currentTenantId !== tenantId) return;
+    if (currentTenantId !== tenantId) return false;
     renderTenantDetail(data);
     els.tdBody.classList.remove('hidden');
+    return true;
   } catch (err) {
-    if (currentTenantId !== tenantId) return;
+    if (currentTenantId !== tenantId) return false;
     els.tdBody.classList.add('hidden');
     fail(els.detailMsg, err);
+    return false;
   }
+}
+
+/**
+ * Re-reads the detail after an action, then shows `okText` in `box` — but only if the admin is
+ * still looking at that tenant (they may have gone back while the action was in flight).
+ */
+async function refreshDetailAfter(tenantId, box, okText) {
+  if (currentTenantId !== tenantId) return;
+  if (await loadTenantDetail(tenantId)) say(box, 'ok', okText);
 }
 
 function renderTenantDetail(data) {
@@ -460,7 +478,7 @@ function renderTenantDetail(data) {
     `แผน: ${PLAN_LABELS[t.plan] || t.plan} · เขตเวลา: ${t.timezone} · สร้างเมื่อ: ${fmtDate(t.created_at)}`;
 
   const allowed = STATUS_TRANSITIONS[t.status] || [];
-  for (const btn of document.querySelectorAll('#tenantDetailView [data-status]')) {
+  for (const btn of statusButtons()) {
     btn.classList.toggle('hidden', !allowed.includes(btn.dataset.status));
   }
   els.tdClosedNote.classList.toggle('hidden', t.status !== 'closed');
@@ -475,40 +493,45 @@ function renderOwner(owner) {
   if (!owner) {
     const p = document.createElement('p');
     p.className = 'muted';
-    p.textContent = ERROR_TEXT.OWNER_NOT_FOUND;
+    p.textContent = NO_OWNER_TEXT;
     els.ownerInfo.appendChild(p);
     return;
   }
   const tempExpired =
     owner.tempPasswordExpiresAt && new Date(owner.tempPasswordExpiresAt).getTime() < Date.now();
   const rows = [
-    ['ชื่อผู้ใช้', owner.username],
-    ['ชื่อที่แสดง', owner.displayName],
-    [
-      'สถานะรหัสผ่าน',
-      owner.mustChangePassword
+    { key: 'ชื่อผู้ใช้', value: owner.username },
+    { key: 'ชื่อที่แสดง', value: owner.displayName },
+    {
+      key: 'สถานะรหัสผ่าน',
+      value: owner.mustChangePassword
         ? 'ยังใช้รหัสผ่านชั่วคราว — ต้องเปลี่ยนตอนเข้าสู่ระบบ'
         : 'ตั้งรหัสผ่านเองแล้ว',
-    ],
+    },
   ];
   if (owner.mustChangePassword) {
-    rows.push([
-      'รหัสผ่านชั่วคราวหมดอายุ',
-      `${fmtDate(owner.tempPasswordExpiresAt)}${tempExpired ? ' (หมดอายุแล้ว)' : ''}`,
-      owner.tempPasswordExpiresAt,
-    ]);
+    rows.push({
+      key: 'รหัสผ่านชั่วคราวหมดอายุ',
+      value: `${fmtDate(owner.tempPasswordExpiresAt)}${tempExpired ? ' (หมดอายุแล้ว)' : ''}`,
+      raw: owner.tempPasswordExpiresAt,
+      warn: tempExpired,
+    });
   }
-  rows.push(['เปลี่ยนรหัสผ่านล่าสุด', fmtDate(owner.passwordChangedAt), owner.passwordChangedAt]);
+  rows.push({
+    key: 'เปลี่ยนรหัสผ่านล่าสุด',
+    value: fmtDate(owner.passwordChangedAt),
+    raw: owner.passwordChangedAt,
+  });
 
   const dl = document.createElement('dl');
   dl.className = 'kv';
-  for (const [key, value, raw] of rows) {
+  for (const { key, value, raw, warn } of rows) {
     const dt = document.createElement('dt');
     dt.textContent = key;
     const dd = document.createElement('dd');
     dd.textContent = value == null ? '-' : String(value);
     if (raw) dd.title = String(raw);
-    if (key === 'รหัสผ่านชั่วคราวหมดอายุ' && tempExpired) dd.className = 'warn-text';
+    if (warn) dd.className = 'warn-text';
     dl.appendChild(dt);
     dl.appendChild(dd);
   }
@@ -610,8 +633,11 @@ async function handleReissueCode(btn, tenantId, deviceId) {
           },
         ],
       });
-      await loadTenantDetail(tenantId);
-      say(els.devicesMsg, 'ok', `ออกรหัสลงทะเบียนใหม่ให้อุปกรณ์ ${deviceId} แล้ว`);
+      await refreshDetailAfter(
+        tenantId,
+        els.devicesMsg,
+        `ออกรหัสลงทะเบียนใหม่ให้อุปกรณ์ ${deviceId} แล้ว`,
+      );
     } catch (err) {
       fail(els.devicesMsg, err);
     }
@@ -650,21 +676,47 @@ async function handleResetOwnerPassword() {
           },
         ],
       });
-      await loadTenantDetail(tenantId);
-      say(els.ownerMsg, 'ok', 'ออกรหัสผ่านชั่วคราวใหม่แล้ว — รหัสเดิมของเจ้าของร้านใช้ไม่ได้อีก');
+      await refreshDetailAfter(
+        tenantId,
+        els.ownerMsg,
+        'ออกรหัสผ่านชั่วคราวใหม่แล้ว — รหัสเดิมของเจ้าของร้านใช้ไม่ได้อีก',
+      );
     } catch (err) {
       fail(els.ownerMsg, err);
     }
   });
 }
 
+function statusButtons() {
+  return document.querySelectorAll('#tenantDetailView [data-status]');
+}
+
+/**
+ * PATCHes the status with every status button disabled meanwhile (one change at a time), then
+ * refreshes the detail. Throws the API error to the caller, which shows it in its own box;
+ * on TENANT_CLOSED (someone closed it meanwhile) the detail is re-read first so the stale
+ * buttons disappear.
+ */
 async function changeStatus(tenantId, status) {
-  await api(`/tenants/${encodeURIComponent(tenantId)}/status`, {
-    method: 'PATCH',
-    body: { status },
-  });
-  await loadTenantDetail(tenantId);
-  say(els.statusMsg, 'ok', `เปลี่ยนสถานะร้านเป็น "${STATUS_LABELS[status]}" แล้ว`);
+  for (const b of statusButtons()) b.disabled = true;
+  try {
+    await api(`/tenants/${encodeURIComponent(tenantId)}/status`, {
+      method: 'PATCH',
+      body: { status },
+    });
+  } catch (err) {
+    if (err.code === 'TENANT_CLOSED' && currentTenantId === tenantId) {
+      await loadTenantDetail(tenantId);
+    }
+    throw err;
+  } finally {
+    for (const b of statusButtons()) b.disabled = false;
+  }
+  await refreshDetailAfter(
+    tenantId,
+    els.statusMsg,
+    `เปลี่ยนสถานะร้านเป็น "${STATUS_LABELS[status]}" แล้ว`,
+  );
 }
 
 async function handleStatusButton(btn) {
@@ -806,7 +858,7 @@ els.closeConfirmInput.addEventListener('input', () => {
 els.closeCancelBtn.addEventListener('click', hideCloseModal);
 els.closeConfirmBtn.addEventListener('click', handleConfirmClose);
 
-for (const btn of document.querySelectorAll('#tenantDetailView [data-status]')) {
+for (const btn of statusButtons()) {
   btn.addEventListener('click', () => handleStatusButton(btn));
 }
 

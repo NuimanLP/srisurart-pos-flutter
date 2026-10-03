@@ -478,7 +478,7 @@ export class PlatformTenantsService {
             passwordChangedAt: iso(owner.password_changed_at),
           }
         : null,
-      devices:(deviceRows as Array<{
+      devices: (deviceRows as Array<{
         id: string;
         label: string;
         role: string;
