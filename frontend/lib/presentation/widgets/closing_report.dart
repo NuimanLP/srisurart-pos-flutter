@@ -231,9 +231,11 @@ GrossProfitResult computeGrossProfit(
 /// once a return exists (`SALE_HAS_RETURNS`): a voided bill is an auto-void
 /// exactly when it has a credit note.
 ///
-/// [returns] must reach from the start of [sales]' period up to now: an
+/// [returns] must reach from the start of [sales]' period up to NOW: an
 /// auto-void happens at its return's time, so that credit note is always
-/// inside such a window (both callers pass the same period for both lists).
+/// inside such a window (both callers pass the current day/month for both
+/// lists). A past period that ends before now would need the bill's returns
+/// looked up separately, or it would read an auto-void as a manual one.
 List<SaleLite> countedSales(List<SaleLite> sales, List<ReturnLite> returns) {
   final returned = {for (final r in returns) r.saleId};
   return sales.where((s) => !s.voided || returned.contains(s.id)).toList();
@@ -286,7 +288,10 @@ class NetSales {
   /// (fully returned) bill still counts, a manual void does not.
   int get billCount => counted.length;
 
-  /// Net revenue per counted bill (0 with no bills).
+  /// Net revenue per counted bill (0 with no bills). Deliberately NOT the
+  /// server's `avgTicket`, which divides the gross (pre-refund) revenue: this
+  /// report shows net revenue, so a fully returned bill must not read ฿150/bill
+  /// next to ฿0 revenue.
   double get avgPerBill => counted.isEmpty ? 0 : netRevenue / counted.length;
 
   factory NetSales.of(
@@ -338,11 +343,10 @@ class NetSales {
 }
 
 // Refund methods offered by returns_screen.dart: 'เงินสด' | 'โอน' |
-// 'หักจากเครดิต' (aggregates.dart). The transfer row also accepts the
-// sale-side spellings [qrSales] accepts.
+// 'หักจากเครดิต' (aggregates.dart). 'โอน' is in [_isTransfer] with the
+// sale-side spellings, so one list drives both sides of the โอน/QR row.
 bool _isCashRefund(String m) => m == 'เงินสด';
-bool _isQrRefund(String m) =>
-    m == 'โอน' || m == 'โอน/QR' || m == 'PromptPay' || m == 'โอนเงิน';
+bool _isQrRefund(String m) => _isTransfer(m);
 bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
 
 /// Flattens repository rows into [SaleLite]/[ReturnLite] for [NetSales].
@@ -436,15 +440,13 @@ List<SaleLite> cashSales(List<SaleLite> sales) =>
 
 /// Sales paid by transfer/QR. Three spellings are accepted because both the
 /// current UI copy (`'โอน/QR'`) and older `db.js`-era values (`'PromptPay'`,
-/// `'โอนเงิน'`) can appear on rows saved before a copy change.
-List<SaleLite> qrSales(List<SaleLite> sales) => sales
-    .where(
-      (s) =>
-          s.paymentMethod == 'โอน/QR' ||
-          s.paymentMethod == 'PromptPay' ||
-          s.paymentMethod == 'โอนเงิน',
-    )
-    .toList();
+/// `'โอนเงิน'`) can appear on rows saved before a copy change. `'โอน'` is the
+/// refund-side spelling (returns_screen.dart), shared via [_isTransfer].
+List<SaleLite> qrSales(List<SaleLite> sales) =>
+    sales.where((s) => _isTransfer(s.paymentMethod)).toList();
+
+bool _isTransfer(String m) =>
+    m == 'โอน/QR' || m == 'PromptPay' || m == 'โอนเงิน' || m == 'โอน';
 
 /// Sales paid via `เครดิตช่าง` (mechanic credit) — settled later through
 /// `CreditPayments`, never touching the cash drawer directly (only a cash
