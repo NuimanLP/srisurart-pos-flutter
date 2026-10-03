@@ -289,6 +289,76 @@ describe('customers and mechanics (e2e)', () => {
     expect(second.body.data.code).toBe('M002');
   });
 
+  // 2026-10-03, mob04: the add-mechanic dialog has only a Thai-name field, so
+  // `ApiMechanicsRepository.addMechanic` sends `name: ''`. This is the exact
+  // 155-byte body that build sent (key order and all); it used to be a 400
+  // `name is required` from `parseMechanicCreate`.
+  it('creates a mechanic from the Thai-only add dialog body, name taken from nameTH', async () => {
+    const cashierToken = accessToken({
+      tenantId: TENANT,
+      userId: fixture.userId,
+      role: 'cashier',
+      deviceId: fixture.backofficeDeviceId,
+      deviceRole: 'backoffice',
+    });
+    const response = await createMechanic(
+      {
+        name: '',
+        nameTH: 'ช่างเอก',
+        nickname: 'เอก',
+        shopName: 'เอก บางบอย',
+        phone: '',
+        note: '',
+        creditLimit: '20000.00',
+      },
+      cashierToken,
+    );
+    expect(response.status).toBe(201);
+    expect(response.body.data).toMatchObject({
+      code: 'M001',
+      name: 'ช่างเอก',
+      nameTH: 'ช่างเอก',
+      nickname: 'เอก',
+      shopName: 'เอก บางบอย',
+      creditLimit: '20000.00',
+    });
+
+    // No usable name at all is still refused.
+    const nameless = await createMechanic({ name: '  ', nameTH: '' });
+    expect(nameless.status).toBe(400);
+    expect(nameless.body.error.message).toBe('name is required');
+    const wrongType = await createMechanic({ name: 5, nameTH: 'ช่างบี' });
+    expect(wrongType.status).toBe(400);
+  });
+
+  it('creates and edits a customer with a blank EN name from the Thai name', async () => {
+    const created = await createCustomer({ name: '', nameTH: 'ลูกค้าไทย' });
+    expect(created.status).toBe(201);
+    expect(created.body.data).toMatchObject({
+      name: 'ลูกค้าไทย',
+      nameTH: 'ลูกค้าไทย',
+    });
+
+    // The editor dialog sends both fields; EN left blank must not be a 400.
+    const edited = await request(app.getHttpServer())
+      .patch(`/api/v1/customers/${created.body.data.id as string}`)
+      .set(auth())
+      .set('Idempotency-Key', idempotency())
+      .send({ name: '', nameTH: 'ลูกค้าแก้ชื่อ', phone: null, address: null });
+    expect(edited.status).toBe(200);
+    expect(edited.body.data).toMatchObject({
+      name: 'ลูกค้าแก้ชื่อ',
+      nameTH: 'ลูกค้าแก้ชื่อ',
+    });
+
+    const blankOnly = await request(app.getHttpServer())
+      .patch(`/api/v1/customers/${created.body.data.id as string}`)
+      .set(auth())
+      .set('Idempotency-Key', idempotency())
+      .send({ name: '' });
+    expect(blankOnly.status).toBe(400);
+  });
+
   it('increments mechanics past valid maximum codes and ignores malformed codes', async () => {
     await admin.query(
       `INSERT INTO mechanics (tenant_id, id, code, name)

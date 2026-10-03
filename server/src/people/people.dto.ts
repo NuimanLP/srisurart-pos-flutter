@@ -38,7 +38,7 @@ export interface MechanicPatch {
 
 export function parseCustomerCreate(body: unknown): CustomerCreate {
   const value = asObject(body);
-  const name = requiredString(value.name, 'name');
+  const name = nameOrThai(value);
   return {
     name,
     nameTH: optionalString(value.nameTH, 'nameTH') ?? name,
@@ -50,9 +50,7 @@ export function parseCustomerCreate(body: unknown): CustomerCreate {
 export function parseCustomerPatch(body: unknown): CustomerPatch {
   const value = asObject(body);
   return compact({
-    name: present(value, 'name')
-      ? requiredString(value.name, 'name')
-      : undefined,
+    name: present(value, 'name') ? nameOrThai(value) : undefined,
     nameTH: present(value, 'nameTH')
       ? requiredString(value.nameTH, 'nameTH')
       : undefined,
@@ -68,7 +66,7 @@ export function parseCustomerPatch(body: unknown): CustomerPatch {
 export function parseMechanicCreate(body: unknown): MechanicCreate {
   const value = asObject(body);
   return {
-    name: requiredString(value.name, 'name'),
+    name: nameOrThai(value),
     nameTH: optionalString(value.nameTH, 'nameTH'),
     nickname: optionalString(value.nickname, 'nickname'),
     shopName: optionalString(value.shopName, 'shopName'),
@@ -81,9 +79,7 @@ export function parseMechanicCreate(body: unknown): MechanicCreate {
 export function parseMechanicPatch(body: unknown): MechanicPatch {
   const value = asObject(body);
   return compact({
-    name: present(value, 'name')
-      ? requiredString(value.name, 'name')
-      : undefined,
+    name: present(value, 'name') ? nameOrThai(value) : undefined,
     nameTH: present(value, 'nameTH')
       ? optionalString(value.nameTH, 'nameTH')
       : undefined,
@@ -132,6 +128,23 @@ function requiredString(value: unknown, field: string): string {
     throw new BadRequestException(`${field} is required`);
   }
   return value;
+}
+
+/**
+ * `name`, or the Thai name when `name` is blank or absent. The mechanic form has
+ * only a Thai-name field (as the legacy JSX did) and the customer form's EN
+ * field is optional, so a blank `name` beside a real `nameTH` is the normal
+ * shape from the counter — refusing it was the 2026-10-03 add-mechanic 400 on
+ * mob04. `/sync/push customer.create` already stored such rows; this makes the
+ * online routes agree. With no usable name at all it is still a 400.
+ */
+function nameOrThai(value: Record<string, unknown>): string {
+  const name = optionalString(value.name, 'name');
+  if (name !== null && name.trim() !== '') return name;
+  if (typeof value.nameTH === 'string' && value.nameTH.trim() !== '') {
+    return value.nameTH;
+  }
+  return requiredString(name, 'name');
 }
 
 function optionalString(value: unknown, field: string): string | null {

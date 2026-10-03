@@ -235,17 +235,44 @@ class ApiMechanicsRepository extends MechanicsRepository {
       if (data.creditLimit.present) 'creditLimit': wireMoney(data.creditLimit.value),
     };
 
-    final res = await apiClient.post('/api/v1/mechanics', body: body, headers: idempotencyKey());
+    // Same body pressed again while the first attempt's fate is unknown (5xx,
+    // lost reply) → same Idempotency-Key, so the server replays the first
+    // mechanic instead of creating a second one.
+    final attempt = _pendingAdds.of(jsonEncode(body));
+    final res = await _thaiErrors(
+      () => apiClient.post('/api/v1/mechanics', body: body, headers: attempt.headers),
+      attempt,
+    );
     if (res is Map) {
+      _pendingAdds.close(attempt);
       final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
       await db.into(db.mechanics).insertOnConflictUpdate(comp);
       return await (db.select(db.mechanics)..where((t) => t.id.equals(comp.id.value))).getSingle();
     }
-    throw ApiException(
-      statusCode: 500,
-      code: 'SERVER_ERROR',
-      serverMessage: 'ไม่สามารถบันทึกข้อมูลช่าง',
-    );
+    throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
+  }
+
+  final PendingWrites _pendingAdds = PendingWrites('m');
+
+  /// Runs one mechanic-record write so that no [ApiException] reaches the
+  /// screen (api_wire.dart rule 4): a 4xx is the server's verdict and closes
+  /// [attempt]; a 5xx/429 or a transport failure leaves it parked. Every
+  /// failure carries a Thai sentence from [ServerErrorResolver].
+  Future<T> _thaiErrors<T>(Future<T> Function() send, [PendingWrite? attempt]) async {
+    try {
+      return await send();
+    } on ApiException catch (e) {
+      if (isVerdict(e)) {
+        if (attempt != null) _pendingAdds.close(attempt);
+        rethrowServerRefusal(e);
+      }
+      throw PosException(e.code, ServerErrorResolver.resolveCounterError(e), e.details);
+    } catch (e) {
+      if (isTransportFailure(e)) {
+        throw PosException('NETWORK_ERROR', ServerErrorResolver.resolve(null));
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -259,7 +286,9 @@ class ApiMechanicsRepository extends MechanicsRepository {
     if (patch.note.present) body['note'] = patch.note.value;
     if (patch.creditLimit.present) body['creditLimit'] = wireMoney(patch.creditLimit.value);
 
-    final res = await apiClient.patch('/api/v1/mechanics/$id', body: body, headers: idempotencyKey());
+    final res = await _thaiErrors(
+      () => apiClient.patch('/api/v1/mechanics/$id', body: body, headers: idempotencyKey()),
+    );
     if (res is Map) {
       final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
       await db.into(db.mechanics).insertOnConflictUpdate(comp);
@@ -269,7 +298,9 @@ class ApiMechanicsRepository extends MechanicsRepository {
 
   @override
   Future<void> deleteMechanic(String id) async {
-    await apiClient.delete('/api/v1/mechanics/$id', headers: idempotencyKey());
+    await _thaiErrors(
+      () => apiClient.delete('/api/v1/mechanics/$id', headers: idempotencyKey()),
+    );
     await (db.update(db.mechanics)..where((t) => t.id.equals(id))).write(
       MechanicsCompanion(
         deletedAt: Value(DateTime.now()),
