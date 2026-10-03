@@ -424,7 +424,7 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 
 | Endpoint ใหม่ | คืนอะไร | SQL |
 |---|---|---|
-| `GET /reports/summary?from=&to=` | ยอดขาย, จำนวนบิล, บิลเฉลี่ย, ยอดคืน, ยอดสุทธิ, กำไรขั้นต้น (+ `estimatedCostRows`/`unknownCostRows`) | `SUM/COUNT/AVG` บน `sales` + `returns` — #95: ทุกตัวเลขใช้บิลชุดเดียวกับรายงานปิดร้าน (void เองไม่นับ, void อัตโนมัติจากคืนครบยังนับแล้วหักใบลดหนี้), สูตรกำไรเดียวกับ §3.11, คืนสินค้าลงวันตาม `returns.date` |
+| `GET /reports/summary?from=&to=` | ยอดขาย, จำนวนบิล, บิลเฉลี่ย, ยอดคืน, ยอดสุทธิ, กำไรขั้นต้น (+ `estimatedCostRows`/`unknownCostRows`) | `SUM/COUNT/AVG` บน `sales` + `returns` — #95: ทุกตัวเลขใช้บิลชุดเดียวกับรายงานปิดร้าน (void เองไม่นับ, void อัตโนมัติจากคืนครบยังนับแล้วหักใบลดหนี้), สูตรกำไรเดียวกับ §3.11, คืนสินค้าลงวันตาม `returns.date` · **บิลเฉลี่ย (`avgTicket`) = ยอดสุทธิ ÷ จำนวนบิล** ปัดเป็นบาท, 0 เมื่อไม่มีบิล (owner 2026-10-03 — เท่ากับ "เฉลี่ย/บิล" ของแอป, วันที่คืนครบทุกบิลจึงเป็น 0) |
 | `GET /reports/top-products?from=&to=&limit=10` | สินค้าขายดี | `GROUP BY product_id` บน `sale_items` — #97: บิลชุดเดียวกับ summary (void เองไม่นับ, void อัตโนมัติจากคืนครบยังนับแล้วหักใบลดหนี้) |
 | `GET /reports/by-category?from=&to=` | ยอดขายแยกหมวด | join `sale_items → products` — #97: บิลชุดเดียวกับ summary (void เองไม่นับ, void อัตโนมัติจากคืนครบยังนับแล้วหักใบลดหนี้) |
 | `GET /reports/by-payment?from=&to=` | แยกตามวิธีชำระ (เงินสด/โอน/เครดิต) | *(2026-09-23: **ยังไม่มีใน server**)* |

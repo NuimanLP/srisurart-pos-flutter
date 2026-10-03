@@ -21,8 +21,8 @@ import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
-import '../widgets/closing_report.dart'
-    show NetSales, PaymentGroup, toReportLites;
+import '../../domain/reports/net_sales.dart'
+    show NetSales, PaymentGroup, TopItem, toReportLites;
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
@@ -3145,13 +3145,6 @@ class _InvReportTab extends StatefulWidget {
   State<_InvReportTab> createState() => _InvReportTabState();
 }
 
-class _SoldAgg {
-  final String name;
-  int qty = 0;
-  double revenue = 0;
-  _SoldAgg(this.name);
-}
-
 class _InvReportTabState extends State<_InvReportTab> {
   String _subTab = 'daily';
   bool _loading = true;
@@ -3588,17 +3581,10 @@ class _InvReportTabState extends State<_InvReportTab> {
   }
 
   Widget _ranking(ThemeData theme) {
-    final soldMap = <String, _SoldAgg>{};
-    for (final s in _sales) {
-      for (final i in s.items) {
-        final key = i.partNo ?? i.productId;
-        final agg = soldMap.putIfAbsent(key, () => _SoldAgg(i.name));
-        agg.qty += i.qty;
-        agg.revenue += i.qty * i.price;
-      }
-    }
-    final sorted = soldMap.entries.toList()
-      ..sort((a, b) => b.value.qty.compareTo(a.value.qty));
+    // Every bill ever, net of every credit note, manual voids dropped — the
+    // same rule as the daily/monthly reports ([NetSales]).
+    final sorted = [..._netSales((_) => true).topItems]
+      ..sort((a, b) => b.qty.compareTo(a.qty));
     final best = sorted.take(5).toList();
     final worst = sorted.length <= 5
         ? sorted.reversed.toList()
@@ -3634,7 +3620,7 @@ class _InvReportTabState extends State<_InvReportTab> {
   Widget _rankList(
     ThemeData theme,
     String title,
-    List<MapEntry<String, _SoldAgg>> rows, {
+    List<TopItem> rows, {
     required bool best,
   }) {
     return Column(
@@ -3651,8 +3637,8 @@ class _InvReportTabState extends State<_InvReportTab> {
           ),
         ...rows.asMap().entries.map((e) {
           final i = e.key;
-          final partNo = e.value.key;
-          final d = e.value.value;
+          final d = e.value;
+          final partNo = d.partNo;
           return Container(
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: theme.dividerColor)),

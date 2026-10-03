@@ -5,7 +5,7 @@
 // a ฿150 cash sale returned in full still read revenue ฿150, profit ฿60.
 //
 // The pure maths is `NetSales.of` / `computeGrossProfit` / `countedSales`
-// (closing_report.dart). The repository-driven group at the bottom runs the
+// (domain/reports/net_sales.dart). The repository-driven group at the bottom runs the
 // real Drift SalesRepository/ReturnsRepository and `toReportLites`, the same
 // assembly `_loadClosingData` does.
 
@@ -17,7 +17,7 @@ import 'package:srisurart_pos/data/repositories/products_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
-import 'package:srisurart_pos/presentation/widgets/closing_report.dart';
+import 'package:srisurart_pos/domain/reports/net_sales.dart';
 
 const _tax = 7.0;
 const _vat = 1 + _tax / 100;

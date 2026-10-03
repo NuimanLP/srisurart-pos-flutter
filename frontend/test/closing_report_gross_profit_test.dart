@@ -3,7 +3,7 @@
 // `tables.dart:142`), never today's product cost, which drifts on every
 // weighted-average PO receive.
 //
-// `computeGrossProfit` (closing_report.dart) is the pure math extracted from
+// `computeGrossProfit` (domain/reports/net_sales.dart) is the pure math extracted from
 // `_ClosingReportState._grossProfit` specifically so it is unit-testable
 // without a widget pump. The fallback chain — costAtSale → current product
 // cost → excluded (never silently 0) — mirrors `products_screen.dart`'s
@@ -12,6 +12,7 @@
 // `unknown_cost_rows` tracked for disclosure).
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:srisurart_pos/domain/reports/net_sales.dart';
 import 'package:srisurart_pos/presentation/widgets/closing_report.dart';
 
 SaleLite _saleOf(ItemLite item, {double discount = 0}) {
