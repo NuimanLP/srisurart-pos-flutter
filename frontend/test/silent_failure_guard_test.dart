@@ -19,10 +19,13 @@
 //    same file assigns from such a `read<…>()` or declares with such a type —
 //    and whose method name is NOT a read (see [_readPrefixes]).
 // 3. It is guarded when some enclosing `try { … }` has a catch-all clause
-//    (`catch (…)`, `on Object catch`, `on Exception catch`) whose body contains
-//    a surfacing token (see [_surfaces]): SnackBar, a dialog, setState, emit,
-//    `_alert`/`_warn`/`_toast`/`_show…`, an `…Error…(` helper, or a
-//    rethrow/throw.
+//    (`catch (…)` or `on Object catch` — `on Exception` lets an `Error` escape)
+//    whose body contains a surfacing token (see [_surfaces]): SnackBar, a
+//    dialog, setState, emit, `_alert`/`_warn`/`_toast`/`_show…`, a private
+//    `_…Error…(` helper, or a rethrow/throw.
+// 4. The awaited expression ends at the first `;` or `{`, so a write inside a
+//    closure argument (`showDialog(builder: (_) {…})`) is judged at its own
+//    `await`, not attributed to the outer one.
 //
 // KNOWN LIMITS (heuristic — read before trusting a green run)
 // - A write whose error is meant to propagate to a CALLER that catches it
@@ -63,7 +66,8 @@ const _skipped = {
   'lib/presentation/screens/cash_drawer_screen.dart',
 };
 
-/// `<file>|<receiver.method>` (as the failure message prints it) → why that awaited write is safe (or deferred).
+/// `<file>|<receiver.method>` (as the failure message prints it) → why that
+/// awaited write is safe (or deferred).
 /// The test also fails on an entry that no longer matches anything.
 const _allowlist = <String, String>{
   'lib/presentation/screens/products_screen.dart|repo.deleteMany':
@@ -72,8 +76,8 @@ const _allowlist = <String, String>{
   'lib/presentation/screens/mechanics_screen.dart|repo.discardRejectedCreditPayment':
       'runs through _run(), whose catch shows the error as a SnackBar.',
   'lib/presentation/widgets/login_form.dart|cubit.login':
-      'AuthCubit.login catches everything and emits Unauthenticated(errorMessage), '
-          'which this form shows.',
+      'DEFERRED: AuthCubit.login catches the login itself, but its token-store '
+          'reads before the try can throw; the fix belongs in the cubit.',
   'lib/presentation/widgets/change_password_form.dart|read<AuthCubit>().changePassword':
       'AuthCubit.changePassword catches everything and emits the error state '
           'this form renders.',
@@ -106,7 +110,12 @@ String _codeOnly(String src) {
     var k = start;
     while (k < n) {
       final c = src[k];
-      if (c == "'" || c == '"' || (c == 'r' && k + 1 < n && (src[k + 1] == "'" || src[k + 1] == '"'))) {
+      if (c == "'" ||
+          c == '"' ||
+          (c == 'r' &&
+              k + 1 < n &&
+              (src[k + 1] == "'" || src[k + 1] == '"') &&
+              !RegExp(r'\w').hasMatch(src[k - 1]))) {
         k = scanString(k);
         continue;
       }
@@ -198,7 +207,7 @@ class _Try {
 
 final _surfaces = RegExp(
   r'SnackBar|showDialog|showConfirm|setState\s*\(|\bemit\s*\(|\brethrow\b|\bthrow\b'
-  r'|\b_?(alert|warn|toast)\w*\s*\(|\b_show\w*\s*\(|\b_?\w*[Ee]rror\w*\s*\(',
+  r'|\b_?(alert|warn|toast)\w*\s*\(|\b_show\w*\s*\(|\b_\w*[Ee]rror\w*\s*\(',
 );
 
 List<_Try> _tries(String code) {
@@ -218,7 +227,7 @@ List<_Try> _tries(String code) {
       final bodyClose = _matchingBrace(code, bodyOpen);
       final head = clause.group(1)!.trim();
       final catchAll = head.startsWith('catch') ||
-          RegExp(r'^on\s+(Object|Exception)\s+catch').hasMatch(head);
+          RegExp(r'^on\s+Object\s+catch').hasMatch(head);
       if (catchAll && _surfaces.hasMatch(code.substring(bodyOpen, bodyClose))) {
         guards = true;
       }
@@ -259,14 +268,14 @@ List<({int line, String call})> _unguardedWrites(String source) {
   final names = _receiverNames(code);
   final namePattern = names.isEmpty ? '' : '|\\b(?:${names.join('|')})';
   final receiver = RegExp(
-    '(?:\\b\\w*[Rr]epo\\w*|read<$_serviceType>\\(\\)$namePattern)'
+    '(?:\\b\\w*[Rr]epo(?:sitory)?\\b|read<$_serviceType>\\(\\)$namePattern)'
     '\\s*\\.\\s*(\\w+)\\s*\\(',
   );
   final found = <({int line, String call})>[];
   for (final m in RegExp(r'\bawait\b').allMatches(code)) {
-    final semi = code.indexOf(';', m.start);
+    final end = code.substring(m.start).indexOf(RegExp(r'[;{]'));
     final stmt = code
-        .substring(m.start, semi < 0 ? code.length : semi)
+        .substring(m.start, end < 0 ? code.length : m.start + end)
         .replaceAll(RegExp(r'\s+'), ' ');
     final call = receiver.firstMatch(stmt);
     if (call == null || _isRead(call.group(1)!)) continue;
@@ -353,6 +362,38 @@ void main() {
 ''';
     expect(_unguardedWrites(typedOnly), hasLength(1),
         reason: 'any other exception type still escapes silently');
+
+    const exceptionOnly = '''
+  Future<void> _x() async {
+    try {
+      await repo.cancelPO(id);
+    } on Exception catch (e) {
+      _showError(e);
+    }
+  }
+''';
+    expect(_unguardedWrites(exceptionOnly), hasLength(1),
+        reason: 'an Error (StateError, TypeError) still escapes silently');
+
+    // A write inside a dialog builder is judged at its own await only.
+    const nested = '''
+  Future<void> _x() async {
+    await showDialog<void>(context: context, builder: (_) {
+      return Button(onPressed: () async {
+        await repo.cancelPO(id);
+      });
+    });
+  }
+''';
+    expect(_unguardedWrites(nested).map((f) => f.line), [4]);
+
+    // `report`/`reportCubit`-style names are not repository receivers.
+    const notARepo = '''
+  Future<void> _x() async {
+    await report.print();
+  }
+''';
+    expect(_unguardedWrites(notARepo), isEmpty);
   });
 
   test('no presentation handler awaits a write that can fail silently', () {

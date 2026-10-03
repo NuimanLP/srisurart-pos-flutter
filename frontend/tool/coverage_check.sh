@@ -39,7 +39,8 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   echo "### Flutter line coverage: ${pct}% (baseline ${baseline}%, ${hit}/${found} lines, \`*.g.dart\` excluded)" >> "$GITHUB_STEP_SUMMARY"
 fi
 
-if awk -v p="$pct" -v b="$baseline" 'BEGIN { exit !(p < b) }'; then
+# Compare the exact ratio, not the 2-decimal display (70.996% must not pass 71).
+if awk -v h="$hit" -v f="$found" -v b="$baseline" 'BEGIN { exit !(100 * h < b * f) }'; then
   echo "::error::Flutter line coverage ${pct}% is below the committed baseline ${baseline}% (frontend/${baseline_file}). Add tests for the code you changed."
   exit 1
 fi
