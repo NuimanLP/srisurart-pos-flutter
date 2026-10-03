@@ -23,9 +23,10 @@ import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../../domain/reports/net_sales.dart'
-    show NetSales, TopItem, toReportLites;
+    show NetSales, ReturnLite, TopItem, toReportLites;
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
+import '../widgets/status_chip.dart';
 import '../widgets/thai_format.dart';
 
 enum ReportRange { today, week, month, all }
@@ -63,24 +64,41 @@ enum ReportRange { today, week, month, all }
 /// Revenue per category over [sales]' lines: product matched by partNo →
 /// category, else its zone, else อื่นๆ (first catalogue match wins, like the
 /// original linear scan). The lookup map is built once, not per line.
+///
+/// [returns] (the period's credit notes, from `toReportLites`) subtract each
+/// returned line's qty × price from the category of its product — the same
+/// per-line rule as [NetSales.topItems] and the server's `byCategory`
+/// (`return_events`) — so a fully returned bill leaves no revenue behind.
+/// A category whose net is 0 drops out (the server's `HAVING`).
 Map<String, double> revenueByCategory(
   List<SaleWithItems> sales,
-  List<ProductRow> products,
-) {
+  List<ProductRow> products, {
+  List<ReturnLite> returns = const [],
+}) {
   final byPartNo = <String, ProductRow>{};
   for (final p in products) {
     byPartNo.putIfAbsent(p.partNo, () => p);
   }
   final zoneMap = <String, double>{};
+  void add(String? partNo, int qty, double price, int sign) {
+    final p = byPartNo[partNo];
+    final z = (p?.category.isNotEmpty ?? false)
+        ? p!.category
+        : (p?.zone ?? 'อื่นๆ');
+    zoneMap[z] = (zoneMap[z] ?? 0) + sign * qty * price;
+  }
+
   for (final t in sales) {
     for (final item in t.items) {
-      final p = byPartNo[item.partNo];
-      final z = (p?.category.isNotEmpty ?? false)
-          ? p!.category
-          : (p?.zone ?? 'อื่นๆ');
-      zoneMap[z] = (zoneMap[z] ?? 0) + item.qty * item.price;
+      add(item.partNo, item.qty, item.price, 1);
     }
   }
+  for (final r in returns) {
+    for (final i in r.items) {
+      add(i.partNo, i.qty, i.price, -1);
+    }
+  }
+  zoneMap.removeWhere((_, v) => v.abs() < 0.005);
   return zoneMap;
 }
 
@@ -229,8 +247,12 @@ class _ReportsView extends StatelessWidget {
     final recent = data.sales.take(10).toList();
 
     // Category revenue (match product by partNo → category/zone, else อื่นๆ)
-    // over the counted bills; not yet net of credit notes.
-    final zoneMap = revenueByCategory(counted, data.products);
+    // over the counted bills, net of the period's credit notes.
+    final zoneMap = revenueByCategory(
+      counted,
+      data.products,
+      returns: lites.returns,
+    );
     final zones = zoneMap.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final double maxZoneVal = zones.isNotEmpty ? zones.first.value : 1.0;
@@ -1316,6 +1338,9 @@ class _RecentRow extends StatelessWidget {
                       isDark: isDark,
                     ),
                     _InfoChip(label: s.paymentMethod, isDark: isDark),
+                    // A voided bill (manual, or auto-voided by a full return)
+                    // must not read like a live sale.
+                    if (s.voided) StatusChip.of('voided'),
                   ],
                 ),
               ],
