@@ -45,6 +45,15 @@ const els = {
   closeMsg: document.getElementById('closeMsg'),
   closeCancelBtn: document.getElementById('closeCancelBtn'),
   closeConfirmBtn: document.getElementById('closeConfirmBtn'),
+  replaceModalBackdrop: document.getElementById('replaceModalBackdrop'),
+  replaceModalTitle: document.getElementById('replaceModalTitle'),
+  replaceLabelInput: document.getElementById('replaceLabelInput'),
+  replaceForceBox: document.getElementById('replaceForceBox'),
+  replaceForceReason: document.getElementById('replaceForceReason'),
+  replaceNoteInput: document.getElementById('replaceNoteInput'),
+  replaceMsg: document.getElementById('replaceMsg'),
+  replaceCancelBtn: document.getElementById('replaceCancelBtn'),
+  replaceConfirmBtn: document.getElementById('replaceConfirmBtn'),
 };
 
 /** The tenant the detail view is showing (id + the row last loaded for it). */
@@ -81,6 +90,7 @@ const STATUS_TRANSITIONS = {
  */
 const ERROR_TEXT = {
   RATE_LIMITED: 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
+  DEVICE_ALREADY_RETIRED: 'เครื่องนี้ถูกปลดไปแล้ว',
   TENANT_CLOSED: 'ร้านนี้ปิดถาวรแล้ว เปลี่ยนสถานะไม่ได้อีก',
 };
 
@@ -226,10 +236,11 @@ function showView(view) {
 // ---- API layer --------------------------------------------------------------
 
 class ApiError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details) {
     super(message);
     this.status = status;
     this.code = code;
+    this.details = details || null;
   }
 }
 
@@ -269,7 +280,12 @@ async function api(path, options = {}) {
 
   if (!res.ok) {
     const error = body && body.error ? body.error : {};
-    throw new ApiError(res.status, error.code || '', error.message || `HTTP ${res.status}`);
+    throw new ApiError(
+      res.status,
+      error.code || '',
+      error.message || `HTTP ${res.status}`,
+      error.details,
+    );
   }
 
   return body ? body.data : null;
@@ -285,7 +301,9 @@ function route() {
     return;
   }
   els.logoutBtn.classList.remove('hidden');
-  hideCloseModal(); // never confirm a close against a tenant the admin navigated away from
+  // Never confirm a close/replace against a tenant the admin navigated away from.
+  hideCloseModal();
+  hideReplaceModal();
   const m = TENANT_HASH.exec(location.hash);
   if (m) {
     say(els.statusMsg, null, null);
@@ -313,6 +331,7 @@ function goToLogin(message) {
   currentTenant = null;
   els.logoutBtn.classList.add('hidden');
   hideCloseModal();
+  hideReplaceModal();
   say(els.loginMsg, 'error', message || null);
   showView(els.loginView);
 }
@@ -575,6 +594,12 @@ function renderDevices(tenantId, devices) {
       reissueBtn.textContent = 'ออกรหัสใหม่ (reissue code)';
       reissueBtn.addEventListener('click', () => handleReissueCode(reissueBtn, tenantId, d.id));
       actionCell.appendChild(reissueBtn);
+    } else if (d.enrolled && !d.retiredAt) {
+      const replaceBtn = document.createElement('button');
+      replaceBtn.className = 'danger';
+      replaceBtn.textContent = 'แทนที่อุปกรณ์ (replace)';
+      replaceBtn.addEventListener('click', () => openReplaceModal(tenantId, d));
+      actionCell.appendChild(replaceBtn);
     }
     row.appendChild(actionCell);
 
@@ -781,6 +806,103 @@ async function handleConfirmClose() {
   els.closeConfirmBtn.disabled = !closeCodeMatches();
 }
 
+// ---- replace a lost enrolled device (#476: POST …/devices/:deviceId/replace) ------------
+//
+// Retires the lost device and creates its replacement (new device number) in one server
+// transaction; the replacement's enrolment code comes back once and is only ever put in the
+// one-time code modal — never logged or stored here.
+
+/** The device the replace modal is for, and whether the admin has been asked to force. */
+let replaceTarget = null;
+
+const FORCE_REASON_TEXT = {
+  DEVICE_HAS_OPEN_SHIFT:
+    'อุปกรณ์นี้ยังมีกะเปิดอยู่ — ถ้าบังคับแทนที่ กะนี้จะถูกปิดอัตโนมัติแบบไม่ได้นับเงิน และขึ้นเป็นรายการรอตรวจสอบให้เจ้าของร้าน',
+  DEVICE_HAS_UNSYNCED_OPS:
+    'อุปกรณ์นี้ยังมีรายการค้างส่ง — ถ้าบังคับแทนที่ รายการเหล่านั้นอาจไม่ได้ส่งเข้าระบบ และขึ้นเป็นรายการรอตรวจสอบให้เจ้าของร้าน',
+};
+
+function openReplaceModal(tenantId, device) {
+  replaceTarget = { tenantId, deviceId: device.id, force: false };
+  els.replaceModalTitle.textContent = `แทนที่อุปกรณ์ ${device.id} (${device.label})`;
+  els.replaceLabelInput.value = '';
+  els.replaceNoteInput.value = '';
+  els.replaceForceReason.textContent = '';
+  els.replaceForceBox.classList.add('hidden');
+  els.replaceConfirmBtn.textContent = 'แทนที่อุปกรณ์';
+  els.replaceConfirmBtn.disabled = false;
+  say(els.replaceMsg, null, null);
+  els.replaceModalBackdrop.classList.remove('hidden');
+  els.replaceLabelInput.focus();
+}
+
+function hideReplaceModal() {
+  replaceTarget = null;
+  els.replaceModalBackdrop.classList.add('hidden');
+  els.replaceLabelInput.value = '';
+  els.replaceNoteInput.value = '';
+}
+
+/** In force mode the confirm button needs a non-empty note (the server refuses one without). */
+function replaceReady() {
+  return !!replaceTarget && (!replaceTarget.force || els.replaceNoteInput.value.trim() !== '');
+}
+
+function showForceStep(code) {
+  replaceTarget.force = true;
+  els.replaceForceReason.textContent = FORCE_REASON_TEXT[code];
+  els.replaceForceBox.classList.remove('hidden');
+  els.replaceConfirmBtn.textContent = 'บังคับแทนที่อุปกรณ์';
+  els.replaceNoteInput.focus();
+}
+
+async function handleConfirmReplace() {
+  const target = replaceTarget;
+  if (!target || !replaceReady()) return;
+  const body = {};
+  const label = els.replaceLabelInput.value.trim();
+  if (label) body.label = label;
+  if (target.force) {
+    body.force = true;
+    body.note = els.replaceNoteInput.value.trim();
+  }
+  say(els.replaceMsg, null, null);
+  say(els.devicesMsg, null, null);
+  await withBusy(els.replaceConfirmBtn, async () => {
+    try {
+      const data = await api(
+        `/tenants/${encodeURIComponent(target.tenantId)}/devices/` +
+          `${encodeURIComponent(target.deviceId)}/replace`,
+        { method: 'POST', body },
+      );
+      hideReplaceModal();
+      showCodeModal({
+        title: `อุปกรณ์ใหม่ ${data.device.id} (${data.device.label}) แทนอุปกรณ์ ${data.retiredDeviceId}`,
+        items: [
+          {
+            label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
+            value: data.enrolCode,
+            note: `หมดอายุ: ${fmtDate(data.enrolExpiresAt)}`,
+          },
+        ],
+      });
+      await refreshDetailAfter(
+        target.tenantId,
+        els.devicesMsg,
+        `ปลดอุปกรณ์ ${data.retiredDeviceId} และสร้างอุปกรณ์ใหม่ ${data.device.id} แล้ว`,
+      );
+    } catch (err) {
+      if (replaceTarget !== target) return; // modal closed/navigated meanwhile
+      if (!target.force && FORCE_REASON_TEXT[err.code]) {
+        showForceStep(err.code);
+      } else {
+        fail(els.replaceMsg, err);
+      }
+    }
+  });
+  if (replaceTarget === target) els.replaceConfirmBtn.disabled = !replaceReady();
+}
+
 // ---- one-time secret modal --------------------------------------------------------------
 
 /**
@@ -857,6 +979,11 @@ els.closeConfirmInput.addEventListener('input', () => {
 });
 els.closeCancelBtn.addEventListener('click', hideCloseModal);
 els.closeConfirmBtn.addEventListener('click', handleConfirmClose);
+els.replaceNoteInput.addEventListener('input', () => {
+  els.replaceConfirmBtn.disabled = !replaceReady();
+});
+els.replaceCancelBtn.addEventListener('click', hideReplaceModal);
+els.replaceConfirmBtn.addEventListener('click', handleConfirmReplace);
 
 for (const btn of statusButtons()) {
   btn.addEventListener('click', () => handleStatusButton(btn));

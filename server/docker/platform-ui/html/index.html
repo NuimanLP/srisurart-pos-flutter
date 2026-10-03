@@ -158,6 +158,30 @@
       </div>
     </section>
 
+    <!-- Replace a lost enrolled device (#476). Force step appears only after the server
+         refused with DEVICE_HAS_OPEN_SHIFT / DEVICE_HAS_UNSYNCED_OPS, and needs a note. -->
+    <div id="replaceModalBackdrop" class="hidden modal-backdrop">
+      <div class="card modal-card" role="dialog" aria-modal="true" aria-labelledby="replaceModalTitle">
+        <h2 id="replaceModalTitle"></h2>
+        <p class="warn-note">
+          ใช้เมื่ออุปกรณ์นี้หายหรือถูกล้างข้อมูลเบราว์เซอร์ไปแล้วเท่านั้น — ระบบจะ<strong>ปลดอุปกรณ์นี้ทันที</strong>
+          และสร้างอุปกรณ์ใหม่ (เลขเครื่องใหม่) พร้อมรหัสลงทะเบียนสำหรับผูกเครื่องใหม่
+        </p>
+        <label for="replaceLabelInput">ป้ายชื่ออุปกรณ์ใหม่ (ไม่บังคับ — เว้นว่างเพื่อใช้ชื่อเดิม)</label>
+        <input type="text" id="replaceLabelInput" maxlength="100" autocomplete="off" />
+        <div id="replaceForceBox" class="hidden">
+          <p class="warn-note" id="replaceForceReason"></p>
+          <label for="replaceNoteInput">เหตุผลที่บังคับแทนที่ (จำเป็น)</label>
+          <input type="text" id="replaceNoteInput" autocomplete="off" />
+        </div>
+        <div id="replaceMsg" class="msg-box hidden" role="alert"></div>
+        <p class="row-actions mt-16">
+          <button id="replaceCancelBtn">ยกเลิก</button>
+          <button id="replaceConfirmBtn" class="danger">แทนที่อุปกรณ์</button>
+        </p>
+      </div>
+    </div>
+
     <!-- One-time secret modal — can hold one or more items (e.g. tempPassword + enrolCode) -->
     <div id="codeModalBackdrop" class="hidden modal-backdrop">
       <div class="card modal-card">
