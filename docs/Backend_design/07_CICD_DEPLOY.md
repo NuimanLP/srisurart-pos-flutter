@@ -280,8 +280,9 @@ node-exporter 64m → **≈ 4.2 GB จาก 6 GB** — ทุกตัวต้
   web build ใช้ trust ของเบราว์เซอร์ตามเดิม (เบราว์เซอร์ยังเตือนใบจนกว่าจะติดตั้ง `ca.crt` ในเครื่องนั้นเอง)
 * 🔴 **ห้าม `down -v` / ลบ `certs-ca`** — CA หาย = `certgen` สร้าง CA ใหม่ → ทุก APK ที่ออกไปแล้วต่อ VM ไม่ได้จนกว่าจะ
   commit `ca.crt` ใหม่แล้ว build APK ใหม่ (ทำตาม runbook ข้างล่างอีกรอบ)
-* 🔴 **rollback ไป SHA ก่อนหน้า fix นี้** (compose/platform-ui `nginx.conf` เก่า): `certgen` เก่าเห็นว่ามี `server.crt` แล้วไม่ทำอะไร
-  nginx/แอปยังใช้ได้ แต่ platform-ui เก่า trust `server.crt` ตรง ๆ ซึ่งตอนนี้ไม่ใช่ self-signed → platform-ui 502 จนกว่าจะ deploy SHA ใหม่
+* **rollback ไป SHA ก่อนหน้า fix นี้ปลอดภัย** (compose/platform-ui `nginx.conf` เก่า): `certgen` เก่าเห็นว่ามี `server.crt` แล้วไม่ทำอะไร ·
+  `server.crt` เขียนเป็น full chain (leaf + CA) platform-ui เก่าที่ trust `server.crt` ตรง ๆ จึงยัง verify ผ่าน CA ในไฟล์นั้น
+  (`certgen.test.sh`: `openssl verify -CAfile server.crt server.crt`) · nginx/แอปใช้ได้ตามเดิม
 
 **Runbook ครั้งเดียว (owner) — ให้ APK ต่อ `mob04` ได้:**
 1. merge PR นี้ → approve *Deploy (demo)* → ยืนยัน `cat /opt/pos/.current_sha` = SHA ที่ merge (run เขียวอย่างเดียวไม่นับ)
@@ -339,7 +340,7 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
    จาก source ที่ไม่มีบน VM)
 3. `docker compose pull`
 4. `docker compose run --rm migrate` — **schema ก่อนโค้ด** ครั้งเดียว
-5. `up -d postgres redis-cache redis-queue certgen htpasswd-gen etcd` (ทุกขั้นหลังจากนี้ใช้ `--no-deps` จึงต้องอยู่ในบรรทัดนี้)
+5. `run --rm --no-deps certgen` (รอผล — ออกใบไม่สำเร็จ = deploy fail, 2026-10-03) แล้ว `up -d postgres redis-cache redis-queue htpasswd-gen etcd` (ทุกขั้นหลังจากนี้ใช้ `--no-deps` จึงต้องอยู่ในบรรทัดนี้)
    → seed key etcd ที่ยังไม่มี (§8) — ไม่ทับค่าที่มีอยู่ · ของจริง: ทำใน `etcd-init.sh` ซึ่ง playbook รันแบบ
    `docker compose run --rm etcd-init` **ก่อน** rolling restart (ข้อ 6) — enable auth → assert → txn
    `create_revision == 0` put `/pos/config/log_level` = `LOG_LEVEL` ของ `.env` (ไม่ตั้ง = `info`) · exit ≠ 0 =
@@ -720,8 +721,8 @@ merge มาก่อนตามแผนใน PR #109) มาบรรจบ�
 * **ไม่ทำ:** maintenance mode (ต้องมีข้อความไทยหน้าเคาน์เตอร์ใหม่ — `CLAUDE.md` ห้ามแต่งเอง),
   ค่า rate limit (ไม่มีผู้ใช้ — ADR-0006 เก็บโควตาใน `tenants.plan`), อะไรก็ตามที่เป็นข้อมูลธุรกิจ ·
   seed key แรกตอน deploy ยังเป็นของ `cd.2` (#67) ไม่ใช่ของรอบนี้ — #64 ส่งมอบ store เปล่าที่ทำงานได้
-* **VM (`demo`):** `deploy/ansible/deploy.yml`'s "Ensure backing datastores, certgen and etcd
-  are running" step now also brings up `etcd` — ทุก step หลังจากนั้นใน playbook ใช้
+* **VM (`demo`):** `deploy/ansible/deploy.yml`'s "Ensure backing datastores, htpasswd-gen and etcd
+  are running" step (certgen ย้ายไปเป็น task `run --rm` ของตัวเอง 2026-10-03) now also brings up `etcd` — ทุก step หลังจากนั้นใน playbook ใช้
   `--no-deps` ดังนั้น service ที่ไม่อยู่ใน `up -d` บรรทัดนี้จะไม่มีวันถูกสร้างขึ้นเลยบน VM · `etcd-init` ไม่อยู่ใน
   `up -d` แล้ว: playbook copy สคริปต์ไป `/opt/pos/docker/etcd/` แล้วรัน `run --rm etcd-init` แบบรอผล (fail = deploy
   fail) และ assert ว่า etcd ปฏิเสธ request ที่ไม่มี credential — ก่อน fix นี้ auth ไม่เคยเปิดบน VM (§7 runbook) · **ก่อน deploy
@@ -862,7 +863,7 @@ build ด้วย `--dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL
     `ETCD_ROOT_PASSWORD`/`GRAFANA_ADMIN_PASSWORD` ต้องทำมาก่อนหน้านี้
   * htpasswd ไฟล์ถูกสร้างโดย `htpasswd-gen` (`server/docker-compose.yml`) — one-shot container
     รูปแบบเดียวกับ `certgen` ของ cert self-signed, idempotent, ต้องรัน**ก่อน** Nginx ทุกครั้ง
-    (`deploy/ansible/deploy.yml`: อยู่ใน task "Ensure backing datastores, certgen, htpasswd-gen
+    (`deploy/ansible/deploy.yml`: อยู่ใน task "Ensure backing datastores, htpasswd-gen
     and etcd are running" ซึ่งมาก่อน task "Validate the copied Nginx configuration"/
     "Recreate Nginx" เสมอ — ไม่งั้น `auth_basic_user_file` จะหาไฟล์ไม่เจอ)
 * 🔴 **receiver เปิดค้างถาวร ไม่มี toggle อัตโนมัติระหว่างช่วงที่ไม่ได้ยิง k6** — `--web.enable-

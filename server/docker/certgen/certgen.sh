@@ -64,6 +64,9 @@ openssl x509 -req -sha256 -days 825 -in "$tmp/server.csr" \
 rm -f "$CERTS_DIR/server.crt"
 cp "$tmp/server.key" "$CERTS_DIR/server.key"
 chmod 600 "$CERTS_DIR/server.key"
-cp "$tmp/server.crt" "$CERTS_DIR/server.crt"
+# Full chain, leaf first (what nginx's ssl_certificate expects). The CA travelling inside
+# server.crt keeps a rollback safe: platform-ui configs from before the CA trusted server.crt
+# itself, and still verify through the CA in it. Every check above reads the first cert only.
+cat "$tmp/server.crt" "$CA_DIR/ca.crt" >"$CERTS_DIR/server.crt"
 chmod 644 "$CERTS_DIR/server.crt"
 echo "certgen: issued a new server certificate ($SAN)"

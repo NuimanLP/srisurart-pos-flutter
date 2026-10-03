@@ -5,9 +5,11 @@
 @TestOn('vm')
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/foundation.dart' show FlutterError;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:srisurart_pos/core/network/pos_trust_io.dart';
@@ -97,10 +99,36 @@ void main() {
     await expectLater(getFrom('stranger'), throwsA(refused('self signed certificate')));
   }, skip: opensslMissing);
 
+  // The app must still start (offline till) whatever the asset holds.
+  for (final (name, text) in [
+    ('a malformed PEM', '-----BEGIN CERTIFICATE-----\nnot a cert\n-----END CERTIFICATE-----\n'),
+    ('an asset that cannot be loaded (zero-byte on some platforms)', null),
+    ('an empty asset', ''),
+  ]) {
+    test('installPosTrust survives $name and keeps the system roots', () async {
+      HttpOverrides.global = null;
+      await installPosTrust(bundle: _FakeBundle(text)); // must not throw
+      expect(HttpOverrides.current, isNull);
+    });
+  }
+
   test('installPosTrust installs the overrides only when the asset holds a cert', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
     final pem = await rootBundle.loadString(posCaAsset); // throws if the asset is not bundled
     await installPosTrust();
     expect(HttpOverrides.current is PosTrustOverrides, pem.trim().isNotEmpty);
   });
+}
+
+/// [text] null = the asset cannot be loaded at all.
+class _FakeBundle extends CachingAssetBundle {
+  _FakeBundle(this.text);
+
+  final String? text;
+
+  @override
+  Future<ByteData> load(String key) async {
+    if (text == null) throw FlutterError('Unable to load asset: "$key".');
+    return ByteData.sublistView(utf8.encode(text!));
+  }
 }
