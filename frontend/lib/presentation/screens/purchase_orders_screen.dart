@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
@@ -597,6 +598,12 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
         ),
       );
       if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

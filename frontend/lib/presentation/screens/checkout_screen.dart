@@ -568,26 +568,31 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     // db.js's DB.saveQuote never did; CheckoutScreen.jsx passed
     // `DB.getSettings().quoteValidDays || 30`, so this call is the port of
     // that, not a new behaviour.
-    final settings = await settingsRepo.getSettings();
-    await quotesRepo.saveQuote(
-      QuoteInput(
-        subtotal: _subtotal,
-        discount: _discount,
-        total: _total,
-        customerName: _selectedCustomer?.nameTH ?? '',
-        customerPhone: _selectedCustomer?.phone ?? '',
-        validDays: settings.quoteValidDays,
-        items: [
-          for (final it in cart)
-            QuoteLineInput(
-              productId: it.productId,
-              name: it.name,
-              qty: it.qty,
-              price: it.price,
-            ),
-        ],
-      ),
-    );
+    try {
+      final settings = await settingsRepo.getSettings();
+      await quotesRepo.saveQuote(
+        QuoteInput(
+          subtotal: _subtotal,
+          discount: _discount,
+          total: _total,
+          customerName: _selectedCustomer?.nameTH ?? '',
+          customerPhone: _selectedCustomer?.phone ?? '',
+          validDays: settings.quoteValidDays,
+          items: [
+            for (final it in cart)
+              QuoteLineInput(
+                productId: it.productId,
+                name: it.name,
+                qty: it.qty,
+                price: it.price,
+              ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) _alert(_msg(e));
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,

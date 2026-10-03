@@ -287,7 +287,7 @@ class _QuotesScreenState extends State<QuotesScreen> {
   String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  void _openPreview(QuoteWithItems qi, {bool isDegraded = false}) async {
+  Future<void> _openPreview(QuoteWithItems qi, {bool isDegraded = false}) async {
     final SettingsRowData settings;
     try {
       settings = await context.read<SettingsRepository>().getSettings();

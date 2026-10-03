@@ -1,6 +1,8 @@
 // DevicesScreen — Screen for managing shop terminals/devices (ADR-0004, Slice 21).
 // Defined in docs/Backend_design/09_PHASE2_LANES.md §3, §88 and 08_PHASE2_SPEC.md §16.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -89,7 +91,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
     );
 
     if (result != null && mounted) {
-      _loadDevices();
+      unawaited(_loadDevices());
       _showEnrolCodeDialog(result.device, result.enrolCode);
     }
   }
@@ -112,7 +114,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
     );
 
     if (retired == true && mounted) {
-      _loadDevices();
+      unawaited(_loadDevices());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('ปลดระวางเครื่อง #${device.deviceNo.toString().padLeft(2, '0')} (${device.label}) เรียบร้อยแล้ว'),

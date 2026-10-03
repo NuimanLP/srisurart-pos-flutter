@@ -1033,11 +1033,11 @@ void main() {
         httpClient: MockClient.streaming((req, bodyStream) async {
           if (req case http.Abortable(:final abortTrigger?)) {
             isAbortable = true;
-            abortTrigger.then((_) {
+            unawaited(abortTrigger.then((_) {
               if (!abortedCompleter.isCompleted) {
                 abortedCompleter.complete();
               }
-            });
+            }));
           }
           return Completer<http.StreamedResponse>().future;
         }),
@@ -1068,10 +1068,10 @@ void main() {
         httpClient: MockClient.streaming((req, bodyStream) async {
           final completer = Completer<http.StreamedResponse>();
           if (req case http.Abortable(:final abortTrigger?)) {
-            abortTrigger.then((_) {
+            unawaited(abortTrigger.then((_) {
               if (!aborted.isCompleted) aborted.complete();
               completer.completeError(http.RequestAbortedException(req.url));
-            });
+            }));
           }
           return completer.future;
         }),
@@ -1099,7 +1099,7 @@ void main() {
         baseUrl: 'http://server.test',
         httpClient: MockClient.streaming((req, bodyStream) async {
           if (req case http.Abortable(:final abortTrigger?)) {
-            abortTrigger.then((_) => aborted = true);
+            unawaited(abortTrigger.then((_) => aborted = true));
           }
           return http.StreamedResponse(
             Stream.value(utf8.encode(jsonEncode({'status': 'success', 'data': {'ok': true}}))),
@@ -1167,11 +1167,11 @@ void main() {
 
       // The first request (401) was not aborted because it completed normally
       var firstAborted = false;
-      abortTriggers[0].then((_) => firstAborted = true);
+      unawaited(abortTriggers[0].then((_) => firstAborted = true));
 
       // The second request (hung) was aborted on timeout
       final secondAborted = Completer<void>();
-      abortTriggers[1].then((_) => secondAborted.complete());
+      unawaited(abortTriggers[1].then((_) => secondAborted.complete()));
 
       await expectLater(secondAborted.future.timeout(const Duration(seconds: 1)), completes);
       expect(firstAborted, isFalse);

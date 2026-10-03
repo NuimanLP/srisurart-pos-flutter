@@ -506,6 +506,13 @@ class _PendingPaymentsDialogState extends State<_PendingPaymentsDialog> {
     setState(() => _busy = true);
     try {
       await action();
+    } catch (e) {
+      // Without this a failed retry/discard/flush only stopped the spinner.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+        );
+      }
     } finally {
       final rows = await widget.repo.getPendingCreditPayments();
       if (mounted) {

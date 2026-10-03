@@ -106,7 +106,16 @@ class _CustomersScreenState extends State<CustomersScreen> {
     final repo = context.read<CustomersRepository>();
     final ok = await showConfirm(context, 'ลบลูกค้า', msg, danger: true);
     if (!ok) return;
-    await repo.deleteCustomer(c.id);
+    try {
+      await repo.deleteCustomer(c.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+        );
+      }
+      return;
+    }
     _refresh();
   }
 

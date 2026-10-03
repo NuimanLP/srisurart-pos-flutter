@@ -131,8 +131,23 @@ jobs:
       - name: dart analyze
         run: dart analyze --fatal-infos
 
-      - name: flutter test
-        run: flutter test --reporter expanded
+      - name: flutter test (with coverage)
+        # Includes test/silent_failure_guard_test.dart (an awaited repository
+        # write with no surfacing catch fails the build).
+        run: flutter test --reporter expanded --coverage
+
+      - name: coverage ratchet
+        # Fails below the integer baseline in frontend/coverage_baseline.txt;
+        # prints the percentage to the job summary. *.g.dart is excluded.
+        run: bash tool/coverage_check.sh coverage/lcov.info coverage_baseline.txt
+
+      - name: upload lcov.info
+        if: ${{ !cancelled() && hashFiles('frontend/coverage/lcov.info') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: flutter-lcov-${{ github.sha }}
+          path: frontend/coverage/lcov.info
+          retention-days: 14
 
   deps-audit:
     name: pubspec.lock CVEs (OSV-Scanner)
