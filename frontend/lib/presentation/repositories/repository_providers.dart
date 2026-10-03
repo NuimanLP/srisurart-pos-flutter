@@ -213,7 +213,7 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
     RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
     RepositoryProvider<SettingsRepository>.value(value: settingsRepo),
-    RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db)),
+    RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db, importBlocked: useApi)),
     RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),
     RepositoryProvider<AuthRepository>.value(value: authRepo),
     RepositoryProvider<OfflinePinRepository>.value(value: offlinePinRepo),

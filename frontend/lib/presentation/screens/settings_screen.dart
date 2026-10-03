@@ -1574,6 +1574,11 @@ class _BackupTabState extends State<_BackupTab> {
   }
 
   List<Widget> _restoreView(bool isDegraded) {
+    // API build: restore only rewrites the local cache (never the server), so
+    // the control is not offered — just the explanation.
+    if (context.read<SnapshotRepository>().importBlocked) {
+      return const [_InfoBox(text: SnapshotRepository.importBlockedMessage)];
+    }
     final pmeta =
         (_preview?['__meta'] as Map?)?.cast<String, dynamic>() ?? const {};
     final pcounts =

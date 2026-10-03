@@ -32,12 +32,28 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
 
 class SnapshotRepository {
   final AppDatabase db;
-  SnapshotRepository(this.db);
+
+  /// True on the API build (`USE_API_WRITES`): the server is the source of
+  /// truth, so a restore would only rewrite the local Drift cache, never reach
+  /// the server, and leave local-only codes (M001…/CUS001…) that collide with
+  /// server-issued ones. [importLegacyBackup] refuses and the Settings screen
+  /// hides the restore control. Importing data into a tenant is the platform
+  /// admin's job.
+  final bool importBlocked;
+
+  SnapshotRepository(this.db, {this.importBlocked = false});
+
+  /// Thai explanation shown instead of the restore control (and thrown by
+  /// [importLegacyBackup]) when [importBlocked]. 02 §8.1.1 — agent ร่าง.
+  static const String importBlockedMessage =
+      'ระบบนี้เก็บข้อมูลบนเซิร์ฟเวอร์ ไม่สามารถกู้คืนข้อมูลจากไฟล์ในหน้านี้ได้ — '
+      'การนำเข้าข้อมูลเข้าระบบ ให้ผู้ดูแลแพลตฟอร์มเป็นผู้ดำเนินการ';
 
   // db.js BACKUP_FORMAT_VERSION (file-format version, NOT the schema counter).
   static const int backupFormatVersion = 2;
@@ -593,6 +609,9 @@ class SnapshotRepository {
   /// transaction rolls everything back (the idiomatic snapshot/rollback).
   /// A null / absent store value is treated as "skip" (never as data).
   Future<void> importLegacyBackup(Map<String, dynamic> data) async {
+    if (importBlocked) {
+      throw const PosException('IMPORT_BLOCKED_API_BUILD', importBlockedMessage);
+    }
     if (data['__meta'] == null) {
       throw Exception('ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta');
     }
