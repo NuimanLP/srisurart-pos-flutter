@@ -211,7 +211,7 @@ Deploy (demo)
 | 3 | copy compose, `nginx.conf`, platform-ui, postgres init, `etcd-init.sh` (ลบ "ไดเรกทอรี" `etcd-init.sh` เก่าที่ Docker สร้างไว้ก่อน) | config ตรงกับ image ของ release เดียวกัน |
 | 4 | `docker compose pull` | ดึงจาก GHCR (ที่ FortiGate เคยตัด) |
 | 5 | `run --rm migrate` | **schema ก่อนโค้ด** · ไม่มี down-migration → rollback ไม่ถอย schema |
-| 6 | `up -d postgres redis-cache redis-queue certgen htpasswd-gen etcd` | ทุก step หลังจากนี้ใช้ `--no-deps` |
+| 6 | `run --rm --no-deps certgen` แล้ว `up -d postgres redis-cache redis-queue htpasswd-gen etcd` | certgen ออกใบ TLS (ล้ม = deploy ล้ม) · ทุก step หลังจากนี้ใช้ `--no-deps` |
 | 7 | `run --rm etcd-init` + assert อ่านแบบไม่มีรหัสได้ **400** | etcd ต้องเปิด auth จริง (#365) · seed `/pos/config/log_level` ถ้ายังไม่มี |
 | 8 | `api-1` → รอ healthy → `api-2` → รอ → `api-3` → รอ | rolling: ร้านไม่ดับระหว่าง deploy |
 | 9 | worker + bull-board · web-sync · `nginx -t` แล้ว recreate nginx · platform-ui | config nginx เสียไม่ทำให้ nginx เดิมหยุด |

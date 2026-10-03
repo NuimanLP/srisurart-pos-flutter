@@ -938,6 +938,10 @@ run แรก **เขียว** แต่ไม่ได้ deploy อะไ�
 - ค่าจาก event ไม่ถูกแทรกลง shell ตรงๆ แต่ผ่าน `env:` และตรวจด้วย regex (`^[0-9a-f]{40}$`) → กัน **command injection** (การยัดคำสั่งเข้ามาผ่านข้อมูล)
 - runner ทำได้อย่างเดียว: `sudo -u deploy /usr/local/bin/pos-deploy` → สคริปต์นั้นรัน Ansible (`deploy/ansible/deploy.yml`) บน VM เอง: pull image → migrate → rolling restart → เช็ก `/health/ready` → **เขียน `/opt/pos/.current_sha`** → ถ้าล้ม rollback อัตโนมัติ (`deploy/scripts/pos-deploy.sh:140`) — รายละเอียด Ansible ดู [14_devops.md](14_devops.md)
 
+#### นอกเส้นหลัก: `android-apk.yml` (build APK ด้วยมือ)
+
+workflow แยก `workflow_dispatch` อย่างเดียว ไม่เป็น required check และไม่เกี่ยวกับ deploy: build APK รุ่น API เซ็นด้วยกุญแจถาวรจาก secret `ANDROID_KEYSTORE_B64` แล้วปล่อยเป็น prerelease `apk-<sha7>` (job รันเฉพาะบน `main`) — ดู `07_CICD_DEPLOY.md` §2b
+
 ---
 
 ## 📊 ผลลัพธ์จริง: ตาราง stage × job

@@ -278,7 +278,7 @@ flowchart TB
 3. **api-1..3** — NestJS ก้อนเดียวกัน 3 ตัว แต่ละตัวมี IP ตายตัว (Nginx ชี้ตาม IP ไม่ใช่ตามชื่อ — เหตุผลอยู่ในคอมเมนต์ nginx.conf บรรทัด 28–32)
 4. **ที่เก็บข้อมูล** — Postgres = ตัวจริง, Redis 2 ตัวที่ตั้งค่า **ตรงข้ามกัน** (ตัวหนึ่งลบได้ อีกตัวห้ามลบ), etcd = config ที่เปลี่ยนได้ตอนรัน
 5. **งานเบื้องหลัง** — worker หยิบงานจาก redis-queue, bull-board เป็นหน้าเว็บดูคิว (เข้าได้เฉพาะ loopback ผ่าน SSH tunnel)
-6. **one-shot** — คอนเทนเนอร์ที่รันครั้งเดียวตอนเริ่ม stack แล้วจบ: `migrate` สร้าง/อัปเดต schema, `certgen` ทำ TLS cert แบบ self-signed, `htpasswd-gen` ทำรหัสผ่านให้ endpoint ของ k6, `etcd-init` เปิด auth ของ etcd, `web-sync` (มีเฉพาะใน `vm.override.yml`) ก๊อปไฟล์เว็บจาก image `srisurart-pos-web` ลง volume ที่ Nginx เสิร์ฟ
+6. **one-shot** — คอนเทนเนอร์ที่รันครั้งเดียวตอนเริ่ม stack แล้วจบ: `migrate` สร้าง/อัปเดต schema, `certgen` ออก TLS cert จาก CA ส่วนตัว (CA เก็บใน volume `certs-ca`; ดู 07 §5 "TLS"), `htpasswd-gen` ทำรหัสผ่านให้ endpoint ของ k6, `etcd-init` เปิด auth ของ etcd, `web-sync` (มีเฉพาะใน `vm.override.yml`) ก๊อปไฟล์เว็บจาก image `srisurart-pos-web` ลง volume ที่ Nginx เสิร์ฟ
 7. **monitoring** — overlay แยกไฟล์ ไม่ได้รันใน dev/CI; Prometheus ดึงตัวเลขจาก `/metrics` ของ api และ node-exporter แล้ว Grafana วาดกราฟ
 
 > 📝 **เรื่องจริงที่ต้องรู้:** คอมเมนต์ของ `bull-board` ใน `server/docker-compose.yml:178-179` บอกว่า "No Redis connection yet — it registers no queue until #34" แต่โค้ดปัจจุบัน `server/src/bull-board.ts:62` สร้าง `Queue` ครบทุกตัวใน `ALL_QUEUES` แล้ว — **คอมเมนต์ล้าสมัยกว่าโค้ด** เชื่อโค้ดเสมอ
