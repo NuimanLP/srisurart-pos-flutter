@@ -341,6 +341,13 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
       _showDegradedWarning();
       return;
     }
+    // Refuse up front (owner, 2026-10-03) — agent ร่าง string, 02_API_SCREENS.md §8.1.
+    if (m.creditBalance > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mechanicHasBalanceMessage(m.creditBalance))),
+      );
+      return;
+    }
     final repo = context.read<MechanicsRepository>();
     final ok = await showConfirm(
       context,
@@ -349,7 +356,17 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
       danger: true,
     );
     if (!ok) return;
-    await repo.deleteMechanic(m.id);
+    try {
+      await repo.deleteMechanic(m.id);
+    } catch (e) {
+      // A server refusal (e.g. MECHANIC_HAS_BALANCE when the cache was stale).
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+      );
+      _refresh();
+      return;
+    }
     if (_selectedId == m.id) {
       setState(() => _selectedId = null);
     }

@@ -460,6 +460,45 @@ describe('customers and mechanics (e2e)', () => {
     expect(sync.body.data[0].deletedAt).not.toBeNull();
   });
 
+  it('refuses to delete a mechanic who still owes credit, allows it at zero', async () => {
+    const created = await createMechanic({ name: 'Owes Money' });
+    const id = created.body.data.id as string;
+    await admin.query(
+      `UPDATE mechanics SET credit_balance = 150
+        WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, id],
+    );
+    const del = () =>
+      request(app.getHttpServer())
+        .delete(`/api/v1/mechanics/${id}`)
+        .set(auth())
+        .set('Idempotency-Key', idempotency());
+
+    const refused = await del();
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('MECHANIC_HAS_BALANCE');
+    const [untouched] = await admin.query(
+      `SELECT deleted_at, credit_balance FROM mechanics
+        WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, id],
+    );
+    expect(untouched.deleted_at).toBeNull();
+    expect(Number(untouched.credit_balance)).toBe(150);
+
+    await admin.query(
+      `UPDATE mechanics SET credit_balance = 0
+        WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, id],
+    );
+    const allowed = await del();
+    expect(allowed.status).toBe(200);
+    const [gone] = await admin.query(
+      `SELECT deleted_at FROM mechanics WHERE tenant_id = $1::uuid AND id = $2`,
+      [TENANT, id],
+    );
+    expect(gone.deleted_at).toBeInstanceOf(Date);
+  });
+
   it('returns paginated mechanic sales without loading all bills', async () => {
     const mechanic = await createMechanic({ name: 'Sales Mechanic' });
     const id = mechanic.body.data.id as string;

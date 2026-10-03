@@ -119,6 +119,11 @@ class ServerErrorResolver {
         'ใบเสนอราคานี้แปลงเป็นการขายแล้ว — ล้างตะกร้าแล้วเริ่มใหม่',
     'QUOTE_CONVERTED_NOT_DELETABLE':
         'ใบเสนอราคานี้แปลงเป็นการขายแล้ว ลบไม่ได้',
+    // agent ร่าง (02_API_SCREENS.md §8/§8.1), not yet ratified by the owner.
+    // Owner 2026-10-03: a mechanic who still owes credit cannot be deleted.
+    // The server sends no amount into this string; the Drift path and the
+    // screen use `mechanicHasBalanceMessage` (with ฿X) instead.
+    'MECHANIC_HAS_BALANCE': 'ช่างยังมียอดค้างชำระ — รับชำระให้ครบก่อนลบ',
     'UNAUTHENTICATED': 'กรุณาเข้าสู่ระบบ',
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
   };
