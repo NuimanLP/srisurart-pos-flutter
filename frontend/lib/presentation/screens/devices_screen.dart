@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/devices_repository.dart';
@@ -29,6 +30,11 @@ class _DevicesScreenState extends State<DevicesScreen> {
   bool _loading = true;
   String? _error;
 
+  /// The session carries no enrolled device (`did`), so every `/devices`
+  /// route answers 403 DEVICE_ROLE_FORBIDDEN (ADR-0004). Shown as what to do
+  /// next instead of that generic error and a retry that cannot succeed.
+  bool _notEnrolled = false;
+
   @override
   void initState() {
     super.initState();
@@ -36,6 +42,18 @@ class _DevicesScreenState extends State<DevicesScreen> {
   }
 
   Future<void> _loadDevices() async {
+    final auth = context.read<AuthCubit>().state;
+    final token = auth is Authenticated ? auth.deviceToken : null;
+    if (token == null || token.isEmpty) {
+      // No device token: the server would refuse; don't ask it.
+      setState(() {
+        _notEnrolled = true;
+        _loading = false;
+        _error = null;
+      });
+      return;
+    }
+
     setState(() {
       _loading = true;
       _error = null;
@@ -47,12 +65,18 @@ class _DevicesScreenState extends State<DevicesScreen> {
       if (!mounted) return;
       setState(() {
         _devices = list;
+        _notEnrolled = false;
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = ServerErrorResolver.resolveCounterError(e);
+        if (e is ApiException && e.code == 'DEVICE_ROLE_FORBIDDEN') {
+          // A device token is stored but this session was signed without it.
+          _notEnrolled = true;
+        } else {
+          _error = ServerErrorResolver.resolveCounterError(e);
+        }
         _loading = false;
       });
     }
@@ -157,17 +181,18 @@ class _DevicesScreenState extends State<DevicesScreen> {
                             AppButton.secondary(
                               label: 'ผูกเครื่องนี้',
                               icon: Icons.qr_code_scanner,
-                              onPressed: () async {
-                                final res = await DeviceEnrolmentDialog.show(context);
-                                if (res == true) _loadDevices();
-                              },
+                              // #558: a successful enrol signs this session out
+                              // (AuthCubit.enrolDevice) — nothing to reload here.
+                              onPressed: () => DeviceEnrolmentDialog.show(context),
                             ),
-                            const SizedBox(width: 8),
-                            AppButton(
-                              label: 'ออกรหัสผูกเครื่องใหม่',
-                              icon: Icons.add_to_queue,
-                              onPressed: _openCreateDeviceDialog,
-                            ),
+                            if (!_notEnrolled) ...[
+                              const SizedBox(width: 8),
+                              AppButton(
+                                label: 'ออกรหัสผูกเครื่องใหม่',
+                                icon: Icons.add_to_queue,
+                                onPressed: _openCreateDeviceDialog,
+                              ),
+                            ],
                           ],
                         ),
                       ],
@@ -260,10 +285,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
                           ),
                           if (currentDeviceToken == null)
                             TextButton(
-                              onPressed: () async {
-                                final res = await DeviceEnrolmentDialog.show(context);
-                                if (res == true) _loadDevices();
-                              },
+                              onPressed: () => DeviceEnrolmentDialog.show(context),
                               child: const Text('ผูกเครื่องนี้ทันที'),
                             ),
                         ],
@@ -281,6 +303,11 @@ class _DevicesScreenState extends State<DevicesScreen> {
                 child: Center(
                   child: CircularProgressIndicator(),
                 ),
+              )
+            else if (_notEnrolled)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _NotEnrolledPanel(hasDeviceToken: currentDeviceToken != null),
               )
             else if (_error != null)
               SliverFillRemaining(
@@ -636,6 +663,82 @@ class _DevicesScreenState extends State<DevicesScreen> {
       child: const Text(
         'เชื่อมต่อแล้ว',
         style: TextStyle(fontSize: 11, color: AppColors.success, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+/// What a session with no enrolled device can do on this screen (#558).
+///
+/// - no device token: enrol this browser with a code from one of the shop's
+///   enrolled devices — or, when the shop has none left, from the platform
+///   admin (#476, `devices:replace`).
+/// - a device token, but the session was signed without it (a login from
+///   before the enrolment): sign in again so the login carries the device.
+class _NotEnrolledPanel extends StatelessWidget {
+  const _NotEnrolledPanel({required this.hasDeviceToken});
+
+  final bool hasDeviceToken;
+
+  // agent ร่าง (#558) — ยังไม่ผ่านเจ้าของโปรเจกต์, 02_API_SCREENS.md §8.1.1.
+  static const String title = 'เบราว์เซอร์นี้ยังไม่ได้ผูกเครื่องกับร้าน';
+  static const String howToEnrol =
+      'การดูรายการเครื่องและออกรหัสผูกเครื่องต้องทำจากเครื่องที่ผูกกับร้านแล้ว '
+      'ขอรหัสผูกเครื่องจากหน้า "จัดการเครื่อง" ของเครื่องที่ผูกไว้แล้ว แล้วกด "ผูกเครื่องนี้"';
+  static const String noEnrolledDeviceLeft =
+      'หากร้านไม่เหลือเครื่องที่ผูกไว้เลย (เช่น ล้างข้อมูลเบราว์เซอร์หรือเครื่องหาย) '
+      'กรุณาติดต่อผู้ดูแลระบบเพื่อขอรหัสผูกเครื่องใหม่';
+  static const String signInAgain =
+      'เบราว์เซอร์นี้ผูกเครื่องแล้ว แต่การเข้าสู่ระบบครั้งนี้ทำก่อนผูกเครื่อง '
+      'กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่';
+
+  @override
+  Widget build(BuildContext context) {
+    final children = hasDeviceToken
+        ? <Widget>[
+            const Text(
+              signInAgain,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            AppButton(
+              label: 'ออกจากระบบ',
+              icon: Icons.logout,
+              onPressed: () => context.read<AuthCubit>().logout(),
+            ),
+          ]
+        : <Widget>[
+            const Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(howToEnrol, textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            const Text(noEnrolledDeviceLeft, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            AppButton(
+              label: 'ผูกเครื่องนี้',
+              icon: Icons.qr_code_scanner,
+              onPressed: () => DeviceEnrolmentDialog.show(context),
+            ),
+          ];
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.phonelink_lock, size: 48, color: AppColors.navy),
+              const SizedBox(height: 12),
+              ...children,
+            ],
+          ),
+        ),
       ),
     );
   }

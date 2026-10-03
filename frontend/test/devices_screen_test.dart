@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
@@ -23,8 +24,13 @@ class FakeDevicesRepository implements DevicesRepository {
   bool? lastForce;
   String? lastNote;
 
+  int listCalls = 0;
+  Object? listError;
+
   @override
   Future<List<DeviceModel>> listDevices() async {
+    listCalls++;
+    if (listError != null) throw listError!;
     return List.of(devices);
   }
 
@@ -188,6 +194,78 @@ void main() {
     // Verify Status chips
     expect(find.text('ปลดระวางแล้ว'), findsOneWidget);
     expect(find.text('เชื่อมต่อแล้ว'), findsNWidgets(2));
+  });
+
+  // #558: a session with no device token cannot use any /devices route.
+  testWidgets('no device token: explains how to enrol, never calls the server, hides issue-code', (tester) async {
+    tester.view.physicalSize = const Size(1280, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    authCubit.emit(const Authenticated(
+      user: AuthUser(id: 'u1', username: 'owner', role: 'owner'),
+    ));
+
+    await tester.pumpWidget(buildTestWidget(
+      child: const DevicesScreen(),
+      devicesRepo: devicesRepo,
+      authCubit: authCubit,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(devicesRepo.listCalls, 0);
+    expect(find.text('เบราว์เซอร์นี้ยังไม่ได้ผูกเครื่องกับร้าน'), findsOneWidget);
+    expect(find.textContaining('กรุณาติดต่อผู้ดูแลระบบ'), findsOneWidget);
+    expect(find.text('ออกรหัสผูกเครื่องใหม่'), findsNothing);
+    expect(find.text('เครื่องนี้ขายของไม่ได้'), findsNothing);
+    expect(find.text('ลองใหม่อีกครั้ง'), findsNothing);
+    // The enrol action is offered (header + panel).
+    expect(find.text('ผูกเครื่องนี้'), findsNWidgets(2));
+  });
+
+  testWidgets('403 DEVICE_ROLE_FORBIDDEN with a stored device token asks to sign in again', (tester) async {
+    tester.view.physicalSize = const Size(1280, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    devicesRepo.listError = ApiException(statusCode: 403, code: 'DEVICE_ROLE_FORBIDDEN');
+
+    await tester.pumpWidget(buildTestWidget(
+      child: const DevicesScreen(),
+      devicesRepo: devicesRepo,
+      authCubit: authCubit,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(devicesRepo.listCalls, 1);
+    expect(find.textContaining('กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่'), findsOneWidget);
+    expect(find.text('ออกจากระบบ'), findsOneWidget);
+    expect(find.text('ออกรหัสผูกเครื่องใหม่'), findsNothing);
+    expect(find.text('เครื่องนี้ขายของไม่ได้'), findsNothing);
+  });
+
+  testWidgets('any other load error keeps the generic error and retry', (tester) async {
+    tester.view.physicalSize = const Size(1280, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    devicesRepo.listError = ApiException(statusCode: 500, code: '');
+
+    await tester.pumpWidget(buildTestWidget(
+      child: const DevicesScreen(),
+      devicesRepo: devicesRepo,
+      authCubit: authCubit,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ลองใหม่อีกครั้ง'), findsOneWidget);
+    expect(find.text('เบราว์เซอร์นี้ยังไม่ได้ผูกเครื่องกับร้าน'), findsNothing);
   });
 
   testWidgets('CreateDeviceDialog generates code and displays EnrolCodeDisplayDialog', (tester) async {
