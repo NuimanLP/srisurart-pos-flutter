@@ -683,6 +683,7 @@ export class PlatformTenantsService {
       [tenantId],
     );
     if (tenantRows.length === 0) {
+      await this.auditNotFound(tenantId, 'platform.tenant.read_not_found', adminId, ip);
       throw new NotFoundException(`Tenant ${tenantId} not found`);
     }
 
@@ -770,6 +771,20 @@ export class PlatformTenantsService {
       })),
       importJobs: importJobRows,
     };
+  }
+
+  /** Probing signal (2026-10-03): best-effort, on the autocommit admin source, before the throw. */
+  private async auditNotFound(tenantId: string, action: string, adminId: string, ip?: string) {
+    try {
+      await this.auditService.logReadNotFound(this.adminDs, {
+        action,
+        requestedId: tenantId,
+        platformAdminId: adminId,
+        ip,
+      });
+    } catch (err) {
+      this.logger.warn(`Failed to write audit log for ${action}: ${err}`);
+    }
   }
 
   async listTenants(adminId: string, ip?: string) {

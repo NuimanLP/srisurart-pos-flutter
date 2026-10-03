@@ -161,6 +161,17 @@ export class PlatformAuditService {
 
     const tenant = await this.adminDs.query(`SELECT 1 FROM tenants WHERE id = $1`, [tenantId]);
     if (tenant.length === 0) {
+      try {
+        // Probing signal (2026-10-03); autocommit source, written before the throw.
+        await this.auditService.logReadNotFound(this.adminDs, {
+          action: 'platform.tenant.audit.read_not_found',
+          requestedId: tenantId,
+          platformAdminId: adminId,
+          ip,
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to write audit log for listTenantAudit not-found: ${err}`);
+      }
       throw new NotFoundException(`Tenant ${tenantId} not found`);
     }
 
