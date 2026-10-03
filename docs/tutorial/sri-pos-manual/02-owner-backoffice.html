@@ -372,7 +372,7 @@
   <p>แท็บ <span class="ui ghost">📤 ส่งออก CSV</span> → เลือกช่วงวัน → <span class="ui ghost">⬇ ดาวน์โหลด</span> ที่ <span class="msg">📋 ยอดขายรายบิล</span> / <span class="msg">📦 รายการสินค้าที่ขาย</span> / <span class="msg">🗂 สต็อกปัจจุบัน</span> — เปิดใน Excel ภาษาไทยได้</p>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
-      <li>สำรอง/กู้คืนในหน้านี้ทำกับ <strong>ฐานข้อมูลในเครื่องนี้</strong> — เหมาะกับ Drift build · ใน API build ข้อมูลจริงอยู่บนเซิร์ฟเวอร์ และการกู้คืนในหน้านี้ <strong>ไม่ได้เขียนกลับขึ้นเซิร์ฟเวอร์</strong> · เซิร์ฟเวอร์มีงานส่งออกข้อมูลร้าน (<code>POST /backup/export</code>) แต่แอปยังไม่มีปุ่มเรียก</li>
+      <li>สำรอง/กู้คืนในหน้านี้ทำกับ <strong>ฐานข้อมูลในเครื่องนี้</strong> — เหมาะกับ Drift build · ใน API build ข้อมูลจริงอยู่บนเซิร์ฟเวอร์ จึง<strong>ไม่มีปุ่มกู้คืน</strong> (แท็บ 📥 กู้คืนข้อมูล แสดงข้อความว่าการนำเข้าข้อมูลให้ผู้ดูแลแพลตฟอร์มดำเนินการ) — ดาวน์โหลด backup ยังใช้ได้ · เซิร์ฟเวอร์มีงานส่งออกข้อมูลร้าน (<code>POST /backup/export</code>) แต่แอปยังไม่มีปุ่มเรียก</li>
       <li>การสำรองข้อมูลฝั่งเซิร์ฟเวอร์ยังไม่ออกนอก VM (ภาค 04)</li>
     </ul>
   </div>
