@@ -215,6 +215,19 @@ void main() {
     expect(unauthed.errorMessage, 'ร้านนี้ถูกระงับการใช้งาน');
   });
 
+  // The device-token read runs before the login request; a token store that
+  // cannot be opened (#400) used to escape the login button's handler with
+  // nothing on screen.
+  test('login with an unreadable token store ends in Unauthenticated with the #400 sentence', () async {
+    repo.throwStoreUnavailable = true;
+
+    final success = await cubit.login(username: 'shop1', password: 'pw');
+
+    expect(success, isFalse);
+    final state = cubit.state as Unauthenticated;
+    expect(state.errorMessage, TokenStoreUnavailableException.message);
+  });
+
   test('enrolDevice updates state with deviceToken and role', () async {
     await cubit.init();
     final ok = await cubit.enrolDevice('POS123');

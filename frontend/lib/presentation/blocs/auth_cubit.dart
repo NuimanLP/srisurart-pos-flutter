@@ -160,24 +160,41 @@ class AuthCubit extends Cubit<AuthState> {
       return const PinVerifyNotConfigured();
     }
 
-    final prevDeviceToken = await _repo.getDeviceToken();
     // The role the login form is showing right now (init/logout already
     // applied the stored-role fallback), so AuthLoading shows the same chip.
     final shown = state;
-    final prevDeviceRole =
-        (shown is Unauthenticated ? shown.deviceRole : null) ??
-            await _repo.getDeviceRole();
-    final deviceId = await _repo.getDeviceId();
+    // What the form shows if a read below fails before we know better.
+    String? prevDeviceToken = shown is Unauthenticated ? shown.deviceToken : null;
+    String? prevDeviceRole = shown is Unauthenticated ? shown.deviceRole : null;
 
-    emit(AuthLoading(deviceToken: prevDeviceToken, deviceRole: prevDeviceRole));
+    final PinVerifyResult result;
+    final AuthUser? storedUser;
+    try {
+      prevDeviceToken = await _repo.getDeviceToken();
+      prevDeviceRole ??= await _repo.getDeviceRole();
+      final deviceId = await _repo.getDeviceId();
 
-    final result = await _pinRepo.verifyPin(
-      pin: pin,
-      deviceId: deviceId,
-    );
+      emit(AuthLoading(deviceToken: prevDeviceToken, deviceRole: prevDeviceRole));
+
+      result = await _pinRepo.verifyPin(
+        pin: pin,
+        deviceId: deviceId,
+      );
+      storedUser = result is PinVerifySuccess ? await _pinRepo.getStoredUser() : null;
+    } catch (e) {
+      // A token store or PIN store that cannot be read (#400) must not leave
+      // the form on AuthLoading with nothing said.
+      final message = loginRefusalMessage(e);
+      emit(Unauthenticated(
+        deviceToken: prevDeviceToken,
+        deviceRole: prevDeviceRole,
+        errorMessage: message,
+      ));
+      return PinVerifyError(message);
+    }
 
     if (result is PinVerifySuccess) {
-      final user = await _pinRepo.getStoredUser() ??
+      final user = storedUser ??
           const AuthUser(
             id: 'offline_pos',
             username: 'shop',
@@ -207,6 +224,8 @@ class AuthCubit extends Cubit<AuthState> {
         case PinVerifyNotPos():
           errorMessage =
               'เครื่องนี้ไม่ใช่เครื่อง POS ไม่สามารถใช้ PIN ออฟไลน์ได้';
+        case PinVerifyError(:final message):
+          errorMessage = message;
         case PinVerifySuccess():
           errorMessage = '';
       }
@@ -278,13 +297,25 @@ class AuthCubit extends Cubit<AuthState> {
     required String username,
     required String password,
   }) async {
-    final prevDeviceToken = await _repo.getDeviceToken();
     // The role the login form is showing right now (init/logout already
     // applied the stored-role fallback), so AuthLoading shows the same chip.
     final shown = state;
-    final prevDeviceRole =
-        (shown is Unauthenticated ? shown.deviceRole : null) ??
-            await _repo.getDeviceRole();
+    final String? prevDeviceToken;
+    final String? prevDeviceRole;
+    try {
+      prevDeviceToken = await _repo.getDeviceToken();
+      prevDeviceRole = (shown is Unauthenticated ? shown.deviceRole : null) ??
+          await _repo.getDeviceRole();
+    } catch (e) {
+      // A token store that cannot be read (#400) must reach the form, not
+      // escape the login button's handler with nothing on screen.
+      emit(Unauthenticated(
+        deviceToken: shown is Unauthenticated ? shown.deviceToken : null,
+        deviceRole: shown is Unauthenticated ? shown.deviceRole : null,
+        errorMessage: loginRefusalMessage(e),
+      ));
+      return false;
+    }
 
     emit(AuthLoading(deviceToken: prevDeviceToken, deviceRole: prevDeviceRole));
 
@@ -402,6 +433,8 @@ class AuthCubit extends Cubit<AuthState> {
     // A client-side refusal already in Thai — `TENANT_SWITCH_UNSENT_WORK`
     // (TenantCacheGuard) is the one a login can meet.
     if (error is PosException) return error.message;
+    // #400's ratified sentence: the browser's token store cannot be opened.
+    if (error is TokenStoreUnavailableException) return error.toString();
     if (error is ApiException) {
       // #443 PR3: the one 401 that must NOT read as "wrong password" — the
       // password was right, the temporary one simply expired.
