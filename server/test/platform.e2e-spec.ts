@@ -1008,6 +1008,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       const second = await replace(tenantId, 'pos1');
       expect(second.status).toBe(409);
       expect(second.body.error.code).toBe('DEVICE_ALREADY_RETIRED');
+      expect(second.body.error.details.retiredAt).toBe(first.body.data.retiredAt);
 
       const unknown = await replace(tenantId, 'nope');
       expect(unknown.status).toBe(404);

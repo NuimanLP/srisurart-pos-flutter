@@ -483,6 +483,7 @@ export class PlatformTenantsService {
         throw new ConflictException({
           code: 'DEVICE_ALREADY_RETIRED',
           message: 'This device is already retired.',
+          details: { retiredAt: new Date(old.retired_at).toISOString() },
         });
       }
       if (!old.enrolled) {
