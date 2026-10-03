@@ -61,6 +61,19 @@ TABLE: หลักฐานการ deploy บนเครื่อง mob04 (
 
 ประตูอนุมัติบนสภาพแวดล้อม `demo` ทำงานตามที่ออกแบบ คือทุกรันของ `Deploy (demo)` เข้าสถานะ "Waiting for review" จนกว่าผู้ตรวจที่กำหนดจะอนุมัติ ข้อควรระวังคือการรัน `Deploy (demo)` ที่เป็นสีเขียวไม่ใช่หลักฐานว่ามีการ deploy เพราะงาน `deploy` ถูกข้ามเมื่ออิมเมจของ SHA นั้นยังไม่อยู่บน GHCR โดยเวิร์กโฟลว์ยังรายงานสำเร็จ เช่น เมื่อ 30 กันยายน การตรวจ `pnpm audit` ระดับสูงทำให้ `server-ci-status` บน `main` เป็นสีแดง จึงไม่มีอิมเมจ และทุกรัน deploy ถูกข้ามจนกว่า PR #512 จะรวม หลักฐานที่ใช้ได้มีเพียงไฟล์ `/opt/pos/.current_sha` บนเครื่อง
 
+### เวิร์กโฟลว์ Android APK และ TLS แบบ CA ส่วนตัว (3 ตุลาคม พ.ศ. 2569)
+
+เมื่อวันที่ 3 ตุลาคม พ.ศ. 2569 มีการรวม PR สองชุดที่เปิดทางให้แอปบนอุปกรณ์ Android เชื่อมต่อเซิร์ฟเวอร์บน `mob04` ได้ ตารางที่ {tab:apk-tls} สรุปสิ่งที่รวมแล้วและสถานะจริง การออกแบบอยู่ในบทที่ 3
+
+TABLE: งาน Android APK และ TLS ที่รวมเมื่อ 3 ตุลาคม พ.ศ. 2569 และสถานะ {#tab:apk-tls}
+| งาน | สิ่งที่รวมแล้ว | สถานะ |
+|---|---|---|
+| PR #551 เวิร์กโฟลว์ `android-apk.yml` | สั่งรันด้วยมือ เฉพาะ `main` สร้าง APK บิลด์ API ชนิดเดียว ลงนามด้วยความลับ `ANDROID_KEYSTORE_B64` เผยแพร่เป็น pre-release `apk-<sha7>` เพิ่มสิทธิ์ `INTERNET` | ยังไม่เคยรัน ยังไม่มี APK |
+| PR #552 CA ส่วนตัวสำหรับ `mob04` | `certgen` รักษา CA ในวอลุ่ม `certs-ca` และออกใบรับรองเซิร์ฟเวอร์ (SAN `localhost`, `127.0.0.1`, `172.30.58.20`) Nginx เชื่อถือ playbook รัน `certgen` มีสคริปต์ทดสอบ `certgen.test.sh` แอปเชื่อถือ CA ที่ฝังมาผ่าน `HttpOverrides` | ยังไม่ได้ deploy ขึ้น `mob04` และแอสเซต `pos-ca.crt` ยังว่าง |
+| PR #553 เอกสาร | ปรับ `CLAUDE.md`, คู่มือการ deploy, คู่มือฝ่ายไอที และบันทึกการศึกษาให้ตรงกับสองรายการข้างต้น | รวมแล้ว (เอกสารล้วน) |
+
+ข้อที่ต้องระบุตรงไปตรงมาคือ งานทั้งสองยังไม่ผ่านการใช้งานจริง ไฟล์ติดตั้งยังไม่เคยถูกสร้าง และ CA ยังไม่ได้ติดตั้งบน VM ขั้นตอนที่เหลือเป็นของเจ้าของโครงงานตามคู่มือ `07_CICD_DEPLOY.md` §5 "TLS" คือ deploy ให้ `certgen` รัน คัดลอก `ca.crt` ออกจากวอลุ่ม คอมมิตลงแอสเซต แล้วจึงสั่งรันเวิร์กโฟลว์ APK ผลการทดสอบหน่วยของฝั่งแอป (`pos_trust_test.dart`) และสคริปต์ `certgen.test.sh` ผ่านใน CI ของ PR #552 แต่ยังไม่มีการเชื่อมต่อจากอุปกรณ์จริงมายืนยัน
+
 ### การติดตามผลด้วย Grafana
 
 การซ้อมสาธิตวันที่ 21 กันยายน พ.ศ. 2569 บันทึกแผงควบคุม Grafana [7] ขณะมีการเข้าสู่ระบบและขายจริงบนสแตกที่ทำงานอยู่ ดังรูปที่ {fig:grafana-panels} แผงแสดงอัตราความสำเร็จ ความหน่วง p95 อัตราข้อผิดพลาดแยกตามรหัสสถานะ และตัวนับการเล่นซ้ำของ idempotency ที่ Prometheus [8] เก็บจากตัวชี้วัดของเซิร์ฟเวอร์ตามการออกแบบในบทที่ 3
@@ -163,6 +176,8 @@ TABLE: ผลงานของสมาชิกแต่ละคน (นั�
 
 
 ## __ABBREVIATIONS__
+CA = Certificate Authority
+APK = Android Package Kit
 RLS = Row-Level Security
 CI/CD = Continuous Integration / Continuous Delivery
 GHCR = GitHub Container Registry
@@ -226,3 +241,5 @@ representative PRs and authors -> gh pr list --state merged --author <login> --j
 open issues #2 #196 #231 #288 #335 #338 #344 #363 #380 #443 #476 -> gh issue list --state open (2026-10-01)
 e2e 2026-09-16: 490 passed | 2 skipped (492) -> docs/handoff_log/dod-mapping-2026-09-16.md:32
 deploy run IDs (removed from table): 494ace3 run 36685602814; rollback 36687687309; same-SHA 36688248109; readiness fail 36720675552; non-main 36721404240; 00d3488 run 36717963989 -> CLAUDE.md #67
+PRs #551/#552/#553 merged 2026-10-03 (03:40:47Z / 03:41:06Z / 03:51:28Z) -> gh pr view N --json state,mergedAt,title
+APK workflow never run; CA not on mob04; pos-ca.crt empty; owner runbook pending -> CLAUDE.md "Android APK (PR #551...)", "Private CA for mob04 TLS (PR #552...)"; wc -c frontend/assets/certs/pos-ca.crt

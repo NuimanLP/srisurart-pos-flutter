@@ -10,7 +10,7 @@
 
 ### สถาปัตยกรรมโดยรวม
 
-ไคลเอนต์ Flutter (ปัจจุบันสร้างและทดสอบเฉพาะบนเว็บ) สื่อสารกับเซิร์ฟเวอร์ผ่าน HTTPS ทุกคำขอเข้าสู่ Nginx ซึ่งเป็น reverse proxy ตัวเดียวหน้าระบบ แล้วกระจายไปยังอินสแตนซ์ NestJS [1] สามตัว (`api-1` ถึง `api-3`) ที่ใช้อิมเมจเดียวกัน ข้อมูลธุรกิจเก็บใน PostgreSQL ส่วน Redis แบ่งเป็นสองอินสแตนซ์ตามหน้าที่ งานเบื้องหลังประมวลผลโดยโปรเซส `worker` แยกต่างหาก ค่าตั้งที่ปรับขณะรันได้เก็บใน etcd และการเฝ้าสังเกตระบบใช้ Prometheus กับ Grafana ดังรูปที่ {fig:architecture} ตารางที่ {tab:phases} สรุปความต่างระหว่างเฟส 1 และเฟส 2 ในมุมที่กระทบการออกแบบ ตามเอกสาร `03_ARCHITECTURE.md` และ `08_PHASE2_SPEC.md`
+ไคลเอนต์ Flutter (ปัจจุบันสร้างและทดสอบเฉพาะบนเว็บ; เวิร์กโฟลว์สร้างไฟล์ติดตั้ง Android เพิ่มเมื่อ 3 ตุลาคม พ.ศ. 2569 แต่ยังไม่เคยรัน) สื่อสารกับเซิร์ฟเวอร์ผ่าน HTTPS ทุกคำขอเข้าสู่ Nginx ซึ่งเป็น reverse proxy ตัวเดียวหน้าระบบ แล้วกระจายไปยังอินสแตนซ์ NestJS [1] สามตัว (`api-1` ถึง `api-3`) ที่ใช้อิมเมจเดียวกัน ข้อมูลธุรกิจเก็บใน PostgreSQL ส่วน Redis แบ่งเป็นสองอินสแตนซ์ตามหน้าที่ งานเบื้องหลังประมวลผลโดยโปรเซส `worker` แยกต่างหาก ค่าตั้งที่ปรับขณะรันได้เก็บใน etcd และการเฝ้าสังเกตระบบใช้ Prometheus กับ Grafana ดังรูปที่ {fig:architecture} ตารางที่ {tab:phases} สรุปความต่างระหว่างเฟส 1 และเฟส 2 ในมุมที่กระทบการออกแบบ ตามเอกสาร `03_ARCHITECTURE.md` และ `08_PHASE2_SPEC.md`
 
 FIGURE: สถาปัตยกรรมโดยรวมของระบบ Srisurart Autopart POS {#fig:architecture} | diagram:architecture
 
@@ -31,7 +31,7 @@ TABLE: เปรียบเทียบเฟส 1 (Architecture A) กับ�
 TABLE: ส่วนประกอบหลักของที่เก็บโค้ด {#tab:components}
 | ส่วนประกอบ | ตำแหน่ง | หน้าที่ |
 |---|---|---|
-| ไคลเอนต์ Flutter | `frontend/` | แอปหน้าร้าน (สร้างและทดสอบบนเว็บ; Android/iOS ยังไม่ทดสอบ) ประกอบด้วยชั้น data, domain และ presentation |
+| ไคลเอนต์ Flutter | `frontend/` | แอปหน้าร้าน (สร้างและทดสอบบนเว็บ; มีเวิร์กโฟลว์สร้างไฟล์ติดตั้ง Android แต่ยังไม่เคยรัน; Android/iOS ยังไม่ทดสอบบนอุปกรณ์จริง) ประกอบด้วยชั้น data, domain และ presentation |
 | เซิร์ฟเวอร์ NestJS | `server/` | API, worker, Bull Board, migrations และเครื่องมือบรรทัดคำสั่งของแพลตฟอร์ม |
 | ชุด deploy | `deploy/` | Ansible playbook, ไฟล์ Compose ส่วนเสริมสำหรับ VM, การตั้งค่า Prometheus และ Grafana, สคริปต์สำรองข้อมูลและ runner |
 | ไปป์ไลน์ | `.github/workflows/` | `flutter.yml`, `server.yml` และ `deploy.yml` |
@@ -42,7 +42,7 @@ TABLE: ส่วนประกอบหลักของที่เก็บ�
 TABLE: คอนเทนเนอร์หลักและเพดานหน่วยความจำ {#tab:containers}
 | บริการ | อิมเมจ | เพดาน RAM | บทบาท |
 |---|---|---|---|
-| `nginx` | `nginx:1.29-alpine` | 64 MB | reverse proxy, TLS, rate limit ต่อ IP, ปิดเส้นทาง `/metrics` ต่อภายนอก |
+| `nginx` | `nginx:1.29-alpine` | 64 MB | reverse proxy, TLS (ใบรับรองจาก CA ส่วนตัวของโครงงาน), rate limit ต่อ IP, ปิดเส้นทาง `/metrics` ต่อภายนอก |
 | `api-1`, `api-2`, `api-3` | อิมเมจของ server | 384 MB ต่อตัว | NestJS API หลัง Nginx |
 | `worker` | อิมเมจของ server | 256 MB | ประมวลผลงานเบื้องหลัง เช่น export ข้อมูลรายร้าน |
 | `bull-board` | อิมเมจของ server | 128 MB | หน้าจอดูคิวงาน ผูกกับ loopback และต้องใช้ basic auth |
@@ -298,6 +298,7 @@ TABLE: มาตรการด้านความปลอดภัยแล�
 | บันทึกตรวจสอบ | `audit_log` เพิ่มได้อย่างเดียวสำหรับ `pos_app` | migration `AuditLogAppendOnly` |
 | ความลับ | ค่าตัวอย่างสาธารณะทำให้แอปไม่ยอมเริ่มทำงาน เว้นแต่ `ALLOW_DEV_SECRETS=true` ซึ่งห้ามตั้งบนเครื่องจริง | #398, #410 |
 | อิมเมจและ dependency | อิมเมจตรึงด้วย digest; Trivy สแกนและบล็อกการ push; `pnpm audit`; gitleaks สแกนความลับ | ADR-0013 |
+| การเข้ารหัสระหว่างทาง | HTTPS บน `mob04` ด้วยใบรับรองเซิร์ฟเวอร์ที่ออกโดย CA ส่วนตัว (`certgen`); แอปบนอุปกรณ์เชื่อถือ CA นี้ผ่าน `HttpOverrides` โดยไม่ใช้ `badCertificateCallback` | ไม่มีชื่อ DNS จึงขอใบรับรองสาธารณะไม่ได้ (`07_CICD_DEPLOY.md` §5 "TLS", PR #552) |
 | ส่วนหัวและต้นทาง | helmet; Cross-Origin Resource Sharing (CORS) ตาม `CORS_ORIGINS` ที่ต้องไม่ว่าง | #367 |
 
 ## การนำระบบขึ้นใช้งาน (deploy)
@@ -308,13 +309,21 @@ TABLE: มาตรการด้านความปลอดภัยแล�
 
 FIGURE: ภาพรวมไปป์ไลน์ CI/CD ของโครงงาน ตั้งแต่คำขอรวมถึงการติดตั้งบนเครื่องสาธิต {#fig:cicd} | diagram:cicd-pipeline
 
-CI/CD บน GitHub Actions [10] แบ่งเป็นสี่ระดับ ระดับ 1 คือ Flutter CI (`flutter.yml`: `analyze-and-test`, `deps-audit`, `codegen-check`, `build-web`) ระดับ 2 คือ backend CI (`server.yml`: `secrets`, `lint`, `audit`, `unit`, `nginx-check`, `integration`, `build-image`) ระดับ 3 คือการสร้างอิมเมจลง GHCR พร้อม Trivy ที่บล็อกเมื่อพบช่องโหว่ระดับสูง และระดับ 4 คือการ deploy ด้วย Ansible (`deploy.yml`) ทั้งสองเวิร์กโฟลว์แรกถูกเรียกทุก push และ pull request โดยไม่กรองพาธที่ชั้นนอก แต่มีงาน `changes` ภายในตัดสินว่าจะรันงานใด และลงท้ายด้วยงานสถานะที่รายงานผลเสมอ (`flutter-ci-status`, `server-ci-status`) ซึ่งเป็นเงื่อนไขบังคับของสาขา `main` เพียงสองรายการ เหตุผลคือการตรวจสอบสถานะที่บังคับต้องรายงานผลทุกครั้ง หากกรองพาธที่ชั้นนอก PR ที่แก้เฉพาะ `server/` จะไม่มีสถานะของ Flutter CI ให้ผ่าน push ที่แก้เฉพาะเอกสาร (`*.md` หรือ `docs/**`) ข้ามการทดสอบและการสร้างอิมเมจ เครื่องเสมือนจึงอยู่ที่ SHA ของโค้ดล่าสุดเสมอ
+CI/CD บน GitHub Actions [10] แบ่งเป็นสี่ระดับ ระดับ 1 คือ Flutter CI (`flutter.yml`: `analyze-and-test`, `deps-audit`, `codegen-check`, `build-web`) ระดับ 2 คือ backend CI (`server.yml`: `secrets`, `lint`, `audit`, `unit`, `nginx-check`, `integration`, `build-image`) ระดับ 3 คือการสร้างอิมเมจลง GHCR พร้อม Trivy ที่บล็อกเมื่อพบช่องโหว่ระดับสูง และระดับ 4 คือการ deploy ด้วย Ansible (`deploy.yml`) นอกจากสี่ระดับนี้ยังมีเวิร์กโฟลว์ `android-apk.yml` ที่สั่งรันด้วยมือเท่านั้น (รายละเอียดในหัวข้อถัดไป) ทั้งสองเวิร์กโฟลว์แรกถูกเรียกทุก push และ pull request โดยไม่กรองพาธที่ชั้นนอก แต่มีงาน `changes` ภายในตัดสินว่าจะรันงานใด และลงท้ายด้วยงานสถานะที่รายงานผลเสมอ (`flutter-ci-status`, `server-ci-status`) ซึ่งเป็นเงื่อนไขบังคับของสาขา `main` เพียงสองรายการ เหตุผลคือการตรวจสอบสถานะที่บังคับต้องรายงานผลทุกครั้ง หากกรองพาธที่ชั้นนอก PR ที่แก้เฉพาะ `server/` จะไม่มีสถานะของ Flutter CI ให้ผ่าน push ที่แก้เฉพาะเอกสาร (`*.md` หรือ `docs/**`) ข้ามการทดสอบและการสร้างอิมเมจ เครื่องเสมือนจึงอยู่ที่ SHA ของโค้ดล่าสุดเสมอ
 
 ### Ansible และ self-hosted runner
 
 playbook `deploy.yml` ของ Ansible [11] ทำตามลำดับ ตรวจ SHA ที่รันอยู่และออกก่อนเมื่อซ้ำ ซิงก์ไฟล์ Compose และ Nginx ดึงอิมเมจจาก GHCR รัน migrations ผ่านคอนเทนเนอร์ `migrate` (สคีมาก่อนโค้ด) รีสตาร์ตแบบหมุนเวียน `api-1` → `api-2` → `api-3` พร้อมตรวจสุขภาพ รีสตาร์ต worker และ bull-board อัปเดตไฟล์เว็บแล้วสร้าง Nginx ใหม่ ตรวจ `GET /health/ready` ผ่าน Nginx บันทึก SHA ลง `/opt/pos/.current_sha` และสุดท้ายเริ่มชุดมอนิเตอร์ ซึ่งหากล้มเหลวจะเพียงแจ้งเตือน migration รันเป็นงานครั้งเดียวก่อน api ทุกตัว ไม่ใช่ตอนบูต เพราะอินสแตนซ์สามตัวจะแย่งกัน เมื่อ readiness ล้มเหลว สคริปต์ deploy จะติดตั้งรุ่นก่อนหน้ากลับอัตโนมัติ
 
 เครื่องเสมือนอยู่หลังเครือข่ายมหาวิทยาลัยที่ตัวรันของ GitHub เข้าไม่ถึง ทีมจึงติดตั้ง self-hosted runner บน `mob04` และสภาพแวดล้อม `demo` กำหนดให้ผู้ตรวจที่ระบุอนุมัติก่อนงาน `deploy` จะแตะเครื่อง (ภาคผนวกของ ADR-0013) การ trigger อัตโนมัติทุกครั้งที่ `main` ผ่านยังคงอยู่ แต่งานจะค้างในสถานะรออนุมัติ ซึ่งเป็นกลไกเดียวที่กันการ merge ไม่ให้ไปทับเครื่องระหว่างการสาธิต ผลการ deploy จริงรายงานในบทที่ 4
+
+### TLS ด้วย CA ส่วนตัวและการสร้างไฟล์ติดตั้ง Android
+
+แอปบน Android ที่สร้างด้วยบิลด์ API เรียก `https://172.30.58.20` ซึ่ง `HttpClient` ของ Dart จะปฏิเสธเมื่อใบรับรองไม่เชื่อมโยงถึง root ที่เชื่อถือหรือไม่มี IP นั้นใน Subject Alternative Name (SAN) โครงงานยังไม่มีชื่อ DNS จึงขอใบรับรองสาธารณะไม่ได้ ทีมจึงเลือกใช้ Certificate Authority (CA) ส่วนตัว (PR #552) แทนการตั้งให้แอปข้ามการตรวจใบรับรอง คอนเทนเนอร์ครั้งเดียว `certgen` (`server/docker/certgen/certgen.sh`) สร้าง CA ไว้ในวอลุ่ม `certs-ca` เพียงครั้งเดียวและไม่แทนที่อีก เพราะทุกไฟล์ติดตั้งที่สร้างแล้วฝังส่วนสาธารณะของ CA นี้ไว้ จากนั้นออกใบรับรองเซิร์ฟเวอร์ที่มี SAN เป็น `localhost`, `127.0.0.1` และ `172.30.58.20` ให้ Nginx ใช้ และออกใหม่เมื่อใบเดิมหาย ไม่ได้ลงนามโดย CA นี้ มี SAN ต่างไป หรือใกล้หมดอายุภายใน 30 วัน ส่วนกุญแจของ CA ไม่ออกจากวอลุ่ม ไม่เข้า git และไม่เข้า CI playbook `deploy.yml` รัน `certgen` ด้วย `docker compose run` ก่อนสร้าง Nginx ใหม่ เพื่อให้การออกใบรับรองที่ล้มเหลวทำให้การ deploy ล้มเหลวด้วย (`up -d` ไม่รอคอนเทนเนอร์ครั้งเดียว) และงาน `nginx-check` ของ `server.yml` รันสคริปต์ทดสอบ `deploy/scripts/test/certgen.test.sh` ฝั่งแอป `frontend/lib/core/network/pos_trust_io.dart` อ่านใบรับรอง CA จากแอสเซตแล้วตั้ง `HttpOverrides` ให้ทุก `HttpClient` เชื่อถือ CA นี้ควบคู่กับ root ของระบบ การตรวจชื่อโฮสต์ยังทำงานตามเดิม และถ้าแอสเซตว่างหรือเสียแอปจะไม่หยุดทำงาน เพียงใช้ root ของระบบ
+
+เวิร์กโฟลว์ `.github/workflows/android-apk.yml` (PR #551) สั่งรันด้วยมือเท่านั้น (`workflow_dispatch`) และทำงานเฉพาะบนสาขา `main` สร้างไฟล์ติดตั้ง Android Package Kit (APK) ชนิดเดียว คือบิลด์ API (`USE_API_WRITES=true`, `API_BASE_URL=https://172.30.58.20`) ลงนามด้วยกุญแจถาวรจากความลับ `ANDROID_KEYSTORE_B64` เพื่อให้รุ่นถัดไปติดตั้งทับได้ แล้วเผยแพร่เป็น pre-release บน GitHub ชื่อ `apk-<sha7>` เวิร์กโฟลว์ปฏิเสธการสร้างหากไม่มีความลับดังกล่าว (ไม่ใช้กุญแจชั่วคราว) หรือ release ชื่อเดิมมีอยู่แล้ว ไม่มี APK แบบออฟไลน์ล้วนจาก `main` เพราะค่าเริ่มต้นของบิลด์คือโหมด API และแอปต้องเพิ่มสิทธิ์ `INTERNET` ใน `AndroidManifest.xml` เนื่องจากบิลด์ release ไม่มีสิทธิ์นี้โดยปริยาย
+
+ณ วันที่ 3 ตุลาคม พ.ศ. 2569 ทั้งสองส่วนรวมโค้ดแล้วแต่ **ยังไม่ถูกพิสูจน์บนระบบจริง** เวิร์กโฟลว์ APK ยังไม่เคยรัน และ CA ยังไม่ถูกติดตั้งใช้งานบน `mob04` แอสเซต `frontend/assets/certs/pos-ca.crt` ยังว่างอยู่ใน git จนกว่าเจ้าของโครงงานจะ deploy `certgen` ขึ้น `mob04` คัดลอก `ca.crt` ออกมา แล้วคอมมิตเข้าที่ตามขั้นตอนใน `07_CICD_DEPLOY.md` §5 "TLS" APK ที่สร้างก่อนขั้นตอนนี้เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ และการเปลี่ยน IP ของ VM ต้องแก้ SAN ใน `certgen.sh` ด้วย
 
 ## เทคโนโลยีที่ใช้
 
@@ -424,6 +433,8 @@ Side note: "Green Deploy run alone is not proof: check /opt/pos/.current_sha".
 ```
 
 ## __ABBREVIATIONS__
+CA = Certificate Authority
+APK = Android Package Kit
 ADR = Architecture Decision Record
 API = Application Programming Interface
 AOF = Append-Only File
@@ -507,3 +518,8 @@ Co-Authored-By: Claude in 591 of 1,058 commits; 567 of 706 non-merge commits (at
 branch protection required_approving_review_count 0 -> gh api repos/NuimanLP/srisurart-pos-flutter/branches/main/protection
 330 merged PRs: 0 with a GitHub review, 329 merged by their own author; coderabbitai commented on 328 -> gh pr list --state merged --json author,reviews,mergedBy,comments (numbers <= 548)
 PendingCreditPayments from #24 (closed 2026-09-13, phase 1) -> gh issue view 24; CLAUDE.md "#24's credit-payment outbox"
+android-apk.yml manual/main-only/API build/signing secret/prerelease apk-<sha7>/INTERNET permission; PR #551 merged 2026-10-03T03:40:47Z -> .github/workflows/android-apk.yml; gh pr view 551; AndroidManifest.xml
+private CA certgen, SAN, volume certs-ca, deploy.yml runs certgen, certgen.test.sh in nginx-check; PR #552 merged 2026-10-03T03:41:06Z -> server/docker/certgen/certgen.sh; deploy/ansible/deploy.yml; .github/workflows/server.yml; gh pr view 552
+app trusts bundled CA via HttpOverrides, never throws, empty asset = system roots -> frontend/lib/core/network/pos_trust_io.dart; pos_trust_test.dart
+CA asset pos-ca.crt committed empty (0 bytes); runbook pending; APK workflow never run; CA not installed on mob04 -> wc -c frontend/assets/certs/pos-ca.crt; 07_CICD_DEPLOY.md section 5 TLS; CLAUDE.md "Android APK" and "Private CA"
+no DNS name so no public cert -> 07_CICD_DEPLOY.md:278
