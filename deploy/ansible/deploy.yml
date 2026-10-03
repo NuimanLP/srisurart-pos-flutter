@@ -240,6 +240,20 @@
         dest: "{{ app_dir }}/docker/etcd/etcd-init.sh"
         mode: "0755"
 
+    # certgen bind-mounts ./docker/certgen/certgen.sh — copied here, before any `up`, so Docker
+    # never creates that path as an empty directory (the etcd-init.sh failure above).
+    - name: Ensure the certgen directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}/docker/certgen"
+        state: directory
+        mode: "0755"
+
+    - name: Copy certgen script
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/server/docker/certgen/certgen.sh"
+        dest: "{{ app_dir }}/docker/certgen/certgen.sh"
+        mode: "0755"
+
     - name: Pull release images from GHCR
       ansible.builtin.command: "docker compose {{ pos_compose_files }} pull"
       environment:

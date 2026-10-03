@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'app.dart';
 import 'core/network/api_client.dart';
+import 'core/network/pos_trust.dart';
 import 'data/db/database.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/repositories/api_settings_repository.dart';
@@ -22,8 +23,10 @@ import 'presentation/repositories/repository_providers.dart';
 import 'presentation/widgets/font_scale_controller.dart';
 import 'presentation/widgets/theme_controller.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Before any HTTP client exists: native builds trust the shop server's private CA.
+  await installPosTrust();
   // #271: Sarabun is a bundled asset font (see app_theme.dart) — nothing in
   // the app should ever fetch a font over the network. Belt-and-braces safety
   // net; the offline PWA shell can't reach fonts.gstatic.com (flutter#163554).
