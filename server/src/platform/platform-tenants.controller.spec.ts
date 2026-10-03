@@ -10,6 +10,7 @@ describe('PlatformTenantsController client ip', () => {
     listTenants: vi.fn().mockResolvedValue([]),
     reissueEnrolCode: vi.fn().mockResolvedValue({}),
     getTenantDetail: vi.fn().mockResolvedValue({}),
+    replaceDevice: vi.fn().mockResolvedValue({}),
   };
   const controller = new PlatformTenantsController(service as any);
   const req = {
@@ -41,5 +42,21 @@ describe('PlatformTenantsController client ip', () => {
   it('getTenantDetail', async () => {
     await controller.getTenantDetail('t1', req);
     expect(service.getTenantDetail).toHaveBeenCalledWith('t1', 'admin-1', '10.0.0.5');
+  });
+
+  it('replaceDevice', async () => {
+    await controller.replaceDevice('t1', 'dv1', { force: true, note: 'lost' }, req);
+    expect(service.replaceDevice).toHaveBeenCalledWith(
+      't1',
+      'dv1',
+      { force: true, note: 'lost' },
+      'admin-1',
+      '10.0.0.5',
+    );
+  });
+
+  it('replaceDevice passes an empty input for a non-object body', async () => {
+    await controller.replaceDevice('t1', 'dv1', ['x'], req);
+    expect(service.replaceDevice).toHaveBeenLastCalledWith('t1', 'dv1', {}, 'admin-1', '10.0.0.5');
   });
 });

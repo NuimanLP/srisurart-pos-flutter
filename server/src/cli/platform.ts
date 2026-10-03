@@ -316,6 +316,27 @@ export function reissueEnrolCode(
   );
 }
 
+/**
+ * `POST /platform/tenants/:id/devices/:deviceId/replace` (#476) — retires a lost enrolled
+ * device and creates its replacement (new `device_no`), returning a one-time enrolCode.
+ */
+export function replaceDevice(
+  baseUrl: string,
+  token: string,
+  tenantId: string,
+  deviceId: string,
+  body: { force?: boolean; note?: string; label?: string },
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  return apiRequest(
+    baseUrl,
+    'POST',
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/devices/${encodeURIComponent(deviceId)}/replace`,
+    { token, body },
+    fetchImpl,
+  );
+}
+
 /** `POST /platform/tenants/:id/owner/temp-password` (#443 PR3) — issues a fresh 24 h temp password. */
 export function issueOwnerTempPassword(
   baseUrl: string,
@@ -506,6 +527,44 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
     return;
   }
 
+  if (command === 'devices:replace') {
+    const [tenantId, deviceId] = positionals;
+    if (!tenantId || !deviceId) {
+      throw new Error(
+        'usage: devices:replace <tenantId> <deviceId> --user <admin username> ' +
+          '[--label <label>] [--force --note <why>]',
+      );
+    }
+    const user = requireFlag(flags, 'user');
+    // Validate before the password prompt (CLAUDE.md: validate first, then use).
+    const force = 'force' in flags;
+    if (force && flags.force !== '' && flags.force !== 'true') {
+      throw new Error('--force takes no value');
+    }
+    const note = force ? requireFlag(flags, 'note') : undefined;
+    const label = flags.label?.trim() || undefined;
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      const result = await replaceDevice(
+        baseUrl,
+        token,
+        tenantId,
+        deviceId,
+        { ...(force ? { force: true, note } : {}), ...(label ? { label } : {}) },
+        fetchImpl,
+      );
+      log(JSON.stringify(result, null, 2));
+      prompter.write(
+        'Note: enrolCode above is shown once and cannot be retrieved again — record it now.\n',
+      );
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
   if (command === 'owner:temp-password') {
     const [tenantId] = positionals;
     if (!tenantId) {
@@ -592,7 +651,8 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
 
   throw new Error(
     `unknown command "${command}" — expected one of: login, tenants:list, tenants:create, ` +
-      'tenants:status, tenants:show, devices:reissue-code, owner:temp-password, owner:set-password',
+      'tenants:status, tenants:show, devices:reissue-code, devices:replace, owner:temp-password, ' +
+      'owner:set-password',
   );
 }
 

@@ -473,6 +473,23 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       expect(mockAdminDs.transaction).not.toHaveBeenCalled();
     });
 
+    // #476: replaceDevice validates its whole input before it opens a transaction.
+    it.each([
+      ['a non-UUID tenant id', 't1', {}, 'INVALID_TENANT_ID'],
+      ['a non-boolean force', '11111111-1111-1111-1111-111111111111', { force: 'yes' }, undefined],
+      ['force without a note', '11111111-1111-1111-1111-111111111111', { force: true }, undefined],
+      ['force with a blank note', '11111111-1111-1111-1111-111111111111', { force: true, note: '  ' }, undefined],
+      ['a blank label', '11111111-1111-1111-1111-111111111111', { label: ' ' }, undefined],
+      ['a 101-character label', '11111111-1111-1111-1111-111111111111', { label: 'x'.repeat(101) }, undefined],
+    ])('replaceDevice refuses %s with 400 before any query', async (_label, tenantId, input, code) => {
+      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
+      const call = service.replaceDevice(tenantId, 'dv1', input, 'adm1');
+      await expect(call).rejects.toThrow(BadRequestException);
+      if (code) await expect(call).rejects.toMatchObject({ response: { code } });
+      expect(mockAdminDs.transaction).not.toHaveBeenCalled();
+      expect(mockAdminDs.query).not.toHaveBeenCalled();
+    });
+
     it('listTenants returns list even if audit logging fails (AC4)', async () => {
       mockAdminDs.query.mockResolvedValueOnce([
         { id: 't1', code: 'shop1', shop_name: 'Shop 1' },

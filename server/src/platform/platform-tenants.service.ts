@@ -12,7 +12,9 @@ import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
 import { generateTempPassword, hashPassword } from '../common/password.js';
+import { newId } from '../common/ids.js';
 import { returning } from '../common/sql.js';
+import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { AuditService } from './audit.service.js';
 
 export class CreateTenantDto {
@@ -65,6 +67,18 @@ function assertValidTenantId(tenantId: string): void {
  * person, not a browser that will redeem it within the next few minutes.
  */
 const REISSUE_ENROL_CODE_TTL_DAYS = 7;
+
+/** Same limits as the shop-side `POST /devices` (`devices.controller.ts`, `devices.service.ts`). */
+const DEVICE_LABEL_MAX_LENGTH = 100;
+const MAX_DEVICE_NO = 99;
+
+export interface ReplaceDeviceResult {
+  retiredDeviceId: string;
+  retiredAt: string;
+  device: { id: string; label: string; role: 'pos' | 'backoffice'; deviceNo: number };
+  enrolCode: string;
+  enrolExpiresAt: string;
+}
 
 @Injectable()
 export class PlatformTenantsService {
@@ -377,6 +391,264 @@ export class PlatformTenantsService {
       enrolCode,
       enrolExpiresAt: new Date(enrolExpiresAt).toISOString(),
     };
+  }
+
+  /**
+   * `POST /platform/tenants/:id/devices/:deviceId/replace` (#476) — the ops escape hatch for
+   * a shop whose only enrolled device is gone (browser data cleared, machine lost). With no
+   * enrolled browser left, the shop's own `/devices` routes are unreachable (they need `did`,
+   * ADR-0004), and `reissueEnrolCode` above refuses an enrolled device by design. This retires
+   * the lost device and creates its replacement — same role, a **new** `device_no` (F8) — and
+   * returns the replacement's one-time enrolment code. Not a shop-facing feature.
+   *
+   * One transaction, the same order and checks as the shop's own retire + create
+   * (`DevicesService.retireIn`/`createIn`, `ShiftsService.openIn`):
+   *   1. the per-tenant `devices:` advisory lock `createIn` takes, so `device_no = max + 1`
+   *      cannot race a shop-side `POST /devices`;
+   *   2. the device row `FOR NO KEY UPDATE` (serialises against `auth_enrol_device`, a shop
+   *      retire, and `POST /shifts/open`), then its active shift `FOR UPDATE` (devices → shifts);
+   *   3. an open drawer or unsent offline ops refuse with 409 unless `force` with a `note` —
+   *      the platform admin cannot count a drawer, so a forced open drawer is archived
+   *      uncounted (`auto_archived`) with a `shift_uncounted` review item, exactly what the
+   *      device's next `POST /shifts/open` would have done; forced unsent ops leave a
+   *      `device_force_retired` review item, as the shop-side force does;
+   *   4. retire (enrol code cleared), insert the replacement, two `audit_log` rows naming the
+   *      platform admin. The code is never logged or audited.
+   *
+   * Not idempotent, like every platform route: a lost response is recovered with
+   * `reissueEnrolCode` on the replacement, which has never been enrolled.
+   */
+  async replaceDevice(
+    tenantId: string,
+    deviceId: string,
+    input: { force?: unknown; note?: unknown; label?: unknown },
+    adminId: string,
+    ip?: string,
+  ): Promise<ReplaceDeviceResult> {
+    assertValidTenantId(tenantId);
+    if (input.force !== undefined && typeof input.force !== 'boolean') {
+      throw new BadRequestException('force must be a boolean');
+    }
+    const force = input.force === true;
+    let note: string | null = null;
+    if (force) {
+      if (typeof input.note !== 'string' || input.note.trim() === '') {
+        throw new BadRequestException('note is required when force is true');
+      }
+      note = input.note.trim();
+    }
+    let label: string | null = null;
+    if (input.label !== undefined && input.label !== null) {
+      if (typeof input.label !== 'string' || input.label.trim() === '') {
+        throw new BadRequestException('label must be a non-empty string');
+      }
+      label = input.label.trim();
+      if (label.length > DEVICE_LABEL_MAX_LENGTH) {
+        throw new BadRequestException(
+          `label must be at most ${DEVICE_LABEL_MAX_LENGTH} characters`,
+        );
+      }
+    }
+
+    const enrolCode = randomBytes(4).toString('hex').toUpperCase();
+    const enrolCodeHash = createHash('sha256').update(enrolCode).digest('hex');
+
+    return this.adminDs.transaction(async (manager) => {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+        `devices:${tenantId}`,
+      ]);
+
+      const devices = (await manager.query(
+        `SELECT id, label, device_no, role, retired_at, token_hash IS NOT NULL AS enrolled,
+                unsynced_ops, unsynced_reported_at
+           FROM devices
+          WHERE tenant_id = $1 AND id = $2
+            FOR NO KEY UPDATE`,
+        [tenantId, deviceId],
+      )) as Array<{
+        id: string;
+        label: string;
+        device_no: number;
+        role: 'pos' | 'backoffice';
+        retired_at: Date | null;
+        enrolled: boolean;
+        unsynced_ops: number;
+        unsynced_reported_at: Date | null;
+      }>;
+      if (devices.length === 0) {
+        throw new NotFoundException({ code: 'DEVICE_NOT_FOUND', message: 'Device not found' });
+      }
+      const old = devices[0];
+      if (old.retired_at !== null) {
+        throw new ConflictException({
+          code: 'DEVICE_ALREADY_RETIRED',
+          message: 'This device is already retired.',
+        });
+      }
+      if (!old.enrolled) {
+        // Nothing is lost: the row can still be enrolled. Retiring it would only burn a
+        // device number (F8) — reissuing its code is the right tool.
+        throw new ConflictException({
+          code: 'DEVICE_NOT_ENROLLED',
+          message:
+            'This device has never been enrolled; issue it a new enrolment code instead (enrol-code).',
+        });
+      }
+
+      const shifts = (await manager.query(
+        `SELECT id, closed_at, starting_cash, opened_at FROM shifts
+          WHERE tenant_id = $1 AND device_id = $2 AND is_active
+          ORDER BY opened_at DESC
+          LIMIT 1
+            FOR UPDATE`,
+        [tenantId, deviceId],
+      )) as Array<{ id: string; closed_at: Date | null; starting_cash: string; opened_at: Date }>;
+      const openShift = shifts.length > 0 && shifts[0].closed_at === null ? shifts[0] : null;
+      const unsyncedOps = Number(old.unsynced_ops ?? 0);
+
+      if (!force && openShift) {
+        throw new ConflictException({
+          code: 'DEVICE_HAS_OPEN_SHIFT',
+          message:
+            'This device still has an open shift. Retry with force and a note to archive it uncounted.',
+          details: { shiftId: openShift.id },
+        });
+      }
+      if (!force && unsyncedOps > 0) {
+        throw new ConflictException({
+          code: 'DEVICE_HAS_UNSYNCED_OPS',
+          message:
+            'This device reported offline ops not yet sent. Retry with force and a note to retire it anyway.',
+          details: {
+            unsyncedOps,
+            reportedAt: old.unsynced_reported_at
+              ? new Date(old.unsynced_reported_at).toISOString()
+              : null,
+          },
+        });
+      }
+
+      if (shifts.length > 0) {
+        // A retired device never opens again, so a drawer left `is_active` would stay on
+        // screen forever (`ShiftsService.closeForRetirementIn`). Archive it; flag it
+        // uncounted if nobody closed it — never invent a physical count.
+        await manager.query(
+          `UPDATE shifts
+              SET is_active = FALSE,
+                  auto_archived = auto_archived OR $3,
+                  archived_at = COALESCE(archived_at, now())
+            WHERE tenant_id = $1 AND id = $2`,
+          [tenantId, shifts[0].id, openShift !== null],
+        );
+      }
+      if (openShift) {
+        await ReviewItemsService.insertIn(manager, tenantId, {
+          kind: 'shift_uncounted',
+          refId: openShift.id,
+          details: {
+            shiftId: openShift.id,
+            deviceId,
+            startingCash: openShift.starting_cash,
+            openedAt: new Date(openShift.opened_at).toISOString(),
+          },
+        });
+      }
+      if (unsyncedOps > 0) {
+        await ReviewItemsService.insertIn(manager, tenantId, {
+          kind: 'device_force_retired',
+          refId: deviceId,
+          details: {
+            deviceId,
+            unsyncedOps,
+            reportedAt: old.unsynced_reported_at
+              ? new Date(old.unsynced_reported_at).toISOString()
+              : null,
+            note,
+          },
+        });
+      }
+
+      const retired = returning<{ retired_at: Date }>(
+        await manager.query(
+          `UPDATE devices
+              SET retired_at = now(), enrol_code_hash = NULL, enrol_expires_at = NULL
+            WHERE tenant_id = $1 AND id = $2
+          RETURNING retired_at`,
+          [tenantId, deviceId],
+        ),
+      );
+
+      const next = (await manager.query(
+        `SELECT COALESCE(MAX(device_no), 0) + 1 AS n FROM devices WHERE tenant_id = $1`,
+        [tenantId],
+      )) as Array<{ n: number }>;
+      const deviceNo = Number(next[0].n);
+      if (deviceNo > MAX_DEVICE_NO) {
+        throw new ConflictException({
+          code: 'DEVICE_NO_EXHAUSTED',
+          message: `All ${MAX_DEVICE_NO} device numbers of this shop have been used.`,
+        });
+      }
+
+      const newDeviceId = newId('dv');
+      const newLabel = label ?? old.label;
+      const created = (await manager.query(
+        `INSERT INTO devices (tenant_id, id, label, device_no, role, enrol_code_hash, enrol_expires_at)
+              VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(days => $7))
+           RETURNING enrol_expires_at`,
+        [
+          tenantId,
+          newDeviceId,
+          newLabel,
+          deviceNo,
+          old.role,
+          enrolCodeHash,
+          REISSUE_ENROL_CODE_TTL_DAYS,
+        ],
+      )) as Array<{ enrol_expires_at: Date }>;
+      const enrolExpiresAt = new Date(created[0].enrol_expires_at).toISOString();
+      const retiredAt = new Date(retired[0].retired_at).toISOString();
+
+      await this.auditService.log(manager, {
+        tenantId,
+        platformAdminId: adminId,
+        action: 'device.retire',
+        entity: 'devices',
+        entityId: deviceId,
+        before: { role: old.role, deviceNo: Number(old.device_no) },
+        after: {
+          retiredAt,
+          shiftId: shifts[0]?.id ?? null,
+          replacedBy: newDeviceId,
+          ...(force ? { forced: true, note } : {}),
+        },
+        ip,
+      });
+      // Never the code itself (same rule as `DevicesService.createIn`).
+      await this.auditService.log(manager, {
+        tenantId,
+        platformAdminId: adminId,
+        action: 'device.create',
+        entity: 'devices',
+        entityId: newDeviceId,
+        after: {
+          label: newLabel,
+          role: old.role,
+          deviceNo,
+          enrolExpiresAt,
+          replaces: deviceId,
+        },
+        ip,
+      });
+
+      return {
+        retiredDeviceId: deviceId,
+        retiredAt,
+        device: { id: newDeviceId, label: newLabel, role: old.role, deviceNo },
+        enrolCode,
+        enrolExpiresAt,
+      };
+    });
   }
 
   /**
