@@ -26,6 +26,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/backup_file.dart';
+import '../../core/utils/backup_pick_options.dart';
 import '../../core/utils/csv_safe.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/file_export.dart';
@@ -1441,19 +1442,18 @@ class _BackupTabState extends State<_BackupTab> {
       // Must be the first await: on the web the plugin clicks a hidden
       // <input type=file>, which iPad Safari only allows inside the tap.
       // FileType.any — iOS can grey out a custom `.json` filter; the content
-      // is validated instead. No window-blur cancel: its focus+1 s heuristic
-      // can drop a slow (iCloud) pick as a cancel; on Safari < 16.4 (no
-      // `cancel` event) a cancelled pick just never completes — harmless,
-      // nothing waits on it. No size cap: a non-text file fails the strict
-      // UTF-8 decode at its first bad byte.
-      final result = await FilePicker.pickFiles(
+      // is validated instead. No window-blur cancel (why: see
+      // backup_pick_options_web.dart); on Safari < 16.4 (no `cancel` event)
+      // a cancelled pick just never completes — harmless, nothing waits on
+      // it. No size cap: a non-text file fails the strict UTF-8 decode at
+      // its first bad byte.
+      final file = await FilePicker.pickFile(
         type: FileType.any,
-        withData: true,
-        cancelUploadOnWindowBlur: false,
+        webOptions: backupPickWebOptions,
       );
-      if (!mounted || result == null || result.files.isEmpty) return;
-      final bytes = result.files.single.bytes;
-      if (bytes == null) throw const FormatException('no file data');
+      if (!mounted || file == null) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
       final data = parseBackupFile(bytes);
       setState(() {
         _preview = data;
