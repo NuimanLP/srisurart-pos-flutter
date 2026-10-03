@@ -15,6 +15,7 @@ import 'package:srisurart_pos/core/utils/dates.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/cash_drawer_screen.dart';
+import 'package:srisurart_pos/presentation/widgets/app_button.dart';
 
 void main() {
   setUpAll(() {
@@ -79,6 +80,24 @@ void main() {
       await tester.enterText(field, '-5');
       await tester.pumpAndSettle();
       expect(text(), '5', reason: 'no negative sign');
+
+      // A lone "." is not a count: no false shortfall, close stays disabled.
+      await tester.enterText(field, '.');
+      await tester.pumpAndSettle();
+      expect(text(), '.');
+      expect(find.text('ผลต่าง').hitTestable(), findsNothing);
+      expect(find.textContaining('เงินขาด').hitTestable(), findsNothing);
+      final close = tester.widget<AppButton>(
+        find.ancestor(
+          of: find.text('🔒 ยืนยันปิดลิ้นชัก'),
+          matching: find.byType(AppButton),
+        ),
+      );
+      expect(close.onPressed, isNull);
+
+      await tester.enterText(field, '.5');
+      await tester.pumpAndSettle();
+      expect(find.text('ผลต่าง').hitTestable(), findsOneWidget);
       await db.close();
     });
   });

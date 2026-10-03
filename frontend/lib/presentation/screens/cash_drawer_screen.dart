@@ -758,9 +758,12 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final theme = Theme.of(context);
     final shift = d.shift!;
     final closed = shift.shift.closedAt != null;
-    final phys = round2(double.tryParse(_physCtl.text) ?? 0);
+    // A count exists only once the text is a number — a lone "." (allowed
+    // mid-typing) must not read as ฿0 and show a false shortfall.
+    final parsedPhys = double.tryParse(_physCtl.text);
+    final phys = round2(parsedPhys ?? 0);
     final variance = round2(phys - d.expectedCash);
-    final hasPhys = _physCtl.text.isNotEmpty;
+    final hasPhys = parsedPhys != null;
     final varColor = variance == 0
         ? AppColors.successLight
         : variance > 0
