@@ -1468,10 +1468,21 @@ class _MechanicFormDialogState extends State<_MechanicFormDialog> {
       note: Value(_note.text.trim()),
       creditLimit: Value(creditLimit),
     );
-    if (widget.editing != null) {
-      await widget.repo.updateMechanic(widget.editing!.id, patch);
-    } else {
-      await widget.repo.addMechanic(patch);
+    try {
+      if (widget.editing != null) {
+        await widget.repo.updateMechanic(widget.editing!.id, patch);
+      } else {
+        await widget.repo.addMechanic(patch);
+      }
+    } catch (e) {
+      // Without this a refusal (mob04 2026-10-03: a 400) left the button
+      // spinning forever with nothing on screen.
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+      );
+      return;
     }
     if (mounted) Navigator.of(context).pop(true);
   }

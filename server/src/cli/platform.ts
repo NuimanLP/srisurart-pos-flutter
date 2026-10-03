@@ -299,6 +299,36 @@ export function getTenantDetail(
   );
 }
 
+/** `GET /platform/tenants/:id/audit` (#443) — one page, newest first; pass `nextCursor` as `before`. */
+export function getTenantAudit(
+  baseUrl: string,
+  token: string,
+  tenantId: string,
+  page: { before?: string; limit?: string },
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  const qs = new URLSearchParams();
+  if (page.before) qs.set('before', page.before);
+  if (page.limit) qs.set('limit', page.limit);
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  return apiRequest(
+    baseUrl,
+    'GET',
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/audit${query}`,
+    { token },
+    fetchImpl,
+  );
+}
+
+/** `GET /platform/system` (#443) — deployed SHA, readiness, queue counts, backup statement. */
+export function getSystemStatus(
+  baseUrl: string,
+  token: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  return apiRequest(baseUrl, 'GET', '/api/v1/platform/system', { token }, fetchImpl);
+}
+
 /** `POST /platform/tenants/:id/devices/:deviceId/enrol-code` (#443 PR2). */
 export function reissueEnrolCode(
   baseUrl: string,
@@ -504,6 +534,45 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
     return;
   }
 
+  if (command === 'tenants:audit') {
+    const [tenantId] = positionals;
+    if (!tenantId) {
+      throw new Error(
+        'usage: tenants:audit <tenantId> [--limit <1-200>] [--before <cursor>] --user <admin username>',
+      );
+    }
+    const user = requireFlag(flags, 'user');
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      const result = await getTenantAudit(
+        baseUrl,
+        token,
+        tenantId,
+        { before: flags.before, limit: flags.limit },
+        fetchImpl,
+      );
+      log(JSON.stringify(result, null, 2));
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
+  if (command === 'system') {
+    const user = requireFlag(flags, 'user');
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      log(JSON.stringify(await getSystemStatus(baseUrl, token, fetchImpl), null, 2));
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
   if (command === 'devices:reissue-code') {
     const [tenantId, deviceId] = positionals;
     if (!tenantId || !deviceId) {
@@ -651,8 +720,8 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
 
   throw new Error(
     `unknown command "${command}" — expected one of: login, tenants:list, tenants:create, ` +
-      'tenants:status, tenants:show, devices:reissue-code, devices:replace, owner:temp-password, ' +
-      'owner:set-password',
+      'tenants:status, tenants:show, tenants:audit, system, devices:reissue-code, ' +
+      'devices:replace, owner:temp-password, owner:set-password',
   );
 }
 
