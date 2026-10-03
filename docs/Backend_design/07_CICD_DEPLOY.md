@@ -199,7 +199,7 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
 | migrations append-only | `ci-guards` (`deploy/scripts/check-migrations-immutable.sh`, เทียบ merge-base ของ PR) | แก้/ลบ/rename migration ที่มีอยู่บน base | แก้ของที่ ship แล้ว = migration **ใหม่** |
 | actionlint + shellcheck | `ci-guards` (binary pin + sha256) | workflow ผิด · shell ใน `run:` และ `deploy/scripts/**/*.sh` | ปิดเฉพาะจุดด้วย `# shellcheck disable=SCxxxx` + เหตุผล |
 
-`ci-guards` รันเมื่อ `.github/workflows/**`, `deploy/scripts/**` หรือ `server/src/db/migrations/**` เปลี่ยน และ `server-ci-status` ต้องการผลของมัน.
+`ci-guards` บน PR รันเมื่อ `.github/workflows/**`, `deploy/scripts/**` หรือ `server/src/db/migrations/**` เปลี่ยน · บน push ขึ้น `main` รันทุก commit ที่มี code (ข้ามเฉพาะ docs ล้วน — กติกาข้อ 2) และขั้นเทียบ migration ข้ามไปเพราะไม่มี base ให้เทียบ · `workflow_dispatch` รันเสมอ · `server-ci-status` ต้องการผลของมัน.
 ⚠️ ช่องว่างที่รู้อยู่: filter `frontend` ของ `flutter.yml` ดู `fixtures/client-requests/**` แต่**ไม่ดู** `docs/Backend_design/fixtures/drawer-cash/**` (อ่านโดย `frontend/test/drawer_cash_out_limit_test.dart`) — PR ที่แก้แค่ fixture นั้นไม่รัน `flutter test` (ฝั่ง server ยังรันเพราะ `integration` รันทุก PR).
 🔴 **PR สองตัวที่เขียวแยกกันอาจแดงเมื่อ merge คู่กัน (2026-10-03):** #579 (guard) กับ #580 (เรียก `shiftsRepo.drawerCash` ใน `closing_report.dart`) merge ห่างกัน ~30 วินาที → Flutter CI บน `main` แดงที่ `2411ebf`/`a8a8080` เพราะ guard นับ `drawerCash` เป็นการเขียน — แก้โดย #582 (เพิ่ม `drawerCash` ใน `_readPrefixes`). หลัง merge ด่านใหม่ ให้ rebase PR ที่เปิดค้างก่อน merge
 
