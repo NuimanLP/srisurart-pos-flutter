@@ -1,0 +1,16 @@
+{
+  "name": "shifts.close",
+  "caller": "ApiShiftsRepository.closeShift",
+  "requests": [
+    {
+      "route": "POST /api/v1/shifts/close",
+      "method": "POST",
+      "path": "/api/v1/shifts/close",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "physicalCash": "1234.50"
+      }
+    }
+  ]
+}

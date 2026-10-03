@@ -1,0 +1,38 @@
+{
+  "name": "sales.create-from-quote",
+  "caller": "ApiSalesRepository.saveSale",
+  "requests": [
+    {
+      "route": "POST /api/v1/sales",
+      "method": "POST",
+      "path": "/api/v1/sales",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "smusgqlyh_e19943fb_10",
+        "subtotal": "100.00",
+        "discount": "0.00",
+        "total": "100.00",
+        "paymentMethod": "โอน/QR",
+        "customerId": null,
+        "customerName": null,
+        "mechanicId": null,
+        "mechanicName": null,
+        "mechanicDelta": null,
+        "overrideCreditLimit": false,
+        "quoteId": "ct-quote-1",
+        "items": [
+          {
+            "lineNo": 1,
+            "productId": "ct-product-1",
+            "partNo": null,
+            "name": "Contract part",
+            "nameTH": null,
+            "qty": 1,
+            "price": "100.00"
+          }
+        ]
+      }
+    }
+  ]
+}

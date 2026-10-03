@@ -1,0 +1,21 @@
+{
+  "name": "mechanics.credit-payment",
+  "caller": "ApiMechanicsRepository.addCreditPayment",
+  "requests": [
+    {
+      "route": "POST /api/v1/mechanics/:id/credit-payments",
+      "method": "POST",
+      "path": "/api/v1/mechanics/ct-mechanic-1/credit-payments",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "cpmusgqlul_65c9b200_g",
+        "mechanicId": "ct-mechanic-1",
+        "amount": "200.00",
+        "paymentMethod": "เงินสด",
+        "note": "ชำระบางส่วน",
+        "date": "2026-10-03T14:04:08.349178Z"
+      }
+    }
+  ]
+}

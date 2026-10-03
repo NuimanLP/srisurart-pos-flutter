@@ -1,0 +1,17 @@
+{
+  "name": "products.update",
+  "caller": "ApiProductsRepository.update",
+  "requests": [
+    {
+      "route": "PATCH /api/v1/products/:id",
+      "method": "PATCH",
+      "path": "/api/v1/products/ct-product-1",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "name": "Renamed part",
+        "price": "120.00"
+      }
+    }
+  ]
+}

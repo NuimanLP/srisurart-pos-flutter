@@ -1,0 +1,14 @@
+{
+  "name": "purchase-orders.cancel",
+  "caller": "ApiPurchaseOrdersRepository.cancelPO",
+  "requests": [
+    {
+      "route": "POST /api/v1/purchase-orders/:id/cancel",
+      "method": "POST",
+      "path": "/api/v1/purchase-orders/ct-po-1/cancel",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "shifts.drawer-entry",
+  "caller": "ApiShiftsRepository.addDrawerEntry",
+  "requests": [
+    {
+      "route": "POST /api/v1/shifts/current/entries",
+      "method": "POST",
+      "path": "/api/v1/shifts/current/entries",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "demusgqlzx_cb9f8fc3_18",
+        "type": "out",
+        "amount": "50.00",
+        "note": "ค่าน้ำแข็ง"
+      }
+    }
+  ]
+}

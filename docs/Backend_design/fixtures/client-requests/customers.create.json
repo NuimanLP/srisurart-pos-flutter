@@ -1,0 +1,19 @@
+{
+  "name": "customers.create",
+  "caller": "ApiCustomersRepository.addCustomer",
+  "requests": [
+    {
+      "route": "POST /api/v1/customers",
+      "method": "POST",
+      "path": "/api/v1/customers",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "cmusgqlsh_f255d514_8",
+        "name": "New customer",
+        "nameTH": "ลูกค้าใหม่",
+        "phone": "0800000000"
+      }
+    }
+  ]
+}

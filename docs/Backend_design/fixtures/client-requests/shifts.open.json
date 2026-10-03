@@ -1,0 +1,17 @@
+{
+  "name": "shifts.open",
+  "caller": "ApiShiftsRepository.openShift",
+  "requests": [
+    {
+      "route": "POST /api/v1/shifts/open",
+      "method": "POST",
+      "path": "/api/v1/shifts/open",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "shmusgqlz3_8c99d2c8_14",
+        "startingCash": "1500.00"
+      }
+    }
+  ]
+}

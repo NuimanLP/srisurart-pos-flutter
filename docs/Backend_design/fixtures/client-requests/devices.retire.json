@@ -1,0 +1,14 @@
+{
+  "name": "devices.retire",
+  "caller": "DevicesRepository.retireDevice",
+  "requests": [
+    {
+      "route": "POST /api/v1/devices/:id/retire",
+      "method": "POST",
+      "path": "/api/v1/devices/ct-device-1/retire",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

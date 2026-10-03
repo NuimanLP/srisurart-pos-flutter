@@ -1,0 +1,16 @@
+{
+  "name": "quotes.purge",
+  "caller": "ApiQuotesRepository.purgeOldQuotes",
+  "requests": [
+    {
+      "route": "POST /api/v1/quotes/purge",
+      "method": "POST",
+      "path": "/api/v1/quotes/purge",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "olderThanDays": 90
+      }
+    }
+  ]
+}

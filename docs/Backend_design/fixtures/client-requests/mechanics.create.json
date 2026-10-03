@@ -1,0 +1,19 @@
+{
+  "name": "mechanics.create",
+  "caller": "ApiMechanicsRepository.addMechanic",
+  "requests": [
+    {
+      "route": "POST /api/v1/mechanics",
+      "method": "POST",
+      "path": "/api/v1/mechanics",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "name": "New mechanic",
+        "nickname": "ช่างใหม่",
+        "phone": "0822222222",
+        "creditLimit": "5000.00"
+      }
+    }
+  ]
+}

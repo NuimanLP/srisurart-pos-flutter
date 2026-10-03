@@ -1,0 +1,14 @@
+{
+  "name": "quotes.delete",
+  "caller": "ApiQuotesRepository.deleteQuote",
+  "requests": [
+    {
+      "route": "DELETE /api/v1/quotes/:id",
+      "method": "DELETE",
+      "path": "/api/v1/quotes/ct-quote-1",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}
