@@ -25,13 +25,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
-import '../../data/repositories/mechanics_repository.dart';
-import '../../data/repositories/returns_repository.dart';
-import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/shifts_repository.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../domain/models/aggregates.dart';
-import '../../domain/reports/net_sales.dart';
 import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
 import '../widgets/device_role_banner.dart';
@@ -42,36 +38,19 @@ import '../widgets/sync_status_builder.dart';
 class _DrawerData {
   /// The active shift for TODAY, or null (no shift opened today).
   final ShiftWithEntries? shift;
-  final double cashSalesTotal;
-  final double cashRefundsToday;
-  final double cashCreditPaymentsToday;
-  const _DrawerData({
-    required this.shift,
-    required this.cashSalesTotal,
-    required this.cashRefundsToday,
-    required this.cashCreditPaymentsToday,
-  });
 
-  double get totalOut => round2(
-    (shift?.entries ?? [])
-        .where((e) => e.type == 'out')
-        .fold<double>(0, (s, e) => s + e.amount),
-  );
-  double get totalIn => round2(
-    (shift?.entries ?? [])
-        .where((e) => e.type == 'in')
-        .fold<double>(0, (s, e) => s + e.amount),
-  );
-  double get startingCash => shift?.shift.startingCash ?? 0;
+  /// Its expected cash, piece by piece — [ShiftsRepository.drawerCash], the
+  /// same number the repository's cash-out refusal checks (owner 2026-10-03).
+  final DrawerCash cash;
+  const _DrawerData({required this.shift, required this.cash});
 
-  double get expectedCash => round2(
-    startingCash +
-        cashSalesTotal +
-        cashCreditPaymentsToday -
-        cashRefundsToday -
-        totalOut +
-        totalIn,
-  );
+  double get cashSalesTotal => cash.cashSales;
+  double get cashRefundsToday => cash.cashRefunds;
+  double get cashCreditPaymentsToday => cash.cashCreditPayments;
+  double get totalOut => cash.totalOut;
+  double get totalIn => cash.totalIn;
+  double get startingCash => cash.startingCash;
+  double get expectedCash => cash.expected;
 }
 
 class CashDrawerScreen extends StatefulWidget {
@@ -109,55 +88,24 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
 
   Future<_DrawerData> _loadData() async {
     final shiftsRepo = context.read<ShiftsRepository>();
-    final salesRepo = context.read<SalesRepository>();
-    final returnsRepo = context.read<ReturnsRepository>();
-    final mechanicsRepo = context.read<MechanicsRepository>();
-
-    final now = DateTime.now();
-    final today = dateKey(now);
-    // Only today's rows are read (#417) — the same rows the old
-    // `dateKey(x) == today` in-memory filters kept.
-    final day = dayBounds(now);
+    final today = todayKey();
     final drawer = await shiftsRepo.getCashDrawer();
     // db.js: only treat the drawer as today's shift if its date matches today.
     final shift = (drawer != null && drawer.shift.dateStr == today)
         ? drawer
         : null;
-
-    // Several shifts a day (08 §11, #452): a later shift counts only its own
-    // cash — from its own opening, not from midnight. The day's first shift
-    // keeps the midnight bound, as before. Same rule as the closing report.
-    final from = shift == null
-        ? day.from
-        : (await shiftsRepo.cashCountFrom(shift.shift) ?? day.from);
-
-    final salesAgg = await salesRepo.getSales(from: from, to: day.to);
-    final returns = await returnsRepo.getReturns(from: from, to: day.to);
-    // Manual voids excluded, auto-voids kept — the closing report's helper.
-    final cashSalesTotal = drawerCashSalesOf(salesAgg, returns, from: from);
-
-    final cashRefundsToday = returns
-        .where((r) => r.ret.refundMethod == 'เงินสด')
-        .fold<double>(0, (s, r) => s + r.ret.refundTotal);
-
-    // Only CASH settlements enter the drawer (the JS filtered
-    // p.method === 'เงินสด'). The Drift table has no method column; the method
-    // is the note's leading segment — the same test the closing report uses, so
-    // the two expect the same cash (#452; this screen used to count transfers).
-    final creditPayments = await mechanicsRepo.getCreditPayments(
-      from: from,
-      to: day.to,
-    );
-    final cashCreditPaymentsToday = creditPayments
-        .where((p) => isCashCreditPayment(p.note))
-        .fold<double>(0, (s, p) => s + p.amount);
-
-    return _DrawerData(
-      shift: shift,
-      cashSalesTotal: cashSalesTotal,
-      cashRefundsToday: cashRefundsToday,
-      cashCreditPaymentsToday: cashCreditPaymentsToday,
-    );
+    // No shift today → the screen shows only the open form; nothing to count.
+    final cash = shift == null
+        ? const DrawerCash(
+            startingCash: 0,
+            cashSales: 0,
+            cashCreditPayments: 0,
+            cashRefunds: 0,
+            totalIn: 0,
+            totalOut: 0,
+          )
+        : await shiftsRepo.drawerCash(shift);
+    return _DrawerData(shift: shift, cash: cash);
   }
 
   @override
@@ -212,6 +160,13 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     }
     final amount = double.tryParse(_amountCtl.text) ?? 0;
     if (amount <= 0) return;
+    // Owner 2026-10-03: a cash-out larger than the drawer holds is refused —
+    // up front, against the number on this screen. The repository/server
+    // refuse it too (a stale screen), and that refusal is shown below.
+    if (_entryType == 'out' && exceedsDrawer(amount, d.expectedCash)) {
+      _toast(drawerInsufficientCashMessage(d.expectedCash));
+      return;
+    }
     final repo = context.read<ShiftsRepository>();
     setState(() => _busy = true);
     try {
@@ -221,6 +176,8 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
       _refresh();
     } catch (e) {
       _toast(_clean(e));
+      // A refusal means this screen's count was stale — re-read it.
+      if (mounted) _refresh();
     } finally {
       if (mounted) setState(() => _busy = false);
     }

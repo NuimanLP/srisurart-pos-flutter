@@ -660,6 +660,9 @@ export class SyncService {
             note: op.payload.note ?? null,
             createdAt: clampedDate,
           },
+          // The cash already left the drawer offline — never refuse the record of it
+          // (DRAWER_INSUFFICIENT_CASH is for the online counter only).
+          { offlineReplay: true },
         );
 
         const balanceAfter = await this.computeShiftBalance(

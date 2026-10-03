@@ -1,0 +1,37 @@
+{
+  "name": "sales.create-mechanic-credit",
+  "caller": "ApiSalesRepository.saveSale",
+  "requests": [
+    {
+      "route": "POST /api/v1/sales",
+      "method": "POST",
+      "path": "/api/v1/sales",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "smush0wj7_6e98c530_y",
+        "subtotal": "200.00",
+        "discount": "10.00",
+        "total": "190.00",
+        "paymentMethod": "เครดิตช่าง",
+        "customerId": null,
+        "customerName": null,
+        "mechanicId": "ct-mechanic-1",
+        "mechanicName": "Contract mechanic",
+        "mechanicDelta": "-10.00",
+        "overrideCreditLimit": true,
+        "items": [
+          {
+            "lineNo": 1,
+            "productId": "ct-product-1",
+            "partNo": "CT-001",
+            "name": "Contract part",
+            "nameTH": null,
+            "qty": 2,
+            "price": "100.00"
+          }
+        ]
+      }
+    }
+  ]
+}

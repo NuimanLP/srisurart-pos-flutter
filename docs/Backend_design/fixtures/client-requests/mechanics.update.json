@@ -1,0 +1,17 @@
+{
+  "name": "mechanics.update",
+  "caller": "ApiMechanicsRepository.updateMechanic",
+  "requests": [
+    {
+      "route": "PATCH /api/v1/mechanics/:id",
+      "method": "PATCH",
+      "path": "/api/v1/mechanics/ct-mechanic-1",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "name": "Renamed mechanic",
+        "creditLimit": "8000.00"
+      }
+    }
+  ]
+}

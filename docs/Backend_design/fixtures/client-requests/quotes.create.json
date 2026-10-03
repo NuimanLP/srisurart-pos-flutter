@@ -1,0 +1,30 @@
+{
+  "name": "quotes.create",
+  "caller": "ApiQuotesRepository.saveQuote",
+  "requests": [
+    {
+      "route": "POST /api/v1/quotes",
+      "method": "POST",
+      "path": "/api/v1/quotes",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "subtotal": "200.00",
+        "discount": "0.00",
+        "total": "200.00",
+        "customerName": "ลูกค้าใบเสนอราคา",
+        "customerPhone": "0833333333",
+        "notes": "ทดสอบ",
+        "validDays": 30,
+        "items": [
+          {
+            "productId": "ct-product-1",
+            "name": "Contract part",
+            "qty": 2,
+            "price": "100.00"
+          }
+        ]
+      }
+    }
+  ]
+}

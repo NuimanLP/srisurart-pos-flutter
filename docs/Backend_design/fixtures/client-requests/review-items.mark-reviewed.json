@@ -1,0 +1,14 @@
+{
+  "name": "review-items.mark-reviewed",
+  "caller": "ReviewItemsRepository.markReviewed",
+  "requests": [
+    {
+      "route": "POST /api/v1/review-items/:id/reviewed",
+      "method": "POST",
+      "path": "/api/v1/review-items/ct-review-1/reviewed",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

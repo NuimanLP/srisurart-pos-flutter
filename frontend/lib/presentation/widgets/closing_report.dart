@@ -21,7 +21,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/pdf_fonts.dart';
-import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
@@ -51,14 +50,9 @@ class _ClosingData {
   /// bills, payment rows, top items and profit.
   final NetSales net;
 
-  /// Cash bills since the drawer's count began ([ShiftsRepository.cashCountFrom])
-  /// — the day's cash sales unless a later shift of the day is the drawer.
-  final double drawerCashSales;
-  final double cashRefundsToday;
-  final double cashCreditPaymentsToday;
-  final double drawerStarting;
-  final double drawerIn;
-  final double drawerOut;
+  /// The drawer check — [ShiftsRepository.drawerCash], the same number the
+  /// cash-drawer screen shows and its cash-out refusal checks (#452).
+  final DrawerCash cash;
   final bool drawerToday;
   final String shopName;
   final String shopNameEN;
@@ -67,12 +61,7 @@ class _ClosingData {
   final String? cashierName;
   const _ClosingData({
     required this.net,
-    required this.drawerCashSales,
-    required this.cashRefundsToday,
-    required this.cashCreditPaymentsToday,
-    required this.drawerStarting,
-    required this.drawerIn,
-    required this.drawerOut,
+    required this.cash,
     required this.drawerToday,
     required this.shopName,
     required this.shopNameEN,
@@ -80,6 +69,13 @@ class _ClosingData {
     required this.phone,
     required this.cashierName,
   });
+
+  double get drawerCashSales => cash.cashSales;
+  double get cashRefundsToday => cash.cashRefunds;
+  double get cashCreditPaymentsToday => cash.cashCreditPayments;
+  double get drawerStarting => cash.startingCash;
+  double get drawerIn => cash.totalIn;
+  double get drawerOut => cash.totalOut;
 }
 
 /// Disclosure lines for [GrossProfitResult] — verbatim copy of the warning
@@ -95,7 +91,6 @@ List<String> costDisclosureLines(GrossProfitResult r) => [
 Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final salesRepo = context.read<SalesRepository>();
   final returnsRepo = context.read<ReturnsRepository>();
-  final mechanicsRepo = context.read<MechanicsRepository>();
   final productsRepo = context.read<ProductsRepository>();
   final settingsRepo = context.read<SettingsRepository>();
   final shiftsRepo = context.read<ShiftsRepository>();
@@ -107,21 +102,9 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final day = dayBounds(now);
   final drawer = await shiftsRepo.getCashDrawer();
   final drawerToday = drawer != null && drawer.shift.dateStr == today;
-  // The drawer check counts from the same point as the cash-drawer screen
-  // (08 §11, #452): midnight for the day's first shift, a later shift's own
-  // opening otherwise. Revenue, the payment breakdown and top items stay the
-  // whole day — this is the DAILY closing report.
-  final countFrom = drawerToday
-      ? (await shiftsRepo.cashCountFrom(drawer.shift) ?? day.from)
-      : day.from;
   final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
-  final returns = await returnsRepo.getReturns(from: countFrom, to: day.to);
-  final creditPayments = await mechanicsRepo.getCreditPayments(
-    from: countFrom,
-    to: day.to,
-  );
   // The day's credit notes for the whole-day sections (revenue, bills,
-  // payment rows, top items, profit) — `returns` above is the drawer's window.
+  // payment rows, top items, profit).
   final dayReturns = await returnsRepo.getReturns(from: day.from, to: day.to);
   final todaySaleIds = {for (final s in salesAgg) s.sale.id};
   // A credit note today may be for an earlier day's bill: load that bill too,
@@ -141,46 +124,17 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
     originalSales: originalSales,
   );
 
-  // Cash refunds today reduce the drawer.
-  final cashRefundsToday = returns
-      .where((r) => r.ret.refundMethod == 'เงินสด')
-      .fold<double>(0, (s, r) => s + r.ret.refundTotal);
-
-  // Cash credit-payments today increase the drawer. The JS filtered
-  // p.method === 'เงินสด' so only cash settlements hit the drawer; transfers
-  // (โอน/QR) must NOT. The Drift CreditPayments table has no `method` column,
-  // but MechanicsScreen folds the chosen method into the `note` as
-  // '<method>' or '<method> · <typed note>' (see mechanics_screen.dart). We
-  // recover the method from that prefix and count only cash settlements,
-  // matching ClosingReport.jsx (and keeping the drawer math consistent).
-  final cashCreditPaymentsToday = creditPayments
-      .where((p) => isCashCreditPayment(p.note))
-      .fold<double>(0, (s, p) => s + p.amount);
-
-  // Cash bills in the drawer's window — the "+ ยอดขายเงินสด" of the check.
-  // Same helper as the cash-drawer screen; `returns` is the drawer's window.
-  final drawerCashSales = drawerCashSalesOf(salesAgg, returns, from: countFrom);
-
-  final drawerStarting = drawerToday ? drawer.shift.startingCash : 0.0;
-  final drawerOut = drawerToday
-      ? drawer.entries
-            .where((e) => e.type == 'out')
-            .fold<double>(0, (s, e) => s + e.amount)
-      : 0.0;
-  final drawerIn = drawerToday
-      ? drawer.entries
-            .where((e) => e.type == 'in')
-            .fold<double>(0, (s, e) => s + e.amount)
-      : 0.0;
+  // The drawer check counts exactly as the cash-drawer screen does (08 §11,
+  // #452): today's drawer from its counting start; with no drawer today, the
+  // day's cash from midnight with no starting cash. Revenue, the payment
+  // breakdown and top items above stay the whole day — this is the DAILY report.
+  final cash = drawerToday
+      ? await shiftsRepo.drawerCash(drawer)
+      : await shiftsRepo.drawerCashBetween(from: day.from, to: day.to);
 
   return _ClosingData(
     net: NetSales.of(lites.sales, lites.returns, settings.taxRate),
-    drawerCashSales: drawerCashSales,
-    cashRefundsToday: cashRefundsToday,
-    cashCreditPaymentsToday: cashCreditPaymentsToday,
-    drawerStarting: drawerStarting,
-    drawerIn: drawerIn,
-    drawerOut: drawerOut,
+    cash: cash,
     drawerToday: drawerToday,
     shopName: settings.shopName,
     shopNameEN: settings.shopNameEN,
@@ -224,14 +178,7 @@ class _ClosingReportState extends State<ClosingReport> {
   // ── Closing math (ports ClosingReport.jsx, net of credit notes) ─────────
   List<TopItem> _topItems(_ClosingData d) => d.net.topItems.take(5).toList();
 
-  double _cashExpected(_ClosingData d) {
-    return d.drawerStarting +
-        d.drawerCashSales +
-        d.cashCreditPaymentsToday -
-        d.cashRefundsToday -
-        d.drawerOut +
-        d.drawerIn;
-  }
+  double _cashExpected(_ClosingData d) => d.cash.expected;
 
   double _cashActual() => double.tryParse(_cashCtl.text) ?? 0;
 
