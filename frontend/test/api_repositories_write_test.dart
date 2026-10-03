@@ -1,11 +1,14 @@
 // Unit tests for Ticket #55 write operations & Idempotency-Key headers (ADR-0010).
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_customers_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
@@ -262,5 +265,125 @@ void main() {
 
     await mechanicsRepo.addMechanic(const MechanicsCompanion(name: Value('Chang Noi')));
     expect(headersSeen['/api/v1/mechanics'], isNotNull);
+  });
+
+  group('ApiMechanicsRepository.addMechanic failures (mob04 2026-10-03)', () {
+    const dialogInput = MechanicsCompanion(
+      nameTH: Value('ช่างเอก'),
+      nickname: Value('เอก'),
+      shopName: Value('เอก บางบอย'),
+      phone: Value(''),
+      note: Value(''),
+      creditLimit: Value(20000),
+    );
+
+    http.Response error(int status, String code, String message) => http.Response(
+          '{"status":"error","error":{"code":"$code","message":"$message"}}',
+          status,
+          headers: {'content-type': 'application/json'},
+        );
+
+    test('the add dialog never sets name, so the body carries name "" beside nameTH',
+        () async {
+      // Pins the body the server must accept (people.dto.ts nameOrThai). The
+      // dialog builds exactly this companion for "name only, limit 0".
+      Map<String, dynamic>? sent;
+      final repo = ApiMechanicsRepository(
+        db,
+        ApiClient(
+          httpClient: MockClient((request) async {
+            sent = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(
+              '{"status":"success","data":{"id":"m_1","code":"M001","name":"ทดสอบ-ลบได้","nameTH":"ทดสอบ-ลบได้","creditLimit":"0.00"}}',
+              201,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        ),
+      );
+      await repo.addMechanic(const MechanicsCompanion(
+        nameTH: Value('ทดสอบ-ลบได้'),
+        nickname: Value(''),
+        shopName: Value(''),
+        phone: Value(''),
+        note: Value(''),
+        creditLimit: Value(0),
+      ));
+      expect(sent, {
+        'name': '',
+        'nameTH': 'ทดสอบ-ลบได้',
+        'nickname': '',
+        'shopName': '',
+        'phone': '',
+        'note': '',
+        'creditLimit': '0.00',
+      });
+    });
+
+    test('a 4xx leaves as a Thai PosException, never an ApiException', () async {
+      final repo = ApiMechanicsRepository(
+        db,
+        ApiClient(
+          httpClient: MockClient((_) async => error(400, 'BAD_REQUEST', 'name is required')),
+        ),
+      );
+      await expectLater(
+        repo.addMechanic(dialogInput),
+        throwsA(isA<PosException>()
+            .having((e) => e.code, 'code', 'BAD_REQUEST')
+            .having((e) => e.message, 'message', 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่')),
+      );
+    });
+
+    test('updateMechanic and deleteMechanic refusals leave as Thai PosExceptions too', () async {
+      final repo = ApiMechanicsRepository(
+        db,
+        ApiClient(
+          httpClient: MockClient((_) async => error(400, 'BAD_REQUEST', 'creditLimit is invalid')),
+        ),
+      );
+      final thai = throwsA(isA<PosException>().having(
+          (e) => e.message, 'message', 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่'));
+      await expectLater(repo.updateMechanic('m1', dialogInput), thai);
+      await expectLater(repo.deleteMechanic('m1'), thai);
+    });
+
+    test('a transport failure leaves as a Thai PosException', () async {
+      final repo = ApiMechanicsRepository(
+        db,
+        ApiClient(
+          httpClient: MockClient((_) async => throw http.ClientException('Failed to fetch')),
+        ),
+      );
+      await expectLater(
+        repo.addMechanic(dialogInput),
+        throwsA(isA<PosException>().having(
+            (e) => e.message, 'message', 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์')),
+      );
+    });
+
+    test('a retry after a 5xx reuses the Idempotency-Key; after a 4xx it does not', () async {
+      final keys = <String?>[];
+      final replies = <http.Response>[
+        error(500, 'INTERNAL_ERROR', 'Internal server error'),
+        error(400, 'BAD_REQUEST', 'name is required'),
+        error(400, 'BAD_REQUEST', 'name is required'),
+      ];
+      final repo = ApiMechanicsRepository(
+        db,
+        ApiClient(
+          httpClient: MockClient((request) async {
+            keys.add(request.headers['idempotency-key'] ?? request.headers['Idempotency-Key']);
+            return replies.removeAt(0);
+          }),
+        ),
+      );
+      for (var i = 0; i < 3; i++) {
+        await expectLater(repo.addMechanic(dialogInput), throwsA(isA<PosException>()));
+      }
+      expect(keys, hasLength(3));
+      expect(keys[1], keys[0], reason: 'fate unknown after a 5xx: same attempt');
+      expect(keys[2], isNot(keys[1]), reason: 'a 4xx is a verdict: next press is new');
+    });
   });
 }
