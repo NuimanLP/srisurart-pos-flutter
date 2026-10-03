@@ -997,3 +997,15 @@ gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --
 | `docs/handoff_log/ticket-336-env-secrets.md` | ที่มาของทุกคีย์, วิธีสุ่ม, กับดัก volume |
 | `docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md` | หลักฐาน FortiGate (§4.7) |
 | `deploy/ansible/*.yml`, `deploy/ansible/inventory/hosts.ini`, `deploy/ansible/ansible.cfg`, `deploy/compose/*.yml`, `server/docker-compose.yml`, `deploy/scripts/*.sh` | ของจริง |
+
+### 6.7 build และติดตั้งแอป Android (APK)
+
+APK ไม่ได้มากับ deploy — ต้องสั่ง workflow แยก (รายละเอียด: `07_CICD_DEPLOY.md` §2b)
+
+1. **ก่อนอื่น:** แอปต่อ `mob04` ได้ต่อเมื่อ PR #552 (ดู 07 §5 TLS) deploy แล้ว และ CA cert อยู่ที่ `frontend/assets/certs/pos-ca.crt` ถ้ายังไม่ครบ แอปติดตั้งได้แต่เชื่อมเซิร์ฟเวอร์ไม่ได้
+2. GitHub → Actions → **Android APK** → Run workflow → เลือก branch `main` (บน branch อื่น job ไม่รัน)
+3. รอจนเขียว แล้วเปิด Releases → prerelease `apk-<sha7>` → ดาวน์โหลด `srisurart-pos-<sha7>.apk`
+4. ย้ายไฟล์เข้าเครื่อง Android → เปิดไฟล์ → อนุญาต "ติดตั้งจากแหล่งที่ไม่รู้จัก" (unknown sources) ให้แอปที่ใช้เปิดไฟล์ → ติดตั้ง · รุ่นใหม่ติดตั้งทับรุ่นเก่าได้เพราะเซ็นด้วยกุญแจเดิม
+5. เครื่องต้องอยู่ในเครือข่ายคณะหรือต่อ VPN จึงเปิดแอปแล้วเข้า `https://172.30.58.20` ได้
+
+ข้อควรรู้: workflow ล้มถ้า release `apk-<sha7>` ของ commit นั้นมีอยู่แล้ว (ลบ release ก่อน) · ล้มถ้า secret `ANDROID_KEYSTORE_B64` ว่าง · ผู้ถือ secret ต้องเก็บ keystore สำรองส่วนตัว ห้าม commit

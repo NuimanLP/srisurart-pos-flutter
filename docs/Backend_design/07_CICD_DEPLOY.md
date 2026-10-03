@@ -177,6 +177,16 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
   ของที่เข้ามาตอนแก้ conflict ใน merge commit จึงไม่ถูกสแกนบน PR (push ขึ้น `main` ก็เช่นกัน) ·
   ถ้าเปิด merge queue เมื่อไร ต้องเพิ่ม trigger `merge_group` ให้ `server.yml` ไม่งั้น required check ค้าง.
 
+### 2b. Android APK — workflow มือกด (`android-apk.yml`)
+
+`.github/workflows/android-apk.yml` เป็น `workflow_dispatch` อย่างเดียว (ไม่ใช่ required check, push ธรรมดาไม่ปล่อยอะไร) และ job รันเฉพาะเมื่อกดบน `main`:
+
+- build APK **ตัวเดียว** = รุ่น API (`USE_API_WRITES=true`, `API_BASE_URL=https://172.30.58.20` = `mob04`) · **ไม่มี** APK ออฟไลน์ล้วนจาก `main` เพราะบน `main` `useApiRepositories` ค่าเริ่มต้นเป็น true
+- เซ็นด้วย secret `ANDROID_KEYSTORE_B64` (กุญแจถาวร → รุ่นใหม่ติดตั้งทับรุ่นเก่าได้) · ล้มทันทีถ้า secret ว่าง · ผู้ถือ secret ต้องเก็บ keystore สำรองส่วนตัวเอง **ห้าม commit** (หายแล้วติดตั้งทับไม่ได้)
+- ปล่อยเป็น prerelease `apk-<sha7>` พร้อมไฟล์ `srisurart-pos-<sha7>.apk` · ล้มถ้า release ชื่อนั้นมีอยู่แล้ว (ลบก่อน หรือ build commit ที่ใหม่กว่า)
+- แอปต้องมี `INTERNET` permission (เพิ่มแล้ว) และเครื่องต้องอยู่ในเครือข่ายคณะ/VPN · จะต่อ `mob04` ได้ก็ต่อเมื่อ PR #552 (ดู §5 TLS) deploy แล้วและ CA cert ถูก commit ที่ `frontend/assets/certs/pos-ca.crt` — ก่อนนั้นแอปต่อเซิร์ฟเวอร์ไม่ได้
+- ขั้นตอนสำหรับคนใช้: `docs/tutorial/VM-dploy-full-stack-tutorial.md` §6.7
+
 ---
 
 ## 3. Release = image 2 ตัวที่ SHA เดียวกัน
