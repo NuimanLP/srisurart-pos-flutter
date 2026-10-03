@@ -28,6 +28,17 @@ interface PgPoolLike {
   options: { max?: number };
 }
 
+/** Reads the request pool's counters at call time; never hands out the pool itself. */
+export function dbPoolStatsReader(ds: DataSource): DbPoolStatsReader {
+  const pool = (ds.driver as unknown as { master: PgPoolLike }).master;
+  return () => ({
+    inUse: pool.totalCount - pool.idleCount,
+    idle: pool.idleCount,
+    waiting: pool.waitingCount,
+    max: pool.options.max ?? 0,
+  });
+}
+
 /**
  * Four TypeORM DataSources per process:
  * 1. Default `DataSource` connects as the non-superuser `pos_app` role (RLS enabled/forced).
@@ -150,15 +161,7 @@ interface PgPoolLike {
       // instead of the DataSource keeps the consumer from ever taking a connection.
       provide: DB_POOL_STATS,
       inject: [DataSource],
-      useFactory: (ds: DataSource): DbPoolStatsReader => {
-        const pool = (ds.driver as unknown as { master: PgPoolLike }).master;
-        return () => ({
-          inUse: pool.totalCount - pool.idleCount,
-          idle: pool.idleCount,
-          waiting: pool.waitingCount,
-          max: pool.options.max ?? 0,
-        });
-      },
+      useFactory: dbPoolStatsReader,
     },
     TenantService,
   ],
