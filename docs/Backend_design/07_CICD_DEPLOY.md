@@ -187,6 +187,22 @@ file/line/rule/fingerprint แต่ค่าถูกปิด). ประว�
 - แอปต้องมี `INTERNET` permission (เพิ่มแล้ว) และเครื่องต้องอยู่ในเครือข่ายคณะ/VPN · จะต่อ `mob04` ได้ก็ต่อเมื่อ PR #552 (ดู §5 TLS) deploy แล้วและ CA cert ถูก commit ที่ `frontend/assets/certs/pos-ca.crt` — ก่อนนั้นแอปต่อเซิร์ฟเวอร์ไม่ได้
 - ขั้นตอนสำหรับคนใช้: `docs/tutorial/VM-dploy-full-stack-tutorial.md` §6.7
 
+### 2c. Quality gates (2026-10-03, PR #579 / #581 / #582)
+
+| ด่าน | job | จับอะไร | ผ่านยังไง |
+|---|---|---|---|
+| silent-failure guard | Flutter `analyze-and-test` (`frontend/test/silent_failure_guard_test.dart`) | `await` ที่**เขียน**ผ่าน repo/cubit ใน `lib/presentation/` โดยไม่มี `try` ที่ catch-all แล้วแสดง error (SnackBar/dialog/`setState`/`emit`/`_warn`/rethrow) — ปุ่มที่ "กดแล้วเงียบ" | ห่อด้วย catch ที่แสดงผล · method ที่เป็นการอ่านเพิ่มใน `_readPrefixes` · error ที่ caller จัดการเองใส่ `_allowlist` พร้อมเหตุผล (entry ที่ไม่ match อะไรแล้วทำให้ test ล้ม) · เป็น heuristic เชิงข้อความ — ข้อจำกัดอยู่หัวไฟล์ |
+| lint เข้มขึ้น | Flutter `dart analyze --fatal-infos` (มีมาแต่เดิม) | #579 เปิด `unawaited_futures`, `avoid_void_async` ใน `frontend/analysis_options.yaml` (`discarded_futures` ปิดโดยตั้งใจ) | แก้ตาม lint |
+| coverage ratchet (Flutter) | `tool/coverage_check.sh` ↔ `frontend/coverage_baseline.txt` (จำนวนเต็ม %, ไม่นับ `*.g.dart`) | line coverage ต่ำกว่า baseline | baseline **ขึ้นอย่างเดียว** — ยกด้วยมือเมื่อ coverage โตครบ 1 จุด ห้ามลดเพื่อให้เขียว |
+| coverage ratchet (server) | `unit` → `pnpm test:coverage` + `server/scripts/check-coverage.mjs` ↔ `server/coverage-baseline.json` (`lines`) | line coverage ของ `src/` ต่ำกว่า floor | เหมือนกัน — ยกได้ ห้ามลด |
+| client↔server request contract | Flutter: `frontend/test/contract/client_requests_contract_test.dart` · server `integration`: `server/test/client-request-fixtures.e2e-spec.ts` | client ส่ง method/path/body/`Idempotency-Key` ไม่ตรง fixture ใน `docs/Backend_design/fixtures/client-requests/` · server ตอบ 400/5xx/ไม่มี route กับ fixture | เปลี่ยน request โดยตั้งใจ → `UPDATE_CLIENT_REQUEST_FIXTURES=1 flutter test test/contract/client_requests_contract_test.dart` แล้ว commit fixture · `flutter.yml` ดู path นี้ด้วย (#582) |
+| migrations append-only | `ci-guards` (`deploy/scripts/check-migrations-immutable.sh`, เทียบ merge-base ของ PR) | แก้/ลบ/rename migration ที่มีอยู่บน base | แก้ของที่ ship แล้ว = migration **ใหม่** |
+| actionlint + shellcheck | `ci-guards` (binary pin + sha256) | workflow ผิด · shell ใน `run:` และ `deploy/scripts/**/*.sh` | ปิดเฉพาะจุดด้วย `# shellcheck disable=SCxxxx` + เหตุผล |
+
+`ci-guards` รันเมื่อ `.github/workflows/**`, `deploy/scripts/**` หรือ `server/src/db/migrations/**` เปลี่ยน และ `server-ci-status` ต้องการผลของมัน.
+⚠️ ช่องว่างที่รู้อยู่: filter `frontend` ของ `flutter.yml` ดู `fixtures/client-requests/**` แต่**ไม่ดู** `docs/Backend_design/fixtures/drawer-cash/**` (อ่านโดย `frontend/test/drawer_cash_out_limit_test.dart`) — PR ที่แก้แค่ fixture นั้นไม่รัน `flutter test` (ฝั่ง server ยังรันเพราะ `integration` รันทุก PR).
+🔴 **PR สองตัวที่เขียวแยกกันอาจแดงเมื่อ merge คู่กัน (2026-10-03):** #579 (guard) กับ #580 (เรียก `shiftsRepo.drawerCash` ใน `closing_report.dart`) merge ห่างกัน ~30 วินาที → Flutter CI บน `main` แดงที่ `2411ebf`/`a8a8080` เพราะ guard นับ `drawerCash` เป็นการเขียน — แก้โดย #582 (เพิ่ม `drawerCash` ใน `_readPrefixes`). หลัง merge ด่านใหม่ ให้ rebase PR ที่เปิดค้างก่อน merge
+
 ---
 
 ## 3. Release = image 2 ตัวที่ SHA เดียวกัน

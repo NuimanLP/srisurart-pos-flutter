@@ -349,7 +349,9 @@ develops against a demo tenant.
   pushed after the merge that may exist nowhere else. That is how PR #486's review fix
   (`_writeGen` guard against a stale `GET /settings` clobbering a newer `PATCH`, commits
   `47653b1`/`c57019a`, pushed after the 2026-09-28 01:21:43Z merge) was found and recovered by PR #521
-  (`ca2fef1`). This unblocked #490: `ensureSeedMarker`
+  (`ca2fef1`). **It happened again 2026-10-03:** #551/#552 (recovered by #553), #580
+  merged at `512c570` without `4a5bfb6` (re-landed by #584), #579 at `1124dd0` without
+  `173c1d3` (re-landed by #582). This unblocked #490: `ensureSeedMarker`
   now accepts a seed from **any** period, so an offline sale after a month rollover starts
   at `0001` instead of refusing with
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
@@ -542,7 +544,8 @@ on void/return paths. Keep this order in any new write touching more than one of
 - **A cash-out larger than the drawer's expected cash is refused** (owner 2026-10-03,
   PR #580): `409 DRAWER_INSUFFICIENT_CASH` online, `PosException` on the Drift build and the
   API build's offline queue; a `/sync/push` `drawer.entry` replay is never refused (the cash
-  already left).
+  already left) — one that takes the shift's expected cash below zero files one owner review
+  item `drawer_overdrawn_offline` per entry (PR #585, migration `1788652804800`).
 - **Returns share one pure rule set:** `planReturn()` + `refundedQtyOf()`
   (`return_plan.dart`) are used by both `ReturnsRepository` and `ApiReturnsRepository`;
   the offline `return.create` numbers its CN inside the local transaction, after every
@@ -579,6 +582,19 @@ on void/return paths. Keep this order in any new write touching more than one of
   `gh api repos/NuimanLP/srisurart-pos-flutter --jq .security_and_analysis`; ADR-0013 once claimed
   "on" while off); Dependabot alerts + security updates enabled 2026-10-01.
 - In Actions expressions `0` is falsy: `cond && 0 || 1` is always `1` — use strings (`'0'`). This silently disabled the docs-only push skip until it was fixed (2026-10-01).
+- **Quality gates (2026-10-03, PRs #579/#581/#582 — table in `07_CICD_DEPLOY.md §2c`):**
+  `frontend/test/silent_failure_guard_test.dart` fails on an awaited repo/cubit **write** in
+  `lib/presentation/` with no catch-all that surfaces the error — wrap it, add a read-only
+  method name to `_readPrefixes`, or an `_allowlist` entry with the reason (a dead entry
+  fails too). Coverage ratchets `frontend/coverage_baseline.txt` and
+  `server/coverage-baseline.json` only go **up** — never lower one to go green.
+  `fixtures/client-requests/` pins what the client really sends and the server `integration`
+  job replays it; regenerate with `UPDATE_CLIENT_REQUEST_FIXTURES=1 flutter test
+  test/contract/client_requests_contract_test.dart` and commit. Job `ci-guards`:
+  `check-migrations-immutable.sh` (edit/delete/rename of a migration on the PR base fails —
+  fix with a new migration), actionlint, shellcheck. 🔴 Two PRs green alone can be red
+  together: #579 + #580 merged 29 s apart turned Flutter CI on `main` red (`2411ebf`,
+  `a8a8080`) until #582 — after a gate lands, rebase open PRs before merging.
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
