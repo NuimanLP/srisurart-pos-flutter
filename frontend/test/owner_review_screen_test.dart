@@ -238,6 +238,10 @@ void main() {
     });
   });
 
+  test('quote_conflict (#27 follow-up, owner 2026-10-03) is a known kind, not unknown', () {
+    expect(ReviewItemKind.fromString('quote_conflict'), ReviewItemKind.quoteConflict);
+  });
+
   group('OwnerReviewScreen - Tab 2 (รอตรวจ)', () {
     testWidgets('loads and renders review items and handles markReviewed',
         (tester) async {

@@ -22,6 +22,13 @@ import {
  */
 export type QuoteSaleState = 'fresh' | 'replay' | 'missing';
 
+/** `lockAndClassify`: the states `lockForSale` refuses are facts here, not errors. */
+export type QuoteLockResult =
+  | { state: QuoteSaleState }
+  | { state: 'converted'; convertedSaleId: string | null }
+  | { state: 'expired'; validUntil: Date }
+  | { state: 'sale_id_taken' };
+
 /** The quote as `POST /sales` with a `quoteId` answers it, so the client can patch its row. */
 export interface SoldQuote {
   id: string;
@@ -66,6 +73,37 @@ export class QuoteSaleService {
     quoteId: string,
     saleId: string,
   ): Promise<QuoteSaleState> {
+    const found = await this.lockAndClassify(manager, tenantId, quoteId, saleId);
+    switch (found.state) {
+      case 'converted':
+        throw quoteAlreadyConverted(found.convertedSaleId);
+      case 'expired':
+        throw quoteExpired(found.validUntil);
+      case 'sale_id_taken':
+        throw new HttpException(
+          {
+            code: 'SALE_ID_REUSED',
+            message: 'A different sale already exists under this id.',
+          },
+          HttpStatus.CONFLICT,
+        );
+      default:
+        return found.state;
+    }
+  }
+
+  /**
+   * The lock and the classification `lockForSale` refuses on, without refusing — the
+   * `/sync/push` replay of an offline `sale.create` needs them as facts, because by
+   * then the customer has paid and the bill is accepted whatever the quote says
+   * (owner, 2026-10-03; 08 §6.1).
+   */
+  async lockAndClassify(
+    manager: EntityManager,
+    tenantId: string,
+    quoteId: string,
+    saleId: string,
+  ): Promise<QuoteLockResult> {
     const rows = (await manager.query(
       `SELECT status, converted_sale_id, valid_until, (valid_until < now()) AS expired
          FROM quotes WHERE tenant_id = $1::uuid AND id = $2 FOR UPDATE`,
@@ -76,16 +114,15 @@ export class QuoteSaleService {
       valid_until: Date;
       expired: boolean;
     }[];
-    if (rows.length === 0) return 'missing';
+    if (rows.length === 0) return { state: 'missing' };
     const q = rows[0];
 
     if (q.status === 'converted') {
-      if (q.converted_sale_id !== saleId) {
-        throw quoteAlreadyConverted(q.converted_sale_id);
-      }
-      return 'replay';
+      return q.converted_sale_id === saleId
+        ? { state: 'replay' }
+        : { state: 'converted', convertedSaleId: q.converted_sale_id };
     }
-    if (q.expired) throw quoteExpired(q.valid_until);
+    if (q.expired) return { state: 'expired', validUntil: q.valid_until };
 
     // The quote is still open, so no bill was ever committed from it: a sale already
     // under this id is a different bill. Without this, `existingSale` would replay
@@ -94,16 +131,7 @@ export class QuoteSaleService {
       `SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
       [tenantId, saleId],
     )) as unknown[];
-    if (taken.length > 0) {
-      throw new HttpException(
-        {
-          code: 'SALE_ID_REUSED',
-          message: 'A different sale already exists under this id.',
-        },
-        HttpStatus.CONFLICT,
-      );
-    }
-    return 'fresh';
+    return taken.length > 0 ? { state: 'sale_id_taken' } : { state: 'fresh' };
   }
 
   async markConverted(

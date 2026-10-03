@@ -19,8 +19,16 @@ import { CreditPaymentsService } from '../mechanics/credit-payments.service.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { ReturnsService } from '../returns/returns.service.js';
 import { parseCreateReturn } from '../returns/returns.dto.js';
-import { SalesService } from '../sales/sales.service.js';
-import { parseCreateSale, type SaleWrite } from '../sales/sales.dto.js';
+import { SalesService, type CreateSaleResult } from '../sales/sales.service.js';
+import {
+  QuoteSaleService,
+  type QuoteLockResult,
+} from '../sales/quote-sale.service.js';
+import {
+  parseCreateSale,
+  parseSaleQuoteId,
+  type SaleWrite,
+} from '../sales/sales.dto.js';
 import { VoidService } from '../sales/void.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import {
@@ -57,6 +65,7 @@ export class SyncService {
     private readonly tenants: TenantService,
     private readonly idempotency: IdempotencyService,
     private readonly sales: SalesService,
+    private readonly quoteSales: QuoteSaleService,
     private readonly returns: ReturnsService,
     private readonly shifts: ShiftsService,
     private readonly creditPayments: CreditPaymentsService,
@@ -581,12 +590,29 @@ export class SyncService {
           soldOffline: true,
         };
 
+        // #27 follow-up (owner, 2026-10-03, 08 §6.1): a cart sold offline from a quote.
+        // The quote row is locked FIRST — the same order as `POST /sales` `quoteId`.
+        const quoteId = parseSaleQuoteId(op.payload);
+        const quote =
+          quoteId === null
+            ? null
+            : await this.quoteSales.lockAndClassify(
+                manager,
+                tenantId,
+                quoteId,
+                saleInput.id,
+              );
+
         // #455 / 08 §8.2: the whole `POST /sales` reply — `items[].costAtSale`,
         // `movements`, `shiftId`, `date` and the ledgers included.
-        return this.sales.create(saleInput, {
+        const sale = await this.sales.create(saleInput, {
           userId: actor.userId,
           deviceId: device.id,
         });
+        if (quote !== null && quoteId !== null) {
+          await this.settleOfflineQuote(manager, tenantId, op, quoteId, sale, quote);
+        }
+        return sale;
       }
 
       case 'return.create': {
@@ -846,6 +872,64 @@ export class SyncService {
     const datePeriod = rows[0]?.period;
     if (!datePeriod || datePeriod === docPeriod) return null;
     return { docNo, docPeriod, datePeriod };
+  }
+
+  /**
+   * #27 follow-up (owner, 2026-10-03, 08 §6.1). The money was taken, so the bill always
+   * stands. A quote still open is converted into it, as online. A quote converted
+   * into another bill, expired, or gone is left exactly as it is, and the owner gets
+   * one `quote_conflict` review item for the bill instead.
+   */
+  private async settleOfflineQuote(
+    manager: EntityManager,
+    tenantId: string,
+    op: SyncOpDto,
+    quoteId: string,
+    sale: CreateSaleResult,
+    quote: QuoteLockResult,
+  ): Promise<void> {
+    let reason: 'already_converted' | 'expired' | 'not_found';
+    switch (quote.state) {
+      case 'fresh':
+        await this.quoteSales.markConverted(manager, tenantId, quoteId, sale.id);
+        return;
+      case 'replay':
+      // Unreachable on a first apply: the client-id replay runs before this op, and
+      // `sales.create` would refuse a taken id before we got here.
+      case 'sale_id_taken':
+        return;
+      case 'converted':
+        reason = 'already_converted';
+        break;
+      case 'expired':
+        reason = 'expired';
+        break;
+      case 'missing':
+        reason = 'not_found';
+        break;
+    }
+    await ReviewItemsService.insertIn(
+      manager,
+      tenantId,
+      {
+        kind: 'quote_conflict',
+        refId: sale.id,
+        details: {
+          opId: op.opId,
+          saleId: sale.id,
+          receiptNo: sale.receiptNo,
+          quoteId,
+          reason,
+          ...(quote.state === 'converted'
+            ? { convertedSaleId: quote.convertedSaleId }
+            : {}),
+          ...(quote.state === 'expired'
+            ? { validUntil: quote.validUntil.toISOString() }
+            : {}),
+        },
+      },
+      { onConflictDoNothing: true },
+    );
   }
 
   /**

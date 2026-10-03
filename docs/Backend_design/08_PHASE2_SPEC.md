@@ -191,6 +191,11 @@ stateDiagram-v2
 | `sale.void_offline` | push เท่านั้น | – | บิล void แล้ว → `applied` | `sale:<saleId>` · รอ `shift` |
 
 - override วงเงิน = `overrideCreditLimit` ใน `sale.create` · ทาง push → รายการตรวจ `credit_override`
+- **บิลจากตะกร้าใบเสนอราคา (owner 2026-10-03, #27):** `sale.create` มี `quoteId` (ไม่บังคับ, เหมือน body ออนไลน์ `POST /sales`) · ตอน push ล็อกแถว quote **ก่อน** (ลำดับเดียวกับออนไลน์) แล้ว**รับบิลเสมอ** (ลูกค้าจ่ายเงินแล้ว):
+  ใบยัง open และยังไม่หมดอายุ → ตั้ง converted + `converted_sale_id` ใน transaction เดียวกับบิล ·
+  ใบแปลงเป็นบิลอื่นไปแล้ว / หมดอายุ (`valid_until < now()` ตอน push) / ไม่มีใบนี้แล้ว → **ไม่แตะใบเสนอราคา** และสร้างรายการตรวจ `quote_conflict`
+  `details { opId, saleId, receiptNo, quoteId, reason: already_converted|expired|not_found, convertedSaleId?, validUntil? }` หนึ่งรายการต่อบิล (unique index บางส่วน, push ซ้ำไม่เพิ่ม — migration …4700) ·
+  บิลถูกปฏิเสธ (สต็อกไม่พอ ฯลฯ) = rollback ทั้งหมด ใบยัง open ไม่มีรายการตรวจ · replay by key/id ไม่ทำขั้นนี้ซ้ำ
 - id ชน + ฟิลด์ที่เทียบไม่ตรง → `rejected` **`CLIENT_ID_REUSED`** `details: {type, id}` (code เดียวแทน `SALE_ID_REUSED`/`CREDIT_PAYMENT_ID_REUSED` บนทาง push; ทางออนไลน์คง code เดิม)
 
 > สถานะ 2026-09-27 (ฝั่ง client): เข้าคิวได้แล้ว `sale.create` · `credit_payment.create` · `customer.*` · `sale.void_offline` · **`shift.open` + `drawer.entry`** (PR #456, #452 slice — body ออนไลน์มี `id` แล้ว) · **`return.create`** (#452, PR #469 — body ออนไลน์มี `id` · ออฟไลน์เขียนใบลดหนี้ + เลข CN ของเครื่อง + คืนสต็อก/ลูกค้า/ช่าง + void บิลที่คืนครบ + แถว outbox ใน local transaction เดียว ผ่านกฎ pure `planReturn` ที่ใช้ร่วมกับ Drift build) · client test ผูก replay by key + replay by id + `CLIENT_ID_REUSED` ของสาม op นี้แล้ว (`sync_service_contract_test.dart` กลุ่ม 8) · API build เข้าคิวเฉพาะ transport failure — 5xx/429 จอดความพยายามไว้ (id + key เดิม) เหมือน `ApiSalesRepository` (owner เคาะ 2026-09-27, §5 แก้ตามแล้ว)
@@ -429,7 +434,7 @@ stateDiagram-v2
 | แท็บ (placeholder) | แหล่ง | ปุ่ม (placeholder) |
 |---|---|---|
 | ถูกปฏิเสธ/ค้าง | `outbox_ops` `rejected` + `stuck` (ในเครื่อง) — code, ข้อความ, payload, เลขที่พิมพ์ | ส่งใหม่ (key เดิม · ห้ามเปลี่ยนเลข) · ทิ้ง |
-| รอตรวจ | `GET /review-items?status=pending` — `void_offline` · `credit_override` · `shift_uncounted` · `date_flag` · `device_force_retired` · `receipt_renumbered` (owner 2026-09-25, §10) | ตรวจแล้ว `POST /review-items/:id/reviewed` (idempotent, `audit_log`, ไม่แตะเงิน/สต็อก) |
+| รอตรวจ | `GET /review-items?status=pending` — `void_offline` · `credit_override` · `shift_uncounted` · `date_flag` · `device_force_retired` · `receipt_renumbered` (owner 2026-09-25, §10) · `quote_conflict` (owner 2026-10-03, §6.1) | ตรวจแล้ว `POST /review-items/:id/reviewed` (idempotent, `audit_log`, ไม่แตะเงิน/สต็อก) |
 
 **ส่งใหม่ลงกะปัจจุบัน:** payload ไม่มี `shiftId` → บิลที่ถูกปฏิเสธในกะ A แล้วส่งใหม่ระหว่างกะ B จะลงกะ B, วันที่ถูก clamp + `date_flag` — ยอมรับ
 
