@@ -553,6 +553,8 @@ Object? _normalise(Object? v) {
   return v;
 }
 
+bool _deepEquals(Object? a, Object? b) => jsonEncode(a) == jsonEncode(b);
+
 bool _matchesRoute(String route, String method, String path) {
   final parts = route.split(' ');
   if (parts[0] != method) return false;
@@ -596,6 +598,11 @@ void main() {
         final fixture = _fixtureOf(s, w.recorded);
         final file = File('${dir.path}/${s.name}.json');
         if (update) {
+          // Unchanged but for minted ids/timestamps: keep the committed file (no diff noise).
+          if (file.existsSync() &&
+              _deepEquals(_normalise(fixture), _normalise(jsonDecode(file.readAsStringSync())))) {
+            return;
+          }
           dir.createSync(recursive: true);
           file.writeAsStringSync('${_encoder.convert(fixture)}\n');
           return;
