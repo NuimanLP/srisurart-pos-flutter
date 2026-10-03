@@ -52,6 +52,8 @@ import 'package:path/path.dart' as p;
 const _readPrefixes = [
   'get', 'watch', 'list', 'is', 'has', 'find', 'search', 'count', 'session',
   'export', 'cashCountFrom', 'catColor', 'productIdsWith', 'openDocumentRefs',
+  // ShiftsRepository's computed expected-cash reads (#580).
+  'drawerCash',
 ];
 
 /// Paths (prefixes) skipped entirely, with the reason.

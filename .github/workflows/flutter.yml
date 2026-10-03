@@ -74,6 +74,8 @@ jobs:
             frontend:
               - 'frontend/**'
               - '.github/workflows/flutter.yml'
+              # Client-request fixtures the Flutter tests read (PR #581).
+              - 'docs/Backend_design/fixtures/client-requests/**'
 
   analyze-and-test:
     name: analyze + test
