@@ -233,6 +233,67 @@ describe('Platform audit viewer + system panel (#443)', () => {
     expect(missing.status).toBe(404);
   });
 
+  describe('404 probes are audited, 400s are not (owner decision 2026-10-03)', () => {
+    const SENTINEL = '00000000-0000-0000-0000-000000000000';
+    const detailUrl = (tid: string) => `/api/v1/platform/tenants/${tid}`;
+    const notFoundRows = (action: string) =>
+      admin.query(
+        `SELECT tenant_id, platform_admin_id, entity, entity_id, after FROM audit_log
+          WHERE platform_admin_id = $1 AND action = $2`,
+        [adminId, action],
+      );
+
+    beforeEach(async () => {
+      await admin.query(
+        `DELETE FROM audit_log WHERE platform_admin_id = $1 AND tenant_id = $2::uuid`,
+        [adminId, SENTINEL],
+      );
+    });
+
+    it.each([
+      ['GET /tenants/:id', detailUrl, 'platform.tenant.read_not_found'],
+      ['GET /tenants/:id/audit', auditUrl, 'platform.tenant.audit.read_not_found'],
+    ])('%s: unknown tenant writes exactly one %s row, and it survives the 404', async (_n, url, action) => {
+      const missing = randomUUID();
+      const res = await http().get(url(missing)).set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(404);
+      const rows = await notFoundRows(action);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        tenant_id: SENTINEL,
+        platform_admin_id: adminId,
+        entity: 'tenants',
+        entity_id: missing,
+        after: { outcome: 'not_found' },
+      });
+    });
+
+    it.each([
+      ['GET /tenants/:id', detailUrl('not-a-uuid')],
+      ['GET /tenants/:id/audit', auditUrl('not-a-uuid')],
+      ['GET /tenants/:id/audit (bad limit, unknown tenant)', auditUrl(randomUUID(), '?limit=0')],
+    ])('%s: a 400 writes no audit row', async (_n, url) => {
+      const res = await http().get(url).set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(400);
+      const rows = await admin.query(
+        `SELECT 1 FROM audit_log WHERE platform_admin_id = $1 AND tenant_id = $2::uuid`,
+        [adminId, SENTINEL],
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it('a 200 detail read still writes one platform.tenant.read row and no not_found row', async () => {
+      const res = await http().get(detailUrl(tenantA)).set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      const rows = await admin.query(
+        `SELECT 1 FROM audit_log WHERE tenant_id = $1 AND action = 'platform.tenant.read'`,
+        [tenantA],
+      );
+      expect(rows).toHaveLength(1);
+      expect(await notFoundRows('platform.tenant.read_not_found')).toHaveLength(0);
+    });
+  });
+
   describe.each([
     ['audit', () => auditUrl(tenantA)],
     ['system', () => '/api/v1/platform/system'],

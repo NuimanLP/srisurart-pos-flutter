@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { toInet } from '../common/client-ip.js';
 
+/** Platform-wide rows (list, probing a tenant that does not exist) have no tenant to hang on. */
+export const PLATFORM_AUDIT_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
 export interface AuditLogInput {
   tenantId: string;
   platformAdminId?: string;
@@ -37,5 +40,26 @@ export class AuditService {
         cleanIp,
       ],
     );
+  }
+
+  /**
+   * A platform read that found no such tenant (owner decision 2026-10-03: a 404 is a probing
+   * signal, a 400 is not). `requestedId` MUST already have passed UUID validation. Best-effort
+   * like the success-path read audit — the caller runs this on the autocommit admin source
+   * *before* throwing, so the row is committed on its own and the 404 cannot roll it back.
+   */
+  async logReadNotFound(
+    runner: DataSource,
+    input: { action: string; requestedId: string; platformAdminId: string; ip?: string },
+  ): Promise<void> {
+    await this.log(runner, {
+      tenantId: PLATFORM_AUDIT_TENANT_ID,
+      platformAdminId: input.platformAdminId,
+      action: input.action,
+      entity: 'tenants',
+      entityId: input.requestedId,
+      after: { outcome: 'not_found' },
+      ip: input.ip,
+    });
   }
 }
