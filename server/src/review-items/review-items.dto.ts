@@ -6,7 +6,8 @@ export type ReviewItemKind =
   | 'shift_uncounted'
   | 'date_flag'
   | 'device_force_retired'
-  | 'receipt_renumbered';
+  | 'receipt_renumbered'
+  | 'quote_conflict';
 
 export const REVIEW_ITEM_KINDS: readonly ReviewItemKind[] = [
   'void_offline',
@@ -15,6 +16,7 @@ export const REVIEW_ITEM_KINDS: readonly ReviewItemKind[] = [
   'date_flag',
   'device_force_retired',
   'receipt_renumbered',
+  'quote_conflict',
 ] as const;
 
 export type ReviewItemStatus = 'pending' | 'reviewed' | 'all';

@@ -2307,6 +2307,131 @@ describe('POST /sync/push (e2e)', () => {
     });
   });
 
+  describe('#27 follow-up (owner 2026-10-03, 08 §6.1): an offline bill sold from a quote cart', () => {
+    const quoteSaleOp = (id: string, quoteId: string) => ({
+      opId: `op_${id}`,
+      idempotencyKey: `k_${id}`,
+      type: 'sale.create',
+      payload: {
+        id,
+        date: new Date().toISOString(),
+        subtotal: '85.00',
+        discount: '0.00',
+        total: '85.00',
+        paymentMethod: 'เงินสด',
+        quoteId,
+        items: [{ lineNo: 1, productId: 'p_q27', name: 'Filter', qty: 1, price: '85.00' }],
+      },
+    });
+    const seedQuote = (id: string, over: { status?: string; convertedSaleId?: string; expired?: boolean } = {}) =>
+      admin.query(
+        `INSERT INTO quotes (tenant_id, id, quote_no, status, valid_until, converted_at, converted_sale_id, subtotal, discount, total)
+         VALUES ($1::uuid, $2, $3, $4, now() + ($5::text)::interval, $6, $7, 85, 0, 85)`,
+        [
+          TENANT,
+          id,
+          `QT-${id}`,
+          over.status ?? 'open',
+          over.expired ? '-1 day' : '30 days',
+          over.status === 'converted' ? new Date('2026-10-01T03:00:00Z') : null,
+          over.convertedSaleId ?? null,
+        ],
+      );
+    const quoteRow = async (id: string) =>
+      (
+        (await admin.query(
+          `SELECT status, converted_at, converted_sale_id FROM quotes WHERE tenant_id = $1::uuid AND id = $2`,
+          [TENANT, id],
+        )) as { status: string; converted_at: Date | null; converted_sale_id: string | null }[]
+      )[0];
+    const conflicts = async () =>
+      (await admin.query(
+        `SELECT ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'quote_conflict' ORDER BY ref_id`,
+        [TENANT],
+      )) as { ref_id: string; details: Record<string, unknown> }[];
+    const saleExists = async (id: string) =>
+      ((await admin.query(`SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2`, [TENANT, id])) as unknown[])
+        .length === 1;
+
+    beforeEach(async () => {
+      await seedProduct(admin, TENANT, { id: 'p_q27', partNo: 'P-Q27', name: 'Filter', price: 85, cost: 50, stock: 10 });
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+    });
+
+    it('a quote still open at sync is converted into the bill in the same transaction, with no review item', async () => {
+      await seedQuote('q_open');
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_open', 'q_open')] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      const q = await quoteRow('q_open');
+      expect(q.status).toBe('converted');
+      expect(q.converted_sale_id).toBe('s_q_open');
+      expect(q.converted_at).not.toBeNull();
+      expect(await conflicts()).toEqual([]);
+
+      // A re-push replays the bill and changes nothing more.
+      expect((await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_open', 'q_open')] })).body.data.results[0].status)
+        .toBe('applied');
+      expect(await conflicts()).toEqual([]);
+    });
+
+    it('a quote already converted into another bill: the bill is accepted, the quote untouched, one review item', async () => {
+      await seedQuote('q_conv', { status: 'converted', convertedSaleId: 's_other' });
+      const before = await quoteRow('q_conv');
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_conv', 'q_conv')] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(await saleExists('s_q_conv')).toBe(true);
+      expect(await quoteRow('q_conv')).toEqual(before);
+      const items = await conflicts();
+      expect(items).toHaveLength(1);
+      expect(items[0].ref_id).toBe('s_q_conv');
+      expect(items[0].details).toMatchObject({
+        opId: 'op_s_q_conv',
+        saleId: 's_q_conv',
+        quoteId: 'q_conv',
+        reason: 'already_converted',
+        convertedSaleId: 's_other',
+      });
+      expect(items[0].details.receiptNo).toEqual(res.body.data.results[0].response.receiptNo);
+
+      // A re-push (client-id replay after the key is gone) raises no second item.
+      await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_s_q_conv'`, [TENANT]);
+      await clearTenantCache(cache, TENANT);
+      expect((await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_conv', 'q_conv')] })).body.data.results[0].status)
+        .toBe('applied');
+      expect(await conflicts()).toHaveLength(1);
+    });
+
+    it('an expired quote: the bill is accepted, the quote untouched, one review item', async () => {
+      await seedQuote('q_exp', { expired: true });
+      const before = await quoteRow('q_exp');
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_exp', 'q_exp')] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(await saleExists('s_q_exp')).toBe(true);
+      expect(await quoteRow('q_exp')).toEqual(before);
+      expect(before.status).toBe('open');
+      const items = await conflicts();
+      expect(items).toHaveLength(1);
+      expect(items[0].details).toMatchObject({ saleId: 's_q_exp', quoteId: 'q_exp', reason: 'expired' });
+      expect(typeof items[0].details.validUntil).toBe('string');
+    });
+
+    it('a quote that no longer exists: the bill is accepted with one review item (not_found)', async () => {
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_gone', 'q_gone')] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(await saleExists('s_q_gone')).toBe(true);
+      expect((await conflicts()).map((i) => i.details.reason)).toEqual(['not_found']);
+    });
+
+    it('a refused bill (no stock) rolls back: the open quote stays open, no review item', async () => {
+      await seedQuote('q_short');
+      await admin.query(`UPDATE products SET stock = 0 WHERE tenant_id = $1::uuid AND id = 'p_q27'`, [TENANT]);
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_short', 'q_short')] });
+      expect(res.body.data.results[0].status).not.toBe('applied');
+      expect((await quoteRow('q_short')).status).toBe('open');
+      expect(await conflicts()).toEqual([]);
+    });
+  });
+
   describe('POST /sync/discards', () => {
     const discard = (
       body: unknown,
