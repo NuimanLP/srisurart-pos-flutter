@@ -629,7 +629,8 @@ on void/return paths. Keep this order in any new write touching more than one of
 - **Private CA for `mob04` TLS (PR #552, merged 2026-10-03):** one-shot `certgen` keeps a CA in volume `certs-ca`
   and re-issues the leaf each deploy. 🔴 Never `down -v` or delete `certs-ca`: a new CA stops every distributed APK
   until the CA asset is recommitted and APKs rebuilt. `ca.key` lives only in `certs-ca`. `frontend/assets/certs/pos-ca.crt`
-  stays committed empty until the owner runbook (`07_CICD_DEPLOY.md` §5 "TLS") is done. Never add `badCertificateCallback`.
+  holds the CA since 2026-10-03 (first certgen deploy `7ea0178`; SHA-256 `87:7B:B8:F7:…:54:CF:83:65`) — it must match
+  `certs-ca/ca.crt` on the VM (`07_CICD_DEPLOY.md` §5 "TLS"). Never add `badCertificateCallback`.
   A VM IP change = edit the SAN in `server/docker/certgen/certgen.sh`.
 
 **Metrics (`server/src/metrics/`, `deploy/prometheus/`, `deploy/grafana/`) — landed 2026-09-21:**
