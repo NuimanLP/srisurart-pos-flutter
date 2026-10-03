@@ -456,6 +456,81 @@ describe('POST /sync/push (e2e)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.results[0].status).toBe('applied');
       expect(res.body.data.results[0].response.balanceAfter).toBe('-500.00');
+
+      // PR #580 follow-up (owner 2026-10-03): the owner gets one review item for it.
+      const reviewItems = async () =>
+        (await admin.query(
+          `SELECT ref_id, details FROM owner_review_items
+            WHERE tenant_id = $1::uuid AND kind = 'drawer_overdrawn_offline'`,
+          [TENANT],
+        )) as { ref_id: string; details: Record<string, unknown> }[];
+      expect(await reviewItems()).toEqual([
+        {
+          ref_id: 'de_off_over',
+          details: {
+            opId: 'op_drawer_over',
+            entryId: 'de_off_over',
+            shiftId: 'sh_off_002',
+            amount: '1500.00',
+            expectedCashBefore: '1000.00',
+            expectedCashAfter: '-500.00',
+          },
+        },
+      ]);
+
+      // A re-push of the same op replays by key: still exactly one item.
+      const again = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_drawer_over',
+            idempotencyKey: 'k_de_over',
+            type: 'drawer.entry',
+            payload: {
+              id: 'de_off_over',
+              type: 'out',
+              amount: '1500.00',
+              note: null,
+              createdAt: new Date().toISOString(),
+            },
+          },
+        ],
+      });
+      expect(again.status).toBe(200);
+      expect(await reviewItems()).toHaveLength(1);
+    });
+
+    it('drawer-entry replay within the expected cash raises no owner review item', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
+        id: 'sh_off_003',
+        startingCash: 1000,
+      });
+
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_drawer_exact',
+            idempotencyKey: 'k_de_exact',
+            type: 'drawer.entry',
+            payload: {
+              id: 'de_off_exact',
+              type: 'out',
+              amount: '1000.00',
+              note: null,
+              createdAt: new Date().toISOString(),
+            },
+          },
+        ],
+      });
+
+      expect(res.body.data.results[0].status).toBe('applied');
+      const rows = (await admin.query(
+        `SELECT count(*)::int AS n FROM owner_review_items
+          WHERE tenant_id = $1::uuid AND kind = 'drawer_overdrawn_offline'`,
+        [TENANT],
+      )) as { n: number }[];
+      expect(rows[0].n).toBe(0);
     });
 
     it('sale-create.applied, replay-by-key, replay-by-id, client-id-reused', async () => {

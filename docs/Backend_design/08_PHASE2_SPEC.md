@@ -435,7 +435,7 @@ stateDiagram-v2
 | แท็บ (placeholder) | แหล่ง | ปุ่ม (placeholder) |
 |---|---|---|
 | ถูกปฏิเสธ/ค้าง | `outbox_ops` `rejected` + `stuck` (ในเครื่อง) — code, ข้อความ, payload, เลขที่พิมพ์ | ส่งใหม่ (key เดิม · ห้ามเปลี่ยนเลข) · ทิ้ง |
-| รอตรวจ | `GET /review-items?status=pending` — `void_offline` · `credit_override` · `shift_uncounted` · `date_flag` · `device_force_retired` · `receipt_renumbered` (owner 2026-09-25, §10) · `quote_conflict` (owner 2026-10-03, §6.1 — ป้าย `บิลออฟไลน์จากใบเสนอราคาที่ใช้ไม่ได้แล้ว` รับรอง 2026-10-03 #575) | ตรวจแล้ว `POST /review-items/:id/reviewed` (idempotent, `audit_log`, ไม่แตะเงิน/สต็อก) |
+| รอตรวจ | `GET /review-items?status=pending` — `void_offline` · `credit_override` · `shift_uncounted` · `date_flag` · `device_force_retired` · `receipt_renumbered` (owner 2026-09-25, §10) · `quote_conflict` (owner 2026-10-03, §6.1 — ป้าย `บิลออฟไลน์จากใบเสนอราคาที่ใช้ไม่ได้แล้ว` รับรอง 2026-10-03 #575) · `drawer_overdrawn_offline` (owner 2026-10-03, ต่อจาก PR #580 — `drawer.entry` ออฟไลน์ที่เงินออกเกินยอดที่ควรมี ถูกรับเสมอแต่เจ้าของต้องตรวจ · ป้าย `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` **agent ร่าง**) | ตรวจแล้ว `POST /review-items/:id/reviewed` (idempotent, `audit_log`, ไม่แตะเงิน/สต็อก) |
 
 **ส่งใหม่ลงกะปัจจุบัน:** payload ไม่มี `shiftId` → บิลที่ถูกปฏิเสธในกะ A แล้วส่งใหม่ระหว่างกะ B จะลงกะ B, วันที่ถูก clamp + `date_flag` — ยอมรับ
 

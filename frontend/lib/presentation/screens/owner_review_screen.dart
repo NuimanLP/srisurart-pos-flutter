@@ -580,6 +580,8 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
         return Colors.teal;
       case ReviewItemKind.quoteConflict:
         return AppColors.warning;
+      case ReviewItemKind.drawerOverdrawnOffline:
+        return AppColors.error;
       case ReviewItemKind.unknown:
         return AppColors.gray500;
     }
