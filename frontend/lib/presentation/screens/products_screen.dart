@@ -11,6 +11,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
@@ -264,9 +265,22 @@ class _StockTabState extends State<_StockTab> {
     }
     final v = _newCatCtrl.text.trim();
     if (v.isEmpty) return;
-    await context.read<ProductsRepository>().addCategory(v);
+    try {
+      await context.read<ProductsRepository>().addCategory(v);
+    } catch (e) {
+      _showError(e);
+      return;
+    }
     _newCatCtrl.clear();
     await _load();
+  }
+
+  /// A refused write reaches the counter as its Thai message (PR #572).
+  void _showError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+    );
   }
 
   Future<void> _deleteCat(String name) async {
@@ -282,7 +296,12 @@ class _StockTabState extends State<_StockTab> {
       danger: true,
     );
     if (!ok) return;
-    await repo.deleteCategory(name);
+    try {
+      await repo.deleteCategory(name);
+    } catch (e) {
+      _showError(e);
+      return;
+    }
     if (_filterCat == name) _filterCat = 'All';
     await _load();
   }
@@ -1532,7 +1551,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     final v = _newCatCtrl.text.trim();
     if (v.isEmpty) return;
     final repo = context.read<ProductsRepository>();
-    await repo.addCategory(v);
+    try {
+      await repo.addCategory(v);
+    } catch (e) {
+      _toast(ServerErrorResolver.resolveCounterError(e));
+      return;
+    }
     await widget.onCategoriesChanged();
     final cats = await repo.getCategories();
     if (!mounted) return;
@@ -1570,7 +1594,13 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         minStock: int.tryParse(_minStock.text) ?? 5,
         compat: Value(_compat.text.trim().isEmpty ? null : _compat.text.trim()),
       );
-      final result = await repo.add(companion);
+      final ProductRow? result;
+      try {
+        result = await repo.add(companion);
+      } catch (e) {
+        if (mounted) _toast(ServerErrorResolver.resolveCounterError(e));
+        return;
+      }
       if (!mounted) return;
       if (result == null) {
         _toast('รหัส "$partNo" มีอยู่แล้วในระบบ');
@@ -1588,7 +1618,13 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         minStock: Value(int.tryParse(_minStock.text) ?? 5),
         compat: Value(_compat.text.trim().isEmpty ? null : _compat.text.trim()),
       );
-      final ok = await repo.update(widget.product!.id, patch);
+      final bool ok;
+      try {
+        ok = await repo.update(widget.product!.id, patch);
+      } catch (e) {
+        if (mounted) _toast(ServerErrorResolver.resolveCounterError(e));
+        return;
+      }
       if (!mounted) return;
       if (!ok) {
         _toast('เกิดข้อผิดพลาดในการบันทึก');
@@ -2019,12 +2055,21 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
   Future<void> _save() async {
     final d = int.tryParse(_delta.text);
     if (d == null) return;
-    await context.read<ProductsRepository>().adjustStock(
-      widget.product.id,
-      d,
-      d > 0 ? 'adjustment-in' : 'adjustment-out',
-      _note.text.isEmpty ? 'Manual adjustment' : _note.text,
-    );
+    try {
+      await context.read<ProductsRepository>().adjustStock(
+        widget.product.id,
+        d,
+        d > 0 ? 'adjustment-in' : 'adjustment-out',
+        _note.text.isEmpty ? 'Manual adjustment' : _note.text,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+        );
+      }
+      return;
+    }
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -2653,12 +2698,17 @@ class _SuppliersTabState extends State<_SuppliersTab> {
       return;
     }
     if (_name.text.isEmpty) return;
-    await context.read<SuppliersRepository>().addSupplier(
-      productId: _selectedId,
-      name: _name.text,
-      unitCost: double.tryParse(_unitCost.text) ?? 0,
-      freight: double.tryParse(_freight.text) ?? 0,
-    );
+    try {
+      await context.read<SuppliersRepository>().addSupplier(
+        productId: _selectedId,
+        name: _name.text,
+        unitCost: double.tryParse(_unitCost.text) ?? 0,
+        freight: double.tryParse(_freight.text) ?? 0,
+      );
+    } catch (e) {
+      _showSupplierError(e);
+      return;
+    }
     _name.clear();
     _unitCost.clear();
     _freight.clear();
@@ -2671,8 +2721,20 @@ class _SuppliersTabState extends State<_SuppliersTab> {
       _showSupplierDegradedWarning();
       return;
     }
-    await context.read<SuppliersRepository>().deleteSupplier(id);
+    try {
+      await context.read<SuppliersRepository>().deleteSupplier(id);
+    } catch (e) {
+      _showSupplierError(e);
+      return;
+    }
     await _refreshSuppliers();
+  }
+
+  void _showSupplierError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+    );
   }
 
   void _showSupplierDegradedWarning() {

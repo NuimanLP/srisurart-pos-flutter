@@ -23,6 +23,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/server_error_resolver.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/backup_file.dart';
@@ -498,7 +499,19 @@ class _AccountTab extends StatelessWidget {
                             ),
                           );
                           if (confirm == true) {
-                            await cubit.clearDeviceEnrolment();
+                            try {
+                              await cubit.clearDeviceEnrolment();
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      ServerErrorResolver.resolveCounterError(e),
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
                           }
                         },
                       )
