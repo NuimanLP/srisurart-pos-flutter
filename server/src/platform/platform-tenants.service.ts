@@ -281,13 +281,27 @@ export class PlatformTenantsService {
     }
 
     await this.adminDs.transaction(async (manager) => {
-      const res = await manager.query(
-        `UPDATE tenants SET status = $1 WHERE id = $2 RETURNING id, status`,
-        [status, tenantId],
+      // Owner decision 2026-10-03 (#443): `closed` is terminal — no transition out of it, and
+      // closed → closed is refused too. The guard sits in the UPDATE itself so a concurrent
+      // close cannot slip between a read and the write. `returning()`: an UPDATE comes back
+      // as `[rows, count]` (common/sql.ts) — reading `.length` off the raw result made the
+      // 404 below unreachable before this change.
+      const res = returning<{ id: string }>(
+        await manager.query(
+          `UPDATE tenants SET status = $1 WHERE id = $2 AND status <> 'closed' RETURNING id`,
+          [status, tenantId],
+        ),
       );
 
-      if (!res || res.length === 0) {
-        throw new NotFoundException(`Tenant ${tenantId} not found`);
+      if (res.length === 0) {
+        const existing = await manager.query(`SELECT status FROM tenants WHERE id = $1`, [tenantId]);
+        if (existing.length === 0) {
+          throw new NotFoundException(`Tenant ${tenantId} not found`);
+        }
+        throw new ConflictException({
+          code: 'TENANT_CLOSED',
+          message: 'This tenant is closed; closed is terminal and its status cannot be changed.',
+        });
       }
 
       await this.auditService.log(manager, {
@@ -683,8 +697,19 @@ export class PlatformTenantsService {
       [tenantId],
     );
 
+    // Owner-account panel (#443 UX pass): the one active owner (`uq_users_one_active`). Only
+    // lifecycle facts — never `password_hash`, and the temp password itself is never stored.
+    const ownerRows = await this.adminDs.query(
+      `SELECT username, display_name, must_change_password, temp_password_expires_at,
+              password_changed_at
+         FROM users
+        WHERE tenant_id = $1 AND is_active`,
+      [tenantId],
+    );
+
+    // `result` is ImportJobResult — tombstone counts + a dropped-supplier count, no secret.
     const importJobRows = await this.adminDs.query(
-      `SELECT id, status, error, created_at, started_at, finished_at
+      `SELECT id, status, error, result, created_at, started_at, finished_at
          FROM import_jobs
         WHERE tenant_id = $1
         ORDER BY created_at DESC
@@ -704,8 +729,28 @@ export class PlatformTenantsService {
       this.logger.warn(`Failed to write audit log for getTenantDetail: ${err}`);
     }
 
+    const owner = ownerRows[0] as
+      | {
+          username: string;
+          display_name: string;
+          must_change_password: boolean;
+          temp_password_expires_at: Date | null;
+          password_changed_at: Date | null;
+        }
+      | undefined;
+    const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
+
     return {
       tenant: tenantRows[0],
+      owner: owner
+        ? {
+            username: owner.username,
+            displayName: owner.display_name,
+            mustChangePassword: owner.must_change_password,
+            tempPasswordExpiresAt: iso(owner.temp_password_expires_at),
+            passwordChangedAt: iso(owner.password_changed_at),
+          }
+        : null,
       devices: (deviceRows as Array<{
         id: string;
         label: string;

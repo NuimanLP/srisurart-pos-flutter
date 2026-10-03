@@ -800,6 +800,17 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
       expect(res.body.data.importJobs).toEqual([]);
 
+      // Owner panel (#443 UX pass): beforeEach already replaced the temp password.
+      expect(res.body.data.owner).toEqual({
+        username: ownerUsername,
+        displayName: 'เจ้าของร้าน',
+        mustChangePassword: false,
+        tempPasswordExpiresAt: null,
+        passwordChangedAt: expect.any(String),
+      });
+      expect(bodyJson).not.toContain('password_hash');
+      expect(bodyJson).not.toContain('argon2');
+
       // Reading the detail is itself audited.
       const auditRows = await adminDs.query(
         `SELECT * FROM audit_log WHERE tenant_id = $1 AND action = 'platform.tenant.read'`,
@@ -807,6 +818,95 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       );
       expect(auditRows.length).toBe(1);
       expect(auditRows[0].platform_admin_id).toBe(adminId);
+    });
+
+    it('owner panel shows a pending temp password after a reset, never the password itself', async () => {
+      const resetRes = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/owner/temp-password`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send();
+      expect(resetRes.status).toBe(200);
+      const tempPassword: string = resetRes.body.data.tempPassword;
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/platform/tenants/${tenantId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.owner).toMatchObject({
+        username: ownerUsername,
+        mustChangePassword: true,
+        tempPasswordExpiresAt: resetRes.body.data.tempPasswordExpiresAt,
+      });
+      expect(JSON.stringify(res.body)).not.toContain(tempPassword);
+    });
+  });
+
+  // Owner decision 2026-10-03 (#443): `closed` is terminal.
+  describe('Tenant status transitions — closed is terminal (#443)', () => {
+    let tenantId: string;
+
+    beforeEach(async () => {
+      const code = `term-${randomUUID().slice(0, 8)}`;
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ code, shopName: 'ร้านทดสอบ ปิดถาวร', ownerUsername: `owner_${code}` });
+      expect(res.status).toBe(201);
+      tenantId = res.body.data.tenantId;
+    });
+
+    afterEach(async () => {
+      for (const table of ['audit_log', 'devices', 'categories', 'settings', 'users']) {
+        await adminDs.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [tenantId]);
+      }
+      await adminDs.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
+      await cache.del(`t:${tenantId}:status`);
+    });
+
+    const patchStatus = (status: string) =>
+      request(app.getHttpServer())
+        .patch(`/api/v1/platform/tenants/${tenantId}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status });
+
+    it('allows active ↔ suspended and → closed', async () => {
+      for (const status of ['suspended', 'active', 'suspended', 'closed']) {
+        const res = await patchStatus(status);
+        expect(res.status).toBe(200);
+        expect(res.body.data.status).toBe(status);
+      }
+      const rows = await adminDs.query(`SELECT status FROM tenants WHERE id = $1`, [tenantId]);
+      expect(rows[0].status).toBe('closed');
+    });
+
+    it.each(['active', 'suspended', 'closed'])(
+      'refuses closed → %s with 409 TENANT_CLOSED, leaving the row and the audit log alone',
+      async (target) => {
+        expect((await patchStatus('closed')).status).toBe(200);
+        await cache.setex(`t:${tenantId}:status`, 300, 'closed');
+
+        const res = await patchStatus(target);
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('TENANT_CLOSED');
+
+        const rows = await adminDs.query(`SELECT status FROM tenants WHERE id = $1`, [tenantId]);
+        expect(rows[0].status).toBe('closed');
+        const audit = await adminDs.query(
+          `SELECT 1 FROM audit_log WHERE tenant_id = $1 AND action = 'platform.tenant.update_status'`,
+          [tenantId],
+        );
+        expect(audit).toHaveLength(1); // only the close itself
+        // The refusal does not touch the status cache either.
+        expect(await cache.get(`t:${tenantId}:status`)).toBe('closed');
+      },
+    );
+
+    it('answers 404 for an unknown (but well-formed) tenant id', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/platform/tenants/${randomUUID()}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: 'suspended' });
+      expect(res.status).toBe(404);
     });
   });
 

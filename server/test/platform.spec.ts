@@ -456,6 +456,77 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       expect(mockRedisCache.del).toHaveBeenCalledWith(`t:${tenantId}:status`);
     });
 
+    it('reads the UPDATE result as [rows, count] the way the real driver returns it', async () => {
+      const tenantId = '11111111-1111-1111-1111-111111111111';
+      mockAdminDs.query.mockResolvedValueOnce([[{ id: tenantId }], 1]);
+
+      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
+      await expect(service.updateStatus(tenantId, 'closed', 'adm1')).resolves.toEqual({
+        tenantId,
+        status: 'closed',
+      });
+      expect(mockAdminDs.query.mock.calls[0][0]).toContain(`status <> 'closed'`);
+    });
+
+    it('refuses any change to a closed tenant with 409 TENANT_CLOSED and keeps the cache (#443)', async () => {
+      const tenantId = '11111111-1111-1111-1111-111111111111';
+      mockAdminDs.query
+        .mockResolvedValueOnce([[], 0]) // guarded UPDATE matched nothing
+        .mockResolvedValueOnce([{ status: 'closed' }]);
+      const logSpy = vi.spyOn(auditService, 'log');
+
+      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
+      await expect(service.updateStatus(tenantId, 'active', 'adm1')).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'TENANT_CLOSED' },
+      });
+      expect(logSpy).not.toHaveBeenCalled();
+      expect(mockRedisCache.del).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the guarded UPDATE matched nothing and the tenant does not exist', async () => {
+      const tenantId = '11111111-1111-1111-1111-111111111111';
+      mockAdminDs.query.mockResolvedValueOnce([[], 0]).mockResolvedValueOnce([]);
+
+      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
+      await expect(service.updateStatus(tenantId, 'suspended', 'adm1')).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+
+    it('getTenantDetail returns the owner lifecycle fields and selects no password hash (#443)', async () => {
+      const tenantId = '11111111-1111-1111-1111-111111111111';
+      const expires = new Date('2026-10-04T07:05:00Z');
+      mockAdminDs.query
+        .mockResolvedValueOnce([{ id: tenantId, code: 'shop1', status: 'active' }])
+        .mockResolvedValueOnce([]) // devices
+        .mockResolvedValueOnce([
+          {
+            username: 'owner1',
+            display_name: 'เจ้าของ',
+            must_change_password: true,
+            temp_password_expires_at: expires,
+            password_changed_at: null,
+          },
+        ])
+        .mockResolvedValueOnce([]) // import jobs
+        .mockResolvedValueOnce([]); // audit insert
+
+      const service = new PlatformTenantsService(mockAdminDs, mockRedisCache, auditService);
+      const res = await service.getTenantDetail(tenantId, 'adm1');
+
+      expect(res.owner).toEqual({
+        username: 'owner1',
+        displayName: 'เจ้าของ',
+        mustChangePassword: true,
+        tempPasswordExpiresAt: expires.toISOString(),
+        passwordChangedAt: null,
+      });
+      const ownerSql = mockAdminDs.query.mock.calls[2][0] as string;
+      expect(ownerSql).toContain('FROM users');
+      expect(ownerSql).not.toContain('password_hash');
+    });
+
     it('does not purge Redis status cache if updateStatus transaction fails', async () => {
       const tenantId = '11111111-1111-1111-1111-111111111111';
       mockAdminDs.transaction.mockRejectedValueOnce(new Error('Transaction rolled back'));
