@@ -248,6 +248,7 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
     <tr><td>Compose ทุกคำสั่งบน VM ตายก่อน pull</td><td>คีย์ที่ <code>:?</code> บังคับขาดใน <code>/opt/pos/.env</code></td><td>ตรวจด้วย <code>grep -c '^KEY='</code></td></tr>
     <tr><td>แก้ <code>nginx.conf</code> แล้วไม่เห็นผล</td><td>bind mount ไฟล์เดี่ยวค้าง inode เก่า</td><td>deploy สร้าง nginx ใหม่ทุกครั้งแล้ว (#249) — บน dev ให้ <code>up -d --force-recreate nginx</code></td></tr>
     <tr><td>Prometheus ขึ้น <code>api-readiness</code> DOWN ทั้งที่ API ปกติ</td><td><code>/health/ready</code> ตอบ JSON ไม่ใช่รูปแบบ metric</td><td>ปกติ ดู job <code>api-metrics</code> แทน (ภาค 05)</td></tr>
+    <tr><td>แอป Android ต่อ <code>mob04</code> ไม่ได้ (TLS) · เบราว์เซอร์เตือน cert</td><td>APK ยังไม่ฝัง <code>ca.crt</code> ของ CA ส่วนตัว (เบราว์เซอร์เตือนเป็นปกติ)</td><td>ขั้นตอนครั้งเดียว: copy <code>ca.crt</code> ออกจาก <code>mob04</code> → commit → build APK ใหม่ — <code>07_CICD_DEPLOY.md</code> §5 "TLS"</td></tr>
     <tr><td>platform-ui ได้ 403</td><td>allowlist</td><td>ภาค 03 หัวข้อ 5</td></tr>
   </table>
   </div>

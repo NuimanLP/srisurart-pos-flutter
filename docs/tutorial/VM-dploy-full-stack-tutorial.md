@@ -809,8 +809,7 @@ ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 3100:127.0.0.1:3100 -L 3200
 | `http://localhost:3100` | Bull-Board | `BULL_BOARD_USER`/`_PASSWORD` (owner) |
 | `http://localhost:3200` | platform-ui | platform admin (หลัง migration `1788652804600` ทุกคนต้อง login ใหม่ — ปกติ) |
 
-**4.6 แอปจริงในเบราว์เซอร์** — เปิด `https://172.30.58.20` (ในเครือข่ายคณะ) · คำเตือนใบรับรองเป็นเรื่อง **ปกติ** (`certgen` ออกใบ self-signed
-`CN=localhost`) · `http://` redirect ไป `https://`
+**4.6 แอปจริงในเบราว์เซอร์** — เปิด `https://172.30.58.20` (ในเครือข่ายคณะ) · คำเตือนใบรับรองบนเบราว์เซอร์เป็นเรื่อง **ปกติ** (`certgen` ออกใบจาก CA ส่วนตัวของ VM ซึ่งเบราว์เซอร์ไม่รู้จัก · แอป Android ฝัง `ca.crt` แล้วต่อได้ — ขั้นตอนครั้งเดียวของ owner: `07_CICD_DEPLOY.md` §5 "TLS") · `http://` redirect ไป `https://`
 
 ✅ หน้า login ขึ้น และ login/ขายทดสอบได้
 ❌ หน้าโหลดได้แต่ทุก POST ล้ม → `CORS_ORIGINS`: `Origin` ที่ไม่อยู่ในรายการ API ยังตอบ แต่ไม่ส่ง header `Access-Control-Allow-Origin` (`server/src/app.setup.ts`, #516) → เบราว์เซอร์บล็อกคำตอบ; เบราว์เซอร์ส่ง `Origin` กับ POST
@@ -875,7 +874,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 | 5 | `Check for the etcd-init.sh directory ...` → `Remove the Docker-created etcd-init.sh directory ...` → `Copy etcd-init bootstrap script` | ซ่อมบั๊ก `etcd-init.sh` เป็นไดเรกทอรีของ root (`rmdir` ผ่าน container root — มีของข้างใน = ล้มดัง ๆ) |
 | 6 | `Pull release images from GHCR` | ถ้าล้มตรงนี้ ข้อ 4–5 เกิดไปแล้ว (เคยล้มเพราะ FortiGate จนถึง 2026-09-28 — กันด้วย gate §3 ข้อ 5) |
 | 7 | `Apply database schema migrations (schema before code)` | `run --rm migrate` (ย้อนไม่ได้) |
-| 8 | `Ensure backing datastores, certgen, htpasswd-gen and etcd are running` | `up -d postgres redis-cache redis-queue certgen htpasswd-gen etcd` |
+| 8 | `Issue the TLS certificate (certgen)` → `Ensure backing datastores, htpasswd-gen and etcd are running` | `run --rm --no-deps certgen` (ล้ม = deploy ล้ม) แล้ว `up -d postgres redis-cache redis-queue htpasswd-gen etcd` |
 | 9 | `Bootstrap etcd auth ... (etcd-init)` → `Assert etcd refuses an unauthenticated read` | เปิด auth แล้ว assert HTTP 400 |
 | 10 | `Restart instance api-1` → `Wait for api-1 health check to pass` → api-2 → api-3 | rolling ทีละตัว รอ healthy ≤ 25×3 วิ |
 | 11 | `Restart worker and bull-board` | |

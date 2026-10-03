@@ -273,7 +273,7 @@ flowchart LR
 
 | # | Threat | ตัวอย่าง | ชั้นป้องกัน | file:line | สถานะ |
 |---|---|---|---|---|---|
-| T1 | Outsider ดักฟัง | Wi-Fi สาธารณะอ่านรหัสผ่านระหว่างทาง | TLS ที่ Nginx, redirect 80→443 | `server/docker/nginx/nginx.conf:41-51` | 🟡 เข้ารหัสจริง แต่ cert เป็น **self-signed** |
+| T1 | Outsider ดักฟัง | Wi-Fi สาธารณะอ่านรหัสผ่านระหว่างทาง | TLS ที่ Nginx, redirect 80→443 | `server/docker/nginx/nginx.conf:41-51` | 🟡 เข้ารหัสจริง · cert จาก CA ส่วนตัว — แอป Android trust แล้ว, เบราว์เซอร์ยังเตือน |
 | T2 | Outsider เดารหัส (brute force) | บอทลองรหัส owner วนไป | Nginx `perip` 30r/s → IP bucket 10/นาที ก่อนแตะ DB → username bucket 5/นาที → argon2 ช้า | `nginx.conf:25`, `server/src/auth/auth.service.ts:47-60`, `:96-108` | ✅ |
 | T3 | Outsider ยิงถล่ม (DoS) | 10,000 req/วินาที | `limit_req` per IP + per-tenant guard (ADR-0006) | `nginx.conf:25-26,97-100` | ✅ (ขนาด flood ใหญ่ระดับเครือข่ายเกินขอบเขต) |
 | T4 | Outsider ปลอม token | แก้ `tid` ใน payload | RS256 ลายเซ็น, ล็อก `algorithms:['RS256']`, ตรวจ `iss`/`typ`/`aud` | `server/src/auth/jwt-keys.service.ts:81-112`, `server/src/common/guards/tenant.guard.ts:47-63` | ✅ |
@@ -353,7 +353,7 @@ JWT (`aud:"platform"` ไม่มี `tid`), DB connection (DataSource แย�
 
 เรียงตามทางที่ request วิ่ง: นอกสุด → ในสุด
 
-### 1. TLS ที่ Nginx — และความจริงว่า cert เป็น self-signed
+### 1. TLS ที่ Nginx — และ cert จาก CA ส่วนตัว (แก้ 2026-10-03)
 
 `server/docker/nginx/nginx.conf:41-51`
 
@@ -376,27 +376,12 @@ JWT (`aud:"platform"` ไม่มี `tid`), DB connection (DataSource แย�
 - **TLS จบที่ Nginx** (เรียกว่า **TLS termination**) — ระหว่าง Nginx กับ api เป็น HTTP ธรรมดาในเครือข่ายภายในของ Docker
   ยอมรับได้เพราะเครือข่ายนั้นไม่มีทางเข้าจากนอกเครื่อง
 
-cert มาจากไหน? `server/docker-compose.yml:90-101`
+cert มาจากไหน? one-shot `certgen` (`server/docker/certgen/certgen.sh`, 2026-10-03)
 
-```yaml
-  # Self-signed TLS for dev/demo. Replace the volume contents with a real cert on the VM.
-  certgen:
-    image: alpine/openssl
-    entrypoint: sh
-    command:
-      - -c
-      - >
-        test -f /certs/server.crt ||
-        openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=localhost"
-        -keyout /certs/server.key -out /certs/server.crt
-    volumes:
-      - certs:/certs
-```
-
-- container ชั่วคราวที่สร้าง cert **self-signed** (`-x509` = เซ็นตัวเอง) ชื่อ `CN=localhost` อายุ 825 วัน ถ้ายังไม่มี (`test -f … ||` ทำให้รันซ้ำได้ไม่สร้างทับ)
-- **พูดตรงๆ:** comment บอกว่า "Replace … with a real cert on the VM" แต่ `deploy/compose/vm.override.yml` ไม่มีอะไรเกี่ยวกับ cert เลย
-  และไม่พบหลักฐานใน repo ว่าเคยเปลี่ยนเป็น cert จริง → **demo บน `mob04` ควรถือว่ายังเป็น self-signed**
-  ผลคือ: ข้อมูล **ถูกเข้ารหัส** จริง แต่ browser เตือน และผู้ใช้ **ตรวจไม่ได้** ว่าคุยกับ server ตัวจริง (ช่องให้ man-in-the-middle)
+- ครั้งแรกสร้าง **CA ส่วนตัว** (อายุ 10 ปี, `ca.key` อยู่เฉพาะใน volume `certs-ca`) แล้วใช้ CA นั้นเซ็นใบ server
+  (SAN `localhost`, `127.0.0.1`, `172.30.58.20`) ทุกครั้งที่ deploy — `server.crt` = ใบ + CA
+- แอป Android ฝัง `ca.crt` ไว้จึงต่อ `mob04` ได้แบบตรวจตัวตนจริง (ไม่ปิดการตรวจ cert) · **เบราว์เซอร์ยังเตือน** เพราะไม่รู้จัก CA นี้
+- ขั้นตอนครั้งเดียวของ owner และข้อห้าม (เช่น ห้ามลบ `certs-ca`): `07_CICD_DEPLOY.md` §5 "TLS"
 - **ถ้าไม่มี TLS เลย:** รหัสผ่านและ JWT วิ่งเปลือยๆ ผ่าน Wi-Fi ของคณะ
 
 ### 2. Rate limit ชั้นนอก — Nginx `perip`
@@ -1120,7 +1105,7 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 
 | # | ช่อง | ผลกระทบ | แหล่งอ้างอิง |
 |---|---|---|---|
-| G1 | **TLS cert บน demo เป็น self-signed** | ผู้ใช้ตรวจตัวตน server ไม่ได้ → MITM ได้ในทางทฤษฎี, browser เตือน | `docker-compose.yml:90-101`; ไม่พบ cert จริงใน `vm.override.yml` |
+| G1 | **TLS cert บน demo มาจาก CA ส่วนตัว** (แก้บางส่วน 2026-10-03) | แอป Android ตรวจตัวตน server ได้เมื่อ owner ทำ runbook 07 §5 "TLS" แล้ว · เบราว์เซอร์ยังเตือน | `server/docker/certgen/certgen.sh` |
 | ~~G2~~ | ~~**`mob04` CORS ยังเป็น `'*'`**~~ — **แก้ 2026-09-30:** ไม่ใช่ `'*'` แล้ว (origin แปลกหน้าเคยได้ 500 — แก้ PR #516 เย็นวันเดียวกัน ตอนนี้ได้สถานะปกติของ route (เช่น `/health/live` 200 — ไม่ใช่ 500) ไม่มี ACAO) | เว็บอื่นเรียก API ได้จาก browser | CLAUDE.md (#367) |
 | G3 | **etcd auth ไม่เคยเปิดบน VM (#365)** | `etcd-init.sh` บน VM กลายเป็น directory ของ root → RBAC ไม่ถูกเปิด; ทุก AC ต้องทำบน VM | CLAUDE.md "Still open" — **แก้ 2026-09-30:** เปิดแล้วและพิสูจน์ทั้งสองทาง บน `mob04` (#365 AC 3/4) |
 | ~~G4~~ | ~~RLS ของ `owner_review_items` ไม่มี `NULLIF` + FK `ON DELETE SET NULL` ผิด~~ — **แก้แล้ว** | เดิม: tenant ไม่ได้ตั้ง → 500 แทน 0 แถว; ลบ user ที่เคย review → error | `1788652804200-OwnerReviewItemsFixes.ts` (#420) |
@@ -1152,7 +1137,7 @@ security ไม่ได้จบที่ PR merge — จบเมื่อพ
 > - ชั้นป้องกันเรียงจากนอกเข้าใน: **Nginx (TLS, perip, allowlist) → guard (JWT, aud, drole, rate limit) → handler (validate, `$1`) → RLS (`pos_app`, `NULLIF`)**
 > - **ตัวตนมาจาก server เสมอ** — `tid` จาก JWT, `did`/`drole` จาก device token ที่ server hash เอง, IP จาก XFF ตัวขวาสุด
 > - **Fail-closed / fail-loud:** RLS คืน 0 แถว, CORS ผิดรูป throw, secret ขาด compose ไม่รัน
-> - **ยังเปิดอยู่:** self-signed cert, ~~CORS `'*'` บน mob04~~ (แก้ 2026-09-30: ปิดแล้ว), etcd auth (#365), ไม่มี backup offsite, ไม่มี MFA, `audit_log` แก้/ลบได้โดย `pos_app` — `owner_review_items` RLS (#420) และ access token ใน localStorage (#404/#419) **แก้แล้ว**
+> - **ยังเปิดอยู่:** cert จาก CA ส่วนตัว (เบราว์เซอร์ยังเตือน; แอป Android trust หลัง runbook 07 §5 "TLS"), ~~CORS `'*'` บน mob04~~ (แก้ 2026-09-30: ปิดแล้ว), etcd auth (#365), ไม่มี backup offsite, ไม่มี MFA, `audit_log` แก้/ลบได้โดย `pos_app` — `owner_review_items` RLS (#420) และ access token ใน localStorage (#404/#419) **แก้แล้ว**
 
 ---
 
