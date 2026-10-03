@@ -8,15 +8,16 @@
 //   📤 ส่งออก CSV   — sales summary / sales detail / inventory CSV exporters
 //                     (ALWAYS via csvSafe), ported from ExportCSV.jsx.
 //
-// File save: no file_picker / share_plus dep is available. On native, exports are
-// written to the app documents directory and the saved path is shown to the user;
-// on the web a browser download is triggered (see core/utils/file_export.dart).
-// Restore file-pick is deferred (no native picker) — a manual JSON paste dialog
-// is provided as a wired fallback (see _RestorePasteDialog).
+// File save: no share_plus dep. On native, exports are written to the app
+// documents directory and the saved path is shown to the user; on the web a
+// browser download is triggered (see core/utils/file_export.dart).
+// Restore picks the exported .json with file_picker (web incl. iPad Safari,
+// Android, iOS) and validates it via core/utils/backup_file.dart.
 
 import 'dart:convert';
 
 import 'package:drift/drift.dart' show Value;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -24,6 +25,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/backup_file.dart';
 import '../../core/utils/csv_safe.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/file_export.dart';
@@ -1433,42 +1435,26 @@ class _BackupTabState extends State<_BackupTab> {
     }
   }
 
-  // ── RESTORE: pick (paste) → validate → preview → confirm ───────────────
+  // ── RESTORE: pick file → validate → preview → confirm ──────────────────
   Future<void> _pickFile() async {
-    // No native file picker dependency is available on this machine. Offer a
-    // manual JSON-paste dialog as a wired fallback (deferred: native picker).
-    final pasted = await showDialog<String>(
-      context: context,
-      builder: (ctx) => const _RestorePasteDialog(),
-    );
-    if (pasted == null || pasted.trim().isEmpty) return;
-    _validateBackup(pasted);
-  }
-
-  // Port of handleFileSelect's validation (db.js / SettingsScreen.jsx).
-  void _validateBackup(String raw) {
     try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) {
-        throw Exception('ไฟล์ว่างเปล่า — ไม่มีข้อมูลสินค้าหรือยอดขาย');
-      }
-      final data = decoded.cast<String, dynamic>();
-      final meta = data['__meta'];
-      if (meta == null || meta is! Map) {
-        throw Exception('ไม่พบข้อมูล meta — ไฟล์ไม่ถูกต้อง');
-      }
-      final version = meta['version'];
-      if (version is! num) {
-        throw Exception('ไม่พบ version ในไฟล์');
-      }
-      if (version > 2) {
-        throw Exception(
-          'ไฟล์เวอร์ชัน $version ใหม่กว่าที่ระบบรองรับ — กรุณาอัพเดทระบบ',
-        );
-      }
-      if (data['sa_products'] == null && data['sa_sales'] == null) {
-        throw Exception('ไฟล์ว่างเปล่า — ไม่มีข้อมูลสินค้าหรือยอดขาย');
-      }
+      // Must be the first await: on the web the plugin clicks a hidden
+      // <input type=file>, which iPad Safari only allows inside the tap.
+      // FileType.any — iOS can grey out a custom `.json` filter; the content
+      // is validated instead. No window-blur cancel: its focus+1 s heuristic
+      // can drop a slow (iCloud) pick as a cancel; on Safari < 16.4 (no
+      // `cancel` event) a cancelled pick just never completes — harmless,
+      // nothing waits on it. No size cap: a non-text file fails the strict
+      // UTF-8 decode at its first bad byte.
+      final result = await FilePicker.pickFiles(
+        type: FileType.any,
+        withData: true,
+        cancelUploadOnWindowBlur: false,
+      );
+      if (!mounted || result == null || result.files.isEmpty) return;
+      final bytes = result.files.single.bytes;
+      if (bytes == null) throw const FormatException('no file data');
+      final data = parseBackupFile(bytes);
       setState(() {
         _preview = data;
         _confirmRestore = false;
@@ -1476,6 +1462,7 @@ class _BackupTabState extends State<_BackupTab> {
         _restoreMsg = '';
       });
     } catch (err) {
+      if (!mounted) return;
       setState(() {
         _preview = null;
         _restoreStatus = 'error';
@@ -1891,60 +1878,6 @@ class _StatusBanner extends StatelessWidget {
           fontSize: 14,
         ),
       ),
-    );
-  }
-}
-
-// Manual JSON paste dialog (file-pick fallback; native picker deferred).
-class _RestorePasteDialog extends StatefulWidget {
-  const _RestorePasteDialog();
-  @override
-  State<_RestorePasteDialog> createState() => _RestorePasteDialogState();
-}
-
-class _RestorePasteDialogState extends State<_RestorePasteDialog> {
-  final _ctrl = TextEditingController();
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('วางข้อมูล backup (.json)'),
-      content: SizedBox(
-        width: 480,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'ตัวเลือกไฟล์แบบ native ยังไม่รองรับ — วางเนื้อหาไฟล์ .json ที่นี่',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.secondary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            AppTextField(
-              controller: _ctrl,
-              hint: '{ "__meta": { ... }, "sa_products": [ ... ] }',
-              maxLines: 8,
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('ยกเลิก'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_ctrl.text),
-          child: const Text('ตรวจสอบไฟล์'),
-        ),
-      ],
     );
   }
 }
