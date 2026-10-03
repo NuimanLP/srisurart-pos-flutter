@@ -19,11 +19,11 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../blocs/auth_cubit.dart';
 
-/// agent ร่าง (#476, 02_API_SCREENS.md §8.1.1) — not yet ratified.
+/// Ratified by the owner 2026-10-03 (#476, PR #567, 02_API_SCREENS.md §8.1.1).
 const String notPosDeviceMessage =
     'เครื่องนี้ยังไม่ได้ลงทะเบียนเป็นเครื่องขาย (POS) — ลงทะเบียนเครื่องที่หน้าจัดการเครื่อง';
 
-/// agent ร่าง (#476, 02_API_SCREENS.md §8.1.1) — not yet ratified.
+/// Ratified by the owner 2026-10-03 (#476, PR #567, 02_API_SCREENS.md §8.1.1).
 const String goToDevicesLabel = 'ไปหน้าจัดการเครื่อง';
 
 /// The [AuthCubit] above [context], or null where none is provided (the
