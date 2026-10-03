@@ -95,6 +95,11 @@ void main() {
       find.ancestor(of: find.text('เพิ่ม'), matching: find.byType(FilledButton)),
     );
     expect(add.onPressed, isNotNull, reason: 'the save button is enabled again');
+    final cancel = tester.widget<OutlinedButton>(
+      find.ancestor(of: find.text('ยกเลิก'), matching: find.byType(OutlinedButton)),
+    );
+    expect(cancel.onPressed, isNotNull,
+        reason: 'Cancel was disabled forever on mob04 — the dialog must be escapable');
   }
 
   testWidgets('a 400 from POST /mechanics shows a Thai error and stops spinning',

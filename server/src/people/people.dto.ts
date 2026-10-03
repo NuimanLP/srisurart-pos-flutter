@@ -51,9 +51,7 @@ export function parseCustomerPatch(body: unknown): CustomerPatch {
   const value = asObject(body);
   return compact({
     name: present(value, 'name') ? nameOrThai(value) : undefined,
-    nameTH: present(value, 'nameTH')
-      ? requiredString(value.nameTH, 'nameTH')
-      : undefined,
+    nameTH: present(value, 'nameTH') ? thaiOrName(value) : undefined,
     phone: present(value, 'phone')
       ? optionalString(value.phone, 'phone')
       : undefined,
@@ -145,6 +143,21 @@ function nameOrThai(value: Record<string, unknown>): string {
     return value.nameTH;
   }
   return requiredString(name, 'name');
+}
+
+/**
+ * Mirror of {@link nameOrThai} for a customer patch: the editor sends
+ * `nameTH: ''` for an EN-only customer (create already falls back the same way
+ * on the client, `ApiCustomersRepository.addCustomer`), and refusing it made
+ * such a customer impossible to edit.
+ */
+function thaiOrName(value: Record<string, unknown>): string {
+  const nameTH = optionalString(value.nameTH, 'nameTH');
+  if (nameTH !== null && nameTH.trim() !== '') return nameTH;
+  if (typeof value.name === 'string' && value.name.trim() !== '') {
+    return value.name;
+  }
+  return requiredString(nameTH, 'nameTH');
 }
 
 function optionalString(value: unknown, field: string): string | null {

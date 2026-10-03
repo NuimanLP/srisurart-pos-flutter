@@ -351,6 +351,15 @@ describe('customers and mechanics (e2e)', () => {
       nameTH: 'ลูกค้าแก้ชื่อ',
     });
 
+    // ...and an EN-only edit (Thai left blank) takes nameTH from name.
+    const enOnly = await request(app.getHttpServer())
+      .patch(`/api/v1/customers/${created.body.data.id as string}`)
+      .set(auth())
+      .set('Idempotency-Key', idempotency())
+      .send({ name: 'Somchai', nameTH: '', phone: null, address: null });
+    expect(enOnly.status).toBe(200);
+    expect(enOnly.body.data).toMatchObject({ name: 'Somchai', nameTH: 'Somchai' });
+
     const blankOnly = await request(app.getHttpServer())
       .patch(`/api/v1/customers/${created.body.data.id as string}`)
       .set(auth())

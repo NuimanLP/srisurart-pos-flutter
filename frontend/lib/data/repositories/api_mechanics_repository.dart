@@ -39,6 +39,10 @@ class ApiMechanicsRepository extends MechanicsRepository {
   /// (`useApi`), the same one that moves sales, returns and shifts.
   final bool writesToServer;
 
+  /// Add-mechanic attempts whose fate is unknown (5xx, lost reply): a retry of
+  /// the same body is sent under the same `Idempotency-Key`.
+  final PendingWrites _pendingAdds = PendingWrites('m');
+
   bool get _isDegraded {
     final sync = syncService ??
         (syncFacade is SyncService ? syncFacade as SyncService : null);
@@ -241,7 +245,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
     final attempt = _pendingAdds.of(jsonEncode(body));
     final res = await _thaiErrors(
       () => apiClient.post('/api/v1/mechanics', body: body, headers: attempt.headers),
-      attempt,
+      onVerdict: () => _pendingAdds.close(attempt),
     );
     if (res is Map) {
       _pendingAdds.close(attempt);
@@ -252,18 +256,16 @@ class ApiMechanicsRepository extends MechanicsRepository {
     throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
   }
 
-  final PendingWrites _pendingAdds = PendingWrites('m');
-
   /// Runs one mechanic-record write so that no [ApiException] reaches the
-  /// screen (api_wire.dart rule 4): a 4xx is the server's verdict and closes
-  /// [attempt]; a 5xx/429 or a transport failure leaves it parked. Every
+  /// screen (api_wire.dart rule 4): a 4xx is the server's verdict
+  /// ([onVerdict] runs); a 5xx/429 or a transport failure is not. Every
   /// failure carries a Thai sentence from [ServerErrorResolver].
-  Future<T> _thaiErrors<T>(Future<T> Function() send, [PendingWrite? attempt]) async {
+  Future<T> _thaiErrors<T>(Future<T> Function() send, {void Function()? onVerdict}) async {
     try {
       return await send();
     } on ApiException catch (e) {
       if (isVerdict(e)) {
-        if (attempt != null) _pendingAdds.close(attempt);
+        onVerdict?.call();
         rethrowServerRefusal(e);
       }
       throw PosException(e.code, ServerErrorResolver.resolveCounterError(e), e.details);
