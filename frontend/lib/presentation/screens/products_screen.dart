@@ -16,10 +16,13 @@ import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/movements_repository.dart';
 import '../../data/repositories/products_repository.dart';
+import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
+import '../widgets/closing_report.dart'
+    show NetSales, PaymentGroup, toReportLites;
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
@@ -3154,6 +3157,7 @@ class _InvReportTabState extends State<_InvReportTab> {
   bool _loading = true;
 
   List<SaleWithItems> _sales = [];
+  List<ReturnWithItems> _returns = [];
   List<ProductRow> _products = [];
   List<MovementRow> _movements = [];
   double _taxRate = 7;
@@ -3166,16 +3170,19 @@ class _InvReportTabState extends State<_InvReportTab> {
 
   Future<void> _load() async {
     final salesRepo = context.read<SalesRepository>();
+    final returnsRepo = context.read<ReturnsRepository>();
     final productsRepo = context.read<ProductsRepository>();
     final movementsRepo = context.read<MovementsRepository>();
     final settingsRepo = context.read<SettingsRepository>();
     final sales = await salesRepo.getSales();
+    final returns = await returnsRepo.getReturns();
     final products = await productsRepo.getAll();
     final movements = await movementsRepo.getMovements();
     final settings = await settingsRepo.getSettings();
     if (!mounted) return;
     setState(() {
       _sales = sales;
+      _returns = returns;
       _products = products;
       _movements = movements;
       _taxRate = settings.taxRate;
@@ -3247,21 +3254,22 @@ class _InvReportTabState extends State<_InvReportTab> {
   bool _sameDay(DateTime d, DateTime now) =>
       d.year == now.year && d.month == now.month && d.day == now.day;
 
+  /// The period's bills net of the period's credit notes, the same rule as the
+  /// closing report and the server's `/reports/summary` ([NetSales]).
+  NetSales _netSales(bool Function(DateTime) inPeriod) {
+    final lites = toReportLites(
+      sales: _sales.where((s) => inPeriod(s.sale.date)).toList(),
+      returns: _returns.where((r) => inPeriod(r.ret.date)).toList(),
+      products: _products,
+      originalSales: _sales,
+    );
+    return NetSales.of(lites.sales, lites.returns, _taxRate);
+  }
+
   Widget _daily(ThemeData theme) {
     final now = DateTime.now();
-    final todaySales = _sales.where((s) => _sameDay(s.sale.date, now)).toList();
-    final todayRevenue = todaySales.fold<double>(0, (a, s) => a + s.sale.total);
-    final cashSales = todaySales
-        .where((s) => s.sale.paymentMethod == 'เงินสด')
-        .toList();
-    final qrSales = todaySales
-        .where(
-          (s) =>
-              s.sale.paymentMethod == 'โอน/QR' ||
-              s.sale.paymentMethod == 'PromptPay' ||
-              s.sale.paymentMethod == 'โอนเงิน',
-        )
-        .toList();
+    final net = _netSales((d) => _sameDay(d, now));
+    final todayRevenue = net.netRevenue;
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 700),
@@ -3284,7 +3292,7 @@ class _InvReportTabState extends State<_InvReportTab> {
               Expanded(
                 child: _kpi(
                   'จำนวนบิล',
-                  '${todaySales.length} บิล',
+                  '${net.billCount} บิล',
                   theme.colorScheme.onSurface,
                   theme,
                 ),
@@ -3293,11 +3301,7 @@ class _InvReportTabState extends State<_InvReportTab> {
               Expanded(
                 child: _kpi(
                   'เฉลี่ย/บิล',
-                  baht(
-                    todaySales.isEmpty
-                        ? 0
-                        : (todayRevenue / todaySales.length).round(),
-                  ),
+                  baht(net.avgPerBill.round()),
                   theme.colorScheme.onSurface,
                   theme,
                 ),
@@ -3312,7 +3316,7 @@ class _InvReportTabState extends State<_InvReportTab> {
               Expanded(
                 child: _payCard(
                   '💵 เงินสด · Cash',
-                  cashSales,
+                  net.cash,
                   AppColors.orange,
                   theme,
                 ),
@@ -3321,14 +3325,14 @@ class _InvReportTabState extends State<_InvReportTab> {
               Expanded(
                 child: _payCard(
                   '📱 โอน/QR',
-                  qrSales,
+                  net.qr,
                   AppColors.steelBlue,
                   theme,
                 ),
               ),
             ],
           ),
-          if (todaySales.isEmpty)
+          if (net.billCount == 0)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 40),
               child: Center(
@@ -3347,36 +3351,16 @@ class _InvReportTabState extends State<_InvReportTab> {
   Widget _monthly(ThemeData theme) {
     final vatDivisor = 1 + _taxRate / 100;
     final now = DateTime.now();
-    final monthSales = _sales
-        .where(
-          (s) => s.sale.date.year == now.year && s.sale.date.month == now.month,
-        )
-        .toList();
-    final monthRevenue = monthSales.fold<double>(0, (a, s) => a + s.sale.total);
-    // Prefer the cost recorded on the bill itself (ADR-0008). products.cost is
-    // recomputed on every weighted-average PO receive, so falling back to it
-    // makes the profit of a past month drift whenever new stock is bought in.
-    // Mirrors the JS `i.cost ?? products.find(...).cost` — except the JS `?? 0`
-    // tail is NOT reproduced: a line with no cost anywhere is counted as
-    // unknown, not as free (which silently read as 100% profit).
-    final costByPart = {for (final p in _products) p.partNo: p.cost};
-    var estimatedLines = 0; // fell back to today's cost
-    var unknownLines = 0; // no cost available at all
-    final monthCost = monthSales.fold<double>(0, (acc, s) {
-      return acc +
-          s.items.fold<double>(0, (a, i) {
-            final recorded = i.costAtSale;
-            if (recorded != null) return a + recorded * i.qty;
-            final current = costByPart[i.partNo];
-            if (current != null) {
-              estimatedLines++;
-              return a + current * i.qty;
-            }
-            unknownLines++;
-            return a;
-          });
-    });
-    final monthProfit = (monthRevenue / vatDivisor) - monthCost;
+    // Net of the month's credit notes, manual voids dropped. Cost prefers the
+    // cost recorded on the bill itself (ADR-0008) — see computeGrossProfit:
+    // products.cost is recomputed on every weighted-average PO receive, so it
+    // is only the fallback, and a line with no cost anywhere is disclosed.
+    final net = _netSales((d) => d.year == now.year && d.month == now.month);
+    final monthRevenue = net.netRevenue;
+    final monthCost = net.profit.cost;
+    final monthProfit = net.profit.profit;
+    final estimatedLines = net.profit.estimatedCostLines;
+    final unknownLines = net.profit.unknownCostLines;
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 700),
@@ -3446,7 +3430,7 @@ class _InvReportTabState extends State<_InvReportTab> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'จาก ${monthSales.length} บิล',
+                    'จาก ${net.billCount} บิล',
                     style: TextStyle(color: theme.colorScheme.secondary),
                   ),
                   // The CSV export has always disclosed this; the on-screen
@@ -3788,11 +3772,11 @@ class _InvReportTabState extends State<_InvReportTab> {
 
   Widget _payCard(
     String label,
-    List<SaleWithItems> arr,
+    PaymentGroup group,
     Color color,
     ThemeData theme,
   ) {
-    final sum = arr.fold<double>(0, (a, s) => a + s.sale.total);
+    final sum = group.net;
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainer,
@@ -3820,7 +3804,7 @@ class _InvReportTabState extends State<_InvReportTab> {
             ),
           ),
           Text(
-            '${arr.length} บิล',
+            '${group.bills} บิล',
             style: TextStyle(fontSize: 13, color: theme.colorScheme.secondary),
           ),
         ],

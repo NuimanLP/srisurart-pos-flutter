@@ -654,6 +654,10 @@ class ApiSalesRepository implements SalesRepository {
       drift.getSales(from: from, to: to);
 
   @override
+  Future<List<SaleWithItems>> getSalesByIds(Iterable<String> ids) =>
+      drift.getSalesByIds(ids);
+
+  @override
   Stream<List<SaleWithItems>> watchSales() => drift.watchSales();
 
   @override
