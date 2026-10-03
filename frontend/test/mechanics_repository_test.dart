@@ -1,6 +1,7 @@
-import 'package:drift/drift.dart';
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/mechanics_repository.dart';
 
@@ -118,5 +119,33 @@ void main() {
     final payments = await repo.getCreditPayments();
     expect(payments.length, 2);
     expect(payments.first.id, second.id); // newest first
+  });
+
+  test('deleteMechanic refuses while the mechanic owes credit (row untouched)', () async {
+    await (db.update(db.mechanics)..where((t) => t.id.equals('m2'))).write(
+      const MechanicsCompanion(creditBalance: Value(150)),
+    );
+
+    await expectLater(
+      repo.deleteMechanic('m2'),
+      throwsA(
+        isA<PosException>()
+            .having((e) => e.code, 'code', 'MECHANIC_HAS_BALANCE')
+            .having((e) => e.message, 'message',
+                'ช่างยังมียอดค้างชำระ ฿150 — รับชำระให้ครบก่อนลบ'),
+      ),
+    );
+    expect(
+      await (db.select(db.mechanics)..where((t) => t.id.equals('m2'))).getSingleOrNull(),
+      isNotNull,
+    );
+  });
+
+  test('deleteMechanic removes a mechanic whose balance is 0', () async {
+    await repo.deleteMechanic('m2');
+    expect(
+      await (db.select(db.mechanics)..where((t) => t.id.equals('m2'))).getSingleOrNull(),
+      isNull,
+    );
   });
 }

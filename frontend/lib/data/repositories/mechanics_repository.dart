@@ -18,7 +18,9 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
+import '../../core/utils/money.dart';
 import '../db/database.dart';
 
 class MechanicsRepository {
@@ -74,7 +76,17 @@ class MechanicsRepository {
         .write(patch.copyWith(updatedAt: Value(DateTime.now())));
   }
 
+  /// Refuses (owner, 2026-10-03) while the mechanic still owes credit, so the
+  /// debt cannot vanish from the screen. Same Thai message as the API build.
   Future<void> deleteMechanic(String id) async {
+    final row = await (db.select(db.mechanics)..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+    if (row != null && row.creditBalance > 0) {
+      throw PosException(
+        'MECHANIC_HAS_BALANCE',
+        mechanicHasBalanceMessage(row.creditBalance),
+      );
+    }
     await (db.delete(db.mechanics)..where((t) => t.id.equals(id))).go();
   }
 
@@ -319,3 +331,9 @@ class CreditPaymentQueued implements Exception {
       'บันทึกการรับชำระไว้ในเครื่องแล้ว — ยังส่งเข้าระบบไม่ได้ จะส่งให้อัตโนมัติ '
       '(ยอดค้างจะลดเมื่อส่งสำเร็จ) ไม่ต้องกดรับชำระซ้ำ';
 }
+
+/// Ratified by the owner 2026-10-03 (PR #578) — 02_API_SCREENS.md §8/§8.1.
+/// With the amount when it is known; the plain form otherwise (server path).
+String mechanicHasBalanceMessage([num? owed]) => owed == null
+    ? 'ช่างยังมียอดค้างชำระ — รับชำระให้ครบก่อนลบ'
+    : 'ช่างยังมียอดค้างชำระ ${baht(owed)} — รับชำระให้ครบก่อนลบ';
