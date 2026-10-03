@@ -606,7 +606,9 @@ export class PlatformTenantsService {
       }
 
       const newDeviceId = newId('dv');
-      const newLabel = label ?? old.label;
+      // An omitted label is named by the NEW device_no (RC<nn> receipts follow it), never the
+      // retired device's label, so "POS #3" cannot front a device that numbers RC04.
+      const newLabel = label ?? `${old.role === 'pos' ? 'POS' : 'Backoffice'} #${deviceNo}`;
       const created = (await manager.query(
         `INSERT INTO devices (tenant_id, id, label, device_no, role, enrol_code_hash, enrol_expires_at)
               VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(days => $7))

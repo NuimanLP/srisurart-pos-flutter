@@ -137,9 +137,12 @@ class QuoteA4View extends StatelessWidget {
 
   pw.Widget _headerBand(SettingsRowData s, pw.Font cond) {
     final taxId = s.taxId;
-    final phoneLine =
-        'โทร ${s.phone ?? ''}'
-        '${(taxId != null && taxId.isNotEmpty) ? ' · เลขประจำตัวผู้เสียภาษี $taxId' : ''}';
+    // Empty parts are dropped (no bare "โทร" label); non-empty output is unchanged.
+    final phone = (s.phone ?? '').trim();
+    final phoneLine = [
+      if (phone.isNotEmpty) 'โทร $phone',
+      if (taxId != null && taxId.isNotEmpty) 'เลขประจำตัวผู้เสียภาษี $taxId',
+    ].join(' · ');
     return pw.Container(
       padding: const pw.EdgeInsets.only(bottom: 14),
       decoration: const pw.BoxDecoration(
@@ -172,10 +175,11 @@ class QuoteA4View extends StatelessWidget {
                     s.address!,
                     style: const pw.TextStyle(fontSize: 9, color: _gray),
                   ),
-                pw.Text(
-                  phoneLine,
-                  style: const pw.TextStyle(fontSize: 9, color: _gray),
-                ),
+                if (phoneLine.isNotEmpty)
+                  pw.Text(
+                    phoneLine,
+                    style: const pw.TextStyle(fontSize: 9, color: _gray),
+                  ),
               ],
             ),
           ),
@@ -248,7 +252,8 @@ class QuoteA4View extends StatelessWidget {
                 valueBold: true,
                 valueFont: semi,
               ),
-              _metaRow('ผู้ออก', s.cashierName ?? '', cond),
+              if ((s.cashierName ?? '').trim().isNotEmpty)
+                _metaRow('ผู้ออก', s.cashierName!.trim(), cond),
               if (converted)
                 pw.Container(
                   margin: const pw.EdgeInsets.only(top: 8),

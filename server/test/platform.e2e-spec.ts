@@ -975,7 +975,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       expect(res.status).toBe(200);
       const data = res.body.data;
       expect(data.retiredDeviceId).toBe('pos1');
-      expect(data.device).toEqual({ id: expect.any(String), label: 'POS #1', role: 'pos', deviceNo: 6 });
+      expect(data.device).toEqual({ id: expect.any(String), label: 'POS #6', role: 'pos', deviceNo: 6 });
       expect(data.enrolCode).toMatch(/^[0-9A-F]{8}$/);
       expect(new Date(data.enrolExpiresAt).getTime()).toBeGreaterThan(Date.now() + 6 * 86400_000);
 
@@ -1026,6 +1026,12 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       expect(audit[0].after).toMatchObject({ replacedBy: data.device.id });
       expect(audit[0].after.forced).toBeUndefined();
       expect(audit[1].after).toMatchObject({ deviceNo: 6, role: 'pos', replaces: 'pos1' });
+    });
+
+    it('names the replacement by its new device_no when the label is omitted', async () => {
+      const res = await replace(tenantId, 'pos1');
+      expect(res.status).toBe(200);
+      expect(res.body.data.device).toMatchObject({ label: 'POS #2', deviceNo: 2 });
     });
 
     it('takes a custom label', async () => {
