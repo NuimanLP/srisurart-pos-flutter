@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { newId } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
@@ -11,6 +6,7 @@ import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
 import { DocNumberService } from '../documents/doc-number.service.js';
+import { QuoteSaleService } from '../sales/quote-sale.service.js';
 import type { CreateSale, SaleParty } from '../sales/sales.dto.js';
 import {
   SalesService,
@@ -18,6 +14,11 @@ import {
   type CreateSaleResult,
   type SaleActor,
 } from '../sales/sales.service.js';
+import {
+  quoteAlreadyConverted,
+  quoteConvertedNotDeletable,
+  quoteNotFound,
+} from './quote-errors.js';
 import type { QuoteCreate, QuoteFilter, QuotePatch } from './quotes.dto.js';
 
 /** A quote on the wire. Money is a string (02_API_SCREENS.md §1.1). */
@@ -99,17 +100,19 @@ const DEFAULT_VALID_DAYS = 30;
  * Quotes (#27). **No method here touches `products`** except `convert`, and that one
  * only through `SalesService.create` — the sale transaction owns every stock write.
  *
- * Lock order on convert: the quote row `FOR UPDATE` is taken first, then the sale
+ * Lock order on convert — and on `POST /sales` with a `quoteId` (owner, 2026-10-03,
+ * `QuoteSaleService`): the quote row `FOR UPDATE` is taken first, then the sale
  * path's own order (sale → shift `FOR SHARE` → mechanic → products → `doc_counters`
  * → customer). Nothing else locks a quote after any of those, so the prefix cannot
  * form a cycle: create/duplicate take only `doc_counters`, patch/delete only the
- * quote row, and the sale, void and return paths never read `quotes` at all.
+ * quote row, and the void and return paths never read `quotes` at all.
  */
 @Injectable()
 export class QuotesService {
   constructor(
     private readonly docNumbers: DocNumberService,
     private readonly sales: SalesService,
+    private readonly quoteSales: QuoteSaleService,
     private readonly tenants: TenantService,
   ) {}
 
@@ -268,20 +271,32 @@ export class QuotesService {
     return this.read(manager, tenantId, id);
   }
 
-  /** `deleteQuote`: any quote, converted or not — the screen offers delete on every row. */
+  /**
+   * `deleteQuote`: an unconverted quote only. A converted quote is the record a bill
+   * was sold from, so deleting it is `409 QUOTE_CONVERTED_NOT_DELETABLE` (owner,
+   * 2026-10-03, #27 Q2) — which also keeps a lost-key retry of that bill from meeting
+   * a 404. `POST /quotes/purge` still removes old converted quotes.
+   */
   delete(id: string): Promise<{ id: string; deleted: true }> {
     return this.tenants.runTx(() => this.deleteIn(id));
   }
 
   private async deleteIn(id: string): Promise<{ id: string; deleted: true }> {
     const { tenantId, manager } = currentRequestContext();
+    // A sale converting this quote holds its row `FOR UPDATE`; this DELETE waits for
+    // it and re-checks the predicate against the committed row, so it cannot remove
+    // a quote that was converted while it waited.
     const rows = returning<{ id: string }>(
       await manager.query(
-        `DELETE FROM quotes WHERE tenant_id = $1::uuid AND id = $2 RETURNING id`,
+        `DELETE FROM quotes WHERE tenant_id = $1::uuid AND id = $2 AND status <> 'converted'
+      RETURNING id`,
         [tenantId, id],
       ),
     );
-    if (rows.length === 0) throw quoteNotFound();
+    if (rows.length === 0) {
+      const existing = await this.read(manager, tenantId, id); // 404 if absent
+      throw quoteConvertedNotDeletable(existing.convertedSaleId);
+    }
     return { id, deleted: true };
   }
 
@@ -330,13 +345,12 @@ export class QuotesService {
   /**
    * Sells the quote through `SalesService.create` and marks it converted in the same
    * transaction — the one place a quote moves stock, and it does not move it itself.
+   * The lines and money are the saved quote's.
    *
-   * Converting twice cannot ring up two bills: the quote row is locked first, so a
-   * second request waits and then finds `status = 'converted'`. If it carries the
-   * bill id the quote was converted into, it is a retry and is answered with that
-   * bill (the sale path's own `existingSale` replay); any other id is
-   * `409 QUOTE_ALREADY_CONVERTED`. The replay check runs before the expiry check, so
-   * a quote converted on its last day still replays the next morning.
+   * Kept for API compatibility; since the owner's #27 decision (2026-10-03) the
+   * client sells a quote's cart through `POST /sales` with a `quoteId` instead, so a
+   * cart edited at Checkout still converts its quote. Both share `QuoteSaleService`'s
+   * lock and eligibility rules.
    */
   convert(
     id: string,
@@ -352,64 +366,22 @@ export class QuotesService {
     actor: SaleActor,
   ): Promise<ConvertQuoteResult> {
     const { tenantId, manager } = currentRequestContext();
-    const rows = (await manager.query(
-      `SELECT ${COLUMNS} FROM quotes WHERE tenant_id = $1::uuid AND id = $2 FOR UPDATE`,
-      [tenantId, id],
-    )) as QuoteRow[];
-    if (rows.length === 0) throw quoteNotFound();
-    const q = rows[0];
-
-    if (q.status === 'converted') {
-      if (q.converted_sale_id !== party.id) {
-        throw quoteAlreadyConverted(q.converted_sale_id);
-      }
-      const sale = await this.sales.create(
-        await this.saleFrom(manager, tenantId, q, party),
-        actor,
-      );
-      return { sale, quote: await this.read(manager, tenantId, id) };
-    }
-
-    // `quotes_screen.dart:559` offers convert on a row that is `!converted && !expired`
-    // (`QuoteRowStatus`) and does not read the status string otherwise, so an imported
-    // row stored as, say, `'cancelled'` but still valid converts here too.
-    if (q.expired) {
-      throw new HttpException(
-        {
-          code: 'QUOTE_EXPIRED',
-          message: 'Quote has expired and cannot be converted.',
-          details: { validUntil: q.valid_until.toISOString() },
-        },
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    // The quote is still open, so no bill was ever committed from it: a sale already
-    // under this id is a different bill. Without this, `existingSale` would replay
-    // that bill and the quote would be marked converted into a sale it never was.
-    const taken = (await manager.query(
-      `SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
-      [tenantId, party.id],
-    )) as unknown[];
-    if (taken.length > 0) {
-      throw new HttpException(
-        {
-          code: 'SALE_ID_REUSED',
-          message: 'A different sale already exists under this id.',
-        },
-        HttpStatus.CONFLICT,
-      );
-    }
+    const state = await this.quoteSales.lockForSale(manager, tenantId, id, party.id);
+    if (state === 'missing') throw quoteNotFound();
+    const q = (
+      (await manager.query(
+        `SELECT ${COLUMNS} FROM quotes WHERE tenant_id = $1::uuid AND id = $2`,
+        [tenantId, id],
+      )) as QuoteRow[]
+    )[0];
 
     const sale = await this.sales.create(
       await this.saleFrom(manager, tenantId, q, party),
       actor,
     );
-    await manager.query(
-      `UPDATE quotes SET status = 'converted', converted_at = now(), converted_sale_id = $3
-        WHERE tenant_id = $1::uuid AND id = $2`,
-      [tenantId, id, sale.id],
-    );
+    if (state === 'fresh') {
+      await this.quoteSales.markConverted(manager, tenantId, id, sale.id);
+    }
     return { sale, quote: await this.read(manager, tenantId, id) };
   }
 
@@ -531,22 +503,4 @@ function toQuote(r: QuoteRow, items: QuoteItem[]): Quote {
 
 function money(numeric: string): string {
   return fromSatang(satangOf(numeric));
-}
-
-function quoteNotFound(): HttpException {
-  return new HttpException(
-    { code: 'QUOTE_NOT_FOUND', message: 'Quote not found' },
-    HttpStatus.NOT_FOUND,
-  );
-}
-
-function quoteAlreadyConverted(convertedSaleId: string | null): HttpException {
-  return new HttpException(
-    {
-      code: 'QUOTE_ALREADY_CONVERTED',
-      message: 'Quote has already been converted into a sale.',
-      details: { convertedSaleId },
-    },
-    HttpStatus.CONFLICT,
-  );
 }

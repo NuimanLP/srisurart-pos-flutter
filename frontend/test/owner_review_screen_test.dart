@@ -238,6 +238,16 @@ void main() {
     });
   });
 
+  test('quote_conflict (#27 follow-up, owner 2026-10-03) is a known kind, not unknown', () {
+    expect(ReviewItemKind.fromString('quote_conflict'), ReviewItemKind.quoteConflict);
+  });
+
+  test('drawer_overdrawn_offline (PR #580 follow-up) is a known kind with its Thai label', () {
+    final kind = ReviewItemKind.fromString('drawer_overdrawn_offline');
+    expect(kind, ReviewItemKind.drawerOverdrawnOffline);
+    expect(kind.labelTh, 'เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์');
+  });
+
   group('OwnerReviewScreen - Tab 2 (รอตรวจ)', () {
     testWidgets('loads and renders review items and handles markReviewed',
         (tester) async {

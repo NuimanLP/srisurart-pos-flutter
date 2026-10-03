@@ -13,9 +13,22 @@ import '../../domain/models/aggregates.dart';
 class PendingQuoteCubit extends Cubit<QuoteWithItems?> {
   PendingQuoteCubit() : super(null);
 
+  bool _forSale = false;
+
+  /// True when the staged quote is being SOLD ("→ ขาย"): checkout then rings
+  /// the cart up against it (`SaleInput.quoteId`, #27). False for "✎ แก้ไข",
+  /// whose source quote has already been deleted.
+  bool get forSale => _forSale;
+
   /// Stage a quote for checkout to pick up.
-  void set(QuoteWithItems? quote) => emit(quote);
+  void set(QuoteWithItems? quote, {bool forSale = false}) {
+    _forSale = quote != null && forSale;
+    emit(quote);
+  }
 
   /// Clear the staged quote (call after the cart has consumed it).
-  void clear() => emit(null);
+  void clear() {
+    _forSale = false;
+    emit(null);
+  }
 }

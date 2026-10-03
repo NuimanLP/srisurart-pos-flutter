@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The api build talks to the server over HTTPS; a release build has no INTERNET by default. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="srisurart_pos"
         android:name="${applicationName}"

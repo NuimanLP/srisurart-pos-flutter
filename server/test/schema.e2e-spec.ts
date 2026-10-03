@@ -397,14 +397,17 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   });
 
   it('platform_admins: an admin existing before …4600 gets password_changed_at backfilled to now(), not left NULL (#443)', async () => {
-    // Roll back only the last migration (drops password_changed_at), insert an admin as if it
-    // had existed beforehand, then re-run migrations — a fresh DataSource instance sees the
-    // rest as already applied and executes only …4600, exactly like a real deploy.
+    // Roll back down to …4600 (drops password_changed_at) — …4700 (#27 follow-up) and …4800
+    // (PR #580 follow-up) came after it — insert an admin as if it had existed beforehand, then re-run migrations: a fresh
+    // DataSource instance sees the rest as already applied and executes only those three,
+    // exactly like a real deploy.
     await app.end();
     const ds = createMigrationDataSource(OWNER_URL);
     await ds.initialize();
     try {
-      await ds.undoLastMigration({ transaction: 'each' });
+      await ds.undoLastMigration({ transaction: 'each' }); // …4800
+      await ds.undoLastMigration({ transaction: 'each' }); // …4700
+      await ds.undoLastMigration({ transaction: 'each' }); // …4600
       const inserted = await owner.query(
         `INSERT INTO platform_admins (username, password_hash, display_name)
          VALUES ('pre-4600-admin', 'x', 'X') RETURNING id`,
@@ -413,7 +416,11 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       try {
         const before = Date.now();
         const ran = await ds.runMigrations({ transaction: 'each' });
-        expect(ran.map((m) => m.name)).toEqual(['PlatformAdminPasswordChangedAt1788652804600']);
+        expect(ran.map((m) => m.name)).toEqual([
+          'PlatformAdminPasswordChangedAt1788652804600',
+          'ReviewItemQuoteConflict1788652804700',
+          'ReviewItemDrawerOverdrawnOffline1788652804800',
+        ]);
         const r = await owner.query(
           `SELECT password_changed_at FROM platform_admins WHERE id = $1`,
           [id],

@@ -1,0 +1,24 @@
+{
+  "name": "products.create",
+  "caller": "ApiProductsRepository.add",
+  "requests": [
+    {
+      "route": "POST /api/v1/products",
+      "method": "POST",
+      "path": "/api/v1/products",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "partNo": "CT-NEW-1",
+        "name": "New part",
+        "nameTH": "อะไหล่ใหม่",
+        "category": "อื่นๆ",
+        "brand": "TEST",
+        "price": "150.00",
+        "cost": "90.00",
+        "stock": 5,
+        "minStock": 1
+      }
+    }
+  ]
+}

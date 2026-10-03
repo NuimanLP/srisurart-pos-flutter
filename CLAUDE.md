@@ -344,7 +344,8 @@ develops against a demo tenant.
   commit. 🔴 **Lesson: check a PR's head SHA at merge time
   (`gh pr view N --json headRefOid`) — a review-fix pushed after the merge button is
   clicked silently misses `main`, and the PR body describing it reads as done when it
-  isn't.** 🔴 **Same trap on the branch side (found 2026-09-30):** before deleting a
+  isn't.** Recurred 2026-10-03 (#551/#552, #579, #580, #587 — see
+  `handoff_log/session-2026-10-03-ux-test-drawer-ci.md`). 🔴 **Same trap on the branch side (found 2026-09-30):** before deleting a
   merged-PR branch, compare its tip with the PR's `headRefOid` — a mismatch means commits
   pushed after the merge that may exist nowhere else. That is how PR #486's review fix
   (`_writeGen` guard against a stale `GET /settings` clobbering a newer `PATCH`, commits
@@ -526,11 +527,24 @@ on void/return paths. Keep this order in any new write touching more than one of
   disabled while `outboxRemaining > 0`. The server cannot see the outbox, so this check is
   client-only; never narrow it back to one op type (it replaced the cash-credit-only
   `CASH_CREDIT_PAYMENTS_UNSENT`). Its Thai string was ratified by the owner 2026-09-27.
-- **Expected drawer cash has one counting window** (#452, PR #469): the cash-drawer
-  screen and the closing report's drawer check both use `ShiftsRepository.cashCountFrom(shift)`
-  — the first shift of a day counts from midnight, a later shift from its own opening —
-  and both count a credit payment only when `isCashCreditPayment()`. Never compute
-  expected cash a second way; the report's revenue/payment/top-item sections stay whole-day.
+- **Expected drawer cash is counted BY SHIFT** (owner decision 2026-10-03, PR #580;
+  history: #452/PR #469 counted a time window — the day's first shift from midnight, a
+  later one from its opening — via `cashCountFrom`, now deleted). Every baht taken or paid
+  while a shift is open belongs to that shift, even past midnight — the server's
+  `shift_id` rule (`server/src/reports/drawer-cash.sql.ts`, shared by `GET /reports/closing`
+  and the cash-out refusal). Client: `ShiftsRepository.drawerCash` is the only rule — the
+  cash-drawer screen, the closing report's drawer check and `assertCashOutFits` all use it.
+  Attribution: drawer entries by `shiftId`; sales by `Sales.shiftId`, or (no `shiftId`, the
+  Drift build) by `date` in the shift's `[openedAt, closedAt]`; returns and credit payments
+  (no local shift column) by `date` in that interval; credit payments only when
+  `isCashCreditPayment()`. Both sides must keep passing
+  `docs/Backend_design/fixtures/drawer-cash/agreement.json`. Never compute expected cash a
+  second way; the report's revenue/payment/top-item sections stay whole-day.
+- **A cash-out larger than the drawer's expected cash is refused** (owner 2026-10-03,
+  PR #580): `409 DRAWER_INSUFFICIENT_CASH` online, `PosException` on the Drift build and the
+  API build's offline queue; a `/sync/push` `drawer.entry` replay is never refused (the cash
+  already left) — one that takes the shift's expected cash below zero files one owner review
+  item `drawer_overdrawn_offline` per entry (PR #585, migration `1788652804800`).
 - **Returns share one pure rule set:** `planReturn()` + `refundedQtyOf()`
   (`return_plan.dart`) are used by both `ReturnsRepository` and `ApiReturnsRepository`;
   the offline `return.create` numbers its CN inside the local transaction, after every
@@ -566,6 +580,14 @@ on void/return paths. Keep this order in any new write touching more than one of
   GitHub secret scanning + **push protection are ON since 2026-10-01** (verify with
   `gh api repos/NuimanLP/srisurart-pos-flutter --jq .security_and_analysis`; ADR-0013 once claimed
   "on" while off); Dependabot alerts + security updates enabled 2026-10-01.
+- In Actions expressions `0` is falsy: `cond && 0 || 1` is always `1` — use strings (`'0'`). This silently disabled the docs-only push skip until it was fixed (2026-10-01).
+- **Quality gates (2026-10-03, PRs #579/#581/#582 — table in `07_CICD_DEPLOY.md §2c`):**
+  a UI write that can fail silently gets a surfacing catch — never an `_allowlist` entry
+  without a reason; coverage baselines only go **up**, never lowered to go green; a changed
+  client request means regenerating and committing `fixtures/client-requests/`; a shipped
+  migration is never edited — add a new one. 🔴 Two PRs green alone can be red
+  together: #579 + #580 merged 29 s apart turned Flutter CI on `main` red (`2411ebf`,
+  `a8a8080`) until #582 — after a gate lands, rebase open PRs before merging.
 - `.github/dependabot.yml` is security-updates-only — routine bumps are human-timed.
 - Never `docker compose down -v` on a shared Docker daemon (wiped another session's dev
   volumes once); throwaway stacks use a unique `-p`.
@@ -585,6 +607,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
   (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
   every Deploy run skipping. Derive RC/CN periods from now in `Asia/Bangkok` (`currentPeriod()`).
+- **Docs-only push to main skips tests/images → no deploy; the VM stays on the last code SHA** (2026-10-01,
+  `deploy/scripts/push-changes-kind.sh`, 07 §2 rule 2). Docs = `*.md` or `docs/**` except
+  `docs/Backend_design/fixtures/**`; anything else is code. `deploy.yml` `resolve` applies the same rule to
+  the range run-SHA..main-head, so a docs commit after a code commit does not strand that code deploy.
 - **Cancel stale waiting Deploy runs before approving a newer one** — a job waiting for approval holds
   the `deploy-demo` slot and the newer run sits `pending`; the approval API needs a `comment`.
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
@@ -618,6 +644,15 @@ on void/return paths. Keep this order in any new write touching more than one of
   it the api/worker/bull-board refuse to boot on a `dev-only-*` placeholder secret or the
   public dummy JWT pair. **Never set it on a real host** — `vm.override.yml` forces it
   empty on `mob04`.
+- **Android APK (PR #551, merged 2026-10-03):** manual `android-apk.yml`, `main` only, **API build only** — no
+  offline APK from `main` because `useApiRepositories` defaults true. Signed via secret `ANDROID_KEYSTORE_B64`; the
+  keystore backup is the owner's — lose it and no APK can upgrade in place.
+- **Private CA for `mob04` TLS (PR #552, merged 2026-10-03):** one-shot `certgen` keeps a CA in volume `certs-ca`
+  and re-issues the leaf each deploy. 🔴 Never `down -v` or delete `certs-ca`: a new CA stops every distributed APK
+  until the CA asset is recommitted and APKs rebuilt. `ca.key` lives only in `certs-ca`. `frontend/assets/certs/pos-ca.crt`
+  holds the CA since 2026-10-03 (first certgen deploy `7ea0178`; SHA-256 `87:7B:B8:F7:…:54:CF:83:65`) — it must match
+  `certs-ca/ca.crt` on the VM (`07_CICD_DEPLOY.md` §5 "TLS"). Never add `badCertificateCallback`.
+  A VM IP change = edit the SAN in `server/docker/certgen/certgen.sh`.
 
 **Metrics (`server/src/metrics/`, `deploy/prometheus/`, `deploy/grafana/`) — landed 2026-09-21:**
 - `http_requests_total` and `http_request_duration_seconds` are **named by the existing
@@ -674,6 +709,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   (`TENANT_SWITCH_UNSENT_WORK`, `ENROL_UNSENT_WORK`). `cacheGeneration` fences late pulls/seeds, and
   `ApiClient` has a session generation so a stale refresh/401/token never acts for the next user
   (#534/#536). Replies to in-flight online writes are not fenced (accepted limit).
+- **Customer/mechanic pull keeps local totals under unsent money ops** (`outbox_ledger_refs.dart`): rows referenced by `sale.create`/`sale.void_offline`/`return.create`/`credit_payment.create` (any status) or a queued credit payment keep `points`/`totalSpend` / `creditBalance`/`totalSales`/`totalDiscount`/`totalMarkup`; the guard is recomputed per page inside the write txn and the saved cursor never passes a protected row. A new money-op type must be added to `_moneyOps`.
 
 **Writing in `docs/Backend_design/` (added 2026-09-23, PR #391 —
 `handoff_log/session-2026-09-23-key-primer-docs.md`):**

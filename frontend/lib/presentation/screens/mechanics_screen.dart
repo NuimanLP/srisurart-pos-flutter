@@ -271,7 +271,7 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 14, 24, 8),
           child: SearchField(
-            hint: '🔍 ค้นหาชื่อ / ชื่อเล่น / เบอร์ / รหัส',
+            hint: 'ค้นหาชื่อ / ชื่อเล่น / เบอร์ / รหัส',
             onChanged: (v) => setState(() => _search = v),
           ),
         ),
@@ -341,6 +341,13 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
       _showDegradedWarning();
       return;
     }
+    // Refuse up front (owner, 2026-10-03) — string ratified by the owner 2026-10-03 (PR #578), 02_API_SCREENS.md §8.1.
+    if (m.creditBalance > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mechanicHasBalanceMessage(m.creditBalance))),
+      );
+      return;
+    }
     final repo = context.read<MechanicsRepository>();
     final ok = await showConfirm(
       context,
@@ -349,7 +356,17 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
       danger: true,
     );
     if (!ok) return;
-    await repo.deleteMechanic(m.id);
+    try {
+      await repo.deleteMechanic(m.id);
+    } catch (e) {
+      // A server refusal (e.g. MECHANIC_HAS_BALANCE when the cache was stale).
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+      );
+      _refresh();
+      return;
+    }
     if (_selectedId == m.id) {
       setState(() => _selectedId = null);
     }
@@ -489,6 +506,13 @@ class _PendingPaymentsDialogState extends State<_PendingPaymentsDialog> {
     setState(() => _busy = true);
     try {
       await action();
+    } catch (e) {
+      // Without this a failed retry/discard/flush only stopped the spinner.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+        );
+      }
     } finally {
       final rows = await widget.repo.getPendingCreditPayments();
       if (mounted) {
@@ -1468,10 +1492,21 @@ class _MechanicFormDialogState extends State<_MechanicFormDialog> {
       note: Value(_note.text.trim()),
       creditLimit: Value(creditLimit),
     );
-    if (widget.editing != null) {
-      await widget.repo.updateMechanic(widget.editing!.id, patch);
-    } else {
-      await widget.repo.addMechanic(patch);
+    try {
+      if (widget.editing != null) {
+        await widget.repo.updateMechanic(widget.editing!.id, patch);
+      } else {
+        await widget.repo.addMechanic(patch);
+      }
+    } catch (e) {
+      // Without this a refusal (mob04 2026-10-03: a 400) left the button
+      // spinning forever with nothing on screen.
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+      );
+      return;
     }
     if (mounted) Navigator.of(context).pop(true);
   }

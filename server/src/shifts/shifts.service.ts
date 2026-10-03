@@ -6,6 +6,7 @@ import { fromSatang } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
+import { expectedCashSatangOf } from '../reports/drawer-cash.sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 
 /** Who is at the drawer — from the token, never from the body. */
@@ -397,7 +398,15 @@ export class ShiftsService {
     return { ...toShift(archived[0]), entries: result.entries };
   }
 
-  /** Adds money in or out of the open drawer. */
+  /**
+   * Adds money in or out of the open drawer.
+   *
+   * A cash-out larger than the cash the drawer should hold is refused with
+   * `409 DRAWER_INSUFFICIENT_CASH` (owner, 2026-10-03) — a real drawer never holds
+   * negative cash. `offlineReplay` (the `/sync/push` `drawer.entry` replay) skips that
+   * check: the cash already left the drawer while the till was offline, so refusing
+   * the record would only make the count lie.
+   */
   addEntry(
     actor: Actor,
     entry: {
@@ -407,8 +416,9 @@ export class ShiftsService {
       note: string | null;
       createdAt?: Date | string | null;
     },
+    options: { offlineReplay?: boolean } = {},
   ): Promise<DrawerEntry> {
-    return this.tenants.runTx(() => this.addEntryIn(actor, entry));
+    return this.tenants.runTx(() => this.addEntryIn(actor, entry, options));
   }
 
   private async addEntryIn(
@@ -420,6 +430,7 @@ export class ShiftsService {
       note: string | null;
       createdAt?: Date | string | null;
     },
+    options: { offlineReplay?: boolean },
   ): Promise<DrawerEntry> {
     const { tenantId, manager } = currentRequestContext();
     const shift = await this.lockActive(manager, tenantId, actor.deviceId);
@@ -432,6 +443,16 @@ export class ShiftsService {
         },
         HttpStatus.CONFLICT,
       );
+    }
+
+    // Still under the shift's `FOR UPDATE`: a sale, refund or credit payment on this
+    // drawer takes `FOR SHARE` on the same row, so the count cannot move under us, and
+    // two cash-outs serialise. Same rule as the closing report (`drawer-cash.sql.ts`).
+    if (entry.type === 'out' && !options.offlineReplay) {
+      const expectedSatang = await expectedCashSatangOf(manager, tenantId, shift.id);
+      if (entry.amountSatang > expectedSatang) {
+        throw drawerInsufficientCash(expectedSatang);
+      }
     }
 
     const entryId = entry.id?.trim() || newId('de');
@@ -610,6 +631,22 @@ export class ShiftsService {
 function noOpenShift(): HttpException {
   return new HttpException(
     { code: 'NO_OPEN_SHIFT', message: 'No open shift' },
+    HttpStatus.CONFLICT,
+  );
+}
+
+/**
+ * Owner, 2026-10-03: a cash-out larger than the drawer's expected cash is refused.
+ * The client shows `เงินในลิ้นชักไม่พอ` — ratified by the owner 2026-10-03 (PR #580),
+ * 02_API_SCREENS.md §8/§8.1.
+ */
+function drawerInsufficientCash(expectedSatang: number): HttpException {
+  return new HttpException(
+    {
+      code: 'DRAWER_INSUFFICIENT_CASH',
+      message: 'Cash out exceeds the cash the drawer should hold.',
+      details: { expectedCash: fromSatang(expectedSatang) },
+    },
     HttpStatus.CONFLICT,
   );
 }

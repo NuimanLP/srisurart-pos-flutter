@@ -21,12 +21,12 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/pdf_fonts.dart';
-import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/shifts_repository.dart';
+import '../../domain/reports/net_sales.dart';
 import 'app_button.dart';
 
 /// Opens the daily Closing Report as a modal dialog.
@@ -46,139 +46,36 @@ Future<void> showClosingReport(BuildContext context) {
 
 /// Aggregated read-model for the closing report (one async load of everything).
 class _ClosingData {
-  final List<SaleLite> sales;
+  /// The whole day's bills net of the whole day's credit notes — revenue,
+  /// bills, payment rows, top items and profit.
+  final NetSales net;
 
-  /// Cash bills since the drawer's count began ([ShiftsRepository.cashCountFrom])
-  /// — the day's cash sales unless a later shift of the day is the drawer.
-  final double drawerCashSales;
-  final double cashRefundsToday;
-  final double cashCreditPaymentsToday;
-  final double drawerStarting;
-  final double drawerIn;
-  final double drawerOut;
+  /// The drawer check — [ShiftsRepository.drawerCash], the same number the
+  /// cash-drawer screen shows and its cash-out refusal checks (by shift).
+  final DrawerCash cash;
   final bool drawerToday;
-  final double taxRate;
   final String shopName;
   final String shopNameEN;
   final String? address;
   final String? phone;
   final String? cashierName;
   const _ClosingData({
-    required this.sales,
-    required this.drawerCashSales,
-    required this.cashRefundsToday,
-    required this.cashCreditPaymentsToday,
-    required this.drawerStarting,
-    required this.drawerIn,
-    required this.drawerOut,
+    required this.net,
+    required this.cash,
     required this.drawerToday,
-    required this.taxRate,
     required this.shopName,
     required this.shopNameEN,
     required this.address,
     required this.phone,
     required this.cashierName,
   });
-}
 
-/// A flattened sale + items (with cost looked up) used by the report math.
-/// Public (no leading underscore) so [computeGrossProfit] is unit-testable
-/// from `test/` without a widget pump.
-class SaleLite {
-  final double subtotal;
-  final double discount;
-  final double total;
-  final String paymentMethod;
-  final List<ItemLite> items;
-  const SaleLite({
-    required this.subtotal,
-    required this.discount,
-    required this.total,
-    required this.paymentMethod,
-    required this.items,
-  });
-}
-
-class ItemLite {
-  final String partNo;
-  final String name;
-  final int qty;
-  final double price;
-  /// Cost recorded on the bill itself at the time of sale (ADR-0008,
-  /// `SaleItems.costAtSale` in `data/db/tables.dart`). Null on a legacy bill
-  /// sold before that column existed.
-  final double? costAtSale;
-  /// Today's `products.cost` for the same part, looked up as a fallback only
-  /// — it drifts on every weighted-average PO receive, so it is never
-  /// preferred over [costAtSale]. Null when the product row is gone too.
-  final double? currentCost;
-  const ItemLite({
-    required this.partNo,
-    required this.name,
-    required this.qty,
-    required this.price,
-    required this.costAtSale,
-    required this.currentCost,
-  });
-}
-
-/// Result of [computeGrossProfit]: the profit figure plus how much of it is a
-/// guess (ADR-0008) — mirrors `estimatedCostRows`/`unknownCostRows` in
-/// `server/src/reports/reports.service.ts` and `estimatedLines`/`unknownLines`
-/// in `products_screen.dart`'s `_monthly`.
-class GrossProfitResult {
-  final double profit;
-  /// Lines with no `costAtSale`, costed at today's product cost instead.
-  final int estimatedCostLines;
-  /// Lines with no `costAtSale` AND no current product cost — costed at 0
-  /// (profit reads higher than true; flagged via [costDisclosureLines]
-  /// rather than excluded from the cost side).
-  final int unknownCostLines;
-  const GrossProfitResult(
-    this.profit,
-    this.estimatedCostLines,
-    this.unknownCostLines,
-  );
-}
-
-/// Approximate gross profit over [sales] (ports `ClosingReport.jsx`).
-///
-/// Cost per line prefers `item.costAtSale` — the cost recorded on the bill
-/// (ADR-0008) — over today's product cost, because `products.cost` is
-/// recomputed on every weighted-average PO receive and would make a past
-/// bill's profit drift. When neither is available the line is costed at 0
-/// (profit reads higher than true) and disclosed via [costDisclosureLines]
-/// rather than excluded from the cost side. This matches
-/// `products_screen.dart`'s `_monthly` fallback chain
-/// and `reports.service.ts`'s `grossProfitCtes`
-/// (`COALESCE(cost_at_sale, current_cost, 0)` with `estimated_cost_rows`/
-/// `unknown_cost_rows` tracked alongside for disclosure).
-GrossProfitResult computeGrossProfit(List<SaleLite> sales, double taxRate) {
-  final vatDivisor = 1 + taxRate / 100;
-  var estimatedCostLines = 0;
-  var unknownCostLines = 0;
-  final profit = sales.fold<double>(0, (tot, sale) {
-    final subtotal = sale.subtotal != 0
-        ? sale.subtotal
-        : sale.items.fold<double>(0, (a, i) => a + i.price * i.qty);
-    final discountRatio = subtotal > 0 ? sale.discount / subtotal : 0.0;
-    final itemProfit = sale.items.fold<double>(0, (a, i) {
-      final lineRevenue = i.price * i.qty * (1 - discountRatio);
-      double costPerUnit;
-      if (i.costAtSale != null) {
-        costPerUnit = i.costAtSale!;
-      } else if (i.currentCost != null) {
-        costPerUnit = i.currentCost!;
-        estimatedCostLines++;
-      } else {
-        costPerUnit = 0;
-        unknownCostLines++;
-      }
-      return a + (lineRevenue / vatDivisor) - (costPerUnit * i.qty);
-    });
-    return tot + itemProfit;
-  });
-  return GrossProfitResult(profit, estimatedCostLines, unknownCostLines);
+  double get drawerCashSales => cash.cashSales;
+  double get cashRefundsToday => cash.cashRefunds;
+  double get cashCreditPaymentsToday => cash.cashCreditPayments;
+  double get drawerStarting => cash.startingCash;
+  double get drawerIn => cash.totalIn;
+  double get drawerOut => cash.totalOut;
 }
 
 /// Disclosure lines for [GrossProfitResult] — verbatim copy of the warning
@@ -191,50 +88,9 @@ List<String> costDisclosureLines(GrossProfitResult r) => [
     '${r.unknownCostLines} รายการไม่มีข้อมูลต้นทุน (กำไรจะสูงกว่าจริง)',
 ];
 
-/// Sales paid in cash — one of the three groups a `SaleLite` list is split
-/// into for the "วิธีชำระเงิน" breakdown (#461). Extracted to a top-level pure
-/// function (like [computeGrossProfit]) so the grouping is unit-testable
-/// without a widget pump.
-List<SaleLite> cashSales(List<SaleLite> sales) =>
-    sales.where((s) => s.paymentMethod == 'เงินสด').toList();
-
-/// Sales paid by transfer/QR. Three spellings are accepted because both the
-/// current UI copy (`'โอน/QR'`) and older `db.js`-era values (`'PromptPay'`,
-/// `'โอนเงิน'`) can appear on rows saved before a copy change.
-List<SaleLite> qrSales(List<SaleLite> sales) => sales
-    .where(
-      (s) =>
-          s.paymentMethod == 'โอน/QR' ||
-          s.paymentMethod == 'PromptPay' ||
-          s.paymentMethod == 'โอนเงิน',
-    )
-    .toList();
-
-/// Sales paid via `เครดิตช่าง` (mechanic credit) — settled later through
-/// `CreditPayments`, never touching the cash drawer directly (only a cash
-/// *settlement* of that credit does, tracked separately as
-/// `cashCreditPaymentsToday`). Before #461 the payment-method breakdown only
-/// showed [cashSales]/[qrSales], so a day with a เครดิตช่าง bill made those two
-/// rows sum to less than `รวมทั้งหมด` (which totals every sale). This group
-/// closes that gap.
-List<SaleLite> creditSales(List<SaleLite> sales) =>
-    sales.where((s) => s.paymentMethod == 'เครดิตช่าง').toList();
-
-/// Legacy credit payments carried a `method` field (`'เงินสด'` | `'โอน/QR'`)
-/// and only cash settlements counted toward the drawer. The Drift port has no
-/// `method` column; MechanicsScreen instead encodes the method as the `note`
-/// prefix (`'<method>'` or `'<method> · <note>'`). Treat a payment as cash only
-/// when that leading segment is exactly `'เงินสด'`, mirroring `p.method === 'เงินสด'`.
-bool isCashCreditPayment(String? note) {
-  if (note == null) return false;
-  final method = note.split(' · ').first.trim();
-  return method == 'เงินสด';
-}
-
 Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final salesRepo = context.read<SalesRepository>();
   final returnsRepo = context.read<ReturnsRepository>();
-  final mechanicsRepo = context.read<MechanicsRepository>();
   final productsRepo = context.read<ProductsRepository>();
   final settingsRepo = context.read<SettingsRepository>();
   final shiftsRepo = context.read<ShiftsRepository>();
@@ -246,95 +102,40 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final day = dayBounds(now);
   final drawer = await shiftsRepo.getCashDrawer();
   final drawerToday = drawer != null && drawer.shift.dateStr == today;
-  // The drawer check counts from the same point as the cash-drawer screen
-  // (08 §11, #452): midnight for the day's first shift, a later shift's own
-  // opening otherwise. Revenue, the payment breakdown and top items stay the
-  // whole day — this is the DAILY closing report.
-  final countFrom = drawerToday
-      ? (await shiftsRepo.cashCountFrom(drawer.shift) ?? day.from)
-      : day.from;
   final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
-  final returns = await returnsRepo.getReturns(from: countFrom, to: day.to);
-  final creditPayments = await mechanicsRepo.getCreditPayments(
-    from: countFrom,
-    to: day.to,
+  // The day's credit notes for the whole-day sections (revenue, bills,
+  // payment rows, top items, profit).
+  final dayReturns = await returnsRepo.getReturns(from: day.from, to: day.to);
+  final todaySaleIds = {for (final s in salesAgg) s.sale.id};
+  // A credit note today may be for an earlier day's bill: load that bill too,
+  // for its lines' costAtSale.
+  final originalSales = await salesRepo.getSalesByIds(
+    dayReturns
+        .map((r) => r.ret.saleId)
+        .where((id) => !todaySaleIds.contains(id)),
   );
   final products = await productsRepo.getAll();
   final settings = await settingsRepo.getSettings();
 
-  final costByPart = {for (final p in products) p.partNo: p.cost};
+  final lites = toReportLites(
+    sales: salesAgg,
+    returns: dayReturns,
+    products: products,
+    originalSales: originalSales,
+  );
 
-  final sales = <SaleLite>[];
-  for (final s in salesAgg) {
-    final sale = s.sale;
-    sales.add(
-      SaleLite(
-        subtotal: sale.subtotal,
-        discount: sale.discount,
-        total: sale.total,
-        paymentMethod: sale.paymentMethod,
-        items: [
-          for (final i in s.items)
-            ItemLite(
-              partNo: i.partNo ?? '',
-              name: i.name,
-              qty: i.qty,
-              price: i.price,
-              costAtSale: i.costAtSale,
-              currentCost: costByPart[i.partNo],
-            ),
-        ],
-      ),
-    );
-  }
-
-  // Cash refunds today reduce the drawer.
-  final cashRefundsToday = returns
-      .where((r) => r.ret.refundMethod == 'เงินสด')
-      .fold<double>(0, (s, r) => s + r.ret.refundTotal);
-
-  // Cash credit-payments today increase the drawer. The JS filtered
-  // p.method === 'เงินสด' so only cash settlements hit the drawer; transfers
-  // (โอน/QR) must NOT. The Drift CreditPayments table has no `method` column,
-  // but MechanicsScreen folds the chosen method into the `note` as
-  // '<method>' or '<method> · <typed note>' (see mechanics_screen.dart). We
-  // recover the method from that prefix and count only cash settlements,
-  // matching ClosingReport.jsx (and keeping the drawer math consistent).
-  final cashCreditPaymentsToday = creditPayments
-      .where((p) => isCashCreditPayment(p.note))
-      .fold<double>(0, (s, p) => s + p.amount);
-
-  // Cash bills in the drawer's window — the "+ ยอดขายเงินสด" of the check.
-  final drawerCashSales = salesAgg
-      .where(
-        (s) =>
-            s.sale.paymentMethod == 'เงินสด' &&
-            !s.sale.date.isBefore(countFrom),
-      )
-      .fold<double>(0, (sum, s) => sum + s.sale.total);
-
-  final drawerStarting = drawerToday ? drawer.shift.startingCash : 0.0;
-  final drawerOut = drawerToday
-      ? drawer.entries
-            .where((e) => e.type == 'out')
-            .fold<double>(0, (s, e) => s + e.amount)
-      : 0.0;
-  final drawerIn = drawerToday
-      ? drawer.entries
-            .where((e) => e.type == 'in')
-            .fold<double>(0, (s, e) => s + e.amount)
-      : 0.0;
+  // The drawer check is today's shift, counted by shift exactly as the
+  // cash-drawer screen counts it (owner 2026-10-03). With no shift today there
+  // is no drawer: money taken outside a shift belongs to none. Revenue, the
+  // payment breakdown and top items above stay the whole day — DAILY report.
+  final cash = drawerToday
+      ? await shiftsRepo.drawerCash(drawer)
+      : DrawerCash.empty;
 
   return _ClosingData(
-    sales: sales,
-    drawerCashSales: drawerCashSales,
-    cashRefundsToday: cashRefundsToday,
-    cashCreditPaymentsToday: cashCreditPaymentsToday,
-    drawerStarting: drawerStarting,
-    drawerIn: drawerIn,
-    drawerOut: drawerOut,
+    net: NetSales.of(lites.sales, lites.returns, settings.taxRate),
+    cash: cash,
     drawerToday: drawerToday,
-    taxRate: settings.taxRate,
     shopName: settings.shopName,
     shopNameEN: settings.shopNameEN,
     address: settings.address,
@@ -374,46 +175,10 @@ class _ClosingReportState extends State<ClosingReport> {
     super.dispose();
   }
 
-  // ── Closing math (ports ClosingReport.jsx) ──────────────────────────────
-  double _totalRevenue(_ClosingData d) =>
-      d.sales.fold(0, (s, t) => s + t.total);
+  // ── Closing math (ports ClosingReport.jsx, net of credit notes) ─────────
+  List<TopItem> _topItems(_ClosingData d) => d.net.topItems.take(5).toList();
 
-  List<SaleLite> _cashSales(_ClosingData d) => cashSales(d.sales);
-
-  List<SaleLite> _qrSales(_ClosingData d) => qrSales(d.sales);
-
-  List<SaleLite> _creditSales(_ClosingData d) => creditSales(d.sales);
-
-  double _sumTotal(List<SaleLite> list) => list.fold(0, (s, t) => s + t.total);
-
-  GrossProfitResult _grossProfit(_ClosingData d) =>
-      computeGrossProfit(d.sales, d.taxRate);
-
-  List<_TopItem> _topItems(_ClosingData d) {
-    final map = <String, _TopItem>{};
-    for (final t in d.sales) {
-      for (final i in t.items) {
-        final cur = map[i.partNo] ?? _TopItem(i.name, 0, 0);
-        map[i.partNo] = _TopItem(
-          cur.name,
-          cur.qty + i.qty,
-          cur.revenue + i.qty * i.price,
-        );
-      }
-    }
-    final list = map.values.toList()
-      ..sort((a, b) => b.revenue.compareTo(a.revenue));
-    return list.take(5).toList();
-  }
-
-  double _cashExpected(_ClosingData d) {
-    return d.drawerStarting +
-        d.drawerCashSales +
-        d.cashCreditPaymentsToday -
-        d.cashRefundsToday -
-        d.drawerOut +
-        d.drawerIn;
-  }
+  double _cashExpected(_ClosingData d) => d.cash.expected;
 
   double _cashActual() => double.tryParse(_cashCtl.text) ?? 0;
 
@@ -436,14 +201,11 @@ class _ClosingReportState extends State<ClosingReport> {
   pw.Document _buildPdf(_ClosingData d, pw.Font font, pw.Font fontB) {
     final doc = pw.Document();
     final now = DateTime.now();
-    final totalRevenue = _totalRevenue(d);
-    final cashSales = _cashSales(d);
-    final qrSales = _qrSales(d);
-    final creditSales = _creditSales(d);
-    final cashTotal = _sumTotal(cashSales);
-    final qrTotal = _sumTotal(qrSales);
-    final creditTotal = _sumTotal(creditSales);
-    final profitResult = _grossProfit(d);
+    final totalRevenue = d.net.netRevenue;
+    final cash = d.net.cash;
+    final qr = d.net.qr;
+    final credit = d.net.credit;
+    final profitResult = d.net.profit;
     final grossProfit = profitResult.profit;
     final topItems = _topItems(d);
     final cashExpected = _cashExpected(d);
@@ -562,13 +324,8 @@ class _ClosingReportState extends State<ClosingReport> {
             row('แคชเชียร์', cashierName),
             divider(),
             row('รายได้รวม', baht(totalRevenue)),
-            row('จำนวนบิล', '${d.sales.length}'),
-            row(
-              'เฉลี่ย/บิล',
-              baht(
-                d.sales.isEmpty ? 0 : (totalRevenue / d.sales.length).round(),
-              ),
-            ),
+            row('จำนวนบิล', '${d.net.billCount}'),
+            row('เฉลี่ย/บิล', baht(d.net.avgPerBill.round())),
             row('กำไรประมาณ', baht(grossProfit.round())),
             for (final line in costDisclosureLines(profitResult))
               pw.Text(
@@ -580,9 +337,9 @@ class _ClosingReportState extends State<ClosingReport> {
               ),
             divider(),
             sectionTitle('แบ่งตามวิธีชำระเงิน'),
-            row('💵 เงินสด (${cashSales.length} บิล)', baht(cashTotal)),
-            row('📱 โอน/QR (${qrSales.length} บิล)', baht(qrTotal)),
-            row('🔧 เครดิตช่าง (${creditSales.length} บิล)', baht(creditTotal)),
+            row('💵 เงินสด (${cash.bills} บิล)', baht(cash.net)),
+            row('📱 โอน/QR (${qr.bills} บิล)', baht(qr.net)),
+            row('🔧 เครดิตช่าง (${credit.bills} บิล)', baht(credit.net)),
             row('รวมทั้งหมด', baht(totalRevenue), big: true),
             divider(),
             sectionTitle('ตรวจนับเงินสดในลิ้นชัก'),
@@ -714,14 +471,11 @@ class _ClosingReportState extends State<ClosingReport> {
   }
 
   Widget _body(BuildContext context, _ClosingData d) {
-    final totalRevenue = _totalRevenue(d);
-    final cashSales = _cashSales(d);
-    final qrSales = _qrSales(d);
-    final creditSales = _creditSales(d);
-    final cashTotal = _sumTotal(cashSales);
-    final qrTotal = _sumTotal(qrSales);
-    final creditTotal = _sumTotal(creditSales);
-    final profitResult = _grossProfit(d);
+    final totalRevenue = d.net.netRevenue;
+    final cash = d.net.cash;
+    final qr = d.net.qr;
+    final credit = d.net.credit;
+    final profitResult = d.net.profit;
     final grossProfit = profitResult.profit;
     final profitDisclosure = costDisclosureLines(profitResult);
     final topItems = _topItems(d);
@@ -750,12 +504,8 @@ class _ClosingReportState extends State<ClosingReport> {
       children: [
         _kpiGrid([
           _Kpi('รายได้รวม', baht(totalRevenue), AppColors.orange),
-          _Kpi('จำนวนบิล', '${d.sales.length} บิล', null),
-          _Kpi(
-            'เฉลี่ย/บิล',
-            baht(d.sales.isEmpty ? 0 : (totalRevenue / d.sales.length).round()),
-            null,
-          ),
+          _Kpi('จำนวนบิล', '${d.net.billCount} บิล', null),
+          _Kpi('เฉลี่ย/บิล', baht(d.net.avgPerBill.round()), null),
           _Kpi('กำไรประมาณ', baht(grossProfit.round()), AppColors.successLight),
         ]),
         if (profitDisclosure.isNotEmpty)
@@ -770,14 +520,9 @@ class _ClosingReportState extends State<ClosingReport> {
           ),
         const SizedBox(height: 20),
         _SectionTitle('วิธีชำระเงิน'),
-        _payRow('💵 เงินสด', cashSales.length, cashTotal, AppColors.orange),
-        _payRow('📱 โอน/QR', qrSales.length, qrTotal, AppColors.steelBlue),
-        _payRow(
-          '🔧 เครดิตช่าง',
-          creditSales.length,
-          creditTotal,
-          AppColors.warning,
-        ),
+        _payRow('💵 เงินสด', cash.bills, cash.net, AppColors.orange),
+        _payRow('📱 โอน/QR', qr.bills, qr.net, AppColors.steelBlue),
+        _payRow('🔧 เครดิตช่าง', credit.bills, credit.net, AppColors.warning),
         Container(
           decoration: BoxDecoration(
             border: Border(
@@ -1184,13 +929,6 @@ class _ClosingReportState extends State<ClosingReport> {
       );
     },
   );
-}
-
-class _TopItem {
-  final String name;
-  final int qty;
-  final double revenue;
-  const _TopItem(this.name, this.qty, this.revenue);
 }
 
 class _Kpi {

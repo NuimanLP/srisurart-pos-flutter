@@ -8,6 +8,14 @@ enum ReviewItemKind {
   dateFlag('date_flag', 'วันที่ถูกปรับ (clamp)'),
   deviceForceRetired('device_force_retired', 'ปลดเครื่องที่ค้างส่ง'),
   receiptRenumbered('receipt_renumbered', 'เลขเอกสารออฟไลน์ไม่ตรงกับระบบ'),
+  // #27 follow-up (08 §6.1) — ratified by the owner 2026-10-03 (#27, PR #575).
+  quoteConflict('quote_conflict', 'บิลออฟไลน์จากใบเสนอราคาที่ใช้ไม่ได้แล้ว'),
+  // Follow-up to PR #580 (owner 2026-10-03) — ratified by the owner 2026-10-03
+  // (PR #585, 02_API_SCREENS.md §8.1.1).
+  drawerOverdrawnOffline(
+    'drawer_overdrawn_offline',
+    'เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์',
+  ),
   unknown('unknown', 'รายการตรวจสอบ');
 
   final String value;

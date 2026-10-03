@@ -118,8 +118,14 @@ class ApiShiftsRepository implements ShiftsRepository {
   @override
   Future<List<ShiftWithEntries>> getShiftHistory() => drift.getShiftHistory();
 
+  /// A read of the local cache — the same number the screen shows.
   @override
-  Future<DateTime?> cashCountFrom(ShiftRow shift) => drift.cashCountFrom(shift);
+  Future<DrawerCash> drawerCash(ShiftWithEntries drawer) =>
+      drift.drawerCash(drawer);
+
+  @override
+  Future<void> assertCashOutFits(ShiftRow shift, String type, double amount) =>
+      drift.assertCashOutFits(shift, type, amount);
 
   // ── Writes — hit the server, then patch Drift from the response. ──────
 
@@ -416,6 +422,10 @@ class ApiShiftsRepository implements ShiftsRepository {
         ServerErrorResolver.resolve('DRAWER_CLOSED'),
       );
     }
+    // Same refusal as the server's online `DRAWER_INSUFFICIENT_CASH`, against the
+    // same local number the screen shows. Once queued, the push replay is never
+    // refused — the cash has already left the drawer (owner, 2026-10-03).
+    await drift.assertCashOutFits(shift, type, amount);
 
     final now = DateTime.now();
     final row = DrawerEntryRow(

@@ -1,0 +1,24 @@
+{
+  "name": "purchase-orders.create",
+  "caller": "ApiPurchaseOrdersRepository.savePO",
+  "requests": [
+    {
+      "route": "POST /api/v1/purchase-orders",
+      "method": "POST",
+      "path": "/api/v1/purchase-orders",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "supplier": "Contract supplier",
+        "items": [
+          {
+            "partNo": "CT-001",
+            "name": "Contract part",
+            "qty": 4,
+            "cost": "55.00"
+          }
+        ]
+      }
+    }
+  ]
+}

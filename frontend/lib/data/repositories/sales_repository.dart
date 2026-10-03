@@ -16,6 +16,8 @@
 //    totalMarkup += (delta>0 ? delta : 0); creditBalance += (method=='เครดิตช่าง' ? total : 0).
 //  • Run the WHOLE thing in db.transaction(...) so any throw rolls everything back.
 //  • Store pointsGranted ON the sale so refunds reverse the right count.
+//  • If quoteId (#27, owner 2026-10-03): mark that quote converted in this same
+//    transaction — only once the bill is actually saved, never before checkout.
 
 import 'dart:math' as math;
 
@@ -139,6 +141,22 @@ class SalesRepository {
       );
       await db.into(db.sales).insert(sale);
 
+      // The quote this cart was sold from ("→ ขาย"), converted with the bill so a
+      // failed sale leaves it open. An already-converted quote is left as it is.
+      if (input.quoteId != null) {
+        await (db.update(db.quotes)..where(
+              (t) =>
+                  t.id.equals(input.quoteId!) &
+                  t.status.equals('converted').not(),
+            ))
+            .write(
+              QuotesCompanion(
+                status: const Value('converted'),
+                convertedAt: Value(date),
+              ),
+            );
+      }
+
       // Insert the SaleItems.
       await db.batch((b) {
         for (final item in input.items) {
@@ -175,6 +193,17 @@ class SalesRepository {
     if (from != null) query.where((t) => t.date.isBiggerOrEqualValue(from));
     if (to != null) query.where((t) => t.date.isSmallerThanValue(to));
     return _attachItems(await query.get());
+  }
+
+  /// The sales with these ids (with their items), in no particular order.
+  /// Used by reports that net a credit note against the bill it came from
+  /// when that bill falls outside the report's date range.
+  Future<List<SaleWithItems>> getSalesByIds(Iterable<String> ids) async {
+    final list = ids.toSet().toList();
+    if (list.isEmpty) return const [];
+    return _attachItems(
+      await (db.select(db.sales)..where((t) => t.id.isIn(list))).get(),
+    );
   }
 
   Stream<List<SaleWithItems>> watchSales() {

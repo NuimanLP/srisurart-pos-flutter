@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
@@ -6,9 +9,28 @@ import {
   accessToken,
   createTestApp,
   resetTenant,
+  seedMechanic,
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+
+/** The by-shift expected-cash scenarios the Dart client checks too (drawer_cash_out_limit_test.dart). */
+const DRAWER_CASH_FIXTURE = JSON.parse(
+  readFileSync(
+    join(
+      fileURLToPath(new URL('.', import.meta.url)),
+      '../../docs/Backend_design/fixtures/drawer-cash/agreement.json',
+    ),
+    'utf8',
+  ),
+) as {
+  shifts: { id: string; openedAt: string; closedAt: string; startingCash: string }[];
+  sales: { id: string; shift: string; at: string; total: string; paymentMethod: string; voided: boolean }[];
+  returns: { id: string; shift: string; at: string; saleId: string; refundTotal: string; refundMethod: string }[];
+  creditPayments: { id: string; shift: string; at: string; amount: string; method: string }[];
+  entries: { id: string; shift: string; at: string; type: 'in' | 'out'; amount: string }[];
+  expectedCash: Record<string, string>;
+};
 
 // #28 acceptance suite. Every case in `frontend/lib/data/repositories/shifts_repository.dart`
 // reproduced at the HTTP seam, plus the two rules the Dart version has no concept of:
@@ -303,6 +325,148 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(current.body.data.entries[0].type).toBe('out');
     expect(current.body.data.entries[0].amount).toBe('120.00');
     expect(current.body.data.entries[1].note).toBe('ช่างจ่ายหนี้');
+  });
+
+  describe('a cash-out larger than the drawer holds is refused (owner, 2026-10-03)', () => {
+    const sellCash = async (id: string) =>
+      request(app.getHttpServer())
+        .post('/api/v1/sales')
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', `k-sale-${id}`)
+        .send({
+          id,
+          subtotal: '85.00',
+          discount: '0.00',
+          total: '85.00',
+          paymentMethod: 'เงินสด',
+          items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+        });
+
+    const entryCount = async () =>
+      (
+        await admin.query(
+          `SELECT count(*)::int AS n FROM drawer_entries WHERE tenant_id = $1::uuid`,
+          [TENANT],
+        )
+      )[0].n as number;
+
+    beforeEach(async () => {
+      await seedProduct(admin, TENANT, {
+        id: 'p1',
+        partNo: 'OF-1',
+        name: 'Oil Filter',
+        price: 85,
+        cost: 50,
+        stock: 100,
+      });
+    });
+
+    it('the owner’s screenshot: 2,000 − 1,000 − 1,000, then 500 more is refused', async () => {
+      await post('/open', { startingCash: '2000.00' });
+      expect((await post('/current/entries', { type: 'out', amount: '1000.00' })).status).toBe(201);
+      expect((await post('/current/entries', { type: 'out', amount: '1000.00' })).status).toBe(201);
+
+      const refused = await post('/current/entries', { type: 'out', amount: '500.00' });
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.code).toBe('DRAWER_INSUFFICIENT_CASH');
+      expect(refused.body.error.details).toEqual({ expectedCash: '0.00' });
+      expect(await entryCount()).toBe(2);
+    });
+
+    it('accepts exactly the expected cash, refuses one satang more — and agrees with the closing report', async () => {
+      const opened = await post('/open', { startingCash: '1000.00' });
+      expect((await sellCash('s-cash-1')).status).toBe(201);
+      await post('/current/entries', { type: 'in', amount: '20.50' });
+      // expected = 1000 + 85 + 20.50 = 1105.50
+      const closing = await request(app.getHttpServer())
+        .get(`/api/v1/reports/closing?shiftId=${opened.body.data.id}`)
+        .set('Authorization', `Bearer ${posToken}`);
+      expect(closing.status).toBe(200);
+      expect(closing.body.data.expectedCash).toBe('1105.50');
+
+      const over = await post('/current/entries', { type: 'out', amount: '1105.51' });
+      expect(over.status).toBe(409);
+      expect(over.body.error.code).toBe('DRAWER_INSUFFICIENT_CASH');
+      // The refusal's number IS the closing report's number — one rule, not two.
+      expect(over.body.error.details.expectedCash).toBe(closing.body.data.expectedCash);
+
+      const exact = await post('/current/entries', { type: 'out', amount: '1105.50' });
+      expect(exact.status).toBe(201);
+    });
+
+    it('cash-in is never limited, even on an empty drawer', async () => {
+      await post('/open', { startingCash: '100.00' });
+      expect((await post('/current/entries', { type: 'out', amount: '100.00' })).status).toBe(201);
+      expect((await post('/current/entries', { type: 'in', amount: '500.00' })).status).toBe(201);
+      expect(await entryCount()).toBe(2);
+    });
+
+    it('agrees with the Dart client on the shared by-shift fixture (drawer-cash/agreement.json)', async () => {
+      const f = DRAWER_CASH_FIXTURE;
+      await seedMechanic(admin, TENANT, { id: 'm-fx', code: 'M901', name: 'ช่างทดสอบ' });
+      for (const sh of f.shifts) {
+        await admin.query(
+          `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, closed_at,
+                               physical_cash, is_active, archived_at, device_id)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, 0, FALSE, $6, $7)`,
+          [TENANT, sh.id, sh.openedAt.slice(0, 10), sh.startingCash, sh.openedAt, sh.closedAt, fixture.posDeviceId],
+        );
+      }
+      for (const s of f.sales) {
+        await admin.query(
+          `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total,
+                              payment_method, date, voided, voided_at, shift_id)
+           VALUES ($1::uuid, $2, $3, $4, 0, $4, $5, $6, $7,
+                   CASE WHEN $7 THEN $6::timestamptz END, $8)`,
+          [TENANT, s.id, `RC-${s.id}`, s.total, s.paymentMethod, s.at, s.voided, s.shift],
+        );
+      }
+      for (const r of f.returns) {
+        await admin.query(
+          `INSERT INTO returns (tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal,
+                                refund_discount, refund_total, refund_method, date, shift_id)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, 0, $6, $7, $8, $9)`,
+          [TENANT, r.id, `CN-${r.id}`, r.saleId, `RC-${r.saleId}`, r.refundTotal, r.refundMethod, r.at, r.shift],
+        );
+      }
+      for (const cp of f.creditPayments) {
+        await admin.query(
+          `INSERT INTO credit_payments (tenant_id, id, receipt_no, mechanic_id, amount,
+                                        payment_method, date, shift_id)
+           VALUES ($1::uuid, $2, $3, 'm-fx', $4, $5, $6, $7)`,
+          [TENANT, cp.id, `CP-${cp.id}`, cp.amount, cp.method, cp.at, cp.shift],
+        );
+      }
+      for (const e of f.entries) {
+        await admin.query(
+          `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note, created_at)
+           VALUES ($1::uuid, $2, $3, $4, $5, '', $6)`,
+          [TENANT, e.id, e.shift, e.type, e.amount, e.at],
+        );
+      }
+
+      const got: Record<string, string> = {};
+      for (const sh of f.shifts) {
+        const closing = await request(app.getHttpServer())
+          .get(`/api/v1/reports/closing?shiftId=${sh.id}`)
+          .set('Authorization', `Bearer ${posToken}`);
+        expect(closing.status).toBe(200);
+        got[sh.id] = closing.body.data.expectedCash;
+      }
+      expect(got).toEqual(f.expectedCash);
+    });
+
+    it('a second shift counts only its own cash, not the first shift’s takings', async () => {
+      await post('/open', { id: 'sh_first', startingCash: '1000.00' });
+      expect((await sellCash('s-first-1')).status).toBe(201);
+      await post('/close', { physicalCash: '1085.00' });
+
+      await post('/open', { id: 'sh_second', startingCash: '100.00' });
+      const over = await post('/current/entries', { type: 'out', amount: '100.01' });
+      expect(over.status).toBe(409);
+      expect(over.body.error.details).toEqual({ expectedCash: '100.00' });
+      expect((await post('/current/entries', { type: 'out', amount: '100.00' })).status).toBe(201);
+    });
   });
 
   it('an entry after close is refused with the verbatim Thai message', async () => {

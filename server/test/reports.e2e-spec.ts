@@ -97,7 +97,8 @@ describe('server-side reports (e2e)', () => {
     expect(month.body.data).toEqual({
       totalRevenue: '500.00',
       totalTransactions: 2,
-      avgTicket: '250.00',
+      // Net (500 − 100) ÷ 2 bills — owner decision 2026-10-03; was gross 250.
+      avgTicket: '200.00',
       totalRefunds: '100.00',
       netRevenue: '400.00',
       totalItems: 3,
@@ -128,7 +129,7 @@ describe('server-side reports (e2e)', () => {
    *   a3  auto-void   200: p1 2@100 (cost 50) — voided by ra3, its full return, counted
    *   ra3 credit note 200: p1 2 (cost 50)
    *
-   *   revenue 350 + 200 = 550 over 2 bills, avg 275; refunds 200; net 350
+   *   revenue 350 + 200 = 550 over 2 bills; refunds 200; net 350, avg 350 ÷ 2 = 175
    *   items (3 + 2) − 2 = 3
    *   gross profit (550 − 200) ÷ 1.07 = 327.1028 − (100 + 10 + 0 + 100 − 100 = 110) = 217.10
    *
@@ -143,13 +144,30 @@ describe('server-side reports (e2e)', () => {
     expect(res.body.data).toEqual({
       totalRevenue: '550.00',
       totalTransactions: 2,
-      avgTicket: '275.00',
+      avgTicket: '175.00',
       totalRefunds: '200.00',
       netRevenue: '350.00',
       totalItems: 3,
       grossProfit: '217.10',
       estimatedCostRows: 1,
       unknownCostRows: 1,
+    });
+  });
+
+  /*
+   * avgTicket is NET revenue ÷ counted bills (owner decision 2026-10-03, same as the
+   * Dart `NetSales.avgPerBill`). 12 Aug holds only a3 (200, auto-voided) and ra3, its
+   * full 200 refund: 1 bill, net 0 → avg 0. The old gross average read 200 here.
+   */
+  it('averages a fully refunded day to 0 per bill', async () => {
+    const res = await get('/summary?from=2026-08-12&to=2026-08-12');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      totalRevenue: '200.00',
+      totalTransactions: 1,
+      totalRefunds: '200.00',
+      netRevenue: '0.00',
+      avgTicket: '0.00',
     });
   });
 

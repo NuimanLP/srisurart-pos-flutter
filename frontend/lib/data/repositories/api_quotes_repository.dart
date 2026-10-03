@@ -212,22 +212,9 @@ class ApiQuotesRepository extends QuotesRepository {
 
   @override
   Future<void> updateQuote(String id, QuotesCompanion patch) async {
-    if (patch.status.present && patch.status.value == 'converted') {
-      final res = await apiClient.post('/api/v1/quotes/$id/convert', headers: idempotencyKey());
-      if (res is Map) {
-        final resMap = Map<String, dynamic>.from(res);
-        final status = (resMap['status'] ?? 'converted') as String;
-        final convertedAt = stampOrNull(resMap['convertedAt'] ?? resMap['converted_at']) ?? DateTime.now();
-        await (db.update(db.quotes)..where((t) => t.id.equals(id))).write(
-          QuotesCompanion(
-            status: Value(status),
-            convertedAt: Value(convertedAt),
-          ),
-        );
-        return;
-      }
-    }
-
+    // No status here: a quote is converted only by the bill sold from it
+    // (`POST /sales` `quoteId`, #27 owner 2026-10-03). The old status→`/convert`
+    // call sent no body and was always a 400 (mob04, 2026-10-03).
     final body = <String, dynamic>{};
     if (patch.customerName.present) body['customerName'] = patch.customerName.value;
     if (patch.customerPhone.present) body['customerPhone'] = patch.customerPhone.value;

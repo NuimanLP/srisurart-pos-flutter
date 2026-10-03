@@ -7,8 +7,8 @@ name: Flutter CI
 # trigger level (a server-only PR must still produce a green, always-reported
 # flutter-ci-status, or it can never satisfy a required check — CLAUDE.md
 # "Known trap"). Filtering instead happens per-job below, keyed off the
-# `changes` job, and only on pull_request — a push to `main` always runs
-# every job so every commit on main produces both release images
+# `changes` job. A PR is filtered by path; a push to `main` runs every job unless it is docs-only
+# (deploy/scripts/push-changes-kind.sh), so every CODE commit on main produces both release images
 # (07_CICD_DEPLOY.md §2).
 
 permissions:
@@ -37,27 +37,45 @@ defaults:
 
 jobs:
   changes:
-    name: detect changed paths (pull_request only)
+    name: detect changed paths (pull_request + push)
     runs-on: ubuntu-latest
-    # Push and workflow_dispatch never filter (see the header comment), so this
-    # job — and the path check it feeds — only needs to run for a PR.
-    if: github.event_name == 'pull_request'
+    # PR: dorny/paths-filter. Push to main: deploy/scripts/push-changes-kind.sh over
+    # before..sha — a docs-only push skips the test/image jobs (no image, so no Deploy waiting
+    # for approval). workflow_dispatch never filters: this job is skipped and everything runs.
+    if: github.event_name != 'workflow_dispatch'
     permissions:
       contents: read
       # dorny/paths-filter on a pull_request event calls the PR-files API, which
       # needs this beyond the file-level `contents: read`.
       pull-requests: read
     outputs:
-      frontend: ${{ steps.filter.outputs.frontend }}
+      # Exactly one of the two steps runs per event; the other's output is ''.
+      frontend: ${{ steps.filter.outputs.frontend || steps.push.outputs.code }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # push: the before..sha range must be present.
+          # 0 is falsy in expressions (`&& 0 || 1` always gave 1 → classifier saw no `before`, PR #547); use a string.
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '1' }}
+      - name: classify the pushed commits (docs-only vs code)
+        id: push
+        if: github.event_name == 'push'
+        working-directory: .
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: deploy/scripts/push-changes-kind.sh
       - uses: dorny/paths-filter@v4
         id: filter
+        # PR only — on a push its 'false' string would win the `||` below over the push step.
+        if: github.event_name == 'pull_request'
         with:
           filters: |
             frontend:
               - 'frontend/**'
               - '.github/workflows/flutter.yml'
+              # Client-request fixtures the Flutter tests read (PR #581).
+              - 'docs/Backend_design/fixtures/client-requests/**'
 
   analyze-and-test:
     name: analyze + test
@@ -67,8 +85,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true') }}
     steps:
       - uses: actions/checkout@v5
 
@@ -115,8 +133,23 @@ jobs:
       - name: dart analyze
         run: dart analyze --fatal-infos
 
-      - name: flutter test
-        run: flutter test --reporter expanded
+      - name: flutter test (with coverage)
+        # Includes test/silent_failure_guard_test.dart (an awaited repository
+        # write with no surfacing catch fails the build).
+        run: flutter test --reporter expanded --coverage
+
+      - name: coverage ratchet
+        # Fails below the integer baseline in frontend/coverage_baseline.txt;
+        # prints the percentage to the job summary. *.g.dart is excluded.
+        run: bash tool/coverage_check.sh coverage/lcov.info coverage_baseline.txt
+
+      - name: upload lcov.info
+        if: ${{ !cancelled() && hashFiles('frontend/coverage/lcov.info') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: flutter-lcov-${{ github.sha }}
+          path: frontend/coverage/lcov.info
+          retention-days: 14
 
   deps-audit:
     name: pubspec.lock CVEs (OSV-Scanner)
@@ -126,8 +159,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true') }}
     # sec.1 (2026-09-09): `pub` has no `audit` command, so the lockfile is checked
     # against OSV. Fails on any known vulnerability in a locked dependency.
     steps:
@@ -145,8 +178,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true') }}
     # The committed *.g.dart files are the build on the shop's Thai path, where
     # build_runner cannot run (CLAUDE.md). CI runners are ASCII, so this is the
     # only place the generated code is ever verified against the schema.
@@ -309,9 +342,14 @@ jobs:
               exit 1
             fi
           done
-          # A skipped release image on a `main` push is not a pass: that is how #39's skip went
-          # unnoticed for every release (#184).
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.build-web.result }}" != "success" ]]; then
+          # On a push, `changes` must have classified it (true = code, false = docs only).
+          if [[ "${{ github.event_name }}" == "push" && "${{ needs.changes.outputs.frontend }}" != "true" && "${{ needs.changes.outputs.frontend }}" != "false" ]]; then
+            echo "::error::push was not classified by the changes job: '${{ needs.changes.outputs.frontend }}'"
+            exit 1
+          fi
+          # A skipped release image on a `main` push of CODE is not a pass: that is how #39's skip
+          # went unnoticed for every release (#184). A docs-only push (changes=false) builds none.
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.frontend }}" == "true" && "${{ needs.build-web.result }}" != "success" ]]; then
             echo "::error::build-web did not run on a main push: ${{ needs.build-web.result }}"
             exit 1
           fi

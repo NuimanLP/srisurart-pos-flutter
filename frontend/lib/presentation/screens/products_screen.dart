@@ -11,15 +11,19 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/movements_repository.dart';
 import '../../data/repositories/products_repository.dart';
+import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
+import '../../domain/reports/net_sales.dart'
+    show NetSales, PaymentGroup, TopItem, toReportLites;
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
@@ -261,9 +265,22 @@ class _StockTabState extends State<_StockTab> {
     }
     final v = _newCatCtrl.text.trim();
     if (v.isEmpty) return;
-    await context.read<ProductsRepository>().addCategory(v);
+    try {
+      await context.read<ProductsRepository>().addCategory(v);
+    } catch (e) {
+      _showError(e);
+      return;
+    }
     _newCatCtrl.clear();
     await _load();
+  }
+
+  /// A refused write reaches the counter as its Thai message (PR #572).
+  void _showError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+    );
   }
 
   Future<void> _deleteCat(String name) async {
@@ -279,7 +296,12 @@ class _StockTabState extends State<_StockTab> {
       danger: true,
     );
     if (!ok) return;
-    await repo.deleteCategory(name);
+    try {
+      await repo.deleteCategory(name);
+    } catch (e) {
+      _showError(e);
+      return;
+    }
     if (_filterCat == name) _filterCat = 'All';
     await _load();
   }
@@ -1529,7 +1551,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     final v = _newCatCtrl.text.trim();
     if (v.isEmpty) return;
     final repo = context.read<ProductsRepository>();
-    await repo.addCategory(v);
+    try {
+      await repo.addCategory(v);
+    } catch (e) {
+      _toast(ServerErrorResolver.resolveCounterError(e));
+      return;
+    }
     await widget.onCategoriesChanged();
     final cats = await repo.getCategories();
     if (!mounted) return;
@@ -1567,7 +1594,13 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         minStock: int.tryParse(_minStock.text) ?? 5,
         compat: Value(_compat.text.trim().isEmpty ? null : _compat.text.trim()),
       );
-      final result = await repo.add(companion);
+      final ProductRow? result;
+      try {
+        result = await repo.add(companion);
+      } catch (e) {
+        if (mounted) _toast(ServerErrorResolver.resolveCounterError(e));
+        return;
+      }
       if (!mounted) return;
       if (result == null) {
         _toast('รหัส "$partNo" มีอยู่แล้วในระบบ');
@@ -1585,7 +1618,13 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         minStock: Value(int.tryParse(_minStock.text) ?? 5),
         compat: Value(_compat.text.trim().isEmpty ? null : _compat.text.trim()),
       );
-      final ok = await repo.update(widget.product!.id, patch);
+      final bool ok;
+      try {
+        ok = await repo.update(widget.product!.id, patch);
+      } catch (e) {
+        if (mounted) _toast(ServerErrorResolver.resolveCounterError(e));
+        return;
+      }
       if (!mounted) return;
       if (!ok) {
         _toast('เกิดข้อผิดพลาดในการบันทึก');
@@ -1618,82 +1657,69 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                 ),
               ),
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 16,
-                runSpacing: 20,
-                children: [
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field(
-                      'รหัสสินค้า',
-                      _partNo,
-                      enabled: _isNew,
-                      hint: _isNew
-                          ? null
-                          : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)',
-                    ),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('ชื่อ (EN)', _name),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('ชื่อ (TH)', _nameTH),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('แบรนด์', _brand),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _categoryField(theme),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('ใช้กับรถรุ่น', _compat),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field(
-                      'สต็อก',
-                      _stock,
-                      enabled: _isNew,
-                      numeric: true,
-                      hint: _isNew
-                          ? null
-                          : 'ใช้ปุ่ม "ปรับสต็อก" เพื่อเปลี่ยนสต็อกอย่างถูกต้อง',
-                    ),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(
-                      minWidth: 280,
-                      maxWidth: 300,
-                    ),
-                    child: _field('สต็อกขั้นต่ำ', _minStock, numeric: true),
-                  ),
-                ],
+              // Two columns that fill the dialog (one below 560 px): each
+              // field used to be capped at 300 px, and 2 × 300 + 16 never fit
+              // the 612 px content width, so every field sat alone on half a
+              // row (#476).
+              LayoutBuilder(
+                builder: (context, c) {
+                  final w = c.maxWidth >= 560
+                      ? ((c.maxWidth - 16) / 2).floorToDouble()
+                      : c.maxWidth;
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 20,
+                    children: [
+                      SizedBox(
+                        width: w,
+                        child: _field(
+                          'รหัสสินค้า',
+                          _partNo,
+                          enabled: _isNew,
+                          hint: _isNew
+                              ? null
+                              : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)',
+                        ),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('ชื่อ (EN)', _name),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('ชื่อ (TH)', _nameTH),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('แบรนด์', _brand),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _categoryField(theme),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('ใช้กับรถรุ่น', _compat),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field(
+                          'สต็อก',
+                          _stock,
+                          enabled: _isNew,
+                          numeric: true,
+                          hint: _isNew
+                              ? null
+                              : 'ใช้ปุ่ม "ปรับสต็อก" เพื่อเปลี่ยนสต็อกอย่างถูกต้อง',
+                        ),
+                      ),
+                      SizedBox(
+                        width: w,
+                        child: _field('สต็อกขั้นต่ำ', _minStock, numeric: true),
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 16),
               _priceCalcBox(theme),
@@ -2029,12 +2055,21 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
   Future<void> _save() async {
     final d = int.tryParse(_delta.text);
     if (d == null) return;
-    await context.read<ProductsRepository>().adjustStock(
-      widget.product.id,
-      d,
-      d > 0 ? 'adjustment-in' : 'adjustment-out',
-      _note.text.isEmpty ? 'Manual adjustment' : _note.text,
-    );
+    try {
+      await context.read<ProductsRepository>().adjustStock(
+        widget.product.id,
+        d,
+        d > 0 ? 'adjustment-in' : 'adjustment-out',
+        _note.text.isEmpty ? 'Manual adjustment' : _note.text,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+        );
+      }
+      return;
+    }
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -2663,12 +2698,17 @@ class _SuppliersTabState extends State<_SuppliersTab> {
       return;
     }
     if (_name.text.isEmpty) return;
-    await context.read<SuppliersRepository>().addSupplier(
-      productId: _selectedId,
-      name: _name.text,
-      unitCost: double.tryParse(_unitCost.text) ?? 0,
-      freight: double.tryParse(_freight.text) ?? 0,
-    );
+    try {
+      await context.read<SuppliersRepository>().addSupplier(
+        productId: _selectedId,
+        name: _name.text,
+        unitCost: double.tryParse(_unitCost.text) ?? 0,
+        freight: double.tryParse(_freight.text) ?? 0,
+      );
+    } catch (e) {
+      _showSupplierError(e);
+      return;
+    }
     _name.clear();
     _unitCost.clear();
     _freight.clear();
@@ -2681,8 +2721,20 @@ class _SuppliersTabState extends State<_SuppliersTab> {
       _showSupplierDegradedWarning();
       return;
     }
-    await context.read<SuppliersRepository>().deleteSupplier(id);
+    try {
+      await context.read<SuppliersRepository>().deleteSupplier(id);
+    } catch (e) {
+      _showSupplierError(e);
+      return;
+    }
     await _refreshSuppliers();
+  }
+
+  void _showSupplierError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+    );
   }
 
   void _showSupplierDegradedWarning() {
@@ -3155,18 +3207,12 @@ class _InvReportTab extends StatefulWidget {
   State<_InvReportTab> createState() => _InvReportTabState();
 }
 
-class _SoldAgg {
-  final String name;
-  int qty = 0;
-  double revenue = 0;
-  _SoldAgg(this.name);
-}
-
 class _InvReportTabState extends State<_InvReportTab> {
   String _subTab = 'daily';
   bool _loading = true;
 
   List<SaleWithItems> _sales = [];
+  List<ReturnWithItems> _returns = [];
   List<ProductRow> _products = [];
   List<MovementRow> _movements = [];
   double _taxRate = 7;
@@ -3179,16 +3225,19 @@ class _InvReportTabState extends State<_InvReportTab> {
 
   Future<void> _load() async {
     final salesRepo = context.read<SalesRepository>();
+    final returnsRepo = context.read<ReturnsRepository>();
     final productsRepo = context.read<ProductsRepository>();
     final movementsRepo = context.read<MovementsRepository>();
     final settingsRepo = context.read<SettingsRepository>();
     final sales = await salesRepo.getSales();
+    final returns = await returnsRepo.getReturns();
     final products = await productsRepo.getAll();
     final movements = await movementsRepo.getMovements();
     final settings = await settingsRepo.getSettings();
     if (!mounted) return;
     setState(() {
       _sales = sales;
+      _returns = returns;
       _products = products;
       _movements = movements;
       _taxRate = settings.taxRate;
@@ -3260,21 +3309,22 @@ class _InvReportTabState extends State<_InvReportTab> {
   bool _sameDay(DateTime d, DateTime now) =>
       d.year == now.year && d.month == now.month && d.day == now.day;
 
+  /// The period's bills net of the period's credit notes, the same rule as the
+  /// closing report and the server's `/reports/summary` ([NetSales]).
+  NetSales _netSales(bool Function(DateTime) inPeriod) {
+    final lites = toReportLites(
+      sales: _sales.where((s) => inPeriod(s.sale.date)).toList(),
+      returns: _returns.where((r) => inPeriod(r.ret.date)).toList(),
+      products: _products,
+      originalSales: _sales,
+    );
+    return NetSales.of(lites.sales, lites.returns, _taxRate);
+  }
+
   Widget _daily(ThemeData theme) {
     final now = DateTime.now();
-    final todaySales = _sales.where((s) => _sameDay(s.sale.date, now)).toList();
-    final todayRevenue = todaySales.fold<double>(0, (a, s) => a + s.sale.total);
-    final cashSales = todaySales
-        .where((s) => s.sale.paymentMethod == 'เงินสด')
-        .toList();
-    final qrSales = todaySales
-        .where(
-          (s) =>
-              s.sale.paymentMethod == 'โอน/QR' ||
-              s.sale.paymentMethod == 'PromptPay' ||
-              s.sale.paymentMethod == 'โอนเงิน',
-        )
-        .toList();
+    final net = _netSales((d) => _sameDay(d, now));
+    final todayRevenue = net.netRevenue;
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 700),
@@ -3297,7 +3347,7 @@ class _InvReportTabState extends State<_InvReportTab> {
               Expanded(
                 child: _kpi(
                   'จำนวนบิล',
-                  '${todaySales.length} บิล',
+                  '${net.billCount} บิล',
                   theme.colorScheme.onSurface,
                   theme,
                 ),
@@ -3306,11 +3356,7 @@ class _InvReportTabState extends State<_InvReportTab> {
               Expanded(
                 child: _kpi(
                   'เฉลี่ย/บิล',
-                  baht(
-                    todaySales.isEmpty
-                        ? 0
-                        : (todayRevenue / todaySales.length).round(),
-                  ),
+                  baht(net.avgPerBill.round()),
                   theme.colorScheme.onSurface,
                   theme,
                 ),
@@ -3325,7 +3371,7 @@ class _InvReportTabState extends State<_InvReportTab> {
               Expanded(
                 child: _payCard(
                   '💵 เงินสด · Cash',
-                  cashSales,
+                  net.cash,
                   AppColors.orange,
                   theme,
                 ),
@@ -3334,14 +3380,14 @@ class _InvReportTabState extends State<_InvReportTab> {
               Expanded(
                 child: _payCard(
                   '📱 โอน/QR',
-                  qrSales,
+                  net.qr,
                   AppColors.steelBlue,
                   theme,
                 ),
               ),
             ],
           ),
-          if (todaySales.isEmpty)
+          if (net.billCount == 0)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 40),
               child: Center(
@@ -3360,36 +3406,16 @@ class _InvReportTabState extends State<_InvReportTab> {
   Widget _monthly(ThemeData theme) {
     final vatDivisor = 1 + _taxRate / 100;
     final now = DateTime.now();
-    final monthSales = _sales
-        .where(
-          (s) => s.sale.date.year == now.year && s.sale.date.month == now.month,
-        )
-        .toList();
-    final monthRevenue = monthSales.fold<double>(0, (a, s) => a + s.sale.total);
-    // Prefer the cost recorded on the bill itself (ADR-0008). products.cost is
-    // recomputed on every weighted-average PO receive, so falling back to it
-    // makes the profit of a past month drift whenever new stock is bought in.
-    // Mirrors the JS `i.cost ?? products.find(...).cost` — except the JS `?? 0`
-    // tail is NOT reproduced: a line with no cost anywhere is counted as
-    // unknown, not as free (which silently read as 100% profit).
-    final costByPart = {for (final p in _products) p.partNo: p.cost};
-    var estimatedLines = 0; // fell back to today's cost
-    var unknownLines = 0; // no cost available at all
-    final monthCost = monthSales.fold<double>(0, (acc, s) {
-      return acc +
-          s.items.fold<double>(0, (a, i) {
-            final recorded = i.costAtSale;
-            if (recorded != null) return a + recorded * i.qty;
-            final current = costByPart[i.partNo];
-            if (current != null) {
-              estimatedLines++;
-              return a + current * i.qty;
-            }
-            unknownLines++;
-            return a;
-          });
-    });
-    final monthProfit = (monthRevenue / vatDivisor) - monthCost;
+    // Net of the month's credit notes, manual voids dropped. Cost prefers the
+    // cost recorded on the bill itself (ADR-0008) — see computeGrossProfit:
+    // products.cost is recomputed on every weighted-average PO receive, so it
+    // is only the fallback, and a line with no cost anywhere is disclosed.
+    final net = _netSales((d) => d.year == now.year && d.month == now.month);
+    final monthRevenue = net.netRevenue;
+    final monthCost = net.profit.cost;
+    final monthProfit = net.profit.profit;
+    final estimatedLines = net.profit.estimatedCostLines;
+    final unknownLines = net.profit.unknownCostLines;
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 700),
@@ -3459,7 +3485,7 @@ class _InvReportTabState extends State<_InvReportTab> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'จาก ${monthSales.length} บิล',
+                    'จาก ${net.billCount} บิล',
                     style: TextStyle(color: theme.colorScheme.secondary),
                   ),
                   // The CSV export has always disclosed this; the on-screen
@@ -3617,17 +3643,10 @@ class _InvReportTabState extends State<_InvReportTab> {
   }
 
   Widget _ranking(ThemeData theme) {
-    final soldMap = <String, _SoldAgg>{};
-    for (final s in _sales) {
-      for (final i in s.items) {
-        final key = i.partNo ?? i.productId;
-        final agg = soldMap.putIfAbsent(key, () => _SoldAgg(i.name));
-        agg.qty += i.qty;
-        agg.revenue += i.qty * i.price;
-      }
-    }
-    final sorted = soldMap.entries.toList()
-      ..sort((a, b) => b.value.qty.compareTo(a.value.qty));
+    // Every bill ever, net of every credit note, manual voids dropped — the
+    // same rule as the daily/monthly reports ([NetSales]).
+    final sorted = [..._netSales((_) => true).topItems]
+      ..sort((a, b) => b.qty.compareTo(a.qty));
     final best = sorted.take(5).toList();
     final worst = sorted.length <= 5
         ? sorted.reversed.toList()
@@ -3663,7 +3682,7 @@ class _InvReportTabState extends State<_InvReportTab> {
   Widget _rankList(
     ThemeData theme,
     String title,
-    List<MapEntry<String, _SoldAgg>> rows, {
+    List<TopItem> rows, {
     required bool best,
   }) {
     return Column(
@@ -3680,8 +3699,8 @@ class _InvReportTabState extends State<_InvReportTab> {
           ),
         ...rows.asMap().entries.map((e) {
           final i = e.key;
-          final partNo = e.value.key;
-          final d = e.value.value;
+          final d = e.value;
+          final partNo = d.partNo;
           return Container(
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: theme.dividerColor)),
@@ -3801,11 +3820,11 @@ class _InvReportTabState extends State<_InvReportTab> {
 
   Widget _payCard(
     String label,
-    List<SaleWithItems> arr,
+    PaymentGroup group,
     Color color,
     ThemeData theme,
   ) {
-    final sum = arr.fold<double>(0, (a, s) => a + s.sale.total);
+    final sum = group.net;
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainer,
@@ -3833,7 +3852,7 @@ class _InvReportTabState extends State<_InvReportTab> {
             ),
           ),
           Text(
-            '${arr.length} บิล',
+            '${group.bills} บิล',
             style: TextStyle(fontSize: 13, color: theme.colorScheme.secondary),
           ),
         ],

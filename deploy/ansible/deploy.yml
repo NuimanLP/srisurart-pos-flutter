@@ -240,6 +240,20 @@
         dest: "{{ app_dir }}/docker/etcd/etcd-init.sh"
         mode: "0755"
 
+    # certgen bind-mounts ./docker/certgen/certgen.sh — copied here, before any `up`, so Docker
+    # never creates that path as an empty directory (the etcd-init.sh failure above).
+    - name: Ensure the certgen directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}/docker/certgen"
+        state: directory
+        mode: "0755"
+
+    - name: Copy certgen script
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/server/docker/certgen/certgen.sh"
+        dest: "{{ app_dir }}/docker/certgen/certgen.sh"
+        mode: "0755"
+
     - name: Pull release images from GHCR
       ansible.builtin.command: "docker compose {{ pos_compose_files }} pull"
       environment:
@@ -254,12 +268,25 @@
       args:
         chdir: "{{ app_dir }}"
 
+    # certgen (TLS CA + server cert, docker/certgen/certgen.sh) is `run`, not part of the `up -d`
+    # below: `run` waits for the one-shot and returns its exit code, so a failed certificate
+    # issue fails the deploy before Nginx/platform-ui are recreated against a bad `certs` volume
+    # (`up -d` does not wait for one-shot jobs and stays green — the etcd-init lesson). It has no
+    # depends_on, so --no-deps only makes that explicit.
+    - name: Issue the TLS certificate (certgen)
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} run --rm --no-deps certgen"
+      environment:
+        IMAGE_TAG: "{{ image_tag }}"
+      args:
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
     # etcd must be in this `up -d` line: every later step in this playbook uses --no-deps, so a
-    # service missing here is never brought up by anything else. htpasswd-gen (#251) is the same
-    # shape as certgen — idempotent, must exist before Nginx starts, and Nginx's own restart
+    # service missing here is never brought up by anything else. htpasswd-gen (#251) is a
+    # one-shot too — idempotent, must exist before Nginx starts, and Nginx's own restart
     # below runs with --no-deps too.
-    - name: Ensure backing datastores, certgen, htpasswd-gen and etcd are running
-      ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d postgres redis-cache redis-queue certgen htpasswd-gen etcd"
+    - name: Ensure backing datastores, htpasswd-gen and etcd are running
+      ansible.builtin.command: "docker compose {{ pos_compose_files }} up -d postgres redis-cache redis-queue htpasswd-gen etcd"
       environment:
         IMAGE_TAG: "{{ image_tag }}"
       args:

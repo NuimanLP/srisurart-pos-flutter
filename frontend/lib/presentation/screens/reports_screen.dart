@@ -1,8 +1,11 @@
 // ReportsScreen — Sales Dashboard. Port of pos/ReportsScreen.jsx.
 //
-// KPIs: net revenue = sales in range MINUS credit notes (returns) in range
-// (covers partial returns AND voided bills), top products by qty, revenue by
-// category, recent sales, low-stock alert — with a today/7-day/month/all range
+// KPIs: net revenue = counted sales in range MINUS credit notes (returns) in
+// range — the closing report's rule (`domain/reports/net_sales.dart`): a
+// manual void is dropped, an auto-void stays and its credit note subtracts.
+// Bills, avg/bill (net ÷ bills, like the server's avgTicket), items and top
+// products by net qty use the same set. Also revenue by category, recent
+// sales, low-stock alert — with a today/7-day/month/all range
 // selector. Data pulled through salesRepoProvider.getSales +
 // returnsRepoProvider.getReturns (bounded to the selected range at the query,
 // #417) + productsRepoProvider.getAll. Category bar colors come from
@@ -19,8 +22,11 @@ import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../domain/models/aggregates.dart';
+import '../../domain/reports/net_sales.dart'
+    show NetSales, ReturnLite, TopItem, toReportLites;
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
+import '../widgets/status_chip.dart';
 import '../widgets/thai_format.dart';
 
 enum ReportRange { today, week, month, all }
@@ -58,24 +64,41 @@ enum ReportRange { today, week, month, all }
 /// Revenue per category over [sales]' lines: product matched by partNo →
 /// category, else its zone, else อื่นๆ (first catalogue match wins, like the
 /// original linear scan). The lookup map is built once, not per line.
+///
+/// [returns] (the period's credit notes, from `toReportLites`) subtract each
+/// returned line's qty × price from the category of its product — the same
+/// per-line rule as [NetSales.topItems] and the server's `byCategory`
+/// (`return_events`) — so a fully returned bill leaves no revenue behind.
+/// A category whose net is 0 drops out (the server's `HAVING`).
 Map<String, double> revenueByCategory(
   List<SaleWithItems> sales,
-  List<ProductRow> products,
-) {
+  List<ProductRow> products, {
+  List<ReturnLite> returns = const [],
+}) {
   final byPartNo = <String, ProductRow>{};
   for (final p in products) {
     byPartNo.putIfAbsent(p.partNo, () => p);
   }
   final zoneMap = <String, double>{};
+  void add(String? partNo, int qty, double price, int sign) {
+    final p = byPartNo[partNo];
+    final z = (p?.category.isNotEmpty ?? false)
+        ? p!.category
+        : (p?.zone ?? 'อื่นๆ');
+    zoneMap[z] = (zoneMap[z] ?? 0) + sign * qty * price;
+  }
+
   for (final t in sales) {
     for (final item in t.items) {
-      final p = byPartNo[item.partNo];
-      final z = (p?.category.isNotEmpty ?? false)
-          ? p!.category
-          : (p?.zone ?? 'อื่นๆ');
-      zoneMap[z] = (zoneMap[z] ?? 0) + item.qty * item.price;
+      add(item.partNo, item.qty, item.price, 1);
     }
   }
+  for (final r in returns) {
+    for (final i in r.items) {
+      add(i.partNo, i.qty, i.price, -1);
+    }
+  }
+  zoneMap.removeWhere((_, v) => v.abs() < 0.005);
   return zoneMap;
 }
 
@@ -189,45 +212,47 @@ class _ReportsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Rows arrive already bounded to [range] by the repository query.
-    final filtered = data.sales;
+    // Rows arrive already bounded to [range] by the repository query. Every
+    // range reaches up to now, as [countedSales] needs.
+    final lites = toReportLites(
+      sales: data.sales,
+      returns: data.returns,
+      products: data.products,
+    );
+    // The closing report's rule ([NetSales]): manual voids dropped, auto-voids
+    // kept with their credit notes subtracted. No profit shown here, so no
+    // tax rate.
+    final net = NetSales.of(lites.sales, lites.returns);
+    final countedIds = {for (final s in net.counted) s.id};
+    final counted = data.sales
+        .where((s) => countedIds.contains(s.sale.id))
+        .toList();
 
-    final totalRevenue = filtered.fold<double>(0, (s, t) => s + t.sale.total);
-    // Credit notes in the same range reduce real revenue (partial returns AND
-    // voided bills).
+    final totalRevenue = counted.fold<double>(0, (s, t) => s + t.sale.total);
     final totalRefunds = data.returns.fold<double>(
       0,
       (s, r) => s + r.ret.refundTotal,
     );
-    final netRevenue = totalRevenue - totalRefunds;
-    final totalTransactions = filtered.length;
-    final avgTicket = totalTransactions > 0
-        ? (totalRevenue / totalTransactions).round()
-        : 0;
-    final totalItems = filtered.fold<int>(
-      0,
-      (s, t) => s + t.items.fold<int>(0, (a, i) => a + i.qty),
+    final netRevenue = net.netRevenue;
+    final totalTransactions = net.billCount;
+    final avgTicket = net.avgPerBill.round();
+    final totalItems = net.netItems;
+
+    // Top products by net qty sold (keyed by partNo, like the JS).
+    final topList = ([
+      ...net.topItems,
+    ]..sort((a, b) => b.qty - a.qty)).take(8).toList();
+
+    // Recent transactions (getSales is newest-first) — every bill, voids too.
+    final recent = data.sales.take(10).toList();
+
+    // Category revenue (match product by partNo → category/zone, else อื่นๆ)
+    // over the counted bills, net of the period's credit notes.
+    final zoneMap = revenueByCategory(
+      counted,
+      data.products,
+      returns: lites.returns,
     );
-
-    // Top products by qty sold (keyed by partNo, like the JS).
-    final soldMap = <String, _Sold>{};
-    for (final t in filtered) {
-      for (final item in t.items) {
-        final key = item.partNo ?? '';
-        final entry = soldMap.putIfAbsent(key, () => _Sold(name: item.name));
-        entry.qty += item.qty;
-        entry.revenue += item.qty * item.price;
-      }
-    }
-    final topProducts = soldMap.entries.toList()
-      ..sort((a, b) => b.value.qty - a.value.qty);
-    final topList = topProducts.take(8).toList();
-
-    // Recent transactions (getSales is newest-first).
-    final recent = filtered.take(10).toList();
-
-    // Category revenue (match product by partNo → category/zone, else อื่นๆ).
-    final zoneMap = revenueByCategory(filtered, data.products);
     final zones = zoneMap.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final double maxZoneVal = zones.isNotEmpty ? zones.first.value : 1.0;
@@ -302,10 +327,7 @@ class _ReportsView extends StatelessWidget {
   }
 
   // ── Top Products ──────────────────────────────────────────────────────────
-  Widget _topProductsCard(
-    BuildContext context,
-    List<MapEntry<String, _Sold>> top,
-  ) {
+  Widget _topProductsCard(BuildContext context, List<TopItem> top) {
     return _ReportCard(
       icon: Icons.emoji_events_rounded,
       iconColor: const Color(0xFFFFB300),
@@ -318,10 +340,10 @@ class _ReportsView extends StatelessWidget {
                 for (int i = 0; i < top.length; i++)
                   _TopProductRow(
                     rank: i + 1,
-                    partNo: top[i].key,
-                    name: top[i].value.name,
-                    revenue: top[i].value.revenue,
-                    qty: top[i].value.qty,
+                    partNo: top[i].partNo,
+                    name: top[i].name,
+                    revenue: top[i].revenue,
+                    qty: top[i].qty,
                     isLast: i == top.length - 1,
                   ),
               ],
@@ -382,13 +404,6 @@ class _ReportsView extends StatelessWidget {
             ),
     );
   }
-}
-
-class _Sold {
-  final String name;
-  int qty = 0;
-  double revenue = 0;
-  _Sold({required this.name});
 }
 
 // ── Range selector bar ────────────────────────────────────────────────────────
@@ -1323,6 +1338,9 @@ class _RecentRow extends StatelessWidget {
                       isDark: isDark,
                     ),
                     _InfoChip(label: s.paymentMethod, isDark: isDark),
+                    // A voided bill (manual, or auto-voided by a full return)
+                    // must not read like a live sale.
+                    if (s.voided) StatusChip.of('voided'),
                   ],
                 ),
               ],

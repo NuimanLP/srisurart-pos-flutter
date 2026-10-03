@@ -429,6 +429,110 @@ describe('POST /sync/push (e2e)', () => {
       });
     });
 
+    it('drawer-entry replay: an offline cash-out over the expected cash is still accepted (the cash already left)', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
+        id: 'sh_off_002',
+        startingCash: 1000,
+      });
+
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_drawer_over',
+            idempotencyKey: 'k_de_over',
+            type: 'drawer.entry',
+            payload: {
+              id: 'de_off_over',
+              type: 'out',
+              amount: '1500.00',
+              note: null,
+              createdAt: new Date().toISOString(),
+            },
+          },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(res.body.data.results[0].response.balanceAfter).toBe('-500.00');
+
+      // PR #580 follow-up (owner 2026-10-03): the owner gets one review item for it.
+      const reviewItems = async () =>
+        (await admin.query(
+          `SELECT ref_id, details FROM owner_review_items
+            WHERE tenant_id = $1::uuid AND kind = 'drawer_overdrawn_offline'`,
+          [TENANT],
+        )) as { ref_id: string; details: Record<string, unknown> }[];
+      expect(await reviewItems()).toEqual([
+        {
+          ref_id: 'de_off_over',
+          details: {
+            opId: 'op_drawer_over',
+            entryId: 'de_off_over',
+            shiftId: 'sh_off_002',
+            amount: '1500.00',
+            expectedCashBefore: '1000.00',
+            expectedCashAfter: '-500.00',
+          },
+        },
+      ]);
+
+      // A re-push of the same op replays by key: still exactly one item.
+      const again = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_drawer_over',
+            idempotencyKey: 'k_de_over',
+            type: 'drawer.entry',
+            payload: {
+              id: 'de_off_over',
+              type: 'out',
+              amount: '1500.00',
+              note: null,
+              createdAt: new Date().toISOString(),
+            },
+          },
+        ],
+      });
+      expect(again.status).toBe(200);
+      expect(await reviewItems()).toHaveLength(1);
+    });
+
+    it('drawer-entry replay within the expected cash raises no owner review item', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
+        id: 'sh_off_003',
+        startingCash: 1000,
+      });
+
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_drawer_exact',
+            idempotencyKey: 'k_de_exact',
+            type: 'drawer.entry',
+            payload: {
+              id: 'de_off_exact',
+              type: 'out',
+              amount: '1000.00',
+              note: null,
+              createdAt: new Date().toISOString(),
+            },
+          },
+        ],
+      });
+
+      expect(res.body.data.results[0].status).toBe('applied');
+      const rows = (await admin.query(
+        `SELECT count(*)::int AS n FROM owner_review_items
+          WHERE tenant_id = $1::uuid AND kind = 'drawer_overdrawn_offline'`,
+        [TENANT],
+      )) as { n: number }[];
+      expect(rows[0].n).toBe(0);
+    });
+
     it('sale-create.applied, replay-by-key, replay-by-id, client-id-reused', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: 'sh_off_001',
@@ -2304,6 +2408,176 @@ describe('POST /sync/push (e2e)', () => {
           docNumber: cnNo,
         },
       });
+    });
+  });
+
+  describe('#27 follow-up (owner 2026-10-03, 08 §6.1): an offline bill sold from a quote cart', () => {
+    const quoteSaleOp = (id: string, quoteId: string, date = new Date().toISOString()) => ({
+      opId: `op_${id}`,
+      idempotencyKey: `k_${id}`,
+      type: 'sale.create',
+      payload: {
+        id,
+        date,
+        subtotal: '85.00',
+        discount: '0.00',
+        total: '85.00',
+        paymentMethod: 'เงินสด',
+        quoteId,
+        items: [{ lineNo: 1, productId: 'p_q27', name: 'Filter', qty: 1, price: '85.00' }],
+      },
+    });
+    const seedQuote = (
+      id: string,
+      over: { status?: string; convertedSaleId?: string; expired?: boolean; validFor?: string } = {},
+    ) =>
+      admin.query(
+        `INSERT INTO quotes (tenant_id, id, quote_no, status, valid_until, converted_at, converted_sale_id, subtotal, discount, total)
+         VALUES ($1::uuid, $2, $3, $4, now() + ($5::text)::interval, $6, $7, 85, 0, 85)`,
+        [
+          TENANT,
+          id,
+          `QT-${id}`,
+          over.status ?? 'open',
+          over.validFor ?? (over.expired ? '-1 day' : '30 days'),
+          over.status === 'converted' ? new Date('2026-10-01T03:00:00Z') : null,
+          over.convertedSaleId ?? null,
+        ],
+      );
+    const quoteRow = async (id: string) =>
+      (
+        (await admin.query(
+          `SELECT status, converted_at, converted_sale_id FROM quotes WHERE tenant_id = $1::uuid AND id = $2`,
+          [TENANT, id],
+        )) as { status: string; converted_at: Date | null; converted_sale_id: string | null }[]
+      )[0];
+    const conflicts = async () =>
+      (await admin.query(
+        `SELECT ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'quote_conflict' ORDER BY ref_id`,
+        [TENANT],
+      )) as { ref_id: string; details: Record<string, unknown> }[];
+    const saleExists = async (id: string) =>
+      ((await admin.query(`SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2`, [TENANT, id])) as unknown[])
+        .length === 1;
+
+    beforeEach(async () => {
+      await seedProduct(admin, TENANT, { id: 'p_q27', partNo: 'P-Q27', name: 'Filter', price: 85, cost: 50, stock: 10 });
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+    });
+
+    it('a quote still open at sync is converted into the bill in the same transaction, with no review item', async () => {
+      await seedQuote('q_open');
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_open', 'q_open')] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      const q = await quoteRow('q_open');
+      expect(q.status).toBe('converted');
+      expect(q.converted_sale_id).toBe('s_q_open');
+      expect(q.converted_at).not.toBeNull();
+      expect(await conflicts()).toEqual([]);
+
+      // A re-push replays the bill and changes nothing more.
+      expect((await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_open', 'q_open')] })).body.data.results[0].status)
+        .toBe('applied');
+      expect(await conflicts()).toEqual([]);
+    });
+
+    it('a quote already converted into another bill: the bill is accepted, the quote untouched, one review item', async () => {
+      await seedQuote('q_conv', { status: 'converted', convertedSaleId: 's_other' });
+      const before = await quoteRow('q_conv');
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_conv', 'q_conv')] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(await saleExists('s_q_conv')).toBe(true);
+      expect(await quoteRow('q_conv')).toEqual(before);
+      const items = await conflicts();
+      expect(items).toHaveLength(1);
+      expect(items[0].ref_id).toBe('s_q_conv');
+      expect(items[0].details).toMatchObject({
+        opId: 'op_s_q_conv',
+        saleId: 's_q_conv',
+        quoteId: 'q_conv',
+        reason: 'already_converted',
+        convertedSaleId: 's_other',
+      });
+      expect(items[0].details.receiptNo).toEqual(res.body.data.results[0].response.receiptNo);
+
+      // A re-push (client-id replay after the key is gone) raises no second item.
+      await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_s_q_conv'`, [TENANT]);
+      await clearTenantCache(cache, TENANT);
+      expect((await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_conv', 'q_conv')] })).body.data.results[0].status)
+        .toBe('applied');
+      expect(await conflicts()).toHaveLength(1);
+    });
+
+    it('an expired quote: the bill is accepted, the quote untouched, one review item', async () => {
+      await seedQuote('q_exp', { expired: true });
+      const before = await quoteRow('q_exp');
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_exp', 'q_exp')] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(await saleExists('s_q_exp')).toBe(true);
+      expect(await quoteRow('q_exp')).toEqual(before);
+      expect(before.status).toBe('open');
+      const items = await conflicts();
+      expect(items).toHaveLength(1);
+      expect(items[0].details).toMatchObject({ saleId: 's_q_exp', quoteId: 'q_exp', reason: 'expired' });
+      expect(typeof items[0].details.validUntil).toBe('string');
+    });
+
+    // Owner 2026-10-03 (#575): expiry is judged at the bill's own stored date, not at
+    // the sync. The drawer opened 3 h ago, so a bill dated 2 h ago is stored unclamped.
+    const twoHoursAgo = () => new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+    const openDrawerThreeHoursAgo = () =>
+      admin.query(
+        `UPDATE shifts SET opened_at = now() - interval '3 hours' WHERE tenant_id = $1::uuid AND device_id = $2 AND is_active`,
+        [TENANT, fixture.posDeviceId],
+      );
+
+    it('valid when the bill was sold, expired by the sync: converted normally, no review item', async () => {
+      await openDrawerThreeHoursAgo();
+      await seedQuote('q_lapsed', { validFor: '-1 hour' });
+      const soldAt = twoHoursAgo();
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_lapsed', 'q_lapsed', soldAt)] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      const stored = (await admin.query(
+        `SELECT date FROM sales WHERE tenant_id = $1::uuid AND id = 's_q_lapsed'`,
+        [TENANT],
+      )) as { date: Date }[];
+      expect(stored[0].date.toISOString()).toBe(soldAt);
+      const q = await quoteRow('q_lapsed');
+      expect(q.status).toBe('converted');
+      expect(q.converted_sale_id).toBe('s_q_lapsed');
+      expect(await conflicts()).toEqual([]);
+    });
+
+    it('expired before the bill was sold: the bill is accepted, the quote untouched, one review item', async () => {
+      await openDrawerThreeHoursAgo();
+      await seedQuote('q_late', { validFor: '-150 minutes' });
+      const before = await quoteRow('q_late');
+      const soldAt = twoHoursAgo();
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_late', 'q_late', soldAt)] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      const stored = (await admin.query(
+        `SELECT date FROM sales WHERE tenant_id = $1::uuid AND id = 's_q_late'`,
+        [TENANT],
+      )) as { date: Date }[];
+      expect(stored[0].date.toISOString()).toBe(soldAt);
+      expect(await quoteRow('q_late')).toEqual(before);
+      expect((await conflicts()).map((i) => [i.ref_id, i.details.reason])).toEqual([['s_q_late', 'expired']]);
+    });
+
+    it('a quote that no longer exists: the bill is accepted with one review item (not_found)', async () => {
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_gone', 'q_gone')] });
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(await saleExists('s_q_gone')).toBe(true);
+      expect((await conflicts()).map((i) => i.details.reason)).toEqual(['not_found']);
+    });
+
+    it('a refused bill (no stock) rolls back: the open quote stays open, no review item', async () => {
+      await seedQuote('q_short');
+      await admin.query(`UPDATE products SET stock = 0 WHERE tenant_id = $1::uuid AND id = 'p_q27'`, [TENANT]);
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_short', 'q_short')] });
+      expect(res.body.data.results[0].status).not.toBe('applied');
+      expect((await quoteRow('q_short')).status).toBe('open');
+      expect(await conflicts()).toEqual([]);
     });
   });
 

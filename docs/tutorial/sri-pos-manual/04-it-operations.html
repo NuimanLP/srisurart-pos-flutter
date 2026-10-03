@@ -137,13 +137,14 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
 
   <h2 class="sub">ลำดับที่ pipeline ทำ <span class="en">Pipeline</span></h2>
   <ol class="steps">
-    <li><span class="st-title">PR ผ่าน CI (<code>flutter-ci-status</code>, <code>server-ci-status</code>) → merge เข้า <code>main</code></span></li>
+    <li><span class="st-title">PR ผ่าน CI (<code>flutter-ci-status</code>, <code>server-ci-status</code>) → merge เข้า <code>main</code></span><code>server-ci-status</code> รวมงาน <code>secrets</code> (gitleaks สแกน commit ที่ PR/push เพิ่มเข้ามา) ด้วยตั้งแต่ 2026-10-01 — เจอค่าลับจริงให้ <strong>เปลี่ยนค่าลับ</strong> อย่า allowlist · แก้ <code>.gitleaks.toml</code>/<code>.gitleaksignore</code> มีผลหลัง merge เท่านั้น (CI อ่านจาก base) จึงต้องแยก PR</li>
     <li><span class="st-title">build + Trivy + push อิมเมจ server และ web ขึ้น GHCR (แท็ก SHA)</span></li>
     <li><span class="st-title">workflow <strong>Deploy (demo)</strong> งาน <code>resolve</code> เช็กว่าอิมเมจทั้งสองของ SHA นั้นมีครบ</span></li>
     <li><span class="st-title">งาน <code>deploy</code> ค้างที่ "Waiting for review" จนผู้อนุมัติ (<code>NuimanLP</code>) กด approve</span>นี่คือกลไกเดียวที่กันไม่ให้ merge ระหว่างเดโมขึ้น VM</li>
     <li><span class="st-title">runner บน VM เรียก <code>pos-deploy</code> → <code>ansible-playbook deploy.yml</code></span>pull → <code>migrate</code> (schema ก่อนโค้ดเสมอ) → <code>etcd-init</code> → restart <code>api-1</code>→<code>api-2</code>→<code>api-3</code>→<code>worker</code>/<code>bull-board</code> → <code>web-sync</code> (เว็บหลัง API เสมอ) → ตรวจ <code>nginx -t</code> แล้วสร้าง nginx ใหม่ → <code>/health/ready</code> ต้อง 200 → เขียน <code>/opt/pos/.current_sha</code> → monitoring (ล้มได้แค่เตือน)</li>
   </ol>
-  <div class="note warn"><span class="nt">หลักฐานเดียวที่นับ</span>รัน Deploy (demo) ที่ขึ้น <strong>เขียว</strong> ไม่ได้แปลว่าขึ้นเครื่อง — ถ้าอิมเมจยังไม่ครบ งาน <code>deploy</code> ถูกข้ามแต่ workflow ยังรายงานสำเร็จ · ตรวจ <code>/opt/pos/.current_sha</code> บน VM เท่านั้น · ถ้ามีหลายรันรออนุมัติ การอนุมัติรันเก่าก่อนจะส่ง SHA เก่าขึ้นก่อน</div>
+  <div class="note warn"><span class="nt">หลักฐานเดียวที่นับ</span>รัน Deploy (demo) ที่ขึ้น <strong>เขียว</strong> ไม่ได้แปลว่าขึ้นเครื่อง — ถ้าอิมเมจยังไม่ครบ งาน <code>deploy</code> ถูกข้ามแต่ workflow ยังรายงานสำเร็จ · ตรวจ <code>/opt/pos/.current_sha</code> บน VM เท่านั้น · ถ้ามีหลายรันรออนุมัติ การอนุมัติรันเก่าก่อนจะส่ง SHA เก่าขึ้นก่อน — ยกเลิกรันเก่าที่รออยู่ก่อนอนุมัติรันใหม่ (รันที่รออนุมัติถือช่อง <code>deploy-demo</code> ไว้ รันใหม่จึงค้าง <code>pending</code>)</div>
+  <div class="note key"><span class="nt">push ที่มีแต่เอกสาร = ไม่ deploy (2026-10-01)</span>ถ้าทุกไฟล์ที่ push เป็น <code>*.md</code> หรืออยู่ใต้ <code>docs/</code> (ยกเว้น <code>docs/Backend_design/fixtures/</code>) CI ข้ามเทสต์และไม่สร้างอิมเมจ → ไม่มีรัน "Waiting for review" และ VM อยู่ที่ SHA ของ code ล่าสุด ไม่ใช่ head ของ <code>main</code> · ไฟล์อื่นทุกชนิดนับเป็น code · ถ้า commit เอกสารตามหลัง commit code ทันที <code>resolve</code> ยัง deploy SHA ของ code นั้นได้ (ข้ามเฉพาะเมื่อหลังจากนั้นมี code ใหม่) · รันเขียว ~8 วินาทีหลัง merge จึงอาจแปลว่า "docs ล้วน" หรือ <code>server-ci-status</code> บน <code>main</code> แดง (ไม่มีอิมเมจ) — ดูให้ออกว่าเป็นแบบไหน</div>
 
   <h2 class="sub" id="rollback">ย้อนเวอร์ชัน <span class="en">Rollback</span></h2>
   <p><strong>อัตโนมัติ:</strong> playbook ล้มหรือเกิน 20 นาที → <code>pos-deploy</code> redeploy SHA ใน <code>.current_sha</code> (รันยังขึ้นแดง ให้ตามดูสาเหตุ)</p>
@@ -161,6 +162,15 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
     <tr><td><code>provision.yml</code></td><td><code>cloud</code> (มี sudo, ไม่อยู่กลุ่ม docker)</td><td>เครื่องเปล่า → พร้อม deploy: Docker, user <code>deploy</code>, ufw, <code>/opt/pos</code>, <code>.env</code> (0600), สคริปต์ ops, cron backup 03:00 · <strong>ห้ามใส่ <code>--diff</code></strong> (พิมพ์ <code>.env</code> ทั้งไฟล์)</td></tr>
     <tr><td><code>deploy.yml</code></td><td><code>deploy</code> (เจ้าของ <code>/opt/pos</code>, กลุ่ม docker, ไม่มี sudo)</td><td>release หนึ่งตัว · <code>-e force_redeploy=true</code> เพื่อลงซ้ำ SHA เดิม · <code>--check</code> พิสูจน์แทบไม่ได้อะไร</td></tr>
   </table>
+  <h2 class="sub" id="apk">build และติดตั้งแอป Android <span class="en">Android APK</span></h2>
+  <p>APK ไม่มากับ deploy — สั่ง workflow <strong>Android APK</strong> แยกต่างหาก (รันได้เฉพาะบน <code>main</code>)</p>
+  <ol class="steps">
+    <li><span class="st-title">เช็กก่อนว่าต่อ <code>mob04</code> ได้</span>ต้องมี PR #552 (07 §5 TLS) deploy แล้ว และ CA cert อยู่ที่ <code>frontend/assets/certs/pos-ca.crt</code> — ไม่งั้นติดตั้งได้แต่แอปเชื่อมเซิร์ฟเวอร์ไม่ได้</li>
+    <li><span class="st-title">GitHub → Actions → <strong>Android APK</strong> → Run workflow (branch <code>main</code>)</span>ได้ APK รุ่น API ตัวเดียว (ไม่มีรุ่นออฟไลน์ล้วน)</li>
+    <li><span class="st-title">ดาวน์โหลดจาก Releases</span>prerelease <code>apk-&lt;sha7&gt;</code> → ไฟล์ <code>srisurart-pos-&lt;sha7&gt;.apk</code></li>
+    <li><span class="st-title">ติดตั้งบนเครื่อง Android</span>เปิดไฟล์ → อนุญาต "ติดตั้งจากแหล่งที่ไม่รู้จัก" → ติดตั้ง · รุ่นใหม่ติดตั้งทับได้เพราะเซ็นด้วยกุญแจถาวรเดิม · เครื่องต้องอยู่ในเครือข่ายคณะ/VPN</li>
+  </ol>
+  <div class="note warn"><span class="nt">ข้อควรรู้</span>workflow ล้มถ้า release <code>apk-&lt;sha7&gt;</code> ของ commit นั้นมีอยู่แล้ว หรือ secret <code>ANDROID_KEYSTORE_B64</code> ว่าง · ผู้ถือ secret ต้องเก็บ keystore สำรองส่วนตัว ห้าม commit</div>
   <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">5</span></div>
 </section>
 
@@ -247,12 +257,14 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
     <tr><td>Compose ทุกคำสั่งบน VM ตายก่อน pull</td><td>คีย์ที่ <code>:?</code> บังคับขาดใน <code>/opt/pos/.env</code></td><td>ตรวจด้วย <code>grep -c '^KEY='</code></td></tr>
     <tr><td>แก้ <code>nginx.conf</code> แล้วไม่เห็นผล</td><td>bind mount ไฟล์เดี่ยวค้าง inode เก่า</td><td>deploy สร้าง nginx ใหม่ทุกครั้งแล้ว (#249) — บน dev ให้ <code>up -d --force-recreate nginx</code></td></tr>
     <tr><td>Prometheus ขึ้น <code>api-readiness</code> DOWN ทั้งที่ API ปกติ</td><td><code>/health/ready</code> ตอบ JSON ไม่ใช่รูปแบบ metric</td><td>ปกติ ดู job <code>api-metrics</code> แทน (ภาค 05)</td></tr>
+    <tr><td>แอป Android ต่อ <code>mob04</code> ไม่ได้ (TLS) · เบราว์เซอร์เตือน cert</td><td>APK ยังไม่ฝัง <code>ca.crt</code> ของ CA ส่วนตัว (เบราว์เซอร์เตือนเป็นปกติ)</td><td>ขั้นตอนครั้งเดียว: copy <code>ca.crt</code> ออกจาก <code>mob04</code> → commit → build APK ใหม่ — <code>07_CICD_DEPLOY.md</code> §5 "TLS"</td></tr>
     <tr><td>platform-ui ได้ 403</td><td>allowlist</td><td>ภาค 03 หัวข้อ 5</td></tr>
   </table>
   </div>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
       <li>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรก 2026-09-30 (runner <code>mob04-demo</code>, <code>e50f4fa</code>) · rollback แบบ Actions และแบบมือ (user <code>deploy</code>) พิสูจน์แล้ววันเดียวกัน · rollback อัตโนมัติเมื่อล้มพิสูจน์แล้วเย็นวันเดียวกัน (run 36720675552) · #343 ปิดแล้ว 5/5 · #67 ปิด 15/15 · #344 (เดโม) ยังไม่รัน</li>
+      <li>VM ล่าสุดที่ตรวจ: <code>.current_sha</code> = <code>531984d</code> (2026-10-01 เย็น, <code>/health/ready</code> 200) · ตั้งแต่ 2026-10-01 มี gitleaks ใน CI, GitHub secret scanning + push protection และ Dependabot security updates เปิดแล้ว (อัปเดตเวอร์ชันทั่วไปยังทำด้วยมือ)</li>
       <li>environment <code>demo</code>: branch policy <code>main</code> และการอนุมัติ fork PR <code>all_external_contributors</code> ตั้งแล้ว 2026-09-30 (เจ้าของอนุมัติ; เดิม <code>null</code>/<code>first_time_contributors</code>)</li>
       <li>ไม่มี backup ออกนอก VM · etcd เปิด auth บน VM แล้ว (2026-09-30) · <code>CORS_ORIGINS</code> บน VM = origin ของตัวเองแล้ว (2026-09-30) origin แปลกหน้าเคยได้ HTTP 500 — แก้แล้ว PR #516 (deploy <code>00d3488</code>) ตอนนี้ได้สถานะปกติของ route (เช่น <code>/health/live</code> 200 — ไม่ใช่ 500) ไม่มี ACAO · สคริปต์ backup ในเครื่องเพิ่งติดตั้ง 2026-09-30 (รอบ 03:00 ของ 09-29 สคริปต์มีอยู่แต่ fail, รอบ 09-30 "not found") · CD ไม่อัปเดตสคริปต์บน VM มีแต่ <code>provision.yml</code> — ฉบับ PR #519 (<code>.partial</code>) ลงบน VM แล้ว 2026-09-30 ค่ำ (sha256 ตรง <code>origin/main</code>) · รอบ cron จริงรอบแรกของฉบับนี้คือ 03:00 ของ 2026-10-01</li>
       <li>monitoring บน VM รันจริงแล้ว 2026-09-30 (Grafana 200 + dashboard ที่ provision, Prometheus scrape api×3) — <code>api-readiness</code> ยัง DOWN เพราะ <code>/health/ready</code> ตอบ JSON</li>

@@ -107,6 +107,28 @@ class ServerErrorResolver {
         'ระบบไม่รับรหัสผ่านเจ้าของร้านจากผู้ดูแลแล้ว ระบบจะสุ่มรหัสชั่วคราวให้เอง',
     'OWNER_NOT_FOUND': 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่',
     'SHIFT_NOT_FOUND': 'ไม่พบข้อมูลกะ',
+    // A plain `BadRequestException` (no code of its own) — agent ร่าง
+    // (02_API_SCREENS.md §8.1.1), not yet ratified by the owner. Its English
+    // `message` (e.g. `name is required`) used to reach the counter verbatim.
+    'BAD_REQUEST': 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่',
+    // Ratified by the owner 2026-10-03 (#27, PR #574) — 02_API_SCREENS.md §8/§8.1.
+    // A quote cart sold through `POST /sales` `quoteId` (or `/convert`), and
+    // DELETE of a converted quote.
+    'QUOTE_EXPIRED': 'ใบเสนอราคาหมดอายุแล้ว — ทำซ้ำ (ต่ออายุ) ก่อนขาย',
+    'QUOTE_ALREADY_CONVERTED':
+        'ใบเสนอราคานี้แปลงเป็นการขายแล้ว — ล้างตะกร้าแล้วเริ่มใหม่',
+    'QUOTE_CONVERTED_NOT_DELETABLE':
+        'ใบเสนอราคานี้แปลงเป็นการขายแล้ว ลบไม่ได้',
+    // Ratified by the owner 2026-10-03 (PR #578) — 02_API_SCREENS.md §8/§8.1.
+    // Owner 2026-10-03: a mechanic who still owes credit cannot be deleted.
+    // The server sends no amount into this string; the Drift path and the
+    // screen use `mechanicHasBalanceMessage` (with ฿X) instead.
+    'MECHANIC_HAS_BALANCE': 'ช่างยังมียอดค้างชำระ — รับชำระให้ครบก่อนลบ',
+    // Ratified by the owner 2026-10-03 (PR #580) — 02_API_SCREENS.md §8/§8.1.
+    // Owner 2026-10-03: a cash-out larger than the drawer's expected cash is
+    // refused. The server's reply carries `details.expectedCash`; the Drift path,
+    // the offline queue and the screen use `drawerInsufficientCashMessage` (with ฿X).
+    'DRAWER_INSUFFICIENT_CASH': 'เงินในลิ้นชักไม่พอ',
     'UNAUTHENTICATED': 'กรุณาเข้าสู่ระบบ',
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
   };

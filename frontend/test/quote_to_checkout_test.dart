@@ -104,6 +104,9 @@ void main() {
       expect(cart.first.price, p.price);
       // Hand-off cubit must be cleared so a rebuild cannot re-load.
       expect(pendingQuoteCubit.state, isNull);
+      // "✎ แก้ไข" stages without forSale (its quote is already deleted), so
+      // the bill must not be sold against it (#27).
+      expect(cartCubit.quoteId, isNull);
 
       await tester.takeException(); // surface any pump exception
     });
@@ -174,6 +177,68 @@ void main() {
         p.stock,
         reason: 'qty must be clamped to current stock (validateItems)',
       );
+
+      await tester.takeException();
+    });
+  });
+
+  testWidgets('"→ ขาย" (forSale) ties the cart to the quote: SaleInput.quoteId (#27)', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final productsRepo = ProductsRepository(db);
+    final quotesRepo = QuotesRepository(db);
+    final pendingQuoteCubit = PendingQuoteCubit();
+    final cartCubit = CartCubit();
+    addTearDown(pendingQuoteCubit.close);
+    addTearDown(cartCubit.close);
+
+    await tester.runAsync(() async {
+      final p = (await productsRepo.getAll()).firstWhere((x) => x.stock >= 1);
+      await quotesRepo.saveQuote(
+        QuoteInput(
+          subtotal: p.price,
+          discount: 0,
+          total: p.price,
+          customerName: '',
+          customerPhone: '',
+          items: [
+            QuoteLineInput(productId: p.id, name: p.name, qty: 1, price: p.price),
+          ],
+        ),
+      );
+      final qi = (await quotesRepo.getQuotes()).first;
+      pendingQuoteCubit.set(qi, forSale: true);
+
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: repositoryProviders(db),
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<PendingQuoteCubit>.value(value: pendingQuoteCubit),
+              BlocProvider<CartCubit>.value(value: cartCubit),
+            ],
+            child: const MaterialApp(home: Scaffold(body: CheckoutScreen())),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+      expect(cartCubit.state, hasLength(1));
+      expect(cartCubit.quoteId, qi.quote.id);
+      expect(pendingQuoteCubit.forSale, isFalse, reason: 'cleared with the hand-off');
+      // Loading the cart wrote nothing: the quote stays open until it is sold.
+      expect((await quotesRepo.getQuotes()).first.quote.status, 'open');
+      cartCubit.clear();
+      expect(cartCubit.quoteId, isNull);
 
       await tester.takeException();
     });

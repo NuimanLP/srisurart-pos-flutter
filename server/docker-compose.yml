@@ -149,20 +149,19 @@ services:
       # the dashboard's static files) before `nginx` exists.
       certgen: { condition: service_completed_successfully }
 
-  # Self-signed TLS for dev/demo. Replace the volume contents with a real cert on the VM.
+  # TLS for dev/demo: a private CA (volume `certs-ca`, mounted nowhere else) signs the server
+  # cert Nginx serves (volume `certs`). The Android API build trusts that CA's public cert —
+  # docker/certgen/certgen.sh and 07_CICD_DEPLOY.md "TLS" say why and how it gets into the app.
   certgen:
     # No versioned tag is published upstream for this image — pinned against `latest` as of
     # 2026-09-25 (#401); the digest, not the tag, is what makes this reproducible.
     image: alpine/openssl:latest@sha256:6aa2be0ed55a61fff35583e5763c2ea8288bcd3549d316b954b01eec32fb7006
     entrypoint: sh
-    command:
-      - -c
-      - >
-        test -f /certs/server.crt ||
-        openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=localhost"
-        -keyout /certs/server.key -out /certs/server.crt
+    command: ["/certgen.sh"]
     volumes:
+      - ./docker/certgen/certgen.sh:/certgen.sh:ro
       - certs:/certs
+      - certs-ca:/ca
 
   # HTTP Basic Auth for Nginx's /prometheus-remote-write/ location (#251) — the k6 distributed
   # run's Prometheus receiver. Same shape as `certgen` above: idempotent, generates into a named
@@ -426,4 +425,7 @@ volumes:
   redis-queue-data:
   etcd-data:
   certs:
+  # The private CA behind `certs` (certgen only). Losing it means a new CA and a rebuilt APK —
+  # never `down -v` (07_CICD_DEPLOY.md "TLS").
+  certs-ca:
   nginx-auth:

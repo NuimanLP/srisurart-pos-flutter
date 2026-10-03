@@ -345,6 +345,58 @@ describe('runPlatformCli', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  function loginThen(data: unknown) {
+    return mockFetch((url) => {
+      if (url.endsWith('/platform/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: { token: 'tok-abc', admin: { id: 'a1', username: 'devadmin', displayName: 'Dev' } },
+        });
+      }
+      return jsonResponse(200, { status: 'success', data });
+    });
+  }
+
+  it('tenants:audit: logs in then GETs one page, passing --limit/--before through', async () => {
+    const page = { items: [], nextCursor: null };
+    const { fetchImpl, calls } = loginThen(page);
+    const { input, output, log } = io({ input: 'right-pw\n', fetchImpl });
+
+    await runPlatformCli(
+      ['tenants:audit', 't1', '--limit', '20', '--before', 'abc_-', '--user', 'devadmin'],
+      { input, output, log, fetchImpl },
+    );
+
+    expect(calls[1][0]).toContain('/api/v1/platform/tenants/t1/audit?before=abc_-&limit=20');
+    expect(calls[1][1].method).toBe('GET');
+    expect(log).toHaveBeenCalledWith(JSON.stringify(page, null, 2));
+  });
+
+  it('tenants:audit: no query string when neither flag is given; tenantId is required', async () => {
+    const { fetchImpl, calls } = loginThen({ items: [], nextCursor: null });
+    const { input, output, log } = io({ input: 'right-pw\n', fetchImpl });
+    await runPlatformCli(['tenants:audit', 't1', '--user', 'devadmin'], { input, output, log, fetchImpl });
+    expect(calls[1][0]).toMatch(/\/api\/v1\/platform\/tenants\/t1\/audit$/);
+
+    const never = vi.fn();
+    await expect(
+      runPlatformCli(['tenants:audit', '--user', 'devadmin'], { fetchImpl: never }),
+    ).rejects.toThrow(/usage: tenants:audit/);
+    expect(never).not.toHaveBeenCalled();
+  });
+
+  it('system: logs in then GETs /platform/system', async () => {
+    const status = { gitSha: null, ready: true };
+    const { fetchImpl, calls } = loginThen(status);
+    const { input, output, log } = io({ input: 'right-pw\n', fetchImpl });
+
+    await runPlatformCli(['system', '--user', 'devadmin'], { input, output, log, fetchImpl });
+
+    expect(calls[1][0]).toMatch(/\/api\/v1\/platform\/system$/);
+    expect(calls[1][1].method).toBe('GET');
+    expect(log).toHaveBeenCalledWith(JSON.stringify(status, null, 2));
+  });
+
   it('devices:reissue-code: logs in then POSTs to the enrol-code route', async () => {
     const { fetchImpl, calls } = mockFetch((url) => {
       if (url.endsWith('/platform/auth/token')) {
@@ -383,6 +435,65 @@ describe('runPlatformCli', () => {
     await expect(
       runPlatformCli(['devices:reissue-code', 't1', '--user', 'devadmin'], { fetchImpl }),
     ).rejects.toThrow(/usage: devices:reissue-code/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('devices:replace: logs in then POSTs force/note/label to the replace route', async () => {
+    const { fetchImpl, calls } = mockFetch((url) => {
+      if (url.endsWith('/platform/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: { token: 'tok-abc', admin: { id: 'a1', username: 'devadmin', displayName: 'Dev' } },
+        });
+      }
+      return jsonResponse(200, { status: 'success', data: { enrolCode: 'NEWCODE1' } });
+    });
+    const { input, output, log } = io({ input: 'right-pw\n', fetchImpl });
+
+    await runPlatformCli(
+      ['devices:replace', 't1', 'pos1', '--user', 'devadmin', '--label', 'POS ใหม่', '--force', '--note', 'browser wiped'],
+      { input, output, log, fetchImpl },
+    );
+
+    expect(calls[1][0]).toContain('/api/v1/platform/tenants/t1/devices/pos1/replace');
+    expect(calls[1][1].method).toBe('POST');
+    expect(JSON.parse(String(calls[1][1].body))).toEqual({
+      force: true,
+      note: 'browser wiped',
+      label: 'POS ใหม่',
+    });
+    expect(log).toHaveBeenCalledWith(JSON.stringify({ enrolCode: 'NEWCODE1' }, null, 2));
+  });
+
+  it('devices:replace: sends an empty body without --force/--label', async () => {
+    const { fetchImpl, calls } = mockFetch((url) => {
+      if (url.endsWith('/platform/auth/token')) {
+        return jsonResponse(200, {
+          status: 'success',
+          data: { token: 'tok-abc', admin: { id: 'a1', username: 'devadmin', displayName: 'Dev' } },
+        });
+      }
+      return jsonResponse(200, { status: 'success', data: {} });
+    });
+    const { input, output, log } = io({ input: 'right-pw\n', fetchImpl });
+
+    await runPlatformCli(['devices:replace', 't1', 'pos1', '--user', 'devadmin'], {
+      input,
+      output,
+      log,
+      fetchImpl,
+    });
+    expect(JSON.parse(String(calls[1][1].body))).toEqual({});
+  });
+
+  it.each([
+    [['devices:replace', 't1', '--user', 'devadmin'], /usage: devices:replace/],
+    [['devices:replace', 't1', 'pos1', '--user', 'devadmin', '--force'], /--note is required/],
+    [['devices:replace', '--force', 't1', 'pos1', '--user', 'devadmin'], /usage: devices:replace/],
+    [['devices:replace', 't1', 'pos1', '--force', 'yes', '--note', 'x', '--user', 'devadmin'], /--force takes no value/],
+  ])('devices:replace: refuses %j before any request', async (argv, error) => {
+    const fetchImpl = vi.fn();
+    await expect(runPlatformCli(argv as string[], { fetchImpl })).rejects.toThrow(error);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

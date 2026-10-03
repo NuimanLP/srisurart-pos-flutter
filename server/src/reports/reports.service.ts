@@ -2,10 +2,12 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import type { ReportDateRange } from './reports.dto.js';
+import { CASH, COUNTED_SALE, DRAWER_CASH_CTES } from './drawer-cash.sql.js';
 
 export interface ReportSummary {
   totalRevenue: string;
   totalTransactions: number;
+  /** `netRevenue ÷ totalTransactions`, rounded to whole baht (0 with no bills). */
   avgTicket: string;
   totalRefunds: string;
   netRevenue: string;
@@ -107,23 +109,6 @@ interface ClosingRow {
   unknown_cost_rows: number;
 }
 
-/** The one cash method string: `sales.dto.ts`, `returns.dto.ts` and `credit-payments.dto.ts` all accept it. */
-const CASH = 'เงินสด';
-
-/**
- * A bill that still counts as money taken and goods sold.
- *
- * A **manual** void (`POST /sales/:id/void`) undoes the bill outright — stock back,
- * ledger reversed, no credit note — so it is excluded. An **auto**-void is what a
- * return of the last unit does (`returns.service.ts`); that bill stays counted and
- * its credit notes subtract, or the refund would be taken off twice. The two are
- * exactly separable because a manual void is refused once any return exists
- * (`SALE_HAS_RETURNS`).
- */
-const COUNTED_SALE = `NOT (s.voided AND NOT EXISTS (
-  SELECT 1 FROM returns rv
-   WHERE rv.tenant_id = $1::uuid AND rv.tenant_id = s.tenant_id AND rv.sale_id = s.id))`;
-
 /**
  * Gross profit over the counted bills and the credit notes chosen by two constant SQL
  * predicates (on `sales s` and `returns r`; never request input) — one shift for the
@@ -134,11 +119,14 @@ const COUNTED_SALE = `NOT (s.voided AND NOT EXISTS (
  *   (Σ sales.total − Σ returns.refund_total) ÷ (1 + tax_rate/100)
  *   − Σ sale-line qty × cost + Σ return-line qty × cost
  *
- * Revenue is ex-VAT and after the bill discount, as `products_screen.dart`'s
- * "กำไรเดือนนี้" and `closing_report.dart`'s `_grossProfit` both compute it (summing
- * lines × (1 − discount ratio) is `sales.total`). Unlike either Dart screen, credit
- * notes net out — with `return_items.cost_at_sale`, which #22 carries from the bill
- * for exactly this (ADR-0008, "การรับคืน"). Cost is `cost_at_sale`, and today's
+ * Revenue is ex-VAT and after the bill discount. Credit notes net out — with
+ * `return_items.cost_at_sale`, which #22 carries from the bill for exactly this
+ * (ADR-0008, "การรับคืน"). The Dart closing report, the reports screen and
+ * `products_screen.dart`'s "ยอดวันนี้"/"กำไรเดือนนี้"/ranking apply this same rule
+ * and formula (`domain/reports/net_sales.dart`'s `NetSales`/`computeGrossProfit`/
+ * `countedSales`; the drawer's cash sales via `drawerCashSalesOf`); the
+ * client has no return-line cost column, so it takes the original sale line's
+ * `costAtSale` for a returned line. Keep the two in step. Cost is `cost_at_sale`, and today's
  * `products.cost` only for null rows. `settings.tax_rate` defaults to 7 like the
  * column and the client.
  */
@@ -338,8 +326,11 @@ export class ReportsService {
        )
        SELECT s.revenue AS total_revenue,
               s.transactions AS total_transactions,
+              -- NET revenue (sales − credit notes) per counted bill, owner decision
+              -- 2026-10-03: the Dart reports' avgPerBill (net_sales.dart) divides
+              -- the same way, so a fully returned day reads 0, not the gross bill.
               CASE WHEN s.transactions = 0 THEN 0
-                   ELSE round(s.revenue / s.transactions, 0)
+                   ELSE round((s.revenue - r.refunds) / s.transactions, 0)
                END::numeric(20,2) AS average_ticket,
               r.refunds AS total_refunds,
               (s.revenue - r.refunds)::numeric(20,2) AS net_revenue,
@@ -384,33 +375,8 @@ export class ReportsService {
   private async closingIn(shiftId: string): Promise<ClosingReport> {
     const { tenantId, manager } = currentRequestContext();
     const rows = (await manager.query(
-      `WITH shift AS (
-         SELECT id, date_str, device_id, opened_at, closed_at, starting_cash, physical_cash
-           FROM shifts
-          WHERE tenant_id = $1::uuid AND id = $2
-       ),
-       cash AS (
-         SELECT
-           (SELECT COALESCE(sum(s.total), 0) FROM sales s
-             WHERE s.tenant_id = $1::uuid AND s.shift_id = $2
-               AND s.payment_method = $3 AND ${COUNTED_SALE}) AS cash_sales,
-           (SELECT COALESCE(sum(cp.amount), 0) FROM credit_payments cp
-             WHERE cp.tenant_id = $1::uuid AND cp.shift_id = $2
-               AND cp.payment_method = $3) AS cash_credit_payments,
-           (SELECT COALESCE(sum(r.refund_total), 0) FROM returns r
-             WHERE r.tenant_id = $1::uuid AND r.shift_id = $2
-               AND r.refund_method = $3) AS cash_refunds,
-           (SELECT COALESCE(sum(amount) FILTER (WHERE type = 'in'), 0) FROM drawer_entries
-             WHERE tenant_id = $1::uuid AND shift_id = $2) AS drawer_in,
-           (SELECT COALESCE(sum(amount) FILTER (WHERE type = 'out'), 0) FROM drawer_entries
-             WHERE tenant_id = $1::uuid AND shift_id = $2) AS drawer_out
-       ),
-       ${grossProfitCtes('s.shift_id = $2', 'r.shift_id = $2')},
-       expected AS (
-         SELECT (sh.starting_cash + c.cash_sales + c.cash_credit_payments
-                 - c.cash_refunds + c.drawer_in - c.drawer_out) AS expected_cash
-           FROM shift sh CROSS JOIN cash c
-       )
+      `WITH ${DRAWER_CASH_CTES},
+       ${grossProfitCtes('s.shift_id = $2', 'r.shift_id = $2')}
        SELECT sh.id, sh.date_str, sh.device_id, sh.opened_at, sh.closed_at,
               sh.starting_cash,
               c.cash_sales::numeric(20,2) AS cash_sales,

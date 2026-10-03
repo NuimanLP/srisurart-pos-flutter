@@ -8,66 +8,65 @@
 //   • close shift (physical cash count + variance vs expected),
 //   • blocks new money entries after close (addDrawerEntry throws the Thai
 //     message once the shift is closed — we surface it),
-//   • once closed, open the next shift the same day (08 §11, #452); a later
-//     shift counts cash from its own opening, not from midnight.
+//   • once closed, open the next shift the same day (08 §11, #452); each
+//     shift counts only its own money — by shift, owner 2026-10-03
+//     (`ShiftsRepository.drawerCash`).
 // Plus a button to open the daily ClosingReport popup.
 //
 // State is read THROUGH the repo providers (never AppDatabase). The cash-drawer
 // math mirrors db.js exactly; Thai strings are copied verbatim from the JSX.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/network/server_error_resolver.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
-import '../../data/repositories/mechanics_repository.dart';
-import '../../data/repositories/returns_repository.dart';
-import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/shifts_repository.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
+import '../widgets/device_role_banner.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/sync_status_builder.dart';
+
+/// Money inputs on this screen: a non-negative amount only. The app's usual
+/// `[0-9.]` filter drops letters ("a400" read as 0 showed a false shortfall on
+/// the close tab); the second step refuses an edit that is not one number with
+/// at most 2 decimals ("1.2.3", "1.234"), keeping the previous text.
+final _moneyInput = <TextInputFormatter>[
+  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+  TextInputFormatter.withFunction(
+    (oldValue, newValue) => RegExp(r'^\d*\.?\d{0,2}$').hasMatch(newValue.text)
+        ? newValue
+        : oldValue,
+  ),
+];
 
 /// Aggregated read-model for the cash-drawer screen.
 class _DrawerData {
   /// The active shift for TODAY, or null (no shift opened today).
   final ShiftWithEntries? shift;
-  final double cashSalesTotal;
-  final double cashRefundsToday;
-  final double cashCreditPaymentsToday;
-  const _DrawerData({
-    required this.shift,
-    required this.cashSalesTotal,
-    required this.cashRefundsToday,
-    required this.cashCreditPaymentsToday,
-  });
 
-  double get totalOut => round2(
-    (shift?.entries ?? [])
-        .where((e) => e.type == 'out')
-        .fold<double>(0, (s, e) => s + e.amount),
-  );
-  double get totalIn => round2(
-    (shift?.entries ?? [])
-        .where((e) => e.type == 'in')
-        .fold<double>(0, (s, e) => s + e.amount),
-  );
-  double get startingCash => shift?.shift.startingCash ?? 0;
+  /// Its expected cash, piece by piece — [ShiftsRepository.drawerCash], the
+  /// same number the repository's cash-out refusal checks, counted by shift
+  /// (owner 2026-10-03).
+  final DrawerCash cash;
+  const _DrawerData({required this.shift, required this.cash});
 
-  double get expectedCash => round2(
-    startingCash +
-        cashSalesTotal +
-        cashCreditPaymentsToday -
-        cashRefundsToday -
-        totalOut +
-        totalIn,
-  );
+  double get cashSalesTotal => cash.cashSales;
+  double get cashRefundsToday => cash.cashRefunds;
+  double get cashCreditPaymentsToday => cash.cashCreditPayments;
+  double get totalOut => cash.totalOut;
+  double get totalIn => cash.totalIn;
+  double get startingCash => cash.startingCash;
+  double get expectedCash => cash.expected;
 }
 
 class CashDrawerScreen extends StatefulWidget {
@@ -105,56 +104,17 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
 
   Future<_DrawerData> _loadData() async {
     final shiftsRepo = context.read<ShiftsRepository>();
-    final salesRepo = context.read<SalesRepository>();
-    final returnsRepo = context.read<ReturnsRepository>();
-    final mechanicsRepo = context.read<MechanicsRepository>();
-
-    final now = DateTime.now();
-    final today = dateKey(now);
-    // Only today's rows are read (#417) — the same rows the old
-    // `dateKey(x) == today` in-memory filters kept.
-    final day = dayBounds(now);
+    final today = todayKey();
     final drawer = await shiftsRepo.getCashDrawer();
     // db.js: only treat the drawer as today's shift if its date matches today.
     final shift = (drawer != null && drawer.shift.dateStr == today)
         ? drawer
         : null;
-
-    // Several shifts a day (08 §11, #452): a later shift counts only its own
-    // cash — from its own opening, not from midnight. The day's first shift
-    // keeps the midnight bound, as before. Same rule as the closing report.
-    final from = shift == null
-        ? day.from
-        : (await shiftsRepo.cashCountFrom(shift.shift) ?? day.from);
-
-    final salesAgg = await salesRepo.getSales(from: from, to: day.to);
-    final cashSalesTotal = salesAgg
-        .where((s) => s.sale.paymentMethod == 'เงินสด')
-        .fold<double>(0, (sum, s) => sum + s.sale.total);
-
-    final returns = await returnsRepo.getReturns(from: from, to: day.to);
-    final cashRefundsToday = returns
-        .where((r) => r.ret.refundMethod == 'เงินสด')
-        .fold<double>(0, (s, r) => s + r.ret.refundTotal);
-
-    // Only CASH settlements enter the drawer (the JS filtered
-    // p.method === 'เงินสด'). The Drift table has no method column; the method
-    // is the note's leading segment — the same test the closing report uses, so
-    // the two expect the same cash (#452; this screen used to count transfers).
-    final creditPayments = await mechanicsRepo.getCreditPayments(
-      from: from,
-      to: day.to,
-    );
-    final cashCreditPaymentsToday = creditPayments
-        .where((p) => isCashCreditPayment(p.note))
-        .fold<double>(0, (s, p) => s + p.amount);
-
-    return _DrawerData(
-      shift: shift,
-      cashSalesTotal: cashSalesTotal,
-      cashRefundsToday: cashRefundsToday,
-      cashCreditPaymentsToday: cashCreditPaymentsToday,
-    );
+    // No shift today → the screen shows only the open form; nothing to count.
+    final cash = shift == null
+        ? DrawerCash.empty
+        : await shiftsRepo.drawerCash(shift);
+    return _DrawerData(shift: shift, cash: cash);
   }
 
   @override
@@ -174,6 +134,11 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final v = double.tryParse(_startCtl.text) ?? 0;
     if (!(v > 0)) {
       _toast('กรุณากรอกเงินตั้งต้นให้ถูกต้อง');
+      return;
+    }
+    // #476: only a `pos` session may open a shift — say so before asking.
+    if (isNotPosSession(context)) {
+      _toast(notPosDeviceMessage);
       return;
     }
     final repo = context.read<ShiftsRepository>();
@@ -204,6 +169,13 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     }
     final amount = double.tryParse(_amountCtl.text) ?? 0;
     if (amount <= 0) return;
+    // Owner 2026-10-03: a cash-out larger than the drawer holds is refused —
+    // up front, against the number on this screen. The repository/server
+    // refuse it too (a stale screen), and that refusal is shown below.
+    if (_entryType == 'out' && exceedsDrawer(amount, d.expectedCash)) {
+      _toast(drawerInsufficientCashMessage(d.expectedCash));
+      return;
+    }
     final repo = context.read<ShiftsRepository>();
     setState(() => _busy = true);
     try {
@@ -213,6 +185,8 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
       _refresh();
     } catch (e) {
       _toast(_clean(e));
+      // A refusal means this screen's count was stale — re-read it.
+      if (mounted) _refresh();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -240,13 +214,30 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     }
   }
 
-  String _clean(Object e) => ServerErrorResolver.resolveCounterError(e);
+  String _clean(Object e) => isDeviceRoleRefusal(e)
+      // #476: the server's 403 gets the sentence that says what to do.
+      ? notPosDeviceMessage
+      : ServerErrorResolver.resolveCounterError(e);
 
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg)));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          // #476: the device-role refusal carries its next step.
+          action: msg == notPosDeviceMessage
+              ? SnackBarAction(
+                  label: goToDevicesLabel,
+                  // The snackbar can outlive this screen.
+                  onPressed: () {
+                    if (mounted) context.go(AppRoutes.devices);
+                  },
+                )
+              : null,
+        ),
+      );
   }
 
   @override
@@ -273,6 +264,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const NotPosDeviceBanner(),
         // Header
         Container(
           padding: const EdgeInsets.fromLTRB(24, 18, 16, 14),
@@ -384,6 +376,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: _moneyInput,
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                   fontSize: 22,
@@ -631,6 +624,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
+                        inputFormatters: _moneyInput,
                         textAlign: TextAlign.right,
                         style: const TextStyle(
                           fontSize: 18,
@@ -703,7 +697,8 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         if (entries.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 20),
-            child: EmptyState(message: 'ยังไม่มีรายการ'),
+            // Ratified by the owner 2026-10-03 (PR #568): only manual cash in/out entries are listed here, not sales.
+            child: EmptyState(message: 'ยังไม่มีรายการเงินเข้า/ออก'),
           ),
         for (final e in entries) _entryRow(context, e),
       ],
@@ -763,9 +758,12 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final theme = Theme.of(context);
     final shift = d.shift!;
     final closed = shift.shift.closedAt != null;
-    final phys = round2(double.tryParse(_physCtl.text) ?? 0);
+    // A count exists only once the text is a number — a lone "." (allowed
+    // mid-typing) must not read as ฿0 and show a false shortfall.
+    final parsedPhys = double.tryParse(_physCtl.text);
+    final phys = round2(parsedPhys ?? 0);
     final variance = round2(phys - d.expectedCash);
-    final hasPhys = _physCtl.text.isNotEmpty;
+    final hasPhys = parsedPhys != null;
     final varColor = variance == 0
         ? AppColors.successLight
         : variance > 0
@@ -896,6 +894,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                inputFormatters: _moneyInput,
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                   fontSize: 26,
@@ -905,8 +904,15 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 10),
-              if (hasPhys)
-                Container(
+              // The variance row's space is reserved before a count is typed,
+              // so it never appears above the close button and pushes it
+              // down under a click aimed at it (the #567 pay-button rule).
+              Visibility(
+                visible: hasPhys,
+                maintainSize: true,
+                maintainAnimation: true,
+                maintainState: true,
+                child: Container(
                   margin: const EdgeInsets.only(bottom: 14),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -942,6 +948,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                     ],
                   ),
                 ),
+              ),
               SyncStatusBuilder(
                 builder: (context, status, isDegraded) {
                   return StreamBuilder<int>(

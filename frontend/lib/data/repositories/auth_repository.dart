@@ -243,6 +243,21 @@ class AuthRepository {
     return claims?.did;
   }
 
+  /// The device the stored session was signed for: the `did` of the refresh
+  /// token (#558). Null for a session made without a device token. Read from
+  /// the refresh token, not the access token, because on web the access token
+  /// is memory-only and is gone after a reload (#400).
+  Future<String?> sessionDeviceId() async =>
+      JwtClaims.tryParse(await tokenStorage.getRefreshToken())?.did;
+
+  /// The device role the stored session was signed for: the `drole` of the
+  /// refresh token (#476) — what the server's `RequireDeviceRole('pos')` will
+  /// see, since `/auth/refresh` copies it into every new access token. Null
+  /// for a session made without a device token. Unlike [getDeviceRole] there
+  /// is deliberately no fallback to a role remembered from an earlier login.
+  Future<String?> sessionDeviceRole() async =>
+      JwtClaims.tryParse(await tokenStorage.getRefreshToken())?.drole;
+
   /// Checks whether a valid session (or refresh token) is present.
   Future<bool> isAuthenticated() async {
     final refreshToken = await tokenStorage.getRefreshToken();

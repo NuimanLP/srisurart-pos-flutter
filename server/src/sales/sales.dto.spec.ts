@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCreateSale } from './sales.dto.js';
+import { parseCreateSale, parseSaleQuoteId } from './sales.dto.js';
 
 describe('parseCreateSale — paymentMethod', () => {
   /** A body that is otherwise valid, so only `paymentMethod` is under test. */
@@ -124,5 +124,28 @@ describe('parseCreateSale — push-only fields (#411)', () => {
     });
     expect(sale).not.toHaveProperty('date');
     expect(sale).not.toHaveProperty('soldOffline');
+  });
+});
+
+describe('quoteId (#27, owner 2026-10-03)', () => {
+  const body = (quoteId: unknown) => ({
+    id: 's1',
+    subtotal: '10.00',
+    discount: '0.00',
+    total: '10.00',
+    paymentMethod: 'เงินสด',
+    quoteId,
+    items: [{ productId: 'p1', name: 'x', qty: 1, price: '10.00' }],
+  });
+
+  it('is read only by parseSaleQuoteId — parseCreateSale (also the /sync/push replay) ignores it', () => {
+    expect(parseSaleQuoteId(body('q1'))).toBe('q1');
+    expect(parseCreateSale(body('q1'))).not.toHaveProperty('quoteId');
+  });
+
+  it('is optional, and a non-string is a 400', () => {
+    expect(parseSaleQuoteId(body(undefined))).toBeNull();
+    expect(parseSaleQuoteId(body(null))).toBeNull();
+    expect(() => parseSaleQuoteId(body(42))).toThrow(/quoteId must be a string/);
   });
 });

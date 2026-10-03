@@ -50,17 +50,17 @@ if command -v docker >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1; then
   NGINX_TMP="$REPO_ROOT/.tmp-nginx-validate"
   trap 'rm -rf "$NGINX_TMP"' EXIT
   rm -rf "$NGINX_TMP"
-  mkdir -p "$NGINX_TMP/certs" "$NGINX_TMP/auth"
+  mkdir -p "$NGINX_TMP/certs" "$NGINX_TMP/ca" "$NGINX_TMP/auth"
   # nginx -t opens every file a directive names (ssl_certificate*, auth_basic_user_file), so a
-  # placeholder cert + htpasswd is required even for a pure syntax check — the real ones are
-  # generated at container start by certgen / htpasswd-gen. The leading "//" on -subj and on
-  # every CONTAINER-side path below is the standard Git-Bash-on-Windows escape: MSYS auto
-  # path-converts any argument that looks like a single-leading-slash absolute path (mangling
-  # "/CN=localhost" and the container side of -v into Windows paths), but leaves a doubled
-  # leading slash alone; the extra slash is a no-op to openssl/Nginx/Docker on Linux (CI), so
-  # this needs no OS branch.
-  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "//CN=localhost" \
-    -keyout "$NGINX_TMP/certs/server.key" -out "$NGINX_TMP/certs/server.crt" >/dev/null 2>&1
+  # placeholder cert + htpasswd is required even for a pure syntax check — the cert comes from
+  # the real certgen.sh (run on the host's openssl), the htpasswd mirrors htpasswd-gen. The
+  # leading "//" on every CONTAINER-side path below is the standard Git-Bash-on-Windows escape:
+  # MSYS auto path-converts any argument that looks like a single-leading-slash absolute path
+  # (mangling the container side of -v into a Windows path), but leaves a doubled leading slash
+  # alone; the extra slash is a no-op to Nginx/Docker on Linux (CI), so this needs no OS branch.
+  # MSYS2_ARG_CONV_EXCL does the same for certgen.sh's "/CN=..." subjects (no-op on Linux).
+  CERTS_DIR="$NGINX_TMP/certs" CA_DIR="$NGINX_TMP/ca" MSYS2_ARG_CONV_EXCL="/CN" \
+    sh "$REPO_ROOT/server/docker/certgen/certgen.sh" >/dev/null 2>&1
   printf 'dummy:%s\n' "$(openssl passwd -apr1 dummy)" >"$NGINX_TMP/auth/k6-remote-write.htpasswd"
   docker run --rm \
     -v "$REPO_ROOT/server/docker/nginx/nginx.conf://etc/nginx/nginx.conf:ro" \

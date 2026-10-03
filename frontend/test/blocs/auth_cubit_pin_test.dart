@@ -14,6 +14,7 @@ class _FakeTokenStorage implements TokenStorage {
   String? refreshToken;
   String? deviceToken = 'mock-device-token';
   AuthUser? user;
+  bool throwStoreUnavailable = false;
 
   @override
   Future<String?> getAccessToken() async => accessToken;
@@ -24,7 +25,10 @@ class _FakeTokenStorage implements TokenStorage {
   @override
   Future<void> setRefreshToken(String? token) async => refreshToken = token;
   @override
-  Future<String?> getDeviceToken() async => deviceToken;
+  Future<String?> getDeviceToken() async {
+    if (throwStoreUnavailable) throw const TokenStoreUnavailableException();
+    return deviceToken;
+  }
   @override
   Future<void> setDeviceToken(String? token) async => deviceToken = token;
   @override
@@ -44,6 +48,24 @@ class _FakeTokenStorage implements TokenStorage {
     refreshToken = null;
     user = null;
     deviceToken = null;
+  }
+}
+
+/// A PIN store whose check cannot run (e.g. a Drift read failing).
+class _ThrowingPinRepo extends OfflinePinRepository {
+  _ThrowingPinRepo({
+    required super.db,
+    required super.tokenStorage,
+    super.apiClient,
+  });
+
+  @override
+  Future<PinVerifyResult> verifyPin({
+    required String pin,
+    required String? deviceId,
+    DateTime? now,
+  }) async {
+    throw StateError('pin store unreadable');
   }
 }
 
@@ -158,6 +180,43 @@ void main() {
       expect(cubit.state, isA<Unauthenticated>());
       final state = cubit.state as Unauthenticated;
       expect(state.errorMessage, contains('รหัส PIN ถูกล็อก'));
+    });
+
+    test('an unreadable token store ends in Unauthenticated with the #400 sentence',
+        () async {
+      tokenStorage.throwStoreUnavailable = true;
+
+      final result = await cubit.loginWithOfflinePin('1234');
+
+      expect(result, const PinVerifyError(TokenStoreUnavailableException.message));
+      final state = cubit.state as Unauthenticated;
+      expect(state.errorMessage, TokenStoreUnavailableException.message);
+    });
+
+    test('a verifyPin that throws does not leave the cubit in AuthLoading',
+        () async {
+      final throwing = AuthCubit(
+        authRepository: authRepo,
+        offlinePinRepository: _ThrowingPinRepo(
+          db: db,
+          tokenStorage: tokenStorage,
+          apiClient: ApiClient(tokenStorage: tokenStorage),
+        ),
+      );
+      addTearDown(throwing.close);
+      final states = <AuthState>[];
+      final sub = throwing.stream.listen(states.add);
+
+      final result = await throwing.loginWithOfflinePin('1234');
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(states.first, isA<AuthLoading>());
+      expect(throwing.state, isA<Unauthenticated>());
+      // Not a PosException / ApiException / transport error: the login form's
+      // existing generic sentence, never raw English.
+      expect((throwing.state as Unauthenticated).errorMessage, 'เข้าสู่ระบบไม่สำเร็จ');
+      expect(result, const PinVerifyError('เข้าสู่ระบบไม่สำเร็จ'));
     });
   });
 

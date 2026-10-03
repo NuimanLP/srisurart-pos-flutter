@@ -38,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Commit on main to deploy (full or short SHA). Empty = the head of main. An earlier SHA is a rollback; the schema never moves backwards."
+        description: "Commit on main to deploy (full or short SHA). Empty = the newest commit on main that changed code (a docs-only head has no images). An earlier SHA is a rollback; the schema never moves backwards."
         required: false
         default: ""
 
@@ -81,7 +81,14 @@ jobs:
           if [[ "$EVENT" == "workflow_run" ]]; then
             want="$RUN_SHA"
           elif [[ -z "$INPUT" ]]; then
+            # Newest commit on main (first-parent walk, max 100) that changed code, i.e. the newest
+            # one that has release images. A docs-only head builds none, so deploying it would fail.
             want="origin/main"
+            while read -r c; do
+              p=$(git rev-parse --verify --quiet "${c}^1") || break
+              kind=$(GITHUB_OUTPUT=/dev/stdout BEFORE="$p" SHA="$c" deploy/scripts/push-changes-kind.sh | grep '^code=' || true)
+              if [[ "$kind" != "code=false" ]]; then want="$c"; break; fi
+            done < <(git rev-list --first-parent --max-count=100 origin/main)
           elif [[ "$INPUT" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
             want="$INPUT"
           else
@@ -101,10 +108,17 @@ jobs:
           # of a newer release. Consequence: after two quick merges only the later one deploys, and
           # if its CI fails nothing deploys until the next merge (or a manual run).
           head=$(git rev-parse origin/main)
+          # Exception: when every commit between $sha and the head is docs-only (same rule as the CI
+          # `changes` job), the head builds no image and never deploys, so $sha is still the latest
+          # code and deploys itself. Any doubt (script says code, or fails) = skip as before.
           if [[ "$EVENT" == "workflow_run" && "$sha" != "$head" ]]; then
-            echo "::notice::Not deploying $sha: main has moved on to $head, whose own CI completion deploys it."
-            echo "sha=" >> "$GITHUB_OUTPUT"
-            exit 0
+            kind=$(GITHUB_OUTPUT=/dev/stdout BEFORE="$sha" SHA="$head" deploy/scripts/push-changes-kind.sh | grep '^code=' || true)
+            if [[ "$kind" != "code=false" ]]; then
+              echo "::notice::Not deploying $sha: main has moved on to $head with code changes, whose own CI completion deploys it."
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::notice::main moved on to $head, but only docs changed since $sha; $sha is still the latest code and is deployed."
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Release to deploy: $sha"

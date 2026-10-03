@@ -220,3 +220,14 @@ class PinVerifyNotPos extends PinVerifyResult {
   List<Object?> get props => [];
 }
 
+/// The check itself could not run (e.g. a token or PIN store that cannot be
+/// read). [message] is the Thai sentence already shown by the cubit.
+class PinVerifyError extends PinVerifyResult {
+  const PinVerifyError(this.message);
+
+  final String message;
+
+  @override
+  List<Object?> get props => [message];
+}
+

@@ -908,4 +908,36 @@ void main() {
     final row = await (db.select(db.mechanics)..where((t) => t.id.equals('m_to_delete'))).getSingle();
     expect(row.deletedAt, isNotNull);
   });
+
+  test('deleteMechanic: 409 MECHANIC_HAS_BALANCE becomes a Thai PosException, row not soft-deleted', () async {
+    await db.into(db.mechanics).insert(
+          MechanicsCompanion.insert(
+            id: 'm_owes',
+            code: 'MEC089',
+            name: 'Owes',
+            createdAt: '2026-09-12T10:00:00.000Z',
+            creditBalance: const Value(150),
+          ),
+        );
+    final mockClient = MockClient((request) async {
+      return http.Response(
+        '{"status":"error","error":{"code":"MECHANIC_HAS_BALANCE","message":"Mechanic still has an outstanding credit balance."}}',
+        409,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final repo = ApiMechanicsRepository(db, ApiClient(httpClient: mockClient));
+
+    await expectLater(
+      repo.deleteMechanic('m_owes'),
+      throwsA(
+        isA<PosException>()
+            .having((e) => e.code, 'code', 'MECHANIC_HAS_BALANCE')
+            .having((e) => e.message, 'message', 'ช่างยังมียอดค้างชำระ — รับชำระให้ครบก่อนลบ'),
+      ),
+    );
+
+    final row = await (db.select(db.mechanics)..where((t) => t.id.equals('m_owes'))).getSingle();
+    expect(row.deletedAt, isNull);
+  });
 }

@@ -299,6 +299,36 @@ export function getTenantDetail(
   );
 }
 
+/** `GET /platform/tenants/:id/audit` (#443) — one page, newest first; pass `nextCursor` as `before`. */
+export function getTenantAudit(
+  baseUrl: string,
+  token: string,
+  tenantId: string,
+  page: { before?: string; limit?: string },
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  const qs = new URLSearchParams();
+  if (page.before) qs.set('before', page.before);
+  if (page.limit) qs.set('limit', page.limit);
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  return apiRequest(
+    baseUrl,
+    'GET',
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/audit${query}`,
+    { token },
+    fetchImpl,
+  );
+}
+
+/** `GET /platform/system` (#443) — deployed SHA, readiness, queue counts, backup statement. */
+export function getSystemStatus(
+  baseUrl: string,
+  token: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  return apiRequest(baseUrl, 'GET', '/api/v1/platform/system', { token }, fetchImpl);
+}
+
 /** `POST /platform/tenants/:id/devices/:deviceId/enrol-code` (#443 PR2). */
 export function reissueEnrolCode(
   baseUrl: string,
@@ -312,6 +342,27 @@ export function reissueEnrolCode(
     'POST',
     `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/devices/${encodeURIComponent(deviceId)}/enrol-code`,
     { token },
+    fetchImpl,
+  );
+}
+
+/**
+ * `POST /platform/tenants/:id/devices/:deviceId/replace` (#476) — retires a lost enrolled
+ * device and creates its replacement (new `device_no`), returning a one-time enrolCode.
+ */
+export function replaceDevice(
+  baseUrl: string,
+  token: string,
+  tenantId: string,
+  deviceId: string,
+  body: { force?: boolean; note?: string; label?: string },
+  fetchImpl: FetchLike = fetch,
+): Promise<unknown> {
+  return apiRequest(
+    baseUrl,
+    'POST',
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/devices/${encodeURIComponent(deviceId)}/replace`,
+    { token, body },
     fetchImpl,
   );
 }
@@ -483,6 +534,45 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
     return;
   }
 
+  if (command === 'tenants:audit') {
+    const [tenantId] = positionals;
+    if (!tenantId) {
+      throw new Error(
+        'usage: tenants:audit <tenantId> [--limit <1-200>] [--before <cursor>] --user <admin username>',
+      );
+    }
+    const user = requireFlag(flags, 'user');
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      const result = await getTenantAudit(
+        baseUrl,
+        token,
+        tenantId,
+        { before: flags.before, limit: flags.limit },
+        fetchImpl,
+      );
+      log(JSON.stringify(result, null, 2));
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
+  if (command === 'system') {
+    const user = requireFlag(flags, 'user');
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      log(JSON.stringify(await getSystemStatus(baseUrl, token, fetchImpl), null, 2));
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
   if (command === 'devices:reissue-code') {
     const [tenantId, deviceId] = positionals;
     if (!tenantId || !deviceId) {
@@ -496,6 +586,44 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
       const password = await readSecret(prompter, 'Platform admin password: ');
       const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
       const result = await reissueEnrolCode(baseUrl, token, tenantId, deviceId, fetchImpl);
+      log(JSON.stringify(result, null, 2));
+      prompter.write(
+        'Note: enrolCode above is shown once and cannot be retrieved again — record it now.\n',
+      );
+    } finally {
+      prompter.close();
+    }
+    return;
+  }
+
+  if (command === 'devices:replace') {
+    const [tenantId, deviceId] = positionals;
+    if (!tenantId || !deviceId) {
+      throw new Error(
+        'usage: devices:replace <tenantId> <deviceId> --user <admin username> ' +
+          '[--label <label>] [--force --note <why>]',
+      );
+    }
+    const user = requireFlag(flags, 'user');
+    // Validate before the password prompt (CLAUDE.md: validate first, then use).
+    const force = 'force' in flags;
+    if (force && flags.force !== '' && flags.force !== 'true') {
+      throw new Error('--force takes no value');
+    }
+    const note = force ? requireFlag(flags, 'note') : undefined;
+    const label = flags.label?.trim() || undefined;
+    const prompter = createPrompter(io.input, io.output);
+    try {
+      const password = await readSecret(prompter, 'Platform admin password: ');
+      const { token } = await platformLogin(baseUrl, user, password, fetchImpl);
+      const result = await replaceDevice(
+        baseUrl,
+        token,
+        tenantId,
+        deviceId,
+        { ...(force ? { force: true, note } : {}), ...(label ? { label } : {}) },
+        fetchImpl,
+      );
       log(JSON.stringify(result, null, 2));
       prompter.write(
         'Note: enrolCode above is shown once and cannot be retrieved again — record it now.\n',
@@ -592,7 +720,8 @@ export async function runPlatformCli(argv: string[], io: CliIO = {}): Promise<vo
 
   throw new Error(
     `unknown command "${command}" — expected one of: login, tenants:list, tenants:create, ` +
-      'tenants:status, tenants:show, devices:reissue-code, owner:temp-password, owner:set-password',
+      'tenants:status, tenants:show, tenants:audit, system, devices:reissue-code, ' +
+      'devices:replace, owner:temp-password, owner:set-password',
   );
 }
 

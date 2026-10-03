@@ -191,6 +191,12 @@ stateDiagram-v2
 | `sale.void_offline` | push เท่านั้น | – | บิล void แล้ว → `applied` | `sale:<saleId>` · รอ `shift` |
 
 - override วงเงิน = `overrideCreditLimit` ใน `sale.create` · ทาง push → รายการตรวจ `credit_override`
+- **บิลจากตะกร้าใบเสนอราคา (owner 2026-10-03, #27):** `sale.create` มี `quoteId` (ไม่บังคับ, เหมือน body ออนไลน์ `POST /sales`) · ตอน push ล็อกแถว quote **ก่อน** (ลำดับเดียวกับออนไลน์) แล้ว**รับบิลเสมอ** (ลูกค้าจ่ายเงินแล้ว):
+  ใบยัง open และยังไม่หมดอายุ **ณ วันที่ของบิล** → ตั้ง converted + `converted_sale_id` ใน transaction เดียวกับบิล ·
+  ใบแปลงเป็นบิลอื่นไปแล้ว / หมดอายุ**ก่อนวันที่ของบิล** / ไม่มีใบนี้แล้ว (ถูก purge/ลบ) → **ไม่แตะใบเสนอราคา** และสร้างรายการตรวจ `quote_conflict`
+  · **owner เคาะ 2026-10-03 (#575):** (1) ใบที่ไม่มีแล้ว = รับบิล + รายการตรวจ `reason: not_found` · (2) หมดอายุวัดกับ**วันที่ที่บิลถูกเก็บจริง** (วันที่ของเครื่องหลัง clamp ตาม §10, ไม่มีวันที่ = `now()` เหมือน `insertSale`) ไม่ใช่เวลาที่ push มาถึง — ใบที่ยังใช้ได้ตอนขาย แม้หมดอายุก่อน sync ก็แปลงตามปกติ ไม่มีรายการตรวจ
+  `details { opId, saleId, receiptNo, quoteId, reason: already_converted|expired|not_found, convertedSaleId?, validUntil? }` หนึ่งรายการต่อบิล (unique index บางส่วน, push ซ้ำไม่เพิ่ม — migration …4700) ·
+  บิลถูกปฏิเสธ (สต็อกไม่พอ ฯลฯ) = rollback ทั้งหมด ใบยัง open ไม่มีรายการตรวจ · replay by key/id ไม่ทำขั้นนี้ซ้ำ
 - id ชน + ฟิลด์ที่เทียบไม่ตรง → `rejected` **`CLIENT_ID_REUSED`** `details: {type, id}` (code เดียวแทน `SALE_ID_REUSED`/`CREDIT_PAYMENT_ID_REUSED` บนทาง push; ทางออนไลน์คง code เดิม)
 
 > สถานะ 2026-09-27 (ฝั่ง client): เข้าคิวได้แล้ว `sale.create` · `credit_payment.create` · `customer.*` · `sale.void_offline` · **`shift.open` + `drawer.entry`** (PR #456, #452 slice — body ออนไลน์มี `id` แล้ว) · **`return.create`** (#452, PR #469 — body ออนไลน์มี `id` · ออฟไลน์เขียนใบลดหนี้ + เลข CN ของเครื่อง + คืนสต็อก/ลูกค้า/ช่าง + void บิลที่คืนครบ + แถว outbox ใน local transaction เดียว ผ่านกฎ pure `planReturn` ที่ใช้ร่วมกับ Drift build) · client test ผูก replay by key + replay by id + `CLIENT_ID_REUSED` ของสาม op นี้แล้ว (`sync_service_contract_test.dart` กลุ่ม 8) · API build เข้าคิวเฉพาะ transport failure — 5xx/429 จอดความพยายามไว้ (id + key เดิม) เหมือน `ApiSalesRepository` (owner เคาะ 2026-09-27, §5 แก้ตามแล้ว)
@@ -336,7 +342,7 @@ stateDiagram-v2
 | ทาง | `sales.date` / `returns.date` / `drawer_entries.created_at` / `shifts.opened_at` |
 |---|---|
 | route ออนไลน์ | `now()` (ไม่อ่าน `date` ใน body) |
-| `/sync/push` | ใน `[opened_at − 5 นาที, now() + 5 นาที]` → ใช้ของเครื่อง · นอกนั้น → clamp เข้า `[opened_at, now()]` + รายการตรวจ `date_flag` · period ≠ เดือนหลัง clamp → `date_flag` |
+| `/sync/push` | ใน `[opened_at − 5 นาที, now() + 5 นาที]` → ใช้ของเครื่อง · นอกนั้น → clamp เข้า `[opened_at, now()]` + รายการตรวจ `date_flag` · period ≠ เดือนหลัง clamp → `date_flag` · วันที่ที่เก็บนี้คือวันที่ที่ใช้ตัดสินว่าใบเสนอราคาหมดอายุหรือยัง (§6.1, owner 2026-10-03) |
 
 รายงานนับตาม `date` — บิลออฟไลน์ 30 ก.ย. ที่ push 1 ต.ค. อยู่ในเดือนกันยายน
 
@@ -373,7 +379,9 @@ stateDiagram-v2
 | รายการในคิว | server ประทับกะ active ณ ตอนนั้น — ลำดับ push ทำให้ตรง |
 | กะที่มาจาก import (#244) | ถูก archive ทุกกะ (`auto_archived` ถ้าไม่เคยปิด) โดย import เอง — **ไม่สร้าง** `shift_uncounted` (รายการตรวจเกิดจาก `open` เท่านั้น) · บิลที่ import ไม่มี `shift_id` → void ไม่ได้ ต้องออกใบลดหนี้ (#94 เดิม) |
 
-> สถานะ 2026-09-27: Drift `openShift(startingCash, {id})` หลายกะต่อวันแล้ว — ลบ "active วันเดียวกัน → คืนกะเดิม" (#453, PR #456) · ปิดกะบน API build ส่ง outbox ก่อน แล้วปฏิเสธ `OUTBOX_NOT_EMPTY` ถ้ายังเหลือ op ใด ๆ + ปุ่มปิดกะปิดเมื่อ `outboxRemaining > 0` (PR #456 — ข้อความไทย owner รับรอง 2026-09-27) · หน้าลิ้นชักแสดงฟอร์ม `เปิดกะใหม่` เมื่อกะปัจจุบันปิดแล้ว (#452, PR #469 — ข้อความ **agent ร่าง** ใน `02 §8.1.1`) · เงินสดที่ควรมีของกะที่สองของวันนับตั้งแต่เวลาเปิดกะของตัวเอง ไม่ใช่ตั้งแต่เที่ยงคืน — หน้าลิ้นชักและส่วนตรวจนับของรายงานปิดร้านใช้จุดเริ่มเดียวกัน (`ShiftsRepository.cashCountFrom`) · กะแรกของวัน (รวมทุกกะที่เปิดก่อนมีหลายกะต่อวัน) ยังนับตั้งแต่เที่ยงคืนเหมือนเดิม · รับชำระเครดิตนับเข้าลิ้นชักเฉพาะเงินสดทั้งสองที่ (หน้าลิ้นชักเคยนับเงินโอนด้วย)
+> สถานะ 2026-09-27: Drift `openShift(startingCash, {id})` หลายกะต่อวันแล้ว — ลบ "active วันเดียวกัน → คืนกะเดิม" (#453, PR #456) · ปิดกะบน API build ส่ง outbox ก่อน แล้วปฏิเสธ `OUTBOX_NOT_EMPTY` ถ้ายังเหลือ op ใด ๆ + ปุ่มปิดกะปิดเมื่อ `outboxRemaining > 0` (PR #456 — ข้อความไทย owner รับรอง 2026-09-27) · หน้าลิ้นชักแสดงฟอร์ม `เปิดกะใหม่` เมื่อกะปัจจุบันปิดแล้ว (#452, PR #469 — ข้อความ **agent ร่าง** ใน `02 §8.1.1`) · ~~เงินสดที่ควรมีของกะที่สองของวันนับตั้งแต่เวลาเปิดกะของตัวเอง ไม่ใช่ตั้งแต่เที่ยงคืน — หน้าลิ้นชักและส่วนตรวจนับของรายงานปิดร้านใช้จุดเริ่มเดียวกัน (`ShiftsRepository.cashCountFrom`) · กะแรกของวัน (รวมทุกกะที่เปิดก่อนมีหลายกะต่อวัน) ยังนับตั้งแต่เที่ยงคืนเหมือนเดิม~~ (ประวัติ — แทนที่ 2026-10-03 ดูข้างล่าง) · รับชำระเครดิตนับเข้าลิ้นชักเฉพาะเงินสดทั้งสองที่ (หน้าลิ้นชักเคยนับเงินโอนด้วย)
+
+> 🔄 **เจ้าของตัดสิน 2026-10-03 (PR #580): เงินสดที่ควรมีนับตามกะ** แทนหน้าต่างเวลา — เงินที่รับ/จ่ายระหว่างกะเปิดอยู่เป็นของกะนั้น แม้ข้ามเที่ยงคืน · server นับตาม `shift_id` (`server/src/reports/drawer-cash.sql.ts`, ใช้ร่วมกันระหว่าง `GET /reports/closing` กับการปฏิเสธเงินออกเกิน `DRAWER_INSUFFICIENT_CASH`) · client `ShiftsRepository.drawerCash`: รายการเงินเข้า/ออกตาม `shiftId` · บิลตาม `Sales.shiftId` หรือ (ไม่มี `shiftId` — Drift build) ตาม `date` ในช่วง `[openedAt, closedAt]` ของกะ · ใบลดหนี้และรับชำระเครดิต (ไม่มีคอลัมน์กะในเครื่อง) ตาม `date` ในช่วงนั้น · ทั้งสองฝั่งต้องผ่าน `fixtures/drawer-cash/agreement.json` (กะเดียว, กะข้ามเที่ยงคืน, สองกะในวันเดียว) · `cashCountFrom` ถูกลบ · ⚠️ ข้อยกเว้นที่ยังเหลือ: op ในคิวที่ push **ไม่ตามลำดับ** (ติด/ถูกปฏิเสธแล้วส่งใหม่หลังกะถัดไปเปิด) — server ประทับกะที่เปิดอยู่ตอนมาถึง แต่ client นับในกะที่สร้าง · ❓ **ยังรอเจ้าของตอบ (2026-10-03):** กะที่ยังเปิดอยู่ข้ามเที่ยงคืน *นับ* ถูกแล้ว แต่หน้าลิ้นชักและส่วนตรวจนับของรายงานปิดร้าน**ยังแสดงเฉพาะกะของวันนี้** (`shift.dateStr == today` ใน `cash_drawer_screen.dart` / `closing_report.dart`) — หลังเที่ยงคืนกะนั้นจึงหายจากทั้งสองหน้า
 
 **ตัวอย่าง:** เน็ตล่มสองวัน: `open A`(15) → 20 บิล → `open B`(16) → 30 บิล → push ตามลำดับ → A archive + `shift_uncounted` · บิลลงกะของตัวเองครบ
 
@@ -429,7 +437,7 @@ stateDiagram-v2
 | แท็บ (placeholder) | แหล่ง | ปุ่ม (placeholder) |
 |---|---|---|
 | ถูกปฏิเสธ/ค้าง | `outbox_ops` `rejected` + `stuck` (ในเครื่อง) — code, ข้อความ, payload, เลขที่พิมพ์ | ส่งใหม่ (key เดิม · ห้ามเปลี่ยนเลข) · ทิ้ง |
-| รอตรวจ | `GET /review-items?status=pending` — `void_offline` · `credit_override` · `shift_uncounted` · `date_flag` · `device_force_retired` · `receipt_renumbered` (owner 2026-09-25, §10) | ตรวจแล้ว `POST /review-items/:id/reviewed` (idempotent, `audit_log`, ไม่แตะเงิน/สต็อก) |
+| รอตรวจ | `GET /review-items?status=pending` — `void_offline` · `credit_override` · `shift_uncounted` · `date_flag` · `device_force_retired` · `receipt_renumbered` (owner 2026-09-25, §10) · `quote_conflict` (owner 2026-10-03, §6.1 — ป้าย `บิลออฟไลน์จากใบเสนอราคาที่ใช้ไม่ได้แล้ว` รับรอง 2026-10-03 #575) · `drawer_overdrawn_offline` (owner 2026-10-03, ต่อจาก PR #580 — `drawer.entry` ออฟไลน์ที่เงินออกเกินยอดที่ควรมี ถูกรับเสมอแต่เจ้าของต้องตรวจ · ป้าย `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` รับรอง 2026-10-03 PR #585) | ตรวจแล้ว `POST /review-items/:id/reviewed` (idempotent, `audit_log`, ไม่แตะเงิน/สต็อก) |
 
 **ส่งใหม่ลงกะปัจจุบัน:** payload ไม่มี `shiftId` → บิลที่ถูกปฏิเสธในกะ A แล้วส่งใหม่ระหว่างกะ B จะลงกะ B, วันที่ถูก clamp + `date_flag` — ยอมรับ
 

@@ -230,6 +230,7 @@ class ApiSalesRepository implements SalesRepository {
     input.mechanicId ?? '',
     input.mechanicDelta == null ? '' : wireMoney(input.mechanicDelta!),
     input.overrideCreditLimit,
+    input.quoteId ?? '',
     for (final i in input.items) '${i.productId}x${i.qty}@${wireMoney(i.price)}',
   ].join('|');
 
@@ -269,6 +270,13 @@ class ApiSalesRepository implements SalesRepository {
     // The counter's own answer to 'ยืนยันขายเครดิต?', carried — never
     // re-derived from the cached mechanic row. See `SaleInput.overrideCreditLimit`.
     'overrideCreditLimit': input.overrideCreditLimit,
+    // #27 (owner, 2026-10-03, option (ข)): the quote this cart was loaded from;
+    // `POST /sales` converts it in the bill's own transaction. The outbox
+    // `sale.create` payload carries it too, but `/sync/push` does not act on it
+    // yet — what a quote conflict should do to a bill already paid offline is an
+    // open owner question — so a quote cart sold offline leaves its quote open
+    // (and "→ ขาย" still on offer) until that is decided.
+    'quoteId': ?input.quoteId,
     'items': [
       for (var i = 0; i < input.items.length; i++)
         {
@@ -433,6 +441,26 @@ class ApiSalesRepository implements SalesRepository {
       // #489: the server's number into the local counter, in this same
       // transaction — else a later offline sale reissues it.
       await docNumberService?.commitServerIssued(sale.receiptNo);
+
+      // #27: the quote as the server left it (`quote` is present only when the
+      // body carried a `quoteId`, and null on a replay after the quote was
+      // purged). Absent leaves the cached quote alone until the next pull.
+      // Read defensively: a throw here would roll back the receipt-number
+      // commit above, and a field the reply omits leaves the row alone.
+      final quote = res['quote'];
+      final quoteId = quote is Map ? quote['id'] : null;
+      if (quoteId is String) {
+        final status = quote['status'];
+        final convertedAt = quote['convertedAt'];
+        await (db.update(db.quotes)..where((t) => t.id.equals(quoteId))).write(
+          QuotesCompanion(
+            status: status is String ? Value(status) : const Value.absent(),
+            convertedAt: convertedAt is String
+                ? Value(stamp(convertedAt))
+                : const Value.absent(),
+          ),
+        );
+      }
     });
 
     return sale;
@@ -652,6 +680,10 @@ class ApiSalesRepository implements SalesRepository {
   @override
   Future<List<SaleWithItems>> getSales({DateTime? from, DateTime? to}) =>
       drift.getSales(from: from, to: to);
+
+  @override
+  Future<List<SaleWithItems>> getSalesByIds(Iterable<String> ids) =>
+      drift.getSalesByIds(ids);
 
   @override
   Stream<List<SaleWithItems>> watchSales() => drift.watchSales();

@@ -14,6 +14,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
@@ -84,7 +86,13 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
       'ยืนยันรับสินค้าเข้าสต็อก?\n(ต้นทุนสินค้าจะถูกอัปเดตตามราคาในใบสั่งซื้อ)',
     );
     if (!ok) return;
-    final unmatched = await repo.receivePO(po.id);
+    final List<String> unmatched;
+    try {
+      unmatched = await repo.receivePO(po.id);
+    } catch (e) {
+      _showError(e);
+      return;
+    }
     _refresh();
     if (!mounted) return;
     if (unmatched.isNotEmpty) {
@@ -120,7 +128,12 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
       danger: true,
     );
     if (!ok) return;
-    await repo.cancelPO(po.id);
+    try {
+      await repo.cancelPO(po.id);
+    } catch (e) {
+      _showError(e);
+      return;
+    }
     _refresh();
   }
 
@@ -137,8 +150,23 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
       danger: true,
     );
     if (!ok) return;
-    await repo.deletePO(po.id);
+    try {
+      await repo.deletePO(po.id);
+    } catch (e) {
+      _showError(e);
+      return;
+    }
     _refresh();
+  }
+
+  /// A refused write reaches the counter as its Thai message (repositories
+  /// already convert ApiException → PosException / plain Exception).
+  void _showError(Object e) {
+    if (!mounted) return;
+    final msg = e is PosException
+        ? e.message
+        : '$e'.replaceFirst('Exception: ', '');
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _showDegradedWarning() {
@@ -448,14 +476,20 @@ class _PoCard extends StatelessWidget {
                     fontSize: 12,
                   ),
                 ),
-              IconButton(
-                tooltip: 'ลบถาวร',
-                onPressed: isDegraded ? null : onDelete,
-                icon: const Icon(Icons.delete_outline),
-                color: AppColors.error,
-                visualDensity: VisualDensity.compact,
-                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-              ),
+              // The server refuses deleting a received PO (the receive
+              // movements point at it); open and cancelled may be deleted.
+              if (po.status != 'received')
+                IconButton(
+                  tooltip: 'ลบถาวร',
+                  onPressed: isDegraded ? null : onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                  color: AppColors.error,
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
+                ),
             ],
           ),
         ],
@@ -564,6 +598,12 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
         ),
       );
       if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ServerErrorResolver.resolveCounterError(e))),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -643,6 +683,15 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                                   ),
                                 ),
                             ],
+                          ),
+                        )
+                      else if (_partSearch.trim().isNotEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: Text(
+                            'ไม่พบสินค้า',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.steelBlue),
                           ),
                         ),
                       if (_items.isNotEmpty) ...[

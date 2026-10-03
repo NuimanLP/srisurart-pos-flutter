@@ -16,11 +16,20 @@ import { CustomersService } from '../customers/customers.service.js';
 import { parseCustomerPatch } from '../people/people.dto.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { CreditPaymentsService } from '../mechanics/credit-payments.service.js';
+import { expectedCashSatangOf } from '../reports/drawer-cash.sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { ReturnsService } from '../returns/returns.service.js';
 import { parseCreateReturn } from '../returns/returns.dto.js';
-import { SalesService } from '../sales/sales.service.js';
-import { parseCreateSale, type SaleWrite } from '../sales/sales.dto.js';
+import { SalesService, type CreateSaleResult } from '../sales/sales.service.js';
+import {
+  QuoteSaleService,
+  type QuoteLockResult,
+} from '../sales/quote-sale.service.js';
+import {
+  parseCreateSale,
+  parseSaleQuoteId,
+  type SaleWrite,
+} from '../sales/sales.dto.js';
 import { VoidService } from '../sales/void.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import {
@@ -57,6 +66,7 @@ export class SyncService {
     private readonly tenants: TenantService,
     private readonly idempotency: IdempotencyService,
     private readonly sales: SalesService,
+    private readonly quoteSales: QuoteSaleService,
     private readonly returns: ReturnsService,
     private readonly shifts: ShiftsService,
     private readonly creditPayments: CreditPaymentsService,
@@ -581,12 +591,32 @@ export class SyncService {
           soldOffline: true,
         };
 
+        // #27 follow-up (owner, 2026-10-03, 08 §6.1): a cart sold offline from a quote.
+        // The quote row is locked FIRST — the same order as `POST /sales` `quoteId`.
+        const quoteId = parseSaleQuoteId(op.payload);
+        const quote =
+          quoteId === null
+            ? null
+            : await this.quoteSales.lockAndClassify(
+                manager,
+                tenantId,
+                quoteId,
+                saleInput.id,
+                // The date the bill is stored with (08 §10 clamp) — expiry is judged
+                // at the sale, not at the sync (owner, 2026-10-03).
+                clampedDate,
+              );
+
         // #455 / 08 §8.2: the whole `POST /sales` reply — `items[].costAtSale`,
         // `movements`, `shiftId`, `date` and the ledgers included.
-        return this.sales.create(saleInput, {
+        const sale = await this.sales.create(saleInput, {
           userId: actor.userId,
           deviceId: device.id,
         });
+        if (quote !== null && quoteId !== null) {
+          await this.settleOfflineQuote(manager, tenantId, op, quoteId, sale, quote);
+        }
+        return sale;
       }
 
       case 'return.create': {
@@ -631,6 +661,9 @@ export class SyncService {
             note: op.payload.note ?? null,
             createdAt: clampedDate,
           },
+          // The cash already left the drawer offline — never refuse the record of it
+          // (DRAWER_INSUFFICIENT_CASH is for the online counter only).
+          { offlineReplay: true },
         );
 
         const balanceAfter = await this.computeShiftBalance(
@@ -638,6 +671,10 @@ export class SyncService {
           tenantId,
           entry.shiftId,
         );
+
+        if (entry.type === 'out') {
+          await this.flagOverdrawnOffline(manager, tenantId, op, entry);
+        }
 
         return {
           id: entry.id,
@@ -849,6 +886,64 @@ export class SyncService {
   }
 
   /**
+   * #27 follow-up (owner, 2026-10-03, 08 §6.1). The money was taken, so the bill always
+   * stands. A quote still open is converted into it, as online. A quote converted
+   * into another bill, expired, or gone is left exactly as it is, and the owner gets
+   * one `quote_conflict` review item for the bill instead.
+   */
+  private async settleOfflineQuote(
+    manager: EntityManager,
+    tenantId: string,
+    op: SyncOpDto,
+    quoteId: string,
+    sale: CreateSaleResult,
+    quote: QuoteLockResult,
+  ): Promise<void> {
+    let reason: 'already_converted' | 'expired' | 'not_found';
+    switch (quote.state) {
+      case 'fresh':
+        await this.quoteSales.markConverted(manager, tenantId, quoteId, sale.id);
+        return;
+      case 'replay':
+      // Unreachable on a first apply: the client-id replay runs before this op, and
+      // `sales.create` would refuse a taken id before we got here.
+      case 'sale_id_taken':
+        return;
+      case 'converted':
+        reason = 'already_converted';
+        break;
+      case 'expired':
+        reason = 'expired';
+        break;
+      case 'missing':
+        reason = 'not_found';
+        break;
+    }
+    await ReviewItemsService.insertIn(
+      manager,
+      tenantId,
+      {
+        kind: 'quote_conflict',
+        refId: sale.id,
+        details: {
+          opId: op.opId,
+          saleId: sale.id,
+          receiptNo: sale.receiptNo,
+          quoteId,
+          reason,
+          ...(quote.state === 'converted'
+            ? { convertedSaleId: quote.convertedSaleId }
+            : {}),
+          ...(quote.state === 'expired'
+            ? { validUntil: quote.validUntil.toISOString() }
+            : {}),
+        },
+      },
+      { onConflictDoNothing: true },
+    );
+  }
+
+  /**
    * Owner 2026-09-25: a replayed bill (or credit note — "receipt" covers both) whose number
    * on the device's paper differs from the number the server stored — it was committed
    * online, the reply was lost, and the till queued it under a fresh offline number
@@ -875,6 +970,41 @@ export class SyncService {
         kind: 'receipt_renumbered',
         refId: id,
         details: { opId: op.opId, type: op.type, id, offlineNo, serverNo },
+      },
+      { onConflictDoNothing: true },
+    );
+  }
+
+  /**
+   * Follow-up to PR #580 (owner, 2026-10-03). An offline cash-out is accepted even when
+   * it was larger than the drawer held — the cash already left — but the owner gets one
+   * `drawer_overdrawn_offline` review item for it. The entry was over the limit exactly
+   * when the shift's expected cash (the closing report's own rule,
+   * `expectedCashSatangOf`) is now below zero. Same request manager, inside the push's
+   * transaction; the partial unique index keeps it to one item per entry.
+   */
+  private async flagOverdrawnOffline(
+    manager: EntityManager,
+    tenantId: string,
+    op: SyncOpDto,
+    entry: { id: string; shiftId: string; amount: string },
+  ): Promise<void> {
+    const afterSatang = await expectedCashSatangOf(manager, tenantId, entry.shiftId);
+    if (afterSatang >= 0) return;
+    await ReviewItemsService.insertIn(
+      manager,
+      tenantId,
+      {
+        kind: 'drawer_overdrawn_offline',
+        refId: entry.id,
+        details: {
+          opId: op.opId,
+          entryId: entry.id,
+          shiftId: entry.shiftId,
+          amount: entry.amount,
+          expectedCashBefore: fromSatang(afterSatang + satangOf(entry.amount)),
+          expectedCashAfter: fromSatang(afterSatang),
+        },
       },
       { onConflictDoNothing: true },
     );

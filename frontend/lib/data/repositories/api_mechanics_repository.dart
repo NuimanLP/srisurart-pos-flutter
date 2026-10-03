@@ -16,6 +16,7 @@ import '../../core/network/transport_failure.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
 import '../storage/token_storage.dart' show TokenStoreUnavailableException;
+import '../sync/outbox_ledger_refs.dart';
 import '../sync/sync_facade.dart';
 import '../sync/sync_service.dart';
 import 'api/api_wire.dart';
@@ -37,6 +38,10 @@ class ApiMechanicsRepository extends MechanicsRepository {
   /// Whether a credit payment is a server write — the `USE_API_WRITES` switch
   /// (`useApi`), the same one that moves sales, returns and shifts.
   final bool writesToServer;
+
+  /// Add-mechanic attempts whose fate is unknown (5xx, lost reply): a retry of
+  /// the same body is sent under the same `Idempotency-Key`.
+  final PendingWrites _pendingAdds = PendingWrites('m');
 
   bool get _isDegraded {
     final sync = syncService ??
@@ -124,8 +129,16 @@ class ApiMechanicsRepository extends MechanicsRepository {
         afterId = null;
       }
 
+      // Ledger guard (twin of the 08 §15 stock guard): a mechanic with unsent
+      // money-moving work (outbox op or queued credit payment) keeps its local
+      // credit balance and running totals — the server has not
+      // seen it. The set and the local values are read per page inside the
+      // write transaction, so an op queued mid-pull is still protected.
       bool hasMore = true;
       String? latestServerCursor;
+      // updatedAt of the earliest protected row served: the saved cursor never
+      // passes it, so the row is re-served once its work has been sent.
+      String? protectedFloor;
 
       while (hasMore) {
         final queryParams = <String, dynamic>{
@@ -138,18 +151,38 @@ class ApiMechanicsRepository extends MechanicsRepository {
         final items = res.data;
 
         if (items.isNotEmpty) {
-          if (!await db.writeCacheIfCurrent(gen, () => db.batch((batch) {
+          if (!await db.writeCacheIfCurrent(gen, () async {
+            final guarded = (await ledgerIdsInOutbox(db)).mechanics;
+            final companions = <MechanicsCompanion>[];
             for (final item in items) {
-              if (item is Map) {
-                final comp = _mechanicToCompanion(Map<String, dynamic>.from(item));
+              if (item is! Map) continue;
+              var comp = _mechanicToCompanion(Map<String, dynamic>.from(item));
+              if (guarded.contains(comp.id.value)) {
+                protectedFloor = earlierStamp(protectedFloor, item['updatedAt']);
+                final local = await (db.select(db.mechanics)
+                      ..where((t) => t.id.equals(comp.id.value)))
+                    .getSingleOrNull();
+                if (local != null) {
+                  comp = comp.copyWith(
+                    creditBalance: Value(local.creditBalance),
+                    totalSales: Value(local.totalSales),
+                    totalDiscount: Value(local.totalDiscount),
+                    totalMarkup: Value(local.totalMarkup),
+                  );
+                }
+              }
+              companions.add(comp);
+            }
+            await db.batch((batch) {
+              for (final comp in companions) {
                 batch.insert(
                   db.mechanics,
                   comp,
                   onConflict: DoUpdate((old) => comp),
                 );
               }
-            }
-          }))) {
+            });
+          })) {
             return;
           }
         }
@@ -172,7 +205,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
         await db.writeCacheIfCurrent(gen, () => db.into(db.syncCursors).insertOnConflictUpdate(
           SyncCursorsCompanion(
             entity: const Value('mechanics'),
-            cursor: Value(latestServerCursor),
+            cursor: Value(earlierStamp(latestServerCursor, protectedFloor)),
             updatedAt: Value(DateTime.now().toUtc()),
           ),
         ));
@@ -206,17 +239,42 @@ class ApiMechanicsRepository extends MechanicsRepository {
       if (data.creditLimit.present) 'creditLimit': wireMoney(data.creditLimit.value),
     };
 
-    final res = await apiClient.post('/api/v1/mechanics', body: body, headers: idempotencyKey());
+    // Same body pressed again while the first attempt's fate is unknown (5xx,
+    // lost reply) → same Idempotency-Key, so the server replays the first
+    // mechanic instead of creating a second one.
+    final attempt = _pendingAdds.of(jsonEncode(body));
+    final res = await _thaiErrors(
+      () => apiClient.post('/api/v1/mechanics', body: body, headers: attempt.headers),
+      onVerdict: () => _pendingAdds.close(attempt),
+    );
     if (res is Map) {
+      _pendingAdds.close(attempt);
       final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
       await db.into(db.mechanics).insertOnConflictUpdate(comp);
       return await (db.select(db.mechanics)..where((t) => t.id.equals(comp.id.value))).getSingle();
     }
-    throw ApiException(
-      statusCode: 500,
-      code: 'SERVER_ERROR',
-      serverMessage: 'ไม่สามารถบันทึกข้อมูลช่าง',
-    );
+    throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
+  }
+
+  /// Runs one mechanic-record write so that no [ApiException] reaches the
+  /// screen (api_wire.dart rule 4): a 4xx is the server's verdict
+  /// ([onVerdict] runs); a 5xx/429 or a transport failure is not. Every
+  /// failure carries a Thai sentence from [ServerErrorResolver].
+  Future<T> _thaiErrors<T>(Future<T> Function() send, {void Function()? onVerdict}) async {
+    try {
+      return await send();
+    } on ApiException catch (e) {
+      if (isVerdict(e)) {
+        onVerdict?.call();
+        rethrowServerRefusal(e);
+      }
+      throw PosException(e.code, ServerErrorResolver.resolveCounterError(e), e.details);
+    } catch (e) {
+      if (isTransportFailure(e)) {
+        throw PosException('NETWORK_ERROR', ServerErrorResolver.resolve(null));
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -230,7 +288,9 @@ class ApiMechanicsRepository extends MechanicsRepository {
     if (patch.note.present) body['note'] = patch.note.value;
     if (patch.creditLimit.present) body['creditLimit'] = wireMoney(patch.creditLimit.value);
 
-    final res = await apiClient.patch('/api/v1/mechanics/$id', body: body, headers: idempotencyKey());
+    final res = await _thaiErrors(
+      () => apiClient.patch('/api/v1/mechanics/$id', body: body, headers: idempotencyKey()),
+    );
     if (res is Map) {
       final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
       await db.into(db.mechanics).insertOnConflictUpdate(comp);
@@ -240,7 +300,9 @@ class ApiMechanicsRepository extends MechanicsRepository {
 
   @override
   Future<void> deleteMechanic(String id) async {
-    await apiClient.delete('/api/v1/mechanics/$id', headers: idempotencyKey());
+    await _thaiErrors(
+      () => apiClient.delete('/api/v1/mechanics/$id', headers: idempotencyKey()),
+    );
     await (db.update(db.mechanics)..where((t) => t.id.equals(id))).write(
       MechanicsCompanion(
         deletedAt: Value(DateTime.now()),

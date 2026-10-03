@@ -19,7 +19,8 @@ import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.ex
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { Paginated, pageParams } from '../common/paginated.js';
-import { parseCreateSale } from './sales.dto.js';
+import { QuoteSaleService, type QuoteSaleResult } from './quote-sale.service.js';
+import { parseCreateSale, parseSaleQuoteId } from './sales.dto.js';
 import { SalesService, type CreateSaleResult } from './sales.service.js';
 import { SaleReadsService, type SaleWithItems } from './sale-reads.service.js';
 import { VoidService, type VoidActor } from './void.service.js';
@@ -42,6 +43,7 @@ export class SalesController {
     private readonly sales: SalesService,
     private readonly reads: SaleReadsService,
     private readonly voids: VoidService,
+    private readonly quoteSales: QuoteSaleService,
     private readonly idempotency: IdempotencyService,
   ) {}
 
@@ -49,6 +51,9 @@ export class SalesController {
    * `pos` only (ADR-0004: anything that touches the cash drawer happens on the
    * selling machine) and idempotent by force — a retry after a timeout must not
    * ring the bill up twice, because the receipt has already been printed.
+   *
+   * An optional `quoteId` sells the cart against that quote and marks it converted in
+   * the same transaction (#27, owner 2026-10-03) — see `QuoteSaleService`.
    */
   @Post()
   @RequireDeviceRole('pos')
@@ -56,7 +61,7 @@ export class SalesController {
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<CreateSaleResult> {
+  ): Promise<CreateSaleResult | QuoteSaleResult> {
     return this.idempotency.runIdempotent(
       idempotencyParamsOf(req, 201),
       res,
@@ -66,10 +71,15 @@ export class SalesController {
         if (!req.user.deviceId) {
           throw new DeviceRoleForbiddenException();
         }
-        return this.sales.create(parseCreateSale(body), {
+        const actor = {
           userId: req.user.userId,
           deviceId: req.user.deviceId,
-        });
+        };
+        const quoteId = parseSaleQuoteId(body);
+        const sale = parseCreateSale(body);
+        return quoteId === null
+          ? this.sales.create(sale, actor)
+          : this.quoteSales.sell(quoteId, sale, actor);
       },
     );
   }

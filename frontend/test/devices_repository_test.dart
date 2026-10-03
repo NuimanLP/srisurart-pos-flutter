@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/domain/models/device_model.dart';
 
@@ -84,6 +85,38 @@ void main() {
     setUp(() {
       tokenStorage = FakeTokenStorage();
       tokenStorage.accessToken = 'test-token';
+    });
+
+    // #558: the screen reads the refusal's code from a PosException, never an
+    // ApiException; a 5xx stays the transport-style ApiException it was.
+    test('listDevices() turns a 403 DEVICE_ROLE_FORBIDDEN into a PosException', () async {
+      final repo = DevicesRepository(ApiClient(
+        baseUrl: 'http://localhost:3000',
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((_) async => http.Response(
+              jsonEncode({
+                'status': 'error',
+                'error': {'code': 'DEVICE_ROLE_FORBIDDEN', 'message': 'forbidden'},
+              }),
+              403,
+            )),
+      ));
+
+      await expectLater(
+        repo.listDevices(),
+        throwsA(isA<PosException>()
+            .having((e) => e.code, 'code', 'DEVICE_ROLE_FORBIDDEN')),
+      );
+    });
+
+    test('listDevices() leaves a 5xx as an ApiException', () async {
+      final repo = DevicesRepository(ApiClient(
+        baseUrl: 'http://localhost:3000',
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((_) async => http.Response('<html>bad gateway</html>', 502)),
+      ));
+
+      await expectLater(repo.listDevices(), throwsA(isA<ApiException>()));
     });
 
     test('listDevices() returns mapped devices list', () async {

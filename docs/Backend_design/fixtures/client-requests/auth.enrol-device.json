@@ -1,0 +1,16 @@
+{
+  "name": "auth.enrol-device",
+  "caller": "AuthRepository.enrolDevice",
+  "requests": [
+    {
+      "route": "POST /api/v1/auth/device",
+      "method": "POST",
+      "path": "/api/v1/auth/device",
+      "idempotencyKey": false,
+      "authorization": "none",
+      "body": {
+        "code": "CT0DE001"
+      }
+    }
+  ]
+}

@@ -12,6 +12,12 @@ name: Server CI
 # Job "audit" (sec.1, 2026-09-09) is the CVE gate for the source tree: `pnpm audit` on the
 # lockfile plus a Trivy filesystem scan (lockfile + Dockerfile misconfiguration). The built
 # *image* is scanned in "build-image" instead, where a finding can still stop a release.
+# Job "unit" also runs the coverage ratchet (server/coverage-baseline.json, 2026-10-03).
+# Job "ci-guards" (2026-10-03): migrations are append-only vs the PR base, actionlint over the
+# workflows, shellcheck over deploy/scripts — pinned binaries, gated on the `ci` paths.
+# "integration" also replays docs/Backend_design/fixtures/client-requests/ (what the Flutter
+# client really sends, recorded by frontend/test/contract/) through the real app
+# (test/client-request-fixtures.e2e-spec.ts): a 400/401/5xx or a missing route fails it.
 # Job "secrets" (2026-10-01) runs gitleaks over the commits each PR/push adds — repo-wide,
 # never path-gated, so it lives here, feeding the always-required server-ci-status.
 #
@@ -24,8 +30,8 @@ name: Server CI
 # #39: path filtering no longer happens at the trigger level (a frontend-only PR must
 # still produce a green, always-reported server-ci-status, or it can never satisfy a
 # required check — CLAUDE.md "Known trap"). "lint"/"audit"/"unit" are gated per-job on the
-# `changes` job instead, and only for pull_request — a push to `main` always runs every
-# job. "integration" is deliberately NEVER gated on path (see its own comment below): it
+# `changes` job instead: a PR by path, a push to `main` runs every job unless it is docs-only
+# (deploy/scripts/push-changes-kind.sh). "integration" is never gated on server path (see its comment): it
 # carries the cross-tenant isolation tests in test/security.e2e-spec.ts, which run on
 # every PR regardless of what changed.
 
@@ -51,22 +57,40 @@ defaults:
 
 jobs:
   changes:
-    name: detect changed paths (pull_request only)
+    name: detect changed paths (pull_request + push)
     runs-on: ubuntu-latest
-    # Push and workflow_dispatch never filter (see the header comment), so this
-    # job — and the path check it feeds — only needs to run for a PR.
-    if: github.event_name == 'pull_request'
+    # PR: dorny/paths-filter. Push to main: deploy/scripts/push-changes-kind.sh over
+    # before..sha — a docs-only push skips the test/image jobs (no image, so no Deploy waiting
+    # for approval). workflow_dispatch never filters: this job is skipped and everything runs.
+    if: github.event_name != 'workflow_dispatch'
     permissions:
       contents: read
       # dorny/paths-filter on a pull_request event calls the PR-files API, which
       # needs this beyond the file-level `contents: read`.
       pull-requests: read
     outputs:
-      server: ${{ steps.filter.outputs.server }}
+      # Exactly one of the two steps runs per event; the other's output is ''.
+      server: ${{ steps.filter.outputs.server || steps.push.outputs.code }}
+      # Job "ci-guards": workflows, deploy scripts, migrations.
+      ci: ${{ steps.filter.outputs.ci || steps.push.outputs.code }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # push: the before..sha range must be present.
+          # 0 is falsy in expressions (`&& 0 || 1` always gave 1 → classifier saw no `before`, PR #547); use a string.
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '1' }}
+      - name: classify the pushed commits (docs-only vs code)
+        id: push
+        if: github.event_name == 'push'
+        working-directory: .
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: deploy/scripts/push-changes-kind.sh
       - uses: dorny/paths-filter@v4
         id: filter
+        # PR only — on a push its 'false' string would win the `||` below over the push step.
+        if: github.event_name == 'pull_request'
         with:
           filters: |
             server:
@@ -77,6 +101,10 @@ jobs:
               - 'deploy/scripts/test/**'
               # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
+            ci:
+              - '.github/workflows/**'
+              - 'deploy/scripts/**'
+              - 'server/src/db/migrations/**'
 
   secrets:
     name: secret scan (gitleaks)
@@ -164,8 +192,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.server == 'true') }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -184,8 +212,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.server == 'true') }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -214,8 +242,8 @@ jobs:
     # *succeeded*; on push/workflow_dispatch it is skipped by its own `if:` above,
     # which would cascade to skip this job too. `!cancelled()` overrides that
     # implicit requirement so the second clause (the actual path gate) is what
-    # decides, on both push and pull_request.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    # decides (workflow_dispatch always runs).
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.server == 'true') }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -223,23 +251,80 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      # vitest + v8 coverage, then scripts/check-coverage.mjs: fails when src/ line coverage
+      # drops below server/coverage-baseline.json, and writes the number to the job summary.
+      - run: pnpm test:coverage
+
+  ci-guards:
+    name: ci guards (migrations immutable, actionlint, shellcheck)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    # Same gate shape as lint/audit/unit (see the comment there), on the `ci` paths.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.ci == 'true') }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    env:
+      # Pinned release binaries + sha256 (same pattern as gitleaks above). Bump both together.
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      SHELLCHECK_VERSION: 0.11.0
+      SHELLCHECK_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The PR's merge base with its base branch must be present for the migration diff.
+          fetch-depth: 0
+      # CLAUDE.md: "Applied migrations are never edited". A PR may ADD a migration; it may not
+      # modify, delete or rename one that exists on its base branch (merge-base comparison).
+      # Push/workflow_dispatch: nothing to compare against — main only moves by PR.
+      - name: migrations are append-only (vs the PR base)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: deploy/scripts/check-migrations-immutable.sh "$PR_BASE" "$PR_HEAD"
+      - name: check-migrations-immutable.sh tests
+        run: deploy/scripts/test/check-migrations-immutable.test.sh
+      - name: install actionlint + shellcheck (pinned, sha256-verified)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/actionlint.tgz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+          curl -sSfL -o "$RUNNER_TEMP/shellcheck.tgz" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz"
+          echo "${SHELLCHECK_SHA256}  $RUNNER_TEMP/shellcheck.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/bin" actionlint
+          tar -xzf "$RUNNER_TEMP/shellcheck.tgz" -C "$RUNNER_TEMP" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          mv "$RUNNER_TEMP/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "$RUNNER_TEMP/bin/"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # actionlint also runs the pinned shellcheck over every `run:` block. A finding that is
+      # deliberate is silenced inline (`# shellcheck disable=SCxxxx` with a reason), never here.
+      - name: actionlint (.github/workflows)
+        run: actionlint -shellcheck "$RUNNER_TEMP/bin/shellcheck" -color
+      - name: shellcheck (deploy/scripts)
+        run: |
+          shopt -s globstar nullglob
+          shellcheck deploy/scripts/**/*.sh
 
   nginx-check:
     name: nginx config check (nginx -t)
     runs-on: ubuntu-latest
     needs: [changes]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.server == 'true') }}
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.server == 'true') }}
     defaults:
       run:
         working-directory: .
     steps:
       - uses: actions/checkout@v5
-      - name: generate test TLS cert and htpasswd for syntax validation
+      # The real certgen script (CA + server cert + ca.crt), so both configs below are tested
+      # against exactly the file names it writes.
+      - name: generate test TLS certs (certgen.sh) and htpasswd for syntax validation
         run: |
-          mkdir -p .tmp-nginx/certs .tmp-nginx/auth
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \
-            -keyout .tmp-nginx/certs/server.key -out .tmp-nginx/certs/server.crt
+          mkdir -p .tmp-nginx/certs .tmp-nginx/ca .tmp-nginx/auth
+          CERTS_DIR=.tmp-nginx/certs CA_DIR=.tmp-nginx/ca sh server/docker/certgen/certgen.sh
           printf 'dummy:%s\n' "$(openssl passwd -apr1 dummy)" > .tmp-nginx/auth/k6-remote-write.htpasswd
       - name: test nginx configuration (nginx -t)
         run: |
@@ -249,7 +334,7 @@ jobs:
             -v "$PWD/.tmp-nginx/auth:/etc/nginx/auth:ro" \
             nginx:1.29-alpine nginx -t
       # #443 PR4: the platform-ui dashboard is also nginx, and its config needs `proxy_ssl_trusted_
-      # certificate` (a real, readable PEM) to test clean — reuse the same throwaway cert above.
+      # certificate` (a real, readable PEM) to test clean — reuse the throwaway ca.crt above.
       - name: test platform-ui nginx configuration (nginx -t)
         run: |
           docker run --rm \
@@ -257,6 +342,9 @@ jobs:
             -v "$PWD/server/docker/platform-ui/html:/usr/share/nginx/html:ro" \
             -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
             nginx:1.29-alpine nginx -t
+      # certgen: fresh volume, idempotent re-run, and the upgrade off the old self-signed cert.
+      - name: certgen.sh tests
+        run: deploy/scripts/test/certgen.test.sh
       # Deploy-script check: a failed pg_dump must not leave a pos_backup_*.sql.gz behind.
       - name: backup-db.sh tests (stubbed pg_dump)
         run: deploy/scripts/test/backup-db.test.sh
@@ -267,11 +355,14 @@ jobs:
   integration:
     name: integration (Postgres + both Redis, real migrations)
     runs-on: ubuntu-latest
-    # #39: deliberately NOT gated on `changes` — this job's `pnpm test:e2e` run
+    needs: [changes]
+    # #39: deliberately NOT gated on the *server path filter* — this job's `pnpm test:e2e` run
     # includes the cross-tenant isolation tests (test/security.e2e-spec.ts,
     # "denies cross-tenant read access" / "denies cross-tenant void" / "ignores
     # tenantId in request body"), which the sixth multi-tenant rule requires on
     # every PR regardless of which paths it touches (07_CICD_DEPLOY.md §2, rule 3).
+    # The only skip is a docs-only push to main (see `changes`): it builds no image either.
+    if: ${{ !cancelled() && (github.event_name != 'push' || needs.changes.outputs.server == 'true') }}
     env:
       # Base + dev overlay for every `docker compose` call in this job. The base file
       # publishes no datastore port; only the overlay does, and only on 127.0.0.1.
@@ -315,11 +406,11 @@ jobs:
   build-image:
     name: server image → GHCR
     runs-on: ubuntu-latest
-    needs: [secrets, lint, audit, unit, integration, nginx-check]
+    needs: [secrets, lint, audit, unit, ci-guards, integration, nginx-check]
     # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
     # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.ci-guards.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
     # docker build + a scan + a push; nothing here should take 20 min, and `docker run` of
     # the app must never be allowed to hang for the 6-hour default.
     timeout-minutes: 20
@@ -343,7 +434,10 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: docker build (tagged with the commit)
-        run: docker build -t "$IMAGE:$GITHUB_SHA" .
+        # GIT_SHA is baked in so GET /platform/system can say which commit is running (#443):
+        # the container cannot read the VM's /opt/pos/.current_sha. The tag is the same SHA,
+        # so a rollback (which re-runs an older tag) reports the older commit — truthfully.
+        run: docker build --build-arg "GIT_SHA=$GITHUB_SHA" -t "$IMAGE:$GITHUB_SHA" .
 
       - name: smoke — every entrypoint compose runs is present, and the image starts
         # docker-compose.yml runs main.js, worker.js, bull-board.js and db/migrate.js
@@ -403,7 +497,7 @@ jobs:
   server-ci-status:
     name: server-ci-status
     runs-on: ubuntu-latest
-    needs: [changes, secrets, lint, audit, unit, integration, build-image, nginx-check]
+    needs: [changes, secrets, lint, audit, unit, ci-guards, integration, build-image, nginx-check]
     # #39: this is the only server-side required check on `main`. It must report
     # on every PR — including a frontend-only one, where "lint"/"audit"/"unit"
     # (and `changes` itself, on push/workflow_dispatch) are legitimately skipped
@@ -428,6 +522,7 @@ jobs:
             "${{ needs.lint.result }}" \
             "${{ needs.audit.result }}" \
             "${{ needs.unit.result }}" \
+            "${{ needs.ci-guards.result }}" \
             "${{ needs.integration.result }}" \
             "${{ needs.build-image.result }}" \
             "${{ needs.nginx-check.result }}"; do
@@ -441,9 +536,14 @@ jobs:
             echo "::error::secret scan (gitleaks) did not succeed: ${{ needs.secrets.result }}"
             exit 1
           fi
-          # A skipped release image on a `main` push is not a pass: that is how #39's skip went
-          # unnoticed for every release (#184).
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.build-image.result }}" != "success" ]]; then
+          # On a push, `changes` must have classified it (true = code, false = docs only).
+          if [[ "${{ github.event_name }}" == "push" && "${{ needs.changes.outputs.server }}" != "true" && "${{ needs.changes.outputs.server }}" != "false" ]]; then
+            echo "::error::push was not classified by the changes job: '${{ needs.changes.outputs.server }}'"
+            exit 1
+          fi
+          # A skipped release image on a `main` push of CODE is not a pass: that is how #39's skip
+          # went unnoticed for every release (#184). A docs-only push (changes=false) builds none.
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" && "${{ needs.changes.outputs.server }}" == "true" && "${{ needs.build-image.result }}" != "success" ]]; then
             echo "::error::build-image did not run on a main push: ${{ needs.build-image.result }}"
             exit 1
           fi

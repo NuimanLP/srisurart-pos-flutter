@@ -19,6 +19,8 @@ import { ProductsSyncIndex1788652804300 } from './migrations/1788652804300-Produ
 import { ReviewItemReceiptRenumbered1788652804400 } from './migrations/1788652804400-ReviewItemReceiptRenumbered.js';
 import { OwnerTempPassword1788652804500 } from './migrations/1788652804500-OwnerTempPassword.js';
 import { PlatformAdminPasswordChangedAt1788652804600 } from './migrations/1788652804600-PlatformAdminPasswordChangedAt.js';
+import { ReviewItemQuoteConflict1788652804700 } from './migrations/1788652804700-ReviewItemQuoteConflict.js';
+import { ReviewItemDrawerOverdrawnOffline1788652804800 } from './migrations/1788652804800-ReviewItemDrawerOverdrawnOffline.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -42,6 +44,8 @@ export const MIGRATIONS = [
   ReviewItemReceiptRenumbered1788652804400,
   OwnerTempPassword1788652804500,
   PlatformAdminPasswordChangedAt1788652804600,
+  ReviewItemQuoteConflict1788652804700,
+  ReviewItemDrawerOverdrawnOffline1788652804800,
 ];
 
 /**

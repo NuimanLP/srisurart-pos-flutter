@@ -255,6 +255,24 @@ export class MechanicsService {
 
   private async deleteIn(id: string): Promise<{ id: string; deleted: true }> {
     const { tenantId, manager } = currentRequestContext();
+    // Owner, 2026-10-03: a mechanic who still owes credit cannot be deleted —
+    // the debt would vanish from the screen and its outstanding total. Lock the
+    // row so a concurrent credit sale cannot slip in between check and delete.
+    const locked = returning<{ credit_balance: string; deleted_at: Date | null }>(
+      await manager.query(
+        `SELECT credit_balance, deleted_at FROM mechanics
+          WHERE tenant_id = $1::uuid AND id = $2
+          FOR UPDATE`,
+        [tenantId, id],
+      ),
+    );
+    if (
+      locked.length > 0 &&
+      locked[0].deleted_at === null &&
+      Number(locked[0].credit_balance) > 0
+    ) {
+      throw mechanicHasBalance(locked[0].credit_balance);
+    }
     await manager.query(
       `UPDATE mechanics
           SET deleted_at = COALESCE(deleted_at, clock_timestamp()),
@@ -315,4 +333,16 @@ function mechanicNotFound(): HttpException {
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+/** Owner, 2026-10-03: refuse deleting a mechanic who still owes money. */
+function mechanicHasBalance(creditBalance: string): HttpException {
+  return new HttpException(
+    {
+      code: 'MECHANIC_HAS_BALANCE',
+      message: 'Mechanic still has an outstanding credit balance.',
+      details: { creditBalance },
+    },
+    HttpStatus.CONFLICT,
+  );
 }

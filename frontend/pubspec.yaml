@@ -56,6 +56,11 @@ dependencies:
   bloc: ^9.2.1
   http: ^1.5.0
   crypto: ^3.0.7
+  # 13.x: its Android module (android_file_picker 2.x) honours
+  # android.builtInKotlin=false; 11.x skipped Kotlin on AGP 9 and the APK
+  # failed to compile. iOS needs 14.0+ from 12.0 on.
+  file_picker: ^13.1.0
+  file_picker_web: ^4.0.0 # FilePickerWebOptions (no window-blur cancel)
 
 dev_dependencies:
   flutter_test:
@@ -95,6 +100,11 @@ flutter:
 
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
+
+  # The shop server's private CA (lib/core/network/pos_trust_io.dart). Committed empty;
+  # replaced with mob04's ca.crt once — 07_CICD_DEPLOY.md "TLS".
+  assets:
+    - assets/certs/pos-ca.crt
 
   # Bundled fonts (#271 — moved off google_fonts/PdfGoogleFonts runtime fetch so
   # the app renders Thai text and generates PDFs with no network access; the
