@@ -872,7 +872,7 @@ build ด้วย `--dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL
     ใน secret `DEMO_ENV_FILE` แล้วรัน `provision.yml` ใหม่ ก่อนการยิง k6 จริงครั้งแรก เหมือนที่
     `ETCD_ROOT_PASSWORD`/`GRAFANA_ADMIN_PASSWORD` ต้องทำมาก่อนหน้านี้
   * htpasswd ไฟล์ถูกสร้างโดย `htpasswd-gen` (`server/docker-compose.yml`) — one-shot container
-    รูปแบบเดียวกับ `certgen` ของ cert self-signed, idempotent, ต้องรัน**ก่อน** Nginx ทุกครั้ง
+    รูปแบบเดียวกับ `certgen` ของ cert TLS, idempotent, ต้องรัน**ก่อน** Nginx ทุกครั้ง
     (`deploy/ansible/deploy.yml`: อยู่ใน task "Ensure backing datastores, htpasswd-gen
     and etcd are running" ซึ่งมาก่อน task "Validate the copied Nginx configuration"/
     "Recreate Nginx" เสมอ — ไม่งั้น `auth_basic_user_file` จะหาไฟล์ไม่เจอ)
