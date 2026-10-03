@@ -243,6 +243,13 @@ class AuthRepository {
     return claims?.did;
   }
 
+  /// The device the stored session was signed for: the `did` of the refresh
+  /// token (#558). Null for a session made without a device token. Read from
+  /// the refresh token, not the access token, because on web the access token
+  /// is memory-only and is gone after a reload (#400).
+  Future<String?> sessionDeviceId() async =>
+      JwtClaims.tryParse(await tokenStorage.getRefreshToken())?.did;
+
   /// Checks whether a valid session (or refresh token) is present.
   Future<bool> isAuthenticated() async {
     final refreshToken = await tokenStorage.getRefreshToken();

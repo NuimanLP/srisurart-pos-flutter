@@ -215,6 +215,20 @@ class AuthCubit extends Cubit<AuthState> {
     final isAuth = await _repo.isAuthenticated();
     final user = await _repo.getCurrentUser();
 
+    // #558: the session was signed for a device (`did`) but this browser no
+    // longer holds a device token (one IndexedDB entry cleared or evicted).
+    // Carrying on would sell as a till that can no longer push its outbox or
+    // log in as itself, so end the session: logout keeps the local DB and
+    // its outbox untouched, and the login that follows is a plain
+    // (backoffice) one until the browser is enrolled again.
+    if (isAuth &&
+        (deviceToken == null || deviceToken.isEmpty) &&
+        await _repo.sessionDeviceId() != null) {
+      await _repo.logout();
+      emit(const Unauthenticated());
+      return;
+    }
+
     if (isAuth && user != null) {
       emit(Authenticated(
         user: user,
@@ -375,19 +389,34 @@ class AuthCubit extends Cubit<AuthState> {
   /// A [PosException] (the till still holds local work,
   /// `TenantCacheGuard.checkEnrolment`) is rethrown so the dialog can show
   /// its Thai sentence instead of "wrong code"; anything else is `false`.
+  ///
+  /// #558: enrolling while signed in ends the session. Its tokens were signed
+  /// without this device (`POST /auth/token` is the only place a device token
+  /// becomes `did`/`drole`, and `/auth/refresh` keeps whatever the login
+  /// had), so the session would stay device-less — `GET /devices` 403, no
+  /// sales — until the next login. The login form's post-enrol banner asks
+  /// for that login; it re-admits the tenant through the device token and
+  /// records the offline-PIN window with the new `did`. Logout keeps the
+  /// local DB, and `checkEnrolment` already refused any enrolment while
+  /// local work is unsent.
   Future<bool> enrolDevice(String code) async {
     try {
       final deviceToken = await _repo.enrolDevice(code);
-      final role = await _repo.getDeviceRole();
 
-      final current = state;
-      if (current is Authenticated) {
-        emit(Authenticated(
-          user: current.user,
-          deviceToken: deviceToken,
-          deviceRole: role ?? current.deviceRole,
-        ));
+      if (state is Authenticated) {
+        _loggingOut = true;
+        try {
+          await _repo.logout();
+        } catch (_) {
+          // The enrolment itself succeeded and its token is stored; a token
+          // store that could not be cleared must not read as "wrong code".
+        } finally {
+          _loggingOut = false;
+        }
+        // Role null: unknown until that login — the banner says so.
+        emit(Unauthenticated(deviceToken: deviceToken));
       } else {
+        final role = await _repo.getDeviceRole();
         emit(Unauthenticated(
           deviceToken: deviceToken,
           deviceRole: role,
@@ -450,7 +479,12 @@ class AuthCubit extends Cubit<AuthState> {
         ? (state as Authenticated).deviceRole
         : await _repo.getDeviceRole();
     final deviceToken = await _repo.getDeviceToken();
-    final effectiveRole = currentDeviceRole ?? await _pinRepo?.getDeviceRole();
+    // #558: `ApiClient` also ends a session whose device token went missing.
+    // With no token there is no enrolment, so no role to show — a remembered
+    // 'pos' would put "เครื่อง POS" on a login that will be backoffice.
+    final effectiveRole = deviceToken == null || deviceToken.isEmpty
+        ? null
+        : currentDeviceRole ?? await _pinRepo?.getDeviceRole();
     emit(Unauthenticated(deviceToken: deviceToken, deviceRole: effectiveRole));
   }
 
