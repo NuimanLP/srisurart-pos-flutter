@@ -4,13 +4,13 @@
 // the two shown rows sum to less than the total, on both the screen and the
 // printed report.
 //
-// `cashSales`/`qrSales`/`creditSales` (closing_report.dart) are the pure
+// `cashSales`/`qrSales`/`creditSales` (domain/reports/net_sales.dart) are the pure
 // grouping functions the widget's `_cashSales`/`_qrSales`/`_creditSales`
 // delegate to — extracted to top level (like `computeGrossProfit`) so the
 // grouping is unit-testable without a widget pump.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:srisurart_pos/presentation/widgets/closing_report.dart';
+import 'package:srisurart_pos/domain/reports/net_sales.dart';
 
 SaleLite _sale(String paymentMethod, double total) => SaleLite(
   subtotal: total,

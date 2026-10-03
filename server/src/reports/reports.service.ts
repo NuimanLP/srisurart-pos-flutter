@@ -6,6 +6,7 @@ import type { ReportDateRange } from './reports.dto.js';
 export interface ReportSummary {
   totalRevenue: string;
   totalTransactions: number;
+  /** `netRevenue ÷ totalTransactions`, rounded to whole baht (0 with no bills). */
   avgTicket: string;
   totalRefunds: string;
   netRevenue: string;
@@ -136,9 +137,10 @@ const COUNTED_SALE = `NOT (s.voided AND NOT EXISTS (
  *
  * Revenue is ex-VAT and after the bill discount. Credit notes net out — with
  * `return_items.cost_at_sale`, which #22 carries from the bill for exactly this
- * (ADR-0008, "การรับคืน"). The Dart closing report and `products_screen.dart`'s
- * "ยอดวันนี้"/"กำไรเดือนนี้" apply this same rule and formula
- * (`closing_report.dart`'s `NetSales`/`computeGrossProfit`/`countedSales`); the
+ * (ADR-0008, "การรับคืน"). The Dart closing report, the reports screen and
+ * `products_screen.dart`'s "ยอดวันนี้"/"กำไรเดือนนี้"/ranking apply this same rule
+ * and formula (`domain/reports/net_sales.dart`'s `NetSales`/`computeGrossProfit`/
+ * `countedSales`; the drawer's cash sales via `drawerCashSalesOf`); the
  * client has no return-line cost column, so it takes the original sale line's
  * `costAtSale` for a returned line. Keep the two in step. Cost is `cost_at_sale`, and today's
  * `products.cost` only for null rows. `settings.tax_rate` defaults to 7 like the
@@ -340,8 +342,11 @@ export class ReportsService {
        )
        SELECT s.revenue AS total_revenue,
               s.transactions AS total_transactions,
+              -- NET revenue (sales − credit notes) per counted bill, owner decision
+              -- 2026-10-03: the Dart reports' avgPerBill (net_sales.dart) divides
+              -- the same way, so a fully returned day reads 0, not the gross bill.
               CASE WHEN s.transactions = 0 THEN 0
-                   ELSE round(s.revenue / s.transactions, 0)
+                   ELSE round((s.revenue - r.refunds) / s.transactions, 0)
                END::numeric(20,2) AS average_ticket,
               r.refunds AS total_refunds,
               (s.revenue - r.refunds)::numeric(20,2) AS net_revenue,

@@ -16,7 +16,7 @@ import 'package:srisurart_pos/data/repositories/products_repository.dart';
 import 'package:srisurart_pos/data/repositories/purchase_orders_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
-import 'package:srisurart_pos/presentation/widgets/closing_report.dart';
+import 'package:srisurart_pos/domain/reports/net_sales.dart';
 
 void main() {
   late AppDatabase db;

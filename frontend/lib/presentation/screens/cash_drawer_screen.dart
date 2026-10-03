@@ -31,6 +31,7 @@ import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/shifts_repository.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../domain/models/aggregates.dart';
+import '../../domain/reports/net_sales.dart';
 import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
 import '../widgets/device_role_banner.dart';
@@ -131,11 +132,10 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         : (await shiftsRepo.cashCountFrom(shift.shift) ?? day.from);
 
     final salesAgg = await salesRepo.getSales(from: from, to: day.to);
-    final cashSalesTotal = salesAgg
-        .where((s) => s.sale.paymentMethod == 'เงินสด')
-        .fold<double>(0, (sum, s) => sum + s.sale.total);
-
     final returns = await returnsRepo.getReturns(from: from, to: day.to);
+    // Manual voids excluded, auto-voids kept — the closing report's helper.
+    final cashSalesTotal = drawerCashSalesOf(salesAgg, returns, from: from);
+
     final cashRefundsToday = returns
         .where((r) => r.ret.refundMethod == 'เงินสด')
         .fold<double>(0, (s, r) => s + r.ret.refundTotal);
@@ -932,8 +932,15 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 10),
-              if (hasPhys)
-                Container(
+              // The variance row's space is reserved before a count is typed,
+              // so it never appears above the close button and pushes it
+              // down under a click aimed at it (the #567 pay-button rule).
+              Visibility(
+                visible: hasPhys,
+                maintainSize: true,
+                maintainAnimation: true,
+                maintainState: true,
+                child: Container(
                   margin: const EdgeInsets.only(bottom: 14),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -969,6 +976,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                     ],
                   ),
                 ),
+              ),
               SyncStatusBuilder(
                 builder: (context, status, isDegraded) {
                   return StreamBuilder<int>(
