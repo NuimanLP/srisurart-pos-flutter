@@ -343,10 +343,7 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
             .firstOrNull ??
         lines.where((l) => l.productId == i.productId).firstOrNull;
     return ItemLite(
-      // Keyed like the sale side below: a line with no partNo by its product.
-      partNo: line != null
-          ? (line.partNo ?? line.productId)
-          : (productById[i.productId]?.partNo ?? i.productId),
+      partNo: line?.partNo ?? productById[i.productId]?.partNo ?? '',
       name: line?.name ?? i.name,
       qty: i.qty,
       price: i.price,
@@ -368,9 +365,7 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
           items: [
             for (final i in s.items)
               ItemLite(
-                // products_screen.dart's ranking keyed a partNo-less line
-                // by its product id; keep that so two such parts never merge.
-                partNo: i.partNo ?? i.productId,
+                partNo: i.partNo ?? '',
                 name: i.name,
                 qty: i.qty,
                 price: i.price,
