@@ -289,9 +289,11 @@ jobs:
         run: deploy/scripts/test/check-migrations-immutable.test.sh
       - name: install actionlint + shellcheck (pinned, sha256-verified)
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/actionlint.tgz"             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/actionlint.tgz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
-          curl -sSfL -o "$RUNNER_TEMP/shellcheck.tgz"             "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/shellcheck.tgz" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz"
           echo "${SHELLCHECK_SHA256}  $RUNNER_TEMP/shellcheck.tgz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/bin" actionlint
@@ -519,7 +521,8 @@ jobs:
             "${{ needs.changes.result }}" \
             "${{ needs.lint.result }}" \
             "${{ needs.audit.result }}" \
-            "${{ needs.unit.result }}"             "${{ needs.ci-guards.result }}" \
+            "${{ needs.unit.result }}" \
+            "${{ needs.ci-guards.result }}" \
             "${{ needs.integration.result }}" \
             "${{ needs.build-image.result }}" \
             "${{ needs.nginx-check.result }}"; do

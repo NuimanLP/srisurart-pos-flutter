@@ -9,7 +9,7 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "rmusgqlyr_11f4b0d8_12",
+        "id": "rmush0wjl_1ffaa36f_12",
         "saleId": "ct-sale-1",
         "refundMethod": "เงินสด",
         "reason": "ของชำรุด",

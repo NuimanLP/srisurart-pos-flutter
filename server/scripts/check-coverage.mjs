@@ -11,8 +11,8 @@ const summary = JSON.parse(readFileSync('coverage/coverage-summary.json', 'utf8'
 const baseline = JSON.parse(readFileSync('coverage-baseline.json', 'utf8'));
 const { pct, covered, total } = summary.total.lines;
 const floor = Number(baseline.lines);
-if (!Number.isFinite(floor)) {
-  console.error('::error::coverage-baseline.json has no numeric "lines"');
+if (!Number.isFinite(floor) || typeof pct !== 'number') {
+  console.error('::error::coverage-baseline.json "lines" or coverage-summary.json total.lines.pct is not a number');
   process.exit(1);
 }
 const ok = pct >= floor;

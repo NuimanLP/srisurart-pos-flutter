@@ -51,6 +51,7 @@ import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
+import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/review_items_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
@@ -79,6 +80,7 @@ const _username = 'ct-owner';
 const _password = 'ct-password-1';
 const _refreshToken = 'ct-refresh-token';
 const _pwChangeToken = 'ct-pwchange-token';
+const _deviceToken = 'ct-device-token';
 
 /// One request the client put on the wire.
 class _Recorded {
@@ -175,6 +177,8 @@ Future<_World> _newWorld() async {
 }
 
 Future<void> _seedDrift(AppDatabase db) async {
+  // A fixed date is safe here: these rows only satisfy local preconditions; no RC/CN
+  // number or period derived from it reaches a fixture (online writes are server-numbered).
   final now = DateTime.utc(2026, 10, 3, 3);
   await db.into(db.products).insertOnConflictUpdate(ProductsCompanion.insert(
         id: _product,
@@ -473,6 +477,20 @@ final _scenarios = <_Scenario>[
   // ── auth / devices / review items ────────────────────────────────────────
   _Scenario('auth.login', 'AuthRepository.login', ['POST /api/v1/auth/token'], (w) async {
     await AuthRepository(apiClient: w.api, tokenStorage: w.tokens).login(username: _username, password: _password);
+  }),
+  _Scenario('auth.login-enrolled', 'AuthRepository.login', ['POST /api/v1/auth/token'], (w) async {
+    // An enrolled till: the stored device token rides in the body (ADR-0004).
+    w.tokens.device = _deviceToken;
+    await AuthRepository(apiClient: w.api, tokenStorage: w.tokens).login(username: _username, password: _password);
+  }),
+  _Scenario('auth.offline-pin-verify', 'OfflinePinRepository.setPin', ['POST /api/v1/auth/token'], (w) async {
+    await OfflinePinRepository(db: w.db, tokenStorage: w.tokens, apiClient: w.api).setPin(
+      password: _password,
+      newPin: '4321',
+      username: _username,
+      deviceId: _device,
+      deviceToken: _deviceToken,
+    );
   }),
   _Scenario('auth.refresh', 'AuthRepository.refresh', ['POST /api/v1/auth/refresh'], (w) async {
     await AuthRepository(apiClient: w.api, tokenStorage: w.tokens).refresh();

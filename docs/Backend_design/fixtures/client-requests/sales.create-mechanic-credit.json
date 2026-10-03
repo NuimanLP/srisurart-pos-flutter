@@ -9,7 +9,7 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "smusgqly8_28e4eaca_y",
+        "id": "smush0wj7_6e98c530_y",
         "subtotal": "200.00",
         "discount": "10.00",
         "total": "190.00",

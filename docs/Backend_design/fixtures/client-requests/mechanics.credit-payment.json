@@ -9,12 +9,12 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "cpmusgqlul_65c9b200_g",
+        "id": "cpmush0wg6_9bd7f3d8_g",
         "mechanicId": "ct-mechanic-1",
         "amount": "200.00",
         "paymentMethod": "เงินสด",
         "note": "ชำระบางส่วน",
-        "date": "2026-10-03T14:04:08.349178Z"
+        "date": "2026-10-03T14:12:08.646067Z"
       }
     }
   ]

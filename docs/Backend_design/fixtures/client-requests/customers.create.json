@@ -9,7 +9,7 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "cmusgqlsh_f255d514_8",
+        "id": "cmush0weh_b306a3c4_8",
         "name": "New customer",
         "nameTH": "ลูกค้าใหม่",
         "phone": "0800000000"

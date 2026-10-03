@@ -30,19 +30,18 @@ import {
  * online write puts on the wire (real `ApiClient`, recording transport) into
  * `docs/Backend_design/fixtures/client-requests/`, and fails when the client drifts from
  * those files. This spec replays every one of them through the REAL app — guards, the
- * idempotency seam, the controller's own parser, the service, Postgres — and fails when
- * the server would refuse the request's *shape*:
+ * idempotency seam, the controller's own parser, the service, Postgres.
  *
- *   - any 400 (every 400 this API returns is a malformed request — a business refusal is a
- *     409/404/422 with its own code),
- *   - a 404 Nest raises for a route that does not exist (`Cannot POST …`),
- *   - any 5xx,
- *   - any 401 (every fixture is replayed with a valid credential for it).
- *
- * Every other 4xx is a verdict about state and is allowed. Each fixture gets a fresh tenant
- * in which every sentinel id the client used (`ct-product-1`, …) exists, so a route that
- * looks its row up first still reaches the body parser instead of hiding behind a 404.
+ * Each fixture gets a fresh tenant in which every sentinel id the client used
+ * (`ct-product-1`, …) exists, and a valid credential of every kind the client sends
+ * (session, refresh, pwchange, device token, enrol code). So the only acceptable answers are
+ * a 2xx, or a 409 — a verdict about state reached AFTER the body was parsed (e.g.
+ * `MECHANIC_HAS_BALANCE`). Anything else fails, and says which it was: a 400 is a malformed
+ * request (the 2026-10-03 bug), a `Cannot POST …` 404 a route the server does not have, any
+ * other 401/403/404 a sentinel or credential the harness failed to provide — which would
+ * otherwise let a body go unchecked behind the lookup — and a 5xx a crash.
  */
+const ACCEPTED = (status: number) => (status >= 200 && status < 300) || status === 409;
 
 const TENANT = 'c7c7c7c7-0000-4c7c-8c7c-c7c7c7c7c7c7';
 const USERNAME = 'ct-owner';
@@ -218,6 +217,17 @@ describe('client request fixtures replay against the real server', () => {
     if (fixture.requests.some((r) => r.authorization === 'custom')) {
       swaps.set('ct-pwchange-token', await pwchangeToken(f));
     }
+    // An enrolled till's device token: exchange the world's enrol code for a real one.
+    if (JSON.stringify(fixture).includes('ct-device-token')) {
+      const enrol = await request(app.getHttpServer())
+        .post('/api/v1/auth/device')
+        .set('X-Forwarded-For', nextIp())
+        .send({ code: swaps.get('CT0DE001') });
+      if (typeof enrol.body?.data?.deviceToken !== 'string') {
+        throw new Error(`could not enrol a device: ${enrol.status} ${JSON.stringify(enrol.body)}`);
+      }
+      swaps.set('ct-device-token', enrol.body.data.deviceToken as string);
+    }
 
     for (const raw of fixture.requests) {
       const r = swap(raw, swaps);
@@ -241,10 +251,10 @@ describe('client request fixtures replay against the real server', () => {
         res.status === 404 && /^Cannot (GET|POST|PATCH|PUT|DELETE) /.test(message),
         `the server has no such route — ${where}`,
       ).toBe(false);
-      // Every fixture is replayed with a credential that is valid for it (the auth routes
-      // included: real password, minted refresh token, real enrol code, real pwchange
-      // token), so a 401 means the harness — or the route's auth — no longer matches.
-      expect(res.status, `credential refused — ${where}`).not.toBe(401);
+      expect(
+        ACCEPTED(res.status),
+        `not a 2xx/409: the body may never have been parsed (missing sentinel or credential?) — ${where}`,
+      ).toBe(true);
       // Recorded so a reviewer can see what each replay actually exercised.
       console.info(`[client-contract] ${fixture.name}: ${raw.route} → ${res.status}${code ? ` ${code} ${message}` : ''}`);
     }

@@ -9,7 +9,7 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "demusgqlzx_cb9f8fc3_18",
+        "id": "demush0wk8_6710bee7_18",
         "type": "out",
         "amount": "50.00",
         "note": "ค่าน้ำแข็ง"
