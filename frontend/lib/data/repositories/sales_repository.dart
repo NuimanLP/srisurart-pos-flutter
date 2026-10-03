@@ -16,6 +16,8 @@
 //    totalMarkup += (delta>0 ? delta : 0); creditBalance += (method=='เครดิตช่าง' ? total : 0).
 //  • Run the WHOLE thing in db.transaction(...) so any throw rolls everything back.
 //  • Store pointsGranted ON the sale so refunds reverse the right count.
+//  • If quoteId (#27, owner 2026-10-03): mark that quote converted in this same
+//    transaction — only once the bill is actually saved, never before checkout.
 
 import 'dart:math' as math;
 
@@ -138,6 +140,22 @@ class SalesRepository {
         voidReason: null,
       );
       await db.into(db.sales).insert(sale);
+
+      // The quote this cart was sold from ("→ ขาย"), converted with the bill so a
+      // failed sale leaves it open. An already-converted quote is left as it is.
+      if (input.quoteId != null) {
+        await (db.update(db.quotes)..where(
+              (t) =>
+                  t.id.equals(input.quoteId!) &
+                  t.status.equals('converted').not(),
+            ))
+            .write(
+              QuotesCompanion(
+                status: const Value('converted'),
+                convertedAt: Value(date),
+              ),
+            );
+      }
 
       // Insert the SaleItems.
       await db.batch((b) {

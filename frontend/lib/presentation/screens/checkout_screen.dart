@@ -211,6 +211,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final pending = pendingQuoteCubit.state;
     if (pending == null) return;
     _consumingPendingQuote = true;
+    // "→ ขาย" sells against the quote (#27); "✎ แก้ไข" has already deleted it.
+    final sellingQuoteId = pendingQuoteCubit.forSale ? pending.quote.id : null;
     pendingQuoteCubit.clear();
     final productsRepo = context.read<ProductsRepository>();
     final customersRepo = context.read<CustomersRepository>();
@@ -248,7 +250,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       // Cart state is global (survives a teardown); load it before the mounted
       // guard so the items are never lost. Controllers/setState need mounted.
-      _cart.setLines(res.safe);
+      _cart.setLines(res.safe, quoteId: sellingQuoteId);
       if (!mounted) return;
       _discount = pending.quote.discount ?? 0;
       _syncDiscountText();
@@ -337,6 +339,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     mechanicName: _selectedMechanic?.nameTH ?? '',
     extra: {
       'total': _total,
+      // #27: a parked quote cart is still sold against its quote on resume.
+      'quoteId': ?_cart.quoteId,
       // Preserve the in-progress payment state so a resume restores it
       // instead of inheriting whatever is left over from the next cart.
       'paymentMethod': _payMethod,
@@ -404,9 +408,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // CartCubit is global (survives a teardown of this screen) — load the
       // resumed lines now, before any further mounted-gated widget state, so
       // they're never lost even if the screen is torn down mid-resume.
-      _cart.setLines(res.safe);
-
       final blob = _decodeBlob(pk);
+      _cart.setLines(res.safe, quoteId: blob['quoteId'] as String?);
+
       final discount = (blob['discount'] as num?)?.toDouble() ?? 0;
       final custId = blob['customerId'] as String?;
       final mechId = blob['mechanicId'] as String?;
@@ -646,6 +650,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         mechanicName: _selectedMechanic?.nameTH,
         mechanicDelta: _selectedMechanic != null ? mechanicDelta : null,
         overrideCreditLimit: override,
+        quoteId: _cart.quoteId,
         items: [
           for (final it in cart)
             SaleLineInput(

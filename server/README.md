@@ -252,7 +252,7 @@ voidSale(@Param('id') id: string, @Body() body: unknown, @Req() req: Authenticat
   `runTx` inside `work` joins it, so nothing a service reads or locks comes before the claim,
   a refused write rolls the claim back with it (the `409 CREDIT_LIMIT_EXCEEDED` → same key +
   `overrideCreditLimit` counter path depends on that), and a service that calls another write
-  path (`QuotesService.convert → SalesService.create`) never claims twice — only controllers call
+  path (`QuotesService.convert`/`QuoteSaleService.sell → SalesService.create`) never claims twice — only controllers call
   `runIdempotent`. Since `tx.4` (#153) its `runTx` **is** the transaction — claim, work,
   complete and commit all happen there, and the response goes out after the commit.
   `test/idempotency-money.e2e-spec.ts` pins that against the tables, over HTTP and called
@@ -1290,11 +1290,27 @@ the per-tenant shop-settings row (`01_DATABASE.md §5.7`), ported from `settings
 ## Quotes and parked sales (#27)
 
 `src/quotes/` and `src/parked-sales/`, ported from `quotes_repository.dart` /
-`parked_repository.dart`. 🔴 **Neither writes `products` or `movements`.** The one exception
-is `POST /quotes/:id/convert`, which sells through `SalesService.create` — it never writes
-stock itself. `test/quotes-parked.e2e-spec.ts` asserts every product's stock and the
+`parked_repository.dart`. 🔴 **Neither writes `products` or `movements`.** The exceptions
+are `POST /sales` with a `quoteId` and `POST /quotes/:id/convert`, which sell through
+`SalesService.create` — neither writes stock itself. `test/quotes-parked.e2e-spec.ts` asserts every product's stock and the
 ledger's row count across the whole lifecycle.
 
+- 🔴 **Owner decision 2026-10-03 (#27 Q1 = (ข)): a quote is converted by the bill sold from it.**
+  `POST /sales` takes an optional `quoteId` (`QuoteSaleService`, `src/sales/quote-sale.service.ts`).
+  The cart is the body's own — edited, trimmed by Checkout's stock check, anything — and is
+  checked by the sale path as any bill is; the quote is marked converted (`converted_sale_id`) in
+  the bill's transaction, so a refused bill leaves it open. Same lock order, eligibility,
+  replay and refusals as convert below (they share `lockForSale`). The reply is the normal sale
+  reply plus `quote: { id, status, convertedAt, convertedSaleId }` (`null` on a replay after the
+  quote was purged; absent when the body had no `quoteId`). A lost-key retry whose quote has
+  since been purged replays the bill instead of `404` (`existingSale`); an unknown quote with no
+  such bill is `404 QUOTE_NOT_FOUND`. **`/sync/push` does not read `quoteId`** — what a quote
+  conflict should do to a bill already paid offline is an open owner question — and the client
+  leaves it out of the outbox payload, so a quote cart sold offline leaves its quote open.
+  The client no longer calls `POST /quotes/:id/convert`; it is kept, unchanged in behaviour.
+- **Q2 (owner, 2026-10-03): `DELETE` of a converted quote is `409 QUOTE_CONVERTED_NOT_DELETABLE`**
+  (`details.convertedSaleId`); the screen hides the button. `POST /quotes/purge` still removes
+  old converted quotes.
 - **Quotes: any role, both device roles; convert is `pos` only.** Every write takes an
   `Idempotency-Key`. A QT number comes from `DocNumberService` in the token's device series, so a
   session with no device token is `403 DEVICE_ROLE_FORBIDDEN`.
@@ -1316,7 +1332,7 @@ ledger's row count across the whole lifecycle.
   `status`, lines and money with a 400, and refuses any change to a converted quote with
   `409 QUOTE_ALREADY_CONVERTED`. The screen's old convert, `updateQuote(status: 'converted')` followed
   by `POST /sales`, is the half-finished state `02_API_SCREENS.md §3.8` calls out, so it is not
-  reachable here. `DELETE` works on any quote, as the screen allows.
+  reachable here. `DELETE` works on any unconverted quote (Q2 above).
 - **Convert is offered on `!converted && !expired`** (`quotes_screen.dart:559`), not on
   `status = 'open'`, so an imported row stored as e.g. `'cancelled'` but still valid converts.
 - **Convert body = `POST /sales` minus lines and money** (`id`, `paymentMethod`, customer,
@@ -1324,7 +1340,7 @@ ledger's row count across the whole lifecycle.
   the saved quote's. Sending any of them is a 400: an edited cart is a different bill, and a
   different bill goes through `POST /sales`. A quote line with no product goes to the sale path with
   an empty id, as Checkout does, and comes back as `สต็อกไม่พอ … ไม่พบในสต็อก`.
-- 🔴 **Lock order on convert: quote `FOR UPDATE` → the sale path's own order.** Nothing else
+- 🔴 **Lock order on convert (and `POST /sales` with `quoteId`): quote `FOR UPDATE` → the sale path's own order.** Nothing else
   locks a quote after a shift, a mechanic, a product or a counter, so this cannot form a cycle.
   Converting twice cannot produce two bills:
   - A second request waits on the quote row, then finds it converted.
@@ -1334,18 +1350,19 @@ ledger's row count across the whole lifecycle.
   - The replay check runs before the expiry check, so a quote converted on its last day still
     replays the next morning.
   - 🔴 **A convert retry must reuse its `Idempotency-Key`.** A retry with a fresh key on a quote
-    that has since been deleted (DELETE works on converted quotes, as in Dart) or purged answers
-    `404 QUOTE_NOT_FOUND`, and a client that reads every 4xx as a verdict would ring the bill
+    that has since been purged answers `404 QUOTE_NOT_FOUND` on `/convert` (a converted quote can
+    no longer be deleted, Q2), and a client that reads every 4xx as a verdict would ring the bill
     up again. The key replay does not read the quote, so it still answers the original.
+    `POST /sales` with `quoteId` replays the bill instead in that case.
   - A replay through the bill `id` re-reads the quote, so `quote.isExpired` is recomputed at
     read time: a replay the next day can differ from the original in that one field. A key
     replay returns the stored body unchanged.
   - An open quote whose bill `id` is already taken is `409 SALE_ID_REUSED`. Otherwise
     `existingSale` would replay an unrelated bill, and the quote would be marked converted into it.
-- 🔴 **Divergence from Dart, open for the owner (02 §3.8):** Checkout drops short or
-  non-catalogue lines from a loaded quote and lets staff edit the cart. Convert here is
-  all-or-nothing. A quote that cannot convert is therefore rung up with `POST /sales`, stays
-  `open`, and can later be converted into a second bill.
+- ~~**Divergence from Dart, open for the owner (02 §3.8):** convert is all-or-nothing while
+  Checkout edits the cart, so a quote rung up with `POST /sales` stayed `open` and could be
+  converted into a second bill.~~ **Resolved 2026-10-03 by the owner (#27 Q1 = (ข)):** the
+  edited cart goes through `POST /sales` with `quoteId` and converts the quote (top of this list).
 - **Parked sales: `pos` only, reads included** (ADR-0004). The body is `{ payload: {...} }`, stored
   verbatim as JSONB. The list is tenant-wide, newest first, and not filtered by device.
   Whether a till may see another device's cart is an open question for the owner. **`DELETE` returns the deleted row, so the delete is the

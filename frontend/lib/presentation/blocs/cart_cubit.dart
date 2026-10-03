@@ -55,9 +55,23 @@ class CartCubit extends Cubit<List<CartLine>> {
   double get mechanicDelta =>
       state.fold(0, (s, i) => s + (i.price - i.originalPrice) * i.qty);
 
-  void clear() => emit(const []);
+  /// The quote this cart is being sold against ("→ ขาย", #27), or null. Lives
+  /// with the cart — not the checkout screen — because the cart survives a
+  /// teardown of that screen, and a cart that lost its quote id would be sold
+  /// as a plain bill and leave the quote open. Reset only by [clear] (a
+  /// finished sale, a park, ล้างรายการ, sign-out) or a new [setLines].
+  String? get quoteId => _quoteId;
+  String? _quoteId;
 
-  void setLines(List<CartLine> lines) => emit(lines);
+  void clear() {
+    _quoteId = null;
+    emit(const []);
+  }
+
+  void setLines(List<CartLine> lines, {String? quoteId}) {
+    _quoteId = quoteId;
+    emit(lines);
+  }
 
   /// Add one unit of [p]. Returns an error string when it would exceed stock,
   /// else null (mirrors JS addToCart's stock-cap warning).

@@ -128,7 +128,16 @@ class ApiSalesRepository implements SalesRepository {
         return sale;
       }
 
-      final body = _saleBody(attempt.id, input);
+      final body = {
+        ..._saleBody(attempt.id, input),
+        // #27 (owner, 2026-10-03, option (ข)): the quote this cart was loaded
+        // from; the server converts it in the bill's own transaction. ONLINE
+        // only — the outbox `sale.create` payload (`_saveOffline`) does not carry
+        // it: `/sync/push` does not read it, and what a quote conflict should do
+        // to a bill already paid offline is an open owner question. A quote cart
+        // sold offline therefore leaves its quote open.
+        'quoteId': ?input.quoteId,
+      };
 
       final Map<String, dynamic> res;
       try {
@@ -230,6 +239,7 @@ class ApiSalesRepository implements SalesRepository {
     input.mechanicId ?? '',
     input.mechanicDelta == null ? '' : wireMoney(input.mechanicDelta!),
     input.overrideCreditLimit,
+    input.quoteId ?? '',
     for (final i in input.items) '${i.productId}x${i.qty}@${wireMoney(i.price)}',
   ].join('|');
 
@@ -433,6 +443,22 @@ class ApiSalesRepository implements SalesRepository {
       // #489: the server's number into the local counter, in this same
       // transaction — else a later offline sale reissues it.
       await docNumberService?.commitServerIssued(sale.receiptNo);
+
+      // #27: the quote as the server left it (`quote` is present only when the
+      // body carried a `quoteId`, and null on a replay after the quote was
+      // purged). Absent leaves the cached quote alone until the next pull.
+      final quote = res['quote'];
+      if (quote is Map) {
+        final q = quote.cast<String, dynamic>();
+        await (db.update(db.quotes)
+              ..where((t) => t.id.equals(q['id'] as String)))
+            .write(
+              QuotesCompanion(
+                status: Value(q['status'] as String),
+                convertedAt: Value(stampOrNull(q['convertedAt'])),
+              ),
+            );
+      }
     });
 
     return sale;

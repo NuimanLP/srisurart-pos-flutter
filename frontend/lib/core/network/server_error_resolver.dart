@@ -111,6 +111,10 @@ class ServerErrorResolver {
     // (02_API_SCREENS.md §8.1.1), not yet ratified by the owner. Its English
     // `message` (e.g. `name is required`) used to reach the counter verbatim.
     'BAD_REQUEST': 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่',
+    // #27 Q2 (owner, 2026-10-03): DELETE of a converted quote — agent ร่าง
+    // (02_API_SCREENS.md §8.1), not yet ratified by the owner.
+    'QUOTE_CONVERTED_NOT_DELETABLE':
+        'ใบเสนอราคานี้แปลงเป็นการขายแล้ว ลบไม่ได้', // agent ร่าง
     'UNAUTHENTICATED': 'กรุณาเข้าสู่ระบบ',
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
   };

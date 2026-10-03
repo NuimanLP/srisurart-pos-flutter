@@ -4,20 +4,23 @@
 // stayed `open`. Every repository await in the screen's action handlers now
 // catches and shows the counter's Thai sentence.
 //
-// This does NOT fix the convert flow itself (owner question #27, 02 §3.8) —
-// it only makes the failure visible. The convert test runs the REAL
-// `ApiQuotesRepository` against a mocked HTTP client.
+// Since the owner's #27 decision (2026-10-03, option (ข)) "→ ขาย" no longer
+// writes at all: it hands the quote to checkout, and the bill converts it via
+// `POST /sales` `quoteId`. The tests run the REAL `ApiQuotesRepository`
+// against a mocked HTTP client.
 //
 // The A4 preview's app-bar button used to render a check Icon next to the
 // label '✓ แปลงเป็นการขาย' — two ticks; the second test pins it to one.
 
 import 'dart:convert';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -25,6 +28,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/router/app_router.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
 import 'package:srisurart_pos/data/repositories/quotes_repository.dart';
@@ -89,23 +93,85 @@ void main() {
     await tester.pumpAndSettle(const Duration(milliseconds: 200));
   }
 
-  testWidgets('a 400 from POST /quotes/:id/convert shows a Thai error, '
-      'keeps the quote open and loads nothing into the cart', (tester) async {
+  testWidgets('"→ ขาย" writes nothing: the quote stays open and is handed to '
+      'checkout for sale (#27 (ข))', (tester) async {
     setWideViewport(tester);
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     final pending = PendingQuoteCubit();
     addTearDown(pending.close);
-    var convertCalls = 0;
+    final calls = <String>[];
     final client = MockClient((request) async {
-      if (request.method == 'POST' && request.url.path.endsWith('/convert')) {
-        convertCalls++;
+      calls.add('${request.method} ${request.url.path}');
+      return http.Response('{"status":"error"}', 404);
+    });
+
+    await tester.runAsync(() async {
+      final id = await seedOpenQuote(db);
+      final repo = ApiQuotesRepository(db, ApiClient(httpClient: client));
+      final router = GoRouter(
+        initialLocation: '/quotes',
+        routes: [
+          GoRoute(
+            path: '/quotes',
+            builder: (_, _) => const Scaffold(body: QuotesScreen()),
+          ),
+          GoRoute(
+            path: AppRoutes.checkout,
+            builder: (_, _) => const Scaffold(body: Text('CHECKOUT')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            ...repositoryProviders(db),
+            RepositoryProvider<QuotesRepository>.value(value: repo),
+          ],
+          child: BlocProvider<PendingQuoteCubit>.value(
+            value: pending,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle(const Duration(milliseconds: 200));
+
+      await tester.tap(find.text('→ ขาย'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('ตกลง'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 200));
+
+      expect(calls.where((c) => !c.startsWith('GET ')), isEmpty,
+          reason: 'no write — the old body-less /convert was a 400 on mob04');
+      expect(find.text('CHECKOUT'), findsOneWidget);
+      expect(pending.state?.quote.id, id);
+      expect(pending.forSale, isTrue);
+      final row = await (db.select(db.quotes)..where((t) => t.id.equals(id))).getSingle();
+      expect(row.status, 'open');
+      expect(row.convertedAt, isNull);
+    });
+  });
+
+  testWidgets('a server refusal on delete shows the Thai sentence and keeps the row '
+      '(QUOTE_CONVERTED_NOT_DELETABLE, #27 Q2)', (tester) async {
+    setWideViewport(tester);
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final pending = PendingQuoteCubit();
+    addTearDown(pending.close);
+    // The cache still says open; the server knows the quote was sold meanwhile.
+    final client = MockClient((request) async {
+      if (request.method == 'DELETE') {
         return http.Response(
           jsonEncode({
             'status': 'error',
-            'error': {'code': 'BAD_REQUEST', 'message': 'id is required'},
+            'error': {
+              'code': 'QUOTE_CONVERTED_NOT_DELETABLE',
+              'message': 'A converted quote cannot be deleted.',
+            },
           }),
-          400,
+          409,
           headers: {'content-type': 'application/json'},
         );
       }
@@ -117,19 +183,39 @@ void main() {
       final repo = ApiQuotesRepository(db, ApiClient(httpClient: client));
       await pumpQuotesScreen(tester, db, repo, pending);
 
-      await tester.tap(find.text('→ ขาย'));
+      await tester.tap(find.byTooltip('ลบ'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('ตกลง'));
       await tester.pumpAndSettle(const Duration(milliseconds: 200));
 
-      expect(convertCalls, 1);
-      expect(find.text('ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่'), findsOneWidget);
+      expect(find.text('ใบเสนอราคานี้แปลงเป็นการขายแล้ว ลบไม่ได้'), findsOneWidget);
       expect(find.textContaining('ApiException'), findsNothing);
-      expect(find.textContaining('id is required'), findsNothing);
-      expect(pending.state, isNull, reason: 'a failed convert must not load the cart');
-      final row = await (db.select(db.quotes)..where((t) => t.id.equals(id))).getSingle();
-      expect(row.status, 'open');
-      expect(row.convertedAt, isNull);
+      expect(
+        await (db.select(db.quotes)..where((t) => t.id.equals(id))).get(),
+        hasLength(1),
+      );
+    });
+  });
+
+  testWidgets('a converted quote offers no delete button (#27 Q2)', (tester) async {
+    setWideViewport(tester);
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final pending = PendingQuoteCubit();
+    addTearDown(pending.close);
+
+    await tester.runAsync(() async {
+      final id = await seedOpenQuote(db);
+      await (db.update(db.quotes)..where((t) => t.id.equals(id))).write(
+        QuotesCompanion(
+          status: const Value('converted'),
+          convertedAt: Value(DateTime.now()),
+        ),
+      );
+      await pumpQuotesScreen(tester, db, QuotesRepository(db), pending);
+
+      expect(find.text('ดู'), findsOneWidget, reason: 'the row is shown');
+      expect(find.byTooltip('ลบ'), findsNothing);
     });
   });
 

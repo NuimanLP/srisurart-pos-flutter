@@ -129,6 +129,12 @@ class SaleInput {
   /// happened. Carry the answer; never infer it.
   final bool overrideCreditLimit;
 
+  /// The quote this cart was loaded from by "→ ขาย" (#27, owner 2026-10-03,
+  /// option (ข)), or null. The bill marks that quote converted in its own
+  /// transaction — on the API build via `POST /sales` `quoteId`, on the Drift
+  /// build inside `saveSale`. The cart may differ from the quote freely.
+  final String? quoteId;
+
   const SaleInput({
     required this.subtotal,
     required this.discount,
@@ -140,6 +146,7 @@ class SaleInput {
     this.mechanicName,
     this.mechanicDelta,
     this.overrideCreditLimit = false,
+    this.quoteId,
     required this.items,
   });
 }

@@ -11,7 +11,6 @@
 // Convert/edit hand the quote to the checkout cart via PendingQuoteCubit then
 // navigate to `/` (see that cubit's note).
 
-import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -148,32 +147,22 @@ class _QuotesScreenState extends State<QuotesScreen> {
       return;
     }
     final q = qi.quote;
-    final repo = context.read<QuotesRepository>();
     final ok = await showConfirm(
       context,
       'แปลงเป็นการขาย',
       'แปลง ${q.quoteNo} เป็นการขาย? ระบบจะใส่รายการนี้กลับเข้าตะกร้า',
     );
     if (!ok) return;
-    try {
-      await repo.updateQuote(
-        q.id,
-        QuotesCompanion(
-          status: const Value('converted'),
-          convertedAt: Value(DateTime.now()),
-        ),
-      );
-    } catch (e) {
-      // Nothing is loaded into the cart on a failed convert.
-      _snackError(e);
-      return;
-    }
-    _loadToCart(qi);
+    // #27 (owner, 2026-10-03, option (ข)): nothing is written here. The quote
+    // stays open until the cart is actually sold — checkout sends its id with
+    // the bill, and the bill marks it converted in the same transaction. The
+    // cashier may edit the cart first; it still converts this quote.
+    _loadToCart(qi, forSale: true);
   }
 
   /// Hand the quote to checkout (pending-cart cubit) and navigate home.
-  void _loadToCart(QuoteWithItems qi) {
-    context.read<PendingQuoteCubit>().set(qi);
+  void _loadToCart(QuoteWithItems qi, {bool forSale = false}) {
+    context.read<PendingQuoteCubit>().set(qi, forSale: forSale);
     if (mounted) context.go(AppRoutes.checkout);
   }
 
@@ -650,12 +639,15 @@ class _QuoteRow extends StatelessWidget {
                     'ทำซ้ำ (ต่ออายุใหม่)',
                   ),
                   _actionBtn('ดู', AppColors.orange, onPreview),
-                  _iconBtn(
-                    Icons.delete_outline,
-                    AppColors.error,
-                    isDegraded ? null : onDelete,
-                    'ลบ',
-                  ),
+                  // #27 Q2 (owner, 2026-10-03): a converted quote is the record
+                  // a bill was sold from — the server refuses to delete it.
+                  if (!converted)
+                    _iconBtn(
+                      Icons.delete_outline,
+                      AppColors.error,
+                      isDegraded ? null : onDelete,
+                      'ลบ',
+                    ),
                 ],
               ),
             ],
