@@ -13,8 +13,6 @@
   </header>
 
   <main>
-    <div id="globalError" class="error-box hidden" role="alert"></div>
-
     <!-- Login view -->
     <section id="loginView" class="card">
       <h2>เข้าสู่ระบบผู้ดูแลแพลตฟอร์ม</h2>
@@ -30,6 +28,7 @@
             <svg class="eye-off hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
           </button>
         </div>
+        <div id="loginMsg" class="msg-box hidden" role="alert"></div>
         <p class="mt-16">
           <button type="submit" class="primary">เข้าสู่ระบบ</button>
         </p>
@@ -59,6 +58,7 @@
             ระบบจะสร้างรหัสผ่านชั่วคราวให้เจ้าของร้านเอง — ไม่มีช่องให้ตั้งรหัสผ่านที่นี่
             (the server generates the owner's temporary password; there is no field to set one).
           </p>
+          <div id="createMsg" class="msg-box hidden" role="alert"></div>
           <p class="mt-16">
             <button type="submit" class="primary">สร้างร้าน</button>
           </p>
@@ -68,6 +68,7 @@
       <div class="card">
         <h2>รายชื่อร้านทั้งหมด (Tenants)</h2>
         <button id="refreshTenantsBtn">โหลดใหม่ (Refresh)</button>
+        <div id="listMsg" class="msg-box hidden" role="alert"></div>
         <div class="table-scroll">
         <table id="tenantTable">
           <thead>
@@ -88,18 +89,24 @@
     <!-- Tenant detail view -->
     <section id="tenantDetailView" class="hidden">
       <button id="backToListBtn" class="link">&larr; กลับไปหน้ารายชื่อร้าน</button>
+      <div id="detailMsg" class="msg-box hidden" role="alert"></div>
+      <div id="tdBody" class="hidden">
       <div class="card">
         <h2 id="tdShopName"></h2>
+        <p>สถานะปัจจุบัน: <span id="tdStatusPill"></span></p>
         <p class="muted" id="tdMeta"></p>
         <div class="row-actions">
           <button data-status="active">เปิดใช้งาน (activate)</button>
           <button data-status="suspended">ระงับชั่วคราว (suspend)</button>
           <button data-status="closed" class="danger">ปิดร้านถาวร (close)</button>
         </div>
+        <p id="tdClosedNote" class="muted hidden">ร้านนี้ปิดถาวรแล้ว — เปลี่ยนสถานะไม่ได้อีก</p>
+        <div id="statusMsg" class="msg-box hidden" role="status"></div>
       </div>
 
       <div class="card">
-        <h2>รหัสผ่านเจ้าของร้าน (Owner password)</h2>
+        <h2>บัญชีเจ้าของร้าน (Owner account)</h2>
+        <div id="ownerInfo"></div>
         <p class="muted">
           ใช้เมื่อเจ้าของร้านลืมรหัสผ่านเท่านั้น — <strong>ต้องโทรกลับ</strong>ไปที่เบอร์โทร/อีเมล
           ที่บันทึกไว้ตอนเปิดร้าน เพื่อยืนยันตัวตนก่อนเสมอ ห้ามเชื่อเบอร์/อีเมลที่ผู้โทรเข้ามาแจ้งเอง
@@ -107,10 +114,12 @@
           caller's own number).
         </p>
         <button id="resetOwnerPasswordBtn" class="danger">ออกรหัสผ่านชั่วคราวใหม่ (reset)</button>
+        <div id="ownerMsg" class="msg-box hidden" role="status"></div>
       </div>
 
       <div class="card">
         <h2>อุปกรณ์ (Devices)</h2>
+        <div id="devicesMsg" class="msg-box hidden" role="status"></div>
         <div class="table-scroll">
         <table id="deviceTable">
           <thead>
@@ -136,12 +145,16 @@
               <th>ID</th>
               <th>สถานะ</th>
               <th>สร้างเมื่อ</th>
-              <th>ผิดพลาด</th>
+              <th>เริ่ม</th>
+              <th>เสร็จ</th>
+              <th>ผล / ข้อผิดพลาด</th>
             </tr>
           </thead>
           <tbody id="importJobTableBody"></tbody>
         </table>
         </div>
+        <p class="muted">เวลาทั้งหมดในหน้านี้เป็นเวลาไทย (Asia/Bangkok)</p>
+      </div>
       </div>
     </section>
 
@@ -156,6 +169,24 @@
         <div id="codeModalItems"></div>
         <p>
           <button id="codeModalCloseBtn" class="primary">ปิด (Close)</button>
+        </p>
+      </div>
+    </div>
+
+    <!-- Close-tenant confirmation: closed is terminal (owner decision 2026-10-03), so the admin
+         must type the tenant code instead of clicking through a window.confirm. -->
+    <div id="closeModalBackdrop" class="hidden modal-backdrop">
+      <div class="card modal-card" role="dialog" aria-modal="true" aria-labelledby="closeModalTitle">
+        <h2 id="closeModalTitle">ปิดร้านถาวร (close tenant)</h2>
+        <p class="warn-note">
+          ปิดร้านแล้ว<strong>เปิดกลับไม่ได้อีก</strong> — ร้านจะใช้งานระบบไม่ได้ทันที
+        </p>
+        <label for="closeConfirmInput" id="closeConfirmLabel"></label>
+        <input type="text" id="closeConfirmInput" autocomplete="off" spellcheck="false" />
+        <div id="closeMsg" class="msg-box hidden" role="alert"></div>
+        <p class="row-actions mt-16">
+          <button id="closeCancelBtn">ยกเลิก</button>
+          <button id="closeConfirmBtn" class="danger" disabled>ปิดร้านถาวร</button>
         </p>
       </div>
     </div>

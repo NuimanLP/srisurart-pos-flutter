@@ -96,15 +96,17 @@
   <div class="sec-no">Section 3</div>
   <h1 class="sec">รายละเอียดร้าน <span class="en">Tenant detail</span></h1>
   <figure><img src="img/platform-ui-tenants.png" alt="รายชื่อร้านทั้งหมด — รหัส / ชื่อร้าน / แผน / สถานะ" loading="lazy"><figcaption>รายชื่อร้านทั้งหมด — รหัส / ชื่อร้าน / แผน / สถานะ</figcaption></figure>
-  <p>ในตารางรายชื่อร้าน กด <span class="ui ghost">โหลดใหม่ (Refresh)</span> เพื่ออัปเดต แล้วกด <span class="ui ghost">ดูรายละเอียด (detail)</span> ที่แถวร้าน — หัวร้านแสดง <span class="msg">แผน: … · เขตเวลา: … · สถานะปัจจุบัน: … · สร้างเมื่อ: …</span></p>
+  <p>ในตารางรายชื่อร้าน กด <span class="ui ghost">โหลดใหม่ (Refresh)</span> เพื่ออัปเดต แล้วกด <span class="ui ghost">ดูรายละเอียด (detail)</span> ที่แถวร้าน — หัวร้านแสดง <span class="msg">สถานะปัจจุบัน: …</span> และ <span class="msg">แผน: … · เขตเวลา: … · สร้างเมื่อ: …</span> — เวลาทั้งหมดเป็นเวลาไทย เช่น 3 ต.ค. 2569 14:05 · รีโหลดหน้าแล้วยังอยู่ที่ร้านเดิม (ลิงก์ <code>#tenant/&lt;id&gt;</code>) · ผลสำเร็จ/ข้อผิดพลาดขึ้นในการ์ดของปุ่มที่กด</p>
+  <p>การ์ด <span class="msg">บัญชีเจ้าของร้าน (Owner account)</span> แสดงชื่อผู้ใช้ ว่ายังใช้รหัสผ่านชั่วคราวอยู่หรือไม่ วันหมดอายุของรหัสชั่วคราว และวันที่เปลี่ยนรหัสผ่านล่าสุด (ไม่แสดงรหัสผ่าน)</p>
   <figure><img src="img/platform-ui-tenant-detail.png" alt="รายละเอียดร้าน — สถานะ / รหัสผ่านเจ้าของร้าน / อุปกรณ์ / งานนำเข้าข้อมูล" loading="lazy"><figcaption>รายละเอียดร้าน — สถานะ / รหัสผ่านเจ้าของร้าน / อุปกรณ์ / งานนำเข้าข้อมูล</figcaption></figure>
 
   <h2 class="sub">เปลี่ยนสถานะร้าน <span class="en">Status</span></h2>
   <ul class="ticks">
     <li><span class="ui ghost">เปิดใช้งาน (activate)</span> → <span class="msg">ยืนยันเปิดใช้งานร้านนี้หรือไม่?</span></li>
     <li><span class="ui ghost">ระงับชั่วคราว (suspend)</span> → <span class="msg">ยืนยันระงับการใช้งานร้านนี้ชั่วคราวหรือไม่?</span> — ร้านจะเห็น <span class="msg">ร้านนี้ถูกระงับการใช้งาน</span></li>
-    <li><span class="ui">ปิดร้านถาวร (close)</span> → <span class="msg">ยืนยันปิดร้านนี้ถาวรหรือไม่? การกระทำนี้ควรทำเมื่อแน่ใจแล้วเท่านั้น</span></li>
+    <li><span class="ui">ปิดร้านถาวร (close)</span> → กล่อง <span class="msg">พิมพ์รหัสร้าน "{code}" เพื่อยืนยัน</span> — ต้องพิมพ์รหัสร้านให้ตรงก่อนปุ่มจะกดได้</li>
   </ul>
+  <p>แสดงเฉพาะปุ่มที่ใช้ได้กับสถานะปัจจุบัน · <strong>ปิดร้านแล้วเปิดกลับไม่ได้</strong> — ร้านที่ปิดแล้วไม่มีปุ่มสถานะ และ server ปฏิเสธด้วย <code>409 TENANT_CLOSED</code> (รวมคำสั่ง CLI <code>tenants:status</code>)</p>
 
   <h2 class="sub">อุปกรณ์ · ออกรหัสผูกเครื่องใหม่ <span class="en">Devices</span></h2>
   <p>ตาราง <span class="msg">อุปกรณ์ (Devices)</span> แสดงสถานะ <span class="msg">ผูกเครื่องแล้ว (enrolled)</span> / <span class="msg">ยังไม่ผูกเครื่อง (not enrolled)</span> / <span class="msg">ยังไม่ผูกเครื่อง — รหัสหมดอายุ (code expired)</span> / <span class="msg">ยกเลิกแล้ว (retired)</span></p>

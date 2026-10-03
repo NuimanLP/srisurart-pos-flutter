@@ -1,4 +1,4 @@
-// Srisurart POS — platform admin dashboard (#443 PR4).
+// Srisurart POS — platform admin dashboard (#443 PR4, UX pass).
 // Plain vanilla JS, no build step, no CDN. Every value that came from the server is written
 // with textContent (never innerHTML) so a malicious tenant/shop name can never run as HTML.
 'use strict';
@@ -7,31 +7,83 @@ const TOKEN_KEY = 'platformToken';
 const API_BASE = '/api/v1/platform';
 
 const els = {
-  globalError: document.getElementById('globalError'),
   logoutBtn: document.getElementById('logoutBtn'),
   loginView: document.getElementById('loginView'),
   loginForm: document.getElementById('loginForm'),
   loginUsername: document.getElementById('loginUsername'),
   loginPassword: document.getElementById('loginPassword'),
   loginPasswordToggle: document.getElementById('loginPasswordToggle'),
+  loginMsg: document.getElementById('loginMsg'),
   tenantListView: document.getElementById('tenantListView'),
   createTenantForm: document.getElementById('createTenantForm'),
+  createMsg: document.getElementById('createMsg'),
   refreshTenantsBtn: document.getElementById('refreshTenantsBtn'),
+  listMsg: document.getElementById('listMsg'),
   tenantTableBody: document.getElementById('tenantTableBody'),
   tenantDetailView: document.getElementById('tenantDetailView'),
   backToListBtn: document.getElementById('backToListBtn'),
+  detailMsg: document.getElementById('detailMsg'),
+  tdBody: document.getElementById('tdBody'),
   tdShopName: document.getElementById('tdShopName'),
+  tdStatusPill: document.getElementById('tdStatusPill'),
   tdMeta: document.getElementById('tdMeta'),
+  tdClosedNote: document.getElementById('tdClosedNote'),
+  statusMsg: document.getElementById('statusMsg'),
+  ownerInfo: document.getElementById('ownerInfo'),
+  ownerMsg: document.getElementById('ownerMsg'),
+  resetOwnerPasswordBtn: document.getElementById('resetOwnerPasswordBtn'),
+  devicesMsg: document.getElementById('devicesMsg'),
   deviceTableBody: document.getElementById('deviceTableBody'),
   importJobTableBody: document.getElementById('importJobTableBody'),
   codeModalBackdrop: document.getElementById('codeModalBackdrop'),
   codeModalTitle: document.getElementById('codeModalTitle'),
   codeModalItems: document.getElementById('codeModalItems'),
   codeModalCloseBtn: document.getElementById('codeModalCloseBtn'),
-  resetOwnerPasswordBtn: document.getElementById('resetOwnerPasswordBtn'),
+  closeModalBackdrop: document.getElementById('closeModalBackdrop'),
+  closeConfirmLabel: document.getElementById('closeConfirmLabel'),
+  closeConfirmInput: document.getElementById('closeConfirmInput'),
+  closeMsg: document.getElementById('closeMsg'),
+  closeCancelBtn: document.getElementById('closeCancelBtn'),
+  closeConfirmBtn: document.getElementById('closeConfirmBtn'),
 };
 
+/** The tenant the detail view is showing (id + the row last loaded for it). */
 let currentTenantId = null;
+let currentTenant = null;
+
+// ---- Thai labels (raw value kept in the element's title) ----------------------------
+
+const STATUS_LABELS = { active: 'ใช้งานอยู่', suspended: 'ระงับชั่วคราว', closed: 'ปิดถาวร' };
+const PLAN_LABELS = { basic: 'พื้นฐาน', demo: 'สาธิต', loadtest: 'ทดสอบโหลด' };
+const JOB_STATUS_LABELS = {
+  queued: 'รอคิว',
+  running: 'กำลังนำเข้า',
+  succeeded: 'สำเร็จ',
+  failed: 'ล้มเหลว',
+};
+const ROLE_LABELS = { pos: 'เครื่องขาย', backoffice: 'หลังร้าน' };
+
+/**
+ * Owner decision 2026-10-03: `closed` is terminal (the server refuses with 409 TENANT_CLOSED).
+ * Only the transitions that make sense from the current status get a button.
+ */
+const STATUS_TRANSITIONS = {
+  active: ['suspended', 'closed'],
+  suspended: ['active', 'closed'],
+  closed: [],
+};
+
+/** Thai text for a server error code — 02_API_SCREENS.md §8 (status of each string noted there). */
+const ERROR_TEXT = {
+  RATE_LIMITED: 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
+  INVALID_TENANT_ID: 'รหัสร้านไม่ถูกต้อง',
+  DEVICE_ALREADY_ENROLLED: 'เครื่องนี้ผูกกับบัญชีไปแล้ว หรือถูกปลดไปแล้ว ออกโค้ดใหม่ไม่ได้',
+  OWNER_NOT_FOUND: 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่',
+  TENANT_CLOSED: 'ร้านนี้ปิดถาวรแล้ว เปลี่ยนสถานะไม่ได้อีก',
+};
+
+const SESSION_EXPIRED_TEXT = 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่';
+const BAD_LOGIN_TEXT = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
 
 // ---- token / session -------------------------------------------------------
 
@@ -72,14 +124,91 @@ function td(text) {
   return cell;
 }
 
-function showError(message) {
-  els.globalError.textContent = message;
-  els.globalError.classList.remove('hidden');
+/** A table cell (or other element) showing a Thai label, with the raw value as its title. */
+function labelled(tag, labels, value) {
+  const node = document.createElement(tag);
+  node.textContent = labels[value] || (value == null ? '' : String(value));
+  if (value != null) node.title = String(value);
+  return node;
 }
 
-function clearError() {
-  els.globalError.textContent = '';
-  els.globalError.classList.add('hidden');
+function emptyRow(tbody, colspan, text) {
+  const row = document.createElement('tr');
+  const cell = td(text);
+  cell.colSpan = colspan;
+  cell.className = 'empty';
+  row.appendChild(cell);
+  tbody.appendChild(row);
+}
+
+function statusPill(status) {
+  const pill = labelled('span', STATUS_LABELS, status);
+  pill.className = `pill ${['active', 'suspended', 'closed'].includes(status) ? status : ''}`;
+  return pill;
+}
+
+// Asia/Bangkok, Thai months, Buddhist year, 24 h: "3 ต.ค. 2569 14:05". Assembled from parts so
+// a browser's ICU joining words ("เวลา") cannot change the shape.
+const DATE_FMT = new Intl.DateTimeFormat('th-TH', {
+  timeZone: 'Asia/Bangkok',
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+function fmtDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const p = {};
+  for (const part of DATE_FMT.formatToParts(d)) p[part.type] = part.value;
+  return `${p.day} ${p.month} ${p.year} ${p.hour}:${p.minute}`;
+}
+
+function dateCell(iso) {
+  const cell = td(fmtDate(iso));
+  if (iso) cell.title = String(iso);
+  return cell;
+}
+
+/** Shows (kind = 'error' | 'ok') or hides (text = null) a per-card message box. */
+function say(box, kind, text) {
+  if (!text) {
+    box.textContent = '';
+    box.className = 'msg-box hidden';
+    return;
+  }
+  box.textContent = text;
+  box.className = `msg-box ${kind}`;
+}
+
+function describeError(err) {
+  if (err && err.code && ERROR_TEXT[err.code]) return ERROR_TEXT[err.code];
+  if (err && err.code === 'NETWORK') return err.message;
+  const tag = err && (err.code || err.status) ? ` (${err.code || err.status})` : '';
+  return `ทำรายการไม่สำเร็จ${tag}: ${err && err.message ? err.message : ''}`;
+}
+
+/** Shows an error in `box` — except a dead session, which api() already sent to login. */
+function fail(box, err) {
+  if (err && err.code === 'SESSION_EXPIRED') return;
+  say(box, 'error', describeError(err));
+}
+
+/** Disables the triggering button while `fn` runs, so a double click cannot send twice. */
+async function withBusy(btn, fn) {
+  if (btn.disabled) return undefined;
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+  }
 }
 
 function showView(view) {
@@ -91,10 +220,18 @@ function showView(view) {
 
 // ---- API layer --------------------------------------------------------------
 
+class ApiError extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 /**
  * Calls the platform API and unwraps the `{status,data}` / `{status,error}` envelope
- * (02_API_SCREENS.md §1.2). On a 401 the session is dead — drop the token and go back to
- * login, same as any other client on this token would have to.
+ * (02_API_SCREENS.md §1.2). A 401 on anything but the login call means the session is dead:
+ * drop the token and go back to login with a Thai message.
  */
 async function api(path, options = {}) {
   const token = getToken();
@@ -108,8 +245,8 @@ async function api(path, options = {}) {
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
-  } catch (err) {
-    throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ (network error)');
+  } catch {
+    throw new ApiError(0, 'NETWORK', 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ (network error)');
   }
 
   let body = null;
@@ -119,30 +256,58 @@ async function api(path, options = {}) {
     // No JSON body (e.g. a proxy-level error page) — fall through to the status-based message.
   }
 
-  if (res.status === 401) {
+  if (res.status === 401 && !options.isLogin) {
     clearToken();
-    goToLogin();
-    const msg = body && body.error && body.error.message
-      ? body.error.message
-      : 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ (session expired)';
-    throw new Error(msg);
+    goToLogin(SESSION_EXPIRED_TEXT);
+    throw new ApiError(401, 'SESSION_EXPIRED', SESSION_EXPIRED_TEXT);
   }
 
   if (!res.ok) {
-    const msg = body && body.error && body.error.message
-      ? `${body.error.code || res.status}: ${body.error.message}`
-      : `คำขอล้มเหลว (HTTP ${res.status})`;
-    throw new Error(msg);
+    const error = body && body.error ? body.error : {};
+    throw new ApiError(res.status, error.code || '', error.message || `HTTP ${res.status}`);
   }
 
   return body ? body.data : null;
 }
 
+// ---- routing (#tenant/<id> keeps the detail view across a reload) -----------------
+
+const TENANT_HASH = /^#tenant\/([0-9a-fA-F-]{36})$/;
+
+function route() {
+  if (!getToken()) {
+    goToLogin();
+    return;
+  }
+  els.logoutBtn.classList.remove('hidden');
+  const m = TENANT_HASH.exec(location.hash);
+  if (m) {
+    say(els.statusMsg, null, null);
+    say(els.ownerMsg, null, null);
+    say(els.devicesMsg, null, null);
+    loadTenantDetail(m[1]);
+  } else {
+    showTenantList();
+  }
+}
+
+function openTenantDetail(tenantId) {
+  location.hash = `#tenant/${tenantId}`; // → hashchange → route()
+}
+
+function backToList() {
+  if (location.hash) location.hash = '';
+  else route();
+}
+
 // ---- login / logout ----------------------------------------------------------
 
-function goToLogin() {
+function goToLogin(message) {
   currentTenantId = null;
+  currentTenant = null;
   els.logoutBtn.classList.add('hidden');
+  hideCloseModal();
+  say(els.loginMsg, 'error', message || null);
   showView(els.loginView);
 }
 
@@ -159,49 +324,57 @@ function setPasswordVisible(visible) {
 
 async function handleLogin(evt) {
   evt.preventDefault();
-  clearError();
+  say(els.loginMsg, null, null);
   const username = els.loginUsername.value.trim();
   const password = els.loginPassword.value;
-  try {
-    const data = await api('/auth/token', { method: 'POST', body: { username, password } });
-    setToken(data.token);
-    els.loginPassword.value = '';
-    setPasswordVisible(false);
-    els.logoutBtn.classList.remove('hidden');
-    await loadTenantList();
-    showView(els.tenantListView);
-  } catch (err) {
-    showError(err.message);
-  }
+  await withBusy(els.loginForm.querySelector('button[type="submit"]'), async () => {
+    try {
+      const data = await api('/auth/token', {
+        method: 'POST',
+        body: { username, password },
+        isLogin: true,
+      });
+      setToken(data.token);
+      els.loginPassword.value = '';
+      setPasswordVisible(false);
+      route(); // back to whatever #tenant/<id> the session expired on, or the list
+    } catch (err) {
+      say(els.loginMsg, 'error', err.status === 401 ? BAD_LOGIN_TEXT : describeError(err));
+    }
+  });
 }
 
 function handleLogout() {
   clearToken();
+  if (location.hash) history.replaceState(null, '', location.pathname);
   goToLogin();
 }
 
 // ---- tenant list --------------------------------------------------------------
 
-function statusPillClass(status) {
-  return ['active', 'suspended', 'closed'].includes(status) ? status : '';
+function showTenantList() {
+  currentTenantId = null;
+  currentTenant = null;
+  showView(els.tenantListView);
+  loadTenantList();
 }
 
 async function loadTenantList() {
-  clearError();
+  say(els.listMsg, null, null);
   try {
     const tenants = await api('/tenants');
     clearChildren(els.tenantTableBody);
+    if (tenants.length === 0) {
+      emptyRow(els.tenantTableBody, 5, 'ยังไม่มีร้านในระบบ — สร้างร้านแรกได้จากฟอร์มด้านบน');
+    }
     for (const t of tenants) {
       const row = document.createElement('tr');
       row.appendChild(td(t.code));
       row.appendChild(td(t.shop_name));
-      row.appendChild(td(t.plan));
+      row.appendChild(labelled('td', PLAN_LABELS, t.plan));
 
       const statusCell = document.createElement('td');
-      const pill = document.createElement('span');
-      pill.className = `pill ${statusPillClass(t.status)}`;
-      pill.textContent = t.status;
-      statusCell.appendChild(pill);
+      statusCell.appendChild(statusPill(t.status));
       row.appendChild(statusCell);
 
       const actionCell = document.createElement('td');
@@ -215,13 +388,13 @@ async function loadTenantList() {
       els.tenantTableBody.appendChild(row);
     }
   } catch (err) {
-    showError(err.message);
+    fail(els.listMsg, err);
   }
 }
 
 async function handleCreateTenant(evt) {
   evt.preventDefault();
-  clearError();
+  say(els.createMsg, null, null);
   // #443 PR3 (server, merged): ownerPassword is no longer part of this contract — the server
   // generates a temporary password and returns it once. There is no field for it in this form.
   const body = {
@@ -231,62 +404,134 @@ async function handleCreateTenant(evt) {
     ownerUsername: document.getElementById('ctOwnerUsername').value.trim(),
     ownerDisplayName: document.getElementById('ctOwnerDisplayName').value.trim() || undefined,
   };
-  try {
-    const data = await api('/tenants', { method: 'POST', body });
-    els.createTenantForm.reset();
-    showCodeModal({
-      title: `สร้างร้าน "${data.shopName}" สำเร็จ`,
-      items: [
-        {
-          label: `รหัสผ่านชั่วคราวของเจ้าของร้าน (${data.ownerUsername})`,
-          value: data.tempPassword,
-          note: `หมดอายุ: ${data.tempPasswordExpiresAt} (7 วัน) — เจ้าของร้านต้องเปลี่ยนรหัสตอนล็อกอินครั้งแรก`,
-        },
-        {
-          label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
-          value: data.enrolCode,
-          note: 'ใช้ได้ 7 วัน (valid for 7 days)',
-        },
-      ],
-    });
-    await loadTenantList();
-  } catch (err) {
-    showError(err.message);
-  }
+  await withBusy(els.createTenantForm.querySelector('button[type="submit"]'), async () => {
+    try {
+      const data = await api('/tenants', { method: 'POST', body });
+      els.createTenantForm.reset();
+      showCodeModal({
+        title: `สร้างร้าน "${data.shopName}" สำเร็จ`,
+        items: [
+          {
+            label: `รหัสผ่านชั่วคราวของเจ้าของร้าน (${data.ownerUsername})`,
+            value: data.tempPassword,
+            note: `หมดอายุ: ${fmtDate(data.tempPasswordExpiresAt)} (7 วัน) — เจ้าของร้านต้องเปลี่ยนรหัสตอนล็อกอินครั้งแรก`,
+          },
+          {
+            label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
+            value: data.enrolCode,
+            note: 'ใช้ได้ 7 วัน (valid for 7 days)',
+          },
+        ],
+      });
+      await loadTenantList();
+    } catch (err) {
+      fail(els.createMsg, err);
+    }
+  });
 }
 
 // ---- tenant detail --------------------------------------------------------------
 
-async function openTenantDetail(tenantId) {
-  clearError();
+async function loadTenantDetail(tenantId) {
+  say(els.detailMsg, null, null);
+  if (currentTenantId !== tenantId) els.tdBody.classList.add('hidden');
   currentTenantId = tenantId;
+  showView(els.tenantDetailView);
   try {
     const data = await api(`/tenants/${encodeURIComponent(tenantId)}`);
+    // The admin may have gone back (or to another tenant) while this was in flight.
+    if (currentTenantId !== tenantId) return;
     renderTenantDetail(data);
-    showView(els.tenantDetailView);
+    els.tdBody.classList.remove('hidden');
   } catch (err) {
-    showError(err.message);
+    if (currentTenantId !== tenantId) return;
+    els.tdBody.classList.add('hidden');
+    fail(els.detailMsg, err);
   }
 }
 
 function renderTenantDetail(data) {
   const t = data.tenant;
+  currentTenant = t;
   els.tdShopName.textContent = `${t.shop_name} (${t.code})`;
+  clearChildren(els.tdStatusPill);
+  els.tdStatusPill.appendChild(statusPill(t.status));
   els.tdMeta.textContent =
-    `แผน: ${t.plan} · เขตเวลา: ${t.timezone} · สถานะปัจจุบัน: ${t.status} · สร้างเมื่อ: ${t.created_at}`;
+    `แผน: ${PLAN_LABELS[t.plan] || t.plan} · เขตเวลา: ${t.timezone} · สร้างเมื่อ: ${fmtDate(t.created_at)}`;
 
+  const allowed = STATUS_TRANSITIONS[t.status] || [];
+  for (const btn of document.querySelectorAll('#tenantDetailView [data-status]')) {
+    btn.classList.toggle('hidden', !allowed.includes(btn.dataset.status));
+  }
+  els.tdClosedNote.classList.toggle('hidden', t.status !== 'closed');
+
+  renderOwner(data.owner);
+  renderDevices(t.id, data.devices);
+  renderImportJobs(data.importJobs);
+}
+
+function renderOwner(owner) {
+  clearChildren(els.ownerInfo);
+  if (!owner) {
+    const p = document.createElement('p');
+    p.className = 'muted';
+    p.textContent = ERROR_TEXT.OWNER_NOT_FOUND;
+    els.ownerInfo.appendChild(p);
+    return;
+  }
+  const tempExpired =
+    owner.tempPasswordExpiresAt && new Date(owner.tempPasswordExpiresAt).getTime() < Date.now();
+  const rows = [
+    ['ชื่อผู้ใช้', owner.username],
+    ['ชื่อที่แสดง', owner.displayName],
+    [
+      'สถานะรหัสผ่าน',
+      owner.mustChangePassword
+        ? 'ยังใช้รหัสผ่านชั่วคราว — ต้องเปลี่ยนตอนเข้าสู่ระบบ'
+        : 'ตั้งรหัสผ่านเองแล้ว',
+    ],
+  ];
+  if (owner.mustChangePassword) {
+    rows.push([
+      'รหัสผ่านชั่วคราวหมดอายุ',
+      `${fmtDate(owner.tempPasswordExpiresAt)}${tempExpired ? ' (หมดอายุแล้ว)' : ''}`,
+      owner.tempPasswordExpiresAt,
+    ]);
+  }
+  rows.push(['เปลี่ยนรหัสผ่านล่าสุด', fmtDate(owner.passwordChangedAt), owner.passwordChangedAt]);
+
+  const dl = document.createElement('dl');
+  dl.className = 'kv';
+  for (const [key, value, raw] of rows) {
+    const dt = document.createElement('dt');
+    dt.textContent = key;
+    const dd = document.createElement('dd');
+    dd.textContent = value == null ? '-' : String(value);
+    if (raw) dd.title = String(raw);
+    if (key === 'รหัสผ่านชั่วคราวหมดอายุ' && tempExpired) dd.className = 'warn-text';
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  }
+  els.ownerInfo.appendChild(dl);
+}
+
+function renderDevices(tenantId, devices) {
   clearChildren(els.deviceTableBody);
-  for (const d of data.devices) {
+  if (devices.length === 0) {
+    emptyRow(els.deviceTableBody, 5, 'ร้านนี้ยังไม่มีอุปกรณ์');
+  }
+  for (const d of devices) {
     const row = document.createElement('tr');
     row.appendChild(td(d.id));
     row.appendChild(td(d.label));
-    row.appendChild(td(d.role));
+    row.appendChild(labelled('td', ROLE_LABELS, d.role));
 
     const statusCell = document.createElement('td');
     const pill = document.createElement('span');
     if (d.retiredAt) {
       pill.className = 'pill retired';
       pill.textContent = 'ยกเลิกแล้ว (retired)';
+      pill.title = d.retiredAt;
     } else if (d.enrolled) {
       pill.className = 'pill enrolled';
       pill.textContent = 'ผูกเครื่องแล้ว (enrolled)';
@@ -296,6 +541,7 @@ function renderTenantDetail(data) {
       pill.textContent = expired
         ? 'ยังไม่ผูกเครื่อง — รหัสหมดอายุ (code expired)'
         : 'ยังไม่ผูกเครื่อง (not enrolled)';
+      if (d.enrolExpiresAt) pill.title = `${fmtDate(d.enrolExpiresAt)} (${d.enrolExpiresAt})`;
     }
     statusCell.appendChild(pill);
     row.appendChild(statusCell);
@@ -304,46 +550,72 @@ function renderTenantDetail(data) {
     if (!d.enrolled && !d.retiredAt) {
       const reissueBtn = document.createElement('button');
       reissueBtn.textContent = 'ออกรหัสใหม่ (reissue code)';
-      reissueBtn.addEventListener('click', () => handleReissueCode(t.id, d.id));
+      reissueBtn.addEventListener('click', () => handleReissueCode(reissueBtn, tenantId, d.id));
       actionCell.appendChild(reissueBtn);
     }
     row.appendChild(actionCell);
 
     els.deviceTableBody.appendChild(row);
   }
+}
 
+function importResultText(job) {
+  if (job.error) return job.error;
+  const r = job.result;
+  if (!r || typeof r !== 'object') return '-';
+  const tomb = r.tombstones || {};
+  const n = (v) => Number(v) || 0;
+  return (
+    `แถวแทนที่สร้าง (tombstone): สินค้า ${n(tomb.products)} · ลูกค้า ${n(tomb.customers)} · ` +
+    `ช่าง ${n(tomb.mechanics)} · ตัดผู้จำหน่าย ${n(r.droppedSuppliers)}`
+  );
+}
+
+function renderImportJobs(jobs) {
   clearChildren(els.importJobTableBody);
-  for (const job of data.importJobs) {
+  if (jobs.length === 0) {
+    emptyRow(
+      els.importJobTableBody,
+      6,
+      'ยังไม่เคยนำเข้าข้อมูลให้ร้านนี้ (0 งาน) — แผงนี้และ CLI ยังไม่มีคำสั่งนำเข้าข้อมูล',
+    );
+  }
+  for (const job of jobs) {
     const row = document.createElement('tr');
     row.appendChild(td(job.id));
-    row.appendChild(td(job.status));
-    row.appendChild(td(job.created_at));
-    row.appendChild(td(job.error || '-'));
+    row.appendChild(labelled('td', JOB_STATUS_LABELS, job.status));
+    row.appendChild(dateCell(job.created_at));
+    row.appendChild(dateCell(job.started_at));
+    row.appendChild(dateCell(job.finished_at));
+    row.appendChild(td(importResultText(job)));
     els.importJobTableBody.appendChild(row);
   }
 }
 
-async function handleReissueCode(tenantId, deviceId) {
-  clearError();
-  try {
-    const data = await api(
-      `/tenants/${encodeURIComponent(tenantId)}/devices/${encodeURIComponent(deviceId)}/enrol-code`,
-      { method: 'POST' },
-    );
-    showCodeModal({
-      title: `รหัสลงทะเบียนใหม่สำหรับอุปกรณ์ ${deviceId}`,
-      items: [
-        {
-          label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
-          value: data.enrolCode,
-          note: `หมดอายุ: ${data.enrolExpiresAt}`,
-        },
-      ],
-    });
-    await openTenantDetail(tenantId);
-  } catch (err) {
-    showError(err.message);
-  }
+async function handleReissueCode(btn, tenantId, deviceId) {
+  say(els.devicesMsg, null, null);
+  await withBusy(btn, async () => {
+    try {
+      const data = await api(
+        `/tenants/${encodeURIComponent(tenantId)}/devices/${encodeURIComponent(deviceId)}/enrol-code`,
+        { method: 'POST' },
+      );
+      showCodeModal({
+        title: `รหัสลงทะเบียนใหม่สำหรับอุปกรณ์ ${deviceId}`,
+        items: [
+          {
+            label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
+            value: data.enrolCode,
+            note: `หมดอายุ: ${fmtDate(data.enrolExpiresAt)}`,
+          },
+        ],
+      });
+      await loadTenantDetail(tenantId);
+      say(els.devicesMsg, 'ok', `ออกรหัสลงทะเบียนใหม่ให้อุปกรณ์ ${deviceId} แล้ว`);
+    } catch (err) {
+      fail(els.devicesMsg, err);
+    }
+  });
 }
 
 /**
@@ -353,7 +625,8 @@ async function handleReissueCode(tenantId, deviceId) {
  * inbound caller's own number (owner decision) — there is no way to skip past it in this UI.
  */
 async function handleResetOwnerPassword() {
-  if (!currentTenantId) return;
+  const tenantId = currentTenantId;
+  if (!tenantId) return;
   const confirmed = window.confirm(
     'ยืนยันหรือไม่ว่าได้ "โทรกลับ" ไปที่เบอร์โทร/อีเมลที่บันทึกไว้ตอนเปิดร้านเพื่อยืนยันตัวตนแล้ว ' +
     '(ห้ามเชื่อเบอร์/อีเมลที่ผู้โทรเข้ามาแจ้งเอง) — การกดตกลงจะออกรหัสผ่านชั่วคราวใหม่ทันที ' +
@@ -361,46 +634,99 @@ async function handleResetOwnerPassword() {
   );
   if (!confirmed) return;
 
-  clearError();
-  try {
-    const data = await api(
-      `/tenants/${encodeURIComponent(currentTenantId)}/owner/temp-password`,
-      { method: 'POST' },
-    );
-    showCodeModal({
-      title: `รหัสผ่านชั่วคราวใหม่สำหรับเจ้าของร้าน (${data.ownerUsername})`,
-      items: [
-        {
-          label: `รหัสผ่านชั่วคราว (${data.ownerUsername})`,
-          value: data.tempPassword,
-          note: `หมดอายุใน 24 ชม.: ${data.tempPasswordExpiresAt} — เจ้าของร้านต้องเปลี่ยนรหัสตอนล็อกอินครั้งถัดไป`,
-        },
-      ],
-    });
-  } catch (err) {
-    showError(err.message);
-  }
+  say(els.ownerMsg, null, null);
+  await withBusy(els.resetOwnerPasswordBtn, async () => {
+    try {
+      const data = await api(`/tenants/${encodeURIComponent(tenantId)}/owner/temp-password`, {
+        method: 'POST',
+      });
+      showCodeModal({
+        title: `รหัสผ่านชั่วคราวใหม่สำหรับเจ้าของร้าน (${data.ownerUsername})`,
+        items: [
+          {
+            label: `รหัสผ่านชั่วคราว (${data.ownerUsername})`,
+            value: data.tempPassword,
+            note: `หมดอายุใน 24 ชม.: ${fmtDate(data.tempPasswordExpiresAt)} — เจ้าของร้านต้องเปลี่ยนรหัสตอนล็อกอินครั้งถัดไป`,
+          },
+        ],
+      });
+      await loadTenantDetail(tenantId);
+      say(els.ownerMsg, 'ok', 'ออกรหัสผ่านชั่วคราวใหม่แล้ว — รหัสเดิมของเจ้าของร้านใช้ไม่ได้อีก');
+    } catch (err) {
+      fail(els.ownerMsg, err);
+    }
+  });
 }
 
-async function handleStatusChange(status) {
-  if (!currentTenantId) return;
+async function changeStatus(tenantId, status) {
+  await api(`/tenants/${encodeURIComponent(tenantId)}/status`, {
+    method: 'PATCH',
+    body: { status },
+  });
+  await loadTenantDetail(tenantId);
+  say(els.statusMsg, 'ok', `เปลี่ยนสถานะร้านเป็น "${STATUS_LABELS[status]}" แล้ว`);
+}
+
+async function handleStatusButton(btn) {
+  const tenantId = currentTenantId;
+  const status = btn.dataset.status;
+  if (!tenantId) return;
+  if (status === 'closed') {
+    openCloseModal();
+    return;
+  }
   const confirmMessages = {
     active: 'ยืนยันเปิดใช้งานร้านนี้หรือไม่?',
     suspended: 'ยืนยันระงับการใช้งานร้านนี้ชั่วคราวหรือไม่?',
-    closed: 'ยืนยันปิดร้านนี้ถาวรหรือไม่? การกระทำนี้ควรทำเมื่อแน่ใจแล้วเท่านั้น',
   };
   if (!window.confirm(confirmMessages[status] || 'ยืนยันการเปลี่ยนสถานะหรือไม่?')) return;
 
-  clearError();
-  try {
-    await api(`/tenants/${encodeURIComponent(currentTenantId)}/status`, {
-      method: 'PATCH',
-      body: { status },
-    });
-    await openTenantDetail(currentTenantId);
-  } catch (err) {
-    showError(err.message);
-  }
+  say(els.statusMsg, null, null);
+  await withBusy(btn, async () => {
+    try {
+      await changeStatus(tenantId, status);
+    } catch (err) {
+      fail(els.statusMsg, err);
+    }
+  });
+}
+
+// ---- close-tenant confirmation (type the tenant code; closed is terminal) -------------
+
+function openCloseModal() {
+  if (!currentTenant) return;
+  els.closeConfirmLabel.textContent = `พิมพ์รหัสร้าน "${currentTenant.code}" เพื่อยืนยัน`;
+  els.closeConfirmInput.value = '';
+  els.closeConfirmBtn.disabled = true;
+  say(els.closeMsg, null, null);
+  els.closeModalBackdrop.classList.remove('hidden');
+  els.closeConfirmInput.focus();
+}
+
+function hideCloseModal() {
+  els.closeModalBackdrop.classList.add('hidden');
+  els.closeConfirmInput.value = '';
+}
+
+function closeCodeMatches() {
+  return !!currentTenant && els.closeConfirmInput.value.trim() === currentTenant.code;
+}
+
+async function handleConfirmClose() {
+  const tenantId = currentTenantId;
+  if (!tenantId || !closeCodeMatches()) return;
+  say(els.closeMsg, null, null);
+  say(els.statusMsg, null, null);
+  await withBusy(els.closeConfirmBtn, async () => {
+    try {
+      await changeStatus(tenantId, 'closed');
+      hideCloseModal();
+    } catch (err) {
+      fail(els.closeMsg, err);
+    }
+  });
+  // withBusy re-enabled the button; keep it gated on the typed code.
+  els.closeConfirmBtn.disabled = !closeCodeMatches();
 }
 
 // ---- one-time secret modal --------------------------------------------------------------
@@ -465,34 +791,27 @@ async function copyText(text) {
 els.loginForm.addEventListener('submit', handleLogin);
 els.logoutBtn.addEventListener('click', handleLogout);
 els.createTenantForm.addEventListener('submit', handleCreateTenant);
-els.refreshTenantsBtn.addEventListener('click', loadTenantList);
-els.backToListBtn.addEventListener('click', () => {
-  currentTenantId = null;
-  showView(els.tenantListView);
-});
+els.refreshTenantsBtn.addEventListener('click', () =>
+  withBusy(els.refreshTenantsBtn, loadTenantList),
+);
+els.backToListBtn.addEventListener('click', backToList);
 els.codeModalCloseBtn.addEventListener('click', hideCodeModal);
 els.loginPasswordToggle.addEventListener('click', () =>
   setPasswordVisible(els.loginPassword.type === 'password'),
 );
 els.resetOwnerPasswordBtn.addEventListener('click', handleResetOwnerPassword);
+els.closeConfirmInput.addEventListener('input', () => {
+  els.closeConfirmBtn.disabled = !closeCodeMatches();
+});
+els.closeCancelBtn.addEventListener('click', hideCloseModal);
+els.closeConfirmBtn.addEventListener('click', handleConfirmClose);
 
 for (const btn of document.querySelectorAll('#tenantDetailView [data-status]')) {
-  btn.addEventListener('click', () => handleStatusChange(btn.dataset.status));
+  btn.addEventListener('click', () => handleStatusButton(btn));
 }
+
+window.addEventListener('hashchange', route);
 
 // ---- boot --------------------------------------------------------------
 
-(async function boot() {
-  if (getToken()) {
-    els.logoutBtn.classList.remove('hidden');
-    try {
-      await loadTenantList();
-      showView(els.tenantListView);
-      return;
-    } catch {
-      // api() already cleared the token and called goToLogin() on a 401; any other
-      // failure here just falls through to the login view below.
-    }
-  }
-  goToLogin();
-})();
+route();
