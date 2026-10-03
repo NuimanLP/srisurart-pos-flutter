@@ -10,9 +10,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 Map<String, dynamic> parseBackupFile(Uint8List bytes) {
-  var raw = utf8.decode(bytes); // strict: malformed UTF-8 throws
-  // A UTF-8 BOM (e.g. a file re-saved by Notepad) is not valid JSON.
-  if (raw.startsWith('﻿')) raw = raw.substring(1);
+  // Strict: malformed UTF-8 throws. A leading UTF-8 BOM (e.g. a file
+  // re-saved by Notepad) is dropped by utf8.decode itself.
+  final raw = utf8.decode(bytes);
   final decoded = jsonDecode(raw);
   if (decoded is! Map) {
     throw Exception('ไฟล์ว่างเปล่า — ไม่มีข้อมูลสินค้าหรือยอดขาย');

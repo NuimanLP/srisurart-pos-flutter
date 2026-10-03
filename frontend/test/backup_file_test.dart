@@ -19,7 +19,7 @@ void main() {
     expect(data['sa_products'], isA<List>());
   });
 
-  test('strips a UTF-8 BOM', () {
+  test('accepts a file that starts with a UTF-8 BOM', () {
     final data = parseBackupFile(
       Uint8List.fromList([0xEF, 0xBB, 0xBF, ..._bytes(_valid)]),
     );

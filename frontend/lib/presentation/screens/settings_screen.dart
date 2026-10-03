@@ -1442,7 +1442,10 @@ class _BackupTabState extends State<_BackupTab> {
       // <input type=file>, which iPad Safari only allows inside the tap.
       // FileType.any — iOS can grey out a custom `.json` filter; the content
       // is validated instead. No window-blur cancel: its focus+1 s heuristic
-      // can drop a slow (iCloud) pick as a cancel.
+      // can drop a slow (iCloud) pick as a cancel; on Safari < 16.4 (no
+      // `cancel` event) a cancelled pick just never completes — harmless,
+      // nothing waits on it. No size cap: a non-text file fails the strict
+      // UTF-8 decode at its first bad byte.
       final result = await FilePicker.pickFiles(
         type: FileType.any,
         withData: true,
