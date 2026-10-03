@@ -112,8 +112,8 @@ const ALLOWED: Record<string, string> = {
     'Builds and destroys the four pools (default pos_app, ADMIN_DATA_SOURCE, AUDIT_DATA_SOURCE, HEALTH_DATA_SOURCE).',
   'db/data-source.ts':
     'The migration DataSource (#15): connects as the table owner, runs outside the app and any request.',
-  'health/health.controller.ts':
-    '/health/ready probes Postgres with SELECT 1 on HEALTH_DATA_SOURCE only (pos_app, pool of 1, #248): no tenant, no table, deliberately outside any transaction, and never the request pool, whose saturation would read as a dead database.',
+  'health/health.service.ts':
+    '/health/ready (and GET /platform/system, which reuses it) probes Postgres with SELECT 1 on HEALTH_DATA_SOURCE only (pos_app, pool of 1, #248): no tenant, no table, deliberately outside any transaction, and never the request pool, whose saturation would read as a dead database.',
   'auth/auth.service.ts':
     'ADR-0009: a failed login must leave its audit_log row, which a rolled-back request transaction would erase, and /auth/token must not hold a connection (let alone a transaction) across its argon2 verify; so /auth/token does its lookups as plain pool queries (SECURITY DEFINER functions) and its audit writes on short runners of their own, and /auth/refresh carries no TenantGuard and sets app.tenant_id on its own runner.',
   'rate-limit/rate-limit.service.ts':
@@ -130,6 +130,10 @@ const ALLOWED: Record<string, string> = {
     'Admin plane (ADR-0002): ADMIN_DATA_SOURCE for platform login.',
   'platform/platform-tenants.service.ts':
     'Admin plane (ADR-0002): ADMIN_DATA_SOURCE creates tenants and changes their status across tenants.',
+  'platform/platform-audit.service.ts':
+    'Admin plane (ADR-0002): ADMIN_DATA_SOURCE reads the audit_log of one tenant for a platform admin (explicit tenant_id predicate, joins on (tenant_id, id)) and writes the audit row for that read.',
+  'platform/platform-system.service.ts':
+    'Admin plane (ADR-0002): ADMIN_DATA_SOURCE only to write the platform.system.read audit row; reads no tenant data.',
   'platform/tenant-import.service.ts':
     'Admin plane (ADR-0002/0005): ADMIN_DATA_SOURCE imports a whole tenant in one owner transaction.',
   'common/guards/device-token.guard.ts':
