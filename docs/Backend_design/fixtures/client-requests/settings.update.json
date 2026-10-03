@@ -1,0 +1,18 @@
+{
+  "name": "settings.update",
+  "caller": "ApiSettingsRepository.updateSettings",
+  "requests": [
+    {
+      "route": "PATCH /api/v1/settings",
+      "method": "PATCH",
+      "path": "/api/v1/settings",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "shopName": "ร้านทดสอบสัญญา",
+        "quoteValidDays": 15,
+        "phone": "021234567"
+      }
+    }
+  ]
+}

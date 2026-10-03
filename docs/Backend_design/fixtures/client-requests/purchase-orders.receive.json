@@ -1,0 +1,14 @@
+{
+  "name": "purchase-orders.receive",
+  "caller": "ApiPurchaseOrdersRepository.receivePO",
+  "requests": [
+    {
+      "route": "POST /api/v1/purchase-orders/:id/receive",
+      "method": "POST",
+      "path": "/api/v1/purchase-orders/ct-po-1/receive",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

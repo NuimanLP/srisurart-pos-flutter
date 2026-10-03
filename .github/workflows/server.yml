@@ -12,6 +12,12 @@ name: Server CI
 # Job "audit" (sec.1, 2026-09-09) is the CVE gate for the source tree: `pnpm audit` on the
 # lockfile plus a Trivy filesystem scan (lockfile + Dockerfile misconfiguration). The built
 # *image* is scanned in "build-image" instead, where a finding can still stop a release.
+# Job "unit" also runs the coverage ratchet (server/coverage-baseline.json, 2026-10-03).
+# Job "ci-guards" (2026-10-03): migrations are append-only vs the PR base, actionlint over the
+# workflows, shellcheck over deploy/scripts — pinned binaries, gated on the `ci` paths.
+# "integration" also replays docs/Backend_design/fixtures/client-requests/ (what the Flutter
+# client really sends, recorded by frontend/test/contract/) through the real app
+# (test/client-request-fixtures.e2e-spec.ts): a 400/401/5xx or a missing route fails it.
 # Job "secrets" (2026-10-01) runs gitleaks over the commits each PR/push adds — repo-wide,
 # never path-gated, so it lives here, feeding the always-required server-ci-status.
 #
@@ -65,6 +71,8 @@ jobs:
     outputs:
       # Exactly one of the two steps runs per event; the other's output is ''.
       server: ${{ steps.filter.outputs.server || steps.push.outputs.code }}
+      # Job "ci-guards": workflows, deploy scripts, migrations.
+      ci: ${{ steps.filter.outputs.ci || steps.push.outputs.code }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -93,6 +101,10 @@ jobs:
               - 'deploy/scripts/test/**'
               # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
+            ci:
+              - '.github/workflows/**'
+              - 'deploy/scripts/**'
+              - 'server/src/db/migrations/**'
 
   secrets:
     name: secret scan (gitleaks)
@@ -239,7 +251,63 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      # vitest + v8 coverage, then scripts/check-coverage.mjs: fails when src/ line coverage
+      # drops below server/coverage-baseline.json, and writes the number to the job summary.
+      - run: pnpm test:coverage
+
+  ci-guards:
+    name: ci guards (migrations immutable, actionlint, shellcheck)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    # Same gate shape as lint/audit/unit (see the comment there), on the `ci` paths.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.ci == 'true') }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    env:
+      # Pinned release binaries + sha256 (same pattern as gitleaks above). Bump both together.
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      SHELLCHECK_VERSION: 0.11.0
+      SHELLCHECK_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The PR's merge base with its base branch must be present for the migration diff.
+          fetch-depth: 0
+      # CLAUDE.md: "Applied migrations are never edited". A PR may ADD a migration; it may not
+      # modify, delete or rename one that exists on its base branch (merge-base comparison).
+      # Push/workflow_dispatch: nothing to compare against — main only moves by PR.
+      - name: migrations are append-only (vs the PR base)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: deploy/scripts/check-migrations-immutable.sh "$PR_BASE" "$PR_HEAD"
+      - name: check-migrations-immutable.sh tests
+        run: deploy/scripts/test/check-migrations-immutable.test.sh
+      - name: install actionlint + shellcheck (pinned, sha256-verified)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/actionlint.tgz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+          curl -sSfL -o "$RUNNER_TEMP/shellcheck.tgz" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz"
+          echo "${SHELLCHECK_SHA256}  $RUNNER_TEMP/shellcheck.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP/bin" actionlint
+          tar -xzf "$RUNNER_TEMP/shellcheck.tgz" -C "$RUNNER_TEMP" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          mv "$RUNNER_TEMP/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "$RUNNER_TEMP/bin/"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # actionlint also runs the pinned shellcheck over every `run:` block. A finding that is
+      # deliberate is silenced inline (`# shellcheck disable=SCxxxx` with a reason), never here.
+      - name: actionlint (.github/workflows)
+        run: actionlint -shellcheck "$RUNNER_TEMP/bin/shellcheck" -color
+      - name: shellcheck (deploy/scripts)
+        run: |
+          shopt -s globstar nullglob
+          shellcheck deploy/scripts/**/*.sh
 
   nginx-check:
     name: nginx config check (nginx -t)
@@ -338,11 +406,11 @@ jobs:
   build-image:
     name: server image → GHCR
     runs-on: ubuntu-latest
-    needs: [secrets, lint, audit, unit, integration, nginx-check]
+    needs: [secrets, lint, audit, unit, ci-guards, integration, nginx-check]
     # The explicit results matter: with a bare `if:` GitHub applies an implicit success(), which
     # also requires every *ancestor* to have succeeded — and `changes` is always skipped on push,
     # so this job was skipped on every `main` push from #39 until #184 found no image to deploy.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.secrets.result == 'success' && needs.lint.result == 'success' && needs.audit.result == 'success' && needs.unit.result == 'success' && needs.ci-guards.result == 'success' && needs.integration.result == 'success' && needs.nginx-check.result == 'success' }}
     # docker build + a scan + a push; nothing here should take 20 min, and `docker run` of
     # the app must never be allowed to hang for the 6-hour default.
     timeout-minutes: 20
@@ -429,7 +497,7 @@ jobs:
   server-ci-status:
     name: server-ci-status
     runs-on: ubuntu-latest
-    needs: [changes, secrets, lint, audit, unit, integration, build-image, nginx-check]
+    needs: [changes, secrets, lint, audit, unit, ci-guards, integration, build-image, nginx-check]
     # #39: this is the only server-side required check on `main`. It must report
     # on every PR — including a frontend-only one, where "lint"/"audit"/"unit"
     # (and `changes` itself, on push/workflow_dispatch) are legitimately skipped
@@ -454,6 +522,7 @@ jobs:
             "${{ needs.lint.result }}" \
             "${{ needs.audit.result }}" \
             "${{ needs.unit.result }}" \
+            "${{ needs.ci-guards.result }}" \
             "${{ needs.integration.result }}" \
             "${{ needs.build-image.result }}" \
             "${{ needs.nginx-check.result }}"; do

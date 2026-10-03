@@ -90,7 +90,6 @@ CHECKSUM_FILE="${BACKUP_FILE}.sha256"
 if [[ -f "$CHECKSUM_FILE" ]]; then
   echo "Verifying SHA256 checksum..."
   BACKUP_DIR="$(dirname "$BACKUP_FILE")"
-  BACKUP_BASENAME="$(basename "$BACKUP_FILE")"
   CHECKSUM_BASENAME="$(basename "$CHECKSUM_FILE")"
   if command -v sha256sum >/dev/null 2>&1; then
     (cd "$BACKUP_DIR" && sha256sum -c "$CHECKSUM_BASENAME")

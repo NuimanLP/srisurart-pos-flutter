@@ -1,0 +1,16 @@
+{
+  "name": "categories.create",
+  "caller": "ApiProductsRepository.addCategory",
+  "requests": [
+    {
+      "route": "POST /api/v1/categories",
+      "method": "POST",
+      "path": "/api/v1/categories",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "name": "หมวดใหม่"
+      }
+    }
+  ]
+}

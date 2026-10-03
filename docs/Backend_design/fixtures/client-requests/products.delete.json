@@ -1,0 +1,14 @@
+{
+  "name": "products.delete",
+  "caller": "ApiProductsRepository.delete",
+  "requests": [
+    {
+      "route": "DELETE /api/v1/products/:id",
+      "method": "DELETE",
+      "path": "/api/v1/products/ct-product-1",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

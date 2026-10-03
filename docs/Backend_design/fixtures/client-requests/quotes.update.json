@@ -1,0 +1,17 @@
+{
+  "name": "quotes.update",
+  "caller": "ApiQuotesRepository.updateQuote",
+  "requests": [
+    {
+      "route": "PATCH /api/v1/quotes/:id",
+      "method": "PATCH",
+      "path": "/api/v1/quotes/ct-quote-1",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "customerName": "ลูกค้าแก้ไข",
+        "notes": "แก้หมายเหตุ"
+      }
+    }
+  ]
+}

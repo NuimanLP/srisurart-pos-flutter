@@ -1,0 +1,37 @@
+{
+  "name": "sales.create-cash",
+  "caller": "ApiSalesRepository.saveSale",
+  "requests": [
+    {
+      "route": "POST /api/v1/sales",
+      "method": "POST",
+      "path": "/api/v1/sales",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "smush0wiz_45460d16_w",
+        "subtotal": "200.00",
+        "discount": "0.00",
+        "total": "200.00",
+        "paymentMethod": "เงินสด",
+        "customerId": "ct-customer-1",
+        "customerName": "Contract customer",
+        "mechanicId": null,
+        "mechanicName": null,
+        "mechanicDelta": null,
+        "overrideCreditLimit": false,
+        "items": [
+          {
+            "lineNo": 1,
+            "productId": "ct-product-1",
+            "partNo": "CT-001",
+            "name": "Contract part",
+            "nameTH": null,
+            "qty": 2,
+            "price": "100.00"
+          }
+        ]
+      }
+    }
+  ]
+}

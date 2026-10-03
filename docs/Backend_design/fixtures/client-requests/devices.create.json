@@ -1,0 +1,17 @@
+{
+  "name": "devices.create",
+  "caller": "DevicesRepository.createDevice",
+  "requests": [
+    {
+      "route": "POST /api/v1/devices",
+      "method": "POST",
+      "path": "/api/v1/devices",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "label": "เครื่องหลังร้าน",
+        "role": "backoffice"
+      }
+    }
+  ]
+}
