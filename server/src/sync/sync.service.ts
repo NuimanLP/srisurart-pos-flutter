@@ -601,6 +601,9 @@ export class SyncService {
                 tenantId,
                 quoteId,
                 saleInput.id,
+                // The date the bill is stored with (08 §10 clamp) — expiry is judged
+                // at the sale, not at the sync (owner, 2026-10-03).
+                clampedDate,
               );
 
         // #455 / 08 §8.2: the whole `POST /sales` reply — `items[].costAtSale`,
