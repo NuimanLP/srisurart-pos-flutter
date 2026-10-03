@@ -221,5 +221,5 @@ October commits 59 (1-Oct) -> git log --date=short --format=%ad 42b07eb | grep -
 real shop snapshot imported into demo tenant 2026-09-17 (#185) -> gh issue view 185 (closed 2026-09-17, "close.4 — import a real shop snapshot into a demo tenant")
 phase-2 kickoff hub tickets #228 #229 #212 #211 #189 #230 #190 closed, #231 open (7 of 8) -> gh issue view N (2026-10-01); CLAUDE.md "Phase-2 kickoff order"
 course-mandated stack -> docs/study/02_architecture.md:154 "อาจารย์กำหนด stack"
-only web is built in CI -> .github/workflows/flutter.yml job build-web (flutter build web); no apk/ios build job
+only web is built in CI -> .github/workflows/flutter.yml job build-web (flutter build web); no apk/ios build job in flutter.yml (a manual android-apk.yml exists since PR #551, 2026-10-03, never run)
 lane CI/frontend split phase 1 (#40/#39/#38) -> docs/Backend_design/05_HOW_WE_GOT_HERE.md:444-447
