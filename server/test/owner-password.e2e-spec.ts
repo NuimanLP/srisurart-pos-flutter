@@ -112,7 +112,18 @@ describe('owner password lifecycle v2 (#443 PR3)', () => {
     const detail = await http().get(`/api/v1/platform/tenants/${t.tenantId}`).set('Authorization', `Bearer ${adminToken}`);
     expect(detail.status).toBe(200);
     expect(JSON.stringify(detail.body)).not.toContain(t.tempPassword);
-    expect(JSON.stringify(detail.body)).not.toMatch(/password/i);
+    // #443 UX pass: `owner` carries password *lifecycle* fields (flag + two timestamps) by
+    // design — pin its exact keys, and keep the blanket "no password anywhere" rule for the rest.
+    const { owner, ...rest } = detail.body.data;
+    expect(Object.keys(owner).sort()).toEqual([
+      'displayName',
+      'mustChangePassword',
+      'passwordChangedAt',
+      'tempPasswordExpiresAt',
+      'username',
+    ]);
+    expect(JSON.stringify(rest)).not.toMatch(/password/i);
+    expect(JSON.stringify(detail.body)).not.toMatch(/argon2|password_hash/i);
   });
 
   it('a temporary password buys only a pwchange token, refused on every other route', async () => {

@@ -785,8 +785,13 @@ function hideCloseModal() {
   els.closeConfirmInput.value = '';
 }
 
+/** A close PATCH in flight — typing in the code box must not re-enable the confirm button. */
+let closeInFlight = false;
+
 function closeCodeMatches() {
-  return !!currentTenant && els.closeConfirmInput.value.trim() === currentTenant.code;
+  return (
+    !closeInFlight && !!currentTenant && els.closeConfirmInput.value.trim() === currentTenant.code
+  );
 }
 
 async function handleConfirmClose() {
@@ -794,14 +799,19 @@ async function handleConfirmClose() {
   if (!tenantId || !closeCodeMatches()) return;
   say(els.closeMsg, null, null);
   say(els.statusMsg, null, null);
-  await withBusy(els.closeConfirmBtn, async () => {
-    try {
-      await changeStatus(tenantId, 'closed');
-      hideCloseModal();
-    } catch (err) {
-      fail(els.closeMsg, err);
-    }
-  });
+  closeInFlight = true;
+  try {
+    await withBusy(els.closeConfirmBtn, async () => {
+      try {
+        await changeStatus(tenantId, 'closed');
+        hideCloseModal();
+      } catch (err) {
+        fail(els.closeMsg, err);
+      }
+    });
+  } finally {
+    closeInFlight = false;
+  }
   // withBusy re-enabled the button; keep it gated on the typed code.
   els.closeConfirmBtn.disabled = !closeCodeMatches();
 }
@@ -814,6 +824,8 @@ async function handleConfirmClose() {
 
 /** The device the replace modal is for, and whether the admin has been asked to force. */
 let replaceTarget = null;
+/** A replace POST in flight — typing in the note box must not re-enable the confirm button. */
+let replaceInFlight = false;
 
 const FORCE_REASON_TEXT = {
   DEVICE_HAS_OPEN_SHIFT:
@@ -830,7 +842,7 @@ function openReplaceModal(tenantId, device) {
   els.replaceForceReason.textContent = '';
   els.replaceForceBox.classList.add('hidden');
   els.replaceConfirmBtn.textContent = 'แทนที่อุปกรณ์';
-  els.replaceConfirmBtn.disabled = false;
+  els.replaceConfirmBtn.disabled = !replaceReady();
   say(els.replaceMsg, null, null);
   els.replaceModalBackdrop.classList.remove('hidden');
   els.replaceLabelInput.focus();
@@ -845,7 +857,11 @@ function hideReplaceModal() {
 
 /** In force mode the confirm button needs a non-empty note (the server refuses one without). */
 function replaceReady() {
-  return !!replaceTarget && (!replaceTarget.force || els.replaceNoteInput.value.trim() !== '');
+  return (
+    !replaceInFlight &&
+    !!replaceTarget &&
+    (!replaceTarget.force || els.replaceNoteInput.value.trim() !== '')
+  );
 }
 
 function showForceStep(code) {
@@ -868,39 +884,45 @@ async function handleConfirmReplace() {
   }
   say(els.replaceMsg, null, null);
   say(els.devicesMsg, null, null);
-  await withBusy(els.replaceConfirmBtn, async () => {
-    try {
-      const data = await api(
-        `/tenants/${encodeURIComponent(target.tenantId)}/devices/` +
-          `${encodeURIComponent(target.deviceId)}/replace`,
-        { method: 'POST', body },
-      );
-      hideReplaceModal();
-      showCodeModal({
-        title: `อุปกรณ์ใหม่ ${data.device.id} (${data.device.label}) แทนอุปกรณ์ ${data.retiredDeviceId}`,
-        items: [
-          {
-            label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
-            value: data.enrolCode,
-            note: `หมดอายุ: ${fmtDate(data.enrolExpiresAt)}`,
-          },
-        ],
-      });
-      await refreshDetailAfter(
-        target.tenantId,
-        els.devicesMsg,
-        `ปลดอุปกรณ์ ${data.retiredDeviceId} และสร้างอุปกรณ์ใหม่ ${data.device.id} แล้ว`,
-      );
-    } catch (err) {
-      if (replaceTarget !== target) return; // modal closed/navigated meanwhile
-      if (!target.force && FORCE_REASON_TEXT[err.code]) {
-        showForceStep(err.code);
-      } else {
-        fail(els.replaceMsg, err);
+  replaceInFlight = true;
+  try {
+    await withBusy(els.replaceConfirmBtn, async () => {
+      try {
+        const data = await api(
+          `/tenants/${encodeURIComponent(target.tenantId)}/devices/` +
+            `${encodeURIComponent(target.deviceId)}/replace`,
+          { method: 'POST', body },
+        );
+        hideReplaceModal();
+        showCodeModal({
+          title: `อุปกรณ์ใหม่ ${data.device.id} (${data.device.label}) แทนอุปกรณ์ ${data.retiredDeviceId}`,
+          items: [
+            {
+              label: 'รหัสลงทะเบียนอุปกรณ์ (enrolCode)',
+              value: data.enrolCode,
+              note: `หมดอายุ: ${fmtDate(data.enrolExpiresAt)}`,
+            },
+          ],
+        });
+        await refreshDetailAfter(
+          target.tenantId,
+          els.devicesMsg,
+          `ปลดอุปกรณ์ ${data.retiredDeviceId} และสร้างอุปกรณ์ใหม่ ${data.device.id} แล้ว`,
+        );
+      } catch (err) {
+        if (replaceTarget !== target) return; // modal closed/navigated meanwhile
+        if (!target.force && FORCE_REASON_TEXT[err.code]) {
+          showForceStep(err.code);
+        } else {
+          fail(els.replaceMsg, err);
+        }
       }
-    }
-  });
-  if (replaceTarget === target) els.replaceConfirmBtn.disabled = !replaceReady();
+    });
+  } finally {
+    replaceInFlight = false;
+  }
+  // Re-gate whatever the modal now shows (it may have been reopened for another device).
+  if (replaceTarget) els.replaceConfirmBtn.disabled = !replaceReady();
 }
 
 // ---- one-time secret modal --------------------------------------------------------------
