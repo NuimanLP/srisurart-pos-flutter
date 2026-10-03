@@ -526,11 +526,23 @@ on void/return paths. Keep this order in any new write touching more than one of
   disabled while `outboxRemaining > 0`. The server cannot see the outbox, so this check is
   client-only; never narrow it back to one op type (it replaced the cash-credit-only
   `CASH_CREDIT_PAYMENTS_UNSENT`). Its Thai string was ratified by the owner 2026-09-27.
-- **Expected drawer cash has one counting window** (#452, PR #469): the cash-drawer
-  screen and the closing report's drawer check both use `ShiftsRepository.cashCountFrom(shift)`
-  — the first shift of a day counts from midnight, a later shift from its own opening —
-  and both count a credit payment only when `isCashCreditPayment()`. Never compute
-  expected cash a second way; the report's revenue/payment/top-item sections stay whole-day.
+- **Expected drawer cash is counted BY SHIFT** (owner decision 2026-10-03, PR #580;
+  history: #452/PR #469 counted a time window — the day's first shift from midnight, a
+  later one from its opening — via `cashCountFrom`, now deleted). Every baht taken or paid
+  while a shift is open belongs to that shift, even past midnight — the server's
+  `shift_id` rule (`server/src/reports/drawer-cash.sql.ts`, shared by `GET /reports/closing`
+  and the cash-out refusal). Client: `ShiftsRepository.drawerCash` is the only rule — the
+  cash-drawer screen, the closing report's drawer check and `assertCashOutFits` all use it.
+  Attribution: drawer entries by `shiftId`; sales by `Sales.shiftId`, or (no `shiftId`, the
+  Drift build) by `date` in the shift's `[openedAt, closedAt]`; returns and credit payments
+  (no local shift column) by `date` in that interval; credit payments only when
+  `isCashCreditPayment()`. Both sides must keep passing
+  `docs/Backend_design/fixtures/drawer-cash/agreement.json`. Never compute expected cash a
+  second way; the report's revenue/payment/top-item sections stay whole-day.
+- **A cash-out larger than the drawer's expected cash is refused** (owner 2026-10-03,
+  PR #580): `409 DRAWER_INSUFFICIENT_CASH` online, `PosException` on the Drift build and the
+  API build's offline queue; a `/sync/push` `drawer.entry` replay is never refused (the cash
+  already left).
 - **Returns share one pure rule set:** `planReturn()` + `refundedQtyOf()`
   (`return_plan.dart`) are used by both `ReturnsRepository` and `ApiReturnsRepository`;
   the offline `return.create` numbers its CN inside the local transaction, after every

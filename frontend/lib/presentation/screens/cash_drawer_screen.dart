@@ -8,8 +8,9 @@
 //   • close shift (physical cash count + variance vs expected),
 //   • blocks new money entries after close (addDrawerEntry throws the Thai
 //     message once the shift is closed — we surface it),
-//   • once closed, open the next shift the same day (08 §11, #452); a later
-//     shift counts cash from its own opening, not from midnight.
+//   • once closed, open the next shift the same day (08 §11, #452); each
+//     shift counts only its own money — by shift, owner 2026-10-03
+//     (`ShiftsRepository.drawerCash`).
 // Plus a button to open the daily ClosingReport popup.
 //
 // State is read THROUGH the repo providers (never AppDatabase). The cash-drawer
@@ -40,7 +41,8 @@ class _DrawerData {
   final ShiftWithEntries? shift;
 
   /// Its expected cash, piece by piece — [ShiftsRepository.drawerCash], the
-  /// same number the repository's cash-out refusal checks (owner 2026-10-03).
+  /// same number the repository's cash-out refusal checks, counted by shift
+  /// (owner 2026-10-03).
   final DrawerCash cash;
   const _DrawerData({required this.shift, required this.cash});
 
@@ -96,14 +98,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         : null;
     // No shift today → the screen shows only the open form; nothing to count.
     final cash = shift == null
-        ? const DrawerCash(
-            startingCash: 0,
-            cashSales: 0,
-            cashCreditPayments: 0,
-            cashRefunds: 0,
-            totalIn: 0,
-            totalOut: 0,
-          )
+        ? DrawerCash.empty
         : await shiftsRepo.drawerCash(shift);
     return _DrawerData(shift: shift, cash: cash);
   }

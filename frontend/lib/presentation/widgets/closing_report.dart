@@ -51,7 +51,7 @@ class _ClosingData {
   final NetSales net;
 
   /// The drawer check — [ShiftsRepository.drawerCash], the same number the
-  /// cash-drawer screen shows and its cash-out refusal checks (#452).
+  /// cash-drawer screen shows and its cash-out refusal checks (by shift).
   final DrawerCash cash;
   final bool drawerToday;
   final String shopName;
@@ -124,13 +124,13 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
     originalSales: originalSales,
   );
 
-  // The drawer check counts exactly as the cash-drawer screen does (08 §11,
-  // #452): today's drawer from its counting start; with no drawer today, the
-  // day's cash from midnight with no starting cash. Revenue, the payment
-  // breakdown and top items above stay the whole day — this is the DAILY report.
+  // The drawer check is today's shift, counted by shift exactly as the
+  // cash-drawer screen counts it (owner 2026-10-03). With no shift today there
+  // is no drawer: money taken outside a shift belongs to none. Revenue, the
+  // payment breakdown and top items above stay the whole day — DAILY report.
   final cash = drawerToday
       ? await shiftsRepo.drawerCash(drawer)
-      : await shiftsRepo.drawerCashBetween(from: day.from, to: day.to);
+      : DrawerCash.empty;
 
   return _ClosingData(
     net: NetSales.of(lites.sales, lites.returns, settings.taxRate),

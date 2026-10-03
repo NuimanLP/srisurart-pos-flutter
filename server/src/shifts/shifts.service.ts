@@ -637,7 +637,8 @@ function noOpenShift(): HttpException {
 
 /**
  * Owner, 2026-10-03: a cash-out larger than the drawer's expected cash is refused.
- * The client shows `เงินในลิ้นชักไม่พอ` (agent ร่าง — 02_API_SCREENS.md §8/§8.1).
+ * The client shows `เงินในลิ้นชักไม่พอ` — ratified by the owner 2026-10-03 (PR #580),
+ * 02_API_SCREENS.md §8/§8.1.
  */
 function drawerInsufficientCash(expectedSatang: number): HttpException {
   return new HttpException(

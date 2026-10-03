@@ -4,8 +4,9 @@
 //    `avgTicket` now is (`reports.service.ts` summary).
 // 2. Expected drawer cash leaves out a manually voided cash bill (the money
 //    went back), and keeps an auto-voided one (its cash refund is already
-//    subtracted) — `drawerCashSalesOf`, used by BOTH the cash-drawer screen
-//    and the closing report's drawer check.
+//    subtracted) — `drawerCashSalesOf` via `ShiftsRepository.drawerCash`,
+//    used by the cash-drawer screen and the closing report's drawer check
+//    (counted by shift, owner 2026-10-03).
 // 3. The reports screen and products_screen's ranking use `NetSales` too:
 //    net items, top items keyed by part number, no tax rate needed.
 
@@ -192,59 +193,44 @@ void main() {
       ),
     );
 
-    /// Expected cash as both screens compute it, from the cash-drawer
-    /// screen's own reads: sales/returns from [from].
-    Future<double> expectedCash(double starting, DateTime from) async {
-      final day = dayBounds(DateTime.now());
-      final s = await sales.getSales(from: from, to: day.to);
-      final r = await returns.getReturns(from: from, to: day.to);
-      final cashRefunds = r
-          .where((x) => x.ret.refundMethod == 'เงินสด')
-          .fold<double>(0, (a, x) => a + x.ret.refundTotal);
-      return starting + drawerCashSalesOf(s, r, from: from) - cashRefunds;
-    }
+    Future<double> expected() async =>
+        (await shifts.drawerCash((await shifts.getCashDrawer())!)).expected;
 
     test('a manually voided cash bill is not expected in the drawer', () async {
-      final day = dayBounds(DateTime.now());
+      await shifts.openShift(500);
       await sell();
       final voided = await sell();
       await sales.voidSaleOffline(voided.id, 'ลูกค้ายกเลิก');
-
-      final s = await sales.getSales(from: day.from, to: day.to);
-      final r = await returns.getReturns(from: day.from, to: day.to);
-      expect(drawerCashSalesOf(s, r, from: day.from), 150);
-      expect(await expectedCash(500, day.from), 650);
+      expect(await expected(), 650);
     });
 
     test(
       'a full cash return keeps the sale and subtracts the refund → net 0',
       () async {
-        final day = dayBounds(DateTime.now());
+        await shifts.openShift(500);
         final sale = await sell();
         await returnInFull(sale.id);
-
+        final day = dayBounds(DateTime.now());
         final s = await sales.getSales(from: day.from, to: day.to);
-        final r = await returns.getReturns(from: day.from, to: day.to);
         expect(
           s.single.sale.voided,
           isTrue,
           reason: 'a full return auto-voids the bill',
         );
         expect(
-          drawerCashSalesOf(s, r, from: day.from),
+          drawerCashSalesOf([s.single.sale], {sale.id}),
           150,
           reason: 'the auto-voided bill stays counted',
         );
-        expect(await expectedCash(500, day.from), 500);
+        expect(await expected(), 500);
       },
     );
 
-    test('the cash-drawer screen and the closing report get the same number '
-        '(later shift of the day)', () async {
+    test('a later shift of the day counts only its own bills (by shift)', () async {
       final now = DateTime.now();
       final day = dayBounds(now);
-      // Shift 1 opened at midnight with one cash bill in it; shift 2 opened
-      // a moment ago. Drift stores whole seconds, so the rows are placed
+      // Shift 1 from midnight, closed, with one cash bill in it; shift 2
+      // opened a moment ago. Drift stores whole seconds, so the rows are placed
       // explicitly rather than raced against the clock.
       await db
           .into(db.shifts)
@@ -254,6 +240,7 @@ void main() {
               dateStr: todayKey(),
               startingCash: 300,
               openedAt: day.from,
+              closedAt: Value(day.from.add(const Duration(seconds: 5))),
               isActive: const Value(false),
             ),
           );
@@ -269,7 +256,6 @@ void main() {
               date: day.from.add(const Duration(seconds: 1)),
             ),
           );
-      final shift2Opened = now.subtract(const Duration(seconds: 2));
       await db
           .into(db.shifts)
           .insert(
@@ -277,7 +263,7 @@ void main() {
               id: 'sh2',
               dateStr: todayKey(),
               startingCash: 500,
-              openedAt: shift2Opened,
+              openedAt: now.subtract(const Duration(seconds: 2)),
               isActive: const Value(true),
             ),
           );
@@ -291,32 +277,10 @@ void main() {
 
       final drawer = (await shifts.getCashDrawer())!;
       expect(drawer.shift.id, 'sh2');
-      final countFrom = await shifts.cashCountFrom(drawer.shift) ?? day.from;
-      expect(countFrom, isNot(day.from), reason: 'a later shift');
+      expect(await expected(), 650);
 
-      // Cash-drawer screen: sales and returns read from countFrom.
-      final drawerSales = await sales.getSales(from: countFrom, to: day.to);
-      final windowReturns = await returns.getReturns(
-        from: countFrom,
-        to: day.to,
-      );
-      final onDrawerScreen = drawerCashSalesOf(
-        drawerSales,
-        windowReturns,
-        from: countFrom,
-      );
-
-      // Closing report: the WHOLE day's sales, the drawer's returns window.
-      final daySales = await sales.getSales(from: day.from, to: day.to);
-      final onClosingReport = drawerCashSalesOf(
-        daySales,
-        windowReturns,
-        from: countFrom,
-      );
-
-      expect(onDrawerScreen, 300);
-      expect(onClosingReport, onDrawerScreen);
-      expect(await expectedCash(500, countFrom), 650);
+      final first = (await shifts.getShiftHistory()).single;
+      expect((await shifts.drawerCash(first)).expected, 300 + 999);
     });
   });
 }

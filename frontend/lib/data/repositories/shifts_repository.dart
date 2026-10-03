@@ -28,9 +28,6 @@ import '../../core/utils/money.dart';
 import '../../domain/models/aggregates.dart';
 import '../../domain/reports/net_sales.dart';
 import '../db/database.dart';
-import 'mechanics_repository.dart';
-import 'returns_repository.dart';
-import 'sales_repository.dart';
 
 class ShiftsRepository {
   final AppDatabase db;
@@ -65,79 +62,72 @@ class ShiftsRepository {
     return result;
   }
 
-  /// Where the drawer's cash count for [shift] starts (08 §11 — several shifts
-  /// a day, #452): null for the first shift of its day — the caller counts from
-  /// midnight, exactly as before multi-shift, so every shift opened before
-  /// then reconciles as it always did — else [shift]'s own opening, so a later
-  /// shift never counts an earlier one's takings.
-  ///
-  /// One read, shared by the cash-drawer screen and the closing report so the
-  /// two always expect the same cash.
-  Future<DateTime?> cashCountFrom(ShiftRow shift) async {
-    final earlier =
-        await (db.select(db.shifts)
-              ..where(
-                (t) =>
-                    t.dateStr.equals(shift.dateStr) &
-                    t.openedAt.isSmallerThanValue(shift.openedAt) &
-                    t.id.equals(shift.id).not(),
-              )
-              ..limit(1))
-            .getSingleOrNull();
-    return earlier == null ? null : shift.openedAt;
-  }
-
   /// The cash [drawer] should hold right now, piece by piece — the ONE client
-  /// rule, used by the cash-drawer screen and by [addDrawerEntry]'s cash-out
-  /// refusal so the two can never disagree (#452):
+  /// rule, used by the cash-drawer screen, the closing report's drawer check
+  /// and [assertCashOutFits]:
   ///
   ///   starting cash + cash sales + cash credit payments − cash refunds
   ///   + money in − money out
   ///
-  /// counted from [cashCountFrom] (the day's first shift from midnight, a later
-  /// shift from its own opening) to the end of the shift's day. Cash sales via
-  /// [drawerCashSalesOf], credit payments via [isCashCreditPayment]. The server
-  /// counts the same money by `shift_id` (`server/src/reports/drawer-cash.sql.ts`).
+  /// 🔴 Counted BY SHIFT (owner 2026-10-03, replacing #452's time window):
+  /// every baht taken or paid while a shift is open belongs to that shift,
+  /// even past midnight — the server's `shift_id` rule
+  /// (`server/src/reports/drawer-cash.sql.ts`). How each row is attributed:
+  ///   • drawer entries — `DrawerEntries.shiftId` ([drawer]'s own entries);
+  ///   • sales — `Sales.shiftId == shift.id`; a sale with no `shiftId` (the
+  ///     Drift build never stamps one) by its `date` in the shift's interval;
+  ///   • returns, credit payments — no shift column locally: by `date` in the
+  ///     shift's interval.
+  /// The interval is `[openedAt, closedAt]`, open-ended while the shift is
+  /// open. A manually voided bill is out; an auto-voided one (credit note in
+  /// any shift) stays in ([drawerCashSalesOf]); credit payments count only
+  /// in cash ([isCashCreditPayment]).
   Future<DrawerCash> drawerCash(ShiftWithEntries drawer) async {
-    final day = dayBounds(drawer.shift.openedAt.toLocal());
-    return drawerCashBetween(
-      from: await cashCountFrom(drawer.shift) ?? day.from,
-      to: day.to,
-      startingCash: drawer.shift.startingCash,
-      entries: drawer.entries,
-    );
-  }
+    final shift = drawer.shift;
+    Expression<bool> inShift(GeneratedColumn<DateTime> date) {
+      final closed = shift.closedAt;
+      final opened = date.isBiggerOrEqualValue(shift.openedAt);
+      return closed == null ? opened : opened & date.isSmallerOrEqualValue(closed);
+    }
 
-  /// [drawerCash] over an explicit window [from]–[to] — for the closing
-  /// report on a day with no drawer of its own (starting cash 0, no entries).
-  Future<DrawerCash> drawerCashBetween({
-    required DateTime from,
-    required DateTime to,
-    double startingCash = 0,
-    List<DrawerEntryRow> entries = const [],
-  }) async {
-    final sales = await SalesRepository(db).getSales(from: from, to: to);
-    final returns = await ReturnsRepository(db).getReturns(from: from, to: to);
-    final creditPayments = await MechanicsRepository(
-      db,
-    ).getCreditPayments(from: from, to: to);
+    final sales =
+        await (db.select(db.sales)..where(
+              (t) =>
+                  t.shiftId.equals(shift.id) |
+                  (t.shiftId.isNull() & inShift(t.date)),
+            ))
+            .get();
+    final saleIds = [for (final s in sales) s.id];
+    final returnedSaleIds = saleIds.isEmpty
+        ? <String>{}
+        : (await (db.selectOnly(db.returns)
+                    ..addColumns([db.returns.saleId])
+                    ..where(db.returns.saleId.isIn(saleIds)))
+                  .map((r) => r.read(db.returns.saleId)!)
+                  .get())
+              .toSet();
+    final returns = await (db.select(
+      db.returns,
+    )..where((t) => inShift(t.date))).get();
+    final creditPayments = await (db.select(
+      db.creditPayments,
+    )..where((t) => inShift(t.date))).get();
 
     double sumEntries(String type) => round2(
-      entries
+      drawer.entries
           .where((e) => e.type == type)
           .fold<double>(0, (s, e) => s + e.amount),
     );
 
     return DrawerCash(
-      startingCash: startingCash,
-      // Manual voids excluded, auto-voids kept — the closing report's helper.
-      cashSales: drawerCashSalesOf(sales, returns, from: from),
+      startingCash: shift.startingCash,
+      cashSales: drawerCashSalesOf(sales, returnedSaleIds),
       cashCreditPayments: creditPayments
           .where((p) => isCashCreditPayment(p.note))
           .fold<double>(0, (s, p) => s + p.amount),
       cashRefunds: returns
-          .where((r) => r.ret.refundMethod == 'เงินสด')
-          .fold<double>(0, (s, r) => s + r.ret.refundTotal),
+          .where((r) => r.refundMethod == 'เงินสด')
+          .fold<double>(0, (s, r) => s + r.refundTotal),
       totalIn: sumEntries('in'),
       totalOut: sumEntries('out'),
     );
@@ -302,6 +292,16 @@ class DrawerCash {
     required this.totalOut,
   });
 
+  /// No shift — nothing to count.
+  static const empty = DrawerCash(
+    startingCash: 0,
+    cashSales: 0,
+    cashCreditPayments: 0,
+    cashRefunds: 0,
+    totalIn: 0,
+    totalOut: 0,
+  );
+
   double get expected => round2(
     startingCash +
         cashSales +
@@ -318,7 +318,7 @@ bool exceedsDrawer(double amount, double expected) =>
     (amount * 100).round() > (expected * 100).round();
 
 /// Owner, 2026-10-03: a cash-out larger than the drawer holds is refused.
-/// 🔴 agent ร่าง — not yet ratified by the owner (02_API_SCREENS.md §8/§8.1).
+/// Ratified by the owner 2026-10-03 (PR #580) — 02_API_SCREENS.md §8/§8.1.
 /// With the amount when it is known; the plain form otherwise (server path).
 String drawerInsufficientCashMessage([num? have]) => have == null
     ? 'เงินในลิ้นชักไม่พอ'
