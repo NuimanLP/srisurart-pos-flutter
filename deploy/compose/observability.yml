@@ -1,5 +1,5 @@
-# Logs + uptime overlay — LOCAL DEVELOPMENT ONLY (branch `develop`).
-# Loki (log store) + Alloy (log collector) + Uptime Kuma (uptime checks) + the Postgres,
+# Logs + infrastructure-metrics overlay — LOCAL DEVELOPMENT ONLY (branch `develop`).
+# Loki (log store) + Alloy (log collector) + the Postgres,
 # Redis and per-container exporters behind the infrastructure dashboard, on top of
 # monitoring.yml, whose Grafana reads Loki through the datasource provisioned in
 # ../grafana/provisioning/datasources/loki.yml:
@@ -9,7 +9,8 @@
 #
 # 🔴 Not part of the VM deploy: deploy/ansible/deploy.yml never loads this file, and the
 # memory budget in 07_CICD_DEPLOY.md §5 does not include it (loki 512m + alloy 256m +
-# uptime-kuma 256m + postgres-exporter 64m + redis-exporter 64m + cadvisor 256m = 1408m more). Putting it on `mob04` is an owner decision.
+# postgres-exporter 64m + redis-exporter 64m + cadvisor 256m = 1152m more). Putting it on `mob04` is an owner decision.
+# Uptime is not here: the VM pings Healthchecks.io from cron (deploy/scripts/healthcheck-ping.sh).
 #
 # Everything publishes on host loopback only, same pattern as monitoring.yml.
 # Every `image:` is pinned `name:tag@sha256:<digest>` (#401).
@@ -48,24 +49,14 @@ services:
       - "/etc/alloy/config.alloy"
     volumes:
       - ${MONITORING_CONFIG_DIR:-../deploy}/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      # Read-only: Alloy only lists containers and reads their logs.
+      # `:ro` does NOT limit the Docker API — any process that can open this socket can start
+      # and stop containers. Alloy only lists containers and reads their logs; that is why it is
+      # acceptable on a developer machine, and one more reason this overlay is not for the VM.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
     ports:
       # Alloy's own debug UI (which targets it found, what it is sending).
       - "127.0.0.1:12345:12345"
-
-  # Monitors are created in its web UI and live in the `uptime-kuma-data` volume — there is
-  # no config file for them. The targets to add are listed in deploy/uptime-kuma/README.md.
-  uptime-kuma:
-    image: louislam/uptime-kuma:2.5.5@sha256:c74379ac4509ce2d2c2633f509e67003ee2e45b6e995c5e43fc101f45a0e1fbe
-    restart: unless-stopped
-    mem_limit: 256m
-    volumes:
-      - uptime-kuma-data:/app/data
-    ports:
-      # 3001, because Grafana already holds 127.0.0.1:3000.
-      - "127.0.0.1:3001:3001"
 
   # --- Dashboard group 3: datastore + per-container metrics --------------------------------
   # Scraped through ../prometheus/local-scrape.yml, which only this overlay mounts.
@@ -119,4 +110,3 @@ services:
 volumes:
   loki-data:
   alloy-data:
-  uptime-kuma-data:

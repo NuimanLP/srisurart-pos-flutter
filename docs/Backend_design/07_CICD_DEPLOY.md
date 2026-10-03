@@ -709,6 +709,33 @@ retention พร้อม `::warning::` ตลอดไป** — เมื่อ
 
 ---
 
+## 7b. Uptime heartbeat — Healthchecks.io (branch `develop`, ยังไม่ติดตั้งบน VM)
+
+VM เป็นฝ่าย **ส่งสัญญาณออกไป** ทุก 5 นาที ถ้าสัญญาณหยุด Healthchecks.io แจ้งเตือน — จึงรู้ได้แม้ VM
+ดับทั้งเครื่อง (ตัวเฝ้าที่รันบน VM เดียวกันทำไม่ได้)
+
+| ส่วน | ที่อยู่ |
+|---|---|
+| สคริปต์ | `deploy/scripts/healthcheck-ping.sh` — เช็ก `https://127.0.0.1/health/ready` ผ่าน Nginx แล้ว ping `<URL>` (ผ่าน) หรือ `<URL>/fail` (ไม่ผ่าน พร้อมข้อความ error) |
+| เทสต์ | `deploy/scripts/test/healthcheck-ping.test.sh` (stub `curl`, รันใน CI job `nginx-check`) |
+| ติดตั้ง | `provision.yml` — copy สคริปต์ + cron `*/5` ของ user `deploy`; **CD deploy ไม่ติดตั้งให้** (เหมือน `backup-db.sh`) |
+| ค่า | `HEALTHCHECKS_PING_URL=` ใน `/opt/pos/.env` (ผ่าน `DEMO_ENV_FILE`) — **เป็นความลับ** ใครมี URL ก็ ping แทนได้ ห้าม commit |
+| log | `journalctl -t pos-healthcheck` |
+
+3 สถานะ (กฎเดียวกับ offsite ของ `backup-db.sh`):
+
+| สถานะ | ผล |
+|---|---|
+| ยังไม่ตั้ง `HEALTHCHECKS_PING_URL` | `::warning::` + exit 0 — ไม่ส่งอะไร **และไม่มีใครถูกแจ้งเมื่อ VM ดับ** |
+| ตั้งแล้ว ส่งถึง | ping ผ่าน/`/fail` ตามผล `/health/ready` |
+| ตั้งแล้ว ส่งไม่ถึง (FortiGate/DNS) | `::error::` + exit 1 — ฝั่ง Healthchecks.io จะเห็นเป็น "เงียบ" แล้วแจ้งเตือนเอง |
+
+ก่อนเปิดใช้: (1) ทดสอบจาก `mob04` ว่า `curl -v https://hc-ping.com/` ผ่าน FortiGate ได้ (เคยบล็อก `ghcr.io`
+จนถึง 2026-09-29) (2) ทีมสมัคร Healthchecks.io สร้าง check period 5 นาที + grace ตามต้องการ ตั้งช่องทางแจ้งเตือน
+(3) เพิ่ม `HEALTHCHECKS_PING_URL` ใน `DEMO_ENV_FILE` แล้วรัน `provision.yml` — ต้องได้รับอนุมัติจากเจ้าของก่อน
+
+---
+
 ## 8. etcd — dynamic config (ไม่ใช่ข้อมูล ไม่ใช่ความลับ)
 
 สถานะ 2026-09-14: **ทั้งสองฝั่งอยู่บน `main` แล้ว** — service (#64) และ `RuntimeConfigService` (#66,
