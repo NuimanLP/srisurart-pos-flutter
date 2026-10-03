@@ -9,8 +9,14 @@ import { satangOf } from '../common/money.js';
  *   expected = starting_cash + cash sales + mechanics' cash credit payments
  *            − cash refunds + drawer in − drawer out
  *
- * Counted **by `shift_id`**, never by a time window (`02_API_SCREENS.md §3.11`). The Dart
- * client counts the same rows by its window (`ShiftsRepository.drawerCash`, #452).
+ * Counted **by `shift_id`**, never by a time window (`02_API_SCREENS.md §3.11`) — the
+ * owner's single rule since 2026-10-03 (PR #580): every baht taken or paid while a shift
+ * is open belongs to it, even past midnight. The Dart client applies the same rule
+ * (`ShiftsRepository.drawerCash`); where it has no local shift column (returns, credit
+ * payments, a Drift-build sale) it uses the row's date in the shift's
+ * `[opened_at, closed_at]`, which is the same row set because every money write here is
+ * stamped with the shift open when it commits (`requireOpenShiftIdFor`, `FOR SHARE`, and
+ * `close()` waits on it). Both sides run `docs/Backend_design/fixtures/drawer-cash/agreement.json`.
  * Parameters: `$1` tenant id, `$2` shift id, `$3` the cash method string ([CASH]).
  */
 

@@ -118,26 +118,10 @@ class ApiShiftsRepository implements ShiftsRepository {
   @override
   Future<List<ShiftWithEntries>> getShiftHistory() => drift.getShiftHistory();
 
-  @override
-  Future<DateTime?> cashCountFrom(ShiftRow shift) => drift.cashCountFrom(shift);
-
   /// A read of the local cache — the same number the screen shows.
   @override
   Future<DrawerCash> drawerCash(ShiftWithEntries drawer) =>
       drift.drawerCash(drawer);
-
-  @override
-  Future<DrawerCash> drawerCashBetween({
-    required DateTime from,
-    required DateTime to,
-    double startingCash = 0,
-    List<DrawerEntryRow> entries = const [],
-  }) => drift.drawerCashBetween(
-    from: from,
-    to: to,
-    startingCash: startingCash,
-    entries: entries,
-  );
 
   @override
   Future<void> assertCashOutFits(ShiftRow shift, String type, double amount) =>

@@ -14,7 +14,7 @@ import {
   type TenantFixture,
 } from './support/fixture.js';
 
-/** The expected-cash scenario the Dart client checks too (drawer_cash_out_limit_test.dart). */
+/** The by-shift expected-cash scenarios the Dart client checks too (drawer_cash_out_limit_test.dart). */
 const DRAWER_CASH_FIXTURE = JSON.parse(
   readFileSync(
     join(
@@ -24,12 +24,12 @@ const DRAWER_CASH_FIXTURE = JSON.parse(
     'utf8',
   ),
 ) as {
-  startingCash: string;
-  sales: { id: string; total: string; paymentMethod: string; voided: boolean }[];
-  returns: { id: string; saleId: string; refundTotal: string; refundMethod: string }[];
-  creditPayments: { id: string; amount: string; method: string }[];
-  entries: { id: string; type: 'in' | 'out'; amount: string }[];
-  expectedCash: string;
+  shifts: { id: string; openedAt: string; closedAt: string; startingCash: string }[];
+  sales: { id: string; shift: string; at: string; total: string; paymentMethod: string; voided: boolean }[];
+  returns: { id: string; shift: string; at: string; saleId: string; refundTotal: string; refundMethod: string }[];
+  creditPayments: { id: string; shift: string; at: string; amount: string; method: string }[];
+  entries: { id: string; shift: string; at: string; type: 'in' | 'out'; amount: string }[];
+  expectedCash: Record<string, string>;
 };
 
 // #28 acceptance suite. Every case in `frontend/lib/data/repositories/shifts_repository.dart`
@@ -401,57 +401,59 @@ describe('shifts and the cash drawer (e2e)', () => {
       expect(await entryCount()).toBe(2);
     });
 
-    it('agrees with the Dart client on the shared fixture (drawer-cash/agreement.json)', async () => {
+    it('agrees with the Dart client on the shared by-shift fixture (drawer-cash/agreement.json)', async () => {
       const f = DRAWER_CASH_FIXTURE;
-      const shiftId = 'sh_fixture';
-      await post('/open', { id: shiftId, startingCash: f.startingCash });
       await seedMechanic(admin, TENANT, { id: 'm-fx', code: 'M901', name: 'ช่างทดสอบ' });
+      for (const sh of f.shifts) {
+        await admin.query(
+          `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, closed_at,
+                               physical_cash, is_active, archived_at, device_id)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, 0, FALSE, $6, $7)`,
+          [TENANT, sh.id, sh.openedAt.slice(0, 10), sh.startingCash, sh.openedAt, sh.closedAt, fixture.posDeviceId],
+        );
+      }
       for (const s of f.sales) {
         await admin.query(
           `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total,
                               payment_method, date, voided, voided_at, shift_id)
-           VALUES ($1::uuid, $2, $3, $4, 0, $4, $5, now(), $6,
-                   CASE WHEN $6 THEN now() END, $7)`,
-          [TENANT, s.id, `RC-${s.id}`, s.total, s.paymentMethod, s.voided, shiftId],
+           VALUES ($1::uuid, $2, $3, $4, 0, $4, $5, $6, $7,
+                   CASE WHEN $7 THEN $6::timestamptz END, $8)`,
+          [TENANT, s.id, `RC-${s.id}`, s.total, s.paymentMethod, s.at, s.voided, s.shift],
         );
       }
       for (const r of f.returns) {
         await admin.query(
           `INSERT INTO returns (tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal,
                                 refund_discount, refund_total, refund_method, date, shift_id)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, 0, $6, $7, now(), $8)`,
-          [TENANT, r.id, `CN-${r.id}`, r.saleId, `RC-${r.saleId}`, r.refundTotal, r.refundMethod, shiftId],
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, 0, $6, $7, $8, $9)`,
+          [TENANT, r.id, `CN-${r.id}`, r.saleId, `RC-${r.saleId}`, r.refundTotal, r.refundMethod, r.at, r.shift],
         );
       }
       for (const cp of f.creditPayments) {
         await admin.query(
           `INSERT INTO credit_payments (tenant_id, id, receipt_no, mechanic_id, amount,
                                         payment_method, date, shift_id)
-           VALUES ($1::uuid, $2, $3, 'm-fx', $4, $5, now(), $6)`,
-          [TENANT, cp.id, `CP-${cp.id}`, cp.amount, cp.method, shiftId],
+           VALUES ($1::uuid, $2, $3, 'm-fx', $4, $5, $6, $7)`,
+          [TENANT, cp.id, `CP-${cp.id}`, cp.amount, cp.method, cp.at, cp.shift],
         );
       }
       for (const e of f.entries) {
         await admin.query(
-          `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note)
-           VALUES ($1::uuid, $2, $3, $4, $5, '')`,
-          [TENANT, e.id, shiftId, e.type, e.amount],
+          `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note, created_at)
+           VALUES ($1::uuid, $2, $3, $4, $5, '', $6)`,
+          [TENANT, e.id, e.shift, e.type, e.amount, e.at],
         );
       }
 
-      const closing = await request(app.getHttpServer())
-        .get(`/api/v1/reports/closing?shiftId=${shiftId}`)
-        .set('Authorization', `Bearer ${posToken}`);
-      expect(closing.body.data.expectedCash).toBe(f.expectedCash);
-
-      const overSatang = Math.round(Number(f.expectedCash) * 100) + 1;
-      const over = await post('/current/entries', {
-        type: 'out',
-        amount: `${Math.trunc(overSatang / 100)}.${String(overSatang % 100).padStart(2, '0')}`,
-      });
-      expect(over.status).toBe(409);
-      expect(over.body.error.details).toEqual({ expectedCash: f.expectedCash });
-      expect((await post('/current/entries', { type: 'out', amount: f.expectedCash })).status).toBe(201);
+      const got: Record<string, string> = {};
+      for (const sh of f.shifts) {
+        const closing = await request(app.getHttpServer())
+          .get(`/api/v1/reports/closing?shiftId=${sh.id}`)
+          .set('Authorization', `Bearer ${posToken}`);
+        expect(closing.status).toBe(200);
+        got[sh.id] = closing.body.data.expectedCash;
+      }
+      expect(got).toEqual(f.expectedCash);
     });
 
     it('a second shift counts only its own cash, not the first shift’s takings', async () => {

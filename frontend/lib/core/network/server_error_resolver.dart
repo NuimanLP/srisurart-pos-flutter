@@ -124,7 +124,7 @@ class ServerErrorResolver {
     // The server sends no amount into this string; the Drift path and the
     // screen use `mechanicHasBalanceMessage` (with ฿X) instead.
     'MECHANIC_HAS_BALANCE': 'ช่างยังมียอดค้างชำระ — รับชำระให้ครบก่อนลบ',
-    // 🔴 agent ร่าง — not yet ratified by the owner (02_API_SCREENS.md §8/§8.1).
+    // Ratified by the owner 2026-10-03 (PR #580) — 02_API_SCREENS.md §8/§8.1.
     // Owner 2026-10-03: a cash-out larger than the drawer's expected cash is
     // refused. The server's reply carries `details.expectedCash`; the Drift path,
     // the offline queue and the screen use `drawerInsufficientCashMessage` (with ฿X).
