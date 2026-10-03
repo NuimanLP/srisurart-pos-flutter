@@ -12,18 +12,21 @@ export interface ReadinessChecks {
 }
 const CHECK_TIMEOUT_MS = 2000;
 
-async function probe(run: () => Promise<unknown>): Promise<Check> {
+/** Rejects with `timeout` after `ms`; the timer never outlives the race. */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('timeout')), CHECK_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new Error('timeout')), ms);
   });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function probe(run: () => Promise<unknown>): Promise<Check> {
   try {
-    await Promise.race([run(), timeout]);
+    await withTimeout(run(), CHECK_TIMEOUT_MS);
     return 'up';
   } catch {
     return 'down';
-  } finally {
-    clearTimeout(timer);
   }
 }
 

@@ -95,8 +95,8 @@ describe('Platform audit viewer + system panel (#443)', () => {
     const seen: Array<{ id: string; action: string; createdAt: string }> = [];
     let before: string | null = null;
     for (let i = 0; i < 50; i++) {
-      const qs = `?limit=${limit}${before ? `&before=${before}` : ''}`;
-      const res = await http().get(auditUrl(tid, qs)).set('Authorization', `Bearer ${token}`);
+      const qs: string = `?limit=${limit}${before ? `&before=${before}` : ''}`;
+      const res: request.Response = await http().get(auditUrl(tid, qs)).set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
       seen.push(...res.body.data.items);
       expect(res.body.data.items.length).toBeLessThanOrEqual(limit);

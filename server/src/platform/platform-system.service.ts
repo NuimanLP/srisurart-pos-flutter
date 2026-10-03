@@ -1,13 +1,13 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { getQueueToken } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
+import { DataSource } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
-import { HealthService, type ReadinessChecks } from '../health/health.service.js';
+import { HealthService, withTimeout, type ReadinessChecks } from '../health/health.service.js';
+import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { ALL_QUEUES } from '../queue/queue.constants.js';
 import { AuditService } from './audit.service.js';
-import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
-import { DataSource } from 'typeorm';
 
 /** `listTenants` writes its platform-wide audit row under this id too — no tenant is touched. */
 const NO_TENANT = '00000000-0000-0000-0000-000000000000';
@@ -38,21 +38,14 @@ export interface SystemStatus {
   checkedAt: string;
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('timeout')), ms);
-  });
-  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
-}
-
 /**
  * `GET /platform/system` (#443) — what is deployed and whether it can serve.
  * Readiness is `HealthService.readiness()`, the same checks `/health/ready` gates on.
  */
 @Injectable()
-export class PlatformSystemService {
+export class PlatformSystemService implements OnModuleInit {
   private readonly logger = new Logger(PlatformSystemService.name);
+  private queues: Array<{ name: string; queue: Queue }> = [];
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -61,6 +54,17 @@ export class PlatformSystemService {
     private readonly auditService: AuditService,
     private readonly moduleRef: ModuleRef,
   ) {}
+
+  /**
+   * Resolved once at boot, not per request inside a `catch`: a queue missing from the app's
+   * (global) `QueueModule` must fail the boot loudly, not read as "unknown" counts forever.
+   */
+  onModuleInit(): void {
+    this.queues = ALL_QUEUES.map((name) => ({
+      name,
+      queue: this.moduleRef.get<Queue>(getQueueToken(name), { strict: false }),
+    }));
+  }
 
   async status(adminId: string, ip?: string): Promise<SystemStatus> {
     const [checks, queues] = await Promise.all([this.health.readiness(), this.queueCounts()]);
@@ -92,9 +96,8 @@ export class PlatformSystemService {
    */
   private queueCounts(): Promise<Array<{ name: string; counts: QueueCounts | null }>> {
     return Promise.all(
-      ALL_QUEUES.map(async (name) => {
+      this.queues.map(async ({ name, queue }) => {
         try {
-          const queue = this.moduleRef.get<Queue>(getQueueToken(name), { strict: false });
           const counts = await withTimeout(queue.getJobCounts(...JOB_STATES), QUEUE_COUNT_TIMEOUT_MS);
           return {
             name,
