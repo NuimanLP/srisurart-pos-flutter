@@ -826,6 +826,34 @@ void main() {
       },
     );
 
+    test(
+      'Degraded: a cash-out over the local expected cash is refused before '
+      'anything is queued (owner 2026-10-03)',
+      () async {
+        await seedShift('sh-open'); // starting cash ฿500
+        final repo = offlineRepo((_) async => fail('no online call'));
+        sync.recordNonVerdictWrite();
+
+        await expectLater(
+          repo.addDrawerEntry('out', 500.01, null),
+          throwsA(
+            isA<PosException>()
+                .having((e) => e.code, 'code', 'DRAWER_INSUFFICIENT_CASH')
+                .having(
+                  (e) => e.message,
+                  'message',
+                  'เงินในลิ้นชักไม่พอ (มี ฿500)',
+                ),
+          ),
+        );
+        expect(await ops(), isEmpty);
+        expect(await db.select(db.drawerEntries).get(), isEmpty);
+
+        await repo.addDrawerEntry('out', 500, null);
+        expect((await ops()).single.type, 'drawer.entry');
+      },
+    );
+
     test('a lost connection queues drawer.entry under the SAME id + key', () async {
       await seedShift('sh-open');
       final repo = offlineRepo(

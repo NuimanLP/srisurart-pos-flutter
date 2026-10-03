@@ -14,16 +14,23 @@
 //     then a fresh active shift is inserted. Wrapped in a txn.
 //   - addDrawerEntry: throws 'No open shift' if none active; blocks new money
 //     entries once the active shift is closed (CLAUDE.md: the cash drawer
-//     blocks new money entries after close).
+//     blocks new money entries after close); refuses a cash-out larger than
+//     the drawer's expected cash ([drawerCash], owner 2026-10-03).
 //   - closeShift: stamps closedAt + physicalCash on the active shift; it stays
 //     isActive=true (the current drawer) until the next openShift archives it.
 
 import 'package:drift/drift.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/ids.dart';
+import '../../core/utils/money.dart';
 import '../../domain/models/aggregates.dart';
+import '../../domain/reports/net_sales.dart';
 import '../db/database.dart';
+import 'mechanics_repository.dart';
+import 'returns_repository.dart';
+import 'sales_repository.dart';
 
 class ShiftsRepository {
   final AppDatabase db;
@@ -78,6 +85,50 @@ class ShiftsRepository {
               ..limit(1))
             .getSingleOrNull();
     return earlier == null ? null : shift.openedAt;
+  }
+
+  /// The cash [drawer] should hold right now, piece by piece — the ONE client
+  /// rule, used by the cash-drawer screen and by [addDrawerEntry]'s cash-out
+  /// refusal so the two can never disagree (#452):
+  ///
+  ///   starting cash + cash sales + cash credit payments − cash refunds
+  ///   + money in − money out
+  ///
+  /// counted from [cashCountFrom] (the day's first shift from midnight, a later
+  /// shift from its own opening) to the end of the shift's day. Cash sales via
+  /// [drawerCashSalesOf], credit payments via [isCashCreditPayment]. The server
+  /// counts the same money by `shift_id` (`server/src/reports/drawer-cash.sql.ts`).
+  Future<DrawerCash> drawerCash(ShiftWithEntries drawer) async {
+    final day = dayBounds(drawer.shift.openedAt.toLocal());
+    final from = await cashCountFrom(drawer.shift) ?? day.from;
+
+    final sales = await SalesRepository(db).getSales(from: from, to: day.to);
+    final returns = await ReturnsRepository(
+      db,
+    ).getReturns(from: from, to: day.to);
+    final creditPayments = await MechanicsRepository(
+      db,
+    ).getCreditPayments(from: from, to: day.to);
+
+    double sumEntries(String type) => round2(
+      drawer.entries
+          .where((e) => e.type == type)
+          .fold<double>(0, (s, e) => s + e.amount),
+    );
+
+    return DrawerCash(
+      startingCash: drawer.shift.startingCash,
+      // Manual voids excluded, auto-voids kept — the closing report's helper.
+      cashSales: drawerCashSalesOf(sales, returns, from: from),
+      cashCreditPayments: creditPayments
+          .where((p) => isCashCreditPayment(p.note))
+          .fold<double>(0, (s, p) => s + p.amount),
+      cashRefunds: returns
+          .where((r) => r.ret.refundMethod == 'เงินสด')
+          .fold<double>(0, (s, r) => s + r.ret.refundTotal),
+      totalIn: sumEntries('in'),
+      totalOut: sumEntries('out'),
+    );
   }
 
   /// Drawer entries for a shift, newest first.
@@ -162,6 +213,17 @@ class ShiftsRepository {
     if (shift.closedAt != null) {
       throw Exception('ลิ้นชักปิดแล้ว ไม่สามารถบันทึกรายการเงินเพิ่มได้');
     }
+    if (type == 'out') {
+      final expected = (await drawerCash(
+        ShiftWithEntries(shift, await _entriesFor(shift.id)),
+      )).expected;
+      if (exceedsDrawer(amount, expected)) {
+        throw PosException(
+          'DRAWER_INSUFFICIENT_CASH',
+          drawerInsufficientCashMessage(expected),
+        );
+      }
+    }
 
     final row = DrawerEntryRow(
       id: newId('de'),
@@ -198,3 +260,42 @@ class ShiftsRepository {
     )..where((t) => t.id.equals(shift.id))).getSingle();
   }
 }
+
+/// The drawer's expected cash, piece by piece ([ShiftsRepository.drawerCash]).
+class DrawerCash {
+  final double startingCash;
+  final double cashSales;
+  final double cashCreditPayments;
+  final double cashRefunds;
+  final double totalIn;
+  final double totalOut;
+  const DrawerCash({
+    required this.startingCash,
+    required this.cashSales,
+    required this.cashCreditPayments,
+    required this.cashRefunds,
+    required this.totalIn,
+    required this.totalOut,
+  });
+
+  double get expected => round2(
+    startingCash +
+        cashSales +
+        cashCreditPayments -
+        cashRefunds -
+        totalOut +
+        totalIn,
+  );
+}
+
+/// Whether a cash-out of [amount] is more than the drawer's [expected] cash —
+/// compared in whole satang, so exactly the expected amount is allowed.
+bool exceedsDrawer(double amount, double expected) =>
+    (amount * 100).round() > (expected * 100).round();
+
+/// Owner, 2026-10-03: a cash-out larger than the drawer holds is refused.
+/// 🔴 agent ร่าง — not yet ratified by the owner (02_API_SCREENS.md §8/§8.1).
+/// With the amount when it is known; the plain form otherwise (server path).
+String drawerInsufficientCashMessage([num? have]) => have == null
+    ? 'เงินในลิ้นชักไม่พอ'
+    : 'เงินในลิ้นชักไม่พอ (มี ${baht(have)})';

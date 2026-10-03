@@ -305,6 +305,93 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(current.body.data.entries[1].note).toBe('ช่างจ่ายหนี้');
   });
 
+  describe('a cash-out larger than the drawer holds is refused (owner, 2026-10-03)', () => {
+    const sellCash = async (id: string) =>
+      request(app.getHttpServer())
+        .post('/api/v1/sales')
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', `k-sale-${id}`)
+        .send({
+          id,
+          subtotal: '85.00',
+          discount: '0.00',
+          total: '85.00',
+          paymentMethod: 'เงินสด',
+          items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+        });
+
+    const entryCount = async () =>
+      (
+        await admin.query(
+          `SELECT count(*)::int AS n FROM drawer_entries WHERE tenant_id = $1::uuid`,
+          [TENANT],
+        )
+      )[0].n as number;
+
+    beforeEach(async () => {
+      await seedProduct(admin, TENANT, {
+        id: 'p1',
+        partNo: 'OF-1',
+        name: 'Oil Filter',
+        price: 85,
+        cost: 50,
+        stock: 100,
+      });
+    });
+
+    it('the owner’s screenshot: 2,000 − 1,000 − 1,000, then 500 more is refused', async () => {
+      await post('/open', { startingCash: '2000.00' });
+      expect((await post('/current/entries', { type: 'out', amount: '1000.00' })).status).toBe(201);
+      expect((await post('/current/entries', { type: 'out', amount: '1000.00' })).status).toBe(201);
+
+      const refused = await post('/current/entries', { type: 'out', amount: '500.00' });
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.code).toBe('DRAWER_INSUFFICIENT_CASH');
+      expect(refused.body.error.details).toEqual({ expectedCash: '0.00' });
+      expect(await entryCount()).toBe(2);
+    });
+
+    it('accepts exactly the expected cash, refuses one satang more — and agrees with the closing report', async () => {
+      const opened = await post('/open', { startingCash: '1000.00' });
+      expect((await sellCash('s-cash-1')).status).toBe(201);
+      await post('/current/entries', { type: 'in', amount: '20.50' });
+      // expected = 1000 + 85 + 20.50 = 1105.50
+      const closing = await request(app.getHttpServer())
+        .get(`/api/v1/reports/closing?shiftId=${opened.body.data.id}`)
+        .set('Authorization', `Bearer ${posToken}`);
+      expect(closing.status).toBe(200);
+      expect(closing.body.data.expectedCash).toBe('1105.50');
+
+      const over = await post('/current/entries', { type: 'out', amount: '1105.51' });
+      expect(over.status).toBe(409);
+      expect(over.body.error.code).toBe('DRAWER_INSUFFICIENT_CASH');
+      // The refusal's number IS the closing report's number — one rule, not two.
+      expect(over.body.error.details.expectedCash).toBe(closing.body.data.expectedCash);
+
+      const exact = await post('/current/entries', { type: 'out', amount: '1105.50' });
+      expect(exact.status).toBe(201);
+    });
+
+    it('cash-in is never limited, even on an empty drawer', async () => {
+      await post('/open', { startingCash: '100.00' });
+      expect((await post('/current/entries', { type: 'out', amount: '100.00' })).status).toBe(201);
+      expect((await post('/current/entries', { type: 'in', amount: '500.00' })).status).toBe(201);
+      expect(await entryCount()).toBe(2);
+    });
+
+    it('a second shift counts only its own cash, not the first shift’s takings', async () => {
+      await post('/open', { id: 'sh_first', startingCash: '1000.00' });
+      expect((await sellCash('s-first-1')).status).toBe(201);
+      await post('/close', { physicalCash: '1085.00' });
+
+      await post('/open', { id: 'sh_second', startingCash: '100.00' });
+      const over = await post('/current/entries', { type: 'out', amount: '100.01' });
+      expect(over.status).toBe(409);
+      expect(over.body.error.details).toEqual({ expectedCash: '100.00' });
+      expect((await post('/current/entries', { type: 'out', amount: '100.00' })).status).toBe(201);
+    });
+  });
+
   it('an entry after close is refused with the verbatim Thai message', async () => {
     await post('/open', { startingCash: '1000.00' });
     await post('/close', { physicalCash: '1000.00' });
