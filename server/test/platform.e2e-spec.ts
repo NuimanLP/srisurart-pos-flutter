@@ -7,7 +7,7 @@ import { signJwt } from '../src/common/jwt.js';
 import { hashPassword } from '../src/common/password.js';
 import { APP_CONFIG, type AppConfig } from '../src/config/config.js';
 import { platformAdminCacheKey } from '../src/platform/platform-auth.guard.js';
-import { createTestApp } from './support/fixture.js';
+import { createTestApp, seedOpenShift, TENANT_TABLES_DEPTH_FIRST } from './support/fixture.js';
 import { activateOwner, OWNER_CHOSEN_PASSWORD } from './support/owner-password.js';
 
 describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
@@ -807,6 +807,272 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       );
       expect(auditRows.length).toBe(1);
       expect(auditRows[0].platform_admin_id).toBe(adminId);
+    });
+  });
+
+  // #476: the shop's only enrolled device is lost (browser wiped, machine gone). Its own
+  // `/devices` routes need an enrolled session, and `enrol-code` refuses an enrolled row, so
+  // this is the platform-admin escape hatch: retire it and create the replacement in one go.
+  describe('Device replace — lost last enrolled device (#476)', () => {
+    let tenantId: string;
+    let ownerUsername: string;
+    let oldDeviceToken: string;
+
+    const replace = (tid: string, deviceId: string, body: Record<string, unknown> = {}) =>
+      request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tid}/devices/${deviceId}/replace`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send(body);
+
+    const provision = async (prefix: string) => {
+      const code = `${prefix}-${randomUUID().slice(0, 8)}`;
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/platform/tenants')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ code, shopName: 'ร้านเครื่องหาย', ownerUsername: `owner_${code}`, ownerDisplayName: 'เจ้าของ' });
+      expect(res.status).toBe(201);
+      return { ...res.body.data, ownerUsername: `owner_${code}` } as {
+        tenantId: string;
+        enrolCode: string;
+        tempPassword: string;
+        ownerUsername: string;
+      };
+    };
+
+    const cleanup = async (tid: string) => {
+      for (const table of TENANT_TABLES_DEPTH_FIRST) {
+        await adminDs.query(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, [tid]);
+      }
+      await adminDs.query(`DELETE FROM tenants WHERE id = $1`, [tid]);
+      for (const key of await cache.keys(`t:${tid}:*`)) await cache.del(key);
+    };
+
+    beforeEach(async () => {
+      const p = await provision('rpl');
+      tenantId = p.tenantId;
+      ownerUsername = p.ownerUsername;
+      await activateOwner(app, ownerUsername, p.tempPassword, OWNER_CHOSEN_PASSWORD);
+      const enrol = await request(app.getHttpServer())
+        .post('/api/v1/auth/device')
+        .send({ code: p.enrolCode });
+      expect(enrol.status).toBe(200);
+      oldDeviceToken = enrol.body.data.deviceToken;
+    });
+
+    afterEach(async () => {
+      await cleanup(tenantId);
+    });
+
+    it('retires the lost device, creates a new device_no, and the one-time code enrols a working POS', async () => {
+      // A retired row higher than pos1: device_no is max + 1 over every row (F8).
+      await adminDs.query(
+        `INSERT INTO devices (tenant_id, id, label, device_no, role, retired_at)
+         VALUES ($1, 'old-bo', 'เก่า', 5, 'backoffice', now())`,
+        [tenantId],
+      );
+
+      const res = await replace(tenantId, 'pos1');
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+      expect(data.retiredDeviceId).toBe('pos1');
+      expect(data.device).toEqual({ id: expect.any(String), label: 'POS #1', role: 'pos', deviceNo: 6 });
+      expect(data.enrolCode).toMatch(/^[0-9A-F]{8}$/);
+      expect(new Date(data.enrolExpiresAt).getTime()).toBeGreaterThan(Date.now() + 6 * 86400_000);
+
+      const old = await adminDs.query(
+        `SELECT retired_at, enrol_code_hash FROM devices WHERE tenant_id = $1 AND id = 'pos1'`,
+        [tenantId],
+      );
+      expect(old[0].retired_at).not.toBeNull();
+      expect(old[0].enrol_code_hash).toBeNull();
+
+      // The lost browser's token is dead.
+      const oldLogin = await request(app.getHttpServer())
+        .post('/api/v1/auth/token')
+        .send({ username: ownerUsername, password: OWNER_CHOSEN_PASSWORD, deviceToken: oldDeviceToken });
+      expect(oldLogin.status).toBe(401);
+
+      // The code enrols exactly once, and the login it unlocks carries the new device.
+      const enrol = await request(app.getHttpServer()).post('/api/v1/auth/device').send({ code: data.enrolCode });
+      expect(enrol.status).toBe(200);
+      const again = await request(app.getHttpServer()).post('/api/v1/auth/device').send({ code: data.enrolCode });
+      expect(again.status).toBe(401);
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/auth/token')
+        .send({ username: ownerUsername, password: OWNER_CHOSEN_PASSWORD, deviceToken: enrol.body.data.deviceToken });
+      expect(login.status).toBe(200);
+      const devices = await request(app.getHttpServer())
+        .get('/api/v1/devices')
+        .set('Authorization', `Bearer ${login.body.data.accessToken}`);
+      expect(devices.status).toBe(200);
+      const fresh = devices.body.data.find((d: { id: string }) => d.id === data.device.id);
+      expect(fresh).toMatchObject({ deviceNo: 6, role: 'pos', enrolled: true, retiredAt: null });
+
+      // Both audit rows name the platform admin; neither carries the code.
+      const audit = await adminDs.query(
+        `SELECT action, platform_admin_id, user_id, entity_id, before, after FROM audit_log
+          WHERE tenant_id = $1 AND action IN ('device.retire', 'device.create') ORDER BY id`,
+        [tenantId],
+      );
+      expect(audit.map((a: { action: string; entity_id: string }) => [a.action, a.entity_id])).toEqual([
+        ['device.retire', 'pos1'],
+        ['device.create', data.device.id],
+      ]);
+      for (const a of audit) {
+        expect(a.platform_admin_id).toBe(adminId);
+        expect(a.user_id).toBeNull();
+        expect(JSON.stringify(a)).not.toContain(data.enrolCode);
+      }
+      expect(audit[0].after).toMatchObject({ replacedBy: data.device.id });
+      expect(audit[0].after.forced).toBeUndefined();
+      expect(audit[1].after).toMatchObject({ deviceNo: 6, role: 'pos', replaces: 'pos1' });
+    });
+
+    it('takes a custom label', async () => {
+      const res = await replace(tenantId, 'pos1', { label: 'เครื่องใหม่' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.device.label).toBe('เครื่องใหม่');
+    });
+
+    it('refuses an open shift with 409 and changes nothing; force + note archives it uncounted', async () => {
+      const shiftId = await seedOpenShift(adminDs, tenantId, 'pos1', { startingCash: 500 });
+
+      const refused = await replace(tenantId, 'pos1');
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.code).toBe('DEVICE_HAS_OPEN_SHIFT');
+      const untouched = await adminDs.query(
+        `SELECT retired_at FROM devices WHERE tenant_id = $1 AND id = 'pos1'`,
+        [tenantId],
+      );
+      expect(untouched[0].retired_at).toBeNull();
+      const count = await adminDs.query(
+        `SELECT count(*)::int AS n FROM devices WHERE tenant_id = $1`,
+        [tenantId],
+      );
+      expect(count[0].n).toBe(1);
+
+      const forced = await replace(tenantId, 'pos1', { force: true, note: 'เครื่องหายระหว่างกะ' });
+      expect(forced.status).toBe(200);
+      const shift = await adminDs.query(
+        `SELECT is_active, auto_archived, archived_at, closed_at FROM shifts WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, shiftId],
+      );
+      expect(shift[0]).toMatchObject({ is_active: false, auto_archived: true, closed_at: null });
+      expect(shift[0].archived_at).not.toBeNull();
+      const review = await adminDs.query(
+        `SELECT kind, ref_id FROM owner_review_items WHERE tenant_id = $1`,
+        [tenantId],
+      );
+      expect(review).toEqual([{ kind: 'shift_uncounted', ref_id: shiftId }]);
+      const audit = await adminDs.query(
+        `SELECT after FROM audit_log WHERE tenant_id = $1 AND action = 'device.retire'`,
+        [tenantId],
+      );
+      expect(audit[0].after).toMatchObject({ forced: true, note: 'เครื่องหายระหว่างกะ', shiftId });
+    });
+
+    it('refuses unsent offline ops with 409; force + note leaves a device_force_retired review item', async () => {
+      await adminDs.query(
+        `UPDATE devices SET unsynced_ops = 3, unsynced_reported_at = now() WHERE tenant_id = $1 AND id = 'pos1'`,
+        [tenantId],
+      );
+      const refused = await replace(tenantId, 'pos1');
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.code).toBe('DEVICE_HAS_UNSYNCED_OPS');
+      expect(refused.body.error.details).toMatchObject({ unsyncedOps: 3 });
+
+      const forced = await replace(tenantId, 'pos1', { force: true, note: 'ล้างเบราว์เซอร์' });
+      expect(forced.status).toBe(200);
+      const review = await adminDs.query(
+        `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1`,
+        [tenantId],
+      );
+      expect(review).toHaveLength(1);
+      expect(review[0]).toMatchObject({ kind: 'device_force_retired', ref_id: 'pos1' });
+      expect(review[0].details).toMatchObject({ unsyncedOps: 3, note: 'ล้างเบราว์เซอร์' });
+    });
+
+    it('refuses a never-enrolled device (409 DEVICE_NOT_ENROLLED — reissue its code instead)', async () => {
+      await adminDs.query(
+        `INSERT INTO devices (tenant_id, id, label, device_no, role) VALUES ($1, 'bo-new', 'x', 2, 'backoffice')`,
+        [tenantId],
+      );
+      const res = await replace(tenantId, 'bo-new');
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('DEVICE_NOT_ENROLLED');
+    });
+
+    it('refuses a second replace of the same device and an unknown id; a lost reply is recoverable', async () => {
+      const first = await replace(tenantId, 'pos1');
+      expect(first.status).toBe(200);
+      const second = await replace(tenantId, 'pos1');
+      expect(second.status).toBe(409);
+      expect(second.body.error.code).toBe('DEVICE_ALREADY_RETIRED');
+      expect(second.body.error.details.retiredAt).toBe(first.body.data.retiredAt);
+
+      const unknown = await replace(tenantId, 'nope');
+      expect(unknown.status).toBe(404);
+      expect(unknown.body.error.code).toBe('DEVICE_NOT_FOUND');
+
+      // Had `first`'s reply been lost: the replacement was never enrolled, so reissue works.
+      const reissue = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/${first.body.data.device.id}/enrol-code`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send();
+      expect(reissue.status).toBe(200);
+    });
+
+    it('answers 400 for force without a note, and for a non-UUID tenant id', async () => {
+      const noNote = await replace(tenantId, 'pos1', { force: true });
+      expect(noNote.status).toBe(400);
+      const badTenant = await replace('not-a-uuid', 'pos1');
+      expect(badTenant.status).toBe(400);
+      expect(badTenant.body.error.code).toBe('INVALID_TENANT_ID');
+    });
+
+    it("never reaches another tenant's device of the same id", async () => {
+      const other = await provision('rplo');
+      try {
+        const otherEnrol = await request(app.getHttpServer())
+          .post('/api/v1/auth/device')
+          .send({ code: other.enrolCode });
+        expect(otherEnrol.status).toBe(200);
+        const before = await adminDs.query(
+          `SELECT id, device_no, retired_at FROM devices WHERE tenant_id = $1 ORDER BY id`,
+          [other.tenantId],
+        );
+
+        const res = await replace(tenantId, 'pos1');
+        expect(res.status).toBe(200);
+
+        const after = await adminDs.query(
+          `SELECT id, device_no, retired_at FROM devices WHERE tenant_id = $1 ORDER BY id`,
+          [other.tenantId],
+        );
+        expect(after).toEqual(before);
+        const otherAudit = await adminDs.query(
+          `SELECT 1 FROM audit_log WHERE tenant_id = $1 AND action IN ('device.retire', 'device.create')`,
+          [other.tenantId],
+        );
+        expect(otherAudit).toHaveLength(0);
+      } finally {
+        await cleanup(other.tenantId);
+      }
+    });
+
+    it('is refused with 403 PLATFORM_IP_FORBIDDEN from an IP outside the allowlist', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/replace`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Forwarded-For', '203.0.113.195')
+        .send({});
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('PLATFORM_IP_FORBIDDEN');
+      const rows = await adminDs.query(
+        `SELECT retired_at FROM devices WHERE tenant_id = $1 AND id = 'pos1'`,
+        [tenantId],
+      );
+      expect(rows[0].retired_at).toBeNull();
     });
   });
 });

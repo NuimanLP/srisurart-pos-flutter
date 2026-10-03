@@ -71,6 +71,26 @@ export class PlatformTenantsController {
     return this.tenantsService.reissueEnrolCode(id, deviceId, req.platformAdmin.id, ip);
   }
 
+  /**
+   * #476: retire a lost enrolled device and create its replacement (new `device_no`), for a
+   * shop with no enrolled browser left. Body `{force?, note?, label?}`.
+   */
+  @Post(':id/devices/:deviceId/replace')
+  @HttpCode(200)
+  async replaceDevice(
+    @Param('id') id: string,
+    @Param('deviceId') deviceId: string,
+    @Body() body: unknown,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const ip = clientIp(req) ?? undefined;
+    const input =
+      typeof body === 'object' && body !== null && !Array.isArray(body)
+        ? (body as Record<string, unknown>)
+        : {};
+    return this.tenantsService.replaceDevice(id, deviceId, input, req.platformAdmin.id, ip);
+  }
+
   /** #443 PR3: forgotten owner password → a new 24 h temporary one; the old one dies now. */
   @Post(':id/owner/temp-password')
   @HttpCode(200)

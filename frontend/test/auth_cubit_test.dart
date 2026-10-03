@@ -52,18 +52,31 @@ class StubAuthRepo extends AuthRepository {
     return mockUser!;
   }
 
+  /// Thrown by [enrolDevice] when set (e.g. `ENROL_UNSENT_WORK`).
+  Object? enrolError;
+
   @override
   Future<String> enrolDevice(String code) async {
+    if (enrolError != null) throw enrolError!;
     mockDeviceToken = 'token-for-$code';
     mockDeviceRole = 'pos';
     return mockDeviceToken!;
   }
 
+  int logoutCalls = 0;
+
   @override
   Future<void> logout() async {
+    logoutCalls++;
     isAuth = false;
     mockUser = null;
   }
+
+  /// `did` of the stored refresh token (#558).
+  String? mockSessionDeviceId;
+
+  @override
+  Future<String?> sessionDeviceId() async => mockSessionDeviceId;
 
   @override
   Future<void> clearDeviceEnrolment() async {
@@ -210,6 +223,76 @@ void main() {
     final state = cubit.state as Unauthenticated;
     expect(state.deviceToken, 'token-for-POS123');
     expect(state.isPos, isTrue);
+  });
+
+  // #558: the session's tokens were signed without this device, so it would
+  // stay device-less (GET /devices 403, no sales) — enrolling signs out, and
+  // the next login sends the device token.
+  test('enrolDevice while signed in ends the session; the role waits for the next login', () async {
+    repo.mockDeviceRole = 'backoffice';
+    await cubit.login(username: 'owner', password: 'pass');
+    expect(cubit.state, isA<Authenticated>());
+
+    final ok = await cubit.enrolDevice('POS123');
+
+    expect(ok, isTrue);
+    expect(repo.logoutCalls, 1);
+    final state = cubit.state as Unauthenticated;
+    expect(state.deviceToken, 'token-for-POS123');
+    expect(state.deviceRole, isNull);
+    expect(state.hasDeviceEnrolled, isTrue);
+    // Not a deliberate logout: the router keeps ?from= and the cart.
+    expect(state.signedOut, isFalse);
+    expect(state.errorMessage, isNull);
+  });
+
+  test('an enrolment refused locally (ENROL_UNSENT_WORK) keeps the session', () async {
+    await cubit.login(username: 'owner', password: 'pass');
+    repo.enrolError = const PosException('ENROL_UNSENT_WORK', 'งานค้าง');
+
+    await expectLater(cubit.enrolDevice('X'), throwsA(isA<PosException>()));
+
+    expect(cubit.state, isA<Authenticated>());
+    expect(repo.logoutCalls, 0);
+  });
+
+  // #558: a session signed for a device whose token is no longer stored.
+  test('init ends a device-bound session whose device token is gone', () async {
+    repo.isAuth = true;
+    repo.mockUser = const AuthUser(id: 'u1', username: 'owner', role: 'owner');
+    repo.mockDeviceToken = null;
+    repo.mockDeviceRole = 'pos';
+    repo.mockSessionDeviceId = 'dv1';
+
+    await cubit.init();
+
+    expect(repo.logoutCalls, 1);
+    final state = cubit.state as Unauthenticated;
+    expect(state.deviceToken, isNull);
+    expect(state.deviceRole, isNull);
+  });
+
+  test('init keeps a session made without a device token (a backoffice browser)', () async {
+    repo.isAuth = true;
+    repo.mockUser = const AuthUser(id: 'u1', username: 'owner', role: 'owner');
+    repo.mockDeviceToken = null;
+    repo.mockSessionDeviceId = null;
+
+    await cubit.init();
+
+    expect(repo.logoutCalls, 0);
+    expect(cubit.state, isA<Authenticated>());
+  });
+
+  test('sessionExpired with no device token left shows no device role', () async {
+    repo.mockDeviceRole = 'pos';
+    await cubit.login(username: 'cashier', password: 'pass');
+    repo.mockDeviceToken = null;
+
+    await cubit.sessionExpired();
+
+    final state = cubit.state as Unauthenticated;
+    expect(state.deviceRole, isNull);
   });
 
   test('logout preserves device token in Unauthenticated state', () async {
