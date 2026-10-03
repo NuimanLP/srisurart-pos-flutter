@@ -397,14 +397,15 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   });
 
   it('platform_admins: an admin existing before …4600 gets password_changed_at backfilled to now(), not left NULL (#443)', async () => {
-    // Roll back down to …4600 (drops password_changed_at) — …4700 (#27 follow-up) came after
-    // it — insert an admin as if it had existed beforehand, then re-run migrations: a fresh
-    // DataSource instance sees the rest as already applied and executes only those two,
+    // Roll back down to …4600 (drops password_changed_at) — …4700 (#27 follow-up) and …4800
+    // (PR #580 follow-up) came after it — insert an admin as if it had existed beforehand, then re-run migrations: a fresh
+    // DataSource instance sees the rest as already applied and executes only those three,
     // exactly like a real deploy.
     await app.end();
     const ds = createMigrationDataSource(OWNER_URL);
     await ds.initialize();
     try {
+      await ds.undoLastMigration({ transaction: 'each' }); // …4800
       await ds.undoLastMigration({ transaction: 'each' }); // …4700
       await ds.undoLastMigration({ transaction: 'each' }); // …4600
       const inserted = await owner.query(
@@ -418,6 +419,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
         expect(ran.map((m) => m.name)).toEqual([
           'PlatformAdminPasswordChangedAt1788652804600',
           'ReviewItemQuoteConflict1788652804700',
+          'ReviewItemDrawerOverdrawnOffline1788652804800',
         ]);
         const r = await owner.query(
           `SELECT password_changed_at FROM platform_admins WHERE id = $1`,

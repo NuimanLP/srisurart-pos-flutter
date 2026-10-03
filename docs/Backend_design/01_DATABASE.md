@@ -929,7 +929,8 @@ CREATE TABLE owner_review_items (
   kind         TEXT NOT NULL CHECK (kind IN (
                  'void_offline','credit_override','shift_uncounted','date_flag','device_force_retired',
                  'receipt_renumbered',    -- ชนิดที่ 6 + ตั้งชื่อ ck_owner_review_items_kind: migration …4400 (owner 2026-09-25)
-                 'quote_conflict')),      -- ชนิดที่ 7: migration …4700 (owner 2026-10-03, 08 §6.1 — บิลออฟไลน์จากใบเสนอราคาที่ชน)
+                 'quote_conflict',        -- ชนิดที่ 7: migration …4700 (owner 2026-10-03, 08 §6.1 — บิลออฟไลน์จากใบเสนอราคาที่ชน)
+                 'drawer_overdrawn_offline')), -- ชนิดที่ 8: migration …4800 (owner 2026-10-03, ต่อจาก PR #580 — เงินออกจากลิ้นชักตอนออฟไลน์เกินยอดที่ควรมี)
   ref_id       TEXT NOT NULL,
   details      JSONB NOT NULL DEFAULT '{}',
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -947,6 +948,9 @@ CREATE UNIQUE INDEX uq_owner_review_items_renumbered ON owner_review_items (tena
 -- …4700: หนึ่งรายการ quote_conflict ต่อบิล (INSERT … ON CONFLICT DO NOTHING)
 CREATE UNIQUE INDEX uq_owner_review_items_quote_conflict ON owner_review_items (tenant_id, ref_id)
   WHERE kind = 'quote_conflict';
+-- …4800: หนึ่งรายการ drawer_overdrawn_offline ต่อรายการเงินออก (INSERT … ON CONFLICT DO NOTHING)
+CREATE UNIQUE INDEX uq_owner_review_items_drawer_overdrawn_offline ON owner_review_items (tenant_id, ref_id)
+  WHERE kind = 'drawer_overdrawn_offline';
 -- RLS เปิด + FORCE · policy tenant_isolation แบบมี NULLIF เหมือนตารางอื่น (…4200 แทน tenant_isolation_policy ของ …3002) ดู §11
 ```
 

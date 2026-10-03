@@ -16,6 +16,7 @@ import { CustomersService } from '../customers/customers.service.js';
 import { parseCustomerPatch } from '../people/people.dto.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { CreditPaymentsService } from '../mechanics/credit-payments.service.js';
+import { expectedCashSatangOf } from '../reports/drawer-cash.sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { ReturnsService } from '../returns/returns.service.js';
 import { parseCreateReturn } from '../returns/returns.dto.js';
@@ -671,6 +672,10 @@ export class SyncService {
           entry.shiftId,
         );
 
+        if (entry.type === 'out') {
+          await this.flagOverdrawnOffline(manager, tenantId, op, entry);
+        }
+
         return {
           id: entry.id,
           type: entry.type,
@@ -965,6 +970,41 @@ export class SyncService {
         kind: 'receipt_renumbered',
         refId: id,
         details: { opId: op.opId, type: op.type, id, offlineNo, serverNo },
+      },
+      { onConflictDoNothing: true },
+    );
+  }
+
+  /**
+   * Follow-up to PR #580 (owner, 2026-10-03). An offline cash-out is accepted even when
+   * it was larger than the drawer held — the cash already left — but the owner gets one
+   * `drawer_overdrawn_offline` review item for it. The entry was over the limit exactly
+   * when the shift's expected cash (the closing report's own rule,
+   * `expectedCashSatangOf`) is now below zero. Same request manager, inside the push's
+   * transaction; the partial unique index keeps it to one item per entry.
+   */
+  private async flagOverdrawnOffline(
+    manager: EntityManager,
+    tenantId: string,
+    op: SyncOpDto,
+    entry: { id: string; shiftId: string; amount: string },
+  ): Promise<void> {
+    const afterSatang = await expectedCashSatangOf(manager, tenantId, entry.shiftId);
+    if (afterSatang >= 0) return;
+    await ReviewItemsService.insertIn(
+      manager,
+      tenantId,
+      {
+        kind: 'drawer_overdrawn_offline',
+        refId: entry.id,
+        details: {
+          opId: op.opId,
+          entryId: entry.id,
+          shiftId: entry.shiftId,
+          amount: entry.amount,
+          expectedCashBefore: fromSatang(afterSatang + satangOf(entry.amount)),
+          expectedCashAfter: fromSatang(afterSatang),
+        },
       },
       { onConflictDoNothing: true },
     );
