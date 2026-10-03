@@ -134,11 +134,13 @@ const COUNTED_SALE = `NOT (s.voided AND NOT EXISTS (
  *   (Σ sales.total − Σ returns.refund_total) ÷ (1 + tax_rate/100)
  *   − Σ sale-line qty × cost + Σ return-line qty × cost
  *
- * Revenue is ex-VAT and after the bill discount, as `products_screen.dart`'s
- * "กำไรเดือนนี้" and `closing_report.dart`'s `_grossProfit` both compute it (summing
- * lines × (1 − discount ratio) is `sales.total`). Unlike either Dart screen, credit
- * notes net out — with `return_items.cost_at_sale`, which #22 carries from the bill
- * for exactly this (ADR-0008, "การรับคืน"). Cost is `cost_at_sale`, and today's
+ * Revenue is ex-VAT and after the bill discount. Credit notes net out — with
+ * `return_items.cost_at_sale`, which #22 carries from the bill for exactly this
+ * (ADR-0008, "การรับคืน"). The Dart closing report and `products_screen.dart`'s
+ * "ยอดวันนี้"/"กำไรเดือนนี้" apply this same rule and formula
+ * (`closing_report.dart`'s `NetSales`/`computeGrossProfit`/`countedSales`); the
+ * client has no return-line cost column, so it takes the original sale line's
+ * `costAtSale` for a returned line. Keep the two in step. Cost is `cost_at_sale`, and today's
  * `products.cost` only for null rows. `settings.tax_rate` defaults to 7 like the
  * column and the client.
  */

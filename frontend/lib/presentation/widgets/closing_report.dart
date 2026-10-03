@@ -21,12 +21,14 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/pdf_fonts.dart';
+import '../../data/db/database.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/repositories/shifts_repository.dart';
+import '../../domain/models/aggregates.dart';
 import 'app_button.dart';
 
 /// Opens the daily Closing Report as a modal dialog.
@@ -46,7 +48,9 @@ Future<void> showClosingReport(BuildContext context) {
 
 /// Aggregated read-model for the closing report (one async load of everything).
 class _ClosingData {
-  final List<SaleLite> sales;
+  /// The whole day's bills net of the whole day's credit notes — revenue,
+  /// bills, payment rows, top items and profit.
+  final NetSales net;
 
   /// Cash bills since the drawer's count began ([ShiftsRepository.cashCountFrom])
   /// — the day's cash sales unless a later shift of the day is the drawer.
@@ -57,14 +61,13 @@ class _ClosingData {
   final double drawerIn;
   final double drawerOut;
   final bool drawerToday;
-  final double taxRate;
   final String shopName;
   final String shopNameEN;
   final String? address;
   final String? phone;
   final String? cashierName;
   const _ClosingData({
-    required this.sales,
+    required this.net,
     required this.drawerCashSales,
     required this.cashRefundsToday,
     required this.cashCreditPaymentsToday,
@@ -72,7 +75,6 @@ class _ClosingData {
     required this.drawerIn,
     required this.drawerOut,
     required this.drawerToday,
-    required this.taxRate,
     required this.shopName,
     required this.shopNameEN,
     required this.address,
@@ -85,16 +87,39 @@ class _ClosingData {
 /// Public (no leading underscore) so [computeGrossProfit] is unit-testable
 /// from `test/` without a widget pump.
 class SaleLite {
+  /// The bill's id — matched against [ReturnLite.saleId] to tell a manual
+  /// void from a return's auto-void ([countedSales]).
+  final String id;
   final double subtotal;
   final double discount;
   final double total;
   final String paymentMethod;
+  final bool voided;
   final List<ItemLite> items;
   const SaleLite({
+    this.id = '',
     required this.subtotal,
     required this.discount,
     required this.total,
     required this.paymentMethod,
+    this.voided = false,
+    required this.items,
+  });
+}
+
+/// A flattened credit note (return) for the report math. Its [items] carry the
+/// cost of the ORIGINAL sale line ([ItemLite.costAtSale]) — `ReturnItems` has
+/// no cost column of its own, unlike the server's `return_items.cost_at_sale`
+/// (#22), which is copied from that same bill line.
+class ReturnLite {
+  final String saleId;
+  final double refundTotal;
+  final String refundMethod;
+  final List<ItemLite> items;
+  const ReturnLite({
+    required this.saleId,
+    required this.refundTotal,
+    required this.refundMethod,
     required this.items,
   });
 }
@@ -124,8 +149,7 @@ class ItemLite {
 
 /// Result of [computeGrossProfit]: the profit figure plus how much of it is a
 /// guess (ADR-0008) — mirrors `estimatedCostRows`/`unknownCostRows` in
-/// `server/src/reports/reports.service.ts` and `estimatedLines`/`unknownLines`
-/// in `products_screen.dart`'s `_monthly`.
+/// `server/src/reports/reports.service.ts`.
 class GrossProfitResult {
   final double profit;
   /// Lines with no `costAtSale`, costed at today's product cost instead.
@@ -134,51 +158,263 @@ class GrossProfitResult {
   /// (profit reads higher than true; flagged via [costDisclosureLines]
   /// rather than excluded from the cost side).
   final int unknownCostLines;
+  /// Σ sale-line qty × cost − Σ credit-note-line qty × cost.
+  final double cost;
   const GrossProfitResult(
     this.profit,
     this.estimatedCostLines,
-    this.unknownCostLines,
-  );
+    this.unknownCostLines, {
+    this.cost = 0,
+  });
 }
 
-/// Approximate gross profit over [sales] (ports `ClosingReport.jsx`).
+/// Approximate gross profit — the server's `grossProfitCtes`
+/// (`reports.service.ts`), term for term:
 ///
-/// Cost per line prefers `item.costAtSale` — the cost recorded on the bill
-/// (ADR-0008) — over today's product cost, because `products.cost` is
-/// recomputed on every weighted-average PO receive and would make a past
-/// bill's profit drift. When neither is available the line is costed at 0
-/// (profit reads higher than true) and disclosed via [costDisclosureLines]
-/// rather than excluded from the cost side. This matches
-/// `products_screen.dart`'s `_monthly` fallback chain
-/// and `reports.service.ts`'s `grossProfitCtes`
-/// (`COALESCE(cost_at_sale, current_cost, 0)` with `estimated_cost_rows`/
-/// `unknown_cost_rows` tracked alongside for disclosure).
-GrossProfitResult computeGrossProfit(List<SaleLite> sales, double taxRate) {
+///   (Σ sale.total − Σ return.refundTotal) ÷ (1 + taxRate/100)
+///   − Σ sale-line qty × cost + Σ return-line qty × cost
+///
+/// [sales] must already be the counted bills ([countedSales]); [returns] are
+/// the credit notes of the same period. `sale.total` is after the bill
+/// discount and `refundTotal` carries the proportional share of it, so a
+/// discounted bill with a partial return nets correctly. Cost per line is
+/// `COALESCE(costAtSale, currentCost, 0)`: `costAtSale` (ADR-0008) first,
+/// because `products.cost` is recomputed on every weighted-average PO receive
+/// and would make a past bill's profit drift; a line with neither is costed at
+/// 0 and disclosed via [costDisclosureLines]. Return lines count towards the
+/// disclosure too, as the server counts every `gp_lines` row.
+GrossProfitResult computeGrossProfit(
+  List<SaleLite> sales,
+  double taxRate, [
+  List<ReturnLite> returns = const [],
+]) {
   final vatDivisor = 1 + taxRate / 100;
   var estimatedCostLines = 0;
   var unknownCostLines = 0;
-  final profit = sales.fold<double>(0, (tot, sale) {
-    final subtotal = sale.subtotal != 0
-        ? sale.subtotal
-        : sale.items.fold<double>(0, (a, i) => a + i.price * i.qty);
-    final discountRatio = subtotal > 0 ? sale.discount / subtotal : 0.0;
-    final itemProfit = sale.items.fold<double>(0, (a, i) {
-      final lineRevenue = i.price * i.qty * (1 - discountRatio);
-      double costPerUnit;
-      if (i.costAtSale != null) {
-        costPerUnit = i.costAtSale!;
-      } else if (i.currentCost != null) {
-        costPerUnit = i.currentCost!;
-        estimatedCostLines++;
-      } else {
-        costPerUnit = 0;
-        unknownCostLines++;
+  double lineCost(ItemLite i) {
+    if (i.costAtSale != null) return i.costAtSale! * i.qty;
+    if (i.currentCost != null) {
+      estimatedCostLines++;
+      return i.currentCost! * i.qty;
+    }
+    unknownCostLines++;
+    return 0;
+  }
+
+  var revenue = 0.0;
+  var cost = 0.0;
+  for (final s in sales) {
+    revenue += s.total;
+    for (final i in s.items) {
+      cost += lineCost(i);
+    }
+  }
+  for (final r in returns) {
+    revenue -= r.refundTotal;
+    for (final i in r.items) {
+      cost -= lineCost(i);
+    }
+  }
+  return GrossProfitResult(
+    revenue / vatDivisor - cost,
+    estimatedCostLines,
+    unknownCostLines,
+    cost: cost,
+  );
+}
+
+/// The bills that still count as money taken and goods sold — the server's
+/// `COUNTED_SALE`. A **manual** void undoes the bill outright, so it is
+/// dropped. An **auto**-void is what a return of the last unit does; that bill
+/// stays and its credit notes subtract (dropping it too would take the refund
+/// off twice). The two are separable because the server refuses a manual void
+/// once a return exists (`SALE_HAS_RETURNS`): a voided bill is an auto-void
+/// exactly when it has a credit note.
+///
+/// [returns] must reach from the start of [sales]' period up to now: an
+/// auto-void happens at its return's time, so that credit note is always
+/// inside such a window (both callers pass the same period for both lists).
+List<SaleLite> countedSales(List<SaleLite> sales, List<ReturnLite> returns) {
+  final returned = {for (final r in returns) r.saleId};
+  return sales.where((s) => !s.voided || returned.contains(s.id)).toList();
+}
+
+/// Bills and net money of one payment-method row.
+class PaymentGroup {
+  /// Counted bills paid this way (a fully returned bill still counts).
+  final int bills;
+  /// Those bills' totals minus the period's refunds paid back this way.
+  final double net;
+  const PaymentGroup(this.bills, this.net);
+}
+
+/// One row of "สินค้าขายดี", net of returned quantity.
+class TopItem {
+  final String name;
+  final int qty;
+  final double revenue;
+  const TopItem(this.name, this.qty, this.revenue);
+}
+
+/// Revenue, bills, payment rows, top items and profit for one period, net of
+/// the period's credit notes. Credit notes are taken by their own date, like
+/// the server's `/reports/summary`: a part sold yesterday and returned today
+/// reduces today.
+class NetSales {
+  /// [countedSales] of the input — manual voids dropped.
+  final List<SaleLite> counted;
+  /// Σ counted bill totals − Σ refunds.
+  final double netRevenue;
+  final PaymentGroup cash;
+  final PaymentGroup qr;
+  final PaymentGroup credit;
+  /// Every part with a positive net quantity, highest net revenue first.
+  final List<TopItem> topItems;
+  final GrossProfitResult profit;
+
+  const NetSales._(
+    this.counted,
+    this.netRevenue,
+    this.cash,
+    this.qr,
+    this.credit,
+    this.topItems,
+    this.profit,
+  );
+
+  /// Bills counted like the server's `totalTransactions`: an auto-voided
+  /// (fully returned) bill still counts, a manual void does not.
+  int get billCount => counted.length;
+
+  /// Net revenue per counted bill (0 with no bills).
+  double get avgPerBill => counted.isEmpty ? 0 : netRevenue / counted.length;
+
+  factory NetSales.of(
+    List<SaleLite> sales,
+    List<ReturnLite> returns,
+    double taxRate,
+  ) {
+    final counted = countedSales(sales, returns);
+    double sumTotal(List<SaleLite> l) => l.fold(0, (a, s) => a + s.total);
+    double refunds(bool Function(String) method) => returns
+        .where((r) => method(r.refundMethod))
+        .fold(0, (a, r) => a + r.refundTotal);
+    PaymentGroup group(List<SaleLite> l, bool Function(String) method) =>
+        PaymentGroup(l.length, sumTotal(l) - refunds(method));
+
+    final top = <String, TopItem>{};
+    void addLine(ItemLite i, int sign) {
+      final cur = top[i.partNo] ?? TopItem(i.name, 0, 0);
+      top[i.partNo] = TopItem(
+        cur.name,
+        cur.qty + sign * i.qty,
+        cur.revenue + sign * i.qty * i.price,
+      );
+    }
+
+    for (final s in counted) {
+      for (final i in s.items) {
+        addLine(i, 1);
       }
-      return a + (lineRevenue / vatDivisor) - (costPerUnit * i.qty);
-    });
-    return tot + itemProfit;
-  });
-  return GrossProfitResult(profit, estimatedCostLines, unknownCostLines);
+    }
+    for (final r in returns) {
+      for (final i in r.items) {
+        addLine(i, -1);
+      }
+    }
+    final topItems = top.values.where((t) => t.qty > 0).toList()
+      ..sort((a, b) => b.revenue.compareTo(a.revenue));
+
+    return NetSales._(
+      counted,
+      sumTotal(counted) - refunds((_) => true),
+      group(cashSales(counted), _isCashRefund),
+      group(qrSales(counted), _isQrRefund),
+      group(creditSales(counted), _isCreditRefund),
+      topItems,
+      computeGrossProfit(counted, taxRate, returns),
+    );
+  }
+}
+
+// Refund methods offered by returns_screen.dart: 'เงินสด' | 'โอน' |
+// 'หักจากเครดิต' (aggregates.dart). The transfer row also accepts the
+// sale-side spellings [qrSales] accepts.
+bool _isCashRefund(String m) => m == 'เงินสด';
+bool _isQrRefund(String m) =>
+    m == 'โอน' || m == 'โอน/QR' || m == 'PromptPay' || m == 'โอนเงิน';
+bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
+
+/// Flattens repository rows into [SaleLite]/[ReturnLite] for [NetSales].
+///
+/// A return line takes `partNo`, name and `costAtSale` from its original sale
+/// line — the first line of that bill with the same product and price, else
+/// the same product (the server's `return_events` match) — looked up in
+/// [sales] and [originalSales] (bills outside the period that the period's
+/// credit notes refer to). `currentCost` is today's product cost, the
+/// fallback only.
+({List<SaleLite> sales, List<ReturnLite> returns}) toReportLites({
+  required List<SaleWithItems> sales,
+  required List<ReturnWithItems> returns,
+  required List<ProductRow> products,
+  List<SaleWithItems> originalSales = const [],
+}) {
+  final costByPart = {for (final p in products) p.partNo: p.cost};
+  final productById = {for (final p in products) p.id: p};
+  final linesBySale = {
+    for (final s in originalSales) s.sale.id: s.items,
+    for (final s in sales) s.sale.id: s.items,
+  };
+  ItemLite returnLine(String saleId, ReturnItemRow i) {
+    final lines = linesBySale[saleId] ?? const <SaleItemRow>[];
+    final line =
+        lines
+            .where((l) => l.productId == i.productId && l.price == i.price)
+            .firstOrNull ??
+        lines.where((l) => l.productId == i.productId).firstOrNull;
+    return ItemLite(
+      partNo: line?.partNo ?? productById[i.productId]?.partNo ?? '',
+      name: line?.name ?? i.name,
+      qty: i.qty,
+      price: i.price,
+      costAtSale: line?.costAtSale,
+      currentCost: productById[i.productId]?.cost,
+    );
+  }
+
+  return (
+    sales: [
+      for (final s in sales)
+        SaleLite(
+          id: s.sale.id,
+          subtotal: s.sale.subtotal,
+          discount: s.sale.discount,
+          total: s.sale.total,
+          paymentMethod: s.sale.paymentMethod,
+          voided: s.sale.voided,
+          items: [
+            for (final i in s.items)
+              ItemLite(
+                partNo: i.partNo ?? '',
+                name: i.name,
+                qty: i.qty,
+                price: i.price,
+                costAtSale: i.costAtSale,
+                currentCost: costByPart[i.partNo],
+              ),
+          ],
+        ),
+    ],
+    returns: [
+      for (final r in returns)
+        ReturnLite(
+          saleId: r.ret.saleId,
+          refundTotal: r.ret.refundTotal,
+          refundMethod: r.ret.refundMethod,
+          items: [for (final i in r.items) returnLine(r.ret.saleId, i)],
+        ),
+    ],
+  );
 }
 
 /// Disclosure lines for [GrossProfitResult] — verbatim copy of the warning
@@ -259,34 +495,26 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
     from: countFrom,
     to: day.to,
   );
+  // The day's credit notes for the whole-day sections (revenue, bills,
+  // payment rows, top items, profit) — `returns` above is the drawer's window.
+  final dayReturns = await returnsRepo.getReturns(from: day.from, to: day.to);
+  final todaySaleIds = {for (final s in salesAgg) s.sale.id};
+  // A credit note today may be for an earlier day's bill: load that bill too,
+  // for its lines' costAtSale.
+  final originalSales = await salesRepo.getSalesByIds(
+    dayReturns
+        .map((r) => r.ret.saleId)
+        .where((id) => !todaySaleIds.contains(id)),
+  );
   final products = await productsRepo.getAll();
   final settings = await settingsRepo.getSettings();
 
-  final costByPart = {for (final p in products) p.partNo: p.cost};
-
-  final sales = <SaleLite>[];
-  for (final s in salesAgg) {
-    final sale = s.sale;
-    sales.add(
-      SaleLite(
-        subtotal: sale.subtotal,
-        discount: sale.discount,
-        total: sale.total,
-        paymentMethod: sale.paymentMethod,
-        items: [
-          for (final i in s.items)
-            ItemLite(
-              partNo: i.partNo ?? '',
-              name: i.name,
-              qty: i.qty,
-              price: i.price,
-              costAtSale: i.costAtSale,
-              currentCost: costByPart[i.partNo],
-            ),
-        ],
-      ),
-    );
-  }
+  final lites = toReportLites(
+    sales: salesAgg,
+    returns: dayReturns,
+    products: products,
+    originalSales: originalSales,
+  );
 
   // Cash refunds today reduce the drawer.
   final cashRefundsToday = returns
@@ -326,7 +554,7 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
       : 0.0;
 
   return _ClosingData(
-    sales: sales,
+    net: NetSales.of(lites.sales, lites.returns, settings.taxRate),
     drawerCashSales: drawerCashSales,
     cashRefundsToday: cashRefundsToday,
     cashCreditPaymentsToday: cashCreditPaymentsToday,
@@ -334,7 +562,6 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
     drawerIn: drawerIn,
     drawerOut: drawerOut,
     drawerToday: drawerToday,
-    taxRate: settings.taxRate,
     shopName: settings.shopName,
     shopNameEN: settings.shopNameEN,
     address: settings.address,
@@ -374,37 +601,8 @@ class _ClosingReportState extends State<ClosingReport> {
     super.dispose();
   }
 
-  // ── Closing math (ports ClosingReport.jsx) ──────────────────────────────
-  double _totalRevenue(_ClosingData d) =>
-      d.sales.fold(0, (s, t) => s + t.total);
-
-  List<SaleLite> _cashSales(_ClosingData d) => cashSales(d.sales);
-
-  List<SaleLite> _qrSales(_ClosingData d) => qrSales(d.sales);
-
-  List<SaleLite> _creditSales(_ClosingData d) => creditSales(d.sales);
-
-  double _sumTotal(List<SaleLite> list) => list.fold(0, (s, t) => s + t.total);
-
-  GrossProfitResult _grossProfit(_ClosingData d) =>
-      computeGrossProfit(d.sales, d.taxRate);
-
-  List<_TopItem> _topItems(_ClosingData d) {
-    final map = <String, _TopItem>{};
-    for (final t in d.sales) {
-      for (final i in t.items) {
-        final cur = map[i.partNo] ?? _TopItem(i.name, 0, 0);
-        map[i.partNo] = _TopItem(
-          cur.name,
-          cur.qty + i.qty,
-          cur.revenue + i.qty * i.price,
-        );
-      }
-    }
-    final list = map.values.toList()
-      ..sort((a, b) => b.revenue.compareTo(a.revenue));
-    return list.take(5).toList();
-  }
+  // ── Closing math (ports ClosingReport.jsx, net of credit notes) ─────────
+  List<TopItem> _topItems(_ClosingData d) => d.net.topItems.take(5).toList();
 
   double _cashExpected(_ClosingData d) {
     return d.drawerStarting +
@@ -436,14 +634,11 @@ class _ClosingReportState extends State<ClosingReport> {
   pw.Document _buildPdf(_ClosingData d, pw.Font font, pw.Font fontB) {
     final doc = pw.Document();
     final now = DateTime.now();
-    final totalRevenue = _totalRevenue(d);
-    final cashSales = _cashSales(d);
-    final qrSales = _qrSales(d);
-    final creditSales = _creditSales(d);
-    final cashTotal = _sumTotal(cashSales);
-    final qrTotal = _sumTotal(qrSales);
-    final creditTotal = _sumTotal(creditSales);
-    final profitResult = _grossProfit(d);
+    final totalRevenue = d.net.netRevenue;
+    final cash = d.net.cash;
+    final qr = d.net.qr;
+    final credit = d.net.credit;
+    final profitResult = d.net.profit;
     final grossProfit = profitResult.profit;
     final topItems = _topItems(d);
     final cashExpected = _cashExpected(d);
@@ -562,13 +757,8 @@ class _ClosingReportState extends State<ClosingReport> {
             row('แคชเชียร์', cashierName),
             divider(),
             row('รายได้รวม', baht(totalRevenue)),
-            row('จำนวนบิล', '${d.sales.length}'),
-            row(
-              'เฉลี่ย/บิล',
-              baht(
-                d.sales.isEmpty ? 0 : (totalRevenue / d.sales.length).round(),
-              ),
-            ),
+            row('จำนวนบิล', '${d.net.billCount}'),
+            row('เฉลี่ย/บิล', baht(d.net.avgPerBill.round())),
             row('กำไรประมาณ', baht(grossProfit.round())),
             for (final line in costDisclosureLines(profitResult))
               pw.Text(
@@ -580,9 +770,9 @@ class _ClosingReportState extends State<ClosingReport> {
               ),
             divider(),
             sectionTitle('แบ่งตามวิธีชำระเงิน'),
-            row('💵 เงินสด (${cashSales.length} บิล)', baht(cashTotal)),
-            row('📱 โอน/QR (${qrSales.length} บิล)', baht(qrTotal)),
-            row('🔧 เครดิตช่าง (${creditSales.length} บิล)', baht(creditTotal)),
+            row('💵 เงินสด (${cash.bills} บิล)', baht(cash.net)),
+            row('📱 โอน/QR (${qr.bills} บิล)', baht(qr.net)),
+            row('🔧 เครดิตช่าง (${credit.bills} บิล)', baht(credit.net)),
             row('รวมทั้งหมด', baht(totalRevenue), big: true),
             divider(),
             sectionTitle('ตรวจนับเงินสดในลิ้นชัก'),
@@ -714,14 +904,11 @@ class _ClosingReportState extends State<ClosingReport> {
   }
 
   Widget _body(BuildContext context, _ClosingData d) {
-    final totalRevenue = _totalRevenue(d);
-    final cashSales = _cashSales(d);
-    final qrSales = _qrSales(d);
-    final creditSales = _creditSales(d);
-    final cashTotal = _sumTotal(cashSales);
-    final qrTotal = _sumTotal(qrSales);
-    final creditTotal = _sumTotal(creditSales);
-    final profitResult = _grossProfit(d);
+    final totalRevenue = d.net.netRevenue;
+    final cash = d.net.cash;
+    final qr = d.net.qr;
+    final credit = d.net.credit;
+    final profitResult = d.net.profit;
     final grossProfit = profitResult.profit;
     final profitDisclosure = costDisclosureLines(profitResult);
     final topItems = _topItems(d);
@@ -750,12 +937,8 @@ class _ClosingReportState extends State<ClosingReport> {
       children: [
         _kpiGrid([
           _Kpi('รายได้รวม', baht(totalRevenue), AppColors.orange),
-          _Kpi('จำนวนบิล', '${d.sales.length} บิล', null),
-          _Kpi(
-            'เฉลี่ย/บิล',
-            baht(d.sales.isEmpty ? 0 : (totalRevenue / d.sales.length).round()),
-            null,
-          ),
+          _Kpi('จำนวนบิล', '${d.net.billCount} บิล', null),
+          _Kpi('เฉลี่ย/บิล', baht(d.net.avgPerBill.round()), null),
           _Kpi('กำไรประมาณ', baht(grossProfit.round()), AppColors.successLight),
         ]),
         if (profitDisclosure.isNotEmpty)
@@ -770,14 +953,9 @@ class _ClosingReportState extends State<ClosingReport> {
           ),
         const SizedBox(height: 20),
         _SectionTitle('วิธีชำระเงิน'),
-        _payRow('💵 เงินสด', cashSales.length, cashTotal, AppColors.orange),
-        _payRow('📱 โอน/QR', qrSales.length, qrTotal, AppColors.steelBlue),
-        _payRow(
-          '🔧 เครดิตช่าง',
-          creditSales.length,
-          creditTotal,
-          AppColors.warning,
-        ),
+        _payRow('💵 เงินสด', cash.bills, cash.net, AppColors.orange),
+        _payRow('📱 โอน/QR', qr.bills, qr.net, AppColors.steelBlue),
+        _payRow('🔧 เครดิตช่าง', credit.bills, credit.net, AppColors.warning),
         Container(
           decoration: BoxDecoration(
             border: Border(
@@ -1184,13 +1362,6 @@ class _ClosingReportState extends State<ClosingReport> {
       );
     },
   );
-}
-
-class _TopItem {
-  final String name;
-  final int qty;
-  final double revenue;
-  const _TopItem(this.name, this.qty, this.revenue);
 }
 
 class _Kpi {

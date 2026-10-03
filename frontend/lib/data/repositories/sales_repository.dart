@@ -177,6 +177,17 @@ class SalesRepository {
     return _attachItems(await query.get());
   }
 
+  /// The sales with these ids (with their items), in no particular order.
+  /// Used by reports that net a credit note against the bill it came from
+  /// when that bill falls outside the report's date range.
+  Future<List<SaleWithItems>> getSalesByIds(Iterable<String> ids) async {
+    final list = ids.toSet().toList();
+    if (list.isEmpty) return const [];
+    return _attachItems(
+      await (db.select(db.sales)..where((t) => t.id.isIn(list))).get(),
+    );
+  }
+
   Stream<List<SaleWithItems>> watchSales() {
     final query = db.select(db.sales)
       ..orderBy([(t) => OrderingTerm.desc(t.date)]);
