@@ -341,7 +341,7 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
       _showDegradedWarning();
       return;
     }
-    // Refuse up front (owner, 2026-10-03) — agent ร่าง string, 02_API_SCREENS.md §8.1.
+    // Refuse up front (owner, 2026-10-03) — string ratified by the owner 2026-10-03 (PR #578), 02_API_SCREENS.md §8.1.
     if (m.creditBalance > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(mechanicHasBalanceMessage(m.creditBalance))),

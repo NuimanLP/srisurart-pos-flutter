@@ -332,7 +332,7 @@ class CreditPaymentQueued implements Exception {
       '(ยอดค้างจะลดเมื่อส่งสำเร็จ) ไม่ต้องกดรับชำระซ้ำ';
 }
 
-/// agent ร่าง (02_API_SCREENS.md §8/§8.1), not yet ratified by the owner.
+/// Ratified by the owner 2026-10-03 (PR #578) — 02_API_SCREENS.md §8/§8.1.
 /// With the amount when it is known; the plain form otherwise (server path).
 String mechanicHasBalanceMessage([num? owed]) => owed == null
     ? 'ช่างยังมียอดค้างชำระ — รับชำระให้ครบก่อนลบ'
