@@ -22,7 +22,7 @@ cleanup are as reported by that session; the writer of this file had no VPN to `
 | #582 | `da17ef9` | `flutter.yml` frontend filter also watches `fixtures/client-requests/**`; guard treats `drawerCash*` as reads — **unbroke `main`** (below) |
 | #583 | `bffd3c3` | `AuthCubit` login / offline-PIN errors always end in a Thai error state |
 | #584 | `48099f4` | Expected drawer cash counted **by shift** (owner decision 2026-10-03, replaces #452's time window); `cashCountFrom`/`drawerCashBetween` deleted; `DRAWER_INSUFFICIENT_CASH` strings ratified. Re-lands `4a5bfb6` |
-| #585 | `11265b4` | Offline cash-out over the drawer, when replayed, creates owner review item `drawer_overdrawn_offline` (migration `1788652804800`, one item per entry). Label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` ratified by the owner 2026-10-03; `main` still carries the **agent ร่าง** marker until PR #587 flips it |
+| #585 | `11265b4` | Offline cash-out over the drawer, when replayed, creates owner review item `drawer_overdrawn_offline` (migration `1788652804800`, one item per entry). Label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` ratified by the owner 2026-10-03; marker flipped on `main` by PR #587 |
 
 Also merged on 2026-10-03 between the two handoffs, by work not recorded in either file
 (titles only, not reviewed here): #559 (CA cert commit), #560 (file_picker 13.1.0 for the
@@ -30,7 +30,8 @@ APK), #561/#567 (#476 device replace + pos-role banner), #562 (#558 enrol/sessio
 #563/#564/#570 (platform-ui / audit, #443), #565 (add-mechanic 400 hang), #566 (block
 restore on API build), #568, #569/#571/#577 (reports net of returns/voids), #572 (PO
 screen errors), #573/#574/#575/#576 (quotes → `POST /sales quoteId`, offline quote sync,
-`quote_conflict`), #545 (CI failure research doc).
+`quote_conflict`). (#545, the CI failure research doc, merged 03:52Z — before #557 at
+04:36Z — so it belongs to the morning, though #557 does not list it either.)
 
 ## Main went red — two green PRs, red together
 
@@ -42,12 +43,16 @@ and `07_CICD_DEPLOY.md §2c`: after a gate lands, rebase open PRs before merging
 
 ## Merge-timing trap, again
 
+- Morning: #551/#552 missed their post-merge docs commits → recovered by #553 (see the
+  #557 handoff).
 - #580 merged at head `512c570`; `4a5bfb6` (by-shift rule + ratified string) was pushed to
   the branch afterwards and missed `main` → re-landed as `8c46b11` in #584.
 - #579 merged at head `1124dd0`; `173c1d3` (fixture path filter) missed → re-landed in #582.
+- #587 merged at head `59c68dc` (merge `e6fc791`) without its lone-`.` fix; per the
+  orchestrator that fix follows in a new PR (none open when this was written).
 
-The rule (`gh pr view N --json headRefOid` at merge time) is already in CLAUDE.md; this
-session only added these instances to it.
+The rule (`gh pr view N --json headRefOid` at merge time) is already in CLAUDE.md, which
+now only points here for these instances.
 
 ## Deploy
 
@@ -72,19 +77,17 @@ session only added these instances to it.
 
 ## Open
 
-0. **PR #586** (open) — staff manual (`docs/tutorial/sri-pos-manual/`) synced with #578,
+0. **PR #586** (merged, `78d5b2b`) — staff manual (`docs/tutorial/sri-pos-manual/`) synced with #578,
    #580, #583, #584, #585; owned by another agent, not touched here.
 1. **Counted-cash field accepts non-digits.** On close, `a400` → `double.tryParse` gives
    `null`; the preview (`cash_drawer_screen.dart:745`, `?? 0`) shows `เงินขาด −฿400`, and
-   `_handleClose` (`?? -1`, line 186) silently does nothing. Fix: **PR #587** (`fix/drawer-cash-input-and-ratify-overdrawn`,
-   **open, not merged**) — money inputs reject letters. The owner **already ratified**
-   `drawer_overdrawn_offline`'s label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` on 2026-10-03;
-   #587 also carries that marker flip in 02/08 and `review_item.dart`. Until it merges,
-   `main` still shows **agent ร่าง** — a stale marker, not a pending owner question; do not
-   flip the docs separately.
+   `_handleClose` (`?? -1`, line 186) silently does nothing (line numbers at `11265b4`).
+   **Fixed by PR #587** (merged 2026-10-03, `e6fc791`) — money inputs reject letters. It also
+   flipped `drawer_overdrawn_offline`'s label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` (owner
+   ratified 2026-10-03) to ratified in 02/08 and `review_item.dart`.
 2. **Owner question — a shift open past midnight.** Counting is by shift, but the drawer
    screen and the closing report only show a shift whose `dateStr` is today
-   (`cash_drawer_screen.dart:93-96`, `closing_report.dart:104`), so after midnight the shift
+   (`cash_drawer_screen.dart:110`, `closing_report.dart:104`), so after midnight the shift
    disappears from both. Not answered; recorded in `08_PHASE2_SPEC.md §11`.
 3. **Out-of-order offline replay.** An op re-sent after the next shift opened counts in the
    new shift on the server but in its original shift on the client (already in 08 §11).
@@ -105,8 +108,9 @@ RC/CN documents remain as history.
 
 ## Docs changed by this handoff PR
 
-- `CLAUDE.md`: CI quality-gate rule block; offline over-draw review item on the cash-out
-  rule; the 2026-10-03 merge-timing instances. The by-shift drawer rule was already updated
+- `CLAUDE.md`: CI quality-gate rule block (binding rules; mechanics in 07 §2c); offline
+  over-draw review item on the cash-out rule; a pointer to this file for the 2026-10-03
+  merge-timing instances (follow-up PR after #588). The by-shift drawer rule was already updated
   by #584.
 - `07_CICD_DEPLOY.md`: new §2c (gate table, `ci-guards` trigger, the drawer-cash filter gap,
   the red-together lesson).
