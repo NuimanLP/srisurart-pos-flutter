@@ -40,7 +40,7 @@ Build & Test · Security Scan · Package/Storage · Config & Deploy · KV Storag
   เพราะ PR ที่แตะแค่ `server/` จะไม่รัน workflow ฝั่ง Flutter เลย ทำให้ required check ค้างตลอดกาล (#39) ·
   ผลพลอยได้: ทุก push ขึ้น `main` ได้ image ครบทั้งสองฝั่งสำหรับ SHA เดียว (ปิด AC4 ของ #40)
 * **job integration รันทุก PR ไม่ดู path** — เป็น job ที่ถือ test อ่านข้ามร้าน (กติกา multi-tenant ข้อ 6)
-* **TLS self-signed ต่อไป** — ไม่มี DNS name ชี้ VM, Let's Encrypt ไม่ออก cert ให้ IP
+* ~~**TLS self-signed ต่อไป** — ไม่มี DNS name ชี้ VM, Let's Encrypt ไม่ออก cert ให้ IP~~ — **แทนด้วย private CA** (addendum 2026-10-03 ท้ายไฟล์)
 * **rollback = deploy SHA ก่อนหน้า ไม่มี down-migration**
 
 ## ผลที่ตามมา
@@ -57,7 +57,7 @@ Build & Test · Security Scan · Package/Storage · Config & Deploy · KV Storag
 * **key ใน etcd มีตัวเดียว (`log_level`)** — ค่า rate limit ถูกตัดออกเพราะไม่มีผู้ใช้ (ADR-0006 เก็บโควตาใน `tenants.plan`)
 * **maintenance mode ใน etcd** — ต้องมีข้อความไทยหน้าเคาน์เตอร์ใหม่ ซึ่ง `CLAUDE.md` ห้ามแต่งเอง รอร้าน
 * ~~**production host** — ยังไม่เลือก (ครบกำหนดก่อน `q4`) · เมื่อเลือก: inventory ที่สอง + required reviewer~~ — **เคาะ 2026-09-15 (#242): `mob04` production เดียว** (addendum ด้านล่าง)
-* **ชื่อโดเมน** — ถ้ามีเมื่อไร ค่อยเปลี่ยน self-signed เป็น certbot
+* ~~**ชื่อโดเมน** — ถ้ามีเมื่อไร ค่อยเปลี่ยน self-signed เป็น certbot~~ — **เคาะ 2026-10-03:** ได้โดเมนเมื่อไร เปลี่ยนเป็น certbot และเลิก bundle CA ในแอป (addendum ท้ายไฟล์)
 * **retention ของ image บน GHCR** — ยังไม่ตั้งนโยบายลบ tag เก่า · (addendum 2026-09-15: rollback อัตโนมัติ
   ต้องการ image ของ release ก่อนหน้า — นโยบายลบ tag ต้องไม่ลบ tag ที่ `.current_sha` ชี้อยู่)
 
@@ -167,3 +167,27 @@ environment `demo` (= production ตัวเดียวตาม #242 ด้�
 `07_CICD_DEPLOY.md` §5, §6.2 ข้อ 2 (runbook การติดตั้ง runner ต้องไม่ทำ `gh api PUT` ที่ไม่ใส่ `reviewers`
 อีกต่อไป — เสี่ยงลบ required reviewer ทิ้งถ้า endpoint ตีความ key ที่ขาดว่า "ล้างค่า" แทนที่จะ "คงเดิม")
 · คอมเมนต์ปิดของ #335 (D9) · #366
+
+## Addendum 2026-10-03 — TLS ด้วย private CA (PR #552, เจ้าของโปรเจกต์)
+
+**เหตุ:** APK Android (PR #551) ต่อ `https://172.30.58.20` ไม่ได้ด้วย cert self-signed เดิม — Android/Dart
+ไม่เชื่อ cert ที่ไม่มีใครเซ็น และต้องตรง IP SAN · การปิดตรวจ cert (`badCertificateCallback`) ห้ามใช้
+
+**ตัดสินใจ (owner ตอบ 2026-10-03):**
+* **แทน "TLS self-signed ต่อไป" ด้วย private CA** — one-shot `certgen` (`server/docker/certgen/certgen.sh`)
+  เก็บ CA ใน volume `certs-ca` (CA อายุ **3650 วัน** ตามค่าใน `certgen.sh`) และออก leaf ใหม่ (825 วัน, SAN
+  `localhost`/`127.0.0.1`/`172.30.58.20`) เมื่อ leaf หาย, ไม่ได้เซ็นโดย CA นี้, SAN ไม่ตรง หรือเหลือ < 30 วัน ·
+  แอป bundle `frontend/assets/certs/pos-ca.crt` แล้วเชื่อผ่าน `HttpOverrides` (ยังเชื่อ system roots ด้วย) ·
+  การติดตั้งครั้งแรกตาม runbook `07_CICD_DEPLOY.md` §5 "TLS"
+* **ไม่สำรอง `ca.key` ออกนอก VM** — key อยู่ใน `certs-ca` ที่เดียว · ถ้า CA หาย (volume ถูกลบ / VM พัง) =
+  ออก CA ใหม่ → commit `pos-ca.crt` ใหม่ → build APK แจกใหม่ · ยอมรับได้เพราะเป็น demo และ key ไม่หลุดออกจาก VM ·
+  ห้าม `down -v` หรือลบ `certs-ca` เด็ดขาด (APK ที่แจกไปแล้วต่อไม่ได้ทันที)
+* **อายุ CA คงค่าเดิมใน `certgen.sh`** — ไม่มีแผนหมุน CA: `mob04` เป็น VM ของรายวิชาและคาดว่าจะ**ถูกคืนราว
+  เดือน 2026-11 เมื่อจบวิชา** อายุ CA จึงไม่ใช่ข้อจำกัดในทางปฏิบัติ · โฮสต์ใหม่ใดๆ หลังจากนั้น = CA ใหม่ + APK ใหม่
+  (หรือ certbot ถ้ามีโดเมน ตามข้อถัดไป)
+* **ได้โดเมนจริงเมื่อไร → certbot / Let's Encrypt** และเลิก bundle CA ในแอป
+
+**ผลที่ตามมา:** `server/docker/certgen/certgen.sh` · volume `certs-ca` · `nginx.conf` ของ platform-ui
+(`proxy_ssl_trusted_certificate`) · `deploy/ansible/deploy.yml` (task "Issue the TLS certificate (certgen)") ·
+`frontend/lib/core/network/pos_trust*.dart` · `07_CICD_DEPLOY.md` §5 · กติกาใน `CLAUDE.md` (CI/CD) ·
+VM เปลี่ยน IP = แก้ SAN ใน `certgen.sh`
