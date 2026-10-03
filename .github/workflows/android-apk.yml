@@ -1,0 +1,74 @@
+name: Android APK
+
+# Manual release of the Android client. workflow_dispatch ONLY: routine pushes must never cut
+# a release, and this workflow is not a required check (flutter.yml / server.yml own those).
+# Builds two variants of the same commit and attaches both to a prerelease `apk-<shortsha>`:
+#   offline  plain Drift-only build, like the shop runs today
+#   api      USE_API_WRITES=true against the demo VM mob04 (same host the web build is served from)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # gh release create
+
+env:
+  FLUTTER_VERSION: '3.44.3'   # keep in sync with frontend/.fvmrc and flutter.yml
+  # Origin only: every call site already passes '/api/v1/...' (api_client.dart).
+  API_BASE_URL: https://172.30.58.20
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: build APKs
+        run: |
+          short="$(echo "${{ github.sha }}" | cut -c1-7)"
+          mkdir -p ../apk-out
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk "../apk-out/srisurart-pos-offline-$short.apk"
+          flutter build apk --release \
+            --dart-define=USE_API_WRITES=true \
+            --dart-define=API_BASE_URL="$API_BASE_URL"
+          cp build/app/outputs/flutter-apk/app-release.apk "../apk-out/srisurart-pos-api-$short.apk"
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: |
+          short="$(echo "${{ github.sha }}" | cut -c1-7)"
+          cat > notes.md <<NOTES
+          Commit: ${{ github.sha }}
+
+          Two APKs of the same commit:
+          - srisurart-pos-offline-$short.apk: plain Drift-only build, no server.
+          - srisurart-pos-api-$short.apk: USE_API_WRITES=true, server $API_BASE_URL (demo VM mob04). Needs a network route to the VM. The VM's Nginx serves a self-signed certificate, which Android does not trust by default, so this variant cannot connect until that is resolved.
+
+          Both share applicationId com.srisurart.srisurart_pos: install one at a time (installing the other replaces it and keeps its data).
+
+          Signed with the Android debug key (no release keystore yet). A later release may fail to update over this one on a device; uninstall first.
+          NOTES
+          gh release create "apk-$short" apk-out/*.apk \
+            --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "Android APK $short" --notes-file notes.md --prerelease
