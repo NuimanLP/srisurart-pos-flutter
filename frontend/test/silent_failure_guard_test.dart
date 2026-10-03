@@ -78,8 +78,8 @@ const _allowlist = <String, String>{
   'lib/presentation/screens/mechanics_screen.dart|repo.discardRejectedCreditPayment':
       'runs through _run(), whose catch shows the error as a SnackBar.',
   'lib/presentation/widgets/login_form.dart|cubit.login':
-      'DEFERRED: AuthCubit.login catches the login itself, but its token-store '
-          'reads before the try can throw; the fix belongs in the cubit.',
+      'AuthCubit.login catches every error and emits Unauthenticated with a '
+          'Thai errorMessage, which this form shows (auth_cubit_test.dart).',
   'lib/presentation/widgets/change_password_form.dart|read<AuthCubit>().changePassword':
       'AuthCubit.changePassword catches everything and emits the error state '
           'this form renders.',
@@ -87,8 +87,9 @@ const _allowlist = <String, String>{
       'AuthCubit.enrolDevice returns false for any error except PosException, '
           'which the dialog\'s `on PosException` clause shows.',
   'lib/presentation/widgets/login_form.dart|cubit.loginWithOfflinePin':
-      'DEFERRED: a throw from PinRepository.verifyPin leaves AuthCubit in '
-          'AuthLoading; the fix belongs in the cubit, not this form.',
+      'AuthCubit.loginWithOfflinePin catches every error, emits Unauthenticated '
+          'with a Thai errorMessage and returns PinVerifyError, which this form '
+          'shows (auth_cubit_pin_test.dart).',
 };
 
 /// Blanks comments and string literals (keeping offsets and newlines) so that
