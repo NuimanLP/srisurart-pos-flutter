@@ -1,0 +1,23 @@
+{
+  "_comment": "Expected drawer cash — ONE scenario both sides must agree on (DRAWER_INSUFFICIENT_CASH, owner 2026-10-03). Server: server/test/shifts.e2e-spec.ts seeds these rows on one shift_id and checks GET /reports/closing + the cash-out refusal. Client: frontend/test/drawer_cash_out_limit_test.dart seeds them on the day's FIRST shift and checks ShiftsRepository.drawerCash. Only cases where the server's shift_id count and the client's #452 time window agree are here: one device, one shift, every row inside it. expected = 1000 + cash sales (S1 200 + S6 100; S4 manual void out; S2 transfer out) + cash credit payment CP1 300 − cash refund R2 100 (R3 by transfer out) + in 50 − out 120 = 1430.00",
+  "startingCash": "1000.00",
+  "sales": [
+    { "id": "S1", "total": "200.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "S2", "total": "250.00", "paymentMethod": "โอน/QR", "voided": false },
+    { "id": "S4", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
+    { "id": "S6", "total": "100.00", "paymentMethod": "เงินสด", "voided": true }
+  ],
+  "returns": [
+    { "id": "R2", "saleId": "S6", "refundTotal": "100.00", "refundMethod": "เงินสด" },
+    { "id": "R3", "saleId": "S1", "refundTotal": "50.00", "refundMethod": "โอน" }
+  ],
+  "creditPayments": [
+    { "id": "CP1", "amount": "300.00", "method": "เงินสด" },
+    { "id": "CP2", "amount": "500.00", "method": "โอน/QR" }
+  ],
+  "entries": [
+    { "id": "de1", "type": "in", "amount": "50.00" },
+    { "id": "de2", "type": "out", "amount": "120.00" }
+  ],
+  "expectedCash": "1430.00"
+}

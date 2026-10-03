@@ -33,7 +33,6 @@ echo "================================================================="
 # Associative arrays for peaks
 declare -A PEAK_MEM_MB
 declare -A PEAK_CPU_PCT
-declare -A LAST_MEM_MB
 declare -A CONTAINER_LIMITS
 declare -A OOM_KILLED
 declare -A RESTART_COUNTS
@@ -100,7 +99,6 @@ while $RUNNING && [[ $(date +%s) -lt $end_time ]]; do
         PEAK_CPU_PCT[$name]="$cpu_num"
       fi
 
-      LAST_MEM_MB[$name]="$used_mb"
       CONTAINER_LIMITS[$name]="$limit_mb"
 
       current_aggregate_mb=$(awk "BEGIN {printf \"%.2f\", $current_aggregate_mb + $used_mb}")

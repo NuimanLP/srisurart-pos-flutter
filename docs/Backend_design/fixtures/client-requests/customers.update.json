@@ -1,0 +1,17 @@
+{
+  "name": "customers.update",
+  "caller": "ApiCustomersRepository.updateCustomer",
+  "requests": [
+    {
+      "route": "PATCH /api/v1/customers/:id",
+      "method": "PATCH",
+      "path": "/api/v1/customers/ct-customer-1",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "name": "Renamed customer",
+        "phone": "0811111111"
+      }
+    }
+  ]
+}

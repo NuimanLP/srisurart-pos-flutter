@@ -429,6 +429,35 @@ describe('POST /sync/push (e2e)', () => {
       });
     });
 
+    it('drawer-entry replay: an offline cash-out over the expected cash is still accepted (the cash already left)', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
+        id: 'sh_off_002',
+        startingCash: 1000,
+      });
+
+      const res = await push({
+        outboxRemaining: 0,
+        ops: [
+          {
+            opId: 'op_drawer_over',
+            idempotencyKey: 'k_de_over',
+            type: 'drawer.entry',
+            payload: {
+              id: 'de_off_over',
+              type: 'out',
+              amount: '1500.00',
+              note: null,
+              createdAt: new Date().toISOString(),
+            },
+          },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.results[0].status).toBe('applied');
+      expect(res.body.data.results[0].response.balanceAfter).toBe('-500.00');
+    });
+
     it('sale-create.applied, replay-by-key, replay-by-id, client-id-reused', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: 'sh_off_001',

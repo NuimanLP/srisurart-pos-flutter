@@ -1,0 +1,14 @@
+{
+  "name": "purchase-orders.delete",
+  "caller": "ApiPurchaseOrdersRepository.deletePO",
+  "requests": [
+    {
+      "route": "DELETE /api/v1/purchase-orders/:id",
+      "method": "DELETE",
+      "path": "/api/v1/purchase-orders/ct-po-1",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

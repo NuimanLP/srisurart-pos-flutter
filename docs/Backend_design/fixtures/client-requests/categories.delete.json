@@ -1,0 +1,14 @@
+{
+  "name": "categories.delete",
+  "caller": "ApiProductsRepository.deleteCategory",
+  "requests": [
+    {
+      "route": "DELETE /api/v1/categories/:name",
+      "method": "DELETE",
+      "path": "/api/v1/categories/ct-category",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

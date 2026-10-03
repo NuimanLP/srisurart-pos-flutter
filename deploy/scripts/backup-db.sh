@@ -171,6 +171,8 @@ if [[ -f "$CHECKSUM_FILE" ]]; then
   chmod 0600 "$CHECKSUM_FILE"
 fi
 
+# ls -lh is read only for the human-readable size of one file this script just wrote.
+# shellcheck disable=SC2012
 BACKUP_SIZE="$(ls -lh "$BACKUP_FILE" | awk '{print $5}')"
 echo "  -> Backup created successfully ($BACKUP_SIZE)."
 

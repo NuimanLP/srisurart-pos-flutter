@@ -1,0 +1,28 @@
+{
+  "name": "returns.create",
+  "caller": "ApiReturnsRepository.createReturn",
+  "requests": [
+    {
+      "route": "POST /api/v1/returns",
+      "method": "POST",
+      "path": "/api/v1/returns",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "rmush0wjl_1ffaa36f_12",
+        "saleId": "ct-sale-1",
+        "refundMethod": "เงินสด",
+        "reason": "ของชำรุด",
+        "items": [
+          {
+            "productId": "ct-product-1",
+            "name": "Contract part",
+            "qty": 1,
+            "price": "100.00",
+            "originalQty": 2
+          }
+        ]
+      }
+    }
+  ]
+}

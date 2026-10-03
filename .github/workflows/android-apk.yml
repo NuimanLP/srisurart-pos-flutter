@@ -80,6 +80,8 @@ jobs:
       - name: print signer certificate
         run: |
           short="${SHA:0:7}"
+          # Version-named build-tools dirs only; ls | sort -V picks the newest.
+          # shellcheck disable=SC2012
           apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)"
           "$apksigner" verify --print-certs "../apk-out/srisurart-pos-$short.apk" | grep 'SHA-256'
 

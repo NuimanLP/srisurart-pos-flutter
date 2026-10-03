@@ -1,0 +1,17 @@
+{
+  "name": "auth.login",
+  "caller": "AuthRepository.login",
+  "requests": [
+    {
+      "route": "POST /api/v1/auth/token",
+      "method": "POST",
+      "path": "/api/v1/auth/token",
+      "idempotencyKey": false,
+      "authorization": "none",
+      "body": {
+        "username": "ct-owner",
+        "password": "ct-password-1"
+      }
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "//": "Unit-test line coverage floor for src/ (scripts/check-coverage.mjs). Raise it when coverage rises; never lower it to make a PR pass. Set 2026-10-03 from 44.70% measured.",
+  "lines": 44
+}

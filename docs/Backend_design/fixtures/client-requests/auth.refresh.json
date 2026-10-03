@@ -1,0 +1,16 @@
+{
+  "name": "auth.refresh",
+  "caller": "AuthRepository.refresh",
+  "requests": [
+    {
+      "route": "POST /api/v1/auth/refresh",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "idempotencyKey": false,
+      "authorization": "none",
+      "body": {
+        "refreshToken": "ct-refresh-token"
+      }
+    }
+  ]
+}
