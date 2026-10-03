@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/server_error_resolver.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/csv_safe.dart';
@@ -92,7 +93,12 @@ class _QuotesScreenState extends State<QuotesScreen> {
       danger: true,
     );
     if (!ok) return;
-    await repo.deleteQuote(q.id);
+    try {
+      await repo.deleteQuote(q.id);
+    } catch (e) {
+      _snackError(e);
+      return;
+    }
     _refresh();
   }
 
@@ -101,8 +107,13 @@ class _QuotesScreenState extends State<QuotesScreen> {
       _snack('ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถทำซ้ำใบเสนอราคาได้');
       return;
     }
-    final dup = await context.read<QuotesRepository>().duplicateQuote(q.id);
-    if (dup != null) _refresh();
+    final repo = context.read<QuotesRepository>();
+    try {
+      final dup = await repo.duplicateQuote(q.id);
+      if (dup != null) _refresh();
+    } catch (e) {
+      _snackError(e);
+    }
   }
 
   Future<void> _handleEdit(QuoteWithItems qi) async {
@@ -122,7 +133,12 @@ class _QuotesScreenState extends State<QuotesScreen> {
       'แก้ไข ${q.quoteNo} ? ระบบจะลบใบเดิมและรอให้บันทึกใหม่หลังแก้ไข',
     );
     if (!ok) return;
-    await repo.deleteQuote(q.id);
+    try {
+      await repo.deleteQuote(q.id);
+    } catch (e) {
+      _snackError(e);
+      return;
+    }
     _loadToCart(qi);
   }
 
@@ -139,13 +155,19 @@ class _QuotesScreenState extends State<QuotesScreen> {
       'แปลง ${q.quoteNo} เป็นการขาย? ระบบจะใส่รายการนี้กลับเข้าตะกร้า',
     );
     if (!ok) return;
-    await repo.updateQuote(
-      q.id,
-      QuotesCompanion(
-        status: const Value('converted'),
-        convertedAt: Value(DateTime.now()),
-      ),
-    );
+    try {
+      await repo.updateQuote(
+        q.id,
+        QuotesCompanion(
+          status: const Value('converted'),
+          convertedAt: Value(DateTime.now()),
+        ),
+      );
+    } catch (e) {
+      // The cart is not loaded: the quote was not converted.
+      _snackError(e);
+      return;
+    }
     _loadToCart(qi);
   }
 
@@ -163,7 +185,13 @@ class _QuotesScreenState extends State<QuotesScreen> {
     final repo = context.read<QuotesRepository>();
     final days = await _promptDays();
     if (days == null || days < 1) return;
-    final n = await repo.purgeOldQuotes(olderThanDays: days);
+    final int n;
+    try {
+      n = await repo.purgeOldQuotes(olderThanDays: days);
+    } catch (e) {
+      _snackError(e);
+      return;
+    }
     _refresh();
     _snack(n > 0 ? 'ลบ $n ใบเสนอราคา' : 'ไม่มีรายการที่ตรงตามเงื่อนไข');
   }
@@ -271,7 +299,13 @@ class _QuotesScreenState extends State<QuotesScreen> {
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   void _openPreview(QuoteWithItems qi, {bool isDegraded = false}) async {
-    final settings = await context.read<SettingsRepository>().getSettings();
+    final SettingsRowData settings;
+    try {
+      settings = await context.read<SettingsRepository>().getSettings();
+    } catch (e) {
+      _snackError(e);
+      return;
+    }
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -293,6 +327,11 @@ class _QuotesScreenState extends State<QuotesScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
+
+  /// A failed action shows the counter's Thai sentence — never a raw
+  /// `ApiException`/URL — and leaves the screen usable.
+  void _snackError(Object e) =>
+      _snack(ServerErrorResolver.resolveCounterError(e));
 
   @override
   Widget build(BuildContext context) {
@@ -735,12 +774,15 @@ class _QuotePreviewPage extends StatelessWidget {
         title: Text(q.quoteNo),
         actions: [
           if (canConvert)
-            TextButton.icon(
-              onPressed: isDegraded ? null : onConvert,
-              icon: const Icon(Icons.check, color: AppColors.successLight),
-              label: const Text(
-                '✓ แปลงเป็นการขาย',
-                style: TextStyle(color: AppColors.successLight),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton(
+                onPressed: isDegraded ? null : onConvert,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.successLight,
+                  foregroundColor: AppColors.white,
+                ),
+                child: const Text('✓ แปลงเป็นการขาย'),
               ),
             ),
         ],
