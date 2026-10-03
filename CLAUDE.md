@@ -623,10 +623,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   it the api/worker/bull-board refuse to boot on a `dev-only-*` placeholder secret or the
   public dummy JWT pair. **Never set it on a real host** — `vm.override.yml` forces it
   empty on `mob04`.
-- **Android APK (PR #551, open as of 2026-10-03):** manual `android-apk.yml`, `main` only, **API build only** — no
+- **Android APK (PR #551, merged 2026-10-03):** manual `android-apk.yml`, `main` only, **API build only** — no
   offline APK from `main` because `useApiRepositories` defaults true. Signed via secret `ANDROID_KEYSTORE_B64`; the
   keystore backup is the owner's — lose it and no APK can upgrade in place.
-- **Private CA for `mob04` TLS (PR #552, open as of 2026-10-03):** one-shot `certgen` keeps a CA in volume `certs-ca`
+- **Private CA for `mob04` TLS (PR #552, merged 2026-10-03):** one-shot `certgen` keeps a CA in volume `certs-ca`
   and re-issues the leaf each deploy. 🔴 Never `down -v` or delete `certs-ca`: a new CA stops every distributed APK
   until the CA asset is recommitted and APKs rebuilt. `ca.key` lives only in `certs-ca`. `frontend/assets/certs/pos-ca.crt`
   stays committed empty until the owner runbook (`07_CICD_DEPLOY.md` §5 "TLS") is done. Never add `badCertificateCallback`.
