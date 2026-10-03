@@ -162,6 +162,15 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
     <tr><td><code>provision.yml</code></td><td><code>cloud</code> (มี sudo, ไม่อยู่กลุ่ม docker)</td><td>เครื่องเปล่า → พร้อม deploy: Docker, user <code>deploy</code>, ufw, <code>/opt/pos</code>, <code>.env</code> (0600), สคริปต์ ops, cron backup 03:00 · <strong>ห้ามใส่ <code>--diff</code></strong> (พิมพ์ <code>.env</code> ทั้งไฟล์)</td></tr>
     <tr><td><code>deploy.yml</code></td><td><code>deploy</code> (เจ้าของ <code>/opt/pos</code>, กลุ่ม docker, ไม่มี sudo)</td><td>release หนึ่งตัว · <code>-e force_redeploy=true</code> เพื่อลงซ้ำ SHA เดิม · <code>--check</code> พิสูจน์แทบไม่ได้อะไร</td></tr>
   </table>
+  <h2 class="sub" id="apk">build และติดตั้งแอป Android <span class="en">Android APK</span></h2>
+  <p>APK ไม่มากับ deploy — สั่ง workflow <strong>Android APK</strong> แยกต่างหาก (รันได้เฉพาะบน <code>main</code>)</p>
+  <ol class="steps">
+    <li><span class="st-title">เช็กก่อนว่าต่อ <code>mob04</code> ได้</span>ต้องมี PR #552 (07 §5 TLS) deploy แล้ว และ CA cert อยู่ที่ <code>frontend/assets/certs/pos-ca.crt</code> — ไม่งั้นติดตั้งได้แต่แอปเชื่อมเซิร์ฟเวอร์ไม่ได้</li>
+    <li><span class="st-title">GitHub → Actions → <strong>Android APK</strong> → Run workflow (branch <code>main</code>)</span>ได้ APK รุ่น API ตัวเดียว (ไม่มีรุ่นออฟไลน์ล้วน)</li>
+    <li><span class="st-title">ดาวน์โหลดจาก Releases</span>prerelease <code>apk-&lt;sha7&gt;</code> → ไฟล์ <code>srisurart-pos-&lt;sha7&gt;.apk</code></li>
+    <li><span class="st-title">ติดตั้งบนเครื่อง Android</span>เปิดไฟล์ → อนุญาต "ติดตั้งจากแหล่งที่ไม่รู้จัก" → ติดตั้ง · รุ่นใหม่ติดตั้งทับได้เพราะเซ็นด้วยกุญแจถาวรเดิม · เครื่องต้องอยู่ในเครือข่ายคณะ/VPN</li>
+  </ol>
+  <div class="note warn"><span class="nt">ข้อควรรู้</span>workflow ล้มถ้า release <code>apk-&lt;sha7&gt;</code> ของ commit นั้นมีอยู่แล้ว หรือ secret <code>ANDROID_KEYSTORE_B64</code> ว่าง · ผู้ถือ secret ต้องเก็บ keystore สำรองส่วนตัว ห้าม commit</div>
   <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">5</span></div>
 </section>
 
