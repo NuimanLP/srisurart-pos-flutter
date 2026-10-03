@@ -623,7 +623,7 @@ class _SearchTab extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
           child: SearchField(
-            hint: '🔍 ค้นเลขที่บิล RC... / ชื่อสินค้า / ชื่อช่าง',
+            hint: 'ค้นเลขที่บิล RC... / ชื่อสินค้า / ชื่อช่าง',
             autofocus: true,
             onChanged: onSearch,
           ),

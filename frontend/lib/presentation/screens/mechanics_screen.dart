@@ -271,7 +271,7 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 14, 24, 8),
           child: SearchField(
-            hint: '🔍 ค้นหาชื่อ / ชื่อเล่น / เบอร์ / รหัส',
+            hint: 'ค้นหาชื่อ / ชื่อเล่น / เบอร์ / รหัส',
             onChanged: (v) => setState(() => _search = v),
           ),
         ),

@@ -49,6 +49,7 @@ import '../../data/repositories/settings_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../blocs/cart_cubit.dart';
 import '../blocs/pending_quote_cubit.dart';
+import '../widgets/device_role_banner.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_text.dart';
 import '../widgets/receipt_view.dart';
@@ -595,6 +596,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final customersRepo = context.read<CustomersRepository>();
     final cart = _cart.state;
     if (_submitting || cart.isEmpty) return;
+    // #476: a session that is not a `pos` device can neither sell nor open
+    // the shift the local pre-check would ask for — say the real reason first.
+    if (isNotPosSession(context)) {
+      await showNotPosDeviceDialog(context);
+      return;
+    }
     final subtotal = _subtotal;
     final total = _total;
     if (_discount > subtotal) {
@@ -729,7 +736,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           _productsFuture = context.read<ProductsRepository>().getAll();
         });
       }
-      _alert('ขายไม่สำเร็จ: ${_msg(e)}');
+      if (isDeviceRoleRefusal(e)) {
+        // The server's word for the same thing (#476): not a dead end.
+        if (mounted) await showNotPosDeviceDialog(context);
+      } else {
+        _alert('ขายไม่สำเร็จ: ${_msg(e)}');
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -814,6 +826,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             final products = snap.data!;
             return Column(
               children: [
+                const NotPosDeviceBanner(),
                 _lowStockBanner(products),
                 Expanded(
                   child: isWide
@@ -1375,24 +1388,43 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
         ),
       ),
-      child: ListView(
+      // Park / quote / pay are pinned under the scrolling sections, so the
+      // change row appearing (or anything else growing) never pushes the pay
+      // button below the fold or moves it under a pointer mid-click (#476).
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Parked strip
-          FutureBuilder<List<ParkedSaleRow>>(
-            future: _parkedFuture,
-            builder: (context, snap) {
-              final parked = snap.data ?? const <ParkedSaleRow>[];
-              return parked.isEmpty
-                  ? const SizedBox.shrink()
-                  : _parkedStrip(parked);
-            },
+          Expanded(
+            child: ListView(
+              children: [
+                // Parked strip
+                FutureBuilder<List<ParkedSaleRow>>(
+                  future: _parkedFuture,
+                  builder: (context, snap) {
+                    final parked = snap.data ?? const <ParkedSaleRow>[];
+                    return parked.isEmpty
+                        ? const SizedBox.shrink()
+                        : _parkedStrip(parked);
+                  },
+                ),
+                _customerSection(),
+                _mechanicSection(),
+                _cartSection(cart, products),
+                _totalsSection(cart, mechanicDelta),
+                _paymentSection(),
+              ],
+            ),
           ),
-          _customerSection(),
-          _mechanicSection(),
-          _cartSection(cart, products),
-          _totalsSection(cart, mechanicDelta),
-          _paymentSection(),
-          _actionButtons(cart),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: Theme.of(context).dividerColor.withValues(alpha: 0.15),
+                ),
+              ),
+            ),
+            child: _actionButtons(cart),
+          ),
         ],
       ),
     );
@@ -2749,7 +2781,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final seen = <num>{};
     final out = <num>[];
     for (final v in raw) {
-      if (v >= total && !seen.contains(v)) {
+      // An empty cart totals 0: a "฿0" chip is no amount to receive (#476).
+      if (v > 0 && v >= total && !seen.contains(v)) {
         seen.add(v);
         out.add(v);
       }
