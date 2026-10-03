@@ -68,13 +68,15 @@ session only added these instances to it.
 
 ## Open
 
+0. **PR #586** (open) — staff manual (`docs/tutorial/sri-pos-manual/`) synced with #578,
+   #580, #583, #584, #585; owned by another agent, not touched here.
 1. **Counted-cash field accepts non-digits.** On close, `a400` → `double.tryParse` gives
    `null`; the preview (`cash_drawer_screen.dart:745`, `?? 0`) shows `เงินขาด −฿400`, and
-   `_handleClose` (`?? -1`, line 186) silently does nothing. The orchestrator said a fix PR
-   (digits-only field + flipping `drawer_overdrawn_offline`'s marker to ratified — owner
-   ratified `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` on 2026-10-03) was in progress; **at the
-   time of writing no such PR or branch existed on GitHub.** Until it lands, docs and
-   `review_item.dart` still say **agent ร่าง** — do not flip the docs alone.
+   `_handleClose` (`?? -1`, line 186) silently does nothing. Fix: **PR #587** (`fix/drawer-cash-input-and-ratify-overdrawn`,
+   **open, not merged**) — money inputs reject letters, and it flips
+   `drawer_overdrawn_offline`'s label `เงินออกจากลิ้นชักเกินยอดตอนออฟไลน์` to ratified
+   (owner 2026-10-03) in 02/08 and `review_item.dart`. Until it merges, `main` still says
+   **agent ร่าง** — do not flip the docs separately.
 2. **Owner question — a shift open past midnight.** Counting is by shift, but the drawer
    screen and the closing report only show a shift whose `dateStr` is today
    (`cash_drawer_screen.dart:93-96`, `closing_report.dart:104`), so after midnight the shift
