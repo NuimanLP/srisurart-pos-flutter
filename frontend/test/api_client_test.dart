@@ -175,6 +175,77 @@ void main() {
     expect(tokenStorage.accessToken, 'fresh');
   });
 
+  // #558: a session signed for a device whose device token is gone from this
+  // browser is ended at the next refresh, without asking the server (which
+  // would keep refreshing it as that till).
+  group('device token lost mid-session (#558)', () {
+    String jwt(Map<String, Object?> claims) =>
+        'h.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.s';
+
+    test('a device-bound refresh token with no device token ends the session', () async {
+      tokenStorage.accessToken = 'expired';
+      tokenStorage.refreshToken = jwt({'did': 'dv1', 'tid': 't1'});
+      tokenStorage.deviceToken = null;
+      var refreshCalls = 0;
+      var expired = 0;
+      final client = ApiClient(
+        baseUrl: 'http://example.com',
+        httpClient: MockClient((req) async {
+          if (req.url.path.endsWith('/auth/refresh')) refreshCalls++;
+          return http.Response(jsonEncode({'statusCode': 401, 'message': 'x'}), 401);
+        }),
+        tokenStorage: tokenStorage,
+      )..onSessionExpired = () => expired++;
+
+      await expectLater(client.get('/protected'), throwsA(isA<ApiException>()));
+      expect(refreshCalls, 0);
+      expect(expired, 1);
+      expect(tokenStorage.refreshToken, isNull);
+    });
+
+    test('a device-bound refresh token with its device token refreshes as before', () async {
+      tokenStorage.accessToken = 'expired';
+      tokenStorage.refreshToken = jwt({'did': 'dv1', 'tid': 't1'});
+      tokenStorage.deviceToken = 'device-token';
+      final client = ApiClient(
+        baseUrl: 'http://example.com',
+        httpClient: MockClient((req) async {
+          if (req.url.path.endsWith('/auth/refresh')) {
+            return http.Response(jsonEncode({'accessToken': 'fresh', 'refreshToken': 'r2'}), 200);
+          }
+          if (req.headers['authorization'] == 'Bearer fresh') {
+            return http.Response(jsonEncode({'status': 'success', 'data': 'ok'}), 200);
+          }
+          return http.Response(jsonEncode({'statusCode': 401, 'message': 'x'}), 401);
+        }),
+        tokenStorage: tokenStorage,
+      );
+
+      expect(await client.get('/protected'), 'ok');
+    });
+
+    test('a session made without a device token is not ended for lacking one', () async {
+      tokenStorage.accessToken = 'expired';
+      tokenStorage.refreshToken = jwt({'tid': 't1'});
+      tokenStorage.deviceToken = null;
+      final client = ApiClient(
+        baseUrl: 'http://example.com',
+        httpClient: MockClient((req) async {
+          if (req.url.path.endsWith('/auth/refresh')) {
+            return http.Response(jsonEncode({'accessToken': 'fresh', 'refreshToken': 'r2'}), 200);
+          }
+          if (req.headers['authorization'] == 'Bearer fresh') {
+            return http.Response(jsonEncode({'status': 'success', 'data': 'ok'}), 200);
+          }
+          return http.Response(jsonEncode({'statusCode': 401, 'message': 'x'}), 401);
+        }),
+        tokenStorage: tokenStorage,
+      );
+
+      expect(await client.get('/protected'), 'ok');
+    });
+  });
+
   test('handles 429 RATE_LIMITED with Retry-After header', () async {
     final mockClient = MockClient((req) async {
       final body = jsonEncode({

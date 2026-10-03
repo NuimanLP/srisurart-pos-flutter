@@ -438,6 +438,18 @@ class ApiClient {
       await _expireSession(storage, session);
       return false;
     }
+    // #558: a session signed for a device (`did`) whose device token is no
+    // longer stored (an IndexedDB entry cleared or evicted mid-session) is
+    // over — the server would keep refreshing it as that till until 04:00,
+    // while this browser can no longer push its outbox or log in as it.
+    // Ending the session keeps the local DB and its outbox (clearAuthTokens).
+    if (JwtClaims.tryParse(currentRefreshToken)?.did != null) {
+      final deviceToken = await storage.getDeviceToken();
+      if (deviceToken == null || deviceToken.isEmpty) {
+        await _expireSession(storage, session);
+        return false;
+      }
+    }
 
     // A transport failure propagates as-is (ClientException, TimeoutException…):
     // it is what the original request would have thrown had its own socket
