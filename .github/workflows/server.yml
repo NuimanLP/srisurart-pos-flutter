@@ -251,11 +251,12 @@ jobs:
         working-directory: .
     steps:
       - uses: actions/checkout@v5
-      - name: generate test TLS cert and htpasswd for syntax validation
+      # The real certgen script (CA + server cert + ca.crt), so both configs below are tested
+      # against exactly the file names it writes.
+      - name: generate test TLS certs (certgen.sh) and htpasswd for syntax validation
         run: |
-          mkdir -p .tmp-nginx/certs .tmp-nginx/auth
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" \
-            -keyout .tmp-nginx/certs/server.key -out .tmp-nginx/certs/server.crt
+          mkdir -p .tmp-nginx/certs .tmp-nginx/ca .tmp-nginx/auth
+          CERTS_DIR=.tmp-nginx/certs CA_DIR=.tmp-nginx/ca sh server/docker/certgen/certgen.sh
           printf 'dummy:%s\n' "$(openssl passwd -apr1 dummy)" > .tmp-nginx/auth/k6-remote-write.htpasswd
       - name: test nginx configuration (nginx -t)
         run: |
@@ -265,7 +266,7 @@ jobs:
             -v "$PWD/.tmp-nginx/auth:/etc/nginx/auth:ro" \
             nginx:1.29-alpine nginx -t
       # #443 PR4: the platform-ui dashboard is also nginx, and its config needs `proxy_ssl_trusted_
-      # certificate` (a real, readable PEM) to test clean — reuse the same throwaway cert above.
+      # certificate` (a real, readable PEM) to test clean — reuse the throwaway ca.crt above.
       - name: test platform-ui nginx configuration (nginx -t)
         run: |
           docker run --rm \
@@ -273,6 +274,9 @@ jobs:
             -v "$PWD/server/docker/platform-ui/html:/usr/share/nginx/html:ro" \
             -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
             nginx:1.29-alpine nginx -t
+      # certgen: fresh volume, idempotent re-run, and the upgrade off the old self-signed cert.
+      - name: certgen.sh tests
+        run: deploy/scripts/test/certgen.test.sh
       # Deploy-script check: a failed pg_dump must not leave a pos_backup_*.sql.gz behind.
       - name: backup-db.sh tests (stubbed pg_dump)
         run: deploy/scripts/test/backup-db.test.sh

@@ -96,6 +96,11 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
+  # The shop server's private CA (lib/core/network/pos_trust_io.dart). Committed empty;
+  # replaced with mob04's ca.crt once — 07_CICD_DEPLOY.md "TLS".
+  assets:
+    - assets/certs/pos-ca.crt
+
   # Bundled fonts (#271 — moved off google_fonts/PdfGoogleFonts runtime fetch so
   # the app renders Thai text and generates PDFs with no network access; the
   # offline PWA shell can't reach fonts.gstatic.com, flutter#163554). Source:
