@@ -37,6 +37,15 @@ void main() {
       expect(ServerErrorResolver.resolve('DEVICE_NO_EXHAUSTED'), 'เพิ่มเครื่องไม่ได้ ร้านใช้เลขเครื่องครบ 99 เครื่องแล้ว');
       expect(ServerErrorResolver.resolve('DEVICE_ALREADY_RETIRED'), 'เครื่องนี้ถูกปลดไปแล้ว');
       expect(ServerErrorResolver.resolve('PHYSICAL_CASH_REQUIRED'), 'เครื่องนี้ยังมีกะเปิดอยู่ กรุณานับเงินในลิ้นชักและกรอกยอดก่อนปลดเครื่อง');
+      // Ratified by the owner 2026-10-03 (#27, PR #574).
+      expect(ServerErrorResolver.resolve('QUOTE_EXPIRED'), 'ใบเสนอราคาหมดอายุแล้ว — ทำซ้ำ (ต่ออายุ) ก่อนขาย');
+      expect(ServerErrorResolver.resolve('QUOTE_ALREADY_CONVERTED'), 'ใบเสนอราคานี้แปลงเป็นการขายแล้ว — ล้างตะกร้าแล้วเริ่มใหม่');
+      expect(ServerErrorResolver.resolve('QUOTE_CONVERTED_NOT_DELETABLE'), 'ใบเสนอราคานี้แปลงเป็นการขายแล้ว ลบไม่ได้');
+      // The server's English message never wins over the ratified sentence.
+      expect(
+        ServerErrorResolver.resolve('QUOTE_EXPIRED', serverMessage: 'Quote has expired and cannot be converted.'),
+        'ใบเสนอราคาหมดอายุแล้ว — ทำซ้ำ (ต่ออายุ) ก่อนขาย',
+      );
       // Phase 2 (#268, F10)
       expect(ServerErrorResolver.resolve('DOC_NUMBER_REQUIRED'), 'จำเป็นต้องระบุเลขที่เอกสาร');
       expect(ServerErrorResolver.resolve('DOC_NUMBER_INVALID'), 'รูปแบบเลขที่เอกสารไม่ถูกต้อง');
