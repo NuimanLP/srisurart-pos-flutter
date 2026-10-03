@@ -164,7 +164,7 @@ class _QuotesScreenState extends State<QuotesScreen> {
         ),
       );
     } catch (e) {
-      // The cart is not loaded: the quote was not converted.
+      // Nothing is loaded into the cart on a failed convert.
       _snackError(e);
       return;
     }
@@ -779,8 +779,10 @@ class _QuotePreviewPage extends StatelessWidget {
               child: FilledButton(
                 onPressed: isDegraded ? null : onConvert,
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.successLight,
+                  backgroundColor: AppColors.success,
                   foregroundColor: AppColors.white,
+                  disabledBackgroundColor: AppColors.navyLight,
+                  disabledForegroundColor: AppColors.gray300,
                 ),
                 child: const Text('✓ แปลงเป็นการขาย'),
               ),
