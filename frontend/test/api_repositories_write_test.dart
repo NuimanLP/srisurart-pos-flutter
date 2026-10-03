@@ -128,34 +128,20 @@ void main() {
     expect(headersSeen['/api/v1/products/p_100'], isNotNull);
   });
 
-  test('ApiQuotesRepository updateQuote convert routes to POST /api/v1/quotes/:id/convert with Idempotency-Key', () async {
-    var convertCalled = false;
-    String? convertIdempotencyKey;
-
+  test('ApiQuotesRepository updateQuote never calls /convert — a quote is converted only by its bill (#27)', () async {
+    // mob04 2026-10-03: the old status→`/convert` call sent no body and got a
+    // 400. The owner's #27 decision moved conversion onto `POST /sales`
+    // (`quoteId`), so a status patch must not reach `/convert` at all.
+    final paths = <String>[];
     final mockClient = MockClient((request) async {
-      if (request.url.path == '/api/v1/quotes/q_50/convert' && request.method == 'POST') {
-        convertCalled = true;
-        convertIdempotencyKey = request.headers['idempotency-key'] ?? request.headers['Idempotency-Key'];
-        return http.Response(
-          '''{
-            "status": "success",
-            "data": {
-              "id": "q_50",
-              "status": "converted",
-              "convertedAt": "2026-09-15T12:00:00.000Z"
-            }
-          }''',
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      }
-      return http.Response('{"status":"error"}', 404);
+      paths.add('${request.method} ${request.url.path}');
+      return http.Response(
+        '{"status":"success","data":{"id":"q_50","status":"open"}}',
+        200,
+        headers: {'content-type': 'application/json'},
+      );
     });
-
-    final apiClient = ApiClient(httpClient: mockClient);
-    final repo = ApiQuotesRepository(db, apiClient);
-
-    // Seed quote in Drift
+    final repo = ApiQuotesRepository(db, ApiClient(httpClient: mockClient));
     await db.into(db.quotes).insert(
           QuoteRow(
             id: 'q_50',
@@ -171,12 +157,9 @@ void main() {
 
     await repo.updateQuote('q_50', const QuotesCompanion(status: Value('converted')));
 
-    expect(convertCalled, isTrue);
-    expect(convertIdempotencyKey, isNotNull);
-
-    final updatedDrift = await (db.select(db.quotes)..where((t) => t.id.equals('q_50'))).getSingleOrNull();
-    expect(updatedDrift?.status, 'converted');
-    expect(updatedDrift?.convertedAt, isNotNull);
+    expect(paths.where((p) => p.endsWith('/convert')), isEmpty);
+    final row = await (db.select(db.quotes)..where((t) => t.id.equals('q_50'))).getSingle();
+    expect(row.status, 'open');
   });
 
   test('ApiPurchaseOrdersRepository passes Idempotency-Key on savePO and receivePO', () async {

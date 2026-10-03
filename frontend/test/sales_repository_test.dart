@@ -1,6 +1,6 @@
 // Unit tests for SalesRepository (port of db.js saveSale invariants).
 
-import 'package:drift/drift.dart';
+import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
@@ -141,6 +141,52 @@ void main() {
       expect(await repo.getSales(), isEmpty);
     },
   );
+
+  group('#27: a cart sold from a quote converts it inside saveSale', () {
+    Future<void> seedQuote() => db.into(db.quotes).insert(
+          QuoteRow(
+            id: 'q27',
+            quoteNo: 'QT-27',
+            status: 'open',
+            date: DateTime(2026, 10, 1),
+            validUntil: DateTime(2099, 1, 1),
+          ),
+        );
+    Future<QuoteRow> quote() =>
+        (db.select(db.quotes)..where((t) => t.id.equals('q27'))).getSingle();
+    SaleInput cart({required int qty}) => SaleInput(
+          subtotal: 3200.0 * qty,
+          discount: 0,
+          total: 3200.0 * qty,
+          paymentMethod: 'เงินสด',
+          quoteId: 'q27',
+          items: [
+            SaleLineInput(
+              productId: 'p8',
+              name: 'Piston Kit STD',
+              qty: qty,
+              price: 3200,
+            ),
+          ],
+        );
+
+    test('a saved sale marks the quote converted, at the bill date', () async {
+      await seedQuote();
+      final sale = await repo.saveSale(cart(qty: 1));
+      final q = await quote();
+      expect(q.status, 'converted');
+      // Drift stores whole seconds.
+      expect(q.convertedAt!.difference(sale.date).inSeconds.abs(), lessThan(1));
+    });
+
+    test('a refused sale leaves the quote open', () async {
+      await seedQuote();
+      await expectLater(repo.saveSale(cart(qty: 6)), throwsA(anything));
+      final q = await quote();
+      expect(q.status, 'open');
+      expect(q.convertedAt, isNull);
+    });
+  });
 
   test('missing product throws ไม่พบในสต็อก and records nothing', () async {
     final input = SaleInput(

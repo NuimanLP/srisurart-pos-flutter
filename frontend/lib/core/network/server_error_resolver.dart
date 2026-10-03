@@ -111,6 +111,14 @@ class ServerErrorResolver {
     // (02_API_SCREENS.md §8.1.1), not yet ratified by the owner. Its English
     // `message` (e.g. `name is required`) used to reach the counter verbatim.
     'BAD_REQUEST': 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่',
+    // Ratified by the owner 2026-10-03 (#27, PR #574) — 02_API_SCREENS.md §8/§8.1.
+    // A quote cart sold through `POST /sales` `quoteId` (or `/convert`), and
+    // DELETE of a converted quote.
+    'QUOTE_EXPIRED': 'ใบเสนอราคาหมดอายุแล้ว — ทำซ้ำ (ต่ออายุ) ก่อนขาย',
+    'QUOTE_ALREADY_CONVERTED':
+        'ใบเสนอราคานี้แปลงเป็นการขายแล้ว — ล้างตะกร้าแล้วเริ่มใหม่',
+    'QUOTE_CONVERTED_NOT_DELETABLE':
+        'ใบเสนอราคานี้แปลงเป็นการขายแล้ว ลบไม่ได้',
     'UNAUTHENTICATED': 'กรุณาเข้าสู่ระบบ',
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
   };

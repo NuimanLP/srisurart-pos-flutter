@@ -208,6 +208,7 @@ void main() {
     double total = 200,
     String? mechanicId = 'tm1',
     String? mechanicName = 'ช่างเอ',
+    String? quoteId,
   }) => SaleInput(
     subtotal: 200,
     discount: 0,
@@ -219,6 +220,7 @@ void main() {
     mechanicId: mechanicId,
     mechanicName: mechanicName,
     mechanicDelta: -15,
+    quoteId: quoteId,
     items: const [
       SaleLineInput(
         productId: 'tp1',
@@ -1109,6 +1111,101 @@ void main() {
     });
   });
 
+  group('#27 (owner 2026-10-03, (ข)): a quote cart is sold through POST /sales with quoteId', () {
+    setUp(() async {
+      await db.into(db.quotes).insert(
+            QuoteRow(
+              id: 'tq1',
+              quoteNo: 'QT07-2569-10-0001',
+              status: 'open',
+              date: DateTime(2026, 10, 1),
+              validUntil: DateTime(2099, 1, 1),
+              subtotal: 500,
+              discount: 0,
+              total: 500,
+            ),
+          );
+    });
+
+    test('posts /sales (never /convert) with the quoteId, and patches the quote from the reply', () async {
+      late Map<String, dynamic> body;
+      final repo = repoWith((req) async {
+        body = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response(
+          _ok({
+            ...created(),
+            'quote': {
+              'id': 'tq1',
+              'status': 'converted',
+              'convertedAt': '2026-10-03T04:00:00.000Z',
+              'convertedSaleId': 's-server',
+            },
+          }),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      // The cart is not the quote's (฿200 of brake pads vs a ฿500 quote): the
+      // cashier edited it, and it still converts this quote.
+      await repo.saveSale(input(quoteId: 'tq1'));
+
+      expect(sent.map((r) => r.url.path), ['/api/v1/sales']);
+      expect(body['quoteId'], 'tq1');
+      expect(body['total'], '200.00');
+      final q = await (db.select(db.quotes)..where((t) => t.id.equals('tq1'))).getSingle();
+      expect(q.status, 'converted');
+      expect(q.convertedAt, DateTime.parse('2026-10-03T04:00:00.000Z').toLocal());
+    });
+
+    test('a 5xx then a second press resends the SAME bill id, key and quoteId', () async {
+      var attempt = 0;
+      final repo = repoWith((req) async {
+        attempt++;
+        if (attempt == 1) {
+          return http.Response(
+            _err('INTERNAL_ERROR', 'boom'),
+            503,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          _ok(created()),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      await expectLater(() => repo.saveSale(input(quoteId: 'tq1')), throwsA(anything));
+      await repo.saveSale(input(quoteId: 'tq1'));
+
+      final posts = sent.where((r) => r.url.path == '/api/v1/sales').toList();
+      expect(posts, hasLength(2));
+      expect(posts.map((r) => r.headers['Idempotency-Key']).toSet(), hasLength(1));
+      final bodies = posts.map((r) => jsonDecode(r.body) as Map).toList();
+      expect(bodies.map((b) => b['id']).toSet(), hasLength(1));
+      expect(bodies.map((b) => b['quoteId']).toSet(), {'tq1'});
+    });
+
+    test('the same cart without a quote is a different attempt, and sends no quoteId', () async {
+      final repo = repoWith((req) async {
+        return http.Response(
+          _err('INTERNAL_ERROR', 'boom'),
+          503,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      await expectLater(() => repo.saveSale(input(quoteId: 'tq1')), throwsA(anything));
+      await expectLater(() => repo.saveSale(input()), throwsA(anything));
+      final bodies =
+          sent.map((r) => jsonDecode(r.body) as Map<String, dynamic>).toList();
+      expect(bodies.first['quoteId'], 'tq1');
+      expect(bodies.last.containsKey('quoteId'), isFalse);
+      expect(bodies.map((b) => b['id']).toSet(), hasLength(2),
+          reason: 'a quote cart and a plain cart are two bills, not a retry');
+    });
+  });
+
   group('offline sales & overrideCreditLimit (Slice 14-c / Issue #194)', () {
     // A seeded device (08 §9): offline RC numbers come only from its counter (#472).
     const deviceId = 'dev-pos-01';
@@ -1187,6 +1284,24 @@ void main() {
       expect(payload['paymentMethod'], 'เครดิตช่าง');
       expect(payload['total'], '200.00');
       expect(payload['items'], hasLength(1));
+    });
+
+    test('#27: an offline quote cart queues sale.create WITH quoteId (the server does not act on it yet)', () async {
+      final repo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('HTTP should not be called offline')),
+          tokenStorage: _MemoryTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        docNumberService: numbers,
+        isOffline: true,
+      );
+      await repo.saveSale(input(quoteId: 'tq-offline'));
+      final payload =
+          jsonDecode((await db.select(db.outboxOps).getSingle()).payload) as Map<String, dynamic>;
+      expect(payload['quoteId'], 'tq-offline');
     });
 
     test('offline credit sale with overrideCreditLimit: false carries false directly into payload without guessing', () async {
