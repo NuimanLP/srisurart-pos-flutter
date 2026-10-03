@@ -2,9 +2,8 @@ name: Android APK
 
 # Manual release of the Android client. workflow_dispatch ONLY: routine pushes must never cut
 # a release, and this workflow is not a required check (flutter.yml / server.yml own those).
-# Builds two variants of the same commit and attaches both to a prerelease `apk-<shortsha>`:
-#   offline  plain Drift-only build, like the shop runs today
-#   api      USE_API_WRITES=true against the demo VM mob04 (same host the web build is served from)
+# Builds ONE APK from main: the API build (USE_API_WRITES=true) against the demo VM mob04,
+# signed with the project's stable key, attached to a prerelease `apk-<shortsha>`.
 
 on:
   workflow_dispatch:
@@ -23,15 +22,43 @@ defaults:
 
 jobs:
   apk:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      group: android-apk-${{ github.sha }}
+    env:
+      SHA: ${{ github.sha }}
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v5
+
+      - name: fail fast if the release already exists
+        working-directory: .
+        run: |
+          short="${SHA:0:7}"
+          if gh release view "apk-$short" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::error::Release apk-$short already exists; delete it first or build a newer commit."
+            exit 1
+          fi
+
+      - name: install stable signing key
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+            echo "::error::Secret ANDROID_KEYSTORE_B64 is empty or missing; refusing to build with a throwaway key."
+            exit 1
+          fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
 
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - uses: subosito/flutter-action@v2
         with:
@@ -41,34 +68,34 @@ jobs:
 
       - run: flutter pub get
 
-      - name: build APKs
+      - name: build APK
         run: |
-          short="$(echo "${{ github.sha }}" | cut -c1-7)"
+          short="${SHA:0:7}"
           mkdir -p ../apk-out
-          flutter build apk --release
-          cp build/app/outputs/flutter-apk/app-release.apk "../apk-out/srisurart-pos-offline-$short.apk"
-          flutter build apk --release \
+          flutter build apk --release --no-tree-shake-icons \
             --dart-define=USE_API_WRITES=true \
             --dart-define=API_BASE_URL="$API_BASE_URL"
-          cp build/app/outputs/flutter-apk/app-release.apk "../apk-out/srisurart-pos-api-$short.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "../apk-out/srisurart-pos-$short.apk"
+
+      - name: print signer certificate
+        run: |
+          short="${SHA:0:7}"
+          apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)"
+          "$apksigner" verify --print-certs "../apk-out/srisurart-pos-$short.apk" | grep 'SHA-256'
 
       - name: create release
-        env:
-          GH_TOKEN: ${{ github.token }}
         working-directory: .
         run: |
-          short="$(echo "${{ github.sha }}" | cut -c1-7)"
+          short="${SHA:0:7}"
           cat > notes.md <<NOTES
-          Commit: ${{ github.sha }}
+          Commit: $SHA
 
-          Two APKs of the same commit:
-          - srisurart-pos-offline-$short.apk: plain Drift-only build, no server.
-          - srisurart-pos-api-$short.apk: USE_API_WRITES=true, server $API_BASE_URL (demo VM mob04). Needs a network route to the VM. The VM's Nginx serves a self-signed certificate, which Android does not trust by default, so this variant cannot connect until that is resolved.
+          APK นี้เชื่อมต่อเซิร์ฟเวอร์ $API_BASE_URL (This build talks to the server at $API_BASE_URL). The device must be on the faculty network/VPN.
 
-          Both share applicationId com.srisurart.srisurart_pos: install one at a time (installing the other replaces it and keeps its data).
+          เซ็นด้วยกุญแจถาวรของโปรเจกต์ ดังนั้นรุ่นถัด ๆ ไปติดตั้งทับได้ (Signed with the project's stable key, so later releases install over this one.)
 
-          Signed with the Android debug key (no release keystore yet). A later release may fail to update over this one on a device; uninstall first.
+          Known blocker: the server certificate on mob04 must be fixed first (separate PR, in progress) before the app can connect. Until then the app cannot reach the server; there is no TLS bypass in this build.
           NOTES
           gh release create "apk-$short" apk-out/*.apk \
-            --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --repo "$REPO" --target "$SHA" \
             --title "Android APK $short" --notes-file notes.md --prerelease
