@@ -2,9 +2,11 @@
 // + ฿500 out → "เงินในลิ้นชักที่ควรมี" ฿-500): a cash-out larger than the
 // drawer's expected cash is REFUSED — on the Drift build, the API build's
 // offline queue, and the screen; cash-in is never limited. The expected cash
-// is ONE rule, `ShiftsRepository.drawerCash` (#452 counting window).
+// is ONE rule, `ShiftsRepository.drawerCash`, counted by shift (owner
+// 2026-10-03).
 //
-// The Thai string `เงินในลิ้นชักไม่พอ (มี ฿X)` is agent ร่าง (02_API_SCREENS §8.1).
+// The Thai string `เงินในลิ้นชักไม่พอ (มี ฿X)` was ratified by the owner 2026-10-03
+// (PR #580, 02_API_SCREENS §8.1).
 
 import 'dart:convert';
 import 'dart:io';
@@ -64,7 +66,7 @@ void main() {
   Future<int> entryCount() async =>
       (await db.select(db.drawerEntries).get()).length;
 
-  group('the message (agent ร่าง)', () {
+  group('the message (owner-ratified 2026-10-03)', () {
     test('with and without the amount', () {
       expect(drawerInsufficientCashMessage(), 'เงินในลิ้นชักไม่พอ');
       expect(drawerInsufficientCashMessage(0), 'เงินในลิ้นชักไม่พอ (มี ฿0)');
@@ -120,7 +122,7 @@ void main() {
       expect(await entryCount(), 2);
     });
 
-    test('a second shift counts from its own opening, not midnight', () async {
+    test('a second shift counts only its own money (by shift)', () async {
       final now = DateTime.now();
       final day = dayBounds(now);
       // Shift 1 from midnight with a ฿999 cash bill; shift 2 opened since.
@@ -132,6 +134,7 @@ void main() {
               dateStr: todayKey(),
               startingCash: 300,
               openedAt: day.from,
+              closedAt: Value(day.from.add(const Duration(seconds: 5))),
               isActive: const Value(false),
             ),
           );
@@ -244,111 +247,118 @@ void main() {
     );
   });
 
-  test('agrees with the server on the shared fixture '
-      '(docs/Backend_design/fixtures/drawer-cash/agreement.json)', () async {
+  group('agrees with the server on the shared by-shift fixture '
+      '(docs/Backend_design/fixtures/drawer-cash/agreement.json)', () {
     var file = File('../docs/Backend_design/fixtures/drawer-cash/agreement.json');
     if (!file.existsSync()) {
       file = File('docs/Backend_design/fixtures/drawer-cash/agreement.json');
     }
     final f = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
     double money(Object? v) => double.parse(v as String);
+    DateTime at(Object? v) => DateTime.parse(v as String);
     List<Map<String, dynamic>> rows(String k) =>
         (f[k] as List).cast<Map<String, dynamic>>();
 
-    // The day's FIRST shift — counted from midnight, so every row below is in
-    // its window, as every row is on the server's one shift_id.
-    final now = DateTime.now();
-    await db
-        .into(db.shifts)
-        .insert(
-          ShiftsCompanion.insert(
-            id: 'sh_fixture',
-            dateStr: todayKey(),
-            startingCash: money(f['startingCash']),
-            openedAt: now.subtract(const Duration(minutes: 1)),
-            isActive: const Value(true),
-          ),
-        );
-    for (final s in rows('sales')) {
-      await db
-          .into(db.sales)
-          .insert(
-            SalesCompanion.insert(
-              id: s['id'] as String,
-              receiptNo: 'RC-${s['id']}',
-              subtotal: money(s['total']),
-              total: money(s['total']),
-              paymentMethod: s['paymentMethod'] as String,
-              date: now,
-              voided: Value(s['voided'] as bool),
-            ),
-          );
-    }
-    for (final r in rows('returns')) {
-      await db
-          .into(db.returns)
-          .insert(
-            ReturnsCompanion.insert(
-              id: r['id'] as String,
-              cnNo: 'CN-${r['id']}',
-              saleId: r['saleId'] as String,
-              receiptNo: 'RC-${r['saleId']}',
-              refundSubtotal: money(r['refundTotal']),
-              refundDiscount: 0,
-              refundTotal: money(r['refundTotal']),
-              refundMethod: r['refundMethod'] as String,
-              date: now,
-            ),
-          );
-    }
-    await db
-        .into(db.mechanics)
-        .insert(
-          MechanicsCompanion.insert(
-            id: 'm-fx',
-            code: 'M901',
-            name: 'ช่างทดสอบ',
-            createdAt: now.toIso8601String(),
-          ),
-        );
-    for (final cp in rows('creditPayments')) {
-      await db
-          .into(db.creditPayments)
-          .insert(
-            CreditPaymentsCompanion.insert(
-              id: cp['id'] as String,
-              receiptNo: 'CP-${cp['id']}',
-              mechanicId: 'm-fx',
-              amount: money(cp['amount']),
-              // The Drift table keeps the method as the note's lead segment.
-              note: Value(cp['method'] as String),
-              date: now,
-            ),
-          );
-    }
-    for (final e in rows('entries')) {
-      await db
-          .into(db.drawerEntries)
-          .insert(
-            DrawerEntryRow(
-              id: e['id'] as String,
-              shiftId: 'sh_fixture',
-              type: e['type'] as String,
-              amount: money(e['amount']),
-              note: '',
-              createdAt: now,
-            ),
-          );
-    }
+    // API build: Sales.shiftId stamped. Drift build: never stamped - the sale
+    // is then attributed by its date in the shift's interval.
+    for (final stampSaleShift in [true, false]) {
+      test(stampSaleShift ? 'sales carry shiftId' : 'sales carry no shiftId', () async {
+        for (final sh in rows('shifts')) {
+          await db
+              .into(db.shifts)
+              .insert(
+                ShiftsCompanion.insert(
+                  id: sh['id'] as String,
+                  dateStr: (sh['openedAt'] as String).substring(0, 10),
+                  startingCash: money(sh['startingCash']),
+                  openedAt: at(sh['openedAt']),
+                  closedAt: Value(at(sh['closedAt'])),
+                  isActive: const Value(false),
+                ),
+              );
+        }
+        for (final s in rows('sales')) {
+          await db
+              .into(db.sales)
+              .insert(
+                SalesCompanion.insert(
+                  id: s['id'] as String,
+                  receiptNo: 'RC-${s['id']}',
+                  subtotal: money(s['total']),
+                  total: money(s['total']),
+                  paymentMethod: s['paymentMethod'] as String,
+                  date: at(s['at']),
+                  voided: Value(s['voided'] as bool),
+                  shiftId: Value(stampSaleShift ? s['shift'] as String : null),
+                ),
+              );
+        }
+        for (final r in rows('returns')) {
+          await db
+              .into(db.returns)
+              .insert(
+                ReturnsCompanion.insert(
+                  id: r['id'] as String,
+                  cnNo: 'CN-${r['id']}',
+                  saleId: r['saleId'] as String,
+                  receiptNo: 'RC-${r['saleId']}',
+                  refundSubtotal: money(r['refundTotal']),
+                  refundDiscount: 0,
+                  refundTotal: money(r['refundTotal']),
+                  refundMethod: r['refundMethod'] as String,
+                  date: at(r['at']),
+                ),
+              );
+        }
+        await db
+            .into(db.mechanics)
+            .insert(
+              MechanicsCompanion.insert(
+                id: 'm-fx',
+                code: 'M901',
+                name: 'ช่างทดสอบ',
+                createdAt: DateTime.now().toIso8601String(),
+              ),
+            );
+        for (final cp in rows('creditPayments')) {
+          await db
+              .into(db.creditPayments)
+              .insert(
+                CreditPaymentsCompanion.insert(
+                  id: cp['id'] as String,
+                  receiptNo: 'CP-${cp['id']}',
+                  mechanicId: 'm-fx',
+                  amount: money(cp['amount']),
+                  // The Drift table keeps the method as the note's lead segment.
+                  note: Value(cp['method'] as String),
+                  date: at(cp['at']),
+                ),
+              );
+        }
+        for (final e in rows('entries')) {
+          await db
+              .into(db.drawerEntries)
+              .insert(
+                DrawerEntryRow(
+                  id: e['id'] as String,
+                  shiftId: e['shift'] as String,
+                  type: e['type'] as String,
+                  amount: money(e['amount']),
+                  note: '',
+                  createdAt: at(e['at']),
+                ),
+              );
+        }
 
-    final expected = money(f['expectedCash']);
-    final drawer = (await shifts.getCashDrawer())!;
-    expect((await shifts.drawerCash(drawer)).expected, expected);
-    await expectLater(
-      shifts.addDrawerEntry('out', expected + 0.01, null),
-      throwsA(isA<PosException>()),
-    );
-    await shifts.addDrawerEntry('out', expected, null);
+        final got = <String, String>{};
+        for (final drawer in await shifts.getShiftHistory()) {
+          got[drawer.shift.id] = (await shifts.drawerCash(
+            drawer,
+          )).expected.toStringAsFixed(2);
+        }
+        expect(got, (f['expectedCash'] as Map).cast<String, String>());
+      });
+    }
   });
 
   group('ApiShiftsRepository', () {

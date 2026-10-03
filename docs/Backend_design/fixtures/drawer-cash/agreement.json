@@ -1,23 +1,60 @@
 {
-  "_comment": "Expected drawer cash — ONE scenario both sides must agree on (DRAWER_INSUFFICIENT_CASH, owner 2026-10-03). Server: server/test/shifts.e2e-spec.ts seeds these rows on one shift_id and checks GET /reports/closing + the cash-out refusal. Client: frontend/test/drawer_cash_out_limit_test.dart seeds them on the day's FIRST shift and checks ShiftsRepository.drawerCash. Only cases where the server's shift_id count and the client's #452 time window agree are here: one device, one shift, every row inside it. expected = 1000 + cash sales (S1 200 + S6 100; S4 manual void out; S2 transfer out) + cash credit payment CP1 300 − cash refund R2 100 (R3 by transfer out) + in 50 − out 120 = 1430.00",
-  "startingCash": "1000.00",
+  "_comment": "Expected drawer cash, counted BY SHIFT (owner 2026-10-03) — scenarios both sides must agree on. Server: server/test/shifts.e2e-spec.ts seeds every row with shift_id = its `shift` and date = `at`, then reads GET /reports/closing per shift. Client: frontend/test/drawer_cash_out_limit_test.dart seeds the same rows (sales twice: with Sales.shiftId set, as the API build stamps it, and with none, as the Drift build leaves it — then attributed by `at` in the shift's [openedAt, closedAt]; returns and credit payments have no local shift column and are always attributed by `at`) and reads ShiftsRepository.drawerCash per shift. Every row's `at` lies inside its own shift's interval — the server stamps money onto the shift open when it commits, so that holds for every online write. Ids are unique across scenarios; every shift is closed so intervals never overlap.",
+  "shifts": [
+    { "id": "A", "openedAt": "2026-09-10T09:00:00+07:00", "closedAt": "2026-09-10T18:00:00+07:00", "startingCash": "1000.00" },
+    { "id": "N", "openedAt": "2026-09-14T22:00:00+07:00", "closedAt": "2026-09-15T02:00:00+07:00", "startingCash": "500.00" },
+    { "id": "M", "openedAt": "2026-09-15T08:00:00+07:00", "closedAt": "2026-09-15T18:00:00+07:00", "startingCash": "300.00" },
+    { "id": "S1", "openedAt": "2026-09-20T08:00:00+07:00", "closedAt": "2026-09-20T12:00:00+07:00", "startingCash": "1000.00" },
+    { "id": "S2", "openedAt": "2026-09-20T13:00:00+07:00", "closedAt": "2026-09-20T18:00:00+07:00", "startingCash": "500.00" }
+  ],
   "sales": [
-    { "id": "S1", "total": "200.00", "paymentMethod": "เงินสด", "voided": false },
-    { "id": "S2", "total": "250.00", "paymentMethod": "โอน/QR", "voided": false },
-    { "id": "S4", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
-    { "id": "S6", "total": "100.00", "paymentMethod": "เงินสด", "voided": true }
+    { "id": "A-S1", "shift": "A", "at": "2026-09-10T10:00:00+07:00", "total": "200.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "A-S2", "shift": "A", "at": "2026-09-10T10:10:00+07:00", "total": "250.00", "paymentMethod": "โอน/QR", "voided": false },
+    { "id": "A-S4", "shift": "A", "at": "2026-09-10T10:20:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
+    { "id": "A-S6", "shift": "A", "at": "2026-09-10T10:30:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
+
+    { "id": "N-1", "shift": "N", "at": "2026-09-14T23:30:00+07:00", "total": "200.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "N-2", "shift": "N", "at": "2026-09-15T00:30:00+07:00", "total": "150.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "N-3", "shift": "N", "at": "2026-09-15T00:40:00+07:00", "total": "400.00", "paymentMethod": "โอน/QR", "voided": false },
+    { "id": "M-1", "shift": "M", "at": "2026-09-15T09:00:00+07:00", "total": "120.00", "paymentMethod": "เงินสด", "voided": false },
+
+    { "id": "P1", "shift": "S1", "at": "2026-09-20T09:00:00+07:00", "total": "300.00", "paymentMethod": "เงินสด", "voided": true },
+    { "id": "P2", "shift": "S1", "at": "2026-09-20T10:00:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
+    { "id": "P3", "shift": "S1", "at": "2026-09-20T11:00:00+07:00", "total": "50.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "Q1", "shift": "S2", "at": "2026-09-20T14:30:00+07:00", "total": "70.00", "paymentMethod": "เงินสด", "voided": false }
   ],
   "returns": [
-    { "id": "R2", "saleId": "S6", "refundTotal": "100.00", "refundMethod": "เงินสด" },
-    { "id": "R3", "saleId": "S1", "refundTotal": "50.00", "refundMethod": "โอน" }
+    { "id": "A-R2", "shift": "A", "at": "2026-09-10T11:00:00+07:00", "saleId": "A-S6", "refundTotal": "100.00", "refundMethod": "เงินสด" },
+    { "id": "A-R3", "shift": "A", "at": "2026-09-10T11:10:00+07:00", "saleId": "A-S1", "refundTotal": "50.00", "refundMethod": "โอน" },
+    { "id": "N-R1", "shift": "N", "at": "2026-09-15T01:10:00+07:00", "saleId": "N-1", "refundTotal": "50.00", "refundMethod": "เงินสด" },
+    { "id": "PR1", "shift": "S2", "at": "2026-09-20T14:00:00+07:00", "saleId": "P1", "refundTotal": "300.00", "refundMethod": "เงินสด" }
   ],
   "creditPayments": [
-    { "id": "CP1", "amount": "300.00", "method": "เงินสด" },
-    { "id": "CP2", "amount": "500.00", "method": "โอน/QR" }
+    { "id": "A-CP1", "shift": "A", "at": "2026-09-10T12:00:00+07:00", "amount": "300.00", "method": "เงินสด" },
+    { "id": "A-CP2", "shift": "A", "at": "2026-09-10T12:10:00+07:00", "amount": "500.00", "method": "โอน/QR" },
+    { "id": "N-CP1", "shift": "N", "at": "2026-09-15T00:10:00+07:00", "amount": "100.00", "method": "เงินสด" },
+    { "id": "S1-CP1", "shift": "S1", "at": "2026-09-20T11:30:00+07:00", "amount": "80.00", "method": "เงินสด" }
   ],
   "entries": [
-    { "id": "de1", "type": "in", "amount": "50.00" },
-    { "id": "de2", "type": "out", "amount": "120.00" }
+    { "id": "A-de1", "shift": "A", "at": "2026-09-10T13:00:00+07:00", "type": "in", "amount": "50.00" },
+    { "id": "A-de2", "shift": "A", "at": "2026-09-10T13:10:00+07:00", "type": "out", "amount": "120.00" },
+    { "id": "N-de1", "shift": "N", "at": "2026-09-14T22:30:00+07:00", "type": "in", "amount": "20.00" },
+    { "id": "N-de2", "shift": "N", "at": "2026-09-15T01:30:00+07:00", "type": "out", "amount": "70.00" },
+    { "id": "M-de1", "shift": "M", "at": "2026-09-15T09:10:00+07:00", "type": "out", "amount": "20.00" },
+    { "id": "S2-de1", "shift": "S2", "at": "2026-09-20T15:00:00+07:00", "type": "out", "amount": "100.00" }
   ],
-  "expectedCash": "1430.00"
+  "expectedCash": {
+    "A": "1430.00",
+    "N": "850.00",
+    "M": "400.00",
+    "S1": "1430.00",
+    "S2": "170.00"
+  },
+  "_expected_by_hand": {
+    "A": "one shift: 1000 + cash sales (A-S1 200 + A-S6 100 auto-voided; A-S4 manual void out; A-S2 transfer out) + A-CP1 300 − A-R2 100 (A-R3 by transfer out) + in 50 − out 120 = 1430",
+    "N": "crosses midnight: 500 + N-1 200 + N-2 150 (after midnight, still N) + N-CP1 100 − N-R1 50 + in 20 − out 70 = 850 (N-3 is transfer)",
+    "M": "next morning's shift — none of N's after-midnight money: 300 + M-1 120 − out 20 = 400",
+    "S1": "first of two shifts that day: 1000 + P1 300 (auto-voided by PR1 in S2, so still counted) + P3 50 + S1-CP1 80 = 1430 (P2 manual void out)",
+    "S2": "second shift that day — none of S1's bills, but PR1's cash refund was paid from S2: 500 + Q1 70 − PR1 300 − out 100 = 170"
+  }
 }

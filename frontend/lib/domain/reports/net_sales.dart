@@ -425,32 +425,21 @@ bool isCashCreditPayment(String? note) {
   return method == 'เงินสด';
 }
 
-/// "+ ยอดขายเงินสด" of the expected drawer cash — the ONE place both the
-/// cash-drawer screen and the closing report's drawer check take it from
-/// (#452: one counting window, `ShiftsRepository.cashCountFrom` → [from]).
+/// "+ ยอดขายเงินสด" of the expected drawer cash — the ONE place the drawer's
+/// cash sales come from (`ShiftsRepository.drawerCash`, owner 2026-10-03:
+/// count by shift).
 ///
-/// Cash bills dated at or after [from], without manual voids: a manual void
-/// hands the money back, so the bill is not in the drawer (the server's
-/// `/reports/closing` `cash_sales` applies `COUNTED_SALE` too). An auto-voided
-/// bill (one with a credit note) stays counted — its cash refund is already
-/// subtracted as "− คืนเงินสด", so dropping the sale too would take it off
-/// twice.
-///
-/// [returns] must cover the same window as [sales] up to now (both callers
-/// read them from [from]): a bill's credit note always comes after the bill,
-/// so it is inside that window.
-double drawerCashSalesOf(
-  List<SaleWithItems> sales,
-  List<ReturnWithItems> returns, {
-  required DateTime from,
-}) {
-  final returned = {for (final r in returns) r.ret.saleId};
-  return sales
-      .where(
-        (s) =>
-            s.sale.paymentMethod == 'เงินสด' &&
-            !s.sale.date.isBefore(from) &&
-            _counts(s.sale.voided, s.sale.id, returned),
-      )
-      .fold<double>(0, (sum, s) => sum + s.sale.total);
-}
+/// Cash bills of one shift, without manual voids: a manual void hands the
+/// money back, so the bill is not in the drawer (the server's `COUNTED_SALE`,
+/// `server/src/reports/drawer-cash.sql.ts`). An auto-voided bill — one with a
+/// credit note in ANY shift, [returnedSaleIds] — stays counted: its cash
+/// refund is subtracted in the shift that paid it, so dropping the sale too
+/// would take it off twice.
+double drawerCashSalesOf(Iterable<SaleRow> sales, Set<String> returnedSaleIds) =>
+    sales
+        .where(
+          (s) =>
+              s.paymentMethod == 'เงินสด' &&
+              _counts(s.voided, s.id, returnedSaleIds),
+        )
+        .fold<double>(0, (sum, s) => sum + s.total);

@@ -63,9 +63,6 @@ const _skipped = {
   // turned into an emitted error state there. Checking both layers would demand
   // a catch at each.
   'lib/presentation/blocs/',
-  // Being edited concurrently by another agent (shifts/cash drawer, 2026-10-03);
-  // enrol it here once that work lands.
-  'lib/presentation/screens/cash_drawer_screen.dart',
 };
 
 /// `<file>|<receiver.method>` (as the failure message prints it) → why that
