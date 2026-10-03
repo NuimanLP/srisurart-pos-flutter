@@ -128,16 +128,7 @@ class ApiSalesRepository implements SalesRepository {
         return sale;
       }
 
-      final body = {
-        ..._saleBody(attempt.id, input),
-        // #27 (owner, 2026-10-03, option (ข)): the quote this cart was loaded
-        // from; the server converts it in the bill's own transaction. ONLINE
-        // only — the outbox `sale.create` payload (`_saveOffline`) does not carry
-        // it: `/sync/push` does not read it, and what a quote conflict should do
-        // to a bill already paid offline is an open owner question. A quote cart
-        // sold offline therefore leaves its quote open.
-        'quoteId': ?input.quoteId,
-      };
+      final body = _saleBody(attempt.id, input);
 
       final Map<String, dynamic> res;
       try {
@@ -279,6 +270,13 @@ class ApiSalesRepository implements SalesRepository {
     // The counter's own answer to 'ยืนยันขายเครดิต?', carried — never
     // re-derived from the cached mechanic row. See `SaleInput.overrideCreditLimit`.
     'overrideCreditLimit': input.overrideCreditLimit,
+    // #27 (owner, 2026-10-03, option (ข)): the quote this cart was loaded from;
+    // `POST /sales` converts it in the bill's own transaction. The outbox
+    // `sale.create` payload carries it too, but `/sync/push` does not act on it
+    // yet — what a quote conflict should do to a bill already paid offline is an
+    // open owner question — so a quote cart sold offline leaves its quote open
+    // (and "→ ขาย" still on offer) until that is decided.
+    'quoteId': ?input.quoteId,
     'items': [
       for (var i = 0; i < input.items.length; i++)
         {
@@ -447,17 +445,21 @@ class ApiSalesRepository implements SalesRepository {
       // #27: the quote as the server left it (`quote` is present only when the
       // body carried a `quoteId`, and null on a replay after the quote was
       // purged). Absent leaves the cached quote alone until the next pull.
+      // Read defensively: a throw here would roll back the receipt-number
+      // commit above, and a field the reply omits leaves the row alone.
       final quote = res['quote'];
-      if (quote is Map) {
-        final q = quote.cast<String, dynamic>();
-        await (db.update(db.quotes)
-              ..where((t) => t.id.equals(q['id'] as String)))
-            .write(
-              QuotesCompanion(
-                status: Value(q['status'] as String),
-                convertedAt: Value(stampOrNull(q['convertedAt'])),
-              ),
-            );
+      final quoteId = quote is Map ? quote['id'] : null;
+      if (quoteId is String) {
+        final status = quote['status'];
+        final convertedAt = quote['convertedAt'];
+        await (db.update(db.quotes)..where((t) => t.id.equals(quoteId))).write(
+          QuotesCompanion(
+            status: status is String ? Value(status) : const Value.absent(),
+            convertedAt: convertedAt is String
+                ? Value(stamp(convertedAt))
+                : const Value.absent(),
+          ),
+        );
       }
     });
 

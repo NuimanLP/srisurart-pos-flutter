@@ -1286,7 +1286,7 @@ void main() {
       expect(payload['items'], hasLength(1));
     });
 
-    test('#27: an offline quote cart queues sale.create WITHOUT quoteId (follow-up for the owner)', () async {
+    test('#27: an offline quote cart queues sale.create WITH quoteId (the server does not act on it yet)', () async {
       final repo = ApiSalesRepository(
         api: ApiClient(
           baseUrl: 'http://server.test',
@@ -1301,7 +1301,7 @@ void main() {
       await repo.saveSale(input(quoteId: 'tq-offline'));
       final payload =
           jsonDecode((await db.select(db.outboxOps).getSingle()).payload) as Map<String, dynamic>;
-      expect(payload.containsKey('quoteId'), isFalse);
+      expect(payload['quoteId'], 'tq-offline');
     });
 
     test('offline credit sale with overrideCreditLimit: false carries false directly into payload without guessing', () async {

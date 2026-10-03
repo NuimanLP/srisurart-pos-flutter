@@ -1304,9 +1304,10 @@ ledger's row count across the whole lifecycle.
   reply plus `quote: { id, status, convertedAt, convertedSaleId }` (`null` on a replay after the
   quote was purged; absent when the body had no `quoteId`). A lost-key retry whose quote has
   since been purged replays the bill instead of `404` (`existingSale`); an unknown quote with no
-  such bill is `404 QUOTE_NOT_FOUND`. **`/sync/push` does not read `quoteId`** — what a quote
-  conflict should do to a bill already paid offline is an open owner question — and the client
-  leaves it out of the outbox payload, so a quote cart sold offline leaves its quote open.
+  such bill is `404 QUOTE_NOT_FOUND`. **`/sync/push` does not act on `quoteId`** (the client puts
+  it in the outbox `sale.create` payload; `parseCreateSale` ignores it) — what a quote conflict
+  should do to a bill already paid offline is an open owner question — so a quote cart sold
+  offline leaves its quote open, and that quote can still be sold into a second bill until decided.
   The client no longer calls `POST /quotes/:id/convert`; it is kept, unchanged in behaviour.
 - **Q2 (owner, 2026-10-03): `DELETE` of a converted quote is `409 QUOTE_CONVERTED_NOT_DELETABLE`**
   (`details.convertedSaleId`); the screen hides the button. `POST /quotes/purge` still removes
