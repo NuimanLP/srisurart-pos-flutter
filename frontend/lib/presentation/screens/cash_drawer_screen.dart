@@ -729,7 +729,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         if (entries.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 20),
-            // agent ร่าง: only manual cash in/out entries are listed here, not sales.
+            // Ratified by the owner 2026-10-03 (PR #568): only manual cash in/out entries are listed here, not sales.
             child: EmptyState(message: 'ยังไม่มีรายการเงินเข้า/ออก'),
           ),
         for (final e in entries) _entryRow(context, e),
