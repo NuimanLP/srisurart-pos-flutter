@@ -84,6 +84,17 @@ export function parseCreateSale(body: unknown): CreateSale {
   return sale;
 }
 
+/**
+ * The optional `quoteId` of `POST /sales` (#27, owner 2026-10-03): the quote this
+ * cart was loaded from, marked converted in the bill's own transaction. Read apart
+ * from `parseCreateSale` on purpose — `/sync/push` replays `sale.create` through
+ * that parser, and what a quote conflict means for a bill already paid offline is
+ * not decided, so the replay neither reads nor acts on it.
+ */
+export function parseSaleQuoteId(body: unknown): string | null {
+  return optionalString(asObject(body, 'body').quoteId, 'quoteId');
+}
+
 /** Everything on a sale that is not its lines or its money. */
 export type SaleParty = Omit<
   CreateSale,

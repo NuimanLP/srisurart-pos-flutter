@@ -784,6 +784,186 @@ describe('quotes and parked sales (e2e)', () => {
     });
   });
 
+  // ── #27 owner decision 2026-10-03: (ข) POST /sales takes a quoteId; Q2 ─────────
+  describe('POST /sales with a quoteId sells the cart and converts the quote', () => {
+    /** A cart that differs from the saved quote: one brake pad, no spark plug. */
+    const editedCart = (over: Record<string, unknown> = {}) => ({
+      id: 'sale-27-q',
+      subtotal: '100.00',
+      discount: '0.00',
+      total: '100.00',
+      paymentMethod: 'เงินสด',
+      items: [
+        { lineNo: 1, productId: P1, name: 'ผ้าเบรกหน้า', qty: 1, price: '100.00' },
+      ],
+      ...over,
+    });
+
+    const sell = (body: Record<string, unknown>, opts: { key?: string } = {}) =>
+      http()
+        .post('/api/v1/sales')
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', opts.key ?? key())
+        .send(body);
+
+    it('an edited cart is sold as sent and marks the quote converted in the same transaction', async () => {
+      const q = (await createQuote()).body.data;
+      const res = await sell(editedCart({ quoteId: q.id }));
+      expect(res.status).toBe(201);
+      expect(res.body.data.id).toBe('sale-27-q');
+      expect(res.body.data.total).toBe('100.00');
+      expect(res.body.data.products).toEqual([{ id: P1, stock: 9 }]);
+      expect(res.body.data.quote).toMatchObject({
+        id: q.id,
+        status: 'converted',
+        convertedSaleId: 'sale-27-q',
+      });
+      expect(res.body.data.quote.convertedAt).not.toBeNull();
+      const row = await quoteRow(q.id);
+      expect(row!.status).toBe('converted');
+      expect(row!.converted_sale_id).toBe('sale-27-q');
+      // The cart's lines, not the quote's: the spark plug never left the shelf.
+      expect((await stockState()).products).toEqual([
+        { id: P1, stock: 9 },
+        { id: P2, stock: 5 },
+      ]);
+    });
+
+    it('a POST /sales without quoteId answers exactly as before (no quote field)', async () => {
+      const res = await sell(editedCart({ id: 'sale-27-plain' }));
+      expect(res.status).toBe(201);
+      expect(res.body.data).not.toHaveProperty('quote');
+    });
+
+    it('a second bill against the same quote is QUOTE_ALREADY_CONVERTED and writes nothing', async () => {
+      const q = (await createQuote()).body.data;
+      expect((await sell(editedCart({ quoteId: q.id }))).status).toBe(201);
+      const before = await stockState();
+      const res = await sell(editedCart({ id: 'sale-27-q2', quoteId: q.id }));
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('QUOTE_ALREADY_CONVERTED');
+      expect(res.body.error.details.convertedSaleId).toBe('sale-27-q');
+      expect(await saleCount()).toBe(1);
+      expect(await stockState()).toEqual(before);
+    });
+
+    it('a retry with a fresh key and the same bill id replays the same bill', async () => {
+      const q = (await createQuote()).body.data;
+      const first = await sell(editedCart({ quoteId: q.id }));
+      const retry = await sell(editedCart({ quoteId: q.id }));
+      expect(retry.status).toBe(201);
+      expect(retry.body).toEqual(first.body);
+      expect(await saleCount()).toBe(1);
+      expect((await stockState()).products).toEqual([
+        { id: P1, stock: 9 },
+        { id: P2, stock: 5 },
+      ]);
+    });
+
+    it('the same Idempotency-Key replays the identical body', async () => {
+      const q = (await createQuote()).body.data;
+      const k = key();
+      const first = await sell(editedCart({ quoteId: q.id }), { key: k });
+      const again = await sell(editedCart({ quoteId: q.id }), { key: k });
+      expect(again.status).toBe(201);
+      expect(again.body).toEqual(first.body);
+      expect(await saleCount()).toBe(1);
+    });
+
+    it('a refusal on the sale path rolls back: the quote stays open, stock untouched', async () => {
+      const q = (await createQuote()).body.data;
+      const before = await stockState();
+      const res = await sell(
+        editedCart({
+          quoteId: q.id,
+          subtotal: '2000.00',
+          total: '2000.00',
+          items: [
+            { lineNo: 1, productId: P1, name: 'ผ้าเบรกหน้า', qty: 20, price: '100.00' },
+          ],
+        }),
+      );
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
+      expect((await quoteRow(q.id))!.status).toBe('open');
+      expect(await stockState()).toEqual(before);
+    });
+
+    it('an expired quote is QUOTE_EXPIRED and nothing is written', async () => {
+      const q = (await createQuote()).body.data;
+      await admin.query(
+        `UPDATE quotes SET valid_until = now() - interval '1 second'
+          WHERE tenant_id = $1::uuid AND id = $2`,
+        [TENANT, q.id],
+      );
+      const before = await stockState();
+      const res = await sell(editedCart({ quoteId: q.id }));
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('QUOTE_EXPIRED');
+      expect(await saleCount()).toBe(0);
+      expect(await stockState()).toEqual(before);
+    });
+
+    it('two concurrent bills against one quote: one bill, one refusal', async () => {
+      const q = (await createQuote()).body.data;
+      const [a, b] = await Promise.all([
+        sell(editedCart({ id: 'sale-27-qa', quoteId: q.id })),
+        sell(editedCart({ id: 'sale-27-qb', quoteId: q.id })),
+      ]);
+      expect([a.status, b.status].sort()).toEqual([201, 409]);
+      expect((a.status === 409 ? a : b).body.error.code).toBe(
+        'QUOTE_ALREADY_CONVERTED',
+      );
+      expect(await saleCount()).toBe(1);
+      expect((await stockState()).products[0]).toEqual({ id: P1, stock: 9 });
+    });
+
+    it('an unknown quote is QUOTE_NOT_FOUND; a lost-key retry after a purge replays the bill', async () => {
+      const unknown = await sell(editedCart({ id: 'sale-27-nq', quoteId: 'q-none' }));
+      expect(unknown.status).toBe(404);
+      expect(unknown.body.error.code).toBe('QUOTE_NOT_FOUND');
+      expect(await saleCount()).toBe(0);
+
+      const q = (await createQuote()).body.data;
+      const first = await sell(editedCart({ quoteId: q.id }));
+      // What `POST /quotes/purge` does to an old converted quote.
+      await admin.query(`DELETE FROM quotes WHERE tenant_id = $1::uuid AND id = $2`, [
+        TENANT,
+        q.id,
+      ]);
+      const retry = await sell(editedCart({ quoteId: q.id }));
+      expect(retry.status).toBe(201);
+      expect(retry.body.data.receiptNo).toBe(first.body.data.receiptNo);
+      expect(retry.body.data.quote).toBeNull();
+      expect(await saleCount()).toBe(1);
+    });
+
+    it('DELETE of a converted quote is QUOTE_CONVERTED_NOT_DELETABLE (Q2); an open one still deletes', async () => {
+      const q = (await createQuote()).body.data;
+      await sell(editedCart({ quoteId: q.id }));
+      const del = await http()
+        .delete(`/api/v1/quotes/${q.id}`)
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', key());
+      expect(del.status).toBe(409);
+      expect(del.body.error.code).toBe('QUOTE_CONVERTED_NOT_DELETABLE');
+      expect(del.body.error.details.convertedSaleId).toBe('sale-27-q');
+      expect((await quoteRow(q.id))!.status).toBe('converted');
+
+      const open = (await createQuote()).body.data;
+      const ok = await http()
+        .delete(`/api/v1/quotes/${open.id}`)
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', key());
+      expect(ok.status).toBe(200);
+      const missing = await http()
+        .delete(`/api/v1/quotes/${open.id}`)
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', key());
+      expect(missing.status).toBe(404);
+    });
+  });
+
   // ── AC2 ─────────────────────────────────────────────────────────────────────
   describe('AC2: parking and unparking leaves stock untouched', () => {
     const cart = {
