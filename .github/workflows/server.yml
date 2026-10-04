@@ -100,6 +100,9 @@ jobs:
               - 'deploy/scripts/backup-db.sh'
               - 'deploy/scripts/healthcheck-ping.sh'
               - 'deploy/scripts/test/**'
+              # promtool check in the nginx-check job: the VM's Prometheus config + the local overlay's jobs.
+              - 'deploy/prometheus/**'
+              - 'deploy/prometheus-local/**'
               # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
             ci:
@@ -352,6 +355,19 @@ jobs:
       # Uptime heartbeat: right ping on success/failure, URL never printed, unset = warning only.
       - name: healthcheck-ping.sh tests (stubbed curl)
         run: deploy/scripts/test/healthcheck-ping.test.sh
+      # deploy.yml copies deploy/prometheus/ to the VM and only warns if Prometheus then fails, so
+      # check it here: alone (as on the VM, scrape.d/ absent) and with the local overlay's jobs.
+      # Same pinned image as deploy/compose/monitoring.yml — bump both together.
+      - name: Prometheus config check (promtool, VM + local overlay)
+        env:
+          PROM_IMAGE: prom/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+        run: |
+          cfg="$PWD/deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+          overlay="$PWD/deploy/prometheus-local/local-scrape.yml:/etc/prometheus/scrape.d/local-scrape.yml:ro"
+          docker run --rm --entrypoint promtool -v "$cfg" "$PROM_IMAGE" \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm --entrypoint promtool -v "$cfg" -v "$overlay" "$PROM_IMAGE" \
+            check config /etc/prometheus/prometheus.yml
       - name: cleanup temporary files
         if: always()
         run: rm -rf .tmp-nginx

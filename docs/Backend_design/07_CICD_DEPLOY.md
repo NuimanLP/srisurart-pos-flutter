@@ -977,15 +977,15 @@ cadvisor 256m) ขณะที่เพดานรวมของ stack บน 
 | Alloy | `deploy/alloy/config.alloy` | อ่าน log ทุก container ของ compose project นี้ผ่าน `docker.sock` → Loki · UI `127.0.0.1:12345` |
 | exporters | `observability.yml` | postgres-exporter (superuser — **dev เท่านั้น**, VM ต้องใช้ role `pg_monitor`), redis_exporter (multi-target), cAdvisor |
 | Grafana/Prometheus | `deploy/grafana-local/`, `deploy/prometheus-local/` | datasource Loki + dashboard *POS — infrastructure (local)* 15 panel + scrape job 3 ตัว |
-| API จากโค้ดในเครื่อง | `deploy/compose/local-api.yml` | api-1..3 ใช้ image ที่ build เอง (ต้องอยู่หลัง `vm.override.yml`) |
+| API จากโค้ดในเครื่อง | `deploy/compose/local-api.yml` | ทุก service ที่ใช้ image server (migrate, api-1..3, worker, bull-board) ใช้ image ที่ build เอง (ต้องอยู่หลัง `vm.override.yml`) |
 
 * 🔴 ไฟล์ของ overlay นี้ **ห้ามวางใน `deploy/grafana/` หรือ `deploy/prometheus/`** — `deploy.yml` copy สองโฟลเดอร์นั้น
   ขึ้น VM ทั้งก้อน จะได้ datasource ที่ไม่มี Loki อยู่หลัง และ dashboard ที่ "No data" ทั้งหน้า
 * Grafana ใต้ overlay ใช้ `volumes: !override` (Compose ≥ 2.24) mount provisioning ทีละไฟล์ เพราะ bind-mount ไฟล์ลงใน
   โฟลเดอร์ provisioning ที่ mount `:ro` ไม่ได้ → **เพิ่มไฟล์ใน `deploy/grafana/provisioning/` ต้องเพิ่มใน
   `observability.yml` ด้วย** ไม่งั้น Grafana ใต้ overlay จะไม่เห็น
-* `prometheus.yml` มี `scrape_config_files: /etc/prometheus/scrape.d/*.yml` — บน VM โฟลเดอร์ว่าง (promtool v2.55.1 ผ่าน)
-* 🔴 `docker.sock:ro` **ไม่จำกัด Docker API** — Alloy และ cAdvisor สั่ง start/stop container ได้
+* `prometheus.yml` มี `scrape_config_files: /etc/prometheus/scrape.d/*.yml` — บน VM ไม่มีโฟลเดอร์นี้เลย จึงไม่โหลดอะไรเพิ่ม · CI (`nginx-check`) รัน `promtool check config` ทั้งแบบ VM และแบบมี overlay
+* 🔴 `docker.sock:ro` **ไม่จำกัด Docker API** — Alloy และ cAdvisor สั่ง start/stop container ได้ · cAdvisor ยังรัน `privileged: true` และ mount `/` ทั้งเครื่อง — ใช้บนเครื่อง dev เท่านั้น
 * วิธีค้น log: [`deploy/loki/README.md`](../../deploy/loki/README.md)
 
 ## 11. ใครทำอะไร (กฎคอร์ส: ทุกคนแตะ CI/CD)
