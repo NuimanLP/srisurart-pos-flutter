@@ -1486,7 +1486,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
     _isNew = p == null;
     _categories = List<String>.from(widget.categories);
     _partNo = TextEditingController(text: p?.partNo ?? '');
-    _name = TextEditingController(text: p?.name ?? '');
+    // A Thai-only product stores its Thai name in `name` too (see
+    // productNameOrThai); show EN blank so editing doesn't look like the user typed it.
+    // Lossless: saving with EN blank re-derives the same `name`.
+    _name = TextEditingController(
+      text: p == null || p.name == p.nameTH ? '' : p.name,
+    );
     _nameTH = TextEditingController(text: p?.nameTH ?? '');
     _brand = TextEditingController(text: p?.brand ?? '');
     _compat = TextEditingController(text: p?.compat ?? '');
