@@ -325,7 +325,7 @@ playbook `deploy.yml` ของ Ansible [11] ทำตามลำดับ ต�
 
 เวิร์กโฟลว์ `.github/workflows/android-apk.yml` (PR #551) สั่งรันด้วยมือเท่านั้น (`workflow_dispatch`) และทำงานเฉพาะบนสาขา `main` สร้างไฟล์ติดตั้ง Android Package Kit (APK) ชนิดเดียว คือบิลด์ API (`USE_API_WRITES=true`, `API_BASE_URL=https://172.30.58.20`) ลงนามด้วยกุญแจถาวรจากความลับ `ANDROID_KEYSTORE_B64` เพื่อให้รุ่นถัดไปติดตั้งทับได้ แล้วเผยแพร่เป็น pre-release บน GitHub ชื่อ `apk-<sha7>` เวิร์กโฟลว์ปฏิเสธการสร้างหากไม่มีความลับดังกล่าว (ไม่ใช้กุญแจชั่วคราว) หรือ release ชื่อเดิมมีอยู่แล้ว ไม่มี APK แบบออฟไลน์ล้วนจาก `main` เพราะค่าเริ่มต้นของบิลด์คือโหมด API และแอปต้องเพิ่มสิทธิ์ `INTERNET` ใน `AndroidManifest.xml` เนื่องจากบิลด์ release ไม่มีสิทธิ์นี้โดยปริยาย
 
-ในวันเดียวกัน (3 ตุลาคม พ.ศ. 2569) ทั้งสองส่วนถูกนำขึ้นใช้งาน การ deploy คอมมิต `7ea0178` เป็นครั้งแรกที่ `certgen` รันบน `mob04` และสร้าง CA จากนั้น PR #559 คอมมิตใบรับรอง CA ลงแอสเซต `frontend/assets/certs/pos-ca.crt` ตามขั้นตอนใน `07_CICD_DEPLOY.md` §5 "TLS" โดยตรวจว่าลายนิ้วมือ SHA-256 ตรงกับ `certs-ca/ca.crt` บนเครื่อง และ `HttpClient` ของ Dart ที่เชื่อถือ CA นี้เรียก `/health/ready` ได้ 200 ขณะที่เมื่อไม่เชื่อถือจะเกิด `HandshakeException` ส่วนเวิร์กโฟลว์ APK รันครั้งแรกล้มเหลวเพราะปลั๊กอิน `file_picker` รุ่นเดิมคอมไพล์บน Android Gradle Plugin 9 ไม่ได้ PR #560 จึงยกรุ่นเป็น 13.1.0 (และยกเป้าหมาย iOS ขั้นต่ำเป็น 14.0 ตามที่ปลั๊กอินต้องการ) หลังจากนั้นเวิร์กโฟลว์สร้าง APK สำเร็จสองครั้ง ข้อจำกัดคือการเปลี่ยน IP ของ VM ต้องแก้ SAN ใน `certgen.sh` และหาก CA ในวอลุ่มสูญหาย APK ทุกตัวที่แจกไปแล้วจะเชื่อมต่อไม่ได้จนกว่าจะคอมมิต CA ใหม่และสร้าง APK ใหม่
+ทั้งสองส่วนถูกนำขึ้นใช้งานในวันเดียวกัน (3 ตุลาคม พ.ศ. 2569) คือ `certgen` สร้าง CA บน `mob04` ในการ deploy คอมมิต `7ea0178` ใบรับรอง CA ถูกคอมมิตลงแอสเซตตามขั้นตอนใน `07_CICD_DEPLOY.md` §5 "TLS" (PR #559) และเวิร์กโฟลว์ APK สร้างไฟล์ติดตั้งได้หลังยกรุ่นปลั๊กอิน `file_picker` (PR #560) หลักฐานและข้อจำกัดอยู่ในบทที่ 4 ข้อควรระวังเชิงออกแบบคือการเปลี่ยน IP ของ VM ต้องแก้ SAN ใน `certgen.sh` และหาก CA ในวอลุ่มสูญหาย APK ทุกตัวที่แจกไปแล้วจะเชื่อมต่อไม่ได้จนกว่าจะคอมมิต CA ใหม่และสร้าง APK ใหม่
 
 ## เทคโนโลยีที่ใช้
 
@@ -500,7 +500,7 @@ Image versions -> server/docker-compose.yml, deploy/compose/monitoring.yml
 Package versions -> frontend/pubspec.yaml; server/package.json; Flutter 3.44.3 -> .github/workflows/flutter.yml:31
 Endpoints list -> grep of @Controller/@Get/@Post in server/src/**/*.controller.ts
 Phase 2 spec facts (outbox columns, op catalogue, push order, batch 50, attempts 3 -> stuck, RC/CN, keyset pull, 30 s rewind, Degraded triggers) -> docs/Backend_design/08_PHASE2_SPEC.md §0, §5, §6, §7, §8, §9, §15; OutboxOps columns -> frontend/lib/data/db/tables.dart:445-460
-Lock order, runTx/commit-ceiling rules, idempotency fingerprint, 5xx-no-queue decision 2026-09-27, OUTBOX_NOT_EMPTY, commitServerIssued, cashCountFrom, planReturn -> CLAUDE.md "Binding rules"
+Lock order, runTx/commit-ceiling rules, idempotency fingerprint, 5xx-no-queue decision 2026-09-27, OUTBOX_NOT_EMPTY, commitServerIssued, drawerCash (by shift; cashCountFrom removed by #584), planReturn -> CLAUDE.md "Binding rules"
 Metrics names, middleware counting, UNMEASURED_PATHS, ~36 200s/min, ~92%, approved 2026-09-21 -> CLAUDE.md "Metrics"
 ADR-0006, ADR-0009, ADR-0004, ADR-0007, ADR-0003 addendum, ADR-0002, ADR-0001 content -> respective adr files and adr/README.md
 Approval gate on demo environment (ADR-0013 addendum, #366) -> CLAUDE.md CI/CD rules

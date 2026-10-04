@@ -70,7 +70,7 @@ TABLE: หลักฐานการ deploy บนเครื่อง mob04 (
 TABLE: งาน Android APK และ TLS ที่รวมเมื่อ 3 ตุลาคม พ.ศ. 2569 และสถานะ {#tab:apk-tls}
 | งาน | สิ่งที่รวมแล้ว | สถานะ |
 |---|---|---|
-| PR #551 เวิร์กโฟลว์ `android-apk.yml` | สั่งรันด้วยมือ เฉพาะ `main` สร้าง APK บิลด์ API ชนิดเดียว ลงนามด้วยความลับ `ANDROID_KEYSTORE_B64` เผยแพร่เป็น pre-release `apk-<sha7>` เพิ่มสิทธิ์ `INTERNET` | รันแล้วสามครั้งเมื่อ 3 ตุลาคม: ครั้งแรกล้มเหลว แก้ด้วย PR #560 จากนั้นได้ pre-release `apk-e191755` และ `apk-ff84fd3` |
+| PR #551 เวิร์กโฟลว์ `android-apk.yml` | สั่งรันด้วยมือ เฉพาะ `main` สร้าง APK บิลด์ API ชนิดเดียว ลงนามด้วยความลับ `ANDROID_KEYSTORE_B64` เผยแพร่เป็น pre-release `apk-<sha7>` เพิ่มสิทธิ์ `INTERNET` | รันแล้วสามครั้งเมื่อ 3 ต.ค. 2569: ครั้งแรกล้มเหลว แก้ด้วย PR #560 จากนั้นได้ pre-release `apk-e191755` และ `apk-ff84fd3` |
 | PR #552 CA ส่วนตัวสำหรับ `mob04` | `certgen` รักษา CA ในวอลุ่ม `certs-ca` และออกใบรับรองเซิร์ฟเวอร์ (SAN `localhost`, `127.0.0.1`, `172.30.58.20`) Nginx เชื่อถือ playbook รัน `certgen` มีสคริปต์ทดสอบ `certgen.test.sh` แอปเชื่อถือ CA ที่ฝังมาผ่าน `HttpOverrides` | ติดตั้งบน `mob04` ตั้งแต่การ deploy `7ea0178` และคอมมิต CA ลงแอสเซตแล้ว (PR #559) |
 | PR #553 เอกสาร | ปรับ `CLAUDE.md`, คู่มือการ deploy, คู่มือฝ่ายไอที และบันทึกการศึกษาให้ตรงกับสองรายการข้างต้น | รวมแล้ว (เอกสารล้วน) |
 
@@ -78,7 +78,7 @@ TABLE: งาน Android APK และ TLS ที่รวมเมื่อ 3 �
 
 ### การ deploy และการทดสอบบนเครื่องสาธิต (3–4 ตุลาคม พ.ศ. 2569)
 
-การแก้ไขในตารางที่ {tab:uxfixes} ถูกนำขึ้น `mob04` ผ่านเส้นทาง CD ปกติ คือรวมเข้า `main` แล้วงาน `deploy` รอการอนุมัติบนสภาพแวดล้อม `demo` ก่อนจะแตะเครื่อง ตารางที่ {tab:deploy-oct} สรุปการ deploy ที่เกี่ยวข้อง ข้อมูลบนเครื่อง (`.current_sha` และ `/health/ready`) ตรวจผ่าน SSH โดยเซสชันที่ทำการทดสอบ ส่วนรันและการอนุมัติตรวจจาก GitHub
+การแก้ไขในตารางที่ {tab:uxfixes} ถูกนำขึ้น `mob04` ผ่านเส้นทาง CD ปกติ คือรวมเข้า `main` แล้วงาน `deploy` รอการอนุมัติบนสภาพแวดล้อม `demo` ก่อนจะแตะเครื่อง ตารางที่ {tab:deploy-oct} สรุปการ deploy ที่เกี่ยวข้อง รันและการอนุมัติตรวจจาก GitHub ส่วนข้อมูลบนเครื่อง (`.current_sha` และ `/health/ready`) ผู้ทดสอบตรวจผ่าน Secure Shell (SSH) และรายงานไว้ ผู้เขียนรายงานไม่ได้ตรวจซ้ำบนเครื่องเอง
 
 TABLE: การ deploy ขึ้นเครื่อง mob04 ระหว่าง 3–4 ตุลาคม พ.ศ. 2569 {#tab:deploy-oct}
 | วันที่ | คอมมิต | รัน `Deploy (demo)` | ผล |
@@ -87,7 +87,7 @@ TABLE: การ deploy ขึ้นเครื่อง mob04 ระหว่�
 | 3 ต.ค. 2569 | `11265b4` | `37132624209` (อนุมัติโดย `NuimanLP`) | `.current_sha` = `11265b4`, `/health/ready` ตอบ 200 |
 | 4 ต.ค. 2569 | `f2827ed` | `37168492338` (อนุมัติโดย `NuimanLP`) | งาน `deploy to demo` สำเร็จ, `.current_sha` = `f2827ed`, `/health/ready` ตอบ 200 |
 
-หลังการ deploy `11265b4` การทดสอบบนหน้าจอจริงยืนยันว่าการจ่ายเงินออก 600 บาทจากลิ้นชักที่มี 500 บาทถูกปฏิเสธด้วยข้อความ `เงินในลิ้นชักไม่พอ (มี ฿500)` และตาราง `drawer_entries` ของกะนั้นมีเพียงรายการจ่ายออก 100 บาทที่ยอมรับ ส่วนเส้นทาง 409 ของเซิร์ฟเวอร์ไม่ได้ถูกทดสอบบนเครื่อง เพราะหน้าจอหยุดคำขอไว้ก่อน จึงอาศัยการทดสอบ e2e ใน PR #580 และ #584 แทน หลังการ deploy `f2827ed` การทดสอบช่องจำนวนเงินบนหน้าจอจริงให้ผลตามที่ออกแบบ คือพิมพ์ `a1.2.3` ในช่องส่วนลดได้ `1.23` พิมพ์ `a5.0.009` ในช่องรับเงินได้ `5.00` และพิมพ์ `a5.0.05` ในช่องเงินตั้งต้นของกะได้ `5.00` นอกจากนี้ได้ทดลองเพิ่มสินค้าทดสอบแล้วลบออก โดยไม่มีการขายจริงในรอบนี้ ผลการทดสอบบนหน้าจอเหล่านี้บันทึกตามที่เซสชันผู้ทดสอบรายงาน
+หลังการ deploy `11265b4` การทดสอบบนหน้าจอจริงยืนยันว่าการจ่ายเงินออก 600 บาทจากลิ้นชักที่มี 500 บาทถูกปฏิเสธด้วยข้อความ `เงินในลิ้นชักไม่พอ (มี ฿500)` และตาราง `drawer_entries` ของกะนั้นมีเพียงรายการจ่ายออก 100 บาทที่ยอมรับ ส่วนเส้นทาง 409 ของเซิร์ฟเวอร์ไม่ได้ถูกทดสอบบนเครื่อง เพราะหน้าจอหยุดคำขอไว้ก่อน จึงอาศัยการทดสอบ e2e ใน PR #580 และ #584 แทน หลังการ deploy `f2827ed` การทดสอบช่องจำนวนเงินบนหน้าจอจริงให้ผลตามที่ออกแบบ คือพิมพ์ `a1.2.3` ในช่องส่วนลดได้ `1.23` พิมพ์ `a5.0.009` ในช่องรับเงินได้ `5.00` และพิมพ์ `a5.0.05` ในช่องเงินตั้งต้นของกะได้ `5.00` นอกจากนี้ได้ทดลองเพิ่มสินค้าทดสอบแล้วลบออก โดยไม่มีการขายจริงในรอบนี้ ผลการทดสอบบนหน้าจอเหล่านี้บันทึกตามที่ผู้ทดสอบรายงาน
 
 ### การติดตามผลด้วย Grafana
 
@@ -207,6 +207,7 @@ CORS = Cross-Origin Resource Sharing
 PIN = Personal Identification Number
 HTTP = Hypertext Transfer Protocol
 SHA = Secure Hash Algorithm
+SSH = Secure Shell
 
 ## __REFERENCES__
 [1] NestJS, "NestJS Documentation," [Online]. Available: https://docs.nestjs.com/. Accessed: Oct. 1, 2026.
@@ -257,7 +258,6 @@ open issues #2 #196 #231 #288 #335 #338 #344 #363 #380 #443 #476 -> gh issue lis
 e2e 2026-09-16: 490 passed | 2 skipped (492) -> docs/handoff_log/dod-mapping-2026-09-16.md:32
 deploy run IDs (removed from table): 494ace3 run 36685602814; rollback 36687687309; same-SHA 36688248109; readiness fail 36720675552; non-main 36721404240; 00d3488 run 36717963989 -> CLAUDE.md #67
 PRs #551/#552/#553 merged 2026-10-03 (03:40:47Z / 03:41:06Z / 03:51:28Z) -> gh pr view N --json state,mergedAt,title
-APK workflow never run; CA not on mob04; pos-ca.crt empty; owner runbook pending -> CLAUDE.md "Android APK (PR #551...)", "Private CA for mob04 TLS (PR #552...)"; wc -c frontend/assets/certs/pos-ca.crt
 quality gates #579 #581 #582 #588 #589; #579/#580 merged 29 s apart, main red at 2411ebf/a8a8080, fixed by #582 -> docs/handoff_log/session-2026-10-03-ux-test-drawer-ci.md; gh pr view 582
 APK runs 37099021690 failure (3c090ee), 37101288734 success (e191755), 37114366754 success (ff84fd3); releases apk-e191755/apk-ff84fd3; PR #560 file_picker 13.1.0 -> gh run list --workflow android-apk.yml; gh release list; gh pr view 560
 CA: 7ea0178 run 37097022857 failed=0; PR #559 fingerprint match, openssl verify 0, Dart 200 -> gh pr view 559
