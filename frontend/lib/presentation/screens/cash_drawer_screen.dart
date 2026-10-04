@@ -381,10 +381,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                 ),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  hintText: '0',
-                ),
+                decoration: const InputDecoration(isDense: true, hintText: '0'),
                 onSubmitted: (_) => _handleOpen(),
               ),
             ),
