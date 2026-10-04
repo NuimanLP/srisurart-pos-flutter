@@ -26,6 +26,7 @@
 // mirroring the JS screen's loadQuote/onQuoteLoaded effect.
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -85,7 +86,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String _mechSearch = '';
   String? _editingPriceId;
   String _payMethod = 'เงินสด';
-  double _discount = 0;
+  // The bill discount is always stored/sent in baht (`_discount`). Percent mode
+  // is UI only: the baht amount is derived from the current subtotal, so it
+  // follows cart changes until the cashier switches back to ฿.
+  double _discountAmount = 0;
+  bool _discountIsPct = false;
+  double _discountPct = 0;
   bool _submitting = false;
   bool _parkedBusy = false;
   String? _priceWarning;
@@ -149,6 +155,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _cashCtrl.dispose();
     _discountCtrl.dispose();
     super.dispose();
+  }
+
+  /// The bill discount in baht: the typed amount, or round2(subtotal × % / 100)
+  /// in percent mode (never above the subtotal, so the checkout guard holds).
+  double get _discount => _discountIsPct
+      ? math.min(round2(_subtotal * _discountPct / 100), _subtotal)
+      : _discountAmount;
+
+  /// Load a baht discount (quote, parked bill, cleared sale) — always in ฿ mode.
+  void _setDiscountAmount(double d) {
+    _discountIsPct = false;
+    _discountPct = 0;
+    _discountAmount = d;
+    _syncDiscountText();
   }
 
   /// Sync the discount field's visible text to [_discount], mirroring the JS
@@ -253,8 +273,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // guard so the items are never lost. Controllers/setState need mounted.
       _cart.setLines(res.safe, quoteId: sellingQuoteId);
       if (!mounted) return;
-      _discount = pending.quote.discount ?? 0;
-      _syncDiscountText();
+      _setDiscountAmount(pending.quote.discount ?? 0);
       setState(() {
         if (cust != null) _selectedCustomer = cust;
         if (res.issues.isNotEmpty) {
@@ -271,8 +290,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void _clearSaleState() {
     _cart.clear();
     _cashCtrl.clear();
-    _discount = 0;
-    _syncDiscountText();
+    _setDiscountAmount(0);
     setState(() {
       _selectedCustomer = null;
       _selectedMechanic = null;
@@ -369,9 +387,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (cart.isEmpty) return;
     setState(() => _parkedBusy = true);
     try {
-      await context.read<ParkedRepository>().parkSale(
-        _buildParkPayload(cart),
-      );
+      await context.read<ParkedRepository>().parkSale(_buildParkPayload(cart));
       if (!mounted) return;
       _refreshParked();
       _clearSaleState();
@@ -435,8 +451,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (!mounted) return;
 
       _refreshParked();
-      _discount = discount;
-      _syncDiscountText();
+      _setDiscountAmount(discount);
       _cashCtrl.text = cash;
       setState(() {
         _selectedCustomer = cust;
@@ -614,8 +629,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
     final subtotal = _subtotal;
     final total = _total;
-    if (_discount > subtotal) {
-      _alert('ส่วนลด ${baht(_discount)} เกินยอดรวม ${baht(subtotal)}');
+    final discount = _discount;
+    if (discount > subtotal) {
+      _alert('ส่วนลด ${baht(discount)} เกินยอดรวม ${baht(subtotal)}');
       return;
     }
     final cash = double.tryParse(_cashCtrl.text.trim()) ?? 0;
@@ -647,7 +663,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final mechanicDelta = round2(_cart.mechanicDelta);
       SaleInput buildInput(bool override) => SaleInput(
         subtotal: subtotal,
-        discount: _discount,
+        discount: discount,
         total: total,
         paymentMethod: _payMethod,
         customerId: _selectedCustomer?.id,
@@ -2367,6 +2383,44 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ).colorScheme.onSurface.withValues(alpha: 0.55),
                 ),
               ),
+              const Spacer(),
+              SegmentedButton<bool>(
+                key: const Key('discountModeToggle'),
+                showSelectedIcon: false,
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                segments: const [
+                  ButtonSegment(
+                    value: false,
+                    label: Text('฿'),
+                    tooltip: 'ส่วนลดเป็นบาท',
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text('%'),
+                    tooltip: 'ส่วนลดเป็นเปอร์เซ็นต์',
+                  ),
+                ],
+                selected: {_discountIsPct},
+                onSelectionChanged: (sel) {
+                  final toPct = sel.first;
+                  if (toPct == _discountIsPct) return;
+                  setState(() {
+                    if (toPct) {
+                      // A fresh percent: the old baht figure is not a percent.
+                      _discountIsPct = true;
+                      _discountPct = 0;
+                      _discountCtrl.clear();
+                    } else {
+                      // Keep the amount the percent produced, now as baht.
+                      _setDiscountAmount(_discount);
+                    }
+                  });
+                },
+              ),
+              const SizedBox(width: 8),
               SizedBox(
                 width: 110,
                 child: TextField(
@@ -2374,10 +2428,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  inputFormatters: moneyInputFormatters,
+                  inputFormatters: _discountIsPct
+                      ? percentInputFormatters
+                      : moneyInputFormatters,
                   textAlign: TextAlign.right,
                   decoration: InputDecoration(
-                    prefixText: '฿',
+                    prefixText: _discountIsPct ? null : '฿',
+                    suffixText: _discountIsPct ? '%' : null,
                     isDense: true,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -2398,8 +2455,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ),
                   onChanged: (v) {
                     final raw = double.tryParse(v) ?? 0;
+                    if (_discountIsPct) {
+                      // 0–100 is enforced by percentInputFormatters.
+                      setState(() => _discountPct = raw);
+                      return;
+                    }
                     final d = raw < 0 ? 0.0 : (raw > subtotal ? subtotal : raw);
-                    setState(() => _discount = d);
+                    setState(() => _discountAmount = d);
                     if (d != raw) {
                       _syncDiscountText();
                       _discountCtrl.selection = TextSelection.collapsed(
@@ -2411,6 +2473,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
             ],
           ),
+          if (_discountIsPct)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '= ${baht(_discount)}',
+                key: const Key('discountPctBaht'),
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
           if (_selectedMechanic != null && mechanicDelta.abs() > 0.01) ...[
             const SizedBox(height: 8),
             Container(
@@ -2899,7 +2977,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       icon: const Icon(Icons.description_outlined, size: 18),
                       label: const Text(
                         'ใบเสนอราคา',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
                       ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF5B97F0),
