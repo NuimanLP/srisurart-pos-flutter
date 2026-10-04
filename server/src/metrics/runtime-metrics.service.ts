@@ -30,25 +30,33 @@ export class RuntimeMetricsService implements OnModuleInit {
     const queues = ALL_QUEUES.map((name) =>
       this.moduleRef.get<Queue>(getQueueToken(name), { strict: false }),
     );
-    this.metrics.observeQueues(() =>
-      withTimeout(readQueues(queues), QUEUE_READ_TIMEOUT_MS),
-    );
+    // Single flight: `withTimeout` only stops the scrape waiting — the commands stay queued
+    // in ioredis while redis-queue is down. Issuing fresh ones every scrape would pile them up
+    // and burst them all onto Redis when it returns, so a scrape that finds a read still
+    // pending joins it (and times out with it) instead of starting another.
+    let inFlight: Promise<QueueJobCounts> | undefined;
+    this.metrics.observeQueues(() => {
+      inFlight ??= readQueues(queues, () => {
+        inFlight = undefined;
+      });
+      return withTimeout(inFlight, QUEUE_READ_TIMEOUT_MS);
+    });
   }
 }
 
-async function readQueues(queues: Queue[]): Promise<QueueJobCounts> {
-  const counts: QueueJobCounts = {};
-  await Promise.all(
-    queues.map(async (queue) => {
-      counts[queue.name] = await queue.getJobCounts(
-        'waiting',
-        'active',
-        'delayed',
-        'failed',
-      );
-    }),
+/** `onSettled` fires once every queue's command has settled — not at the first rejection. */
+function readQueues(queues: Queue[], onSettled: () => void): Promise<QueueJobCounts> {
+  const reads = queues.map((queue) =>
+    queue.getJobCounts('waiting', 'active', 'delayed', 'failed'),
   );
-  return counts;
+  void Promise.allSettled(reads).then(onSettled);
+  return Promise.all(reads).then((results) => {
+    const counts: QueueJobCounts = {};
+    queues.forEach((queue, i) => {
+      counts[queue.name] = results[i];
+    });
+    return counts;
+  });
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {

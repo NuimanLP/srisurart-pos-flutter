@@ -81,4 +81,69 @@ describe('RuntimeMetricsService', () => {
     expect(text).not.toMatch(/^pos_queue_jobs\{/m);
     expect(text).toContain('pos_db_pool_max_connections 5');
   });
+
+  it('does not issue a new queue read while the previous one is still pending (#597 follow-up)', async () => {
+    vi.useFakeTimers();
+    // A silent redis-queue (maxRetriesPerRequest: null): the command never settles.
+    const { metrics, tokens } = start(() => new Promise(() => {}));
+    const callsOf = (name: string) =>
+      (tokens.get(getQueueToken(name)) as { getJobCounts: ReturnType<typeof vi.fn> })
+        .getJobCounts.mock.calls.length;
+
+    for (let i = 0; i < 3; i++) {
+      const scrape = metrics.metrics();
+      await vi.advanceTimersByTimeAsync(1000);
+      const text = await scrape;
+      expect(text).not.toMatch(/^pos_queue_jobs\{/m);
+      expect(text).toContain('pos_db_pool_max_connections 5');
+    }
+    for (const name of ALL_QUEUES) expect(callsOf(name)).toBe(1);
+  });
+
+  it('starts a fresh queue read once the pending one settles', async () => {
+    vi.useFakeTimers();
+    const resolvers: Array<() => void> = [];
+    const { metrics, tokens } = start(
+      () => new Promise((resolve) => resolvers.push(() => resolve({ waiting: 3 }))),
+    );
+    const callsOf = (name: string) =>
+      (tokens.get(getQueueToken(name)) as { getJobCounts: ReturnType<typeof vi.fn> })
+        .getJobCounts.mock.calls.length;
+
+    const first = metrics.metrics();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await first).not.toMatch(/^pos_queue_jobs\{/m);
+
+    resolvers.splice(0).forEach((r) => r());
+    await vi.advanceTimersByTimeAsync(0);
+
+    const second = metrics.metrics();
+    await vi.advanceTimersByTimeAsync(0);
+    for (const name of ALL_QUEUES) expect(callsOf(name)).toBe(2);
+    resolvers.splice(0).forEach((r) => r());
+    const text = await second;
+    expect(text).toContain(`pos_queue_jobs{queue="${ALL_QUEUES[0]}",state="waiting"} 3`);
+  });
+
+  it('keeps the guard until every queue settles, not just the first rejection', async () => {
+    vi.useFakeTimers();
+    const hung: Array<() => void> = [];
+    const { metrics, tokens } = start((name) =>
+      name === ALL_QUEUES[0]
+        ? Promise.reject(new Error('NOAUTH'))
+        : new Promise((resolve) => hung.push(() => resolve({}))),
+    );
+    const callsOf = (name: string) =>
+      (tokens.get(getQueueToken(name)) as { getJobCounts: ReturnType<typeof vi.fn> })
+        .getJobCounts.mock.calls.length;
+
+    expect(await metrics.metrics()).not.toMatch(/^pos_queue_jobs\{/m);
+    expect(await metrics.metrics()).not.toMatch(/^pos_queue_jobs\{/m);
+    for (const name of ALL_QUEUES) expect(callsOf(name)).toBe(1);
+
+    hung.splice(0).forEach((r) => r());
+    await vi.advanceTimersByTimeAsync(0);
+    await metrics.metrics();
+    for (const name of ALL_QUEUES) expect(callsOf(name)).toBe(2);
+  });
 });
