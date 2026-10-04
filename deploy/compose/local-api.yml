@@ -1,5 +1,7 @@
-# LOCAL DEVELOPMENT ONLY — run the three api instances from this checkout's code instead of
-# the GHCR release image vm.override.yml pins, while everything else stays VM-shaped.
+# LOCAL DEVELOPMENT ONLY — run every service built from the server image (migrate, api-1..3,
+# worker, bull-board) from this checkout's code instead of the GHCR release image
+# vm.override.yml pins, while everything else stays VM-shaped. All of them, not just the api:
+# a stale `migrate` never runs the branch's new migration, and a stale worker runs old job code.
 # Needed whenever the branch changes server code that is not on `main` yet (e.g. new metrics).
 #
 #   docker build -t srisurart-pos-server:develop-local server/
@@ -10,6 +12,9 @@
 name: srisurart-pos
 
 services:
+  migrate: { image: "srisurart-pos-server:develop-local" }
   api-1: { image: "srisurart-pos-server:develop-local" }
   api-2: { image: "srisurart-pos-server:develop-local" }
   api-3: { image: "srisurart-pos-server:develop-local" }
+  worker: { image: "srisurart-pos-server:develop-local" }
+  bull-board: { image: "srisurart-pos-server:develop-local" }
