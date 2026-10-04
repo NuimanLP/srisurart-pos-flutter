@@ -100,8 +100,10 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   // Only today's bills/returns/credit payments are read (#417) — the same
   // rows the old `dateKey(x) == today` in-memory filters kept.
   final day = dayBounds(now);
-  final drawer = await shiftsRepo.getCashDrawer();
-  final drawerToday = drawer != null && drawer.shift.dateStr == today;
+  // The drawer check follows the current shift — still open past midnight
+  // counts (owner 2026-10-04) — not the calendar day.
+  final drawer = currentShiftOf(await shiftsRepo.getCashDrawer(), today);
+  final drawerToday = drawer != null;
   final salesAgg = await salesRepo.getSales(from: day.from, to: day.to);
   // The day's credit notes for the whole-day sections (revenue, bills,
   // payment rows, top items, profit).
@@ -124,11 +126,11 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
     originalSales: originalSales,
   );
 
-  // The drawer check is today's shift, counted by shift exactly as the
-  // cash-drawer screen counts it (owner 2026-10-03). With no shift today there
-  // is no drawer: money taken outside a shift belongs to none. Revenue, the
-  // payment breakdown and top items above stay the whole day — DAILY report.
-  final cash = drawerToday
+  // The drawer check is the current shift, counted by shift exactly as the
+  // cash-drawer screen counts it (owner 2026-10-03). With no current shift
+  // there is no drawer: money taken outside a shift belongs to none. Revenue,
+  // the payment breakdown and top items above stay the whole day — DAILY report.
+  final cash = drawer != null
       ? await shiftsRepo.drawerCash(drawer)
       : DrawerCash.empty;
 

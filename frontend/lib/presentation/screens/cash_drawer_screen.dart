@@ -35,6 +35,7 @@ import '../widgets/closing_report.dart';
 import '../widgets/device_role_banner.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/sync_status_builder.dart';
+import '../widgets/thai_format.dart';
 
 /// Money inputs on this screen: a non-negative amount only. The app's usual
 /// `[0-9.]` filter drops letters ("a400" read as 0 showed a false shortfall on
@@ -51,7 +52,7 @@ final _moneyInput = <TextInputFormatter>[
 
 /// Aggregated read-model for the cash-drawer screen.
 class _DrawerData {
-  /// The active shift for TODAY, or null (no shift opened today).
+  /// The current shift ([currentShiftOf]), or null.
   final ShiftWithEntries? shift;
 
   /// Its expected cash, piece by piece — [ShiftsRepository.drawerCash], the
@@ -104,13 +105,10 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
 
   Future<_DrawerData> _loadData() async {
     final shiftsRepo = context.read<ShiftsRepository>();
-    final today = todayKey();
-    final drawer = await shiftsRepo.getCashDrawer();
-    // db.js: only treat the drawer as today's shift if its date matches today.
-    final shift = (drawer != null && drawer.shift.dateStr == today)
-        ? drawer
-        : null;
-    // No shift today → the screen shows only the open form; nothing to count.
+    // An open shift shows whatever day it was opened; a closed one only if
+    // it is today's (owner 2026-10-04 — db.js kept only today's).
+    final shift = currentShiftOf(await shiftsRepo.getCashDrawer(), todayKey());
+    // No current shift → the screen shows only the open form; nothing to count.
     final cash = shift == null
         ? DrawerCash.empty
         : await shiftsRepo.drawerCash(shift);
@@ -382,10 +380,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                 ),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  hintText: '0',
-                ),
+                decoration: const InputDecoration(isDense: true, hintText: '0'),
                 onSubmitted: (_) => _handleOpen(),
               ),
             ),
@@ -688,7 +683,8 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            'เปิดร้าน ${_hhmm(shift.shift.openedAt)} · ตั้งต้น ${baht(d.startingCash)}',
+            // A shift still open from an earlier day shows its open date too.
+            'เปิดร้าน ${dateKey(shift.shift.openedAt) == todayKey() ? _hhmm(shift.shift.openedAt) : thaiDateTime(shift.shift.openedAt)} · ตั้งต้น ${baht(d.startingCash)}',
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppColors.steelBlue,
             ),
