@@ -881,6 +881,16 @@ build ด้วย `--dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL
   (15 วิ × 3 instance) กับ healthcheck ของ compose (15 วิ × 3) เป็น 200 ที่การันตี ถ้านับรวม
   จะกลบอัตราพลาดของคำขอจริงบน panel ทั้งสอง (`server/src/metrics/metrics.middleware.ts`)
   + panel error rate แยก status code และ panel `pos_idempotency_replay_total` เพิ่มใน #341
+  + **2026-10-04: +17 panel (12 → 29)** — ใช้แค่ Prometheus + API ที่มีบน VM อยู่แล้ว ไม่ต้องเพิ่ม service:
+  - กลุ่ม API (id 13–19): `up{job="api-metrics"}` ต่อ instance, request rate รวม/ต่อ route, p95 ต่อ route,
+    5xx ต่อ route, RSS และ event-loop lag p99 ต่อ instance (`process_*`/`nodejs_*` จาก prom-client)
+  - กลุ่มงานร้าน/ภายใน (id 20–26): `pos_documents_total` (บิล/ยกเลิก/คืน — ยอดรวมและต่อนาที),
+    `pos_db_pool_connections` in use เทียบ `pos_db_pool_max_connections` และ waiting (#162: pool เต็ม + มีคนรอ
+    = ใกล้ deadlock), login refusals (`/auth/token` 4xx), `pos_queue_jobs` ที่รอ/กำลังทำ/เลื่อน และที่ล้ม
+    (`max() by (queue,…)` — ทั้ง 3 instance อ่านคิวเดียวกันใน Redis)
+  - read vs write (id 27–29): rate, p95, success แยกตาม method — read = `GET|HEAD`, write = ที่เหลือยกเว้น
+    `OPTIONS` · ค่ารวมของ id 4/5 กลบกรณีขายพังแต่ดูข้อมูลได้
+  - k6 (id 6–10) ย้ายลงล่างสุด · `NaN` ใน panel rate/p95 = ไม่มี request ในช่วงนั้น ไม่ใช่เสีย
 * ไม่มี Alertmanager · ทุกอย่างผูก `127.0.0.1` เข้าผ่าน SSH tunnel (§7) · Grafana admin password
   ต้องมาจาก `GRAFANA_ADMIN_PASSWORD` ใน `.env` (`.env.example` มีตัวอย่าง) — stack fail fast ถ้าไม่ตั้ง
   เหมือน secret ของ datastore ตัวอื่น

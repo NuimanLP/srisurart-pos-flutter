@@ -4,7 +4,8 @@ import { AuditService } from '../audit/audit.service.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
 import { newId } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
-import { currentRequestContext } from '../common/request-context.js';
+import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
+import { MetricsService } from '../metrics/metrics.service.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
@@ -52,6 +53,7 @@ export class VoidService {
     private readonly shifts: ShiftsService,
     private readonly cache: TenantCache,
     private readonly tenants: TenantService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /**
@@ -144,6 +146,7 @@ export class VoidService {
     this.cache.invalidateAfterCommit(tenantId, 'products');
     if (sale.customer_id !== null) this.cache.invalidateAfterCommit(tenantId, 'customers');
     if (sale.mechanic_id !== null) this.cache.invalidateAfterCommit(tenantId, 'mechanics');
+    onTransactionCommit(() => this.metrics.recordDocument('void'));
 
     const voided = returning<{ voided_at: Date }>(
       await manager.query(

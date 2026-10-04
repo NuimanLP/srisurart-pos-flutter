@@ -673,6 +673,18 @@ on void/return paths. Keep this order in any new write touching more than one of
   **required** dependency of `IdempotencyService` — if that wiring is ever loosened back
   to `@Optional()`, a broken graph silently zeroes the counter instead of failing at
   bootstrap.
+- **Business/runtime metrics (2026-10-04):** `pos_documents_total{kind=sale|void|return}`,
+  `pos_db_pool_connections{state=in_use|idle|waiting}` + `pos_db_pool_max_connections`,
+  `pos_queue_jobs{queue,state}` — all named by `pos-overview.json` panels (ids 20–26).
+  Documents follow the replay counter's rules: **no `tenant_id` label**, counted **only in
+  `onTransactionCommit`**, placed after the existing-sale early return so a replayed key never
+  counts twice; `void` = a clerk's void only (the auto-void of a fully returned bill is a
+  `return`). `MetricsService` is a required dependency of `SalesService`/`VoidService`/
+  `ReturnsService`. The pool gauge reads the `DB_POOL_STATS` reader (`db.module.ts`), never the
+  `DataSource` — `tenant-door.spec.ts` refuses that. Queue depth lives in Redis, so all three
+  instances report the same numbers: panels take `max()`, never `sum()`; the read has a 1 s
+  timeout and drops its samples on error rather than serving stale counts.
+  `RuntimeMetricsModule` is imported by `AppModule` only (the worker builds none of this).
 
 **Nginx / auth / rate limiting:**
 - Nginx must be the only reverse proxy in front of the API — `trust proxy` is exactly
