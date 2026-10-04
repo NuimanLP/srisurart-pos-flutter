@@ -28,7 +28,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -51,6 +50,7 @@ import '../blocs/cart_cubit.dart';
 import '../blocs/pending_quote_cubit.dart';
 import '../widgets/device_role_banner.dart';
 import '../widgets/low_stock_alert.dart';
+import '../widgets/money_input_formatters.dart';
 import '../widgets/money_text.dart';
 import '../widgets/receipt_view.dart';
 import '../widgets/sync_status_builder.dart';
@@ -2243,9 +2243,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           controller: ctrl,
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-          ],
+          inputFormatters: moneyInputFormatters,
           decoration: const InputDecoration(
             isDense: true,
             border: OutlineInputBorder(),
@@ -2375,9 +2373,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                  ],
+                  inputFormatters: moneyInputFormatters,
                   textAlign: TextAlign.right,
                   decoration: InputDecoration(
                     prefixText: '฿',
@@ -2561,9 +2557,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
+              inputFormatters: moneyInputFormatters,
               textAlign: TextAlign.right,
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
               decoration: InputDecoration(
