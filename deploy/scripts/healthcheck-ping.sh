@@ -35,6 +35,13 @@ if [ -z "$url" ]; then
   echo "::warning::HEALTHCHECKS_PING_URL is not set in $ENV_FILE — no heartbeat sent"
   exit 0
 fi
+# A real ping URL never holds a quote, backslash or whitespace; refusing them keeps the curl
+# config line below free of escaping. Configured but broken = loud, as for an unreachable host.
+case "$url" in
+  *[[:space:]\"\\]*)
+    echo "::error::HEALTHCHECKS_PING_URL in $ENV_FILE holds a quote, backslash or space — no heartbeat sent"
+    exit 1 ;;
+esac
 
 # Retried before reporting: a /fail alerts at once (no grace period), and a deploy restarting
 # the api instances or a single slow answer must not page anyone. Worst case ~2 min (probe
@@ -50,10 +57,8 @@ fi
 
 # --retry covers a transient blip on the way out. The URL is the secret: it reaches curl as a
 # config on stdin (-K -), never in argv (readable by any user via ps), and is never echoed.
-esc="${target//'\'/'\\'}"
-esc="${esc//'"'/'\"'}"
 if ! err="$(curl -fsS --max-time 10 --retry 3 -o /dev/null ${body[@]+"${body[@]}"} -K - \
-  <<<"url = \"$esc\"" 2>&1)"; then
+  <<<"url = \"$target\"" 2>&1)"; then
   echo "::error::could not reach Healthchecks.io: ${err//"$url"/<ping URL>}"
   exit 1
 fi

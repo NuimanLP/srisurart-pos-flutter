@@ -99,6 +99,15 @@ check "env var overrides the file" last_ping_ends "$PING-env"
 run "$(printf 'HEALTHCHECKS_PING_URL=%s-old\nHEALTHCHECKS_PING_URL=%s\n' "$PING" "$PING")"
 check "duplicate key: the last line wins" last_ping_ends "$PING"
 
+# 8. a value no real ping URL has (inline comment, backslash): refused loudly, nothing sent.
+run "$ENV_OK" HEALTHCHECKS_PING_URL="$PING # note"
+check "malformed: exits non-zero" test "$rc" -ne 0
+check "malformed: says ::error::" grep -q '::error::' <<<"$out"
+check "malformed: sends nothing" test ! -s "$CURL_LOG"
+check "malformed: never prints the ping URL" test "$(grep -c 'hc-ping.com/0000' <<<"$out")" = 0
+run "$ENV_OK" HEALTHCHECKS_PING_URL="$PING\\x"
+check "backslash: refused" test "$rc" -ne 0
+
 if [ "$fails" -ne 0 ]; then
   echo "$fails failed"
   exit 1
