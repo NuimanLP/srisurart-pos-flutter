@@ -1,0 +1,79 @@
+<!doctype html><html lang="th"><head><meta charset="utf-8"><title>Dashboard status</title>
+<style>
+@font-face{font-family:Sarabun;font-weight:400;src:url(../../frontend/assets/fonts/Sarabun-Regular.ttf)}
+@font-face{font-family:Sarabun;font-weight:600;src:url(../../frontend/assets/fonts/Sarabun-SemiBold.ttf)}
+@font-face{font-family:Sarabun;font-weight:700;src:url(../../frontend/assets/fonts/Sarabun-Bold.ttf)}
+:root{--bg:#12171e;--card:#1a222c;--line:#2b3744;--text:#eef2f6;--mut:#93a1b1;--green:#6fd3a0;--amber:#f0b95a;--gray:#6c7887;--blue:#7fb2ee}
+*{box-sizing:border-box;margin:0}
+body{width:1920px;height:1080px;background:var(--bg);color:var(--text);font-family:Sarabun,Thonburi,sans-serif;padding:44px 60px;overflow:hidden;position:relative}
+.m{font-family:Menlo,monospace}
+.kicker{color:var(--amber);font:400 19px Menlo,monospace;letter-spacing:1px}
+h1{font-size:46px;font-weight:700;margin-top:4px}
+.grid{display:grid;grid-template-columns:400px 70px 210px 70px 1fr;margin-top:22px;height:680px}
+.hd{font-size:20px;color:var(--mut);margin-bottom:10px;height:30px;display:flex;align-items:center;gap:14px}
+.legend{margin-left:auto;display:flex;gap:18px;font-size:18px}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px}
+.src{display:flex;align-items:center;gap:14px;border:1.5px solid;border-radius:10px;padding:0 16px;height:94px;margin-bottom:12px;background:var(--card)}
+.badge{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 14px Menlo,monospace;color:#10161d;flex:none}
+.src b{font:700 19px Menlo,monospace;display:block}
+.src span{color:var(--mut);font-size:17px;line-height:1.25;display:block}
+.wire{display:flex;flex-direction:column;padding-top:40px}
+.wire div{height:94px;margin-bottom:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--mut);font:400 14px Menlo,monospace;text-align:center;line-height:1.4}
+.wire i{font-style:normal;font-size:26px;line-height:.8}
+.store{margin-top:40px;display:flex;flex-direction:column;gap:12px}
+.store div{border:1.5px solid var(--blue);border-radius:10px;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.store b{font:700 22px Menlo,monospace}
+.store span{color:var(--mut);font-size:17px;line-height:1.35;margin-top:6px}
+.cards{display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:1fr;gap:12px;height:640px}
+.c{border:1.5px solid;border-radius:10px;background:var(--card);padding:14px 16px;display:flex;flex-direction:column}
+.c .t{font:400 15px Menlo,monospace;color:var(--mut)}
+.c .v{font-size:36px;font-weight:700;line-height:1.1;margin-top:8px}
+.c .d{font-size:17px;color:var(--mut);line-height:1.3;margin-top:6px}
+.c .n{margin-top:auto;font:400 15px Menlo,monospace}
+.g{border-color:var(--green)}.g .n{color:var(--green)}
+.a{border-color:var(--amber)}.a .n{color:var(--amber)}
+.x{border-color:var(--gray);border-style:dashed}.x .n,.x .v{color:var(--gray)}
+.sum{display:grid;grid-template-columns:1fr 1.2fr 1.05fr;gap:14px;margin-top:20px}
+.sum div{background:var(--card);border-radius:10px;padding:14px 22px;display:flex;align-items:center;gap:18px;font-size:21px;color:var(--mut)}
+.sum b{font:700 34px Menlo,monospace}
+.foot{position:absolute;left:60px;right:60px;bottom:26px;color:var(--mut);font:400 15px Menlo,monospace;display:flex;justify-content:space-between}
+</style></head><body>
+<div class="kicker">Monitoring · ภาพรวม dashboard</div>
+<h1>Dashboard วัด metric อะไรได้แล้ว และข้อมูลเชื่อมกันอย่างไร</h1>
+<div class="grid">
+ <div><div class="hd">① แหล่งข้อมูล</div>
+  <div class="src" style="border-color:var(--green)"><div class="badge" style="background:var(--green)">OS</div><div><b>node-exporter</b><span>CPU · RAM · ดิสก์ ของเครื่อง</span></div></div>
+  <div class="src" style="border-color:var(--green)"><div class="badge" style="background:var(--green)">API</div><div><b>api-1 · 2 · 3</b><span>GET /metrics · คำขอ, บิล, pool, คิวงาน</span></div></div>
+  <div class="src" style="border-color:var(--green)"><div class="badge" style="background:var(--green)">DB</div><div><b>postgres · redis exporter</b><span>การเชื่อมต่อ · หน่วยความจำ · cache</span></div></div>
+  <div class="src" style="border-color:var(--green)"><div class="badge" style="background:var(--green)">CT</div><div><b>cAdvisor</b><span>RAM / CPU ราย container</span></div></div>
+  <div class="src" style="border-color:var(--green)"><div class="badge" style="background:var(--green)">LOG</div><div><b>Alloy</b><span>log ของทุก container ผ่าน Docker</span></div></div>
+  <div class="src x"><div class="badge" style="background:var(--gray)">k6</div><div><b>k6 load test</b><span>ผ่าน 27 ก.ย. · ยังไม่ได้รันซ้ำ</span></div></div>
+ </div>
+ <div class="wire"><div>scrape<br>15 s<i>→</i></div><div>scrape<br>15 s<i>→</i></div><div>scrape<br>15 s<i>→</i></div><div>scrape<br>15 s<i>→</i></div><div>push<i>→</i></div><div>remote-<br>write<i>⇢</i></div></div>
+ <div><div class="hd">② เก็บ</div>
+  <div class="store" style="margin-top:0"><div style="height:412px"><b>Prometheus</b><span>เก็บค่าตามเวลา<br>ย้อนหลัง 7 วัน<br>:9090</span></div><div style="height:94px"><b>Loki</b><span>log · 7 วัน</span></div><div style="height:94px;border-color:var(--gray);border-style:dashed"><span style="margin:0">รับผล k6 ผ่าน Nginx<br>(allowlist + รหัส)</span></div></div>
+ </div>
+ <div class="wire"><div style="height:412px"><i>→</i></div><div><i>→</i></div><div></div></div>
+ <div><div class="hd">③ แสดงผล · Grafana 44 panel · 2 หน้า
+   <div class="legend"><span><i class="dot" style="background:var(--green)"></i>ข้อมูลครบ</span><span><i class="dot" style="background:var(--amber)"></i>บางช่องรอการใช้งาน</span><span><i class="dot" style="background:var(--gray)"></i>ไม่มีข้อมูล</span></div></div>
+  <div class="cards">
+   <div class="c a"><div class="t">เครื่อง host</div><div class="v">CPU 6%</div><div class="d">RAM 29% · Disk ไม่มีข้อมูลบน macOS</div><div class="n">2 / 3 panel</div></div>
+   <div class="c a"><div class="t">API ภาพรวม</div><div class="v">3 / 3 UP</div><div class="d">สำเร็จ, p95 ขึ้นเมื่อมีคำขอจริง</div><div class="n">4 / 6 panel</div></div>
+   <div class="c a"><div class="t">API แยกงาน · อ่าน/เขียน</div><div class="v">read · write</div><div class="d">แยกตาม route และ method</div><div class="n">2 / 6 panel</div></div>
+   <div class="c g"><div class="t">API รายตัว</div><div class="v">146 MB</div><div class="d">RAM ต่อตัว · หน่วงภายใน 14 ms</div><div class="n">2 / 2 panel</div></div>
+   <div class="c a"><div class="t">ธุรกิจ</div><div class="v">บิล · คืน</div><div class="d">ขาย / ยกเลิก / คืน · ล็อกอินไม่ผ่าน</div><div class="n">2 / 3 panel</div></div>
+   <div class="c g"><div class="t">DB pool · คิวงาน</div><div class="v">0 / 15</div><div class="d">pool ที่ใช้ · งานล้มเหลว 0 จาก 6 คิว</div><div class="n">4 / 4 panel</div></div>
+   <div class="c a"><div class="t">Container</div><div class="v">20 ตัว</div><div class="d">RAM, CPU รายตัว · เทียบเพดาน</div><div class="n">3 / 4 panel</div></div>
+   <div class="c g"><div class="t">Postgres</div><div class="v">5 / 100</div><div class="d">การเชื่อมต่อ · ขนาด 9.2 MB · deadlock 0</div><div class="n">5 / 5 panel</div></div>
+   <div class="c a"><div class="t">Redis × 2</div><div class="v">2 / 2 UP</div><div class="d">RAM 1.4% · ไล่ข้อมูลออก 0</div><div class="n">5 / 6 panel</div></div>
+   <div class="c x"><div class="t">k6 load test</div><div class="v" style="font-size:30px">ผ่าน 27 ก.ย.</div><div class="d">4 scenario บนเครื่องเดียว (หน้า 16, 18) · รอรันซ้ำกับ stack นี้ และ 3 เครื่องตาม #380</div><div class="n">0 / 5 panel ตอนนี้</div></div>
+  </div>
+ </div>
+</div>
+<div class="sum">
+ <div><b style="color:var(--green)">29 / 44</b><span>panel มีข้อมูลจริงแม้ตอนระบบว่าง</span></div>
+ <div><b style="color:var(--amber)">9</b><span>panel ขึ้นเมื่อมีการใช้งาน หรือเมื่อมีเหตุผิดปกติ (ว่าง = ปกติ)</span></div>
+ <div><b style="color:var(--gray)">6</b><span>panel ยังไม่มีข้อมูล (Disk บน macOS · k6 รอรันซ้ำ)</span></div>
+</div>
+<div class="foot"><span>pos-overview.json (29) · pos-infra.json (15) · prometheus.yml · observability.yml</span><span>verified local 2 ต.ค. 2026 · branch develop · ยังไม่ได้ขึ้น VM · 20</span></div>
+</body></html>
