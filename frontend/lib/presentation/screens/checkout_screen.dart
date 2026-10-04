@@ -2383,92 +2383,105 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ).colorScheme.onSurface.withValues(alpha: 0.55),
                 ),
               ),
-              const Spacer(),
-              SegmentedButton<bool>(
-                key: const Key('discountModeToggle'),
-                showSelectedIcon: false,
-                style: const ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                segments: const [
-                  ButtonSegment(
-                    value: false,
-                    label: Text('฿'),
-                    tooltip: 'ส่วนลดเป็นบาท',
-                  ),
-                  ButtonSegment(
-                    value: true,
-                    label: Text('%'),
-                    tooltip: 'ส่วนลดเป็นเปอร์เซ็นต์',
-                  ),
-                ],
-                selected: {_discountIsPct},
-                onSelectionChanged: (sel) {
-                  final toPct = sel.first;
-                  if (toPct == _discountIsPct) return;
-                  setState(() {
-                    if (toPct) {
-                      // A fresh percent: the old baht figure is not a percent.
-                      _discountIsPct = true;
-                      _discountPct = 0;
-                      _discountCtrl.clear();
-                    } else {
-                      // Keep the amount the percent produced, now as baht.
-                      _setDiscountAmount(_discount);
-                    }
-                  });
-                },
-              ),
               const SizedBox(width: 8),
-              SizedBox(
-                width: 110,
-                child: TextField(
-                  controller: _discountCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  inputFormatters: _discountIsPct
-                      ? percentInputFormatters
-                      : moneyInputFormatters,
-                  textAlign: TextAlign.right,
-                  decoration: InputDecoration(
-                    prefixText: _discountIsPct ? null : '฿',
-                    suffixText: _discountIsPct ? '%' : null,
-                    isDense: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+              // The field shrinks below 110 rather than overflow a phone row.
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    SegmentedButton<bool>(
+                      key: const Key('discountModeToggle'),
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      segments: const [
+                        ButtonSegment(
+                          value: false,
+                          label: Text('฿'),
+                          tooltip: 'ส่วนลดเป็นบาท',
+                        ),
+                        ButtonSegment(
+                          value: true,
+                          label: Text('%'),
+                          tooltip: 'ส่วนลดเป็นเปอร์เซ็นต์',
+                        ),
+                      ],
+                      selected: {_discountIsPct},
+                      onSelectionChanged: (sel) {
+                        final toPct = sel.first;
+                        if (toPct == _discountIsPct) return;
+                        setState(() {
+                          if (toPct) {
+                            // A fresh percent: the old baht figure is not a percent.
+                            _discountIsPct = true;
+                            _discountPct = 0;
+                            _discountAmount = 0;
+                            _discountCtrl.clear();
+                          } else {
+                            // Keep the amount the percent produced, now as baht.
+                            _setDiscountAmount(_discount);
+                          }
+                        });
+                      },
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(
-                        color: Theme.of(
-                          context,
-                        ).dividerColor.withValues(alpha: 0.3),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: SizedBox(
+                        width: 110,
+                        child: TextField(
+                          controller: _discountCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          inputFormatters: _discountIsPct
+                              ? percentInputFormatters
+                              : moneyInputFormatters,
+                          textAlign: TextAlign.right,
+                          decoration: InputDecoration(
+                            prefixText: _discountIsPct ? null : '฿',
+                            suffixText: _discountIsPct ? '%' : null,
+                            isDense: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: Theme.of(
+                                  context,
+                                ).dividerColor.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            hintText: '0',
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                          ),
+                          onChanged: (v) {
+                            final raw = double.tryParse(v) ?? 0;
+                            if (_discountIsPct) {
+                              // 0–100 is enforced by percentInputFormatters.
+                              setState(() => _discountPct = raw);
+                              return;
+                            }
+                            final d = raw < 0
+                                ? 0.0
+                                : (raw > subtotal ? subtotal : raw);
+                            setState(() => _discountAmount = d);
+                            if (d != raw) {
+                              _syncDiscountText();
+                              _discountCtrl.selection = TextSelection.collapsed(
+                                offset: _discountCtrl.text.length,
+                              );
+                            }
+                          },
+                        ),
                       ),
                     ),
-                    hintText: '0',
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                  ),
-                  onChanged: (v) {
-                    final raw = double.tryParse(v) ?? 0;
-                    if (_discountIsPct) {
-                      // 0–100 is enforced by percentInputFormatters.
-                      setState(() => _discountPct = raw);
-                      return;
-                    }
-                    final d = raw < 0 ? 0.0 : (raw > subtotal ? subtotal : raw);
-                    setState(() => _discountAmount = d);
-                    if (d != raw) {
-                      _syncDiscountText();
-                      _discountCtrl.selection = TextSelection.collapsed(
-                        offset: _discountCtrl.text.length,
-                      );
-                    }
-                  },
+                  ],
                 ),
               ),
             ],

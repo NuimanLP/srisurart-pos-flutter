@@ -36,9 +36,11 @@ void main() {
   Future<void> withCheckout(
     WidgetTester tester,
     List<CartLine> lines,
-    Future<void> Function(CartCubit cart) body,
-  ) async {
-    tester.view.physicalSize = const Size(1568, 900);
+    Future<void> Function(CartCubit cart) body, {
+    Size size = const Size(1568, 900),
+    double textScale = 1.0,
+  }) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
       tester.view.resetPhysicalSize();
@@ -59,7 +61,15 @@ void main() {
               BlocProvider<PendingQuoteCubit>.value(value: pq),
               BlocProvider<CartCubit>.value(value: cart),
             ],
-            child: const MaterialApp(home: Scaffold(body: CheckoutScreen())),
+            child: MaterialApp(
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(textScale)),
+                child: child!,
+              ),
+              home: const Scaffold(body: CheckoutScreen()),
+            ),
           ),
         ),
       );
@@ -164,5 +174,27 @@ void main() {
       expect(find.text('฿225'), findsWidgets);
       expect(fieldText(tester), '10'); // the percent itself is unchanged
     });
+  });
+
+  testWidgets('the ฿/% toggle and field fit a 320 px phone at 1.3× text', (
+    tester,
+  ) async {
+    await withCheckout(
+      tester,
+      [_line('a', 100)],
+      (_) async {
+        await tester.tap(find.text('ตะกร้า'));
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        final toggle = tester.getRect(
+          find.byKey(const Key('discountModeToggle')),
+        );
+        final input = tester.getRect(field);
+        expect(input.right, lessThanOrEqualTo(320));
+        expect(toggle.right, lessThanOrEqualTo(input.left));
+        expect(input.width, greaterThan(40));
+      },
+      size: const Size(320, 800),
+      textScale: 1.3,
+    );
   });
 }
