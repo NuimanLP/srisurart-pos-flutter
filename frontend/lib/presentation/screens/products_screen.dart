@@ -1438,6 +1438,14 @@ class _BulkDeleteDialogState extends State<_BulkDeleteDialog> {
   }
 }
 
+/// The `products.name` to save: the EN name, or the (trimmed) Thai name when
+/// EN is blank. Empty only when both are blank — the form then refuses.
+@visibleForTesting
+String productNameOrThai(String nameEn, String nameTh) {
+  final en = nameEn.trim();
+  return en.isNotEmpty ? en : nameTh.trim();
+}
+
 class _ProductEditDialog extends StatefulWidget {
   final ProductRow? product; // null = new
   final List<String> categories;
@@ -1569,7 +1577,10 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
 
   Future<void> _save() async {
     final partNo = _partNo.text.trim();
-    final name = _name.text.trim();
+    final nameTH = _nameTH.text.trim();
+    // Either name is enough; `products.name` is NOT NULL and the server refuses
+    // a blank one, so a Thai-only product stores the Thai name in both.
+    final name = productNameOrThai(_name.text, nameTH);
     if (partNo.isEmpty) {
       _toast('กรุณากรอกรหัสสินค้า');
       return;
@@ -1585,7 +1596,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
         id: '', // repo's add() overrides this with newId('p')
         partNo: partNo,
         name: name,
-        nameTH: _nameTH.text.trim(),
+        nameTH: nameTH,
         category: _category,
         brand: _brand.text.trim(),
         price: _fSell,
@@ -1610,7 +1621,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
       // Strip stock + partNo from the patch (parity with the JSX).
       final patch = ProductsCompanion(
         name: Value(name),
-        nameTH: Value(_nameTH.text.trim()),
+        nameTH: Value(nameTH),
         category: Value(_category),
         brand: Value(_brand.text.trim()),
         price: Value(_fSell),
