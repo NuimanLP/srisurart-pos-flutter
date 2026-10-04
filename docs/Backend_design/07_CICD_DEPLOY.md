@@ -290,7 +290,7 @@ GitHub Environment `demo` ถือ secret ทั้งหมด (ไม่ม�
 | secret | ใช้ทำอะไร |
 |---|---|
 | `DEMO_SSH_HOST`, `DEMO_SSH_USER`, `DEMO_SSH_KEY` | Ansible เข้าเครื่อง (user แรกต้องมี sudo — เจ้าของโปรเจกต์ใส่เอง) · **addendum 2026-09-15: `deploy.yml` (workflow) ไม่ใช้ตัวไหนเลย** — runner อยู่บน VM แล้ว จึงไม่ต้องเก็บ key ของ VM ใน GitHub; ใช้แค่ตอนรัน playbook ด้วยมือจากเครื่องคน |
-| `DEMO_ENV_FILE` | เนื้อหา `server/.env` ทั้งไฟล์ (Postgres/Redis password, JWT keys, `CORS_ORIGINS`, Grafana admin, `ETCD_ROOT_PASSWORD`) — Ansible template ลง VM ด้วย mode 0600. 🔴 **#64 merge แล้ว (PR #113) — ก่อน deploy ครั้งถัดไปต้องเพิ่ม `ETCD_ROOT_PASSWORD` และ `GRAFANA_ADMIN_PASSWORD` เข้าไปในค่านี้ แล้วรัน `provision.yml` ใหม่** — ไม่มี `ETCD_ROOT_PASSWORD` = ทุกคำสั่ง `docker compose` บน VM (รวม `deploy.yml` เอง) fail ตั้งแต่ interpolation · ไม่มี `GRAFANA_ADMIN_PASSWORD` = monitoring ขึ้นไม่ได้ (WARNING, §6 ข้อ 9) · **addendum 2026-09-21 (#367): `CORS_ORIGINS` และ `PLATFORM_ADMIN_IPS` เพิ่งส่งเข้า container ได้จริงตั้งแต่ #367** (ก่อนหน้านั้นไม่มี compose ไฟล์ไหนส่งสองคีย์นี้ ใส่ไว้ก็ไม่มีผล) · สองตัวนี้ optional — ว่างไว้สแตกขึ้นได้ (CORS คงเป็น `'*'`) แต่ **จะปิด CORS บน VM ได้ก็ต่อเมื่อเพิ่มสองคีย์นี้ในค่านี้ แล้วรัน `provision.yml` ใหม่** · ค่าที่ตั้งแล้วไม่มี entry เลย (เช่น `,`) ทำให้ API boot fail ดัง ๆ แทนการเปิด CORS เงียบ · **addendum 2026-09-27 (#443 PR4):** `server/docker-compose.yml` เปลี่ยน default ของ `PLATFORM_ADMIN_IPS` จากว่างเป็น `172.30.0.20` (IP ของ container `platform-ui` ใหม่) แล้ว — ถ้า `DEMO_ENV_FILE` **ไม่มี**คีย์นี้เลยไม่ต้องทำอะไรเพิ่ม (`.env` ไม่มีคีย์ = compose ใช้ default `172.30.0.20` เอง) แต่ถ้า `DEMO_ENV_FILE` เคยตั้ง `PLATFORM_ADMIN_IPS=` เป็นค่าอื่นไว้อยู่แล้ว (เช่น IP แอดมินภายนอก) ต้องเติม `172.30.0.20` เข้าไปในลิสต์นั้นด้วย ไม่งั้น `platform-ui` จะผ่าน nginx `allow` แต่ไปตายที่ guard (`PLATFORM_IP_FORBIDDEN`) เงียบ ๆ — ดูแถว "ดู platform-ui" ใน §7 · **addendum 2026-09-28 (#443):** คีย์ optional ใหม่ `PLATFORM_ADMINS=user:password,user:password` (placeholder เช่น `admin:<อย่างน้อย 12 ตัวอักษร>` — ห้าม commit ค่าจริง) — api ทุกตัว upsert platform admin ตอน boot: ไม่มี → สร้าง · รหัสไม่ตรง → hash ใหม่ · ชื่อที่ลบออกจากลิสต์ **ไม่ถูกลบ/ไม่ถูกปิด** ใน DB · แยก entry ด้วย `,` แยก user/รหัสที่ `:` ตัวแรก (รหัสมี `:` ได้ มี `,` ไม่ได้) · entry ผิดรูป/user ว่าง/user ซ้ำ/รหัสสั้นกว่า 12 = api boot fail ดัง ๆ · ว่างไว้ = ไม่ทำอะไร · ต้องเพิ่มในค่านี้แล้วรัน `provision.yml` ใหม่เหมือนคีย์อื่น · **fix round 2026-09-28:** เปลี่ยนรหัสผ่านทาง env = ตั้ง `platform_admins.password_changed_at = now()` → platform token เก่าของคนนั้นใช้ไม่ได้ทันที (migration `1788652804600`) · admin ที่ถูกปิด (`is_active = false`) ไม่ถูกแตะ รายงานเป็น `inactive` ใน log · 🔴 **deploy รอบนี้เอง (migration `1788652804600`) บังคับ logout platform admin ที่มีอยู่ก่อนแล้วทุกคนครั้งเดียว** — `UPDATE platform_admins SET password_changed_at = now()` ทั้งตาราง ไม่ใช่แค่คนที่รหัสเปลี่ยนรอบนี้ ดังนั้น token เก่าทุกใบ (ที่ไม่มี `iat`) ใช้ไม่ได้ทันทีที่ migration รันเสร็จ ทุกคนต้อง login ใหม่รอบเดียวหลัง deploy นี้ · cache key ของ `PlatformAuthGuard` เปลี่ยนชื่อจาก `pa:<id>:exists` เป็น `pa:<id>:cutoff` พร้อมกัน (ฟังก์ชันเดียว `platformAdminCacheKey()`) กัน replica เก่าฝากค่า `'1'` ไว้ใน key เดิมแล้วโดนตีความเป็น "ไม่มี cutoff" ช่วง ≤ 60 วิหลัง deploy · **หน้าต่าง ≤ 60 วิ (Redis TTL) ที่ owner ยอมรับ (2026-09-28) ยังเหลืออยู่สองทาง ไม่ได้ปิดสนิท**: `bootstrap-admin --force` ไม่ลบ cache เลย และ rolling deploy ที่ replica ยังไม่ restart อาจตอบด้วยค่าที่แคชไว้ก่อน sync จนกว่า TTL หมดหรือ replica นั้นเอง sync เสร็จ — รายละเอียดเต็มอยู่ที่ ADR-0009 addendum 2026-09-28 (fix round) · 🔴 **ถ้าตั้ง `PLATFORM_ADMINS` ไว้ api ต้องต่อ Postgres ได้ตอน boot** (**owner-approved 2026-09-28**) — Postgres ล่ม/ยังไม่พร้อม = api `exit 1` แล้ว `restart: unless-stopped` วนสตาร์ตใหม่ (crash-loop) จนกว่า Postgres กลับมา ไม่ใช่ขึ้นมาแบบ degraded · log ตอน fail มีแค่ message/code ไม่มีรหัสผ่านหรือ hash |
+| `DEMO_ENV_FILE` | เนื้อหา `server/.env` ทั้งไฟล์ (Postgres/Redis password, JWT keys, `CORS_ORIGINS`, Grafana admin, `ETCD_ROOT_PASSWORD`) — Ansible template ลง VM ด้วย mode 0600. 🔴 **#64 merge แล้ว (PR #113) — ก่อน deploy ครั้งถัดไปต้องเพิ่ม `ETCD_ROOT_PASSWORD` และ `GRAFANA_ADMIN_PASSWORD` เข้าไปในค่านี้ แล้วรัน `provision.yml` ใหม่** — ไม่มี `ETCD_ROOT_PASSWORD` = ทุกคำสั่ง `docker compose` บน VM (รวม `deploy.yml` เอง) fail ตั้งแต่ interpolation · ไม่มี `GRAFANA_ADMIN_PASSWORD` = monitoring ขึ้นไม่ได้ (WARNING, §6 ข้อ 9) · **addendum 2026-09-21 (#367): `CORS_ORIGINS` และ `PLATFORM_ADMIN_IPS` เพิ่งส่งเข้า container ได้จริงตั้งแต่ #367** (ก่อนหน้านั้นไม่มี compose ไฟล์ไหนส่งสองคีย์นี้ ใส่ไว้ก็ไม่มีผล) · สองตัวนี้ optional — ว่างไว้สแตกขึ้นได้ (CORS คงเป็น `'*'`) แต่ **จะปิด CORS บน VM ได้ก็ต่อเมื่อเพิ่มสองคีย์นี้ในค่านี้ แล้วรัน `provision.yml` ใหม่** · ค่าที่ตั้งแล้วไม่มี entry เลย (เช่น `,`) ทำให้ API boot fail ดัง ๆ แทนการเปิด CORS เงียบ · **addendum 2026-09-27 (#443 PR4):** `server/docker-compose.yml` เปลี่ยน default ของ `PLATFORM_ADMIN_IPS` จากว่างเป็น `172.30.0.20` (IP ของ container `platform-ui` ใหม่) แล้ว — ถ้า `DEMO_ENV_FILE` **ไม่มี**คีย์นี้เลยไม่ต้องทำอะไรเพิ่ม (`.env` ไม่มีคีย์ = compose ใช้ default `172.30.0.20` เอง) แต่ถ้า `DEMO_ENV_FILE` เคยตั้ง `PLATFORM_ADMIN_IPS=` เป็นค่าอื่นไว้อยู่แล้ว (เช่น IP แอดมินภายนอก) ต้องเติม `172.30.0.20` เข้าไปในลิสต์นั้นด้วย ไม่งั้น `platform-ui` จะผ่าน nginx `allow` แต่ไปตายที่ guard (`PLATFORM_IP_FORBIDDEN`) เงียบ ๆ — ดูแถว "ดู platform-ui" ใน §7 · **addendum 2026-09-28 (#443):** คีย์ optional ใหม่ `PLATFORM_ADMINS=user:password,user:password` (placeholder เช่น `admin:<อย่างน้อย 12 ตัวอักษร>` — ห้าม commit ค่าจริง) — api ทุกตัว upsert platform admin ตอน boot: ไม่มี → สร้าง · รหัสไม่ตรง → hash ใหม่ · ชื่อที่ลบออกจากลิสต์ **ไม่ถูกลบ/ไม่ถูกปิด** ใน DB · แยก entry ด้วย `,` แยก user/รหัสที่ `:` ตัวแรก (รหัสมี `:` ได้ มี `,` ไม่ได้) · entry ผิดรูป/user ว่าง/user ซ้ำ/รหัสสั้นกว่า 12 = api boot fail ดัง ๆ · ว่างไว้ = ไม่ทำอะไร · ต้องเพิ่มในค่านี้แล้วรัน `provision.yml` ใหม่เหมือนคีย์อื่น · **fix round 2026-09-28:** เปลี่ยนรหัสผ่านทาง env = ตั้ง `platform_admins.password_changed_at = now()` → platform token เก่าของคนนั้นใช้ไม่ได้ทันที (migration `1788652804600`) · admin ที่ถูกปิด (`is_active = false`) ไม่ถูกแตะ รายงานเป็น `inactive` ใน log · 🔴 **deploy รอบนี้เอง (migration `1788652804600`) บังคับ logout platform admin ที่มีอยู่ก่อนแล้วทุกคนครั้งเดียว** — `UPDATE platform_admins SET password_changed_at = now()` ทั้งตาราง ไม่ใช่แค่คนที่รหัสเปลี่ยนรอบนี้ ดังนั้น token เก่าทุกใบ (ที่ไม่มี `iat`) ใช้ไม่ได้ทันทีที่ migration รันเสร็จ ทุกคนต้อง login ใหม่รอบเดียวหลัง deploy นี้ · cache key ของ `PlatformAuthGuard` เปลี่ยนชื่อจาก `pa:<id>:exists` เป็น `pa:<id>:cutoff` พร้อมกัน (ฟังก์ชันเดียว `platformAdminCacheKey()`) กัน replica เก่าฝากค่า `'1'` ไว้ใน key เดิมแล้วโดนตีความเป็น "ไม่มี cutoff" ช่วง ≤ 60 วิหลัง deploy · **หน้าต่าง ≤ 60 วิ (Redis TTL) ที่ owner ยอมรับ (2026-09-28) ยังเหลืออยู่สองทาง ไม่ได้ปิดสนิท**: `bootstrap-admin --force` ไม่ลบ cache เลย และ rolling deploy ที่ replica ยังไม่ restart อาจตอบด้วยค่าที่แคชไว้ก่อน sync จนกว่า TTL หมดหรือ replica นั้นเอง sync เสร็จ — รายละเอียดเต็มอยู่ที่ ADR-0009 addendum 2026-09-28 (fix round) · 🔴 **ถ้าตั้ง `PLATFORM_ADMINS` ไว้ api ต้องต่อ Postgres ได้ตอน boot** (**owner-approved 2026-09-28**) — Postgres ล่ม/ยังไม่พร้อม = api `exit 1` แล้ว `restart: unless-stopped` วนสตาร์ตใหม่ (crash-loop) จนกว่า Postgres กลับมา ไม่ใช่ขึ้นมาแบบ degraded · log ตอน fail มีแค่ message/code ไม่มีรหัสผ่านหรือ hash · **addendum 2026-10-04 (PR #596):** คีย์ optional ใหม่ `HEALTHCHECKS_PING_URL=https://hc-ping.com/<uuid>` (ห้าม commit ค่าจริง — ใครมี URL ก็ ping แทนได้) — อ่านโดย `healthcheck-ping.sh` จาก cron บน VM เท่านั้น ไม่มี container ไหนใช้ · ว่างไว้ = `::warning::` + exit 0 ไม่ส่ง heartbeat · ต้องเพิ่มในค่านี้แล้วรัน `provision.yml` ใหม่เหมือนคีย์อื่น (หรือติดตั้งด้วยมือ, §7b) |
 
 **งบ RAM บน VM** (mem_limit ปัจจุบันรวม 3,424 MB — รวม etcd 256m แล้ว, #64, + platform-ui 32m, #443 PR4): เพิ่ม Prometheus 512m
 (`--storage.tsdb.retention.time=7d --storage.tsdb.retention.size=2GB`) · Grafana 256m ·
@@ -706,6 +706,47 @@ retention พร้อม `::warning::` ตลอดไป** — เมื่อ
   เพิ่ม package นี้ (ยังไม่จำเป็นเพราะ offsite ยังไม่เปิดใช้งาน)
 
 อ่านคู่กับ §7 (runbook แถว "VM พัง/ย้ายเครื่อง")
+
+---
+
+## 7b. Uptime heartbeat — Healthchecks.io (ยังไม่ติดตั้งบน VM)
+
+VM เป็นฝ่าย **ส่งสัญญาณออกไป** ทุก 5 นาที ถ้าสัญญาณหยุด Healthchecks.io แจ้งเตือน — จึงรู้ได้แม้ VM
+ดับทั้งเครื่อง (ตัวเฝ้าที่รันบน VM เดียวกันทำไม่ได้)
+
+| ส่วน | ที่อยู่ |
+|---|---|
+| สคริปต์ | `deploy/scripts/healthcheck-ping.sh` — เช็ก `https://127.0.0.1/health/ready` ผ่าน Nginx แล้ว ping `<URL>` (ผ่าน) หรือ `<URL>/fail` (ไม่ผ่าน พร้อมข้อความ error) |
+| เทสต์ | `deploy/scripts/test/healthcheck-ping.test.sh` (stub `curl`, รันใน CI job `nginx-check`) |
+| ติดตั้ง | `provision.yml` — copy สคริปต์ + cron `*/5` ของ user `deploy`; **CD deploy ไม่ติดตั้งให้** (เหมือน `backup-db.sh`) · หรือติดตั้งด้วยมือ (ด้านล่าง) |
+| ค่า | `HEALTHCHECKS_PING_URL=` ใน `/opt/pos/.env` (ผ่าน `DEMO_ENV_FILE`) — **เป็นความลับ** ใครมี URL ก็ ping แทนได้ ห้าม commit · สคริปต์ส่ง URL ให้ `curl` ทาง config บน stdin (`-K -`) ไม่ใช่ argv — ไม่โผล่ใน `ps` ของ user อื่น · มีคีย์ซ้ำ = บรรทัดสุดท้ายชนะ (เหมือน Compose) |
+| log | `sudo journalctl -t pos-healthcheck` |
+
+3 สถานะ (กฎเดียวกับ offsite ของ `backup-db.sh`):
+
+| สถานะ | ผล |
+|---|---|
+| ยังไม่ตั้ง `HEALTHCHECKS_PING_URL` | `::warning::` + exit 0 — ไม่ส่งอะไร **และไม่มีใครถูกแจ้งเมื่อ VM ดับ** |
+| ตั้งแล้ว ส่งถึง | ping ผ่าน/`/fail` ตามผล `/health/ready` |
+| ตั้งแล้ว ส่งไม่ถึง (FortiGate/DNS) | `::error::` + exit 1 — ฝั่ง Healthchecks.io จะเห็นเป็น "เงียบ" แล้วแจ้งเตือนเอง |
+
+ก่อนเปิดใช้: (1) ✅ 2026-10-04 — `curl -v https://hc-ping.com/` จาก `mob04` ผ่าน FortiGate (TLS verify ผ่าน, issuer
+Sectigo ไม่ใช่ใบของ FortiGate; ถ้าวันหนึ่งกลับมาเป็น `x509`/SSL error ให้สงสัยตรงนี้ก่อน — เคยบล็อก `ghcr.io` จนถึง 2026-09-29) (2) ทีมสมัคร Healthchecks.io สร้าง check period 5 นาที + grace ตามต้องการ ตั้งช่องทางแจ้งเตือน
+(3) เพิ่ม `HEALTHCHECKS_PING_URL=https://hc-ping.com/<uuid>` ใน `DEMO_ENV_FILE` (`mob04-demo.env`) แล้วติดตั้งด้วยวิธีใดวิธีหนึ่งข้างล่าง — ต้องได้รับอนุมัติจากเจ้าของก่อน
+
+- **`provision.yml`** (รันเป็น `cloud`) — 🔴 playbook นี้ **เขียนทับ `/opt/pos/.env` ทั้งไฟล์** จาก `DEMO_ENV_FILE` ดังนั้น
+  `DEMO_ENV_FILE` ต้องมี **ทุกคีย์** ที่ VM ใช้อยู่ ไม่ใช่แค่คีย์ใหม่
+- **ด้วยมือ** — (a) `sudo install -o deploy -g deploy -m 0755` สคริปต์จาก `origin/main` ลง `/opt/pos/scripts/`
+  (b) `sudoedit /opt/pos/.env` เพิ่มคีย์ (c) `sudo crontab -u deploy -e` เพิ่มบรรทัด cron โดยมีบรรทัด
+  `#Ansible: Srisurart POS Uptime Heartbeat` นำหน้า — `provision.yml` รอบหลังจะรับ entry นั้นไปดูแลแทนการเพิ่มซ้ำ
+
+🔴 **อย่ากด *Ping now* ใน Healthchecks.io ก่อนที่ cron จะมีอยู่จริง** — check ถูก pause ไว้ ping แรกจะ resume มัน
+ถ้า ping ด้วยมือก่อน cron มี check จะกลับมานับเวลาแล้วแจ้งเตือนเมื่อไม่มี ping ถัดไป
+
+ตรวจบน VM: `sudo -u deploy /opt/pos/scripts/healthcheck-ping.sh; echo rc=$?` ได้ `rc=0` และ check เป็นสีเขียว ·
+`HEALTHCHECK_READY_URL=https://127.0.0.1/health/nope` ทำให้แดง + แจ้งเตือน แล้ว cron รอบถัดไปกลับเป็นเขียว ·
+log ดูที่ `sudo journalctl -t pos-healthcheck` · probe ลองซ้ำ 3 × 15 วิก่อนรายงาน — กรณีแย่สุด ~2 นาที
+(probe ≈85 วิ + ping ≈47 วิ) ยังอยู่ในรอบ cron 5 นาที
 
 ---
 

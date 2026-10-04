@@ -110,6 +110,7 @@ REQUIRED_FILES=(
   "deploy/scripts/backup-db.sh"
   "deploy/scripts/restore-db.sh"
   "deploy/scripts/measure-container-rss.sh"
+  "deploy/scripts/healthcheck-ping.sh"
 )
 
 for file in "${REQUIRED_FILES[@]}"; do

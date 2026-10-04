@@ -144,6 +144,8 @@
         - restore-db.sh
         # step 2.2 of the #184 RSS runbook invokes this by absolute path
         - measure-container-rss.sh
+        # the 5-minute uptime heartbeat cron target at the end of this playbook
+        - healthcheck-ping.sh
 
     # An unset DEMO_ENV_FILE is a legitimate re-provision that leaves .env alone — but it used to
     # happen without a word, and read like the .env had been written.
@@ -181,6 +183,13 @@
       ansible.builtin.debug:
         msg: "DEMO_ENV_FILE has no PLATFORM_ADMINS= line — platform-ui (127.0.0.1:3200) will have no admin to log in with unless one already exists in the database."
       when: demo_env_content != "" and demo_env_content is not search('(?m)^PLATFORM_ADMINS=\S')
+
+    # HEALTHCHECKS_PING_URL is optional too: without it the heartbeat cron logs one ::warning::
+    # every 5 minutes and pings nothing, so nobody is told when the VM goes down.
+    - name: Warn when no uptime heartbeat is configured
+      ansible.builtin.debug:
+        msg: "DEMO_ENV_FILE has no HEALTHCHECKS_PING_URL= line — the uptime heartbeat cron will run but send nothing (see healthcheck-ping.sh)."
+      when: demo_env_content != "" and demo_env_content is not search('(?m)^HEALTHCHECKS_PING_URL=\S')
 
     # `DEMO_ENV_FILE="$(cat file)"` strips the file's final newline, so without the
     # fix-up below the last line had none and a key appended by hand later glued onto
@@ -235,4 +244,20 @@
         minute: "0"
         hour: "3"
         job: "{{ app_dir }}/scripts/backup-db.sh {{ app_dir }}/backups >>{{ app_dir }}/backups/backup-cron.log 2>&1"
+        state: present
+
+    # Uptime heartbeat (Healthchecks.io): the VM reports in; silence is the alarm, so a dead VM
+    # pages too — which an uptime monitor running on this same VM never could.
+    # The ping URL is read from {{ app_dir }}/.env (HEALTHCHECKS_PING_URL) at every run, so it
+    # changes with the .env, not with this playbook; unset = one ::warning:: per run, exit 0.
+    # Output goes to syslog rather than a file: 288 runs a day would want rotation, and journald
+    # already rotates. Read it with `journalctl -t pos-healthcheck`.
+    # Needs outbound HTTPS from the VM to hc-ping.com through the faculty FortiGate — test with
+    # `curl -v https://hc-ping.com/` before relying on it (the same block hit ghcr.io until 2026-09-29).
+    - name: Configure uptime heartbeat cron job (Healthchecks.io)
+      ansible.builtin.cron:
+        name: "Srisurart POS Uptime Heartbeat"
+        user: "{{ deploy_user }}"
+        minute: "*/5"
+        job: "{{ app_dir }}/scripts/healthcheck-ping.sh 2>&1 | logger -t pos-healthcheck"
         state: present

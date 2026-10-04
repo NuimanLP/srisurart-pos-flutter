@@ -96,8 +96,9 @@ jobs:
             server:
               - 'server/**'
               - '.github/workflows/server.yml'
-              # backup-db.sh + its test run in the nginx-check job (deploy-script checks).
+              # backup-db.sh, healthcheck-ping.sh + their tests run in the nginx-check job (deploy-script checks).
               - 'deploy/scripts/backup-db.sh'
+              - 'deploy/scripts/healthcheck-ping.sh'
               - 'deploy/scripts/test/**'
               # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
@@ -348,6 +349,9 @@ jobs:
       # Deploy-script check: a failed pg_dump must not leave a pos_backup_*.sql.gz behind.
       - name: backup-db.sh tests (stubbed pg_dump)
         run: deploy/scripts/test/backup-db.test.sh
+      # Uptime heartbeat: right ping on success/failure, URL never printed, unset = warning only.
+      - name: healthcheck-ping.sh tests (stubbed curl)
+        run: deploy/scripts/test/healthcheck-ping.test.sh
       - name: cleanup temporary files
         if: always()
         run: rm -rf .tmp-nginx
