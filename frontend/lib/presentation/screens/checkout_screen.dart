@@ -154,11 +154,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Sync the discount field's visible text to [_discount], mirroring the JS
   /// controlled input `value={discount||''}` (0 shows as an empty field).
   void _syncDiscountText() {
-    _discountCtrl.text = _discount == 0
+    // round2 first: a clamp to a float-noisy subtotal (0.1 + 0.2) must still
+    // match moneyInputFormatters (at most 2 decimals) or the next edit is refused.
+    final d = round2(_discount);
+    _discountCtrl.text = d == 0
         ? ''
-        : (_discount == _discount.truncateToDouble()
-              ? _discount.toInt().toString()
-              : _discount.toString());
+        : (d == d.truncateToDouble() ? d.toInt().toString() : d.toString());
   }
 
   void _warn(String msg) {
