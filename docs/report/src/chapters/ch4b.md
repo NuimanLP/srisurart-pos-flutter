@@ -95,6 +95,27 @@ TABLE: การ deploy ขึ้นเครื่อง mob04 ระหว่�
 
 FIGURE: แผงควบคุม Grafana ระหว่างการซ้อมสาธิต (บันทึกเมื่อ 21 กันยายน พ.ศ. 2569) {#fig:grafana-panels} | docs/handoff_log/media/demo-rehearsal-grafana-panels.jpg
 
+### การขยายการเฝ้าสังเกตระบบ (1–4 ตุลาคม พ.ศ. 2569)
+
+ระหว่างวันที่ 1–4 ตุลาคม พ.ศ. 2569 มีการพัฒนาส่วนขยายของการเฝ้าสังเกตระบบบนสาขา `develop` ซึ่งแยกจาก `main` และทดสอบบนเครื่องของผู้พัฒนา ก่อนแยกส่วนที่ใช้กับ VM ได้เป็น PR #596 และ #597 โดยใช้ค่าตั้งชุดเดียวกับ `mob04` ตารางที่ {tab:observability-ext} สรุปงานและสถานะ ณ วันที่ 4 ตุลาคม พ.ศ. 2569 ทั้งสอง PR รวมเข้า `main` แล้วในวันเดียวกัน แต่ ณ วันที่บันทึกยังไม่มีงานใดในหัวข้อนี้ถูก deploy หรือติดตั้งบน `mob04`
+
+TABLE: งานขยายการเฝ้าสังเกตระบบและสถานะ ณ 4 ตุลาคม พ.ศ. 2569 {#tab:observability-ext}
+| งาน | สิ่งที่ทำ | สถานะ |
+|---|---|---|
+| ตัวชี้วัดใหม่ของเซิร์ฟเวอร์ | จำนวนเอกสาร สถานะ pool และงานในคิว | รวมแล้ว (PR #597) รอ deploy |
+| แผงควบคุมหน้า Overview | เพิ่มจาก 12 เป็น 29 แผง | รวมแล้ว (PR #597) รอ deploy |
+| ชุดทดสอบ | หน่วย 25 กรณี และ e2e 2 กรณี | ผ่าน CI ของ PR #597 |
+| ที่เก็บบันทึกและตัวส่งออก | Loki, Alloy, ตัวส่งออก PostgreSQL, Redis และ cAdvisor พร้อมแผงควบคุมหน้าที่สอง 15 แผง | เฉพาะสาขา `develop` |
+| การแจ้งเตือนเมื่อระบบล่ม | ส่งสัญญาณจาก cron บน VM ไปยัง Healthchecks.io ทุก 5 นาที | รวมแล้ว (PR #596) ยังไม่ติดตั้งบน `mob04` |
+
+ตัวชี้วัดใหม่มีสามกลุ่ม `pos_documents_total` นับบิลขาย บิลยกเลิก และการคืนสินค้าเมื่อธุรกรรม commit แล้วเท่านั้น ไม่นับคำขอที่เล่นซ้ำด้วยคีย์เดิม และไม่มี label `tenant_id` เช่นเดียวกับตัวนับการเล่นซ้ำ `pos_db_pool_connections` และ `pos_db_pool_max_connections` อ่านสถานะ pool ขณะ Prometheus scrape ผ่านตัวอ่านที่ไม่เปิดให้เข้าถึง DataSource ตามข้อบังคับของสเปกสถาปัตยกรรม และ `pos_queue_jobs` อ่านจำนวนงานในคิว BullMQ ทั้งหกคิวโดยจำกัดเวลา 1 วินาที เพื่อไม่ให้การ scrape ค้างเมื่อ Redis ไม่ตอบ แผงใหม่บนหน้า Overview ได้แก่ แผงราย instance และรายเส้นทาง แผงจำนวนเอกสาร pool งานในคิว การเข้าสู่ระบบที่ถูกปฏิเสธ และการแยกคำขออ่านกับเขียนตาม HTTP method ชุดทดสอบที่เพิ่มทำให้ความครอบคลุมบรรทัดของการทดสอบหน่วยเพิ่มจากร้อยละ 44.70 เป็น 45.39 ส่วนที่เก็บบันทึก Loki เก็บบันทึกของทุกคอนเทนเนอร์ 7 วัน โดย Alloy อ่านผ่าน Docker และการนำส่วนนี้ขึ้น `mob04` เป็นการตัดสินใจของเจ้าของโครงงาน
+
+การแยกแผงควบคุมเป็นสองหน้ามีเหตุผลจากการ deploy เพราะ `deploy.yml` คัดลอกโฟลเดอร์ `deploy/grafana/` ทั้งโฟลเดอร์ขึ้น VM หากรวมแผงของตัวส่งออกที่มีเฉพาะบนเครื่องผู้พัฒนาไว้ในหน้าเดียวกัน หน้าบน VM จะมีแผงที่ไม่มีข้อมูลปะปนกับแผงที่ใช้งานได้ PR #597 จึงมีเฉพาะหน้า Overview ที่ทุกแผงอาศัยเพียง Prometheus และเซิร์ฟเวอร์ที่มีบน `mob04` อยู่แล้ว สถานะของแผงทั้งหมดเมื่อทดสอบบนเครื่องผู้พัฒนาแสดงดังรูปที่ {fig:dashboard-status}
+
+FIGURE: สถานะแผงควบคุม 44 แผงจากการทดสอบบนเครื่องผู้พัฒนา (2 ตุลาคม พ.ศ. 2569; 15 แผงของหน้าที่สองมีเฉพาะบนเครื่องผู้พัฒนา) {#fig:dashboard-status} | docs/infographic/dashboard-status.png
+
+สำหรับการแจ้งเตือนเมื่อระบบล่ม คณะผู้จัดทำทดลอง Uptime Kuma บนเครื่องผู้พัฒนาก่อน แล้วเปลี่ยนเป็นการส่งสัญญาณจาก VM ออกไปยังบริการภายนอก เหตุผลคือตัวตรวจที่รันบน `mob04` จะหยุดทำงานพร้อม VM จึงแจ้งเตือนกรณี VM ล่มทั้งเครื่องไม่ได้ ในขณะที่การส่งสัญญาณออกไปทำให้การขาดหายของสัญญาณเป็นตัวแจ้งเตือนเอง ครอบคลุมทั้งกรณี VM ล่ม เครือข่ายขาด และ cron หยุดทำงาน เมื่อวันที่ 4 ตุลาคม พ.ศ. 2569 ได้ทดสอบจาก `mob04` แล้วว่าเชื่อมต่อ `hc-ping.com` ผ่านไฟร์วอลล์ของคณะได้ โดยใบรับรองที่ได้รับเป็นของผู้ให้บริการจริง ไม่ใช่ใบรับรองที่ไฟร์วอลล์ออกแทน ส่วนที่ยังไม่ได้พิสูจน์คือการรัน `provision.yml` ส่วนนี้กับเครื่องจริง และการแจ้งเตือนจริงจากบริการ
+
 ## ผลการนำระบบขึ้นใช้งานบนเครื่อง mob04 และการติดตามระบบ
 
 ### สแตกบนเครื่องสาธิต
@@ -220,6 +241,16 @@ SSH = Secure Shell
 [8] Prometheus Authors, "Prometheus Documentation," [Online]. Available: https://prometheus.io/docs/. Accessed: Oct. 1, 2026.
 
 ## __FACTS__
+observability extension on develop, 1-4 Oct 2026, not on mob04 -> git log origin/main..develop; docs/handoff_log/session-2026-10-04-develop-branch-status.md
+PR #596 merged 2026-10-04 (e0b880a, head c9f8c39); PR #597 merged 2026-10-04 (41a8f19, head d336cfa); no Deploy run for 41a8f19 at writing -> gh pr view 596/597; gh run list --workflow deploy.yml
+overview 12 -> 29 panels; infra 15 panels -> deploy/grafana/dashboards/pos-overview.json, pos-infra.json (develop)
+25 unit + 2 e2e tests; coverage 44.70 -> 45.39 -> pnpm test:coverage on feat/app-metrics-overview-dashboard; server/coverage-baseline.json note
+queue read timeout 1 s, six queues -> server/src/metrics/runtime-metrics.service.ts, queue.constants.ts ALL_QUEUES
+Loki retention 168h -> deploy/loki/loki.yml (develop)
+heartbeat every 5 min via cron, provision.yml -> deploy/ansible/provision.yml (PR #596)
+deploy.yml copies deploy/grafana wholesale -> deploy/ansible/deploy.yml "Copy Prometheus and Grafana configuration trees"
+hc-ping.com reachable from mob04, issuer Sectigo, 2026-10-04 -> team curl -v output; docs/handoff_log/session-2026-10-04-uptime-healthchecks-heartbeat.md
+dashboard-status figure 44 panels verified local 2026-10-02 -> docs/infographic/dashboard-status.png footer
 commits on origin/main 1058 -> `git rev-list --count origin/main` (2026-10-01)
 first commit 2026-06-23 -> `git log --reverse --format=%cd --date=short | head -1`
 330 merged PRs -> `gh pr list --state merged --limit 2000 --json number` count

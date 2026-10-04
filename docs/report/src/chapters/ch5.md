@@ -67,6 +67,7 @@ TABLE: ผลการดำเนินงานเทียบกับวั�
 8. **ฮาร์ดแวร์เฉพาะร้าน** เครื่องพิมพ์ใบเสร็จแบบความร้อน ลิ้นชักเก็บเงิน และการสแกนบาร์โค้ด ซึ่งต้องทำที่หน้าร้านจริง และงานเสริมความมั่นคงที่ยังเหลือ เช่น การให้เว็บไม่ต้องดึงฟอนต์สำรองจากภายนอก และ service worker ที่ยังไม่ precache ทรัพยากร
 9. **การรับรองข้อความภาษาไทย** ข้อความสามชุดที่คณะผู้จัดทำร่างไว้ (ข้อความ "เปิดกะใหม่" ข้อความอธิบายรหัสลงทะเบียน 8 ตัวอักษร และแบนเนอร์หลังลงทะเบียนเครื่อง) รอการรับรองใน `02_API_SCREENS.md` ตามนิยามผู้รับรองในบทที่ 1
 10. **การทดสอบบน Android และ iOS** CI ยังสร้างเฉพาะบิลด์เว็บ ส่วน Android มีเวิร์กโฟลว์ `android-apk.yml` ที่สั่งรันด้วยมือ และหลังติดตั้ง CA บน `mob04` (PR #559) สร้าง APK ได้แล้วสองรุ่น งานที่เหลือคือสร้าง APK จากคอมมิตล่าสุดที่มีการแก้ไขจากการทดสอบใช้งาน ติดตั้งบนอุปกรณ์จริง เข้าสู่ระบบ และทดสอบการขาย รวมถึงทดลองกู้คืนข้อมูลสำรองบนอุปกรณ์จริง (#556) และเก็บสำรองกุญแจลงนาม APK ไว้นอกเครื่องพัฒนา สำหรับ iOS ยังไม่มีงานใด
+11. **การเฝ้าสังเกตระบบส่วนขยาย (PR #596 และ #597)** PR #596 (การแจ้งเตือนเมื่อระบบล่ม) และ PR #597 (ตัวชี้วัดและแผงควบคุม) รวมแล้วเมื่อ 4 ตุลาคม พ.ศ. 2569 ขั้นต่อไปคือเจ้าของโครงงานอนุมัติการ deploy และตรวจแผงใหม่บน Grafana ของ `mob04` สำหรับการแจ้งเตือนเมื่อระบบล่ม ต้องเพิ่มค่า `HEALTHCHECKS_PING_URL` ในค่าตั้งของ VM และรัน `provision.yml` ด้วยการอนุมัติของเจ้าของโครงงาน ส่วนการนำที่เก็บบันทึกและตัวส่งออกขึ้น `mob04` ต้องประเมินงบหน่วยความจำของ VM ก่อน
 
 นอกจากนี้ต้องตรวจบันทึกการสำรองข้อมูลรอบ 03:00 บน `mob04` เป็นระยะ และปรับไฟล์ฐานข้อมูลบนเว็บทุกครั้งที่ยกระดับ `drift` หรือ `sqlite3`
 
@@ -96,6 +97,7 @@ SSH = Secure Shell
 [3] GitHub, "Expressions — GitHub Actions," [Online]. Available: https://docs.github.com/en/actions/learn-github-actions/expressions. Accessed: Oct. 1, 2026.
 
 ## __FACTS__
+next step 11: PR #596 (e0b880a) and #597 (41a8f19) merged 2026-10-04, not yet deployed; HEALTHCHECKS_PING_URL + provision.yml need owner -> docs/Backend_design/07_CICD_DEPLOY.md §7b (PR #596)
 non-ASCII path breaks build_runner / flutter analyze -> CLAUDE.md "CRITICAL — build path constraint"
 BeeStation placeholders break docker build, found 2026-09-21, git archive workaround -> CLAUDE.md same section; docs/handoff_log/demo-rehearsal-dev-2026-09-21.md
 FortiGate x509 / resolved 2026-09-29/30 -> CLAUDE.md "Still open (phase 1)"
