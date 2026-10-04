@@ -92,7 +92,7 @@ TABLE: ขอบเขตของโครงงานจำแนกตาม�
 
 ### สิ่งที่รายงานนี้ยังไม่ถือว่าแล้วเสร็จ
 
-งานที่ยังเปิดอยู่ ได้แก่ การวัดภาระด้วย k6 (#380) การสาธิตครบวงจรบน `mob04` (#344) และประเด็นการจัดการอุปกรณ์ (#476) ในเกณฑ์ตรวจรับของเฟส 1 (Definition of Done: DoD) 17 ข้อ ผ่านแล้ว 16 ข้อ เหลือข้อ k6 หนึ่งข้อ [7] รายละเอียดอยู่ในตารางที่ {tab:dod} ของบทที่ 4
+งานที่ยังเปิดอยู่ ได้แก่ การวัดภาระด้วย k6 (#380) และการสาธิตครบวงจรบน `mob04` (#344) ส่วนประเด็นการจัดการอุปกรณ์ (#476) ปิดแล้วเมื่อ 3 ตุลาคม พ.ศ. 2569 สำหรับเกณฑ์ตรวจรับของเฟส 1 (Definition of Done: DoD) 17 ข้อ ผ่านแล้ว 16 ข้อ เหลือข้อ k6 หนึ่งข้อ [7] รายละเอียดอยู่ในตารางที่ {tab:dod} ของบทที่ 4
 
 ## แผนการดำเนินงาน
 
@@ -201,7 +201,7 @@ CouchDB proposed and rejected 2026-09-08 -> docs/Backend_design/adr/0012-couchdb
 phase-2 spec 2026-09-15; lanes 2026-09-16, 35 tickets, A=3 B=15 C=17 -> docs/Backend_design/08_PHASE2_SPEC.md; 09_PHASE2_LANES.md section 2
 first deploy to mob04 2026-09-30 -> CLAUDE.md "#67"
 DoD 17 boxes, 16 ticked, 1 open (k6, #380) -> CLAUDE.md Status paragraph; 03_ARCHITECTURE.md section 8
-#344 not run; #380 unmeasured; #476 open owner call; #231 open -> CLAUDE.md "Still open" and "Phase-2 kickoff order"
+#344 not run; #380 unmeasured; #476 closed 2026-10-03 (gh issue view 476); #231 open -> CLAUDE.md "Still open" and "Phase-2 kickoff order"
 #363/#288 parked until after demo, owner 2026-09-22; no backup leaves VM -> CLAUDE.md "#363" bullet
 cutover moved to later phase 2026-09-15 (#242, #231) -> 03_ARCHITECTURE.md section 8 status table row q4
 cloud host rejected by owner 2026-09-15 -> CLAUDE.md (production-host.md note)
@@ -221,5 +221,5 @@ October commits 59 (1-Oct) -> git log --date=short --format=%ad 42b07eb | grep -
 real shop snapshot imported into demo tenant 2026-09-17 (#185) -> gh issue view 185 (closed 2026-09-17, "close.4 — import a real shop snapshot into a demo tenant")
 phase-2 kickoff hub tickets #228 #229 #212 #211 #189 #230 #190 closed, #231 open (7 of 8) -> gh issue view N (2026-10-01); CLAUDE.md "Phase-2 kickoff order"
 course-mandated stack -> docs/study/02_architecture.md:154 "อาจารย์กำหนด stack"
-only web is built in CI -> .github/workflows/flutter.yml job build-web (flutter build web); no apk/ios build job in flutter.yml (a manual android-apk.yml exists since PR #551, 2026-10-03, never run)
+only web is built in CI -> .github/workflows/flutter.yml job build-web (flutter build web); no apk/ios build job in flutter.yml (a manual android-apk.yml exists since PR #551, 2026-10-03; run 3x on 2026-10-03, 2 successful)
 lane CI/frontend split phase 1 (#40/#39/#38) -> docs/Backend_design/05_HOW_WE_GOT_HERE.md:444-447

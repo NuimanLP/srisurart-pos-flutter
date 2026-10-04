@@ -10,7 +10,7 @@
 
 ### สถาปัตยกรรมโดยรวม
 
-ไคลเอนต์ Flutter (ปัจจุบันสร้างและทดสอบเฉพาะบนเว็บ; เวิร์กโฟลว์สร้างไฟล์ติดตั้ง Android เพิ่มเมื่อ 3 ตุลาคม พ.ศ. 2569 แต่ยังไม่เคยรัน) สื่อสารกับเซิร์ฟเวอร์ผ่าน HTTPS ทุกคำขอเข้าสู่ Nginx ซึ่งเป็น reverse proxy ตัวเดียวหน้าระบบ แล้วกระจายไปยังอินสแตนซ์ NestJS [1] สามตัว (`api-1` ถึง `api-3`) ที่ใช้อิมเมจเดียวกัน ข้อมูลธุรกิจเก็บใน PostgreSQL ส่วน Redis แบ่งเป็นสองอินสแตนซ์ตามหน้าที่ งานเบื้องหลังประมวลผลโดยโปรเซส `worker` แยกต่างหาก ค่าตั้งที่ปรับขณะรันได้เก็บใน etcd และการเฝ้าสังเกตระบบใช้ Prometheus กับ Grafana ดังรูปที่ {fig:architecture} ตารางที่ {tab:phases} สรุปความต่างระหว่างเฟส 1 และเฟส 2 ในมุมที่กระทบการออกแบบ ตามเอกสาร `03_ARCHITECTURE.md` และ `08_PHASE2_SPEC.md`
+ไคลเอนต์ Flutter (สร้างและทดสอบบนเว็บ; เวิร์กโฟลว์สร้างไฟล์ติดตั้ง Android เพิ่มเมื่อ 3 ตุลาคม พ.ศ. 2569 และสร้างไฟล์ติดตั้งได้แล้ว แต่ยังไม่มีบันทึกการทดสอบบนอุปกรณ์จริง) สื่อสารกับเซิร์ฟเวอร์ผ่าน HTTPS ทุกคำขอเข้าสู่ Nginx ซึ่งเป็น reverse proxy ตัวเดียวหน้าระบบ แล้วกระจายไปยังอินสแตนซ์ NestJS [1] สามตัว (`api-1` ถึง `api-3`) ที่ใช้อิมเมจเดียวกัน ข้อมูลธุรกิจเก็บใน PostgreSQL ส่วน Redis แบ่งเป็นสองอินสแตนซ์ตามหน้าที่ งานเบื้องหลังประมวลผลโดยโปรเซส `worker` แยกต่างหาก ค่าตั้งที่ปรับขณะรันได้เก็บใน etcd และการเฝ้าสังเกตระบบใช้ Prometheus กับ Grafana ดังรูปที่ {fig:architecture} ตารางที่ {tab:phases} สรุปความต่างระหว่างเฟส 1 และเฟส 2 ในมุมที่กระทบการออกแบบ ตามเอกสาร `03_ARCHITECTURE.md` และ `08_PHASE2_SPEC.md`
 
 FIGURE: สถาปัตยกรรมโดยรวมของระบบ Srisurart Autopart POS {#fig:architecture} | diagram:architecture
 
@@ -31,7 +31,7 @@ TABLE: เปรียบเทียบเฟส 1 (Architecture A) กับ�
 TABLE: ส่วนประกอบหลักของที่เก็บโค้ด {#tab:components}
 | ส่วนประกอบ | ตำแหน่ง | หน้าที่ |
 |---|---|---|
-| ไคลเอนต์ Flutter | `frontend/` | แอปหน้าร้าน (สร้างและทดสอบบนเว็บ; มีเวิร์กโฟลว์สร้างไฟล์ติดตั้ง Android แต่ยังไม่เคยรัน; Android/iOS ยังไม่ทดสอบบนอุปกรณ์จริง) ประกอบด้วยชั้น data, domain และ presentation |
+| ไคลเอนต์ Flutter | `frontend/` | แอปหน้าร้าน (สร้างและทดสอบบนเว็บ; มีเวิร์กโฟลว์สร้างไฟล์ติดตั้ง Android ที่สร้างไฟล์ได้แล้ว; Android/iOS ยังไม่มีบันทึกการทดสอบบนอุปกรณ์จริง) ประกอบด้วยชั้น data, domain และ presentation |
 | เซิร์ฟเวอร์ NestJS | `server/` | API, worker, Bull Board, migrations และเครื่องมือบรรทัดคำสั่งของแพลตฟอร์ม |
 | ชุด deploy | `deploy/` | Ansible playbook, ไฟล์ Compose ส่วนเสริมสำหรับ VM, การตั้งค่า Prometheus และ Grafana, สคริปต์สำรองข้อมูลและ runner |
 | ไปป์ไลน์ | `.github/workflows/` | `flutter.yml`, `server.yml` และ `deploy.yml` |
@@ -84,7 +84,7 @@ TABLE: กติกาธุรกิจของ repository ที่ทำธ�
 | ใบเสนอราคา และบิลที่พัก | ไม่แตะสต็อกเลย |
 | `adjustStock` | ปรับสต็อกด้วยมือ และปัดค่าติดลบเป็น 0 (ต่างจากการขาย) |
 
-การแยกให้การขาย "ตัดสต็อกแบบเข้มงวด" แต่การปรับด้วยมือ "ปัดที่ศูนย์" เป็นการแยกความหมายโดยตั้งใจ เพราะการขายที่ทำให้สต็อกติดลบหมายถึงข้อมูลคลาดเคลื่อนที่ควรยกเลิกทั้งธุรกรรม (rollback) เพื่อให้เห็นชัด ส่วนการปรับด้วยมือเป็นการแก้ตัวเลขโดยผู้ใช้ นอกจากนี้ฟังก์ชัน `planReturn()` และ `refundedQtyOf()` ในไฟล์ `return_plan.dart` เป็นกฎที่ไม่มีผลข้างเคียง (pure function) ที่ทั้ง `ReturnsRepository` และ `ApiReturnsRepository` ใช้ร่วมกัน และยอดเงินสดที่คาดหวังในลิ้นชักคำนวณจากฟังก์ชันเดียว `ShiftsRepository.cashCountFrom(shift)` ทั้งในหน้าลิ้นชักและรายงานปิดร้าน เพื่อไม่ให้มีกติกาเดียวกันสองชุดที่เบี่ยงจากกัน ส่วน `SnapshotRepository` มี `exportSnapshot()` และ `importLegacyBackup()` ที่นำเข้าไฟล์สำรองของแอป JavaScript เดิมแบบอะตอมมิก ซึ่งเป็นเส้นทางย้ายข้อมูลของร้านจริง
+การแยกให้การขาย "ตัดสต็อกแบบเข้มงวด" แต่การปรับด้วยมือ "ปัดที่ศูนย์" เป็นการแยกความหมายโดยตั้งใจ เพราะการขายที่ทำให้สต็อกติดลบหมายถึงข้อมูลคลาดเคลื่อนที่ควรยกเลิกทั้งธุรกรรม (rollback) เพื่อให้เห็นชัด ส่วนการปรับด้วยมือเป็นการแก้ตัวเลขโดยผู้ใช้ นอกจากนี้ฟังก์ชัน `planReturn()` และ `refundedQtyOf()` ในไฟล์ `return_plan.dart` เป็นกฎที่ไม่มีผลข้างเคียง (pure function) ที่ทั้ง `ReturnsRepository` และ `ApiReturnsRepository` ใช้ร่วมกัน และยอดเงินสดที่คาดหวังในลิ้นชักคำนวณจากฟังก์ชันเดียว `ShiftsRepository.drawerCash` ซึ่งนับตามกะ (เจ้าของโครงงานตัดสินเมื่อ 3 ตุลาคม พ.ศ. 2569, PR #584) ทั้งในหน้าลิ้นชักและรายงานปิดร้าน ส่วนการเลือกว่ากะใดเป็นกะปัจจุบันใช้ฟังก์ชันเดียว `currentShiftOf` (PR #592) ซึ่งถือว่ากะที่ยังเปิดอยู่เป็นกะปัจจุบันแม้ข้ามเที่ยงคืน เพื่อไม่ให้มีกติกาเดียวกันสองชุดที่เบี่ยงจากกัน ส่วน `SnapshotRepository` มี `exportSnapshot()` และ `importLegacyBackup()` ที่นำเข้าไฟล์สำรองของแอป JavaScript เดิมแบบอะตอมมิก ซึ่งเป็นเส้นทางย้ายข้อมูลของร้านจริง
 
 ### Repository แบบ API (USE_API_WRITES)
 
@@ -281,6 +281,8 @@ ADR-0007 กำหนดเลขเอกสารแบบเรียงต�
 
 หลังส่งคิวหมด ไคลเอนต์ดึงข้อมูลใหม่จากเซิร์ฟเวอร์ (push ก่อน pull เสมอ) โดยใช้ `meta.nextCursor` ของเซิร์ฟเวอร์ที่เก็บในตาราง `SyncCursors` ต่อชนิดข้อมูล เหตุผลที่ต้องเป็น keyset แทน offset หรือ timestamp เปล่า คือหลายแถวอาจมี `updated_at` เท่ากันจาก `now()` ของธุรกรรมเดียว และ timestamp ระดับมิลลิวินาทีจะข้ามหรือซ้ำแถวที่ใช้ค่าเดียวกัน cursor จึงมีความละเอียดระดับไมโครวินาทีร่วมกับ `afterId` ส่วนหน้าแรกของแต่ละรอบ ไคลเอนต์ถอย cursor กลับ 30 วินาทีและไม่ส่ง `afterId` เพื่อรองรับธุรกรรมที่ commit ช้ากว่าที่ cursor ผ่านไปแล้ว ซึ่งปลอดภัยเพราะเพดานเวลา 25 วินาทีทำให้ไม่มีธุรกรรมใดค้างนานกว่านั้น แถวที่ถูกลบเป็นสัญลักษณ์ลบ (tombstone) ให้ไคลเอนต์ซ่อน การดึงข้อมูลไม่ทับสต็อกของสินค้าที่ยังมี op ค้าง และไม่ทับยอดลูกค้าหรือช่างที่ถูกอ้างโดย op ทางการเงินที่ยังไม่ส่ง ตามหลักความสอดคล้องในที่สุดที่กล่าวในบทที่ 2
 
+การขายเกินสต็อกขณะออฟไลน์จึงถูกจำกัดด้วยกลไกสี่ชั้น ชั้นแรกคือมีผู้เขียนออฟไลน์ได้เพียงเครื่อง `pos` เดียวต่อร้าน (`one_pos_per_tenant`) ชั้นที่สองคือการขายออฟไลน์ใน `ApiSalesRepository` ตรวจสต็อกในเครื่องแบบเข้มงวดก่อนบันทึก และปฏิเสธด้วยข้อความ `สต็อกไม่พอ` เมื่อไม่พอ ชั้นที่สามคือการดึงข้อมูลไม่ทับสต็อกที่ยังมี op ค้าง ตัวเลขในเครื่องจึงสะท้อนการขายที่ยังไม่ส่ง และชั้นสุดท้ายคือเมื่อ `/sync/push` เล่นซ้ำการขาย เซิร์ฟเวอร์ตรวจสต็อกอีกครั้งด้วยบริการเดียวกับเส้นทางออนไลน์ หากสต็อกไม่พอ (เช่น ถูกปรับสต็อกจากเครื่อง `backoffice` ระหว่างที่ออฟไลน์) op นั้นได้ผล `rejected` รหัส `INSUFFICIENT_STOCK` และปรากฏในหน้ารายการรอเจ้าของร้านตรวจ ไม่มีการตัดสต็อกจนติดลบโดยเงียบ
+
 ## ความปลอดภัย
 
 มาตรการด้านความปลอดภัยอยู่หลายชั้น ตารางที่ {tab:security} รวบรวมไว้พร้อมที่มา ส่วนการสำรองข้อมูลออกนอกเครื่องเสมือนยังไม่ได้ทำ (สถานะรายงานในบทที่ 4)
@@ -309,7 +311,7 @@ TABLE: มาตรการด้านความปลอดภัยแล�
 
 FIGURE: ภาพรวมไปป์ไลน์ CI/CD ของโครงงาน ตั้งแต่คำขอรวมถึงการติดตั้งบนเครื่องสาธิต {#fig:cicd} | diagram:cicd-pipeline
 
-CI/CD บน GitHub Actions [10] แบ่งเป็นสี่ระดับ ระดับ 1 คือ Flutter CI (`flutter.yml`: `analyze-and-test`, `deps-audit`, `codegen-check`, `build-web`) ระดับ 2 คือ backend CI (`server.yml`: `secrets`, `lint`, `audit`, `unit`, `nginx-check`, `integration`, `build-image`) ระดับ 3 คือการสร้างอิมเมจลง GHCR พร้อม Trivy ที่บล็อกเมื่อพบช่องโหว่ระดับสูง และระดับ 4 คือการ deploy ด้วย Ansible (`deploy.yml`) นอกจากสี่ระดับนี้ยังมีเวิร์กโฟลว์ `android-apk.yml` ที่สั่งรันด้วยมือเท่านั้น (รายละเอียดในหัวข้อถัดไป) ทั้งสองเวิร์กโฟลว์แรกถูกเรียกทุก push และ pull request โดยไม่กรองพาธที่ชั้นนอก แต่มีงาน `changes` ภายในตัดสินว่าจะรันงานใด และลงท้ายด้วยงานสถานะที่รายงานผลเสมอ (`flutter-ci-status`, `server-ci-status`) ซึ่งเป็นเงื่อนไขบังคับของสาขา `main` เพียงสองรายการ เหตุผลคือการตรวจสอบสถานะที่บังคับต้องรายงานผลทุกครั้ง หากกรองพาธที่ชั้นนอก PR ที่แก้เฉพาะ `server/` จะไม่มีสถานะของ Flutter CI ให้ผ่าน push ที่แก้เฉพาะเอกสาร (`*.md` หรือ `docs/**`) ข้ามการทดสอบและการสร้างอิมเมจ เครื่องเสมือนจึงอยู่ที่ SHA ของโค้ดล่าสุดเสมอ
+CI/CD บน GitHub Actions [10] แบ่งเป็นสี่ระดับ ระดับ 1 คือ Flutter CI (`flutter.yml`: `analyze-and-test`, `deps-audit`, `codegen-check`, `build-web`) ระดับ 2 คือ backend CI (`server.yml`: `secrets`, `lint`, `audit`, `unit`, `ci-guards`, `nginx-check`, `integration`, `build-image`) ระดับ 3 คือการสร้างอิมเมจลง GHCR พร้อม Trivy ที่บล็อกเมื่อพบช่องโหว่ระดับสูง และระดับ 4 คือการ deploy ด้วย Ansible (`deploy.yml`) นอกจากสี่ระดับนี้ยังมีเวิร์กโฟลว์ `android-apk.yml` ที่สั่งรันด้วยมือเท่านั้น (รายละเอียดในหัวข้อถัดไป) ทั้งสองเวิร์กโฟลว์แรกถูกเรียกทุก push และ pull request โดยไม่กรองพาธที่ชั้นนอก แต่มีงาน `changes` ภายในตัดสินว่าจะรันงานใด และลงท้ายด้วยงานสถานะที่รายงานผลเสมอ (`flutter-ci-status`, `server-ci-status`) ซึ่งเป็นเงื่อนไขบังคับของสาขา `main` เพียงสองรายการ เหตุผลคือการตรวจสอบสถานะที่บังคับต้องรายงานผลทุกครั้ง หากกรองพาธที่ชั้นนอก PR ที่แก้เฉพาะ `server/` จะไม่มีสถานะของ Flutter CI ให้ผ่าน push ที่แก้เฉพาะเอกสาร (`*.md` หรือ `docs/**`) ข้ามการทดสอบและการสร้างอิมเมจ เครื่องเสมือนจึงอยู่ที่ SHA ของโค้ดล่าสุดเสมอ
 
 ### Ansible และ self-hosted runner
 
@@ -323,7 +325,7 @@ playbook `deploy.yml` ของ Ansible [11] ทำตามลำดับ ต�
 
 เวิร์กโฟลว์ `.github/workflows/android-apk.yml` (PR #551) สั่งรันด้วยมือเท่านั้น (`workflow_dispatch`) และทำงานเฉพาะบนสาขา `main` สร้างไฟล์ติดตั้ง Android Package Kit (APK) ชนิดเดียว คือบิลด์ API (`USE_API_WRITES=true`, `API_BASE_URL=https://172.30.58.20`) ลงนามด้วยกุญแจถาวรจากความลับ `ANDROID_KEYSTORE_B64` เพื่อให้รุ่นถัดไปติดตั้งทับได้ แล้วเผยแพร่เป็น pre-release บน GitHub ชื่อ `apk-<sha7>` เวิร์กโฟลว์ปฏิเสธการสร้างหากไม่มีความลับดังกล่าว (ไม่ใช้กุญแจชั่วคราว) หรือ release ชื่อเดิมมีอยู่แล้ว ไม่มี APK แบบออฟไลน์ล้วนจาก `main` เพราะค่าเริ่มต้นของบิลด์คือโหมด API และแอปต้องเพิ่มสิทธิ์ `INTERNET` ใน `AndroidManifest.xml` เนื่องจากบิลด์ release ไม่มีสิทธิ์นี้โดยปริยาย
 
-ณ วันที่ 3 ตุลาคม พ.ศ. 2569 ทั้งสองส่วนรวมโค้ดแล้วแต่ **ยังไม่ถูกพิสูจน์บนระบบจริง** เวิร์กโฟลว์ APK ยังไม่เคยรัน และ CA ยังไม่ถูกติดตั้งใช้งานบน `mob04` แอสเซต `frontend/assets/certs/pos-ca.crt` ยังว่างอยู่ใน git จนกว่าเจ้าของโครงงานจะ deploy `certgen` ขึ้น `mob04` คัดลอก `ca.crt` ออกมา แล้วคอมมิตเข้าที่ตามขั้นตอนใน `07_CICD_DEPLOY.md` §5 "TLS" APK ที่สร้างก่อนขั้นตอนนี้เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ และการเปลี่ยน IP ของ VM ต้องแก้ SAN ใน `certgen.sh` ด้วย
+ทั้งสองส่วนถูกนำขึ้นใช้งานในวันเดียวกัน (3 ตุลาคม พ.ศ. 2569) คือ `certgen` สร้าง CA บน `mob04` ในการ deploy คอมมิต `7ea0178` ใบรับรอง CA ถูกคอมมิตลงแอสเซตตามขั้นตอนใน `07_CICD_DEPLOY.md` §5 "TLS" (PR #559) และเวิร์กโฟลว์ APK สร้างไฟล์ติดตั้งได้หลังยกรุ่นปลั๊กอิน `file_picker` (PR #560) หลักฐานและข้อจำกัดอยู่ในบทที่ 4 ข้อควรระวังเชิงออกแบบคือการเปลี่ยน IP ของ VM ต้องแก้ SAN ใน `certgen.sh` และหาก CA ในวอลุ่มสูญหาย APK ทุกตัวที่แจกไปแล้วจะเชื่อมต่อไม่ได้จนกว่าจะคอมมิต CA ใหม่และสร้าง APK ใหม่
 
 ## เทคโนโลยีที่ใช้
 
@@ -498,7 +500,7 @@ Image versions -> server/docker-compose.yml, deploy/compose/monitoring.yml
 Package versions -> frontend/pubspec.yaml; server/package.json; Flutter 3.44.3 -> .github/workflows/flutter.yml:31
 Endpoints list -> grep of @Controller/@Get/@Post in server/src/**/*.controller.ts
 Phase 2 spec facts (outbox columns, op catalogue, push order, batch 50, attempts 3 -> stuck, RC/CN, keyset pull, 30 s rewind, Degraded triggers) -> docs/Backend_design/08_PHASE2_SPEC.md §0, §5, §6, §7, §8, §9, §15; OutboxOps columns -> frontend/lib/data/db/tables.dart:445-460
-Lock order, runTx/commit-ceiling rules, idempotency fingerprint, 5xx-no-queue decision 2026-09-27, OUTBOX_NOT_EMPTY, commitServerIssued, cashCountFrom, planReturn -> CLAUDE.md "Binding rules"
+Lock order, runTx/commit-ceiling rules, idempotency fingerprint, 5xx-no-queue decision 2026-09-27, OUTBOX_NOT_EMPTY, commitServerIssued, drawerCash (by shift; cashCountFrom removed by #584), planReturn -> CLAUDE.md "Binding rules"
 Metrics names, middleware counting, UNMEASURED_PATHS, ~36 200s/min, ~92%, approved 2026-09-21 -> CLAUDE.md "Metrics"
 ADR-0006, ADR-0009, ADR-0004, ADR-0007, ADR-0003 addendum, ADR-0002, ADR-0001 content -> respective adr files and adr/README.md
 Approval gate on demo environment (ADR-0013 addendum, #366) -> CLAUDE.md CI/CD rules
@@ -521,5 +523,10 @@ PendingCreditPayments from #24 (closed 2026-09-13, phase 1) -> gh issue view 24;
 android-apk.yml manual/main-only/API build/signing secret/prerelease apk-<sha7>/INTERNET permission; PR #551 merged 2026-10-03T03:40:47Z -> .github/workflows/android-apk.yml; gh pr view 551; AndroidManifest.xml
 private CA certgen, SAN, volume certs-ca, deploy.yml runs certgen, certgen.test.sh in nginx-check; PR #552 merged 2026-10-03T03:41:06Z -> server/docker/certgen/certgen.sh; deploy/ansible/deploy.yml; .github/workflows/server.yml; gh pr view 552
 app trusts bundled CA via HttpOverrides, never throws, empty asset = system roots -> frontend/lib/core/network/pos_trust_io.dart; pos_trust_test.dart
-CA asset pos-ca.crt committed empty (0 bytes); runbook pending; APK workflow never run; CA not installed on mob04 -> wc -c frontend/assets/certs/pos-ca.crt; 07_CICD_DEPLOY.md section 5 TLS; CLAUDE.md "Android APK" and "Private CA"
+CA created by first certgen deploy 7ea0178 (run 37097022857); pos-ca.crt committed by PR #559 (merged 2026-10-03T05:10:54Z, 1521 bytes), SHA-256 matches certs-ca/ca.crt, Dart HttpClient 200 vs HandshakeException -> gh pr view 559; wc -c frontend/assets/certs/pos-ca.crt
+APK runs: 37099021690 (3c090ee) failure file_picker; PR #560 file_picker 13.1.0 + iOS target 14.0 (merged 2026-10-03T05:38:21Z); 37101288734 (e191755) success, 37114366754 (ff84fd3) success; releases apk-e191755, apk-ff84fd3 -> gh run list --workflow android-apk.yml; gh release list; gh pr view 560
+no record of a real-device APK test -> docs/handoff_log/session-2026-10-03-*.md (none)
+drawerCash by shift (#584), currentShiftOf (#592), cashCountFrom deleted -> frontend/lib/data/repositories/shifts_repository.dart:38,101; gh pr view 592; CLAUDE.md "#584"
+ci-guards job in server.yml (#581) -> .github/workflows/server.yml:258
+offline oversell bound: local strict pre-check -> frontend/lib/data/repositories/api/api_sales_repository.dart:484-501; push rejected INSUFFICIENT_STOCK -> server/src/sync/sync.service.ts:1065-1079; review screen counts rejected+stuck -> docs/Backend_design/08_PHASE2_SPEC.md:159,439
 no DNS name so no public cert -> 07_CICD_DEPLOY.md:278
