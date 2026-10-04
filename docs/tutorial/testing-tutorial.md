@@ -231,6 +231,11 @@ rm -rf .tmp-nginx
 
 - **ผ่านเมื่อเห็น:** `syntax is ok` และ `test is successful`
 
+job `nginx-check` ใน CI ยังรันสิ่งต่อไปนี้ด้วย (ดู `.github/workflows/server.yml`) — รันเองได้จาก root ของรีโป:
+
+- สคริปต์ deploy ที่ stub คำสั่งจริง: `deploy/scripts/test/certgen.test.sh`, `backup-db.test.sh`, `healthcheck-ping.test.sh` (stub `curl`: ping/`/fail` ถูกต้อง, URL ไม่ถูกพิมพ์ออก, ไม่ตั้ง URL = `::warning::` เท่านั้น) — **ผ่านเมื่อ** exit code 0
+- `promtool check config` ของ `deploy/prometheus/prometheus.yml` ทั้งแบบที่ VM ใช้ และแบบมี overlay `deploy/prometheus-local/local-scrape.yml` (image `prom/prometheus` ตามที่ปักไว้ใน workflow ต้องมี Docker)
+
 ### 2.6 Image smoke test + Trivy image — "ตรวจรถก่อนออกจากโรงงาน"
 
 - **คืออะไร:** หลัง build Docker image ของ server แล้ว CI จะตรวจ 3 อย่าง
