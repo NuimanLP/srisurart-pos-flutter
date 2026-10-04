@@ -1,0 +1,12 @@
+# Loki datasource — log search for the `loki` service in ../compose/observability.yml, which
+# mounts this file into Grafana's provisioning. Local development only: kept out of
+# ../grafana/ because deploy.yml copies that tree to the VM, where there is no Loki.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

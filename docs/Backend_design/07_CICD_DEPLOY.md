@@ -964,6 +964,30 @@ build ด้วย `--dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL
 
 ---
 
+### 10.4 Overlay สำหรับเครื่อง dev: log + infrastructure metrics (`observability.yml`, 2026-10-04)
+
+**ใช้บนเครื่องผู้พัฒนาเท่านั้น — ไม่อยู่ใน deploy ของ VM** (`deploy.yml` ไม่โหลดไฟล์นี้) การเอาขึ้น `mob04` เป็น
+owner decision: เพดาน RAM เพิ่ม ~1.1 GB (loki 512m + alloy 256m + postgres-exporter 64m + redis-exporter 64m +
+cadvisor 256m) ขณะที่เพดานรวมของ stack บน VM ตอนนี้ 4,256 MB จาก RAM 5,920 MB **ไม่มี swap** (วัด 2026-10-04,
+ใช้จริงรวม ~460 MB) — ควรวัดโหลด k6 (#380) ก่อน
+
+| ส่วน | ไฟล์ | ทำอะไร |
+|---|---|---|
+| Loki | `deploy/loki/loki.yml` | เก็บ log 7 วัน (tsdb v13) · `127.0.0.1:3101` (3100 คือ Bull-Board) |
+| Alloy | `deploy/alloy/config.alloy` | อ่าน log ทุก container ของ compose project นี้ผ่าน `docker.sock` → Loki · UI `127.0.0.1:12345` |
+| exporters | `observability.yml` | postgres-exporter (superuser — **dev เท่านั้น**, VM ต้องใช้ role `pg_monitor`), redis_exporter (multi-target), cAdvisor |
+| Grafana/Prometheus | `deploy/grafana-local/`, `deploy/prometheus-local/` | datasource Loki + dashboard *POS — infrastructure (local)* 15 panel + scrape job 3 ตัว |
+| API จากโค้ดในเครื่อง | `deploy/compose/local-api.yml` | api-1..3 ใช้ image ที่ build เอง (ต้องอยู่หลัง `vm.override.yml`) |
+
+* 🔴 ไฟล์ของ overlay นี้ **ห้ามวางใน `deploy/grafana/` หรือ `deploy/prometheus/`** — `deploy.yml` copy สองโฟลเดอร์นั้น
+  ขึ้น VM ทั้งก้อน จะได้ datasource ที่ไม่มี Loki อยู่หลัง และ dashboard ที่ "No data" ทั้งหน้า
+* Grafana ใต้ overlay ใช้ `volumes: !override` (Compose ≥ 2.24) mount provisioning ทีละไฟล์ เพราะ bind-mount ไฟล์ลงใน
+  โฟลเดอร์ provisioning ที่ mount `:ro` ไม่ได้ → **เพิ่มไฟล์ใน `deploy/grafana/provisioning/` ต้องเพิ่มใน
+  `observability.yml` ด้วย** ไม่งั้น Grafana ใต้ overlay จะไม่เห็น
+* `prometheus.yml` มี `scrape_config_files: /etc/prometheus/scrape.d/*.yml` — บน VM โฟลเดอร์ว่าง (promtool v2.55.1 ผ่าน)
+* 🔴 `docker.sock:ro` **ไม่จำกัด Docker API** — Alloy และ cAdvisor สั่ง start/stop container ได้
+* วิธีค้น log: [`deploy/loki/README.md`](../../deploy/loki/README.md)
+
 ## 11. ใครทำอะไร (กฎคอร์ส: ทุกคนแตะ CI/CD)
 
 | ทีม | งาน CI/CD รอบนี้ | ticket |

@@ -1,0 +1,14 @@
+# Dashboard provider for ./dashboards (the local infrastructure dashboard), mounted by
+# ../compose/observability.yml only. Local development only — see loki-datasource.yml.
+apiVersion: 1
+
+providers:
+  - name: local
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards-local

@@ -1,0 +1,128 @@
+# Logs + infrastructure-metrics overlay — LOCAL DEVELOPMENT ONLY.
+# Loki (log store) + Alloy (log collector) + the Postgres, Redis and per-container exporters
+# behind the *POS — infrastructure (local)* dashboard, on top of monitoring.yml:
+#
+#   docker compose -f server/docker-compose.yml -f deploy/compose/monitoring.yml \
+#     -f deploy/compose/observability.yml up -d
+#
+# 🔴 Not part of the VM deploy: deploy/ansible/deploy.yml never loads this file, and the
+# memory budget in 07_CICD_DEPLOY.md §5 does not include it (loki 512m + alloy 256m +
+# postgres-exporter 64m + redis-exporter 64m + cadvisor 256m = 1152m more). Putting it on `mob04` is an owner decision.
+# Its Grafana and Prometheus files live in ../grafana-local/ and ../prometheus-local/, NOT in
+# ../grafana/ or ../prometheus/: deploy.yml copies those two trees to the VM wholesale, which
+# would ship a Loki datasource with nothing behind it and an all-"No data" dashboard.
+# Uptime is not here: the VM pings Healthchecks.io from cron (deploy/scripts/healthcheck-ping.sh).
+#
+# Everything publishes on host loopback only, same pattern as monitoring.yml.
+# Every `image:` is pinned `name:tag@sha256:<digest>` (#401).
+
+name: srisurart-pos
+
+services:
+  loki:
+    image: grafana/loki:3.7.8@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    restart: unless-stopped
+    mem_limit: 512m
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      # Same path rule as monitoring.yml: relative paths resolve against the project
+      # directory (the FIRST `-f` file's directory), not this file's own.
+      - ${MONITORING_CONFIG_DIR:-../deploy}/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    ports:
+      # 3101 on the host: the base stack already publishes 127.0.0.1:3100.
+      - "127.0.0.1:3101:3100"
+
+  # Tails the stdout/stderr of every container in this compose project through the Docker
+  # socket and pushes it to Loki — no per-service logging driver change needed.
+  alloy:
+    image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+    restart: unless-stopped
+    mem_limit: 256m
+    depends_on: [loki]
+    environment:
+      # Read by config.alloy to collect only this compose project's containers.
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
+    command:
+      - "run"
+      - "--server.http.listen-addr=0.0.0.0:12345"
+      - "--storage.path=/var/lib/alloy/data"
+      - "/etc/alloy/config.alloy"
+    volumes:
+      - ${MONITORING_CONFIG_DIR:-../deploy}/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # `:ro` does NOT limit the Docker API — any process that can open this socket can start
+      # and stop containers. Alloy only lists containers and reads their logs; that is why it is
+      # acceptable on a developer machine, and one more reason this overlay is not for the VM.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    ports:
+      # Alloy's own debug UI (which targets it found, what it is sending).
+      - "127.0.0.1:12345:12345"
+
+  # --- Dashboard group 3: datastore + per-container metrics --------------------------------
+  # Scraped through ../prometheus-local/local-scrape.yml, which only this overlay mounts.
+
+  # Connects as the Postgres superuser — acceptable on a developer machine, NOT a pattern for
+  # the VM (that would want a dedicated role with pg_monitor).
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+    restart: unless-stopped
+    mem_limit: 64m
+    environment:
+      DATA_SOURCE_URI: "postgres:5432/pos?sslmode=disable"
+      DATA_SOURCE_USER: postgres
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+
+  # One exporter for both Redis instances: Prometheus passes the instance to probe as
+  # `/scrape?target=...` (multi-target pattern), so no address is configured here.
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.93.0@sha256:6ca518a72f30f7f576ef92963de1b91d3c3f5fd3aeac949f878bfda183587820
+    restart: unless-stopped
+    mem_limit: 64m
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+
+  # CPU / memory / network per container, which node-exporter (whole host) cannot split.
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a
+    restart: unless-stopped
+    mem_limit: 256m
+    privileged: true
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=15s"
+      # Keeps the series count down: only the compose labels the dashboard groups by.
+      - "--store_container_labels=false"
+      - "--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service"
+    volumes:
+      - /:/rootfs:ro
+      # The socket itself, not the /var/run directory: on Docker Desktop /var/run/docker.sock
+      # is a symlink to a host path that does not exist inside the container.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  prometheus:
+    volumes:
+      # prometheus.yml loads /etc/prometheus/scrape.d/*.yml; on the VM that directory is
+      # empty, so these three jobs exist only where this overlay runs.
+      - ${MONITORING_CONFIG_DIR:-../deploy}/prometheus-local/local-scrape.yml:/etc/prometheus/scrape.d/local-scrape.yml:ro
+
+  # Adds the Loki datasource and the local infrastructure dashboard. `!override` replaces
+  # monitoring.yml's volume list instead of appending to it: a file cannot be bind-mounted
+  # inside the read-only provisioning directory mount, so the provisioning is mounted file by
+  # file here. 🔴 A provisioning file added to ../grafana/provisioning/ must also be listed
+  # here, or Grafana under this overlay will not see it.
+  grafana:
+    volumes: !override
+      - ${MONITORING_CONFIG_DIR:-../deploy}/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ${MONITORING_CONFIG_DIR:-../deploy}/grafana-local/loki-datasource.yml:/etc/grafana/provisioning/datasources/loki.yml:ro
+      - ${MONITORING_CONFIG_DIR:-../deploy}/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ${MONITORING_CONFIG_DIR:-../deploy}/grafana-local/dashboards-provider.yml:/etc/grafana/provisioning/dashboards/local.yml:ro
+      - ${MONITORING_CONFIG_DIR:-../deploy}/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ${MONITORING_CONFIG_DIR:-../deploy}/grafana-local/dashboards:/var/lib/grafana/dashboards-local:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  loki-data:
+  alloy-data:
