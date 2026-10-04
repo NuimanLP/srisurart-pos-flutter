@@ -97,15 +97,15 @@ FIGURE: แผงควบคุม Grafana ระหว่างการซ้
 
 ### การขยายการเฝ้าสังเกตระบบ (1–4 ตุลาคม พ.ศ. 2569)
 
-ระหว่างวันที่ 1–4 ตุลาคม พ.ศ. 2569 มีการพัฒนาส่วนขยายของการเฝ้าสังเกตระบบบนสาขา `develop` ซึ่งแยกจาก `main` และทดสอบบนเครื่องของผู้พัฒนา ก่อนแยกส่วนที่ใช้กับ VM ได้เป็น PR #596 และ #597 โดยใช้ค่าตั้งชุดเดียวกับ `mob04` ตารางที่ {tab:observability-ext} สรุปงานและสถานะ ณ วันที่ 4 ตุลาคม พ.ศ. 2569 ทั้งสอง PR รวมเข้า `main` แล้วในวันเดียวกัน แต่ ณ วันที่บันทึกยังไม่มีงานใดในหัวข้อนี้ถูก deploy หรือติดตั้งบน `mob04`
+ระหว่างวันที่ 1–4 ตุลาคม พ.ศ. 2569 มีการพัฒนาส่วนขยายของการเฝ้าสังเกตระบบบนสาขา `develop` ซึ่งแยกจาก `main` และทดสอบบนเครื่องของผู้พัฒนา ก่อนแยกส่วนที่ใช้กับ VM ได้เป็น PR #596 และ #597 โดยใช้ค่าตั้งชุดเดียวกับ `mob04` ตารางที่ {tab:observability-ext} สรุปงานและสถานะ ณ วันที่ 4 ตุลาคม พ.ศ. 2569 ทั้งสอง PR รวมเข้า `main` แล้วในวันเดียวกัน และ PR #597 ถูก deploy ขึ้น `mob04` แล้ว (`41a8f19`) โดยยืนยันจากไฟล์ `/opt/pos/.current_sha` บนเครื่อง และจาก Prometheus บน VM ที่มีตัวชี้วัดใหม่ครบทั้งสามกลุ่ม ส่วนการแจ้งเตือนเมื่อระบบล่มยังไม่ได้ติดตั้งบนเครื่อง
 
 TABLE: งานขยายการเฝ้าสังเกตระบบและสถานะ ณ 4 ตุลาคม พ.ศ. 2569 {#tab:observability-ext}
 | งาน | สิ่งที่ทำ | สถานะ |
 |---|---|---|
-| ตัวชี้วัดใหม่ของเซิร์ฟเวอร์ | จำนวนเอกสาร สถานะ pool และงานในคิว | รวมแล้ว (PR #597) รอ deploy |
-| แผงควบคุมหน้า Overview | เพิ่มจาก 12 เป็น 29 แผง | รวมแล้ว (PR #597) รอ deploy |
+| ตัวชี้วัดใหม่ของเซิร์ฟเวอร์ | จำนวนเอกสาร สถานะ pool และงานในคิว | deploy แล้ว (PR #597, `41a8f19`) |
+| แผงควบคุมหน้า Overview | เพิ่มจาก 12 เป็น 29 แผง | deploy แล้ว (PR #597, `41a8f19`) |
 | ชุดทดสอบ | หน่วย 25 กรณี และ e2e 2 กรณี | ผ่าน CI ของ PR #597 |
-| ที่เก็บบันทึกและตัวส่งออก | Loki, Alloy, ตัวส่งออก PostgreSQL, Redis และ cAdvisor พร้อมแผงควบคุมหน้าที่สอง 15 แผง | เฉพาะสาขา `develop` |
+| ที่เก็บบันทึกและตัวส่งออก | Loki, Alloy, ตัวส่งออก PostgreSQL, Redis และ cAdvisor พร้อมแผงควบคุมหน้าที่สอง 15 แผง | ใช้เฉพาะเครื่องผู้พัฒนา ไม่ deploy ขึ้น VM |
 | การแจ้งเตือนเมื่อระบบล่ม | ส่งสัญญาณจาก cron บน VM ไปยัง Healthchecks.io ทุก 5 นาที | รวมแล้ว (PR #596) ยังไม่ติดตั้งบน `mob04` |
 
 ตัวชี้วัดใหม่มีสามกลุ่ม `pos_documents_total` นับบิลขาย บิลยกเลิก และการคืนสินค้าเมื่อธุรกรรม commit แล้วเท่านั้น ไม่นับคำขอที่เล่นซ้ำด้วยคีย์เดิม และไม่มี label `tenant_id` เช่นเดียวกับตัวนับการเล่นซ้ำ `pos_db_pool_connections` และ `pos_db_pool_max_connections` อ่านสถานะ pool ขณะ Prometheus scrape ผ่านตัวอ่านที่ไม่เปิดให้เข้าถึง DataSource ตามข้อบังคับของสเปกสถาปัตยกรรม และ `pos_queue_jobs` อ่านจำนวนงานในคิว BullMQ ทั้งหกคิวโดยจำกัดเวลา 1 วินาที เพื่อไม่ให้การ scrape ค้างเมื่อ Redis ไม่ตอบ แผงใหม่บนหน้า Overview ได้แก่ แผงราย instance และรายเส้นทาง แผงจำนวนเอกสาร pool งานในคิว การเข้าสู่ระบบที่ถูกปฏิเสธ และการแยกคำขออ่านกับเขียนตาม HTTP method ชุดทดสอบที่เพิ่มทำให้ความครอบคลุมบรรทัดของการทดสอบหน่วยเพิ่มจากร้อยละ 44.70 เป็น 45.39 ส่วนที่เก็บบันทึก Loki เก็บบันทึกของทุกคอนเทนเนอร์ 7 วัน โดย Alloy อ่านผ่าน Docker และการนำส่วนนี้ขึ้น `mob04` เป็นการตัดสินใจของเจ้าของโครงงาน
@@ -242,7 +242,7 @@ SSH = Secure Shell
 
 ## __FACTS__
 observability extension on develop, 1-4 Oct 2026, not on mob04 -> git log origin/main..develop; docs/handoff_log/session-2026-10-04-develop-branch-status.md
-PR #596 merged 2026-10-04 (e0b880a, head c9f8c39); PR #597 merged 2026-10-04 (41a8f19, head d336cfa); no Deploy run for 41a8f19 at writing -> gh pr view 596/597; gh run list --workflow deploy.yml
+PR #596 merged 2026-10-04 (e0b880a, head c9f8c39); PR #597 merged 2026-10-04 (41a8f19, head d336cfa); Deploy run 37204172280 'deploy to demo' success; mob04 /opt/pos/.current_sha = 41a8f197e1b5 (checked over SSH 2026-10-04); VM Prometheus has pos_documents_total (3 kinds), pos_db_pool_max_connections=15 x3, 72 pos_queue_jobs series -> gh pr view 596/597; ssh cloud@172.30.58.20
 overview 12 -> 29 panels; infra 15 panels -> deploy/grafana/dashboards/pos-overview.json, pos-infra.json (develop)
 25 unit + 2 e2e tests; coverage 44.70 -> 45.39 -> pnpm test:coverage on feat/app-metrics-overview-dashboard; server/coverage-baseline.json note
 queue read timeout 1 s, six queues -> server/src/metrics/runtime-metrics.service.ts, queue.constants.ts ALL_QUEUES
