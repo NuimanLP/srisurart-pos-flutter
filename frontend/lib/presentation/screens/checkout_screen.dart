@@ -28,7 +28,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -51,6 +50,7 @@ import '../blocs/cart_cubit.dart';
 import '../blocs/pending_quote_cubit.dart';
 import '../widgets/device_role_banner.dart';
 import '../widgets/low_stock_alert.dart';
+import '../widgets/money_input_formatters.dart';
 import '../widgets/money_text.dart';
 import '../widgets/receipt_view.dart';
 import '../widgets/sync_status_builder.dart';
@@ -154,11 +154,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Sync the discount field's visible text to [_discount], mirroring the JS
   /// controlled input `value={discount||''}` (0 shows as an empty field).
   void _syncDiscountText() {
-    _discountCtrl.text = _discount == 0
+    // round2 first: a clamp to a float-noisy subtotal (0.1 + 0.2) must still
+    // match moneyInputFormatters (at most 2 decimals) or the next edit is refused.
+    final d = round2(_discount);
+    _discountCtrl.text = d == 0
         ? ''
-        : (_discount == _discount.truncateToDouble()
-              ? _discount.toInt().toString()
-              : _discount.toString());
+        : (d == d.truncateToDouble() ? d.toInt().toString() : d.toString());
   }
 
   void _warn(String msg) {
@@ -2243,9 +2244,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           controller: ctrl,
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-          ],
+          inputFormatters: moneyInputFormatters,
           decoration: const InputDecoration(
             isDense: true,
             border: OutlineInputBorder(),
@@ -2375,9 +2374,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                  ],
+                  inputFormatters: moneyInputFormatters,
                   textAlign: TextAlign.right,
                   decoration: InputDecoration(
                     prefixText: '฿',
@@ -2561,9 +2558,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
+              inputFormatters: moneyInputFormatters,
               textAlign: TextAlign.right,
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
               decoration: InputDecoration(

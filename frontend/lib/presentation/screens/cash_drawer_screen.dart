@@ -17,7 +17,6 @@
 // math mirrors db.js exactly; Thai strings are copied verbatim from the JSX.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -34,20 +33,8 @@ import '../widgets/app_button.dart';
 import '../widgets/closing_report.dart';
 import '../widgets/device_role_banner.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/money_input_formatters.dart';
 import '../widgets/sync_status_builder.dart';
-
-/// Money inputs on this screen: a non-negative amount only. The app's usual
-/// `[0-9.]` filter drops letters ("a400" read as 0 showed a false shortfall on
-/// the close tab); the second step refuses an edit that is not one number with
-/// at most 2 decimals ("1.2.3", "1.234"), keeping the previous text.
-final _moneyInput = <TextInputFormatter>[
-  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-  TextInputFormatter.withFunction(
-    (oldValue, newValue) => RegExp(r'^\d*\.?\d{0,2}$').hasMatch(newValue.text)
-        ? newValue
-        : oldValue,
-  ),
-];
 
 /// Aggregated read-model for the cash-drawer screen.
 class _DrawerData {
@@ -376,7 +363,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                inputFormatters: _moneyInput,
+                inputFormatters: moneyInputFormatters,
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                   fontSize: 22,
@@ -624,7 +611,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
-                        inputFormatters: _moneyInput,
+                        inputFormatters: moneyInputFormatters,
                         textAlign: TextAlign.right,
                         style: const TextStyle(
                           fontSize: 18,
@@ -894,7 +881,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                inputFormatters: _moneyInput,
+                inputFormatters: moneyInputFormatters,
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                   fontSize: 26,
