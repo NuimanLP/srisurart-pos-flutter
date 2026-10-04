@@ -91,7 +91,6 @@ export class MetricsService {
         this.dbPoolConnections.set({ state: 'in_use' }, stats.inUse);
         this.dbPoolConnections.set({ state: 'idle' }, stats.idle);
         this.dbPoolConnections.set({ state: 'waiting' }, stats.waiting);
-        this.dbPoolMax.set(stats.max);
       },
     });
 
@@ -99,6 +98,10 @@ export class MetricsService {
       name: 'pos_db_pool_max_connections',
       help: 'Configured size of the request pool of this process (DB_POOL_SIZE)',
       registers: [this.registry],
+      collect: () => {
+        const stats = this.dbPoolReader?.();
+        if (stats) this.dbPoolMax.set(stats.max);
+      },
     });
 
     // Queue depth lives in Redis, so all three api instances report the same numbers —

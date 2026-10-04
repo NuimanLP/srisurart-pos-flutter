@@ -689,8 +689,9 @@ on void/return paths. Keep this order in any new write touching more than one of
 - **App metrics (#597, 2026-10-04, deployed `41a8f19`):** `pos_documents_total{kind}` (counted in
   `onTransactionCommit`), `pos_db_pool_connections{state}` + `pos_db_pool_max_connections`,
   `pos_queue_jobs{queue,state}` (redis-queue read under a 1 s `withTimeout`) — named by
-  `pos-overview.json` (29 panels), same rename rule as above. Known gap: `withTimeout` does not
-  cancel `getJobCounts`, so a redis-queue outage piles up commands (no issue filed yet).
+  `pos-overview.json` (29 panels), same rename rule as above. Queue reads are single-flight
+  (`withTimeout` cannot cancel `getJobCounts`): a scrape joins a still-pending read instead of
+  issuing new commands that would pile up in ioredis during a redis-queue outage — never remove it.
 - **Local observability overlay (#600/#604, 2026-10-04) is dev-only:** `deploy/compose/observability.yml`,
   `local-api.yml`, `deploy/{alloy,loki,grafana-local,prometheus-local}/` are never referenced by Ansible.
   The production `deploy/prometheus/prometheus.yml` loads `scrape.d/*.yml` (absent on `mob04`).
