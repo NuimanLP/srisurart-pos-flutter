@@ -28,7 +28,8 @@ READY_URL="${HEALTHCHECK_READY_URL:-https://127.0.0.1/health/ready}"
 
 url="${HEALTHCHECKS_PING_URL:-}"
 if [ -z "$url" ] && [ -r "$ENV_FILE" ]; then
-  url="$(grep -m1 '^HEALTHCHECKS_PING_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d '"'"'"'\r')"
+  # The last line wins, as in Compose.
+  url="$(grep '^HEALTHCHECKS_PING_URL=' "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '"'"'"'\r')"
 fi
 if [ -z "$url" ]; then
   echo "::warning::HEALTHCHECKS_PING_URL is not set in $ENV_FILE — no heartbeat sent"
@@ -36,8 +37,8 @@ if [ -z "$url" ]; then
 fi
 
 # Retried before reporting: a /fail alerts at once (no grace period), and a deploy restarting
-# the api instances or a single slow answer must not page anyone. Worst case ~1.5 min, well
-# inside the 5-minute cron period.
+# the api instances or a single slow answer must not page anyone. Worst case ~2 min (probe
+# ~85 s + ping ~47 s), well inside the 5-minute cron period.
 if detail="$(curl -fsS -k --max-time 10 --retry 3 --retry-delay 15 --retry-connrefused \
   -o /dev/null "$READY_URL" 2>&1)"; then
   target="$url"
@@ -47,9 +48,13 @@ else
   body=(--data-raw "health/ready failed: ${detail:-no detail}")
 fi
 
-# --retry covers a transient blip on the way out; the URL is never echoed (it is the secret).
-if ! err="$(curl -fsS --max-time 10 --retry 3 -o /dev/null ${body[@]+"${body[@]}"} "$target" 2>&1)"; then
-  echo "::error::could not reach Healthchecks.io: $err"
+# --retry covers a transient blip on the way out. The URL is the secret: it reaches curl as a
+# config on stdin (-K -), never in argv (readable by any user via ps), and is never echoed.
+esc="${target//'\'/'\\'}"
+esc="${esc//'"'/'\"'}"
+if ! err="$(curl -fsS --max-time 10 --retry 3 -o /dev/null ${body[@]+"${body[@]}"} -K - \
+  <<<"url = \"$esc\"" 2>&1)"; then
+  echo "::error::could not reach Healthchecks.io: ${err//"$url"/<ping URL>}"
   exit 1
 fi
 [ "$target" = "$url" ] || echo "::warning::reported FAIL to Healthchecks.io: $detail"

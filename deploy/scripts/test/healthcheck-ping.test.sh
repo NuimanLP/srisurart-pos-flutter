@@ -11,12 +11,24 @@ mkdir -p "$STUBS"
 PING='https://hc-ping.com/00000000-0000-0000-0000-000000000000'
 
 # STUB_READY_FAIL=1: the readiness probe fails. STUB_PING_FAIL=1: Healthchecks.io is unreachable.
+# CURL_LOG gets argv; CURL_SENT gets the URL actually requested (from a -K config, else argv's
+# last word). A failing stub names that URL on stderr, so a script leaking curl's stderr shows it.
 cat > "$STUBS/curl" <<'STUB'
 #!/bin/sh
 echo "$*" >> "$CURL_LOG"
-case "$*" in
+target='' prev=''
+for a in "$@"; do
+  if [ "$prev" = -K ]; then
+    [ "$a" = - ] && a=/dev/stdin
+    target="$(sed -n 's/^url = "\(.*\)"$/\1/p' "$a")"
+  fi
+  prev="$a"
+done
+[ -n "$target" ] || target="$prev"
+echo "$target" >> "$CURL_SENT"
+case "$target" in
   *127.0.0.1/health/ready*) [ "${STUB_READY_FAIL:-0}" = 1 ] && { echo "curl: (22) The requested URL returned error: 503" >&2; exit 22; } ;;
-  *) [ "${STUB_PING_FAIL:-0}" = 1 ] && { echo "curl: (35) SSL certificate problem" >&2; exit 35; } ;;
+  *) [ "${STUB_PING_FAIL:-0}" = 1 ] && { echo "curl: (35) SSL certificate problem for $target" >&2; exit 35; } ;;
 esac
 exit 0
 STUB
@@ -36,11 +48,13 @@ run() { # env-file-content, extra env... ; sets rc, out, CURL_LOG
   printf '%s' "$1" > "$env_file"
   shift
   export CURL_LOG="$WORK/curl.log"
+  export CURL_SENT="$WORK/curl.sent"
   : > "$CURL_LOG"
+  : > "$CURL_SENT"
   out="$(env -u HEALTHCHECKS_PING_URL PATH="$STUBS:$PATH" POS_ENV_FILE="$env_file" "$@" bash "$SCRIPT" 2>&1)"
   rc=$?
 }
-pings() { grep -v '127.0.0.1/health/ready' "$CURL_LOG"; }
+pings() { grep -v '127.0.0.1/health/ready' "$CURL_SENT"; }
 last_ping_ends() { pings | tail -1 | grep -q -- "$1\$"; }
 
 ENV_OK="$(printf 'JWT_PRIVATE_KEY="-----BEGIN KEY-----\nabc\n-----END KEY-----"\nHEALTHCHECKS_PING_URL=%s\nREDIS_PASSWORD=x\n' "$PING")"
@@ -53,6 +67,7 @@ check "healthy: pings the URL itself" last_ping_ends "$PING"
 check "healthy: prints nothing" test -z "$out"
 probe_retries() { grep '127.0.0.1/health/ready' "$CURL_LOG" | grep -q -- '--retry 3 --retry-delay 15 --retry-connrefused'; }
 check "healthy: probe retries before reporting (a /fail has no grace period)" probe_retries
+check "healthy: ping URL never in curl's argv (ps shows it to every user)" test "$(grep -c 'hc-ping.com' "$CURL_LOG")" = 0
 
 # 2. broken stack: ping /fail with the probe's error as the body, still exit 0.
 run "$ENV_OK" STUB_READY_FAIL=1
@@ -79,6 +94,10 @@ check "quoted/CRLF: pings the bare URL" last_ping_ends "$PING"
 # 6. the environment variable wins over the file.
 run "$ENV_OK" HEALTHCHECKS_PING_URL="$PING-env"
 check "env var overrides the file" last_ping_ends "$PING-env"
+
+# 7. a duplicated key: the last line wins, as in Compose.
+run "$(printf 'HEALTHCHECKS_PING_URL=%s-old\nHEALTHCHECKS_PING_URL=%s\n' "$PING" "$PING")"
+check "duplicate key: the last line wins" last_ping_ends "$PING"
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails failed"
