@@ -1,7 +1,7 @@
 # Handoff — 2026-10-04 ดึก: รีวิว #599–#603 (merge โดยเพื่อน), แก้ตามรีวิวใน PR #604, deploy `1734b13` → `81245b5`
 
 **ผู้ทำ:** NuiGates + Claude (orchestrator; Opus รีวิวโค้ด #600, Sonnet รีวิวเอกสาร + อัปเดต `docs/tutorial/`)
-**สถานะ:** ปิดแล้ว — `mob04` อยู่ที่ `81245b5` (deploy log: `Successfully deployed release '81245b5…'`, Ansible `failed=0`)
+**สถานะ:** ปิดแล้ว — `mob04` อยู่ที่ `7444ea4` (`.current_sha` อ่านเองบน VM) · heartbeat ติดตั้งแล้ว (§6)
 
 ## 1. เกิดอะไรขึ้น
 
@@ -48,10 +48,20 @@ head SHA ของทุก PR ตรงกับ commit ที่ merge (ไม
 - `docs/tutorial/`: `sri-pos-manual/04-it-operations.html` (heartbeat: ติดตั้ง/อ่าน log/ความหมาย warning-error), `05-dashboards.html` (Overview 29 ช่อง + metrics ใหม่ #597, หน้า infra = เครื่อง dev เท่านั้น), `index.html`, `local-full-stack-tutorial.md` (§3.1 overlay), `VM-dploy-full-stack-tutorial.md` (คีย์ `HEALTHCHECKS_PING_URL`, cron), `testing-tutorial.md` (เทสต์สคริปต์ + promtool)
 - `CLAUDE.md`: กฎ observability/heartbeat · `handoff_log/INDEX.md`
 
-## 6. ยังค้าง (ไม่ใช่ของ session นี้)
+## 6. รอบต่อมา (คืนเดียวกัน) — ปิด 3 ข้อที่ค้าง
 
-1. **Heartbeat ยังไม่ติดตั้งบน `mob04`** — ต้องรัน `provision.yml` (user `cloud`) หรือทำตาม `07 §7b` · `mob04-demo.env` ในเครื่อง NuiGates มี `HEALTHCHECKS_PING_URL` แล้ว (ตรวจแบบไม่พิมพ์ค่า, มีบรรทัดเดียว) · อย่ากด Ping now ก่อนมี cron
-2. #597 follow-up: ช่วง redis-queue ล่ม `withTimeout` ไม่ยกเลิก `getJobCounts` → คำสั่งค้างสะสม (~6 ต่อ scrape ต่อ instance) — ควรข้ามการอ่านถ้ารอบก่อนยังค้าง · ยังไม่เปิด issue
-3. `pos_db_pool_max_connections` ถูก set เป็นผลข้างเคียงของ `collect` ของ gauge อีกตัว — เปราะ
-4. pptx สไลด์ยังมี Uptime Kuma (ถ้ามี)
-5. binary ใน `docs/report/` (docx 4.2 MB + pdf 5.8 MB) ถูก commit ใหม่ทุกครั้งที่ rebuild — history โตเร็ว
+1. **`.current_sha` อ่านเองบน VM แล้ว** (`ssh mob04`) — `81245b5…` ตรงกับ deploy · ภายหลังเป็น `7444ea4…` (ข้อ 3)
+2. **Heartbeat ติดตั้งบน `mob04` แล้ว (ด้วยมือ, `07 §7b`)** 15:14 UTC:
+   - สคริปต์จาก `origin/main` → `/opt/pos/scripts/healthcheck-ping.sh` (`deploy:deploy` 0755) · sha256 `77f79d62…` ตรงทั้งต้นทาง/ปลายทาง · `bash -n` ผ่าน
+   - คีย์ `HEALTHCHECKS_PING_URL` ต่อท้าย `/opt/pos/.env` ทาง stdin (`grep | ssh … tee -a`) — URL ไม่อยู่ใน argv ทั้งสองฝั่ง · ไฟล์ยัง 0600 `deploy:deploy` · คีย์บรรทัดเดียว · ไฟล์ backup ชั่วคราวลบแล้ว
+   - cron ของ `deploy`: `#Ansible: Srisurart POS Uptime Heartbeat` + `*/5 * * * * … | logger -t pos-healthcheck` (ตรงกับ `provision.yml` — รันรอบหน้าจะรับไปดูแล ไม่เพิ่มซ้ำ)
+   - ลำดับ: ติดตั้ง cron **ก่อน** แล้วจึงรันมือหนึ่งครั้ง (`env -i` แบบ cron) → `rc=0` เงียบ = ping ปกติ ซึ่ง resume check ที่ pause ไว้ · cron รอบแรก 15:20 UTC รันจริง (`journalctl -u cron`) ไม่มี log `pos-healthcheck` = ปกติ
+   - **ยังไม่ได้ทำ:** ดูหน้า Healthchecks.io ว่า check เขียว (ทีมดูเอง) · ทดสอบเคส `/fail` บน VM (`HEALTHCHECK_READY_URL=https://127.0.0.1/health/nope`) — จะยิงแจ้งเตือนจริง ให้ทีมเลือกเวลา
+3. **#597 follow-up → PR #606 (`7444ea4`)** — queue read แบบ single-flight: scrape ที่เจอ read ค้างอยู่จะรอตัวเดิม (timeout 1 วิของตัวเอง) ไม่ส่งคำสั่งใหม่ · guard ล้างเมื่อ read ของ **ทุก** queue settle · `pos_db_pool_max_connections` มี `collect` ของตัวเอง · +3 unit test (2 ตัวแดงบนโค้ดเดิม) · CI เขียว · ผมรีวิวเอง: rejection ถูก `withTimeout` จับเสมอ ไม่มี unhandled · deploy run 37213298785 → `failed=0` · บน VM: `.current_sha` = `7444ea4`, `/health/ready` 200, Prometheus `count(pos_queue_jobs)` = 72, `pos_db_pool_max_connections` = 15 ×3
+
+## 7. ยังค้าง
+
+1. pptx สไลด์ยังมี Uptime Kuma (ถ้ามี)
+2. binary ใน `docs/report/` (docx 4.2 MB + pdf 5.8 MB) ถูก commit ใหม่ทุกครั้งที่ rebuild — history โตเร็ว
+3. รายงาน `docs/report/src/chapters/ch4b.md:109` ยังเขียน heartbeat "ยังไม่ติดตั้ง" — ไม่ได้แก้ (เป็น snapshot ของรายงาน P1 และ pdf/docx ต้อง rebuild พร้อมกัน)
+4. `max ?? 0` ของ pool max — ไม่แก้ (`DB_POOL_SIZE` default 5 ใน `config.ts` จึงไม่ถึง fallback)

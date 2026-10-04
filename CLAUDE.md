@@ -700,8 +700,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   digest equal to `monitoring.yml`'s. Keep local-only files out of `deploy/prometheus/` and
   `deploy/grafana/` (deploy.yml copies those trees wholesale).
 - **Uptime heartbeat (#596, 2026-10-04):** `deploy/scripts/healthcheck-ping.sh`, cron every 5 min as
-  `deploy` from `provision.yml` (`journalctl -t pos-healthcheck`). 🔴 **Not installed on `mob04`
-  yet** — a CD deploy never installs it. The ping URL is a secret: only in `/opt/pos/.env`, passed to
+  `deploy` from `provision.yml` (`journalctl -t pos-healthcheck`). **Installed on `mob04` by hand
+  2026-10-04** (07 §7b: script sha256 `77f79d62…` = `origin/main`, key appended to `/opt/pos/.env`,
+  cron entry with the `#Ansible:` marker so `provision.yml` adopts it; first cron run 15:20 UTC
+  silent = healthy ping). 🔴 A CD deploy never updates it — re-install after a script change. The ping URL is a secret: only in `/opt/pos/.env`, passed to
   curl on stdin (`-K -`) never argv; a URL holding a quote/backslash/space is refused (`::error::`),
   not escaped. Unset = `::warning::` exit 0 (same rule as offsite backup).
 

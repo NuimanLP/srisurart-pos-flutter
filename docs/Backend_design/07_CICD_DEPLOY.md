@@ -709,7 +709,14 @@ retention พร้อม `::warning::` ตลอดไป** — เมื่อ
 
 ---
 
-## 7b. Uptime heartbeat — Healthchecks.io (ยังไม่ติดตั้งบน VM)
+## 7b. Uptime heartbeat — Healthchecks.io (ติดตั้งบน `mob04` แล้ว 2026-10-04)
+
+**สถานะ 2026-10-04 15:14 UTC:** ติดตั้งด้วยมือตามขั้น "ด้วยมือ" ข้างล่าง — สคริปต์ sha256 `77f79d62…` ตรงกับ
+`origin/main` (`/opt/pos/scripts/healthcheck-ping.sh`, `deploy:deploy` 0755) · เพิ่มคีย์ใน `/opt/pos/.env`
+ทาง stdin (ไม่ผ่าน argv; ไฟล์ยัง 0600 `deploy:deploy`, คีย์บรรทัดเดียว) · cron ของ `deploy` มีบรรทัด
+`#Ansible: Srisurart POS Uptime Heartbeat` นำ · รันมือใน env แบบ cron → `rc=0` เงียบ (= ping ปกติ) · cron รอบแรก
+15:20 UTC รันแล้ว ไม่มี log ใน `journalctl -t pos-healthcheck` (= ปกติ) · ยังไม่ได้ทดสอบเคส `/fail` บน VM
+(ข้อ "ตรวจบน VM" ท้ายหัวข้อ) · 🔴 CD deploy ไม่อัปเดตสคริปต์ — แก้สคริปต์เมื่อไหร่ต้องติดตั้งซ้ำ
 
 VM เป็นฝ่าย **ส่งสัญญาณออกไป** ทุก 5 นาที ถ้าสัญญาณหยุด Healthchecks.io แจ้งเตือน — จึงรู้ได้แม้ VM
 ดับทั้งเครื่อง (ตัวเฝ้าที่รันบน VM เดียวกันทำไม่ได้)
