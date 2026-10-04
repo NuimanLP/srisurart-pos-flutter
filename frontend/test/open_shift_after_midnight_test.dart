@@ -34,9 +34,11 @@ void main() {
   final yesterday = DateTime(now.year, now.month, now.day - 1);
   final openedAt = DateTime(yesterday.year, yesterday.month, yesterday.day, 20);
 
-  /// Yesterday's 20:00 shift (฿1,234 float), open unless [closed], plus a
-  /// ฿100 cash bill rung just now — inside the open shift.
-  Future<AppDatabase> seed({required bool closed}) async {
+  final closedYesterday = openedAt.add(const Duration(hours: 3));
+
+  /// Yesterday's 20:00 shift (฿1,234 float), open unless [closedAt], plus a
+  /// ฿100 cash bill rung just now — inside the shift unless it closed before.
+  Future<AppDatabase> seed({DateTime? closedAt}) async {
     final db = AppDatabase(NativeDatabase.memory());
     await db
         .into(db.shifts)
@@ -46,9 +48,7 @@ void main() {
             dateStr: dateKey(yesterday),
             startingCash: 1234,
             openedAt: openedAt,
-            closedAt: Value(
-              closed ? openedAt.add(const Duration(hours: 3)) : null,
-            ),
+            closedAt: Value(closedAt),
             isActive: const Value(true),
           ),
         );
@@ -86,7 +86,7 @@ void main() {
       tester,
     ) async {
       await tester.runAsync(() async {
-        final db = await seed(closed: false);
+        final db = await seed();
         await pump(tester, db, const CashDrawerScreen());
 
         expect(find.text('ยังไม่ได้เปิดร้านวันนี้'), findsNothing);
@@ -101,9 +101,25 @@ void main() {
       });
     });
 
+    testWidgets('a shift opened yesterday and closed after midnight stays', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        final db = await seed(closedAt: now.add(const Duration(seconds: 1)));
+        await pump(tester, db, const CashDrawerScreen());
+
+        expect(find.text('ยังไม่ได้เปิดร้านวันนี้'), findsNothing);
+        expect(
+          find.text('เปิดร้าน ${thaiDateTime(openedAt)} · ตั้งต้น ฿1,234'),
+          findsOneWidget,
+        );
+        await db.close();
+      });
+    });
+
     testWidgets('a closed shift from yesterday is not today’s', (tester) async {
       await tester.runAsync(() async {
-        final db = await seed(closed: true);
+        final db = await seed(closedAt: closedYesterday);
         await pump(tester, db, const CashDrawerScreen());
 
         expect(find.text('ยังไม่ได้เปิดร้านวันนี้'), findsOneWidget);
@@ -115,7 +131,7 @@ void main() {
   group('closing report drawer check', () {
     testWidgets('uses yesterday’s still-open shift', (tester) async {
       await tester.runAsync(() async {
-        final db = await seed(closed: false);
+        final db = await seed();
         await pump(tester, db, const ClosingReport());
 
         expect(find.text('เงินตั้งต้น'), findsOneWidget);
@@ -125,9 +141,22 @@ void main() {
       });
     });
 
+    testWidgets('uses a shift opened yesterday and closed after midnight', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        final db = await seed(closedAt: now.add(const Duration(seconds: 1)));
+        await pump(tester, db, const ClosingReport());
+
+        expect(find.text('เงินตั้งต้น'), findsOneWidget);
+        expect(find.text('฿1,334'), findsOneWidget);
+        await db.close();
+      });
+    });
+
     testWidgets('ignores a closed shift from yesterday', (tester) async {
       await tester.runAsync(() async {
-        final db = await seed(closed: true);
+        final db = await seed(closedAt: closedYesterday);
         await pump(tester, db, const ClosingReport());
 
         expect(find.text('เงินตั้งต้น'), findsNothing);

@@ -106,7 +106,8 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
   Future<_DrawerData> _loadData() async {
     final shiftsRepo = context.read<ShiftsRepository>();
     // An open shift shows whatever day it was opened; a closed one only if
-    // it is today's (owner 2026-10-04 — db.js kept only today's).
+    // it was opened or closed today (owner 2026-10-04 — db.js kept only
+    // today's).
     final shift = currentShiftOf(await shiftsRepo.getCashDrawer(), todayKey());
     // No current shift → the screen shows only the open form; nothing to count.
     final cash = shift == null
@@ -380,7 +381,10 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                 ),
-                decoration: const InputDecoration(isDense: true, hintText: '0'),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: '0',
+                ),
                 onSubmitted: (_) => _handleOpen(),
               ),
             ),
@@ -684,7 +688,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             // A shift still open from an earlier day shows its open date too.
-            'เปิดร้าน ${dateKey(shift.shift.openedAt) == todayKey() ? _hhmm(shift.shift.openedAt) : thaiDateTime(shift.shift.openedAt)} · ตั้งต้น ${baht(d.startingCash)}',
+            'เปิดร้าน ${dateKey(shift.shift.openedAt) == todayKey() ? thaiTime(shift.shift.openedAt) : thaiDateTime(shift.shift.openedAt)} · ตั้งต้น ${baht(d.startingCash)}',
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppColors.steelBlue,
             ),
@@ -896,7 +900,10 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                   fontSize: 26,
                   fontWeight: FontWeight.w700,
                 ),
-                decoration: const InputDecoration(isDense: true, hintText: '0'),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: '0',
+                ),
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 10),

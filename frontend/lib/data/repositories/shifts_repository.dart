@@ -32,13 +32,18 @@ import '../db/database.dart';
 /// The shift the cash-drawer screen shows and the closing report's drawer
 /// check counts, from [active] ([ShiftsRepository.getCashDrawer]) and
 /// [today] (`yyyy-MM-dd`): a shift still OPEN is current whatever day it was
-/// opened — past midnight its money still counts by shift — while a CLOSED
-/// shift counts only if it is today's (owner 2026-10-04).
-ShiftWithEntries? currentShiftOf(ShiftWithEntries? active, String today) =>
-    active != null &&
-        (active.shift.closedAt == null || active.shift.dateStr == today)
-    ? active
-    : null;
+/// opened — past midnight its money still counts by shift — and a CLOSED
+/// shift is current only if it was opened or closed today, so a shift closed
+/// after midnight still shows for its count (owner 2026-10-04).
+ShiftWithEntries? currentShiftOf(ShiftWithEntries? active, String today) {
+  if (active == null) return null;
+  final closedAt = active.shift.closedAt;
+  return closedAt == null ||
+          active.shift.dateStr == today ||
+          dateKey(closedAt) == today
+      ? active
+      : null;
+}
 
 class ShiftsRepository {
   final AppDatabase db;
@@ -98,9 +103,7 @@ class ShiftsRepository {
     Expression<bool> inShift(GeneratedColumn<DateTime> date) {
       final closed = shift.closedAt;
       final opened = date.isBiggerOrEqualValue(shift.openedAt);
-      return closed == null
-          ? opened
-          : opened & date.isSmallerOrEqualValue(closed);
+      return closed == null ? opened : opened & date.isSmallerOrEqualValue(closed);
     }
 
     final sales =
