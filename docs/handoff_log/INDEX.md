@@ -2,6 +2,12 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
+- 2026-10-04 — [Handoff — ค่ำ: merge #596 heartbeat, #597 metrics + Overview, #599 รายงาน · deploy `41a8f19` · PR #600–#603](session-2026-10-04-evening-merge-596-597-599.md) — 3 PR merged (head ตรงทุกตัว) · `41a8f19` ยืนยันบน VM · RAM mob04 5.9 GB ไม่มี swap · ที่เหลือบน develop เป็น PR #600–#603 · heartbeat ยังไม่ติดตั้ง · บทเรียน Word `active document` — รอคนอื่น
+- 2026-10-04 — [Handoff — branch `develop`: สถานะรวม, merge กับ main, review ก่อนเข้า main](session-2026-10-04-develop-branch-status.md) — ภาพรวม 36 ไฟล์ที่ต่างจาก main · แผนแตก PR ย่อย (ทำแล้ว ค่ำ) — ปิดแล้ว
+- 2026-10-04 — [Handoff — Grafana POS Overview +17 ช่อง และ metrics ใหม่ใน API](session-2026-10-04-dashboard-app-metrics.md) — `pos_documents_total`/pool/คิว + unit test (coverage 45.39%) · อยู่บน `develop` ยังไม่ขึ้น VM — รอคนอื่น
+- 2026-10-04 — [Handoff — local observability overlay: Loki + Alloy + exporters + หน้า POS Infra](session-2026-10-04-local-observability-overlay.md) — local only · ทางตันที่เจอ + คำสั่งรัน stack `srisurart-mob04` — ปิดแล้ว (local)
+- 2026-10-04 — [Handoff — uptime: ถอด Uptime Kuma, ใช้ Healthchecks.io heartbeat จาก `mob04`](session-2026-10-04-uptime-healthchecks-heartbeat.md) — สคริปต์ + cron ใน `provision.yml` · `mob04` ถึง hc-ping.com แล้ว · ยังไม่ติดตั้งบน VM — รอคนอื่น
+- 2026-10-04 — [Handoff — สไลด์ Canva + infographic Monitoring/Dashboard](session-2026-10-04-slides-infographic-monitoring.md) — ภาพ 2 + pptx 6 หน้าให้วางเอง · ตัวเลข CI ต้นเด็คยังเก่า — รอคนอื่น
 - 2026-10-01 — [Handoff — เย็น: pull ไม่ทับเครดิตที่ยังไม่ส่ง, docs-only push ข้ามเทสต์/deploy, deploy `531984d`](session-2026-10-01-evening-credit-guard-docs-ci.md) — PR #544 merged
 - 2026-10-01 — [Handoff — บ่าย: bulk delete/ล้างตะกร้า, auth session, cache แยกร้าน (#539/#541), gitleaks + push protection, deploy `f4c821b`](session-2026-10-01-afternoon-ux-auth-tenant-gitleaks.md) — PR #527–#541 merged
 - 2026-10-01 — [Handoff — CI แดงเพราะข้ามเดือน (PR #525) · บทเรียน 19 deploy mob04 (PR #524) · deploy `4832172`](session-2026-10-01-month-rollover-and-lesson-19.md) — แก้เทสต์ sync-push ที่ hardcode เดือน · cron 03:00 รอบแรกยังไม่ตรวจ
