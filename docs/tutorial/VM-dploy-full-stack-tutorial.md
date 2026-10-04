@@ -419,7 +419,7 @@ ssh mob04 'sudo -n ssh-keygen -lf /home/deploy/.ssh/authorized_keys'
 authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh`, `healthcheck-ping.sh` ลง `/opt/pos/scripts` →
 **ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy` (backup) + cron ทุก 5 นาทีของ `deploy` (`healthcheck-ping.sh | logger -t pos-healthcheck` — ดูผลที่ `sudo journalctl -t pos-healthcheck`)
 
-🔴 **heartbeat ยังไม่ติดตั้งบน `mob04`** — มีเฉพาะการรัน `provision.yml` (user `cloud`) ซ้ำ หรือติดตั้งด้วยมือ (§7b) · CD deploy ไม่ติดตั้งให้ · **อย่ากด *Ping now* ใน Healthchecks.io ก่อนมี cron**
+🔴 **heartbeat ติดตั้งบน `mob04` แล้ว 2026-10-04 (ด้วยมือ, `07 §7b`)** — CD deploy ไม่อัปเดตให้: แก้สคริปต์แล้วต้องรัน `provision.yml` (user `cloud`) ซ้ำ หรือติดตั้งด้วยมือ (§7b) · **อย่ากด *Ping now* ใน Healthchecks.io ก่อนมี cron**
 
 ตั้งแต่ #506 ก่อนเขียน `.env` provision **ตรวจว่ามีบรรทัด `KEY=<ไม่ว่าง>` ครบทุกคีย์ที่ Compose บังคับ** (11 คีย์ใน §2.2 — ไม่รวม `IMAGE_TAG` ที่ `deploy.yml` ส่งเอง)
 ขาดตัวไหน play **ล้มก่อนแตะ `.env`** พร้อมชื่อคีย์ (ไม่พิมพ์ค่า) · ไม่มี `PLATFORM_ADMINS` = แค่ **เตือน** (Compose ไม่บังคับ แต่ platform-ui จะไม่มี admin ให้ login) ·

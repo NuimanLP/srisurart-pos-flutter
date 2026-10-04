@@ -2,7 +2,7 @@
 
 1 บรรทัดต่อ handoff · เรียงใหม่ → เก่า · รูปแบบตาม [`handoff-prompt-template.md`](handoff-prompt-template.md)
 
-- 2026-10-04 — [Handoff — ดึก: รีวิว #599–#603, แก้ตามรีวิว PR #604, deploy `1734b13` → `81245b5`](session-2026-10-04-night-review-600-604-deploy.md) — #600 ไม่มี blocker · #604: promtool ใน CI, `local-api.yml` ครบทุก service, infographic Kuma → Healthchecks.io · deploy 2 รอบ `failed=0` · tutorial อัปเดต · heartbeat ยังไม่ติดตั้ง — ปิดแล้ว
+- 2026-10-04 — [Handoff — ดึก: รีวิว #599–#603, แก้ตามรีวิว PR #604, deploy `1734b13` → `81245b5`](session-2026-10-04-night-review-600-604-deploy.md) — #600 ไม่มี blocker · #604: promtool ใน CI, `local-api.yml` ครบทุก service, infographic Kuma → Healthchecks.io · deploy 3 รอบ `failed=0` (ล่าสุด `7444ea4`, `.current_sha` ยืนยัน) · tutorial อัปเดต · **heartbeat ติดตั้งบน `mob04` แล้ว** · #606 queue read single-flight — ปิดแล้ว
 - 2026-10-04 — [Handoff — ค่ำ: merge #596 heartbeat, #597 metrics + Overview, #599 รายงาน · deploy `41a8f19` · PR #600–#603](session-2026-10-04-evening-merge-596-597-599.md) — 3 PR merged (head ตรงทุกตัว) · `41a8f19` ยืนยันบน VM · RAM mob04 5.9 GB ไม่มี swap · ที่เหลือบน develop เป็น PR #600–#603 · heartbeat ยังไม่ติดตั้ง · บทเรียน Word `active document` — รอคนอื่น
 - 2026-10-04 — [Handoff — branch `develop`: สถานะรวม, merge กับ main, review ก่อนเข้า main](session-2026-10-04-develop-branch-status.md) — ภาพรวม 36 ไฟล์ที่ต่างจาก main · แผนแตก PR ย่อย (ทำแล้ว ค่ำ) — ปิดแล้ว
 - 2026-10-04 — [Handoff — Grafana POS Overview +17 ช่อง และ metrics ใหม่ใน API](session-2026-10-04-dashboard-app-metrics.md) — `pos_documents_total`/pool/คิว + unit test (coverage 45.39%) · อยู่บน `develop` ยังไม่ขึ้น VM — รอคนอื่น
