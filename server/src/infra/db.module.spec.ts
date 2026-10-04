@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { warnIfRoleTimeoutsDiffer } from './db.module.js';
+import { dbPoolStatsReader, warnIfRoleTimeoutsDiffer } from './db.module.js';
 
 /** A pool whose `SHOW <name>` answers from `values`. */
 function fakeDs(values: Record<string, string>) {
@@ -40,5 +40,26 @@ describe('warnIfRoleTimeoutsDiffer (#213)', () => {
     const ds = { query: vi.fn(async () => Promise.reject(new Error('down'))) };
     await expect(warnIfRoleTimeoutsDiffer(ds as any, logger as any)).resolves.toBeUndefined();
     expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('dbPoolStatsReader', () => {
+  const dsWith = (pool: object) => ({ driver: { master: pool } }) as any;
+
+  it('derives in-use from total minus idle, and reads live at each call', () => {
+    const pool = { totalCount: 5, idleCount: 2, waitingCount: 1, options: { max: 20 } };
+    const read = dbPoolStatsReader(dsWith(pool));
+    expect(read()).toEqual({ inUse: 3, idle: 2, waiting: 1, max: 20 });
+    pool.totalCount = 20;
+    pool.idleCount = 0;
+    pool.waitingCount = 4;
+    expect(read()).toEqual({ inUse: 20, idle: 0, waiting: 4, max: 20 });
+  });
+
+  it('reports max 0 when the pool has no configured size', () => {
+    const read = dbPoolStatsReader(
+      dsWith({ totalCount: 0, idleCount: 0, waitingCount: 0, options: {} }),
+    );
+    expect(read().max).toBe(0);
   });
 });

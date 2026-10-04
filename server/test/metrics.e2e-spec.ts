@@ -424,4 +424,59 @@ describe('metrics (e2e)', () => {
     const finalMetrics = await request(app.getHttpServer()).get('/metrics');
     expect(parseReplayCount(finalMetrics.text)).toBe(countBefore);
   });
+
+  // Dashboard group 2: one committed bill is one `sale`, however many times its key is resent
+  // — the replay branch returns before `SalesService` runs, so it must not count again.
+  it('counts a committed sale once in pos_documents_total, and not again on replay', async () => {
+    const productId = 'prod-metric-doc';
+    await seedProduct(admin, TENANT, {
+      id: productId,
+      partNo: 'DC-321',
+      name: 'Document Counter Part',
+      price: 100,
+      cost: 50,
+      stock: 50,
+    });
+    const saleCount = (text: string): number =>
+      Number(text.match(/pos_documents_total\{kind="sale"\}\s+(\d+)/)?.[1] ?? NaN);
+
+    const before = saleCount((await request(app.getHttpServer()).get('/metrics')).text);
+    // Zero-initialised: the series exists before the first bill of the process.
+    expect(Number.isNaN(before)).toBe(false);
+
+    const key = `k-doc-${Date.now()}`;
+    const saleBody = {
+      id: `s-doc-${Date.now()}`,
+      subtotal: '100.00',
+      discount: '0.00',
+      total: '100.00',
+      paymentMethod: 'เงินสด',
+      items: [{ lineNo: 1, productId, name: 'Document Counter Part', qty: 1, price: '100.00' }],
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await request(app.getHttpServer())
+        .post('/api/v1/sales')
+        .set('Authorization', `Bearer ${posToken}`)
+        .set('Idempotency-Key', key)
+        .send(saleBody)
+        .expect(201);
+    }
+
+    const after = (await request(app.getHttpServer()).get('/metrics')).text;
+    expect(saleCount(after)).toBe(before + 1);
+    expect(after).not.toMatch(/pos_documents_total\{[^}]*tenant/);
+  });
+
+  // The gauges only have samples if `RuntimeMetricsModule` is in the real module graph and
+  // handed `MetricsService` its readers — without it they are declared but empty.
+  it('exposes the request-pool and queue gauges from the real module graph', async () => {
+    const text = (await request(app.getHttpServer()).get('/metrics')).text;
+
+    for (const state of ['in_use', 'idle', 'waiting']) {
+      expect(text).toMatch(new RegExp(`pos_db_pool_connections\\{state="${state}"\\}\\s+\\d+`));
+    }
+    expect(text).toMatch(/pos_db_pool_max_connections\s+[1-9]\d*/);
+    expect(text).toMatch(/pos_queue_jobs\{queue="sale-post",state="waiting"\}\s+\d+/);
+    expect(text).toMatch(/pos_queue_jobs\{queue="dlq",state="failed"\}\s+\d+/);
+  });
 });

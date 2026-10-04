@@ -2,12 +2,22 @@ import { Injectable } from '@nestjs/common';
 import {
   collectDefaultMetrics,
   Counter,
+  Gauge,
   Histogram,
   Registry,
 } from 'prom-client';
 
+import type { DbPoolStats } from '../infra/db.module.js';
+
 const HTTP_METRIC_LABELS = ['method', 'route', 'status_code'] as const;
 type HttpMetricLabel = (typeof HTTP_METRIC_LABELS)[number];
+
+const DOCUMENT_KINDS = ['sale', 'void', 'return'] as const;
+export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+
+const QUEUE_JOB_STATES = ['waiting', 'active', 'delayed', 'failed'] as const;
+export type QueueJobState = (typeof QUEUE_JOB_STATES)[number];
+export type QueueJobCounts = Record<string, Partial<Record<QueueJobState, number>>>;
 
 @Injectable()
 export class MetricsService {
@@ -16,6 +26,15 @@ export class MetricsService {
   private readonly httpRequestsTotal: Counter<HttpMetricLabel>;
   private readonly httpRequestDurationSeconds: Histogram<HttpMetricLabel>;
   private readonly idempotencyReplayTotal: Counter<string>;
+  private readonly documentsTotal: Counter<'kind'>;
+  private readonly dbPoolConnections: Gauge<'state'>;
+  private readonly dbPoolMax: Gauge<string>;
+  private readonly queueJobs: Gauge<'queue' | 'state'>;
+
+  // Set by `RuntimeMetricsService` once the pool and the queues exist. Until then the two
+  // gauges below simply have no samples — `MetricsService` itself stays dependency-free.
+  private dbPoolReader?: () => DbPoolStats;
+  private queueReader?: () => Promise<QueueJobCounts>;
 
   constructor() {
     collectDefaultMetrics({ register: this.registry });
@@ -45,6 +64,73 @@ export class MetricsService {
       help: 'Total number of idempotent request replays',
       registers: [this.registry],
     });
+
+    // Business documents written, counted at commit like the replay counter above and, for
+    // the same reason, with NO tenant_id label. `sale` also covers a quote converted to a
+    // sale and a bill replayed in through /sync/push; `void` is a clerk's void only — the
+    // automatic void of a fully-returned bill is a `return`.
+    this.documentsTotal = new Counter({
+      name: 'pos_documents_total',
+      help: 'Business documents committed, by kind (sale, void, return)',
+      labelNames: ['kind'],
+      registers: [this.registry],
+    });
+    // Zero-initialised so `increase()` has a starting sample before the first bill.
+    for (const kind of DOCUMENT_KINDS) this.documentsTotal.inc({ kind }, 0);
+
+    // The request pool of THIS process (#162: a pool with every connection held and callers
+    // still waiting is a deadlock in the making). Read at scrape time, never polled.
+    this.dbPoolConnections = new Gauge({
+      name: 'pos_db_pool_connections',
+      help: 'Request-pool connections of this process, by state (in_use, idle, waiting)',
+      labelNames: ['state'],
+      registers: [this.registry],
+      collect: () => {
+        const stats = this.dbPoolReader?.();
+        if (!stats) return;
+        this.dbPoolConnections.set({ state: 'in_use' }, stats.inUse);
+        this.dbPoolConnections.set({ state: 'idle' }, stats.idle);
+        this.dbPoolConnections.set({ state: 'waiting' }, stats.waiting);
+        this.dbPoolMax.set(stats.max);
+      },
+    });
+
+    this.dbPoolMax = new Gauge({
+      name: 'pos_db_pool_max_connections',
+      help: 'Configured size of the request pool of this process (DB_POOL_SIZE)',
+      registers: [this.registry],
+    });
+
+    // Queue depth lives in Redis, so all three api instances report the same numbers —
+    // dashboards take max(), never sum(). A reader that fails or times out drops the samples
+    // rather than failing the scrape or serving stale counts.
+    this.queueJobs = new Gauge({
+      name: 'pos_queue_jobs',
+      help: 'BullMQ jobs per queue, by state (waiting, active, delayed, failed)',
+      labelNames: ['queue', 'state'],
+      registers: [this.registry],
+      collect: async () => {
+        if (!this.queueReader) return;
+        try {
+          const counts = await this.queueReader();
+          for (const [queue, byState] of Object.entries(counts)) {
+            for (const state of QUEUE_JOB_STATES) {
+              this.queueJobs.set({ queue, state }, byState[state] ?? 0);
+            }
+          }
+        } catch {
+          this.queueJobs.reset();
+        }
+      },
+    });
+  }
+
+  observeDbPool(reader: () => DbPoolStats): void {
+    this.dbPoolReader = reader;
+  }
+
+  observeQueues(reader: () => Promise<QueueJobCounts>): void {
+    this.queueReader = reader;
   }
 
   get contentType(): string {
@@ -57,6 +143,11 @@ export class MetricsService {
 
   recordReplay(): void {
     this.idempotencyReplayTotal.inc();
+  }
+
+  /** Call from `onTransactionCommit` only — a rolled-back write is not a document. */
+  recordDocument(kind: DocumentKind): void {
+    this.documentsTotal.inc({ kind });
   }
 
   recordRequest(
