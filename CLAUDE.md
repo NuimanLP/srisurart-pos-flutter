@@ -686,6 +686,24 @@ on void/return paths. Keep this order in any new write touching more than one of
   timeout and drops its samples on error rather than serving stale counts.
   `RuntimeMetricsModule` is imported by `AppModule` only (the worker builds none of this).
 
+- **App metrics (#597, 2026-10-04, deployed `41a8f19`):** `pos_documents_total{kind}` (counted in
+  `onTransactionCommit`), `pos_db_pool_connections{state}` + `pos_db_pool_max_connections`,
+  `pos_queue_jobs{queue,state}` (redis-queue read under a 1 s `withTimeout`) — named by
+  `pos-overview.json` (29 panels), same rename rule as above. Known gap: `withTimeout` does not
+  cancel `getJobCounts`, so a redis-queue outage piles up commands (no issue filed yet).
+- **Local observability overlay (#600/#604, 2026-10-04) is dev-only:** `deploy/compose/observability.yml`,
+  `local-api.yml`, `deploy/{alloy,loki,grafana-local,prometheus-local}/` are never referenced by Ansible.
+  The production `deploy/prometheus/prometheus.yml` loads `scrape.d/*.yml` (absent on `mob04`).
+  🔴 `deploy.yml` only **warns** if Prometheus/Grafana fail after a deploy, so the
+  `promtool check config` step in `server.yml` `nginx-check` is the real gate — keep its image
+  digest equal to `monitoring.yml`'s. Keep local-only files out of `deploy/prometheus/` and
+  `deploy/grafana/` (deploy.yml copies those trees wholesale).
+- **Uptime heartbeat (#596, 2026-10-04):** `deploy/scripts/healthcheck-ping.sh`, cron every 5 min as
+  `deploy` from `provision.yml` (`journalctl -t pos-healthcheck`). 🔴 **Not installed on `mob04`
+  yet** — a CD deploy never installs it. The ping URL is a secret: only in `/opt/pos/.env`, passed to
+  curl on stdin (`-K -`) never argv; a URL holding a quote/backslash/space is refused (`::error::`),
+  not escaped. Unset = `::warning::` exit 0 (same rule as offsite backup).
+
 **Nginx / auth / rate limiting:**
 - Nginx must be the only reverse proxy in front of the API — `trust proxy` is exactly
   `1` and `clientIp()` reads the rightmost `X-Forwarded-For` entry; a second proxy or

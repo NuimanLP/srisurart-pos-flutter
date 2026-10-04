@@ -289,6 +289,8 @@ test -s "$SECRETS_FILE" && echo "secrets ok" || echo "STOP: ไม่มี $SEC
 **กฎ:** ห้ามวางค่าลง chat/PR/commit/issue/log/screenshot · ห้ามเก็บใน repo · **ห้าม `--diff` กับ `provision.yml`** (พิมพ์ `.env` ทั้งไฟล์) ·
 ห้ามมี `ALLOW_DEV_SECRETS`, `IMAGE_TAG`, ค่า `dev-only-*` · **ห้าม `export DEMO_ENV_FILE`** — ใส่นำหน้าคำสั่ง provision คำสั่งเดียว (§2.5)
 
+**คีย์ไม่บังคับ `HEALTHCHECKS_PING_URL`** (uptime heartbeat → Healthchecks.io, `07_CICD_DEPLOY.md §7b`) — รูปแบบ `https://hc-ping.com/<uuid>` · **เป็นความลับ** (ใครมี URL ก็ ping แทนได้) · ไม่มีคีย์นี้ `provision.yml` แค่เตือน และ cron จะ log `::warning::` ทุก 5 นาทีโดยไม่ส่งอะไร (ไม่มีใครถูกแจ้งเมื่อ VM ดับ) · ใส่ใน `DEMO_ENV_FILE` ได้เลย แต่ **ทุกคีย์เดิมต้องอยู่ครบ** เพราะ `provision.yml` เขียนทับ `.env` ทั้งไฟล์
+
 #### ตรวจไฟล์ — ดูแค่ชื่อคีย์
 
 ```bash
@@ -414,8 +416,10 @@ ssh mob04 'sudo -n ssh-keygen -lf /home/deploy/.ssh/authorized_keys'
 ### 2.5 provision พร้อม `.env` (มี backup + hash gate)
 
 `provision.yml` ทำตามลำดับ: apt ติด Docker Engine + compose plugin → UFW (deny incoming, allow 22/80/443) → user `deploy` (group `docker`) →
-authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh` ลง `/opt/pos/scripts` →
-**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy`
+authorized key → `/opt/pos/...` → copy `backup-db.sh`, `restore-db.sh`, `measure-container-rss.sh`, `healthcheck-ping.sh` ลง `/opt/pos/scripts` →
+**ตรวจ `DEMO_ENV_FILE` (#506)** → **เขียน `/opt/pos/.env` 0600 (ข้ามถ้า `DEMO_ENV_FILE` ว่าง — มีข้อความเตือน)** → `/opt/pos/backups` 0700 → cron 03:00 ของ `deploy` (backup) + cron ทุก 5 นาทีของ `deploy` (`healthcheck-ping.sh | logger -t pos-healthcheck` — ดูผลที่ `sudo journalctl -t pos-healthcheck`)
+
+🔴 **heartbeat ยังไม่ติดตั้งบน `mob04`** — มีเฉพาะการรัน `provision.yml` (user `cloud`) ซ้ำ หรือติดตั้งด้วยมือ (§7b) · CD deploy ไม่ติดตั้งให้ · **อย่ากด *Ping now* ใน Healthchecks.io ก่อนมี cron**
 
 ตั้งแต่ #506 ก่อนเขียน `.env` provision **ตรวจว่ามีบรรทัด `KEY=<ไม่ว่าง>` ครบทุกคีย์ที่ Compose บังคับ** (11 คีย์ใน §2.2 — ไม่รวม `IMAGE_TAG` ที่ `deploy.yml` ส่งเอง)
 ขาดตัวไหน play **ล้มก่อนแตะ `.env`** พร้อมชื่อคีย์ (ไม่พิมพ์ค่า) · ไม่มี `PLATFORM_ADMINS` = แค่ **เตือน** (Compose ไม่บังคับ แต่ platform-ui จะไม่มี admin ให้ login) ·

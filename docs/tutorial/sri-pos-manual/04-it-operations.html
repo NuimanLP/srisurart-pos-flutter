@@ -125,6 +125,25 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   -d '{"username":"&lt;owner&gt;","password":"&lt;รหัส&gt;"}'</pre>
   ครั้งแรกด้วยรหัสชั่วคราวจะได้ <code>passwordChangeRequired: true</code> + <code>passwordChangeToken</code> (10 นาที) ไม่ใช่ access token — ตั้งรหัสใหม่ผ่าน <code>POST /api/v1/auth/change-password</code> (ดูบทเรียนข้อ 5.3)</div>
   <div class="note key"><span class="nt">ทำไม SLI ไม่นับ health</span><code>/metrics</code>, <code>/health/live</code>, <code>/health/ready</code> ถูกตัดออกจากตัวเลขอัตราสำเร็จ — ถ้านับ การ scrape ทุก 15 วิ × 3 instance + healthcheck จะสร้าง 200 ปลอม ~36 ครั้ง/นาที จนวันที่ขายพังทั้งวันยังดูปกติ ~92%</div>
+  <h2 class="sub" id="heartbeat">Uptime heartbeat — Healthchecks.io <span class="en">Dead-man's switch</span></h2>
+  <p>VM ส่งสัญญาณ <strong>ออกไป</strong> ทุก 5 นาที (<code>deploy/scripts/healthcheck-ping.sh</code> เช็ก <code>https://127.0.0.1/health/ready</code> ผ่าน Nginx แล้ว ping Healthchecks.io) — ถ้าสัญญาณหยุด Healthchecks.io แจ้งเตือนเอง จึงรู้ได้แม้ VM ดับทั้งเครื่อง (ตัวเฝ้าที่รันบน VM เดียวกันทำไม่ได้)</p>
+  <div class="note warn"><span class="nt">ยังไม่ติดตั้งบน mob04</span>มีเฉพาะในโค้ดบน <code>main</code> (PR #596) — การ deploy ผ่าน CD <strong>ไม่ติดตั้งให้</strong> (เหมือน <code>backup-db.sh</code>) ต้องรัน <code>provision.yml</code> (user <code>cloud</code>) หรือติดตั้งด้วยมือตาม <code>07_CICD_DEPLOY.md §7b</code> และต้องได้รับอนุมัติจากเจ้าของก่อน</div>
+  <ol class="steps">
+    <li><span class="st-title">เก็บ ping URL เป็นความลับ</span>ใส่ <code>HEALTHCHECKS_PING_URL=https://hc-ping.com/&lt;uuid&gt;</code> ใน <code>/opt/pos/.env</code> เท่านั้น (ผ่าน <code>DEMO_ENV_FILE</code>) · ใครมี URL ก็ ping แทนได้ — ห้าม commit/วางใน chat/ticket · คีย์ซ้ำ = บรรทัดสุดท้ายชนะ</li>
+    <li><span class="st-title">ติดตั้ง</span><code>provision.yml</code> จะ copy สคริปต์ลง <code>/opt/pos/scripts</code> และเพิ่ม cron <code>*/5</code> ของ user <code>deploy</code> (<code>… | logger -t pos-healthcheck</code>) · 🔴 <code>provision.yml</code> เขียนทับ <code>/opt/pos/.env</code> ทั้งไฟล์ — <code>DEMO_ENV_FILE</code> ต้องมีทุกคีย์ ไม่ใช่แค่คีย์ใหม่</li>
+    <li><span class="st-title">ตรวจ</span><code>sudo -u deploy /opt/pos/scripts/healthcheck-ping.sh; echo rc=$?</code><span class="see">ได้ <code>rc=0</code> และ check ใน Healthchecks.io เป็นสีเขียว</span></li>
+    <li><span class="st-title">อ่าน log</span><code>sudo journalctl -t pos-healthcheck</code></li>
+  </ol>
+  <div class="tbl-scroll">
+  <table class="grid">
+    <tr><th>ข้อความใน log</th><th>แปลว่า</th></tr>
+    <tr><td><code>::warning::</code> HEALTHCHECKS_PING_URL is not set — exit 0</td><td>ยังไม่ตั้ง URL: ไม่ส่งอะไร <strong>และไม่มีใครถูกแจ้งเมื่อ VM ดับ</strong> (ไม่ใช่ความล้มเหลว)</td></tr>
+    <tr><td><code>::error::</code> could not reach Healthchecks.io — exit 1</td><td>ตั้งแล้วแต่ส่งไม่ถึง (FortiGate/DNS) · ฝั่ง Healthchecks.io จะเห็นเป็น "เงียบ" แล้วแจ้งเตือนเอง</td></tr>
+    <tr><td><code>::error::</code> … holds a quote, backslash or space — exit 1</td><td>URL ใน <code>.env</code> ผิดรูป (มีเครื่องหมายคำพูด/backslash/ช่องว่าง) — แก้บรรทัดนั้น</td></tr>
+    <tr><td><code>::warning::</code> reported FAIL to Healthchecks.io: …</td><td><code>/health/ready</code> ไม่ผ่านหลังลองซ้ำ 3 ครั้ง (ห่างกัน 15 วิ) → ส่ง <code>POST …/fail</code> พร้อมข้อความ error — Healthchecks.io แจ้งเตือนทันที ให้เช็ก Postgres/Redis/Nginx ตามหัวข้อนี้</td></tr>
+  </table>
+  </div>
+  <div class="note warn"><span class="nt">อย่ากด "Ping now" ก่อนมี cron</span>check ถูก pause ไว้ ping แรกจะ resume มัน — ถ้ากดก่อนที่ cron จะมีอยู่จริง check จะเริ่มนับเวลาแล้วแจ้งเตือนเพราะไม่มี ping ถัดไป · ก่อนเปิดใช้ ตรวจว่า <code>curl -v https://hc-ping.com/</code> จาก VM ผ่าน FortiGate (ผ่านแล้ว 2026-10-04)</div>
   <div class="runfoot"><span>ภาค 04 · IT / ผู้ดูแลระบบ</span><span class="pagenum">4</span></div>
 </section>
 

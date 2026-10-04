@@ -63,10 +63,21 @@
     <tr><td><strong>API p95 latency</strong></td><td>เวลาตอบ percentile ที่ 95</td><td>คงที่ ไม่พุ่ง</td></tr>
     <tr><td><strong>API error rate by status code</strong></td><td>อัตรา 4xx/5xx แยกตามรหัส</td><td>4xx ประปราย (เช่น 409 สต็อกไม่พอ) ได้ · 5xx ควรเป็น 0</td></tr>
     <tr><td><strong>Idempotent replays</strong></td><td>จำนวนครั้งที่คำขอซ้ำถูกตอบด้วยผลเดิม (กันขายซ้ำ)</td><td>มีบ้างเมื่อเน็ตช้า — ไม่ใช่ข้อผิดพลาด</td></tr>
+    <tr><td><strong>API instances up</strong></td><td>จำนวน api instance ที่ Prometheus scrape ได้</td><td>3 จาก 3</td></tr>
+    <tr><td><strong>Request rate</strong> (รวม · ต่อ route · อ่าน/เขียน)</td><td>ปริมาณคำขอ — แยกตาม route และแยก read (<code>GET|HEAD</code>) กับ write</td><td>ตามการใช้งานจริง · path ที่ไม่ตรง route รวมเป็น <code>unmatched</code></td></tr>
+    <tr><td><strong>p95 latency</strong> (ต่อ route · อ่าน/เขียน) · <strong>Success rate read/write</strong></td><td>ความเร็ว/อัตราสำเร็จแยกราย route และแยกอ่าน-เขียน</td><td>คงที่ ไม่พุ่ง</td></tr>
+    <tr><td><strong>5xx errors by route</strong></td><td>route ไหนตอบ 5xx</td><td>เป็น 0</td></tr>
+    <tr><td><strong>API memory (RSS)</strong> · <strong>Event loop lag p99</strong></td><td>RAM และความหน่วงของ event loop ต่อ instance</td><td>RSS ไม่ไต่ขึ้นเรื่อย ๆ · lag ต่ำ</td></tr>
+    <tr><td><strong>Bills, voids and returns</strong> (2 แผง)</td><td>จำนวนบิล/ยกเลิก/คืน (<code>pos_documents_total{kind}</code>) — ยอดในช่วงที่เลือก และต่อนาที</td><td>นับเฉพาะที่ commit สำเร็จ · ส่งบิลซ้ำนับครั้งเดียว</td></tr>
+    <tr><td><strong>DB pool in use</strong> · <strong>DB pool waiting</strong></td><td>connection ของ Postgres ที่ใช้อยู่/รอคิว ต่อ instance (<code>pos_db_pool_connections{state}</code> เทียบ <code>pos_db_pool_max_connections</code>)</td><td>waiting เป็น 0 เกือบตลอด — ค้างสูง = pool ตัน</td></tr>
+    <tr><td><strong>Login refusals per minute</strong></td><td>จำนวน login ที่ถูกปฏิเสธ (4xx ที่ <code>/auth/token</code>)</td><td>ประปราย · พุ่งผิดปกติ = ลองรหัสซ้ำ/ถูกโจมตี</td></tr>
+    <tr><td><strong>Background jobs by queue</strong> · <strong>Failed background jobs</strong></td><td>งานในคิว BullMQ แยกตามคิว/สถานะ (<code>pos_queue_jobs{queue,state}</code>)</td><td>failed เป็น 0 — ถ้าไม่ใช่ ดู Bull-Board (หัวข้อ 3)</td></tr>
     <tr><td><strong>k6: …</strong> (5 แผง)</td><td>ผลทดสอบโหลดแบบกระจาย 3 เครื่อง</td><td><strong>"No data" คือปกติ</strong> — ยังไม่เคยรัน (#380) · แผง 429 ต้องเป็น 0 เมื่อรันจริง</td></tr>
   </table>
   </div>
-  <div class="note key"><span class="nt">ชื่อ metric ห้ามเปลี่ยน</span>แผงอ่าน <code>http_requests_total</code>, <code>http_request_duration_seconds</code> และ <code>pos_idempotency_replay_total</code> — เปลี่ยนชื่อ metric ในโค้ดแล้วแผงจะว่างเงียบ ๆ</div>
+  <p>แดชบอร์ดนี้มี <strong>29 แผง</strong> (12 แผงเดิม + 17 แผงที่เพิ่ม 2026-10-04 — metric ใหม่ใน API deploy ขึ้น <code>mob04</code> แล้วที่ <code>41a8f19</code>)</p>
+  <div class="note tip"><span class="nt">แดชบอร์ด infrastructure (เฉพาะเครื่อง dev)</span>มีแดชบอร์ดที่ 2 ชื่อ <strong>POS — infrastructure (local)</strong> (15 แผง: RAM/CPU/OOM ต่อ container · Postgres · Redis) แต่จะมีก็ต่อเมื่อรัน overlay <code>deploy/compose/observability.yml</code> บนเครื่อง dev เท่านั้น (วิธีรันดูบทเรียน <code>local-full-stack-tutorial.md</code> ข้อ 3.1) — <strong>ไม่อยู่บน <code>mob04</code></strong> · log ค้นผ่าน Loki ในโอเวอร์เลย์เดียวกัน</div>
+  <div class="note key"><span class="nt">ชื่อ metric ห้ามเปลี่ยน</span>แผงอ่าน <code>http_requests_total</code>, <code>http_request_duration_seconds</code>, <code>pos_idempotency_replay_total</code>, <code>pos_documents_total</code>, <code>pos_db_pool_connections</code>, <code>pos_db_pool_max_connections</code> และ <code>pos_queue_jobs</code> — เปลี่ยนชื่อ metric ในโค้ดแล้วแผงจะว่างเงียบ ๆ</div>
   <div class="runfoot"><span>ภาค 05 · แดชบอร์ด</span><span class="pagenum">2</span></div>
 </section>
 
@@ -143,7 +154,7 @@
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
       <li>ไม่มี alert อัตโนมัติ — ต้องมีคนเปิดดู</li>
-      <li>monitoring ยังไม่เคยรันบน <code>mob04</code> (ยัง deploy ไม่สำเร็จ) — ทุกอย่างในภาคนี้ดูได้บนเครื่อง dev</li>
+      <li>แดชบอร์ด infrastructure (log + Postgres/Redis/container) มีเฉพาะเครื่อง dev — ไม่มีบน <code>mob04</code> (เพดาน RAM เพิ่ม ~1.1 GB เป็น owner decision)</li>
       <li>แผง k6 ว่างจนกว่าจะรันทดสอบโหลด 3 เครื่อง (#380)</li>
       <li>แผง Disk ว่างบน Docker Desktop</li>
     </ul>

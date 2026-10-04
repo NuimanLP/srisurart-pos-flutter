@@ -88,6 +88,26 @@ curl -sk https://localhost/health/ready
 ควรได้ `{"status":"success","data":{"status":"up", ...}}` ทั้งคู่ (`-k` เพราะ cert เป็น
 self-signed สำหรับ dev)
 
+### 3.1 (ไม่บังคับ) เพิ่ม log + infrastructure metrics — `observability.yml`
+
+เฉพาะเครื่อง dev — **ไม่อยู่ใน deploy ของ `mob04`** (`deploy.yml` ไม่โหลดไฟล์นี้; เพดาน RAM เพิ่ม ~1.1 GB) จาก `server/`:
+
+```bash
+docker compose -f docker-compose.yml -f ../deploy/compose/monitoring.yml -f ../deploy/compose/observability.yml up -d
+```
+
+ได้เพิ่ม: Loki (log 7 วัน) + Alloy (เก็บ log ทุก container) + postgres-exporter + redis-exporter + cAdvisor ·
+ใน Grafana (<http://127.0.0.1:3000>) มีแดชบอร์ด **POS — infrastructure (local)** 15 แผง (RAM/CPU/OOM ต่อ container · Postgres · Redis)
+และ *Explore* → datasource **Loki** ค้น log ได้ เช่น `{service="api-1"} |= "error"` (ตัวอย่างเพิ่ม: `deploy/loki/README.md`) ·
+Loki อยู่ที่ `127.0.0.1:3101`, Alloy UI ที่ `127.0.0.1:12345`
+
+- ใช้ชุด `-f` ชุดเดิมที่ใช้ตอนรันสแตกนี้ (ถ้ามี `docker-compose.dev.yml` ในชุดเดิม ให้ใส่ตามเดิม) แล้วต่อ `observability.yml` ท้ายสุด
+- Grafana ใต้ overlay ต้องใช้ Docker Compose ≥ 2.24 (`volumes: !override`)
+- Alloy/cAdvisor mount `docker.sock` ซึ่ง**ไม่จำกัด Docker API** (สั่ง start/stop container ได้) และ cAdvisor รัน `privileged` — ใช้บนเครื่อง dev เท่านั้น
+- ถ้าโค้ด server ใน branch ยังไม่อยู่บน `main` แต่ต้องการรันแบบเดียวกับ VM (ใช้ `vm.override.yml`) ให้ `docker build -t srisurart-pos-server:develop-local server/` แล้วเพิ่ม `-f ../deploy/compose/local-api.yml` **หลัง** `vm.override.yml` (ครอบ migrate, api-1..3, worker, bull-board)
+- ห้าม `down -v` (ดูข้อ 8)
+- uptime ไม่อยู่ใน overlay นี้ — VM ส่ง heartbeat ไป Healthchecks.io ด้วย cron (`deploy/scripts/healthcheck-ping.sh`)
+
 ---
 
 ## 4) เปิดเบราว์เซอร์คุยกับ backend ตรง ๆ ได้ผ่าน `tlswrap` (dev-only)
