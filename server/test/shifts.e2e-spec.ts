@@ -112,11 +112,22 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(first.body.data.isActive).toBe(true);
     expect(first.body.data.entries).toEqual([]);
 
-    // Replay with the same id returns the existing shift untouched.
-    const again = await post('/open', { id: 'sh_custom_1', startingCash: '9999.00' });
+    // Replay with the same id and the same cash returns the existing shift untouched.
+    const again = await post('/open', { id: 'sh_custom_1', startingCash: '2000.00' });
     expect(again.status).toBe(200);
     expect(again.body.data.id).toBe('sh_custom_1');
     expect(again.body.data.startingCash).toBe('2000.00');
+
+    // Same cash written differently ("2000" vs "2000.00") is still a replay, not a clash.
+    const reformatted = await post('/open', { id: 'sh_custom_1', startingCash: '2000' });
+    expect(reformatted.status).toBe(200);
+    expect(reformatted.body.data.startingCash).toBe('2000.00');
+
+    // Same id, DIFFERENT cash = a different drawer that collided on the id: refuse, never
+    // silently hand back the other drawer (the /sync/push path does the same).
+    const clash = await post('/open', { id: 'sh_custom_1', startingCash: '9999.00' });
+    expect(clash.status).toBe(409);
+    expect(clash.body.error.code).toBe('CLIENT_ID_REUSED');
 
     const rows = await admin.query(
       `SELECT count(*)::int AS n FROM shifts WHERE tenant_id = $1::uuid`,

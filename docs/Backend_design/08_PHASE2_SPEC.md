@@ -181,7 +181,7 @@ stateDiagram-v2
 
 | `type` | endpoint ออนไลน์ | client id (B2) | ฟิลด์ที่เทียบตอน replay by id | aggregate (C14) |
 |---|---|---|---|---|
-| `shift.open` | `POST /shifts/open` | `shifts.id` — **เพิ่ม** (`shifts.service.ts:186`) | `startingCash` | `shift:<id>` |
+| `shift.open` | `POST /shifts/open` | `shifts.id` — **เพิ่ม** (`shifts.service.ts:191`) | `startingCash` | `shift:<id>` |
 | `sale.create` | `POST /sales` | `sales.id` ✅ | `total` ✅ (`sales.service.ts:634`) · บิลถูก void แล้ว → **`applied`** บน push (ออนไลน์ยังเป็น `409 SALE_VOIDED`) | `sale:<id>` · รอ `shift`, `customer` |
 | `return.create` | `POST /returns` | `returns.id` — **เพิ่ม** (`returns.service.ts:264`) | `saleId` + รายการ (`productId`, `qty`, `price`) | `return:<id>` · รอ `sale:<saleId>`, `shift` |
 | `drawer.entry` | `POST /shifts/current/entries` | `drawer_entries.id` — **เพิ่ม** (`shifts.service.ts:370`) | `type` + `amount` | `drawer:<id>` · รอ `shift` |
@@ -197,7 +197,7 @@ stateDiagram-v2
   · **owner เคาะ 2026-10-03 (#575):** (1) ใบที่ไม่มีแล้ว = รับบิล + รายการตรวจ `reason: not_found` · (2) หมดอายุวัดกับ**วันที่ที่บิลถูกเก็บจริง** (วันที่ของเครื่องหลัง clamp ตาม §10, ไม่มีวันที่ = `now()` เหมือน `insertSale`) ไม่ใช่เวลาที่ push มาถึง — ใบที่ยังใช้ได้ตอนขาย แม้หมดอายุก่อน sync ก็แปลงตามปกติ ไม่มีรายการตรวจ
   `details { opId, saleId, receiptNo, quoteId, reason: already_converted|expired|not_found, convertedSaleId?, validUntil? }` หนึ่งรายการต่อบิล (unique index บางส่วน, push ซ้ำไม่เพิ่ม — migration …4700) ·
   บิลถูกปฏิเสธ (สต็อกไม่พอ ฯลฯ) = rollback ทั้งหมด ใบยัง open ไม่มีรายการตรวจ · replay by key/id ไม่ทำขั้นนี้ซ้ำ
-- id ชน + ฟิลด์ที่เทียบไม่ตรง → `rejected` **`CLIENT_ID_REUSED`** `details: {type, id}` (code เดียวแทน `SALE_ID_REUSED`/`CREDIT_PAYMENT_ID_REUSED` บนทาง push; ทางออนไลน์คง code เดิม)
+- id ชน + ฟิลด์ที่เทียบไม่ตรง → `rejected` **`CLIENT_ID_REUSED`** `details: {type, id}` (code เดียวแทน `SALE_ID_REUSED`/`CREDIT_PAYMENT_ID_REUSED` บนทาง push; ทางออนไลน์คง code เดิม · ข้อยกเว้น: `POST /shifts/open` ออนไลน์ id ซ้ำ + `startingCash` ต่าง → `409 CLIENT_ID_REUSED` เพราะไม่เคยมี code เฉพาะกะ และใช้ข้อความไทยที่ ratify แล้ว — **owner to confirm**)
 
 > สถานะ 2026-09-27 (ฝั่ง client): เข้าคิวได้แล้ว `sale.create` · `credit_payment.create` · `customer.*` · `sale.void_offline` · **`shift.open` + `drawer.entry`** (PR #456, #452 slice — body ออนไลน์มี `id` แล้ว) · **`return.create`** (#452, PR #469 — body ออนไลน์มี `id` · ออฟไลน์เขียนใบลดหนี้ + เลข CN ของเครื่อง + คืนสต็อก/ลูกค้า/ช่าง + void บิลที่คืนครบ + แถว outbox ใน local transaction เดียว ผ่านกฎ pure `planReturn` ที่ใช้ร่วมกับ Drift build) · client test ผูก replay by key + replay by id + `CLIENT_ID_REUSED` ของสาม op นี้แล้ว (`sync_service_contract_test.dart` กลุ่ม 8) · API build เข้าคิวเฉพาะ transport failure — 5xx/429 จอดความพยายามไว้ (id + key เดิม) เหมือน `ApiSalesRepository` (owner เคาะ 2026-09-27, §5 แก้ตามแล้ว)
 
@@ -372,8 +372,8 @@ stateDiagram-v2
 | | |
 |---|---|
 | หลายกะต่อวัน | ได้ · `uq_shift_active` (active ละหนึ่งต่อเครื่อง) คงเดิม |
-| `POST /shifts/open` | body `{ id, startingCash }` — 🔄 **แก้ 2026-09-25 (owner):** ไม่มี `openedAt` ในบอดี้ออนไลน์ (§10: route ออนไลน์ใช้ `now()` เสมอ ไม่อ่านวันที่จาก body) · `openedAt` เป็นฟิลด์ของ op `shift.open` ใน `/sync/push` เท่านั้น · id มีแล้ว → คืนกะนั้น · มีกะ active อื่น → archive (`auto_archived=true`, ไม่มี `physical_cash`) + `shift_uncounted` · insert ด้วย id ของ client · `date_str` จาก `opened_at` (§10) ตาม `tenants.timezone` |
-| ลบของเดิม | "active วันเดียวกัน → คืนกะเดิม" + `today()` (`shifts.service.ts:160-176`) |
+| `POST /shifts/open` | body `{ id, startingCash }` — 🔄 **แก้ 2026-09-25 (owner):** ไม่มี `openedAt` ในบอดี้ออนไลน์ (§10: route ออนไลน์ใช้ `now()` เสมอ ไม่อ่านวันที่จาก body) · `openedAt` เป็นฟิลด์ของ op `shift.open` ใน `/sync/push` เท่านั้น · id มีแล้ว → คืนกะนั้น (ถ้า `startingCash` ตรงกัน; ต่างกัน = `409 CLIENT_ID_REUSED` เหมือน `/sync/push`) · มีกะ active อื่น → archive (`auto_archived=true`, ไม่มี `physical_cash`) + `shift_uncounted` · insert ด้วย id ของ client · `date_str` จาก `opened_at` (§10) ตาม `tenants.timezone` |
+| ลบของเดิม | "active วันเดียวกัน → คืนกะเดิม" + `today()` (`shifts.service.ts:166-250`) |
 | ⚠️ ผลข้างออนไลน์ | กด "เปิดกะ" ขณะมีกะ active → กะเดิมถูก archive ไม่ได้นับเงิน (เดิมคืนกะเดิม) · หลังปิดกะ ใบลดหนี้เงินสด (#100) ไม่ต้องรอพรุ่งนี้แล้ว เปิดกะใหม่ได้เลย |
 | ปิดกะ | ออนไลน์ + outbox ไม่มี `pending`/`stuck`/`rejected` — **client บังคับ** (server ไม่เห็น outbox) |
 | รายการในคิว | server ประทับกะ active ณ ตอนนั้น — ลำดับ push ทำให้ตรง |

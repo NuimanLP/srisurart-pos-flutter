@@ -1,8 +1,9 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
+import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { newId } from '../common/ids.js';
-import { fromSatang } from '../common/money.js';
+import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
@@ -195,6 +196,11 @@ export class ShiftsService {
         [tenantId, shiftId],
       )) as ShiftRow[];
       if (existing.length > 0) {
+        // Same id, different opening cash: not a replay but another drawer that collided
+        // on the id — refuse like the /sync/push path (`checkClientIdReplay`) does.
+        if (satangOf(existing[0].starting_cash) !== input.startingCashSatang) {
+          throw new ClientIdReusedException('shift.open', shiftId);
+        }
         return this.withEntries(manager, tenantId, existing[0]);
       }
     }
