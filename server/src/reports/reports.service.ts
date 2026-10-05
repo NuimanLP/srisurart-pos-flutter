@@ -434,8 +434,8 @@ export class ReportsService {
     const rows = (await manager.query(
       `WITH ${BOUNDS}, ${ITEM_EVENTS}
        SELECT e.product_id,
-              COALESCE(max(e.part_no), max(p.part_no), e.product_id) AS part_no,
-              COALESCE(max(e.name), max(p.name), e.product_id) AS name,
+              COALESCE(max(e.part_no), max(p.part_no), e.product_id::text) AS part_no,
+              COALESCE(max(e.name), max(p.name), e.product_id::text) AS name,
               sum(e.qty)::int AS quantity,
               sum(e.revenue)::numeric(20,2) AS revenue
          FROM item_events e

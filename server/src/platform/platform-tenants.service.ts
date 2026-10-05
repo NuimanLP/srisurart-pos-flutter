@@ -175,7 +175,8 @@ export class PlatformTenantsService {
         await manager.query(
           `INSERT INTO devices (tenant_id, id, label, device_no, role, enrol_code_hash, enrol_expires_at)
            VALUES ($1, $2, $3, 1, 'pos', $4, $5)`,
-          [tid, 'pos1', 'POS #1', enrolCodeHash, enrolExpires],
+          // #616: device ids are UUIDs — the old literal 'pos1' is a 22P02 on `devices.id`.
+          [tid, newUuid(), 'POS #1', enrolCodeHash, enrolExpires],
         );
 
         // 6. Audit log inside the business transaction

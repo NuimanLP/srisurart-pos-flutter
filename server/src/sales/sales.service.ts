@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
-import { newUuid } from '../common/ids.js';
+import { isUuid, newUuid } from '../common/ids.js';
 import { fromSatang, pointsFor, satangOf } from '../common/money.js';
 import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
 import { MetricsService } from '../metrics/metrics.service.js';
@@ -521,7 +521,9 @@ export class SalesService {
         WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[]) AND deleted_at IS NULL
         ORDER BY id
           FOR UPDATE`,
-      [tenantId, demands.map((d) => d.productId)],
+      // A converted quote's free-text line has no product (`''`): it can match no row, so
+      // it reads as "ไม่พบในสต็อก" below rather than reaching `::uuid[]` as a 22P02 (#616).
+      [tenantId, demands.map((d) => d.productId).filter(isUuid)],
     ) as Promise<LockedProduct[]>;
   }
 

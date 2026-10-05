@@ -73,7 +73,7 @@ export interface AuditEntry {
   entity: string | null;
   entityId: string | null;
   actor: AuditActor;
-  /** Present when a device acted alongside a user/admin actor (e.g. a sale rung on `pos1`). */
+  /** Present when a device acted alongside a user/admin actor (e.g. a sale rung on the POS #1 till). */
   device: { id: string; label: string | null; deviceNo: number | null } | null;
   ip: string | null;
   createdAt: string;
