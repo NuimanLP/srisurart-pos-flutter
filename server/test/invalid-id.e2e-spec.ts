@@ -1,7 +1,10 @@
 import type { INestApplication } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
+import { signJwt } from '../src/common/jwt.js';
+import { APP_CONFIG, type AppConfig } from '../src/config/config.js';
+import { platformAdminCacheKey } from '../src/platform/platform-auth.guard.js';
 import {
   accessToken,
   createTestApp,
@@ -69,6 +72,93 @@ describe('malformed ids are 400 INVALID_ID (#616, e2e)', () => {
         .get(`/api/v1${path}`)
         .set('Authorization', `Bearer ${token}`);
       expectInvalidId(res, 'id');
+    });
+  });
+
+  // One route per group the cases above do not reach (#616 AC: "one e2e test per
+  // route group"). Each sends a valid token and Idempotency-Key, so only the id is wrong.
+  describe('one route per group', () => {
+    const send = (
+      method: 'get' | 'post' | 'patch' | 'delete',
+      path: string,
+      body?: object,
+    ) => {
+      const req = api()
+        [method](`/api/v1${path}`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `k-${randomUUID()}`);
+      return body === undefined ? req : req.send(body);
+    };
+
+    it.each([
+      ['mechanics', 'get', '/mechanics/m1', undefined, 'id'],
+      [
+        'credit-payments (body id)',
+        'post',
+        `/mechanics/${testId('m-616')}/credit-payments`,
+        { id: 'cp_1', amount: '10.00', paymentMethod: 'เงินสด' },
+        'id',
+      ],
+      ['shifts open (body id)', 'post', '/shifts/open', { id: 'sh_1', startingCash: '0.00' }, 'id'],
+      [
+        'shifts drawer entry (body id)',
+        'post',
+        '/shifts/current/entries',
+        { id: 'de_1', type: 'in', amount: '10.00' },
+        'id',
+      ],
+      ['devices', 'post', '/devices/pos1/retire', {}, 'id'],
+      ['parked-sales', 'delete', '/parked-sales/pk_1', undefined, 'id'],
+      ['review-items', 'post', '/review-items/r1/reviewed', {}, 'id'],
+      ['purchase-orders', 'get', '/purchase-orders/po_1', undefined, 'id'],
+      ['catalogue suppliers', 'patch', '/suppliers/sup_1', { name: 'x' }, 'id'],
+      ['movements ?productId=', 'get', '/movements?productId=p1', undefined, 'productId'],
+      [
+        '/sync/discards (opId)',
+        'post',
+        '/sync/discards',
+        { opId: 'op_1', type: 'customer.create', note: 'ลบทิ้ง' },
+        'opId',
+      ],
+    ] as const)('%s', async (_, method, path, body, field) => {
+      expectInvalidId(await send(method, path, body), field);
+    });
+
+    describe('platform device routes', () => {
+      let adminId: string;
+      let platformToken: string;
+
+      beforeEach(async () => {
+        adminId = randomUUID();
+        await admin.query(
+          `INSERT INTO platform_admins (id, username, password_hash, display_name, is_active)
+           VALUES ($1, $2, 'x', 'Admin 616', true)`,
+          [adminId, `admin-${adminId.slice(0, 8)}`],
+        );
+        platformToken = signJwt(
+          {
+            iss: 'srisurart-pos',
+            aud: 'platform',
+            sub: adminId,
+            username: `admin-${adminId.slice(0, 8)}`,
+          },
+          app.get<AppConfig>(APP_CONFIG).jwtPlatformSecret,
+        );
+      });
+
+      afterEach(async () => {
+        await cache.del(platformAdminCacheKey(adminId));
+        await admin.query(`DELETE FROM audit_log WHERE platform_admin_id = $1`, [adminId]);
+        await admin.query(`DELETE FROM platform_admins WHERE id = $1`, [adminId]);
+      });
+
+      it.each([['enrol-code'], ['replace']])('POST …/devices/pos1/%s', async (action) => {
+        const res = await api()
+          .post(`/api/v1/platform/tenants/${TENANT}/devices/pos1/${action}`)
+          .set('Authorization', `Bearer ${platformToken}`)
+          .send({});
+        expectInvalidId(res, 'deviceId');
+      });
     });
   });
 
