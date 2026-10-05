@@ -9,11 +9,11 @@
       "outboxRemaining": 3,
       "ops": [
         {
-          "opId": "op_1",
+          "opId": "76c6ad3e-8478-5cb1-a1d9-7d7a433b13a4",
           "idempotencyKey": "k_1",
           "type": "sale.create",
           "payload": {
-            "id": "s_batch_1",
+            "id": "84f90b9f-4a6d-56cf-8e0c-6cbc06303947",
             "receiptNo": "RC01-2569-09-0050",
             "date": "2026-09-15T05:00:00.000Z",
             "subtotal": "100.00",
@@ -23,7 +23,7 @@
             "items": [
               {
                 "lineNo": 1,
-                "productId": "p1",
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                 "name": "Oil Filter",
                 "qty": 1,
                 "price": "100.00"
@@ -32,11 +32,11 @@
           }
         },
         {
-          "opId": "op_2",
+          "opId": "6e1d56cc-7111-570b-a459-79023bb3c253",
           "idempotencyKey": "k_2",
           "type": "sale.create",
           "payload": {
-            "id": "s_batch_2",
+            "id": "b86bde36-cc64-5701-a68c-c10988ed8227",
             "receiptNo": "RC01-2569-09-0051",
             "date": "2026-09-15T05:01:00.000Z",
             "subtotal": "100.00",
@@ -46,7 +46,7 @@
             "items": [
               {
                 "lineNo": 1,
-                "productId": "p1",
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                 "name": "Oil Filter",
                 "qty": 1,
                 "price": "100.00"
@@ -55,11 +55,11 @@
           }
         },
         {
-          "opId": "op_3",
+          "opId": "3f9d6909-43c9-5089-b8a5-7af5867685f0",
           "idempotencyKey": "k_3",
           "type": "sale.create",
           "payload": {
-            "id": "s_batch_3",
+            "id": "a5d37680-11d6-5ec3-b9d0-8d7252785acc",
             "receiptNo": "RC01-2569-09-0052",
             "date": "2026-09-15T05:02:00.000Z",
             "subtotal": "100.00",
@@ -69,7 +69,7 @@
             "items": [
               {
                 "lineNo": 1,
-                "productId": "p1",
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                 "name": "Oil Filter",
                 "qty": 1,
                 "price": "100.00"
@@ -78,11 +78,11 @@
           }
         },
         {
-          "opId": "op_4",
+          "opId": "e854335b-f798-5b99-9b0e-d814b0643e33",
           "idempotencyKey": "k_4",
           "type": "sale.create",
           "payload": {
-            "id": "s_batch_4",
+            "id": "64f0252f-c149-5d36-b0da-984a7502bc0f",
             "receiptNo": "RC01-2569-09-0053",
             "date": "2026-09-15T05:03:00.000Z",
             "subtotal": "100.00",
@@ -92,7 +92,7 @@
             "items": [
               {
                 "lineNo": 1,
-                "productId": "p1",
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                 "name": "Oil Filter",
                 "qty": 1,
                 "price": "100.00"
@@ -110,32 +110,32 @@
       "data": {
         "results": [
           {
-            "opId": "op_1",
+            "opId": "76c6ad3e-8478-5cb1-a1d9-7d7a433b13a4",
             "status": "applied",
             "response": {
-              "id": "s_batch_1",
+              "id": "84f90b9f-4a6d-56cf-8e0c-6cbc06303947",
               "receiptNo": "RC01-2569-09-0050",
               "total": "100.00",
               "pointsGranted": 10,
               "date": "2026-09-15T05:00:00.000Z",
-              "shiftId": "sh_batch_001",
+              "shiftId": "4492015a-7d13-5924-b0c4-a605d2f60584",
               "products": [
                 {
-                  "id": "p1",
+                  "id": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                   "stock": 9
                 }
               ],
               "items": [
                 {
                   "lineNo": 1,
-                  "productId": "p1",
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                   "costAtSale": "50.00"
                 }
               ],
               "movements": [
                 {
-                  "id": "mv_example_s_batch_1_1",
-                  "productId": "p1",
+                  "id": "00485e77-f931-5453-9760-6ddb601480ab",
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                   "partNo": "HN-15412-KVB",
                   "name": "Oil Filter",
                   "delta": -1,
@@ -151,15 +151,15 @@
             }
           },
           {
-            "opId": "op_2",
+            "opId": "6e1d56cc-7111-570b-a459-79023bb3c253",
             "status": "retry"
           },
           {
-            "opId": "op_3",
+            "opId": "3f9d6909-43c9-5089-b8a5-7af5867685f0",
             "status": "retry"
           },
           {
-            "opId": "op_4",
+            "opId": "e854335b-f798-5b99-9b0e-d814b0643e33",
             "status": "retry"
           }
         ]

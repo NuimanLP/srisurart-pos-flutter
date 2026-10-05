@@ -9,11 +9,11 @@
       "outboxRemaining": 1,
       "ops": [
         {
-          "opId": "op_1",
+          "opId": "76c6ad3e-8478-5cb1-a1d9-7d7a433b13a4",
           "idempotencyKey": "k_1",
           "type": "sale.create",
           "payload": {
-            "id": "s_1",
+            "id": "3059f2a2-5dac-596e-9b5c-e1241f94d991",
             "receiptNo": "RC01-2569-09-0054",
             "date": "2026-09-15T05:10:00.000Z",
             "subtotal": "100.00",

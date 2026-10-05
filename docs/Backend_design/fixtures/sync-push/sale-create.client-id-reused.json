@@ -9,11 +9,11 @@
       "outboxRemaining": 1,
       "ops": [
         {
-          "opId": "op_sale_mismatch",
+          "opId": "87ea20a9-793e-571f-9887-6d568fcf133b",
           "idempotencyKey": "k_sale_diff",
           "type": "sale.create",
           "payload": {
-            "id": "s_off_001",
+            "id": "d0db03a0-e40f-5039-b0aa-232fe0f6b899",
             "receiptNo": "RC01-2569-09-0042",
             "date": "2026-09-15T02:00:00.000Z",
             "subtotal": "999.00",
@@ -23,7 +23,7 @@
             "items": [
               {
                 "lineNo": 1,
-                "productId": "p1",
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                 "partNo": "HN-15412-KVB",
                 "name": "Oil Filter",
                 "qty": 1,
@@ -42,13 +42,13 @@
       "data": {
         "results": [
           {
-            "opId": "op_sale_mismatch",
+            "opId": "87ea20a9-793e-571f-9887-6d568fcf133b",
             "status": "rejected",
             "code": "CLIENT_ID_REUSED",
             "message": "รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ",
             "details": {
               "type": "sale.create",
-              "id": "s_off_001"
+              "id": "d0db03a0-e40f-5039-b0aa-232fe0f6b899"
             }
           }
         ]

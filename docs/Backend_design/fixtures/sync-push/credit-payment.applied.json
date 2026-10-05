@@ -9,12 +9,12 @@
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_cp_001",
+          "opId": "47abe755-d61b-59fe-b5d9-696b1f92414f",
           "idempotencyKey": "k_cp_001",
           "type": "credit_payment.create",
           "payload": {
-            "id": "cp_off_001",
-            "mechanicId": "m1",
+            "id": "8b9a24b5-1502-5da3-818e-a3fbd38c66ff",
+            "mechanicId": "ff057ac6-eef3-5cff-a9b2-981ad43794aa",
             "amount": "500.00",
             "paymentMethod": "เงินสด",
             "date": "2026-09-15T04:00:00.000Z"
@@ -30,11 +30,11 @@
       "data": {
         "results": [
           {
-            "opId": "op_cp_001",
+            "opId": "47abe755-d61b-59fe-b5d9-696b1f92414f",
             "status": "applied",
             "response": {
-              "id": "cp_off_001",
-              "mechanicId": "m1",
+              "id": "8b9a24b5-1502-5da3-818e-a3fbd38c66ff",
+              "mechanicId": "ff057ac6-eef3-5cff-a9b2-981ad43794aa",
               "amount": "500.00",
               "paymentMethod": "เงินสด",
               "balanceAfter": "1000.00"
