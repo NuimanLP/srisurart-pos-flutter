@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Catch,
   HttpException,
   HttpStatus,
@@ -8,33 +7,11 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { Logger } from 'pino';
+import { invalidUuidInput } from './ids.js';
 
 export interface ErrorEnvelope {
   status: 'error';
   error: { code: string; message: string; details?: unknown };
-}
-
-/**
- * #616 backstop: Postgres refusing a non-UUID for a `uuid` value (22P02 with the
- * `type uuid` message) → `400 INVALID_ID`. Every id is meant to pass `parseUuid` before
- * any SQL; this only catches one that slipped past, so it reads as the client's bad id
- * rather than a 500. Scoped to the uuid message on purpose: 22P02 is also a bad
- * integer, numeric, boolean, json or enum literal, and those stay 500s (server bugs —
- * every such value is validated or produced by the server). `null` when not that error.
- */
-export function invalidUuidInput(exception: unknown): BadRequestException | null {
-  const e = exception as { code?: unknown; message?: unknown } | null;
-  if (
-    e?.code === '22P02' &&
-    typeof e.message === 'string' &&
-    e.message.includes('invalid input syntax for type uuid')
-  ) {
-    return new BadRequestException({
-      code: 'INVALID_ID',
-      message: 'An id must be a lowercase UUID',
-    });
-  }
-  return null;
 }
 
 /**

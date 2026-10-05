@@ -10,7 +10,7 @@ import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { TenantService } from '../common/database/tenant.service.js';
-import { invalidUuidInput } from '../common/http-exception.filter.js';
+import { invalidUuidInput } from '../common/ids.js';
 import { DOC_NUMBER_REGEX, tenantPeriodSql } from '../documents/doc-number.service.js';
 import { fromSatang, satangOf, toSatang } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';

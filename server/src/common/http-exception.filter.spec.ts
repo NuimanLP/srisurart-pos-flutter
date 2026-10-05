@@ -58,14 +58,11 @@ describe('toErrorEnvelope', () => {
     });
   });
 
-  it('maps only a uuid 22P02 to 400 INVALID_ID (#616); other 22P02s stay 500', () => {
-    const pgError = (message: string) =>
-      Object.assign(new Error(message), { code: '22P02' });
-    const uuid = toErrorEnvelope(pgError('invalid input syntax for type uuid: "p1"'));
+  it('routes a Postgres error through invalidUuidInput (#616; the classifier is tested in ids.spec.ts)', () => {
+    const uuid = toErrorEnvelope(
+      Object.assign(new Error('invalid input syntax for type uuid: "p1"'), { code: '22P02' }),
+    );
     expect(uuid.status).toBe(400);
     expect(uuid.body.error.code).toBe('INVALID_ID');
-    expect(
-      toErrorEnvelope(pgError('invalid input syntax for type integer: "x"')).status,
-    ).toBe(500);
   });
 });

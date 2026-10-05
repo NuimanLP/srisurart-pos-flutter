@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { testId } from '../../test/support/test-ids.js';
-import { newUuid, optionalUuid, parseUuid, requiredUuid } from './ids.js';
+import { invalidUuidInput, newUuid, optionalUuid, parseUuid, requiredUuid } from './ids.js';
 import { ParseUuidPipe } from './parse-uuid.pipe.js';
 
 const CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -104,5 +104,18 @@ describe('testId', () => {
     expect(testId('p1')).toBe('e7ce3922-6095-5e45-bfec-e66674fe7daf');
     expect(testId('ct-product-1')).toBe('a2bba7f5-f859-59f4-8ebd-92cee8c78f1c');
     expect(testId('สินค้า-1')).toBe('4c2ffbc5-5468-5db1-ab4c-0c851829e5a3');
+  });
+});
+
+describe('invalidUuidInput', () => {
+  const pgError = (message: string) => Object.assign(new Error(message), { code: '22P02' });
+
+  it('maps only a uuid 22P02 to 400 INVALID_ID (#616); other 22P02s stay unmapped (500)', () => {
+    const uuid = invalidUuidInput(pgError('invalid input syntax for type uuid: "p1"'));
+    expect(uuid).toBeInstanceOf(BadRequestException);
+    expect(uuid?.getResponse()).toEqual({ code: 'INVALID_ID', message: 'An id must be a lowercase UUID' });
+    expect(invalidUuidInput(pgError('invalid input syntax for type integer: "x"'))).toBeNull();
+    expect(invalidUuidInput(new Error('invalid input syntax for type uuid: "p1"'))).toBeNull();
+    expect(invalidUuidInput(null)).toBeNull();
   });
 });
