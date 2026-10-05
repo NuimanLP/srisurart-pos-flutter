@@ -172,6 +172,17 @@ group ด้วยคอลัมน์นี้ การยุบสองค�
 | F8 | storage ของ `pos` ถูกล้าง = op ค้างหาย (ยอมรับ) · `storage.persist()` ตอนบูต | cache + outbox อยู่ใน storage เดียว ไม่มีสำเนาที่สอง |
 | review | replay by id เทียบเฉพาะฟิลด์ที่ไม่เปลี่ยน · ไม่ตรง → `CLIENT_ID_REUSED` code เดียว · discard ลบแถวในเครื่องเฉพาะเมื่อ server ตอบ `serverHasRow=false` | กันลบแถวที่ server ถืออยู่จริง |
 
+## Addendum 2026-10-05 — entity id เป็น UUIDv7 (#616)
+
+เจ้าของโปรเจกต์ตัดสิน 2026-10-05 ใช้ addendum ใน ADR นี้ ไม่เปิด ADR ใหม่: README ไม่กำหนดให้การกลับคำตัดสินต้องมีไฟล์ใหม่ และเรื่องนี้กระทบ "id ที่ client สร้าง" ของ ADR นี้โดยตรง (ตามแบบ addendum ที่มีอยู่)
+
+* **กลับคำตัดสินเดิมที่ให้ id เป็น `TEXT`** (`01_DATABASE.md §4`) — เหตุผลเดิมคือ id ต้องสร้างได้ตอนออฟไลน์ แต่ UUID สร้างออฟไลน์ได้เท่ากับ `prefix+base36+hex+counter` จึงไม่เป็นเหตุให้ใช้ TEXT อีก
+* ทุก id ของ entity และทุกคอลัมน์ที่ชี้หา entity เป็น `UUID` (44 คอลัมน์ใน 22 ตาราง รายการอยู่ใน #616) — id ชนิดเดียวทุกที่, เทียบแบบ binary, index เล็กลง, id ผิดรูปแบบถูกปฏิเสธ
+* **UUIDv7 ตัวพิมพ์เล็ก** สร้างโดย client (Dart `Uuid().v7()`) และ server (`newUuid()` ใน `server/src/common/ids.ts`) — Postgres ไม่สร้าง id เอง
+* id ผิดรูปแบบหรือตัวพิมพ์ใหญ่ → **`400 INVALID_ID`** ไม่ normalise · `opId` ของ outbox เป็น UUID ด้วย · `Idempotency-Key` และเลขเอกสารไม่เปลี่ยน
+* **ทิ้งข้อมูลเดิม** — server ใหม่เริ่มจาก DB ว่าง, DB ของ `mob04` ถูกล้างตอน cutover (ขั้นตอนของเจ้าของ), migration `EntityIdsToUuid` ปฏิเสธ DB ที่ไม่ว่าง · tenant import ฝั่ง server เหลือหน้าที่นำเข้า snapshot จาก `/backup/export` ของ server นี้เองและปฏิเสธ id รูปแบบเก่า · `importLegacyBackup` ของ client ไม่เปลี่ยน (API build ปฏิเสธอยู่แล้ว)
+* เครื่องที่ชี้ไป server ใหม่ต้อง **เริ่มด้วย outbox ว่าง** (ล้างข้อมูลแอป)
+
 ## ผลที่ตามมา
 
 * **`03_ARCHITECTURE §8` ต้องแก้คำ** — `q1` ไม่ใช่ *"แทน Drift repos"* แต่เป็น
