@@ -279,6 +279,8 @@ run `36686729879` — เจ้าของตัดสินว่ายอม�
 | AC5 panel มีข้อมูลจริง | 13 | | ภาพ 3 panel + `prom_vm` ผลลัพธ์ | |
 | AC6 #335 ครบ 11 + handoff | 14–20 | | ดูตาราง B + ไฟล์ handoff | |
 
+**รัน 2026-10-05 (บางส่วน — ยังไม่ปิดงาน):** tenant `demo-344-20261005` สร้างผ่าน platform-ui · AC1 = **บางส่วน** (ตรวจใน DB: tenant active, owner `must_change_password` = t, device `pos1` ยังไม่ผูกแต่มี code, 5 หมวด, audit `platform.tenant.create`, `tenants` 8→9; plan ออกมาเป็น `basic` เพราะฟอร์ม platform-ui ไม่มีช่อง plan) · AC2 = **บางส่วน** (pos1 ผูกแล้ว code ถูกเผา, `must_change_password` = f, temp expiry ล้าง, `password_changed_at` มีค่า) · AC3–AC6 **ยังไม่ได้ทำ** · ข้อควรรู้: เบราว์เซอร์ที่ถือ device token ของ tenant อื่น (ถูกปลดแล้ว) ขึ้น `เครื่อง POS` และซ่อนลิงก์ผูกเครื่อง → ใช้ Incognito/โปรไฟล์ใหม่ (#609 แก้แล้ว, deploy `32979f0`) · รายละเอียด: [`session-2026-10-05-demo344-retired-device.md`](session-2026-10-05-demo344-retired-device.md)
+
 ## ตาราง B — AC 11 ข้อของ #335 → หลักฐาน (เจ้าของกรอก)
 
 | # | AC ของ #335 (ย่อ) | ทำบน VM ได้? | ขั้น / แหล่งหลักฐาน | ผ่าน? | หลักฐาน |

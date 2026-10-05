@@ -685,8 +685,9 @@ ADR-0004 เจอว่าฉบับแรกให้ client ส่ง `devi
 - **ทำไม SHA-256 (เร็ว) ได้ ทั้งที่รหัสผ่านต้อง argon2 (ช้า)?** เพราะ device token สุ่มจาก 2 UUID (~244 บิตของความสุ่ม) — เดาไม่ได้ต่อให้ hash เร็วแค่ไหน
   argon2 จำเป็นก็ต่อเมื่อ *ต้นฉบับ* เดาได้ (รหัสที่มนุษย์คิด)
 - enrolment code มีแค่ 8 hex = 32 บิต สั้นเพราะต้องให้คนพิมพ์ แต่ชดเชยด้วย **ใช้ครั้งเดียว + หมดอายุ 15 นาที** (`devices.service.ts:70`)
-- ตอน login: `did`/`drole` ถูกแปลงจาก device token ที่ server ตรวจเอง (`auth.service.ts:71-88`) — **ไม่รับ `deviceId` จาก body**
+- ตอน login: `did`/`drole` ถูกแปลงจาก device token ที่ server ตรวจเอง (`auth.service.ts:103-128`) — **ไม่รับ `deviceId` จาก body**
   กฎเดียวกับ `tid`: **ตัวตนมาจากสิ่งที่ server ตรวจแล้วเท่านั้น ไม่ใช่สิ่งที่ client อ้าง**
+- device token ที่ถูก retire หรือ server ไม่รู้จัก → `401 DEVICE_RETIRED` / `401 DEVICE_TOKEN_INVALID` **ก่อนตรวจรหัสผ่าน** (#609, 2026-10-05) — เดิมเป็น `UNAUTHORIZED` ไม่มี code จึงอ่านเหมือนรหัสผ่านผิด แล้ว token ที่ตายค้างในเบราว์เซอร์ตลอด; ฝั่ง client ลบ token + PIN ออฟไลน์แล้วกลับเป็นโหมด Backoffice (`DeviceEnrolmentGoneException`) · `/sync/push` (`DeviceTokenGuard`) ยังตอบ `UNAUTHORIZED` เหมือนเดิม
 
 ### 9. SQL injection — parameterized query
 
