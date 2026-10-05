@@ -291,7 +291,7 @@ erDiagram
 
 | Drift (ปัจจุบัน) | PostgreSQL | หมายเหตุ |
 |---|---|---|
-| `TextColumn` id (`"p1"`, `"s17a3…"`) | `TEXT` | **เก็บเป็น TEXT ต่อไป** ไม่แปลงเป็น UUID/serial — id ถูกสร้างจาก client (`newId()`) และ "ต้อง" สร้างได้ตอนออฟไลน์ ดู [§7.2](#72-เลขเอกสาร-document-numbers) |
+| `TextColumn` id (`"p1"`, `"s17a3…"`) | **`UUID`** (UUIDv7 ตัวพิมพ์เล็ก) | **แปลงเป็น UUID ทุก id และทุกคอลัมน์ที่ชี้ไปหา entity** (44 คอลัมน์ใน 22 ตาราง) — id ยังสร้างจาก client ตอนออฟไลน์ได้ (`Uuid().v7()`) และจาก server (`newUuid()` ใน `server/src/common/ids.ts`); **Postgres ไม่สร้างเอง** · id ผิดรูปแบบหรือตัวพิมพ์ใหญ่ → `400 INVALID_ID` ไม่ normalise · เหตุผลเดิมที่เก็บ TEXT ("ต้องสร้างได้ตอนออฟไลน์") ไม่เป็นจริงแล้ว เพราะ UUID สร้างออฟไลน์ได้เท่ากัน — ดู ADR-0010 addendum 2026-10-05 (#616). เลขเอกสาร (`receipt_no` ฯลฯ), `idempotency_keys.key`, `tenants.code`, `tax_id`, `categories.name` ยังเป็น TEXT |
 | `RealColumn` (เงิน) | **`NUMERIC(12,2)`** | ⚠️ **ห้ามใช้ `double precision`** — แอปเดิมใช้ float + `round2()` ถ้า backend ใช้ float ต่อ ยอดจะเพี้ยนหลักสตางค์แล้วเทียบกับใบเสร็จเก่าไม่ได้ ตั้งค่า TypeORM `transformer` แปลง `string ↔ number` ให้ชัด |
 | `IntColumn` (stock, qty, points) | `INTEGER` | |
 | `DateTimeColumn` | `TIMESTAMPTZ` | เก็บ UTC, แปลงเป็น `Asia/Bangkok` ที่ client เท่านั้น |
@@ -305,7 +305,7 @@ erDiagram
 * `sale_items.rowId` / `po_items` / `return_items` / `quote_items` → เปลี่ยนเป็น **`line_no INT`**
   ที่ client กำหนดเอง (1,2,3…) และ PK = `(tenant_id, <parent>_id, line_no)`
   **เหตุผล:** ทำให้การ retry ยิงบิลเดิมซ้ำเป็น idempotent โดยธรรมชาติ (insert ชนกับ PK แทนที่จะได้แถวซ้ำ)
-* `shifts.id` (auto-increment int) → เปลี่ยนเป็น **`TEXT`** ที่ client สร้าง
+* `shifts.id` (auto-increment int) → เปลี่ยนเป็น **`UUID`** (v7) ที่ client สร้าง
   **เหตุผล:** เปิดกะตอนเน็ตล่มต้องได้ id ทันที และ int ที่ auto-increment จะชนกันข้ามร้าน
 
 ---
