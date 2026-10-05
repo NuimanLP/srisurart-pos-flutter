@@ -2,7 +2,8 @@
 //
 // db.js methods ported:
 //   getMovements() → all movements, newest first (db.js prepends new entries).
-//   addMovement(m) → inserts { ...m, id:_newUuid(), date:now } and returns it.
+//   addMovement(m) → inserts { ...m, id:_newId('mv'), date:now } and returns it.
+//   (The Dart port mints the id with newUuid() instead — #616.)
 //
 // FULLY IMPLEMENTED (low-risk, other agents depend on it).
 

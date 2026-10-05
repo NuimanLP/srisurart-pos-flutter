@@ -12,11 +12,12 @@
 //   getParked() { return this.get(DB_KEYS.parked) || []; }
 //   parkSale(data) {
 //     const all = this.getParked();
-//     const newP = { ...data, id: _newUuid(), parkedAt: new Date().toISOString() };
+//     const newP = { ...data, id: _newId('pk'), parkedAt: new Date().toISOString() };
 //     this.set(DB_KEYS.parked, [newP, ...all]);   // prepend → newest first
 //     return newP;
 //   }
 //   deleteParked(id) { ...filter(p => p.id !== id) }
+// (The Dart port mints the id with newUuid() instead — #616.)
 //
 // In Drift the cart blob (items + customer/mechanic/discount + extra) is stored
 // as a JSON string in ParkedSales.payload, and the timestamp lives in the

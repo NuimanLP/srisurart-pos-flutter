@@ -960,9 +960,9 @@ class SnapshotRepository {
       final cd = data['sa_cash_drawer'];
       if (cd is Map) {
         final shift = cd.cast<String, dynamic>();
-        // A JS snapshot's shifts carry no id at all, so the importer issues
-        // one by the same rule as openShift (schema v3: shift ids are TEXT and
-        // are no longer invented by the database).
+        // A legacy JS snapshot's shift carries no id: keep the file's own id
+        // when it has one (this app's export writes it, #616), else mint a
+        // newUuid() as openShift does.
         final shiftId = _asStr(shift['id'], newUuid());
         await db
             .into(db.shifts)

@@ -13,8 +13,9 @@
 //     const n = parseInt((x.code||'').replace('CUS',''),10);
 //     return isNaN(n)?max:Math.max(max,n); }, 0);
 //   const code = 'CUS' + String(maxNum + 1).padStart(3, '0');
-//   const newC = { ...c, id:_newUuid(), code, points:0, totalSpend:0,
+//   const newC = { ...c, id:_newId('c'), code, points:0, totalSpend:0,
 //                  createdAt: new Date().toISOString().slice(0,10) };
+// (The Dart port mints the id with newUuid() instead — #616.)
 
 import 'package:drift/drift.dart';
 
