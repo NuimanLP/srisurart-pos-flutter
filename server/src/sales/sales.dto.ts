@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { toSatang } from '../common/money.js';
+import { optionalUuid, requiredUuid } from '../common/ids.js';
 
 /** One cart line as the client sends it, with money already in satang. */
 export interface SaleLine {
@@ -92,7 +93,7 @@ export function parseCreateSale(body: unknown): CreateSale {
  * not decided, so the replay neither reads nor acts on it.
  */
 export function parseSaleQuoteId(body: unknown): string | null {
-  return optionalString(asObject(body, 'body').quoteId, 'quoteId');
+  return optionalUuid(asObject(body, 'body').quoteId, 'quoteId');
 }
 
 /** Everything on a sale that is not its lines or its money. */
@@ -108,12 +109,12 @@ export type SaleParty = Omit<
  */
 export function parseSaleParty(b: Record<string, unknown>): SaleParty {
   return {
-    id: requiredString(b.id, 'id'),
+    id: requiredUuid(b.id, 'id'),
     receiptNo: optionalString(b.receiptNo, 'receiptNo'),
     paymentMethod: requiredPaymentMethod(b.paymentMethod),
-    customerId: optionalString(b.customerId, 'customerId'),
+    customerId: optionalUuid(b.customerId, 'customerId'),
     customerName: optionalString(b.customerName, 'customerName'),
-    mechanicId: optionalString(b.mechanicId, 'mechanicId'),
+    mechanicId: optionalUuid(b.mechanicId, 'mechanicId'),
     mechanicName: optionalString(b.mechanicName, 'mechanicName'),
     mechanicDeltaSatang:
       b.mechanicDelta === undefined || b.mechanicDelta === null
@@ -202,7 +203,7 @@ function parseLine(raw: unknown, index: number): SaleLine {
   const priceSatang = parseLinePrice(l.price, index);
   return {
     lineNo: (l.lineNo as number | undefined) ?? index + 1,
-    productId: requiredString(l.productId, `items[${index}].productId`),
+    productId: requiredUuid(l.productId, `items[${index}].productId`),
     partNo: optionalString(l.partNo, `items[${index}].partNo`),
     name: requiredString(l.name, `items[${index}].name`),
     nameTH: optionalString(l.nameTH, `items[${index}].nameTH`),

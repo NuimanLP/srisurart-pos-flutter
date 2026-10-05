@@ -9,11 +9,11 @@
       "outboxRemaining": 1,
       "ops": [
         {
-          "opId": "op_void_002",
+          "opId": "d9415b7b-1ebb-516d-8323-cdf45d79adee",
           "idempotencyKey": "k_void_002",
           "type": "sale.void_offline",
           "payload": {
-            "saleId": "s_online_123",
+            "saleId": "30d842f5-b711-561f-a827-c2af918b77a3",
             "reason": "ขอยกเลิก"
           }
         }
@@ -27,12 +27,12 @@
       "data": {
         "results": [
           {
-            "opId": "op_void_002",
+            "opId": "d9415b7b-1ebb-516d-8323-cdf45d79adee",
             "status": "rejected",
             "code": "VOID_NEEDS_ONLINE",
             "message": "บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น",
             "details": {
-              "saleId": "s_online_123"
+              "saleId": "30d842f5-b711-561f-a827-c2af918b77a3"
             }
           }
         ]

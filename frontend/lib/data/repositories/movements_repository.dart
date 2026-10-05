@@ -3,6 +3,7 @@
 // db.js methods ported:
 //   getMovements() → all movements, newest first (db.js prepends new entries).
 //   addMovement(m) → inserts { ...m, id:_newId('mv'), date:now } and returns it.
+//   (The Dart port mints the id with newUuid() instead — #616.)
 //
 // FULLY IMPLEMENTED (low-risk, other agents depend on it).
 
@@ -23,7 +24,7 @@ class MovementsRepository {
   }
 
   /// Insert a movement and return the stored row.
-  /// Mirrors db.js addMovement: assigns id via newId('mv') and date = now.
+  /// Mirrors db.js addMovement: assigns id via newUuid() and date = now.
   Future<MovementRow> addMovement({
     required String productId,
     required String partNo,
@@ -34,7 +35,7 @@ class MovementsRepository {
     required int stockAfter,
   }) async {
     final row = MovementRow(
-      id: newId('mv'),
+      id: newUuid(),
       productId: productId,
       partNo: partNo,
       name: name,

@@ -10,6 +10,7 @@ import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { TenantService } from '../common/database/tenant.service.js';
+import { invalidUuidInput } from '../common/ids.js';
 import { DOC_NUMBER_REGEX, tenantPeriodSql } from '../documents/doc-number.service.js';
 import { fromSatang, satangOf, toSatang } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
@@ -34,6 +35,8 @@ import {
 import { VoidService } from '../sales/void.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import {
+  assertOpIds,
+  targetIdOf,
   type SyncDiscardDto,
   type SyncOpDto,
   type SyncOpResult,
@@ -94,6 +97,7 @@ export class SyncService {
       }
 
       try {
+        assertOpIds(op); // #616: before any SQL — a bad id is `rejected`, not `retry`
         const result = await this.processSingleOp(actor, device, op);
         results.push(result);
         if (result.status === 'retry') {
@@ -385,7 +389,7 @@ export class SyncService {
         const products =
           productIds.length > 0
             ? ((await manager.query(
-                `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
+                `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
                 [tenantId, productIds],
               )) as { id: string; stock: number }[])
             : [];
@@ -515,7 +519,7 @@ export class SyncService {
           const products =
             productIds.length > 0
               ? ((await manager.query(
-                  `SELECT id AS "productId", stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
+                  `SELECT id AS "productId", stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
                   [tenantId, productIds],
                 )) as { productId: string; stock: number }[])
               : [];
@@ -792,7 +796,7 @@ export class SyncService {
         const products =
           productIds.length > 0
             ? ((await manager.query(
-                `SELECT id AS "productId", stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
+                `SELECT id AS "productId", stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
                 [tenantId, productIds],
               )) as { productId: string; stock: number }[])
             : [];
@@ -1040,6 +1044,8 @@ export class SyncService {
   }
 
   private mapOpError(op: SyncOpDto, err: any): SyncOpResult {
+    // #616: an id `assertOpIds` missed must not read as `retry` (it would come back forever).
+    err = invalidUuidInput(err) ?? err;
     if (err instanceof HttpException) {
       const status = err.getStatus();
       if (status >= 500) {
@@ -1175,13 +1181,10 @@ export class SyncService {
 
       // #488: a void's payload names its bill as `saleId`, not `id` — the same
       // field the push path's client-id replay reads (`replayKeyOfSameDocument`).
+      // #616: a non-UUID names no row, so it is not looked up (and the discard still goes
+      // through — see `parseSyncDiscard`).
       const isVoid = dto.type === 'sale.void_offline';
-      const targetId = isVoid
-        ? dto.payload?.saleId
-          ? String(dto.payload.saleId).trim()
-          : undefined
-        : (dto.clientId ??
-          (dto.payload?.id ? String(dto.payload.id).trim() : undefined));
+      const targetId = targetIdOf(dto);
 
       if (targetId) {
         if (isVoid) {

@@ -7,6 +7,7 @@ import {
   resetTenant,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 const TENANT = '25252525-2525-4525-8525-252525252525';
 
@@ -165,13 +166,13 @@ describe('bootstrap and settings (e2e)', () => {
     // Insert a soft-deleted customer and product directly
     await admin.query(
       `INSERT INTO customers (tenant_id, id, code, name, name_th, deleted_at)
-       VALUES ($1::uuid, 'c-deleted', 'CUS999', 'Deleted Cust', 'ลบแล้ว', NOW())`,
+       VALUES ($1::uuid, '${testId('c-deleted')}', 'CUS999', 'Deleted Cust', 'ลบแล้ว', NOW())`,
       [TENANT],
     );
 
     await admin.query(
       `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock, deleted_at)
-       VALUES ($1::uuid, 'p-deleted', 'PART-DEL', 'Deleted Prod', 'ลบแล้ว', 'เบรก', 'Brand', 100, 50, 10, NOW())`,
+       VALUES ($1::uuid, '${testId('p-deleted')}', 'PART-DEL', 'Deleted Prod', 'ลบแล้ว', 'เบรก', 'Brand', 100, 50, 10, NOW())`,
       [TENANT],
     );
 
@@ -183,7 +184,7 @@ describe('bootstrap and settings (e2e)', () => {
     const customerIds = res.body.data.customers.map((c: { id: string }) => c.id);
     const productIds = res.body.data.products.map((p: { id: string }) => p.id);
 
-    expect(customerIds).not.toContain('c-deleted');
-    expect(productIds).not.toContain('p-deleted');
+    expect(customerIds).not.toContain(testId('c-deleted'));
+    expect(productIds).not.toContain(testId('p-deleted'));
   });
 });

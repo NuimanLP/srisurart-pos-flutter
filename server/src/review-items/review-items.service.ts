@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { TenantService } from '../common/database/tenant.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { Paginated } from '../common/paginated.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { returning } from '../common/sql.js';
@@ -200,7 +200,7 @@ export class ReviewItemsService {
     input: CreateReviewItemInput,
     opts?: { onConflictDoNothing: true },
   ): Promise<ReviewItem | null> {
-    const id = input.id ?? newId('rev_');
+    const id = input.id ?? newUuid();
     const rows = returning<ReviewItemRow>(
       await manager.query(
         `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, details)

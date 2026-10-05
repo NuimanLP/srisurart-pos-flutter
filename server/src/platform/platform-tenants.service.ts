@@ -12,7 +12,7 @@ import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
 import { generateTempPassword, hashPassword } from '../common/password.js';
-import { newId } from '../common/ids.js';
+import { newUuid, UUID_ANY_CASE_RE } from '../common/ids.js';
 import { returning } from '../common/sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { AuditService } from './audit.service.js';
@@ -49,10 +49,9 @@ export const SEED_CATEGORIES = [
  * 22P02 — a 500, not a 400 — on `updateStatus`; the two new methods below would have had the
  * same bug. Validate the shape before any query (CLAUDE.md: validate first, then use).
  */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function assertValidTenantId(tenantId: string): void {
-  if (!UUID_RE.test(tenantId)) {
+export function assertValidTenantId(tenantId: string): void {
+  if (!UUID_ANY_CASE_RE.test(tenantId)) {
     throw new BadRequestException({
       code: 'INVALID_TENANT_ID',
       message: 'tenantId must be a valid UUID',
@@ -176,7 +175,8 @@ export class PlatformTenantsService {
         await manager.query(
           `INSERT INTO devices (tenant_id, id, label, device_no, role, enrol_code_hash, enrol_expires_at)
            VALUES ($1, $2, $3, 1, 'pos', $4, $5)`,
-          [tid, 'pos1', 'POS #1', enrolCodeHash, enrolExpires],
+          // #616: device ids are UUIDs — the old literal 'pos1' is a 22P02 on `devices.id`.
+          [tid, newUuid(), 'POS #1', enrolCodeHash, enrolExpires],
         );
 
         // 6. Audit log inside the business transaction
@@ -605,7 +605,7 @@ export class PlatformTenantsService {
         });
       }
 
-      const newDeviceId = newId('dv');
+      const newDeviceId = newUuid();
       // An omitted label is named by the NEW device_no (RC<nn> receipts follow it), never the
       // retired device's label, so "POS #3" cannot front a device that numbers RC04.
       const newLabel = label ?? `${old.role === 'pos' ? 'POS' : 'Backoffice'} #${deviceNo}`;

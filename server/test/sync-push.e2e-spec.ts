@@ -12,6 +12,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 const TENANT = '28328328-8328-4283-8283-283283283283';
 const POS_DEVICE_TOKEN = 'pos-device-token-01';
@@ -97,10 +98,10 @@ describe('POST /sync/push (e2e)', () => {
           outboxRemaining: 0,
           ops: [
             {
-              opId: 'op_1',
+              opId: testId('op_1'),
               idempotencyKey: 'k_1',
               type: 'customer.create',
-              payload: { id: 'c1', name: 'Test' },
+              payload: { id: testId('c1'), name: 'Test' },
             },
           ],
         },
@@ -118,10 +119,10 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_1',
+            opId: testId('op_1'),
             idempotencyKey: 'k_1',
             type: 'customer.create',
-            payload: { id: 'c1', name: 'Test' },
+            payload: { id: testId('c1'), name: 'Test' },
           },
         ],
       });
@@ -138,11 +139,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 1,
         ops: [
           {
-            opId: 'op_1',
+            opId: testId('op_1'),
             idempotencyKey: 'k_1',
             type: 'sale.create',
             payload: {
-              id: 's_1',
+              id: testId('s_1'),
               receiptNo: 'RC01-2569-09-0054',
               date: '2026-09-15T05:10:00.000Z',
               subtotal: '100.00',
@@ -172,11 +173,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_shift_001',
+            opId: testId('op_shift_001'),
             idempotencyKey: 'k_sh_001',
             type: 'shift.open',
             payload: {
-              id: 'sh_off_001',
+              id: testId('sh_off_001'),
               startingCash: '1000.00',
               openedAt: '2026-09-15T01:00:00.000Z',
             },
@@ -190,10 +191,10 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_shift_001',
+              opId: testId('op_shift_001'),
               status: 'applied',
               response: {
-                id: 'sh_off_001',
+                id: testId('sh_off_001'),
                 startingCash: '1000.00',
                 openedAt: '2026-09-15T01:00:00.000Z',
                 autoArchived: false,
@@ -205,7 +206,7 @@ describe('POST /sync/push (e2e)', () => {
 
       // Verify in DB
       const shifts = await admin.query(
-        `SELECT id, starting_cash, is_active FROM shifts WHERE tenant_id = $1::uuid AND id = 'sh_off_001'`,
+        `SELECT id, starting_cash, is_active FROM shifts WHERE tenant_id = $1::uuid AND id = '${testId('sh_off_001')}'`,
         [TENANT],
       );
       expect(shifts).toHaveLength(1);
@@ -215,7 +216,7 @@ describe('POST /sync/push (e2e)', () => {
     it('shift-open.archived-previous: open shift auto-archives previously unclosed shift', async () => {
       // Prior shift sh_off_001 active
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_off_001',
+        id: testId('sh_off_001'),
         startingCash: 1000,
       });
 
@@ -223,11 +224,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_shift_002',
+            opId: testId('op_shift_002'),
             idempotencyKey: 'k_sh_002',
             type: 'shift.open',
             payload: {
-              id: 'sh_off_002',
+              id: testId('sh_off_002'),
               startingCash: '1000.00',
               openedAt: '2026-09-16T01:00:00.000Z',
             },
@@ -241,14 +242,14 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_shift_002',
+              opId: testId('op_shift_002'),
               status: 'applied',
               response: {
-                id: 'sh_off_002',
+                id: testId('sh_off_002'),
                 startingCash: '1000.00',
                 openedAt: '2026-09-16T01:00:00.000Z',
                 autoArchived: true,
-                archivedShiftId: 'sh_off_001',
+                archivedShiftId: testId('sh_off_001'),
               },
             },
           ],
@@ -256,7 +257,7 @@ describe('POST /sync/push (e2e)', () => {
       });
 
       const prior = await admin.query(
-        `SELECT is_active, auto_archived FROM shifts WHERE tenant_id = $1::uuid AND id = 'sh_off_001'`,
+        `SELECT is_active, auto_archived FROM shifts WHERE tenant_id = $1::uuid AND id = '${testId('sh_off_001')}'`,
         [TENANT],
       );
       expect(prior[0].is_active).toBe(false);
@@ -268,10 +269,10 @@ describe('POST /sync/push (e2e)', () => {
     // `openedAt`, so a device-recorded open time only ever arrives through a push.
     it('shift.open keeps the device openedAt: A date_str = 15, B = 16, and 23:30Z lands on the Bangkok day', async () => {
       const open = (id: string, openedAt: string) => ({
-        opId: `op_${id}`,
+        opId: testId(`op_${id}`),
         idempotencyKey: `k_${id}`,
         type: 'shift.open',
-        payload: { id, startingCash: '1000.00', openedAt },
+        payload: { id: testId(id), startingCash: '1000.00', openedAt },
       });
       const res = await push({
         outboxRemaining: 0,
@@ -288,13 +289,13 @@ describe('POST /sync/push (e2e)', () => {
       ).toEqual(['applied', 'applied', 'applied']);
 
       const rows = (await admin.query(
-        `SELECT id, date_str, opened_at FROM shifts WHERE tenant_id = $1::uuid ORDER BY id`,
+        `SELECT id, date_str, opened_at FROM shifts WHERE tenant_id = $1::uuid ORDER BY opened_at`,
         [TENANT],
       )) as { id: string; date_str: string; opened_at: Date }[];
       expect(rows.map((r) => [r.id, r.date_str, r.opened_at.toISOString()])).toEqual([
-        ['sh_A', '2026-09-15', '2026-09-15T08:00:00.000Z'],
-        ['sh_B', '2026-09-16', '2026-09-16T08:00:00.000Z'],
-        ['sh_late_utc', '2026-09-17', '2026-09-16T23:30:00.000Z'],
+        [testId('sh_A'), '2026-09-15', '2026-09-15T08:00:00.000Z'],
+        [testId('sh_B'), '2026-09-16', '2026-09-16T08:00:00.000Z'],
+        [testId('sh_late_utc'), '2026-09-17', '2026-09-16T23:30:00.000Z'],
       ]);
     });
 
@@ -303,21 +304,21 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_bad_open',
+            opId: testId('op_bad_open'),
             idempotencyKey: 'k_bad_open',
             type: 'shift.open',
-            payload: { id: 'sh_bad', startingCash: '100.00', openedAt: 'not-a-date' },
+            payload: { id: testId('sh_bad'), startingCash: '100.00', openedAt: 'not-a-date' },
           },
         ],
       });
       expect(res.status).toBe(200);
       expect(res.body.data.results[0]).toMatchObject({
-        opId: 'op_bad_open',
+        opId: testId('op_bad_open'),
         status: 'rejected',
         code: 'BAD_REQUEST',
       });
       const rows = await admin.query(
-        `SELECT id FROM shifts WHERE tenant_id = $1::uuid AND id = 'sh_bad'`,
+        `SELECT id FROM shifts WHERE tenant_id = $1::uuid AND id = '${testId('sh_bad')}'`,
         [TENANT],
       );
       expect(rows).toHaveLength(0);
@@ -326,7 +327,7 @@ describe('POST /sync/push (e2e)', () => {
     it('sale.create and return.create keep the device date and mark the bill sold_offline', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
-        id: 'p411',
+        id: testId('p411'),
         partNo: 'P-411',
         name: 'Filter',
         price: 85,
@@ -339,29 +340,29 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_s411',
+            opId: testId('op_s411'),
             idempotencyKey: 'k_s411',
             type: 'sale.create',
             payload: {
-              id: 's_411',
+              id: testId('s_411'),
               date: deviceDate,
               subtotal: '85.00',
               discount: '0.00',
               total: '85.00',
               paymentMethod: 'เงินสด',
-              items: [{ lineNo: 1, productId: 'p411', name: 'Filter', qty: 1, price: '85.00' }],
+              items: [{ lineNo: 1, productId: testId('p411'), name: 'Filter', qty: 1, price: '85.00' }],
             },
           },
           {
-            opId: 'op_r411',
+            opId: testId('op_r411'),
             idempotencyKey: 'k_r411',
             type: 'return.create',
             payload: {
-              id: 'cn_411',
-              saleId: 's_411',
+              id: testId('cn_411'),
+              saleId: testId('s_411'),
               date: deviceDate,
               refundMethod: 'เงินสด',
-              items: [{ productId: 'p411', name: 'Filter', qty: 1, price: '85.00' }],
+              items: [{ productId: testId('p411'), name: 'Filter', qty: 1, price: '85.00' }],
             },
           },
         ],
@@ -372,13 +373,13 @@ describe('POST /sync/push (e2e)', () => {
       ).toEqual(['applied', 'applied']);
 
       const sale = (await admin.query(
-        `SELECT date, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's_411'`,
+        `SELECT date, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_411')}'`,
         [TENANT],
       )) as { date: Date; sold_offline: boolean }[];
       expect(sale[0].date.toISOString()).toBe(deviceDate);
       expect(sale[0].sold_offline).toBe(true);
       const ret = (await admin.query(
-        `SELECT date FROM returns WHERE tenant_id = $1::uuid AND sale_id = 's_411'`,
+        `SELECT date FROM returns WHERE tenant_id = $1::uuid AND sale_id = '${testId('s_411')}'`,
         [TENANT],
       )) as { date: Date }[];
       expect(ret[0].date.toISOString()).toBe(deviceDate);
@@ -386,7 +387,7 @@ describe('POST /sync/push (e2e)', () => {
 
     it('drawer-entry.applied: cash drawer entry pushed to server successfully', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_off_001',
+        id: testId('sh_off_001'),
         startingCash: 1000,
       });
 
@@ -394,11 +395,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_drawer_001',
+            opId: testId('op_drawer_001'),
             idempotencyKey: 'k_de_001',
             type: 'drawer.entry',
             payload: {
-              id: 'de_off_001',
+              id: testId('de_off_001'),
               type: 'in',
               amount: '500.00',
               note: 'สำรองเงินทอน',
@@ -414,10 +415,10 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_drawer_001',
+              opId: testId('op_drawer_001'),
               status: 'applied',
               response: {
-                id: 'de_off_001',
+                id: testId('de_off_001'),
                 type: 'in',
                 amount: '500.00',
                 note: 'สำรองเงินทอน',
@@ -431,7 +432,7 @@ describe('POST /sync/push (e2e)', () => {
 
     it('drawer-entry replay: an offline cash-out over the expected cash is still accepted (the cash already left)', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_off_002',
+        id: testId('sh_off_002'),
         startingCash: 1000,
       });
 
@@ -439,11 +440,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_drawer_over',
+            opId: testId('op_drawer_over'),
             idempotencyKey: 'k_de_over',
             type: 'drawer.entry',
             payload: {
-              id: 'de_off_over',
+              id: testId('de_off_over'),
               type: 'out',
               amount: '1500.00',
               note: null,
@@ -466,11 +467,11 @@ describe('POST /sync/push (e2e)', () => {
         )) as { ref_id: string; details: Record<string, unknown> }[];
       expect(await reviewItems()).toEqual([
         {
-          ref_id: 'de_off_over',
+          ref_id: testId('de_off_over'),
           details: {
-            opId: 'op_drawer_over',
-            entryId: 'de_off_over',
-            shiftId: 'sh_off_002',
+            opId: testId('op_drawer_over'),
+            entryId: testId('de_off_over'),
+            shiftId: testId('sh_off_002'),
             amount: '1500.00',
             expectedCashBefore: '1000.00',
             expectedCashAfter: '-500.00',
@@ -483,11 +484,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_drawer_over',
+            opId: testId('op_drawer_over'),
             idempotencyKey: 'k_de_over',
             type: 'drawer.entry',
             payload: {
-              id: 'de_off_over',
+              id: testId('de_off_over'),
               type: 'out',
               amount: '1500.00',
               note: null,
@@ -502,7 +503,7 @@ describe('POST /sync/push (e2e)', () => {
 
     it('drawer-entry replay within the expected cash raises no owner review item', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_off_003',
+        id: testId('sh_off_003'),
         startingCash: 1000,
       });
 
@@ -510,11 +511,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_drawer_exact',
+            opId: testId('op_drawer_exact'),
             idempotencyKey: 'k_de_exact',
             type: 'drawer.entry',
             payload: {
-              id: 'de_off_exact',
+              id: testId('de_off_exact'),
               type: 'out',
               amount: '1000.00',
               note: null,
@@ -535,11 +536,11 @@ describe('POST /sync/push (e2e)', () => {
 
     it('sale-create.applied, replay-by-key, replay-by-id, client-id-reused', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_off_001',
+        id: testId('sh_off_001'),
         startingCash: 1000,
       });
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'HN-15412-KVB',
         name: 'Oil Filter',
         price: 85,
@@ -548,7 +549,7 @@ describe('POST /sync/push (e2e)', () => {
       });
 
       const salePayload = {
-        id: 's_off_001',
+        id: testId('s_off_001'),
         receiptNo: 'RC01-2569-09-0042',
         date: '2026-09-15T02:00:00.000Z',
         subtotal: '255.00',
@@ -558,7 +559,7 @@ describe('POST /sync/push (e2e)', () => {
         items: [
           {
             lineNo: 1,
-            productId: 'p1',
+            productId: testId('p1'),
             partNo: 'HN-15412-KVB',
             name: 'Oil Filter',
             qty: 3,
@@ -572,7 +573,7 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_sale_001',
+            opId: testId('op_sale_001'),
             idempotencyKey: 'k_sale_001',
             type: 'sale.create',
             payload: salePayload,
@@ -587,21 +588,21 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_sale_001',
+              opId: testId('op_sale_001'),
               status: 'applied',
               response: {
-                id: 's_off_001',
+                id: testId('s_off_001'),
                 receiptNo: 'RC01-2569-09-0042',
                 total: '255.00',
                 pointsGranted: 25,
                 date: expect.any(String),
-                shiftId: 'sh_off_001',
-                products: [{ id: 'p1', stock: 45 }],
-                items: [{ lineNo: 1, productId: 'p1', costAtSale: '50.00' }],
+                shiftId: testId('sh_off_001'),
+                products: [{ id: testId('p1'), stock: 45 }],
+                items: [{ lineNo: 1, productId: testId('p1'), costAtSale: '50.00' }],
                 movements: [
                   {
                     id: expect.any(String),
-                    productId: 'p1',
+                    productId: testId('p1'),
                     partNo: 'HN-15412-KVB',
                     name: 'Oil Filter',
                     delta: -3,
@@ -623,7 +624,7 @@ describe('POST /sync/push (e2e)', () => {
 
       // Verify sold_offline column in DB
       const saleRow = await admin.query(
-        `SELECT sold_offline, shift_id FROM sales WHERE tenant_id = $1::uuid AND id = 's_off_001'`,
+        `SELECT sold_offline, shift_id FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_off_001')}'`,
         [TENANT],
       );
       expect(saleRow[0].sold_offline).toBe(true);
@@ -633,7 +634,7 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_sale_001_retry',
+            opId: testId('op_sale_001_retry'),
             idempotencyKey: 'k_sale_001',
             type: 'sale.create',
             payload: salePayload,
@@ -642,7 +643,7 @@ describe('POST /sync/push (e2e)', () => {
       });
       expect(res2.status).toBe(200);
       expect(res2.body.data.results[0]).toEqual({
-        opId: 'op_sale_001_retry',
+        opId: testId('op_sale_001_retry'),
         status: 'applied',
         response: applied,
       });
@@ -653,7 +654,7 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_sale_001_reid',
+            opId: testId('op_sale_001_reid'),
             idempotencyKey: 'k_sale_fresh_key',
             type: 'sale.create',
             payload: salePayload,
@@ -662,7 +663,7 @@ describe('POST /sync/push (e2e)', () => {
       });
       expect(res3.status).toBe(200);
       expect(res3.body.data.results[0]).toEqual({
-        opId: 'op_sale_001_reid',
+        opId: testId('op_sale_001_reid'),
         status: 'applied',
         response: applied,
       });
@@ -672,7 +673,7 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 1,
         ops: [
           {
-            opId: 'op_sale_mismatch',
+            opId: testId('op_sale_mismatch'),
             idempotencyKey: 'k_sale_diff',
             type: 'sale.create',
             payload: {
@@ -682,7 +683,7 @@ describe('POST /sync/push (e2e)', () => {
               items: [
                 {
                   lineNo: 1,
-                  productId: 'p1',
+                  productId: testId('p1'),
                   name: 'Oil Filter',
                   qty: 1,
                   price: '999.00',
@@ -698,13 +699,13 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_sale_mismatch',
+              opId: testId('op_sale_mismatch'),
               status: 'rejected',
               code: 'CLIENT_ID_REUSED',
               message: 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
               details: {
                 type: 'sale.create',
-                id: 's_off_001',
+                id: testId('s_off_001'),
               },
             },
           ],
@@ -715,7 +716,7 @@ describe('POST /sync/push (e2e)', () => {
     it('sale-create.rejected-stock: rejected when stock insufficient at sync time', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'HN-15412-KVB',
         name: 'Oil Filter',
         price: 85,
@@ -727,11 +728,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 1,
         ops: [
           {
-            opId: 'op_sale_002',
+            opId: testId('op_sale_002'),
             idempotencyKey: 'k_sale_002',
             type: 'sale.create',
             payload: {
-              id: 's_off_002',
+              id: testId('s_off_002'),
               receiptNo: 'RC01-2569-09-0043',
               date: '2026-09-15T02:10:00.000Z',
               subtotal: '4250.00',
@@ -741,7 +742,7 @@ describe('POST /sync/push (e2e)', () => {
               items: [
                 {
                   lineNo: 1,
-                  productId: 'p1',
+                  productId: testId('p1'),
                   partNo: 'HN-15412-KVB',
                   name: 'Oil Filter',
                   qty: 50,
@@ -759,12 +760,12 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_sale_002',
+              opId: testId('op_sale_002'),
               status: 'rejected',
               code: 'INSUFFICIENT_STOCK',
               message: 'สต็อกไม่พอ',
               details: {
-                productId: 'p1',
+                productId: testId('p1'),
                 requested: 50,
                 available: 10,
               },
@@ -777,7 +778,7 @@ describe('POST /sync/push (e2e)', () => {
     it('return-create.applied and return-create.rejected-price', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'HN-15412-KVB',
         name: 'Oil Filter',
         price: 85,
@@ -790,11 +791,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_sale_001',
+            opId: testId('op_sale_001'),
             idempotencyKey: 'k_sale_001',
             type: 'sale.create',
             payload: {
-              id: 's_off_001',
+              id: testId('s_off_001'),
               receiptNo: 'RC01-2569-09-0042',
               date: '2026-09-15T02:00:00.000Z',
               subtotal: '255.00',
@@ -804,7 +805,7 @@ describe('POST /sync/push (e2e)', () => {
               items: [
                 {
                   lineNo: 1,
-                  productId: 'p1',
+                  productId: testId('p1'),
                   partNo: 'HN-15412-KVB',
                   name: 'Oil Filter',
                   qty: 3,
@@ -821,19 +822,19 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 1,
         ops: [
           {
-            opId: 'op_ret_002',
+            opId: testId('op_ret_002'),
             idempotencyKey: 'k_ret_002',
             type: 'return.create',
             payload: {
-              id: 'ret_off_002',
-              saleId: 's_off_001',
+              id: testId('ret_off_002'),
+              saleId: testId('s_off_001'),
               cnNo: 'CN01-2569-09-0006',
               date: '2026-09-15T03:15:00.000Z',
               refundMethod: 'เงินสด',
               reason: 'สินค้าชำรุด',
               subtotal: '120.00',
               total: '120.00',
-              items: [{ productId: 'p1', qty: 1, price: '120.00' }],
+              items: [{ productId: testId('p1'), qty: 1, price: '120.00' }],
             },
           },
         ],
@@ -845,12 +846,12 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_ret_002',
+              opId: testId('op_ret_002'),
               status: 'rejected',
               code: 'RETURN_PRICE_MISMATCH',
               message: 'ราคาคืนไม่ตรงกับราคาที่ขายจริง',
               details: {
-                productId: 'p1',
+                productId: testId('p1'),
                 expectedPrice: '85.00',
                 actualPrice: '120.00',
               },
@@ -864,19 +865,19 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_ret_001',
+            opId: testId('op_ret_001'),
             idempotencyKey: 'k_ret_001',
             type: 'return.create',
             payload: {
-              id: 'ret_off_001',
-              saleId: 's_off_001',
+              id: testId('ret_off_001'),
+              saleId: testId('s_off_001'),
               cnNo: 'CN01-2569-09-0005',
               date: '2026-09-15T03:00:00.000Z',
               refundMethod: 'เงินสด',
               reason: 'สินค้าชำรุด',
               subtotal: '85.00',
               total: '85.00',
-              items: [{ productId: 'p1', qty: 1, price: '85.00' }],
+              items: [{ productId: testId('p1'), qty: 1, price: '85.00' }],
             },
           },
         ],
@@ -888,15 +889,15 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_ret_001',
+              opId: testId('op_ret_001'),
               status: 'applied',
               response: {
-                id: 'ret_off_001',
+                id: testId('ret_off_001'),
                 cnNo: 'CN01-2569-09-0005',
-                saleId: 's_off_001',
+                saleId: testId('s_off_001'),
                 total: '85.00',
                 refundMethod: 'เงินสด',
-                stockRestored: [{ id: 'p1', stock: 43 }],
+                stockRestored: [{ id: testId('p1'), stock: 43 }],
               },
             },
           ],
@@ -907,7 +908,7 @@ describe('POST /sync/push (e2e)', () => {
     it('credit-payment.applied and rejected-overpayment', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedMechanic(admin, TENANT, {
-        id: 'm1',
+        id: testId('m1'),
         code: 'M01',
         name: 'ช่างหนึ่ง',
         creditLimit: 10000,
@@ -919,12 +920,12 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 1,
         ops: [
           {
-            opId: 'op_cp_002',
+            opId: testId('op_cp_002'),
             idempotencyKey: 'k_cp_002',
             type: 'credit_payment.create',
             payload: {
-              id: 'cp_off_002',
-              mechanicId: 'm1',
+              id: testId('cp_off_002'),
+              mechanicId: testId('m1'),
               amount: '5000.00',
               paymentMethod: 'เงินสด',
               date: '2026-09-15T04:30:00.000Z',
@@ -939,12 +940,12 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_cp_002',
+              opId: testId('op_cp_002'),
               status: 'rejected',
               code: 'OVERPAYMENT',
               message: 'ยอดชำระเกินยอดหนี้คงค้าง',
               details: {
-                mechanicId: 'm1',
+                mechanicId: testId('m1'),
                 outstandingBalance: '1500.00',
                 attemptedAmount: '5000.00',
               },
@@ -958,12 +959,12 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_cp_001',
+            opId: testId('op_cp_001'),
             idempotencyKey: 'k_cp_001',
             type: 'credit_payment.create',
             payload: {
-              id: 'cp_off_001',
-              mechanicId: 'm1',
+              id: testId('cp_off_001'),
+              mechanicId: testId('m1'),
               amount: '500.00',
               paymentMethod: 'เงินสด',
               date: '2026-09-15T04:00:00.000Z',
@@ -978,11 +979,11 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_cp_001',
+              opId: testId('op_cp_001'),
               status: 'applied',
               response: {
-                id: 'cp_off_001',
-                mechanicId: 'm1',
+                id: testId('cp_off_001'),
+                mechanicId: testId('m1'),
                 amount: '500.00',
                 paymentMethod: 'เงินสด',
                 balanceAfter: '1000.00',
@@ -999,11 +1000,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_cust_001',
+            opId: testId('op_cust_001'),
             idempotencyKey: 'k_cust_001',
             type: 'customer.create',
             payload: {
-              id: 'c_off_001',
+              id: testId('c_off_001'),
               name: 'สมชาย สายลม',
               phone: '0812345678',
               address: '123 ถ.สุขุมวิท',
@@ -1018,10 +1019,10 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_cust_001',
+              opId: testId('op_cust_001'),
               status: 'applied',
               response: {
-                id: 'c_off_001',
+                id: testId('c_off_001'),
                 name: 'สมชาย สายลม',
                 phone: '0812345678',
                 address: '123 ถ.สุขุมวิท',
@@ -1038,11 +1039,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_cust_002',
+            opId: testId('op_cust_002'),
             idempotencyKey: 'k_cust_002',
             type: 'customer.update',
             payload: {
-              id: 'c_off_001',
+              id: testId('c_off_001'),
               phone: '0899999999',
             },
           },
@@ -1055,10 +1056,10 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_cust_002',
+              opId: testId('op_cust_002'),
               status: 'applied',
               response: {
-                id: 'c_off_001',
+                id: testId('c_off_001'),
                 phone: '0899999999',
               },
             },
@@ -1070,7 +1071,7 @@ describe('POST /sync/push (e2e)', () => {
     it('sale-void-offline.applied and rejected-online-bill', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'HN-15412-KVB',
         name: 'Oil Filter',
         price: 85,
@@ -1083,18 +1084,18 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_sale_001',
+            opId: testId('op_sale_001'),
             idempotencyKey: 'k_sale_001',
             type: 'sale.create',
             payload: {
-              id: 's_off_001',
+              id: testId('s_off_001'),
               receiptNo: 'RC01-2569-09-0042',
               date: '2026-09-15T02:00:00.000Z',
               subtotal: '170.00',
               discount: '0.00',
               total: '170.00',
               paymentMethod: 'เงินสด',
-              items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' }],
+              items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '85.00' }],
             },
           },
         ],
@@ -1103,7 +1104,7 @@ describe('POST /sync/push (e2e)', () => {
       // 2. Seed an online sale s_online_123 (sold_offline = false)
       await admin.query(
         `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, total, payment_method, points_granted, sold_offline, user_id)
-         VALUES ($1::uuid, 's_online_123', 'RC01-2569-09-0099', 100.00, 100.00, 'เงินสด', 10, FALSE, $2::uuid)`,
+         VALUES ($1::uuid, '${testId('s_online_123')}', 'RC01-2569-09-0099', 100.00, 100.00, 'เงินสด', 10, FALSE, $2::uuid)`,
         [TENANT, fixture.userId],
       );
 
@@ -1112,11 +1113,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 1,
         ops: [
           {
-            opId: 'op_void_002',
+            opId: testId('op_void_002'),
             idempotencyKey: 'k_void_002',
             type: 'sale.void_offline',
             payload: {
-              saleId: 's_online_123',
+              saleId: testId('s_online_123'),
               reason: 'ขอยกเลิก',
             },
           },
@@ -1129,12 +1130,12 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_void_002',
+              opId: testId('op_void_002'),
               status: 'rejected',
               code: 'VOID_NEEDS_ONLINE',
               message: 'บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น',
               details: {
-                saleId: 's_online_123',
+                saleId: testId('s_online_123'),
               },
             },
           ],
@@ -1146,11 +1147,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 1,
         ops: [
           {
-            opId: 'op_void_err',
+            opId: testId('op_void_err'),
             idempotencyKey: 'k_void_err',
             type: 'sale.void_offline',
             payload: {
-              saleId: 's_off_001',
+              saleId: testId('s_off_001'),
               reason: '   ',
             },
           },
@@ -1158,7 +1159,7 @@ describe('POST /sync/push (e2e)', () => {
       });
       expect(resEmptyReason.status).toBe(200);
       expect(resEmptyReason.body.data.results[0]).toMatchObject({
-        opId: 'op_void_err',
+        opId: testId('op_void_err'),
         status: 'rejected',
         code: 'BAD_REQUEST',
         message: 'Void reason is required',
@@ -1169,11 +1170,11 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_void_001',
+            opId: testId('op_void_001'),
             idempotencyKey: 'k_void_001',
             type: 'sale.void_offline',
             payload: {
-              saleId: 's_off_001',
+              saleId: testId('s_off_001'),
               reason: 'ลูกค้าขอยกเลิกและเปลี่ยนสินค้า',
             },
           },
@@ -1186,13 +1187,13 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_void_001',
+              opId: testId('op_void_001'),
               status: 'applied',
               response: {
-                saleId: 's_off_001',
+                saleId: testId('s_off_001'),
                 status: 'voided',
                 voidReason: 'ลูกค้าขอยกเลิกและเปลี่ยนสินค้า',
-                stockRestored: [{ productId: 'p1', stock: 50 }],
+                stockRestored: [{ productId: testId('p1'), stock: 50 }],
               },
             },
           ],
@@ -1201,7 +1202,7 @@ describe('POST /sync/push (e2e)', () => {
 
       // Verify sales row in DB has void_reason and sold_offline
       const voidedSale = await admin.query(
-        `SELECT voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's_off_001'`,
+        `SELECT voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_off_001')}'`,
         [TENANT],
       );
       expect(voidedSale[0].voided).toBe(true);
@@ -1214,13 +1215,13 @@ describe('POST /sync/push (e2e)', () => {
         [TENANT],
       );
       expect(reviews).toHaveLength(1);
-      expect(reviews[0].ref_id).toBe('s_off_001');
+      expect(reviews[0].ref_id).toBe(testId('s_off_001'));
     });
 
     it('push sale.create and sale.void_offline of that bill in the same batch -> voided + 1 review item', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'HN-15412-KVB',
         name: 'Oil Filter',
         price: 100,
@@ -1232,25 +1233,25 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_sale_batch',
+            opId: testId('op_sale_batch'),
             idempotencyKey: 'k_sale_batch',
             type: 'sale.create',
             payload: {
-              id: 's_batch_001',
+              id: testId('s_batch_001'),
               receiptNo: `RC01-${currentPeriod()}-0010`,
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เงินสด',
-              items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '100.00' }],
             },
           },
           {
-            opId: 'op_void_batch',
+            opId: testId('op_void_batch'),
             idempotencyKey: 'k_void_batch',
             type: 'sale.void_offline',
             payload: {
-              saleId: 's_batch_001',
+              saleId: testId('s_batch_001'),
               reason: 'ผิดบิลในกะเดียวกัน',
             },
           },
@@ -1261,19 +1262,19 @@ describe('POST /sync/push (e2e)', () => {
       expect(res.body.data.results).toHaveLength(2);
       expect(res.body.data.results[0].status).toBe('applied');
       expect(res.body.data.results[1]).toEqual({
-        opId: 'op_void_batch',
+        opId: testId('op_void_batch'),
         status: 'applied',
         response: {
-          saleId: 's_batch_001',
+          saleId: testId('s_batch_001'),
           status: 'voided',
           voidReason: 'ผิดบิลในกะเดียวกัน',
-          stockRestored: [{ productId: 'p1', stock: 50 }],
+          stockRestored: [{ productId: testId('p1'), stock: 50 }],
         },
       });
 
       // Verify DB row
       const rows = await admin.query(
-        `SELECT voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's_batch_001'`,
+        `SELECT voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_batch_001')}'`,
         [TENANT],
       );
       expect(rows[0].voided).toBe(true);
@@ -1282,7 +1283,7 @@ describe('POST /sync/push (e2e)', () => {
 
       // Verify review item
       const reviews = await admin.query(
-        `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = 's_batch_001'`,
+        `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = '${testId('s_batch_001')}'`,
         [TENANT],
       );
       expect(reviews).toHaveLength(1);
@@ -1293,7 +1294,7 @@ describe('POST /sync/push (e2e)', () => {
     it('batch.stop-at-retry: when op N fails with retry, subsequent ops return retry without processing', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'HN-15412-KVB',
         name: 'Oil Filter',
         price: 100,
@@ -1302,18 +1303,18 @@ describe('POST /sync/push (e2e)', () => {
       });
 
       const makeSaleOp = (num: number) => ({
-        opId: `op_${num}`,
+        opId: testId(`op_${num}`),
         idempotencyKey: `k_${num}`,
         type: 'sale.create',
         payload: {
-          id: `s_batch_${num}`,
+          id: testId(`s_batch_${num}`),
           receiptNo: `RC01-2569-09-005${num - 1}`,
           date: `2026-09-15T05:0${num - 1}:00.000Z`,
           subtotal: '100.00',
           discount: '0.00',
           total: '100.00',
           paymentMethod: 'เงินสด',
-          items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '100.00' }],
+          items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '100.00' }],
         },
       });
 
@@ -1326,7 +1327,7 @@ describe('POST /sync/push (e2e)', () => {
       const spy = vi
         .spyOn(syncService, 'processSingleOp')
         .mockImplementation(async (actor, device, op) => {
-          if (op.opId === 'op_2') {
+          if (op.opId === testId('op_2')) {
             throw new Error('Simulated transient DB connection timeout');
           }
           return originalProcessSingleOp(actor, device, op);
@@ -1345,27 +1346,27 @@ describe('POST /sync/push (e2e)', () => {
         data: {
           results: [
             {
-              opId: 'op_1',
+              opId: testId('op_1'),
               status: 'applied',
               response: expect.objectContaining({
-                id: 's_batch_1',
+                id: testId('s_batch_1'),
                 receiptNo: 'RC01-2569-09-0050',
                 total: '100.00',
                 pointsGranted: 10,
-                products: [{ id: 'p1', stock: 9 }],
-                items: [{ lineNo: 1, productId: 'p1', costAtSale: '50.00' }],
+                products: [{ id: testId('p1'), stock: 9 }],
+                items: [{ lineNo: 1, productId: testId('p1'), costAtSale: '50.00' }],
               }),
             },
             {
-              opId: 'op_2',
+              opId: testId('op_2'),
               status: 'retry',
             },
             {
-              opId: 'op_3',
+              opId: testId('op_3'),
               status: 'retry',
             },
             {
-              opId: 'op_4',
+              opId: testId('op_4'),
               status: 'retry',
             },
           ],
@@ -1374,7 +1375,7 @@ describe('POST /sync/push (e2e)', () => {
 
       // Ensure s_batch_3 and s_batch_4 were never processed / created in DB
       const sales = await admin.query(
-        `SELECT id FROM sales WHERE tenant_id = $1::uuid AND id IN ('s_batch_2', 's_batch_3', 's_batch_4')`,
+        `SELECT id FROM sales WHERE tenant_id = $1::uuid AND id IN ('${testId('s_batch_2')}', '${testId('s_batch_3')}', '${testId('s_batch_4')}')`,
         [TENANT],
       );
       expect(sales).toHaveLength(0);
@@ -1385,10 +1386,10 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 15,
         ops: [
           {
-            opId: 'op_c1',
+            opId: testId('op_c1'),
             idempotencyKey: 'k_c1',
             type: 'customer.create',
-            payload: { id: 'c_outbox', name: 'ลูกค้าทดสอบ' },
+            payload: { id: testId('c_outbox'), name: 'ลูกค้าทดสอบ' },
           },
         ],
       });
@@ -1403,11 +1404,11 @@ describe('POST /sync/push (e2e)', () => {
 
     it('records review items for date_flag and credit_override', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_review',
+        id: testId('sh_review'),
         startingCash: 500,
       });
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'HN-15412-KVB',
         name: 'Oil Filter',
         price: 100,
@@ -1415,7 +1416,7 @@ describe('POST /sync/push (e2e)', () => {
         stock: 50,
       });
       await seedMechanic(admin, TENANT, {
-        id: 'm1',
+        id: testId('m1'),
         code: 'M01',
         name: 'ช่างทดสอบ',
         creditLimit: 50,
@@ -1428,18 +1429,18 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_date_flag',
+            opId: testId('op_date_flag'),
             idempotencyKey: 'k_df_1',
             type: 'sale.create',
             payload: {
-              id: 's_date_flag',
+              id: testId('s_date_flag'),
               receiptNo: 'RC01-2569-09-0088',
               date: futureDate,
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เงินสด',
-              items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '100.00' }],
             },
           },
         ],
@@ -1456,19 +1457,19 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_credit_override',
+            opId: testId('op_credit_override'),
             idempotencyKey: 'k_co_1',
             type: 'sale.create',
             payload: {
-              id: 's_credit_override',
+              id: testId('s_credit_override'),
               receiptNo: 'RC01-2569-09-0089',
               subtotal: '200.00',
               discount: '0.00',
               total: '200.00',
               paymentMethod: 'เครดิตช่าง',
-              mechanicId: 'm1',
+              mechanicId: testId('m1'),
               overrideCreditLimit: true,
-              items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 2, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '100.00' }],
             },
           },
         ],
@@ -1479,17 +1480,17 @@ describe('POST /sync/push (e2e)', () => {
         [TENANT],
       );
       expect(creditReviews).toHaveLength(1);
-      expect(creditReviews[0].ref_id).toBe('s_credit_override');
+      expect(creditReviews[0].ref_id).toBe(testId('s_credit_override'));
     });
 
     it('Slice 14-s (#285): credit limit override via push creates credit_override review item and single audit_log row, B1 replay preserved', async () => {
       const receiptNo = `RC01-${currentPeriod()}-0092`;
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_co_14',
+        id: testId('sh_co_14'),
         startingCash: 500,
       });
       await seedProduct(admin, TENANT, {
-        id: 'p_co_14',
+        id: testId('p_co_14'),
         partNo: 'HN-CO-14',
         name: 'Brake Pad CO14',
         price: 100,
@@ -1497,7 +1498,7 @@ describe('POST /sync/push (e2e)', () => {
         stock: 50,
       });
       await seedMechanic(admin, TENANT, {
-        id: 'm14',
+        id: testId('m14'),
         code: 'M14',
         name: 'ช่างสมชาย 14',
         creditLimit: 50,
@@ -1509,18 +1510,18 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 1,
         ops: [
           {
-            opId: 'op_co_refused',
+            opId: testId('op_co_refused'),
             idempotencyKey: 'k_co_refused',
             type: 'sale.create',
             payload: {
-              id: 's_co_refused',
+              id: testId('s_co_refused'),
               receiptNo: 'RC01-2569-09-0091',
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เครดิตช่าง',
-              mechanicId: 'm14',
-              items: [{ lineNo: 1, productId: 'p_co_14', name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
+              mechanicId: testId('m14'),
+              items: [{ lineNo: 1, productId: testId('p_co_14'), name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
             },
           },
         ],
@@ -1528,7 +1529,7 @@ describe('POST /sync/push (e2e)', () => {
 
       expect(resWithoutFlag.status).toBe(200);
       expect(resWithoutFlag.body.data.results[0]).toMatchObject({
-        opId: 'op_co_refused',
+        opId: testId('op_co_refused'),
         status: 'rejected',
         code: 'CREDIT_LIMIT_EXCEEDED',
         details: {
@@ -1540,12 +1541,12 @@ describe('POST /sync/push (e2e)', () => {
 
       // Assert no audit log and no review item were written for the refused attempt
       const auditRefused = await admin.query(
-        `SELECT count(*)::int AS n FROM audit_log WHERE tenant_id = $1::uuid AND entity_id = 'm14'`,
+        `SELECT count(*)::int AS n FROM audit_log WHERE tenant_id = $1::uuid AND entity_id = '${testId('m14')}'`,
         [TENANT],
       );
       expect(auditRefused[0].n).toBe(0);
       const reviewsRefused = await admin.query(
-        `SELECT count(*)::int AS n FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = 's_co_refused'`,
+        `SELECT count(*)::int AS n FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = '${testId('s_co_refused')}'`,
         [TENANT],
       );
       expect(reviewsRefused[0].n).toBe(0);
@@ -1555,19 +1556,19 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_co_success',
+            opId: testId('op_co_success'),
             idempotencyKey: 'k_co_success',
             type: 'sale.create',
             payload: {
-              id: 's_co_14',
+              id: testId('s_co_14'),
               receiptNo,
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เครดิตช่าง',
-              mechanicId: 'm14',
+              mechanicId: testId('m14'),
               overrideCreditLimit: true,
-              items: [{ lineNo: 1, productId: 'p_co_14', name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p_co_14'), name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
             },
           },
         ],
@@ -1578,16 +1579,16 @@ describe('POST /sync/push (e2e)', () => {
 
       // Verify owner_review_items: exactly 1 row
       const reviews = await admin.query(
-        `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = 's_co_14'`,
+        `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = '${testId('s_co_14')}'`,
         [TENANT],
       );
       expect(reviews).toHaveLength(1);
       expect(reviews[0]).toMatchObject({
         kind: 'credit_override',
-        ref_id: 's_co_14',
+        ref_id: testId('s_co_14'),
         details: {
-          saleId: 's_co_14',
-          mechanicId: 'm14',
+          saleId: testId('s_co_14'),
+          mechanicId: testId('m14'),
           total: '100.00',
           creditLimit: '50.00',
           creditBalanceAfter: '100.00',
@@ -1597,18 +1598,18 @@ describe('POST /sync/push (e2e)', () => {
       // Verify audit_log: exactly 1 row, tied to shop user and push device
       const audits = await admin.query(
         `SELECT action, entity, entity_id, user_id, device_id, after FROM audit_log
-          WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = 'm14'`,
+          WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = '${testId('m14')}'`,
         [TENANT],
       );
       expect(audits).toHaveLength(1);
       expect(audits[0]).toMatchObject({
         action: 'sale.credit_limit_override',
         entity: 'mechanic',
-        entity_id: 'm14',
+        entity_id: testId('m14'),
         user_id: fixture.userId,
         device_id: fixture.posDeviceId,
         after: {
-          saleId: 's_co_14',
+          saleId: testId('s_co_14'),
           total: '100.00',
           creditLimit: '50.00',
           creditBalanceBefore: '0.00',
@@ -1621,19 +1622,19 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_co_success',
+            opId: testId('op_co_success'),
             idempotencyKey: 'k_co_success',
             type: 'sale.create',
             payload: {
-              id: 's_co_14',
+              id: testId('s_co_14'),
               receiptNo,
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เครดิตช่าง',
-              mechanicId: 'm14',
+              mechanicId: testId('m14'),
               overrideCreditLimit: true,
-              items: [{ lineNo: 1, productId: 'p_co_14', name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p_co_14'), name: 'Brake Pad CO14', qty: 1, price: '100.00' }],
             },
           },
         ],
@@ -1644,7 +1645,7 @@ describe('POST /sync/push (e2e)', () => {
 
       // Verify no duplication in owner_review_items (still exactly 1)
       const reviewsAfterReplay = await admin.query(
-        `SELECT count(*)::int AS n FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = 's_co_14'`,
+        `SELECT count(*)::int AS n FROM owner_review_items WHERE tenant_id = $1::uuid AND ref_id = '${testId('s_co_14')}'`,
         [TENANT],
       );
       expect(reviewsAfterReplay[0].n).toBe(1);
@@ -1652,14 +1653,14 @@ describe('POST /sync/push (e2e)', () => {
       // Verify no duplication in audit_log (still exactly 1)
       const auditsAfterReplay = await admin.query(
         `SELECT count(*)::int AS n FROM audit_log
-          WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = 'm14'`,
+          WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = '${testId('m14')}'`,
         [TENANT],
       );
       expect(auditsAfterReplay[0].n).toBe(1);
 
       // Verify mechanic balance not doubled
       const mechanicRow = await admin.query(
-        `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = 'm14'`,
+        `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = '${testId('m14')}'`,
         [TENANT],
       );
       expect(mechanicRow[0].credit_balance).toBe('100.00');
@@ -1670,19 +1671,19 @@ describe('POST /sync/push (e2e)', () => {
       // `Idempotency-Key` when `POST /api/v1/sales` gets no answer. The server may already
       // have committed that bill; the push must then replay it, never refuse it.
       const onlineBody = {
-        id: 's_b1_online',
+        id: testId('s_b1_online'),
         subtotal: '100.00',
         discount: '0.00',
         total: '100.00',
         paymentMethod: 'เครดิตช่าง',
         customerId: null,
         customerName: null,
-        mechanicId: 'm_b1',
+        mechanicId: testId('m_b1'),
         mechanicName: 'ช่าง B1',
         mechanicDelta: null,
         overrideCreditLimit: true,
         items: [
-          { lineNo: 1, productId: 'p_b1', partNo: 'HN-B1', name: 'Brake Pad B1', nameTH: null, qty: 2, price: '50.00' },
+          { lineNo: 1, productId: testId('p_b1'), partNo: 'HN-B1', name: 'Brake Pad B1', nameTH: null, qty: 2, price: '50.00' },
         ],
       };
       // What `_saveOffline` puts in the outbox: the online body plus the offline
@@ -1719,9 +1720,9 @@ describe('POST /sync/push (e2e)', () => {
         )[0].stock;
 
       beforeEach(async () => {
-        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_b1', startingCash: 500 });
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: testId('sh_b1'), startingCash: 500 });
         await seedProduct(admin, TENANT, {
-          id: 'p_b1',
+          id: testId('p_b1'),
           partNo: 'HN-B1',
           name: 'Brake Pad B1',
           price: 50,
@@ -1729,7 +1730,7 @@ describe('POST /sync/push (e2e)', () => {
           stock: 20,
         });
         await seedMechanic(admin, TENANT, {
-          id: 'm_b1',
+          id: testId('m_b1'),
           code: 'MB1',
           name: 'ช่าง B1',
           creditLimit: 50,
@@ -1741,44 +1742,44 @@ describe('POST /sync/push (e2e)', () => {
         const online = await postOnline('k_b1', onlineBody);
         expect(online.status).toBe(201);
         const serverReceiptNo = online.body.data.receiptNo as string;
-        expect(await stockOf('p_b1')).toBe(18);
+        expect(await stockOf(testId('p_b1'))).toBe(18);
 
         const res = await push({
           outboxRemaining: 0,
-          ops: [{ opId: 'op_b1', idempotencyKey: 'k_b1', type: 'sale.create', payload: outboxPayload }],
+          ops: [{ opId: testId('op_b1'), idempotencyKey: 'k_b1', type: 'sale.create', payload: outboxPayload }],
         });
 
         expect(res.status).toBe(200);
         // #455 / 08 §8.2: the client-id replay answers with exactly what `POST /sales`
         // answered — `items[].costAtSale`, `movements`, `shiftId`, `date`, ledgers.
         expect(res.body.data.results[0]).toEqual({
-          opId: 'op_b1',
+          opId: testId('op_b1'),
           status: 'applied',
           response: online.body.data,
         });
         expect(online.body.data).toMatchObject({
-          id: 's_b1_online',
+          id: testId('s_b1_online'),
           receiptNo: serverReceiptNo,
           total: '100.00',
-          shiftId: 'sh_b1',
-          items: [{ lineNo: 1, productId: 'p_b1', costAtSale: '30.00' }],
-          mechanicAfter: { id: 'm_b1', creditBalance: '100.00' },
+          shiftId: testId('sh_b1'),
+          items: [{ lineNo: 1, productId: testId('p_b1'), costAtSale: '30.00' }],
+          mechanicAfter: { id: testId('m_b1'), creditBalance: '100.00' },
         });
         // Replayed, not re-run: one bill, stock down once, the override audited once.
-        expect(await stockOf('p_b1')).toBe(18);
+        expect(await stockOf(testId('p_b1'))).toBe(18);
         const sales = await admin.query(
-          `SELECT receipt_no FROM sales WHERE tenant_id = $1::uuid AND id = 's_b1_online'`,
+          `SELECT receipt_no FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_b1_online')}'`,
           [TENANT],
         );
         expect(sales).toEqual([{ receipt_no: serverReceiptNo }]);
         const audits = await admin.query(
           `SELECT user_id FROM audit_log
-            WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = 'm_b1'`,
+            WHERE tenant_id = $1::uuid AND action = 'sale.credit_limit_override' AND entity_id = '${testId('m_b1')}'`,
           [TENANT],
         );
         expect(audits).toEqual([{ user_id: fixture.userId }]);
         const mech = await admin.query(
-          `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = 'm_b1'`,
+          `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = '${testId('m_b1')}'`,
           [TENANT],
         );
         expect(mech[0].credit_balance).toBe('100.00');
@@ -1790,21 +1791,21 @@ describe('POST /sync/push (e2e)', () => {
 
         const res = await push({
           outboxRemaining: 0,
-          ops: [{ opId: 'op_b1_same', idempotencyKey: 'k_b1_same', type: 'sale.create', payload: onlineBody }],
+          ops: [{ opId: testId('op_b1_same'), idempotencyKey: 'k_b1_same', type: 'sale.create', payload: onlineBody }],
         });
 
         // The full online response, replayed from the key row (the client-id replay
         // answers with the same body since #455 — see the test above).
         expect(res.body.data.results[0]).toEqual({
-          opId: 'op_b1_same',
+          opId: testId('op_b1_same'),
           status: 'applied',
           response: online.body.data,
         });
-        expect(await stockOf('p_b1')).toBe(18);
+        expect(await stockOf(testId('p_b1'))).toBe(18);
       });
 
       it('a key an older push recorded as `POST /sales` (before #409) still replays, and a key recorded on another route does not', async () => {
-        const op = { opId: 'op_b1_legacy', idempotencyKey: 'k_b1_legacy', type: 'sale.create', payload: outboxPayload };
+        const op = { opId: testId('op_b1_legacy'), idempotencyKey: 'k_b1_legacy', type: 'sale.create', payload: outboxPayload };
         expect((await push({ outboxRemaining: 0, ops: [op] })).body.data.results[0].status).toBe('applied');
         await admin.query(
           `UPDATE idempotency_keys SET endpoint = 'POST /sales' WHERE tenant_id = $1::uuid AND key = 'k_b1_legacy'`,
@@ -1812,7 +1813,7 @@ describe('POST /sync/push (e2e)', () => {
         );
         await clearTenantCache(cache, TENANT);
         const replay = await push({ outboxRemaining: 0, ops: [op] });
-        expect(replay.body.data.results[0]).toMatchObject({ status: 'applied', response: { id: 's_b1_online' } });
+        expect(replay.body.data.results[0]).toMatchObject({ status: 'applied', response: { id: testId('s_b1_online') } });
 
         await admin.query(
           `UPDATE idempotency_keys SET endpoint = 'POST /api/v1/returns' WHERE tenant_id = $1::uuid AND key = 'k_b1_legacy'`,
@@ -1821,30 +1822,30 @@ describe('POST /sync/push (e2e)', () => {
         await clearTenantCache(cache, TENANT);
         const wrongRoute = await push({ outboxRemaining: 0, ops: [op] });
         expect(wrongRoute.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'IDEMPOTENCY_KEY_REUSED' });
-        expect(await stockOf('p_b1')).toBe(18);
+        expect(await stockOf(testId('p_b1'))).toBe(18);
       });
 
       it('the same key on a DIFFERENT bill is still refused IDEMPOTENCY_KEY_REUSED', async () => {
         expect((await postOnline('k_b1_reuse', onlineBody)).status).toBe(201);
         // A second, genuinely different bill already on the server under its own key.
-        const other = { ...onlineBody, id: 's_b1_other', overrideCreditLimit: false, paymentMethod: 'เงินสด', mechanicId: null, mechanicName: null };
+        const other = { ...onlineBody, id: testId('s_b1_other'), overrideCreditLimit: false, paymentMethod: 'เงินสด', mechanicId: null, mechanicName: null };
         expect((await postOnline('k_b1_other', other)).status).toBe(201);
-        expect(await stockOf('p_b1')).toBe(16);
+        expect(await stockOf(testId('p_b1'))).toBe(16);
 
         const res = await push({
           outboxRemaining: 0,
           ops: [
             // A bill the server has never seen, carrying k_b1_reuse.
             {
-              opId: 'op_new_bill',
+              opId: testId('op_new_bill'),
               idempotencyKey: 'k_b1_reuse',
               type: 'sale.create',
-              payload: { ...outboxPayload, id: 's_b1_new', receiptNo: 'RC01-2569-09-0778' },
+              payload: { ...outboxPayload, id: testId('s_b1_new'), receiptNo: 'RC01-2569-09-0778' },
             },
           ],
         });
         expect(res.body.data.results[0]).toMatchObject({
-          opId: 'op_new_bill',
+          opId: testId('op_new_bill'),
           status: 'rejected',
           code: 'IDEMPOTENCY_KEY_REUSED',
         });
@@ -1854,7 +1855,7 @@ describe('POST /sync/push (e2e)', () => {
           ops: [
             // An existing bill (s_b1_other), but under the key that belongs to s_b1_online.
             {
-              opId: 'op_other_bill',
+              opId: testId('op_other_bill'),
               idempotencyKey: 'k_b1_reuse',
               type: 'sale.create',
               payload: { ...other, receiptNo: 'RC01-2569-09-0779', date: outboxPayload.date },
@@ -1862,7 +1863,7 @@ describe('POST /sync/push (e2e)', () => {
           ],
         });
         expect(res2.body.data.results[0]).toMatchObject({
-          opId: 'op_other_bill',
+          opId: testId('op_other_bill'),
           status: 'rejected',
           code: 'IDEMPOTENCY_KEY_REUSED',
         });
@@ -1872,7 +1873,7 @@ describe('POST /sync/push (e2e)', () => {
           [TENANT],
         );
         expect(n[0].n).toBe(2);
-        expect(await stockOf('p_b1')).toBe(16);
+        expect(await stockOf(testId('p_b1'))).toBe(16);
       });
 
       it('owner 2026-09-25: a replay whose offline receiptNo differs from the stored one → ONE receipt_renumbered item, even when replayed again', async () => {
@@ -1881,12 +1882,12 @@ describe('POST /sync/push (e2e)', () => {
         const serverReceiptNo = online.body.data.receiptNo as string;
         expect(serverReceiptNo).not.toBe(outboxPayload.receiptNo);
 
-        const op = { opId: 'op_b1_renum', idempotencyKey: 'k_b1_renum', type: 'sale.create', payload: outboxPayload };
+        const op = { opId: testId('op_b1_renum'), idempotencyKey: 'k_b1_renum', type: 'sale.create', payload: outboxPayload };
         for (let i = 0; i < 2; i++) {
           const res = await push({ outboxRemaining: 0, ops: [op] });
           expect(res.body.data.results[0]).toMatchObject({
             status: 'applied',
-            response: { id: 's_b1_online', receiptNo: serverReceiptNo },
+            response: { id: testId('s_b1_online'), receiptNo: serverReceiptNo },
           });
         }
         // Step 2 as well: key row gone → client-id replay, still no second item.
@@ -1900,27 +1901,27 @@ describe('POST /sync/push (e2e)', () => {
         );
         expect(items).toEqual([
           {
-            ref_id: 's_b1_online',
+            ref_id: testId('s_b1_online'),
             details: {
-              opId: 'op_b1_renum',
+              opId: testId('op_b1_renum'),
               type: 'sale.create',
-              id: 's_b1_online',
+              id: testId('s_b1_online'),
               offlineNo: 'RC01-2569-09-0777',
               serverNo: serverReceiptNo,
             },
           },
         ]);
-        expect(await stockOf('p_b1')).toBe(18);
+        expect(await stockOf(testId('p_b1'))).toBe(18);
       });
 
       it('the credit-note side: a replayed return whose offline cnNo differs → one receipt_renumbered item; a junk cnNo raises none', async () => {
-        const cashSale = { ...onlineBody, id: 's_cn_ren', paymentMethod: 'เงินสด', mechanicId: null, mechanicName: null, overrideCreditLimit: false };
+        const cashSale = { ...onlineBody, id: testId('s_cn_ren'), paymentMethod: 'เงินสด', mechanicId: null, mechanicName: null, overrideCreditLimit: false };
         expect((await postOnline('k_cn_ren_sale', cashSale)).status).toBe(201);
         const retBody = {
-          id: 'cn_ren',
-          saleId: 's_cn_ren',
+          id: testId('cn_ren'),
+          saleId: testId('s_cn_ren'),
           refundMethod: 'เงินสด',
-          items: [{ productId: 'p_b1', name: 'Brake Pad B1', qty: 1, price: '50.00' }],
+          items: [{ productId: testId('p_b1'), name: 'Brake Pad B1', qty: 1, price: '50.00' }],
         };
         const online = await request(app.getHttpServer())
           .post('/api/v1/returns')
@@ -1934,7 +1935,7 @@ describe('POST /sync/push (e2e)', () => {
         const serverCnNo = online.body.data.cnNo as string;
 
         const op = (cnNo: string) => ({
-          opId: 'op_cn_ren',
+          opId: testId('op_cn_ren'),
           idempotencyKey: 'k_cn_ren',
           type: 'return.create',
           payload: { ...retBody, cnNo, date: outboxPayload.date },
@@ -1943,7 +1944,7 @@ describe('POST /sync/push (e2e)', () => {
         expect((await push({ outboxRemaining: 0, ops: [op('garbage')] })).body.data.results[0].status).toBe('applied');
         for (let i = 0; i < 2; i++) {
           const res = await push({ outboxRemaining: 0, ops: [op('CN01-2569-09-0555')] });
-          expect(res.body.data.results[0]).toMatchObject({ status: 'applied', response: { id: 'cn_ren', cnNo: serverCnNo } });
+          expect(res.body.data.results[0]).toMatchObject({ status: 'applied', response: { id: testId('cn_ren'), cnNo: serverCnNo } });
         }
         const items = await admin.query(
           `SELECT ref_id, details FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'receipt_renumbered'`,
@@ -1951,8 +1952,8 @@ describe('POST /sync/push (e2e)', () => {
         );
         expect(items).toEqual([
           {
-            ref_id: 'cn_ren',
-            details: { opId: 'op_cn_ren', type: 'return.create', id: 'cn_ren', offlineNo: 'CN01-2569-09-0555', serverNo: serverCnNo },
+            ref_id: testId('cn_ren'),
+            details: { opId: testId('op_cn_ren'), type: 'return.create', id: testId('cn_ren'), offlineNo: 'CN01-2569-09-0555', serverNo: serverCnNo },
           },
         ]);
       });
@@ -1962,7 +1963,7 @@ describe('POST /sync/push (e2e)', () => {
         const payload = { ...outboxPayload, receiptNo: online.body.data.receiptNo };
         const res = await push({
           outboxRemaining: 0,
-          ops: [{ opId: 'op_b1_samenum', idempotencyKey: 'k_b1_samenum', type: 'sale.create', payload }],
+          ops: [{ opId: testId('op_b1_samenum'), idempotencyKey: 'k_b1_samenum', type: 'sale.create', payload }],
         });
         expect(res.body.data.results[0].status).toBe('applied');
         const items = await admin.query(
@@ -1975,17 +1976,17 @@ describe('POST /sync/push (e2e)', () => {
 
     describe('08 §10 edge cases (owner 2026-09-25)', () => {
       const saleOp = (id: string, date: unknown) => ({
-        opId: `op_${id}`,
+        opId: testId(`op_${id}`),
         idempotencyKey: `k_${id}`,
         type: 'sale.create',
         payload: {
-          id,
+          id: testId(id),
           date,
           subtotal: '85.00',
           discount: '0.00',
           total: '85.00',
           paymentMethod: 'เงินสด',
-          items: [{ lineNo: 1, productId: 'p_d10', name: 'Filter', qty: 1, price: '85.00' }],
+          items: [{ lineNo: 1, productId: testId('p_d10'), name: 'Filter', qty: 1, price: '85.00' }],
         },
       });
       const flags = async () =>
@@ -1995,14 +1996,14 @@ describe('POST /sync/push (e2e)', () => {
         )) as { ref_id: string; details: Record<string, unknown> }[];
 
       beforeEach(async () => {
-        await seedProduct(admin, TENANT, { id: 'p_d10', partNo: 'P-D10', name: 'Filter', price: 85, cost: 50, stock: 10 });
+        await seedProduct(admin, TENANT, { id: testId('p_d10'), partNo: 'P-D10', name: 'Filter', price: 85, cost: 50, stock: 10 });
       });
 
       it('an unparseable date is rejected, not silently replaced with now()', async () => {
         await seedOpenShift(admin, TENANT, fixture.posDeviceId);
         const res = await push({ outboxRemaining: 0, ops: [saleOp('s_bad_date', 'not-a-date')] });
         expect(res.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'BAD_REQUEST' });
-        expect(await admin.query(`SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = 's_bad_date'`, [TENANT])).toHaveLength(0);
+        expect(await admin.query(`SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_bad_date')}'`, [TENANT])).toHaveLength(0);
       });
 
       it('an empty-string date is rejected (never falls through to createdAt or now()); an absent date → now(), unflagged', async () => {
@@ -2022,7 +2023,7 @@ describe('POST /sync/push (e2e)', () => {
           `SELECT id, date FROM sales WHERE tenant_id = $1::uuid ORDER BY id`,
           [TENANT],
         )) as { id: string; date: Date }[];
-        expect(rows.map((r) => r.id)).toEqual(['s_no_date']);
+        expect(rows.map((r) => r.id)).toEqual([testId('s_no_date')]);
         expect(rows[0].date.getTime()).toBeGreaterThanOrEqual(before - 1000);
         expect(await flags()).toHaveLength(0);
       });
@@ -2044,7 +2045,7 @@ describe('POST /sync/push (e2e)', () => {
         const f = await flags();
         expect(f).toHaveLength(1);
         expect(f[0]).toMatchObject({
-          ref_id: 's_both',
+          ref_id: testId('s_both'),
           details: { originalDate: future, docNo: 'RC01-2500-01-0201', docPeriod: '2500-01' },
         });
         expect(f[0].details.clampedDate).not.toBe(future);
@@ -2053,26 +2054,26 @@ describe('POST /sync/push (e2e)', () => {
       it('no active shift: a date 10 min ahead → now() + date_flag; a past date is kept unflagged', async () => {
         // A sale needs an open drawer; a non-cash refund does not (#100), so the
         // no-shift path is reached by a transfer refund after the shift is archived.
-        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_d10' });
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: testId('sh_d10') });
         const sale = saleOp('s_d10', new Date().toISOString());
         sale.payload.items[0].qty = 2;
         Object.assign(sale.payload, { subtotal: '170.00', total: '170.00' });
         expect((await push({ outboxRemaining: 0, ops: [sale] })).body.data.results[0].status).toBe('applied');
         await admin.query(
-          `UPDATE shifts SET is_active = false, closed_at = now() WHERE tenant_id = $1::uuid AND id = 'sh_d10'`,
+          `UPDATE shifts SET is_active = false, closed_at = now() WHERE tenant_id = $1::uuid AND id = '${testId('sh_d10')}'`,
           [TENANT],
         );
 
         const refund = (id: string, date: string) => ({
-          opId: `op_${id}`,
+          opId: testId(`op_${id}`),
           idempotencyKey: `k_${id}`,
           type: 'return.create',
           payload: {
-            id,
-            saleId: 's_d10',
+            id: testId(id),
+            saleId: testId('s_d10'),
             date,
             refundMethod: 'โอน',
-            items: [{ productId: 'p_d10', name: 'Filter', qty: 1, price: '85.00' }],
+            items: [{ productId: testId('p_d10'), name: 'Filter', qty: 1, price: '85.00' }],
           },
         });
         const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
@@ -2086,24 +2087,24 @@ describe('POST /sync/push (e2e)', () => {
           [TENANT],
         )) as { id: string; date: Date }[];
         const byId = Object.fromEntries(rows.map((r) => [r.id, r.date.getTime()]));
-        expect(byId.cn_np).toBe(new Date(past).getTime());
-        expect(byId.cn_nf).toBeGreaterThanOrEqual(before - 1000);
-        expect(byId.cn_nf).toBeLessThan(new Date(future).getTime() - 60 * 1000);
+        expect(byId[testId('cn_np')]).toBe(new Date(past).getTime());
+        expect(byId[testId('cn_nf')]).toBeGreaterThanOrEqual(before - 1000);
+        expect(byId[testId('cn_nf')]).toBeLessThan(new Date(future).getTime() - 60 * 1000);
 
         const f = await flags();
         expect(f).toHaveLength(1);
-        expect(f[0].ref_id).toBe('cn_nf');
-        expect(f[0].details).toMatchObject({ opId: 'op_cn_nf', type: 'return.create', originalDate: future, openedAt: null });
+        expect(f[0].ref_id).toBe(testId('cn_nf'));
+        expect(f[0].details).toMatchObject({ opId: testId('op_cn_nf'), type: 'return.create', originalDate: future, openedAt: null });
       });
 
       it('a closed (not yet archived) shift is no window: a refund dated before it is kept, unflagged', async () => {
-        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: 'sh_closed' });
+        await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: testId('sh_closed') });
         const sale = saleOp('s_closed', new Date().toISOString());
         expect((await push({ outboxRemaining: 0, ops: [sale] })).body.data.results[0].status).toBe('applied');
         // Closed by the counter: `is_active` stays true until the next open archives it.
         await admin.query(
           `UPDATE shifts SET opened_at = now() - interval '3 hours', closed_at = now()
-            WHERE tenant_id = $1::uuid AND id = 'sh_closed'`,
+            WHERE tenant_id = $1::uuid AND id = '${testId('sh_closed')}'`,
           [TENANT],
         );
         const past = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -2111,22 +2112,22 @@ describe('POST /sync/push (e2e)', () => {
           outboxRemaining: 0,
           ops: [
             {
-              opId: 'op_cn_closed',
+              opId: testId('op_cn_closed'),
               idempotencyKey: 'k_cn_closed',
               type: 'return.create',
               payload: {
-                id: 'cn_closed',
-                saleId: 's_closed',
+                id: testId('cn_closed'),
+                saleId: testId('s_closed'),
                 date: past,
                 refundMethod: 'โอน',
-                items: [{ productId: 'p_d10', name: 'Filter', qty: 1, price: '85.00' }],
+                items: [{ productId: testId('p_d10'), name: 'Filter', qty: 1, price: '85.00' }],
               },
             },
           ],
         });
         expect(res.body.data.results[0].status).toBe('applied');
         const ret = (await admin.query(
-          `SELECT date, shift_id FROM returns WHERE tenant_id = $1::uuid AND id = 'cn_closed'`,
+          `SELECT date, shift_id FROM returns WHERE tenant_id = $1::uuid AND id = '${testId('cn_closed')}'`,
           [TENANT],
         )) as { date: Date; shift_id: string | null }[];
         // Before: measured against the closed shift → pulled up to its opened_at + flagged.
@@ -2152,7 +2153,7 @@ describe('POST /sync/push (e2e)', () => {
         const f = await flags();
         expect(f).toHaveLength(1);
         expect(f[0]).toMatchObject({
-          ref_id: 's_per_bad',
+          ref_id: testId('s_per_bad'),
           details: {
             docNo: 'RC01-2500-01-0102',
             docPeriod: '2500-01',
@@ -2166,23 +2167,23 @@ describe('POST /sync/push (e2e)', () => {
       it('shift.open 10 min ahead → opened_at = now() + date_flag; replay adds no second flag', async () => {
         const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
         const op = {
-          opId: 'op_sh_future',
+          opId: testId('op_sh_future'),
           idempotencyKey: 'k_sh_future',
           type: 'shift.open',
-          payload: { id: 'sh_future', startingCash: '100.00', openedAt: future },
+          payload: { id: testId('sh_future'), startingCash: '100.00', openedAt: future },
         };
         expect((await push({ outboxRemaining: 0, ops: [op] })).body.data.results[0].status).toBe('applied');
         expect((await push({ outboxRemaining: 0, ops: [op] })).body.data.results[0].status).toBe('applied');
 
         const sh = (await admin.query(
-          `SELECT opened_at FROM shifts WHERE tenant_id = $1::uuid AND id = 'sh_future'`,
+          `SELECT opened_at FROM shifts WHERE tenant_id = $1::uuid AND id = '${testId('sh_future')}'`,
           [TENANT],
         )) as { opened_at: Date }[];
         expect(sh[0].opened_at.getTime()).toBeLessThan(new Date(future).getTime() - 60 * 1000);
         const f = await flags();
         expect(f).toHaveLength(1);
         expect(f[0]).toMatchObject({
-          ref_id: 'sh_future',
+          ref_id: testId('sh_future'),
           details: { type: 'shift.open', originalDate: future, openedAt: null },
         });
       });
@@ -2190,11 +2191,11 @@ describe('POST /sync/push (e2e)', () => {
 
     it('Issue #190: rejects sale or return with RECEIPT_NO_CONFLICT when document number collides', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_190',
+        id: testId('sh_190'),
         startingCash: 500,
       });
       await seedProduct(admin, TENANT, {
-        id: 'p190',
+        id: testId('p190'),
         partNo: 'HN-190',
         name: 'Spark Plug 190',
         price: 100,
@@ -2204,14 +2205,14 @@ describe('POST /sync/push (e2e)', () => {
 
       const receiptNo = 'RC01-2569-09-0070';
       const salePayload1 = {
-        id: 's_190_1',
+        id: testId('s_190_1'),
         receiptNo,
         date: new Date().toISOString(),
         subtotal: '100.00',
         discount: '0.00',
         total: '100.00',
         paymentMethod: 'เงินสด',
-        items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+        items: [{ lineNo: 1, productId: testId('p190'), name: 'Spark Plug 190', qty: 1, price: '100.00' }],
       };
 
       // 1. First sale applies successfully
@@ -2219,7 +2220,7 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_190_1',
+            opId: testId('op_190_1'),
             idempotencyKey: 'k_190_1',
             type: 'sale.create',
             payload: salePayload1,
@@ -2234,7 +2235,7 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_190_1_replay',
+            opId: testId('op_190_1_replay'),
             idempotencyKey: 'k_190_1_new_key',
             type: 'sale.create',
             payload: salePayload1,
@@ -2246,21 +2247,21 @@ describe('POST /sync/push (e2e)', () => {
 
       // 3. Different sale attempting to use the same receiptNo -> rejected RECEIPT_NO_CONFLICT
       const salePayloadColliding = {
-        id: 's_190_colliding',
+        id: testId('s_190_colliding'),
         receiptNo,
         date: new Date().toISOString(),
         subtotal: '200.00',
         discount: '0.00',
         total: '200.00',
         paymentMethod: 'เงินสด',
-        items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 2, price: '100.00' }],
+        items: [{ lineNo: 1, productId: testId('p190'), name: 'Spark Plug 190', qty: 2, price: '100.00' }],
       };
 
       const resConflict = await push({
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_190_colliding',
+            opId: testId('op_190_colliding'),
             idempotencyKey: 'k_190_colliding',
             type: 'sale.create',
             payload: salePayloadColliding,
@@ -2270,7 +2271,7 @@ describe('POST /sync/push (e2e)', () => {
 
       expect(resConflict.status).toBe(200);
       expect(resConflict.body.data.results[0]).toEqual({
-        opId: 'op_190_colliding',
+        opId: testId('op_190_colliding'),
         status: 'rejected',
         code: 'RECEIPT_NO_CONFLICT',
         message: 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
@@ -2281,14 +2282,14 @@ describe('POST /sync/push (e2e)', () => {
 
       // Invariant: stock was only deducted by sale 1 (50 - 1 = 49), not by the rejected sale
       const productRow = await admin.query(
-        `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = 'p190'`,
+        `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = '${testId('p190')}'`,
         [TENANT],
       );
       expect(productRow[0].stock).toBe(49);
 
       // Invariant: no row exists for s_190_colliding
       const saleRows = await admin.query(
-        `SELECT id FROM sales WHERE tenant_id = $1::uuid AND id = 's_190_colliding'`,
+        `SELECT id FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_190_colliding')}'`,
         [TENANT],
       );
       expect(saleRows).toHaveLength(0);
@@ -2298,48 +2299,48 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_batch_valid_1',
+            opId: testId('op_batch_valid_1'),
             idempotencyKey: 'k_b_1',
             type: 'sale.create',
             payload: {
-              id: 's_batch_1',
+              id: testId('s_batch_1'),
               receiptNo: 'RC01-2569-09-0071',
               date: new Date().toISOString(),
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เงินสด',
-              items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p190'), name: 'Spark Plug 190', qty: 1, price: '100.00' }],
             },
           },
           {
-            opId: 'op_batch_conflict',
+            opId: testId('op_batch_conflict'),
             idempotencyKey: 'k_b_2',
             type: 'sale.create',
             payload: {
-              id: 's_batch_2',
+              id: testId('s_batch_2'),
               receiptNo, // colliding with s_190_1
               date: new Date().toISOString(),
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เงินสด',
-              items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p190'), name: 'Spark Plug 190', qty: 1, price: '100.00' }],
             },
           },
           {
-            opId: 'op_batch_valid_2',
+            opId: testId('op_batch_valid_2'),
             idempotencyKey: 'k_b_3',
             type: 'sale.create',
             payload: {
-              id: 's_batch_3',
+              id: testId('s_batch_3'),
               receiptNo: 'RC01-2569-09-0072',
               date: new Date().toISOString(),
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เงินสด',
-              items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p190'), name: 'Spark Plug 190', qty: 1, price: '100.00' }],
             },
           },
         ],
@@ -2354,19 +2355,19 @@ describe('POST /sync/push (e2e)', () => {
       // 5. Credit note cnNo collision in return.create
       const cnNo = 'CN01-2569-09-0020';
       const returnPayload1 = {
-        id: 'r_190_1',
+        id: testId('r_190_1'),
         cnNo,
-        saleId: 's_190_1',
+        saleId: testId('s_190_1'),
         refundMethod: 'เงินสด',
         reason: 'เปลี่ยนใจ',
-        items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+        items: [{ lineNo: 1, productId: testId('p190'), name: 'Spark Plug 190', qty: 1, price: '100.00' }],
       };
 
       const resReturn1 = await push({
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_ret_1',
+            opId: testId('op_ret_1'),
             idempotencyKey: 'k_ret_1',
             type: 'return.create',
             payload: returnPayload1,
@@ -2378,19 +2379,19 @@ describe('POST /sync/push (e2e)', () => {
 
       // Different return attempting to reuse the same cnNo
       const returnPayloadColliding = {
-        id: 'r_190_colliding',
+        id: testId('r_190_colliding'),
         cnNo,
-        saleId: 's_batch_1',
+        saleId: testId('s_batch_1'),
         refundMethod: 'เงินสด',
         reason: 'ขอคืน',
-        items: [{ lineNo: 1, productId: 'p190', name: 'Spark Plug 190', qty: 1, price: '100.00' }],
+        items: [{ lineNo: 1, productId: testId('p190'), name: 'Spark Plug 190', qty: 1, price: '100.00' }],
       };
 
       const resReturnConflict = await push({
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_ret_colliding',
+            opId: testId('op_ret_colliding'),
             idempotencyKey: 'k_ret_colliding',
             type: 'return.create',
             payload: returnPayloadColliding,
@@ -2400,7 +2401,7 @@ describe('POST /sync/push (e2e)', () => {
 
       expect(resReturnConflict.status).toBe(200);
       expect(resReturnConflict.body.data.results[0]).toEqual({
-        opId: 'op_ret_colliding',
+        opId: testId('op_ret_colliding'),
         status: 'rejected',
         code: 'RECEIPT_NO_CONFLICT',
         message: 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
@@ -2413,18 +2414,18 @@ describe('POST /sync/push (e2e)', () => {
 
   describe('#27 follow-up (owner 2026-10-03, 08 §6.1): an offline bill sold from a quote cart', () => {
     const quoteSaleOp = (id: string, quoteId: string, date = new Date().toISOString()) => ({
-      opId: `op_${id}`,
+      opId: testId(`op_${id}`),
       idempotencyKey: `k_${id}`,
       type: 'sale.create',
       payload: {
-        id,
+        id: testId(id),
         date,
         subtotal: '85.00',
         discount: '0.00',
         total: '85.00',
         paymentMethod: 'เงินสด',
         quoteId,
-        items: [{ lineNo: 1, productId: 'p_q27', name: 'Filter', qty: 1, price: '85.00' }],
+        items: [{ lineNo: 1, productId: testId('p_q27'), name: 'Filter', qty: 1, price: '85.00' }],
       },
     });
     const seedQuote = (
@@ -2461,64 +2462,64 @@ describe('POST /sync/push (e2e)', () => {
         .length === 1;
 
     beforeEach(async () => {
-      await seedProduct(admin, TENANT, { id: 'p_q27', partNo: 'P-Q27', name: 'Filter', price: 85, cost: 50, stock: 10 });
+      await seedProduct(admin, TENANT, { id: testId('p_q27'), partNo: 'P-Q27', name: 'Filter', price: 85, cost: 50, stock: 10 });
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
     });
 
     it('a quote still open at sync is converted into the bill in the same transaction, with no review item', async () => {
-      await seedQuote('q_open');
-      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_open', 'q_open')] });
+      await seedQuote(testId('q_open'));
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_open', testId('q_open'))] });
       expect(res.body.data.results[0].status).toBe('applied');
-      const q = await quoteRow('q_open');
+      const q = await quoteRow(testId('q_open'));
       expect(q.status).toBe('converted');
-      expect(q.converted_sale_id).toBe('s_q_open');
+      expect(q.converted_sale_id).toBe(testId('s_q_open'));
       expect(q.converted_at).not.toBeNull();
       expect(await conflicts()).toEqual([]);
 
       // A re-push replays the bill and changes nothing more.
-      expect((await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_open', 'q_open')] })).body.data.results[0].status)
+      expect((await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_open', testId('q_open'))] })).body.data.results[0].status)
         .toBe('applied');
       expect(await conflicts()).toEqual([]);
     });
 
     it('a quote already converted into another bill: the bill is accepted, the quote untouched, one review item', async () => {
-      await seedQuote('q_conv', { status: 'converted', convertedSaleId: 's_other' });
-      const before = await quoteRow('q_conv');
-      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_conv', 'q_conv')] });
+      await seedQuote(testId('q_conv'), { status: 'converted', convertedSaleId: testId('s_other') });
+      const before = await quoteRow(testId('q_conv'));
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_conv', testId('q_conv'))] });
       expect(res.body.data.results[0].status).toBe('applied');
-      expect(await saleExists('s_q_conv')).toBe(true);
-      expect(await quoteRow('q_conv')).toEqual(before);
+      expect(await saleExists(testId('s_q_conv'))).toBe(true);
+      expect(await quoteRow(testId('q_conv'))).toEqual(before);
       const items = await conflicts();
       expect(items).toHaveLength(1);
-      expect(items[0].ref_id).toBe('s_q_conv');
+      expect(items[0].ref_id).toBe(testId('s_q_conv'));
       expect(items[0].details).toMatchObject({
-        opId: 'op_s_q_conv',
-        saleId: 's_q_conv',
-        quoteId: 'q_conv',
+        opId: testId('op_s_q_conv'),
+        saleId: testId('s_q_conv'),
+        quoteId: testId('q_conv'),
         reason: 'already_converted',
-        convertedSaleId: 's_other',
+        convertedSaleId: testId('s_other'),
       });
       expect(items[0].details.receiptNo).toEqual(res.body.data.results[0].response.receiptNo);
 
       // A re-push (client-id replay after the key is gone) raises no second item.
       await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_s_q_conv'`, [TENANT]);
       await clearTenantCache(cache, TENANT);
-      expect((await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_conv', 'q_conv')] })).body.data.results[0].status)
+      expect((await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_conv', testId('q_conv'))] })).body.data.results[0].status)
         .toBe('applied');
       expect(await conflicts()).toHaveLength(1);
     });
 
     it('an expired quote: the bill is accepted, the quote untouched, one review item', async () => {
-      await seedQuote('q_exp', { expired: true });
-      const before = await quoteRow('q_exp');
-      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_exp', 'q_exp')] });
+      await seedQuote(testId('q_exp'), { expired: true });
+      const before = await quoteRow(testId('q_exp'));
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_exp', testId('q_exp'))] });
       expect(res.body.data.results[0].status).toBe('applied');
-      expect(await saleExists('s_q_exp')).toBe(true);
-      expect(await quoteRow('q_exp')).toEqual(before);
+      expect(await saleExists(testId('s_q_exp'))).toBe(true);
+      expect(await quoteRow(testId('q_exp'))).toEqual(before);
       expect(before.status).toBe('open');
       const items = await conflicts();
       expect(items).toHaveLength(1);
-      expect(items[0].details).toMatchObject({ saleId: 's_q_exp', quoteId: 'q_exp', reason: 'expired' });
+      expect(items[0].details).toMatchObject({ saleId: testId('s_q_exp'), quoteId: testId('q_exp'), reason: 'expired' });
       expect(typeof items[0].details.validUntil).toBe('string');
     });
 
@@ -2533,50 +2534,50 @@ describe('POST /sync/push (e2e)', () => {
 
     it('valid when the bill was sold, expired by the sync: converted normally, no review item', async () => {
       await openDrawerThreeHoursAgo();
-      await seedQuote('q_lapsed', { validFor: '-1 hour' });
+      await seedQuote(testId('q_lapsed'), { validFor: '-1 hour' });
       const soldAt = twoHoursAgo();
-      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_lapsed', 'q_lapsed', soldAt)] });
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_lapsed', testId('q_lapsed'), soldAt)] });
       expect(res.body.data.results[0].status).toBe('applied');
       const stored = (await admin.query(
-        `SELECT date FROM sales WHERE tenant_id = $1::uuid AND id = 's_q_lapsed'`,
+        `SELECT date FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_q_lapsed')}'`,
         [TENANT],
       )) as { date: Date }[];
       expect(stored[0].date.toISOString()).toBe(soldAt);
-      const q = await quoteRow('q_lapsed');
+      const q = await quoteRow(testId('q_lapsed'));
       expect(q.status).toBe('converted');
-      expect(q.converted_sale_id).toBe('s_q_lapsed');
+      expect(q.converted_sale_id).toBe(testId('s_q_lapsed'));
       expect(await conflicts()).toEqual([]);
     });
 
     it('expired before the bill was sold: the bill is accepted, the quote untouched, one review item', async () => {
       await openDrawerThreeHoursAgo();
-      await seedQuote('q_late', { validFor: '-150 minutes' });
-      const before = await quoteRow('q_late');
+      await seedQuote(testId('q_late'), { validFor: '-150 minutes' });
+      const before = await quoteRow(testId('q_late'));
       const soldAt = twoHoursAgo();
-      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_late', 'q_late', soldAt)] });
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_late', testId('q_late'), soldAt)] });
       expect(res.body.data.results[0].status).toBe('applied');
       const stored = (await admin.query(
-        `SELECT date FROM sales WHERE tenant_id = $1::uuid AND id = 's_q_late'`,
+        `SELECT date FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s_q_late')}'`,
         [TENANT],
       )) as { date: Date }[];
       expect(stored[0].date.toISOString()).toBe(soldAt);
-      expect(await quoteRow('q_late')).toEqual(before);
-      expect((await conflicts()).map((i) => [i.ref_id, i.details.reason])).toEqual([['s_q_late', 'expired']]);
+      expect(await quoteRow(testId('q_late'))).toEqual(before);
+      expect((await conflicts()).map((i) => [i.ref_id, i.details.reason])).toEqual([[testId('s_q_late'), 'expired']]);
     });
 
     it('a quote that no longer exists: the bill is accepted with one review item (not_found)', async () => {
-      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_gone', 'q_gone')] });
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_gone', testId('q_gone'))] });
       expect(res.body.data.results[0].status).toBe('applied');
-      expect(await saleExists('s_q_gone')).toBe(true);
+      expect(await saleExists(testId('s_q_gone'))).toBe(true);
       expect((await conflicts()).map((i) => i.details.reason)).toEqual(['not_found']);
     });
 
     it('a refused bill (no stock) rolls back: the open quote stays open, no review item', async () => {
-      await seedQuote('q_short');
-      await admin.query(`UPDATE products SET stock = 0 WHERE tenant_id = $1::uuid AND id = 'p_q27'`, [TENANT]);
-      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_short', 'q_short')] });
+      await seedQuote(testId('q_short'));
+      await admin.query(`UPDATE products SET stock = 0 WHERE tenant_id = $1::uuid AND id = '${testId('p_q27')}'`, [TENANT]);
+      const res = await push({ outboxRemaining: 0, ops: [quoteSaleOp('s_q_short', testId('q_short'))] });
       expect(res.body.data.results[0].status).not.toBe('applied');
-      expect((await quoteRow('q_short')).status).toBe('open');
+      expect((await quoteRow(testId('q_short'))).status).toBe('open');
       expect(await conflicts()).toEqual([]);
     });
   });
@@ -2597,7 +2598,7 @@ describe('POST /sync/push (e2e)', () => {
     it('rejects request without authentication (401)', async () => {
       const res = await discard(
         {
-          opId: 'op_disc_1',
+          opId: testId('op_disc_1'),
           type: 'customer.create',
           note: 'Customer duplicate',
         },
@@ -2608,7 +2609,7 @@ describe('POST /sync/push (e2e)', () => {
 
     it('rejects request with empty or missing note (400)', async () => {
       const res = await discard({
-        opId: 'op_disc_1',
+        opId: testId('op_disc_1'),
         type: 'customer.create',
         note: '   ',
       });
@@ -2617,8 +2618,8 @@ describe('POST /sync/push (e2e)', () => {
     });
 
     it('returns serverHasRow: false when target row does not exist and writes audit log', async () => {
-      const opId = 'op_disc_non_existent';
-      const clientId = 'c_never_synced';
+      const opId = testId('op_disc_non_existent');
+      const clientId = testId('c_never_synced');
       const res = await discard({
         opId,
         type: 'customer.create',
@@ -2644,12 +2645,12 @@ describe('POST /sync/push (e2e)', () => {
 
     it('returns serverHasRow: true when target row exists on server', async () => {
       // First push a customer so row exists on server
-      const clientId = 'c_exists_1';
+      const clientId = testId('c_exists_1');
       await push({
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_c_exists',
+            opId: testId('op_c_exists'),
             idempotencyKey: 'k_c_exists',
             type: 'customer.create',
             payload: { id: clientId, name: 'Existing Customer' },
@@ -2657,7 +2658,7 @@ describe('POST /sync/push (e2e)', () => {
         ],
       });
 
-      const opId = 'op_disc_existing';
+      const opId = testId('op_disc_existing');
       const res = await discard({
         opId,
         type: 'customer.create',
@@ -2672,7 +2673,7 @@ describe('POST /sync/push (e2e)', () => {
     it('sale.void_offline: serverHasRow follows the bill being voided (payload.saleId) (#488)', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId);
       await seedProduct(admin, TENANT, {
-        id: 'p_disc_v',
+        id: testId('p_disc_v'),
         partNo: 'DV-1',
         name: 'Pad',
         price: 100,
@@ -2683,25 +2684,25 @@ describe('POST /sync/push (e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_sale_disc_v',
+            opId: testId('op_sale_disc_v'),
             idempotencyKey: 'k_sale_disc_v',
             type: 'sale.create',
             payload: {
-              id: 's_disc_v',
+              id: testId('s_disc_v'),
               receiptNo: 'RC01-2569-09-0077',
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
               paymentMethod: 'เงินสด',
-              items: [{ lineNo: 1, productId: 'p_disc_v', name: 'Pad', qty: 1, price: '100.00' }],
+              items: [{ lineNo: 1, productId: testId('p_disc_v'), name: 'Pad', qty: 1, price: '100.00' }],
             },
           },
         ],
       });
       const voidOp = {
-        opId: 'op_void_disc_v',
+        opId: testId('op_void_disc_v'),
         type: 'sale.void_offline',
-        payload: { saleId: 's_disc_v', reason: 'ลูกค้ายกเลิก' },
+        payload: { saleId: testId('s_disc_v'), reason: 'ลูกค้ายกเลิก' },
         note: 'void never sent',
       };
 
@@ -2720,12 +2721,12 @@ describe('POST /sync/push (e2e)', () => {
       expect(after.status).toBe(200);
       expect(after.body.data).toEqual({ serverHasRow: true });
       const audit = await admin.query(
-        `SELECT after FROM audit_log WHERE tenant_id = $1::uuid AND action = 'sync.op.discarded' AND entity_id = 'op_void_disc_v' ORDER BY id`,
+        `SELECT after FROM audit_log WHERE tenant_id = $1::uuid AND action = 'sync.op.discarded' AND entity_id = '${testId('op_void_disc_v')}' ORDER BY id`,
         [TENANT],
       );
       expect(audit.map((r: { after: { clientId: string } }) => r.after.clientId)).toEqual([
-        's_disc_v',
-        's_disc_v',
+        testId('s_disc_v'),
+        testId('s_disc_v'),
       ]);
     });
 
@@ -2741,9 +2742,9 @@ describe('POST /sync/push (e2e)', () => {
         .set('Authorization', `Bearer ${userToken}`)
         .set('Idempotency-Key', 'k_discard_jwt')
         .send({
-          opId: 'op_jwt_disc',
+          opId: testId('op_jwt_disc'),
           type: 'sale.create',
-          clientId: 's_missing',
+          clientId: testId('s_missing'),
           note: 'Owner discarded from backoffice',
         });
 

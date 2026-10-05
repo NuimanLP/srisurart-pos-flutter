@@ -57,4 +57,12 @@ describe('toErrorEnvelope', () => {
       message: 'Internal server error',
     });
   });
+
+  it('routes a Postgres error through invalidUuidInput (#616; the classifier is tested in ids.spec.ts)', () => {
+    const uuid = toErrorEnvelope(
+      Object.assign(new Error('invalid input syntax for type uuid: "p1"'), { code: '22P02' }),
+    );
+    expect(uuid.status).toBe(400);
+    expect(uuid.body.error.code).toBe('INVALID_ID');
+  });
 });

@@ -4,6 +4,7 @@
 //   getSuppliers()                    → all suppliers
 //   getSuppliersForProduct(productId) → suppliers filtered by productId
 //   addSupplier(s)   → inserts { ...s, id:_newId('sup') } and returns it
+//   (The Dart port mints the id with newUuid() instead — #616.)
 //   updateSupplier(id, data)          → patch
 //   deleteSupplier(id)                → remove
 //
@@ -27,7 +28,7 @@ class SuppliersRepository {
     )..where((t) => t.productId.equals(productId))).get();
   }
 
-  /// Insert a supplier (id from newId('sup')) and return the stored row.
+  /// Insert a supplier (id from newUuid()) and return the stored row.
   Future<SupplierRow> addSupplier({
     required String productId,
     required String name,
@@ -35,7 +36,7 @@ class SuppliersRepository {
     double freight = 0,
   }) async {
     final row = SupplierRow(
-      id: newId('sup'),
+      id: newUuid(),
       productId: productId,
       name: name,
       unitCost: unitCost,

@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 import { DocNumberService } from '../src/documents/doc-number.service.js';
 import { createTestApp, resetTenant, type TenantFixture } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #19 acceptance suite. Runs against the real compose Postgres as `pos_app`, with
 // RLS on: the row lock on `doc_counters` IS the mechanism under test, so there is
@@ -158,7 +159,7 @@ describe('document numbers (e2e)', () => {
     // What `DB.exportSnapshot()` from the old app carries: random ids, no series.
     await admin.query(
       `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method)
-            VALUES ($1::uuid, 's-legacy', 'RC12345678ABCD', 100, 0, 100, 'เงินสด')`,
+            VALUES ($1::uuid, '${testId('s-legacy')}', 'RC12345678ABCD', 100, 0, 100, 'เงินสด')`,
       [TENANT],
     );
     const period = await currentPeriod();

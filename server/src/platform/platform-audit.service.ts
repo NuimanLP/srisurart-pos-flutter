@@ -7,12 +7,12 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
+import { UUID_ANY_CASE_RE } from '../common/ids.js';
 import { AuditService } from './audit.service.js';
 
 export const AUDIT_PAGE_DEFAULT = 50;
 export const AUDIT_PAGE_MAX = 200;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** `created_at` at Postgres' full microsecond precision, always UTC, then the bigint id. */
 const CURSOR_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z)\|(\d{1,19})$/;
 const BIGINT_MAX = 9223372036854775807n;
@@ -73,7 +73,7 @@ export interface AuditEntry {
   entity: string | null;
   entityId: string | null;
   actor: AuditActor;
-  /** Present when a device acted alongside a user/admin actor (e.g. a sale rung on `pos1`). */
+  /** Present when a device acted alongside a user/admin actor (e.g. a sale rung on the POS #1 till). */
   device: { id: string; label: string | null; deviceNo: number | null } | null;
   ip: string | null;
   createdAt: string;
@@ -152,7 +152,7 @@ export class PlatformAuditService {
     adminId: string,
     ip?: string,
   ): Promise<{ items: AuditEntry[]; nextCursor: string | null }> {
-    if (!UUID_RE.test(tenantId)) {
+    if (!UUID_ANY_CASE_RE.test(tenantId)) {
       throw new BadRequestException({ code: 'INVALID_TENANT_ID', message: 'tenantId must be a valid UUID' });
     }
     const limit = parseAuditLimit(query.limit);

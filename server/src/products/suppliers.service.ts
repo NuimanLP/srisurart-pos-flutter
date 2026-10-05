@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
@@ -61,7 +61,7 @@ export class SuppliersService {
          RETURNING ${COLUMNS}`,
       [
         tenantId,
-        newId('sup'),
+        newUuid(),
         input.productId,
         input.name,
         input.unitCost,

@@ -464,6 +464,7 @@ class SnapshotRepository {
             (a, b) => b.createdAt.compareTo(a.createdAt),
           ); // newest first
       return <String, dynamic>{
+        'id': s.id,
         'date': s.dateStr,
         'startingCash': s.startingCash,
         'openedAt': _iso(s.openedAt),
@@ -959,10 +960,10 @@ class SnapshotRepository {
       final cd = data['sa_cash_drawer'];
       if (cd is Map) {
         final shift = cd.cast<String, dynamic>();
-        // A JS snapshot's shifts carry no id at all, so the importer issues
-        // one by the same rule as openShift (schema v3: shift ids are TEXT and
-        // are no longer invented by the database).
-        final shiftId = newId('sh');
+        // A legacy JS snapshot's shift carries no id: keep the file's own id
+        // when it has one (this app's export writes it, #616), else mint a
+        // newUuid() as openShift does.
+        final shiftId = _asStr(shift['id'], newUuid());
         await db
             .into(db.shifts)
             .insert(
@@ -987,7 +988,7 @@ class SnapshotRepository {
               .into(db.drawerEntries)
               .insert(
                 DrawerEntriesCompanion.insert(
-                  id: _asStr(e['id'], newId('de')),
+                  id: _asStr(e['id'], newUuid()),
                   shiftId: shiftId,
                   type: _asStr(e['type']),
                   amount: _asDouble(e['amount']),
@@ -1000,7 +1001,7 @@ class SnapshotRepository {
 
       // ── 14. Shift history (sa_shift_history) → inactive Shifts + entries ──
       for (final shift in asList(data['sa_shift_history'])) {
-        final shiftId = newId('sh');
+        final shiftId = _asStr(shift['id'], newUuid());
         await db
             .into(db.shifts)
             .insert(
@@ -1025,7 +1026,7 @@ class SnapshotRepository {
               .into(db.drawerEntries)
               .insert(
                 DrawerEntriesCompanion.insert(
-                  id: _asStr(e['id'], newId('de')),
+                  id: _asStr(e['id'], newUuid()),
                   shiftId: shiftId,
                   type: _asStr(e['type']),
                   amount: _asDouble(e['amount']),
@@ -1038,7 +1039,7 @@ class SnapshotRepository {
 
       // ── 15. Parked (sa_parked) — re-encode each payload object as JSON ──
       for (final p in asList(data['sa_parked'])) {
-        final id = _asStr(p['id'], newId('pk'));
+        final id = _asStr(p['id'], newUuid());
         final parkedAt = _parseDate(p['parkedAt']) ?? DateTime.now();
         await db
             .into(db.parkedSales)

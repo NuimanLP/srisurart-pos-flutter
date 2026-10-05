@@ -11,6 +11,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #23 acceptance suite: the read side of selling, plus the manual void.
 const TENANT = '11111111-7777-4777-8777-111111111111';
@@ -54,7 +55,7 @@ describe('sale reads and void (e2e)', () => {
   const ringUp = async (qty = 1, extra: Record<string, unknown> = {}) => {
     const total = (qty * 85).toFixed(2);
     const res = await sell({
-      id: `s-${++keySeq}-${Date.now()}`,
+      id: testId(`s-${++keySeq}-${Date.now()}`),
       subtotal: total,
       discount: '0.00',
       total,
@@ -62,7 +63,7 @@ describe('sale reads and void (e2e)', () => {
       items: [
         {
           lineNo: 1,
-          productId: 'p1',
+          productId: testId('p1'),
           partNo: 'OF-1',
           name: 'Oil Filter',
           nameTH: 'กรองน้ำมันเครื่อง',
@@ -105,7 +106,7 @@ describe('sale reads and void (e2e)', () => {
       deviceRole: 'backoffice',
     });
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'OF-1',
       name: 'Oil Filter',
       nameTH: 'กรองน้ำมันเครื่อง',
@@ -141,11 +142,11 @@ describe('sale reads and void (e2e)', () => {
   it('searches by part of a receipt number or a customer name', async () => {
     await admin.query(
       `INSERT INTO customers (tenant_id, id, code, name, name_th)
-            VALUES ($1::uuid, 'c1', 'C001', 'Somchai Motors', 'สมชาย ยานยนต์')`,
+            VALUES ($1::uuid, '${testId('c1')}', 'C001', 'Somchai Motors', 'สมชาย ยานยนต์')`,
       [TENANT],
     );
     const withCustomer = await ringUp(1, {
-      customerId: 'c1',
+      customerId: testId('c1'),
       customerName: 'สมชาย ยานยนต์',
     });
     await ringUp(1);
@@ -204,7 +205,7 @@ describe('sale reads and void (e2e)', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.receiptNo).toBe(sale.receiptNo);
 
-    const missing = await get('/sales/no-such-bill');
+    const missing = await get(`/sales/${testId('no-such-bill')}`);
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe('SALE_NOT_FOUND');
     expect(missing.body.error.message).toBe('Sale not found');
@@ -226,23 +227,23 @@ describe('sale reads and void (e2e)', () => {
         `INSERT INTO returns (tenant_id, id, cn_no, sale_id, receipt_no,
                               refund_subtotal, refund_discount, refund_total, refund_method)
               VALUES ($1::uuid, $2, $3, $4, $5, 0, 0, 0, 'เงินสด')`,
-        [TENANT, `r${n}`, `CN09-2569-01-000${n}`, sale.id, sale.receiptNo],
+        [TENANT, testId(`r${n}`), `CN09-2569-01-000${n}`, sale.id, sale.receiptNo],
       );
       await admin.query(
         `INSERT INTO return_items (tenant_id, return_id, line_no, product_id, name, qty, price)
-              VALUES ($1::uuid, $2, 1, 'p1', 'Oil Filter', $3, 85)`,
-        [TENANT, `r${n}`, qty],
+              VALUES ($1::uuid, $2, 1, '${testId('p1')}', 'Oil Filter', $3, 85)`,
+        [TENANT, testId(`r${n}`), qty],
       );
     }
 
     const res = await get(`/sales/${sale.id}/refunded-qty`);
-    expect(res.body.data).toEqual({ p1: 3 });
-    expect((await get('/sales/no-such-bill/refunded-qty')).status).toBe(404);
+    expect(res.body.data).toEqual({ [testId('p1')]: 3 });
+    expect((await get(`/sales/${testId('no-such-bill')}/refunded-qty`)).status).toBe(404);
   });
 
   it('gives each bill its own lines when several are listed', async () => {
     await seedProduct(admin, TENANT, {
-      id: 'p2',
+      id: testId('p2'),
       partNo: 'BP-2',
       name: 'Brake Pad',
       price: 750,
@@ -251,13 +252,13 @@ describe('sale reads and void (e2e)', () => {
     });
     const first = await ringUp(2);
     const second = await sell({
-      id: `s-other-${Date.now()}`,
+      id: testId(`s-other-${Date.now()}`),
       subtotal: '1500.00',
       discount: '0.00',
       total: '1500.00',
       paymentMethod: 'เงินสด',
       items: [
-        { lineNo: 1, productId: 'p2', partNo: 'BP-2', name: 'Brake Pad', qty: 2, price: '750.00' },
+        { lineNo: 1, productId: testId('p2'), partNo: 'BP-2', name: 'Brake Pad', qty: 2, price: '750.00' },
       ],
     });
     expect(second.status).toBe(201);
@@ -269,8 +270,8 @@ describe('sale reads and void (e2e)', () => {
         sale.items.map((i) => i.productId),
       ]),
     );
-    expect(byId.get(first.id)).toEqual(['p1']);
-    expect(byId.get(second.body.data.id)).toEqual(['p2']);
+    expect(byId.get(first.id)).toEqual([testId('p1')]);
+    expect(byId.get(second.body.data.id)).toEqual([testId('p2')]);
   });
 
   it('a backoffice device can read bills', async () => {
@@ -282,7 +283,7 @@ describe('sale reads and void (e2e)', () => {
 
   it('voids a bill: stock restored, movement written, audit row written', async () => {
     const sale = await ringUp(4);
-    expect(await stockOf('p1')).toBe(36);
+    expect(await stockOf(testId('p1'))).toBe(36);
 
     const res = await voidSale(sale.id, { pin: PIN });
     expect(res.status).toBe(200);
@@ -290,7 +291,7 @@ describe('sale reads and void (e2e)', () => {
     expect(res.body.data.voidedAt).not.toBeNull();
     expect(res.body.data.voidReason).toBe('Customer return');
     expect(res.body.data.soldOffline).toBe(false);
-    expect(await stockOf('p1')).toBe(40);
+    expect(await stockOf(testId('p1'))).toBe(40);
 
     const saleRows = await admin.query(
       `SELECT voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
@@ -337,7 +338,7 @@ describe('sale reads and void (e2e)', () => {
       expect(res.body.error.message).toBe('Void reason is required');
     }
 
-    expect(await stockOf('p1')).toBe(38);
+    expect(await stockOf(testId('p1'))).toBe(38);
     const rows = await admin.query(
       `SELECT voided FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
       [TENANT, sale.id],
@@ -354,14 +355,14 @@ describe('sale reads and void (e2e)', () => {
   /** Seeds the pair the ledger tests bill against, and reads their running totals. */
   const seedLedgerParties = async () => {
     await seedCustomer(admin, TENANT, {
-      id: 'c-void',
+      id: testId('c-void'),
       code: 'C900',
       name: 'Somchai Motors',
       points: 7,
       totalSpend: 500,
     });
     await seedMechanic(admin, TENANT, {
-      id: 'm-void',
+      id: testId('m-void'),
       code: 'M900',
       name: 'Chang Somsak',
       creditLimit: 100000,
@@ -377,12 +378,12 @@ describe('sale reads and void (e2e)', () => {
 
   const ledger = async () => {
     const [c] = await admin.query(
-      `SELECT points, total_spend FROM customers WHERE tenant_id = $1::uuid AND id = 'c-void'`,
+      `SELECT points, total_spend FROM customers WHERE tenant_id = $1::uuid AND id = '${testId('c-void')}'`,
       [TENANT],
     );
     const [m] = await admin.query(
       `SELECT total_sales, total_credit, total_discount, total_markup, credit_balance
-         FROM mechanics WHERE tenant_id = $1::uuid AND id = 'm-void'`,
+         FROM mechanics WHERE tenant_id = $1::uuid AND id = '${testId('m-void')}'`,
       [TENANT],
     );
     return { ...c, ...m };
@@ -391,9 +392,9 @@ describe('sale reads and void (e2e)', () => {
   /** 4 × 85 = 340.00, 34 points, 50 baht discounted to the mechanic. */
   const onTheTab = (paymentMethod: string) =>
     ringUp(4, {
-      customerId: 'c-void',
+      customerId: testId('c-void'),
       customerName: 'Somchai Motors',
-      mechanicId: 'm-void',
+      mechanicId: testId('m-void'),
       mechanicName: 'Chang Somsak',
       mechanicDelta: '-50.00',
       paymentMethod,
@@ -445,13 +446,13 @@ describe('sale reads and void (e2e)', () => {
     // go negative in silence rather than raise.
     await admin.query(
       `UPDATE customers SET points = 2, total_spend = 10
-        WHERE tenant_id = $1::uuid AND id = 'c-void'`,
+        WHERE tenant_id = $1::uuid AND id = '${testId('c-void')}'`,
       [TENANT],
     );
     await admin.query(
       `UPDATE mechanics SET total_sales = 10, total_discount = 1, total_markup = 0,
                             credit_balance = 5
-        WHERE tenant_id = $1::uuid AND id = 'm-void'`,
+        WHERE tenant_id = $1::uuid AND id = '${testId('m-void')}'`,
       [TENANT],
     );
 
@@ -470,14 +471,14 @@ describe('sale reads and void (e2e)', () => {
   it('refuses to void twice', async () => {
     const sale = await ringUp(3);
     expect((await voidSale(sale.id, { pin: PIN })).status).toBe(200);
-    expect(await stockOf('p1')).toBe(40);
+    expect(await stockOf(testId('p1'))).toBe(40);
 
     const again = await voidSale(sale.id, { pin: PIN });
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('SALE_VOIDED');
     expect(again.body.error.message).toBe('Bill already voided');
     // Stock restored once, not twice — the shop must not gain inventory it never had.
-    expect(await stockOf('p1')).toBe(40);
+    expect(await stockOf(testId('p1'))).toBe(40);
   });
 
   it('refuses a key reused against a different bill — no replay onto the wrong one', async () => {
@@ -487,7 +488,7 @@ describe('sale reads and void (e2e)', () => {
     // get 200 with the FIRST bill's receipt while their own bill stayed live.
     const first = await ringUp(2);
     const second = await ringUp(3);
-    expect(await stockOf('p1')).toBe(35);
+    expect(await stockOf(testId('p1'))).toBe(35);
 
     const key = `k-void-shared-${++keySeq}-${Date.now()}`;
     const voidWithKey = (id: string) =>
@@ -498,7 +499,7 @@ describe('sale reads and void (e2e)', () => {
         .send({ reason: 'Mistake' });
 
     expect((await voidWithKey(first.id)).status).toBe(200);
-    expect(await stockOf('p1')).toBe(37);
+    expect(await stockOf(testId('p1'))).toBe(37);
 
     const res = await voidWithKey(second.id);
     expect(res.status).toBe(409);
@@ -511,7 +512,7 @@ describe('sale reads and void (e2e)', () => {
       [TENANT, second.id],
     );
     expect(rows[0].voided).toBe(false);
-    expect(await stockOf('p1')).toBe(37);
+    expect(await stockOf(testId('p1'))).toBe(37);
   });
 
   it('refuses to void a bill that already has a credit note against it', async () => {
@@ -519,14 +520,14 @@ describe('sale reads and void (e2e)', () => {
     await admin.query(
       `INSERT INTO returns (tenant_id, id, cn_no, sale_id, receipt_no,
                             refund_subtotal, refund_discount, refund_total, refund_method)
-            VALUES ($1::uuid, 'r-existing', 'CN09-2569-01-0009', $2, $3, 85, 0, 85, 'เงินสด')`,
+            VALUES ($1::uuid, '${testId('r-existing')}', 'CN09-2569-01-0009', $2, $3, 85, 0, 85, 'เงินสด')`,
       [TENANT, sale.id, sale.receiptNo],
     );
 
     const res = await voidSale(sale.id, { pin: PIN });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('SALE_HAS_RETURNS');
-    expect(await stockOf('p1')).toBe(38);
+    expect(await stockOf(testId('p1'))).toBe(38);
   });
 
   /** Posts to the drawer as the counter does, each call with its own key. */
@@ -583,7 +584,7 @@ describe('sale reads and void (e2e)', () => {
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('SALE_NOT_IN_OPEN_SHIFT');
     expect(await isVoided(sale.id)).toBe(false);
-    expect(await stockOf('p1')).toBe(38);
+    expect(await stockOf(testId('p1'))).toBe(38);
     // Falsified: with the check removed this void answers 200 and `cashSales` of the
     // closed drawer drops to 0.00 — the retroactive change #94 is about.
     expect(await closing(closedShiftId)).toEqual(counted);
@@ -597,7 +598,7 @@ describe('sale reads and void (e2e)', () => {
         saleId: sale.id,
         refundMethod: 'เงินสด',
         items: [
-          { productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' },
+          { productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '85.00' },
         ],
       });
     expect(refund.status).toBe(201);
@@ -606,7 +607,7 @@ describe('sale reads and void (e2e)', () => {
       [TENANT, sale.id],
     );
     expect(cn.shift_id).toBe(nextShiftId);
-    expect(await stockOf('p1')).toBe(40);
+    expect(await stockOf(testId('p1'))).toBe(40);
     expect(await closing(nextShiftId)).toMatchObject({
       cashSales: '0.00',
       cashRefunds: '170.00',
@@ -626,7 +627,7 @@ describe('sale reads and void (e2e)', () => {
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('NO_OPEN_SHIFT');
     expect(await isVoided(sale.id)).toBe(false);
-    expect(await stockOf('p1')).toBe(39);
+    expect(await stockOf(testId('p1'))).toBe(39);
   });
 
   it("#100: after today's close the counter's credit note is refused for cash, not lost", async () => {
@@ -654,7 +655,7 @@ describe('sale reads and void (e2e)', () => {
           saleId: sale.id,
           refundMethod,
           items: [
-            { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+            { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
           ],
         });
 
@@ -663,13 +664,13 @@ describe('sale reads and void (e2e)', () => {
     const cash = await refund('เงินสด');
     expect(cash.status).toBe(409);
     expect(cash.body.error.code).toBe('NO_OPEN_SHIFT');
-    expect(await stockOf('p1')).toBe(38);
+    expect(await stockOf(testId('p1'))).toBe(38);
 
     // A transfer does not touch the drawer, so it is still taken — with no shift.
     const transfer = await refund('โอน');
     expect(transfer.status).toBe(201);
     expect(transfer.body.data.shiftId).toBeNull();
-    expect(await stockOf('p1')).toBe(39);
+    expect(await stockOf(testId('p1'))).toBe(39);
     expect(await report()).toEqual(counted);
   });
 
@@ -681,7 +682,7 @@ describe('sale reads and void (e2e)', () => {
     );
 
     // Shifts are per device: another till's drawer being open is not this one's.
-    const otherTill = await seedOpenShift(admin, TENANT, 'another-till');
+    const otherTill = await seedOpenShift(admin, TENANT, testId('another-till'));
     const elsewhere = await ringUp(1);
     await admin.query(
       `UPDATE sales SET shift_id = $2 WHERE tenant_id = $1::uuid AND id = $3`,
@@ -694,7 +695,7 @@ describe('sale reads and void (e2e)', () => {
       expect(res.body.error.code).toBe('SALE_NOT_IN_OPEN_SHIFT');
       expect(await isVoided(id)).toBe(false);
     }
-    expect(await stockOf('p1')).toBe(38);
+    expect(await stockOf(testId('p1'))).toBe(38);
   });
 
   it('#94: a void committed while the drawer was open still replays after it closes', async () => {
@@ -718,7 +719,7 @@ describe('sale reads and void (e2e)', () => {
     const keyless = await voidSale(sale.id, { reason: 'Mistake' });
     expect(keyless.status).toBe(409);
     expect(keyless.body.error.code).toBe('SALE_VOIDED');
-    expect(await stockOf('p1')).toBe(40);
+    expect(await stockOf(testId('p1'))).toBe(40);
   });
 
   /** Everything a void writes, for proving a second request wrote none of it. */
@@ -735,7 +736,7 @@ describe('sale reads and void (e2e)', () => {
            WHERE tenant_id = $1::uuid AND action = 'sale.void') AS voids`,
       [TENANT, saleId],
     );
-    return { sale, counts, stock: await stockOf('p1'), ledger: await ledger() };
+    return { sale, counts, stock: await stockOf(testId('p1')), ledger: await ledger() };
   };
 
   const voidWithKey = (id: string, key: string, body: object) =>
@@ -767,7 +768,7 @@ describe('sale reads and void (e2e)', () => {
     expect(wrongDevice.status).toBe(403);
     expect(wrongDevice.body.error.code).toBe('DEVICE_ROLE_FORBIDDEN');
 
-    const missing = await voidSale('no-such-bill', { pin: PIN });
+    const missing = await voidSale(testId('no-such-bill'), { pin: PIN });
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe('SALE_NOT_FOUND');
   });

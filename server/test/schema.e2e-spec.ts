@@ -8,7 +8,9 @@ import {
   APP_ROLE,
   TENANT_SCOPED_TABLES as INITIAL_TENANT_SCOPED_TABLES,
 } from '../src/db/migrations/1788652800001-RowLevelSecurity.js';
+import { ENTITY_FKS } from '../src/db/migrations/1788652804900-EntityIdsToUuid.js';
 import { SEED_CATEGORIES, seedCategories } from '../src/db/seed.js';
+import { testId } from './support/test-ids.js';
 
 const OWNER_REVIEW_ITEMS_TABLE = 'owner_review_items';
 const TENANT_SCOPED_TABLES = [
@@ -50,6 +52,21 @@ async function tableNames(c: Client): Promise<string[]> {
   return r.rows.map((x) => x.tablename);
 }
 
+const P1 = testId('p1');
+const S1 = testId('s1');
+const RI_NULL = testId('ri-null');
+const RI_FK = testId('ri-fk');
+
+/** One product per tenant, inserted as owner (= superuser, which bypasses RLS). */
+async function insertFixtureProducts(owner: Client): Promise<void> {
+  await owner.query(
+    `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock)
+     VALUES ($1, $3, 'BP-100', 'Front brake pad', 'ผ้าเบรกหน้า', 'เบรก', 'TRW', 450, 300, 5),
+            ($2, $3, 'OF-200', 'Oil filter',      'กรองน้ำมัน',  'น้ำมัน', 'Bosch', 120, 80, 9)`,
+    [TENANT_A, TENANT_B, P1],
+  );
+}
+
 async function migrateUp(): Promise<void> {
   const ds = createMigrationDataSource(OWNER_URL);
   await ds.initialize();
@@ -78,12 +95,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       `INSERT INTO tenants (id, code, shop_name) VALUES ($1, 'a', 'ร้าน A'), ($2, 'b', 'ร้าน B')`,
       [TENANT_A, TENANT_B],
     );
-    await owner.query(
-      `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock)
-       VALUES ($1, 'p1', 'BP-100', 'Front brake pad', 'ผ้าเบรกหน้า', 'เบรก', 'TRW', 450, 300, 5),
-              ($2, 'p1', 'OF-200', 'Oil filter',      'กรองน้ำมัน',  'น้ำมัน', 'Bosch', 120, 80, 9)`,
-      [TENANT_A, TENANT_B],
-    );
+    await insertFixtureProducts(owner);
   }, 60_000);
 
   afterAll(async () => {
@@ -171,8 +183,8 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     await expect(
       app.query(
         `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock)
-         VALUES ($1, 'p9', 'X', 'x', 'x', 'x', 'x', 1, 1, 1)`,
-        [TENANT_A],
+         VALUES ($1, $2, 'X', 'x', 'x', 'x', 'x', 1, 1, 1)`,
+        [TENANT_A, testId('p9')],
       ),
     ).rejects.toMatchObject({ code: '42501' }); // new row violates row-level security policy
   });
@@ -233,16 +245,16 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     const adj = (id: string) =>
       app.query(
         `INSERT INTO movements (tenant_id, id, product_id, part_no, name, delta, type, stock_after)
-         VALUES ($1, $2, 'p1', 'BP-100', 'Front brake pad', 1, 'adjustment-in', 6)`,
-        [TENANT_A, id],
+         VALUES ($1, $2, $3, 'BP-100', 'Front brake pad', 1, 'adjustment-in', 6)`,
+        [TENANT_A, testId(id), P1],
       );
     await adj('m1');
     await adj('m2'); // same (type, product), both ref_id NULL → allowed
     const sale = (id: string) =>
       app.query(
         `INSERT INTO movements (tenant_id, id, product_id, part_no, name, delta, type, stock_after, ref_id)
-         VALUES ($1, $2, 'p1', 'BP-100', 'Front brake pad', -1, 'sale', 5, 's1')`,
-        [TENANT_A, id],
+         VALUES ($1, $2, $3, 'BP-100', 'Front brake pad', -1, 'sale', 5, $4)`,
+        [TENANT_A, testId(id), P1, S1],
       );
     await sale('m3');
     await app.query('SAVEPOINT replay');
@@ -252,7 +264,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     });
     await app.query('ROLLBACK TO SAVEPOINT replay');
     await expect(
-      app.query(`DELETE FROM movements WHERE id = 'm1'`),
+      app.query(`DELETE FROM movements WHERE id = $1`, [testId('m1')]),
     ).rejects.toMatchObject({
       code: '42501',
     });
@@ -291,8 +303,8 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
 
   it('owner_review_items: an emptied app.tenant_id fails closed with 0 rows, not 22P02 (…4200)', async () => {
     await owner.query(
-      `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id) VALUES ($1, 'ri-null', 'date_flag', 's1')`,
-      [TENANT_A],
+      `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id) VALUES ($1, $2, 'date_flag', $3)`,
+      [TENANT_A, RI_NULL, S1],
     );
     try {
       // A fresh connection returns NULL for the unset GUC and never exposed the bug;
@@ -301,7 +313,8 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       await app.query('BEGIN');
       await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
       const inTx = await app.query(
-        `SELECT count(*)::int AS n FROM owner_review_items WHERE id = 'ri-null'`,
+        `SELECT count(*)::int AS n FROM owner_review_items WHERE id = $1`,
+        [RI_NULL],
       );
       expect(inTx.rows[0].n).toBe(1);
       await app.query('COMMIT');
@@ -316,12 +329,12 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       expect(after.rows[0].n).toBe(0);
       await expect(
         app.query(
-          `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id) VALUES ($1, 'ri-x', 'date_flag', 's1')`,
-          [TENANT_A],
+          `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id) VALUES ($1, $2, 'date_flag', $3)`,
+          [TENANT_A, testId('ri-x'), S1],
         ),
       ).rejects.toMatchObject({ code: '42501' });
     } finally {
-      await owner.query(`DELETE FROM owner_review_items WHERE id = 'ri-null'`);
+      await owner.query(`DELETE FROM owner_review_items WHERE id = $1`, [RI_NULL]);
     }
   });
 
@@ -334,8 +347,8 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     const reviewer = user.rows[0].id;
     await owner.query(
       `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, reviewed_at, reviewed_by)
-       VALUES ($1, 'ri-fk', 'void_offline', 's1', now(), $2)`,
-      [TENANT_A, reviewer],
+       VALUES ($1, $3, 'void_offline', $4, now(), $2)`,
+      [TENANT_A, reviewer, RI_FK, S1],
     );
     try {
       await owner.query(`DELETE FROM users WHERE tenant_id = $1 AND id = $2`, [
@@ -344,13 +357,14 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       ]);
       const r = await owner.query(
         `SELECT tenant_id, reviewed_by, reviewed_at IS NOT NULL AS reviewed
-           FROM owner_review_items WHERE id = 'ri-fk'`,
+           FROM owner_review_items WHERE id = $1`,
+        [RI_FK],
       );
       expect(r.rows).toEqual([
         { tenant_id: TENANT_A, reviewed_by: null, reviewed: true },
       ]);
     } finally {
-      await owner.query(`DELETE FROM owner_review_items WHERE id = 'ri-fk'`);
+      await owner.query(`DELETE FROM owner_review_items WHERE id = $1`, [RI_FK]);
       await owner.query(`DELETE FROM users WHERE username = 'reviewer-4200'`);
     }
   });
@@ -397,14 +411,16 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   });
 
   it('platform_admins: an admin existing before …4600 gets password_changed_at backfilled to now(), not left NULL (#443)', async () => {
-    // Roll back down to …4600 (drops password_changed_at) — …4700 (#27 follow-up) and …4800
-    // (PR #580 follow-up) came after it — insert an admin as if it had existed beforehand, then re-run migrations: a fresh
-    // DataSource instance sees the rest as already applied and executes only those three,
-    // exactly like a real deploy.
+    // Roll back down to …4600 (drops password_changed_at) — …4700 (#27 follow-up), …4800
+    // (PR #580 follow-up) and …4900 (#616) came after it — insert an admin as if it had existed beforehand, then re-run migrations: a fresh
+    // DataSource instance sees the rest as already applied and executes only those four,
+    // exactly like a real deploy. …4900 refuses a database with business rows, so the
+    // product fixture is taken out for the re-run and put back afterwards.
     await app.end();
     const ds = createMigrationDataSource(OWNER_URL);
     await ds.initialize();
     try {
+      await ds.undoLastMigration({ transaction: 'each' }); // …4900
       await ds.undoLastMigration({ transaction: 'each' }); // …4800
       await ds.undoLastMigration({ transaction: 'each' }); // …4700
       await ds.undoLastMigration({ transaction: 'each' }); // …4600
@@ -414,12 +430,15 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       );
       const id = inserted.rows[0].id;
       try {
+        await owner.query(`DELETE FROM products`);
         const before = Date.now();
         const ran = await ds.runMigrations({ transaction: 'each' });
+        await insertFixtureProducts(owner);
         expect(ran.map((m) => m.name)).toEqual([
           'PlatformAdminPasswordChangedAt1788652804600',
           'ReviewItemQuoteConflict1788652804700',
           'ReviewItemDrawerOverdrawnOffline1788652804800',
+          'EntityIdsToUuid1788652804900',
         ]);
         const r = await owner.query(
           `SELECT password_changed_at FROM platform_admins WHERE id = $1`,
@@ -481,6 +500,114 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       [TENANT_B],
     );
     expect(products.rows[0].n).toBe(1); // only the fixture row — the seed adds no demo products
+  });
+
+  it('no id column (id, *_id, ref_id, entity_id) is text — only settings.tax_id, a Thai tax number (…4900, #616)', async () => {
+    const r = await owner.query<{ col: string }>(
+      `SELECT table_name || '.' || column_name AS col
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND data_type IN ('text', 'character varying', 'character')
+          AND (column_name = 'id' OR column_name LIKE '%\\_id')
+        ORDER BY 1`,
+    );
+    expect(r.rows.map((x) => x.col)).toEqual(['settings.tax_id']);
+  });
+
+  it('the 11 composite entity FKs exist with their original names and ON DELETE actions (…4900, #616)', async () => {
+    const r = await owner.query<{ name: string; table: string; def: string }>(
+      `SELECT conname AS name, conrelid::regclass::text AS table, pg_get_constraintdef(oid) AS def
+         FROM pg_constraint
+        WHERE contype = 'f' AND connamespace = 'public'::regnamespace
+          AND conname = ANY($1::text[])`,
+      [ENTITY_FKS.map((fk) => fk.name)],
+    );
+    const byName = new Map(r.rows.map((x) => [x.name, x]));
+    expect(byName.size).toBe(11);
+    for (const fk of ENTITY_FKS) {
+      const onDelete = fk.onDelete ? ` ON DELETE ${fk.onDelete}` : '';
+      expect(byName.get(fk.name), fk.name).toEqual({
+        name: fk.name,
+        table: fk.table,
+        def: `FOREIGN KEY (tenant_id, ${fk.column}) REFERENCES ${fk.parent}(tenant_id, id)${onDelete}`,
+      });
+    }
+  });
+
+  it('the three device auth functions return a uuid id and stay executable by the app role (…4900, #616)', async () => {
+    const r = await owner.query<{ fn: string; result: string; definer: boolean; config: string[] }>(
+      `SELECT p.proname AS fn, pg_get_function_result(p.oid) AS result,
+              p.prosecdef AS definer, p.proconfig AS config
+         FROM pg_proc p
+        WHERE p.pronamespace = 'public'::regnamespace
+          AND p.proname IN ('auth_lookup_device_by_token', 'auth_enrol_device',
+                            'auth_lookup_device_and_active_user')
+        ORDER BY 1`,
+    );
+    expect(r.rows.map((x) => x.fn)).toEqual([
+      'auth_enrol_device',
+      'auth_lookup_device_and_active_user',
+      'auth_lookup_device_by_token',
+    ]);
+    for (const row of r.rows) {
+      expect(row.result, row.fn).toMatch(/^TABLE\(tenant_id uuid, id uuid\b/);
+      expect(row.definer, row.fn).toBe(true);
+      expect(row.config, row.fn).toEqual(['search_path=public']);
+    }
+
+    // End to end through the app role: enrol a device by code, then look it up by token.
+    const deviceId = testId('dv-4900');
+    await owner.query(
+      `INSERT INTO devices (tenant_id, id, label, device_no, enrol_code_hash, enrol_expires_at)
+       VALUES ($1, $2, 'till', 1, 'code-4900', now() + interval '1 hour')`,
+      [TENANT_A, deviceId],
+    );
+    try {
+      const enrolled = await app.query(
+        `SELECT tenant_id, id FROM auth_enrol_device('code-4900', 'token-4900')`,
+      );
+      expect(enrolled.rows).toEqual([{ tenant_id: TENANT_A, id: deviceId }]);
+      const byToken = await app.query(
+        `SELECT id FROM auth_lookup_device_by_token('token-4900')`,
+      );
+      expect(byToken.rows).toEqual([{ id: deviceId }]);
+      const withUser = await app.query(
+        `SELECT id FROM auth_lookup_device_and_active_user('token-4900')`,
+      );
+      expect(withUser.rows).toEqual([{ id: deviceId }]);
+    } finally {
+      await owner.query(`DELETE FROM devices WHERE id = $1`, [deviceId]);
+    }
+  });
+
+  it('…4900 refuses a database whose business tables hold rows, and changes nothing (#616)', async () => {
+    await app.end();
+    const down = createMigrationDataSource(OWNER_URL);
+    await down.initialize();
+    try {
+      await down.undoLastMigration({ transaction: 'each' }); // …4900, with the product fixture in place
+    } finally {
+      await down.destroy();
+    }
+    const typeOf = async () =>
+      (
+        await owner.query(
+          `SELECT data_type FROM information_schema.columns
+            WHERE table_name = 'products' AND column_name = 'id'`,
+        )
+      ).rows[0].data_type;
+    expect(await typeOf()).toBe('text');
+
+    await expect(migrateUp()).rejects.toThrow(
+      'EntityIdsToUuid needs an empty database (table products)',
+    );
+    expect(await typeOf()).toBe('text'); // rolled back whole
+
+    await owner.query(`DELETE FROM products`);
+    await migrateUp();
+    expect(await typeOf()).toBe('uuid');
+    await insertFixtureProducts(owner);
+    app = await connect(APP_URL);
   });
 
   it('down() reverses every migration back to an empty schema, and up() re-applies cleanly', async () => {

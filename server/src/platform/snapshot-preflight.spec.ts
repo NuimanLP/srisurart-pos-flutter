@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { planClampViolations, planDuplicateDocNumbers, planUnparseableDates } from './snapshot-preflight.js';
+import { planBadIds, planClampViolations, planDuplicateDocNumbers, planUnparseableDates } from './snapshot-preflight.js';
+import { testId } from '../../test/support/test-ids.js';
 
 // #239 AC 1-3: each pre-flight gap gets its own unit test, on the pure scan alone.
 describe('planDuplicateDocNumbers', () => {
@@ -214,5 +215,46 @@ describe('planClampViolations', () => {
       { table: 'settings', id: '-', field: 'taxRate', value: 'x', rule: 'must be a finite number' },
     ]);
     expect(planClampViolations({ sa_settings: { shopName: 'x' } })).toEqual([]);
+  });
+});
+
+describe('planBadIds (#616)', () => {
+  const a = testId('a');
+  it('accepts lowercase UUIDs everywhere, absent references included', () => {
+    expect(
+      planBadIds({
+        sa_products: [{ id: a }],
+        sa_sales: [{ id: testId('s'), customerId: null, items: [{ productId: a }] }],
+        sa_cash_drawer: { id: testId('sh'), entries: [{ id: testId('de') }] },
+        sa_parked: [{ id: testId('pk') }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('names the table and field of an old-format id or reference', () => {
+    const out = planBadIds({
+      sa_products: [{ id: 'p1' }],
+      sa_sales: [{ id: testId('s'), mechanicId: 'm_1', items: [{ productId: 'p1' }] }],
+      sa_shift_history: [{ id: testId('sh'), entries: [{ id: 'de1' }] }],
+      sa_parked: [{ id: a.toUpperCase() }],
+    });
+    expect(out.map((b) => `${b.table}.${b.field}`)).toEqual([
+      'products.id', 'sales.mechanicId', 'sales.items[0].productId', 'drawerEntries.entries[0].id', 'parkedSales.id',
+    ]);
+  });
+
+  it('requires an id on a shift (the export always writes one)', () => {
+    expect(planBadIds({ sa_shift_history: [{ date: '2026-06-01', entries: [] }] }).map((b) => b.table)).toEqual(['shifts']);
+  });
+
+  it('requires a productId on every sale and return line, but not on a quote line', () => {
+    const out = planBadIds({
+      sa_sales: [{ id: testId('s'), items: [{ productId: a }, { name: 'no product' }, { productId: '' }] }],
+      sa_returns: [{ id: testId('r'), saleId: testId('s'), items: [{ productId: null }] }],
+      sa_quotes: [{ id: testId('q'), items: [{ name: 'free-text line' }, { productId: null }] }],
+    });
+    expect(out.map((b) => `${b.table}.${b.field}`)).toEqual([
+      'sales.items[1].productId', 'sales.items[2].productId', 'returns.items[0].productId',
+    ]);
   });
 });

@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { testId } from '../../test/support/test-ids.js';
 import {
   parseQuoteConvert,
   parseQuoteCreate,
@@ -10,7 +11,7 @@ import {
 const body = (over: Record<string, unknown> = {}) => ({
   subtotal: '150.00',
   total: '150.00',
-  items: [{ productId: 'p1', name: 'x', qty: 1, price: '150.00' }],
+  items: [{ productId: testId('p1'), name: 'x', qty: 1, price: '150.00' }],
   ...over,
 });
 
@@ -22,7 +23,7 @@ describe('parseQuoteCreate', () => {
     expect(q.validDays).toBeNull();
     expect(q.items[0]).toEqual({
       lineNo: 1,
-      productId: 'p1',
+      productId: testId('p1'),
       name: 'x',
       qty: 1,
       priceSatang: 15000,
@@ -69,9 +70,9 @@ describe('parseQuotePatch', () => {
 describe('parseQuoteConvert', () => {
   it('reads the sale party', () => {
     expect(
-      parseQuoteConvert({ id: 's1', paymentMethod: 'เงินสด' }),
+      parseQuoteConvert({ id: testId('s1'), paymentMethod: 'เงินสด' }),
     ).toMatchObject({
-      id: 's1',
+      id: testId('s1'),
       paymentMethod: 'เงินสด',
       overrideCreditLimit: false,
     });
@@ -79,7 +80,7 @@ describe('parseQuoteConvert', () => {
 
   it('refuses lines or money in the body', () => {
     expect(() =>
-      parseQuoteConvert({ id: 's1', paymentMethod: 'เงินสด', items: [] }),
+      parseQuoteConvert({ id: testId('s1'), paymentMethod: 'เงินสด', items: [] }),
     ).toThrow(BadRequestException);
   });
 });

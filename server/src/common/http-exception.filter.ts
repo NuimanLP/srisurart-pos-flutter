@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { Logger } from 'pino';
+import { invalidUuidInput } from './ids.js';
 
 export interface ErrorEnvelope {
   status: 'error';
@@ -22,6 +23,11 @@ export function toErrorEnvelope(exception: unknown): {
   status: number;
   body: ErrorEnvelope;
 } {
+  return envelopeOf(invalidUuidInput(exception) ?? exception);
+}
+
+/** `toErrorEnvelope` once the 22P02-uuid backstop has been applied. */
+function envelopeOf(exception: unknown): { status: number; body: ErrorEnvelope } {
   if (exception instanceof HttpException) {
     const status = exception.getStatus();
     const res = exception.getResponse();
@@ -84,7 +90,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const req = ctx.getRequest<Request & { id?: string }>();
     const res = ctx.getResponse<Response>();
-    const { status, body } = toErrorEnvelope(exception);
+    const invalidUuid = invalidUuidInput(exception);
+    const { status, body } = envelopeOf(invalidUuid ?? exception);
 
     if (exception instanceof HttpException) {
       const resp = exception.getResponse();
@@ -96,6 +103,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     }
 
+    if (invalidUuid) {
+      // An id reached SQL without `parseUuid` — the client gets its 400, we get the trail.
+      this.logger.warn(
+        { correlationId: req.id, err: exception },
+        'non-UUID id reached Postgres',
+      );
+    }
     if (status >= 500) {
       this.logger.error(
         { correlationId: req.id, err: exception },

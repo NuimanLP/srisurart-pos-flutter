@@ -1,9 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
+import { optionalUuid } from '../common/ids.js';
 import { toSatang } from '../common/money.js';
 import {
   asObject,
   assertMoneyMakesSense,
-  optionalString,
   parseItemsArray,
   parseLinePrice,
   parseLineQty,
@@ -17,7 +17,7 @@ import {
  * `quotes_repository.dart` `saveQuote`, which is what the Checkout screen's
  * "บันทึกเป็นใบเสนอราคา" calls.
  *
- * The server owns `id` (`newId('q')`), `quoteNo` (QT, ADR-0007), `date`,
+ * The server owns `id` (`newUuid()`), `quoteNo` (QT, ADR-0007), `date`,
  * `validUntil`, `status`, `convertedAt` and `convertedSaleId`; none of them is read
  * from a body.
  */
@@ -174,7 +174,7 @@ function parseLine(raw: unknown, index: number): QuoteLine {
   return {
     lineNo: index + 1,
     // The sales helper maps '' to null: a blank product id names no product.
-    productId: optionalString(l.productId, `items[${index}].productId`),
+    productId: optionalUuid(l.productId, `items[${index}].productId`),
     name: requiredString(l.name, `items[${index}].name`),
     qty,
     priceSatang,

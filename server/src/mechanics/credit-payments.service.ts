@@ -1,7 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
@@ -156,7 +156,7 @@ export class CreditPaymentsService {
       docType: 'cp',
     });
 
-    const id = dto.id ?? newId('cp');
+    const id = dto.id ?? newUuid();
     const inserted = (await manager.query(
       `INSERT INTO credit_payments
               (tenant_id, id, receipt_no, mechanic_id, amount, payment_method, note, shift_id)
@@ -226,7 +226,7 @@ export class CreditPaymentsService {
    * the original reply's number may already have been moved by a later sale.
    *
    * An id that names a different payment (another mechanic, amount or method) is
-   * `409 CREDIT_PAYMENT_ID_REUSED`: `newId` makes that a client bug, and answering
+   * `409 CREDIT_PAYMENT_ID_REUSED`: a UUIDv7 makes that a client bug, and answering
    * with the old payment would lose the new one's money.
    */
   private async existingPayment(

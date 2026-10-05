@@ -1,11 +1,11 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { requiredUuid } from '../common/ids.js';
 import {
   MAX_LIMIT,
   Paginated,
@@ -38,10 +38,7 @@ export class ReportsController {
 
   @Get('closing')
   closing(@Query('shiftId') shiftId?: string): Promise<ClosingReport> {
-    if (!shiftId) {
-      throw new BadRequestException('shiftId is required');
-    }
-    return this.reports.closing(shiftId);
+    return this.reports.closing(requiredUuid(shiftId, 'shiftId'));
   }
 
   @Get('top-products')
@@ -85,9 +82,6 @@ export class ReportsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ): Promise<ProductSales> {
-    if (!productId) {
-      throw new BadRequestException('productId is required');
-    }
-    return this.reports.productSales(productId, reportDateRange(from, to));
+    return this.reports.productSales(requiredUuid(productId, 'productId'), reportDateRange(from, to));
   }
 }

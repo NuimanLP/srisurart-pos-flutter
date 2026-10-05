@@ -12,6 +12,7 @@ import {
 } from '../src/queue/queue.constants.js';
 import { TenantJobRunner } from '../src/queue/tenant-job-runner.js';
 import { createTestApp, resetTenant, type TestApp } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 describe('BullMQ infrastructure and Bull-Board (e2e)', () => {
   let fixture: TestApp;
@@ -57,7 +58,7 @@ describe('BullMQ infrastructure and Bull-Board (e2e)', () => {
       {
         tenantId: TENANT_A,
         correlationId: 'corr-123',
-        saleId: 's1',
+        saleId: testId('s1'),
       },
       { jobId: 'test-job-1' },
     );
@@ -195,7 +196,7 @@ describe('BullMQ infrastructure and Bull-Board (e2e)', () => {
         data: {
           tenantId: TENANT_A,
           correlationId: 'corr-fatal-1',
-          productId: 'prod-99',
+          productId: testId('prod-99'),
         },
         opts: { attempts: 3 },
         attemptsMade: 2,

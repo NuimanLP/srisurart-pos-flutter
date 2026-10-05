@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
@@ -178,7 +178,7 @@ export class CustomersService {
       [tenantId],
     )) as { n: number }[];
     const code = `CUS${String(maxRows[0].n + 1).padStart(3, '0')}`;
-    const customerId = input.id?.trim() || newId('c');
+    const customerId = input.id ?? newUuid();
     const rows = (await manager.query(
       `INSERT INTO customers (tenant_id, id, code, name, name_th, phone, address)
             VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)

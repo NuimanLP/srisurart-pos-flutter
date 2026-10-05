@@ -9,7 +9,7 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "shmush0wjt_a12a709c_14",
+        "id": "01a10bdb-3c41-750e-ba12-01f133a823d4",
         "startingCash": "1500.00"
       }
     }

@@ -24,6 +24,7 @@ import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
+import 'support/test_ids.dart';
 
 /// Enough of a token store for `SyncService` to be constructed.
 class _MemTokenStorage implements TokenStorage {
@@ -326,7 +327,7 @@ void main() {
       expect(line['qty'], 1);
       expect(line['originalQty'], 5);
       // The client's id (#452, 08 §6.1) — the server records the note under it.
-      expect(body['id'], startsWith('r'));
+      expect(body['id'], matches(uuidV7));
       // Online, the number is still the server's (parity with `POST /sales`).
       expect(body.containsKey('cnNo'), isFalse);
       expect(body.containsKey('shiftId'), isFalse);
@@ -666,7 +667,7 @@ void main() {
         final cn = await repo.createReturn(oneBack);
 
         expect(sent, isEmpty);
-        expect(cn.id, startsWith('r'));
+        expect(cn.id, matches(uuidV7));
         expect(cn.cnNo, 'CN03-$period-0005');
         expect(cn.receiptNo, 'RC-00042');
         expect(cn.refundTotal, 100);

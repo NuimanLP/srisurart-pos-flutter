@@ -21,6 +21,7 @@ import { OwnerTempPassword1788652804500 } from './migrations/1788652804500-Owner
 import { PlatformAdminPasswordChangedAt1788652804600 } from './migrations/1788652804600-PlatformAdminPasswordChangedAt.js';
 import { ReviewItemQuoteConflict1788652804700 } from './migrations/1788652804700-ReviewItemQuoteConflict.js';
 import { ReviewItemDrawerOverdrawnOffline1788652804800 } from './migrations/1788652804800-ReviewItemDrawerOverdrawnOffline.js';
+import { EntityIdsToUuid1788652804900 } from './migrations/1788652804900-EntityIdsToUuid.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -46,6 +47,7 @@ export const MIGRATIONS = [
   PlatformAdminPasswordChangedAt1788652804600,
   ReviewItemQuoteConflict1788652804700,
   ReviewItemDrawerOverdrawnOffline1788652804800,
+  EntityIdsToUuid1788652804900,
 ];
 
 /**

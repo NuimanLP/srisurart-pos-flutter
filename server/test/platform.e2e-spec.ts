@@ -9,6 +9,7 @@ import { APP_CONFIG, type AppConfig } from '../src/config/config.js';
 import { platformAdminCacheKey } from '../src/platform/platform-auth.guard.js';
 import { createTestApp, seedOpenShift, TENANT_TABLES_DEPTH_FIRST } from './support/fixture.js';
 import { activateOwner, OWNER_CHOSEN_PASSWORD } from './support/owner-password.js';
+import { testId } from './support/test-ids.js';
 
 describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
   let app: INestApplication;
@@ -459,7 +460,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
         expect(shiftId).toBeDefined();
 
         // 7. POST /sales: POS rings up a sale
-        const saleId = `s-${randomUUID()}`;
+        const saleId = randomUUID();
         const saleRes = await request(app.getHttpServer())
           .post('/api/v1/sales')
           .set('Authorization', `Bearer ${posToken}`)
@@ -510,8 +511,14 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
   // never enrolled" — a platform admin can reissue one, but only for a device that has
   // never been enrolled, and `GET /platform/tenants/:id` so the CLI/UI has device ids and
   // import-job status to work from without touching psql.
+  /** The id of the first POS device a provisioned tenant got (it was the literal 'pos1' before #616). */
+  const firstPosDevice = async (tid: string): Promise<string> =>
+    ((await adminDs.query(`SELECT id FROM devices WHERE tenant_id = $1 AND device_no = 1`, [tid])) as { id: string }[])[0].id;
+
   describe('Enrol-code reissue + tenant detail (#443 PR2)', () => {
     let tenantId: string;
+    /** The device `POST /platform/tenants` created (device_no 1) — its id is a server UUID (#616). */
+    let pos1: string;
     let ownerUsername: string;
     let ownerPassword: string;
     let provisioningEnrolCode: string;
@@ -531,6 +538,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
         });
       expect(provisionRes.status).toBe(201);
       tenantId = provisionRes.body.data.tenantId;
+      pos1 = await firstPosDevice(tenantId);
       provisioningEnrolCode = provisionRes.body.data.enrolCode;
       await activateOwner(app, ownerUsername, provisionRes.body.data.tempPassword, ownerPassword);
     });
@@ -546,12 +554,12 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     it('reissues a code for the never-enrolled first device, kills the old code, and the new one enrols', async () => {
       // The old code (from provisioning) still works before reissue.
       const reissueRes = await request(app.getHttpServer())
-        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/${pos1}/enrol-code`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send();
 
       expect(reissueRes.status).toBe(200);
-      expect(reissueRes.body.data.deviceId).toBe('pos1');
+      expect(reissueRes.body.data.deviceId).toBe(pos1);
       expect(reissueRes.body.data.enrolCode).toMatch(/^[0-9A-F]{8}$/);
       expect(reissueRes.body.data.enrolExpiresAt).toBeDefined();
       const newCode = reissueRes.body.data.enrolCode;
@@ -576,7 +584,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       );
       expect(auditRows.length).toBe(1);
       expect(auditRows[0].platform_admin_id).toBe(adminId);
-      expect(auditRows[0].entity_id).toBe('pos1');
+      expect(auditRows[0].entity_id).toBe(pos1);
       const auditJson = JSON.stringify(auditRows[0]);
       expect(auditJson).not.toContain(newCode);
       expect(auditJson).not.toContain(provisioningEnrolCode);
@@ -590,7 +598,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       expect(enrolRes.status).toBe(200);
 
       const reissueRes = await request(app.getHttpServer())
-        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/${pos1}/enrol-code`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send();
 
@@ -640,7 +648,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
     it('answers 404 for a device id that does not belong to (or exist for) the tenant', async () => {
       const reissueRes = await request(app.getHttpServer())
-        .post(`/api/v1/platform/tenants/${tenantId}/devices/does-not-exist/enrol-code`)
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/${testId('does-not-exist')}/enrol-code`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send();
 
@@ -662,8 +670,11 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       expect(otherRes.status).toBe(201);
       const otherTenantId: string = otherRes.body.data.tenantId;
       try {
+        // Device ids are per-tenant keys: give the other shop's first device this shop's
+        // id, so "the same id" is really the same (it was the literal 'pos1' on both).
+        await adminDs.query(`UPDATE devices SET id = $2 WHERE tenant_id = $1 AND device_no = 1`, [otherTenantId, pos1]);
         await adminDs.query(
-          `INSERT INTO devices (tenant_id, id, label, device_no, role) VALUES ($1, 'only-in-other', 'x', 2, 'backoffice')`,
+          `INSERT INTO devices (tenant_id, id, label, device_no, role) VALUES ($1, '${testId('only-in-other')}', 'x', 2, 'backoffice')`,
           [otherTenantId],
         );
         const before = await adminDs.query(
@@ -672,7 +683,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
         );
 
         const res = await request(app.getHttpServer())
-          .post(`/api/v1/platform/tenants/${tenantId}/devices/only-in-other/enrol-code`)
+          .post(`/api/v1/platform/tenants/${tenantId}/devices/${testId('only-in-other')}/enrol-code`)
           .set('Authorization', `Bearer ${adminToken}`)
           .send();
         expect(res.status).toBe(404);
@@ -680,7 +691,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
         // Reissuing `pos1` here must not reach the other tenant's `pos1` either.
         const ok = await request(app.getHttpServer())
-          .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+          .post(`/api/v1/platform/tenants/${tenantId}/devices/${pos1}/enrol-code`)
           .set('Authorization', `Bearer ${adminToken}`)
           .send();
         expect(ok.status).toBe(200);
@@ -701,7 +712,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
     it('refuses both new routes with 403 PLATFORM_IP_FORBIDDEN from an IP outside the allowlist', async () => {
       const reissueRes = await request(app.getHttpServer())
-        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/enrol-code`)
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/${pos1}/enrol-code`)
         .set('Authorization', `Bearer ${adminToken}`)
         .set('X-Forwarded-For', '203.0.113.195')
         .send();
@@ -725,7 +736,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
     it('GET /platform/tenants/:id still shows an expired enrolExpiresAt (the case reissue exists for)', async () => {
       await adminDs.query(
-        `UPDATE devices SET enrol_expires_at = now() - interval '1 day' WHERE tenant_id = $1 AND id = 'pos1'`,
+        `UPDATE devices SET enrol_expires_at = now() - interval '1 day' WHERE tenant_id = $1 AND id = '${pos1}'`,
         [tenantId],
       );
       const res = await request(app.getHttpServer())
@@ -739,7 +750,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
     it('answers 400 INVALID_TENANT_ID for a non-UUID tenant id, on both the reissue and detail routes', async () => {
       const reissueRes = await request(app.getHttpServer())
-        .post('/api/v1/platform/tenants/not-a-uuid/devices/pos1/enrol-code')
+        .post(`/api/v1/platform/tenants/not-a-uuid/devices/${pos1}/enrol-code`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send();
       expect(reissueRes.status).toBe(400);
@@ -761,7 +772,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
     it('answers 400 for a malformed UUID even when the request body itself is fine', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/platform/tenants/${tenantId}xx/devices/pos1/enrol-code`)
+        .post(`/api/v1/platform/tenants/${tenantId}xx/devices/${pos1}/enrol-code`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send();
       expect(res.status).toBe(400);
@@ -785,7 +796,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       expect(res.body.data.devices).toHaveLength(1);
       const device = res.body.data.devices[0];
       expect(device).toEqual({
-        id: 'pos1',
+        id: pos1,
         label: 'POS #1',
         role: 'pos',
         enrolled: false,
@@ -915,6 +926,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
   // this is the platform-admin escape hatch: retire it and create the replacement in one go.
   describe('Device replace — lost last enrolled device (#476)', () => {
     let tenantId: string;
+    let pos1: string;
     let ownerUsername: string;
     let oldDeviceToken: string;
 
@@ -950,6 +962,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     beforeEach(async () => {
       const p = await provision('rpl');
       tenantId = p.tenantId;
+      pos1 = await firstPosDevice(tenantId);
       ownerUsername = p.ownerUsername;
       await activateOwner(app, ownerUsername, p.tempPassword, OWNER_CHOSEN_PASSWORD);
       const enrol = await request(app.getHttpServer())
@@ -967,20 +980,20 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       // A retired row higher than pos1: device_no is max + 1 over every row (F8).
       await adminDs.query(
         `INSERT INTO devices (tenant_id, id, label, device_no, role, retired_at)
-         VALUES ($1, 'old-bo', 'เก่า', 5, 'backoffice', now())`,
+         VALUES ($1, '${testId('old-bo')}', 'เก่า', 5, 'backoffice', now())`,
         [tenantId],
       );
 
-      const res = await replace(tenantId, 'pos1');
+      const res = await replace(tenantId, pos1);
       expect(res.status).toBe(200);
       const data = res.body.data;
-      expect(data.retiredDeviceId).toBe('pos1');
+      expect(data.retiredDeviceId).toBe(pos1);
       expect(data.device).toEqual({ id: expect.any(String), label: 'POS #6', role: 'pos', deviceNo: 6 });
       expect(data.enrolCode).toMatch(/^[0-9A-F]{8}$/);
       expect(new Date(data.enrolExpiresAt).getTime()).toBeGreaterThan(Date.now() + 6 * 86400_000);
 
       const old = await adminDs.query(
-        `SELECT retired_at, enrol_code_hash FROM devices WHERE tenant_id = $1 AND id = 'pos1'`,
+        `SELECT retired_at, enrol_code_hash FROM devices WHERE tenant_id = $1 AND id = '${pos1}'`,
         [tenantId],
       );
       expect(old[0].retired_at).not.toBeNull();
@@ -1015,7 +1028,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
         [tenantId],
       );
       expect(audit.map((a: { action: string; entity_id: string }) => [a.action, a.entity_id])).toEqual([
-        ['device.retire', 'pos1'],
+        ['device.retire', pos1],
         ['device.create', data.device.id],
       ]);
       for (const a of audit) {
@@ -1025,29 +1038,29 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       }
       expect(audit[0].after).toMatchObject({ replacedBy: data.device.id });
       expect(audit[0].after.forced).toBeUndefined();
-      expect(audit[1].after).toMatchObject({ deviceNo: 6, role: 'pos', replaces: 'pos1' });
+      expect(audit[1].after).toMatchObject({ deviceNo: 6, role: 'pos', replaces: pos1 });
     });
 
     it('names the replacement by its new device_no when the label is omitted', async () => {
-      const res = await replace(tenantId, 'pos1');
+      const res = await replace(tenantId, pos1);
       expect(res.status).toBe(200);
       expect(res.body.data.device).toMatchObject({ label: 'POS #2', deviceNo: 2 });
     });
 
     it('takes a custom label', async () => {
-      const res = await replace(tenantId, 'pos1', { label: 'เครื่องใหม่' });
+      const res = await replace(tenantId, pos1, { label: 'เครื่องใหม่' });
       expect(res.status).toBe(200);
       expect(res.body.data.device.label).toBe('เครื่องใหม่');
     });
 
     it('refuses an open shift with 409 and changes nothing; force + note archives it uncounted', async () => {
-      const shiftId = await seedOpenShift(adminDs, tenantId, 'pos1', { startingCash: 500 });
+      const shiftId = await seedOpenShift(adminDs, tenantId, pos1, { startingCash: 500 });
 
-      const refused = await replace(tenantId, 'pos1');
+      const refused = await replace(tenantId, pos1);
       expect(refused.status).toBe(409);
       expect(refused.body.error.code).toBe('DEVICE_HAS_OPEN_SHIFT');
       const untouched = await adminDs.query(
-        `SELECT retired_at FROM devices WHERE tenant_id = $1 AND id = 'pos1'`,
+        `SELECT retired_at FROM devices WHERE tenant_id = $1 AND id = '${pos1}'`,
         [tenantId],
       );
       expect(untouched[0].retired_at).toBeNull();
@@ -1057,7 +1070,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
       );
       expect(count[0].n).toBe(1);
 
-      const forced = await replace(tenantId, 'pos1', { force: true, note: 'เครื่องหายระหว่างกะ' });
+      const forced = await replace(tenantId, pos1, { force: true, note: 'เครื่องหายระหว่างกะ' });
       expect(forced.status).toBe(200);
       const shift = await adminDs.query(
         `SELECT is_active, auto_archived, archived_at, closed_at FROM shifts WHERE tenant_id = $1 AND id = $2`,
@@ -1079,44 +1092,44 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
     it('refuses unsent offline ops with 409; force + note leaves a device_force_retired review item', async () => {
       await adminDs.query(
-        `UPDATE devices SET unsynced_ops = 3, unsynced_reported_at = now() WHERE tenant_id = $1 AND id = 'pos1'`,
+        `UPDATE devices SET unsynced_ops = 3, unsynced_reported_at = now() WHERE tenant_id = $1 AND id = '${pos1}'`,
         [tenantId],
       );
-      const refused = await replace(tenantId, 'pos1');
+      const refused = await replace(tenantId, pos1);
       expect(refused.status).toBe(409);
       expect(refused.body.error.code).toBe('DEVICE_HAS_UNSYNCED_OPS');
       expect(refused.body.error.details).toMatchObject({ unsyncedOps: 3 });
 
-      const forced = await replace(tenantId, 'pos1', { force: true, note: 'ล้างเบราว์เซอร์' });
+      const forced = await replace(tenantId, pos1, { force: true, note: 'ล้างเบราว์เซอร์' });
       expect(forced.status).toBe(200);
       const review = await adminDs.query(
         `SELECT kind, ref_id, details FROM owner_review_items WHERE tenant_id = $1`,
         [tenantId],
       );
       expect(review).toHaveLength(1);
-      expect(review[0]).toMatchObject({ kind: 'device_force_retired', ref_id: 'pos1' });
+      expect(review[0]).toMatchObject({ kind: 'device_force_retired', ref_id: pos1 });
       expect(review[0].details).toMatchObject({ unsyncedOps: 3, note: 'ล้างเบราว์เซอร์' });
     });
 
     it('refuses a never-enrolled device (409 DEVICE_NOT_ENROLLED — reissue its code instead)', async () => {
       await adminDs.query(
-        `INSERT INTO devices (tenant_id, id, label, device_no, role) VALUES ($1, 'bo-new', 'x', 2, 'backoffice')`,
+        `INSERT INTO devices (tenant_id, id, label, device_no, role) VALUES ($1, '${testId('bo-new')}', 'x', 2, 'backoffice')`,
         [tenantId],
       );
-      const res = await replace(tenantId, 'bo-new');
+      const res = await replace(tenantId, testId('bo-new'));
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('DEVICE_NOT_ENROLLED');
     });
 
     it('refuses a second replace of the same device and an unknown id; a lost reply is recoverable', async () => {
-      const first = await replace(tenantId, 'pos1');
+      const first = await replace(tenantId, pos1);
       expect(first.status).toBe(200);
-      const second = await replace(tenantId, 'pos1');
+      const second = await replace(tenantId, pos1);
       expect(second.status).toBe(409);
       expect(second.body.error.code).toBe('DEVICE_ALREADY_RETIRED');
       expect(second.body.error.details.retiredAt).toBe(first.body.data.retiredAt);
 
-      const unknown = await replace(tenantId, 'nope');
+      const unknown = await replace(tenantId, testId('nope'));
       expect(unknown.status).toBe(404);
       expect(unknown.body.error.code).toBe('DEVICE_NOT_FOUND');
 
@@ -1129,9 +1142,9 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     });
 
     it('answers 400 for force without a note, and for a non-UUID tenant id', async () => {
-      const noNote = await replace(tenantId, 'pos1', { force: true });
+      const noNote = await replace(tenantId, pos1, { force: true });
       expect(noNote.status).toBe(400);
-      const badTenant = await replace('not-a-uuid', 'pos1');
+      const badTenant = await replace('not-a-uuid', pos1);
       expect(badTenant.status).toBe(400);
       expect(badTenant.body.error.code).toBe('INVALID_TENANT_ID');
     });
@@ -1139,6 +1152,9 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
     it("never reaches another tenant's device of the same id", async () => {
       const other = await provision('rplo');
       try {
+        // Device ids are per-tenant keys: give the other shop's first device this shop's
+        // id, so "the same id" is really the same (it was the literal 'pos1' on both).
+        await adminDs.query(`UPDATE devices SET id = $2 WHERE tenant_id = $1 AND device_no = 1`, [other.tenantId, pos1]);
         const otherEnrol = await request(app.getHttpServer())
           .post('/api/v1/auth/device')
           .send({ code: other.enrolCode });
@@ -1148,7 +1164,7 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
           [other.tenantId],
         );
 
-        const res = await replace(tenantId, 'pos1');
+        const res = await replace(tenantId, pos1);
         expect(res.status).toBe(200);
 
         const after = await adminDs.query(
@@ -1168,14 +1184,14 @@ describe('Platform Realm E2E & Atomic Audit Invariants (#123)', () => {
 
     it('is refused with 403 PLATFORM_IP_FORBIDDEN from an IP outside the allowlist', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/platform/tenants/${tenantId}/devices/pos1/replace`)
+        .post(`/api/v1/platform/tenants/${tenantId}/devices/${pos1}/replace`)
         .set('Authorization', `Bearer ${adminToken}`)
         .set('X-Forwarded-For', '203.0.113.195')
         .send({});
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe('PLATFORM_IP_FORBIDDEN');
       const rows = await adminDs.query(
-        `SELECT retired_at FROM devices WHERE tenant_id = $1 AND id = 'pos1'`,
+        `SELECT retired_at FROM devices WHERE tenant_id = $1 AND id = '${pos1}'`,
         [tenantId],
       );
       expect(rows[0].retired_at).toBeNull();

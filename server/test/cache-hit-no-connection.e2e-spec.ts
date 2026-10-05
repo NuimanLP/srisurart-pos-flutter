@@ -9,6 +9,7 @@ import {
   resetTenant,
   seedProduct,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 /**
  * #173 — a cached read looks at Redis before it takes a pooled connection. tx.2 wrapped
@@ -44,7 +45,7 @@ describe('cached reads take no connection until they miss (e2e, #173)', () => {
   beforeEach(async () => {
     const fixture = await resetTenant(admin, TENANT, { posDeviceNo: 17, cache });
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'BP-1',
       name: 'Brake Pad',
       price: 100,
@@ -72,7 +73,7 @@ describe('cached reads take no connection until they miss (e2e, #173)', () => {
 
   it.each([
     ['/products?page=1&limit=20'],
-    ['/products/p1'],
+    [`/products/${testId('p1')}`],
     ['/categories'],
     ['/settings'],
   ])('a HIT on %s creates zero query runners', async (path) => {

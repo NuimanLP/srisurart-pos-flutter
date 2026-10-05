@@ -9,11 +9,11 @@
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_sale_001",
+          "opId": "e208ff25-f2bd-5414-9a84-df87323c7443",
           "idempotencyKey": "k_sale_001",
           "type": "sale.create",
           "payload": {
-            "id": "s_off_001",
+            "id": "d0db03a0-e40f-5039-b0aa-232fe0f6b899",
             "receiptNo": "RC01-2569-09-0042",
             "date": "2026-09-15T02:00:00.000Z",
             "subtotal": "255.00",
@@ -23,7 +23,7 @@
             "items": [
               {
                 "lineNo": 1,
-                "productId": "p1",
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                 "partNo": "HN-15412-KVB",
                 "name": "Oil Filter",
                 "qty": 3,
@@ -42,32 +42,32 @@
       "data": {
         "results": [
           {
-            "opId": "op_sale_001",
+            "opId": "e208ff25-f2bd-5414-9a84-df87323c7443",
             "status": "applied",
             "response": {
-              "id": "s_off_001",
+              "id": "d0db03a0-e40f-5039-b0aa-232fe0f6b899",
               "receiptNo": "RC01-2569-09-0042",
               "total": "255.00",
               "pointsGranted": 25,
               "date": "2026-09-15T02:00:00.000Z",
-              "shiftId": "sh_off_001",
+              "shiftId": "1375a8e0-d189-5224-942d-4727d16bef7f",
               "products": [
                 {
-                  "id": "p1",
+                  "id": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                   "stock": 45
                 }
               ],
               "items": [
                 {
                   "lineNo": 1,
-                  "productId": "p1",
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                   "costAtSale": "50.00"
                 }
               ],
               "movements": [
                 {
-                  "id": "mv_example_s_off_001_1",
-                  "productId": "p1",
+                  "id": "81b43d75-83df-5a72-95df-7be4f2afc0b4",
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                   "partNo": "HN-15412-KVB",
                   "name": "Oil Filter",
                   "delta": -3,

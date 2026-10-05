@@ -10,6 +10,7 @@ import {
 } from './support/fixture.js';
 import { setupLoadTest } from './k6/setup.js';
 import { verifyIntegrity } from './k6/verify-integrity.js';
+import { testId } from './support/test-ids.js';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -26,14 +27,14 @@ describe('k6 Load Test Harness & Products Read Path (p11.1 e2e)', () => {
       tenantId: TENANT_ID,
       userId: '00000000-0000-4000-8000-000000000010',
       role: 'owner',
-      deviceId: 'pos-loadtest',
+      deviceId: testId('pos-loadtest'),
       deviceRole: 'pos',
     });
     const boToken = accessToken({
       tenantId: TENANT_ID,
       userId: '00000000-0000-4000-8000-000000000020',
       role: 'owner',
-      deviceId: 'bo-loadtest',
+      deviceId: testId('bo-loadtest'),
       deviceRole: 'backoffice',
     });
 
@@ -83,7 +84,7 @@ describe('k6 Load Test Harness & Products Read Path (p11.1 e2e)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBe(1);
-      expect(res.body.data[0].id).toBe('p12');
+      expect(res.body.data[0].id).toBe(testId('p12'));
       expect(res.body.data[0].name).toBe('Brake Pad Special P12');
     });
 
@@ -95,7 +96,7 @@ describe('k6 Load Test Harness & Products Read Path (p11.1 e2e)', () => {
 
   describe('Scenario 2 & 3 Write Contention & Idempotency Harness Verification', () => {
     it('successfully processes sale on p12 with valid posToken and idempotency key', async () => {
-      const saleId = 'sale-k6-e2e-1';
+      const saleId = testId('sale-k6-e2e-1');
       const idemKey = 'idem-k6-e2e-1';
 
       const res = await request(app.getHttpServer())
@@ -110,7 +111,7 @@ describe('k6 Load Test Harness & Products Read Path (p11.1 e2e)', () => {
           paymentMethod: 'เงินสด',
           items: [
             {
-              productId: 'p12',
+              productId: testId('p12'),
               name: 'Brake Pad Special P12',
               qty: 1,
               price: 100.0,
@@ -136,7 +137,7 @@ describe('k6 Load Test Harness & Products Read Path (p11.1 e2e)', () => {
           paymentMethod: 'เงินสด',
           items: [
             {
-              productId: 'p12',
+              productId: testId('p12'),
               name: 'Brake Pad Special P12',
               qty: 1,
               price: 100.0,

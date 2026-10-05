@@ -28,6 +28,7 @@ import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
+import '../support/test_ids.dart';
 
 class FixtureFile {
   final String name;
@@ -177,9 +178,12 @@ void main() {
   late AppDatabase db;
   late InMemoryTokenStorage tokenStorage;
 
-  setUp(() {
+  setUp(() async {
     db = AppDatabase(NativeDatabase.memory());
     tokenStorage = InMemoryTokenStorage();
+    // #616: the shared sync-push fixtures name the seeded demo rows by testId(label).
+    await db.customStatement("UPDATE products SET id = ? WHERE id = 'p1'", [testId('p1')]);
+    await db.customStatement("UPDATE mechanics SET id = ? WHERE id = 'm1'", [testId('m1')]);
   });
 
   tearDown(() async {
@@ -203,7 +207,7 @@ void main() {
         );
 
         // Seed product p1 with stock 48
-        await (db.update(db.products)..where((t) => t.id.equals('p1'))).write(
+        await (db.update(db.products)..where((t) => t.id.equals(testId('p1')))).write(
           const ProductsCompanion(stock: drift.Value(48)),
         );
 
@@ -217,7 +221,7 @@ void main() {
         expect(ops, isEmpty);
 
         // Product stock patched to 45 from server response
-        final p1 = await (db.select(db.products)..where((t) => t.id.equals('p1'))).getSingle();
+        final p1 = await (db.select(db.products)..where((t) => t.id.equals(testId('p1')))).getSingle();
         expect(p1.stock, 45);
 
         // Request header verification
@@ -244,7 +248,7 @@ void main() {
           // The bill as `_saveOffline` left it: device clock, local shift, no cost.
           await db.into(db.sales).insert(
                 SaleRow(
-                  id: 's_off_001',
+                  id: testId('s_off_001'),
                   receiptNo: 'RC01-2569-09-0042',
                   subtotal: 255,
                   discount: 0,
@@ -260,8 +264,8 @@ void main() {
               );
           await db.into(db.saleItems).insert(
                 SaleItemsCompanion.insert(
-                  saleId: 's_off_001',
-                  productId: 'p1',
+                  saleId: testId('s_off_001'),
+                  productId: testId('p1'),
                   name: 'Oil Filter',
                   qty: 3,
                   price: 85,
@@ -275,17 +279,17 @@ void main() {
           final reply = ((fixture.responseBody['data'] as Map)['results'] as List)
               .first['response'] as Map<String, dynamic>;
           final sale = await (db.select(db.sales)
-                ..where((t) => t.id.equals('s_off_001')))
+                ..where((t) => t.id.equals(testId('s_off_001'))))
               .getSingle();
-          expect(sale.shiftId, 'sh_off_001');
+          expect(sale.shiftId, testId('sh_off_001'));
           expect(sale.pointsGranted, 25);
           expect(sale.date.isAtSameMomentAs(DateTime.parse(reply['date'] as String)), isTrue);
           final line = await (db.select(db.saleItems)
-                ..where((t) => t.saleId.equals('s_off_001')))
+                ..where((t) => t.saleId.equals(testId('s_off_001'))))
               .getSingle();
           expect(line.costAtSale, 50.0);
           final movements = await (db.select(db.movements)
-                ..where((t) => t.productId.equals('p1') & t.type.equals('sale')))
+                ..where((t) => t.productId.equals(testId('p1')) & t.type.equals('sale')))
               .get();
           expect(movements, hasLength(1));
           expect(movements.single.delta, -3);
@@ -311,7 +315,7 @@ void main() {
         await sync.push();
 
         // Op remains with status rejected
-        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_sale_002'))).getSingle();
+        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_sale_002')))).getSingle();
         expect(op.status, 'rejected');
         expect(op.attempts, 0);
         expect(op.lastCode, 'INSUFFICIENT_STOCK');
@@ -319,7 +323,7 @@ void main() {
 
         // Visible in needsOwner stream
         final needsOwner = await sync.needsOwner.first;
-        expect(needsOwner.any((o) => o.opId == 'op_sale_002' && o.status == OutboxOpStatus.rejected), isTrue);
+        expect(needsOwner.any((o) => o.opId == testId('op_sale_002') && o.status == OutboxOpStatus.rejected), isTrue);
       });
 
       test('sale-create.replay-by-key.json: idempotent replay by key succeeds', () async {
@@ -378,7 +382,7 @@ void main() {
         await enqueueOpsFromFixture(db, fixture);
         await sync.push();
 
-        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_sale_mismatch'))).getSingle();
+        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_sale_mismatch')))).getSingle();
         expect(op.status, 'rejected');
         expect(op.lastCode, 'CLIENT_ID_REUSED');
       });
@@ -399,7 +403,7 @@ void main() {
           autoStartHealthProbe: false,
         );
 
-        await (db.update(db.products)..where((t) => t.id.equals('p1'))).write(
+        await (db.update(db.products)..where((t) => t.id.equals(testId('p1')))).write(
           const ProductsCompanion(stock: drift.Value(45)),
         );
 
@@ -409,7 +413,7 @@ void main() {
         final ops = await db.select(db.outboxOps).get();
         expect(ops, isEmpty);
 
-        final p1 = await (db.select(db.products)..where((t) => t.id.equals('p1'))).getSingle();
+        final p1 = await (db.select(db.products)..where((t) => t.id.equals(testId('p1')))).getSingle();
         expect(p1.stock, 46);
       });
 
@@ -429,7 +433,7 @@ void main() {
         await enqueueOpsFromFixture(db, fixture);
         await sync.push();
 
-        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_ret_002'))).getSingle();
+        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_ret_002')))).getSingle();
         expect(op.status, 'rejected');
         expect(op.lastCode, 'RETURN_PRICE_MISMATCH');
       });
@@ -513,7 +517,7 @@ void main() {
           autoStartHealthProbe: false,
         );
 
-        await (db.update(db.mechanics)..where((t) => t.id.equals('m1'))).write(
+        await (db.update(db.mechanics)..where((t) => t.id.equals(testId('m1')))).write(
           const MechanicsCompanion(creditBalance: drift.Value(2000.0)),
         );
 
@@ -524,11 +528,11 @@ void main() {
         expect(ops, isEmpty);
 
         // Authoritative balance from server patched
-        final m1 = await (db.select(db.mechanics)..where((t) => t.id.equals('m1'))).getSingle();
+        final m1 = await (db.select(db.mechanics)..where((t) => t.id.equals(testId('m1')))).getSingle();
         expect(m1.creditBalance, 1000.0);
 
         // Credit payment row recorded
-        final cp = await (db.select(db.creditPayments)..where((t) => t.id.equals('cp_off_001'))).getSingle();
+        final cp = await (db.select(db.creditPayments)..where((t) => t.id.equals(testId('cp_off_001')))).getSingle();
         expect(cp.amount, 500.0);
       });
 
@@ -548,7 +552,7 @@ void main() {
         await enqueueOpsFromFixture(db, fixture);
         await sync.push();
 
-        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_cp_002'))).getSingle();
+        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_cp_002')))).getSingle();
         expect(op.status, 'rejected');
         expect(op.lastCode, 'OVERPAYMENT');
       });
@@ -575,7 +579,7 @@ void main() {
         final ops = await db.select(db.outboxOps).get();
         expect(ops, isEmpty);
 
-        final c1 = await (db.select(db.customers)..where((t) => t.id.equals('c_off_001'))).getSingle();
+        final c1 = await (db.select(db.customers)..where((t) => t.id.equals(testId('c_off_001')))).getSingle();
         expect(c1.name, 'สมชาย สายลม');
         expect(c1.points, 0);
       });
@@ -595,7 +599,7 @@ void main() {
 
         await db.into(db.customers).insert(
           CustomersCompanion.insert(
-            id: 'c_off_001',
+            id: testId('c_off_001'),
             code: 'CUS-PRESERVE',
             name: 'สมชาย ขายดี',
             nameTH: 'สมชาย ขายดี',
@@ -610,7 +614,7 @@ void main() {
         final ops = await db.select(db.outboxOps).get();
         expect(ops, isEmpty);
 
-        final c1 = await (db.select(db.customers)..where((t) => t.id.equals('c_off_001'))).getSingle();
+        final c1 = await (db.select(db.customers)..where((t) => t.id.equals(testId('c_off_001')))).getSingle();
         expect(c1.code, 'CUS-PRESERVE');
         expect(c1.name, 'สมชาย ขายดี');
         expect(c1.phone, '0899999999');
@@ -632,7 +636,7 @@ void main() {
           autoStartHealthProbe: false,
         );
 
-        await (db.update(db.products)..where((t) => t.id.equals('p1'))).write(
+        await (db.update(db.products)..where((t) => t.id.equals(testId('p1')))).write(
           const ProductsCompanion(stock: drift.Value(45)),
         );
 
@@ -642,7 +646,7 @@ void main() {
         final ops = await db.select(db.outboxOps).get();
         expect(ops, isEmpty);
 
-        final p1 = await (db.select(db.products)..where((t) => t.id.equals('p1'))).getSingle();
+        final p1 = await (db.select(db.products)..where((t) => t.id.equals(testId('p1')))).getSingle();
         expect(p1.stock, 48);
       });
 
@@ -662,7 +666,7 @@ void main() {
         await enqueueOpsFromFixture(db, fixture);
         await sync.push();
 
-        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_void_002'))).getSingle();
+        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_void_002')))).getSingle();
         expect(op.status, 'rejected');
         expect(op.lastCode, 'VOID_NEEDS_ONLINE');
       });
@@ -689,12 +693,12 @@ void main() {
         // Push 1: op_1 is applied (deleted), op_2 receives retry -> attempts becomes 1
         await sync.push();
 
-        final op1 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_1'))).getSingleOrNull();
+        final op1 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_1')))).getSingleOrNull();
         expect(op1, isNull, reason: 'op_1 was applied and deleted');
 
-        var op2 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_2'))).getSingle();
-        var op3 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_3'))).getSingle();
-        var op4 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_4'))).getSingle();
+        var op2 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_2')))).getSingle();
+        var op3 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_3')))).getSingle();
+        var op4 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_4')))).getSingle();
 
         expect(op2.attempts, 1);
         expect(op2.status, 'pending');
@@ -703,19 +707,19 @@ void main() {
 
         // Push 2: op_2 attempts becomes 2
         await sync.push();
-        op2 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_2'))).getSingle();
+        op2 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_2')))).getSingle();
         expect(op2.attempts, 2);
         expect(op2.status, 'pending');
 
         // Push 3: op_2 attempts reaches 3 -> transitions to stuck (B3 / §8.4)
         await sync.push();
-        op2 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_2'))).getSingle();
+        op2 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_2')))).getSingle();
         expect(op2.attempts, 3);
         expect(op2.status, 'stuck');
 
         // Visible in needsOwner as stuck
         final needsOwner = await sync.needsOwner.first;
-        expect(needsOwner.any((o) => o.opId == 'op_2' && o.status == OutboxOpStatus.stuck), isTrue);
+        expect(needsOwner.any((o) => o.opId == testId('op_2') && o.status == OutboxOpStatus.stuck), isTrue);
       });
 
       test('batch.no-active-user-403.json: request-level 403 leaves all ops pending in outbox', () async {
@@ -737,7 +741,7 @@ void main() {
         await sync.push();
 
         // 403 does NOT mark op rejected or change attempts (Spec §8.1)
-        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_1'))).getSingle();
+        final op = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_1')))).getSingle();
         expect(op.status, 'pending');
         expect(op.attempts, 0);
       });
@@ -811,7 +815,7 @@ void main() {
           case 'shift.open':
             await db.into(db.shifts).insert(
                   ShiftsCompanion.insert(
-                    id: 'sh_off_001',
+                    id: testId('sh_off_001'),
                     dateStr: '2026-09-15',
                     startingCash: 1000,
                     // The device clock — the reply's openedAt must win.
@@ -831,7 +835,7 @@ void main() {
                 );
             await db.into(db.drawerEntries).insert(
                   DrawerEntryRow(
-                    id: 'de_off_001',
+                    id: testId('de_off_001'),
                     shiftId: 'sh_local',
                     type: 'in',
                     amount: 500,
@@ -842,13 +846,13 @@ void main() {
           case 'return.create':
             // Stock as the offline credit note left it (45 + 1 back = 46 on
             // the server; the local cache says 45 before the reply lands).
-            await (db.update(db.products)..where((t) => t.id.equals('p1')))
+            await (db.update(db.products)..where((t) => t.id.equals(testId('p1'))))
                 .write(const ProductsCompanion(stock: drift.Value(45)));
             await db.into(db.returns).insert(
                   ReturnsCompanion.insert(
-                    id: 'ret_off_001',
+                    id: testId('ret_off_001'),
                     cnNo: 'CN01-2569-09-0005',
-                    saleId: 's_off_001',
+                    saleId: testId('s_off_001'),
                     receiptNo: 'RC01-2569-09-0042',
                     refundSubtotal: 85,
                     refundDiscount: 0,
@@ -864,7 +868,7 @@ void main() {
         switch (type) {
           case 'shift.open':
             final shift = await (db.select(db.shifts)
-                  ..where((t) => t.id.equals('sh_off_001')))
+                  ..where((t) => t.id.equals(testId('sh_off_001'))))
                 .getSingle();
             expect(
               shift.openedAt.isAtSameMomentAs(
@@ -878,7 +882,7 @@ void main() {
             expect(await db.select(db.drawerEntries).get(), hasLength(1));
           case 'return.create':
             final p1 = await (db.select(db.products)
-                  ..where((t) => t.id.equals('p1')))
+                  ..where((t) => t.id.equals(testId('p1'))))
                 .getSingle();
             // The server's number once — never 45 + 1 + 1.
             expect(p1.stock, 46);

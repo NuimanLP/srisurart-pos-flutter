@@ -12,6 +12,7 @@ import {
   seedOpenShift,
   seedProduct,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 /**
  * #383 — closes the gap in #294's DoD line ("ดับ `redis-cache` แล้วร้านที่ `suspended`
@@ -56,7 +57,7 @@ interface Scenario {
  */
 async function assertActiveSellsAndSuspendedIsRejectedAtOnce(s: Scenario): Promise<void> {
   const http = () => request(s.app.getHttpServer());
-  const productId = `p-${s.tenantId.slice(-4)}`;
+  const productId = testId(`p-${s.tenantId.slice(-4)}`);
 
   await seedProduct(s.admin, s.tenantId, {
     id: productId,
@@ -83,7 +84,7 @@ async function assertActiveSellsAndSuspendedIsRejectedAtOnce(s: Scenario): Promi
 
   const idempotencyKey = `k-outage-${s.tenantId}-${Date.now()}`;
   const saleBody = {
-    id: `s-outage-${s.tenantId}`,
+    id: testId(`s-outage-${s.tenantId}`),
     subtotal: '100.00',
     discount: '0.00',
     total: '100.00',

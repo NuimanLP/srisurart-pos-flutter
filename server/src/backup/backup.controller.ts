@@ -17,7 +17,7 @@ import { open } from 'node:fs/promises';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { authorisedTenantId } from '../common/request-context.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { clientIp } from '../common/client-ip.js';
 import {
   DEFAULT_JOB_OPTIONS,
@@ -57,7 +57,7 @@ export class BackupController {
 
     const payload: TenantExportJobPayload = {
       tenantId: authorisedTenantId(),
-      correlationId: newId('export_'),
+      correlationId: newUuid(),
       requestedByUserId: req.user?.userId ?? '',
       ip: clientIp(req) ?? undefined,
     };

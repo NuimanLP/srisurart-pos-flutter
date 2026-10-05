@@ -9,11 +9,11 @@
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_shift_002",
+          "opId": "988a838f-78f0-592b-bf3d-50bb711a585f",
           "idempotencyKey": "k_sh_002",
           "type": "shift.open",
           "payload": {
-            "id": "sh_off_002",
+            "id": "54c9496f-82cc-575a-a449-eadd306c087d",
             "startingCash": "1000.00",
             "openedAt": "2026-09-16T01:00:00.000Z"
           }
@@ -28,14 +28,14 @@
       "data": {
         "results": [
           {
-            "opId": "op_shift_002",
+            "opId": "988a838f-78f0-592b-bf3d-50bb711a585f",
             "status": "applied",
             "response": {
-              "id": "sh_off_002",
+              "id": "54c9496f-82cc-575a-a449-eadd306c087d",
               "startingCash": "1000.00",
               "openedAt": "2026-09-16T01:00:00.000Z",
               "autoArchived": true,
-              "archivedShiftId": "sh_off_001"
+              "archivedShiftId": "1375a8e0-d189-5224-942d-4727d16bef7f"
             }
           }
         ]

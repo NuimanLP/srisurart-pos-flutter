@@ -19,6 +19,7 @@ import {
   exportFilePath,
   pruneExportFiles,
 } from '../src/backup/export-file.js';
+import { testId } from './support/test-ids.js';
 
 const logger = pino({ level: 'silent' });
 
@@ -101,7 +102,7 @@ describe('Backup Module (unit)', () => {
       // 3. Products
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'p-1',
+          id: testId('p-1'),
           part_no: 'OF-100',
           name: 'Oil Filter',
           name_th: 'กรองน้ำมันเครื่อง',
@@ -118,7 +119,7 @@ describe('Backup Module (unit)', () => {
       // 4. Customers
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'c-1',
+          id: testId('c-1'),
           code: 'CUS-001',
           name: 'Somchai',
           name_th: 'สมชาย',
@@ -131,7 +132,7 @@ describe('Backup Module (unit)', () => {
       // 5. Mechanics
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'm-1',
+          id: testId('m-1'),
           code: 'M-001',
           name: 'Chang Noi',
           name_th: 'ช่างน้อย',
@@ -146,7 +147,7 @@ describe('Backup Module (unit)', () => {
       // 6. Sales & SaleItems
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 's-1',
+          id: testId('s-1'),
           receipt_no: 'RC-001',
           subtotal: '300.00',
           discount: '0.00',
@@ -159,9 +160,9 @@ describe('Backup Module (unit)', () => {
       ]);
       mockEm.query.mockResolvedValueOnce([
         {
-          sale_id: 's-1',
+          sale_id: testId('s-1'),
           line_no: 1,
-          product_id: 'p-1',
+          product_id: testId('p-1'),
           part_no: 'OF-100',
           name: 'Oil Filter',
           name_th: 'กรองน้ำมันเครื่อง',
@@ -173,9 +174,9 @@ describe('Backup Module (unit)', () => {
       // 7. Returns & ReturnItems
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'r-1',
+          id: testId('r-1'),
           cn_no: 'CN-001',
-          sale_id: 's-1',
+          sale_id: testId('s-1'),
           receipt_no: 'RC-001',
           refund_subtotal: '150.00',
           refund_discount: '0.00',
@@ -187,9 +188,9 @@ describe('Backup Module (unit)', () => {
       ]);
       mockEm.query.mockResolvedValueOnce([
         {
-          return_id: 'r-1',
+          return_id: testId('r-1'),
           line_no: 1,
-          product_id: 'p-1',
+          product_id: testId('p-1'),
           name: 'Oil Filter',
           qty: 1,
           price: '150.00',
@@ -199,7 +200,7 @@ describe('Backup Module (unit)', () => {
       // 8. PurchaseOrders & POItems
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'po-1',
+          id: testId('po-1'),
           po_no: 'PO-001',
           supplier: 'Denso Corp',
           status: 'received',
@@ -208,7 +209,7 @@ describe('Backup Module (unit)', () => {
       ]);
       mockEm.query.mockResolvedValueOnce([
         {
-          po_id: 'po-1',
+          po_id: testId('po-1'),
           line_no: 1,
           part_no: 'OF-100',
           name: 'Oil Filter',
@@ -219,7 +220,7 @@ describe('Backup Module (unit)', () => {
       // 9. Quotes & QuoteItems
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'q-1',
+          id: testId('q-1'),
           quote_no: 'QT-001',
           status: 'open',
           date: new Date('2026-09-05T10:00:00.000Z'),
@@ -230,9 +231,9 @@ describe('Backup Module (unit)', () => {
       ]);
       mockEm.query.mockResolvedValueOnce([
         {
-          quote_id: 'q-1',
+          quote_id: testId('q-1'),
           line_no: 1,
-          product_id: 'p-1',
+          product_id: testId('p-1'),
           name: 'Oil Filter',
           qty: 1,
           price: '150.00',
@@ -241,8 +242,8 @@ describe('Backup Module (unit)', () => {
       // 10. Movements
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'mov-1',
-          product_id: 'p-1',
+          id: testId('mov-1'),
+          product_id: testId('p-1'),
           part_no: 'OF-100',
           name: 'Oil Filter',
           delta: -2,
@@ -254,8 +255,8 @@ describe('Backup Module (unit)', () => {
       // 11. Suppliers
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'sup-1',
-          product_id: 'p-1',
+          id: testId('sup-1'),
+          product_id: testId('p-1'),
           name: 'Denso Corp',
           unit_cost: '85.00',
           freight: '5.00',
@@ -264,9 +265,9 @@ describe('Backup Module (unit)', () => {
       // 12. Credit Payments
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'cp-1',
+          id: testId('cp-1'),
           receipt_no: 'CP-001',
-          mechanic_id: 'm-1',
+          mechanic_id: testId('m-1'),
           amount: '500.00',
           date: new Date('2026-09-12T15:00:00.000Z'),
         },
@@ -274,14 +275,14 @@ describe('Backup Module (unit)', () => {
       // 13. Shifts & DrawerEntries
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'sh-active',
+          id: testId('sh-active'),
           date_str: '2026-09-13',
           starting_cash: '1000.00',
           opened_at: new Date('2026-09-13T08:00:00.000Z'),
           is_active: true,
         },
         {
-          id: 'sh-closed',
+          id: testId('sh-closed'),
           date_str: '2026-09-12',
           starting_cash: '1000.00',
           opened_at: new Date('2026-09-12T08:00:00.000Z'),
@@ -292,8 +293,8 @@ describe('Backup Module (unit)', () => {
       ]);
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'de-1',
-          shift_id: 'sh-active',
+          id: testId('de-1'),
+          shift_id: testId('sh-active'),
           type: 'in',
           amount: '500.00',
           note: 'เงินทอนเพิ่ม',
@@ -303,7 +304,7 @@ describe('Backup Module (unit)', () => {
       // 14. Parked Sales
       mockEm.query.mockResolvedValueOnce([
         {
-          id: 'pk-1',
+          id: testId('pk-1'),
           parked_at: new Date('2026-09-13T09:30:00.000Z'),
           payload: { customer: 'General Customer', items: [] },
         },
@@ -356,10 +357,10 @@ describe('Backup Module (unit)', () => {
 
       // Validate shifts split: active vs history
       expect(snapshot.sa_cash_drawer).not.toBeNull();
-      expect(snapshot.sa_cash_drawer.id).toBe('sh-active');
+      expect(snapshot.sa_cash_drawer.id).toBe(testId('sh-active'));
       expect(snapshot.sa_cash_drawer.entries).toHaveLength(1);
       expect(snapshot.sa_shift_history).toHaveLength(1);
-      expect(snapshot.sa_shift_history[0].id).toBe('sh-closed');
+      expect(snapshot.sa_shift_history[0].id).toBe(testId('sh-closed'));
 
       // Validate __meta block
       expect(snapshot.__meta.version).toBe(2);
@@ -418,7 +419,7 @@ describe('Backup Module (unit)', () => {
       it('AC2: accepts enrolled device and enqueues job with status queued', async () => {
         mockQueue.add.mockResolvedValueOnce({ id: 'export-job-123' });
         const req: any = {
-          user: { role: 'owner', userId: USER_ID, deviceId: 'dev-1' },
+          user: { role: 'owner', userId: USER_ID, deviceId: testId('dev-1') },
           headers: { 'x-forwarded-for': '192.168.1.10' },
           ip: '127.0.0.1',
         };
@@ -450,7 +451,7 @@ describe('Backup Module (unit)', () => {
 
       it('AC5: rejects if job not found', async () => {
         mockQueue.getJob.mockResolvedValueOnce(null);
-        const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
+        const req: any = { user: { role: 'owner', deviceId: testId('dev-1') } };
         await expect(
           runInRequestContext(
             { tenantId: TENANT_ID, manager: {} as any },
@@ -464,7 +465,7 @@ describe('Backup Module (unit)', () => {
           id: 'job-other',
           data: { tenantId: 'different-tenant-uuid' },
         });
-        const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
+        const req: any = { user: { role: 'owner', deviceId: testId('dev-1') } };
         await expect(
           runInRequestContext(
             { tenantId: TENANT_ID, manager: {} as any },
@@ -483,7 +484,7 @@ describe('Backup Module (unit)', () => {
           returnvalue: { skipped: false, result: descriptor },
           failedReason: undefined,
         });
-        const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
+        const req: any = { user: { role: 'owner', deviceId: testId('dev-1') } };
         const res = await runInRequestContext(
           { tenantId: TENANT_ID, manager: {} as any },
           () => controller.getJobStatus(req, 'job-mine'),
@@ -499,7 +500,7 @@ describe('Backup Module (unit)', () => {
 
       it('opens no transaction: needs only the guard-authorised tenant', async () => {
         mockQueue.getJob.mockResolvedValueOnce(null);
-        const req: any = { user: { role: 'owner', deviceId: 'dev-1' } };
+        const req: any = { user: { role: 'owner', deviceId: testId('dev-1') } };
         // manager: null — a runTx here would be the only way to need one.
         await expect(
           runInRequestContext(
@@ -539,7 +540,7 @@ describe('Backup Module (unit)', () => {
 
       const download = (tenantId: string, id: string, res: any) =>
         runInRequestContext({ tenantId, manager: null as any }, () =>
-          controller.downloadExport({ user: { deviceId: 'dev-1' } } as any, id, res),
+          controller.downloadExport({ user: { deviceId: testId('dev-1') } } as any, id, res),
         );
 
       it('streams the tenant\'s own export file with attachment headers', async () => {

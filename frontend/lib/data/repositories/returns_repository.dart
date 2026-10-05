@@ -11,7 +11,7 @@
 //    '<name>: คืนได้อีก <remaining> แต่ขอคืน <qty>').
 //  • refundSubtotal = Σ price*qty; discountRatio = subtotal>0 ? discount/subtotal : 0;
 //    refundDiscount = round2(refundSubtotal*ratio); refundTotal = round2(refundSubtotal-refundDiscount).
-//  • cnNo = docNo('CN'); id = newId('r'); date = now.
+//  • cnNo = docNo('CN'); id = newUuid(); date = now.
 //  • Restore stock (+qty per line).
 //  • Reverse customer spend/points proportionally; clamp both at 0.
 //  • Reverse mechanic stats proportionally; reduce creditBalance ONLY when
@@ -68,7 +68,7 @@ class ReturnsRepository {
       );
 
       final cnNo = docNo('CN');
-      final returnId = newId('r');
+      final returnId = newUuid();
       final now = DateTime.now();
 
       final newReturn = ReturnRow(

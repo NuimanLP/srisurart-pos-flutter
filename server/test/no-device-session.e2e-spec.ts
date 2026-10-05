@@ -8,6 +8,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #297: dod.6 `test.no-device-session`
 // Verifies ADR-0004 device enforcement:
@@ -27,7 +28,7 @@ describe('no-device session (e2e)', () => {
   const ip = `203.0.113.${Math.floor(Math.random() * 250) + 1}`;
 
   const product = {
-    id: 'p-297',
+    id: testId('p-297'),
     partNo: 'PN-297',
     name: 'Product 297',
     price: 100,
@@ -102,7 +103,7 @@ describe('no-device session (e2e)', () => {
     // 4. POST /sales with the tokenless session must return 403 DEVICE_ROLE_FORBIDDEN
     const idemKey = `k-no-device-${Date.now()}`;
     const saleBody = {
-      id: 'sa-no-device-test',
+      id: testId('sa-no-device-test'),
       subtotal: '100.00',
       discount: '0.00',
       total: '100.00',
@@ -130,10 +131,10 @@ describe('no-device session (e2e)', () => {
     expect(saleRes.body.error?.message).toBe('เครื่องนี้ขายของไม่ได้');
 
     // 5. Prove DB is untouched:
-    // - No sales row with id 'sa-no-device-test'
+    // - No sales row with id testId('sa-no-device-test')
     const salesRows = await admin.query(
       `SELECT count(*)::int AS n FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
-      [TENANT, 'sa-no-device-test'],
+      [TENANT, testId('sa-no-device-test')],
     );
     expect(salesRows[0].n).toBe(0);
 

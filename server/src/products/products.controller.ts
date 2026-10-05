@@ -14,6 +14,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { optionalUuid } from '../common/ids.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -75,7 +77,7 @@ export class ProductsController {
       partNo: partNo?.trim() || undefined,
       category: category || undefined,
       updatedSince: since,
-      afterId: afterId || undefined,
+      afterId: optionalUuid(afterId, 'afterId') ?? undefined,
       ...parsed,
     });
     res.setHeader('X-Cache', result.fromCache ? 'HIT' : 'MISS');
@@ -87,13 +89,13 @@ export class ProductsController {
   }
 
   @Get(':id/suppliers')
-  suppliersOf(@Param('id') id: string): Promise<Supplier[]> {
+  suppliersOf(@Param('id', ParseUuidPipe) id: string): Promise<Supplier[]> {
     return this.suppliers.listForProduct(id);
   }
 
   @Get(':id')
   async byId(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Product> {
     const result = await this.products.byId(id);
@@ -116,7 +118,7 @@ export class ProductsController {
 
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
@@ -130,7 +132,7 @@ export class ProductsController {
 
   @Delete(':id')
   delete(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ id: string; deleted: true }> {
@@ -144,7 +146,7 @@ export class ProductsController {
   /** Both device roles (02_API_SCREENS.md §4): stock, unlike the drawer, is not `pos`-only. */
   @Post(':id/adjust-stock')
   adjustStock(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,

@@ -226,9 +226,8 @@ class PendingWrite {
 /// to press again and far shorter than the gap between two coincidentally
 /// identical carts.
 class PendingWrites {
-  PendingWrites(this._idPrefix);
+  PendingWrites();
 
-  final String _idPrefix;
   final Map<String, _Parked> _open = {};
 
   static const Duration _ttl = Duration(minutes: 10);
@@ -242,7 +241,7 @@ class PendingWrites {
     }
     final write = PendingWrite._(
       fingerprint: fingerprint,
-      id: newId(_idPrefix),
+      id: newUuid(),
       headers: idempotencyKey(),
     );
     _open[fingerprint] = _Parked(write, DateTime.now());

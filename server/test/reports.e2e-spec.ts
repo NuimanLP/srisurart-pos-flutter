@@ -8,6 +8,7 @@ import {
   resetTenant,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 const TENANT_A = '29292929-2929-4929-8929-292929292929';
 const TENANT_B = '30303030-3030-4030-8030-303030303030';
@@ -124,7 +125,7 @@ describe('server-side reports (e2e)', () => {
    * #95 — August holds the three kinds of bill the summary must tell apart:
    *
    *   a1  counted   350: p2 1@200 (cost_at_sale 100), p3 1@100 (null → today's 10),
-   *                      'gone' 1@50 (null, no product row → 0)
+   *                      testId('gone') 1@50 (null, no product row → 0)
    *   a2  manual void 400: p1 4@100 — voided with no credit note, excluded
    *   a3  auto-void   200: p1 2@100 (cost 50) — voided by ra3, its full return, counted
    *   ra3 credit note 200: p1 2 (cost 50)
@@ -175,7 +176,7 @@ describe('server-side reports (e2e)', () => {
    * #97 — the item reports over August's bill set above. Lines are price × qty
    * (not bill-discounted, as #29 documents):
    *
-   *   a1  p2 1@200 (oils), p3 1@100 (filters), 'gone' 1@50 (no product → อื่นๆ)
+   *   a1  p2 1@200 (oils), p3 1@100 (filters), testId('gone') 1@50 (no product → อื่นๆ)
    *   a2  manual void — p1 4@100 excluded
    *   a3  p1 2@100 (brakes), counted;  ra3  p1 −2 @100 nets it to 0 / 0.00
    *
@@ -193,21 +194,21 @@ describe('server-side reports (e2e)', () => {
     expect(top.status).toBe(200);
     expect(top.body.data).toEqual([
       {
-        productId: 'p2',
+        productId: testId('p2'),
         partNo: 'OIL-1',
         name: 'Oil',
         qty: 1,
         revenue: '200.00',
       },
       {
-        productId: 'p3',
+        productId: testId('p3'),
         partNo: 'FILTER-1',
         name: 'Filter',
         qty: 1,
         revenue: '100.00',
       },
       {
-        productId: 'gone',
+        productId: testId('gone'),
         partNo: 'GONE',
         name: 'Deleted part',
         qty: 1,
@@ -224,11 +225,11 @@ describe('server-side reports (e2e)', () => {
     ]);
 
     const product = await get(
-      '/product-sales?productId=p1&from=2026-08&to=2026-08',
+      `/product-sales?productId=${testId('p1')}&from=2026-08&to=2026-08`,
     );
     expect(product.status).toBe(200);
     expect(product.body.data).toEqual({
-      productId: 'p1',
+      productId: testId('p1'),
       partNo: 'BRAKE-1',
       name: 'Brake Pad',
       qty: 0,
@@ -243,14 +244,14 @@ describe('server-side reports (e2e)', () => {
     expect(top.status).toBe(200);
     expect(top.body.data).toEqual([
       {
-        productId: 'p1',
+        productId: testId('p1'),
         partNo: 'BRAKE-1',
         name: 'Brake Pad',
         qty: 2,
         revenue: '200.00',
       },
       {
-        productId: 'p2',
+        productId: testId('p2'),
         partNo: 'OIL-1',
         name: 'Oil',
         qty: 1,
@@ -266,11 +267,11 @@ describe('server-side reports (e2e)', () => {
     ]);
 
     const product = await get(
-      '/product-sales?productId=p1&from=2026-09&to=2026-09',
+      `/product-sales?productId=${testId('p1')}&from=2026-09&to=2026-09`,
     );
     expect(product.status).toBe(200);
     expect(product.body.data).toEqual({
-      productId: 'p1',
+      productId: testId('p1'),
       partNo: 'BRAKE-1',
       name: 'Brake Pad',
       qty: 2,
@@ -296,12 +297,12 @@ describe('server-side reports (e2e)', () => {
       totalPages: 2,
     });
     expect(first.body.data[0]).toMatchObject({
-      id: 'p2',
+      id: testId('p2'),
       stock: 0,
       minStock: 1,
     });
     expect(second.body.data[0]).toMatchObject({
-      id: 'p1',
+      id: testId('p1'),
       stock: 2,
       minStock: 2,
     });
@@ -322,7 +323,7 @@ describe('server-side reports (e2e)', () => {
       get('/by-category?from=2026-09&to=2026-09'),
       get('/stock-value'),
       get('/low-stock'),
-      get('/product-sales?productId=secret&from=2026-09&to=2026-09'),
+      get(`/product-sales?productId=${testId('secret')}&from=2026-09&to=2026-09`),
     ]);
     expect(responses.every((response) => response.status === 200)).toBe(true);
     expect(responses[0].body.data.totalRevenue).toBe('500.00');
@@ -337,9 +338,9 @@ describe('server-side reports (e2e)', () => {
       ),
     ).toBe(false);
     expect(responses[5].body.data).toEqual({
-      productId: 'secret',
-      partNo: 'secret',
-      name: 'secret',
+      productId: testId('secret'),
+      partNo: testId('secret'),
+      name: testId('secret'),
       qty: 0,
       revenue: '0.00',
     });
@@ -353,7 +354,7 @@ describe('server-side reports (e2e)', () => {
       '/by-category?from=2026-09&to=2026-09',
       '/stock-value',
       '/low-stock?limit=5',
-      '/product-sales?productId=p1&from=2026-09&to=2026-09',
+      `/product-sales?productId=${testId('p1')}&from=2026-09&to=2026-09`,
     ];
 
     for (const path of paths) {
@@ -376,40 +377,40 @@ describe('server-side reports (e2e)', () => {
       `INSERT INTO products
               (tenant_id, id, part_no, name, name_th, category, brand,
                price, cost, stock, min_stock)
-       VALUES ($1::uuid, 'p1', 'BRAKE-1', 'Brake Pad', 'ผ้าเบรก', 'brakes', 'A', 100, 50, 2, 2),
-              ($1::uuid, 'p2', 'OIL-1', 'Oil', 'น้ำมัน', 'oils', 'B', 200, 100, 0, 1),
-              ($1::uuid, 'p3', 'FILTER-1', 'Filter', 'กรอง', 'filters', 'C', 100, 10, 11, 2)`,
+       VALUES ($1::uuid, '${testId('p1')}', 'BRAKE-1', 'Brake Pad', 'ผ้าเบรก', 'brakes', 'A', 100, 50, 2, 2),
+              ($1::uuid, '${testId('p2')}', 'OIL-1', 'Oil', 'น้ำมัน', 'oils', 'B', 200, 100, 0, 1),
+              ($1::uuid, '${testId('p3')}', 'FILTER-1', 'Filter', 'กรอง', 'filters', 'C', 100, 10, 11, 2)`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO sales
               (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, date)
-       VALUES ($1::uuid, 's1', 'RC-A-1', 200, 0, 200, 'เงินสด', '2026-09-01T00:00:00+07'),
-              ($1::uuid, 's2', 'RC-A-2', 300, 0, 300, 'เงินสด', '2026-09-15T12:00:00+07'),
-              ($1::uuid, 's3', 'RC-A-3', 100, 0, 100, 'เงินสด', '2026-10-01T00:00:00+07')`,
+       VALUES ($1::uuid, '${testId('s1')}', 'RC-A-1', 200, 0, 200, 'เงินสด', '2026-09-01T00:00:00+07'),
+              ($1::uuid, '${testId('s2')}', 'RC-A-2', 300, 0, 300, 'เงินสด', '2026-09-15T12:00:00+07'),
+              ($1::uuid, '${testId('s3')}', 'RC-A-3', 100, 0, 100, 'เงินสด', '2026-10-01T00:00:00+07')`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO sale_items
               (tenant_id, sale_id, line_no, product_id, part_no, name, name_th, qty, price, cost_at_sale)
-       VALUES ($1::uuid, 's1', 1, 'p1', 'BRAKE-1', 'Brake Pad', 'ผ้าเบรก', 2, 100, 50),
-              ($1::uuid, 's2', 1, 'p1', 'BRAKE-1', 'Brake Pad', 'ผ้าเบรก', 1, 100, 50),
-              ($1::uuid, 's2', 2, 'p2', 'OIL-1', 'Oil', 'น้ำมัน', 1, 200, 100),
-              ($1::uuid, 's3', 1, 'p3', 'FILTER-1', 'Filter', 'กรอง', 1, 100, 10)`,
+       VALUES ($1::uuid, '${testId('s1')}', 1, '${testId('p1')}', 'BRAKE-1', 'Brake Pad', 'ผ้าเบรก', 2, 100, 50),
+              ($1::uuid, '${testId('s2')}', 1, '${testId('p1')}', 'BRAKE-1', 'Brake Pad', 'ผ้าเบรก', 1, 100, 50),
+              ($1::uuid, '${testId('s2')}', 2, '${testId('p2')}', 'OIL-1', 'Oil', 'น้ำมัน', 1, 200, 100),
+              ($1::uuid, '${testId('s3')}', 1, '${testId('p3')}', 'FILTER-1', 'Filter', 'กรอง', 1, 100, 10)`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO returns
               (tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal,
                refund_discount, refund_total, refund_method, date)
-       VALUES ($1::uuid, 'r1', 'CN-A-1', 's1', 'RC-A-1', 100, 0, 100, 'เงินสด',
+       VALUES ($1::uuid, '${testId('r1')}', 'CN-A-1', '${testId('s1')}', 'RC-A-1', 100, 0, 100, 'เงินสด',
                '2026-09-20T10:00:00+07')`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO return_items
               (tenant_id, return_id, line_no, product_id, name, qty, price, original_qty, cost_at_sale)
-       VALUES ($1::uuid, 'r1', 1, 'p1', 'Brake Pad', 1, 100, 2, 50)`,
+       VALUES ($1::uuid, '${testId('r1')}', 1, '${testId('p1')}', 'Brake Pad', 1, 100, 2, 50)`,
       [TENANT_A],
     );
 
@@ -417,28 +418,28 @@ describe('server-side reports (e2e)', () => {
     await admin.query(
       `INSERT INTO sales
               (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, date)
-       VALUES ($1::uuid, 'j1', 'RC-A-J1', 300, 0, 300, 'เงินสด', '2026-06-20T10:00:00+07')`,
+       VALUES ($1::uuid, '${testId('j1')}', 'RC-A-J1', 300, 0, 300, 'เงินสด', '2026-06-20T10:00:00+07')`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO sale_items
               (tenant_id, sale_id, line_no, product_id, part_no, name, qty, price, cost_at_sale)
-       VALUES ($1::uuid, 'j1', 1, 'p2', 'OIL-1', 'Oil', 1, 200, 100),
-              ($1::uuid, 'j1', 2, 'p3', 'FILTER-1', 'Filter', 1, 100, 10)`,
+       VALUES ($1::uuid, '${testId('j1')}', 1, '${testId('p2')}', 'OIL-1', 'Oil', 1, 200, 100),
+              ($1::uuid, '${testId('j1')}', 2, '${testId('p3')}', 'FILTER-1', 'Filter', 1, 100, 10)`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO returns
               (tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal,
                refund_discount, refund_total, refund_method, date)
-       VALUES ($1::uuid, 'rj1', 'CN-A-J1', 'j1', 'RC-A-J1', 200, 0, 200, 'เงินสด',
+       VALUES ($1::uuid, '${testId('rj1')}', 'CN-A-J1', '${testId('j1')}', 'RC-A-J1', 200, 0, 200, 'เงินสด',
                '2026-07-02T10:00:00+07')`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO return_items
               (tenant_id, return_id, line_no, product_id, name, qty, price, original_qty, cost_at_sale)
-       VALUES ($1::uuid, 'rj1', 1, 'p2', 'Oil', 1, 200, 1, 100)`,
+       VALUES ($1::uuid, '${testId('rj1')}', 1, '${testId('p2')}', 'Oil', 1, 200, 1, 100)`,
       [TENANT_A],
     );
 
@@ -448,36 +449,36 @@ describe('server-side reports (e2e)', () => {
       `INSERT INTO sales
               (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, date,
                voided, voided_at)
-       VALUES ($1::uuid, 'a1', 'RC-A-A1', 350, 0, 350, 'เงินสด', '2026-08-03T10:00:00+07',
+       VALUES ($1::uuid, '${testId('a1')}', 'RC-A-A1', 350, 0, 350, 'เงินสด', '2026-08-03T10:00:00+07',
                FALSE, NULL),
-              ($1::uuid, 'a2', 'RC-A-A2', 400, 0, 400, 'เงินสด', '2026-08-10T10:00:00+07',
+              ($1::uuid, '${testId('a2')}', 'RC-A-A2', 400, 0, 400, 'เงินสด', '2026-08-10T10:00:00+07',
                TRUE, '2026-08-10T10:05:00+07'),
-              ($1::uuid, 'a3', 'RC-A-A3', 200, 0, 200, 'เงินสด', '2026-08-12T10:00:00+07',
+              ($1::uuid, '${testId('a3')}', 'RC-A-A3', 200, 0, 200, 'เงินสด', '2026-08-12T10:00:00+07',
                TRUE, '2026-08-12T11:00:00+07')`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO sale_items
               (tenant_id, sale_id, line_no, product_id, part_no, name, qty, price, cost_at_sale)
-       VALUES ($1::uuid, 'a1', 1, 'p2', 'OIL-1', 'Oil', 1, 200, 100),
-              ($1::uuid, 'a1', 2, 'p3', 'FILTER-1', 'Filter', 1, 100, NULL),
-              ($1::uuid, 'a1', 3, 'gone', 'GONE', 'Deleted part', 1, 50, NULL),
-              ($1::uuid, 'a2', 1, 'p1', 'BRAKE-1', 'Brake Pad', 4, 100, 50),
-              ($1::uuid, 'a3', 1, 'p1', 'BRAKE-1', 'Brake Pad', 2, 100, 50)`,
+       VALUES ($1::uuid, '${testId('a1')}', 1, '${testId('p2')}', 'OIL-1', 'Oil', 1, 200, 100),
+              ($1::uuid, '${testId('a1')}', 2, '${testId('p3')}', 'FILTER-1', 'Filter', 1, 100, NULL),
+              ($1::uuid, '${testId('a1')}', 3, '${testId('gone')}', 'GONE', 'Deleted part', 1, 50, NULL),
+              ($1::uuid, '${testId('a2')}', 1, '${testId('p1')}', 'BRAKE-1', 'Brake Pad', 4, 100, 50),
+              ($1::uuid, '${testId('a3')}', 1, '${testId('p1')}', 'BRAKE-1', 'Brake Pad', 2, 100, 50)`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO returns
               (tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal,
                refund_discount, refund_total, refund_method, date)
-       VALUES ($1::uuid, 'ra3', 'CN-A-A3', 'a3', 'RC-A-A3', 200, 0, 200, 'เงินสด',
+       VALUES ($1::uuid, '${testId('ra3')}', 'CN-A-A3', '${testId('a3')}', 'RC-A-A3', 200, 0, 200, 'เงินสด',
                '2026-08-12T11:00:00+07')`,
       [TENANT_A],
     );
     await admin.query(
       `INSERT INTO return_items
               (tenant_id, return_id, line_no, product_id, name, qty, price, original_qty, cost_at_sale)
-       VALUES ($1::uuid, 'ra3', 1, 'p1', 'Brake Pad', 2, 100, 2, 50)`,
+       VALUES ($1::uuid, '${testId('ra3')}', 1, '${testId('p1')}', 'Brake Pad', 2, 100, 2, 50)`,
       [TENANT_A],
     );
   }
@@ -487,23 +488,23 @@ describe('server-side reports (e2e)', () => {
       `INSERT INTO products
               (tenant_id, id, part_no, name, name_th, category, brand,
                price, cost, stock, min_stock)
-       VALUES ($1::uuid, 'p1', 'SECRET-SAME-ID', 'SECRET', 'ลับ', 'secret', 'X',
+       VALUES ($1::uuid, '${testId('p1')}', 'SECRET-SAME-ID', 'SECRET', 'ลับ', '${testId('secret')}', 'X',
                999999, 999999, 99, 100),
-              ($1::uuid, 'secret', 'SECRET', 'SECRET', 'ลับ', 'secret', 'X',
+              ($1::uuid, '${testId('secret')}', 'SECRET', 'SECRET', 'ลับ', '${testId('secret')}', 'X',
                999999, 999999, 0, 1)`,
       [TENANT_B],
     );
     await admin.query(
       `INSERT INTO sales
               (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, date)
-       VALUES ($1::uuid, 'secret-sale', 'SECRET-RC', 999999, 0, 999999,
+       VALUES ($1::uuid, '${testId('secret-sale')}', 'SECRET-RC', 999999, 0, 999999,
                'เงินสด', '2026-09-10T10:00:00+07')`,
       [TENANT_B],
     );
     await admin.query(
       `INSERT INTO sale_items
               (tenant_id, sale_id, line_no, product_id, part_no, name, qty, price)
-       VALUES ($1::uuid, 'secret-sale', 1, 'p1', 'SECRET-SAME-ID', 'SECRET', 1, 999999)`,
+       VALUES ($1::uuid, '${testId('secret-sale')}', 1, '${testId('p1')}', 'SECRET-SAME-ID', 'SECRET', 1, 999999)`,
       [TENANT_B],
     );
   }
@@ -512,7 +513,7 @@ describe('server-side reports (e2e)', () => {
     await admin.query(
       `INSERT INTO sales
               (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, date)
-       SELECT $1::uuid, 'perf-' || g, 'PERF-' || g, 100, 0, 100, 'เงินสด',
+       SELECT $1::uuid, md5('perf-' || g)::uuid, 'PERF-' || g, 100, 0, 100, 'เงินสด',
               '2026-09-10T10:00:00+07'::timestamptz
          FROM generate_series(1, 5000) AS g`,
       [TENANT_A],
@@ -520,7 +521,7 @@ describe('server-side reports (e2e)', () => {
     await admin.query(
       `INSERT INTO sale_items
               (tenant_id, sale_id, line_no, product_id, part_no, name, qty, price, cost_at_sale)
-       SELECT $1::uuid, 'perf-' || g, 1, 'p1', 'BRAKE-1', 'Brake Pad', 1, 100, 50
+       SELECT $1::uuid, md5('perf-' || g)::uuid, 1, '${testId('p1')}', 'BRAKE-1', 'Brake Pad', 1, 100, 50
          FROM generate_series(1, 5000) AS g`,
       [TENANT_A],
     );

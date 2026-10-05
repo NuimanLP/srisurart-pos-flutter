@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { evaluateIntegrity, type IntegritySnapshot } from './verify-integrity.js';
+import { testId } from '../support/test-ids.js';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -8,7 +9,7 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 // seeded units of the contention target sell it out completely, each buying 1 unit.
 const FULL_DEPLETION_SNAPSHOT: IntegritySnapshot = {
   tenantId: TENANT_ID,
-  productId: 'p12',
+  productId: testId('p12'),
   initialStock: 50,
   currentStock: 0,
   soldQty: 50,
@@ -26,7 +27,7 @@ const FULL_DEPLETION_SNAPSHOT: IntegritySnapshot = {
 // used to read as "ALL PASS".
 const EMPTY_RUN_SNAPSHOT: IntegritySnapshot = {
   tenantId: TENANT_ID,
-  productId: 'p12',
+  productId: testId('p12'),
   initialStock: 50,
   currentStock: 50,
   soldQty: 0,
@@ -104,7 +105,7 @@ describe('evaluateIntegrity — default (no expectFullDepletion)', () => {
   it('still passes on an in-flight partial state (k6.e2e-spec.ts: 1 of 50 sold)', () => {
     const partial: IntegritySnapshot = {
       tenantId: TENANT_ID,
-      productId: 'p12',
+      productId: testId('p12'),
       initialStock: 50,
       currentStock: 49,
       soldQty: 1,

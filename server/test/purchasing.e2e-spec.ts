@@ -7,6 +7,7 @@ import {
   resetTenant,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 const TENANT = '36363636-3636-4636-8636-363636363636';
 
@@ -44,7 +45,7 @@ describe('purchasing / PO (e2e)', () => {
 
     await admin.query(
       `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock)
-       VALUES ($1::uuid, 'prod-bp', 'BP-1234', 'Front Brake Pad', 'ผ้าเบรกหน้า', 'เบรก', 'Brand', 350, 200.00, 10)`,
+       VALUES ($1::uuid, '${testId('prod-bp')}', 'BP-1234', 'Front Brake Pad', 'ผ้าเบรกหน้า', 'เบรก', 'Brand', 350, 200.00, 10)`,
       [TENANT],
     );
   });
@@ -100,7 +101,7 @@ describe('purchasing / PO (e2e)', () => {
     // Product 2: ZERO-STOCK (existing stock = 0, cost = 50.00)
     await admin.query(
       `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock)
-       VALUES ($1::uuid, 'prod-zero', 'ZERO-STOCK', 'Zero Stock Product', 'สต็อกศูนย์', 'เบรก', 'Brand', 100, 50.00, 0)`,
+       VALUES ($1::uuid, '${testId('prod-zero')}', 'ZERO-STOCK', 'Zero Stock Product', 'สต็อกศูนย์', 'เบรก', 'Brand', 100, 50.00, 0)`,
       [TENANT],
     );
 
@@ -218,7 +219,7 @@ describe('purchasing / PO (e2e)', () => {
 
   it('requires authentication for receive, cancel, and delete', async () => {
     const recRes = await request(app.getHttpServer())
-      .post('/api/v1/purchase-orders/po-123/receive')
+      .post(`/api/v1/purchase-orders/${testId('po-123')}/receive`)
       .send();
     expect(recRes.status).toBe(401);
   });

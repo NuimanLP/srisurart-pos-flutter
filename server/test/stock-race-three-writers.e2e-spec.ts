@@ -10,6 +10,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // Issue #295: dod.4 test.stock-race-three-writers
 // Verifies stock consistency under high concurrent write contention across 3 distinct writer paths:
@@ -19,7 +20,7 @@ import {
 const TENANT = '29529529-2950-4295-8295-295295295295';
 
 const hotProduct = {
-  id: 'hot-part-295',
+  id: testId('hot-part-295'),
   partNo: 'HOT-PART-295',
   name: 'Hot Racing Part',
   price: 100,
@@ -128,7 +129,7 @@ describe('dod.4 test.stock-race-three-writers (Issue #295)', () => {
         .set('Authorization', `Bearer ${posToken}`)
         .set('Idempotency-Key', `idem-sale-295-${i}-${Date.now()}`)
         .send({
-          id: `s-race-295-${i}-${Date.now()}`,
+          id: testId(`s-race-295-${i}-${Date.now()}`),
           subtotal: '100.00',
           discount: '0.00',
           total: '100.00',

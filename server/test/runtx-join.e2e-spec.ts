@@ -16,6 +16,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // tx.2 (#151): every service now opens its own `TenantService.runTx`, and each one must
 // JOIN the transaction already open rather than take a second pooled connection. Two
@@ -59,7 +60,7 @@ describe('runTx joins the open transaction instead of taking a second connection
     managerToken = accessToken({ ...claims, role: 'owner' });
     ownerToken = accessToken({ ...claims, role: 'owner' });
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'OF-1',
       name: 'Oil Filter',
       price: 85,
@@ -92,7 +93,7 @@ describe('runTx joins the open transaction instead of taking a second connection
     const res = await post(
       '/sales',
       {
-        id: `s-runtx-${++keySeq}-${Date.now()}`,
+        id: testId(`s-runtx-${++keySeq}-${Date.now()}`),
         subtotal: '85.00',
         discount: '0.00',
         total: '85.00',
@@ -100,7 +101,7 @@ describe('runTx joins the open transaction instead of taking a second connection
         items: [
           {
             lineNo: 1,
-            productId: 'p1',
+            productId: testId('p1'),
             partNo: 'OF-1',
             name: 'Oil Filter',
             nameTH: 'Oil Filter',

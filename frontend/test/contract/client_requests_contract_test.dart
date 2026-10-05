@@ -20,7 +20,7 @@
 //
 // and commit the result — the server job then checks the new shape.
 //
-// Ids are sentinels (`ct-product-1`, …) that the server spec seeds; ids and
+// Ids are fixed UUIDs (`contractIds`, from `testId('ct-product-1')`, …) that the server spec seeds; ids and
 // timestamps the client mints itself are compared by shape, not value.
 //
 // 🔴 Where a repository takes a free string from its screen (payment method,
@@ -61,20 +61,24 @@ import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 
+import '../support/test_ids.dart';
+
 /// Where the fixtures live, relative to `frontend/` (the `flutter test` cwd).
 const _fixturesDir = '../docs/Backend_design/fixtures/client-requests';
 
 // Sentinel ids. The server spec seeds a row under each of these before it
 // replays a fixture, so a route that looks its row up first still reaches the
 // body parser instead of answering 404.
-const _product = 'ct-product-1';
-const _customer = 'ct-customer-1';
-const _mechanic = 'ct-mechanic-1';
-const _quote = 'ct-quote-1';
-const _po = 'ct-po-1';
-const _sale = 'ct-sale-1';
-const _device = 'ct-device-1';
-const _review = 'ct-review-1';
+final _product = contractIds['product']!;
+final _customer = contractIds['customer']!;
+final _mechanic = contractIds['mechanic']!;
+final _quote = contractIds['quote']!;
+final _po = contractIds['po']!;
+final _sale = contractIds['sale']!;
+final _device = contractIds['device']!;
+final _review = contractIds['review']!;
+final _offlineCustomer = testId('ct-customer-offline');
+final _offlineOp = testId('ct-op-1');
 const _category = 'ct-category';
 const _username = 'ct-owner';
 const _password = 'ct-password-1';
@@ -222,7 +226,7 @@ Future<void> _seedDrift(AppDatabase db) async {
       ));
   await db.into(db.quoteItems).insert(QuoteItemsCompanion.insert(
         quoteId: _quote,
-        productId: const Value(_product),
+        productId: Value(_product),
         name: 'Contract part',
         qty: 1,
         price: 100,
@@ -381,7 +385,7 @@ final _scenarios = <_Scenario>[
 
   // ── quotes ───────────────────────────────────────────────────────────────
   _Scenario('quotes.create', 'ApiQuotesRepository.saveQuote', ['POST /api/v1/quotes'], (w) async {
-    await ApiQuotesRepository(w.db, w.api).saveQuote(const QuoteInput(
+    await ApiQuotesRepository(w.db, w.api).saveQuote(QuoteInput(
       subtotal: 200,
       discount: 0,
       total: 200,
@@ -418,7 +422,7 @@ final _scenarios = <_Scenario>[
 
   // ── sales / returns ──────────────────────────────────────────────────────
   _Scenario('sales.create-cash', 'ApiSalesRepository.saveSale', ['POST /api/v1/sales'], (w) async {
-    await _sales(w).saveSale(const SaleInput(
+    await _sales(w).saveSale(SaleInput(
       subtotal: 200,
       discount: 0,
       total: 200,
@@ -429,7 +433,7 @@ final _scenarios = <_Scenario>[
     ));
   }),
   _Scenario('sales.create-mechanic-credit', 'ApiSalesRepository.saveSale', ['POST /api/v1/sales'], (w) async {
-    await _sales(w).saveSale(const SaleInput(
+    await _sales(w).saveSale(SaleInput(
       subtotal: 200,
       discount: 10,
       total: 190,
@@ -443,7 +447,7 @@ final _scenarios = <_Scenario>[
   }),
   _Scenario('sales.create-from-quote', 'ApiSalesRepository.saveSale', ['POST /api/v1/sales'], (w) async {
     // #27: a quote is converted only by the bill sold from it.
-    await _sales(w).saveSale(const SaleInput(
+    await _sales(w).saveSale(SaleInput(
       subtotal: 100,
       discount: 0,
       total: 100,
@@ -453,7 +457,7 @@ final _scenarios = <_Scenario>[
     ));
   }),
   _Scenario('returns.create', 'ApiReturnsRepository.createReturn', ['POST /api/v1/returns'], (w) async {
-    await ApiReturnsRepository(api: w.api, db: w.db, drift: ReturnsRepository(w.db)).createReturn(const ReturnInput(
+    await ApiReturnsRepository(api: w.api, db: w.db, drift: ReturnsRepository(w.db)).createReturn(ReturnInput(
       saleId: _sale,
       refundMethod: 'เงินสด',
       reason: 'ของชำรุด',
@@ -522,24 +526,24 @@ final _scenarios = <_Scenario>[
   _Scenario('sync.discard', 'SyncService.discard', ['POST /api/v1/sync/discards'], (w) async {
     // A rejected offline customer the owner gives up on.
     await w.db.into(w.db.outboxOps).insert(OutboxOpsCompanion.insert(
-          opId: 'ct-op-1',
+          opId: _offlineOp,
           idempotencyKey: 'ct-op-key-1',
           type: 'customer.create',
-          payload: jsonEncode({'id': 'ct-customer-offline', 'name': 'Offline customer', 'nameTH': 'ลูกค้าออฟไลน์'}),
-          aggregates: jsonEncode(['customer:ct-customer-offline']),
+          payload: jsonEncode({'id': _offlineCustomer, 'name': 'Offline customer', 'nameTH': 'ลูกค้าออฟไลน์'}),
+          aggregates: jsonEncode(['customer:$_offlineCustomer']),
           createdAt: DateTime.utc(2026, 10, 3, 2),
           status: 'rejected',
           lastCode: const Value('CONFLICT'),
         ));
     final sync = SyncService(db: w.db, apiClient: w.api, tokenStorage: w.tokens, autoStartHealthProbe: false);
     addTearDown(sync.dispose);
-    await sync.discard('ct-op-1', 'ลูกค้าซ้ำ');
+    await sync.discard(_offlineOp, 'ลูกค้าซ้ำ');
   }),
 ];
 
 // ── normalisation: what may differ between two runs ─────────────────────────
 
-final _mintedId = RegExp(r'^[a-z_]*[0-9a-z]{6,12}_[0-9a-f]{8}_[0-9a-z]+$');
+final _mintedId = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$');
 final _isoDateTime = RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$');
 
 Object? _normalise(Object? v) {

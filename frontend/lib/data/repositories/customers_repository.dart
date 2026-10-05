@@ -3,7 +3,7 @@
 // db.js methods ported (lines 174-189):
 //  • getCustomers()            → all customers (seeded in AppDatabase.onCreate).
 //  • addCustomer(c)            → code = 'CUS' + zero-padded(max+1, width 3);
-//    id newId('c'); points/totalSpend = 0; createdAt = today (ISO yyyy-MM-dd).
+//    id newUuid(); points/totalSpend = 0; createdAt = today (ISO yyyy-MM-dd).
 //    Returns the new CustomerRow.
 //  • updateCustomer(id, patch) → merge patch.
 //  • deleteCustomer(id)        → remove.
@@ -15,6 +15,7 @@
 //   const code = 'CUS' + String(maxNum + 1).padStart(3, '0');
 //   const newC = { ...c, id:_newId('c'), code, points:0, totalSpend:0,
 //                  createdAt: new Date().toISOString().slice(0,10) };
+// (The Dart port mints the id with newUuid() instead — #616.)
 
 import 'package:drift/drift.dart';
 
@@ -45,7 +46,7 @@ class CustomersRepository {
     final code = 'CUS${(maxNum + 1).toString().padLeft(3, '0')}';
 
     final today = todayKey();
-    final id = newId('c');
+    final id = newUuid();
 
     final row = data.copyWith(
       id: Value(id),

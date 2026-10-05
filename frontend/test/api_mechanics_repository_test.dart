@@ -13,6 +13,7 @@ import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
 import 'package:srisurart_pos/data/repositories/mechanics_repository.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -182,7 +183,7 @@ void main() {
         expect(seen.url.path, '/api/v1/mechanics/m_target/credit-payments');
         expect(sent['amount'], '500.00');
         expect(sent['paymentMethod'], 'โอน/QR');
-        expect(sent['id'], startsWith('cp'));
+        expect(sent['id'], matches(uuidV7));
         expect(sent.containsKey('allowOverpayment'), isFalse);
         expect(seen.headers['Idempotency-Key'], isNotEmpty);
 
@@ -706,7 +707,7 @@ void main() {
           expect(op.idempotencyKey, isNotEmpty);
 
           final payload = jsonDecode(op.payload) as Map<String, dynamic>;
-          expect(payload['id'], startsWith('cp'));
+          expect(payload['id'], matches(uuidV7));
           expect(payload['mechanicId'], 'm_target');
           expect(payload['amount'], '400.00');
           expect(payload['paymentMethod'], 'เงินสด');

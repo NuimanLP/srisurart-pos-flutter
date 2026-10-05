@@ -9,11 +9,11 @@
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_void_001",
+          "opId": "e3453fdf-5076-59c3-9085-4ab4f5c05353",
           "idempotencyKey": "k_void_001",
           "type": "sale.void_offline",
           "payload": {
-            "saleId": "s_off_001",
+            "saleId": "d0db03a0-e40f-5039-b0aa-232fe0f6b899",
             "reason": "ลูกค้าขอยกเลิกและเปลี่ยนสินค้า"
           }
         }
@@ -27,15 +27,15 @@
       "data": {
         "results": [
           {
-            "opId": "op_void_001",
+            "opId": "e3453fdf-5076-59c3-9085-4ab4f5c05353",
             "status": "applied",
             "response": {
-              "saleId": "s_off_001",
+              "saleId": "d0db03a0-e40f-5039-b0aa-232fe0f6b899",
               "status": "voided",
               "voidReason": "ลูกค้าขอยกเลิกและเปลี่ยนสินค้า",
               "stockRestored": [
                 {
-                  "productId": "p1",
+                  "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                   "stock": 48
                 }
               ]

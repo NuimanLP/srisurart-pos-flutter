@@ -9,6 +9,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/movements_repository.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -38,7 +39,7 @@ void main() {
       );
       final after = DateTime.now();
 
-      expect(row.id, startsWith('mv'));
+      expect(row.id, matches(uuidV7));
       expect(
         row.date.isBefore(before.subtract(const Duration(seconds: 1))),
         isFalse,

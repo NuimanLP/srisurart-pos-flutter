@@ -18,6 +18,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // tx.3 (#152): idempotency moved from an interceptor into each handler's runTx. A claim
 // committed in a different transaction from its work is a bill charged twice with every
@@ -30,7 +31,7 @@ import {
 //     use its query runner.
 describe('idempotent money writes leave one effect in the tables (e2e, #152)', () => {
   const TENANT = '15215215-3333-4333-8333-152152152152';
-  const MECHANIC = 'm-idem-152';
+  const MECHANIC = testId('m-idem-152');
   const PIN = '1521';
 
   let app: INestApplication;
@@ -57,7 +58,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
       deviceRole: 'pos',
     });
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'OF-1',
       name: 'Oil Filter',
       price: 85,
@@ -94,7 +95,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
       .send(body);
 
   const saleBody = (qty = 1) => ({
-    id: uniq('s-idem'),
+    id: testId(uniq('s-idem')),
     subtotal: (85 * qty).toFixed(2),
     discount: '0.00',
     total: (85 * qty).toFixed(2),
@@ -102,7 +103,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
     items: [
       {
         lineNo: 1,
-        productId: 'p1',
+        productId: testId('p1'),
         partNo: 'OF-1',
         name: 'Oil Filter',
         nameTH: 'Oil Filter',
@@ -129,7 +130,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
   const stock = async (): Promise<number> =>
     (
       (await admin.query(
-        `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = 'p1'`,
+        `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = '${testId('p1')}'`,
         [TENANT],
       )) as { stock: number }[]
     )[0].stock;
@@ -170,7 +171,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
     expect(
       await count(
         `SELECT count(*)::int AS n FROM movements
-          WHERE tenant_id = $1::uuid AND product_id = 'p1' AND type = 'sale'`,
+          WHERE tenant_id = $1::uuid AND product_id = '${testId('p1')}' AND type = 'sale'`,
         [TENANT],
       ),
     ).toBe(1);
@@ -189,7 +190,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
     const responses = await fiveTimes('/returns', key, {
       saleId: sale.body.data.id,
       refundMethod: 'เงินสด',
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
     });
 
     expectAllEqual(responses, 201);
@@ -209,7 +210,7 @@ describe('idempotent money writes leave one effect in the tables (e2e, #152)', (
     expect(
       await count(
         `SELECT count(*)::int AS n FROM movements
-          WHERE tenant_id = $1::uuid AND product_id = 'p1' AND type = 'return'`,
+          WHERE tenant_id = $1::uuid AND product_id = '${testId('p1')}' AND type = 'return'`,
         [TENANT],
       ),
     ).toBe(1);

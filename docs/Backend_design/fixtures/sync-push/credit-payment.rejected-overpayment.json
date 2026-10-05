@@ -9,12 +9,12 @@
       "outboxRemaining": 1,
       "ops": [
         {
-          "opId": "op_cp_002",
+          "opId": "fe0c1fbd-47f8-5c1a-b02f-d9b09c49962e",
           "idempotencyKey": "k_cp_002",
           "type": "credit_payment.create",
           "payload": {
-            "id": "cp_off_002",
-            "mechanicId": "m1",
+            "id": "861994f7-dea9-5634-80f4-a21ba511a5c7",
+            "mechanicId": "ff057ac6-eef3-5cff-a9b2-981ad43794aa",
             "amount": "5000.00",
             "paymentMethod": "เงินสด",
             "date": "2026-09-15T04:30:00.000Z"
@@ -30,12 +30,12 @@
       "data": {
         "results": [
           {
-            "opId": "op_cp_002",
+            "opId": "fe0c1fbd-47f8-5c1a-b02f-d9b09c49962e",
             "status": "rejected",
             "code": "OVERPAYMENT",
             "message": "ยอดชำระเกินยอดหนี้คงค้าง",
             "details": {
-              "mechanicId": "m1",
+              "mechanicId": "ff057ac6-eef3-5cff-a9b2-981ad43794aa",
               "outstandingBalance": "1500.00",
               "attemptedAmount": "5000.00"
             }

@@ -3,6 +3,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/shifts_repository.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -154,7 +155,7 @@ void main() {
     final e1 = await repo.addDrawerEntry('in', 100, 'first');
     final e2 = await repo.addDrawerEntry('out', 50, 'second');
 
-    expect(e1.id.startsWith('de'), isTrue);
+    expect(e1.id, matches(uuidV7));
     expect(e1.note, 'first');
     expect(e2.amount, 50);
 

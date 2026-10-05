@@ -1,7 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
@@ -166,7 +166,7 @@ export class DevicesService {
            RETURNING ${DEVICE_COLUMNS}`,
         [
           tenantId,
-          newId('dv'),
+          newUuid(),
           input.label,
           deviceNo,
           input.role,

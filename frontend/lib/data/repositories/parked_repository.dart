@@ -4,7 +4,7 @@
 //
 // db.js methods ported (parked bills are cart snapshots only, NEVER touch stock):
 //  • getParked()          → all parked bills newest-first.
-//  • parkSale(ParkedInput) → id newId('pk'), parkedAt now. The cart blob is
+//  • parkSale(ParkedInput) → id newUuid(), parkedAt now. The cart blob is
 //    serialized into ParkedSales.payload (JSON string). Returns the ParkedSaleRow.
 //  • deleteParked(id)     → remove.
 //
@@ -17,6 +17,7 @@
 //     return newP;
 //   }
 //   deleteParked(id) { ...filter(p => p.id !== id) }
+// (The Dart port mints the id with newUuid() instead — #616.)
 //
 // In Drift the cart blob (items + customer/mechanic/discount + extra) is stored
 // as a JSON string in ParkedSales.payload, and the timestamp lives in the
@@ -52,10 +53,10 @@ class ParkedRepository {
         .get();
   }
 
-  /// Park a cart snapshot. Assigns id via newId('pk') and parkedAt = now.
+  /// Park a cart snapshot. Assigns id via newUuid() and parkedAt = now.
   /// The cart blob is serialized into the payload JSON string. Returns the row.
   Future<ParkedSaleRow> parkSale(ParkedInput input) async {
-    final id = newId('pk');
+    final id = newUuid();
     final parkedAt = DateTime.now();
 
     // Build the cart blob exactly like the JS `{ ...data, id, parkedAt }` object,

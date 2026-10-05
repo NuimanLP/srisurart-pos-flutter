@@ -14,6 +14,7 @@ import {
   seedOpenShift,
   seedProduct,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #213: the transaction ceiling behind ADR-0010's 30 s cursor rewind — README
 // *The transaction ceiling (#213)* has the design. Each case runs a real request (or a real
@@ -55,7 +56,7 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
       deviceId: t.posDeviceId,
       deviceRole: 'pos',
     });
-    for (const id of ['p1', 'p2']) {
+    for (const id of [testId('p1'), testId('p2')]) {
       await seedProduct(admin, TENANT, {
         id,
         partNo: `OF-${id}`,
@@ -82,7 +83,7 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const fresh = (what: string) => `${what}-213-${++seq}-${Date.now()}`;
 
-  const sell = (key: string, id: string, productId = 'p1') =>
+  const sell = (key: string, id: string, productId = testId('p1')) =>
     request(app.getHttpServer())
       .post('/api/v1/sales')
       .set('Authorization', `Bearer ${token}`)
@@ -130,7 +131,7 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
   const expectPoolServes = async () => {
     const started = Date.now();
     const [bills, reads] = await Promise.all([
-      Promise.all([0, 1, 2].map(() => sell(fresh('k-after'), fresh('s-after')))),
+      Promise.all([0, 1, 2].map(() => sell(fresh('k-after'), testId(fresh('s-after'))))),
       Promise.all([0, 1, 2].map(current)),
     ]);
     const elapsed = Date.now() - started;
@@ -182,7 +183,7 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
       return issue(...args);
     });
     const key = fresh('k-guard');
-    const id = fresh('s-guard');
+    const id = testId(fresh('s-guard'));
 
     const started = Date.now();
     const res = await sell(key, id);
@@ -195,7 +196,7 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
     expect(await saleCount(id)).toBe(0);
     expect(await keyCount(key)).toBe(0);
     const stock = await count(
-      `SELECT stock AS n FROM products WHERE tenant_id = $1::uuid AND id = 'p1'`,
+      `SELECT stock AS n FROM products WHERE tenant_id = $1::uuid AND id = '${testId('p1')}'`,
       [TENANT],
     );
 
@@ -205,7 +206,7 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
     expect(retry.status).toBe(201);
     expect(await saleCount(id)).toBe(1);
     expect(
-      await count(`SELECT stock AS n FROM products WHERE tenant_id = $1::uuid AND id = 'p1'`, [
+      await count(`SELECT stock AS n FROM products WHERE tenant_id = $1::uuid AND id = '${testId('p1')}'`, [
         TENANT,
       ]),
     ).toBe(stock - 1);
@@ -236,11 +237,11 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
 
     // Two at once, on different parts so neither queues on the other's row lock: both
     // pooled connections are the ones Postgres ends.
-    const ids = [fresh('s-idle'), fresh('s-idle')];
+    const ids = [testId(fresh('s-idle')), testId(fresh('s-idle'))];
     const started = Date.now();
     let stalled: request.Response[];
     try {
-      stalled = await Promise.all(ids.map((id, i) => sell(fresh('k-idle'), id, `p${i + 1}`)));
+      stalled = await Promise.all(ids.map((id, i) => sell(fresh('k-idle'), id, testId(`p${i + 1}`))));
     } finally {
       pool.off('acquire', onAcquire);
       pool.off('remove', onRemove);
@@ -274,7 +275,7 @@ describe('pos_app transactions cannot outlive the 30 s cursor rewind (e2e, #213)
         [TENANT, key],
       );
       const started = Date.now();
-      res = await sell(key, fresh('s-inflight'));
+      res = await sell(key, testId(fresh('s-inflight')));
       elapsed = Date.now() - started;
     } finally {
       if (original.isTransactionActive) await original.rollbackTransaction();

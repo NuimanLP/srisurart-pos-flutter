@@ -9,7 +9,7 @@
 //    per-line: '<name>: ไม่พบในสต็อก' (missing) or
 //              '<p.name>: สต็อก <stock> แต่ต้องการ <qty>' (short).
 //  • pointsGranted = (total / 10).floor()  (money.dart pointsFor).
-//  • receiptNo = docNo('RC'); id = newId('s'); date = now.
+//  • receiptNo = docNo('RC'); id = newUuid(); date = now.
 //  • Strict stock decrement — NEVER clamp at 0; underflow is a bug → throw.
 //  • If customerId: totalSpend += total, points += pointsGranted.
 //  • If mechanicId: totalSales += total; totalDiscount += (delta<0 ? -delta : 0);
@@ -62,7 +62,7 @@ class SalesRepository {
     return db.transaction(() async {
       final pointsGranted = pointsFor(input.total);
       final receiptNo = docNo('RC');
-      final saleId = newId('s');
+      final saleId = newUuid();
       final date = DateTime.now();
 
       // Strict stock decrement (no Math.max masking; pre-check guarantees enough).

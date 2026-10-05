@@ -137,7 +137,7 @@ class ApiQuotesRepository extends QuotesRepository {
     final res = await apiClient.post('/api/v1/quotes', body: body, headers: idempotencyKey());
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
-      final realId = (resMap['id'] ?? newId('q')) as String;
+      final realId = (resMap['id'] ?? newUuid()) as String;
       final quoteNo = (resMap['quoteNo'] ?? resMap['quote_no'] ?? docNo('QT')) as String;
       final date = stampOrNull(resMap['date']) ?? DateTime.now();
       final validUntil = stampOrNull(resMap['validUntil'] ?? resMap['valid_until']) ??
@@ -234,7 +234,7 @@ class ApiQuotesRepository extends QuotesRepository {
     final res = await apiClient.post('/api/v1/quotes/$id/duplicate', headers: idempotencyKey());
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
-      final newIdStr = (resMap['id'] ?? newId('q')) as String;
+      final newIdStr = (resMap['id'] ?? newUuid()) as String;
       final newQuoteNo = (resMap['quoteNo'] ?? resMap['quote_no'] ?? docNo('QT')) as String;
       final date = stampOrNull(resMap['date']) ?? DateTime.now();
       final validUntil = stampOrNull(resMap['validUntil'] ?? resMap['valid_until']) ?? date.add(const Duration(days: 30));

@@ -129,7 +129,7 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
     final res = await apiClient.post('/api/v1/purchase-orders', body: body, headers: idempotencyKey());
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
-      final realId = (resMap['id'] ?? newId('po')) as String;
+      final realId = (resMap['id'] ?? newUuid()) as String;
       final realPoNo = (resMap['poNo'] ?? resMap['po_no'] ?? docNo('PO')) as String;
       final status = (resMap['status'] ?? 'open') as String;
       final createdAt = stampOrNull(resMap['createdAt'] ?? resMap['created_at']) ?? DateTime.now();

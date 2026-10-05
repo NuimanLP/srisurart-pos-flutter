@@ -9,11 +9,11 @@
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_shift_001",
+          "opId": "6a566ebe-6cef-5aa9-9815-37e61edae0f0",
           "idempotencyKey": "k_sh_001",
           "type": "shift.open",
           "payload": {
-            "id": "sh_off_001",
+            "id": "1375a8e0-d189-5224-942d-4727d16bef7f",
             "startingCash": "1000.00",
             "openedAt": "2026-09-15T01:00:00.000Z"
           }
@@ -28,10 +28,10 @@
       "data": {
         "results": [
           {
-            "opId": "op_shift_001",
+            "opId": "6a566ebe-6cef-5aa9-9815-37e61edae0f0",
             "status": "applied",
             "response": {
-              "id": "sh_off_001",
+              "id": "1375a8e0-d189-5224-942d-4727d16bef7f",
               "startingCash": "1000.00",
               "openedAt": "2026-09-15T01:00:00.000Z",
               "autoArchived": false

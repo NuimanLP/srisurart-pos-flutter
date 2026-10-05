@@ -9,6 +9,7 @@ import {
   resetTenant,
   seedProduct,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 /**
  * #124 — the stampede lock on a `GET /products` miss (02_API_SCREENS.md §5,
@@ -37,7 +38,7 @@ describe('cache stampede lock (e2e, #124)', () => {
   beforeEach(async () => {
     const fixture = await resetTenant(admin, TENANT, { posDeviceNo: 24, cache });
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'BP-1',
       name: 'Brake Pad',
       price: 100,
@@ -90,7 +91,7 @@ describe('cache stampede lock (e2e, #124)', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['x-cache']).toBe('MISS');
-    expect((res.body.data as { id: string }[]).map((p) => p.id)).toEqual(['p1']);
+    expect((res.body.data as { id: string }[]).map((p) => p.id)).toEqual([testId('p1')]);
   });
 
   it('a lock left by a loader that died costs a bounded wait, then Postgres answers', async () => {

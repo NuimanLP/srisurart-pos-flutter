@@ -4,12 +4,12 @@
 //
 // db.js methods ported (db.js lines 517-544):
 //  • getMechanics()            → all mechanics.
-//  • addMechanic(m)            → code = 'M' + zero-padded(max+1); id newId('m');
+//  • addMechanic(m)            → code = 'M' + zero-padded(max+1); id newUuid();
 //    creditBalance/totalSales/totalCredit/totalMarkup/totalDiscount = 0;
 //    creditLimit from input; createdAt = today (yyyy-MM-dd). Returns the new MechanicRow.
 //  • updateMechanic(id, data)  → merge patch.
 //  • deleteMechanic(id)        → remove.
-//  • addCreditPayment(p)       → id newId('cp'), receiptNo docNo('CP'), date now;
+//  • addCreditPayment(p)       → id newUuid(), receiptNo docNo('CP'), date now;
 //    then reduce that mechanic's creditBalance by amount (clamped at 0).
 //    Returns the new CreditPaymentRow. (Transactional.)
 //  • getCreditPayments()       → all credit payments newest-first.
@@ -34,7 +34,7 @@ class MechanicsRepository {
   /// Mirrors db.js addMechanic:
   ///   maxNum = reduce over all codes (parseInt of code with 'M' stripped, NaN→ignored)
   ///   code   = 'M' + (maxNum + 1) padded to 3 digits
-  ///   id     = newId('m'); createdAt = today (yyyy-MM-dd)
+  ///   id     = newUuid(); createdAt = today (yyyy-MM-dd)
   ///   creditLimit kept from input; balance/sales/credit/markup/discount forced to 0.
   Future<MechanicRow> addMechanic(MechanicsCompanion data) async {
     final all = await getMechanics();
@@ -50,7 +50,7 @@ class MechanicsRepository {
         '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
     final row = MechanicRow(
-      id: newId('m'),
+      id: newUuid(),
       code: code,
       name: data.name.present ? data.name.value : '',
       nameTH: data.nameTH.present ? data.nameTH.value : null,
@@ -93,7 +93,7 @@ class MechanicsRepository {
   /// Records a credit settlement and reduces the mechanic's balance (clamped 0).
   ///
   /// Transactional (mirrors db.js: insert payment + reduce mechanic balance):
-  ///   newP = { ...p, id:newId('cp'), receiptNo:docNo('CP'), date:now }
+  ///   newP = { ...p, id:newUuid(), receiptNo:docNo('CP'), date:now }
   ///   mech.creditBalance = max(0, (creditBalance||0) - amount)
   ///
   /// [paymentMethod] and [allowOverpayment] exist for `POST
@@ -110,7 +110,7 @@ class MechanicsRepository {
   }) async {
     return db.transaction(() async {
       final row = CreditPaymentRow(
-        id: newId('cp'),
+        id: newUuid(),
         receiptNo: docNo('CP'),
         mechanicId: mechanicId,
         amount: amount,
@@ -295,7 +295,7 @@ Future<void> migratePendingCreditPayments(AppDatabase db) async {
         'shift',
         'mechanic:${row.mechanicId}',
       ];
-      final opId = newId('op');
+      final opId = newUuid();
       await db.into(db.outboxOps).insert(
             OutboxOpsCompanion(
               opId: Value(opId),

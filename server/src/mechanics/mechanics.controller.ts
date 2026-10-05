@@ -16,6 +16,8 @@ import type { Request, Response } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { optionalUuid } from '../common/ids.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -67,7 +69,7 @@ export class MechanicsController {
     const result = await this.mechanics.list({
       search: search || undefined,
       updatedSince: since,
-      afterId: afterId || undefined,
+      afterId: optionalUuid(afterId, 'afterId') ?? undefined,
       ...parsed,
     });
     res.setHeader('X-Cache', result.fromCache ? 'HIT' : 'MISS');
@@ -80,7 +82,7 @@ export class MechanicsController {
 
   @Get(':id/sales')
   async sales(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<Paginated<SaleWithItems>> {
@@ -90,7 +92,7 @@ export class MechanicsController {
   }
 
   @Get(':id')
-  byId(@Param('id') id: string): Promise<Mechanic> {
+  byId(@Param('id', ParseUuidPipe) id: string): Promise<Mechanic> {
     return this.mechanics.byId(id);
   }
 
@@ -109,7 +111,7 @@ export class MechanicsController {
 
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
@@ -133,7 +135,7 @@ export class MechanicsController {
   @Post(':id/credit-payments')
   @RequireDeviceRole('pos')
   creditPayment(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
@@ -157,7 +159,7 @@ export class MechanicsController {
 
   @Delete(':id')
   delete(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ id: string; deleted: true }> {

@@ -26,6 +26,7 @@ import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
+import 'support/test_ids.dart';
 
 class _MemoryTokenStorage implements TokenStorage {
   String? accessToken = 'access-1';
@@ -366,7 +367,7 @@ void main() {
       expect(mv.single.date, DateTime.parse('2026-09-12T03:00:00.000Z').toLocal());
 
       // ── The wire ──
-      expect(body['id'], startsWith('s'));
+      expect(body['id'], matches(uuidV7));
       expect(body['subtotal'], '200.00');
       expect(body['total'], '200.00');
       expect(body['mechanicDelta'], '-15.00');

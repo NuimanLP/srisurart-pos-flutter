@@ -4,7 +4,7 @@ import {
   HttpStatus,
   Injectable,
 } from '@nestjs/common';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
@@ -74,7 +74,7 @@ export class ParkedSalesService {
       `INSERT INTO parked_sales (tenant_id, id, device_id, payload)
        VALUES ($1::uuid, $2, $3, $4::jsonb)
        RETURNING ${COLUMNS}`,
-      [tenantId, newId('pk'), deviceId, JSON.stringify(payload)],
+      [tenantId, newUuid(), deviceId, JSON.stringify(payload)],
     )) as ParkedRow[];
     return toParked(rows[0]);
   }

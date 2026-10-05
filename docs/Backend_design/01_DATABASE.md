@@ -68,7 +68,7 @@ DDL ใน [§5](#5-ddl-เต็ม) เขียนบรรทัด `PRIMARY
 -- (ย่อ — ของจริงอยู่ที่ §5 เช่น ON DELETE CASCADE ของ FK)
 CREATE TABLE sale_items (
   tenant_id  UUID NOT NULL,
-  sale_id    TEXT NOT NULL,
+  sale_id    UUID NOT NULL,
   line_no    INT  NOT NULL,
   ...
   PRIMARY KEY (tenant_id, sale_id, line_no),   -- PK "อันเดียว" ที่ประกอบจาก 3 คอลัมน์ (composite)
@@ -144,14 +144,14 @@ erDiagram
 
     SALES {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
         text receipt_no "UNIQUE (tenant_id, receipt_no)"
         numeric subtotal
         numeric discount
         numeric total
         text payment_method
-        text customer_id FK
-        text mechanic_id FK
+        uuid customer_id FK
+        uuid mechanic_id FK
         numeric mechanic_delta
         int points_granted
         timestamptz date
@@ -159,25 +159,25 @@ erDiagram
     }
     SALE_ITEMS {
         uuid tenant_id FK "PK ร่วม (tenant_id, sale_id, line_no)"
-        text sale_id FK "PK ร่วม (tenant_id, sale_id, line_no)"
+        uuid sale_id FK "PK ร่วม (tenant_id, sale_id, line_no)"
         int line_no "PK ร่วม (tenant_id, sale_id, line_no)"
-        text product_id
+        uuid product_id
         text name
         int qty
         numeric price
     }
     RETURNS {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
         text cn_no "UNIQUE (tenant_id, cn_no)"
-        text sale_id FK
+        uuid sale_id FK
         numeric refund_total
         text refund_method
         timestamptz date
     }
     QUOTES {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
         text quote_no "UNIQUE (tenant_id, quote_no)"
         text status
         timestamptz valid_until
@@ -197,7 +197,7 @@ erDiagram
 
     PRODUCTS {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
         text part_no "UNIQUE (tenant_id, part_no) เฉพาะแถวที่ยังไม่ถูกลบ"
         text name
         text name_th
@@ -212,8 +212,8 @@ erDiagram
     }
     MOVEMENTS {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
-        text product_id FK
+        uuid id "PK ร่วม (tenant_id, id)"
+        uuid product_id FK
         int delta
         text type
         int stock_after
@@ -221,7 +221,7 @@ erDiagram
     }
     PURCHASE_ORDERS {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
         text po_no "UNIQUE (tenant_id, po_no)"
         text supplier
         text status
@@ -260,7 +260,7 @@ erDiagram
     }
     SHIFTS {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
         text date_str
         numeric starting_cash
         timestamptz opened_at
@@ -270,15 +270,15 @@ erDiagram
     }
     OWNER_REVIEW_ITEMS {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
         text kind
-        text ref_id
+        uuid ref_id
         jsonb details
         timestamptz reviewed_at
     }
     IMPORT_JOBS {
         uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-        text id "PK ร่วม (tenant_id, id)"
+        uuid id "PK ร่วม (tenant_id, id)"
         text status
         jsonb payload
         timestamptz finished_at
@@ -291,7 +291,7 @@ erDiagram
 
 | Drift (ปัจจุบัน) | PostgreSQL | หมายเหตุ |
 |---|---|---|
-| `TextColumn` id (`"p1"`, `"s17a3…"`) | `TEXT` | **เก็บเป็น TEXT ต่อไป** ไม่แปลงเป็น UUID/serial — id ถูกสร้างจาก client (`newId()`) และ "ต้อง" สร้างได้ตอนออฟไลน์ ดู [§7.2](#72-เลขเอกสาร-document-numbers) |
+| `TextColumn` id (`"p1"`, `"s17a3…"`) | **`UUID`** (UUIDv7 ตัวพิมพ์เล็ก) | **แปลงเป็น UUID ทุก id และทุกคอลัมน์ที่ชี้ไปหา entity** (44 คอลัมน์ใน 22 ตาราง) — id ยังสร้างจาก client ตอนออฟไลน์ได้ (`Uuid().v7()`) และจาก server (`newUuid()` ใน `server/src/common/ids.ts`); **Postgres ไม่สร้างเอง** · id ผิดรูปแบบหรือตัวพิมพ์ใหญ่ → `400 INVALID_ID` ไม่ normalise · เหตุผลเดิมที่เก็บ TEXT ("ต้องสร้างได้ตอนออฟไลน์") ไม่เป็นจริงแล้ว เพราะ UUID สร้างออฟไลน์ได้เท่ากัน — ดู ADR-0010 addendum 2026-10-05 (#616). เลขเอกสาร (`receipt_no` ฯลฯ), `idempotency_keys.key`, `tenants.code`, `tax_id`, `categories.name` ยังเป็น TEXT |
 | `RealColumn` (เงิน) | **`NUMERIC(12,2)`** | ⚠️ **ห้ามใช้ `double precision`** — แอปเดิมใช้ float + `round2()` ถ้า backend ใช้ float ต่อ ยอดจะเพี้ยนหลักสตางค์แล้วเทียบกับใบเสร็จเก่าไม่ได้ ตั้งค่า TypeORM `transformer` แปลง `string ↔ number` ให้ชัด |
 | `IntColumn` (stock, qty, points) | `INTEGER` | |
 | `DateTimeColumn` | `TIMESTAMPTZ` | เก็บ UTC, แปลงเป็น `Asia/Bangkok` ที่ client เท่านั้น |
@@ -305,7 +305,7 @@ erDiagram
 * `sale_items.rowId` / `po_items` / `return_items` / `quote_items` → เปลี่ยนเป็น **`line_no INT`**
   ที่ client กำหนดเอง (1,2,3…) และ PK = `(tenant_id, <parent>_id, line_no)`
   **เหตุผล:** ทำให้การ retry ยิงบิลเดิมซ้ำเป็น idempotent โดยธรรมชาติ (insert ชนกับ PK แทนที่จะได้แถวซ้ำ)
-* `shifts.id` (auto-increment int) → เปลี่ยนเป็น **`TEXT`** ที่ client สร้าง
+* `shifts.id` (auto-increment int) → เปลี่ยนเป็น **`UUID`** (v7) ที่ client สร้าง
   **เหตุผล:** เปิดกะตอนเน็ตล่มต้องได้ id ทันที และ int ที่ auto-increment จะชนกันข้ามร้าน
 
 ---
@@ -369,7 +369,7 @@ CREATE UNIQUE INDEX uq_users_one_active ON users (tenant_id) WHERE is_active;
 -- role='backoffice' แตะสต็อก/สินค้า/รายงานได้ปกติ แต่แตะเงิน/บิลไม่ได้ และมีกี่เครื่องก็ได้
 CREATE TABLE devices (
   tenant_id     UUID NOT NULL,
-  id            TEXT NOT NULL,                  -- server-generated ตอน POST /devices (ADR-0004 "การผูกเครื่อง") — ไม่รับจาก client
+  id            UUID NOT NULL,                  -- server-generated ตอน POST /devices (ADR-0004 "การผูกเครื่อง") — ไม่รับจาก client
   label         TEXT NOT NULL,                  -- 'เคาน์เตอร์หน้าร้าน'
   device_no     SMALLINT NOT NULL CHECK (device_no BETWEEN 1 AND 99),  -- prefix เลขเอกสาร (ซีโร่แพด 2 หลัก, ADR-0007) — server กำหนดเลขถัดไปที่ไม่เคยใช้ ห้ามใช้ซ้ำแม้เครื่องเดิม retire แล้ว
   role          TEXT NOT NULL DEFAULT 'backoffice'
@@ -412,7 +412,7 @@ CREATE TABLE change_log (
   server_seq    BIGSERIAL PRIMARY KEY,
   tenant_id     UUID NOT NULL,
   entity        TEXT NOT NULL,                  -- 'products' | 'sales' | ...
-  entity_id     TEXT NOT NULL,
+  entity_id     UUID NOT NULL,
   op            TEXT NOT NULL CHECK (op IN ('insert','update','delete')),
   payload       JSONB,
   origin_device TEXT,                           -- กันส่งกลับไปหาเครื่องที่เป็นคนสร้างเอง
@@ -426,7 +426,7 @@ CREATE INDEX idx_changelog_pull ON change_log (tenant_id, server_seq);
 --          ส่วน po/quote/cp ยังให้ server ออกจากตารางนี้ตลอด (เครื่อง backoffice ออนไลน์เสมอ)
 CREATE TABLE doc_counters (
   tenant_id     UUID NOT NULL,
-  device_id     TEXT NOT NULL,                  -- ⭐ ขาดไม่ได้ ไม่งั้นสองเครื่องเขียนทับกัน
+  device_id     UUID NOT NULL,                  -- ⭐ ขาดไม่ได้ ไม่งั้นสองเครื่องเขียนทับกัน
   doc_type      TEXT NOT NULL CHECK (doc_type IN ('receipt','po','quote','cn','cp')),  -- 'cp' = ใบรับชำระเครดิตช่าง (เพิ่ม ADR-0007)
   period        TEXT NOT NULL,                  -- '2569-08'  (รีเซ็ตรายเดือน)
   last_no       INT  NOT NULL DEFAULT 0 CHECK (last_no <= 9999),  -- เลขสูงสุดที่เห็นจากเครื่องนี้ — เกิน 9999 ต้อง error ชัด ๆ ไม่วนกลับ 0001
@@ -439,10 +439,10 @@ CREATE TABLE audit_log (
   id            BIGSERIAL,
   user_id       UUID,                           -- actor ฝั่งร้าน (users) — NULL เมื่อ actor เป็น platform admin
   platform_admin_id UUID REFERENCES platform_admins (id),  -- (ADR-0002, เพิ่ม 2026-09-04) actor ฝั่ง admin plane — user_id ใส่ admin ไม่ได้เพราะเป็น UUID ของ users ในร้าน
-  device_id     TEXT,
+  device_id     UUID,
   action        TEXT NOT NULL,                  -- 'sale.void' | 'product.price_change' | 'backup.import'
   entity        TEXT,
-  entity_id     TEXT,
+  entity_id     UUID,
   before        JSONB,
   after         JSONB,
   ip            INET,
@@ -489,7 +489,7 @@ CREATE TABLE categories (
 
 CREATE TABLE products (
   tenant_id  UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  id         TEXT NOT NULL,
+  id         UUID NOT NULL,
   part_no    TEXT NOT NULL,
   name       TEXT NOT NULL,
   name_th    TEXT NOT NULL,
@@ -534,8 +534,8 @@ CREATE INDEX idx_products_search ON products USING GIN (
 
 CREATE TABLE suppliers (
   tenant_id  UUID NOT NULL,
-  id         TEXT NOT NULL,
-  product_id TEXT NOT NULL,
+  id         UUID NOT NULL,
+  product_id UUID NOT NULL,
   name       TEXT NOT NULL,
   unit_cost  NUMERIC(12,2) NOT NULL,
   freight    NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -547,8 +547,8 @@ CREATE INDEX idx_suppliers_product ON suppliers (tenant_id, product_id);
 -- ประวัติสต็อกทุกการเคลื่อนไหว = ledger, append-only ห้าม UPDATE/DELETE
 CREATE TABLE movements (
   tenant_id   UUID NOT NULL,
-  id          TEXT NOT NULL,
-  product_id  TEXT NOT NULL,
+  id          UUID NOT NULL,
+  product_id  UUID NOT NULL,
   part_no     TEXT NOT NULL,
   name        TEXT NOT NULL,
   delta       INT  NOT NULL,      -- ลบ = ขายออก, บวก = รับเข้า
@@ -558,7 +558,7 @@ CREATE TABLE movements (
                                   --    'sale' / 'return' / 'void' — server เขียน ไม่ได้ port มาจาก Dart (ดูกล่องเตือนใต้ DDL)
   note        TEXT,
   stock_after INT  NOT NULL,
-  ref_id      TEXT,               -- ⭐ เพิ่มใหม่: sale_id / return_id / po_id ที่ทำให้เกิดแถวนี้
+  ref_id      UUID,               -- ⭐ เพิ่มใหม่: sale_id / return_id / po_id ที่ทำให้เกิดแถวนี้
   date        TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, id),
   FOREIGN KEY (tenant_id, product_id) REFERENCES products (tenant_id, id)
@@ -591,7 +591,7 @@ CREATE UNIQUE INDEX uq_movements_ref ON movements (tenant_id, type, ref_id, prod
 ```sql
 CREATE TABLE customers (
   tenant_id   UUID NOT NULL,
-  id          TEXT NOT NULL,
+  id          UUID NOT NULL,
   code        TEXT NOT NULL,                    -- 'CUS001' auto
   name        TEXT NOT NULL,
   name_th     TEXT NOT NULL,
@@ -611,7 +611,7 @@ CREATE INDEX idx_customers_sync  ON customers (tenant_id, updated_at ASC, id ASC
 
 CREATE TABLE mechanics (
   tenant_id      UUID NOT NULL,
-  id             TEXT NOT NULL,
+  id             UUID NOT NULL,
   code           TEXT NOT NULL,                 -- 'M001' auto
   name           TEXT NOT NULL,
   name_th        TEXT,
@@ -635,16 +635,16 @@ CREATE INDEX idx_mechanics_sync ON mechanics (tenant_id, updated_at ASC, id ASC)
 
 CREATE TABLE credit_payments (
   tenant_id      UUID NOT NULL,
-  id             TEXT NOT NULL,
+  id             UUID NOT NULL,
   receipt_no     TEXT NOT NULL,
-  mechanic_id    TEXT NOT NULL,
+  mechanic_id    UUID NOT NULL,
   amount         NUMERIC(14,2) NOT NULL CHECK (amount > 0),
   payment_method TEXT,              -- 'เงินสด' | 'โอน/QR' (#24, migration …005)
                                     -- nullable เพราะแถวที่ import มาจากแอปเก่าอาจไม่มี;
                                     -- ห้าม DEFAULT 'เงินสด' — เท่ากับประกาศว่าทุกแถวเก่า
                                     -- เป็นเงินสด แล้วรายงานปิดร้านจะขาดทุกวัน
                                     -- endpoint บังคับให้ส่งเสมอ (parseCreateCreditPayment)
-  shift_id       TEXT,              -- #24: แสตมป์เดียวกับ sales/returns — รายงานปิดร้าน
+  shift_id       UUID,              -- #24: แสตมป์เดียวกับ sales/returns — รายงานปิดร้าน
                                     -- คิดจาก shift_id ไม่ใช่ช่วงเวลา · null = ไม่ได้เปิดลิ้นชัก
                                     -- ตั้งใจไม่มี FK: แสตมป์เป็น report key และการจ่ายต้องไม่เขียนไม่ได้
                                     -- เพราะแถวลิ้นชักถูก archive ไปแล้ว (เหตุผลเดียวกับ sales.shift_id)
@@ -663,7 +663,7 @@ CREATE INDEX idx_creditpay_shift ON credit_payments (tenant_id, shift_id);
 ```sql
 CREATE TABLE sales (
   tenant_id      UUID NOT NULL,
-  id             TEXT NOT NULL,
+  id             UUID NOT NULL,
   receipt_no     TEXT NOT NULL,
   subtotal       NUMERIC(12,2) NOT NULL,
   discount       NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -673,9 +673,9 @@ CREATE TABLE sales (
                                      -- checkout_screen.dart:2355 คือโค้ดเดียวที่สร้างบิล จึงเป็น
                                      -- source of truth ไม่ใช่คอมเมนต์นี้ — sales.dto.ts บังคับ
                                      -- whitelist นี้ที่ DTO แล้ว (2026-09-10)
-  customer_id    TEXT,
+  customer_id    UUID,
   customer_name  TEXT,              -- denormalize ไว้ตั้งใจ: ใบเสร็จเก่าต้องไม่เปลี่ยนตามชื่อที่แก้ทีหลัง
-  mechanic_id    TEXT,
+  mechanic_id    UUID,
   mechanic_name  TEXT,
   mechanic_delta NUMERIC(12,2),     -- ส่วนลด(-)/บวกเพิ่ม(+) ที่ช่างทำ
   points_granted INT NOT NULL DEFAULT 0,
@@ -684,9 +684,9 @@ CREATE TABLE sales (
   voided_at      TIMESTAMPTZ,
   void_reason    TEXT,              -- (08 §2, migration …3003) void ออนไลน์ = เหตุผลอย่างเดียว ไม่ใช้ PIN
   sold_offline   BOOLEAN NOT NULL DEFAULT FALSE,  -- (migration …3003) บิลที่มาทาง POST /sync/push
-  shift_id       TEXT,              -- ⭐ เพิ่มใหม่: ผูกบิลกับรอบขาย (ดู §7.5) — ตั้งใจไม่มี FK (report key)
+  shift_id       UUID,              -- ⭐ เพิ่มใหม่: ผูกบิลกับรอบขาย (ดู §7.5) — ตั้งใจไม่มี FK (report key)
   user_id        UUID,              -- ⭐ ใครขาย
-  device_id      TEXT,              -- ⭐ ขายจากเครื่องไหน
+  device_id      UUID,              -- ⭐ ขายจากเครื่องไหน
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, receipt_no),
   FOREIGN KEY (tenant_id, customer_id) REFERENCES customers (tenant_id, id),
@@ -699,9 +699,9 @@ CREATE INDEX idx_sales_shift    ON sales (tenant_id, shift_id);
 
 CREATE TABLE sale_items (
   tenant_id  UUID NOT NULL,
-  sale_id    TEXT NOT NULL,
+  sale_id    UUID NOT NULL,
   line_no    INT  NOT NULL,
-  product_id TEXT NOT NULL,
+  product_id UUID NOT NULL,
   part_no    TEXT,
   name       TEXT NOT NULL,
   name_th    TEXT,
@@ -715,20 +715,20 @@ CREATE INDEX idx_saleitems_product ON sale_items (tenant_id, product_id);
 
 CREATE TABLE returns (
   tenant_id       UUID NOT NULL,
-  id              TEXT NOT NULL,
+  id              UUID NOT NULL,
   cn_no           TEXT NOT NULL,          -- credit note no.
-  sale_id         TEXT NOT NULL,
+  sale_id         UUID NOT NULL,
   receipt_no      TEXT NOT NULL,
   refund_subtotal NUMERIC(12,2) NOT NULL,
   refund_discount NUMERIC(12,2) NOT NULL,
   refund_total    NUMERIC(12,2) NOT NULL,
   refund_method   TEXT NOT NULL,          -- 'เงินสด' | 'หักจากเครดิต' | 'โอน'
   reason          TEXT NOT NULL DEFAULT '',
-  customer_id     TEXT,
-  mechanic_id     TEXT,
+  customer_id     UUID,
+  mechanic_id     UUID,
   mechanic_name   TEXT,
   date            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  shift_id        TEXT,                   -- ⭐
+  shift_id        UUID,                   -- ⭐
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, cn_no),
   FOREIGN KEY (tenant_id, sale_id) REFERENCES sales (tenant_id, id)
@@ -739,9 +739,9 @@ CREATE INDEX idx_returns_shift ON returns (tenant_id, shift_id); -- #30: รา�
 
 CREATE TABLE return_items (
   tenant_id    UUID NOT NULL,
-  return_id    TEXT NOT NULL,
+  return_id    UUID NOT NULL,
   line_no      INT  NOT NULL,
-  product_id   TEXT NOT NULL,
+  product_id   UUID NOT NULL,
   name         TEXT NOT NULL,
   qty          INT  NOT NULL CHECK (qty > 0),
   price        NUMERIC(12,2) NOT NULL,  -- ต้องตรงกับราคาที่ sale_items ของบิลแม่ขายจริง (#22 — server เป็นคนตรวจ ไม่เชื่อราคาจาก client)
@@ -757,7 +757,7 @@ CREATE TABLE return_items (
 ```sql
 CREATE TABLE purchase_orders (
   tenant_id    UUID NOT NULL,
-  id           TEXT NOT NULL,
+  id           UUID NOT NULL,
   po_no        TEXT NOT NULL,
   supplier     TEXT NOT NULL,
   status       TEXT NOT NULL DEFAULT 'open'
@@ -772,7 +772,7 @@ CREATE INDEX idx_po_status ON purchase_orders (tenant_id, status, created_at DES
 
 CREATE TABLE po_items (
   tenant_id UUID NOT NULL,
-  po_id     TEXT NOT NULL,
+  po_id     UUID NOT NULL,
   line_no   INT  NOT NULL,
   part_no   TEXT NOT NULL,     -- match กับ products.part_no ตอนรับของ (อาจไม่เจอ → คืน unmatched)
   name      TEXT NOT NULL,
@@ -784,14 +784,14 @@ CREATE TABLE po_items (
 
 CREATE TABLE quotes (
   tenant_id      UUID NOT NULL,
-  id             TEXT NOT NULL,
+  id             UUID NOT NULL,
   quote_no       TEXT NOT NULL,
   status         TEXT NOT NULL DEFAULT 'open'
                  CHECK (status IN ('open','converted','expired','cancelled')),
   date           TIMESTAMPTZ NOT NULL DEFAULT now(),
   valid_until    TIMESTAMPTZ NOT NULL,
   converted_at   TIMESTAMPTZ,
-  converted_sale_id TEXT,               -- ⭐ เพิ่มใหม่: ใบเสนอราคานี้กลายเป็นบิลไหน
+  converted_sale_id UUID,               -- ⭐ เพิ่มใหม่: ใบเสนอราคานี้กลายเป็นบิลไหน
   subtotal       NUMERIC(12,2),
   discount       NUMERIC(12,2),
   total          NUMERIC(12,2),
@@ -806,9 +806,9 @@ CREATE INDEX idx_quotes_status ON quotes (tenant_id, status, date DESC);
 
 CREATE TABLE quote_items (
   tenant_id  UUID NOT NULL,
-  quote_id   TEXT NOT NULL,
+  quote_id   UUID NOT NULL,
   line_no    INT  NOT NULL,
-  product_id TEXT,                      -- NULL ได้ = สินค้าที่ยังไม่มีในระบบ
+  product_id UUID,                      -- NULL ได้ = สินค้าที่ยังไม่มีในระบบ
   name       TEXT NOT NULL,
   qty        INT  NOT NULL CHECK (qty > 0),
   price      NUMERIC(12,2) NOT NULL,
@@ -819,9 +819,9 @@ CREATE TABLE quote_items (
 -- บิลพัก: ไม่แตะสต็อกเด็ดขาด
 CREATE TABLE parked_sales (
   tenant_id UUID NOT NULL,
-  id        TEXT NOT NULL,
+  id        UUID NOT NULL,
   parked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  device_id TEXT,
+  device_id UUID,
   payload   JSONB NOT NULL,             -- { items, customerId, mechanicId, discount, ... }
   PRIMARY KEY (tenant_id, id)
 );
@@ -832,7 +832,7 @@ CREATE TABLE parked_sales (
 ```sql
 CREATE TABLE shifts (
   tenant_id     UUID NOT NULL,
-  id            TEXT NOT NULL,
+  id            UUID NOT NULL,
   date_str      TEXT NOT NULL,          -- 'yyyy-MM-dd' ตามเวลาไทย
   starting_cash NUMERIC(12,2) NOT NULL,
   opened_at     TIMESTAMPTZ NOT NULL,
@@ -842,7 +842,7 @@ CREATE TABLE shifts (
   auto_archived BOOLEAN NOT NULL DEFAULT FALSE,
   archived_at   TIMESTAMPTZ,
   opened_by     UUID,
-  device_id     TEXT,
+  device_id     UUID,
   PRIMARY KEY (tenant_id, id)
 );
 -- ⭐ "1 เครื่อง มีลิ้นชักปัจจุบันได้ 1 ใบ" — ต้องผูกกับ device_id ไม่ใช่ tenant_id
@@ -865,8 +865,8 @@ CREATE INDEX idx_shifts_hist ON shifts (tenant_id, opened_at DESC);
 
 CREATE TABLE drawer_entries (
   tenant_id  UUID NOT NULL,
-  id         TEXT NOT NULL,
-  shift_id   TEXT NOT NULL,
+  id         UUID NOT NULL,
+  shift_id   UUID NOT NULL,
   type       TEXT NOT NULL CHECK (type IN ('in','out')),
   amount     NUMERIC(12,2) NOT NULL CHECK (amount > 0),
   note       TEXT,
@@ -903,7 +903,7 @@ CREATE TABLE settings (
 -- ⚠️ ตั้งใจไม่เปิด RLS: pos_app ไม่เคยแตะตารางนี้ — อ่าน/เขียนผ่าน ADMIN_DATA_SOURCE (platform plane) เท่านั้น
 CREATE TABLE import_jobs (
   tenant_id    UUID NOT NULL,
-  id           TEXT NOT NULL,
+  id           UUID NOT NULL,
   status       TEXT NOT NULL DEFAULT 'queued'
                CHECK (status IN ('queued','running','succeeded','failed')),
   payload      JSONB,                  -- snapshot ทั้งก้อน (≤10 MiB) — worker ล้างเป็น NULL เมื่องานจบ
@@ -925,13 +925,13 @@ CREATE INDEX idx_import_jobs_tenant ON import_jobs (tenant_id, created_at DESC);
 -- (08 §2 C6, migration 1788652803002) คิว "รอ owner" — รายการที่ระบบยกให้เจ้าของร้านตรวจ
 CREATE TABLE owner_review_items (
   tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  id           TEXT NOT NULL,
+  id           UUID NOT NULL,
   kind         TEXT NOT NULL CHECK (kind IN (
                  'void_offline','credit_override','shift_uncounted','date_flag','device_force_retired',
                  'receipt_renumbered',    -- ชนิดที่ 6 + ตั้งชื่อ ck_owner_review_items_kind: migration …4400 (owner 2026-09-25)
                  'quote_conflict',        -- ชนิดที่ 7: migration …4700 (owner 2026-10-03, 08 §6.1 — บิลออฟไลน์จากใบเสนอราคาที่ชน)
                  'drawer_overdrawn_offline')), -- ชนิดที่ 8: migration …4800 (owner 2026-10-03, ต่อจาก PR #580 — เงินออกจากลิ้นชักตอนออฟไลน์เกินยอดที่ควรมี)
-  ref_id       TEXT NOT NULL,
+  ref_id       UUID NOT NULL,
   details      JSONB NOT NULL DEFAULT '{}',
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   reviewed_at  TIMESTAMPTZ,
@@ -1233,6 +1233,10 @@ CREATE POLICY tenant_isolation ON products
 ---
 
 ## 9. แผนย้ายข้อมูลจากของเดิม (data migration)
+
+> ⚠️ **2026-10-05 (#616):** id ทุกตัวเป็น UUID แล้ว — tenant import **ปฏิเสธ** snapshot จากแอปเดิม
+> (id แบบ `c1`, `sh_{dateStr}_{n}` ฯลฯ) และนำเข้าได้เฉพาะ snapshot จาก `/backup/export` ของ server นี้เอง
+> ([ADR-0010 addendum 2026-10-05](adr/0010-client-write-through-cache.md)) · เนื้อหาด้านล่างเก็บไว้เป็นประวัติ
 
 แอปมี `SnapshotRepository.exportSnapshot()` อยู่แล้ว → ได้ JSON รูปแบบ `sa_*` + `__meta`
 ใช้อันนี้เป็นทางเข้าได้เลย ไม่ต้องเขียน exporter ใหม่

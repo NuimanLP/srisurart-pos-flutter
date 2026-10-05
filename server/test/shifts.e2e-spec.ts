@@ -13,6 +13,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 /** The by-shift expected-cash scenarios the Dart client checks too (drawer_cash_out_limit_test.dart). */
 const DRAWER_CASH_FIXTURE = JSON.parse(
@@ -105,27 +106,27 @@ describe('shifts and the cash drawer (e2e)', () => {
   });
 
   it('opens a drawer, and opening again with the same id returns the same shift untouched', async () => {
-    const first = await post('/open', { id: 'sh_custom_1', startingCash: '2000.00' });
+    const first = await post('/open', { id: testId('sh_custom_1'), startingCash: '2000.00' });
     expect(first.status).toBe(200);
-    expect(first.body.data.id).toBe('sh_custom_1');
+    expect(first.body.data.id).toBe(testId('sh_custom_1'));
     expect(first.body.data.startingCash).toBe('2000.00');
     expect(first.body.data.isActive).toBe(true);
     expect(first.body.data.entries).toEqual([]);
 
     // Replay with the same id and the same cash returns the existing shift untouched.
-    const again = await post('/open', { id: 'sh_custom_1', startingCash: '2000.00' });
+    const again = await post('/open', { id: testId('sh_custom_1'), startingCash: '2000.00' });
     expect(again.status).toBe(200);
-    expect(again.body.data.id).toBe('sh_custom_1');
+    expect(again.body.data.id).toBe(testId('sh_custom_1'));
     expect(again.body.data.startingCash).toBe('2000.00');
 
     // Same cash written differently ("2000" vs "2000.00") is still a replay, not a clash.
-    const reformatted = await post('/open', { id: 'sh_custom_1', startingCash: '2000' });
+    const reformatted = await post('/open', { id: testId('sh_custom_1'), startingCash: '2000' });
     expect(reformatted.status).toBe(200);
     expect(reformatted.body.data.startingCash).toBe('2000.00');
 
     // Same id, DIFFERENT cash = a different drawer that collided on the id: refuse, never
     // silently hand back the other drawer (the /sync/push path does the same).
-    const clash = await post('/open', { id: 'sh_custom_1', startingCash: '9999.00' });
+    const clash = await post('/open', { id: testId('sh_custom_1'), startingCash: '9999.00' });
     expect(clash.status).toBe(409);
     expect(clash.body.error.code).toBe('CLIENT_ID_REUSED');
 
@@ -195,7 +196,7 @@ describe('shifts and the cash drawer (e2e)', () => {
   // and never reads `openedAt` (08 §10, #411).
   it('e2e multi-shift: opening B archives A, no bills rejected and both stamped correctly', async () => {
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'OF-1',
       name: 'Oil Filter',
       price: 85,
@@ -214,32 +215,32 @@ describe('shifts and the cash drawer (e2e)', () => {
           discount: '0.00',
           total: '85.00',
           paymentMethod: 'เงินสด',
-          items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+          items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
         });
 
     // Open shift A
     const shiftA = await post('/open', {
-      id: 'sh_A',
+      id: testId('sh_A'),
       startingCash: '1000.00',
     });
     expect(shiftA.status).toBe(200);
-    expect(shiftA.body.data.id).toBe('sh_A');
+    expect(shiftA.body.data.id).toBe(testId('sh_A'));
 
     // Sell in shift A
-    const saleA = await sell('s-shift-A-1');
+    const saleA = await sell(testId('s-shift-A-1'));
     expect(saleA.status).toBe(201);
-    expect(saleA.body.data.shiftId).toBe('sh_A');
+    expect(saleA.body.data.shiftId).toBe(testId('sh_A'));
 
     // Open shift B without closing A (several shifts a day are allowed, 08 §11)
     const shiftB = await post('/open', {
-      id: 'sh_B',
+      id: testId('sh_B'),
       startingCash: '1500.00',
     });
     expect(shiftB.status).toBe(200);
-    expect(shiftB.body.data.id).toBe('sh_B');
+    expect(shiftB.body.data.id).toBe(testId('sh_B'));
 
     // Shift A is archived with auto_archived = true and shift_uncounted item
-    const rowA = await shiftRow('sh_A');
+    const rowA = await shiftRow(testId('sh_A'));
     expect(rowA.is_active).toBe(false);
     expect(rowA.auto_archived).toBe(true);
 
@@ -247,12 +248,12 @@ describe('shifts and the cash drawer (e2e)', () => {
       `SELECT kind, ref_id FROM owner_review_items WHERE tenant_id = $1::uuid`,
       [TENANT],
     );
-    expect(revs).toContainEqual({ kind: 'shift_uncounted', ref_id: 'sh_A' });
+    expect(revs).toContainEqual({ kind: 'shift_uncounted', ref_id: testId('sh_A') });
 
     // Sell in shift B
-    const saleB = await sell('s-shift-B-1');
+    const saleB = await sell(testId('s-shift-B-1'));
     expect(saleB.status).toBe(201);
-    expect(saleB.body.data.shiftId).toBe('sh_B');
+    expect(saleB.body.data.shiftId).toBe(testId('sh_B'));
   });
 
   // The tenant-timezone `date_str` case across UTC midnight moved to
@@ -350,7 +351,7 @@ describe('shifts and the cash drawer (e2e)', () => {
           discount: '0.00',
           total: '85.00',
           paymentMethod: 'เงินสด',
-          items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+          items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
         });
 
     const entryCount = async () =>
@@ -363,7 +364,7 @@ describe('shifts and the cash drawer (e2e)', () => {
 
     beforeEach(async () => {
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'OF-1',
         name: 'Oil Filter',
         price: 85,
@@ -386,7 +387,7 @@ describe('shifts and the cash drawer (e2e)', () => {
 
     it('accepts exactly the expected cash, refuses one satang more — and agrees with the closing report', async () => {
       const opened = await post('/open', { startingCash: '1000.00' });
-      expect((await sellCash('s-cash-1')).status).toBe(201);
+      expect((await sellCash(testId('s-cash-1'))).status).toBe(201);
       await post('/current/entries', { type: 'in', amount: '20.50' });
       // expected = 1000 + 85 + 20.50 = 1105.50
       const closing = await request(app.getHttpServer())
@@ -414,7 +415,7 @@ describe('shifts and the cash drawer (e2e)', () => {
 
     it('agrees with the Dart client on the shared by-shift fixture (drawer-cash/agreement.json)', async () => {
       const f = DRAWER_CASH_FIXTURE;
-      await seedMechanic(admin, TENANT, { id: 'm-fx', code: 'M901', name: 'ช่างทดสอบ' });
+      await seedMechanic(admin, TENANT, { id: testId('m-fx'), code: 'M901', name: 'ช่างทดสอบ' });
       for (const sh of f.shifts) {
         await admin.query(
           `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, closed_at,
@@ -444,7 +445,7 @@ describe('shifts and the cash drawer (e2e)', () => {
         await admin.query(
           `INSERT INTO credit_payments (tenant_id, id, receipt_no, mechanic_id, amount,
                                         payment_method, date, shift_id)
-           VALUES ($1::uuid, $2, $3, 'm-fx', $4, $5, $6, $7)`,
+           VALUES ($1::uuid, $2, $3, '${testId('m-fx')}', $4, $5, $6, $7)`,
           [TENANT, cp.id, `CP-${cp.id}`, cp.amount, cp.method, cp.at, cp.shift],
         );
       }
@@ -468,11 +469,11 @@ describe('shifts and the cash drawer (e2e)', () => {
     });
 
     it('a second shift counts only its own cash, not the first shift’s takings', async () => {
-      await post('/open', { id: 'sh_first', startingCash: '1000.00' });
-      expect((await sellCash('s-first-1')).status).toBe(201);
+      await post('/open', { id: testId('sh_first'), startingCash: '1000.00' });
+      expect((await sellCash(testId('s-first-1'))).status).toBe(201);
       await post('/close', { physicalCash: '1085.00' });
 
-      await post('/open', { id: 'sh_second', startingCash: '100.00' });
+      await post('/open', { id: testId('sh_second'), startingCash: '100.00' });
       const over = await post('/current/entries', { type: 'out', amount: '100.01' });
       expect(over.status).toBe(409);
       expect(over.body.error.details).toEqual({ expectedCash: '100.00' });
@@ -585,7 +586,7 @@ describe('shifts and the cash drawer (e2e)', () => {
 
   it('stamps shift_id on every bill rung up while the drawer is open', async () => {
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'OF-1',
       name: 'Oil Filter',
       price: 85,
@@ -603,17 +604,17 @@ describe('shifts and the cash drawer (e2e)', () => {
           discount: '0.00',
           total: '85.00',
           paymentMethod: 'เงินสด',
-          items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+          items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
         });
 
     // Before the drawer is opened the bill is refused (owner's decision, 2026-09-13):
     // a bill with no shift is money no closing report counts.
-    const before = await sell(`s-noshift-${Date.now()}`);
+    const before = await sell(testId(`s-noshift-${Date.now()}`));
     expect(before.status).toBe(409);
     expect(before.body.error.code).toBe('NO_OPEN_SHIFT');
 
     const shift = await post('/open', { startingCash: '1000.00' });
-    const during = await sell(`s-shift-${Date.now()}`);
+    const during = await sell(testId(`s-shift-${Date.now()}`));
     expect(during.status).toBe(201);
     expect(during.body.data.shiftId).toBe(shift.body.data.id);
 
@@ -626,7 +627,7 @@ describe('shifts and the cash drawer (e2e)', () => {
 
   it('refuses a bill once the drawer is closed', async () => {
     await seedProduct(admin, TENANT, {
-      id: 'p2',
+      id: testId('p2'),
       partNo: 'BP-2',
       name: 'Brake Pad',
       price: 750,
@@ -636,7 +637,7 @@ describe('shifts and the cash drawer (e2e)', () => {
     await post('/open', { startingCash: '1000.00' });
     await post('/close', { physicalCash: '1000.00' });
 
-    const id = `s-after-close-${Date.now()}`;
+    const id = testId(`s-after-close-${Date.now()}`);
     const res = await request(app.getHttpServer())
       .post('/api/v1/sales')
       .set('Authorization', `Bearer ${posToken}`)
@@ -647,7 +648,7 @@ describe('shifts and the cash drawer (e2e)', () => {
         discount: '0.00',
         total: '750.00',
         paymentMethod: 'เงินสด',
-        items: [{ lineNo: 1, productId: 'p2', name: 'Brake Pad', qty: 1, price: '750.00' }],
+        items: [{ lineNo: 1, productId: testId('p2'), name: 'Brake Pad', qty: 1, price: '750.00' }],
       });
     // A closed drawer takes no more money: the bill must neither join the closed shift
     // and skew its counted report nor slip in with no shift at all. "Open" is
@@ -661,7 +662,7 @@ describe('shifts and the cash drawer (e2e)', () => {
     );
     expect(rows[0].n).toBe(0);
     const stock = await admin.query(
-      `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = 'p2'`,
+      `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = '${testId('p2')}'`,
       [TENANT],
     );
     expect(stock[0].stock).toBe(10);
@@ -805,7 +806,7 @@ describe('shifts and the cash drawer (e2e)', () => {
 
     // DoD line 12 (03_ARCHITECTURE.md §8): "enrol เครื่องใหม่ได้ device_no ใหม่ และขายได้"
     await seedProduct(admin, TENANT, {
-      id: 'p-repl-sell',
+      id: testId('p-repl-sell'),
       partNo: 'RP-01',
       name: 'Replacement Part',
       price: 150,
@@ -814,7 +815,7 @@ describe('shifts and the cash drawer (e2e)', () => {
     });
     const stockBefore = await admin.query(
       `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`,
-      [TENANT, 'p-repl-sell'],
+      [TENANT, testId('p-repl-sell')],
     );
     expect(stockBefore[0].stock).toBe(10);
 
@@ -823,7 +824,7 @@ describe('shifts and the cash drawer (e2e)', () => {
       .set('Authorization', `Bearer ${replacementToken}`)
       .set('Idempotency-Key', `k-repl-sale-${Date.now()}`)
       .send({
-        id: `s-repl-${Date.now()}`,
+        id: testId(`s-repl-${Date.now()}`),
         subtotal: '150.00',
         discount: '0.00',
         total: '150.00',
@@ -831,7 +832,7 @@ describe('shifts and the cash drawer (e2e)', () => {
         items: [
           {
             lineNo: 1,
-            productId: 'p-repl-sell',
+            productId: testId('p-repl-sell'),
             name: 'Replacement Part',
             qty: 1,
             price: '150.00',
@@ -849,7 +850,7 @@ describe('shifts and the cash drawer (e2e)', () => {
     // Stock really moved, not just a 201 with no side effect.
     const stockAfter = await admin.query(
       `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`,
-      [TENANT, 'p-repl-sell'],
+      [TENANT, testId('p-repl-sell')],
     );
     expect(stockAfter[0].stock).toBe(9);
   });
@@ -907,7 +908,7 @@ describe('shifts and the cash drawer (e2e)', () => {
   });
 
   it('ten simultaneous opens with the same id produce exactly one drawer', async () => {
-    const shiftId = 'sh-race-1';
+    const shiftId = testId('sh-race-1');
     const send = () =>
       request(app.getHttpServer())
         .post('/api/v1/shifts/open')
