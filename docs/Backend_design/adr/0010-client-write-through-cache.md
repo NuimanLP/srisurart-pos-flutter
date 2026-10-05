@@ -180,7 +180,7 @@ group ด้วยคอลัมน์นี้ การยุบสองค�
 * ทุก id ของ entity และทุกคอลัมน์ที่ชี้หา entity เป็น `UUID` (44 คอลัมน์ใน 22 ตาราง รายการอยู่ใน #616) — id ชนิดเดียวทุกที่, เทียบแบบ binary, index เล็กลง, id ผิดรูปแบบถูกปฏิเสธ
 * **UUIDv7 ตัวพิมพ์เล็ก** สร้างโดย client (Dart `Uuid().v7()`) และ server (`newUuid()` ใน `server/src/common/ids.ts`) — Postgres ไม่สร้าง id เอง
 * id ผิดรูปแบบหรือตัวพิมพ์ใหญ่ → **`400 INVALID_ID`** ไม่ normalise · `opId` ของ outbox เป็น UUID ด้วย · `Idempotency-Key` และเลขเอกสารไม่เปลี่ยน
-* **ทิ้งข้อมูลเดิม** — server ใหม่เริ่มจาก DB ว่าง, DB ของ `mob04` ถูกล้างตอน cutover (ขั้นตอนของเจ้าของ), migration `EntityIdsToUuid` ปฏิเสธ DB ที่ไม่ว่าง · tenant import ฝั่ง server เหลือหน้าที่นำเข้า snapshot จาก `/backup/export` ของ server นี้เองและปฏิเสธ id รูปแบบเก่า · `importLegacyBackup` ของ client ไม่เปลี่ยน (API build ปฏิเสธอยู่แล้ว)
+* **ทิ้งข้อมูลเดิม** — server ใหม่เริ่มจาก DB ว่าง, DB ของ `mob04` ถูกล้างตอน cutover (ขั้นตอนของเจ้าของ), migration `EntityIdsToUuid` ปฏิเสธ DB ที่ไม่ว่าง · tenant import ฝั่ง server เหลือหน้าที่นำเข้า snapshot จาก `/backup/export` ของ server นี้เองและปฏิเสธ id รูปแบบเก่า · `importLegacyBackup` ของ client **เปลี่ยนเรื่องเดียว**: `exportSnapshot()` เขียน `id` ของกะลงใน `sa_cash_drawer`/`sa_shift_history` แล้ว และตอน import ใช้ id ของกะจากไฟล์ถ้ามี (ไฟล์ JS เดิมไม่มี id ของกะ → สร้าง `newUuid()` ใหม่) · นอกนั้นเหมือนเดิม (API build ปฏิเสธอยู่แล้ว)
 * เครื่องที่ชี้ไป server ใหม่ต้อง **เริ่มด้วย outbox ว่าง** (ล้างข้อมูลแอป)
 
 ## ผลที่ตามมา

@@ -1234,6 +1234,10 @@ CREATE POLICY tenant_isolation ON products
 
 ## 9. แผนย้ายข้อมูลจากของเดิม (data migration)
 
+> ⚠️ **2026-10-05 (#616):** id ทุกตัวเป็น UUID แล้ว — tenant import **ปฏิเสธ** snapshot จากแอปเดิม
+> (id แบบ `c1`, `sh_{dateStr}_{n}` ฯลฯ) และนำเข้าได้เฉพาะ snapshot จาก `/backup/export` ของ server นี้เอง
+> ([ADR-0010 addendum 2026-10-05](adr/0010-client-write-through-cache.md)) · เนื้อหาด้านล่างเก็บไว้เป็นประวัติ
+
 แอปมี `SnapshotRepository.exportSnapshot()` อยู่แล้ว → ได้ JSON รูปแบบ `sa_*` + `__meta`
 ใช้อันนี้เป็นทางเข้าได้เลย ไม่ต้องเขียน exporter ใหม่
 
