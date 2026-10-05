@@ -890,6 +890,66 @@ describe('quotes and parked sales (e2e)', () => {
       expect(await stockState()).toEqual(before);
     });
 
+    it('convert of a quote with a free-text line: 409 ไม่พบในสต็อก first time and on a replay (#616)', async () => {
+      const loose = (
+        await createQuote(
+          quoteBody({
+            subtotal: '180.00',
+            discount: '0.00',
+            total: '180.00',
+            items: [
+              { productId: P1, name: 'ผ้าเบรกหน้า', qty: 1, price: '100.00' },
+              { name: 'ของสั่งพิเศษ', qty: 1, price: '80.00' },
+            ],
+          }),
+        )
+      ).body.data;
+      const party = { id: testId('sale-616-loose'), paymentMethod: 'เงินสด' };
+      const notInStock = 'สต็อกไม่พอ:\nของสั่งพิเศษ: ไม่พบในสต็อก';
+
+      // First time, and a same-key retry: the refusal rolled back, so it runs again.
+      const k = key();
+      for (const res of [
+        await convert(loose.id, party, { key: k }),
+        await convert(loose.id, party, { key: k }),
+      ]) {
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
+        expect(res.body.error.message).toBe(notInStock);
+      }
+      expect((await quoteRow(loose.id))!.status).toBe('open');
+      expect(await saleCount()).toBe(0);
+
+      // The counter sells the quote's cart at Checkout with the free-text line swapped
+      // for a catalogue part at the same money, converting the quote into that bill.
+      expect(
+        (
+          await sell(
+            editedCart({
+              id: party.id,
+              quoteId: loose.id,
+              subtotal: '180.00',
+              total: '180.00',
+              items: [
+                { lineNo: 1, productId: P1, name: 'ผ้าเบรกหน้า', qty: 1, price: '100.00' },
+                { lineNo: 2, productId: P2, name: 'หัวเทียน', qty: 1, price: '80.00' },
+              ],
+            }),
+          )
+        ).status,
+      ).toBe(201);
+      const before = await stockState();
+
+      // A lost-key convert retry under that bill id is a replay of the quote — whose
+      // free-text line still cannot be sold through convert.
+      const replay = await convert(loose.id, party);
+      expect(replay.status).toBe(409);
+      expect(replay.body.error.code).toBe('INSUFFICIENT_STOCK');
+      expect(replay.body.error.message).toBe(notInStock);
+      expect(await saleCount()).toBe(1);
+      expect(await stockState()).toEqual(before);
+    });
+
     it('an expired quote is QUOTE_EXPIRED and nothing is written', async () => {
       const q = (await createQuote()).body.data;
       await admin.query(

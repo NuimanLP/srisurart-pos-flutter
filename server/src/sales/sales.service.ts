@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
-import { isUuid, newUuid } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, pointsFor, satangOf } from '../common/money.js';
 import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
 import { MetricsService } from '../metrics/metrics.service.js';
@@ -521,9 +521,7 @@ export class SalesService {
         WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[]) AND deleted_at IS NULL
         ORDER BY id
           FOR UPDATE`,
-      // A converted quote's free-text line has no product (`''`): it can match no row, so
-      // it reads as "ไม่พบในสต็อก" below rather than reaching `::uuid[]` as a 22P02 (#616).
-      [tenantId, demands.map((d) => d.productId).filter(isUuid)],
+      [tenantId, demands.map((d) => d.productId)],
     ) as Promise<LockedProduct[]>;
   }
 
@@ -559,16 +557,7 @@ export class SalesService {
       }
     }
 
-    if (lines.length > 0) {
-      throw new HttpException(
-        {
-          code: 'INSUFFICIENT_STOCK',
-          message: `สต็อกไม่พอ:\n${lines.join('\n')}`,
-          details,
-        },
-        HttpStatus.CONFLICT,
-      );
-    }
+    if (lines.length > 0) throw insufficientStock(lines, details);
   }
 
   /**
@@ -971,6 +960,25 @@ function aggregate(items: SaleLine[]): Demand[] {
   }
   return [...byProduct.values()].sort(
     (a, b) => a.firstLineIndex - b.firstLineIndex,
+  );
+}
+
+/**
+ * The sale path's one stock refusal: `409 INSUFFICIENT_STOCK`, every short line in one
+ * Thai message. Exported for the quote path: a quote's free-text line has no product
+ * id, so `QuotesService` refuses it with this before the sale path (#616).
+ */
+export function insufficientStock(
+  lines: string[],
+  details: { productId: string | null; stock: number | null; requested: number }[],
+): HttpException {
+  return new HttpException(
+    {
+      code: 'INSUFFICIENT_STOCK',
+      message: `สต็อกไม่พอ:\n${lines.join('\n')}`,
+      details,
+    },
+    HttpStatus.CONFLICT,
   );
 }
 
