@@ -10,7 +10,7 @@ import { Queue } from 'bullmq';
 import { DataSource } from 'typeorm';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import {
   DEFAULT_JOB_OPTIONS,
   JOB_TENANT_IMPORT,
@@ -24,6 +24,8 @@ import {
   describeClamp,
   describeDuplicate,
   planClampViolations,
+  planBadIds,
+  describeBadId,
   planDuplicateDocNumbers,
   planUnparseableDates,
 } from './snapshot-preflight.js';
@@ -137,6 +139,20 @@ export class TenantImportService {
   private async preflight(tenantId: string, snapshot: SnapshotPayload): Promise<Preflight> {
     if (!snapshot.__meta) {
       throw new BadRequestException('ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta');
+    }
+
+    // #616: ids are UUIDs and legacy-app snapshots are no longer supported — refuse first, so
+    // a legacy file reports its id problem rather than a side effect of it.
+    const badIds = planBadIds(snapshot as Record<string, unknown>);
+    if (badIds.length > 0) {
+      throw new BadRequestException({
+        code: 'INVALID_ID',
+        message:
+          `Pre-flight failed: ${badIds.length} id(s) are not lowercase UUIDs, first: ${badIds[0].table}.${badIds[0].field}. ` +
+          `Snapshots from the old app are no longer supported — only a snapshot exported from this server can be imported. ` +
+          badIds.slice(0, 10).map(describeBadId).join('; '),
+        details: { field: `${badIds[0].table}.${badIds[0].field}`, count: badIds.length },
+      });
     }
 
     // 1. Verify tenant already has no transactional rows
@@ -460,7 +476,7 @@ export class TenantImportService {
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
           const lineNo = i + 1;
-          const productId = String(item.productId || item.product_id || `p_${i}`);
+          const productId = String(item.productId || item.product_id);
           const partNo = item.partNo || item.part_no ? String(item.partNo || item.part_no) : null;
           const name = String(item.name || '');
           const nameTh = item.nameTH || item.name_th ? String(item.nameTH || item.name_th) : null;
@@ -678,7 +694,7 @@ export class TenantImportService {
         const dateStr = String(sh.date || sh.dateStr || sh.date_str || openedAt.toISOString().slice(0, 10));
         const n = (shiftsPerDate.get(dateStr) ?? 0) + 1;
         shiftsPerDate.set(dateStr, n);
-        const shiftId = String(sh.id || `sh_${dateStr}_${n}`);
+        const shiftId = String(sh.id);
         const startingCash = round2(sh.startingCash || sh.starting_cash);
         const closedAt = sh.closedAt || sh.closed_at ? parseDate(sh.closedAt || sh.closed_at) : null;
         const physicalCash = sh.physicalCash != null || sh.physical_cash != null ? round2(sh.physicalCash ?? sh.physical_cash) : null;
@@ -695,7 +711,7 @@ export class TenantImportService {
         const entries = (sh.entries as Array<Record<string, unknown>>) || [];
         for (let j = 0; j < entries.length; j++) {
           const entry = entries[j];
-          const entryId = String(entry.id || `de_${shiftId}_${j + 1}`);
+          const entryId = String(entry.id);
           const type = String(entry.type || 'in');
           const amount = round2(entry.amount);
           // exportSnapshot() writes `note ?? ''`: an empty note stays empty, only absent is null.
@@ -715,7 +731,7 @@ export class TenantImportService {
       const parked = snapshot.sa_parked || [];
       for (let i = 0; i < parked.length; i++) {
         const ps = parked[i];
-        const id = String(ps.id || `pk_import_${i + 1}`);
+        const id = String(ps.id);
         const parkedAt = parseDate(ps.parkedAt || ps.parked_at);
         const payload = ps.payload ? (typeof ps.payload === 'string' ? JSON.parse(ps.payload) : ps.payload) : ps;
 
@@ -831,7 +847,7 @@ export class TenantImportService {
   async createJob(tenantId: string, snapshot: SnapshotPayload, adminId: string, ip: string | undefined): Promise<{ jobId: string }> {
     await this.preflight(tenantId, snapshot);
 
-    const jobId = newId('imp_');
+    const jobId = newUuid();
     try {
       await this.adminDs.transaction(async (manager) => {
         // #239 review (issue 1): a worker that crashed or stalled leaves its row 'queued' or
@@ -863,7 +879,7 @@ export class TenantImportService {
       throw err;
     }
 
-    const payload: TenantImportJobPayload = { tenantId, correlationId: newId('import_'), importJobId: jobId };
+    const payload: TenantImportJobPayload = { tenantId, correlationId: newUuid(), importJobId: jobId };
     await this.importQueue.add(JOB_TENANT_IMPORT, payload, DEFAULT_JOB_OPTIONS);
     return { jobId };
   }
