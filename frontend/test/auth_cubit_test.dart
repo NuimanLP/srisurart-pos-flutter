@@ -15,7 +15,7 @@ class StubAuthRepo extends AuthRepository {
   });
 
   bool shouldFailLogin = false;
-  ApiException? errorToThrow;
+  Object? errorToThrow;
   String? mockDeviceToken;
   String? mockDeviceRole;
   AuthUser? mockUser;
@@ -30,6 +30,10 @@ class StubAuthRepo extends AuthRepository {
   Future<LoginResult> login({required String username, required String password}) async {
     await Future<void>.delayed(const Duration(milliseconds: 1));
     if (shouldFailLogin) {
+      if (errorToThrow is DeviceEnrolmentGoneException) {
+        mockDeviceToken = null; // the real repository clears it first
+        mockDeviceRole = null;
+      }
       throw errorToThrow ?? ApiException(statusCode: 401, code: 'UNAUTHENTICATED');
     }
     final user = AuthUser(id: 'u-1', username: username, role: 'owner');
@@ -217,15 +221,15 @@ void main() {
 
   // #609: a retired (or unknown) device token. The repository has forgotten
   // it; the form must stop showing "เครื่อง POS" and offer enrolment again.
-  for (final code in ['DEVICE_RETIRED', 'DEVICE_TOKEN_INVALID']) {
-    test('$code drops back to backoffice with the enrolment-gone sentence', () async {
+  for (final code in ['retired', 'unknown']) {
+    test('a $code device token drops back to backoffice with the enrolment-gone sentence', () async {
       repo.mockDeviceToken = 'retired-token';
       repo.mockDeviceRole = 'pos';
       await cubit.init();
       expect((cubit.state as Unauthenticated).isPos, isTrue);
 
       repo.shouldFailLogin = true;
-      repo.errorToThrow = ApiException(statusCode: 401, code: code);
+      repo.errorToThrow = const DeviceEnrolmentGoneException();
 
       final success = await cubit.login(username: 'owner', password: 'pw');
 
@@ -236,6 +240,23 @@ void main() {
       expect(state.errorMessage, AuthCubit.deviceEnrolmentGone);
     });
   }
+
+  // After the retire cleared the token, a reload must not resurrect the 'pos'
+  // role remembered by the offline-PIN record (same rule as sessionExpired).
+  test('init with no device token ignores a remembered pos role', () async {
+    repo.mockDeviceToken = null;
+    repo.mockDeviceRole = 'pos';
+    await cubit.init();
+    final state = cubit.state as Unauthenticated;
+    expect(state.isPos, isFalse);
+  });
+
+  test('logout with no device token shows backoffice, not a remembered pos', () async {
+    repo.mockDeviceToken = null;
+    repo.mockDeviceRole = 'pos';
+    await cubit.logout();
+    expect((cubit.state as Unauthenticated).isPos, isFalse);
+  });
 
   // The device-token read runs before the login request; a token store that
   // cannot be opened (#400) used to escape the login button's handler with
