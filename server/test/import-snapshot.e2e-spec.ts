@@ -315,6 +315,17 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
     expect(res.body.error.message).toMatch(/sales\.items\[0\]\.productId/);
   }, 30000);
 
+  it.skipIf(Boolean(REAL_FILE))('refuses a sale line with no productId, synchronously (not a 22P02 in the worker)', async () => {
+    const snapshot = generateSyntheticSnapshot({ scale: 'small', profile: 'clean' }) as Json;
+    const sale = (snapshot.sa_sales as Json[]).find((s) => (s.items as Json[]).length > 0)!;
+    delete (sale.items as Json[])[0].productId;
+    const tenantId = await provision();
+    const res = await importFile(tenantId, snapshot);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_ID');
+    expect(res.body.error.message).toMatch(/sales\.items\[0\]\.productId/);
+  }, 30000);
+
   it.skipIf(Boolean(REAL_FILE))('refuses a second import into a tenant that already has bills, synchronously', async () => {
     const snapshot = generateSyntheticSnapshot({ scale: 'small', profile: 'clean' });
     const tenantId = await provision();

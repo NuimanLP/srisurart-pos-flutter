@@ -246,4 +246,15 @@ describe('planBadIds (#616)', () => {
   it('requires an id on a shift (the export always writes one)', () => {
     expect(planBadIds({ sa_shift_history: [{ date: '2026-06-01', entries: [] }] }).map((b) => b.table)).toEqual(['shifts']);
   });
+
+  it('requires a productId on every sale and return line, but not on a quote line', () => {
+    const out = planBadIds({
+      sa_sales: [{ id: testId('s'), items: [{ productId: a }, { name: 'no product' }, { productId: '' }] }],
+      sa_returns: [{ id: testId('r'), saleId: testId('s'), items: [{ productId: null }] }],
+      sa_quotes: [{ id: testId('q'), items: [{ name: 'free-text line' }, { productId: null }] }],
+    });
+    expect(out.map((b) => `${b.table}.${b.field}`)).toEqual([
+      'sales.items[1].productId', 'sales.items[2].productId', 'returns.items[0].productId',
+    ]);
+  });
 });

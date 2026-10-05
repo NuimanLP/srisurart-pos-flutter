@@ -320,7 +320,8 @@ export function describeClamp(c: ClampViolation): string {
 // `p1`, `slq3x9a_1a2b3c4d_7`) must never reach the importer, which only reads the shape this
 // server's own `/backup/export` writes. Every row's own `id` is required (the export always
 // writes one, shifts/drawer entries/parked bills included); a reference is checked only when
-// the file supplies a value (an absent/null reference is a normal optional field).
+// the file supplies a value (an absent/null reference is a normal optional field), except a
+// sale/return line's productId, which is required.
 
 export interface BadId {
   table: string;
@@ -339,27 +340,38 @@ export function planBadIds(snapshot: Row): BadId[] {
       if (v != null && v !== '' && !isUuid(v)) out.push({ table, field: `${path}${f}`, value: v });
     }
   };
-  const items = (table: string, r: Row) =>
-    rows(r.items).forEach((it, i) => refs(table, it, `items[${i}].`, ['productId']));
+  // A sale/return line's product is NOT NULL (`sale_items`/`return_items.product_id`) and the
+  // export always writes it, so an absent one is refused here — the importer would otherwise
+  // insert `String(undefined)` and fail in the worker with 22P02. A quote line may have none
+  // (free-text line: `quote_items.product_id` is nullable and the export omits the key).
+  const items = (table: string, r: Row, lineProduct: 'required' | 'optional') =>
+    rows(r.items).forEach((it, i) => {
+      const v = it.productId ?? it.product_id;
+      if (lineProduct === 'required' && (v == null || v === '')) {
+        out.push({ table, field: `items[${i}].productId`, value: v });
+      } else {
+        refs(table, it, `items[${i}].`, ['productId']);
+      }
+    });
 
-  // [snapshot key, table label, reference fields, has line items]
-  const specs: Array<[string, string, string[], boolean]> = [
-    ['sa_products', 'products', [], false],
-    ['sa_customers', 'customers', [], false],
-    ['sa_mechanics', 'mechanics', [], false],
-    ['sa_sales', 'sales', ['customerId', 'mechanicId', 'shiftId', 'deviceId'], true],
-    ['sa_returns', 'returns', ['saleId', 'customerId', 'mechanicId', 'shiftId', 'deviceId'], true],
-    ['sa_pos', 'purchaseOrders', [], true],
-    ['sa_quotes', 'quotes', ['convertedSaleId'], true],
-    ['sa_movements', 'movements', ['productId', 'refId'], false],
-    ['sa_suppliers', 'suppliers', ['productId'], false],
-    ['sa_credit_payments', 'creditPayments', ['mechanicId', 'shiftId', 'deviceId'], false],
+  // [snapshot key, table label, reference fields, line items' productId]
+  const specs: Array<[string, string, string[], 'required' | 'optional' | null]> = [
+    ['sa_products', 'products', [], null],
+    ['sa_customers', 'customers', [], null],
+    ['sa_mechanics', 'mechanics', [], null],
+    ['sa_sales', 'sales', ['customerId', 'mechanicId', 'shiftId', 'deviceId'], 'required'],
+    ['sa_returns', 'returns', ['saleId', 'customerId', 'mechanicId', 'shiftId', 'deviceId'], 'required'],
+    ['sa_pos', 'purchaseOrders', [], 'optional'],
+    ['sa_quotes', 'quotes', ['convertedSaleId'], 'optional'],
+    ['sa_movements', 'movements', ['productId', 'refId'], null],
+    ['sa_suppliers', 'suppliers', ['productId'], null],
+    ['sa_credit_payments', 'creditPayments', ['mechanicId', 'shiftId', 'deviceId'], null],
   ];
-  for (const [key, table, fields, hasItems] of specs) {
+  for (const [key, table, fields, lineProduct] of specs) {
     for (const r of rows(snapshot[key])) {
       own(table, r, '');
       refs(table, r, '', fields);
-      if (hasItems) items(table, r);
+      if (lineProduct) items(table, r, lineProduct);
     }
   }
 
