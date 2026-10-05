@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
+import { toErrorEnvelope } from '../common/http-exception.filter.js';
 
 // Pass-through, with a hook so a test can look at the pool at the moment argon2 runs.
 const argonHook = vi.hoisted(() => ({ onVerify: null as null | (() => void) }));
@@ -535,6 +536,38 @@ describe('AuthService', () => {
         ).rejects.toThrow('Invalid device token');
         expect(rateLimitMock.consumeAttempt).toHaveBeenCalledWith('auth:ip:10.0.0.10', 10, 60);
         expect(rateLimitMock.refundAttempt).not.toHaveBeenCalled();
+      });
+
+      // #609: the client must tell "this browser's enrolment is dead" apart from a wrong
+      // password, so it can drop the device token and offer enrolment again.
+      it('refuses an unknown device token with 401 DEVICE_TOKEN_INVALID', async () => {
+        const { service } = build('not-an-argon2-hash');
+        const err = await service
+          .login({ username: 'owner', password: 'x', deviceToken: 'unknown' }, '10.0.0.12')
+          .catch((e: unknown) => e);
+        expect(err).toMatchObject({ status: 401 });
+        expect(toErrorEnvelope(err).body.error.code).toBe('DEVICE_TOKEN_INVALID');
+      });
+
+      it('refuses a retired device token with 401 DEVICE_RETIRED', async () => {
+        const query = vi.fn().mockImplementation((sql: string) =>
+          sql.includes('auth_lookup_device_by_token')
+            ? [{ tenant_id: 't1', id: 'd1', role: 'pos', retired_at: new Date() }]
+            : [],
+        );
+        const service = new AuthService(
+          { createQueryRunner: vi.fn(), query } as any,
+          {} as any,
+          { log: vi.fn() } as any,
+          rateLimitMock as any,
+        );
+        const err = await service
+          .login({ username: 'owner', password: 'x', deviceToken: 'retired' }, '10.0.0.13')
+          .catch((e: unknown) => e);
+        expect(err).toMatchObject({ status: 401 });
+        expect(toErrorEnvelope(err).body.error.code).toBe('DEVICE_RETIRED');
+        // Refused before any user lookup or password verify.
+        expect(query).toHaveBeenCalledTimes(1);
       });
 
       // #138 item 1: a success must not wipe the IP bucket, or one valid account resets it every

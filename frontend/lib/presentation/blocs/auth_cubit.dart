@@ -342,6 +342,15 @@ class AuthCubit extends Cubit<AuthState> {
           return true;
       }
     } catch (e) {
+      // #609: AuthRepository.login has already forgotten a dead device token
+      // (and its PIN record); show the browser as not enrolled, so the login
+      // form says backoffice and the enrol link comes back.
+      if (e is ApiException &&
+          e.statusCode == 401 &&
+          AuthRepository.deadDeviceTokenCodes.contains(e.code)) {
+        emit(const Unauthenticated(errorMessage: deviceEnrolmentGone));
+        return false;
+      }
       emit(Unauthenticated(
         deviceToken: prevDeviceToken,
         deviceRole: prevDeviceRole,
@@ -409,6 +418,14 @@ class AuthCubit extends Cubit<AuthState> {
       deviceRole: current is AuthPasswordChangeRequired ? current.deviceRole : null,
     ));
   }
+
+  /// agent ร่าง (#609, 02_API_SCREENS.md §8.1.1) — not yet ratified. The
+  /// server refused this browser's device token at login: the device was
+  /// retired or the token is unknown. The token is gone; the browser is back
+  /// to backoffice mode until it is enrolled again.
+  static const String deviceEnrolmentGone =
+      'เครื่องนี้ถูกปลดจากร้านแล้ว หรือไม่พบในระบบ จึงเปลี่ยนเป็นโหมด Backoffice '
+      '— เข้าสู่ระบบอีกครั้งได้ หรือผูกเครื่องใหม่ด้วยรหัสจากเจ้าของร้าน';
 
   /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
   static const String passwordChangeSessionExpired =

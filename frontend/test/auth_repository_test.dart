@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
@@ -181,6 +182,65 @@ void main() {
 
     expect(await repo.getDeviceId(), 'dev-42');
     expect(await repo.getDeviceRole(), 'pos');
+  });
+
+  // #609: the server says this browser's enrolment is dead (device retired, or
+  // a token it does not know). Keeping the token kept the "เครื่อง POS" chip
+  // and hid the enrol link forever, and every login failed the same way.
+  group('a dead device token (#609)', () {
+    http.Response refusal(String code) => http.Response.bytes(
+          utf8.encode(jsonEncode({
+            'status': 'error',
+            'error': {'code': code, 'message': 'x'},
+          })),
+          401,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+
+    Future<(AuthRepository, OfflinePinRepository)> build(
+        http.Response response) async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final apiClient = ApiClient(
+        baseUrl: 'http://test',
+        httpClient: MockClient((_) async => response),
+        tokenStorage: storage,
+      );
+      final pinRepo = OfflinePinRepository(db: db, tokenStorage: storage);
+      await pinRepo.recordOnlineLogin(iat: 1, deviceId: 'dev-old', deviceRole: 'pos');
+      final repo = AuthRepository(
+        apiClient: apiClient,
+        tokenStorage: storage,
+        offlinePinRepository: pinRepo,
+      );
+      return (repo, pinRepo);
+    }
+
+    for (final code in ['DEVICE_RETIRED', 'DEVICE_TOKEN_INVALID']) {
+      test('$code forgets the device token and its remembered POS role', () async {
+        storage.deviceToken = 'retired-token';
+        final (repo, _) = await build(refusal(code));
+
+        await expectLater(
+          repo.login(username: 'owner', password: 'pw'),
+          throwsA(isA<ApiException>().having((e) => e.code, 'code', code)),
+        );
+        expect(storage.deviceToken, isNull);
+        expect(await repo.getDeviceRole(), isNull);
+      });
+    }
+
+    test('a wrong password keeps the device token (ADR-0004)', () async {
+      storage.deviceToken = 'live-token';
+      final (repo, _) = await build(refusal('UNAUTHORIZED'));
+
+      await expectLater(
+        repo.login(username: 'owner', password: 'wrong'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(storage.deviceToken, 'live-token');
+      expect(await repo.getDeviceRole(), 'pos');
+    });
   });
 
   // #443 PR3: a temporary owner password answers with a restricted token and

@@ -109,13 +109,21 @@ export class AuthService {
       if (devRes.length === 1) {
         const dev = devRes[0];
         if (dev.retired_at) {
-          throw new UnauthorizedException('Device has been retired');
+          // #609: coded, so the client can drop this browser's dead enrolment and offer a new
+          // one instead of reading it as a wrong password. Only a holder of the token learns it.
+          throw new HttpException(
+            { code: 'DEVICE_RETIRED', message: 'Device has been retired' },
+            HttpStatus.UNAUTHORIZED,
+          );
         }
         deviceTenantId = dev.tenant_id;
         did = dev.id;
         drole = dev.role;
       } else {
-        throw new UnauthorizedException('Invalid device token');
+        throw new HttpException(
+          { code: 'DEVICE_TOKEN_INVALID', message: 'Invalid device token' },
+          HttpStatus.UNAUTHORIZED,
+        );
       }
     }
 
