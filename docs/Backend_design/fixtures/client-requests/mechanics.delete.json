@@ -5,7 +5,7 @@
     {
       "route": "DELETE /api/v1/mechanics/:id",
       "method": "DELETE",
-      "path": "/api/v1/mechanics/ct-mechanic-1",
+      "path": "/api/v1/mechanics/874b1410-8938-5b7b-85f8-44f831ce5f87",
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": null

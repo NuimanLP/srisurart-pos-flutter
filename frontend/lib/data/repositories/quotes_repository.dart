@@ -5,7 +5,7 @@
 //
 // db.js methods ported:
 //  • getQuotes()             → all quotes newest-first (with items).
-//  • saveQuote(QuoteInput)   → id newId('q'), quoteNo docNo('QT'), date now,
+//  • saveQuote(QuoteInput)   → id newUuid(), quoteNo docNo('QT'), date now,
 //    status (default 'open'), validUntil = now + (validDays ?? quoteValidDays ?? 30)
 //    days. Returns the persisted QuoteRow.
 //  • updateQuote(id, patch)  → merge patch.
@@ -45,7 +45,7 @@ class QuotesRepository {
     return result;
   }
 
-  /// Persist a new quote. Assigns id (newId('q')), quoteNo (docNo('QT')),
+  /// Persist a new quote. Assigns id (newUuid()), quoteNo (docNo('QT')),
   /// date = now, status (input.status ?? 'open') and
   /// validUntil = now + (validDays ?? 30) days.
   /// Inserts the header + every item line. Returns the stored QuoteRow.
@@ -58,7 +58,7 @@ class QuotesRepository {
     final now = DateTime.now();
     final int validDays = input.validDays ?? 30;
     final row = QuoteRow(
-      id: newId('q'),
+      id: newUuid(),
       quoteNo: docNo('QT'),
       status: input.status ?? 'open',
       date: now,

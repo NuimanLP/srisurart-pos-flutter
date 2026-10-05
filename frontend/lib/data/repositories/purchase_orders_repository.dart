@@ -2,7 +2,7 @@
 //
 // Ported from pos/db.js lines 443-485. Behaviour parity with the JS data layer:
 //  • getPOs()                → all POs newest-first (with items).
-//  • savePO(PoInput)         → id newId('po'), poNo docNo('PO'), createdAt now,
+//  • savePO(PoInput)         → id newUuid(), poNo docNo('PO'), createdAt now,
 //                              status 'open'. Returns the PurchaseOrderRow.
 //  • receivePO(id)           → WEIGHTED-AVERAGE cost. Returns List<String> of
 //    UNMATCHED partNos. For each line whose partNo matches a product
@@ -53,10 +53,10 @@ class PurchaseOrdersRepository {
     return result;
   }
 
-  /// Create a new PO. Mirrors db.js savePO: id newId('po'), poNo docNo('PO'),
+  /// Create a new PO. Mirrors db.js savePO: id newUuid(), poNo docNo('PO'),
   /// createdAt now, status 'open'.
   Future<PurchaseOrderRow> savePO(PoInput input) async {
-    final id = newId('po');
+    final id = newUuid();
     final poNo = docNo('PO');
     final createdAt = DateTime.now();
     final po = PurchaseOrderRow(
@@ -142,7 +142,7 @@ class PurchaseOrdersRepository {
               .into(db.movements)
               .insert(
                 MovementRow(
-                  id: newId('mv'),
+                  id: newUuid(),
                   productId: p.id,
                   partNo: p.partNo,
                   name: p.name,

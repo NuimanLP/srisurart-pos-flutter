@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/parked_repository.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -60,7 +61,7 @@ void main() {
       final after = DateTime.now();
 
       // id prefix from newId('pk').
-      expect(row.id, startsWith('pk'));
+      expect(row.id, matches(uuidV7));
 
       // parkedAt is a real timestamp captured during the call.
       expect(

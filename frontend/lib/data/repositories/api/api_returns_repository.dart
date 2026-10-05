@@ -90,7 +90,7 @@ class ApiReturnsRepository implements ReturnsRepository {
   /// credit notes and ฿600 refunded for ฿300 of goods. The key, and since #452
   /// the client `id` the server records the note under, are what make the
   /// second press a replay of the first.
-  final PendingWrites _pending = PendingWrites('r');
+  final PendingWrites _pending = PendingWrites();
 
   /// Same rule as `ApiSalesRepository._isDegraded` (08 §5): Degraded or
   /// Syncing, or anything already queued → a new write joins the outbox.
@@ -302,7 +302,7 @@ class ApiReturnsRepository implements ReturnsRepository {
       }
 
       // #488: what this note actually applies, for an exact discard.
-      final opId = newId('op');
+      final opId = newUuid();
       final effects = AppliedEffects();
 
       // Stock back on the shelf. Not `.stamped` — same reason as the offline

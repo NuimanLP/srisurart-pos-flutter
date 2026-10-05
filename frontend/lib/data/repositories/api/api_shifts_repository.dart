@@ -105,10 +105,10 @@ class ApiShiftsRepository implements ShiftsRepository {
   /// closing count is out by that amount. `open`/`close` are parked under the
   /// same rule for the same reason — a verdict closes the attempt, a 5xx does
   /// not. The attempt's id is the shift id `POST /shifts/open` records.
-  final PendingWrites _pending = PendingWrites('sh');
+  final PendingWrites _pending = PendingWrites();
 
   /// Same as [_pending], for drawer entries — its id is the entry's id.
-  final PendingWrites _pendingEntries = PendingWrites('de');
+  final PendingWrites _pendingEntries = PendingWrites();
 
   // ── Reads — #55's slice, delegated unchanged. ──────────────────────────
 
@@ -469,7 +469,7 @@ class ApiShiftsRepository implements ShiftsRepository {
         .into(db.outboxOps)
         .insert(
           OutboxOpsCompanion.insert(
-            opId: newId('op'),
+            opId: newUuid(),
             idempotencyKey: idempotencyKey,
             type: type,
             payload: jsonEncode(payload),

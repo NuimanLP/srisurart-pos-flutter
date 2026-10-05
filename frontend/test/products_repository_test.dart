@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
 import 'package:srisurart_pos/data/repositories/movements_repository.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -43,7 +44,7 @@ void main() {
     );
     expect(added, isNotNull);
     expect(added!.partNo, 'NEW-001');
-    expect(added.id.startsWith('p'), isTrue);
+    expect(added.id, matches(uuidV7));
     expect(added.id == 'IGNORED', isFalse);
     expect((await repo.getAll()).length, 13);
   });

@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/quotes_repository.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -52,7 +53,7 @@ void main() {
       );
 
       // Header invariants.
-      expect(saved.id, startsWith('q'));
+      expect(saved.id, matches(uuidV7));
       expect(saved.quoteNo, startsWith('QT'));
       expect(saved.status, 'open');
 

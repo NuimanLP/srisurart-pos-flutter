@@ -9,13 +9,13 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "rmush0wjl_1ffaa36f_12",
-        "saleId": "ct-sale-1",
+        "id": "01a10bdb-3c33-759c-b9d6-24cd921fd59f",
+        "saleId": "e501ab89-d506-5154-9330-77220d08376c",
         "refundMethod": "เงินสด",
         "reason": "ของชำรุด",
         "items": [
           {
-            "productId": "ct-product-1",
+            "productId": "a2bba7f5-f859-59f4-8ebd-92cee8c78f1c",
             "name": "Contract part",
             "qty": 1,
             "price": "100.00",

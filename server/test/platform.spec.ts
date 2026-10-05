@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { testId } from './support/test-ids.js';
 import { BadRequestException, ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { signJwt } from '../src/common/jwt.js';
 import { hashPassword } from '../src/common/password.js';
@@ -598,7 +599,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
           't1',
           {
             __meta: { version: 2 },
-            sa_products: [{ id: 'p1', stock: -5, name: 'Negative Stock Product' }],
+            sa_products: [{ id: testId('p1'), stock: -5, name: 'Negative Stock Product' }],
           },
           'adm1',
         ),
@@ -615,13 +616,13 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
           {
             __meta: { version: 2 },
             sa_products: [
-              { id: 'p1', partNo: 'BP-1', stock: 1 },
-              { id: 'p2', partNo: 'bp-1', stock: 1 },
+              { id: testId('p1'), partNo: 'BP-1', stock: 1 },
+              { id: testId('p2'), partNo: 'bp-1', stock: 1 },
             ],
           },
           'adm1',
         ),
-      ).rejects.toThrow("products 'p1', 'p2' share part number 'bp-1'");
+      ).rejects.toThrow(`products '${testId('p1')}', '${testId('p2')}' share part number 'bp-1'`);
       expect(mockAdminDs.transaction).not.toHaveBeenCalled();
     });
 
@@ -633,9 +634,9 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
         't1',
         {
           __meta: { version: 2 },
-          sa_products: [{ id: 'p1', name: 'Brake Pad', stock: 10, price: 500 }],
+          sa_products: [{ id: testId('p1'), name: 'Brake Pad', stock: 10, price: 500 }],
           sa_categories: [{ name: 'เบรก', position: 0 }],
-          sa_customers: [{ id: 'c1', name: 'Customer A' }],
+          sa_customers: [{ id: testId('c1'), name: 'Customer A' }],
         },
         'adm1',
       );
@@ -661,7 +662,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
           __meta: { version: 2 },
           sa_products: [
             {
-              id: 'p1',
+              id: testId('p1'),
               name: 'Brake Pad',
               stock: 10,
               price: 500,
@@ -695,17 +696,17 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
           __meta: { version: 2 },
           sa_categories: ['เบรก', 'ช่วงล่าง'],
           sa_products: [
-            { id: 'p1', partNo: 'BP-1', stock: 1, zone: 'Electrical' },
-            { id: 'p2', partNo: 'BP-2', stock: 1, category: 'ยาง' },
+            { id: testId('p1'), partNo: 'BP-1', stock: 1, zone: 'Electrical' },
+            { id: testId('p2'), partNo: 'BP-2', stock: 1, category: 'ยาง' },
           ],
-          sa_sales: [{ id: 's1', receiptNo: 'RC1', total: 85, items: [{ productId: 'p1', qty: 1, price: 85, cost: 45 }] }],
-          sa_pos: [{ id: 'po1', poNo: 'PO1', supplier: 'x', status: 'received', items: [{ partNo: 'BP-1', name: 'n', qty: 2, cost: 40 }] }],
-          sa_cash_drawer: { date: '2026-08-28', startingCash: 1000, openedAt: '2026-08-28T01:00:00.000Z', closedAt: null, entries: [{ id: 'de1', type: 'out', amount: 50, createdAt: '2026-08-28T02:00:00.000Z' }] },
+          sa_sales: [{ id: testId('s1'), receiptNo: 'RC1', total: 85, items: [{ productId: testId('p1'), qty: 1, price: 85, cost: 45 }] }],
+          sa_pos: [{ id: testId('po1'), poNo: 'PO1', supplier: 'x', status: 'received', items: [{ partNo: 'BP-1', name: 'n', qty: 2, cost: 40 }] }],
+          sa_cash_drawer: { id: testId('sh-28'), date: '2026-08-28', startingCash: 1000, openedAt: '2026-08-28T01:00:00.000Z', closedAt: null, entries: [{ id: testId('de1'), type: 'out', amount: 50, createdAt: '2026-08-28T02:00:00.000Z' }] },
           sa_shift_history: [
-            { date: '2026-08-27', startingCash: 1000, openedAt: '2026-08-27T01:00:00.000Z', closedAt: '2026-08-27T11:00:00.000Z', physicalCash: 5000, entries: [] },
-            { date: '2026-08-27', startingCash: 500, openedAt: '2026-08-27T00:00:00.000Z', autoArchived: true, entries: [] },
+            { id: testId('sh-27a'), date: '2026-08-27', startingCash: 1000, openedAt: '2026-08-27T01:00:00.000Z', closedAt: '2026-08-27T11:00:00.000Z', physicalCash: 5000, entries: [] },
+            { id: testId('sh-27b'), date: '2026-08-27', startingCash: 500, openedAt: '2026-08-27T00:00:00.000Z', autoArchived: true, entries: [] },
           ],
-          sa_parked: [{ id: 'pk1', parkedAt: '2026-08-28T03:00:00.000Z', items: [], discount: 0 }],
+          sa_parked: [{ id: testId('pk1'), parkedAt: '2026-08-28T03:00:00.000Z', items: [], discount: 0 }],
         },
         'adm1',
       );
@@ -721,9 +722,9 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       // no device could never be closed (review of #244). The file's open drawer is archived
       // the way openShift archives yesterday's.
       expect(inserts('shifts').map((p: any) => [p[1], p[7], p[8]])).toEqual([
-        ['sh_2026-08-28_1', true, true],
-        ['sh_2026-08-27_1', false, false],
-        ['sh_2026-08-27_2', true, false],
+        [testId('sh-28'), true, true],
+        [testId('sh-27a'), false, false],
+        [testId('sh-27b'), true, false],
       ]);
       const shiftSql = mockAdminDs.query.mock.calls.find((c: any) => c[0].includes('INSERT INTO shifts '))[0];
       expect(shiftSql).toMatch(/\$7, FALSE,/);
@@ -731,8 +732,8 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       const sqls = mockAdminDs.query.mock.calls.map((c: any) => c[0] as string);
       const tail = sqls.slice(-3);
       expect(tail.map((s: string) => s.match(/UPDATE (\w+) SET updated_at = clock_timestamp\(\)/)?.[1])).toEqual(['products', 'customers', 'mechanics']);
-      expect(inserts('drawer_entries').map((p: any) => p[2])).toEqual(['sh_2026-08-28_1']);
-      expect(inserts('parked_sales').map((p: any) => p[1])).toEqual(['pk1']);
+      expect(inserts('drawer_entries').map((p: any) => p[2])).toEqual([testId('sh-28')]);
+      expect(inserts('parked_sales').map((p: any) => p[1])).toEqual([testId('pk1')]);
     });
 
     // #238: history naming hard-deleted rows becomes soft-deleted, marked tombstones.
@@ -744,8 +745,8 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
         't1',
         {
           __meta: { version: 2 },
-          sa_movements: [{ id: 'mv1', productId: 'p-gone', partNo: 'BP-9', name: 'Brake Pad', delta: 1, type: 'adjustment-in', stockAfter: 1 }],
-          sa_sales: [{ id: 's1', receiptNo: 'RC1', total: 0, customerId: 'c-gone', customerName: 'Test Customer', mechanicId: 'm-gone', mechanicName: 'Test Mechanic', items: [] }],
+          sa_movements: [{ id: testId('mv1'), productId: testId('p-gone'), partNo: 'BP-9', name: 'Brake Pad', delta: 1, type: 'adjustment-in', stockAfter: 1 }],
+          sa_sales: [{ id: testId('s1'), receiptNo: 'RC1', total: 0, customerId: testId('c-gone'), customerName: 'Test Customer', mechanicId: testId('m-gone'), mechanicName: 'Test Mechanic', items: [] }],
         },
         'adm1',
       );
@@ -757,9 +758,9 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       const [productSql, productParams] = insert('products')[0];
       expect(productSql).toContain('deleted_at');
       expect(productSql).not.toContain('ON CONFLICT');
-      expect(productParams).toEqual(expect.arrayContaining(['p-gone', 'BP-9', 'Brake Pad', 'import-tombstone']));
-      expect(insert('customers')[0][1]).toEqual(['t1', 'c-gone', 'import-tombstone:c-gone', 'Test Customer']);
-      expect(insert('mechanics')[0][1]).toEqual(['t1', 'm-gone', 'import-tombstone:m-gone', 'Test Mechanic']);
+      expect(productParams).toEqual(expect.arrayContaining([testId('p-gone'), 'BP-9', 'Brake Pad', 'import-tombstone']));
+      expect(insert('customers')[0][1]).toEqual(['t1', testId('c-gone'), `import-tombstone:${testId('c-gone')}`, 'Test Customer']);
+      expect(insert('mechanics')[0][1]).toEqual(['t1', testId('m-gone'), `import-tombstone:${testId('m-gone')}`, 'Test Mechanic']);
       const audit = mockAdminDs.query.mock.calls.find((c: any) => c[0].includes('INSERT INTO audit_log'));
       expect(audit[1]).toContain(JSON.stringify({ tombstones: { products: 1, customers: 1, mechanics: 1 }, droppedSuppliers: 0 }));
     });
@@ -771,10 +772,10 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       await expect(
         importService.importSnapshot(
           't1',
-          { __meta: { version: 2 }, sa_credit_payments: [{ id: 'cp1', receiptNo: 'CP1', mechanicId: 'm-nameless', amount: 100 }] },
+          { __meta: { version: 2 }, sa_credit_payments: [{ id: testId('cp1'), receiptNo: 'CP1', mechanicId: testId('m-nameless'), amount: 100 }] },
           'adm1',
         ),
-      ).rejects.toThrow('mechanics:m-nameless');
+      ).rejects.toThrow(`mechanics:${testId('m-nameless')}`);
       expect(mockAdminDs.transaction).not.toHaveBeenCalled();
     });
 
@@ -787,10 +788,10 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       await expect(
         importService.importSnapshot(
           't1',
-          { __meta: { version: 2 }, sa_movements: [{ id: 'mv-bad', name: 'x', delta: 1, type: 'adjustment-in', stockAfter: 1 }] },
+          { __meta: { version: 2 }, sa_movements: [{ id: testId('mv-bad'), name: 'x', delta: 1, type: 'adjustment-in', stockAfter: 1 }] },
           'adm1',
         ),
-      ).rejects.toThrow('movements:mv-bad');
+      ).rejects.toThrow(`movements:${testId('mv-bad')}`);
       expect(mockAdminDs.transaction).not.toHaveBeenCalled();
     });
 
@@ -804,8 +805,8 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
         't1',
         {
           __meta: { version: 2 },
-          sa_products: [{ id: 'p-live', partNo: 'BP-1', stock: 1 }],
-          sa_suppliers: [{ id: 'sp-orphan', productId: 'p-orphan', name: 'Test Supplier', unitCost: 10 }],
+          sa_products: [{ id: testId('p-live'), partNo: 'BP-1', stock: 1 }],
+          sa_suppliers: [{ id: testId('sp-orphan'), productId: testId('p-orphan'), name: 'Test Supplier', unitCost: 10 }],
         },
         'adm1',
       );
@@ -829,7 +830,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
           't1',
           {
             __meta: { version: 2 },
-            sa_products: [{ id: 'p1', name: 'Brake Pad', stock: 10, price: 500 }],
+            sa_products: [{ id: testId('p1'), name: 'Brake Pad', stock: 10, price: 500 }],
           },
           'adm1',
         ),
@@ -851,7 +852,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
           't1',
           {
             __meta: { version: 2 },
-            sa_sales: [{ id: 's1', total: 'corrupt', items: [] }],
+            sa_sales: [{ id: testId('s1'), total: 'corrupt', items: [] }],
           },
           'adm1',
         ),

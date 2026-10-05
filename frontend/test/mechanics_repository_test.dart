@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/mechanics_repository.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -37,7 +38,7 @@ void main() {
     );
     // Seed has M001..M003 → next is M004.
     expect(m.code, 'M004');
-    expect(m.id.startsWith('m'), isTrue);
+    expect(m.id, matches(uuidV7));
     expect(m.creditLimit, 1500);
     expect(m.creditBalance, 0);
     expect(m.totalSales, 0);
@@ -81,7 +82,7 @@ void main() {
       );
 
       final pay = await repo.addCreditPayment(mechanicId: 'm1', amount: 300, paymentMethod: 'เงินสด');
-      expect(pay.id.startsWith('cp'), isTrue);
+      expect(pay.id, matches(uuidV7));
       expect(pay.receiptNo.startsWith('CP'), isTrue);
       expect(pay.amount, 300);
       expect(pay.mechanicId, 'm1');

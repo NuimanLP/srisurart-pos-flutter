@@ -9,15 +9,15 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "opId": "ct-op-1",
+        "opId": "7b475b84-9a3c-5700-85e2-1c5ca1fd02a3",
         "type": "customer.create",
         "payload": {
-          "id": "ct-customer-offline",
+          "id": "52addd3b-e4f3-5c7c-b35a-482b4b02b327",
           "name": "Offline customer",
           "nameTH": "ลูกค้าออฟไลน์"
         },
         "note": "ลูกค้าซ้ำ",
-        "clientId": "ct-customer-offline",
+        "clientId": "52addd3b-e4f3-5c7c-b35a-482b4b02b327",
         "lastCode": "CONFLICT"
       }
     }
