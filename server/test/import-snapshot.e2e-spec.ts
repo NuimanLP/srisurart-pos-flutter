@@ -227,7 +227,12 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
     expect(numbers.filter((n) => serverFormat.test(String(n)))).toEqual([]);
 
     if (REAL_FILE) return; // never ring a bill into the shop's own data
-    const pos = accessToken({ tenantId, role: 'owner', deviceId: testId('pos1'), deviceRole: 'pos' });
+    // The device provisioning created (device_no 1) — a server UUID since #616.
+    const [{ id: posDeviceId }] = (await admin.query(
+      `SELECT id FROM devices WHERE tenant_id = $1 AND device_no = 1`,
+      [tenantId],
+    )) as { id: string }[];
+    const pos = accessToken({ tenantId, role: 'owner', deviceId: posDeviceId, deviceRole: 'pos' });
     const opened = await request(app.getHttpServer())
       .post('/api/v1/shifts/open')
       .set('Authorization', `Bearer ${pos}`)

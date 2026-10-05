@@ -18,6 +18,7 @@ import {
   QUEUE_MAINTENANCE,
   QUEUE_SALE_POST,
 } from '../src/queue/queue.constants.js';
+import { testId } from './support/test-ids.js';
 
 const logger = pino({ level: 'silent' });
 
@@ -57,7 +58,7 @@ describe('Worker Jobs Processors (unit)', () => {
     it('processes sale.created and enqueues inventory.check if products reach min_stock', async () => {
       // Products with low stock
       mockEm.query.mockResolvedValueOnce([
-        { id: 'prod-1', stock: 2, min_stock: 5 },
+        { id: testId('prod-1'), stock: 2, min_stock: 5 },
       ]);
 
       const job = {
@@ -67,8 +68,8 @@ describe('Worker Jobs Processors (unit)', () => {
         data: {
           tenantId: TENANT_ID,
           correlationId: 'corr-1',
-          saleId: 'sale-1',
-          productIds: ['prod-1', 'prod-2'],
+          saleId: testId('sale-1'),
+          productIds: [testId('prod-1'), testId('prod-2')],
         },
       } as unknown as Job<any>;
 
@@ -87,10 +88,10 @@ describe('Worker Jobs Processors (unit)', () => {
         {
           tenantId: TENANT_ID,
           correlationId: 'corr-1',
-          productIds: ['prod-1'],
+          productIds: [testId('prod-1')],
         },
         {
-          jobId: `inv-check:${TENANT_ID}:prod-1`,
+          jobId: `inv-check:${TENANT_ID}:${testId('prod-1')}`,
         },
       );
     });
@@ -105,8 +106,8 @@ describe('Worker Jobs Processors (unit)', () => {
         data: {
           tenantId: TENANT_ID,
           correlationId: 'corr-2',
-          saleId: 'sale-2',
-          productIds: ['prod-3'],
+          saleId: testId('sale-2'),
+          productIds: [testId('prod-3')],
         },
       } as unknown as Job<any>;
 
@@ -119,7 +120,7 @@ describe('Worker Jobs Processors (unit)', () => {
 
     it('AC1: idempotent execution — repeated calls yield identical outcome without side-effects', async () => {
       mockEm.query.mockResolvedValue([
-        { id: 'prod-1', stock: 2, min_stock: 5 },
+        { id: testId('prod-1'), stock: 2, min_stock: 5 },
       ]);
 
       const job = {
@@ -129,8 +130,8 @@ describe('Worker Jobs Processors (unit)', () => {
         data: {
           tenantId: TENANT_ID,
           correlationId: 'corr-idem',
-          saleId: 'sale-idem',
-          productIds: ['prod-1'],
+          saleId: testId('sale-idem'),
+          productIds: [testId('prod-1')],
         },
       } as unknown as Job<any>;
 
@@ -143,13 +144,13 @@ describe('Worker Jobs Processors (unit)', () => {
         1,
         JOB_INVENTORY_CHECK,
         expect.anything(),
-        { jobId: `inv-check:${TENANT_ID}:prod-1` },
+        { jobId: `inv-check:${TENANT_ID}:${testId('prod-1')}` },
       );
       expect(mockInventoryQueue.add).toHaveBeenNthCalledWith(
         2,
         JOB_INVENTORY_CHECK,
         expect.anything(),
-        { jobId: `inv-check:${TENANT_ID}:prod-1` },
+        { jobId: `inv-check:${TENANT_ID}:${testId('prod-1')}` },
       );
     });
 
@@ -163,8 +164,8 @@ describe('Worker Jobs Processors (unit)', () => {
         data: {
           tenantId: TENANT_ID,
           correlationId: 'corr-ret',
-          returnId: 'ret-1',
-          productIds: ['prod-1'],
+          returnId: testId('ret-1'),
+          productIds: [testId('prod-1')],
         },
       } as unknown as Job<any>;
 
@@ -196,7 +197,7 @@ describe('Worker Jobs Processors (unit)', () => {
 
     it('AC1: processes inventory.check and returns evaluated items idempotently', async () => {
       const lowStockRows = [
-        { id: 'p1', part_no: 'P001', name: 'Brake Pad', stock: 1, min_stock: 5 },
+        { id: testId('p1'), part_no: 'P001', name: 'Brake Pad', stock: 1, min_stock: 5 },
       ];
       mockEm.query.mockResolvedValue(lowStockRows);
 
@@ -207,7 +208,7 @@ describe('Worker Jobs Processors (unit)', () => {
         data: {
           tenantId: TENANT_ID,
           correlationId: 'corr-inv-1',
-          productIds: ['p1'],
+          productIds: [testId('p1')],
         },
       } as unknown as Job<any>;
 
@@ -218,7 +219,7 @@ describe('Worker Jobs Processors (unit)', () => {
       expect(run1.result).toEqual({
         evaluated: true,
         lowStockCount: 1,
-        items: [{ id: 'p1', stock: 1, minStock: 5 }],
+        items: [{ id: testId('p1'), stock: 1, minStock: 5 }],
       });
     });
 
@@ -346,7 +347,7 @@ describe('Worker Jobs Processors (unit)', () => {
 
     describe('AC5: quotes.purge', () => {
       it('purges quotes older than olderThanDays', async () => {
-        mockEm.query.mockResolvedValueOnce([{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }]);
+        mockEm.query.mockResolvedValueOnce([{ id: testId('q1') }, { id: testId('q2') }, { id: testId('q3') }]);
 
         const job = {
           id: 'job-quotes-purge',
@@ -375,7 +376,7 @@ describe('Worker Jobs Processors (unit)', () => {
 
       it('AC1: idempotent execution — second call purges 0 additional quotes without error', async () => {
         mockEm.query
-          .mockResolvedValueOnce([{ id: 'q1' }]) // run 1 deletes 1
+          .mockResolvedValueOnce([{ id: testId('q1') }]) // run 1 deletes 1
           .mockResolvedValueOnce([]); // run 2 deletes 0
 
         const job = {

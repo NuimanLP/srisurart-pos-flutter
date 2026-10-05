@@ -15,6 +15,7 @@ import {
   TENANT_TABLES_DEPTH_FIRST,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 /**
  * #443: GET /platform/tenants/:id/audit (keyset-paged, tenant-isolated, itself audited) and
@@ -76,7 +77,7 @@ describe('Platform audit viewer + system panel (#443)', () => {
     for (const r of rows) {
       await admin.query(
         `INSERT INTO audit_log (tenant_id, user_id, platform_admin_id, device_id, action, entity, entity_id, before, after, ip, created_at)
-         VALUES ($1, $2, $3, $4, $5, 'sales', 'S-1', $6, $7, '10.0.0.9', $8::timestamptz)`,
+         VALUES ($1, $2, $3, $4, $5, 'sales', '${testId('S-1')}', $6, $7, '10.0.0.9', $8::timestamptz)`,
         [
           tid,
           r.userId ?? null,
@@ -171,7 +172,7 @@ describe('Platform audit viewer + system panel (#443)', () => {
     expect(u).toMatchObject({
       action: 'test.user',
       entity: 'sales',
-      entityId: 'S-1',
+      entityId: testId('S-1'),
       ip: '10.0.0.9',
       actor: { type: 'user', id: shopA.userId, username: shopA.username },
       device: { id: shopA.posDeviceId, label: 'เครื่องขาย', deviceNo: 1 },
