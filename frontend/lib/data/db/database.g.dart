@@ -9716,7 +9716,7 @@ class $ShiftsTable extends Shifts with TableInfo<$ShiftsTable, ShiftRow> {
 class ShiftRow extends DataClass implements Insertable<ShiftRow> {
   /// Schema v3 (ADR-0010): TEXT, not an autoincrement integer — the server
   /// issues shift ids (TEXT + `device_id`) and an integer column cannot hold
-  /// one. Offline-issued ids come from `newId('sh')`.
+  /// one. Offline-issued ids come from `newUuid()`.
   final String id;
   final String dateStr;
   final double startingCash;
