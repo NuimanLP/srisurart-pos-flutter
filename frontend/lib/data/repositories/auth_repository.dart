@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../domain/models/auth_models.dart';
 import '../services/tenant_cache_guard.dart';
 import '../storage/token_storage.dart';
@@ -30,6 +31,14 @@ class AuthRepository {
   /// pull the new shop's data from zero cursors.
   final Future<void> Function()? onTenantCacheReset;
 
+  /// `POST /auth/token` 401 codes meaning the stored device token can never
+  /// log in again (#609): the device was retired, or the server has no such
+  /// token.
+  static const Set<String> deadDeviceTokenCodes = {
+    'DEVICE_RETIRED',
+    'DEVICE_TOKEN_INVALID',
+  };
+
   /// Logs in with username and password.
   ///
   /// Automatically binds the deviceToken if the device was previously enrolled (ADR-0004).
@@ -51,11 +60,29 @@ class AuthRepository {
         'deviceToken': deviceToken.trim(),
     };
 
-    final response = await apiClient.post(
-      '/api/v1/auth/token',
-      body: body,
-      skipAuth: true,
-    );
+    final Object? response;
+    try {
+      response = await apiClient.post(
+        '/api/v1/auth/token',
+        body: body,
+        skipAuth: true,
+      );
+    } on ApiException catch (e) {
+      // #609: the server says this enrolment is dead (device retired, or a
+      // token it does not know) — no login can ever pass with it. Forget it so
+      // the browser reads as not enrolled and can be enrolled again. Its PIN
+      // record goes too: it is bound to that device id and holds the 'pos'
+      // role the login form would otherwise keep showing. Only these two:
+      // Drift data and the outbox stay, and `checkEnrolment` still refuses a
+      // new enrolment while local work is unsent.
+      if (e.statusCode == 401 &&
+          deadDeviceTokenCodes.contains(e.code) &&
+          body.containsKey('deviceToken')) {
+        await tokenStorage.setDeviceToken(null);
+        await offlinePinRepository?.clearPin();
+      }
+      rethrow;
+    }
 
     final map = response as Map<String, dynamic>;
     final user = AuthUser.fromJson(map['user'] as Map<String, dynamic>);

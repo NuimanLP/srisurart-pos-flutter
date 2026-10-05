@@ -215,6 +215,28 @@ void main() {
     expect(unauthed.errorMessage, 'ร้านนี้ถูกระงับการใช้งาน');
   });
 
+  // #609: a retired (or unknown) device token. The repository has forgotten
+  // it; the form must stop showing "เครื่อง POS" and offer enrolment again.
+  for (final code in ['DEVICE_RETIRED', 'DEVICE_TOKEN_INVALID']) {
+    test('$code drops back to backoffice with the enrolment-gone sentence', () async {
+      repo.mockDeviceToken = 'retired-token';
+      repo.mockDeviceRole = 'pos';
+      await cubit.init();
+      expect((cubit.state as Unauthenticated).isPos, isTrue);
+
+      repo.shouldFailLogin = true;
+      repo.errorToThrow = ApiException(statusCode: 401, code: code);
+
+      final success = await cubit.login(username: 'owner', password: 'pw');
+
+      expect(success, isFalse);
+      final state = cubit.state as Unauthenticated;
+      expect(state.hasDeviceEnrolled, isFalse);
+      expect(state.isPos, isFalse);
+      expect(state.errorMessage, AuthCubit.deviceEnrolmentGone);
+    });
+  }
+
   // The device-token read runs before the login request; a token store that
   // cannot be opened (#400) used to escape the login button's handler with
   // nothing on screen.

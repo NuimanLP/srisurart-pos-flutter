@@ -234,6 +234,11 @@ describe('devices: enrol and retire (e2e)', () => {
     const denied = await login(deviceToken);
     expect(denied.status).toBe(401);
     expect(denied.body.error.message).toBe('Device has been retired');
+    // #609: coded, so the till can drop its dead enrolment instead of reading "wrong password".
+    expect(denied.body.error.code).toBe('DEVICE_RETIRED');
+    const unknown = await login('not-a-device-token');
+    expect(unknown.status).toBe(401);
+    expect(unknown.body.error.code).toBe('DEVICE_TOKEN_INVALID');
     // … and ADR-0009: the refresh it already holds stops working too.
     const refresh = await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
