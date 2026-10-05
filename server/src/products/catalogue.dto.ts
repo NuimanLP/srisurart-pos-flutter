@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Request } from 'express';
+import { parseUuid } from '../common/ids.js';
 import { fromSatang, toSatang } from '../common/money.js';
 
 /**
@@ -7,7 +8,7 @@ import { fromSatang, toSatang } from '../common/money.js';
  * Nest's `ValidationPipe` wants `class-validator`, which this server does not use.
  *
  * Fields the server owns are not read even when a client sends them: `id` (minted
- * as `newId('p')` / `newId('sup')`, as the Dart repositories do), `updatedAt`,
+ * as a UUIDv7 by `newUuid()`), `updatedAt`,
  * `deletedAt`, and — on a product PATCH — `stock`. Stock moves only through
  * `adjust-stock`, sales, returns and PO receipts, each of which writes `movements`;
  * the Products screen already strips `stock` from its edit patch
@@ -125,7 +126,7 @@ export function parseCategoryCreate(body: unknown): { name: string } {
 export function parseSupplierCreate(body: unknown): SupplierCreate {
   const b = asObject(body);
   return {
-    productId: requiredString(b.productId, 'productId'),
+    productId: parseUuid(requiredString(b.productId, 'productId'), 'productId'),
     name: requiredString(b.name, 'name'),
     unitCost: nonNegativeMoney(b.unitCost, 'unitCost'),
     freight: nonNegativeMoney(b.freight ?? '0.00', 'freight'),
@@ -136,7 +137,7 @@ export function parseSupplierPatch(body: unknown): SupplierPatch {
   const b = asObject(body);
   const out: SupplierPatch = {};
   if (has(b, 'productId'))
-    out.productId = requiredString(b.productId, 'productId');
+    out.productId = parseUuid(requiredString(b.productId, 'productId'), 'productId');
   if (has(b, 'name')) out.name = requiredString(b.name, 'name');
   if (has(b, 'unitCost'))
     out.unitCost = nonNegativeMoney(b.unitCost, 'unitCost');

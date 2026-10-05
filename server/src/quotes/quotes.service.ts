@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
@@ -193,7 +193,7 @@ export class QuotesService {
     // converts — `SalesService.create` would refuse it with the same 409 later.
     assertSaleTotals(input);
     const { tenantId, manager } = currentRequestContext();
-    const id = newId('q');
+    const id = newUuid();
     const quoteNo = await this.docNumbers.issue(manager, {
       tenantId,
       deviceId,
@@ -313,7 +313,7 @@ export class QuotesService {
   private async duplicateIn(id: string, deviceId: string): Promise<Quote> {
     const { tenantId, manager } = currentRequestContext();
     const src = await this.read(manager, tenantId, id);
-    const newQuoteId = newId('q');
+    const newQuoteId = newUuid();
     const quoteNo = await this.docNumbers.issue(manager, {
       tenantId,
       deviceId,
@@ -444,7 +444,7 @@ export class QuotesService {
     if (rows.length === 0) return [];
     const items = (await manager.query(
       `SELECT quote_id, line_no, product_id, name, qty, price FROM quote_items
-        WHERE tenant_id = $1::uuid AND quote_id = ANY($2::text[])
+        WHERE tenant_id = $1::uuid AND quote_id = ANY($2::uuid[])
         ORDER BY quote_id, line_no`,
       [tenantId, rows.map((r) => r.id)],
     )) as QuoteItemRow[];

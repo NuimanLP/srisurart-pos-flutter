@@ -14,6 +14,7 @@ import {
 import type { Request, Response } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { clientIp } from '../common/client-ip.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
@@ -107,13 +108,13 @@ export class SalesController {
   }
 
   @Get(':id')
-  byId(@Param('id') id: string): Promise<SaleWithItems> {
+  byId(@Param('id', ParseUuidPipe) id: string): Promise<SaleWithItems> {
     return this.reads.byId(id);
   }
 
   /** Per line, how much has already been credited back — the Returns screen's guard. */
   @Get(':id/refunded-qty')
-  refundedQty(@Param('id') id: string): Promise<Record<string, number>> {
+  refundedQty(@Param('id', ParseUuidPipe) id: string): Promise<Record<string, number>> {
     return this.reads.refundedQty(id);
   }
 
@@ -127,7 +128,7 @@ export class SalesController {
   @HttpCode(200)
   @RequireDeviceRole('pos')
   async voidSale(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,

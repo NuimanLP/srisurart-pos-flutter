@@ -13,6 +13,7 @@ import type { Request, Response } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { optionalUuid } from '../common/ids.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -82,7 +83,7 @@ export class ReturnsController {
   ): Promise<Paginated<ReturnWithItems>> {
     const { page: p, limit: l } = pageParams(page, limit);
     const { items, total } = await this.returns.list({
-      saleId: saleId || undefined,
+      saleId: optionalUuid(saleId, 'saleId') ?? undefined,
       from: isoDate(from, 'from'),
       to: isoDate(to, 'to'),
       page: p,

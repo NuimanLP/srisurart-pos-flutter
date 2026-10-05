@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { parseCreateSale, parseSaleQuoteId } from './sales.dto.js';
+import { testId } from '../../test/support/test-ids.js';
 
 describe('parseCreateSale — paymentMethod', () => {
   /** A body that is otherwise valid, so only `paymentMethod` is under test. */
   const bodyWith = (paymentMethod: unknown) => ({
-    id: 's1',
+    id: testId('s1'),
     subtotal: '10.00',
     discount: '0.00',
     total: '10.00',
     paymentMethod,
-    items: [{ productId: 'p1', name: 'x', qty: 1, price: '10.00' }],
+    items: [{ productId: testId('p1'), name: 'x', qty: 1, price: '10.00' }],
   });
 
   it.each(['เงินสด', 'โอน/QR', 'เครดิตช่าง'])('accepts %s', (method) => {
@@ -47,7 +48,7 @@ describe('parseCreateSale — paymentMethod', () => {
 
 describe('parseCreateSale — line price', () => {
   const bodyWithLines = (items: unknown[]) => ({
-    id: 's1',
+    id: testId('s1'),
     subtotal: '0.00',
     discount: '0.00',
     total: '0.00',
@@ -62,8 +63,8 @@ describe('parseCreateSale — line price', () => {
     expect(() =>
       parseCreateSale(
         bodyWithLines([
-          { productId: 'p1', name: 'x', qty: 1, price: '1000.00' },
-          { productId: 'p1', name: 'x', qty: 1, price: '-1000.00' },
+          { productId: testId('p1'), name: 'x', qty: 1, price: '1000.00' },
+          { productId: testId('p1'), name: 'x', qty: 1, price: '-1000.00' },
         ]),
       ),
     ).toThrow(/items\[1\]\.price must not be negative/);
@@ -71,7 +72,7 @@ describe('parseCreateSale — line price', () => {
 
   it('still accepts a zero-price line (a giveaway is not a refund)', () => {
     const sale = parseCreateSale(
-      bodyWithLines([{ productId: 'p1', name: 'x', qty: 1, price: '0.00' }]),
+      bodyWithLines([{ productId: testId('p1'), name: 'x', qty: 1, price: '0.00' }]),
     );
     expect(sale.items[0].priceSatang).toBe(0);
   });
@@ -79,14 +80,14 @@ describe('parseCreateSale — line price', () => {
 
 describe('parseCreateSale — overrideCreditLimit', () => {
   const bodyWith = (overrideCreditLimit: unknown) => ({
-    id: 's1',
+    id: testId('s1'),
     subtotal: '10.00',
     discount: '0.00',
     total: '10.00',
     paymentMethod: 'เครดิตช่าง',
-    mechanicId: 'm1',
+    mechanicId: testId('m1'),
     overrideCreditLimit,
-    items: [{ productId: 'p1', name: 'x', qty: 1, price: '10.00' }],
+    items: [{ productId: testId('p1'), name: 'x', qty: 1, price: '10.00' }],
   });
 
   it('defaults to false when absent, and keeps a real boolean', () => {
@@ -113,12 +114,12 @@ describe('parseCreateSale — push-only fields (#411)', () => {
     // offline bill. A body carrying either — a skewed till clock, a crafted request —
     // must not backdate the bill or make it voidable through `sale.void_offline`.
     const sale = parseCreateSale({
-      id: 's1',
+      id: testId('s1'),
       subtotal: '10.00',
       discount: '0.00',
       total: '10.00',
       paymentMethod: 'เงินสด',
-      items: [{ productId: 'p1', name: 'x', qty: 1, price: '10.00' }],
+      items: [{ productId: testId('p1'), name: 'x', qty: 1, price: '10.00' }],
       date: '2020-01-01T00:00:00.000Z',
       soldOffline: true,
     });
@@ -129,23 +130,23 @@ describe('parseCreateSale — push-only fields (#411)', () => {
 
 describe('quoteId (#27, owner 2026-10-03)', () => {
   const body = (quoteId: unknown) => ({
-    id: 's1',
+    id: testId('s1'),
     subtotal: '10.00',
     discount: '0.00',
     total: '10.00',
     paymentMethod: 'เงินสด',
     quoteId,
-    items: [{ productId: 'p1', name: 'x', qty: 1, price: '10.00' }],
+    items: [{ productId: testId('p1'), name: 'x', qty: 1, price: '10.00' }],
   });
 
   it('is read only by parseSaleQuoteId — parseCreateSale (also the /sync/push replay) ignores it', () => {
-    expect(parseSaleQuoteId(body('q1'))).toBe('q1');
-    expect(parseCreateSale(body('q1'))).not.toHaveProperty('quoteId');
+    expect(parseSaleQuoteId(body(testId('q1')))).toBe(testId('q1'));
+    expect(parseCreateSale(body(testId('q1')))).not.toHaveProperty('quoteId');
   });
 
   it('is optional, and a non-string is a 400', () => {
     expect(parseSaleQuoteId(body(undefined))).toBeNull();
     expect(parseSaleQuoteId(body(null))).toBeNull();
-    expect(() => parseSaleQuoteId(body(42))).toThrow(/quoteId must be a string/);
+    expect(() => parseSaleQuoteId(body(42))).toThrow(/quoteId must be a lowercase UUID/);
   });
 });

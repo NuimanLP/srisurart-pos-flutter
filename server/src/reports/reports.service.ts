@@ -553,9 +553,9 @@ export class ReportsService {
     const { tenantId, manager } = currentRequestContext();
     const rows = (await manager.query(
       `WITH ${BOUNDS}, ${PRODUCT_ITEM_EVENTS}
-       SELECT $4::text AS product_id,
-              COALESCE(max(e.part_no), max(p.part_no), $4::text) AS part_no,
-              COALESCE(max(e.name), max(p.name), $4::text) AS name,
+       SELECT $4::uuid AS product_id,
+              COALESCE(max(e.part_no), max(p.part_no), $4::uuid::text) AS part_no,
+              COALESCE(max(e.name), max(p.name), $4::uuid::text) AS name,
               COALESCE(sum(e.qty), 0)::int AS quantity,
               COALESCE(sum(e.revenue), 0)::numeric(20,2) AS revenue
          FROM (SELECT 1) seed

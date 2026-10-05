@@ -19,9 +19,10 @@ import { Queue } from 'bullmq';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -108,7 +109,7 @@ export class QuotesController {
       async () => {
         const { tenantId } = currentRequestContext();
         const olderThanDays = parsePurgeOlderThanDays(body);
-        const correlationId = newId('quote_');
+        const correlationId = newUuid();
         const idemKey = req.headers['idempotency-key'];
         const jobIdKey = idemKey
           ? (Array.isArray(idemKey) ? idemKey[0] : idemKey)
@@ -136,7 +137,7 @@ export class QuotesController {
   }
 
   @Get(':id')
-  byId(@Param('id') id: string): Promise<Quote> {
+  byId(@Param('id', ParseUuidPipe) id: string): Promise<Quote> {
     return this.quotes.byId(id);
   }
 
@@ -157,7 +158,7 @@ export class QuotesController {
 
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -173,7 +174,7 @@ export class QuotesController {
 
   @Delete(':id')
   delete(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ id: string; deleted: true }> {
@@ -188,7 +189,7 @@ export class QuotesController {
 
   @Post(':id/duplicate')
   duplicate(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<Quote> {
@@ -204,7 +205,7 @@ export class QuotesController {
   @Post(':id/convert')
   @RequireDeviceRole('pos')
   convert(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,

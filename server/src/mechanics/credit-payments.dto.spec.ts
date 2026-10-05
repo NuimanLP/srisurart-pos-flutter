@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseCreateCreditPayment } from './credit-payments.dto.js';
+import { testId } from '../../test/support/test-ids.js';
 
 describe('parseCreateCreditPayment', () => {
   const body = (over: Record<string, unknown> = {}) => ({
@@ -54,12 +55,12 @@ describe('parseCreateCreditPayment', () => {
     }
   });
 
-  it('takes the client id when sent, and refuses an empty one', () => {
+  it('takes the client id when sent, and refuses an empty or non-UUID one', () => {
     expect(parseCreateCreditPayment(body()).id).toBeNull();
-    expect(parseCreateCreditPayment(body({ id: 'cp-1' })).id).toBe('cp-1');
-    for (const bad of ['', '  ', 42]) {
+    expect(parseCreateCreditPayment(body({ id: testId('cp-1') })).id).toBe(testId('cp-1'));
+    for (const bad of ['', '  ', 42, 'cp-1', testId('cp-1').toUpperCase()]) {
       expect(() => parseCreateCreditPayment(body({ id: bad }))).toThrow(
-        /id must be a non-empty string/,
+        /id must be a lowercase UUID/,
       );
     }
   });

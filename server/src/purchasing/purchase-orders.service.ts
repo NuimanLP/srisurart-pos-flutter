@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
@@ -183,7 +183,7 @@ export class PurchaseOrdersService {
       deviceId: actor.deviceId,
       docType: 'po',
     });
-    const id = newId('po');
+    const id = newUuid();
     const header = (await manager.query(
       `INSERT INTO purchase_orders (tenant_id, id, po_no, supplier)
             VALUES ($1::uuid, $2, $3, $4)
@@ -192,7 +192,7 @@ export class PurchaseOrdersService {
     )) as PoRow[];
     const lines = (await manager.query(
       `INSERT INTO po_items (tenant_id, po_id, line_no, part_no, name, qty, cost)
-            SELECT $1::uuid, $2, l.ord::int, l.part_no, l.name, l.qty, l.cost
+            SELECT $1::uuid, $2::uuid, l.ord::int, l.part_no, l.name, l.qty, l.cost
               FROM unnest($3::text[], $4::text[], $5::int[], $6::numeric[])
                    WITH ORDINALITY AS l(part_no, name, qty, cost, ord)
          RETURNING po_id, line_no, part_no, name, qty, cost`,
@@ -334,7 +334,7 @@ export class PurchaseOrdersService {
          RETURNING ${MOVEMENT_COLUMNS}`,
           [
             tenantId,
-            newId('mv'),
+            newUuid(),
             s.id,
             s.partNo,
             s.name,
@@ -482,7 +482,7 @@ export class PurchaseOrdersService {
     if (poIds.length === 0) return out;
     const rows = (await manager.query(
       `SELECT po_id, line_no, part_no, name, qty, cost FROM po_items
-        WHERE tenant_id = $1::uuid AND po_id = ANY($2::text[])
+        WHERE tenant_id = $1::uuid AND po_id = ANY($2::uuid[])
         ORDER BY po_id, line_no`,
       [tenantId, poIds],
     )) as PoLineRow[];

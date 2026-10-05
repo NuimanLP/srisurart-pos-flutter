@@ -14,6 +14,8 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { optionalUuid } from '../common/ids.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -55,7 +57,7 @@ export class CustomersController {
     const result = await this.customers.list({
       search: search || undefined,
       updatedSince: since,
-      afterId: afterId || undefined,
+      afterId: optionalUuid(afterId, 'afterId') ?? undefined,
       ...parsed,
     });
     res.setHeader('X-Cache', result.fromCache ? 'HIT' : 'MISS');
@@ -68,7 +70,7 @@ export class CustomersController {
 
   @Get(':id/sales')
   async sales(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<Paginated<SaleWithItems>> {
@@ -78,7 +80,7 @@ export class CustomersController {
   }
 
   @Get(':id')
-  byId(@Param('id') id: string): Promise<Customer> {
+  byId(@Param('id', ParseUuidPipe) id: string): Promise<Customer> {
     return this.customers.byId(id);
   }
 
@@ -99,7 +101,7 @@ export class CustomersController {
 
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -115,7 +117,7 @@ export class CustomersController {
 
   @Delete(':id')
   delete(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ id: string; deleted: true }> {

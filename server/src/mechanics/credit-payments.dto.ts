@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { parseUuid } from '../common/ids.js';
 import { toSatang } from '../common/money.js';
 
 /** A validated `POST /mechanics/:id/credit-payments` body. */
@@ -35,7 +36,7 @@ const PAYMENT_METHODS = ['เงินสด', 'โอน/QR'] as const;
  * own open drawer), `mechanicId` (the path names it) and anything naming a tenant or a
  * device (ADR-0004).
  *
- * `id` IS read, and optional. The Dart repository already mints `newId('cp')` before
+ * `id` IS read, and optional. The Dart repository already mints the id (a UUIDv7) before
  * it writes, exactly as the sale path mints the bill id, and a retry that lost its
  * `Idempotency-Key` — an app restart after a dropped reply — is otherwise a second
  * payment: a partial one is not caught by the overpayment check, and the intake
@@ -74,10 +75,7 @@ export function parseCreateCreditPayment(body: unknown): CreateCreditPayment {
 
 function optionalId(value: unknown): string | null {
   if (value === undefined || value === null) return null;
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new BadRequestException('id must be a non-empty string');
-  }
-  return value;
+  return parseUuid(value, 'id');
 }
 
 function requiredPaymentMethod(value: unknown): string {

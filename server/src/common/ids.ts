@@ -10,7 +10,7 @@ let counter = 0;
  * and nothing downstream has to care which side made an id.
  *
  * @deprecated #616: entity ids become lowercase UUIDv7 — use `newUuid()`. Kept until the
- * remaining call sites are switched.
+ * last caller (`platform/tenant-import.service.ts`) is switched.
  */
 export function newId(prefix: string): string {
   const ms = Date.now().toString(36);
@@ -61,7 +61,7 @@ export function newUuid(): string {
  * before any SQL: a non-UUID reaching a `uuid` column is a 22P02 → 500.
  */
 export function parseUuid(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !UUID_RE.test(value)) {
+  if (!isUuid(value)) {
     throw new BadRequestException({
       code: 'INVALID_ID',
       message: `${field} must be a lowercase UUID`,
@@ -69,6 +69,11 @@ export function parseUuid(value: unknown, field: string): string {
     });
   }
   return value;
+}
+
+/** `parseUuid`'s test without the throw — for a caller that treats a non-UUID as "no such row". */
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value);
 }
 
 /** Like `optionalString` in `sales.dto.ts`: absent / `null` / `''` → `null`, else `parseUuid`. */

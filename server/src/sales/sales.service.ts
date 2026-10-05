@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, pointsFor, satangOf } from '../common/money.js';
 import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
 import { MetricsService } from '../metrics/metrics.service.js';
@@ -518,7 +518,7 @@ export class SalesService {
     return manager.query(
       `SELECT id, part_no, name, name_th, cost, stock
          FROM products
-        WHERE tenant_id = $1::uuid AND id = ANY($2::text[]) AND deleted_at IS NULL
+        WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[]) AND deleted_at IS NULL
         ORDER BY id
           FOR UPDATE`,
       [tenantId, demands.map((d) => d.productId)],
@@ -595,10 +595,7 @@ export class SalesService {
   ): Promise<Map<string, number>> {
     const stockAfter = new Map<string, number>();
     // Order does not matter here: `lockProducts` already holds every one of these rows
-    // for the rest of the transaction, so no other writer can interleave. (A JS sort
-    // would not reproduce the database's collation anyway — every id from `newId`
-    // contains underscores, which sort differently — so pretending otherwise in a
-    // comment would be worse than saying nothing.)
+    // for the rest of the transaction, so no other writer can interleave.
     for (const d of demands) {
       const rows = returning<{ stock: number }>(
         await manager.query(
@@ -655,7 +652,7 @@ export class SalesService {
     if (rows.length === 0) return null;
 
     if (satangOf(rows[0].total) !== dto.totalSatang) {
-      // A different bill wearing an id that is already taken. `newId` makes this
+      // A different bill wearing an id that is already taken. A UUIDv7 makes this
       // essentially impossible, so it means a client bug — and silently answering with
       // the old bill would lose the new one's money.
       throw new HttpException(
@@ -690,7 +687,7 @@ export class SalesService {
     // their order is still a different body, and the client diffs bodies.
     const demands = aggregate(dto.items);
     const stock = (await manager.query(
-      `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
+      `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
       [tenantId, demands.map((d) => d.productId)],
     )) as { id: string; stock: number }[];
     const stockById = new Map(stock.map((p) => [p.id, p.stock]));
@@ -931,7 +928,7 @@ export class SalesService {
        RETURNING ${MOVEMENT_COLUMNS}`,
           [
             tenantId,
-            newId('mv'),
+            newUuid(),
             d.productId,
             p.part_no,
             p.name,

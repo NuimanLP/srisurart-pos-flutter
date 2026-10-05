@@ -40,7 +40,7 @@ export class InventoryProcessor extends WorkerHost {
         const params: unknown[] = [data.tenantId];
 
         if (productIds && productIds.length > 0) {
-          query += ` AND id = ANY($2::text[])`;
+          query += ` AND id = ANY($2::uuid[])`;
           params.push(productIds);
         }
 
