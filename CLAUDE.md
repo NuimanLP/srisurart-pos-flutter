@@ -302,9 +302,10 @@ develops against a demo tenant.
   clamp in `quotes.controller.ts:113` — fixed 2026-09-25 by PR #420, now validated by
   `parsePurgeOlderThanDays`). **All three MED items are fixed (2026-09-27):** item 3 by
   PR #458 (#455), item 5 by PR #456 (#453), item 4 by PR #456 + PR #469 (#452 closed).
-  Still open: item 6 (LOW — online `POST /shifts/open` with an existing `id` ignores
-  `startingCash`, `shifts.service.ts:190-198`) and the standards findings (§3) beyond the
-  `Math.max` one, none re-triaged.
+  Item 6 (LOW) fixed on branch `fix/shifts-open-starting-cash`: online `POST /shifts/open`
+  with an existing `id` and a different `startingCash` is now `409 CLIENT_ID_REUSED`
+  (`ClientIdReusedException`, shared with `/sync/push`). Still open: the standards findings
+  (§3) beyond the `Math.max` one, none re-triaged.
 - **5xx does not queue — owner decision 2026-09-27, `08 §5` amended (PR #469).** On the
   API build a 5xx/429 leaves the attempt parked (same id + key) and shows the error, for
   sales, shifts and returns alike; only a transport failure queues to the outbox.

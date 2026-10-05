@@ -187,6 +187,7 @@ class ShiftsRepository {
   Future<ShiftRow> openShift(double startingCash, {String? id}) {
     return db.transaction(() async {
       if (id != null) {
+        // Server now 409s a different startingCash on an existing id; this local path still returns the existing shift (unreachable from UI: no caller passes an id).
         final existingById = await (db.select(
           db.shifts,
         )..where((t) => t.id.equals(id))).getSingleOrNull();

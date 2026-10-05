@@ -19,8 +19,9 @@ so this is a **sampled** review, not an audit. A clean area here is not proof of
 Items 1–2 re-verified by reading the code after the review.
 **Status 2026-09-28:** items 1–2 fixed 2026-09-25 (PR #413 / #409, PR #414 / #411 — see
 `CLAUDE.md` "Still open"); items 3–5 (all MED) fixed by 2026-09-27 — see their status lines
-below; item 6 (LOW) still present and untriaged (the code has moved: now
-`shifts.service.ts:190-198`).
+below; item 6 (LOW) → Status: fixed (branch fix/shifts-open-starting-cash) — online
+`POST /shifts/open` with an existing `id` and different `startingCash` is 409 `CLIENT_ID_REUSED`
+(`shifts.service.ts:198-203`).
 
 1. 🔴 **HIGH — `/sync/push` fingerprint ≠ online route's.** 08 §8.3 step 1 requires the same
    fingerprint as the online route. `sync.service.ts:201-229` (`endpointForOp`) stores
@@ -62,6 +63,7 @@ below; item 6 (LOW) still present and untriaged (the code has moved: now
    otherwise the prior shift is archived and a new one opened, even on the same day.
 6. LOW — online `POST /shifts/open` with an existing `id` does not compare `startingCash`
    (`shifts.service.ts:170-180`); the push path does.
+   → Status: fixed (branch fix/shifts-open-starting-cash): 409 `CLIENT_ID_REUSED`.
 
 Still unfixed from before: the two `1788652803002-OwnerReviewItems.ts` bugs (`NULLIF`, FK
 `SET NULL`) — see `CLAUDE.md` "Still open". → **Status 2026-09-28:** fixed 2026-09-25 by

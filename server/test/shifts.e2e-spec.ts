@@ -118,6 +118,11 @@ describe('shifts and the cash drawer (e2e)', () => {
     expect(again.body.data.id).toBe('sh_custom_1');
     expect(again.body.data.startingCash).toBe('2000.00');
 
+    // Same cash written differently ("2000" vs "2000.00") is still a replay, not a clash.
+    const reformatted = await post('/open', { id: 'sh_custom_1', startingCash: '2000' });
+    expect(reformatted.status).toBe(200);
+    expect(reformatted.body.data.startingCash).toBe('2000.00');
+
     // Same id, DIFFERENT cash = a different drawer that collided on the id: refuse, never
     // silently hand back the other drawer (the /sync/push path does the same).
     const clash = await post('/open', { id: 'sh_custom_1', startingCash: '9999.00' });

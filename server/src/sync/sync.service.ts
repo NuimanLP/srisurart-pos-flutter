@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
+import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { DOC_NUMBER_REGEX, tenantPeriodSql } from '../documents/doc-number.service.js';
 import { fromSatang, satangOf, toSatang } from '../common/money.js';
@@ -312,7 +313,7 @@ export class SyncService {
         if (rows.length === 0) return null;
         const row = rows[0];
         if (satangOf(row.starting_cash) !== toSatang(op.payload.startingCash, 'startingCash')) {
-          throw this.clientIdReused(op.type, op.payload.id);
+          throw new ClientIdReusedException(op.type, op.payload.id);
         }
         return {
           id: row.id,
@@ -355,7 +356,7 @@ export class SyncService {
         if (rows.length === 0) return null;
         const row = rows[0];
         if (row.sale_id !== op.payload.saleId) {
-          throw this.clientIdReused(op.type, op.payload.id);
+          throw new ClientIdReusedException(op.type, op.payload.id);
         }
 
         // Compare items
@@ -365,7 +366,7 @@ export class SyncService {
         )) as { product_id: string; qty: number; price: string }[];
         const opItems = Array.isArray(op.payload.items) ? op.payload.items : [];
         if (lineRows.length !== opItems.length) {
-          throw this.clientIdReused(op.type, op.payload.id);
+          throw new ClientIdReusedException(op.type, op.payload.id);
         }
         for (let i = 0; i < lineRows.length; i++) {
           const lr = lineRows[i];
@@ -375,7 +376,7 @@ export class SyncService {
             lr.qty !== oi.qty ||
             satangOf(lr.price) !== toSatang(oi.price, 'price')
           ) {
-            throw this.clientIdReused(op.type, op.payload.id);
+            throw new ClientIdReusedException(op.type, op.payload.id);
           }
         }
         await this.flagRenumbered(manager, tenantId, op, row.id, op.payload.cnNo, row.cn_no);
@@ -417,7 +418,7 @@ export class SyncService {
           row.type !== op.payload.type ||
           satangOf(row.amount) !== toSatang(op.payload.amount, 'amount')
         ) {
-          throw this.clientIdReused(op.type, op.payload.id);
+          throw new ClientIdReusedException(op.type, op.payload.id);
         }
         const balanceAfter = await this.computeShiftBalance(
           manager,
@@ -451,7 +452,7 @@ export class SyncService {
           satangOf(row.amount) !== toSatang(op.payload.amount, 'amount') ||
           row.payment_method !== op.payload.paymentMethod
         ) {
-          throw this.clientIdReused(op.type, op.payload.id);
+          throw new ClientIdReusedException(op.type, op.payload.id);
         }
         const mech = (await manager.query(
           `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = $2`,
@@ -1036,17 +1037,6 @@ export class SyncService {
     }
 
     return fromSatang(balanceSatang);
-  }
-
-  private clientIdReused(type: string, id: string): HttpException {
-    return new HttpException(
-      {
-        code: 'CLIENT_ID_REUSED',
-        message: 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
-        details: { type, id },
-      },
-      HttpStatus.CONFLICT,
-    );
   }
 
   private mapOpError(op: SyncOpDto, err: any): SyncOpResult {
