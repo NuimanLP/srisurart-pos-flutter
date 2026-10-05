@@ -26,6 +26,11 @@ String newId(String prefix) {
   return '$prefix${ms.toRadixString(36)}_${_uuidShort()}_${(++_idCounter).toRadixString(36)}';
 }
 
+/// A lowercase UUIDv7 — the entity id form from #616 (the server's `newUuid()`
+/// in `server/src/common/ids.ts` mints the same version). `package:uuid` emits
+/// lowercase hex; the server refuses uppercase with `400 INVALID_ID`.
+String newUuid() => _uuid.v7();
+
 /// `prefix + last-8-digits-of-nowMs + uppercased first-4 of uuidShort`.
 /// JS uses `Date.now().toString().slice(-8)` — the last 8 characters of the
 /// decimal millisecond string (which is `nowMs % 100000000`, but kept as the

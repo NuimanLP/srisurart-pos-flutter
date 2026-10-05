@@ -12,7 +12,7 @@ import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
 import { generateTempPassword, hashPassword } from '../common/password.js';
-import { newId } from '../common/ids.js';
+import { newId, UUID_ANY_CASE_RE } from '../common/ids.js';
 import { returning } from '../common/sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { AuditService } from './audit.service.js';
@@ -49,10 +49,9 @@ export const SEED_CATEGORIES = [
  * 22P02 — a 500, not a 400 — on `updateStatus`; the two new methods below would have had the
  * same bug. Validate the shape before any query (CLAUDE.md: validate first, then use).
  */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function assertValidTenantId(tenantId: string): void {
-  if (!UUID_RE.test(tenantId)) {
+  if (!UUID_ANY_CASE_RE.test(tenantId)) {
     throw new BadRequestException({
       code: 'INVALID_TENANT_ID',
       message: 'tenantId must be a valid UUID',
