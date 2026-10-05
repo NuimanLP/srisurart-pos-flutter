@@ -12,6 +12,8 @@
  * caller runs alongside it). No DB access, so every rule here is unit-testable on its own.
  */
 
+import { isUuid } from '../common/ids.js';
+
 type Row = Record<string, unknown>;
 
 const rows = (v: unknown): Row[] =>
@@ -325,9 +327,6 @@ export interface BadId {
   field: string;
   value: unknown;
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const isUuid = (v: unknown): boolean => typeof v === 'string' && UUID_RE.test(v);
 
 export function planBadIds(snapshot: Row): BadId[] {
   const out: BadId[] = [];

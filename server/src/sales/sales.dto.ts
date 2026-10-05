@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { toSatang } from '../common/money.js';
-import { optionalUuid, parseUuid } from '../common/ids.js';
+import { optionalUuid, requiredUuid } from '../common/ids.js';
 
 /** One cart line as the client sends it, with money already in satang. */
 export interface SaleLine {
@@ -109,7 +109,7 @@ export type SaleParty = Omit<
  */
 export function parseSaleParty(b: Record<string, unknown>): SaleParty {
   return {
-    id: parseUuid(requiredString(b.id, 'id'), 'id'),
+    id: requiredUuid(b.id, 'id'),
     receiptNo: optionalString(b.receiptNo, 'receiptNo'),
     paymentMethod: requiredPaymentMethod(b.paymentMethod),
     customerId: optionalUuid(b.customerId, 'customerId'),
@@ -203,10 +203,7 @@ function parseLine(raw: unknown, index: number): SaleLine {
   const priceSatang = parseLinePrice(l.price, index);
   return {
     lineNo: (l.lineNo as number | undefined) ?? index + 1,
-    productId: parseUuid(
-      requiredString(l.productId, `items[${index}].productId`),
-      `items[${index}].productId`,
-    ),
+    productId: requiredUuid(l.productId, `items[${index}].productId`),
     partNo: optionalString(l.partNo, `items[${index}].partNo`),
     name: requiredString(l.name, `items[${index}].name`),
     nameTH: optionalString(l.nameTH, `items[${index}].nameTH`),

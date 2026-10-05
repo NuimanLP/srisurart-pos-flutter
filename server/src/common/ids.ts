@@ -64,3 +64,14 @@ export function optionalUuid(value: unknown, field: string): string | null {
   if (value === undefined || value === null || value === '') return null;
   return parseUuid(value, field);
 }
+
+/**
+ * A required id: absent / not a string / blank → `400 "<field> is required"` (the
+ * `requiredString` message the DTOs used before #616), else `parseUuid`'s `INVALID_ID`.
+ */
+export function requiredUuid(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new BadRequestException(`${field} is required`);
+  }
+  return parseUuid(value, field);
+}

@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { testId } from '../../test/support/test-ids.js';
-import { newUuid, optionalUuid, parseUuid } from './ids.js';
+import { newUuid, optionalUuid, parseUuid, requiredUuid } from './ids.js';
 import { ParseUuidPipe } from './parse-uuid.pipe.js';
 
 const CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -67,6 +67,22 @@ describe('parseUuid', () => {
     expect(optionalUuid('', 'x')).toBeNull();
     expect(optionalUuid(ok, 'x')).toBe(ok);
     expect(() => optionalUuid('p1', 'x')).toThrow(BadRequestException);
+  });
+
+  it('requiredUuid: missing is "is required", malformed is INVALID_ID', () => {
+    expect(requiredUuid(ok, 'saleId')).toBe(ok);
+    for (const missing of [undefined, null, '', '   ', 42]) {
+      expect(() => requiredUuid(missing, 'saleId')).toThrow('saleId is required');
+    }
+    let err: unknown;
+    try {
+      requiredUuid('p1', 'saleId');
+    } catch (e) {
+      err = e;
+    }
+    expect((err as BadRequestException).getResponse()).toMatchObject({
+      code: 'INVALID_ID',
+    });
   });
 
   it('ParseUuidPipe names the route param in the error', () => {

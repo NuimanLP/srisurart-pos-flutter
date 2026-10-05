@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Request } from 'express';
-import { parseUuid } from '../common/ids.js';
+import { requiredUuid } from '../common/ids.js';
 import { fromSatang, toSatang } from '../common/money.js';
 
 /**
@@ -126,7 +126,7 @@ export function parseCategoryCreate(body: unknown): { name: string } {
 export function parseSupplierCreate(body: unknown): SupplierCreate {
   const b = asObject(body);
   return {
-    productId: parseUuid(requiredString(b.productId, 'productId'), 'productId'),
+    productId: requiredUuid(b.productId, 'productId'),
     name: requiredString(b.name, 'name'),
     unitCost: nonNegativeMoney(b.unitCost, 'unitCost'),
     freight: nonNegativeMoney(b.freight ?? '0.00', 'freight'),
@@ -137,7 +137,7 @@ export function parseSupplierPatch(body: unknown): SupplierPatch {
   const b = asObject(body);
   const out: SupplierPatch = {};
   if (has(b, 'productId'))
-    out.productId = parseUuid(requiredString(b.productId, 'productId'), 'productId');
+    out.productId = requiredUuid(b.productId, 'productId');
   if (has(b, 'name')) out.name = requiredString(b.name, 'name');
   if (has(b, 'unitCost'))
     out.unitCost = nonNegativeMoney(b.unitCost, 'unitCost');

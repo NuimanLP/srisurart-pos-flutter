@@ -73,6 +73,11 @@ export function parseCreateCreditPayment(body: unknown): CreateCreditPayment {
   };
 }
 
+/**
+ * Not `optionalUuid`: that reads `''` as "no id" and mints one, while this route has
+ * always refused `id: ''` with a 400 — a client sending it has a bug, and a minted id
+ * would silently drop the lost-key retry defence the id exists for.
+ */
 function optionalId(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   return parseUuid(value, 'id');
