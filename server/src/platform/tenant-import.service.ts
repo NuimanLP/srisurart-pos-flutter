@@ -18,6 +18,7 @@ import {
   type TenantImportJobPayload,
 } from '../queue/queue.constants.js';
 import { AuditService } from './audit.service.js';
+import { assertValidTenantId } from './platform-tenants.service.js';
 import { snapshotProductCategory } from './snapshot-category.js';
 import {
   describeBadDate,
@@ -842,6 +843,7 @@ export class TenantImportService {
 
   /** `POST /platform/tenants/:id/import` — pre-flight, then enqueue. Never writes itself. */
   async createJob(tenantId: string, snapshot: SnapshotPayload, adminId: string, ip: string | undefined): Promise<{ jobId: string }> {
+    assertValidTenantId(tenantId);
     await this.preflight(tenantId, snapshot);
 
     const jobId = newUuid();
@@ -883,6 +885,7 @@ export class TenantImportService {
 
   /** `GET /platform/tenants/:id/import/:jobId` — the job row is the single source of truth. */
   async getJob(tenantId: string, jobId: string): Promise<ImportJobStatus> {
+    assertValidTenantId(tenantId);
     const rows = await this.adminDs.query(
       `SELECT id, status, result, error FROM import_jobs WHERE tenant_id = $1 AND id = $2`,
       [tenantId, jobId],

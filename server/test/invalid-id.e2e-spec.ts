@@ -159,6 +159,18 @@ describe('malformed ids are 400 INVALID_ID (#616, e2e)', () => {
           .send({});
         expectInvalidId(res, 'deviceId');
       });
+
+      // The tenant id keeps its pre-#616 any-case check (INVALID_TENANT_ID), now also on the
+      // import routes, before pre-flight or the job lookup reaches SQL.
+      it.each([
+        ['POST', '/api/v1/platform/tenants/not-a-uuid/import'],
+        ['GET', `/api/v1/platform/tenants/not-a-uuid/import/${TENANT}`],
+      ] as const)('%s %s', async (method, path) => {
+        const req = method === 'POST' ? api().post(path).send({ __meta: {} }) : api().get(path);
+        const res = await req.set('Authorization', `Bearer ${platformToken}`);
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('INVALID_TENANT_ID');
+      });
     });
   });
 

@@ -50,7 +50,7 @@ export const SEED_CATEGORIES = [
  * same bug. Validate the shape before any query (CLAUDE.md: validate first, then use).
  */
 
-function assertValidTenantId(tenantId: string): void {
+export function assertValidTenantId(tenantId: string): void {
   if (!UUID_ANY_CASE_RE.test(tenantId)) {
     throw new BadRequestException({
       code: 'INVALID_TENANT_ID',
