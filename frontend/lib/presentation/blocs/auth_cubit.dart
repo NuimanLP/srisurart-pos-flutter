@@ -285,9 +285,13 @@ class AuthCubit extends Cubit<AuthState> {
         sessionDeviceRole: await _sessionRole(deviceRole),
       ));
     } else {
+      // No device token = not enrolled (a retire cleared it, #609): never show
+      // a remembered 'pos' role on the login form, same rule as
+      // [sessionExpired].
+      final enrolled = deviceToken != null && deviceToken.isNotEmpty;
       emit(Unauthenticated(
         deviceToken: deviceToken,
-        deviceRole: deviceRole,
+        deviceRole: enrolled ? deviceRole : null,
       ));
     }
   }
@@ -345,10 +349,15 @@ class AuthCubit extends Cubit<AuthState> {
       // #609: AuthRepository.login has already forgotten a dead device token
       // (and its PIN record); show the browser as not enrolled, so the login
       // form says backoffice and the enrol link comes back.
-      if (e is ApiException &&
-          e.statusCode == 401 &&
-          AuthRepository.deadDeviceTokenCodes.contains(e.code)) {
-        emit(const Unauthenticated(errorMessage: deviceEnrolmentGone));
+      if (e is DeviceEnrolmentGoneException) {
+        // Normally null; a newer enrolment that landed mid-request survives.
+        final token = await _repo.getDeviceToken();
+        final enrolled = token != null && token.isNotEmpty;
+        emit(Unauthenticated(
+          deviceToken: token,
+          deviceRole: enrolled ? await _repo.getDeviceRole() : null,
+          errorMessage: deviceEnrolmentGone,
+        ));
         return false;
       }
       emit(Unauthenticated(
@@ -423,9 +432,7 @@ class AuthCubit extends Cubit<AuthState> {
   /// server refused this browser's device token at login: the device was
   /// retired or the token is unknown. The token is gone; the browser is back
   /// to backoffice mode until it is enrolled again.
-  static const String deviceEnrolmentGone =
-      'เครื่องนี้ถูกปลดจากร้านแล้ว หรือไม่พบในระบบ จึงเปลี่ยนเป็นโหมด Backoffice '
-      '— เข้าสู่ระบบอีกครั้งได้ หรือผูกเครื่องใหม่ด้วยรหัสจากเจ้าของร้าน';
+  static const String deviceEnrolmentGone = DeviceEnrolmentGoneException.message;
 
   /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
   static const String passwordChangeSessionExpired =
@@ -532,7 +539,10 @@ class AuthCubit extends Cubit<AuthState> {
         : await _repo.getDeviceRole();
     await _repo.logout();
     final deviceToken = await _repo.getDeviceToken();
-    final effectiveRole = currentDeviceRole ?? await _pinRepo?.getDeviceRole();
+    // No device token = not enrolled: no remembered 'pos' role (#609).
+    final effectiveRole = deviceToken == null || deviceToken.isEmpty
+        ? null
+        : currentDeviceRole ?? await _pinRepo?.getDeviceRole();
     emit(Unauthenticated(
       deviceToken: deviceToken,
       deviceRole: effectiveRole,

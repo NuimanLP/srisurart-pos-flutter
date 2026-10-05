@@ -10,6 +10,24 @@ import '../services/tenant_cache_guard.dart';
 import '../storage/token_storage.dart';
 import 'offline_pin_repository.dart';
 
+/// [AuthRepository.login] was refused because this browser's device token is
+/// dead (retired, or unknown to the server) and the repository has already
+/// forgotten it (#609). The only signal callers need — never an HTTP code.
+///
+/// `toString()` is the Thai sentence alone (like `PosException`), so a screen
+/// that shows `e.toString()` — e.g. the offline-PIN dialog — reads it right.
+class DeviceEnrolmentGoneException implements Exception {
+  const DeviceEnrolmentGoneException();
+
+  /// agent ร่าง (#609, 02_API_SCREENS.md §8.1.1) — not yet ratified.
+  static const String message =
+      'เครื่องนี้ถูกปลดจากร้านแล้ว หรือไม่พบในระบบ จึงเปลี่ยนเป็นโหมด Backoffice '
+      '— ผูกเครื่องใหม่ด้วยรหัสจากเจ้าของร้าน';
+
+  @override
+  String toString() => message;
+}
+
 class AuthRepository {
   AuthRepository({
     required this.apiClient,
@@ -70,16 +88,19 @@ class AuthRepository {
     } on ApiException catch (e) {
       // #609: the server says this enrolment is dead (device retired, or a
       // token it does not know) — no login can ever pass with it. Forget it so
-      // the browser reads as not enrolled and can be enrolled again. Its PIN
-      // record goes too: it is bound to that device id and holds the 'pos'
-      // role the login form would otherwise keep showing. Only these two:
-      // Drift data and the outbox stay, and `checkEnrolment` still refuses a
-      // new enrolment while local work is unsent.
+      // the browser reads as not enrolled and can be enrolled again. Only if
+      // the stored token is still the one that was sent: a new enrolment that
+      // landed while the request was in flight is a different token. Drift
+      // data and the outbox stay, and `checkEnrolment` still refuses a new
+      // enrolment while local work is unsent.
+      final sent = body['deviceToken'];
       if (e.statusCode == 401 &&
-          deadDeviceTokenCodes.contains(e.code) &&
-          body.containsKey('deviceToken')) {
-        await tokenStorage.setDeviceToken(null);
-        await offlinePinRepository?.clearPin();
+          sent != null &&
+          deadDeviceTokenCodes.contains(e.code)) {
+        if ((await tokenStorage.getDeviceToken())?.trim() == sent) {
+          await clearDeviceEnrolment();
+        }
+        throw const DeviceEnrolmentGoneException();
       }
       rethrow;
     }
@@ -231,10 +252,13 @@ class AuthRepository {
     await tokenStorage.clearAuthTokens();
   }
 
-  /// Unbinds this device by deleting its stored device token.
+  /// Unbinds this device by deleting its stored device token. The offline-PIN
+  /// record goes too: it is bound to that device id and holds the 'pos' role a
+  /// login form would otherwise keep showing. Drift data and the outbox stay.
   Future<void> clearDeviceEnrolment() async {
     apiClient.beginSession();
     await tokenStorage.clearAll();
+    await offlinePinRepository?.clearPin();
   }
 
   /// Returns the cached user profile.

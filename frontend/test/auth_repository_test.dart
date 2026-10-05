@@ -10,6 +10,7 @@ import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
+import 'package:srisurart_pos/data/services/tenant_cache_guard.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
 
@@ -198,12 +199,19 @@ void main() {
         );
 
     Future<(AuthRepository, OfflinePinRepository)> build(
-        http.Response response) async {
+      http.Response response, {
+      void Function()? duringRequest,
+      void Function(AppDatabase db)? withDb,
+    }) async {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
+      withDb?.call(db);
       final apiClient = ApiClient(
         baseUrl: 'http://test',
-        httpClient: MockClient((_) async => response),
+        httpClient: MockClient((_) async {
+          duringRequest?.call();
+          return response;
+        }),
         tokenStorage: storage,
       );
       final pinRepo = OfflinePinRepository(db: db, tokenStorage: storage);
@@ -212,6 +220,7 @@ void main() {
         apiClient: apiClient,
         tokenStorage: storage,
         offlinePinRepository: pinRepo,
+        tenantGuard: TenantCacheGuard(db),
       );
       return (repo, pinRepo);
     }
@@ -223,12 +232,59 @@ void main() {
 
         await expectLater(
           repo.login(username: 'owner', password: 'pw'),
-          throwsA(isA<ApiException>().having((e) => e.code, 'code', code)),
+          throwsA(isA<DeviceEnrolmentGoneException>()),
         );
         expect(storage.deviceToken, isNull);
         expect(await repo.getDeviceRole(), isNull);
       });
     }
+
+    test('unsent work stays and still blocks a new enrolment (ENROL_UNSENT_WORK)', () async {
+      storage.deviceToken = 'retired-token';
+      late AppDatabase appDb;
+      final (repo, _) = await build(
+        refusal('DEVICE_RETIRED'),
+        withDb: (db) => appDb = db,
+      );
+      await appDb.into(appDb.outboxOps).insert(OutboxOpsCompanion.insert(
+            opId: 'op-1',
+            idempotencyKey: 'k-1',
+            type: 'sale.create',
+            payload: '{}',
+            aggregates: '{}',
+            createdAt: DateTime(2026, 10, 5),
+            status: 'pending',
+          ));
+
+      await expectLater(
+        repo.login(username: 'owner', password: 'pw'),
+        throwsA(isA<DeviceEnrolmentGoneException>()),
+      );
+
+      expect(storage.deviceToken, isNull);
+      expect(await appDb.select(appDb.outboxOps).get(), hasLength(1));
+      await expectLater(
+        repo.tenantGuard!.checkEnrolment(),
+        throwsA(isA<PosException>()
+            .having((e) => e.code, 'code', 'ENROL_UNSENT_WORK')),
+      );
+    });
+
+    // An enrolment that lands while the login request is in flight is a
+    // different token than the one the server just refused: leave it alone.
+    test('a token replaced mid-request is not wiped', () async {
+      storage.deviceToken = 'retired-token';
+      final (repo, _) = await build(
+        refusal('DEVICE_RETIRED'),
+        duringRequest: () => storage.deviceToken = 'fresh-token',
+      );
+
+      await expectLater(
+        repo.login(username: 'owner', password: 'pw'),
+        throwsA(isA<DeviceEnrolmentGoneException>()),
+      );
+      expect(storage.deviceToken, 'fresh-token');
+    });
 
     test('a wrong password keeps the device token (ADR-0004)', () async {
       storage.deviceToken = 'live-token';
