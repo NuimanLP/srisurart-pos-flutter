@@ -673,8 +673,8 @@ export class TenantImportService {
       }
 
       // 3.12 Shifts & nested drawer entries: sa_cash_drawer (the active shift) + sa_shift_history.
-      // A JS/Drift shift carries no id (01 §9), so one is issued as sh_{date}_{n}; a server
-      // export (BackupProcessor) keeps its own.
+      // Each keeps the file's own id: `planBadIds` already refused a shift without a UUID one
+      // (#616), so only this server's exports (BackupProcessor) get this far.
       //
       // 🔴 Every imported shift is archived (`is_active = false`), the file's drawer included.
       // An active drawer belongs to a device (`device_id`), and every close/entry/archive path
@@ -688,12 +688,9 @@ export class TenantImportService {
         ...(drawer && typeof drawer === 'object' ? [{ sh: drawer, fromDrawer: true }] : []),
         ...(snapshot.sa_shift_history || []).map((sh) => ({ sh, fromDrawer: false })),
       ];
-      const shiftsPerDate = new Map<string, number>();
       for (const { sh, fromDrawer } of shifts) {
         const openedAt = parseDate(sh.openedAt || sh.opened_at);
         const dateStr = String(sh.date || sh.dateStr || sh.date_str || openedAt.toISOString().slice(0, 10));
-        const n = (shiftsPerDate.get(dateStr) ?? 0) + 1;
-        shiftsPerDate.set(dateStr, n);
         const shiftId = String(sh.id);
         const startingCash = round2(sh.startingCash || sh.starting_cash);
         const closedAt = sh.closedAt || sh.closed_at ? parseDate(sh.closedAt || sh.closed_at) : null;
