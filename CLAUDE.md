@@ -260,12 +260,12 @@ develops against a demo tenant.
   2026-09-22).
 - ~~#343~~ / #344 — the first real deploy to `mob04` and the end-to-end demo run. **#343
   closed 2026-09-30 (5/5)** — deploy, Grafana checked, manual-Ansible rollback to `e50f4fa`
-  `failed=0`, command log in the 2026-09-30 handoff (PR #511/#514). **#344 has not been run**; its
+  `failed=0`, command log in the 2026-09-30 handoff (PR #511/#514). **#344 is partly run, not done** (2026-10-05: AC1 + AC2 only, tenant `demo-344-20261005`
+  via platform-ui; sales/replay/Grafana not yet — `docs/handoff_log/session-2026-10-05-demo344-retired-device.md`); its
   checklist is `docs/handoff_log/demo-344-checklist-2026-09-30.md`, with flagged blockers
   (temp-password + forced change within 10 min, new tenant has no products, the app cannot
   resend an idempotency key, three #335 ACs not provable on the VM, #476). 2026-09-30
-  `provision.yml` re-run added only `PLATFORM_ADMINS` (3 admins synced, no human has logged
-  in to platform-ui) and installed the missing `backup-db.sh`. 🔴 Correction: on 2026-09-29
+  `provision.yml` re-run added only `PLATFORM_ADMINS` (3 admins synced; first human platform-ui login 2026-10-05, see #344) and installed the missing `backup-db.sh`. 🔴 Correction: on 2026-09-29
   03:00 the script existed and **failed** ("Neither active docker compose postgres container…",
   leaving a 20-byte empty `.gz`); only the 2026-09-30 03:00 run was "not found". #346 closed
   2026-09-30 (script run in cron env OK, dump verified, comment 5913495869); first real 03:00
@@ -302,10 +302,27 @@ develops against a demo tenant.
   clamp in `quotes.controller.ts:113` — fixed 2026-09-25 by PR #420, now validated by
   `parsePurgeOlderThanDays`). **All three MED items are fixed (2026-09-27):** item 3 by
   PR #458 (#455), item 5 by PR #456 (#453), item 4 by PR #456 + PR #469 (#452 closed).
-  Item 6 (LOW) fixed on branch `fix/shifts-open-starting-cash`: online `POST /shifts/open`
-  with an existing `id` and a different `startingCash` is now `409 CLIENT_ID_REUSED`
-  (`ClientIdReusedException`, shared with `/sync/push`). Still open: the standards findings
+  Item 6 (LOW) fixed by PR #610 (2026-10-05, `03dc116`): online `POST /shifts/open`
+  with an existing `id` and a different `startingCash` is `409 CLIENT_ID_REUSED`
+  (`ClientIdReusedException`, `server/src/common/client-id-reused.exception.ts`, shared with
+  `/sync/push`; `shifts.service.ts:202`); the same cash written differently (`"2000"` vs
+  `"2000.00"`) is still a 200 replay. `08 §6.1` calls this an exception to "online keeps its
+  own code" — **owner has not confirmed it yet**. Still open: the standards findings
   (§3) beyond the `Math.max` one, none re-triaged.
+- **Retired/unknown device token at login (#609, PR #611 + PR #613, 2026-10-05, deployed).**
+  `POST /auth/token` with a `deviceToken` the server retired or does not know is
+  `401 DEVICE_RETIRED` / `401 DEVICE_TOKEN_INVALID`, checked **before** the password
+  (`auth.service.ts:112-125`); `DeviceTokenGuard` on `/sync/push` is unchanged. Client:
+  `AuthRepository.login` clears the device token + offline PIN (compare-and-clear — only if
+  the stored token is still the one sent; owner confirmed clearing the PIN, #609 comment
+  5987543993) and throws `DeviceEnrolmentGoneException`; `AuthCubit` shows Backoffice plus
+  the Thai string `AuthCubit.deviceEnrolmentGone` (**agent ร่าง**, `02 §8.1.1`), and
+  `init`/`_logout` no longer show a remembered `pos` role without a device token. Drift and
+  the outbox are untouched; `ENROL_UNSENT_WORK` still guards a new enrolment. Not built:
+  shop name on the badge, device-status check at app open (both need new API); **#612**
+  (offline-PIN setup dialog reads any 401 as a wrong password) is open. Browser profile
+  holding another tenant's retired token showed `เครื่อง POS` and hid the enrol link — the
+  bug this fixed; use Incognito for a demo until the build is on the profile.
 - **5xx does not queue — owner decision 2026-09-27, `08 §5` amended (PR #469).** On the
   API build a 5xx/429 leaves the attempt parked (same id + key) and shows the error, for
   sales, shifts and returns alike; only a transport failure queues to the outbox.
@@ -346,7 +363,9 @@ develops against a demo tenant.
   (`gh pr view N --json headRefOid`) — a review-fix pushed after the merge button is
   clicked silently misses `main`, and the PR body describing it reads as done when it
   isn't.** Recurred 2026-10-03 (#551/#552, #579, #580, #587 — see
-  `handoff_log/session-2026-10-03-ux-test-drawer-ci.md`). 🔴 **Same trap on the branch side (found 2026-09-30):** before deleting a
+  `handoff_log/session-2026-10-03-ux-test-drawer-ci.md`) and 2026-10-05 (#611 auto-squashed
+  at `03eb17a`, review fixes `49cd4c0` pushed 12 min later; recovered by PR #613) — so no
+  auto-merge while an agent is still pushing review fixes. 🔴 **Same trap on the branch side (found 2026-09-30):** before deleting a
   merged-PR branch, compare its tip with the PR's `headRefOid` — a mismatch means commits
   pushed after the merge that may exist nowhere else. That is how PR #486's review fix
   (`_writeGen` guard against a stale `GET /settings` clobbering a newer `PATCH`, commits
@@ -452,7 +471,7 @@ develops against a demo tenant.
   "only `bootstrap:admin` creates admins" contradicts the owner-ratified `PLATFORM_ADMINS` sync, and owner answers listed in
   `docs/handoff_log/session-2026-09-27-platform-admin-ui-443.md` §6. Container runs on `mob04`
   since the 2026-09-30 deploy; 3 platform admins synced from `PLATFORM_ADMINS` the same day
-  (UI login not yet tested by a human).
+  (first human UI login on `mob04` 2026-10-05, during #344 — evidence for this ticket).
 
 The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
 2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving

@@ -730,6 +730,8 @@ owner: POST /devices {role:'pos'}         → ได้ enrolCode (อายุ�
           → server resolve deviceToken เป็น did + drole เอง แล้วฝังใน JWT
 ```
 
+- ถ้า `deviceToken` ที่แนบมาถูก retire แล้ว หรือ server ไม่รู้จัก → `401 DEVICE_RETIRED` / `401 DEVICE_TOKEN_INVALID` (ตรวจก่อนรหัสผ่าน, #609) — client ใช้ code นี้แยก "token ตาย" ออกจาก "รหัสผ่านผิด" แล้วลบ token ทิ้ง
+
 - **ทำไม client ห้ามส่ง `deviceId`/`tenantId` ใน body:** ไม่งั้นใครก็ปลอมว่าเป็นเครื่องขายของร้านอื่นได้ ทุกอย่างต้องมาจาก token ที่ server เซ็นเอง
   (มี test ฝั่ง client บังคับ: `api_repository_contract_test.dart` — *"#54 AC6: nothing the client sends carries deviceId or tenantId"*)
 - **อายุ token** (ADR-0009, ตาม `02_API_SCREENS.md §1.1`): access 15 นาที, refresh หมดอายุ 04:00 ตามเวลาร้าน
