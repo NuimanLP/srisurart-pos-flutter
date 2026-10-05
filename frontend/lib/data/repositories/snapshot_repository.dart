@@ -464,6 +464,7 @@ class SnapshotRepository {
             (a, b) => b.createdAt.compareTo(a.createdAt),
           ); // newest first
       return <String, dynamic>{
+        'id': s.id,
         'date': s.dateStr,
         'startingCash': s.startingCash,
         'openedAt': _iso(s.openedAt),
@@ -962,7 +963,7 @@ class SnapshotRepository {
         // A JS snapshot's shifts carry no id at all, so the importer issues
         // one by the same rule as openShift (schema v3: shift ids are TEXT and
         // are no longer invented by the database).
-        final shiftId = newUuid();
+        final shiftId = _asStr(shift['id'], newUuid());
         await db
             .into(db.shifts)
             .insert(
@@ -1000,7 +1001,7 @@ class SnapshotRepository {
 
       // ── 14. Shift history (sa_shift_history) → inactive Shifts + entries ──
       for (final shift in asList(data['sa_shift_history'])) {
-        final shiftId = newUuid();
+        final shiftId = _asStr(shift['id'], newUuid());
         await db
             .into(db.shifts)
             .insert(
