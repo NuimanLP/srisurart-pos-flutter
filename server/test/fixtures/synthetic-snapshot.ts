@@ -28,6 +28,7 @@
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { ZONE_TO_CATEGORY } from '../../src/platform/snapshot-category.js';
+import { testId } from '../support/test-ids.js';
 
 export type Scale = 'small' | 'full';
 export type Profile = 'clean' | 'realistic';
@@ -143,7 +144,7 @@ interface Customer { id: string; code: string; name: string; nameTH: string; pho
 interface Mechanic { id: string; code: string; name: string; nameTH: string; nickname?: string | null; shopName: string; phone: string; note?: string; creditLimit: number; creditBalance: number; totalSales: number; totalCredit: number; totalDiscount: number; totalMarkup: number; createdAt: string; updatedAt?: number; deleted?: boolean; deletedAt?: number }
 interface SaleItem { productId: string; partNo: string; name: string; nameTH: string; qty: number; price: number; cost: number }
 interface Sale { id: string; receiptNo: string; subtotal: number; discount: number; total: number; paymentMethod: string; customerId?: string; customerName?: string; mechanicId?: string; mechanicName?: string; mechanicDelta?: number; pointsGranted: number; date: number; voided: boolean; voidedAt?: number; items: SaleItem[] }
-interface Shift { date: string; startingCash: number; openedAt: number; closedAt: number | null; physicalCash: number | null; isActive: boolean; autoArchived: boolean; archivedAt?: number; entries: Array<{ id: string; type: 'in' | 'out'; amount: number; note: string; createdAt: number }> }
+interface Shift { id: string; date: string; startingCash: number; openedAt: number; closedAt: number | null; physicalCash: number | null; isActive: boolean; autoArchived: boolean; archivedAt?: number; entries: Array<{ id: string; type: 'in' | 'out'; amount: number; note: string; createdAt: number }> }
 
 export function generateSyntheticSnapshot(options: SyntheticOptions = {}): Json {
   const seed = options.seed ?? 185;
@@ -159,8 +160,9 @@ export function generateSyntheticSnapshot(options: SyntheticOptions = {}): Json 
   let idCounter = 0;
   /** Advance the clock to `target` (never backwards, never the same millisecond). */
   const tick = (target: number) => (lastMs = Math.max(target, lastMs + 1 + int(0, 900)));
-  // ids.dart newId / docNo, with the simulated clock in place of DateTime.now().
-  const newId = (prefix: string) => `${prefix}${lastMs.toString(36)}_${hex(8)}_${(++idCounter).toString(36)}`;
+  // Entity ids are UUIDs (#616): a seeded, deterministic UUIDv5 per (seed, kind, counter).
+  // docNo mirrors ids.dart, with the simulated clock in place of DateTime.now().
+  const newId = (kind: string) => testId(`synthetic:${seed}:${kind}:${++idCounter}`);
   const issued = new Set<string>();
   const docNo = (prefix: string) => {
     for (;;) {
@@ -396,7 +398,7 @@ export function generateSyntheticSnapshot(options: SyntheticOptions = {}): Json 
       prev.isActive = false;
       if (prev.closedAt == null) { prev.autoArchived = true; prev.archivedAt = lastMs; }
     }
-    const shift: Shift = { date: bkkDate(lastMs), startingCash: pick([1000, 1500, 2000]), openedAt: lastMs, closedAt: null, physicalCash: null, isActive: true, autoArchived: false, entries: [] };
+    const shift: Shift = { id: newId('sh'), date: bkkDate(lastMs), startingCash: pick([1000, 1500, 2000]), openedAt: lastMs, closedAt: null, physicalCash: null, isActive: true, autoArchived: false, entries: [] };
     shifts.push(shift);
 
     if (day === deleteDay) {
@@ -589,7 +591,7 @@ export function generateSyntheticSnapshot(options: SyntheticOptions = {}): Json 
     branchNo: null, updatedAt: iso(START_UTC),
   };
   const shiftJson = (s: Shift) => ({
-    date: s.date, startingCash: s.startingCash, openedAt: iso(s.openedAt), closedAt: iso(s.closedAt), physicalCash: s.physicalCash,
+    id: s.id, date: s.date, startingCash: s.startingCash, openedAt: iso(s.openedAt), closedAt: iso(s.closedAt), physicalCash: s.physicalCash,
     ...(s.autoArchived ? { autoArchived: true } : {}), ...(s.archivedAt != null ? { archivedAt: iso(s.archivedAt) } : {}),
     entries: [...s.entries].sort(byDateDesc((e) => e.createdAt)).map((e) => ({ ...e, createdAt: iso(e.createdAt) })),
   });

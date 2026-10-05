@@ -9,7 +9,9 @@ import { hashPassword } from '../src/common/password.js';
 import { APP_CONFIG, type AppConfig } from '../src/config/config.js';
 import { TenantImportService } from '../src/platform/tenant-import.service.js';
 import { QueueProcessorsModule } from '../src/queue/queue.module.js';
+import { newUuid } from '../src/common/ids.js';
 import { generateSyntheticSnapshot } from './fixtures/synthetic-snapshot.js';
+import { testId } from './support/test-ids.js';
 import { accessToken, clearTenantCache, createTestApp, TENANT_TABLES_DEPTH_FIRST } from './support/fixture.js';
 import { checkSnapshotInvariants, reconcileImport, snapshotShifts } from './support/snapshot-checks.js';
 
@@ -225,7 +227,7 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
     expect(numbers.filter((n) => serverFormat.test(String(n)))).toEqual([]);
 
     if (REAL_FILE) return; // never ring a bill into the shop's own data
-    const pos = accessToken({ tenantId, role: 'owner', deviceId: 'pos1', deviceRole: 'pos' });
+    const pos = accessToken({ tenantId, role: 'owner', deviceId: testId('pos1'), deviceRole: 'pos' });
     const opened = await request(app.getHttpServer())
       .post('/api/v1/shifts/open')
       .set('Authorization', `Bearer ${pos}`)
@@ -245,7 +247,7 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
       .set('Authorization', `Bearer ${pos}`)
       .set('Idempotency-Key', `k-sale-${randomUUID()}`)
       .send({
-        id: `s-after-import-${randomUUID()}`, subtotal: product.price, discount: '0.00', total: product.price,
+        id: newUuid(), subtotal: product.price, discount: '0.00', total: product.price,
         paymentMethod: 'เงินสด', items: [{ lineNo: 1, productId: product.id, name: product.name, qty: 1, price: product.price }],
       });
     expect(sale.status).toBe(201);
@@ -266,7 +268,7 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
     // refused in pre-flight itself — that path is `import-snapshot.e2e-spec.ts`'s
     // `positiveMoney` coverage, proved directly in `snapshot-preflight.spec.ts`.)
     const history = snapshot.sa_shift_history as Json[];
-    history[history.length - 1].entries.push({ id: 'de-poison', type: 'sideways', amount: 100, note: 'poison', createdAt: '2026-05-01T03:00:00.000Z' });
+    history[history.length - 1].entries.push({ id: testId('de-poison'), type: 'sideways', amount: 100, note: 'poison', createdAt: '2026-05-01T03:00:00.000Z' });
 
     const tenantId = await provision();
     const res = await importFile(tenantId, snapshot);
@@ -284,6 +286,28 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
     const [row] = await admin.query(`SELECT status, result FROM import_jobs WHERE tenant_id = $1 AND id = $2`, [tenantId, res.body.data.jobId]);
     expect(row.status).toBe('failed');
     expect(row.result).toBeNull();
+  }, 30000);
+
+  it.skipIf(Boolean(REAL_FILE))('refuses a snapshot with an old-format id, synchronously (#616: legacy import dropped)', async () => {
+    const snapshot = generateSyntheticSnapshot({ scale: 'small', profile: 'clean' }) as Json;
+    (snapshot.sa_products as Json[])[0].id = 'slq3x9a_1a2b3c4d_7';
+    const tenantId = await provision();
+    const res = await importFile(tenantId, snapshot);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_ID');
+    expect(res.body.error.message).toContain('products.id');
+    expect(res.body.error.message).toContain('no longer supported');
+    expect(await count(tenantId, 'products')).toBe(0);
+  }, 30000);
+
+  it.skipIf(Boolean(REAL_FILE))('refuses a snapshot with an old-format id reference, synchronously', async () => {
+    const snapshot = generateSyntheticSnapshot({ scale: 'small', profile: 'clean' }) as Json;
+    const sale = (snapshot.sa_sales as Json[]).find((s) => (s.items as Json[]).length > 0)!;
+    (sale.items as Json[])[0].productId = 'p1';
+    const tenantId = await provision();
+    const res = await importFile(tenantId, snapshot);
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/sales\.items\[0\]\.productId/);
   }, 30000);
 
   it.skipIf(Boolean(REAL_FILE))('refuses a second import into a tenant that already has bills, synchronously', async () => {

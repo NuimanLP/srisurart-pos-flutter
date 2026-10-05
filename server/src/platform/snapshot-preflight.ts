@@ -312,3 +312,71 @@ export function describeBadDate(d: BadDate): string {
 export function describeClamp(c: ClampViolation): string {
   return `${c.table}:${c.id}.${c.field} ${c.rule} (got ${JSON.stringify(c.value)})`;
 }
+
+// ── 4. Ids must be lowercase UUIDs (#616) ───────────────────────────────────────────────
+// Ids are `uuid` columns now. Legacy import is dropped: a snapshot from the old app (ids like
+// `p1`, `slq3x9a_1a2b3c4d_7`) must never reach the importer, which only reads the shape this
+// server's own `/backup/export` writes. Every row's own `id` is required (the export always
+// writes one, shifts/drawer entries/parked bills included); a reference is checked only when
+// the file supplies a value (an absent/null reference is a normal optional field).
+
+export interface BadId {
+  table: string;
+  field: string;
+  value: unknown;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const isUuid = (v: unknown): boolean => typeof v === 'string' && UUID_RE.test(v);
+
+export function planBadIds(snapshot: Row): BadId[] {
+  const out: BadId[] = [];
+  const own = (table: string, r: Row, path: string) => {
+    if (!isUuid(r.id)) out.push({ table, field: `${path}id`, value: r.id });
+  };
+  const refs = (table: string, r: Row, path: string, fields: string[]) => {
+    for (const f of fields) {
+      const v = r[f] ?? r[f.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)];
+      if (v != null && v !== '' && !isUuid(v)) out.push({ table, field: `${path}${f}`, value: v });
+    }
+  };
+  const items = (table: string, r: Row) =>
+    rows(r.items).forEach((it, i) => refs(table, it, `items[${i}].`, ['productId']));
+
+  // [snapshot key, table label, reference fields, has line items]
+  const specs: Array<[string, string, string[], boolean]> = [
+    ['sa_products', 'products', [], false],
+    ['sa_customers', 'customers', [], false],
+    ['sa_mechanics', 'mechanics', [], false],
+    ['sa_sales', 'sales', ['customerId', 'mechanicId', 'shiftId', 'deviceId'], true],
+    ['sa_returns', 'returns', ['saleId', 'customerId', 'mechanicId', 'shiftId', 'deviceId'], true],
+    ['sa_pos', 'purchaseOrders', [], true],
+    ['sa_quotes', 'quotes', ['convertedSaleId'], true],
+    ['sa_movements', 'movements', ['productId', 'refId'], false],
+    ['sa_suppliers', 'suppliers', ['productId'], false],
+    ['sa_credit_payments', 'creditPayments', ['mechanicId', 'shiftId', 'deviceId'], false],
+  ];
+  for (const [key, table, fields, hasItems] of specs) {
+    for (const r of rows(snapshot[key])) {
+      own(table, r, '');
+      refs(table, r, '', fields);
+      if (hasItems) items(table, r);
+    }
+  }
+
+  const shifts: Row[] = [
+    ...(snapshot.sa_cash_drawer && typeof snapshot.sa_cash_drawer === 'object' ? [snapshot.sa_cash_drawer as Row] : []),
+    ...rows(snapshot.sa_shift_history),
+  ];
+  for (const sh of shifts) {
+    own('shifts', sh, '');
+    refs('shifts', sh, '', ['deviceId']);
+    rows(sh.entries).forEach((e, j) => own('drawerEntries', e, `entries[${j}].`));
+  }
+  for (const ps of rows(snapshot.sa_parked)) own('parkedSales', ps, '');
+  return out;
+}
+
+export function describeBadId(b: BadId): string {
+  return `${b.table}.${b.field} = ${JSON.stringify(b.value)}`;
+}
