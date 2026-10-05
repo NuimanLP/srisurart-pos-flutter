@@ -11,6 +11,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #21 acceptance suite: the customer and mechanic ledger effects of `POST /sales`,
 // with the numbers from `frontend/test/sales_repository_test.dart` where it has them,
@@ -44,7 +45,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
   const bill = (lines: Line[], overrides: Record<string, unknown> = {}) => {
     const subtotal = lines.reduce((s, l) => s + l.qty * Number(l.price), 0);
     return {
-      id: `s-ledger-${++saleSeq}-${Date.now()}`,
+      id: testId(`s-ledger-${++saleSeq}-${Date.now()}`),
       subtotal: subtotal.toFixed(2),
       discount: '0.00',
       total: subtotal.toFixed(2),
@@ -55,7 +56,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
   };
 
   const chain = (qty = 1): Line[] => [
-    { productId: 'p3', name: 'Drive Chain #520', qty, price: '350.00' },
+    { productId: testId('p3'), name: 'Drive Chain #520', qty, price: '350.00' },
   ];
 
   const post = (body: unknown, key = `k-${Math.random()}`) =>
@@ -127,7 +128,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
       deviceRole: 'pos',
     });
     await seedProduct(admin, TENANT, {
-      id: 'p3',
+      id: testId('p3'),
       partNo: 'DC-520',
       name: 'Drive Chain #520',
       price: 350,
@@ -136,28 +137,28 @@ describe('POST /sales — ledger effects (e2e)', () => {
     });
     // The Dart fixture: c1 at 450 points / 4500 spend, m1 with an empty tab.
     await seedCustomer(admin, TENANT, {
-      id: 'c1',
+      id: testId('c1'),
       code: 'C001',
       name: 'Somchai Jaidee',
       points: 450,
       totalSpend: 4500,
     });
     await seedMechanic(admin, TENANT, {
-      id: 'm1',
+      id: testId('m1'),
       code: 'M001',
       name: 'Lung Manop',
       creditLimit: 5000,
       totalCredit: 120,
     });
     await seedMechanic(admin, TENANT, {
-      id: 'm2',
+      id: testId('m2'),
       code: 'M002',
       name: 'Chang Tao',
       creditLimit: 3000,
     });
     // 800 on a 1000 limit: one 350 chain pushes it to 1150.
     await seedMechanic(admin, TENANT, {
-      id: 'm3',
+      id: testId('m3'),
       code: 'M003',
       name: 'Tight Limit',
       creditLimit: 1000,
@@ -179,14 +180,14 @@ describe('POST /sales — ledger effects (e2e)', () => {
       bill(
         [
           {
-            productId: 'p3',
+            productId: testId('p3'),
             name: 'Drive Chain #520',
             qty: 1,
             price: '120.00',
           },
         ],
         {
-          customerId: 'c1',
+          customerId: testId('c1'),
           customerName: 'Somchai Jaidee',
         },
       ),
@@ -194,13 +195,13 @@ describe('POST /sales — ledger effects (e2e)', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.pointsGranted).toBe(12);
     expect(res.body.data.customerAfter).toEqual({
-      id: 'c1',
+      id: testId('c1'),
       points: 462,
       totalSpend: '4620.00',
     });
     expect(res.body.data.mechanicCreditBalanceAfter).toBeNull();
 
-    const c = await customer('c1');
+    const c = await customer(testId('c1'));
     expect(c.points).toBe(462);
     expect(Number(c.total_spend)).toBe(4620);
   });
@@ -209,7 +210,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
     const res = await post(
       bill(chain(), {
         paymentMethod: 'เครดิตช่าง',
-        mechanicId: 'm1',
+        mechanicId: testId('m1'),
         mechanicName: 'Lung Manop',
         mechanicDelta: '-50.00',
       }),
@@ -218,7 +219,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
     expect(res.body.data.mechanicCreditBalanceAfter).toBe('350.00');
     expect(res.body.data.customerAfter).toBeNull();
 
-    const m = await mechanic('m1');
+    const m = await mechanic(testId('m1'));
     expect(Number(m.credit_balance)).toBe(350);
     expect(Number(m.total_sales)).toBe(350);
     expect(Number(m.total_discount)).toBe(50);
@@ -230,7 +231,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
     // #82: all four running totals come back, because the mechanics screen shows all
     // four and the client may not recompute a server-owned figure.
     expect(res.body.data.mechanicAfter).toEqual({
-      id: 'm1',
+      id: testId('m1'),
       totalSales: '350.00',
       totalDiscount: '50.00',
       totalMarkup: '0.00',
@@ -252,9 +253,9 @@ describe('POST /sales — ledger effects (e2e)', () => {
   it('a replayed bill answers the identical ledger body (#82)', async () => {
     const body = bill(chain(), {
       paymentMethod: 'เครดิตช่าง',
-      customerId: 'c1',
+      customerId: testId('c1'),
       customerName: 'Somchai Jaidee',
-      mechanicId: 'm1',
+      mechanicId: testId('m1'),
       mechanicName: 'Lung Manop',
       mechanicDelta: '-50.00',
     });
@@ -274,7 +275,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
   it('mechanic cash sale with a markup: no tab movement, markup added', async () => {
     const res = await post(
       bill(chain(), {
-        mechanicId: 'm2',
+        mechanicId: testId('m2'),
         mechanicName: 'Chang Tao',
         mechanicDelta: '30.00',
       }),
@@ -282,7 +283,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.mechanicCreditBalanceAfter).toBe('0.00');
 
-    const m = await mechanic('m2');
+    const m = await mechanic(testId('m2'));
     expect(Number(m.credit_balance)).toBe(0);
     expect(Number(m.total_markup)).toBe(30);
     expect(Number(m.total_discount)).toBe(0);
@@ -293,20 +294,20 @@ describe('POST /sales — ledger effects (e2e)', () => {
     const res = await post(
       bill(chain(), {
         paymentMethod: 'โอน/QR',
-        mechanicId: 'm1',
+        mechanicId: testId('m1'),
         mechanicName: 'Lung Manop',
       }),
     );
     expect(res.status).toBe(201);
-    expect(Number((await mechanic('m1')).credit_balance)).toBe(0);
-    expect(Number((await mechanic('m1')).total_sales)).toBe(350);
+    expect(Number((await mechanic(testId('m1'))).credit_balance)).toBe(0);
+    expect(Number((await mechanic(testId('m1'))).total_sales)).toBe(350);
   });
 
   it('over the limit without the flag: 409 CREDIT_LIMIT_EXCEEDED, and nothing is written', async () => {
     const res = await post(
       bill(chain(), {
         paymentMethod: 'เครดิตช่าง',
-        mechanicId: 'm3',
+        mechanicId: testId('m3'),
         mechanicName: 'Tight Limit',
       }),
     );
@@ -319,8 +320,8 @@ describe('POST /sales — ledger effects (e2e)', () => {
     });
 
     expect(await saleCount()).toBe(0);
-    expect(await stockOf('p3')).toBe(20);
-    const m = await mechanic('m3');
+    expect(await stockOf(testId('p3'))).toBe(20);
+    const m = await mechanic(testId('m3'));
     expect(Number(m.credit_balance)).toBe(800);
     expect(Number(m.total_sales)).toBe(0);
     expect(await overrideAudits()).toEqual([]);
@@ -330,19 +331,19 @@ describe('POST /sales — ledger effects (e2e)', () => {
     const res = await post(
       bill(chain(), {
         paymentMethod: 'เครดิตช่าง',
-        mechanicId: 'm3',
+        mechanicId: testId('m3'),
         mechanicName: 'Tight Limit',
         overrideCreditLimit: true,
       }),
     );
     expect(res.status).toBe(201);
     expect(res.body.data.mechanicCreditBalanceAfter).toBe('1150.00');
-    expect(Number((await mechanic('m3')).credit_balance)).toBe(1150);
+    expect(Number((await mechanic(testId('m3'))).credit_balance)).toBe(1150);
 
     const audits = await overrideAudits();
     expect(audits).toHaveLength(1);
     expect(audits[0].entity).toBe('mechanic');
-    expect(audits[0].entity_id).toBe('m3');
+    expect(audits[0].entity_id).toBe(testId('m3'));
     expect(audits[0].user_id).toBe(fixture.userId);
     expect(audits[0].device_id).toBe(fixture.posDeviceId);
     expect(audits[0].after).toEqual({
@@ -362,7 +363,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
     // dialog's confirm into a bill that can never be rung up.
     const body = bill(chain(), {
       paymentMethod: 'เครดิตช่าง',
-      mechanicId: 'm3',
+      mechanicId: testId('m3'),
       mechanicName: 'Tight Limit',
     });
     const key = `k-same-${Date.now()}`;
@@ -381,7 +382,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
     const res = await post(
       bill(chain(), {
         paymentMethod: 'เครดิตช่าง',
-        mechanicId: 'm1',
+        mechanicId: testId('m1'),
         mechanicName: 'Lung Manop',
         overrideCreditLimit: true,
       }),
@@ -394,7 +395,7 @@ describe('POST /sales — ledger effects (e2e)', () => {
     const res = await post(
       bill(chain(), {
         paymentMethod: 'เครดิตช่าง',
-        mechanicId: 'm3',
+        mechanicId: testId('m3'),
         overrideCreditLimit: 'true',
       }),
     );
@@ -405,9 +406,9 @@ describe('POST /sales — ledger effects (e2e)', () => {
   it('replaying the same bill id answers the same ledger and moves nothing twice', async () => {
     const body = bill(chain(), {
       paymentMethod: 'เครดิตช่าง',
-      customerId: 'c1',
+      customerId: testId('c1'),
       customerName: 'Somchai Jaidee',
-      mechanicId: 'm1',
+      mechanicId: testId('m1'),
       mechanicName: 'Lung Manop',
     });
     const first = await post(body);
@@ -420,15 +421,15 @@ describe('POST /sales — ledger effects (e2e)', () => {
       first.body.data.customerAfter,
     );
     expect(replay.body.data.customerAfter).toEqual({
-      id: 'c1',
+      id: testId('c1'),
       points: 485,
       totalSpend: '4850.00',
     });
     expect(replay.body.data.mechanicCreditBalanceAfter).toBe('350.00');
 
     expect(await saleCount()).toBe(1);
-    expect((await customer('c1')).points).toBe(485);
-    expect(Number((await mechanic('m1')).credit_balance)).toBe(350);
+    expect((await customer(testId('c1'))).points).toBe(485);
+    expect(Number((await mechanic(testId('m1'))).credit_balance)).toBe(350);
   });
 
   it('a bill with neither customer nor mechanic answers null for both', async () => {

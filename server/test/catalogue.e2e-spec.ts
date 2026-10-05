@@ -14,6 +14,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId, UUID_V7 } from './support/test-ids.js';
 
 /**
  * #16 `p4.1` — products, categories, suppliers, stock adjustment, movements.
@@ -120,7 +121,7 @@ describe('catalogue (e2e)', () => {
 
     // The Dart seed rows the parity cases name: p1 stock 48, p2, p8 stock 5.
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'HN-15412-KVB',
       name: 'Oil Filter',
       nameTH: 'กรองน้ำมันเครื่อง',
@@ -130,7 +131,7 @@ describe('catalogue (e2e)', () => {
       category: 'เครื่องยนต์',
     });
     await seedProduct(admin, TENANT, {
-      id: 'p2',
+      id: testId('p2'),
       partNo: 'NGK-BR8ES-11',
       name: 'Spark Plug',
       nameTH: 'หัวเทียน',
@@ -140,7 +141,7 @@ describe('catalogue (e2e)', () => {
       category: 'ไฟฟ้า',
     });
     await seedProduct(admin, TENANT, {
-      id: 'p8',
+      id: testId('p8'),
       partNo: 'BRK-PAD-F',
       name: 'Front Brake Pad',
       nameTH: 'ผ้าเบรกหน้า',
@@ -168,15 +169,15 @@ describe('catalogue (e2e)', () => {
       expect(
         res.body.data.every((p: { category: string }) => p.category !== ''),
       ).toBe(true);
-      expect(res.body.data[0].price).toBe('150.00');
+      expect(res.body.data.find((p: { id: string }) => p.id === testId('p1')).price).toBe('150.00');
     });
 
-    it('add with a fresh partNo inserts and assigns a p-prefixed id', async () => {
-      const res = await post('/products', newProduct({ id: 'IGNORED' }));
+    it('add with a fresh partNo inserts and assigns a server UUIDv7 id', async () => {
+      const res = await post('/products', newProduct({ id: testId('IGNORED') }));
       expect(res.status).toBe(201);
       expect(res.body.data.partNo).toBe('NEW-001');
-      expect(res.body.data.id.startsWith('p')).toBe(true);
-      expect(res.body.data.id).not.toBe('IGNORED');
+      expect(res.body.data.id).toMatch(UUID_V7);
+      expect(res.body.data.id).not.toBe(testId('IGNORED'));
       expect(res.body.data).toMatchObject({
         price: '100.00',
         cost: '50.00',
@@ -237,7 +238,7 @@ describe('catalogue (e2e)', () => {
       await expect(
         admin.query(
           `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock)
-           VALUES ($1::uuid, 'dup', 'hn-15412-kvb', 'x', 'x', 'x', 'x', 0, 0, 0)`,
+           VALUES ($1::uuid, '${testId('dup')}', 'hn-15412-kvb', 'x', 'x', 'x', 'x', 0, 0, 0)`,
           [TENANT],
         ),
       ).rejects.toMatchObject({
@@ -247,35 +248,35 @@ describe('catalogue (e2e)', () => {
     });
 
     it('update to a colliding partNo (another product) is refused', async () => {
-      const res = await patch('/products/p2', { partNo: 'HN-15412-KVB' });
+      const res = await patch(`/products/${testId('p2')}`, { partNo: 'HN-15412-KVB' });
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('DUPLICATE_PART_NO');
-      expect((await get('/products/p2')).body.data.partNo).toBe('NGK-BR8ES-11');
+      expect((await get(`/products/${testId('p2')}`)).body.data.partNo).toBe('NGK-BR8ES-11');
     });
 
     it('update keeping the same partNo on the same product succeeds', async () => {
-      const res = await patch('/products/p1', {
+      const res = await patch(`/products/${testId('p1')}`, {
         partNo: 'HN-15412-KVB',
         name: 'Renamed',
       });
       expect(res.status).toBe(200);
-      expect((await get('/products/p1')).body.data.name).toBe('Renamed');
+      expect((await get(`/products/${testId('p1')}`)).body.data.name).toBe('Renamed');
     });
 
     it('update with a non-colliding partNo succeeds and applies the patch', async () => {
-      const res = await patch('/products/p1', { partNo: 'HN-99999-XYZ' });
+      const res = await patch(`/products/${testId('p1')}`, { partNo: 'HN-99999-XYZ' });
       expect(res.status).toBe(200);
-      expect((await get('/products/p1')).body.data.partNo).toBe('HN-99999-XYZ');
+      expect((await get(`/products/${testId('p1')}`)).body.data.partNo).toBe('HN-99999-XYZ');
     });
 
     it('delete removes the product', async () => {
-      expect((await del('/products/p1')).status).toBe(200);
-      expect((await get('/products/p1')).status).toBe(404);
+      expect((await del(`/products/${testId('p1')}`)).status).toBe(200);
+      expect((await get(`/products/${testId('p1')}`)).status).toBe(404);
       expect((await get('/products')).body.data).toHaveLength(2);
     });
 
     it('adjustStock positive delta adds stock and writes a movement', async () => {
-      const res = await post('/products/p1/adjust-stock', {
+      const res = await post(`/products/${testId('p1')}/adjust-stock`, {
         delta: 5,
         type: 'adjustment-in',
         note: 'restock',
@@ -283,12 +284,12 @@ describe('catalogue (e2e)', () => {
       expect(res.status).toBe(201);
       expect(res.body.data.stockAfter).toBe(53);
       expect(res.body.data.product.stock).toBe(53);
-      expect((await get('/products/p1')).body.data.stock).toBe(53);
+      expect((await get(`/products/${testId('p1')}`)).body.data.stock).toBe(53);
 
       const moves = await get('/movements');
       expect(moves.body.data).toHaveLength(1);
       expect(moves.body.data[0]).toMatchObject({
-        productId: 'p1',
+        productId: testId('p1'),
         delta: 5,
         type: 'adjustment-in',
         note: 'restock',
@@ -297,13 +298,13 @@ describe('catalogue (e2e)', () => {
     });
 
     it('adjustStock below zero CLAMPS to 0 and writes exactly one movement with stockAfter 0', async () => {
-      const res = await post('/products/p8/adjust-stock', {
+      const res = await post(`/products/${testId('p8')}/adjust-stock`, {
         delta: -10,
         type: 'adjustment-out',
       });
       expect(res.status).toBe(201);
       expect(res.body.data.stockAfter).toBe(0);
-      expect(await stockOf('p8')).toBe(0);
+      expect(await stockOf(testId('p8'))).toBe(0);
 
       const moves = await admin.query(
         `SELECT product_id, delta, stock_after, type, ref_id FROM movements WHERE tenant_id = $1::uuid`,
@@ -312,7 +313,7 @@ describe('catalogue (e2e)', () => {
       expect(moves).toEqual([
         // raw delta preserved beside the clamped value, as the Dart repository writes it
         {
-          product_id: 'p8',
+          product_id: testId('p8'),
           delta: -10,
           stock_after: 0,
           type: 'adjustment-out',
@@ -328,7 +329,7 @@ describe('catalogue (e2e)', () => {
       expect(audit).toHaveLength(1);
       expect(audit[0]).toMatchObject({
         action: 'stock.adjust',
-        entity_id: 'p8',
+        entity_id: testId('p8'),
         user_id: fixture.userId,
         device_id: fixture.backofficeDeviceId,
         before: { stock: 5 },
@@ -337,7 +338,7 @@ describe('catalogue (e2e)', () => {
     });
 
     it('adjustStock on a missing product writes no movement', async () => {
-      const res = await post('/products/nope/adjust-stock', {
+      const res = await post(`/products/${testId('nope')}/adjust-stock`, {
         delta: 5,
         type: 'adjustment-in',
       });
@@ -410,17 +411,17 @@ describe('catalogue (e2e)', () => {
     it('AC1: deleting a product on old bills returns 200 and hides it from every list', async () => {
       await admin.query(
         `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method)
-         VALUES ($1::uuid, 'old-bill', 'RC-OLD', 850, 0, 850, 'เงินสด')`,
+         VALUES ($1::uuid, '${testId('old-bill')}', 'RC-OLD', 850, 0, 850, 'เงินสด')`,
         [TENANT],
       );
       await admin.query(
         `INSERT INTO sale_items (tenant_id, sale_id, line_no, product_id, part_no, name, qty, price)
-         VALUES ($1::uuid, 'old-bill', 1, 'p8', 'BRK-PAD-F', 'Front Brake Pad', 1, 850)`,
+         VALUES ($1::uuid, '${testId('old-bill')}', 1, '${testId('p8')}', 'BRK-PAD-F', 'Front Brake Pad', 1, 850)`,
         [TENANT],
       );
       await admin.query(
         `INSERT INTO movements (tenant_id, id, product_id, part_no, name, delta, type, stock_after, ref_id)
-         VALUES ($1::uuid, 'mv-old', 'p8', 'BRK-PAD-F', 'Front Brake Pad', -1, 'sale', 5, 'old-bill')`,
+         VALUES ($1::uuid, '${testId('mv-old')}', '${testId('p8')}', 'BRK-PAD-F', 'Front Brake Pad', -1, 'sale', 5, '${testId('old-bill')}')`,
         [TENANT],
       );
       await admin.query(
@@ -429,15 +430,15 @@ describe('catalogue (e2e)', () => {
       );
       const cursor = '2026-06-01T00:00:00.000Z';
 
-      const res = await del('/products/p8');
+      const res = await del(`/products/${testId('p8')}`);
       expect(res.status).toBe(200);
-      expect(res.body.data).toEqual({ id: 'p8', deleted: true });
+      expect(res.body.data).toEqual({ id: testId('p8'), deleted: true });
       // Repeating it is still 200 — the hard-delete contract.
-      expect((await del('/products/p8')).status).toBe(200);
+      expect((await del(`/products/${testId('p8')}`)).status).toBe(200);
 
       const ids = (r: request.Response) =>
         r.body.data.map((p: { id: string }) => p.id);
-      expect(ids(await get('/products'))).not.toContain('p8');
+      expect(ids(await get('/products'))).not.toContain(testId('p8'));
       expect(
         ids(await get(`/products?search=${encodeURIComponent('เบรก')}`)),
       ).toEqual([]);
@@ -445,8 +446,8 @@ describe('catalogue (e2e)', () => {
       expect(
         ids(await get(`/products?category=${encodeURIComponent('เบรก')}`)),
       ).toEqual([]);
-      expect((await get('/products/p8')).status).toBe(404);
-      expect((await get('/products/p8/suppliers')).body.data).toEqual([]);
+      expect((await get(`/products/${testId('p8')}`)).status).toBe(404);
+      expect((await get(`/products/${testId('p8')}/suppliers`)).body.data).toEqual([]);
 
       // The sync read is the one place the tombstone is visible (01_DATABASE.md §10).
       const sync = await get(
@@ -454,13 +455,13 @@ describe('catalogue (e2e)', () => {
       );
       expect(sync.body.data).toHaveLength(1);
       expect(sync.body.data[0]).toMatchObject({
-        id: 'p8',
+        id: testId('p8'),
         deletedAt: expect.any(String),
       });
 
       const history = await admin.query(
-        `SELECT (SELECT count(*)::int FROM sale_items WHERE tenant_id = $1::uuid AND product_id = 'p8') AS items,
-                (SELECT count(*)::int FROM movements  WHERE tenant_id = $1::uuid AND product_id = 'p8') AS moves`,
+        `SELECT (SELECT count(*)::int FROM sale_items WHERE tenant_id = $1::uuid AND product_id = '${testId('p8')}') AS items,
+                (SELECT count(*)::int FROM movements  WHERE tenant_id = $1::uuid AND product_id = '${testId('p8')}') AS moves`,
         [TENANT],
       );
       expect(history[0]).toEqual({ items: 1, moves: 1 });
@@ -472,7 +473,7 @@ describe('catalogue (e2e)', () => {
 
     it('AC2: ?partNo= returns exactly one product, ignoring case and padding; a near match returns none', async () => {
       await seedProduct(admin, TENANT, {
-        id: 'bp1',
+        id: testId('bp1'),
         partNo: 'BP-1',
         name: 'Pad 1',
         price: 1,
@@ -480,7 +481,7 @@ describe('catalogue (e2e)', () => {
         stock: 1,
       });
       await seedProduct(admin, TENANT, {
-        id: 'bp10',
+        id: testId('bp10'),
         partNo: 'BP-10',
         name: 'Pad 10',
         price: 1,
@@ -490,7 +491,7 @@ describe('catalogue (e2e)', () => {
 
       const one = await get('/products?partNo=BP-1');
       expect(one.status).toBe(200);
-      expect(one.body.data.map((p: { id: string }) => p.id)).toEqual(['bp1']);
+      expect(one.body.data.map((p: { id: string }) => p.id)).toEqual([testId('bp1')]);
       expect(one.body.meta.total).toBe(1);
       expect((await get('/products?partNo=BP')).body.data).toEqual([]);
       // A blank scan names no product — not "no filter", which would be page 1.
@@ -503,25 +504,25 @@ describe('catalogue (e2e)', () => {
         (
           await get(`/products?partNo=${encodeURIComponent(' bp-1 ')}`)
         ).body.data.map((p: { id: string }) => p.id),
-      ).toEqual(['bp1']);
+      ).toEqual([testId('bp1')]);
       // Filters are part of the cache key: the unfiltered page is not a partNo answer.
       expect((await get('/products')).body.data.length).toBeGreaterThan(1);
       expect(
         (await get('/products?partNo=BP-10')).body.data.map(
           (p: { id: string }) => p.id,
         ),
-      ).toEqual(['bp10']);
+      ).toEqual([testId('bp10')]);
     });
 
     it('AC2: ?search= finds a Thai term mid-name, through the trigram index', async () => {
       const res = await get(`/products?search=${encodeURIComponent('เบรก')}`);
-      expect(res.body.data.map((p: { id: string }) => p.id)).toEqual(['p8']);
+      expect(res.body.data.map((p: { id: string }) => p.id)).toEqual([testId('p8')]);
       // Case-insensitive on the Latin fields, as the screens' toLowerCase() filter.
       expect(
         (await get('/products?search=spark')).body.data.map(
           (p: { id: string }) => p.id,
         ),
-      ).toEqual(['p2']);
+      ).toEqual([testId('p2')]);
       // A LIKE wildcard in the term is a literal.
       expect((await get('/products?search=%25')).body.data).toEqual([]);
 
@@ -569,7 +570,7 @@ describe('catalogue (e2e)', () => {
       // `GET /categories` carries palette colours for listed names only, and an orphan
       // is drawn by the client's hash fallback (`ProductsRepository.catColor`,
       // `AppColors.catColor`), which the spec leaves where it is.
-      const pad = await get('/products/p8');
+      const pad = await get(`/products/${testId('p8')}`);
       expect(pad.status).toBe(200);
       expect(pad.body.data.category).toBe('เบรก');
       expect(pad.body.data.stock).toBe(5);
@@ -584,7 +585,7 @@ describe('catalogue (e2e)', () => {
     });
 
     it('AC4: an adjustment below zero clamps and writes exactly one movement (see parity case)', async () => {
-      const res = await post('/products/p1/adjust-stock', {
+      const res = await post(`/products/${testId('p1')}/adjust-stock`, {
         delta: -1000,
         type: 'adjustment-out',
         note: 'นับใหม่',
@@ -594,7 +595,7 @@ describe('catalogue (e2e)', () => {
         stockAfter: 0,
         note: 'นับใหม่',
       });
-      expect(await stockOf('p1')).toBe(0);
+      expect(await stockOf(testId('p1'))).toBe(0);
       expect(await movementCount()).toBe(1);
     });
   });
@@ -611,46 +612,46 @@ describe('catalogue (e2e)', () => {
         { delta: -5, type: 'adjustment-in' },
         { delta: 2_147_483_647, type: 'adjustment-in' },
       ]) {
-        const res = await post('/products/p1/adjust-stock', body);
+        const res = await post(`/products/${testId('p1')}/adjust-stock`, body);
         expect(res.status, JSON.stringify(body)).toBe(400);
       }
       const noKey = await http()
-        .post('/api/v1/products/p1/adjust-stock')
+        .post(`/api/v1/products/${testId('p1')}/adjust-stock`)
         .set(auth())
         .send({ delta: 1, type: 'adjustment-in' });
       expect(noKey.status).toBe(400);
       expect(noKey.body.error.code).toBe('IDEMPOTENCY_KEY_INVALID');
-      expect(await stockOf('p1')).toBe(48);
+      expect(await stockOf(testId('p1'))).toBe(48);
       expect(await movementCount()).toBe(0);
     });
 
     it('replays a repeated Idempotency-Key without moving stock twice', async () => {
       const k = idem();
       const body = { delta: -3, type: 'adjustment-out', note: 'แตก' };
-      const first = await post('/products/p1/adjust-stock', body, manager, k);
-      const second = await post('/products/p1/adjust-stock', body, manager, k);
+      const first = await post(`/products/${testId('p1')}/adjust-stock`, body, manager, k);
+      const second = await post(`/products/${testId('p1')}/adjust-stock`, body, manager, k);
       expect(first.status).toBe(201);
       expect(second.status).toBe(201);
       expect(second.body.data).toEqual(first.body.data);
-      expect(await stockOf('p1')).toBe(45);
+      expect(await stockOf(testId('p1'))).toBe(45);
       expect(await movementCount()).toBe(1);
 
       const reused = await post(
-        '/products/p1/adjust-stock',
+        `/products/${testId('p1')}/adjust-stock`,
         { ...body, delta: -4 },
         manager,
         k,
       );
       expect(reused.status).toBe(409);
       expect(reused.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
-      expect(await stockOf('p1')).toBe(45);
+      expect(await stockOf(testId('p1'))).toBe(45);
     });
 
     it('a soft-deleted product cannot be adjusted', async () => {
-      await del('/products/p1');
+      await del(`/products/${testId('p1')}`);
       expect(
         (
-          await post('/products/p1/adjust-stock', {
+          await post(`/products/${testId('p1')}/adjust-stock`, {
             delta: 1,
             type: 'adjustment-in',
           })
@@ -663,14 +664,14 @@ describe('catalogue (e2e)', () => {
       await get('/products');
       const hit = await get('/products');
       expect(hit.headers['x-cache']).toBe('HIT');
-      await post('/products/p1/adjust-stock', {
+      await post(`/products/${testId('p1')}/adjust-stock`, {
         delta: 2,
         type: 'adjustment-in',
       });
       const after = await get('/products');
       expect(after.headers['x-cache']).toBe('MISS');
       expect(
-        after.body.data.find((p: { id: string }) => p.id === 'p1').stock,
+        after.body.data.find((p: { id: string }) => p.id === testId('p1')).stock,
       ).toBe(50);
     });
   });
@@ -682,23 +683,23 @@ describe('catalogue (e2e)', () => {
         [TENANT],
       );
       const cursor = '2026-06-01T00:00:00.000Z';
-      await patch('/products/p2', { name: 'Spark Plug v2' });
-      await del('/products/p1');
+      await patch(`/products/${testId('p2')}`, { name: 'Spark Plug v2' });
+      await del(`/products/${testId('p1')}`);
 
       const res = await get(
         `/products?updatedSince=${encodeURIComponent(cursor)}`,
       );
       expect(res.body.data.map((p: { id: string }) => p.id)).toEqual([
-        'p2',
-        'p1',
+        testId('p2'),
+        testId('p1'),
       ]);
       expect(res.body.data[1].deletedAt).not.toBeNull();
       // #417: a keyset sync read carries no count — the reader follows `nextCursor`.
       expect(res.body.meta).not.toHaveProperty('total');
       expect(res.body.meta).not.toHaveProperty('totalPages');
-      expect(res.body.meta.nextCursor).toMatchObject({ afterId: 'p1' });
+      expect(res.body.meta.nextCursor).toMatchObject({ afterId: testId('p1') });
       expect((await get('/products?updatedSince=not-a-date')).status).toBe(400);
-      expect((await get('/products?afterId=p1')).status).toBe(400);
+      expect((await get(`/products?afterId=${testId('p1')}`)).status).toBe(400);
       expect(
         (
           await get(
@@ -715,7 +716,7 @@ describe('catalogue (e2e)', () => {
       // rows or served the first page forever.
       for (let i = 0; i < 6; i++) {
         await seedProduct(admin, TENANT, {
-          id: `tie${i}`,
+          id: testId(`tie${i}`),
           partNo: `TIE-${i}`,
           name: `Tie ${i}`,
           price: 1,
@@ -723,7 +724,7 @@ describe('catalogue (e2e)', () => {
           stock: 1,
         });
       }
-      await del('/products/tie3');
+      await del(`/products/${testId('tie3')}`);
       await admin.query(
         `UPDATE products SET updated_at = '2026-03-01 10:00:00.123456+00' WHERE tenant_id = $1::uuid`,
         [TENANT],
@@ -749,7 +750,7 @@ describe('catalogue (e2e)', () => {
       }
       expect(seen).toHaveLength(9);
       expect(new Set(seen).size).toBe(9);
-      expect(seen).toContain('tie3'); // the tombstone travels with the rest
+      expect(seen).toContain(testId('tie3')); // the tombstone travels with the rest
 
       // The last cursor is where the next refresh starts: nothing is served again.
       const final = await get(
@@ -760,15 +761,15 @@ describe('catalogue (e2e)', () => {
     });
 
     it('PATCH ignores stock and bumps updatedAt', async () => {
-      const before = (await get('/products/p1')).body.data;
-      const res = await patch('/products/p1', { stock: 999, price: '155.50' });
+      const before = (await get(`/products/${testId('p1')}`)).body.data;
+      const res = await patch(`/products/${testId('p1')}`, { stock: 999, price: '155.50' });
       expect(res.status).toBe(200);
       expect(res.body.data.stock).toBe(48);
       expect(res.body.data.price).toBe('155.50');
       expect(Date.parse(res.body.data.updatedAt)).toBeGreaterThan(
         Date.parse(before.updatedAt),
       );
-      expect((await patch('/products/missing', { name: 'x' })).status).toBe(
+      expect((await patch(`/products/${testId('missing')}`, { name: 'x' })).status).toBe(
         404,
       );
     });
@@ -777,28 +778,28 @@ describe('catalogue (e2e)', () => {
   describe('suppliers and movements', () => {
     it('creates, lists, patches and hard-deletes a product supplier', async () => {
       const created = await post('/suppliers', {
-        productId: 'p1',
+        productId: testId('p1'),
         name: 'ร้านส่งอะไหล่',
         unitCost: '85.00',
         freight: 5,
-        id: 'client-id',
+        id: testId('client-id'),
       });
       expect(created.status).toBe(201);
       const id = created.body.data.id as string;
-      expect(id.startsWith('sup')).toBe(true);
+      expect(id).toMatch(UUID_V7);
       expect(created.body.data).toMatchObject({
-        productId: 'p1',
+        productId: testId('p1'),
         unitCost: '85.00',
         freight: '5.00',
       });
 
-      expect((await get('/products/p1/suppliers')).body.data).toHaveLength(1);
+      expect((await get(`/products/${testId('p1')}/suppliers`)).body.data).toHaveLength(1);
       const patched = await patch(`/suppliers/${id}`, { unitCost: '80.00' });
       expect(patched.status).toBe(200);
       expect(patched.body.data.unitCost).toBe('80.00');
 
       expect((await del(`/suppliers/${id}`)).status).toBe(200);
-      expect((await get('/products/p1/suppliers')).body.data).toEqual([]);
+      expect((await get(`/products/${testId('p1')}/suppliers`)).body.data).toEqual([]);
       expect((await patch(`/suppliers/${id}`, { name: 'gone' })).status).toBe(
         404,
       );
@@ -808,17 +809,17 @@ describe('catalogue (e2e)', () => {
       expect(
         (
           await post('/suppliers', {
-            productId: 'nope',
+            productId: testId('nope'),
             name: 'x',
             unitCost: '1.00',
           })
         ).status,
       ).toBe(404);
-      await del('/products/p2');
+      await del(`/products/${testId('p2')}`);
       expect(
         (
           await post('/suppliers', {
-            productId: 'p2',
+            productId: testId('p2'),
             name: 'x',
             unitCost: '1.00',
           })
@@ -827,32 +828,32 @@ describe('catalogue (e2e)', () => {
       expect(
         (
           await post('/suppliers', {
-            productId: 'p1',
+            productId: testId('p1'),
             name: 'x',
             unitCost: '-1.00',
           })
         ).status,
       ).toBe(400);
       expect(
-        (await post('/suppliers', { productId: 'p1', name: 'x' })).status,
+        (await post('/suppliers', { productId: testId('p1'), name: 'x' })).status,
       ).toBe(400);
     });
 
     it('GET /movements filters by product and date range, newest first', async () => {
-      await post('/products/p1/adjust-stock', {
+      await post(`/products/${testId('p1')}/adjust-stock`, {
         delta: 1,
         type: 'adjustment-in',
       });
-      await post('/products/p2/adjust-stock', {
+      await post(`/products/${testId('p2')}/adjust-stock`, {
         delta: 2,
         type: 'adjustment-in',
       });
-      await post('/products/p1/adjust-stock', {
+      await post(`/products/${testId('p1')}/adjust-stock`, {
         delta: 3,
         type: 'adjustment-in',
       });
 
-      const p1 = await get('/movements?productId=p1');
+      const p1 = await get(`/movements?productId=${testId('p1')}`);
       expect(p1.body.data.map((m: { delta: number }) => m.delta)).toEqual([
         3, 1,
       ]);
@@ -878,8 +879,8 @@ describe('catalogue (e2e)', () => {
           {
             __meta: { version: 2 },
             sa_products: [
-              { id: 'imp-a', partNo: 'BP-1', name: 'A', stock: 1 },
-              { id: 'imp-b', partNo: 'bp-1', name: 'B', stock: 1 },
+              { id: testId('imp-a'), partNo: 'BP-1', name: 'A', stock: 1 },
+              { id: testId('imp-b'), partNo: 'bp-1', name: 'B', stock: 1 },
             ],
           },
           fixture.userId,
@@ -887,7 +888,7 @@ describe('catalogue (e2e)', () => {
         .catch((e: unknown) => e);
       expect(err).toBeInstanceOf(BadRequestException);
       expect((err as BadRequestException).getStatus()).toBe(400);
-      expect((err as Error).message).toContain("'imp-a', 'imp-b'");
+      expect((err as Error).message).toContain(`'${testId('imp-a')}', '${testId('imp-b')}'`);
       const rows = await admin.query(
         `SELECT count(*)::int AS n FROM products WHERE tenant_id = $1::uuid`,
         [OTHER],
@@ -904,11 +905,11 @@ describe('catalogue (e2e)', () => {
 
     it("another tenant's manager sees and changes nothing (RLS)", async () => {
       await post('/suppliers', {
-        productId: 'p1',
+        productId: testId('p1'),
         name: 'sup',
         unitCost: '1.00',
       });
-      await post('/products/p1/adjust-stock', {
+      await post(`/products/${testId('p1')}/adjust-stock`, {
         delta: 1,
         type: 'adjustment-in',
       });
@@ -918,9 +919,9 @@ describe('catalogue (e2e)', () => {
       expect(
         (await get('/products?partNo=HN-15412-KVB', otherManager)).body.data,
       ).toEqual([]);
-      expect((await get('/products/p1', otherManager)).status).toBe(404);
+      expect((await get(`/products/${testId('p1')}`, otherManager)).status).toBe(404);
       expect(
-        (await get('/products/p1/suppliers', otherManager)).body.data,
+        (await get(`/products/${testId('p1')}/suppliers`, otherManager)).body.data,
       ).toEqual([]);
       expect((await get('/movements', otherManager)).body.data).toEqual([]);
       // No categories of its own, so the seed fallback — not tenant A's rows.
@@ -929,30 +930,30 @@ describe('catalogue (e2e)', () => {
       );
 
       expect(
-        (await patch('/products/p1', { name: 'hijack' }, otherManager)).status,
+        (await patch(`/products/${testId('p1')}`, { name: 'hijack' }, otherManager)).status,
       ).toBe(404);
       expect(
         (
           await post(
-            '/products/p1/adjust-stock',
+            `/products/${testId('p1')}/adjust-stock`,
             { delta: -40, type: 'adjustment-out' },
             otherManager,
           )
         ).status,
       ).toBe(404);
-      expect((await del('/products/p1', otherManager)).status).toBe(200);
+      expect((await del(`/products/${testId('p1')}`, otherManager)).status).toBe(200);
       expect(
         (
           await post(
             '/suppliers',
-            { productId: 'p1', name: 'x', unitCost: '1.00' },
+            { productId: testId('p1'), name: 'x', unitCost: '1.00' },
             otherManager,
           )
         ).status,
       ).toBe(404);
 
       const row = await admin.query(
-        `SELECT name, stock, deleted_at FROM products WHERE tenant_id = $1::uuid AND id = 'p1'`,
+        `SELECT name, stock, deleted_at FROM products WHERE tenant_id = $1::uuid AND id = '${testId('p1')}'`,
         [TENANT],
       );
       expect(row[0]).toEqual({

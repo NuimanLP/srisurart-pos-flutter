@@ -12,6 +12,7 @@ import {
   type TenantFixture,
 } from './support/fixture.js';
 import { TENANT_SCOPED_TABLES } from '../src/db/migrations/1788652800001-RowLevelSecurity.js';
+import { testId } from './support/test-ids.js';
 
 describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)', () => {
   const TENANT_A = '11111111-aaaa-4aaa-8aaa-111111111111';
@@ -102,7 +103,7 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
   describe('HTTP API Cross-Tenant Isolation (0 rows / 404 in every domain read)', () => {
     it('products: Tenant A cannot read Tenant B products in list or by ID (404)', async () => {
       await seedProduct(admin, TENANT_B, {
-        id: 'p-tb-1',
+        id: testId('p-tb-1'),
         partNo: 'TB-01',
         name: 'Tenant B Part',
         price: 200,
@@ -113,11 +114,11 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
       // Tenant A list
       const listRes = await http().get('/api/v1/products').set('Authorization', `Bearer ${tokenA}`);
       expect(listRes.status).toBe(200);
-      const foundInList = (listRes.body.data as { id: string }[]).find((p) => p.id === 'p-tb-1');
+      const foundInList = (listRes.body.data as { id: string }[]).find((p) => p.id === testId('p-tb-1'));
       expect(foundInList).toBeUndefined();
 
       // Tenant A get by ID -> 404
-      const getRes = await http().get('/api/v1/products/p-tb-1').set('Authorization', `Bearer ${tokenA}`);
+      const getRes = await http().get(`/api/v1/products/${testId('p-tb-1')}`).set('Authorization', `Bearer ${tokenA}`);
       expect(getRes.status).toBe(404);
     });
 
@@ -175,7 +176,7 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
 
     it('sales: Tenant A cannot list or read Tenant B sales (404)', async () => {
       await seedProduct(admin, TENANT_B, {
-        id: 'p-sale-b',
+        id: testId('p-sale-b'),
         partNo: 'PS-B',
         name: 'Sale Part B',
         price: 300,
@@ -184,7 +185,7 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
       });
       await seedOpenShift(admin, TENANT_B, fixtureB.posDeviceId, { userId: fixtureB.userId });
 
-      const saleIdB = `sale-b-${randomUUID()}`;
+      const saleIdB = randomUUID();
       const saleRes = await http()
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${tokenB}`)
@@ -198,7 +199,7 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
           items: [
             {
               lineNo: 1,
-              productId: 'p-sale-b',
+              productId: testId('p-sale-b'),
               name: 'Sale Part B',
               qty: 1,
               price: '300.00',
@@ -220,7 +221,7 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
 
     it('returns: Tenant A cannot list or read Tenant B returns (404)', async () => {
       await seedProduct(admin, TENANT_B, {
-        id: 'p-ret-b',
+        id: testId('p-ret-b'),
         partNo: 'PR-B',
         name: 'Return Part B',
         price: 200,
@@ -229,7 +230,7 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
       });
       await seedOpenShift(admin, TENANT_B, fixtureB.posDeviceId, { userId: fixtureB.userId });
 
-      const saleIdB = `sale-for-ret-b-${randomUUID()}`;
+      const saleIdB = randomUUID();
       await http()
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${tokenB}`)
@@ -240,7 +241,7 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
           discount: '0.00',
           total: '200.00',
           paymentMethod: 'เงินสด',
-          items: [{ lineNo: 1, productId: 'p-ret-b', name: 'Return Part B', qty: 1, price: '200.00' }],
+          items: [{ lineNo: 1, productId: testId('p-ret-b'), name: 'Return Part B', qty: 1, price: '200.00' }],
         });
 
       const retRes = await http()
@@ -250,7 +251,7 @@ describe('Cross-Tenant Data Isolation E2E (DoD line 2, 03_ARCHITECTURE.md §8)',
         .send({
           saleId: saleIdB,
           refundMethod: 'เงินสด',
-          items: [{ productId: 'p-ret-b', name: 'Return Part B', qty: 1, price: '200.00' }],
+          items: [{ productId: testId('p-ret-b'), name: 'Return Part B', qty: 1, price: '200.00' }],
         });
       expect(retRes.status).toBe(201);
       const returnIdB = retRes.body.data.id;

@@ -31,3 +31,6 @@ export const CONTRACT_IDS = {
   review: testId('ct-review-1'),
   device: testId('ct-device-1'),
 } as const;
+
+/** A lowercase UUIDv7, the shape `newUuid()` mints for every entity id (#616) — Dart's `uuidV7`. */
+export const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

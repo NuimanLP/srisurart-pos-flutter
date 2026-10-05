@@ -10,6 +10,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #411 — 08 §10: an ONLINE route stamps `sales.date` / `returns.date` /
 // `shifts.opened_at` / `drawer_entries.created_at` with the server's `now()` and never
@@ -50,7 +51,7 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
     discount: '0.00',
     total: '85.00',
     paymentMethod: 'เงินสด',
-    items: [{ lineNo: 1, productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+    items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
     ...extra,
   });
 
@@ -65,7 +66,7 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
       [createHash('sha256').update(POS_DEVICE_TOKEN).digest('hex'), TENANT, fixture.posDeviceId],
     );
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'OF-411',
       name: 'Oil Filter',
       price: 85,
@@ -89,13 +90,13 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
 
   it('POST /sales ignores a past `date` and a `soldOffline: true` in the body', async () => {
     await seedOpenShift(admin, TENANT, fixture.posDeviceId);
-    const res = await post('/sales', sale('s-411-1', { date: PAST, soldOffline: true }));
+    const res = await post('/sales', sale(testId('s-411-1'), { date: PAST, soldOffline: true }));
     expect(res.status).toBe(201);
     expect(new Date(res.body.data.date as string).getUTCFullYear()).not.toBe(2020);
 
-    expect(await skewSeconds('sales', 'date', 's-411-1')).toBeLessThan(120);
+    expect(await skewSeconds('sales', 'date', testId('s-411-1'))).toBeLessThan(120);
     const rows = (await admin.query(
-      `SELECT sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = 's-411-1'`,
+      `SELECT sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s-411-1')}'`,
       [TENANT],
     )) as { sold_offline: boolean }[];
     expect(rows[0].sold_offline).toBe(false);
@@ -108,21 +109,21 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
         outboxRemaining: 0,
         ops: [
           {
-            opId: 'op_void_411',
+            opId: testId('op_void_411'),
             idempotencyKey: 'k_void_411',
             type: 'sale.void_offline',
-            payload: { saleId: 's-411-1', reason: 'ขอยกเลิก' },
+            payload: { saleId: testId('s-411-1'), reason: 'ขอยกเลิก' },
           },
         ],
       });
     expect(push.status).toBe(200);
     expect(push.body.data.results[0]).toMatchObject({
-      opId: 'op_void_411',
+      opId: testId('op_void_411'),
       status: 'rejected',
       code: 'VOID_NEEDS_ONLINE',
     });
     const after = (await admin.query(
-      `SELECT voided FROM sales WHERE tenant_id = $1::uuid AND id = 's-411-1'`,
+      `SELECT voided FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('s-411-1')}'`,
       [TENANT],
     )) as { voided: boolean }[];
     expect(after[0].voided).toBe(false);
@@ -130,13 +131,13 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
 
   it('POST /returns ignores a past `date` in the body', async () => {
     await seedOpenShift(admin, TENANT, fixture.posDeviceId);
-    expect((await post('/sales', sale('s-411-2'))).status).toBe(201);
+    expect((await post('/sales', sale(testId('s-411-2')))).status).toBe(201);
 
     const res = await post('/returns', {
-      saleId: 's-411-2',
+      saleId: testId('s-411-2'),
       refundMethod: 'เงินสด',
       date: PAST,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
     });
     expect(res.status).toBe(201);
     expect(await skewSeconds('returns', 'date', res.body.data.id as string)).toBeLessThan(120);
@@ -144,12 +145,12 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
 
   it('POST /shifts/open ignores a past `openedAt` in the body', async () => {
     const res = await post('/shifts/open', {
-      id: 'sh-411',
+      id: testId('sh-411'),
       startingCash: '1000.00',
       openedAt: PAST,
     });
     expect(res.status).toBe(200);
-    expect(await skewSeconds('shifts', 'opened_at', 'sh-411')).toBeLessThan(120);
+    expect(await skewSeconds('shifts', 'opened_at', testId('sh-411'))).toBeLessThan(120);
     const today = (await admin.query(
       `SELECT to_char(now() AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD') AS d`,
     )) as { d: string }[];
@@ -159,13 +160,13 @@ describe('online routes use server time, not the body (#411, e2e)', () => {
   it('POST /shifts/current/entries ignores a past `createdAt` in the body', async () => {
     await seedOpenShift(admin, TENANT, fixture.posDeviceId);
     const res = await post('/shifts/current/entries', {
-      id: 'de-411',
+      id: testId('de-411'),
       type: 'in',
       amount: '50.00',
       note: 'ทอน',
       createdAt: PAST,
     });
     expect(res.status).toBe(201);
-    expect(await skewSeconds('drawer_entries', 'created_at', 'de-411')).toBeLessThan(120);
+    expect(await skewSeconds('drawer_entries', 'created_at', testId('de-411'))).toBeLessThan(120);
   });
 });

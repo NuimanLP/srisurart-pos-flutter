@@ -8,6 +8,7 @@ import {
   createTestApp,
   resetTenant,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // What this guards since tx.4 (#153): **nothing may take a pool connection before the guards
 // run.** The global `TenantRateLimitGuard` and `TenantGuard` read `tenants` on the pool on a
@@ -81,7 +82,7 @@ describe('the rate-limit plan lookup does not deadlock the request pool (e2e)', 
       .post('/api/v1/shifts/open')
       .set('Authorization', `Bearer ${posToken}`)
       .set('Idempotency-Key', `k-162-${i}-${Date.now()}`)
-      .send({ id: 'sh-162-pool', startingCash: '1000.00' });
+      .send({ id: testId('sh-162-pool'), startingCash: '1000.00' });
 
   const current = () =>
     request(app.getHttpServer())

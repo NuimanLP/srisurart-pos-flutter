@@ -10,14 +10,15 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId, UUID_V7 } from './support/test-ids.js';
 
 // #27 acceptance suite: quotes and parked sales. The rule both share — they never
 // touch stock — is asserted against the `products` and `movements` tables directly,
 // across the whole lifecycle, not inferred from a response.
 const TENANT = '27272727-2727-4727-8727-272727272727';
 const OTHER = '72727272-2727-4727-8727-727272727272';
-const P1 = 'p-quote-1';
-const P2 = 'p-quote-2';
+// Sorted so P1 < P2, as 'p-quote-1' < 'p-quote-2' was: the server answers products in id order.
+const [P1, P2] = [testId('p-quote-1'), testId('p-quote-2')].sort();
 const DAY_MS = 86_400_000;
 
 describe('quotes and parked sales (e2e)', () => {
@@ -189,7 +190,7 @@ describe('quotes and parked sales (e2e)', () => {
       const created = await createQuote();
       expect(created.status).toBe(201);
       const q = created.body.data;
-      expect(q.id).toMatch(/^q/);
+      expect(q.id).toMatch(UUID_V7);
       expect(q.quoteNo).toMatch(/^QT07-\d{4}-\d{2}-0001$/);
       expect(q.status).toBe('open');
       expect(q.isConverted).toBe(false);
@@ -354,7 +355,7 @@ describe('quotes and parked sales (e2e)', () => {
       }
       expect((await quoteRow(q.id))!.status).toBe('open');
 
-      await convert(q.id, { id: 'sale-27-patch', paymentMethod: 'เงินสด' });
+      await convert(q.id, { id: testId('sale-27-patch'), paymentMethod: 'เงินสด' });
       const res = await http()
         .patch(`/api/v1/quotes/${q.id}`)
         .set('Authorization', `Bearer ${posToken}`)
@@ -362,10 +363,10 @@ describe('quotes and parked sales (e2e)', () => {
         .send({ notes: 'แก้หลังขาย' });
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('QUOTE_ALREADY_CONVERTED');
-      expect(res.body.error.details.convertedSaleId).toBe('sale-27-patch');
+      expect(res.body.error.details.convertedSaleId).toBe(testId('sale-27-patch'));
 
       const missing = await http()
-        .patch('/api/v1/quotes/q-nope')
+        .patch(`/api/v1/quotes/${testId('q-nope')}`)
         .set('Authorization', `Bearer ${posToken}`)
         .set('Idempotency-Key', key())
         .send({ notes: 'x' });
@@ -397,7 +398,7 @@ describe('quotes and parked sales (e2e)', () => {
       expect(
         (
           await convert(convertedExpired, {
-            id: 'sale-27-exp',
+            id: testId('sale-27-exp'),
             paymentMethod: 'เงินสด',
           })
         ).status,
@@ -439,12 +440,12 @@ describe('quotes and parked sales (e2e)', () => {
     it('writes a bill with a receipt number, deducts stock, and marks the quote converted', async () => {
       const q = (await createQuote()).body.data;
       const res = await convert(q.id, {
-        id: 'sale-27-convert',
+        id: testId('sale-27-convert'),
         paymentMethod: 'เงินสด',
       });
       expect(res.status).toBe(201);
       const { sale, quote } = res.body.data;
-      expect(sale.id).toBe('sale-27-convert');
+      expect(sale.id).toBe(testId('sale-27-convert'));
       expect(sale.receiptNo).toMatch(/^RC07-\d{4}-\d{2}-0001$/);
       expect(sale.total).toBe('240.00');
       expect(sale.pointsGranted).toBe(24);
@@ -463,12 +464,12 @@ describe('quotes and parked sales (e2e)', () => {
       ]);
       expect(quote.status).toBe('converted');
       expect(quote.isConverted).toBe(true);
-      expect(quote.convertedSaleId).toBe('sale-27-convert');
+      expect(quote.convertedSaleId).toBe(testId('sale-27-convert'));
       expect(quote.convertedAt).not.toBeNull();
 
       const stored = await admin.query(
         `SELECT receipt_no, subtotal, discount, total, payment_method, shift_id
-           FROM sales WHERE tenant_id = $1::uuid AND id = 'sale-27-convert'`,
+           FROM sales WHERE tenant_id = $1::uuid AND id = '${testId('sale-27-convert')}'`,
         [TENANT],
       );
       expect(stored[0]).toMatchObject({
@@ -481,7 +482,7 @@ describe('quotes and parked sales (e2e)', () => {
       expect(stored[0].shift_id).not.toBeNull();
       const row = await quoteRow(q.id);
       expect(row!.status).toBe('converted');
-      expect(row!.converted_sale_id).toBe('sale-27-convert');
+      expect(row!.converted_sale_id).toBe(testId('sale-27-convert'));
       expect((await stockState()).products).toEqual([
         { id: P1, stock: 8 },
         { id: P2, stock: 4 },
@@ -492,7 +493,7 @@ describe('quotes and parked sales (e2e)', () => {
       const q = (await createQuote()).body.data;
       const res = await convert(
         q.id,
-        { id: 'sale-27-bo', paymentMethod: 'เงินสด' },
+        { id: testId('sale-27-bo'), paymentMethod: 'เงินสด' },
         { token: backofficeToken },
       );
       expect(res.status).toBe(403);
@@ -503,7 +504,7 @@ describe('quotes and parked sales (e2e)', () => {
     it("refuses lines or money in the body — they are the quote's", async () => {
       const q = (await createQuote()).body.data;
       const res = await convert(q.id, {
-        id: 'sale-27-items',
+        id: testId('sale-27-items'),
         paymentMethod: 'เงินสด',
         total: '1.00',
       });
@@ -526,7 +527,7 @@ describe('quotes and parked sales (e2e)', () => {
       ).body.data;
       const before = await stockState();
       const res = await convert(short.id, {
-        id: 'sale-27-short',
+        id: testId('sale-27-short'),
         paymentMethod: 'เงินสด',
       });
       expect(res.status).toBe(409);
@@ -549,7 +550,7 @@ describe('quotes and parked sales (e2e)', () => {
         )
       ).body.data;
       const res2 = await convert(loose.id, {
-        id: 'sale-27-loose',
+        id: testId('sale-27-loose'),
         paymentMethod: 'เงินสด',
       });
       expect(res2.status).toBe(409);
@@ -561,16 +562,16 @@ describe('quotes and parked sales (e2e)', () => {
 
     it('over the credit limit: 409 with nothing written; the same key with the flag converts once and audits once (#21)', async () => {
       await seedMechanic(admin, TENANT, {
-        id: 'm-27',
+        id: testId('m-27'),
         code: 'M27',
         name: 'ช่างสมชาย',
         creditLimit: 100,
       });
       const q = (await createQuote()).body.data;
       const party = {
-        id: 'sale-27-credit',
+        id: testId('sale-27-credit'),
         paymentMethod: 'เครดิตช่าง',
-        mechanicId: 'm-27',
+        mechanicId: testId('m-27'),
         mechanicName: 'ช่างสมชาย',
       };
       const before = await stockState();
@@ -603,11 +604,11 @@ describe('quotes and parked sales (e2e)', () => {
       );
       expect(await saleCount()).toBe(1);
       expect(await auditRows()).toEqual([
-        { action: 'sale.credit_limit_override', entity_id: 'm-27' },
+        { action: 'sale.credit_limit_override', entity_id: testId('m-27') },
       ]);
       const row = await quoteRow(q.id);
       expect(row!.status).toBe('converted');
-      expect(row!.converted_sale_id).toBe('sale-27-credit');
+      expect(row!.converted_sale_id).toBe(testId('sale-27-credit'));
     });
 
     it('eligibility is !converted && !expired, not the status string (quotes_screen.dart:559)', async () => {
@@ -625,14 +626,14 @@ describe('quotes and parked sales (e2e)', () => {
       );
 
       const ok = await convert(valid.id, {
-        id: 'sale-27-cancelled',
+        id: testId('sale-27-cancelled'),
         paymentMethod: 'เงินสด',
       });
       expect(ok.status).toBe(201);
       expect(ok.body.data.quote.status).toBe('converted');
 
       const refused = await convert(stale.id, {
-        id: 'sale-27-cancelled-stale',
+        id: testId('sale-27-cancelled-stale'),
         paymentMethod: 'เงินสด',
       });
       expect(refused.status).toBe(409);
@@ -646,7 +647,7 @@ describe('quotes and parked sales (e2e)', () => {
         TENANT,
       ]);
       const res = await convert(q.id, {
-        id: 'sale-27-noshift',
+        id: testId('sale-27-noshift'),
         paymentMethod: 'เงินสด',
       });
       expect(res.status).toBe(409);
@@ -660,13 +661,13 @@ describe('quotes and parked sales (e2e)', () => {
       expect(
         (
           await convert(first.id, {
-            id: 'sale-27-taken',
+            id: testId('sale-27-taken'),
             paymentMethod: 'เงินสด',
           })
         ).status,
       ).toBe(201);
       const res = await convert(second.id, {
-        id: 'sale-27-taken',
+        id: testId('sale-27-taken'),
         paymentMethod: 'เงินสด',
       });
       expect(res.status).toBe(409);
@@ -685,7 +686,7 @@ describe('quotes and parked sales (e2e)', () => {
     );
     const before = await stockState();
     const res = await convert(q.id, {
-      id: 'sale-27-expired',
+      id: testId('sale-27-expired'),
       paymentMethod: 'เงินสด',
     });
     expect(res.status).toBe(409);
@@ -695,7 +696,7 @@ describe('quotes and parked sales (e2e)', () => {
     expect((await quoteRow(q.id))!.status).toBe('open');
     // Refused before the receipt counter: the next bill still takes 0001.
     const ok = await convert((await createQuote()).body.data.id, {
-      id: 'sale-27-after-expired',
+      id: testId('sale-27-after-expired'),
       paymentMethod: 'เงินสด',
     });
     expect(ok.body.data.sale.receiptNo).toMatch(/-0001$/);
@@ -708,12 +709,12 @@ describe('quotes and parked sales (e2e)', () => {
       const k = key();
       const first = await convert(
         q.id,
-        { id: 'sale-27-k', paymentMethod: 'เงินสด' },
+        { id: testId('sale-27-k'), paymentMethod: 'เงินสด' },
         { key: k },
       );
       const again = await convert(
         q.id,
-        { id: 'sale-27-k', paymentMethod: 'เงินสด' },
+        { id: testId('sale-27-k'), paymentMethod: 'เงินสด' },
         { key: k },
       );
       expect(again.status).toBe(201);
@@ -724,11 +725,11 @@ describe('quotes and parked sales (e2e)', () => {
     it('a retry with a fresh key and the same bill id answers the original bill and quote', async () => {
       const q = (await createQuote()).body.data;
       const first = await convert(q.id, {
-        id: 'sale-27-retry',
+        id: testId('sale-27-retry'),
         paymentMethod: 'เงินสด',
       });
       const retry = await convert(q.id, {
-        id: 'sale-27-retry',
+        id: testId('sale-27-retry'),
         paymentMethod: 'เงินสด',
       });
       expect(retry.status).toBe(201);
@@ -743,14 +744,14 @@ describe('quotes and parked sales (e2e)', () => {
 
     it('a second bill id is QUOTE_ALREADY_CONVERTED — even after the quote expires', async () => {
       const q = (await createQuote()).body.data;
-      await convert(q.id, { id: 'sale-27-once', paymentMethod: 'เงินสด' });
+      await convert(q.id, { id: testId('sale-27-once'), paymentMethod: 'เงินสด' });
       const res = await convert(q.id, {
-        id: 'sale-27-twice',
+        id: testId('sale-27-twice'),
         paymentMethod: 'เงินสด',
       });
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('QUOTE_ALREADY_CONVERTED');
-      expect(res.body.error.details.convertedSaleId).toBe('sale-27-once');
+      expect(res.body.error.details.convertedSaleId).toBe(testId('sale-27-once'));
 
       // The retry of the real bill still replays once the validity has passed.
       await admin.query(
@@ -759,19 +760,19 @@ describe('quotes and parked sales (e2e)', () => {
         [TENANT, q.id],
       );
       const late = await convert(q.id, {
-        id: 'sale-27-once',
+        id: testId('sale-27-once'),
         paymentMethod: 'เงินสด',
       });
       expect(late.status).toBe(201);
-      expect(late.body.data.sale.id).toBe('sale-27-once');
+      expect(late.body.data.sale.id).toBe(testId('sale-27-once'));
       expect(await saleCount()).toBe(1);
     });
 
     it('two concurrent converts with different bill ids: one bill, one refusal', async () => {
       const q = (await createQuote()).body.data;
       const [a, b] = await Promise.all([
-        convert(q.id, { id: 'sale-27-race-a', paymentMethod: 'เงินสด' }),
-        convert(q.id, { id: 'sale-27-race-b', paymentMethod: 'เงินสด' }),
+        convert(q.id, { id: testId('sale-27-race-a'), paymentMethod: 'เงินสด' }),
+        convert(q.id, { id: testId('sale-27-race-b'), paymentMethod: 'เงินสด' }),
       ]);
       expect([a.status, b.status].sort()).toEqual([201, 409]);
       const refused = a.status === 409 ? a : b;
@@ -788,7 +789,7 @@ describe('quotes and parked sales (e2e)', () => {
   describe('POST /sales with a quoteId sells the cart and converts the quote', () => {
     /** A cart that differs from the saved quote: one brake pad, no spark plug. */
     const editedCart = (over: Record<string, unknown> = {}) => ({
-      id: 'sale-27-q',
+      id: testId('sale-27-q'),
       subtotal: '100.00',
       discount: '0.00',
       total: '100.00',
@@ -810,18 +811,18 @@ describe('quotes and parked sales (e2e)', () => {
       const q = (await createQuote()).body.data;
       const res = await sell(editedCart({ quoteId: q.id }));
       expect(res.status).toBe(201);
-      expect(res.body.data.id).toBe('sale-27-q');
+      expect(res.body.data.id).toBe(testId('sale-27-q'));
       expect(res.body.data.total).toBe('100.00');
       expect(res.body.data.products).toEqual([{ id: P1, stock: 9 }]);
       expect(res.body.data.quote).toMatchObject({
         id: q.id,
         status: 'converted',
-        convertedSaleId: 'sale-27-q',
+        convertedSaleId: testId('sale-27-q'),
       });
       expect(res.body.data.quote.convertedAt).not.toBeNull();
       const row = await quoteRow(q.id);
       expect(row!.status).toBe('converted');
-      expect(row!.converted_sale_id).toBe('sale-27-q');
+      expect(row!.converted_sale_id).toBe(testId('sale-27-q'));
       // The cart's lines, not the quote's: the spark plug never left the shelf.
       expect((await stockState()).products).toEqual([
         { id: P1, stock: 9 },
@@ -830,7 +831,7 @@ describe('quotes and parked sales (e2e)', () => {
     });
 
     it('a POST /sales without quoteId answers exactly as before (no quote field)', async () => {
-      const res = await sell(editedCart({ id: 'sale-27-plain' }));
+      const res = await sell(editedCart({ id: testId('sale-27-plain') }));
       expect(res.status).toBe(201);
       expect(res.body.data).not.toHaveProperty('quote');
     });
@@ -839,10 +840,10 @@ describe('quotes and parked sales (e2e)', () => {
       const q = (await createQuote()).body.data;
       expect((await sell(editedCart({ quoteId: q.id }))).status).toBe(201);
       const before = await stockState();
-      const res = await sell(editedCart({ id: 'sale-27-q2', quoteId: q.id }));
+      const res = await sell(editedCart({ id: testId('sale-27-q2'), quoteId: q.id }));
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('QUOTE_ALREADY_CONVERTED');
-      expect(res.body.error.details.convertedSaleId).toBe('sale-27-q');
+      expect(res.body.error.details.convertedSaleId).toBe(testId('sale-27-q'));
       expect(await saleCount()).toBe(1);
       expect(await stockState()).toEqual(before);
     });
@@ -907,8 +908,8 @@ describe('quotes and parked sales (e2e)', () => {
     it('two concurrent bills against one quote: one bill, one refusal', async () => {
       const q = (await createQuote()).body.data;
       const [a, b] = await Promise.all([
-        sell(editedCart({ id: 'sale-27-qa', quoteId: q.id })),
-        sell(editedCart({ id: 'sale-27-qb', quoteId: q.id })),
+        sell(editedCart({ id: testId('sale-27-qa'), quoteId: q.id })),
+        sell(editedCart({ id: testId('sale-27-qb'), quoteId: q.id })),
       ]);
       expect([a.status, b.status].sort()).toEqual([201, 409]);
       expect((a.status === 409 ? a : b).body.error.code).toBe(
@@ -919,7 +920,7 @@ describe('quotes and parked sales (e2e)', () => {
     });
 
     it('an unknown quote is QUOTE_NOT_FOUND; a lost-key retry after a purge replays the bill', async () => {
-      const unknown = await sell(editedCart({ id: 'sale-27-nq', quoteId: 'q-none' }));
+      const unknown = await sell(editedCart({ id: testId('sale-27-nq'), quoteId: testId('q-none') }));
       expect(unknown.status).toBe(404);
       expect(unknown.body.error.code).toBe('QUOTE_NOT_FOUND');
       expect(await saleCount()).toBe(0);
@@ -947,7 +948,7 @@ describe('quotes and parked sales (e2e)', () => {
         .set('Idempotency-Key', key());
       expect(del.status).toBe(409);
       expect(del.body.error.code).toBe('QUOTE_CONVERTED_NOT_DELETABLE');
-      expect(del.body.error.details.convertedSaleId).toBe('sale-27-q');
+      expect(del.body.error.details.convertedSaleId).toBe(testId('sale-27-q'));
       expect((await quoteRow(q.id))!.status).toBe('converted');
 
       const open = (await createQuote()).body.data;
@@ -977,7 +978,7 @@ describe('quotes and parked sales (e2e)', () => {
       const before = await stockState();
       const first = await park(cart);
       expect(first.status).toBe(201);
-      expect(first.body.data.id).toMatch(/^pk/);
+      expect(first.body.data.id).toMatch(UUID_V7);
       expect(first.body.data.deviceId).toBe(fixture.posDeviceId);
       expect(first.body.data.payload).toEqual(cart);
       const second = await park({ ...cart, discount: 5 });
@@ -1065,7 +1066,7 @@ describe('quotes and parked sales (e2e)', () => {
           .set('Idempotency-Key', key()),
         await convert(
           q.id,
-          { id: 'sale-27-xt', paymentMethod: 'เงินสด' },
+          { id: testId('sale-27-xt'), paymentMethod: 'เงินสด' },
           { token: otherPosToken },
         ),
       ];

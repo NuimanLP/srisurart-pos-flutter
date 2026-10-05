@@ -11,6 +11,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId, UUID_V7 } from './support/test-ids.js';
 
 // #22 acceptance suite. Every case in `frontend/test/returns_repository_test.dart` is
 // reproduced here at the HTTP seam with its numbers and its Thai strings verbatim,
@@ -193,7 +194,7 @@ describe('POST /returns (e2e)', () => {
       userId: fixture.userId,
     });
     await seedProduct(admin, TENANT, {
-      id: 'p1',
+      id: testId('p1'),
       partNo: 'HN-15412-KVB',
       name: 'Oil Filter',
       nameTH: 'กรองน้ำมันเครื่อง',
@@ -202,7 +203,7 @@ describe('POST /returns (e2e)', () => {
       stock: 48,
     });
     await seedProduct(admin, TENANT, {
-      id: 'p2',
+      id: testId('p2'),
       partNo: 'NGK-CPR8EA',
       name: 'Spark Plug',
       nameTH: 'หัวเทียน',
@@ -220,8 +221,8 @@ describe('POST /returns (e2e)', () => {
 
   it('an unknown bill is 404 SALE_NOT_FOUND', async () => {
     const res = await post(
-      credit('nope', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('nope'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
     expect(res.status).toBe(404);
@@ -231,17 +232,17 @@ describe('POST /returns (e2e)', () => {
 
   it('a bill that is already voided is refused', async () => {
     await insertSale({
-      id: 's_void',
+      id: testId('s_void'),
       receiptNo: 'R1',
       subtotal: 85,
       total: 85,
       voided: true,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
     });
 
     const res = await post(
-      credit('s_void', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_void'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
     expect(res.status).toBe(409);
@@ -251,17 +252,17 @@ describe('POST /returns (e2e)', () => {
 
   it('over-refunding is refused with the Thai message, and nothing is written', async () => {
     await insertSale({
-      id: 's_over',
+      id: testId('s_over'),
       receiptNo: 'R2',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
-    const before = await stockOf('p1');
+    const before = await stockOf(testId('p1'));
 
     const res = await post(
-      credit('s_over', [
-        { productId: 'p1', name: 'Oil Filter', qty: 5, price: '85.00' },
+      credit(testId('s_over'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 5, price: '85.00' },
       ]),
     );
     expect(res.status).toBe(409);
@@ -271,22 +272,22 @@ describe('POST /returns (e2e)', () => {
     );
 
     // The guard fires before the first write: stock untouched, no credit note.
-    expect(await stockOf('p1')).toBe(before);
+    expect(await stockOf(testId('p1'))).toBe(before);
     expect(await returnCount()).toBe(0);
   });
 
   it('a product that was never on the bill is refused', async () => {
     await insertSale({
-      id: 's_notin',
+      id: testId('s_notin'),
       receiptNo: 'R3',
       subtotal: 85,
       total: 85,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
     });
 
     const res = await post(
-      credit('s_notin', [
-        { productId: 'p2', name: 'Spark Plug', qty: 1, price: '120.00' },
+      credit(testId('s_notin'), [
+        { productId: testId('p2'), name: 'Spark Plug', qty: 1, price: '120.00' },
       ]),
     );
     expect(res.status).toBe(409);
@@ -299,27 +300,27 @@ describe('POST /returns (e2e)', () => {
   it('a partial return restores stock and reverses the customer proportionally', async () => {
     // 4 oil filters @85 = 340, no discount, pointsGranted = floor(340/10) = 34.
     await seedCustomer(admin, TENANT, {
-      id: 'c1',
+      id: testId('c1'),
       code: 'C001',
       name: 'Somchai Jaidee',
       points: 450,
       totalSpend: 4500,
     });
     await insertSale({
-      id: 's_partial',
+      id: testId('s_partial'),
       receiptNo: 'R4',
       subtotal: 340,
       total: 340,
-      customerId: 'c1',
+      customerId: testId('c1'),
       pointsGranted: 34,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 4, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 4, price: 85 }],
     });
-    const stockBefore = await stockOf('p1');
+    const stockBefore = await stockOf(testId('p1'));
 
     // Refund 1 of 4 → 85. ratio = 85/340 = 0.25; floor(34 × 0.25) = 8.
     const res = await post(
-      credit('s_partial', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_partial'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
 
@@ -330,18 +331,18 @@ describe('POST /returns (e2e)', () => {
     expect(res.body.data.cnNo).toMatch(/^CN07-\d{4}-\d{2}-0001$/);
     expect(res.body.data.receiptNo).toBe('R4');
     expect(res.body.data.saleVoided).toBe(false);
-    expect(res.body.data.products).toEqual([{ id: 'p1', stock: stockBefore + 1 }]);
+    expect(res.body.data.products).toEqual([{ id: testId('p1'), stock: stockBefore + 1 }]);
     expect(res.body.data.customerAfter).toEqual({
-      id: 'c1',
+      id: testId('c1'),
       points: 442,
       totalSpend: '4415.00',
     });
 
-    expect(await stockOf('p1')).toBe(stockBefore + 1);
-    const cust = await customerRow('c1');
+    expect(await stockOf(testId('p1'))).toBe(stockBefore + 1);
+    const cust = await customerRow(testId('c1'));
     expect(Number(cust.total_spend)).toBe(4500 - 85);
     expect(cust.points).toBe(450 - 8);
-    expect((await saleRow('s_partial')).voided).toBe(false);
+    expect((await saleRow(testId('s_partial'))).voided).toBe(false);
 
     // One ledger row per product, keyed on the credit note, not the bill.
     const movements = await admin.query(
@@ -351,7 +352,7 @@ describe('POST /returns (e2e)', () => {
     );
     expect(movements).toEqual([
       {
-        product_id: 'p1',
+        product_id: testId('p1'),
         delta: 1,
         type: 'return',
         stock_after: stockBefore + 1,
@@ -362,40 +363,40 @@ describe('POST /returns (e2e)', () => {
 
   it('two partial returns summing to the whole bill void it; a third is refused', async () => {
     await insertSale({
-      id: 's_full',
+      id: testId('s_full'),
       receiptNo: 'R5',
       subtotal: 240,
       total: 240,
       items: [
-        { productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 },
-        { productId: 'p2', name: 'Spark Plug', qty: 1, price: 70 },
+        { productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 },
+        { productId: testId('p2'), name: 'Spark Plug', qty: 1, price: 70 },
       ],
     });
 
     const first = await post(
-      credit('s_full', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_full'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
     expect(first.status).toBe(201);
     expect(first.body.data.saleVoided).toBe(false);
-    expect((await saleRow('s_full')).voided).toBe(false);
+    expect((await saleRow(testId('s_full'))).voided).toBe(false);
 
     const second = await post(
-      credit('s_full', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
-        { productId: 'p2', name: 'Spark Plug', qty: 1, price: '70.00' },
+      credit(testId('s_full'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
+        { productId: testId('p2'), name: 'Spark Plug', qty: 1, price: '70.00' },
       ]),
     );
     expect(second.status).toBe(201);
     expect(second.body.data.saleVoided).toBe(true);
-    const voided = await saleRow('s_full');
+    const voided = await saleRow(testId('s_full'));
     expect(voided.voided).toBe(true);
     expect(voided.voided_at).not.toBeNull();
 
     const third = await post(
-      credit('s_full', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_full'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
     expect(third.status).toBe(409);
@@ -405,7 +406,7 @@ describe('POST /returns (e2e)', () => {
 
   it('credit_balance moves only on หักจากเครดิต; a cash refund leaves the tab alone', async () => {
     await seedMechanic(admin, TENANT, {
-      id: 'm1',
+      id: testId('m1'),
       code: 'M001',
       name: 'Lung Manop',
       creditLimit: 20000,
@@ -414,21 +415,21 @@ describe('POST /returns (e2e)', () => {
       totalMarkup: 200,
     });
     await insertSale({
-      id: 's_credit',
+      id: testId('s_credit'),
       receiptNo: 'R6',
       subtotal: 200,
       total: 200,
       paymentMethod: 'เครดิตช่าง',
-      mechanicId: 'm1',
+      mechanicId: testId('m1'),
       mechanicName: 'Lung Manop',
       mechanicDelta: 50,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 200 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 200 }],
     });
 
     const cash = await post(
       credit(
-        's_credit',
-        [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '200.00' }],
+        testId('s_credit'),
+        [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '200.00' }],
         'เงินสด',
       ),
     );
@@ -437,47 +438,47 @@ describe('POST /returns (e2e)', () => {
     // #82: all four running totals, not just the balance — the mechanics screen shows
     // every one of them and the client may not recompute a server-owned figure.
     expect(cash.body.data.mechanicAfter).toEqual({
-      id: 'm1',
+      id: testId('m1'),
       totalSales: '800.00',
       totalDiscount: '0.00',
       totalMarkup: '150.00',
       creditBalance: '500.00',
     });
 
-    let mech = await mechanicRow('m1');
+    let mech = await mechanicRow(testId('m1'));
     expect(Number(mech.credit_balance)).toBe(500);
     expect(Number(mech.total_sales)).toBe(800);
     // ratio = 200/200 = 1, so the whole +50 markup comes back off.
     expect(Number(mech.total_markup)).toBe(150);
 
     await insertSale({
-      id: 's_credit2',
+      id: testId('s_credit2'),
       receiptNo: 'R7',
       subtotal: 300,
       total: 300,
       paymentMethod: 'เครดิตช่าง',
-      mechanicId: 'm1',
+      mechanicId: testId('m1'),
       mechanicName: 'Lung Manop',
       mechanicDelta: 0,
-      items: [{ productId: 'p2', name: 'Spark Plug', qty: 1, price: 300 }],
+      items: [{ productId: testId('p2'), name: 'Spark Plug', qty: 1, price: 300 }],
     });
     const deduct = await post(
       credit(
-        's_credit2',
-        [{ productId: 'p2', name: 'Spark Plug', qty: 1, price: '300.00' }],
+        testId('s_credit2'),
+        [{ productId: testId('p2'), name: 'Spark Plug', qty: 1, price: '300.00' }],
         'หักจากเครดิต',
       ),
     );
     expect(deduct.status).toBe(201);
     expect(deduct.body.data.mechanicCreditBalanceAfter).toBe('200.00');
 
-    mech = await mechanicRow('m1');
+    mech = await mechanicRow(testId('m1'));
     expect(Number(mech.credit_balance)).toBe(500 - 300);
     // 🔴 decision #11: the server reads `total_credit` as the discount-base fallback
     // and never writes it.
     expect(Number(mech.total_credit)).toBe(0);
     expect(deduct.body.data.mechanicAfter).toEqual({
-      id: 'm1',
+      id: testId('m1'),
       totalSales: '500.00',
       totalDiscount: '0.00',
       totalMarkup: '150.00',
@@ -494,17 +495,17 @@ describe('POST /returns (e2e)', () => {
   describe('the write-through fields (#82)', () => {
     it('answers the movement rows it wrote, as `return`, matching the ledger', async () => {
       await insertSale({
-        id: 's_mv',
+        id: testId('s_mv'),
         receiptNo: 'R20',
         subtotal: 340,
         total: 340,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 4, price: 85 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 4, price: 85 }],
       });
-      const before = await stockOf('p1');
+      const before = await stockOf(testId('p1'));
 
       const res = await post(
-        credit('s_mv', [
-          { productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' },
+        credit(testId('s_mv'), [
+          { productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '85.00' },
         ]),
       );
       expect(res.status).toBe(201);
@@ -512,8 +513,8 @@ describe('POST /returns (e2e)', () => {
       const movements = res.body.data.movements as Record<string, unknown>[];
       expect(movements).toEqual([
         {
-          id: expect.stringMatching(/^mv/) as unknown,
-          productId: 'p1',
+          id: expect.stringMatching(UUID_V7) as unknown,
+          productId: testId('p1'),
           partNo: 'HN-15412-KVB',
           name: 'Oil Filter',
           delta: 2,
@@ -540,21 +541,21 @@ describe('POST /returns (e2e)', () => {
 
     it('one movement per product even when a part comes back at two prices', async () => {
       await insertSale({
-        id: 's_mv2',
+        id: testId('s_mv2'),
         receiptNo: 'R21',
         subtotal: 155,
         total: 155,
         items: [
-          { productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 },
-          { productId: 'p1', name: 'Oil Filter', qty: 1, price: 70 },
+          { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 },
+          { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 70 },
         ],
       });
-      const before = await stockOf('p1');
+      const before = await stockOf(testId('p1'));
 
       const res = await post(
-        credit('s_mv2', [
-          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
-          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '70.00' },
+        credit(testId('s_mv2'), [
+          { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
+          { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '70.00' },
         ]),
       );
       expect(res.status).toBe(201);
@@ -563,7 +564,7 @@ describe('POST /returns (e2e)', () => {
       expect(res.body.data.items).toHaveLength(2);
       expect(res.body.data.movements).toHaveLength(1);
       expect(res.body.data.movements[0]).toMatchObject({
-        productId: 'p1',
+        productId: testId('p1'),
         delta: 2,
         type: 'return',
         stockAfter: before + 2,
@@ -572,15 +573,15 @@ describe('POST /returns (e2e)', () => {
 
     it('no mechanic on the bill: mechanicAfter is null, alongside the balance', async () => {
       await insertSale({
-        id: 's_mv3',
+        id: testId('s_mv3'),
         receiptNo: 'R22',
         subtotal: 85,
         total: 85,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
       });
       const res = await post(
-        credit('s_mv3', [
-          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+        credit(testId('s_mv3'), [
+          { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
         ]),
       );
       expect(res.status).toBe(201);
@@ -590,7 +591,7 @@ describe('POST /returns (e2e)', () => {
 
     it('an idempotency-key replay answers the identical body, new fields included', async () => {
       await seedMechanic(admin, TENANT, {
-        id: 'm9',
+        id: testId('m9'),
         code: 'M009',
         name: 'Replay Mechanic',
         creditLimit: 20000,
@@ -599,20 +600,20 @@ describe('POST /returns (e2e)', () => {
         totalMarkup: 200,
       });
       await insertSale({
-        id: 's_mv4',
+        id: testId('s_mv4'),
         receiptNo: 'R23',
         subtotal: 200,
         total: 200,
         paymentMethod: 'เครดิตช่าง',
-        mechanicId: 'm9',
+        mechanicId: testId('m9'),
         mechanicName: 'Replay Mechanic',
         mechanicDelta: 50,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 200 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 200 }],
       });
 
       const body = credit(
-        's_mv4',
-        [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '200.00' }],
+        testId('s_mv4'),
+        [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '200.00' }],
         'หักจากเครดิต',
       );
       const key = `k-replay-${Date.now()}`;
@@ -635,17 +636,17 @@ describe('POST /returns (e2e)', () => {
     // 4 × 85 = 340 less a 40 discount = 300. Refunding one unit refunds 85 less
     // round2(85 × 40/340) = 10.00 → 75.00.
     await insertSale({
-      id: 's_disc',
+      id: testId('s_disc'),
       receiptNo: 'R9',
       subtotal: 340,
       discount: 40,
       total: 300,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 4, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 4, price: 85 }],
     });
 
     const res = await post(
-      credit('s_disc', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_disc'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
     expect(res.status).toBe(201);
@@ -656,17 +657,17 @@ describe('POST /returns (e2e)', () => {
 
   it('lists credit notes newest first, and filters by bill', async () => {
     await insertSale({
-      id: 's_order',
+      id: testId('s_order'),
       receiptNo: 'R8',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
     const line = [
-      { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
     ];
-    const r1 = await post(credit('s_order', line));
-    const r2 = await post(credit('s_order', line));
+    const r1 = await post(credit(testId('s_order'), line));
+    const r2 = await post(credit(testId('s_order'), line));
     expect(r2.status).toBe(201);
 
     const all = await listReturns();
@@ -679,7 +680,7 @@ describe('POST /returns (e2e)', () => {
     expect(all.body.data[0].items).toEqual([
       {
         lineNo: 1,
-        productId: 'p1',
+        productId: testId('p1'),
         name: 'Oil Filter',
         qty: 1,
         price: '85.00',
@@ -688,22 +689,22 @@ describe('POST /returns (e2e)', () => {
       },
     ]);
 
-    const none = await listReturns('?saleId=s_nothing');
+    const none = await listReturns(`?saleId=${testId('s_nothing')}`);
     expect(none.body.data).toEqual([]);
     expect(none.body.meta.total).toBe(0);
   });
 
   it('replays a repeated Idempotency-Key without crediting twice', async () => {
     await insertSale({
-      id: 's_idem',
+      id: testId('s_idem'),
       receiptNo: 'R10',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
-    const before = await stockOf('p1');
-    const body = credit('s_idem', [
-      { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+    const before = await stockOf(testId('p1'));
+    const body = credit(testId('s_idem'), [
+      { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
     ]);
 
     const first = await post(body, { key: 'cn-retry' });
@@ -714,21 +715,21 @@ describe('POST /returns (e2e)', () => {
     expect(replay.body.data.id).toBe(first.body.data.id);
     expect(replay.body.data.cnNo).toBe(first.body.data.cnNo);
     expect(await returnCount()).toBe(1);
-    expect(await stockOf('p1')).toBe(before + 1);
+    expect(await stockOf(testId('p1'))).toBe(before + 1);
   });
 
   it('a backoffice device may not credit goods back', async () => {
     await insertSale({
-      id: 's_role',
+      id: testId('s_role'),
       receiptNo: 'R11',
       subtotal: 85,
       total: 85,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
     });
 
     const res = await post(
-      credit('s_role', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_role'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
       { token: backofficeToken },
     );
@@ -739,16 +740,16 @@ describe('POST /returns (e2e)', () => {
 
   it('a negative line price is a 400', async () => {
     await insertSale({
-      id: 's_neg',
+      id: testId('s_neg'),
       receiptNo: 'R12',
       subtotal: 85,
       total: 85,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
     });
 
     const res = await post(
-      credit('s_neg', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '-85.00' },
+      credit(testId('s_neg'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '-85.00' },
       ]),
     );
     expect(res.status).toBe(400);
@@ -759,22 +760,22 @@ describe('POST /returns (e2e)', () => {
   it('carries cost_at_sale from the parent sale line, never the catalogue cost', async () => {
     // The bill sold at cost 50; the catalogue has since been repriced to 99.
     await insertSale({
-      id: 's_cost',
+      id: testId('s_cost'),
       receiptNo: 'R13',
       subtotal: 170,
       total: 170,
       items: [
-        { productId: 'p1', name: 'Oil Filter', qty: 2, price: 85, costAtSale: 50 },
+        { productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85, costAtSale: 50 },
       ],
     });
     await admin.query(
-      `UPDATE products SET cost = 99 WHERE tenant_id = $1::uuid AND id = 'p1'`,
+      `UPDATE products SET cost = 99 WHERE tenant_id = $1::uuid AND id = '${testId('p1')}'`,
       [TENANT],
     );
 
     const res = await post(
-      credit('s_cost', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_cost'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
     expect(res.status).toBe(201);
@@ -790,17 +791,17 @@ describe('POST /returns (e2e)', () => {
 
   it("stamps the device's open drawer on the credit note", async () => {
     // Another till's open drawer must not be the one stamped.
-    await seedOpenShift(admin, TENANT, 'another-till');
+    await seedOpenShift(admin, TENANT, testId('another-till'));
     await insertSale({
-      id: 's_shift',
+      id: testId('s_shift'),
       receiptNo: 'R14',
       subtotal: 85,
       total: 85,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
     });
     const res = await post(
-      credit('s_shift', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_shift'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
 
@@ -829,14 +830,14 @@ describe('POST /returns (e2e)', () => {
     it('refuses a cash refund with 409 NO_OPEN_SHIFT and writes nothing', async () => {
       await removeDrawer();
       await insertSale({
-        id: 's_noshift',
+        id: testId('s_noshift'),
         receiptNo: 'R24',
         subtotal: 85,
         total: 85,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
       });
-      const body = credit('s_noshift', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      const body = credit(testId('s_noshift'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]);
       const key = `k-noshift-${Date.now()}`;
 
@@ -845,14 +846,14 @@ describe('POST /returns (e2e)', () => {
       expect(res.body.error.code).toBe('NO_OPEN_SHIFT');
       expect(await returnCount()).toBe(0);
       expect(await movementCount()).toBe(0);
-      expect(await stockOf('p1')).toBe(48);
+      expect(await stockOf(testId('p1'))).toBe(48);
       // A full return would have auto-voided the bill; refused, it is untouched.
-      expect((await saleRow('s_noshift')).voided).toBe(false);
+      expect((await saleRow(testId('s_noshift'))).voided).toBe(false);
 
       // A bad body is still told what is wrong with it, drawer or not.
       const over = await post(
-        credit('s_noshift', [
-          { productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' },
+        credit(testId('s_noshift'), [
+          { productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '85.00' },
         ]),
       );
       expect(over.status).toBe(409);
@@ -864,22 +865,22 @@ describe('POST /returns (e2e)', () => {
       // close a same-day `POST /shifts/open` hands back the closed row, so there a cash
       // refund waits for tomorrow's open; that path is not what this case pins.
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
-        id: 'sh_late',
+        id: testId('sh_late'),
       });
       const retry = await post(body, { key });
       expect(retry.status).toBe(201);
-      expect(retry.body.data.shiftId).toBe('sh_late');
+      expect(retry.body.data.shiftId).toBe(testId('sh_late'));
       expect(retry.body.data.cnNo).toMatch(/-0001$/);
-      expect(await stockOf('p1')).toBe(49);
+      expect(await stockOf(testId('p1'))).toBe(49);
     });
 
     it('refuses a cash refund once the drawer is closed', async () => {
       await insertSale({
-        id: 's_closed',
+        id: testId('s_closed'),
         receiptNo: 'R25',
         subtotal: 170,
         total: 170,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
       });
       const close = await request(app.getHttpServer())
         .post('/api/v1/shifts/close')
@@ -889,29 +890,29 @@ describe('POST /returns (e2e)', () => {
       expect(close.status).toBe(200);
 
       const res = await post(
-        credit('s_closed', [
-          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+        credit(testId('s_closed'), [
+          { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
         ]),
       );
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('NO_OPEN_SHIFT');
       expect(await returnCount()).toBe(0);
-      expect(await stockOf('p1')).toBe(48);
+      expect(await stockOf(testId('p1'))).toBe(48);
     });
 
     it('takes a transfer refund with no drawer, stamped with no shift_id', async () => {
       await removeDrawer();
       await insertSale({
-        id: 's_transfer',
+        id: testId('s_transfer'),
         receiptNo: 'R26',
         subtotal: 85,
         total: 85,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
       });
       const res = await post(
         credit(
-          's_transfer',
-          [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+          testId('s_transfer'),
+          [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
           'โอน',
         ),
       );
@@ -923,13 +924,13 @@ describe('POST /returns (e2e)', () => {
         [TENANT, res.body.data.id],
       );
       expect(rows[0].shift_id).toBeNull();
-      expect(await stockOf('p1')).toBe(49);
+      expect(await stockOf(testId('p1'))).toBe(49);
     });
 
     it('takes หักจากเครดิต with no drawer, stamped with no shift_id', async () => {
       await removeDrawer();
       await seedMechanic(admin, TENANT, {
-        id: 'm_nodrawer',
+        id: testId('m_nodrawer'),
         code: 'M010',
         name: 'No Drawer Mechanic',
         creditLimit: 20000,
@@ -937,20 +938,20 @@ describe('POST /returns (e2e)', () => {
         totalSales: 1000,
       });
       await insertSale({
-        id: 's_deduct',
+        id: testId('s_deduct'),
         receiptNo: 'R27',
         subtotal: 200,
         total: 200,
         paymentMethod: 'เครดิตช่าง',
-        mechanicId: 'm_nodrawer',
+        mechanicId: testId('m_nodrawer'),
         mechanicName: 'No Drawer Mechanic',
         mechanicDelta: 0,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 200 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 200 }],
       });
       const res = await post(
         credit(
-          's_deduct',
-          [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '200.00' }],
+          testId('s_deduct'),
+          [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '200.00' }],
           'หักจากเครดิต',
         ),
       );
@@ -964,11 +965,11 @@ describe('POST /returns (e2e)', () => {
       // The closing report's `grossProfit` nets refunds of every method, so a transfer
       // stamped onto a shift whose close committed under it changes a counted report.
       await insertSale({
-        id: 's_race',
+        id: testId('s_race'),
         receiptNo: 'R29',
         subtotal: 85,
         total: 85,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
       });
       // Stand in for `close()`: take the drawer `FOR UPDATE` and hold it.
       const closer = admin.createQueryRunner();
@@ -983,8 +984,8 @@ describe('POST /returns (e2e)', () => {
         let settled = false;
         const pending = post(
           credit(
-            's_race',
-            [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+            testId('s_race'),
+            [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
             'โอน',
           ),
         ).then((r) => {
@@ -1023,14 +1024,14 @@ describe('POST /returns (e2e)', () => {
 
     it('a cash refund committed while the drawer was open still replays after close', async () => {
       await insertSale({
-        id: 's_replay_close',
+        id: testId('s_replay_close'),
         receiptNo: 'R28',
         subtotal: 170,
         total: 170,
-        items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+        items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
       });
-      const body = credit('s_replay_close', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      const body = credit(testId('s_replay_close'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]);
       const key = `k-replay-close-${Date.now()}`;
 
@@ -1053,7 +1054,7 @@ describe('POST /returns (e2e)', () => {
       expect(fresh.status).toBe(409);
       expect(fresh.body.error.code).toBe('NO_OPEN_SHIFT');
       expect(await returnCount()).toBe(1);
-      expect(await stockOf('p1')).toBe(49);
+      expect(await stockOf(testId('p1'))).toBe(49);
     });
   });
 
@@ -1065,7 +1066,7 @@ describe('POST /returns (e2e)', () => {
     // `GREATEST(0, …)` then absorbed it in silence — the tab floored at 0 and nothing
     // was raised — which is why the mechanic's balance is asserted here too.
     await seedMechanic(admin, TENANT, {
-      id: 'm9',
+      id: testId('m9'),
       code: 'M009',
       name: 'Lung Manop',
       creditLimit: 20000,
@@ -1073,21 +1074,21 @@ describe('POST /returns (e2e)', () => {
       totalSales: 1000,
     });
     await insertSale({
-      id: 's_price',
+      id: testId('s_price'),
       receiptNo: 'R15',
       subtotal: 85,
       total: 85,
       paymentMethod: 'เครดิตช่าง',
-      mechanicId: 'm9',
+      mechanicId: testId('m9'),
       mechanicName: 'Lung Manop',
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
     });
-    const before = await stockOf('p1');
+    const before = await stockOf(testId('p1'));
 
     const res = await post(
       credit(
-        's_price',
-        [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '999999.00' }],
+        testId('s_price'),
+        [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '999999.00' }],
         'หักจากเครดิต',
       ),
     );
@@ -1095,11 +1096,11 @@ describe('POST /returns (e2e)', () => {
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('RETURN_PRICE_MISMATCH');
     expect(res.body.error.details).toEqual({
-      lines: [{ productId: 'p1', price: '999999.00', soldAt: ['85.00'] }],
+      lines: [{ productId: testId('p1'), price: '999999.00', soldAt: ['85.00'] }],
     });
     expect(await returnCount()).toBe(0);
-    expect(await stockOf('p1')).toBe(before);
-    expect(Number((await mechanicRow('m9')).credit_balance)).toBe(5000);
+    expect(await stockOf(testId('p1'))).toBe(before);
+    expect(Number((await mechanicRow(testId('m9'))).credit_balance)).toBe(5000);
   });
 
   it('refunds one part on two lines at each price the bill charged', async () => {
@@ -1107,21 +1108,21 @@ describe('POST /returns (e2e)', () => {
     // multiplied it by the whole quantity, so this refunded 170 and stored a single
     // 85.00 row that matched neither the bill nor the request.
     await insertSale({
-      id: 's_twoprice',
+      id: testId('s_twoprice'),
       receiptNo: 'R16',
       subtotal: 155,
       total: 155,
       items: [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 },
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: 70 },
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 },
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 70 },
       ],
     });
-    const before = await stockOf('p1');
+    const before = await stockOf(testId('p1'));
 
     const res = await post(
-      credit('s_twoprice', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '70.00' },
+      credit(testId('s_twoprice'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '70.00' },
       ]),
     );
 
@@ -1146,27 +1147,27 @@ describe('POST /returns (e2e)', () => {
       `SELECT product_id, delta FROM movements WHERE tenant_id = $1::uuid`,
       [TENANT],
     );
-    expect(movements).toEqual([{ product_id: 'p1', delta: 2 }]);
-    expect(await stockOf('p1')).toBe(before + 2);
+    expect(movements).toEqual([{ product_id: testId('p1'), delta: 2 }]);
+    expect(await stockOf(testId('p1'))).toBe(before + 2);
   });
 
   it('bounds the quantity per price, not per product', async () => {
     await insertSale({
-      id: 's_bucket',
+      id: testId('s_bucket'),
       receiptNo: 'R17',
       subtotal: 155,
       total: 155,
       items: [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 },
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: 70 },
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 },
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 70 },
       ],
     });
 
     // Two units *at 85* when the bill sold one at 85 and one at 70: the per-product
     // guard saw two units left and let this refund 170 for goods worth 155.
     const res = await post(
-      credit('s_bucket', [
-        { productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' },
+      credit(testId('s_bucket'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '85.00' },
       ]),
     );
     expect(res.status).toBe(409);
@@ -1179,49 +1180,49 @@ describe('POST /returns (e2e)', () => {
 
   it('restores a soft-deleted product, exactly as the void does', async () => {
     await insertSale({
-      id: 's_deleted',
+      id: testId('s_deleted'),
       receiptNo: 'R18',
       subtotal: 85,
       total: 85,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
     });
-    const before = await stockOf('p1');
+    const before = await stockOf(testId('p1'));
     // A product that has ever sold cannot be hard-deleted — `movements` references it
     // with no cascade — so this is the only deletion the returns path can ever meet.
     await admin.query(
-      `UPDATE products SET deleted_at = now() WHERE tenant_id = $1::uuid AND id = 'p1'`,
+      `UPDATE products SET deleted_at = now() WHERE tenant_id = $1::uuid AND id = '${testId('p1')}'`,
       [TENANT],
     );
 
     const res = await post(
-      credit('s_deleted', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_deleted'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
 
     expect(res.status).toBe(201);
-    expect(res.body.data.products).toEqual([{ id: 'p1', stock: before + 1 }]);
-    expect(await stockOf('p1')).toBe(before + 1);
+    expect(res.body.data.products).toEqual([{ id: testId('p1'), stock: before + 1 }]);
+    expect(await stockOf(testId('p1'))).toBe(before + 1);
     const movements = await admin.query(
       `SELECT product_id, delta, type FROM movements WHERE tenant_id = $1::uuid`,
       [TENANT],
     );
-    expect(movements).toEqual([{ product_id: 'p1', delta: 1, type: 'return' }]);
+    expect(movements).toEqual([{ product_id: testId('p1'), delta: 1, type: 'return' }]);
   });
 
   it('refuses หักจากเครดิต on a bill with no mechanic', async () => {
     await insertSale({
-      id: 's_nomech',
+      id: testId('s_nomech'),
       receiptNo: 'R19',
       subtotal: 85,
       total: 85,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 85 }],
     });
 
     const res = await post(
       credit(
-        's_nomech',
-        [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' }],
+        testId('s_nomech'),
+        [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' }],
         'หักจากเครดิต',
       ),
     );
@@ -1240,7 +1241,7 @@ describe('POST /returns (e2e)', () => {
     // mechanic's `total_discount` jumps to it on the first unrelated return. That is
     // the reference behaviour — pinned so nobody "fixes" it by accident.
     await seedMechanic(admin, TENANT, {
-      id: 'm8',
+      id: testId('m8'),
       code: 'M008',
       name: 'Legacy Import',
       creditLimit: 20000,
@@ -1250,24 +1251,24 @@ describe('POST /returns (e2e)', () => {
       totalDiscount: 0,
     });
     await insertSale({
-      id: 's_legacy',
+      id: testId('s_legacy'),
       receiptNo: 'R20',
       subtotal: 200,
       total: 200,
-      mechanicId: 'm8',
+      mechanicId: testId('m8'),
       mechanicName: 'Legacy Import',
       mechanicDelta: 0,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 1, price: 200 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 1, price: 200 }],
     });
 
     const res = await post(
-      credit('s_legacy', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '200.00' },
+      credit(testId('s_legacy'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '200.00' },
       ]),
     );
     expect(res.status).toBe(201);
 
-    const mech = await mechanicRow('m8');
+    const mech = await mechanicRow(testId('m8'));
     expect(Number(mech.total_discount)).toBe(5000);
     expect(Number(mech.total_credit)).toBe(5000);
     expect(Number(mech.total_sales)).toBe(800);
@@ -1278,7 +1279,7 @@ describe('POST /returns (e2e)', () => {
     // off `total_discount`. The other mechanic bills here use +50 and 0, so this is
     // the only case that exercises `reverseCredit`.
     await seedMechanic(admin, TENANT, {
-      id: 'm7',
+      id: testId('m7'),
       code: 'M007',
       name: 'Discounted',
       creditLimit: 20000,
@@ -1287,25 +1288,25 @@ describe('POST /returns (e2e)', () => {
       totalDiscount: 300,
     });
     await insertSale({
-      id: 's_disc_mech',
+      id: testId('s_disc_mech'),
       receiptNo: 'R21',
       subtotal: 200,
       total: 200,
-      mechanicId: 'm7',
+      mechanicId: testId('m7'),
       mechanicName: 'Discounted',
       mechanicDelta: -60,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 100 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 100 }],
     });
 
     const res = await post(
-      credit('s_disc_mech', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '100.00' },
+      credit(testId('s_disc_mech'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '100.00' },
       ]),
     );
     expect(res.status).toBe(201);
 
     // ratio = 100/200 → 30 of the 60 comes back off the assigned base of 300.
-    const mech = await mechanicRow('m7');
+    const mech = await mechanicRow(testId('m7'));
     expect(Number(mech.total_discount)).toBe(270);
     expect(Number(mech.total_sales)).toBe(900);
     expect(Number(mech.credit_balance)).toBe(0);
@@ -1318,17 +1319,17 @@ describe('POST /returns (e2e)', () => {
     // here so a change to the claim's lifetime (tx.3) cannot make a corrected credit
     // note impossible to issue.
     await insertSale({
-      id: 's_retry',
+      id: testId('s_retry'),
       receiptNo: 'R22',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
     const key = `cn-corrected-${Date.now()}`;
 
     const refused = await post(
-      credit('s_retry', [
-        { productId: 'p1', name: 'Oil Filter', qty: 5, price: '85.00' },
+      credit(testId('s_retry'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 5, price: '85.00' },
       ]),
       { key },
     );
@@ -1336,8 +1337,8 @@ describe('POST /returns (e2e)', () => {
     expect(refused.body.error.code).toBe('OVER_REFUND');
 
     const corrected = await post(
-      credit('s_retry', [
-        { productId: 'p1', name: 'Oil Filter', qty: 2, price: '85.00' },
+      credit(testId('s_retry'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '85.00' },
       ]),
       { key },
     );
@@ -1348,15 +1349,15 @@ describe('POST /returns (e2e)', () => {
 
   it('filters the history by date range, as 02_API_SCREENS §3.7 defines it', async () => {
     await insertSale({
-      id: 's_dates',
+      id: testId('s_dates'),
       receiptNo: 'R23',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
     const cn = await post(
-      credit('s_dates', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      credit(testId('s_dates'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
     );
     expect(cn.status).toBe(201);
@@ -1380,16 +1381,16 @@ describe('POST /returns (e2e)', () => {
 
   it('accepts a valid client-issued cnNo and updates doc_counters high-water mark', async () => {
     await insertSale({
-      id: 's_client_cn',
+      id: testId('s_client_cn'),
       receiptNo: 'RC07-2569-10-0001',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
 
     const res = await post({
-      ...credit('s_client_cn', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ...credit(testId('s_client_cn'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
       cnNo: 'CN07-2569-10-0015',
     });
@@ -1410,16 +1411,16 @@ describe('POST /returns (e2e)', () => {
 
   it('rejects client cnNo with wrong device_no or wrong prefix (400 DOC_NUMBER_INVALID)', async () => {
     await insertSale({
-      id: 's_cn_invalid',
+      id: testId('s_cn_invalid'),
       receiptNo: 'RC07-2569-10-0002',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
 
     const wrongDevice = await post({
-      ...credit('s_cn_invalid', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ...credit(testId('s_cn_invalid'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
       cnNo: 'CN99-2569-10-0001',
     });
@@ -1427,8 +1428,8 @@ describe('POST /returns (e2e)', () => {
     expect(wrongDevice.body.error.code).toBe('DOC_NUMBER_INVALID');
 
     const wrongPrefix = await post({
-      ...credit('s_cn_invalid', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ...credit(testId('s_cn_invalid'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
       cnNo: 'RC07-2569-10-0001',
     });
@@ -1438,24 +1439,24 @@ describe('POST /returns (e2e)', () => {
 
   it('returns 409 RECEIPT_NO_CONFLICT when client cnNo collides with existing credit note', async () => {
     await insertSale({
-      id: 's_cn_conflict',
+      id: testId('s_cn_conflict'),
       receiptNo: 'RC07-2569-10-0003',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
 
     const first = await post({
-      ...credit('s_cn_conflict', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ...credit(testId('s_cn_conflict'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
       cnNo: 'CN07-2569-10-0088',
     });
     expect(first.status).toBe(201);
 
     const duplicate = await post({
-      ...credit('s_cn_conflict', [
-        { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+      ...credit(testId('s_cn_conflict'), [
+        { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
       ]),
       cnNo: 'CN07-2569-10-0088',
     });
@@ -1465,19 +1466,19 @@ describe('POST /returns (e2e)', () => {
 
   it('rejects missing cnNo when DOC_NUMBER_FALLBACK=false (400 DOC_NUMBER_REQUIRED)', async () => {
     await insertSale({
-      id: 's_cn_fallback',
+      id: testId('s_cn_fallback'),
       receiptNo: 'RC03-2569-10-0004',
       subtotal: 170,
       total: 170,
-      items: [{ productId: 'p1', name: 'Oil Filter', qty: 2, price: 85 }],
+      items: [{ productId: testId('p1'), name: 'Oil Filter', qty: 2, price: 85 }],
     });
 
     const prev = process.env.DOC_NUMBER_FALLBACK;
     process.env.DOC_NUMBER_FALLBACK = 'false';
     try {
       const res = await post(
-        credit('s_cn_fallback', [
-          { productId: 'p1', name: 'Oil Filter', qty: 1, price: '85.00' },
+        credit(testId('s_cn_fallback'), [
+          { productId: testId('p1'), name: 'Oil Filter', qty: 1, price: '85.00' },
         ]),
       );
       expect(res.status).toBe(400);

@@ -341,7 +341,7 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
   // genuinely fresh in-flight row must still win the 409, same as today.
   it.skipIf(Boolean(REAL_FILE))('reclaims a stale queued/running import job instead of refusing forever (#239 issue 1a)', async () => {
     const tenantId = await provision();
-    const staleJobId = `imp_stale_${randomUUID()}`;
+    const staleJobId = randomUUID();
     await admin.query(
       `INSERT INTO import_jobs (tenant_id, id, status, payload, started_at, created_at)
        VALUES ($1, $2, 'running', '{}'::jsonb, now() - interval '31 minutes', now() - interval '31 minutes')`,
@@ -367,7 +367,7 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
 
   it.skipIf(Boolean(REAL_FILE))('never reclaims a running row that is still within the staleness ceiling — 409, same as today', async () => {
     const tenantId = await provision();
-    const freshJobId = `imp_fresh_${randomUUID()}`;
+    const freshJobId = randomUUID();
     await admin.query(
       `INSERT INTO import_jobs (tenant_id, id, status, payload, started_at, created_at)
        VALUES ($1, $2, 'running', '{}'::jsonb, now() - interval '5 minutes', now() - interval '5 minutes')`,

@@ -7,6 +7,7 @@ import {
   resetTenant,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId, UUID_V7 } from './support/test-ids.js';
 
 const TENANT = '17171717-1717-4717-8717-171717171717';
 
@@ -64,7 +65,7 @@ describe('customers and mechanics (e2e)', () => {
 
   it('starts customer codes at CUS001 and forces server-owned fields to zero/new values', async () => {
     const response = await createCustomer({
-      id: 'client-id',
+      id: testId('client-id'),
       code: 'CUS999',
       name: 'Walk-in',
       nameTH: 'ลูกค้า',
@@ -80,8 +81,8 @@ describe('customers and mechanics (e2e)', () => {
       points: 0,
       totalSpend: '0.00',
     });
-    expect(response.body.data.id).not.toBe('client-id');
-    expect(response.body.data.id.startsWith('c')).toBe(true);
+    expect(response.body.data.id).not.toBe(testId('client-id'));
+    expect(response.body.data.id).toMatch(UUID_V7);
     expect(Date.parse(response.body.data.createdAt)).not.toBeNaN();
     expect(Date.parse(response.body.data.updatedAt)).not.toBeNaN();
   });
@@ -89,9 +90,9 @@ describe('customers and mechanics (e2e)', () => {
   it('increments past the highest valid customer code and ignores malformed codes', async () => {
     await admin.query(
       `INSERT INTO customers (tenant_id, id, code, name, name_th)
-       VALUES ($1::uuid, 'c-five', 'CUS005', 'Five', 'ห้า'),
-              ($1::uuid, 'c-two', 'CUS002', 'Two', 'สอง'),
-              ($1::uuid, 'c-bad', 'BAD', 'Bad', 'เสีย')`,
+       VALUES ($1::uuid, '${testId('c-five')}', 'CUS005', 'Five', 'ห้า'),
+              ($1::uuid, '${testId('c-two')}', 'CUS002', 'Two', 'สอง'),
+              ($1::uuid, '${testId('c-bad')}', 'BAD', 'Bad', 'เสีย')`,
       [TENANT],
     );
 
@@ -176,7 +177,7 @@ describe('customers and mechanics (e2e)', () => {
       Date.parse(customer.body.data.updatedAt) - 1,
     ).toISOString();
     await insertSale({
-      id: 'sale-customer',
+      id: testId('sale-customer'),
       customerId: id,
       customerName: 'สมชาย ยานยนต์',
     });
@@ -230,7 +231,7 @@ describe('customers and mechanics (e2e)', () => {
     const id = customer.body.data.id as string;
     for (let index = 1; index <= 3; index++) {
       await insertSale({
-        id: `sale-page-${index}`,
+        id: testId(`sale-page-${index}`),
         customerId: id,
         customerName: 'ผู้ซื้อ',
         date: `2026-09-1${index}T10:00:00Z`,
@@ -262,7 +263,7 @@ describe('customers and mechanics (e2e)', () => {
 
   it('creates mechanics with M codes, zero ledger fields, and caller credit fields ignored', async () => {
     const response = await createMechanic({
-      id: 'client-id',
+      id: testId('client-id'),
       code: 'M999',
       name: 'New Guy',
       creditLimit: '1500.00',
@@ -283,7 +284,7 @@ describe('customers and mechanics (e2e)', () => {
       totalDiscount: '0.00',
       totalMarkup: '0.00',
     });
-    expect(response.body.data.id.startsWith('m')).toBe(true);
+    expect(response.body.data.id).toMatch(UUID_V7);
 
     const second = await createMechanic({ name: 'Another' });
     expect(second.body.data.code).toBe('M002');
@@ -371,9 +372,9 @@ describe('customers and mechanics (e2e)', () => {
   it('increments mechanics past valid maximum codes and ignores malformed codes', async () => {
     await admin.query(
       `INSERT INTO mechanics (tenant_id, id, code, name)
-       VALUES ($1::uuid, 'm-five', 'M005', 'Five'),
-              ($1::uuid, 'm-two', 'M002', 'Two'),
-              ($1::uuid, 'm-bad', 'BAD', 'Bad')`,
+       VALUES ($1::uuid, '${testId('m-five')}', 'M005', 'Five'),
+              ($1::uuid, '${testId('m-two')}', 'M002', 'Two'),
+              ($1::uuid, '${testId('m-bad')}', 'BAD', 'Bad')`,
       [TENANT],
     );
     const response = await createMechanic({ name: 'Six' });
@@ -504,7 +505,7 @@ describe('customers and mechanics (e2e)', () => {
     const id = mechanic.body.data.id as string;
     for (let index = 1; index <= 3; index++) {
       await insertSale({
-        id: `mechanic-sale-${index}`,
+        id: testId(`mechanic-sale-${index}`),
         mechanicId: id,
         mechanicName: 'Sales Mechanic',
         date: `2026-09-1${index}T11:00:00Z`,
@@ -527,7 +528,7 @@ describe('customers and mechanics (e2e)', () => {
     it('refuses invalid keyset sync parameter combinations on customers', async () => {
       const cursor = '2026-03-01T10:00:00.000Z';
       const res1 = await request(app.getHttpServer())
-        .get('/api/v1/customers?afterId=c1')
+        .get(`/api/v1/customers?afterId=${testId('c1')}`)
         .set(auth());
       expect(res1.status).toBe(400);
 
@@ -595,7 +596,7 @@ describe('customers and mechanics (e2e)', () => {
     it('refuses invalid keyset sync parameter combinations on mechanics', async () => {
       const cursor = '2026-03-01T10:00:00.000Z';
       const res1 = await request(app.getHttpServer())
-        .get('/api/v1/mechanics?afterId=m1')
+        .get(`/api/v1/mechanics?afterId=${testId('m1')}`)
         .set(auth());
       expect(res1.status).toBe(400);
 

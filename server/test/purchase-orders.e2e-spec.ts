@@ -10,6 +10,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId, UUID_V7 } from './support/test-ids.js';
 
 /**
  * #26 `p6.1` — purchase orders and receiving.
@@ -141,7 +142,7 @@ describe('purchase orders (e2e)', () => {
     });
     // The Dart suite's dedicated test product: stock 10 at cost 100.
     await seedProduct(admin, TENANT, {
-      id: 'tp1',
+      id: testId('tp1'),
       partNo: 'TEST-1',
       name: 'Test Part',
       price: 200,
@@ -166,7 +167,7 @@ describe('purchase orders (e2e)', () => {
       });
       expect(res.status).toBe(201);
       const po = res.body.data;
-      expect(po.id).toMatch(/^po/);
+      expect(po.id).toMatch(UUID_V7);
       // ADR-0007: PO + two-digit device number + Buddhist year-month + running number.
       expect(po.poNo).toMatch(
         new RegExp(`^PO${String(fixture.posDeviceNo + 50).padStart(2, '0')}-\\d{4}-\\d{2}-0001$`),
@@ -177,7 +178,7 @@ describe('purchase orders (e2e)', () => {
       expect(po.items).toEqual([
         { lineNo: 1, partNo: 'TEST-1', name: 'Widget', qty: 5, cost: '160.00' },
       ]);
-      expect(await product('tp1')).toEqual({ stock: 10, cost: '100.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 10, cost: '100.00' });
     });
 
     it('receivePO: exact weighted average 10@100 + 5@160 → 120.00, stock 15', async () => {
@@ -187,10 +188,10 @@ describe('purchase orders (e2e)', () => {
       expect(res.body.data).toMatchObject({
         poId: id,
         status: 'received',
-        updated: [{ productId: 'tp1', partNo: 'TEST-1', stockAfter: 15, costAfter: '120.00' }],
+        updated: [{ productId: testId('tp1'), partNo: 'TEST-1', stockAfter: 15, costAfter: '120.00' }],
         unmatched: [],
       });
-      expect(await product('tp1')).toEqual({ stock: 15, cost: '120.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 15, cost: '120.00' });
     });
 
     it('receivePO: marks the PO received and sets receivedAt', async () => {
@@ -208,7 +209,7 @@ describe('purchase orders (e2e)', () => {
       const rows = await receiveMovements(id);
       expect(rows).toEqual([
         {
-          product_id: 'tp1',
+          product_id: testId('tp1'),
           part_no: 'TEST-1',
           delta: 5,
           type: 'receive',
@@ -220,7 +221,7 @@ describe('purchase orders (e2e)', () => {
       ]);
       expect(res.body.data.movements).toHaveLength(1);
       expect(res.body.data.movements[0]).toMatchObject({
-        productId: 'tp1',
+        productId: testId('tp1'),
         delta: 5,
         type: 'receive',
         stockAfter: 15,
@@ -229,13 +230,13 @@ describe('purchase orders (e2e)', () => {
 
     it('receivePO: matches the part number case-insensitively', async () => {
       await admin.query(
-        `UPDATE products SET part_no = 'TeST-1' WHERE tenant_id = $1::uuid AND id = 'tp1'`,
+        `UPDATE products SET part_no = 'TeST-1' WHERE tenant_id = $1::uuid AND id = '${testId('tp1')}'`,
         [TENANT],
       );
       const { id } = await openPo([{ partNo: 'test-1', qty: 5, cost: '160.00' }]);
       const res = await action(id, 'receive');
       expect(res.body.data.unmatched).toEqual([]);
-      expect(await product('tp1')).toEqual({ stock: 15, cost: '120.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 15, cost: '120.00' });
     });
 
     it('cancelPO: status cancelled and cancelledAt', async () => {
@@ -281,7 +282,7 @@ describe('purchase orders (e2e)', () => {
       expect(again.body.error.code).toBe('PO_ALREADY_RECEIVED');
       expect(again.body.error.message).toBe('ใบสั่งซื้อนี้รับของแล้ว');
 
-      expect(await product('tp1')).toEqual({ stock: 15, cost: '120.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 15, cost: '120.00' });
       expect(await receiveMovements(id)).toHaveLength(1);
     });
 
@@ -295,7 +296,7 @@ describe('purchase orders (e2e)', () => {
       for (const r of results.filter((x) => x.status === 409)) {
         expect(r.body.error.code).toBe('PO_ALREADY_RECEIVED');
       }
-      expect(await product('tp1')).toEqual({ stock: 15, cost: '120.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 15, cost: '120.00' });
       expect(await receiveMovements(id)).toHaveLength(1);
     });
 
@@ -303,12 +304,12 @@ describe('purchase orders (e2e)', () => {
       const { id } = await openPo([{ partNo: 'TEST-1', qty: 5, cost: '0.00' }]);
       const res = await action(id, 'receive');
       expect(res.body.data.updated[0].costAfter).toBe('100.00');
-      expect(await product('tp1')).toEqual({ stock: 15, cost: '100.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 15, cost: '100.00' });
     });
 
     it('AC3: receiving into zero stock sets the cost to the incoming cost', async () => {
       await seedProduct(admin, TENANT, {
-        id: 'tp0',
+        id: testId('tp0'),
         partNo: 'ZERO-1',
         name: 'Empty Shelf',
         price: 200,
@@ -318,7 +319,7 @@ describe('purchase orders (e2e)', () => {
       const { id } = await openPo([{ partNo: 'ZERO-1', qty: 4, cost: '125.50' }]);
       const res = await action(id, 'receive');
       expect(res.status).toBe(200);
-      expect(await product('tp0')).toEqual({ stock: 4, cost: '125.50' });
+      expect(await product(testId('tp0'))).toEqual({ stock: 4, cost: '125.50' });
     });
 
     it('AC4: unmatched part numbers come back as a list and the rest still applies', async () => {
@@ -329,7 +330,7 @@ describe('purchase orders (e2e)', () => {
       const res = await action(id, 'receive');
       expect(res.status).toBe(200);
       expect(res.body.data.unmatched).toEqual(['NOPE-9']);
-      expect(await product('tp1')).toEqual({ stock: 15, cost: '120.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 15, cost: '120.00' });
       const ghost = await admin.query(
         `SELECT 1 FROM products WHERE tenant_id = $1::uuid AND lower(part_no) = 'nope-9'`,
         [TENANT],
@@ -340,14 +341,14 @@ describe('purchase orders (e2e)', () => {
 
     it('AC4: a soft-deleted product is unmatched, and its stock is not touched', async () => {
       await admin.query(
-        `UPDATE products SET deleted_at = now() WHERE tenant_id = $1::uuid AND id = 'tp1'`,
+        `UPDATE products SET deleted_at = now() WHERE tenant_id = $1::uuid AND id = '${testId('tp1')}'`,
         [TENANT],
       );
       const { id } = await openPo([{ partNo: 'TEST-1', qty: 5, cost: '160.00' }]);
       const res = await action(id, 'receive');
       expect(res.body.data.unmatched).toEqual(['TEST-1']);
       expect(res.body.data.updated).toEqual([]);
-      expect(await product('tp1')).toEqual({ stock: 10, cost: '100.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 10, cost: '100.00' });
     });
 
     it('AC5: one part on two lines averages line by line, as the Dart loop does', async () => {
@@ -358,7 +359,7 @@ describe('purchase orders (e2e)', () => {
       ]);
       const res = await action(id, 'receive');
       expect(res.status).toBe(200);
-      expect(await product('tp1')).toEqual({ stock: 20, cost: '115.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 20, cost: '115.00' });
       // One ledger row per product per PO (`uq_movements_ref`), carrying both lines.
       const rows = await receiveMovements(id);
       expect(rows).toHaveLength(1);
@@ -371,7 +372,7 @@ describe('purchase orders (e2e)', () => {
 
     it('AC5: a non-terminating average is rounded to the satang', async () => {
       await seedProduct(admin, TENANT, {
-        id: 'tp7',
+        id: testId('tp7'),
         partNo: 'ODD-7',
         name: 'Odd',
         price: 50,
@@ -381,7 +382,7 @@ describe('purchase orders (e2e)', () => {
       // (7×33.33 + 3×41.07)/10 = 35.652 → Dart round2 → 35.65
       const { id, poNo } = await openPo([{ partNo: 'ODD-7', qty: 3, cost: '41.07' }]);
       await action(id, 'receive');
-      expect(await product('tp7')).toEqual({ stock: 10, cost: '35.65' });
+      expect(await product(testId('tp7'))).toEqual({ stock: 10, cost: '35.65' });
       const rows = await receiveMovements(id);
       expect(rows[0].note).toBe(`PO ${poNo} จาก Acme · ทุนใหม่ ฿35.65`);
     });
@@ -396,7 +397,7 @@ describe('purchase orders (e2e)', () => {
       expect(first.status).toBe(200);
       expect(replay.status).toBe(200);
       expect(replay.body).toEqual(first.body);
-      expect(await product('tp1')).toEqual({ stock: 15, cost: '120.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 15, cost: '120.00' });
       expect(await receiveMovements(id)).toHaveLength(1);
     });
 
@@ -413,7 +414,7 @@ describe('purchase orders (e2e)', () => {
 
     it('a receipt racing sales on the same product: no deadlock, no 500, stock adds up', async () => {
       await seedProduct(admin, TENANT, {
-        id: 'hot',
+        id: testId('hot'),
         partNo: 'HOT-1',
         name: 'Hot Part',
         price: 100,
@@ -432,15 +433,15 @@ describe('purchase orders (e2e)', () => {
           .set(auth(posManager))
           .set('Idempotency-Key', key())
           .send({
-            id: `s-po-race-${i}-${Date.now()}`,
+            id: testId(`s-po-race-${i}-${Date.now()}`),
             subtotal: '200.00',
             discount: '0.00',
             total: '200.00',
             paymentMethod: 'เงินสด',
             // Two products, so a sale locks both rows the receipt also locks.
             items: [
-              { lineNo: 1, productId: 'hot', name: 'Hot Part', qty: 1, price: '100.00' },
-              { lineNo: 2, productId: 'tp1', name: 'Test Part', qty: 1, price: '100.00' },
+              { lineNo: 1, productId: testId('hot'), name: 'Hot Part', qty: 1, price: '100.00' },
+              { lineNo: 2, productId: testId('tp1'), name: 'Test Part', qty: 1, price: '100.00' },
             ],
           });
 
@@ -452,11 +453,11 @@ describe('purchase orders (e2e)', () => {
       const results = await Promise.all(requests);
       expect(results.map((r) => r.status).filter((s) => s !== 200 && s !== 201)).toEqual([]);
 
-      expect((await product('hot')).stock).toBe(50 - 8 + 7);
-      expect((await product('tp1')).stock).toBe(10 - 8 + 2);
+      expect((await product(testId('hot'))).stock).toBe(50 - 8 + 7);
+      expect((await product(testId('tp1'))).stock).toBe(10 - 8 + 2);
       // The ledger agrees with the counter: the receive row's stock_after is whatever
       // the product held when the receipt ran, plus the delivery.
-      const [hotRow] = (await receiveMovements(id)).filter((r) => r.product_id === 'hot');
+      const [hotRow] = (await receiveMovements(id)).filter((r) => r.product_id === testId('hot'));
       expect(hotRow.delta).toBe(7);
       expect(hotRow.stock_after).toBeGreaterThanOrEqual(50 - 8 + 7);
       expect(hotRow.stock_after).toBeLessThanOrEqual(50 + 7);
@@ -465,7 +466,7 @@ describe('purchase orders (e2e)', () => {
     it(
       '200-round 3-way race: pos sales + backoffice receive + adjust-stock on same product (DoD line 11, ADR-0004)',
       async () => {
-        const prodId = 'hot200';
+        const prodId = testId('hot200');
         await seedProduct(admin, TENANT, {
           id: prodId,
           partNo: 'HOT-200',
@@ -493,7 +494,7 @@ describe('purchase orders (e2e)', () => {
             .set(auth(posManager))
             .set('Idempotency-Key', key())
             .send({
-              id: `s-race200-${i}-${Date.now()}`,
+              id: testId(`s-race200-${i}-${Date.now()}`),
               subtotal: '100.00',
               discount: '0.00',
               total: '100.00',
@@ -585,7 +586,7 @@ describe('purchase orders (e2e)', () => {
       const res = await action(id, 'receive');
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('PO_CANCELLED');
-      expect(await product('tp1')).toEqual({ stock: 10, cost: '100.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 10, cost: '100.00' });
       expect(await receiveMovements(id)).toHaveLength(0);
     });
 
@@ -615,7 +616,7 @@ describe('purchase orders (e2e)', () => {
 
     it('an unknown PO is 404 PO_NOT_FOUND on receive and cancel', async () => {
       for (const verb of ['receive', 'cancel'] as const) {
-        const res = await action('po-missing', verb);
+        const res = await action(testId('po-missing'), verb);
         expect(res.status).toBe(404);
         expect(res.body.error.code).toBe('PO_NOT_FOUND');
       }
@@ -639,16 +640,16 @@ describe('purchase orders (e2e)', () => {
         user_id: fixture.userId,
         device_id: fixture.backofficeDeviceId,
         entity: 'purchase_order',
-        before: { products: [{ id: 'tp1', stock: 10, cost: '100.00' }] },
+        before: { products: [{ id: testId('tp1'), stock: 10, cost: '100.00' }] },
         after: {
-          products: [{ productId: 'tp1', partNo: 'TEST-1', stockAfter: 15, costAfter: '120.00' }],
+          products: [{ productId: testId('tp1'), partNo: 'TEST-1', stockAfter: 15, costAfter: '120.00' }],
           unmatched: ['NOPE-9'],
         },
       });
     });
 
     it('clears the product cache after the receipt commits', async () => {
-      const read = () => http().get('/api/v1/products/tp1').set(auth(manager));
+      const read = () => http().get(`/api/v1/products/${testId('tp1')}`).set(auth(manager));
       await read();
       const cached = await read();
       expect(cached.headers['x-cache']).toBe('HIT');
@@ -671,7 +672,7 @@ describe('purchase orders (e2e)', () => {
       const { id } = await openPo([{ partNo: 'TEST-1', qty: 5, cost: '160.00' }]);
       // The other tenant has a product with the same part number; it must not move either.
       await seedProduct(admin, OTHER, {
-        id: 'tp1',
+        id: testId('tp1'),
         partNo: 'TEST-1',
         name: 'Test Part',
         price: 200,
@@ -688,13 +689,13 @@ describe('purchase orders (e2e)', () => {
       expect((await del(id, otherManager)).status).toBe(200);
 
       expect((await poRow(id))?.status).toBe('open');
-      expect(await product('tp1')).toEqual({ stock: 10, cost: '100.00' });
-      expect(await product('tp1', OTHER)).toEqual({ stock: 10, cost: '100.00' });
+      expect(await product(testId('tp1'))).toEqual({ stock: 10, cost: '100.00' });
+      expect(await product(testId('tp1'), OTHER)).toEqual({ stock: 10, cost: '100.00' });
     });
 
     it("a part number that exists only in another tenant is unmatched, and that tenant's stock stays put", async () => {
       await seedProduct(admin, OTHER, {
-        id: 'ob1',
+        id: testId('ob1'),
         partNo: 'ONLY-B',
         name: 'Other Shop Part',
         price: 200,
@@ -706,7 +707,7 @@ describe('purchase orders (e2e)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.unmatched).toEqual(['ONLY-B']);
       expect(res.body.data.updated).toEqual([]);
-      expect(await product('ob1', OTHER)).toEqual({ stock: 10, cost: '100.00' });
+      expect(await product(testId('ob1'), OTHER)).toEqual({ stock: 10, cost: '100.00' });
       const otherMoves = await admin.query(
         `SELECT 1 FROM movements WHERE tenant_id = $1::uuid`,
         [OTHER],
@@ -754,14 +755,14 @@ describe('purchase orders (e2e)', () => {
 
     it('refuses a receive that would take stock past INT max, and rolls back', async () => {
       await admin.query(
-        `UPDATE products SET stock = 2147483640 WHERE tenant_id = $1::uuid AND id = 'tp1'`,
+        `UPDATE products SET stock = 2147483640 WHERE tenant_id = $1::uuid AND id = '${testId('tp1')}'`,
         [TENANT],
       );
       const { id } = await openPo([{ partNo: 'TEST-1', qty: 10, cost: '160.00' }]);
       const res = await action(id, 'receive');
       expect(res.status).toBe(400);
       expect((await poRow(id))?.status).toBe('open');
-      expect((await product('tp1')).stock).toBe(2147483640);
+      expect((await product(testId('tp1'))).stock).toBe(2147483640);
     });
   });
 });
