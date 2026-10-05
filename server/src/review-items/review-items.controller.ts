@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -52,7 +53,7 @@ export class ReviewItemsController {
   @Post(':id/reviewed')
   @HttpCode(200)
   markReviewed(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ReviewItem> {

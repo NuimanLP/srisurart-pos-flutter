@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Catch,
   HttpException,
   HttpStatus,
@@ -14,6 +15,29 @@ export interface ErrorEnvelope {
 }
 
 /**
+ * #616 backstop: Postgres refusing a non-UUID for a `uuid` value (22P02 with the
+ * `type uuid` message) → `400 INVALID_ID`. Every id is meant to pass `parseUuid` before
+ * any SQL; this only catches one that slipped past, so it reads as the client's bad id
+ * rather than a 500. Scoped to the uuid message on purpose: 22P02 is also a bad
+ * integer, numeric, boolean, json or enum literal, and those stay 500s (server bugs —
+ * every such value is validated or produced by the server). `null` when not that error.
+ */
+export function invalidUuidInput(exception: unknown): BadRequestException | null {
+  const e = exception as { code?: unknown; message?: unknown } | null;
+  if (
+    e?.code === '22P02' &&
+    typeof e.message === 'string' &&
+    e.message.includes('invalid input syntax for type uuid')
+  ) {
+    return new BadRequestException({
+      code: 'INVALID_ID',
+      message: 'An id must be a lowercase UUID',
+    });
+  }
+  return null;
+}
+
+/**
  * Error envelope per 02_API_SCREENS.md §1.2.
  * Throw `new HttpException({ code, message, details }, status)` to control the
  * code; a plain HttpException falls back to the HTTP status name.
@@ -22,6 +46,7 @@ export function toErrorEnvelope(exception: unknown): {
   status: number;
   body: ErrorEnvelope;
 } {
+  exception = invalidUuidInput(exception) ?? exception;
   if (exception instanceof HttpException) {
     const status = exception.getStatus();
     const res = exception.getResponse();
@@ -96,6 +121,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     }
 
+    if (invalidUuidInput(exception)) {
+      // An id reached SQL without `parseUuid` — the client gets its 400, we get the trail.
+      this.logger.warn(
+        { correlationId: req.id, err: exception },
+        'non-UUID id reached Postgres',
+      );
+    }
     if (status >= 500) {
       this.logger.error(
         { correlationId: req.id, err: exception },

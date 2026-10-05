@@ -14,6 +14,7 @@ import type { Request, Response } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import {
@@ -63,7 +64,7 @@ export class ParkedSalesController {
   @Delete(':id')
   @HttpCode(200)
   remove(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ParkedSale> {

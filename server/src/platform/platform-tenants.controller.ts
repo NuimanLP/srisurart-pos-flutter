@@ -12,6 +12,7 @@ import {
 import type { Request } from 'express';
 import { PlatformAuthGuard } from './platform-auth.guard.js';
 import { clientIp } from '../common/client-ip.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import {
   CreateTenantDto,
   PlatformTenantsService,
@@ -64,7 +65,7 @@ export class PlatformTenantsController {
   @HttpCode(200)
   async reissueEnrolCode(
     @Param('id') id: string,
-    @Param('deviceId') deviceId: string,
+    @Param('deviceId', ParseUuidPipe) deviceId: string,
     @Req() req: AuthenticatedRequest,
   ) {
     const ip = clientIp(req) ?? undefined;
@@ -79,7 +80,7 @@ export class PlatformTenantsController {
   @HttpCode(200)
   async replaceDevice(
     @Param('id') id: string,
-    @Param('deviceId') deviceId: string,
+    @Param('deviceId', ParseUuidPipe) deviceId: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
   ) {

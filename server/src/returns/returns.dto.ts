@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { toSatang } from '../common/money.js';
+import { optionalUuid, parseUuid } from '../common/ids.js';
 
 /** One line of a credit note as the client sends it, with money already in satang. */
 export interface ReturnLine {
@@ -69,8 +70,8 @@ export function parseCreateReturn(body: unknown): CreateReturn {
   }
 
   return {
-    id: optionalString(b.id, 'id'),
-    saleId: requiredString(b.saleId, 'saleId'),
+    id: optionalUuid(b.id, 'id'),
+    saleId: parseUuid(requiredString(b.saleId, 'saleId'), 'saleId'),
     cnNo: optionalString(b.cnNo, 'cnNo'),
     refundMethod: requiredRefundMethod(b.refundMethod),
     // `returns.reason` is NOT NULL DEFAULT '' and the old app stores '' when staff
@@ -101,7 +102,10 @@ function parseLine(raw: unknown, index: number): ReturnLine {
   if (priceSatang < 0) {
     throw new BadRequestException(`items[${index}].price must not be negative`);
   }
-  const productId = requiredString(l.productId, `items[${index}].productId`);
+  const productId = parseUuid(
+    requiredString(l.productId, `items[${index}].productId`),
+    `items[${index}].productId`,
+  );
   const name =
     typeof l.name === 'string' && l.name.trim() !== ''
       ? l.name.trim()

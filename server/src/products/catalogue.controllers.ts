@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { optionalUuid } from '../common/ids.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -94,7 +96,7 @@ export class SuppliersController {
 
   @Patch(':id')
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
@@ -108,7 +110,7 @@ export class SuppliersController {
 
   @Delete(':id')
   delete(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ id: string; deleted: true }> {
@@ -135,7 +137,7 @@ export class MovementsController {
   ): Promise<Paginated<MovementOut>> {
     const parsed = pageParams(page, limit);
     const result = await this.movements.list({
-      productId: productId || undefined,
+      productId: optionalUuid(productId, 'productId') ?? undefined,
       from: isoDate(from, 'from'),
       to: isoDate(to, 'to'),
       ...parsed,

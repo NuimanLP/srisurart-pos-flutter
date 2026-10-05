@@ -14,6 +14,7 @@ import {
 import type { Response } from 'express';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { Paginated, pageParams } from '../common/paginated.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -52,7 +53,7 @@ export class PurchaseOrdersController {
   }
 
   @Get(':id')
-  get(@Param('id') id: string): Promise<PurchaseOrder> {
+  get(@Param('id', ParseUuidPipe) id: string): Promise<PurchaseOrder> {
     return this.orders.get(id);
   }
 
@@ -79,7 +80,7 @@ export class PurchaseOrdersController {
   @Post(':id/receive')
   @HttpCode(200)
   receive(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ReceiveResult> {
@@ -97,7 +98,7 @@ export class PurchaseOrdersController {
   @Post(':id/cancel')
   @HttpCode(200)
   cancel(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<PurchaseOrder> {
@@ -110,7 +111,7 @@ export class PurchaseOrdersController {
 
   @Delete(':id')
   delete(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ id: string; deleted: true }> {

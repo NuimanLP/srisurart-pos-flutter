@@ -44,7 +44,7 @@ export class SalePostProcessor extends WorkerHost {
               `SELECT id, stock, min_stock
                  FROM products
                 WHERE tenant_id = $1::uuid
-                  AND id = ANY($2::text[])
+                  AND id = ANY($2::uuid[])
                   AND stock <= min_stock
                   AND deleted_at IS NULL`,
               [payload.tenantId, productIds],

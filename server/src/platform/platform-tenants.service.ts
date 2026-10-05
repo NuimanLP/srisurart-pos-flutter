@@ -12,7 +12,7 @@ import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
 import { generateTempPassword, hashPassword } from '../common/password.js';
-import { newId, UUID_ANY_CASE_RE } from '../common/ids.js';
+import { newUuid, UUID_ANY_CASE_RE } from '../common/ids.js';
 import { returning } from '../common/sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { AuditService } from './audit.service.js';
@@ -604,7 +604,7 @@ export class PlatformTenantsService {
         });
       }
 
-      const newDeviceId = newId('dv');
+      const newDeviceId = newUuid();
       // An omitted label is named by the NEW device_no (RC<nn> receipts follow it), never the
       // retired device's label, so "POS #3" cannot front a device that numbers RC04.
       const newLabel = label ?? `${old.role === 'pos' ? 'POS' : 'Backoffice'} #${deviceNo}`;

@@ -14,6 +14,7 @@ import type { Request, Response } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
+import { optionalUuid, parseUuid } from '../common/ids.js';
 import { toSatang } from '../common/money.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -72,7 +73,7 @@ export class ShiftsController {
         // No `openedAt`/`createdAt` online (here or in `addEntry`): the server's `now()`
         // dates both; only `/sync/push` passes a device time (08 §10, #411).
         return this.shifts.open(actorOf(req), {
-          id: asOptionalString(b.id, 'id'),
+          id: b.id === undefined || b.id === null ? undefined : parseUuid(b.id, 'id'),
           startingCashSatang: cash(b.startingCash, 'startingCash'),
         });
       },
@@ -118,7 +119,7 @@ export class ShiftsController {
         const amountSatang = toSatang(b.amount, 'amount');
         if (amountSatang <= 0)
           throw new BadRequestException('amount must be greater than zero');
-        const id = typeof b.id === 'string' && b.id.trim() ? b.id.trim() : null;
+        const id = optionalUuid(b.id, 'id');
         const note = b.note === undefined || b.note === null ? null : String(b.note);
         return this.shifts.addEntry(actorOf(req), {
           id,
@@ -166,10 +167,3 @@ function asObject(body: unknown): Record<string, unknown> {
   return body as Record<string, unknown>;
 }
 
-function asOptionalString(value: unknown, field: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new BadRequestException(`${field} must be a non-empty string`);
-  }
-  return value.trim();
-}

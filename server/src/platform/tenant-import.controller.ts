@@ -12,6 +12,7 @@ import {
 import type { Request } from 'express';
 import { PlatformAuthGuard } from './platform-auth.guard.js';
 import { clientIp } from '../common/client-ip.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import {
   SnapshotPayload,
   TenantImportService,
@@ -46,7 +47,7 @@ export class TenantImportController {
   }
 
   @Get(':id/import/:jobId')
-  async getImportJob(@Param('id') id: string, @Param('jobId') jobId: string) {
+  async getImportJob(@Param('id') id: string, @Param('jobId', ParseUuidPipe) jobId: string) {
     return this.importService.getJob(id, jobId);
   }
 }
