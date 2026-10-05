@@ -1,22 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { randomBytes, randomUUID } from 'node:crypto';
-
-let counter = 0;
-
-/**
- * `prefix + base36(nowMs) + "_" + 8 hex + "_" + base36(++counter)` — the same shape
- * as the client's `core/utils/ids.dart`, itself a port of `pos/db.js` `_newId`.
- * Rows written by the server and rows imported from the old app therefore look alike,
- * and nothing downstream has to care which side made an id.
- *
- * @deprecated #616: entity ids become lowercase UUIDv7 — use `newUuid()`. Kept until the
- * last caller (`platform/tenant-import.service.ts`) is switched.
- */
-export function newId(prefix: string): string {
-  const ms = Date.now().toString(36);
-  const short = randomUUID().replaceAll('-', '').slice(0, 8);
-  return `${prefix}${ms}_${short}_${(++counter).toString(36)}`;
-}
+import { randomBytes } from 'node:crypto';
 
 /** Canonical lowercase 8-4-4-4-12 hex, any version — the only id form the API accepts (#616). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
