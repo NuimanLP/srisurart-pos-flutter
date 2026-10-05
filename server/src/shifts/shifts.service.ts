@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { newId } from '../common/ids.js';
-import { fromSatang } from '../common/money.js';
+import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
@@ -195,6 +195,18 @@ export class ShiftsService {
         [tenantId, shiftId],
       )) as ShiftRow[];
       if (existing.length > 0) {
+        // Same id, different opening cash: not a replay but another drawer that collided
+        // on the id — refuse like the /sync/push path (`checkClientIdReplay`) does.
+        if (satangOf(existing[0].starting_cash) !== input.startingCashSatang) {
+          throw new HttpException(
+            {
+              code: 'CLIENT_ID_REUSED',
+              message: 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
+              details: { type: 'shift.open', id: shiftId },
+            },
+            HttpStatus.CONFLICT,
+          );
+        }
         return this.withEntries(manager, tenantId, existing[0]);
       }
     }

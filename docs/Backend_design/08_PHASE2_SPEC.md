@@ -372,7 +372,7 @@ stateDiagram-v2
 | | |
 |---|---|
 | หลายกะต่อวัน | ได้ · `uq_shift_active` (active ละหนึ่งต่อเครื่อง) คงเดิม |
-| `POST /shifts/open` | body `{ id, startingCash }` — 🔄 **แก้ 2026-09-25 (owner):** ไม่มี `openedAt` ในบอดี้ออนไลน์ (§10: route ออนไลน์ใช้ `now()` เสมอ ไม่อ่านวันที่จาก body) · `openedAt` เป็นฟิลด์ของ op `shift.open` ใน `/sync/push` เท่านั้น · id มีแล้ว → คืนกะนั้น · มีกะ active อื่น → archive (`auto_archived=true`, ไม่มี `physical_cash`) + `shift_uncounted` · insert ด้วย id ของ client · `date_str` จาก `opened_at` (§10) ตาม `tenants.timezone` |
+| `POST /shifts/open` | body `{ id, startingCash }` — 🔄 **แก้ 2026-09-25 (owner):** ไม่มี `openedAt` ในบอดี้ออนไลน์ (§10: route ออนไลน์ใช้ `now()` เสมอ ไม่อ่านวันที่จาก body) · `openedAt` เป็นฟิลด์ของ op `shift.open` ใน `/sync/push` เท่านั้น · id มีแล้ว → คืนกะนั้น (ถ้า `startingCash` ตรงกัน; ต่างกัน = `409 CLIENT_ID_REUSED` เหมือน `/sync/push`) · มีกะ active อื่น → archive (`auto_archived=true`, ไม่มี `physical_cash`) + `shift_uncounted` · insert ด้วย id ของ client · `date_str` จาก `opened_at` (§10) ตาม `tenants.timezone` |
 | ลบของเดิม | "active วันเดียวกัน → คืนกะเดิม" + `today()` (`shifts.service.ts:160-176`) |
 | ⚠️ ผลข้างออนไลน์ | กด "เปิดกะ" ขณะมีกะ active → กะเดิมถูก archive ไม่ได้นับเงิน (เดิมคืนกะเดิม) · หลังปิดกะ ใบลดหนี้เงินสด (#100) ไม่ต้องรอพรุ่งนี้แล้ว เปิดกะใหม่ได้เลย |
 | ปิดกะ | ออนไลน์ + outbox ไม่มี `pending`/`stuck`/`rejected` — **client บังคับ** (server ไม่เห็น outbox) |
