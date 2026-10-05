@@ -51,11 +51,11 @@ export default function () {
   sleep(Math.random() * 0.15);
 
   const url = `${env.baseUrl}/api/v1/sales`;
-  const saleId = `sale-replay-${generateUUID()}`;
+  const saleId = generateUUID(); // #616: entity ids are UUIDs
   const idemKey = `idem-k6-replay-vu-${__VU}-${Date.now()}`;
 
   // Use one of the 1000-stock catalogue products so stock won't run out
-  const targetProduct = env.products ? env.products[1] : 'p_1';
+  const targetProduct = env.products ? env.products[1] : '5eff5cca-c640-5ff5-98a6-730f2d1fa9fc'; // testId('p_1') — setup.ts
 
   const payload = JSON.stringify({
     id: saleId,

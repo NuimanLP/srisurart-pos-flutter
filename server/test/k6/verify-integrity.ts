@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { testId } from '../support/test-ids.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -146,7 +147,7 @@ export async function verifyIntegrity(options: EvaluateIntegrityOptions = {}) {
 
   const envData = JSON.parse(fs.readFileSync(envPath, 'utf8'));
   const tenantId = envData.tenantId;
-  const productId = envData.productId ?? 'p12';
+  const productId = envData.productId ?? testId('p12');
   const initialStock = Number(envData.initialStock ?? 50);
 
   const pool = new pg.Pool({ connectionString: DB_URL });
