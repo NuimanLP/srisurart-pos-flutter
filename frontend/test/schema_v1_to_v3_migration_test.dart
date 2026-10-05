@@ -23,6 +23,7 @@ import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/shifts_repository.dart';
 
 import 'support/legacy_schema_ddl.dart';
+import 'support/test_ids.dart';
 
 const _v1Ddl = [
   // ── touched by the v2 block (sync bookkeeping + cost at sale) ──
@@ -230,7 +231,7 @@ void main() {
     expect(drawer.entries.map((e) => e.id), ['de2']);
 
     final fresh = await repo.openShift(1500);
-    expect(fresh.id, startsWith('sh'));
+    expect(fresh.id, matches(uuidV7));
     expect(fresh.id, isNot(anyOf('1', '2')));
 
     final prior = await (db.select(

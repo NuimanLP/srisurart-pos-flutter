@@ -5,16 +5,16 @@
     {
       "route": "POST /api/v1/mechanics/:id/credit-payments",
       "method": "POST",
-      "path": "/api/v1/mechanics/ct-mechanic-1/credit-payments",
+      "path": "/api/v1/mechanics/874b1410-8938-5b7b-85f8-44f831ce5f87/credit-payments",
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "cpmush0wg6_9bd7f3d8_g",
-        "mechanicId": "ct-mechanic-1",
+        "id": "01a10bdb-3b63-731d-a040-f773a051b4fc",
+        "mechanicId": "874b1410-8938-5b7b-85f8-44f831ce5f87",
         "amount": "200.00",
         "paymentMethod": "เงินสด",
         "note": "ชำระบางส่วน",
-        "date": "2026-10-03T14:12:08.646067Z"
+        "date": "2026-10-05T11:37:59.395323Z"
       }
     }
   ]

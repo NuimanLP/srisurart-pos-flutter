@@ -12,6 +12,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/suppliers_repository.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -50,7 +51,7 @@ void main() {
         unitCost: 99.5,
       );
 
-      expect(row.id, startsWith('sup'));
+      expect(row.id, matches(uuidV7));
       expect(row.freight, 0);
 
       final stored = (await repo.getSuppliersForProduct('p3')).single;

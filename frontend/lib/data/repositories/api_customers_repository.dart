@@ -199,7 +199,7 @@ class ApiCustomersRepository extends CustomersRepository {
   Future<CustomerRow> addCustomer(CustomersCompanion data) async {
     final customerId = data.id.present && data.id.value.isNotEmpty
         ? data.id.value
-        : newId('c');
+        : newUuid();
     final name = data.name.present ? data.name.value : '';
     final nameTH = data.nameTH.present && data.nameTH.value.isNotEmpty
         ? data.nameTH.value
@@ -217,7 +217,7 @@ class ApiCustomersRepository extends CustomersRepository {
     final aggregates = ['customer:$customerId'];
 
     Future<CustomerRow> queueOfflineCustomer() async {
-      final opId = newId('op');
+      final opId = newUuid();
       final key = newId('idem');
       final now = DateTime.now();
       final code = data.code.present ? data.code.value : '';
@@ -329,7 +329,7 @@ class ApiCustomersRepository extends CustomersRepository {
     final aggregates = ['customer:$id'];
 
     Future<void> queueOfflineUpdate() async {
-      final opId = newId('op');
+      final opId = newUuid();
       final key = newId('idem');
       final now = DateTime.now();
 

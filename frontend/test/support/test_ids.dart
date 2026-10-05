@@ -22,3 +22,6 @@ final contractIds = {
   'review': testId('ct-review-1'),
   'device': testId('ct-device-1'),
 };
+
+/// A lowercase UUIDv7, the shape `newUuid()` mints for every entity id (#616).
+final uuidV7 = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$');

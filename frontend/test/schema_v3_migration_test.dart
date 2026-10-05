@@ -18,6 +18,7 @@ import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/shifts_repository.dart';
 
 import 'support/legacy_schema_ddl.dart';
+import 'support/test_ids.dart';
 
 // Verbatim schema v2, as `sqlite_master` reported it on the commit before this
 // migration. Do not tidy these strings — they are evidence, not source code.
@@ -162,7 +163,7 @@ void main() {
     final repo = ShiftsRepository(db);
     final fresh = await repo.openShift(2000);
 
-    expect(fresh.id, startsWith('sh'));
+    expect(fresh.id, matches(uuidV7));
     expect(fresh.id, isNot(anyOf('1', '2')));
     expect(fresh.isActive, isTrue);
 

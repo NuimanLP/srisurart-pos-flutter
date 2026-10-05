@@ -218,7 +218,7 @@ class ShiftsRepository {
         );
       }
 
-      final shiftId = id ?? newId('sh');
+      final shiftId = id ?? newUuid();
       await db
           .into(db.shifts)
           .insert(
@@ -257,7 +257,7 @@ class ShiftsRepository {
     await assertCashOutFits(shift, type, amount);
 
     final row = DrawerEntryRow(
-      id: newId('de'),
+      id: newUuid(),
       shiftId: shift.id,
       type: type,
       amount: amount,
