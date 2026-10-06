@@ -11,7 +11,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../core/network/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/offline_pin_repository.dart';
@@ -132,15 +131,13 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
       );
     } catch (e) {
       if (!mounted) return;
-      // #612: the password re-check posts /auth/token itself, so a dead
-      // device token (#609) comes back here as a 401 — not a wrong password.
-      // Forget it exactly as login does; the session ends and the login form
-      // shows the #609 sentence, so the dialog has nothing left to show.
-      final deadToken = e is DeviceEnrolmentGoneException ||
-          (e is ApiException &&
-              e.statusCode == 401 &&
-              AuthRepository.deadDeviceTokenCodes.contains(e.code));
-      if (deadToken && sentDeviceToken != null && sentDeviceToken.isNotEmpty) {
+      // #612: setPin turns a dead device token (#609) into
+      // DeviceEnrolmentGoneException. Forget it exactly as login does; the
+      // session ends and the login form shows the #609 sentence, so the dialog
+      // has nothing left to show.
+      if (e is DeviceEnrolmentGoneException &&
+          sentDeviceToken != null &&
+          sentDeviceToken.isNotEmpty) {
         try {
           await authCubit.forgetDeadDeviceToken(sentDeviceToken);
         } catch (clearError) {
@@ -157,15 +154,9 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
       }
       setState(() {
         _busy = false;
-        // Only the server's plain 401 is a wrong password, and no other
-        // ApiException may reach the screen as its raw toString().
-        if (e is ApiException &&
-            e.statusCode == 401 &&
-            e.code == 'UNAUTHORIZED') {
-          _errorMessage = 'รหัสผ่านบัญชีไม่ถูกต้อง';
-        } else if (e is ApiException) {
-          _errorMessage = e.thaiMessage;
-        } else if (e is ArgumentError) {
+        // The repository already turned every server refusal into a plain
+        // Thai-string exception (wrong password, PosException).
+        if (e is ArgumentError) {
           _errorMessage = e.message?.toString() ?? 'ข้อมูลไม่ถูกต้อง';
         } else {
           _errorMessage = e.toString().replaceFirst('Exception: ', '');

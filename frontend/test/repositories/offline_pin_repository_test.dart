@@ -3,6 +3,9 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/api_exception.dart';
+import 'package:srisurart_pos/core/network/server_error_resolver.dart';
+import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
 import 'package:srisurart_pos/data/storage/token_storage.dart';
@@ -344,6 +347,64 @@ void main() {
         deviceId: 'different-device-99',
       );
       expect(res, isA<PinVerifyNotPos>());
+    });
+  });
+
+  // #612: setPin is the only layer that sees the ApiException from its
+  // POST /auth/token — the dialog gets plain Thai-string exceptions only.
+  group('OfflinePinRepository.setPin converts 401s (#612)', () {
+    Future<Object> setPinWith401(String code, {String? deviceToken}) async {
+      final client = ApiClient(
+        tokenStorage: tokenStorage,
+        httpClient: _MockHttpClient(
+          handler: (req) async => http.Response(
+            jsonEncode({
+              'status': 'error',
+              'error': {'code': code, 'message': 'refused'},
+            }),
+            401,
+            headers: {'content-type': 'application/json'},
+          ),
+        ),
+      );
+      final r = OfflinePinRepository(
+          db: db, tokenStorage: tokenStorage, apiClient: client);
+      try {
+        await r.setPin(
+          password: 'pw-123456',
+          newPin: '4321',
+          username: 'owner',
+          deviceId: 'pos-dev-1',
+          deviceToken: deviceToken,
+        );
+      } catch (e) {
+        expect(e, isNot(isA<ApiException>()));
+        expect(await r.isPinConfigured(), isFalse);
+        return e;
+      }
+      fail('setPin should have thrown');
+    }
+
+    for (final code in AuthRepository.deadDeviceTokenCodes) {
+      test('$code with a device token → DeviceEnrolmentGoneException', () async {
+        tokenStorage.deviceToken = 'dev-tok';
+        final e = await setPinWith401(code, deviceToken: 'dev-tok');
+        expect(e, isA<DeviceEnrolmentGoneException>());
+        // The repository forgets nothing; the caller compare-and-clears.
+        expect(tokenStorage.deviceToken, 'dev-tok');
+      });
+    }
+
+    test('UNAUTHORIZED → wrong-password Exception', () async {
+      final e = await setPinWith401('UNAUTHORIZED', deviceToken: 'dev-tok');
+      expect(e.toString().replaceFirst('Exception: ', ''),
+          OfflinePinRepository.wrongPasswordMessage);
+    });
+
+    test('other code → PosException with its Thai sentence', () async {
+      final e = await setPinWith401('TEMP_PASSWORD_EXPIRED');
+      expect(e, isA<PosException>());
+      expect(e.toString(), ServerErrorResolver.resolve('TEMP_PASSWORD_EXPIRED'));
     });
   });
 }
