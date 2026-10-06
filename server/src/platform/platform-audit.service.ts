@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
-import { UUID_ANY_CASE_RE } from '../common/ids.js';
+import { assertValidTenantId } from './platform-tenants.service.js';
 import { AuditService } from './audit.service.js';
 
 export const AUDIT_PAGE_DEFAULT = 50;
@@ -152,9 +152,7 @@ export class PlatformAuditService {
     adminId: string,
     ip?: string,
   ): Promise<{ items: AuditEntry[]; nextCursor: string | null }> {
-    if (!UUID_ANY_CASE_RE.test(tenantId)) {
-      throw new BadRequestException({ code: 'INVALID_TENANT_ID', message: 'tenantId must be a valid UUID' });
-    }
+    assertValidTenantId(tenantId);
     const limit = parseAuditLimit(query.limit);
     const cursor =
       query.before === undefined || query.before === '' ? null : decodeAuditCursor(query.before);
