@@ -519,6 +519,116 @@ describe('POST /sync/push (e2e)', () => {
       expect(stock[0].stock).toBe(44);
     });
 
+    it('shift.open B1 step 2: key row gone + body the parser refuses → the stored shift replays', async () => {
+      const payload = { id: testId('sh_s2'), startingCash: '1000.00', openedAt: '2026-09-15T01:00:00.000Z' };
+      const op = { opId: testId('op_sh_s2'), idempotencyKey: 'k_sh_s2', type: 'shift.open', payload };
+      const first = await push({ outboxRemaining: 0, ops: [op] });
+      expect(first.body.data.results[0].status).toBe('applied');
+
+      await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_sh_s2'`, [TENANT]);
+      await clearTenantCache(cache, TENANT);
+      // `openedAt` the parser refuses; id and startingCash as stored.
+      const bad = { ...payload, openedAt: 'not-a-date' };
+      const replay = await push({ outboxRemaining: 0, ops: [{ ...op, payload: bad }] });
+      expect(replay.body.data.results[0]).toEqual(first.body.data.results[0]);
+
+      // Unknown id + the same bad body: the parser's refusal, as before.
+      const fresh = await push({
+        outboxRemaining: 0,
+        ops: [{ ...op, opId: testId('op_sh_s2b'), idempotencyKey: 'k_sh_s2b', payload: { ...bad, id: testId('sh_s2b') } }],
+      });
+      expect(fresh.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'BAD_REQUEST' });
+
+      // Same id, different startingCash (the compared field): a different shift.
+      const other = await push({
+        outboxRemaining: 0,
+        ops: [{ ...op, opId: testId('op_sh_s2c'), idempotencyKey: 'k_sh_s2c', payload: { ...bad, startingCash: '999.00' } }],
+      });
+      expect(other.body.data.results[0]).toMatchObject({
+        status: 'rejected',
+        code: 'CLIENT_ID_REUSED',
+        details: { type: 'shift.open', id: testId('sh_s2') },
+      });
+
+      const n = await admin.query(`SELECT count(*)::int AS n FROM shifts WHERE tenant_id = $1::uuid`, [TENANT]);
+      expect(n[0].n).toBe(1);
+    });
+
+    it('customer.create B1 step 2: key row gone + body the parser refuses → the stored customer replays', async () => {
+      const payload = { id: testId('c_s2'), name: 'สมชาย สายลม', phone: '0812345678', address: null };
+      const op = { opId: testId('op_c_s2'), idempotencyKey: 'k_c_s2', type: 'customer.create', payload };
+      const first = await push({ outboxRemaining: 0, ops: [op] });
+      expect(first.body.data.results[0].status).toBe('applied');
+
+      await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_c_s2'`, [TENANT]);
+      await clearTenantCache(cache, TENANT);
+      // A `phone` the parser refuses. 08 §6.1 C7: customer.create compares the id only,
+      // so there is no field whose mismatch could give CLIENT_ID_REUSED.
+      const bad = { ...payload, phone: 812345678 };
+      const replay = await push({ outboxRemaining: 0, ops: [{ ...op, payload: bad }] });
+      expect(replay.body.data.results[0]).toEqual(first.body.data.results[0]);
+
+      // Unknown id + the same bad body: the parser's refusal, as before.
+      const fresh = await push({
+        outboxRemaining: 0,
+        ops: [{ ...op, opId: testId('op_c_s2b'), idempotencyKey: 'k_c_s2b', payload: { ...bad, id: testId('c_s2b') } }],
+      });
+      expect(fresh.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'BAD_REQUEST' });
+
+      const rows = await admin.query(`SELECT id, phone FROM customers WHERE tenant_id = $1::uuid`, [TENANT]);
+      expect(rows).toEqual([{ id: testId('c_s2'), phone: '0812345678' }]);
+    });
+
+    it('sale.void_offline B1 step 2: key row gone + body the parser refuses → the stored void replays', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+      await seedProduct(admin, TENANT, { id: testId('p1'), partNo: 'HN-V2', name: 'Oil Filter', price: 85, cost: 50, stock: 50 });
+      const sale = (id: string, n: string) => ({
+        opId: testId(`op_${id}`),
+        idempotencyKey: `k_${id}`,
+        type: 'sale.create',
+        payload: {
+          id: testId(id), receiptNo: `RC01-${currentPeriod()}-${n}`, subtotal: '170.00', discount: '0.00', total: '170.00', paymentMethod: 'เงินสด',
+          items: [{ lineNo: 1, productId: testId('p1'), name: 'Oil Filter', qty: 2, price: '85.00' }],
+        },
+      });
+      const stock = async () =>
+        (await admin.query(`SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`, [TENANT, testId('p1')]))[0].stock;
+      const payload = { saleId: testId('s_v2'), reason: 'ลูกค้าขอยกเลิก' };
+      const op = { opId: testId('op_v2'), idempotencyKey: 'k_v2', type: 'sale.void_offline', payload };
+      // s_v2 is voided; s_v2b stays an un-voided bill the server holds.
+      const first = await push({ outboxRemaining: 0, ops: [sale('s_v2', '0401'), sale('s_v2b', '0402'), op] });
+      expect(first.body.data.results.map((r: { status: string }) => r.status)).toEqual(['applied', 'applied', 'applied']);
+      const firstVoid = first.body.data.results[2];
+      expect(await stock()).toBe(48);
+
+      await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_v2'`, [TENANT]);
+      await clearTenantCache(cache, TENANT);
+      // An empty reason the parser refuses. 08 §6.1: a void replays on "bill already
+      // voided" alone — no compared field, so no CLIENT_ID_REUSED case.
+      const bad = { ...payload, reason: '   ' };
+      const replay = await push({ outboxRemaining: 0, ops: [{ ...op, payload: bad }] });
+      expect(replay.body.data.results[0]).toEqual(firstVoid);
+
+      // A bill not yet voided + the same bad body: nothing to replay, the parser's refusal.
+      const fresh = await push({
+        outboxRemaining: 0,
+        ops: [{ ...op, opId: testId('op_v2b'), idempotencyKey: 'k_v2b', payload: { ...bad, saleId: testId('s_v2b') } }],
+      });
+      expect(fresh.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'BAD_REQUEST' });
+
+      const sales = await admin.query(`SELECT id, voided FROM sales WHERE tenant_id = $1::uuid ORDER BY receipt_no`, [TENANT]);
+      expect(sales).toEqual([
+        { id: testId('s_v2'), voided: true },
+        { id: testId('s_v2b'), voided: false },
+      ]);
+      const reviews = await admin.query(
+        `SELECT ref_id FROM owner_review_items WHERE tenant_id = $1::uuid AND kind = 'void_offline'`,
+        [TENANT],
+      );
+      expect(reviews).toEqual([{ ref_id: testId('s_v2') }]);
+      expect(await stock()).toBe(48);
+    });
+
     it('drawer-entry replay: an offline cash-out over the expected cash is still accepted (the cash already left)', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: testId('sh_off_002'),

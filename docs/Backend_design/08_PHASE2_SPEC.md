@@ -284,8 +284,9 @@ stateDiagram-v2
 > · ขั้น 2 ก็ไม่ parse แล้ว (PR #638): `replayProbeOf` อ่านจาก payload ตามที่ส่งมาแค่ client id + ฟิลด์ที่ §6.1 เทียบ
 > (ไม่ throw) แล้วสร้างคำตอบจากแถวที่เก็บไว้ — key หมดอายุ + body ที่ parser วันนี้ไม่รับ = `applied` ·
 > id ไม่ใช่ UUID → ไม่ replay (parser ตอบ `INVALID_ID`) · ฟิลด์ไม่ตรง/อ่านไม่ออก → `CLIENT_ID_REUSED` ·
-> พิสูจน์ด้วย e2e (key หมดอายุ + body ที่ parser ไม่รับ): `sale.create` `return.create` `credit_payment.create` `drawer.entry`
-> · `shift.open` `customer.create` `sale.void_offline` มีแค่ unit test (`sync.dto.spec.ts`: probe ตรงกับ parser ทุก fixture)
+> พิสูจน์ด้วย e2e ครบทั้ง 7 type ที่ replay by id ได้ (key หมดอายุ + body ที่ parser ไม่รับ, `sync-push.e2e-spec.ts`):
+> `sale.create` `return.create` `credit_payment.create` `drawer.entry` `shift.open` `customer.create` `sale.void_offline`
+> (`customer.create`/`sale.void_offline` ไม่มีฟิลด์ที่เทียบ → ไม่มีกรณี `CLIENT_ID_REUSED`) · `sync.dto.spec.ts` ยังเช็ค probe ตรงกับ parser ทุก fixture
 
 - `runTx` ของตัวเองต่อ op ต่อกันทีละตัว — ห้าม `Promise.all` (#162), ห้ามรวมทั้ง batch
 - `IN_FLIGHT`, `CommitCeilingExceededError`, 5xx → `retry` แล้ว**หยุด**
