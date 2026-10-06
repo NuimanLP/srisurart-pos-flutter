@@ -10,7 +10,7 @@ import { Queue } from 'bullmq';
 import { DataSource } from 'typeorm';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
-import { newUuid } from '../common/ids.js';
+import { assertValidTenantId, newUuid } from '../common/ids.js';
 import {
   DEFAULT_JOB_OPTIONS,
   JOB_TENANT_IMPORT,
@@ -18,7 +18,6 @@ import {
   type TenantImportJobPayload,
 } from '../queue/queue.constants.js';
 import { AuditService } from './audit.service.js';
-import { assertValidTenantId } from './platform-tenants.service.js';
 import { snapshotProductCategory } from './snapshot-category.js';
 import {
   describeBadDate,
