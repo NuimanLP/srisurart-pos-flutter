@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.8)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
+**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
