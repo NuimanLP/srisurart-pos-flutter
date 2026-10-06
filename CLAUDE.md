@@ -261,7 +261,7 @@ develops against a demo tenant.
   2026-09-22).
 - ~~#343~~ / #344 — the first real deploy to `mob04` and the end-to-end demo run. **#343
   closed 2026-09-30 (5/5)** — deploy, Grafana checked, manual-Ansible rollback to `e50f4fa`
-  `failed=0`, command log in the 2026-09-30 handoff (PR #511/#514). **#344 is partly run, not done** (2026-10-05: AC1 + AC2 only, tenant `demo-344-20261005`
+  `failed=0`, command log in the 2026-09-30 handoff (PR #511/#514). **#344 must restart from AC1** — 🔴 2026-10-06 the #616 cutover wiped every tenant on `mob04` (backup + runbook, `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`; VM now `65861ea`, `ROLLBACK_FLOOR` `bedd328`, no tenant yet). Earlier partial run (2026-10-05: AC1 + AC2 only, tenant `demo-344-20261005`
   via platform-ui; sales/replay/Grafana not yet — `docs/handoff_log/session-2026-10-05-demo344-retired-device.md`); its
   checklist is `docs/handoff_log/demo-344-checklist-2026-09-30.md`, with flagged blockers
   (temp-password + forced change within 10 min, new tenant has no products, the app cannot
