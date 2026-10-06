@@ -70,8 +70,9 @@ Never rethrowServerRefusal(ApiException e) =>
 ///    sentence on every path, so both modes give the same text for it.
 ///  - [keepServerTextOn5xx] — [ApiException.thaiMessage], what [rethrowThai] /
 ///    [rethrowServerRefusal] have always produced (sales, returns, shifts,
-///    settings, product delete, PIN setup). It keeps e.g. the 503
-///    `IDEMPOTENCY_KEY_IN_FLIGHT` sentence those paths show.
+///    settings, product delete, PIN setup). It keeps e.g. a 500
+///    `INTERNAL_ERROR`'s own server `message` on those paths, where the
+///    default would show the connection sentence.
 PosException posExceptionFromApi(
   ApiException e, {
   bool keepServerTextOn5xx = false,
