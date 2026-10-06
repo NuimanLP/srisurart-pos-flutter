@@ -315,10 +315,18 @@ export class SyncService {
         // very function that route answers a replay-by-id with — never a second
         // hand-built shape. Its `SALE_ID_REUSED` (total differs) maps to
         // `CLIENT_ID_REUSED` in `mapOpError`.
-        // A total that does not read (`null`) never matches: `SALE_ID_REUSED`.
+        if (op.totalSatang === null) {
+          // A total that does not read cannot match a stored bill; no bill → the parser decides.
+          const rows = await manager.query(
+            `SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, id],
+          );
+          if (rows.length === 0) return null;
+          throw new ClientIdReusedException(op.type, id);
+        }
         const existing = await this.sales.existingSale(manager, tenantId, {
           id,
-          totalSatang: op.totalSatang ?? Number.NaN,
+          totalSatang: op.totalSatang,
           soldOffline: true,
         });
         if (existing === null) return null;

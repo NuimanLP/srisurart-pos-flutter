@@ -431,6 +431,30 @@ describe('POST /sync/push (e2e)', () => {
       });
     });
 
+    it('drawer-entry B1 step 2: key row gone + body the parser refuses → the stored entry replays', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId, { id: testId('sh_off_s2'), startingCash: 1000 });
+      const payload = { id: testId('de_off_s2'), type: 'in', amount: '500.00', note: 'n', createdAt: '2026-09-15T01:30:00.000Z' };
+      const op = { opId: testId('op_drawer_s2'), idempotencyKey: 'k_de_s2', type: 'drawer.entry', payload };
+      const first = await push({ outboxRemaining: 0, ops: [op] });
+      expect(first.body.data.results[0].status).toBe('applied');
+
+      await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_de_s2'`, [TENANT]);
+      await clearTenantCache(cache, TENANT);
+      // `createdAt` the parser refuses; id, type and amount as stored.
+      const replay = await push({ outboxRemaining: 0, ops: [{ ...op, payload: { ...payload, createdAt: 'not-a-date' } }] });
+      expect(replay.body.data.results[0]).toEqual(first.body.data.results[0]);
+
+      // Unknown id + the same bad body: the parser's refusal, as before.
+      const fresh = await push({
+        outboxRemaining: 0,
+        ops: [{ ...op, opId: testId('op_drawer_s2b'), idempotencyKey: 'k_de_s2b', payload: { ...payload, id: testId('de_off_s2b'), createdAt: 'not-a-date' } }],
+      });
+      expect(fresh.body.data.results[0]).toMatchObject({ status: 'rejected', code: 'BAD_REQUEST' });
+
+      const n = await admin.query(`SELECT count(*)::int AS n FROM drawer_entries WHERE tenant_id = $1::uuid`, [TENANT]);
+      expect(n[0].n).toBe(1);
+    });
+
     it('drawer-entry replay: an offline cash-out over the expected cash is still accepted (the cash already left)', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: testId('sh_off_002'),
@@ -1915,6 +1939,17 @@ describe('POST /sync/push (e2e)', () => {
           status: 'rejected',
           code: 'INVALID_ID',
           details: { field: 'payload.id' },
+        });
+
+        // An unknown (well-formed) id with the refused body: nothing to replay, the parser's refusal.
+        const unknown = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: testId('op_b1_step2_unknown'), idempotencyKey: 'k_b1_step2_unknown', type: 'sale.create', payload: { ...refused, id: testId('s_b1_step2_unknown') } }],
+        });
+        expect(unknown.body.data.results[0]).toMatchObject({
+          status: 'rejected',
+          code: 'INVALID_ID',
+          details: { field: 'payload.customerId' },
         });
 
         const n = await admin.query(`SELECT count(*)::int AS n FROM sales WHERE tenant_id = $1::uuid`, [TENANT]);
