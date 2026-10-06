@@ -12,7 +12,7 @@
 //   getParked() { return this.get(DB_KEYS.parked) || []; }
 //   parkSale(data) {
 //     const all = this.getParked();
-//     const newP = { ...data, id: _newId('pk'), parkedAt: new Date().toISOString() };
+//     const newP = { ...data, id: _newId, prefix 'pk', parkedAt: new Date().toISOString() };
 //     this.set(DB_KEYS.parked, [newP, ...all]);   // prepend → newest first
 //     return newP;
 //   }

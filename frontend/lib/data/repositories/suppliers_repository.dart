@@ -3,7 +3,7 @@
 // db.js methods ported:
 //   getSuppliers()                    → all suppliers
 //   getSuppliersForProduct(productId) → suppliers filtered by productId
-//   addSupplier(s)   → inserts { ...s, id:_newId('sup') } and returns it
+//   addSupplier(s)   → inserts { ...s, id:_newId (prefix 'sup') } and returns it
 //   (The Dart port mints the id with newUuid() instead — #616.)
 //   updateSupplier(id, data)          → patch
 //   deleteSupplier(id)                → remove

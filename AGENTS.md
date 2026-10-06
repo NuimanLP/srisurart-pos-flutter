@@ -91,7 +91,7 @@ frontend/
     core/
       router/app_router.dart   ← GoRouter + AppRoutes (the 11 routes). ShellRoute → AppShell.
       theme/                   ← navy/orange brand, Sarabun (Thai) + Barlow type
-      utils/                   ← newId/docNo (ids.dart), baht/round2/pointsFor (money.dart),
+      utils/                   ← newUuid/newIdempotencyKey/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
     data/
       db/tables.dart           ← 20 Drift tables (ported sa_* stores from pos/db.js)
@@ -137,7 +137,7 @@ idiomatic replacement for the JS snapshot/rollback):
 - **snapshot** — `exportSnapshot()` emits the JS `sa_*` + `__meta` backup shape;
   `importLegacyBackup()` atomically imports a JS `DB.exportSnapshot()` JSON (zone→category
   migration, null-as-absent). This is the Phase-2 data-migration path.
-- IDs/doc-numbers via `newId/docNo` only; CSV via `csvSafe`.
+- IDs/doc-numbers via `newUuid/newIdempotencyKey/docNo` only; CSV via `csvSafe`.
 
 ---
 

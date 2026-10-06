@@ -12,7 +12,7 @@ import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
 import { generateTempPassword, hashPassword } from '../common/password.js';
-import { newUuid, UUID_ANY_CASE_RE } from '../common/ids.js';
+import { isUuid, newUuid } from '../common/ids.js';
 import { returning } from '../common/sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { AuditService } from './audit.service.js';
@@ -51,10 +51,10 @@ export const SEED_CATEGORIES = [
  */
 
 export function assertValidTenantId(tenantId: string): void {
-  if (!UUID_ANY_CASE_RE.test(tenantId)) {
+  if (!isUuid(tenantId)) {
     throw new BadRequestException({
       code: 'INVALID_TENANT_ID',
-      message: 'tenantId must be a valid UUID',
+      message: 'tenantId must be a lowercase UUID',
     });
   }
 }

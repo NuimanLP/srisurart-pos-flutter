@@ -60,7 +60,7 @@ void main() {
 
       final after = DateTime.now();
 
-      // id prefix from newId('pk').
+      // id is a UUIDv7 from newUuid().
       expect(row.id, matches(uuidV7));
 
       // parkedAt is a real timestamp captured during the call.

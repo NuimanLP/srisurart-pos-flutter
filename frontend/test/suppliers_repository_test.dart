@@ -3,7 +3,7 @@
 // Invariants under test (db.js sa_suppliers parity):
 //  • SEED_SUPPLIERS (6 rows) is seeded by AppDatabase.onCreate.
 //  • getSuppliersForProduct filters by productId.
-//  • addSupplier assigns id via newId('sup') and defaults freight to 0.
+//  • addSupplier assigns id via newUuid() and defaults freight to 0.
 //  • updateSupplier patches ONLY the passed fields (Value.absent semantics).
 //  • deleteSupplier removes the row.
 
