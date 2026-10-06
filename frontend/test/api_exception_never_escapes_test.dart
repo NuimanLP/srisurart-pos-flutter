@@ -46,7 +46,6 @@ import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
-import 'package:srisurart_pos/data/repositories/mechanics_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/review_items_repository.dart';
@@ -185,13 +184,13 @@ const _loginOverrides = {
 };
 
 /// The only things a screen may be handed. Anything else — above all an
-/// `ApiException` — fails.
+/// `ApiException` — fails. `CreditPaymentQueued` is deliberately absent: every
+/// reply here is a server answer, and only a transport failure may queue a
+/// payment (08 §5, #452) — a regression back to queueing fails this test.
 bool _allowed(Object? thrown) =>
     thrown == null ||
     thrown is PosException ||
     thrown is EnrolCodeRefusedException ||
-    // A 5xx/429 on a credit payment queues it (#24) — the screen's own branch.
-    thrown is CreditPaymentQueued ||
     // changePassword's 401 (#443 PR3) — the cubit's own branch.
     thrown is PasswordChangeSessionExpiredException;
 
