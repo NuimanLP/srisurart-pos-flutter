@@ -174,7 +174,10 @@ class AuthRepository {
   ///   no code, so the resolver would print `Invalid credentials` at the
   ///   counter. They get the form's generic `เข้าสู่ระบบไม่สำเร็จ`, which also
   ///   says nothing about *which* part was wrong.
-  /// - **5xx** — a proxy's 502 body is HTML; the connection sentence instead.
+  /// - **5xx** — a proxy's 502 body is HTML; the connection sentence instead
+  ///   (via `posExceptionFromApi`). Its one exception, 503
+  ///   `IDEMPOTENCY_KEY_IN_FLIGHT`, cannot occur here: `/auth/token` takes no
+  ///   `Idempotency-Key`.
   /// - **other 4xx / 429** — coded verdicts (`TENANT_SUSPENDED`,
   ///   `RATE_LIMITED`) resolve to their mapped Thai.
   static PosException loginRefusal(ApiException e) {

@@ -36,15 +36,19 @@ http.Response _error(int status, String code) => http.Response(
       headers: {'content-type': 'application/json'},
     );
 
-/// Non-verdict replies, with the sentence the counter reads for each — the
-/// one `resolveCounterError` gave these paths before.
+/// Non-verdict replies, with the sentence the counter reads for each
+/// (`resolveCounterError`).
 final _nonVerdicts = <String, (http.Response Function(), String)>{
   '502': (() => _error(502, 'BAD_GATEWAY'), _connection),
   '429': (
     () => _error(429, 'RATE_LIMITED'),
     'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
   ),
-  '503 IN_FLIGHT': (() => _error(503, 'IDEMPOTENCY_KEY_IN_FLIGHT'), _connection),
+  // Owner 2026-10-06: the in-flight "wait" sentence, not the connection one.
+  '503 IN_FLIGHT': (
+    () => _error(503, 'IDEMPOTENCY_KEY_IN_FLIGHT'),
+    'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่',
+  ),
 };
 
 class _Sent {
