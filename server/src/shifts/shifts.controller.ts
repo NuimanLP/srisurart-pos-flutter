@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -14,11 +13,10 @@ import type { Request, Response } from 'express';
 import { RequireDeviceRole } from '../common/decorators/device-role.decorator.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
-import { optionalUuid, parseUuid } from '../common/ids.js';
-import { toSatang } from '../common/money.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { Paginated, pageParams } from '../common/paginated.js';
+import { asObject, cash, parseDrawerEntry, parseShiftOpen } from './shifts.dto.js';
 import {
   ShiftsService,
   type Actor,
@@ -69,13 +67,9 @@ export class ShiftsController {
       idempotencyParamsOf(req, 200),
       res,
       () => {
-        const b = asObject(body);
         // No `openedAt`/`createdAt` online (here or in `addEntry`): the server's `now()`
         // dates both; only `/sync/push` passes a device time (08 §10, #411).
-        return this.shifts.open(actorOf(req), {
-          id: b.id === undefined || b.id === null ? undefined : parseUuid(b.id, 'id'),
-          startingCashSatang: cash(b.startingCash, 'startingCash'),
-        });
+        return this.shifts.open(actorOf(req), parseShiftOpen(body));
       },
     );
   }
@@ -112,21 +106,7 @@ export class ShiftsController {
       idempotencyParamsOf(req, 201),
       res,
       () => {
-        const b = asObject(body);
-        if (b.type !== 'in' && b.type !== 'out') {
-          throw new BadRequestException(`type must be 'in' or 'out'`);
-        }
-        const amountSatang = toSatang(b.amount, 'amount');
-        if (amountSatang <= 0)
-          throw new BadRequestException('amount must be greater than zero');
-        const id = optionalUuid(b.id, 'id');
-        const note = b.note === undefined || b.note === null ? null : String(b.note);
-        return this.shifts.addEntry(actorOf(req), {
-          id,
-          type: b.type,
-          amountSatang,
-          note,
-        });
+        return this.shifts.addEntry(actorOf(req), parseDrawerEntry(body));
       },
     );
   }
@@ -143,27 +123,3 @@ function actorOf(req: AuthenticatedRequest): Actor {
   }
   return { userId: req.user.userId, deviceId: req.user.deviceId };
 }
-
-/**
- * Cash counted into or out of the drawer. Required and non-negative, both on purpose:
- * a defaulted `0` closes the day at zero counted cash, and the closing report then
- * shows a shortfall the size of the day's takings — which §3.11 names as the thing
- * that makes staff stop believing the report at all.
- */
-function cash(value: unknown, field: string): number {
-  if (value === undefined || value === null || value === '') {
-    throw new BadRequestException(`${field} is required`);
-  }
-  const satang = toSatang(value, field);
-  if (satang < 0)
-    throw new BadRequestException(`${field} must not be negative`);
-  return satang;
-}
-
-function asObject(body: unknown): Record<string, unknown> {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    throw new BadRequestException('body must be an object');
-  }
-  return body as Record<string, unknown>;
-}
-

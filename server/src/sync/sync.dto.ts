@@ -1,5 +1,23 @@
 import { BadRequestException } from '@nestjs/common';
 import { isUuid, optionalUuid, parseUuid } from '../common/ids.js';
+import {
+  parseCreateCreditPayment,
+  type CreateCreditPayment,
+} from '../mechanics/credit-payments.dto.js';
+import {
+  parseCustomerCreate,
+  parseCustomerPatch,
+  type CustomerCreate,
+  type CustomerPatch,
+} from '../people/people.dto.js';
+import { parseCreateReturn, type CreateReturn } from '../returns/returns.dto.js';
+import { parseCreateSale, parseSaleQuoteId, type CreateSale } from '../sales/sales.dto.js';
+import {
+  parseDrawerEntry,
+  parseShiftOpen,
+  type DrawerEntryBody,
+  type ShiftOpenBody,
+} from '../shifts/shifts.dto.js';
 
 export interface SyncOpDto {
   opId: string;
@@ -161,57 +179,175 @@ export function parseSyncDiscard(body: unknown): SyncDiscardDto {
   };
 }
 
+/** One op after {@link parseOpPayload}: the envelope plus its typed payload. */
+export type ParsedSyncOp = {
+  opId: string;
+  idempotencyKey: string;
+  /** The body as sent — only for the idempotency fingerprint, never read field by field. */
+  rawPayload: Record<string, unknown>;
+} & (
+  | { type: 'sale.create'; sale: CreateSale; quoteId: string | null; deviceDate: Date | undefined }
+  | { type: 'return.create'; ret: CreateReturn; deviceDate: Date | undefined }
+  | { type: 'shift.open'; shift: ShiftOpenBody; openedAt: Date | undefined }
+  | { type: 'drawer.entry'; entry: DrawerEntryBody; deviceDate: Date | undefined }
+  | { type: 'credit_payment.create'; mechanicId: string; payment: CreateCreditPayment }
+  | { type: 'customer.create'; customer: CustomerCreate }
+  | { type: 'customer.update'; id: string; patch: CustomerPatch }
+  | { type: 'sale.void_offline'; saleId: string; reason: string }
+);
+
 /**
- * #616: every id an op's payload names, checked before any SQL. A bad one is a 400
- * `INVALID_ID`, which `SyncService.mapOpError` turns into this op's `rejected` result
- * (08 §10: a field that cannot be parsed rejects the op) — never a 22P02, which is not
- * an `HttpException` and would read as `retry`, coming back forever. An absent optional
- * id is left to the op's own rules.
+ * #619: the one parser per op type, run before any SQL. Each reuses its online route's
+ * parser, so an op is refused for exactly what the online request would be (an empty id
+ * included), and an id the online route takes from its URL (`mechanicId`, the customer's
+ * or the bill's id) is checked as `ParseUuidPipe` checks it. A bad id is a 400
+ * `INVALID_ID` naming `payload.<field>`, which `SyncService.mapOpError` turns into this
+ * op's `rejected` result (08 §10) — never a 22P02, which would read as `retry` and come
+ * back forever.
  */
-export function assertOpIds(op: SyncOpDto): void {
+export function parseOpPayload(op: SyncOpDto): ParsedSyncOp {
+  const env = { opId: op.opId, idempotencyKey: op.idempotencyKey, rawPayload: op.payload };
   const p = op.payload;
-  const req = (field: string) => parseUuid(p[field], `payload.${field}`);
-  const opt = (...fields: string[]) => {
-    for (const f of fields) optionalUuid(p[f], `payload.${f}`);
-  };
-  const lines = () => {
-    if (!Array.isArray(p.items)) return;
-    p.items.forEach((l: unknown, i: number) => {
-      if (typeof l === 'object' && l !== null) {
-        parseUuid(
-          (l as Record<string, unknown>).productId,
-          `payload.items[${i}].productId`,
-        );
-      }
-    });
-  };
-  switch (op.type as SyncOpType) {
-    case 'sale.create':
-      req('id');
-      opt('customerId', 'mechanicId', 'quoteId');
-      lines();
-      return;
-    case 'return.create':
-      opt('id');
-      req('saleId');
-      lines();
-      return;
-    case 'credit_payment.create':
-      opt('id');
-      req('mechanicId');
-      return;
-    case 'customer.update':
-      req('id');
-      return;
-    case 'sale.void_offline':
-      req('saleId');
-      return;
-    case 'shift.open':
-    case 'drawer.entry':
-    case 'customer.create':
-      opt('id');
-      return;
+  try {
+    switch (op.type as SyncOpType) {
+      case 'sale.create':
+        return {
+          ...env,
+          type: 'sale.create',
+          deviceDate: deviceDateOf(p),
+          sale: parseCreateSale(p),
+          quoteId: parseSaleQuoteId(p),
+        };
+      case 'return.create':
+        return {
+          ...env,
+          type: 'return.create',
+          deviceDate: deviceDateOf(p),
+          ret: parseCreateReturn(p),
+        };
+      case 'shift.open':
+        return {
+          ...env,
+          type: 'shift.open',
+          openedAt: deviceIsoDate(p.openedAt, 'openedAt'),
+          shift: parseShiftOpen(p),
+        };
+      case 'drawer.entry':
+        return {
+          ...env,
+          type: 'drawer.entry',
+          deviceDate: deviceDateOf(p),
+          entry: parseDrawerEntry(p),
+        };
+      case 'credit_payment.create':
+        return {
+          ...env,
+          type: 'credit_payment.create',
+          mechanicId: parseUuid(p.mechanicId, 'mechanicId'),
+          // An offline payment never showed the overpayment dialog.
+          payment: { ...parseCreateCreditPayment(p), allowOverpayment: false },
+        };
+      case 'customer.create':
+        // Online the server mints the id; a queued customer brings its own.
+        return {
+          ...env,
+          type: 'customer.create',
+          customer: { ...parseCustomerCreate(p), id: optionalUuid(p.id, 'id') },
+        };
+      case 'customer.update':
+        return {
+          ...env,
+          type: 'customer.update',
+          id: parseUuid(p.id, 'id'),
+          patch: parseCustomerPatch(p),
+        };
+      case 'sale.void_offline':
+        return {
+          ...env,
+          type: 'sale.void_offline',
+          saleId: parseUuid(p.saleId, 'saleId'),
+          reason: voidReason(p.reason),
+        };
+    }
+  } catch (err) {
+    throw inPayload(err);
   }
+  // Unreachable: `parseSyncPush` admits only `SYNC_OP_TYPES`.
+  throw new BadRequestException(`Unknown operation type: ${op.type}`);
+}
+
+/** The op's own id — for a void, the bill it names (`saleId`, #488). */
+export function clientIdOf(op: ParsedSyncOp): string | null {
+  switch (op.type) {
+    case 'sale.create':
+      return op.sale.id;
+    case 'return.create':
+      return op.ret.id ?? null;
+    case 'shift.open':
+      return op.shift.id ?? null;
+    case 'drawer.entry':
+      return op.entry.id;
+    case 'credit_payment.create':
+      return op.payment.id;
+    case 'customer.create':
+      return op.customer.id ?? null;
+    case 'customer.update':
+      return op.id;
+    case 'sale.void_offline':
+      return op.saleId;
+  }
+}
+
+/** The RC/CN number the device printed, when the op carries one. */
+export function docNoOf(op: ParsedSyncOp): string | null {
+  if (op.type === 'sale.create') return op.sale.receiptNo ?? null;
+  if (op.type === 'return.create') return op.ret.cnNo ?? null;
+  return null;
+}
+
+/** As online (`voidActorOf`, `sales.controller.ts`): a non-empty reason, trimmed. */
+function voidReason(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new BadRequestException('Void reason is required');
+  }
+  return value.trim();
+}
+
+/**
+ * 08 §10: `sale.create`/`return.create` carry `date`, `drawer.entry` carries `createdAt`.
+ * Present but unparseable — `''` included — is refused, never a fall-through to the other
+ * field or to `now()`.
+ */
+function deviceDateOf(p: Record<string, unknown>): Date | undefined {
+  const field = p.date !== undefined && p.date !== null ? 'date' : 'createdAt';
+  return deviceIsoDate(p[field], field);
+}
+
+/** An optional ISO timestamp from a push payload — refused (400) when present but unparseable. */
+function deviceIsoDate(value: unknown, field: string): Date | undefined {
+  if (value === undefined || value === null) return undefined;
+  const date = typeof value === 'string' ? new Date(value) : null;
+  if (!date || isNaN(date.getTime())) {
+    throw new BadRequestException(`${field} must be a valid ISO date string`);
+  }
+  return date;
+}
+
+/** The online parsers name `id`, `items[0].productId`…; inside a push it is `payload.…`. */
+function inPayload(err: unknown): unknown {
+  if (!(err instanceof BadRequestException)) return err;
+  const res = err.getResponse() as {
+    code?: unknown;
+    message?: unknown;
+    details?: { field?: unknown };
+  };
+  const field = res?.details?.field;
+  if (res?.code !== 'INVALID_ID' || typeof field !== 'string') return err;
+  return new BadRequestException({
+    ...res,
+    message: `payload.${String(res.message)}`,
+    details: { ...res.details, field: `payload.${field}` },
+  });
 }
 
 /**
