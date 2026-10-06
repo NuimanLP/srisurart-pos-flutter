@@ -8,6 +8,7 @@
 - `mob04` ถูก backup แล้วล้างข้อมูลทั้งหมด (10 tenant) → migration `EntityIdsToUuid1788652804900` รันผ่าน → `.current_sha` = `65861ea`
 - issue #612 #616 #619 #620 #621 ปิดโดย PR #628 · branch `develop` ลบแล้ว (tip `7faa117` อยู่ใน `main` — เช็กด้วย `merge-base --is-ancestor` ก่อนลบ)
 - กลับมาเหลือ long-lived branch แค่ `main` + `POC_sample_offline_first` ตามกติกา CLAUDE.md
+- **แก้ 2026-10-06 (ภายหลังในวันเดียวกัน, แทนสองบรรทัดบนเรื่อง branch):** owner เลือกเก็บ `develop` เป็น long-lived — สร้างใหม่ที่ `1974d60` (= `main`) · ลบ branch ที่ merge แล้ว 87 ตัวหลังเช็กทีละตัว → เหลือ `main`, `develop`, `POC_sample_offline_first` · `develop` → `main` = merge commit/fast-forward เท่านั้น (CLAUDE.md *Branch strategy*)
 
 ## 2. PR ที่ merge วันนี้ (ทุกตัว update กับ base ก่อน แล้ว merge เมื่อ CI เขียวบน head นั้น · `--match-head-commit`)
 | PR | base | งาน | merge |

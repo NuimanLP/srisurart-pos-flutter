@@ -17,13 +17,14 @@ offline-first-only build is preserved on `POC_sample_offline_first`.
 
 ---
 
-## 🌿 Branch strategy (set 2026-09-04)
+## 🌿 Branch strategy (set 2026-09-04; `develop` added 2026-10-06)
 
-The repo now carries **two lines of work**. Know which one you are on before you change anything.
+Three long-lived branches. Know which one you are on before you change anything.
 
 | Branch | What it is | Status |
 |---|---|---|
-| **`main`** | **The multi-tenant line** — Flutter **client** + NestJS **backend** + **CI/CD**, per `docs/Backend_design/` (Architecture C phase 1 = A, tenancy model T1) | **Active.** All new work lands here. |
+| **`main`** | **The multi-tenant line** — Flutter **client** + NestJS **backend** + **CI/CD**, per `docs/Backend_design/` (Architecture C phase 1 = A, tenancy model T1) | **Release line.** Receives `develop` only; every code push builds images and triggers a deploy. |
+| **`develop`** | Integration branch for the `main` line (owner decision 2026-10-06) | **Active.** Every work PR targets `develop` (`gh pr create --base develop`). |
 | **`POC_sample_offline_first`** | Frozen **proof-of-concept snapshot** of the offline-first, Drift-only build (branched from `main` at `4dae2f0`) | Reference only. Do not build on it. |
 
 **What this means in practice:**
@@ -36,6 +37,11 @@ The repo now carries **two lines of work**. Know which one you are on before you
   so the phase-1 rule **"the shop keeps running the Drift build, no cutover"** stays testable.
 - The offline-first design is **not abandoned** — it returns as **phase 2** (outbox + `offlineOk`
   + a single `role='pos'` writer per tenant, ADR-0004). The POC branch is its starting point.
+
+🔴 **`develop` → `main` = merge commit or fast-forward only.** Squash/rebase rewrites the SHAs, so
+`bedd328` (the `ROLLBACK_FLOOR` in `deploy/scripts/pos-deploy.sh`) would stop being an ancestor of
+`main` and `pos-deploy` would refuse every SHA. GitHub still allows squash/rebase and `develop` is
+unprotected — choose the method by hand (`gh pr merge --merge`).
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**
@@ -321,8 +327,8 @@ No ticket yet. `synchronize` is never
 true anywhere, tests included. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP`
 (Lane A), `LomerAlloys` (Lane B), `PattaraponKitcharoen` (Lane C) — see
 `handoff_log/merge-p1-p2-lane-assignments.md`. **No cutover is planned for phase 1** — the shop
-keeps running this Drift build while the server is developed against a demo tenant. **As of
-2026-09-04 this work happens on `main`** (see *Branch strategy* above): the server, the
+keeps running this Drift build while the server is developed against a demo tenant. **Since
+2026-10-06 this work lands on `develop`, then `main`** (see *Branch strategy* above): the server, the
 client's API layer and the CI/CD pipelines all land in this repo.
 
 **CI/CD — levels 1–3 are done (level 3 = both release images on GHCR since 2026-09-10, #69/#70). CD to the faculty VM (Ansible), etcd and Monitoring (Node Exporter + Prometheus + Grafana) are designed in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 (spec #60) and ticketed #63–#67 under #10 for the teammates — read those before touching `.github/`, `deploy/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the

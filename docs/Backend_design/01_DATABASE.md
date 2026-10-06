@@ -56,7 +56,7 @@ DDL ใน [§5](#5-ddl-เต็ม) เขียนบรรทัด `PRIMARY
 | **Foreign Key (FK)** | ชี้ไปหาแถวในตารางอื่น — ของเราพา `tenant_id` ไปด้วยเสมอ | `(tenant_id, sale_id) → sales (tenant_id, id)` |
 | **Unique Key** | ห้ามค่าซ้ำ แต่ไม่ใช่ PK | `UNIQUE (tenant_id, receipt_no)` บน `sales` |
 | **Natural Key** | key ที่มีความหมายในโลกจริง | `products.part_no` (เลขอะไหล่บนกล่อง) — บังคับด้วย `uq_products_partno` ซึ่งไม่ซ้ำ **ต่อร้าน** และ **เฉพาะแถวที่ยังไม่ถูกลบ** (`WHERE deleted_at IS NULL`) → ยังไม่ใช่ candidate key เต็มตัว **นี่คือเหตุผลที่เราใช้ surrogate key เป็น PK แทน** |
-| **Surrogate Key** | key ที่ระบบสร้างเอง ไม่มีความหมาย | `products.id` = `"p12"`, `tenants.id` = UUID |
+| **Surrogate Key** | key ที่ระบบสร้างเอง ไม่มีความหมาย | `products.id` = `"0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12"` (UUIDv7, #616), `tenants.id` = UUID |
 
 > **`PRIMARY KEY (tenant_id, id)` คือ PK อันเดียว ที่ประกอบจาก 2 คอลัมน์**
 > ไม่ใช่ "PK ของ `tenant_id`" กับ "PK ของ `id`" แยกกันคนละอัน — 1 ตารางมี PK ได้อันเดียวเท่านั้น

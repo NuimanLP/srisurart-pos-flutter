@@ -251,17 +251,17 @@ stateDiagram-v2
 ### 8.2 รูปคำขอ/คำตอบ (แทน `02 §7`)
 
 ```jsonc
-// POST /sync/push   สูงสุด 50 op
+// POST /sync/push   สูงสุด 50 op · opId และ id ทุกตัว = UUID ตัวพิมพ์เล็ก (#616) — opId ผิด = 400 INVALID_ID ทั้ง batch · id ใน payload ผิด = op นั้น rejected INVALID_ID
 { "outboxRemaining": 12,
-  "ops": [ { "opId": "op_1", "idempotencyKey": "k1", "type": "sale.create",
-             "payload": { "id": "s_1", "receiptNo": "RC01-2569-09-0042", "date": "2026-09-15T02:00:00Z", "items": [] } } ] }
+  "ops": [ { "opId": "0199a3c2-5e10-7b4d-8a21-3c5d7e9f0b12", "idempotencyKey": "k1", "type": "sale.create",
+             "payload": { "id": "0199a3c2-4d0f-7c3e-9b10-2b4c6d8e0f01", "receiptNo": "RC01-2569-09-0042", "date": "2026-09-15T02:00:00Z", "items": [] } } ] }
 
 // 200
 { "status": "success", "data": { "results": [
-  { "opId": "op_1", "status": "applied", "response": { /* = คำตอบของ POST /sales */ } },
-  { "opId": "op_2", "status": "rejected", "code": "INSUFFICIENT_STOCK", "message": "…", "details": {} },
-  { "opId": "op_3", "status": "retry" },
-  { "opId": "op_4", "status": "retry" }   // ไม่ถูกประมวลผล (B3)
+  { "opId": "0199a3c2-5e10-7b4d-8a21-3c5d7e9f0b12", "status": "applied", "response": { /* = คำตอบของ POST /sales */ } },
+  { "opId": "0199a3c2-5e11-7b4d-8a21-3c5d7e9f0b13", "status": "rejected", "code": "INSUFFICIENT_STOCK", "message": "…", "details": {} },
+  { "opId": "0199a3c2-5e12-7b4d-8a21-3c5d7e9f0b14", "status": "retry" },
+  { "opId": "0199a3c2-5e13-7b4d-8a21-3c5d7e9f0b15", "status": "retry" }   // ไม่ถูกประมวลผล (B3)
 ] } }
 ```
 
@@ -277,6 +277,12 @@ stateDiagram-v2
 | 2 | replay ด้วย client id (§6.1) ใน transaction เดียวกัน | replay → `applied` จบ · ฟิลด์ไม่ตรง → `CLIENT_ID_REUSED` |
 | 3 | service ตัวเดียวกับ controller ออนไลน์ · lock order เดิม: บิล → `shifts FOR SHARE` → ช่าง → สินค้า (เรียง id) → `doc_counters` → ลูกค้า | ปฏิเสธใน service → `rejected` (claim ย้อน → ส่งใหม่ด้วย key เดิมได้) |
 | 4 | ผลพลอยของ push: `sold_offline` (C3), วันที่ (§10), รายการตรวจ (§14) | ใน transaction เดียวกัน |
+
+> **2026-10-06 (#619, PR #624/#630):** ขั้น 1 ใช้ payload **ตามที่ส่งมา** (fingerprint + route จาก `endpointForOp(raw)`) ยังไม่ parse —
+> op ที่ commit แล้วจึง replay ได้แม้ parser วันนี้จะปฏิเสธ body · `parseOpPayload` (parser ตัวเดียว แทน `assertOpIds` เดิม)
+> รัน**หลัง**ขั้น 1 และก่อนขั้น 2 — ปฏิเสธ = `rejected` (`INVALID_ID` ฯลฯ) ไม่ใช่ `retry` (`sync.service.ts` `processSingleOpIn`)
+> · 🔴 ช่องที่ยังเหลือ: ขั้น 2 (replay ด้วย client id) ต้องใช้ฟิลด์ที่ parse แล้ว — key หมดอายุ + body ที่ parser วันนี้ไม่รับ
+> = `rejected` แทน `applied` · ปิดได้ด้วยการสร้างคำตอบจากแถวที่เก็บไว้ (ยังไม่ทำ, ดู PR #630)
 
 - `runTx` ของตัวเองต่อ op ต่อกันทีละตัว — ห้าม `Promise.all` (#162), ห้ามรวมทั้ง batch
 - `IN_FLIGHT`, `CommitCeilingExceededError`, 5xx → `retry` แล้ว**หยุด**

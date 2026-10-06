@@ -600,12 +600,14 @@ run จบแล้ว: .current_sha = SHA นี้ไหม? /health/ready 200
 | เรื่อง | สถานะ |
 |---|---|
 | **cron backup 03:00 รอบจริงรอบแรก** ของสคริปต์ #519 | **ต้องตรวจหลัง 03:00 UTC 2026-10-01** — ดู `backup-cron.log` และ `/opt/pos/backups` (ต้องไม่มี `.partial` ค้าง) · บทนี้ยังไม่ได้ยืนยันผล |
-| **#344** เดโมคนจริงครบวง | ยังไม่รัน · checklist `docs/handoff_log/demo-344-checklist-2026-09-30.md` (รหัสชั่วคราว + บังคับเปลี่ยนใน 10 นาที, tenant ใหม่ไม่มีสินค้า, แอปส่ง idempotency key ซ้ำเองไม่ได้, บาง AC ของ #335 พิสูจน์บน VM ตรง ๆ ไม่ได้, #476) |
+| **#344** เดโมคนจริงครบวง | (ณ 10-01) ยังไม่รัน — **10-05 รันบางส่วน (AC1+AC2)** แล้ว 10-06 DB ถูกล้างตอน cutover #616 ต้องสร้าง tenant ใหม่ · checklist `docs/handoff_log/demo-344-checklist-2026-09-30.md` (รหัสชั่วคราว + บังคับเปลี่ยนใน 10 นาที, tenant ใหม่ไม่มีสินค้า, แอปส่ง idempotency key ซ้ำเองไม่ได้, บาง AC ของ #335 พิสูจน์บน VM ตรง ๆ ไม่ได้, #476) |
 | **#380** k6 สามเครื่อง + container RSS | ยังไม่มีตัวเลขเลย |
 | **#363 / #288** backup ออกนอก VM | **พักไว้จนหลังเดโม** — ตอนนี้ **ไม่มี backup ออกจาก VM เลย** ห้ามเขียนว่า "backup พร้อมแล้ว" |
 | **#476** เครื่องสุดท้ายหลุด = ทางตัน | รอ owner ตัดสิน |
 | **#443** platform admin UI | code merge แล้ว, 403 สองชั้นพิสูจน์บน VM แล้ว · รอ owner เรื่อง AC "เฉพาะ `bootstrap:admin`" ที่ขัดกับ `PLATFORM_ADMINS` sync · ยังไม่มีคน login จริง |
 | **#231** cutover ร้านจาก Drift build ไป server | รอ owner · ร้านจริงยังใช้ Drift build |
+
+> **อัปเดต 2026-10-06 — cutover #616:** `mob04` รัน `65861ea` (merge commit ของ `develop`→`main`, PR #628) และ **DB ถูกล้าง** (backup ก่อน → TRUNCATE 28 ตาราง → migration `EntityIdsToUuid1788652804900` รันบน DB ว่างผ่าน) เพราะ id ทุกตัวเปลี่ยนจาก text เป็น UUIDv7 — migration ปฏิเสธ DB ที่มีแถว · `ROLLBACK_FLOOR` = `bedd328` (ปฏิเสธ rollback ไปโค้ดก่อน #616) · หลัง merge เข้า `main` Deploy ยิง **สองครั้ง** (จาก Server CI และ Flutter CI) — ครั้งแรกมักเขียวแบบ skip เพราะ image web ยังไม่ครบ (ตัวอย่างจริงของกับดักข้อ 4 อีกครั้ง) `.current_sha` คือหลักฐานเดียว · เรื่องเต็ม: `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`, runbook `runbook-616-uuid-cutover-mob04.md` (ตัวเลขด้านล่างคือสถานะ ณ 10-01 เก็บไว้เป็นประวัติ)
 
 สถานะ VM ณ เวลาเขียน (2026-10-01): `.current_sha` = `3258b21` (จาก run `36740720083`; `/health/ready` 200 ตอนจบ run นั้น) ·
 PR #523 (docs ล้วน) merge เป็น `6384e20` แล้ว แต่ **ยังไม่ถูก deploy** — run `36742768824` ของ `6384e20` ค้าง *waiting* รอ approve

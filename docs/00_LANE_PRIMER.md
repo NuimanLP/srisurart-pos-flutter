@@ -20,6 +20,10 @@
 > ขึ้น GHCR ผ่าน Trivy gate) · **Team 2:** #39 #63 #64 (status job + branch protection, monitoring, service etcd) ·
 > **Team 3:** #65 #66 #67 (Ansible provision/deploy + rollback, ตัวอ่าน etcd) · ศัพท์กลางอยู่ที่ [`CONTEXT.md`](../CONTEXT.md)
 
+> 🔁 **2026-10-06 — อัปเดตสถานะ (ตารางเก่าด้านล่างเป็นภาพ ณ ตอนวางแผน):** branch ที่ใช้ 3 สาย: `main`,
+> `develop` (PR เข้า develop ก่อน) และ `POC_sample_offline_first` (snapshot อ้างอิง) · รหัสข้อมูลทุกตัวเปลี่ยนเป็น UUIDv7 (#616),
+> `mob04` deploy `65861ea` และล้างฐานข้อมูลแล้ว ยังไม่มี tenant · ดู [`handoff_log/session-2026-10-06-uuid-cutover-mob04.md`](handoff_log/session-2026-10-06-uuid-cutover-mob04.md)
+
 ---
 
 ## 🐣 ภาค 1: ปูพื้นฐาน — เรากำลังสร้างอะไรกันอยู่วะ?

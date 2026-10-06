@@ -44,7 +44,7 @@
 
 **Branch** = เส้นเวลาคู่ขนานของโค้ด แยกออกจาก `main` เพื่อทำงานโดยไม่กระทบของคนอื่น แล้วค่อยเอากลับมารวม (merge) ทีหลัง — เหมือนถ่ายเอกสารต้นฉบับมาแก้ที่โต๊ะตัวเอง แล้วค่อยเอาไปเทียบ/รวมกับต้นฉบับจริงทีหลัง แทนที่จะขีดเขียนต้นฉบับตรงๆ ให้คนอื่นเห็นระหว่างที่ยังแก้ไม่เสร็จ
 
-ในโปรเจกต์นี้ branch ที่มีอายุยืน (long-lived) มีแค่ 2 เส้นตามที่ `CLAUDE.md` ระบุ — `main` (สายที่ active) กับ `POC_sample_offline_first` (แช่แข็งไว้อ้างอิง) ส่วน branch อื่นๆ ที่เห็นใน `git branch -a` (เช่น `docs/2026-09-24-testing-tutorial-fixes`, `experiment/quality-gate`) เป็น **feature branch อายุสั้น** — เปิดเพื่อทำงานหนึ่งชิ้น แล้วลบทิ้งหลัง merge
+ในโปรเจกต์นี้ branch ที่มีอายุยืน (long-lived) ตามที่ `CLAUDE.md` ระบุคือ `main` (สายที่ active), `develop` (integration — PR ลงที่นี่ก่อน แล้ว develop→main ด้วย **merge commit**; กติกาปัจจุบันตั้งแต่ราว 2026-10-06) และ `POC_sample_offline_first` (แช่แข็งไว้อ้างอิง) — บทนี้เล่าเหตุการณ์ก่อน `develop` จึงอาจพูดถึง "2 เส้น" ส่วน branch อื่นๆ ที่เห็นใน `git branch -a` (เช่น `docs/2026-09-24-testing-tutorial-fixes`, `experiment/quality-gate`) เป็น **feature branch อายุสั้น** — เปิดเพื่อทำงานหนึ่งชิ้น แล้วลบทิ้งหลัง merge
 
 ### 4. Merge vs Rebase
 

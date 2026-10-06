@@ -321,7 +321,7 @@ flowchart LR
 - **ทำอะไร:** ตรวจสต็อกทุกบรรทัดก่อน → ถ้าไม่พอโยนข้อความไทยที่ลอกมาจาก `db.js` ตัวเดิม → แล้วทำทุกอย่างใน `db.transaction` (ตัดสต็อก, บวกแต้มลูกค้า, ยอดช่าง)
 - **สังเกต 3 อย่างที่จะกลายเป็นปัญหาใน phase 2:**
   - `receiptNo = docNo('RC')` — เลขใบเสร็จแบบสุ่ม (ไม่ต่อเนื่อง) ใช้ได้เพราะมีเครื่องเดียว
-  - `saleId = newId('s')` — id สร้างที่ client (ข้อนี้ดี — phase 2 เอาไปใช้เป็นตาข่ายชั้นที่สองของ idempotency)
+  - `saleId = newId('s')` — id สร้างที่ client (โค้ดบน POC branch; **ตั้งแต่ #616 `main` ใช้ `newUuid()` = UUIDv7 ตัวพิมพ์เล็ก** และ `newId` เปลี่ยนชื่อเป็น `newIdempotencyKey` ใช้กับ Idempotency-Key เท่านั้น) (ข้อนี้ดี — phase 2 เอาไปใช้เป็นตาข่ายชั้นที่สองของ idempotency)
   - `date = DateTime.now()` — เชื่อนาฬิกาเครื่อง เพราะในยุคนี้เครื่อง **คือ** ความจริง
 - **ทำไมสำคัญ:** CLAUDE.md กำหนดว่า Dart repositories เหล่านี้เป็น **behavioural reference** — server ต้อง port กฎไปให้ตรง ไม่คิดใหม่
 
@@ -411,7 +411,7 @@ RC01-2569-09-0042
     await q.query(`
       CREATE TABLE devices (
         tenant_id        UUID NOT NULL,
-        id               TEXT NOT NULL,
+        id               UUID NOT NULL,
         label            TEXT NOT NULL,
         device_no        SMALLINT NOT NULL CHECK (device_no BETWEEN 1 AND 99),
         role             TEXT NOT NULL DEFAULT 'backoffice'
@@ -467,7 +467,7 @@ class OutboxOps extends Table {
 - `idempotencyKey` — **สร้างก่อนส่ง และไม่เปลี่ยนตลอดชีวิตของ op** — ส่งซ้ำกี่รอบก็ key เดิม
 - `type` — ชนิด เช่น `sale.create`, `return.create`, `shift.open` (รายการเต็ม 08 §6.1)
 - `payload` — body ที่จะส่ง (JSON เป็น text) — 08 §6.4 กำหนดว่า **ต้องเหมือน body ของ route ออนไลน์** เพื่อให้ fingerprint ตรงกัน
-- `aggregates` — "op นี้แตะก้อนข้อมูลไหน" เช่น `sale:s_1`, `shift:sh_1` ใช้ตัดสินว่าถ้า op หนึ่งติด op ไหนต้องรอ op ไหนไปต่อได้ (08 §8.4)
+- `aggregates` — "op นี้แตะก้อนข้อมูลไหน" เช่น `sale:<uuid>`, `shift:<uuid>` (ยุคก่อน #616 เป็น `sale:s_1`, `shift:sh_1`) ใช้ตัดสินว่าถ้า op หนึ่งติด op ไหนต้องรอ op ไหนไปต่อได้ (08 §8.4)
 - `status` — `pending` / `stuck` / `rejected` — ไม่มี `applied` เพราะ op ที่สำเร็จถูก **ลบออก**
 - `attempts` — นับครั้งที่ **ไม่ได้ verdict ติดกัน** ครบ 3 → `stuck`
 - `lastCode/lastMessage/lastDetails` — เหตุผลล่าสุด เอาไปโชว์ในหน้า "รอ owner"
@@ -751,6 +751,7 @@ class NullSyncFacade implements SyncFacade {
     const responseBody = await this.executeOp(manager, tenantId, actor, device, op);
 ```
 
+- **อัปเดต 2026-10-06 (#619, PR #624/#630):** op แต่ละตัวถูก parse ด้วย `parseOpPayload` ตัวเดียว **แต่หลัง** replay-by-key — ลำดับจริงคือ claim/replay ด้วย key ก่อน แล้วค่อย parse (กฎ B1) ไม่งั้น op ที่ commit ไปแล้วแต่รูป payload ถูกเข้มขึ้นทีหลังจะกลายเป็น reject · ส่วน `opId` ที่ไม่ใช่ UUID (#616) ทำให้ **ทั้ง envelope เป็น 400** (ผล per-op ผูกกับ opId จึงไม่มีที่ให้รายงาน) และ `/sync/discards` ก็ 400 เช่นกัน
 - **ทำไม replay ต้องมาก่อนตรวจกฎธุรกิจ (B1):** นึกภาพบิลที่ commit ไปแล้ว ถ้าตรวจสต็อกก่อน สต็อกตอนนี้ถูกบิลนั้นตัดไปแล้ว → "สต็อกไม่พอ" → **บิลที่สำเร็จแล้วถูกรายงานว่าล้ม** ลำดับที่ถูกคือ "เคยทำแล้วไหม?" ก่อน "ทำได้ไหม?"
 - **สองชั้นของ replay:**
   1. ด้วย key (ปกติ)
@@ -806,11 +807,11 @@ class NullSyncFacade implements SyncFacade {
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_sale_001_reid",
+          "opId": "d0d6da43-c459-5aba-ab6c-6d9dc2bb60e5",
           "idempotencyKey": "k_sale_fresh_key",
           "type": "sale.create",
           "payload": {
-            "id": "s_off_001",
+            "id": "d0db03a0-e40f-5039-b0aa-232fe0f6b899",
             "receiptNo": "RC01-2569-09-0042",
             "date": "2026-09-15T02:00:00.000Z",
             "total": "255.00",
@@ -823,16 +824,16 @@ class NullSyncFacade implements SyncFacade {
   "response": {
     "status": 200,
     "body": { "status": "success", "data": { "results": [
-      { "opId": "op_sale_001_reid", "status": "applied",
-        "response": { "id": "s_off_001", "receiptNo": "RC01-2569-09-0042",
+      { "opId": "d0d6da43-c459-5aba-ab6c-6d9dc2bb60e5", "status": "applied",
+        "response": { "id": "d0db03a0-e40f-5039-b0aa-232fe0f6b899", "receiptNo": "RC01-2569-09-0042",
                       "total": "255.00", "pointsGranted": 25,
-                      "products": [ { "id": "p1", "stock": 45 } ] } }
+                      "products": [ { "id": "e7ce3922-6095-5e45-bfec-e66674fe7daf", "stock": 45 } ] } }
     ] } }
   }
 }
 ```
 
-- **อ่านยังไง:** key เป็น "ใหม่" (`k_sale_fresh_key` — จำลองว่า key เดิมหมดอายุ) แต่ `payload.id` = `s_off_001` ซึ่ง server มีอยู่แล้ว → server replay ด้วย **id** → ตอบ `applied` พร้อมผลเดิม (สต็อกไม่ถูกตัดซ้ำ)
+- **อ่านยังไง:** key เป็น "ใหม่" (`k_sale_fresh_key` — จำลองว่า key เดิมหมดอายุ) แต่ `payload.id` = `d0db03a0-e40f-5039-b0aa-232fe0f6b899` ซึ่ง server มีอยู่แล้ว → server replay ด้วย **id** → ตอบ `applied` พร้อมผลเดิม (สต็อกไม่ถูกตัดซ้ำ)
 - `outboxRemaining` — เครื่องรายงานว่าเหลือ op ค้างเท่าไหร่หลัง batch นี้ server เก็บลง `devices.unsynced_ops` (C12) เพื่อกันไม่ให้ใคร retire เครื่องที่ยังมีบิลค้าง (F7)
 - เงินเป็น **string** `"255.00"` ตามกติกา wire ของ repo (ไม่ใช้ float)
 - **ทำไม fixture คือหัวใจ:** `09 §4.1` สั่ง "20-c และ 20-s ต้องอ่านไฟล์ชุดเดียวกัน" — contract test ฝั่ง Flutter (fake server ที่ตอบตาม fixture) กับ e2e ฝั่ง server (ยิง request ใน fixture แล้วเทียบ response) ใช้ไฟล์เดียวกัน ถ้าฝั่งใดเปลี่ยนรูป JSON โดยไม่แก้ fixture test ของอีกฝั่งจะไม่ผ่าน และกติกาคือ **แก้ fixture ต้องแก้ `08` ใน PR เดียวกัน**
