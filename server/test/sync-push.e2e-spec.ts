@@ -1825,6 +1825,58 @@ describe('POST /sync/push (e2e)', () => {
         expect(await stockOf(testId('p_b1'))).toBe(18);
       });
 
+      it('B1: replay by key runs before the payload parser — an applied op a later parser would refuse still replays; a fresh one is rejected INVALID_ID', async () => {
+        // Simulate a parser tightened after the op was applied: the key row's fingerprint
+        // is rewritten to a body today's parser refuses (`customerId` not a UUID), as if
+        // that body had been valid when it was committed and its reply was lost.
+        const op = { opId: testId('op_b1_tight'), idempotencyKey: 'k_b1_tight', type: 'sale.create', payload: outboxPayload };
+        const first = await push({ outboxRemaining: 0, ops: [op] });
+        expect(first.body.data.results[0].status).toBe('applied');
+        const stored = first.body.data.results[0].response;
+
+        const refused = { ...outboxPayload, customerId: 'C-legacy-1' };
+        const refusedHash = createHash('sha256').update(JSON.stringify(refused)).digest('hex');
+        await admin.query(
+          `UPDATE idempotency_keys SET request_hash = $2 WHERE tenant_id = $1::uuid AND key = 'k_b1_tight'`,
+          [TENANT, refusedHash],
+        );
+        await clearTenantCache(cache, TENANT);
+
+        const replay = await push({ outboxRemaining: 0, ops: [{ ...op, payload: refused }] });
+        expect(replay.body.data.results[0]).toEqual({ opId: testId('op_b1_tight'), status: 'applied', response: stored });
+        expect(await stockOf(testId('p_b1'))).toBe(18);
+
+        // The same body under a key the server has never seen is a fresh op: rejected
+        // per op (never `retry`), naming the field.
+        const fresh = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: testId('op_b1_fresh'), idempotencyKey: 'k_b1_fresh', type: 'sale.create', payload: { ...refused, id: testId('s_b1_fresh') } }],
+        });
+        expect(fresh.body.data.results[0]).toMatchObject({
+          opId: testId('op_b1_fresh'),
+          status: 'rejected',
+          code: 'INVALID_ID',
+          details: { field: 'payload.customerId' },
+        });
+        // A malformed id that is part of the online route (`/mechanics/:id/…`) is still
+        // rejected per op, not a 22P02 → `retry`.
+        const badRoute = await push({
+          outboxRemaining: 0,
+          ops: [{
+            opId: testId('op_b1_badmech'),
+            idempotencyKey: 'k_b1_badmech',
+            type: 'credit_payment.create',
+            payload: { id: testId('cp_b1_bad'), mechanicId: 'M-legacy', amount: '10.00', paymentMethod: 'เงินสด' },
+          }],
+        });
+        expect(badRoute.body.data.results[0]).toMatchObject({
+          status: 'rejected',
+          code: 'INVALID_ID',
+          details: { field: 'payload.mechanicId' },
+        });
+        expect(await stockOf(testId('p_b1'))).toBe(18);
+      });
+
       it('the same key on a DIFFERENT bill is still refused IDEMPOTENCY_KEY_REUSED', async () => {
         expect((await postOnline('k_b1_reuse', onlineBody)).status).toBe(201);
         // A second, genuinely different bill already on the server under its own key.

@@ -11,7 +11,7 @@ actually ran, with output, in a session handoff afterwards.
 > `demo-344-20261005` (#344), so the first CD deploy after `develop` → `main` fails at
 > `Apply database schema migrations` — cleanly (each migration is its own transaction,
 > `migrationsTransactionMode: 'each'`; nothing has restarted yet) — and **every later deploy fails the
-> same way until the data is wiped.** There are no down-migrations, so once it has run, code from before
+> same way until the data is wiped.** `EntityIdsToUuid` has a `down()`, but no deploy ever runs it, so once it has run, code from before
 > it can never run against this database again (every write → 22P02 / HTTP 500).
 
 ---
@@ -194,7 +194,7 @@ see step 9.
 
 ## 10. Re-provision and re-enrol
 
-1. platform-ui (`127.0.0.1:3200` via the tunnel, as in `demo-344-checklist-2026-09-30.md` step 2) →
+1. platform-ui (`127.0.0.1:3200` via the tunnel, as in `demo-344-checklist-2026-09-30.md` ภาค 0 (tunnel) / ภาค 1 (platform-ui)) →
    create the tenant again (the code `demo-344-20261005` is free again, or pick a new one) → note the
    temp password + `enrolCode` (never into a file in the repo).
 2. On a cleared client: log in as owner, change the temp password (forced), enrol with the `enrolCode`.
@@ -206,7 +206,8 @@ see step 9.
 
 ## Not covered / known gaps
 
-- `server/src/sync/sync.dto.ts` (~line 140) says discard is how the owner clears an op push rejected; for a
-  **non-UUID `opId`** that is false — `parseSyncDiscard` refuses it before reaching that code. Owned by
-  #619; this runbook works around it by requiring empty outboxes + cleared clients.
+- Discard is **not** an escape hatch for a **non-UUID `opId`**: `/sync/push` refuses the whole envelope
+  and `parseSyncDiscard` refuses the discard too — stated in the comment above `clientId` in
+  `parseSyncDiscard` (`server/src/sync/sync.dto.ts`, corrected by #619's follow-up PR). This runbook
+  therefore requires empty outboxes + cleared clients.
 - The shop itself still runs the Drift-only build (no cutover) and is untouched by any of this.
