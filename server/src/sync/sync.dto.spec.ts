@@ -1,6 +1,16 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { testId } from '../../test/support/test-ids.js';
-import { assertOpIds, parseSyncDiscard, parseSyncPush, targetIdOf } from './sync.dto.js';
+import {
+  parseOpPayload,
+  parseSyncDiscard,
+  parseSyncPush,
+  SYNC_OP_TYPES,
+  targetIdOf,
+  type SyncOpType,
+} from './sync.dto.js';
 
 describe('parseSyncPush DTO validation', () => {
   const validOp = {
@@ -90,44 +100,127 @@ describe('parseSyncPush DTO validation', () => {
   });
 });
 
-describe('assertOpIds (#616)', () => {
+describe('parseOpPayload (#619)', () => {
   const op = (type: string, payload: Record<string, unknown>) => ({
     opId: testId('op'),
     idempotencyKey: 'k',
     type,
     payload,
   });
-  const line = { productId: testId('p1') };
+  const line = { lineNo: 1, productId: testId('p1'), name: 'Filter', qty: 1, price: '85.00' };
+  const valid: Record<SyncOpType, Record<string, unknown>> = {
+    'sale.create': {
+      id: testId('s1'),
+      subtotal: '85.00',
+      total: '85.00',
+      paymentMethod: 'เงินสด',
+      items: [line],
+    },
+    'return.create': { saleId: testId('s1'), refundMethod: 'เงินสด', items: [line] },
+    'shift.open': { id: testId('sh1'), startingCash: '100.00' },
+    'drawer.entry': { id: testId('de1'), type: 'in', amount: '5.00' },
+    'credit_payment.create': {
+      id: testId('cp1'),
+      mechanicId: testId('m1'),
+      amount: '10.00',
+      paymentMethod: 'เงินสด',
+    },
+    'customer.create': { id: testId('c1'), name: 'ลูกค้า' },
+    'customer.update': { id: testId('c1'), phone: '0800000000' },
+    'sale.void_offline': { saleId: testId('s1'), reason: ' ขอยกเลิก ' },
+  };
+  const parse = (type: SyncOpType, extra: Record<string, unknown> = {}) =>
+    parseOpPayload(op(type, { ...valid[type], ...extra }));
+  const errorOf = (fn: () => unknown) => {
+    try {
+      fn();
+    } catch (err) {
+      return (err as { getResponse(): unknown }).getResponse();
+    }
+    throw new Error('expected a throw');
+  };
 
-  it('passes every id of a well-formed op, and absent optional ids', () => {
-    expect(() =>
-      assertOpIds(op('sale.create', { id: testId('s1'), items: [line] })),
-    ).not.toThrow();
-    expect(() =>
-      assertOpIds(op('return.create', { saleId: testId('s1'), items: [line] })),
-    ).not.toThrow();
-    expect(() => assertOpIds(op('shift.open', {}))).not.toThrow();
+  it('parses every op of every docs/Backend_design/fixtures/sync-push file', () => {
+    const dir = join(
+      fileURLToPath(new URL('.', import.meta.url)),
+      '../../../docs/Backend_design/fixtures/sync-push',
+    );
+    const ops = readdirSync(dir)
+      // Refused whole (403) before any op is read — its sale has no lines on purpose.
+      .filter((f) => f.endsWith('.json') && f !== 'batch.no-active-user-403.json')
+      .flatMap((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')).request.body.ops);
+    expect(new Set(ops.map((o: { type: string }) => o.type))).toEqual(new Set(SYNC_OP_TYPES));
+    for (const o of ops) expect(() => parseOpPayload(o), o.opId).not.toThrow();
+  });
+
+  it('returns the typed payload, keeping the raw one only for the fingerprint', () => {
+    const sale = parse('sale.create');
+    expect(sale).toMatchObject({ type: 'sale.create', sale: { id: testId('s1'), totalSatang: 8500 } });
+    expect(sale.rawPayload).toEqual(valid['sale.create']);
+    expect(parse('credit_payment.create', { allowOverpayment: true })).toMatchObject({
+      mechanicId: testId('m1'),
+      payment: { id: testId('cp1'), amountSatang: 1000, allowOverpayment: false },
+    });
+    expect(parse('customer.create')).toMatchObject({ customer: { id: testId('c1'), nameTH: 'ลูกค้า' } });
+    expect(parse('sale.void_offline')).toMatchObject({ saleId: testId('s1'), reason: 'ขอยกเลิก' });
+    expect(parse('drawer.entry', { createdAt: '2026-09-15T01:30:00.000Z' })).toMatchObject({
+      deviceDate: new Date('2026-09-15T01:30:00.000Z'),
+    });
   });
 
   it.each([
-    ['sale.create', { id: 's_off_001', items: [line] }, 'payload.id'],
-    ['sale.create', { id: testId('s1'), customerId: 'c1', items: [line] }, 'payload.customerId'],
-    ['sale.create', { id: testId('s1'), items: [line, { productId: 'p1' }] }, 'payload.items[1].productId'],
-    ['return.create', { saleId: testId('s1').toUpperCase(), items: [line] }, 'payload.saleId'],
-    ['credit_payment.create', { mechanicId: 'm1' }, 'payload.mechanicId'],
-    ['customer.update', {}, 'payload.id'],
-    ['sale.void_offline', { saleId: 's1' }, 'payload.saleId'],
+    ['sale.create', { id: 's_off_001' }, 'payload.id'],
+    ['sale.create', { customerId: 'c1' }, 'payload.customerId'],
+    ['sale.create', { quoteId: 'q1' }, 'payload.quoteId'],
+    ['sale.create', { items: [line, { ...line, lineNo: 2, productId: 'p1' }] }, 'payload.items[1].productId'],
+    ['return.create', { saleId: testId('s1').toUpperCase() }, 'payload.saleId'],
+    ['return.create', { id: 'r1' }, 'payload.id'],
+    ['shift.open', { id: 'sh1' }, 'payload.id'],
     ['drawer.entry', { id: 'de_1' }, 'payload.id'],
-  ])('%s: a bad id is a 400 INVALID_ID (case %#)', (type, payload, field) => {
-    try {
-      assertOpIds(op(type, payload));
-      expect.unreachable();
-    } catch (err) {
-      expect((err as { getResponse(): unknown }).getResponse()).toMatchObject({
+    ['credit_payment.create', { mechanicId: 'm1' }, 'payload.mechanicId'],
+    ['credit_payment.create', { id: 'cp1' }, 'payload.id'],
+    ['customer.create', { id: 'c1' }, 'payload.id'],
+    ['customer.update', { id: undefined }, 'payload.id'],
+    ['sale.void_offline', { saleId: 's1' }, 'payload.saleId'],
+  ] as const)('%s: a bad id is a 400 INVALID_ID (case %#)', (type, extra, field) => {
+    expect(errorOf(() => parse(type, extra))).toMatchObject({
+      code: 'INVALID_ID',
+      message: `${field} must be a lowercase UUID`,
+      details: { field },
+    });
+  });
+
+  it("answers an empty id as the online route does", () => {
+    // `parseSaleParty`'s `requiredUuid`.
+    expect(errorOf(() => parse('sale.create', { id: '' }))).toMatchObject({ message: 'id is required' });
+    // `parseUuid` on the body (shift open, credit payment) or on the URL (`ParseUuidPipe`).
+    for (const [type, field] of [
+      ['shift.open', 'id'],
+      ['credit_payment.create', 'id'],
+      ['credit_payment.create', 'mechanicId'],
+      ['customer.update', 'id'],
+      ['sale.void_offline', 'saleId'],
+    ] as const) {
+      expect(errorOf(() => parse(type, { [field]: '' })), `${type} ${field}`).toMatchObject({
         code: 'INVALID_ID',
-        details: { field },
       });
     }
+    // `optionalUuid`: no id, the server mints one.
+    expect(parse('drawer.entry', { id: '' })).toMatchObject({ entry: { id: null } });
+    expect(parse('return.create', { id: '' })).toMatchObject({ ret: { id: null } });
+    expect(parse('customer.create', { id: '' })).toMatchObject({ customer: { id: null } });
+  });
+
+  it('refuses a void without a reason and an unparseable device date', () => {
+    expect(errorOf(() => parse('sale.void_offline', { reason: '  ' }))).toMatchObject({
+      message: 'Void reason is required',
+    });
+    expect(errorOf(() => parse('sale.create', { date: '' }))).toMatchObject({
+      message: 'date must be a valid ISO date string',
+    });
+    expect(errorOf(() => parse('shift.open', { openedAt: 'not-a-date' }))).toMatchObject({
+      message: 'openedAt must be a valid ISO date string',
+    });
   });
 });
 
