@@ -381,7 +381,7 @@ void main() {
   // device token (#609) comes back as a 401 too — it must not read as a wrong
   // password, and no raw ApiException text may reach the dialog.
   group('OfflinePinSetupDialog 401 from the password re-check (#612)', () {
-    Future<void> submitWith401(WidgetTester tester, String code) async {
+    Future<AuthCubit> submitWith401(WidgetTester tester, String code) async {
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       tokenStorage
         ..accessToken = makeToken(iat: nowSec)
@@ -440,15 +440,20 @@ void main() {
       await tester.enterText(find.byType(TextFormField).at(2), '4321');
       await tester.tap(find.text('บันทึก PIN'));
       await tester.pumpAndSettle();
-      await authCubit.close();
+      addTearDown(authCubit.close);
+      return authCubit;
     }
 
     for (final code in AuthRepository.deadDeviceTokenCodes) {
-      testWidgets('$code → enrolment-gone sentence, not wrong password',
+      testWidgets('$code → token forgotten as on login (#609), not wrong password',
           (tester) async {
-        await submitWith401(tester, code);
+        final authCubit = await submitWith401(tester, code);
         expect(find.text('รหัสผ่านบัญชีไม่ถูกต้อง'), findsNothing);
-        expect(find.text(AuthCubit.deviceEnrolmentGone), findsOneWidget);
+        expect(find.text('ตั้งค่ารหัส PIN ออฟไลน์'), findsNothing);
+        expect(tokenStorage.deviceToken, isNull);
+        final state = authCubit.state as Unauthenticated;
+        expect(state.errorMessage, AuthCubit.deviceEnrolmentGone);
+        expect(state.deviceToken, isNull);
       });
     }
 

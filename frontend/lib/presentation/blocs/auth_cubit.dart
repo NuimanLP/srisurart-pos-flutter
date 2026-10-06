@@ -350,14 +350,7 @@ class AuthCubit extends Cubit<AuthState> {
       // (and its PIN record); show the browser as not enrolled, so the login
       // form says backoffice and the enrol link comes back.
       if (e is DeviceEnrolmentGoneException) {
-        // Normally null; a newer enrolment that landed mid-request survives.
-        final token = await _repo.getDeviceToken();
-        final enrolled = token != null && token.isNotEmpty;
-        emit(Unauthenticated(
-          deviceToken: token,
-          deviceRole: enrolled ? await _repo.getDeviceRole() : null,
-          errorMessage: deviceEnrolmentGone,
-        ));
+        await _emitDeviceEnrolmentGone();
         return false;
       }
       emit(Unauthenticated(
@@ -578,6 +571,25 @@ class AuthCubit extends Cubit<AuthState> {
         ? null
         : currentDeviceRole ?? await _pinRepo?.getDeviceRole();
     emit(Unauthenticated(deviceToken: deviceToken, deviceRole: effectiveRole));
+  }
+
+  /// #612: a request other than [login] (the offline-PIN dialog's password
+  /// re-check) was refused because the device token [sent] is dead. Forget it
+  /// exactly as [login] does (#609) and show the same not-enrolled login.
+  Future<void> forgetDeadDeviceToken(String sent) async {
+    await _repo.forgetDeadDeviceToken(sent);
+    await _emitDeviceEnrolmentGone();
+  }
+
+  Future<void> _emitDeviceEnrolmentGone() async {
+    // Normally null; a newer enrolment that landed mid-request survives.
+    final token = await _repo.getDeviceToken();
+    final enrolled = token != null && token.isNotEmpty;
+    emit(Unauthenticated(
+      deviceToken: token,
+      deviceRole: enrolled ? await _repo.getDeviceRole() : null,
+      errorMessage: deviceEnrolmentGone,
+    ));
   }
 
   /// Removes the device token, clears offline PIN, and unbinds the hardware.

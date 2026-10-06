@@ -97,9 +97,7 @@ class AuthRepository {
       if (e.statusCode == 401 &&
           sent != null &&
           deadDeviceTokenCodes.contains(e.code)) {
-        if ((await tokenStorage.getDeviceToken())?.trim() == sent) {
-          await clearDeviceEnrolment();
-        }
+        await forgetDeadDeviceToken(sent as String);
         throw const DeviceEnrolmentGoneException();
       }
       rethrow;
@@ -255,6 +253,15 @@ class AuthRepository {
   /// Unbinds this device by deleting its stored device token. The offline-PIN
   /// record goes too: it is bound to that device id and holds the 'pos' role a
   /// login form would otherwise keep showing. Drift data and the outbox stay.
+  /// #609 compare-and-clear: the server called the device token [sent] dead,
+  /// so forget the enrolment — but only if the stored token is still [sent];
+  /// a new enrolment that landed while the request was in flight survives.
+  Future<void> forgetDeadDeviceToken(String sent) async {
+    if ((await tokenStorage.getDeviceToken())?.trim() == sent) {
+      await clearDeviceEnrolment();
+    }
+  }
+
   Future<void> clearDeviceEnrolment() async {
     apiClient.beginSession();
     await tokenStorage.clearAll();
