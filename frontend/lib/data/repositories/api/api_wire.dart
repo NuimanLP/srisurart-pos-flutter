@@ -26,6 +26,7 @@
 import 'package:drift/drift.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/server_error_resolver.dart';
 import '../../../core/utils/ids.dart';
 import '../../db/database.dart';
 
@@ -73,14 +74,33 @@ Map<String, String> idempotencyKey() => {'Idempotency-Key': newIdempotencyKey('i
 /// Runs [body] and converts an [ApiException] into the plain `Exception` the
 /// screens already know how to display. Everything else (a `SocketException`,
 /// a `TimeoutException`) is left alone: it is not a server verdict and has no
-/// Thai sentence of its own.
+/// Thai sentence of its own. A 5xx keeps the server's text
+/// (`posExceptionFromApi(keepServerTextOn5xx: true)`) — what these paths have
+/// always shown.
 Future<T> rethrowThai<T>(Future<T> Function() body) async {
+  try {
+    return await body();
+  } on ApiException catch (e) {
+    throw posExceptionFromApi(e, keepServerTextOn5xx: true);
+  }
+}
+
+/// [rethrowThai] for the paths that used to let the raw [ApiException] reach
+/// the screen: a 5xx reads as the connection sentence, exactly what the
+/// screen's `ServerErrorResolver.resolveCounterError` rendered for it.
+Future<T> rethrowCounterError<T>(Future<T> Function() body) async {
   try {
     return await body();
   } on ApiException catch (e) {
     throw posExceptionFromApi(e);
   }
 }
+
+/// A 2xx whose body is not what the call returns: the server answered and may
+/// have committed, so this is never queued or retried as a new write. The
+/// sentence is the connection one — what the counter has always read here.
+PosException unreadableResponse() =>
+    PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
 
 /// Whether [e] is the server's FINAL answer about a money/stock write — that
 /// is, whether the attempt that raised it can safely be forgotten.
