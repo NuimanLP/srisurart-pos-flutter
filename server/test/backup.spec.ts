@@ -586,6 +586,7 @@ describe('Backup Module (unit)', () => {
     it('refuses a path built from anything but a uuid tenant and a plain job id', () => {
       expect(() => exportFilePath('../etc', '1')).toThrow();
       expect(() => exportFilePath(TENANT_ID, '../../x')).toThrow();
+      expect(() => exportFilePath('A6616616-6166-4166-8166-616616616616', '1')).toThrow(); // #621
       expect(exportFilePath(TENANT_ID, '42')).toBe(join(exportRoot, TENANT_ID, '42.json'));
     });
 
