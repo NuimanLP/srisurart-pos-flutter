@@ -232,7 +232,7 @@ class MechanicsRepository {
               ..where((t) => t.opId.equals(op.opId)))
             .write(
           OutboxOpsCompanion(
-            idempotencyKey: Value(newId('idem')),
+            idempotencyKey: Value(newIdempotencyKey('idem')),
             payload: Value(jsonEncode(payload)),
             status: const Value('pending'),
             attempts: const Value(0),
