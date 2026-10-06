@@ -4,12 +4,6 @@ import { randomBytes } from 'node:crypto';
 /** Canonical lowercase 8-4-4-4-12 hex, any version — the only id form the API accepts (#616). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/**
- * Same shape, either case. Only for the pre-#616 tenant-id checks, which accepted
- * uppercase (Postgres does too); new code validates with `parseUuid`.
- */
-export const UUID_ANY_CASE_RE = new RegExp(UUID_RE.source, 'i');
-
 let lastMs = 0;
 let seq = 0;
 

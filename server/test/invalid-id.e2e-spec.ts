@@ -19,6 +19,8 @@ import { testId } from './support/test-ids.js';
 // `retry` (which would bring it back forever).
 const TENANT = '61661661-6166-4166-8166-616616616616';
 const POS_DEVICE_TOKEN = 'pos-device-token-616';
+// #621: well-formed but uppercase, so only the case check can refuse it.
+const UPPERCASE_TENANT = 'A6616616-6166-4166-8166-616616616616';
 
 describe('malformed ids are 400 INVALID_ID (#616, e2e)', () => {
   let app: INestApplication;
@@ -160,8 +162,33 @@ describe('malformed ids are 400 INVALID_ID (#616, e2e)', () => {
         expectInvalidId(res, 'deviceId');
       });
 
-      // The tenant id keeps its pre-#616 any-case check (INVALID_TENANT_ID), now also on the
-      // import routes, before pre-flight or the job lookup reaches SQL.
+      // #621: a tenant id is lowercase-only too. An uppercase one (any-case it would be a
+      // well-formed UUID that simply 404s) is refused as 400 INVALID_TENANT_ID, never
+      // lower-cased, on every platform route group, before any SQL.
+      it.each([
+        ['PATCH', 'status', (t: string) => `/api/v1/platform/tenants/${t}/status`, { status: 'suspended' }],
+        ['GET', 'detail', (t: string) => `/api/v1/platform/tenants/${t}`, undefined],
+        ['POST', 'enrol-code', (t: string) => `/api/v1/platform/tenants/${t}/devices/${TENANT}/enrol-code`, {}],
+        ['POST', 'replace', (t: string) => `/api/v1/platform/tenants/${t}/devices/${TENANT}/replace`, {}],
+        ['POST', 'temp-password', (t: string) => `/api/v1/platform/tenants/${t}/owner/temp-password`, {}],
+        ['GET', 'audit', (t: string) => `/api/v1/platform/tenants/${t}/audit`, undefined],
+        ['POST', 'import', (t: string) => `/api/v1/platform/tenants/${t}/import`, { __meta: {} }],
+        ['GET', 'import job', (t: string) => `/api/v1/platform/tenants/${t}/import/${TENANT}`, undefined],
+      ] as const)('uppercase tenant id: %s %s', async (method, _, path, body) => {
+        const url = path(UPPERCASE_TENANT);
+        const req =
+          method === 'PATCH'
+            ? api().patch(url).send(body)
+            : method === 'POST'
+              ? api().post(url).send(body)
+              : api().get(url);
+        const res = await req.set('Authorization', `Bearer ${platformToken}`);
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('INVALID_TENANT_ID');
+      });
+
+      // A malformed tenant id is INVALID_TENANT_ID on the import routes too, before
+      // pre-flight or the job lookup reaches SQL.
       it.each([
         ['POST', '/api/v1/platform/tenants/not-a-uuid/import'],
         ['GET', `/api/v1/platform/tenants/not-a-uuid/import/${TENANT}`],
