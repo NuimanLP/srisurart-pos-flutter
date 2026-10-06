@@ -1,10 +1,11 @@
 // 08 §5 (owner, 2026-09-27, #452) for the customer and credit-payment writes:
 // only a TRANSPORT failure (timeout, dropped socket) queues to the outbox under
 // the same id + key. A 5xx / 429 / 503 IDEMPOTENCY_KEY_IN_FLIGHT is not a
-// verdict — the write may be committed — so it is never queued: the link goes
-// Degraded, the attempt stays parked (same id + key + body), and the counter
-// reads the converted sentence. The next press replays the parked attempt —
-// online, or through the outbox now that the link reads Degraded.
+// verdict — the write may be committed — so it is never queued. Exactly as on
+// ApiSalesRepository: the link is NOT marked Degraded (that would send the next
+// press to the outbox), the attempt stays parked (same id + key + body), and the
+// counter reads the converted sentence. The next press re-sends online under the
+// same id + key + body, and the server replays.
 
 import 'dart:convert';
 
@@ -153,9 +154,13 @@ void main() {
     final (reply, sentence) = nv.value;
 
     group('${nv.key} is parked, never queued', () {
-      test('addCustomer: Thai error, Degraded, no row, no op; the next press '
-          'goes to the outbox under the same id + key', () async {
-        final api = clientWith([() async => reply()]);
+      test('addCustomer with the sync engine: Thai error, not Degraded, no row, '
+          'no op; the next press re-sends online under the same id + key + body',
+          () async {
+        final api = clientWith([
+          () async => reply(),
+          () async => customer('server-id'),
+        ]);
         final sync = syncWith(api);
         final repo = ApiCustomersRepository(db, api, syncService: sync);
         final customersBefore = (await db.select(db.customers).get()).length;
@@ -166,13 +171,13 @@ void main() {
         );
         expect(await outbox(), isEmpty);
         expect(await db.select(db.customers).get(), hasLength(customersBefore));
-        expect(sync.currentStatus, SyncStatus.degraded);
+        expect(sync.currentStatus, isNot(SyncStatus.degraded));
 
-        final firstId = (jsonDecode(sent.bodies.single) as Map)['id'];
         await repo.addCustomer(newCustomer);
-        final op = (await outbox()).single;
-        expect(op.idempotencyKey, sent.keys.single);
-        expect((jsonDecode(op.payload) as Map)['id'], firstId);
+        expect(sent.keys, hasLength(2));
+        expect(sent.keys.toSet(), hasLength(1));
+        expect(sent.bodies.toSet(), hasLength(1));
+        expect(await outbox(), isEmpty);
       });
 
       test('addCustomer: pressed again online, the same id + key + body', () async {
@@ -189,7 +194,7 @@ void main() {
         expect(await outbox(), isEmpty);
       });
 
-      test('updateCustomer: Thai error, Degraded, row and outbox untouched; '
+      test('updateCustomer: Thai error, row and outbox untouched; '
           'pressed again online, the same key', () async {
         final api = clientWith([
           () async => reply(),
@@ -209,18 +214,24 @@ void main() {
         expect(sent.keys.toSet(), hasLength(1));
       });
 
-      test('updateCustomer with the sync engine: Degraded, no op until the next '
-          'press, which queues under the same key', () async {
-        final api = clientWith([() async => reply()]);
+      test('updateCustomer with the sync engine: not Degraded, no op; the next '
+          'press re-sends online under the same key + body', () async {
+        final api = clientWith([
+          () async => reply(),
+          () async => customer('tc-x'),
+        ]);
         final sync = syncWith(api);
         final repo = ApiCustomersRepository(db, api, syncService: sync);
 
         await expectLater(repo.updateCustomer('tc-x', edit), throwsA(isA<PosException>()));
         expect(await outbox(), isEmpty);
-        expect(sync.currentStatus, SyncStatus.degraded);
+        expect(sync.currentStatus, isNot(SyncStatus.degraded));
 
         await repo.updateCustomer('tc-x', edit);
-        expect((await outbox()).single.idempotencyKey, sent.keys.single);
+        expect(sent.keys, hasLength(2));
+        expect(sent.keys.toSet(), hasLength(1));
+        expect(sent.bodies.toSet(), hasLength(1));
+        expect(await outbox(), isEmpty);
       });
 
       test('addCreditPayment: Thai error (not "queued"), no op, no local payment; '
@@ -247,9 +258,13 @@ void main() {
         expect(await db.select(db.creditPayments).get(), hasLength(paymentsBefore + 1));
       });
 
-      test('addCreditPayment with the sync engine: Degraded; the next press queues '
-          'the parked payment under the same id + key + body', () async {
-        final api = clientWith([() async => reply()]);
+      test('addCreditPayment with the sync engine: not Degraded, never "saved '
+          'locally"; the next press re-sends online under the same id + key + body',
+          () async {
+        final api = clientWith([
+          () async => reply(),
+          () async => payment(jsonDecode(sent.bodies.first) as Map<String, dynamic>),
+        ]);
         final sync = syncWith(api);
         final repo = ApiMechanicsRepository(db, api, syncService: sync);
 
@@ -258,15 +273,16 @@ void main() {
           throwsA(isA<PosException>()),
         );
         expect(await outbox(), isEmpty);
-        expect(sync.currentStatus, SyncStatus.degraded);
+        expect(sync.currentStatus, isNot(SyncStatus.degraded));
 
-        await expectLater(
-          repo.addCreditPayment(mechanicId: 'tm-x', amount: 100, paymentMethod: 'เงินสด'),
-          throwsA(isA<CreditPaymentQueued>()),
-        );
-        final op = (await outbox()).single;
-        expect(op.idempotencyKey, sent.keys.single);
-        expect(jsonDecode(op.payload), jsonDecode(sent.bodies.single));
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        final paid = await repo.addCreditPayment(
+            mechanicId: 'tm-x', amount: 100, paymentMethod: 'เงินสด');
+        expect(paid.id, (jsonDecode(sent.bodies.first) as Map)['id']);
+        expect(sent.keys, hasLength(2));
+        expect(sent.keys.toSet(), hasLength(1));
+        expect(sent.bodies.toSet(), hasLength(1));
+        expect(await outbox(), isEmpty);
       });
     });
   }

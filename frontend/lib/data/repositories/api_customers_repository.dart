@@ -305,12 +305,11 @@ class ApiCustomersRepository extends CustomersRepository {
       }
       // 🔴 08 §5 (owner, 2026-09-27, #452): a 5xx / 429 / 503 IN_FLIGHT is
       // not a verdict — the customer may already be committed — but it is
-      // not a transport failure either, so it is never queued. Degraded, the
-      // attempt stays parked (same id + key), and the counter reads the
-      // sentence it reads for any other refusal; the next press replays.
-      final sync = syncService ??
-          (syncFacade is SyncService ? syncFacade as SyncService : null);
-      sync?.recordNonVerdictWrite();
+      // not a transport failure either, so it is never queued. Same as
+      // ApiSalesRepository: the link is NOT marked Degraded (that would send
+      // the next press to the outbox), the attempt stays parked (same id +
+      // key), and the counter reads the converted sentence; the next press
+      // re-sends online and the server replays.
       throw posExceptionFromApi(e);
     } catch (e) {
       // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
@@ -407,10 +406,8 @@ class ApiCustomersRepository extends CustomersRepository {
         _pendingUpdates.close(attempt);
         rethrowServerRefusal(e);
       }
-      // 08 §5: a 5xx / 429 / IN_FLIGHT is never queued — see addCustomer.
-      final sync = syncService ??
-          (syncFacade is SyncService ? syncFacade as SyncService : null);
-      sync?.recordNonVerdictWrite();
+      // 08 §5: a 5xx / 429 / IN_FLIGHT is never queued, never Degraded —
+      // see addCustomer.
       throw posExceptionFromApi(e);
     } catch (e) {
       // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may

@@ -461,13 +461,11 @@ class ApiMechanicsRepository extends MechanicsRepository {
       }
       // 🔴 08 §5 (owner, 2026-09-27, #452): a 5xx / 429 / 503 IN_FLIGHT is not
       // a verdict — the payment may already be committed — and not a transport
-      // failure, so it is never queued. Degraded, the attempt stays parked
-      // (same id + key + body), and the counter reads the sentence it reads
-      // for any server error; the next press replays (or queues the parked
-      // attempt, now that the link reads Degraded).
-      final sync = syncService ??
-          (syncFacade is SyncService ? syncFacade as SyncService : null);
-      sync?.recordNonVerdictWrite();
+      // failure, so it is never queued. Same as ApiSalesRepository: the link
+      // is NOT marked Degraded (that would send the next press to the outbox
+      // as "saved locally"), the attempt stays parked (same id + key + body),
+      // and the counter reads the converted sentence; the next press re-sends
+      // online and the server replays.
       throw posExceptionFromApi(e);
     } catch (e) {
       // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
