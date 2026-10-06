@@ -455,6 +455,70 @@ describe('POST /sync/push (e2e)', () => {
       expect(n[0].n).toBe(1);
     });
 
+    it('return.create + credit_payment.create B1 step 2: key row gone + body the parser refuses → the stored row replays', async () => {
+      await seedOpenShift(admin, TENANT, fixture.posDeviceId);
+      await seedProduct(admin, TENANT, { id: testId('p1'), partNo: 'HN-S2', name: 'Oil Filter', price: 85, cost: 50, stock: 45 });
+      await seedMechanic(admin, TENANT, { id: testId('m1'), code: 'M01', name: 'ช่างหนึ่ง', creditLimit: 10000, creditBalance: 1500 });
+
+      const sale = {
+        opId: testId('op_s2_sale'),
+        idempotencyKey: 'k_s2_sale',
+        type: 'sale.create',
+        payload: {
+          id: testId('s_s2'), receiptNo: `RC01-${currentPeriod()}-0301`, subtotal: '170.00', discount: '0.00', total: '170.00', paymentMethod: 'เงินสด',
+          items: [{ lineNo: 1, productId: testId('p1'), partNo: 'HN-S2', name: 'Oil Filter', qty: 2, price: '85.00' }],
+        },
+      };
+      const retPayload = {
+        id: testId('ret_s2'), saleId: testId('s_s2'), cnNo: `CN01-${currentPeriod()}-0301`, refundMethod: 'เงินสด', reason: 'ชำรุด',
+        items: [{ productId: testId('p1'), qty: 1, price: '85.00' }],
+      };
+      const ret = { opId: testId('op_s2_ret'), idempotencyKey: 'k_s2_ret', type: 'return.create', payload: retPayload };
+      const cpPayload = { id: testId('cp_s2'), mechanicId: testId('m1'), amount: '500.00', paymentMethod: 'เงินสด' };
+      const cp = { opId: testId('op_s2_cp'), idempotencyKey: 'k_s2_cp', type: 'credit_payment.create', payload: cpPayload };
+
+      const first = await push({ outboxRemaining: 0, ops: [sale, ret, cp] });
+      expect(first.body.data.results.map((r: { status: string }) => r.status)).toEqual(['applied', 'applied', 'applied']);
+      const [, firstRet, firstCp] = first.body.data.results;
+
+      await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key IN ('k_s2_ret', 'k_s2_cp')`, [TENANT]);
+      await clearTenantCache(cache, TENANT);
+      // Bodies today's parser refuses; the compared fields as stored.
+      const badRet = { ...retPayload, date: 'not-a-date' };
+      const badCp = { ...cpPayload, allowOverpayment: 'yes' };
+      const replay = await push({ outboxRemaining: 0, ops: [{ ...ret, payload: badRet }, { ...cp, payload: badCp }] });
+      expect(replay.body.data.results[0]).toMatchObject({
+        status: 'applied',
+        response: { id: testId('ret_s2'), cnNo: firstRet.response.cnNo, total: firstRet.response.total },
+      });
+      expect(replay.body.data.results[1]).toMatchObject({
+        status: 'applied',
+        response: { id: testId('cp_s2'), amount: '500.00', balanceAfter: firstCp.response.balanceAfter },
+      });
+
+      // Unknown ids + the same bad bodies: the parser's refusal, as before.
+      const fresh = await push({
+        outboxRemaining: 0,
+        ops: [
+          { ...ret, opId: testId('op_s2_ret_b'), idempotencyKey: 'k_s2_ret_b', payload: { ...badRet, id: testId('ret_s2_b') } },
+          { ...cp, opId: testId('op_s2_cp_b'), idempotencyKey: 'k_s2_cp_b', payload: { ...badCp, id: testId('cp_s2_b') } },
+        ],
+      });
+      expect(fresh.body.data.results.map((r: { status: string; code?: string }) => [r.status, r.code])).toEqual([
+        ['rejected', 'BAD_REQUEST'],
+        ['rejected', 'BAD_REQUEST'],
+      ]);
+
+      const counts = await admin.query(
+        `SELECT (SELECT count(*)::int FROM returns WHERE tenant_id = $1::uuid) AS r,
+                (SELECT count(*)::int FROM credit_payments WHERE tenant_id = $1::uuid) AS c`,
+        [TENANT],
+      );
+      expect(counts[0]).toEqual({ r: 1, c: 1 });
+      const stock = await admin.query(`SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = $2`, [TENANT, testId('p1')]);
+      expect(stock[0].stock).toBe(44);
+    });
+
     it('drawer-entry replay: an offline cash-out over the expected cash is still accepted (the cash already left)', async () => {
       await seedOpenShift(admin, TENANT, fixture.posDeviceId, {
         id: testId('sh_off_002'),

@@ -283,7 +283,9 @@ stateDiagram-v2
 > รัน**หลัง**ขั้น 1 **และขั้น 2** — ปฏิเสธ = `rejected` (`INVALID_ID` ฯลฯ) ไม่ใช่ `retry` (`sync.service.ts` `processSingleOpIn`)
 > · ขั้น 2 ก็ไม่ parse แล้ว (PR #638): `replayProbeOf` อ่านจาก payload ตามที่ส่งมาแค่ client id + ฟิลด์ที่ §6.1 เทียบ
 > (ไม่ throw) แล้วสร้างคำตอบจากแถวที่เก็บไว้ — key หมดอายุ + body ที่ parser วันนี้ไม่รับ = `applied` ·
-> id ไม่ใช่ UUID → ไม่ replay (parser ตอบ `INVALID_ID`) · ฟิลด์ไม่ตรง/อ่านไม่ออก → `CLIENT_ID_REUSED`
+> id ไม่ใช่ UUID → ไม่ replay (parser ตอบ `INVALID_ID`) · ฟิลด์ไม่ตรง/อ่านไม่ออก → `CLIENT_ID_REUSED` ·
+> พิสูจน์ด้วย e2e (key หมดอายุ + body ที่ parser ไม่รับ): `sale.create` `return.create` `credit_payment.create` `drawer.entry`
+> · `shift.open` `customer.create` `sale.void_offline` มีแค่ unit test (`sync.dto.spec.ts`: probe ตรงกับ parser ทุก fixture)
 
 - `runTx` ของตัวเองต่อ op ต่อกันทีละตัว — ห้าม `Promise.all` (#162), ห้ามรวมทั้ง batch
 - `IN_FLIGHT`, `CommitCeilingExceededError`, 5xx → `retry` แล้ว**หยุด**

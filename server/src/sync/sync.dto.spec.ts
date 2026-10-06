@@ -10,6 +10,8 @@ import {
   replayProbeOf,
   SYNC_OP_TYPES,
   targetIdOf,
+  type ParsedSyncOp,
+  type ReplayProbe,
   type SyncOpType,
 } from './sync.dto.js';
 
@@ -280,6 +282,61 @@ describe('replayProbeOf (08 §8.3 step 2, before the parser)', () => {
     expect(replayProbeOf(op('sale.create', { id: 'S-legacy', total: '1.00' }))).toBeNull();
     expect(replayProbeOf(op('shift.open', { startingCash: '1.00' }))).toBeNull();
     expect(replayProbeOf(op('customer.update', { id: testId('c1') }))).toBeNull();
+  });
+
+  it('agrees with parseOpPayload on the id and every compared field, for every fixture op step 2 replays', () => {
+    // Guards a future parser that normalises a field the probe compares raw.
+    const dir = join(
+      fileURLToPath(new URL('.', import.meta.url)),
+      '../../../docs/Backend_design/fixtures/sync-push',
+    );
+    const ops = readdirSync(dir)
+      .filter((f) => f.endsWith('.json') && f !== 'batch.no-active-user-403.json')
+      .flatMap((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')).request.body.ops)
+      .filter((o: { type: string }) => o.type !== 'customer.update');
+    const compared = (p: ReplayProbe) => {
+      switch (p.type) {
+        case 'sale.create': return { id: p.id, totalSatang: p.totalSatang };
+        case 'return.create': return { id: p.id, saleId: p.saleId, items: p.items };
+        case 'shift.open': return { id: p.id, startingCashSatang: p.startingCashSatang };
+        case 'drawer.entry': return { id: p.id, type: p.entryType, amountSatang: p.amountSatang };
+        case 'credit_payment.create':
+          return { id: p.id, mechanicId: p.mechanicId, amountSatang: p.amountSatang, paymentMethod: p.paymentMethod };
+        case 'customer.create': return { id: p.id };
+        case 'sale.void_offline': return { id: p.id, reason: p.reason };
+      }
+    };
+    const fromParsed = (o: ParsedSyncOp) => {
+      switch (o.type) {
+        case 'sale.create': return { id: o.sale.id, totalSatang: o.sale.totalSatang };
+        case 'return.create':
+          return {
+            id: o.ret.id,
+            saleId: o.ret.saleId,
+            items: o.ret.items.map((l) => ({ productId: l.productId, qty: l.qty, priceSatang: l.priceSatang })),
+          };
+        case 'shift.open': return { id: o.shift.id, startingCashSatang: o.shift.startingCashSatang };
+        case 'drawer.entry': return { id: o.entry.id, type: o.entry.type, amountSatang: o.entry.amountSatang };
+        case 'credit_payment.create':
+          return {
+            id: o.payment.id,
+            mechanicId: o.mechanicId,
+            amountSatang: o.payment.amountSatang,
+            paymentMethod: o.payment.paymentMethod,
+          };
+        case 'customer.create': return { id: o.customer.id };
+        case 'sale.void_offline': return { id: o.saleId, reason: o.reason };
+        case 'customer.update': throw new Error('not replayed by id');
+      }
+    };
+    const types = new Set<string>();
+    for (const o of ops) {
+      const probe = replayProbeOf(o);
+      expect(probe, o.opId).not.toBeNull();
+      expect(compared(probe!), o.opId).toEqual(fromParsed(parseOpPayload(o)));
+      types.add(o.type);
+    }
+    expect(types).toEqual(new Set(SYNC_OP_TYPES.filter((t) => t !== 'customer.update')));
   });
 
   it('a void is found by the bill it names', () => {
