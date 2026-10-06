@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
+**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
@@ -895,7 +895,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 
 ### 6.2 Rollback (owner ตัดสิน)
 
-SHA ปลายทางต้อง: อยู่บน `main` · ไม่เก่ากว่า `ROLLBACK_FLOOR` `bedd328aa3ba1de8c56b5fe5753fd12deca5dd4f` (merge ของ #617/#616 — id เป็น UUID, release ก่อนนั้นเขียนลง schema ใหม่ไม่ได้ · เดิม `4f3a244…`) · มี image ครบบน GHCR ·
+SHA ปลายทางต้อง: อยู่บน `main` · ไม่เก่ากว่า `ROLLBACK_FLOOR` `bedd328aa3ba1de8c56b5fe5753fd12deca5dd4f` (merge ของ #617/#616 — id เป็น UUID, release ก่อนนั้นเขียนลง schema ใหม่ไม่ได้ · เดิม `4f3a244…`) — `pos-deploy` (runner) ปฏิเสธ SHA ต่ำกว่า floor ส่วนทางมือคำสั่ง `merge-base` ด้านล่างคือด่านเดียว · floor ขยับเมื่อ merge ใหม่ — แก้ใน `deploy/scripts/pos-deploy.sh` แล้ว**ติดตั้ง `/usr/local/bin/pos-deploy` ทับด้วยมือ** (`07_CICD_DEPLOY.md` §6.2 ข้อ 4; CD ไม่ทำให้) ก่อน approve deploy · มี image ครบบน GHCR ·
 **schema ไม่ถอย** (rollback ข้าม migration ที่ลบ/rename คอลัมน์ = owner ตัดสิน)
 
 **ทางหลัก (พิสูจน์แล้ว 2026-09-30): dispatch `Deploy (demo)` ผ่าน runner** ด้วย `image_tag=$OLDTAG` — คำสั่งใน §6.3 ·
@@ -938,6 +938,8 @@ gh workflow run deploy.yml -R NuimanLP/srisurart-pos-flutter --ref main -f image
 gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --json databaseId,status,headSha,event,createdAt
 ```
 
+**หลัง merge เข้า `main` Deploy ยิง 2 รอบ** (จาก Server CI และ Flutter CI) — รอบแรกมักข้าม (ขึ้นเขียว) เพราะ image web ยังไม่ถูกสร้าง → approve รอบที่สอง · ยกเลิกรันเก่าที่ค้าง waiting ก่อน (ถือช่อง `deploy-demo`) · branch: PR เข้า `develop` ก่อน แล้ว `develop` → `main` ด้วย **merge commit เท่านั้น** (squash/rebase ทำให้ SHA ของ floor หายจากประวัติ `main`)
+
 ดู log งาน `resolve release` ว่าบรรทัด `Release to deploy:` เป็น SHA ที่ตั้งใจ **ก่อน** owner approve (GitHub → Actions → run นั้น → Review deployments → `demo`) ·
 ถ้ามี run อื่นรอ approve อยู่ ให้ยกเลิกก่อน (§3 ข้อ 1) · ตรวจผลด้วย §4 (`.current_sha` คือหลักฐาน ไม่ใช่สีของ run)
 
@@ -948,6 +950,12 @@ gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --
 | [36686729879](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36686729879) | กู้ VM ที่ค้างครึ่งทางหลัง VPN หลุดกลาง playbook ด้วยมือ (`e50f4fa` → `494ace3`) | `failed=0` |
 | [36687687309](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36687687309) | rollback `494ace3` → `e50f4fa` | `failed=0`, schema เหมือนเดิม |
 | [36688248109](https://github.com/NuimanLP/srisurart-pos-flutter/actions/runs/36688248109) | SHA เดิมซ้ำ (`.env` ไม่เปลี่ยน) | จบที่ `Skipping duplicate deployment.` (`ok=7 changed=0`) — container ไม่ถูกแตะ |
+
+### 6.3b สถานะ `mob04` หลัง #616 (2026-10-06)
+
+`.current_sha` = `65861ea` (develop → main) · ฐานข้อมูลถูก backup (`/opt/pos/backups/`, สำเนาอยู่เครื่อง owner) แล้วล้างทั้งหมด · migration `EntityIdsToUuid` ปฏิเสธฐานข้อมูลที่ไม่ว่าง จึงต้องล้างก่อน deploy · **ยังไม่มี tenant** → owner สร้างผ่าน platform-ui (รหัสชั่วคราวหมดอายุใน 10 นาที) · tenant id ตัวพิมพ์เล็กเท่านั้น (#621) · CORS อนุญาต `X-Device-Token` (#618) ·
+ไฟล์ backup/snapshot จากแอปเดิม (id เช่น `p1`, `s-0001`) ถูก server ปฏิเสธตอน import: `400 INVALID_ID` · เครื่องลูกข่ายก่อนวันนี้ต้องล้าง (Incognito / Clear site data; Android ล้าง storage แล้วลง APK ใหม่ — §6.7) เพราะ outbox เก่าส่ง/discard ไม่ได้ ·
+บันทึก: `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md` · runbook: `runbook-616-uuid-cutover-mob04.md`
 
 ### 6.4 Troubleshooting
 
@@ -1010,5 +1018,7 @@ APK ไม่ได้มากับ deploy — ต้องสั่ง workfl
 3. รอจนเขียว แล้วเปิด Releases → prerelease `apk-<sha7>` → ดาวน์โหลด `srisurart-pos-<sha7>.apk`
 4. ย้ายไฟล์เข้าเครื่อง Android → เปิดไฟล์ → อนุญาต "ติดตั้งจากแหล่งที่ไม่รู้จัก" (unknown sources) ให้แอปที่ใช้เปิดไฟล์ → ติดตั้ง · รุ่นใหม่ติดตั้งทับรุ่นเก่าได้เพราะเซ็นด้วยกุญแจเดิม
 5. เครื่องต้องอยู่ในเครือข่ายคณะหรือต่อ VPN จึงเปิดแอปแล้วเข้า `https://172.30.58.20` ได้
+
+ก่อนใช้ APK ใหม่: ล้าง storage ของแอปเก่าก่อน (#616 — outbox เก่าส่งไม่ได้)
 
 ข้อควรรู้: workflow ล้มถ้า release `apk-<sha7>` ของ commit นั้นมีอยู่แล้ว (ลบ release ก่อน) · ล้มถ้า secret `ANDROID_KEYSTORE_B64` ว่าง · ผู้ถือ secret ต้องเก็บ keystore สำรองส่วนตัว ห้าม commit

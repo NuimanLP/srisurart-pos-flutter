@@ -207,6 +207,7 @@
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
       <li><strong>ยังไม่ cutover</strong> — ร้านใช้ Drift build แบบออฟไลน์ ไม่มีการเข้าสู่ระบบ ไม่มีการผูกเครื่อง</li>
+      <li><strong>2026-10-06: <code>mob04</code> อยู่ที่ <code>65861ea</code> (รหัสรายการเป็น UUID, #616)</strong> — ฐานข้อมูลถูกล้าง ยังไม่มีร้าน ต้องสร้างใหม่ผ่าน platform-ui · ไฟล์ backup จากแอปเดิม (รหัสแบบ <code>p1</code>, <code>s-0001</code>) นำเข้าเซิร์ฟเวอร์ไม่ได้ (<code>INVALID_ID</code>) · เครื่องที่ใช้งานก่อนวันนั้นต้องล้างข้อมูลเบราว์เซอร์/แอปก่อน (ภาค 04)</li>
       <li><strong>CD ขึ้น <code>mob04</code> สำเร็จครั้งแรกเมื่อ 2026-09-30</strong> (runner <code>mob04-demo</code>, release <code>e50f4fa</code>; firewall เลิกตัด <code>ghcr.io</code> ตั้งแต่ 2026-09-29) การย้อนเวอร์ชันอัตโนมัติพิสูจน์แล้วเย็นวันเดียวกัน (run 36720675552) · อย่างไรก็ตาม การ Deploy (demo) ที่ขึ้นเขียวใน GitHub <strong>ไม่ได้แปลว่าขึ้นเครื่องแล้ว</strong></li>
       <li><strong>ยังไม่มี backup ออกนอก VM</strong> — งาน offsite ถูกพักไว้จนหลังเดโม ถ้าดิสก์ <code>mob04</code> เสีย ข้อมูลร้าน demo หายหมด</li>
       <li>etcd บน <code>mob04</code> เปิดระบบรหัสผ่านแล้ว 2026-09-30 (#365 ปิดแล้ว) · <code>CORS_ORIGINS</code> บน VM ตั้งเป็น origin ของตัวเองแล้ว (ตรวจ 2026-09-30) origin แปลกหน้าเคยได้ HTTP 500 (แก้แล้ว PR #516 — ตอนนี้ได้สถานะปกติของ route (เช่น <code>/health/live</code> 200 — ไม่ใช่ 500) ไม่มี ACAO)</li>
