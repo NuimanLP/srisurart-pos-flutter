@@ -32,7 +32,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/network/api_exception.dart';
+import '../../core/errors/pos_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_breakpoints.dart';

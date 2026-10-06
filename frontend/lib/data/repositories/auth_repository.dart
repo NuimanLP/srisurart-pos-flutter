@@ -5,6 +5,7 @@ import 'dart:async';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
 import '../../domain/models/auth_models.dart';
 import '../services/tenant_cache_guard.dart';
 import '../storage/token_storage.dart';
@@ -25,6 +26,20 @@ class DeviceEnrolmentGoneException implements Exception {
   static const String message =
       'เครื่องนี้ถูกปลดจากร้านแล้ว หรือไม่พบในระบบ จึงเปลี่ยนเป็นโหมด Backoffice '
       '— ผูกเครื่องใหม่ด้วยรหัสจากเจ้าของร้าน';
+
+  @override
+  String toString() => message;
+}
+
+/// [AuthRepository.changePassword] got a 401: the 10-minute password-change
+/// token expired or was already used — only a fresh login with the temporary
+/// password can continue (#443 PR3).
+class PasswordChangeSessionExpiredException implements Exception {
+  const PasswordChangeSessionExpiredException();
+
+  /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
+  static const String message =
+      'หมดเวลาเปลี่ยนรหัสผ่าน กรุณาเข้าสู่ระบบใหม่ด้วยรหัสผ่านชั่วคราว';
 
   @override
   String toString() => message;
@@ -105,7 +120,7 @@ class AuthRepository {
         await forgetDeadDeviceToken(sent as String);
         throw const DeviceEnrolmentGoneException();
       }
-      rethrow;
+      throw loginRefusal(e);
     }
 
     final map = response as Map<String, dynamic>;
@@ -131,6 +146,34 @@ class AuthRepository {
     );
   }
 
+  /// A refused `POST /auth/token` as the sentence the login form shows (#143).
+  ///
+  /// Every string comes from [ServerErrorResolver] or was already the login
+  /// form's own — none is new:
+  /// - **401** — the server's login refusals (wrong password, unknown, inactive
+  ///   or ambiguous user, bad device token) are all English Nest messages with
+  ///   no code, so the resolver would print `Invalid credentials` at the
+  ///   counter. They get the form's generic `เข้าสู่ระบบไม่สำเร็จ`, which also
+  ///   says nothing about *which* part was wrong.
+  /// - **5xx** — a proxy's 502 body is HTML; the connection sentence instead.
+  /// - **other 4xx / 429** — coded verdicts (`TENANT_SUSPENDED`,
+  ///   `RATE_LIMITED`) resolve to their mapped Thai.
+  static PosException loginRefusal(ApiException e) {
+    final String message;
+    if (e.code == 'TEMP_PASSWORD_EXPIRED') {
+      // #443 PR3: the one 401 that must NOT read as "wrong password" — the
+      // password was right, the temporary one simply expired.
+      message = e.thaiMessage;
+    } else if (e.statusCode == 401) {
+      message = 'เข้าสู่ระบบไม่สำเร็จ';
+    } else if (e.statusCode >= 500) {
+      message = ServerErrorResolver.resolve(null);
+    } else {
+      message = e.thaiMessage;
+    }
+    return PosException(e.code, message, e.details);
+  }
+
   /// Replaces the temporary owner password with [newPassword] (#443 PR3),
   /// authorised by the restricted token from [login]. Success is a full
   /// session, stored exactly like a normal login.
@@ -141,12 +184,21 @@ class AuthRepository {
     required String passwordChangeToken,
     required String newPassword,
   }) async {
-    final response = await apiClient.post(
-      '/api/v1/auth/change-password',
-      body: {'newPassword': newPassword},
-      headers: {'Authorization': 'Bearer $passwordChangeToken'},
-      skipAuth: true,
-    );
+    final Object? response;
+    try {
+      response = await apiClient.post(
+        '/api/v1/auth/change-password',
+        body: {'newPassword': newPassword},
+        headers: {'Authorization': 'Bearer $passwordChangeToken'},
+        skipAuth: true,
+      );
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        throw const PasswordChangeSessionExpiredException();
+      }
+      throw PosException(
+          e.code, ServerErrorResolver.resolveCounterError(e), e.details);
+    }
     final map = response as Map<String, dynamic>;
     final user = AuthUser.fromJson(map['user'] as Map<String, dynamic>);
     await _storeSession(
