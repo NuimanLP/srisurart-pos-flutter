@@ -131,8 +131,21 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        if (e is ApiException && e.statusCode == 401) {
+        // #612: only the server's plain 401 is a wrong password. A dead
+        // device token (#609) is a 401 too, and no other ApiException may
+        // reach the screen as its raw toString().
+        if (e is DeviceEnrolmentGoneException) {
+          _errorMessage = DeviceEnrolmentGoneException.message;
+        } else if (e is ApiException &&
+            e.statusCode == 401 &&
+            AuthRepository.deadDeviceTokenCodes.contains(e.code)) {
+          _errorMessage = DeviceEnrolmentGoneException.message;
+        } else if (e is ApiException &&
+            e.statusCode == 401 &&
+            e.code == 'UNAUTHORIZED') {
           _errorMessage = 'รหัสผ่านบัญชีไม่ถูกต้อง';
+        } else if (e is ApiException) {
+          _errorMessage = e.thaiMessage;
         } else if (e is ArgumentError) {
           _errorMessage = e.message?.toString() ?? 'ข้อมูลไม่ถูกต้อง';
         } else {
