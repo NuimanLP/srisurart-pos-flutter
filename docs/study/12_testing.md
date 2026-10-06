@@ -328,7 +328,7 @@ expect(sales, isEmpty);
 expect(
   () => repo.createReturn(
     const ReturnInput(
-      saleId: 's_over',
+      saleId: 's_over',  // id สั้น ๆ ใช้ได้ในเทสต์ Drift/in-memory — เฉพาะ Postgres ฝั่ง server ที่บังคับ UUID ตั้งแต่ #616
       items: [ReturnLineInput(productId: 'p1', name: 'Oil Filter', qty: 5, price: 85)],
       refundMethod: 'เงินสด',
     ),

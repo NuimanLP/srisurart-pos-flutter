@@ -486,11 +486,11 @@ export class EnvelopeInterceptor implements NestInterceptor {
 {
   "status": "success",
   "data": {
-    "id": "s_off_001",
+    "id": "0192f3a4-7b1c-7d2e-8a3f-5c6d7e8f9a0b",
     "receiptNo": "RC01-2569-09-0042",
     "total": "255.00",
     "pointsGranted": 25,
-    "products": [ { "id": "p1", "stock": 45 } ]
+    "products": [ { "id": "0192f3a4-7b1c-7d2e-8a3f-1122334455aa", "stock": 45 } ]
   }
 }
 ```
@@ -599,6 +599,8 @@ server จำ 3 อย่างต่อ key: **key**, **endpoint** (method + pa
 
 key ถูกเก็บ 24 ชั่วโมง (`IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60`, `idempotency.service.ts:29`)
 
+> **อัปเดต 2026-10-06 (#616/#620/#621):** อย่าสับสน *key* กับ *id* — Idempotency-Key ยังเป็น string รูป `prefix+base36…` สร้างด้วย `newIdempotencyKey(prefix)` (เดิมชื่อ `newId`; ใช้กับ header เท่านั้น) ส่วน id ของ entity (บิล, สินค้า ฯลฯ) ทุกตัวเป็น **UUIDv7 ตัวพิมพ์เล็ก** จาก `newUuid()` — id ผิดรูป/ตัวพิมพ์ใหญ่ใน path/body = `400 INVALID_ID`; tenant id ตัวพิมพ์ใหญ่ = `400 INVALID_TENANT_ID` (ตัวอย่าง `p1`/`s_off_001` ในบทนี้ถูกแทนด้วย UUID แล้ว)
+
 - **ทำไม endpoint ต้องเป็น path จริง ไม่ใช่ pattern:** body ของ void บางแบบเล็กมาก ถ้าใช้ pattern `POST /sales/:id/void`
   การ void บิล A กับบิล B ด้วย key เดิม (bug ฝั่ง client) จะได้ fingerprint เดียวกัน → server replay คำตอบ "void บิล A สำเร็จ"
   ทั้งที่บิล B **ยังไม่ถูก void** — เงียบและอันตราย (CLAUDE.md: *"never `req.route.path`"*)
@@ -615,7 +617,7 @@ key ถูกเก็บ 24 ชั่วโมง (`IDEMPOTENCY_TTL_SECONDS = 2
     }
     final write = PendingWrite._(
       fingerprint: fingerprint,
-      id: newId(_idPrefix),
+      id: newUuid(),              // #616: id ของบิล = UUIDv7 (เดิม newId(prefix))
       headers: idempotencyKey(),      // ← ครั้งแรก: สร้างใหม่
     );
     ...
@@ -816,7 +818,7 @@ owner: POST /devices {role:'pos'}         → ได้ enrolCode (อายุ�
   ...
     allowedHeaders: [
       'Content-Type', 'Authorization', 'Idempotency-Key', 'If-None-Match',
-      'X-Device-Id', 'X-Client-Version', 'X-Correlation-ID',
+      'X-Device-Id', 'X-Device-Token', 'X-Client-Version', 'X-Correlation-ID',   // X-Device-Token เพิ่ม #618
     ],
     exposedHeaders: ['Idempotency-Key', 'Retry-After', 'X-Correlation-ID', 'ETag'],
 ```
@@ -824,7 +826,7 @@ owner: POST /devices {role:'pos'}         → ได้ enrolCode (อายุ�
 - `allowedHeaders` = header ที่ browser ยอมให้ JS **ส่ง** ข้าม origin — ถ้าลืมใส่ `Idempotency-Key` แอป Flutter **web** จะส่ง key ไม่ได้เลย (preflight ตก)
 - `exposedHeaders` = header ที่ JS ฝั่ง browser **อ่านได้** จากคำตอบ — ถ้าไม่ expose `Retry-After` แอป web จะไม่รู้ว่าต้องรอกี่วินาที
 - **default คือ `'*'`** ถ้าไม่ได้ตั้ง `CORS_ORIGINS` — #367 (PR #373) ทำให้ค่า set-แต่-ว่าง throw ตอน boot แทน fallback เงียบ
-  🔴 แต่ CLAUDE.md บันทึกว่า **`mob04` ยังเป็น `'*'` อยู่** จนกว่า env file จะมี key และรัน `provision.yml` ใหม่ — ห้ามเขียนว่า CORS ปิดแล้วบน VM (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
+  🔴 แต่ CLAUDE.md บันทึกว่า **`mob04` ยังเป็น `'*'` อยู่** จนกว่า env file จะมี key และรัน `provision.yml` ใหม่ — ห้ามเขียนว่า CORS ปิดแล้วบน VM (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO — ตอนนั้นได้ HTTP 500 แก้แล้วด้วย PR #516: ตอบปกติแต่ไม่มี ACAO; ต่อมา #618 เพิ่ม `X-Device-Token` ใน `allowedHeaders` เพราะ `/sync/push` ส่ง header นี้ แล้ว preflight ของเว็บตก — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
 
 ### แผนภาพ: ชั้นของสัญญา (contract layers)
 
