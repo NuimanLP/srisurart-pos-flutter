@@ -50,7 +50,7 @@ lib/
     router/app_router.dart        ← GoRouter + AppRoutes constants (Contract — frozen)
     theme/app_theme.dart          ← AppTheme.light / AppTheme.dark (Schema)
     theme/app_colors.dart         ← brand colors (Schema)
-    utils/ids.dart                ← newUuid() (UUIDv7), docNo(prefix) (Schema); `newId(prefix)` deprecated (#616)
+    utils/ids.dart                ← newUuid() (UUIDv7), docNo(prefix) (Schema); `newIdempotencyKey(prefix)` (idempotency keys only; was `newId`, #620)
     utils/money.dart              ← baht(), round2(), pointsFor() (Schema)
     utils/csv_safe.dart           ← csvSafe(Object?) (Schema)
   data/
@@ -343,7 +343,7 @@ those are NOT input fields.
 ## 7. Shared helper signatures (`lib/core/utils/`) — Schema-owned
 
 - `String newUuid()` — lowercase UUIDv7 (`Uuid().v7()`); every entity id and id reference (#616, ADR-0010 addendum 2026-10-05). Malformed/uppercase ids are `400 INVALID_ID` server-side.
-- `String newId(String prefix)` — DEPRECATED legacy `prefix + base36(nowMs) + "_" + uuidShort + "_" + base36(++counter)`; not for entity ids
+- `String newIdempotencyKey(String prefix)` — idempotency keys only (renamed from `newId`, #620); legacy `prefix + base36(nowMs) + "_" + uuidShort + "_" + base36(++counter)`; not for entity ids
 - `String docNo(String prefix)` — `prefix + last-8-digits(nowMs) + uppercase(first-4 uuidShort)`
 - `double round2(num v)` — `(v*100).round()/100` (JS `Math.round(v*100)/100`)
 - `int pointsFor(num total)` — `(total/10).floor()`

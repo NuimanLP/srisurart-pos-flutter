@@ -1,4 +1,6 @@
-// Port of _newId / _docNo from pos/db.js — UUID-backed, collision-proof.
+// ID helpers. Entity ids: newUuid() (#616). Idempotency keys: newIdempotencyKey()
+// (the legacy db.js _newId shape, kept byte-identical — keys are stored server-side
+// and pinned by fixtures/client-requests). Doc numbers: docNo() (port of _docNo).
 //
 // JS source:
 //   let _idCounter = 0;
@@ -21,7 +23,10 @@ int _idCounter = 0;
 String _uuidShort() => _uuid.v4().replaceAll('-', '').substring(0, 8);
 
 /// `prefix + base36(nowMs) + "_" + uuidShort + "_" + base36(++counter)`
-String newId(String prefix) {
+///
+/// For idempotency keys ONLY — never an entity id (the server refuses it with
+/// 400 INVALID_ID; use [newUuid]).
+String newIdempotencyKey(String prefix) {
   final ms = DateTime.now().millisecondsSinceEpoch;
   return '$prefix${ms.toRadixString(36)}_${_uuidShort()}_${(++_idCounter).toRadixString(36)}';
 }

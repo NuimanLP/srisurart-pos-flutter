@@ -100,7 +100,7 @@ frontend/
     core/
       router/app_router.dart   ← GoRouter + AppRoutes (13 shell routes + /login). ShellRoute → AppShell.
       theme/                   ← navy/orange brand, Sarabun (Thai) + Barlow type
-      utils/                   ← newId/docNo (ids.dart), baht/round2/pointsFor (money.dart),
+      utils/                   ← newUuid/newIdempotencyKey/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
     data/
       db/tables.dart           ← 26 Drift tables, schemaVersion 13 (20 ported sa_* stores + #24's
@@ -151,7 +151,7 @@ idiomatic replacement for the JS snapshot/rollback):
 - **snapshot** — `exportSnapshot()` emits the JS `sa_*` + `__meta` backup shape;
   `importLegacyBackup()` atomically imports a JS `DB.exportSnapshot()` JSON (zone→category
   migration, null-as-absent). This is the Phase-2 data-migration path.
-- Entity ids via `newUuid()` (lowercase UUIDv7, #616); idempotency keys via `newId(prefix)`;
+- Entity ids via `newUuid()` (lowercase UUIDv7, #616); idempotency keys via `newIdempotencyKey(prefix)`;
   doc numbers via `docNo`; CSV via `csvSafe`.
 - API build (`USE_API_WRITES`) never seeds demo business data; an already-seeded DB gets a one-time `purgeDemoSeed()` (skipped while outbox ops or queued credit payments exist; deletes only untouched `updatedAt IS NULL` seed rows no local record references; AppMeta marker `demo_seed_purged`, also set by `importLegacyBackup`). The seeded settings identity persists until the first successful `GET /settings`.
 
