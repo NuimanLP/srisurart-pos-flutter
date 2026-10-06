@@ -17,13 +17,14 @@ offline-first-only build is preserved on `POC_sample_offline_first`.
 
 ---
 
-## 🌿 Branch strategy (set 2026-09-04)
+## 🌿 Branch strategy (set 2026-09-04; `develop` added 2026-10-06)
 
-The repo now carries **two lines of work**. Know which one you are on before you change anything.
+Three long-lived branches. Know which one you are on before you change anything.
 
 | Branch | What it is | Status |
 |---|---|---|
-| **`main`** | **The multi-tenant line** — Flutter **client** + NestJS **backend** + **CI/CD**, per `docs/Backend_design/` (Architecture C phase 1 = A, tenancy model T1) | **Active.** All new work lands here. |
+| **`main`** | **The multi-tenant line** — Flutter **client** + NestJS **backend** + **CI/CD**, per `docs/Backend_design/` (Architecture C phase 1 = A, tenancy model T1) | **Release line.** Receives `develop` only; every code push builds images and triggers a deploy. |
+| **`develop`** | Integration branch for the `main` line (owner decision 2026-10-06) | **Active.** Every work PR targets `develop` (`gh pr create --base develop`). |
 | **`POC_sample_offline_first`** | Frozen **proof-of-concept snapshot** of the offline-first, Drift-only build (branched from `main` at `4dae2f0`) | Reference only. Do not build on it. |
 
 **What this means in practice:**
@@ -36,6 +37,11 @@ The repo now carries **two lines of work**. Know which one you are on before you
   so the phase-1 rule **"the shop keeps running the Drift build, no cutover"** stays testable.
 - The offline-first design is **not abandoned** — it returns as **phase 2** (outbox + ~~`offlineOk`~~ — dropped 2026-09-15, see 08
   + a single `role='pos'` writer per tenant, ADR-0004). The POC branch is its starting point.
+
+🔴 **`develop` → `main` = merge commit or fast-forward only.** Squash/rebase rewrites the SHAs, so
+`bedd328` (the `ROLLBACK_FLOOR` in `deploy/scripts/pos-deploy.sh`) would stop being an ancestor of
+`main` and `pos-deploy` would refuse every SHA. GitHub still allows squash/rebase and `develop` is
+unprotected — choose the method by hand (`gh pr merge --merge`).
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**
@@ -265,7 +271,7 @@ develops against a demo tenant.
   via platform-ui; sales/replay/Grafana not yet — `docs/handoff_log/session-2026-10-05-demo344-retired-device.md`); its
   checklist is `docs/handoff_log/demo-344-checklist-2026-09-30.md`, with flagged blockers
   (temp-password + forced change within 10 min, new tenant has no products, the app cannot
-  resend an idempotency key, three #335 ACs not provable on the VM, #476). 2026-09-30
+  resend an idempotency key, three #335 ACs not provable on the VM; #476 closed 2026-10-03). 2026-09-30
   `provision.yml` re-run added only `PLATFORM_ADMINS` (3 admins synced; first human platform-ui login 2026-10-05, see #344) and installed the missing `backup-db.sh`. 🔴 Correction: on 2026-09-29
   03:00 the script existed and **failed** ("Neither active docker compose postgres container…",
   leaving a 20-byte empty `.gz`); only the 2026-09-30 03:00 run was "not found". #346 closed
@@ -320,10 +326,27 @@ develops against a demo tenant.
   the Thai string `AuthCubit.deviceEnrolmentGone` (**agent ร่าง**, `02 §8.1.1`), and
   `init`/`_logout` no longer show a remembered `pos` role without a device token. Drift and
   the outbox are untouched; `ENROL_UNSENT_WORK` still guards a new enrolment. Not built:
-  shop name on the badge, device-status check at app open (both need new API); **#612**
-  (offline-PIN setup dialog reads any 401 as a wrong password) is open. Browser profile
+  shop name on the badge, device-status check at app open (both need new API). #612
+  (offline-PIN setup dialog read any 401 as a wrong password) closed 2026-10-06 (PR #625/#629:
+  dead token → same path as #609; only 401 `UNAUTHORIZED` = wrong password). Browser profile
   holding another tenant's retired token showed `เครื่อง POS` and hid the enrol link — the
   bug this fixed; use Incognito for a demo until the build is on the profile.
+- **#616 UUID cutover (2026-10-06, `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`).**
+  PR #628 (`develop` → `main`, merge commit) = `65861ea`; closed #612/#616/#619/#620/#621.
+  `mob04` runs `65861ea` (`.current_sha` verified), DB **wiped — no tenant**; dump
+  `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` + one copy on the owner's laptop.
+  `ROLLBACK_FLOOR` = `bedd328` (#617 merge): `pos-deploy` refuses anything older; restoring old
+  data is an owner decision, not a rollback. `server/package.json` `pnpm.overrides` pins
+  `proxy-addr`/`source-map-js` (#627 — a new advisory turned `pnpm audit` red on `main` too).
+  Before use: create a tenant via platform-ui, wipe every client (Incognito / clear site data /
+  clear APK storage — a pre-UUID outbox can neither send nor discard). Open, not ticketed:
+  `/sync/push` replay **by client id** (§8.3 step 2) still runs after `parseOpPayload`, so an
+  expired-key bill whose body today's parser refuses is `rejected`, not `applied` (PR #630);
+  `INVALID_ID` Thai string is `agent ร่าง`; 7 `presentation/` files still import
+  `api_exception.dart` (no app-wide guard); `assertValidTenantId` lives in
+  `platform-tenants.service.ts` (belongs in `common/ids.ts`); `offline_pin_repository.dart` ↔
+  `auth_repository.dart` import each other; `pos_trust_test.dart` fails 2
+  tests on macOS (TLS message wording; Linux CI green).
 - **5xx does not queue — owner decision 2026-09-27, `08 §5` amended (PR #469).** On the
   API build a 5xx/429 leaves the attempt parked (same id + key) and shows the error, for
   sales, shifts and returns alike; only a transport failure queues to the outbox.
@@ -335,15 +358,15 @@ develops against a demo tenant.
   (#470, `login_form.dart:188`); all three are in `02 §8.1.1` for the owner to ratify.
 - **Follow-ups filed 2026-09-28** (verified in code, table in
   `docs/handoff_log/session-2026-09-28-overnight-bug-sweep.md` §2) — **all closed same
-  day except #476:** ~~#472 offline RC numbering guessed `deviceNo ?? 1` and fell back to
+  day except #476 (closed 2026-10-03):** ~~#472 offline RC numbering guessed `deviceNo ?? 1` and fell back to
   `docNo('RC')`~~ fixed by PR #484 (`DocNumberService.issueOffline`, same rule #469 gave
   CN) · ~~#473 discarding a `sale.create`/`return.create` did not undo local
   stock/ledger~~ fixed by PR #483 (reverses stock/customer/mechanic/void inside the
   discard transaction; refuses `DISCARD_HAS_LOCAL_DEPENDENTS` when the bill already has a
   local return/void) · ~~#474 settings were not re-pulled when the link returns~~ fixed by
   PR #486 · ~~#475 a new device with no counter rows could not number an offline CN~~
-  fixed by PR #484 (seeder writes a `last_no = 0` row) · #476 device-management dead end
-  after the last enrolled browser is lost — **still open, owner call** · ~~#477 reports
+  fixed by PR #484 (seeder writes a `last_no = 0` row) · ~~#476 device-management dead end
+  after the last enrolled browser is lost~~ closed 2026-10-03 · ~~#477 reports
   `_RecentRow` overflow at 390 px~~ / ~~#478 vehicle-search highlight hid the match~~ /
   ~~#480 shelf labels hard-coded `รวม VAT 7%`~~ all fixed by PR #485 · ~~#479 A4 quote PDF
   detached Thai tone marks~~ fixed by PR #482 (`latinOnlySpacing`, no `letterSpacing` on
@@ -375,7 +398,7 @@ develops against a demo tenant.
   now accepts a seed from **any** period, so an offline sale after a month rollover starts
   at `0001` instead of refusing with
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
-  #488 (discard exactness / `void_offline` follow-up) is open.
+  #488 (discard exactness / `void_offline` follow-up) closed 2026-09-28.
 - **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
   `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
@@ -474,11 +497,10 @@ develops against a demo tenant.
   since the 2026-09-30 deploy; 3 platform admins synced from `PLATFORM_ADMINS` the same day
   (first human UI login on `mob04` 2026-10-05, during #344 — evidence for this ticket).
 
-The repo's only long-lived branches are `main` and `POC_sample_offline_first`. Enforced
-2026-09-22: 44 stale remote branches and every local agent worktree were deleted, leaving
-exactly those two. **Re-done 2026-09-30:** 35 merged remote branches deleted after checking
-each (ancestor of `main`, or PR MERGED with tip == PR head, or post-merge commits patch-id-equivalent on `main`);
-only `main` + `POC_sample_offline_first` remain. 🔴 **Before deleting a branch, check it is actually merged** — two
+The repo's long-lived branches are `main`, `develop` and `POC_sample_offline_first` (see Branch
+strategy). Merged branches are pruned in sweeps (44 on 2026-09-22, 35 on 2026-09-30, 87 on
+2026-10-06), each checked first: ancestor of `main`/`develop`, or PR MERGED with tip == PR head, or
+post-merge commits patch-id-equivalent on the base. 🔴 **Before deleting a branch, check it is actually merged** — two
 branches (`research/production-host`, `research/pwa-offline-shell`) held the only copy of
 `docs/research/*.md` (424 lines, closed tickets #241/#242 whose closing comments linked
 straight at the files), had **no PR at all**, and would have been destroyed silently.
@@ -583,7 +605,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   body).
 
 **CI/CD (`.github/workflows/`, `deploy/`):**
-- Both `flutter.yml` and `server.yml` trigger unfiltered on every push/PR; a `changes`
+- Both `flutter.yml` and `server.yml` trigger on every PR (any base) and on push to `main` only; a `changes`
   job gates each workflow's own jobs internally so a `server/`-only PR still runs (and
   can satisfy) the Flutter required check, and vice versa. Each workflow ends in one
   always-reported status job (`flutter-ci-status`/`server-ci-status`) — the only
@@ -634,6 +656,8 @@ on void/return paths. Keep this order in any new write touching more than one of
   the range run-SHA..main-head, so a docs commit after a code commit does not strand that code deploy.
 - **Cancel stale waiting Deploy runs before approving a newer one** — a job waiting for approval holds
   the `deploy-demo` slot and the newer run sits `pending`; the approval API needs a `comment`.
+  A code merge to `main` fires Deploy twice (once per CI workflow); the first usually skips green
+  because the other image is not on GHCR yet — approve the second (2026-10-06).
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
   `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
   images for that SHA are not on GHCR yet the job is skipped and the workflow still
@@ -641,9 +665,9 @@ on void/return paths. Keep this order in any new write touching more than one of
   is the only proof.
 - **Never `gh pr merge --delete-branch` on a stacked PR.** Deleting a branch that is
   another PR's base makes GitHub close that PR, and a closed PR's base cannot be
-  changed — recovery is push the old tip back, `gh pr reopen`, `gh pr edit --base main`.
+  changed — recovery is push the old tip back, `gh pr reopen`, `gh pr edit --base develop`.
   Clean up branches once, after the whole stack has landed.
-- **Retarget a stacked PR to `main` once its base PR has merged, before merging it.**
+- **Retarget a stacked PR to `develop` once its base PR has merged, before merging it.**
   #447 was merged into PR2's already-merged branch, so its code reached `main` only
   because #448 happened to contain it.
 - **`ansible-playbook deploy.yml --check` proves almost nothing.** `ansible.builtin.command`

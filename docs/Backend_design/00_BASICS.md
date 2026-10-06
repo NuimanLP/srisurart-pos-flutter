@@ -109,7 +109,7 @@ flowchart LR
 |---|---|---|
 | **GET** | ขอดูข้อมูล (ไม่เปลี่ยนอะไร) | `GET /products` = ขอรายการอะไหล่ |
 | **POST** | สร้างของใหม่ / สั่งให้ทำอะไร | `POST /sales` = บันทึกการขาย |
-| **PATCH** | แก้บางส่วน | `PATCH /products/p12` = แก้ราคาอะไหล่ตัวนี้ |
+| **PATCH** | แก้บางส่วน | `PATCH /products/{id}` = แก้ราคาอะไหล่ตัวนี้ |
 | **DELETE** | ลบ | `DELETE /customers/c3` = ลบลูกค้า |
 
 > **กฎที่ต้องจำ:** `GET` **ต้องไม่เปลี่ยนข้อมูล** ยิงกี่รอบก็ต้องได้ผลเหมือนเดิม
@@ -205,7 +205,7 @@ sequenceDiagram
 | **Candidate Key** | superkey ที่ **เล็กที่สุดแล้ว (minimal)** — ตัดคอลัมน์ไหนออกก็ระบุแถวไม่ได้อีกต่อไป จึง "มีสิทธิ์" ถูกเลือกเป็น PK | ตาราง `tenants` มี 2 อัน: `id` และ `code` (`'srisurart'`) · `(tenant_id, id, part_no)` **ไม่ใช่** เพราะยังตัดออกได้ |
 | **Alternate Key** | candidate key ที่ไม่ได้ถูกเลือกเป็น PK — สุดท้ายกลายเป็น unique key | `tenants.code` (เลือก `id` เป็น PK ไปแล้ว) |
 | **Natural Key** | key ที่มีความหมายในโลกจริง คนอ่านแล้วรู้เรื่อง | `products.part_no` = เลขอะไหล่ที่พิมพ์บนกล่อง — บังคับไม่ซ้ำด้วย `uq_products_partno` ซึ่งไม่ซ้ำ **ต่อร้าน** และ **เฉพาะแถวที่ยังไม่ถูกลบ** (`WHERE deleted_at IS NULL`) จึงยังไม่ใช่ candidate key เต็มตัว ซึ่งเป็นเหตุผลที่เราใช้ surrogate key เป็น PK |
-| **Surrogate Key** | key ที่ระบบสร้างเอง ไม่มีความหมาย ไว้กันวันที่ natural key เปลี่ยน | `products.id` = `"p12"`, `tenants.id` = UUID จาก `gen_random_uuid()` |
+| **Surrogate Key** | key ที่ระบบสร้างเอง ไม่มีความหมาย ไว้กันวันที่ natural key เปลี่ยน | `products.id` = UUIDv7 ที่ client สร้าง (#616), `tenants.id` = UUID จาก `gen_random_uuid()` |
 
 > **อ่านให้ถูก — `PRIMARY KEY (tenant_id, id)` ไม่ใช่ "PK สองอัน"**
 > 1 ตารางมี primary key ได้ **อันเดียวเท่านั้น** บรรทัดนั้นคือ PK **อันเดียว** ที่ประกอบขึ้นจาก 2 คอลัมน์ (= composite PK)

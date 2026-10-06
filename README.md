@@ -151,7 +151,8 @@ The API is served under `/api/v1` (health and metrics are deliberately unprefixe
 
 | Branch | What it is |
 |---|---|
-| `main` | Active line — Flutter client + NestJS backend + CI/CD |
+| `main` | Release line — Flutter client + NestJS backend + CI/CD; every code push is deployed |
+| `develop` | Integration branch — every work PR targets it; it reaches `main` by merge commit or fast-forward only (a squash would drop the deploy rollback floor off `main`) |
 | `POC_sample_offline_first` | Frozen snapshot of the offline-first, Drift-only build the shop runs today |
 
 ---
