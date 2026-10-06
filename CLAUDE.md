@@ -38,10 +38,11 @@ Three long-lived branches. Know which one you are on before you change anything.
 - The offline-first design is **not abandoned** — it returns as **phase 2** (outbox + ~~`offlineOk`~~ — dropped 2026-09-15, see 08
   + a single `role='pos'` writer per tenant, ADR-0004). The POC branch is its starting point.
 
-🔴 **`develop` → `main` = merge commit or fast-forward only.** Squash/rebase rewrites the SHAs, so
-`bedd328` (the `ROLLBACK_FLOOR` in `deploy/scripts/pos-deploy.sh`) would stop being an ancestor of
-`main` and `pos-deploy` would refuse every SHA. GitHub still allows squash/rebase and `develop` is
-unprotected — choose the method by hand (`gh pr merge --merge`).
+🔴 **`develop` → `main` = merge commit only — now enforced (2026-10-06).** Squash/rebase rewrites the
+SHAs, so `bedd328` (the `ROLLBACK_FLOOR` in `deploy/scripts/pos-deploy.sh`) would stop being an
+ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 24564072
+"main: merge commit only" (active, no bypass actors) refuses squash and rebase on PRs into `main`;
+PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**
@@ -611,7 +612,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   always-reported status job (`flutter-ci-status`/`server-ci-status`) — the only
   required checks on `main`. `concurrency.group` is keyed by commit SHA.
 - Branch protection on `main` has been set since 2026-09-15: PR required (0 approvals),
-  the two status jobs required, no force-push/delete, admins not enforced.
+  the two status jobs required, no force-push/delete, admins not enforced. **`develop` has the
+  identical protection since 2026-10-06.** Ruleset 24564072 "main: merge commit only" (target
+  `refs/heads/main`, active, **no bypass actors**) refuses squash/rebase into `main` — so admins
+  cannot push directly to `main` either. Verify: `gh api repos/NuimanLP/srisurart-pos-flutter/rules/branches/main`.
 - Base image digests are pinned and bumped by hand, never suppressed with `.trivyignore`.
 - **Secret scan = gitleaks** (job `secrets` in `server.yml`, 2026-10-01): never path-gated,
   scans the commits each PR/push adds (`-v --redact`), and `server-ci-status` requires its
