@@ -208,9 +208,7 @@ class OfflinePinRepository {
         // #612: a dead device token (#609) is a 401 too — never a wrong
         // password. The caller forgets the token it sent (compare-and-clear,
         // `AuthCubit.forgetDeadDeviceToken`); this repository does not own it.
-        if (e.statusCode == 401 &&
-            hasToken &&
-            AuthRepository.deadDeviceTokenCodes.contains(e.code)) {
+        if (hasToken && AuthRepository.isDeadDeviceTokenRefusal(e)) {
           throw const DeviceEnrolmentGoneException();
         }
         // Only the server's plain 401 is a wrong password.

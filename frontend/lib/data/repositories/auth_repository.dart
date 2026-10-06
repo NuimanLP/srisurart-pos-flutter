@@ -59,6 +59,11 @@ class AuthRepository {
     'DEVICE_TOKEN_INVALID',
   };
 
+  /// Whether [e] from `POST /auth/token` says the device token sent with it
+  /// is dead (#609). Only meaningful when a token was actually sent.
+  static bool isDeadDeviceTokenRefusal(ApiException e) =>
+      e.statusCode == 401 && deadDeviceTokenCodes.contains(e.code);
+
   /// Logs in with username and password.
   ///
   /// Automatically binds the deviceToken if the device was previously enrolled (ADR-0004).
@@ -96,9 +101,7 @@ class AuthRepository {
       // data and the outbox stay, and `checkEnrolment` still refuses a new
       // enrolment while local work is unsent.
       final sent = body['deviceToken'];
-      if (e.statusCode == 401 &&
-          sent != null &&
-          deadDeviceTokenCodes.contains(e.code)) {
+      if (sent != null && isDeadDeviceTokenRefusal(e)) {
         await forgetDeadDeviceToken(sent as String);
         throw const DeviceEnrolmentGoneException();
       }
