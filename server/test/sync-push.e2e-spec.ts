@@ -13,6 +13,7 @@ import {
   type TenantFixture,
 } from './support/fixture.js';
 import { testId } from './support/test-ids.js';
+import { IdempotencyService } from '../src/idempotency/idempotency.service.js';
 
 const TENANT = '28328328-8328-4283-8283-283283283283';
 const POS_DEVICE_TOKEN = 'pos-device-token-01';
@@ -1825,7 +1826,7 @@ describe('POST /sync/push (e2e)', () => {
         expect(await stockOf(testId('p_b1'))).toBe(18);
       });
 
-      it('B1: replay by key runs before the payload parser — an applied op a later parser would refuse still replays; a fresh one is rejected INVALID_ID', async () => {
+      it('B1: replay by key runs before the payload parser — an applied op a later parser would refuse still replays its stored reply', async () => {
         // Simulate a parser tightened after the op was applied: the key row's fingerprint
         // is rewritten to a body today's parser refuses (`customerId` not a UUID), as if
         // that body had been valid when it was committed and its reply was lost.
@@ -1835,19 +1836,19 @@ describe('POST /sync/push (e2e)', () => {
         const stored = first.body.data.results[0].response;
 
         const refused = { ...outboxPayload, customerId: 'C-legacy-1' };
-        const refusedHash = createHash('sha256').update(JSON.stringify(refused)).digest('hex');
         await admin.query(
           `UPDATE idempotency_keys SET request_hash = $2 WHERE tenant_id = $1::uuid AND key = 'k_b1_tight'`,
-          [TENANT, refusedHash],
+          [TENANT, IdempotencyService.requestHash(refused)],
         );
         await clearTenantCache(cache, TENANT);
 
         const replay = await push({ outboxRemaining: 0, ops: [{ ...op, payload: refused }] });
         expect(replay.body.data.results[0]).toEqual({ opId: testId('op_b1_tight'), status: 'applied', response: stored });
         expect(await stockOf(testId('p_b1'))).toBe(18);
+      });
 
-        // The same body under a key the server has never seen is a fresh op: rejected
-        // per op (never `retry`), naming the field.
+      it('#619: a fresh op the parser refuses is rejected INVALID_ID per op (never `retry`), a bad route id included', async () => {
+        const refused = { ...outboxPayload, customerId: 'C-legacy-1' };
         const fresh = await push({
           outboxRemaining: 0,
           ops: [{ opId: testId('op_b1_fresh'), idempotencyKey: 'k_b1_fresh', type: 'sale.create', payload: { ...refused, id: testId('s_b1_fresh') } }],
@@ -1874,7 +1875,7 @@ describe('POST /sync/push (e2e)', () => {
           code: 'INVALID_ID',
           details: { field: 'payload.mechanicId' },
         });
-        expect(await stockOf(testId('p_b1'))).toBe(18);
+        expect(await stockOf(testId('p_b1'))).toBe(20);
       });
 
       it('the same key on a DIFFERENT bill is still refused IDEMPOTENCY_KEY_REUSED', async () => {

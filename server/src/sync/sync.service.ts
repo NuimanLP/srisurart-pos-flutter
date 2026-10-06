@@ -9,7 +9,7 @@ import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { TenantService } from '../common/database/tenant.service.js';
-import { invalidUuidInput } from '../common/ids.js';
+import { invalidUuidInput, isUuid } from '../common/ids.js';
 import { DOC_NUMBER_REGEX, tenantPeriodSql } from '../documents/doc-number.service.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
@@ -1253,7 +1253,10 @@ function deviceDated<T>(input: T, clamped: Date | null): T & { date: string | nu
 /**
  * The online route an op stands for, built from the payload as sent (B1: before any
  * parsing). `parseUuid` never normalises, so a valid id yields the same route the
- * parsed op would; a malformed one yields a route no stored key can carry.
+ * parsed op would. A malformed or missing id becomes `-`: no stored key can carry that
+ * route (the online `ParseUuidPipe` refuses it), and a raw string — one holding a NUL
+ * byte, say — never reaches the claim's INSERT, so the parser after the claim is what
+ * refuses the op (`rejected INVALID_ID`, never `retry`).
  */
 function endpointForOp(op: SyncOpDto): { endpoint: string; successCode: number } {
   switch (op.type as SyncOpType) {
@@ -1267,22 +1270,26 @@ function endpointForOp(op: SyncOpDto): { endpoint: string; successCode: number }
       return { endpoint: `POST ${ONLINE_PREFIX}/shifts/current/entries`, successCode: 201 };
     case 'credit_payment.create':
       return {
-        endpoint: `POST ${ONLINE_PREFIX}/mechanics/${String(op.payload.mechanicId)}/credit-payments`,
+        endpoint: `POST ${ONLINE_PREFIX}/mechanics/${routeId(op.payload.mechanicId)}/credit-payments`,
         successCode: 201,
       };
     case 'customer.create':
       return { endpoint: `POST ${ONLINE_PREFIX}/customers`, successCode: 201 };
     case 'customer.update':
       return {
-        endpoint: `PATCH ${ONLINE_PREFIX}/customers/${String(op.payload.id)}`,
+        endpoint: `PATCH ${ONLINE_PREFIX}/customers/${routeId(op.payload.id)}`,
         successCode: 200,
       };
     case 'sale.void_offline':
       return {
-        endpoint: `POST /sales/${String(op.payload.saleId)}/void-offline`,
+        endpoint: `POST /sales/${routeId(op.payload.saleId)}/void-offline`,
         successCode: 200,
       };
   }
+}
+
+function routeId(value: unknown): string {
+  return isUuid(value) ? value : '-';
 }
 
 /** For error mapping only: the parsed op, or `undefined` when the parser refuses it. */
