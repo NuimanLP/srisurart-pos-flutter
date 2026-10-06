@@ -16,9 +16,12 @@ import 'dart:convert';
 
 import '../../core/crypto/pbkdf2.dart';
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../domain/models/auth_models.dart';
 import '../db/database.dart';
 import '../storage/token_storage.dart';
+import 'api/api_wire.dart';
+import 'auth_repository.dart';
 
 class OfflinePinRepository {
   OfflinePinRepository({
@@ -34,6 +37,9 @@ class OfflinePinRepository {
   /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
   static const String passwordChangeRequiredMessage =
       'ต้องเปลี่ยนรหัสผ่านชั่วคราวก่อน จึงจะตั้งรหัส PIN ได้';
+
+  /// The server's plain 401 `UNAUTHORIZED` on the password re-check.
+  static const String wrongPasswordMessage = 'รหัสผ่านบัญชีไม่ถูกต้อง';
 
   // AppMeta keys
   static const String keyPinHash = 'offline_pin_hash';
@@ -185,16 +191,35 @@ class OfflinePinRepository {
 
     // Verify online credentials via POST /auth/token
     final client = apiClient ?? ApiClient(tokenStorage: tokenStorage);
-    final response = await client.post(
-      '/api/v1/auth/token',
-      body: {
-        'username': username.trim(),
-        'password': cleanPassword,
-        if (deviceToken != null && deviceToken.trim().isNotEmpty)
-          'deviceToken': deviceToken.trim(),
-      },
-      skipAuth: true,
-    );
+    final sentToken = deviceToken?.trim();
+    final hasToken = sentToken != null && sentToken.isNotEmpty;
+    final response = await rethrowThai(() async {
+      try {
+        return await client.post(
+          '/api/v1/auth/token',
+          body: {
+            'username': username.trim(),
+            'password': cleanPassword,
+            if (hasToken) 'deviceToken': sentToken,
+          },
+          skipAuth: true,
+        );
+      } on ApiException catch (e) {
+        // #612: a dead device token (#609) is a 401 too — never a wrong
+        // password. The caller forgets the token it sent (compare-and-clear,
+        // `AuthCubit.forgetDeadDeviceToken`); this repository does not own it.
+        if (e.statusCode == 401 &&
+            hasToken &&
+            AuthRepository.deadDeviceTokenCodes.contains(e.code)) {
+          throw const DeviceEnrolmentGoneException();
+        }
+        // Only the server's plain 401 is a wrong password.
+        if (e.statusCode == 401 && e.code == 'UNAUTHORIZED') {
+          throw Exception(wrongPasswordMessage);
+        }
+        rethrow; // → PosException (Thai sentence) via rethrowThai.
+      }
+    });
 
     final map = response as Map<String, dynamic>;
     // #443 PR3: a temporary owner password answers 200 with only a restricted

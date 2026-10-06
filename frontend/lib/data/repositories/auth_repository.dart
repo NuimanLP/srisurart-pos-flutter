@@ -13,6 +13,8 @@ import 'offline_pin_repository.dart';
 /// [AuthRepository.login] was refused because this browser's device token is
 /// dead (retired, or unknown to the server) and the repository has already
 /// forgotten it (#609). The only signal callers need — never an HTTP code.
+/// [OfflinePinRepository.setPin] throws it too (#612) but forgets nothing:
+/// its caller clears via `AuthCubit.forgetDeadDeviceToken`.
 ///
 /// `toString()` is the Thai sentence alone (like `PosException`), so a screen
 /// that shows `e.toString()` — e.g. the offline-PIN dialog — reads it right.
@@ -250,9 +252,6 @@ class AuthRepository {
     await tokenStorage.clearAuthTokens();
   }
 
-  /// Unbinds this device by deleting its stored device token. The offline-PIN
-  /// record goes too: it is bound to that device id and holds the 'pos' role a
-  /// login form would otherwise keep showing. Drift data and the outbox stay.
   /// #609 compare-and-clear: the server called the device token [sent] dead,
   /// so forget the enrolment — but only if the stored token is still [sent];
   /// a new enrolment that landed while the request was in flight survives.
@@ -262,6 +261,9 @@ class AuthRepository {
     }
   }
 
+  /// Unbinds this device by deleting its stored device token. The offline-PIN
+  /// record goes too: it is bound to that device id and holds the 'pos' role a
+  /// login form would otherwise keep showing. Drift data and the outbox stay.
   Future<void> clearDeviceEnrolment() async {
     apiClient.beginSession();
     await tokenStorage.clearAll();
