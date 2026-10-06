@@ -17,13 +17,14 @@ offline-first-only build is preserved on `POC_sample_offline_first`.
 
 ---
 
-## 🌿 Branch strategy (set 2026-09-04)
+## 🌿 Branch strategy (set 2026-09-04; `develop` added 2026-10-06)
 
-The repo now carries **two lines of work**. Know which one you are on before you change anything.
+Three long-lived branches. Know which one you are on before you change anything.
 
 | Branch | What it is | Status |
 |---|---|---|
-| **`main`** | **The multi-tenant line** — Flutter **client** + NestJS **backend** + **CI/CD**, per `docs/Backend_design/` (Architecture C phase 1 = A, tenancy model T1) | **Active.** All new work lands here. |
+| **`main`** | **The multi-tenant line** — Flutter **client** + NestJS **backend** + **CI/CD**, per `docs/Backend_design/` (Architecture C phase 1 = A, tenancy model T1) | **Release line.** Receives `develop` only; every code push builds images and triggers a deploy. |
+| **`develop`** | Integration branch for the `main` line (owner decision 2026-10-06) | **Active.** Every work PR targets `develop` (`gh pr create --base develop`). |
 | **`POC_sample_offline_first`** | Frozen **proof-of-concept snapshot** of the offline-first, Drift-only build (branched from `main` at `4dae2f0`) | Reference only. Do not build on it. |
 
 **What this means in practice:**
@@ -36,6 +37,11 @@ The repo now carries **two lines of work**. Know which one you are on before you
   so the phase-1 rule **"the shop keeps running the Drift build, no cutover"** stays testable.
 - The offline-first design is **not abandoned** — it returns as **phase 2** (outbox + `offlineOk`
   + a single `role='pos'` writer per tenant, ADR-0004). The POC branch is its starting point.
+
+🔴 **`develop` → `main` = merge commit or fast-forward only.** Squash/rebase rewrites the SHAs, so
+`bedd328` (the `ROLLBACK_FLOOR` in `deploy/scripts/pos-deploy.sh`) would stop being an ancestor of
+`main` and `pos-deploy` would refuse every SHA. GitHub still allows squash/rebase and `develop` is
+unprotected — choose the method by hand (`gh pr merge --merge`).
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**

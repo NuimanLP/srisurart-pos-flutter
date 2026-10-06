@@ -29,6 +29,7 @@
 | Content | `application/json; charset=utf-8` |
 | Pagination | `?page=1&limit=50` (default 50, max 200) |
 | เวลา | ISO-8601 UTC ทุกที่ (`2026-08-25T03:12:00Z`) |
+| id | id ของ entity ทุกตัว (body, `:param`, query) = **UUIDv7 ตัวพิมพ์เล็ก** (client หรือ server สร้าง — Postgres ไม่สร้าง id เอง) (#616, ADR-0010 addendum 2026-10-05) — ไม่ใช่ UUID ตัวพิมพ์เล็ก 8-4-4-4-12 (version ใดก็รับ) = `400 INVALID_ID` ไม่ normalise · `Idempotency-Key` และเลขเอกสาร (`RC…`/`CN…`) ไม่ใช่ UUID |
 | เงิน | ส่งเป็น **string** `"1234.50"` ไม่ใช่ float (กันปัญหา precision — ดู `01_DATABASE.md §4`) |
 
 ### 1.2 Response envelope (ตามสเปคที่อาจารย์กำหนดใน Flash Sale assignment)
@@ -44,7 +45,7 @@
   "error": {
     "code": "INSUFFICIENT_STOCK",                       // machine-readable
     "message": "สต็อกไม่พอ:\nผ้าเบรกหน้า: สต็อก 2 แต่ต้องการ 5",  // ⚠️ ข้อความไทย ตรงตัวจาก db.js
-    "details": [ { "productId": "p12", "stock": 2, "requested": 5 } ]
+    "details": [ { "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "stock": 2, "requested": 5 } ]
   } }
 ```
 
@@ -188,35 +189,35 @@ sequenceDiagram
 ```jsonc
 // Request
 {
-  "id": "s1a2b3c4",                 // client สร้าง (รองรับ offline) — server ใช้เป็น natural idempotency key ด้วย
+  "id": "0198e3a2-7c10-7a3e-9b21-4f6d2c8e1a07",                 // client สร้าง (รองรับ offline) — server ใช้เป็น natural idempotency key ด้วย
   // "receiptNo": "RC01-2569-08-0042",   ← เฟส 1 ไม่ส่ง (server ออกให้) · เฟส 2 เครื่อง pos ส่งมาได้ และ prefix/device_no ต้องตรงกับ did ของ token (ADR-0007)
   //                                       (2026-09-23: เฟส 2 D4 = pos ออก RC เอง **ทั้งออนไลน์และออฟไลน์** · ไม่ส่ง = server ออกให้เฉพาะตอน DOC_NUMBER_FALLBACK เปิด — ดูหมายเหตุข้อ 2)
   "subtotal": "1500.00",
   "discount": "100.00",
   "total": "1400.00",
   "paymentMethod": "เครดิตช่าง",
-  "customerId": "c3", "customerName": "สมชาย ยานยนต์",
-  "mechanicId": "m2", "mechanicName": "ช่างเอก",
+  "customerId": "0198e3a0-2c3d-7e4f-9061-7b8c9d0e1f23", "customerName": "สมชาย ยานยนต์",
+  "mechanicId": "0198e3a0-3d4e-7f50-a172-8c9d0e1f2a34", "mechanicName": "ช่างเอก",
   "mechanicDelta": "-100.00",
   "overrideCreditLimit": false,   // true = คนขายกด "ยืนยัน" ใน dialog เกินวงเงินแล้ว (§8.2)
   "items": [
-    { "lineNo": 1, "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",
+    { "lineNo": 1, "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "partNo": "BP-1234", "name": "Front Brake Pad",
       "nameTH": "ผ้าเบรกหน้า", "qty": 2, "price": "750.00" }
   ]
 }
 
 // 201 Created — ⭐ ต้องคืน stock ใหม่ของทุกบรรทัดที่แตะกลับมาด้วย
 { "status": "success",
-  "data": { "id": "s1a2b3c4", "receiptNo": "RC01-2569-08-0042", "total": "1400.00",
+  "data": { "id": "0198e3a2-7c10-7a3e-9b21-4f6d2c8e1a07", "receiptNo": "RC01-2569-08-0042", "total": "1400.00",
             "pointsGranted": 140, "date": "2026-08-25T03:12:00Z",
-            "shiftId": "sh_20260825_01",          // ⭐ #82 — กะที่ server ประทับให้ client คำนวณเองไม่ได้ · บิลใหม่มีค่าเสมอ (ไม่มีกะเปิด = 409 NO_OPEN_SHIFT) null ได้เฉพาะบิลเก่า/นำเข้าที่ replay
+            "shiftId": "0198e39f-f0aa-7b1c-8d2e-3f4a5b6c7d45",          // ⭐ #82 — กะที่ server ประทับให้ client คำนวณเองไม่ได้ · บิลใหม่มีค่าเสมอ (ไม่มีกะเปิด = 409 NO_OPEN_SHIFT) null ได้เฉพาะบิลเก่า/นำเข้าที่ replay
             "mechanicCreditBalanceAfter": "5400.00",
-            "mechanicAfter": { "id": "m2", "totalSales": "182000.00", "totalDiscount": "3100.00",   // ⭐ #82 — ครบทั้งสี่ยอดสะสม
+            "mechanicAfter": { "id": "0198e3a0-3d4e-7f50-a172-8c9d0e1f2a34", "totalSales": "182000.00", "totalDiscount": "3100.00",   // ⭐ #82 — ครบทั้งสี่ยอดสะสม
                                "totalMarkup": "0.00", "creditBalance": "5400.00" },                 // 🔴 ไม่มี total_credit (ข้อตัดสิน #11)
-            "customerAfter": { "id": "c3", "points": 1340, "totalSpend": "58200.00" },   // ⭐ เพิ่ม (ADR-0010 ข้อ 3) — ไม่งั้น Drift ฝั่ง client ค้างค่าเก่าจนกว่า /bootstrap รอบถัดไป
-            "products": [ { "id": "p12", "stock": 8 } ],   // ไม่มี offlineOk — เฟส 1 ยังไม่มีที่เก็บ (`sales.service.ts`), ADR-0010 ข้อ 4 · (2026-09-23: ยกเลิกถาวรแล้ว D3 — ไม่มี `offlineOk` ทั้งระบบ)
-            "items": [ { "lineNo": 1, "productId": "p12", "costAtSale": "480.00" } ],    // ⭐ #82 — ต้นทุน ณ วันที่ขาย (ADR-0008) กู้คืนทีหลังไม่ได้
-            "movements": [ { "id": "mv…", "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",   // ⭐ #82 — แถว ledger ที่บิลนี้เขียน
+            "customerAfter": { "id": "0198e3a0-2c3d-7e4f-9061-7b8c9d0e1f23", "points": 1340, "totalSpend": "58200.00" },   // ⭐ เพิ่ม (ADR-0010 ข้อ 3) — ไม่งั้น Drift ฝั่ง client ค้างค่าเก่าจนกว่า /bootstrap รอบถัดไป
+            "products": [ { "id": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "stock": 8 } ],   // ไม่มี offlineOk — เฟส 1 ยังไม่มีที่เก็บ (`sales.service.ts`), ADR-0010 ข้อ 4 · (2026-09-23: ยกเลิกถาวรแล้ว D3 — ไม่มี `offlineOk` ทั้งระบบ)
+            "items": [ { "lineNo": 1, "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "costAtSale": "480.00" } ],    // ⭐ #82 — ต้นทุน ณ วันที่ขาย (ADR-0008) กู้คืนทีหลังไม่ได้
+            "movements": [ { "id": "mv…", "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "partNo": "BP-1234", "name": "Front Brake Pad",   // ⭐ #82 — แถว ledger ที่บิลนี้เขียน
                              "delta": -2, "type": "sale", "note": null, "stockAfter": 8,
                              "date": "2026-08-25T03:12:00Z" } ] } }
 
@@ -224,7 +225,7 @@ sequenceDiagram
 { "status": "error",
   "error": { "code": "INSUFFICIENT_STOCK",
              "message": "สต็อกไม่พอ:\nผ้าเบรกหน้า: สต็อก 1 แต่ต้องการ 2",
-             "details": [ { "productId": "p12", "stock": 1, "requested": 2 } ] } }
+             "details": [ { "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "stock": 1, "requested": 2 } ] } }
 
 // 409 — เครื่องนี้ไม่มีกะเปิดอยู่ (ทุกวิธีจ่าย: เงินสด / โอน/QR / เครดิตช่าง) — ข้อตัดสินเจ้าของร้าน 2026-09-13
 { "status": "error",
@@ -292,7 +293,7 @@ sequenceDiagram
 // POST /purchase-orders/:id/receive  → 200
 { "status": "success",
   "data": {
-    "poId": "po7", "status": "received", "receivedAt": "2026-08-25T04:00:00Z",
+    "poId": "0198e3a1-4e5f-7061-b283-9d0e1f2a3b56", "status": "received", "receivedAt": "2026-08-25T04:00:00Z",
     "updated": [ { "partNo": "BP-1234", "stockAfter": 22, "costAfter": "512.73" } ],
     "unmatched": [ "XX-9999" ]        // ⚠️ ไม่ใช่ error — คือ part_no ที่ยังไม่มีในระบบ ให้ UI ถามว่าจะสร้างสินค้าใหม่ไหม
   } }
@@ -348,7 +349,7 @@ sequenceDiagram
     N-->>F: บิล + รายการ
     F->>N: GET /sales/{id}/refunded-qty
     N->>D: SUM(qty) ที่เคยคืน GROUP BY product
-    N-->>F: { "p12": 1 }  ← เคยคืนไปแล้ว 1 (client หักลบเอง)
+    N-->>F: { "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12": 1 }  ← เคยคืนไปแล้ว 1 (client หักลบเอง)
     U->>F: เลือกของที่จะคืน + วิธีคืนเงิน
     F->>N: POST /returns + Idempotency-Key
     N->>D: BEGIN → คืนสต็อก → คืนแต้ม/ส่วนลดตามสัดส่วน<br/>→ ลดเครดิตช่าง (เฉพาะ 'หักจากเครดิต')<br/>→ ถ้าคืนครบ = void บิลแม่ → COMMIT
@@ -371,10 +372,10 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 ของ §3.1 หมายเหตุข้อ 2 · ไม่ส่ง = server ออกให้เฉพาะตอน `DOC_NUMBER_FALLBACK` เปิด — `returns.dto.ts:18,49`, `returns.service.ts:259)*
 
 ```jsonc
-  "movements": [ { "id": "mv…", "productId": "p12", "partNo": "BP-1234", "name": "Front Brake Pad",
+  "movements": [ { "id": "mv…", "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "partNo": "BP-1234", "name": "Front Brake Pad",
                    "delta": 2, "type": "return", "note": null, "stockAfter": 10,
                    "date": "2026-08-25T04:00:00Z" } ],   // 🔴 'return' เท่านั้น — void เขียน 'void' (migration 1788652800003)
-  "mechanicAfter": { "id": "m2", "totalSales": "…", "totalDiscount": "…",
+  "mechanicAfter": { "id": "0198e3a0-3d4e-7f50-a172-8c9d0e1f2a34", "totalSales": "…", "totalDiscount": "…",
                      "totalMarkup": "…", "creditBalance": "…" }   // 🔴 ไม่มี total_credit (#11)
 ```
 
@@ -814,7 +815,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 // 200 — ตอบแยกผลทีละ op (บาง op สำเร็จ บาง op ไม่สำเร็จได้)
 { "status": "success",
   "data": { "results": [
-      { "opId": "op_9a3f", "status": "applied",  "serverId": "s1a2b3c4" },
+      { "opId": "op_9a3f", "status": "applied",  "serverId": "0198e3a2-7c10-7a3e-9b21-4f6d2c8e1a07" },
       { "opId": "op_9a40", "status": "rejected", "code": "INSUFFICIENT_STOCK",
         "message": "สต็อกไม่พอ:\nผ้าเบรกหน้า: สต็อก 0 แต่ต้องการ 1" }
   ], "serverSeq": 88421 } }
@@ -1095,7 +1096,7 @@ requests, 75% ของ burst=60) อยู่ที่ `server/test/k6/lib/shar
 ของตัวเองแยกกัน.
 
 **Data-integrity proof ที่ต้องแคปหน้าจอส่ง (แบบเดียวกับ assignment):**
-`SELECT stock FROM products WHERE id='p12'` ต้องเท่ากับ `สต็อกตั้งต้น − SUM(sale_items.qty)` พอดี และ **ไม่ติดลบ**
+`SELECT stock FROM products WHERE id='0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12'` ต้องเท่ากับ `สต็อกตั้งต้น − SUM(sale_items.qty)` พอดี และ **ไม่ติดลบ**
 
 ---
 

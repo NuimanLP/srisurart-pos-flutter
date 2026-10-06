@@ -10,13 +10,13 @@
 >
 > งงกับ key? อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) (ฉบับเต็ม) หรือ [`01_DATABASE.md#keys`](01_DATABASE.md#keys) (ฉบับย่อ) —
 > `(tenant_id, id)` คือ **composite primary key** อันเดียวที่ประกอบจาก 2 คอลัมน์ ไม่ใช่ PK สองอัน
-> 🔴 DDL ในไฟล์นี้เป็น **ร่างรุ่นเก่า** (`id ... PRIMARY KEY` เดี่ยว + `tenant_id` แยก) ฉบับที่ผูกพันคือ [`01_DATABASE.md §5`](01_DATABASE.md#5-ddl-เต็ม) — ขัดกันเมื่อไหร่ให้ยึด `01`
+> 🔴 DDL ในไฟล์นี้เป็น **ร่างรุ่นเก่า** (`id ... PRIMARY KEY` เดี่ยว + `tenant_id` แยก · ชนิด id ในร่างก็เก่า — ตั้งแต่ #616 id ของ entity ทุกตัวเป็น `UUID` ตัวพิมพ์เล็ก, migration `1788652804900-EntityIdsToUuid`) ฉบับที่ผูกพันคือ [`01_DATABASE.md §5`](01_DATABASE.md#5-ddl-เต็ม) — ขัดกันเมื่อไหร่ให้ยึด `01`
 
 > 🔄 **ทบทวนกับโค้ด, migration และ ADR เมื่อ 2026-09-23** — ฉบับก่อนมีคอนฟิกและโค้ดหลายก้อนที่เขียนขึ้นเองไม่ตรงกับ repo
 > (`nginx.conf`, โครงไฟล์ `server/src/`, DDL, `TenantService.runTx`, ชื่อคิว BullMQ, สถานะ idempotency, อัลกอริทึม JWT, พอร์ต Redis)
 > ทุกจุดที่แก้มีหมายเหตุ `🔄 แก้ 2026-09-23` กำกับ · **เอกสารนี้ไม่ใช่สเปก:** ขัดกับ ADR ให้ยึด ADR ([`adr/README.md`](adr/README.md)),
 > ขัดกับ schema ให้ยึด `server/src/db/migrations/` และ [`01_DATABASE.md`](01_DATABASE.md), ขัดกับคอนฟิกให้ยึด `server/docker-compose.yml` / `server/docker/nginx/nginx.conf`
-> · สถานะที่ยัง**ไม่เสร็จ**และห้ามอ่านจากเอกสารนี้ว่าเสร็จ: CD ขึ้น VM `mob04` (ติด FortiGate ของคณะ), การวัด k6 (#380), backup ออกนอก VM (#363/#288 พักไว้)
+> · สถานะที่ยัง**ไม่เสร็จ**และห้ามอ่านจากเอกสารนี้ว่าเสร็จ: ~~CD ขึ้น VM `mob04` (ติด FortiGate ของคณะ)~~ (deploy ได้แล้วตั้งแต่ 2026-09-30), การวัด k6 (#380), backup ออกนอก VM (#363/#288 พักไว้)
 
 ---
 
@@ -275,7 +275,7 @@ server/src/
 
 - **29 ตาราง** = 27 จาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (เฟส 2) · `change_log` **ไม่สร้าง** (#191)
 - **RLS 26 ตาราง** (`FORCE ROW LEVEL SECURITY` + policy `tenant_isolation`) · global 2 ตาราง (`tenants`, `platform_admins`) · `import_jobs` ไม่ติด RLS โดยตั้งใจ (อ่านจาก platform plane เท่านั้น)
-- ทุกตารางของร้านมี PK ขึ้นต้นด้วย `tenant_id` — `PRIMARY KEY (tenant_id, id)` และ `id` ส่วนใหญ่เป็น `TEXT` (id จาก client/`newId`) ไม่ใช่ `UUID` เดี่ยว
+- ทุกตารางของร้านมี PK ขึ้นต้นด้วย `tenant_id` — `PRIMARY KEY (tenant_id, id)` (composite ไม่ใช่ `UUID` เดี่ยว) · `id` และทุกคอลัมน์ที่ชี้หา entity เป็น `UUID` (UUIDv7 ตัวพิมพ์เล็กจาก client/`newUuid()`) ตั้งแต่ #616 — เดิมเป็น `TEXT` จาก `newId`
 - `users.role` เหลือ `CHECK (role = 'owner')` และ active ได้ 1 บัญชีต่อร้าน · `users.pin_hash` **ถูกลบแล้ว** (migration `…3001-SingleOwnerRole`, 08 E1/E2/E3)
 - `sales.void_reason`, `sales.sold_offline`, `devices.unsynced_ops` มาจาก migration `…3003-SyncPushColumns`
 - `movements.type` มี 6 ค่า (`sale`, `return`, `void`, `receive`, `adjustment-in`, `adjustment-out`) และ `pos_app` ได้แค่ `SELECT, INSERT` (append-only)

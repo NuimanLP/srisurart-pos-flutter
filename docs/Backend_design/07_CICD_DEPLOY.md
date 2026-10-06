@@ -273,6 +273,12 @@ JSON
 `strict=false` คือแถว "Require branches up to date" ข้างบน; `contexts` สองตัวคือแถว "Required status
 checks" เท่านั้น — ห้ามเพิ่มชื่อ job อื่น (ดูเหตุผลบรรทัดบน)
 
+**`develop` (เจ้าของโปรเจกต์ตัดสิน 2026-10-06):** PR งานทุกตัวเข้า `develop` (CI ทั้งสองไฟล์รันบน `pull_request` ทุก base
+จึงได้ status job เหมือนเดิม · push ขึ้น `develop` ไม่สร้าง image ไม่ deploy) แล้ว `develop` → `main` เป็น PR เดียว
+ด้วย **merge commit หรือ fast-forward เท่านั้น** — squash/rebase เขียน SHA ใหม่ `bedd328` (`ROLLBACK_FLOOR` §6.1)
+จะไม่เป็น ancestor ของ `main` แล้ว `pos-deploy` ปฏิเสธทุก SHA · ณ 2026-10-06 repo ยังเปิด squash/rebase และ `develop`
+ไม่มี branch protection → เลือก `gh pr merge --merge` เอง (#628 = merge commit `65861ea`)
+
 ---
 
 ## 5. Environment, secret และเครื่อง
@@ -448,6 +454,7 @@ on:
   `workflow_run` = head ของ default branch *ตอนนั้น* ไม่ใช่ commit ที่ trigger)
 * เช็คว่า GHCR มี tag `<head_sha>` **ครบทั้ง 2 image** (registry API, anonymous token ได้เพราะ public)
   ถ้ายังไม่ครบ → จบเฉย ๆ (neutral) — workflow อีกตัวที่จบทีหลังจะยิงมาอีกรอบแล้วเจอครบ
+  (ทุก merge ที่มี code จึงเห็น Deploy **2 run** — run แรกมัก skip เขียวเพราะ image web ยังไม่มา · approve run ที่สอง, 2026-10-06)
 * `concurrency: { group: deploy-demo, cancel-in-progress: false }` — **ห้าม** cancel กลาง rolling restart ·
   กรณีสอง run เห็นครบพร้อมกัน ข้อ 1 ของ playbook กันไว้อีกชั้น
 * PR ที่แตะ `deploy/**` มี gate เล็ก: `ansible-lint` + `docker compose config` ของ override — **ยังไม่ได้ทำ**
