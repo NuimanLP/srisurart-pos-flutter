@@ -54,5 +54,15 @@ class ApiException implements Exception {
 /// service then is a second PO receipt (a second weighted-average cost and a
 /// second `movements` row), a second credit payment, a second quote. A refusal
 /// the server *did* give must reach the counter, not be quietly re-done locally.
-Never rethrowServerRefusal(ApiException e) =>
-    throw PosException(e.code, e.thaiMessage, e.details);
+Never rethrowServerRefusal(ApiException e) => throw posExceptionFromApi(e);
+
+/// THE conversion of an [ApiException] into what a screen may see.
+///
+/// The message is exactly what [ServerErrorResolver.resolveCounterError] renders
+/// for [e] — the text a screen showed when a raw [ApiException] used to reach
+/// it — so converting at the repository boundary changes nothing on screen.
+/// A 5xx reads as the connection sentence (a proxy's 502 body is HTML, a 500's
+/// `message` is English). Every repository conversion goes through here; only
+/// `AuthRepository.loginRefusal` adds login-specific cases on top.
+PosException posExceptionFromApi(ApiException e) =>
+    PosException(e.code, ServerErrorResolver.resolveCounterError(e), e.details);

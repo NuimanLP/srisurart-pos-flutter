@@ -972,11 +972,17 @@ class SyncService implements SyncFacade {
       discardBody['lastCode'] = op.lastCode;
     }
 
-    final res = await apiClient.post(
-      '/api/v1/sync/discards',
-      body: discardBody,
-      headers: {'Idempotency-Key': newIdempotencyKey('idem')},
-    );
+    final Object? res;
+    try {
+      res = await apiClient.post(
+        '/api/v1/sync/discards',
+        body: discardBody,
+        headers: {'Idempotency-Key': newIdempotencyKey('idem')},
+      );
+    } on ApiException catch (e) {
+      // `discard` is called from the owner-review screen.
+      throw posExceptionFromApi(e);
+    }
 
     if (res is Map) {
       final data = res['data'];

@@ -9,6 +9,7 @@ import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
 import '../../core/utils/ids.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
@@ -134,7 +135,7 @@ class ApiQuotesRepository extends QuotesRepository {
           .toList(),
     };
 
-    final res = await apiClient.post('/api/v1/quotes', body: body, headers: idempotencyKey());
+    final res = await rethrowThai(() => apiClient.post('/api/v1/quotes', body: body, headers: idempotencyKey()));
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
       final realId = (resMap['id'] ?? newUuid()) as String;
@@ -196,16 +197,14 @@ class ApiQuotesRepository extends QuotesRepository {
 
       return quoteRow;
     }
-    throw ApiException(
-      statusCode: 500,
-      code: 'SERVER_ERROR',
-      serverMessage: 'ไม่สามารถบันทึกใบเสนอราคา',
-    );
+    // A 2xx that is not the expected object: the server answered and may have
+    // committed. The sentence is the one the screen showed for this before.
+    throw PosException('SERVER_ERROR', ServerErrorResolver.resolve(null));
   }
 
   @override
   Future<void> deleteQuote(String id) async {
-    await apiClient.delete('/api/v1/quotes/$id', headers: idempotencyKey());
+    await rethrowThai(() => apiClient.delete('/api/v1/quotes/$id', headers: idempotencyKey()));
     await (db.delete(db.quoteItems)..where((t) => t.quoteId.equals(id))).go();
     await (db.delete(db.quotes)..where((t) => t.id.equals(id))).go();
   }
@@ -221,7 +220,7 @@ class ApiQuotesRepository extends QuotesRepository {
     if (patch.notes.present) body['notes'] = patch.notes.value;
 
     if (body.isNotEmpty) {
-      final res = await apiClient.patch('/api/v1/quotes/$id', body: body, headers: idempotencyKey());
+      final res = await rethrowThai(() => apiClient.patch('/api/v1/quotes/$id', body: body, headers: idempotencyKey()));
       if (res is Map) {
         await db.into(db.quotes).insertOnConflictUpdate(patch.copyWith(id: Value(id)));
         return;
@@ -231,7 +230,7 @@ class ApiQuotesRepository extends QuotesRepository {
 
   @override
   Future<QuoteRow?> duplicateQuote(String id) async {
-    final res = await apiClient.post('/api/v1/quotes/$id/duplicate', headers: idempotencyKey());
+    final res = await rethrowThai(() => apiClient.post('/api/v1/quotes/$id/duplicate', headers: idempotencyKey()));
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
       final newIdStr = (resMap['id'] ?? newUuid()) as String;
@@ -300,7 +299,7 @@ class ApiQuotesRepository extends QuotesRepository {
 
   @override
   Future<int> purgeOldQuotes({int olderThanDays = 90}) async {
-    final res = await apiClient.post('/api/v1/quotes/purge', body: {'olderThanDays': olderThanDays}, headers: idempotencyKey());
+    final res = await rethrowThai(() => apiClient.post('/api/v1/quotes/purge', body: {'olderThanDays': olderThanDays}, headers: idempotencyKey()));
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
       final count = resMap['count'] as int?;

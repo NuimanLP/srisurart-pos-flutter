@@ -290,7 +290,7 @@ class ApiCustomersRepository extends CustomersRepository {
       if (sync != null) {
         return await queueOfflineCustomer();
       }
-      rethrow;
+      throw posExceptionFromApi(e);
     } catch (e) {
       // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
       // become an offline write. Anything else here — a 2xx whose body is not
@@ -385,7 +385,7 @@ class ApiCustomersRepository extends CustomersRepository {
         await queueOfflineUpdate();
         return;
       }
-      rethrow;
+      throw posExceptionFromApi(e);
     } catch (e) {
       // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
       // become an offline write. Anything else here — a 2xx whose body is not
@@ -418,7 +418,7 @@ class ApiCustomersRepository extends CustomersRepository {
       );
     }
 
-    await apiClient.delete('/api/v1/customers/$id', headers: idempotencyKey());
+    await rethrowThai(() => apiClient.delete('/api/v1/customers/$id', headers: idempotencyKey()));
     await (db.update(db.customers)..where((t) => t.id.equals(id))).write(
       CustomersCompanion(
         deletedAt: Value(DateTime.now()),

@@ -268,7 +268,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
         onVerdict?.call();
         rethrowServerRefusal(e);
       }
-      throw PosException(e.code, ServerErrorResolver.resolveCounterError(e), e.details);
+      throw posExceptionFromApi(e);
     } catch (e) {
       if (isTransportFailure(e)) {
         throw PosException('NETWORK_ERROR', ServerErrorResolver.resolve(null));
