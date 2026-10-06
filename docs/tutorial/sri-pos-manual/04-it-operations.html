@@ -169,7 +169,7 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <p><strong>อัตโนมัติ:</strong> playbook ล้มหรือเกิน 20 นาที → <code>pos-deploy</code> redeploy SHA ใน <code>.current_sha</code> (รันยังขึ้นแดง ให้ตามดูสาเหตุ)</p>
   <p><strong>ด้วยมือ</strong> (release ใหม่ขึ้นแล้วแต่ใช้งานไม่ได้):</p>
   <ol class="steps">
-    <li><span class="st-title">หา SHA ที่จะถอยกลับ</span>ต้อง (1) อยู่บน <code>main</code> (2) เป็น commit rollback floor (<code>4f3a244</code>) หรือ commit ที่ต่อมาจากมันบน <code>main</code> — <code>pos-deploy</code> ปฏิเสธ SHA อื่น (3) มีอิมเมจทั้ง server และ web บน GHCR</li>
+    <li><span class="st-title">หา SHA ที่จะถอยกลับ</span>ต้อง (1) อยู่บน <code>main</code> (2) เป็น commit rollback floor (<code>bedd328</code> — merge ของ #617/#616, โค้ดก่อนนั้นเขียน id แบบ text ลง schema UUID ไม่ได้) หรือ commit ที่ต่อมาจากมันบน <code>main</code> — <code>pos-deploy</code> ปฏิเสธ SHA อื่น (3) มีอิมเมจทั้ง server และ web บน GHCR</li>
     <li><span class="st-title">GitHub → Actions → <strong>Deploy (demo)</strong> → Run workflow → ใส่ <code>image_tag</code> = SHA นั้น</span></li>
     <li><span class="st-title">ผู้อนุมัติ (<code>NuimanLP</code>) กด approve งาน <code>deploy</code></span>ถ้ามีรันอื่นรออนุมัติค้างอยู่ ให้ปฏิเสธ/ยกเลิกก่อน ไม่งั้นอาจส่ง SHA ผิดตัวขึ้นก่อน</li>
     <li><span class="st-title">ยืนยันบน VM</span><code>ssh deploy@&lt;vm&gt; cat /opt/pos/.current_sha</code> ต้องเท่ากับ SHA ที่เลือก · <code>curl -sk https://localhost/health/ready</code> บน VM ต้อง 200<span class="see">เขียวใน Actions อย่างเดียว <strong>ไม่นับ</strong> (ดูกล่องด้านบน)</span></li>

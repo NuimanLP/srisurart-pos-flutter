@@ -467,7 +467,7 @@ on:
   `sudo -n -u deploy /usr/local/bin/pos-deploy auto|manual <sha>` (`auto` = `workflow_run`, `manual` = `workflow_dispatch`)
 * `pos-deploy` (รันเป็น `deploy`, lock ด้วย `flock` รอสูงสุด 5 นาที — งบของ job 50 นาที = 2 รอบ × (20 + 1 นาที grace) + 8 นาทีสำหรับ
   lock/fetch/checkout): fetch `main` ลง `/home/deploy/pos-deploy/repo` เอง → ปฏิเสธ commit ที่
-  ไม่อยู่บน `main` หรือเก่ากว่า `ROLLBACK_FLOOR` (= merge ของ #233 `4f3a244`; release ก่อนนั้น crash-loop บนเครื่องจริง) →
+  ไม่อยู่บน `main` หรือเก่ากว่า `ROLLBACK_FLOOR` (= merge ของ #617 `bedd328` ตั้งแต่ #616 — โค้ดก่อนนั้นเขียน id แบบ text ลง schema UUID ไม่ได้, ทุก write 22P02/500 · เดิม = merge ของ #233 `4f3a244` · ใช้ได้ต่อเมื่อ `develop` เข้า `main` แบบ **merge commit** — ดู `handoff_log/runbook-616-uuid-cutover-mob04.md`) →
   `auto` และ SHA นี้เป็น ancestor ของ `.current_sha` → ไม่ deploy → checkout SHA นั้น (compose/nginx.conf/playbook ตรงกับ image
   ของ release นั้น — rollback ได้ไฟล์เก่ากลับมาด้วย) → `ansible-playbook -i 'vm-demo,' -e ansible_connection=local deploy.yml`
   **จำกัด 20 นาทีต่อรอบ** (compose ที่ค้างจึงเป็น fail ของรอบนั้นแล้วยัง rollback ได้ — ถ้าปล่อยให้ชน timeout ของ job, job ถูก
