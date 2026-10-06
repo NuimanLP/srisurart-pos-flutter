@@ -59,7 +59,7 @@ void main() {
 
   /// GETs https://127.0.0.1 from a server presenting [name].crt, through a plain
   /// `package:http` Client() created under [PosTrustOverrides] — the app's own path.
-  Future<int> getFrom(String name) async {
+  Future<int> getFrom(String name, {String host = '127.0.0.1'}) async {
     final serverCtx = SecurityContext()
       ..useCertificateChain('${dir.path}/$name.crt')
       ..usePrivateKey('${dir.path}/$name.key');
@@ -72,7 +72,7 @@ void main() {
       return await HttpOverrides.runWithHttpOverrides(() async {
         final client = http.Client();
         try {
-          return (await client.get(Uri.parse('https://127.0.0.1:${server.port}/'))).statusCode;
+          return (await client.get(Uri.parse('https://$host:${server.port}/'))).statusCode;
         } finally {
           client.close();
         }
@@ -99,6 +99,12 @@ void main() {
     // Linux names the IP check; macOS only says verification failed. The first test (same CA,
     // matching IP => 200) shows the CA is trusted, so this refusal comes from the IP SAN check.
     await expectLater(getFrom('wrongip'), throwsA(refused('IP address mismatch')));
+  }, skip: opensslMissing);
+
+  test('the wrongip leaf is itself valid: trusted when dialled by its DNS SAN', () async {
+    // Control for the test above: on macOS the refusal text is generic, so prove the only defect
+    // of this leaf is the IP it was dialled at (its SAN also lists DNS:localhost).
+    expect(await getFrom('wrongip', host: 'localhost'), 200);
   }, skip: opensslMissing);
 
   test('refuses a self-signed cert from any other issuer', () async {
