@@ -344,7 +344,8 @@ develops against a demo tenant.
   expired-key bill whose body today's parser refuses is `rejected`, not `applied` (PR #630);
   `INVALID_ID` Thai string is `agent ร่าง`; 7 `presentation/` files still import
   `api_exception.dart` (no app-wide guard); `assertValidTenantId` lives in
-  `platform-tenants.service.ts` (belongs in `common/ids.ts`); `pos_trust_test.dart` fails 2
+  `platform-tenants.service.ts` (belongs in `common/ids.ts`); `offline_pin_repository.dart` ↔
+  `auth_repository.dart` import each other; `pos_trust_test.dart` fails 2
   tests on macOS (TLS message wording; Linux CI green).
 - **5xx does not queue — owner decision 2026-09-27, `08 §5` amended (PR #469).** On the
   API build a 5xx/429 leaves the attempt parked (same id + key) and shows the error, for
@@ -604,7 +605,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   body).
 
 **CI/CD (`.github/workflows/`, `deploy/`):**
-- Both `flutter.yml` and `server.yml` trigger unfiltered on every push/PR; a `changes`
+- Both `flutter.yml` and `server.yml` trigger on every PR (any base) and on push to `main` only; a `changes`
   job gates each workflow's own jobs internally so a `server/`-only PR still runs (and
   can satisfy) the Flutter required check, and vice versa. Each workflow ends in one
   always-reported status job (`flutter-ci-status`/`server-ci-status`) — the only

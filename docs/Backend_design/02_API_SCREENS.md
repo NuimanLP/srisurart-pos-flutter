@@ -29,7 +29,7 @@
 | Content | `application/json; charset=utf-8` |
 | Pagination | `?page=1&limit=50` (default 50, max 200) |
 | เวลา | ISO-8601 UTC ทุกที่ (`2026-08-25T03:12:00Z`) |
-| id | id ของ entity ทุกตัว (body, `:param`, query) = **UUIDv7 ตัวพิมพ์เล็ก** (client หรือ server สร้าง — Postgres ไม่สร้าง id เอง) (#616, ADR-0010 addendum 2026-10-05) — ไม่ใช่ UUID ตัวพิมพ์เล็ก 8-4-4-4-12 (version ใดก็รับ) = `400 INVALID_ID` ไม่ normalise · `Idempotency-Key` และเลขเอกสาร (`RC…`/`CN…`) ไม่ใช่ UUID |
+| id | id ของ entity ทุกตัว (body, `:param`, query) = **UUID ตัวพิมพ์เล็ก** (#616, ADR-0010 addendum 2026-10-05): client/server สร้างเป็น UUIDv7 · `tenants`/`users`/`platform_admins` ยังได้ v4 จาก `gen_random_uuid()` · server รับ UUID ตัวพิมพ์เล็ก 8-4-4-4-12 ทุก version — นอกนั้น (รวมตัวพิมพ์ใหญ่) = `400 INVALID_ID` ไม่ normalise · `Idempotency-Key` และเลขเอกสาร (`RC…`/`CN…`) ไม่ใช่ UUID |
 | เงิน | ส่งเป็น **string** `"1234.50"` ไม่ใช่ float (กันปัญหา precision — ดู `01_DATABASE.md §4`) |
 
 ### 1.2 Response envelope (ตามสเปคที่อาจารย์กำหนดใน Flash Sale assignment)
@@ -217,7 +217,7 @@ sequenceDiagram
             "customerAfter": { "id": "0198e3a0-2c3d-7e4f-9061-7b8c9d0e1f23", "points": 1340, "totalSpend": "58200.00" },   // ⭐ เพิ่ม (ADR-0010 ข้อ 3) — ไม่งั้น Drift ฝั่ง client ค้างค่าเก่าจนกว่า /bootstrap รอบถัดไป
             "products": [ { "id": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "stock": 8 } ],   // ไม่มี offlineOk — เฟส 1 ยังไม่มีที่เก็บ (`sales.service.ts`), ADR-0010 ข้อ 4 · (2026-09-23: ยกเลิกถาวรแล้ว D3 — ไม่มี `offlineOk` ทั้งระบบ)
             "items": [ { "lineNo": 1, "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "costAtSale": "480.00" } ],    // ⭐ #82 — ต้นทุน ณ วันที่ขาย (ADR-0008) กู้คืนทีหลังไม่ได้
-            "movements": [ { "id": "mv…", "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "partNo": "BP-1234", "name": "Front Brake Pad",   // ⭐ #82 — แถว ledger ที่บิลนี้เขียน
+            "movements": [ { "id": "0198e3a2-7c11-7a3e-9b21-4f6d2c8e1a08", "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "partNo": "BP-1234", "name": "Front Brake Pad",   // ⭐ #82 — แถว ledger ที่บิลนี้เขียน
                              "delta": -2, "type": "sale", "note": null, "stockAfter": 8,
                              "date": "2026-08-25T03:12:00Z" } ] } }
 
@@ -372,7 +372,7 @@ refundTotal, refundMethod, reason, customerId, mechanicId, mechanicName, date, s
 ของ §3.1 หมายเหตุข้อ 2 · ไม่ส่ง = server ออกให้เฉพาะตอน `DOC_NUMBER_FALLBACK` เปิด — `returns.dto.ts:18,49`, `returns.service.ts:259)*
 
 ```jsonc
-  "movements": [ { "id": "mv…", "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "partNo": "BP-1234", "name": "Front Brake Pad",
+  "movements": [ { "id": "0198e3a5-1a20-7b3c-8d4e-5f6a7b8c9d01", "productId": "0198e3a0-1b2c-7d4e-8f50-6a7b8c9d0e12", "partNo": "BP-1234", "name": "Front Brake Pad",
                    "delta": 2, "type": "return", "note": null, "stockAfter": 10,
                    "date": "2026-08-25T04:00:00Z" } ],   // 🔴 'return' เท่านั้น — void เขียน 'void' (migration 1788652800003)
   "mechanicAfter": { "id": "0198e3a0-3d4e-7f50-a172-8c9d0e1f2a34", "totalSales": "…", "totalDiscount": "…",
@@ -807,16 +807,16 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 
 ```jsonc
 // POST /sync/push
-{ "deviceId": "dev_02", "ops": [
-    { "opId": "op_9a3f", "type": "sale.create",  "payload": { /* SaleInput */ }, "clientTime": "2026-08-25T02:00:00Z" },
-    { "opId": "op_9a40", "type": "stock.adjust", "payload": { /* … */ },        "clientTime": "2026-08-25T02:05:00Z" }
+{ "deviceId": "0198e300-aa01-7b2c-9d3e-4f5a6b7c8d90", "ops": [
+    { "opId": "0198e3a2-0001-7c4d-8e5f-6a7b8c9d0e01", "type": "sale.create",  "payload": { /* SaleInput */ }, "clientTime": "2026-08-25T02:00:00Z" },
+    { "opId": "0198e3a2-0002-7c4d-8e5f-6a7b8c9d0e02", "type": "stock.adjust", "payload": { /* … */ },        "clientTime": "2026-08-25T02:05:00Z" }
 ] }
 
 // 200 — ตอบแยกผลทีละ op (บาง op สำเร็จ บาง op ไม่สำเร็จได้)
 { "status": "success",
   "data": { "results": [
-      { "opId": "op_9a3f", "status": "applied",  "serverId": "0198e3a2-7c10-7a3e-9b21-4f6d2c8e1a07" },
-      { "opId": "op_9a40", "status": "rejected", "code": "INSUFFICIENT_STOCK",
+      { "opId": "0198e3a2-0001-7c4d-8e5f-6a7b8c9d0e01", "status": "applied",  "serverId": "0198e3a2-7c10-7a3e-9b21-4f6d2c8e1a07" },
+      { "opId": "0198e3a2-0002-7c4d-8e5f-6a7b8c9d0e02", "status": "rejected", "code": "INSUFFICIENT_STOCK",
         "message": "สต็อกไม่พอ:\nผ้าเบรกหน้า: สต็อก 0 แต่ต้องการ 1" }
   ], "serverSeq": 88421 } }
 ```

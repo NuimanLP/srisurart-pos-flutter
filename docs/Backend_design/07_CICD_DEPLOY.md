@@ -454,7 +454,7 @@ on:
   `workflow_run` = head ของ default branch *ตอนนั้น* ไม่ใช่ commit ที่ trigger)
 * เช็คว่า GHCR มี tag `<head_sha>` **ครบทั้ง 2 image** (registry API, anonymous token ได้เพราะ public)
   ถ้ายังไม่ครบ → จบเฉย ๆ (neutral) — workflow อีกตัวที่จบทีหลังจะยิงมาอีกรอบแล้วเจอครบ
-  (ทุก merge ที่มี code จึงเห็น Deploy **2 run** — run แรกมัก skip เขียวเพราะ image web ยังไม่มา · approve run ที่สอง, 2026-10-06)
+  (ทุก merge ที่มี code จึงเห็น Deploy **2 run** — run แรกมัก skip เขียวเพราะ image อีกตัวยังไม่มา · approve run ที่สอง, 2026-10-06)
 * `concurrency: { group: deploy-demo, cancel-in-progress: false }` — **ห้าม** cancel กลาง rolling restart ·
   กรณีสอง run เห็นครบพร้อมกัน ข้อ 1 ของ playbook กันไว้อีกชั้น
 * PR ที่แตะ `deploy/**` มี gate เล็ก: `ansible-lint` + `docker compose config` ของ override — **ยังไม่ได้ทำ**

@@ -327,8 +327,8 @@ No ticket yet. `synchronize` is never
 true anywhere, tests included. Phase-1 backend/CI tickets are assigned by lane: `NuimanLP`
 (Lane A), `LomerAlloys` (Lane B), `PattaraponKitcharoen` (Lane C) — see
 `handoff_log/merge-p1-p2-lane-assignments.md`. **No cutover is planned for phase 1** — the shop
-keeps running this Drift build while the server is developed against a demo tenant. **As of
-2026-09-04 this work happens on `main`** (see *Branch strategy* above): the server, the
+keeps running this Drift build while the server is developed against a demo tenant. **Since
+2026-10-06 this work lands on `develop`, then `main`** (see *Branch strategy* above): the server, the
 client's API layer and the CI/CD pipelines all land in this repo.
 
 **CI/CD — levels 1–3 are done (level 3 = both release images on GHCR since 2026-09-10, #69/#70). CD to the faculty VM (Ansible), etcd and Monitoring (Node Exporter + Prometheus + Grafana) are designed in `docs/Backend_design/07_CICD_DEPLOY.md` + ADR-0013 (spec #60) and ticketed #63–#67 under #10 for the teammates — read those before touching `.github/`, `deploy/`, `server/Dockerfile`, `server/docker-compose.yml` or `server/docker/nginx/`.** `.github/workflows/flutter.yml` is the

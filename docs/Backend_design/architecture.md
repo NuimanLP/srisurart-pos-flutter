@@ -16,7 +16,7 @@
 > (`nginx.conf`, โครงไฟล์ `server/src/`, DDL, `TenantService.runTx`, ชื่อคิว BullMQ, สถานะ idempotency, อัลกอริทึม JWT, พอร์ต Redis)
 > ทุกจุดที่แก้มีหมายเหตุ `🔄 แก้ 2026-09-23` กำกับ · **เอกสารนี้ไม่ใช่สเปก:** ขัดกับ ADR ให้ยึด ADR ([`adr/README.md`](adr/README.md)),
 > ขัดกับ schema ให้ยึด `server/src/db/migrations/` และ [`01_DATABASE.md`](01_DATABASE.md), ขัดกับคอนฟิกให้ยึด `server/docker-compose.yml` / `server/docker/nginx/nginx.conf`
-> · สถานะที่ยัง**ไม่เสร็จ**และห้ามอ่านจากเอกสารนี้ว่าเสร็จ: ~~CD ขึ้น VM `mob04` (ติด FortiGate ของคณะ)~~ (deploy ได้แล้วตั้งแต่ 2026-09-30), การวัด k6 (#380), backup ออกนอก VM (#363/#288 พักไว้)
+> · สถานะที่ยัง**ไม่เสร็จ**และห้ามอ่านจากเอกสารนี้ว่าเสร็จ: การวัด k6 (#380), backup ออกนอก VM (#363/#288 พักไว้)
 
 ---
 
@@ -275,7 +275,7 @@ server/src/
 
 - **29 ตาราง** = 27 จาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (เฟส 2) · `change_log` **ไม่สร้าง** (#191)
 - **RLS 26 ตาราง** (`FORCE ROW LEVEL SECURITY` + policy `tenant_isolation`) · global 2 ตาราง (`tenants`, `platform_admins`) · `import_jobs` ไม่ติด RLS โดยตั้งใจ (อ่านจาก platform plane เท่านั้น)
-- ทุกตารางของร้านมี PK ขึ้นต้นด้วย `tenant_id` — `PRIMARY KEY (tenant_id, id)` (composite ไม่ใช่ `UUID` เดี่ยว) · `id` และทุกคอลัมน์ที่ชี้หา entity เป็น `UUID` (UUIDv7 ตัวพิมพ์เล็กจาก client/`newUuid()`) ตั้งแต่ #616 — เดิมเป็น `TEXT` จาก `newId`
+- ทุกตารางของร้านมี PK ขึ้นต้นด้วย `tenant_id` — `PRIMARY KEY (tenant_id, id)` (composite ไม่ใช่ `UUID` เดี่ยว) · `id` และทุกคอลัมน์ที่ชี้หา entity เป็น `UUID` ตัวพิมพ์เล็ก ตั้งแต่ #616 (เดิม `TEXT` จาก `newId`) — UUIDv7 จาก client/`newUuid()` ยกเว้น `tenants`/`users`/`platform_admins` ที่ยังได้ v4 จาก `gen_random_uuid()`
 - `users.role` เหลือ `CHECK (role = 'owner')` และ active ได้ 1 บัญชีต่อร้าน · `users.pin_hash` **ถูกลบแล้ว** (migration `…3001-SingleOwnerRole`, 08 E1/E2/E3)
 - `sales.void_reason`, `sales.sold_offline`, `devices.unsynced_ops` มาจาก migration `…3003-SyncPushColumns`
 - `movements.type` มี 6 ค่า (`sale`, `return`, `void`, `receive`, `adjustment-in`, `adjustment-out`) และ `pos_app` ได้แค่ `SELECT, INSERT` (append-only)
