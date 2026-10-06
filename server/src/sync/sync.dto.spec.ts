@@ -7,6 +7,7 @@ import {
   parseOpPayload,
   parseSyncDiscard,
   parseSyncPush,
+  replayProbeOf,
   SYNC_OP_TYPES,
   targetIdOf,
   type SyncOpType,
@@ -244,5 +245,48 @@ describe('discard target (#616)', () => {
 
   it('still refuses a malformed opId', () => {
     expect(() => discard({ opId: 'op_1' })).toThrow(/opId must be a lowercase UUID/);
+  });
+});
+
+describe('replayProbeOf (08 §8.3 step 2, before the parser)', () => {
+  const op = (type: string, payload: Record<string, unknown>) => ({
+    opId: testId('op'),
+    idempotencyKey: 'k',
+    type,
+    payload,
+  });
+
+  it('reads the id and the compared fields of a body the parser refuses, without throwing', () => {
+    const raw = op('sale.create', { id: testId('s1'), total: '100.00', customerId: 'C-legacy', receiptNo: 'RC01-2569-09-0001' });
+    expect(() => parseOpPayload(raw)).toThrow();
+    expect(replayProbeOf(raw)).toEqual({
+      type: 'sale.create',
+      id: testId('s1'),
+      totalSatang: 10000,
+      receiptNo: 'RC01-2569-09-0001',
+    });
+  });
+
+  it('an amount that does not read is null (never equal to a stored amount)', () => {
+    expect(replayProbeOf(op('drawer.entry', { id: testId('d1'), type: 'x', amount: 'abc' }))).toEqual({
+      type: 'drawer.entry',
+      id: testId('d1'),
+      entryType: 'x',
+      amountSatang: null,
+    });
+  });
+
+  it('no probe for a non-UUID id, a missing id, or customer.update', () => {
+    expect(replayProbeOf(op('sale.create', { id: 'S-legacy', total: '1.00' }))).toBeNull();
+    expect(replayProbeOf(op('shift.open', { startingCash: '1.00' }))).toBeNull();
+    expect(replayProbeOf(op('customer.update', { id: testId('c1') }))).toBeNull();
+  });
+
+  it('a void is found by the bill it names', () => {
+    expect(replayProbeOf(op('sale.void_offline', { saleId: testId('s1'), reason: '  x ' }))).toEqual({
+      type: 'sale.void_offline',
+      id: testId('s1'),
+      reason: 'x',
+    });
   });
 });

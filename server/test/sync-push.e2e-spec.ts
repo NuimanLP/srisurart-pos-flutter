@@ -1878,6 +1878,50 @@ describe('POST /sync/push (e2e)', () => {
         expect(await stockOf(testId('p_b1'))).toBe(20);
       });
 
+      it('B1 step 2: key row gone + bill already stored → the client-id replay runs before the parser too', async () => {
+        const op = { opId: testId('op_b1_step2'), idempotencyKey: 'k_b1_step2', type: 'sale.create', payload: outboxPayload };
+        const first = await push({ outboxRemaining: 0, ops: [op] });
+        expect(first.body.data.results[0].status).toBe('applied');
+        const stored = first.body.data.results[0].response;
+        expect(await stockOf(testId('p_b1'))).toBe(18);
+
+        // The key row expired (24 h) or was deleted (B2); the body is one today's parser refuses.
+        await admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1::uuid AND key = 'k_b1_step2'`, [TENANT]);
+        await clearTenantCache(cache, TENANT);
+        const refused = { ...outboxPayload, customerId: 'C-legacy-1' };
+
+        const replay = await push({ outboxRemaining: 0, ops: [{ ...op, payload: refused }] });
+        expect(replay.body.data.results[0]).toEqual({ opId: testId('op_b1_step2'), status: 'applied', response: stored });
+        expect(replay.body.data.results[0].response.receiptNo).toBe(stored.receiptNo);
+        expect(await stockOf(testId('p_b1'))).toBe(18);
+
+        // Same id, different total, still a body the parser refuses: a different bill, as before.
+        const other = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: testId('op_b1_step2_other'), idempotencyKey: 'k_b1_step2_other', type: 'sale.create', payload: { ...refused, total: '99.00' } }],
+        });
+        expect(other.body.data.results[0]).toMatchObject({
+          status: 'rejected',
+          code: 'CLIENT_ID_REUSED',
+          details: { type: 'sale.create', id: testId('s_b1_online') },
+        });
+
+        // A malformed client id never reaches the replay: the parser's INVALID_ID, as before.
+        const badId = await push({
+          outboxRemaining: 0,
+          ops: [{ opId: testId('op_b1_step2_badid'), idempotencyKey: 'k_b1_step2_badid', type: 'sale.create', payload: { ...outboxPayload, id: 'S-legacy-1' } }],
+        });
+        expect(badId.body.data.results[0]).toMatchObject({
+          status: 'rejected',
+          code: 'INVALID_ID',
+          details: { field: 'payload.id' },
+        });
+
+        const n = await admin.query(`SELECT count(*)::int AS n FROM sales WHERE tenant_id = $1::uuid`, [TENANT]);
+        expect(n[0].n).toBe(1);
+        expect(await stockOf(testId('p_b1'))).toBe(18);
+      });
+
       it('the same key on a DIFFERENT bill is still refused IDEMPOTENCY_KEY_REUSED', async () => {
         expect((await postOnline('k_b1_reuse', onlineBody)).status).toBe(201);
         // A second, genuinely different bill already on the server under its own key.
