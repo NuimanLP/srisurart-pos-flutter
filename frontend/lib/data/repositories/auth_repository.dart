@@ -31,6 +31,24 @@ class DeviceEnrolmentGoneException implements Exception {
   String toString() => message;
 }
 
+/// The server refused `POST /auth/device` (any status) in
+/// [AuthRepository.enrolDevice].
+///
+/// Deliberately NOT a [PosException]: `AuthCubit.enrolDevice` rethrows a
+/// [PosException] for the dialog to show (`TenantCacheGuard`'s refusal) and
+/// answers anything else with `false` — the dialog's own "wrong code"
+/// sentence. A server refusal has always taken that `false` path; this keeps
+/// it there without letting an `ApiException` out of the repository.
+/// [refusal] is the converted refusal, for logs and tests.
+class EnrolCodeRefusedException implements Exception {
+  const EnrolCodeRefusedException(this.refusal);
+
+  final PosException refusal;
+
+  @override
+  String toString() => refusal.message;
+}
+
 /// [AuthRepository.changePassword] got a 401: the 10-minute password-change
 /// token expired or was already used — only a fresh login with the temporary
 /// password can continue (#443 PR3).
@@ -159,19 +177,15 @@ class AuthRepository {
   /// - **other 4xx / 429** — coded verdicts (`TENANT_SUSPENDED`,
   ///   `RATE_LIMITED`) resolve to their mapped Thai.
   static PosException loginRefusal(ApiException e) {
-    final String message;
+    // #443 PR3: the one 401 that must NOT read as "wrong password" — the
+    // password was right, the temporary one simply expired.
     if (e.code == 'TEMP_PASSWORD_EXPIRED') {
-      // #443 PR3: the one 401 that must NOT read as "wrong password" — the
-      // password was right, the temporary one simply expired.
-      message = e.thaiMessage;
-    } else if (e.statusCode == 401) {
-      message = 'เข้าสู่ระบบไม่สำเร็จ';
-    } else if (e.statusCode >= 500) {
-      message = ServerErrorResolver.resolve(null);
-    } else {
-      message = e.thaiMessage;
+      return PosException(e.code, e.thaiMessage, e.details);
     }
-    return PosException(e.code, message, e.details);
+    if (e.statusCode == 401) {
+      return PosException(e.code, 'เข้าสู่ระบบไม่สำเร็จ', e.details);
+    }
+    return posExceptionFromApi(e);
   }
 
   /// Replaces the temporary owner password with [newPassword] (#443 PR3),
@@ -196,8 +210,7 @@ class AuthRepository {
       if (e.statusCode == 401) {
         throw const PasswordChangeSessionExpiredException();
       }
-      throw PosException(
-          e.code, ServerErrorResolver.resolveCounterError(e), e.details);
+      throw posExceptionFromApi(e);
     }
     final map = response as Map<String, dynamic>;
     final user = AuthUser.fromJson(map['user'] as Map<String, dynamic>);
@@ -264,11 +277,16 @@ class AuthRepository {
     // could never be sent or discarded (login is scoped to the device's shop).
     await tenantGuard?.checkEnrolment();
 
-    final response = await apiClient.post(
-      '/api/v1/auth/device',
-      body: {'code': normalizedCode},
-      skipAuth: true,
-    );
+    final Object? response;
+    try {
+      response = await apiClient.post(
+        '/api/v1/auth/device',
+        body: {'code': normalizedCode},
+        skipAuth: true,
+      );
+    } on ApiException catch (e) {
+      throw EnrolCodeRefusedException(posExceptionFromApi(e));
+    }
 
     final map = response as Map<String, dynamic>;
     final deviceToken = map['deviceToken'] as String;
@@ -285,11 +303,16 @@ class AuthRepository {
       return null;
     }
 
-    final response = await apiClient.post(
-      '/api/v1/auth/refresh',
-      body: {'refreshToken': refreshToken},
-      skipAuth: true,
-    );
+    final Object? response;
+    try {
+      response = await apiClient.post(
+        '/api/v1/auth/refresh',
+        body: {'refreshToken': refreshToken},
+        skipAuth: true,
+      );
+    } on ApiException catch (e) {
+      throw posExceptionFromApi(e);
+    }
 
     final map = response as Map<String, dynamic>;
     final tokens = AuthTokens.fromJson(map);

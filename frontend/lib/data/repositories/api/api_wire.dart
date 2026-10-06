@@ -78,7 +78,7 @@ Future<T> rethrowThai<T>(Future<T> Function() body) async {
   try {
     return await body();
   } on ApiException catch (e) {
-    throw PosException(e.code, e.thaiMessage, e.details);
+    throw posExceptionFromApi(e);
   }
 }
 

@@ -10,6 +10,7 @@ import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
 import '../../core/utils/ids.dart';
 import '../../domain/models/aggregates.dart';
 import '../db/database.dart';
@@ -126,7 +127,7 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
           .toList(),
     };
 
-    final res = await apiClient.post('/api/v1/purchase-orders', body: body, headers: idempotencyKey());
+    final res = await rethrowThai(() => apiClient.post('/api/v1/purchase-orders', body: body, headers: idempotencyKey()));
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
       final realId = (resMap['id'] ?? newUuid()) as String;
@@ -161,16 +162,14 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
 
       return poRow;
     }
-    throw ApiException(
-      statusCode: 500,
-      code: 'SERVER_ERROR',
-      serverMessage: 'ไม่สามารถบันทึกใบสั่งซื้อ',
-    );
+    // A 2xx that is not the expected object: the server answered and may have
+    // committed. The sentence is the one the screen showed for this before.
+    throw PosException('SERVER_ERROR', ServerErrorResolver.resolve(null));
   }
 
   @override
   Future<List<String>> receivePO(String id) async {
-    final res = await apiClient.post('/api/v1/purchase-orders/$id/receive', headers: idempotencyKey());
+    final res = await rethrowThai(() => apiClient.post('/api/v1/purchase-orders/$id/receive', headers: idempotencyKey()));
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
       final now = DateTime.now();
@@ -255,16 +254,14 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
       }
       return [];
     }
-    throw ApiException(
-      statusCode: 500,
-      code: 'SERVER_ERROR',
-      serverMessage: 'ไม่สามารถรับสินค้า',
-    );
+    // A 2xx that is not the expected object: the server answered and may have
+    // committed. The sentence is the one the screen showed for this before.
+    throw PosException('SERVER_ERROR', ServerErrorResolver.resolve(null));
   }
 
   @override
   Future<void> cancelPO(String id) async {
-    await apiClient.post('/api/v1/purchase-orders/$id/cancel', headers: idempotencyKey());
+    await rethrowThai(() => apiClient.post('/api/v1/purchase-orders/$id/cancel', headers: idempotencyKey()));
     await (db.update(db.purchaseOrders)..where((t) => t.id.equals(id))).write(
       PurchaseOrdersCompanion(
         status: const Value('cancelled'),
@@ -275,7 +272,7 @@ class ApiPurchaseOrdersRepository extends PurchaseOrdersRepository {
 
   @override
   Future<void> deletePO(String id) async {
-    await apiClient.delete('/api/v1/purchase-orders/$id', headers: idempotencyKey());
+    await rethrowThai(() => apiClient.delete('/api/v1/purchase-orders/$id', headers: idempotencyKey()));
     await (db.delete(db.poItems)..where((t) => t.poId.equals(id))).go();
     await (db.delete(db.purchaseOrders)..where((t) => t.id.equals(id))).go();
   }
