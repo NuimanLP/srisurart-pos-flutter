@@ -3,8 +3,11 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/crypto/pbkdf2.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
+import 'package:srisurart_pos/core/network/server_error_resolver.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
@@ -369,6 +372,103 @@ void main() {
       // Invariant C4: Immediate error shown
       expect(
         find.text('รหัส PIN ต้องไม่ตรงกับรหัสผ่านของบัญชี'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // #612: the password re-check goes straight to POST /auth/token, so a dead
+  // device token (#609) comes back as a 401 too — it must not read as a wrong
+  // password, and no raw ApiException text may reach the dialog.
+  group('OfflinePinSetupDialog 401 from the password re-check (#612)', () {
+    Future<AuthCubit> submitWith401(WidgetTester tester, String code) async {
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      tokenStorage
+        ..accessToken = makeToken(iat: nowSec)
+        ..refreshToken = makeToken(iat: nowSec)
+        ..user = const AuthUser(id: 'u-owner-1', username: 'owner', role: 'owner');
+      final apiClient = ApiClient(
+        tokenStorage: tokenStorage,
+        httpClient: MockClient((req) async => http.Response(
+              jsonEncode({
+                'status': 'error',
+                'error': {'code': code, 'message': 'refused'},
+              }),
+              401,
+              headers: {'content-type': 'application/json'},
+            )),
+      );
+      final pins = OfflinePinRepository(
+        db: db,
+        tokenStorage: tokenStorage,
+        apiClient: apiClient,
+      );
+      final auth = AuthRepository(
+        apiClient: apiClient,
+        tokenStorage: tokenStorage,
+        offlinePinRepository: pins,
+      );
+      final authCubit = AuthCubit(authRepository: auth, offlinePinRepository: pins);
+      await authCubit.init();
+      expect(authCubit.state, isA<Authenticated>());
+
+      // Providers sit above MaterialApp: the dialog is pushed on the root
+      // navigator, so it must still see them.
+      await tester.pumpWidget(MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<OfflinePinRepository>.value(value: pins),
+          RepositoryProvider<AuthRepository>.value(value: auth),
+        ],
+        child: BlocProvider<AuthCubit>.value(
+          value: authCubit,
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (ctx) => ElevatedButton(
+                  onPressed: () => OfflinePinSetupDialog.show(ctx),
+                  child: const Text('Open Dialog'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('Open Dialog'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).at(0), 'owner-password');
+      await tester.enterText(find.byType(TextFormField).at(1), '4321');
+      await tester.enterText(find.byType(TextFormField).at(2), '4321');
+      await tester.tap(find.text('บันทึก PIN'));
+      await tester.pumpAndSettle();
+      addTearDown(authCubit.close);
+      return authCubit;
+    }
+
+    for (final code in AuthRepository.deadDeviceTokenCodes) {
+      testWidgets('$code → token forgotten as on login (#609), not wrong password',
+          (tester) async {
+        final authCubit = await submitWith401(tester, code);
+        expect(find.text('รหัสผ่านบัญชีไม่ถูกต้อง'), findsNothing);
+        expect(find.text('ตั้งค่ารหัส PIN ออฟไลน์'), findsNothing);
+        expect(tokenStorage.deviceToken, isNull);
+        final state = authCubit.state as Unauthenticated;
+        expect(state.errorMessage, AuthCubit.deviceEnrolmentGone);
+        expect(state.deviceToken, isNull);
+      });
+    }
+
+    testWidgets('UNAUTHORIZED (bad password) → wrong password', (tester) async {
+      await submitWith401(tester, 'UNAUTHORIZED');
+      expect(find.text('รหัสผ่านบัญชีไม่ถูกต้อง'), findsOneWidget);
+    });
+
+    testWidgets('other 401 code → its Thai sentence, never ApiException text',
+        (tester) async {
+      await submitWith401(tester, 'TEMP_PASSWORD_EXPIRED');
+      expect(find.text('รหัสผ่านบัญชีไม่ถูกต้อง'), findsNothing);
+      expect(find.textContaining('ApiException'), findsNothing);
+      expect(
+        find.text(ServerErrorResolver.resolve('TEMP_PASSWORD_EXPIRED')),
         findsOneWidget,
       );
     });
