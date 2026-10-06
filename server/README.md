@@ -227,6 +227,15 @@ docker/postgres/init/    creates the non-superuser pos_app role on first boot
 
 ## Idempotency (#18)
 
+> **2026-10-06 (#616 cutover) — ids vs keys.** Entity ids are lowercase UUIDv7 (`uuid` columns);
+> a malformed or uppercase id in a path/body is `400 INVALID_ID` (`ParseUuidPipe`, `common/ids.ts`).
+> Tenant ids are lowercase-only: `400 INVALID_TENANT_ID` (#621). The client's `newId(prefix)`
+> became `newIdempotencyKey(prefix)` and is used **only** for `Idempotency-Key` (#620); an
+> old-shape value as an entity id is refused. `/sync/push` replays by key **first**, then runs
+> `parseOpPayload` (#619); a non-UUID `opId` fails the whole envelope (400) and `POST
+> /sync/discards` refuses it likewise. CORS allows `X-Device-Token` (#618). `mob04` runs
+> `65861ea` with the DB wiped and no tenant yet (`docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`).
+
 Every write that touches money or stock carries `Idempotency-Key`
 (`02_API_SCREENS.md §1.4`). Since `tx.3` (#152) it is explicit in the handler — there is no
 interceptor. The controller's whole body becomes the work callback:
