@@ -359,7 +359,7 @@ void main() {
 
       final mv = await db.select(db.movements).get();
       expect(mv, hasLength(1));
-      expect(mv.single.id, 'mv-server-1'); // the server's row id, not newId('mv')
+      expect(mv.single.id, 'mv-server-1'); // the server's row id, not newUuid()
       expect(mv.single.type, 'sale');
       expect(mv.single.delta, -2);
       expect(mv.single.stockAfter, 3, reason: 'server value; local maths says 8');

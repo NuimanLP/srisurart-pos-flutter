@@ -293,7 +293,7 @@ async function api(path, options = {}) {
 
 // ---- routing (#tenant/<id> keeps the detail view across a reload) -----------------
 
-const TENANT_HASH = /^#tenant\/([0-9a-fA-F-]{36})$/;
+const TENANT_HASH = /^#tenant\/([0-9a-f-]{36})$/; // lowercase only, like the API (#621)
 
 function route() {
   if (!getToken()) {

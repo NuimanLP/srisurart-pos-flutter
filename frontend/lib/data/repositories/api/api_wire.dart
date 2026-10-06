@@ -68,7 +68,7 @@ DateTime? stampOrNull(Object? wire) => wire == null ? null : stamp(wire);
 /// hand the server a new key each time and ring the bill up twice, which is
 /// #56 AC2 — so the money paths do not call this directly, they go through
 /// [PendingWrites], which is what remembers the attempt across presses.
-Map<String, String> idempotencyKey() => {'Idempotency-Key': newId('idem')};
+Map<String, String> idempotencyKey() => {'Idempotency-Key': newIdempotencyKey('idem')};
 
 /// Runs [body] and converts an [ApiException] into the plain `Exception` the
 /// screens already know how to display. Everything else (a `SocketException`,

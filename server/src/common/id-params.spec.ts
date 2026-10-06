@@ -21,16 +21,16 @@ const VALIDATORS = ['parseUuid', 'requiredUuid', 'optionalUuid'];
 
 /** `Class.method @Decorator('name')` — not validated as a lowercase UUID on purpose. */
 const ALLOWLIST: Record<string, string> = {
-  // Tenant ids predate #616 and are checked by the any-case tenant validator
-  // (`assertValidTenantId` / `UUID_ANY_CASE_RE`, 400 INVALID_TENANT_ID) in the service.
-  "PlatformTenantsController.updateStatus @Param('id')": 'tenant id: any-case tenant validator in the service',
-  "PlatformTenantsController.reissueEnrolCode @Param('id')": 'tenant id: any-case tenant validator in the service',
-  "PlatformTenantsController.replaceDevice @Param('id')": 'tenant id: any-case tenant validator in the service',
-  "PlatformTenantsController.issueOwnerTempPassword @Param('id')": 'tenant id: any-case tenant validator in the service',
-  "PlatformTenantsController.getTenantDetail @Param('id')": 'tenant id: any-case tenant validator in the service',
-  "PlatformAuditController.listTenantAudit @Param('id')": 'tenant id: any-case tenant validator in the service',
-  "TenantImportController.importSnapshot @Param('id')": 'tenant id: any-case tenant validator in the service',
-  "TenantImportController.getImportJob @Param('id')": 'tenant id: any-case tenant validator in the service',
+  // Tenant ids are lowercase-only too (#621), but checked in the service by
+  // `assertValidTenantId` (`isUuid`), which keeps its own code, 400 INVALID_TENANT_ID.
+  "PlatformTenantsController.updateStatus @Param('id')": 'tenant id: assertValidTenantId (lowercase, INVALID_TENANT_ID) in the service',
+  "PlatformTenantsController.reissueEnrolCode @Param('id')": 'tenant id: assertValidTenantId (lowercase, INVALID_TENANT_ID) in the service',
+  "PlatformTenantsController.replaceDevice @Param('id')": 'tenant id: assertValidTenantId (lowercase, INVALID_TENANT_ID) in the service',
+  "PlatformTenantsController.issueOwnerTempPassword @Param('id')": 'tenant id: assertValidTenantId (lowercase, INVALID_TENANT_ID) in the service',
+  "PlatformTenantsController.getTenantDetail @Param('id')": 'tenant id: assertValidTenantId (lowercase, INVALID_TENANT_ID) in the service',
+  "PlatformAuditController.listTenantAudit @Param('id')": 'tenant id: assertValidTenantId (lowercase, INVALID_TENANT_ID) in the service',
+  "TenantImportController.importSnapshot @Param('id')": 'tenant id: assertValidTenantId (lowercase, INVALID_TENANT_ID) in the service',
+  "TenantImportController.getImportJob @Param('id')": 'tenant id: assertValidTenantId (lowercase, INVALID_TENANT_ID) in the service',
   // BullMQ assigns these, not `newUuid`; the lookup is `queue.getJob(id)`, never SQL.
   "BackupController.getJobStatus @Param('id')": 'BullMQ job id, looked up in Redis, never SQL',
   "BackupController.downloadExport @Param('id')": 'BullMQ job id, looked up in Redis, never SQL',

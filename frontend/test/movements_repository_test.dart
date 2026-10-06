@@ -1,7 +1,7 @@
 // Unit tests for MovementsRepository.
 //
 // Invariants under test (db.js sa_movements parity):
-//  • addMovement assigns id via newId('mv'), stamps date = now, stores the
+//  • addMovement assigns id via newUuid(), stamps date = now, stores the
 //    row verbatim and returns it.
 //  • getMovements returns newest-first (db.js prepends → date desc).
 

@@ -728,7 +728,7 @@ class ApiSalesRepository implements SalesRepository {
     final now = DateTime.now();
 
     final opId = newUuid();
-    final idempotencyKey = newId('k');
+    final idempotencyKey = newIdempotencyKey('k');
     final aggregates = [
       'sale:$saleId',
       if (sale.shiftId != null) 'shift:${sale.shiftId}',

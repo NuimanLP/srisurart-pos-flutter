@@ -370,7 +370,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
 
     final localId = newUuid();
     final now = DateTime.now();
-    final key = newId('idem');
+    final key = newIdempotencyKey('idem');
     final opId = newUuid();
     final wireAmt = wireMoney(amount);
 

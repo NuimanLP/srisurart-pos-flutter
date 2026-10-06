@@ -50,7 +50,7 @@ class DevicesRepository {
     final res = await _apiClient.post(
       '/api/v1/devices',
       headers: {
-        'Idempotency-Key': newId('idem_dev_'),
+        'Idempotency-Key': newIdempotencyKey('idem_dev_'),
       },
       body: {
         'label': label.trim(),
@@ -88,7 +88,7 @@ class DevicesRepository {
     await _apiClient.post(
       '/api/v1/devices/$deviceId/retire',
       headers: {
-        'Idempotency-Key': newId('idem_ret_'),
+        'Idempotency-Key': newIdempotencyKey('idem_ret_'),
       },
       body: body.isNotEmpty ? body : null,
     );

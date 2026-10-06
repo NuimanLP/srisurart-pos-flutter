@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { UUID_ANY_CASE_RE } from '../common/ids.js';
+import { isUuid } from '../common/ids.js';
 import { DEFAULT_JOB_OPTIONS } from '../queue/queue.constants.js';
 
 /**
@@ -38,7 +38,7 @@ const JOB_ID = /^[A-Za-z0-9_-]{1,128}$/;
  * value can climb out of `exportDir()`.
  */
 export function exportFilePath(tenantId: string, jobId: string): string {
-  if (!UUID_ANY_CASE_RE.test(tenantId) || !JOB_ID.test(jobId)) {
+  if (!isUuid(tenantId) || !JOB_ID.test(jobId)) {
     throw new Error('Invalid tenant or job id for an export file');
   }
   return join(exportDir(), tenantId, `${jobId}.json`);

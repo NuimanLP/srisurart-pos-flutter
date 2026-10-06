@@ -975,7 +975,7 @@ class SyncService implements SyncFacade {
     final res = await apiClient.post(
       '/api/v1/sync/discards',
       body: discardBody,
-      headers: {'Idempotency-Key': newId('idem')},
+      headers: {'Idempotency-Key': newIdempotencyKey('idem')},
     );
 
     if (res is Map) {
