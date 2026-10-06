@@ -24,8 +24,8 @@ readonly CLONE="$STATE_DIR/repo"
 # forgeable JWT_PLATFORM_SECRET fallback), so nothing older is ever deployed here, rollback included.
 # Raised to the #617 merge (#616, migration 1788652804900 retypes every entity id TEXT → UUID): there
 # are no down-migrations, so code from before it writes prefix+base36 ids into UUID columns and
-# every write fails 22P02/500. This floor only works if `develop` reaches `main` as a MERGE COMMIT —
-# a squash or rebase leaves this SHA off main and then nothing at all is deployable (`deployable`).
+# every write fails 22P02/500. Works only if this SHA reaches main unchanged (merge commit or
+# fast-forward) — a squash or rebase leaves it off main and then nothing is deployable (`deployable`).
 # Changing it here changes nothing on the VM until /usr/local/bin/pos-deploy is reinstalled (07 §6.2).
 readonly ROLLBACK_FLOOR="bedd328aa3ba1de8c56b5fe5753fd12deca5dd4f"
 # A hung compose command must fail this attempt (and so trigger the rollback) instead of running

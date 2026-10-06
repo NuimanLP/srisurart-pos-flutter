@@ -22,7 +22,10 @@ actually ran, with output, in a session handoff afterwards.
   `pos-deploy.sh`'s `ROLLBACK_FLOOR` is now `bedd328aa3ba1de8c56b5fe5753fd12deca5dd4f` and `deployable()`
   requires the floor to be an ancestor of the release *and* the release to be on `main`
   (`git merge-base --is-ancestor`). Squash/rebase leave `bedd328` off `main` → **every** deploy dies
-  `is not a commit on main at or after …; nothing deployed`. Check after the merge:
+  `is not a commit on main at or after …; nothing deployed`. A fast-forward also keeps `bedd328` on
+  `main`; only squash and rebase break it. **Nothing in the repo settings enforces this** — all three
+  merge methods are enabled and `main` has no linear-history rule — so it rests on whoever clicks merge.
+  Check after the merge:
   `git fetch origin && git merge-base --is-ancestor bedd328aa3ba1de8c56b5fe5753fd12deca5dd4f origin/main && echo floor-on-main`.
 - 🔴 **Never `docker compose down -v`** — it destroys `pgdata`, `etcd-data`, `nginx-auth` and **`certs-ca`**
   (a new CA breaks every distributed APK). The wipe below is SQL only; no volume is touched.
@@ -92,7 +95,12 @@ Then the wipe. **Which tables and why:**
   TypeORM `migrations` table.
 
 This removes **every** tenant, including any `plan = 'loadtest'` tenants the #380 k6 runs left behind
-(their setup re-creates them). That is 28 of the 29 tables. No `CASCADE` on purpose: if some table that is not in the list references one
+(their setup re-creates them). That is 28 of the 29 tables.
+
+`TRUNCATE` does not touch Redis: while the old release keeps serving, `redis-cache` may still hold the
+deleted tenants (status/plan) and device lookups until their TTL runs out, so a stale client can get past
+a guard for a short while — its write then fails in Postgres (no tenant row). Harmless with every client
+stopped (step 1); do not read such a request in the logs as "the wipe did not work". No `CASCADE` on purpose: if some table that is not in the list references one
 that is, `TRUNCATE` errors and nothing is wiped — stop and ask, do not add `CASCADE`.
 
 ```bash
