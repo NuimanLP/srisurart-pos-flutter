@@ -53,6 +53,20 @@ export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
+/**
+ * `400 INVALID_TENANT_ID` unless a platform route's tenant `:id` is a canonical lowercase
+ * UUID (#443 PR2, #621). Without it a non-UUID reached Postgres and came back as a
+ * driver-level 22P02 — a 500. Run before any query (validate first, then use).
+ */
+export function assertValidTenantId(tenantId: string): void {
+  if (!isUuid(tenantId)) {
+    throw new BadRequestException({
+      code: 'INVALID_TENANT_ID',
+      message: 'tenantId must be a lowercase UUID',
+    });
+  }
+}
+
 /** Like `optionalString` in `sales.dto.ts`: absent / `null` / `''` → `null`, else `parseUuid`. */
 export function optionalUuid(value: unknown, field: string): string | null {
   if (value === undefined || value === null || value === '') return null;

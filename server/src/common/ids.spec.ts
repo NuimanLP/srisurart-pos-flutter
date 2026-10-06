@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { testId } from '../../test/support/test-ids.js';
-import { invalidUuidInput, newUuid, optionalUuid, parseUuid, requiredUuid } from './ids.js';
+import { assertValidTenantId, invalidUuidInput, newUuid, optionalUuid, parseUuid, requiredUuid } from './ids.js';
 import { ParseUuidPipe } from './parse-uuid.pipe.js';
 
 const CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -117,5 +117,24 @@ describe('invalidUuidInput', () => {
     expect(invalidUuidInput(pgError('invalid input syntax for type integer: "x"'))).toBeNull();
     expect(invalidUuidInput(new Error('invalid input syntax for type uuid: "p1"'))).toBeNull();
     expect(invalidUuidInput(null)).toBeNull();
+  });
+});
+
+describe('assertValidTenantId', () => {
+  it('accepts a lowercase UUID', () => {
+    expect(() => assertValidTenantId(newUuid())).not.toThrow();
+  });
+
+  it.each(['t1', '', newUuid().toUpperCase()])('refuses %j with 400 INVALID_TENANT_ID', (bad) => {
+    try {
+      assertValidTenantId(bad);
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(BadRequestException);
+      expect((e as BadRequestException).getResponse()).toEqual({
+        code: 'INVALID_TENANT_ID',
+        message: 'tenantId must be a lowercase UUID',
+      });
+    }
   });
 });
