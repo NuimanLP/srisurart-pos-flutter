@@ -158,6 +158,9 @@ export function parseSyncDiscard(body: unknown): SyncDiscardDto {
   // #616: a malformed client id is NOT refused. Discarding is how the owner clears an op
   // that push rejected (`INVALID_ID` included); refusing the discard over the same bad id
   // would leave it in the outbox for good. `targetIdOf` reads it as "no such row".
+  // A non-UUID `opId` is different: it is refused here (400, above) AND by `/sync/push`
+  // (the whole envelope, `parseSyncPush`), so discard is NOT an escape hatch for an op
+  // queued with a legacy opId — the #616 cutover requires wiped client outboxes.
   const clientId =
     typeof b.clientId === 'string' && b.clientId !== '' ? b.clientId : undefined;
   const lastCode =
@@ -183,8 +186,6 @@ export function parseSyncDiscard(body: unknown): SyncDiscardDto {
 export type ParsedSyncOp = {
   opId: string;
   idempotencyKey: string;
-  /** The body as sent — only for the idempotency fingerprint, never read field by field. */
-  rawPayload: Record<string, unknown>;
 } & (
   | { type: 'sale.create'; sale: CreateSale; quoteId: string | null; deviceDate: Date | undefined }
   | { type: 'return.create'; ret: CreateReturn; deviceDate: Date | undefined }
@@ -197,7 +198,8 @@ export type ParsedSyncOp = {
 );
 
 /**
- * #619: the one parser per op type, run before any SQL. Each reuses its online route's
+ * #619: the one parser per op type, run after the key replay (B1, 08 §8.3) and before any
+ * other SQL — never before the replay. Each reuses its online route's
  * parser, so an op is refused for exactly what the online request would be (an empty id
  * included), and an id the online route takes from its URL (`mechanicId`, the customer's
  * or the bill's id) is checked as `ParseUuidPipe` checks it. A bad id is a 400
@@ -206,7 +208,7 @@ export type ParsedSyncOp = {
  * back forever.
  */
 export function parseOpPayload(op: SyncOpDto): ParsedSyncOp {
-  const env = { opId: op.opId, idempotencyKey: op.idempotencyKey, rawPayload: op.payload };
+  const env = { opId: op.opId, idempotencyKey: op.idempotencyKey };
   const p = op.payload;
   try {
     switch (op.type as SyncOpType) {

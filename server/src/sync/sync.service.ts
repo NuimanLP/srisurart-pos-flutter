@@ -9,7 +9,7 @@ import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { TenantService } from '../common/database/tenant.service.js';
-import { invalidUuidInput } from '../common/ids.js';
+import { invalidUuidInput, isUuid } from '../common/ids.js';
 import { DOC_NUMBER_REGEX, tenantPeriodSql } from '../documents/doc-number.service.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
@@ -37,6 +37,7 @@ import {
   type SyncOpDto,
   type SyncOpResult,
   type SyncPushDto,
+  type SyncOpType,
   type SyncPushResponse,
 } from './sync.dto.js';
 
@@ -92,17 +93,14 @@ export class SyncService {
         continue;
       }
 
-      let parsed: ParsedSyncOp | undefined;
       try {
-        // #616/#619: before any SQL — a bad payload is `rejected`, not `retry`.
-        parsed = parseOpPayload(op);
-        const result = await this.processSingleOp(actor, device, parsed);
+        const result = await this.processSingleOp(actor, device, op);
         results.push(result);
         if (result.status === 'retry') {
           stopAtRetry = true;
         }
       } catch (err) {
-        const mapped = this.mapOpError(op, parsed, err);
+        const mapped = this.mapOpError(op, tryParseOpPayload(op), err);
         results.push(mapped);
         if (mapped.status === 'retry') {
           stopAtRetry = true;
@@ -140,35 +138,44 @@ export class SyncService {
   processSingleOp(
     actor: PushActor,
     device: PushDevice,
-    op: ParsedSyncOp,
+    raw: SyncOpDto,
   ): Promise<SyncOpResult> {
-    return this.tenants.runTx(() => this.processSingleOpIn(actor, device, op));
+    return this.tenants.runTx(() => this.processSingleOpIn(actor, device, raw));
   }
 
   private async processSingleOpIn(
     actor: PushActor,
     device: PushDevice,
-    op: ParsedSyncOp,
+    raw: SyncOpDto,
   ): Promise<SyncOpResult> {
     const { tenantId, manager } = currentRequestContext();
-    const ep = this.endpointForOp(op);
-    const requestHash = IdempotencyService.requestHash(op.rawPayload);
+    // B1 (08 §8.3): replay by key BEFORE any check — the fingerprint and the route come
+    // from the payload exactly as sent, so an op committed earlier still replays its
+    // stored reply even if today's parser would refuse its body.
+    const ep = endpointForOp(raw);
+    const requestHash = IdempotencyService.requestHash(raw.payload);
 
     // Step 1: Idempotency claim & replay check (08 §8.3 step 1)
     const claim = await this.idempotency.claim(manager, {
       tenantId,
-      key: op.idempotencyKey,
+      key: raw.idempotencyKey,
       endpoint: ep.endpoint,
       requestHash,
     });
 
     if (claim.outcome === 'replay') {
       return {
-        opId: op.opId,
+        opId: raw.opId,
         status: 'applied',
         response: claim.response.body,
       };
     }
+
+    // #619: the one typed parser, only once the key did not replay. A refusal throws
+    // inside this transaction, so the claim rolls back and the op is `rejected` per op
+    // (`INVALID_ID` for a bad id) — never `retry`. Step 2 needs the typed fields: it
+    // compares the stored row with the op (total, lines, amounts).
+    const op = parseOpPayload(raw);
 
     if (claim.outcome === 'reused') {
       // #409: the key is already recorded against a different fingerprint. The usual
@@ -225,36 +232,6 @@ export class SyncService {
       status: 'applied',
       response: responseBody,
     };
-  }
-
-  private endpointForOp(op: ParsedSyncOp): { endpoint: string; successCode: number } {
-    switch (op.type) {
-      case 'sale.create':
-        return { endpoint: `POST ${ONLINE_PREFIX}/sales`, successCode: 201 };
-      case 'return.create':
-        return { endpoint: `POST ${ONLINE_PREFIX}/returns`, successCode: 201 };
-      case 'shift.open':
-        return { endpoint: `POST ${ONLINE_PREFIX}/shifts/open`, successCode: 200 };
-      case 'drawer.entry':
-        return { endpoint: `POST ${ONLINE_PREFIX}/shifts/current/entries`, successCode: 201 };
-      case 'credit_payment.create':
-        return {
-          endpoint: `POST ${ONLINE_PREFIX}/mechanics/${op.mechanicId}/credit-payments`,
-          successCode: 201,
-        };
-      case 'customer.create':
-        return { endpoint: `POST ${ONLINE_PREFIX}/customers`, successCode: 201 };
-      case 'customer.update':
-        return {
-          endpoint: `PATCH ${ONLINE_PREFIX}/customers/${op.id}`,
-          successCode: 200,
-        };
-      case 'sale.void_offline':
-        return {
-          endpoint: `POST /sales/${op.saleId}/void-offline`,
-          successCode: 200,
-        };
-    }
   }
 
   /**
@@ -1271,4 +1248,55 @@ function wellFormedDocNo(raw: unknown): string | null {
  */
 function deviceDated<T>(input: T, clamped: Date | null): T & { date: string | null } {
   return { ...input, date: clamped ? clamped.toISOString() : null };
+}
+
+/**
+ * The online route an op stands for, built from the payload as sent (B1: before any
+ * parsing). `parseUuid` never normalises, so a valid id yields the same route the
+ * parsed op would. A malformed or missing id becomes `-`: no stored key can carry that
+ * route (the online `ParseUuidPipe` refuses it), and a raw string — one holding a NUL
+ * byte, say — never reaches the claim's INSERT, so the parser after the claim is what
+ * refuses the op (`rejected INVALID_ID`, never `retry`).
+ */
+function endpointForOp(op: SyncOpDto): { endpoint: string; successCode: number } {
+  switch (op.type as SyncOpType) {
+    case 'sale.create':
+      return { endpoint: `POST ${ONLINE_PREFIX}/sales`, successCode: 201 };
+    case 'return.create':
+      return { endpoint: `POST ${ONLINE_PREFIX}/returns`, successCode: 201 };
+    case 'shift.open':
+      return { endpoint: `POST ${ONLINE_PREFIX}/shifts/open`, successCode: 200 };
+    case 'drawer.entry':
+      return { endpoint: `POST ${ONLINE_PREFIX}/shifts/current/entries`, successCode: 201 };
+    case 'credit_payment.create':
+      return {
+        endpoint: `POST ${ONLINE_PREFIX}/mechanics/${routeId(op.payload.mechanicId)}/credit-payments`,
+        successCode: 201,
+      };
+    case 'customer.create':
+      return { endpoint: `POST ${ONLINE_PREFIX}/customers`, successCode: 201 };
+    case 'customer.update':
+      return {
+        endpoint: `PATCH ${ONLINE_PREFIX}/customers/${routeId(op.payload.id)}`,
+        successCode: 200,
+      };
+    case 'sale.void_offline':
+      return {
+        endpoint: `POST /sales/${routeId(op.payload.saleId)}/void-offline`,
+        successCode: 200,
+      };
+  }
+}
+
+function routeId(value: unknown): string {
+  return isUuid(value) ? value : '-';
+}
+
+/** For error mapping only: the parsed op, or `undefined` when the parser refuses it. */
+function tryParseOpPayload(op: SyncOpDto): ParsedSyncOp | undefined {
+  try {
+    return parseOpPayload(op);
+  } catch {
+    return undefined;
+  }
 }

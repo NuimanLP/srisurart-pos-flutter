@@ -153,10 +153,9 @@ describe('parseOpPayload (#619)', () => {
     for (const o of ops) expect(() => parseOpPayload(o), o.opId).not.toThrow();
   });
 
-  it('returns the typed payload, keeping the raw one only for the fingerprint', () => {
+  it('returns the typed payload', () => {
     const sale = parse('sale.create');
     expect(sale).toMatchObject({ type: 'sale.create', sale: { id: testId('s1'), totalSatang: 8500 } });
-    expect(sale.rawPayload).toEqual(valid['sale.create']);
     expect(parse('credit_payment.create', { allowOverpayment: true })).toMatchObject({
       mechanicId: testId('m1'),
       payment: { id: testId('cp1'), amountSatang: 1000, allowOverpayment: false },
