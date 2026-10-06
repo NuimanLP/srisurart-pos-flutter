@@ -26,6 +26,8 @@
 //        sentence (`resolveCounterError`). Every path that used to let the
 //        raw exception reach the screen (#644), and the parked 5xx of a
 //        customer or credit-payment write (08 §5).
+//     503 `IDEMPOTENCY_KEY_IN_FLIGHT` reads its own "wait" sentence either
+//     way (owner 2026-10-06).
 //     A new path picks the one matching what its screen showed before; a new
 //     screen uses [rethrowCounterError]. `api_exception_never_escapes_test`
 //     pins both texts per path.

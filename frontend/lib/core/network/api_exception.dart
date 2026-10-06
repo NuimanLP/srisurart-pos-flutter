@@ -65,7 +65,9 @@ Never rethrowServerRefusal(ApiException e) =>
 /// two, because the app has always shown two and the screens must not change:
 ///  - default — [ServerErrorResolver.resolveCounterError]'s connection
 ///    sentence. That is what a screen rendered when the raw [ApiException]
-///    reached it, i.e. on every path converted after #642.
+///    reached it, i.e. on every path converted after #642. The one exception
+///    is 503 `IDEMPOTENCY_KEY_IN_FLIGHT`: owner 2026-10-06, its own "wait"
+///    sentence on every path, so both modes give the same text for it.
 ///  - [keepServerTextOn5xx] — [ApiException.thaiMessage], what [rethrowThai] /
 ///    [rethrowServerRefusal] have always produced (sales, returns, shifts,
 ///    settings, product delete, PIN setup). It keeps e.g. the 503

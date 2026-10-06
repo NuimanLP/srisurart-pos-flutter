@@ -159,7 +159,8 @@ final Map<String, _Reply> _replies = {
     status: 503,
     response: () => _envelope(503, 'IDEMPOTENCY_KEY_IN_FLIGHT',
         'A request with this key is in progress'),
-    counterText: _connection,
+    // Owner 2026-10-06: the "wait" sentence on every path, both modes.
+    counterText: 'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่',
     serverText: 'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่',
   ),
 };
