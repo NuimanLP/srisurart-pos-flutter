@@ -418,7 +418,7 @@ class ApiCustomersRepository extends CustomersRepository {
       );
     }
 
-    await rethrowThai(() => apiClient.delete('/api/v1/customers/$id', headers: idempotencyKey()));
+    await rethrowCounterError(() => apiClient.delete('/api/v1/customers/$id', headers: idempotencyKey()));
     await (db.update(db.customers)..where((t) => t.id.equals(id))).write(
       CustomersCompanion(
         deletedAt: Value(DateTime.now()),

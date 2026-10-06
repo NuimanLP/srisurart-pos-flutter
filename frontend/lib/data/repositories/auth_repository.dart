@@ -9,6 +9,7 @@ import '../../core/network/server_error_resolver.dart';
 import '../../domain/models/auth_models.dart';
 import '../services/tenant_cache_guard.dart';
 import '../storage/token_storage.dart';
+import 'api/api_wire.dart';
 import 'offline_pin_repository.dart';
 
 /// [AuthRepository.login] was refused because this browser's device token is
@@ -303,16 +304,11 @@ class AuthRepository {
       return null;
     }
 
-    final Object? response;
-    try {
-      response = await apiClient.post(
-        '/api/v1/auth/refresh',
-        body: {'refreshToken': refreshToken},
-        skipAuth: true,
-      );
-    } on ApiException catch (e) {
-      throw posExceptionFromApi(e);
-    }
+    final response = await rethrowCounterError(() => apiClient.post(
+          '/api/v1/auth/refresh',
+          body: {'refreshToken': refreshToken},
+          skipAuth: true,
+        ));
 
     final map = response as Map<String, dynamic>;
     final tokens = AuthTokens.fromJson(map);
