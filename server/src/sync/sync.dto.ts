@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { isUuid, optionalUuid, parseUuid } from '../common/ids.js';
+import { toSatang } from '../common/money.js';
 import {
   parseCreateCreditPayment,
   type CreateCreditPayment,
@@ -276,6 +277,90 @@ export function parseOpPayload(op: SyncOpDto): ParsedSyncOp {
   }
   // Unreachable: `parseSyncPush` admits only `SYNC_OP_TYPES`.
   throw new BadRequestException(`Unknown operation type: ${op.type}`);
+}
+
+/**
+ * What the client-id replay (08 §8.3 step 2) reads of an op — from the payload as sent,
+ * BEFORE {@link parseOpPayload}, so a document the server already holds replays even
+ * when today's parser would refuse its body (key row gone: 24 h TTL, or B2). Only the
+ * client id and the fields step 2 compares with the stored row are read, and nothing
+ * here throws: a non-UUID id gives `null` (no replay — the parser then refuses it,
+ * `INVALID_ID`); an amount that does not read gives `null`, which never equals a stored
+ * amount, so the op is `CLIENT_ID_REUSED` like any other content mismatch.
+ * `customer.update` never replays by id.
+ */
+export type ReplayProbe =
+  | { type: 'sale.create'; id: string; totalSatang: number | null; receiptNo: unknown }
+  | {
+      type: 'return.create';
+      id: string;
+      saleId: unknown;
+      cnNo: unknown;
+      items: { productId: unknown; qty: unknown; priceSatang: number | null }[];
+    }
+  | { type: 'shift.open'; id: string; startingCashSatang: number | null }
+  | { type: 'drawer.entry'; id: string; entryType: unknown; amountSatang: number | null }
+  | {
+      type: 'credit_payment.create';
+      id: string;
+      mechanicId: unknown;
+      amountSatang: number | null;
+      paymentMethod: unknown;
+    }
+  | { type: 'customer.create'; id: string }
+  | { type: 'sale.void_offline'; id: string; reason: string | null };
+
+export function replayProbeOf(op: SyncOpDto): ReplayProbe | null {
+  const p = op.payload;
+  const id = op.type === 'sale.void_offline' ? p.saleId : p.id;
+  if (!isUuid(id)) return null;
+  const type = op.type as SyncOpType;
+  switch (type) {
+    case 'sale.create':
+      return { type, id, totalSatang: satangOrNull(p.total), receiptNo: p.receiptNo };
+    case 'return.create':
+      return {
+        type,
+        id,
+        saleId: p.saleId,
+        cnNo: p.cnNo,
+        items: (Array.isArray(p.items) ? p.items : []).map((raw: unknown) => {
+          const l = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+          return { productId: l.productId, qty: l.qty, priceSatang: satangOrNull(l.price) };
+        }),
+      };
+    case 'shift.open':
+      return { type, id, startingCashSatang: satangOrNull(p.startingCash) };
+    case 'drawer.entry':
+      return { type, id, entryType: p.type, amountSatang: satangOrNull(p.amount) };
+    case 'credit_payment.create':
+      return {
+        type,
+        id,
+        mechanicId: p.mechanicId,
+        amountSatang: satangOrNull(p.amount),
+        paymentMethod: p.paymentMethod,
+      };
+    case 'customer.create':
+      return { type, id };
+    case 'sale.void_offline':
+      return {
+        type,
+        id,
+        reason: typeof p.reason === 'string' && p.reason.trim() !== '' ? p.reason.trim() : null,
+      };
+    case 'customer.update':
+      return null;
+  }
+}
+
+/** `toSatang` — the parsers' own money leaf — or null where it would refuse. */
+function satangOrNull(value: unknown): number | null {
+  try {
+    return toSatang(value, 'amount');
+  } catch {
+    return null;
+  }
 }
 
 /** The op's own id — for a void, the bill it names (`saleId`, #488). */
