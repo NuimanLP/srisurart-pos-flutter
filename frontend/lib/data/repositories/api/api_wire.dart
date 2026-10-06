@@ -14,10 +14,21 @@
 //     `e.toString().replaceFirst('Exception: ', '')` — see
 //     `returns_screen.dart:242` and `cash_drawer_screen.dart:211`. A raw
 //     `ApiException.toString()` would print `ApiException(status: 409,
-//     code: …)` at the counter. So every repository here wraps its call in
-//     [rethrowThai], which re-throws a [PosException]: `toString()` is the
-//     resolved Thai sentence and nothing else, so every screen renders it
-//     exactly as it renders a Drift service's `Exception('สต็อกไม่พอ…')`.
+//     code: …)` at the counter. Every conversion goes through
+//     `posExceptionFromApi` (api_exception.dart), which re-throws a
+//     [PosException] whose `toString()` is the resolved Thai sentence alone.
+//     4xx/429 read the same either way; a 5xx has two texts, and which one a
+//     path uses is fixed by what it has always shown:
+//      - [rethrowThai] / `rethrowServerRefusal` — the server's text
+//        (`thaiMessage`, e.g. the 503 IN_FLIGHT sentence). Sales, returns,
+//        shifts, settings, product delete, PIN setup, and every 4xx verdict.
+//      - [rethrowCounterError] / `posExceptionFromApi(e)` — the connection
+//        sentence (`resolveCounterError`). Every path that used to let the
+//        raw exception reach the screen (#644), and the parked 5xx of a
+//        customer or credit-payment write (08 §5).
+//     A new path picks the one matching what its screen showed before; a new
+//     screen uses [rethrowCounterError]. `api_exception_never_escapes_test`
+//     pins both texts per path.
 //  5. **Only a 4xx is a verdict** — [isVerdict] and [PendingWrites]. A write
 //     whose reply was lost has NOT necessarily failed, and the retry must
 //     carry the first attempt's id and `Idempotency-Key` or it becomes a
@@ -270,6 +281,13 @@ class PendingWrites {
 
   /// The server answered: the next press is a new action, not a retry.
   void close(PendingWrite write) => _open.remove(write.fingerprint);
+
+  /// Whether the attempt with [id] is still parked — neither closed nor past
+  /// its TTL. For a caller that keeps something per attempt beside this class
+  /// and must drop it once the attempt is gone.
+  bool isParked(String id) => _open.values.any(
+        (p) => p.write.id == id && DateTime.now().difference(p.at) < _ttl,
+      );
 
   /// Close the attempt only if [e] is a verdict. A 5xx or a 429 leaves it
   /// parked, which is the entire point of this class — see [isVerdict].

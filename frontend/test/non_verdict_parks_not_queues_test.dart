@@ -271,6 +271,50 @@ void main() {
     });
   }
 
+  test('addCreditPayment: a 2xx that is not a payment is UNREADABLE_RESPONSE — '
+      'never "saved locally", nothing queued, the next press replays the same '
+      'id + key + body', () async {
+    final api = clientWith([
+      () async => http.Response(
+            '{"status":"success","data":["not-a-payment"]}',
+            201,
+            headers: {'content-type': 'application/json'},
+          ),
+      () async => payment(jsonDecode(sent.bodies.first) as Map<String, dynamic>),
+    ]);
+    final repo = ApiMechanicsRepository(db, api, syncService: syncWith(api));
+    final paymentsBefore = (await db.select(db.creditPayments).get()).length;
+
+    await expectLater(
+      repo.addCreditPayment(mechanicId: 'tm-x', amount: 100, paymentMethod: 'เงินสด'),
+      throwsA(isA<PosException>()
+          .having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')
+          .having((e) => e.message, 'message', _connection)),
+    );
+    expect(await outbox(), isEmpty);
+    expect(await db.select(db.creditPayments).get(), hasLength(paymentsBefore));
+
+    await repo.addCreditPayment(mechanicId: 'tm-x', amount: 100, paymentMethod: 'เงินสด');
+    expect(sent.keys.toSet(), hasLength(1));
+    expect(sent.bodies.toSet(), hasLength(1));
+  });
+
+  test('addCreditPayment: a closed attempt does not keep its body — a new '
+      'payment of the same amount is a new id, key and date', () async {
+    final api = clientWith([
+      () async => payment(jsonDecode(sent.bodies[0]) as Map<String, dynamic>),
+      () async => payment(jsonDecode(sent.bodies[1]) as Map<String, dynamic>),
+    ]);
+    final repo = ApiMechanicsRepository(db, api);
+
+    await repo.addCreditPayment(mechanicId: 'tm-x', amount: 100, paymentMethod: 'เงินสด');
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    await repo.addCreditPayment(mechanicId: 'tm-x', amount: 100, paymentMethod: 'เงินสด');
+
+    expect(sent.keys.toSet(), hasLength(2));
+    expect(sent.bodies.toSet(), hasLength(2));
+  });
+
   group('a transport failure still queues, under the key it was sent with', () {
     test('addCustomer', () async {
       final api = clientWith([() async => throw http.ClientException('reset')]);

@@ -397,6 +397,9 @@ class ApiMechanicsRepository extends MechanicsRepository {
           ..limit(1))
         .getSingleOrNull();
 
+    // Bodies of attempts that were closed or expired are dropped here, so the
+    // map holds at most the payments still parked.
+    _parkedPaymentBodies.removeWhere((id, _) => !_pendingPayments.isParked(id));
     final body = _parkedPaymentBodies[attempt.id] ??= {
       'id': localId,
       'mechanicId': mechanicId,
@@ -492,7 +495,11 @@ class ApiMechanicsRepository extends MechanicsRepository {
       throw const CreditPaymentQueued();
     }
 
-    throw const CreditPaymentQueued();
+    // A 2xx that is not a payment: the server answered and may have
+    // committed, so it is neither queued (that would be a second payment) nor
+    // reported as "saved locally" — nothing was. The attempt stays parked, so
+    // the next press replays it under the same id + key.
+    throw unreadableResponse();
   }
 
   Future<CreditPaymentRow> _applyPaymentSuccess(
