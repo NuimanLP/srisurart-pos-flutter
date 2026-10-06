@@ -276,8 +276,11 @@ checks" เท่านั้น — ห้ามเพิ่มชื่อ job
 **`develop` (เจ้าของโปรเจกต์ตัดสิน 2026-10-06):** PR งานทุกตัวเข้า `develop` (CI ทั้งสองไฟล์รันบน `pull_request` ทุก base
 จึงได้ status job เหมือนเดิม · push ขึ้น `develop` ไม่สร้าง image ไม่ deploy) แล้ว `develop` → `main` เป็น PR เดียว
 ด้วย **merge commit หรือ fast-forward เท่านั้น** — squash/rebase เขียน SHA ใหม่ `bedd328` (`ROLLBACK_FLOOR` §6.1)
-จะไม่เป็น ancestor ของ `main` แล้ว `pos-deploy` ปฏิเสธทุก SHA · ณ 2026-10-06 repo ยังเปิด squash/rebase และ `develop`
-ไม่มี branch protection → เลือก `gh pr merge --merge` เอง (#628 = merge commit `65861ea`)
+จะไม่เป็น ancestor ของ `main` แล้ว `pos-deploy` ปฏิเสธทุก SHA · **บังคับจริงแล้ว 2026-10-06:** repository ruleset
+`24564072` "main: merge commit only" (target `refs/heads/main`, active, ไม่มี bypass actor) ปฏิเสธ squash/rebase บน PR เข้า `main`
+(PR เข้า `develop` ยัง squash ได้ · ไม่มี bypass จึง push ตรงเข้า `main` ไม่ได้แม้เป็น admin) และ `develop` มี branch protection
+เหมือน `main` (PR 0 approvals, required checks `flutter-ci-status` + `server-ci-status`, ห้าม force-push/ลบ, admin ไม่ถูกบังคับ)
+· ตรวจ: `gh api repos/NuimanLP/srisurart-pos-flutter/rules/branches/main` (#628 = merge commit `65861ea`)
 
 ---
 

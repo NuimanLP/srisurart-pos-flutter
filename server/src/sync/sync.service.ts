@@ -31,6 +31,7 @@ import {
   clientIdOf,
   docNoOf,
   parseOpPayload,
+  replayProbeOf,
   targetIdOf,
   type ParsedSyncOp,
   type SyncDiscardDto,
@@ -171,12 +172,6 @@ export class SyncService {
       };
     }
 
-    // #619: the one typed parser, only once the key did not replay. A refusal throws
-    // inside this transaction, so the claim rolls back and the op is `rejected` per op
-    // (`INVALID_ID` for a bad id) — never `retry`. Step 2 needs the typed fields: it
-    // compares the stored row with the op (total, lines, amounts).
-    const op = parseOpPayload(raw);
-
     if (claim.outcome === 'reused') {
       // #409: the key is already recorded against a different fingerprint. The usual
       // cause is not a misused key: the bill was committed ONLINE, its reply was lost,
@@ -185,31 +180,40 @@ export class SyncService {
       // client-id replay (step 2) and §8.4 AC B1 expects `applied` for exactly this.
       // Only when the key was recorded for THIS op's own document, though — the same
       // key on a different bill stays refused.
-      const ownReplay = await this.replayKeyOfSameDocument(manager, tenantId, op, ep.endpoint);
+      const ownReplay = await this.replayKeyOfSameDocument(manager, tenantId, raw, ep.endpoint);
       if (ownReplay !== null) {
-        return { opId: op.opId, status: 'applied', response: ownReplay };
+        return { opId: raw.opId, status: 'applied', response: ownReplay };
       }
+      // A body the parser refuses keeps that refusal, as before the replay moved ahead.
+      parseOpPayload(raw);
       throw new ConflictException({
         code: 'IDEMPOTENCY_KEY_REUSED',
         message: 'Idempotency-Key already used for a different request',
       });
     }
 
-    // Step 2: Client ID replay check (08 §8.3 step 2, §6.1)
-    const clientReplay = await this.checkClientIdReplay(manager, tenantId, op);
+    // Step 2: Client ID replay check (08 §8.3 step 2, §6.1) — also before the parser:
+    // a document the server already holds replays even when its key row is gone and
+    // today's parser would refuse the body (`replayProbeOf`).
+    const clientReplay = await this.checkClientIdReplay(manager, tenantId, raw);
     if (clientReplay !== null) {
       // Complete idempotency claim with the existing response
       await this.idempotency.complete(manager, {
         tenantId,
-        key: op.idempotencyKey,
+        key: raw.idempotencyKey,
         response: { code: ep.successCode, body: clientReplay },
       });
       return {
-        opId: op.opId,
+        opId: raw.opId,
         status: 'applied',
         response: clientReplay,
       };
     }
+
+    // #619: the one typed parser, only once neither replay answered. A refusal throws
+    // inside this transaction, so the claim rolls back and the op is `rejected` per op
+    // (`INVALID_ID` for a bad id) — never `retry`.
+    const op = parseOpPayload(raw);
 
     // Step 3: Domain execution with date clamping & side-effects
     const responseBody = await this.executeOp(
@@ -247,11 +251,11 @@ export class SyncService {
   private async replayKeyOfSameDocument(
     manager: EntityManager,
     tenantId: string,
-    op: ParsedSyncOp,
+    op: SyncOpDto,
     endpoint: string,
   ): Promise<any | null> {
     const idField = op.type === 'sale.void_offline' ? 'saleId' : 'id';
-    const clientId = clientIdOf(op);
+    const clientId = replayProbeOf(op)?.id;
     if (!clientId) return null;
     const rows = (await manager.query(
       `SELECT endpoint, response_body ->> $3 AS stored_id FROM idempotency_keys
@@ -273,12 +277,14 @@ export class SyncService {
   private async checkClientIdReplay(
     manager: EntityManager,
     tenantId: string,
-    op: ParsedSyncOp,
+    raw: SyncOpDto,
   ): Promise<any | null> {
+    // Runs before `parseOpPayload`: reads only what `replayProbeOf` takes from the body.
+    const op = replayProbeOf(raw);
+    if (op === null) return null;
+    const id = op.id;
     switch (op.type) {
       case 'shift.open': {
-        const id = op.shift.id;
-        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, starting_cash, opened_at, auto_archived FROM shifts WHERE tenant_id = $1::uuid AND id = $2`,
           [tenantId, id],
@@ -290,7 +296,7 @@ export class SyncService {
         }[];
         if (rows.length === 0) return null;
         const row = rows[0];
-        if (satangOf(row.starting_cash) !== op.shift.startingCashSatang) {
+        if (satangOf(row.starting_cash) !== op.startingCashSatang) {
           throw new ClientIdReusedException(op.type, id);
         }
         return {
@@ -309,18 +315,26 @@ export class SyncService {
         // very function that route answers a replay-by-id with — never a second
         // hand-built shape. Its `SALE_ID_REUSED` (total differs) maps to
         // `CLIENT_ID_REUSED` in `mapOpError`.
+        if (op.totalSatang === null) {
+          // A total that does not read cannot match a stored bill; no bill → the parser decides.
+          const rows = await manager.query(
+            `SELECT 1 FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
+            [tenantId, id],
+          );
+          if (rows.length === 0) return null;
+          throw new ClientIdReusedException(op.type, id);
+        }
         const existing = await this.sales.existingSale(manager, tenantId, {
-          ...op.sale,
+          id,
+          totalSatang: op.totalSatang,
           soldOffline: true,
         });
         if (existing === null) return null;
-        await this.flagRenumbered(manager, tenantId, op, existing.id, op.sale.receiptNo, existing.receiptNo);
+        await this.flagRenumbered(manager, tenantId, raw, existing.id, op.receiptNo, existing.receiptNo);
         return existing;
       }
 
       case 'return.create': {
-        const id = op.ret.id;
-        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, cn_no, sale_id, refund_total, refund_method FROM returns WHERE tenant_id = $1::uuid AND id = $2`,
           [tenantId, id],
@@ -333,7 +347,7 @@ export class SyncService {
         }[];
         if (rows.length === 0) return null;
         const row = rows[0];
-        if (row.sale_id !== op.ret.saleId) {
+        if (row.sale_id !== op.saleId) {
           throw new ClientIdReusedException(op.type, id);
         }
 
@@ -342,7 +356,7 @@ export class SyncService {
           `SELECT product_id, qty, price FROM return_items WHERE tenant_id = $1::uuid AND return_id = $2 ORDER BY line_no ASC`,
           [tenantId, row.id],
         )) as { product_id: string; qty: number; price: string }[];
-        const opItems = op.ret.items;
+        const opItems = op.items;
         if (lineRows.length !== opItems.length) {
           throw new ClientIdReusedException(op.type, id);
         }
@@ -357,7 +371,7 @@ export class SyncService {
             throw new ClientIdReusedException(op.type, id);
           }
         }
-        await this.flagRenumbered(manager, tenantId, op, row.id, op.ret.cnNo, row.cn_no);
+        await this.flagRenumbered(manager, tenantId, raw, row.id, op.cnNo, row.cn_no);
 
         const productIds = lineRows.map((it) => it.product_id);
         const products =
@@ -379,8 +393,6 @@ export class SyncService {
       }
 
       case 'drawer.entry': {
-        const id = op.entry.id;
-        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, type, amount, note, shift_id FROM drawer_entries WHERE tenant_id = $1::uuid AND id = $2`,
           [tenantId, id],
@@ -394,8 +406,8 @@ export class SyncService {
         if (rows.length === 0) return null;
         const row = rows[0];
         if (
-          row.type !== op.entry.type ||
-          satangOf(row.amount) !== op.entry.amountSatang
+          row.type !== op.entryType ||
+          satangOf(row.amount) !== op.amountSatang
         ) {
           throw new ClientIdReusedException(op.type, id);
         }
@@ -414,8 +426,6 @@ export class SyncService {
       }
 
       case 'credit_payment.create': {
-        const id = op.payment.id;
-        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, mechanic_id, amount, payment_method FROM credit_payments WHERE tenant_id = $1::uuid AND id = $2`,
           [tenantId, id],
@@ -429,8 +439,8 @@ export class SyncService {
         const row = rows[0];
         if (
           row.mechanic_id !== op.mechanicId ||
-          satangOf(row.amount) !== op.payment.amountSatang ||
-          row.payment_method !== op.payment.paymentMethod
+          satangOf(row.amount) !== op.amountSatang ||
+          row.payment_method !== op.paymentMethod
         ) {
           throw new ClientIdReusedException(op.type, id);
         }
@@ -448,8 +458,6 @@ export class SyncService {
       }
 
       case 'customer.create': {
-        const id = op.customer.id;
-        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, name, phone, address, total_spend, points FROM customers WHERE tenant_id = $1::uuid AND id = $2 AND deleted_at IS NULL`,
           [tenantId, id],
@@ -475,7 +483,7 @@ export class SyncService {
       }
 
       case 'sale.void_offline': {
-        const saleId = op.saleId;
+        const saleId = id;
         const rows = (await manager.query(
           `SELECT id, voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
           [tenantId, saleId],
@@ -508,9 +516,6 @@ export class SyncService {
         }
         return null;
       }
-
-      case 'customer.update':
-        return null;
     }
   }
 
@@ -902,7 +907,7 @@ export class SyncService {
   private async flagRenumbered(
     manager: EntityManager,
     tenantId: string,
-    op: ParsedSyncOp,
+    op: SyncOpDto,
     id: string,
     rawOfflineNo: unknown,
     serverNo: string,
@@ -1068,7 +1073,7 @@ export class SyncService {
           message: 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
           details: {
             type: op.type,
-            id: parsed ? clientIdOf(parsed) : undefined,
+            id: parsed ? clientIdOf(parsed) : replayProbeOf(op)?.id,
           },
         };
       }

@@ -622,14 +622,20 @@ export class SalesService {
    * reply must be this route's reply, so it is built here, in one place. The push
    * passes `soldOffline: true`, which makes a voided bill replay instead of `409
    * SALE_VOIDED`, as the push's own replay did before #455.
+   *
+   * The push calls it BEFORE parsing the op (08 §8.3 step 2), with no `items`: an
+   * already-stored bill must replay even when today's parser would refuse its body.
+   * So only `id`/`totalSatang` come from the caller; the customer, the mechanic and
+   * the lines come from the stored rows. With `items` (the online routes) the reply
+   * keeps the request's own line order; without, the stored `line_no` order.
    */
   async existingSale(
     manager: EntityManager,
     tenantId: string,
-    dto: SaleWrite,
+    dto: Pick<SaleWrite, 'id' | 'totalSatang' | 'soldOffline'> & { items?: SaleLine[] },
   ): Promise<CreateSaleResult | null> {
     const rows = (await manager.query(
-      `SELECT receipt_no, total, points_granted, date, voided, shift_id
+      `SELECT receipt_no, total, points_granted, date, voided, shift_id, customer_id, mechanic_id
          FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
       [tenantId, dto.id],
     )) as {
@@ -639,6 +645,8 @@ export class SalesService {
       date: Date;
       voided: boolean;
       shift_id: string | null;
+      customer_id: string | null;
+      mechanic_id: string | null;
     }[];
     if (rows.length === 0) return null;
 
@@ -673,16 +681,6 @@ export class SalesService {
       );
     }
 
-    // The same collapse the write path does, so every array below comes back in the
-    // order the original answer had it. A replay that agrees on the values but not on
-    // their order is still a different body, and the client diffs bodies.
-    const demands = aggregate(dto.items);
-    const stock = (await manager.query(
-      `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
-      [tenantId, demands.map((d) => d.productId)],
-    )) as { id: string; stock: number }[];
-    const stockById = new Map(stock.map((p) => [p.id, p.stock]));
-
     // The lines as stored (#82): `cost_at_sale` is the whole point, and only the row
     // has it — `products.cost` has moved on with every PO receive since.
     const lines = (await manager.query(
@@ -692,7 +690,19 @@ export class SalesService {
       [tenantId, dto.id],
     )) as { line_no: number; product_id: string; cost_at_sale: string }[];
 
-    // The ledger rows this bill wrote, keyed by product so they replay in `demands`
+    // The same collapse the write path does, so every array below comes back in the
+    // order the original answer had it. A replay that agrees on the values but not on
+    // their order is still a different body, and the client diffs bodies.
+    const productIds = dto.items
+      ? aggregate(dto.items).map((d) => d.productId)
+      : [...new Set(lines.map((l) => l.product_id))];
+    const stock = (await manager.query(
+      `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+      [tenantId, productIds],
+    )) as { id: string; stock: number }[];
+    const stockById = new Map(stock.map((p) => [p.id, p.stock]));
+
+    // The ledger rows this bill wrote, keyed by product so they replay in `productIds`
     // order. `type = 'sale'` is not decoration: a void of this bill writes `'void'`
     // against the same `ref_id`, and returning that as the sale's own movement would
     // tell the client a sale put stock back.
@@ -706,20 +716,20 @@ export class SalesService {
     // The ledger as it stands now, like the stock above — a replay moves nothing,
     // and null when the id names a row that is gone.
     const customer =
-      dto.customerId === null
+      rows[0].customer_id === null
         ? []
         : ((await manager.query(
             `SELECT id, points, total_spend FROM customers
               WHERE tenant_id = $1::uuid AND id = $2`,
-            [tenantId, dto.customerId],
+            [tenantId, rows[0].customer_id],
           )) as CustomerRow[]);
     const mechanic =
-      dto.mechanicId === null
+      rows[0].mechanic_id === null
         ? []
         : ((await manager.query(
             `SELECT id, total_sales, total_discount, total_markup, credit_balance
                FROM mechanics WHERE tenant_id = $1::uuid AND id = $2`,
-            [tenantId, dto.mechanicId],
+            [tenantId, rows[0].mechanic_id],
           )) as MechanicRow[]);
 
     return {
@@ -729,17 +739,17 @@ export class SalesService {
       pointsGranted: rows[0].points_granted,
       date: rows[0].date.toISOString(),
       shiftId: rows[0].shift_id,
-      products: demands
-        .filter((d) => stockById.has(d.productId))
-        .map((d) => ({ id: d.productId, stock: stockById.get(d.productId)! })),
+      products: productIds
+        .filter((id) => stockById.has(id))
+        .map((id) => ({ id, stock: stockById.get(id)! })),
       items: lines.map((l) => ({
         lineNo: l.line_no,
         productId: l.product_id,
         costAtSale: money(l.cost_at_sale),
       })),
-      movements: demands
-        .filter((d) => movementByProduct.has(d.productId))
-        .map((d) => movementOut(movementByProduct.get(d.productId)!)),
+      movements: productIds
+        .filter((id) => movementByProduct.has(id))
+        .map((id) => movementOut(movementByProduct.get(id)!)),
       mechanicCreditBalanceAfter:
         mechanic.length === 0 ? null : money(mechanic[0].credit_balance),
       mechanicAfter: mechanic.length === 0 ? null : mechanicAfter(mechanic[0]),

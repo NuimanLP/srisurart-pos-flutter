@@ -50,7 +50,7 @@
 - `presentation/` อีก 7 ไฟล์ยัง import `api_exception.dart` (บางไฟล์แค่ `PosException`) — ยังไม่มี guard ทั้งแอปว่า `ApiException` ห้ามถึง widget
 - `assertValidTenantId` ยังอยู่ใน `platform-tenants.service.ts` (ควรย้ายไป `common/ids.ts`) · import สองทาง `offline_pin_repository.dart` ↔ `auth_repository.dart`
 - `pos_trust_test.dart` 2 เทสต์ตกบน macOS (ข้อความ TLS error ต่าง) — Linux CI ผ่าน · ยังไม่ได้เทียบกับ `main` บน macOS
-- `main` ไม่ได้บังคับวิธี merge (squash/rebase เปิดอยู่) — floor ใหม่รอดเพราะ #628 ใช้ merge commit
+- ~~`main` ไม่ได้บังคับวิธี merge~~ — **แก้ 2026-10-06 (ภายหลัง):** ตอนนี้บังคับแล้วด้วย ruleset `24564072` "main: merge commit only" (ปฏิเสธ squash/rebase บน PR เข้า `main`, ไม่มี bypass actor) และ `develop` มี branch protection เหมือน `main` · floor ใหม่รอดเพราะ #628 ใช้ merge commit
 
 ## 6. บทเรียน
 - advisory ใหม่โผล่ระหว่างวันทำ `pnpm audit` แดงทุก PR **และ `main`** → ไม่มี image → Deploy skip แบบเขียว · แก้บน `main` แยก PR ก่อน (#627) แล้วค่อยรวม

@@ -280,9 +280,12 @@ stateDiagram-v2
 
 > **2026-10-06 (#619, PR #624/#630):** ขั้น 1 ใช้ payload **ตามที่ส่งมา** (fingerprint + route จาก `endpointForOp(raw)`) ยังไม่ parse —
 > op ที่ commit แล้วจึง replay ได้แม้ parser วันนี้จะปฏิเสธ body · `parseOpPayload` (parser ตัวเดียว แทน `assertOpIds` เดิม)
-> รัน**หลัง**ขั้น 1 และก่อนขั้น 2 — ปฏิเสธ = `rejected` (`INVALID_ID` ฯลฯ) ไม่ใช่ `retry` (`sync.service.ts` `processSingleOpIn`)
-> · 🔴 ช่องที่ยังเหลือ: ขั้น 2 (replay ด้วย client id) ต้องใช้ฟิลด์ที่ parse แล้ว — key หมดอายุ + body ที่ parser วันนี้ไม่รับ
-> = `rejected` แทน `applied` · ปิดได้ด้วยการสร้างคำตอบจากแถวที่เก็บไว้ (ยังไม่ทำ, ดู PR #630)
+> รัน**หลัง**ขั้น 1 **และขั้น 2** — ปฏิเสธ = `rejected` (`INVALID_ID` ฯลฯ) ไม่ใช่ `retry` (`sync.service.ts` `processSingleOpIn`)
+> · ขั้น 2 ก็ไม่ parse แล้ว (PR #638): `replayProbeOf` อ่านจาก payload ตามที่ส่งมาแค่ client id + ฟิลด์ที่ §6.1 เทียบ
+> (ไม่ throw) แล้วสร้างคำตอบจากแถวที่เก็บไว้ — key หมดอายุ + body ที่ parser วันนี้ไม่รับ = `applied` ·
+> id ไม่ใช่ UUID → ไม่ replay (parser ตอบ `INVALID_ID`) · ฟิลด์ไม่ตรง/อ่านไม่ออก → `CLIENT_ID_REUSED` ·
+> พิสูจน์ด้วย e2e (key หมดอายุ + body ที่ parser ไม่รับ): `sale.create` `return.create` `credit_payment.create` `drawer.entry`
+> · `shift.open` `customer.create` `sale.void_offline` มีแค่ unit test (`sync.dto.spec.ts`: probe ตรงกับ parser ทุก fixture)
 
 - `runTx` ของตัวเองต่อ op ต่อกันทีละตัว — ห้าม `Promise.all` (#162), ห้ามรวมทั้ง batch
 - `IN_FLIGHT`, `CommitCeilingExceededError`, 5xx → `retry` แล้ว**หยุด**
