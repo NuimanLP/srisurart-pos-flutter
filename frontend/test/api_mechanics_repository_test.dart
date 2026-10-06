@@ -201,7 +201,7 @@ void main() {
     );
 
     test(
-      'a 5xx queues the payment: the flush resends the same id and key',
+      'a 5xx is parked, never queued (08 §5, #452): the next press resends the same id and key',
       () async {
         await seedTarget();
         final sentIds = <String>[];
@@ -231,16 +231,21 @@ void main() {
             amount: 500.0,
             paymentMethod: 'เงินสด',
           ),
-          throwsA(isA<CreditPaymentQueued>()),
+          throwsA(isA<PosException>()),
         );
-        // The server may have committed; no local write may happen on its answer.
+        // The server may have committed; no local write and no queued op.
         expect(await localPayments(), 0);
-        await repo.flushPendingCreditPayments();
+        expect(await repo.getPendingCreditPayments(), isEmpty);
+
+        await repo.addCreditPayment(
+          mechanicId: 'm_target',
+          amount: 500.0,
+          paymentMethod: 'เงินสด',
+        );
 
         expect(sentIds[1], sentIds[0]);
         expect(sentKeys[1], sentKeys[0]);
         expect(await localPayments(), 1);
-        expect(await repo.getPendingCreditPayments(), isEmpty);
       },
     );
 

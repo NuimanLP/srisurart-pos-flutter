@@ -54,15 +54,30 @@ class ApiException implements Exception {
 /// service then is a second PO receipt (a second weighted-average cost and a
 /// second `movements` row), a second credit payment, a second quote. A refusal
 /// the server *did* give must reach the counter, not be quietly re-done locally.
-Never rethrowServerRefusal(ApiException e) => throw posExceptionFromApi(e);
+Never rethrowServerRefusal(ApiException e) =>
+    throw posExceptionFromApi(e, keepServerTextOn5xx: true);
 
-/// THE conversion of an [ApiException] into what a screen may see.
+/// THE conversion of an [ApiException] into what a screen may see. Every
+/// repository conversion goes through here; only `AuthRepository.loginRefusal`
+/// adds login-specific cases on top.
 ///
-/// The message is exactly what [ServerErrorResolver.resolveCounterError] renders
-/// for [e] — the text a screen showed when a raw [ApiException] used to reach
-/// it — so converting at the repository boundary changes nothing on screen.
-/// A 5xx reads as the connection sentence (a proxy's 502 body is HTML, a 500's
-/// `message` is English). Every repository conversion goes through here; only
-/// `AuthRepository.loginRefusal` adds login-specific cases on top.
-PosException posExceptionFromApi(ApiException e) =>
-    PosException(e.code, ServerErrorResolver.resolveCounterError(e), e.details);
+/// For a 4xx or a 429 there is one text: [ApiException.thaiMessage]. A 5xx has
+/// two, because the app has always shown two and the screens must not change:
+///  - default — [ServerErrorResolver.resolveCounterError]'s connection
+///    sentence. That is what a screen rendered when the raw [ApiException]
+///    reached it, i.e. on every path converted after #642.
+///  - [keepServerTextOn5xx] — [ApiException.thaiMessage], what [rethrowThai] /
+///    [rethrowServerRefusal] have always produced (sales, returns, shifts,
+///    settings, product delete, PIN setup). It keeps e.g. the 503
+///    `IDEMPOTENCY_KEY_IN_FLIGHT` sentence those paths show.
+PosException posExceptionFromApi(
+  ApiException e, {
+  bool keepServerTextOn5xx = false,
+}) =>
+    PosException(
+      e.code,
+      keepServerTextOn5xx
+          ? e.thaiMessage
+          : ServerErrorResolver.resolveCounterError(e),
+      e.details,
+    );

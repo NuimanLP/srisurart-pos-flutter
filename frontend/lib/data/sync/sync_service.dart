@@ -13,6 +13,7 @@ import '../../core/network/api_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/utils/ids.dart';
 import '../db/database.dart';
+import '../repositories/api/api_wire.dart' show rethrowCounterError;
 import '../repositories/return_plan.dart' show refundedQtyOf;
 import '../services/doc_number_service.dart';
 import '../storage/token_storage.dart';
@@ -972,17 +973,12 @@ class SyncService implements SyncFacade {
       discardBody['lastCode'] = op.lastCode;
     }
 
-    final Object? res;
-    try {
-      res = await apiClient.post(
-        '/api/v1/sync/discards',
-        body: discardBody,
-        headers: {'Idempotency-Key': newIdempotencyKey('idem')},
-      );
-    } on ApiException catch (e) {
-      // `discard` is called from the owner-review screen.
-      throw posExceptionFromApi(e);
-    }
+    // `discard` is called from the owner-review screen.
+    final res = await rethrowCounterError(() => apiClient.post(
+          '/api/v1/sync/discards',
+          body: discardBody,
+          headers: {'Idempotency-Key': newIdempotencyKey('idem')},
+        ));
 
     if (res is Map) {
       final data = res['data'];

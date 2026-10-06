@@ -12,7 +12,7 @@ class ReviewItemsRepository {
   ReviewItemsRepository(this._apiClient);
 
   Future<List<ReviewItem>> listPending({int page = 1, int limit = 50}) async {
-    final res = await rethrowThai(() => _apiClient.getPaginated(
+    final res = await rethrowCounterError(() => _apiClient.getPaginated(
       '/api/v1/review-items',
       queryParameters: {
         'status': 'pending',
@@ -27,7 +27,7 @@ class ReviewItemsRepository {
   }
 
   Future<void> markReviewed(String id) async {
-    await rethrowThai(() => _apiClient.post(
+    await rethrowCounterError(() => _apiClient.post(
       '/api/v1/review-items/$id/reviewed',
       headers: {
         'Idempotency-Key': newIdempotencyKey('idem_rev_'),

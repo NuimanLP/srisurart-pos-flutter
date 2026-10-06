@@ -1067,8 +1067,7 @@ class _RetireDeviceDialogState extends State<_RetireDeviceDialog> {
         _busy = false;
         _errorMessage = msg;
         // If server complained about unsynced ops, enable force toggle
-        if (msg.contains('ค้างส่ง') ||
-            (e is PosException && e.code == 'DEVICE_HAS_UNSYNCED_OPS')) {
+        if (e is PosException && e.code == 'DEVICE_HAS_UNSYNCED_OPS') {
           _force = true;
         }
       });

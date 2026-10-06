@@ -22,7 +22,7 @@ class DevicesRepository {
     try {
       res = await _apiClient.get('/api/v1/devices');
     } on ApiException catch (e) {
-      rethrowServerRefusal(e);
+      throw posExceptionFromApi(e);
     }
     final List<dynamic> list;
     if (res is List) {
@@ -47,7 +47,7 @@ class DevicesRepository {
     required String label,
     required String role,
   }) async {
-    final res = await rethrowThai(() => _apiClient.post(
+    final res = await rethrowCounterError(() => _apiClient.post(
       '/api/v1/devices',
       headers: {
         'Idempotency-Key': newIdempotencyKey('idem_dev_'),
@@ -85,7 +85,7 @@ class DevicesRepository {
       }
     }
 
-    await rethrowThai(() => _apiClient.post(
+    await rethrowCounterError(() => _apiClient.post(
       '/api/v1/devices/$deviceId/retire',
       headers: {
         'Idempotency-Key': newIdempotencyKey('idem_ret_'),

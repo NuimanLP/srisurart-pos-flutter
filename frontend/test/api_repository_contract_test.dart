@@ -211,6 +211,36 @@ List<String> _timeoutFallsBack(String source) {
   return violations;
 }
 
+/// 08 §5 (owner, 2026-09-27, #452): only a TRANSPORT failure queues a write to
+/// the outbox. An [ApiException] — a verdict, or a 5xx / 429 / 503 IN_FLIGHT
+/// whose fate is unknown — never does: the attempt stays parked instead. So no
+/// `on ApiException catch` clause may call a queueing helper (`queue…(` /
+/// `_enqueue(`) before the next clause of its try.
+List<String> _queuesOnApiException(String source) {
+  final violations = <String>[];
+  final lines = source.split('\n');
+  final queueCall = RegExp(r'\b(queue\w*|_enqueue)\(');
+  for (var i = 0; i < lines.length; i++) {
+    final t = lines[i].trimLeft();
+    if (!t.startsWith('} on ApiException catch')) continue;
+    final indent = lines[i].length - t.length;
+    for (var j = i + 1; j < lines.length; j++) {
+      final l = lines[j];
+      final lt = l.trimLeft();
+      // The clause ends at the next `}` of the try statement's own indent.
+      if (lt.startsWith('}') && l.length - lt.length == indent) break;
+      if (lt.startsWith('//')) continue;
+      if (queueCall.hasMatch(l)) {
+        violations.add(
+          'line ${j + 1}: ${lt.trim()}  (queues a write on an ApiException — '
+          'only a transport failure may; park the attempt instead, 08 §5)',
+        );
+      }
+    }
+  }
+  return violations;
+}
+
 /// In Phase 2 (#229 / ADR-0010 §3 / 08 §6.4), EVERY write is either an outbox
 /// op or rejected with an error. No ApiRepository may fall back to
 /// `super.<write>()` against Drift.
@@ -376,6 +406,36 @@ class ApiShiftsRepository implements ShiftsRepository {
       );
     },
   );
+
+  test('self-check: a queue call on an ApiException is caught; on a transport failure it is not', () {
+    const queuesOn5xx = '''
+    try {
+      await apiClient.post('/customers');
+    } on ApiException catch (e) {
+      if (isVerdict(e)) rethrowServerRefusal(e);
+      return await queueOfflineCustomer();
+    } catch (e) {
+      if (!isTransportFailure(e)) rethrow;
+      return await queueOfflineCustomer();
+    }
+''';
+    final found = _queuesOnApiException(queuesOn5xx);
+    expect(found, hasLength(1));
+    expect(found.single, startsWith('line 5:'));
+
+    const parks = '''
+    try {
+      await apiClient.post('/customers');
+    } on ApiException catch (e) {
+      if (isVerdict(e)) rethrowServerRefusal(e);
+      // never queueOfflineCustomer() here
+      throw posExceptionFromApi(e);
+    } catch (e) {
+      return await queueOfflineCustomer();
+    }
+''';
+    expect(_queuesOnApiException(parks), isEmpty);
+  });
 
   test('self-check: the fallback matcher catches an unguarded write', () {
     const unguarded = '''
@@ -561,6 +621,7 @@ class ApiShiftsRepository implements ShiftsRepository {
           ..._unguardedFallbacks(source),
           ..._timeoutFallsBack(source),
           ..._networkInsideTransaction(source.split('\n')),
+          ..._queuesOnApiException(source),
         ];
         if (violations.isNotEmpty) {
           allViolations.add(
