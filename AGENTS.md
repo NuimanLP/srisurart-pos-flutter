@@ -38,10 +38,11 @@ Three long-lived branches. Know which one you are on before you change anything.
 - The offline-first design is **not abandoned** — it returns as **phase 2** (outbox + `offlineOk`
   + a single `role='pos'` writer per tenant, ADR-0004). The POC branch is its starting point.
 
-🔴 **`develop` → `main` = merge commit or fast-forward only.** Squash/rebase rewrites the SHAs, so
-`bedd328` (the `ROLLBACK_FLOOR` in `deploy/scripts/pos-deploy.sh`) would stop being an ancestor of
-`main` and `pos-deploy` would refuse every SHA. GitHub still allows squash/rebase and `develop` is
-unprotected — choose the method by hand (`gh pr merge --merge`).
+🔴 **`develop` → `main` = merge commit only — now enforced (2026-10-06).** Squash/rebase rewrites the
+SHAs, so `bedd328` (the `ROLLBACK_FLOOR` in `deploy/scripts/pos-deploy.sh`) would stop being an
+ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 24564072
+"main: merge commit only" (active, no bypass actors) refuses squash and rebase on PRs into `main`;
+PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**
