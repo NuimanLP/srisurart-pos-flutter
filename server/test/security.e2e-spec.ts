@@ -15,6 +15,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // OWASP Top 10 Security Hardening & Negative-path Acceptance Suite (#44 sec.1)
 const TENANT_A = '11111111-4444-4111-8111-111111111111';
@@ -57,7 +58,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
     await seedOpenShift(admin, TENANT_B, fixtureB.posDeviceId, { userId: fixtureB.userId });
 
     // Seed test products
-    productIdA = `p-a-${randomUUID().slice(0, 8)}`;
+    productIdA = randomUUID();
     await seedProduct(admin, TENANT_A, {
       id: productIdA,
       partNo: 'PART-A',
@@ -67,7 +68,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
       stock: 50,
     });
 
-    productIdB = `p-b-${randomUUID().slice(0, 8)}`;
+    productIdB = randomUUID();
     await seedProduct(admin, TENANT_B, {
       id: productIdB,
       partNo: 'PART-B',
@@ -122,7 +123,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
   // ---------------------------------------------------------------------------
   describe('A01: Broken Access Control & Claim Spoofing', () => {
     it('ignores tenantId in request body on POST /sales and strictly uses claim tid', async () => {
-      const saleId = `sale-${randomUUID()}`;
+      const saleId = randomUUID();
       const res = await request(app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${posTokenA}`)
@@ -160,8 +161,8 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
     });
 
     it('ignores deviceId in request body on POST /sales and strictly uses claim did', async () => {
-      const saleId = `sale-${randomUUID()}`;
-      const fakeDeviceId = 'fake-hacked-device-id';
+      const saleId = randomUUID();
+      const fakeDeviceId = testId('fake-hacked-device-id');
 
       const res = await request(app.getHttpServer())
         .post('/api/v1/sales')
@@ -194,7 +195,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
 
     it('denies cross-tenant read access (Tenant A cannot view Tenant B sale)', async () => {
       // 1. Create a sale in Tenant B
-      const saleIdB = `sale-b-${randomUUID()}`;
+      const saleIdB = randomUUID();
       const createRes = await request(app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${posTokenB}`)
@@ -227,7 +228,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
 
     it('denies cross-tenant void (Tenant A cannot void Tenant B sale)', async () => {
       // 1. Create a sale in Tenant B
-      const saleIdB = `sale-b-${randomUUID()}`;
+      const saleIdB = randomUUID();
       await request(app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${posTokenB}`)
@@ -261,7 +262,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
 
     it('enforces device role guard (backoffice device cannot void a sale)', async () => {
       // Create sale in Tenant A
-      const saleIdA = `sale-a-${randomUUID()}`;
+      const saleIdA = randomUUID();
       await request(app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${posTokenA}`)
@@ -295,7 +296,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
     });
 
     it('enforces device role guard (backoffice device cannot create sale)', async () => {
-      const saleId = `sale-${randomUUID()}`;
+      const saleId = randomUUID();
       const res = await request(app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${backofficeTokenA}`)
@@ -336,7 +337,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
       expect(productsRes.body.status).toBe('success');
 
       // 2. POST /api/v1/sales fails with 403 DEVICE_ROLE_FORBIDDEN
-      const saleId = `sale-${randomUUID()}`;
+      const saleId = randomUUID();
       const saleRes = await request(app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${browserToken}`)
@@ -391,7 +392,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
         .set('Authorization', `Bearer ${posTokenA}`)
         .set('Idempotency-Key', `k-retired-${randomUUID()}`)
         .send({
-          id: `sale-retired-${randomUUID()}`,
+          id: randomUUID(),
           subtotal: '100.00',
           discount: '0.00',
           total: '100.00',
@@ -554,7 +555,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
   describe('A03: Injection & Parameter Tampering', () => {
     it('safely parameterises SQL injection payloads in customer creation', async () => {
       const sqlInjectionPayload = "Robert'); DROP TABLE customers; -- ' OR '1'='1";
-      const customerId = `cust-${randomUUID()}`;
+      const customerId = randomUUID();
 
       // Insert customer with SQLi in name and phone
       await seedCustomer(admin, TENANT_A, {
@@ -747,7 +748,7 @@ describe('Security Hardening & Negative-Path E2E (#44 sec.1)', () => {
 
     it('enforces non-empty reason on void', async () => {
       // Create a sale to target for voiding
-      const saleId = `sale-void-reason-${randomUUID()}`;
+      const saleId = randomUUID();
       await request(app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${posTokenA}`)

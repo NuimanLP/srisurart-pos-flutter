@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import {
   authorisedTenantId,
@@ -314,7 +314,7 @@ export class ProductsService {
          RETURNING ${COLUMNS}`,
         [
           tenantId,
-          newId('p'),
+          newUuid(),
           input.partNo,
           input.name,
           input.nameTH,
@@ -454,7 +454,7 @@ export class ProductsService {
          RETURNING ${MOVEMENT_COLUMNS}`,
       [
         tenantId,
-        newId('mv'),
+        newUuid(),
         id,
         product.partNo,
         product.name,

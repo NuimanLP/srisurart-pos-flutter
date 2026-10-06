@@ -2,7 +2,7 @@
 //
 // Every mock response below carries values the LOCAL client would never
 // have produced on its own (a dateStr far from today, an id shaped nothing
-// like `newId('sh')`, a note the caller never typed) — on purpose, so a test
+// like `newUuid()`, a note the caller never typed) — on purpose, so a test
 // that only checks "some row got written" cannot pass if the implementation
 // quietly falls back to local computation instead of trusting the response
 // (ADR-0010 §3, "no client-side arithmetic on any server-owned number").
@@ -25,6 +25,7 @@ import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
+import 'support/test_ids.dart';
 
 /// Builds the success envelope as UTF-8 bytes — `http.Response(String, ...)`
 /// encodes as Latin-1 by default, which throws on the Thai text several
@@ -115,13 +116,13 @@ void main() {
           expect(body['startingCash'], '1500.00');
           // 08 §11: the client's shift id rides in the online body; the
           // device time does not (08 §10 — `openedAt` is push-only).
-          expect(body['id'], startsWith('sh'));
+          expect(body['id'], matches(uuidV7));
           expect(body.containsKey('openedAt'), isFalse);
 
           return _successResponse({
-            // A server-issued TEXT id shaped nothing like newId('sh') —
+            // A server-issued TEXT id shaped nothing like newUuid() —
             // proves the id on the local row came off the wire, not
-            // `newId('sh')`.
+            // `newUuid()`.
             'id': 'srv-shift-9f3a',
             // Deliberately not "today" in the test's local timezone — a
             // client that computed `todayKey()` itself instead of reading
@@ -499,7 +500,7 @@ void main() {
         expect(body['type'], 'in');
         expect(body['amount'], '300.00');
         expect(body['note'], 'ทอนเงิน');
-        expect(body['id'], startsWith('de'));
+        expect(body['id'], matches(uuidV7));
 
         return _successResponse({
           'id': 'srv-de-77',
@@ -736,7 +737,7 @@ void main() {
 
         final row = await repo.openShift(1500);
 
-        expect(row.id, startsWith('sh'));
+        expect(row.id, matches(uuidV7));
         expect(row.isActive, isTrue);
         expect(sent, isEmpty);
 
@@ -804,7 +805,7 @@ void main() {
 
         final entry = await repo.addDrawerEntry('out', 120.5, 'ค่าน้ำแข็ง');
 
-        expect(entry.id, startsWith('de'));
+        expect(entry.id, matches(uuidV7));
         expect(entry.shiftId, 'sh-open');
         final local = await (db.select(
           db.drawerEntries,

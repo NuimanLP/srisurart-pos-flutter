@@ -7,15 +7,18 @@ import jwtPkg from 'jsonwebtoken';
 
 const jwt = (jwtPkg as any).default || jwtPkg;
 import { hashPassword } from '../../src/common/password.js';
+import { testId } from '../support/test-ids.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
-const POS_DEVICE_ID = 'pos-loadtest';
-const BO_DEVICE_ID = 'bo-loadtest';
+// #616: entity ids are UUIDs — the same `testId` labels k6.e2e-spec.ts uses.
+const POS_DEVICE_ID = testId('pos-loadtest');
+const BO_DEVICE_ID = testId('bo-loadtest');
 const MANAGER_USER_ID = '00000000-0000-4000-8000-000000000020';
-const SHIFT_ID = 'sh-loadtest-1';
+const SHIFT_ID = testId('sh-loadtest-1');
+const P12_ID = testId('p12');
 
 const DB_URL =
   process.env.DATABASE_ADMIN_URL ??
@@ -150,14 +153,14 @@ export async function setupLoadTest(options: {
     // 10. Seed Contention Product p12
     await client.query(
       `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock, min_stock)
-       VALUES ($1::uuid, 'p12', 'BP-P12', 'Brake Pad Special P12', 'ผ้าเบรกพิเศษ P12', 'เบรก', 'SRISURART', 100.00, 60.00, $2, 5)`,
-      [TENANT_ID, p12Stock],
+       VALUES ($1::uuid, $3::uuid, 'BP-P12', 'Brake Pad Special P12', 'ผ้าเบรกพิเศษ P12', 'เบรก', 'SRISURART', 100.00, 60.00, $2, 5)`,
+      [TENANT_ID, p12Stock, P12_ID],
     );
 
     // 11. Seed 50 Catalogue Products for Read/Mixed Tests (5,000 units stock each)
-    const productIds: string[] = ['p12'];
+    const productIds: string[] = [P12_ID];
     for (let i = 1; i <= 50; i++) {
-      const pid = `p_${i}`;
+      const pid = testId(`p_${i}`);
       productIds.push(pid);
       const cat = ['เบรก', 'น้ำมัน', 'เครื่องยนต์', 'ช่วงล่าง', 'อื่นๆ'][i % 5];
       const price = 50 + i * 20;
@@ -231,7 +234,7 @@ export async function setupLoadTest(options: {
       posToken,
       boToken,
       posDeviceId: POS_DEVICE_ID,
-      productId: 'p12',
+      productId: P12_ID,
       initialStock: p12Stock,
       productPrice: 100.0,
       products: productIds,

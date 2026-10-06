@@ -8,6 +8,7 @@ import {
   resetTenant,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // Unique tenant UUIDs for Issue #292 isolation sweep
 const TENANT_A = '29229229-2920-4292-8292-292292292292';
@@ -114,7 +115,7 @@ async function seedTenantB(
       case 'mechanics':
         await admin.query(
           `INSERT INTO mechanics (tenant_id, id, code, name)
-           VALUES ($1::uuid, 'mech-sweep-b', 'M-SWEEP-B', 'Mechanic B')
+           VALUES ($1::uuid, '${testId('mech-sweep-b')}', 'M-SWEEP-B', 'Mechanic B')
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -123,7 +124,7 @@ async function seedTenantB(
       case 'customers':
         await admin.query(
           `INSERT INTO customers (tenant_id, id, code, name, name_th)
-           VALUES ($1::uuid, 'cust-sweep-b', 'C-SWEEP-B', 'Customer B', 'ลูกค้า B')
+           VALUES ($1::uuid, '${testId('cust-sweep-b')}', 'C-SWEEP-B', 'Customer B', 'ลูกค้า B')
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -141,7 +142,7 @@ async function seedTenantB(
       case 'products':
         await admin.query(
           `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock)
-           VALUES ($1::uuid, 'prod-sweep-b', 'PART-SWEEP-B', 'Product B', 'สินค้า B', 'Cat Sweep B', 'Brand B', 100, 50, 10)
+           VALUES ($1::uuid, '${testId('prod-sweep-b')}', 'PART-SWEEP-B', 'Product B', 'สินค้า B', 'Cat Sweep B', 'Brand B', 100, 50, 10)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -150,7 +151,7 @@ async function seedTenantB(
       case 'suppliers':
         await admin.query(
           `INSERT INTO suppliers (tenant_id, id, product_id, name, unit_cost)
-           VALUES ($1::uuid, 'sup-sweep-b', 'prod-sweep-b', 'Supplier B', 50)
+           VALUES ($1::uuid, '${testId('sup-sweep-b')}', '${testId('prod-sweep-b')}', 'Supplier B', 50)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -159,7 +160,7 @@ async function seedTenantB(
       case 'purchase_orders':
         await admin.query(
           `INSERT INTO purchase_orders (tenant_id, id, po_no, supplier, status)
-           VALUES ($1::uuid, 'po-sweep-b', 'PO-SWEEP-B', 'Supplier B', 'open')
+           VALUES ($1::uuid, '${testId('po-sweep-b')}', 'PO-SWEEP-B', 'Supplier B', 'open')
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -168,7 +169,7 @@ async function seedTenantB(
       case 'po_items':
         await admin.query(
           `INSERT INTO po_items (tenant_id, po_id, line_no, part_no, name, qty, cost)
-           VALUES ($1::uuid, 'po-sweep-b', 1, 'PART-SWEEP-B', 'Product B', 1, 50)
+           VALUES ($1::uuid, '${testId('po-sweep-b')}', 1, 'PART-SWEEP-B', 'Product B', 1, 50)
            ON CONFLICT (tenant_id, po_id, line_no) DO NOTHING`,
           [tenantId],
         );
@@ -177,7 +178,7 @@ async function seedTenantB(
       case 'quotes':
         await admin.query(
           `INSERT INTO quotes (tenant_id, id, quote_no, status, valid_until)
-           VALUES ($1::uuid, 'qt-sweep-b', 'QT-SWEEP-B', 'open', now() + interval '30 days')
+           VALUES ($1::uuid, '${testId('qt-sweep-b')}', 'QT-SWEEP-B', 'open', now() + interval '30 days')
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -186,7 +187,7 @@ async function seedTenantB(
       case 'quote_items':
         await admin.query(
           `INSERT INTO quote_items (tenant_id, quote_id, line_no, product_id, name, qty, price)
-           VALUES ($1::uuid, 'qt-sweep-b', 1, 'prod-sweep-b', 'Product B', 1, 100)
+           VALUES ($1::uuid, '${testId('qt-sweep-b')}', 1, '${testId('prod-sweep-b')}', 'Product B', 1, 100)
            ON CONFLICT (tenant_id, quote_id, line_no) DO NOTHING`,
           [tenantId],
         );
@@ -195,7 +196,7 @@ async function seedTenantB(
       case 'parked_sales':
         await admin.query(
           `INSERT INTO parked_sales (tenant_id, id, payload)
-           VALUES ($1::uuid, 'parked-sweep-b', '{"items":[]}'::jsonb)
+           VALUES ($1::uuid, '${testId('parked-sweep-b')}', '{"items":[]}'::jsonb)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -204,7 +205,7 @@ async function seedTenantB(
       case 'movements':
         await admin.query(
           `INSERT INTO movements (tenant_id, id, product_id, part_no, name, delta, type, stock_after)
-           VALUES ($1::uuid, 'mov-sweep-b', 'prod-sweep-b', 'PART-SWEEP-B', 'Product B', 10, 'receive', 10)
+           VALUES ($1::uuid, '${testId('mov-sweep-b')}', '${testId('prod-sweep-b')}', 'PART-SWEEP-B', 'Product B', 10, 'receive', 10)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -213,7 +214,7 @@ async function seedTenantB(
       case 'credit_payments':
         await admin.query(
           `INSERT INTO credit_payments (tenant_id, id, receipt_no, mechanic_id, amount)
-           VALUES ($1::uuid, 'cp-sweep-b', 'CP-SWEEP-B', 'mech-sweep-b', 100)
+           VALUES ($1::uuid, '${testId('cp-sweep-b')}', 'CP-SWEEP-B', '${testId('mech-sweep-b')}', 100)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -222,7 +223,7 @@ async function seedTenantB(
       case 'sales':
         await admin.query(
           `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, customer_id, mechanic_id)
-           VALUES ($1::uuid, 'sale-sweep-b', 'RC-SWEEP-B', 100, 0, 100, 'เงินสด', 'cust-sweep-b', 'mech-sweep-b')
+           VALUES ($1::uuid, '${testId('sale-sweep-b')}', 'RC-SWEEP-B', 100, 0, 100, 'เงินสด', '${testId('cust-sweep-b')}', '${testId('mech-sweep-b')}')
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -231,7 +232,7 @@ async function seedTenantB(
       case 'sale_items':
         await admin.query(
           `INSERT INTO sale_items (tenant_id, sale_id, line_no, product_id, part_no, name, qty, price, cost_at_sale)
-           VALUES ($1::uuid, 'sale-sweep-b', 1, 'prod-sweep-b', 'PART-SWEEP-B', 'Product B', 1, 100, 50)
+           VALUES ($1::uuid, '${testId('sale-sweep-b')}', 1, '${testId('prod-sweep-b')}', 'PART-SWEEP-B', 'Product B', 1, 100, 50)
            ON CONFLICT (tenant_id, sale_id, line_no) DO NOTHING`,
           [tenantId],
         );
@@ -240,7 +241,7 @@ async function seedTenantB(
       case 'returns':
         await admin.query(
           `INSERT INTO returns (tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal, refund_discount, refund_total, refund_method)
-           VALUES ($1::uuid, 'ret-sweep-b', 'CN-SWEEP-B', 'sale-sweep-b', 'RC-SWEEP-B', 100, 0, 100, 'เงินสด')
+           VALUES ($1::uuid, '${testId('ret-sweep-b')}', 'CN-SWEEP-B', '${testId('sale-sweep-b')}', 'RC-SWEEP-B', 100, 0, 100, 'เงินสด')
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );
@@ -249,7 +250,7 @@ async function seedTenantB(
       case 'return_items':
         await admin.query(
           `INSERT INTO return_items (tenant_id, return_id, line_no, product_id, name, qty, price)
-           VALUES ($1::uuid, 'ret-sweep-b', 1, 'prod-sweep-b', 'Product B', 1, 100)
+           VALUES ($1::uuid, '${testId('ret-sweep-b')}', 1, '${testId('prod-sweep-b')}', 'Product B', 1, 100)
            ON CONFLICT (tenant_id, return_id, line_no) DO NOTHING`,
           [tenantId],
         );
@@ -258,7 +259,7 @@ async function seedTenantB(
       case 'shifts':
         await admin.query(
           `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, is_active, device_id)
-           VALUES ($1::uuid, 'shift-sweep-b', '2026-09-17', 1000, now(), true, $2)
+           VALUES ($1::uuid, '${testId('shift-sweep-b')}', '2026-09-17', 1000, now(), true, $2)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId, fixture.posDeviceId],
         );
@@ -267,7 +268,7 @@ async function seedTenantB(
       case 'drawer_entries':
         await admin.query(
           `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note)
-           VALUES ($1::uuid, 'de-sweep-b', 'shift-sweep-b', 'in', 100, 'sweep drawer entry')
+           VALUES ($1::uuid, '${testId('de-sweep-b')}', '${testId('shift-sweep-b')}', 'in', 100, 'sweep drawer entry')
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [tenantId],
         );

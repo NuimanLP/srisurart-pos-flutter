@@ -1,54 +1,54 @@
 {
-  "_comment": "Expected drawer cash, counted BY SHIFT (owner 2026-10-03) — scenarios both sides must agree on. Server: server/test/shifts.e2e-spec.ts seeds every row with shift_id = its `shift` and date = `at`, then reads GET /reports/closing per shift. Client: frontend/test/drawer_cash_out_limit_test.dart seeds the same rows (sales twice: with Sales.shiftId set, as the API build stamps it, and with none, as the Drift build leaves it — then attributed by `at` in the shift's [openedAt, closedAt]; returns and credit payments have no local shift column and are always attributed by `at`) and reads ShiftsRepository.drawerCash per shift. Every row's `at` lies inside its own shift's interval — the server stamps money onto the shift open when it commits, so that holds for every online write. Ids are unique across scenarios; every shift is closed so intervals never overlap.",
+  "_comment": "Expected drawer cash, counted BY SHIFT (owner 2026-10-03) — scenarios both sides must agree on. Server: server/test/shifts.e2e-spec.ts seeds every row with shift_id = its `shift` and date = `at`, then reads GET /reports/closing per shift. Client: frontend/test/drawer_cash_out_limit_test.dart seeds the same rows (sales twice: with Sales.shiftId set, as the API build stamps it, and with none, as the Drift build leaves it — then attributed by `at` in the shift's [openedAt, closedAt]; returns and credit payments have no local shift column and are always attributed by `at`) and reads ShiftsRepository.drawerCash per shift. Every row's `at` lies inside its own shift's interval — the server stamps money onto the shift open when it commits, so that holds for every online write. Every id is the UUIDv5 `testId(label)` (#616) and unique across scenarios; `_expected_by_hand` is keyed by `label`; every shift is closed so intervals never overlap.",
   "shifts": [
-    { "id": "A", "openedAt": "2026-09-10T09:00:00+07:00", "closedAt": "2026-09-10T18:00:00+07:00", "startingCash": "1000.00" },
-    { "id": "N", "openedAt": "2026-09-14T22:00:00+07:00", "closedAt": "2026-09-15T02:00:00+07:00", "startingCash": "500.00" },
-    { "id": "M", "openedAt": "2026-09-15T08:00:00+07:00", "closedAt": "2026-09-15T18:00:00+07:00", "startingCash": "300.00" },
-    { "id": "S1", "openedAt": "2026-09-20T08:00:00+07:00", "closedAt": "2026-09-20T12:00:00+07:00", "startingCash": "1000.00" },
-    { "id": "S2", "openedAt": "2026-09-20T13:00:00+07:00", "closedAt": "2026-09-20T18:00:00+07:00", "startingCash": "500.00" }
+    { "id": "e9862a09-3e12-59fd-969a-4edd98428f92", "label": "A", "openedAt": "2026-09-10T09:00:00+07:00", "closedAt": "2026-09-10T18:00:00+07:00", "startingCash": "1000.00" },
+    { "id": "47682500-b705-530c-b164-9b9212c2cc27", "label": "N", "openedAt": "2026-09-14T22:00:00+07:00", "closedAt": "2026-09-15T02:00:00+07:00", "startingCash": "500.00" },
+    { "id": "11dd0b47-931b-54b9-81ec-f94127e06fc0", "label": "M", "openedAt": "2026-09-15T08:00:00+07:00", "closedAt": "2026-09-15T18:00:00+07:00", "startingCash": "300.00" },
+    { "id": "89057923-2c82-5a85-9f6f-1fbdf5793181", "label": "S1", "openedAt": "2026-09-20T08:00:00+07:00", "closedAt": "2026-09-20T12:00:00+07:00", "startingCash": "1000.00" },
+    { "id": "c86ec9d9-5654-5749-b3b4-4f30c635fac8", "label": "S2", "openedAt": "2026-09-20T13:00:00+07:00", "closedAt": "2026-09-20T18:00:00+07:00", "startingCash": "500.00" }
   ],
   "sales": [
-    { "id": "A-S1", "shift": "A", "at": "2026-09-10T10:00:00+07:00", "total": "200.00", "paymentMethod": "เงินสด", "voided": false },
-    { "id": "A-S2", "shift": "A", "at": "2026-09-10T10:10:00+07:00", "total": "250.00", "paymentMethod": "โอน/QR", "voided": false },
-    { "id": "A-S4", "shift": "A", "at": "2026-09-10T10:20:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
-    { "id": "A-S6", "shift": "A", "at": "2026-09-10T10:30:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
+    { "id": "16e1af1b-e5a1-5270-ad1b-17b735c34700", "label": "A-S1", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T10:00:00+07:00", "total": "200.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "6bb0f651-4bdd-5180-aa76-7b51c4d5793c", "label": "A-S2", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T10:10:00+07:00", "total": "250.00", "paymentMethod": "โอน/QR", "voided": false },
+    { "id": "08d588a7-96e8-524e-b9f2-cdb3b7718751", "label": "A-S4", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T10:20:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
+    { "id": "72849b8c-9031-5909-8e07-b09ef706fa4c", "label": "A-S6", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T10:30:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
 
-    { "id": "N-1", "shift": "N", "at": "2026-09-14T23:30:00+07:00", "total": "200.00", "paymentMethod": "เงินสด", "voided": false },
-    { "id": "N-2", "shift": "N", "at": "2026-09-15T00:30:00+07:00", "total": "150.00", "paymentMethod": "เงินสด", "voided": false },
-    { "id": "N-3", "shift": "N", "at": "2026-09-15T00:40:00+07:00", "total": "400.00", "paymentMethod": "โอน/QR", "voided": false },
-    { "id": "M-1", "shift": "M", "at": "2026-09-15T09:00:00+07:00", "total": "120.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "4997c64a-ac5b-5e8d-b299-2d65a0038f4b", "label": "N-1", "shift": "47682500-b705-530c-b164-9b9212c2cc27", "at": "2026-09-14T23:30:00+07:00", "total": "200.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "e6bc0a64-e989-5719-93f7-f7b80f6a7b37", "label": "N-2", "shift": "47682500-b705-530c-b164-9b9212c2cc27", "at": "2026-09-15T00:30:00+07:00", "total": "150.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "1aba70ac-dc74-510a-8652-df711373bc1e", "label": "N-3", "shift": "47682500-b705-530c-b164-9b9212c2cc27", "at": "2026-09-15T00:40:00+07:00", "total": "400.00", "paymentMethod": "โอน/QR", "voided": false },
+    { "id": "8773d8ff-91a6-512b-851a-f50f780f272f", "label": "M-1", "shift": "11dd0b47-931b-54b9-81ec-f94127e06fc0", "at": "2026-09-15T09:00:00+07:00", "total": "120.00", "paymentMethod": "เงินสด", "voided": false },
 
-    { "id": "P1", "shift": "S1", "at": "2026-09-20T09:00:00+07:00", "total": "300.00", "paymentMethod": "เงินสด", "voided": true },
-    { "id": "P2", "shift": "S1", "at": "2026-09-20T10:00:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
-    { "id": "P3", "shift": "S1", "at": "2026-09-20T11:00:00+07:00", "total": "50.00", "paymentMethod": "เงินสด", "voided": false },
-    { "id": "Q1", "shift": "S2", "at": "2026-09-20T14:30:00+07:00", "total": "70.00", "paymentMethod": "เงินสด", "voided": false }
+    { "id": "d7ce5ac5-4cf8-553f-be0c-1160a0089b13", "label": "P1", "shift": "89057923-2c82-5a85-9f6f-1fbdf5793181", "at": "2026-09-20T09:00:00+07:00", "total": "300.00", "paymentMethod": "เงินสด", "voided": true },
+    { "id": "82e58ed8-ee80-5ee9-be09-57472cbbec95", "label": "P2", "shift": "89057923-2c82-5a85-9f6f-1fbdf5793181", "at": "2026-09-20T10:00:00+07:00", "total": "100.00", "paymentMethod": "เงินสด", "voided": true },
+    { "id": "4aa69cc5-36bb-5db9-a7d9-180f188e67ed", "label": "P3", "shift": "89057923-2c82-5a85-9f6f-1fbdf5793181", "at": "2026-09-20T11:00:00+07:00", "total": "50.00", "paymentMethod": "เงินสด", "voided": false },
+    { "id": "7336aaa3-0bc4-5ca8-ac21-02b70a44da5a", "label": "Q1", "shift": "c86ec9d9-5654-5749-b3b4-4f30c635fac8", "at": "2026-09-20T14:30:00+07:00", "total": "70.00", "paymentMethod": "เงินสด", "voided": false }
   ],
   "returns": [
-    { "id": "A-R2", "shift": "A", "at": "2026-09-10T11:00:00+07:00", "saleId": "A-S6", "refundTotal": "100.00", "refundMethod": "เงินสด" },
-    { "id": "A-R3", "shift": "A", "at": "2026-09-10T11:10:00+07:00", "saleId": "A-S1", "refundTotal": "50.00", "refundMethod": "โอน" },
-    { "id": "N-R1", "shift": "N", "at": "2026-09-15T01:10:00+07:00", "saleId": "N-1", "refundTotal": "50.00", "refundMethod": "เงินสด" },
-    { "id": "PR1", "shift": "S2", "at": "2026-09-20T14:00:00+07:00", "saleId": "P1", "refundTotal": "300.00", "refundMethod": "เงินสด" }
+    { "id": "19789af9-a8c2-591f-87b6-ebc49ac39aff", "label": "A-R2", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T11:00:00+07:00", "saleId": "72849b8c-9031-5909-8e07-b09ef706fa4c", "refundTotal": "100.00", "refundMethod": "เงินสด" },
+    { "id": "50fcdd49-84bc-53f5-b73d-56d5ba6c9c53", "label": "A-R3", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T11:10:00+07:00", "saleId": "16e1af1b-e5a1-5270-ad1b-17b735c34700", "refundTotal": "50.00", "refundMethod": "โอน" },
+    { "id": "7b7a4d81-6aa4-54fc-ba39-8eaa690e188c", "label": "N-R1", "shift": "47682500-b705-530c-b164-9b9212c2cc27", "at": "2026-09-15T01:10:00+07:00", "saleId": "4997c64a-ac5b-5e8d-b299-2d65a0038f4b", "refundTotal": "50.00", "refundMethod": "เงินสด" },
+    { "id": "e879dc2e-f99e-5486-81fd-325145415521", "label": "PR1", "shift": "c86ec9d9-5654-5749-b3b4-4f30c635fac8", "at": "2026-09-20T14:00:00+07:00", "saleId": "d7ce5ac5-4cf8-553f-be0c-1160a0089b13", "refundTotal": "300.00", "refundMethod": "เงินสด" }
   ],
   "creditPayments": [
-    { "id": "A-CP1", "shift": "A", "at": "2026-09-10T12:00:00+07:00", "amount": "300.00", "method": "เงินสด" },
-    { "id": "A-CP2", "shift": "A", "at": "2026-09-10T12:10:00+07:00", "amount": "500.00", "method": "โอน/QR" },
-    { "id": "N-CP1", "shift": "N", "at": "2026-09-15T00:10:00+07:00", "amount": "100.00", "method": "เงินสด" },
-    { "id": "S1-CP1", "shift": "S1", "at": "2026-09-20T11:30:00+07:00", "amount": "80.00", "method": "เงินสด" }
+    { "id": "640c205b-f1d5-5bae-99b5-4a4bbe1e78a8", "label": "A-CP1", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T12:00:00+07:00", "amount": "300.00", "method": "เงินสด" },
+    { "id": "895fc9df-42b6-59aa-890d-cad5eecabd21", "label": "A-CP2", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T12:10:00+07:00", "amount": "500.00", "method": "โอน/QR" },
+    { "id": "95c04d70-d4a6-57a2-a4ea-01c9e66a5b98", "label": "N-CP1", "shift": "47682500-b705-530c-b164-9b9212c2cc27", "at": "2026-09-15T00:10:00+07:00", "amount": "100.00", "method": "เงินสด" },
+    { "id": "851ce8c6-3838-5210-85b2-53cfe8a64cdc", "label": "S1-CP1", "shift": "89057923-2c82-5a85-9f6f-1fbdf5793181", "at": "2026-09-20T11:30:00+07:00", "amount": "80.00", "method": "เงินสด" }
   ],
   "entries": [
-    { "id": "A-de1", "shift": "A", "at": "2026-09-10T13:00:00+07:00", "type": "in", "amount": "50.00" },
-    { "id": "A-de2", "shift": "A", "at": "2026-09-10T13:10:00+07:00", "type": "out", "amount": "120.00" },
-    { "id": "N-de1", "shift": "N", "at": "2026-09-14T22:30:00+07:00", "type": "in", "amount": "20.00" },
-    { "id": "N-de2", "shift": "N", "at": "2026-09-15T01:30:00+07:00", "type": "out", "amount": "70.00" },
-    { "id": "M-de1", "shift": "M", "at": "2026-09-15T09:10:00+07:00", "type": "out", "amount": "20.00" },
-    { "id": "S2-de1", "shift": "S2", "at": "2026-09-20T15:00:00+07:00", "type": "out", "amount": "100.00" }
+    { "id": "9f6be434-761e-596d-9def-7d8335e94d4a", "label": "A-de1", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T13:00:00+07:00", "type": "in", "amount": "50.00" },
+    { "id": "b78781a7-0c8e-5ea8-afb1-e7b4e0f525e6", "label": "A-de2", "shift": "e9862a09-3e12-59fd-969a-4edd98428f92", "at": "2026-09-10T13:10:00+07:00", "type": "out", "amount": "120.00" },
+    { "id": "6df31605-97cc-5d54-9498-2102f9e37e13", "label": "N-de1", "shift": "47682500-b705-530c-b164-9b9212c2cc27", "at": "2026-09-14T22:30:00+07:00", "type": "in", "amount": "20.00" },
+    { "id": "609c46d2-0ea2-5ef4-ba30-11e93ae9bcb6", "label": "N-de2", "shift": "47682500-b705-530c-b164-9b9212c2cc27", "at": "2026-09-15T01:30:00+07:00", "type": "out", "amount": "70.00" },
+    { "id": "bbcba6ee-d75e-5648-9700-d1d4ee033030", "label": "M-de1", "shift": "11dd0b47-931b-54b9-81ec-f94127e06fc0", "at": "2026-09-15T09:10:00+07:00", "type": "out", "amount": "20.00" },
+    { "id": "736801e2-d7c6-5e8f-aa61-f7c16706a9ba", "label": "S2-de1", "shift": "c86ec9d9-5654-5749-b3b4-4f30c635fac8", "at": "2026-09-20T15:00:00+07:00", "type": "out", "amount": "100.00" }
   ],
   "expectedCash": {
-    "A": "1430.00",
-    "N": "850.00",
-    "M": "400.00",
-    "S1": "1430.00",
-    "S2": "170.00"
+    "e9862a09-3e12-59fd-969a-4edd98428f92": "1430.00",
+    "47682500-b705-530c-b164-9b9212c2cc27": "850.00",
+    "11dd0b47-931b-54b9-81ec-f94127e06fc0": "400.00",
+    "89057923-2c82-5a85-9f6f-1fbdf5793181": "1430.00",
+    "c86ec9d9-5654-5749-b3b4-4f30c635fac8": "170.00"
   },
   "_expected_by_hand": {
     "A": "one shift: 1000 + cash sales (A-S1 200 + A-S6 100 auto-voided; A-S4 manual void out; A-S2 transfer out) + A-CP1 300 − A-R2 100 (A-R3 by transfer out) + in 50 − out 120 = 1430",

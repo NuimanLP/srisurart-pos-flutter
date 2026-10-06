@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
@@ -199,7 +199,7 @@ export class MechanicsService {
          RETURNING ${COLUMNS}`,
       [
         tenantId,
-        newId('m'),
+        newUuid(),
         code,
         input.name,
         input.nameTH,

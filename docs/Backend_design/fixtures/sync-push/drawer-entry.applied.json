@@ -9,11 +9,11 @@
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_drawer_001",
+          "opId": "39b5a198-5800-5354-ab30-e5a09d09a184",
           "idempotencyKey": "k_de_001",
           "type": "drawer.entry",
           "payload": {
-            "id": "de_off_001",
+            "id": "157d2ac2-82a9-5120-b702-eca09346f7a6",
             "type": "in",
             "amount": "500.00",
             "note": "สำรองเงินทอน",
@@ -30,10 +30,10 @@
       "data": {
         "results": [
           {
-            "opId": "op_drawer_001",
+            "opId": "39b5a198-5800-5354-ab30-e5a09d09a184",
             "status": "applied",
             "response": {
-              "id": "de_off_001",
+              "id": "157d2ac2-82a9-5120-b702-eca09346f7a6",
               "type": "in",
               "amount": "500.00",
               "note": "สำรองเงินทอน",

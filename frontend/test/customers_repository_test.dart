@@ -3,6 +3,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/customers_repository.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -44,7 +45,7 @@ void main() {
       );
       expect(c.points, 0);
       expect(c.totalSpend, 0);
-      expect(c.id.startsWith('c'), isTrue);
+      expect(c.id, matches(uuidV7));
       // createdAt is ISO yyyy-MM-dd (10 chars).
       expect(c.createdAt.length, 10);
       expect(c.createdAt, DateTime.now().toIso8601String().substring(0, 10));

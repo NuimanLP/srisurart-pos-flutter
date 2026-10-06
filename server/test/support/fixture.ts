@@ -10,6 +10,7 @@ import { configureApp } from '../../src/app.setup.js';
 import { loadConfig } from '../../src/config/config.js';
 import { ADMIN_DATA_SOURCE } from '../../src/infra/db.module.js';
 import { REDIS_CACHE } from '../../src/infra/redis.module.js';
+import { testId } from './test-ids.js';
 
 /**
  * One RSA key pair for the whole run: the suites mint their own access tokens
@@ -226,8 +227,9 @@ export async function resetTenant(
           VALUES ($1::uuid, $2::uuid, $3, 'x', 'Tester', 'owner')`,
     [tenantId, userId, username],
   );
-  const posDeviceId = `pos-${tenantId.slice(0, 8)}`;
-  const backofficeDeviceId = `bo-${tenantId.slice(0, 8)}`;
+  // Derived from the tenant id (#616: device ids are UUIDs), so a suite can recompute them.
+  const posDeviceId = testId(`pos:${tenantId}`);
+  const backofficeDeviceId = testId(`bo:${tenantId}`);
   await admin.query(
     `INSERT INTO devices (tenant_id, id, label, device_no, role)
           VALUES ($1::uuid, $2, 'เครื่องขาย', $3, 'pos'),
@@ -329,11 +331,11 @@ export async function seedOpenShift(
   deviceId: string,
   opts: { id?: string; userId?: string; startingCash?: number } = {},
 ): Promise<string> {
-  const id = opts.id ?? `sh-${randomUUID()}`;
+  const id = opts.id ?? randomUUID();
   await admin.query(
     `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, is_active, device_id, opened_by)
-          SELECT $1::uuid, $2, to_char(now() AT TIME ZONE t.timezone, 'YYYY-MM-DD'),
-                 $3, now(), TRUE, $4, $5::uuid
+          SELECT $1::uuid, $2::uuid, to_char(now() AT TIME ZONE t.timezone, 'YYYY-MM-DD'),
+                 $3, now(), TRUE, $4::uuid, $5::uuid
             FROM tenants t WHERE t.id = $1::uuid`,
     [tenantId, id, opts.startingCash ?? 0, deviceId, opts.userId ?? null],
   );

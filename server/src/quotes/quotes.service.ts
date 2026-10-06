@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
@@ -11,6 +11,7 @@ import type { CreateSale, SaleParty } from '../sales/sales.dto.js';
 import {
   SalesService,
   assertSaleTotals,
+  insufficientStock,
   type CreateSaleResult,
   type SaleActor,
 } from '../sales/sales.service.js';
@@ -193,7 +194,7 @@ export class QuotesService {
     // converts — `SalesService.create` would refuse it with the same 409 later.
     assertSaleTotals(input);
     const { tenantId, manager } = currentRequestContext();
-    const id = newId('q');
+    const id = newUuid();
     const quoteNo = await this.docNumbers.issue(manager, {
       tenantId,
       deviceId,
@@ -313,7 +314,7 @@ export class QuotesService {
   private async duplicateIn(id: string, deviceId: string): Promise<Quote> {
     const { tenantId, manager } = currentRequestContext();
     const src = await this.read(manager, tenantId, id);
-    const newQuoteId = newId('q');
+    const newQuoteId = newUuid();
     const quoteNo = await this.docNumbers.issue(manager, {
       tenantId,
       deviceId,
@@ -387,9 +388,10 @@ export class QuotesService {
 
   /**
    * The bill a quote sells as: its lines at the quoted prices and its money, plus the
-   * party from the body. A line with no product keeps an empty id, as Checkout's
-   * `_maybeConsumePendingQuote` does, so the sale path refuses it with its own
-   * `สต็อกไม่พอ … ไม่พบในสต็อก`. A row imported with no money derives it from its lines.
+   * party from the body. A line with no product is refused here with the sale path's
+   * own `สต็อกไม่พอ … ไม่พบในสต็อก` (as Checkout's `_maybeConsumePendingQuote` ends up
+   * doing), on a first convert and a replay alike. A row imported with no money derives
+   * it from its lines.
    */
   private async saleFrom(
     manager: EntityManager,
@@ -405,9 +407,18 @@ export class QuotesService {
     if (lines.length === 0) {
       throw new BadRequestException('Quote has no lines to sell.');
     }
+    // A free-text line names no catalogue product, so it cannot be sold: refused here
+    // with the sale path's own "ไม่พบในสต็อก" (#616) — never handed on as a product id.
+    const loose = lines.filter((l) => l.product_id === null);
+    if (loose.length > 0) {
+      throw insufficientStock(
+        loose.map((l) => `${l.name}: ไม่พบในสต็อก`),
+        loose.map((l) => ({ productId: null, stock: null, requested: l.qty })),
+      );
+    }
     const items = lines.map((l) => ({
       lineNo: l.line_no,
-      productId: l.product_id ?? '',
+      productId: l.product_id!,
       partNo: null,
       name: l.name,
       nameTH: null,
@@ -444,7 +455,7 @@ export class QuotesService {
     if (rows.length === 0) return [];
     const items = (await manager.query(
       `SELECT quote_id, line_no, product_id, name, qty, price FROM quote_items
-        WHERE tenant_id = $1::uuid AND quote_id = ANY($2::text[])
+        WHERE tenant_id = $1::uuid AND quote_id = ANY($2::uuid[])
         ORDER BY quote_id, line_no`,
       [tenantId, rows.map((r) => r.id)],
     )) as QuoteItemRow[];

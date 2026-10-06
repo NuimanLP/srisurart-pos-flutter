@@ -7,6 +7,7 @@ import {
   resetTenant,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 const TENANT_A = '28128128-1111-4281-8281-281281281111';
 const TENANT_B = '28128128-2222-4281-8281-281281282222';
@@ -76,9 +77,9 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
       await admin.query(
         `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, details, created_at, reviewed_at, reviewed_by)
          VALUES
-           ($1, 'rev_1', 'void_offline', 'sale_101', '{"amount": 500}', now() - interval '2 minutes', NULL, NULL),
-           ($1, 'rev_2', 'credit_override', 'sale_102', '{"limit": 2000}', now() - interval '1 minute', NULL, NULL),
-           ($1, 'rev_3', 'shift_uncounted', 'shift_1', '{"uncounted": true}', now() - interval '3 minutes', now(), $2)`,
+           ($1, '${testId('rev_1')}', 'void_offline', '${testId('sale_101')}', '{"amount": 500}', now() - interval '2 minutes', NULL, NULL),
+           ($1, '${testId('rev_2')}', 'credit_override', '${testId('sale_102')}', '{"limit": 2000}', now() - interval '1 minute', NULL, NULL),
+           ($1, '${testId('rev_3')}', 'shift_uncounted', '${testId('shift_1')}', '{"uncounted": true}', now() - interval '3 minutes', now(), $2)`,
         [TENANT_A, fixtureA.userId],
       );
 
@@ -90,7 +91,7 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
       expect(resDefault.status).toBe(200);
       expect(resDefault.body.status).toBe('success');
       expect(resDefault.body.data).toHaveLength(2);
-      expect(resDefault.body.data.map((x: { id: string }) => x.id)).toEqual(['rev_2', 'rev_1']);
+      expect(resDefault.body.data.map((x: { id: string }) => x.id)).toEqual([testId('rev_2'), testId('rev_1')]);
       expect(resDefault.body.meta.total).toBe(2);
 
       // Explicit status=pending
@@ -106,7 +107,7 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
         .set('Authorization', `Bearer ${tokenA()}`);
       expect(resReviewed.status).toBe(200);
       expect(resReviewed.body.data).toHaveLength(1);
-      expect(resReviewed.body.data[0].id).toBe('rev_3');
+      expect(resReviewed.body.data[0].id).toBe(testId('rev_3'));
       expect(resReviewed.body.data[0].reviewedAt).not.toBeNull();
       expect(resReviewed.body.data[0].reviewedBy).toBe(fixtureA.userId);
 
@@ -132,9 +133,9 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
       await admin.query(
         `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, created_at)
          VALUES
-           ($1, 'rev_p1', 'date_flag', 'sale_201', now() - interval '3 minutes'),
-           ($1, 'rev_p2', 'date_flag', 'sale_202', now() - interval '2 minutes'),
-           ($1, 'rev_p3', 'device_force_retired', 'dev_1', now() - interval '1 minute')`,
+           ($1, '${testId('rev_p1')}', 'date_flag', '${testId('sale_201')}', now() - interval '3 minutes'),
+           ($1, '${testId('rev_p2')}', 'date_flag', '${testId('sale_202')}', now() - interval '2 minutes'),
+           ($1, '${testId('rev_p3')}', 'device_force_retired', '${testId('dev_1')}', now() - interval '1 minute')`,
         [TENANT_A],
       );
 
@@ -144,7 +145,7 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
 
       expect(resPage1.status).toBe(200);
       expect(resPage1.body.data).toHaveLength(2);
-      expect(resPage1.body.data.map((x: { id: string }) => x.id)).toEqual(['rev_p3', 'rev_p2']);
+      expect(resPage1.body.data.map((x: { id: string }) => x.id)).toEqual([testId('rev_p3'), testId('rev_p2')]);
       expect(resPage1.body.meta).toEqual({
         total: 3,
         page: 1,
@@ -158,14 +159,14 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
 
       expect(resPage2.status).toBe(200);
       expect(resPage2.body.data).toHaveLength(1);
-      expect(resPage2.body.data[0].id).toBe('rev_p1');
+      expect(resPage2.body.data[0].id).toBe(testId('rev_p1'));
     });
   });
 
   describe('POST /api/v1/review-items/:id/reviewed', () => {
     it('requires Idempotency-Key header', async () => {
       const res = await request(app.getHttpServer())
-        .post('/api/v1/review-items/rev_1/reviewed')
+        .post(`/api/v1/review-items/${testId('rev_1')}/reviewed`)
         .set('Authorization', `Bearer ${tokenA()}`);
 
       expect(res.status).toBe(400);
@@ -174,7 +175,7 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
 
     it('returns 404 when item does not exist', async () => {
       const res = await request(app.getHttpServer())
-        .post('/api/v1/review-items/non_existent/reviewed')
+        .post(`/api/v1/review-items/${testId('non_existent')}/reviewed`)
         .set('Authorization', `Bearer ${tokenA()}`)
         .set('Idempotency-Key', nextKey());
 
@@ -185,7 +186,7 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
     it('marks pending item as reviewed, writes audit log, and does not touch money or stock', async () => {
       await admin.query(
         `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, details, created_at)
-         VALUES ($1, 'rev_act', 'void_offline', 'sale_999', '{"reason": "wrong item"}', now())`,
+         VALUES ($1, '${testId('rev_act')}', 'void_offline', '${testId('sale_999')}', '{"reason": "wrong item"}', now())`,
         [TENANT_A],
       );
 
@@ -200,22 +201,22 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
 
       const key = nextKey();
       const res = await request(app.getHttpServer())
-        .post('/api/v1/review-items/rev_act/reviewed')
+        .post(`/api/v1/review-items/${testId('rev_act')}/reviewed`)
         .set('Authorization', `Bearer ${tokenA()}`)
         .set('Idempotency-Key', key);
 
       expect(res.status).toBe(200);
       expect(res.body.status).toBe('success');
-      expect(res.body.data.id).toBe('rev_act');
+      expect(res.body.data.id).toBe(testId('rev_act'));
       expect(res.body.data.kind).toBe('void_offline');
-      expect(res.body.data.refId).toBe('sale_999');
+      expect(res.body.data.refId).toBe(testId('sale_999'));
       expect(res.body.data.details).toEqual({ reason: 'wrong item' });
       expect(res.body.data.reviewedAt).not.toBeNull();
       expect(res.body.data.reviewedBy).toBe(fixtureA.userId);
 
       // Verify DB row
       const dbRow = await admin.query(
-        `SELECT reviewed_at, reviewed_by FROM owner_review_items WHERE tenant_id = $1 AND id = 'rev_act'`,
+        `SELECT reviewed_at, reviewed_by FROM owner_review_items WHERE tenant_id = $1 AND id = '${testId('rev_act')}'`,
         [TENANT_A],
       );
       expect(dbRow[0].reviewed_at).not.toBeNull();
@@ -225,7 +226,7 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
       const audit = await admin.query(
         `SELECT action, entity, entity_id, user_id, after
            FROM audit_log
-          WHERE tenant_id = $1 AND entity = 'owner_review_items' AND entity_id = 'rev_act'`,
+          WHERE tenant_id = $1 AND entity = 'owner_review_items' AND entity_id = '${testId('rev_act')}'`,
         [TENANT_A],
       );
       expect(audit).toHaveLength(1);
@@ -247,7 +248,7 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
 
       // Idempotency: replay with same key returns cached response
       const resReplay = await request(app.getHttpServer())
-        .post('/api/v1/review-items/rev_act/reviewed')
+        .post(`/api/v1/review-items/${testId('rev_act')}/reviewed`)
         .set('Authorization', `Bearer ${tokenA()}`)
         .set('Idempotency-Key', key);
 
@@ -256,16 +257,16 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
 
       // Call with NEW key on already reviewed item returns 200 without extra audit log
       const resNewKey = await request(app.getHttpServer())
-        .post('/api/v1/review-items/rev_act/reviewed')
+        .post(`/api/v1/review-items/${testId('rev_act')}/reviewed`)
         .set('Authorization', `Bearer ${tokenA()}`)
         .set('Idempotency-Key', nextKey());
 
       expect(resNewKey.status).toBe(200);
-      expect(resNewKey.body.data.id).toBe('rev_act');
+      expect(resNewKey.body.data.id).toBe(testId('rev_act'));
       expect(resNewKey.body.data.reviewedBy).toBe(fixtureA.userId);
 
       const auditCount = await admin.query(
-        `SELECT count(*)::int as n FROM audit_log WHERE tenant_id = $1 AND entity_id = 'rev_act'`,
+        `SELECT count(*)::int as n FROM audit_log WHERE tenant_id = $1 AND entity_id = '${testId('rev_act')}'`,
         [TENANT_A],
       );
       expect(auditCount[0].n).toBe(1);
@@ -277,7 +278,7 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
       // Seed an item in Tenant B
       await admin.query(
         `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id, details)
-         VALUES ($1, 'rev_tenant_b', 'void_offline', 'sale_b_1', '{"shop": "B"}')`,
+         VALUES ($1, '${testId('rev_tenant_b')}', 'void_offline', '${testId('sale_b_1')}', '{"shop": "B"}')`,
         [TENANT_B],
       );
 
@@ -287,11 +288,11 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
         .set('Authorization', `Bearer ${tokenA()}`);
 
       expect(listResA.status).toBe(200);
-      expect(listResA.body.data.map((x: { id: string }) => x.id)).not.toContain('rev_tenant_b');
+      expect(listResA.body.data.map((x: { id: string }) => x.id)).not.toContain(testId('rev_tenant_b'));
 
       // Tenant A trying to mark Tenant B's item as reviewed gets 404
       const reviewResA = await request(app.getHttpServer())
-        .post('/api/v1/review-items/rev_tenant_b/reviewed')
+        .post(`/api/v1/review-items/${testId('rev_tenant_b')}/reviewed`)
         .set('Authorization', `Bearer ${tokenA()}`)
         .set('Idempotency-Key', nextKey());
 
@@ -299,12 +300,12 @@ describe('owner review items (e2e) — Slice 6 (#281 review.1)', () => {
 
       // Tenant B can mark its own item as reviewed
       const reviewResB = await request(app.getHttpServer())
-        .post('/api/v1/review-items/rev_tenant_b/reviewed')
+        .post(`/api/v1/review-items/${testId('rev_tenant_b')}/reviewed`)
         .set('Authorization', `Bearer ${tokenB()}`)
         .set('Idempotency-Key', nextKey());
 
       expect(reviewResB.status).toBe(200);
-      expect(reviewResB.body.data.id).toBe('rev_tenant_b');
+      expect(reviewResB.body.data.id).toBe(testId('rev_tenant_b'));
       expect(reviewResB.body.data.reviewedBy).toBe(fixtureB.userId);
     });
   });

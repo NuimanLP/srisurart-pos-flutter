@@ -1,7 +1,7 @@
 // Unit tests for MovementsRepository.
 //
 // Invariants under test (db.js sa_movements parity):
-//  • addMovement assigns id via newId('mv'), stamps date = now, stores the
+//  • addMovement assigns id via newUuid(), stamps date = now, stores the
 //    row verbatim and returns it.
 //  • getMovements returns newest-first (db.js prepends → date desc).
 
@@ -9,6 +9,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/movements_repository.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late AppDatabase db;
@@ -38,7 +39,7 @@ void main() {
       );
       final after = DateTime.now();
 
-      expect(row.id, startsWith('mv'));
+      expect(row.id, matches(uuidV7));
       expect(
         row.date.isBefore(before.subtract(const Duration(seconds: 1))),
         isFalse,

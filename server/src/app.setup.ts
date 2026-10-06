@@ -77,6 +77,9 @@ export async function configureApp(
       'Idempotency-Key',
       'If-None-Match',
       'X-Device-Id',
+      // /sync/push and /sync/discards authenticate with the device token (DeviceTokenGuard);
+      // without it here a cross-origin web build's preflight fails and the outbox never sends.
+      'X-Device-Token',
       'X-Client-Version',
       'X-Correlation-ID',
     ],

@@ -16,6 +16,7 @@ import {
   type TenantFixture,
   type TestApp,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 describe('Tenant Backup & Data Portability (e2e)', () => {
   let fixture: TestApp;
@@ -89,7 +90,7 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
   describe('AC2 & AC5: Enqueue, Processing, Status & Snapshot retrieval', () => {
     it('enqueues export job, processes snapshot with complete data and records audit log', async () => {
       // Seed rich test data
-      const prodId = 'prod-bk-1';
+      const prodId = testId('prod-bk-1');
       await seedProduct(fixture.admin, TENANT_ID, {
         id: prodId,
         partNo: 'BK-001',
@@ -100,7 +101,7 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
         stock: 20,
       });
 
-      const custId = 'cust-bk-1';
+      const custId = testId('cust-bk-1');
       await seedCustomer(fixture.admin, TENANT_ID, {
         id: custId,
         code: 'CUS-BK-1',
@@ -110,7 +111,7 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
       });
 
       // Insert an active shift with a drawer entry
-      const shiftId = 'sh-bk-1';
+      const shiftId = testId('sh-bk-1');
       await fixture.admin.query(
         `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, is_active)
          VALUES ($1::uuid, $2, '2026-09-13', 2000.00, now(), true)`,
@@ -118,12 +119,12 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
       );
       await fixture.admin.query(
         `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note, created_at)
-         VALUES ($1::uuid, 'de-bk-1', $2, 'in', 500.00, 'เงินสดย่อย', now())`,
+         VALUES ($1::uuid, '${testId('de-bk-1')}', $2, 'in', 500.00, 'เงินสดย่อย', now())`,
         [TENANT_ID, shiftId],
       );
 
       // Insert a sale with sale_items
-      const saleId = 'sale-bk-1';
+      const saleId = testId('sale-bk-1');
       await fixture.admin.query(
         `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, points_granted, date, voided)
          VALUES ($1::uuid, $2, 'RC-BK-1', 850.00, 0.00, 850.00, 'เงินสด', 85, now(), false)`,
@@ -258,9 +259,9 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
       // 2. Token from OTHER_TENANT_ID attempts to read this job
       const otherOwnerToken = accessToken({
         tenantId: OTHER_TENANT_ID,
-        userId: 'other-user-uuid',
+        userId: testId('other-user-uuid'),
         role: 'owner',
-        deviceId: 'other-pos-device',
+        deviceId: testId('other-pos-device'),
         deviceRole: 'pos',
       });
 

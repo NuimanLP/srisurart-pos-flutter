@@ -9,7 +9,7 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "smush0wjd_c7373902_10",
+        "id": "01a10bdb-3c25-7bc1-92fe-5891f129e707",
         "subtotal": "100.00",
         "discount": "0.00",
         "total": "100.00",
@@ -20,11 +20,11 @@
         "mechanicName": null,
         "mechanicDelta": null,
         "overrideCreditLimit": false,
-        "quoteId": "ct-quote-1",
+        "quoteId": "5668f5d5-9bd6-53f7-9b2e-5b9f244b3f31",
         "items": [
           {
             "lineNo": 1,
-            "productId": "ct-product-1",
+            "productId": "a2bba7f5-f859-59f4-8ebd-92cee8c78f1c",
             "partNo": null,
             "name": "Contract part",
             "nameTH": null,

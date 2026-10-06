@@ -5,7 +5,7 @@
     {
       "route": "PATCH /api/v1/customers/:id",
       "method": "PATCH",
-      "path": "/api/v1/customers/ct-customer-1",
+      "path": "/api/v1/customers/1e9cc0a3-39d1-5b74-892a-e158d2b0e631",
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {

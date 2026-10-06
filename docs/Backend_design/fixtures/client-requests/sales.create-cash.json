@@ -9,12 +9,12 @@
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {
-        "id": "smush0wiz_45460d16_w",
+        "id": "01a10bdb-3c08-77e1-b4a0-54e84ad25df3",
         "subtotal": "200.00",
         "discount": "0.00",
         "total": "200.00",
         "paymentMethod": "เงินสด",
-        "customerId": "ct-customer-1",
+        "customerId": "1e9cc0a3-39d1-5b74-892a-e158d2b0e631",
         "customerName": "Contract customer",
         "mechanicId": null,
         "mechanicName": null,
@@ -23,7 +23,7 @@
         "items": [
           {
             "lineNo": 1,
-            "productId": "ct-product-1",
+            "productId": "a2bba7f5-f859-59f4-8ebd-92cee8c78f1c",
             "partNo": "CT-001",
             "name": "Contract part",
             "nameTH": null,

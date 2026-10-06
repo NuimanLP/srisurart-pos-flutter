@@ -107,6 +107,10 @@ class ServerErrorResolver {
         'ระบบไม่รับรหัสผ่านเจ้าของร้านจากผู้ดูแลแล้ว ระบบจะสุ่มรหัสชั่วคราวให้เอง',
     'OWNER_NOT_FOUND': 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่',
     'SHIFT_NOT_FOUND': 'ไม่พบข้อมูลกะ',
+    // #616 — agent ร่าง (02_API_SCREENS.md §8.1), not yet ratified by the owner.
+    // An entity id that is not a lowercase UUID; the client mints only valid ones,
+    // so reaching the counter means a bug, not something the clerk typed.
+    'INVALID_ID': 'รหัสรายการไม่ถูกต้อง',
     // A plain `BadRequestException` (no code of its own) — agent ร่าง
     // (02_API_SCREENS.md §8.1.1), not yet ratified by the owner. Its English
     // `message` (e.g. `name is required`) used to reach the counter verbatim.

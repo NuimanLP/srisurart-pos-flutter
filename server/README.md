@@ -586,7 +586,7 @@ sale gives its number back and the printed series has no visible hole.
   wrap to `0001` that would re-issue a number already printed on paper. The message is
   English on purpose: inventing a Thai string is the shop owner's call, and the code is
   filed in `02_API_SCREENS.md §8.1` waiting for it.
-- Imported legacy documents keep their original `RC12345678ABCD` numbers. The two formats
+- Imported legacy documents keep their original `RC12345678ABCD` numbers (document numbers only; entity ids are UUIDv7, #616). The two formats
   cannot collide, so the counter neither reads them nor reconciles against them.
 - Phase 2 (the `pos` device issuing RC/CN from its own Drift counter, and
   `GET /doc-counters` to seed it) is **not** built here — in phase 1 the server issues
@@ -910,7 +910,7 @@ shop says whether a manager may move the till), from either device role or a ses
 device token. Both writes take an `Idempotency-Key`.
 
 - **`POST /devices` `{label, role}` → `201 {device, enrolCode}`.** The server picks the id
-  (`newId('dv')`) and `device_no`; anything else in the body is ignored. `device_no` is
+  (`newUuid()`) and `device_no`; anything else in the body is ignored. `device_no` is
   `max + 1` over every row **including retired ones**, under a per-tenant
   `pg_advisory_xact_lock`, so a number — and its receipt series — is never handed out twice.
   The enrolment code is 8 upper-case hex characters, stored only as its SHA-256, valid 15
@@ -1069,6 +1069,8 @@ every case of `frontend/test/products_repository_test.dart` at the HTTP seam.
 `POST /api/v1/platform/tenants/:id/import` — admin plane, `PlatformAuthGuard`, onboarding only
 (ADR-0005: never a per-tenant restore). It turns a shop's `SnapshotRepository.exportSnapshot()`
 file (`sa_*` + `__meta`) into the tenant's first rows, per `01_DATABASE.md §9`.
+
+**Since #616 (2026-10-05) entity ids are UUIDv7 and legacy data is dropped:** this import only accepts snapshots written by this server's own `/backup/export` and refuses old-format ids (`prefix+base36…`) from the legacy JS/Drift app. The `EntityIdsToUuid` migration refuses a non-empty DB; `mob04` is wiped at cutover (owner step).
 
 **It answers `202 Accepted` with a `jobId`, not `201` (#239, owner decision 2026-09-15).** A
 synchronous import took ~6.4 s per 2 MiB locally (four months, 2,043 bills,

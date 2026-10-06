@@ -13,6 +13,8 @@ import 'offline_pin_repository.dart';
 /// [AuthRepository.login] was refused because this browser's device token is
 /// dead (retired, or unknown to the server) and the repository has already
 /// forgotten it (#609). The only signal callers need — never an HTTP code.
+/// [OfflinePinRepository.setPin] throws it too (#612) but forgets nothing:
+/// its caller clears via `AuthCubit.forgetDeadDeviceToken`.
 ///
 /// `toString()` is the Thai sentence alone (like `PosException`), so a screen
 /// that shows `e.toString()` — e.g. the offline-PIN dialog — reads it right.
@@ -57,6 +59,11 @@ class AuthRepository {
     'DEVICE_TOKEN_INVALID',
   };
 
+  /// Whether [e] from `POST /auth/token` says the device token sent with it
+  /// is dead (#609). Only meaningful when a token was actually sent.
+  static bool isDeadDeviceTokenRefusal(ApiException e) =>
+      e.statusCode == 401 && deadDeviceTokenCodes.contains(e.code);
+
   /// Logs in with username and password.
   ///
   /// Automatically binds the deviceToken if the device was previously enrolled (ADR-0004).
@@ -94,12 +101,8 @@ class AuthRepository {
       // data and the outbox stay, and `checkEnrolment` still refuses a new
       // enrolment while local work is unsent.
       final sent = body['deviceToken'];
-      if (e.statusCode == 401 &&
-          sent != null &&
-          deadDeviceTokenCodes.contains(e.code)) {
-        if ((await tokenStorage.getDeviceToken())?.trim() == sent) {
-          await clearDeviceEnrolment();
-        }
+      if (sent != null && isDeadDeviceTokenRefusal(e)) {
+        await forgetDeadDeviceToken(sent as String);
         throw const DeviceEnrolmentGoneException();
       }
       rethrow;
@@ -250,6 +253,15 @@ class AuthRepository {
   Future<void> logout() async {
     apiClient.beginSession();
     await tokenStorage.clearAuthTokens();
+  }
+
+  /// #609 compare-and-clear: the server called the device token [sent] dead,
+  /// so forget the enrolment — but only if the stored token is still [sent];
+  /// a new enrolment that landed while the request was in flight survives.
+  Future<void> forgetDeadDeviceToken(String sent) async {
+    if ((await tokenStorage.getDeviceToken())?.trim() == sent) {
+      await clearDeviceEnrolment();
+    }
   }
 
   /// Unbinds this device by deleting its stored device token. The offline-PIN

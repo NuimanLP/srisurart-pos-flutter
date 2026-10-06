@@ -188,7 +188,7 @@ Deploy (demo)
 1. ต้องรันเป็น `deploy` · รับ `auto|manual` + SHA 40 ตัว
 2. `flock` รอ lock สูงสุด 300 วินาที (กันสองตัวรันซ้อน แม้ไม่ได้มาจาก workflow)
 3. **fetch `main` เอง** ลง `/home/deploy/pos-deploy/repo` — ไม่เชื่อไฟล์ใน workspace ของ job
-4. SHA ต้องอยู่บน `main` **และ** ไม่เก่ากว่า `ROLLBACK_FLOOR` = `4f3a244…` (release ก่อน #233 crash-loop บนเครื่องจริง)
+4. SHA ต้องอยู่บน `main` **และ** ไม่เก่ากว่า `ROLLBACK_FLOOR` = `bedd328…` (merge ของ #617/#616 — โค้ดก่อนนั้นเขียน id แบบ text ลง schema UUID ไม่ได้ · เดิม `4f3a244…`)
 5. โหมด `auto` + SHA เก่ากว่าที่รันอยู่ → ไม่ deploy (CI ของ commit เก่าที่ re-run ทีหลังจะไม่ดึง VM ถอยหลัง)
 6. ตั้งแต่จุดนี้ **ไม่สนใจ INT/TERM/HUP** — กด Cancel ใน Actions แล้ว run ขึ้น cancelled แต่ deploy ยังรันจนจบ (รวม rollback)
    log จริงอยู่ที่ `/home/deploy/pos-deploy/last-deploy.log`
@@ -477,7 +477,7 @@ DEMO_SSH_HOST=172.30.58.20 DEMO_SSH_USER=deploy DEMO_SSH_KEY_PATH="$DEPLOY_KEY" 
 
 - `</dev/null` ท้ายคำสั่ง: ansible-core ปฏิเสธ stdio แบบ non-blocking เมื่อรันจาก shell ที่ไม่ใช่ terminal ปกติ
 - ลืม `DEMO_SSH_HOST` → default `127.0.0.1` = SSH เข้าเครื่องตัวเอง
-- rollback ต้อง: อยู่บน `main`, ไม่เก่ากว่า `ROLLBACK_FLOOR` `4f3a244…`, image ครบบน GHCR, และ **schema ไม่ถอย**
+- rollback ต้อง: อยู่บน `main`, ไม่เก่ากว่า `ROLLBACK_FLOOR` `bedd328…` (#616 — id เป็น UUID), image ครบบน GHCR, และ **schema ไม่ถอย**
   (ข้าม migration ที่ลบ/rename คอลัมน์ = owner ตัดสิน)
 
 ### 8.3 ตรวจผล — ทุกข้อเป็นการติ๊กแยก

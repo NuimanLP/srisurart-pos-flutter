@@ -895,7 +895,7 @@ prometheus / grafana:         200 / 200 ; POS Overview มีกราฟ
 
 ### 6.2 Rollback (owner ตัดสิน)
 
-SHA ปลายทางต้อง: อยู่บน `main` · ไม่เก่ากว่า `ROLLBACK_FLOOR` `4f3a24447094547bdcc00486bd29b53833f81c3f` · มี image ครบบน GHCR ·
+SHA ปลายทางต้อง: อยู่บน `main` · ไม่เก่ากว่า `ROLLBACK_FLOOR` `bedd328aa3ba1de8c56b5fe5753fd12deca5dd4f` (merge ของ #617/#616 — id เป็น UUID, release ก่อนนั้นเขียนลง schema ใหม่ไม่ได้ · เดิม `4f3a244…`) · มี image ครบบน GHCR ·
 **schema ไม่ถอย** (rollback ข้าม migration ที่ลบ/rename คอลัมน์ = owner ตัดสิน)
 
 **ทางหลัก (พิสูจน์แล้ว 2026-09-30): dispatch `Deploy (demo)` ผ่าน runner** ด้วย `image_tag=$OLDTAG` — คำสั่งใน §6.3 ·
@@ -907,7 +907,7 @@ export OLDTAG=<40-hex-sha>
 ```
 
 ```bash
-git merge-base --is-ancestor 4f3a24447094547bdcc00486bd29b53833f81c3f "$OLDTAG" && git merge-base --is-ancestor "$OLDTAG" origin/main && echo "rollback target ok"
+git merge-base --is-ancestor bedd328aa3ba1de8c56b5fe5753fd12deca5dd4f "$OLDTAG" && git merge-base --is-ancestor "$OLDTAG" origin/main && echo "rollback target ok"
 ```
 
 ```bash

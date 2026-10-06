@@ -9,7 +9,7 @@
 //    zoneMap {Engine:เครื่องยนต์, Electrical:ไฟฟ้า, Oils:น้ำมัน, Brakes:เบรก,
 //    Body:ตัวถัง} → fall back to raw zone, else 'เครื่องยนต์'.
 //  • add → returns NULL on blank partNo OR duplicate partNo (case-insensitive);
-//    otherwise inserts with id = newId('p') and the trimmed partNo.
+//    otherwise inserts with id = newUuid() and the trimmed partNo.
 //  • update → returns FALSE if the new partNo collides with ANOTHER product
 //    (case-insensitive); otherwise applies the patch and returns TRUE.
 //  • adjustStock → MANUAL adjust CLAMPS at 0 (max(0, stock+delta)), updates the
@@ -140,7 +140,7 @@ class ProductsRepository {
   }
 
   /// db.js addProduct: returns null on blank/duplicate (case-insensitive) partNo,
-  /// otherwise inserts with the trimmed partNo and a fresh newId('p').
+  /// otherwise inserts with the trimmed partNo and a fresh newUuid().
   Future<ProductRow?> add(ProductsCompanion data) async {
     final partNo = (data.partNo.present ? data.partNo.value : '').trim();
     if (partNo.isEmpty) return null;
@@ -158,7 +158,7 @@ class ProductsRepository {
     }
     if (dup) return null;
 
-    final row = data.copyWith(id: Value(newId('p')), partNo: Value(partNo)).stamped;
+    final row = data.copyWith(id: Value(newUuid()), partNo: Value(partNo)).stamped;
     return db.into(db.products).insertReturning(row);
   }
 

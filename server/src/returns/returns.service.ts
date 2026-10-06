@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable, Optional } from '@nestjs/common'
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { EntityManager } from 'typeorm';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
 import { MetricsService } from '../metrics/metrics.service.js';
@@ -264,7 +264,7 @@ export class ReturnsService {
       docType: 'cn',
       clientDocNumber: dto.cnNo,
     });
-    const returnId = dto.id?.trim() || newId('r');
+    const returnId = dto.id ?? newUuid();
 
     const date = await this.insertReturn(
       manager,
@@ -424,7 +424,7 @@ export class ReturnsService {
     const items = (await manager.query(
       `SELECT return_id, line_no, product_id, name, qty, price, original_qty, cost_at_sale
          FROM return_items
-        WHERE tenant_id = $1::uuid AND return_id = ANY($2::text[])
+        WHERE tenant_id = $1::uuid AND return_id = ANY($2::uuid[])
         ORDER BY return_id, line_no`,
       [tenantId, rows.map((r) => r.id)],
     )) as ({ return_id: string } & Record<string, unknown>)[];
@@ -685,7 +685,7 @@ export class ReturnsService {
   ): Promise<{ id: string }[]> {
     return manager.query(
       `SELECT id FROM products
-        WHERE tenant_id = $1::uuid AND id = ANY($2::text[])
+        WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])
         ORDER BY id
           FOR UPDATE`,
       [tenantId, demands.map((d) => d.productId)],
@@ -856,7 +856,7 @@ export class ReturnsService {
        RETURNING ${MOVEMENT_COLUMNS}`,
           [
             tenantId,
-            newId('mv'),
+            newUuid(),
             productId,
             updated[0].part_no,
             updated[0].name,

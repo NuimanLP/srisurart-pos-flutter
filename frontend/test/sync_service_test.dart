@@ -21,6 +21,7 @@ import 'package:srisurart_pos/data/storage/token_storage.dart';
 import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/data/sync/sync_service.dart';
 import 'package:srisurart_pos/domain/models/auth_models.dart';
+import 'support/test_ids.dart';
 
 File findFixture(String name) {
   final candidate1 = File('../docs/Backend_design/fixtures/sync-push/$name');
@@ -79,9 +80,11 @@ void main() {
   late AppDatabase db;
   late InMemoryTokenStorage tokenStorage;
 
-  setUp(() {
+  setUp(() async {
     db = AppDatabase(NativeDatabase.memory());
     tokenStorage = InMemoryTokenStorage();
+    // #616: the shared sync-push fixtures name the seeded demo rows by testId(label).
+    await db.customStatement("UPDATE products SET id = ? WHERE id = 'p1'", [testId('p1')]);
   });
 
   tearDown(() async {
@@ -595,7 +598,7 @@ void main() {
       );
 
       // Seed product p1 with stock 48
-      await (db.update(db.products)..where((t) => t.id.equals('p1'))).write(
+      await (db.update(db.products)..where((t) => t.id.equals(testId('p1')))).write(
         const ProductsCompanion(stock: drift.Value(48)),
       );
 
@@ -619,7 +622,7 @@ void main() {
       expect(op, isNull);
 
       // Product p1 stock patched to 45 per fixture response
-      final product = await (db.select(db.products)..where((t) => t.id.equals('p1'))).getSingle();
+      final product = await (db.select(db.products)..where((t) => t.id.equals(testId('p1')))).getSingle();
       expect(product.stock, equals(45));
 
       syncService.dispose();
@@ -716,20 +719,20 @@ void main() {
       await syncService.push();
 
       // op_1 applied & deleted
-      final op1 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_1'))).getSingleOrNull();
+      final op1 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_1')))).getSingleOrNull();
       expect(op1, isNull);
 
       // op_2 attempts incremented to 1
-      final op2 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_2'))).getSingle();
+      final op2 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_2')))).getSingle();
       expect(op2.attempts, equals(1));
       expect(op2.status, equals('pending'));
 
       // op_3 and op_4 attempts stay 0
-      final op3 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_3'))).getSingle();
+      final op3 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_3')))).getSingle();
       expect(op3.attempts, equals(0));
       expect(op3.status, equals('pending'));
 
-      final op4 = await (db.select(db.outboxOps)..where((t) => t.opId.equals('op_4'))).getSingle();
+      final op4 = await (db.select(db.outboxOps)..where((t) => t.opId.equals(testId('op_4')))).getSingle();
       expect(op4.attempts, equals(0));
       expect(op4.status, equals('pending'));
 
@@ -759,7 +762,7 @@ void main() {
       );
 
       // Initial stock 45
-      await (db.update(db.products)..where((t) => t.id.equals('p1'))).write(
+      await (db.update(db.products)..where((t) => t.id.equals(testId('p1')))).write(
         const ProductsCompanion(stock: drift.Value(45)),
       );
 
@@ -783,7 +786,7 @@ void main() {
       expect(op, isNull);
 
       // Stock restored to 46 per fixture response
-      final product = await (db.select(db.products)..where((t) => t.id.equals('p1'))).getSingle();
+      final product = await (db.select(db.products)..where((t) => t.id.equals(testId('p1')))).getSingle();
       expect(product.stock, equals(46));
 
       syncService.dispose();
@@ -838,7 +841,7 @@ void main() {
       // Seed mechanic m1 with 1500 balance
       await db.into(db.mechanics).insertOnConflictUpdate(
             MechanicsCompanion.insert(
-              id: 'm1',
+              id: testId('m1'),
               code: 'M001',
               name: 'Mechanic One',
               createdAt: '2026-09-15T00:00:00.000Z',
@@ -887,14 +890,14 @@ void main() {
       expect(remaining, isNull);
 
       // Mechanic creditBalance patched to 1000.00
-      final mechanic = await (db.select(db.mechanics)..where((t) => t.id.equals('m1'))).getSingle();
+      final mechanic = await (db.select(db.mechanics)..where((t) => t.id.equals(testId('m1')))).getSingle();
       expect(mechanic.creditBalance, equals(1000.0));
 
       // credit_payments row inserted
-      final payment = await (db.select(db.creditPayments)..where((t) => t.id.equals('cp_off_001'))).getSingleOrNull();
+      final payment = await (db.select(db.creditPayments)..where((t) => t.id.equals(testId('cp_off_001')))).getSingleOrNull();
       expect(payment, isNotNull);
       expect(payment!.amount, equals(500.0));
-      expect(payment.mechanicId, equals('m1'));
+      expect(payment.mechanicId, equals(testId('m1')));
 
       syncService.dispose();
     });
@@ -952,7 +955,7 @@ void main() {
 
     Future<void> seedOfflineSale() => db.into(db.sales).insert(
           SaleRow(
-            id: 's_off_001',
+            id: testId('s_off_001'),
             receiptNo: 'RC01-2569-09-0042',
             subtotal: 255,
             discount: 0,
@@ -966,7 +969,7 @@ void main() {
         );
 
     Future<String> localReceiptNo() async => (await (db.select(db.sales)
-              ..where((t) => t.id.equals('s_off_001')))
+              ..where((t) => t.id.equals(testId('s_off_001'))))
             .getSingle())
         .receiptNo;
 
@@ -1001,9 +1004,9 @@ void main() {
 
     Future<void> seedOfflineReturn() => db.into(db.returns).insert(
           ReturnRow(
-            id: 'ret_off_001',
+            id: testId('ret_off_001'),
             cnNo: 'CN01-2569-09-0005',
-            saleId: 's_off_001',
+            saleId: testId('s_off_001'),
             receiptNo: 'RC01-2569-09-0042',
             refundSubtotal: 85,
             refundDiscount: 0,
@@ -1015,7 +1018,7 @@ void main() {
         );
 
     Future<String> localCnNo() async => (await (db.select(db.returns)
-              ..where((t) => t.id.equals('ret_off_001')))
+              ..where((t) => t.id.equals(testId('ret_off_001'))))
             .getSingle())
         .cnNo;
 
@@ -1026,7 +1029,7 @@ void main() {
       await pushFixture('sale-create.applied.json',
           (r) => r['receiptNo'] = 'RC01-2569-09-0043');
       final ret = await (db.select(db.returns)
-            ..where((t) => t.id.equals('ret_off_001')))
+            ..where((t) => t.id.equals(testId('ret_off_001'))))
           .getSingle();
       expect(ret.receiptNo, 'RC01-2569-09-0043');
       expect(ret.cnNo, 'CN01-2569-09-0005', reason: 'CN number untouched');

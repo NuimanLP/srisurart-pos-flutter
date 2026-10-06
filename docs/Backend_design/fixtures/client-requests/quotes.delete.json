@@ -5,7 +5,7 @@
     {
       "route": "DELETE /api/v1/quotes/:id",
       "method": "DELETE",
-      "path": "/api/v1/quotes/ct-quote-1",
+      "path": "/api/v1/quotes/5668f5d5-9bd6-53f7-9b2e-5b9f244b3f31",
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": null

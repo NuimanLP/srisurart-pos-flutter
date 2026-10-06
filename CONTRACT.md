@@ -31,7 +31,7 @@ MUST follow this file so nothing collides. Source of truth for all behaviour:
    (`pointsFor`). NEVER clamp stock to 0 on a SALE (strict arithmetic);
    manual `adjustStock` DOES clamp at 0.
 8. Generate IDs/doc-numbers ONLY via `lib/core/utils/ids.dart`
-   (`newId(prefix)`, `docNo(prefix)`). Never inline `DateTime.now()` for a
+   (`newUuid()` for entity ids, `docNo(prefix)`). Never inline `DateTime.now()` for a
    document number.
 9. Only create/edit the files you are explicitly assigned. Do NOT edit
    `lib/data/db/database.dart`, `lib/core/router/app_router.dart`,
@@ -50,7 +50,7 @@ lib/
     router/app_router.dart        ← GoRouter + AppRoutes constants (Contract — frozen)
     theme/app_theme.dart          ← AppTheme.light / AppTheme.dark (Schema)
     theme/app_colors.dart         ← brand colors (Schema)
-    utils/ids.dart                ← newId(prefix), docNo(prefix) (Schema)
+    utils/ids.dart                ← newUuid() (UUIDv7), docNo(prefix) (Schema); `newIdempotencyKey(prefix)` (idempotency keys only; was `newId`, #620)
     utils/money.dart              ← baht(), round2(), pointsFor() (Schema)
     utils/csv_safe.dart           ← csvSafe(Object?) (Schema)
   data/
@@ -98,7 +98,7 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 | Movements | `MovementRow` | `MovementsCompanion` | id, productId, partNo, name, delta(int), type, note?, stockAfter(int), date |
 | Suppliers | `SupplierRow` | `SuppliersCompanion` | id, productId, name, unitCost(real), freight(real=0) |
 | CreditPayments | `CreditPaymentRow` | `CreditPaymentsCompanion` | id, receiptNo, mechanicId, amount(real), date, note? |
-| Shifts | `ShiftRow` | `ShiftsCompanion` | id(text PK — v3, `newId('sh')` offline / server-issued online), dateStr(yyyy-MM-dd), startingCash(real), openedAt, closedAt?, physicalCash?(real), isActive(bool=false), autoArchived(bool=false), archivedAt? |
+| Shifts | `ShiftRow` | `ShiftsCompanion` | id(text PK holding a UUIDv7 — `newUuid()` offline / server-issued online; #616), dateStr(yyyy-MM-dd), startingCash(real), openedAt, closedAt?, physicalCash?(real), isActive(bool=false), autoArchived(bool=false), archivedAt? |
 | DrawerEntries | `DrawerEntryRow` | `DrawerEntriesCompanion` | id, shiftId(text)→Shifts.id, type, amount(real), note?, createdAt |
 | ParkedSales | `ParkedSaleRow` | `ParkedSalesCompanion` | id, parkedAt, payload(JSON string) |
 | SettingsRow | `SettingsRowData` | `SettingsRowCompanion` | id(singleton=0), shopName, shopNameEN, taxRate(real=7), quoteValidDays(int=30), address?, phone?, cashierName?, taxId?, branchNo? |
@@ -342,7 +342,8 @@ those are NOT input fields.
 
 ## 7. Shared helper signatures (`lib/core/utils/`) — Schema-owned
 
-- `String newId(String prefix)` — `prefix + base36(nowMs) + "_" + uuidShort + "_" + base36(++counter)`
+- `String newUuid()` — lowercase UUIDv7 (`Uuid().v7()`); every entity id and id reference (#616, ADR-0010 addendum 2026-10-05). Malformed/uppercase ids are `400 INVALID_ID` server-side.
+- `String newIdempotencyKey(String prefix)` — idempotency keys only (renamed from `newId`, #620); legacy `prefix + base36(nowMs) + "_" + uuidShort + "_" + base36(++counter)`; not for entity ids
 - `String docNo(String prefix)` — `prefix + last-8-digits(nowMs) + uppercase(first-4 uuidShort)`
 - `double round2(num v)` — `(v*100).round()/100` (JS `Math.round(v*100)/100`)
 - `int pointsFor(num total)` — `(total/10).floor()`

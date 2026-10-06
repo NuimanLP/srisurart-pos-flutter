@@ -68,7 +68,7 @@ DateTime? stampOrNull(Object? wire) => wire == null ? null : stamp(wire);
 /// hand the server a new key each time and ring the bill up twice, which is
 /// #56 AC2 — so the money paths do not call this directly, they go through
 /// [PendingWrites], which is what remembers the attempt across presses.
-Map<String, String> idempotencyKey() => {'Idempotency-Key': newId('idem')};
+Map<String, String> idempotencyKey() => {'Idempotency-Key': newIdempotencyKey('idem')};
 
 /// Runs [body] and converts an [ApiException] into the plain `Exception` the
 /// screens already know how to display. Everything else (a `SocketException`,
@@ -226,9 +226,8 @@ class PendingWrite {
 /// to press again and far shorter than the gap between two coincidentally
 /// identical carts.
 class PendingWrites {
-  PendingWrites(this._idPrefix);
+  PendingWrites();
 
-  final String _idPrefix;
   final Map<String, _Parked> _open = {};
 
   static const Duration _ttl = Duration(minutes: 10);
@@ -242,7 +241,7 @@ class PendingWrites {
     }
     final write = PendingWrite._(
       fingerprint: fingerprint,
-      id: newId(_idPrefix),
+      id: newUuid(),
       headers: idempotencyKey(),
     );
     _open[fingerprint] = _Parked(write, DateTime.now());

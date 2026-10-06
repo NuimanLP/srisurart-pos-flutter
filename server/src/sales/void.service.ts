@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext, onTransactionCommit } from '../common/request-context.js';
 import { MetricsService } from '../metrics/metrics.service.js';
@@ -299,7 +299,7 @@ export class VoidService {
          VALUES ($1::uuid, $2, $3, $4, $5, $6, 'void', $7, $8)`,
         [
           tenantId,
-          newId('mv'),
+          newUuid(),
           item.product_id,
           updated[0].part_no,
           updated[0].name,

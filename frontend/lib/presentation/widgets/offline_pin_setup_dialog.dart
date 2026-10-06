@@ -11,7 +11,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../core/network/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/offline_pin_repository.dart';
@@ -91,8 +90,10 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
       _errorMessage = null;
     });
 
+    final authCubit = context.read<AuthCubit>();
+    String? sentDeviceToken;
     try {
-      final authState = context.read<AuthCubit>().state;
+      final authState = authCubit.state;
       final authRepo = context.read<AuthRepository>();
       final offlinePinRepo = context.read<OfflinePinRepository>();
 
@@ -102,6 +103,7 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
       }
 
       final deviceToken = await authRepo.getDeviceToken();
+      sentDeviceToken = deviceToken?.trim();
       final deviceId = await authRepo.getDeviceId();
 
       if (deviceId == null || deviceId.isEmpty) {
@@ -129,11 +131,32 @@ class _OfflinePinSetupDialogState extends State<OfflinePinSetupDialog> {
       );
     } catch (e) {
       if (!mounted) return;
+      // #612: setPin turns a dead device token (#609) into
+      // DeviceEnrolmentGoneException. Forget it exactly as login does; the
+      // session ends and the login form shows the #609 sentence, so the dialog
+      // has nothing left to show.
+      if (e is DeviceEnrolmentGoneException &&
+          sentDeviceToken != null &&
+          sentDeviceToken.isNotEmpty) {
+        try {
+          await authCubit.forgetDeadDeviceToken(sentDeviceToken);
+        } catch (clearError) {
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _errorMessage =
+                clearError.toString().replaceFirst('Exception: ', '');
+          });
+          return;
+        }
+        if (mounted) Navigator.of(context).pop();
+        return;
+      }
       setState(() {
         _busy = false;
-        if (e is ApiException && e.statusCode == 401) {
-          _errorMessage = 'รหัสผ่านบัญชีไม่ถูกต้อง';
-        } else if (e is ArgumentError) {
+        // The repository already turned every server refusal into a plain
+        // Thai-string exception (wrong password, PosException).
+        if (e is ArgumentError) {
           _errorMessage = e.message?.toString() ?? 'ข้อมูลไม่ถูกต้อง';
         } else {
           _errorMessage = e.toString().replaceFirst('Exception: ', '');

@@ -177,4 +177,19 @@ describe('configureApp CORS allowlist', () => {
     expect(res.headers[ACAC]).toBeUndefined();
     expect(res.headers['access-control-allow-methods']).toBeUndefined();
   });
+
+  // /sync/push sends X-Device-Token (sync_service.dart); a cross-origin web build's preflight
+  // must allow it or the browser refuses the push with "Failed to fetch" and the outbox sticks.
+  it('allows the headers the client sends on /sync/push in a preflight', async () => {
+    const res = await request(app.getHttpServer())
+      .options('/api/v1/cors-probe')
+      .set('Origin', 'https://shop.example')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'authorization,content-type,idempotency-key,x-device-token');
+    expect(res.status).toBe(204);
+    const allowed = String(res.headers['access-control-allow-headers']).toLowerCase().split(',');
+    for (const h of ['authorization', 'content-type', 'idempotency-key', 'x-device-token']) {
+      expect(allowed).toContain(h);
+    }
+  });
 });

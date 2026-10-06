@@ -199,7 +199,7 @@ class ApiCustomersRepository extends CustomersRepository {
   Future<CustomerRow> addCustomer(CustomersCompanion data) async {
     final customerId = data.id.present && data.id.value.isNotEmpty
         ? data.id.value
-        : newId('c');
+        : newUuid();
     final name = data.name.present ? data.name.value : '';
     final nameTH = data.nameTH.present && data.nameTH.value.isNotEmpty
         ? data.nameTH.value
@@ -217,8 +217,8 @@ class ApiCustomersRepository extends CustomersRepository {
     final aggregates = ['customer:$customerId'];
 
     Future<CustomerRow> queueOfflineCustomer() async {
-      final opId = newId('op');
-      final key = newId('idem');
+      final opId = newUuid();
+      final key = newIdempotencyKey('idem');
       final now = DateTime.now();
       final code = data.code.present ? data.code.value : '';
 
@@ -262,7 +262,7 @@ class ApiCustomersRepository extends CustomersRepository {
       return await queueOfflineCustomer();
     }
 
-    final key = newId('idem');
+    final key = newIdempotencyKey('idem');
     try {
       final res = await apiClient.post(
         '/api/v1/customers',
@@ -329,8 +329,8 @@ class ApiCustomersRepository extends CustomersRepository {
     final aggregates = ['customer:$id'];
 
     Future<void> queueOfflineUpdate() async {
-      final opId = newId('op');
-      final key = newId('idem');
+      final opId = newUuid();
+      final key = newIdempotencyKey('idem');
       final now = DateTime.now();
 
       await db.transaction(() async {
@@ -359,7 +359,7 @@ class ApiCustomersRepository extends CustomersRepository {
       return;
     }
 
-    final key = newId('idem');
+    final key = newIdempotencyKey('idem');
     try {
       final res = await apiClient.patch(
         '/api/v1/customers/$id',

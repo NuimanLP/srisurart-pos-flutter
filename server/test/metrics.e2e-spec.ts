@@ -15,6 +15,7 @@ import {
 import { IdempotencyService } from '../src/idempotency/idempotency.service.js';
 import { MetricsService } from '../src/metrics/metrics.service.js';
 import { TenantService } from '../src/common/database/tenant.service.js';
+import { testId } from './support/test-ids.js';
 import {
   runInTenantScope,
   setRequestTenant,
@@ -125,9 +126,9 @@ describe('metrics (e2e)', () => {
   it('records guard-rejected requests (401) using route pattern rather than concrete path', async () => {
     // Calling /api/v1/sales/:id without auth token will be rejected by Auth/Tenant guard with 401.
     // The metric must still count this request, and use `/api/v1/sales/:id`, NOT the UUID!
-    const testId = 's-nonexistent-uuid-9999';
+    const saleId = testId('s-nonexistent');
     await request(app.getHttpServer())
-      .get(`/api/v1/sales/${testId}`)
+      .get(`/api/v1/sales/${saleId}`)
       .expect(401);
 
     const metricsRes = await request(app.getHttpServer())
@@ -201,7 +202,7 @@ describe('metrics (e2e)', () => {
   });
 
   it('increments route counter after a sale is created (verifying exact delta +1)', async () => {
-    const productId = 'prod-metric-1';
+    const productId = testId('prod-metric-1');
     await seedProduct(admin, TENANT, {
       id: productId,
       partNo: 'BP-123',
@@ -217,7 +218,7 @@ describe('metrics (e2e)', () => {
     );
     const countBefore = matchBefore ? Number(matchBefore[1]) : 0;
 
-    const billId = `s-metric-${Date.now()}`;
+    const billId = testId(`s-metric-${Date.now()}`);
     const saleBody = {
       id: billId,
       subtotal: '500.00',
@@ -252,7 +253,7 @@ describe('metrics (e2e)', () => {
   });
 
   it('increments pos_idempotency_replay_total on replayed request (without tenant_id label)', async () => {
-    const productId = 'prod-metric-replay';
+    const productId = testId('prod-metric-replay');
     await seedProduct(admin, TENANT, {
       id: productId,
       partNo: 'RP-999',
@@ -263,7 +264,7 @@ describe('metrics (e2e)', () => {
     });
 
     const key = `k-replay-${Date.now()}`;
-    const billId = `s-replay-${Date.now()}`;
+    const billId = testId(`s-replay-${Date.now()}`);
     const saleBody = {
       id: billId,
       subtotal: '100.00',
@@ -325,7 +326,7 @@ describe('metrics (e2e)', () => {
 
     // 1. Initial attempt fails due to insufficient stock (409) and rolls back
     const failKey = `k-fail-${Date.now()}`;
-    const failBillId = `s-fail-${Date.now()}`;
+    const failBillId = testId(`s-fail-${Date.now()}`);
     await request(app.getHttpServer())
       .post('/api/v1/sales')
       .set('Authorization', `Bearer ${posToken}`)
@@ -339,7 +340,7 @@ describe('metrics (e2e)', () => {
         items: [
           {
             lineNo: 1,
-            productId: 'prod-metric-replay',
+            productId: testId('prod-metric-replay'),
             name: 'Replay Test Part',
             qty: 999999, // Insufficient stock throws 409 INSUFFICIENT_STOCK
             price: '50000.00',
@@ -365,7 +366,7 @@ describe('metrics (e2e)', () => {
         items: [
           {
             lineNo: 1,
-            productId: 'prod-metric-replay',
+            productId: testId('prod-metric-replay'),
             name: 'Replay Test Part',
             qty: 1,
             price: '100.00',
@@ -401,7 +402,7 @@ describe('metrics (e2e)', () => {
                 items: [
                   {
                     lineNo: 1,
-                    productId: 'prod-metric-replay',
+                    productId: testId('prod-metric-replay'),
                     name: 'Replay Test Part',
                     qty: 1,
                     price: '100.00',
@@ -428,7 +429,7 @@ describe('metrics (e2e)', () => {
   // Dashboard group 2: one committed bill is one `sale`, however many times its key is resent
   // — the replay branch returns before `SalesService` runs, so it must not count again.
   it('counts a committed sale once in pos_documents_total, and not again on replay', async () => {
-    const productId = 'prod-metric-doc';
+    const productId = testId('prod-metric-doc');
     await seedProduct(admin, TENANT, {
       id: productId,
       partNo: 'DC-321',
@@ -446,7 +447,7 @@ describe('metrics (e2e)', () => {
 
     const key = `k-doc-${Date.now()}`;
     const saleBody = {
-      id: `s-doc-${Date.now()}`,
+      id: testId(`s-doc-${Date.now()}`),
       subtotal: '100.00',
       discount: '0.00',
       total: '100.00',

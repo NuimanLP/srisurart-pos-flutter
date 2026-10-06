@@ -5,7 +5,7 @@
     {
       "route": "DELETE /api/v1/purchase-orders/:id",
       "method": "DELETE",
-      "path": "/api/v1/purchase-orders/ct-po-1",
+      "path": "/api/v1/purchase-orders/0721519e-37ed-5fb3-88f3-776444afe3d6",
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": null

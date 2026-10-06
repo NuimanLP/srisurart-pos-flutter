@@ -10,6 +10,7 @@ import {
   resetTenant,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #144 — `/devices` (ADR-0004 "การผูกเครื่อง"): enrol, list, retire, and what a retired
 // device can no longer do. The drawer side of retirement is in `shifts.e2e-spec.ts`.
@@ -91,13 +92,13 @@ describe('devices: enrol and retire (e2e)', () => {
       label: '  หลังร้าน 2  ',
       role: 'backoffice',
       // Neither may come from the body (ADR-0004); both are ignored.
-      id: 'pos-hijack',
+      id: testId('pos-hijack'),
       deviceNo: 1,
     });
 
     expect(res.status).toBe(201);
     const { device, enrolCode } = res.body.data;
-    expect(device.id).not.toBe('pos-hijack');
+    expect(device.id).not.toBe(testId('pos-hijack'));
     // Fixture: pos = 7, backoffice = 57. max + 1, never a gap below it.
     expect(device.deviceNo).toBe(58);
     expect(device.label).toBe('หลังร้าน 2');
@@ -295,7 +296,7 @@ describe('devices: enrol and retire (e2e)', () => {
   });
 
   it('answers 404 for an unknown device — including another shop’s — and 409 on a second retirement', async () => {
-    const missing = await retire('no-such-device');
+    const missing = await retire(testId('no-such-device'));
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe('DEVICE_NOT_FOUND');
 

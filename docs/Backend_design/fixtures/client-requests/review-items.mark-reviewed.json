@@ -5,7 +5,7 @@
     {
       "route": "POST /api/v1/review-items/:id/reviewed",
       "method": "POST",
-      "path": "/api/v1/review-items/ct-review-1/reviewed",
+      "path": "/api/v1/review-items/36957d39-e392-5917-87ea-655743b98544/reviewed",
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": null

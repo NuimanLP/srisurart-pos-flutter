@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   HttpException,
   HttpStatus,
@@ -10,34 +9,35 @@ import type { EntityManager } from 'typeorm';
 import { AuditService } from '../audit/audit.service.js';
 import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { TenantService } from '../common/database/tenant.service.js';
+import { invalidUuidInput, isUuid } from '../common/ids.js';
 import { DOC_NUMBER_REGEX, tenantPeriodSql } from '../documents/doc-number.service.js';
-import { fromSatang, satangOf, toSatang } from '../common/money.js';
+import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { CustomersService } from '../customers/customers.service.js';
-import { parseCustomerPatch } from '../people/people.dto.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
 import { CreditPaymentsService } from '../mechanics/credit-payments.service.js';
 import { expectedCashSatangOf } from '../reports/drawer-cash.sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { ReturnsService } from '../returns/returns.service.js';
-import { parseCreateReturn } from '../returns/returns.dto.js';
 import { SalesService, type CreateSaleResult } from '../sales/sales.service.js';
 import {
   QuoteSaleService,
   type QuoteLockResult,
 } from '../sales/quote-sale.service.js';
-import {
-  parseCreateSale,
-  parseSaleQuoteId,
-  type SaleWrite,
-} from '../sales/sales.dto.js';
+import type { SaleWrite } from '../sales/sales.dto.js';
 import { VoidService } from '../sales/void.service.js';
 import { ShiftsService } from '../shifts/shifts.service.js';
 import {
+  clientIdOf,
+  docNoOf,
+  parseOpPayload,
+  targetIdOf,
+  type ParsedSyncOp,
   type SyncDiscardDto,
   type SyncOpDto,
   type SyncOpResult,
   type SyncPushDto,
+  type SyncOpType,
   type SyncPushResponse,
 } from './sync.dto.js';
 
@@ -100,7 +100,7 @@ export class SyncService {
           stopAtRetry = true;
         }
       } catch (err) {
-        const mapped = this.mapOpError(op, err);
+        const mapped = this.mapOpError(op, tryParseOpPayload(op), err);
         results.push(mapped);
         if (mapped.status === 'retry') {
           stopAtRetry = true;
@@ -138,35 +138,44 @@ export class SyncService {
   processSingleOp(
     actor: PushActor,
     device: PushDevice,
-    op: SyncOpDto,
+    raw: SyncOpDto,
   ): Promise<SyncOpResult> {
-    return this.tenants.runTx(() => this.processSingleOpIn(actor, device, op));
+    return this.tenants.runTx(() => this.processSingleOpIn(actor, device, raw));
   }
 
   private async processSingleOpIn(
     actor: PushActor,
     device: PushDevice,
-    op: SyncOpDto,
+    raw: SyncOpDto,
   ): Promise<SyncOpResult> {
     const { tenantId, manager } = currentRequestContext();
-    const ep = this.endpointForOp(op);
-    const requestHash = IdempotencyService.requestHash(op.payload);
+    // B1 (08 §8.3): replay by key BEFORE any check — the fingerprint and the route come
+    // from the payload exactly as sent, so an op committed earlier still replays its
+    // stored reply even if today's parser would refuse its body.
+    const ep = endpointForOp(raw);
+    const requestHash = IdempotencyService.requestHash(raw.payload);
 
     // Step 1: Idempotency claim & replay check (08 §8.3 step 1)
     const claim = await this.idempotency.claim(manager, {
       tenantId,
-      key: op.idempotencyKey,
+      key: raw.idempotencyKey,
       endpoint: ep.endpoint,
       requestHash,
     });
 
     if (claim.outcome === 'replay') {
       return {
-        opId: op.opId,
+        opId: raw.opId,
         status: 'applied',
         response: claim.response.body,
       };
     }
+
+    // #619: the one typed parser, only once the key did not replay. A refusal throws
+    // inside this transaction, so the claim rolls back and the op is `rejected` per op
+    // (`INVALID_ID` for a bad id) — never `retry`. Step 2 needs the typed fields: it
+    // compares the stored row with the op (total, lines, amounts).
+    const op = parseOpPayload(raw);
 
     if (claim.outcome === 'reused') {
       // #409: the key is already recorded against a different fingerprint. The usual
@@ -225,38 +234,6 @@ export class SyncService {
     };
   }
 
-  private endpointForOp(op: SyncOpDto): { endpoint: string; successCode: number } {
-    switch (op.type) {
-      case 'sale.create':
-        return { endpoint: `POST ${ONLINE_PREFIX}/sales`, successCode: 201 };
-      case 'return.create':
-        return { endpoint: `POST ${ONLINE_PREFIX}/returns`, successCode: 201 };
-      case 'shift.open':
-        return { endpoint: `POST ${ONLINE_PREFIX}/shifts/open`, successCode: 200 };
-      case 'drawer.entry':
-        return { endpoint: `POST ${ONLINE_PREFIX}/shifts/current/entries`, successCode: 201 };
-      case 'credit_payment.create':
-        return {
-          endpoint: `POST ${ONLINE_PREFIX}/mechanics/${op.payload.mechanicId}/credit-payments`,
-          successCode: 201,
-        };
-      case 'customer.create':
-        return { endpoint: `POST ${ONLINE_PREFIX}/customers`, successCode: 201 };
-      case 'customer.update':
-        return {
-          endpoint: `PATCH ${ONLINE_PREFIX}/customers/${op.payload.id}`,
-          successCode: 200,
-        };
-      case 'sale.void_offline':
-        return {
-          endpoint: `POST /sales/${op.payload.saleId}/void-offline`,
-          successCode: 200,
-        };
-      default:
-        return { endpoint: `POST /sync/${op.type}`, successCode: 200 };
-    }
-  }
-
   /**
    * The client-id replay (step 2) for an op whose key is recorded under a different
    * fingerprint — but only if that record answered for this op's own document (its
@@ -270,12 +247,12 @@ export class SyncService {
   private async replayKeyOfSameDocument(
     manager: EntityManager,
     tenantId: string,
-    op: SyncOpDto,
+    op: ParsedSyncOp,
     endpoint: string,
   ): Promise<any | null> {
     const idField = op.type === 'sale.void_offline' ? 'saleId' : 'id';
-    const clientId: unknown = op.payload?.[idField];
-    if (typeof clientId !== 'string' || clientId.trim() === '') return null;
+    const clientId = clientIdOf(op);
+    if (!clientId) return null;
     const rows = (await manager.query(
       `SELECT endpoint, response_body ->> $3 AS stored_id FROM idempotency_keys
         WHERE tenant_id = $1::uuid AND key = $2`,
@@ -286,7 +263,7 @@ export class SyncService {
     if (
       !stored ||
       unprefixed(stored.endpoint) !== unprefixed(endpoint) ||
-      stored.stored_id !== clientId.trim()
+      stored.stored_id !== clientId
     ) {
       return null;
     }
@@ -296,14 +273,15 @@ export class SyncService {
   private async checkClientIdReplay(
     manager: EntityManager,
     tenantId: string,
-    op: SyncOpDto,
+    op: ParsedSyncOp,
   ): Promise<any | null> {
     switch (op.type) {
       case 'shift.open': {
-        if (!op.payload.id) return null;
+        const id = op.shift.id;
+        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, starting_cash, opened_at, auto_archived FROM shifts WHERE tenant_id = $1::uuid AND id = $2`,
-          [tenantId, String(op.payload.id).trim()],
+          [tenantId, id],
         )) as {
           id: string;
           starting_cash: string;
@@ -312,8 +290,8 @@ export class SyncService {
         }[];
         if (rows.length === 0) return null;
         const row = rows[0];
-        if (satangOf(row.starting_cash) !== toSatang(op.payload.startingCash, 'startingCash')) {
-          throw new ClientIdReusedException(op.type, op.payload.id);
+        if (satangOf(row.starting_cash) !== op.shift.startingCashSatang) {
+          throw new ClientIdReusedException(op.type, id);
         }
         return {
           id: row.id,
@@ -327,25 +305,25 @@ export class SyncService {
       }
 
       case 'sale.create': {
-        if (!op.payload.id) return null;
         // #455 / 08 §8.2: the reply IS the `POST /sales` reply, so it comes from the
         // very function that route answers a replay-by-id with — never a second
         // hand-built shape. Its `SALE_ID_REUSED` (total differs) maps to
         // `CLIENT_ID_REUSED` in `mapOpError`.
         const existing = await this.sales.existingSale(manager, tenantId, {
-          ...parseCreateSale(op.payload),
+          ...op.sale,
           soldOffline: true,
         });
         if (existing === null) return null;
-        await this.flagRenumbered(manager, tenantId, op, existing.id, op.payload.receiptNo, existing.receiptNo);
+        await this.flagRenumbered(manager, tenantId, op, existing.id, op.sale.receiptNo, existing.receiptNo);
         return existing;
       }
 
       case 'return.create': {
-        if (!op.payload.id) return null;
+        const id = op.ret.id;
+        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, cn_no, sale_id, refund_total, refund_method FROM returns WHERE tenant_id = $1::uuid AND id = $2`,
-          [tenantId, String(op.payload.id).trim()],
+          [tenantId, id],
         )) as {
           id: string;
           cn_no: string;
@@ -355,8 +333,8 @@ export class SyncService {
         }[];
         if (rows.length === 0) return null;
         const row = rows[0];
-        if (row.sale_id !== op.payload.saleId) {
-          throw new ClientIdReusedException(op.type, op.payload.id);
+        if (row.sale_id !== op.ret.saleId) {
+          throw new ClientIdReusedException(op.type, id);
         }
 
         // Compare items
@@ -364,9 +342,9 @@ export class SyncService {
           `SELECT product_id, qty, price FROM return_items WHERE tenant_id = $1::uuid AND return_id = $2 ORDER BY line_no ASC`,
           [tenantId, row.id],
         )) as { product_id: string; qty: number; price: string }[];
-        const opItems = Array.isArray(op.payload.items) ? op.payload.items : [];
+        const opItems = op.ret.items;
         if (lineRows.length !== opItems.length) {
-          throw new ClientIdReusedException(op.type, op.payload.id);
+          throw new ClientIdReusedException(op.type, id);
         }
         for (let i = 0; i < lineRows.length; i++) {
           const lr = lineRows[i];
@@ -374,18 +352,18 @@ export class SyncService {
           if (
             lr.product_id !== oi.productId ||
             lr.qty !== oi.qty ||
-            satangOf(lr.price) !== toSatang(oi.price, 'price')
+            satangOf(lr.price) !== oi.priceSatang
           ) {
-            throw new ClientIdReusedException(op.type, op.payload.id);
+            throw new ClientIdReusedException(op.type, id);
           }
         }
-        await this.flagRenumbered(manager, tenantId, op, row.id, op.payload.cnNo, row.cn_no);
+        await this.flagRenumbered(manager, tenantId, op, row.id, op.ret.cnNo, row.cn_no);
 
         const productIds = lineRows.map((it) => it.product_id);
         const products =
           productIds.length > 0
             ? ((await manager.query(
-                `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
+                `SELECT id, stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
                 [tenantId, productIds],
               )) as { id: string; stock: number }[])
             : [];
@@ -401,10 +379,11 @@ export class SyncService {
       }
 
       case 'drawer.entry': {
-        if (!op.payload.id) return null;
+        const id = op.entry.id;
+        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, type, amount, note, shift_id FROM drawer_entries WHERE tenant_id = $1::uuid AND id = $2`,
-          [tenantId, String(op.payload.id).trim()],
+          [tenantId, id],
         )) as {
           id: string;
           type: string;
@@ -415,10 +394,10 @@ export class SyncService {
         if (rows.length === 0) return null;
         const row = rows[0];
         if (
-          row.type !== op.payload.type ||
-          satangOf(row.amount) !== toSatang(op.payload.amount, 'amount')
+          row.type !== op.entry.type ||
+          satangOf(row.amount) !== op.entry.amountSatang
         ) {
-          throw new ClientIdReusedException(op.type, op.payload.id);
+          throw new ClientIdReusedException(op.type, id);
         }
         const balanceAfter = await this.computeShiftBalance(
           manager,
@@ -435,10 +414,11 @@ export class SyncService {
       }
 
       case 'credit_payment.create': {
-        if (!op.payload.id) return null;
+        const id = op.payment.id;
+        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, mechanic_id, amount, payment_method FROM credit_payments WHERE tenant_id = $1::uuid AND id = $2`,
-          [tenantId, String(op.payload.id).trim()],
+          [tenantId, id],
         )) as {
           id: string;
           mechanic_id: string;
@@ -448,11 +428,11 @@ export class SyncService {
         if (rows.length === 0) return null;
         const row = rows[0];
         if (
-          row.mechanic_id !== op.payload.mechanicId ||
-          satangOf(row.amount) !== toSatang(op.payload.amount, 'amount') ||
-          row.payment_method !== op.payload.paymentMethod
+          row.mechanic_id !== op.mechanicId ||
+          satangOf(row.amount) !== op.payment.amountSatang ||
+          row.payment_method !== op.payment.paymentMethod
         ) {
-          throw new ClientIdReusedException(op.type, op.payload.id);
+          throw new ClientIdReusedException(op.type, id);
         }
         const mech = (await manager.query(
           `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = $2`,
@@ -468,10 +448,11 @@ export class SyncService {
       }
 
       case 'customer.create': {
-        if (!op.payload.id) return null;
+        const id = op.customer.id;
+        if (!id) return null;
         const rows = (await manager.query(
           `SELECT id, name, phone, address, total_spend, points FROM customers WHERE tenant_id = $1::uuid AND id = $2 AND deleted_at IS NULL`,
-          [tenantId, String(op.payload.id).trim()],
+          [tenantId, id],
         )) as {
           id: string;
           name: string;
@@ -494,11 +475,10 @@ export class SyncService {
       }
 
       case 'sale.void_offline': {
-        const saleId = op.payload.saleId;
-        if (!saleId) return null;
+        const saleId = op.saleId;
         const rows = (await manager.query(
           `SELECT id, voided, void_reason, sold_offline FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
-          [tenantId, String(saleId).trim()],
+          [tenantId, saleId],
         )) as {
           id: string;
           voided: boolean;
@@ -515,21 +495,21 @@ export class SyncService {
           const products =
             productIds.length > 0
               ? ((await manager.query(
-                  `SELECT id AS "productId", stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
+                  `SELECT id AS "productId", stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
                   [tenantId, productIds],
                 )) as { productId: string; stock: number }[])
               : [];
           return {
             saleId: rows[0].id,
             status: 'voided',
-            voidReason: rows[0].void_reason ?? op.payload.reason ?? '',
+            voidReason: rows[0].void_reason ?? op.reason,
             stockRestored: products,
           };
         }
         return null;
       }
 
-      default:
+      case 'customer.update':
         return null;
     }
   }
@@ -539,7 +519,7 @@ export class SyncService {
     tenantId: string,
     actor: PushActor,
     device: PushDevice,
-    op: SyncOpDto,
+    op: ParsedSyncOp,
   ): Promise<any> {
     switch (op.type) {
       case 'shift.open': {
@@ -553,7 +533,7 @@ export class SyncService {
         // which would pull a legitimate earlier offline open forward. Only the future side
         // is checked (owner 2026-09-25, 08 §10): `> now() + 5 min` → `now()` + `date_flag`,
         // since a future `opened_at` would push every later op of the shift out of its window.
-        let openedAt = deviceIsoDate(op.payload.openedAt, 'openedAt');
+        let openedAt = op.openedAt;
         const now = new Date();
         if (openedAt && openedAt.getTime() > now.getTime() + DATE_TOLERANCE_MS) {
           await insertDateFlag(manager, tenantId, op, openedAt, now, null);
@@ -562,11 +542,7 @@ export class SyncService {
 
         const opened = await this.shifts.open(
           { userId: actor.userId, deviceId: device.id },
-          {
-            id: op.payload.id,
-            startingCashSatang: toSatang(op.payload.startingCash, 'startingCash'),
-            openedAt,
-          },
+          { ...op.shift, openedAt },
         );
 
         const autoArchived = previousActive.length > 0;
@@ -588,13 +564,13 @@ export class SyncService {
         );
 
         const saleInput: SaleWrite = {
-          ...deviceDated(parseCreateSale(op.payload), clampedDate),
+          ...deviceDated(op.sale, clampedDate),
           soldOffline: true,
         };
 
         // #27 follow-up (owner, 2026-10-03, 08 §6.1): a cart sold offline from a quote.
         // The quote row is locked FIRST — the same order as `POST /sales` `quoteId`.
-        const quoteId = parseSaleQuoteId(op.payload);
+        const quoteId = op.quoteId;
         const quote =
           quoteId === null
             ? null
@@ -628,7 +604,7 @@ export class SyncService {
           op,
         );
 
-        const returnInput = deviceDated(parseCreateReturn(op.payload), clampedDate);
+        const returnInput = deviceDated(op.ret, clampedDate);
 
         const created = await this.returns.create(returnInput, {
           userId: actor.userId,
@@ -655,13 +631,7 @@ export class SyncService {
 
         const entry = await this.shifts.addEntry(
           { userId: actor.userId, deviceId: device.id },
-          {
-            id: op.payload.id,
-            type: op.payload.type,
-            amountSatang: toSatang(op.payload.amount, 'amount'),
-            note: op.payload.note ?? null,
-            createdAt: clampedDate,
-          },
+          { ...op.entry, createdAt: clampedDate },
           // The cash already left the drawer offline — never refuse the record of it
           // (DRAWER_INSUFFICIENT_CASH is for the online counter only).
           { offlineReplay: true },
@@ -688,14 +658,8 @@ export class SyncService {
 
       case 'credit_payment.create': {
         const res = await this.creditPayments.create(
-          op.payload.mechanicId,
-          {
-            id: op.payload.id,
-            amountSatang: toSatang(op.payload.amount, 'amount'),
-            paymentMethod: op.payload.paymentMethod,
-            note: op.payload.note ?? null,
-            allowOverpayment: false,
-          },
+          op.mechanicId,
+          op.payment,
           { userId: actor.userId, deviceId: device.id },
         );
 
@@ -709,13 +673,7 @@ export class SyncService {
       }
 
       case 'customer.create': {
-        const created = await this.customers.create({
-          id: op.payload.id,
-          name: op.payload.name,
-          nameTH: op.payload.nameTH ?? op.payload.name,
-          phone: op.payload.phone ?? null,
-          address: op.payload.address ?? null,
-        });
+        const created = await this.customers.create(op.customer);
 
         return {
           id: created.id,
@@ -728,8 +686,7 @@ export class SyncService {
       }
 
       case 'customer.update': {
-        const patch = parseCustomerPatch(op.payload);
-        const updated = await this.customers.update(op.payload.id, patch);
+        const updated = await this.customers.update(op.id, op.patch);
 
         return {
           id: updated.id,
@@ -738,7 +695,7 @@ export class SyncService {
       }
 
       case 'sale.void_offline': {
-        const saleId = String(op.payload.saleId).trim();
+        const saleId = op.saleId;
         const sales = (await manager.query(
           `SELECT id, sold_offline, shift_id FROM sales WHERE tenant_id = $1::uuid AND id = $2`,
           [tenantId, saleId],
@@ -762,11 +719,7 @@ export class SyncService {
           );
         }
 
-        const voidReason =
-          typeof op.payload.reason === 'string' ? op.payload.reason.trim() : '';
-        if (!voidReason) {
-          throw new BadRequestException('Void reason is required');
-        }
+        const voidReason = op.reason;
 
         await this.voids.void(saleId, {
           userId: actor.userId,
@@ -792,7 +745,7 @@ export class SyncService {
         const products =
           productIds.length > 0
             ? ((await manager.query(
-                `SELECT id AS "productId", stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::text[])`,
+                `SELECT id AS "productId", stock FROM products WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
                 [tenantId, productIds],
               )) as { productId: string; stock: number }[])
             : [];
@@ -804,12 +757,6 @@ export class SyncService {
           stockRestored: products,
         };
       }
-
-      default:
-        throw new HttpException(
-          { code: 'UNKNOWN_OP_TYPE', message: `Unknown operation type ${op.type}` },
-          HttpStatus.BAD_REQUEST,
-        );
     }
   }
 
@@ -832,11 +779,9 @@ export class SyncService {
     manager: EntityManager,
     tenantId: string,
     deviceId: string,
-    op: SyncOpDto,
+    op: Extract<ParsedSyncOp, { deviceDate: Date | undefined }>,
   ): Promise<Date | null> {
-    // `sale.create`/`return.create` carry `date`; `drawer.entry` carries `createdAt`.
-    const field = op.payload.date !== undefined && op.payload.date !== null ? 'date' : 'createdAt';
-    const opDate = deviceIsoDate(op.payload[field], field) ?? null;
+    const opDate = op.deviceDate ?? null;
 
     const shiftRows = (await manager.query(
       `SELECT opened_at FROM shifts
@@ -871,10 +816,10 @@ export class SyncService {
   private async periodMismatch(
     manager: EntityManager,
     tenantId: string,
-    op: SyncOpDto,
+    op: ParsedSyncOp,
     date: Date,
   ): Promise<PeriodFlag | null> {
-    const docNo = wellFormedDocNo(op.type === 'return.create' ? op.payload.cnNo : op.payload.receiptNo);
+    const docNo = wellFormedDocNo(docNoOf(op));
     if (!docNo) return null;
     const docPeriod = DOC_NUMBER_REGEX.exec(docNo)![3];
     const rows = (await manager.query(
@@ -895,7 +840,7 @@ export class SyncService {
   private async settleOfflineQuote(
     manager: EntityManager,
     tenantId: string,
-    op: SyncOpDto,
+    op: ParsedSyncOp,
     quoteId: string,
     sale: CreateSaleResult,
     quote: QuoteLockResult,
@@ -957,7 +902,7 @@ export class SyncService {
   private async flagRenumbered(
     manager: EntityManager,
     tenantId: string,
-    op: SyncOpDto,
+    op: ParsedSyncOp,
     id: string,
     rawOfflineNo: unknown,
     serverNo: string,
@@ -987,7 +932,7 @@ export class SyncService {
   private async flagOverdrawnOffline(
     manager: EntityManager,
     tenantId: string,
-    op: SyncOpDto,
+    op: ParsedSyncOp,
     entry: { id: string; shiftId: string; amount: string },
   ): Promise<void> {
     const afterSatang = await expectedCashSatangOf(manager, tenantId, entry.shiftId);
@@ -1039,7 +984,14 @@ export class SyncService {
     return fromSatang(balanceSatang);
   }
 
-  private mapOpError(op: SyncOpDto, err: any): SyncOpResult {
+  /** `parsed` is undefined when `parseOpPayload` itself refused the op. */
+  private mapOpError(
+    op: SyncOpDto,
+    parsed: ParsedSyncOp | undefined,
+    err: any,
+  ): SyncOpResult {
+    // #616: an id `parseOpPayload` missed must not read as `retry` (it would come back forever).
+    err = invalidUuidInput(err) ?? err;
     if (err instanceof HttpException) {
       const status = err.getStatus();
       if (status >= 500) {
@@ -1073,17 +1025,20 @@ export class SyncService {
         rawCode === 'CREDIT_PAYMENT_EXCEEDS_BALANCE' ||
         rawCode === 'OVERPAYMENT'
       ) {
+        const payment = parsed?.type === 'credit_payment.create' ? parsed : undefined;
         return {
           opId: op.opId,
           status: 'rejected',
           code: 'OVERPAYMENT',
           message: 'ยอดชำระเกินยอดหนี้คงค้าง',
           details: {
-            mechanicId: op.payload.mechanicId,
+            mechanicId: payment?.mechanicId,
             outstandingBalance:
               details?.creditBalance ?? details?.outstandingBalance,
             attemptedAmount:
-              details?.amount ?? details?.attemptedAmount ?? op.payload.amount,
+              details?.amount ??
+              details?.attemptedAmount ??
+              (payment ? fromSatang(payment.payment.amountSatang) : undefined),
           },
         };
       }
@@ -1113,7 +1068,7 @@ export class SyncService {
           message: 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
           details: {
             type: op.type,
-            id: op.payload.id,
+            id: parsed ? clientIdOf(parsed) : undefined,
           },
         };
       }
@@ -1125,18 +1080,13 @@ export class SyncService {
           code: 'VOID_NEEDS_ONLINE',
           message: 'บิลออนไลน์สามารถยกเลิกได้เมื่อเชื่อมต่ออินเทอร์เน็ตเท่านั้น',
           details: {
-            saleId: op.payload.saleId,
+            saleId: parsed?.type === 'sale.void_offline' ? parsed.saleId : undefined,
           },
         };
       }
 
       if (rawCode === 'RECEIPT_NO_CONFLICT') {
-        const docNumber =
-          typeof op.payload.receiptNo === 'string'
-            ? op.payload.receiptNo
-            : typeof op.payload.cnNo === 'string'
-              ? op.payload.cnNo
-              : undefined;
+        const docNumber = parsed ? docNoOf(parsed) : null;
         return {
           opId: op.opId,
           status: 'rejected',
@@ -1175,13 +1125,10 @@ export class SyncService {
 
       // #488: a void's payload names its bill as `saleId`, not `id` — the same
       // field the push path's client-id replay reads (`replayKeyOfSameDocument`).
+      // #616: a non-UUID names no row, so it is not looked up (and the discard still goes
+      // through — see `parseSyncDiscard`).
       const isVoid = dto.type === 'sale.void_offline';
-      const targetId = isVoid
-        ? dto.payload?.saleId
-          ? String(dto.payload.saleId).trim()
-          : undefined
-        : (dto.clientId ??
-          (dto.payload?.id ? String(dto.payload.id).trim() : undefined));
+      const targetId = targetIdOf(dto);
 
       if (targetId) {
         if (isVoid) {
@@ -1267,7 +1214,7 @@ interface PeriodFlag {
 async function insertDateFlag(
   manager: EntityManager,
   tenantId: string,
-  op: SyncOpDto,
+  op: ParsedSyncOp,
   originalDate: Date | null,
   clampedDate: Date | null,
   openedAt: Date | null,
@@ -1275,7 +1222,7 @@ async function insertDateFlag(
 ): Promise<void> {
   await ReviewItemsService.insertIn(manager, tenantId, {
     kind: 'date_flag',
-    refId: op.payload.id || op.opId,
+    refId: clientIdOf(op) || op.opId,
     details: {
       opId: op.opId,
       type: op.type,
@@ -1303,12 +1250,53 @@ function deviceDated<T>(input: T, clamped: Date | null): T & { date: string | nu
   return { ...input, date: clamped ? clamped.toISOString() : null };
 }
 
-/** An optional ISO timestamp from a push payload — refused (400) when present but unparseable. */
-function deviceIsoDate(value: unknown, field: string): Date | undefined {
-  if (value === undefined || value === null) return undefined;
-  const date = typeof value === 'string' ? new Date(value) : null;
-  if (!date || isNaN(date.getTime())) {
-    throw new BadRequestException(`${field} must be a valid ISO date string`);
+/**
+ * The online route an op stands for, built from the payload as sent (B1: before any
+ * parsing). `parseUuid` never normalises, so a valid id yields the same route the
+ * parsed op would. A malformed or missing id becomes `-`: no stored key can carry that
+ * route (the online `ParseUuidPipe` refuses it), and a raw string — one holding a NUL
+ * byte, say — never reaches the claim's INSERT, so the parser after the claim is what
+ * refuses the op (`rejected INVALID_ID`, never `retry`).
+ */
+function endpointForOp(op: SyncOpDto): { endpoint: string; successCode: number } {
+  switch (op.type as SyncOpType) {
+    case 'sale.create':
+      return { endpoint: `POST ${ONLINE_PREFIX}/sales`, successCode: 201 };
+    case 'return.create':
+      return { endpoint: `POST ${ONLINE_PREFIX}/returns`, successCode: 201 };
+    case 'shift.open':
+      return { endpoint: `POST ${ONLINE_PREFIX}/shifts/open`, successCode: 200 };
+    case 'drawer.entry':
+      return { endpoint: `POST ${ONLINE_PREFIX}/shifts/current/entries`, successCode: 201 };
+    case 'credit_payment.create':
+      return {
+        endpoint: `POST ${ONLINE_PREFIX}/mechanics/${routeId(op.payload.mechanicId)}/credit-payments`,
+        successCode: 201,
+      };
+    case 'customer.create':
+      return { endpoint: `POST ${ONLINE_PREFIX}/customers`, successCode: 201 };
+    case 'customer.update':
+      return {
+        endpoint: `PATCH ${ONLINE_PREFIX}/customers/${routeId(op.payload.id)}`,
+        successCode: 200,
+      };
+    case 'sale.void_offline':
+      return {
+        endpoint: `POST /sales/${routeId(op.payload.saleId)}/void-offline`,
+        successCode: 200,
+      };
   }
-  return date;
+}
+
+function routeId(value: unknown): string {
+  return isUuid(value) ? value : '-';
+}
+
+/** For error mapping only: the parsed op, or `undefined` when the parser refuses it. */
+function tryParseOpPayload(op: SyncOpDto): ParsedSyncOp | undefined {
+  try {
+    return parseOpPayload(op);
+  } catch {
+    return undefined;
+  }
 }

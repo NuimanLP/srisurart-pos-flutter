@@ -19,6 +19,7 @@ import {
   seedSettings,
   type TenantFixture,
 } from './support/fixture.js';
+import { CONTRACT_IDS } from './support/test-ids.js';
 
 /**
  * Client → server REQUEST contract (ci/server-contract-gates, 2026-10-03).
@@ -111,24 +112,24 @@ describe('client request fixtures replay against the real server', () => {
     await seedSettings(admin, TENANT);
     await seedOpenShift(admin, TENANT, f.posDeviceId, { userId: f.userId, startingCash: 1000 });
     await seedProduct(admin, TENANT, {
-      id: 'ct-product-1',
+      id: CONTRACT_IDS.product,
       partNo: 'CT-001',
       name: 'Contract part',
       price: 100,
       cost: 60,
       stock: 50,
     });
-    await seedCustomer(admin, TENANT, { id: 'ct-customer-1', code: 'CT-C1', name: 'Contract customer' });
+    await seedCustomer(admin, TENANT, { id: CONTRACT_IDS.customer, code: 'CT-C1', name: 'Contract customer' });
     await seedMechanic(admin, TENANT, {
-      id: 'ct-mechanic-1',
+      id: CONTRACT_IDS.mechanic,
       code: 'CT-M1',
       name: 'Contract mechanic',
       creditLimit: 100000,
       creditBalance: 500,
     });
     await admin.query(
-      `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id) VALUES ($1::uuid, 'ct-review-1', 'void_offline', 'ct-sale-1')`,
-      [TENANT],
+      `INSERT INTO owner_review_items (tenant_id, id, kind, ref_id) VALUES ($1::uuid, $2, 'void_offline', $3)`,
+      [TENANT, CONTRACT_IDS.review, CONTRACT_IDS.sale],
     );
     await admin.query(
       `INSERT INTO categories (tenant_id, name, position) VALUES ($1::uuid, 'ct-category', 1), ($1::uuid, 'อื่นๆ', 0)`,
@@ -156,27 +157,27 @@ describe('client request fixtures replay against the real server', () => {
     // Rows whose id the server mints: created through the API, the sentinel swapped for it.
     const swaps = new Map<string, string>();
     await post('/api/v1/sales', {
-      id: 'ct-sale-1',
+      id: CONTRACT_IDS.sale,
       subtotal: '200.00',
       discount: '0.00',
       total: '200.00',
       paymentMethod: 'เงินสด',
-      items: [{ lineNo: 1, productId: 'ct-product-1', name: 'Contract part', qty: 2, price: '100.00' }],
+      items: [{ lineNo: 1, productId: CONTRACT_IDS.product, name: 'Contract part', qty: 2, price: '100.00' }],
     });
     const quote = await post('/api/v1/quotes', {
       subtotal: '100.00',
       discount: '0.00',
       total: '100.00',
-      items: [{ productId: 'ct-product-1', name: 'Contract part', qty: 1, price: '100.00' }],
+      items: [{ productId: CONTRACT_IDS.product, name: 'Contract part', qty: 1, price: '100.00' }],
     });
-    swaps.set('ct-quote-1', quote.id);
+    swaps.set(CONTRACT_IDS.quote, quote.id);
     const po = await post('/api/v1/purchase-orders', {
       supplier: 'Contract supplier',
       items: [{ partNo: 'CT-001', name: 'Contract part', qty: 2, cost: '60.00' }],
     });
-    swaps.set('ct-po-1', po.id);
+    swaps.set(CONTRACT_IDS.po, po.id);
     const device = await post('/api/v1/devices', { label: 'เครื่องสัญญา', role: 'backoffice' });
-    swaps.set('ct-device-1', device.device.id);
+    swaps.set(CONTRACT_IDS.device, device.device.id);
     // `AuthRepository.enrolDevice` upper-cases what was typed.
     swaps.set('CT0DE001', device.enrolCode);
     swaps.set(

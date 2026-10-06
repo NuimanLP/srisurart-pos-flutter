@@ -5,7 +5,7 @@
     {
       "route": "POST /api/v1/products/:id/adjust-stock",
       "method": "POST",
-      "path": "/api/v1/products/ct-product-1/adjust-stock",
+      "path": "/api/v1/products/a2bba7f5-f859-59f4-8ebd-92cee8c78f1c/adjust-stock",
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {

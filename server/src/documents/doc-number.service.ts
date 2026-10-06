@@ -254,7 +254,7 @@ export class DocNumberService {
             WHERE t.id = $1::uuid
          )
          INSERT INTO doc_counters (tenant_id, device_id, doc_type, period, last_no)
-         SELECT $1::uuid, $2, $3, p.period, 1 FROM p
+         SELECT $1::uuid, $2::uuid, $3, p.period, 1 FROM p
          ON CONFLICT (tenant_id, device_id, doc_type, period)
          DO UPDATE SET last_no = doc_counters.last_no + 1
          RETURNING period, last_no`,

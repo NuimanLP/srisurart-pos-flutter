@@ -9,12 +9,12 @@
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_ret_001",
+          "opId": "3477f37f-179c-5d29-b5f6-1411f755c5e1",
           "idempotencyKey": "k_ret_001",
           "type": "return.create",
           "payload": {
-            "id": "ret_off_001",
-            "saleId": "s_off_001",
+            "id": "efe53871-b725-5d32-9ff8-ca63a377d85b",
+            "saleId": "d0db03a0-e40f-5039-b0aa-232fe0f6b899",
             "cnNo": "CN01-2569-09-0005",
             "date": "2026-09-15T03:00:00.000Z",
             "refundMethod": "เงินสด",
@@ -23,7 +23,7 @@
             "total": "85.00",
             "items": [
               {
-                "productId": "p1",
+                "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                 "qty": 1,
                 "price": "85.00"
               }
@@ -40,17 +40,17 @@
       "data": {
         "results": [
           {
-            "opId": "op_ret_001",
+            "opId": "3477f37f-179c-5d29-b5f6-1411f755c5e1",
             "status": "applied",
             "response": {
-              "id": "ret_off_001",
+              "id": "efe53871-b725-5d32-9ff8-ca63a377d85b",
               "cnNo": "CN01-2569-09-0005",
-              "saleId": "s_off_001",
+              "saleId": "d0db03a0-e40f-5039-b0aa-232fe0f6b899",
               "total": "85.00",
               "refundMethod": "เงินสด",
               "stockRestored": [
                 {
-                  "id": "p1",
+                  "id": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
                   "stock": 46
                 }
               ]

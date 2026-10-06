@@ -21,6 +21,7 @@ import {
   type TenantFixture,
   type TestApp,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 describe('Worker Jobs & Queue Integration (e2e)', () => {
   let fixture: TestApp;
@@ -74,7 +75,7 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
 
   describe('AC2 & AC3: Post-commit enqueue and rollback guarantees', () => {
     it('AC2: enqueues sale.created strictly post-commit and cascades to inventory.check on low stock', async () => {
-      const prodId = 'prod-ac2';
+      const prodId = testId('prod-ac2');
       await seedProduct(fixture.admin, TENANT_ID, {
         id: prodId,
         partNo: 'AC2-1',
@@ -88,7 +89,7 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
         [TENANT_ID, prodId],
       );
 
-      const saleId = `sale-post-commit-${Date.now()}`;
+      const saleId = testId(`sale-post-commit-${Date.now()}`);
       const res = await request(fixture.app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${token}`)
@@ -128,7 +129,7 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
     });
 
     it('AC3: a rolled-back sale (e.g. insufficient stock) enqueues NOTHING', async () => {
-      const prodId = 'prod-ac3';
+      const prodId = testId('prod-ac3');
       await seedProduct(fixture.admin, TENANT_ID, {
         id: prodId,
         partNo: 'AC3-1',
@@ -138,7 +139,7 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
         stock: 2,
       });
 
-      const failedSaleId = `sale-fail-${Date.now()}`;
+      const failedSaleId = testId(`sale-fail-${Date.now()}`);
       const res = await request(fixture.app.getHttpServer())
         .post('/api/v1/sales')
         .set('Authorization', `Bearer ${token}`)
@@ -248,8 +249,8 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
 
   describe('AC5: POST /quotes/purge & quotes.purge background job', () => {
     it('answers 202 Accepted immediately and purges quotes older than olderThanDays in background', async () => {
-      const oldQuoteId = `quote-old-${Date.now()}`;
-      const freshQuoteId = `quote-fresh-${Date.now()}`;
+      const oldQuoteId = testId(`quote-old-${Date.now()}`);
+      const freshQuoteId = testId(`quote-fresh-${Date.now()}`);
 
       // Seed quote older than 90 days (100 days old, valid_until expired 95 days ago)
       await fixture.admin.query(
@@ -312,9 +313,9 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
     });
 
     it('preserves valid open quotes and recently converted quotes even if created > 90 days ago (#122)', async () => {
-      const validOpenId = `quote-valid-open-${Date.now()}`;
-      const recentConvertedId = `quote-recent-conv-${Date.now()}`;
-      const oldConvertedId = `quote-old-conv-${Date.now()}`;
+      const validOpenId = testId(`quote-valid-open-${Date.now()}`);
+      const recentConvertedId = testId(`quote-recent-conv-${Date.now()}`);
+      const oldConvertedId = testId(`quote-old-conv-${Date.now()}`);
 
       // Open quote created 100 days ago, but valid_until is 10 days in the future
       await fixture.admin.query(
@@ -381,7 +382,7 @@ describe('Worker Jobs & Queue Integration (e2e)', () => {
   describe('AC1: Handler idempotency', () => {
     it('running quotes.purge repeatedly produces no error and deletes 0 additional rows', async () => {
       // Seed 1 old quote (expired 95 days ago)
-      const oldQuoteId = `quote-idem-${Date.now()}`;
+      const oldQuoteId = testId(`quote-idem-${Date.now()}`);
       await fixture.admin.query(
         `INSERT INTO quotes (tenant_id, id, quote_no, status, date, valid_until, subtotal, discount, total)
          VALUES ($1::uuid, $2, $3, 'open', now() - interval '100 days', now() - interval '95 days', 100, 0, 100)`,

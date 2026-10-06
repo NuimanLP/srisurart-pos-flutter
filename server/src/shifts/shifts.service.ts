@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
-import { newId } from '../common/ids.js';
+import { newUuid } from '../common/ids.js';
 import { fromSatang, satangOf } from '../common/money.js';
 import { currentRequestContext } from '../common/request-context.js';
 import { TenantService } from '../common/database/tenant.service.js';
@@ -132,7 +132,7 @@ export class ShiftsService {
     const entries = (await manager.query(
       `SELECT id, shift_id, type, amount, note, created_at
          FROM drawer_entries
-        WHERE tenant_id = $1::uuid AND shift_id = ANY($2::text[])
+        WHERE tenant_id = $1::uuid AND shift_id = ANY($2::uuid[])
         ORDER BY shift_id, created_at DESC`,
       [tenantId, rows.map((r) => r.id)],
     )) as EntryRow[];
@@ -235,7 +235,7 @@ export class ShiftsService {
 
     const openedAt = input.openedAt ?? new Date();
     const dateStr = await this.dateStrOf(manager, tenantId, openedAt);
-    const newShiftId = shiftId ?? newId('sh');
+    const newShiftId = shiftId ?? newUuid();
 
     const conflictClause = shiftId
       ? `ON CONFLICT (tenant_id, id) DO NOTHING`
@@ -461,7 +461,7 @@ export class ShiftsService {
       }
     }
 
-    const entryId = entry.id?.trim() || newId('de');
+    const entryId = entry.id?.trim() || newUuid();
     const createdAtVal = entry.createdAt
       ? entry.createdAt instanceof Date
         ? entry.createdAt.toISOString()

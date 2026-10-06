@@ -10,6 +10,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // tx.4 (#153) AC2: how long does a `pos_app` transaction stay open? ADR-0003's addendum
 // measured it on the prototype — 4 concurrent voids at `DB_POOL_SIZE=2`, longest transaction
@@ -56,7 +57,7 @@ describe.skipIf(!process.env.MEASURE_TX_HOLD)(
         deviceRole: 'pos',
       });
       await seedProduct(admin, TENANT, {
-        id: 'p1',
+        id: testId('p1'),
         partNo: 'OF-1',
         name: 'Oil Filter',
         price: 85,
@@ -83,7 +84,7 @@ describe.skipIf(!process.env.MEASURE_TX_HOLD)(
 
     const sale = () =>
       post('/sales', {
-        id: `s-153-${++seq}-${Date.now()}`,
+        id: testId(`s-153-${++seq}-${Date.now()}`),
         subtotal: '85.00',
         discount: '0.00',
         total: '85.00',
@@ -91,7 +92,7 @@ describe.skipIf(!process.env.MEASURE_TX_HOLD)(
         items: [
           {
             lineNo: 1,
-            productId: 'p1',
+            productId: testId('p1'),
             partNo: 'OF-1',
             name: 'Oil Filter',
             qty: 1,

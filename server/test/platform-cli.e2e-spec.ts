@@ -7,6 +7,7 @@ import type { DataSource } from 'typeorm';
 import { bootstrapAdmin } from '../src/db/bootstrap-admin.js';
 import { APP_CONFIG, type AppConfig } from '../src/config/config.js';
 import { createTestApp } from './support/fixture.js';
+import { UUID_V7 } from './support/test-ids.js';
 
 // `tsx`'s own bin script, not `npx tsx` — a devDependency already installed for
 // `pnpm k6:setup`/`k6:verify`. Running the TypeScript source directly means this suite
@@ -219,7 +220,7 @@ describe('platform CLI (e2e, #443 PR1)', () => {
     const detail = JSON.parse(result.stdout);
     expect(detail.tenant.id).toBe(tenantId);
     expect(detail.devices).toEqual([
-      expect.objectContaining({ id: 'pos1', role: 'pos', enrolled: false }),
+      expect.objectContaining({ id: expect.stringMatching(UUID_V7), role: 'pos', enrolled: false }),
     ]);
     expect(detail.importJobs).toEqual([]);
   }, 30_000);
@@ -239,16 +240,21 @@ describe('platform CLI (e2e, #443 PR1)', () => {
     );
     const tenantId = JSON.parse(created.stdout).tenantId;
     tenantsToClean.push(tenantId);
+    // The first device's id is a server UUID (#616; it was the literal 'pos1').
+    const [{ id: pos1 }] = (await adminDs.query(
+      `SELECT id FROM devices WHERE tenant_id = $1 AND device_no = 1`,
+      [tenantId],
+    )) as { id: string }[];
 
     const result = await runCli(
-      ['devices:reissue-code', tenantId, 'pos1', '--user', adminUsername, '--base-url', baseUrl],
+      ['devices:reissue-code', tenantId, pos1, '--user', adminUsername, '--base-url', baseUrl],
       [ADMIN_PASSWORD],
     );
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain('shown once');
     const parsed = JSON.parse(result.stdout);
-    expect(parsed.deviceId).toBe('pos1');
+    expect(parsed.deviceId).toBe(pos1);
     expect(parsed.enrolCode).toMatch(/^[0-9A-F]{8}$/);
 
     const enrolRes = await fetch(`${baseUrl}/api/v1/auth/device`, {

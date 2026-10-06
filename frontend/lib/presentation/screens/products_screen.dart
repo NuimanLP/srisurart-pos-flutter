@@ -1598,7 +1598,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
 
     if (_isNew) {
       final companion = ProductsCompanion.insert(
-        id: '', // repo's add() overrides this with newId('p')
+        id: '', // repo's add() overrides this with newUuid()
         partNo: partNo,
         name: name,
         nameTH: nameTH,

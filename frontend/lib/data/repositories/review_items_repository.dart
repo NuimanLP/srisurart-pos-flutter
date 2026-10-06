@@ -29,7 +29,7 @@ class ReviewItemsRepository {
     await _apiClient.post(
       '/api/v1/review-items/$id/reviewed',
       headers: {
-        'Idempotency-Key': newId('idem_rev_'),
+        'Idempotency-Key': newIdempotencyKey('idem_rev_'),
       },
     );
   }

@@ -1,9 +1,11 @@
-// Port of _newId / _docNo from pos/db.js — UUID-backed, collision-proof.
+// ID helpers. Entity ids: newUuid() (#616). Idempotency keys: newIdempotencyKey()
+// (the legacy db.js _newId shape, kept byte-identical — keys are stored server-side
+// and pinned by fixtures/client-requests). Doc numbers: docNo() (port of _docNo).
 //
 // JS source:
 //   let _idCounter = 0;
 //   _uuidShort = () => crypto.randomUUID().slice(0, 8);
-//   _newId(prefix) = `${prefix}${Date.now().toString(36)}_${_uuidShort()}_${(++_idCounter).toString(36)}`
+//   _newId = (prefix) => `${prefix}${Date.now().toString(36)}_${_uuidShort()}_${(++_idCounter).toString(36)}`
 //   _docNo(prefix) = prefix + Date.now().toString().slice(-8) + _uuidShort().slice(0,4).toUpperCase()
 //
 // NEVER inline DateTime.now() for a document number — always use these helpers.
@@ -21,10 +23,18 @@ int _idCounter = 0;
 String _uuidShort() => _uuid.v4().replaceAll('-', '').substring(0, 8);
 
 /// `prefix + base36(nowMs) + "_" + uuidShort + "_" + base36(++counter)`
-String newId(String prefix) {
+///
+/// For idempotency keys ONLY — never an entity id (the server refuses it with
+/// 400 INVALID_ID; use [newUuid]).
+String newIdempotencyKey(String prefix) {
   final ms = DateTime.now().millisecondsSinceEpoch;
   return '$prefix${ms.toRadixString(36)}_${_uuidShort()}_${(++_idCounter).toRadixString(36)}';
 }
+
+/// A lowercase UUIDv7 — the entity id form from #616 (the server's `newUuid()`
+/// in `server/src/common/ids.ts` mints the same version). `package:uuid` emits
+/// lowercase hex; the server refuses uppercase with `400 INVALID_ID`.
+String newUuid() => _uuid.v7();
 
 /// `prefix + last-8-digits-of-nowMs + uppercased first-4 of uuidShort`.
 /// JS uses `Date.now().toString().slice(-8)` — the last 8 characters of the

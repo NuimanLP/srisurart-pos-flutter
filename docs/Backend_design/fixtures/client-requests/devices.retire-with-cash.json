@@ -5,7 +5,7 @@
     {
       "route": "POST /api/v1/devices/:id/retire",
       "method": "POST",
-      "path": "/api/v1/devices/ct-device-1/retire",
+      "path": "/api/v1/devices/600ce3ef-5ddb-5441-9b7a-582be0aeafbf/retire",
       "idempotencyKey": true,
       "authorization": "bearer",
       "body": {

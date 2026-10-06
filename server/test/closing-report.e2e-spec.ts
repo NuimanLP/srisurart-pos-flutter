@@ -9,6 +9,7 @@ import {
   seedProduct,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #30 acceptance suite: `GET /reports/closing?shiftId=` and gross profit (ADR-0008).
 // Rows are seeded rather than posted, because the point of AC2 is timestamps on both
@@ -74,10 +75,10 @@ describe('closing report and gross profit (e2e)', () => {
    * subtracts, so it nets to zero rather than being taken off twice.
    */
   it('balances a shift that spans midnight, repayments included, by shift_id alone', async () => {
-    const res = await get('/closing?shiftId=sh-night');
+    const res = await get(`/closing?shiftId=${testId('sh-night')}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({
-      shiftId: 'sh-night',
+      shiftId: testId('sh-night'),
       dateStr: '2026-09-10',
       deviceId: fixture.posDeviceId,
       openedAt: '2026-09-10T15:00:00.000Z',
@@ -103,7 +104,7 @@ describe('closing report and gross profit (e2e)', () => {
   });
 
   it('leaves variance null while the shift is still open', async () => {
-    const res = await get('/closing?shiftId=sh-open');
+    const res = await get(`/closing?shiftId=${testId('sh-open')}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({
       closedAt: null,
@@ -120,7 +121,7 @@ describe('closing report and gross profit (e2e)', () => {
     // `sh-legacy`: one cash bill of 400 — pA@100 costed 60 at sale, pB@250 with no
     // snapshot (today's cost 150), and a line for a product that no longer exists.
     // 400 ÷ 1.07 = 373.8318 − (60 + 150 + 0) = 163.83
-    const res = await get('/closing?shiftId=sh-legacy');
+    const res = await get(`/closing?shiftId=${testId('sh-legacy')}`);
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({
       cashSales: '400.00',
@@ -133,12 +134,12 @@ describe('closing report and gross profit (e2e)', () => {
   it('does not move profit on rows with cost_at_sale when products.cost changes afterwards', async () => {
     // New stock received at a different cost: the weighted average rewrites products.cost.
     await admin.query(
-      `UPDATE products SET cost = 999 WHERE tenant_id = $1::uuid AND id IN ('pA', 'pB')`,
+      `UPDATE products SET cost = 999 WHERE tenant_id = $1::uuid AND id IN ('${testId('pA')}', '${testId('pB')}')`,
       [TENANT],
     );
 
     // Every line of sh-night carries cost_at_sale, so its profit does not move.
-    const night = await get('/closing?shiftId=sh-night');
+    const night = await get(`/closing?shiftId=${testId('sh-night')}`);
     expect(night.body.data).toMatchObject({
       grossProfit: '271.04',
       estimatedCostRows: 0,
@@ -146,7 +147,7 @@ describe('closing report and gross profit (e2e)', () => {
 
     // sh-legacy moves only by its one estimated line — which is exactly why that line
     // is flagged: 373.8318 − (60 + 999 + 0) = −685.17
-    const legacy = await get('/closing?shiftId=sh-legacy');
+    const legacy = await get(`/closing?shiftId=${testId('sh-legacy')}`);
     expect(legacy.body.data).toMatchObject({
       grossProfit: '-685.17',
       estimatedCostRows: 1,
@@ -155,11 +156,11 @@ describe('closing report and gross profit (e2e)', () => {
   });
 
   it("answers 404 for another tenant's shift and 400 without a shiftId", async () => {
-    const foreign = await get('/closing?shiftId=sh-secret');
+    const foreign = await get(`/closing?shiftId=${testId('sh-secret')}`);
     expect(foreign.status).toBe(404);
     expect(foreign.body.error.code).toBe('SHIFT_NOT_FOUND');
 
-    expect((await get('/closing?shiftId=nope')).status).toBe(404);
+    expect((await get(`/closing?shiftId=${testId('nope')}`)).status).toBe(404);
     expect((await get('/closing')).status).toBe(400);
   });
 
@@ -169,7 +170,7 @@ describe('closing report and gross profit (e2e)', () => {
     const device = fixture.posDeviceId;
 
     await seedProduct(admin, TENANT, {
-      id: 'pA',
+      id: testId('pA'),
       partNo: 'PA',
       name: 'Part A',
       price: 100,
@@ -177,7 +178,7 @@ describe('closing report and gross profit (e2e)', () => {
       stock: 10,
     });
     await seedProduct(admin, TENANT, {
-      id: 'pB',
+      id: testId('pB'),
       partNo: 'PB',
       name: 'Part B',
       price: 250,
@@ -185,7 +186,7 @@ describe('closing report and gross profit (e2e)', () => {
       stock: 10,
     });
     await seedMechanic(admin, TENANT, {
-      id: 'm1',
+      id: testId('m1'),
       code: 'M1',
       name: 'ช่างหนึ่ง',
       creditLimit: 10000,
@@ -194,13 +195,13 @@ describe('closing report and gross profit (e2e)', () => {
     await q(
       `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, closed_at,
                            physical_cash, is_active, archived_at, device_id)
-       VALUES ($1::uuid, 'sh-night', '2026-09-10', 1000, '2026-09-10T22:00:00+07',
+       VALUES ($1::uuid, '${testId('sh-night')}', '2026-09-10', 1000, '2026-09-10T22:00:00+07',
                '2026-09-11T02:00:00+07', 1660, FALSE, '2026-09-11T08:00:00+07', $2),
-              ($1::uuid, 'sh-other', '2026-09-10', 0, '2026-09-10T21:00:00+07',
-               '2026-09-11T03:00:00+07', 0, FALSE, '2026-09-11T08:00:00+07', 'another-till'),
-              ($1::uuid, 'sh-legacy', '2026-08-05', 0, '2026-08-05T08:00:00+07',
+              ($1::uuid, '${testId('sh-other')}', '2026-09-10', 0, '2026-09-10T21:00:00+07',
+               '2026-09-11T03:00:00+07', 0, FALSE, '2026-09-11T08:00:00+07', '${testId('another-till')}'),
+              ($1::uuid, '${testId('sh-legacy')}', '2026-08-05', 0, '2026-08-05T08:00:00+07',
                '2026-08-05T20:00:00+07', 400, FALSE, '2026-08-06T08:00:00+07', $2),
-              ($1::uuid, 'sh-open', '2026-09-11', 500, '2026-09-11T08:00:00+07',
+              ($1::uuid, '${testId('sh-open')}', '2026-09-11', 500, '2026-09-11T08:00:00+07',
                NULL, NULL, TRUE, NULL, $2)`,
       [device],
     );
@@ -208,37 +209,37 @@ describe('closing report and gross profit (e2e)', () => {
     await q(
       `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total,
                           payment_method, mechanic_id, date, voided, voided_at, shift_id)
-       VALUES ($1::uuid, 'S1', 'RC-1', 200, 0, 200, 'เงินสด', NULL,
-               '2026-09-10T23:30:00+07', FALSE, NULL, 'sh-night'),
-              ($1::uuid, 'S2', 'RC-2', 250, 0, 250, 'โอน/QR', NULL,
-               '2026-09-10T23:45:00+07', FALSE, NULL, 'sh-night'),
-              ($1::uuid, 'S3', 'RC-3', 350, 20, 330, 'เงินสด', NULL,
-               '2026-09-11T00:30:00+07', FALSE, NULL, 'sh-night'),
-              ($1::uuid, 'S4', 'RC-4', 100, 0, 100, 'เงินสด', NULL,
-               '2026-09-11T00:40:00+07', TRUE, '2026-09-11T00:45:00+07', 'sh-night'),
-              ($1::uuid, 'S5', 'RC-5', 250, 0, 250, 'เครดิตช่าง', 'm1',
-               '2026-09-11T00:55:00+07', FALSE, NULL, 'sh-night'),
-              ($1::uuid, 'S6', 'RC-6', 100, 0, 100, 'เงินสด', NULL,
-               '2026-09-11T01:00:00+07', TRUE, '2026-09-11T01:20:00+07', 'sh-night'),
-              ($1::uuid, 'D1', 'RC-D1', 999, 0, 999, 'เงินสด', NULL,
-               '2026-09-10T23:59:00+07', FALSE, NULL, 'sh-other'),
-              ($1::uuid, 'I1', 'RC-I1', 400, 0, 400, 'เงินสด', NULL,
-               '2026-08-05T10:00:00+07', FALSE, NULL, 'sh-legacy')`,
+       VALUES ($1::uuid, '${testId('S1')}', 'RC-1', 200, 0, 200, 'เงินสด', NULL,
+               '2026-09-10T23:30:00+07', FALSE, NULL, '${testId('sh-night')}'),
+              ($1::uuid, '${testId('S2')}', 'RC-2', 250, 0, 250, 'โอน/QR', NULL,
+               '2026-09-10T23:45:00+07', FALSE, NULL, '${testId('sh-night')}'),
+              ($1::uuid, '${testId('S3')}', 'RC-3', 350, 20, 330, 'เงินสด', NULL,
+               '2026-09-11T00:30:00+07', FALSE, NULL, '${testId('sh-night')}'),
+              ($1::uuid, '${testId('S4')}', 'RC-4', 100, 0, 100, 'เงินสด', NULL,
+               '2026-09-11T00:40:00+07', TRUE, '2026-09-11T00:45:00+07', '${testId('sh-night')}'),
+              ($1::uuid, '${testId('S5')}', 'RC-5', 250, 0, 250, 'เครดิตช่าง', '${testId('m1')}',
+               '2026-09-11T00:55:00+07', FALSE, NULL, '${testId('sh-night')}'),
+              ($1::uuid, '${testId('S6')}', 'RC-6', 100, 0, 100, 'เงินสด', NULL,
+               '2026-09-11T01:00:00+07', TRUE, '2026-09-11T01:20:00+07', '${testId('sh-night')}'),
+              ($1::uuid, '${testId('D1')}', 'RC-D1', 999, 0, 999, 'เงินสด', NULL,
+               '2026-09-10T23:59:00+07', FALSE, NULL, '${testId('sh-other')}'),
+              ($1::uuid, '${testId('I1')}', 'RC-I1', 400, 0, 400, 'เงินสด', NULL,
+               '2026-08-05T10:00:00+07', FALSE, NULL, '${testId('sh-legacy')}')`,
     );
     await q(
       `INSERT INTO sale_items (tenant_id, sale_id, line_no, product_id, part_no, name,
                                qty, price, cost_at_sale)
-       VALUES ($1::uuid, 'S1', 1, 'pA', 'PA', 'Part A', 2, 100, 60),
-              ($1::uuid, 'S2', 1, 'pB', 'PB', 'Part B', 1, 250, 150),
-              ($1::uuid, 'S3', 1, 'pB', 'PB', 'Part B', 1, 250, 150),
-              ($1::uuid, 'S3', 2, 'pA', 'PA', 'Part A', 1, 100, 60),
-              ($1::uuid, 'S4', 1, 'pA', 'PA', 'Part A', 1, 100, 60),
-              ($1::uuid, 'S5', 1, 'pB', 'PB', 'Part B', 1, 250, 150),
-              ($1::uuid, 'S6', 1, 'pA', 'PA', 'Part A', 1, 100, 60),
-              ($1::uuid, 'D1', 1, 'pA', 'PA', 'Part A', 1, 999, 60),
-              ($1::uuid, 'I1', 1, 'pA', 'PA', 'Part A', 1, 100, 60),
-              ($1::uuid, 'I1', 2, 'pB', 'PB', 'Part B', 1, 250, NULL),
-              ($1::uuid, 'I1', 3, 'gone', 'GONE', 'Deleted part', 1, 50, NULL)`,
+       VALUES ($1::uuid, '${testId('S1')}', 1, '${testId('pA')}', 'PA', 'Part A', 2, 100, 60),
+              ($1::uuid, '${testId('S2')}', 1, '${testId('pB')}', 'PB', 'Part B', 1, 250, 150),
+              ($1::uuid, '${testId('S3')}', 1, '${testId('pB')}', 'PB', 'Part B', 1, 250, 150),
+              ($1::uuid, '${testId('S3')}', 2, '${testId('pA')}', 'PA', 'Part A', 1, 100, 60),
+              ($1::uuid, '${testId('S4')}', 1, '${testId('pA')}', 'PA', 'Part A', 1, 100, 60),
+              ($1::uuid, '${testId('S5')}', 1, '${testId('pB')}', 'PB', 'Part B', 1, 250, 150),
+              ($1::uuid, '${testId('S6')}', 1, '${testId('pA')}', 'PA', 'Part A', 1, 100, 60),
+              ($1::uuid, '${testId('D1')}', 1, '${testId('pA')}', 'PA', 'Part A', 1, 999, 60),
+              ($1::uuid, '${testId('I1')}', 1, '${testId('pA')}', 'PA', 'Part A', 1, 100, 60),
+              ($1::uuid, '${testId('I1')}', 2, '${testId('pB')}', 'PB', 'Part B', 1, 250, NULL),
+              ($1::uuid, '${testId('I1')}', 3, '${testId('gone')}', 'GONE', 'Deleted part', 1, 50, NULL)`,
     );
 
     // R1: one pA back off S3, refunded in cash with its share of the bill discount
@@ -247,41 +248,41 @@ describe('closing report and gross profit (e2e)', () => {
     await q(
       `INSERT INTO returns (tenant_id, id, cn_no, sale_id, receipt_no, refund_subtotal,
                             refund_discount, refund_total, refund_method, date, shift_id)
-       VALUES ($1::uuid, 'R1', 'CN-1', 'S3', 'RC-3', 100, 5.71, 94.29, 'เงินสด',
-               '2026-09-11T01:10:00+07', 'sh-night'),
-              ($1::uuid, 'R2', 'CN-2', 'S6', 'RC-6', 100, 0, 100, 'เงินสด',
-               '2026-09-11T01:20:00+07', 'sh-night'),
-              ($1::uuid, 'R3', 'CN-3', 'S1', 'RC-1', 100, 0, 100, 'โอน',
-               '2026-09-11T01:40:00+07', 'sh-night')`,
+       VALUES ($1::uuid, '${testId('R1')}', 'CN-1', '${testId('S3')}', 'RC-3', 100, 5.71, 94.29, 'เงินสด',
+               '2026-09-11T01:10:00+07', '${testId('sh-night')}'),
+              ($1::uuid, '${testId('R2')}', 'CN-2', '${testId('S6')}', 'RC-6', 100, 0, 100, 'เงินสด',
+               '2026-09-11T01:20:00+07', '${testId('sh-night')}'),
+              ($1::uuid, '${testId('R3')}', 'CN-3', '${testId('S1')}', 'RC-1', 100, 0, 100, 'โอน',
+               '2026-09-11T01:40:00+07', '${testId('sh-night')}')`,
     );
     await q(
       `INSERT INTO return_items (tenant_id, return_id, line_no, product_id, name, qty,
                                  price, original_qty, cost_at_sale)
-       VALUES ($1::uuid, 'R1', 1, 'pA', 'Part A', 1, 100, 1, 60),
-              ($1::uuid, 'R2', 1, 'pA', 'Part A', 1, 100, 1, 60),
-              ($1::uuid, 'R3', 1, 'pA', 'Part A', 1, 100, 2, 60)`,
+       VALUES ($1::uuid, '${testId('R1')}', 1, '${testId('pA')}', 'Part A', 1, 100, 1, 60),
+              ($1::uuid, '${testId('R2')}', 1, '${testId('pA')}', 'Part A', 1, 100, 1, 60),
+              ($1::uuid, '${testId('R3')}', 1, '${testId('pA')}', 'Part A', 1, 100, 2, 60)`,
     );
 
     await q(
       `INSERT INTO credit_payments (tenant_id, id, receipt_no, mechanic_id, amount,
                                     payment_method, date, shift_id)
-       VALUES ($1::uuid, 'CP1', 'CP-1', 'm1', 300, 'เงินสด',
-               '2026-09-10T23:50:00+07', 'sh-night'),
-              ($1::uuid, 'CP2', 'CP-2', 'm1', 500, 'โอน/QR',
-               '2026-09-11T00:50:00+07', 'sh-night'),
-              ($1::uuid, 'CP3', 'CP-3', 'm1', 700, 'เงินสด',
-               '2026-09-11T00:10:00+07', 'sh-other')`,
+       VALUES ($1::uuid, '${testId('CP1')}', 'CP-1', '${testId('m1')}', 300, 'เงินสด',
+               '2026-09-10T23:50:00+07', '${testId('sh-night')}'),
+              ($1::uuid, '${testId('CP2')}', 'CP-2', '${testId('m1')}', 500, 'โอน/QR',
+               '2026-09-11T00:50:00+07', '${testId('sh-night')}'),
+              ($1::uuid, '${testId('CP3')}', 'CP-3', '${testId('m1')}', 700, 'เงินสด',
+               '2026-09-11T00:10:00+07', '${testId('sh-other')}')`,
     );
     await q(
       `INSERT INTO drawer_entries (tenant_id, id, shift_id, type, amount, note, created_at)
-       VALUES ($1::uuid, 'de1', 'sh-night', 'in', 50, 'ทอน', '2026-09-10T23:10:00+07'),
-              ($1::uuid, 'de2', 'sh-night', 'out', 120, 'ค่าส่ง', '2026-09-11T01:30:00+07'),
-              ($1::uuid, 'de3', 'sh-other', 'out', 400, 'x', '2026-09-11T00:00:00+07')`,
+       VALUES ($1::uuid, '${testId('de1')}', '${testId('sh-night')}', 'in', 50, 'ทอน', '2026-09-10T23:10:00+07'),
+              ($1::uuid, '${testId('de2')}', '${testId('sh-night')}', 'out', 120, 'ค่าส่ง', '2026-09-11T01:30:00+07'),
+              ($1::uuid, '${testId('de3')}', '${testId('sh-other')}', 'out', 400, 'x', '2026-09-11T00:00:00+07')`,
     );
 
     await admin.query(
       `INSERT INTO shifts (tenant_id, id, date_str, starting_cash, opened_at, is_active, device_id)
-       VALUES ($1::uuid, 'sh-secret', '2026-09-10', 999999, now(), TRUE, 'pos-secret')`,
+       VALUES ($1::uuid, '${testId('sh-secret')}', '2026-09-10', 999999, now(), TRUE, '${testId('pos-secret')}')`,
       [OTHER],
     );
   }

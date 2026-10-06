@@ -89,12 +89,12 @@ export default function () {
     });
   } else {
     const url = `${env.baseUrl}/api/v1/sales`;
-    const saleId = `sale-mixed-${generateUUID()}`;
+    const saleId = generateUUID(); // #616: entity ids are UUIDs
     const idemKey = `idem-mixed-${__VU}-${__ITER}-${Date.now()}`;
 
-    // Select product from catalogue (p_1 to p_50)
+    // Select product from catalogue (testId('p_1') to testId('p_50'), written by setup.ts)
     const productIdx = ((__VU + __ITER) % 50) + 1;
-    const prodId = env.products && env.products[productIdx] ? env.products[productIdx] : `p_${productIdx}`;
+    const prodId = env.products[productIdx];
 
     const payload = JSON.stringify({
       id: saleId,

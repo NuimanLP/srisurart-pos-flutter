@@ -9,6 +9,7 @@ import {
   seedOpenShift,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // The seam itself: the guard names the tenant on the request scope, the handler's
 // `TenantService.runTx` opens and ends the transaction (tx.4 #153), and the paths the guard
@@ -175,7 +176,7 @@ describe('the request-context seam (e2e)', () => {
     );
     await admin.query(
       `INSERT INTO products (tenant_id, id, part_no, name, name_th, category, brand, price, cost, stock)
-            VALUES ($1::uuid, 'p1', 'X-1', 'Widget', 'วิดเจ็ต', 'อื่นๆ', 'T', 10, 5, 9)`,
+            VALUES ($1::uuid, '${testId('p1')}', 'X-1', 'Widget', 'วิดเจ็ต', 'อื่นๆ', 'T', 10, 5, 9)`,
       [TENANT],
     );
 
@@ -184,18 +185,18 @@ describe('the request-context seam (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .set('Idempotency-Key', `k-rollback-${Date.now()}`)
       .send({
-        id: `s-rollback-${Date.now()}`,
+        id: testId(`s-rollback-${Date.now()}`),
         subtotal: '10.00',
         discount: '0.00',
         total: '10.00',
         paymentMethod: 'เงินสด',
-        customerId: 'nobody',
-        items: [{ lineNo: 1, productId: 'p1', name: 'Widget', qty: 1, price: '10.00' }],
+        customerId: testId('nobody'),
+        items: [{ lineNo: 1, productId: testId('p1'), name: 'Widget', qty: 1, price: '10.00' }],
       });
     expect(res.status).toBe(400);
 
     const stock = await admin.query(
-      `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = 'p1'`,
+      `SELECT stock FROM products WHERE tenant_id = $1::uuid AND id = '${testId('p1')}'`,
       [TENANT],
     );
     expect(stock[0].stock).toBe(9);

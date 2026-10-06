@@ -12,6 +12,8 @@
  * caller runs alongside it). No DB access, so every rule here is unit-testable on its own.
  */
 
+import { isUuid } from '../common/ids.js';
+
 type Row = Record<string, unknown>;
 
 const rows = (v: unknown): Row[] =>
@@ -311,4 +313,81 @@ export function describeBadDate(d: BadDate): string {
 }
 export function describeClamp(c: ClampViolation): string {
   return `${c.table}:${c.id}.${c.field} ${c.rule} (got ${JSON.stringify(c.value)})`;
+}
+
+// ── 4. Ids must be lowercase UUIDs (#616) ───────────────────────────────────────────────
+// Ids are `uuid` columns now. Legacy import is dropped: a snapshot from the old app (ids like
+// `p1`, `slq3x9a_1a2b3c4d_7`) must never reach the importer, which only reads the shape this
+// server's own `/backup/export` writes. Every row's own `id` is required (the export always
+// writes one, shifts/drawer entries/parked bills included); a reference is checked only when
+// the file supplies a value (an absent/null reference is a normal optional field), except a
+// sale/return line's productId, which is required.
+
+export interface BadId {
+  table: string;
+  field: string;
+  value: unknown;
+}
+
+export function planBadIds(snapshot: Row): BadId[] {
+  const out: BadId[] = [];
+  const own = (table: string, r: Row, path: string) => {
+    if (!isUuid(r.id)) out.push({ table, field: `${path}id`, value: r.id });
+  };
+  const refs = (table: string, r: Row, path: string, fields: string[]) => {
+    for (const f of fields) {
+      const v = r[f] ?? r[f.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)];
+      if (v != null && v !== '' && !isUuid(v)) out.push({ table, field: `${path}${f}`, value: v });
+    }
+  };
+  // A sale/return line's product is NOT NULL (`sale_items`/`return_items.product_id`) and the
+  // export always writes it, so an absent one is refused here — the importer would otherwise
+  // insert `String(undefined)` and fail in the worker with 22P02. A quote line may have none
+  // (free-text line: `quote_items.product_id` is nullable and the export omits the key).
+  const items = (table: string, r: Row, lineProduct: 'required' | 'optional') =>
+    rows(r.items).forEach((it, i) => {
+      const v = it.productId ?? it.product_id;
+      if (lineProduct === 'required' && (v == null || v === '')) {
+        out.push({ table, field: `items[${i}].productId`, value: v });
+      } else {
+        refs(table, it, `items[${i}].`, ['productId']);
+      }
+    });
+
+  // [snapshot key, table label, reference fields, line items' productId]
+  const specs: Array<[string, string, string[], 'required' | 'optional' | null]> = [
+    ['sa_products', 'products', [], null],
+    ['sa_customers', 'customers', [], null],
+    ['sa_mechanics', 'mechanics', [], null],
+    ['sa_sales', 'sales', ['customerId', 'mechanicId', 'shiftId', 'deviceId'], 'required'],
+    ['sa_returns', 'returns', ['saleId', 'customerId', 'mechanicId', 'shiftId', 'deviceId'], 'required'],
+    ['sa_pos', 'purchaseOrders', [], 'optional'],
+    ['sa_quotes', 'quotes', ['convertedSaleId'], 'optional'],
+    ['sa_movements', 'movements', ['productId', 'refId'], null],
+    ['sa_suppliers', 'suppliers', ['productId'], null],
+    ['sa_credit_payments', 'creditPayments', ['mechanicId', 'shiftId', 'deviceId'], null],
+  ];
+  for (const [key, table, fields, lineProduct] of specs) {
+    for (const r of rows(snapshot[key])) {
+      own(table, r, '');
+      refs(table, r, '', fields);
+      if (lineProduct) items(table, r, lineProduct);
+    }
+  }
+
+  const shifts: Row[] = [
+    ...(snapshot.sa_cash_drawer && typeof snapshot.sa_cash_drawer === 'object' ? [snapshot.sa_cash_drawer as Row] : []),
+    ...rows(snapshot.sa_shift_history),
+  ];
+  for (const sh of shifts) {
+    own('shifts', sh, '');
+    refs('shifts', sh, '', ['deviceId']);
+    rows(sh.entries).forEach((e, j) => own('drawerEntries', e, `entries[${j}].`));
+  }
+  for (const ps of rows(snapshot.sa_parked)) own('parkedSales', ps, '');
+  return out;
+}
+
+export function describeBadId(b: BadId): string {
+  return `${b.table}.${b.field} = ${JSON.stringify(b.value)}`;
 }

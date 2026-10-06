@@ -9,11 +9,11 @@
       "outboxRemaining": 0,
       "ops": [
         {
-          "opId": "op_cust_001",
+          "opId": "280eeaf7-73b1-5f0c-89fa-10f1988159b8",
           "idempotencyKey": "k_cust_001",
           "type": "customer.create",
           "payload": {
-            "id": "c_off_001",
+            "id": "01e51818-666e-56e9-ba01-c2ec62e96721",
             "name": "สมชาย สายลม",
             "phone": "0812345678",
             "address": "123 ถ.สุขุมวิท"
@@ -29,10 +29,10 @@
       "data": {
         "results": [
           {
-            "opId": "op_cust_001",
+            "opId": "280eeaf7-73b1-5f0c-89fa-10f1988159b8",
             "status": "applied",
             "response": {
-              "id": "c_off_001",
+              "id": "01e51818-666e-56e9-ba01-c2ec62e96721",
               "name": "สมชาย สายลม",
               "phone": "0812345678",
               "address": "123 ถ.สุขุมวิท",

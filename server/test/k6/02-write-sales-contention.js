@@ -55,7 +55,7 @@ export default function () {
   sleep(Math.random() * spreadSeconds);
 
   const url = `${env.baseUrl}/api/v1/sales`;
-  const saleId = `sale-${generateUUID()}`;
+  const saleId = generateUUID(); // #616: entity ids are UUIDs
   const idemKey = `idem-k6-contention-${__VU}-${__ITER}-${Date.now()}`;
 
   const payload = JSON.stringify({
@@ -66,7 +66,7 @@ export default function () {
     paymentMethod: 'เงินสด',
     items: [
       {
-        productId: env.productId ?? 'p12',
+        productId: env.productId ?? 'aa26bced-5733-5c13-87e5-a2ee131fbd7c', // testId('p12') — setup.ts
         name: 'Brake Pad Special P12',
         qty: 1,
         price: 100.0,

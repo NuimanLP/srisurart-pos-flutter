@@ -78,7 +78,7 @@ class ApiSalesRepository implements SalesRepository {
   /// The bill id + `Idempotency-Key` of an attempt that never got a verdict,
   /// keyed by the cart it was for — this is what stops a cashier's second press
   /// after a timeout from becoming a second bill.
-  final PendingWrites _pending = PendingWrites('s');
+  final PendingWrites _pending = PendingWrites();
 
   bool get _isDegraded {
     if (isOffline) return true;
@@ -510,7 +510,7 @@ class ApiSalesRepository implements SalesRepository {
         .getSingleOrNull();
     final effectiveShiftId = shiftId ?? activeShift?.id;
 
-    final opId = newId('op');
+    final opId = newUuid();
     final aggregates = [
       'sale:$saleId',
       if (effectiveShiftId != null) 'shift:$effectiveShiftId',
@@ -727,8 +727,8 @@ class ApiSalesRepository implements SalesRepository {
     final items = await (db.select(db.saleItems)..where((t) => t.saleId.equals(saleId))).get();
     final now = DateTime.now();
 
-    final opId = newId('op');
-    final idempotencyKey = newId('k');
+    final opId = newUuid();
+    final idempotencyKey = newIdempotencyKey('k');
     final aggregates = [
       'sale:$saleId',
       if (sale.shiftId != null) 'shift:${sale.shiftId}',

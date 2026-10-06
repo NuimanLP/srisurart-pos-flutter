@@ -41,7 +41,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
 
   /// Add-mechanic attempts whose fate is unknown (5xx, lost reply): a retry of
   /// the same body is sent under the same `Idempotency-Key`.
-  final PendingWrites _pendingAdds = PendingWrites('m');
+  final PendingWrites _pendingAdds = PendingWrites();
 
   bool get _isDegraded {
     final sync = syncService ??
@@ -368,10 +368,10 @@ class ApiMechanicsRepository extends MechanicsRepository {
       );
     }
 
-    final localId = newId('cp');
+    final localId = newUuid();
     final now = DateTime.now();
-    final key = newId('idem');
-    final opId = newId('op');
+    final key = newIdempotencyKey('idem');
+    final opId = newUuid();
     final wireAmt = wireMoney(amount);
 
     final activeShift = await (db.select(db.shifts)

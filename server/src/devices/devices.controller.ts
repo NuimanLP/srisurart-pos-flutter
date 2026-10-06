@@ -14,6 +14,7 @@ import type { Request, Response } from 'express';
 import { clientIp } from '../common/client-ip.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
+import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { toSatang } from '../common/money.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
 import { IdempotencyService } from '../idempotency/idempotency.service.js';
@@ -89,7 +90,7 @@ export class DevicesController {
   @Post(':id/retire')
   @HttpCode(200)
   retire(
-    @Param('id') id: string,
+    @Param('id', ParseUuidPipe) id: string,
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,

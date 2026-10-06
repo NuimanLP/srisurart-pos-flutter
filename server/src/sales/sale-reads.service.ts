@@ -204,7 +204,7 @@ export class SaleReadsService {
     const items = (await manager.query(
       `SELECT sale_id, line_no, product_id, part_no, name, name_th, qty, price, cost_at_sale
          FROM sale_items
-        WHERE tenant_id = $1::uuid AND sale_id = ANY($2::text[])
+        WHERE tenant_id = $1::uuid AND sale_id = ANY($2::uuid[])
         ORDER BY sale_id, line_no`,
       [tenantId, rows.map((r) => r.id)],
     )) as ({ sale_id: string } & Record<string, unknown>)[];

@@ -9,13 +9,14 @@ import {
   seedOpenShift,
   type TenantFixture,
 } from './support/fixture.js';
+import { testId } from './support/test-ids.js';
 
 // #24 acceptance suite. `mechanics_repository.dart` `addCreditPayment` reproduced at
 // the HTTP seam, plus the rules the Dart version has no concept of: device roles,
 // server-issued CP numbers, the `shift_id` stamp and the open-drawer requirement, and
 // idempotency.
 const TENANT = 'dddddddd-2424-4242-8242-dddddddddddd';
-const MECHANIC = 'm-credit-1';
+const MECHANIC = testId('m-credit-1');
 
 describe('POST /mechanics/:id/credit-payments (e2e)', () => {
   let app: INestApplication;
@@ -142,7 +143,7 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
     // before the overpayment check, so even an overpayment reads NO_OPEN_SHIFT.
     await admin.query(`DELETE FROM shifts WHERE tenant_id = $1::uuid`, [TENANT]);
     const key = `cp-noshift-${Date.now()}`;
-    const body = { id: 'cp-noshift', amount: '100.00', paymentMethod: 'เงินสด' };
+    const body = { id: testId('cp-noshift'), amount: '100.00', paymentMethod: 'เงินสด' };
 
     for (const [b, k] of [
       [body, key],
@@ -190,7 +191,7 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
     // retry reads at the counter as "it did not go through", and the mechanic pays twice.
     const shift = await openDrawer();
     const key = `cp-replay-closed-${Date.now()}`;
-    const body = { id: 'cp-before-close', amount: '500.00', paymentMethod: 'เงินสด' };
+    const body = { id: testId('cp-before-close'), amount: '500.00', paymentMethod: 'เงินสด' };
     const first = await pay(body, { key });
     expect(first.status).toBe(201);
     expect((await closeDrawer()).status).toBe(200);
@@ -406,7 +407,7 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
     // repository minted is not. A partial payment is not caught by the overpayment
     // check, so without this the tab loses 500 the mechanic never paid.
     const body = {
-      id: 'cp-client-1',
+      id: testId('cp-client-1'),
       amount: '500.00',
       paymentMethod: 'เงินสด',
     };
@@ -416,7 +417,7 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
 
     expect(first.status).toBe(201);
     expect(retry.status).toBe(201);
-    expect(retry.body.data.id).toBe('cp-client-1');
+    expect(retry.body.data.id).toBe(testId('cp-client-1'));
     expect(retry.body.data.receiptNo).toBe(first.body.data.receiptNo);
     expect(retry.body.data.mechanicCreditBalanceAfter).toBe('2500.00');
     expect(await paymentRows()).toHaveLength(1);
@@ -427,7 +428,7 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
     // The replay check runs before the overpayment check: the first attempt took the
     // tab to zero, and a 409 on the retry reads at the counter as "it did not go through".
     const body = {
-      id: 'cp-client-full',
+      id: testId('cp-client-full'),
       amount: '3000.00',
       paymentMethod: 'เงินสด',
     };
@@ -440,9 +441,9 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
   });
 
   it('a client id that names a different payment is refused', async () => {
-    await pay({ id: 'cp-client-2', amount: '500.00', paymentMethod: 'เงินสด' });
+    await pay({ id: testId('cp-client-2'), amount: '500.00', paymentMethod: 'เงินสด' });
     const clash = await pay({
-      id: 'cp-client-2',
+      id: testId('cp-client-2'),
       amount: '700.00',
       paymentMethod: 'เงินสด',
     });
@@ -457,7 +458,7 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
     // #75: the fingerprint once used the route pattern, so a reused key answered for
     // the wrong bill. Here the path parameter chooses whose debt moves.
     await seedMechanic(admin, TENANT, {
-      id: 'm-credit-2',
+      id: testId('m-credit-2'),
       code: 'M002',
       name: 'ช่างสมศักดิ์',
       creditBalance: 1000,
@@ -466,13 +467,13 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
     const body = { amount: '400.00', paymentMethod: 'เงินสด' };
 
     const first = await pay(body, { key });
-    const second = await pay(body, { key, mechanicId: 'm-credit-2' });
+    const second = await pay(body, { key, mechanicId: testId('m-credit-2') });
 
     expect(first.status).toBe(201);
     expect(second.status).not.toBe(201);
     expect(await balanceOf()).toBe('2600.00');
     const other = await admin.query(
-      `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = 'm-credit-2'`,
+      `SELECT credit_balance FROM mechanics WHERE tenant_id = $1::uuid AND id = '${testId('m-credit-2')}'`,
       [TENANT],
     );
     expect(other[0].credit_balance).toBe('1000.00');
@@ -510,7 +511,7 @@ describe('POST /mechanics/:id/credit-payments (e2e)', () => {
   it('an unknown mechanic is a 404, not a foreign-key 500', async () => {
     const res = await pay(
       { amount: '100.00', paymentMethod: 'เงินสด' },
-      { mechanicId: 'm-does-not-exist' },
+      { mechanicId: testId('m-does-not-exist') },
     );
 
     expect(res.status).toBe(404);
