@@ -687,7 +687,7 @@ ADR-0004 เจอว่าฉบับแรกให้ client ส่ง `devi
 - enrolment code มีแค่ 8 hex = 32 บิต สั้นเพราะต้องให้คนพิมพ์ แต่ชดเชยด้วย **ใช้ครั้งเดียว + หมดอายุ 15 นาที** (`devices.service.ts:70`)
 - ตอน login: `did`/`drole` ถูกแปลงจาก device token ที่ server ตรวจเอง (`auth.service.ts:103-128`) — **ไม่รับ `deviceId` จาก body**
   กฎเดียวกับ `tid`: **ตัวตนมาจากสิ่งที่ server ตรวจแล้วเท่านั้น ไม่ใช่สิ่งที่ client อ้าง**
-- device token ที่ถูก retire หรือ server ไม่รู้จัก → `401 DEVICE_RETIRED` / `401 DEVICE_TOKEN_INVALID` **ก่อนตรวจรหัสผ่าน** (#609, 2026-10-05) — เดิมเป็น `UNAUTHORIZED` ไม่มี code จึงอ่านเหมือนรหัสผ่านผิด แล้ว token ที่ตายค้างในเบราว์เซอร์ตลอด; ฝั่ง client ลบ token + PIN ออฟไลน์แล้วกลับเป็นโหมด Backoffice (`DeviceEnrolmentGoneException`) · `/sync/push` (`DeviceTokenGuard`) ยังตอบ `UNAUTHORIZED` เหมือนเดิม
+- device token ที่ถูก retire หรือ server ไม่รู้จัก → `401 DEVICE_RETIRED` / `401 DEVICE_TOKEN_INVALID` **ก่อนตรวจรหัสผ่าน** (#609, 2026-10-05) — เดิมเป็น `UNAUTHORIZED` ไม่มี code จึงอ่านเหมือนรหัสผ่านผิด แล้ว token ที่ตายค้างในเบราว์เซอร์ตลอด; ฝั่ง client ลบ token + PIN ออฟไลน์แล้วกลับเป็นโหมด Backoffice (`DeviceEnrolmentGoneException`) · `/sync/push` (`DeviceTokenGuard`) ยังตอบ `UNAUTHORIZED` เหมือนเดิม · **#612 (PR #625/#629, 2026-10-06):** dialog ตั้ง PIN ออฟไลน์เจอ device token ตาย → จัดการเหมือน #609 และมีแค่ 401 `UNAUTHORIZED` ที่แปลว่ารหัสผ่านผิด; `OfflinePinRepository.setPin` แปลง `ApiException` เอง widget ไม่เห็น
 
 ### 9. SQL injection — parameterized query
 

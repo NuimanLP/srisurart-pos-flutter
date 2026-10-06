@@ -372,11 +372,13 @@ HTTPS พอร์ต 443 เท่านั้น (ดูบท 02/14)
 - **Pull Request (PR)** = คำขอ "รวมงานของฉันเข้า branch หลักหน่อย" เปิดให้คนอื่นตรวจสอบ (review)
   ก่อนรวมจริง
 
-ภาพ branch ของ repo นี้เอง (มีแค่ 2 branch ที่อยู่ถาวร — บังคับใช้ตั้งแต่ 2026-09-22 ตาม
-`CLAUDE.md`):
+ภาพ branch ของ repo นี้เอง (มี 3 branch ที่อยู่ถาวร: `main`, `develop`, `POC_sample_offline_first` —
+เดิมมีแค่ 2 ตั้งแต่ 2026-09-22; เพิ่ม `develop` ช่วง 2026-10-06 ตามกติกา branch ปัจจุบัน):
 
 ```
-main                    ──●──●──●──●──●──●──●──►  (สาย multi-tenant + backend + CI/CD, งานใหม่ทั้งหมดมาที่นี่)
+main                    ──●──●──●──●──●──●──●──►  (สาย multi-tenant + backend + CI/CD, รับจาก develop ด้วย merge commit)
+                          ↑ merge commit
+develop                 ──●──●──●──●──●──●──●──►  (integration — PR ใหม่ลงที่นี่ก่อน แล้วค่อย develop→main)
                           │
 POC_sample_offline_first ●  (แยกออกจาก main ที่ commit 4dae2f0 แล้วแช่แข็งไว้ — ไม่พัฒนาต่อ)
 ```
@@ -553,7 +555,7 @@ that anything was deployed") — engineer ที่ดีแยกระหว�
 
 - โปรเจกต์นี้คือ POS ร้านอะไหล่รถยนต์ไทย "ศรีสุรัตน์" ผ่านมา 3 ยุค: JS+localStorage → Flutter
   offline-first → multi-tenant client+server+CI/CD
-- `main` คือสายงานปัจจุบัน (multi-tenant); `POC_sample_offline_first` คือภาพนิ่งของยุค offline-first
+- `main` คือสายงานปัจจุบัน (multi-tenant); `develop` คือสาย integration (PR ลงที่นี่ก่อน แล้ว develop→main ด้วย merge commit — ตั้งแต่ 2026-10-06); `POC_sample_offline_first` คือภาพนิ่งของยุค offline-first
   แช่แข็งไว้อ้างอิง ห้ามพัฒนาต่อ
 - ร้านจริงยังใช้ตัวเก่า (offline) ขายของทุกวัน — ยังไม่มีการตัดสลับมาใช้ตัวใหม่
 - ชุดเอกสารนี้มี 20 บท (00–19) เขียนเสร็จครบแล้วทุกบท (ตรวจจาก `ls docs/study/` 2026-10-01) อ่านตามลำดับ

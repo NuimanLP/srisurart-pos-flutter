@@ -951,7 +951,7 @@ manifest) เดินหน้าต่อได้
 | **go_router** | `^17.3.0` | routing แบบ declarative รองรับ ShellRoute, redirect, URL บนเว็บ | มี redirect/guard ในตัว ใช้กับ login-gate ของ phase 1 ได้ตรงๆ | `Navigator` แบบ imperative ล้วน |
 | **google_fonts** | `^6.2.1` | โหลดฟอนต์ (แต่ปิด runtime fetch แล้ว — ใช้ asset ที่ bundle เอง #271) | คงไว้เพื่อ API เดิม แต่ตั้ง `allowRuntimeFetching = false` กัน network fetch | — |
 | **intl** | `^0.20.2` | จัดรูปแบบตัวเลข/วันที่ (ใช้ใน `money.dart`, `thai_format.dart`) | มาตรฐาน Dart official | — |
-| **uuid** | `^4.5.3` | สร้าง id สุ่ม (ผ่าน `ids.dart` เท่านั้น ไม่เรียกตรง) | — | — |
+| **uuid** | `^4.5.3` | สร้าง id (ผ่าน `ids.dart` เท่านั้น ไม่เรียกตรง) — `newUuid()` = UUIDv7 ตัวพิมพ์เล็กสำหรับ id ของ entity (#616), `newIdempotencyKey()` สำหรับ header | — | — |
 | **http** | `^1.5.0` | HTTP client สำหรับ `ApiClient` เรียก backend | มาตรฐาน Dart official | `dio` และอื่นๆ |
 | **shared_preferences** | `^2.5.5` | เก็บค่าเล็กๆ เช่น token บนเครื่อง | เบาสำหรับ key-value ง่ายๆ | ไม่ใช้ Drift สำหรับของแบบนี้ (เกินความจำเป็น) |
 | **pdf** / **printing** | `^3.13.0` / `^5.15.0` | สร้าง/พิมพ์ใบเสร็จ, ใบเสนอราคา A4 | — | — |

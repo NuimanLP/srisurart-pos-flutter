@@ -572,14 +572,14 @@ erDiagram
   }
   DEVICES {
     uuid tenant_id "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     smallint device_no "CHECK 1..99, UNIQUE (tenant_id, device_no)"
     text role "pos / backoffice, pos ได้ 1 เครื่อง"
     timestamptz retired_at
   }
   PRODUCTS {
     uuid tenant_id FK "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     text part_no "ห้ามซ้ำในร้าน (partial unique index)"
     numeric price "CHECK >= 0"
     numeric cost "CHECK >= 0"
@@ -589,7 +589,7 @@ erDiagram
   }
   MOVEMENTS {
     uuid tenant_id "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     text product_id "FK ร่วม (tenant_id, product_id)"
     int delta
     text type "sale / return / receive / adjustment-in / adjustment-out"
@@ -597,20 +597,20 @@ erDiagram
   }
   CUSTOMERS {
     uuid tenant_id "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     text code "UNIQUE (tenant_id, code)"
     int points "CHECK >= 0"
     numeric total_spend
   }
   MECHANICS {
     uuid tenant_id "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     numeric credit_limit
     numeric credit_balance "CHECK >= 0"
   }
   SALES {
     uuid tenant_id "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     text receipt_no "UNIQUE (tenant_id, receipt_no)"
     numeric total
     text payment_method
@@ -630,21 +630,21 @@ erDiagram
   }
   RETURNS {
     uuid tenant_id "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     text cn_no "UNIQUE (tenant_id, cn_no)"
     text sale_id "FK ร่วม → sales"
     numeric refund_total
   }
   SHIFTS {
     uuid tenant_id "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     text device_id "active ได้ 1 กะต่อเครื่อง"
     numeric starting_cash
     boolean is_active
   }
   DRAWER_ENTRIES {
     uuid tenant_id "PK ร่วม (tenant_id, id)"
-    text id "PK ร่วม (tenant_id, id)"
+    uuid id "PK ร่วม (tenant_id, id)"
     text shift_id "FK ร่วม → shifts"
     text type "CHECK in / out"
     numeric amount "CHECK > 0"
@@ -705,7 +705,7 @@ erDiagram
 | | `role` | `TEXT` | **บทบาท/สิทธิ์** — ถูกจำกัดด้วย `CHECK (role = 'owner')` (ปัจจุบันระบบคงเหลือเฉพาะเจ้าของร้าน) |
 | | `is_active` | `BOOLEAN` | **สถานะเปิดใช้งาน** — มี partial index บังคับให้ใน 1 ร้านมี user ที่ active ได้เพียง 1 คน |
 | **`DEVICES`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `id` | `TEXT` | **รหัสประจำเครื่อง** — Server สุ่มสร้างให้ตอนทำขั้นตอนผูกเครื่อง (ADR-0004) |
+| | `id` | `UUID` | **รหัสประจำเครื่อง** — Server สุ่มสร้างให้ตอนทำขั้นตอนผูกเครื่อง (ADR-0004) |
 | | `device_no` | `SMALLINT` | **หมายเลขเครื่อง (1–99)** — ใช้เป็นคำนำหน้าเลขที่เอกสาร ห้ามนำเลขเดิมกลับมาใช้ซ้ำ |
 | | `role` | `TEXT` | **บทบาทเครื่อง** — `pos` (เครื่องแคชเชียร์ แตะเงิน/เปิดกะได้ มีได้ 1 เครื่องต่อร้าน) หรือ `backoffice` (ดูสต็อก/รายงาน) |
 | | `retired_at` | `TIMESTAMPTZ` | **เวลาที่เครื่องถูกปลดระวาง** — หากมีค่าจะไม่สามารถใช้งานหรือ refresh token ได้อีก |
@@ -715,7 +715,7 @@ erDiagram
 | ตาราง | คอลัมน์ | ชนิดข้อมูล | นิยามและความหมาย |
 |---|---|---|---|
 | **`PRODUCTS`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (FK ชี้ไปที่ `tenants.id`) |
-| | `id` | `TEXT` | **รหัสสินค้าภายในระบบ** เช่น `p1` (Surrogate Key ประจำตัวสินค้า) |
+| | `id` | `UUID` | **รหัสสินค้าภายในระบบ** เป็น UUIDv7 ตัวพิมพ์เล็ก (Surrogate Key ประจำตัวสินค้า; #616 — เดิมเป็น `p1`) |
 | | `part_no` | `TEXT` | **หมายเลขอะไหล่บนกล่อง** — ห้ามซ้ำในร้านเดียวกันเฉพาะแถวที่ยังไม่ถูกลบ (`partial unique index`) |
 | | `price` | `NUMERIC` | **ราคาขายหน้าร้าน** (บาท) — มี `CHECK (price >= 0)` |
 | | `cost` | `NUMERIC` | **ต้นทุนต่อหน่วย** (บาท) — คิดแบบต้นทุนเฉลี่ยถ่วงน้ำหนักจากการรับเข้า |
@@ -723,8 +723,8 @@ erDiagram
 | | `updated_at` | `TIMESTAMPTZ` | **เวลาแก้ไขล่าสุด** — ใช้เป็นจุดอ้างอิง (cursor) ตอนเครื่องลูกเชื่อมต่อมาขอ sync ข้อมูล |
 | | `deleted_at` | `TIMESTAMPTZ` | **เวลาที่ลบสินค้า** — เป็น Soft Delete เพื่อให้เครื่องลูกที่ออฟไลน์รู้ว่าสินค้านี้ถูกลบแล้ว |
 | **`MOVEMENTS`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `id` | `TEXT` | **รหัสรายการเคลื่อนไหวสต็อก** |
-| | `product_id` | `TEXT` | **รหัสสินค้าที่เคลื่อนไหว** (FK ร่วมกับ `tenant_id`) |
+| | `id` | `UUID` | **รหัสรายการเคลื่อนไหวสต็อก** |
+| | `product_id` | `UUID` | **รหัสสินค้าที่เคลื่อนไหว** (FK ร่วมกับ `tenant_id`) |
 | | `delta` | `INT` | **จำนวนที่เปลี่ยนแปลง** (ค่าบวก = เพิ่มสต็อก, ค่าลบ = ลดสต็อก) |
 | | `type` | `TEXT` | **ประเภทรายการ** — `sale` (ขาย), `return` (คืน), `receive` (รับเข้า), `adjustment-in/out` (ปรับยอด), `void` (ยกเลิกบิล) |
 | | `stock_after` | `INT` | **ยอดสต็อกคงเหลือหลังทำรายการทันที** เพื่อเป็น Audit Trail ตรวจสอบย้อนหลัง |
@@ -734,12 +734,12 @@ erDiagram
 | ตาราง | คอลัมน์ | ชนิดข้อมูล | นิยามและความหมาย |
 |---|---|---|---|
 | **`CUSTOMERS`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `id` | `TEXT` | **รหัสลูกค้าภายในระบบ** เช่น `c1` |
+| | `id` | `UUID` | **รหัสลูกค้าภายในระบบ** (UUIDv7; เดิม `c1`) |
 | | `code` | `TEXT` | **รหัสลูกค้าที่ร้านกำหนด** — ห้ามซ้ำกันภายในร้านเดียวกัน |
 | | `points` | `INT` | **แต้มสะสมปัจจุบัน** (ยอดซื้อทุก 10 บาทได้ 1 แต้ม) ห้ามติดลบ |
 | | `total_spend` | `NUMERIC` | **ยอดซื้อสะสมรวมทั้งหมด** ตลอดอายุการเป็นลูกค้า |
 | **`MECHANICS`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `id` | `TEXT` | **รหัสช่าง** เช่น `m1` |
+| | `id` | `UUID` | **รหัสช่าง** (UUIDv7; เดิม `m1`) |
 | | `credit_limit` | `NUMERIC` | **วงเงินเครดิตสูงสุด** ที่อนุญาตให้ช่างติดค้างหนี้ค่าอะไหล่ได้ |
 | | `credit_balance` | `NUMERIC` | **ยอดหนี้ค้างชำระปัจจุบัน** ที่ช่างยังไม่ได้จ่ายเงิน ห้ามติดลบ |
 
@@ -748,25 +748,25 @@ erDiagram
 | ตาราง | คอลัมน์ | ชนิดข้อมูล | นิยามและความหมาย |
 |---|---|---|---|
 | **`SALES`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `id` | `TEXT` | **รหัสบิลขาย** (Surrogate Key) |
+| | `id` | `UUID` | **รหัสบิลขาย** (Surrogate Key) |
 | | `receipt_no` | `TEXT` | **เลขที่ใบเสร็จรับเงิน** เช่น `RC690901-0001` (ห้ามซ้ำกันในร้าน ออกโดยเครื่อง `pos`) |
 | | `total` | `NUMERIC` | **ยอดเงินรวมสุทธิของบิล** |
 | | `payment_method` | `TEXT` | **วิธีชำระเงิน** เช่น `เงินสด`, `โอนเงิน`, `เครดิตช่าง` |
-| | `customer_id` | `TEXT` | **รหัสลูกค้า** ที่ซื้อในบิลนี้ (ถ้ามี) |
-| | `mechanic_id` | `TEXT` | **รหัสช่าง** ที่มารับของหรือขอลงเครดิต (ถ้ามี) |
-| | `shift_id` | `TEXT` | **รหัสกะลิ้นชัก** ที่เปิดอยู่ในขณะขายบิลนี้ |
+| | `customer_id` | `UUID` | **รหัสลูกค้า** ที่ซื้อในบิลนี้ (ถ้ามี) |
+| | `mechanic_id` | `UUID` | **รหัสช่าง** ที่มารับของหรือขอลงเครดิต (ถ้ามี) |
+| | `shift_id` | `UUID` | **รหัสกะลิ้นชัก** ที่เปิดอยู่ในขณะขายบิลนี้ |
 | | `voided` | `BOOLEAN` | **สถานะยกเลิกบิล** (`true` เมื่อมีการสั่ง Void บิลเพื่อคืนสต็อกและย้อนยอดเงิน) |
 | **`SALE_ITEMS`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `sale_id` | `TEXT` | **รหัสบิลขาย** (PK ร่วม และเป็น FK ชี้ไปที่ `sales`) |
+| | `sale_id` | `UUID` | **รหัสบิลขาย** (PK ร่วม และเป็น FK ชี้ไปที่ `sales`) |
 | | `line_no` | `INT` | **ลำดับบรรทัดในบิล** (1, 2, 3, ...) เพื่อเรียงลำดับรายการสินค้า |
-| | `product_id` | `TEXT` | **รหัสสินค้า** (เก็บเป็น Snapshot ไม่มี FK แข็ง เพื่อให้ประวัติบิลไม่พังหากสินค้าถูกแก้ไข/ลบ) |
+| | `product_id` | `UUID` | **รหัสสินค้า** (เก็บเป็น Snapshot ไม่มี FK แข็ง เพื่อให้ประวัติบิลไม่พังหากสินค้าถูกแก้ไข/ลบ) |
 | | `qty` | `INT` | **จำนวนชิ้นที่ขาย** — มี `CHECK (qty > 0)` |
 | | `price` | `NUMERIC` | **ราคาขายต่อหน่วยจริง ณ วันที่ออกบิล** (Snapshot) |
 | | `cost_at_sale` | `NUMERIC` | **ต้นทุนต่อหน่วย ณ วินาทีที่ขาย** (Snapshot สำหรับคำนวณกำไร-ขาดทุนย้อนหลัง) |
 | **`RETURNS`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `id` | `TEXT` | **รหัสรายการรับคืน** |
+| | `id` | `UUID` | **รหัสรายการรับคืน** |
 | | `cn_no` | `TEXT` | **เลขที่ใบลดหนี้** (Credit Note เช่น `CN690901-0001`) ห้ามซ้ำในร้าน |
-| | `sale_id` | `TEXT` | **รหัสบิลขายเดิม** ที่ลูกค้านำของมาขอคืน (FK ชี้ไปที่ `sales`) |
+| | `sale_id` | `UUID` | **รหัสบิลขายเดิม** ที่ลูกค้านำของมาขอคืน (FK ชี้ไปที่ `sales`) |
 | | `refund_total` | `NUMERIC` | **ยอดเงินรวมที่คืนให้ลูกค้า** |
 
 ##### 5. กะและเงินในลิ้นชัก (Shifts & Cash Drawer)
@@ -774,13 +774,13 @@ erDiagram
 | ตาราง | คอลัมน์ | ชนิดข้อมูล | นิยามและความหมาย |
 |---|---|---|---|
 | **`SHIFTS`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `id` | `TEXT` | **รหัสรอบกะการขาย** (UUID) |
-| | `device_id` | `TEXT` | **รหัสเครื่องแคชเชียร์ที่เปิดกะ** — แต่ละเครื่องมีกะที่เปิดอยู่ (`active`) ได้ทีละ 1 กะเท่านั้น |
+| | `id` | `UUID` | **รหัสรอบกะการขาย** (UUID) |
+| | `device_id` | `UUID` | **รหัสเครื่องแคชเชียร์ที่เปิดกะ** — แต่ละเครื่องมีกะที่เปิดอยู่ (`active`) ได้ทีละ 1 กะเท่านั้น |
 | | `starting_cash` | `NUMERIC` | **เงินทอนตั้งต้น** ที่ใส่ไว้ในลิ้นชักตอนเปิดกะเช้า |
 | | `is_active` | `BOOLEAN` | **สถานะของกะ** (`true` = กำลังเปิดรับชำระเงิน, `false` = ปิดกะสรุปยอดแล้ว) |
 | **`DRAWER_ENTRIES`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `id` | `TEXT` | **รหัสรายการเข้า-ออกลิ้นชัก** |
-| | `shift_id` | `TEXT` | **รหัสกะที่ทำรายการ** (FK ชี้ไปที่ `shifts`) |
+| | `id` | `UUID` | **รหัสรายการเข้า-ออกลิ้นชัก** |
+| | `shift_id` | `UUID` | **รหัสกะที่ทำรายการ** (FK ชี้ไปที่ `shifts`) |
 | | `type` | `TEXT` | **ประเภทรายการ** — `in` (เอาเงินสดเข้าลิ้นชักเพิ่ม) หรือ `out` (เบิกเงินสดออกไปใช้จ่าย) |
 | | `amount` | `NUMERIC` | **จำนวนเงิน** — มี `CHECK (amount > 0)` |
 
@@ -789,7 +789,7 @@ erDiagram
 | ตาราง | คอลัมน์ | ชนิดข้อมูล | นิยามและความหมาย |
 |---|---|---|---|
 | **`DOC_COUNTERS`** | `tenant_id` | `UUID` | **รหัสร้านค้า** (PK ร่วม) |
-| | `device_id` | `TEXT` | **รหัสเครื่องที่ออกเอกสาร** (PK ร่วม) |
+| | `device_id` | `UUID` | **รหัสเครื่องที่ออกเอกสาร** (PK ร่วม) |
 | | `doc_type` | `TEXT` | **ประเภทเอกสาร** เช่น `receipt` (ใบเสร็จ), `cn` (ใบลดหนี้), `po` (ใบสั่งซื้อ), `quote` (ใบเสนอราคา) |
 | | `period` | `TEXT` | **งวดเวลาตามปี พ.ศ. และเดือน** เช่น `2569-09` |
 | | `last_no` | `INT` | **เลขลำดับล่าสุดที่ออกไปแล้ว** ในงวดนั้น (สูงสุด 9999) |
@@ -815,7 +815,7 @@ erDiagram
     await q.query(`
       CREATE TABLE products (
         tenant_id  UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-        id         TEXT NOT NULL,
+        id         UUID NOT NULL,
         part_no    TEXT NOT NULL,
         name       TEXT NOT NULL,
         name_th    TEXT NOT NULL,
@@ -836,7 +836,7 @@ erDiagram
 ```
 
 อ่านทีละส่วน:
-- **`PRIMARY KEY (tenant_id, id)`**: composite key สินค้า `p1` ของร้าน A กับ `p1` ของร้าน B เป็นคนละแถวกันได้
+- **`PRIMARY KEY (tenant_id, id)`**: composite key สินค้า id เดียวกันของร้าน A กับร้าน B เป็นคนละแถวกันได้ (ตัวอย่างเดิมใช้ `p1`)
 - **`REFERENCES tenants(id) ON DELETE CASCADE`**: ลบร้าน = ลบสินค้าของร้านตามไปด้วย
 - **`NUMERIC(12,2)`**: เงินแบบตรงเป๊ะ (ไม่ใช่ `double`)
 - **`CHECK (stock >= 0)`**: ต่อให้โค้ดทุกบรรทัดมีบั๊ก ฐานข้อมูลก็ไม่ยอมให้สต็อกติดลบ transaction ที่พยายามทำจะถูก rollback ทั้งก้อน
@@ -1012,7 +1012,7 @@ GRANT CONNECT ON DATABASE "${POSTGRES_DB}" TO pos_app;
     await q.query(`
       CREATE TABLE doc_counters (
         tenant_id     UUID NOT NULL,
-        device_id     TEXT NOT NULL,
+        device_id     UUID NOT NULL,
         doc_type      TEXT NOT NULL CHECK (doc_type IN ('receipt','po','quote','cn','cp')),
         period        TEXT NOT NULL,
         last_no       INT  NOT NULL DEFAULT 0 CHECK (last_no <= 9999),
@@ -1228,8 +1228,9 @@ class Products extends Table {
 - **อยู่ตรงไหน:** `server/src/db/migrations/1788652800000-InitialSchema.ts:330-348` (`sale_items` มี `name`, `price`, `cost_at_sale`)
 
 ### Composite key `(tenant_id, id)`
+> **อัปเดต 2026-10-06 (#616):** ทุก id ของ entity เป็น `UUID` (lowercase UUIDv7 สร้างที่แอป ไม่มี default ใน Postgres) — migration `1788652804900-EntityIdsToUuid` เปลี่ยน 44 คอลัมน์ และ **ปฏิเสธ** ถ้า DB ไม่ว่าง (ใช้กับ DB ใหม่เท่านั้น — mob04 ถูกล้างตอน cutover) id ผิดรูป/ตัวพิมพ์ใหญ่ = `400 INVALID_ID` ส่วนตัวอย่าง `p1`/`S1` ในบทนี้เป็นภาพประกอบสมมติ
 - **คืออะไร:** primary/foreign key ที่ใช้หลายคอลัมน์รวมกันแทนคอลัมน์เดียว (ปูพื้นฐาน ข้อ 7, 🔍 ข้อ 2)
-- **แก้ปัญหา:** ถ้า PK เป็น `id` เดียว สินค้า `p1` ของร้าน A กับ `p1` ของร้าน B จะชนกัน (ต้องสร้าง id ไม่ซ้ำข้ามทุกร้านในโลก) และ FK ธรรมดาไม่การันตีว่าบรรทัดบิลชี้ไปบิล **ของร้านเดียวกัน**
+- **แก้ปัญหา:** ถ้า PK เป็น `id` เดียว สินค้า id เดียวกันของร้าน A กับร้าน B จะชนกัน (ยุค id แบบ `p1`/`s-0001` ชนกันได้จริง; ตั้งแต่ #616 id เป็น UUIDv7 ซึ่งแทบไม่ชน แต่ composite key ยังอยู่เพื่อกันการชี้ข้ามร้าน) และ FK ธรรมดาไม่การันตีว่าบรรทัดบิลชี้ไปบิล **ของร้านเดียวกัน**
 - **ทำไมท่านี้ vs generate id ให้ไม่ซ้ำข้ามร้าน (เช่น UUID สุ่มล้วน):** composite FK (`FOREIGN KEY (tenant_id, sale_id) REFERENCES sales (tenant_id, id)`) ทำให้ "ชี้ข้ามร้าน" เป็นไปไม่ได้ **ในทางกายภาพ** ไม่ใช่แค่ทางกฎเกณฑ์ ส่วน UUID สุ่มอย่างเดียวป้องกันแค่ชนกัน ไม่ได้ป้องกันการชี้ข้ามร้านโดยบั๊ก
 - **ดี/ราคา:** ดี — กันข้อมูลข้ามร้านที่ระดับ constraint ราคา — ทุก FK ต้องเขียนสองคอลัมน์เสมอ, query ต้อง join ด้วยสองเงื่อนไข
 - **อยู่ตรงไหน:** `server/src/db/migrations/1788652800000-InitialSchema.ts:152-171` (`products` PK), ผลที่สังเกตได้ที่ 🔍 ข้อ 1 จุดที่ 1
