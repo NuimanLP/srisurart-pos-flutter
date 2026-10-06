@@ -43,6 +43,13 @@ class ApiMechanicsRepository extends MechanicsRepository {
   /// the same body is sent under the same `Idempotency-Key`.
   final PendingWrites _pendingAdds = PendingWrites();
 
+  /// Credit payments whose fate is unknown (5xx, 429, IN_FLIGHT): the same
+  /// payment pressed again is sent under the same id + key — and the same body,
+  /// kept in [_parkedPaymentBodies], since a key reused with a different body
+  /// (its `date`) is a `409 IDEMPOTENCY_KEY_REUSED`, not a replay.
+  final PendingWrites _pendingPayments = PendingWrites();
+  final Map<String, Map<String, dynamic>> _parkedPaymentBodies = {};
+
   bool get _isDegraded {
     final sync = syncService ??
         (syncFacade is SyncService ? syncFacade as SyncService : null);
@@ -368,18 +375,29 @@ class ApiMechanicsRepository extends MechanicsRepository {
       );
     }
 
-    final localId = newUuid();
-    final now = DateTime.now();
-    final key = newIdempotencyKey('idem');
-    final opId = newUuid();
     final wireAmt = wireMoney(amount);
+    final attempt = _pendingPayments.of(jsonEncode([
+      mechanicId,
+      wireAmt,
+      paymentMethod,
+      note,
+      allowOverpayment,
+    ]));
+    final localId = attempt.id;
+    final key = attempt.headers['Idempotency-Key']!;
+    final now = DateTime.now();
+    final opId = newUuid();
+    void closeAttempt() {
+      _pendingPayments.close(attempt);
+      _parkedPaymentBodies.remove(attempt.id);
+    }
 
     final activeShift = await (db.select(db.shifts)
           ..where((t) => t.isActive.equals(true) & t.closedAt.isNull())
           ..limit(1))
         .getSingleOrNull();
 
-    final body = {
+    final body = _parkedPaymentBodies[attempt.id] ??= {
       'id': localId,
       'mechanicId': mechanicId,
       'amount': wireAmt,
@@ -415,6 +433,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
 
     if (_isDegraded) {
       await queueToOutbox();
+      closeAttempt();
       throw const CreditPaymentQueued();
     }
 
@@ -422,24 +441,31 @@ class ApiMechanicsRepository extends MechanicsRepository {
       final res = await apiClient.post(
         '/api/v1/mechanics/$mechanicId/credit-payments',
         body: body,
-        headers: {'Idempotency-Key': key},
+        headers: attempt.headers,
       );
 
       if (res is Map) {
+        closeAttempt();
         return await _applyPaymentSuccess(localId, mechanicId, wireAmt, note, res);
       }
     } on ApiException catch (e) {
       if (isVerdict(e)) {
+        closeAttempt();
         if (e.code == 'NO_OPEN_SHIFT') {
           throw PosException(e.code, noOpenShiftForCreditPayment, e.details);
         }
         rethrowServerRefusal(e);
       }
+      // 🔴 08 §5 (owner, 2026-09-27, #452): a 5xx / 429 / 503 IN_FLIGHT is not
+      // a verdict — the payment may already be committed — and not a transport
+      // failure, so it is never queued. Degraded, the attempt stays parked
+      // (same id + key + body), and the counter reads the sentence it reads
+      // for any server error; the next press replays (or queues the parked
+      // attempt, now that the link reads Degraded).
       final sync = syncService ??
           (syncFacade is SyncService ? syncFacade as SyncService : null);
       sync?.recordNonVerdictWrite();
-      await queueToOutbox();
-      throw const CreditPaymentQueued();
+      throw posExceptionFromApi(e);
     } catch (e) {
       // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
       // become an offline write. Anything else here — a 2xx whose body is not
@@ -457,10 +483,12 @@ class ApiMechanicsRepository extends MechanicsRepository {
       if (!isTransportFailure(e)) {
         throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
       }
+      // A transport failure: queued under the SAME id + key (08 §5).
       final sync = syncService ??
           (syncFacade is SyncService ? syncFacade as SyncService : null);
       sync?.recordNonVerdictWrite();
       await queueToOutbox();
+      closeAttempt();
       throw const CreditPaymentQueued();
     }
 

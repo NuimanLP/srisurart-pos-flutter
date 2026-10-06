@@ -27,6 +27,10 @@ class ApiCustomersRepository extends CustomersRepository {
     this.syncFacade,
   });
 
+  /// Adds / edits that never got a verdict — see [PendingWrites].
+  final PendingWrites _pendingAdds = PendingWrites();
+  final PendingWrites _pendingUpdates = PendingWrites();
+
   bool get _isDegraded {
     final sync = syncService ??
         (syncFacade is SyncService ? syncFacade as SyncService : null);
@@ -197,15 +201,28 @@ class ApiCustomersRepository extends CustomersRepository {
 
   @override
   Future<CustomerRow> addCustomer(CustomersCompanion data) async {
-    final customerId = data.id.present && data.id.value.isNotEmpty
-        ? data.id.value
-        : newUuid();
     final name = data.name.present ? data.name.value : '';
     final nameTH = data.nameTH.present && data.nameTH.value.isNotEmpty
         ? data.nameTH.value
         : name;
     final phone = data.phone.present ? data.phone.value : null;
     final address = data.address.present ? data.address.value : null;
+    final explicitId = data.id.present && data.id.value.isNotEmpty
+        ? data.id.value
+        : null;
+    // The same customer pressed again while the first attempt's fate is
+    // unknown (5xx, 429, lost reply) → the SAME id + Idempotency-Key, so the
+    // server replays the first customer instead of creating a second (08 §5).
+    final attempt = _pendingAdds.of(jsonEncode({
+      'id': explicitId,
+      'code': data.code.present ? data.code.value : '',
+      'name': name,
+      'nameTH': nameTH,
+      'phone': phone,
+      'address': address,
+    }));
+    final customerId = explicitId ?? attempt.id;
+    final key = attempt.headers['Idempotency-Key']!;
 
     final body = {
       'id': customerId,
@@ -218,7 +235,6 @@ class ApiCustomersRepository extends CustomersRepository {
 
     Future<CustomerRow> queueOfflineCustomer() async {
       final opId = newUuid();
-      final key = newIdempotencyKey('idem');
       final now = DateTime.now();
       final code = data.code.present ? data.code.value : '';
 
@@ -259,17 +275,19 @@ class ApiCustomersRepository extends CustomersRepository {
     }
 
     if (_isDegraded) {
-      return await queueOfflineCustomer();
+      final row = await queueOfflineCustomer();
+      _pendingAdds.close(attempt);
+      return row;
     }
 
-    final key = newIdempotencyKey('idem');
     try {
       final res = await apiClient.post(
         '/api/v1/customers',
         body: body,
-        headers: {'Idempotency-Key': key},
+        headers: attempt.headers,
       );
       if (res is Map) {
+        _pendingAdds.close(attempt);
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
         return await (db.select(db.customers)
@@ -282,14 +300,17 @@ class ApiCustomersRepository extends CustomersRepository {
       throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
     } on ApiException catch (e) {
       if (isVerdict(e)) {
+        _pendingAdds.close(attempt);
         rethrowServerRefusal(e);
       }
+      // 🔴 08 §5 (owner, 2026-09-27, #452): a 5xx / 429 / 503 IN_FLIGHT is
+      // not a verdict — the customer may already be committed — but it is
+      // not a transport failure either, so it is never queued. Degraded, the
+      // attempt stays parked (same id + key), and the counter reads the
+      // sentence it reads for any other refusal; the next press replays.
       final sync = syncService ??
           (syncFacade is SyncService ? syncFacade as SyncService : null);
       sync?.recordNonVerdictWrite();
-      if (sync != null) {
-        return await queueOfflineCustomer();
-      }
       throw posExceptionFromApi(e);
     } catch (e) {
       // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
@@ -308,11 +329,15 @@ class ApiCustomersRepository extends CustomersRepository {
       if (!isTransportFailure(e)) {
         throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
       }
+      // A transport failure: queued under the SAME id + key (08 §5), so if
+      // the lost request had committed, the push replays it.
       final sync = syncService ??
           (syncFacade is SyncService ? syncFacade as SyncService : null);
       sync?.recordNonVerdictWrite();
       if (sync != null) {
-        return await queueOfflineCustomer();
+        final row = await queueOfflineCustomer();
+        _pendingAdds.close(attempt);
+        return row;
       }
       rethrow;
     }
@@ -327,10 +352,12 @@ class ApiCustomersRepository extends CustomersRepository {
     if (patch.address.present) body['address'] = patch.address.value;
 
     final aggregates = ['customer:$id'];
+    // Same rule as addCustomer: one Idempotency-Key per logical edit.
+    final attempt = _pendingUpdates.of('$id|${jsonEncode(body)}');
+    final key = attempt.headers['Idempotency-Key']!;
 
     Future<void> queueOfflineUpdate() async {
       final opId = newUuid();
-      final key = newIdempotencyKey('idem');
       final now = DateTime.now();
 
       await db.transaction(() async {
@@ -356,17 +383,18 @@ class ApiCustomersRepository extends CustomersRepository {
 
     if (_isDegraded) {
       await queueOfflineUpdate();
+      _pendingUpdates.close(attempt);
       return;
     }
 
-    final key = newIdempotencyKey('idem');
     try {
       final res = await apiClient.patch(
         '/api/v1/customers/$id',
         body: body,
-        headers: {'Idempotency-Key': key},
+        headers: attempt.headers,
       );
       if (res is Map) {
+        _pendingUpdates.close(attempt);
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
         return;
@@ -376,15 +404,13 @@ class ApiCustomersRepository extends CustomersRepository {
       throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
     } on ApiException catch (e) {
       if (isVerdict(e)) {
+        _pendingUpdates.close(attempt);
         rethrowServerRefusal(e);
       }
+      // 08 §5: a 5xx / 429 / IN_FLIGHT is never queued — see addCustomer.
       final sync = syncService ??
           (syncFacade is SyncService ? syncFacade as SyncService : null);
       sync?.recordNonVerdictWrite();
-      if (sync != null) {
-        await queueOfflineUpdate();
-        return;
-      }
       throw posExceptionFromApi(e);
     } catch (e) {
       // 🔴 #409/#413: only a TRANSPORT failure (timeout, dropped socket) may
@@ -403,6 +429,7 @@ class ApiCustomersRepository extends CustomersRepository {
       sync?.recordNonVerdictWrite();
       if (sync != null) {
         await queueOfflineUpdate();
+        _pendingUpdates.close(attempt);
         return;
       }
       rethrow;
