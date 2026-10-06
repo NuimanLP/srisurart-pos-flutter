@@ -59,7 +59,7 @@ void main() {
 
   /// GETs https://127.0.0.1 from a server presenting [name].crt, through a plain
   /// `package:http` Client() created under [PosTrustOverrides] — the app's own path.
-  Future<int> getFrom(String name) async {
+  Future<int> getFrom(String name, {String host = '127.0.0.1'}) async {
     final serverCtx = SecurityContext()
       ..useCertificateChain('${dir.path}/$name.crt')
       ..usePrivateKey('${dir.path}/$name.key');
@@ -72,7 +72,7 @@ void main() {
       return await HttpOverrides.runWithHttpOverrides(() async {
         final client = http.Client();
         try {
-          return (await client.get(Uri.parse('https://127.0.0.1:${server.port}/'))).statusCode;
+          return (await client.get(Uri.parse('https://$host:${server.port}/'))).statusCode;
         } finally {
           client.close();
         }
@@ -83,16 +83,28 @@ void main() {
   }
 
   // A raw HandshakeException (an IOException), which isTransportFailure counts as no answer.
-  Matcher refused(String reason) => isA<HandshakeException>()
-      .having((e) => e.osError?.message, 'osError', contains(reason));
+  // The reason text is the TLS backend's and differs by OS: Linux names the failure ([specific]);
+  // macOS only says "CERTIFICATE_VERIFY_FAILED: application verification failure". Accept exactly
+  // those known texts, so any other handshake error (protocol, connection) still fails the test.
+  Matcher refused(String specific) => isA<HandshakeException>().having(
+      (e) => e.osError?.message ?? '',
+      'osError',
+      anyOf(contains(specific), contains('application verification failure')));
 
   test('trusts a cert the bundled CA signed for the IP being dialled', () async {
     expect(await getFrom('good'), 200);
   }, skip: opensslMissing);
 
   test('refuses a cert the same CA signed for a different IP (IP SAN is checked)', () async {
-    // BoringSSL's own reason, so this is the IP check and not some other verify failure.
+    // Linux names the IP check; macOS only says verification failed. The first test (same CA,
+    // matching IP => 200) shows the CA is trusted, so this refusal comes from the IP SAN check.
     await expectLater(getFrom('wrongip'), throwsA(refused('IP address mismatch')));
+  }, skip: opensslMissing);
+
+  test('the wrongip leaf is itself valid: trusted when dialled by its DNS SAN', () async {
+    // Control for the test above: on macOS the refusal text is generic, so prove the only defect
+    // of this leaf is the IP it was dialled at (its SAN also lists DNS:localhost).
+    expect(await getFrom('wrongip', host: 'localhost'), 200);
   }, skip: opensslMissing);
 
   test('refuses a self-signed cert from any other issuer', () async {
