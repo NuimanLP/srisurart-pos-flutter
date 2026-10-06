@@ -77,7 +77,9 @@
   "pnpm": {
     "overrides": {
       "multer": ">=2.4.0",
-      "brace-expansion@>=4.0.0 <5.0.11": "^5.0.11"
+      "brace-expansion@>=4.0.0 <5.0.11": "^5.0.11",
+      "proxy-addr": "^2.0.8",
+      "source-map-js": "^1.2.2"
     }
   }
 }
