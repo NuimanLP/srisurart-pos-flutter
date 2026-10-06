@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/network/api_exception.dart';
+import '../../core/errors/pos_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/devices_repository.dart';

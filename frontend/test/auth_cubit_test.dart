@@ -34,7 +34,9 @@ class StubAuthRepo extends AuthRepository {
         mockDeviceToken = null; // the real repository clears it first
         mockDeviceRole = null;
       }
-      throw errorToThrow ?? ApiException(statusCode: 401, code: 'UNAUTHENTICATED');
+      final e = errorToThrow ?? ApiException(statusCode: 401, code: 'UNAUTHENTICATED');
+      // As the real repository: a server refusal leaves it already in Thai.
+      throw e is ApiException ? AuthRepository.loginRefusal(e) : e;
     }
     final user = AuthUser(id: 'u-1', username: username, role: 'owner');
     if (pwchangeToken != null) return LoginPasswordChangeRequired(user, pwchangeToken!);
@@ -400,11 +402,10 @@ void main() {
     test('a WEAK_PASSWORD refusal stays on the form with the reason in Thai', () async {
       repo.pwchangeToken = 'pwchange-token';
       await cubit.login(username: 'owner', password: 'TempPassw0rdXyz');
-      repo.changePasswordError = ApiException(
-        statusCode: 400,
-        code: 'WEAK_PASSWORD',
-        serverMessage: 'newPassword must differ from the temporary password',
-        details: {'reason': 'same_as_temp'},
+      // What AuthRepository.changePassword turns a 400 WEAK_PASSWORD into.
+      repo.changePasswordError = const PosException(
+        'WEAK_PASSWORD',
+        'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว',
       );
       expect(await cubit.changePassword('TempPassw0rdXyz'), isFalse);
       final state = cubit.state as AuthPasswordChangeRequired;
@@ -414,7 +415,7 @@ void main() {
     test('a 401 (token expired or used) ends the attempt: back to login with a Thai sentence', () async {
       repo.pwchangeToken = 'pwchange-token';
       await cubit.login(username: 'owner', password: 'TempPassw0rdXyz');
-      repo.changePasswordError = ApiException(statusCode: 401, code: 'UNAUTHORIZED');
+      repo.changePasswordError = const PasswordChangeSessionExpiredException();
       expect(await cubit.changePassword('my own long passphrase'), isFalse);
       final state = cubit.state as Unauthenticated;
       expect(state.errorMessage, AuthCubit.passwordChangeSessionExpired);
@@ -432,13 +433,14 @@ void main() {
 
     test('TEMP_PASSWORD_EXPIRED is the one 401 that is not "เข้าสู่ระบบไม่สำเร็จ"', () {
       expect(
-        AuthCubit.loginRefusalMessage(
+        AuthCubit.loginRefusalMessage(AuthRepository.loginRefusal(
           ApiException(statusCode: 401, code: 'TEMP_PASSWORD_EXPIRED'),
-        ),
+        )),
         'รหัสผ่านชั่วคราวหมดอายุแล้ว กรุณาติดต่อทีมงานเพื่อขอรหัสใหม่',
       );
       expect(
-        AuthCubit.loginRefusalMessage(ApiException(statusCode: 401, code: 'UNAUTHORIZED')),
+        AuthCubit.loginRefusalMessage(AuthRepository.loginRefusal(
+            ApiException(statusCode: 401, code: 'UNAUTHORIZED'))),
         'เข้าสู่ระบบไม่สำเร็จ',
       );
     });

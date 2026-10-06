@@ -292,7 +292,10 @@ void main() {
 
       await expectLater(
         repo.login(username: 'owner', password: 'wrong'),
-        throwsA(isA<ApiException>()),
+        // Converted here, never handed to the login form as an ApiException.
+        throwsA(isA<PosException>()
+            .having((e) => e.code, 'code', 'UNAUTHORIZED')
+            .having((e) => e.message, 'message', 'เข้าสู่ระบบไม่สำเร็จ')),
       );
       expect(storage.deviceToken, 'live-token');
       expect(await repo.getDeviceRole(), 'pos');
@@ -370,6 +373,52 @@ void main() {
       expect(storage.refreshToken, 'refresh-1');
       // Only the full session counts as the online login for the offline-PIN window.
       expect(await pinRepo.getLastLoginIat(), 1790000000);
+    });
+
+    // The refusal leaves the repository already converted — the cubit never
+    // sees an ApiException (CLAUDE.md binding rule).
+    Future<Object?> changePasswordRefused(int status, String code,
+        [Object? details]) async {
+      final client = ApiClient(
+        baseUrl: 'http://test',
+        tokenStorage: storage,
+        httpClient: MockClient((_) async => http.Response.bytes(
+              utf8.encode(jsonEncode({
+                'status': 'error',
+                'error': {
+                  'code': code,
+                  'message': 'x',
+                  'details': ?details,
+                },
+              })),
+              status,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            )),
+      );
+      final repo = AuthRepository(apiClient: client, tokenStorage: storage);
+      try {
+        await repo.changePassword(passwordChangeToken: 't', newPassword: 'n');
+      } catch (e) {
+        return e;
+      }
+      return null;
+    }
+
+    test('changePassword: a 401 is PasswordChangeSessionExpiredException', () async {
+      expect(await changePasswordRefused(401, 'UNAUTHORIZED'),
+          isA<PasswordChangeSessionExpiredException>());
+      expect(storage.accessToken, isNull);
+    });
+
+    test('changePassword: another refusal is a PosException in Thai', () async {
+      final e = await changePasswordRefused(
+          400, 'WEAK_PASSWORD', {'reason': 'same_as_temp'});
+      expect(e, isA<PosException>().having((e) => e.code, 'code', 'WEAK_PASSWORD'));
+      expect((e! as PosException).message,
+          'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว');
+      final down = await changePasswordRefused(502, 'BAD_GATEWAY');
+      expect((down! as PosException).message,
+          'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
     });
 
     test('a normal login carries passwordChangedAt for the banner', () async {
