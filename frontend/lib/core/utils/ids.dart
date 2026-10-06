@@ -5,7 +5,7 @@
 // JS source:
 //   let _idCounter = 0;
 //   _uuidShort = () => crypto.randomUUID().slice(0, 8);
-//   _newId(prefix) = `${prefix}${Date.now().toString(36)}_${_uuidShort()}_${(++_idCounter).toString(36)}`
+//   _newId = (prefix) => `${prefix}${Date.now().toString(36)}_${_uuidShort()}_${(++_idCounter).toString(36)}`
 //   _docNo(prefix) = prefix + Date.now().toString().slice(-8) + _uuidShort().slice(0,4).toUpperCase()
 //
 // NEVER inline DateTime.now() for a document number — always use these helpers.

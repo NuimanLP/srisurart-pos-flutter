@@ -306,7 +306,7 @@ void main() {
       // #82: the stock log row the server wrote, copied verbatim.
       final mv = await db.select(db.movements).get();
       expect(mv, hasLength(1));
-      expect(mv.single.id, 'mv-server-r1'); // the server's id, not newId('mv')
+      expect(mv.single.id, 'mv-server-r1'); // the server's id, not newUuid()
       expect(mv.single.type, 'return');
       expect(mv.single.delta, 1);
       expect(mv.single.stockAfter, 77, reason: 'server value; local maths says 4');
