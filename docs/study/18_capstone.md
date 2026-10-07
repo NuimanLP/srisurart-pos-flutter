@@ -4,6 +4,22 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- วิศวกรลงไปถึง**กลไก**: อาการ → กลไก → หลักการ — 12 หลักการที่โปรเจกต์ "จ่ายค่าเรียน" มาแล้วจริง
+- ข้อมูลเข้า: **validate ก่อน clamp** · **fail loud** ดีกว่ารอดแบบเงียบ
+- ทำงานพร้อมกัน: ยืม connection ทีละชิ้น · invariant อยู่ใน DB · single writer · retry ต้อง idempotent
+- **หลักฐาน ไม่ใช่สถานะ**: Deploy เขียว ≠ deploy แล้ว (ดู `.current_sha`), ticket ปิด ≠ AC ครบ
+- ซื่อสัตย์กับสิ่งที่ยังไม่เสร็จ (2026-10-07): k6 วัดแล้วแต่ยังไม่รับรอง (#380), backup ยังไม่ออกจาก VM (#363 พักไว้), demo #344 ต้องเริ่มใหม่, ยังไม่ cutover (#231)
+
+- **ตัวเลข/หลักฐานหลัก:** DoD phase 1 = 17 กล่อง ติ๊ก 16 — กล่องเดียวที่เปิดคือ k6 (`03_ARCHITECTURE.md §8`, นับใหม่ 2026-10-07)
+
+- **ภาพที่แนะนำ:** ใช้แผนภาพ mermaid ในหัวข้อ "🗺️ แผนที่ทั้งหมดในหน้าเดียว" ของบทนี้ (ร้าน → Flutter → API → backend → Postgres → outbox → test → CI → image → VM) คู่กับ "ตารางรวม 12 หลักการ"
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ควรอ่านมาก่อน:** ทุกบทในชุดนี้ อย่างน้อยส่วน ⚠️ บทเรียน กับ ✅ สรุป ของแต่ละบท —
@@ -111,6 +127,7 @@
   const olderThanDays = Math.max(1, Number(dto?.olderThanDays ?? 90));
   ```
   ส่ง `-30` มา → กลายเป็น 1 วัน → **ลบใบเสนอราคาเกือบทั้งหมด** (ดู [backend](06_backend.md) บทเรียน 4) ยังไม่แก้
+  > 🔄 **อัปเดต 2026-10-07:** แก้แล้ว 2026-09-25 ด้วย PR #420 — ตอนนี้ `quotes.controller.ts:111` เรียก `parsePurgeOlderThanDays(body)` ที่ validate ก่อน ไม่มี `Math.max` แล้ว (CLAUDE.md)
 
 **กลไกที่ทำให้พัง:**
 
@@ -375,7 +392,7 @@ writer เดียว:         มีแค่ A → ไม่มีอะไ�
   (`server/src/idempotency/idempotency.runner.ts:40`, บท [API](05_api.md) บทเรียน 2)
 - **ฝั่ง client:** bill id + `Idempotency-Key` มินต์ **ครั้งเดียวต่อตะกร้า** (`PendingWrites`) — มินต์ใหม่ทุก retry
   = ทำลายการป้องกันทั้งสองชั้นและขายซ้ำ (บท [frontend](04_frontend.md))
-- **🔴 HIGH ที่ยังไม่แก้ (รีวิว 2026-09-24):** online route เก็บ `POST /api/v1/sales` แต่ `/sync/push` สร้างเองเป็น
+- **🔴 HIGH (รีวิว 2026-09-24 — แก้แล้ว 2026-09-25 ด้วย PR #413, issue #409):** online route เก็บ `POST /api/v1/sales` แต่ `/sync/push` สร้างเองเป็น
   `'POST /sales'` (`server/src/sync/sync.service.ts:201`) → บิลที่ขายออนไลน์สำเร็จแล้วแต่คำตอบหาย พอ push ซ้ำด้วย key เดิม
   ได้ `409 IDEMPOTENCY_KEY_REUSED` แทน "applied" (บท [offline / phase 2](10_offline_phase2.md) บทเรียน 1)
 
@@ -503,8 +520,8 @@ DB ใหม่ (สร้างหลัง commit):          รัน Initial
 
 | # | หลักการ (สั้น) | เรื่องจริงหลัก | สถานะ |
 |---|---|---|---|
-| 1 | Validate ก่อน clamp | #22/#24, `quotes.controller.ts:113` | import แก้แล้ว / quotes ยังเปิด |
-| 2 | หลักฐาน ไม่ใช่สถานะ | Deploy skip, #39→#184, #184, #292–#296, #67 | กลไกกันแล้วบางส่วน; CD ยังติด FortiGate |
+| 1 | Validate ก่อน clamp | #22/#24, `quotes.controller.ts:113` | import แก้แล้ว / quotes แก้แล้ว (PR #420, 2026-09-25) |
+| 2 | หลักฐาน ไม่ใช่สถานะ | Deploy skip, #39→#184, #184, #292–#296, #67 | กลไกกันแล้ว; CD ถึง `mob04` แล้ว (#67 ปิด 2026-09-30, ล่าสุด `dd659e2` 2026-10-07) |
 | 3 | Mock ผิดที่ซ่อน bug | #383, #384 | แก้แล้ว |
 | 4 | ยืมทีละชิ้น ถือให้สั้น | #162, #154 | แก้แล้ว + มี e2e กัน |
 | 5 | Invariant อยู่ใน DB | #16, `one_pos_per_tenant`, CHECK, RLS | ใช้อยู่ |
@@ -738,7 +755,7 @@ flowchart TB
 | `changes` gate + status job เดียว | PR เอกสารเร็ว, ไม่ค้าง, ห้าม skip ของสำคัญ | YAML ซับซ้อน | [CI/CD](15_cicd.md) |
 | Trivy ก่อน push + pin digest | image มีช่องโหว่ไม่ขึ้น registry | bump digest เอง | [CI/CD](15_cicd.md) |
 | Required reviewer บน environment `demo` | merge ไม่หลุดขึ้น VM กลาง demo | ต้องมีคนกด | [CI/CD](15_cicd.md) |
-| Load test (k6) + วัด p95 | รู้ขีดจำกัดจริง | ยังไม่ได้วัด (#380) | [performance](16_performance.md) |
+| Load test (k6) + วัด p95 | รู้ขีดจำกัดจริง | วัดจริงครั้งแรก 2026-10-05 (#380) แต่ยังไม่รับรอง — 200 คนแย่งซื้อชิ้นเดียว p95 ~3 s ไม่ผ่าน §9 | [performance](16_performance.md) |
 
 ---
 
@@ -752,6 +769,7 @@ flowchart TB
    สำเนาที่ลอยออก (หลักการ 10) **ยังไม่ได้ตรวจบน DB ที่รันจริง** (เช่น `\di` บน `mob04`) ถ้าจะแก้ `CLAUDE.md` ควรยืนยันก่อน
 2. **บท performance (`16_performance.md`) ถูกเขียนคู่ขนานกับบทนี้** — บทนี้จึงไม่ได้อ้างเนื้อหาในบทนั้น
    เรื่อง k6 ในบทนี้อ้างเฉพาะสถานะจาก `CLAUDE.md` (#380 ยังไม่มีตัวเลขวัดจริง)
+   > 🔄 **อัปเดต 2026-10-07:** #380 วัดจริงครั้งแรกบน `mob04` แล้ว 2026-10-05 — ยังไม่รับรอง, #380 ยังเปิด (ดู [16_performance.md](16_performance.md) หัวข้อ "ผลวัดจริงครั้งแรกบน mob04")
 3. **ชุดเอกสารนี้เองจะตกยุค** — ทุกสถานะในบทนี้เป็นภาพ ณ 2026-09-25 (HIGH bug 2 ตัว, `OwnerReviewItems`, G6–G10,
    CD ติด FortiGate) เมื่อคุณอ่าน บางข้ออาจแก้แล้ว — ใช้หลักการ 2: เปิด `CLAUDE.md` / issue / โค้ดดูเอง อย่าเชื่อบทนี้
 
@@ -768,6 +786,17 @@ flowchart TB
 > - **ซื่อสัตย์:** CD ยังติด FortiGate, backup ยังไม่ออกจาก VM, k6 ยังไม่วัด — HIGH bug 2 ตัวที่เคยเปิด (fingerprint, client date) แก้ครบแล้ว (#413, #414) — การบอกสถานะจริงตรงๆ ไม่ว่าจะยังเปิดหรือปิดแล้ว คือส่วนหนึ่งของงานวิศวกรรม ไม่ใช่ความล้มเหลว
 >
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+>
+> 🔄 **อัปเดต 2026-10-07 — สถานะ "ซื่อสัตย์" ล่าสุด:**
+>
+> | เรื่อง | สถานะ | หลักฐาน |
+> |---|---|---|
+> | CD → `mob04` | ✅ ทำงาน — ล่าสุด `dd659e2` (run `37585778195`, 2026-10-07), ทุก deploy รอ `NuimanLP` อนุมัติ | `.current_sha` อ่านผ่าน SSH 2026-10-07 |
+> | k6 (#380) | 🟡 วัดจริงครั้งแรก 2026-10-05 — **ยังไม่รับรอง**; 200 คนแย่งซื้อชิ้นเดียว p95 ~3 s ไม่ผ่าน §9 (ข้อมูลถูก) | issue #380 comment 2026-10-05 |
+> | backup ออกนอก VM (#363) | 🔴 ยังไม่เคยออก — งานพักไว้หลัง demo | CLAUDE.md |
+> | demo end-to-end (#344) | 🔴 ต้องเริ่มใหม่ — tenant ถูกลบตอนล้าง DB เพื่อย้าย id เป็น UUID 2026-10-06 | handoff 2026-10-06 |
+> | เครื่องที่ลงทะเบียนตัวสุดท้ายหาย (#476) | ✅ ปิด 2026-10-03 — แทนเครื่องที่หาย (PR #561, platform) + banner บน POS (PR #567) | gh issue #476 |
+> | cutover ร้านจริง (#231) | 🔴 ยังไม่ทำ — ร้านยังใช้ build Drift | CLAUDE.md |
 
 ---
 

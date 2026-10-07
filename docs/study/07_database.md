@@ -4,6 +4,21 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- **PostgreSQL = source of truth**, Drift/SQLite บนเครื่อง = read cache + offline shell — ยังไม่ cutover ร้านจริงยังรัน Drift build
+- multi-tenant แบบ T1: ตารางร่วม + `tenant_id` · composite PK/FK `(tenant_id, id)` ทำให้ข้อมูลข้ามร้านชี้หากันไม่ได้
+- RLS **fail-closed**: `NULLIF(current_setting(...), '')` + `set_config(..., true)` ใน `runTx` · app ต่อด้วย `pos_app` (`NOBYPASSRLS`)
+- กันขายเกินด้วย `FOR UPDATE` + `WHERE stock >= qty` · เลขเอกสารไม่ซ้ำด้วย upsert `doc_counters` (ADR-0007)
+- migration คือความจริงของ schema — ห้ามแก้ไฟล์ที่รันแล้ว (บั๊ก `OwnerReviewItems` แก้ด้วยไฟล์ใหม่, #420) · id ทุกตัวเป็น UUIDv7 ตั้งแต่ #616
+- ช่องที่ยังเปิด: backup ยังไม่ออกจาก VM (#363 parked)
+- **ตัวเลข/หลักฐานหลัก:** Postgres 29 ตาราง จาก 23 migration (`server/src/db/migrations/`, นับ 2026-10-07) · Drift schema v13, 26 ตาราง (`frontend/lib/data/db/database.dart:85`)
+- **ภาพที่แนะนำ:** sequence diagram ใน *ทางเลือก → RLS จากศูนย์* (JWT → `TenantGuard` → `runTx` → RLS) หรือ ER diagram ใน *ของจริงใน repo → 1. ภาพรวมตาราง* (ใหญ่ — ตัดเฉพาะ `tenants`/`products`/`sales`/`sale_items`)
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) (client/server, JSON, terminal) และ [02_architecture.md](02_architecture.md) (ภาพใหญ่ว่า Postgres / Redis / etcd อยู่ตรงไหน)
@@ -529,7 +544,7 @@ RLS มีช่องโหว่โดยธรรมชาติสองช�
 | **redis-cache** | key-value | ของที่อ่านบ่อยและสร้างใหม่ได้ (เช่น สถานะร้าน, รายการสินค้า) key ขึ้นต้นด้วย `t:{tid}:` เสมอ | 🟢 ช้าลงนิดหน่อย แล้วโหลดใหม่จาก Postgres | `allkeys-lru`, ไม่เซฟลงดิสก์ |
 | **redis-queue** | key-value (ใช้เป็นคิวงานของ BullMQ) | งานที่ต้องทำหลังขาย | 🔴 งานหายเงียบๆ | `noeviction` + AOF |
 | **etcd** | key-value แบบ strongly consistent | config ที่เปลี่ยนได้ตอนระบบรันอยู่ และ **ไม่ใช่ความลับ** (ตอนนี้มีแค่ `/pos/config/log_level`) | 🟢 ใช้ค่า default | ไม่มีข้อมูลธุรกิจ |
-| **Drift/SQLite** (บนเครื่อง) | relational | สำเนาไว้อ่าน + (เฟส 2) คิวงานที่ยังไม่ส่ง | 🟡 ดึงใหม่จาก server ได้ ยกเว้นของที่ยังไม่ได้ส่ง | schema v11 |
+| **Drift/SQLite** (บนเครื่อง) | relational | สำเนาไว้อ่าน + (เฟส 2) คิวงานที่ยังไม่ส่ง | 🟡 ดึงใหม่จาก server ได้ ยกเว้นของที่ยังไม่ได้ส่ง | schema v13 |
 
 ศัพท์ที่ต้องรู้:
 - **eviction policy** (นโยบายไล่ของออก): Redis เก็บทุกอย่างใน RAM พอ RAM เต็มจะทำยังไง `allkeys-lru` = ลบ key ที่ไม่ได้ใช้นานที่สุดทิ้ง (**LRU**, Least Recently Used) เหมาะกับ cache ที่ของหายก็โหลดใหม่ได้ ส่วน `noeviction` = ไม่ลบอะไรเลย ปฏิเสธการเขียนใหม่ให้เห็นเป็น error แทน
@@ -1118,7 +1133,7 @@ const CURSOR_TIMESTAMP = `to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"H
 
 ### 10. Migration: schema เปลี่ยนได้แค่ทางเดียว
 
-**migration** (ไฟล์ที่บรรยายการเปลี่ยน schema ทีละขั้น ตั้งชื่อด้วย timestamp เพื่อให้รันตามลำดับ) ตอนนี้มี 14 ไฟล์ใน `server/src/db/migrations/` Postgres จำไว้ในตารางของ TypeORM ว่ารันไฟล์ไหนไปแล้ว ครั้งหน้าจะรันเฉพาะไฟล์ใหม่
+**migration** (ไฟล์ที่บรรยายการเปลี่ยน schema ทีละขั้น ตั้งชื่อด้วย timestamp เพื่อให้รันตามลำดับ) ตอนนี้มี 23 ไฟล์ใน `server/src/db/migrations/` (นับ 2026-10-07; ล่าสุด `1788652804900-EntityIdsToUuid` ของ #616) Postgres จำไว้ในตารางของ TypeORM ว่ารันไฟล์ไหนไปแล้ว ครั้งหน้าจะรันเฉพาะไฟล์ใหม่
 
 `server/docker-compose.yml:123-133`
 
@@ -1143,17 +1158,17 @@ const CURSOR_TIMESTAMP = `to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"H
 
 **กฎเหล็ก: migration ที่รันไปแล้ว ห้ามแก้ ให้เพิ่มไฟล์ใหม่เสมอ** ดูบทเรียน commit `225ecf7` ในหัวข้อ "บทเรียนจากของจริง"
 
-### 11. ฝั่งเครื่อง: Drift schema v11, 25 ตาราง
+### 11. ฝั่งเครื่อง: Drift schema v13, 26 ตาราง
 
-`frontend/lib/data/db/database.dart:72`
+`frontend/lib/data/db/database.dart:85`
 
 ```dart
-  int get schemaVersion => 11;
+  int get schemaVersion => 13;
 ```
 
-`frontend/lib/data/db/tables.dart` มี 25 คลาสที่ `extends Table` (นับจาก `grep`) ส่วนใหญ่เป็นตารางที่พอร์ตมาจากกอง `sa_*` ของแอป JS (`Products`, `Sales`, `SaleItems`, `Shifts`, …) บวกตารางใหม่ของการ sync เช่น `PendingCreditPayments`, `OutboxOps`, `SyncCursors`, `DocCounterSeeds`
+`frontend/lib/data/db/tables.dart` มี 26 คลาสที่ `extends Table` (นับจาก `grep` 2026-10-07; v12 = index ของ #417, v13 = `OpEffects` ของ #488 — CLAUDE.md) ส่วนใหญ่เป็นตารางที่พอร์ตมาจากกอง `sa_*` ของแอป JS (`Products`, `Sales`, `SaleItems`, `Shifts`, …) บวกตารางใหม่ของการ sync เช่น `PendingCreditPayments`, `OutboxOps`, `SyncCursors`, `DocCounterSeeds`
 
-ตัวอย่างตาราง `Products` ฝั่งเครื่อง (`tables.dart:14-37` ย่อ):
+ตัวอย่างตาราง `Products` ฝั่งเครื่อง (`tables.dart:21-42` ย่อ):
 
 ```dart
 class Products extends Table {
@@ -1302,7 +1317,7 @@ class Products extends Table {
 - **คืออะไร:** ไฟล์ migration ที่รันไปแล้วห้ามแก้ไข ต้องการเปลี่ยนอะไรให้เพิ่มไฟล์ใหม่เสมอ (🔍 ข้อ 10)
 - **แก้ปัญหา:** Postgres จำแค่ **ชื่อไฟล์** ที่รันแล้ว ไม่ได้จำเนื้อหา ถ้าแก้ไฟล์เก่า DB ที่รันไปแล้วจะไม่รันเนื้อหาใหม่ ส่วน DB ที่เพิ่งสร้างจะได้เนื้อหาใหม่ตั้งแต่ต้น — schema ของแต่ละเครื่องค่อยๆ ไม่ตรงกันแบบไม่มีใครเห็น (เกิดขึ้นจริงกับ commit `225ecf7`)
 - **ทำไมท่านี้ vs แก้ไฟล์เดิมให้ "ดูสะอาด":** แก้ไฟล์เดิมดูสะอาดกว่าในระยะสั้น แต่พังทันทีที่มี DB มากกว่าหนึ่งชุด (dev, CI, VM demo) ที่ migrate มาคนละเวลา
-- **ดี/ราคา:** ดี — ทุก DB เดินผ่านขั้นตอนเดียวกันเป๊ะไม่ว่าจะสร้างเมื่อไร ราคา — ไฟล์ migration สะสมเพิ่มเรื่อยๆ (ตอนนี้ 14 ไฟล์) แก้บั๊กเล็กๆ ก็ต้องเป็นไฟล์ใหม่เสมอ
+- **ดี/ราคา:** ดี — ทุก DB เดินผ่านขั้นตอนเดียวกันเป๊ะไม่ว่าจะสร้างเมื่อไร ราคา — ไฟล์ migration สะสมเพิ่มเรื่อยๆ (ตอนนี้ 23 ไฟล์ — 2026-10-07) แก้บั๊กเล็กๆ ก็ต้องเป็นไฟล์ใหม่เสมอ
 - **อยู่ตรงไหน:** บทเรียนจริงที่ `1788652803001-SingleOwnerRole.ts` เทียบกับ `InitialSchema.ts` ที่ถูกแก้ผิดกฎในบทเรียนข้อ 1
 
 ### Cache eviction policy (`allkeys-lru` vs `noeviction`)
@@ -1398,6 +1413,8 @@ commit `225ecf7` (ปิด #278, ทำ "เจ้าของร้านค�
 
 สคริปต์ `backup-db.sh` dump Postgres ทุกคืนบน VM `mob04` ได้แล้ว แต่ **ยังไม่มี backup ใบไหนออกจาก VM เลย** กลไกอัปโหลด offsite (`rclone`) ถูกสร้างไว้แต่ยังไม่ได้ต่อกับปลายทางจริง ปลายทางที่เลือกคือ NAS ของร้าน แต่ **ยังไม่ได้เลือก protocol** (BeeStation ไม่มี SFTP ให้ใช้) และงานนี้ถูก **พักไว้จนกว่าจะ demo บน `mob04` เสร็จ** (owner ตัดสิน 2026-09-22) ราคาที่ยอมจ่ายโดยรู้ตัวคือ ถ้าดิสก์ของ `mob04` เสีย ข้อมูลของ demo tenant หายหมด รายละเอียดใน [`../handoff_log/ticket-363-backup-offsite.md`](../handoff_log/ticket-363-backup-offsite.md) และ [`../handoff_log/research-363-sftp-nas-offsite.md`](../handoff_log/research-363-sftp-nas-offsite.md)
 
+> 🔄 **อัปเดต 2026-10-07:** ยังเป็นจริงทุกข้อ — #363 ยังเปิดและ parked (#344 demo ยังไม่จบ) · ก่อนล้าง DB ของ `mob04` ตอน cutover UUID (#616, 2026-10-06) มีการ dump ไว้ที่ `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` และคัดลอกหนึ่งชุดลงโน้ตบุ๊กของ owner ด้วยมือ — **นั่นไม่ใช่ offsite backup** ([`session-2026-10-06-uuid-cutover-mob04.md`](../handoff_log/session-2026-10-06-uuid-cutover-mob04.md))
+
 บทเรียน: Durability ใน ACID ปกป้องแค่ "ไฟดับ" ไม่ได้ปกป้อง "ดิสก์พังทั้งลูก" ฐานข้อมูลที่ไม่มี backup นอกเครื่องยังไม่ปลอดภัย และ log ของ cron ที่เป็นสีเขียวก็ไม่ได้พิสูจน์ว่า backup ออกไปแล้ว ต้องอ่านบรรทัด `::warning::`/`::error::` ด้วย
 
 ### 6. connection ที่สองใน request เดียว = pool ตัน (#162)
@@ -1415,7 +1432,7 @@ commit `225ecf7` (ปิด #278, ทำ "เจ้าของร้านค�
 > - ร้านเดินทางจาก localStorage → Drift/SQLite → **PostgreSQL เป็น source of truth** (Drift เหลือเป็น cache) และยังไม่ได้ cutover
 > - Multi-tenant แบบ **T1** (ตารางร่วม + `tenant_id`) ถูกที่สุดแต่รั่วง่ายที่สุด จึงต้องมี **RLS แบบ fail-closed** (`NULLIF` + `set_config(…, true)` ใน `runTx`) และ app ต้องต่อด้วย **`pos_app`** ที่ `NOBYPASSRLS`
 > - **Redis-cache** (`allkeys-lru`, ไม่มีอะไรเป็นความจริง) แยกจาก **redis-queue** (`noeviction` + AOF) **etcd** เก็บแค่ config ที่ไม่ใช่ความลับ **CouchDB ถูกปฏิเสธ** (ADR-0012)
-> - Migration คือความจริงของ schema (29 ตารางบน Postgres, 25 ตารางบนเครื่อง Drift v11) **ห้ามแก้ migration ที่รันแล้ว** — บั๊กสองตัวใน `OwnerReviewItems` แก้แล้วด้วย migration ใหม่ (#420); backup ที่ยังไม่ออกจาก VM ยังเปิดอยู่
+> - Migration คือความจริงของ schema (29 ตารางบน Postgres, 26 ตารางบนเครื่อง Drift v13) **ห้ามแก้ migration ที่รันแล้ว** — บั๊กสองตัวใน `OwnerReviewItems` แก้แล้วด้วย migration ใหม่ (#420); backup ที่ยังไม่ออกจาก VM ยังเปิดอยู่
 
 ---
 

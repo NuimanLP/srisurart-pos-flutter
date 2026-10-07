@@ -5,6 +5,30 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- REST + JSON ใต้ `/api/v1`; ทุกคำตอบห่อ envelope `{status, data}` / `{status, error:{code, message}}` → client แปลง code เป็นข้อความไทย
+- **4xx = คำตัดสิน · 5xx/429/timeout = ไม่รู้ผล** → เก็บ id + key เดิมไว้ ไม่เข้าคิว; เน็ตหลุดจริงเท่านั้นที่ลง outbox
+- `Idempotency-Key` + bill id มินต์ครั้งเดียวต่อตะกร้า; fingerprint = method + path จริง + body
+- `/sync/push` replay ตามลำดับ: key → client id → parse → service (`08_PHASE2_SPEC.md §8.3`)
+- เงินบนสายเป็น string `"1234.50"`; sync แคตตาล็อกใช้ keyset cursor ระดับ µs
+- สัญญา FE↔BE = เอกสาร + 18 fixture ของ `/sync/push` + `SyncFacade` + test ที่อ่าน source
+- **ตัวเลข/หลักฐานหลัก:** 97 route จาก decorator `@Get/@Post/@Patch/@Delete` (`grep` ใน `server/src/**/*.controller.ts` + `catalogue.controllers.ts`, 2026-10-07; ฉบับแรกนับได้ 89)
+- **ภาพที่แนะนำ:** sequence diagram ในหัวข้อ "6. Idempotency-Key — สัญญาเรื่องกดซ้ำ" และ "แผนภาพ: ชั้นของสัญญา (contract layers)" หรือภาพย่อด้านล่าง
+
+```mermaid
+flowchart LR
+  C["แอป: POST /sales + Idempotency-Key"] --> R{"คำตอบ"}
+  R -->|"2xx"| OK["ปิด attempt + patch Drift"]
+  R -->|"4xx (ไม่ใช่ 429)"| V["คำตัดสิน → ข้อความไทย"]
+  R -->|"5xx / 429"| P["ค้าง id + key เดิม รอกดใหม่"]
+  R -->|"เน็ตหลุดจริง"| Q["outbox → POST /sync/push"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) (หัวข้อ HTTP, JSON, API/REST) · [02_architecture.md](02_architecture.md)
@@ -365,10 +389,14 @@ repo ใช้ **ทั้งสอง แยกตามงาน**: หน้�
 นับจาก decorator `@Get/@Post/@Patch/@Delete` ใน `server/src/**/*.controller.ts` และ `server/src/products/catalogue.controllers.ts`
 ได้ **89 route ที่ลงทะเบียนจริง** (ไม่มี `@Put` เลยแม้แต่ตัวเดียว)
 
+> 🔄 **อัปเดต 2026-10-07:** นับซ้ำวิธีเดียวกันได้ **97 route** (ยังไม่มี `@Put`) — เพิ่มจาก route ใหม่หลังฉบับแรก เช่น platform
+> `GET /platform/tenants/:id`, `.../devices/:deviceId/enrol-code`, `.../devices/:deviceId/replace`, `.../owner/temp-password`
+> (#443/#476) — ตารางข้างล่างอาจยังไม่ครบทุก route ใหม่
+
 > 🔎 ตอนนับเจอไฟล์ `server/src/purchasing/purchasing.controller.ts` (`PurchasingController`, 6 route) ที่
 > **ไม่ถูกลงทะเบียน** — `purchasing.module.ts:9` ลงทะเบียนแค่ `PurchaseOrdersController` จาก
 > `purchase-orders.controller.ts` และไม่มีไฟล์ไหน import `purchasing.controller.ts` เลย ไฟล์นี้จึงเป็น dead code
-> ที่ยิงไม่ถึง (ตารางข้างล่างใช้ของ `purchase-orders.controller.ts`)
+> ที่ยิงไม่ถึง (ตารางข้างล่างใช้ของ `purchase-orders.controller.ts`) — 🔄 ไฟล์นี้ถูกลบแล้ว 2026-09-25 (commit `427669b5`, PR #405)
 
 **วิธีอ่านตาราง** (path ทั้งหมดอยู่ใต้ `/api/v1` ยกเว้นระบุ):
 - **Guard** = ใครเรียกได้: `Tenant` = ต้องมี JWT ของร้าน (`TenantGuard`) · `pos` = ต้องเป็นเครื่องขายด้วย (`@RequireDeviceRole('pos')`)
@@ -539,6 +567,7 @@ rethrowThai → PosException(code, "ข้อความไทย")   ← ApiEx
   (`"Refund method 'หักจากเครดิต'..."`) ถ้าเช็คแค่ "มีไทย" ข้อความอังกฤษแบบนี้จะแย่งที่ข้อความไทยมาตรฐาน
 - **ทำไม 5xx ไม่ใช้ message ของ server:** `resolveCounterError` คืนข้อความเชื่อมต่อกลางๆ สำหรับทุก `>= 500`
   เพราะ 5xx คือ "ไม่รู้ผล" — ข้อความเทคนิคของ server ไม่ช่วยพนักงาน และอาจมี URL/ภาษาอังกฤษหลุด (#199)
+  — 🔄 ยกเว้น `503 IDEMPOTENCY_KEY_IN_FLIGHT` ที่โชว์ประโยค "กรุณารอสักครู่" (`server_error_resolver.dart:31`; PR #646 ทำให้ทุกเส้นทางเขียนโชว์ประโยคนี้)
 - **ใครเคาะข้อความไทย:** เจ้าของโปรเจกต์ ไม่ใช่ developer — `02_API_SCREENS.md §1.2` ห้ามแปลหรือเรียบเรียงใหม่
   เพราะพนักงานคุ้นกับข้อความเดิม และ test ของ client ผูกกับสตริงเหล่านี้
 
@@ -1157,7 +1186,7 @@ curl -k -i https://localhost/metrics      # → 404 จาก Nginx (ตั้�
 | Response envelope | client แกะคำตอบที่เดียว | ซ้อนลึกขึ้น, `/metrics` ต้องหลบ | `common/envelope.interceptor.ts` |
 | Code + message | โปรแกรมแยกเคส + คนอ่านรู้เรื่อง | ตารางแปลสองที่หลุดกันได้ | `server_error_resolver.dart` |
 | Idempotency-Key | กดซ้ำไม่ขายซ้ำ | ตาราง key + lock + fingerprint ต้องตรงทุกเส้นทาง | `idempotency/idempotency.runner.ts` |
-| `isVerdict` | ไม่ลืม key ตอนไม่รู้ผล | UI ต้องมีสถานะ "ยังไม่ทราบผล" | `api/api_wire.dart:99` |
+| `isVerdict` | ไม่ลืม key ตอนไม่รู้ผล | UI ต้องมีสถานะ "ยังไม่ทราบผล" | `api/api_wire.dart:132` |
 | `PendingWrites` | id+key ชุดเดิมตอน retry | ต้องมี TTL | `api/api_wire.dart:196` |
 | Keyset pagination | sync ไม่ข้าม/ไม่วนแถว | cursor µs, ห้ามผสม `page` | `products/products.service.ts` |
 | Money as string | ไม่เพี้ยนสตางค์ | ตัวแปลงสองฝั่ง | `api_wire.dart`, `common/money.ts` |
@@ -1186,10 +1215,14 @@ curl -k -i https://localhost/metrics      # → 404 จาก Nginx (ตั้�
 
 ## ⚠️ บทเรียนจากของจริง
 
-### บทเรียน 1 — 🔴 HIGH (ยังไม่แก้): `/sync/push` กับ online route ใช้ fingerprint คนละแบบ
+### บทเรียน 1 — 🔴 HIGH (แก้แล้ว 2026-09-25): `/sync/push` กับ online route ใช้ fingerprint คนละแบบ
 
 พบใน whole-codebase review 2026-09-24 (`docs/handoff_log/session-2026-09-24-whole-codebase-review.md` §2 ข้อ 1)
 และบันทึกใน CLAUDE.md ส่วน "Still open" — **ยังไม่มี issue และยังไม่แก้**
+
+> 🔄 **อัปเดต 2026-10-07:** แก้แล้ว 2026-09-25 — issue #409, PR #413: `endpointForOp` ตอนนี้ใส่ prefix ออนไลน์
+> (`` `POST ${ONLINE_PREFIX}/sales` `` — `server/src/sync/sync.service.ts:1266-1269`) และขั้น 1 ใช้ payload ตามที่ส่งมา
+> ไม่ parse (PR #624/#630) · เรื่องข้างล่างเก็บไว้เป็นกรณีศึกษา contract drift
 
 ฝั่ง online เก็บ endpoint เป็น path จริง (`idempotency.runner.ts:40`):
 
@@ -1238,9 +1271,11 @@ void บิลคนละใบด้วย key เดิมจะได้ fin
 
 - `02_API_SCREENS.md §8` บันทึกเอง (2026-09-23) ว่า `mapOpError` ใน `sync.service.ts` สร้าง code/ข้อความไทยของตัวเอง
   เช่น `OVERPAYMENT`, `UNKNOWN_OP_TYPE` ซึ่ง **ไม่มีในตาราง** และข้อความไทยที่ **ไม่เคยผ่านการเคาะ** — ขัดกติกา "ห้ามแต่งข้อความไทยเอง" (รอเจ้าของโปรเจกต์)
+  — 🔄 2026-10-07: `OVERPAYMENT` / `RETURN_PRICE_MISMATCH` ของ `/sync/push` ใช้ประโยคเดียวกับแถวใน §8.1 แล้ว และเจ้าของรับรองข้อความไทยที่ agent ร่างทั้งหมด 2026-10-07 (PR #649, PR #651) · `สต็อกไม่พอ` กับ `เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่` ยังเป็นข้อความเดิม (`02_API_SCREENS.md §8`)
 - `INVALID_BACKUP` ในตารางคาดว่าเป็น code แต่จริงๆ โยนเป็น `BadRequestException` ธรรมดา → code ที่ได้คือ `BAD_REQUEST` (`02 §8` บันทึกไว้)
 - `ServerErrorResolver` ยังมีแถว `'OFFLINE_NOT_ALLOWED'` (`server_error_resolver.dart:60`) แต่ `offlineOk` ถูกลบไปแล้วตาม #272 และ grep ใน
   `server/src` ไม่พบ code นี้ถูกโยนแล้ว — เป็นแถวค้างที่ไม่เสียหาย แต่แสดงว่าสองฝั่งไม่มีอะไรเช็คให้ตรงกันอัตโนมัติ
+  — 🔄 แถวนี้ถูกลบแล้ว 2026-09-25 (commit `427669b5`, PR #405)
 
 ### บทเรียน 4 — เอกสารเขียน ✔ แต่โค้ดไม่มี
 
@@ -1252,20 +1287,20 @@ void บิลคนละใบด้วย key เดิมจะได้ fin
 
 `server/src/purchasing/purchasing.controller.ts` ประกาศ `@Controller('purchase-orders')` 6 route ซ้ำกับ `purchase-orders.controller.ts`
 แต่ไม่ถูกลงทะเบียนใน module → ยิงไม่ถึง คนอ่านโค้ดอาจแก้ไฟล์ผิดตัวแล้วงงว่าทำไมพฤติกรรมไม่เปลี่ยน
-(พบระหว่างเขียนบทนี้ — ยังไม่ได้เปิด issue)
+(พบระหว่างเขียนบทนี้ — ยังไม่ได้เปิด issue) — 🔄 ลบ dead code นี้แล้ว 2026-09-25 (commit `427669b5`, PR #405)
 
 ---
 
 ## ✅ สรุป
 
 > - **API = เคาน์เตอร์ร้าน**: client รู้แค่ "พูดอะไรได้ ได้อะไรกลับ" ไม่ต้องรู้หลังร้าน · **contract** = interface + กติกาที่สองฝั่งสัญญาว่าจะรักษา
-> - repo นี้เป็น **REST+JSON ใต้ `/api/v1`** (89 route) ยกเว้น `/health/live`, `/health/ready`, `/metrics` ที่ root — และมีแค่ `/metrics` ที่ไม่ห่อ envelope
+> - repo นี้เป็น **REST+JSON ใต้ `/api/v1`** (97 route นับ 2026-10-07; ฉบับแรก 89) ยกเว้น `/health/live`, `/health/ready`, `/metrics` ที่ root — และมีแค่ `/metrics` ที่ไม่ห่อ envelope
 > - ทุกคำตอบห่อ **envelope** `{status, data, meta?}` / `{status, error:{code, message, details?}}` · error มี **code ให้เครื่อง + message ให้คน** → `ServerErrorResolver` แปลงเป็นไทยก่อนถึงจอ
 > - **เงินเป็น string `"1234.50"`**, เวลาเป็น ISO-8601 UTC · sync แคตตาล็อกใช้ **keyset cursor ระดับ µs** ไม่ใช่ offset
 > - **Idempotency-Key**: key+endpoint+body เดิม = replay · body/endpoint ต่าง = `409 REUSED` · ยังวิ่งอยู่ = `503 IN_FLIGHT` · client **mint ครั้งเดียวต่อตะกร้า**
-> - **4xx (ยกเว้น 429) = คำตัดสิน · 5xx/429/timeout = ไม่รู้ผล** → เก็บ id+key ไว้ retry
+> - **4xx (ยกเว้น 429) = คำตัดสิน · 5xx/429/timeout = ไม่รู้ผล** → เก็บ id+key ไว้ retry (5xx/429 ไม่เข้า outbox — เฉพาะเน็ตหลุดจริง, `08 §5`)
 > - FE↔BE ผูกกันด้วย **เอกสาร + fixtures + source-level test + `SyncFacade`** — "contract, not a queue"
-> - จุดที่ไม่มี test ข้ามเส้นทางคือจุดที่พัง: **bug HIGH** `/sync/push` fingerprint `POST /sales` ≠ `POST /api/v1/sales` ยังไม่แก้
+> - จุดที่ไม่มี test ข้ามเส้นทางคือจุดที่พัง: **bug HIGH** `/sync/push` fingerprint `POST /sales` ≠ `POST /api/v1/sales` (แก้แล้ว 2026-09-25, PR #413)
 
 ---
 

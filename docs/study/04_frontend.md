@@ -5,6 +5,30 @@ management/routing แบบนี้"
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- Flutter code base เดียว → Android / iOS / Web; UI แบบ declarative + state ใน Cubit (flutter_bloc) + go_router
+- 3 ชั้น data → domain → presentation: จอเรียก repository เดิมเสมอ สลับ Drift ↔ API ด้วย flag `USE_API_WRITES`
+- Drift (SQLite) ในเครื่อง: schema v13 — ร้านจริงยังใช้ build นี้ขายทุกวัน
+- กฎเงินฝั่ง API: id + `Idempotency-Key` มินต์ครั้งเดียวต่อตะกร้า; เฉพาะ 4xx คือคำตัดสิน; 5xx/429 = ค้าง attempt ไว้ ไม่เข้าคิว
+- `ApiException` ไม่ถึงจอ — มี guard test 2 ชั้น (PR #642, PR #644) และข้อความ error ไทยทั้งหมดเจ้าของรับรองแล้ว 2026-10-07
+- **ตัวเลข/หลักฐานหลัก:** `frontend/test/` มี 116 ไฟล์ `*_test.dart` (`find`, 2026-10-07) · `schemaVersion => 13` (`frontend/lib/data/db/database.dart:85`)
+- **ภาพที่แนะนำ:** "แผนภาพ: layer diagram ของ frontend" และ sequence ของการกด ชำระเงิน (หัวข้อ "แผนภาพ: sequence …") ในบทนี้ หรือภาพย่อด้านล่าง
+
+```mermaid
+flowchart LR
+  UI["จอ (presentation)"] --> CU["Cubit / Repository"]
+  CU -->|"Drift build"| DR[("Drift / SQLite")]
+  CU -->|"API build"| API["ApiRepository"]
+  API -->|"4xx = คำตัดสิน"| TH["ข้อความไทยบนจอ"]
+  API -->|"5xx/429 = ค้าง attempt"| PW["PendingWrites (id+key เดิม)"]
+  API -->|"เน็ตหลุดจริง"| OB["outbox รอส่ง"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านมาก่อน:** [00_index.md](00_index.md) (พื้นฐาน client/server, HTTP, JSON, Git, terminal),
@@ -498,7 +522,7 @@ read") — ข้อมูลเก่าที่เคยเก็บโซน
 `updatedAt`/`deletedAt` เป็น `.nullable()` เพราะ field พวกนี้เพิ่งมาทีหลัง (schema v4) และเขียนโดย server
 เท่านั้น — แถวที่สร้างก่อนหน้านั้นไม่มีค่า ต้องเป็น null ได้
 
-`frontend/lib/data/db/database.dart:72`: `int get schemaVersion => 11;` — เลขนี้คือเวอร์ชันของ "โครงสร้าง
+`frontend/lib/data/db/database.dart:85`: `int get schemaVersion => 13;` (นับ 2026-10-07 — v12 = index #417, v13 = `op_effects` #488) — เลขนี้คือเวอร์ชันของ "โครงสร้าง
 ตาราง" ทั้งหมด ทุกครั้งที่เพิ่ม/แก้คอลัมน์ต้องเพิ่มเลขนี้ และ Drift จะรัน migration (โค้ดที่บอกวิธีแปลง
 ฐานข้อมูลเวอร์ชันเก่าเป็นใหม่) ให้อัตโนมัติตอนเปิดแอปครั้งถัดไป — ถ้าลืมเพิ่มเลขนี้ตอนแก้ตาราง เครื่องที่มี
 ฐานข้อมูลเก่าอยู่แล้วจะไม่รู้ว่าต้อง migrate และพัง
@@ -557,7 +581,7 @@ Future<SaleRow> saveSale(SaleInput input) async {
 
 ### 7. `ApiClient` + `rethrowThai` — `ApiException` ต้องไม่ถึงจอ
 
-`frontend/lib/data/repositories/api/api_wire.dart:77-99`:
+`frontend/lib/data/repositories/api/api_wire.dart:93-99` และ `:132` (โค้ด ณ 2026-10-07):
 
 ```dart
 /// รัน [body] แล้วแปลง [ApiException] เป็น Exception ธรรมดาที่จอรู้จักอยู่แล้ว
@@ -565,7 +589,7 @@ Future<T> rethrowThai<T>(Future<T> Function() body) async {
   try {
     return await body();
   } on ApiException catch (e) {
-    throw PosException(e.code, e.thaiMessage, e.details);
+    throw posExceptionFromApi(e, keepServerTextOn5xx: true);
   }
 }
 
@@ -578,13 +602,21 @@ bool isVerdict(ApiException e) => e.statusCode < 500 && e.statusCode != 429;
 `e.toString().replaceFirst('Exception: ', '')` — ถ้าปล่อยให้ `ApiException` ดิบๆ หลุดไปถึงจอ ผู้ใช้จะเห็น
 ข้อความแบบ `ApiException(status: 409, code: ...)` ที่หน้าเคาน์เตอร์ ซึ่งไม่มีความหมายกับแคชเชียร์เลย
 `rethrowThai` จึงแปลงทุก `ApiException` เป็น `PosException` ที่ `toString()` คืนประโยคภาษาไทยล้วนๆ ก่อน
-โดยกฎนี้บังคับผ่าน `api_repository_contract_test.dart` (หนึ่งใน 65 test — ดูหัวข้อ testing) ให้ครอบคลุม
+โดยกฎนี้บังคับผ่าน `api_repository_contract_test.dart` (หนึ่งใน test ของ `frontend/test/` — ดูหัวข้อ testing) ให้ครอบคลุม
 ทุกไฟล์ใน `data/repositories/api/` และ `data/repositories/api_*.dart`
+
+> 🔄 **อัปเดต 2026-10-07:** กฎนี้มี guard เพิ่มอีก 2 ชั้นแล้ว — PR #642 (2026-10-06): ไม่มีไฟล์ใต้ `frontend/lib/presentation`
+> import `api_exception.dart` เลย (`frontend/test/presentation_no_api_exception_test.dart`) และ PR #644: ไม่มี
+> `ApiException` หลุดออกจาก repository ตอนรันจริง (`frontend/test/api_exception_never_escapes_test.dart`)
 
 `isVerdict` คือกฎสำคัญอีกข้อ: **เฉพาะ HTTP 4xx (ยกเว้น 429) เท่านั้นที่ถือว่า server ตอบขาดแล้ว** ส่วน 5xx
 หรือ 429 หรือ timeout แปลว่า "ไม่รู้ว่าบิลไปถึง server แล้วหรือยัง" — ถ้าปฏิบัติเหมือน 5xx เป็นคำตอบสุดท้าย
 แล้วให้แคชเชียร์กดขายซ้ำ อาจเกิดบิลซ้อนสอง (double-charge) เพราะบิลแรกอาจบันทึกสำเร็จแล้วแค่คำตอบหายไป
 ระหว่างทาง
+
+> 🔄 **อัปเดต 2026-10-07:** บน API build — 5xx / 429 / `503 IDEMPOTENCY_KEY_IN_FLIGHT` **ไม่เข้า outbox**: attempt
+> ค้างไว้ (id + key เดิม) แล้วโชว์ error; เฉพาะเน็ตหลุดจริง (timeout/socket) เท่านั้นที่เข้าคิว (`08_PHASE2_SPEC.md §5`,
+> PR #469; PR #645 ขยายไปถึงการเขียนลูกค้า/รับชำระเครดิต; PR #646 โชว์ประโยครอของ `IN_FLIGHT` ทุกเส้นทางเขียน)
 
 ### 8. `PendingWrites` — id + Idempotency-Key มินต์ครั้งเดียวต่อตะกร้า
 
@@ -814,7 +846,7 @@ network โดยไม่ได้ตั้งใจ — ราคาคือ�
 `build_runner` ทุกครั้งที่แก้ตาราง (ขั้นตอนเพิ่ม, และมีข้อจำกัดเรื่อง path ภาษาไทยตามที่อธิบายด้านล่าง)
 
 **อยู่ตรงไหนใน repo**: `frontend/lib/data/db/tables.dart:14-36`,
-`frontend/lib/data/db/database.dart:72` (`schemaVersion`)
+`frontend/lib/data/db/database.dart:85` (`schemaVersion`)
 
 ### 5. DB transaction: pre-validate ก่อน แล้วค่อย commit-or-rollback ทั้งก้อน
 
@@ -878,9 +910,10 @@ status สะท้อนความจริงของโปรโตคอ�
 **ดียังไง / ราคาที่จ่าย**: ปลอดภัยจากบิลซ้อนสอง และหน้าจอแสดงข้อความที่คนอ่านเข้าใจได้เสมอ — ราคาคือทุก
 `ApiRepository` ต้องเรียกผ่าน `rethrowThai` ให้ครบทุกจุด (มี test บังคับ —
 `api_repository_contract_test.dart`) ถ้ามีจุดไหนลืม ApiException จะหลุดถึงจอโดยไม่มีใครเตือนจน QA
-มาเจอเอง
+มาเจอเอง — 🔄 ตั้งแต่ 2026-10-06 มี test จับเพิ่ม: `presentation_no_api_exception_test.dart` (PR #642) +
+`api_exception_never_escapes_test.dart` (PR #644)
 
-**อยู่ตรงไหนใน repo**: `frontend/lib/data/repositories/api/api_wire.dart:77-99`
+**อยู่ตรงไหนใน repo**: `frontend/lib/data/repositories/api/api_wire.dart:93-99,132`
 
 ---
 
@@ -976,8 +1009,8 @@ manifest) เดินหน้าต่อได้
 - ข้อจำกัดเครื่องมือจริง: path ภาษาไทยทำ `build_runner`/`flutter analyze` พัง (ใช้ `dart analyze` แทน),
   web DB assets (`sqlite3.wasm`/`drift_worker.js`) ต้องตรงเวอร์ชันกับ `pubspec.lock` เป๊ะ (เคส #266)
 - Riverpod → flutter_bloc ย้ายเสร็จ 2026-07-14 แต่เหตุผลเปรียบเทียบไม่มีบันทึกไว้ในเอกสารที่ตรวจสอบได้
-- มีเทสต์ 65 ไฟล์ใน `frontend/test/` ครอบคลุมทั้ง repository unit test, route smoke test, และ
-  `api_repository_contract_test.dart` ที่บังคับกฎ `rethrowThai`
+- มีเทสต์ 116 ไฟล์ใน `frontend/test/` (นับ 2026-10-07; ฉบับก่อนเขียน 65) ครอบคลุมทั้ง repository unit test, route smoke test,
+  `api_repository_contract_test.dart` ที่บังคับกฎ `rethrowThai` และ guard `ApiException` ไม่ถึงจอ (PR #642/#644)
 
 ---
 

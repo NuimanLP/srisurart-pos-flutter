@@ -2,6 +2,29 @@
 
 บทนี้ตอบคำถาม: ทำไมร้านค้าห้ามเก็บเงินเป็น `float` เด็ดขาด และทำไมตัวอักษรไทยต้องมีกฎพิเศษที่ตัวอังกฤษไม่ต้องมี
 
+---
+
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- ห้ามเก็บเงินเป็น `float` — server คิดเป็น **สตางค์จำนวนเต็ม** (`server/src/common/money.ts`; ต้นทุนถัวเฉลี่ยใช้ `BigInt`), Postgres เก็บ `NUMERIC(12,2)`, บนสายเป็น string `"1234.50"`
+- ปัดเศษต่างกันโดยตั้งใจ: client `round2` แบบ float (parity กับ `db.js`) · server ต้นทุนถัวเฉลี่ย satang half-up แบบ exact
+- คืนของบางส่วน → แบ่งส่วนลด/แต้ม/สถิติช่างตามสัดส่วน **จากยอดต้นทางทุกครั้ง** ไม่หารสะสม
+- เก็บ ค.ศ./UTC · แสดง พ.ศ./เวลาไทยตอนแสดงผลเท่านั้น · เลขเอกสาร `RC01-2569-08-0042` (ADR-0007)
+- ข้อความไทย = behaviour parity (copy เป๊ะ ไม่แปลใหม่) — owner รับรองข้อความที่ agent ร่างครบแล้ว 2026-10-07 (PR #649)
+- **ตัวเลข/หลักฐานหลัก:** `0.1 + 0.2` = `0.30000000000000004` ใน IEEE-754 (ลองใน `node` ได้) → เหตุผลที่ `server/src/purchasing/weighted-average.ts` ใช้ `BigInt` และ InitialSchema มีคอลัมน์ `NUMERIC(12,2)` 22 จุด (`grep -c`, 2026-10-07)
+- **ภาพที่แนะนำ:** แผนภาพเลขเอกสารใน *ของจริงใน repo → 9) ADR-0007* หรือ flow เงินด้านล่าง
+
+```mermaid
+flowchart LR
+  A["Dart client: real (float)<br/>round2 / baht()"] --> B["JSON string<br/>'1234.50'"]
+  B --> C["NestJS: สตางค์จำนวนเต็ม<br/>money.ts"]
+  C --> D["Postgres NUMERIC(12,2)"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - อ่านมาก่อน: [04_frontend.md](04_frontend.md) (Flutter/Dart พื้นฐาน), [06_backend.md](06_backend.md) (NestJS service),
@@ -491,6 +514,10 @@ RC01-2569-08-0042
 - **ใครออกเลข:** เฟส 1 (ปัจจุบัน) — **server ออกเสมอ** ทุกประเภทเอกสาร ใต้ row lock ในธุรกรรม
   เดียวกับการขาย (กัน race condition ที่สองเครื่องออกเลขซ้ำกันพร้อมกัน) client **ไม่ส่ง
   `receiptNo` มาเอง** เฟส 2 (ยังไม่ถึง) เครื่อง `pos` เท่านั้นที่จะออกเลขเองได้ตอนออฟไลน์
+  (🔄 **อัปเดต 2026-10-07:** เฟส 2 ส่วนนี้มาแล้ว — บน API build เครื่อง `pos` ออกเลข RC/CN เองตอน
+  ออฟไลน์ผ่าน `DocNumberService.issueOffline` (CN: PR #469, RC: PR #484) และเลขที่ server ออกให้
+  ทั้งคำตอบออนไลน์และ replay ของ `/sync/push` ต้อง commit ลง `DocCounters` ในเครื่องด้วย
+  `commitServerIssued` (PR #491/#492/#494) ทางออนไลน์ server ยังเป็นคนออกเลขเสมอ)
 - ตาราง `doc_counters` (`server/src/db/migrations/1788652800000-InitialSchema.ts:103-109`) เก็บ
   `last_no` แยกตาม `(tenant_id, device_id, doc_type, period)` — คือ key ที่ทำให้ "รีเซ็ตรายเดือน
   ต่อเครื่อง" เป็นไปได้: เปลี่ยนเดือนก็เป็นแถวใหม่ เริ่มนับจาก 0 ใหม่โดยอัตโนมัติ
@@ -527,22 +554,26 @@ String csvSafe(Object? v) {
 ### 11) ข้อความ error ภาษาไทยต้อง copy เป๊ะ
 
 ```dart
-// frontend/lib/data/repositories/sales_repository.dart:51
+// frontend/lib/data/repositories/sales_repository.dart:58
 throw Exception('สต็อกไม่พอ:\n${insufficient.join('\n')}');
 ```
 
 ```dart
-// frontend/lib/core/network/server_error_resolver.dart:46
+// frontend/lib/core/network/server_error_resolver.dart:50
 'INSUFFICIENT_STOCK': 'สต็อกไม่พอ',
 ```
 
 - **ทำอะไร:** ทั้งสองที่ (Drift repository ฝั่ง offline และ error resolver ที่แปล error code จาก
   server) ใช้คำเดียวกันเป๊ะ: `สต็อกไม่พอ` ตามด้วยรายการสินค้าที่ขาด (`ชื่อสินค้า: สต็อก N แต่
-  ต้องการ M` — ยืนยันจาก `server/test/sales.e2e-spec.ts:458`)
+  ต้องการ M` — ยืนยันจาก `server/test/sales.e2e-spec.ts:459`)
 - **ทำไมเขียนท่านี้:** นี่คือ "behaviour parity" ตัวอย่างที่จับต้องได้ — ไม่ว่าบิลจะถูกปฏิเสธจาก
   Drift (ออฟไลน์) หรือจาก server (ออนไลน์) พนักงานเห็นข้อความเดียวกันเป๊ะ ไม่ต้องเรียนรู้สองแบบ
 - **ถ้าไม่ทำ:** พนักงานที่คุ้นเคยกับข้อความ error จากระบบเดิม จะงงเมื่อเจอข้อความคนละแบบระหว่าง
   โหมดออนไลน์/ออฟไลน์ ทั้งที่ควรเป็นเรื่องเดียวกัน
+- **สถานะ 2026-10-07:** ข้อความไทยทุกตัวที่ agent ร่างไว้ (`agent ร่าง`) owner รับรองครบแล้ว
+  (PR #649) และ PR #651 เติม error ไทยที่เหลือ + ข้อความเฉพาะของ platform-ui · `ApiException`
+  ไม่มีทางถึงหน้าจอ — presentation ไม่ import มัน (PR #642, `frontend/test/presentation_no_api_exception_test.dart`)
+  และไม่หลุดจาก repository ตอนรัน (PR #644, `frontend/test/api_exception_never_escapes_test.dart`)
 
 ---
 
@@ -667,7 +698,10 @@ Sarabun/Barlow จากโหลดผ่านเน็ต (`google_fonts` pac
 แล้ว) แต่จาก **Flutter engine เองที่มีกลไกดาวน์โหลด fallback-glyph** สำหรับตัวอักษรที่ font ที่ฝัง
 ไว้ไม่มี (เช่น emoji ที่มีอยู่ใน UI ประมาณ 29 ไฟล์) — 🔴 **ช่องนี้ยังไม่ปิด** ไม่ใช่เพราะทำไม่ดี
 แต่เพราะเป็นกลไกคนละชั้นกับที่ ticket #271 ตั้งใจแก้ (แก้เฉพาะ `google_fonts`/`PdfGoogleFonts`)
-เว็บ service worker ก็ยังไม่ precache อะไรเลย (ติดอยู่ที่ #266 ซึ่งปิดแล้วแต่ #241 ยังไม่ทำ) —
+เว็บ service worker ก็ยังไม่ precache อะไรเลย (ติดอยู่ที่ #266 ซึ่งปิดแล้วแต่ #241 ยังไม่ทำ)
+(🔄 **อัปเดต 2026-10-07:** ประโยค service worker ตกยุคแล้ว — `frontend/web/sw.js` precache
+shell + font ที่ฝัง (Sarabun/Barlow) ตั้งแต่ #273 ปิด 2026-09-19 (commit `61143b3`) ส่วน fetch
+fallback-glyph ของ engine ไป `fonts.gstatic.com` ยังเป็นช่องที่เปิดอยู่ตาม CLAUDE.md) —
 บทเรียน: การแก้ปัญหา encoding/font มักมีหลายชั้นซ้อนกันมากกว่าที่ ticket แรกเห็น ต้องตามให้ครบทุก
 เส้นทางที่ข้อความไหลผ่าน (UI ปกติ, PDF, web engine fallback) ไม่ใช่แค่จุดที่ ticket ชี้ไว้
 
@@ -705,8 +739,8 @@ filesystem, compiler toolchain และเครื่องมือที่�
   ความกำกวมตอน parse
 - `csvSafe` ปิดช่องโหว่ CSV/Formula Injection — ตัวอย่างจริงว่า encoding/string handling เชื่อมกับ
   ความปลอดภัยโดยตรง
-- ของยังไม่เสร็จ/ยังพัง: Flutter web engine ยัง fetch `fonts.gstatic.com` สำหรับ fallback-glyph
-  (เช่น emoji), web service worker ยังไม่ precache อะไรเลย (บล็อกอยู่ที่ #241)
+- ของยังไม่เสร็จ: Flutter web engine ยัง fetch `fonts.gstatic.com` สำหรับ fallback-glyph
+  (เช่น emoji) — ส่วน service worker precache shell + font แล้วตั้งแต่ #273 (2026-09-19)
 
 ---
 

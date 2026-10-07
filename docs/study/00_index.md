@@ -4,6 +4,21 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+> และโครงย่อ 20 หน้าในหัวข้อ "เส้นทาง C — ทำสไลด์นำเสนอ" ด้านล่าง
+
+- POS ร้านอะไหล่รถยนต์ไทย "ศรีสุรัตน์" ผ่านมา 3 ยุค: JS + `localStorage` → Flutter + Drift (offline-first) → client + server multi-tenant + CI/CD
+- ร้านจริงยังขายด้วย Drift build ทุกวัน — server ทดสอบกับร้านตัวอย่าง ยังไม่มี cutover (#231 เปิดอยู่)
+- branch ถาวร 3 ตัว: งานใหม่เข้า `develop` → `develop` เข้า `main` ด้วย merge commit เท่านั้น → `main` deploy ขึ้น VM `mob04` (ต้องอนุมัติ)
+- Phase 1 เกือบครบ: DoD 16/17 — ข้อที่เหลือคือ k6 (#380) ซึ่ง**วัดจริงครั้งแรกแล้ว 2026-10-05 แต่ยังไม่ถูกรับผล**
+- Deploy ขึ้น `mob04` ทำงานจริงแล้ว (ครั้งแรก 2026-09-30) — ล่าสุด `dd659e2` 2026-10-07 · backup ยังไม่ออกนอก VM (#363 parked)
+- **ตัวเลข/หลักฐานหลัก:** DoD phase 1 = 17 ข้อ ติ๊ก 16 (`../Backend_design/03_ARCHITECTURE.md` §8, นับใหม่ 2026-10-07) · `/opt/pos/.current_sha` บน `mob04` = `dd659e2` (อ่านบน VM 2026-10-07 07:40 UTC; Deploy run `37585778195`)
+- **ภาพที่แนะนำ:** เส้นเวลา 3 ยุคในหัวข้อ 1 (มีภาพสำเร็จรูป `../report/src/diagrams/evolution.png`)
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - ไม่ต้องมีพื้นฐานอะไรมาก่อน — บทนี้คือจุดเริ่มต้น
@@ -31,8 +46,8 @@ Sale หรือ **POS** — ระบบคิดเงิน ตัดสต�
 │ + localStorage เก็บข้อมูล     │ ─────────► │ + Drift/SQLite เก็บในเครื่อง    │ ─────────► │ + NestJS backend (server จริง)       │
 │ (ข้อมูลอยู่ในเบราว์เซอร์เท่านั้น) │            │ (ข้อมูลอยู่ในเครื่องพีซีหน้าร้าน)   │            │ + PostgreSQL + Redis + CI/CD pipeline│
 └─────────────────────────────┘            └──────────────────────────────┘            └───────────────────────────────────┘
-  "Srisurart Autopart Design            แช่แข็งไว้ที่ branch                            คือ branch `main` ตอนนี้ —
-   System" repo (คนละ repo)             POC_sample_offline_first                        "phase 1" (backend) เสร็จแล้ว,
+  "Srisurart Autopart Design            แช่แข็งไว้ที่ branch                            คือ `develop`/`main` ตอนนี้ —
+   System" repo (คนละ repo)             POC_sample_offline_first                        "phase 1" (backend) DoD 16/17,
                                                                                           "phase 2" (offline+server ผสมกัน)
                                                                                           กำลังทำอยู่
 ```
@@ -77,8 +92,10 @@ Sale หรือ **POS** — ระบบคิดเงิน ตัดสต�
 > 🟢 **สถานะ ณ 2026-09-25** (ตรวจจาก `ls docs/study/` จริง): ชุดเอกสารนี้เขียนครบแล้วทั้ง **19 บท
 > (00–18)** ตามลำดับสุดท้ายด้านล่าง ทุกไฟล์ใช้ชื่อไฟล์เลขบทสุดท้ายแล้ว (ไม่มี temp filename เหลืออยู่)
 > **เพิ่ม 2026-10-01:** บท **19** (เรื่องเล่า deploy ขึ้น `mob04`) — รวมเป็น 20 บท (00–19)
+> **เพิ่ม 2026-10-07:** ทุกบทมีส่วน `## สไลด์ (Slide-ready summary)` ที่หัวบท และเพิ่มบท **20** (โครงสไลด์นำเสนอ) —
+> รวมเป็น 21 ไฟล์ (00–20) · สถานะในชุดนี้ตรวจใหม่กับ git/GitHub/VM ณ 2026-10-07
 
-ชุดเอกสารนี้มี 20 บท (00–19) แต่ละบทตอบคำถามคนละมุมของระบบ
+ชุดเอกสารนี้มี 20 บทเนื้อหา (00–19) แต่ละบทตอบคำถามคนละมุมของระบบ บวกบท 20 ที่รวมโครงสไลด์
 
 | บท | ชื่อ | ตอบคำถามอะไร | เวลาอ่าน | ต้องอ่านมาก่อน | ไฟล์ปัจจุบัน |
 |---|---|---|---|---|---|
@@ -97,11 +114,12 @@ Sale หรือ **POS** — ระบบคิดเงิน ตัดสต�
 | **12** | Testing strategy | ทดสอบ frontend/backend ยังไง, unit/e2e/contract test ต่างกันตรงไหน | ~75–100 นาที | 00, 04, 06 | `12_testing.md` |
 | **13** | Team workflow + Git/PR | ทีมทำงานร่วมกันยังไง, branch/PR/review ผูกกับ CI ตรงไหน | ~70–90 นาที | 00, 02 | `13_team_workflow.md` |
 | **14** | DevOps | Docker, Compose, Nginx, Ansible, Prometheus/Grafana, GHCR, Trivy คืออะไรและทำงานยังไง | 50–70 นาที | 00, 02, 06 | `14_devops.md` |
-| **15** | CI/CD เชิงลึก | ทุก stage ของ pipeline, ผลลัพธ์จริง, กรณี deploy ติด FortiGate | ~90–120 นาที | 00, 02, 14 | `15_cicd.md` |
+| **15** | CI/CD เชิงลึก | ทุก stage ของ pipeline, ผลลัพธ์จริง, กรณี deploy ติด FortiGate (แก้แล้ว 2026-09-29/30) | ~90–120 นาที | 00, 02, 14 | `15_cicd.md` |
 | **16** | Performance + load test | วัด throughput/latency/RAM ของ stack ยังไง, k6 คืออะไร | ~70–90 นาที | 00, 02, 06, 14 | `16_performance.md` |
 | **17** | Hands-on lab | ลงมือ clone/รัน/ทดสอบทั้งระบบเองบนเครื่องตัวเอง | ~2–3 ชั่วโมง | 00, 02 | `17_lab.md` |
 | **18** | Capstone: บทเรียนวิศวกรรม | สรุปบทเรียนวิศวกรรมที่เอาไปใช้กับโปรเจกต์อื่นได้ | 60–90 นาที (+1–2 ชม. ถ้าทำแบบฝึกหัด) | ทุกบทก่อนหน้า | `18_capstone.md` |
 | **19** | เรื่องเล่า deploy ขึ้น `mob04` | ทำอะไรบ้างจน stack ขึ้น VM เดโมได้จริง (2026-09-29 → 10-01): runner, hook, `pos-deploy`, Ansible, rollback, หลักฐาน, กับดัก | ~90–120 นาที | 14, 15 | `19_deploy_mob04_story.md` |
+| **20** | โครงสไลด์นำเสนอ | ถ้าต้องนำเสนอ ~20 หน้า แต่ละหน้าพูดอะไร ใช้ภาพอะไร ตัวเลขไหนอ้างได้ (สถานะ 2026-10-07) | ~30 นาที | 00 (+ ส่วน "สไลด์" ของแต่ละบท) | `20_slide_outline.md` |
 
 ### ลำดับการอ่าน (Mermaid)
 
@@ -135,6 +153,8 @@ flowchart TD
     LAB --> CAP["18 Capstone"]
     I --> CAP
     I --> DEP["19 Deploy mob04 story"]
+    CAP --> SLIDE["20 โครงสไลด์"]
+    DEP --> SLIDE
 ```
 
 ### สองเส้นทางอ่าน
@@ -145,6 +165,33 @@ flowchart TD
 **เส้นทาง B — อยากเข้าใจลึกทั้งระบบ (ประมาณ 15–18 ชั่วโมง)**
 `00 → 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19`
 อ่านทุกส่วนรวม "🔍 ของจริงใน repo" และ "⚠️ บทเรียนจากของจริง" — เหมาะกับคนที่จะเริ่มแก้โค้ดในนี้จริงๆ
+
+**เส้นทาง C — ทำสไลด์นำเสนอ (ประมาณ 1–2 ชั่วโมง)**
+อ่านเฉพาะส่วน `## สไลด์ (Slide-ready summary)` ที่หัวของทุกบท แล้วใช้โครงด้านล่าง (รายละเอียด bullet,
+speaker note, ภาพ และแหล่งของตัวเลขทุกตัวอยู่ใน [20_slide_outline.md](20_slide_outline.md)) — สถานะ ณ 2026-10-07
+
+| # | หัวสไลด์ | บทต้นทาง | ประเด็นหลัก |
+|---|---|---|---|
+| 1 | Srisurart Autopart POS | 01 | POS ร้านอะไหล่ไทย: offline-first → multi-tenant · 428 PR merge แล้ว |
+| 2 | ปัญหาของร้าน | 01, 03 | ข้อมูลหาย/เน็ตหลุด/ต้นทุนคนละล็อต |
+| 3 | สามยุคของระบบ | 00 | JS → Flutter+Drift → client+server+CI/CD · ร้านยังใช้ Drift build (#231) |
+| 4 | ใครใช้ระบบ | 03 | owner / พนักงาน / `pos` / `backoffice` / platform admin |
+| 5 | สถาปัตยกรรมรวม | 02 | Nginx → API ×3 → Postgres + Redis ×2 + BullMQ + etcd |
+| 6 | Frontend | 04 | Flutter + bloc + Drift · `ApiException` ไม่ถึงหน้าจอ (#642, #644) |
+| 7 | สัญญา API + idempotency | 05, 06 | 4xx = คำตัดสิน · 5xx/429/`IN_FLIGHT` จอดไว้ ไม่เข้าคิว |
+| 8 | Multi-tenant ปลอดภัย | 06, 07 | RLS + `runTx` · อ่านข้ามร้าน 0 แถว |
+| 9 | เงิน + ภาษาไทยถูกต้อง | 08 | เงินเป็น string · ข้อความไทยรับรองครบ 2026-10-07 (#649) |
+| 10 | ย้ายข้อมูล + UUID | 09 | snapshot ร้านจริงผ่าน 44 checks (#185) · UUIDv7 (#616) → server ไม่รับ snapshot แอปเดิมแล้ว |
+| 11 | Offline phase 2 | 10 | outbox + `/sync/push` · replay key → client id → parse (#638) |
+| 12 | Security | 11 | JWT + device token · `perip` · gitleaks · CA ส่วนตัว |
+| 13 | Testing | 12 | 60 ไฟล์ e2e · 116 ไฟล์ Flutter test |
+| 14 | ทำงานเป็นทีม | 13 | PR → `develop` → `main` (merge commit, ruleset `24564072`) |
+| 15 | CI/CD pipeline | 14, 15 | 2 status checks · GHCR + Trivy · deploy ต้องอนุมัติ · green ≠ deployed |
+| 16 | Deploy ขึ้น `mob04` | 19 | FortiGate → runner → rollback → UUID cutover → `dd659e2` |
+| 17 | Monitoring | 14, 16 | Grafana 29 panel · heartbeat |
+| 18 | Load test k6 (#380) | 16 | วัดจริง 2026-10-05: อ่านผ่าน · แย่งซื้อ 200 คนไม่ผ่าน · ข้อมูลถูก · ยังไม่รับผล |
+| 19 | สถานะ DoD + งานค้าง | 00, 18 | DoD 16/17 · #380 #344 #363 #231 #443 ยังเปิด |
+| 20 | บทเรียน + ก้าวต่อไป | 18 | หลักฐาน ไม่ใช่สถานะ · ตรวจ head SHA |
 
 ---
 
@@ -384,7 +431,9 @@ POC_sample_offline_first ●  (แยกออกจาก main ที่ commit
 ```
 
 PR แต่ละอันจะถูกสร้างเป็น branch ย่อยชั่วคราว แก้เสร็จ ผ่านการตรวจสอบและ CI (ดูบท 15) แล้วค่อย
-merge เข้า `main`
+merge เข้า `develop` — จากนั้น `develop` เข้า `main` ด้วย PR แบบ **merge commit เท่านั้น** (บังคับด้วย
+ruleset `24564072` ตั้งแต่ 2026-10-06; ทั้ง `main` และ `develop` บังคับ PR + status check 2 ตัว) และมีแค่
+`main` ที่สร้าง image และ deploy ขึ้น VM (ดูบท 13/15)
 
 ### 4.10 GitHub
 
@@ -421,96 +470,96 @@ README.md                  ภาพรวมทั้งระบบ ภาษ�
 ## 6. Glossary ใหญ่
 
 ศัพท์ต่อไปนี้ทุกคำ **มีอยู่จริงในโปรเจกต์** (ตรวจแล้วด้วย grep ใน repo จริง) เรียงตามหมวด บทที่ระบุ
-คือบทที่จะอธิบายละเอียดกว่านี้
+คือบทที่จะอธิบายละเอียดกว่านี้ (เลขบทปรับเป็นเลขชุดปัจจุบันแล้วเมื่อ 2026-10-07 — ก่อนหน้านั้นคอลัมน์นี้ยังใช้เลขบทชุดแรก 00–08)
 
 ### หมวด Web
 
 | ศัพท์ | ความหมายง่ายๆ | บทที่เจอ |
 |---|---|---|
 | HTTP | ภาษากลางคุยกันของ client/server | 00 |
-| HTTPS/TLS | HTTP แบบเข้ารหัส | 00, 07 |
-| REST | แนวทางออกแบบ API ด้วย URL + method | 00, 04 |
-| JSON | รูปแบบข้อความส่งข้อมูลมีโครงสร้าง | 00, 03, 04 |
-| endpoint | จุดปลายทาง URL หนึ่งจุดของ API เช่น `/api/v1/sales` | 04 |
-| CORS | กติกาเบราว์เซอร์ว่าเว็บโดเมนไหนยิง API ข้ามโดเมนได้ (`CORS_ORIGINS` ใน `README.md`) | 04, 07 |
-| JWT | Token ยืนยันตัวตนแบบเข้ารหัสลายเซ็น (`JWT_PRIVATE_KEY` ฯลฯ) | 04 |
+| HTTPS/TLS | HTTP แบบเข้ารหัส | 00, 14 |
+| REST | แนวทางออกแบบ API ด้วย URL + method | 00, 06 |
+| JSON | รูปแบบข้อความส่งข้อมูลมีโครงสร้าง | 00, 04, 06 |
+| endpoint | จุดปลายทาง URL หนึ่งจุดของ API เช่น `/api/v1/sales` | 06 |
+| CORS | กติกาเบราว์เซอร์ว่าเว็บโดเมนไหนยิง API ข้ามโดเมนได้ (`CORS_ORIGINS` ใน `README.md`) | 06, 14 |
+| JWT | Token ยืนยันตัวตนแบบเข้ารหัสลายเซ็น (`JWT_PRIVATE_KEY` ฯลฯ) | 06 |
 
 ### หมวด Frontend
 
 | ศัพท์ | ความหมายง่ายๆ | บทที่เจอ |
 |---|---|---|
-| Flutter | framework สร้างแอป Android/iOS/Web จากโค้ดชุดเดียว | 03 |
-| Dart | ภาษาโปรแกรมที่ Flutter ใช้เขียน | 03 |
-| widget | ชิ้นส่วน UI ใน Flutter (ปุ่ม, ช่องกรอก, การ์ด) | 03 |
-| state management | วิธีจัดการ "ข้อมูลที่เปลี่ยนแปลงบนหน้าจอ" | 03 |
-| flutter_bloc / Cubit | ไลบรารีจัดการ state ที่ใช้ในโปรเจกต์นี้ | 03 |
-| go_router | ไลบรารีจัดการเส้นทางหน้าจอ (routing) | 03 |
-| Drift | ตัวช่วยจัดการฐานข้อมูล SQLite ในเครื่อง Flutter | 03, 05 |
-| SQLite | ฐานข้อมูลไฟล์เดียวที่รันอยู่ในเครื่อง ไม่ต้องมี server แยก | 03, 05 |
-| offline-first | ออกแบบให้ทำงานได้แม้ไม่มีเน็ตเป็นค่าเริ่มต้น | 00, 06 |
-| outbox | คิวเก็บงานที่ยังส่งไปยัง server ไม่สำเร็จ รอส่งซ้ำ | 00, 06 |
-| repository (pattern) | ชั้นโค้ดที่รวบรวมวิธีอ่าน/เขียนข้อมูลของ "เรื่องหนึ่ง" (เช่น sales) | 03, 04 |
+| Flutter | framework สร้างแอป Android/iOS/Web จากโค้ดชุดเดียว | 04 |
+| Dart | ภาษาโปรแกรมที่ Flutter ใช้เขียน | 04 |
+| widget | ชิ้นส่วน UI ใน Flutter (ปุ่ม, ช่องกรอก, การ์ด) | 04 |
+| state management | วิธีจัดการ "ข้อมูลที่เปลี่ยนแปลงบนหน้าจอ" | 04 |
+| flutter_bloc / Cubit | ไลบรารีจัดการ state ที่ใช้ในโปรเจกต์นี้ | 04 |
+| go_router | ไลบรารีจัดการเส้นทางหน้าจอ (routing) | 04 |
+| Drift | ตัวช่วยจัดการฐานข้อมูล SQLite ในเครื่อง Flutter | 04, 07 |
+| SQLite | ฐานข้อมูลไฟล์เดียวที่รันอยู่ในเครื่อง ไม่ต้องมี server แยก | 04, 07 |
+| offline-first | ออกแบบให้ทำงานได้แม้ไม่มีเน็ตเป็นค่าเริ่มต้น | 00, 10 |
+| outbox | คิวเก็บงานที่ยังส่งไปยัง server ไม่สำเร็จ รอส่งซ้ำ | 00, 10 |
+| repository (pattern) | ชั้นโค้ดที่รวบรวมวิธีอ่าน/เขียนข้อมูลของ "เรื่องหนึ่ง" (เช่น sales) | 04, 06 |
 
 ### หมวด Backend
 
 | ศัพท์ | ความหมายง่ายๆ | บทที่เจอ |
 |---|---|---|
-| NestJS | framework เขียน server ด้วย TypeScript | 04 |
-| tenant | "ร้านหนึ่งร้าน" ในระบบที่รองรับหลายร้าน (multi-tenant) | 00, 04, 05 |
-| multi-tenant | สถาปัตยกรรมที่หลายร้าน (tenant) ใช้ระบบเดียวกัน แยกข้อมูลกัน | 00, 04, 05 |
-| transaction | กลุ่มการเปลี่ยนแปลงข้อมูลที่ต้อง "สำเร็จทั้งหมดหรือไม่ทำเลย" | 04, 05 |
-| runTx | ฟังก์ชันในโค้ดจริง (`TenantService.runTx`) ที่เปิด transaction แบบปลอดภัยต่อ tenant | 04 |
-| idempotency | คุณสมบัติ "ยิงคำขอซ้ำแล้วผลลัพธ์ไม่เปลี่ยน" — กันบิลซ้ำตอนเน็ตหลุด | 04 |
-| Idempotency-Key | ค่าที่ client แนบมากับคำขอ เพื่อให้ server รู้ว่าคำขอนี้เคยทำไปแล้วหรือยัง | 04 |
-| DTO | (Data Transfer Object) รูปร่างข้อมูลที่ตกลงกันไว้ระหว่าง client/server เช่น `CreateSale` | 04 |
-| guard | โค้ดที่ดักตรวจคำขอก่อนเข้าถึง endpoint จริง (เช่น `TenantGuard`) | 04 |
-| queue / BullMQ | คิวงานที่ทำทีหลัง ไม่บล็อกคำขอหลัก (ใช้ Redis เก็บ) | 04, 05 |
-| device token | token เฉพาะของเครื่อง POS หนึ่งเครื่อง (ไม่ใช่ token ของคน) | 04, 06 |
-| ADR (Architecture Decision Record) | เอกสารบันทึกการตัดสินใจเชิงสถาปัตยกรรมพร้อมเหตุผล เก็บที่ `docs/Backend_design/adr/` — ชนะเอกสารอื่นเสมอถ้าขัดกัน | 00, 01, 04, 05 |
+| NestJS | framework เขียน server ด้วย TypeScript | 06 |
+| tenant | "ร้านหนึ่งร้าน" ในระบบที่รองรับหลายร้าน (multi-tenant) | 00, 06, 07 |
+| multi-tenant | สถาปัตยกรรมที่หลายร้าน (tenant) ใช้ระบบเดียวกัน แยกข้อมูลกัน | 00, 06, 07 |
+| transaction | กลุ่มการเปลี่ยนแปลงข้อมูลที่ต้อง "สำเร็จทั้งหมดหรือไม่ทำเลย" | 06, 07 |
+| runTx | ฟังก์ชันในโค้ดจริง (`TenantService.runTx`) ที่เปิด transaction แบบปลอดภัยต่อ tenant | 06 |
+| idempotency | คุณสมบัติ "ยิงคำขอซ้ำแล้วผลลัพธ์ไม่เปลี่ยน" — กันบิลซ้ำตอนเน็ตหลุด | 06 |
+| Idempotency-Key | ค่าที่ client แนบมากับคำขอ เพื่อให้ server รู้ว่าคำขอนี้เคยทำไปแล้วหรือยัง | 06 |
+| DTO | (Data Transfer Object) รูปร่างข้อมูลที่ตกลงกันไว้ระหว่าง client/server เช่น `CreateSale` | 06 |
+| guard | โค้ดที่ดักตรวจคำขอก่อนเข้าถึง endpoint จริง (เช่น `TenantGuard`) | 06 |
+| queue / BullMQ | คิวงานที่ทำทีหลัง ไม่บล็อกคำขอหลัก (ใช้ Redis เก็บ) | 06, 07 |
+| device token | token เฉพาะของเครื่อง POS หนึ่งเครื่อง (ไม่ใช่ token ของคน) | 06, 10 |
+| ADR (Architecture Decision Record) | เอกสารบันทึกการตัดสินใจเชิงสถาปัตยกรรมพร้อมเหตุผล เก็บที่ `docs/Backend_design/adr/` — ชนะเอกสารอื่นเสมอถ้าขัดกัน | 00, 02, 06, 07 |
 
 ### หมวด Database
 
 | ศัพท์ | ความหมายง่ายๆ | บทที่เจอ |
 |---|---|---|
-| PostgreSQL (Postgres) | ระบบฐานข้อมูลเชิงสัมพันธ์ที่เป็น "แหล่งความจริง" ของระบบนี้ | 05 |
-| RLS (Row-Level Security) | กติกาฐานข้อมูลที่บังคับกรองแถวข้อมูลตาม tenant อัตโนมัติ | 04, 05 |
-| schema | โครงสร้างตาราง/คอลัมน์ของฐานข้อมูล | 05 |
-| migration | ไฟล์บันทึกการเปลี่ยนโครงสร้างฐานข้อมูลทีละขั้น (ย้อนดูประวัติได้) | 05 |
-| primary key (PK) | คอลัมน์ (หรือชุดคอลัมน์) ที่ระบุแถวหนึ่งแถวได้ไม่ซ้ำ | 05 |
-| composite key | primary key ที่ประกอบจากหลายคอลัมน์รวมกัน (เช่น `tenant_id` + `id`) | 05 |
-| foreign key (FK) | คอลัมน์ที่ชี้ไปยังแถวของตารางอื่น | 05 |
-| Redis | ฐานข้อมูลแบบเก็บในหน่วยความจำ ใช้ทำ cache และ queue | 04, 05 |
-| cache | ที่พักข้อมูลที่ดึงมาบ่อยๆ ให้เรียกเร็วขึ้นโดยไม่ต้องถามฐานข้อมูลจริงทุกครั้ง | 05 |
-| etcd | ระบบเก็บ config แบบกระจาย ใช้ตั้งค่า runtime ที่เปลี่ยนได้โดยไม่ต้อง deploy ใหม่ | 05, 07 |
-| weighted-average cost | วิธีคำนวณต้นทุนเฉลี่ยถ่วงน้ำหนักเมื่อรับสินค้าเข้าสต็อกใหม่ | 05 |
+| PostgreSQL (Postgres) | ระบบฐานข้อมูลเชิงสัมพันธ์ที่เป็น "แหล่งความจริง" ของระบบนี้ | 07 |
+| RLS (Row-Level Security) | กติกาฐานข้อมูลที่บังคับกรองแถวข้อมูลตาม tenant อัตโนมัติ | 06, 07 |
+| schema | โครงสร้างตาราง/คอลัมน์ของฐานข้อมูล | 07 |
+| migration | ไฟล์บันทึกการเปลี่ยนโครงสร้างฐานข้อมูลทีละขั้น (ย้อนดูประวัติได้) | 07 |
+| primary key (PK) | คอลัมน์ (หรือชุดคอลัมน์) ที่ระบุแถวหนึ่งแถวได้ไม่ซ้ำ | 07 |
+| composite key | primary key ที่ประกอบจากหลายคอลัมน์รวมกัน (เช่น `tenant_id` + `id`) | 07 |
+| foreign key (FK) | คอลัมน์ที่ชี้ไปยังแถวของตารางอื่น | 07 |
+| Redis | ฐานข้อมูลแบบเก็บในหน่วยความจำ ใช้ทำ cache และ queue | 06, 07 |
+| cache | ที่พักข้อมูลที่ดึงมาบ่อยๆ ให้เรียกเร็วขึ้นโดยไม่ต้องถามฐานข้อมูลจริงทุกครั้ง | 07 |
+| etcd | ระบบเก็บ config แบบกระจาย ใช้ตั้งค่า runtime ที่เปลี่ยนได้โดยไม่ต้อง deploy ใหม่ | 07, 14 |
+| weighted-average cost | วิธีคำนวณต้นทุนเฉลี่ยถ่วงน้ำหนักเมื่อรับสินค้าเข้าสต็อกใหม่ | 07 |
 
 ### หมวด DevOps
 
 | ศัพท์ | ความหมายง่ายๆ | บทที่เจอ |
 |---|---|---|
-| Docker | เครื่องมือ "ห่อ" โปรแกรมพร้อมสภาพแวดล้อมเป็นกล่องเดียว (container) | 07 |
-| container | โปรแกรมที่รันอยู่ในกล่อง Docker แยกจากเครื่องจริง | 07 |
-| Docker Compose | เครื่องมือสั่งรัน container หลายตัวพร้อมกันด้วยไฟล์ config เดียว | 07 |
-| Nginx | โปรแกรม reverse proxy — รับคำขอหน้าด่านแล้วส่งต่อให้ server จริง | 01, 07 |
-| reverse proxy | ตัวกลางรับคำขอแทน server จริง (ซ่อน/กระจายโหลด) | 07 |
-| Ansible | เครื่องมือสั่งงานอัตโนมัติบนเครื่องเซิร์ฟเวอร์ระยะไกล (เช่น deploy) | 07, 08 |
-| VM (Virtual Machine) | "เครื่องเสมือน" หนึ่งเครื่อง — ในที่นี้คือ `mob04` เครื่องเดียวที่รัน production | 01, 07 |
-| Prometheus | ระบบเก็บตัวเลขวัดผล (metrics) ตามเวลา | 07 |
-| Grafana | เว็บแสดงกราฟจากข้อมูลของ Prometheus | 07 |
+| Docker | เครื่องมือ "ห่อ" โปรแกรมพร้อมสภาพแวดล้อมเป็นกล่องเดียว (container) | 14 |
+| container | โปรแกรมที่รันอยู่ในกล่อง Docker แยกจากเครื่องจริง | 14 |
+| Docker Compose | เครื่องมือสั่งรัน container หลายตัวพร้อมกันด้วยไฟล์ config เดียว | 14 |
+| Nginx | โปรแกรม reverse proxy — รับคำขอหน้าด่านแล้วส่งต่อให้ server จริง | 02, 14 |
+| reverse proxy | ตัวกลางรับคำขอแทน server จริง (ซ่อน/กระจายโหลด) | 14 |
+| Ansible | เครื่องมือสั่งงานอัตโนมัติบนเครื่องเซิร์ฟเวอร์ระยะไกล (เช่น deploy) | 14, 15 |
+| VM (Virtual Machine) | "เครื่องเสมือน" หนึ่งเครื่อง — ในที่นี้คือ `mob04` เครื่องเดียวที่รัน production | 02, 14 |
+| Prometheus | ระบบเก็บตัวเลขวัดผล (metrics) ตามเวลา | 14 |
+| Grafana | เว็บแสดงกราฟจากข้อมูลของ Prometheus | 14 |
 
 ### หมวด CI/CD
 
 | ศัพท์ | ความหมายง่ายๆ | บทที่เจอ |
 |---|---|---|
-| CI (Continuous Integration) | ทดสอบโค้ดอัตโนมัติทุกครั้งที่มีการเปลี่ยนแปลง | 08 |
-| CD (Continuous Deployment) | ส่งโค้ดที่ผ่านทดสอบขึ้น production อัตโนมัติ | 08 |
-| pipeline | ลำดับขั้นตอนอัตโนมัติตั้งแต่ push โค้ดจนถึง deploy | 08 |
-| GitHub Actions | ระบบรัน pipeline ของ GitHub | 08 |
-| workflow | ไฟล์ config หนึ่งไฟล์ที่นิยาม pipeline (`flutter.yml`, `server.yml`, `deploy.yml`) | 08 |
-| GHCR (GitHub Container Registry) | ที่เก็บ Docker image บน GitHub (`ghcr.io`) | 07, 08 |
-| Trivy | เครื่องมือสแกนช่องโหว่ความปลอดภัยของ image/โค้ด | 07, 08 |
-| self-hosted runner | เครื่องที่รับงานจาก GitHub Actions มารันเอง (ในที่นี้คือ VM `mob04`) | 08 |
-| rollback | การย้อนกลับไป version ก่อนหน้าเมื่อ deploy มีปัญหา | 08 |
+| CI (Continuous Integration) | ทดสอบโค้ดอัตโนมัติทุกครั้งที่มีการเปลี่ยนแปลง | 15 |
+| CD (Continuous Deployment) | ส่งโค้ดที่ผ่านทดสอบขึ้น production อัตโนมัติ | 15 |
+| pipeline | ลำดับขั้นตอนอัตโนมัติตั้งแต่ push โค้ดจนถึง deploy | 15 |
+| GitHub Actions | ระบบรัน pipeline ของ GitHub | 15 |
+| workflow | ไฟล์ config หนึ่งไฟล์ที่นิยาม pipeline (`flutter.yml`, `server.yml`, `deploy.yml`) | 15 |
+| GHCR (GitHub Container Registry) | ที่เก็บ Docker image บน GitHub (`ghcr.io`) | 14, 15 |
+| Trivy | เครื่องมือสแกนช่องโหว่ความปลอดภัยของ image/โค้ด | 14, 15 |
+| self-hosted runner | เครื่องที่รับงานจาก GitHub Actions มารันเอง (ในที่นี้คือ VM `mob04`) | 15 |
+| rollback | การย้อนกลับไป version ก่อนหน้าเมื่อ deploy มีปัญหา | 15 |
 
 ---
 
@@ -520,27 +569,37 @@ README.md                  ภาพรวมทั้งระบบ ภาษ�
 นี้ ("Recount the DoD boxes before claiming phase 1 is 'done' — this sentence has gone stale
 twice") การพูดเกินจริงเรื่องสถานะงานเป็นสาเหตุที่ทำให้เอกสารในโปรเจกต์นี้เคยผิดมาแล้วซ้ำๆ
 
-**สิ่งที่เสร็จแล้วจริง** (ตรวจจาก `CLAUDE.md`/`README.md`):
-- Frontend: ทั้ง 13 หน้าจอ, data layer, unit test ผ่านหมด, `dart analyze` สะอาด
-- Backend phase 1: tenancy + transaction/idempotency seam, ทุก lane (A/B/C) ของ phase-1 merge แล้ว
-- CI/CD ระดับ 1–3: Flutter CI, backend CI, GHCR release image + Trivy gating — ทำงานทุกครั้งที่ push
-- Definition-of-Done ของ phase 1 นับใหม่ล่าสุด 2026-09-22: **17 ข้อ ผ่านแล้ว 16 ข้อ เหลือ 1 ข้อ**
+**สถานะ ณ 2026-10-07** (ตรวจกับ `git log origin/develop`, `gh issue list`, และอ่านบน VM `mob04` โดยตรง):
+
+**สิ่งที่เสร็จแล้วจริง**:
+- Frontend: ทุกหน้าจอ, data layer, unit test ผ่านหมด, `dart analyze` สะอาด · `ApiException` ไม่หลุดถึงหน้าจอแล้ว
+  (PR #642, #644 — มีเทสต์เฝ้า `frontend/test/presentation_no_api_exception_test.dart`)
+- Backend phase 1: tenancy + transaction/idempotency seam, ทุก lane (A/B/C) ของ phase-1 merge แล้ว ·
+  id ทุก entity เป็น UUIDv7 ตั้งแต่ #616 (PR #617/#628)
+- CI/CD ระดับ 1–3: Flutter CI, backend CI, GHCR release image + Trivy gating — รันทุก PR และทุก push ไป
+  `main`/`develop` (develop ตั้งแต่ PR #647)
+- **Deploy ขึ้น `mob04` ทำงานจริง** — runner ติดตั้งและ deploy ครั้งแรก (`e50f4fa`) 2026-09-30, rollback
+  พิสูจน์แล้ว (#67 ปิด 15/15) · ทุก deploy รอ reviewer อนุมัติบน environment `demo` · ล่าสุด
+  `/opt/pos/.current_sha` = `dd659e2` และ `/health/ready` = 200 (อ่านบน VM 2026-10-07; Deploy run `37585778195`)
+- ข้อความไทยที่ agent ร่างไว้ — owner รับรองครบทุกข้อ 2026-10-07 (PR #649)
+- Definition-of-Done ของ phase 1 นับใหม่ 2026-10-07: **17 ข้อ ผ่านแล้ว 16 ข้อ เหลือ 1 ข้อ (k6)**
 
 **สิ่งที่ยังไม่เสร็จ** (พูดตรงๆ ไม่ปิดบัง):
-- 🔴 **k6 load test (#380)** — ยังไม่มีการวัดผลจริงเลยสักตัวเลข แม้ "วิธีการวัด" จะตัดสินใจแล้ว
-- 🔴 **Deploy ไป VM `mob04` ยังไม่เคยสำเร็จจริงสักครั้ง** — ติดที่ไฟร์วอลล์ของมหาวิทยาลัย
-  (FortiGate) สอด SSL ทำให้ VM ดึง Docker image จาก `ghcr.io` ไม่ได้ (certificate ไม่มี SAN ที่
-  ถูกต้อง) เป็นปัญหาเรื่อง**เครือข่าย** ไม่ใช่บั๊กในโค้ด — ต้องรอทีมเครือข่ายเปิดทางให้
-- 🔴 **Self-hosted runner ยังไม่ได้ติดตั้งจริงบน VM** — แม้ issue จะถูกปิดไปแล้ว (`gh api` ยืนยันว่า
-  runner = 0 ตัว) — CLAUDE.md เตือนไว้ตรงๆ ว่าอย่าอ่าน "issue ปิดแล้ว" เป็น "งานเสร็จแล้ว"
-- 🔴 **Backup ออกนอก VM (offsite backup) ถูก parked (พักไว้)** จนกว่าจะ deploy demo เสร็จก่อน —
-  ระหว่างนี้ถ้าดิสก์ของ VM พัง ข้อมูลร้านตัวอย่างหายหมด ยอมรับความเสี่ยงนี้ไว้อย่างรู้ตัว ไม่ใช่มอง
-  ข้าม
-- 🔴 **บั๊กที่ยังเปิดอยู่**: migration `OwnerReviewItems.ts` มี 2 บั๊กจริง (RLS cast พลาด NULLIF,
-  foreign key ทำให้ tenant_id ถูก null ผิดที่) และ `/sync/push` ของ phase 2 มีบั๊ก HIGH 2 ตัวที่ยัง
-  ไม่มี issue เปิดด้วยซ้ำ — รายละเอียดอยู่ใน `CLAUDE.md` หัวข้อ "Still open"
+- 🟡 **k6 load test (#380)** — **วัดจริงครั้งแรกแล้ว 2026-10-05** (3 เครื่อง ตามวิธี `03_ARCHITECTURE.md §8.1`):
+  อ่านสินค้า p95 16–33 ms ผ่านเกณฑ์ แต่แย่งซื้อสินค้าชิ้นเดียว 200 คน p95 ~1.5–3 s **ไม่ผ่าน**เกณฑ์ < 500 ms
+  (ข้อมูลยังถูกทุกครั้ง) — **ยังไม่ติ๊ก AC/DoD ใดๆ การรับผลเป็นของ owner** (รายละเอียดบท 16, issue #380)
+- 🔴 **เดโมครบวงบน `mob04` (#344)** — เคยเดินบางส่วน 2026-10-05 แต่ DB ถูกล้างตอน UUID cutover 2026-10-06
+  ต้องเริ่มใหม่ทั้งหมด
+- 🔴 **Backup ออกนอก VM (offsite, #363) ถูก parked** — `backup-db.sh` dump ลงดิสก์ของ VM เองทุกคืน (cron, #346) และมีสำเนา
+  ด้วยมือหนึ่งชุดบนเครื่อง owner ตอน cutover 2026-10-06 แต่**ไม่มี backup ออกนอก VM อัตโนมัติ** — ถ้าดิสก์ VM พัง ข้อมูลร้านตัวอย่างหาย
+  ยอมรับความเสี่ยงนี้อย่างรู้ตัว
+- 🔴 **Cutover ร้านจริง (#231)** และ **platform admin-ui (#443)** ยังเปิด — ร้านจริงยังใช้ Drift build
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 📜 **ประวัติ:** ฉบับ 2026-09-22 ของหัวข้อนี้เคยระบุว่า "deploy ไป `mob04` ยังไม่เคยสำเร็จ (ติด FortiGate)",
+> "runner ยังไม่ได้ติดตั้ง" และ "k6 ยังไม่มีตัวเลขเลย" — ทั้งสามข้อ**ไม่จริงแล้ว**: FortiGate เลิกตัด `ghcr.io`
+> 2026-09-29, runner + deploy แรก 2026-09-30 ([`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)),
+> k6 วัดจริง 2026-10-05 ([`session-2026-10-05-k6-capacity-run.md`](../handoff_log/session-2026-10-05-k6-capacity-run.md)) ·
+> บั๊ก migration `OwnerReviewItems` และบั๊ก HIGH ของ `/sync/push` ที่เคยอยู่ในรายการนี้แก้แล้ว 2026-09-25
 
 **ทำไมการบอกตรงๆ แบบนี้เป็นนิสัยวิศวกรที่ดี**: ถ้าเอกสารบอกว่า "deploy อัตโนมัติทำงานแล้ว" ทั้งที่
 ยังไม่เคยสำเร็จจริง คนที่มาอ่านทีหลัง (รวมถึงตัวคุณเองอีก 3 เดือนข้างหน้า) จะเชื่อผิด แล้ววางแผนงาน
@@ -558,14 +617,15 @@ that anything was deployed") — engineer ที่ดีแยกระหว�
 - `main` คือสายงานปัจจุบัน (multi-tenant); `develop` คือสาย integration (PR ลงที่นี่ก่อน แล้ว develop→main ด้วย merge commit — ตั้งแต่ 2026-10-06); `POC_sample_offline_first` คือภาพนิ่งของยุค offline-first
   แช่แข็งไว้อ้างอิง ห้ามพัฒนาต่อ
 - ร้านจริงยังใช้ตัวเก่า (offline) ขายของทุกวัน — ยังไม่มีการตัดสลับมาใช้ตัวใหม่
-- ชุดเอกสารนี้มี 20 บท (00–19) เขียนเสร็จครบแล้วทุกบท (ตรวจจาก `ls docs/study/` 2026-10-01) อ่านตามลำดับ
-  dependency ใน flowchart ด้านบน มี 2 เส้นทาง (เร็ว/ลึก) — ดูคอลัมน์ "ไฟล์ปัจจุบัน" ในตารางข้างบน
+- ชุดเอกสารนี้มี 20 บทเนื้อหา (00–19) + บท 20 โครงสไลด์ (ตรวจจาก `ls docs/study/` 2026-10-07) อ่านตามลำดับ
+  dependency ใน flowchart ด้านบน มี 3 เส้นทาง (เร็ว/ลึก/ทำสไลด์) — ดูคอลัมน์ "ไฟล์ปัจจุบัน" ในตารางข้างบน
 - พื้นฐานที่ต้องรู้ก่อนอ่านต่อ: process, network/IP/port, client–server, HTTP (method/status/
   header/body), JSON, API/REST, HTTPS/TLS, terminal, Git (repo/commit/branch/merge/remote/PR),
   GitHub
 - Glossary รวม 6 หมวด ครอบคลุมศัพท์ที่จะเจอตลอดทั้งชุด — ทุกคำตรวจแล้วว่ามีอยู่จริงในโค้ด/เอกสาร
-- Phase 1 (backend multi-tenant) เกือบเสร็จ (16/17 DoD) แต่ deploy จริงยังไม่เคยสำเร็จ — เพราะ
-  ปัญหาเครือข่าย ไม่ใช่โค้ด — และมีบั๊ก/งานค้างหลายจุดที่ยังไม่ปิด บอกตรงๆ ไว้ในหัวข้อ 7
+- Phase 1 (backend multi-tenant) เกือบเสร็จ (16/17 DoD — ข้อ k6 วัดจริงแล้ว 2026-10-05 แต่ยังไม่ถูกรับผล)
+  deploy ขึ้น `mob04` ทำงานจริงแล้ว (ล่าสุด `dd659e2` 2026-10-07) — งานค้าง (#344, #363, #231, #443)
+  บอกตรงๆ ไว้ในหัวข้อ 7
 
 ---
 
@@ -620,12 +680,15 @@ server) เก็บไว้เพื่อพิสูจน์กติกา
 
 <details><summary>เฉลย</summary>
 
-ไม่ใช่คำตอบใช่/ไม่ใช่เดียว — ต้องแยกส่วน: backend phase 1 เกือบเสร็จ (16/17 DoD) แต่ยังไม่เคย deploy
-ไป production จริงสักครั้ง (ติดปัญหาเครือข่าย FortiGate ไม่ใช่โค้ด) มี load test ที่ยังไม่วัดผล
-(#380), backup offsite ที่ parked ไว้ — บั๊กที่เคยเปิดอยู่ (migration RLS/FK #420, `/sync/push`
-fingerprint #413, client date #414) แก้ครบแล้วเมื่อ 2026-09-25 — การตอบว่า "เสร็จแล้ว" เฉยๆ ก็ยังถือว่าผิดกติกาความซื่อสัตย์ของเอกสารชุดนี้ เพราะ deploy จริง/load test/backup offsite ยังไม่จบ
+ไม่ใช่คำตอบใช่/ไม่ใช่เดียว — ต้องแยกส่วน (สถานะ 2026-10-07): backend phase 1 เกือบเสร็จ (16/17 DoD) ·
+deploy ขึ้น VM `mob04` ทำงานจริงแล้ว (ครั้งแรก 2026-09-30, ล่าสุด `dd659e2`) · load test k6 (#380)
+**วัดจริงแล้วแต่ยังไม่ถูกรับผล** — และกรณีแย่งซื้อ 200 คนยังไม่ผ่านเกณฑ์ p95 · เดโมครบวง (#344) ต้องเริ่มใหม่
+หลังล้าง DB 2026-10-06 · backup offsite (#363) parked · ร้านจริงยังไม่ cutover (#231) — การตอบว่า
+"เสร็จแล้ว" เฉยๆ จึงยังผิดกติกาความซื่อสัตย์ของเอกสารชุดนี้
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 📜 ฉบับก่อน 2026-09-30 ของเฉลยข้อนี้ตอบว่า "ยังไม่เคย deploy ไป production (ติด FortiGate)" และ "k6 ยังไม่วัด" —
+> ทั้งสองข้อไม่จริงแล้ว ([`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md),
+> issue #380 comment 2026-10-05)
 
 </details>
 
