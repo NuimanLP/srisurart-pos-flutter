@@ -12,7 +12,7 @@
 - multi-tenant แบบ T1: ตารางร่วม + `tenant_id` · composite PK/FK `(tenant_id, id)` ทำให้ข้อมูลข้ามร้านชี้หากันไม่ได้
 - RLS **fail-closed**: `NULLIF(current_setting(...), '')` + `set_config(..., true)` ใน `runTx` · app ต่อด้วย `pos_app` (`NOBYPASSRLS`)
 - กันขายเกินด้วย `FOR UPDATE` + `WHERE stock >= qty` · เลขเอกสารไม่ซ้ำด้วย upsert `doc_counters` (ADR-0007)
-- migration คือความจริงของ schema — ห้ามแก้ไฟล์ที่รันแล้ว (บั๊ก `OwnerReviewItems` แก้ด้วยไฟล์ใหม่, #420) · id ทุกตัวเป็น UUIDv7 ตั้งแต่ #616
+- migration คือความจริงของ schema — ห้ามแก้ไฟล์ที่รันแล้ว (บั๊ก `OwnerReviewItems` แก้ด้วยไฟล์ใหม่, #420) · id ของ entity เป็น UUIDv7 ตั้งแต่ #616 (ยกเว้น `tenants`/`users`/`platform_admins` = v4)
 - ช่องที่ยังเปิด: backup ยังไม่ออกจาก VM (#363 parked)
 - **ตัวเลข/หลักฐานหลัก:** Postgres 29 ตาราง จาก 23 migration (`server/src/db/migrations/`, นับ 2026-10-07) · Drift schema v13, 26 ตาราง (`frontend/lib/data/db/database.dart:85`)
 - **ภาพที่แนะนำ:** sequence diagram ใน *ทางเลือก → RLS จากศูนย์* (JWT → `TenantGuard` → `runTx` → RLS) หรือ ER diagram ใน *ของจริงใน repo → 1. ภาพรวมตาราง* (ใหญ่ — ตัดเฉพาะ `tenants`/`products`/`sales`/`sale_items`)

@@ -477,7 +477,7 @@ flowchart LR
 #
 ```
 เก็บ RAM/CPU ของทุก container ทุก 2 วินาที (`INTERVAL=2`) เทียบเพดาน 6 GB (`CEILING_MB=6144`) — **RSS** (Resident Set Size) = RAM ที่ process ใช้อยู่จริงในหน่วยความจำ
-🔴 **อัปเดต 2026-10-07:** สคริปต์ถูกรันบน VM ระหว่าง k6 จริงครั้งแรก 2026-10-05 แล้ว**พบบั๊ก** — `to_mib` เช็ก `B` ก่อน `MiB` ทุกค่า MiB จึงกลายเป็น 0 ตาราง container ว่างแต่ verdict ยังขึ้น PASS → **อย่าอ้าง** `/opt/pos/rss-under-load-20261005T025730Z.md`; ตัวเลข RSS ของ #380 คำนวณจาก `docker stats` ดิบแทน (handoff `session-2026-10-05-k6-capacity-run.md` §4) · ณ 2026-10-07 ยังไม่มี commit แก้สคริปต์นี้ (ประวัติ commit ของไฟล์)
+🔴 **อัปเดต 2026-10-07:** สคริปต์ถูกรันบน VM ระหว่าง k6 จริงครั้งแรก 2026-10-05 แล้ว**พบบั๊ก** — `to_mib` เช็ก `B` ก่อน `MiB` ทุกค่า MiB จึงกลายเป็น 0 ตาราง container ว่างแต่ verdict ยังขึ้น PASS → **อย่าอ้าง** `/opt/pos/rss-under-load-20261005T025730Z.md`; ตัวเลข RSS ของ #380 คำนวณจาก `docker stats` ดิบแทน (handoff `session-2026-10-05-k6-capacity-run.md` §4) · แก้แล้วใน PR #654 (`547e187`) + PR #655 (`e4b604b`) บน `develop` 2026-10-07 (พร้อมบั๊ก k6 อีก 2 ตัว) — ยังไม่ถึง `main` และสคริปต์บน VM อัปเดตเฉพาะตอนรัน `provision.yml`/ติดตั้งมือ (CD ไม่แตะ `/opt/pos/scripts`)
 
 ---
 
@@ -744,7 +744,7 @@ histogram_quantile(0.50, ...)                                                   
 | Prometheus | `prom/prometheus:v2.55.1` | เก็บ metric server + รับ remote-write จาก k6 | pull model + remote-write receiver ในตัว | InfluxDB (k6 output เดิม) |
 | Grafana | `grafana/grafana:11.2.0` | dashboard `pos-overview.json` (มี 5 panel ของ k6, group by `machine`) | ต่อ Prometheus ได้ทันที | k6 Cloud (เสียเงิน, ข้อมูลออกนอก) |
 | node-exporter | `prom/node-exporter:v1.8.2` | CPU/RAM ของ host | มาตรฐาน | — |
-| `measure-container-rss.sh` | ใน repo (`deploy/scripts/`) — มีบั๊ก `to_mib` (พบ 2026-10-05) | เก็บ RSS ของ container ระหว่างยิง | ไม่ต้องติดตั้งอะไรเพิ่ม (ใช้ `docker stats`) | cAdvisor (อีก container หนึ่งบน VM ที่ RAM จำกัด) |
+| `measure-container-rss.sh` | ใน repo (`deploy/scripts/`) — บั๊ก `to_mib` (พบ 2026-10-05) แก้แล้วใน PR #654 บน `develop` 2026-10-07 | เก็บ RSS ของ container ระหว่างยิง | ไม่ต้องติดตั้งอะไรเพิ่ม (ใช้ `docker stats`) | cAdvisor (อีก container หนึ่งบน VM ที่ RAM จำกัด) |
 
 ---
 
@@ -793,7 +793,7 @@ guard อ่าน `tenants.plan` ตอน cache เย็น ขณะที�
 
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
-> 🔄 **อัปเดต 2026-10-07:** #380 **วัดจริงครั้งแรกแล้ว 2026-10-05** ทั้ง k6 สามเครื่องและ RAM ของ container (ดู [ผลวัดจริงครั้งแรกบน mob04](#ผลวัดจริงครั้งแรกบน-mob04-2026-10-05-380)) — แต่ **ยังไม่ได้รับรอง**: #380 ยังเปิด, DoD ยัง 17 กล่อง ติ๊ก 16, owner ตัดสิน · ค้างต่อ: แก้บั๊กสคริปต์ 3 ตัว และ 200 คนแย่งซื้อชิ้นเดียว p95 ~3 s ไม่ผ่าน §9 · deploy ล่าสุดบน `mob04` = `dd659e2` (run `37585778195`, 2026-10-07)
+> 🔄 **อัปเดต 2026-10-07:** #380 **วัดจริงครั้งแรกแล้ว 2026-10-05** ทั้ง k6 สามเครื่องและ RAM ของ container (ดู [ผลวัดจริงครั้งแรกบน mob04](#ผลวัดจริงครั้งแรกบน-mob04-2026-10-05-380)) — แต่ **ยังไม่ได้รับรอง**: #380 ยังเปิด, DoD ยัง 17 กล่อง ติ๊ก 16, owner ตัดสิน · บั๊กสคริปต์ 3 ตัวแก้แล้วบน `develop` (PR #654/#655, 2026-10-07; ยังไม่ถึง `main`/VM) · ค้างต่อ: 200 คนแย่งซื้อชิ้นเดียว p95 ~3 s ไม่ผ่าน §9 และ owner ตัดสินผล · deploy ล่าสุดบน `mob04` = `dd659e2` (run `37585778195`, 2026-10-07)
 
 ---
 

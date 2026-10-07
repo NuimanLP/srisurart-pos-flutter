@@ -12,7 +12,7 @@
 - ปัดเศษต่างกันโดยตั้งใจ: client `round2` แบบ float (parity กับ `db.js`) · server ต้นทุนถัวเฉลี่ย satang half-up แบบ exact
 - คืนของบางส่วน → แบ่งส่วนลด/แต้ม/สถิติช่างตามสัดส่วน **จากยอดต้นทางทุกครั้ง** ไม่หารสะสม
 - เก็บ ค.ศ./UTC · แสดง พ.ศ./เวลาไทยตอนแสดงผลเท่านั้น · เลขเอกสาร `RC01-2569-08-0042` (ADR-0007)
-- ข้อความไทย = behaviour parity (copy เป๊ะ ไม่แปลใหม่) — owner รับรองข้อความที่ agent ร่างครบแล้ว 2026-10-07 (PR #649)
+- ข้อความไทย = behaviour parity (copy เป๊ะ ไม่แปลใหม่) — owner รับรองข้อความที่ agent ร่างครบแล้ว 2026-10-07 (PR #649 + PR #653)
 - **ตัวเลข/หลักฐานหลัก:** `0.1 + 0.2` = `0.30000000000000004` ใน IEEE-754 (ลองใน `node` ได้) → เหตุผลที่ `server/src/purchasing/weighted-average.ts` ใช้ `BigInt` และ InitialSchema มีคอลัมน์ `NUMERIC(12,2)` 22 จุด (`grep -c`, 2026-10-07)
 - **ภาพที่แนะนำ:** แผนภาพเลขเอกสารใน *ของจริงใน repo → 9) ADR-0007* หรือ flow เงินด้านล่าง
 
@@ -571,7 +571,7 @@ throw Exception('สต็อกไม่พอ:\n${insufficient.join('\n')}');
 - **ถ้าไม่ทำ:** พนักงานที่คุ้นเคยกับข้อความ error จากระบบเดิม จะงงเมื่อเจอข้อความคนละแบบระหว่าง
   โหมดออนไลน์/ออฟไลน์ ทั้งที่ควรเป็นเรื่องเดียวกัน
 - **สถานะ 2026-10-07:** ข้อความไทยทุกตัวที่ agent ร่างไว้ (`agent ร่าง`) owner รับรองครบแล้ว
-  (PR #649) และ PR #651 เติม error ไทยที่เหลือ + ข้อความเฉพาะของ platform-ui · `ApiException`
+  (PR #649) และ PR #651 เติม error ไทยที่เหลือ (10 ข้อความใหม่รับรองต่อใน PR #653) + ข้อความเฉพาะของ platform-ui · `ApiException`
   ไม่มีทางถึงหน้าจอ — presentation ไม่ import มัน (PR #642, `frontend/test/presentation_no_api_exception_test.dart`)
   และไม่หลุดจาก repository ตอนรัน (PR #644, `frontend/test/api_exception_never_escapes_test.dart`)
 

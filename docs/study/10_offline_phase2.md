@@ -14,7 +14,7 @@
 - `/sync/push` ต่อ op: **replay ด้วย key → replay ด้วย client id → parse → service** · หยุดที่ `retry` แรก (`08 §8.3`, PR #638)
 - เครื่อง `pos` ออกเลข RC/CN เองตอนออฟไลน์ · นาฬิกาเครื่องเชื่อแบบมีกรอบ ±5 นาที + `date_flag`
 - สถานะ: phase 2 ส่วนใหญ่ merge แล้ว แต่ร้านจริงยังรัน Drift build — cutover #231 ยังเปิด
-- **ตัวเลข/หลักฐานหลัก:** replay ด้วย client id พิสูจน์ด้วย e2e ครบ 7 ชนิด op รวม `shift.open`/`customer.create`/`sale.void_offline` (PR #641, `server/test/sync-push.e2e-spec.ts`) และใช้ได้หลัง key หมดอายุ 24 ชม. (PR #638)
+- **ตัวเลข/หลักฐานหลัก:** replay ด้วย client id พิสูจน์ด้วย e2e ครบ 7 ชนิด op (PR #641 เติม 3 ชนิดสุดท้าย `shift.open`/`customer.create`/`sale.void_offline`; `server/test/sync-push.e2e-spec.ts`) และใช้ได้หลัง key หมดอายุ 24 ชม. (PR #638)
 - **ภาพที่แนะนำ:** sequence diagram ใน *ของจริงใน repo → 12. Sequence: บิลออฟไลน์หนึ่งใบ* หรือ flow ย่อด้านล่าง
 
 ```mermaid
@@ -1014,7 +1014,7 @@ sequenceDiagram
 | Single-writer (`one_pos_per_tenant`) | conflict ของ 2 writer ออฟไลน์ | เคาน์เตอร์ขายออฟไลน์ได้แค่จุดเดียว | `InitialSchema.ts:65-84` |
 | Device-token auth | บิลค้างคิวนานกว่าอายุ JWT ของคน | ต้องมี guard แยกเฉพาะเครื่อง `pos` | `device-token.guard.ts:46-96` |
 | Seam + fake (`SyncFacade`) | 3 lane ทำงานขนานกันโดยไม่รอกัน | ต้องดูแลโค้ดปลอม 3 ชุดให้ตรงสัญญา | `sync_facade.dart:57-110` |
-| Service worker precache | เปิดแอปได้ทั้งที่ไม่มีเน็ต | cache invalidation ยังไม่ผูกกับ SHA จริง | `web/sw.js:1-60` |
+| Service worker precache | เปิดแอปได้ทั้งที่ไม่มีเน็ต | ~~cache invalidation ยังไม่ผูกกับ SHA จริง~~ ผูกกับ release SHA แล้ว (`5555c04`, `deploy/version-web-build.sh`) | `web/sw.js:1-60` |
 | Degraded-mode state machine | รู้เองว่าควรเขียนตรงหรือเข้าคิว โดยไม่กระพริบ | ต้องคิดครบทุกทางออกของ state | `sync_service.dart:283-302` |
 
 ---
@@ -1025,7 +1025,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | Drift | `2.34.1` (`frontend/pubspec.lock`) | SQLite ในเครื่อง: cache + `outbox_ops` + `sync_cursors` | มีอยู่แล้วตั้งแต่ POC, transaction จริง, query สต็อกในเครื่องได้ | เก็บ JSON blob (ADR-0010 ทางเลือก ค — query ไม่ได้) |
 | sqlite3 (+ `sqlite3.wasm`) | `3.4.0` (ต้องตรงกับ `frontend/web/WEB_DB_ASSET_VERSIONS.txt`) | SQLite บน web | CI ตรวจ version skew ทุก build | — |
-| Service worker เขียนเอง | `frontend/web/sw.js` (127 บรรทัด, ไม่ใช้ Workbox แม้ 08 §4 จะเขียนว่า Workbox) | precache shell ให้เปิดแอปออฟไลน์ | Flutter 3.44 ไม่สร้าง SW ให้ (08 §4 อ้าง flutter#156910) | SW อัตโนมัติของ Flutter |
+| Service worker เขียนเอง | `frontend/web/sw.js` (129 บรรทัด ณ 2026-10-07, ไม่ใช้ Workbox แม้ 08 §4 จะเขียนว่า Workbox) | precache shell ให้เปิดแอปออฟไลน์ | Flutter 3.44 ไม่สร้าง SW ให้ (08 §4 อ้าง flutter#156910) | SW อัตโนมัติของ Flutter |
 | Web Locks API | browser built-in | แท็บ writer เดียว | ไม่ต้องมี server | ไม่มีทางอื่นระดับ browser ที่ง่ายกว่า |
 | NestJS `SyncModule` | `@nestjs/core ^12.0.1` (`server/package.json`) | `/sync/push`, `/sync/discards` | ใช้ service ตัวเดียวกับ route ออนไลน์ → กฎชุดเดียว | sync engine แยก (Architecture B) |
 | PostgreSQL | (ดูบท 07) | ตัวจริง + partial unique index + `owner_review_items` | constraint ตัดสิน race ได้แน่นอน | CouchDB (ADR-0012 **Rejected**) |

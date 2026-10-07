@@ -201,7 +201,7 @@ CouchDB proposed and rejected 2026-09-08 -> docs/Backend_design/adr/0012-couchdb
 phase-2 spec 2026-09-15; lanes 2026-09-16, 35 tickets, A=3 B=15 C=17 -> docs/Backend_design/08_PHASE2_SPEC.md; 09_PHASE2_LANES.md section 2
 first deploy to mob04 2026-09-30 -> CLAUDE.md "#67"
 DoD 17 boxes, 16 ticked, 1 open (k6, #380) -> CLAUDE.md Status paragraph; 03_ARCHITECTURE.md section 8
-#344 not run; #380 unmeasured; #476 closed 2026-10-03 (gh issue view 476); #231 open -> CLAUDE.md "Still open" and "Phase-2 kickoff order"
+#344 partial 2026-10-05 then restart needed after 2026-10-06 wipe; #380 measured 2026-10-05, not accepted; #476 closed 2026-10-03 (gh issue view 476); #231 open -> CLAUDE.md "Still open" and "Phase-2 kickoff order"
 #363/#288 parked until after demo, owner 2026-09-22; no backup leaves VM -> CLAUDE.md "#363" bullet
 cutover moved to later phase 2026-09-15 (#242, #231) -> 03_ARCHITECTURE.md section 8 status table row q4
 cloud host rejected by owner 2026-09-15 -> CLAUDE.md (production-host.md note)

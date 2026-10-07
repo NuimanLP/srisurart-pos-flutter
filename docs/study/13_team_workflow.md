@@ -94,7 +94,7 @@ main:     A---B---C'---D'
 |---|---|---|
 | ประวัติ | มี merge commit, เห็นว่าเคยแยกจริง | เส้นตรง เหมือนไม่เคยแยก |
 | ปลอดภัยกับ branch ที่แชร์กับคนอื่น | ปลอดภัย | 🔴 อันตราย — เขียนประวัติที่คนอื่นมีอยู่แล้วใหม่ ทำให้ branch ของเขากับของเราไม่ตรงกัน |
-| ใช้เมื่อไหร่ในโปรเจกต์นี้ | รวม PR เข้า `main` (GitHub ทำ merge commit ให้อัตโนมัติตอนกด "Merge pull request") | rebase **branch ของตัวเอง** ให้ตามทันของคนอื่นก่อน merge (เช่นกติกา lane B ใน `09_PHASE2_LANES.md` §6: "หนึ่ง PR หนึ่งเวอร์ชัน rebase ก่อน merge" สำหรับไฟล์ schema ที่ใช้ร่วมกัน) |
+| ใช้เมื่อไหร่ในโปรเจกต์นี้ | release PR `develop` → `main` (บังคับ merge commit ด้วย ruleset `24564072` ตั้งแต่ 2026-10-06 — PR งานเข้า `develop` ยัง squash ได้) | rebase **branch ของตัวเอง** ให้ตามทันของคนอื่นก่อน merge (เช่นกติกา lane B ใน `09_PHASE2_LANES.md` §6: "หนึ่ง PR หนึ่งเวอร์ชัน rebase ก่อน merge" สำหรับไฟล์ schema ที่ใช้ร่วมกัน) |
 
 กติกาง่ายๆ ที่ใช้ได้ทุกที่: **rebase เฉพาะ branch ที่ยังไม่มีใครอื่นดึงไปใช้ (โดยเฉพาะ branch ของตัวเองที่ยังไม่เปิด PR หรือยังไม่มีคน push ทับ)** ถ้า branch นั้นแชร์กับคนอื่นแล้ว ให้ merge เท่านั้น
 
@@ -415,7 +415,7 @@ sequenceDiagram
 
 ## ❓ Quiz
 
-<details><summary>1. ทำไม repo นี้เลือก merge PR เข้า `main` เสมอ (ไม่ rebase `main`) แต่กลับแนะนำให้ rebase branch ของตัวเองก่อน merge เมื่อแตะไฟล์ schema ร่วมกัน?</summary>
+<details><summary>1. ทำไม repo นี้บังคับ merge commit ตอน `develop` → `main` เสมอ (ไม่ rebase `main`) แต่กลับแนะนำให้ rebase branch ของตัวเองก่อน merge เมื่อแตะไฟล์ schema ร่วมกัน?</summary>
 
 เพราะ rebase เขียนประวัติ (history) ของ commit ใหม่ — ถ้า rebase branch ที่คนอื่นมีสำเนาอยู่แล้ว (เช่น `main` ที่ทุกคนดึงไปใช้) จะทำให้ประวัติของทุกคนไม่ตรงกัน ปลอดภัยเฉพาะ rebase branch ของตัวเองที่ยังไม่มีใครอื่นดึงไปใช้ ส่วนการ rebase ก่อน merge (เช่นไฟล์ `database.dart`) ทำเพื่อให้แน่ใจว่า generated file (`database.g.dart`) ถูก regenerate ทับบนโค้ดล่าสุดก่อน ลด conflict ที่กู้คืนยาก
 

@@ -54,7 +54,7 @@
 - Flutter (Android/iOS/Web) + NestJS + PostgreSQL + Redis + Nginx + CI/CD
 - ทีม 3 lane: `NuimanLP` (team/1), `LomerAlloys` (team/2), `PattaraponKitcharoen` (team/3)
 - **Speaker note:** เปิดด้วยประโยคเดียวจาก [01_pitch.md](01_pitch.md) หัวข้อ "One-liner" แล้วบอกขนาดงาน
-- **ตัวเลข:** 428 PR ที่ merge แล้ว · 1,289 commit บน `develop` (`gh pr list --state merged`, `git rev-list --count origin/develop`, 2026-10-07)
+- **ตัวเลข:** 428 PR ที่ merge แล้ว · 1,289 commit บน `develop` (`gh pr list --state merged`, `git rev-list --count origin/develop`, นับ 2026-10-07 ~07:40 UTC — ตัวเลขโตทุกวัน นับใหม่ก่อนนำเสนอ)
 - **ภาพ:** โลโก้/ภาพหน้าจอขาย `../tutorial/sri-pos-manual/img/checkout-mobile.png`
 
 ### สไลด์ 2 — ปัญหาของร้าน
@@ -103,12 +103,12 @@
 ### สไลด์ 9 — เงิน + ภาษาไทยถูกต้อง
 - ปัดเศษผ่าน `round2()` / `baht()` · ต้นทุนเฉลี่ยถ่วงน้ำหนักตอนรับของ
 - ข้อความไทยต้องตรงกับ `db.js` ทุกตัวอักษร (behaviour parity)
-- owner รับรองข้อความไทยที่ agent ร่างไว้**ทั้งหมด** 2026-10-07 (PR #649) · PR #651 เติมข้อความ error ไทยที่เหลือ
+- owner รับรองข้อความไทยที่ agent ร่างไว้**ทั้งหมด** 2026-10-07 (PR #649) · PR #651 เติมข้อความ error ไทยที่เหลือ และ PR #653 รับรอง 10 ข้อความใหม่นั้นในวันเดียวกัน
 - **ตัวเลข:** บิลขาดสต็อก 3 บรรทัด → ได้ข้อความไทยครบ 3 บรรทัดในคำตอบเดียว (`server/test/sales.e2e-spec.ts`, DoD `03_ARCHITECTURE.md §8`)
 
 ### สไลด์ 10 — ย้ายข้อมูล + id แบบ UUID
 - `importLegacyBackup()` (Drift build) นำเข้า backup JSON ของแอปเดิมแบบ atomic · ฝั่ง server มี pre-flight → import atomic → reconcile
-- id ทุก entity เปลี่ยนจาก TEXT เป็น UUIDv7 (#616, PR #617; migration `EntityIdsToUuid1788652804900`)
+- id ของ entity เปลี่ยนจาก TEXT เป็น UUIDv7 (ยกเว้น `tenants`/`users`/`platform_admins` = v4) (#616, PR #617; migration `EntityIdsToUuid1788652804900`)
 - ผลข้างเคียงของ #616: tenant import ฝั่ง server **ปฏิเสธ snapshot จากแอปเดิม** (`400 INVALID_ID`, `server/src/platform/tenant-import.service.ts`) — วิธีย้ายข้อมูลร้านจริงตอน cutover (#231) ยังไม่ได้กำหนด
 - **ตัวเลข:** snapshot ร้านจริงเคยผ่าน 44 checks, preflight 0 violations ก่อน #616 (#185 2026-09-17, DoD `03_ARCHITECTURE.md §8`)
 - **ภาพ:** `../report/src/diagrams/er.png`
@@ -116,7 +116,7 @@
 ### สไลด์ 11 — Offline phase 2
 - outbox ในเครื่อง → `POST /sync/push` ส่งทีละ op ด้วย device token
 - ลำดับต่อ op: replay ด้วย key → replay ด้วย client id → parse payload → service (`08_PHASE2_SPEC.md §8.3`)
-- replay ด้วย client id ได้แม้ key หมดอายุแล้ว (PR #638) · e2e ครบ 7 op type (PR #641, `server/test/sync-push.e2e-spec.ts`)
+- replay ด้วย client id ได้แม้ key หมดอายุแล้ว (PR #638) · e2e ครบ 7 op type (PR #641 เติม 3 ตัวสุดท้าย, `server/test/sync-push.e2e-spec.ts`)
 - เลข RC/CN ออกได้ทั้งออนไลน์และออฟไลน์จากเครื่อง `pos`
 - **ภาพ:** `../report/src/diagrams/outbox-flow.png` และ `../report/src/diagrams/sync-seq.png`
 

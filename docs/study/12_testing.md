@@ -256,7 +256,7 @@ repo นี้ทำแบบนี้ชัดมาก — test จำนว�
 
 ### 1. Inventory จริง (ตรวจด้วย `find`, 2026-09-25)
 
-> 🔄 **อัปเดต 2026-10-07:** e2e 53 → **60**, unit spec 40 → **52**, Flutter test 65 → **116** (`frontend/test/**/*_test.dart` รวมโฟลเดอร์ย่อย) — ตัวเลขในบล็อกข้างล่างคือ snapshot 2026-09-25
+> 🔄 **อัปเดต 2026-10-07:** e2e 53 → **60**, unit spec 40 → **52**, Flutter test **116** ไฟล์ (นับ `frontend/test/**/*_test.dart` รวมโฟลเดอร์ย่อย — คนละวิธีกับเลข 65 ด้านล่างที่นับเฉพาะ `frontend/test/*.dart` ชั้นบนสุด) — ตัวเลขในบล็อกข้างล่างคือ snapshot 2026-09-25
 
 ```
 frontend/test/*.dart          → 65 ไฟล์
@@ -326,7 +326,7 @@ Path: `frontend/test/api_repository_contract_test.dart` — doc comment ต้�
 
 **bug ที่มันป้องกัน อธิบายง่ายๆ:** ถ้า `ApiRepository` (ชั้นที่คุยกับ server) แอบเรียก Drift transactional service ของตัวเองด้วย จะเกิด "ลดสต็อก 2 รอบ" (รอบที่ server ลด + รอบที่ Drift local ลดเอง) — ขายไป 1 ชิ้น สต็อกลด 2 test นี้สแกนซอร์สโค้ดหา pattern การเรียกที่ต้องห้าม มี self-check ของตัวเองด้วย (เช่น `self-check: the matcher actually catches a violation` บรรทัด 252) เพื่อพิสูจน์ว่า matcher เองไม่ใช่แค่ผ่านมั่วๆ
 
-> 🔄 **อัปเดต 2026-10-07:** มี guard คู่ที่ตรวจกฎ "`ApiException` ห้ามถึงหน้าจอ" เพิ่มอีก 2 ไฟล์ — `frontend/test/presentation_no_api_exception_test.dart` (PR #642: ระดับซอร์ส — ไม่มีไฟล์ใต้ `lib/presentation/` import `api_exception.dart`) และ `frontend/test/api_exception_never_escapes_test.dart` (PR #644: ระดับ runtime — ทุก method ที่หน้าจอเรียกได้ถูกยิงด้วย 4xx/401/429/5xx/502 HTML/503 in-flight แล้วต้องไม่มี `ApiException` หลุดออกมา) · ฝั่ง server, PR #641 เพิ่ม e2e ใน `server/test/sync-push.e2e-spec.ts` ที่พิสูจน์ replay-by-client-id ของ `/sync/push` ครบ 7 ชนิด op (รวม `shift.open`, `customer.create`, `sale.void_offline`) แม้ key หมดอายุแล้ว (#638)
+> 🔄 **อัปเดต 2026-10-07:** มี guard คู่ที่ตรวจกฎ "`ApiException` ห้ามถึงหน้าจอ" เพิ่มอีก 2 ไฟล์ — `frontend/test/presentation_no_api_exception_test.dart` (PR #642: ระดับซอร์ส — ไม่มีไฟล์ใต้ `lib/presentation/` import `api_exception.dart`) และ `frontend/test/api_exception_never_escapes_test.dart` (PR #644: ระดับ runtime — ทุก method ที่หน้าจอเรียกได้ถูกยิงด้วย 4xx/401/429/5xx/502 HTML/503 in-flight แล้วต้องไม่มี `ApiException` หลุดออกมา) · ฝั่ง server, PR #641 เติม e2e ใน `server/test/sync-push.e2e-spec.ts` จน replay-by-client-id ของ `/sync/push` มีเทสต์ครบ 7 ชนิด op (รวม `shift.open`, `customer.create`, `sale.void_offline`) แม้ key หมดอายุแล้ว (#638)
 
 ### 5. Drift repository unit test — สต็อกไม่พอ / คืนเกิน
 
@@ -548,9 +548,9 @@ CI/CD เต็มๆ อยู่ที่ [15_cicd.md](15_cicd.md) บทน�
 
 | เครื่องมือ | version จริงจาก repo | หน้าที่ | ทำไมเลือก | ทางเลือกที่ไม่เลือก |
 |---|---|---|---|---|
-| `flutter_test` (built-in) | Flutter 3.44.3 / Dart 3.12.2 (ตรวจจริงด้วย `flutter --version`) | รัน 65 ไฟล์ test ฝั่ง Flutter | มากับ Flutter SDK อยู่แล้ว ไม่ต้องติดตั้งเพิ่ม | — |
+| `flutter_test` (built-in) | Flutter 3.44.3 / Dart 3.12.2 (ตรวจจริงด้วย `flutter --version`) | รันไฟล์ test ฝั่ง Flutter (116 ไฟล์ `*_test.dart` ณ 2026-10-07) | มากับ Flutter SDK อยู่แล้ว ไม่ต้องติดตั้งเพิ่ม | — |
 | Drift `NativeDatabase.memory()` | ตาม `drift` ที่ pub-lock (ดู [04_frontend.md](04_frontend.md)) | ฐานข้อมูล in-memory สำหรับ repository test | เร็ว, deterministic, SQL จริง | mock query layer ทีละ method |
-| Vitest | ตาม `server/package.json` (ดู [06_backend.md](06_backend.md) สำหรับ version เต็ม) | runner ของ 40 unit spec + 53 e2e spec | เร็วกว่า Jest บน ESM/TypeScript, config แยก unit/e2e ได้ง่าย | Jest |
+| Vitest | ตาม `server/package.json` (ดู [06_backend.md](06_backend.md) สำหรับ version เต็ม) | runner ของ unit spec + e2e spec (52 + 60 ไฟล์ ณ 2026-10-07; ฉบับ 2026-09-25 = 40 + 53) | เร็วกว่า Jest บน ESM/TypeScript, config แยก unit/e2e ได้ง่าย | Jest |
 | supertest | ใช้ใน `*.e2e-spec.ts` (เช่น `shifts.e2e-spec.ts`) | ยิง HTTP request จริงเข้า NestJS app ที่รันในหน่วยความจำ | ทดสอบผ่าน HTTP layer จริง ไม่ข้าม middleware/guard | เรียก controller method ตรงๆ (ข้าม HTTP layer ไปเลย ไม่สมจริง) |
 | TypeScript compiler API | ใช้ตรงใน `tenant-wrapper.spec.ts`/`idempotency-routes.spec.ts` | parse โค้ดจริงเป็น AST เพื่อสแกน pattern | แม่นกว่า regex เพราะเข้าใจโครงสร้างไวยากรณ์จริง | regex string matching (เปราะ, false positive/negative ง่าย) |
 | docker compose (Postgres+Redis) | ตาม `docs/tutorial/testing-tutorial.md` ข้อ 2.3 | service container สำหรับ e2e | ใกล้เคียง production จริงที่สุด | Postgres แบบ mock/in-memory (ไม่มีจริงสำหรับ Postgres) |

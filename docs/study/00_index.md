@@ -180,7 +180,7 @@ speaker note, ภาพ และแหล่งของตัวเลขท�
 | 6 | Frontend | 04 | Flutter + bloc + Drift · `ApiException` ไม่ถึงหน้าจอ (#642, #644) |
 | 7 | สัญญา API + idempotency | 05, 06 | 4xx = คำตัดสิน · 5xx/429/`IN_FLIGHT` จอดไว้ ไม่เข้าคิว |
 | 8 | Multi-tenant ปลอดภัย | 06, 07 | RLS + `runTx` · อ่านข้ามร้าน 0 แถว |
-| 9 | เงิน + ภาษาไทยถูกต้อง | 08 | เงินเป็น string · ข้อความไทยรับรองครบ 2026-10-07 (#649) |
+| 9 | เงิน + ภาษาไทยถูกต้อง | 08 | เงินเป็น string · ข้อความไทยรับรองครบ 2026-10-07 (#649, #653) |
 | 10 | ย้ายข้อมูล + UUID | 09 | snapshot ร้านจริงผ่าน 44 checks (#185) · UUIDv7 (#616) → server ไม่รับ snapshot แอปเดิมแล้ว |
 | 11 | Offline phase 2 | 10 | outbox + `/sync/push` · replay key → client id → parse (#638) |
 | 12 | Security | 11 | JWT + device token · `perip` · gitleaks · CA ส่วนตัว |
@@ -575,13 +575,13 @@ twice") การพูดเกินจริงเรื่องสถาน
 - Frontend: ทุกหน้าจอ, data layer, unit test ผ่านหมด, `dart analyze` สะอาด · `ApiException` ไม่หลุดถึงหน้าจอแล้ว
   (PR #642, #644 — มีเทสต์เฝ้า `frontend/test/presentation_no_api_exception_test.dart`)
 - Backend phase 1: tenancy + transaction/idempotency seam, ทุก lane (A/B/C) ของ phase-1 merge แล้ว ·
-  id ทุก entity เป็น UUIDv7 ตั้งแต่ #616 (PR #617/#628)
+  id ของ entity เป็น UUIDv7 ตั้งแต่ #616 (PR #617/#628; `tenants`/`users`/`platform_admins` ยังเป็น v4)
 - CI/CD ระดับ 1–3: Flutter CI, backend CI, GHCR release image + Trivy gating — รันทุก PR และทุก push ไป
   `main`/`develop` (develop ตั้งแต่ PR #647)
 - **Deploy ขึ้น `mob04` ทำงานจริง** — runner ติดตั้งและ deploy ครั้งแรก (`e50f4fa`) 2026-09-30, rollback
   พิสูจน์แล้ว (#67 ปิด 15/15) · ทุก deploy รอ reviewer อนุมัติบน environment `demo` · ล่าสุด
   `/opt/pos/.current_sha` = `dd659e2` และ `/health/ready` = 200 (อ่านบน VM 2026-10-07; Deploy run `37585778195`)
-- ข้อความไทยที่ agent ร่างไว้ — owner รับรองครบทุกข้อ 2026-10-07 (PR #649)
+- ข้อความไทยที่ agent ร่างไว้ — owner รับรองครบทุกข้อ 2026-10-07 (PR #649 + PR #653 สำหรับ 10 ข้อความที่ #651 เพิ่ม)
 - Definition-of-Done ของ phase 1 นับใหม่ 2026-10-07: **17 ข้อ ผ่านแล้ว 16 ข้อ เหลือ 1 ข้อ (k6)**
 
 **สิ่งที่ยังไม่เสร็จ** (พูดตรงๆ ไม่ปิดบัง):
