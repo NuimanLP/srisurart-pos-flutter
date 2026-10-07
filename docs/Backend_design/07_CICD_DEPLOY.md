@@ -113,7 +113,9 @@ flowchart LR
   F --> FS[flutter-ci-status]
   S --> SS[server-ci-status]
   I --> SS
-  FS & SS -->|required checks| M[merge → main]
+  FS & SS -->|required checks| DV[merge → develop]
+  DV --> DR[push develop: ทั้งสอง workflow รัน test เต็ม<br/>ไม่ build/push image ไม่ deploy]
+  DV -->|PR develop → main| M[merge → main]
   M --> R1[server.yml ทั้งไฟล์<br/>build → Trivy image → push GHCR]
   M --> R2[flutter.yml ทั้งไฟล์<br/>build web → push GHCR]
   R1 & R2 -->|workflow_run สำเร็จทั้งคู่<br/>tag SHA ครบ 2 image| RS[deploy.yml: resolve<br/>GitHub-hosted]
@@ -131,8 +133,17 @@ flowchart LR
 1. **`paths:` ใช้กับ `pull_request` เท่านั้น และกรอง*ภายใน* workflow** (job `changes` +
    `if:` ราย job) ไม่ใช่ที่ระดับ trigger — PR ที่แตะแค่ `server/` จึงยังได้ `flutter-ci-status` สีเขียว
    (job ฝั่ง Flutter ถูก *skip* ไม่ใช่ *ไม่รัน*) ไม่งั้น required check ค้างตลอดกาล
-2. **`push` ขึ้น `main` กรองแค่ "docs ล้วน" (2026-10-01)** — commit ที่มี code รันทั้งสอง workflow เต็ม
-   จึงได้ image ครบ 2 ตัวสำหรับ SHA เดียวเสมอ (= 1 release) และ job ปล่อยของใช้ `needs:` ธรรมดาได้.
+2. **`push` ขึ้น `main` และ `develop` กรองแค่ "docs ล้วน" (2026-10-01; `develop` เพิ่ม 2026-10-07)** —
+   commit ที่มี code รันทั้งสอง workflow เต็ม บน `main` จึงได้ image ครบ 2 ตัวสำหรับ SHA เดียวเสมอ (= 1 release)
+   และ job ปล่อยของใช้ `needs:` ธรรมดาได้. **บน `develop` รัน test/audit/integration/`secrets` ครบเหมือนกัน
+   แต่ไม่ push image ขึ้น GHCR** — `build-image`/`build-web` มี `if:` เป็น `github.ref == 'refs/heads/main'`
+   (`build-web` ยอมให้ `workflow_dispatch` ด้วย แต่ได้แค่ tag SHA ของ web — ไม่มี server image คู่กัน
+   `resolve` จึงไม่มีทาง deploy) และ `deploy.yml` ฟังแค่ `workflow_run` ของ `main` (`branches: [main]` + `if:` ของ job
+   `resolve`/`deploy` เช็ค `workflow_run.head_branch == 'main'` — ตัวนี้คือประตูจริง เพราะ commit ของ `develop`
+   ที่ merge เข้า `main` แล้วก็ผ่าน `merge-base --is-ancestor origin/main` ได้). เหตุผล: PR สองอันที่เขียวเดี่ยว ๆ
+   อาจแดงเมื่อรวมกัน — head ของ `develop` ต้องมีผล CI เต็มเสมอ. `concurrency.group` ของ push ทั้งสอง branch
+   คือ `<ref>-<sha>` และไม่ cancel กัน (run ที่ถูก cancel ทำให้ status job แดงบน commit นั้น) · merge commit
+   ของ `develop → main` เป็น SHA ใหม่บน ref อื่น จึงไม่ชนกลุ่มกัน.
    แต่ถ้าช่วง `before..sha` เปลี่ยนแค่ `*.md` หรือ `docs/**` (ยกเว้น `docs/Backend_design/fixtures/**` ที่ test
    อ่าน) — `deploy/scripts/push-changes-kind.sh` ใน job `changes` ตอบ `code=false` → job test/audit/
    integration/`build-image`/`build-web` ถูก skip, **ไม่มี image ของ SHA นั้น**, `deploy.yml` `resolve` เจอ

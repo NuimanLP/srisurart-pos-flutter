@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Classify the commits a `push` to main added as "docs only" or "code" (2026-10-01).
+# Classify the commits a `push` to main (2026-10-01) or develop (2026-10-07) added as
+# "docs only" or "code".
 # Used by the `changes` job of server.yml and flutter.yml so a docs-only merge skips the heavy
-# test/image jobs — and therefore produces no release image and no Deploy awaiting approval.
+# test/image jobs — on main therefore no release image and no Deploy awaiting approval. Also used
+# by deploy.yml `resolve` (main only).
 #
 # Env:  BEFORE = github.event.before, SHA = github.sha (needs full history of the range).
 # Out:  "code=true|false" on $GITHUB_OUTPUT (stdout if unset).

@@ -7,25 +7,31 @@ name: Flutter CI
 # trigger level (a server-only PR must still produce a green, always-reported
 # flutter-ci-status, or it can never satisfy a required check — CLAUDE.md
 # "Known trap"). Filtering instead happens per-job below, keyed off the
-# `changes` job. A PR is filtered by path; a push to `main` runs every job unless it is docs-only
-# (deploy/scripts/push-changes-kind.sh), so every CODE commit on main produces both release images
-# (07_CICD_DEPLOY.md §2).
+# `changes` job. A PR is filtered by path; a push to `main` or `develop` runs every job unless it
+# is docs-only (deploy/scripts/push-changes-kind.sh), so every CODE commit on main produces both
+# release images and every code commit on develop gets a full test result (07_CICD_DEPLOY.md §2).
+# build-web (the GHCR push) never runs on a develop push.
 
 permissions:
   contents: read
 
 on:
   push:
-    branches: [main]
+    # develop (2026-10-07): every push gets a full CI result too, because two PRs green alone can
+    # be red together. A push publishes to GHCR only from main: build-web is gated on
+    # refs/heads/main (or a manual workflow_dispatch, which pushes only a web <sha> tag and is never
+    # deployable — no server image), and deploy.yml only reacts to main.
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  # Keyed by SHA on main so two quick merges each keep their own run (and their own
-  # release images) rather than the second evicting the first's in-progress run.
-  group: flutter-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
-  # Never cancel a main run — it is the only producer of that commit's web artefact.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Keyed by ref + SHA on main/develop so two quick merges each keep their own run (and, on main,
+  # their own release images) rather than the second evicting the first's in-progress run. On
+  # develop a cancelled run would also turn its always()-run status job red on that commit.
+  group: flutter-${{ github.ref }}${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && format('-{0}', github.sha) || '' }}
+  # Never cancel a main run (the only producer of that commit's web artefact) or a develop run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
 env:
   FLUTTER_VERSION: '3.44.3'   # keep in sync with frontend/.fvmrc
@@ -39,9 +45,9 @@ jobs:
   changes:
     name: detect changed paths (pull_request + push)
     runs-on: ubuntu-latest
-    # PR: dorny/paths-filter. Push to main: deploy/scripts/push-changes-kind.sh over
-    # before..sha — a docs-only push skips the test/image jobs (no image, so no Deploy waiting
-    # for approval). workflow_dispatch never filters: this job is skipped and everything runs.
+    # PR: dorny/paths-filter. Push to main/develop: deploy/scripts/push-changes-kind.sh over
+    # before..sha — a docs-only push skips the test/image jobs (on main: no image, so no Deploy
+    # waiting for approval). workflow_dispatch never filters: this job is skipped and everything runs.
     if: github.event_name != 'workflow_dispatch'
     permissions:
       contents: read
