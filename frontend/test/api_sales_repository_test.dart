@@ -1015,7 +1015,7 @@ void main() {
         expect(calls, 1, reason: 'no second POST — consent was never given');
         expect(
           thrown.toString().replaceFirst('Exception: ', ''),
-          'เกินวงเงินเครดิต',
+          'เกินวงเงินเครดิต! ยอดค้างของช่างจะเกินวงเงิน — ต้องยืนยันขายเครดิตก่อน หรือเลือกวิธีชำระอื่น',
         );
         expect(await db.select(db.sales).get(), isEmpty);
       },

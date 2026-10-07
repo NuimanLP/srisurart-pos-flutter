@@ -64,19 +64,36 @@ class ServerErrorResolver {
     'TENANT_SUSPENDED': 'ร้านนี้ถูกระงับการใช้งาน',
     'DEVICE_ROLE_FORBIDDEN': 'เครื่องนี้ขายของไม่ได้',
     'RATE_LIMITED': 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
-    'CREDIT_LIMIT_EXCEEDED': 'เกินวงเงินเครดิต',
-    'DOC_NUMBER_EXHAUSTED': 'เลขเอกสารเต็มโควตา',
-    'SALE_HAS_RETURNS': 'บิลนี้มีใบลดหนี้แล้ว ไม่สามารถยกเลิกบิลได้',
-    'SALE_ID_REUSED': 'รหัสบิลซ้ำ',
-    'SHIFT_ALREADY_CLOSED': 'กะนี้ปิดแล้ว',
-    'RETURN_PRICE_MISMATCH': 'ราคาใบลดหนี้ไม่ตรงกับบิลขาย',
-    'REFUND_METHOD_NOT_ALLOWED': 'วิธีคืนเงินไม่ถูกต้องสำหรับบิลนี้',
+    // `agent ร่าง 2026-10-07` — NOT ratified; 02_API_SCREENS.md §8.1 lists them
+    // for the owner. CREDIT_LIMIT_EXCEEDED / CREDIT_PAYMENT_EXCEEDS_BALANCE only
+    // show when the consent dialog cannot be asked (no `details`) — the dialogs
+    // in checkout_screen / mechanics_screen are unchanged.
+    'CREDIT_LIMIT_EXCEEDED':
+        'เกินวงเงินเครดิต! ยอดค้างของช่างจะเกินวงเงิน — ต้องยืนยันขายเครดิตก่อน หรือเลือกวิธีชำระอื่น',
+    'DOC_NUMBER_EXHAUSTED':
+        'เลขที่เอกสารของเครื่องนี้ครบ 9,999 ใบในเดือนนี้แล้ว ออกเอกสารต่อไม่ได้ กรุณาติดต่อทีมงาน',
+    // Same sentence the local void paths already throw (sales_repository.dart,
+    // api_sales_repository.dart).
+    'SALE_HAS_RETURNS': 'บิลนี้มีการคืนสินค้าแล้ว ไม่สามารถยกเลิกได้',
+    // Same situation as CLIENT_ID_REUSED (owner-ratified #268) — /sync/push
+    // already reports SALE_ID_REUSED under that code and sentence.
+    'SALE_ID_REUSED': 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
+    'SHIFT_ALREADY_CLOSED':
+        'กะนี้ปิดไปแล้ว ปิดซ้ำไม่ได้ — ถ้าจะขายต่อ กรุณาเปิดกะใหม่',
+    'RETURN_PRICE_MISMATCH':
+        'ราคาคืนไม่ตรงกับราคาที่ขายจริง กรุณาค้นหาบิลแล้วทำรายการคืนใหม่อีกครั้ง',
+    'REFUND_METHOD_NOT_ALLOWED':
+        'บิลนี้ไม่มีช่าง หักจากเครดิตไม่ได้ กรุณาเลือกคืนเป็นเงินสดหรือโอน',
+    'PO_CANCELLED':
+        'ใบสั่งซื้อนี้ถูกยกเลิกแล้ว รับของไม่ได้ — ถ้าได้รับของจริง กรุณาสร้างใบสั่งซื้อใหม่',
     'IDEMPOTENCY_KEY_REUSED': 'คีย์การทำรายการซ้ำกับคำขออื่น',
     'IDEMPOTENCY_KEY_IN_FLIGHT': 'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่',
     'IDEMPOTENCY_KEY_INVALID': 'คีย์การทำรายการไม่ถูกต้อง',
     'RECEIPT_NO_CONFLICT': 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
-    'CREDIT_PAYMENT_EXCEEDS_BALANCE': 'จำนวนเงินเกินยอดค้างชำระของช่าง',
-    'CREDIT_PAYMENT_ID_REUSED': 'รหัสการรับชำระเงินซ้ำ',
+    // `agent ร่าง 2026-10-07` (see the block above).
+    'CREDIT_PAYMENT_EXCEEDS_BALANCE':
+        'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงิน หรือยืนยันรับเงินเกินยอดค้าง',
+    'CREDIT_PAYMENT_ID_REUSED': 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
     // Owner's wording, 2026-09-15 (#145).
     'SALE_NOT_IN_OPEN_SHIFT':
         'บิลนี้ไม่ได้อยู่ในกะที่เปิดอยู่ ยกเลิกบิลไม่ได้ กรุณาทำรายการคืนสินค้า (ใบลดหนี้) แทน',

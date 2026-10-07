@@ -19,19 +19,10 @@ void main() {
       expect(ServerErrorResolver.resolve('TENANT_SUSPENDED'), 'ร้านนี้ถูกระงับการใช้งาน');
       expect(ServerErrorResolver.resolve('DEVICE_ROLE_FORBIDDEN'), 'เครื่องนี้ขายของไม่ได้');
       expect(ServerErrorResolver.resolve('RATE_LIMITED'), 'ระบบกำลังทำงานหนัก กรุณารอสักครู่');
-      expect(ServerErrorResolver.resolve('CREDIT_LIMIT_EXCEEDED'), 'เกินวงเงินเครดิต');
-      expect(ServerErrorResolver.resolve('DOC_NUMBER_EXHAUSTED'), 'เลขเอกสารเต็มโควตา');
-      expect(ServerErrorResolver.resolve('SALE_HAS_RETURNS'), 'บิลนี้มีใบลดหนี้แล้ว ไม่สามารถยกเลิกบิลได้');
-      expect(ServerErrorResolver.resolve('SALE_ID_REUSED'), 'รหัสบิลซ้ำ');
-      expect(ServerErrorResolver.resolve('SHIFT_ALREADY_CLOSED'), 'กะนี้ปิดแล้ว');
-      expect(ServerErrorResolver.resolve('RETURN_PRICE_MISMATCH'), 'ราคาใบลดหนี้ไม่ตรงกับบิลขาย');
-      expect(ServerErrorResolver.resolve('REFUND_METHOD_NOT_ALLOWED'), 'วิธีคืนเงินไม่ถูกต้องสำหรับบิลนี้');
       expect(ServerErrorResolver.resolve('IDEMPOTENCY_KEY_REUSED'), 'คีย์การทำรายการซ้ำกับคำขออื่น');
       expect(ServerErrorResolver.resolve('IDEMPOTENCY_KEY_IN_FLIGHT'), 'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่');
       expect(ServerErrorResolver.resolve('IDEMPOTENCY_KEY_INVALID'), 'คีย์การทำรายการไม่ถูกต้อง');
       expect(ServerErrorResolver.resolve('RECEIPT_NO_CONFLICT'), 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่');
-      expect(ServerErrorResolver.resolve('CREDIT_PAYMENT_EXCEEDS_BALANCE'), 'จำนวนเงินเกินยอดค้างชำระของช่าง');
-      expect(ServerErrorResolver.resolve('CREDIT_PAYMENT_ID_REUSED'), 'รหัสการรับชำระเงินซ้ำ');
       expect(ServerErrorResolver.resolve('SALE_NOT_IN_OPEN_SHIFT'), 'บิลนี้ไม่ได้อยู่ในกะที่เปิดอยู่ ยกเลิกบิลไม่ได้ กรุณาทำรายการคืนสินค้า (ใบลดหนี้) แทน');
       expect(ServerErrorResolver.resolve('POS_DEVICE_EXISTS'), 'ร้านมีเครื่องขายอยู่แล้ว 1 เครื่อง กรุณาปลดเครื่องขายเดิมก่อนเพิ่มเครื่องใหม่');
       expect(ServerErrorResolver.resolve('DEVICE_NO_EXHAUSTED'), 'เพิ่มเครื่องไม่ได้ ร้านใช้เลขเครื่องครบ 99 เครื่องแล้ว');
@@ -91,8 +82,23 @@ void main() {
           'REFUND_METHOD_NOT_ALLOWED',
           serverMessage: "Refund method 'หักจากเครดิต' needs a bill with a mechanic.",
         ),
-        'วิธีคืนเงินไม่ถูกต้องสำหรับบิลนี้',
+        'บิลนี้ไม่มีช่าง หักจากเครดิตไม่ได้ กรุณาเลือกคืนเป็นเงินสดหรือโอน',
       );
+    });
+
+    // `agent ร่าง 2026-10-07` (02_API_SCREENS.md §8.1) — the server still sends
+    // English for each, and the Thai draft must win over it.
+    test('agent-drafted Thai (2026-10-07) wins over the server English', () {
+      expect(ServerErrorResolver.resolve('DOC_NUMBER_EXHAUSTED', serverMessage: 'Document numbers for this device are exhausted for this month (max 9999).'), 'เลขที่เอกสารของเครื่องนี้ครบ 9,999 ใบในเดือนนี้แล้ว ออกเอกสารต่อไม่ได้ กรุณาติดต่อทีมงาน');
+      expect(ServerErrorResolver.resolve('SALE_HAS_RETURNS', serverMessage: 'This bill already has a credit note against it and cannot be voided.'), 'บิลนี้มีการคืนสินค้าแล้ว ไม่สามารถยกเลิกได้');
+      expect(ServerErrorResolver.resolve('SALE_ID_REUSED', serverMessage: 'A different sale already exists under this id.'), 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ');
+      expect(ServerErrorResolver.resolve('SHIFT_ALREADY_CLOSED', serverMessage: 'This shift is already closed.'), 'กะนี้ปิดไปแล้ว ปิดซ้ำไม่ได้ — ถ้าจะขายต่อ กรุณาเปิดกะใหม่');
+      expect(ServerErrorResolver.resolve('CREDIT_LIMIT_EXCEEDED', serverMessage: 'Credit limit exceeded'), 'เกินวงเงินเครดิต! ยอดค้างของช่างจะเกินวงเงิน — ต้องยืนยันขายเครดิตก่อน หรือเลือกวิธีชำระอื่น');
+      expect(ServerErrorResolver.resolve('CREDIT_PAYMENT_EXCEEDS_BALANCE', serverMessage: 'Payment exceeds the outstanding balance.'), 'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงิน หรือยืนยันรับเงินเกินยอดค้าง');
+      expect(ServerErrorResolver.resolve('CREDIT_PAYMENT_ID_REUSED', serverMessage: 'A different credit payment already exists under this id.'), 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ');
+      expect(ServerErrorResolver.resolve('RETURN_PRICE_MISMATCH', serverMessage: 'Return price does not match the sale.'), 'ราคาคืนไม่ตรงกับราคาที่ขายจริง กรุณาค้นหาบิลแล้วทำรายการคืนใหม่อีกครั้ง');
+      expect(ServerErrorResolver.resolve('REFUND_METHOD_NOT_ALLOWED', serverMessage: 'Refund method not allowed.'), 'บิลนี้ไม่มีช่าง หักจากเครดิตไม่ได้ กรุณาเลือกคืนเป็นเงินสดหรือโอน');
+      expect(ServerErrorResolver.resolve('PO_CANCELLED', serverMessage: 'This purchase order is cancelled and cannot be received.'), 'ใบสั่งซื้อนี้ถูกยกเลิกแล้ว รับของไม่ได้ — ถ้าได้รับของจริง กรุณาสร้างใบสั่งซื้อใหม่');
     });
 
     test('preserves verbatim English messages where specified in §8', () {
