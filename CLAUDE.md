@@ -45,7 +45,9 @@ ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 2
 PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
 🔴 **Development freeze (owner, 2026-10-07): development stops here for the course submission.** Last release =
-`main` `53fdd1b` (PR #658, merge commit), deployed to `mob04` the same day (run `37594471937`, details
+`main` `847e7ef` (PR #665, merge commit, 2026-10-08), deployed to `mob04` (run `37660353755`, details
+`docs/handoff_log/session-2026-10-08-owner-import.md`); the owner lifted the freeze for exactly that one request
+(shop-owner backup import) — the release before it was `53fdd1b` (PR #658,
 `docs/handoff_log/session-2026-10-07-final-release.md`). Do not start feature work; only fixes the owner
 asks for. 🔴 **Never enable auto-merge on a PR an agent is still pushing to** (a push after the merge button
 misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
@@ -126,7 +128,7 @@ frontend/
                                  (ADR-0010). Opt-in: --dart-define=USE_API_WRITES=true
     domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
     presentation/
-      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (21 entries:
+      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (22 entries:
                                  17 repos incl. AuthRepository, + ApiClient/BootstrapService/
                                  DocCounterSeeder/SyncFacade); `useApi` swaps in the #56 API repos
       blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
@@ -347,6 +349,19 @@ develops against a demo tenant.
   dead token → same path as #609; only 401 `UNAUTHORIZED` = wrong password). Browser profile
   holding another tenant's retired token showed `เครื่อง POS` and hid the enrol link — the
   bug this fixed; use Incognito for a demo until the build is on the profile.
+- **Owner backup import (2026-10-08, PR #664/#665, `847e7ef`, deployed; `docs/handoff_log/session-2026-10-08-owner-import.md`).**
+  The shop owner imports a backup from Settings → สำรอง/กู้คืน → กู้คืนข้อมูล: `POST /backup/import`
+  (+ `GET /backup/import/:jobId`), role `owner` + enrolled device, same `TenantImportService` as the platform
+  import (ADR-0005 amendment 5). `?mode=replace&confirmShopName=` replaces the whole shop's data in one
+  REPEATABLE READ tx; users/devices/audit_log/tenants/idempotency_keys/`doc_counters` stay.
+  🔴 **Every import (platform + owner) must raise `doc_counters` from the imported RC/CN/PO/QT/CP numbers**
+  (`GREATEST`; legacy-random numbers skipped; a `device_no` the tenant lacks is skipped and reported as
+  `docCounterSkippedDevices`) — without it the first new sale collides (`409 RECEIPT_NO_CONFLICT`).
+  🔴 The pre-import copy (`/app/exports/<tenant>/pre-import/<jobId>.json`, `exports` volume) is **never
+  auto-deleted** (PDPA — retention is the owner's call) and lives only on the VM disk (#363 parked).
+  Known limits: other devices keep stale rows after a replace (clear site data); shifts, drawer entries,
+  movements, suppliers, credit-payment history and parked bills in the file are not pulled into the app.
+  The real import on `mob04` has not been run yet; the Thai strings and amendment 5 are `agent ร่าง`, unratified.
 - **#616 UUID cutover (2026-10-06, `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`).**
   PR #628 (`develop` → `main`, merge commit) = `65861ea`; closed #612/#616/#619/#620/#621.
   `mob04` ran `65861ea` that day (since 2026-10-07: `53fdd1b`), DB **wiped — no tenant**; dump
@@ -698,6 +713,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   `docs/Backend_design/fixtures/**`; anything else is code. `deploy.yml` `resolve` applies the same rule to
   the range run-SHA..main-head, so a docs commit after a code commit does not strand that code deploy.
   A docs-only push to `develop` skips the same test jobs (develop never builds images or deploys).
+- **Runner offline while its service is `active`** (2026-10-08): `BrokerServer` TLS read errors in the runner log
+  ("Operation canceled") leave a Deploy run queued forever. Fix: `sudo systemctl restart
+  actions.runner.NuimanLP-srisurart-pos-flutter.mob04-demo.service` as `cloud`. Check
+  `gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners` (`status: online`) before approving a deploy.
 - **Cancel stale waiting Deploy runs before approving a newer one** — a job waiting for approval holds
   the `deploy-demo` slot and the newer run sits `pending`; the approval API needs a `comment`.
   A code merge to `main` fires Deploy twice (once per CI workflow); the first usually skips green
