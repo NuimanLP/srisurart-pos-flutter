@@ -46,6 +46,9 @@ export const options = {
     // Rubric requirement: creates 1 bill, deducts stock once, no 500s
     http_req_duration: ['p(95)<500'],
     replay_server_errors: ['rate==0'],
+    // #380: every check must pass, so a 429 or an unexpected 409 (e.g. IDEMPOTENCY_KEY_REUSED)
+    // fails the run instead of exiting 0 — and fast 429s can no longer pull p95 down unseen.
+    checks: ['rate==1'],
   },
 };
 
