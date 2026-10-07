@@ -52,6 +52,7 @@ import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
+import 'package:srisurart_pos/data/repositories/owner_import_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/review_items_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
@@ -520,6 +521,28 @@ final _scenarios = <_Scenario>[
   _Scenario('review-items.mark-reviewed', 'ReviewItemsRepository.markReviewed',
       ['POST /api/v1/review-items/:id/reviewed'], (w) async {
     await ReviewItemsRepository(w.api).markReviewed(_review);
+  }),
+  // Settings → กู้คืนข้อมูล: the owner's own import. The server answers 202 (empty
+  // shop) or 409 (the contract world already has bills) — both past the parser.
+  _Scenario('backup.import', 'OwnerImportRepository.importBackup', ['POST /api/v1/backup/import'],
+      (w) async {
+    await OwnerImportRepository(w.api, pollInterval: Duration.zero).importBackup({
+      '__meta': {'version': 2, 'schemaVersion': 2},
+      'sa_products': [
+        {
+          'id': _product,
+          'partNo': 'CT-001',
+          'name': 'Contract part',
+          'nameTH': 'อะไหล่ทดสอบ',
+          'category': 'อื่นๆ',
+          'brand': 'TEST',
+          'price': 100,
+          'cost': 60,
+          'stock': 50,
+          'minStock': 1,
+        },
+      ],
+    });
   }),
 
   // ── sync ─────────────────────────────────────────────────────────────────

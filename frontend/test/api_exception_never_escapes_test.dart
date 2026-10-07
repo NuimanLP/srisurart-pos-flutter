@@ -47,6 +47,7 @@ import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
+import 'package:srisurart_pos/data/repositories/owner_import_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/review_items_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
@@ -182,6 +183,11 @@ const _keepsServerText = {
 /// form's generic refusal.
 const _loginOverrides = {
   'AuthRepository.login': {401: 'เข้าสู่ระบบไม่สำเร็จ'},
+  // A 400 at import is the server's pre-flight verdict on the file; the owner
+  // is shown its reason (OwnerImportRepository._refusal).
+  'OwnerImportRepository.importBackup': {
+    400: '${OwnerImportRepository.rejectedFileMessage}: name is required',
+  },
 };
 
 /// The only things a screen may be handed. Anything else — above all an
@@ -239,6 +245,9 @@ const _classes = <String, List<(String, String)>>{
   ],
   'ReviewItemsRepository': [
     ('lib/data/repositories/review_items_repository.dart', 'ReviewItemsRepository'),
+  ],
+  'OwnerImportRepository': [
+    ('lib/data/repositories/owner_import_repository.dart', 'OwnerImportRepository'),
   ],
   'AuthRepository': [
     ('lib/data/repositories/auth_repository.dart', 'AuthRepository'),
@@ -455,6 +464,9 @@ final Map<String, _Call> _cases = {
   'DevicesRepository.retireDevice': (w) =>
       DevicesRepository(w.api).retireDevice(deviceId: 'd1'),
   'ReviewItemsRepository.listPending': (w) => ReviewItemsRepository(w.api).listPending(),
+  'OwnerImportRepository.importBackup': (w) =>
+      OwnerImportRepository(w.api, pollInterval: Duration.zero)
+          .importBackup(const {'__meta': {'version': 2}}),
   'ReviewItemsRepository.markReviewed': (w) =>
       ReviewItemsRepository(w.api).markReviewed('r1'),
   // ── Auth / offline PIN ──

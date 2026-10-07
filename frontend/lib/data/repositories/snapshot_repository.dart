@@ -42,9 +42,9 @@ class SnapshotRepository {
   /// True on the API build (`USE_API_WRITES`): the server is the source of
   /// truth, so a restore would only rewrite the local Drift cache, never reach
   /// the server, and leave local-only codes (M001…/CUS001…) that collide with
-  /// server-issued ones. [importLegacyBackup] refuses and the Settings screen
-  /// hides the restore control. Importing data into a tenant is the platform
-  /// admin's job.
+  /// server-issued ones. [importLegacyBackup] refuses; the Settings screen
+  /// sends the file to the server instead (`OwnerImportRepository`,
+  /// `POST /backup/import`), which imports it into an empty shop.
   final bool importBlocked;
 
   SnapshotRepository(this.db, {this.importBlocked = false});

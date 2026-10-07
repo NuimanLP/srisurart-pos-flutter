@@ -1,4 +1,4 @@
-// flutter_bloc RepositoryProvider tree — 21 providers: 17 repositories plus
+// flutter_bloc RepositoryProvider tree — 22 providers: 18 repositories plus
 // ApiClient, BootstrapService, DocCounterSeeder and SyncFacade. Ported off
 // Riverpod's providers.dart + shift_providers.dart (see
 // docs/plans/riverpod-to-bloc.md).
@@ -27,6 +27,7 @@ import '../../data/repositories/api/api_sales_repository.dart';
 import '../../data/repositories/api/api_shifts_repository.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/offline_pin_repository.dart';
+import '../../data/repositories/owner_import_repository.dart';
 import '../../data/storage/token_storage.dart';
 
 import '../../data/repositories/api_customers_repository.dart';
@@ -228,6 +229,11 @@ List<RepositoryProvider> repositoryProviders(
     ),
     RepositoryProvider<DevicesRepository>.value(
       value: devicesRepository ?? DevicesRepository(client),
+    ),
+    // Settings → กู้คืนข้อมูล on the API build: the owner's own import; a
+    // success runs the reconnect pull so the imported rows reach this cache.
+    RepositoryProvider<OwnerImportRepository>.value(
+      value: OwnerImportRepository(client, onImported: triggerEntityPull),
     ),
     // Phase 2: SyncFacade contract seam (Slice 0d / Ticket #269).
     // Swapped to real SyncService in slice 8-c (#228).
