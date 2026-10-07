@@ -41,8 +41,8 @@ permissions:
 on:
   push:
     # develop (2026-10-07): every push gets a full CI result too, because two PRs green alone can
-    # be red together. A push publishes to GHCR only from main: build-web/build-image and both
-    # status-job image checks are gated on refs/heads/main, and deploy.yml only reacts to main.
+    # be red together. A push publishes to GHCR only from main: build-image and the
+    # status job's image check are gated on refs/heads/main, and deploy.yml only reacts to main.
     branches: [main, develop]
   pull_request:
   workflow_dispatch:
@@ -51,7 +51,7 @@ concurrency:
   # Keyed by ref + SHA on main/develop so two quick merges each keep their own run (and, on main,
   # their own release image) rather than the second evicting the first's in-progress run. On
   # develop a cancelled run would also turn its always()-run status job red on that commit.
-  group: server-${{ github.ref }}-${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.sha || 'latest' }}
+  group: server-${{ github.ref }}${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && format('-{0}', github.sha) || '' }}
   # Never cancel a main run (the only producer of that commit's image) or a develop run.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 

@@ -138,8 +138,9 @@ flowchart LR
    และ job ปล่อยของใช้ `needs:` ธรรมดาได้. **บน `develop` รัน test/audit/integration/`secrets` ครบเหมือนกัน
    แต่ไม่ push image ขึ้น GHCR** — `build-image`/`build-web` มี `if:` เป็น `github.ref == 'refs/heads/main'`
    (`build-web` ยอมให้ `workflow_dispatch` ด้วย แต่ได้แค่ tag SHA ของ web — ไม่มี server image คู่กัน
-   `resolve` จึงไม่มีทาง deploy) และ `deploy.yml` ฟังแค่ `workflow_run` ของ `main` (`branches: [main]` +
-   `resolve` เช็ค `head_branch == 'main'` + `merge-base --is-ancestor origin/main`). เหตุผล: PR สองอันที่เขียวเดี่ยว ๆ
+   `resolve` จึงไม่มีทาง deploy) และ `deploy.yml` ฟังแค่ `workflow_run` ของ `main` (`branches: [main]` + `if:` ของ job
+   `resolve`/`deploy` เช็ค `workflow_run.head_branch == 'main'` — ตัวนี้คือประตูจริง เพราะ commit ของ `develop`
+   ที่ merge เข้า `main` แล้วก็ผ่าน `merge-base --is-ancestor origin/main` ได้). เหตุผล: PR สองอันที่เขียวเดี่ยว ๆ
    อาจแดงเมื่อรวมกัน — head ของ `develop` ต้องมีผล CI เต็มเสมอ. `concurrency.group` ของ push ทั้งสอง branch
    คือ `<ref>-<sha>` และไม่ cancel กัน (run ที่ถูก cancel ทำให้ status job แดงบน commit นั้น) · merge commit
    ของ `develop → main` เป็น SHA ใหม่บน ref อื่น จึงไม่ชนกลุ่มกัน.
