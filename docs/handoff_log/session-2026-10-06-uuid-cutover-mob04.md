@@ -27,7 +27,7 @@
 
 ## 3. ทำอะไรบน `mob04` (ตาม runbook §3–§7)
 1. **inventory ก่อนล้าง:** 10 tenant — `1234`, `12345`, `123`, `test01`, `TEST001` (closed) · `Srisurat #1`, `ABCD`, `Fiattest`, `demo-344-20261005`, `loadtest-tenant` (active) · sales 3776, movements 3784, idempotency_keys 3752, products 63, devices 18, users 10
-2. **backup:** `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` (845K) · `gzip -t` ok · sha256 OK · 30 `COPY` · **สำเนาออกนอก VM:** เครื่อง owner `~/Downloads/srisurart-mob04-backups/` (sha256 ตรง) — offsite จริงยังไม่มี (#363 parked)
+2. **backup:** `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` (845K) · `gzip -t` ok · sha256 OK · 30 `COPY` · **สำเนาออกนอก VM:** เครื่อง owner `~/Downloads/srisurart-mob04-backups/` (sha256 ตรง) — 🔴 **แก้ 2026-10-07: โฟลเดอร์นี้ไม่มีแล้ว ไม่มีสำเนานอก VM** (ดู `session-2026-10-07-final-release.md`) — offsite จริงยังไม่มี (#363 parked)
 3. **ล้าง:** `TRUNCATE … RESTART IDENTITY` 28 ตาราง (เว้น `platform_admins`, `migrations`) ใน transaction เดียว ไม่มี `CASCADE`, ไม่แตะ volume · guard ของ migration → `NOTICE: ok` · tenants 0 / users 0 / platform_admins 3
 4. **ลง `pos-deploy` ใหม่ก่อน approve:** clone `main@65861ea` → `ROLLBACK_FLOOR="bedd328…"` → `install` → sha256 repo = `/usr/local/bin/pos-deploy` (`f8b0ae73…`) · ตัวเก่าเก็บไว้ที่ `/usr/local/bin/.pos-deploy.prev-616`
 5. **deploy:**

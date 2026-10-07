@@ -8,7 +8,7 @@
 - `main` = `53fdd1b` (PR #658 `develop` → `main`, merge commit) · deploy run `37594471937` approve โดย `NuimanLP` ("final release 53fdd1b") · job `deploy to demo` success 08:33–08:35Z
 - VM `/opt/pos/.current_sha` = `53fdd1b137a34a01b37bede78f1953d1c7c037c3`, Ansible `failed=0`, `/health/ready` 200 (รายงานจาก orchestrator)
 - run `37594348618` (SHA เดียวกัน) **skip แต่ขึ้น success** — image อีกฝั่งยังไม่มี → ตามกติกา "green ไม่ใช่หลักฐาน"
-- APK ของ `53fdd1b`: `android-apk.yml` run `37594750249` **triggered, ตอนเขียนยัง in_progress** — `gh release list` ยังไม่มี `apk-53fdd1b` (มีถึง `apk-dd659e2`) → ดู Releases
+- APK ของ `53fdd1b`: `android-apk.yml` run `37594750249` success → release **`apk-53fdd1b`** (2026-10-07 08:39Z)
 - owner: **หยุดพัฒนาตรงนี้เพื่อส่งงาน** (บันทึกใน CLAUDE.md *Branch strategy*)
 
 ## 2. PR ที่ merge (ทุกตัวเข้า `develop` ก่อน แล้ว `develop` → `main` ด้วย merge commit)
