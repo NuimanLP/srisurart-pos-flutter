@@ -14,13 +14,27 @@ trap 'rm -rf "$WORK"' EXIT
 STUBS="$WORK/stubs"
 mkdir -p "$STUBS"
 
-# docker: `stats` prints $STUB_STATS (printf %b, so \t and \n work); `inspect` reports a
-# healthy container (not OOM-killed, no restarts).
+# docker: `stats` prints $STUB_STATS (printf %b, so \t and \n work). `inspect` prints
+# OOMKilled = $STUB_OOM (default false) and RestartCount = $STUB_RESTARTS (default 0); with
+# STUB_RESTART_RISE=1 each RestartCount read adds 1 (a restart between the first sample and the
+# end); STUB_INSPECT_FAIL=1 makes inspect fail. Per-case state lives in $STUB_STATE.
 cat > "$STUBS/docker" <<'STUB'
 #!/bin/sh
 case "$1" in
   stats) printf '%b' "${STUB_STATS:-}" ;;
-  inspect) case "$*" in *OOMKilled*) echo false ;; *) echo 0 ;; esac ;;
+  inspect)
+    [ "${STUB_INSPECT_FAIL:-0}" = 1 ] && exit 1
+    case "$*" in
+      *OOMKilled*) echo "${STUB_OOM:-false}" ;;
+      *)
+        f="$STUB_STATE/restarts"
+        n=$(cat "$f" 2>/dev/null || echo "${STUB_RESTARTS:-0}")
+        echo "$n"
+        [ "${STUB_RESTART_RISE:-0}" = 1 ] && n=$((n + 1))
+        echo "$n" > "$f"
+        ;;
+    esac
+    ;;
 esac
 STUB
 chmod +x "$STUBS/docker"
@@ -34,11 +48,13 @@ check() { # description, command...
 
 rc=0
 REPORT=""
-run_rss() { # case-name, stats ; sets rc and REPORT
+run_rss() { # case-name, stats, [STUB_VAR=value ...] ; sets rc and REPORT
   REPORT="$WORK/$1.md"
+  mkdir -p "$WORK/state-$1"
   # Duration 2, not 1: with 1 a second boundary before the loop's first check can skip
   # sampling entirely. 2 still takes exactly one sample (the loop sleeps 2 s after it).
-  PATH="$STUBS:$PATH" STUB_STATS="$2" bash "$SCRIPT" 2 "$REPORT" >"$WORK/$1.log" 2>&1
+  env PATH="$STUBS:$PATH" STUB_STATS="$2" STUB_STATE="$WORK/state-$1" "${@:3}" \
+    bash "$SCRIPT" 2 "$REPORT" >"$WORK/$1.log" 2>&1
   rc=$?
 }
 has() { grep -qF -- "$2" "$1"; }
@@ -83,6 +99,31 @@ run_rss over 'pos-big-1\t7GiB / 8GiB\t1.00%\n'
 check "over ceiling: exits non-zero" test "$rc" -ne 0
 check "over ceiling: verdict FAIL" has "$REPORT" '**FAIL**'
 check "over ceiling: verdict is not PASS" lacks "$REPORT" '**PASS**'
+
+ONE='pos-api-1\t55.4MiB / 384MiB\t1.50%\n'
+
+# 7. restarts before the run (lifetime count 3) but none during it: PASS, 0 this run.
+run_rss old-restarts "$ONE" STUB_RESTARTS=3
+check "old restarts: exits 0" test "$rc" -eq 0
+check "old restarts: 0 restarts this run" has "$REPORT" '| 1.50% | 0 | ✅ No |'
+check "old restarts: verdict PASS" has "$REPORT" '**PASS**'
+
+# 8. a restart during the run: FAIL and a non-zero exit.
+run_rss restarted "$ONE" STUB_RESTART_RISE=1
+check "restart during run: exits non-zero" test "$rc" -ne 0
+check "restart during run: 1 restart this run" has "$REPORT" '| 1.50% | 1 |'
+check "restart during run: verdict is not PASS" lacks "$REPORT" '**PASS**'
+
+# 9. OOM-killed: FAIL.
+run_rss oom "$ONE" STUB_OOM=true
+check "oom: exits non-zero" test "$rc" -ne 0
+check "oom: verdict is not PASS" lacks "$REPORT" '**PASS**'
+
+# 10. docker inspect fails: OOM and restarts are unknown, which is not "No" — FAIL.
+run_rss no-inspect "$ONE" STUB_INSPECT_FAIL=1
+check "inspect fails: exits non-zero" test "$rc" -ne 0
+check "inspect fails: shown as unknown" has "$REPORT" '| unknown | 🚨 unknown |'
+check "inspect fails: verdict is not PASS" lacks "$REPORT" '**PASS**'
 
 if [ "$fails" -ne 0 ]; then
   for log in "$WORK"/*.log; do echo "--- ${log##*/} (last lines)"; tail -n 5 "$log"; done

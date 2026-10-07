@@ -61,7 +61,8 @@ remainder) so the parts still sum to the original total.
   inside one idempotency window. So this one **fails fast instead of auto-widening**: every VU
   sends **5** requests, so `shard.assertBurstSafe(vus, 5, …)` throws if
   `ceil(total/N) × 5 > 45`, i.e. more than **9 VUs per shard**. Sharded, the default total is
-  therefore `9 × N` (27 at N = 3); with no `SHARD` it stays 100. The 2026-10-05 run (#380)
+  therefore `9 × N` (27 at N = 3; owner accepted 27 VU, 2026-10-07, as #380's replay
+  evidence instead of `02 §9`'s 100); with no `SHARD` it stays 100. The 2026-10-05 run (#380)
   used the old check, which ignored the ×5 and let `ceil(100/3) = 34` VUs = 170 requests per IP
   through — scenario 3 then hit `429`s. Raise N for more replay VUs, never the margin.
 

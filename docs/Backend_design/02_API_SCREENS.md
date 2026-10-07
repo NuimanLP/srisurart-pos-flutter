@@ -1086,7 +1086,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 |---|---|---|
 | `GET /products` (read-heavy) | 1,000 VUs | p95 < 200ms, cache hit > 90%, error < 0.1% |
 | `POST /sales` (write-heavy) | 200 VUs ยิงสินค้าชุดเดียวกัน | **สต็อกห้ามติดลบแม้แต่ครั้งเดียว**, ไม่มีบิลซ้ำ, p95 < 500ms |
-| ยิง `POST /sales` ซ้ำด้วย Idempotency-Key เดิม 5 ครั้ง | 100 VUs | สร้างบิลเดียว, ตัดสต็อกครั้งเดียว |
+| ยิง `POST /sales` ซ้ำด้วย Idempotency-Key เดิม 5 ครั้ง | 100 VUs (owner accepted 27 VU, 2026-10-07 — 3 เครื่อง × 9 ตามงบ burst ของ `perip`, #380/PR #654) | สร้างบิลเดียว, ตัดสต็อกครั้งเดียว |
 | Mixed (80% read / 20% write) | 500 VUs, 10 นาที | ไม่มี connection pool หมด, replication lag < 1s |
 
 🔴 **วิธีวัด latency ให้สะอาด — เคาะแล้ว 2026-09-15 (owner, issue #251):** ยิงจาก**หลายเครื่องพร้อมกัน**
