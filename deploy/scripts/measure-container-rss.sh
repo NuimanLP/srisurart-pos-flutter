@@ -40,6 +40,7 @@ declare -A RESTART_COUNTS
 PEAK_AGGREGATE_MB=0
 PEAK_HOST_USED_MB=0
 SAMPLE_COUNT=0
+PARSED_ROWS=0
 SKIPPED_ROWS=0
 RUNNING=true
 
@@ -93,6 +94,7 @@ while $RUNNING && [[ $(date +%s) -lt $end_time ]]; do
         SKIPPED_ROWS=$((SKIPPED_ROWS + 1))
         continue
       fi
+      PARSED_ROWS=$((PARSED_ROWS + 1))
       cpu_num=$(echo "$cpu_perc" | tr -d '%' | tr -d ' ')
       [[ -z "$cpu_num" ]] && cpu_num=0
 
@@ -199,7 +201,7 @@ fi
   echo "## 3. Verdict"
   echo ""
   verdict_pass=false
-  if [[ ${#PEAK_MEM_MB[@]} -eq 0 ]]; then
+  if [[ "$PARSED_ROWS" -eq 0 ]]; then
     echo "❌ **FAIL**: no container memory row was parsed from \`docker stats\` — no data to judge, so this run proves nothing."
   elif [[ "$SKIPPED_ROWS" -gt 0 ]]; then
     echo "❌ **FAIL**: ${SKIPPED_ROWS} \`docker stats\` row(s) could not be parsed (see the WARN lines) — the data is incomplete."

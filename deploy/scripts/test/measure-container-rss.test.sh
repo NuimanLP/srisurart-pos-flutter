@@ -85,6 +85,7 @@ check "over ceiling: verdict FAIL" has "$REPORT" '**FAIL**'
 check "over ceiling: verdict is not PASS" lacks "$REPORT" '**PASS**'
 
 if [ "$fails" -ne 0 ]; then
+  for log in "$WORK"/*.log; do echo "--- ${log##*/} (last lines)"; tail -n 5 "$log"; done
   echo "$fails check(s) failed"
   exit 1
 fi
