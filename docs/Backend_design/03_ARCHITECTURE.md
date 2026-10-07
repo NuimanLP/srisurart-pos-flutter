@@ -543,7 +543,7 @@ gantt
 > | งาน | สถานะ |
 > |---|---|
 > | `p1`–`p9b` | **ลงแล้ว** — server + RLS + transaction/idempotency seam (handler-scoped, ADR-0003 amendment) + ทั้ง 3 เลน · `/metrics` + Prometheus/Grafana ลง 2026-09-21 |
-> | `p10` k6 | 🔴 **ยังไม่มีตัวเลขวัดจริงเลย** — วิธีวัดเคาะแล้ว (§8.1) การรันจริงคือ **#380** |
+> | `p10` k6 | 🟡 **วัดจริงครั้งแรก 2026-10-05 (#380 comment ล่าสุด) แต่เครื่องมือมีบั๊ก (แก้แล้ว #654/#655, 2026-10-07) → ต้องวัดซ้ำ ยังไม่ติ๊ก** — วิธีวัดเคาะแล้ว (§8.1) · owner รับ replay 27 VU (2026-10-07) |
 > | `q1` ApiRepository | **ลงแล้ว** (`fe.0`–`fe.3`) — ยัง opt-in ด้วย `--dart-define=USE_API_WRITES=true` (#56) |
 > | `q2` outbox + SyncService | **เริ่มแล้ว ยังไม่ปิด** — มี `OutboxOps` (Drift), `frontend/lib/data/sync/`, `server/src/sync/` · ลำดับใบที่เหลือดู `CLAUDE.md` / #243 lanes (`09_PHASE2_LANES.md`) |
 > | `q4` cutover | **ย้ายไปเฟสถัดไป** (#231, เคาะ 2026-09-15 #242) — ร้านยังรัน Drift build เดิม ไม่มี cutover |
