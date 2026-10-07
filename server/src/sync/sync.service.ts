@@ -1035,7 +1035,7 @@ export class SyncService {
           opId: op.opId,
           status: 'rejected',
           code: 'OVERPAYMENT',
-          message: 'ยอดชำระเกินยอดหนี้คงค้าง',
+          message: 'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่',
           details: {
             mechanicId: payment?.mechanicId,
             outstandingBalance:
@@ -1054,7 +1054,7 @@ export class SyncService {
           opId: op.opId,
           status: 'rejected',
           code: 'RETURN_PRICE_MISMATCH',
-          message: 'ราคาคืนไม่ตรงกับราคาที่ขายจริง',
+          message: 'ราคาคืนไม่ตรงกับราคาที่ขายจริง กรุณาค้นหาบิลแล้วทำรายการคืนใหม่อีกครั้ง',
           details: line
             ? {
                 productId: line.productId,
