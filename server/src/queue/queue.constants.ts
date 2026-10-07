@@ -52,6 +52,10 @@ export interface TenantExportJobPayload extends BaseJobPayload {
  */
 export interface TenantImportJobPayload extends BaseJobPayload {
   importJobId: string;
+  /** Set when the shop owner asked (`POST /backup/import`); absent for a platform admin. */
+  requestedByUserId?: string;
+  /** The owner asked to replace the shop's data (`POST /backup/import?mode=replace`). */
+  replace?: boolean;
 }
 
 export interface SaleCreatedJobPayload extends BaseJobPayload {

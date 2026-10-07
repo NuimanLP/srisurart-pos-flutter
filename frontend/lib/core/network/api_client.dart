@@ -129,11 +129,14 @@ class ApiClient {
     );
   }
 
+  /// [timeout] overrides [writeTimeout] for one call — the owner's backup import
+  /// uploads up to 10 MiB, which the 40 s write budget does not cover.
   Future<dynamic> post(
     String path, {
     dynamic body,
     Map<String, String>? headers,
     bool skipAuth = false,
+    Duration? timeout,
   }) {
     return _send(
       'POST',
@@ -141,7 +144,7 @@ class ApiClient {
       body: body,
       headers: headers,
       skipAuth: skipAuth,
-      timeout: writeTimeout,
+      timeout: timeout ?? writeTimeout,
     );
   }
 

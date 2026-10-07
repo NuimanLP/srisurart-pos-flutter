@@ -14,6 +14,11 @@ import {
 import { requestLogger } from './common/logger.js';
 import { APP_CONFIG, type AppConfig } from './config/config.js';
 import { platformTokenFromHeader } from './platform/platform-auth.guard.js';
+import { JwtVerifier } from './auth/jwt-keys.service.js';
+import {
+  OWNER_IMPORT_ROUTE,
+  ownerImportTokenFromHeader,
+} from './backup/owner-import.controller.js';
 import { createMetricsMiddleware } from './metrics/metrics.middleware.js';
 import { MetricsService } from './metrics/metrics.service.js';
 
@@ -120,6 +125,20 @@ export async function configureApp(
   const importJson = json({ limit: IMPORT_BODY_LIMIT });
   app.use(IMPORT_ROUTE, (req: Request, res: Response, next: NextFunction) =>
     platformSecret && platformTokenFromHeader(req.headers.authorization, platformSecret)
+      ? importJson(req, res, next)
+      : next(),
+  );
+  // The shop owner's own import (`POST /backup/import`) takes the same file, so the same
+  // limit — earned only by a verified owner access token on an enrolled device, for the same
+  // reason as above. With no `JwtVerifier` bound (probe apps), nobody does.
+  let tenantVerifier: JwtVerifier | undefined;
+  try {
+    tenantVerifier = app.get(JwtVerifier, { strict: false });
+  } catch {
+    // JwtVerifier not bound: no request earns the large limit
+  }
+  app.use(OWNER_IMPORT_ROUTE, (req: Request, res: Response, next: NextFunction) =>
+    tenantVerifier && ownerImportTokenFromHeader(req.headers.authorization, tenantVerifier)
       ? importJson(req, res, next)
       : next(),
   );

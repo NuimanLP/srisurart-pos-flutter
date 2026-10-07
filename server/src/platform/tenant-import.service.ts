@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { DataSource } from 'typeorm';
+import { DataSource, type EntityManager } from 'typeorm';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
 import { assertValidTenantId, newUuid } from '../common/ids.js';
@@ -18,6 +18,9 @@ import {
   type TenantImportJobPayload,
 } from '../queue/queue.constants.js';
 import { AuditService } from './audit.service.js';
+import { buildTenantSnapshot } from '../backup/tenant-snapshot.js';
+import { preImportExportPath, writeExportFile } from '../backup/export-file.js';
+import { DOC_NUMBER_REGEX, DOC_PREFIX, type DocType } from '../documents/doc-number.service.js';
 import { snapshotProductCategory } from './snapshot-category.js';
 import {
   describeBadDate,
@@ -66,12 +69,79 @@ export type ImportJobState = 'queued' | 'running' | 'succeeded' | 'failed';
 export interface ImportJobResult {
   tombstones: { products: number; customers: number; mechanics: number };
   droppedSuppliers: number;
+  /** `replace`: the shop's data was deleted first (owner, `POST /backup/import?mode=replace`). */
+  mode?: 'empty-only' | 'replace';
+  /** Rows deleted per table, replace mode only. */
+  deleted?: Record<string, number>;
+  /** The copy of the replaced data, written before the delete (replace mode only). */
+  preImportExport?: { file: string; sizeBytes: number; sha256: string };
+  /** `doc_counters` rows raised to the imported numbers. */
+  docCounters?: number;
+  /**
+   * Device numbers the file's server-format numbers name but this shop has no device for
+   * (e.g. `RC03-…` with devices 01/02): no counter was raised for them, so a device enrolled
+   * later under that number would start its series at 0001 again.
+   */
+  docCounterSkippedDevices?: number[];
 }
 
 export interface ImportJobStatus extends Partial<ImportJobResult> {
   jobId: string;
   status: ImportJobState;
   error?: string;
+}
+
+/**
+ * Who asked for the import, recorded in its `audit_log` row: a platform admin
+ * (`POST /platform/tenants/:id/import`, ADR-0005) or the shop's own owner
+ * (`POST /backup/import`, Settings → กู้คืนข้อมูล). `import_jobs.requested_by` references
+ * `platform_admins`, so an owner's id never goes there — it rides the BullMQ job payload
+ * instead, as `TenantExportJobPayload.requestedByUserId` does for the export.
+ */
+export type ImportRequester = { platformAdminId: string } | { userId: string };
+
+/**
+ * Replace mode deletes, children first, everything the snapshot owns plus the review items
+ * about it. Kept: tenants, users, devices, audit_log (append-only), import_jobs, settings (the
+ * file's `sa_settings` overwrites it), idempotency_keys and doc_counters (see `writeSnapshot`).
+ */
+const REPLACED_TABLES = [
+  'owner_review_items',
+  'return_items',
+  'returns',
+  'sale_items',
+  'sales',
+  'credit_payments',
+  'drawer_entries',
+  'shifts',
+  'movements',
+  'parked_sales',
+  'quote_items',
+  'quotes',
+  'po_items',
+  'purchase_orders',
+  'suppliers',
+  'products',
+  'categories',
+  'customers',
+  'mechanics',
+] as const;
+
+/** The tables whose rows make a shop "not empty" (ADR-0005 amendment 2). */
+const TRANSACTION_TABLES = ['sales', 'returns', 'purchase_orders', 'credit_payments', 'quotes', 'shifts'] as const;
+
+/** Both sides compared as typed: trimmed, NFC (Thai tone/vowel marks can come in either order). */
+function normaliseShopName(v: string): string {
+  return v.normalize('NFC').trim();
+}
+
+/** Rows the file carries per store — the audit row's `inserted`. */
+function snapshotCounts(snapshot: SnapshotPayload): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (key.startsWith('sa_') && Array.isArray(value)) out[key.slice(3)] = value.length;
+  }
+  return out;
 }
 
 interface Preflight {
@@ -136,7 +206,7 @@ export class TenantImportService {
   ) {}
 
   // ── §9 step 2: pre-flight — reads the snapshot (+ one existence check), writes nothing ──
-  private async preflight(tenantId: string, snapshot: SnapshotPayload): Promise<Preflight> {
+  private async preflight(tenantId: string, snapshot: SnapshotPayload, replace = false): Promise<Preflight> {
     if (!snapshot.__meta) {
       throw new BadRequestException('ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta');
     }
@@ -155,14 +225,9 @@ export class TenantImportService {
       });
     }
 
-    // 1. Verify tenant already has no transactional rows
-    const checkTables = ['sales', 'returns', 'purchase_orders', 'credit_payments', 'quotes', 'shifts'];
-    for (const table of checkTables) {
-      const res = await this.adminDs.query(`SELECT count(*)::int AS n FROM ${table} WHERE tenant_id = $1`, [tenantId]);
-      if (res[0].n > 0) {
-        throw new ConflictException(`Tenant already has transaction data in table '${table}' — import rejected`);
-      }
-    }
+    // 1. Verify tenant already has no transactional rows — unless the owner asked to replace
+    //    them. Checked again inside the write transaction (`writeSnapshot`).
+    if (!replace) await this.assertNoTransactions(this.adminDs, tenantId);
 
     // 2. Pre-flight scan
     const products = snapshot.sa_products || [];
@@ -248,6 +313,18 @@ export class TenantImportService {
     };
   }
 
+  private async assertNoTransactions(runner: DataSource | EntityManager, tenantId: string): Promise<void> {
+    for (const table of TRANSACTION_TABLES) {
+      const res = await runner.query(`SELECT count(*)::int AS n FROM ${table} WHERE tenant_id = $1`, [tenantId]);
+      if (res[0].n > 0) {
+        throw new ConflictException({
+          code: 'TENANT_NOT_EMPTY',
+          message: `Tenant already has transaction data in table '${table}' — import rejected`,
+        });
+      }
+    }
+  }
+
   // ── §9 steps 3-4: the single-transaction import ──────────────────────────────────────
   /**
    * `jobId`, when given, is `processJob`'s — the row's `status = 'succeeded'` (+ `result`,
@@ -261,18 +338,62 @@ export class TenantImportService {
   private async writeSnapshot(
     tenantId: string,
     snapshot: SnapshotPayload,
-    adminId: string,
+    requester: ImportRequester,
     ip: string | undefined,
     plan: Preflight,
     jobId?: string,
+    replace = false,
   ): Promise<ImportJobResult> {
     const { tombstones, tombstoneCounts, droppedSuppliers } = plan;
     const droppedSupplierIds = new Set(tombstones.droppedSuppliers);
     const products = snapshot.sa_products || [];
     const categories = snapshot.sa_categories || [];
-    const result: ImportJobResult = { tombstones: tombstoneCounts, droppedSuppliers };
+    const result: ImportJobResult = {
+      tombstones: tombstoneCounts,
+      droppedSuppliers,
+      mode: replace ? 'replace' : 'empty-only',
+    };
 
     await this.adminDs.transaction(async (manager) => {
+      // REPEATABLE READ: the replace mode's copy of the old data, the emptiness check and the
+      // DELETEs all read one snapshot. A sale that commits meanwhile touches rows this
+      // transaction deletes (product stock, its shift, a foreign key the delete breaks), so
+      // Postgres fails one of the two (40001 / 23503) — this job is then retried by BullMQ — or
+      // the sale is refused after the commit because its product is gone. It is never deleted
+      // without being in the copy. Must be the transaction's first statement.
+      await manager.query(`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`);
+      // One importer per tenant at a time, on top of `uq_import_jobs_active`.
+      await manager.query(`SELECT id FROM tenants WHERE id = $1 FOR UPDATE`, [tenantId]);
+
+      if (!replace) {
+        // Pre-flight's check ran before the job waited in the queue: repeat it here.
+        await this.assertNoTransactions(manager, tenantId);
+      } else {
+        // The shop's way back: its current data, in the export's own shape, before any DELETE.
+        if (!jobId) throw new Error('replace mode needs an import job id');
+        const { snapshot: before } = await buildTenantSnapshot(manager, tenantId);
+        const file = preImportExportPath(tenantId, jobId);
+        const { sizeBytes, sha256 } = await writeExportFile(file, before);
+        result.preImportExport = { file, sizeBytes, sha256 };
+
+        const deleted: Record<string, number> = {};
+        for (const table of REPLACED_TABLES) {
+          const rows = await manager.query(
+            `WITH d AS (DELETE FROM ${table} WHERE tenant_id = $1 RETURNING 1) SELECT count(*)::int AS n FROM d`,
+            [tenantId],
+          );
+          deleted[table] = rows[0].n;
+        }
+        // Carried-forward unknown `sa_*` stores belonged to the replaced data.
+        const meta = await manager.query(
+          `WITH d AS (DELETE FROM tenant_meta WHERE tenant_id = $1 AND key LIKE 'unknownstore:%' RETURNING 1)
+           SELECT count(*)::int AS n FROM d`,
+          [tenantId],
+        );
+        deleted.tenant_meta = meta[0].n;
+        result.deleted = deleted;
+      }
+
       // 3.1 Categories
       const categoryNames = new Set<string>();
       for (let i = 0; i < categories.length; i++) {
@@ -770,14 +891,32 @@ export class TenantImportService {
         );
       }
 
+      // 3.15 Document counters: an imported `RC01-2569-10-0042` must raise device 01's
+      // counter, or the server's next RC in that period is `…-0001` again and collides with
+      // `UNIQUE (tenant_id, receipt_no)`. Numbers not in this server's format (the old app's
+      // `RC90003021E869`) cannot collide and are skipped.
+      const counters = await this.seedDocCounters(manager, tenantId, snapshot);
+      result.docCounters = counters.written;
+      if (counters.skippedDeviceNos.length > 0) result.docCounterSkippedDevices = counters.skippedDeviceNos;
+
       // 3.7 Audit log inside the business transaction
       await this.auditService.log(manager, {
         tenantId,
-        platformAdminId: adminId,
-        action: 'platform.tenant.import',
+        ...('userId' in requester
+          ? { userId: requester.userId, action: 'backup.imported' }
+          : { platformAdminId: requester.platformAdminId, action: 'platform.tenant.import' }),
         // #238: how many soft-deleted rows the import invented, per table.
         // #252: how many orphaned supplier rows it dropped instead.
-        after: { tombstones: tombstoneCounts, droppedSuppliers },
+        after: {
+          tombstones: tombstoneCounts,
+          droppedSuppliers,
+          mode: result.mode,
+          inserted: snapshotCounts(snapshot),
+          ...(result.deleted ? { deleted: result.deleted } : {}),
+          ...(result.preImportExport ? { preImportExport: result.preImportExport } : {}),
+          docCounters: result.docCounters,
+          ...(result.docCounterSkippedDevices ? { docCounterSkippedDevices: result.docCounterSkippedDevices } : {}),
+        },
         ip,
       });
 
@@ -829,8 +968,55 @@ export class TenantImportService {
     ip?: string,
   ): Promise<{ status: 'success'; tenantId: string } & ImportJobResult> {
     const plan = await this.preflight(tenantId, snapshot);
-    const result = await this.writeSnapshot(tenantId, snapshot, adminId, ip, plan);
+    const result = await this.writeSnapshot(tenantId, snapshot, { platformAdminId: adminId }, ip, plan);
     return { status: 'success', tenantId, ...result };
+  }
+
+  /** Raises `doc_counters` to every imported number in this server's format. */
+  private async seedDocCounters(
+    manager: EntityManager,
+    tenantId: string,
+    snapshot: SnapshotPayload,
+  ): Promise<{ written: number; skippedDeviceNos: number[] }> {
+    const series: Array<[DocType, Array<Record<string, unknown>> | undefined, string, string]> = [
+      ['receipt', snapshot.sa_sales, 'receiptNo', 'receipt_no'],
+      ['cn', snapshot.sa_returns, 'cnNo', 'cn_no'],
+      ['po', snapshot.sa_pos, 'poNo', 'po_no'],
+      ['quote', snapshot.sa_quotes, 'quoteNo', 'quote_no'],
+      ['cp', snapshot.sa_credit_payments, 'receiptNo', 'receipt_no'],
+    ];
+    const devices = (await manager.query(`SELECT id, device_no FROM devices WHERE tenant_id = $1`, [tenantId])) as Array<{
+      id: string;
+      device_no: number;
+    }>;
+    const deviceByNo = new Map(devices.map((d) => [Number(d.device_no), d.id]));
+    const high = new Map<string, { deviceId: string; docType: DocType; period: string; seq: number }>();
+    const skipped = new Set<number>();
+    for (const [docType, rows, field, snake] of series) {
+      for (const r of rows || []) {
+        const m = DOC_NUMBER_REGEX.exec(String(r[field] ?? r[snake] ?? '').trim());
+        if (!m || m[1] !== DOC_PREFIX[docType]) continue;
+        // A device number this shop does not have: no device issues into it.
+        const deviceId = deviceByNo.get(Number(m[2]));
+        if (!deviceId) {
+          skipped.add(Number(m[2]));
+          continue;
+        }
+        const key = `${deviceId}|${docType}|${m[3]}`;
+        const seq = Number(m[4]);
+        if ((high.get(key)?.seq ?? 0) < seq) high.set(key, { deviceId, docType, period: m[3], seq });
+      }
+    }
+    for (const c of high.values()) {
+      await manager.query(
+        `INSERT INTO doc_counters (tenant_id, device_id, doc_type, period, last_no)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (tenant_id, device_id, doc_type, period)
+         DO UPDATE SET last_no = GREATEST(doc_counters.last_no, EXCLUDED.last_no)`,
+        [tenantId, c.deviceId, c.docType, c.period, c.seq],
+      );
+    }
+    return { written: high.size, skippedDeviceNos: [...skipped].sort((a, b) => a - b) };
   }
 
   // ── #239: the import is a background job (owner decision, 2026-09-15) ──────────────────
@@ -842,10 +1028,55 @@ export class TenantImportService {
 
   /** `POST /platform/tenants/:id/import` — pre-flight, then enqueue. Never writes itself. */
   async createJob(tenantId: string, snapshot: SnapshotPayload, adminId: string, ip: string | undefined): Promise<{ jobId: string }> {
-    assertValidTenantId(tenantId);
-    await this.preflight(tenantId, snapshot);
+    return this.enqueue(tenantId, snapshot, { platformAdminId: adminId }, ip);
+  }
 
-    const jobId = newUuid();
+  /**
+   * `POST /backup/import` — the shop owner importing into their own shop. Same pre-flight,
+   * same one-job-at-a-time index, same worker: only the requester differs. `tenantId` is
+   * the one `TenantGuard` authorised, never one the request names.
+   */
+  async createOwnerJob(
+    tenantId: string,
+    snapshot: SnapshotPayload,
+    userId: string,
+    ip: string | undefined,
+    replace?: { confirmShopName: string },
+    jobId?: string,
+  ): Promise<{ jobId: string }> {
+    if (replace) {
+      assertValidTenantId(tenantId);
+      // The owner typed the shop's name — the one on their screen, `settings.shop_name`.
+      const rows = (await this.adminDs.query(
+        `SELECT COALESCE(s.shop_name, t.shop_name) AS shop_name
+           FROM tenants t LEFT JOIN settings s ON s.tenant_id = t.id
+          WHERE t.id = $1`,
+        [tenantId],
+      )) as Array<{ shop_name: string }>;
+      if (rows.length === 0 || normaliseShopName(rows[0].shop_name) !== normaliseShopName(replace.confirmShopName)) {
+        throw new BadRequestException({
+          code: 'CONFIRM_SHOP_NAME_MISMATCH',
+          message: 'confirmShopName does not match this shop name — replace refused',
+        });
+      }
+    }
+    return this.enqueue(tenantId, snapshot, { userId }, ip, Boolean(replace), jobId);
+  }
+
+  private async enqueue(
+    tenantId: string,
+    snapshot: SnapshotPayload,
+    requester: ImportRequester,
+    ip: string | undefined,
+    replace = false,
+    requestedJobId?: string,
+  ): Promise<{ jobId: string }> {
+    assertValidTenantId(tenantId);
+    await this.preflight(tenantId, snapshot, replace);
+
+    // The owner's client names its job (a UUID it minted) so that, when the upload's reply is
+    // lost, it can still find the job by polling it instead of sending the file again.
+    const jobId = requestedJobId ?? newUuid();
     try {
       await this.adminDs.transaction(async (manager) => {
         // #239 review (issue 1): a worker that crashed or stalled leaves its row 'queued' or
@@ -867,22 +1098,37 @@ export class TenantImportService {
         await manager.query(
           `INSERT INTO import_jobs (tenant_id, id, status, payload, requested_by, ip)
            VALUES ($1, $2, 'queued', $3::jsonb, $4, $5)`,
-          [tenantId, jobId, JSON.stringify(snapshot), adminId || null, ip ?? null],
+          [tenantId, jobId, JSON.stringify(snapshot), ('platformAdminId' in requester && requester.platformAdminId) || null, ip ?? null],
         );
       });
     } catch (err) {
+      if (isUniqueViolationOn(err, 'import_jobs_pkey')) {
+        throw new ConflictException({ code: 'IMPORT_JOB_EXISTS', message: `Import job '${jobId}' already exists` });
+      }
       if (isUniqueViolationOn(err, 'uq_import_jobs_active')) {
-        throw new ConflictException('An import is already queued or running for this tenant');
+        throw new ConflictException({
+          code: 'IMPORT_IN_PROGRESS',
+          message: 'An import is already queued or running for this tenant',
+        });
       }
       throw err;
     }
 
-    const payload: TenantImportJobPayload = { tenantId, correlationId: newUuid(), importJobId: jobId };
+    const payload: TenantImportJobPayload = {
+      tenantId,
+      correlationId: newUuid(),
+      importJobId: jobId,
+      ...('userId' in requester ? { requestedByUserId: requester.userId } : {}),
+      ...(replace ? { replace: true } : {}),
+    };
     await this.importQueue.add(JOB_TENANT_IMPORT, payload, DEFAULT_JOB_OPTIONS);
     return { jobId };
   }
 
-  /** `GET /platform/tenants/:id/import/:jobId` — the job row is the single source of truth. */
+  /**
+   * `GET /platform/tenants/:id/import/:jobId` and `GET /backup/import/:jobId` — the job row is
+   * the single source of truth.
+   */
   async getJob(tenantId: string, jobId: string): Promise<ImportJobStatus> {
     assertValidTenantId(tenantId);
     const rows = await this.adminDs.query(
@@ -897,6 +1143,7 @@ export class TenantImportService {
       jobId: row.id,
       status: row.status,
       ...(row.result ? { tombstones: row.result.tombstones, droppedSuppliers: row.result.droppedSuppliers } : {}),
+      ...(row.result?.docCounterSkippedDevices ? { docCounterSkippedDevices: row.result.docCounterSkippedDevices } : {}),
       ...(row.error ? { error: row.error } : {}),
     };
   }
@@ -927,7 +1174,7 @@ export class TenantImportService {
    * business data (#239 review, issue 2) — there is no separate `markSucceeded` step, and so
    * no gap between "the import committed" and "the row says so" for a crash to land in.
    */
-  async processJob(jobId: string): Promise<ImportJobResult> {
+  async processJob(jobId: string, requestedByUserId?: string, replace = false): Promise<ImportJobResult> {
     const rows = await this.adminDs.query(
       `SELECT tenant_id, payload, requested_by, ip, status, result FROM import_jobs WHERE id = $1`,
       [jobId],
@@ -957,7 +1204,10 @@ export class TenantImportService {
       // against nothing.
       throw new Error(`import job '${jobId}' has no payload left to process (already finished)`);
     }
-    const plan = await this.preflight(row.tenant_id, row.payload);
-    return this.writeSnapshot(row.tenant_id, row.payload, row.requested_by ?? '', row.ip ?? undefined, plan, jobId);
+    const plan = await this.preflight(row.tenant_id, row.payload, replace);
+    const requester: ImportRequester = requestedByUserId
+      ? { userId: requestedByUserId }
+      : { platformAdminId: row.requested_by ?? '' };
+    return this.writeSnapshot(row.tenant_id, row.payload, requester, row.ip ?? undefined, plan, jobId, replace);
   }
 }

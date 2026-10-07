@@ -762,7 +762,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
       expect(insert('customers')[0][1]).toEqual([testId('t1'), testId('c-gone'), `import-tombstone:${testId('c-gone')}`, 'Test Customer']);
       expect(insert('mechanics')[0][1]).toEqual([testId('t1'), testId('m-gone'), `import-tombstone:${testId('m-gone')}`, 'Test Mechanic']);
       const audit = mockAdminDs.query.mock.calls.find((c: any) => c[0].includes('INSERT INTO audit_log'));
-      expect(audit[1]).toContain(JSON.stringify({ tombstones: { products: 1, customers: 1, mechanics: 1 }, droppedSuppliers: 0 }));
+      expect(JSON.parse(audit[1][8])).toMatchObject({ tombstones: { products: 1, customers: 1, mechanics: 1 }, droppedSuppliers: 0 });
     });
 
     it('refuses in pre-flight a reference no tombstone can be named for, listing the ids (#238)', async () => {
@@ -817,7 +817,7 @@ describe('Platform Realm & Tenant Provisioning (#5, #123)', () => {
         mockAdminDs.query.mock.calls.filter((c: any) => c[0].includes(`INSERT INTO ${table} `));
       expect(insert('suppliers')).toHaveLength(0);
       const audit = mockAdminDs.query.mock.calls.find((c: any) => c[0].includes('INSERT INTO audit_log'));
-      expect(audit[1]).toContain(JSON.stringify({ tombstones: { products: 0, customers: 0, mechanics: 0 }, droppedSuppliers: 1 }));
+      expect(JSON.parse(audit[1][8])).toMatchObject({ tombstones: { products: 0, customers: 0, mechanics: 0 }, droppedSuppliers: 1 });
     });
 
     it('rolls back and does not invalidate cache if audit log fails during import', async () => {

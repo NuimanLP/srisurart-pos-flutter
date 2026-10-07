@@ -42,15 +42,15 @@ class SnapshotRepository {
   /// True on the API build (`USE_API_WRITES`): the server is the source of
   /// truth, so a restore would only rewrite the local Drift cache, never reach
   /// the server, and leave local-only codes (M001…/CUS001…) that collide with
-  /// server-issued ones. [importLegacyBackup] refuses and the Settings screen
-  /// hides the restore control. Importing data into a tenant is the platform
-  /// admin's job.
-  final bool importBlocked;
+  /// server-issued ones. [importLegacyBackup] refuses; the Settings screen
+  /// sends the file to the server instead (`OwnerImportRepository`,
+  /// `POST /backup/import`), which imports it into an empty shop.
+  final bool restoresViaServer;
 
-  SnapshotRepository(this.db, {this.importBlocked = false});
+  SnapshotRepository(this.db, {this.restoresViaServer = false});
 
   /// Thai explanation shown instead of the restore control (and thrown by
-  /// [importLegacyBackup]) when [importBlocked]. 02 §8.1.1 — owner-ratified 2026-10-07.
+  /// [importLegacyBackup]) when [restoresViaServer]. 02 §8.1.1 — owner-ratified 2026-10-07.
   static const String importBlockedMessage =
       'ระบบนี้เก็บข้อมูลบนเซิร์ฟเวอร์ ไม่สามารถกู้คืนข้อมูลจากไฟล์ในหน้านี้ได้ — '
       'การนำเข้าข้อมูลเข้าระบบ ให้ผู้ดูแลแพลตฟอร์มเป็นผู้ดำเนินการ';
@@ -610,7 +610,7 @@ class SnapshotRepository {
   /// transaction rolls everything back (the idiomatic snapshot/rollback).
   /// A null / absent store value is treated as "skip" (never as data).
   Future<void> importLegacyBackup(Map<String, dynamic> data) async {
-    if (importBlocked) {
+    if (restoresViaServer) {
       throw const PosException('IMPORT_BLOCKED_API_BUILD', importBlockedMessage);
     }
     if (data['__meta'] == null) {

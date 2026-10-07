@@ -1,0 +1,2387 @@
+{
+ "sa_products": [
+  {
+   "id": "f154eecc-f5f9-716d-90b7-8e0d3b6d4629",
+   "partNo": "90915-YZZD2",
+   "name": "Toyota Genuine Engine Oil Filter",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง โตโยต้าแท้",
+   "category": "กรอง",
+   "brand": "Toyota Genuine",
+   "price": 146,
+   "cost": 100,
+   "stock": 15,
+   "minStock": 8,
+   "compat": "Toyota Hilux Vigo / Revo (1GD-FTV, 2GD-FTV, 1KD/2KD), Fortuner, Innova, Commuter",
+   "updatedAt": "2026-10-05T03:20:00.000Z"
+  },
+  {
+   "id": "daaf1768-b6ca-78e5-b8b3-1eb6fdb46e30",
+   "partNo": "341398",
+   "name": "KYB Excel-G Gas Shock Absorber Front Left",
+   "nameTH": "โช้คอัพหน้าซ้าย KYB Excel-G",
+   "category": "ช่วงล่าง",
+   "brand": "KYB",
+   "price": 1450,
+   "cost": 1000,
+   "stock": 14,
+   "minStock": 8,
+   "compat": "Toyota Hilux Vigo (GGN15/KUN15/KUN25/TGN) หน้าซ้าย",
+   "updatedAt": "2026-10-05T09:10:00.000Z"
+  },
+  {
+   "id": "8bc08a64-e53d-7efc-bf97-92d9edba4a7c",
+   "partNo": "341396",
+   "name": "KYB Excel-G Gas Shock Absorber Front",
+   "nameTH": "โช้คอัพหน้า KYB Excel-G",
+   "category": "ช่วงล่าง",
+   "brand": "KYB",
+   "price": 1550,
+   "cost": 1100,
+   "stock": 13,
+   "minStock": 2,
+   "compat": "Toyota Fortuner GUN156 / Hilux (Revo ยังไม่ยืนยัน)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "4cd6f0a3-fdbe-7849-96ff-01755a469921",
+   "partNo": "TYK-8840ST",
+   "name": "Exedy Safari Tuff Heavy Duty Clutch Kit",
+   "nameTH": "ชุดคลัตช์ Exedy Safari Tuff แบบงานหนัก",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 9500,
+   "cost": 6800,
+   "stock": 5,
+   "minStock": 2,
+   "compat": "Toyota Hilux Revo 2.8 1GD GUN126 (2015-)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "f7936650-5c21-7cb2-8fdd-79a4e21a6441",
+   "partNo": "90915-YZZN2",
+   "name": "Toyota Genuine Engine Oil Filter (small, 16V) - replaces 90915-YZZE1",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง โตโยต้าแท้ (ลูกเล็ก 16V) แทนเบอร์เดิม 90915-YZZE1",
+   "category": "กรอง",
+   "brand": "Toyota Genuine",
+   "price": 225,
+   "cost": 155,
+   "stock": 10,
+   "minStock": 6,
+   "compat": "Toyota Vios / Yaris (1NZ-FE, 2NZ-FE), Corolla Altis, Soluna, Avanza",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "59d522ad-4c2f-71d8-b3a2-96949ee82fbc",
+   "partNo": "8-98270524-0",
+   "name": "Isuzu Genuine Engine Oil Filter (paper element)",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง อีซูซุแท้ (กระดาษ)",
+   "category": "กรอง",
+   "brand": "Isuzu Genuine",
+   "price": 320,
+   "cost": 220,
+   "stock": 23,
+   "minStock": 4,
+   "compat": "Isuzu D-Max / MU-X 1.9 Ddi Blue Power (RZ4E-TC), 2016-",
+   "updatedAt": "2026-10-07T02:15:00.000Z"
+  },
+  {
+   "id": "f0c3e4ca-05d9-7716-8ea8-32559649d238",
+   "partNo": "8-98159693-0",
+   "name": "Isuzu Genuine Fuel Filter Element Kit",
+   "nameTH": "ไส้กรองโซล่า (กรองดีเซล) อีซูซุแท้",
+   "category": "กรอง",
+   "brand": "Isuzu Genuine",
+   "price": 185,
+   "cost": 125,
+   "stock": 29,
+   "minStock": 2,
+   "compat": "Isuzu All New D-Max 2012- (2.5/3.0/1.9 Blue Power), V-Cross, MU-X",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "930bfe27-7992-717a-9478-43b90f7a1f0a",
+   "partNo": "15400-RAF-T01",
+   "name": "Honda Genuine Engine Oil Filter",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง ฮอนด้าแท้",
+   "category": "กรอง",
+   "brand": "Honda Genuine",
+   "price": 260,
+   "cost": 180,
+   "stock": 8,
+   "minStock": 8,
+   "compat": "Honda City, Jazz, Civic, Accord, HR-V, BR-V, Amaze, Brio (petrol)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "ddb11744-3185-79b8-8a79-656ef2eaad88",
+   "partNo": "87139-0K060",
+   "name": "Toyota Genuine Cabin Air Filter (Element, Air Refiner)",
+   "nameTH": "ไส้กรองแอร์ โตโยต้าแท้",
+   "category": "กรอง",
+   "brand": "Toyota Genuine",
+   "price": 99,
+   "cost": 65,
+   "stock": 15,
+   "minStock": 8,
+   "compat": "Toyota Hilux Revo, New Fortuner, Corolla Altis (2019-), Corolla Cross",
+   "updatedAt": "2026-10-06T06:00:00.000Z"
+  },
+  {
+   "id": "cab6502b-5789-7313-8ecb-e085bb3e31fe",
+   "partNo": "04465-0K360",
+   "name": "Toyota Genuine Front Disc Brake Pad Kit",
+   "nameTH": "ผ้าดิสเบรคหน้า โตโยต้าแท้",
+   "category": "เบรก",
+   "brand": "Toyota Genuine",
+   "price": 1550,
+   "cost": 1100,
+   "stock": 38,
+   "minStock": 4,
+   "compat": "Toyota Hilux Revo 4WD / Prerunner, Fortuner 4x4 (per Thai listings); Hilux per PartSouq (4WD/ตัวสูง — ยังไม่ยืนยันรุ่นย่อย)",
+   "updatedAt": "2026-10-05T08:30:00.000Z"
+  },
+  {
+   "id": "5079d677-a7c2-7ac0-afd2-3ac63d195bc6",
+   "partNo": "BCO234A",
+   "name": "Oil filter Toyota Vigo/Commuter/Fortuner",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง โตโยต้า วีโก้/คอมมิวเตอร์/ฟอร์จูนเนอร์",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 120,
+   "cost": 70.98,
+   "stock": 49,
+   "minStock": 5,
+   "compat": "Toyota Hilux Vigo, Commuter, Fortuner",
+   "updatedAt": "2026-10-06T02:00:00.000Z"
+  },
+  {
+   "id": "d0a0c143-17b9-7d05-8791-8110b8f394c2",
+   "partNo": "BCO211A",
+   "name": "Oil filter Toyota 16-valve (YZZE1)",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง โตโยต้า 16 วาล์ว (เทียบเบอร์ 90915-YZZE1)",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 100,
+   "cost": 60,
+   "stock": 32,
+   "minStock": 8,
+   "compat": "Toyota Vios/Yaris/Corolla petrol (90915-YZZE1 application; fitment per OEM no., site title says 'T/T 16 วาล์ว')",
+   "updatedAt": "2026-10-07T07:00:00.000Z"
+  },
+  {
+   "id": "2c706ada-82bb-7704-9b9d-378739cd6fb7",
+   "partNo": "BCO258A",
+   "name": "Oil filter Isuzu D-Max V-Cross",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง อีซูซุ ดีแม็กซ์ วีครอส",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 130,
+   "cost": 75,
+   "stock": 20,
+   "minStock": 7,
+   "compat": "Isuzu D-Max V-Cross (also GM)",
+   "updatedAt": "2026-10-06T04:20:00.000Z"
+  },
+  {
+   "id": "8df99a6f-35bd-7bbb-b809-0ce90af2e761",
+   "partNo": "BCO259A",
+   "name": "Oil filter Honda Accord/Civic",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง ฮอนด้า แอคคอร์ด/ซีวิค",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 110,
+   "cost": 65,
+   "stock": 27,
+   "minStock": 7,
+   "compat": "Honda Accord, Civic (site: 'ทุกรุ่น'); City likely shares 15400-PR3 family but NOT stated on page",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "31905240-0934-7f0a-a9f7-305397fe994c",
+   "partNo": "BCO260A",
+   "name": "Oil filter element Ford Ranger 2012 / Mazda BT-50 Pro",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง ฟอร์ด เรนเจอร์ ปี 2012/มาสด้า BT-50 โปร",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 150,
+   "cost": 90,
+   "stock": 6,
+   "minStock": 7,
+   "compat": "Ford Ranger 2012+, Mazda BT-50 Pro",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "f3ddc14e-46c4-7db3-bd95-7f38b8e25647",
+   "partNo": "BCO273",
+   "name": "Oil filter Mitsubishi Triton 2016 (single step)",
+   "nameTH": "ไส้กรองน้ำมันเครื่อง มิตซูบิชิ ไทรทัน ปี 2016",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 160,
+   "cost": 95,
+   "stock": 40,
+   "minStock": 3,
+   "compat": "Mitsubishi Triton 2016+",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "d6a423c3-0c49-76a9-934b-b2222c3b687e",
+   "partNo": "BCA360A",
+   "name": "Air filter Toyota Revo",
+   "nameTH": "ไส้กรองอากาศ โตโยต้า รีโว่",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 250,
+   "cost": 151.43,
+   "stock": 35,
+   "minStock": 8,
+   "compat": "Toyota Hilux Revo (Flomax equivalent FMA360A also listed)",
+   "updatedAt": "2026-10-06T02:00:00.000Z"
+  },
+  {
+   "id": "f4a37c13-806f-76a5-a1db-94de9e200f54",
+   "partNo": "BCA364",
+   "name": "Air filter Nissan Navara diesel",
+   "nameTH": "ไส้กรองอากาศ นิสสัน นาวาร่า ดีเซล",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 250,
+   "cost": 150,
+   "stock": 18,
+   "minStock": 6,
+   "compat": "Nissan Navara ดีเซล (ยังไม่ยืนยันรุ่น)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "30466410-1359-7817-ade6-a91e59b1e14b",
+   "partNo": "BCF168A",
+   "name": "Fuel filter element Toyota Revo",
+   "nameTH": "ไส้กรองโซล่า โตโยต้า รีโว่",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 300,
+   "cost": 180,
+   "stock": 22,
+   "minStock": 8,
+   "compat": "Toyota Hilux Revo (diesel)",
+   "updatedAt": "2026-10-06T03:05:00.000Z"
+  },
+  {
+   "id": "f07f3a27-d553-7c6b-9c23-6f1f5b373b5c",
+   "partNo": "BCF163A",
+   "name": "Fuel filter element Ford Ranger 2012 / Mazda BT-50 Pro",
+   "nameTH": "ไส้กรองโซล่า ฟอร์ด เรนเจอร์ ปี 2012/มาสด้า BT-50 โปร",
+   "category": "กรอง",
+   "brand": "BC (TYK)",
+   "price": 350,
+   "cost": 210,
+   "stock": 30,
+   "minStock": 5,
+   "compat": "Ford Ranger 2012+, Mazda BT-50 Pro",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "952c9b5f-7f6d-7ece-9d46-dfc3f8965c3b",
+   "partNo": "FMC128A",
+   "name": "Cabin air filter Toyota Revo",
+   "nameTH": "ไส้กรองแอร์ โตโยต้า รีโว่",
+   "category": "กรอง",
+   "brand": "Flomax",
+   "price": 80,
+   "cost": 52,
+   "stock": 37,
+   "minStock": 4,
+   "compat": "Toyota Hilux Revo (BC equivalent BCC128A also listed)",
+   "updatedAt": "2026-10-06T03:05:00.000Z"
+  },
+  {
+   "id": "8211765a-7226-721b-bc21-ddcda6483d30",
+   "partNo": "FMC108A",
+   "name": "Cabin air filter Honda City 2009 / Jazz",
+   "nameTH": "ไส้กรองแอร์ ฮอนด้า ซิตี้ ปี 2009/แจ๊ส",
+   "category": "กรอง",
+   "brand": "Flomax",
+   "price": 180,
+   "cost": 100,
+   "stock": 12,
+   "minStock": 7,
+   "compat": "Honda City 2009+, Jazz",
+   "updatedAt": "2026-10-07T05:10:00.000Z"
+  },
+  {
+   "id": "4e2d5fd6-586e-7903-b36e-7886e6edf2f0",
+   "partNo": "TRANE-TP-5W30-4L",
+   "name": "Trane Titanium Professional 5W-30 Fully Synthetic API SQ 4L",
+   "nameTH": "เทรน ไททาเนียม โปรเฟสชันนัล 5W-30 สังเคราะห์แท้ 4 ลิตร",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 1090,
+   "cost": 785,
+   "stock": 27,
+   "minStock": 5,
+   "compat": "รถเบนซิน เช่น Toyota Vios/Yaris, Honda City/Civic (เครื่องยนต์เบนซินสมัยใหม่/เทอร์โบ GDI) - ตรวจคู่มือรถก่อนใช้",
+   "updatedAt": "2026-10-05T03:20:00.000Z"
+  },
+  {
+   "id": "d7274221-922f-7624-bc35-f7bad95b6269",
+   "partNo": "TRANE-TP-C3-5W30-6L",
+   "name": "Trane Titanium Professional C3 5W-30 Fully Synthetic 6L",
+   "nameTH": "เทรน ไททาเนียม โปรเฟสชันนัล C3 5W-30 สังเคราะห์แท้ 6 ลิตร",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 1590,
+   "cost": 1145,
+   "stock": 37,
+   "minStock": 4,
+   "compat": "เครื่องยนต์ที่ต้องการ ACEA C3 / มี DPF-GPF (เช่น ดีเซลคอมมอนเรลสมัยใหม่) - ตรวจคู่มือรถ",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "21786900-e08a-7d69-9a48-02255a4a34e7",
+   "partNo": "TRANE-DEF-S4-15W40-6L",
+   "name": "Trane Defender S4 15W-40 Semi-Synthetic Diesel 6L",
+   "nameTH": "เทรน ดีเฟนเดอร์ S4 15W-40 กึ่งสังเคราะห์ ดีเซล 6 ลิตร",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 690,
+   "cost": 497,
+   "stock": 23,
+   "minStock": 4,
+   "compat": "ดีเซลคอมมอนเรล/เทอร์โบ เช่น Toyota Hilux Vigo/Revo, Isuzu D-Max, Mitsubishi Triton, Nissan Navara, Ford Ranger (ตามสเปกเครื่อง)",
+   "updatedAt": "2026-10-06T04:20:00.000Z"
+  },
+  {
+   "id": "886bf7cb-fbc6-789e-886a-938267a48292",
+   "partNo": "TRANE-DEF-S9-LD-5W40-4L",
+   "name": "Trane Defender S9 Long Drain 5W-40 Full Synthetic Diesel 4L",
+   "nameTH": "เทรน ดีเฟนเดอร์ S9 ลองเดรน 5W-40 สังเคราะห์แท้ ดีเซล 4 ลิตร",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 1290,
+   "cost": 929,
+   "stock": 35,
+   "minStock": 8,
+   "compat": "ดีเซลคอมมอนเรลเทอร์โบ (กระบะดีเซลทั่วไป) - ตรวจสเปกเครื่อง",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "0b9a97e1-c4a0-7138-abdc-57781461f591",
+   "partNo": "TRANE-CR-DX5-10W30",
+   "name": "Trane Commonrail DX5 10W-30 Pickup Diesel Engine Oil",
+   "nameTH": "เทรน คอมมอนเรล DX5 10W-30 น้ำมันเครื่องดีเซลกระบะ",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 720,
+   "cost": 518,
+   "stock": 19,
+   "minStock": 5,
+   "compat": "กระบะดีเซลคอมมอนเรล เช่น Hilux Revo, D-Max, Triton, Ranger, Navara (ตามหมวด Pick up ของเว็บ Trane)",
+   "updatedAt": "2026-10-07T07:00:00.000Z"
+  },
+  {
+   "id": "c76d7324-912e-70bc-b808-ac0a44f9236b",
+   "partNo": "TRANE-ATF-LV-4L",
+   "name": "Trane Trans ATF LV Fully Synthetic Low-Viscosity ATF 4L",
+   "nameTH": "เทรน ทรานส์ ATF LV น้ำมันเกียร์ออโต้ สังเคราะห์แท้ 4 ลิตร",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 1150,
+   "cost": 828,
+   "stock": 5,
+   "minStock": 5,
+   "compat": "เกียร์ออโต้ 6-8 สปีด (ระบุยี่ห้อ Toyota, Honda, Nissan, Mitsubishi, Ford ฯลฯ) ห้ามใช้กับ CVT/DCT - ตรวจสเปกเกียร์",
+   "updatedAt": "2026-10-07T02:15:00.000Z"
+  },
+  {
+   "id": "b885f0f6-0095-7975-a1d9-a3334f84fbfc",
+   "partNo": "TRANE-CVTF-4L",
+   "name": "Trane Trans CVTF Fully Synthetic CVT Fluid 4L",
+   "nameTH": "เทรน ทรานส์ CVTF น้ำมันเกียร์ CVT สังเคราะห์แท้ 4 ลิตร",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 1190,
+   "cost": 857,
+   "stock": 6,
+   "minStock": 3,
+   "compat": "เกียร์ CVT เช่น Toyota Vios/Yaris, Honda City/Civic, Nissan, Mitsubishi (ระบุยี่ห้อ) ไม่แนะนำกับ E-CVT ไฮบริด - ตรวจสเปกเกียร์",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "8794d882-11ea-720f-9c06-9ec050fd42ca",
+   "partNo": "TRANE-GL4-90-5L",
+   "name": "Trane Trans GL-4 90 Manual Gear Oil 5L",
+   "nameTH": "เทรน ทรานส์ GL-4 90 น้ำมันเกียร์ธรรมดา 5 ลิตร",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 460,
+   "cost": 331,
+   "stock": 13,
+   "minStock": 2,
+   "compat": "เกียร์ธรรมดารถยนต์/กระบะ (API GL-4)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "cf0aff11-6e07-7412-ac05-b74f8e81b039",
+   "partNo": "TRANE-AXLE-GL5-85W140-5L",
+   "name": "Trane Trans Axle GL-5 85W-140 Gear Oil 5L",
+   "nameTH": "เทรน ทรานส์ แอกเซิล GL-5 85W-140 น้ำมันเฟืองท้าย 5 ลิตร",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 520,
+   "cost": 374,
+   "stock": 23,
+   "minStock": 2,
+   "compat": "เฟืองท้าย/เกียร์ธรรมดา กระบะ รถบรรทุก (API GL-5)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "0a0b26cb-b4d7-7cab-aeb4-abd242dd6a35",
+   "partNo": "TRANE-HT-GREASE-10KG",
+   "name": "Trane Super HT Extreme Pressure Grease 10kg",
+   "nameTH": "เทรน ซูเปอร์ HT จาระบีทนความร้อน 10 กก.",
+   "category": "น้ำมัน",
+   "brand": "Trane",
+   "price": 2069,
+   "cost": 1550,
+   "stock": 3,
+   "minStock": 1,
+   "compat": "จาระบีอเนกประสงค์ ลูกปืนล้อ ช่วงล่างรถกระบะ/รถบรรทุก",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "42b980e5-d671-73ed-8dec-2b9f8cc71b7d",
+   "partNo": "TYD015U",
+   "name": "Clutch Disc 10-2/8in (260mm) 21T",
+   "nameTH": "จานคลัตช์ EXEDY 10 2/8 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 2300,
+   "cost": 1495,
+   "stock": 23,
+   "minStock": 6,
+   "compat": "Toyota Hilux Vigo / Fortuner 3.0 (1KD), Vigo 2.5 intercooler (2KD), Commuter KDH222 2.5",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "747c2c02-0b95-71a3-b6bd-cc3cfa15b4c4",
+   "partNo": "TYC625",
+   "name": "Clutch Cover 10-2/8in (260mm)",
+   "nameTH": "หวีคลัตช์ EXEDY 10 2/8 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 4090,
+   "cost": 2659,
+   "stock": 2,
+   "minStock": 1,
+   "compat": "Toyota Hilux Vigo / Fortuner 3.0 (1KD), Vigo 2.5 (2KD), Commuter 2.5",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "86c435ff-a351-7c2f-a68a-640f66021980",
+   "partNo": "TYD177U",
+   "name": "Clutch Disc 10.25in (260mm) 21T",
+   "nameTH": "จานคลัตช์ EXEDY วีโก้ 3.0 10.2 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 1530,
+   "cost": 1224,
+   "stock": 15,
+   "minStock": 3,
+   "compat": "Toyota Hilux Vigo 3.0 (1KD), Fortuner, Hiace/Commuter KDH (retailer fitment)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "53970f5a-e3ac-7588-b59e-abac62c27cad",
+   "partNo": "TYD168",
+   "name": "Clutch Disc 11in (275mm) 21T",
+   "nameTH": "จานคลัตช์ EXEDY 11 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 4800,
+   "cost": 3120,
+   "stock": 2,
+   "minStock": 3,
+   "compat": "Toyota Hilux Vigo 2.5 VN / Vigo Champ 3.0 (KUN26, 1KD); Fortuner",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "05b7595e-05ea-713d-a49f-a4adfa4f717c",
+   "partNo": "TYC643",
+   "name": "Clutch Cover 11in (275mm)",
+   "nameTH": "หวีคลัตช์ EXEDY 11 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 4950,
+   "cost": 3218,
+   "stock": 8,
+   "minStock": 2,
+   "compat": "Toyota Hilux Vigo 2.5 VN / Vigo Champ 3.0 (KUN26, 1KD)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "da2b1150-01cc-7930-8c2d-78f5328199a4",
+   "partNo": "TYD225",
+   "name": "Clutch Disc 11in (275mm)",
+   "nameTH": "จานคลัตช์ EXEDY รีโว่ 11 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 5000,
+   "cost": 3250,
+   "stock": 7,
+   "minStock": 3,
+   "compat": "Toyota Hilux Revo 2.4/2.8 (2GD/1GD) 6MT high-rider, 1GD 6MT low-rider; Commuter 2.8 GDH322 (Thai list)",
+   "updatedAt": "2026-10-05T04:40:00.000Z"
+  },
+  {
+   "id": "a1edf419-c31a-7840-9058-fe07e573a185",
+   "partNo": "TYC818",
+   "name": "Clutch Cover 11in (275mm)",
+   "nameTH": "หวีคลัตช์ EXEDY รีโว่ 11 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 5010,
+   "cost": 3257,
+   "stock": 6,
+   "minStock": 1,
+   "compat": "Toyota Hilux Revo 2.4/2.8 (2GD/1GD) 6MT (Thai list)",
+   "updatedAt": "2026-10-05T04:40:00.000Z"
+  },
+  {
+   "id": "ee6a9b37-3aa6-7357-b57f-c4fd0d56bd65",
+   "partNo": "BRG2615",
+   "name": "Clutch Release Bearing",
+   "nameTH": "ลูกปืนคลัตช์ EXEDY รีโว่",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 1200,
+   "cost": 850,
+   "stock": 9,
+   "minStock": 4,
+   "compat": "Toyota Hilux Revo GUN125/GUN126 (2GD-FTV/1GD-FTV) 2015-",
+   "updatedAt": "2026-10-05T04:40:00.000Z"
+  },
+  {
+   "id": "8b55917f-0e0f-7d1d-8f2b-236c261a0872",
+   "partNo": "ISC600",
+   "name": "Clutch Cover 10in (250mm)",
+   "nameTH": "หวีคลัตช์ EXEDY ดีแม็กซ์ 10 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 2460,
+   "cost": 1599,
+   "stock": 5,
+   "minStock": 3,
+   "compat": "Isuzu D-Max 2.5/3.0 (4JH, 4JJ, 4JK) 2002-2011",
+   "updatedAt": "2026-10-07T04:00:00.000Z"
+  },
+  {
+   "id": "00368b4b-6bc2-7f7b-84cc-d7de3541b6a9",
+   "partNo": "ISD095U",
+   "name": "Clutch Disc 10in (250mm) 24T",
+   "nameTH": "จานคลัตช์ EXEDY ดีแม็กซ์ 10 นิ้ว (2007-2011)",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 2820,
+   "cost": 1833,
+   "stock": 3,
+   "minStock": 3,
+   "compat": "Isuzu D-Max 2.5/3.0 (4JH, 4JJ, 4JK) 2007-2011",
+   "updatedAt": "2026-10-07T03:30:00.000Z"
+  },
+  {
+   "id": "6a862b63-d989-707e-9b75-79a91f976c67",
+   "partNo": "ISD141U",
+   "name": "Clutch Disc 10in (250mm) 24T",
+   "nameTH": "จานคลัตช์ EXEDY ดีแม็กซ์ 10 นิ้ว (2002-2006)",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 2450,
+   "cost": 1593,
+   "stock": 4,
+   "minStock": 3,
+   "compat": "Isuzu D-Max 2.5/3.0 (4JH, 4JJ, 4JK) 2002-2006",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "83b1e217-524f-7041-9d9b-706deace26cf",
+   "partNo": "HCD039U",
+   "name": "Clutch Disc 7.5in (190mm) 20T",
+   "nameTH": "จานคลัตช์ EXEDY ซิตี้/แจ๊ส 7.5 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 1630,
+   "cost": 1060,
+   "stock": 30,
+   "minStock": 7,
+   "compat": "Honda City GM2 2009-2014 (L15A), Jazz GD/GE/GK (L15)",
+   "updatedAt": "2026-10-06T10:00:00.000Z"
+  },
+  {
+   "id": "ff26c059-f7e3-7a4c-8123-4f6c67fe9439",
+   "partNo": "HCC543",
+   "name": "Clutch Cover 7.5in (190mm)",
+   "nameTH": "หวีคลัตช์ EXEDY ซิตี้/แจ๊ส 7.5 นิ้ว",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 1750,
+   "cost": 1138,
+   "stock": 19,
+   "minStock": 7,
+   "compat": "Honda Jazz/City GD, GE (L15) ตามรายการราคาไทย — ขัดแย้ง: e-catalog EXEDY จับคู่ City GM2/Jazz GE8 กับ HCC545 ตรวจรถก่อนสั่ง",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "b322b986-98db-7ed0-a76a-746529a0454c",
+   "partNo": "HCD045",
+   "name": "Clutch Disc 8.5in (215mm) 20T",
+   "nameTH": "จานคลัตช์ EXEDY ซีวิค 1.8",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 1890,
+   "cost": 1229,
+   "stock": 16,
+   "minStock": 5,
+   "compat": "Honda Civic 1.8 FD (2006-, R18A) / FB (2012-, R18Z)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "d8545eed-d919-7f9c-8bfc-bd3a598c70b8",
+   "partNo": "NSD210",
+   "name": "Clutch Disc 11in (275mm) 24T",
+   "nameTH": "จานคลัตช์ EXEDY นาวาร่า NP300",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 4900,
+   "cost": 3185,
+   "stock": 8,
+   "minStock": 3,
+   "compat": "Nissan Navara NP300 D23 (YD25 / YS23)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "72ea7789-ee30-7be5-838b-2ba80e8dface",
+   "partNo": "NSC810",
+   "name": "Clutch Cover 11in (275mm)",
+   "nameTH": "หวีคลัตช์ EXEDY นาวาร่า NP300",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 6050,
+   "cost": 3933,
+   "stock": 3,
+   "minStock": 2,
+   "compat": "Nissan Navara NP300 D23 (YD25 / YS23)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "c331694a-0729-7931-916f-2ff74e30d090",
+   "partNo": "MZD087U",
+   "name": "Clutch Disc 9.5in (240mm) 22T",
+   "nameTH": "จานคลัตช์ EXEDY เรนเจอร์/ไฟเตอร์ 2.5",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 1780,
+   "cost": 1157,
+   "stock": 22,
+   "minStock": 6,
+   "compat": "Ford Ranger / Mazda Fighter 2.5 (WL), older generation. NOT Ranger T6",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "b4dab737-682b-7181-9492-7ab50ad42d8b",
+   "partNo": "TYC549",
+   "name": "Clutch Cover 8.5in (212mm)",
+   "nameTH": "หวีคลัตช์ EXEDY วีออส/อัลติส",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 1920,
+   "cost": 1248,
+   "stock": 18,
+   "minStock": 6,
+   "compat": "Toyota Vios 1.5 (Thai list), Corolla AE90/AE101/AE111, Altis (1ZZ); Yaris NCP91/93 1NZ-FE (EXEDY catalog)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "0f40f28f-c984-7b33-b2df-f5aa1820d76a",
+   "partNo": "ISD117U",
+   "name": "Clutch Disc 8.5in 24T",
+   "nameTH": "จานคลัตช์ EXEDY KBZ",
+   "category": "คลัตช์",
+   "brand": "EXEDY",
+   "price": 938,
+   "cost": 750,
+   "stock": 16,
+   "minStock": 7,
+   "compat": "Isuzu KBZ / Gemini / Trooper (ไม่ใช่ D-Max)",
+   "updatedAt": "2026-10-07T01:00:00.000Z"
+  }
+ ],
+ "sa_customers": [
+  {
+   "id": "01a11729-b250-74a3-82b8-0f951b649365",
+   "code": "CUS001",
+   "name": "Test Customer 1",
+   "nameTH": "ลูกค้าทดสอบ 1",
+   "phone": "099-000-0001",
+   "address": "ที่อยู่ทดสอบ 1",
+   "points": 120,
+   "totalSpend": 1200,
+   "createdAt": "2026-10-05",
+   "updatedAt": "2026-10-07T07:00:00.000Z"
+  },
+  {
+   "id": "01a11729-b639-797d-8f22-3b60aab5808f",
+   "code": "CUS002",
+   "name": "Test Customer 2",
+   "nameTH": "ลูกค้าทดสอบ 2",
+   "phone": "099-000-0002",
+   "address": "ที่อยู่ทดสอบ 2",
+   "points": 121,
+   "totalSpend": 1203.6,
+   "createdAt": "2026-10-05",
+   "updatedAt": "2026-10-06T06:00:00.000Z"
+  },
+  {
+   "id": "01a11729-ba1d-7541-b6d5-130eb8d079f8",
+   "code": "CUS003",
+   "name": "Test Customer 3",
+   "nameTH": "ลูกค้าทดสอบ 3",
+   "phone": "099-000-0003",
+   "address": "ที่อยู่ทดสอบ 3",
+   "points": 310,
+   "totalSpend": 3100,
+   "createdAt": "2026-10-05",
+   "updatedAt": "2026-10-05T08:30:00.000Z"
+  }
+ ],
+ "sa_sales": [
+  {
+   "id": "01a1172a-2f4e-7338-ba53-4976c09a3d38",
+   "receiptNo": "RC01-2569-09-0007",
+   "subtotal": 820,
+   "discount": 0,
+   "total": 820,
+   "paymentMethod": "โอน/QR",
+   "customerId": "01a11729-b250-74a3-82b8-0f951b649365",
+   "customerName": "ลูกค้าทดสอบ 1",
+   "pointsGranted": 82,
+   "date": "2026-10-07T07:00:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "0b9a97e1-c4a0-7138-abdc-57781461f591",
+     "partNo": "TRANE-CR-DX5-10W30",
+     "name": "Trane Commonrail DX5 10W-30 Pickup Diesel Engine Oil",
+     "nameTH": "เทรน คอมมอนเรล DX5 10W-30 น้ำมันเครื่องดีเซลกระบะ",
+     "qty": 1,
+     "price": 720,
+     "cost": 518
+    },
+    {
+     "productId": "d0a0c143-17b9-7d05-8791-8110b8f394c2",
+     "partNo": "BCO211A",
+     "name": "Oil filter Toyota 16-valve (YZZE1)",
+     "nameTH": "ไส้กรองน้ำมันเครื่อง โตโยต้า 16 วาล์ว (เทียบเบอร์ 90915-YZZE1)",
+     "qty": 1,
+     "price": 100,
+     "cost": 60
+    }
+   ]
+  },
+  {
+   "id": "01a1172a-277f-7a8d-a84c-e942b8deee04",
+   "receiptNo": "RC01-2569-09-0008",
+   "subtotal": 180,
+   "discount": 0,
+   "total": 180,
+   "paymentMethod": "เงินสด",
+   "pointsGranted": 18,
+   "date": "2026-10-07T04:45:00.000Z",
+   "voided": true,
+   "voidedAt": "2026-10-07T05:10:00.000Z",
+   "items": [
+    {
+     "productId": "8211765a-7226-721b-bc21-ddcda6483d30",
+     "partNo": "FMC108A",
+     "name": "Cabin air filter Honda City 2009 / Jazz",
+     "nameTH": "ไส้กรองแอร์ ฮอนด้า ซิตี้ ปี 2009/แจ๊ส",
+     "qty": 1,
+     "price": 180,
+     "cost": 100
+    }
+   ]
+  },
+  {
+   "id": "01a1172a-1faf-7752-96d3-88ec51d5604f",
+   "receiptNo": "RC8999902368AB",
+   "subtotal": 5280,
+   "discount": 0,
+   "total": 5280,
+   "paymentMethod": "เครดิตช่าง",
+   "mechanicId": "01a11729-be07-7dba-81f1-e90f3be54951",
+   "mechanicName": "ช่างทดสอบ 1",
+   "mechanicDelta": 0,
+   "pointsGranted": 528,
+   "date": "2026-10-07T03:30:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "8b55917f-0e0f-7d1d-8f2b-236c261a0872",
+     "partNo": "ISC600",
+     "name": "Clutch Cover 10in (250mm)",
+     "nameTH": "หวีคลัตช์ EXEDY ดีแม็กซ์ 10 นิ้ว",
+     "qty": 1,
+     "price": 2460,
+     "cost": 1599
+    },
+    {
+     "productId": "00368b4b-6bc2-7f7b-84cc-d7de3541b6a9",
+     "partNo": "ISD095U",
+     "name": "Clutch Disc 10in (250mm) 24T",
+     "nameTH": "จานคลัตช์ EXEDY ดีแม็กซ์ 10 นิ้ว (2007-2011)",
+     "qty": 1,
+     "price": 2820,
+     "cost": 1833
+    }
+   ]
+  },
+  {
+   "id": "01a1172a-1bc6-76b3-b144-e774605312dd",
+   "receiptNo": "RC89998022E034",
+   "subtotal": 1470,
+   "discount": 0,
+   "total": 1470,
+   "paymentMethod": "เงินสด",
+   "pointsGranted": 147,
+   "date": "2026-10-07T02:15:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "c76d7324-912e-70bc-b808-ac0a44f9236b",
+     "partNo": "TRANE-ATF-LV-4L",
+     "name": "Trane Trans ATF LV Fully Synthetic Low-Viscosity ATF 4L",
+     "nameTH": "เทรน ทรานส์ ATF LV น้ำมันเกียร์ออโต้ สังเคราะห์แท้ 4 ลิตร",
+     "qty": 1,
+     "price": 1150,
+     "cost": 828
+    },
+    {
+     "productId": "59d522ad-4c2f-71d8-b3a2-96949ee82fbc",
+     "partNo": "8-98270524-0",
+     "name": "Isuzu Genuine Engine Oil Filter (paper element)",
+     "nameTH": "ไส้กรองน้ำมันเครื่อง อีซูซุแท้ (กระดาษ)",
+     "qty": 1,
+     "price": 320,
+     "cost": 220
+    }
+   ]
+  },
+  {
+   "id": "01a11729-f89d-70b2-b734-96a57a7fe473",
+   "receiptNo": "RC89989021F01D",
+   "subtotal": 1430,
+   "discount": 0,
+   "total": 1430,
+   "paymentMethod": "เงินสด",
+   "mechanicId": "01a11729-c1ef-74d8-b6a3-e5328507b671",
+   "mechanicName": "ช่างทดสอบ 2",
+   "mechanicDelta": -80,
+   "pointsGranted": 143,
+   "date": "2026-10-06T04:20:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "21786900-e08a-7d69-9a48-02255a4a34e7",
+     "partNo": "TRANE-DEF-S4-15W40-6L",
+     "name": "Trane Defender S4 15W-40 Semi-Synthetic Diesel 6L",
+     "nameTH": "เทรน ดีเฟนเดอร์ S4 15W-40 กึ่งสังเคราะห์ ดีเซล 6 ลิตร",
+     "qty": 2,
+     "price": 650,
+     "cost": 497
+    },
+    {
+     "productId": "2c706ada-82bb-7704-9b9d-378739cd6fb7",
+     "partNo": "BCO258A",
+     "name": "Oil filter Isuzu D-Max V-Cross",
+     "nameTH": "ไส้กรองน้ำมันเครื่อง อีซูซุ ดีแม็กซ์ วีครอส",
+     "qty": 1,
+     "price": 130,
+     "cost": 75
+    }
+   ]
+  },
+  {
+   "id": "01a11729-f4b7-7443-b986-dc2afb2bbb3a",
+   "receiptNo": "RC89988022E467",
+   "subtotal": 380,
+   "discount": 0,
+   "total": 380,
+   "paymentMethod": "เงินสด",
+   "customerId": "01a11729-b250-74a3-82b8-0f951b649365",
+   "customerName": "ลูกค้าทดสอบ 1",
+   "pointsGranted": 38,
+   "date": "2026-10-06T03:05:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "30466410-1359-7817-ade6-a91e59b1e14b",
+     "partNo": "BCF168A",
+     "name": "Fuel filter element Toyota Revo",
+     "nameTH": "ไส้กรองโซล่า โตโยต้า รีโว่",
+     "qty": 1,
+     "price": 300,
+     "cost": 180
+    },
+    {
+     "productId": "952c9b5f-7f6d-7ece-9d46-dfc3f8965c3b",
+     "partNo": "FMC128A",
+     "name": "Cabin air filter Toyota Revo",
+     "nameTH": "ไส้กรองแอร์ โตโยต้า รีโว่",
+     "qty": 1,
+     "price": 80,
+     "cost": 52
+    }
+   ]
+  },
+  {
+   "id": "01a11729-dd46-7369-b326-61eb5927eaba",
+   "receiptNo": "RC8998202292BF",
+   "subtotal": 1450,
+   "discount": 0,
+   "total": 1450,
+   "paymentMethod": "เงินสด",
+   "pointsGranted": 145,
+   "date": "2026-10-05T09:00:00.000Z",
+   "voided": true,
+   "voidedAt": "2026-10-05T09:10:00.000Z",
+   "items": [
+    {
+     "productId": "daaf1768-b6ca-78e5-b8b3-1eb6fdb46e30",
+     "partNo": "341398",
+     "name": "KYB Excel-G Gas Shock Absorber Front Left",
+     "nameTH": "โช้คอัพหน้าซ้าย KYB Excel-G",
+     "qty": 1,
+     "price": 1450,
+     "cost": 1000
+    }
+   ]
+  },
+  {
+   "id": "01a11729-d95f-72dc-83ba-70d7965ab7ee",
+   "receiptNo": "RC89981023A1BC",
+   "subtotal": 3100,
+   "discount": 0,
+   "total": 3100,
+   "paymentMethod": "โอน/QR",
+   "customerId": "01a11729-ba1d-7541-b6d5-130eb8d079f8",
+   "customerName": "ลูกค้าทดสอบ 3",
+   "pointsGranted": 310,
+   "date": "2026-10-05T08:30:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "cab6502b-5789-7313-8ecb-e085bb3e31fe",
+     "partNo": "04465-0K360",
+     "name": "Toyota Genuine Front Disc Brake Pad Kit",
+     "nameTH": "ผ้าดิสเบรคหน้า โตโยต้าแท้",
+     "qty": 2,
+     "price": 1550,
+     "cost": 1100
+    }
+   ]
+  },
+  {
+   "id": "01a11729-d18f-76b5-90db-1a037988876a",
+   "receiptNo": "RC89979023A6A2",
+   "subtotal": 10810,
+   "discount": 0,
+   "total": 10810,
+   "paymentMethod": "เครดิตช่าง",
+   "mechanicId": "01a11729-be07-7dba-81f1-e90f3be54951",
+   "mechanicName": "ช่างทดสอบ 1",
+   "mechanicDelta": -400,
+   "pointsGranted": 1081,
+   "date": "2026-10-05T04:40:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "da2b1150-01cc-7930-8c2d-78f5328199a4",
+     "partNo": "TYD225",
+     "name": "Clutch Disc 11in (275mm)",
+     "nameTH": "จานคลัตช์ EXEDY รีโว่ 11 นิ้ว",
+     "qty": 1,
+     "price": 4800,
+     "cost": 3250
+    },
+    {
+     "productId": "a1edf419-c31a-7840-9058-fe07e573a185",
+     "partNo": "TYC818",
+     "name": "Clutch Cover 11in (275mm)",
+     "nameTH": "หวีคลัตช์ EXEDY รีโว่ 11 นิ้ว",
+     "qty": 1,
+     "price": 4810,
+     "cost": 3257
+    },
+    {
+     "productId": "ee6a9b37-3aa6-7357-b57f-c4fd0d56bd65",
+     "partNo": "BRG2615",
+     "name": "Clutch Release Bearing",
+     "nameTH": "ลูกปืนคลัตช์ EXEDY รีโว่",
+     "qty": 1,
+     "price": 1200,
+     "cost": 850
+    }
+   ]
+  },
+  {
+   "id": "01a11729-cda7-7f0b-a007-163029d622e2",
+   "receiptNo": "RC899780237549",
+   "subtotal": 1335,
+   "discount": 35,
+   "total": 1300,
+   "paymentMethod": "เงินสด",
+   "customerId": "01a11729-b639-797d-8f22-3b60aab5808f",
+   "customerName": "ลูกค้าทดสอบ 2",
+   "pointsGranted": 130,
+   "date": "2026-10-05T03:20:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "4e2d5fd6-586e-7903-b36e-7886e6edf2f0",
+     "partNo": "TRANE-TP-5W30-4L",
+     "name": "Trane Titanium Professional 5W-30 Fully Synthetic API SQ 4L",
+     "nameTH": "เทรน ไททาเนียม โปรเฟสชันนัล 5W-30 สังเคราะห์แท้ 4 ลิตร",
+     "qty": 1,
+     "price": 1090,
+     "cost": 785
+    },
+    {
+     "productId": "f154eecc-f5f9-716d-90b7-8e0d3b6d4629",
+     "partNo": "90915-YZZD2",
+     "name": "Toyota Genuine Engine Oil Filter",
+     "nameTH": "ไส้กรองน้ำมันเครื่อง โตโยต้าแท้",
+     "qty": 1,
+     "price": 146,
+     "cost": 100
+    },
+    {
+     "productId": "ddb11744-3185-79b8-8a79-656ef2eaad88",
+     "partNo": "87139-0K060",
+     "name": "Toyota Genuine Cabin Air Filter (Element, Air Refiner)",
+     "nameTH": "ไส้กรองแอร์ โตโยต้าแท้",
+     "qty": 1,
+     "price": 99,
+     "cost": 65
+    }
+   ]
+  },
+  {
+   "id": "01a11729-c9c3-7c83-9e61-4a73ef3bfa52",
+   "receiptNo": "RC8997702620FE",
+   "subtotal": 120,
+   "discount": 0,
+   "total": 120,
+   "paymentMethod": "เงินสด",
+   "pointsGranted": 12,
+   "date": "2026-10-05T02:10:00.000Z",
+   "voided": false,
+   "items": [
+    {
+     "productId": "5079d677-a7c2-7ac0-afd2-3ac63d195bc6",
+     "partNo": "BCO234A",
+     "name": "Oil filter Toyota Vigo/Commuter/Fortuner",
+     "nameTH": "ไส้กรองน้ำมันเครื่อง โตโยต้า วีโก้/คอมมิวเตอร์/ฟอร์จูนเนอร์",
+     "qty": 1,
+     "price": 120,
+     "cost": 70
+    }
+   ]
+  }
+ ],
+ "sa_pos": [
+  {
+   "id": "01a1172a-3336-7ccf-9dc3-d4bb16d05a53",
+   "poNo": "PO9000402243FE",
+   "supplier": "Exedy Siam Sales",
+   "status": "open",
+   "createdAt": "2026-10-07T08:00:00.000Z",
+   "items": [
+    {
+     "partNo": "TYC625",
+     "name": "Clutch Cover 10-2/8in (260mm)",
+     "qty": 3,
+     "cost": 2659
+    },
+    {
+     "partNo": "TYD168",
+     "name": "Clutch Disc 11in (275mm) 21T",
+     "qty": 2,
+     "cost": 3120
+    }
+   ]
+  },
+  {
+   "id": "01a11729-e516-73d6-ac95-735e0fdc12ee",
+   "poNo": "PO8998402251FA",
+   "supplier": "TYK (ไทยยางกิจไพศาล)",
+   "status": "received",
+   "createdAt": "2026-10-05T10:40:00.000Z",
+   "receivedAt": "2026-10-06T02:00:00.000Z",
+   "items": [
+    {
+     "partNo": "BCO234A",
+     "name": "Oil filter Toyota Vigo/Commuter/Fortuner",
+     "qty": 24,
+     "cost": 72
+    },
+    {
+     "partNo": "BCA360A",
+     "name": "Air filter Toyota Revo",
+     "qty": 10,
+     "cost": 155
+    }
+   ]
+  }
+ ],
+ "sa_settings": {
+  "shopName": "ร้านทดสอบนำเข้า",
+  "shopNameEN": "Import Test Shop",
+  "taxRate": 7,
+  "quoteValidDays": 30,
+  "address": "ทดสอบ-address",
+  "phone": "099-999-9999",
+  "cashierName": "ทดสอบ-cashierName"
+ },
+ "sa_mechanics": [
+  {
+   "id": "01a11729-be07-7dba-81f1-e90f3be54951",
+   "code": "M001",
+   "name": "Test Mechanic 1",
+   "nameTH": "ช่างทดสอบ 1",
+   "nickname": "ช่าง1",
+   "shopName": "อู่ทดสอบ 1",
+   "phone": "099-100-0001",
+   "note": "",
+   "creditLimit": 30000,
+   "creditBalance": 8630,
+   "totalSales": 13630,
+   "totalCredit": 0,
+   "totalDiscount": 400,
+   "totalMarkup": 0,
+   "createdAt": "2026-10-05",
+   "updatedAt": "2026-10-07T04:00:00.000Z"
+  },
+  {
+   "id": "01a11729-c1ef-74d8-b6a3-e5328507b671",
+   "code": "M002",
+   "name": "Test Mechanic 2",
+   "nameTH": "ช่างทดสอบ 2",
+   "nickname": "ช่าง2",
+   "shopName": "อู่ทดสอบ 2",
+   "phone": "099-100-0002",
+   "creditLimit": 10000,
+   "creditBalance": 0,
+   "totalSales": 1430,
+   "totalCredit": 0,
+   "totalDiscount": 80,
+   "totalMarkup": 0,
+   "createdAt": "2026-10-05",
+   "updatedAt": "2026-10-06T04:20:00.000Z"
+  }
+ ],
+ "sa_quotes": [
+  {
+   "id": "01a1172a-0456-7389-80a3-9cfa357dcc66",
+   "quoteNo": "QT8999202298A6",
+   "status": "converted",
+   "date": "2026-10-06T07:30:00.000Z",
+   "validUntil": "2026-11-05T07:30:00.000Z",
+   "convertedAt": "2026-10-07T02:15:00.000Z",
+   "subtotal": 1470,
+   "discount": 0,
+   "total": 1470,
+   "customerName": "ลูกค้าใบเสนอราคา 1",
+   "customerPhone": "099-200-0001",
+   "notes": "",
+   "validDays": 30,
+   "items": [
+    {
+     "productId": "c76d7324-912e-70bc-b808-ac0a44f9236b",
+     "name": "Trane Trans ATF LV Fully Synthetic Low-Viscosity ATF 4L",
+     "qty": 1,
+     "price": 1150
+    },
+    {
+     "productId": "59d522ad-4c2f-71d8-b3a2-96949ee82fbc",
+     "name": "Isuzu Genuine Engine Oil Filter (paper element)",
+     "qty": 1,
+     "price": 320
+    }
+   ]
+  },
+  {
+   "id": "01a1172a-006d-7619-9727-ee59f9301774",
+   "quoteNo": "QT89991021FAFF",
+   "status": "open",
+   "date": "2026-10-06T07:00:00.000Z",
+   "validUntil": "2026-11-05T07:00:00.000Z",
+   "subtotal": 6390,
+   "discount": 0,
+   "total": 6390,
+   "customerName": "ลูกค้าใบเสนอราคา 2",
+   "customerPhone": "099-200-0002",
+   "notes": "",
+   "validDays": 30,
+   "items": [
+    {
+     "productId": "42b980e5-d671-73ed-8dec-2b9f8cc71b7d",
+     "name": "Clutch Disc 10-2/8in (260mm) 21T",
+     "qty": 1,
+     "price": 2300
+    },
+    {
+     "productId": "747c2c02-0b95-71a3-b6bd-cc3cfa15b4c4",
+     "name": "Clutch Cover 10-2/8in (260mm)",
+     "qty": 1,
+     "price": 4090
+    }
+   ]
+  }
+ ],
+ "sa_returns": [
+  {
+   "id": "01a1172a-2b67-797f-ac29-32b14d947198",
+   "cnNo": "CN01-2569-09-0002",
+   "saleId": "01a1172a-277f-7a8d-a84c-e942b8deee04",
+   "receiptNo": "RC01-2569-09-0008",
+   "refundSubtotal": 180,
+   "refundDiscount": 0,
+   "refundTotal": 180,
+   "refundMethod": "เงินสด",
+   "reason": "สินค้าไม่ตรงรุ่นรถ",
+   "date": "2026-10-07T05:10:00.000Z",
+   "items": [
+    {
+     "productId": "8211765a-7226-721b-bc21-ddcda6483d30",
+     "name": "Cabin air filter Honda City 2009 / Jazz",
+     "qty": 1,
+     "price": 180,
+     "originalQty": 1
+    }
+   ]
+  },
+  {
+   "id": "01a1172a-2397-7ea4-9bc7-49035cf5da04",
+   "cnNo": "CN900000232732",
+   "saleId": "01a1172a-1faf-7752-96d3-88ec51d5604f",
+   "receiptNo": "RC8999902368AB",
+   "refundSubtotal": 2460,
+   "refundDiscount": 0,
+   "refundTotal": 2460,
+   "refundMethod": "หักจากเครดิต",
+   "reason": "ช่างสั่งผิดรุ่น",
+   "mechanicId": "01a11729-be07-7dba-81f1-e90f3be54951",
+   "mechanicName": "ช่างทดสอบ 1",
+   "date": "2026-10-07T04:00:00.000Z",
+   "items": [
+    {
+     "productId": "8b55917f-0e0f-7d1d-8f2b-236c261a0872",
+     "name": "Clutch Cover 10in (250mm)",
+     "qty": 1,
+     "price": 2460,
+     "originalQty": 1
+    }
+   ]
+  },
+  {
+   "id": "01a11729-fc8a-7b2e-9d1f-a8f425780c1f",
+   "cnNo": "CN8999002648CB",
+   "saleId": "01a11729-cda7-7f0b-a007-163029d622e2",
+   "receiptNo": "RC899780237549",
+   "refundSubtotal": 99,
+   "refundDiscount": 2.6,
+   "refundTotal": 96.4,
+   "refundMethod": "เงินสด",
+   "reason": "ผิดรุ่น ลูกค้าเอามาคืน",
+   "customerId": "01a11729-b639-797d-8f22-3b60aab5808f",
+   "date": "2026-10-06T06:00:00.000Z",
+   "items": [
+    {
+     "productId": "ddb11744-3185-79b8-8a79-656ef2eaad88",
+     "name": "Toyota Genuine Cabin Air Filter (Element, Air Refiner)",
+     "qty": 1,
+     "price": 99,
+     "originalQty": 1
+    }
+   ]
+  }
+ ],
+ "sa_movements": [
+  {
+   "id": "01a1172a-1010-7891-894b-6a9e39e39e84",
+   "productId": "83b1e217-524f-7041-9d9b-706deace26cf",
+   "partNo": "HCD039U",
+   "name": "Clutch Disc 7.5in (190mm) 20T",
+   "delta": -1,
+   "type": "adjustment-out",
+   "note": "กล่องบุบ จานคลัตช์ชำรุดจากการขนส่ง",
+   "stockAfter": 30,
+   "date": "2026-10-06T10:00:00.000Z"
+  },
+  {
+   "id": "01a11729-f0d1-7588-9fa2-8053553ba060",
+   "productId": "5079d677-a7c2-7ac0-afd2-3ac63d195bc6",
+   "partNo": "BCO234A",
+   "name": "Oil filter Toyota Vigo/Commuter/Fortuner",
+   "delta": 24,
+   "type": "receive",
+   "note": "PO PO8998402251FA จาก TYK (ไทยยางกิจไพศาล) · ทุนใหม่ ฿70.98",
+   "stockAfter": 49,
+   "date": "2026-10-06T02:00:00.000Z"
+  },
+  {
+   "id": "01a11729-f0d2-74a4-a46b-6ecfe4c4fa1c",
+   "productId": "d6a423c3-0c49-76a9-934b-b2222c3b687e",
+   "partNo": "BCA360A",
+   "name": "Air filter Toyota Revo",
+   "delta": 10,
+   "type": "receive",
+   "note": "PO PO8998402251FA จาก TYK (ไทยยางกิจไพศาล) · ทุนใหม่ ฿151.43",
+   "stockAfter": 35,
+   "date": "2026-10-06T02:00:00.000Z"
+  },
+  {
+   "id": "bbbbfe0e-3e2d-70f4-a740-603578e58224",
+   "productId": "f154eecc-f5f9-716d-90b7-8e0d3b6d4629",
+   "partNo": "90915-YZZD2",
+   "name": "Toyota Genuine Engine Oil Filter",
+   "delta": 16,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 16,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "d52d081d-ab4d-7421-b4b6-be94fe4c75d0",
+   "productId": "daaf1768-b6ca-78e5-b8b3-1eb6fdb46e30",
+   "partNo": "341398",
+   "name": "KYB Excel-G Gas Shock Absorber Front Left",
+   "delta": 14,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 14,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "d46df850-f9db-72ee-b3a8-f7e290585077",
+   "productId": "8bc08a64-e53d-7efc-bf97-92d9edba4a7c",
+   "partNo": "341396",
+   "name": "KYB Excel-G Gas Shock Absorber Front",
+   "delta": 13,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 13,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "936f5d32-9f4d-717c-899d-3c55f233e6b2",
+   "productId": "4cd6f0a3-fdbe-7849-96ff-01755a469921",
+   "partNo": "TYK-8840ST",
+   "name": "Exedy Safari Tuff Heavy Duty Clutch Kit",
+   "delta": 5,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 5,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "94777b97-6ebd-7cae-9d8d-1490ec3589d0",
+   "productId": "f7936650-5c21-7cb2-8fdd-79a4e21a6441",
+   "partNo": "90915-YZZN2",
+   "name": "Toyota Genuine Engine Oil Filter (small, 16V) - replaces 90915-YZZE1",
+   "delta": 10,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 10,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "dd224b57-9a85-7bc3-ac6a-e896926758bc",
+   "productId": "59d522ad-4c2f-71d8-b3a2-96949ee82fbc",
+   "partNo": "8-98270524-0",
+   "name": "Isuzu Genuine Engine Oil Filter (paper element)",
+   "delta": 24,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 24,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "694e2002-1229-73ec-98fc-ff8a26231fc6",
+   "productId": "f0c3e4ca-05d9-7716-8ea8-32559649d238",
+   "partNo": "8-98159693-0",
+   "name": "Isuzu Genuine Fuel Filter Element Kit",
+   "delta": 29,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 29,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "c470f92d-818a-717b-92ab-d6ede82c56e9",
+   "productId": "930bfe27-7992-717a-9478-43b90f7a1f0a",
+   "partNo": "15400-RAF-T01",
+   "name": "Honda Genuine Engine Oil Filter",
+   "delta": 8,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 8,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "a9cb174b-fb70-7cd5-9d41-b4478a29003b",
+   "productId": "ddb11744-3185-79b8-8a79-656ef2eaad88",
+   "partNo": "87139-0K060",
+   "name": "Toyota Genuine Cabin Air Filter (Element, Air Refiner)",
+   "delta": 15,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 15,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "4c6fdd44-09c8-7cc0-989f-c7eb772eb5be",
+   "productId": "cab6502b-5789-7313-8ecb-e085bb3e31fe",
+   "partNo": "04465-0K360",
+   "name": "Toyota Genuine Front Disc Brake Pad Kit",
+   "delta": 40,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 40,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "c143d82d-f7a7-70ff-b6e2-0bb4ffcd3a8b",
+   "productId": "5079d677-a7c2-7ac0-afd2-3ac63d195bc6",
+   "partNo": "BCO234A",
+   "name": "Oil filter Toyota Vigo/Commuter/Fortuner",
+   "delta": 26,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 26,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "1a343f3d-eb87-7df8-b5e7-59206a4a7521",
+   "productId": "d0a0c143-17b9-7d05-8791-8110b8f394c2",
+   "partNo": "BCO211A",
+   "name": "Oil filter Toyota 16-valve (YZZE1)",
+   "delta": 33,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 33,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "a1d03f06-b892-7fcd-89a0-caea110cc85c",
+   "productId": "2c706ada-82bb-7704-9b9d-378739cd6fb7",
+   "partNo": "BCO258A",
+   "name": "Oil filter Isuzu D-Max V-Cross",
+   "delta": 21,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 21,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "b4a11c45-a7b6-7cad-833d-5507ad1ffe55",
+   "productId": "8df99a6f-35bd-7bbb-b809-0ce90af2e761",
+   "partNo": "BCO259A",
+   "name": "Oil filter Honda Accord/Civic",
+   "delta": 27,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 27,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "4cb832a1-2457-72e0-9f40-3c7eced5ec1c",
+   "productId": "31905240-0934-7f0a-a9f7-305397fe994c",
+   "partNo": "BCO260A",
+   "name": "Oil filter element Ford Ranger 2012 / Mazda BT-50 Pro",
+   "delta": 6,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 6,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "c0ec4b3c-09a8-7a53-9fb3-567aa2d27897",
+   "productId": "f3ddc14e-46c4-7db3-bd95-7f38b8e25647",
+   "partNo": "BCO273",
+   "name": "Oil filter Mitsubishi Triton 2016 (single step)",
+   "delta": 40,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 40,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "3938a1d1-5415-7102-b9cc-fd710338793a",
+   "productId": "d6a423c3-0c49-76a9-934b-b2222c3b687e",
+   "partNo": "BCA360A",
+   "name": "Air filter Toyota Revo",
+   "delta": 25,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 25,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "0cca232a-23ab-70f4-9cc9-22682c3e354c",
+   "productId": "f4a37c13-806f-76a5-a1db-94de9e200f54",
+   "partNo": "BCA364",
+   "name": "Air filter Nissan Navara diesel",
+   "delta": 18,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 18,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "35971c08-8db9-76a4-be20-0e6393d172f9",
+   "productId": "30466410-1359-7817-ade6-a91e59b1e14b",
+   "partNo": "BCF168A",
+   "name": "Fuel filter element Toyota Revo",
+   "delta": 23,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 23,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "879c3d85-05d3-75ac-979a-e362845d7506",
+   "productId": "f07f3a27-d553-7c6b-9c23-6f1f5b373b5c",
+   "partNo": "BCF163A",
+   "name": "Fuel filter element Ford Ranger 2012 / Mazda BT-50 Pro",
+   "delta": 30,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 30,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "9f6b79f0-818b-7252-b10b-d2603a8bcc4d",
+   "productId": "952c9b5f-7f6d-7ece-9d46-dfc3f8965c3b",
+   "partNo": "FMC128A",
+   "name": "Cabin air filter Toyota Revo",
+   "delta": 38,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 38,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "1a92cec9-ca45-7f88-a53e-6aa5daf53d53",
+   "productId": "8211765a-7226-721b-bc21-ddcda6483d30",
+   "partNo": "FMC108A",
+   "name": "Cabin air filter Honda City 2009 / Jazz",
+   "delta": 12,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 12,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "18f30180-f026-798d-a28d-03f46d152ac1",
+   "productId": "4e2d5fd6-586e-7903-b36e-7886e6edf2f0",
+   "partNo": "TRANE-TP-5W30-4L",
+   "name": "Trane Titanium Professional 5W-30 Fully Synthetic API SQ 4L",
+   "delta": 28,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 28,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "d7c41363-e29a-7072-8c91-d084fd85acc6",
+   "productId": "d7274221-922f-7624-bc35-f7bad95b6269",
+   "partNo": "TRANE-TP-C3-5W30-6L",
+   "name": "Trane Titanium Professional C3 5W-30 Fully Synthetic 6L",
+   "delta": 37,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 37,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "fc6d83f6-6b6c-7e04-ba58-49717723a35a",
+   "productId": "21786900-e08a-7d69-9a48-02255a4a34e7",
+   "partNo": "TRANE-DEF-S4-15W40-6L",
+   "name": "Trane Defender S4 15W-40 Semi-Synthetic Diesel 6L",
+   "delta": 25,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 25,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "acdb6269-4830-704c-bd31-4c8fe3ec9e74",
+   "productId": "886bf7cb-fbc6-789e-886a-938267a48292",
+   "partNo": "TRANE-DEF-S9-LD-5W40-4L",
+   "name": "Trane Defender S9 Long Drain 5W-40 Full Synthetic Diesel 4L",
+   "delta": 35,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 35,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "d07e0a5e-ec10-7926-83a8-c1555bd39711",
+   "productId": "0b9a97e1-c4a0-7138-abdc-57781461f591",
+   "partNo": "TRANE-CR-DX5-10W30",
+   "name": "Trane Commonrail DX5 10W-30 Pickup Diesel Engine Oil",
+   "delta": 20,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 20,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "8d60ddbe-91cb-72a1-917c-1e4028887732",
+   "productId": "c76d7324-912e-70bc-b808-ac0a44f9236b",
+   "partNo": "TRANE-ATF-LV-4L",
+   "name": "Trane Trans ATF LV Fully Synthetic Low-Viscosity ATF 4L",
+   "delta": 6,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 6,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "80337d81-7717-74b1-9c06-19e254f41385",
+   "productId": "b885f0f6-0095-7975-a1d9-a3334f84fbfc",
+   "partNo": "TRANE-CVTF-4L",
+   "name": "Trane Trans CVTF Fully Synthetic CVT Fluid 4L",
+   "delta": 6,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 6,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "5072a18c-1fe1-7296-a74e-88bb322e2620",
+   "productId": "8794d882-11ea-720f-9c06-9ec050fd42ca",
+   "partNo": "TRANE-GL4-90-5L",
+   "name": "Trane Trans GL-4 90 Manual Gear Oil 5L",
+   "delta": 13,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 13,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "82d3c90d-ffca-78f4-8f57-b567adc878f7",
+   "productId": "cf0aff11-6e07-7412-ac05-b74f8e81b039",
+   "partNo": "TRANE-AXLE-GL5-85W140-5L",
+   "name": "Trane Trans Axle GL-5 85W-140 Gear Oil 5L",
+   "delta": 23,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 23,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "1012ca66-546d-7520-b132-69c45f549e8b",
+   "productId": "0a0b26cb-b4d7-7cab-aeb4-abd242dd6a35",
+   "partNo": "TRANE-HT-GREASE-10KG",
+   "name": "Trane Super HT Extreme Pressure Grease 10kg",
+   "delta": 3,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 3,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "b1877fc0-ace8-7a75-93a3-8ffb27afe4cc",
+   "productId": "42b980e5-d671-73ed-8dec-2b9f8cc71b7d",
+   "partNo": "TYD015U",
+   "name": "Clutch Disc 10-2/8in (260mm) 21T",
+   "delta": 23,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 23,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "fa244915-f603-7fa9-962a-1924f4322a18",
+   "productId": "747c2c02-0b95-71a3-b6bd-cc3cfa15b4c4",
+   "partNo": "TYC625",
+   "name": "Clutch Cover 10-2/8in (260mm)",
+   "delta": 2,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 2,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "2e11edbc-04d7-70ce-a08b-9a6cf104785a",
+   "productId": "86c435ff-a351-7c2f-a68a-640f66021980",
+   "partNo": "TYD177U",
+   "name": "Clutch Disc 10.25in (260mm) 21T",
+   "delta": 15,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 15,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "3b3f0fd5-754e-7be9-bc97-dba067bf9754",
+   "productId": "53970f5a-e3ac-7588-b59e-abac62c27cad",
+   "partNo": "TYD168",
+   "name": "Clutch Disc 11in (275mm) 21T",
+   "delta": 2,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 2,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "bde82cd2-7c52-7945-bd04-e8881bfa0910",
+   "productId": "05b7595e-05ea-713d-a49f-a4adfa4f717c",
+   "partNo": "TYC643",
+   "name": "Clutch Cover 11in (275mm)",
+   "delta": 8,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 8,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "3089477f-0877-7644-a946-1137694c1c30",
+   "productId": "da2b1150-01cc-7930-8c2d-78f5328199a4",
+   "partNo": "TYD225",
+   "name": "Clutch Disc 11in (275mm)",
+   "delta": 8,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 8,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "8a68c3a9-f5be-7d6f-8c2b-d74586add345",
+   "productId": "a1edf419-c31a-7840-9058-fe07e573a185",
+   "partNo": "TYC818",
+   "name": "Clutch Cover 11in (275mm)",
+   "delta": 7,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 7,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "dbbe3a89-8da5-7ac7-9ed9-751da57c900b",
+   "productId": "ee6a9b37-3aa6-7357-b57f-c4fd0d56bd65",
+   "partNo": "BRG2615",
+   "name": "Clutch Release Bearing",
+   "delta": 10,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 10,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "72183ab5-f091-70d8-bbe1-5ea1519300fa",
+   "productId": "8b55917f-0e0f-7d1d-8f2b-236c261a0872",
+   "partNo": "ISC600",
+   "name": "Clutch Cover 10in (250mm)",
+   "delta": 5,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 5,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "d0b52204-ae1e-7b1d-97e9-1fcba76fdfb7",
+   "productId": "00368b4b-6bc2-7f7b-84cc-d7de3541b6a9",
+   "partNo": "ISD095U",
+   "name": "Clutch Disc 10in (250mm) 24T",
+   "delta": 4,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 4,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "10e48364-f1c4-72f4-a818-1610100d7be5",
+   "productId": "6a862b63-d989-707e-9b75-79a91f976c67",
+   "partNo": "ISD141U",
+   "name": "Clutch Disc 10in (250mm) 24T",
+   "delta": 4,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 4,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "d8e02873-37bf-7df6-a18d-02aa06c81e75",
+   "productId": "83b1e217-524f-7041-9d9b-706deace26cf",
+   "partNo": "HCD039U",
+   "name": "Clutch Disc 7.5in (190mm) 20T",
+   "delta": 31,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 31,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "47e045b1-fc4d-7c25-a71b-49b15d8fb7c8",
+   "productId": "ff26c059-f7e3-7a4c-8123-4f6c67fe9439",
+   "partNo": "HCC543",
+   "name": "Clutch Cover 7.5in (190mm)",
+   "delta": 19,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 19,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "09205cd3-a2b8-768c-a75b-7f0ee2c2ec7e",
+   "productId": "b322b986-98db-7ed0-a76a-746529a0454c",
+   "partNo": "HCD045",
+   "name": "Clutch Disc 8.5in (215mm) 20T",
+   "delta": 16,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 16,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "32799fdb-d18c-79a9-8c9f-a3e38071a5c6",
+   "productId": "d8545eed-d919-7f9c-8bfc-bd3a598c70b8",
+   "partNo": "NSD210",
+   "name": "Clutch Disc 11in (275mm) 24T",
+   "delta": 8,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 8,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "e8e1b7a1-89b3-7ba4-9401-f10901aa1852",
+   "productId": "72ea7789-ee30-7be5-838b-2ba80e8dface",
+   "partNo": "NSC810",
+   "name": "Clutch Cover 11in (275mm)",
+   "delta": 3,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 3,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "8b969241-8828-7642-a45a-98897005004a",
+   "productId": "c331694a-0729-7931-916f-2ff74e30d090",
+   "partNo": "MZD087U",
+   "name": "Clutch Disc 9.5in (240mm) 22T",
+   "delta": 22,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 22,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "922edb9b-3efe-748e-ad48-0e83c9803e05",
+   "productId": "b4dab737-682b-7181-9492-7ab50ad42d8b",
+   "partNo": "TYC549",
+   "name": "Clutch Cover 8.5in (212mm)",
+   "delta": 18,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 18,
+   "date": "2026-10-07T01:00:00.000Z"
+  },
+  {
+   "id": "e9cfb5b8-08f7-7695-8e6a-dbf6f7934ea7",
+   "productId": "0f40f28f-c984-7b33-b2df-f5aa1820d76a",
+   "partNo": "ISD117U",
+   "name": "Clutch Disc 8.5in 24T",
+   "delta": 16,
+   "type": "adjustment-in",
+   "note": "สต็อกตัวอย่างสำหรับทดสอบ (ไม่ใช่ยอดนับจริง)",
+   "stockAfter": 16,
+   "date": "2026-10-07T01:00:00.000Z"
+  }
+ ],
+ "sa_suppliers": [
+  {
+   "id": "65be00c0-0b0f-77d6-b1b0-6076c1d80dcc",
+   "productId": "f154eecc-f5f9-716d-90b7-8e0d3b6d4629",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 100,
+   "freight": 0
+  },
+  {
+   "id": "7f77693f-07be-7a71-8ffa-0fd38e0c06ef",
+   "productId": "daaf1768-b6ca-78e5-b8b3-1eb6fdb46e30",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 1000,
+   "freight": 0
+  },
+  {
+   "id": "e214941a-288e-747d-9ddd-8288a55deb56",
+   "productId": "8bc08a64-e53d-7efc-bf97-92d9edba4a7c",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 1100,
+   "freight": 0
+  },
+  {
+   "id": "5c0bb171-5223-7575-9324-fff93d3ec969",
+   "productId": "4cd6f0a3-fdbe-7849-96ff-01755a469921",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 6800,
+   "freight": 0
+  },
+  {
+   "id": "3a7baf80-674a-77db-8060-872f66fc72fc",
+   "productId": "f7936650-5c21-7cb2-8fdd-79a4e21a6441",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 155,
+   "freight": 0
+  },
+  {
+   "id": "38d2a1ac-fe1e-7e59-8b3d-0b0cf5642083",
+   "productId": "59d522ad-4c2f-71d8-b3a2-96949ee82fbc",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 220,
+   "freight": 0
+  },
+  {
+   "id": "4ed3881d-c683-7dff-bc71-0fa77f3752b3",
+   "productId": "f0c3e4ca-05d9-7716-8ea8-32559649d238",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 125,
+   "freight": 0
+  },
+  {
+   "id": "401ff9a2-d8cd-7a8b-8a62-030547473cd3",
+   "productId": "930bfe27-7992-717a-9478-43b90f7a1f0a",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 180,
+   "freight": 0
+  },
+  {
+   "id": "f64fa6ae-c555-71ff-a0c7-9fb177ea6c57",
+   "productId": "ddb11744-3185-79b8-8a79-656ef2eaad88",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 65,
+   "freight": 0
+  },
+  {
+   "id": "84758496-daf3-7256-8c4c-57dbcf1dd088",
+   "productId": "cab6502b-5789-7313-8ecb-e085bb3e31fe",
+   "name": "จิ้นเซ่งฮวดอะไหล่ยนต์",
+   "unitCost": 1100,
+   "freight": 0
+  },
+  {
+   "id": "07a00fbc-3b99-7862-a2d5-05dd4f06ca36",
+   "productId": "5079d677-a7c2-7ac0-afd2-3ac63d195bc6",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 70,
+   "freight": 0
+  },
+  {
+   "id": "1fafd83d-726b-7929-bd64-10d692c1a17b",
+   "productId": "d0a0c143-17b9-7d05-8791-8110b8f394c2",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 60,
+   "freight": 0
+  },
+  {
+   "id": "e440a562-2e49-7cd7-ad05-d08f15daa4e7",
+   "productId": "2c706ada-82bb-7704-9b9d-378739cd6fb7",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 75,
+   "freight": 0
+  },
+  {
+   "id": "9c1dbf0e-4adb-7813-bb96-e65139a9de78",
+   "productId": "8df99a6f-35bd-7bbb-b809-0ce90af2e761",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 65,
+   "freight": 0
+  },
+  {
+   "id": "6ee56e0b-553d-75ff-a0dd-31b7794d3374",
+   "productId": "31905240-0934-7f0a-a9f7-305397fe994c",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 90,
+   "freight": 0
+  },
+  {
+   "id": "cd674780-ed3d-7486-ac5e-0bc993f4636c",
+   "productId": "f3ddc14e-46c4-7db3-bd95-7f38b8e25647",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 95,
+   "freight": 0
+  },
+  {
+   "id": "2e7a5fbc-0a30-78c3-b3ae-61832ca8c36e",
+   "productId": "d6a423c3-0c49-76a9-934b-b2222c3b687e",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 150,
+   "freight": 0
+  },
+  {
+   "id": "a32b1171-f2e3-7159-b97d-8d18d022eda0",
+   "productId": "f4a37c13-806f-76a5-a1db-94de9e200f54",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 150,
+   "freight": 0
+  },
+  {
+   "id": "75eabd64-ec29-7a70-8503-9efa7ffa2fd9",
+   "productId": "30466410-1359-7817-ade6-a91e59b1e14b",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 180,
+   "freight": 0
+  },
+  {
+   "id": "e51e4236-1001-78c3-afc1-4f8e0d7e5f8a",
+   "productId": "f07f3a27-d553-7c6b-9c23-6f1f5b373b5c",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 210,
+   "freight": 0
+  },
+  {
+   "id": "47431d0e-8af3-786f-88c5-95666fb06b9f",
+   "productId": "952c9b5f-7f6d-7ece-9d46-dfc3f8965c3b",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 52,
+   "freight": 0
+  },
+  {
+   "id": "ba325edd-3548-789b-97f1-c0609f0ec25a",
+   "productId": "8211765a-7226-721b-bc21-ddcda6483d30",
+   "name": "TYK (ไทยยางกิจไพศาล)",
+   "unitCost": 100,
+   "freight": 0
+  },
+  {
+   "id": "112166d6-47f8-741e-a17e-7944e31278c8",
+   "productId": "4e2d5fd6-586e-7903-b36e-7886e6edf2f0",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 785,
+   "freight": 0
+  },
+  {
+   "id": "0d57b84b-2405-755b-81a2-9a5b6d89f852",
+   "productId": "d7274221-922f-7624-bc35-f7bad95b6269",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 1145,
+   "freight": 0
+  },
+  {
+   "id": "863521f7-611b-71ce-9214-9b47362bf002",
+   "productId": "21786900-e08a-7d69-9a48-02255a4a34e7",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 497,
+   "freight": 0
+  },
+  {
+   "id": "2865fabe-6c98-76c0-90b4-b0c90e35a4a7",
+   "productId": "886bf7cb-fbc6-789e-886a-938267a48292",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 929,
+   "freight": 0
+  },
+  {
+   "id": "800520ad-11d6-72b7-863c-7a3e5d0c724d",
+   "productId": "0b9a97e1-c4a0-7138-abdc-57781461f591",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 518,
+   "freight": 0
+  },
+  {
+   "id": "324c548f-e173-7729-b844-258527211f79",
+   "productId": "c76d7324-912e-70bc-b808-ac0a44f9236b",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 828,
+   "freight": 0
+  },
+  {
+   "id": "080f0509-58e3-78c4-aeef-28dab20a0a9d",
+   "productId": "b885f0f6-0095-7975-a1d9-a3334f84fbfc",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 857,
+   "freight": 0
+  },
+  {
+   "id": "7ac1fdd5-87f3-7052-afa2-576f6fefec7c",
+   "productId": "8794d882-11ea-720f-9c06-9ec050fd42ca",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 331,
+   "freight": 0
+  },
+  {
+   "id": "8eee67c7-7339-7022-8ad8-01c625247b61",
+   "productId": "cf0aff11-6e07-7412-ac05-b74f8e81b039",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 374,
+   "freight": 0
+  },
+  {
+   "id": "a718fc08-1fd7-7486-82a1-6e572a534769",
+   "productId": "0a0b26cb-b4d7-7cab-aeb4-abd242dd6a35",
+   "name": "สยามภัณฑ์กรุ๊ป (SPG)",
+   "unitCost": 1550,
+   "freight": 0
+  },
+  {
+   "id": "f27d206b-c0a1-7b54-a738-871ba3030a91",
+   "productId": "42b980e5-d671-73ed-8dec-2b9f8cc71b7d",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1495,
+   "freight": 0
+  },
+  {
+   "id": "4f17d594-8520-753c-aeda-8fd18ae642de",
+   "productId": "747c2c02-0b95-71a3-b6bd-cc3cfa15b4c4",
+   "name": "Exedy Siam Sales",
+   "unitCost": 2659,
+   "freight": 0
+  },
+  {
+   "id": "2cb85b78-32f2-7bd8-a9de-62492211b002",
+   "productId": "86c435ff-a351-7c2f-a68a-640f66021980",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1224,
+   "freight": 0
+  },
+  {
+   "id": "e1c4ec35-76bb-7f9e-bd9e-071c7ae14bdd",
+   "productId": "53970f5a-e3ac-7588-b59e-abac62c27cad",
+   "name": "Exedy Siam Sales",
+   "unitCost": 3120,
+   "freight": 0
+  },
+  {
+   "id": "b001b3f3-0925-7465-9bc8-526544a13466",
+   "productId": "05b7595e-05ea-713d-a49f-a4adfa4f717c",
+   "name": "Exedy Siam Sales",
+   "unitCost": 3218,
+   "freight": 0
+  },
+  {
+   "id": "f80cd0c3-20e7-7267-b8bc-8c27a6f0a1bf",
+   "productId": "da2b1150-01cc-7930-8c2d-78f5328199a4",
+   "name": "Exedy Siam Sales",
+   "unitCost": 3250,
+   "freight": 0
+  },
+  {
+   "id": "2454508f-8957-756f-91c3-30a8a0932d54",
+   "productId": "a1edf419-c31a-7840-9058-fe07e573a185",
+   "name": "Exedy Siam Sales",
+   "unitCost": 3257,
+   "freight": 0
+  },
+  {
+   "id": "1f99b92b-c033-7107-a5c0-aa19aed86f26",
+   "productId": "ee6a9b37-3aa6-7357-b57f-c4fd0d56bd65",
+   "name": "Exedy Siam Sales",
+   "unitCost": 850,
+   "freight": 0
+  },
+  {
+   "id": "6763b566-b1ed-737f-b3c0-6fbaa21f0b9c",
+   "productId": "8b55917f-0e0f-7d1d-8f2b-236c261a0872",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1599,
+   "freight": 0
+  },
+  {
+   "id": "e3b7f8e1-f9ea-752f-8bbf-8ac8071c2352",
+   "productId": "00368b4b-6bc2-7f7b-84cc-d7de3541b6a9",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1833,
+   "freight": 0
+  },
+  {
+   "id": "1230e09a-6212-7c9f-bd5b-75e431393336",
+   "productId": "6a862b63-d989-707e-9b75-79a91f976c67",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1593,
+   "freight": 0
+  },
+  {
+   "id": "1e830aa3-83ca-7af2-86dd-f7f266faa4c9",
+   "productId": "83b1e217-524f-7041-9d9b-706deace26cf",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1060,
+   "freight": 0
+  },
+  {
+   "id": "542316ac-4d49-75cc-8829-51763336010d",
+   "productId": "ff26c059-f7e3-7a4c-8123-4f6c67fe9439",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1138,
+   "freight": 0
+  },
+  {
+   "id": "feeed467-cf57-7006-9f8a-d40735a9e35c",
+   "productId": "b322b986-98db-7ed0-a76a-746529a0454c",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1229,
+   "freight": 0
+  },
+  {
+   "id": "d98774fc-3bc1-7530-bc5d-e12ca7f01453",
+   "productId": "d8545eed-d919-7f9c-8bfc-bd3a598c70b8",
+   "name": "Exedy Siam Sales",
+   "unitCost": 3185,
+   "freight": 0
+  },
+  {
+   "id": "7fc0375e-6803-7b88-a8bb-7c380fcef6bf",
+   "productId": "72ea7789-ee30-7be5-838b-2ba80e8dface",
+   "name": "Exedy Siam Sales",
+   "unitCost": 3933,
+   "freight": 0
+  },
+  {
+   "id": "84405330-58c4-7854-9bae-2976c4489cfa",
+   "productId": "c331694a-0729-7931-916f-2ff74e30d090",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1157,
+   "freight": 0
+  },
+  {
+   "id": "9ab20d96-0699-7efd-9358-934e84d83263",
+   "productId": "b4dab737-682b-7181-9492-7ab50ad42d8b",
+   "name": "Exedy Siam Sales",
+   "unitCost": 1248,
+   "freight": 0
+  },
+  {
+   "id": "e458ed82-611e-72be-a9a4-00a0ebe31ce9",
+   "productId": "0f40f28f-c984-7b33-b2df-f5aa1820d76a",
+   "name": "Exedy Siam Sales",
+   "unitCost": 750,
+   "freight": 0
+  }
+ ],
+ "sa_categories": [
+  "กรอง",
+  "ช่วงล่าง",
+  "คลัตช์",
+  "เบรก",
+  "น้ำมัน"
+ ],
+ "sa_credit_payments": [
+  {
+   "id": "01a1172a-0c27-767c-9cae-a467156b1bf7",
+   "receiptNo": "CP8999402361B0",
+   "mechanicId": "01a11729-be07-7dba-81f1-e90f3be54951",
+   "amount": 5000,
+   "date": "2026-10-06T09:20:00.000Z",
+   "note": ""
+  }
+ ],
+ "sa_cash_drawer": {
+  "id": "01a1172a-17df-75af-a48c-11fc8fd872c2",
+  "date": "2026-10-07",
+  "startingCash": 1500,
+  "openedAt": "2026-10-07T01:30:00.000Z",
+  "closedAt": null,
+  "physicalCash": null,
+  "entries": []
+ },
+ "sa_shift_history": [
+  {
+   "id": "01a11729-ece7-74c9-aa24-569489f777d6",
+   "date": "2026-10-06",
+   "startingCash": 2000,
+   "openedAt": "2026-10-06T01:30:00.000Z",
+   "closedAt": "2026-10-06T10:50:00.000Z",
+   "physicalCash": 8413.6,
+   "entries": [
+    {
+     "id": "01a1172a-0840-7070-87cf-622c27507fec",
+     "type": "out",
+     "amount": 300,
+     "note": "ค่าขนส่งของจากหาดใหญ่ใน",
+     "createdAt": "2026-10-06T08:10:00.000Z"
+    }
+   ]
+  },
+  {
+   "id": "01a11729-c5d9-7b37-9f4e-5f205e0d75b2",
+   "date": "2026-10-05",
+   "startingCash": 2000,
+   "openedAt": "2026-10-05T01:30:00.000Z",
+   "closedAt": "2026-10-05T10:55:00.000Z",
+   "physicalCash": 3920,
+   "entries": [
+    {
+     "id": "01a11729-d577-7617-8529-b41bf3fcd4b8",
+     "type": "in",
+     "amount": 500,
+     "note": "แลกเหรียญ/แบงก์ย่อยเพิ่มเงินทอน",
+     "createdAt": "2026-10-05T07:15:00.000Z"
+    }
+   ]
+  }
+ ],
+ "sa_parked": [
+  {
+   "items": [
+    {
+     "productId": "31905240-0934-7f0a-a9f7-305397fe994c",
+     "name": "Oil filter element Ford Ranger 2012 / Mazda BT-50 Pro",
+     "qty": 1,
+     "price": 150,
+     "partNo": "BCO260A",
+     "nameTH": "ไส้กรองน้ำมันเครื่อง ฟอร์ด เรนเจอร์ ปี 2012/มาสด้า BT-50 โปร"
+    },
+    {
+     "productId": "f07f3a27-d553-7c6b-9c23-6f1f5b373b5c",
+     "name": "Fuel filter element Ford Ranger 2012 / Mazda BT-50 Pro",
+     "qty": 1,
+     "price": 350,
+     "partNo": "BCF163A",
+     "nameTH": "ไส้กรองโซล่า ฟอร์ด เรนเจอร์ ปี 2012/มาสด้า BT-50 โปร"
+    }
+   ],
+   "customerId": "01a11729-b639-797d-8f22-3b60aab5808f",
+   "customerName": "ลูกค้าทดสอบ 2",
+   "mechanicId": null,
+   "mechanicName": null,
+   "discount": 0,
+   "id": "01a1172a-371f-7e81-a710-a27054cb5968",
+   "parkedAt": "2026-10-07T16:30:00.000"
+  }
+ ],
+ "sa_schema_version": "2",
+ "__meta": {
+  "version": 2,
+  "schemaVersion": 2,
+  "exportedAt": "2026-10-07T09:30:01.000Z",
+  "shopName": "ร้านทดสอบนำเข้า",
+  "recordCounts": {
+   "products": 51,
+   "customers": 3,
+   "sales": 11,
+   "purchaseOrders": 2,
+   "movements": 54,
+   "suppliers": 51,
+   "mechanics": 2,
+   "quotes": 2,
+   "returns": 3,
+   "creditPayments": 1,
+   "shiftHistory": 2,
+   "parked": 1,
+   "categories": 5,
+   "cashDrawer": 1
+  }
+ }
+}
