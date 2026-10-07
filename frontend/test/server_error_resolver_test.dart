@@ -63,7 +63,7 @@ void main() {
         ),
         'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
       );
-      // #443 PR3 — agent ร่าง.
+      // #443 PR3 — owner-ratified 2026-10-07.
       expect(ServerErrorResolver.resolve('TEMP_PASSWORD_EXPIRED'), 'รหัสผ่านชั่วคราวหมดอายุแล้ว กรุณาติดต่อทีมงานเพื่อขอรหัสใหม่');
       expect(ServerErrorResolver.resolve('PASSWORD_CHANGE_REQUIRED'), 'เจ้าของร้านต้องเปลี่ยนรหัสผ่านชั่วคราวก่อน จึงจะใช้งานเครื่องนี้ได้');
       expect(ServerErrorResolver.resolve('OWNER_PASSWORD_NOT_ACCEPTED'), 'ระบบไม่รับรหัสผ่านเจ้าของร้านจากผู้ดูแลแล้ว ระบบจะสุ่มรหัสชั่วคราวให้เอง');

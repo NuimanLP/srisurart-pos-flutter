@@ -84,8 +84,8 @@ const STATUS_TRANSITIONS = {
 
 /**
  * Thai text for a server error code (02_API_SCREENS.md §8). Only codes whose Thai string is
- * owner-ratified, plus TENANT_CLOSED (new in this change, agent ร่าง). Every other code —
- * including the platform codes whose §8 string is still an agent draft — shows the Thai prefix
+ * owner-ratified, plus TENANT_CLOSED (new in this change; owner-ratified 2026-10-07). Every other code —
+ * including the platform codes whose §8 string was ratified 2026-10-07 but is not yet wired here — shows the Thai prefix
  * in describeError() + the server's own message.
  */
 const ERROR_TEXT = {
@@ -94,7 +94,7 @@ const ERROR_TEXT = {
   TENANT_CLOSED: 'ร้านนี้ปิดถาวรแล้ว เปลี่ยนสถานะไม่ได้อีก',
 };
 
-/** Owner-panel empty state — the §8 `OWNER_NOT_FOUND` text (agent ร่าง). */
+/** Owner-panel empty state — the §8 `OWNER_NOT_FOUND` text (owner-ratified 2026-10-07). */
 const NO_OWNER_TEXT = 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่';
 
 const SESSION_EXPIRED_TEXT = 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่';

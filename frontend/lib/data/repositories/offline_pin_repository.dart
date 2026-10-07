@@ -34,7 +34,7 @@ class OfflinePinRepository {
   final TokenStorage tokenStorage;
   final ApiClient? apiClient;
 
-  /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
+  /// owner-ratified 2026-10-07 (#443 PR3, 02_API_SCREENS.md §8.1).
   static const String passwordChangeRequiredMessage =
       'ต้องเปลี่ยนรหัสผ่านชั่วคราวก่อน จึงจะตั้งรหัส PIN ได้';
 

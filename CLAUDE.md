@@ -324,7 +324,7 @@ develops against a demo tenant.
   `AuthRepository.login` clears the device token + offline PIN (compare-and-clear — only if
   the stored token is still the one sent; owner confirmed clearing the PIN, #609 comment
   5987543993) and throws `DeviceEnrolmentGoneException`; `AuthCubit` shows Backoffice plus
-  the Thai string `AuthCubit.deviceEnrolmentGone` (**agent ร่าง**, `02 §8.1.1`), and
+  the Thai string `AuthCubit.deviceEnrolmentGone` (ratified by the owner 2026-10-07, `02 §8.1.1`), and
   `init`/`_logout` no longer show a remembered `pos` role without a device token. Drift and
   the outbox are untouched; `ENROL_UNSENT_WORK` still guards a new enrolment. Not built:
   shop name on the badge, device-status check at app open (both need new API). #612
@@ -343,7 +343,7 @@ develops against a demo tenant.
   clear APK storage — a pre-UUID outbox can neither send nor discard). Open, not ticketed:
   `/sync/push` replay **by client id** (§8.3 step 2) still runs after `parseOpPayload`, so an
   expired-key bill whose body today's parser refuses is `rejected`, not `applied` (PR #630);
-  `INVALID_ID` Thai string is `agent ร่าง`; 7 `presentation/` files still import
+  `INVALID_ID` Thai string ratified by the owner 2026-10-07; 7 `presentation/` files still import
   `api_exception.dart` (no app-wide guard); `assertValidTenantId` lives in
   `platform-tenants.service.ts` (belongs in `common/ids.ts`); `offline_pin_repository.dart` ↔
   `auth_repository.dart` import each other; `pos_trust_test.dart` fails 2
@@ -353,10 +353,10 @@ develops against a demo tenant.
   sales, shifts and returns alike; only a transport failure queues to the outbox.
 - **Bugs filed 2026-09-27 are all closed:** #460 by PR #467, #461/#464 by PR #468 (owner
   chose: add the `เครดิตช่าง` row; take quote validity from Settings), #462/#463/#465 by
-  PR #470, #452 by PR #469. 🔴 **Three Thai strings from those PRs are still `agent ร่าง`**
+  PR #470, #452 by PR #469. **Three Thai strings from those PRs were `agent ร่าง` — ratified by the owner 2026-10-07**
   — `เปิดกะใหม่` (#469), the 8-character enrol-code wording (#470,
   `devices_screen.dart:869`, `device_enrolment_dialog.dart:97`), and the post-enrol banner
-  (#470, `login_form.dart:188`); all three are in `02 §8.1.1` for the owner to ratify.
+  (#470, `login_form.dart:188`); all three are in `02 §8.1.1` (ratified 2026-10-07, along with every other agent-drafted Thai string).
 - **Follow-ups filed 2026-09-28** (verified in code, table in
   `docs/handoff_log/session-2026-09-28-overnight-bug-sweep.md` §2) — **all closed same
   day except #476 (closed 2026-10-03):** ~~#472 offline RC numbering guessed `deviceNo ?? 1` and fell back to

@@ -684,7 +684,7 @@ class _NotEnrolledPanel extends StatelessWidget {
 
   final bool hasDeviceToken;
 
-  // agent ร่าง (#558) — ยังไม่ผ่านเจ้าของโปรเจกต์, 02_API_SCREENS.md §8.1.1.
+  // เจ้าของโปรเจกต์รับรอง 2026-10-07 (#558), 02_API_SCREENS.md §8.1.1.
   static const String title = 'เบราว์เซอร์นี้ยังไม่ได้ผูกเครื่องกับร้าน';
   static const String howToEnrol =
       'การดูรายการเครื่องและออกรหัสผูกเครื่องต้องทำจากเครื่องที่ผูกกับร้านแล้ว '
@@ -971,8 +971,8 @@ class _EnrolCodeDisplayDialog extends StatelessWidget {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      // #462 agent ร่าง — เดิม "6 หลัก" ไม่ตรงกับโค้ด 8 ตัวอักษร hex ที่ server ออกจริง
-                      // (devices.service.ts createIn); ยังไม่ผ่านเจ้าของโปรเจกต์
+                      // #462 เจ้าของโปรเจกต์รับรอง 2026-10-07 — เดิม "6 หลัก" ไม่ตรงกับโค้ด 8 ตัวอักษร hex ที่ server ออกจริง
+                      // (devices.service.ts createIn)
                       'นำรหัส 8 ตัวอักษรนี้ไปกรอกที่หน้าผูกเครื่องของเบราว์เซอร์เป้าหมาย รหัสนี้มีอายุ 15 นาที',
                       style: TextStyle(fontSize: 12, height: 1.4),
                     ),

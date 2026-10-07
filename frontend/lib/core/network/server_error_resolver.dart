@@ -101,7 +101,7 @@ class ServerErrorResolver {
     // no screen in this app provisions a tenant, so this entry exists so the code can
     // never surface as a raw English sentence if a tool ever does.
     'WEAK_PASSWORD': 'รหัสผ่านไม่ผ่านเกณฑ์ ต้องมีอย่างน้อย 12 ตัวอักษร',
-    // #443 PR3 — agent ร่าง (02_API_SCREENS.md §8.1), not yet ratified by the owner.
+    // #443 PR3 — owner-ratified 2026-10-07 (02_API_SCREENS.md §8.1).
     'TEMP_PASSWORD_EXPIRED':
         'รหัสผ่านชั่วคราวหมดอายุแล้ว กรุณาติดต่อทีมงานเพื่อขอรหัสใหม่',
     'PASSWORD_CHANGE_REQUIRED':
@@ -111,12 +111,12 @@ class ServerErrorResolver {
         'ระบบไม่รับรหัสผ่านเจ้าของร้านจากผู้ดูแลแล้ว ระบบจะสุ่มรหัสชั่วคราวให้เอง',
     'OWNER_NOT_FOUND': 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่',
     'SHIFT_NOT_FOUND': 'ไม่พบข้อมูลกะ',
-    // #616 — agent ร่าง (02_API_SCREENS.md §8.1), not yet ratified by the owner.
+    // #616 — owner-ratified 2026-10-07 (02_API_SCREENS.md §8.1).
     // An entity id that is not a lowercase UUID; the client mints only valid ones,
     // so reaching the counter means a bug, not something the clerk typed.
     'INVALID_ID': 'รหัสรายการไม่ถูกต้อง',
-    // A plain `BadRequestException` (no code of its own) — agent ร่าง
-    // (02_API_SCREENS.md §8.1.1), not yet ratified by the owner. Its English
+    // A plain `BadRequestException` (no code of its own) — owner-ratified 2026-10-07
+    // (02_API_SCREENS.md §8.1.1). Its English
     // `message` (e.g. `name is required`) used to reach the counter verbatim.
     'BAD_REQUEST': 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่',
     // Ratified by the owner 2026-10-03 (#27, PR #574) — 02_API_SCREENS.md §8/§8.1.
@@ -141,8 +141,8 @@ class ServerErrorResolver {
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
   };
 
-  /// `WEAK_PASSWORD` `details.reason` → Thai (#443 PR3) — agent ร่าง
-  /// (02_API_SCREENS.md §8.1), not yet ratified by the owner. `too_short`
+  /// `WEAK_PASSWORD` `details.reason` → Thai (#443 PR3) — owner-ratified 2026-10-07
+  /// (02_API_SCREENS.md §8.1). `too_short`
   /// keeps the owner-ratified #364 sentence.
   static const Map<String, String> _weakPasswordReasons = {
     'required': 'กรุณากรอกรหัสผ่านใหม่',
@@ -150,7 +150,7 @@ class ServerErrorResolver {
     'too_long': 'รหัสผ่านยาวเกินไป ต้องไม่เกิน 128 ตัวอักษร',
     // The server checks a fixed brand-word list (SHOP_WORDS), not the tenant's own
     // name, so the message must not promise a shop-name check. This sentence
-    // is owner-ratified 2026-10-01; the other reasons are still agent ร่าง.
+    // is owner-ratified 2026-10-01; the other reasons were ratified 2026-10-07.
     'common': 'รหัสผ่านนี้เดาง่ายเกินไป กรุณาตั้งรหัสอื่น',
     'same_as_temp': 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว',
   };

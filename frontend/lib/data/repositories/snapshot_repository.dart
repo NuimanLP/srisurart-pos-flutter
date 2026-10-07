@@ -50,7 +50,7 @@ class SnapshotRepository {
   SnapshotRepository(this.db, {this.importBlocked = false});
 
   /// Thai explanation shown instead of the restore control (and thrown by
-  /// [importLegacyBackup]) when [importBlocked]. 02 §8.1.1 — agent ร่าง.
+  /// [importLegacyBackup]) when [importBlocked]. 02 §8.1.1 — owner-ratified 2026-10-07.
   static const String importBlockedMessage =
       'ระบบนี้เก็บข้อมูลบนเซิร์ฟเวอร์ ไม่สามารถกู้คืนข้อมูลจากไฟล์ในหน้านี้ได้ — '
       'การนำเข้าข้อมูลเข้าระบบ ให้ผู้ดูแลแพลตฟอร์มเป็นผู้ดำเนินการ';
