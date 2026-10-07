@@ -11,17 +11,23 @@ const replayedMatches = new Counter('replayed_matches');
 const replayServerErrors = new Rate('replay_server_errors');
 const replayDuration = new Trend('replay_duration_ms');
 
-// #251 distributed run: TOTAL_REPLAY_VUS (default 100, matching 02_API_SCREENS.md §9) is
-// divided across SHARD=i/N shards. Unlike 02's spread window, the 5 replay rounds below have
-// no adjustable jitter (fixed sleep(0.05) between them, by design — that's what proves the
-// replay lands inside one window), so this fails fast instead of auto-widening: run with more
-// shards rather than more VUs on one machine. With no SHARD set, unchanged from before #251.
+// #251 distributed run: TOTAL_REPLAY_VUS is divided across SHARD=i/N shards. Unlike 02's
+// spread window, the 5 replay rounds below have no adjustable jitter (fixed sleep(0.05)
+// between them, by design — that's what proves the replay lands inside one window), so this
+// fails fast instead of auto-widening: run with more shards rather than more VUs on one
+// machine. Every VU sends SENDS_PER_VU requests, so the per-shard budget is VUs × sends (#380:
+// the old check ignored the ×5 and the default 100 VUs over 3 shards hit 429s). Sharded, the
+// default is therefore the most VUs each shard can safely run (45 / 5 = 9 per shard, 27 at
+// N=3), not 02_API_SCREENS.md §9's 100. With no SHARD set: 100 VUs, unchanged from before #251.
+const SENDS_PER_VU = 5;
 const shardInfo = shard.shardFromEnv(__ENV);
-const TOTAL_REPLAY_VUS = Number(__ENV.TOTAL_REPLAY_VUS || 100);
+const TOTAL_REPLAY_VUS = Number(
+  __ENV.TOTAL_REPLAY_VUS || (shardInfo ? shardInfo.count * shard.maxBurstActors(SENDS_PER_VU) : 100),
+);
 const vus = shardInfo
   ? shard.divideCount(TOTAL_REPLAY_VUS, shardInfo.index, shardInfo.count)
   : TOTAL_REPLAY_VUS;
-if (shardInfo) shard.assertBurstSafe(vus, 'k6:idem (03-idempotent-replay)');
+if (shardInfo) shard.assertBurstSafe(vus, SENDS_PER_VU, 'k6:idem (03-idempotent-replay)');
 
 export const options = {
   scenarios: {
@@ -52,7 +58,9 @@ export default function () {
 
   const url = `${env.baseUrl}/api/v1/sales`;
   const saleId = generateUUID(); // #616: entity ids are UUIDs
-  const idemKey = `idem-k6-replay-vu-${__VU}-${Date.now()}`;
+  // #380: one key per VU, unique across machines (shard) and runs (UUID) — VU + Date.now()
+  // collided. The loop below still resends this SAME key SENDS_PER_VU times, on purpose.
+  const idemKey = `idem-k6-replay-s${shardInfo ? shardInfo.index : 0}-vu-${__VU}-${generateUUID()}`;
 
   // Use one of the 1000-stock catalogue products so stock won't run out
   const targetProduct = env.products ? env.products[1] : '5eff5cca-c640-5ff5-98a6-730f2d1fa9fc'; // testId('p_1') — setup.ts
@@ -85,8 +93,8 @@ export default function () {
 
   let initialReceiptNo = null;
 
-  // Send the identical request 5 times in a row with the exact same Idempotency-Key
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  // Send the identical request SENDS_PER_VU (5) times in a row with the exact same Idempotency-Key
+  for (let attempt = 1; attempt <= SENDS_PER_VU; attempt++) {
     const res = http.post(url, payload, params);
     replayDuration.add(res.timings.duration);
 
