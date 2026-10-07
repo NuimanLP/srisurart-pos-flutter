@@ -39,6 +39,9 @@ export const options = {
     // Rubric requirement: p95 < 500ms, stock never negative, no server crashes
     http_req_duration: ['p(95)<500'],
     server_errors: ['rate==0'], // Zero 5xx errors permitted
+    // #380: every check must pass — only 201 and 409 INSUFFICIENT_STOCK are accepted, so a 429
+    // or a 409 IDEMPOTENCY_KEY_REUSED fails the run instead of exiting 0.
+    checks: ['rate==1'],
   },
 };
 
