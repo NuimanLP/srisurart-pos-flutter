@@ -1,6 +1,9 @@
-// Owner decision 2026-10-03 (option A): on the API build the Settings restore
-// control is not offered and SnapshotRepository.importLegacyBackup refuses;
-// the offline (Drift-only) build keeps both. Export stays on both.
+// Owner decision 2026-10-03 (option A): on the API build
+// SnapshotRepository.importLegacyBackup refuses (a restore must never rewrite
+// only the local cache); the offline (Drift-only) build keeps it. Export stays
+// on both. Since the owner import (POST /backup/import), the API build offers
+// the restore control again, but the file goes to the server
+// (OwnerImportRepository) with its own warning.
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -67,12 +70,13 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  testWidgets('API build: no restore control, Thai explanation shown',
+  testWidgets('API build: restore control offered, with the server-import warning',
       (tester) async {
     await _openRestoreTab(tester, useApi: true, expectations: () async {
-      expect(
-          find.text(SnapshotRepository.importBlockedMessage), findsOneWidget);
-      expect(find.text('คลิกเพื่อเลือกไฟล์ backup'), findsNothing);
+      expect(find.text('คลิกเพื่อเลือกไฟล์ backup'), findsOneWidget);
+      expect(find.textContaining('การนำเข้าจะแทนที่ข้อมูลทั้งหมดของร้านบนเซิร์ฟเวอร์'),
+          findsOneWidget);
+      expect(find.text(SnapshotRepository.importBlockedMessage), findsNothing);
       // the export sub-tab is still offered
       expect(find.text('💾 สำรองข้อมูล'), findsOneWidget);
     });
@@ -82,6 +86,8 @@ void main() {
     await _openRestoreTab(tester, useApi: false, expectations: () async {
       expect(find.text('คลิกเพื่อเลือกไฟล์ backup'), findsOneWidget);
       expect(find.text(SnapshotRepository.importBlockedMessage), findsNothing);
+      expect(find.textContaining('การนำเข้าจะแทนที่ข้อมูลทั้งหมดของร้านบนเซิร์ฟเวอร์'),
+          findsNothing);
     });
   });
 
@@ -89,7 +95,7 @@ void main() {
       () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    final repo = SnapshotRepository(db, importBlocked: true);
+    final repo = SnapshotRepository(db, restoresViaServer: true);
     await expectLater(
       repo.importLegacyBackup({'__meta': {}}),
       throwsA(isA<PosException>().having((e) => e.message, 'message',

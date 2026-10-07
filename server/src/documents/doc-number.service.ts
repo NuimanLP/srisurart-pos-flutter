@@ -76,9 +76,11 @@ export function formatDocNumber(
  * - **The 10,000th document in one month on one device fails loudly.** Wrapping to
  *   0001 would re-issue a number already printed on paper a customer is holding.
  *
- * Numbers on documents imported from the old app are never rewritten: those are
- * random ids like `RC12345678ABCD`, they cannot collide with this format, and the
- * counter neither reads them nor reconciles against them (ADR-0007).
+ * Numbers on imported documents are never rewritten. The old app's random ids like
+ * `RC12345678ABCD` cannot collide with this format and the counter ignores them
+ * (ADR-0007); a file exported from this server carries numbers in this very format, so
+ * the import raises `doc_counters` to them (`TenantImportService.seedDocCounters`) —
+ * without that the next number in the same period would repeat an imported one.
  */
 @Injectable()
 export class DocNumberService {

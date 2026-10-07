@@ -4,7 +4,9 @@
 //   ⚙ ทั่วไป       — shop info form → SettingsRepository.updateSettings
 //   🎨 ธีม          — dark/light toggle via ThemeModeCubit
 //   💾 สำรอง/กู้คืน — backup (snapshotRepo.exportSnapshot → .json file) /
-//                     restore (importLegacyBackup; reload after)
+//                     restore (importLegacyBackup; reload after) — on the API
+//                     build the file goes to the server instead
+//                     (OwnerImportRepository, POST /backup/import)
 //   📤 ส่งออก CSV   — sales summary / sales detail / inventory CSV exporters
 //                     (ALWAYS via csvSafe), ported from ExportCSV.jsx.
 //
@@ -35,6 +37,7 @@ import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
 import '../../data/repositories/offline_pin_repository.dart';
+import '../../data/repositories/owner_import_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
@@ -1401,8 +1404,39 @@ class _BackupTabState extends State<_BackupTab> {
   // restore state
   Map<String, dynamic>? _preview; // parsed/validated file ready to restore
   bool _confirmRestore = false;
+  bool _importing = false; // API build: waiting for the server's import job
   String? _restoreStatus; // success | error
   String _restoreMsg = '';
+  // API build: the owner types the shop's name to confirm a replace.
+  String _shopName = '';
+  final _confirmName = TextEditingController();
+
+  // 02_API_SCREENS.md §8.1.1 — agent ร่าง, awaiting the owner.
+  static const _serverRestoreNote =
+      '⚠️ การนำเข้าจะแทนที่ข้อมูลทั้งหมดของร้านบนเซิร์ฟเวอร์ (สินค้า ลูกค้า ช่าง บิล กะ ฯลฯ) '
+      'ด้วยข้อมูลในไฟล์ — ระบบเก็บสำเนาข้อมูลเดิมไว้บนเซิร์ฟเวอร์ก่อนแทนที่ · '
+      'ต้องเป็นไฟล์ที่ส่งออกจากระบบนี้เท่านั้น';
+  static String _serverRestoreConfirm(String shopName) =>
+      '⚠ ยืนยันการแทนที่ข้อมูลทั้งร้าน? พิมพ์ชื่อร้าน "$shopName" เพื่อยืนยัน';
+  static const _serverRestoreRunning =
+      'กำลังนำเข้าข้อมูล… กรุณาอย่าปิดหน้านี้';
+  // Other devices keep the old rows: a pull brings new and changed rows, but
+  // never removes the ones the replace deleted on the server.
+  static const _serverRestoreDone =
+      'นำเข้าข้อมูลสำเร็จ — เครื่องนี้แสดงข้อมูลใหม่แล้ว · เครื่องอื่นของร้านยังมีข้อมูลเดิมค้างอยู่ในเครื่อง ให้ใช้เครื่องนี้ทำงานต่อ';
+  static const _serverRestoreDoneReload =
+      'นำเข้าข้อมูลสำเร็จ — กรุณารีเฟรชหน้านี้และเครื่องอื่นของร้านเพื่อโหลดข้อมูลใหม่';
+
+  static String _norm(String v) => v.trim();
+
+  bool get _nameConfirmed =>
+      _shopName.isNotEmpty && _norm(_confirmName.text) == _norm(_shopName);
+
+  @override
+  void dispose() {
+    _confirmName.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -1411,10 +1445,14 @@ class _BackupTabState extends State<_BackupTab> {
   }
 
   Future<void> _loadSnapshot() async {
-    final snap = await context.read<SnapshotRepository>().exportSnapshot();
+    final snapshots = context.read<SnapshotRepository>();
+    final settingsRepo = context.read<SettingsRepository>();
+    final snap = await snapshots.exportSnapshot();
+    final settings = await settingsRepo.getSettings();
     if (!mounted) return;
     setState(() {
       _snapshot = snap;
+      _shopName = settings.shopName;
       _loading = false;
     });
   }
@@ -1498,6 +1536,43 @@ class _BackupTabState extends State<_BackupTab> {
     }
     final data = _preview;
     if (data == null) return;
+    // API build: the server replaces the shop's data (its pre-flight decides), never Drift.
+    final toServer = context.read<SnapshotRepository>().restoresViaServer;
+    if (toServer) {
+      setState(() {
+        _importing = true;
+        _confirmRestore = false;
+        _restoreStatus = null;
+      });
+      try {
+        final outcome = await context
+            .read<OwnerImportRepository>()
+            .importBackup(data, confirmShopName: _confirmName.text);
+        if (!mounted) return;
+        // This device's cache is already emptied and pulled again (when
+        // `refreshed`); the counts below are the new data's.
+        await _loadSnapshot();
+        if (!mounted) return;
+        setState(() {
+          _restoreStatus = 'success';
+          _restoreMsg = outcome.refreshed
+              ? _serverRestoreDone
+              : _serverRestoreDoneReload;
+          _preview = null;
+          _confirmName.clear();
+        });
+      } catch (err) {
+        if (!mounted) return;
+        setState(() {
+          _restoreStatus = 'error';
+          _restoreMsg =
+              'เกิดข้อผิดพลาด: ${ServerErrorResolver.resolveCounterError(err)}';
+        });
+      } finally {
+        if (mounted) setState(() => _importing = false);
+      }
+      return;
+    }
     try {
       await context.read<SnapshotRepository>().importLegacyBackup(data);
       if (!mounted) return;
@@ -1587,20 +1662,20 @@ class _BackupTabState extends State<_BackupTab> {
   }
 
   List<Widget> _restoreView(bool isDegraded) {
-    // API build: restore only rewrites the local cache (never the server), so
-    // the control is not offered — just the explanation.
-    if (context.read<SnapshotRepository>().importBlocked) {
-      return const [_InfoBox(text: SnapshotRepository.importBlockedMessage)];
-    }
+    // API build: the server replaces the shop's data with the file's, never
+    // the local cache directly; the pull after it brings the rows here.
+    final toServer = context.read<SnapshotRepository>().restoresViaServer;
+    isDegraded = isDegraded || _importing;
     final pmeta =
         (_preview?['__meta'] as Map?)?.cast<String, dynamic>() ?? const {};
     final pcounts =
         (pmeta['recordCounts'] as Map?)?.cast<String, dynamic>() ?? const {};
     return [
-      const _InfoBox(
+      _InfoBox(
         danger: true,
-        text:
-            '⚠️ การกู้คืนจะแทนที่ข้อมูลทั้งหมด — ตรวจสอบไฟล์ให้ถูกต้องก่อนกด "กู้คืน"',
+        text: toServer
+            ? _serverRestoreNote
+            : '⚠️ การกู้คืนจะแทนที่ข้อมูลทั้งหมด — ตรวจสอบไฟล์ให้ถูกต้องก่อนกด "กู้คืน"',
       ),
       InkWell(
         onTap: isDegraded ? null : _pickFile,
@@ -1664,20 +1739,37 @@ class _BackupTabState extends State<_BackupTab> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        '⚠ ยืนยันการกู้คืน? ข้อมูลปัจจุบันจะถูกแทนที่',
+                        toServer
+                            ? _serverRestoreConfirm(_shopName)
+                            : '⚠ ยืนยันการกู้คืน? ข้อมูลปัจจุบันจะถูกแทนที่',
                         style: TextStyle(
                           color: AppColors.error,
                           fontWeight: FontWeight.w700,
                           fontSize: 16,
                         ),
                       ),
+                      if (toServer) ...[
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _confirmName,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            labelText: 'ชื่อร้าน',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
                             child: AppButton.danger(
                               label: '✓ ยืนยัน',
-                              onPressed: isDegraded ? null : _handleRestore,
+                              onPressed: isDegraded ||
+                                      (toServer && !_nameConfirmed)
+                                  ? null
+                                  : _handleRestore,
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -1695,6 +1787,20 @@ class _BackupTabState extends State<_BackupTab> {
                 ),
             ],
           ),
+        ),
+      ],
+      if (_importing) ...[
+        const SizedBox(height: 12),
+        const Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 8),
+            Text(_serverRestoreRunning),
+          ],
         ),
       ],
       if (_restoreStatus == 'success') ...[

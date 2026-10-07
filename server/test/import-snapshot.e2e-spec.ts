@@ -179,7 +179,7 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
       `SELECT after FROM audit_log WHERE tenant_id = $1 AND action = 'platform.tenant.import'`,
       [tenantId],
     );
-    expect(audit.after).toEqual({ tombstones: { products, customers, mechanics }, droppedSuppliers });
+    expect(audit.after).toMatchObject({ tombstones: { products, customers, mechanics }, droppedSuppliers });
 
     // §9 step 5.
     const rows = await reconcileImport(admin, tenantId, snapshot);
@@ -415,7 +415,7 @@ describe('tenant import of a shop snapshot through the 01 §9 checklist (#185, #
 
     const importService = app.get(TenantImportService);
     const replay = await importService.processJob(jobId);
-    expect(replay).toEqual({ tombstones: job.tombstones, droppedSuppliers: job.droppedSuppliers });
+    expect(replay).toMatchObject({ tombstones: job.tombstones, droppedSuppliers: job.droppedSuppliers });
 
     // Not re-imported: same product count as right after the first (real) run.
     expect(await count(tenantId, 'products')).toBe(before);

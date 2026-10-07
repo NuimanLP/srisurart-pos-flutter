@@ -418,6 +418,29 @@ class AppDatabase extends _$AppDatabase {
     await _seedBlankSettings();
   }
 
+  /// After the owner's server import (`POST /backup/import`, API build): the
+  /// shop's data on the server is now the file's, so every cached row of the
+  /// old data goes — pulled rows and the till's own history alike (an old open
+  /// shift, old bills, old suppliers). Kept: app_meta (tenant marker, offline
+  /// PIN, device meta) except carried-forward `sa_*` stores, and the document
+  /// counters — numbers already printed are never issued again, and the
+  /// server raised its own counters to the imported numbers.
+  ///
+  /// Checks nothing: the caller refuses while there is local work
+  /// (`TenantCacheGuard.hasLocalWork`), which this would destroy.
+  Future<void> resetAfterServerImport() => transaction(() async {
+    _cacheGeneration++;
+    for (final table in allTables.toList().reversed) {
+      if (table == appMeta || table == docCounters || table == docCounterSeeds) {
+        continue;
+      }
+      await delete(table).go();
+    }
+    await (delete(appMeta)..where((t) => t.key.like('unknownstore:%'))).go();
+    await _seedCategories();
+    await _seedBlankSettings();
+  });
+
   /// The server-pulled part of the cache — catalogue, quotes, POs, settings
   /// and the sync cursors — for a DB adopted as this tenant's without being
   /// emptied (`TenantCacheGuard`, legacy DB + device-token login). The next

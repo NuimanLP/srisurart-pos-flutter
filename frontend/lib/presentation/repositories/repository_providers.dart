@@ -1,4 +1,4 @@
-// flutter_bloc RepositoryProvider tree — 21 providers: 17 repositories plus
+// flutter_bloc RepositoryProvider tree — 22 providers: 18 repositories plus
 // ApiClient, BootstrapService, DocCounterSeeder and SyncFacade. Ported off
 // Riverpod's providers.dart + shift_providers.dart (see
 // docs/plans/riverpod-to-bloc.md).
@@ -27,6 +27,7 @@ import '../../data/repositories/api/api_sales_repository.dart';
 import '../../data/repositories/api/api_shifts_repository.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/offline_pin_repository.dart';
+import '../../data/repositories/owner_import_repository.dart';
 import '../../data/storage/token_storage.dart';
 
 import '../../data/repositories/api_customers_repository.dart';
@@ -190,6 +191,7 @@ List<RepositoryProvider> repositoryProviders(
       ? ApiQuotesRepository(db, client)
       : QuotesRepository(db);
   final bootstrapService = BootstrapService(db: db, apiClient: client);
+  final docCounterSeeder = DocCounterSeeder(db: db, apiClient: client);
   // #460: on the API build a settings edit is `PATCH /settings` (online
   // only, 08 §6.2) and sign-in pulls `GET /settings` (main.dart); #474: the
   // reconnect hook (`triggerEntityPull` above) pulls it too.
@@ -213,21 +215,30 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
     RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
     RepositoryProvider<SettingsRepository>.value(value: settingsRepo),
-    RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db, importBlocked: useApi)),
+    RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db, restoresViaServer: useApi)),
     RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),
     RepositoryProvider<AuthRepository>.value(value: authRepo),
     RepositoryProvider<OfflinePinRepository>.value(value: offlinePinRepo),
     RepositoryProvider<ApiClient>.value(value: client),
     RepositoryProvider<BootstrapService>.value(value: bootstrapService),
     // #188: seeded on app open / login by `seedDocCountersOnSignIn` (main.dart).
-    RepositoryProvider<DocCounterSeeder>.value(
-      value: DocCounterSeeder(db: db, apiClient: client),
-    ),
+    RepositoryProvider<DocCounterSeeder>.value(value: docCounterSeeder),
     RepositoryProvider<ReviewItemsRepository>.value(
       value: reviewItemsRepository ?? ReviewItemsRepository(client),
     ),
     RepositoryProvider<DevicesRepository>.value(
       value: devicesRepository ?? DevicesRepository(client),
+    ),
+    // Settings → กู้คืนข้อมูล on the API build: the owner replaces the shop's
+    // data on the server; then this cache is emptied, pulled from zero and its
+    // document counters re-read.
+    RepositoryProvider<OwnerImportRepository>.value(
+      value: OwnerImportRepository(
+        client,
+        db,
+        pull: triggerEntityPull,
+        seedDocCounters: docCounterSeeder.seed,
+      ),
     ),
     // Phase 2: SyncFacade contract seam (Slice 0d / Ticket #269).
     // Swapped to real SyncService in slice 8-c (#228).

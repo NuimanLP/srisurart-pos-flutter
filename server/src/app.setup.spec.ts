@@ -1,12 +1,14 @@
 import { Body, Controller, Get, Module, Post, Req, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Request } from 'express';
+import { generateKeyPairSync } from 'node:crypto';
 import pino from 'pino';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { configureApp } from './app.setup.js';
 import { signJwt } from './common/jwt.js';
-import { APP_CONFIG } from './config/config.js';
+import { APP_CONFIG, type AppConfig } from './config/config.js';
+import { JwtSigner, JwtVerifier } from './auth/jwt-keys.service.js';
 
 @Controller('probe')
 class IpProbeController {
@@ -111,6 +113,65 @@ describe('configureApp body limits', () => {
     const small = await request(app.getHttpServer()).post('/api/v1/probe/body').send({ blob: 'abc' });
     expect(small.status).toBe(201);
     expect(small.body.data.length).toBe(3);
+  });
+});
+
+@Controller('backup')
+class OwnerImportProbeController {
+  @Post('import')
+  import(@Body() body: { blob?: string }) {
+    return { length: body?.blob?.length ?? 0 };
+  }
+}
+
+const { publicKey: TENANT_PUB, privateKey: TENANT_PRIV } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
+
+@Module({
+  controllers: [OwnerImportProbeController],
+  providers: [
+    { provide: APP_CONFIG, useValue: { corsOrigins: [] } },
+    { provide: JwtVerifier, useValue: new JwtVerifier({ jwtPublicKeys: [TENANT_PUB], jwtKeyId: 'key-1' } as AppConfig) },
+  ],
+})
+class OwnerImportProbeModule {}
+
+// Settings → กู้คืนข้อมูล: the owner's own import takes the same 10 MiB file, but only for a
+// verified owner access token on an enrolled device.
+describe('configureApp body limit for the owner import', () => {
+  let app: INestApplication;
+  const big = { blob: 'x'.repeat(200 * 1024) };
+  const signer = new JwtSigner({ jwtPrivateKey: TENANT_PRIV, jwtKeyId: 'key-1' } as AppConfig);
+  const token = (claims: Record<string, unknown>) =>
+    signer.sign({ aud: 'tenant', sub: 'u1', jti: 'j1', typ: 'access', tid: 't1', role: 'owner', did: 'd1', ...claims } as never, '5m');
+  const post = () => request(app.getHttpServer()).post('/api/v1/backup/import');
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [OwnerImportProbeModule] }).compile();
+    app = moduleRef.createNestApplication();
+    await configureApp(app, pino({ level: 'silent' }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('parses a large body for an owner on an enrolled device', async () => {
+    const res = await post().set('Authorization', `Bearer ${token({})}`).send(big);
+    expect(res.status).toBe(201);
+    expect(res.body.data.length).toBe(big.blob.length);
+  });
+
+  it('keeps everyone else on the default limit (413)', async () => {
+    expect((await post().send(big)).status).toBe(413);
+    expect((await post().set('Authorization', `Bearer ${token({ did: undefined })}`).send(big)).status).toBe(413);
+    expect((await post().set('Authorization', `Bearer ${token({ role: 'cashier' })}`).send(big)).status).toBe(413);
+    expect((await post().set('Authorization', `Bearer ${token({ typ: 'refresh' })}`).send(big)).status).toBe(413);
+    const forged = signJwt({ aud: 'tenant', sub: 'u1', role: 'owner', tid: 't1', did: 'd1' } as never, 'hs-secret');
+    expect((await post().set('Authorization', `Bearer ${forged}`).send(big)).status).toBe(413);
   });
 });
 

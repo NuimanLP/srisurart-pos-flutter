@@ -12,11 +12,13 @@ import 'data/db/database.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/repositories/api_settings_repository.dart';
 import 'data/repositories/offline_pin_repository.dart';
+import 'data/repositories/owner_import_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'data/services/doc_counter_seeder.dart';
 import 'presentation/blocs/auth_cubit.dart';
 import 'presentation/blocs/cart_cubit.dart';
 import 'presentation/blocs/doc_counter_seeding.dart';
+import 'presentation/blocs/owner_import_resume.dart';
 import 'presentation/blocs/pending_quote_cubit.dart';
 import 'presentation/blocs/settings_pull.dart';
 import 'presentation/repositories/repository_providers.dart';
@@ -51,6 +53,8 @@ Future<void> main() async {
               // Only the API build has a server to seed from.
               if (const bool.fromEnvironment('USE_API_WRITES')) {
                 seedDocCountersOnSignIn(cubit, ctx.read<DocCounterSeeder>());
+                // An owner import whose refresh did not finish (app closed, link lost).
+                resumeImportOnSignIn(cubit, ctx.read<OwnerImportRepository>());
               }
               // #460: the tenant's settings replace the Drift seed's.
               final settings = ctx.read<SettingsRepository>();

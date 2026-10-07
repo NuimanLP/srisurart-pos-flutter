@@ -111,6 +111,8 @@ jobs:
               - 'deploy/prometheus-local/**'
               # #185: test/synthetic-snapshot.spec.ts pins this committed sample to the generator.
               - 'frontend/test/fixtures/synthetic_snapshot_*.json'
+              # test/owner-import*.ts import the file the app's backup button saves.
+              - 'frontend/test/fixtures/app_export_*.json'
             ci:
               - '.github/workflows/**'
               - 'deploy/scripts/**'
