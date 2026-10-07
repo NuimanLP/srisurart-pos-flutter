@@ -44,6 +44,12 @@ ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 2
 "main: merge commit only" (active, no bypass actors) refuses squash and rebase on PRs into `main`;
 PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
+🔴 **Development freeze (owner, 2026-10-07): development stops here for the course submission.** Last release =
+`main` `53fdd1b` (PR #658, merge commit), deployed to `mob04` the same day (run `37594471937`, details
+`docs/handoff_log/session-2026-10-07-final-release.md`). Do not start feature work; only fixes the owner
+asks for. 🔴 **Never enable auto-merge on a PR an agent is still pushing to** (a push after the merge button
+misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
+
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**
 
@@ -250,7 +256,16 @@ develops against a demo tenant.
   approval is `all_external_contributors` (owner-approved 2026-09-30). A same-SHA `workflow_dispatch` (with `.env` unchanged) exits before etcd-init and `deploy.yml` has no force input, so re-testing `log_level` seeding needs a real SHA change. Still verify with
   `.current_sha` before claiming a deploy — a green run alone proves nothing (below).
 - **#380** — the three-laptop k6 + container-RSS run (`PattaraponKitcharoen`, lane C).
-  Nothing in it is measured yet. It replaces **#184**, which was closed→reopened→closed
+  **First real measurement ran 2026-10-05** (`docs/handoff_log/session-2026-10-05-k6-capacity-run.md`:
+  scenario 1 inside the criterion, scenario 2 @200 p95 ~3 s over it, scenario 3 @100 unclean on 429) but
+  with tooling bugs, so it ticks nothing: the RSS sampler printed PASS over an empty table, the
+  `Idempotency-Key`s collided across machines, `assertBurstSafe` under-counted. Fixed by PR #654 +
+  PR #655 (2026-10-07; #654 auto-merged before its review-fix commit — recovered by #655): failed
+  checks now fail the run (`checks: ['rate==1']`) and the RSS verdict counts restarts/OOM during the run.
+  🔴 **Owner decision 2026-10-07: scenario 3's replay at 27 VU (3 machines × 9, the `perip` burst
+  budget) is accepted instead of `02 §9`'s 100.** Still to do: re-run with the fixed tooling and have
+  the owner read it; `measure-container-rss.sh` on `mob04` is still the old copy (only `provision.yml`
+  or a manual `install` updates `/opt/pos/scripts`). It replaces **#184**, which was closed→reopened→closed
   three times in two days and finally closed by the owner on 2026-09-21 with all four ACs
   unticked; **do not reopen #184** (owner decision 2026-09-22). PR #357's `Closes #184`
   shipped tooling + a runbook and no measurement at all — never read that PR as evidence.
@@ -259,7 +274,7 @@ develops against a demo tenant.
   three machines each under their own `perip`, results streamed to the VM's Prometheus over
   remote-write. 🔴 **Exempting the load-generator IP from `perip` was considered and
   explicitly rejected** — never add that carve-out to `nginx.conf` without asking the owner.
-  The `§8` k6 DoD box stays unticked until #380 produces real numbers.
+  The `§8` k6 DoD box stays unticked until #380's re-run is read and accepted by the owner.
 - **Auditing tickets? `closedByPullRequestsReferences` lies here.** GitHub links no PR at
   all when the PR carries no closing keyword — **93 of this repo's 201 merged PRs** are like
   that — and it never reads a keyword placed in the PR **title** (4 more: #328/#329/#332).
@@ -268,7 +283,7 @@ develops against a demo tenant.
   2026-09-22).
 - ~~#343~~ / #344 — the first real deploy to `mob04` and the end-to-end demo run. **#343
   closed 2026-09-30 (5/5)** — deploy, Grafana checked, manual-Ansible rollback to `e50f4fa`
-  `failed=0`, command log in the 2026-09-30 handoff (PR #511/#514). **#344 must restart from AC1** — 🔴 2026-10-06 the #616 cutover wiped every tenant on `mob04` (backup + runbook, `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`; VM now `65861ea`, `ROLLBACK_FLOOR` `bedd328`, no tenant yet). Earlier partial run (2026-10-05: AC1 + AC2 only, tenant `demo-344-20261005`
+  `failed=0`, command log in the 2026-09-30 handoff (PR #511/#514). **#344 must restart from AC1** — 🔴 2026-10-06 the #616 cutover wiped every tenant on `mob04` (backup + runbook, `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`; `ROLLBACK_FLOOR` `bedd328`; VM since 2026-10-07 = `53fdd1b`). **2026-10-07 (owner):** restart from AC1 on tenant `ศรีสุราษฎร์เจริญยนต์`, the agent driving it through the Chrome extension — not run when this was written. Earlier partial run (2026-10-05: AC1 + AC2 only, tenant `demo-344-20261005`
   via platform-ui; sales/replay/Grafana not yet — `docs/handoff_log/session-2026-10-05-demo344-retired-device.md`); its
   checklist is `docs/handoff_log/demo-344-checklist-2026-09-30.md`, with flagged blockers
   (temp-password + forced change within 10 min, new tenant has no products, the app cannot
@@ -334,23 +349,34 @@ develops against a demo tenant.
   bug this fixed; use Incognito for a demo until the build is on the profile.
 - **#616 UUID cutover (2026-10-06, `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`).**
   PR #628 (`develop` → `main`, merge commit) = `65861ea`; closed #612/#616/#619/#620/#621.
-  `mob04` runs `65861ea` (`.current_sha` verified), DB **wiped — no tenant**; dump
-  `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` + one copy on the owner's laptop.
+  `mob04` ran `65861ea` that day (since 2026-10-07: `53fdd1b`), DB **wiped — no tenant**; dump
+  `/opt/pos/backups/pos_backup_20261006_035714Z.sql.gz` (all 10 pre-wipe tenants). 🔴 **Correction
+  2026-10-07: there is NO copy off the VM** — the handoff's "copy on the owner's laptop"
+  (`~/Downloads/srisurart-mob04-backups/`) no longer exists (folder gone when checked), #363 is parked.
   `ROLLBACK_FLOOR` = `bedd328` (#617 merge): `pos-deploy` refuses anything older; restoring old
   data is an owner decision, not a rollback. `server/package.json` `pnpm.overrides` pins
   `proxy-addr`/`source-map-js` (#627 — a new advisory turned `pnpm audit` red on `main` too).
   Before use: create a tenant via platform-ui, wipe every client (Incognito / clear site data /
-  clear APK storage — a pre-UUID outbox can neither send nor discard). Open, not ticketed:
-  `/sync/push` replay **by client id** (§8.3 step 2) still runs after `parseOpPayload`, so an
-  expired-key bill whose body today's parser refuses is `rejected`, not `applied` (PR #630);
-  `INVALID_ID` Thai string ratified by the owner 2026-10-07; 7 `presentation/` files still import
-  `api_exception.dart` (no app-wide guard); `assertValidTenantId` lives in
-  `platform-tenants.service.ts` (belongs in `common/ids.ts`); `offline_pin_repository.dart` ↔
-  `auth_repository.dart` import each other; `pos_trust_test.dart` fails 2
-  tests on macOS (TLS message wording; Linux CI green).
+  clear APK storage — a pre-UUID outbox can neither send nor discard). The follow-ups left open
+  that day were **fixed 2026-10-06/07**: `/sync/push` replay by client id now runs before the
+  payload parser (PR #638, B1 step 2); `ApiException` is kept out of `presentation/` and out of
+  every repository's runtime path (PRs #642/#644 — guard tests `presentation_no_api_exception_test.dart`
+  + `api_exception_never_escapes_test.dart`); `assertValidTenantId` moved to `common/ids.ts` (#640);
+  `pos_trust_test.dart` TLS assertions are OS-agnostic (#643); `INVALID_ID` Thai string ratified
+  2026-10-07. Still open (not fixed): `offline_pin_repository.dart` ↔ `auth_repository.dart` import
+  each other; `/sync/push` sales replay orders lines by stored `line_no` (the client always sends
+  `lineNo` i+1, so harmless today).
 - **5xx does not queue — owner decision 2026-09-27, `08 §5` amended (PR #469).** On the
   API build a 5xx/429 leaves the attempt parked (same id + key) and shows the error, for
-  sales, shifts and returns alike; only a transport failure queues to the outbox.
+  sales, shifts and returns alike — and since PR #645 (2026-10-06) customers and credit payments,
+  since PR #657 (2026-10-07) `adjustStock` too (parked with `PendingWrites`, no offline queue); only a
+  transport failure queues to the outbox. Two rules came with #657 (`08 §5`, owner 2026-10-07): a
+  parked attempt closes **only after the local apply succeeded** (a failed apply keeps it parked,
+  else the next press mints a new key = a duplicate), and a **new, different edit of a record
+  supersedes that record's older parked edits at send time** (`PendingWrites.closeWhere`; a PATCH
+  replaces whole values, so the older edit gets a fresh key instead of replaying a stale reply).
+  A credit-payment retry re-sends its parked body and skips the local overpayment check.
+  `PendingWrites` TTL = 10 min by design — past that a repeat is a new action.
 - **Bugs filed 2026-09-27 are all closed:** #460 by PR #467, #461/#464 by PR #468 (owner
   chose: add the `เครดิตช่าง` row; take quote validity from Settings), #462/#463/#465 by
   PR #470, #452 by PR #469. **Three Thai strings from those PRs were `agent ร่าง` — ratified by the owner 2026-10-07**
@@ -388,9 +414,10 @@ develops against a demo tenant.
   (`gh pr view N --json headRefOid`) — a review-fix pushed after the merge button is
   clicked silently misses `main`, and the PR body describing it reads as done when it
   isn't.** Recurred 2026-10-03 (#551/#552, #579, #580, #587 — see
-  `handoff_log/session-2026-10-03-ux-test-drawer-ci.md`) and 2026-10-05 (#611 auto-squashed
-  at `03eb17a`, review fixes `49cd4c0` pushed 12 min later; recovered by PR #613) — so no
-  auto-merge while an agent is still pushing review fixes. 🔴 **Same trap on the branch side (found 2026-09-30):** before deleting a
+  `handoff_log/session-2026-10-03-ux-test-drawer-ci.md`) 2026-10-05 (#611 auto-squashed
+  at `03eb17a`, review fixes `49cd4c0` pushed 12 min later; recovered by PR #613) and 2026-10-07
+  (#654 auto-merged 07:56Z at head `3b251a0`, its k6 review-fix commit pushed after; recovered by
+  PR #655) — so no auto-merge while an agent is still pushing review fixes. 🔴 **Same trap on the branch side (found 2026-09-30):** before deleting a
   merged-PR branch, compare its tip with the PR's `headRefOid` — a mismatch means commits
   pushed after the merge that may exist nowhere else. That is how PR #486's review fix
   (`_writeGen` guard against a stale `GET /settings` clobbering a newer `PATCH`, commits
@@ -441,6 +468,11 @@ develops against a demo tenant.
     (the demo) comes first (#343 closed 2026-09-30). The cost is accepted knowingly: **no backup leaves the VM at all
     meanwhile**, so a dead `mob04` disk loses the demo tenant. Never write "backups are
     ready" anywhere while this is parked.
+    **`mob04` backup folder, tidied 2026-10-07:** 20 empty/irrelevant dumps + sidecars (20-byte failed
+    dumps 2026-09-29/30, 0-tenant dumps 09-30/10-01, test-tenant-only 10-02..10-05, a duplicate 10-06
+    03:00) were **moved, not deleted**, to `/opt/pos/backups-removed-20261007/`. Kept in
+    `/opt/pos/backups/`: `pos_backup_20261006_035714Z.sql.gz` (all 10 pre-wipe tenants), the latest
+    nightly, the etcd snapshot, the cron log. All of it is on the one VM disk.
     **First-run rule (owner, 2026-09-22):** dumps written while offsite was unconfigured
     have no `.uploaded` marker and prune keeps them forever by design — on the day offsite
     is switched on, upload the backlog **by hand once**, then let prune resume. No
@@ -555,7 +587,9 @@ on void/return paths. Keep this order in any new write touching more than one of
   enforces this over both `data/repositories/api/` and `data/repositories/api_*.dart`.
 - An `ApiRepository` never calls a Drift transactional service (double stock decrement).
 - An `ApiException` must never reach a screen — convert via `rethrowThai` /
-  `rethrowServerRefusal` to a plain Thai-string `Exception`/`PosException`.
+  `rethrowServerRefusal` to a plain Thai-string `Exception`/`PosException`. Enforced since
+  2026-10-06 by `presentation_no_api_exception_test.dart` (no import in `presentation/`) and
+  `api_exception_never_escapes_test.dart` (no repository lets one out at runtime).
 - The bill id and `Idempotency-Key` are minted **once per cart**, not once per call
   (`PendingWrites` parks the attempt); a fresh id+key on retry defeats both server
   defences and double-rings the sale.
