@@ -44,6 +44,12 @@ ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 2
 "main: merge commit only" (active, no bypass actors) refuses squash and rebase on PRs into `main`;
 PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
+🔴 **Development freeze (owner, 2026-10-07): development stops here for the course submission.** Last release =
+`main` `53fdd1b` (PR #658, merge commit), deployed to `mob04` the same day (run `37594471937`, details
+`docs/handoff_log/session-2026-10-07-final-release.md`). Do not start feature work; only fixes the owner
+asks for. 🔴 **Never enable auto-merge on a PR an agent is still pushing to** (a push after the merge button
+misses `develop` — recurred 2026-10-07 on #654; see CLAUDE.md for the full lesson).
+
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**
 
