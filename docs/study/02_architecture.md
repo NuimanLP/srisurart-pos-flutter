@@ -4,6 +4,31 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- มี server เพราะ **ข้อมูลต้องมีบ้านเดียว** เมื่อมีหลายร้าน หลายเครื่อง — Postgres เป็นตัวจริง, Drift เป็น cache
+- Architecture C (เฟส 1 = A online-first) + T1 (shared schema + RLS) — ร้านจริงยังใช้ Drift build, ไม่ cutover
+- Flutter → **Nginx** → **NestJS ×3** → Postgres 16 / redis-cache / redis-queue / etcd / worker
+- บิล 1 ใบมี 4 ชั้นกันพัง: Idempotency-Key · row lock `ORDER BY id` · RLS · post-commit hooks
+- โค้ดเดินทาง PR → `develop` → `main` (merge commit) → GHCR → `mob04` หลังกดอนุมัติ
+- **ตัวเลข/หลักฐานหลัก:** ทดสอบโหลดครั้งแรก 2026-10-05 — 3,752 บิล = 3,752 เลขใบเสร็จไม่ซ้ำ, 5xx = 0, container รวม peak 648 MiB จากงบ ~6 GB (#380, [`session-2026-10-05-k6-capacity-run.md`](../handoff_log/session-2026-10-05-k6-capacity-run.md) — ยังไม่รับผล)
+- **ภาพที่แนะนำ:** ภาพย่อด้านล่าง หรือ diagram เต็มในหัวข้อ "1. ภาพใหญ่ — ทุกกล่องใน stack" + "5. เส้นทางโค้ด: dev → GitHub → CI → GHCR → VM"
+
+```mermaid
+flowchart LR
+  APP["Flutter app"] --> NG["Nginx (TLS, perip)"]
+  NG --> API["NestJS ×3"]
+  API --> PG[("PostgreSQL 16 + RLS")]
+  API --> RC[("redis-cache")]
+  API --> RQ[("redis-queue")]
+  RQ --> WK["worker (BullMQ)"]
+  API --> ET[("etcd")]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) — พื้นฐาน client/server, HTTP, JSON, terminal, Git และ glossary
@@ -407,23 +432,23 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  DEV["นักพัฒนา<br/>git push / PR"] --> GH["GitHub<br/>branch main (protected)"]
+  DEV["นักพัฒนา<br/>PR → develop"] --> GH["GitHub<br/>develop → main (merge commit เท่านั้น)<br/>ทั้งสอง branch protected"]
   GH --> FCI["Flutter CI<br/>flutter.yml"]
   GH --> SCI["Server CI<br/>server.yml<br/>lint · test · e2e · Trivy"]
   FCI -- "image web" --> GHCR[("GHCR<br/>ghcr.io/nuimanlp/srisurart-pos-web<br/>ghcr.io/nuimanlp/srisurart-pos-server")]
   SCI -- "image server" --> GHCR
   FCI & SCI -- "workflow_run สำเร็จบน main" --> DEP["Deploy (demo)<br/>deploy.yml<br/>รอ reviewer อนุมัติ"]
-  DEP -. "🔴 ติด: ไม่มี runner + FortiGate" .-> VM["VM mob04<br/>docker compose pull + up"]
-  GHCR -. "🔴 pull ไม่ผ่าน FortiGate" .-> VM
+  DEP -- "runner mob04-demo (ตั้งแต่ 2026-09-30)" --> VM["VM mob04<br/>docker compose pull + up"]
+  GHCR -- "pull ได้แล้ว (FortiGate แก้ 2026-09-29/30)" --> VM
 ```
 
-พูดตรงๆ ว่าสถานะจริง (ตาม CLAUDE.md ณ 2026-09-23):
-- CI (level 1–3) **ทำงานแล้ว**: build, test, สแกนช่องโหว่ด้วย Trivy, push image ขึ้น GHCR
-- **CD ไป `mob04` ยังไม่เกิดจริง** — firewall FortiGate ของคณะทำ SSL deep inspection บน HTTPS ขาออกของ VM และตอบแทน `ghcr.io` ด้วย certificate ของตัวเองที่ไม่มี SAN → `docker compose pull` ล้มด้วย `x509: certificate is not valid for any names` ทางแก้จริงมีทางเดียวคือทีม network ยกเว้น `ghcr.io` ให้ VM
-- self-hosted runner (#67) ยัง **ไม่ได้ติดตั้ง** (0 runners) แม้ issue จะถูกปิดไปแล้ว
-- job `deploy` ต้องรอผู้อนุมัติ (`NuimanLP`) ก่อนแตะ VM — และ run ที่ "เขียว" ไม่ได้แปลว่า deploy แล้ว ข้อพิสูจน์เดียวคือไฟล์ `/opt/pos/.current_sha` บน VM
+พูดตรงๆ ว่าสถานะจริง (ณ 2026-10-07):
+- CI (level 1–3) **ทำงานแล้ว**: build, test, สแกนช่องโหว่ด้วย Trivy — CI รันทุก PR และทุก push เข้า `main`/`develop` (PR #647) แต่ push image ขึ้น GHCR และ deploy **จาก `main` เท่านั้น**
+- **CD ไป `mob04` ทำงานแล้ว** ตั้งแต่ 2026-09-30 (deploy แรก `e50f4fa`) — ก่อนหน้านั้น (ถึง 2026-09-29) firewall FortiGate ของคณะทำ SSL deep inspection แล้วตอบแทน `ghcr.io` ด้วย cert ที่ไม่มี SAN → `docker compose pull` ล้มด้วย `x509: certificate is not valid for any names`; ทีม network แก้แล้ว 2026-09-29/30
+- self-hosted runner `mob04-demo` (#67) ติดตั้งแล้ว 2026-09-30; #67 ปิด 15/15
+- job `deploy` ต้องรอผู้อนุมัติ (`NuimanLP`) ก่อนแตะ VM — และ run ที่ "เขียว" ไม่ได้แปลว่า deploy แล้ว ข้อพิสูจน์เดียวคือไฟล์ `/opt/pos/.current_sha` บน VM (ล่าสุด `dd659e2`, run `37585778195`, 2026-10-07; run คู่ `37585675913` ของ SHA เดียวกัน job deploy = skipped)
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🔄 **อัปเดต 2026-10-07:** ฉบับก่อน 2026-09-30 เขียนว่า "CD ติด FortiGate / runner 0 ตัว" — FortiGate เลิกตัด `ghcr.io` 2026-09-29/30, deploy จริงครั้งแรก `e50f4fa` 2026-09-30, rollback พิสูจน์แล้ว (#67 ปิด 15/15) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 ---
 
@@ -718,11 +743,11 @@ export class SalesController {
 - ทุกตารางของร้านได้ policy: "เห็น/เขียนได้เฉพาะแถวที่ `tenant_id` ตรงกับ `app.tenant_id`"
 - ถ้าลืม `set_config` → `current_setting` ได้ค่าว่าง → `NULLIF` แปลงเป็น NULL → เงื่อนไขเป็น NULL → **ได้ 0 แถว** (fail-closed) ไม่ใช่เห็นทุกร้าน
 - ดังนั้นต่อให้โปรแกรมเมอร์ลืม `WHERE tenant_id = …` ในโค้ดสักที่ DB ก็ยังไม่ปล่อยข้อมูลร้านอื่นออกมา
-- ⚠️ ของจริงที่ยังไม่แก้: migration `1788652803002-OwnerReviewItems.ts` เขียน policy **โดยไม่มี `NULLIF`** → ถ้าไม่ได้ตั้ง tenant จะได้ error 500 แทน 0 แถว (บันทึกใน CLAUDE.md "Still open") — และคอมเมนต์บรรทัด 45–46 ของไฟล์ RLS เองยังเขียนว่า "TenantGuard does `SET LOCAL`" ซึ่งล้าสมัยแล้ว (ปัจจุบัน `runTx` เป็นคนทำ `set_config`) — อีกตัวอย่างของคอมเมนต์ที่ตามโค้ดไม่ทัน
+- ⚠️ ของจริงที่เคยพลาด: migration `1788652803002-OwnerReviewItems.ts` เขียน policy **โดยไม่มี `NULLIF`** → ถ้าไม่ได้ตั้ง tenant จะได้ error 500 แทน 0 แถว — 🔄 **แก้แล้ว 2026-09-25** ด้วย migration ใหม่ `1788652804200-OwnerReviewItemsFixes.ts` (ไม่แก้ไฟล์เดิม) — และคอมเมนต์บรรทัด 45–46 ของไฟล์ RLS เองยังเขียนว่า "TenantGuard does `SET LOCAL`" ซึ่งล้าสมัยแล้ว (ปัจจุบัน `runTx` เป็นคนทำ `set_config`) — อีกตัวอย่างของคอมเมนต์ที่ตามโค้ดไม่ทัน
 
 #### ขั้น 16–18: SalesService — ตัดสต็อกแบบไม่มีวันขายเกิน
 
-`server/src/sales/sales.service.ts:173-198` — คอมเมนต์ที่เป็นสารบัญของการขายทั้งหมด (ตัดมาเฉพาะลำดับ)
+`server/src/sales/sales.service.ts:174-199` — คอมเมนต์ที่เป็นสารบัญของการขายทั้งหมด (ตัดมาเฉพาะลำดับ)
 
 ```ts
 /**
@@ -748,7 +773,7 @@ export class SalesController {
  *  10. commit — and only then may anything external happen
 ```
 
-`server/src/sales/sales.service.ts:510-522` — lock สินค้าตามลำดับ id
+`server/src/sales/sales.service.ts:513-525` — lock สินค้าตามลำดับ id
 
 ```ts
   private lockProducts(
@@ -759,7 +784,7 @@ export class SalesController {
     return manager.query(
       `SELECT id, part_no, name, name_th, cost, stock
          FROM products
-        WHERE tenant_id = $1::uuid AND id = ANY($2::text[]) AND deleted_at IS NULL
+        WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[]) AND deleted_at IS NULL
         ORDER BY id
           FOR UPDATE`,
       [tenantId, demands.map((d) => d.productId)],
@@ -770,7 +795,7 @@ export class SalesController {
 - `ORDER BY id` — ทุกบิล lock ตามลำดับเดียวกัน → ไม่มีกรณี "A ถือ X รอ Y, B ถือ Y รอ X" (**deadlock**)
 - สังเกต: มี `tenant_id = $1` ใน WHERE ด้วย แม้ RLS จะกรองให้อยู่แล้ว — ชั้นป้องกันซ้อน และช่วยให้ index ทำงาน
 
-`server/src/sales/sales.service.ts:599-617` — ตัดสต็อก
+`server/src/sales/sales.service.ts:590-608` — ตัดสต็อก
 
 ```ts
     for (const d of demands) {
@@ -1130,12 +1155,12 @@ pool: ว่าง 0 เส้น → ไม่มีใครได้ → ไ�
 
 ### บทเรียน 4 — สิ่งที่ยังไม่เสร็จ (บอกตรงๆ)
 
-ตาม CLAUDE.md ณ 2026-09-23/24:
-- **CD ไป `mob04` ติด FortiGate** ของคณะ (อธิบายแล้วข้างบน) — `docker save/load` ด้วยมือเป็นแค่ทางกู้วันสาธิต ไม่ใช่ CD
-- **backup ยังไม่ออกจาก VM** — `backup-db.sh` มีกลไก offsite ผ่าน `rclone` แล้วแต่ยังไม่ได้ต่อปลายทางจริง (#363, พักไว้จนหลังสาธิต) — VM disk พัง = tenant สาธิตหาย
-- **k6 load test (#380) ยังไม่ได้วัด** — ยังไม่มีตัวเลข latency จริงของ stack นี้
-- **บั๊ก HIGH เฟส 2 สองตัว** (รีวิว 2026-09-24): fingerprint ของ `/sync/push` ใช้ `POST /sales` แต่ทางออนไลน์เก็บเป็น `POST /api/v1/sales` → บิลที่ขายออนไลน์แล้วคำตอบหาย จะถูกปฏิเสธ `IDEMPOTENCY_KEY_REUSED` ตอน push; และ route ออนไลน์รับ `date` จาก body ของ client — ยังไม่แก้
-- **RLS policy ใน migration `OwnerReviewItems` ไม่มี `NULLIF`** — ยังไม่แก้ และต้องแก้ด้วย migration **ใหม่** ห้ามแก้ไฟล์ที่ apply ไปแล้ว
+ฉบับแรก (ตาม CLAUDE.md ณ 2026-09-23/24) มี 5 ข้อ — สถานะ ณ 2026-10-07:
+- ~~**CD ไป `mob04` ติด FortiGate**~~ — 🔄 แก้แล้ว 2026-09-29/30: deploy ผ่าน runner `mob04-demo` + กดอนุมัติ (`docker save/load` ด้วยมือเป็นแค่ทางกู้วันสาธิต ไม่ใช่ CD)
+- **backup ยังไม่ออกจาก VM** (ยังจริง) — `backup-db.sh` มีกลไก offsite ผ่าน `rclone` แล้วแต่ยังไม่ได้ต่อปลายทางจริง (#363, พักไว้จนหลังสาธิต) — VM disk พัง = tenant สาธิตหาย
+- **k6 load test (#380)** — 🔄 วัดจริงครั้งแรก 2026-10-05: `GET /products` p95 16–33 ms ผ่าน, แต่ `POST /sales` 200 คนแย่งสินค้าชิ้นเดียว p95 1.5–3 s เกินเกณฑ์ 500 ms (ข้อมูลยังถูก) — **ยังไม่รับผล ยังไม่ติ๊ก DoD** ([`session-2026-10-05-k6-capacity-run.md`](../handoff_log/session-2026-10-05-k6-capacity-run.md))
+- ~~**บั๊ก HIGH เฟส 2 สองตัว**~~ (รีวิว 2026-09-24: fingerprint ของ `/sync/push` ใช้ `POST /sales` แต่ออนไลน์เก็บเป็น `POST /api/v1/sales`; route ออนไลน์รับ `date` จาก body) — 🔄 แก้แล้ว 2026-09-25 (PR #413, PR #414)
+- ~~**RLS policy ใน migration `OwnerReviewItems` ไม่มี `NULLIF`**~~ — 🔄 แก้แล้ว 2026-09-25 ด้วย migration **ใหม่** `1788652804200-OwnerReviewItemsFixes.ts` (ห้ามแก้ไฟล์ที่ apply ไปแล้ว)
 
 ---
 
@@ -1148,9 +1173,9 @@ pool: ว่าง 0 เส้น → ไม่มีใครได้ → ไ�
 > - client **ไม่คำนวณตัวเลขที่ server เป็นเจ้าของ** — ส่ง แล้วลอกคำตอบลง Drift (ADR-0010)
 > - กล่อง "ความจริง" ห้ามหาย; กล่อง "ความสะดวก" หายได้โดยยังขายต่อ
 > - ข้อจำกัดจริง (6 GB RAM, 100 connections) ถูกเขียนเป็นสมการไว้หัว compose และบังคับการออกแบบ เช่นกฎ "ห้ามยึด connection ที่สอง"
-> - CI ทำงาน แต่ **CD ไป VM ยังติด FortiGate** และ backup ยังไม่ออกจาก VM
+> - CI ทำงาน และ **CD ไป VM `mob04` ทำงาน** (รอกดอนุมัติทุกครั้ง) แต่ backup ยังไม่ออกจาก VM (#363)
 >
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+> 🔄 **อัปเดต 2026-10-07:** ฉบับก่อน 2026-09-30 เขียนว่า "CD ติด FortiGate / runner 0 ตัว" — FortiGate เลิกตัด `ghcr.io` 2026-09-29/30, deploy จริงครั้งแรก `e50f4fa` 2026-09-30, rollback พิสูจน์แล้ว (#67 ปิด 15/15) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
 ---
 
@@ -1216,4 +1241,4 @@ client เก็บ bill id + key ไว้ต่อ **ตะกร้า** (`Pe
   - [`../Backend_design/00_BASICS.md`](../Backend_design/00_BASICS.md) — transaction, RLS, JWT, cache, queue, idempotency ตั้งแต่ศูนย์
   - [`../Backend_design/adr/README.md`](../Backend_design/adr/README.md) — บันทึกการตัดสินใจ (**ADR ชนะเอกสารอื่นเสมอ**) โดยเฉพาะ ADR-0003, 0004, 0006, 0010, 0012, 0013
   - [`../Backend_design/07_CICD_DEPLOY.md`](../Backend_design/07_CICD_DEPLOY.md) — การ deploy และ monitoring
-  - [`../handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`](../handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md) — หลักฐานเต็มเรื่อง CD ติด FortiGate
+  - [`../handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`](../handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md) — หลักฐานเต็มเรื่อง CD ติด FortiGate (ประวัติ — แก้แล้ว 2026-09-29/30)

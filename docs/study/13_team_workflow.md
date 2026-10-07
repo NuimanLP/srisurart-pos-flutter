@@ -4,6 +4,29 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- งานทุก PR ลง `develop` ก่อน แล้ว `develop` → `main` ด้วย **merge commit เท่านั้น** (ruleset `24564072`, ตั้งแต่ 2026-10-06)
+- ทั้ง `main` และ `develop` มี branch protection เหมือนกัน: ต้องผ่าน PR, required check `flutter-ci-status` + `server-ci-status`, ห้าม force-push
+- 3 คนทำงานขนานได้ด้วย **lane split + file ownership + "blocked-by ห้ามข้าม lane"** (สัญญาข้าม lane = fixture / `SyncFacade`)
+- ทุก ticket: `/scrutinize` → code → test กับ fake ฝั่งตัวเอง → `/code-review` (Standards + Spec)
+- **ADR ชนะเอกสารอื่น** · "closed ≠ done" — เทียบ AC กับของจริงเสมอ (#184, #292–#296)
+- **ตัวเลข/หลักฐานหลัก:** DoD phase 1 = 17 ช่อง ติ๊ก 16 เหลือ k6 (#380) — นับใหม่ 2026-10-07 ที่ `03_ARCHITECTURE.md §8`; branch protection ตรวจด้วย `gh api …/branches/{main,develop}/protection` 2026-10-07
+- **ภาพที่แนะนำ:**
+
+```mermaid
+flowchart LR
+  A["feature branch"] -->|"PR (squash ได้)"| B["develop"]
+  B -->|"CI: flutter + server status"| B
+  B -->|"release PR: merge commit เท่านั้น"| C["main"]
+  C -->|"CI เขียว → image บน GHCR"| D["Deploy (demo)"]
+  D -->|"รอ NuimanLP อนุมัติ"| E["mob04"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) (Git พื้นฐาน: commit, branch, terminal) · [02_architecture.md](02_architecture.md) (ภาพรวมระบบ — ช่วยให้เห็นว่า "lane" ในบทนี้ตัด repo ตรงไหน)
@@ -44,7 +67,7 @@
 
 **Branch** = เส้นเวลาคู่ขนานของโค้ด แยกออกจาก `main` เพื่อทำงานโดยไม่กระทบของคนอื่น แล้วค่อยเอากลับมารวม (merge) ทีหลัง — เหมือนถ่ายเอกสารต้นฉบับมาแก้ที่โต๊ะตัวเอง แล้วค่อยเอาไปเทียบ/รวมกับต้นฉบับจริงทีหลัง แทนที่จะขีดเขียนต้นฉบับตรงๆ ให้คนอื่นเห็นระหว่างที่ยังแก้ไม่เสร็จ
 
-ในโปรเจกต์นี้ branch ที่มีอายุยืน (long-lived) ตามที่ `CLAUDE.md` ระบุคือ `main` (สายที่ active), `develop` (integration — PR ลงที่นี่ก่อน แล้ว develop→main ด้วย **merge commit**; กติกาปัจจุบันตั้งแต่ราว 2026-10-06) และ `POC_sample_offline_first` (แช่แข็งไว้อ้างอิง) — บทนี้เล่าเหตุการณ์ก่อน `develop` จึงอาจพูดถึง "2 เส้น" ส่วน branch อื่นๆ ที่เห็นใน `git branch -a` (เช่น `docs/2026-09-24-testing-tutorial-fixes`, `experiment/quality-gate`) เป็น **feature branch อายุสั้น** — เปิดเพื่อทำงานหนึ่งชิ้น แล้วลบทิ้งหลัง merge
+ในโปรเจกต์นี้ branch ที่มีอายุยืน (long-lived) ตามที่ `CLAUDE.md` ระบุคือ `main` (สายที่ active), `develop` (integration — PR ลงที่นี่ก่อน แล้ว develop→main ด้วย **merge commit**; กติกาปัจจุบันตั้งแต่ 2026-10-06 — บังคับด้วย ruleset `24564072`) และ `POC_sample_offline_first` (แช่แข็งไว้อ้างอิง) — บทนี้เล่าเหตุการณ์ก่อน `develop` จึงอาจพูดถึง "2 เส้น" ส่วน branch อื่นๆ ที่เห็นใน `git branch -a` (เช่น `docs/2026-09-24-testing-tutorial-fixes`, `experiment/quality-gate`) เป็น **feature branch อายุสั้น** — เปิดเพื่อทำงานหนึ่งชิ้น แล้วลบทิ้งหลัง merge
 
 ### 4. Merge vs Rebase
 
@@ -71,7 +94,7 @@ main:     A---B---C'---D'
 |---|---|---|
 | ประวัติ | มี merge commit, เห็นว่าเคยแยกจริง | เส้นตรง เหมือนไม่เคยแยก |
 | ปลอดภัยกับ branch ที่แชร์กับคนอื่น | ปลอดภัย | 🔴 อันตราย — เขียนประวัติที่คนอื่นมีอยู่แล้วใหม่ ทำให้ branch ของเขากับของเราไม่ตรงกัน |
-| ใช้เมื่อไหร่ในโปรเจกต์นี้ | รวม PR เข้า `main` (GitHub ทำ merge commit ให้อัตโนมัติตอนกด "Merge pull request") | rebase **branch ของตัวเอง** ให้ตามทันของคนอื่นก่อน merge (เช่นกติกา lane B ใน `09_PHASE2_LANES.md` §6: "หนึ่ง PR หนึ่งเวอร์ชัน rebase ก่อน merge" สำหรับไฟล์ schema ที่ใช้ร่วมกัน) |
+| ใช้เมื่อไหร่ในโปรเจกต์นี้ | release PR `develop` → `main` (บังคับ merge commit ด้วย ruleset `24564072` ตั้งแต่ 2026-10-06 — PR งานเข้า `develop` ยัง squash ได้) | rebase **branch ของตัวเอง** ให้ตามทันของคนอื่นก่อน merge (เช่นกติกา lane B ใน `09_PHASE2_LANES.md` §6: "หนึ่ง PR หนึ่งเวอร์ชัน rebase ก่อน merge" สำหรับไฟล์ schema ที่ใช้ร่วมกัน) |
 
 กติกาง่ายๆ ที่ใช้ได้ทุกที่: **rebase เฉพาะ branch ที่ยังไม่มีใครอื่นดึงไปใช้ (โดยเฉพาะ branch ของตัวเองที่ยังไม่เปิด PR หรือยังไม่มีคน push ทับ)** ถ้า branch นั้นแชร์กับคนอื่นแล้ว ให้ merge เท่านั้น
 
@@ -196,6 +219,8 @@ issue #268 มี 3 ป้าย (labels): `enhancement`, `ready-for-agent`, `te
 - ห้าม force-push และห้ามลบ `main`
 - **"admins not enforced"** หมายความว่ากติกานี้ยังข้ามได้โดยเจ้าของ repo ในกรณีฉุกเฉิน — เป็น trade-off ที่ยอมรับไว้ตรงๆ ไม่ได้ปิดประตูแน่นสนิท
 
+> 🔄 **อัปเดต 2026-10-07:** ตั้งแต่ 2026-10-06 มี `develop` เป็นสาย integration — PR งานทุกใบลง `develop` (squash ได้) แล้วค่อยเปิด release PR `develop` → `main` · `develop` ได้ branch protection ชุดเดียวกับ `main` (PR required 0 approvals, สอง status job, ห้าม force-push/ลบ — ตรวจด้วย `gh api …/branches/develop/protection` 2026-10-07) · ฝั่ง `main` มี **repository ruleset `24564072` "main: merge commit only"** (active) บังคับให้ merge ด้วย merge commit เท่านั้น เพราะ squash/rebase เขียน SHA ใหม่ แล้ว `ROLLBACK_FLOOR` (`bedd328`) ใน `deploy/scripts/pos-deploy.sh` จะไม่เป็นบรรพบุรุษของ `main` อีก → `pos-deploy` ปฏิเสธทุก SHA (CLAUDE.md, PR #637) · CI รันบน push เข้า `develop` ด้วยตั้งแต่ PR #647 (2026-10-07) แต่ image/deploy มาจาก `main` เท่านั้น
+
 ### 6. ADR คืออะไร และทำไม "ADR ชนะเอกสารอื่น"
 
 **ADR (Architecture Decision Record)** = เอกสาร 1 ไฟล์ต่อ 1 การตัดสินใจสำคัญหนึ่งเรื่อง บันทึก "ทำไม" ไม่ใช่แค่ "ทำอะไร" — `docs/Backend_design/adr/README.md` อธิบายหลักการนี้ตรงๆ:
@@ -222,7 +247,7 @@ issue #268 มี 3 ป้าย (labels): `enhancement`, `ready-for-agent`, `te
 
 ### 9. Definition of Done (DoD)
 
-**Definition of Done (DoD)** = เกณฑ์รวมที่บอกว่า "โปรเจกต์นี้/phase นี้เสร็จจริง" ต่างจาก AC ของ ticket เดี่ยวๆ ตรงที่ DoD มองภาพรวมทั้ง phase `CLAUDE.md` อ้างถึง DoD ที่ `03_ARCHITECTURE.md §8` โดยเตือนไว้เป็นประโยคซ้ำสองรอบในเอกสารว่า **"Recount the `03_ARCHITECTURE.md §8` DoD boxes before claiming phase 1 is 'done' — this sentence has gone stale twice."** — พูดง่ายๆ คือ DoD checklist เป็นของจริงที่ต้องนับใหม่ทุกครั้งก่อนพูดว่า "เสร็จแล้ว" ห้ามเชื่อสิ่งที่เอกสารเขียนไว้ก่อนหน้าเฉยๆ เพราะมันเคยผิดมาแล้วสองรอบ (นับล่าสุด 2026-09-22: 17 ช่อง ติ๊ก 16 เหลือ 1 — รอ #380)
+**Definition of Done (DoD)** = เกณฑ์รวมที่บอกว่า "โปรเจกต์นี้/phase นี้เสร็จจริง" ต่างจาก AC ของ ticket เดี่ยวๆ ตรงที่ DoD มองภาพรวมทั้ง phase `CLAUDE.md` อ้างถึง DoD ที่ `03_ARCHITECTURE.md §8` โดยเตือนไว้เป็นประโยคซ้ำสองรอบในเอกสารว่า **"Recount the `03_ARCHITECTURE.md §8` DoD boxes before claiming phase 1 is 'done' — this sentence has gone stale twice."** — พูดง่ายๆ คือ DoD checklist เป็นของจริงที่ต้องนับใหม่ทุกครั้งก่อนพูดว่า "เสร็จแล้ว" ห้ามเชื่อสิ่งที่เอกสารเขียนไว้ก่อนหน้าเฉยๆ เพราะมันเคยผิดมาแล้วสองรอบ (นับล่าสุด 2026-09-22: 17 ช่อง ติ๊ก 16 เหลือ 1 — รอ #380 · นับซ้ำ 2026-10-07 ยังเท่าเดิม: ช่องที่เหลือคือ k6 — #380 วัดจริงครั้งแรกแล้ว 2026-10-05 แต่เจ้าของยังไม่รับผล ช่องจึงยังไม่ติ๊ก)
 
 ### 10. Working agreement (`09 §10`): `/scrutinize` → code → test own-side fake → `/code-review`
 
@@ -310,7 +335,7 @@ GitHub มีฟีเจอร์ผูก PR กับ issue อัตโน�
 
 ### บทเรียน 2: "closed" ไม่เท่ากับ "done" — เคส #184
 
-Issue **#184** (การวัด k6 load test + container RSS หลายเครื่อง) ถูก**ปิด→เปิดใหม่→ปิด สามรอบใน 2 วัน** ก่อนเจ้าของปิดเองครั้งสุดท้าย 2026-09-21 โดยที่ AC ทั้ง 4 ข้อยังไม่ติ๊กเลยสักข้อ (`CLAUDE.md`: *"do not reopen #184 (owner decision 2026-09-22)"*) ที่หนักกว่านั้นคือ PR **#357** มีข้อความ `Closes #184` ในหัวข้อ (`git log` ยืนยัน: commit `6c99a31 feat(ops): container RSS measurement monitor and distributed k6 runner for mob04 (Closes #184)`) — แต่ตามที่ `CLAUDE.md` เขียนตรงๆ **"PR #357's `Closes #184` shipped tooling + a runbook and no measurement at all"** คือ PR นั้นส่งมอบ**เครื่องมือ**สำหรับวัด แต่**ไม่ได้วัดจริง** งานวัดจริงถูกย้ายไปเป็น ticket ใหม่ **#380** ที่ยังไม่มีตัวเลขจริงสักตัว (ณ วันที่เขียนบทนี้ 2026-09-25)
+Issue **#184** (การวัด k6 load test + container RSS หลายเครื่อง) ถูก**ปิด→เปิดใหม่→ปิด สามรอบใน 2 วัน** ก่อนเจ้าของปิดเองครั้งสุดท้าย 2026-09-21 โดยที่ AC ทั้ง 4 ข้อยังไม่ติ๊กเลยสักข้อ (`CLAUDE.md`: *"do not reopen #184 (owner decision 2026-09-22)"*) ที่หนักกว่านั้นคือ PR **#357** มีข้อความ `Closes #184` ในหัวข้อ (`git log` ยืนยัน: commit `6c99a31 feat(ops): container RSS measurement monitor and distributed k6 runner for mob04 (Closes #184)`) — แต่ตามที่ `CLAUDE.md` เขียนตรงๆ **"PR #357's `Closes #184` shipped tooling + a runbook and no measurement at all"** คือ PR นั้นส่งมอบ**เครื่องมือ**สำหรับวัด แต่**ไม่ได้วัดจริง** งานวัดจริงถูกย้ายไปเป็น ticket ใหม่ **#380** ที่ยังไม่มีตัวเลขจริงสักตัว (ณ วันที่เขียนบทนี้ 2026-09-25) — 🔄 **อัปเดต 2026-10-07:** #380 วัดจริงครั้งแรกแล้ว 2026-10-05 (3 เครื่อง, `docs/handoff_log/session-2026-10-05-k6-capacity-run.md`) แต่ **ยังเปิดอยู่ ไม่มี AC ไหนติ๊ก** — การรับผลเป็นการตัดสินของเจ้าของ บทเรียนเดิมยังใช้ได้: มีตัวเลขแล้วก็ยังไม่เท่ากับ "done"
 
 **บทเรียนตรงจากประโยคใน `CLAUDE.md`:** *"never read that PR as evidence."* — คำว่า "Closes #N" ในข้อความ commit/PR เป็นแค่**คำอธิบายความตั้งใจ** ไม่ใช่**หลักฐาน**ว่าเนื้องานตรงตาม AC จริง ต้องเปิด AC ของ issue มาเทียบกับสิ่งที่ PR ส่งมอบจริงทุกครั้ง
 
@@ -358,18 +383,18 @@ sequenceDiagram
     participant Agent as "Agent / คนเขียนโค้ด"
     participant PR as "Pull Request"
     participant CI as "CI (flutter.yml / server.yml)"
-    participant Main as "main branch"
+    participant Main as "develop → main"
 
     Owner->>Issue: เปิด issue + เขียน AC + ติดป้าย ready-for-agent, team/N
     Agent->>Issue: อ่าน AC + อ่าน 09 §3/§6 + CLAUDE.md
     Agent->>Agent: /scrutinize แผนก่อนเขียนโค้ด
-    Agent->>PR: เปิด PR (branch แยกจาก main)
+    Agent->>PR: เปิด PR เข้า develop (ก่อน 2026-10-06 คือเข้า main ตรง)
     Agent->>Agent: ทดสอบกับ fake/fixture ของฝั่งตัวเอง
     Agent->>Agent: /code-review (Standards + Spec สอง sub-agent)
     PR->>CI: trigger flutter-ci-status / server-ci-status
     CI-->>PR: เขียว (ผ่าน) หรือ แดง (ต้องแก้)
-    PR->>Main: merge (ต้องผ่าน branch protection)
-    Main-->>Issue: ปิด issue อัตโนมัติ (ถ้ามี closing keyword จริง)
+    PR->>Main: merge เข้า develop แล้ว release PR เข้า main ด้วย merge commit (ผ่าน branch protection ทั้งสองเส้น)
+    Main-->>Issue: ปิด issue อัตโนมัติเมื่อถึง main (default branch) — ถ้ามี closing keyword จริง
     Owner->>Issue: ตรวจ AC เทียบของจริงอีกรอบ (อย่าเชื่อแค่ "closed")
 ```
 
@@ -381,7 +406,7 @@ sequenceDiagram
 - **Merge** ปลอดภัยกับ branch ที่แชร์กับคนอื่นเสมอ **Rebase** ใช้ได้เฉพาะ branch ของตัวเองที่ยังไม่มีใครดึงไปใช้
 - **Conflict** เกิดเมื่อสองฝั่งแก้บรรทัดเดียวกันต่างกัน — ป้องกันล่วงหน้าได้ด้วย **file ownership**
 - **Stacked PR** ห้ามลบ branch ฐานด้วย `--delete-branch` ก่อนทั้ง stack merge ครบ
-- **GitHub flow**: issue (มี AC ตรวจได้จริง) → branch → PR → review (Standards + Spec) → CI (branch protection บังคับ) → merge
+- **GitHub flow**: issue (มี AC ตรวจได้จริง) → branch → PR → review (Standards + Spec) → CI (branch protection บังคับ) → merge เข้า `develop` → release PR เข้า `main` (merge commit เท่านั้น — ตั้งแต่ 2026-10-06)
 - **ADR ชนะเอกสารอื่นเสมอ** เพราะมันคือบันทึกการตัดสินใจที่เขียนตอนตัดสินใจจริง ไม่ใช่สรุปที่อาจตกยุค
 - **Lane split + "blocked-by ไม่ข้าม lane" + file ownership** คือสามกลไกที่ทำให้ 3 คนทำงานขนานได้จริงในงาน phase 2 ที่มี 35 ticket
 - **"Closed" ไม่เท่ากับ "done"** — ต้องเทียบ AC กับของจริงเสมอ อย่าเชื่อ label/status ของ GitHub หรือคำอธิบายของ agent เฉยๆ (เคส #184, #292–#296, `closedByPullRequestsReferences`)
@@ -390,7 +415,7 @@ sequenceDiagram
 
 ## ❓ Quiz
 
-<details><summary>1. ทำไม repo นี้เลือก merge PR เข้า `main` เสมอ (ไม่ rebase `main`) แต่กลับแนะนำให้ rebase branch ของตัวเองก่อน merge เมื่อแตะไฟล์ schema ร่วมกัน?</summary>
+<details><summary>1. ทำไม repo นี้บังคับ merge commit ตอน `develop` → `main` เสมอ (ไม่ rebase `main`) แต่กลับแนะนำให้ rebase branch ของตัวเองก่อน merge เมื่อแตะไฟล์ schema ร่วมกัน?</summary>
 
 เพราะ rebase เขียนประวัติ (history) ของ commit ใหม่ — ถ้า rebase branch ที่คนอื่นมีสำเนาอยู่แล้ว (เช่น `main` ที่ทุกคนดึงไปใช้) จะทำให้ประวัติของทุกคนไม่ตรงกัน ปลอดภัยเฉพาะ rebase branch ของตัวเองที่ยังไม่มีใครอื่นดึงไปใช้ ส่วนการ rebase ก่อน merge (เช่นไฟล์ `database.dart`) ทำเพื่อให้แน่ใจว่า generated file (`database.g.dart`) ถูก regenerate ทับบนโค้ดล่าสุดก่อน ลด conflict ที่กู้คืนยาก
 

@@ -5,6 +5,29 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- Actor มีทั้ง "คน" และ "เครื่อง": Owner (role เดียวต่อร้าน), เครื่อง `pos`, เครื่อง `backoffice`, Platform admin, BullMQ worker
+- สิทธิ์ 2 ชั้นซ้อนกัน: login เป็น owner (ชั้น user) **และ** ยิงจากเครื่องที่ผูกเป็น `pos` (ชั้น device)
+- งานเงิน/สต็อกที่ผูกกะทำได้จากเครื่อง `pos` เท่านั้น — ร้านหนึ่งมี `pos` active ได้ไม่เกิน 1 เครื่อง (ADR-0004)
+- Platform admin อยู่คนละ realm (`aud: "platform"`) — ห้ามเรียก `/api/*`; ช่วยร้านที่ทำเครื่องหายได้ผ่าน `.../devices/:deviceId/replace` (#476 ปิด 2026-10-03)
+- Use case เต็ม 3 ตัว: ขาย · คืน (กันคืนเกิน) · เปิด/ปิดกะ — ทุกตัวตามรอยถึงหน้าจอ → API → service ได้
+- **ตัวเลข/หลักฐานหลัก:** `@RequireDeviceRole('pos')` กำกับ 10 จุดใน 7 controller (sales, returns, shifts, quotes, mechanics, doc-counters, parked-sales — `grep` ใน `server/src` 2026-10-07)
+- **ภาพที่แนะนำ:** "Use case diagram — ภาพรวม" ในบทนี้ หรือภาพย่อ 2 ชั้นสิทธิ์ด้านล่าง
+
+```mermaid
+flowchart LR
+  O["👤 Owner (login)"] --> U{"ชั้น user: JWT ของร้าน"}
+  U --> D{"ชั้น device: role ของเครื่อง"}
+  D -->|"pos"| S["ขาย / คืน / กะ"]
+  D -->|"backoffice"| B["สินค้า / ลูกค้า / รายงาน"]
+  PA["🛡️ Platform admin"] --> PL["เฉพาะ /platform/*"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) (พื้นฐาน client/server, HTTP, JSON), [02_architecture.md](02_architecture.md) (รู้จักกล่องต่างๆ: Flutter, Nginx, NestJS, Postgres มาก่อน)
@@ -197,7 +220,7 @@ AND retired_at IS NULL` (ADR-0004) ให้ active ได้ทีละเค�
 | **Shop account / พนักงานหน้าร้าน** | login ด้วย account เดียวกับ owner (ระบบยังไม่มี role พนักงานแยก) — ในทางปฏิบัติคือคนที่นั่งอยู่หน้าเครื่องที่ login ค้างไว้ | เหมือน owner ทุกประการ เพราะระบบไม่แยก role พนักงาน/เจ้าของ (ตาม 08_PHASE2_SPEC E1 "one `owner` role + one active shop account per tenant") | เดียวกับแถว Owner — ไม่มี role แยกในโค้ดจริง |
 | **เครื่อง `pos`** (device role, ไม่ใช่คน) | เครื่องต้องถูก "ผูก" (enrol) ก่อน: owner กดสร้างรหัส (`POST /devices`) แล้วเอาโค้ดไปกรอกที่เครื่องใหม่ผ่าน `POST /auth/device` — ได้ device token ที่มี `did`+`drole` | อย่างเดียวที่ทำได้: ขายสินค้า (`POST /sales`), คืนสินค้า (`POST /returns`), เปิด/ปิด/เติมเงินกะ (`POST /shifts/*`), แปลงใบเสนอราคาเป็นบิล (`POST /quotes/:id/convert`), รับชำระเครดิตช่าง (`POST /mechanics/:id/credit-payments`), ออกเลขเอกสาร (`GET /doc-counters`) — ร้านหนึ่งมีเครื่องนี้ active ได้ไม่เกิน 1 เครื่อง | `server/src/common/decorators/device-role.decorator.ts:4`, ใช้จริงที่ `sales.controller.ts:54,118`, `returns.controller.ts:51`, `shifts.controller.ts:61,83,103`, `quotes.controller.ts:208`, `mechanics.controller.ts:134`, `doc-counters.controller.ts:22`; unique-index กันเกิน 1 เครื่องอยู่ใน ADR-0004 |
 | **เครื่อง `backoffice`** (device role, ไม่ใช่คน) | ผูกเครื่องแบบเดียวกับ `pos` แต่เลือก `role: "backoffice"` ตอนสร้าง | อ่านได้ทุกอย่าง (ดูบิล/กะ/รายงาน) แต่แตะเงิน/สต็อกที่ผูกกับกะไม่ได้ — จัดการสินค้า/ลูกค้า/ช่าง/PO ได้ (ไม่ได้ถูก `@RequireDeviceRole('pos')` กัน) | `devices.controller.ts:33-37` (comment: "การผูกเครื่อง... either `pos` or `backoffice`"), ADR-0004 ตารางกำหนด endpoint ต่อ role |
-| **Platform admin** (ทีมงานแพลตฟอร์ม ไม่ใช่คนของร้าน) | login คนละช่องทาง: `POST /platform/auth/token` — คนละตาราง (`platform_admins`, ไม่มี `tenant_id`), คนละ JWT (`aud: "platform"` — **aud** ย่อจาก audience คือค่าใน JWT ที่บอกว่า token นี้ใช้กับระบบฝั่งไหน) | สร้างร้านใหม่ (`POST /platform/tenants`), ระงับ/เปิดร้าน (`PATCH /platform/tenants/:id/status`), ดูรายชื่อร้านทั้งหมด (`GET /platform/tenants`), import ข้อมูลร้านเก่า (`POST /platform/tenants/:id/import`) — **ห้ามเรียก `/api/*` แม้แต่ endpoint เดียว แม้จะเป็น owner ของร้านไหนก็ตาม** | `server/src/platform/platform-tenants.controller.ts:26-59`, `server/src/platform/tenant-import.controller.ts:27-48`, กติกาแยก realm ทั้งหมดอยู่ใน `docs/Backend_design/adr/0002-platform-admin-plane.md` |
+| **Platform admin** (ทีมงานแพลตฟอร์ม ไม่ใช่คนของร้าน) | login คนละช่องทาง: `POST /platform/auth/token` — คนละตาราง (`platform_admins`, ไม่มี `tenant_id`), คนละ JWT (`aud: "platform"` — **aud** ย่อจาก audience คือค่าใน JWT ที่บอกว่า token นี้ใช้กับระบบฝั่งไหน) | สร้างร้านใหม่ (`POST /platform/tenants`), ระงับ/เปิดร้าน (`PATCH /platform/tenants/:id/status`), ดูรายชื่อร้านทั้งหมด (`GET /platform/tenants`), import ข้อมูลร้านเก่า (`POST /platform/tenants/:id/import`) — 🔄 ตั้งแต่ #443/#476 (2026-09-27 → 10-03) ยังออกรหัสผูกเครื่องใหม่ เปลี่ยนเครื่องที่หาย และออกรหัสผ่านชั่วคราวให้ owner ได้ (ดูตาราง "Platform" ด้านล่าง) — **ห้ามเรียก `/api/*` แม้แต่ endpoint เดียว แม้จะเป็น owner ของร้านไหนก็ตาม** | `server/src/platform/platform-tenants.controller.ts:28-109`, `server/src/platform/tenant-import.controller.ts:28-53`, กติกาแยก realm ทั้งหมดอยู่ใน `docs/Backend_design/adr/0002-platform-admin-plane.md` |
 | **BullMQ worker / job พื้นหลัง** (ระบบ ไม่ใช่คน) | ไม่ "login" — เป็น process แยก (`worker.ts`) ที่ดึงงานจากคิวใน Redis มาทำเอง | ประมวลผลงานเบื้องหลัง: `sale-post` (งานหลังขาย), `inventory`, `maintenance`, `backup`, `tenant-import`, `dlq` (dead-letter queue สำหรับงานที่ล้มเหลวซ้ำ) | `server/src/worker.ts:19` (log message ระบุชื่อคิวทั้ง 6), ไฟล์ processor จริงใน `server/src/queue/processors/*.ts` |
 | **ลูกค้า / ช่าง** (indirect — ปรากฏเป็นข้อมูล ไม่ใช่ผู้ใช้ระบบ) | ไม่ login เลย — ไม่มีบัญชีในระบบนี้ | ไม่ "ทำ" อะไรกับระบบโดยตรง แต่ถูกอ้างถึงในบิล (`customerId`, `mechanicId`), สะสมแต้ม/เครดิต และมีบิลผูกกับเครดิตช่าง (`เครดิตช่าง`) ที่ต้องมาชำระทีหลัง | `server/src/people/people.dto.ts:4-27` (แค่ data model ไม่มี controller ให้ login), field `mechanicId`/`customerId` ใน `server/src/sales/sales.dto.ts` |
 
@@ -446,8 +469,13 @@ flow คือ owner กด "สร้างเครื่องใหม่" (
 | Use case | Endpoint | ไฟล์ |
 |---|---|---|
 | Login ทีมแพลตฟอร์ม | `POST /platform/auth/token` | `platform-auth.controller.ts:10` |
-| สร้างร้านใหม่ / ดูรายชื่อร้าน / ระงับ-เปิดร้าน | `POST/GET/PATCH /platform/tenants` | `platform-tenants.controller.ts:31,40,55` |
-| Import ข้อมูลร้านเก่า + ดูสถานะงาน import | `POST /platform/tenants/:id/import`, `GET .../import/:jobId` | `tenant-import.controller.ts:37,48` |
+| สร้างร้านใหม่ / ดูรายชื่อร้าน / ระงับ-เปิดร้าน | `POST/GET/PATCH /platform/tenants` | `platform-tenants.controller.ts:33,57,42` |
+| ดูรายละเอียดร้าน + เครื่อง + งาน import (#443) | `GET /platform/tenants/:id` | `platform-tenants.controller.ts:104` |
+| ออกรหัสผูกเครื่องใหม่ให้เครื่องที่ยังไม่เคยผูก (#443) | `POST /platform/tenants/:id/devices/:deviceId/enrol-code` | `platform-tenants.controller.ts:64` |
+| เปลี่ยนเครื่องที่หาย เมื่อร้านไม่เหลือเครื่องที่ผูกไว้ (#476 ปิด 2026-10-03 — PR #561 + แบนเนอร์ POS PR #567) | `POST /platform/tenants/:id/devices/:deviceId/replace` | `platform-tenants.controller.ts:79` |
+| ออกรหัสผ่านชั่วคราว 24 ชม. ให้ owner ที่ลืมรหัส (#443) | `POST /platform/tenants/:id/owner/temp-password` | `platform-tenants.controller.ts:96` |
+| ดู audit ของร้าน | `GET /platform/tenants/:id/audit` | `platform-audit.controller.ts:17` |
+| Import ข้อมูลร้านเก่า + ดูสถานะงาน import | `POST /platform/tenants/:id/import`, `GET .../import/:jobId` | `tenant-import.controller.ts:38,49` |
 
 ### Backup/export
 
@@ -468,6 +496,10 @@ flow คือ owner กด "สร้างเครื่องใหม่" (
 > แก้ (2026-09-24): fingerprint ที่ `/sync/push` ใช้เทียบ (`POST /sales`) ไม่ตรงกับที่ online runner
 > เก็บจริง (`POST /api/v1/sales`) ทำให้บิลที่ commit ออนไลน์แล้วแต่คำตอบหาย จะถูกปฏิเสธผิดพลาดตอน
 > sync กลับมา — ห้ามเขียนว่า sync push "ใช้งานได้สมบูรณ์แล้ว"
+>
+> 🔄 **อัปเดต 2026-10-07:** บั๊กนี้แก้แล้ว 2026-09-25 (PR #413, #409) · ลำดับต่อ op ตอนนี้คือ replay ด้วย key
+> (payload ตามที่ส่งมา ไม่ parse) → replay ด้วย client id → `parseOpPayload` → service
+> ([`08_PHASE2_SPEC.md §8.3`](../Backend_design/08_PHASE2_SPEC.md), PR #624/#630/#638) — ยังเป็นโค้ดที่ร้านไม่ได้ใช้จริง (รอ #231 cutover)
 
 ### หน้าจอ Flutter ที่สอดคล้องกัน (จาก `app_router.dart`)
 
@@ -526,7 +558,7 @@ flow คือ owner กด "สร้างเครื่องใหม่" (
 | **Precondition** | **เปิดกะ:** เครื่องยังไม่ถูก retire · **ปิดกะ:** มีกะที่เปิดอยู่บนเครื่องนี้ (`closed_at IS NULL`) |
 | **Main flow (เปิดกะ)** | 1. แคชเชียร์กดเปิดกะ ใส่เงินทอนตั้งต้น (`startingCash`) · 2. ยิง `POST /shifts/open` · 3. Server ล็อกแถว device ก่อน (เช็คว่าไม่ถูก retire) แล้วล็อกกะที่ active อยู่ของเครื่องนี้ (ถ้ามี) · 4. ถ้ามีกะเก่าค้างอยู่ (เช่นลืมปิดเมื่อวาน) → เก็บ (archive) กะเก่าให้อัตโนมัติ และถ้ากะเก่านั้น "ยังไม่เคยถูกปิด" (`closed_at` ยังเป็น null) จะสร้างรายการเข้าคิว "รอเจ้าของตรวจ" (`owner_review_items`, kind `shift_uncounted`) · 5. สร้างกะใหม่ พร้อม `startingCash` |
 | **Main flow (ปิดกะ)** | 1. แคชเชียร์นับเงินสดจริงในลิ้นชัก (`physicalCash`) · 2. ยิง `POST /shifts/close` · 3. Server ประทับ `closed_at` และบันทึกจำนวนเงินที่นับได้จริง — **กะยังคง `is_active = true` ต่อไป** (มันยังเป็น "ลิ้นชักปัจจุบัน" ของเครื่องนี้ จนกว่าการเปิดกะครั้งถัดไปจะ archive มันจริงๆ) |
-| **Alternative/Exception flow** | **ปิดกะที่ปิดไปแล้ว** — โยน error ภาษาอังกฤษ `"This shift is already closed."` (คอมเมนต์ในโค้ดบอกตรงๆ ว่าไม่มีข้อความไทยเพราะเคสนี้ไม่ควรเกิดจาก UI ปกติ) — `shifts.service.ts:281,284`<br>**เครื่องถูก retire แล้ว** — เปิดกะไม่ได้ โยน `403 DEVICE_ROLE_FORBIDDEN`, กันด้วย `FOR NO KEY UPDATE` เพื่อไม่ให้แข่งกับ retire ที่กำลังเกิดพร้อมกัน — `shifts.service.ts:154-163`<br>**เลิกผูกเครื่องทั้งที่กะยังเปิดอยู่** — ต้องส่ง `physicalCash` มาปิดกะให้เสร็จก่อน ไม่งั้น `409 PHYSICAL_CASH_REQUIRED` (`devices.controller.ts:84-87`)<br>**เปิดกะซ้ำด้วย `id` เดิมแต่ `startingCash` ต่าง** — `409 CLIENT_ID_REUSED` เหมือน `/sync/push` (PR #610, `shifts.service.ts:202`); cash เท่าเดิมแม้เขียนต่างรูปแบบ (`"2000"` vs `"2000.00"`) ยังคืนกะเดิม 200 |
+| **Alternative/Exception flow** | **ปิดกะที่ปิดไปแล้ว** — server โยน `409 SHIFT_ALREADY_CLOSED` ข้อความอังกฤษ `"This shift is already closed."` (คอมเมนต์ในโค้ดบอกว่าไม่มีประโยคไทยใน `db.js` ให้ลอก) — `shifts.service.ts:307-313` · 🔄 ตั้งแต่ PR #651 (2026-10-07) แอปแปลงเป็น `กะนี้ปิดไปแล้ว ปิดซ้ำไม่ได้ — ถ้าจะขายต่อ กรุณาเปิดกะใหม่` (`server_error_resolver.dart`, เจ้าของรับรอง 2026-10-07 ใน PR #653)<br>**เครื่องถูก retire แล้ว** — เปิดกะไม่ได้ โยน `403 DEVICE_ROLE_FORBIDDEN`, กันด้วย `FOR NO KEY UPDATE` เพื่อไม่ให้แข่งกับ retire ที่กำลังเกิดพร้อมกัน — `shifts.service.ts:172-186`<br>**เลิกผูกเครื่องทั้งที่กะยังเปิดอยู่** — ต้องส่ง `physicalCash` มาปิดกะให้เสร็จก่อน ไม่งั้น `409 PHYSICAL_CASH_REQUIRED` (`devices.controller.ts:85-89`, โยนที่ `shifts.service.ts:375`)<br>**เปิดกะซ้ำด้วย `id` เดิมแต่ `startingCash` ต่าง** — `409 CLIENT_ID_REUSED` เหมือน `/sync/push` (PR #610, `shifts.service.ts:202`); cash เท่าเดิมแม้เขียนต่างรูปแบบ (`"2000"` vs `"2000.00"`) ยังคืนกะเดิม 200 |
 | **Postcondition** | **เปิดกะ:** มีแถวใหม่ในตาราง `shifts` ผูกกับเครื่องนี้ กะเก่า (ถ้ามี) ถูก archive · **ปิดกะ:** กะปัจจุบันมี `closed_at`+`physical_cash` แต่ยังนับเป็นกะปัจจุบันของเครื่องอยู่จนกว่าจะเปิดกะใหม่ |
 | **Business rules (อ้างโค้ด)** | R1: `"is_active" ไม่ได้แปลว่า "เปิดอยู่"` — คำว่าเปิด/ปิดจริงดูจาก `closed_at IS NULL` เท่านั้น (คำเตือนตรงในคอมเมนต์ `shifts.service.ts:70-73`)<br>R2: กะที่ลืมปิดถูก flag เป็น `shift_uncounted` ให้เจ้าของมาตรวจทีหลัง ไม่ใช่ปล่อยข้อมูลหาย — `shifts.service.ts:192-200`<br>R3: Lock order คือ device ก่อน shift (`shifts.service.ts:157` คอมเมนต์ "Lock order: devices → shifts") — สอดคล้องกับกติกา lock order ทั่วทั้ง backend ที่ระบุใน CLAUDE.md |
 

@@ -4,6 +4,29 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- VM เดียว (`mob04`) รันทุกอย่างเป็น container — CI build image ครั้งเดียวแล้ว push ขึ้น **GHCR**, VM แค่ pull
+- **Ansible** สอง playbook คนละ user: `provision.yml` (`cloud`, มี sudo) / `deploy.yml` (`deploy`, ไม่มี sudo) — least privilege
+- CD ทำงานจริงแล้ว: self-hosted runner `mob04-demo` (ตั้งแต่ 2026-09-30) และทุก deploy ต้องรอ `NuimanLP` อนุมัติบน environment `demo`
+- หลักฐานเดียวว่า deploy ถึงเครื่อง = `/opt/pos/.current_sha` บน VM — run สีเขียวอย่างเดียวไม่พอ
+- ยังเปิด: backup ยังไม่ออกจาก VM (#363 parked) — ห้ามพูดว่า "มี backup นอกเครื่องแล้ว"
+- **ตัวเลข/หลักฐานหลัก:** `.current_sha` = `dd659e2` (อ่าน 2026-10-07) จาก Deploy run `37585778195` (job `deploy to demo` = success) · `/health/ready` 200
+- **ภาพที่แนะนำ:** วงจร DevOps (infinity loop) ใน 🧱 ปูพื้นฐาน §3 ของบทนี้ หรือภาพย่อเส้นทาง image:
+
+```mermaid
+flowchart LR
+  A["GitHub Actions (main)"] -->|"build + Trivy"| B["GHCR (tag = SHA)"]
+  B --> C["Deploy (demo) รออนุมัติ"]
+  C --> D["runner mob04-demo + Ansible deploy.yml"]
+  D --> E["docker compose บน mob04"]
+  E --> F["/opt/pos/.current_sha + /health/ready"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านมาก่อน:** [00_index.md](00_index.md) (client/server, HTTP, terminal, Git), [02_architecture.md](02_architecture.md) (ภาพรวม Nginx/NestJS×3/Postgres/Redis/etcd), และควรผ่าน [06_backend.md](06_backend.md) มาบ้าง (จะเจอคำว่า tenant, migration)
@@ -567,11 +590,13 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 
 ## ⚠️ บทเรียนจากของจริง
 
-**CD ไป `mob04` ยังไม่เคยสำเร็จสักครั้ง** — ทางตันหลักอยู่**นอก repo**: ไฟร์วอลล์ **FortiGate** ของเครือข่ายมหาวิทยาลัยทำ **SSL deep inspection** กับ HTTPS ขาออกของ `mob04` แล้วตอบแทน `ghcr.io` ด้วย certificate ของตัวเอง (`O=Fortinet, OU=FortiGate, CN=FG3K4ETB19900078`) ที่**ไม่มี SAN (Subject Alternative Name)** เลย ทำให้ `docker compose pull` ล้มด้วย `x509: certificate is not valid for any names` — การ trust CA ของ Fortinet ก็ไม่ช่วย เพราะ hostname verification ยังล้มอยู่ดี ปัญหานี้ปิดทั้งสองทางพร้อมกัน: การรัน Ansible ด้วยมือ และ self-hosted runner ของ `#67` (ใช้ Docker daemon ตัวเดียวกัน) — ทางแก้จริงมีทางเดียวคือทีมเครือข่ายยกเว้น `ghcr.io` (และ `registry-1.docker.io`, `gcr.io`) ให้ IP ของ VM (`172.30.58.20`) `docker save`/`load` ด้วยมือเป็นแค่**ทางกู้วันเดโม ไม่ใช่ CD** และต้องไม่มีใครบันทึกว่ามันคือ CD
+**CD ไป `mob04` ยังไม่เคยสำเร็จสักครั้ง** (สถานะเดิมถึง 2026-09-29 — ดู 🟢 ข้างล่าง) — ทางตันหลักอยู่**นอก repo**: ไฟร์วอลล์ **FortiGate** ของเครือข่ายมหาวิทยาลัยทำ **SSL deep inspection** กับ HTTPS ขาออกของ `mob04` แล้วตอบแทน `ghcr.io` ด้วย certificate ของตัวเอง (`O=Fortinet, OU=FortiGate, CN=FG3K4ETB19900078`) ที่**ไม่มี SAN (Subject Alternative Name)** เลย ทำให้ `docker compose pull` ล้มด้วย `x509: certificate is not valid for any names` — การ trust CA ของ Fortinet ก็ไม่ช่วย เพราะ hostname verification ยังล้มอยู่ดี ปัญหานี้ปิดทั้งสองทางพร้อมกัน: การรัน Ansible ด้วยมือ และ self-hosted runner ของ `#67` (ใช้ Docker daemon ตัวเดียวกัน) — ทางแก้จริงมีทางเดียวคือทีมเครือข่ายยกเว้น `ghcr.io` (และ `registry-1.docker.io`, `gcr.io`) ให้ IP ของ VM (`172.30.58.20`) `docker save`/`load` ด้วยมือเป็นแค่**ทางกู้วันเดโม ไม่ใช่ CD** และต้องไม่มีใครบันทึกว่ามันคือ CD
 
-**self-hosted runner ยังไม่ได้ติดตั้งจริง** — issue `#67` ถูกปิดไปแล้ว (2026-09-20) แต่ `gh api …/actions/runners` ยืนยันว่า `total_count: 0` — สิ่งที่ commit ที่ปิด issue ส่งมอบจริงคือแค่สคริปต์ติดตั้ง + runbook ไม่ใช่การติดตั้งจริง (**สถานะ ticket ปิด ≠ งานเสร็จ** — บทเรียนซ้ำที่ CLAUDE.md เตือนไว้หลายจุด)
+**self-hosted runner ยังไม่ได้ติดตั้งจริง** (สถานะเดิมถึง 2026-09-30 — ดู 🟢 ข้างล่าง) — issue `#67` ถูกปิดไปแล้ว (2026-09-20) แต่ `gh api …/actions/runners` ยืนยันว่า `total_count: 0` — สิ่งที่ commit ที่ปิด issue ส่งมอบจริงคือแค่สคริปต์ติดตั้ง + runbook ไม่ใช่การติดตั้งจริง (**สถานะ ticket ปิด ≠ งานเสร็จ** — บทเรียนซ้ำที่ CLAUDE.md เตือนไว้หลายจุด)
 
 > 🟢 **แก้ 2026-09-30:** สองย่อหน้าข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` 2026-09-29 · runner `mob04-demo` ติดตั้งแล้ว · deploy จริงสำเร็จ `e50f4fa` แล้วล่าสุด `ca2fef1` (`.current_sha` + `/health/ready` 200) · rollback พิสูจน์ทั้ง `workflow_dispatch` (run `36687687309`) และอัตโนมัติ (run `36720675552`) · #67 ปิด 2026-09-30
+
+> 🔄 **อัปเดต 2026-10-07:** `.current_sha` บน `mob04` = `dd659e2` (PR #652) จาก Deploy run `37585778195` · ทุก deploy ต้องรอ required reviewer (`NuimanLP`) อนุมัติบน environment `demo` · ตั้งแต่ 2026-10-06 งานลง `develop` ก่อน image/deploy มาจาก `main` เท่านั้น (`develop` ไม่ build image ไม่ deploy) · merge หนึ่งครั้งเข้า `main` ปลุก `Deploy (demo)` **สองรอบ** (จาก Server CI และ Flutter CI) — รอบ `37585675913` ของ SHA เดียวกัน job `deploy to demo` = **skipped** แต่ทั้ง run ยังเขียว → ยืนยันอีกครั้งว่า "เขียว ≠ deploy แล้ว"
 
 **"run สีเขียว" ไม่ใช่หลักฐานว่า deploy สำเร็จ** — job `deploy` ของ workflow `Deploy (demo)` จะถูก **skip** (ไม่ใช่ fail) ถ้า image ที่ SHA นั้นยังไม่ครบทั้ง 2 ตัวบน GHCR แต่ workflow ทั้งอันยังรายงานว่า **success** ได้ (เพราะมีแค่ job `resolve release` ที่รันจริง) — หลักฐานเดียวที่พิสูจน์ได้จริงว่า deploy สำเร็จคือไฟล์ `/opt/pos/.current_sha` บน VM
 
@@ -579,9 +604,9 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 
 > 🟢 **แก้ 2026-09-30 เย็น:** #346 ปิดแล้ว (รันสคริปต์ด้วย env แบบเดียวกับ cron ผ่าน + dump ตรวจแล้ว — ยังไม่ใช่รอบ cron จริง รอบแรกคือ 03:00 ของ 2026-10-01) · รอบ cron 09-29 สคริปต์*มีอยู่แต่ fail* (ทิ้ง .gz ว่าง) ไม่ใช่ "ไม่มีสคริปต์" · PR #519 ทำให้เขียน `.partial` แล้ว `mv` (merge แล้ว ~~แต่**ยังไม่ได้ลงบน `mob04`**~~ — **แก้ 2026-09-30 ค่ำ:** ลงบน `mob04` แล้ว sha256 ตรง `origin/main`) · CD ไม่อัปเดต `/opt/pos/scripts` มีแต่ `provision.yml` · offsite ยังพัก (#363/#288)
 
-**etcd auth ยังไม่เคยเปิดจริงบน `mob04` (`#365`)** — `etcd-init.sh` บน VM กลายเป็นไดเรกทอรีที่เป็นของ root แทนที่จะเป็นสคริปต์ ทำให้ auth ไม่เคยถูกเปิดใช้งานจริง — ทุก AC ของ ticket นี้ถูก block ด้วยการที่ยังไม่เคยรันบน VM จริงเลย
+**etcd auth ยังไม่เคยเปิดจริงบน `mob04` (`#365`)** (สถานะเดิมถึง 2026-09-30 — ดู 🟢 ข้างล่าง) — `etcd-init.sh` บน VM กลายเป็นไดเรกทอรีที่เป็นของ root แทนที่จะเป็นสคริปต์ ทำให้ auth ไม่เคยถูกเปิดใช้งานจริง — ทุก AC ของ ticket นี้ถูก block ด้วยการที่ยังไม่เคยรันบน VM จริงเลย
 
-> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — etcd auth เปิดอยู่บน `mob04` แล้วตั้งแต่ deploy แรกของ runner และพิสูจน์ทั้งสองทาง (ใช้รหัสได้ / ไม่ใช้ถูกปฏิเสธ), รหัสใน `.env` ตรง volume, snapshot ไว้ที่ `/opt/pos/backups/` (#365 AC 3/4 — ดู `docs/handoff_log/session-2026-09-30-first-runner-deploy.md`)
+> 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — etcd auth เปิดอยู่บน `mob04` แล้วตั้งแต่ deploy แรกของ runner และพิสูจน์ทั้งสองทาง (ใช้รหัสได้ / ไม่ใช้ถูกปฏิเสธ), รหัสใน `.env` ตรง volume, snapshot ไว้ที่ `/opt/pos/backups/` (#365 ปิด 2026-09-30 ครบ 4/4 — ดู `docs/handoff_log/session-2026-09-30-first-runner-deploy.md`)
 
 **CORS ยังเป็น `'*'` บน `mob04` (`#367` note)** — โค้ดที่ทำให้ `CORS_ORIGINS`/`PLATFORM_ADMIN_IPS` ส่งเข้า container ได้จริง merge แล้ว (ผ่าน `x-app-env` anchor ในหัวข้อ "ของจริงใน repo") แต่ตัว VM เองยังไม่เคยรัน `provision.yml` ใหม่พร้อมค่าเหล่านี้ — จึงยัง**เปิดกว้าง** (`'*'`) อยู่จนกว่าจะ deploy demo รอบถัดไปพร้อมตั้งค่าให้ครบ (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
 
@@ -602,9 +627,11 @@ sum(rate(http_requests_total{status_code!~"5..\"}[5m])) / sum(rate(http_requests
 - **Secret ผ่าน `.env` + `:?` required** กันรหัสผ่านหลุดเข้า Git และกันการรันด้วยค่าว่างแบบเงียบๆ
 - **Ansible** (ไม่ใช่ Kubernetes) เพราะมี VM แค่ตัวเดียว, สอง playbook (`provision.yml`/`deploy.yml`) รันคนละ user โดยตั้งใจตามหลัก least privilege
 - **Observability** ใช้แค่ metrics (Prometheus pull model + Grafana) ไม่มี log รวมศูนย์หรือ tracing เพราะงบ RAM ไม่พอสำหรับ Wazuh/ELK — และชื่อ metric (`http_requests_total` ฯลฯ) ห้ามเปลี่ยนเพราะ dashboard อ้างตรงๆ
-- **สถานะจริงต้องพูดตรงๆ:** CD ยังไม่เคยสำเร็จ (ติด FortiGate), runner ยังไม่ติดตั้ง, backup ยังไม่ออกนอก VM, etcd auth ยังไม่เปิดจริงบน VM, CORS ยังเป็น `'*'` (**แก้ 2026-09-30:** CORS บน `mob04` ปิดแล้ว) — ทั้งหมดนี้เป็นข้อเท็จจริงจาก CLAUDE.md ไม่ใช่การมองโลกในแง่ร้าย
+- **สถานะจริงต้องพูดตรงๆ (ภาพเดิมก่อน 2026-09-30 — ดู 🟢/🔄 ข้างล่าง):** CD ยังไม่เคยสำเร็จ (ติด FortiGate), runner ยังไม่ติดตั้ง, backup ยังไม่ออกนอก VM, etcd auth ยังไม่เปิดจริงบน VM, CORS ยังเป็น `'*'` (**แก้ 2026-09-30:** CORS บน `mob04` ปิดแล้ว) — ทั้งหมดนี้เป็นข้อเท็จจริงจาก CLAUDE.md ไม่ใช่การมองโลกในแง่ร้าย
 
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+>
+> 🔄 **อัปเดต 2026-10-07:** สถานะปัจจุบัน — CD ทำงาน (ผ่านการอนุมัติด้วยมือทุกครั้ง), `.current_sha` = `dd659e2` (run `37585778195`), etcd auth เปิด (#365 ปิด), CORS ไม่ใช่ `'*'` · **ยังเปิด:** backup ยังไม่ออกนอก VM (#363 parked)
 
 ---
 
@@ -657,6 +684,8 @@ Container นั้นจะใช้ RAM ได้ไม่จำกัด ถ�
 ยังไม่จริง — CI (build/test/scan/push image ขึ้น GHCR) ทำงานสำเร็จแล้ว แต่ CD (การส่ง image นั้นไปติดตั้งจริงบน VM `mob04`) ไม่เคยสำเร็จสักครั้ง เพราะไฟร์วอลล์ FortiGate ของเครือข่ายมหาวิทยาลัยบล็อกการ pull จาก `ghcr.io` (ปัญหาเครือข่าย ไม่ใช่บั๊กในโค้ด) และ self-hosted runner ที่ควรจะรันขั้นตอน deploy ก็ยังไม่ได้ติดตั้งจริง แม้ ticket ที่เกี่ยวข้องจะถูกปิดไปแล้วก็ตาม การพูดว่า "deploy อัตโนมัติทำงานแล้ว" จะเป็นการรายงานสถานะที่ผิดตามกติกาความซื่อสัตย์ของเอกสารชุดนี้
 
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+>
+> 🔄 **อัปเดต 2026-10-07:** คำตอบปัจจุบัน = **deploy อัตโนมัติ "ครึ่งทาง" โดยตั้งใจ** — merge เข้า `main` ปลุก `Deploy (demo)` เอง แต่ job `deploy` ต้องรอ `NuimanLP` อนุมัติบน environment `demo` ก่อนแตะ VM (#366) · ล่าสุด `.current_sha` = `dd659e2` (run `37585778195`) · และ VM นี้คือ demo tenant ไม่ใช่ร้านจริง — ร้านยังใช้ build Drift (ยังไม่ cutover, #231 เปิดอยู่)
 
 </details>
 
@@ -664,6 +693,6 @@ Container นั้นจะใช้ RAM ได้ไม่จำกัด ถ�
 
 ## ➡️ อ่านต่อ
 
-บทถัดไป: [`15_cicd.md`](15_cicd.md) — เจาะลึกทุก stage ของ GitHub Actions pipeline ที่กล่าวถึงในบทนี้แบบละเอียด พร้อมผลลัพธ์จริงจาก `gh run view` และเรื่องราวเต็มๆ ของการติดตั้งที่ติด FortiGate
+บทถัดไป: [`15_cicd.md`](15_cicd.md) — เจาะลึกทุก stage ของ GitHub Actions pipeline ที่กล่าวถึงในบทนี้แบบละเอียด พร้อมผลลัพธ์จริงจาก `gh run view` และเรื่องราวเต็มๆ ของการติดตั้งที่เคยติด FortiGate (แก้แล้ว 2026-09-29/30)
 
 อยากเจาะลึกกว่านี้: [`docs/Backend_design/07_CICD_DEPLOY.md`](../Backend_design/07_CICD_DEPLOY.md) (เอกสารเจ้าของเรื่อง pipeline/deploy ทั้งหมด) และ [`docs/Backend_design/adr/0013-cicd-toolchain.md`](../Backend_design/adr/0013-cicd-toolchain.md) (บันทึกการตัดสินใจเรื่องเครื่องมือทั้งหมดในบทนี้พร้อมเหตุผล)

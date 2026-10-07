@@ -4,6 +4,33 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- "ไม่ได้คำตอบ" ≠ "ไม่สำเร็จ": 4xx = คำตัดสิน · timeout/5xx/429 = ไม่รู้ผล ห้ามเดาว่าล้ม
+- เฉพาะ transport failure แท้ๆ เข้า outbox — 5xx/429/`IN_FLIGHT` **park** (id + key เดิม) ไม่เข้าคิว (PR #469, #645)
+- outbox: บิล + op เขียนใน Drift transaction เดียว · writer ออฟไลน์เดียวต่อร้าน (`role='pos'`, ADR-0004)
+- `/sync/push` ต่อ op: **replay ด้วย key → replay ด้วย client id → parse → service** · หยุดที่ `retry` แรก (`08 §8.3`, PR #638)
+- เครื่อง `pos` ออกเลข RC/CN เองตอนออฟไลน์ · นาฬิกาเครื่องเชื่อแบบมีกรอบ ±5 นาที + `date_flag`
+- สถานะ: phase 2 ส่วนใหญ่ merge แล้ว แต่ร้านจริงยังรัน Drift build — cutover #231 ยังเปิด
+- **ตัวเลข/หลักฐานหลัก:** replay ด้วย client id พิสูจน์ด้วย e2e ครบ 7 ชนิด op (PR #641 เติม 3 ชนิดสุดท้าย `shift.open`/`customer.create`/`sale.void_offline`; `server/test/sync-push.e2e-spec.ts`) และใช้ได้หลัง key หมดอายุ 24 ชม. (PR #638)
+- **ภาพที่แนะนำ:** sequence diagram ใน *ของจริงใน repo → 12. Sequence: บิลออฟไลน์หนึ่งใบ* หรือ flow ย่อด้านล่าง
+
+```mermaid
+flowchart LR
+  A["op จาก outbox"] --> B{"key เดิม + fingerprint ตรง?"}
+  B -- "ใช่" --> R["applied (replay)"]
+  B -- "ไม่" --> C{"client id มีแล้ว?"}
+  C -- "ใช่" --> R
+  C -- "ไม่" --> D{"parseOpPayload ผ่าน?"}
+  D -- "ไม่" --> X["rejected (เช่น INVALID_ID)"]
+  D -- "ผ่าน" --> E["service + lock order"]
+  E --> F["applied / rejected / retry"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) (client/server, HTTP, JSON) และ [02_architecture.md](02_architecture.md) (ทางเลือก A/B/C, source of truth, idempotency ในบิลออนไลน์) — บทนี้ต่อยอดจากหัวข้อ "ตามรอย 1 บิล" ของบท 02 โดยตรง
@@ -472,11 +499,11 @@ class OutboxOps extends Table {
 - `attempts` — นับครั้งที่ **ไม่ได้ verdict ติดกัน** ครบ 3 → `stuck`
 - `lastCode/lastMessage/lastDetails` — เหตุผลล่าสุด เอาไปโชว์ในหน้า "รอ owner"
 
-ทำไมไม่เพิ่มคอลัมน์ `sales.sync_status` แทน? ADR-0010 addendum ตอบ: สถานะของบิลอ่านจาก op ของมันใน outbox **ที่เดียว** — มีสองที่เก็บสถานะเดียวกัน = วันหนึ่งจะไม่ตรงกัน (Drift ตอนนี้อยู่ schema v11 — `database.dart:72`)
+ทำไมไม่เพิ่มคอลัมน์ `sales.sync_status` แทน? ADR-0010 addendum ตอบ: สถานะของบิลอ่านจาก op ของมันใน outbox **ที่เดียว** — มีสองที่เก็บสถานะเดียวกัน = วันหนึ่งจะไม่ตรงกัน (Drift ตอนนี้อยู่ schema v13 — `database.dart:85`)
 
 ### 3. บิลตอน Degraded: เขียนบิล + op ใน transaction เดียว
 
-`frontend/lib/data/repositories/api/api_sales_repository.dart:119-128` — ทางแยก
+`frontend/lib/data/repositories/api/api_sales_repository.dart:120-129` — ทางแยก
 
 ```dart
       if (_isDegraded) {
@@ -493,11 +520,21 @@ class OutboxOps extends Table {
 
 `_isDegraded` (บรรทัด 83-102) ถือว่าเป็นโหมดสำรองเมื่อสถานะเป็น `degraded` **หรือ `syncing`** **หรือ outbox ยังเหลือของ** — ตรงกับกติกา "มีของค้างในคิว บิลใหม่ต้องต่อท้าย ห้ามแซง"
 
-และถ้ายิงออนไลน์แล้ว **ไม่ได้คำตอบ** (transport failure) — บรรทัด 148-164:
+และถ้ายิงออนไลน์แล้ว **ไม่ได้คำตอบ** (transport failure) — บรรทัด 136-183 (ย่อ, โค้ด ณ 2026-10-07):
 
 ```dart
-      } catch (_) {
-        // Non-verdict network failure (timeout, dropped socket, 5xx):
+      } on ApiException catch (e) {
+        // ... A 5xx (nginx's own 504 included) or a 429 is NOT an answer
+        // — the bill may be committed — so the attempt stays parked for the retry.
+        _pending.closeIfVerdict(attempt, e);
+        // ...
+        rethrow;
+      } catch (e) {
+        // 🔴 #409: only a TRANSPORT failure (timeout, dropped socket) may become
+        // an offline bill. ...
+        if (!isTransportFailure(e)) {
+          throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
+        }
         // Transition to Degraded and queue offline into outbox with same attempt id & key.
         final sync = syncService ??
             (syncFacade is SyncService ? syncFacade as SyncService : null);
@@ -507,6 +544,8 @@ class OutboxOps extends Table {
             saleId: attempt.id,
             idempotencyKey: attempt.headers['Idempotency-Key']!,
 ```
+
+> 🔄 **อัปเดต 2026-10-07:** ฉบับก่อนหน้าของบทนี้ยกโค้ดที่คอมเมนต์ว่า 5xx ก็เข้าคิว — **ไม่จริงแล้ว** เฉพาะ transport failure แท้ๆ (timeout/socket) เท่านั้นที่เข้า outbox · **5xx / 429 / `503 IDEMPOTENCY_KEY_IN_FLIGHT` ไม่เข้าคิวเด็ดขาด** — attempt ค้างไว้ (id + key เดิม) แล้วโชว์ error ให้กดใหม่ (owner 2026-09-27, `08 §5`, PR #469) · PR #645 (2026-10-06) ขยายกฎ "park, never queue" ไปถึงการเขียนลูกค้าและรับชำระเครดิต · PR #646 โชว์ประโยคไทยของ `IN_FLIGHT` (ให้รอแล้วลองใหม่) ทุกทางเขียน · `ApiException` ไม่ถึงหน้าจอ (PR #642/#644)
 
 - **จุดที่ต้องสังเกตมาก:** op ที่เข้าคิวใช้ **id + key เดิม** ของความพยายามออนไลน์ครั้งนั้น เพราะบิลนั้น **อาจ commit ที่ server ไปแล้ว** (หัวข้อ 1: ไม่ได้คำตอบ ≠ ไม่สำเร็จ) ตอน push server ต้องจำได้ว่าเป็นบิลเดียวกันแล้ว replay — **fingerprint ของสองทางต้องตรงกัน** (เคยพังตรงนี้ — บั๊ก HIGH #1, แก้แล้ว #413)
 
@@ -714,48 +753,51 @@ class NullSyncFacade implements SyncFacade {
 ```
 
 - **ทำไม `for` ธรรมดา ไม่ใช่ `Promise.all`:** op ต้องเรียงตามลำดับที่เกิดจริง (เปิดกะก่อนขาย ขายก่อน void) และ CLAUDE.md ห้าม `Promise.all([runTx(a), runTx(b)])` เพราะเคยทำให้ pool connection deadlock (#162)
-- **ทำไม op ละหนึ่ง transaction** (`processSingleOp` เรียก `this.tenants.runTx(...)` ที่บรรทัด 124) ไม่รวมทั้ง batch: ถ้า op ที่ 30 ถูกปฏิเสธ 29 ตัวแรกที่ถูกต้องไม่ควรถูกย้อนตาม
+- **ทำไม op ละหนึ่ง transaction** (`processSingleOp` เรียก `this.tenants.runTx(...)` ที่บรรทัด 144) ไม่รวมทั้ง batch: ถ้า op ที่ 30 ถูกปฏิเสธ 29 ตัวแรกที่ถูกต้องไม่ควรถูกย้อนตาม
 - **ทำไมหยุดเมื่อเจอ `retry`:** `retry` = ไม่รู้ผล (เช่น key กำลังถูกประมวลผลอยู่ `IN_FLIGHT`, 5xx) ถ้าประมวลผลต่อ op ถัดไปอาจพึ่งผลของตัวนี้ → ลำดับเพี้ยน แต่ `rejected` (verdict) **ไม่หยุด** เพราะรู้ผลแน่นอนแล้ว
 
 ### 8. `processSingleOpIn` — replay ก่อน ค่อยตรวจ (B1)
 
-`server/src/sync/sync.service.ts:136-173` (ย่อเล็กน้อย)
+`server/src/sync/sync.service.ts:147-222` (ย่อ — โค้ด ณ 2026-10-07; สังเกตว่าขั้น 1–2 ใช้ `raw` คือ payload ตามที่ส่งมา ยังไม่ parse)
 
 ```ts
     // Step 1: Idempotency claim & replay check (08 §8.3 step 1)
     const claim = await this.idempotency.claim(manager, {
       tenantId,
-      key: op.idempotencyKey,
+      key: raw.idempotencyKey,
       endpoint: ep.endpoint,
       requestHash,
     });
 
     if (claim.outcome === 'replay') {
-      return { opId: op.opId, status: 'applied', response: claim.response.body };
+      return { opId: raw.opId, status: 'applied', response: claim.response.body };
     }
 
     if (claim.outcome === 'reused') {
-      throw new ConflictException({
-        code: 'IDEMPOTENCY_KEY_REUSED',
-        message: 'Idempotency-Key already used for a different request',
-      });
+      // #409: ... บิลที่ commit ออนไลน์แล้ว reply หาย → replay เฉพาะเมื่อเป็นเอกสารเดียวกัน
+      // ... ไม่ใช่ → IDEMPOTENCY_KEY_REUSED
     }
 
-    // Step 2: Client ID replay check (08 §8.3 step 2, §6.1)
-    const clientReplay = await this.checkClientIdReplay(manager, tenantId, op);
+    // Step 2: Client ID replay check (08 §8.3 step 2, §6.1) — also before the parser:
+    // a document the server already holds replays even when its key row is gone and
+    // today's parser would refuse the body (`replayProbeOf`).
+    const clientReplay = await this.checkClientIdReplay(manager, tenantId, raw);
     if (clientReplay !== null) {
       // ... complete the claim with the existing response, return 'applied'
     }
 
+    // #619: the one typed parser, only once neither replay answered. ...
+    const op = parseOpPayload(raw);
+
     // Step 3: Domain execution with date clamping & side-effects
-    const responseBody = await this.executeOp(manager, tenantId, actor, device, op);
+    const responseBody = await this.executeOp(/* manager, tenantId, actor, device, op, ... */);
 ```
 
-- **อัปเดต 2026-10-06 (#619, PR #624/#630):** op แต่ละตัวถูก parse ด้วย `parseOpPayload` ตัวเดียว **แต่หลัง** replay-by-key — ลำดับจริงคือ claim/replay ด้วย key ก่อน แล้วค่อย parse (กฎ B1) ไม่งั้น op ที่ commit ไปแล้วแต่รูป payload ถูกเข้มขึ้นทีหลังจะกลายเป็น reject · ส่วน `opId` ที่ไม่ใช่ UUID (#616) ทำให้ **ทั้ง envelope เป็น 400** (ผล per-op ผูกกับ opId จึงไม่มีที่ให้รายงาน) และ `/sync/discards` ก็ 400 เช่นกัน
+- **อัปเดต 2026-10-06 (#619, PR #624/#630 → #638):** op แต่ละตัวถูก parse ด้วย `parseOpPayload` ตัวเดียว **หลัง replay ทั้งสองชั้น** — ลำดับจริงคือ (1) replay ด้วย key บน payload ตามที่ส่งมา → (2) replay ด้วย client id ผ่าน `replayProbeOf` (อ่านแค่ id + ฟิลด์ที่ §6.1 เทียบ ไม่ parse, สร้างคำตอบจากแถวที่เก็บไว้ — PR #638) → แล้วค่อย parse (ปฏิเสธ = `rejected` เช่น `INVALID_ID` ไม่ใช่ `retry`) → (3) service (กฎ B1, `08 §8.3`) · e2e พิสูจน์ replay-by-id ครบ 7 ชนิด op รวม `shift.open`/`customer.create`/`sale.void_offline` (PR #641, `server/test/sync-push.e2e-spec.ts`) ไม่งั้น op ที่ commit ไปแล้วแต่รูป payload ถูกเข้มขึ้นทีหลังจะกลายเป็น reject · ส่วน `opId` ที่ไม่ใช่ UUID (#616) ทำให้ **ทั้ง envelope เป็น 400** (ผล per-op ผูกกับ opId จึงไม่มีที่ให้รายงาน) และ `/sync/discards` ก็ 400 เช่นกัน
 - **ทำไม replay ต้องมาก่อนตรวจกฎธุรกิจ (B1):** นึกภาพบิลที่ commit ไปแล้ว ถ้าตรวจสต็อกก่อน สต็อกตอนนี้ถูกบิลนั้นตัดไปแล้ว → "สต็อกไม่พอ" → **บิลที่สำเร็จแล้วถูกรายงานว่าล้ม** ลำดับที่ถูกคือ "เคยทำแล้วไหม?" ก่อน "ทำได้ไหม?"
 - **สองชั้นของ replay:**
   1. ด้วย key (ปกติ)
-  2. ด้วย client id (B2) — ตาข่ายเมื่อ key หมดอายุ (เน็ตล่มนานกว่า 24 ชม.) server เทียบ **เฉพาะฟิลด์ที่ไม่เปลี่ยน** (เช่น `total` ของบิล) ถ้าไม่ตรง → `CLIENT_ID_REUSED` (ทางออนไลน์ `POST /shifts/open` ก็ตอบ code นี้เมื่อ id ซ้ำแต่ `startingCash` ต่าง — PR #610 ผ่าน `ClientIdReusedException` ตัวเดียวกัน; ที่ `08 §6.1` ยังรอเจ้าของยืนยัน)
+  2. ด้วย client id (B2) — ตาข่ายเมื่อ key หมดอายุ (เน็ตล่มนานกว่า 24 ชม.; ใช้ได้จริงหลัง key หมดอายุตั้งแต่ PR #638, 2026-10-06) server เทียบ **เฉพาะฟิลด์ที่ไม่เปลี่ยน** (เช่น `total` ของบิล) ถ้าไม่ตรง → `CLIENT_ID_REUSED` (ทางออนไลน์ `POST /shifts/open` ก็ตอบ code นี้เมื่อ id ซ้ำแต่ `startingCash` ต่าง — PR #610 ผ่าน `ClientIdReusedException` ตัวเดียวกัน; ที่ `08 §6.1` ยังรอเจ้าของยืนยัน)
 - `endpoint: ep.endpoint` มาจาก `endpointForOp` — **ตรงนี้คือจุดที่เคยเป็นต้นเหตุบั๊ก HIGH #1** (แก้แล้ว #413) ดูข้างล่าง
 
 ### 9. `clampOpDate` — เชื่อนาฬิกาเครื่องแบบมีกรอบ
@@ -842,7 +884,7 @@ class NullSyncFacade implements SyncFacade {
 
 ### 11. Service worker + แท็บเดียว
 
-`frontend/web/sw.js:1-6`
+`frontend/web/sw.js:1-8`
 
 ```js
 // Service Worker for Srisurart Autopart POS
@@ -850,6 +892,8 @@ class NullSyncFacade implements SyncFacade {
 // Invariant: NEVER call self.skipWaiting() automatically on install.
 // Cache updates must be confirmed by the cashier to prevent reloads mid-sale.
 
+// CI rewrites this line and the 'main.dart.js' entry below to the release SHA
+// (deploy/version-web-build.sh) — keep both spelled exactly as they are.
 const CACHE_NAME = 'srisurart-pos-v1';
 ```
 
@@ -858,6 +902,8 @@ const CACHE_NAME = 'srisurart-pos-v1';
 - **แท็บเดียว (D10):** `frontend/web/index.html:364` ใช้ `navigator.locks.request('srisurart-pos-writer', { ifAvailable: true }, …)` — **Web Locks** (กลไกล็อกข้ามแท็บของ browser) แท็บที่ได้ล็อกเป็น writer ถือ outbox แท็บที่สองได้หน้า "เปิดอยู่แล้ว" เพราะสองแท็บ = สอง `SyncService` = writer สองตัวบนเครื่องเดียว — ปิดช่องที่ ADR-0004 เตือนว่า "เปิดแท็บที่สองก็พังแล้ว"
 
 > ⚠️ **ข้อสังเกตที่ยังไม่ได้ตรวจลึก:** 08 §4 ข้อ 5 กำหนดชื่อ cache = `github.sha` (เปลี่ยนทุก deploy) แต่ `sw.js` เขียนค่าคงที่ `'srisurart-pos-v1'` และ grep ใน `.github/` ไม่พบขั้นตอนที่แทนค่านี้ตอน build — ถ้าไม่มีที่อื่นแทนค่า รุ่นใหม่อาจไม่ล้าง cache เก่า และ 08 §4 ข้อ 10 ระบุว่า `mob04` ใช้ cert self-signed ซึ่ง Chrome จะ **ไม่ register service worker** เลย — เท่ากับบน VM สาธิต offline shell ยังพิสูจน์ไม่ได้
+
+> 🔄 **อัปเดต 2026-10-07:** ข้อแรกแก้แล้ว — `flutter.yml` รัน `deploy/version-web-build.sh` ซึ่งแทน `CACHE_NAME` เป็น `srisurart-pos-<release SHA>` ทุก build (commit `5555c04`, 2026-09-28; ดูคอมเมนต์ใน `sw.js` ข้างบน) · ข้อสอง: ตั้งแต่ PR #552 (2026-10-03) `mob04` ใช้ cert จาก **CA ส่วนตัว** (`frontend/assets/certs/pos-ca.crt`) ไม่ใช่ self-signed ลอยๆ — browser จะ register service worker ได้ก็ต่อเมื่อเครื่องนั้นเชื่อ CA นี้ ยังไม่พบหลักฐานว่าพิสูจน์ offline shell บน `mob04` แล้ว
 
 ### 12. Sequence: บิลออฟไลน์หนึ่งใบ ตั้งแต่กดขายจนถึง server
 
@@ -917,7 +963,7 @@ sequenceDiagram
 - **ปัญหาที่แก้:** at-least-once delivery ทำให้ client ส่งซ้ำได้เสมอ ถ้าไม่มี replay การส่งซ้ำจะตัดสต็อก/แต้มซ้ำ
 - **ทำไมเลือกท่านี้ (เทียบกับ "เช็คกฎธุรกิจก่อนแล้วค่อยดู key"):** ถ้าตรวจกฎก่อน บิลที่ commit ไปแล้วจะเจอสต็อกที่ตัวเองตัดไปแล้ว แล้วถูกปฏิเสธผิดๆ ("บิลสำเร็จถูกรายงานว่าล้ม") — ต้องถาม "เคยทำหรือยัง" ก่อน "ทำได้ไหม" เสมอ (B1)
 - **ดี/ราคา:** ดี — ส่งซ้ำได้อย่างปลอดภัย; ราคา — endpoint fingerprint ต้องคำนวณจากฟังก์ชันเดียวกันทุกทาง ไม่งั้นพังแบบเงียบ (เคยพังจริง — ดูบั๊ก HIGH #1 ท้ายบท, แก้แล้ว #413)
-- **อยู่ตรงไหน:** `server/src/sync/sync.service.ts:136-173` (`processSingleOpIn`), ตาราง idempotency: `server/src/idempotency/idempotency.service.ts:335-340`
+- **อยู่ตรงไหน:** `server/src/sync/sync.service.ts:147-222` (`processSingleOpIn`), ตาราง idempotency: `server/src/idempotency/idempotency.service.ts:335-340`
 
 ### 3. Single-writer (`one_pos_per_tenant`)
 
@@ -964,11 +1010,11 @@ sequenceDiagram
 | เทคนิค | แก้ปัญหาอะไร | ราคาที่จ่าย | file |
 |---|---|---|---|
 | Outbox pattern | dual-write problem (เขียนบิลสำเร็จแต่ไม่มีวันถูกส่ง) | ต้องมีตาราง+worker ระบายคิว | `tables.dart:427-445` |
-| Idempotent replay (key → client id) | ส่งซ้ำได้โดยไม่เกิดผลซ้ำ | fingerprint ต้องคำนวณจากฟังก์ชันเดียวทุกทาง | `sync.service.ts:136-173` |
+| Idempotent replay (key → client id) | ส่งซ้ำได้โดยไม่เกิดผลซ้ำ | fingerprint ต้องคำนวณจากฟังก์ชันเดียวทุกทาง | `sync.service.ts:147-222` |
 | Single-writer (`one_pos_per_tenant`) | conflict ของ 2 writer ออฟไลน์ | เคาน์เตอร์ขายออฟไลน์ได้แค่จุดเดียว | `InitialSchema.ts:65-84` |
 | Device-token auth | บิลค้างคิวนานกว่าอายุ JWT ของคน | ต้องมี guard แยกเฉพาะเครื่อง `pos` | `device-token.guard.ts:46-96` |
 | Seam + fake (`SyncFacade`) | 3 lane ทำงานขนานกันโดยไม่รอกัน | ต้องดูแลโค้ดปลอม 3 ชุดให้ตรงสัญญา | `sync_facade.dart:57-110` |
-| Service worker precache | เปิดแอปได้ทั้งที่ไม่มีเน็ต | cache invalidation ยังไม่ผูกกับ SHA จริง | `web/sw.js:1-60` |
+| Service worker precache | เปิดแอปได้ทั้งที่ไม่มีเน็ต | ~~cache invalidation ยังไม่ผูกกับ SHA จริง~~ ผูกกับ release SHA แล้ว (`5555c04`, `deploy/version-web-build.sh`) | `web/sw.js:1-60` |
 | Degraded-mode state machine | รู้เองว่าควรเขียนตรงหรือเข้าคิว โดยไม่กระพริบ | ต้องคิดครบทุกทางออกของ state | `sync_service.dart:283-302` |
 
 ---
@@ -979,7 +1025,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | Drift | `2.34.1` (`frontend/pubspec.lock`) | SQLite ในเครื่อง: cache + `outbox_ops` + `sync_cursors` | มีอยู่แล้วตั้งแต่ POC, transaction จริง, query สต็อกในเครื่องได้ | เก็บ JSON blob (ADR-0010 ทางเลือก ค — query ไม่ได้) |
 | sqlite3 (+ `sqlite3.wasm`) | `3.4.0` (ต้องตรงกับ `frontend/web/WEB_DB_ASSET_VERSIONS.txt`) | SQLite บน web | CI ตรวจ version skew ทุก build | — |
-| Service worker เขียนเอง | `frontend/web/sw.js` (127 บรรทัด, ไม่ใช้ Workbox แม้ 08 §4 จะเขียนว่า Workbox) | precache shell ให้เปิดแอปออฟไลน์ | Flutter 3.44 ไม่สร้าง SW ให้ (08 §4 อ้าง flutter#156910) | SW อัตโนมัติของ Flutter |
+| Service worker เขียนเอง | `frontend/web/sw.js` (129 บรรทัด ณ 2026-10-07, ไม่ใช้ Workbox แม้ 08 §4 จะเขียนว่า Workbox) | precache shell ให้เปิดแอปออฟไลน์ | Flutter 3.44 ไม่สร้าง SW ให้ (08 §4 อ้าง flutter#156910) | SW อัตโนมัติของ Flutter |
 | Web Locks API | browser built-in | แท็บ writer เดียว | ไม่ต้องมี server | ไม่มีทางอื่นระดับ browser ที่ง่ายกว่า |
 | NestJS `SyncModule` | `@nestjs/core ^12.0.1` (`server/package.json`) | `/sync/push`, `/sync/discards` | ใช้ service ตัวเดียวกับ route ออนไลน์ → กฎชุดเดียว | sync engine แยก (Architecture B) |
 | PostgreSQL | (ดูบท 07) | ตัวจริง + partial unique index + `owner_review_items` | constraint ตัดสิน race ได้แน่นอน | CouchDB (ADR-0012 **Rejected**) |
@@ -1087,18 +1133,20 @@ Phase 2 มี 35 ใบงานแบ่งให้สามคน (`09_PHASE
 
 - **ลำดับ kickoff ใน CLAUDE.md** (#228 → #229 → #212/#211/#189 → #230 → #190 → #231) เป็นแผนตอนเริ่ม — ตรวจด้วย `gh issue view` วันที่ 2026-09-25: **ปิดแล้วทุกใบยกเว้น #231** (cutover ร้านจริง = เฟสถัดไป) แต่ "ปิด" ไม่ได้แปลว่า AC ทุกข้อพิสูจน์แล้วเสมอไป — AC B1 (บั๊ก HIGH #1 เดิม) ผ่านแล้วหลัง #413
 - **ร้านจริงยังรัน Drift build** — phase 2 ยังไม่เคยถูกใช้กับเน็ตล่มจริงในร้าน
-- **MED 4 ข้อจากรีวิวเดียวกัน** (สรุป): push reply ของ `sale.create` บางกว่าที่ 08 §8.2 ว่า (และ fixture ก็บางเหมือนกัน — ต้องให้เจ้าของตัดสินว่าใครถูก); client ยังเข้าคิวแค่ `sale.create`, ชำระเครดิต, ลูกค้า — ยังไม่เข้าคิว `shift.open`/`return.create`/`drawer.entry` ตาม 08 §6.1; Drift `openShift` ยังคืนกะเดิมของวันเดียวกันซึ่ง 08 §11 สั่งลบ
+- **MED 4 ข้อจากรีวิวเดียวกัน** (สรุป): push reply ของ `sale.create` บางกว่าที่ 08 §8.2 ว่า (และ fixture ก็บางเหมือนกัน — ต้องให้เจ้าของตัดสินว่าใครถูก); client ยังเข้าคิวแค่ `sale.create`, ชำระเครดิต, ลูกค้า — ยังไม่เข้าคิว `shift.open`/`return.create`/`drawer.entry` ตาม 08 §6.1; Drift `openShift` ยังคืนกะเดิมของวันเดียวกันซึ่ง 08 §11 สั่งลบ — 🔄 **แก้ครบแล้ว 2026-09-27** (MED ข้อ 3: PR #458 · ข้อ 4: PR #456 + #469 · ข้อ 5: PR #456 — CLAUDE.md + review §2) ตอนนี้ client เข้าคิว `shift.open`/`return.create`/`drawer.entry`/`sale.void_offline` ด้วย
 - **migration `1788652803002-OwnerReviewItems`** (ตารางของหน้า "รอ owner") เคยมีบั๊กสองข้อ: RLS policy ไม่มี `NULLIF(…,'')` และ FK `ON DELETE SET NULL` ที่จะ null `tenant_id` ด้วย — **แก้แล้ว** ด้วย migration ใหม่ `1788652804200-OwnerReviewItemsFixes.ts` (#420)
-- **ops ของ phase 2 บน `mob04`** (slice 22/23/25) ยังเปิด: การวัดโหลด #380 ยังไม่มีตัวเลข, backup offsite #363 พักไว้, CD ติด FortiGate ของคณะ (รายละเอียดบท 14/15)
+- **ops ของ phase 2 บน `mob04`** (slice 22/23/25) ยังเปิด: การวัดโหลด #380 ยังไม่มีตัวเลข, backup offsite #363 พักไว้, CD ติด FortiGate ของคณะ (รายละเอียดบท 14/15) — 🔄 ดูการอัปเดต 2026-10-07 ข้างล่าง
 - **ยังไม่อยู่ใน phase 2 เลย:** หลาย `pos` ต่อร้าน, `change_log`/CRDT, CouchDB (rejected), ใบกำกับภาษีเต็มรูป (08 §1)
 
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
+> 🔄 **อัปเดต 2026-10-07:** **k6 #380** วัดจริงครั้งแรก 2026-10-05 (3 เครื่อง × `perip` ของตัวเอง) — รอบ capacity ไม่มี 429/5xx/restart, 3,752 บิล = 3,752 เลขใบเสร็จไม่ซ้ำ แต่ `POST /sales` แย่งของชิ้นเดียว 200 คนไม่ผ่านเกณฑ์ p95 <500 ms · **ยังไม่ได้รับการยอมรับ** #380 ยังเปิด ([`session-2026-10-05-k6-capacity-run.md`](../handoff_log/session-2026-10-05-k6-capacity-run.md)) · **#363** ยัง parked ไม่มี backup ออกจาก VM · **deploy**: ทุกครั้งรอ approve มือ, `mob04` อยู่ที่ `dd659e2` (run `37585778195`) · **cutover UUID #616** 2026-10-06: DB ของ `mob04` ถูกล้าง เครื่องที่ชี้ไป server ใหม่ต้องเริ่มด้วย outbox ว่าง (ADR-0010 addendum) — demo #344 ต้องเริ่มใหม่ · **#476** (เครื่องสุดท้ายหาย) ปิดแล้ว 2026-10-03 — เปลี่ยนเครื่องผ่าน platform-ui (PR #561) + แบนเนอร์บน POS (PR #567) · **#612** ปิดแล้ว 2026-10-06
 
 ---
 
 ## ✅ สรุป
 
-> - "ไม่ได้คำตอบ" ≠ "ไม่สำเร็จ" — แยก **verdict (4xx)** ออกจาก **non-verdict (timeout/5xx/429)** และห้ามเดาว่าอย่างหลังล้ม
+> - "ไม่ได้คำตอบ" ≠ "ไม่สำเร็จ" — แยก **verdict (4xx)** ออกจาก **non-verdict (timeout/5xx/429)** และห้ามเดาว่าอย่างหลังล้ม · เฉพาะ transport failure แท้ๆ (timeout/socket) ที่เข้า outbox — 5xx/429/`IN_FLIGHT` = **park** (id + key เดิม) ไม่เข้าคิว (PR #469, #645)
 > - สองสำเนา = ต้องมี **source of truth** เดียว (Postgres) และต้องรวม "การกระทำ" ไม่ใช่ทับ "ตัวเลข"
 > - CAP: ตอนสายขาดต้องเลือก C หรือ A — Architecture C เลือก C ตอนปกติ และเลือก A **แบบมีขอบเขต** ตอน Degraded
 > - conflict ถูกจำกัดด้วย **writer ออฟไลน์เดียว** (`one_pos_per_tenant`, ADR-0004) — เหตุผลคือ **ลิ้นชักใบเดียว + เลขใบเสร็จชุดเดียว** ไม่ใช่สต็อก; stock lease ตก 3 ข้อ, `offlineOk` ถูกลบ (#272)

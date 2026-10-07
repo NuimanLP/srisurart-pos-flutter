@@ -4,6 +4,31 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- 3 workflow: `flutter.yml` + `server.yml` (CI ทุก PR และทุก push เข้า `main`/`develop`) → `deploy.yml` (ฟังเฉพาะ `main`)
+- required check มีแค่ `flutter-ci-status` + `server-ci-status` (บังคับทั้ง `main` และ `develop`) — job `changes` กรองข้างใน ไม่กรองที่ trigger
+- image ขึ้น GHCR **เฉพาะจาก `main`** และต้องผ่าน Trivy ก่อน push · `develop` ไม่ build image ไม่ deploy
+- CD ทำงานจริงแล้ว (runner `mob04-demo` ตั้งแต่ 2026-09-30) แต่ทุก deploy **รอ `NuimanLP` อนุมัติ** บน environment `demo` = Continuous Delivery
+- **green ≠ deployed:** merge หนึ่งครั้งปลุก Deploy 2 run — run แรกมัก skip เพราะ web image ยังไม่พร้อม แต่ยังเขียว → หลักฐานเดียวคือ `/opt/pos/.current_sha`
+- **ตัวเลข/หลักฐานหลัก:** `dd659e2` — Deploy run `37585778195` job `deploy to demo` = success, run `37585675913` (SHA เดียวกัน) = skipped แต่เขียว · `.current_sha` = `dd659e2` (อ่าน 2026-10-07)
+- **ภาพที่แนะนำ:**
+
+```mermaid
+flowchart LR
+  A["feature PR"] -->|"CI + required checks"| B["develop"]
+  B -->|"release PR: merge commit เท่านั้น"| C["main"]
+  C -->|"CI เขียว + Trivy"| D["GHCR image (tag = SHA)"]
+  D --> E["Deploy (demo) ×2 run"]
+  E -->|"run แรก: skip แต่เขียว"| X["ไม่ได้ deploy"]
+  E -->|"รอ NuimanLP อนุมัติ"| F["runner mob04-demo"]
+  F --> G["mob04: .current_sha"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) (ข้อ 4.9 Git, 4.10 GitHub, 4.7 HTTPS/TLS) และ [02_architecture.md](02_architecture.md)
@@ -19,6 +44,8 @@
 
 > 📅 **ตัวเลขทุกตัวในบทนี้เก็บจาก `gh run list` / `gh run view` / GitHub API วันที่ 2026-09-25**
 > (อ่านอย่างเดียว ไม่ได้ rerun/approve/cancel อะไรเลย) ถ้าคุณอ่านทีหลัง ตัวเลขใหม่อาจต่างไป — วิธีเก็บเองอยู่ในหัวข้อ "เก็บผลเองยังไง"
+>
+> 🔄 **อัปเดต 2026-10-07 (สถานะปัจจุบัน — ตัวเลขจาก log ในบทยังเป็น snapshot 2026-09-25):** CD ไป `mob04` **ทำงานแล้ว** ตั้งแต่ 2026-09-30 (deploy แรก `e50f4fa`) · ล่าสุด `.current_sha` = `dd659e2` จาก run `37585778195` · ทุก deploy รอ required reviewer `NuimanLP` · ตั้งแต่ 2026-10-06 งานเข้า `develop` ก่อน แล้ว `develop` → `main` ด้วย merge commit เท่านั้น (ruleset `24564072`) · CI รันบน push เข้า `develop` ด้วยตั้งแต่ PR #647 (2026-10-07) · job ที่เพิ่มหลัง snapshot: `secrets` (gitleaks, 2026-10-01), `ci-guards` (migration ห้ามแก้ + actionlint + shellcheck, 2026-10-03), coverage ratchet ใน `unit`/`analyze-and-test` (2026-10-03)
 
 ---
 
@@ -68,7 +95,7 @@ Continuous Delivery      : ... → ✅ → แพ็กเป็น release พ�
 Continuous Deployment    : ... → ✅ → แพ็ก → deploy อัตโนมัติ (ไม่มีคนคั่น)
 ```
 
-จำไว้ก่อน: repo นี้ **ออกแบบ** เป็น Continuous Delivery (มีคนอนุมัติคั่น) — และ **ในความจริงวันนี้** ขั้น deploy ยังไม่เคยสำเร็จผ่าน pipeline เลย (จะเล่าในหัวข้อ CD case study)
+จำไว้ก่อน: repo นี้ **ออกแบบ** เป็น Continuous Delivery (มีคนอนุมัติคั่น) — ถึง 2026-09-29 ขั้น deploy ยังไม่เคยสำเร็จผ่าน pipeline เลย (จะเล่าในหัวข้อ CD case study) · **ตั้งแต่ 2026-09-30 deploy ผ่าน pipeline ได้จริงแล้ว** โดยทุกครั้งต้องมีคนอนุมัติ (สถานะ 2026-10-07)
 
 ### 4. ศัพท์พื้นฐานของ pipeline
 
@@ -248,7 +275,7 @@ flowchart TD
     SB --> SS["server-ci-status"]
   end
 
-  FS & SS -->|"required checks ของ main"| M["merge เข้า main"]
+  FS & SS -->|"required checks ของ develop + main"| M["merge เข้า develop → main"]
   M -->|"push ขึ้น main = รันทั้งสองไฟล์เต็ม"| F & S
   FB -->|"push web image"| G[("GHCR<br/>srisurart-pos-web:SHA")]
   SB -->|"push server image"| G2[("GHCR<br/>srisurart-pos-server:SHA")]
@@ -258,15 +285,15 @@ flowchart TD
   AP --> D["deploy job<br/>self-hosted runner บน VM"]
   D --> V["VM mob04: pull → migrate → restart<br/>→ /health/ready → เขียน .current_sha"]
 
-  AP -.->|"🔴 วันนี้: ค้าง waiting ตั้งแต่ 2026-09-22"| STOP1["หยุดที่นี่"]
-  D -.->|"🔴 runner ที่ลงทะเบียน = 0 ตัว"| STOP2["ไม่มีใครรับงาน"]
-  V -.->|"🔴 FortiGate: x509 no SAN บน ghcr.io"| STOP3["pull ไม่ได้"]
+  AP -.->|"เคยค้าง waiting 2026-09-22 (อดีต)"| STOP1["คิวค้าง (แก้แล้ว)"]
+  D -.->|"เคย runner = 0 (ติดตั้งแล้ว 2026-09-30)"| STOP2["ไม่มีคนรับงาน (แก้แล้ว)"]
+  V -.->|"เคยติด FortiGate x509 (แก้แล้ว 2026-09-29/30)"| STOP3["pull ไม่ได้ (แก้แล้ว)"]
 ```
 
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
 
-สรุปเป็นคำ: **CI (สองกล่องบน) ทำงานครบ 100% ทุกวัน** · **ส่วน Delivery (image ขึ้น GHCR) ทำงานจริง** · **ส่วน Deployment (ลงล่าง) ไม่เคยสำเร็จผ่าน pipeline**
-และถึงจะผ่านด่านอนุมัติ ก็ยังติดอีก 2 ด่านถัดไป
+สรุปเป็นคำ (ณ 2026-09-25): **CI (สองกล่องบน) ทำงานครบ 100% ทุกวัน** · **ส่วน Delivery (image ขึ้น GHCR) ทำงานจริง** · **ส่วน Deployment (ลงล่าง) ไม่เคยสำเร็จผ่าน pipeline**
+และถึงจะผ่านด่านอนุมัติ ก็ยังติดอีก 2 ด่านถัดไป — 🔄 **2026-10-07:** ทั้ง 3 จุดหยุด (เส้นประ) แก้แล้ว Deployment สำเร็จผ่าน pipeline ได้ เหลือแต่ด่านอนุมัติที่ตั้งใจให้มี
 
 ---
 
@@ -274,7 +301,9 @@ flowchart TD
 
 ### ส่วนที่ใช้ร่วมกันทั้งสองไฟล์: trigger + concurrency
 
-`.github/workflows/server.yml:30-48`
+`.github/workflows/server.yml:30-48` (snapshot 2026-09-25)
+
+> 🔄 **อัปเดต 2026-10-07:** ตอนนี้ `push.branches: [main, develop]` (PR #647) และ `concurrency.group` ผูก SHA ทั้งบน `main` และ `develop`, ห้าม cancel ทั้งสองเส้น — image ยังสร้างเฉพาะ `main` (`build-image` + image check ใน status job gate ด้วย `refs/heads/main`) ดูไฟล์จริงที่ `.github/workflows/server.yml` บรรทัด `on:`/`concurrency:`
 
 ```yaml
 permissions:
@@ -1082,6 +1111,14 @@ merge → CI ✅ → image บน GHCR ✅ → Deploy run #1 ✅(skip) → Deplo
 ```
 
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+>
+> 🔄 **อัปเดต 2026-10-07 — ภาพปัจจุบัน:**
+> ```
+> merge develop→main → CI ✅ → image บน GHCR ✅ → Deploy run #1 ✅(skip) → Deploy run #2 ⏸ รอ NuimanLP อนุมัติ
+>                                                                   ✅ runner mob04-demo รับงาน → Ansible
+>                                                                   ✅ .current_sha = dd659e2 (run 37585778195)
+> ```
+> ชั้นที่ 1 ("เขียวแต่ skip") **ยังเกิดทุก merge** — run `37585675913` ของ `dd659e2` คือตัวอย่างล่าสุด · ชั้นที่ 3 (คิว) ยังเป็นกฎ: ยกเลิก run เก่าที่รออนุมัติก่อนอนุมัติตัวใหม่ (CLAUDE.md) · ชั้นที่ 4–6 แก้แล้ว
 
 **บทเรียนวิศวกรรม:** ทุกชั้นข้างบน **ดูเขียว หรือดูเหมือนทำเสร็จ** ถ้าดูจากที่เดียว (badge, ticket ที่ปิด, เอกสารที่เขียนว่า "auto-deploy") — วิธีเดียวที่ไม่หลอกตัวเองคือ **ถามปลายทางตรงๆ** ว่ารันอะไรอยู่
 
@@ -1093,7 +1130,8 @@ merge → CI ✅ → image บน GHCR ✅ → Deploy run #1 ✅(skip) → Deplo
 |---|---|
 | trigger ไม่กรอง path + job `changes` กรองข้างใน + status job ชื่อเดียวต่อไฟล์ | กรองที่ trigger → PR ที่ไม่แตะฝั่งนั้นไม่มี check รายงาน → ค้างตลอดกาล (#39) · required check มีแค่ `flutter-ci-status`, `server-ci-status` — **ห้าม require job อื่น** เพราะ job ที่ skip ได้ = เขียวปลอม |
 | `if: always()` + loop ตรวจ `needs.*.result` | `always()` เปล่าๆ = รันและ "ผ่าน" แม้ลูกล้ม · `!cancelled()` = ถูก skip เมื่อ run ถูก cancel = GitHub นับผ่าน · ต้องคู่กับ loop เท่านั้น (07 §2 ข้อ 4) |
-| `concurrency.group` ตาม SHA บน main, ห้าม cancel บน main | run บน main คือผู้ผลิต image คนเดียวของ commit นั้น — ถ้าถูกยกเลิก commit นั้นไม่มี release ตลอดไป |
+| `concurrency.group` ตาม SHA บน main, ห้าม cancel บน main (ตั้งแต่ 2026-10-07 รวม `develop` ด้วย) | run บน main คือผู้ผลิต image คนเดียวของ commit นั้น — ถ้าถูกยกเลิก commit นั้นไม่มี release ตลอดไป · บน `develop` run ที่ถูก cancel ทำ status job ของ commit นั้นแดง |
+| `develop` → `main` ด้วย **merge commit เท่านั้น** (ruleset `24564072`, 2026-10-06) | squash/rebase เขียน SHA ใหม่ → `ROLLBACK_FLOOR` (`bedd328`) ใน `deploy/scripts/pos-deploy.sh` ไม่เป็นบรรพบุรุษของ `main` → `pos-deploy` ปฏิเสธทุก SHA |
 | pin base image ด้วย digest, bump ด้วยมือ, **ห้าม `.trivyignore`** | ตรวจแล้วไม่มีไฟล์ `.trivyignore` ใน repo · ignore file = gate ปลอม (ADR-0013) · ทำให้สะอาดจริงด้วยการลบ npm ออกจาก runtime + `apk upgrade` |
 | Dependabot = security updates เท่านั้น | `.github/dependabot.yml` ตั้ง `open-pull-requests-limit: 0` · ประวัติ: ครั้งแรกมันเปิด 4 PR (#45–#48) รวม Node 22→26 และ bump Flutter 7 ตัว ที่ทำ `dart analyze`, drift codegen และ web build พัง — ปิดทิ้งหมด |
 | web DB asset version check | bump drift/sqlite3 แล้วลืมโหลด `.wasm`/worker ใหม่ → เว็บพังตอนเปิดโดยไม่มี error ตอน build (#245) |
@@ -1187,7 +1225,7 @@ merge → CI ✅ → image บน GHCR ✅ → Deploy run #1 ✅(skip) → Deplo
 | `nginx:1.29-alpine` | ใน `nginx-check` | `nginx -t` | image เดียวกับที่ compose ใช้ | — |
 | GHCR | `ghcr.io/nuimanlp/srisurart-pos-{server,web}` tag `<sha>` + `main` | container registry | repo public → pull ไม่ต้อง token | Docker Hub, tarball |
 | GitHub Environment `demo` | required reviewer `NuimanLP` | ด่านอนุมัติ deploy | #366 | auto-deploy ล้วน |
-| self-hosted runner | ป้าย `srisurart-demo-deploy` — **ยังไม่ติดตั้ง (0)** | รับงาน deploy บน VM | VM อยู่หลัง firewall | SSH จาก GitHub-hosted |
+| self-hosted runner | ป้าย `srisurart-demo-deploy` — **ติดตั้งแล้ว `mob04-demo` (2026-09-30, online — ตรวจ `gh api …/actions/runners` 2026-10-07)**; snapshot 2026-09-25 = 0 ตัว | รับงาน deploy บน VM | VM อยู่หลัง firewall | SSH จาก GitHub-hosted |
 | Ansible | `ansible-core` จาก apt (`deploy/scripts/setup-mob04-runner.sh:46`) — **repo ไม่ pin เวอร์ชัน** | ขั้นตอน deploy บน VM | ดู [14_devops.md](14_devops.md) | Kubernetes (VM เดียว) |
 | Dependabot | security-only | แจ้ง CVE | ลด noise | version updates รายสัปดาห์ |
 | `Jenkinsfile` | — | **แบบฝึกหัดคอร์ส Lab 03 ไม่เคยใช้จริง — ลบแล้ว 2026-09-27** | — | — |
@@ -1282,7 +1320,8 @@ gh api repos/NuimanLP/srisurart-pos-flutter/environments/demo --jq '.protection_
 > - ตัวเลขจริงของ commit `ec5b9a6`: Flutter CI 3m51s (533 tests), Server CI 4m47s (412 unit + 607 e2e), integration 3m10s เป็นทางวิกฤต, Trivy 0 ช่องโหว่, image 2 ตัวขึ้น GHCR พร้อม digest
 > - `changes` gate + status job ตัวเดียว (`always()` + loop) ทำให้ PR เอกสารเขียวใน 14 วินาทีฝั่ง Flutter โดยไม่มีวันค้าง — แต่ `integration` จงใจรันทุก PR เพื่อ test อ่านข้ามร้าน
 > - Trivy scan **ก่อน** push: ล้ม = registry ไม่ได้ tag เลย · แก้ด้วยการทำ image ให้สะอาด (pin digest, ลบ npm, `apk upgrade`) ไม่ใช่ `.trivyignore`
-> - **green ≠ deployed**: Deploy run แรกของทุก merge เขียวโดย skip · ด่านอนุมัติค้าง · runner = 0 · FortiGate ตัด TLS ไป `ghcr.io` (x509 no SAN) → หลักฐานเดียวคือ `/opt/pos/.current_sha`
+> - **green ≠ deployed**: Deploy run แรกของทุก merge เขียวโดย skip (ยังจริง 2026-10-07) · (อดีตถึง 2026-09-29/30: ด่านอนุมัติค้าง · runner = 0 · FortiGate ตัด TLS ไป `ghcr.io`) → หลักฐานเดียวคือ `/opt/pos/.current_sha`
+> - **ปัจจุบัน (2026-10-07):** PR → `develop` → release PR → `main` (merge commit) → image → Deploy รออนุมัติ → runner `mob04-demo` · `.current_sha` = `dd659e2`
 > - skip ที่ไม่ควรเกิดคือ bug ที่เงียบที่สุด (#39 → #184) — ต้องเขียน check ให้แดงเมื่อของสำคัญถูกข้าม
 > - `Jenkinsfile` ที่เคยอยู่ root คือแบบฝึกหัดคอร์ส ไม่ใช่ pipeline จริง (ลบแล้ว 2026-09-27)
 >
@@ -1325,7 +1364,7 @@ Flutter CI จะ **ไม่ถูกสร้างเลย** สำหรั
 <details><summary>เฉลย</summary>
 
 **ไม่ใช่.** log ของ `resolve` บอก server image `HTTP 404` (Server CI ยัง push ไม่เสร็จ) → `images_ready=false` → job `deploy` ถูก **skip** → run รายงาน success ทั้งที่ไม่ได้แตะ VM
-และ run ตัวที่สองก็ค้าง pending (ด่านอนุมัติ + คิว + runner = 0 + FortiGate)
+และ run ตัวที่สองก็ค้าง pending (ด่านอนุมัติ + คิว + runner = 0 + FortiGate — สถานะ 2026-09-25; ตั้งแต่ 2026-09-30 run ตัวที่สองจะ deploy ได้จริงหลังอนุมัติ)
 หลักฐานเดียวคืออ่าน `/opt/pos/.current_sha` บน VM ซึ่ง playbook เขียนหลัง `/health/ready` ตอบ 200 เท่านั้น
 
 </details>
@@ -1360,6 +1399,6 @@ run ที่ waiting อยู่คือของ `d3a2801` (2026-09-22) ซ�
 - ⬅️ กลับแผนที่: [00_index.md](00_index.md) · บทก่อน: [14_devops.md](14_devops.md) (Docker, Compose, Nginx, Ansible, monitoring)
 - **เอกสารเจ้าของเรื่อง CI/CD:** [`docs/Backend_design/07_CICD_DEPLOY.md`](../Backend_design/07_CICD_DEPLOY.md) — §2 กติกา 4 ข้อ, §3 release, §4 branch protection, §6.1 trigger ของ deploy, §6.2 ติดตั้ง runner
 - **การตัดสินใจ (ชนะเอกสารอื่นเสมอ):** [`docs/Backend_design/adr/0013-cicd-toolchain.md`](../Backend_design/adr/0013-cicd-toolchain.md) + addendum 2026-09-15 (self-hosted runner) และ 2026-09-21 (#366 required reviewer)
-- **เรื่องจริงของ CD ที่ติด:** [`docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`](../handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md) — §4.1 stacked PR, §4.7 FortiGate
+- **เรื่องจริงของ CD ที่เคยติด (แก้แล้ว 2026-09-29/30 — ดู [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)):** [`docs/handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md`](../handoff_log/handoff_demo-335-merge-and-cd-blocked_21_09_2026.md) — §4.1 stacked PR, §4.7 FortiGate
 - **ไฟล์ pipeline ตัวจริง:** [`.github/workflows/flutter.yml`](../../.github/workflows/flutter.yml) · [`server.yml`](../../.github/workflows/server.yml) · [`deploy.yml`](../../.github/workflows/deploy.yml)
 - **คู่มือ test ที่ CI รัน:** [`docs/tutorial/testing-tutorial.md`](../tutorial/testing-tutorial.md)
