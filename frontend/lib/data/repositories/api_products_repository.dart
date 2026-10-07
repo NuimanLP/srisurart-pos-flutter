@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../db/database.dart';
 import 'api/api_wire.dart';
 import 'movements_repository.dart';
@@ -20,6 +21,11 @@ class ApiProductsRepository extends ProductsRepository {
   final ApiClient apiClient;
 
   ApiProductsRepository(super.db, this.apiClient);
+
+  /// Stock adjustments whose fate is unknown (5xx, 429, IN_FLIGHT, lost
+  /// reply): the body is a DELTA, so the same adjustment pressed again must go
+  /// out under the same `Idempotency-Key` — see [PendingWrites].
+  final PendingWrites _pendingAdjusts = PendingWrites();
 
   /// Converts API JSON representation to a Drift [ProductsCompanion].
   ProductsCompanion _productToCompanion(Map<String, dynamic> json) {
@@ -327,11 +333,21 @@ class ApiProductsRepository extends ProductsRepository {
     };
     if (note != null) body['note'] = note;
 
-    final res = await rethrowCounterError(() => apiClient.post(
-      '/api/v1/products/$productId/adjust-stock',
-      body: body,
-      headers: idempotencyKey(),
-    ));
+    final attempt = _pendingAdjusts.of(jsonEncode([productId, delta, type, note]));
+    final res = await rethrowCounterError(() async {
+      try {
+        return await apiClient.post(
+          '/api/v1/products/$productId/adjust-stock',
+          body: body,
+          headers: attempt.headers,
+        );
+      } on ApiException catch (e) {
+        // Only a 4xx closes it; a 5xx / 429 / IN_FLIGHT — like a transport
+        // failure — leaves it parked, since the delta may already be applied.
+        _pendingAdjusts.closeIfVerdict(attempt, e);
+        rethrow;
+      }
+    });
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
       final stockAfter = (resMap['stockAfter'] as num?)?.toInt() ?? (p.stock + delta);
@@ -357,6 +373,8 @@ class ApiProductsRepository extends ProductsRepository {
         );
       }
     }
+    // Closed only after the local apply: if it throws, the next press replays.
+    _pendingAdjusts.close(attempt);
   }
 
   @override

@@ -284,6 +284,11 @@ class PendingWrites {
   /// The server answered: the next press is a new action, not a retry.
   void close(PendingWrite write) => _open.remove(write.fingerprint);
 
+  /// Close every attempt whose fingerprint matches [test] — for a write that
+  /// supersedes other parked ones (a later edit of the same record).
+  void closeWhere(bool Function(String fingerprint) test) =>
+      _open.removeWhere((fingerprint, _) => test(fingerprint));
+
   /// Whether the attempt with [id] is still parked — neither closed nor past
   /// its TTL. For a caller that keeps something per attempt beside this class
   /// and must drop it once the attempt is gone.

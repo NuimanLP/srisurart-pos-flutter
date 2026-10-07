@@ -287,9 +287,11 @@ class ApiCustomersRepository extends CustomersRepository {
         headers: attempt.headers,
       );
       if (res is Map) {
-        _pendingAdds.close(attempt);
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
+        // Closed only after the local apply: if it throws, the attempt stays
+        // parked and the next press replays it under the same id + key.
+        _pendingAdds.close(attempt);
         return await (db.select(db.customers)
               ..where((t) => t.id.equals(comp.id.value)))
             .getSingle();
@@ -354,6 +356,13 @@ class ApiCustomersRepository extends CustomersRepository {
     // Same rule as addCustomer: one Idempotency-Key per logical edit.
     final attempt = _pendingUpdates.of('$id|${jsonEncode(body)}');
     final key = attempt.headers['Idempotency-Key']!;
+    // Once this edit is settled (success, verdict, or queued), every OTHER
+    // edit of the same customer still parked is stale: re-sending one under
+    // its old key would only replay the server's stored reply — the record as
+    // it was then — without applying it. A PATCH is absolute, so a new key for
+    // it is always safe.
+    void closeEditsOfThisCustomer() =>
+        _pendingUpdates.closeWhere((fp) => fp.startsWith('$id|'));
 
     Future<void> queueOfflineUpdate() async {
       final opId = newUuid();
@@ -382,7 +391,7 @@ class ApiCustomersRepository extends CustomersRepository {
 
     if (_isDegraded) {
       await queueOfflineUpdate();
-      _pendingUpdates.close(attempt);
+      closeEditsOfThisCustomer();
       return;
     }
 
@@ -393,9 +402,9 @@ class ApiCustomersRepository extends CustomersRepository {
         headers: attempt.headers,
       );
       if (res is Map) {
-        _pendingUpdates.close(attempt);
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
+        closeEditsOfThisCustomer();
         return;
       }
       // Same as addCustomer: a 2xx that is not a customer is an unknown
@@ -403,7 +412,7 @@ class ApiCustomersRepository extends CustomersRepository {
       throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
     } on ApiException catch (e) {
       if (isVerdict(e)) {
-        _pendingUpdates.close(attempt);
+        closeEditsOfThisCustomer();
         rethrowServerRefusal(e);
       }
       // 08 §5: a 5xx / 429 / IN_FLIGHT is never queued, never Degraded —
@@ -426,7 +435,7 @@ class ApiCustomersRepository extends CustomersRepository {
       sync?.recordNonVerdictWrite();
       if (sync != null) {
         await queueOfflineUpdate();
-        _pendingUpdates.close(attempt);
+        closeEditsOfThisCustomer();
         return;
       }
       rethrow;

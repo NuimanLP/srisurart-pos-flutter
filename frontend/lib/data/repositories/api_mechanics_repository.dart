@@ -255,9 +255,10 @@ class ApiMechanicsRepository extends MechanicsRepository {
       onVerdict: () => _pendingAdds.close(attempt),
     );
     if (res is Map) {
-      _pendingAdds.close(attempt);
       final comp = _mechanicToCompanion(Map<String, dynamic>.from(res));
       await db.into(db.mechanics).insertOnConflictUpdate(comp);
+      // Closed only after the local apply: a throw above keeps it parked.
+      _pendingAdds.close(attempt);
       return await (db.select(db.mechanics)..where((t) => t.id.equals(comp.id.value))).getSingle();
     }
     throw PosException('UNREADABLE_RESPONSE', ServerErrorResolver.resolve(null));
@@ -346,43 +347,59 @@ class ApiMechanicsRepository extends MechanicsRepository {
 
     await migratePendingCreditPayments(db);
 
-    final pendingOps = await (db.select(db.outboxOps)
-          ..where((t) =>
-              t.type.equals('credit_payment.create') &
-              t.status.isNotValue('rejected')))
-        .get();
-    double queuedTotal = 0.0;
-    for (final op in pendingOps) {
-      try {
-        final payload = jsonDecode(op.payload);
-        if (payload is Map<String, dynamic> &&
-            payload['mechanicId'] == mechanicId) {
-          queuedTotal +=
-              double.tryParse(payload['amount']?.toString() ?? '') ?? 0.0;
-        }
-      } catch (_) {}
-    }
-    final projectedBalance = mechanic.creditBalance - queuedTotal;
-
-    if (amount > projectedBalance && !allowOverpayment) {
-      throw PosException(
-        'OVERPAYMENT_NOT_ALLOWED',
-        'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่',
-        {
-          'creditBalance': projectedBalance,
-          'amount': amount,
-        },
-      );
-    }
-
     final wireAmt = wireMoney(amount);
+    // 🔴 The overpay consent is NOT part of the fingerprint: a retry of a
+    // parked payment the clerk now confirms as an overpay (because a pull has
+    // since shown the first attempt's effect on the balance) is the SAME
+    // payment, and must go out under the same id + key + body.
     final attempt = _pendingPayments.of(jsonEncode([
       mechanicId,
       wireAmt,
       paymentMethod,
       note,
-      allowOverpayment,
     ]));
+    // Bodies of attempts that were closed or expired are dropped here, so the
+    // map holds at most the payments still parked.
+    _parkedPaymentBodies.removeWhere((id, _) => !_pendingPayments.isParked(id));
+    final parkedBody = _parkedPaymentBodies[attempt.id];
+
+    // The local balance check is for a NEW payment only. A parked one may
+    // already be committed, and the balance this device now holds may already
+    // include it — checking it again would refuse the retry, and the clerk's
+    // overpay consent would then send a second payment.
+    if (parkedBody == null) {
+      final pendingOps = await (db.select(db.outboxOps)
+            ..where((t) =>
+                t.type.equals('credit_payment.create') &
+                t.status.isNotValue('rejected')))
+          .get();
+      double queuedTotal = 0.0;
+      for (final op in pendingOps) {
+        try {
+          final payload = jsonDecode(op.payload);
+          if (payload is Map<String, dynamic> &&
+              payload['mechanicId'] == mechanicId) {
+            queuedTotal +=
+                double.tryParse(payload['amount']?.toString() ?? '') ?? 0.0;
+          }
+        } catch (_) {}
+      }
+      final projectedBalance = mechanic.creditBalance - queuedTotal;
+
+      if (amount > projectedBalance && !allowOverpayment) {
+        // Nothing was sent under this attempt: drop it.
+        _pendingPayments.close(attempt);
+        throw PosException(
+          'OVERPAYMENT_NOT_ALLOWED',
+          'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่',
+          {
+            'creditBalance': projectedBalance,
+            'amount': amount,
+          },
+        );
+      }
+    }
+
     final localId = attempt.id;
     final key = attempt.headers['Idempotency-Key']!;
     final now = DateTime.now();
@@ -397,9 +414,11 @@ class ApiMechanicsRepository extends MechanicsRepository {
           ..limit(1))
         .getSingleOrNull();
 
-    // Bodies of attempts that were closed or expired are dropped here, so the
-    // map holds at most the payments still parked.
-    _parkedPaymentBodies.removeWhere((id, _) => !_pendingPayments.isParked(id));
+    // A parked attempt keeps its first body — consent flag included — since a
+    // key reused with a different body is a 409, not a replay. If that first
+    // body lacked the consent and the server never committed it, the server's
+    // CREDIT_PAYMENT_EXCEEDS_BALANCE verdict closes the attempt, and the
+    // clerk's consent then goes out as a new payment.
     final body = _parkedPaymentBodies[attempt.id] ??= {
       'id': localId,
       'mechanicId': mechanicId,
@@ -448,8 +467,12 @@ class ApiMechanicsRepository extends MechanicsRepository {
       );
 
       if (res is Map) {
+        // Closed only once the local apply has succeeded: if it throws, the
+        // attempt stays parked and the next press replays it (same id + key).
+        final row =
+            await _applyPaymentSuccess(localId, mechanicId, wireAmt, note, res);
         closeAttempt();
-        return await _applyPaymentSuccess(localId, mechanicId, wireAmt, note, res);
+        return row;
       }
     } on ApiException catch (e) {
       if (isVerdict(e)) {
