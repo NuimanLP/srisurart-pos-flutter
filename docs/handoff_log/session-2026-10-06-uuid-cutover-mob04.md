@@ -46,7 +46,7 @@
 ## 5. งานค้าง / ข้อสังเกต
 - **replay ทางที่ 2 (client id) ยัง parse ก่อน:** ถ้า key หมดอายุ (24 ชม. / B2 delete) บิลที่ server มีแล้วแต่ body ไม่ผ่าน parser วันนี้ → `rejected` แทน `applied` — เหมือนก่อน #624 · ปิดได้ด้วยการให้ step 2 สร้างคำตอบจากแถวที่เก็บไว้ (refactor `SalesService`) · รายละเอียดใน PR #630
 - #624 เข้มขึ้นกว่าที่ #619 ขอ (drawer type/amount, `paymentMethod`, ชื่อลูกค้า, เหตุผล void) — ตั้งใจให้ sync ตอบเหมือน online
-- ข้อความไทยรอ owner ratify: `INVALID_ID` = `รหัสรายการไม่ถูกต้อง` · `deviceEnrolmentGone` (ทั้งคู่ agent ร่าง)
+- ~~ข้อความไทยรอ owner ratify: `INVALID_ID` = `รหัสรายการไม่ถูกต้อง` · `deviceEnrolmentGone` (ทั้งคู่ agent ร่าง)~~ — **แก้ 2026-10-07:** owner รับรองแล้ว ("l approved all") ทั้ง `INVALID_ID` และ `deviceEnrolmentGone` (รวมทุกข้อความ agent ร่างอื่นด้วย — ดู §8.1/§8.1.1 ของ `02_API_SCREENS.md`)
 - `presentation/` อีก 7 ไฟล์ยัง import `api_exception.dart` (บางไฟล์แค่ `PosException`) — ยังไม่มี guard ทั้งแอปว่า `ApiException` ห้ามถึง widget
 - `assertValidTenantId` ยังอยู่ใน `platform-tenants.service.ts` (ควรย้ายไป `common/ids.ts`) · import สองทาง `offline_pin_repository.dart` ↔ `auth_repository.dart`
 - `pos_trust_test.dart` 2 เทสต์ตกบน macOS (ข้อความ TLS error ต่าง) — Linux CI ผ่าน · ยังไม่ได้เทียบกับ `main` บน macOS

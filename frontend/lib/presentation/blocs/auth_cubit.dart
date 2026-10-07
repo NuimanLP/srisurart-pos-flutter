@@ -421,13 +421,13 @@ class AuthCubit extends Cubit<AuthState> {
     ));
   }
 
-  /// agent ร่าง (#609, 02_API_SCREENS.md §8.1.1) — not yet ratified. The
+  /// owner-ratified 2026-10-07 (#609, 02_API_SCREENS.md §8.1.1). The
   /// server refused this browser's device token at login: the device was
   /// retired or the token is unknown. The token is gone; the browser is back
   /// to backoffice mode until it is enrolled again.
   static const String deviceEnrolmentGone = DeviceEnrolmentGoneException.message;
 
-  /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
+  /// owner-ratified 2026-10-07 (#443 PR3, 02_API_SCREENS.md §8.1).
   static const String passwordChangeSessionExpired =
       PasswordChangeSessionExpiredException.message;
 

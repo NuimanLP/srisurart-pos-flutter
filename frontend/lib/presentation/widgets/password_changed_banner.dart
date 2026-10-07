@@ -7,7 +7,7 @@
 // `passwordChangedAt`; the banner shows while it is within [window] and until
 // the person dismisses it for this session.
 //
-// Strings: agent ร่าง (02_API_SCREENS.md §8.1) — not yet ratified.
+// Strings: owner-ratified 2026-10-07 (02_API_SCREENS.md §8.1).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';

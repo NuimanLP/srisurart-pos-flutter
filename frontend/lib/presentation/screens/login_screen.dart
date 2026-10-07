@@ -61,7 +61,7 @@ class LoginScreen extends StatelessWidget {
                                 const SizedBox(width: 8),
                                 Text(
                                   // #443 PR3: LoginForm has swapped to the
-                                  // change-password form (agent ร่าง).
+                                  // change-password form (owner-ratified 2026-10-07).
                                   authState is AuthPasswordChangeRequired
                                       ? 'ตั้งรหัสผ่านใหม่'
                                       : 'เข้าสู่ระบบ',

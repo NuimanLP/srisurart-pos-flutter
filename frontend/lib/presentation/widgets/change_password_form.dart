@@ -10,7 +10,7 @@
 // ticks the rules that need no server (length bounds, both boxes equal) live,
 // and submit stays disabled until they all hold — see password_field.dart.
 //
-// Strings: agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
+// Strings: owner-ratified 2026-10-07 (#443 PR3, 02_API_SCREENS.md §8.1).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
