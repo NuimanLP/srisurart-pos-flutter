@@ -49,7 +49,7 @@ export class TenantImportProcessor extends WorkerHost {
     try {
       // `processJob` writes `status = 'succeeded'` itself, atomically with the import
       // transaction (#239 review, issue 2) — there is nothing left to mark here.
-      const result = await this.importService.processJob(data.importJobId);
+      const result = await this.importService.processJob(data.importJobId, data.requestedByUserId);
       this.logger.info({ importJobId: data.importJobId, tenantId: data.tenantId, result }, 'Tenant import completed successfully');
       return result;
     } catch (err) {

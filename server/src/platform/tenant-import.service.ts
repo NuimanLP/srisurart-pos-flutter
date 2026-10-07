@@ -74,6 +74,15 @@ export interface ImportJobStatus extends Partial<ImportJobResult> {
   error?: string;
 }
 
+/**
+ * Who asked for the import, recorded in its `audit_log` row: a platform admin
+ * (`POST /platform/tenants/:id/import`, ADR-0005) or the shop's own owner
+ * (`POST /backup/import`, Settings → กู้คืนข้อมูล). `import_jobs.requested_by` references
+ * `platform_admins`, so an owner's id never goes there — it rides the BullMQ job payload
+ * instead, as `TenantExportJobPayload.requestedByUserId` does for the export.
+ */
+export type ImportRequester = { platformAdminId: string } | { userId: string };
+
 interface Preflight {
   tombstones: TombstonePlan;
   tombstoneCounts: { products: number; customers: number; mechanics: number };
@@ -261,7 +270,7 @@ export class TenantImportService {
   private async writeSnapshot(
     tenantId: string,
     snapshot: SnapshotPayload,
-    adminId: string,
+    requester: ImportRequester,
     ip: string | undefined,
     plan: Preflight,
     jobId?: string,
@@ -773,8 +782,9 @@ export class TenantImportService {
       // 3.7 Audit log inside the business transaction
       await this.auditService.log(manager, {
         tenantId,
-        platformAdminId: adminId,
-        action: 'platform.tenant.import',
+        ...('userId' in requester
+          ? { userId: requester.userId, action: 'backup.imported' }
+          : { platformAdminId: requester.platformAdminId, action: 'platform.tenant.import' }),
         // #238: how many soft-deleted rows the import invented, per table.
         // #252: how many orphaned supplier rows it dropped instead.
         after: { tombstones: tombstoneCounts, droppedSuppliers },
@@ -829,7 +839,7 @@ export class TenantImportService {
     ip?: string,
   ): Promise<{ status: 'success'; tenantId: string } & ImportJobResult> {
     const plan = await this.preflight(tenantId, snapshot);
-    const result = await this.writeSnapshot(tenantId, snapshot, adminId, ip, plan);
+    const result = await this.writeSnapshot(tenantId, snapshot, { platformAdminId: adminId }, ip, plan);
     return { status: 'success', tenantId, ...result };
   }
 
@@ -842,6 +852,24 @@ export class TenantImportService {
 
   /** `POST /platform/tenants/:id/import` — pre-flight, then enqueue. Never writes itself. */
   async createJob(tenantId: string, snapshot: SnapshotPayload, adminId: string, ip: string | undefined): Promise<{ jobId: string }> {
+    return this.enqueue(tenantId, snapshot, { platformAdminId: adminId }, ip);
+  }
+
+  /**
+   * `POST /backup/import` — the shop owner importing into their own shop. Same pre-flight,
+   * same one-job-at-a-time index, same worker: only the requester differs. `tenantId` is
+   * the one `TenantGuard` authorised, never one the request names.
+   */
+  async createOwnerJob(tenantId: string, snapshot: SnapshotPayload, userId: string, ip: string | undefined): Promise<{ jobId: string }> {
+    return this.enqueue(tenantId, snapshot, { userId }, ip);
+  }
+
+  private async enqueue(
+    tenantId: string,
+    snapshot: SnapshotPayload,
+    requester: ImportRequester,
+    ip: string | undefined,
+  ): Promise<{ jobId: string }> {
     assertValidTenantId(tenantId);
     await this.preflight(tenantId, snapshot);
 
@@ -867,7 +895,7 @@ export class TenantImportService {
         await manager.query(
           `INSERT INTO import_jobs (tenant_id, id, status, payload, requested_by, ip)
            VALUES ($1, $2, 'queued', $3::jsonb, $4, $5)`,
-          [tenantId, jobId, JSON.stringify(snapshot), adminId || null, ip ?? null],
+          [tenantId, jobId, JSON.stringify(snapshot), ('platformAdminId' in requester && requester.platformAdminId) || null, ip ?? null],
         );
       });
     } catch (err) {
@@ -877,12 +905,20 @@ export class TenantImportService {
       throw err;
     }
 
-    const payload: TenantImportJobPayload = { tenantId, correlationId: newUuid(), importJobId: jobId };
+    const payload: TenantImportJobPayload = {
+      tenantId,
+      correlationId: newUuid(),
+      importJobId: jobId,
+      ...('userId' in requester ? { requestedByUserId: requester.userId } : {}),
+    };
     await this.importQueue.add(JOB_TENANT_IMPORT, payload, DEFAULT_JOB_OPTIONS);
     return { jobId };
   }
 
-  /** `GET /platform/tenants/:id/import/:jobId` — the job row is the single source of truth. */
+  /**
+   * `GET /platform/tenants/:id/import/:jobId` and `GET /backup/import/:jobId` — the job row is
+   * the single source of truth.
+   */
   async getJob(tenantId: string, jobId: string): Promise<ImportJobStatus> {
     assertValidTenantId(tenantId);
     const rows = await this.adminDs.query(
@@ -927,7 +963,7 @@ export class TenantImportService {
    * business data (#239 review, issue 2) — there is no separate `markSucceeded` step, and so
    * no gap between "the import committed" and "the row says so" for a crash to land in.
    */
-  async processJob(jobId: string): Promise<ImportJobResult> {
+  async processJob(jobId: string, requestedByUserId?: string): Promise<ImportJobResult> {
     const rows = await this.adminDs.query(
       `SELECT tenant_id, payload, requested_by, ip, status, result FROM import_jobs WHERE id = $1`,
       [jobId],
@@ -958,6 +994,9 @@ export class TenantImportService {
       throw new Error(`import job '${jobId}' has no payload left to process (already finished)`);
     }
     const plan = await this.preflight(row.tenant_id, row.payload);
-    return this.writeSnapshot(row.tenant_id, row.payload, row.requested_by ?? '', row.ip ?? undefined, plan, jobId);
+    const requester: ImportRequester = requestedByUserId
+      ? { userId: requestedByUserId }
+      : { platformAdminId: row.requested_by ?? '' };
+    return this.writeSnapshot(row.tenant_id, row.payload, requester, row.ip ?? undefined, plan, jobId);
   }
 }
