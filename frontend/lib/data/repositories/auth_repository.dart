@@ -23,7 +23,7 @@ import 'offline_pin_repository.dart';
 class DeviceEnrolmentGoneException implements Exception {
   const DeviceEnrolmentGoneException();
 
-  /// agent ร่าง (#609, 02_API_SCREENS.md §8.1.1) — not yet ratified.
+  /// owner-ratified 2026-10-07 (#609, 02_API_SCREENS.md §8.1.1).
   static const String message =
       'เครื่องนี้ถูกปลดจากร้านแล้ว หรือไม่พบในระบบ จึงเปลี่ยนเป็นโหมด Backoffice '
       '— ผูกเครื่องใหม่ด้วยรหัสจากเจ้าของร้าน';
@@ -56,7 +56,7 @@ class EnrolCodeRefusedException implements Exception {
 class PasswordChangeSessionExpiredException implements Exception {
   const PasswordChangeSessionExpiredException();
 
-  /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
+  /// owner-ratified 2026-10-07 (#443 PR3, 02_API_SCREENS.md §8.1).
   static const String message =
       'หมดเวลาเปลี่ยนรหัสผ่าน กรุณาเข้าสู่ระบบใหม่ด้วยรหัสผ่านชั่วคราว';
 

@@ -406,7 +406,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // agent ร่าง — catalogued in 02_API_SCREENS §8.1.1.
+          // owner-ratified 2026-10-07 — catalogued in 02_API_SCREENS §8.1.1.
           _sectionTitle('เปิดกะใหม่'),
           Text(
             'กรอกเงินตั้งต้นในลิ้นชักก่อนเริ่มขาย',
