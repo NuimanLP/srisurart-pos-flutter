@@ -74,7 +74,7 @@ void main() {
       (tester) async {
     await _openRestoreTab(tester, useApi: true, expectations: () async {
       expect(find.text('คลิกเพื่อเลือกไฟล์ backup'), findsOneWidget);
-      expect(find.textContaining('ร้านที่ยังไม่มีข้อมูลการขายหรือเอกสาร'),
+      expect(find.textContaining('การนำเข้าจะแทนที่ข้อมูลทั้งหมดของร้านบนเซิร์ฟเวอร์'),
           findsOneWidget);
       expect(find.text(SnapshotRepository.importBlockedMessage), findsNothing);
       // the export sub-tab is still offered
@@ -86,7 +86,7 @@ void main() {
     await _openRestoreTab(tester, useApi: false, expectations: () async {
       expect(find.text('คลิกเพื่อเลือกไฟล์ backup'), findsOneWidget);
       expect(find.text(SnapshotRepository.importBlockedMessage), findsNothing);
-      expect(find.textContaining('ร้านที่ยังไม่มีข้อมูลการขายหรือเอกสาร'),
+      expect(find.textContaining('การนำเข้าจะแทนที่ข้อมูลทั้งหมดของร้านบนเซิร์ฟเวอร์'),
           findsNothing);
     });
   });
@@ -95,7 +95,7 @@ void main() {
       () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    final repo = SnapshotRepository(db, importBlocked: true);
+    final repo = SnapshotRepository(db, restoresViaServer: true);
     await expectLater(
       repo.importLegacyBackup({'__meta': {}}),
       throwsA(isA<PosException>().having((e) => e.message, 'message',

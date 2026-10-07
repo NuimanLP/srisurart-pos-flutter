@@ -183,10 +183,15 @@ const _keepsServerText = {
 /// form's generic refusal.
 const _loginOverrides = {
   'AuthRepository.login': {401: 'เข้าสู่ระบบไม่สำเร็จ'},
-  // A 400 at import is the server's pre-flight verdict on the file; the owner
-  // is shown its reason (OwnerImportRepository._refusal).
+  // A 400 at import is the server's pre-flight verdict on the file (Thai only).
+  // A 429 / 5xx on the upload is no verdict: the named job is polled, and one
+  // that never appears reads as "not received" (OwnerImportRepository).
   'OwnerImportRepository.importBackup': {
-    400: '${OwnerImportRepository.rejectedFileMessage}: name is required',
+    400: OwnerImportRepository.rejectedFileMessage,
+    429: OwnerImportRepository.uploadLostMessage,
+    500: OwnerImportRepository.uploadLostMessage,
+    502: OwnerImportRepository.uploadLostMessage,
+    503: OwnerImportRepository.uploadLostMessage,
   },
 };
 
@@ -465,8 +470,8 @@ final Map<String, _Call> _cases = {
       DevicesRepository(w.api).retireDevice(deviceId: 'd1'),
   'ReviewItemsRepository.listPending': (w) => ReviewItemsRepository(w.api).listPending(),
   'OwnerImportRepository.importBackup': (w) =>
-      OwnerImportRepository(w.api, pollInterval: Duration.zero)
-          .importBackup(const {'__meta': {'version': 2}}),
+      OwnerImportRepository(w.api, w.db, pollInterval: Duration.zero, maxPolls: 2)
+          .importBackup(const {'__meta': {'version': 2}}, confirmShopName: 'ร้าน'),
   'ReviewItemsRepository.markReviewed': (w) =>
       ReviewItemsRepository(w.api).markReviewed('r1'),
   // ── Auth / offline PIN ──

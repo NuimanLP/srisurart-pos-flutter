@@ -526,7 +526,7 @@ final _scenarios = <_Scenario>[
   // shop) or 409 (the contract world already has bills) — both past the parser.
   _Scenario('backup.import', 'OwnerImportRepository.importBackup', ['POST /api/v1/backup/import'],
       (w) async {
-    await OwnerImportRepository(w.api, pollInterval: Duration.zero).importBackup({
+    await OwnerImportRepository(w.api, w.db, pollInterval: Duration.zero, maxPolls: 0).importBackup({
       '__meta': {'version': 2, 'schemaVersion': 2},
       'sa_products': [
         {
@@ -542,7 +542,7 @@ final _scenarios = <_Scenario>[
           'minStock': 1,
         },
       ],
-    });
+    }, confirmShopName: 'ร้านทดสอบ');
   }),
 
   // ── sync ─────────────────────────────────────────────────────────────────
