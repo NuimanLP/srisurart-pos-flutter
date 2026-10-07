@@ -287,9 +287,11 @@ class ApiCustomersRepository extends CustomersRepository {
         headers: attempt.headers,
       );
       if (res is Map) {
-        _pendingAdds.close(attempt);
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
+        // Closed only after the local apply: if it throws, the attempt stays
+        // parked and the next press replays it under the same id + key.
+        _pendingAdds.close(attempt);
         return await (db.select(db.customers)
               ..where((t) => t.id.equals(comp.id.value)))
             .getSingle();
@@ -354,6 +356,14 @@ class ApiCustomersRepository extends CustomersRepository {
     // Same rule as addCustomer: one Idempotency-Key per logical edit.
     final attempt = _pendingUpdates.of('$id|${jsonEncode(body)}');
     final key = attempt.headers['Idempotency-Key']!;
+    // 🔴 A newer edit supersedes every OTHER parked edit of this customer
+    // (api_wire.dart rule 5): re-sending an older one under its old key would
+    // only replay the server's stored reply — the record as it was then —
+    // without applying it. A PATCH replaces whole values, so a new key for it
+    // is always safe. Closed now, before sending, so A (parked) → B (parked)
+    // → A again cannot replay A either.
+    _pendingUpdates.closeWhere(
+        (fp) => fp.startsWith('$id|') && fp != attempt.fingerprint);
 
     Future<void> queueOfflineUpdate() async {
       final opId = newUuid();
@@ -393,9 +403,9 @@ class ApiCustomersRepository extends CustomersRepository {
         headers: attempt.headers,
       );
       if (res is Map) {
-        _pendingUpdates.close(attempt);
         final comp = _customerToCompanion(Map<String, dynamic>.from(res));
         await db.into(db.customers).insertOnConflictUpdate(comp);
+        _pendingUpdates.close(attempt);
         return;
       }
       // Same as addCustomer: a 2xx that is not a customer is an unknown

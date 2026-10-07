@@ -35,6 +35,11 @@
 //     whose reply was lost has NOT necessarily failed, and the retry must
 //     carry the first attempt's id and `Idempotency-Key` or it becomes a
 //     second bill. This is the money rule of the whole slice.
+//     A parked attempt is closed only after its local apply has succeeded,
+//     and a newer edit of the same record supersedes its parked older edits
+//     (closed when the newer one is sent): a PATCH replaces whole values, so
+//     the older edit pressed again goes out under a NEW key — its old key
+//     would only replay a stale stored reply (08 §5, owner 2026-10-07).
 
 import 'package:drift/drift.dart';
 
@@ -283,6 +288,11 @@ class PendingWrites {
 
   /// The server answered: the next press is a new action, not a retry.
   void close(PendingWrite write) => _open.remove(write.fingerprint);
+
+  /// Close every attempt whose fingerprint matches [test] — for a write that
+  /// supersedes other parked ones (a later edit of the same record).
+  void closeWhere(bool Function(String fingerprint) test) =>
+      _open.removeWhere((fingerprint, _) => test(fingerprint));
 
   /// Whether the attempt with [id] is still parked — neither closed nor past
   /// its TTL. For a caller that keeps something per attempt beside this class
