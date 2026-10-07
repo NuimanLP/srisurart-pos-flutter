@@ -84,7 +84,12 @@ export async function writeExportFile(
       const buf = Buffer.from(s, 'utf8');
       hash.update(buf);
       sizeBytes += buf.length;
-      await fh.write(buf);
+      // `write` may write less than asked (a full disk does this): finish it, or fail loudly.
+      for (let off = 0; off < buf.length; ) {
+        const { bytesWritten } = await fh.write(buf, off, buf.length - off);
+        if (bytesWritten <= 0) throw new Error(`export file short write: ${off} of ${buf.length} bytes`);
+        off += bytesWritten;
+      }
     };
     let first = true;
     await write('{');
@@ -94,6 +99,9 @@ export async function writeExportFile(
       first = false;
     }
     await write('}');
+    // On disk before the rename makes it visible: the replace-mode import deletes the shop's
+    // data right after this returns, trusting this file to be its way back.
+    await fh.sync();
   } catch (err) {
     await fh.close();
     await rm(tmp, { force: true });
@@ -101,6 +109,10 @@ export async function writeExportFile(
   }
   await fh.close();
   await rename(tmp, file);
+  const onDisk = (await stat(file)).size;
+  if (onDisk !== sizeBytes) {
+    throw new Error(`export file ${file} is ${onDisk} bytes on disk, expected ${sizeBytes}`);
+  }
   return { sizeBytes, sha256: hash.digest('hex') };
 }
 

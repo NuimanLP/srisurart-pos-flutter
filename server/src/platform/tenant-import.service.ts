@@ -77,6 +77,12 @@ export interface ImportJobResult {
   preImportExport?: { file: string; sizeBytes: number; sha256: string };
   /** `doc_counters` rows raised to the imported numbers. */
   docCounters?: number;
+  /**
+   * Device numbers the file's server-format numbers name but this shop has no device for
+   * (e.g. `RC03-…` with devices 01/02): no counter was raised for them, so a device enrolled
+   * later under that number would start its series at 0001 again.
+   */
+  docCounterSkippedDevices?: number[];
 }
 
 export interface ImportJobStatus extends Partial<ImportJobResult> {
@@ -889,7 +895,9 @@ export class TenantImportService {
       // counter, or the server's next RC in that period is `…-0001` again and collides with
       // `UNIQUE (tenant_id, receipt_no)`. Numbers not in this server's format (the old app's
       // `RC90003021E869`) cannot collide and are skipped.
-      result.docCounters = await this.seedDocCounters(manager, tenantId, snapshot);
+      const counters = await this.seedDocCounters(manager, tenantId, snapshot);
+      result.docCounters = counters.written;
+      if (counters.skippedDeviceNos.length > 0) result.docCounterSkippedDevices = counters.skippedDeviceNos;
 
       // 3.7 Audit log inside the business transaction
       await this.auditService.log(manager, {
@@ -907,6 +915,7 @@ export class TenantImportService {
           ...(result.deleted ? { deleted: result.deleted } : {}),
           ...(result.preImportExport ? { preImportExport: result.preImportExport } : {}),
           docCounters: result.docCounters,
+          ...(result.docCounterSkippedDevices ? { docCounterSkippedDevices: result.docCounterSkippedDevices } : {}),
         },
         ip,
       });
@@ -963,8 +972,12 @@ export class TenantImportService {
     return { status: 'success', tenantId, ...result };
   }
 
-  /** Raises `doc_counters` to every imported number in this server's format. Returns rows written. */
-  private async seedDocCounters(manager: EntityManager, tenantId: string, snapshot: SnapshotPayload): Promise<number> {
+  /** Raises `doc_counters` to every imported number in this server's format. */
+  private async seedDocCounters(
+    manager: EntityManager,
+    tenantId: string,
+    snapshot: SnapshotPayload,
+  ): Promise<{ written: number; skippedDeviceNos: number[] }> {
     const series: Array<[DocType, Array<Record<string, unknown>> | undefined, string, string]> = [
       ['receipt', snapshot.sa_sales, 'receiptNo', 'receipt_no'],
       ['cn', snapshot.sa_returns, 'cnNo', 'cn_no'],
@@ -978,13 +991,17 @@ export class TenantImportService {
     }>;
     const deviceByNo = new Map(devices.map((d) => [Number(d.device_no), d.id]));
     const high = new Map<string, { deviceId: string; docType: DocType; period: string; seq: number }>();
+    const skipped = new Set<number>();
     for (const [docType, rows, field, snake] of series) {
       for (const r of rows || []) {
         const m = DOC_NUMBER_REGEX.exec(String(r[field] ?? r[snake] ?? '').trim());
         if (!m || m[1] !== DOC_PREFIX[docType]) continue;
         // A device number this shop does not have: no device issues into it.
         const deviceId = deviceByNo.get(Number(m[2]));
-        if (!deviceId) continue;
+        if (!deviceId) {
+          skipped.add(Number(m[2]));
+          continue;
+        }
         const key = `${deviceId}|${docType}|${m[3]}`;
         const seq = Number(m[4]);
         if ((high.get(key)?.seq ?? 0) < seq) high.set(key, { deviceId, docType, period: m[3], seq });
@@ -999,7 +1016,7 @@ export class TenantImportService {
         [tenantId, c.deviceId, c.docType, c.period, c.seq],
       );
     }
-    return high.size;
+    return { written: high.size, skippedDeviceNos: [...skipped].sort((a, b) => a - b) };
   }
 
   // ── #239: the import is a background job (owner decision, 2026-09-15) ──────────────────
@@ -1126,6 +1143,7 @@ export class TenantImportService {
       jobId: row.id,
       status: row.status,
       ...(row.result ? { tombstones: row.result.tombstones, droppedSuppliers: row.result.droppedSuppliers } : {}),
+      ...(row.result?.docCounterSkippedDevices ? { docCounterSkippedDevices: row.result.docCounterSkippedDevices } : {}),
       ...(row.error ? { error: row.error } : {}),
     };
   }

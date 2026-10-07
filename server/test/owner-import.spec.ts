@@ -95,6 +95,7 @@ describe('owner import (POST /backup/import)', () => {
     };
     const res = await service.importSnapshot(tenantId, snap, testId('adm1'));
     expect(res.docCounters).toBe(2);
+    expect(res.docCounterSkippedDevices).toEqual([7]);
     const upserts = mockAdminDs.query.mock.calls.filter((c: any[]) => String(c[0]).includes('INSERT INTO doc_counters'));
     expect(upserts.map((c: any[]) => c[1])).toEqual([
       [tenantId, posId, 'receipt', '2569-10', 42],
