@@ -1048,7 +1048,7 @@ describe('POST /sync/push (e2e)', () => {
               opId: testId('op_ret_002'),
               status: 'rejected',
               code: 'RETURN_PRICE_MISMATCH',
-              message: 'ราคาคืนไม่ตรงกับราคาที่ขายจริง',
+              message: 'ราคาคืนไม่ตรงกับราคาที่ขายจริง กรุณาค้นหาบิลแล้วทำรายการคืนใหม่อีกครั้ง',
               details: {
                 productId: testId('p1'),
                 expectedPrice: '85.00',
@@ -1142,7 +1142,7 @@ describe('POST /sync/push (e2e)', () => {
               opId: testId('op_cp_002'),
               status: 'rejected',
               code: 'OVERPAYMENT',
-              message: 'ยอดชำระเกินยอดหนี้คงค้าง',
+              message: 'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่',
               details: {
                 mechanicId: testId('m1'),
                 outstandingBalance: '1500.00',

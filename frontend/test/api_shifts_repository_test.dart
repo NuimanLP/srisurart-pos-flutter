@@ -289,7 +289,7 @@ void main() {
           expect(e, isNot(isA<ApiException>()));
           expect(
             e.toString().replaceFirst('Exception: ', ''),
-            'กะนี้ปิดแล้ว',
+            'กะนี้ปิดไปแล้ว ปิดซ้ำไม่ได้ — ถ้าจะขายต่อ กรุณาเปิดกะใหม่',
           );
         }
       },

@@ -33,7 +33,7 @@
             "opId": "fe0c1fbd-47f8-5c1a-b02f-d9b09c49962e",
             "status": "rejected",
             "code": "OVERPAYMENT",
-            "message": "ยอดชำระเกินยอดหนี้คงค้าง",
+            "message": "จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่",
             "details": {
               "mechanicId": "ff057ac6-eef3-5cff-a9b2-981ad43794aa",
               "outstandingBalance": "1500.00",

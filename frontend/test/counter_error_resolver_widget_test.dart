@@ -710,7 +710,7 @@ void main() {
         if (!allowOverpayment) {
           throw const PosException(
             'OVERPAYMENT_NOT_ALLOWED',
-            'ยอดชำระเกินยอดหนี้คงเหลือ',
+            'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่',
             {'creditBalance': 500.0, 'amount': 800.0},
           );
         }

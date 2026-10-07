@@ -367,7 +367,7 @@ class ApiMechanicsRepository extends MechanicsRepository {
     if (amount > projectedBalance && !allowOverpayment) {
       throw PosException(
         'OVERPAYMENT_NOT_ALLOWED',
-        'ยอดชำระเกินยอดหนี้คงเหลือ',
+        'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่',
         {
           'creditBalance': projectedBalance,
           'amount': amount,
