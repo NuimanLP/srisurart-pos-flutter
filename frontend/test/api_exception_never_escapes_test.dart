@@ -328,6 +328,7 @@ const _noApiCall = <String, String>{
   'SyncService.resend': 'Drift write + unawaited push',
   'SyncService.writeAtomic': 'Drift transaction only',
   'SyncService.enqueueOp': 'Drift write only',
+  'OwnerImportRepository.pendingImportJobId': 'Drift read',
 };
 
 SaleInput _sale() => const SaleInput(
@@ -472,6 +473,12 @@ final Map<String, _Call> _cases = {
   'OwnerImportRepository.importBackup': (w) =>
       OwnerImportRepository(w.api, w.db, pollInterval: Duration.zero, maxPolls: 2)
           .importBackup(const {'__meta': {'version': 2}}, confirmShopName: 'ร้าน'),
+  // Never throws: every reply either finishes the refresh, clears the marker or keeps it.
+  'OwnerImportRepository.resumePendingImport': (w) async {
+    await w.db.into(w.db.appMeta).insert(AppMetaCompanion.insert(
+        key: OwnerImportRepository.pendingImportKey, value: 'job-1'));
+    return OwnerImportRepository(w.api, w.db).resumePendingImport();
+  },
   'ReviewItemsRepository.markReviewed': (w) =>
       ReviewItemsRepository(w.api).markReviewed('r1'),
   // ── Auth / offline PIN ──
