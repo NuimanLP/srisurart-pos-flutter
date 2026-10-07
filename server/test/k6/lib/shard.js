@@ -79,16 +79,23 @@ export function minSafeSpreadSeconds(count, floorSeconds, label) {
   return window;
 }
 
+// The most actors one shard can run when each sends `sendsPerActor` requests inside one burst.
+export function maxBurstActors(sendsPerActor) {
+  return Math.floor(SAFE_BURST_PER_SHARD / sendsPerActor);
+}
+
 // For burst scenarios with no adjustable spread (e.g. 03's fixed 0.05s replay rounds): fail
 // fast rather than silently exceed the bucket and have the resulting 429s misread as a stock
-// or idempotency bug.
-export function assertBurstSafe(count, label) {
-  if (count > SAFE_BURST_PER_SHARD) {
+// or idempotency bug. The budget is spent by REQUESTS, so it is `actors × sendsPerActor` that
+// must fit — #380: checking only the actor count let 34 VUs × 5 sends = 170 requests through.
+export function assertBurstSafe(actors, sendsPerActor, label) {
+  const requests = actors * sendsPerActor;
+  if (requests > SAFE_BURST_PER_SHARD) {
     throw new Error(
-      `${label}: ${count} near-simultaneous requests from one shard exceeds the safe burst ` +
-        `budget of ${SAFE_BURST_PER_SHARD} (${BURST_SAFETY_MARGIN * 100}% of nginx's ` +
-        `burst=${NGINX_BURST_PER_IP}). Raise SHARD's N (more machines) or lower the total so ` +
-        `ceil(total/N) <= ${SAFE_BURST_PER_SHARD}.`,
+      `${label}: ${actors} actors × ${sendsPerActor} sends = ${requests} near-simultaneous ` +
+        `requests from one shard exceeds the safe burst budget of ${SAFE_BURST_PER_SHARD} ` +
+        `(${BURST_SAFETY_MARGIN * 100}% of nginx's burst=${NGINX_BURST_PER_IP}). Raise SHARD's ` +
+        `N (more machines) or lower the total so ceil(total/N) <= ${maxBurstActors(sendsPerActor)}.`,
     );
   }
 }

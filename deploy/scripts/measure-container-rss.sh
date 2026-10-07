@@ -40,6 +40,8 @@ declare -A RESTART_COUNTS
 PEAK_AGGREGATE_MB=0
 PEAK_HOST_USED_MB=0
 SAMPLE_COUNT=0
+PARSED_ROWS=0
+SKIPPED_ROWS=0
 RUNNING=true
 
 cleanup() {
@@ -47,21 +49,25 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-# Helper: parse Docker memory string (e.g. "55.4MiB / 384MiB", "1.2GiB / 2GiB") to float MiB
+# Helper: parse one Docker size (e.g. "55.4MiB", "1.2GiB", "0B") to MiB with 2 decimals.
+# `docker stats` prints memory in binary units (B/KiB/MiB/GiB) and I/O in decimal ones
+# (B/kB/MB/GB); both are accepted. Anything else returns non-zero — never a silent 0.
+# (#380: the old version matched a bare `B` before `MiB`, so every MiB value became 0.)
 to_mib() {
-  local str="$1"
-  local val
-  val=$(echo "$str" | sed -E 's/[^0-9\.]//g')
-  if [[ "$str" =~ [Gg][iI]?[Bb] ]]; then
-    awk "BEGIN {printf \"%.2f\", $val * 1024}"
-  elif [[ "$str" =~ [Kk][iI]?[Bb] ]]; then
-    awk "BEGIN {printf \"%.2f\", $val / 1024}"
-  elif [[ "$str" =~ [Bb] ]]; then
-    awk "BEGIN {printf \"%.2f\", $val / 1048576}"
-  else
-    # Assume MiB
-    awk "BEGIN {printf \"%.2f\", $val}"
-  fi
+  awk -v s="$1" 'BEGIN {
+    gsub(/[ \t]/, "", s)
+    if (!match(s, /^[0-9]+(\.[0-9]+)?/)) exit 1
+    n = substr(s, 1, RLENGTH); u = substr(s, RLENGTH + 1)
+    if (u == "B") f = 1 / 1048576
+    else if (u == "KiB") f = 1 / 1024
+    else if (u == "MiB") f = 1
+    else if (u == "GiB") f = 1024
+    else if (u == "kB") f = 1000 / 1048576
+    else if (u == "MB") f = 1000000 / 1048576
+    else if (u == "GB") f = 1000000000 / 1048576
+    else exit 1
+    printf "%.2f", n * f
+  }'
 }
 
 start_time=$(date +%s)
@@ -83,14 +89,19 @@ while $RUNNING && [[ $(date +%s) -lt $end_time ]]; do
       used_str="${mem_usage%%/*}"
       limit_str="${mem_usage##*/}"
       
-      used_mb=$(to_mib "$used_str")
-      limit_mb=$(to_mib "$limit_str")
+      if ! used_mb=$(to_mib "$used_str") || ! limit_mb=$(to_mib "$limit_str"); then
+        echo "WARN: cannot parse memory '${mem_usage}' for ${name} — row skipped" >&2
+        SKIPPED_ROWS=$((SKIPPED_ROWS + 1))
+        continue
+      fi
+      PARSED_ROWS=$((PARSED_ROWS + 1))
       cpu_num=$(echo "$cpu_perc" | tr -d '%' | tr -d ' ')
       [[ -z "$cpu_num" ]] && cpu_num=0
 
       # Update container peak
+      # First sighting always records, so a parsed container is never missing from the table.
       current_peak="${PEAK_MEM_MB[$name]:-0}"
-      if awk "BEGIN {exit !($used_mb > $current_peak)}"; then
+      if [[ -z "${PEAK_MEM_MB[$name]+x}" ]] || awk "BEGIN {exit !($used_mb > $current_peak)}"; then
         PEAK_MEM_MB[$name]="$used_mb"
       fi
 
@@ -189,7 +200,13 @@ fi
   echo ""
   echo "## 3. Verdict"
   echo ""
-  if ! $has_oom && awk "BEGIN {exit !($PEAK_AGGREGATE_MB <= $CEILING_MB)}"; then
+  verdict_pass=false
+  if [[ "$PARSED_ROWS" -eq 0 ]]; then
+    echo "❌ **FAIL**: no container memory row was parsed from \`docker stats\` — no data to judge, so this run proves nothing."
+  elif [[ "$SKIPPED_ROWS" -gt 0 ]]; then
+    echo "❌ **FAIL**: ${SKIPPED_ROWS} \`docker stats\` row(s) could not be parsed (see the WARN lines) — the data is incomplete."
+  elif ! $has_oom && awk "BEGIN {exit !($PEAK_AGGREGATE_MB <= $CEILING_MB)}"; then
+    verdict_pass=true
     echo "✅ **PASS**: Memory usage remained within the 6 GB ceiling during load. Zero containers were OOM killed or restarted."
   else
     echo "❌ **FAIL**: Memory usage exceeded 6 GB ceiling or a container was OOM killed."
@@ -199,3 +216,6 @@ fi
 cat "$OUTPUT_FILE"
 echo ""
 echo "✅ Report saved to: $OUTPUT_FILE"
+
+# A FAIL verdict is a non-zero exit, so a caller never reads a failed run as fine.
+$verdict_pass || exit 1

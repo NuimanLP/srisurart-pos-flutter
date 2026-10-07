@@ -100,9 +100,11 @@ jobs:
             server:
               - 'server/**'
               - '.github/workflows/server.yml'
-              # backup-db.sh, healthcheck-ping.sh + their tests run in the nginx-check job (deploy-script checks).
+              # backup-db.sh, healthcheck-ping.sh, measure-container-rss.sh + their tests run in the
+              # nginx-check job (deploy-script checks).
               - 'deploy/scripts/backup-db.sh'
               - 'deploy/scripts/healthcheck-ping.sh'
+              - 'deploy/scripts/measure-container-rss.sh'
               - 'deploy/scripts/test/**'
               # promtool check in the nginx-check job: the VM's Prometheus config + the local overlay's jobs.
               - 'deploy/prometheus/**'
@@ -359,6 +361,9 @@ jobs:
       # Uptime heartbeat: right ping on success/failure, URL never printed, unset = warning only.
       - name: healthcheck-ping.sh tests (stubbed curl)
         run: deploy/scripts/test/healthcheck-ping.test.sh
+      # #380 load-test sampler: docker stats units parse to MiB; no parsed rows = FAIL, never PASS.
+      - name: measure-container-rss.sh tests (stubbed docker)
+        run: deploy/scripts/test/measure-container-rss.test.sh
       # deploy.yml copies deploy/prometheus/ to the VM and only warns if Prometheus then fails, so
       # check it here: alone (as on the VM, scrape.d/ absent) and with the local overlay's jobs.
       # Same pinned image as deploy/compose/monitoring.yml — bump both together.
