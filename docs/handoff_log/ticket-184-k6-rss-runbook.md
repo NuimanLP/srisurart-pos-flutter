@@ -99,6 +99,9 @@ Why that question survives the method decision — the arithmetic, already recor
   IP, `server/test/k6/lib/shard.js`). Three machines = **~72 r/s aggregate**. `01-read-products.js`
   and `04-mixed-workload.js` therefore switch from `ramping-vus` to `ramping-arrival-rate` when
   `SHARD` is set and **do not run a VU count at all**.
+* `03-idempotent-replay.js` sharded runs at most **9 VUs per machine** (9 × 5 sends = the 45-request
+  burst budget) — **27 at N = 3, not `02 §9`'s 100** (PR #654, after the 2026-10-05 run's 429s). A
+  replay result from the clean path is evidence at 27 VUs, never at 100.
 * So this run is honest evidence about **tail latency, error rate and cache hit at 24 r/s per real
   source IP through the real edge proxy**. It is **not** evidence that the stack serves 1,000
   concurrent users. `03 §8.1` already says so in writing.

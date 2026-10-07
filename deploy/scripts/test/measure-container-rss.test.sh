@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for deploy/scripts/measure-container-rss.sh's `docker stats` parsing and verdict (#380:
 # every MiB value parsed as 0, the table came out empty and the verdict still said PASS).
-# Runs against a stub `docker`: no Docker needed. Each case samples once (~2 s).
+# Runs against a stub `docker`: no Docker needed. Each case samples once (~2 s). Needs bash >= 4.
 # Usage: deploy/scripts/test/measure-container-rss.test.sh
 # RSS_SCRIPT overrides the script under test (used to prove the test fails on the old script).
 # The expected report rows hold literal Markdown backticks, not command substitutions:
@@ -36,7 +36,9 @@ rc=0
 REPORT=""
 run_rss() { # case-name, stats ; sets rc and REPORT
   REPORT="$WORK/$1.md"
-  PATH="$STUBS:$PATH" STUB_STATS="$2" bash "$SCRIPT" 1 "$REPORT" >"$WORK/$1.log" 2>&1
+  # Duration 2, not 1: with 1 a second boundary before the loop's first check can skip
+  # sampling entirely. 2 still takes exactly one sample (the loop sleeps 2 s after it).
+  PATH="$STUBS:$PATH" STUB_STATS="$2" bash "$SCRIPT" 2 "$REPORT" >"$WORK/$1.log" 2>&1
   rc=$?
 }
 has() { grep -qF -- "$2" "$1"; }
@@ -70,8 +72,15 @@ check "unparseable: exits non-zero" test "$rc" -ne 0
 check "unparseable: warns about the skipped row" has "$WORK/garbage.log" "cannot parse memory"
 check "unparseable: verdict is not PASS" lacks "$REPORT" '**PASS**'
 
-# 5. over the 6 GB ceiling: FAIL.
+# 5. one good row plus one unparseable row: incomplete data is a FAIL, not a PASS.
+run_rss partial 'pos-api-1\t55.4MiB / 384MiB\t1.50%\npos-x-1\t-- / --\t--\n'
+check "partial: exits non-zero" test "$rc" -ne 0
+check "partial: the good row is still listed" has "$REPORT" '**55.40 MiB**'
+check "partial: verdict is not PASS" lacks "$REPORT" '**PASS**'
+
+# 6. over the 6 GB ceiling: FAIL and a non-zero exit.
 run_rss over 'pos-big-1\t7GiB / 8GiB\t1.00%\n'
+check "over ceiling: exits non-zero" test "$rc" -ne 0
 check "over ceiling: verdict FAIL" has "$REPORT" '**FAIL**'
 check "over ceiling: verdict is not PASS" lacks "$REPORT" '**PASS**'
 

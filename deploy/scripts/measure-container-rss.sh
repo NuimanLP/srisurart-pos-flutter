@@ -40,6 +40,7 @@ declare -A RESTART_COUNTS
 PEAK_AGGREGATE_MB=0
 PEAK_HOST_USED_MB=0
 SAMPLE_COUNT=0
+SKIPPED_ROWS=0
 RUNNING=true
 
 cleanup() {
@@ -53,7 +54,7 @@ trap cleanup SIGINT SIGTERM
 # (#380: the old version matched a bare `B` before `MiB`, so every MiB value became 0.)
 to_mib() {
   awk -v s="$1" 'BEGIN {
-    gsub(/[[:space:]]/, "", s)
+    gsub(/[ \t]/, "", s)
     if (!match(s, /^[0-9]+(\.[0-9]+)?/)) exit 1
     n = substr(s, 1, RLENGTH); u = substr(s, RLENGTH + 1)
     if (u == "B") f = 1 / 1048576
@@ -89,6 +90,7 @@ while $RUNNING && [[ $(date +%s) -lt $end_time ]]; do
       
       if ! used_mb=$(to_mib "$used_str") || ! limit_mb=$(to_mib "$limit_str"); then
         echo "WARN: cannot parse memory '${mem_usage}' for ${name} — row skipped" >&2
+        SKIPPED_ROWS=$((SKIPPED_ROWS + 1))
         continue
       fi
       cpu_num=$(echo "$cpu_perc" | tr -d '%' | tr -d ' ')
@@ -196,9 +198,13 @@ fi
   echo ""
   echo "## 3. Verdict"
   echo ""
+  verdict_pass=false
   if [[ ${#PEAK_MEM_MB[@]} -eq 0 ]]; then
     echo "❌ **FAIL**: no container memory row was parsed from \`docker stats\` — no data to judge, so this run proves nothing."
+  elif [[ "$SKIPPED_ROWS" -gt 0 ]]; then
+    echo "❌ **FAIL**: ${SKIPPED_ROWS} \`docker stats\` row(s) could not be parsed (see the WARN lines) — the data is incomplete."
   elif ! $has_oom && awk "BEGIN {exit !($PEAK_AGGREGATE_MB <= $CEILING_MB)}"; then
+    verdict_pass=true
     echo "✅ **PASS**: Memory usage remained within the 6 GB ceiling during load. Zero containers were OOM killed or restarted."
   else
     echo "❌ **FAIL**: Memory usage exceeded 6 GB ceiling or a container was OOM killed."
@@ -209,7 +215,5 @@ cat "$OUTPUT_FILE"
 echo ""
 echo "✅ Report saved to: $OUTPUT_FILE"
 
-if [[ ${#PEAK_MEM_MB[@]} -eq 0 ]]; then
-  echo "::error::no container memory row was parsed — the report has no data (see its verdict)" >&2
-  exit 1
-fi
+# A FAIL verdict is a non-zero exit, so a caller never reads a failed run as fine.
+$verdict_pass || exit 1

@@ -24,6 +24,10 @@ const shardInfo = shard.shardFromEnv(__ENV);
 const TOTAL_REPLAY_VUS = Number(
   __ENV.TOTAL_REPLAY_VUS || (shardInfo ? shardInfo.count * shard.maxBurstActors(SENDS_PER_VU) : 100),
 );
+// Validate before the burst check: NaN (a typo) would compare false and slip through it.
+if (!Number.isInteger(TOTAL_REPLAY_VUS) || TOTAL_REPLAY_VUS < 1) {
+  throw new Error(`TOTAL_REPLAY_VUS must be a positive integer, got ${JSON.stringify(__ENV.TOTAL_REPLAY_VUS)}`);
+}
 const vus = shardInfo
   ? shard.divideCount(TOTAL_REPLAY_VUS, shardInfo.index, shardInfo.count)
   : TOTAL_REPLAY_VUS;
