@@ -64,8 +64,8 @@ class ServerErrorResolver {
     'TENANT_SUSPENDED': 'ร้านนี้ถูกระงับการใช้งาน',
     'DEVICE_ROLE_FORBIDDEN': 'เครื่องนี้ขายของไม่ได้',
     'RATE_LIMITED': 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
-    // `agent ร่าง 2026-10-07` — NOT ratified; 02_API_SCREENS.md §8.1 lists them
-    // for the owner. CREDIT_LIMIT_EXCEEDED / CREDIT_PAYMENT_EXCEEDS_BALANCE only
+    // agent-drafted, ratified by the owner 2026-10-07 (02_API_SCREENS.md §8.1).
+    // CREDIT_LIMIT_EXCEEDED / CREDIT_PAYMENT_EXCEEDS_BALANCE only
     // show when the consent dialog cannot be asked (no `details`), so they do
     // not tell the clerk to confirm — the dialogs in checkout_screen /
     // mechanics_screen are unchanged.
@@ -91,7 +91,7 @@ class ServerErrorResolver {
     'IDEMPOTENCY_KEY_IN_FLIGHT': 'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่',
     'IDEMPOTENCY_KEY_INVALID': 'คีย์การทำรายการไม่ถูกต้อง',
     'RECEIPT_NO_CONFLICT': 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
-    // `agent ร่าง 2026-10-07` (see the block above).
+    // ratified 2026-10-07 (see the block above).
     'CREDIT_PAYMENT_EXCEEDS_BALANCE':
         'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่',
     'CREDIT_PAYMENT_ID_REUSED': 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
