@@ -86,7 +86,7 @@ void main() {
       );
     });
 
-    // `agent ร่าง 2026-10-07` (02_API_SCREENS.md §8.1) — the server still sends
+    // Ratified 2026-10-07 (02_API_SCREENS.md §8.1) — the server still sends
     // English for each, and the Thai draft must win over it.
     test('agent-drafted Thai (2026-10-07) wins over the server English', () {
       expect(ServerErrorResolver.resolve('DOC_NUMBER_EXHAUSTED', serverMessage: 'Document numbers for this device are exhausted for this month (max 9999).'), 'เลขที่เอกสารของเครื่องนี้ครบ 9,999 ใบในเดือนนี้แล้ว ออกเอกสารต่อไม่ได้ กรุณาติดต่อทีมงาน');
