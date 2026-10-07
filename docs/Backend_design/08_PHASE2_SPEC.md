@@ -166,6 +166,8 @@ stateDiagram-v2
 
 ค่าคงที่ (ปรับใน PR ได้): health = `GET /health/ready` (probe ใช้ pool ของตัวเองขนาด 1 ตั้งแต่ #253 — health เขียวไม่ได้แปลว่า pool ของ request ว่าง; write ที่ค้างยังทำให้ Degraded ตามข้อ "ไม่ได้คำตัดสิน") · ตรวจทุก 5 วินาที timeout 5 วินาที · "ไม่ได้คำตัดสิน" = ที่ `isVerdict` ไม่นับ (timeout, socket, 5xx, 429, `503 IDEMPOTENCY_KEY_IN_FLIGHT`) → Degraded · 4xx = คำตัดสิน · 🔄 **แก้ 2026-09-27 (owner, #452):** เข้า outbox ด้วย id + key เดิม**เฉพาะ transport failure** (timeout, socket) — 5xx/429/`IN_FLIGHT` **ไม่เข้าคิว** จอดความพยายามไว้ (id + key เดิม) ให้กดซ้ำ replay เหมือน `ApiSalesRepository` (CLAUDE.md: "never fall back to a local write on anything but a genuine transport failure")
 
+🔄 **เพิ่ม 2026-10-07 (owner):** ความพยายามที่จอดไว้จะปิดก็ต่อเมื่อบันทึกผลลงเครื่องสำเร็จแล้ว · การแก้ไขระเบียนเดียวกันครั้งใหม่ (เช่น `PATCH /customers/:id`) ปิดการแก้ไขเก่าที่ยังจอดอยู่ของระเบียนนั้นตั้งแต่ตอนส่ง — PATCH แทนค่าทั้งก้อน กดการแก้ไขเก่าซ้ำจึงได้ key ใหม่ ไม่ replay คำตอบเก่าที่ค้าง (`api_wire.dart` ข้อ 5)
+
 กติกาลำดับ: มี op `pending` ที่ส่งได้ → write ใหม่ต่อท้าย outbox (op `stuck` และ op ที่รอมันไม่นับ — §8.4)
 
 **เกณฑ์รับงาน**

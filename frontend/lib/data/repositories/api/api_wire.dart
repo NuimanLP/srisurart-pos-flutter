@@ -35,6 +35,11 @@
 //     whose reply was lost has NOT necessarily failed, and the retry must
 //     carry the first attempt's id and `Idempotency-Key` or it becomes a
 //     second bill. This is the money rule of the whole slice.
+//     A parked attempt is closed only after its local apply has succeeded,
+//     and a newer edit of the same record supersedes its parked older edits
+//     (closed when the newer one is sent): a PATCH replaces whole values, so
+//     the older edit pressed again goes out under a NEW key — its old key
+//     would only replay a stale stored reply (08 §5, owner 2026-10-07).
 
 import 'package:drift/drift.dart';
 

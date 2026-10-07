@@ -9,7 +9,8 @@
 //    parked attempt, and the clerk's overpay consent must not mint a new key.
 // 2. Credit payment / addCustomer / addMechanic: the attempt is closed only
 //    after the local apply succeeded — a local failure keeps it parked.
-// 3. updateCustomer: A (parked) → B (success) → A again must not reuse A's key.
+// 3. updateCustomer: A (parked) → B (sent, any outcome) → A again must not
+//    reuse A's key — a newer edit of a record supersedes its parked edits.
 // 4. adjustStock: a delta write is parked like every other money/stock write.
 
 import 'dart:convert';
@@ -253,6 +254,50 @@ void main() {
     expect(sent.keys.toSet(), hasLength(3));
   });
 
+  test('defect 3 — updateCustomer: edit A 5xx, edit B 5xx (both parked), '
+      "edit back to A is a NEW key — B superseded A when it was sent", () async {
+    final api = clientWith([
+      (_) => _error(502, 'BAD_GATEWAY'),
+      (_) => _error(502, 'BAD_GATEWAY'),
+      (_) => customer('A'),
+    ]);
+    final repo = ApiCustomersRepository(db, api);
+    const a = CustomersCompanion(nameTH: Value('A'));
+    const b = CustomersCompanion(nameTH: Value('B'));
+
+    await expectLater(repo.updateCustomer('tc-x', a), throwsA(isA<PosException>()));
+    await expectLater(repo.updateCustomer('tc-x', b), throwsA(isA<PosException>()));
+    await repo.updateCustomer('tc-x', a);
+
+    expect(sent.keys, hasLength(3));
+    expect(sent.keys.toSet(), hasLength(3));
+  });
+
+  test('defect 3 — updateCustomer: an edit of ANOTHER customer does not '
+      'supersede a parked edit', () async {
+    await db.into(db.customers).insert(CustomersCompanion.insert(
+          id: 'tc-y',
+          code: 'C-2',
+          name: 'Other',
+          nameTH: 'อื่น',
+          createdAt: '2026-10-06T00:00:00.000Z',
+        ));
+    final api = clientWith([
+      (_) => _error(502, 'BAD_GATEWAY'),
+      (_) => customer('B', id: 'tc-y'),
+      (_) => customer('A'),
+    ]);
+    final repo = ApiCustomersRepository(db, api);
+    const a = CustomersCompanion(nameTH: Value('A'));
+    const b = CustomersCompanion(nameTH: Value('B'));
+
+    await expectLater(repo.updateCustomer('tc-x', a), throwsA(isA<PosException>()));
+    await repo.updateCustomer('tc-y', b);
+    await repo.updateCustomer('tc-x', a);
+
+    expect(sent.keys[2], sent.keys[0]);
+  });
+
   group('defect 4 — adjustStock is parked like every other stock write', () {
     http.Response adjusted(int stockAfter) =>
         _ok({'id': 'p-1', 'stockAfter': stockAfter});
@@ -286,7 +331,31 @@ void main() {
       final repo = ApiProductsRepository(db, api);
 
       await expectLater(
-          repo.adjustStock('p-1', 5, 'manual', null), throwsA(anything));
+        repo.adjustStock('p-1', 5, 'manual', null),
+        throwsA(isA<PosException>()
+            .having((e) => e.code, 'code', 'NETWORK_ERROR')),
+      );
+      await repo.adjustStock('p-1', 5, 'manual', null);
+      expect(sent.keys.toSet(), hasLength(1));
+    });
+
+    test('a 2xx that is not an adjustment is UNREADABLE_RESPONSE and stays '
+        'parked', () async {
+      final api = clientWith([
+        (_) => _json(200, {'status': 'success', 'data': ['not-an-adjustment']}),
+        (_) => adjusted(15),
+      ]);
+      final repo = ApiProductsRepository(db, api);
+
+      await expectLater(
+        repo.adjustStock('p-1', 5, 'manual', null),
+        throwsA(isA<PosException>()
+            .having((e) => e.code, 'code', 'UNREADABLE_RESPONSE')),
+      );
+      final row = await (db.select(db.products)
+            ..where((t) => t.id.equals('p-1')))
+          .getSingle();
+      expect(row.stock, 10);
       await repo.adjustStock('p-1', 5, 'manual', null);
       expect(sent.keys.toSet(), hasLength(1));
     });
