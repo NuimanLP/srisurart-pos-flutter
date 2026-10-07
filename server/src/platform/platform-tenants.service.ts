@@ -12,7 +12,7 @@ import type { Redis } from 'ioredis';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
 import { REDIS_CACHE } from '../infra/redis.module.js';
 import { generateTempPassword, hashPassword } from '../common/password.js';
-import { isUuid, newUuid } from '../common/ids.js';
+import { assertValidTenantId, newUuid } from '../common/ids.js';
 import { returning } from '../common/sql.js';
 import { ReviewItemsService } from '../review-items/review-items.service.js';
 import { AuditService } from './audit.service.js';
@@ -43,21 +43,6 @@ export const SEED_CATEGORIES = [
   'เบรก',
   'ตัวถัง',
 ] as const;
-
-/**
- * #443 PR2: a non-UUID `:id` used to reach Postgres unvalidated and come back as a driver-level
- * 22P02 — a 500, not a 400 — on `updateStatus`; the two new methods below would have had the
- * same bug. Validate the shape before any query (CLAUDE.md: validate first, then use).
- */
-
-export function assertValidTenantId(tenantId: string): void {
-  if (!isUuid(tenantId)) {
-    throw new BadRequestException({
-      code: 'INVALID_TENANT_ID',
-      message: 'tenantId must be a lowercase UUID',
-    });
-  }
-}
 
 /**
  * Owner decision 2026-09-27 (#443 PR2, Q3): a reissued code lives 7 days, the same as the

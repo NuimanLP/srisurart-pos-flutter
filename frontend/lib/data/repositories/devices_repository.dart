@@ -5,6 +5,7 @@ import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/utils/ids.dart';
 import '../../domain/models/device_model.dart';
+import 'api/api_wire.dart';
 
 class DevicesRepository {
   final ApiClient _apiClient;
@@ -13,7 +14,7 @@ class DevicesRepository {
 
   /// Lists all registered devices for the current tenant.
   ///
-  /// A server refusal (4xx) arrives as a [PosException] carrying its code —
+  /// A server refusal (any status) arrives as a [PosException] carrying its code —
   /// the screen tells `DEVICE_ROLE_FORBIDDEN` (no enrolled device in this
   /// session, #558) apart from the rest without touching an [ApiException].
   Future<List<DeviceModel>> listDevices() async {
@@ -21,8 +22,7 @@ class DevicesRepository {
     try {
       res = await _apiClient.get('/api/v1/devices');
     } on ApiException catch (e) {
-      if (e.statusCode < 500) rethrowServerRefusal(e);
-      rethrow;
+      throw posExceptionFromApi(e);
     }
     final List<dynamic> list;
     if (res is List) {
@@ -47,7 +47,7 @@ class DevicesRepository {
     required String label,
     required String role,
   }) async {
-    final res = await _apiClient.post(
+    final res = await rethrowCounterError(() => _apiClient.post(
       '/api/v1/devices',
       headers: {
         'Idempotency-Key': newIdempotencyKey('idem_dev_'),
@@ -56,7 +56,7 @@ class DevicesRepository {
         'label': label.trim(),
         'role': role,
       },
-    );
+    ));
 
     final map = res as Map<String, dynamic>;
     final deviceMap = map['device'] as Map<String, dynamic>;
@@ -85,12 +85,12 @@ class DevicesRepository {
       }
     }
 
-    await _apiClient.post(
+    await rethrowCounterError(() => _apiClient.post(
       '/api/v1/devices/$deviceId/retire',
       headers: {
         'Idempotency-Key': newIdempotencyKey('idem_ret_'),
       },
       body: body.isNotEmpty ? body : null,
-    );
+    ));
   }
 }

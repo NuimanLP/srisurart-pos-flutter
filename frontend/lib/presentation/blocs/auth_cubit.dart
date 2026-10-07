@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:http/http.dart' as http;
 
-import '../../core/network/api_exception.dart';
+import '../../core/errors/pos_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/offline_pin_repository.dart';
@@ -392,7 +392,7 @@ class AuthCubit extends Cubit<AuthState> {
     } catch (e) {
       // 401: the 10-minute token expired or was already used — only a fresh
       // login with the temporary password can continue.
-      if (e is ApiException && e.statusCode == 401) {
+      if (e is PasswordChangeSessionExpiredException) {
         _passwordChangeToken = null;
         emit(Unauthenticated(
           deviceToken: current.deviceToken,
@@ -429,37 +429,21 @@ class AuthCubit extends Cubit<AuthState> {
 
   /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
   static const String passwordChangeSessionExpired =
-      'หมดเวลาเปลี่ยนรหัสผ่าน กรุณาเข้าสู่ระบบใหม่ด้วยรหัสผ่านชั่วคราว';
+      PasswordChangeSessionExpiredException.message;
 
-  /// The sentence the login form shows for a failed `POST /auth/token` (#143).
+  /// The sentence the login form shows for a failed login (#143).
   ///
-  /// Every string comes from [ServerErrorResolver] or was already the login
-  /// form's own — none is new:
-  /// - **401** — the server's login refusals (wrong password, unknown, inactive
-  ///   or ambiguous user, bad device token) are all English Nest messages with
-  ///   no code, so the resolver would print `Invalid credentials` at the
-  ///   counter. They get the form's generic `เข้าสู่ระบบไม่สำเร็จ`, which also
-  ///   says nothing about *which* part was wrong.
-  /// - **5xx** — a proxy's 502 body is HTML; the connection sentence instead.
-  /// - **other 4xx / 429** — coded verdicts (`TENANT_SUSPENDED`,
-  ///   `RATE_LIMITED`) resolve to their mapped Thai.
-  /// - **transport failure** — the connection sentence. The raw exception text
-  ///   used to be appended here, which put `ClientException: …` on screen.
+  /// A server refusal arrives already in Thai as a [PosException]
+  /// (`AuthRepository.loginRefusal`); a transport failure gets the connection
+  /// sentence — the raw exception text used to be appended here, which put
+  /// `ClientException: …` on screen.
   @visibleForTesting
   static String loginRefusalMessage(Object error) {
-    // A client-side refusal already in Thai — `TENANT_SWITCH_UNSENT_WORK`
-    // (TenantCacheGuard) is the one a login can meet.
+    // A refusal already in Thai — the server's (AuthRepository.loginRefusal)
+    // or `TENANT_SWITCH_UNSENT_WORK` (TenantCacheGuard).
     if (error is PosException) return error.message;
     // #400's ratified sentence: the browser's token store cannot be opened.
     if (error is TokenStoreUnavailableException) return error.toString();
-    if (error is ApiException) {
-      // #443 PR3: the one 401 that must NOT read as "wrong password" — the
-      // password was right, the temporary one simply expired.
-      if (error.code == 'TEMP_PASSWORD_EXPIRED') return error.thaiMessage;
-      if (error.statusCode == 401) return 'เข้าสู่ระบบไม่สำเร็จ';
-      if (error.statusCode >= 500) return ServerErrorResolver.resolve(null);
-      return error.thaiMessage;
-    }
     if (error is http.ClientException || error is TimeoutException) {
       return ServerErrorResolver.resolve(null);
     }

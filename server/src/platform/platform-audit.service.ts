@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ADMIN_DATA_SOURCE } from '../infra/db.module.js';
-import { assertValidTenantId } from './platform-tenants.service.js';
+import { assertValidTenantId } from '../common/ids.js';
 import { AuditService } from './audit.service.js';
 
 export const AUDIT_PAGE_DEFAULT = 50;

@@ -5,9 +5,11 @@ import 'dart:async';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
 import '../../domain/models/auth_models.dart';
 import '../services/tenant_cache_guard.dart';
 import '../storage/token_storage.dart';
+import 'api/api_wire.dart';
 import 'offline_pin_repository.dart';
 
 /// [AuthRepository.login] was refused because this browser's device token is
@@ -25,6 +27,38 @@ class DeviceEnrolmentGoneException implements Exception {
   static const String message =
       'เครื่องนี้ถูกปลดจากร้านแล้ว หรือไม่พบในระบบ จึงเปลี่ยนเป็นโหมด Backoffice '
       '— ผูกเครื่องใหม่ด้วยรหัสจากเจ้าของร้าน';
+
+  @override
+  String toString() => message;
+}
+
+/// The server refused `POST /auth/device` (any status) in
+/// [AuthRepository.enrolDevice].
+///
+/// Deliberately NOT a [PosException]: `AuthCubit.enrolDevice` rethrows a
+/// [PosException] for the dialog to show (`TenantCacheGuard`'s refusal) and
+/// answers anything else with `false` — the dialog's own "wrong code"
+/// sentence. A server refusal has always taken that `false` path; this keeps
+/// it there without letting an `ApiException` out of the repository.
+/// [refusal] is the converted refusal, for logs and tests.
+class EnrolCodeRefusedException implements Exception {
+  const EnrolCodeRefusedException(this.refusal);
+
+  final PosException refusal;
+
+  @override
+  String toString() => refusal.message;
+}
+
+/// [AuthRepository.changePassword] got a 401: the 10-minute password-change
+/// token expired or was already used — only a fresh login with the temporary
+/// password can continue (#443 PR3).
+class PasswordChangeSessionExpiredException implements Exception {
+  const PasswordChangeSessionExpiredException();
+
+  /// agent ร่าง (#443 PR3, 02_API_SCREENS.md §8.1) — not yet ratified.
+  static const String message =
+      'หมดเวลาเปลี่ยนรหัสผ่าน กรุณาเข้าสู่ระบบใหม่ด้วยรหัสผ่านชั่วคราว';
 
   @override
   String toString() => message;
@@ -105,7 +139,7 @@ class AuthRepository {
         await forgetDeadDeviceToken(sent as String);
         throw const DeviceEnrolmentGoneException();
       }
-      rethrow;
+      throw loginRefusal(e);
     }
 
     final map = response as Map<String, dynamic>;
@@ -131,6 +165,33 @@ class AuthRepository {
     );
   }
 
+  /// A refused `POST /auth/token` as the sentence the login form shows (#143).
+  ///
+  /// Every string comes from [ServerErrorResolver] or was already the login
+  /// form's own — none is new:
+  /// - **401** — the server's login refusals (wrong password, unknown, inactive
+  ///   or ambiguous user, bad device token) are all English Nest messages with
+  ///   no code, so the resolver would print `Invalid credentials` at the
+  ///   counter. They get the form's generic `เข้าสู่ระบบไม่สำเร็จ`, which also
+  ///   says nothing about *which* part was wrong.
+  /// - **5xx** — a proxy's 502 body is HTML; the connection sentence instead
+  ///   (via `posExceptionFromApi`). Its one exception, 503
+  ///   `IDEMPOTENCY_KEY_IN_FLIGHT`, cannot occur here: `/auth/token` takes no
+  ///   `Idempotency-Key`.
+  /// - **other 4xx / 429** — coded verdicts (`TENANT_SUSPENDED`,
+  ///   `RATE_LIMITED`) resolve to their mapped Thai.
+  static PosException loginRefusal(ApiException e) {
+    // #443 PR3: the one 401 that must NOT read as "wrong password" — the
+    // password was right, the temporary one simply expired.
+    if (e.code == 'TEMP_PASSWORD_EXPIRED') {
+      return PosException(e.code, e.thaiMessage, e.details);
+    }
+    if (e.statusCode == 401) {
+      return PosException(e.code, 'เข้าสู่ระบบไม่สำเร็จ', e.details);
+    }
+    return posExceptionFromApi(e);
+  }
+
   /// Replaces the temporary owner password with [newPassword] (#443 PR3),
   /// authorised by the restricted token from [login]. Success is a full
   /// session, stored exactly like a normal login.
@@ -141,12 +202,20 @@ class AuthRepository {
     required String passwordChangeToken,
     required String newPassword,
   }) async {
-    final response = await apiClient.post(
-      '/api/v1/auth/change-password',
-      body: {'newPassword': newPassword},
-      headers: {'Authorization': 'Bearer $passwordChangeToken'},
-      skipAuth: true,
-    );
+    final Object? response;
+    try {
+      response = await apiClient.post(
+        '/api/v1/auth/change-password',
+        body: {'newPassword': newPassword},
+        headers: {'Authorization': 'Bearer $passwordChangeToken'},
+        skipAuth: true,
+      );
+    } on ApiException catch (e) {
+      if (e.statusCode == 401) {
+        throw const PasswordChangeSessionExpiredException();
+      }
+      throw posExceptionFromApi(e);
+    }
     final map = response as Map<String, dynamic>;
     final user = AuthUser.fromJson(map['user'] as Map<String, dynamic>);
     await _storeSession(
@@ -212,11 +281,16 @@ class AuthRepository {
     // could never be sent or discarded (login is scoped to the device's shop).
     await tenantGuard?.checkEnrolment();
 
-    final response = await apiClient.post(
-      '/api/v1/auth/device',
-      body: {'code': normalizedCode},
-      skipAuth: true,
-    );
+    final Object? response;
+    try {
+      response = await apiClient.post(
+        '/api/v1/auth/device',
+        body: {'code': normalizedCode},
+        skipAuth: true,
+      );
+    } on ApiException catch (e) {
+      throw EnrolCodeRefusedException(posExceptionFromApi(e));
+    }
 
     final map = response as Map<String, dynamic>;
     final deviceToken = map['deviceToken'] as String;
@@ -233,11 +307,11 @@ class AuthRepository {
       return null;
     }
 
-    final response = await apiClient.post(
-      '/api/v1/auth/refresh',
-      body: {'refreshToken': refreshToken},
-      skipAuth: true,
-    );
+    final response = await rethrowCounterError(() => apiClient.post(
+          '/api/v1/auth/refresh',
+          body: {'refreshToken': refreshToken},
+          skipAuth: true,
+        ));
 
     final map = response as Map<String, dynamic>;
     final tokens = AuthTokens.fromJson(map);

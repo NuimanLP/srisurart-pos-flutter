@@ -18,7 +18,9 @@ class ServerErrorResolver {
   /// - Transport failures ([http.ClientException], [TimeoutException]) resolve
   ///   to the canonical Thai connection sentence (), hiding raw
   ///   English and URLs from cashiers (#199).
-  /// - An unhandled [ApiException] resolves to its Thai mapping ([resolve(null)] for 5xx).
+  /// - An unhandled [ApiException] resolves to its Thai mapping ([resolve(null)] for 5xx,
+  ///   except 503 `IDEMPOTENCY_KEY_IN_FLIGHT`, which keeps its own sentence —
+  ///   owner 2026-10-06: the counter is told to wait, on every write path).
   /// - Generic exceptions drop the leading `Exception: ` prefix, while defensively
   ///   masking any leaked URLs.
   static String resolveCounterError(Object error) {
@@ -26,7 +28,9 @@ class ServerErrorResolver {
       return error.message;
     }
     if (error is ApiException) {
-      if (error.statusCode >= 500) return resolve(null);
+      if (error.statusCode >= 500 && error.code != 'IDEMPOTENCY_KEY_IN_FLIGHT') {
+        return resolve(null);
+      }
       return error.thaiMessage;
     }
     if (error is http.ClientException || error is TimeoutException) {

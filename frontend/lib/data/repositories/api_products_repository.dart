@@ -11,7 +11,6 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
-import '../../core/network/api_exception.dart';
 import '../db/database.dart';
 import 'api/api_wire.dart';
 import 'movements_repository.dart';
@@ -266,17 +265,13 @@ class ApiProductsRepository extends ProductsRepository {
       if (data.compat.present && data.compat.value != null) 'compat': data.compat.value,
     };
 
-    final res = await apiClient.post('/api/v1/products', body: body, headers: idempotencyKey());
+    final res = await rethrowCounterError(() => apiClient.post('/api/v1/products', body: body, headers: idempotencyKey()));
     if (res is Map) {
       final comp = _productToCompanion(Map<String, dynamic>.from(res));
       await db.into(db.products).insertOnConflictUpdate(comp);
       return await (db.select(db.products)..where((t) => t.id.equals(comp.id.value))).getSingle();
     }
-    throw ApiException(
-      statusCode: 500,
-      code: 'SERVER_ERROR',
-      serverMessage: 'ไม่สามารถบันทึกสินค้า',
-    );
+    throw unreadableResponse();
   }
 
   @override
@@ -292,7 +287,7 @@ class ApiProductsRepository extends ProductsRepository {
     if (patch.minStock.present) body['minStock'] = patch.minStock.value;
     if (patch.compat.present) body['compat'] = patch.compat.value;
 
-    final res = await apiClient.patch('/api/v1/products/$id', body: body, headers: idempotencyKey());
+    final res = await rethrowCounterError(() => apiClient.patch('/api/v1/products/$id', body: body, headers: idempotencyKey()));
     if (res is Map) {
       final comp = _productToCompanion(Map<String, dynamic>.from(res));
       await db.into(db.products).insertOnConflictUpdate(comp);
@@ -332,11 +327,11 @@ class ApiProductsRepository extends ProductsRepository {
     };
     if (note != null) body['note'] = note;
 
-    final res = await apiClient.post(
+    final res = await rethrowCounterError(() => apiClient.post(
       '/api/v1/products/$productId/adjust-stock',
       body: body,
       headers: idempotencyKey(),
-    );
+    ));
     if (res is Map) {
       final resMap = Map<String, dynamic>.from(res);
       final stockAfter = (resMap['stockAfter'] as num?)?.toInt() ?? (p.stock + delta);
@@ -399,7 +394,7 @@ class ApiProductsRepository extends ProductsRepository {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
 
-    await apiClient.post('/api/v1/categories', body: {'name': trimmed}, headers: idempotencyKey());
+    await rethrowCounterError(() => apiClient.post('/api/v1/categories', body: {'name': trimmed}, headers: idempotencyKey()));
     final count = await (db.select(db.categories)).get().then((l) => l.length);
     await db.into(db.categories).insert(
           CategoriesCompanion.insert(name: trimmed, position: count),
@@ -409,7 +404,7 @@ class ApiProductsRepository extends ProductsRepository {
 
   @override
   Future<void> deleteCategory(String name) async {
-    await apiClient.delete('/api/v1/categories/$name', headers: idempotencyKey());
+    await rethrowCounterError(() => apiClient.delete('/api/v1/categories/$name', headers: idempotencyKey()));
     await (db.delete(db.categories)..where((t) => t.name.equals(name))).go();
   }
 }

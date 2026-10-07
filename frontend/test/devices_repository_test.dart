@@ -109,14 +109,18 @@ void main() {
       );
     });
 
-    test('listDevices() leaves a 5xx as an ApiException', () async {
+    test('listDevices() turns a 5xx into the connection sentence, never an ApiException', () async {
       final repo = DevicesRepository(ApiClient(
         baseUrl: 'http://localhost:3000',
         tokenStorage: tokenStorage,
         httpClient: MockClient((_) async => http.Response('<html>bad gateway</html>', 502)),
       ));
 
-      await expectLater(repo.listDevices(), throwsA(isA<ApiException>()));
+      await expectLater(
+        repo.listDevices(),
+        throwsA(isA<PosException>().having(
+            (e) => e.message, 'message', 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์')),
+      );
     });
 
     test('listDevices() returns mapped devices list', () async {

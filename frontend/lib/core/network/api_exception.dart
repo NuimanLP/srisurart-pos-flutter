@@ -1,6 +1,9 @@
 // Structured exception for API errors returned by the NestJS backend.
 
+import '../errors/pos_exception.dart';
 import 'server_error_resolver.dart';
+
+export '../errors/pos_exception.dart';
 
 class ApiException implements Exception {
   ApiException({
@@ -40,35 +43,6 @@ class ApiException implements Exception {
   }
 }
 
-/// A server refusal, already resolved to the sentence the counter should read.
-///
-/// `toString()` is that sentence and nothing else — no `Exception: ` prefix, no
-/// class name — so the three screens' `replaceFirst('Exception: ', '')` idiom
-/// renders it unchanged and none of them had to learn a new type.
-///
-/// [code] is kept because one caller genuinely needs it: `checkout_screen`
-/// answers a `CREDIT_LIMIT_EXCEEDED` by showing the override dialog and
-/// re-sending with the counter's consent (`02_API_SCREENS.md §8.2`). Resolving
-/// that from the Thai text would be string-matching a translation.
-class PosException implements Exception {
-  const PosException(this.code, this.message, [this.details]);
-
-  /// The server's error code, e.g. `CREDIT_LIMIT_EXCEEDED`.
-  final String code;
-
-  /// The Thai sentence from `ServerErrorResolver` (`02_API_SCREENS.md §8.1`).
-  final String message;
-
-  /// The server's `error.details`, carried verbatim. `CREDIT_LIMIT_EXCEEDED`
-  /// sends `{creditLimit, creditBalance, newBalance}`, and those are the numbers
-  /// the override dialog must show — the screen's own cached `MechanicRow` is
-  /// what was wrong in the first place.
-  final Object? details;
-
-  @override
-  String toString() => message;
-}
-
 /// Re-throw a server refusal in the form the screens render, from a repository
 /// that would otherwise fall through to a LOCAL write.
 ///
@@ -81,4 +55,32 @@ class PosException implements Exception {
 /// second `movements` row), a second credit payment, a second quote. A refusal
 /// the server *did* give must reach the counter, not be quietly re-done locally.
 Never rethrowServerRefusal(ApiException e) =>
-    throw PosException(e.code, e.thaiMessage, e.details);
+    throw posExceptionFromApi(e, keepServerTextOn5xx: true);
+
+/// THE conversion of an [ApiException] into what a screen may see. Every
+/// repository conversion goes through here; only `AuthRepository.loginRefusal`
+/// adds login-specific cases on top.
+///
+/// For a 4xx or a 429 there is one text: [ApiException.thaiMessage]. A 5xx has
+/// two, because the app has always shown two and the screens must not change:
+///  - default — [ServerErrorResolver.resolveCounterError]'s connection
+///    sentence. That is what a screen rendered when the raw [ApiException]
+///    reached it, i.e. on every path converted after #642. The one exception
+///    is 503 `IDEMPOTENCY_KEY_IN_FLIGHT`: owner 2026-10-06, its own "wait"
+///    sentence on every path, so both modes give the same text for it.
+///  - [keepServerTextOn5xx] — [ApiException.thaiMessage], what [rethrowThai] /
+///    [rethrowServerRefusal] have always produced (sales, returns, shifts,
+///    settings, product delete, PIN setup). It keeps e.g. a 500
+///    `INTERNAL_ERROR`'s own server `message` on those paths, where the
+///    default would show the connection sentence.
+PosException posExceptionFromApi(
+  ApiException e, {
+  bool keepServerTextOn5xx = false,
+}) =>
+    PosException(
+      e.code,
+      keepServerTextOn5xx
+          ? e.thaiMessage
+          : ServerErrorResolver.resolveCounterError(e),
+      e.details,
+    );

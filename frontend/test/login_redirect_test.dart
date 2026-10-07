@@ -101,7 +101,10 @@ class _StubAuthRepo extends AuthRepository {
   }) async {
     loginPasswords.add(password);
     if (loginGate != null) await loginGate!.future;
-    if (loginError != null) throw loginError!;
+    final e = loginError;
+    // As the real repository: a server refusal leaves it already in Thai.
+    if (e is ApiException) throw AuthRepository.loginRefusal(e);
+    if (e != null) throw e;
     final u = AuthUser(id: 'u-1', username: username, role: 'cashier');
     if (pwchangeToken != null) return LoginPasswordChangeRequired(u, pwchangeToken!);
     isAuth = true;
@@ -207,20 +210,21 @@ void main() {
         code: 'UNAUTHORIZED',
         serverMessage: 'Invalid credentials',
       );
-      expect(AuthCubit.loginRefusalMessage(e), 'เข้าสู่ระบบไม่สำเร็จ');
+      expect(AuthCubit.loginRefusalMessage(AuthRepository.loginRefusal(e)),
+          'เข้าสู่ระบบไม่สำเร็จ');
     });
 
     test('a coded verdict resolves to its mapped Thai', () {
       expect(
-        AuthCubit.loginRefusalMessage(
+        AuthCubit.loginRefusalMessage(AuthRepository.loginRefusal(
           ApiException(statusCode: 403, code: 'TENANT_SUSPENDED'),
-        ),
+        )),
         'ร้านนี้ถูกระงับการใช้งาน',
       );
       expect(
-        AuthCubit.loginRefusalMessage(
+        AuthCubit.loginRefusalMessage(AuthRepository.loginRefusal(
           ApiException(statusCode: 429, code: 'RATE_LIMITED'),
-        ),
+        )),
         'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
       );
     });
@@ -228,13 +232,13 @@ void main() {
     test('a 5xx or a lost connection shows the connection sentence', () {
       const connection = 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์';
       expect(
-        AuthCubit.loginRefusalMessage(
+        AuthCubit.loginRefusalMessage(AuthRepository.loginRefusal(
           ApiException(
             statusCode: 502,
             code: 'BAD_GATEWAY',
             serverMessage: '<html>502 Bad Gateway</html>',
           ),
-        ),
+        )),
         connection,
       );
       final lost = AuthCubit.loginRefusalMessage(

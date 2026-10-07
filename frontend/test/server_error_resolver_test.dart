@@ -210,6 +210,24 @@ void main() {
       );
     });
 
+    test('503 IDEMPOTENCY_KEY_IN_FLIGHT keeps its own "wait" sentence (owner 2026-10-06)', () {
+      final ex = ApiException(
+        statusCode: 503,
+        code: 'IDEMPOTENCY_KEY_IN_FLIGHT',
+        serverMessage: 'A request with this Idempotency-Key is still in progress',
+      );
+      expect(
+        ServerErrorResolver.resolveCounterError(ex),
+        'คำขอก่อนหน้ากำลังดำเนินการ กรุณารอสักครู่',
+      );
+      // Any other 503 is still the connection sentence.
+      expect(
+        ServerErrorResolver.resolveCounterError(
+            ApiException(statusCode: 503, code: 'SERVICE_UNAVAILABLE')),
+        'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์',
+      );
+    });
+
     test('renders thaiMessage on 4xx ApiException', () {
       final ex = ApiException(statusCode: 429, code: 'RATE_LIMITED');
       expect(
