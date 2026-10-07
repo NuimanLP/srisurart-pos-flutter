@@ -57,9 +57,58 @@ describe('owner import (POST /backup/import)', () => {
     );
   });
 
+  it('replace: the typed shop name must match (NFC, trimmed); then pre-flight skips the empty-shop check', async () => {
+    mockAdminDs.query.mockImplementation(async (sql: string) =>
+      sql.includes('COALESCE(s.shop_name') ? [{ shop_name: 'ร้านศรี' }] : [{ n: 5 }],
+    );
+    await expect(
+      service.createOwnerJob(tenantId, appExport(), ownerId, undefined, { confirmShopName: 'ร้านอื่น' }),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CONFIRM_SHOP_NAME_MISMATCH' }) });
+    expect(importQueue.add).not.toHaveBeenCalled();
+
+    // A shop with bills (`n: 5` above) is accepted in replace mode.
+    await service.createOwnerJob(tenantId, appExport(), ownerId, undefined, {
+      confirmShopName: ` ${'ร้านศรี'.normalize('NFD')} `,
+    });
+    expect(importQueue.add).toHaveBeenCalledWith(
+      'tenant.import',
+      expect.objectContaining({ replace: true, requestedByUserId: ownerId }),
+      expect.anything(),
+    );
+  });
+
+  it('every import raises doc_counters to its numbers in this server\'s format, per device', async () => {
+    const posId = testId('pos-device');
+    mockAdminDs.query.mockImplementation(async (sql: string) =>
+      sql.includes('FROM devices') ? [{ id: posId, device_no: 1 }] : [{ n: 0 }],
+    );
+    const snap = {
+      __meta: { version: 2 },
+      sa_sales: [
+        { id: testId('s1'), receiptNo: 'RC01-2569-10-0007', items: [] },
+        { id: testId('s2'), receiptNo: 'RC01-2569-10-0042', items: [] },
+        { id: testId('s3'), receiptNo: 'RC90003021E869', items: [] }, // old app: ignored
+        { id: testId('s4'), receiptNo: 'RC07-2569-10-0001', items: [] }, // no device 07: ignored
+      ],
+      sa_returns: [],
+      sa_pos: [{ id: testId('po1'), poNo: 'PO01-2569-09-0003', items: [] }],
+    };
+    const res = await service.importSnapshot(tenantId, snap, testId('adm1'));
+    expect(res.docCounters).toBe(2);
+    const upserts = mockAdminDs.query.mock.calls.filter((c: any[]) => String(c[0]).includes('INSERT INTO doc_counters'));
+    expect(upserts.map((c: any[]) => c[1])).toEqual([
+      [tenantId, posId, 'receipt', '2569-10', 42],
+      [tenantId, posId, 'po', '2569-09', 3],
+    ]);
+    expect(String(upserts[0][0])).toContain('GREATEST');
+  });
+
   it('createOwnerJob keeps the safety rules: a shop with bills is refused 409', async () => {
-    mockAdminDs.query.mockResolvedValueOnce([{ n: 3 }]);
+    mockAdminDs.query.mockResolvedValue([{ n: 3 }]);
     await expect(service.createOwnerJob(tenantId, appExport(), ownerId, undefined)).rejects.toThrow(ConflictException);
+    await expect(service.createOwnerJob(tenantId, appExport(), ownerId, undefined)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TENANT_NOT_EMPTY' }),
+    });
     expect(importQueue.add).not.toHaveBeenCalled();
   });
 
@@ -116,7 +165,22 @@ describe('OwnerImportController', () => {
 
   it('enqueues for the tenant the guard authorised, never one the request names', async () => {
     await asTenant(() => controller.importSnapshot({ __meta: {} } as any, req(owner)));
-    expect(importService.createOwnerJob).toHaveBeenCalledWith(tenantId, { __meta: {} }, owner.userId, '10.0.0.5');
+    expect(importService.createOwnerJob).toHaveBeenCalledWith(tenantId, { __meta: {} }, owner.userId, '10.0.0.5', undefined, undefined);
+  });
+
+  it('passes replace, the typed name and a client-named job id through; refuses a bad mode or job id', async () => {
+    const jobId = testId('client-named-job');
+    await asTenant(() =>
+      controller.importSnapshot({ __meta: {} } as any, req(owner), 'replace', 'ร้านทดสอบ', jobId),
+    );
+    expect(importService.createOwnerJob).toHaveBeenCalledWith(
+      tenantId, { __meta: {} }, owner.userId, '10.0.0.5', { confirmShopName: 'ร้านทดสอบ' }, jobId,
+    );
+    const badMode = await asTenant(() => controller.importSnapshot({} as any, req(owner), 'merge')).catch((e) => e);
+    expect(badMode.getStatus()).toBe(400);
+    const badJob = await asTenant(() => controller.importSnapshot({} as any, req(owner), undefined, undefined, 'nope')).catch((e) => e);
+    expect(badJob.getStatus()).toBe(400);
+    expect(badJob.getResponse().code).toBe('INVALID_ID');
   });
 
   it('refuses a non-owner role with 403 FORBIDDEN', async () => {

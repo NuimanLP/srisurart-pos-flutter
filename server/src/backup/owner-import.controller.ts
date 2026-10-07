@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,6 +8,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +18,7 @@ import { clientIp } from '../common/client-ip.js';
 import { DeviceRoleForbiddenException } from '../common/device-role-forbidden.exception.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
+import { parseUuid } from '../common/ids.js';
 import { authorisedTenantId } from '../common/request-context.js';
 import {
   SnapshotPayload,
@@ -51,15 +54,32 @@ interface AuthenticatedRequest extends Request {
 export class OwnerImportController {
   constructor(private readonly importService: TenantImportService) {}
 
+  /**
+   * `?mode=replace&confirmShopName=<the shop's name>` replaces a shop that already has data
+   * (owner decision 2026-10-07): the worker copies the current data to a file, deletes it and
+   * writes the snapshot, in one transaction. Without it a shop with bills is still refused 409.
+   * `?jobId=<uuid>` lets the client name the job, so a lost reply is found by polling it.
+   */
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
-  async importSnapshot(@Body() body: SnapshotPayload, @Req() req: AuthenticatedRequest) {
+  async importSnapshot(
+    @Body() body: SnapshotPayload,
+    @Req() req: AuthenticatedRequest,
+    @Query('mode') mode?: string,
+    @Query('confirmShopName') confirmShopName?: string,
+    @Query('jobId') jobId?: string,
+  ) {
     const userId = requireOwnerDevice(req);
+    if (mode !== undefined && mode !== 'replace') {
+      throw new BadRequestException(`mode must be 'replace' or absent`);
+    }
     return this.importService.createOwnerJob(
       authorisedTenantId(),
       body,
       userId,
       clientIp(req) ?? undefined,
+      mode === 'replace' ? { confirmShopName: confirmShopName ?? '' } : undefined,
+      jobId === undefined ? undefined : parseUuid(jobId, 'jobId'),
     );
   }
 

@@ -44,6 +44,19 @@ export function exportFilePath(tenantId: string, jobId: string): string {
   return join(exportDir(), tenantId, `${jobId}.json`);
 }
 
+/**
+ * The copy of a shop's data a replace-mode import writes before it deletes anything
+ * (`TenantImportService`). In the same `exports` volume as the exports, but in its own
+ * `pre-import/` directory, which `pruneExportFiles` never deletes (it removes files only):
+ * this file is the shop's way back if the replacement was a mistake.
+ */
+export function preImportExportPath(tenantId: string, importJobId: string): string {
+  if (!isUuid(tenantId) || !JOB_ID.test(importJobId)) {
+    throw new Error('Invalid tenant or job id for a pre-import export file');
+  }
+  return join(exportDir(), tenantId, 'pre-import', `${importJobId}.json`);
+}
+
 export interface ExportDescriptor {
   sizeBytes: number;
   sha256: string;
@@ -115,7 +128,9 @@ export async function pruneExportFiles(now = Date.now()): Promise<number> {
     for (const f of files) {
       const p = join(root, t, f);
       try {
-        if (now - (await stat(p)).mtimeMs > EXPORT_TTL_MS) {
+        const st = await stat(p);
+        // Files only: `pre-import/` (preImportExportPath) is kept.
+        if (st.isFile() && now - st.mtimeMs > EXPORT_TTL_MS) {
           await rm(p, { force: true });
           removed++;
         }
