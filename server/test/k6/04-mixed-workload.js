@@ -90,7 +90,8 @@ export default function () {
   } else {
     const url = `${env.baseUrl}/api/v1/sales`;
     const saleId = generateUUID(); // #616: entity ids are UUIDs
-    const idemKey = `idem-mixed-${__VU}-${__ITER}-${Date.now()}`;
+    // #380: unique across machines (shard) and runs (UUID) — VU + Date.now() collided.
+    const idemKey = `idem-mixed-s${shardInfo ? shardInfo.index : 0}-${__VU}-${__ITER}-${generateUUID()}`;
 
     // Select product from catalogue (testId('p_1') to testId('p_50'), written by setup.ts)
     const productIdx = ((__VU + __ITER) % 50) + 1;

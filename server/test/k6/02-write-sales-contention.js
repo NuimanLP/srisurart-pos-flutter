@@ -39,6 +39,9 @@ export const options = {
     // Rubric requirement: p95 < 500ms, stock never negative, no server crashes
     http_req_duration: ['p(95)<500'],
     server_errors: ['rate==0'], // Zero 5xx errors permitted
+    // #380: every check must pass — only 201 and 409 INSUFFICIENT_STOCK are accepted, so a 429
+    // or a 409 IDEMPOTENCY_KEY_REUSED fails the run instead of exiting 0.
+    checks: ['rate==1'],
   },
 };
 
@@ -56,7 +59,10 @@ export default function () {
 
   const url = `${env.baseUrl}/api/v1/sales`;
   const saleId = generateUUID(); // #616: entity ids are UUIDs
-  const idemKey = `idem-k6-contention-${__VU}-${__ITER}-${Date.now()}`;
+  // #380: VU numbers restart at 1 on every machine and the shards start together, so
+  // VU + Date.now() collided across machines (server answered 409, correctly). Shard + VU +
+  // iteration is unique within a run; the UUID keeps it unique across runs too.
+  const idemKey = `idem-k6-contention-s${shardInfo ? shardInfo.index : 0}-${__VU}-${__ITER}-${generateUUID()}`;
 
   const payload = JSON.stringify({
     id: saleId,

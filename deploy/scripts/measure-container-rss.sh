@@ -36,10 +36,13 @@ declare -A PEAK_CPU_PCT
 declare -A CONTAINER_LIMITS
 declare -A OOM_KILLED
 declare -A RESTART_COUNTS
+declare -A RESTARTS_AT_START # RestartCount is lifetime; only a rise during this run counts
 
 PEAK_AGGREGATE_MB=0
 PEAK_HOST_USED_MB=0
 SAMPLE_COUNT=0
+PARSED_ROWS=0
+SKIPPED_ROWS=0
 RUNNING=true
 
 cleanup() {
@@ -47,21 +50,25 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-# Helper: parse Docker memory string (e.g. "55.4MiB / 384MiB", "1.2GiB / 2GiB") to float MiB
+# Helper: parse one Docker size (e.g. "55.4MiB", "1.2GiB", "0B") to MiB with 2 decimals.
+# `docker stats` prints memory in binary units (B/KiB/MiB/GiB) and I/O in decimal ones
+# (B/kB/MB/GB); both are accepted. Anything else returns non-zero — never a silent 0.
+# (#380: the old version matched a bare `B` before `MiB`, so every MiB value became 0.)
 to_mib() {
-  local str="$1"
-  local val
-  val=$(echo "$str" | sed -E 's/[^0-9\.]//g')
-  if [[ "$str" =~ [Gg][iI]?[Bb] ]]; then
-    awk "BEGIN {printf \"%.2f\", $val * 1024}"
-  elif [[ "$str" =~ [Kk][iI]?[Bb] ]]; then
-    awk "BEGIN {printf \"%.2f\", $val / 1024}"
-  elif [[ "$str" =~ [Bb] ]]; then
-    awk "BEGIN {printf \"%.2f\", $val / 1048576}"
-  else
-    # Assume MiB
-    awk "BEGIN {printf \"%.2f\", $val}"
-  fi
+  awk -v s="$1" 'BEGIN {
+    gsub(/[ \t]/, "", s)
+    if (!match(s, /^[0-9]+(\.[0-9]+)?/)) exit 1
+    n = substr(s, 1, RLENGTH); u = substr(s, RLENGTH + 1)
+    if (u == "B") f = 1 / 1048576
+    else if (u == "KiB") f = 1 / 1024
+    else if (u == "MiB") f = 1
+    else if (u == "GiB") f = 1024
+    else if (u == "kB") f = 1000 / 1048576
+    else if (u == "MB") f = 1000000 / 1048576
+    else if (u == "GB") f = 1000000000 / 1048576
+    else exit 1
+    printf "%.2f", n * f
+  }'
 }
 
 start_time=$(date +%s)
@@ -83,14 +90,23 @@ while $RUNNING && [[ $(date +%s) -lt $end_time ]]; do
       used_str="${mem_usage%%/*}"
       limit_str="${mem_usage##*/}"
       
-      used_mb=$(to_mib "$used_str")
-      limit_mb=$(to_mib "$limit_str")
+      if ! used_mb=$(to_mib "$used_str") || ! limit_mb=$(to_mib "$limit_str"); then
+        echo "WARN: cannot parse memory '${mem_usage}' for ${name} — row skipped" >&2
+        SKIPPED_ROWS=$((SKIPPED_ROWS + 1))
+        continue
+      fi
+      PARSED_ROWS=$((PARSED_ROWS + 1))
       cpu_num=$(echo "$cpu_perc" | tr -d '%' | tr -d ' ')
       [[ -z "$cpu_num" ]] && cpu_num=0
 
+      if [[ -z "${RESTARTS_AT_START[$name]+x}" ]]; then
+        RESTARTS_AT_START[$name]=$(docker inspect --format '{{.RestartCount}}' "$name" 2>/dev/null || echo "unknown")
+      fi
+
       # Update container peak
+      # First sighting always records, so a parsed container is never missing from the table.
       current_peak="${PEAK_MEM_MB[$name]:-0}"
-      if awk "BEGIN {exit !($used_mb > $current_peak)}"; then
+      if [[ -z "${PEAK_MEM_MB[$name]+x}" ]] || awk "BEGIN {exit !($used_mb > $current_peak)}"; then
         PEAK_MEM_MB[$name]="$used_mb"
       fi
 
@@ -128,7 +144,7 @@ echo "Inspecting containers for OOM and restarts..."
 # Collect inspect details
 for name in "${!PEAK_MEM_MB[@]}"; do
   oom=$(docker inspect --format '{{.State.OOMKilled}}' "$name" 2>/dev/null || echo "unknown")
-  restarts=$(docker inspect --format '{{.RestartCount}}' "$name" 2>/dev/null || echo "0")
+  restarts=$(docker inspect --format '{{.RestartCount}}' "$name" 2>/dev/null || echo "unknown")
   OOM_KILLED[$name]="$oom"
   RESTART_COUNTS[$name]="$restarts"
 done
@@ -150,27 +166,38 @@ fi
   echo ""
   echo "## 1. Container Memory & CPU Under Load"
   echo ""
-  echo "| Container | Limit | Peak RSS (MiB) | % Limit | Peak CPU | Restarts | OOM Killed |"
+  echo "| Container | Limit | Peak RSS (MiB) | % Limit | Peak CPU | Restarts (this run) | OOM Killed |"
   echo "|---|---|---|---|---|---|---|"
-  
+
   has_oom=false
+  has_restart=false
   for name in $(echo "${!PEAK_MEM_MB[@]}" | tr ' ' '\n' | sort); do
     limit="${CONTAINER_LIMITS[$name]:-0}"
     peak="${PEAK_MEM_MB[$name]:-0}"
     cpu="${PEAK_CPU_PCT[$name]:-0}"
-    restarts="${RESTART_COUNTS[$name]:-0}"
-    oom="${OOM_KILLED[$name]:-false}"
-    
+    restarts_start="${RESTARTS_AT_START[$name]:-unknown}"
+    restarts_end="${RESTART_COUNTS[$name]:-unknown}"
+    oom="${OOM_KILLED[$name]:-unknown}"
+
     pct_limit="0%"
     if awk "BEGIN {exit !($limit > 0)}"; then
       pct_limit=$(awk "BEGIN {printf \"%.1f%%\", ($peak / $limit) * 100}")
     fi
 
-    if [[ "$oom" == "true" ]]; then
-      has_oom=true
-      oom_str="🚨 YES"
+    # A count we could not read is not evidence of "no restart".
+    if [[ "$restarts_start" =~ ^[0-9]+$ && "$restarts_end" =~ ^[0-9]+$ ]]; then
+      restarts=$((restarts_end - restarts_start))
     else
+      restarts="unknown"
+    fi
+    if [[ "$restarts" != "0" ]]; then has_restart=true; fi
+
+    # Only an explicit `false` is "not OOM-killed"; `unknown` (inspect failed) is not.
+    if [[ "$oom" == "false" ]]; then
       oom_str="✅ No"
+    else
+      has_oom=true
+      oom_str="🚨 ${oom}"
     fi
 
     echo "| \`${name}\` | \`${limit} MiB\` | **${peak} MiB** | ${pct_limit} | ${cpu}% | ${restarts} | ${oom_str} |"
@@ -189,13 +216,22 @@ fi
   echo ""
   echo "## 3. Verdict"
   echo ""
-  if ! $has_oom && awk "BEGIN {exit !($PEAK_AGGREGATE_MB <= $CEILING_MB)}"; then
+  verdict_pass=false
+  if [[ "$PARSED_ROWS" -eq 0 ]]; then
+    echo "❌ **FAIL**: no container memory row was parsed from \`docker stats\` — no data to judge, so this run proves nothing."
+  elif [[ "$SKIPPED_ROWS" -gt 0 ]]; then
+    echo "❌ **FAIL**: ${SKIPPED_ROWS} \`docker stats\` row(s) could not be parsed (see the WARN lines) — the data is incomplete."
+  elif ! $has_oom && ! $has_restart && awk "BEGIN {exit !($PEAK_AGGREGATE_MB <= $CEILING_MB)}"; then
+    verdict_pass=true
     echo "✅ **PASS**: Memory usage remained within the 6 GB ceiling during load. Zero containers were OOM killed or restarted."
   else
-    echo "❌ **FAIL**: Memory usage exceeded 6 GB ceiling or a container was OOM killed."
+    echo "❌ **FAIL**: Memory usage exceeded the 6 GB ceiling, or a container was OOM killed, restarted during the run, or could not be inspected (see the table)."
   fi
 } > "$OUTPUT_FILE"
 
 cat "$OUTPUT_FILE"
 echo ""
 echo "✅ Report saved to: $OUTPUT_FILE"
+
+# A FAIL verdict is a non-zero exit, so a caller never reads a failed run as fine.
+$verdict_pass || exit 1

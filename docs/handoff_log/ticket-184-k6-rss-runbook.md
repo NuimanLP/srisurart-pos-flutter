@@ -99,6 +99,10 @@ Why that question survives the method decision — the arithmetic, already recor
   IP, `server/test/k6/lib/shard.js`). Three machines = **~72 r/s aggregate**. `01-read-products.js`
   and `04-mixed-workload.js` therefore switch from `ramping-vus` to `ramping-arrival-rate` when
   `SHARD` is set and **do not run a VU count at all**.
+* `03-idempotent-replay.js` sharded runs at most **9 VUs per machine** (9 × 5 sends = the 45-request
+  burst budget) — **27 at N = 3, not `02 §9`'s 100** (PR #654, after the 2026-10-05 run's 429s). A
+  replay result from the clean path is evidence at 27 VUs, never at 100. **Owner accepted 27 VU,
+  2026-10-07** as sufficient replay evidence for #380.
 * So this run is honest evidence about **tail latency, error rate and cache hit at 24 r/s per real
   source IP through the real edge proxy**. It is **not** evidence that the stack serves 1,000
   concurrent users. `03 §8.1` already says so in writing.
@@ -450,7 +454,7 @@ Tick an AC only with pasted output in the comment. If a scenario was skipped, sa
 | **F5** | `/opt/pos/scripts/measure-container-rss.sh` does not exist (P6 fails) | `provision.yml` has not been re-run since #346. Only `provision.yml` installs it — `deploy.yml` never copies `deploy/scripts/`. `ticket-343-vm-deploy.md` §7 step 3 |
 | **F6** | `pnpm k6:setup` cannot reach Postgres | the tunnel, or a stale container IP. Re-read the IPs (§4.4); they are dynamic |
 | **F7** | `pnpm k6:setup` fails on `argon2` | a Windows/native mismatch. Run it in a Linux container with its own `pnpm install` (close3 §2, "How it was run (Windows controller)") |
-| **F8** | Scenario 3 throws before sending a request | `shard.assertBurstSafe` refused the plan: `ceil(TOTAL_REPLAY_VUS / N) > 45`. With the default 100 that needs `N ≥ 3`. **Raise N or lower the total — never the safety margin** |
+| **F8** | Scenario 3 throws before sending a request | `shard.assertBurstSafe` refused the plan: `ceil(TOTAL_REPLAY_VUS / N) × 5 sends > 45`, i.e. more than 9 VUs per machine (the ×5 was missing until the #380 tooling fix; the sharded default is now `9 × N`). **Raise N or lower the total — never the safety margin** |
 | **F9** | Scenario 2 sells 0 bills, everything 409 | `p12` stock was already consumed. Re-seed (§5.4) |
 | **F10** | Grafana panels stay *No data* after a run | check the `testid` filter first, then that the shards really used `-o experimental-prometheus-rw` (the flag is silently skipped if `K6_PROMETHEUS_RW_SERVER_URL` is unset), then Prometheus's own retention (7 d / 2 GB, `deploy/compose/monitoring.yml`) |
 | **F11** | GHCR pull fails on the deploy (before any of this) | FortiGate SSL deep inspection; not solvable from here. `handoff_demo-335-merge-and-cd-blocked_21_09_2026.md` |
