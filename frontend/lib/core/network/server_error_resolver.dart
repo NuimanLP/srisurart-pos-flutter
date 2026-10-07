@@ -66,10 +66,11 @@ class ServerErrorResolver {
     'RATE_LIMITED': 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
     // `agent ร่าง 2026-10-07` — NOT ratified; 02_API_SCREENS.md §8.1 lists them
     // for the owner. CREDIT_LIMIT_EXCEEDED / CREDIT_PAYMENT_EXCEEDS_BALANCE only
-    // show when the consent dialog cannot be asked (no `details`) — the dialogs
-    // in checkout_screen / mechanics_screen are unchanged.
+    // show when the consent dialog cannot be asked (no `details`), so they do
+    // not tell the clerk to confirm — the dialogs in checkout_screen /
+    // mechanics_screen are unchanged.
     'CREDIT_LIMIT_EXCEEDED':
-        'เกินวงเงินเครดิต! ยอดค้างของช่างจะเกินวงเงิน — ต้องยืนยันขายเครดิตก่อน หรือเลือกวิธีชำระอื่น',
+        'เกินวงเงินเครดิต! ยอดค้างของช่างจะเกินวงเงิน กรุณาเลือกวิธีชำระอื่น',
     'DOC_NUMBER_EXHAUSTED':
         'เลขที่เอกสารของเครื่องนี้ครบ 9,999 ใบในเดือนนี้แล้ว ออกเอกสารต่อไม่ได้ กรุณาติดต่อทีมงาน',
     // Same sentence the local void paths already throw (sales_repository.dart,
@@ -92,7 +93,7 @@ class ServerErrorResolver {
     'RECEIPT_NO_CONFLICT': 'เลขที่ใบเสร็จซ้ำ กรุณาทำรายการใหม่',
     // `agent ร่าง 2026-10-07` (see the block above).
     'CREDIT_PAYMENT_EXCEEDS_BALANCE':
-        'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงิน หรือยืนยันรับเงินเกินยอดค้าง',
+        'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่',
     'CREDIT_PAYMENT_ID_REUSED': 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
     // Owner's wording, 2026-09-15 (#145).
     'SALE_NOT_IN_OPEN_SHIFT':

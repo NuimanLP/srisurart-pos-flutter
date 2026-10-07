@@ -93,8 +93,8 @@ void main() {
       expect(ServerErrorResolver.resolve('SALE_HAS_RETURNS', serverMessage: 'This bill already has a credit note against it and cannot be voided.'), 'บิลนี้มีการคืนสินค้าแล้ว ไม่สามารถยกเลิกได้');
       expect(ServerErrorResolver.resolve('SALE_ID_REUSED', serverMessage: 'A different sale already exists under this id.'), 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ');
       expect(ServerErrorResolver.resolve('SHIFT_ALREADY_CLOSED', serverMessage: 'This shift is already closed.'), 'กะนี้ปิดไปแล้ว ปิดซ้ำไม่ได้ — ถ้าจะขายต่อ กรุณาเปิดกะใหม่');
-      expect(ServerErrorResolver.resolve('CREDIT_LIMIT_EXCEEDED', serverMessage: 'Credit limit exceeded'), 'เกินวงเงินเครดิต! ยอดค้างของช่างจะเกินวงเงิน — ต้องยืนยันขายเครดิตก่อน หรือเลือกวิธีชำระอื่น');
-      expect(ServerErrorResolver.resolve('CREDIT_PAYMENT_EXCEEDS_BALANCE', serverMessage: 'Payment exceeds the outstanding balance.'), 'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงิน หรือยืนยันรับเงินเกินยอดค้าง');
+      expect(ServerErrorResolver.resolve('CREDIT_LIMIT_EXCEEDED', serverMessage: 'Credit limit exceeded'), 'เกินวงเงินเครดิต! ยอดค้างของช่างจะเกินวงเงิน กรุณาเลือกวิธีชำระอื่น');
+      expect(ServerErrorResolver.resolve('CREDIT_PAYMENT_EXCEEDS_BALANCE', serverMessage: 'Payment exceeds the outstanding balance.'), 'จำนวนเงินเกินยอดค้างของช่าง กรุณาตรวจจำนวนเงินแล้วลองใหม่');
       expect(ServerErrorResolver.resolve('CREDIT_PAYMENT_ID_REUSED', serverMessage: 'A different credit payment already exists under this id.'), 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ');
       expect(ServerErrorResolver.resolve('RETURN_PRICE_MISMATCH', serverMessage: 'Return price does not match the sale.'), 'ราคาคืนไม่ตรงกับราคาที่ขายจริง กรุณาค้นหาบิลแล้วทำรายการคืนใหม่อีกครั้ง');
       expect(ServerErrorResolver.resolve('REFUND_METHOD_NOT_ALLOWED', serverMessage: 'Refund method not allowed.'), 'บิลนี้ไม่มีช่าง หักจากเครดิตไม่ได้ กรุณาเลือกคืนเป็นเงินสดหรือโอน');
