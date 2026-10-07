@@ -56,11 +56,15 @@ remainder) so the parts still sum to the original total.
   The script computes this automatically — it doesn't need N to be exactly 3 — and **fails fast**
   if even a 5s window wouldn't be enough (at that point it isn't a burst test any more; add
   shards or lower `TOTAL_CONTENDERS`).
-- `03-idempotent-replay.js` (default 100 total, `TOTAL_REPLAY_VUS`) has no adjustable spread —
-  the 5 replay rounds are 0.05s apart *by design*, because that fixed gap is what proves the
-  replay lands inside one idempotency window. So this one **fails fast instead of
-  auto-widening**: `shard.assertBurstSafe()` throws if `ceil(total/N) > 45`. At the default 100
-  total, that requires **N ≥ 3** (`ceil(100/3) = 34 ≤ 45`; `ceil(100/2) = 50 > 45` fails).
+- `03-idempotent-replay.js` (`TOTAL_REPLAY_VUS`) has no adjustable spread — the 5 replay
+  rounds are 0.05s apart *by design*, because that fixed gap is what proves the replay lands
+  inside one idempotency window. So this one **fails fast instead of auto-widening**: every VU
+  sends **5** requests, so `shard.assertBurstSafe(vus, 5, …)` throws if
+  `ceil(total/N) × 5 > 45`, i.e. more than **9 VUs per shard**. Sharded, the default total is
+  therefore `9 × N` (27 at N = 3; owner accepted 27 VU, 2026-10-07, as #380's replay
+  evidence instead of `02 §9`'s 100); with no `SHARD` it stays 100. The 2026-10-05 run (#380)
+  used the old check, which ignored the ×5 and let `ceil(100/3) = 34` VUs = 170 requests per IP
+  through — scenario 3 then hit `429`s. Raise N for more replay VUs, never the margin.
 
 With no `SHARD` env var, all four scripts run byte-for-byte as they did before #251
 (single machine, or any other already-working path) — nothing above changes that default.

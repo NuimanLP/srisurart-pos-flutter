@@ -2,6 +2,32 @@
 
 บทนี้ตอบคำถาม: เอาข้อมูลขายจริงของร้าน (ที่อยู่ในเครื่อง POS เดิม) เข้าไปอยู่ใน PostgreSQL ของระบบใหม่ได้ยังไง โดยไม่ทำเงิน/สต็อกหาย หรือทำบิลปลอมขึ้นมา
 
+---
+
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- data migration (ย้ายข้อมูล) ≠ schema migration (เปลี่ยนโครงตาราง) — อันตรายเพราะมีเงิน/สต็อกจริงติดอยู่
+- pattern: **pre-flight (validate ก่อน clamp) → atomic import → reconcile SUM/COUNT → เก็บของเดิมไว้**
+- import เป็น background job (BullMQ) + payload อยู่ใน Postgres `import_jobs` ไม่ใช่ Redis `noeviction`
+- tombstone แก้ "ประวัติอ้างถึงแถวที่ถูกลบ" (#238) โดยไม่ต้อง restore รายร้าน (ADR-0005)
+- ตั้งแต่ #616 (2026-10-05) server **ปฏิเสธ snapshot จากแอปเดิม** (`INVALID_ID`) — รับเฉพาะ snapshot ที่ server นี้ export เอง
+- ยังไม่ cutover: ร้านขายผ่าน Drift build ทุกวัน · #231 ยังเปิด วิธีย้ายข้อมูลตอน cutover ยังไม่กำหนด
+- **ตัวเลข/หลักฐานหลัก:** ไฟล์จริง `pos-backup-20260916.json` (14.2 KiB) ผ่าน pre-flight 0 violation, import 204 ms, reconcile 6/6 (เช่น `SUM(sales.total)` = 33,700.00 บาท ตรงกัน) — [`close4-real-snapshot-2026-09-17.md`](../handoff_log/close4-real-snapshot-2026-09-17.md) (ก่อน #616)
+- **ภาพที่แนะนำ:**
+
+```mermaid
+flowchart LR
+  A["snapshot JSON<br/>sa_* + __meta"] --> B["Pre-flight<br/>id / วันที่ / ตัวเลข"]
+  B -- "ผิด" --> X["400 พร้อมรายการ id"]
+  B -- "ผ่าน" --> C["import_jobs + BullMQ"]
+  C --> D["Import ใน transaction เดียว"]
+  D --> E["Reconcile 6 ข้อ<br/>SUM / COUNT"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - อ่านมาก่อน: [07_database.md](07_database.md) (โครง PostgreSQL/RLS — บทนั้นสอน **schema** migration, บทนี้พูดถึง **data** migration ซึ่งเป็นคนละเรื่อง แต่ชื่อพ้องกัน), [03_use_case.md](03_use_case.md)
@@ -109,6 +135,8 @@
 โจทย์จึงกลายเป็นสองเรื่องที่ต้องตอบพร้อมกัน:
 1. **จะเอาข้อมูลจาก Drift เข้า PostgreSQL ได้ยังไง** โดยไม่ทำเงิน/สต็อกของร้านหาย
 2. **ร้านจะยังขายของได้ตามปกติระหว่างที่ทีมพัฒนา server อยู่ไหม** — คำตอบคือได้ เพราะ import ไม่ใช่ cutover (ข้อ 10 ด้านบน)
+
+> 🔄 **อัปเดต 2026-10-07 — เส้นทาง "ไฟล์แอปเดิม → server" ที่บทนี้เล่า ปิดไปแล้ว:** ตั้งแต่ #616 (id ทุกตัวเป็น UUIDv7, owner ตัดสิน 2026-10-05 ใน [ADR-0010 addendum](../Backend_design/adr/0010-client-write-through-cache.md)) pre-flight ของ tenant import **ปฏิเสธ snapshot จากแอปเดิม** (id แบบ `c1`, `sh_{dateStr}_{n}`) ด้วย `400 INVALID_ID` และรับเฉพาะ snapshot จาก `/backup/export` ของ server นี้เอง (`server/src/platform/tenant-import.service.ts:144-155`, [`01_DATABASE.md §9`](../Backend_design/01_DATABASE.md)) · มี e2e พิสูจน์การปฏิเสธนี้ (`server/test/import-snapshot.e2e-spec.ts:296` — *"refuses a snapshot with an old-format id"*) · `importLegacyBackup()` ฝั่ง Drift build ยังรับไฟล์ JS เดิมได้ (ไฟล์เดิมไม่มี id ของกะ → สร้าง `newUuid()` ใหม่) · การย้ายข้อมูลร้านจริงตอน cutover (#231 ยังเปิด) **ยังไม่ได้กำหนดวิธี** — อ่านเนื้อหา import ด้านล่างเป็น **ประวัติ + pattern ที่ใช้ซ้ำได้** (pre-flight / atomic / reconcile ยังเป็นของจริงในโค้ด)
 
 ---
 
@@ -351,7 +379,7 @@ Drift ไม่มี FK และลบแบบ hard delete ทุกที่
 
 Pre-flight violations = 0, orphans = 0, tombstones = 0, import status = `succeeded` ใน 204 ms — ปิด ticket **#185** ได้จริง (ไม่ใช่แค่ synthetic data — ก่อนหน้านั้นทีมเคยรันกับข้อมูลสังเคราะห์ก่อนเพราะยังไม่ได้รับไฟล์จริงจากร้าน `docs/handoff_log/close4-synthetic-snapshot-2026-09-15.md`)
 
-**ต้องระวังอะไร:** ตัวเลขนี้เป็น **demo tenant** ที่ import เพื่อพิสูจน์ pipeline เท่านั้น — ไม่ใช่ tenant ที่ร้านใช้ขายของจริงบน server (ร้านยังขายผ่านแอป Drift เดิมตาม "no cutover" ด้านล่าง)
+**ต้องระวังอะไร:** (🔄 2026-10-07: การรันนี้เป็น e2e ในเครื่อง (`pnpm test:e2e test/import-snapshot.e2e-spec.ts` ตาม handoff) และไฟล์แอปเดิมแบบนี้ import เข้า server ไม่ได้แล้วตั้งแต่ #616 — `INVALID_ID` — ผลข้างบนคือหลักฐานทางประวัติ) ตัวเลขนี้เป็น **demo tenant** ที่ import เพื่อพิสูจน์ pipeline เท่านั้น — ไม่ใช่ tenant ที่ร้านใช้ขายของจริงบน server (ร้านยังขายผ่านแอป Drift เดิมตาม "no cutover" ด้านล่าง)
 
 ### 8. tenant export — ข้อยกเว้นเดียวของ commit-ceiling guard (ADR-0005)
 
@@ -448,7 +476,7 @@ return snapshot;
 - Import จริงเป็น background job (BullMQ) เพราะ synchronous request ชนกับ nginx timeout เมื่อไฟล์ร้านโตขึ้น
 - Pre-flight (validate-then-clamp) เกิดจากบทเรียน #22/#24 — clamp บนค่าที่ยังไม่ตรวจ ทำให้ความเสียหายเงียบแทนที่จะดัง
 - Tombstone แก้ปัญหาประวัติอ้างถึงแถวที่ถูก hard-delete ไปแล้ว โดยไม่ผิดกฎ "ไม่มี restore รายร้าน" ของ ADR-0005
-- ไฟล์จริงของร้าน (`pos-backup-20260916.json`) ผ่าน checklist 6 ข้อครบ 100% เมื่อ 2026-09-17 — ปิด #185
+- ไฟล์จริงของร้าน (`pos-backup-20260916.json`) ผ่าน checklist 6 ข้อครบ 100% เมื่อ 2026-09-17 — ปิด #185 (ประวัติ: ตั้งแต่ #616 server ปฏิเสธ snapshot จากแอปเดิมด้วย `INVALID_ID` รับเฉพาะ snapshot ที่ server นี้ export เอง)
 - โปรเจกต์เลือก **"ไม่ cutover ใน phase 1"** — ร้านยังขายของผ่านแอป Drift เดิมทุกวัน server พัฒนาคู่ขนานกับ demo tenant, การ cutover ร้านจริงเลื่อนไปเป็น **#231** ในเฟสถัดไป (ยังไม่มีกำหนดวัน)
 
 ---

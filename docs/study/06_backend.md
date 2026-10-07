@@ -4,6 +4,21 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- NestJS 3 instance (`api-1..3`) แบบ stateless หลัง Nginx — state อยู่ใน JWT / Redis / Postgres เท่านั้น
+- request วิ่ง **middleware → guard → interceptor → pipe → handler** — metrics จึงต้องเป็น middleware (นับ 401/429 ด้วย)
+- ADR-0003 "ใครตัดสิน กับ ใครลงมือ": `TenantGuard` ตัดสินร้าน, handler เปิด `runTx()` (ไม่รับ tenantId) — ห้ามยืม connection ที่สอง (#162)
+- กันขายเกินด้วย `FOR UPDATE` + lock order คงที่ · กันขายซ้ำด้วย `Idempotency-Key` (fingerprint = concrete path, **4xx เท่านั้นคือคำตัดสิน**)
+- cache / rate limit / etcd **fail-open** → ร้านขายต่อได้เมื่อ Redis-cache ล่ม (#383) · commit ceiling 25 วินาที
+- ยังค้าง: k6 #380 วัดจริงครั้งแรก 2026-10-05 แต่ยังไม่ได้รับการยอมรับ (ไม่มี DoD box ถูกติ๊ก)
+- **ตัวเลข/หลักฐานหลัก:** ยิง 200 บิลพร้อมกันใส่ของ 50 ชิ้น → สำเร็จเป๊ะ 50, ปฏิเสธ 150 (`INSUFFICIENT_STOCK`), สต็อก 0 — `server/test/sales.e2e-spec.ts:582-609` (หนึ่งใน e2e 60 ไฟล์)
+- **ภาพที่แนะนำ:** ใช้ diagram "Request lifecycle" ในหัวข้อ *ปูพื้นฐาน → 5. ชิ้นส่วนของ NestJS* (mermaid มีอยู่แล้ว)
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) (HTTP, JSON, REST, glossary) และ [02_architecture.md](02_architecture.md) — โดยเฉพาะหัวข้อ *"🧾 ตามรอย 1 บิล"* ซึ่งเดินผ่าน `TenantGuard` → `runTx` → `SalesService` ไปแล้วหนึ่งรอบ บทนี้**ไม่เดินซ้ำ** แต่เจาะลงไปว่าแต่ละชั้นคืออะไร และทำไมต้องมี
@@ -13,7 +28,7 @@
   - รู้จักชิ้นส่วนของ NestJS (module, controller, service, DI, decorator, guard, interceptor, pipe, middleware) และลำดับที่ request วิ่งผ่าน
   - เข้าใจปัญหา "ขายของชิ้นสุดท้ายให้ 2 คนพร้อมกัน" และ "กดปุ่มขายซ้ำเพราะเน็ตหลุด" และรู้ว่า repo นี้ป้องกันยังไง
   - อ่านไฟล์ใน `server/src/` แล้วชี้ได้ว่าไฟล์ไหนทำหน้าที่อะไร
-  - รู้ว่าอะไรในฝั่ง backend **ยังพังอยู่** (มี bug จริงที่ยังไม่แก้)
+  - รู้ว่าอะไรในฝั่ง backend **เคยพัง** (bug จริงที่เจอและแก้แล้ว) และอะไร**ยังค้าง** (k6 #380)
 
 ---
 
@@ -378,12 +393,12 @@ race condition แบบเดียวกับการขายของช�
 
 **ORM** (Object-Relational Mapper) = library ที่แปลง class ↔ ตาราง ให้เขียน `repo.save(sale)` แทน SQL
 
-repo นี้ใช้ **TypeORM 1.1.1** แต่ใช้แค่ 3 อย่าง: `DataSource` (connection pool), `QueryRunner` (คุม transaction) และระบบ **migration** (`server/src/db/data-source.ts:18-33` รายการ migration 14 ตัวแบบเขียนชื่อตรงๆ ไม่ใช้ glob) — **ไม่มี `@Entity` สักตัวใน `server/src`** query ธุรกิจเขียนเป็น SQL ตรงผ่าน `manager.query(...)`
+repo นี้ใช้ **TypeORM 1.1.1** แต่ใช้แค่ 3 อย่าง: `DataSource` (connection pool), `QueryRunner` (คุม transaction) และระบบ **migration** (`server/src/db/data-source.ts:27-51` รายการ `MIGRATIONS` 23 ตัว ณ 2026-10-07 ล่าสุด `EntityIdsToUuid1788652804900` ของ #616 — เขียนชื่อตรงๆ ไม่ใช้ glob) — **ไม่มี `@Entity` สักตัวใน `server/src`** query ธุรกิจเขียนเป็น SQL ตรงผ่าน `manager.query(...)`
 
 | ทางเลือก | ทำไมไม่ / ทำไมใช่ |
 |---|---|
 | ORM เต็มรูป (entity + `save()`) | ซ่อน SQL — แต่งานนี้ต้องคุม `FOR UPDATE`, ลำดับ lock, `set_config` ของ RLS เองทุกบรรทัด ORM ทำให้มองไม่เห็นว่า lock อะไรไปบ้าง |
-| **SQL ตรง + TypeORM เฉพาะ pool/tx/migration** | ✅ เห็นทุก lock ด้วยตา, `EXPLAIN` ได้ตรงๆ, และ migration เป็นแหล่งความจริงของ schema (`synchronize` ไม่เคยเป็น `true` — `data-source.ts:36-38`) |
+| **SQL ตรง + TypeORM เฉพาะ pool/tx/migration** | ✅ เห็นทุก lock ด้วยตา, `EXPLAIN` ได้ตรงๆ, และ migration เป็นแหล่งความจริงของ schema (`synchronize` ไม่เคยเป็น `true` — `data-source.ts:55,62`) |
 | query builder อื่น (Knex, Kysely) | เพิ่ม dependency โดยไม่ได้อะไรเพิ่มจากที่มี |
 
 ราคาที่จ่าย: SQL ผิดเจอตอนรัน ไม่ใช่ตอน compile → จึงต้องมี e2e test ที่รันกับ Postgres จริง (หัวข้อ Testing)
@@ -825,7 +840,7 @@ return {
 };
 ```
 
-- **concrete path vs pattern:** pattern = `/sales/:id/void` (เหมือนกันทุกบิล), concrete = `/sales/RC01-.../void` (ต่างกันทุกบิล) ถ้าใช้ pattern + client บั๊กใช้ key ซ้ำกับ 2 บิล → server คิดว่า "เคยทำแล้ว" แล้ว replay ผลของบิลแรก — **บิลที่ตั้งใจจะ void ยังไม่ถูก void** แต่จอบอกว่าสำเร็จ
+- **concrete path vs pattern:** pattern = `/sales/:id/void` (เหมือนกันทุกบิล), concrete = `/sales/<UUIDv7 ของบิล>/void` (ต่างกันทุกบิล) ถ้าใช้ pattern + client บั๊กใช้ key ซ้ำกับ 2 บิล → server คิดว่า "เคยทำแล้ว" แล้ว replay ผลของบิลแรก — **บิลที่ตั้งใจจะ void ยังไม่ถูก void** แต่จอบอกว่าสำเร็จ
 - (หมายเหตุ: คอมเมนต์ยังพูดถึง body `{pin}` ซึ่งเป็นรูปของ phase 1 — phase 2 เปลี่ยน void ออนไลน์เป็น "เหตุผลอย่างเดียว ไม่มี PIN" ตาม `08_PHASE2_SPEC.md` แต่หลักการ concrete path ยังเหมือนเดิม)
 
 **ตัดสิน replay หรือ reused** — `server/src/idempotency/idempotency.service.ts:326-345`
@@ -1157,7 +1172,9 @@ async start(): Promise<void> {
 - ใช้ etcd **เรื่องเดียว**: ระดับ log (`/pos/config/log_level`) เปลี่ยนได้สดๆ ไม่ต้องรีสตาร์ต — ADR-0013 ย้ำว่า etcd ไม่ใช่ที่เก็บข้อมูลธุรกิจ
 - **fail-open:** etcd ไม่มี/ต่อไม่ได้ → ใช้ `LOG_LEVEL` จาก env แล้วลองใหม่เบื้องหลัง server **บูตได้เสมอ** — การเปลี่ยนระดับ log ไม่ใช่เหตุผลที่ร้านควรขายไม่ได้
 - คุยกับ etcd ผ่าน HTTP gateway ด้วย `fetch` ของ Node เอง ไม่ต้องลง library gRPC (`runtime-config.service.ts:59-61`)
-- 🔴 สถานะจริงบน VM: `etcd-init.sh` บน `mob04` เป็น directory ที่ root เป็นเจ้าของ ทำให้ **etcd ไม่เคยเปิด auth** (#365 ยังเปิดอยู่) — ตัว fail-open ทำให้ปัญหานี้ไม่แสดงอาการเป็น error เลย
+- 🔴 สถานะจริงบน VM (เดิม): `etcd-init.sh` บน `mob04` เป็น directory ที่ root เป็นเจ้าของ ทำให้ **etcd ไม่เคยเปิด auth** — ตัว fail-open ทำให้ปัญหานี้ไม่แสดงอาการเป็น error เลย
+
+> 🔄 **อัปเดต 2026-10-07:** #365 ปิดแล้ว 2026-09-30 — auth เปิดตั้งแต่ runner deploy ครั้งแรก, รหัสใน `.env` ตรงกับ volume, `RuntimeConfigService` อ่าน `log_level` ได้ (CLAUDE.md "#365") บทเรียนยังอยู่: fail-open ซ่อนปัญหาแบบนี้ได้เงียบๆ
 
 ---
 
@@ -1246,21 +1263,21 @@ async start(): Promise<void> {
 
 ## 🧪 Testing ฝั่ง backend
 
-repo นี้มี test 2 ชั้น (ตัวเลขจาก `ls`/`find` 2026-09-25):
+repo นี้มี test 2 ชั้น (ตัวเลขจาก `ls`/`find` 2026-10-07 — เดิม 2026-09-25 คือ 40+7 / 53):
 
 | ชั้น | คำสั่ง | ไฟล์ | จำนวน | ต่ออะไรจริง |
 |---|---|---|---|---|
-| **unit** | `pnpm test` (`vitest.config.ts` include `**/*.spec.ts`) | `src/**/*.spec.ts` + บางไฟล์ใน `test/` | 40 ใน `src/` + 7 ใน `test/` | ไม่ต่อ DB — ใช้ของปลอม (fake/mock) |
-| **e2e** (end-to-end) | `pnpm test:e2e` (`vitest.config.e2e.ts` include `**/*.e2e-spec.ts`) | `server/test/*.e2e-spec.ts` | **53** | บูตแอปจริง ต่อ Postgres + Redis จริงของ compose |
+| **unit** | `pnpm test` (`vitest.config.ts` include `**/*.spec.ts`) | `src/**/*.spec.ts` + บางไฟล์ใน `test/` | 52 ใน `src/` + 9 ใน `test/` | ไม่ต่อ DB — ใช้ของปลอม (fake/mock) |
+| **e2e** (end-to-end) | `pnpm test:e2e` (`vitest.config.e2e.ts` include `**/*.e2e-spec.ts`) | `server/test/*.e2e-spec.ts` | **60** | บูตแอปจริง ต่อ Postgres + Redis จริงของ compose |
 
-**ทำไมต้องมี e2e เยอะ:** SQL เขียนด้วยมือ, RLS, lock, transaction — ของพวกนี้ mock ไม่ได้ ตัวอย่างที่ตอบโจทย์ "ของชิ้นสุดท้าย" ตรงๆ — `server/test/sales.e2e-spec.ts:581-606`:
+**ทำไมต้องมี e2e เยอะ:** SQL เขียนด้วยมือ, RLS, lock, transaction — ของพวกนี้ mock ไม่ได้ ตัวอย่างที่ตอบโจทย์ "ของชิ้นสุดท้าย" ตรงๆ — `server/test/sales.e2e-spec.ts:582-609`:
 
 ```ts
 it('200 concurrent bills against 50 units yield exactly 50 bills and zero stock', async () => {
-  await seedProduct(admin, TENANT, { id: 'hot', /* ... */ stock: 50 });
+  await seedProduct(admin, TENANT, { id: testId('hot'), /* ... */ stock: 50 });
 
   const attempts = Array.from({ length: 200 }, () =>
-    post(bill([{ productId: 'hot', name: 'Hot Part', qty: 1, price: '100.00' }])),
+    post(bill([{ productId: testId('hot'), name: 'Hot Part', qty: 1, price: '100.00' }])),
   );
   const settled = await Promise.allSettled(attempts);
   // ...
@@ -1270,8 +1287,10 @@ it('200 concurrent bills against 50 units yield exactly 50 bills and zero stock'
   expect(refused).toHaveLength(150);
   for (const r of refused) expect(r.body.error.code).toBe('INSUFFICIENT_STOCK');
 
-  expect(await stockOf('hot')).toBe(0);
+  expect(await stockOf(testId('hot'))).toBe(0);
 ```
+
+(`testId('hot')` สร้าง UUIDv5 คงที่จากป้ายชื่อ — `server/test/support/test-ids.ts` — เพราะหลัง #616 id ทุกตัวต้องเป็น UUID)
 
 ยิง 200 บิลพร้อมกันใส่ของ 50 ชิ้น → ต้องสำเร็จ **เป๊ะ 50** ปฏิเสธ **เป๊ะ 150** และสต็อกเหลือ **0 ไม่ติดลบ** (และบรรทัดถัดไปเช็คว่าเลขใบเสร็จไม่ซ้ำ) — ถ้าลบ `FOR UPDATE` ใน `sales.service.ts` ออก test นี้แดงทันที
 
@@ -1348,13 +1367,17 @@ pool = 15   request 1..15 มาพร้อมกัน
 
 CLI สร้าง admin บังคับรหัส 12 ตัว แต่ API สร้างร้านไม่บังคับเลย → ย้ายไป `password.ts` ที่เดียว (ดูข้อ 9 ข้างบน) และเพิ่ม error `WEAK_PASSWORD` ที่ owner ยืนยันข้อความไทยแล้ว 2026-09-21
 
-### บทเรียน 4 — validate ก่อน แล้วค่อย clamp (ยังมีจุดที่ผิดกฎอยู่)
+### บทเรียน 4 — validate ก่อน แล้วค่อย clamp (เคยมีจุดที่ผิดกฎ — แก้แล้ว #420)
 
 `Math.max(1, x)` หรือ `GREATEST(0, x)` บนค่าที่ยังไม่ validate เปลี่ยน "ข้อมูลเสียที่ควรร้องดัง" ให้กลายเป็น "ข้อมูลเสียเงียบๆ" รีวิวทั้ง codebase 2026-09-24 (`docs/handoff_log/session-2026-09-24-whole-codebase-review.md` §3 ข้อ 1) พบว่า **ยังมีจุดที่ละเมิด**: `quotes.controller.ts:113` ทำ `Math.max(1, Number(dto?.olderThanDays ?? 90))` บน body ที่ไม่ได้ validate — ส่ง `-30` มาจะกลายเป็น 1 วัน แล้ว **ลบใบเสนอราคาเกือบทั้งหมด** (และมีรูปเดียวกันใน `maintenance.processor.ts:100`) ยังไม่แก้
 
-### บทเรียน 5 — bug ที่ยังเปิดอยู่ (บอกตรงๆ)
+> 🔄 **อัปเดต 2026-10-07:** แก้แล้ว 2026-09-25 ใน PR #420 (commit `4206d55`) — `POST /quotes/purge` ใช้ `parsePurgeOlderThanDays` (จำนวนเต็ม 1..36500, ไม่ส่ง = 90) ตอบ 400 แทนการ clamp และ `server/src/queue/processors/maintenance.processor.ts` ไม่ clamp อีก (เชื่อค่าที่ validate แล้วจากผู้ผลิตเดียว) กฎยังเหมือนเดิม: validate ก่อน แล้วค่อย clamp
+
+### บทเรียน 5 — bug จริงที่เจอ (บอกตรงๆ — แก้แล้ว 2026-09-25)
 
 ทุกข้อนี้ **ยังไม่ได้แก้** ณ 2026-09-25 (ที่มา: CLAUDE.md "Still open" + review 2026-09-24):
+
+> 🔄 **อัปเดต 2026-10-07:** (ก)–(ค) **แก้หมดแล้ว 2026-09-25** — (ก) migration ใหม่ `1788652804200-OwnerReviewItemsFixes.ts` (PR #420, พิสูจน์ใน `server/test/schema.e2e-spec.ts`) · (ข) #409 ปิดด้วย PR #413 · (ค) #411 ปิดด้วย PR #414 ส่วน (ง) ดูการอัปเดตใต้ข้อ (ง) อ่านหัวข้อนี้เป็น "เคสศึกษา bug จริง" ไม่ใช่รายการ bug ที่ยังเปิด
 
 **(ก) migration `1788652803002-OwnerReviewItems.ts` มี bug 2 จุด**
 
@@ -1394,11 +1417,13 @@ VALUES (..., $17, COALESCE($18::timestamptz, now()))
 
 `COALESCE(a, b)` = ใช้ `a` ถ้าไม่ใช่ NULL ไม่งั้นใช้ `b` → ถ้า client ส่ง `date` มา server ใช้วันที่ของ client แต่ `08 §10` กำหนดว่า route **ออนไลน์** ต้องใช้ `now()` ของ server เสมอ (client ส่ง `date` มาจริง — `api_sales_repository.dart:233`) returns และ shifts (`openedAt`, `createdAt` — เห็นใน controller ข้อ 4 ข้างบน) ก็เป็นแบบเดียวกัน และ body ที่มี `soldOffline: true` ยังข้ามการตรวจ `SALE_VOIDED` ของทางออนไลน์ได้ด้วย
 
-ทั้ง (ข) และ (ค) ยังไม่มี GitHub issue (review บันทึกไว้ว่า "Open GitHub issues … not done this session")
+ทั้ง (ข) และ (ค) ยังไม่มี GitHub issue (review บันทึกไว้ว่า "Open GitHub issues … not done this session") — ภายหลังเปิดเป็น #409 / #411 และปิดทั้งคู่ 2026-09-25
 
 **(ง) ของ phase 1 ที่ยังค้าง:** k6 load test (#380) ยังไม่มีตัวเลขจริง — ไม่มีใครรู้ว่า backend นี้รับได้กี่บิล/วินาทีบน VM จริง และ CD ไป `mob04` ยังติด FortiGate (รายละเอียดใน [14_devops.md](14_devops.md) / [15_cicd.md](15_cicd.md))
 
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
+> 🔄 **อัปเดต 2026-10-07:** **k6 (#380) วัดจริงครั้งแรกแล้ว 2026-10-05 แต่ยังไม่ได้รับการยอมรับ** — `GET /products` p95 16–33 ms ผ่าน, `POST /sales` แย่งสินค้าชิ้นเดียว 200 คน p95 ~1.5–1.6 s ในรอบตามเกณฑ์ (~3 s ในรอบหา capacity) **ไม่ผ่าน** เกณฑ์ <500 ms แต่ข้อมูลถูกต้อง (ขายครบ 50 ชิ้น สต็อก 0 เลขบิลไม่ซ้ำ) · #380 ยังเปิด ไม่มี AC/DoD box ไหนถูกติ๊ก (การยอมรับเป็นของ owner) — [`session-2026-10-05-k6-capacity-run.md`](../handoff_log/session-2026-10-05-k6-capacity-run.md) · deploy ปัจจุบัน: ทุกครั้งรอ approve มือที่ environment `demo`, `mob04` `.current_sha` = `dd659e2` (PR #652, run `37585778195`, อ่าน 2026-10-07)
 
 ---
 
@@ -1410,8 +1435,8 @@ VALUES (..., $17, COALESCE($18::timestamptz, now()))
 > - **Idempotency**: key ต่อความตั้งใจ, fingerprint = concrete path + hash ของ body, claim อยู่ใน transaction เดียวกับงาน; client ถือว่า **4xx เท่านั้นคือคำตัดสิน**
 > - **Concurrency**: ป้องกันขายเกินด้วย `FOR UPDATE` + lock order คงที่ พิสูจน์ด้วย e2e 200 บิล/50 ชิ้น
 > - **Commit ceiling 25 วินาที** กันแถวหลุดจาก cursor ที่ถอย 30 วินาที; rate limit ใช้ Lua INCR atomic; cache/rate-limit/etcd **fail-open** เพื่อให้ร้านขายต่อได้
-> - **Test**: unit (vitest) + e2e 53 ไฟล์กับ Postgres จริง + architecture spec 3 ตัวที่ scan source code
-> - **แก้แล้ว 2026-09-25**: migration OwnerReviewItems (NULLIF, ON DELETE — #420), `/sync/push` fingerprint (#413), `COALESCE(dto.date)`/`soldOffline` ทางออนไลน์ (#414) — **ยังพังอยู่**: clamp ใน quotes — อย่าเขียนที่ไหนว่า "backend เสร็จแล้ว"
+> - **Test**: unit (vitest) + e2e 60 ไฟล์กับ Postgres จริง (`server/test/*.e2e-spec.ts`, นับ 2026-10-07) + architecture spec 3 ตัวที่ scan source code
+> - **แก้แล้ว 2026-09-25**: migration OwnerReviewItems (NULLIF, ON DELETE) + clamp ใน quotes (#420), `/sync/push` fingerprint (#413), `COALESCE(dto.date)`/`soldOffline` ทางออนไลน์ (#414) — **ยังค้าง**: k6 #380 วัดแล้วแต่ยังไม่ยอมรับ — อย่าเขียนที่ไหนว่า "backend เสร็จแล้ว"
 
 ---
 

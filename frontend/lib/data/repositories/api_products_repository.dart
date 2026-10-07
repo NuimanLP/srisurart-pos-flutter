@@ -11,6 +11,9 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
+import '../../core/network/server_error_resolver.dart';
+import '../../core/network/transport_failure.dart';
 import '../db/database.dart';
 import 'api/api_wire.dart';
 import 'movements_repository.dart';
@@ -20,6 +23,11 @@ class ApiProductsRepository extends ProductsRepository {
   final ApiClient apiClient;
 
   ApiProductsRepository(super.db, this.apiClient);
+
+  /// Stock adjustments whose fate is unknown (5xx, 429, IN_FLIGHT, lost
+  /// reply): the body is a DELTA, so the same adjustment pressed again must go
+  /// out under the same `Idempotency-Key` — see [PendingWrites].
+  final PendingWrites _pendingAdjusts = PendingWrites();
 
   /// Converts API JSON representation to a Drift [ProductsCompanion].
   ProductsCompanion _productToCompanion(Map<String, dynamic> json) {
@@ -327,36 +335,55 @@ class ApiProductsRepository extends ProductsRepository {
     };
     if (note != null) body['note'] = note;
 
-    final res = await rethrowCounterError(() => apiClient.post(
-      '/api/v1/products/$productId/adjust-stock',
-      body: body,
-      headers: idempotencyKey(),
-    ));
-    if (res is Map) {
-      final resMap = Map<String, dynamic>.from(res);
-      final stockAfter = (resMap['stockAfter'] as num?)?.toInt() ?? (p.stock + delta);
-      // Patch row directly without client clock stamping on updatedAt (ADR-0010 §5)
-      await (db.update(db.products)..where((t) => t.id.equals(productId))).write(
-        ProductsCompanion(
-          stock: Value(stockAfter),
-        ),
+    final attempt = _pendingAdjusts.of(jsonEncode([productId, delta, type, note]));
+    final Object? res;
+    try {
+      res = await apiClient.post(
+        '/api/v1/products/$productId/adjust-stock',
+        body: body,
+        headers: attempt.headers,
       );
-
-      final mv = resMap['movement'];
-      if (mv is Map<String, dynamic>) {
-        await db.into(db.movements).insertOnConflictUpdate(movementRowFromWire(mv));
-      } else {
-        await MovementsRepository(db).addMovement(
-          productId: productId,
-          partNo: p.partNo,
-          name: p.name,
-          delta: delta,
-          type: type,
-          note: note,
-          stockAfter: stockAfter,
-        );
+    } on ApiException catch (e) {
+      // Only a 4xx closes it; a 5xx / 429 / IN_FLIGHT — like a transport
+      // failure — leaves it parked, since the delta may already be applied.
+      _pendingAdjusts.closeIfVerdict(attempt, e);
+      throw posExceptionFromApi(e);
+    } catch (e) {
+      // No offline queue for a stock adjustment: a transport failure stays
+      // parked and reaches the screen as the Thai network sentence.
+      if (isTransportFailure(e)) {
+        throw PosException('NETWORK_ERROR', ServerErrorResolver.resolve(null));
       }
+      rethrow;
     }
+    // A 2xx that is not an adjustment: the server answered and may have
+    // applied the delta — parked, never a silent success.
+    if (res is! Map) throw unreadableResponse();
+    final resMap = Map<String, dynamic>.from(res);
+    final stockAfter = (resMap['stockAfter'] as num?)?.toInt() ?? (p.stock + delta);
+    // Patch row directly without client clock stamping on updatedAt (ADR-0010 §5)
+    await (db.update(db.products)..where((t) => t.id.equals(productId))).write(
+      ProductsCompanion(
+        stock: Value(stockAfter),
+      ),
+    );
+
+    final mv = resMap['movement'];
+    if (mv is Map<String, dynamic>) {
+      await db.into(db.movements).insertOnConflictUpdate(movementRowFromWire(mv));
+    } else {
+      await MovementsRepository(db).addMovement(
+        productId: productId,
+        partNo: p.partNo,
+        name: p.name,
+        delta: delta,
+        type: type,
+        note: note,
+        stockAfter: stockAfter,
+      );
+    }
+    // Closed only after the local apply: if it throws, the next press replays.
+    _pendingAdjusts.close(attempt);
   }
 
   @override

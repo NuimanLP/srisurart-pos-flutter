@@ -4,6 +4,35 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- ทุกคนในทีมต้องเปิดระบบทั้งชุดบนเครื่องตัวเองได้ — Nginx + API ×3 + Postgres + Redis ×2 + etcd + worker ด้วย Docker Compose คำสั่งเดียว
+- ตั้งร้านใหม่ครบ flow: platform admin → tenant → owner login → เรียก API จริง (เงินเป็น string, เขียนต้องมี `Idempotency-Key`)
+- พิสูจน์ด้วยตาว่า RLS แบบ fail-closed คืน 0 แถวเมื่อไม่บอกว่าเป็นร้านไหน
+- อ่าน pipeline แบบอ่านอย่างเดียว: "Deploy เขียว" ≠ "deploy แล้ว" — หลักฐานเดียวคือ `/opt/pos/.current_sha` บน VM
+- ใช้ `-p <ชื่อ>` เสมอ และห้าม `down -v` บน Docker ที่ใช้ร่วมกัน
+- ปัจจุบัน (2026-10-07): PR งานเข้า `develop`, `main` รับเฉพาะ `develop` แบบ merge commit, deploy ล่าสุดบน `mob04` = `dd659e2`
+
+- **ตัวเลข/หลักฐานหลัก:** output ทุกบล็อกในบทนี้มาจากการรันจริง 2026-09-25 (บทนี้ "ก่อนอ่าน"); deploy ล่าสุด run `37585778195` (อ่าน `/opt/pos/.current_sha` บน VM 2026-10-07 = `dd659e2`)
+
+- **ภาพที่แนะนำ:** ลำดับ lab ทั้งบท
+
+```mermaid
+flowchart LR
+  L0["Lab 0<br/>เช็คเครื่องมือ"] --> L1["Lab 1<br/>build web"]
+  L1 --> L2["Lab 2<br/>เปิด stack + ตั้งร้าน"]
+  L2 --> L3["Lab 3<br/>web ต่อ API"]
+  L3 --> L4["Lab 4<br/>Dashboard"]
+  L4 --> L5["Lab 5<br/>RLS คืน 0 แถว"]
+  L5 --> L6["Lab 6<br/>รัน test"]
+  L6 --> L7["Lab 7<br/>อ่าน pipeline"]
+  L7 --> C["ปิด lab<br/>down -v เฉพาะ -p ของตัวเอง"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [00_index.md](00_index.md) (terminal, HTTP, JSON), [02_architecture.md](02_architecture.md) (ภาพรวมชิ้นส่วน)
@@ -122,7 +151,7 @@ flowchart LR
 
 - ทีมมี 3 คน (`NuimanLP`, `LomerAlloys`, `PattaraponKitcharoen`) ทุกคนต้องแตะทั้ง frontend, backend และ CI/CD (กฎของวิชา 2026-09-05)
   → ทุกคนต้อง **เปิดระบบทั้งชุดบนเครื่องตัวเองได้** ไม่ใช่รอเครื่อง VM กลาง
-- VM demo (`mob04`) ยัง deploy อัตโนมัติไม่ได้ เพราะ firewall คณะ (FortiGate) ดักใบรับรองของ `ghcr.io` (ดู [15_cicd.md](15_cicd.md))
+- VM demo (`mob04`) ยัง deploy อัตโนมัติไม่ได้ เพราะ firewall คณะ (FortiGate) ดักใบรับรองของ `ghcr.io` (ดู [15_cicd.md](15_cicd.md)) — *สถานะ ณ 2026-09-25; แก้แล้ว 2026-09-29/30 ดูกล่อง 🟢 ใต้ตารางถัดไป*
   → **เครื่องของคุณเองคือที่เดียวที่เห็นระบบทำงานครบ** ในตอนนี้
 - stack มี 13 container + 5 one-shot job — ถ้าไม่รู้ลำดับและเหตุผล จะติดตั้งแล้วเจอ error ที่อ่านไม่ออก แล้วเลิก
 
@@ -253,6 +282,7 @@ Using WasmStorageImplementation.sharedIndexedDb due to missing browser features:
 - และ server default คือ `http://localhost:3000` — ซึ่งถ้าคุณเปิด Grafana (Lab 4) ไว้ port 3000 คือ **Grafana** ไม่ใช่ API! (ที่เครื่องทดลองเป็นอย่างนั้นพอดี จึงได้ CORS error)
 
 **สรุป:** บน branch `main` ตอนนี้ แอปไม่ได้เป็น offline-only แล้ว (มันคือสาย multi-tenant — ดู CLAUDE.md "Branch strategy")
+> 🔄 **อัปเดต 2026-10-07:** ตั้งแต่ 2026-10-06 งานใหม่ทุก PR เข้า **`develop`** (integration) แล้ว `main` รับเฉพาะ `develop` แบบ merge commit (ruleset `24564072`) — ถ้าอยากลองโค้ดล่าสุดให้ checkout `develop`; `main` คือสิ่งที่ deploy ขึ้น `mob04`
 ถ้าอยากเห็นแอป offline-first ล้วนแบบที่ร้านใช้อยู่จริง ให้ build จาก branch `POC_sample_offline_first`
 (ไม่ได้ทดลองในบทนี้ — ใช้ `git worktree add ../poc POC_sample_offline_first` แล้ว build ในนั้น จะไม่รบกวน checkout หลัก)
 
@@ -601,6 +631,7 @@ etag: "0904d4df1dadc4b815f17723cc11da6dc2165e66c7a6d395b05c51d626d89040"
 {"status":"success","data":{"id":"pmugjwjqr_c6a93533_1","partNo":"LAB-001","name":"Brake pad (lab)",
  "price":"450.00","cost":"300.00","stock":10,...,"updatedAt":"2026-09-25T05:59:30.292Z"}}   [HTTP 201]
 ```
+> 🔄 **อัปเดต 2026-10-07:** `id` รูปแบบ `pmugjwjqr_…` ข้างบนเป็นของก่อน #616 — ตั้งแต่ PR #617 (เข้า `develop` 2026-10-05, ถึง `main` ใน `65861ea` 2026-10-06) id ของ entity เป็น **UUIDv7** (server ออกด้วย `newUuid()` ใน `server/src/common/ids.ts`, migration `EntityIdsToUuid1788652804900`) และ id ที่ไม่ใช่ UUID ตัวพิมพ์เล็กแบบมาตรฐานถูกปฏิเสธ `400 INVALID_ID` — ถ้ารันวันนี้จะได้ id เป็น UUID แทน
 สิ่งที่ควรสังเกต:
 - ร้านใหม่มี **5 หมวดหมู่ seed** ให้ทันที (`SEED_CATEGORIES` — ADR-0001) แต่สินค้า 0 ชิ้น
 - **เงินเป็น string** `"450.00"` ไม่ใช่ number (กฎ "Money crosses the wire as the string" ใน CLAUDE.md — กัน float ปัดเศษ)
@@ -665,7 +696,7 @@ cache-control: no-cache                      ← service worker ห้าม cac
 
 > 🩹 **ถ้าเจอแบบนี้:** ใช้ `flutter run -d chrome --dart-define=USE_API_WRITES=true --dart-define=API_BASE_URL=https://localhost`
 > แล้ว request ไม่ผ่าน — เพราะ (1) หน้าเว็บอยู่คนละ origin กับ API จึงเป็น cross-origin ต้องพึ่ง CORS
-> (dev ปล่อย `*` ไว้เมื่อ `CORS_ORIGINS` ว่าง แต่ **บน VM `mob04` ยังเป็น `*` อยู่** จนกว่าจะรัน `provision.yml` ใหม่ — CLAUDE.md #367) (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md))
+> (dev ปล่อย `*` ไว้เมื่อ `CORS_ORIGINS` ว่าง แต่ **บน VM `mob04` ยังเป็น `*` อยู่** จนกว่าจะรัน `provision.yml` ใหม่ — CLAUDE.md #367) (**แก้ 2026-09-30:** ไม่จริงแล้ว — `.env` ของ `mob04` มี `CORS_ORIGINS=https://172.30.58.20` ตั้งแต่ deploy แรกของ runner; origin แปลกหน้าไม่ได้ ACAO แต่ได้ HTTP 500 — [handoff](../handoff_log/session-2026-09-30-first-runner-deploy.md)) (**แก้ 2026-10-07:** HTTP 500 นั้นแก้แล้วด้วย PR #516 — origin แปลกหน้าได้คำตอบปกติแต่ไม่มี header ACAO, deploy ถึง `mob04` เป็น `00d3488` 2026-09-30 — CLAUDE.md)
 > และ (2) browser ไม่ยอม `fetch()` ไป https ที่ cert เซ็นเอง ถ้ายังไม่เคยกด "Proceed" ที่ origin นั้น
 > **วิธีที่ตรงกับ production ที่สุดคือ same-origin แบบข้างบน**
 
@@ -901,7 +932,7 @@ corepack pnpm build
 DATABASE_URL=postgres://postgres:dev-only-postgres@127.0.0.1:5432/pos corepack pnpm db:migrate
 corepack pnpm test:e2e
 ```
-e2e ต่อ Postgres/Redis **ตัวจริง** ผ่าน port ที่ dev overlay เปิดบน `127.0.0.1` (5432, 6379, 6380) — ไม่มี mock (53 ไฟล์ `*.e2e-spec.ts`)
+e2e ต่อ Postgres/Redis **ตัวจริง** ผ่าน port ที่ dev overlay เปิดบน `127.0.0.1` (5432, 6379, 6380) — ไม่มี mock (53 ไฟล์ `*.e2e-spec.ts` ตอนเขียนบท; **60 ไฟล์** ณ `develop` `68eebd1` 2026-10-07)
 
 **ทำไมบทนี้ไม่ได้รัน:**
 1. `server/test/support/fixture.ts:96,104-105` hardcode รหัส `dev-only-*` — stack ของ lab นี้สุ่มรหัสใหม่ (Step 2.1) จึงต่อไม่ติด
@@ -980,6 +1011,11 @@ run แรก **เขียวทั้งที่ไม่ได้ deploy �
 และถึงอนุมัติก็ยังติด FortiGate อยู่ดี — หลักฐานเดียวว่า VM รันเวอร์ชันไหนคือไฟล์ `/opt/pos/.current_sha` บน VM (CLAUDE.md)
 
 > 🟢 **แก้ 2026-09-30:** ข้อความข้างบนเป็นสถานะเดิม — FortiGate เลิกตัด `ghcr.io` แล้ว (2026-09-29) · runner `mob04-demo` ติดตั้งแล้ว และ deploy จริงครั้งแรก (`e50f4fa`) ถึง `mob04` สำเร็จ (`.current_sha` + `/health/ready` 200) · environment `demo` มี branch policy `main` และ fork-PR approval = `all_external_contributors` แล้ว · rollback พิสูจน์แล้วทั้งสองทาง (`workflow_dispatch` run `36687687309` · อัตโนมัติ run `36720675552` แดงตามออกแบบ) · #67 ปิด 2026-09-30 (ฝั่ง fork พิสูจน์จากโค้ด ไม่ได้รัน fork จริง) · [`session-2026-09-30-first-runner-deploy.md`](../handoff_log/session-2026-09-30-first-runner-deploy.md)
+
+> 🔄 **อัปเดต 2026-10-07 — อ่าน `gh run list` วันนี้ให้ถูก:**
+> - PR งานทุกตัวเข้า **`develop`**; `develop` → `main` เป็น **merge commit เท่านั้น** (ruleset `24564072` "main: merge commit only", PR #637) เพราะ squash/rebase เปลี่ยน SHA แล้ว `ROLLBACK_FLOOR` (`bedd328`) ใน `pos-deploy.sh` จะไม่เป็นบรรพบุรุษของ `main`
+> - Flutter CI / Server CI รันทุก PR และทุก push เข้า `main` **และ** `develop` (develop เพิ่ม 2026-10-07, PR #647) — แต่ image บน GHCR สร้างจาก `main` เท่านั้น และ `Deploy (demo)` ตอบสนอง `main` เท่านั้น → push เข้า `develop` **ไม่มีทาง deploy**
+> - merge เข้า `main` หนึ่งครั้ง Deploy ยิง **สองรอบ** (จาก Server CI และ Flutter CI) รอบแรกมักถูกข้ามเพราะ image ยังไม่ครบ — ตัวอย่างล่าสุด `dd659e2`: run `37585675913` deploy = skipped, run `37585778195` deploy = success (2026-10-07); `.current_sha` บน `mob04` = `dd659e2`
 
 ### 7.4 อ่าน log ของ job ที่พัง
 ```bash

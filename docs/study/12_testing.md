@@ -1,6 +1,30 @@
-# 12 — Testing Strategy: ทำไม repo นี้มี test เกือบ 160 ไฟล์
+# 12 — Testing Strategy: ทำไม repo นี้มี test กว่า 220 ไฟล์
 
 > บทนี้ตอบคำถาม: **"test คืออะไรกันแน่ ทำไมต้องมีหลายชนิด (unit/integration/e2e) และของจริงในร้านนี้ — ใครทดสอบอะไร ที่ไหน ป้องกัน bug อะไรจริงๆ"**
+
+---
+
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- repo นี้เอียงไปทาง **testing trophy** — invariant เงิน/สต็อก/tenant เกิดที่รอยต่อ HTTP → transaction → Postgres จริง จึงทดสอบด้วย e2e บน Postgres+Redis จริง
+- concurrency DoD: ยิง `POST /sales` 200 คำขอพร้อมกันบนสต็อก 50 → สำเร็จ 50 เป๊ะ, 409 อีก 150
+- architecture test (fitness function) 3 ไฟล์ล็อกกฎ ADR-0003 · guard test 2 ไฟล์กัน `ApiException` หลุดถึงหน้าจอ (#642/#644)
+- mock ผิดที่ซ่อน bug จริง (#383) → ทำให้ `redis-cache` ล่มจริงแทน mock
+- CI มี coverage ratchet ขาเดียว (ขึ้นได้ ห้ามลด) ทั้งสองฝั่ง และ required check บน `main` + `develop` คือ `flutter-ci-status` + `server-ci-status`
+- **ตัวเลข/หลักฐานหลัก:** `server/test/*.e2e-spec.ts` 60 ไฟล์ · `frontend/test/**/*_test.dart` 116 ไฟล์ · `server/src/**/*.spec.ts` 52 ไฟล์ (นับด้วย `find`/`ls` ที่ `68eebd1`, 2026-10-07)
+- **ภาพที่แนะนำ:**
+
+```mermaid
+flowchart LR
+  A["frontend/test (116)"] --> B["analyze-and-test"]
+  C["server/src *.spec.ts (52)"] --> D["unit + coverage ratchet"]
+  E["server/test *.e2e-spec.ts (60)"] --> F["integration (Postgres+Redis จริง)"]
+  B --> G["flutter-ci-status"]
+  D --> H["server-ci-status"]
+  F --> H
+```
 
 ---
 
@@ -104,6 +128,8 @@ it('คำนวณส่วนลด 10% ถูกต้อง', () => {
 
 repo นี้**เอียงไปทาง trophy**: ตัวเลขจริง (ยืนยันด้วย `find`, 2026-09-25) —
 
+> 🔄 **อัปเดต 2026-10-07:** นับใหม่ที่ `68eebd1` — `server/test/*.e2e-spec.ts` **60** ไฟล์, `server/src/**/*.spec.ts` **52** ไฟล์, `frontend/test/**/*_test.dart` **116** ไฟล์ (99 ไฟล์ที่ชั้นบนสุดของ `frontend/test/`) — สัดส่วนยังเอียงไปทาง trophy เหมือนเดิม ตารางข้างล่างคือ snapshot วันที่ 2026-09-25
+
 | ระดับ | frontend (Flutter) | server (NestJS) |
 |---|---|---|
 | unit/repository (colocated หรือแยกโฟลเดอร์ทดสอบ class เดี่ยว) | ส่วนใหญ่ของ 65 ไฟล์ใน `frontend/test/` | 40 ไฟล์ `*.spec.ts` ใน `server/src/**` |
@@ -194,7 +220,7 @@ test('คำนวณราคาหลังลด', () {
 });
 ```
 
-coverage สูงบอกได้แค่ "ไม่มีโค้ดที่ไม่เคยถูกแตะเลย" — ไม่บอกว่า assert ที่เขียนไว้ตรงจุดหรือครบ edge case หรือเปล่า repo นี้ไม่ได้บังคับ coverage % ขั้นต่ำ (`docs/tutorial/testing-tutorial.md` ก็ไม่ได้พูดถึงเกณฑ์ coverage) — เน้นที่ "test ตรง invariant ที่เคยพังจริง" (ดูข้อ 14) มากกว่าตัวเลข coverage
+coverage สูงบอกได้แค่ "ไม่มีโค้ดที่ไม่เคยถูกแตะเลย" — ไม่บอกว่า assert ที่เขียนไว้ตรงจุดหรือครบ edge case หรือเปล่า repo นี้ไม่ได้ตั้งเป้า coverage % สูงๆ — เน้นที่ "test ตรง invariant ที่เคยพังจริง" (ดูข้อ 14) มากกว่าตัวเลข coverage · แต่ตั้งแต่ 2026-10-03 (PR #579/#581/#582) CI มี **coverage ratchet** กันถอยหลัง: Flutter ห้ามต่ำกว่า `frontend/coverage_baseline.txt` (71) และ server ห้ามต่ำกว่า `server/coverage-baseline.json` (`lines: 44`) — baseline ขึ้นได้อย่างเดียว ห้ามลดเพื่อให้ PR เขียว
 
 ### 14. Regression test ต่อทุก bug
 
@@ -208,7 +234,7 @@ repo นี้ทำแบบนี้ชัดมาก — test จำนว�
 
 ร้านนี้ไม่ได้มีนักพัฒนาคนเดียว — มี 3 คน (`NuimanLP`, `LomerAlloys`, `PattaraponKitcharoen`) แก้โค้ดคนละส่วนพร้อมกัน (ดู [13_team_workflow.md](13_team_workflow.md)) และระบบมี invariant ที่ถ้าพัง **เสียเงินจริง**: ขายของเกินสต็อก, คืนเงินเกินยอดขาย, ร้าน tenant หนึ่งเห็นข้อมูลอีก tenant, บิลถูกสร้างซ้ำเพราะเน็ตกระตุก
 
-ถ้าไม่มี test อัตโนมัติ: ทุกครั้งที่มีคนแก้โค้ด ต้องมีคนนั่งเทสมือ (เปิดแอป, ล็อกอิน, ขายของ, เช็คสต็อก) ทุก flow ที่อาจกระทบ — ช้ามาก และคนเทสมือพลาดง่าย (ไม่มีทางจำลอง "200 คนกดขายพร้อมกัน" ด้วยมือได้เลย) นี่คือเหตุผลที่ CI ([15_cicd.md](15_cicd.md)) รัน test พวกนี้อัตโนมัติทุก push/PR — และทำไม `analyze-and-test`/`unit`/`integration` เป็น required check ก่อน merge เข้า `main`
+ถ้าไม่มี test อัตโนมัติ: ทุกครั้งที่มีคนแก้โค้ด ต้องมีคนนั่งเทสมือ (เปิดแอป, ล็อกอิน, ขายของ, เช็คสต็อก) ทุก flow ที่อาจกระทบ — ช้ามาก และคนเทสมือพลาดง่าย (ไม่มีทางจำลอง "200 คนกดขายพร้อมกัน" ด้วยมือได้เลย) นี่คือเหตุผลที่ CI ([15_cicd.md](15_cicd.md)) รัน test พวกนี้อัตโนมัติทุก push/PR — และทำไม `analyze-and-test`/`unit`/`integration` ต้องเขียวก่อน merge (required check จริงคือ status job `flutter-ci-status` + `server-ci-status` ซึ่งรวมผล job เหล่านี้ บังคับทั้งบน `main` และ `develop` — ตรวจ 2026-10-07)
 
 ---
 
@@ -229,6 +255,8 @@ repo นี้ทำแบบนี้ชัดมาก — test จำนว�
 ## 🔍 ของจริงใน repo
 
 ### 1. Inventory จริง (ตรวจด้วย `find`, 2026-09-25)
+
+> 🔄 **อัปเดต 2026-10-07:** e2e 53 → **60**, unit spec 40 → **52**, Flutter test **116** ไฟล์ (นับ `frontend/test/**/*_test.dart` รวมโฟลเดอร์ย่อย — คนละวิธีกับเลข 65 ด้านล่างที่นับเฉพาะ `frontend/test/*.dart` ชั้นบนสุด) — ตัวเลขในบล็อกข้างล่างคือ snapshot 2026-09-25
 
 ```
 frontend/test/*.dart          → 65 ไฟล์
@@ -297,6 +325,8 @@ Path: `frontend/test/api_repository_contract_test.dart` — doc comment ต้�
 > "#56 AC6: 'No ApiRepository in this slice calls a Drift transactional service — enforced by a test.' ... ADR-0010 §3's rule is that an ApiRepository hits the server and then patches Drift rows from the response; it must NEVER also call one of the Drift *transactional services* (`saveSale`, `createReturn`, `openShift`, `addDrawerEntry`, `closeShift`, `receivePO`) ... the concrete failure mode is a DOUBLE STOCK DECREMENT"
 
 **bug ที่มันป้องกัน อธิบายง่ายๆ:** ถ้า `ApiRepository` (ชั้นที่คุยกับ server) แอบเรียก Drift transactional service ของตัวเองด้วย จะเกิด "ลดสต็อก 2 รอบ" (รอบที่ server ลด + รอบที่ Drift local ลดเอง) — ขายไป 1 ชิ้น สต็อกลด 2 test นี้สแกนซอร์สโค้ดหา pattern การเรียกที่ต้องห้าม มี self-check ของตัวเองด้วย (เช่น `self-check: the matcher actually catches a violation` บรรทัด 252) เพื่อพิสูจน์ว่า matcher เองไม่ใช่แค่ผ่านมั่วๆ
+
+> 🔄 **อัปเดต 2026-10-07:** มี guard คู่ที่ตรวจกฎ "`ApiException` ห้ามถึงหน้าจอ" เพิ่มอีก 2 ไฟล์ — `frontend/test/presentation_no_api_exception_test.dart` (PR #642: ระดับซอร์ส — ไม่มีไฟล์ใต้ `lib/presentation/` import `api_exception.dart`) และ `frontend/test/api_exception_never_escapes_test.dart` (PR #644: ระดับ runtime — ทุก method ที่หน้าจอเรียกได้ถูกยิงด้วย 4xx/401/429/5xx/502 HTML/503 in-flight แล้วต้องไม่มี `ApiException` หลุดออกมา) · ฝั่ง server, PR #641 เติม e2e ใน `server/test/sync-push.e2e-spec.ts` จน replay-by-client-id ของ `/sync/push` มีเทสต์ครบ 7 ชนิด op (รวม `shift.open`, `customer.create`, `sale.void_offline`) แม้ key หมดอายุแล้ว (#638)
 
 ### 5. Drift repository unit test — สต็อกไม่พอ / คืนเกิน
 
@@ -518,9 +548,9 @@ CI/CD เต็มๆ อยู่ที่ [15_cicd.md](15_cicd.md) บทน�
 
 | เครื่องมือ | version จริงจาก repo | หน้าที่ | ทำไมเลือก | ทางเลือกที่ไม่เลือก |
 |---|---|---|---|---|
-| `flutter_test` (built-in) | Flutter 3.44.3 / Dart 3.12.2 (ตรวจจริงด้วย `flutter --version`) | รัน 65 ไฟล์ test ฝั่ง Flutter | มากับ Flutter SDK อยู่แล้ว ไม่ต้องติดตั้งเพิ่ม | — |
+| `flutter_test` (built-in) | Flutter 3.44.3 / Dart 3.12.2 (ตรวจจริงด้วย `flutter --version`) | รันไฟล์ test ฝั่ง Flutter (116 ไฟล์ `*_test.dart` ณ 2026-10-07) | มากับ Flutter SDK อยู่แล้ว ไม่ต้องติดตั้งเพิ่ม | — |
 | Drift `NativeDatabase.memory()` | ตาม `drift` ที่ pub-lock (ดู [04_frontend.md](04_frontend.md)) | ฐานข้อมูล in-memory สำหรับ repository test | เร็ว, deterministic, SQL จริง | mock query layer ทีละ method |
-| Vitest | ตาม `server/package.json` (ดู [06_backend.md](06_backend.md) สำหรับ version เต็ม) | runner ของ 40 unit spec + 53 e2e spec | เร็วกว่า Jest บน ESM/TypeScript, config แยก unit/e2e ได้ง่าย | Jest |
+| Vitest | ตาม `server/package.json` (ดู [06_backend.md](06_backend.md) สำหรับ version เต็ม) | runner ของ unit spec + e2e spec (52 + 60 ไฟล์ ณ 2026-10-07; ฉบับ 2026-09-25 = 40 + 53) | เร็วกว่า Jest บน ESM/TypeScript, config แยก unit/e2e ได้ง่าย | Jest |
 | supertest | ใช้ใน `*.e2e-spec.ts` (เช่น `shifts.e2e-spec.ts`) | ยิง HTTP request จริงเข้า NestJS app ที่รันในหน่วยความจำ | ทดสอบผ่าน HTTP layer จริง ไม่ข้าม middleware/guard | เรียก controller method ตรงๆ (ข้าม HTTP layer ไปเลย ไม่สมจริง) |
 | TypeScript compiler API | ใช้ตรงใน `tenant-wrapper.spec.ts`/`idempotency-routes.spec.ts` | parse โค้ดจริงเป็น AST เพื่อสแกน pattern | แม่นกว่า regex เพราะเข้าใจโครงสร้างไวยากรณ์จริง | regex string matching (เปราะ, false positive/negative ง่าย) |
 | docker compose (Postgres+Redis) | ตาม `docs/tutorial/testing-tutorial.md` ข้อ 2.3 | service container สำหรับ e2e | ใกล้เคียง production จริงที่สุด | Postgres แบบ mock/in-memory (ไม่มีจริงสำหรับ Postgres) |
@@ -574,10 +604,10 @@ cd frontend && flutter test test/sales_repository_test.dart
 ## ✅ สรุป
 
 - Test คือ Arrange/Act/Assert — เช็คว่าโค้ดทำงานตามที่คาด และจับ bug ให้เจอเร็วที่สุดเท่าที่จะเป็นไปได้ (ยิ่งเจอช้า ยิ่งแก้แพง)
-- Test pyramid เน้น unit เยอะสุด, testing trophy เน้น integration เยอะสุด — repo นี้เอียงไปทาง trophy (e2e 53 ไฟล์ > unit spec 40 ไฟล์ฝั่ง server) เพราะ invariant สำคัญอยู่ที่รอยต่อกับ Postgres จริง
+- Test pyramid เน้น unit เยอะสุด, testing trophy เน้น integration เยอะสุด — repo นี้เอียงไปทาง trophy (e2e 60 ไฟล์ > unit spec 52 ไฟล์ฝั่ง server — นับ 2026-10-07) เพราะ invariant สำคัญอยู่ที่รอยต่อกับ Postgres จริง
 - test double มี 5 แบบ (dummy/stub/fake/mock/spy) — mock ที่ mock "ผิดขอบเขต" (ตรงจุดที่กำลังทดสอบ invariant พอดี) ซ่อน bug ได้ ดังที่เกิดจริงกับ #383 (redis-cache mock) และ #384 (accessToken mint ข้ามขั้น enrol)
 - In-memory DB (Drift `NativeDatabase.memory()`) ใช้กับ repository test ฝั่ง Flutter — เร็วและ deterministic แต่ไม่ทดแทน Postgres จริงสำหรับ RLS/lock
-- Service container (Postgres+Redis จริงใน Docker) ใช้กับ e2e ฝั่ง server ทั้ง 53 ไฟล์ เพราะ invariant เงิน/สต็อก/tenant พิสูจน์ด้วยของปลอมไม่ได้
+- Service container (Postgres+Redis จริงใน Docker) ใช้กับ e2e ฝั่ง server ทั้ง 60 ไฟล์ (2026-10-07) เพราะ invariant เงิน/สต็อก/tenant พิสูจน์ด้วยของปลอมไม่ได้
 - Architecture test (fitness function) 3 ไฟล์สแกน AST ปกป้องกฎ ADR-0003 ที่ unit test ปกติจับไม่ได้ — "เปลี่ยนอย่างตั้งใจ ห้ามแก้แค่ให้ผ่าน"
 - Concurrency test จริง (200 บิลพร้อมกันบนสต็อก 50 → ได้ 50 บิลเป๊ะ) พิสูจน์ row lock ทำงานถูกต้องภายใต้แรงกดดันจริง ไม่ใช่แค่เคสเดียว
 - Coverage สูงไม่เท่ากับถูก — วัดแค่บรรทัดถูกรัน ไม่ได้วัดว่า assert ตรงจุด

@@ -5,6 +5,34 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- CD ถึง `mob04` จริงตั้งแต่ 2026-09-30 (deploy แรก `e50f4fa`) หลัง FortiGate เลิกตัด `ghcr.io` (2026-09-29) และติดตั้ง runner `mob04-demo`
+- ทุก deploy ต้องผ่าน 3 ด่าน: CI เขียว + image ครบบน GHCR → `NuimanLP` กดอนุมัติ (environment `demo`) → `pos-deploy` + Ansible บน VM
+- พิสูจน์ครบ: merge→CD, rollback ด้วย `workflow_dispatch`, rollback อัตโนมัติเมื่อ readiness ล้ม, SHA ซ้ำ = ข้าม — #67 ปิด 15/15
+- **เขียว ≠ deploy แล้ว** — หลักฐานเดียวคือ `/opt/pos/.current_sha` บน VM
+- สายงาน (2026-10-06+): PR → `develop` → `main` แบบ merge commit เท่านั้น (ruleset `24564072`) — กัน `ROLLBACK_FLOOR` ไม่ให้หลุดจากประวัติ `main`
+
+- **ตัวเลข/หลักฐานหลัก:** `.current_sha` = `dd659e2` (run `37585778195`, job `deploy to demo` สำเร็จ 2026-10-07; run คู่ `37585675913` = skipped) · `/health/ready` 200 — อ่านผ่าน SSH 2026-10-07
+
+- **ภาพที่แนะนำ:**
+
+```mermaid
+flowchart LR
+  PR["PR → develop"] --> MAIN["develop → main<br/>(merge commit)"]
+  MAIN --> CI["Server CI + Flutter CI"]
+  CI --> GHCR["image บน GHCR<br/>(main เท่านั้น)"]
+  GHCR --> RES["Deploy: resolve<br/>images_ready?"]
+  RES --> APP["รอ NuimanLP อนุมัติ"]
+  APP --> RUN["runner mob04-demo<br/>pos-deploy + Ansible"]
+  RUN --> SHA["/opt/pos/.current_sha<br/>+ /health/ready 200"]
+  RUN -. "readiness ล้ม" .-> RB["rollback อัตโนมัติ"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ต้องอ่านก่อน:** [14_devops.md](14_devops.md) (Docker, Compose, Ansible, GHCR, Trivy คืออะไร) และ
@@ -126,6 +154,8 @@ Deploy (demo)
 ```
 
 ดูยาว แต่จำเป็นชิ้น ๆ ได้ครับ ไล่ทีละด่านด้านล่าง
+
+> 🔄 **อัปเดต 2026-10-07:** บรรทัดแรก "merge PR เข้า main" ตอนนี้หมายถึง **merge `develop` → `main` แบบ merge commit เท่านั้น** (ruleset `24564072`, PR #637, 2026-10-06) — PR งานทุกตัวเข้า `develop` ก่อน · CI รันบน push เข้า `develop` ด้วย (PR #647, 2026-10-07) แต่ `develop` **ไม่สร้าง image และไม่ deploy**
 
 ### ① CI + status job + image บน GHCR
 
@@ -595,19 +625,21 @@ run จบแล้ว: .current_sha = SHA นี้ไหม? /health/ready 200
 
 ---
 
-## ⏳ 12. สิ่งที่ยังเปิดอยู่ (ณ 2026-10-01)
+## ⏳ 12. สิ่งที่ยังเปิดอยู่ (ณ 2026-10-01 · อัปเดตแถวที่เปลี่ยน 2026-10-07)
 
 | เรื่อง | สถานะ |
 |---|---|
 | **cron backup 03:00 รอบจริงรอบแรก** ของสคริปต์ #519 | **ต้องตรวจหลัง 03:00 UTC 2026-10-01** — ดู `backup-cron.log` และ `/opt/pos/backups` (ต้องไม่มี `.partial` ค้าง) · บทนี้ยังไม่ได้ยืนยันผล |
 | **#344** เดโมคนจริงครบวง | (ณ 10-01) ยังไม่รัน — **10-05 รันบางส่วน (AC1+AC2)** แล้ว 10-06 DB ถูกล้างตอน cutover #616 ต้องสร้าง tenant ใหม่ · checklist `docs/handoff_log/demo-344-checklist-2026-09-30.md` (รหัสชั่วคราว + บังคับเปลี่ยนใน 10 นาที, tenant ใหม่ไม่มีสินค้า, แอปส่ง idempotency key ซ้ำเองไม่ได้, บาง AC ของ #335 พิสูจน์บน VM ตรง ๆ ไม่ได้, #476) |
-| **#380** k6 สามเครื่อง + container RSS | ยังไม่มีตัวเลขเลย |
+| **#380** k6 สามเครื่อง + container RSS | (ณ 10-01) ยังไม่มีตัวเลขเลย — **10-05 วัดจริงครั้งแรกแล้ว** (VM ที่ `7444ea4`): อ่าน/ผสม ≥ 72 r/s (เพดานเครื่องยิง) p95 ≤ 139 ms, 200 คนแย่งซื้อชิ้นเดียว p95 ~3 s **ไม่ผ่าน §9** (ข้อมูลถูก), container รวมสูงสุด 648 MiB · **ยังไม่รับรอง, ยังเปิด, owner ตัดสิน** — [16_performance.md](16_performance.md) |
 | **#363 / #288** backup ออกนอก VM | **พักไว้จนหลังเดโม** — ตอนนี้ **ไม่มี backup ออกจาก VM เลย** ห้ามเขียนว่า "backup พร้อมแล้ว" |
-| **#476** เครื่องสุดท้ายหลุด = ทางตัน | รอ owner ตัดสิน |
-| **#443** platform admin UI | code merge แล้ว, 403 สองชั้นพิสูจน์บน VM แล้ว · รอ owner เรื่อง AC "เฉพาะ `bootstrap:admin`" ที่ขัดกับ `PLATFORM_ADMINS` sync · ยังไม่มีคน login จริง |
+| **#476** เครื่องสุดท้ายหลุด = ทางตัน | (ณ 10-01) รอ owner — **ปิดแล้ว 2026-10-03**: แทนเครื่องที่หาย (PR #561, platform) + banner บน POS (PR #567) พิสูจน์บน `mob04` วันเดียวกัน |
+| **#443** platform admin UI | code merge แล้ว, 403 สองชั้นพิสูจน์บน VM แล้ว · รอ owner เรื่อง AC "เฉพาะ `bootstrap:admin`" ที่ขัดกับ `PLATFORM_ADMINS` sync · (ณ 10-01) ยังไม่มีคน login จริง — คนแรก login ผ่าน UI บน `mob04` 2026-10-05 ระหว่าง #344 (CLAUDE.md) · issue **ยังเปิด** |
 | **#231** cutover ร้านจาก Drift build ไป server | รอ owner · ร้านจริงยังใช้ Drift build |
 
 > **อัปเดต 2026-10-06 — cutover #616:** `mob04` รัน `65861ea` (merge commit ของ `develop`→`main`, PR #628) และ **DB ถูกล้าง** (backup ก่อน → TRUNCATE 28 ตาราง → migration `EntityIdsToUuid1788652804900` รันบน DB ว่างผ่าน) เพราะ id ทุกตัวเปลี่ยนจาก text เป็น UUIDv7 — migration ปฏิเสธ DB ที่มีแถว · `ROLLBACK_FLOOR` = `bedd328` (ปฏิเสธ rollback ไปโค้ดก่อน #616) · หลัง merge เข้า `main` Deploy ยิง **สองครั้ง** (จาก Server CI และ Flutter CI) — ครั้งแรกมักเขียวแบบ skip เพราะ image web ยังไม่ครบ (ตัวอย่างจริงของกับดักข้อ 4 อีกครั้ง) `.current_sha` คือหลักฐานเดียว · เรื่องเต็ม: `docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md`, runbook `runbook-616-uuid-cutover-mob04.md` (ตัวเลขด้านล่างคือสถานะ ณ 10-01 เก็บไว้เป็นประวัติ)
+
+> 🔄 **อัปเดต 2026-10-07 — สถานะ VM ล่าสุด:** `.current_sha` = `dd659e2` (= PR #652, release ของ #651 ข้อความ error ภาษาไทย) — run `37585778195` job `deploy to demo` สำเร็จ 2026-10-07 07:13 UTC ส่วน run คู่ `37585675913` ของ SHA เดียวกัน = skipped (กับดักข้อ 4 อีกรอบ) · `/health/ready` 200 · อ่านผ่าน SSH 2026-10-07 · `main` และ `develop` มี branch protection เหมือนกัน (PR, check `flutter-ci-status` + `server-ci-status`, ห้าม force push) · ยังไม่ cutover ร้านจริง (#231 เปิด), #344 ต้องเริ่มใหม่, #363 พักไว้ — **ไม่มี backup ออกจาก VM**
 
 สถานะ VM ณ เวลาเขียน (2026-10-01): `.current_sha` = `3258b21` (จาก run `36740720083`; `/health/ready` 200 ตอนจบ run นั้น) ·
 PR #523 (docs ล้วน) merge เป็น `6384e20` แล้ว แต่ **ยังไม่ถูก deploy** — run `36742768824` ของ `6384e20` ค้าง *waiting* รอ approve

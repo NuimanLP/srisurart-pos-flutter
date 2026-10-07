@@ -56,16 +56,16 @@ seed `P12_STOCK=375` (= 25+50+100+200) ให้ทุกขั้นของ�
 
 ## 3. ตัดสินใจอะไรไปบ้าง เพราะอะไร
 - **เปลี่ยนจากลุ้นผ่านเกณฑ์เป็นหา capacity** (ผู้ใช้ 2026-10-05: "ไม่ต้องการแก้งานหลักแล้ว อยากรู้ว่ารับโหลดได้แค่ไหน") — ขั้นโหลดและรายงาน**ทุกขั้น**ไม่ใช่เฉพาะขั้นที่ผ่าน; ไม่ลดโหลดจนเขียว
-- **scenario 3 สูงสุด 27 VU** — 34 VU × 5 ครั้ง ≈ 170 คำขอ/2 วิ ต่อ IP ชน `perip` (30 r/s, burst 60) แน่นอน; 9 VU/เครื่อง × 5 = 45 = burst budget · ไม่แตะ `perip` (owner ปฏิเสธ carve-out แล้ว)
+- **scenario 3 สูงสุด 27 VU** — 34 VU × 5 ครั้ง ≈ 170 คำขอ/2 วิ ต่อ IP ชน `perip` (30 r/s, burst 60) แน่นอน; 9 VU/เครื่อง × 5 = 45 = burst budget · ไม่แตะ `perip` (owner ปฏิเสธ carve-out แล้ว) · **owner accepted 27 VU, 2026-10-07** (แทน 100 ของ `02 §9`)
 - **ไม่เพิ่ม worker** — `POST /sales` ทำใน API แบบ synchronous; worker ทำงานหลัง commit; คอขวดคือล็อกแถว Postgres (สินค้า, `doc_counters`) ไม่ใช่จำนวน process
 - **เริ่มพร้อมกันด้วยเวลา epoch** (`while date < START`) + ขั้นที่เลยเวลาแล้ว `SKIP` — แทนการนับ "go" (รอบ 1 มีเครื่องเริ่มช้า)
 - **`k6:verify` รันจากเครื่อง peter-mac ผ่าน SSH tunnel** (Postgres/redis-cache ไม่มี port บน VM — IP container อ่านทุกครั้ง: ตอนนั้น `.128`/`.134`)
 - ไม่แก้ `measure-container-rss.sh` บน VM ระหว่างวัด (มีแต่ `provision.yml` ที่ติดตั้ง) → ใช้ `docker stats` ดิบแทน
 
 ## 4. ลองแล้วไม่เวิร์ก (ทางตัน)
-- **`measure-container-rss.sh` บั๊ก:** `to_mib` เช็ก `[Bb]` ก่อน → `"55.4MiB"` ถูกหารแบบ byte → 0.00 · ตาราง container ว่าง + "Peak Total Stack RSS 0 MiB" แต่ verdict ยังพิมพ์ PASS · host memory ถูก (1,447 MiB รอบ 1)
-- **`Idempotency-Key` ของสคริปต์ชนข้ามเครื่อง:** `02` = `idem-k6-contention-${__VU}-${__ITER}-${Date.now()}`, `03` = `idem-k6-replay-vu-${__VU}-${Date.now()}` · เลข VU นับใหม่ทุกเครื่อง + เริ่มพร้อมกันแม่น → 2 ครั้ง key เดียวกัน body ต่างกัน → server **409** (ถูกต้อง) · ผล: รอบ 2 ชุด 2 ขาย 374/375 (`k6:verify` ข้อ 4/5 FAIL), `replay-09` ของ peter-mac 409 ×5
-- **`assertBurstSafe` ของ scenario 3 ตรวจไม่ครบ** — เช็กแค่จำนวน VU ≤ 45 ไม่คูณ 5 ครั้งที่ส่ง → 100 VU ผ่าน assert แต่ติด 429
+- **`measure-container-rss.sh` บั๊ก:** `to_mib` เช็ก `[Bb]` ก่อน → `"55.4MiB"` ถูกหารแบบ byte → 0.00 · ตาราง container ว่าง + "Peak Total Stack RSS 0 MiB" แต่ verdict ยังพิมพ์ PASS · host memory ถูก (1,447 MiB รอบ 1) · **แก้แล้วใน PR #654** (+ test; ไม่มีแถว = FAIL)
+- **`Idempotency-Key` ของสคริปต์ชนข้ามเครื่อง:** `02` = `idem-k6-contention-${__VU}-${__ITER}-${Date.now()}`, `03` = `idem-k6-replay-vu-${__VU}-${Date.now()}` · เลข VU นับใหม่ทุกเครื่อง + เริ่มพร้อมกันแม่น → 2 ครั้ง key เดียวกัน body ต่างกัน → server **409** (ถูกต้อง) · ผล: รอบ 2 ชุด 2 ขาย 374/375 (`k6:verify` ข้อ 4/5 FAIL), `replay-09` ของ peter-mac 409 ×5 · **แก้แล้วใน PR #654** (key = shard + VU + UUID; `04` ด้วย)
+- **`assertBurstSafe` ของ scenario 3 ตรวจไม่ครบ** — เช็กแค่จำนวน VU ≤ 45 ไม่คูณ 5 ครั้งที่ส่ง → 100 VU ผ่าน assert แต่ติด 429 · **แก้แล้วใน PR #654** (VU × 5 ≤ 45; ค่าเริ่มต้นแบบ shard = 9 × N)
 - **remote-write จากเครื่องอื่นล้มเพราะพิมพ์ URL ผิด:** `https://k6/:<pw>@…/write/` (`/` หลัง `k6` และท้าย) → `lookup k6: no such host` · รหัสผิด → 401 (k6 ยังจบด้วย exit 0 และสคริปต์ทดสอบพิมพ์ `sent as …` ทั้งที่ส่งไม่ถึง)
 - `pkill -f "measure-container-rss.sh 2400"` ใน `ssh '…'` ฆ่า shell ของ ssh เอง (command line มีข้อความเดียวกัน) — ใช้ `pgrep -f "^bash /opt/pos/scripts/…"`
 
@@ -79,7 +79,7 @@ seed `P12_STOCK=375` (= 25+50+100+200) ให้ทุกขั้นของ�
 ## 6. ก้าวถัดไป (เรียงลำดับ)
 1. debian + nui-meme ลบ `server/test/k6/k6-env.json`
 2. owner: อ่านผลและตัดสินช่อง k6 ของ `03 §8` / AC ของ #380 (รอบ 1 scenario 1 ผ่านเกณฑ์; scenario 2 @200 = p95 ~3 s ไม่ผ่าน; scenario 3 @100 ไม่สะอาดเพราะ 429) — แปะสรุปนี้เป็น comment ใน #380
-3. PR แก้สคริปต์: `to_mib` (เช็ก `GiB`/`MiB`/`KiB` ก่อน `B`) + test · key ของ `02`/`03` ใส่ shard/UUID · `assertBurstSafe` ของ `03` คูณจำนวนครั้งที่ส่ง · หลัง merge ต้อง **รัน `provision.yml` หรือติดตั้งมือ** ให้ `measure-container-rss.sh` บน VM เป็นตัวใหม่
+3. ~~PR แก้สคริปต์~~ → PR #654 (เข้า `develop`): `to_mib` (เช็ก `GiB`/`MiB`/`KiB` ก่อน `B`) + test · key ของ `02`/`03` ใส่ shard/UUID · `assertBurstSafe` ของ `03` คูณจำนวนครั้งที่ส่ง · หลัง merge ต้อง **รัน `provision.yml` หรือติดตั้งมือ** ให้ `measure-container-rss.sh` บน VM เป็นตัวใหม่
 4. owner: **เปลี่ยนรหัส remote-write** (หลุดในแชต 2026-10-05) — re-key volume `nginx-auth` เป็นงานแยก (CLAUDE.md) · ตรวจความต่างของรหัสใน `/opt/pos/.env`
 5. (ทางเลือก) ลบ `/opt/pos/rss-under-load-20261005T025730Z.md` ที่ผิด (root)
 

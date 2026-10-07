@@ -4,6 +4,28 @@
 
 ---
 
+## สไลด์ (Slide-ready summary)
+
+> สรุปสำหรับทำสไลด์ — สถานะ ณ 2026-10-07 · ดูโครงสไลด์ทั้งชุดที่ [20_slide_outline.md](20_slide_outline.md)
+
+- กำแพง 4 ชั้นจากนอกเข้าใน: **Nginx (TLS, `perip`, allowlist) → guard (JWT, `aud`, `drole`, rate limit) → handler (validate, `$1`) → RLS (`pos_app`)**
+- ตัวตนมาจาก server เสมอ — `tid` จาก JWT, `did`/`drole` จาก device token ที่ server hash เอง, IP จาก XFF ตัวขวาสุด
+- RLS fail-closed: ลืมตั้ง tenant = 0 แถว ไม่ใช่ทุกแถว · `audit_log` เป็น append-only ของ `pos_app` แล้ว (#399)
+- supply chain: image ทุกตัวใน compose pin digest (#401), Trivy + `pnpm audit` + gitleaks ใน CI
+- ช่องที่ยังเปิดจริง: ไม่มี backup ออกจาก VM (#363 parked), platform admin ไม่มี MFA, PDPA ยังไม่ทำ, เบราว์เซอร์ยังเตือน cert (CA ส่วนตัว)
+- **ตัวเลข/หลักฐานหลัก:** threat model 19 แถว (T1–T19) ในตารางของบทนี้; etcd auth บน `mob04` เปิดและพิสูจน์แล้ว 2026-09-30 (#365 ปิด 4/4 — CLAUDE.md)
+- **ภาพที่แนะนำ:**
+
+```mermaid
+flowchart LR
+  A["Client"] --> B["Nginx: TLS + perip + allowlist"]
+  B --> C["Guard: JWT / aud / drole / rate limit"]
+  C --> D["Handler: validate + $1"]
+  D --> E["Postgres RLS (pos_app)"]
+```
+
+---
+
 ## 🧭 ก่อนอ่าน
 
 - **ควรอ่านมาก่อน:** [architecture](02_architecture.md) (ภาพรวมว่ามี Nginx / api / Postgres / Redis),
@@ -151,7 +173,7 @@ argon2id     ~100 ms, 64 MiB  ไม่รู้สึก (0.1 วินาท�
 
 **Self-signed certificate** = ใบรับรองที่เราเซ็นรับรองตัวเอง ไม่มี CA — การเข้ารหัสยังทำงาน แต่ browser ไม่มีทางรู้ว่า
 คุณคุยกับ server ตัวจริง ไม่ใช่คนกลางที่ทำ cert ปลอมขึ้นมา browser จึงขึ้นคำเตือนสีแดง
-(เดี๋ยวจะเห็นว่า demo ของร้านนี้ใช้ self-signed — และบท [CI/CD](15_cicd.md) เล่าว่า FortiGate ของคณะก็ทำตัวเป็น "คนกลาง" แบบนี้จริงๆ)
+(demo ของร้านนี้เคยใช้ self-signed — ตั้งแต่ 2026-10-03 (PR #552) เปลี่ยนเป็น cert ที่ **CA ส่วนตัว** ของเราเซ็น แอป Android trust CA นั้น แต่เบราว์เซอร์ยังเตือน · และบท [CI/CD](15_cicd.md) เล่าว่า FortiGate ของคณะเคยทำตัวเป็น "คนกลาง" แบบนี้จริงๆ — แก้แล้ว 2026-09-29/30)
 
 ### 9. JWT — กายวิภาค และราคาของ stateless
 
@@ -280,17 +302,17 @@ flowchart LR
 | T5 | Outsider เจาะ platform admin | ยิง `/api/v1/platform/tenants` จากบ้าน | Nginx allow แค่ loopback + guard เช็ค IP + HS256 platform token + `aud:'platform'` | `nginx.conf:87-95`, `server/src/platform/platform-auth.guard.ts:39-82` | 🟡 ไม่มี MFA (ADR-0002 ยังไม่เคาะ) |
 | T6 | Outsider SQL injection | ใส่ `'; DROP TABLE sales;--` ในช่องค้นหา | parameterized query `$1` | เช่น `auth.service.ts:110-114` | ✅ (ตรวจด้วยการอ่าน — ดู 🔍) |
 | T7 | Outsider ต่อ DB/Redis ตรง | สแกน port 5432/6379 บน VM | ไม่ publish port datastore + Redis `requirepass` | `server/docker-compose.yml:190-205`, `:213-220` | ✅ |
-| T8 | Tenant อื่นอ่านข้อมูล | ร้าน B เปลี่ยน id ใน URL เป็นบิลร้าน A | `tid` มาจาก JWT เท่านั้น → `SET LOCAL app.tenant_id` → RLS fail-closed | `server/src/common/database/tenant.service.ts:86-88`, `server/src/db/migrations/1788652800001-RowLevelSecurity.ts:58-63` | 🟡 ตารางหนึ่ง (`owner_review_items`) policy ไม่มี `NULLIF` |
+| T8 | Tenant อื่นอ่านข้อมูล | ร้าน B เปลี่ยน id ใน URL เป็นบิลร้าน A | `tid` มาจาก JWT เท่านั้น → `SET LOCAL app.tenant_id` → RLS fail-closed | `server/src/common/database/tenant.service.ts:86-88`, `server/src/db/migrations/1788652800001-RowLevelSecurity.ts:58-63` | ✅ (`owner_review_items` เคยไม่มี `NULLIF` — แก้แล้ว `1788652804200-OwnerReviewItemsFixes.ts`, ดู G4) |
 | T9 | Tenant อื่นแย่งโควตา | ร้านหนึ่งยิงหนักจนร้านอื่นช้า | per-tenant rate limit (Redis) | `server/src/rate-limit/` (ADR-0006) | ✅ |
 | T10 | เครื่องถูกขโมย / เครื่องสาธารณะ | tablet หาย, session ค้าง | access 15 นาที, refresh หมดตี 4, retire เครื่อง → refresh ถูกปฏิเสธ | ADR-0009, `auth.service.ts:226-298` | ✅ (access token ฝั่ง web อยู่ใน memory เท่านั้น #404; refresh/device token ใน IndexedDB ไม่มี localStorage fallback #400/#419) |
 | T11 | เครื่อง backoffice ปลอมเป็น pos | ส่ง `deviceId` ของเครื่องขาย | `did`/`drole` มาจาก device token ที่ server hash แล้วเท่านั้น | `auth.service.ts:71-88`, `server/src/devices/devices.service.ts:157-159` | ✅ |
 | T12 | Insider ที่ถูกไล่ออก | token ยังใช้ได้ | `users.is_active` ตรวจตอน refresh ≤ 15 นาที | ADR-0009 ข้อ 3 | ✅ (ยอมรับช่อง 15 นาที) |
-| T13 | Insider แก้ยอดเงียบๆ | void บิลแล้วเก็บเงินสด | `audit_log` + `movements` เป็น ledger (INSERT/SELECT เท่านั้น) | `server/src/audit/audit.service.ts:27-45`, `RowLevelSecurity.ts:70-74` | 🟡 `pos_app` ยัง UPDATE/DELETE `audit_log` ได้ |
+| T13 | Insider แก้ยอดเงียบๆ | void บิลแล้วเก็บเงินสด | `audit_log` + `movements` เป็น ledger (INSERT/SELECT เท่านั้น) | `server/src/audit/audit.service.ts:27-45`, `RowLevelSecurity.ts:70-74` | ✅ `audit_log` append-only แล้ว (#399, `1788652804100-AuditLogAppendOnly.ts` REVOKE UPDATE, DELETE) |
 | T14 | Supply chain — library มี CVE | npm package มีช่องโหว่ HIGH | `pnpm audit` + Trivy fs + Trivy image (block push) + OSV-Scanner | `.github/workflows/server.yml:115-124`, `:278-290` | ✅ |
-| T15 | Supply chain — base image ถูกเปลี่ยน | tag `node:22-alpine` เปลี่ยนไส้ | digest pin ใน Dockerfile | `server/Dockerfile:5,17` | 🟡 image ใน compose (`postgres:16-alpine`, `redis:7-alpine`, `nginx:1.29-alpine`) ยังเป็น tag |
-| T16 | Secret หลุด / ใช้ค่า default | ลืมตั้ง `JWT_PLATFORM_SECRET` → ใช้สตริง dev ที่อยู่บน GitHub | compose `:?` บังคับ | `server/docker-compose.yml:26` | 🟡 ตัวโค้ด `config.ts:113` ยังมี fallback |
-| T17 | ตั้งค่าหละหลวม — CORS | เว็บอื่นเรียก API ของร้านจาก browser เหยื่อ | `CORS_ORIGINS` allowlist, list ว่างผิดรูป → throw | `server/src/config/config.ts:66-77`, `server/src/app.setup.ts:46-67` | ~~🟡 mob04 ยังเป็น `'*'`~~ ✅ **2026-09-30:** mob04 = origin ของตัวเอง (origin แปลกหน้าได้ 500) |
-| T18 | etcd ไม่มี auth | อ่าน/แก้ config runtime | `etcd-init.sh` เปิด RBAC | `server/docker/etcd/etcd-init.sh` | 🔴 **#365 — บน VM auth ไม่เคยเปิด** |
+| T15 | Supply chain — base image ถูกเปลี่ยน | tag `node:22-alpine` เปลี่ยนไส้ | digest pin ใน Dockerfile | `server/Dockerfile:5,17` | ✅ image ภายนอกทุกตัวใน compose pin `tag@sha256:` แล้ว (#401) |
+| T16 | Secret หลุด / ใช้ค่า default | ลืมตั้ง `JWT_PLATFORM_SECRET` → ใช้สตริง dev ที่อยู่บน GitHub | compose `:?` บังคับ | `server/docker-compose.yml:26` | ✅ fallback ในโค้ดถูกเอาออกแล้ว (#398) — `config.ts` ใช้ `required()` + `refusePublicSecret()` |
+| T17 | ตั้งค่าหละหลวม — CORS | เว็บอื่นเรียก API ของร้านจาก browser เหยื่อ | `CORS_ORIGINS` allowlist, list ว่างผิดรูป → throw | `server/src/config/config.ts:66-77`, `server/src/app.setup.ts:46-67` | ~~🟡 mob04 ยังเป็น `'*'`~~ ✅ **2026-09-30:** mob04 = origin ของตัวเอง (origin แปลกหน้าเคยได้ 500 — แก้ PR #516 วันเดียวกัน: ได้คำตอบปกติแต่ไม่มี ACAO) |
+| T18 | etcd ไม่มี auth | อ่าน/แก้ config runtime | `etcd-init.sh` เปิด RBAC | `server/docker/etcd/etcd-init.sh` | ✅ **#365 ปิด 2026-09-30 (4/4)** — auth เปิดแล้วและพิสูจน์ทั้งสองทางบน `mob04` |
 | T19 | ข้อมูลหายถาวร (A ใน CIA) | ดิสก์ `mob04` พัง | backup offsite | `deploy/scripts/backup-db.sh` | 🔴 **#363 parked — ไม่มี backup ออกจาก VM** |
 
 > ตารางนี้คือ "สัญญา" ของบท: ทุกแถวที่เป็น 🟡/🔴 จะมีคำอธิบายใน ⚠️ ท้ายบท
@@ -572,6 +594,8 @@ token ของ platform admin ใช้ **HS256 ด้วย `JWT_PLATFORM_SECR
 
 แปลว่ากำแพงอยู่ที่ **compose ชั้นเดียว** ถ้ามีคนรัน api นอก compose (เช่นรัน `node dist/main.js` ตรงบน server) โดยไม่ตั้งตัวแปร จะกลับไปเป็นช่องเดิม
 เทียบกับ `JWT_PRIVATE_KEY` บรรทัดถัดไป (`:114`) ที่ใช้ `required(env, ...)` — โยน error ในโค้ดเลย
+
+> 🔄 **อัปเดต 2026-10-07:** ครึ่งหลังนี้ **แก้แล้ว** (#398, PR #407) — ตอนนี้ `server/src/config/config.ts` อ่านด้วย `required(env, 'JWT_PLATFORM_SECRET')` แล้วตามด้วย `refusePublicSecret(...)` (ปฏิเสธค่า dev สาธารณะ เว้นแต่ตั้ง `ALLOW_DEV_SECRETS=true` ซึ่งห้ามตั้งบนเครื่องจริง) โค้ดข้างบนเก็บไว้เป็นตัวอย่างของช่องเดิม
 
 **Allowlist IP สองชั้น:**
 
@@ -951,6 +975,8 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 ข้อจำกัดที่ต้องรู้: ใน `RowLevelSecurity.ts:70-74` มีแค่ `movements` ที่ได้สิทธิ์ `SELECT, INSERT` (เป็น ledger แก้ไม่ได้)
 ส่วน `audit_log` ได้ `SELECT, INSERT, UPDATE, DELETE` เหมือนตารางทั่วไป → ถ้า app ถูกเจาะ คนร้ายลบร่องรอยตัวเองได้ (ดู ⚠️)
 
+> 🔄 **อัปเดต 2026-10-07:** แก้แล้ว (#399) — migration `1788652804100-AuditLogAppendOnly.ts` ทำ `REVOKE UPDATE, DELETE ON audit_log FROM pos_app` ตอนนี้ `audit_log` เป็น append-only เหมือน `movements`
+
 ---
 
 ## 🛠️ เทคนิคในบทนี้
@@ -1042,7 +1068,7 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 - **ปัญหาที่แก้:** fallback เป็นค่า dev ที่อยู่บน GitHub (#184: platform secret ปลอมได้)
 - **ทำไมเลือก:** เทียบกับ default value — สะดวกตอน dev แต่ "ใช้งานได้" บน production ทั้งที่ไม่ปลอดภัย
 - **ดี / ราคา:** พลาดแล้วรู้ทันที / dev ต้องตั้งตัวแปรครบก่อนรันได้
-- **ใน repo:** `server/docker-compose.yml:18-36`; เทียบกับ `config.ts:113` ที่ยังมี fallback
+- **ใน repo:** `server/docker-compose.yml:18-36`; `config.ts` เคยมี fallback — เอาออกแล้ว (#398) ตอนนี้ใช้ `required()` + `refusePublicSecret()`
 
 ### 12. CVE gating + digest pinning
 
@@ -1076,7 +1102,7 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 | เครื่องมือ | version จริงจาก repo | หน้าที่ | ทำไมเลือก | ทางเลือกที่ไม่เลือก |
 |---|---|---|---|---|
 | Nginx | `nginx:1.29-alpine` (`server/docker-compose.yml:73`) | TLS termination, `limit_req`, allowlist | ฟรี, เบา (mem_limit 64m), ทีมรู้จัก | NGINX Plus (มี `auth_jwt` แต่เสียเงิน), Traefik |
-| OpenSSL (certgen) | `alpine/openssl` (ไม่ pin) | สร้าง self-signed cert | ใช้ได้ทันทีบน VM ที่ไม่มีโดเมนสาธารณะ | Let's Encrypt (ต้องมีโดเมน + ออก internet ได้ — VM อยู่หลัง FortiGate) |
+| OpenSSL (certgen) | `alpine/openssl:latest@sha256:…` (pin digest #401) | สร้าง CA ส่วนตัว + server cert ที่ CA เซ็น (PR #552; เดิม self-signed) | ใช้ได้ทันทีบน VM ที่ไม่มีโดเมนสาธารณะ | Let's Encrypt (ต้องมีโดเมนสาธารณะ — VM เข้าถึงด้วย IP `172.30.58.20` เท่านั้น) |
 | `argon2` (npm) | `^0.45.1` (`server/package.json:43`) | hash รหัสผ่าน/PIN | argon2id ตามที่ ADR-0009 สั่ง | bcrypt, PBKDF2 |
 | `jsonwebtoken` | `^9.0.3` (`server/package.json:48`) | เซ็น/ตรวจ RS256 | library มาตรฐานของ Node | `jose` |
 | `node:crypto` | มากับ Node 22 | HS256 platform token, SHA-256 device token, `timingSafeEqual` | ไม่ต้องเพิ่ม dependency | – |
@@ -1096,7 +1122,7 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 1. **#134 / #132 — ทุกคนใช้ถัง rate limit เดียวกัน:** ไม่ได้ตั้ง `trust proxy` → `req.ip` คือ IP ของ Nginx สำหรับทุกคน → ถัง login 10 ครั้ง/นาที เป็นของ **ทั้งโลก**
    คนร้ายคนเดียวยิงผิด 10 ครั้ง = ทุกร้าน login ไม่ได้ (โจมตี A) แก้ด้วย `trust proxy = 1` + rightmost XFF
 2. **#138 — check-then-increment:** 50 request พร้อมกันผ่านหมด แก้ด้วย Lua `INCR` atomic
-3. **#184 — platform secret fallback เป็นสตริงสาธารณะ:** ใครก็ปลอมเป็น platform admin ได้ถ้า VM ลืมตั้ง แก้ด้วย `:?` ใน compose (ครึ่งเดียว — ดูข้อ G6)
+3. **#184 — platform secret fallback เป็นสตริงสาธารณะ:** ใครก็ปลอมเป็น platform admin ได้ถ้า VM ลืมตั้ง แก้ด้วย `:?` ใน compose (ครึ่งแรก — ครึ่งในโค้ดแก้ภายหลังที่ #398 ดูข้อ G6)
 4. **#364 — รหัส owner `1234` ผ่านได้:** กฎเดียวกันเขียนสองที่แล้วเลื่อนออกจากกัน แก้ด้วยการย้ายไป `password.ts` ที่เดียว
 5. **#367 — CORS ผิดรูปตกเป็น `'*'` เงียบๆ:** แก้ให้ throw ตอน boot (validate ก่อน แล้วค่อย fallback)
 6. **#270 — `/platform` block ใน Nginx เดิมไม่เคยทำงาน:** path ขาด prefix `api/v1` จึงไม่ match อะไรเลย (comment ที่ `nginx.conf:85-86`) — allowlist ที่เขียนไว้ไม่ได้กันอะไร
@@ -1104,22 +1130,24 @@ FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a55
 
 ### 🔴 ช่องที่ยังเปิด (ความจริง ณ 2026-09-25)
 
+> 🔄 **อัปเดต 2026-10-07:** G3 (#365), G6 (#398), G8 (#399) และ G10 (#401) **แก้แล้ว** — ขีดฆ่าในตารางไว้ เลขแถวไม่ขยับ · ที่ยังเปิดจริง: G1 (เบราว์เซอร์ยังเตือน cert), G5 (#363 parked), G7, G11
+
 | # | ช่อง | ผลกระทบ | แหล่งอ้างอิง |
 |---|---|---|---|
 | G1 | **TLS cert บน demo มาจาก CA ส่วนตัว** (แก้บางส่วน 2026-10-03) | แอป Android ตรวจตัวตน server ได้เมื่อ owner ทำ runbook 07 §5 "TLS" แล้ว · เบราว์เซอร์ยังเตือน | `server/docker/certgen/certgen.sh` |
 | ~~G2~~ | ~~**`mob04` CORS ยังเป็น `'*'`**~~ — **แก้ 2026-09-30:** ไม่ใช่ `'*'` แล้ว (origin แปลกหน้าเคยได้ 500 — แก้ PR #516 เย็นวันเดียวกัน ตอนนี้ได้สถานะปกติของ route (เช่น `/health/live` 200 — ไม่ใช่ 500) ไม่มี ACAO) | เว็บอื่นเรียก API ได้จาก browser | CLAUDE.md (#367) |
-| G3 | **etcd auth ไม่เคยเปิดบน VM (#365)** | `etcd-init.sh` บน VM กลายเป็น directory ของ root → RBAC ไม่ถูกเปิด; ทุก AC ต้องทำบน VM | CLAUDE.md "Still open" — **แก้ 2026-09-30:** เปิดแล้วและพิสูจน์ทั้งสองทาง บน `mob04` (#365 AC 3/4) |
+| ~~G3~~ | ~~**etcd auth ไม่เคยเปิดบน VM (#365)**~~ — **แก้แล้ว** | `etcd-init.sh` บน VM กลายเป็น directory ของ root → RBAC ไม่ถูกเปิด; ทุก AC ต้องทำบน VM | CLAUDE.md "Still open" — **แก้ 2026-09-30:** เปิดแล้วและพิสูจน์ทั้งสองทาง บน `mob04` (#365 ปิด 4/4) |
 | ~~G4~~ | ~~RLS ของ `owner_review_items` ไม่มี `NULLIF` + FK `ON DELETE SET NULL` ผิด~~ — **แก้แล้ว** | เดิม: tenant ไม่ได้ตั้ง → 500 แทน 0 แถว; ลบ user ที่เคย review → error | `1788652804200-OwnerReviewItemsFixes.ts` (#420) |
 | G5 | **ไม่มี backup ออกจาก VM (#363 parked)** | ดิสก์พัง = ข้อมูลร้าน demo หาย (A ใน CIA) | CLAUDE.md, [devops](14_devops.md) |
-| G6 | **`config.ts:113` ยังมี fallback `'dev-only-platform-secret'`** | กันอยู่แค่ชั้น compose; รันนอก compose = ช่อง #184 กลับมา | `server/src/config/config.ts:113` |
+| ~~G6~~ | ~~**`config.ts:113` ยังมี fallback `'dev-only-platform-secret'`**~~ — **แก้แล้ว (#398, PR #407)** | เดิม: กันอยู่แค่ชั้น compose; รันนอก compose = ช่อง #184 กลับมา | ตอนนี้ `server/src/config/config.ts` ใช้ `required()` + `refusePublicSecret()` |
 | G7 | **Platform admin ไม่มี MFA** | รหัสผ่านเดียวหลุด = ทุกร้าน | ADR-0002 "ยังไม่เคาะ" |
-| G8 | **`audit_log` แก้/ลบได้โดย `pos_app`** | app ถูกเจาะ → ลบร่องรอยได้ | `RowLevelSecurity.ts:70-74` (มีแค่ `movements` ที่ INSERT/SELECT) |
+| ~~G8~~ | ~~**`audit_log` แก้/ลบได้โดย `pos_app`**~~ — **แก้แล้ว (#399)** | เดิม: app ถูกเจาะ → ลบร่องรอยได้ | `1788652804100-AuditLogAppendOnly.ts` — `REVOKE UPDATE, DELETE ON audit_log FROM pos_app` |
 | ~~G9~~ | ~~Flutter เก็บ access token ถาวรใน `SharedPreferences` (บน web = localStorage)~~ — **แก้แล้ว** | เดิม: ขัด ADR-0009 ที่สั่ง "access token อยู่ใน memory เท่านั้น ห้าม localStorage" → XSS อ่าน token ได้ | access token: `token_storage.dart` (#404); refresh/device token ไม่มี localStorage fallback อีกแล้ว, ไม่มีที่เก็บก็โยน `TokenStoreUnavailableException` (#400/#419) |
-| G10 | **image ใน compose ไม่ pin digest** | `postgres:16-alpine`, `redis:7-alpine`, `nginx:1.29-alpine`, `alpine/openssl` เปลี่ยนไส้ได้ | `server/docker-compose.yml:73,92,191,214` |
+| ~~G10~~ | ~~**image ใน compose ไม่ pin digest**~~ — **แก้แล้ว (#401)** | เดิม: `postgres:16-alpine`, `redis:7-alpine`, `nginx:1.29-alpine`, `alpine/openssl` เปลี่ยนไส้ได้ | `server/docker-compose.yml` — ทุก `image:` ภายนอกเป็น `name:tag@sha256:…` |
 | G11 | **PDPA / hardening ยังไม่ทำ (Phase 8a)** | ยังไม่มีนโยบายเก็บ/ลบข้อมูลส่วนบุคคลลูกค้า/ช่าง | CLAUDE.md "Pending follow-ups" |
 | ~~G12~~ | ~~HIGH bug ใน `/sync/push` (fingerprint path ไม่ตรง, ใช้ `date` จาก client)~~ — **แก้แล้ว** | เดิม: ด้าน integrity ของบิล — เป็น bug ความถูกต้องมากกว่าช่องโหว่ แต่ client ควบคุม timestamp ได้ | fingerprint: #413 (`ONLINE_PREFIX` ใน `sync.service.ts`); server time: #414 — online route ไม่อ่าน `dto.date`/`soldOffline` จาก body แล้ว, [offline/phase 2](10_offline_phase2.md) บทเรียน 1 |
 
-> G8, G10 และ fallback ใน G6 **พบระหว่างเขียนบทนี้จากการอ่านโค้ด** — ไม่พบ issue ที่บันทึกไว้ใน `docs/` ถ้าจะแก้ ควรเปิด issue ก่อน
+> G8, G10 และ fallback ใน G6 **พบระหว่างเขียนบทนี้จากการอ่านโค้ด** — ต่อมามีคนเปิด issue และแก้ครบ (#399, #401, #398 — 2026-09-25)
 > ส่วน G1 เป็นข้อสรุปจากการที่ไม่พบหลักฐานใน repo — สถานะจริงบน `mob04` ต้องตรวจที่เครื่อง
 > G4, G9 และ G12 **แก้แล้วหลัง 2026-09-25** (#420, #400/#419/#404, #413/#414 ตามลำดับ) — คงแถวไว้เพื่อไม่ให้เลขอ้างอิงขยับ
 
@@ -1138,7 +1166,7 @@ security ไม่ได้จบที่ PR merge — จบเมื่อพ
 > - ชั้นป้องกันเรียงจากนอกเข้าใน: **Nginx (TLS, perip, allowlist) → guard (JWT, aud, drole, rate limit) → handler (validate, `$1`) → RLS (`pos_app`, `NULLIF`)**
 > - **ตัวตนมาจาก server เสมอ** — `tid` จาก JWT, `did`/`drole` จาก device token ที่ server hash เอง, IP จาก XFF ตัวขวาสุด
 > - **Fail-closed / fail-loud:** RLS คืน 0 แถว, CORS ผิดรูป throw, secret ขาด compose ไม่รัน
-> - **ยังเปิดอยู่:** cert จาก CA ส่วนตัว (เบราว์เซอร์ยังเตือน; แอป Android trust หลัง runbook 07 §5 "TLS"), ~~CORS `'*'` บน mob04~~ (แก้ 2026-09-30: ปิดแล้ว), etcd auth (#365), ไม่มี backup offsite, ไม่มี MFA, `audit_log` แก้/ลบได้โดย `pos_app` — `owner_review_items` RLS (#420) และ access token ใน localStorage (#404/#419) **แก้แล้ว**
+> - **ยังเปิดอยู่:** cert จาก CA ส่วนตัว (เบราว์เซอร์ยังเตือน; แอป Android trust หลัง runbook 07 §5 "TLS"), ~~CORS `'*'` บน mob04~~ (แก้ 2026-09-30: ปิดแล้ว), ไม่มี backup offsite (#363 parked), ไม่มี MFA, PDPA — `owner_review_items` RLS (#420), access token ใน localStorage (#404/#419), etcd auth (#365), `audit_log` append-only (#399), digest pin (#401) **แก้แล้ว**
 
 ---
 
