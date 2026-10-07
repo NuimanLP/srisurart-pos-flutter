@@ -43,7 +43,7 @@
             "opId": "1de23e3c-0cdd-5f80-bb88-9b6aa972a412",
             "status": "rejected",
             "code": "RETURN_PRICE_MISMATCH",
-            "message": "ราคาคืนไม่ตรงกับราคาที่ขายจริง",
+            "message": "ราคาคืนไม่ตรงกับราคาที่ขายจริง กรุณาค้นหาบิลแล้วทำรายการคืนใหม่อีกครั้ง",
             "details": {
               "productId": "e7ce3922-6095-5e45-bfec-e66674fe7daf",
               "expectedPrice": "85.00",

@@ -257,7 +257,7 @@ void main() {
         fail('Should have thrown DocNumberExhaustedException');
       } on DocNumberException catch (e) {
         expect(e.code, 'DOC_NUMBER_EXHAUSTED');
-        expect(e.toString(), 'เลขเอกสารเต็มโควตา');
+        expect(e.toString(), 'เลขที่เอกสารของเครื่องนี้ครบ 9,999 ใบในเดือนนี้แล้ว ออกเอกสารต่อไม่ได้ กรุณาติดต่อทีมงาน');
       }
     });
 

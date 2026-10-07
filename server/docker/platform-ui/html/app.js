@@ -82,20 +82,22 @@ const STATUS_TRANSITIONS = {
   closed: [],
 };
 
+/** Owner-panel empty state — the §8 `OWNER_NOT_FOUND` text (owner-ratified 2026-10-07). */
+const NO_OWNER_TEXT = 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่';
+
 /**
  * Thai text for a server error code (02_API_SCREENS.md §8). Only codes whose Thai string is
- * owner-ratified, plus TENANT_CLOSED (new in this change; owner-ratified 2026-10-07). Every other code —
- * including the platform codes whose §8 string was ratified 2026-10-07 but is not yet wired here — shows the Thai prefix
- * in describeError() + the server's own message.
+ * owner-ratified. Every other code shows the Thai prefix in describeError() + the server's own message.
  */
 const ERROR_TEXT = {
   RATE_LIMITED: 'ระบบกำลังทำงานหนัก กรุณารอสักครู่',
   DEVICE_ALREADY_RETIRED: 'เครื่องนี้ถูกปลดไปแล้ว',
   TENANT_CLOSED: 'ร้านนี้ปิดถาวรแล้ว เปลี่ยนสถานะไม่ได้อีก',
+  // Platform codes, §8 strings owner-ratified 2026-10-07 (#443 PR2/PR3).
+  INVALID_TENANT_ID: 'รหัสร้านไม่ถูกต้อง',
+  DEVICE_ALREADY_ENROLLED: 'เครื่องนี้ผูกกับบัญชีไปแล้ว หรือถูกปลดไปแล้ว ออกโค้ดใหม่ไม่ได้',
+  OWNER_NOT_FOUND: NO_OWNER_TEXT,
 };
-
-/** Owner-panel empty state — the §8 `OWNER_NOT_FOUND` text (owner-ratified 2026-10-07). */
-const NO_OWNER_TEXT = 'ร้านนี้ไม่มีบัญชีเจ้าของร้านที่ใช้งานอยู่';
 
 const SESSION_EXPIRED_TEXT = 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่';
 const BAD_LOGIN_TEXT = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';

@@ -31,7 +31,12 @@ class DocNumberException implements Exception {
 
 class DocNumberExhaustedException extends DocNumberException {
   const DocNumberExhaustedException([String? message])
-      : super('DOC_NUMBER_EXHAUSTED', message ?? 'เลขเอกสารเต็มโควตา');
+      : super(
+          'DOC_NUMBER_EXHAUSTED',
+          // Same sentence as ServerErrorResolver (`agent ร่าง 2026-10-07`).
+          message ??
+              'เลขที่เอกสารของเครื่องนี้ครบ 9,999 ใบในเดือนนี้แล้ว ออกเอกสารต่อไม่ได้ กรุณาติดต่อทีมงาน',
+        );
 }
 
 class OfflineSeedRequiredException extends DocNumberException {

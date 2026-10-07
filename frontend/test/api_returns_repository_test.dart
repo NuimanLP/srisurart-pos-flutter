@@ -457,7 +457,7 @@ void main() {
       expect(thrown, isNot(isA<ApiException>()));
       expect(
         thrown.toString().replaceFirst('Exception: ', ''),
-        'ราคาใบลดหนี้ไม่ตรงกับบิลขาย',
+        'ราคาคืนไม่ตรงกับราคาที่ขายจริง กรุณาค้นหาบิลแล้วทำรายการคืนใหม่อีกครั้ง',
       );
 
       expect(await db.select(db.returns).get(), isEmpty);
@@ -496,8 +496,8 @@ void main() {
     // Fixed in #83: `ServerErrorResolver.resolve` now checks `_startsWithThai`
     // so English sentences quoting Thai literals (like `returns.service.ts`'s
     // `Refund method 'หักจากเครดิต' needs a bill with a mechanic.`) correctly
-    // resolve to the canonical Thai string `วิธีคืนเงินไม่ถูกต้องสำหรับบิลนี้`.
-    expect(msg, 'วิธีคืนเงินไม่ถูกต้องสำหรับบิลนี้');
+    // resolve to the canonical Thai string `บิลนี้ไม่มีช่าง หักจากเครดิตไม่ได้ กรุณาเลือกคืนเป็นเงินสดหรือโอน`.
+    expect(msg, 'บิลนี้ไม่มีช่าง หักจากเครดิตไม่ได้ กรุณาเลือกคืนเป็นเงินสดหรือโอน');
   });
 
   group('a lost reply must not become a second credit note', () {
