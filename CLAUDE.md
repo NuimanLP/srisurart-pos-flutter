@@ -606,11 +606,14 @@ on void/return paths. Keep this order in any new write touching more than one of
   body).
 
 **CI/CD (`.github/workflows/`, `deploy/`):**
-- Both `flutter.yml` and `server.yml` trigger on every PR (any base) and on push to `main` only; a `changes`
+- Both `flutter.yml` and `server.yml` trigger on every PR (any base) and on push to `main` **and
+  `develop`** (develop added 2026-10-07, so develop's head always has a full CI result); a `changes`
   job gates each workflow's own jobs internally so a `server/`-only PR still runs (and
   can satisfy) the Flutter required check, and vice versa. Each workflow ends in one
   always-reported status job (`flutter-ci-status`/`server-ci-status`) — the only
-  required checks on `main`. `concurrency.group` is keyed by commit SHA.
+  required checks on `main`. On a push `concurrency.group` is keyed by ref + commit SHA and
+  never cancelled. 🔴 **GHCR publish stays `main`-only** (`build-image`/`build-web` gated on
+  `refs/heads/main`; `deploy.yml` reacts to `main` only) — never let a develop push publish an image.
 - Branch protection on `main` has been set since 2026-09-15: PR required (0 approvals),
   the two status jobs required, no force-push/delete, admins not enforced. **`develop` has the
   identical protection since 2026-10-06.** Ruleset 24564072 "main: merge commit only" (target
@@ -654,7 +657,7 @@ on void/return paths. Keep this order in any new write touching more than one of
   `RC01-2569-09-…` with a server-stamped `now()` date, so on the 1st of the next month the server
   (correctly, 08 §10) added a `date_flag` and `main` went red — which also means no images and
   every Deploy run skipping. Derive RC/CN periods from now in `Asia/Bangkok` (`currentPeriod()`).
-- **Docs-only push to main skips tests/images → no deploy; the VM stays on the last code SHA** (2026-10-01,
+- **Docs-only push to main (or develop) skips tests/images → no deploy; the VM stays on the last code SHA** (2026-10-01,
   `deploy/scripts/push-changes-kind.sh`, 07 §2 rule 2). Docs = `*.md` or `docs/**` except
   `docs/Backend_design/fixtures/**`; anything else is code. `deploy.yml` `resolve` applies the same rule to
   the range run-SHA..main-head, so a docs commit after a code commit does not strand that code deploy.

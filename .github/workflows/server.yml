@@ -30,26 +30,30 @@ name: Server CI
 # #39: path filtering no longer happens at the trigger level (a frontend-only PR must
 # still produce a green, always-reported server-ci-status, or it can never satisfy a
 # required check — CLAUDE.md "Known trap"). "lint"/"audit"/"unit" are gated per-job on the
-# `changes` job instead: a PR by path, a push to `main` runs every job unless it is docs-only
-# (deploy/scripts/push-changes-kind.sh). "integration" is never gated on server path (see its comment): it
-# carries the cross-tenant isolation tests in test/security.e2e-spec.ts, which run on
-# every PR regardless of what changed.
+# `changes` job instead: a PR by path, a push to `main` or `develop` runs every job unless it is
+# docs-only (deploy/scripts/push-changes-kind.sh); build-image (GHCR) stays main-only.
+# "integration" is never gated on server path (see its comment): it carries the cross-tenant
+# isolation tests in test/security.e2e-spec.ts, which run on every PR regardless of what changed.
 
 permissions:
   contents: read
 
 on:
   push:
-    branches: [main]
+    # develop (2026-10-07): every push gets a full CI result too, because two PRs green alone can
+    # be red together. A push publishes to GHCR only from main: build-web/build-image and both
+    # status-job image checks are gated on refs/heads/main, and deploy.yml only reacts to main.
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  # Keyed by SHA on main so two quick merges each keep their own run (and their own
-  # release image) rather than the second evicting the first's in-progress run.
-  group: server-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
-  # Never cancel a main run — it is the only producer of that commit's image.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Keyed by ref + SHA on main/develop so two quick merges each keep their own run (and, on main,
+  # their own release image) rather than the second evicting the first's in-progress run. On
+  # develop a cancelled run would also turn its always()-run status job red on that commit.
+  group: server-${{ github.ref }}-${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.sha || 'latest' }}
+  # Never cancel a main run (the only producer of that commit's image) or a develop run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
 defaults:
   run:
@@ -59,9 +63,9 @@ jobs:
   changes:
     name: detect changed paths (pull_request + push)
     runs-on: ubuntu-latest
-    # PR: dorny/paths-filter. Push to main: deploy/scripts/push-changes-kind.sh over
-    # before..sha — a docs-only push skips the test/image jobs (no image, so no Deploy waiting
-    # for approval). workflow_dispatch never filters: this job is skipped and everything runs.
+    # PR: dorny/paths-filter. Push to main/develop: deploy/scripts/push-changes-kind.sh over
+    # before..sha — a docs-only push skips the test/image jobs (on main: no image, so no Deploy
+    # waiting for approval). workflow_dispatch never filters: this job is skipped and everything runs.
     if: github.event_name != 'workflow_dispatch'
     permissions:
       contents: read
@@ -381,7 +385,7 @@ jobs:
     # "denies cross-tenant read access" / "denies cross-tenant void" / "ignores
     # tenantId in request body"), which the sixth multi-tenant rule requires on
     # every PR regardless of which paths it touches (07_CICD_DEPLOY.md §2, rule 3).
-    # The only skip is a docs-only push to main (see `changes`): it builds no image either.
+    # The only skip is a docs-only push to main/develop (see `changes`): it builds no image either.
     if: ${{ !cancelled() && (github.event_name != 'push' || needs.changes.outputs.server == 'true') }}
     env:
       # Base + dev overlay for every `docker compose` call in this job. The base file
