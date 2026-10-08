@@ -210,7 +210,7 @@ List<RepositoryProvider> repositoryProviders(
   // On the API build the server's suppliers are the truth (an owner import
   // writes them): pulled into Drift, edited online only (2026-10-08).
   suppliersRepo = useApi
-      ? ApiSuppliersRepository(db, client)
+      ? ApiSuppliersRepository(db, client, syncFacade: syncFacade ?? realSyncService)
       : SuppliersRepository(db);
 
   return [

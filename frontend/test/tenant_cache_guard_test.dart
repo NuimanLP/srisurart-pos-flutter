@@ -252,8 +252,8 @@ void main() {
       // Gone: everything a pull re-downloads, cursors included.
       expect(await _count(db, db.products), 0);
       expect(await _count(db, db.customers), 0);
-      // Suppliers are pulled whole from `GET /suppliers` on the API build.
-      expect(await _count(db, db.suppliers), 0);
+      // Kept: possibly only here — the first supplier pull sends them up.
+      expect(await _count(db, db.suppliers), 1);
       expect(await _count(db, db.syncCursors), 0);
       await _expectBlankSettingsAndDefaultCategories(db);
       expect(await _meta(db, _key), 'tenant-A');

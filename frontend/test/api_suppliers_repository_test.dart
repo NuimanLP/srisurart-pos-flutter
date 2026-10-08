@@ -14,7 +14,11 @@ import 'package:http/testing.dart';
 import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/repositories/api/api_wire.dart' show wireMoney;
 import 'package:srisurart_pos/data/repositories/api_suppliers_repository.dart';
+import 'package:srisurart_pos/data/sync/sync_facade.dart';
+
+import 'support/fake_sync_facade.dart';
 
 http.Response _ok(Object data, [int status = 200]) => http.Response(
   jsonEncode({'status': 'success', 'data': data}),
@@ -44,12 +48,28 @@ Map<String, Object> _wire(String id, String productId, String name,
 void main() {
   late AppDatabase db;
 
-  // The demo seed (6 suppliers) stays in: a pull must replace it.
-  setUp(() => db = AppDatabase(NativeDatabase.memory()));
+  Future<void> markPulled() => db.into(db.appMeta).insertOnConflictUpdate(
+        AppMetaCompanion.insert(
+            key: ApiSuppliersRepository.suppliersPulledKey, value: '1'),
+      );
+  Future<bool> isMarked() async =>
+      await (db.select(db.appMeta)
+            ..where((t) => t.key.equals(ApiSuppliersRepository.suppliersPulledKey)))
+          .getSingleOrNull() !=
+      null;
+
+  // The demo seed (6 suppliers) stays in: a pull must replace it. Marked as
+  // already pulled, so only the 'first pull' group sends local rows up.
+  setUp(() async {
+    db = AppDatabase(NativeDatabase.memory());
+    await markPulled();
+  });
   tearDown(() => db.close());
 
-  ApiSuppliersRepository repoWith(MockClientHandler handler) =>
-      ApiSuppliersRepository(db, ApiClient(httpClient: MockClient(handler)));
+  ApiSuppliersRepository repoWith(MockClientHandler handler,
+          {SyncFacade? syncFacade}) =>
+      ApiSuppliersRepository(db, ApiClient(httpClient: MockClient(handler)),
+          syncFacade: syncFacade);
 
   Future<List<SupplierRow>> local() => db.select(db.suppliers).get();
 
@@ -101,6 +121,19 @@ void main() {
       expect(rows.map((r) => r.id), ['s9']);
     });
 
+    test('Degraded: getSuppliers answers the cache without a request', () async {
+      var requests = 0;
+      final repo = repoWith(
+        (_) async {
+          requests++;
+          return _ok(<Object>[]);
+        },
+        syncFacade: FakeSyncFacade(initialStatus: SyncStatus.degraded),
+      );
+      expect(await repo.getSuppliers(), hasLength(6));
+      expect(requests, 0);
+    });
+
     test('offline: getSuppliers still answers the cache', () async {
       final repo = repoWith((_) async => throw http.ClientException('down'));
       expect(await repo.getSuppliers(), hasLength(6));
@@ -131,6 +164,112 @@ void main() {
 
       expect(await pull, isFalse);
       expect((await local()).map((r) => r.id), contains('s-new'));
+    });
+  });
+
+  group('first pull: local-only suppliers are sent up before the replace', () {
+    setUp(() => (db.delete(db.appMeta)
+          ..where((t) => t.key.equals(ApiSuppliersRepository.suppliersPulledKey)))
+        .go());
+
+    test('each one is POSTed under a key from its id; then replace + marker', () async {
+      final seed = await local();
+      final posts = <String, Object?>{}; // key → body
+      final repo = repoWith((req) async {
+        if (req.method == 'GET') {
+          // s-srv is the server's own; seed[0] is already there under its id.
+          return _ok([
+            _wire('s-srv', 'p9', 'ของเซิร์ฟเวอร์'),
+            _wire(seed[0].id, seed[0].productId, seed[0].name),
+          ]);
+        }
+        final key = req.headers['Idempotency-Key']!;
+        final body = jsonDecode(req.body) as Map;
+        posts[key] = body;
+        return _ok(
+            _wire('new-${key.substring(12)}', body['productId'] as String,
+                body['name'] as String, body['unitCost'] as String),
+            201);
+      });
+
+      expect(await repo.pullFromServer(), isTrue);
+
+      final sent = seed.skip(1).toList();
+      expect(posts.keys,
+          unorderedEquals([for (final r in sent) 'idem-supmig-${r.id}']));
+      expect(posts['idem-supmig-${sent.first.id}'], {
+        'productId': sent.first.productId,
+        'name': sent.first.name,
+        'unitCost': wireMoney(sent.first.unitCost),
+        'freight': wireMoney(sent.first.freight),
+      });
+      expect((await local()).map((r) => r.id), unorderedEquals([
+        's-srv',
+        seed[0].id,
+        for (final r in sent) 'new-${r.id}',
+      ]));
+      expect(await isMarked(), isTrue);
+
+      // Marked: the next pull is a plain replace, nothing is sent again.
+      posts.clear();
+      expect(await repo.pullFromServer(), isTrue);
+      expect(posts, isEmpty);
+    });
+
+    test('no verdict (5xx / no network): the row stays, no marker, the retry reuses its key',
+        () async {
+      final seed = await local();
+      final failing = seed.first.id;
+      final keys = <String>[];
+      var fail = true;
+      final repo = repoWith((req) async {
+        if (req.method == 'GET') return _ok(<Object>[]);
+        final key = req.headers['Idempotency-Key']!;
+        keys.add(key);
+        if (fail && key == 'idem-supmig-$failing') {
+          return _error(503, 'SERVICE_UNAVAILABLE');
+        }
+        final body = jsonDecode(req.body) as Map;
+        return _ok(
+            _wire('new-${key.substring(12)}', body['productId'] as String,
+                body['name'] as String),
+            201);
+      });
+
+      expect(await repo.pullFromServer(), isTrue);
+      final ids = (await local()).map((r) => r.id).toSet();
+      expect(ids, contains(failing)); // kept, not deleted
+      expect(ids, isNot(contains('new-$failing')));
+      expect(await isMarked(), isFalse);
+
+      fail = false;
+      keys.clear();
+      expect(await repo.pullFromServer(), isTrue);
+      // Only the kept row was local-only this time, under the same key.
+      expect(keys, contains('idem-supmig-$failing'));
+      expect((await local()).map((r) => r.id), contains('new-$failing'));
+      expect(await isMarked(), isTrue);
+    });
+
+    test('a 401 says nothing about the row: it is kept', () async {
+      final repo = repoWith((req) async {
+        if (req.method == 'GET') return _ok(<Object>[]);
+        return _error(401, 'UNAUTHENTICATED');
+      });
+      expect(await repo.pullFromServer(), isTrue);
+      expect(await local(), hasLength(6));
+      expect(await isMarked(), isFalse);
+    });
+
+    test('a 404 (no such product on the server) is final: the row is let go and the marker is set', () async {
+      final repo = repoWith((req) async {
+        if (req.method == 'GET') return _ok(<Object>[]);
+        return _error(404, 'PRODUCT_NOT_FOUND');
+      });
+
+      expect(await repo.pullFromServer(), isTrue);
+      expect(await local(), isEmpty);
+      expect(await isMarked(), isTrue);
     });
   });
 
