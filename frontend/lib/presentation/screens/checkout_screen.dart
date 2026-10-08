@@ -40,6 +40,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
+import '../../data/repositories/favorites_repository.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/parked_repository.dart';
 import '../../data/repositories/products_repository.dart';
@@ -80,6 +81,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   String _search = '';
   String _filterZone = 'ทั้งหมด';
+  // Starred products (this device only) and the ⭐ chip; see FavoritesRepository.
+  Set<String> _favorites = {};
+  bool _onlyFavorites = false;
   CustomerRow? _selectedCustomer;
   String _custSearch = '';
   MechanicRow? _selectedMechanic;
@@ -117,6 +121,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _categoriesFuture = context.read<ProductsRepository>().getCategories();
     _parkedFuture = context.read<ParkedRepository>().getParked();
     _catColorsFuture = _loadCatColors();
+    _loadFavorites();
     // A quote staged by QuotesManager (convert/edit) is consumed once on mount.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeConsumePendingQuote();
@@ -131,6 +136,30 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       out[c] = await repo.catColor(c);
     }
     return out;
+  }
+
+  Future<void> _loadFavorites() async {
+    try {
+      final favs = await context.read<FavoritesRepository>().getFavorites();
+      if (mounted) setState(() => _favorites = favs);
+    } catch (_) {
+      // Unreadable favorites: the grid simply shows no stars.
+    }
+  }
+
+  Future<void> _toggleFavorite(String productId) async {
+    try {
+      final favs = await context.read<FavoritesRepository>().toggle(productId);
+      if (mounted) setState(() => _favorites = favs);
+    } catch (_) {
+      if (!mounted) return;
+      // A SnackBar, not _warn: at phone width the cart panel is another tab.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('บันทึกสินค้าโปรดไม่สำเร็จ'),
+        ), // เจ้าของรับรอง 2026-10-08 (PR #672)
+      );
+    }
   }
 
   void _refreshParked() => setState(() {
@@ -931,7 +960,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   Widget _leftPanel(List<ProductRow> products) {
     final q = _search.toLowerCase();
-    final filtered = products.where((p) {
+    final matched = products.where((p) {
       final catOk = _filterZone == 'ทั้งหมด' || p.category == _filterZone;
       final searchOk =
           q.isEmpty ||
@@ -940,6 +969,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           p.partNo.toLowerCase().contains(q);
       return catOk && searchOk;
     }).toList();
+    // Starred first (stable), or only starred with the ⭐ chip on.
+    final filtered = favoritesFirst(
+      matched,
+      _favorites,
+      onlyFavorites: _onlyFavorites,
+    );
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -1085,11 +1120,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
-                    for (final z in all)
+                    for (final z in all) ...[
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: _categoryChip(z, catColors),
                       ),
+                      if (z == 'ทั้งหมด')
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _favoritesChip(),
+                        ),
+                    ],
                   ],
                 ),
               );
@@ -1123,7 +1164,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
+                          _onlyFavorites &&
+                                  !products.any(
+                                    (p) => _favorites.contains(p.id),
+                                  )
+                              // เจ้าของรับรอง 2026-10-08 (PR #672)
+                              ? 'แตะ ☆ บนการ์ดสินค้าเพื่อเพิ่มเป็นสินค้าโปรด'
+                              : 'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
                           style: TextStyle(
                             fontSize: 13,
                             color: Theme.of(
@@ -1192,7 +1239,38 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
+  /// The ⭐ chip: toggles "starred only"; combines with the selected category.
+  Widget _favoritesChip() {
+    final on = _onlyFavorites;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('pos-favorites-chip'),
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => setState(() => _onlyFavorites = !on),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: on ? _orange : _orange.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: on ? _orange : _orange.withValues(alpha: 0.25),
+              width: on ? 1.5 : 1,
+            ),
+          ),
+          child: Icon(
+            on ? Icons.star : Icons.star_border,
+            size: 18,
+            color: on ? Colors.white : _orange,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _productTile(ProductRow p, Map<String, String> catColors) {
+    final isFavorite = _favorites.contains(p.id);
     final outOfStock = p.stock == 0;
     final catColor = _parseColor(catColors[p.category]) ?? AppColors.navyLight;
     final stockColor = p.stock == 0
@@ -1373,6 +1451,32 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                   ),
                 ),
+              // Favorite star — right edge, in the empty band above the
+              // stock count, so it never narrows the name or price. Its own
+              // 40 px tap target (never the card's add-to-cart); drawn after
+              // the out-of-stock overlay so a sold-out item can be starred.
+              Positioned(
+                right: 2,
+                bottom: 34,
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: InkResponse(
+                    key: Key('fav-star-${p.id}'),
+                    radius: 20,
+                    onTap: () => _toggleFavorite(p.id),
+                    child: Icon(
+                      isFavorite ? Icons.star : Icons.star_border,
+                      size: 22,
+                      color: isFavorite
+                          ? _orange
+                          : Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: 0.35),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
