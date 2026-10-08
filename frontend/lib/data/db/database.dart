@@ -447,7 +447,9 @@ class AppDatabase extends _$AppDatabase {
   /// pull re-downloads all of it from zero. Kept: the till's own history,
   /// which no pull ever brings back (sales, returns, shifts, drawer, movements,
   /// credit payments, doc counters, outbox/op_effects, parked bills) and
-  /// suppliers (Drift-only on every build, never pulled).
+  /// suppliers — a legacy DB's may exist only here, and the first supplier
+  /// pull sends those up before it replaces the table
+  /// (`ApiSuppliersRepository.suppliersPulledKey`).
   ///
   /// [keepStockAndLedgers] (set while [hasUnsentWork]): products, customers
   /// and mechanics stay — their local stock / balances include the unsent

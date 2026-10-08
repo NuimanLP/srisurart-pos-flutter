@@ -44,6 +44,7 @@ import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_purchase_orders_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
+import 'package:srisurart_pos/data/repositories/api_suppliers_repository.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
@@ -245,6 +246,10 @@ const _classes = <String, List<(String, String)>>{
     ('lib/data/repositories/api_settings_repository.dart', 'ApiSettingsRepository'),
     ('lib/data/repositories/settings_repository.dart', 'SettingsRepository'),
   ],
+  'ApiSuppliersRepository': [
+    ('lib/data/repositories/api_suppliers_repository.dart', 'ApiSuppliersRepository'),
+    ('lib/data/repositories/suppliers_repository.dart', 'SuppliersRepository'),
+  ],
   'DevicesRepository': [
     ('lib/data/repositories/devices_repository.dart', 'DevicesRepository'),
   ],
@@ -288,6 +293,7 @@ const _noApiCall = <String, String>{
   'ApiMechanicsRepository.getPendingCreditPayments': 'inherited, Drift only',
   'ApiMechanicsRepository.discardRejectedCreditPayment': 'inherited, Drift only',
   'ApiSettingsRepository.getSettings': 'inherited, Drift only',
+  'ApiSuppliersRepository.getSuppliersForProduct': 'inherited, Drift only',
   'ApiMechanicsRepository.flushPendingCreditPayments':
       'driven below via its outbox op; listed for its writesToServer=false early exit',
   'AuthRepository.logout': 'token storage only',
@@ -463,6 +469,17 @@ final Map<String, _Call> _cases = {
       ApiSettingsRepository(w.db, w.api).pullFromServer(),
   'ApiSettingsRepository.updateSettings': (w) => ApiSettingsRepository(w.db, w.api)
       .updateSettings(const SettingsRowCompanion(shopName: Value('ร้าน'))),
+  // ── Suppliers ──
+  'ApiSuppliersRepository.pullFromServer': (w) =>
+      ApiSuppliersRepository(w.db, w.api).pullFromServer(),
+  'ApiSuppliersRepository.getSuppliers': (w) =>
+      ApiSuppliersRepository(w.db, w.api).getSuppliers(),
+  'ApiSuppliersRepository.addSupplier': (w) => ApiSuppliersRepository(w.db, w.api)
+      .addSupplier(productId: 'tp1', name: 'ร้านส่ง', unitCost: 10),
+  'ApiSuppliersRepository.updateSupplier': (w) => ApiSuppliersRepository(w.db, w.api)
+      .updateSupplier('ts1', name: const Value('ร้านใหม่')),
+  'ApiSuppliersRepository.deleteSupplier': (w) =>
+      ApiSuppliersRepository(w.db, w.api).deleteSupplier('ts1'),
   // ── Devices / review items ──
   'DevicesRepository.listDevices': (w) => DevicesRepository(w.api).listDevices(),
   'DevicesRepository.createDevice': (w) =>

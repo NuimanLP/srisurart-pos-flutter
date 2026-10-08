@@ -805,6 +805,28 @@ describe('catalogue (e2e)', () => {
       );
     });
 
+    it('GET /suppliers answers every supplier of a live product, and hides a deleted product\'s', async () => {
+      for (const [productId, name] of [
+        [testId('p1'), 'ร้านหนึ่ง'],
+        [testId('p1'), 'ร้านสอง'],
+        [testId('p2'), 'ร้านสาม'],
+      ]) {
+        expect(
+          (await post('/suppliers', { productId, name, unitCost: '10.00' })).status,
+        ).toBe(201);
+      }
+      const all = await get('/suppliers');
+      expect(all.status).toBe(200);
+      expect(all.body.data).toHaveLength(3);
+      expect(all.body.data[0]).toMatchObject({ unitCost: '10.00', freight: '0.00' });
+
+      await del(`/products/${testId('p2')}`);
+      const live = await get('/suppliers');
+      expect(live.body.data.map((s: { name: string }) => s.name).sort()).toEqual(
+        ['ร้านสอง', 'ร้านหนึ่ง'].sort(),
+      );
+    });
+
     it('refuses a supplier for an unknown or deleted product with 404, and bad money with 400', async () => {
       expect(
         (
@@ -923,6 +945,7 @@ describe('catalogue (e2e)', () => {
       expect(
         (await get(`/products/${testId('p1')}/suppliers`, otherManager)).body.data,
       ).toEqual([]);
+      expect((await get('/suppliers', otherManager)).body.data).toEqual([]);
       expect((await get('/movements', otherManager)).body.data).toEqual([]);
       // No categories of its own, so the seed fallback — not tenant A's rows.
       expect((await get('/categories', otherManager)).body.data).toHaveLength(

@@ -58,6 +58,8 @@ Future<void> _seedShopA(AppDatabase db) async {
         nameTH: 'ลูกค้าร้าน A',
         createdAt: '2026-09-01T00:00:00.000Z',
       ));
+  await db.into(db.suppliers).insert(SuppliersCompanion.insert(
+        id: 'supA', productId: 'pA', name: 'ซัพฯ ร้าน A', unitCost: 40));
   await db.into(db.categories).insert(
       CategoriesCompanion.insert(name: 'หมวดของร้าน A', position: 9));
   await db.into(db.syncCursors).insert(SyncCursorsCompanion.insert(
@@ -250,6 +252,8 @@ void main() {
       // Gone: everything a pull re-downloads, cursors included.
       expect(await _count(db, db.products), 0);
       expect(await _count(db, db.customers), 0);
+      // Kept: possibly only here — the first supplier pull sends them up.
+      expect(await _count(db, db.suppliers), 1);
       expect(await _count(db, db.syncCursors), 0);
       await _expectBlankSettingsAndDefaultCategories(db);
       expect(await _meta(db, _key), 'tenant-A');

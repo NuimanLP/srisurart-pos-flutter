@@ -21,6 +21,7 @@ final contractIds = {
   'po': testId('ct-po-1'),
   'review': testId('ct-review-1'),
   'device': testId('ct-device-1'),
+  'supplier': testId('ct-supplier-1'),
 };
 
 /// A lowercase UUIDv7, the shape `newUuid()` mints for every entity id (#616).

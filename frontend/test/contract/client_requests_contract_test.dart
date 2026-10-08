@@ -49,6 +49,7 @@ import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_purchase_orders_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
+import 'package:srisurart_pos/data/repositories/api_suppliers_repository.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
@@ -78,6 +79,7 @@ final _po = contractIds['po']!;
 final _sale = contractIds['sale']!;
 final _device = contractIds['device']!;
 final _review = contractIds['review']!;
+final _supplier = contractIds['supplier']!;
 final _offlineCustomer = testId('ct-customer-offline');
 final _offlineOp = testId('ct-op-1');
 const _category = 'ct-category';
@@ -319,6 +321,18 @@ final _scenarios = <_Scenario>[
   _Scenario('categories.delete', 'ApiProductsRepository.deleteCategory', ['DELETE /api/v1/categories/:name'],
       (w) async {
     await ApiProductsRepository(w.db, w.api).deleteCategory(_category);
+  }),
+  _Scenario('suppliers.create', 'ApiSuppliersRepository.addSupplier', ['POST /api/v1/suppliers'], (w) async {
+    await ApiSuppliersRepository(w.db, w.api)
+        .addSupplier(productId: _product, name: 'ร้านส่งอะไหล่', unitCost: 85, freight: 5);
+  }),
+  _Scenario('suppliers.update', 'ApiSuppliersRepository.updateSupplier', ['PATCH /api/v1/suppliers/:id'],
+      (w) async {
+    await ApiSuppliersRepository(w.db, w.api).updateSupplier(_supplier, unitCost: const Value(80));
+  }),
+  _Scenario('suppliers.delete', 'ApiSuppliersRepository.deleteSupplier', ['DELETE /api/v1/suppliers/:id'],
+      (w) async {
+    await ApiSuppliersRepository(w.db, w.api).deleteSupplier(_supplier);
   }),
 
   // ── customers ────────────────────────────────────────────────────────────
