@@ -72,3 +72,12 @@
    และแท็บซัพฯ ใน `products_screen.dart` เริ่มโหลด `getAll()` กับ `getSuppliers()` พร้อมกัน
    ส่วน `settings_screen.dart` ยังโหลดทีละตัวเหมือนเดิม แต่ไม่รอตอน Degraded แล้ว
 - ยังไม่ได้ทดสอบบน `mob04` จริง ต้อง deploy แล้วเปิดแท็บ ซัพพลายเออร์ หลัง import เพื่อยืนยัน
+
+## ยืนยันบน `mob04` (2026-10-08)
+- PR #668 → `develop` (squash `28b5ac1`) → PR #669 → `main` (merge commit `6a38c87`). Deploy run `37708387535` ได้รับอนุมัติจาก owner
+  Ansible `failed=0`, `Successfully deployed release '6a38c876…'`, ขั้น web-sync = `changed`
+- ครั้งแรกที่เปิดยังขึ้น `0 ซัพฯ` เพราะเบราว์เซอร์ยังรัน `main.847e7ef19b81.dart.js` (ตัวเก่าค้างในแคช)
+  และใน Network ไม่มี request `suppliers` เลย พอ owner ล้าง site data / เปิดใหม่ หน้าจอก็แสดงซัพฯ ครบ
+  (เช่น `90915-YZZN2` → จิ้นเซ่งฮวดอะไหล่ยนต์ ฿155, owner ยืนยันด้วยภาพหน้าจอ)
+- 🔴 **บทเรียน:** หลัง deploy เวอร์ชันเว็บใหม่ ต้องเช็กชื่อ `main.<sha>.dart.js` ใน DevTools → Sources ก่อนสรุปว่าแก้ไม่ได้
+  แท็บที่เปิดค้างไว้จะยังรันตัวเก่าจนกว่าจะรีโหลด หรือล้าง site data
