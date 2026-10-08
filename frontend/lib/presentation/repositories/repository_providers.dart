@@ -1,4 +1,4 @@
-// flutter_bloc RepositoryProvider tree — 22 providers: 18 repositories plus
+// flutter_bloc RepositoryProvider tree — 23 providers: 19 repositories plus
 // ApiClient, BootstrapService, DocCounterSeeder and SyncFacade. Ported off
 // Riverpod's providers.dart + shift_providers.dart (see
 // docs/plans/riverpod-to-bloc.md).
@@ -8,6 +8,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
 import '../../data/repositories/devices_repository.dart';
+import '../../data/repositories/favorites_repository.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/movements_repository.dart';
 import '../../data/repositories/parked_repository.dart';
@@ -222,6 +223,10 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<PurchaseOrdersRepository>.value(value: poRepo),
     RepositoryProvider<QuotesRepository>.value(value: quotesRepo),
     RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
+    // Sell-screen favorites: this device only (AppMeta), same on both builds.
+    RepositoryProvider<FavoritesRepository>.value(
+      value: FavoritesRepository(db),
+    ),
     RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
     RepositoryProvider<SuppliersRepository>.value(value: suppliersRepo),
     RepositoryProvider<SettingsRepository>.value(value: settingsRepo),

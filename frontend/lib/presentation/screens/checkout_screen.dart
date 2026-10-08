@@ -40,6 +40,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
+import '../../data/repositories/favorites_repository.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/parked_repository.dart';
 import '../../data/repositories/products_repository.dart';
@@ -80,6 +81,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   String _search = '';
   String _filterZone = 'ทั้งหมด';
+  // Starred products (this device only) and the ⭐ chip; see FavoritesRepository.
+  Set<String> _favorites = {};
+  bool _onlyFavorites = false;
   CustomerRow? _selectedCustomer;
   String _custSearch = '';
   MechanicRow? _selectedMechanic;
@@ -117,6 +121,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _categoriesFuture = context.read<ProductsRepository>().getCategories();
     _parkedFuture = context.read<ParkedRepository>().getParked();
     _catColorsFuture = _loadCatColors();
+    _loadFavorites();
     // A quote staged by QuotesManager (convert/edit) is consumed once on mount.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeConsumePendingQuote();
@@ -131,6 +136,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       out[c] = await repo.catColor(c);
     }
     return out;
+  }
+
+  Future<void> _loadFavorites() async {
+    final favs = await context.read<FavoritesRepository>().getFavorites();
+    if (mounted) setState(() => _favorites = favs);
+  }
+
+  Future<void> _toggleFavorite(String productId) async {
+    try {
+      final favs = await context.read<FavoritesRepository>().toggle(productId);
+      if (mounted) setState(() => _favorites = favs);
+    } catch (_) {
+      _warn('บันทึกสินค้าโปรดไม่สำเร็จ'); // agent ร่าง
+    }
   }
 
   void _refreshParked() => setState(() {
@@ -931,7 +950,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // ─────────────────────────────────────────────────────────────────────────
   Widget _leftPanel(List<ProductRow> products) {
     final q = _search.toLowerCase();
-    final filtered = products.where((p) {
+    final matched = products.where((p) {
       final catOk = _filterZone == 'ทั้งหมด' || p.category == _filterZone;
       final searchOk =
           q.isEmpty ||
@@ -940,6 +959,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           p.partNo.toLowerCase().contains(q);
       return catOk && searchOk;
     }).toList();
+    // Starred first (stable), or only starred with the ⭐ chip on.
+    final filtered = favoritesFirst(
+      matched,
+      _favorites,
+      onlyFavorites: _onlyFavorites,
+    );
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -1085,11 +1110,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
-                    for (final z in all)
+                    for (final z in all) ...[
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: _categoryChip(z, catColors),
                       ),
+                      if (z == 'ทั้งหมด')
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _favoritesChip(),
+                        ),
+                    ],
                   ],
                 ),
               );
@@ -1123,7 +1154,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
+                          _onlyFavorites
+                              // agent ร่าง
+                              ? 'แตะ ☆ บนการ์ดสินค้าเพื่อเพิ่มเป็นสินค้าโปรด'
+                              : 'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
                           style: TextStyle(
                             fontSize: 13,
                             color: Theme.of(
@@ -1192,7 +1226,38 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
+  /// The ⭐ chip: toggles "starred only"; combines with the selected category.
+  Widget _favoritesChip() {
+    final on = _onlyFavorites;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('pos-favorites-chip'),
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => setState(() => _onlyFavorites = !on),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: on ? _orange : _orange.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: on ? _orange : _orange.withValues(alpha: 0.25),
+              width: on ? 1.5 : 1,
+            ),
+          ),
+          child: Icon(
+            on ? Icons.star : Icons.star_border,
+            size: 18,
+            color: on ? Colors.white : _orange,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _productTile(ProductRow p, Map<String, String> catColors) {
+    final isFavorite = _favorites.contains(p.id);
     final outOfStock = p.stock == 0;
     final catColor = _parseColor(catColors[p.category]) ?? AppColors.navyLight;
     final stockColor = p.stock == 0
@@ -1284,7 +1349,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 4),
+                        // Favorite star: its own tap target, so it never
+                        // reaches the card's add-to-cart InkWell.
+                        InkResponse(
+                          key: Key('fav-star-${p.id}'),
+                          radius: 18,
+                          onTap: () => _toggleFavorite(p.id),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              isFavorite ? Icons.star : Icons.star_border,
+                              size: 20,
+                              color: isFavorite
+                                  ? _orange
+                                  : Theme.of(context).colorScheme.onSurface
+                                        .withValues(alpha: 0.35),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 2),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1341,32 +1424,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ),
                 ),
               ),
-              // Out-of-stock overlay
+              // Out-of-stock overlay — lets taps through so the star still
+              // works (the card's own onTap is null when out of stock).
               if (outOfStock)
                 Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: (isDark ? Colors.black : Colors.white).withValues(
-                        alpha: 0.65,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: (isDark ? Colors.black : Colors.white)
+                            .withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.error,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          'สินค้าหมด',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.error,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text(
+                            'สินค้าหมด',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ),
