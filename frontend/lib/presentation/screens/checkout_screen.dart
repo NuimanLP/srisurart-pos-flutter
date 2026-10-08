@@ -139,8 +139,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _loadFavorites() async {
-    final favs = await context.read<FavoritesRepository>().getFavorites();
-    if (mounted) setState(() => _favorites = favs);
+    try {
+      final favs = await context.read<FavoritesRepository>().getFavorites();
+      if (mounted) setState(() => _favorites = favs);
+    } catch (_) {
+      // Unreadable favorites: the grid simply shows no stars.
+    }
   }
 
   Future<void> _toggleFavorite(String productId) async {
@@ -148,7 +152,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final favs = await context.read<FavoritesRepository>().toggle(productId);
       if (mounted) setState(() => _favorites = favs);
     } catch (_) {
-      _warn('บันทึกสินค้าโปรดไม่สำเร็จ'); // agent ร่าง
+      if (!mounted) return;
+      // A SnackBar, not _warn: at phone width the cart panel is another tab.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('บันทึกสินค้าโปรดไม่สำเร็จ'),
+        ), // agent ร่าง
+      );
     }
   }
 
@@ -1154,7 +1164,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _onlyFavorites
+                          _onlyFavorites &&
+                                  !products.any(
+                                    (p) => _favorites.contains(p.id),
+                                  )
                               // agent ร่าง
                               ? 'แตะ ☆ บนการ์ดสินค้าเพื่อเพิ่มเป็นสินค้าโปรด'
                               : 'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
@@ -1349,25 +1362,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             ),
                           ),
                         ),
-                        // Favorite star: its own tap target, so it never
-                        // reaches the card's add-to-cart InkWell.
-                        InkResponse(
-                          key: Key('fav-star-${p.id}'),
-                          radius: 18,
-                          onTap: () => _toggleFavorite(p.id),
-                          child: Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Icon(
-                              isFavorite ? Icons.star : Icons.star_border,
-                              size: 20,
-                              color: isFavorite
-                                  ? _orange
-                                  : Theme.of(context).colorScheme.onSurface
-                                        .withValues(alpha: 0.35),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 2),
+                        const SizedBox(width: 4),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1424,40 +1419,64 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ),
                 ),
               ),
-              // Out-of-stock overlay — lets taps through so the star still
-              // works (the card's own onTap is null when out of stock).
+              // Out-of-stock overlay
               if (outOfStock)
                 Positioned.fill(
-                  child: IgnorePointer(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: (isDark ? Colors.black : Colors.white)
-                            .withValues(alpha: 0.65),
-                        borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: (isDark ? Colors.black : Colors.white).withValues(
+                        alpha: 0.65,
                       ),
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.error,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Text(
-                            'สินค้าหมด',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.error,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'สินค้าหมด',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
+              // Favorite star — right edge, in the empty band above the
+              // stock count, so it never narrows the name or price. Its own
+              // 40 px tap target (never the card's add-to-cart); drawn after
+              // the out-of-stock overlay so a sold-out item can be starred.
+              Positioned(
+                right: 2,
+                bottom: 34,
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: InkResponse(
+                    key: Key('fav-star-${p.id}'),
+                    radius: 20,
+                    onTap: () => _toggleFavorite(p.id),
+                    child: Icon(
+                      isFavorite ? Icons.star : Icons.star_border,
+                      size: 22,
+                      color: isFavorite
+                          ? _orange
+                          : Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: 0.35),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),

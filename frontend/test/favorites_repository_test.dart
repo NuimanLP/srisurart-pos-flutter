@@ -61,6 +61,18 @@ void main() {
     },
   );
 
+  test('a non-list JSON value ({}) reads as empty', () async {
+    await db
+        .into(db.appMeta)
+        .insertOnConflictUpdate(
+          const AppMetaCompanion(
+            key: Value(FavoritesRepository.favoritesKey),
+            value: Value('{}'),
+          ),
+        );
+    expect(await repo.getFavorites(), isEmpty);
+  });
+
   test('a tenant switch (resetTenantCache) clears favorites', () async {
     await repo.toggle('x');
     await db.resetTenantCache();
