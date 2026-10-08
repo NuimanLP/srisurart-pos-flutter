@@ -12,6 +12,11 @@ React + `localStorage` page; it was rewritten as an offline-first Flutter app (S
 counter PC), and is now being extended into a multi-tenant platform so more than one shop can
 run on it. **The shop still runs the offline build — nothing has been cut over yet.**
 
+> **Status (2026-10-08):** development is frozen for the course submission (owner decision,
+> 2026-10-07) — only fixes the owner asks for. The latest release is `main` `6a38c87`
+> (PR #669), deployed to the demo VM `mob04`. Detail:
+> [`session-2026-10-08-suppliers-not-pulled.md`](docs/handoff_log/session-2026-10-08-suppliers-not-pulled.md).
+
 ---
 
 ## Table of contents
@@ -36,12 +41,12 @@ run on it. **The shop still runs the offline build — nothing has been cut over
 | | |
 |---|---|
 | **Client** | Flutter 3.44.3 / Dart SDK `^3.12.2` — Android, iOS, Web |
-| **Local store** | Drift (SQLite) — 25 tables, the same schema the shop runs offline |
+| **Local store** | Drift (SQLite) — 26 tables, schema version 13 |
 | **State / routing** | `flutter_bloc` 9.x, `go_router` 17.x |
 | **Backend** | NestJS, PostgreSQL 16, Redis 7 (×2), BullMQ, Nginx 1.29, etcd 3.6 |
 | **Tenancy** | One database, many tenants, PostgreSQL Row-Level Security forced on every tenant-scoped table |
 | **Deployment** | Docker Compose on a single university VM, rolled out by Ansible from GitHub Actions |
-| **Tests** | 64 Flutter test files · 49 server unit specs · 53 server end-to-end specs |
+| **Tests** | 120 Flutter test files · 63 server unit specs · 61 server end-to-end specs |
 
 The system runs in **two modes from one codebase**, selected at build time:
 
@@ -94,7 +99,7 @@ Thirteen screens plus a login route. Twelve are reachable from the navigation ra
 | คืนสินค้า — Returns | `/returns` | Returns and credit notes, with an over-refund guard |
 | ใบเสนอราคา — Quotes | `/quotes` | Create, filter, duplicate, convert to a sale, export CSV, A4 preview |
 | รายงาน — Reports | `/reports` | KPIs, top products, sales by category |
-| ตั้งค่า — Settings | `/settings` | Shop settings, snapshot export/import, CSV export |
+| ตั้งค่า — Settings | `/settings` | Shop settings, snapshot export/import, CSV export; on the API build the owner restores a backup into the server (below) |
 | ลิ้นชัก — Cash drawer | `/cash-drawer` | Open/close a shift, cash in/out, closing report |
 | รอเจ้าของ — Owner review | `/owner-review` | Owner clears items the till flagged for approval |
 | Devices | `/devices` | Enrol and retire shop terminals |
@@ -117,6 +122,36 @@ reason this is not a CRUD app:
   request that timed out cannot ring the sale twice; only a 4xx counts as a verdict.
 - **Cross-tenant reads return zero rows**, proven by an end-to-end sweep over all 25
   tenant-scoped tables and 12 HTTP endpoints, not by trusting a `WHERE` clause.
+
+### Owner backup import (API build)
+
+The shop owner restores a backup file from **ตั้งค่า → สำรอง/กู้คืน → กู้คืนข้อมูล**. It calls
+`POST /api/v1/backup/import` (202 + a job) and polls `GET /api/v1/backup/import/:jobId`; only
+the `owner` role on an enrolled device may do it, and it runs through the same import service
+as the platform-admin import.
+
+- A shop that already has data needs replace mode, `?mode=replace&confirmShopName=<shop name>`:
+  the owner types the shop name, and the whole shop's business data is replaced in one
+  transaction. Users, devices, the audit log and the document counters are kept.
+- Every import — owner or platform — raises `doc_counters` to the highest RC/CN/PO/QT/CP number
+  in the file, so the first new sale does not collide with an imported receipt number.
+- A pre-import copy of the shop is written to the VM's `exports` volume and is **never
+  deleted automatically** (personal data — retention is the owner's call). It lives only on
+  the VM disk.
+- Known limits: other devices of the same shop keep stale rows after a replace (clear site
+  data); shifts, drawer entries, stock movements, credit-payment history and parked bills in
+  the file reach Postgres but are not pulled into the app (suppliers were on this list until
+  PR #668/#669, below).
+
+Detail: [`session-2026-10-08-owner-import.md`](docs/handoff_log/session-2026-10-08-owner-import.md).
+
+### Suppliers (API build)
+
+On the API build the server is the truth for suppliers (PR #668/#669): `ApiSuppliersRepository`
+pulls `GET /api/v1/suppliers` into Drift (the screens still read Drift, so the last copy stays
+visible offline), and add/edit/delete go online to `POST`/`PATCH`/`DELETE /api/v1/suppliers`
+with an `Idempotency-Key`, writing Drift only from the server's reply. The offline build is
+unchanged. Detail: [`session-2026-10-08-suppliers-not-pulled.md`](docs/handoff_log/session-2026-10-08-suppliers-not-pulled.md).
 
 ---
 
@@ -151,8 +186,8 @@ The API is served under `/api/v1` (health and metrics are deliberately unprefixe
 
 | Branch | What it is |
 |---|---|
-| `main` | Release line — Flutter client + NestJS backend + CI/CD; every code push is deployed |
-| `develop` | Integration branch — every work PR targets it; it reaches `main` by merge commit or fast-forward only (a squash would drop the deploy rollback floor off `main`) |
+| `main` | Release line — Flutter client + NestJS backend + CI/CD; every code push is deployed after a manual approval |
+| `develop` | Integration branch — every work PR targets it; it reaches `main` by merge commit only, enforced by a repository ruleset (a squash would drop the deploy rollback floor `bedd328` off `main`) |
 | `POC_sample_offline_first` | Frozen snapshot of the offline-first, Drift-only build the shop runs today |
 
 ---
@@ -165,12 +200,13 @@ frontend/                  Flutter app
   lib/data/db/             Drift tables + generated code (committed)
   lib/data/repositories/   one repository per domain; api/ holds the server-backed ones
   lib/presentation/        13 screens, shared widget kit, blocs and cubits
-  test/                    64 test files — repositories, migrations, API contract, route smoke
+  test/                    120 test files — repositories, migrations, API contract, route smoke
   web/                     sqlite3.wasm + drift_worker.js (versions pinned, CI-enforced)
 server/                    NestJS backend
-  src/db/migrations/       14 TypeORM migrations (schema, RLS, role timeouts, sync columns)
+  src/db/migrations/       23 TypeORM migrations (schema, RLS, role timeouts, sync columns,
+                           UUID entity ids) — the schema's source of truth, 29 tables
   src/common/              the tenancy and transaction seam
-  test/                    53 e2e specs against real Postgres and Redis
+  test/                    61 e2e specs against real Postgres and Redis
 deploy/
   ansible/                 provision.yml (once, with sudo) · deploy.yml (every release)
   compose/                 monitoring stack and VM image overrides
@@ -340,34 +376,40 @@ is a design constraint, not an accident — it is why there is no Alertmanager a
 ### Pipeline
 
 ```
-push to main
+PR → develop (full CI, no images)  ──  develop → main by merge commit
+push to main   (GitHub-hosted runners)
    ├─► Flutter CI ──┐  analyze · test · drift codegen check · build web image
-   └─► Server CI ───┤  lint · audit · unit · e2e on real Postgres/Redis · nginx -t
+   └─► Server CI ───┤  lint · audit · gitleaks · unit · e2e on real Postgres/Redis · nginx -t
                     │
                     ├─► Trivy scan (HIGH/CRITICAL, blocks the push)
                     ├─► push images to ghcr.io  (tagged <sha> and main)
                     │
-                    └─► Deploy ──► ⏸ manual approval by the required reviewer
-                                       │
-                                       └─► self-hosted runner on the VM
-                                              └─► sudo -u deploy pos-deploy <sha>
+                    └─► Deploy: resolve — are BOTH images for <sha> on GHCR?
+                           └─► ⏸ `demo` environment approval (NuimanLP)
+                                  └─► self-hosted runner `mob04-demo` on the VM
+                                         └─► sudo -u deploy pos-deploy <sha> ──► Ansible
 ```
 
 The deploy job is queued into GitHub's "Waiting for review" state on every green `main` and
-does not reach a runner until a named reviewer approves it. That approval click is the entire
-mechanism for keeping a merge off the VM during a demo.
+does not reach a runner until the required reviewer approves it. That approval click is the
+entire mechanism for keeping a merge off the VM during a demo. A docs-only push to `main`
+builds no images and deploys nothing. Full detail: [`07_CICD_DEPLOY.md`](docs/Backend_design/07_CICD_DEPLOY.md)
+§2 and §6.
 
-> **Status: this pipeline has never completed a real run.** Everything up to and including the
-> image push to GHCR works and runs on every merge. The last hop does not: the self-hosted
-> runner is not yet installed on the VM, and the VM cannot pull from `ghcr.io` at all because
-> of the network policy described in [bottleneck #9](#known-bottlenecks). The release sequence
-> below is what the playbooks do, verified by reading and by dry runs — it is not a report of a
-> production deployment that has happened.
+> **Status:** the pipeline has run end to end since **2026-09-30** — first real runner deploy
+> `e50f4fa` ([handoff](docs/handoff_log/session-2026-09-30-first-runner-deploy.md)), with a
+> `workflow_dispatch` rollback and an automatic rollback after a failed readiness check both
+> proven on real runs the same day. The latest release on `mob04` is `6a38c87` (PR #669,
+> 2026-10-08, deploy run `37708387535`, Ansible `failed=0`). **A green `Deploy (demo)` run is
+> not proof of a deploy** — when an image is missing, `resolve` skips the deploy job and the
+> run still reports success. The VM's `/opt/pos/.current_sha` is the only proof.
 
 ### What a release does
 
 1. `pos-deploy` clones `main` itself — it never trusts the CI job's checkout — and refuses any
-   commit not on `main` or older than a hardcoded rollback floor.
+   commit not on `main` or older than a hardcoded rollback floor (`bedd328`, set at the
+   2026-10-06 UUID entity-id cutover, which wiped every tenant on `mob04` —
+   [handoff](docs/handoff_log/session-2026-10-06-uuid-cutover-mob04.md)).
 2. Ansible pulls the images, syncs the static web bundle, and runs migrations **before** any
    new code starts. Schema changes are expand/contract; there are no down-migrations.
 3. API instances restart one at a time, each waiting to report healthy before the next.
@@ -379,24 +421,49 @@ mechanism for keeping a merge off the VM during a demo.
 
 Rollback is a `workflow_dispatch` with an earlier SHA. **The schema is never rolled back.**
 
+If the runner shows offline while its systemd service is `active` (seen 2026-10-08), the
+Deploy run sits queued; check `gh api repos/NuimanLP/srisurart-pos-flutter/actions/runners`
+before approving, and restart the runner service on the VM.
+
+### Web cache after a deploy
+
+Nginx serves `index.html` and `flutter_bootstrap.js` with `Cache-Control: no-cache`, and the
+per-release entry point `main.<sha>.dart.js` as `immutable`. A tab that was already open keeps
+running the old build until it is reloaded — before concluding a fix "did not work", check
+the `main.<sha>.dart.js` name in DevTools → Sources (this is what happened after `6a38c87`).
+
+### Android APK
+
+`.github/workflows/android-apk.yml` is manual (`workflow_dispatch`) and runs on `main` only. It
+builds the API build only (`USE_API_WRITES=true`, pointed at `mob04`), signs it with the
+project's stable key from the `ANDROID_KEYSTORE_B64` secret so each new APK installs over the
+old one, and publishes it as a prerelease `apk-<shortsha>`. The latest is `apk-6a38c87`.
+Losing the keystore means no APK can upgrade in place. Detail: `07_CICD_DEPLOY.md` §2b.
+
 ### Operations
 
 Health: `GET /health/live` touches nothing (a database outage must not restart every
 instance); `GET /health/ready` probes Postgres and both Redis instances on dedicated
 connections with a 2-second timeout and answers `503` with per-check detail.
 
-Metrics: `GET /metrics` exposes `http_requests_total`, `http_request_duration_seconds` and
-`pos_idempotency_replay_total`. Health and metrics paths are excluded from the service-level
-indicators on purpose — scraping three instances every 15 seconds manufactures around 36
+Metrics: `GET /metrics` exposes `http_requests_total`, `http_request_duration_seconds`,
+`pos_idempotency_replay_total`, and the business/runtime metrics `pos_documents_total`,
+`pos_db_pool_connections` and `pos_queue_jobs`. Health and metrics paths are excluded from the
+service-level indicators on purpose — scraping three instances every 15 seconds manufactures around 36
 guaranteed successes a minute, which is enough to make a day where every real sale failed
 still read as roughly 92% healthy.
 
 Monitoring binds to loopback only and is reached over an SSH tunnel.
 
-Backups: provisioning installs a nightly 03:00 `pg_dump` cron writing into `/opt/pos/backups`.
-**It has not been applied to the VM, so no backup currently runs there** — the crontab is empty
-and the directory does not exist. A missing cron entry produces no failure signal at all, which
-is worse than one that fails loudly, so it is recorded here rather than left to be discovered.
+Backups: `provision.yml` installs `backup-db.sh` and a nightly 03:00 `pg_dump` cron writing into
+`/opt/pos/backups`. It has been installed on `mob04` and running nightly since 2026-10-01.
+**No copy leaves the VM** — the offsite upload (`rclone`, optional) is built but not wired,
+and that work is parked (#363), so a dead VM disk still loses every tenant. A green
+`backup-cron.log` therefore does not prove a backup left the machine. Note that a CD deploy
+does not update `/opt/pos/scripts`; only `provision.yml` (or a manual install) does.
+
+Uptime: `healthcheck-ping.sh` pings an external heartbeat every 5 minutes from cron
+(installed on `mob04` 2026-10-04).
 
 ---
 
@@ -404,9 +471,9 @@ is worse than one that fails loudly, so it is recorded here rather than left to 
 
 | Suite | Command | Count |
 |---|---|---|
-| Flutter unit / repository / widget / route smoke | `flutter test` | 64 files |
-| Server unit | `pnpm test` | 49 files |
-| Server end-to-end, on real Postgres + Redis + migrations | `pnpm test:e2e` | 53 files |
+| Flutter unit / repository / widget / route smoke | `flutter test` | 120 files |
+| Server unit | `pnpm test` | 63 files |
+| Server end-to-end, on real Postgres + Redis + migrations | `pnpm test:e2e` | 61 files |
 
 Three of the unit specs — `tenant-door.spec.ts`, `tenant-wrapper.spec.ts` and
 `idempotency-routes.spec.ts` — guard the tenancy and idempotency seam itself: they fail if a
@@ -414,7 +481,8 @@ new write route appears without an idempotency claim, or if a transaction is ope
 other than a request handler. They are meant to be changed deliberately, never just to turn
 them green.
 
-Both workflows trigger unfiltered and gate their own jobs internally, so a backend-only PR
+Both workflows run on every PR and on every push to `main` and `develop`, and gate their own
+jobs internally, so a backend-only PR
 still satisfies the frontend's required check. Exactly two checks are required to merge:
 `flutter-ci-status` and `server-ci-status`. The end-to-end suite is deliberately exempt from
 path filtering because it carries the cross-tenant isolation tests, and "this PR only touched
@@ -423,6 +491,7 @@ the frontend" is exactly the reasoning that lets a tenancy regression through.
 Trivy runs twice — once over the filesystem and lockfiles, once over the built image — and
 blocks the GHCR push on any fixable HIGH or CRITICAL finding. Base images are pinned by
 digest. There is no `.trivyignore` in this repository, and adding one is not an accepted fix.
+A gitleaks secret scan runs on every PR and push and is part of `server-ci-status`.
 
 ---
 
@@ -442,15 +511,20 @@ This runs one shop on one VM. It is honest about what that means.
 - With `redis-cache` genuinely unreachable — both refused *and* connected-but-silent — sales
   still complete and stock still decrements, while a suspended tenant is still refused.
 
-### Targets defined but not yet measured
+### Load-test targets — not yet accepted
 
-The thresholds below are agreed but unproven. Nothing in this section is a result.
+The thresholds below are agreed but unproven: the k6 box is the one definition-of-done item
+still open (#380). A first real three-machine run on `mob04` happened on 2026-10-05 (read
+scenario inside its threshold; 200 concurrent buyers p95 ≈ 3 s, over it; replay scenario
+unclean on 429s), but its tooling had bugs, fixed on 2026-10-07 (PR #654/#655), so it ticks
+nothing. A re-run with the fixed tooling, read and accepted by the owner, is still to do —
+[handoff](docs/handoff_log/session-2026-10-05-k6-capacity-run.md).
 
 | Scenario | Load | Threshold |
 |---|---|---|
 | `GET /products` | 1,000 VUs | p95 < 200 ms, cache hit > 90%, errors < 0.1% |
 | `POST /sales` on one product set | 200 VUs | stock never negative, no duplicate bills, p95 < 500 ms |
-| Repeated `Idempotency-Key` | 100 VUs × 5 | one bill, one stock decrement |
+| Repeated `Idempotency-Key` | 27 VUs × 5 (owner accepted 2026-10-07 in place of 100: 3 machines × 9, the per-IP burst budget) | one bill, one stock decrement |
 | Mixed 80/20 read/write | 500 VUs, 10 min | connection pool never exhausted |
 
 The source specification also sets a replication-lag target for the mixed scenario. It does not
@@ -479,8 +553,8 @@ load path that does not pass through the limiter the shop itself lives behind.
 | 5 | **Per-IP rate limit, 30 r/s burst 60** | A whole shop behind one NAT address shares a single bucket. | Per-tenant limiting exists as an application guard; the Nginx limit is only a pre-auth flood guard. |
 | 6 | **Nginx must be the only proxy in front of the API** | `trust proxy` is exactly 1. A CDN or second proxy collapses every client into one rate-limit bucket. | Any edge layer must forward the client IP correctly, or the limiter becomes decorative. |
 | 7 | **6 GB RAM ceiling** | Roughly 4.2 GB is already used with monitoring running. | Ruled out Wazuh and ELK (4–5 GB each). More headroom means a bigger host, not tuning. |
-| 8 | **No backup runs on the VM at all** | The nightly job is written and provisioned but has never been applied to the machine, and the offsite upload on top of it is built (`rclone`, pluggable destination) and deliberately parked. | Re-run provisioning, then configure a destination. Until both happen, a dead disk loses the tenant — recorded rather than hidden. |
-| 9 | **Deploy blocked by network policy** | The campus firewall performs SSL inspection and answers for `ghcr.io` with its own certificate, which carries no SAN, so hostname verification fails and the VM cannot pull images. This kills both delivery paths at once — the self-hosted runner and the manual Ansible run share the VM's Docker daemon. Trusting the firewall's CA does *not* fix it. | Needs the network team to exempt the registry hosts for this VM. Copying images by hand is a demo-day rescue, not a delivery pipeline, and is not recorded as one. |
+| 8 | **No backup leaves the VM** | The nightly local `pg_dump` runs on `mob04` (since 2026-10-01), but the offsite upload on top of it is built (`rclone`, pluggable destination) and deliberately parked (#363); the destination protocol is not settled. | Pick a protocol, prove the network route, configure credentials. Until then a dead disk loses every tenant — recorded rather than hidden. |
+| 9 | ~~**Deploy blocked by network policy**~~ — **resolved 2026-09-29/30** | The campus firewall's SSL inspection used to answer for `ghcr.io` with a certificate carrying no SAN, so the VM could not pull images. Its certificate now carries the SAN and `mob04` pulls from GHCR. | If `x509: certificate is not valid for any names` returns, the block is back: the network team must exempt the registry hosts for this VM. Copying images by hand is a demo-day rescue, not CD. |
 
 ### If usage grew
 
@@ -497,18 +571,20 @@ where that line sits is more useful than pretending it is not there.
 ## Roadmap
 
 **Phase 1 — multi-tenant backend.** 16 of the 17 definition-of-done criteria are met; the one
-still open is the k6 load-test measurement. Separately from that checklist, and larger than it,
-the delivery path is unproven: no release has ever reached the VM, for the network reason in
-bottleneck #9. The backend itself — tenancy, transactions, idempotency, the full API surface —
-is built and tested.
+still open is the k6 load-test measurement (#380, re-run pending). The backend — tenancy,
+transactions, idempotency, the full API surface — is built and tested, and the delivery path
+is proven: releases have reached `mob04` through CD since 2026-09-30. The end-to-end demo run
+on `mob04` (#344) covered AC1–AC5 on 2026-10-07; its last criterion awaits the owner
+([handoff](docs/handoff_log/session-2026-10-07-demo344-run.md)).
 
-**Phase 2 — offline shell, in progress.** Returns offline capability to the API build: an
-outbox of pending operations, a sync service, offline receipt and credit-note numbering, an
-offline PIN window enforced at the till, and a single writer device per shop. The offline
-build is not being abandoned; it is being made to coexist with a server.
+**Phase 2 — offline shell.** Returns offline capability to the API build: an outbox of pending
+operations, a sync service, offline receipt and credit-note numbering, an offline PIN window
+enforced at the till, and a single writer device per shop — built and merged; every phase-2
+hub ticket is closed except the cutover (#231): the shop itself has not moved off the offline
+build. The offline build is not being abandoned; it is being made to coexist with a server.
 
 **Later.** Thermal printer, cash-drawer kick and barcode scanning need physical shop access.
-Backups, offsite copies, PDPA handling and an audit log are specified and not yet wired.
+Offsite backup copies (#363, parked) and PDPA retention rules are not wired.
 
 ---
 
@@ -517,7 +593,7 @@ Backups, offsite copies, PDPA handling and an audit log are specified and not ye
 | Start here | |
 |---|---|
 | [`docs/00_LANE_PRIMER.md`](docs/00_LANE_PRIMER.md) | เริ่มอ่านตรงนี้ก่อน — system overview and the ticket split, in Thai |
-| [`docs/study/00_index.md`](docs/study/00_index.md) | The Thai self-study pack, 19 chapters — start here |
+| [`docs/study/00_index.md`](docs/study/00_index.md) | The Thai self-study pack, 22 chapters — start here |
 | [`CLAUDE.md`](CLAUDE.md) | Conventions, constraints, current status — read before changing anything |
 | [`CONTRACT.md`](CONTRACT.md) | The binding client spec |
 | [`docs/Backend_design/00_INDEX.md`](docs/Backend_design/00_INDEX.md) | The backend package; start at `00_BASICS.md` if backend is new to you |
@@ -527,7 +603,7 @@ Backups, offsite copies, PDPA handling and an audit log are specified and not ye
 
 ### Thai self-study pack (`docs/study/`)
 
-19 chapters (`00`–`18`), in Thai, meant to be read start to finish. Entry point:
+22 chapters (`00`–`21`), in Thai, meant to be read start to finish. Entry point:
 [`docs/study/00_index.md`](docs/study/00_index.md) — the map and the concepts each later
 chapter assumes.
 
@@ -540,6 +616,7 @@ chapter assumes.
 | [`11`](docs/study/11_security.md)–[`12`](docs/study/12_testing.md) | Security, testing |
 | [`13`](docs/study/13_team_workflow.md)–[`16`](docs/study/16_performance.md) | Team workflow, devops, CI/CD, performance |
 | [`17`](docs/study/17_lab.md)–[`18`](docs/study/18_capstone.md) | Lab, capstone |
+| [`19`](docs/study/19_deploy_mob04_story.md)–[`21`](docs/study/21_demo_script.md) | The `mob04` deploy story, slide outline, live demo script |
 
 ---
 
