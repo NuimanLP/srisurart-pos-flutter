@@ -11,6 +11,7 @@ import {
   CategoriesService,
   catColor,
 } from './categories.service.js';
+import { SuppliersService } from './suppliers.service.js';
 
 describe('catColor (db.js getCatColor)', () => {
   const seed = ['เครื่องยนต์', 'ไฟฟ้า', 'น้ำมัน', 'เบรก', 'ตัวถัง'];
@@ -79,6 +80,58 @@ describe('CategoriesService.list', () => {
       'น้ำมัน',
       'เบรก',
       'ตัวถัง',
+    ]);
+  });
+});
+
+describe('SuppliersService.list (GET /suppliers)', () => {
+  let query: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    query = vi.fn();
+    vi.spyOn(requestContext, 'currentRequestContext').mockReturnValue({
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      manager: { query },
+    } as never);
+  });
+
+  it("answers every live product's suppliers from ONE query, money as 2-dp strings", async () => {
+    query.mockResolvedValueOnce([
+      {
+        id: 's1',
+        product_id: 'p1',
+        name: 'A',
+        unit_cost: '100',
+        freight: '0.5',
+      },
+      {
+        id: 's2',
+        product_id: 'p2',
+        name: 'B',
+        unit_cost: '85.25',
+        freight: '0',
+      },
+    ]);
+    const out = await new SuppliersService(joinedTenants).list();
+    expect(query).toHaveBeenCalledTimes(1);
+    const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/p\.deleted_at IS NULL/);
+    expect(params).toEqual(['00000000-0000-4000-8000-000000000001']);
+    expect(out).toEqual([
+      {
+        id: 's1',
+        productId: 'p1',
+        name: 'A',
+        unitCost: '100.00',
+        freight: '0.50',
+      },
+      {
+        id: 's2',
+        productId: 'p2',
+        name: 'B',
+        unitCost: '85.25',
+        freight: '0.00',
+      },
     ]);
   });
 });

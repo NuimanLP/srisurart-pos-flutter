@@ -30,6 +30,28 @@ const COLUMNS = 'id, product_id, name, unit_cost, freight';
 export class SuppliersService {
   constructor(private readonly tenants: TenantService) {}
 
+  /**
+   * Every supplier of the tenant's live products — what the till pulls whole into its
+   * cache (`GET /suppliers`). Suppliers are hard-deleted and carry no `updated_at`, so
+   * there is no cursor: the reply is the full set and the client replaces its copy.
+   */
+  list(): Promise<Supplier[]> {
+    return this.tenants.runTx(() => this.listIn());
+  }
+
+  private async listIn(): Promise<Supplier[]> {
+    const { tenantId, manager } = currentRequestContext();
+    const rows = (await manager.query(
+      `SELECT s.id, s.product_id, s.name, s.unit_cost, s.freight
+         FROM suppliers s
+         JOIN products p ON p.tenant_id = s.tenant_id AND p.id = s.product_id
+        WHERE s.tenant_id = $1::uuid AND p.deleted_at IS NULL
+        ORDER BY s.product_id ASC, s.id ASC`,
+      [tenantId],
+    )) as SupplierRow[];
+    return rows.map(toSupplier);
+  }
+
   /** A deleted product's suppliers are hidden with it; an unknown product has none. */
   listForProduct(productId: string): Promise<Supplier[]> {
     return this.tenants.runTx(() => this.listForProductIn(productId));

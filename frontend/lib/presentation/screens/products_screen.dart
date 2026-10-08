@@ -2689,8 +2689,11 @@ class _SuppliersTabState extends State<_SuppliersTab> {
   Future<void> _load() async {
     final productsRepo = context.read<ProductsRepository>();
     final suppliersRepo = context.read<SuppliersRepository>();
-    final products = await productsRepo.getAll();
-    final suppliers = await suppliersRepo.getSuppliers();
+    // Started together: each may wait on the network (API build).
+    final productsF = productsRepo.getAll();
+    final suppliersF = suppliersRepo.getSuppliers();
+    final products = await productsF;
+    final suppliers = await suppliersF;
     if (!mounted) return;
     setState(() {
       _products = products;

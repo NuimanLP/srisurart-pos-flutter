@@ -72,7 +72,7 @@ export class CategoriesController {
   }
 }
 
-/** Reads live on `GET /products/:id/suppliers` (ProductsController). */
+/** One product's suppliers: `GET /products/:id/suppliers` (ProductsController). */
 @Controller('suppliers')
 @UseGuards(TenantGuard)
 export class SuppliersController {
@@ -80,6 +80,12 @@ export class SuppliersController {
     private readonly suppliers: SuppliersService,
     private readonly idempotency: IdempotencyService,
   ) {}
+
+  /** The whole set, for the till's cache (`ApiSuppliersRepository.pullFromServer`). */
+  @Get()
+  list(): Promise<Supplier[]> {
+    return this.suppliers.list();
+  }
 
   @Post()
   create(

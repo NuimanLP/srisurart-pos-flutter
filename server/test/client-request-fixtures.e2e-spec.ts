@@ -132,6 +132,10 @@ describe('client request fixtures replay against the real server', () => {
       [TENANT, CONTRACT_IDS.review, CONTRACT_IDS.sale],
     );
     await admin.query(
+      `INSERT INTO suppliers (tenant_id, id, product_id, name, unit_cost) VALUES ($1::uuid, $2, $3, 'Contract supplier', 60)`,
+      [TENANT, CONTRACT_IDS.supplier, CONTRACT_IDS.product],
+    );
+    await admin.query(
       `INSERT INTO categories (tenant_id, name, position) VALUES ($1::uuid, 'ct-category', 1), ($1::uuid, 'อื่นๆ', 0)`,
       [TENANT],
     );
