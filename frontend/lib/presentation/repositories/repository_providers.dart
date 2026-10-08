@@ -36,6 +36,7 @@ import '../../data/repositories/api_products_repository.dart';
 import '../../data/repositories/api_purchase_orders_repository.dart';
 import '../../data/repositories/api_quotes_repository.dart';
 import '../../data/repositories/api_settings_repository.dart';
+import '../../data/repositories/api_suppliers_repository.dart';
 import '../../data/repositories/review_items_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
@@ -85,14 +86,18 @@ List<RepositoryProvider> repositoryProviders(
   late final CustomersRepository customersRepo;
   late final MechanicsRepository mechanicsRepo;
   late final SettingsRepository settingsRepo;
+  late final SuppliersRepository suppliersRepo;
 
   triggerEntityPull = () async {
     // #474: settings ride the same reconnect hook as products/customers/
     // mechanics — gated on the repo actually being the API one (useApi),
     // not on useApiRepositories, since that's what selects it below.
     final s = settingsRepo;
+    final sup = suppliersRepo;
     final futures = <Future<void>>[
       if (s is ApiSettingsRepository) s.pullFromServer().then((_) {}),
+      // Suppliers follow the same switch as settings (useApi).
+      if (sup is ApiSuppliersRepository) sup.pullFromServer().then((_) {}),
     ];
     if (useApiRepositories) {
       final p = productsRepo;
@@ -202,6 +207,11 @@ List<RepositoryProvider> repositoryProviders(
           syncFacade: syncFacade ?? realSyncService,
         )
       : SettingsRepository(db);
+  // On the API build the server's suppliers are the truth (an owner import
+  // writes them): pulled into Drift, edited online only (2026-10-08).
+  suppliersRepo = useApi
+      ? ApiSuppliersRepository(db, client)
+      : SuppliersRepository(db);
 
   return [
     RepositoryProvider<ProductsRepository>.value(value: productsRepo),
@@ -213,7 +223,7 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<QuotesRepository>.value(value: quotesRepo),
     RepositoryProvider<ParkedRepository>.value(value: ParkedRepository(db)),
     RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
-    RepositoryProvider<SuppliersRepository>.value(value: SuppliersRepository(db)),
+    RepositoryProvider<SuppliersRepository>.value(value: suppliersRepo),
     RepositoryProvider<SettingsRepository>.value(value: settingsRepo),
     RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db, restoresViaServer: useApi)),
     RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),

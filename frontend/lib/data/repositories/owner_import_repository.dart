@@ -64,7 +64,7 @@ class OwnerImportRepository {
   final ApiClient _api;
   final AppDatabase _db;
 
-  /// The reconnect pull (`triggerEntityPull`): settings, products, customers, mechanics.
+  /// The reconnect pull (`triggerEntityPull`): settings, suppliers, products, customers, mechanics.
   final Future<void> Function()? pull;
 
   /// `DocCounterSeeder.seed` — never throws.

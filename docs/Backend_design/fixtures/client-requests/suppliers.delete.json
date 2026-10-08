@@ -1,0 +1,14 @@
+{
+  "name": "suppliers.delete",
+  "caller": "ApiSuppliersRepository.deleteSupplier",
+  "requests": [
+    {
+      "route": "DELETE /api/v1/suppliers/:id",
+      "method": "DELETE",
+      "path": "/api/v1/suppliers/4daccf60-a5c8-5b64-978b-b7e95b042518",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

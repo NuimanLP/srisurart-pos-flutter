@@ -32,3 +32,29 @@
 3. ข้อความ error ภาษาไทยที่เพิ่มใหม่ (ถ้ามี) ให้ใส่ป้าย `agent ร่าง` ไว้จนกว่า owner จะรับรอง
 
 สถานะงาน: ส่ง agent ไปทำแล้ว ผลจะต่อท้ายไฟล์นี้
+
+## 4. ผลการแก้ (branch `fix/suppliers-api-pull`, ยังไม่เปิด PR)
+**เซิร์ฟเวอร์**
+- เพิ่ม `GET /api/v1/suppliers` (`SuppliersController.list` → `SuppliersService.list`) คืนซัพพลายเออร์ทั้งร้าน
+  เฉพาะของสินค้าที่ยังไม่ถูกลบ ใช้ `runTx` แบบเดียวกับ route อื่น (ผ่าน RLS) และเป็น GET จึงไม่มี idempotency
+- ตาราง `suppliers` ไม่มี `updated_at` และลบแบบ hard delete จึงไม่มี cursor: แอปดึงทั้งชุดแล้วแทนที่ของในเครื่อง
+- ไม่มี migration ใหม่
+
+**แอป (เฉพาะ build API, `useApi`) — build Drift-only ไม่เปลี่ยน**
+- `ApiSuppliersRepository` (`frontend/lib/data/repositories/api_suppliers_repository.dart`)
+  - `pullFromServer()` ดึง `GET /suppliers` มาแทนที่ตาราง Drift `suppliers` ทั้งตาราง ฟังก์ชันนี้ไม่ throw
+    เขียนผ่าน `writeCacheIfCurrent` (คำตอบที่มาถึงหลังสลับร้านจะไม่ถูกเขียน) และไม่เขียนทับถ้ามีการเพิ่ม/แก้/ลบ
+    ที่ได้คำตอบแล้วระหว่างที่ GET ยังค้างอยู่
+  - `getSuppliers()` ดึงจากเซิร์ฟเวอร์ก่อนแล้วจึงอ่าน Drift (หน้าจอเดิมไม่ต้องแก้) ถ้าออฟไลน์ก็ยังเห็นข้อมูลชุดล่าสุดในเครื่อง
+  - เพิ่ม/แก้/ลบ ส่ง `POST/PATCH/DELETE /suppliers` พร้อม `Idempotency-Key` เงินส่งเป็น string `"85.00"`
+    และเขียน Drift จากคำตอบของเซิร์ฟเวอร์เท่านั้น ถ้าเพิ่มแล้วเจอ 5xx/429 หรือคำตอบหาย ระบบจะเก็บ key เดิมไว้ (`PendingWrites`)
+    กดซ้ำจึงไม่ได้ซัพฯ ซ้ำ ข้อผิดพลาดจะเป็น `PosException` ภาษาไทย (ไม่มีข้อความใหม่)
+- `triggerEntityPull` (ตอนต่อเน็ตกลับมา, สลับร้าน, หลัง owner import) ดึงซัพพลายเออร์ด้วย
+- `resetPulledCache` ล้างตาราง `suppliers` ด้วยแล้ว และลบคอมเมนต์ "never pulled" ออก
+- fixture `client-requests/suppliers.{create,update,delete}.json` + `CONTRACT_IDS.supplier` (เซิร์ฟเวอร์ seed แถวไว้ให้)
+
+**ข้อควรรู้**
+- รอบ pull แรกบน build API จะ**ลบ**ซัพฯ ที่เคยเพิ่มไว้ใน Drift อย่างเดียว (ก่อนการแก้นี้ ข้อมูลพวกนั้นไม่เคยถึงเซิร์ฟเวอร์)
+  บน `mob04` หลังการ import ตาราง Drift ถูกล้างไปแล้ว จึงไม่มีข้อมูลหาย
+- ถ้าเครือข่ายค้าง (ไม่ใช่ปฏิเสธการเชื่อมต่อ) การเปิดแท็บซัพฯ อาจรอ GET นานถึง 15 วินาที เหมือนรายการสินค้าที่เป็นอยู่แล้ว
+- ยังไม่ได้ทดสอบบน `mob04` จริง ต้อง deploy แล้วเปิดแท็บ ซัพพลายเออร์ หลัง import เพื่อยืนยัน

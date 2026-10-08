@@ -84,7 +84,7 @@ Idempotency-Key: 9f3c…   ← client สร้าง 1 ครั้งต่อ
 | # | หน้าจอ (route) | READ (ตอนเปิดหน้า) | WRITE (ตอนกดปุ่ม) |
 |---|---|---|---|
 | 1 | **Checkout** `/` | `GET /bootstrap` (รวม products+categories+customers+mechanics+settings), `/parked-sales`, `/products?partNo=` (บาร์โค้ด) | `POST /sales` ⭐, `POST /quotes`, `POST /parked-sales`, `DELETE /parked-sales/:id`, `POST /customers` |
-| 2 | **Products** `/products` | `GET /products`, `/categories`, `/products/:id/suppliers`, `/movements`, `/reports/product-sales`, `/settings` | `POST/PATCH/DELETE /products`, `POST /products/:id/adjust-stock`, `POST/DELETE /categories`, `POST/PATCH/DELETE /suppliers` |
+| 2 | **Products** `/products` | `GET /products`, `/categories`, `/products/:id/suppliers`, `/suppliers`, `/movements`, `/reports/product-sales`, `/settings` | `POST/PATCH/DELETE /products`, `POST /products/:id/adjust-stock`, `POST/DELETE /categories`, `POST/PATCH/DELETE /suppliers` |
 | 3 | **Purchase Orders** `/purchase-orders` | `GET /purchase-orders`, `GET /products` | `POST /purchase-orders`, `POST /:id/receive` ⭐, `POST /:id/cancel`, `DELETE /:id` |
 | 4 | **Vehicle Search** `/vehicle-search` | `GET /products?compat=…`, `GET /categories` | — (อ่านอย่างเดียว) |
 | 5 | **Customers** `/customers` | `GET /customers`, `GET /customers/:id/sales` | `POST/PATCH/DELETE /customers` |
@@ -269,7 +269,7 @@ sequenceDiagram
 | เพิ่ม/แก้/ลบ | `POST /products` · `PATCH /products/:id` · `DELETE /products/:id` (soft delete) |
 | ปรับสต็อกมือ | `POST /products/:id/adjust-stock` `{ delta, type, note }` → **clamp ที่ 0** + สร้าง movement |
 | ประวัติสต็อก | `GET /movements?productId=&from=&to=&page=` |
-| ซัพพลายเออร์ | `GET /products/:id/suppliers` · `POST /suppliers` · `PATCH /suppliers/:id` · `DELETE /suppliers/:id` |
+| ซัพพลายเออร์ | `GET /products/:id/suppliers` · `GET /suppliers` (ทั้งร้าน — แอปดึงไปแทนที่ cache ทั้งตาราง, 2026-10-08) · `POST /suppliers` · `PATCH /suppliers/:id` · `DELETE /suppliers/:id` |
 | รายงานสต็อก | `GET /reports/stock-value` |
 | ยอดขายรายชิ้น | `GET /reports/product-sales?productId=&from=&to=` — #97: บิลชุดเดียวกับ summary (void เองไม่นับ, void อัตโนมัติจากคืนครบยังนับแล้วหักใบลดหนี้) |
 | พิมพ์ป้าย | `GET /settings` (เอาชื่อร้านไปขึ้นบนป้าย) |
@@ -600,6 +600,7 @@ Base path `/api/v1` (§1.1) — JWT ที่ใช้ต้องได้ `aud
 | GET | `/categories` (คืน `[{name,color}]`) | ✔ | ทั้งคู่ | ✅ 3600s ±10% (#32) | – | – |
 | POST/DELETE | `/categories` | ~~manager~~ ✔ | ทั้งคู่ | invalidate | – | ✔ |
 | GET | `/products/:id/suppliers` | ✔ | ทั้งคู่ | – | – | – |
+| GET | `/suppliers` (ทุกแถวของสินค้าที่ยังไม่ถูกลบ, 2026-10-08) | ✔ | ทั้งคู่ | – | – | – |
 | POST/PATCH/DELETE | `/suppliers/:id?` | ~~manager~~ ✔ | ทั้งคู่ | – | – | ✔ |
 | GET | `/movements` | ✔ | ทั้งคู่ | – | – | – |
 | GET | `/customers` | ✔ | ทั้งคู่ | ✅ 1m ±10% (#32 — เฉพาะ list; ล้างเมื่อ customers CRUD / ขาย / void / คืน ที่ระบุลูกค้า / import) | – | – |

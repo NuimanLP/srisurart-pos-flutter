@@ -105,6 +105,7 @@ const _fallbackReads = {
   'getCustomers',
   'getMechanics',
   'getAll',
+  'getSuppliers',
 };
 
 /// `return super.receivePO(` / `await super.deletePO(` -> the method name.

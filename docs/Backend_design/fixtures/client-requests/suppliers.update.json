@@ -1,0 +1,16 @@
+{
+  "name": "suppliers.update",
+  "caller": "ApiSuppliersRepository.updateSupplier",
+  "requests": [
+    {
+      "route": "PATCH /api/v1/suppliers/:id",
+      "method": "PATCH",
+      "path": "/api/v1/suppliers/4daccf60-a5c8-5b64-978b-b7e95b042518",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "unitCost": "80.00"
+      }
+    }
+  ]
+}

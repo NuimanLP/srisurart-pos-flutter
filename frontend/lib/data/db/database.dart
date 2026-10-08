@@ -441,13 +441,13 @@ class AppDatabase extends _$AppDatabase {
     await _seedBlankSettings();
   });
 
-  /// The server-pulled part of the cache — catalogue, quotes, POs, settings
-  /// and the sync cursors — for a DB adopted as this tenant's without being
-  /// emptied (`TenantCacheGuard`, legacy DB + device-token login). The next
-  /// pull re-downloads all of it from zero. Kept: the till's own history,
-  /// which no pull ever brings back (sales, returns, shifts, drawer, movements,
-  /// credit payments, doc counters, outbox/op_effects, parked bills) and
-  /// suppliers (Drift-only on every build, never pulled).
+  /// The server-pulled part of the cache — catalogue (suppliers included),
+  /// quotes, POs, settings and the sync cursors — for a DB adopted as this
+  /// tenant's without being emptied (`TenantCacheGuard`, legacy DB +
+  /// device-token login). The next pull re-downloads all of it from zero.
+  /// Kept: the till's own history, which no pull ever brings back (sales,
+  /// returns, shifts, drawer, movements, credit payments, doc counters,
+  /// outbox/op_effects, parked bills).
   ///
   /// [keepStockAndLedgers] (set while [hasUnsentWork]): products, customers
   /// and mechanics stay — their local stock / balances include the unsent
@@ -458,6 +458,7 @@ class AppDatabase extends _$AppDatabase {
   Future<void> resetPulledCache({required bool keepStockAndLedgers}) async {
     _cacheGeneration++;
     for (final table in <TableInfo>[
+      suppliers,
       quoteItems,
       quotes,
       poItems,
