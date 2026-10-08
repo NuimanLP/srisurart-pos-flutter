@@ -157,7 +157,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('บันทึกสินค้าโปรดไม่สำเร็จ'),
-        ), // agent ร่าง
+        ), // เจ้าของรับรอง 2026-10-08 (PR #672)
       );
     }
   }
@@ -1168,7 +1168,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   !products.any(
                                     (p) => _favorites.contains(p.id),
                                   )
-                              // agent ร่าง
+                              // เจ้าของรับรอง 2026-10-08 (PR #672)
                               ? 'แตะ ☆ บนการ์ดสินค้าเพื่อเพิ่มเป็นสินค้าโปรด'
                               : 'ลองค้นหาด้วยคำอื่น หรือเปลี่ยนหมวดหมู่',
                           style: TextStyle(
