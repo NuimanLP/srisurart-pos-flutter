@@ -45,11 +45,14 @@ ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 2
 PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
 🔴 **Development freeze (owner, 2026-10-07): development stops here for the course submission.** Last release =
-`main` `847e7ef` (PR #665, merge commit, 2026-10-08), deployed to `mob04` (run `37660353755`, details
-`docs/handoff_log/session-2026-10-08-owner-import.md`); the owner lifted the freeze for exactly that one request
-(shop-owner backup import) — the release before it was `53fdd1b` (PR #658,
-`docs/handoff_log/session-2026-10-07-final-release.md`). Do not start feature work; only fixes the owner
-asks for. 🔴 **Never enable auto-merge on a PR an agent is still pushing to** (a push after the merge button
+`main` `1d70d1c` (PR #671, merge commit, 2026-10-08), deployed to `mob04` (run `37786076104`) + APK `apk-1d70d1c`;
+the owner lifted the freeze for exactly that one request (POS favourite-product stars, device-local, PR #672 —
+`docs/handoff_log/session-2026-10-08-pos-favorites.md`). Earlier exceptions: `847e7ef` (PR #665, shop-owner
+backup import, `docs/handoff_log/session-2026-10-08-owner-import.md`), then `6a38c87` (PR #669, suppliers pull
+fix); the release before them was `53fdd1b` (PR #658, `docs/handoff_log/session-2026-10-07-final-release.md`).
+Do not start feature work; only fixes the owner asks for. 🔴 **`develop` → `main` showing "conflict" while
+`git merge` is clean = criss-cross merge bases** (`git merge-base --all` prints 2+): merge `main` into `develop`
+with a merge-commit PR (#673), never squash. 🔴 **Never enable auto-merge on a PR an agent is still pushing to** (a push after the merge button
 misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
