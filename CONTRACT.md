@@ -83,7 +83,7 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 
 | Table | Row class | Companion | Key columns |
 |---|---|---|---|
-| Products | `ProductRow` | `ProductsCompanion` | id, partNo, name, nameTH, category, brand, price(real), cost(real), stock(int), minStock(int), compat?, zone?(legacy), updatedAt?, offlineOk(bool=false — v3, server-written only) |
+| Products | `ProductRow` | `ProductsCompanion` | id, partNo, name, nameTH, category, brand, price(real), cost(real), stock(int), minStock(int), compat?, zone?(legacy), updatedAt?, deletedAt?(v4), imageKey?(text — v15, the server's 32-hex image hash; `/img/<tenantId>/<imageKey>_t.webp`; bytes never in Drift) — offlineOk was dropped in v7 (#272) |
 | Categories | `CategoryRow` | `CategoriesCompanion` | name (PK), position(int — palette order) |
 | Customers | `CustomerRow` | `CustomersCompanion` | id, code, name, nameTH, phone?, address?, points(int=0), totalSpend(real=0), createdAt(text) |
 | Mechanics | `MechanicRow` | `MechanicsCompanion` | id, code, name, nameTH?, nickname?, shopName?, phone?, note?, creditLimit(real=0), creditBalance(real=0), totalSales(real=0), totalCredit(real=0), totalDiscount(real=0), totalMarkup(real=0), createdAt(text) |
@@ -112,11 +112,12 @@ Screens & services consume these row classes DIRECTLY for flat entities.
   as a JSON string.
 - AppMeta seeds `schema_version=2` and `backup_format_version=2` (these are the
   JS `SCHEMA_VERSION` / `BACKUP_FORMAT_VERSION`).
-- Drift's own `schemaVersion => 14` (each step is in `database.dart`
+- Drift's own `schemaVersion => 15` (each step is in `database.dart`
   onUpgrade; e.g. v2 = sync bookkeeping + costAtSale; v3 = the columns the
   server's shape forces, ADR-0010; v12 = #417 indexes via `@TableIndex`;
   v13 = #488 `OpEffects` — opId PK + JSON of the deltas an offline op applied;
-  v14 = QR accounts (owner 2026-10-10) — `PaymentAccounts` + `Sales.paymentAccountId`);
+  v14 = QR accounts (owner 2026-10-10) — `PaymentAccounts` + `Sales.paymentAccountId`;
+  v15 = product images (owner 2026-10-10) — `Products.imageKey`);
   the JS migration counter value (2) lives in AppMeta, NOT in Drift's schemaVersion — the two numbers
   are unrelated and coincide only by accident.
 - Every write that changes a `Products` row stamps `updatedAt` via
@@ -157,7 +158,7 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 
 | File | Class | Owning agent | Method signatures |
 |---|---|---|---|
-| `products_repository.dart` | `ProductsRepository` | **Products** | `Future<List<ProductRow>> getAll()`; `Stream<List<ProductRow>> watchAll()`; `Future<ProductRow?> getById(id)`; `Future<ProductRow?> add(ProductsCompanion)` (null on dup/blank partNo); `Future<bool> update(id, ProductsCompanion)` (false on partNo collision); `Future<void> delete(id)`; `Future<Set<String>> productIdsWithUnsyncedOps()` (ids an unsent outbox op references); `Future<Map<String, List<ProductDocRef>>> openDocumentRefs(List<ProductRow>)` (open PO / active quote / parked bill naming each product — bulk-delete WARNING only, local Drift reads); `Future<BulkDeleteResult> deleteMany(ids)` (one `delete` per id, refuses outbox-referenced ids, never throws — per-id Thai reasons; `BulkDeleteResult { List<String> deleted; Map<String,String> failed /* id → Thai reason */ }`, same file); `Future<void> adjustStock(productId,delta,type,note?)` (CLAMPS at 0 + movement); `Future<List<String>> getCategories()`; `Future<void> addCategory(name)`; `Future<void> deleteCategory(name)`; `Future<String> catColor(name)` |
+| `products_repository.dart` | `ProductsRepository` | **Products** | `Future<List<ProductRow>> getAll()`; `Stream<List<ProductRow>> watchAll()`; `Future<ProductRow?> getById(id)`; `Future<ProductRow?> add(ProductsCompanion)` (null on dup/blank partNo); `Future<bool> update(id, ProductsCompanion)` (false on partNo collision); `Future<void> delete(id)`; `Future<Set<String>> productIdsWithUnsyncedOps()` (ids an unsent outbox op references); `Future<Map<String, List<ProductDocRef>>> openDocumentRefs(List<ProductRow>)` (open PO / active quote / parked bill naming each product — bulk-delete WARNING only, local Drift reads); `Future<BulkDeleteResult> deleteMany(ids)` (one `delete` per id, refuses outbox-referenced ids, never throws — per-id Thai reasons; `BulkDeleteResult { List<String> deleted; Map<String,String> failed /* id → Thai reason */ }`, same file); `Future<void> adjustStock(productId,delta,type,note?)` (CLAMPS at 0 + movement); `Future<List<String>> getCategories()`; `Future<void> addCategory(name)`; `Future<void> deleteCategory(name)`; `Future<String> catColor(name)`; product images (v15, owner 2026-10-10): `Future<ProductImageUrls?> getImageUrls()` (null on the Drift build / no tenant — placeholders), `Future<void> setImage(productId, Uint8List jpeg)` / `Future<void> removeImage(productId)` (API build only: raw `PUT` / `DELETE /products/:id/image`, `PendingWrites` key, only the reply's `imageKey` written to Drift; the Drift build throws `UnsupportedError` — callers gate on `getImageUrls`) |
 | `sales_repository.dart` | `SalesRepository` | **Sales** | `Future<SaleRow> saveSale(SaleInput)` (transactional, Thai 'สต็อกไม่พอ…' throw, strict stock); `Future<List<SaleWithItems>> getSales({DateTime? from, DateTime? to})` (from inclusive, to exclusive, none = all; #417); `Stream<List<SaleWithItems>> watchSales()`; `Future<Map<String,int>> getRefundedQty(saleId)` |
 | `returns_repository.dart` | `ReturnsRepository` | **Returns** | `Future<ReturnRow> createReturn(ReturnInput)` (transactional, over-refund/void Thai throws, auto-void parent); `Future<List<ReturnWithItems>> getReturns({DateTime? from, DateTime? to})` (same bounds as getSales) |
 | `purchase_orders_repository.dart` | `PurchaseOrdersRepository` | **Purchase Orders** | `Future<List<PurchaseOrderWithItems>> getPOs()`; `Future<PurchaseOrderRow> savePO(PoInput)`; `Future<List<String>> receivePO(id)` (weighted-avg cost, returns unmatched partNos); `Future<void> cancelPO(id)`; `Future<void> deletePO(id)` |

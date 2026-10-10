@@ -15,6 +15,13 @@
 #   BACKUP_KEEP_DAYS     Number of days to keep local backups (default: 7)
 #   POSTGRES_DB          Database name to dump (default: pos)
 #   POSTGRES_USER        Superuser name for pg_dump (default: postgres)
+#   PRODUCT_IMAGES_DIR   Product-images directory to archive when no compose nginx mounts the
+#                        `product-images` volume (tests, a bare host). Unset on the VM.
+#
+# Product images (contract §2): each run also writes ${POSTGRES_DB}_images_<ts>.tar.gz (+ .sha256)
+# from the `product-images` volume — Postgres holds only each image's key. Same `.partial` + `mv`,
+# prune and offsite rules as the dump. 🔴 Only provision.yml (or a manual `install`) updates
+# /opt/pos/scripts — a CD deploy does not.
 #
 # Offsite upload (#363 — the dump above never left the VM before this):
 #   BACKUP_RCLONE_REMOTE  rclone remote:path to copy each backup to, e.g. "supabase-backup:pos-backups/mob04".
@@ -134,7 +141,11 @@ exec_pg_dump() {
 # 2026-09-29): it passes `gzip -t`, has no .uploaded marker, and prune would keep it forever once
 # offsite is on. `.partial` matches no upload glob; prune removes stale ones by age (SIGKILL case).
 PARTIAL_FILE="${BACKUP_FILE}.partial"
-trap 'rm -f "$PARTIAL_FILE"' EXIT
+# The product-images archive below uses the same `.partial` + `mv` pattern.
+IMAGES_FILE="$BACKUP_DIR/${POSTGRES_DB}_images_${TIMESTAMP}.tar.gz"
+IMAGES_CHECKSUM="${IMAGES_FILE}.sha256"
+IMAGES_PARTIAL="${IMAGES_FILE}.partial"
+trap 'rm -f "$PARTIAL_FILE" "$IMAGES_PARTIAL"' EXIT
 
 echo "Dumping database and appending role ceiling configuration (#213)..."
 (
@@ -175,6 +186,68 @@ fi
 # shellcheck disable=SC2012
 BACKUP_SIZE="$(ls -lh "$BACKUP_FILE" | awk '{print $5}')"
 echo "  -> Backup created successfully ($BACKUP_SIZE)."
+
+# --- Product images (contract §2) -------------------------------------------------------------
+# The images live in the `product-images` volume, not in Postgres, so pg_dump above does not
+# carry them. Archived read-only through the nginx container (which mounts the volume `:ro` at
+# /srv/product-images) as a tar.gz with its own sha256 sidecar; same `.partial` + `mv` and the same
+# prune/offsite rules as the dump. Outside compose (tests, a bare host) PRODUCT_IMAGES_DIR names
+# the directory instead.
+#   * no volume to archive (no nginx service mounting it yet, no PRODUCT_IMAGES_DIR) -> one
+#     `::warning::`, no archive, the run still exits 0 — a host whose deploy predates images.
+#   * an archive that was attempted and failed -> loud `::error::` and a NON-ZERO exit at the end
+#     (the dump above is kept either way).
+images_source() {
+  if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
+    local services
+    services="$(docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null || true)"
+    if grep -qx nginx <<<"$services" \
+        && docker compose "${COMPOSE_ARGS[@]}" exec -T nginx test -d /srv/product-images >/dev/null 2>&1; then
+      echo docker
+      return
+    fi
+  fi
+  if [[ -n "${PRODUCT_IMAGES_DIR:-}" && -d "${PRODUCT_IMAGES_DIR}" ]]; then
+    echo dir
+    return
+  fi
+  echo none
+}
+
+images_tar() {
+  case "$1" in
+    docker) docker compose "${COMPOSE_ARGS[@]}" exec -T nginx tar -cf - -C /srv/product-images . ;;
+    dir) tar -cf - -C "$PRODUCT_IMAGES_DIR" . ;;
+  esac
+}
+
+IMAGES_STATE=absent
+IMAGES_SOURCE="$(images_source)"
+if [[ "$IMAGES_SOURCE" == none ]]; then
+  echo "::warning::No product-images volume to archive (no running nginx service mounting /srv/product-images, and PRODUCT_IMAGES_DIR unset) — this backup has no product images." >&2
+else
+  echo "Archiving product images ($IMAGES_SOURCE)..."
+  # WebP is already compressed: gzip -1 costs little and the archive is still a tar.gz.
+  if images_tar "$IMAGES_SOURCE" | gzip -1 > "$IMAGES_PARTIAL"; then
+    mv "$IMAGES_PARTIAL" "$IMAGES_FILE"
+    chmod 0600 "$IMAGES_FILE"
+    if command -v sha256sum >/dev/null 2>&1; then
+      (cd "$BACKUP_DIR" && sha256sum "$(basename "$IMAGES_FILE")" > "$(basename "$IMAGES_CHECKSUM")")
+    elif command -v shasum >/dev/null 2>&1; then
+      (cd "$BACKUP_DIR" && shasum -a 256 "$(basename "$IMAGES_FILE")" > "$(basename "$IMAGES_CHECKSUM")")
+    fi
+    if [[ -f "$IMAGES_CHECKSUM" ]]; then
+      chmod 0600 "$IMAGES_CHECKSUM"
+    fi
+    IMAGES_STATE=ok
+    # shellcheck disable=SC2012
+    echo "  -> Product images archived ($(ls -lh "$IMAGES_FILE" | awk '{print $5}'))."
+  else
+    rm -f "$IMAGES_PARTIAL"
+    IMAGES_STATE=failed
+    echo "::error::PRODUCT IMAGES ARCHIVE FAILED ($IMAGES_SOURCE) — this run's database dump is kept, but the images are not backed up." >&2
+  fi
+fi
 
 # --- Offsite upload (#363) ---------------------------------------------------------------------
 # Copies this run's backup + checksum off the VM via rclone. Never echoes rclone.conf or any
@@ -221,6 +294,13 @@ offsite_upload() {
   if [[ -f "$CHECKSUM_FILE" ]]; then
     copy_offsite "$CHECKSUM_FILE" || return 1
   fi
+  if [[ -f "$IMAGES_FILE" ]]; then
+    echo "Uploading $(basename "$IMAGES_FILE") to '$OFFSITE_LABEL'..."
+    copy_offsite "$IMAGES_FILE" || return 1
+    if [[ -f "$IMAGES_CHECKSUM" ]]; then
+      copy_offsite "$IMAGES_CHECKSUM" || return 1
+    fi
+  fi
   echo "  -> Offsite upload confirmed ($OFFSITE_LABEL)."
 }
 
@@ -234,6 +314,10 @@ elif offsite_upload; then
   OFFSITE_STATE=ok
   : > "$UPLOAD_MARKER"
   chmod 0600 "$UPLOAD_MARKER"
+  if [[ -f "$IMAGES_FILE" ]]; then
+    : > "${IMAGES_FILE}.uploaded"
+    chmod 0600 "${IMAGES_FILE}.uploaded"
+  fi
 else
   OFFSITE_STATE=failed
 fi
@@ -248,12 +332,12 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
     while IFS= read -r -d '' marker; do
       base="${marker%.uploaded}"
       rm -f "$base" "${base}.sha256" "$marker"
-    done < <(find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -mtime +"$BACKUP_KEEP_DAYS" -print0)
+    done < <(find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -o -name "${POSTGRES_DB}_images_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -print0)
     while IFS= read -r -d '' stale; do
       if [[ ! -f "${stale}.uploaded" ]]; then
         echo "::warning::Keeping $(basename "$stale") past the ${BACKUP_KEEP_DAYS}-day retention window -- its offsite upload was never confirmed." >&2
       fi
-    done < <(find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz" -mtime +"$BACKUP_KEEP_DAYS" -print0)
+    done < <(find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_images_*.tar.gz" \) -mtime +"$BACKUP_KEEP_DAYS" -print0)
   else
     # Offsite is not configured at all -- prune exactly as before this ticket (age-based, no
     # confirmation concept applies), so an indefinitely-long "not configured yet" period does not
@@ -263,10 +347,17 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
     # did not exist before #363, so this is still "prune as before #363".
     echo "Pruning backups older than $BACKUP_KEEP_DAYS days in $BACKUP_DIR..."
     find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" -o -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+    # The product-images archives (contract §2), same age rule.
+    find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_images_*.tar.gz" -o -name "${POSTGRES_DB}_images_*.tar.gz.sha256" -o -name "${POSTGRES_DB}_images_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
   fi
   # A `.partial` is only ever left by a SIGKILL'd run (the EXIT trap covers every other exit). It is
   # never a backup, has no offsite copy to confirm, so prune it by age in both modes.
-  find "$BACKUP_DIR" -type f -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+  find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -o -name "${POSTGRES_DB}_images_*.tar.gz.partial" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+fi
+
+if [[ "$IMAGES_STATE" == failed ]]; then
+  echo "=== Product images NOT backed up -- see the PRODUCT IMAGES ARCHIVE error above ==="
+  exit 1
 fi
 
 case "$OFFSITE_STATE" in

@@ -1,0 +1,14 @@
+{
+  "name": "backup.export",
+  "caller": "OwnerImportRepository.exportBackup",
+  "requests": [
+    {
+      "route": "POST /api/v1/backup/export",
+      "method": "POST",
+      "path": "/api/v1/backup/export",
+      "idempotencyKey": false,
+      "authorization": "bearer",
+      "body": null
+    }
+  ]
+}

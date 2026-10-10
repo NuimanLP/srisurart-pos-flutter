@@ -82,7 +82,7 @@ void main() {
 
   group('Drift Schema v11 - sync_cursors table', () {
     test('sync_cursors table exists and supports upsert', () async {
-      expect(db.schemaVersion, 14);
+      expect(db.schemaVersion, 15);
 
       // Insert new cursor
       await db.into(db.syncCursors).insert(
@@ -251,6 +251,7 @@ void main() {
               cost: 70,
               stock: 5,
               minStock: 5,
+              imageKey: const drift.Value('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
             ),
           );
 
@@ -287,6 +288,8 @@ void main() {
                   'cost': 45,
                   'stock': 50, // Server has 50!
                   'updatedAt': '2026-09-20T10:00:00.000Z',
+                  // Product images (v15): just another field under the guard.
+                  'imageKey': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 },
                 {
                   'id': 'p2',
@@ -323,11 +326,14 @@ void main() {
       expect(p1!.stock, 10); // NOT overwritten!
       expect(p1.price, 95); // Other fields updated!
       expect(p1.name, 'Oil Filter Updated Name');
+      expect(p1.imageKey, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'); // image follows
 
       // Product p2 has no pending op -> stock is updated to 25
       final p2 = await repo.getById('p2');
       expect(p2, isNotNull);
       expect(p2!.stock, 25); // Overwritten by server stock
+      // A reply without imageKey (older server) leaves the cached key alone.
+      expect(p2.imageKey, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
     });
 
     test('tombstone exclusion: deleted rows and import-tombstone products are hidden from getAll()', () async {

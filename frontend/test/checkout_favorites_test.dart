@@ -179,7 +179,7 @@ void main() {
     return first;
   }
 
-  testWidgets('390px: the star takes no width from a 99,999 price', (
+  testWidgets('390px: the star sits on the picture and takes no width from a 99,999 price', (
     tester,
   ) async {
     late ProductRow first;
@@ -193,33 +193,22 @@ void main() {
       (db, cart, products) async {
         final price = find.text(baht(99999));
         expect(price, findsOneWidget);
-        // The flutter_test font draws every glyph 1 em wide, so ฿99,999 at
-        // 18 px (~128 px) overflows a 390 px card even without any star —
-        // a "fully visible" check would measure the test font, not the
-        // layout. What the star must not do is take width from the price:
-        // the price row holds only the price and the stock count, and the
-        // price gets all of the row but the stock count and its 4 px gap.
-        final row = find.ancestor(of: price, matching: find.byType(Row)).first;
-        expect(find.descendant(of: row, matching: stars), findsNothing);
-        final stockRow = find
-            .ancestor(
-              of: find.descendant(
-                of: row,
-                matching: find.text('${first.stock}'),
-              ),
-              matching: find.byType(Row),
-            )
-            .first;
-        final rowRect = tester.getRect(row);
-        final stockRect = tester.getRect(stockRow);
-        expect(
-          tester.renderObject<RenderParagraph>(price).size.width,
-          closeTo(rowRect.width - 4 - stockRect.width, 0.5),
+        // Since the picture card (owner 2026-10-10) the price has a line of
+        // its own: it may use the card's whole text width (card − 2 × 10 px
+        // padding), and no star or count shares that line.
+        final card = tester.getRect(
+          find.byKey(Key('pos-card-image-${first.id}')),
         );
-        // A 40 px star below the part number, never over the card's text.
+        expect(
+          tester.renderObject<RenderParagraph>(price).constraints.maxWidth,
+          closeTo(card.width - 20, 0.5),
+        );
+        // The 40 px star is on the picture, never over the card's text.
         final star = tester.getRect(find.byKey(Key('fav-star-${first.id}')));
+        expect(card.contains(star.topLeft) && card.contains(star.bottomRight - const Offset(1, 1)),
+            isTrue);
         final partNo = tester.getRect(find.text(first.partNo).first);
-        expect(star.top, greaterThanOrEqualTo(partNo.bottom));
+        expect(star.bottom, lessThanOrEqualTo(partNo.top));
         expect(star.width, greaterThanOrEqualTo(40));
         expect(star.height, greaterThanOrEqualTo(40));
       },

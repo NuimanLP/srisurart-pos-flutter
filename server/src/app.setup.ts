@@ -3,7 +3,7 @@ import {
   RequestMethod,
   type INestApplication,
 } from '@nestjs/common';
-import { json, type NextFunction, type Request, type Response } from 'express';
+import { json, raw, type NextFunction, type Request, type Response } from 'express';
 import type { Logger } from 'pino';
 import helmet from 'helmet';
 import { EnvelopeInterceptor } from './common/envelope.interceptor.js';
@@ -24,6 +24,13 @@ import {
   PAYMENT_ACCOUNTS_BODY_LIMIT,
   PAYMENT_ACCOUNTS_ROUTE,
 } from './payment-accounts/payment-accounts.controller.js';
+import { isZipUpload, streamZipUpload } from './backup/zip-upload.js';
+import { PRODUCT_IMAGE_ROUTE } from './products/product-images.controller.js';
+import {
+  PRODUCT_IMAGE_CONTENT_TYPES,
+  PRODUCT_IMAGE_MAX_BYTES,
+  productImageTooLarge,
+} from './product-images/image-pipeline.js';
 import { createMetricsMiddleware } from './metrics/metrics.middleware.js';
 import { MetricsService } from './metrics/metrics.service.js';
 
@@ -128,9 +135,14 @@ export async function configureApp(
     // APP_CONFIG not bound: no request earns the large limit
   }
   const importJson = json({ limit: IMPORT_BODY_LIMIT });
+  // Contract §4: the same routes also take the backup ZIP (`Content-Type: application/zip`),
+  // up to 200 MB, streamed to a file rather than parsed — same verified-token rule.
+  const importZip = streamZipUpload();
+  const importBody = (req: Request, res: Response, next: NextFunction) =>
+    isZipUpload(req) ? importZip(req, res, next) : importJson(req, res, next);
   app.use(IMPORT_ROUTE, (req: Request, res: Response, next: NextFunction) =>
     platformSecret && platformTokenFromHeader(req.headers.authorization, platformSecret)
-      ? importJson(req, res, next)
+      ? importBody(req, res, next)
       : next(),
   );
   // The shop owner's own import (`POST /backup/import`) takes the same file, so the same
@@ -144,7 +156,7 @@ export async function configureApp(
   }
   app.use(OWNER_IMPORT_ROUTE, (req: Request, res: Response, next: NextFunction) =>
     tenantVerifier && ownerImportTokenFromHeader(req.headers.authorization, tenantVerifier)
-      ? importJson(req, res, next)
+      ? importBody(req, res, next)
       : next(),
   );
   // QR payment accounts carry an uploaded QR image (≤ 300 KB decoded, ≈ 400 KB of base64):
@@ -157,6 +169,29 @@ export async function configureApp(
       ? paymentAccountsJson(req, res, next)
       : next(),
   );
+  // Product images (contract §3): `PUT /products/:id/image` takes the image as a raw body of
+  // ≤ 3 MB (`image/jpeg|png|webp`) — again only for a verified owner access token, so nobody
+  // else makes the API buffer 3 MB before the guard. Too large = `413 PRODUCT_IMAGE_TOO_LARGE`
+  // answered here; anyone else falls through (Nest parses no image body) and the guard / owner
+  // check answers.
+  const imageRaw = raw({ type: [...PRODUCT_IMAGE_CONTENT_TYPES], limit: PRODUCT_IMAGE_MAX_BYTES });
+  app.use(PRODUCT_IMAGE_ROUTE, (req: Request, res: Response, next: NextFunction) => {
+    if (
+      req.method !== 'PUT' ||
+      !tenantVerifier ||
+      !ownerTokenFromHeader(req.headers.authorization, tenantVerifier)
+    ) {
+      return next();
+    }
+    imageRaw(req, res, (err?: unknown) => {
+      if ((err as { type?: unknown } | undefined)?.type === 'entity.too.large') {
+        const { status, body } = toErrorEnvelope(productImageTooLarge());
+        res.status(status).json(body);
+        return;
+      }
+      next(err);
+    });
+  });
   app.setGlobalPrefix('api/v1', {
     exclude: [
       { path: 'health/live', method: RequestMethod.GET },

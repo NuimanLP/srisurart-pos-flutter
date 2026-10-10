@@ -77,8 +77,14 @@ void main() {
       expect(find.textContaining('การนำเข้าจะแทนที่ข้อมูลทั้งหมดของร้านบนเซิร์ฟเวอร์'),
           findsOneWidget);
       expect(find.text(SnapshotRepository.importBlockedMessage), findsNothing);
-      // the export sub-tab is still offered
+      // Product images (2026-10-10): the picker takes the server's .zip too.
+      expect(find.text('รองรับไฟล์ .zip หรือ .json ที่ส่งออกจากระบบนี้เท่านั้น'),
+          findsOneWidget);
+      // the export sub-tab is still offered — and downloads the server's .zip
       expect(find.text('💾 สำรองข้อมูล'), findsOneWidget);
+      await tester.tap(find.text('💾 สำรองข้อมูล'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(find.text('⬇ ดาวน์โหลดไฟล์ backup (.zip)'), findsOneWidget);
     });
   });
 
@@ -88,6 +94,11 @@ void main() {
       expect(find.text(SnapshotRepository.importBlockedMessage), findsNothing);
       expect(find.textContaining('การนำเข้าจะแทนที่ข้อมูลทั้งหมดของร้านบนเซิร์ฟเวอร์'),
           findsNothing);
+      // The local snapshot path is unchanged: .json only, no pictures.
+      expect(find.text('รองรับไฟล์ .json ที่ส่งออกจากระบบนี้เท่านั้น'), findsOneWidget);
+      await tester.tap(find.text('💾 สำรองข้อมูล'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(find.text('⬇ ดาวน์โหลดไฟล์ backup (.json)'), findsOneWidget);
     });
   });
 

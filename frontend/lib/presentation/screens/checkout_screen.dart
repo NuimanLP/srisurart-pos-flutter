@@ -39,6 +39,7 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
+import '../../core/utils/product_image.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/customers_repository.dart';
 import '../../data/repositories/favorites_repository.dart';
@@ -56,6 +57,7 @@ import '../widgets/device_role_banner.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_input_formatters.dart';
 import '../widgets/money_text.dart';
+import '../widgets/product_image.dart';
 import '../widgets/qr_payment_panel.dart';
 import '../widgets/receipt_view.dart';
 import '../widgets/sync_status_builder.dart';
@@ -67,6 +69,13 @@ import '../widgets/tap_target.dart';
 
 const _orange = Color(0xFFE8601C);
 const _warnOrange = Color(0xFFD4820A);
+
+/// Sell-screen product card (owner sample 2026-10-10): the picture block's
+/// height and the card's fixed grid extent (the text block under the picture
+/// is ~120 px in Sarabun at font scale 1.0, so 168 px (288 − 120) leaves room for the
+/// largest font scale, 1.25). Exposed for the layout tests.
+const posCardImageHeight = 120.0;
+const posCardExtent = 288.0;
 
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
@@ -87,6 +96,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // Starred products (this device only) and the ⭐ chip; see FavoritesRepository.
   Set<String> _favorites = {};
   bool _onlyFavorites = false;
+  // Product picture URLs (API build only; null = placeholders).
+  ProductImageUrls? _imageUrls;
   CustomerRow? _selectedCustomer;
   String _custSearch = '';
   MechanicRow? _selectedMechanic;
@@ -123,13 +134,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   @override
   void initState() {
     super.initState();
-    _productsFuture = context.read<ProductsRepository>().getAll();
+    _productsFuture = _loadProducts();
     _customersFuture = context.read<CustomersRepository>().getCustomers();
     _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
     _categoriesFuture = context.read<ProductsRepository>().getCategories();
     _parkedFuture = context.read<ParkedRepository>().getParked();
     _catColorsFuture = _loadCatColors();
     _loadFavorites();
+    _loadImageUrls();
     _loadAccounts();
     _accountsSub = context
         .read<PaymentAccountsRepository>()
@@ -158,6 +170,97 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } catch (_) {
       // Unreadable favorites: the grid simply shows no stars.
     }
+  }
+
+  /// The product list — and, while the picture URLs are still unknown (no
+  /// tenant id in app_meta yet when the screen opened), another try at them
+  /// once this load (a pull, on the API build) is over.
+  Future<List<ProductRow>> _loadProducts() {
+    final load = context.read<ProductsRepository>().getAll();
+    if (_imageUrls == null) {
+      load.then(
+        (_) => mounted && _imageUrls == null ? _loadImageUrls() : null,
+        onError: (Object _) => null, // the grid shows the load error itself
+      );
+    }
+    return load;
+  }
+
+  /// Where this shop's product pictures live (API build, signed in); null on
+  /// the Drift build — every card then shows the placeholder.
+  Future<void> _loadImageUrls() async {
+    try {
+      final urls = await context.read<ProductsRepository>().getImageUrls();
+      if (mounted && urls != null) setState(() => _imageUrls = urls);
+    } catch (_) {
+      // No URLs: the cards keep their placeholders.
+    }
+  }
+
+  /// The picture large (`_p.webp`), zoomable, with the name and part number.
+  /// Never adds to the cart.
+  void _showImagePreview(ProductRow p, String url) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Flexible(
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: InteractiveViewer(
+                    maxScale: 4,
+                    child: ProductImage(
+                      key: const Key('pos-image-preview'),
+                      url: url,
+                      fit: BoxFit.contain,
+                      iconSize: 64,
+                      fullResolution: true,
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Text(
+                  p.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  p.partNo,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: AppColors.steelBlue.withValues(alpha: 0.9),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('ปิด'), // agent ร่าง
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _toggleFavorite(String productId) async {
@@ -245,7 +348,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// the mechanic/customer stats a sale updates (credit balance, points).
   void _refreshAfterSale() {
     setState(() {
-      _productsFuture = context.read<ProductsRepository>().getAll();
+      _productsFuture = _loadProducts();
       _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
       _customersFuture = context.read<CustomersRepository>().getCustomers();
     });
@@ -873,7 +976,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _productsFuture = context.read<ProductsRepository>().getAll();
+          _productsFuture = _loadProducts();
         });
       }
       if (isDeviceRoleRefusal(e)) {
@@ -1270,7 +1373,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: 200,
-                          mainAxisExtent: 155,
+                          mainAxisExtent: posCardExtent,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 10,
                         ),
@@ -1357,10 +1460,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final isFavorite = _favorites.contains(p.id);
     final outOfStock = p.stock == 0;
     final catColor = _parseColor(catColors[p.category]) ?? AppColors.navyLight;
-    final stockColor = p.stock == 0
+    final lowStock = !outOfStock && p.stock <= p.minStock;
+    final stockColor = outOfStock
         ? AppColors.error
-        : (p.stock <= p.minStock ? _warnOrange : AppColors.successLight);
+        : (lowStock ? _warnOrange : AppColors.successLight);
+    final stockLabel = outOfStock
+        ? 'หมด'
+        : (lowStock ? 'สต็อกต่ำ' : 'มีสินค้า'); // 'มีสินค้า': agent ร่าง
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = Theme.of(context).colorScheme.onSurface;
+    final thumbUrl = _imageUrls?.thumb(p.imageKey);
+    final previewUrl = _imageUrls?.preview(p.imageKey);
+    // A dark disc behind an overlay icon keeps it readable on any picture.
+    final overlayDisc = Colors.black.withValues(alpha: 0.35);
 
     return Container(
       decoration: BoxDecoration(
@@ -1380,8 +1492,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
           onTap: outOfStock
               ? null
               : () {
@@ -1392,50 +1504,88 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           highlightColor: _orange.withValues(alpha: 0.05),
           child: Stack(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Product name
-                    Text(
-                      p.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      p.nameTH,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.55),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      p.partNo,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 10,
-                        color: AppColors.steelBlue.withValues(alpha: 0.8),
-                      ),
-                    ),
-                    const Spacer(),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Picture (or the placeholder) — top of the card.
+                  SizedBox(
+                    key: Key('pos-card-image-${p.id}'),
+                    height: posCardImageHeight,
+                    child: ProductImage(url: thumbUrl),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Part number + stock status
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  p.partNo,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 10,
+                                    color: AppColors.steelBlue.withValues(
+                                      alpha: 0.9,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  color: stockColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                stockLabel,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: stockColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            p.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              height: 1.25,
+                            ),
+                          ),
+                          Text(
+                            p.nameTH,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: muted.withValues(alpha: 0.55),
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'คงเหลือ ${p.stock}',
+                            maxLines: 1,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: muted.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          Text(
                             baht(p.price),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1445,60 +1595,37 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               color: _orange,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 7,
-                              height: 7,
-                              decoration: BoxDecoration(
-                                color: stockColor,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: stockColor.withValues(alpha: 0.4),
-                                    blurRadius: 4,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              p.stock > 0 ? '${p.stock}' : 'หมด',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: stockColor,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              // Category badge — top right
+              // Category badge — top left of the picture, clear of the star.
               Positioned(
                 top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: catColor,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    p.category,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
+                left: 8,
+                right: 48,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: catColor,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      p.category,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
@@ -1507,11 +1634,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               if (outOfStock)
                 Positioned.fill(
                   child: Container(
-                    decoration: BoxDecoration(
-                      color: (isDark ? Colors.black : Colors.white).withValues(
-                        alpha: 0.65,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
+                    color: (isDark ? Colors.black : Colors.white).withValues(
+                      alpha: 0.65,
                     ),
                     child: Center(
                       child: Container(
@@ -1535,13 +1659,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                   ),
                 ),
-              // Favorite star — right edge, in the empty band above the
-              // stock count, so it never narrows the name or price. Its own
-              // 40 px tap target (never the card's add-to-cart); drawn after
-              // the out-of-stock overlay so a sold-out item can be starred.
+              // Favorite star — top right of the picture, its own 40 px tap
+              // target (never the card's add-to-cart); drawn after the
+              // out-of-stock overlay so a sold-out item can be starred.
               Positioned(
-                right: 2,
-                bottom: 34,
+                top: 0,
+                right: 0,
                 child: SizedBox(
                   width: 40,
                   height: 40,
@@ -1549,18 +1672,60 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     key: Key('fav-star-${p.id}'),
                     radius: 20,
                     onTap: () => _toggleFavorite(p.id),
-                    child: Icon(
-                      isFavorite ? Icons.star : Icons.star_border,
-                      size: 22,
-                      color: isFavorite
-                          ? _orange
-                          : Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: 0.35),
+                    child: Center(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: overlayDisc,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            isFavorite ? Icons.star : Icons.star_border,
+                            size: 20,
+                            color: isFavorite ? _orange : Colors.white,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
+              // Preview — bottom right of the picture, only when there is
+              // one; its own 40 px tap, never the card's add-to-cart.
+              if (previewUrl != null)
+                Positioned(
+                  top: posCardImageHeight - 40,
+                  right: 0,
+                  child: SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Tooltip(
+                      message: 'ดูรูป', // agent ร่าง
+                      child: InkResponse(
+                        key: Key('pos-image-preview-${p.id}'),
+                        radius: 20,
+                        onTap: () => _showImagePreview(p, previewUrl),
+                        child: Center(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: overlayDisc,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.zoom_in,
+                                size: 20,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

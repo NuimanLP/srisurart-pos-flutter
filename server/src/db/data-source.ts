@@ -23,6 +23,7 @@ import { ReviewItemQuoteConflict1788652804700 } from './migrations/1788652804700
 import { ReviewItemDrawerOverdrawnOffline1788652804800 } from './migrations/1788652804800-ReviewItemDrawerOverdrawnOffline.js';
 import { EntityIdsToUuid1788652804900 } from './migrations/1788652804900-EntityIdsToUuid.js';
 import { PaymentAccounts1788652805000 } from './migrations/1788652805000-PaymentAccounts.js';
+import { ProductImageKey1788652805100 } from './migrations/1788652805100-ProductImageKey.js';
 
 /** Static list — no glob, so it survives the dist/ build unchanged. Append new migrations here. */
 export const MIGRATIONS = [
@@ -50,6 +51,7 @@ export const MIGRATIONS = [
   ReviewItemDrawerOverdrawnOffline1788652804800,
   EntityIdsToUuid1788652804900,
   PaymentAccounts1788652805000,
+  ProductImageKey1788652805100,
 ];
 
 /**

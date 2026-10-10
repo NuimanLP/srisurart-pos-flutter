@@ -163,6 +163,17 @@
   </ol>
   <div class="note warn"><span class="nt">แก้ไขสินค้า</span>รหัสสินค้าแก้ไม่ได้ (<span class="msg">รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)</span>) และสต็อกแก้ในหน้าต่างนี้ไม่ได้ — ใช้ <span class="ui ghost">ปรับสต็อก</span></div>
 
+  <h2 class="sub">รูปสินค้า — เพิ่ม · เปลี่ยน · ลบ <span class="en">Product picture</span></h2>
+  <p>สินค้าหนึ่งรายการมีได้<strong>หนึ่งรูป</strong> รูปนี้ขึ้นบนการ์ดสินค้าหน้า <span class="ui ghost">ขายสินค้า</span> ให้พนักงานหน้าร้านเห็น (ภาค 01 หัวข้อ 3) · <strong>เจ้าของร้านเท่านั้น</strong>ที่เพิ่ม/เปลี่ยน/ลบรูปได้ และต้อง<strong>ออนไลน์</strong> · ใช้ได้เฉพาะ API build (build ออฟไลน์ล้วนไม่มีรูป)</p>
+  <ol class="steps">
+    <li><span class="st-title">แถวสินค้า → <span class="ui ghost">แก้ไข</span></span><span class="see">หน้าต่าง <span class="msg">แก้ไขสินค้า</span> มีส่วน <span class="msg">รูปสินค้า</span> อยู่บนสุด (หน้าต่าง <span class="msg">เพิ่มสินค้าใหม่</span> ยังไม่มีส่วนนี้ — บันทึกสินค้าก่อน แล้วค่อยกลับมาแก้ไขเพื่อใส่รูป)</span></li>
+    <li><span class="st-title">กด <span class="ui ghost">เลือกรูป</span> (ถ้ามีรูปอยู่แล้วปุ่มชื่อ <span class="ui ghost">เปลี่ยนรูป</span>) แล้วเลือกไฟล์ JPG, PNG หรือ WebP จากเครื่อง</span>แอปย่อรูปให้เองก่อนส่ง (ด้านยาวไม่เกิน 1600 px) — ระหว่างส่งมีวงกลมหมุนข้างปุ่ม ไม่ต้องกดซ้ำ</li>
+    <li><span class="st-title">รอจนรูปตัวอย่างในส่วน <span class="msg">รูปสินค้า</span> เปลี่ยน</span>การ์ดบนหน้า <span class="ui ghost">ขายสินค้า</span> ของทุกเครื่องจะได้รูปใหม่เมื่อเครื่องนั้นซิงก์สินค้าครั้งถัดไป</li>
+    <li><span class="st-title">ลบรูป: กด <span class="ui ghost">ลบรูป</span> (ขึ้นเมื่อสินค้ามีรูป)</span><span class="see">หน้าต่าง <span class="msg">ลบรูปสินค้า?</span> <span class="msg">ลบรูปของ "{name}" ออก การ์ดสินค้าจะแสดงเป็นไอคอนแทน</span> → กด <span class="ui">ลบ</span></span></li>
+  </ol>
+  <div class="note key"><span class="nt">รู้ไว้</span>ส่วนรูปจะไม่โผล่เลยถ้าเครื่องยังหาที่อยู่ร้านไม่เจอ (ยังไม่เคยซิงก์) · ไม่ใช่เจ้าของ: เห็นรูปแต่ปุ่มกดไม่ได้และมีข้อความบอกเหตุผล · ออฟไลน์: ปุ่มกดไม่ได้ ขึ้น <span class="msg">ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะเปลี่ยนรูปสินค้าได้</span> (ไม่มีการเก็บไว้ส่งทีหลัง) · ข้อความผิดพลาดที่เจอได้: <span class="msg">ไฟล์รูปไม่ถูกต้อง กรุณาใช้รูป JPG, PNG หรือ WebP</span> (เป็นไฟล์อื่น เช่น GIF/SVG หรือไฟล์เสีย) · <span class="msg">รูปใหญ่เกิน 3 MB</span> (ปกติไม่เจอเพราะแอปย่อรูปแล้ว) · รูปทุกรูปเปิดดูได้ด้วยลิงก์ตรง ๆ ถ้ารู้ที่อยู่ — ที่อยู่เดาไม่ได้แต่<strong>ไม่ต้องล็อกอิน</strong> จึงอย่าใช้รูปที่เป็นความลับ</div>
+  <figure><div style="border:2px dashed #9AA5B1;border-radius:8px;padding:28px 16px;text-align:center;color:#6B7785;font-size:14px">(ภาพหน้าจอ: product-image-editor — รอเพิ่ม)</div><figcaption>หน้าต่าง แก้ไขสินค้า — ส่วน รูปสินค้า (เลือกรูป / เปลี่ยนรูป / ลบรูป)</figcaption></figure>
+
   <h2 class="sub">ปรับสต็อก <span class="en">Adjust stock</span></h2>
   <ol class="steps">
     <li><span class="st-title">แถวสินค้า → <span class="ui ghost">ปรับสต็อก</span></span></li>
@@ -360,8 +371,9 @@
   <h2 class="sub">สำรองข้อมูล <span class="en">Backup</span></h2>
   <ol class="steps">
     <li><span class="st-title">แท็บ <span class="ui ghost">💾 สำรอง/กู้คืน</span> → <span class="ui ghost">💾 สำรองข้อมูล</span></span>ดูจำนวนระเบียน 14 ประเภท</li>
-    <li><span class="st-title">กด <span class="ui">⬇ ดาวน์โหลดไฟล์ backup (.json)</span></span><span class="see"><span class="msg">ดาวน์โหลดไฟล์ backup สำเร็จ</span> — เก็บไฟล์ไว้นอกเครื่อง</span></li>
+    <li><span class="st-title">กด <span class="ui">⬇ ดาวน์โหลดไฟล์ backup (.zip)</span> (API build) หรือ <span class="ui">⬇ ดาวน์โหลดไฟล์ backup (.json)</span> (Drift build)</span><span class="see">API build: <span class="msg">กำลังเตรียมไฟล์สำรอง (ข้อมูลและรูปสินค้า)… กรุณาอย่าปิดหน้านี้</span> แล้วได้ไฟล์ <code>pos-backup-&lt;yyyymmdd&gt;.zip</code> · Drift build: <span class="msg">ดาวน์โหลดไฟล์ backup สำเร็จ</span> — เก็บไฟล์ไว้นอกเครื่อง</span></li>
   </ol>
+  <div class="note key"><span class="nt">backup ของ API build เป็น .zip และมีรูปสินค้า</span>ไฟล์ <code>.zip</code> ประกอบด้วย <code>data.json</code> (ข้อมูลร้านเหมือน backup .json เดิม) กับโฟลเดอร์ <code>images/</code> ที่มีรูปของสินค้าที่มีรูป (หนึ่งไฟล์ <code>.webp</code> ต่อรูป) — อย่าแตกแล้วแก้ไฟล์ในนั้น นำเข้ากลับต้องใช้ตัวไฟล์ <code>.zip</code> เดิม · ไฟล์ <code>.json</code> แบบเก่า<strong>ไม่มีรูป</strong> · build ออฟไลน์ล้วน (Drift) ไม่มีรูปสินค้าจึงยังออกเป็น <code>.json</code></div>
   <h2 class="sub">กู้คืน <span class="en">Restore</span></h2>
   <ol class="steps">
     <li><span class="st-title"><span class="ui ghost">📥 กู้คืนข้อมูล</span> → <span class="ui ghost">คลิกเพื่อเลือกไฟล์ backup</span> (การ์ดไอคอน 📁)</span>เวอร์ชันนี้ยังเลือกไฟล์ไม่ได้ — ให้ <strong>วางเนื้อหาไฟล์ .json</strong> ลงช่อง แล้วกด <span class="ui ghost">ตรวจสอบไฟล์</span></li>
@@ -369,11 +381,19 @@
     <li><span class="st-title">กด <span class="ui">✓ ยืนยัน</span></span><span class="see"><span class="msg">นำเข้าข้อมูลสำเร็จ — กำลังโหลดหน้าใหม่…</span></span></li>
   </ol>
   <div class="note warn"><span class="nt">การกู้คืนแทนที่ทั้งหมด</span><span class="msg">⚠️ การกู้คืนจะแทนที่ข้อมูลทั้งหมด — ตรวจสอบไฟล์ให้ถูกต้องก่อนกด "กู้คืน"</span></div>
+  <h3 class="mini">กู้คืนบน API build (เจ้าของร้าน · ต้องออนไลน์)</h3>
+  <ol class="steps">
+    <li><span class="st-title"><span class="ui ghost">📥 กู้คืนข้อมูล</span> → <span class="ui ghost">คลิกเพื่อเลือกไฟล์ backup</span> แล้วเลือกไฟล์ <code>.zip</code> หรือ <code>.json</code></span><span class="see"><span class="msg">รองรับไฟล์ .zip หรือ .json ที่ส่งออกจากระบบนี้เท่านั้น</span> · <code>.zip</code> ไม่เกิน 200 MB (รวมรูปสินค้า) · <code>.json</code> เดิมไม่เกิน 10 MB (ไม่มีรูป)</span></li>
+    <li><span class="st-title">ตรวจบรรทัดใต้ <span class="msg">ข้อมูลในไฟล์ที่เลือก</span></span>ไฟล์ <code>.zip</code> ขึ้น <span class="msg">ไฟล์: {ชื่อไฟล์} ({n} MB) · ข้อมูลและรูปสินค้า</span></li>
+    <li><span class="st-title">กด <span class="ui">📥 กู้คืนข้อมูลจากไฟล์นี้</span> → พิมพ์ชื่อร้านให้ตรงในช่อง <span class="ui ghost">ชื่อร้าน</span> → ยืนยัน</span><span class="see"><span class="msg">⚠ ยืนยันการแทนที่ข้อมูลทั้งร้าน? พิมพ์ชื่อร้าน "{ชื่อร้าน}" เพื่อยืนยัน</span> แล้ว <span class="msg">กำลังนำเข้าข้อมูล… กรุณาอย่าปิดหน้านี้</span></span></li>
+    <li><span class="st-title">รอจนขึ้นว่าสำเร็จ</span><span class="msg">นำเข้าข้อมูลสำเร็จ — เครื่องนี้แสดงข้อมูลใหม่แล้ว · เครื่องอื่นของร้านยังมีข้อมูลเดิมค้างอยู่ในเครื่อง ให้ใช้เครื่องนี้ทำงานต่อ</span></li>
+  </ol>
+  <div class="note warn"><span class="nt">ก่อนกู้คืนจาก .zip</span>การกู้คืนแทนที่ข้อมูลทั้งร้าน — ระบบเก็บสำเนาข้อมูลเดิมไว้บนเซิร์ฟเวอร์ก่อนแทนที่ · สินค้าที่ไฟล์ไม่มีรูปให้ จะกลายเป็นสินค้าไม่มีรูป (การ์ดแสดงไอคอน) · ไฟล์ <code>.zip</code> ที่ผิดรูปแบบ (เช่น มีไฟล์แปลกปลอม ไม่มี <code>data.json</code>) จะถูกปฏิเสธก่อนเริ่มนำเข้า ด้วย <span class="msg">ไฟล์สำรอง (.zip) ไม่ถูกต้อง — {เหตุผล}</span> โดยข้อมูลร้านไม่ถูกแตะ · เครื่องอื่นของร้านต้องล้างข้อมูลไซต์/รีเฟรชเพื่อให้รูปและสินค้าตรงกัน</div>
   <h2 class="sub">ส่งออก CSV <span class="en">Export</span></h2>
   <p>แท็บ <span class="ui ghost">📤 ส่งออก CSV</span> → เลือกช่วงวัน → <span class="ui ghost">⬇ ดาวน์โหลด</span> ที่ <span class="msg">📋 ยอดขายรายบิล</span> / <span class="msg">📦 รายการสินค้าที่ขาย</span> / <span class="msg">🗂 สต็อกปัจจุบัน</span> — เปิดใน Excel ภาษาไทยได้</p>
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
-      <li>สำรอง/กู้คืนในหน้านี้ทำกับ <strong>ฐานข้อมูลในเครื่องนี้</strong> — เหมาะกับ Drift build · ใน API build ข้อมูลจริงอยู่บนเซิร์ฟเวอร์ จึง<strong>ไม่มีปุ่มกู้คืน</strong> (แท็บ 📥 กู้คืนข้อมูล แสดงข้อความว่าการนำเข้าข้อมูลให้ผู้ดูแลแพลตฟอร์มดำเนินการ) — ดาวน์โหลด backup ยังใช้ได้ · เซิร์ฟเวอร์มีงานส่งออกข้อมูลร้าน (<code>POST /backup/export</code>) แต่แอปยังไม่มีปุ่มเรียก</li>
+      <li>Drift build: สำรอง/กู้คืนทำกับ <strong>ฐานข้อมูลในเครื่องนี้</strong> (ไฟล์ <code>.json</code>, ไม่มีรูปสินค้า) · API build: ข้อมูลจริงอยู่บนเซิร์ฟเวอร์ — ปุ่มดาวน์โหลดสั่งงานส่งออกที่เซิร์ฟเวอร์ (ได้ <code>.zip</code> พร้อมรูป) และ 📥 กู้คืนข้อมูล ส่งไฟล์ <code>.zip</code>/<code>.json</code> ขึ้นเซิร์ฟเวอร์ (<code>POST /backup/import</code>) · ข้อความและขั้นตอนของส่วนนี้ที่เป็นของ API build ร่างโดย agent ยังรอเจ้าของรับรอง</li>
       <li>การสำรองข้อมูลฝั่งเซิร์ฟเวอร์ยังไม่ออกนอก VM (ภาค 04)</li>
     </ul>
   </div>

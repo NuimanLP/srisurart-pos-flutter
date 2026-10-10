@@ -17,3 +17,16 @@ Future<String?> exportTextFile({
   await file.writeAsString(content, encoding: utf8);
   return file.path;
 }
+
+/// Writes [bytes] (a backup `.zip`) to [filename] in the application documents
+/// directory and returns the absolute path. [mimeType] is for the web build.
+Future<String?> exportBytesFile({
+  required String filename,
+  required List<int> bytes,
+  required String mimeType,
+}) async {
+  final dir = await getApplicationDocumentsDirectory();
+  final file = File(p.join(dir.path, filename));
+  await file.writeAsBytes(bytes);
+  return file.path;
+}

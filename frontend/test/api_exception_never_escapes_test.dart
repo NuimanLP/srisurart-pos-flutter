@@ -196,6 +196,14 @@ const _loginOverrides = {
     502: OwnerImportRepository.uploadLostMessage,
     503: OwnerImportRepository.uploadLostMessage,
   },
+  // The same upload, sent raw as a `.zip` (product images, 2026-10-10).
+  'OwnerImportRepository.importBackupFile': {
+    400: OwnerImportRepository.rejectedFileMessage,
+    429: OwnerImportRepository.uploadLostMessage,
+    500: OwnerImportRepository.uploadLostMessage,
+    502: OwnerImportRepository.uploadLostMessage,
+    503: OwnerImportRepository.uploadLostMessage,
+  },
 };
 
 /// The only things a screen may be handed. Anything else — above all an
@@ -295,6 +303,7 @@ const _classes = <String, List<(String, String)>>{
 /// Public `Future` methods that never reach `ApiClient`, with the reason.
 const _noApiCall = <String, String>{
   'ApiProductsRepository.getById': 'Drift first; its GET is caught and swallowed',
+  'ApiProductsRepository.getImageUrls': 'reads app_meta only; never calls the API',
   'ApiProductsRepository.productIdsWithUnsyncedOps': 'inherited, Drift only',
   'ApiProductsRepository.openDocumentRefs': 'inherited, Drift only',
   'ApiMechanicsRepository.getCreditPayments': 'inherited, Drift only',
@@ -387,6 +396,10 @@ final Map<String, _Call> _cases = {
   'ApiProductsRepository.delete': (w) => ApiProductsRepository(w.db, w.api).delete('tp1'),
   'ApiProductsRepository.adjustStock': (w) =>
       ApiProductsRepository(w.db, w.api).adjustStock('tp1', 1, 'adjust', null),
+  'ApiProductsRepository.setImage': (w) => ApiProductsRepository(w.db, w.api)
+      .setImage('tp1', Uint8List.fromList([0xFF, 0xD8, 0xFF])),
+  'ApiProductsRepository.removeImage': (w) =>
+      ApiProductsRepository(w.db, w.api).removeImage('tp1'),
   // Inherited from ProductsRepository; both reach ApiClient through overrides.
   'ApiProductsRepository.deleteMany': (w) =>
       ApiProductsRepository(w.db, w.api).deleteMany(['tp1']),
@@ -518,6 +531,13 @@ final Map<String, _Call> _cases = {
   'OwnerImportRepository.importBackup': (w) =>
       OwnerImportRepository(w.api, w.db, pollInterval: Duration.zero, maxPolls: 2)
           .importBackup(const {'__meta': {'version': 2}}, confirmShopName: 'ร้าน'),
+  'OwnerImportRepository.importBackupFile': (w) =>
+      OwnerImportRepository(w.api, w.db, pollInterval: Duration.zero, maxPolls: 2)
+          .importBackupFile(const [0x50, 0x4B, 3, 4],
+              contentType: OwnerImportRepository.zipContentType, confirmShopName: 'ร้าน'),
+  'OwnerImportRepository.exportBackup': (w) => OwnerImportRepository(w.api, w.db,
+          exportPollInterval: Duration.zero, maxExportPolls: 2)
+      .exportBackup(),
   // Never throws: every reply either finishes the refresh, clears the marker or keeps it.
   'OwnerImportRepository.resumePendingImport': (w) async {
     await w.db.into(w.db.appMeta).insert(AppMetaCompanion.insert(

@@ -161,6 +161,10 @@ class ServerErrorResolver {
     'OWNER_ONLY': 'เฉพาะเจ้าของร้านเท่านั้นที่แก้ไขบัญชีรับเงินได้', // เจ้าของรับรอง 2026-10-10
     'PAYMENT_ACCOUNT_NOT_FOUND':
         'ไม่พบบัญชีรับเงินที่เลือก กรุณาเลือกบัญชีใหม่', // เจ้าของรับรอง 2026-10-10
+    // Product images (owner request 2026-10-10, contract §3) — agent ร่าง.
+    'PRODUCT_IMAGE_INVALID':
+        'ไฟล์รูปไม่ถูกต้อง กรุณาใช้รูป JPG, PNG หรือ WebP', // agent ร่าง
+    'PRODUCT_IMAGE_TOO_LARGE': 'รูปใหญ่เกิน 3 MB', // agent ร่าง
     'UNAUTHENTICATED': 'กรุณาเข้าสู่ระบบ',
     'FORBIDDEN': 'ไม่มีสิทธิ์เข้าถึงข้อมูลหรือดำเนินการนี้',
   };

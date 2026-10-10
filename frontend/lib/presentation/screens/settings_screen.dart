@@ -1411,6 +1411,11 @@ class _BackupTabState extends State<_BackupTab> {
 
   // restore state
   Map<String, dynamic>? _preview; // parsed/validated file ready to restore
+  // API build: a picked `.zip` (data.json + images/) is sent as it is; the
+  // device does not unpack it, so there is no record-count preview.
+  Uint8List? _pickedZip;
+  String _pickedName = '';
+  bool _exporting = false; // API build: waiting for the server's .zip
   bool _confirmRestore = false;
   bool _importing = false; // API build: waiting for the server's import job
   String? _restoreStatus; // success | error
@@ -1432,6 +1437,18 @@ class _BackupTabState extends State<_BackupTab> {
   // never removes the ones the replace deleted on the server.
   static const _serverRestoreDone =
       'นำเข้าข้อมูลสำเร็จ — เครื่องนี้แสดงข้อมูลใหม่แล้ว · เครื่องอื่นของร้านยังมีข้อมูลเดิมค้างอยู่ในเครื่อง ให้ใช้เครื่องนี้ทำงานต่อ';
+  // agent ร่าง (product images 2026-10-10)
+  static const _serverExportRunning =
+      'กำลังเตรียมไฟล์สำรอง (ข้อมูลและรูปสินค้า)… กรุณาอย่าปิดหน้านี้';
+  static const _serverPickHint =
+      'รองรับไฟล์ .zip หรือ .json ที่ส่งออกจากระบบนี้เท่านั้น';
+  static String _zipLabel(String name, int bytes) =>
+      'ไฟล์: $name (${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB) · ข้อมูลและรูปสินค้า';
+
+  /// A `.zip` starts with the local-file-header signature `PK\x03\x04`.
+  static bool _isZip(Uint8List b) =>
+      b.length >= 4 && b[0] == 0x50 && b[1] == 0x4B && b[2] == 0x03 && b[3] == 0x04;
+
   static const _serverRestoreDoneReload =
       'นำเข้าข้อมูลสำเร็จ — กรุณารีเฟรชหน้านี้และเครื่องอื่นของร้านเพื่อโหลดข้อมูลใหม่';
 
@@ -1475,6 +1492,11 @@ class _BackupTabState extends State<_BackupTab> {
       );
       return;
     }
+    // API build: the server's backup — data and product pictures, one .zip.
+    if (context.read<SnapshotRepository>().restoresViaServer) {
+      await _handleServerExport();
+      return;
+    }
     try {
       final data = await context.read<SnapshotRepository>().exportSnapshot();
       final json = const JsonEncoder.withIndent('  ').convert(data);
@@ -1492,6 +1514,35 @@ class _BackupTabState extends State<_BackupTab> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
+    }
+  }
+
+  Future<void> _handleServerExport() async {
+    setState(() => _exporting = true);
+    try {
+      final bytes = await context.read<OwnerImportRepository>().exportBackup();
+      final fileName = 'pos-backup-${todayKey().replaceAll('-', '')}.zip';
+      final path = await exportBytesFile(
+        filename: fileName,
+        bytes: bytes,
+        mimeType: OwnerImportRepository.zipContentType,
+      );
+      if (!mounted) return;
+      await _showSavedFileDialog(
+        context,
+        title: 'ดาวน์โหลดไฟล์ backup สำเร็จ',
+        path: path,
+        filename: fileName,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          'เกิดข้อผิดพลาด: ${ServerErrorResolver.resolveCounterError(e)}',
+        ),
+      ));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
     }
   }
 
@@ -1513,8 +1564,22 @@ class _BackupTabState extends State<_BackupTab> {
       if (!mounted || file == null) return;
       final bytes = await file.readAsBytes();
       if (!mounted) return;
+      // API build: a .zip goes to the server untouched (the server checks it).
+      if (context.read<SnapshotRepository>().restoresViaServer &&
+          _isZip(bytes)) {
+        setState(() {
+          _pickedZip = bytes;
+          _pickedName = file.name;
+          _preview = null;
+          _confirmRestore = false;
+          _restoreStatus = null;
+          _restoreMsg = '';
+        });
+        return;
+      }
       final data = parseBackupFile(bytes);
       setState(() {
+        _pickedZip = null;
         _preview = data;
         _confirmRestore = false;
         _restoreStatus = null;
@@ -1524,6 +1589,7 @@ class _BackupTabState extends State<_BackupTab> {
       if (!mounted) return;
       setState(() {
         _preview = null;
+        _pickedZip = null;
         _restoreStatus = 'error';
         _restoreMsg = 'ไม่สามารถอ่านไฟล์ได้: ${_msg(err)}';
       });
@@ -1543,7 +1609,8 @@ class _BackupTabState extends State<_BackupTab> {
       return;
     }
     final data = _preview;
-    if (data == null) return;
+    final zip = _pickedZip;
+    if (data == null && zip == null) return;
     // API build: the server replaces the shop's data (its pre-flight decides), never Drift.
     final toServer = context.read<SnapshotRepository>().restoresViaServer;
     if (toServer) {
@@ -1553,9 +1620,17 @@ class _BackupTabState extends State<_BackupTab> {
         _restoreStatus = null;
       });
       try {
-        final outcome = await context
-            .read<OwnerImportRepository>()
-            .importBackup(data, confirmShopName: _confirmName.text);
+        final importer = context.read<OwnerImportRepository>();
+        final outcome = zip != null
+            ? await importer.importBackupFile(
+                zip,
+                contentType: OwnerImportRepository.zipContentType,
+                confirmShopName: _confirmName.text,
+              )
+            : await importer.importBackup(
+                data!,
+                confirmShopName: _confirmName.text,
+              );
         if (!mounted) return;
         // This device's cache is already emptied and pulled again (when
         // `refreshed`); the counts below are the new data's.
@@ -1567,6 +1642,7 @@ class _BackupTabState extends State<_BackupTab> {
               ? _serverRestoreDone
               : _serverRestoreDoneReload;
           _preview = null;
+          _pickedZip = null;
           _confirmName.clear();
         });
       } catch (err) {
@@ -1581,6 +1657,7 @@ class _BackupTabState extends State<_BackupTab> {
       }
       return;
     }
+    if (data == null) return;
     try {
       await context.read<SnapshotRepository>().importLegacyBackup(data);
       if (!mounted) return;
@@ -1645,6 +1722,7 @@ class _BackupTabState extends State<_BackupTab> {
   }
 
   List<Widget> _backupView(Map<String, dynamic> counts, bool isDegraded) {
+    final toServer = context.read<SnapshotRepository>().restoresViaServer;
     return [
       const _InfoBox(
         text:
@@ -1659,10 +1737,27 @@ class _BackupTabState extends State<_BackupTab> {
             const SizedBox(height: 20),
             Center(
               child: AppButton(
-                label: '⬇ ดาวน์โหลดไฟล์ backup (.json)',
-                onPressed: isDegraded ? null : _handleExport,
+                label: toServer
+                    ? '⬇ ดาวน์โหลดไฟล์ backup (.zip)' // agent ร่าง
+                    : '⬇ ดาวน์โหลดไฟล์ backup (.json)',
+                onPressed: isDegraded || _exporting ? null : _handleExport,
               ),
             ),
+            if (_exporting) ...[
+              const SizedBox(height: 12),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Flexible(child: Text(_serverExportRunning)),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1701,7 +1796,9 @@ class _BackupTabState extends State<_BackupTab> {
               ),
               const SizedBox(height: 4),
               Text(
-                'รองรับไฟล์ .json ที่ส่งออกจากระบบนี้เท่านั้น',
+                toServer
+                    ? _serverPickHint
+                    : 'รองรับไฟล์ .json ที่ส่งออกจากระบบนี้เท่านั้น',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.secondary,
                 ),
@@ -1711,7 +1808,7 @@ class _BackupTabState extends State<_BackupTab> {
           ),
         ),
       ),
-      if (_preview != null) ...[
+      if (_preview != null || _pickedZip != null) ...[
         const SizedBox(height: 16),
         AppCard(
           child: Column(
@@ -1721,11 +1818,13 @@ class _BackupTabState extends State<_BackupTab> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Text(
-                  'ร้าน: ${pmeta['shopName'] ?? '—'} · สำรองเมื่อ: ${_fmtExportedAt(pmeta['exportedAt'])}',
+                  _pickedZip != null
+                      ? _zipLabel(_pickedName, _pickedZip!.length)
+                      : 'ร้าน: ${pmeta['shopName'] ?? '—'} · สำรองเมื่อ: ${_fmtExportedAt(pmeta['exportedAt'])}',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ),
-              _RecordGrid(counts: pcounts),
+              if (_pickedZip == null) _RecordGrid(counts: pcounts),
               const SizedBox(height: 16),
               if (!_confirmRestore)
                 AppButton.danger(

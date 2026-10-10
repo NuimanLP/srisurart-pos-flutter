@@ -8,13 +8,17 @@
 
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart' show sha256;
+
 import 'package:drift/drift.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/network/transport_failure.dart';
+import '../../core/utils/product_image.dart';
 import '../db/database.dart';
+import '../services/tenant_cache_guard.dart';
 import 'api/api_wire.dart';
 import 'movements_repository.dart';
 import 'products_repository.dart';
@@ -28,6 +32,16 @@ class ApiProductsRepository extends ProductsRepository {
   /// reply): the body is a DELTA, so the same adjustment pressed again must go
   /// out under the same `Idempotency-Key` — see [PendingWrites].
   final PendingWrites _pendingAdjusts = PendingWrites();
+
+  /// Picture uploads / removals whose fate is unknown: the same picture pressed
+  /// again goes out under the same `Idempotency-Key`. Fingerprint
+  /// `<productId>|put|<sha256>` or `<productId>|delete`; a different edit of
+  /// the same product supersedes the older parked one (08 §5).
+  final PendingWrites _pendingImages = PendingWrites();
+
+  // agent ร่าง — the server's OWNER_ONLY sentence names payment accounts.
+  static const String imageOwnerOnlyMessage =
+      'เฉพาะเจ้าของร้านเท่านั้นที่เปลี่ยนรูปสินค้าได้';
 
   /// Converts API JSON representation to a Drift [ProductsCompanion].
   ProductsCompanion _productToCompanion(Map<String, dynamic> json) {
@@ -62,6 +76,11 @@ class ApiProductsRepository extends ProductsRepository {
       zone: Value(zone),
       updatedAt: Value(updatedAt),
       deletedAt: Value(deletedAt),
+      // Absent from the reply (a server from before product images) → the
+      // row keeps its key; an explicit null clears it.
+      imageKey: json.containsKey('imageKey')
+          ? Value(json['imageKey'] as String?)
+          : const Value.absent(),
     );
   }
 
@@ -384,6 +403,82 @@ class ApiProductsRepository extends ProductsRepository {
     }
     // Closed only after the local apply: if it throws, the next press replays.
     _pendingAdjusts.close(attempt);
+  }
+
+  /// URLs for this shop's pictures: the tenant the local cache belongs to
+  /// (app_meta `tenant_id`, written at login by [TenantCacheGuard] — API build
+  /// only) and the API origin. Null when no tenant is known: no pictures.
+  @override
+  Future<ProductImageUrls?> getImageUrls() async {
+    final row = await (db.select(db.appMeta)
+          ..where((t) => t.key.equals(TenantCacheGuard.tenantKey)))
+        .getSingleOrNull();
+    final tenantId = row?.value;
+    if (tenantId == null || tenantId.isEmpty) return null;
+    return ProductImageUrls(baseUrl: apiClient.baseUrl, tenantId: tenantId);
+  }
+
+  /// `PUT /products/:id/image` with the raw JPEG (contract §3).
+  @override
+  Future<void> setImage(String productId, Uint8List jpeg) => _imageWrite(
+        productId,
+        '$productId|put|${sha256.convert(jpeg)}',
+        (headers) => apiClient.sendBytes(
+          'PUT',
+          '/api/v1/products/$productId/image',
+          jpeg,
+          contentType: 'image/jpeg',
+          headers: headers,
+        ),
+      );
+
+  /// `DELETE /products/:id/image` (contract §3).
+  @override
+  Future<void> removeImage(String productId) => _imageWrite(
+        productId,
+        '$productId|delete',
+        (headers) => apiClient.delete(
+          '/api/v1/products/$productId/image',
+          headers: headers,
+        ),
+      );
+
+  /// Online only, like a settings write: a 4xx closes the attempt and reaches
+  /// the screen in Thai; a 5xx / 429 / lost reply leaves it parked (same key on
+  /// the next press) and shows the connection sentence. Only the reply's
+  /// `imageKey` is written to Drift — the rest of the row (stock above all,
+  /// which may carry unsent local sales) is the pull's business.
+  Future<void> _imageWrite(
+    String productId,
+    String fingerprint,
+    Future<dynamic> Function(Map<String, String> headers) send,
+  ) async {
+    _pendingImages.closeWhere(
+      (f) => f.startsWith('$productId|') && f != fingerprint,
+    );
+    final attempt = _pendingImages.of(fingerprint);
+    final Object? res;
+    try {
+      res = await send(attempt.headers);
+    } on ApiException catch (e) {
+      _pendingImages.closeIfVerdict(attempt, e);
+      if (e.code == 'OWNER_ONLY') {
+        throw PosException(e.code, imageOwnerOnlyMessage, e.details);
+      }
+      throw posExceptionFromApi(e);
+    } catch (e) {
+      if (isTransportFailure(e)) {
+        throw PosException('NETWORK_ERROR', ServerErrorResolver.resolve(null));
+      }
+      rethrow;
+    }
+    if (res is! Map || !res.containsKey('imageKey')) throw unreadableResponse();
+    final key = res['imageKey'];
+    if (key != null && key is! String) throw unreadableResponse();
+    await (db.update(db.products)..where((t) => t.id.equals(productId)))
+        .write(ProductsCompanion(imageKey: Value(key as String?)));
+    // Closed only after the local apply: if it throws, the next press replays.
+    _pendingImages.close(attempt);
   }
 
   @override

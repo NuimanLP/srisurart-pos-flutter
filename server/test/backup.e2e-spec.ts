@@ -2,6 +2,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { createHash } from 'node:crypto';
 import request from 'supertest';
+import { backupDataJson } from './support/zip.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   QUEUE_BACKUP,
@@ -177,7 +178,7 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
         downloadPath: `/api/v1/backup/jobs/${jobId}/download`,
       });
 
-      // 4. AC4: download streams the standard snapshot JSON
+      // 4. AC4: download streams the backup ZIP — data.json is the standard snapshot (contract §4)
       const dlRes = await request(fixture.app.getHttpServer())
         .get(descriptor.downloadPath)
         .set('Authorization', `Bearer ${ownerToken}`)
@@ -188,11 +189,12 @@ describe('Tenant Backup & Data Portability (e2e)', () => {
           res.on('end', () => cb(null, Buffer.concat(chunks)));
         });
       expect(dlRes.status).toBe(200);
-      expect(dlRes.headers['content-disposition']).toMatch(/^attachment; filename="backup-/);
+      expect(dlRes.headers['content-disposition']).toMatch(/^attachment; filename="backup-.*\.zip"$/);
+      expect(dlRes.headers['content-type']).toBe('application/zip');
       const bytes = dlRes.body as Buffer;
       expect(bytes.length).toBe(descriptor.sizeBytes);
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(descriptor.sha256);
-      const snapshot = JSON.parse(bytes.toString('utf8'));
+      const snapshot = await backupDataJson(bytes);
       expect(snapshot).toBeDefined();
       expect(snapshot.__meta).toMatchObject({
         version: 2,

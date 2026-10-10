@@ -21,6 +21,7 @@ void main() {
     rawDb.execute('DROP TABLE op_effects');
     rawDb.execute('DROP TABLE payment_accounts'); // v14 (QR accounts)
     rawDb.execute('ALTER TABLE sales DROP COLUMN payment_account_id');
+    rawDb.execute('ALTER TABLE products DROP COLUMN image_key'); // v15 (images)
     rawDb.execute(
       "INSERT INTO outbox_ops (op_id, idempotency_key, type, payload, "
       "aggregates, created_at, status) VALUES "
@@ -35,7 +36,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first as int)
         .getSingle();
-    expect(version, 14);
+    expect(version, 15);
     expect(await db.select(db.opEffects).get(), isEmpty);
     expect((await db.select(db.outboxOps).getSingle()).opId, 'op-old');
 

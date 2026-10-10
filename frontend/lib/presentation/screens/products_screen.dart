@@ -27,6 +27,7 @@ import '../../domain/reports/net_sales.dart'
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
+import '../widgets/product_image_editor.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 import 'vehicle_search_screen.dart';
@@ -317,6 +318,8 @@ class _StockTabState extends State<_StockTab> {
         product: p,
         categories: _categories,
         onCategoriesChanged: _load,
+        // A picture change is saved on its own, even if the form is cancelled.
+        onImageChanged: _load,
       ),
     );
     if (saved == true) await _load();
@@ -1450,10 +1453,12 @@ class _ProductEditDialog extends StatefulWidget {
   final ProductRow? product; // null = new
   final List<String> categories;
   final Future<void> Function() onCategoriesChanged;
+  final Future<void> Function() onImageChanged;
   const _ProductEditDialog({
     required this.product,
     required this.categories,
     required this.onCategoriesChanged,
+    required this.onImageChanged,
   });
 
   @override
@@ -1673,6 +1678,12 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                 ),
               ),
               const SizedBox(height: 16),
+              // The picture of an existing product (API build only).
+              if (!_isNew)
+                ProductImageEditor(
+                  product: widget.product!,
+                  onChanged: () => widget.onImageChanged(),
+                ),
               // Two columns that fill the dialog (one below 560 px): each
               // field used to be capped at 300 px, and 2 × 300 + 16 never fit
               // the 612 px content width, so every field sat alone on half a

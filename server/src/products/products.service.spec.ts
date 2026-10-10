@@ -1,4 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm, utimes } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { imageFilePath, writeImageFiles } from '../product-images/image-store.js';
 import { ProductsService } from './products.service.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
 import * as requestContext from '../common/request-context.js';
@@ -169,5 +174,63 @@ describe('ProductsService Caching & Reads', () => {
     // The next miss becomes the loader straight away instead of waiting on a dead lock.
     managerMock.query.mockResolvedValueOnce([{ n: 0 }]).mockResolvedValueOnce([]);
     expect((await service.list({ page: 1, limit: 10 })).fromCache).toBe(false);
+  });
+});
+
+describe('ProductsService.removeImageIfUnreferenced (orphan grace period)', () => {
+  const TENANT = '00000000-0000-4000-8000-000000000001';
+  const KEY = 'aaaaaaaabbbbbbbbccccccccdddddddd';
+  const prev = process.env.PRODUCT_IMAGES_DIR;
+  let root: string;
+  let referenced: boolean;
+  let service: ProductsService;
+  const present = () => [imageFilePath(TENANT, KEY, 't'), imageFilePath(TENANT, KEY, 'p')].map((f) => existsSync(f));
+  const write = () => writeImageFiles(TENANT, KEY, { thumb: Buffer.from('t'), preview: Buffer.from('p') });
+  const backdate = async () => {
+    const old = new Date('2020-01-01T00:00:00Z');
+    for (const v of ['t', 'p'] as const) await utimes(imageFilePath(TENANT, KEY, v), old, old);
+  };
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'products-img-'));
+    process.env.PRODUCT_IMAGES_DIR = root;
+    referenced = false;
+    const manager = { query: vi.fn(async () => (referenced ? [{ '?column?': 1 }] : [])) };
+    vi.spyOn(requestContext, 'currentRequestContext').mockReturnValue({ tenantId: TENANT, manager } as any);
+    vi.spyOn(requestContext, 'authorisedTenantId').mockReturnValue(TENANT);
+    service = new ProductsService({} as any, { log: vi.fn() } as any, { runTx: (fn: () => Promise<unknown>) => fn() } as any);
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(root, { recursive: true, force: true });
+    if (prev === undefined) delete process.env.PRODUCT_IMAGES_DIR;
+    else process.env.PRODUCT_IMAGES_DIR = prev;
+  });
+
+  it('keeps a referenced file, however old', async () => {
+    await write();
+    await backdate();
+    referenced = true;
+    await service.removeImageIfUnreferenced(KEY);
+    expect(present()).toEqual([true, true]);
+  });
+
+  it('keeps an unreferenced file written within the grace period (an upload may not have committed)', async () => {
+    await write();
+    await service.removeImageIfUnreferenced(KEY);
+    expect(present()).toEqual([true, true]);
+  });
+
+  it('deletes an unreferenced file older than the grace period', async () => {
+    await write();
+    await backdate();
+    await service.removeImageIfUnreferenced(KEY);
+    expect(present()).toEqual([false, false]);
+  });
+
+  it('evenIfFresh (the refused upload created the files) deletes at once', async () => {
+    await write();
+    await service.removeImageIfUnreferenced(KEY, { evenIfFresh: true });
+    expect(present()).toEqual([false, false]);
   });
 });

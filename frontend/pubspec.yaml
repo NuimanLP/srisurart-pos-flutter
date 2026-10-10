@@ -61,6 +61,9 @@ dependencies:
   # failed to compile. iOS needs 14.0+ from 12.0 on.
   file_picker: ^13.1.0
   file_picker_web: ^4.0.0 # FilePickerWebOptions (no window-blur cancel)
+  # JPEG encoder for product photos (the engine encodes PNG only). Already in
+  # the lock through `pdf`; pinned to that resolved version.
+  image: ^4.9.1
 
 dev_dependencies:
   flutter_test:
