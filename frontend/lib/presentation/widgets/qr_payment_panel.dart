@@ -20,7 +20,7 @@ import 'payment_accounts_settings.dart' show BankLabel;
 
 /// Shown under โอน/QR when no account is set up.
 const qrNoAccountsHint =
-    'ยังไม่มีบัญชีรับเงิน QR — เจ้าของร้านเพิ่มได้ที่ ตั้งค่า → บัญชีรับเงิน QR'; // agent ร่าง
+    'ยังไม่มีบัญชีรับเงิน QR — เจ้าของร้านเพิ่มได้ที่ ตั้งค่า → บัญชีรับเงิน QR'; // เจ้าของรับรอง 2026-10-10
 
 class QrPaymentPanel extends StatelessWidget {
   const QrPaymentPanel({
@@ -75,7 +75,7 @@ class QrPaymentPanel extends StatelessWidget {
                     TextButton.icon(
                       onPressed: () => showQrFullscreen(context, a, total),
                       icon: const Icon(Icons.fullscreen),
-                      label: const Text('ขยาย'), // agent ร่าง
+                      label: const Text('ขยาย'), // เจ้าของรับรอง 2026-10-10
                     ),
                   ],
                 ),
@@ -92,7 +92,7 @@ class QrPaymentPanel extends StatelessWidget {
                 ),
                 if (accounts.length > 1) ...[
                   const SizedBox(height: 8),
-                  Text('เปลี่ยนบัญชี', style: theme.textTheme.labelMedium), // agent ร่าง
+                  Text('เปลี่ยนบัญชี', style: theme.textTheme.labelMedium), // เจ้าของรับรอง 2026-10-10
                   const SizedBox(height: 4),
                   Wrap(
                     spacing: 6,
@@ -175,7 +175,7 @@ class QrCodeView extends StatelessWidget {
         height: size,
         child: const Center(
           child: Text(
-            'แสดง QR ของบัญชีนี้ไม่ได้ กรุณาแก้ไขบัญชีในตั้งค่า', // agent ร่าง
+            'แสดง QR ของบัญชีนี้ไม่ได้ กรุณาแก้ไขบัญชีในตั้งค่า', // เจ้าของรับรอง 2026-10-10
             textAlign: TextAlign.center,
           ),
         ),

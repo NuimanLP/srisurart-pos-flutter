@@ -51,15 +51,15 @@ const maxQrImageBytes = 300000;
 
 /// `409 PAYMENT_ACCOUNT_LIMIT` — the same words on both builds.
 const paymentAccountLimitMessage =
-    'บันทึกบัญชีรับเงินได้สูงสุด 5 บัญชี'; // agent ร่าง (contract §2)
+    'บันทึกบัญชีรับเงินได้สูงสุด 5 บัญชี'; // เจ้าของรับรอง 2026-10-10 (contract §2)
 
 /// Why a non-owner sees the section read-only, and `403 OWNER_ONLY`.
 const paymentAccountOwnerOnlyMessage =
-    'เฉพาะเจ้าของร้านเท่านั้นที่แก้ไขบัญชีรับเงินได้'; // agent ร่าง (contract §2)
+    'เฉพาะเจ้าของร้านเท่านั้นที่แก้ไขบัญชีรับเงินได้'; // เจ้าของรับรอง 2026-10-10 (contract §2)
 
 /// A write refused while Degraded — accounts are online-only on the API build.
 const paymentAccountsOfflineRefusal =
-    'ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกบัญชีรับเงินได้'; // agent ร่าง
+    'ระบบอยู่ในสถานะออฟไลน์ ไม่สามารถบันทึกบัญชีรับเงินได้'; // เจ้าของรับรอง 2026-10-10
 
 /// What a new account is created from (the add dialog's fields).
 class PaymentAccountInput {
@@ -97,28 +97,28 @@ String? paymentAccountError({
 }) {
   final n = nickname.trim();
   if (n.isEmpty || n.length > 40) {
-    return 'กรุณากรอกชื่อเล่นบัญชี (ไม่เกิน 40 ตัวอักษร)'; // agent ร่าง
+    return 'กรุณากรอกชื่อเล่นบัญชี (ไม่เกิน 40 ตัวอักษร)'; // เจ้าของรับรอง 2026-10-10
   }
   if (!paymentAccountBanks.containsKey(bankCode)) {
-    return 'กรุณาเลือกธนาคาร'; // agent ร่าง
+    return 'กรุณาเลือกธนาคาร'; // เจ้าของรับรอง 2026-10-10
   }
   if (kind == 'promptpay') {
     if (promptpayId == null || !isValidPromptPayId(promptpayId)) {
-      // agent ร่าง
+      // เจ้าของรับรอง 2026-10-10
       return 'หมายเลขพร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก เลขประจำตัว 13 หลัก หรือ e-Wallet 15 หลัก';
     }
     return null;
   }
   if (kind == 'image') {
     if (image == null || image.isEmpty || imageMime == null) {
-      return 'กรุณาเลือกรูป QR'; // agent ร่าง
+      return 'กรุณาเลือกรูป QR'; // เจ้าของรับรอง 2026-10-10
     }
     if (image.length > maxQrImageBytes) {
-      return 'รูป QR ใหญ่เกิน 300 KB กรุณาเลือกรูปอื่น'; // agent ร่าง
+      return 'รูป QR ใหญ่เกิน 300 KB กรุณาเลือกรูปอื่น'; // เจ้าของรับรอง 2026-10-10
     }
     return null;
   }
-  return 'ชนิดบัญชีไม่ถูกต้อง'; // agent ร่าง
+  return 'ชนิดบัญชีไม่ถูกต้อง'; // เจ้าของรับรอง 2026-10-10
 }
 
 /// The account checkout shows first: the default, else the first one.
@@ -231,12 +231,12 @@ class PaymentAccountsRepository {
 /// `400 PAYMENT_ACCOUNT_NOT_FOUND` (contract §2), also the Drift build's
 /// "no such account" on an edit.
 const paymentAccountNotFoundMessage =
-    'ไม่พบบัญชีรับเงินที่เลือก กรุณาเลือกบัญชีใหม่'; // agent ร่าง (contract §2)
+    'ไม่พบบัญชีรับเงินที่เลือก กรุณาเลือกบัญชีใหม่'; // เจ้าของรับรอง 2026-10-10 (contract §2)
 
 /// `404 NOT_FOUND` on an account write — the account was deleted (by another
 /// device) after this screen read the list.
 const paymentAccountGoneMessage =
-    'ไม่พบบัญชีรับเงินนี้ อาจถูกลบไปแล้ว'; // agent ร่าง
+    'ไม่พบบัญชีรับเงินนี้ อาจถูกลบไปแล้ว'; // เจ้าของรับรอง 2026-10-10
 
 /// Throws the [paymentAccountError] for [input] as a `PosException`.
 void checkPaymentAccountInput(PaymentAccountInput input) {

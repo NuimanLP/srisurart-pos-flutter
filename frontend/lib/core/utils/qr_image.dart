@@ -40,7 +40,7 @@ Future<Uint8List> shrinkQrImage(
   } catch (_) {
     throw const PosException(
       'IMAGE_UNREADABLE',
-      'อ่านรูปไม่ได้ กรุณาเลือกไฟล์รูป PNG หรือ JPG', // agent ร่าง
+      'อ่านรูปไม่ได้ กรุณาเลือกไฟล์รูป PNG หรือ JPG', // เจ้าของรับรอง 2026-10-10
     );
   }
   final longSide = math.max(width, height);
@@ -64,6 +64,6 @@ Future<Uint8List> shrinkQrImage(
   }
   throw const PosException(
     'IMAGE_TOO_LARGE',
-    'รูป QR ใหญ่เกิน 300 KB กรุณาเลือกรูปอื่น', // agent ร่าง
+    'รูป QR ใหญ่เกิน 300 KB กรุณาเลือกรูปอื่น', // เจ้าของรับรอง 2026-10-10
   );
 }

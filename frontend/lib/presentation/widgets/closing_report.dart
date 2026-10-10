@@ -88,10 +88,10 @@ class _ClosingData {
 typedef QrAccountRow = ({String label, int bills, double net});
 
 /// A bill whose account is no longer in the local cache (deleted).
-const qrDeletedAccountLabel = 'บัญชีที่ลบแล้ว'; // agent ร่าง (contract §5)
+const qrDeletedAccountLabel = 'บัญชีที่ลบแล้ว'; // เจ้าของรับรอง 2026-10-10 (contract §5)
 
 /// A โอน/QR bill with no account recorded.
-const qrNoAccountLabel = 'ไม่ระบุบัญชี'; // agent ร่าง (contract §5)
+const qrNoAccountLabel = 'ไม่ระบุบัญชี'; // เจ้าของรับรอง 2026-10-10 (contract §5)
 
 /// [NetSales.qrByAccount] as display rows: the shop's accounts in their own
 /// order (by nickname), then every deleted account merged into one

@@ -124,7 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _tabs = [
     ['general', '⚙ ทั่วไป'],
     ['account', '🔐 บัญชี / ผูกเครื่อง'],
-    ['qr', '📱 บัญชีรับเงิน QR'], // agent ร่าง
+    ['qr', '📱 บัญชีรับเงิน QR'], // เจ้าของรับรอง 2026-10-10
     ['theme', '🎨 ธีม'],
     ['backup', '💾 สำรอง/กู้คืน'],
     ['export', '📤 ส่งออก CSV'],
@@ -168,7 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'general' => const _GeneralTab(),
               'account' => const _AccountTab(),
               'qr' => const _ContentPane(
-                title: 'บัญชีรับเงิน QR', // agent ร่าง
+                title: 'บัญชีรับเงิน QR', // เจ้าของรับรอง 2026-10-10
                 children: [PaymentAccountsSection()],
               ),
               'theme' => const _ThemeTab(),

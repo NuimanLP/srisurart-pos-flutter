@@ -86,8 +86,8 @@ class _PaymentAccountsSectionState extends State<PaymentAccountsSection> {
   Future<void> _delete(PaymentAccountRow a) async {
     final ok = await showConfirm(
       context,
-      'ลบบัญชีรับเงิน?', // agent ร่าง
-      'ลบ "${a.nickname}" ออกจากรายการ บิลเก่าที่รับเงินเข้าบัญชีนี้ยังแสดงในรายงานเป็น "บัญชีที่ลบแล้ว"', // agent ร่าง
+      'ลบบัญชีรับเงิน?', // เจ้าของรับรอง 2026-10-10
+      'ลบ "${a.nickname}" ออกจากรายการ บิลเก่าที่รับเงินเข้าบัญชีนี้ยังแสดงในรายงานเป็น "บัญชีที่ลบแล้ว"', // เจ้าของรับรอง 2026-10-10
       danger: true,
       confirmLabel: 'ลบ',
     );
@@ -151,14 +151,14 @@ class _PaymentAccountsSectionState extends State<PaymentAccountsSection> {
                         runSpacing: 8,
                         children: [
                           Text(
-                            'บัญชีรับเงิน ${accounts.length}/$maxPaymentAccounts', // agent ร่าง
+                            'บัญชีรับเงิน ${accounts.length}/$maxPaymentAccounts', // เจ้าของรับรอง 2026-10-10
                             style: theme.textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           if (canEdit)
                             AppButton(
-                              label: '+ เพิ่มบัญชี', // agent ร่าง
+                              label: '+ เพิ่มบัญชี', // เจ้าของรับรอง 2026-10-10
                               onPressed: enabled && !full
                                   ? () => _openDialog(accounts)
                                   : null,
@@ -180,7 +180,7 @@ class _PaymentAccountsSectionState extends State<PaymentAccountsSection> {
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           child: Text(
-                            'ยังไม่มีบัญชีรับเงิน QR', // agent ร่าง
+                            'ยังไม่มีบัญชีรับเงิน QR', // เจ้าของรับรอง 2026-10-10
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.secondary,
@@ -290,8 +290,8 @@ class _AccountTile extends StatelessWidget {
     final theme = Theme.of(context);
     final a = account;
     final detail = a.kind == 'promptpay'
-        ? 'พร้อมเพย์ ${a.promptpayId ?? ''}' // agent ร่าง
-        : 'รูป QR'; // agent ร่าง
+        ? 'พร้อมเพย์ ${a.promptpayId ?? ''}' // เจ้าของรับรอง 2026-10-10
+        : 'รูป QR'; // เจ้าของรับรอง 2026-10-10
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -335,7 +335,7 @@ class _AccountTile extends StatelessWidget {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Text(
-                          'ค่าเริ่มต้น', // agent ร่าง
+                          'ค่าเริ่มต้น', // เจ้าของรับรอง 2026-10-10
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -359,7 +359,7 @@ class _AccountTile extends StatelessWidget {
                 if (!a.isDefault)
                   TextButton(
                     onPressed: enabled ? onSetDefault : null,
-                    child: const Text('ตั้งเป็นค่าเริ่มต้น'), // agent ร่าง
+                    child: const Text('ตั้งเป็นค่าเริ่มต้น'), // เจ้าของรับรอง 2026-10-10
                   ),
                 TextButton(
                   onPressed: enabled ? onEdit : null,
@@ -521,7 +521,7 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
     final theme = Theme.of(context);
     return AlertDialog(
       title: Text(
-        _editing ? 'แก้ไขบัญชีรับเงิน' : 'เพิ่มบัญชีรับเงิน', // agent ร่าง
+        _editing ? 'แก้ไขบัญชีรับเงิน' : 'เพิ่มบัญชีรับเงิน', // เจ้าของรับรอง 2026-10-10
       ),
       content: SizedBox(
         width: 420,
@@ -534,15 +534,15 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
                 controller: _nickname,
                 maxLength: 40,
                 decoration: const InputDecoration(
-                  labelText: 'ชื่อเล่น', // agent ร่าง
-                  hintText: 'เช่น บัญชีร้าน', // agent ร่าง
+                  labelText: 'ชื่อเล่น', // เจ้าของรับรอง 2026-10-10
+                  hintText: 'เช่น บัญชีร้าน', // เจ้าของรับรอง 2026-10-10
                 ),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: _bank,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'ธนาคาร'), // agent ร่าง
+                decoration: const InputDecoration(labelText: 'ธนาคาร'), // เจ้าของรับรอง 2026-10-10
                 items: [
                   for (final e in paymentAccountBanks.entries)
                     DropdownMenuItem(value: e.key, child: Text(e.value)),
@@ -550,14 +550,14 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
                 onChanged: (v) => setState(() => _bank = v ?? _bank),
               ),
               const SizedBox(height: 16),
-              Text('ชนิด', style: theme.textTheme.labelLarge), // agent ร่าง
+              Text('ชนิด', style: theme.textTheme.labelLarge), // เจ้าของรับรอง 2026-10-10
               const SizedBox(height: 6),
               Wrap(
                 spacing: 8,
                 children: [
                   for (final (kind, label) in const [
-                    ('promptpay', 'พร้อมเพย์'), // agent ร่าง
-                    ('image', 'รูป QR'), // agent ร่าง
+                    ('promptpay', 'พร้อมเพย์'), // เจ้าของรับรอง 2026-10-10
+                    ('image', 'รูป QR'), // เจ้าของรับรอง 2026-10-10
                   ])
                     ChoiceChip(
                       label: Text(label),
@@ -575,7 +575,7 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'เปลี่ยนชนิดไม่ได้ — ถ้าต้องการ ให้ลบแล้วเพิ่มใหม่', // agent ร่าง
+                    'เปลี่ยนชนิดไม่ได้ — ถ้าต้องการ ให้ลบแล้วเพิ่มใหม่', // เจ้าของรับรอง 2026-10-10
                     style: theme.textTheme.bodySmall,
                   ),
                 ),
@@ -587,9 +587,9 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
                   maxLength: 15,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: const InputDecoration(
-                    labelText: 'หมายเลขพร้อมเพย์', // agent ร่าง
+                    labelText: 'หมายเลขพร้อมเพย์', // เจ้าของรับรอง 2026-10-10
                     helperText:
-                        'เบอร์มือถือ 10 หลัก / เลขประจำตัว 13 หลัก / e-Wallet 15 หลัก', // agent ร่าง
+                        'เบอร์มือถือ 10 หลัก / เลขประจำตัว 13 หลัก / e-Wallet 15 หลัก', // เจ้าของรับรอง 2026-10-10
                     helperMaxLines: 2,
                   ),
                 )
@@ -606,7 +606,7 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
                       onPressed: _picking || _saving ? null : _pickImage,
                       icon: const Icon(Icons.image_outlined),
                       label: Text(
-                        _image == null ? 'เลือกรูป QR' : 'เปลี่ยนรูป QR', // agent ร่าง
+                        _image == null ? 'เลือกรูป QR' : 'เปลี่ยนรูป QR', // เจ้าของรับรอง 2026-10-10
                       ),
                     ),
                   ],
@@ -616,7 +616,7 @@ class _PaymentAccountDialogState extends State<PaymentAccountDialog> {
                 value: _isDefault,
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
-                title: const Text('ตั้งเป็นค่าเริ่มต้น'), // agent ร่าง
+                title: const Text('ตั้งเป็นค่าเริ่มต้น'), // เจ้าของรับรอง 2026-10-10
                 onChanged: (v) => setState(() => _isDefault = v ?? false),
               ),
               if (_error != null)
