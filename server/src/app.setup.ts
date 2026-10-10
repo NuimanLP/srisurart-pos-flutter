@@ -19,6 +19,11 @@ import {
   OWNER_IMPORT_ROUTE,
   ownerImportTokenFromHeader,
 } from './backup/owner-import.controller.js';
+import {
+  ownerTokenFromHeader,
+  PAYMENT_ACCOUNTS_BODY_LIMIT,
+  PAYMENT_ACCOUNTS_ROUTE,
+} from './payment-accounts/payment-accounts.controller.js';
 import { createMetricsMiddleware } from './metrics/metrics.middleware.js';
 import { MetricsService } from './metrics/metrics.service.js';
 
@@ -140,6 +145,16 @@ export async function configureApp(
   app.use(OWNER_IMPORT_ROUTE, (req: Request, res: Response, next: NextFunction) =>
     tenantVerifier && ownerImportTokenFromHeader(req.headers.authorization, tenantVerifier)
       ? importJson(req, res, next)
+      : next(),
+  );
+  // QR payment accounts carry an uploaded QR image (≤ 300 KB decoded, ≈ 400 KB of base64):
+  // 1 MB on these routes only, earned only by a verified owner access token — the same
+  // pattern and reason as above. No enrolled device is needed (the routes require none).
+  // `app.use(path)` also matches `/payment-accounts/:id`.
+  const paymentAccountsJson = json({ limit: PAYMENT_ACCOUNTS_BODY_LIMIT });
+  app.use(PAYMENT_ACCOUNTS_ROUTE, (req: Request, res: Response, next: NextFunction) =>
+    tenantVerifier && ownerTokenFromHeader(req.headers.authorization, tenantVerifier)
+      ? paymentAccountsJson(req, res, next)
       : next(),
   );
   app.setGlobalPrefix('api/v1', {

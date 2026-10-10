@@ -2807,6 +2807,17 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, SaleRow> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _paymentAccountIdMeta = const VerificationMeta(
+    'paymentAccountId',
+  );
+  @override
+  late final GeneratedColumn<String> paymentAccountId = GeneratedColumn<String>(
+    'payment_account_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2827,6 +2838,7 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, SaleRow> {
     shiftId,
     soldOffline,
     voidReason,
+    paymentAccountId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2975,6 +2987,15 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, SaleRow> {
         voidReason.isAcceptableOrUnknown(data['void_reason']!, _voidReasonMeta),
       );
     }
+    if (data.containsKey('payment_account_id')) {
+      context.handle(
+        _paymentAccountIdMeta,
+        paymentAccountId.isAcceptableOrUnknown(
+          data['payment_account_id']!,
+          _paymentAccountIdMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -3056,6 +3077,10 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, SaleRow> {
         DriftSqlType.string,
         data['${effectivePrefix}void_reason'],
       ),
+      paymentAccountId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payment_account_id'],
+      ),
     );
   }
 
@@ -3094,6 +3119,13 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
 
   /// Schema v10 (#276, Slice 11-c): mandatory reason required when voiding.
   final String? voidReason;
+
+  /// Schema v14 (QR accounts, owner 2026-10-10): the [PaymentAccounts] row a
+  /// `โอน/QR` bill was paid into, or null (any other method, no account set
+  /// up, or a bill from before v14). Deliberately NOT a `references(...)`: the
+  /// account may have been deleted since, and the closing report still names it
+  /// as `บัญชีที่ลบแล้ว`.
+  final String? paymentAccountId;
   const SaleRow({
     required this.id,
     required this.receiptNo,
@@ -3113,6 +3145,7 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     this.shiftId,
     required this.soldOffline,
     this.voidReason,
+    this.paymentAccountId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3150,6 +3183,9 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     map['sold_offline'] = Variable<bool>(soldOffline);
     if (!nullToAbsent || voidReason != null) {
       map['void_reason'] = Variable<String>(voidReason);
+    }
+    if (!nullToAbsent || paymentAccountId != null) {
+      map['payment_account_id'] = Variable<String>(paymentAccountId);
     }
     return map;
   }
@@ -3190,6 +3226,9 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
       voidReason: voidReason == null && nullToAbsent
           ? const Value.absent()
           : Value(voidReason),
+      paymentAccountId: paymentAccountId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(paymentAccountId),
     );
   }
 
@@ -3217,6 +3256,7 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
       shiftId: serializer.fromJson<String?>(json['shiftId']),
       soldOffline: serializer.fromJson<bool>(json['soldOffline']),
       voidReason: serializer.fromJson<String?>(json['voidReason']),
+      paymentAccountId: serializer.fromJson<String?>(json['paymentAccountId']),
     );
   }
   @override
@@ -3241,6 +3281,7 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
       'shiftId': serializer.toJson<String?>(shiftId),
       'soldOffline': serializer.toJson<bool>(soldOffline),
       'voidReason': serializer.toJson<String?>(voidReason),
+      'paymentAccountId': serializer.toJson<String?>(paymentAccountId),
     };
   }
 
@@ -3263,6 +3304,7 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     Value<String?> shiftId = const Value.absent(),
     bool? soldOffline,
     Value<String?> voidReason = const Value.absent(),
+    Value<String?> paymentAccountId = const Value.absent(),
   }) => SaleRow(
     id: id ?? this.id,
     receiptNo: receiptNo ?? this.receiptNo,
@@ -3284,6 +3326,9 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     shiftId: shiftId.present ? shiftId.value : this.shiftId,
     soldOffline: soldOffline ?? this.soldOffline,
     voidReason: voidReason.present ? voidReason.value : this.voidReason,
+    paymentAccountId: paymentAccountId.present
+        ? paymentAccountId.value
+        : this.paymentAccountId,
   );
   SaleRow copyWithCompanion(SalesCompanion data) {
     return SaleRow(
@@ -3323,6 +3368,9 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
       voidReason: data.voidReason.present
           ? data.voidReason.value
           : this.voidReason,
+      paymentAccountId: data.paymentAccountId.present
+          ? data.paymentAccountId.value
+          : this.paymentAccountId,
     );
   }
 
@@ -3346,7 +3394,8 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
           ..write('voidedAt: $voidedAt, ')
           ..write('shiftId: $shiftId, ')
           ..write('soldOffline: $soldOffline, ')
-          ..write('voidReason: $voidReason')
+          ..write('voidReason: $voidReason, ')
+          ..write('paymentAccountId: $paymentAccountId')
           ..write(')'))
         .toString();
   }
@@ -3371,6 +3420,7 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
     shiftId,
     soldOffline,
     voidReason,
+    paymentAccountId,
   );
   @override
   bool operator ==(Object other) =>
@@ -3393,7 +3443,8 @@ class SaleRow extends DataClass implements Insertable<SaleRow> {
           other.voidedAt == this.voidedAt &&
           other.shiftId == this.shiftId &&
           other.soldOffline == this.soldOffline &&
-          other.voidReason == this.voidReason);
+          other.voidReason == this.voidReason &&
+          other.paymentAccountId == this.paymentAccountId);
 }
 
 class SalesCompanion extends UpdateCompanion<SaleRow> {
@@ -3415,6 +3466,7 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
   final Value<String?> shiftId;
   final Value<bool> soldOffline;
   final Value<String?> voidReason;
+  final Value<String?> paymentAccountId;
   final Value<int> rowid;
   const SalesCompanion({
     this.id = const Value.absent(),
@@ -3435,6 +3487,7 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     this.shiftId = const Value.absent(),
     this.soldOffline = const Value.absent(),
     this.voidReason = const Value.absent(),
+    this.paymentAccountId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   SalesCompanion.insert({
@@ -3456,6 +3509,7 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     this.shiftId = const Value.absent(),
     this.soldOffline = const Value.absent(),
     this.voidReason = const Value.absent(),
+    this.paymentAccountId = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        receiptNo = Value(receiptNo),
@@ -3482,6 +3536,7 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     Expression<String>? shiftId,
     Expression<bool>? soldOffline,
     Expression<String>? voidReason,
+    Expression<String>? paymentAccountId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3503,6 +3558,7 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
       if (shiftId != null) 'shift_id': shiftId,
       if (soldOffline != null) 'sold_offline': soldOffline,
       if (voidReason != null) 'void_reason': voidReason,
+      if (paymentAccountId != null) 'payment_account_id': paymentAccountId,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3526,6 +3582,7 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     Value<String?>? shiftId,
     Value<bool>? soldOffline,
     Value<String?>? voidReason,
+    Value<String?>? paymentAccountId,
     Value<int>? rowid,
   }) {
     return SalesCompanion(
@@ -3547,6 +3604,7 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
       shiftId: shiftId ?? this.shiftId,
       soldOffline: soldOffline ?? this.soldOffline,
       voidReason: voidReason ?? this.voidReason,
+      paymentAccountId: paymentAccountId ?? this.paymentAccountId,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3608,6 +3666,9 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
     if (voidReason.present) {
       map['void_reason'] = Variable<String>(voidReason.value);
     }
+    if (paymentAccountId.present) {
+      map['payment_account_id'] = Variable<String>(paymentAccountId.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3635,6 +3696,7 @@ class SalesCompanion extends UpdateCompanion<SaleRow> {
           ..write('shiftId: $shiftId, ')
           ..write('soldOffline: $soldOffline, ')
           ..write('voidReason: $voidReason, ')
+          ..write('paymentAccountId: $paymentAccountId, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -13401,6 +13463,619 @@ class OpEffectsCompanion extends UpdateCompanion<OpEffectRow> {
   }
 }
 
+class $PaymentAccountsTable extends PaymentAccounts
+    with TableInfo<$PaymentAccountsTable, PaymentAccountRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PaymentAccountsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nicknameMeta = const VerificationMeta(
+    'nickname',
+  );
+  @override
+  late final GeneratedColumn<String> nickname = GeneratedColumn<String>(
+    'nickname',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bankCodeMeta = const VerificationMeta(
+    'bankCode',
+  );
+  @override
+  late final GeneratedColumn<String> bankCode = GeneratedColumn<String>(
+    'bank_code',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _promptpayIdMeta = const VerificationMeta(
+    'promptpayId',
+  );
+  @override
+  late final GeneratedColumn<String> promptpayId = GeneratedColumn<String>(
+    'promptpay_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _imageMeta = const VerificationMeta('image');
+  @override
+  late final GeneratedColumn<Uint8List> image = GeneratedColumn<Uint8List>(
+    'image',
+    aliasedName,
+    true,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _imageMimeMeta = const VerificationMeta(
+    'imageMime',
+  );
+  @override
+  late final GeneratedColumn<String> imageMime = GeneratedColumn<String>(
+    'image_mime',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
+    'isDefault',
+  );
+  @override
+  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
+    'is_default',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_default" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    nickname,
+    bankCode,
+    kind,
+    promptpayId,
+    image,
+    imageMime,
+    isDefault,
+    sortOrder,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'payment_accounts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PaymentAccountRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('nickname')) {
+      context.handle(
+        _nicknameMeta,
+        nickname.isAcceptableOrUnknown(data['nickname']!, _nicknameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nicknameMeta);
+    }
+    if (data.containsKey('bank_code')) {
+      context.handle(
+        _bankCodeMeta,
+        bankCode.isAcceptableOrUnknown(data['bank_code']!, _bankCodeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bankCodeMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('promptpay_id')) {
+      context.handle(
+        _promptpayIdMeta,
+        promptpayId.isAcceptableOrUnknown(
+          data['promptpay_id']!,
+          _promptpayIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('image')) {
+      context.handle(
+        _imageMeta,
+        image.isAcceptableOrUnknown(data['image']!, _imageMeta),
+      );
+    }
+    if (data.containsKey('image_mime')) {
+      context.handle(
+        _imageMimeMeta,
+        imageMime.isAcceptableOrUnknown(data['image_mime']!, _imageMimeMeta),
+      );
+    }
+    if (data.containsKey('is_default')) {
+      context.handle(
+        _isDefaultMeta,
+        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  PaymentAccountRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PaymentAccountRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      nickname: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}nickname'],
+      )!,
+      bankCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}bank_code'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      promptpayId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}promptpay_id'],
+      ),
+      image: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}image'],
+      ),
+      imageMime: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}image_mime'],
+      ),
+      isDefault: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_default'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      ),
+    );
+  }
+
+  @override
+  $PaymentAccountsTable createAlias(String alias) {
+    return $PaymentAccountsTable(attachedDatabase, alias);
+  }
+}
+
+class PaymentAccountRow extends DataClass
+    implements Insertable<PaymentAccountRow> {
+  final String id;
+  final String nickname;
+  final String bankCode;
+  final String kind;
+  final String? promptpayId;
+  final Uint8List? image;
+  final String? imageMime;
+  final bool isDefault;
+  final int sortOrder;
+  final DateTime? updatedAt;
+  const PaymentAccountRow({
+    required this.id,
+    required this.nickname,
+    required this.bankCode,
+    required this.kind,
+    this.promptpayId,
+    this.image,
+    this.imageMime,
+    required this.isDefault,
+    required this.sortOrder,
+    this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['nickname'] = Variable<String>(nickname);
+    map['bank_code'] = Variable<String>(bankCode);
+    map['kind'] = Variable<String>(kind);
+    if (!nullToAbsent || promptpayId != null) {
+      map['promptpay_id'] = Variable<String>(promptpayId);
+    }
+    if (!nullToAbsent || image != null) {
+      map['image'] = Variable<Uint8List>(image);
+    }
+    if (!nullToAbsent || imageMime != null) {
+      map['image_mime'] = Variable<String>(imageMime);
+    }
+    map['is_default'] = Variable<bool>(isDefault);
+    map['sort_order'] = Variable<int>(sortOrder);
+    if (!nullToAbsent || updatedAt != null) {
+      map['updated_at'] = Variable<DateTime>(updatedAt);
+    }
+    return map;
+  }
+
+  PaymentAccountsCompanion toCompanion(bool nullToAbsent) {
+    return PaymentAccountsCompanion(
+      id: Value(id),
+      nickname: Value(nickname),
+      bankCode: Value(bankCode),
+      kind: Value(kind),
+      promptpayId: promptpayId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(promptpayId),
+      image: image == null && nullToAbsent
+          ? const Value.absent()
+          : Value(image),
+      imageMime: imageMime == null && nullToAbsent
+          ? const Value.absent()
+          : Value(imageMime),
+      isDefault: Value(isDefault),
+      sortOrder: Value(sortOrder),
+      updatedAt: updatedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(updatedAt),
+    );
+  }
+
+  factory PaymentAccountRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PaymentAccountRow(
+      id: serializer.fromJson<String>(json['id']),
+      nickname: serializer.fromJson<String>(json['nickname']),
+      bankCode: serializer.fromJson<String>(json['bankCode']),
+      kind: serializer.fromJson<String>(json['kind']),
+      promptpayId: serializer.fromJson<String?>(json['promptpayId']),
+      image: serializer.fromJson<Uint8List?>(json['image']),
+      imageMime: serializer.fromJson<String?>(json['imageMime']),
+      isDefault: serializer.fromJson<bool>(json['isDefault']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'nickname': serializer.toJson<String>(nickname),
+      'bankCode': serializer.toJson<String>(bankCode),
+      'kind': serializer.toJson<String>(kind),
+      'promptpayId': serializer.toJson<String?>(promptpayId),
+      'image': serializer.toJson<Uint8List?>(image),
+      'imageMime': serializer.toJson<String?>(imageMime),
+      'isDefault': serializer.toJson<bool>(isDefault),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'updatedAt': serializer.toJson<DateTime?>(updatedAt),
+    };
+  }
+
+  PaymentAccountRow copyWith({
+    String? id,
+    String? nickname,
+    String? bankCode,
+    String? kind,
+    Value<String?> promptpayId = const Value.absent(),
+    Value<Uint8List?> image = const Value.absent(),
+    Value<String?> imageMime = const Value.absent(),
+    bool? isDefault,
+    int? sortOrder,
+    Value<DateTime?> updatedAt = const Value.absent(),
+  }) => PaymentAccountRow(
+    id: id ?? this.id,
+    nickname: nickname ?? this.nickname,
+    bankCode: bankCode ?? this.bankCode,
+    kind: kind ?? this.kind,
+    promptpayId: promptpayId.present ? promptpayId.value : this.promptpayId,
+    image: image.present ? image.value : this.image,
+    imageMime: imageMime.present ? imageMime.value : this.imageMime,
+    isDefault: isDefault ?? this.isDefault,
+    sortOrder: sortOrder ?? this.sortOrder,
+    updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
+  );
+  PaymentAccountRow copyWithCompanion(PaymentAccountsCompanion data) {
+    return PaymentAccountRow(
+      id: data.id.present ? data.id.value : this.id,
+      nickname: data.nickname.present ? data.nickname.value : this.nickname,
+      bankCode: data.bankCode.present ? data.bankCode.value : this.bankCode,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      promptpayId: data.promptpayId.present
+          ? data.promptpayId.value
+          : this.promptpayId,
+      image: data.image.present ? data.image.value : this.image,
+      imageMime: data.imageMime.present ? data.imageMime.value : this.imageMime,
+      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PaymentAccountRow(')
+          ..write('id: $id, ')
+          ..write('nickname: $nickname, ')
+          ..write('bankCode: $bankCode, ')
+          ..write('kind: $kind, ')
+          ..write('promptpayId: $promptpayId, ')
+          ..write('image: $image, ')
+          ..write('imageMime: $imageMime, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    nickname,
+    bankCode,
+    kind,
+    promptpayId,
+    $driftBlobEquality.hash(image),
+    imageMime,
+    isDefault,
+    sortOrder,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PaymentAccountRow &&
+          other.id == this.id &&
+          other.nickname == this.nickname &&
+          other.bankCode == this.bankCode &&
+          other.kind == this.kind &&
+          other.promptpayId == this.promptpayId &&
+          $driftBlobEquality.equals(other.image, this.image) &&
+          other.imageMime == this.imageMime &&
+          other.isDefault == this.isDefault &&
+          other.sortOrder == this.sortOrder &&
+          other.updatedAt == this.updatedAt);
+}
+
+class PaymentAccountsCompanion extends UpdateCompanion<PaymentAccountRow> {
+  final Value<String> id;
+  final Value<String> nickname;
+  final Value<String> bankCode;
+  final Value<String> kind;
+  final Value<String?> promptpayId;
+  final Value<Uint8List?> image;
+  final Value<String?> imageMime;
+  final Value<bool> isDefault;
+  final Value<int> sortOrder;
+  final Value<DateTime?> updatedAt;
+  final Value<int> rowid;
+  const PaymentAccountsCompanion({
+    this.id = const Value.absent(),
+    this.nickname = const Value.absent(),
+    this.bankCode = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.promptpayId = const Value.absent(),
+    this.image = const Value.absent(),
+    this.imageMime = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PaymentAccountsCompanion.insert({
+    required String id,
+    required String nickname,
+    required String bankCode,
+    required String kind,
+    this.promptpayId = const Value.absent(),
+    this.image = const Value.absent(),
+    this.imageMime = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       nickname = Value(nickname),
+       bankCode = Value(bankCode),
+       kind = Value(kind);
+  static Insertable<PaymentAccountRow> custom({
+    Expression<String>? id,
+    Expression<String>? nickname,
+    Expression<String>? bankCode,
+    Expression<String>? kind,
+    Expression<String>? promptpayId,
+    Expression<Uint8List>? image,
+    Expression<String>? imageMime,
+    Expression<bool>? isDefault,
+    Expression<int>? sortOrder,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (nickname != null) 'nickname': nickname,
+      if (bankCode != null) 'bank_code': bankCode,
+      if (kind != null) 'kind': kind,
+      if (promptpayId != null) 'promptpay_id': promptpayId,
+      if (image != null) 'image': image,
+      if (imageMime != null) 'image_mime': imageMime,
+      if (isDefault != null) 'is_default': isDefault,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PaymentAccountsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? nickname,
+    Value<String>? bankCode,
+    Value<String>? kind,
+    Value<String?>? promptpayId,
+    Value<Uint8List?>? image,
+    Value<String?>? imageMime,
+    Value<bool>? isDefault,
+    Value<int>? sortOrder,
+    Value<DateTime?>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return PaymentAccountsCompanion(
+      id: id ?? this.id,
+      nickname: nickname ?? this.nickname,
+      bankCode: bankCode ?? this.bankCode,
+      kind: kind ?? this.kind,
+      promptpayId: promptpayId ?? this.promptpayId,
+      image: image ?? this.image,
+      imageMime: imageMime ?? this.imageMime,
+      isDefault: isDefault ?? this.isDefault,
+      sortOrder: sortOrder ?? this.sortOrder,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (nickname.present) {
+      map['nickname'] = Variable<String>(nickname.value);
+    }
+    if (bankCode.present) {
+      map['bank_code'] = Variable<String>(bankCode.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (promptpayId.present) {
+      map['promptpay_id'] = Variable<String>(promptpayId.value);
+    }
+    if (image.present) {
+      map['image'] = Variable<Uint8List>(image.value);
+    }
+    if (imageMime.present) {
+      map['image_mime'] = Variable<String>(imageMime.value);
+    }
+    if (isDefault.present) {
+      map['is_default'] = Variable<bool>(isDefault.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PaymentAccountsCompanion(')
+          ..write('id: $id, ')
+          ..write('nickname: $nickname, ')
+          ..write('bankCode: $bankCode, ')
+          ..write('kind: $kind, ')
+          ..write('promptpayId: $promptpayId, ')
+          ..write('image: $image, ')
+          ..write('imageMime: $imageMime, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -13433,6 +14108,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $OutboxOpsTable outboxOps = $OutboxOpsTable(this);
   late final $SyncCursorsTable syncCursors = $SyncCursorsTable(this);
   late final $OpEffectsTable opEffects = $OpEffectsTable(this);
+  late final $PaymentAccountsTable paymentAccounts = $PaymentAccountsTable(
+    this,
+  );
   late final Index idxProductsPartNoLower = Index(
     'idx_products_part_no_lower',
     'CREATE INDEX idx_products_part_no_lower ON products (lower(part_no))',
@@ -13504,6 +14182,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     outboxOps,
     syncCursors,
     opEffects,
+    paymentAccounts,
     idxProductsPartNoLower,
     idxProductsPartNo,
     idxSalesDate,
@@ -14804,6 +15483,7 @@ typedef $$SalesTableCreateCompanionBuilder =
       Value<String?> shiftId,
       Value<bool> soldOffline,
       Value<String?> voidReason,
+      Value<String?> paymentAccountId,
       Value<int> rowid,
     });
 typedef $$SalesTableUpdateCompanionBuilder =
@@ -14826,6 +15506,7 @@ typedef $$SalesTableUpdateCompanionBuilder =
       Value<String?> shiftId,
       Value<bool> soldOffline,
       Value<String?> voidReason,
+      Value<String?> paymentAccountId,
       Value<int> rowid,
     });
 
@@ -14947,6 +15628,11 @@ class $$SalesTableFilterComposer extends Composer<_$AppDatabase, $SalesTable> {
 
   ColumnFilters<String> get voidReason => $composableBuilder(
     column: $table.voidReason,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get paymentAccountId => $composableBuilder(
+    column: $table.paymentAccountId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -15074,6 +15760,11 @@ class $$SalesTableOrderingComposer
     column: $table.voidReason,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get paymentAccountId => $composableBuilder(
+    column: $table.paymentAccountId,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$SalesTableAnnotationComposer
@@ -15157,6 +15848,11 @@ class $$SalesTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get paymentAccountId => $composableBuilder(
+    column: $table.paymentAccountId,
+    builder: (column) => column,
+  );
+
   Expression<T> saleItemsRefs<T extends Object>(
     Expression<T> Function($$SaleItemsTableAnnotationComposer a) f,
   ) {
@@ -15229,6 +15925,7 @@ class $$SalesTableTableManager
                 Value<String?> shiftId = const Value.absent(),
                 Value<bool> soldOffline = const Value.absent(),
                 Value<String?> voidReason = const Value.absent(),
+                Value<String?> paymentAccountId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SalesCompanion(
                 id: id,
@@ -15249,6 +15946,7 @@ class $$SalesTableTableManager
                 shiftId: shiftId,
                 soldOffline: soldOffline,
                 voidReason: voidReason,
+                paymentAccountId: paymentAccountId,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -15271,6 +15969,7 @@ class $$SalesTableTableManager
                 Value<String?> shiftId = const Value.absent(),
                 Value<bool> soldOffline = const Value.absent(),
                 Value<String?> voidReason = const Value.absent(),
+                Value<String?> paymentAccountId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SalesCompanion.insert(
                 id: id,
@@ -15291,6 +15990,7 @@ class $$SalesTableTableManager
                 shiftId: shiftId,
                 soldOffline: soldOffline,
                 voidReason: voidReason,
+                paymentAccountId: paymentAccountId,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -21414,6 +22114,309 @@ typedef $$OpEffectsTableProcessedTableManager =
       OpEffectRow,
       PrefetchHooks Function()
     >;
+typedef $$PaymentAccountsTableCreateCompanionBuilder =
+    PaymentAccountsCompanion Function({
+      required String id,
+      required String nickname,
+      required String bankCode,
+      required String kind,
+      Value<String?> promptpayId,
+      Value<Uint8List?> image,
+      Value<String?> imageMime,
+      Value<bool> isDefault,
+      Value<int> sortOrder,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$PaymentAccountsTableUpdateCompanionBuilder =
+    PaymentAccountsCompanion Function({
+      Value<String> id,
+      Value<String> nickname,
+      Value<String> bankCode,
+      Value<String> kind,
+      Value<String?> promptpayId,
+      Value<Uint8List?> image,
+      Value<String?> imageMime,
+      Value<bool> isDefault,
+      Value<int> sortOrder,
+      Value<DateTime?> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$PaymentAccountsTableFilterComposer
+    extends Composer<_$AppDatabase, $PaymentAccountsTable> {
+  $$PaymentAccountsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get nickname => $composableBuilder(
+    column: $table.nickname,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get bankCode => $composableBuilder(
+    column: $table.bankCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get promptpayId => $composableBuilder(
+    column: $table.promptpayId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get image => $composableBuilder(
+    column: $table.image,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get imageMime => $composableBuilder(
+    column: $table.imageMime,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$PaymentAccountsTableOrderingComposer
+    extends Composer<_$AppDatabase, $PaymentAccountsTable> {
+  $$PaymentAccountsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get nickname => $composableBuilder(
+    column: $table.nickname,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get bankCode => $composableBuilder(
+    column: $table.bankCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get promptpayId => $composableBuilder(
+    column: $table.promptpayId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get image => $composableBuilder(
+    column: $table.image,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get imageMime => $composableBuilder(
+    column: $table.imageMime,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PaymentAccountsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PaymentAccountsTable> {
+  $$PaymentAccountsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get nickname =>
+      $composableBuilder(column: $table.nickname, builder: (column) => column);
+
+  GeneratedColumn<String> get bankCode =>
+      $composableBuilder(column: $table.bankCode, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get promptpayId => $composableBuilder(
+    column: $table.promptpayId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<Uint8List> get image =>
+      $composableBuilder(column: $table.image, builder: (column) => column);
+
+  GeneratedColumn<String> get imageMime =>
+      $composableBuilder(column: $table.imageMime, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDefault =>
+      $composableBuilder(column: $table.isDefault, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$PaymentAccountsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PaymentAccountsTable,
+          PaymentAccountRow,
+          $$PaymentAccountsTableFilterComposer,
+          $$PaymentAccountsTableOrderingComposer,
+          $$PaymentAccountsTableAnnotationComposer,
+          $$PaymentAccountsTableCreateCompanionBuilder,
+          $$PaymentAccountsTableUpdateCompanionBuilder,
+          (
+            PaymentAccountRow,
+            BaseReferences<
+              _$AppDatabase,
+              $PaymentAccountsTable,
+              PaymentAccountRow
+            >,
+          ),
+          PaymentAccountRow,
+          PrefetchHooks Function()
+        > {
+  $$PaymentAccountsTableTableManager(
+    _$AppDatabase db,
+    $PaymentAccountsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PaymentAccountsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PaymentAccountsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PaymentAccountsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> nickname = const Value.absent(),
+                Value<String> bankCode = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String?> promptpayId = const Value.absent(),
+                Value<Uint8List?> image = const Value.absent(),
+                Value<String?> imageMime = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<DateTime?> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PaymentAccountsCompanion(
+                id: id,
+                nickname: nickname,
+                bankCode: bankCode,
+                kind: kind,
+                promptpayId: promptpayId,
+                image: image,
+                imageMime: imageMime,
+                isDefault: isDefault,
+                sortOrder: sortOrder,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String nickname,
+                required String bankCode,
+                required String kind,
+                Value<String?> promptpayId = const Value.absent(),
+                Value<Uint8List?> image = const Value.absent(),
+                Value<String?> imageMime = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<DateTime?> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PaymentAccountsCompanion.insert(
+                id: id,
+                nickname: nickname,
+                bankCode: bankCode,
+                kind: kind,
+                promptpayId: promptpayId,
+                image: image,
+                imageMime: imageMime,
+                isDefault: isDefault,
+                sortOrder: sortOrder,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$PaymentAccountsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PaymentAccountsTable,
+      PaymentAccountRow,
+      $$PaymentAccountsTableFilterComposer,
+      $$PaymentAccountsTableOrderingComposer,
+      $$PaymentAccountsTableAnnotationComposer,
+      $$PaymentAccountsTableCreateCompanionBuilder,
+      $$PaymentAccountsTableUpdateCompanionBuilder,
+      (
+        PaymentAccountRow,
+        BaseReferences<_$AppDatabase, $PaymentAccountsTable, PaymentAccountRow>,
+      ),
+      PaymentAccountRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -21470,4 +22473,6 @@ class $AppDatabaseManager {
       $$SyncCursorsTableTableManager(_db, _db.syncCursors);
   $$OpEffectsTableTableManager get opEffects =>
       $$OpEffectsTableTableManager(_db, _db.opEffects);
+  $$PaymentAccountsTableTableManager get paymentAccounts =>
+      $$PaymentAccountsTableTableManager(_db, _db.paymentAccounts);
 }

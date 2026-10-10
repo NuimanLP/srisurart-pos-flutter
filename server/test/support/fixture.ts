@@ -145,6 +145,8 @@ export const TENANT_TABLES_DEPTH_FIRST = [
   'returns',
   'sale_items',
   'sales',
+  // After `sales` (its `payment_account_id` FK) — QR payment accounts.
+  'payment_accounts',
   'credit_payments',
   'movements',
   'parked_sales',

@@ -129,6 +129,13 @@ class Sales extends Table {
   /// Schema v10 (#276, Slice 11-c): mandatory reason required when voiding.
   TextColumn get voidReason => text().nullable()();
 
+  /// Schema v14 (QR accounts, owner 2026-10-10): the [PaymentAccounts] row a
+  /// `โอน/QR` bill was paid into, or null (any other method, no account set
+  /// up, or a bill from before v14). Deliberately NOT a `references(...)`: the
+  /// account may have been deleted since, and the closing report still names it
+  /// as `บัญชีที่ลบแล้ว`.
+  TextColumn get paymentAccountId => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -485,3 +492,27 @@ class OpEffects extends Table {
   Set<Column> get primaryKey => {opId};
 }
 
+
+/// Schema v14 (QR accounts, owner 2026-10-10): the shop's QR payment accounts
+/// (at most 5). On the API build a cache of `GET /payment-accounts` — the
+/// server is the truth and every write is online-only
+/// (`ApiPaymentAccountsRepository`); on the Drift build the local list itself.
+/// Mirrors the wire shape: `kind` is `promptpay` (the QR is generated with the
+/// bill total from [promptpayId]) or `image` (an uploaded static QR, [image]).
+/// Order: [sortOrder], then [id] (UUIDv7 — creation order).
+@DataClassName('PaymentAccountRow')
+class PaymentAccounts extends Table {
+  TextColumn get id => text()();
+  TextColumn get nickname => text()();
+  TextColumn get bankCode => text()();
+  TextColumn get kind => text()();
+  TextColumn get promptpayId => text().nullable()();
+  BlobColumn get image => blob().nullable()();
+  TextColumn get imageMime => text().nullable()();
+  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}

@@ -309,6 +309,37 @@ describe('Backup Module (unit)', () => {
           payload: { customer: 'General Customer', items: [] },
         },
       ]);
+      // 14b. Payment accounts — one live PromptPay, one soft-deleted image account
+      mockEm.query.mockResolvedValueOnce([
+        {
+          id: testId('pa-1'),
+          nickname: 'บัญชีร้าน',
+          bank_code: 'KBANK',
+          kind: 'promptpay',
+          promptpay_id: '0812345678',
+          image: null,
+          image_mime: null,
+          is_default: true,
+          sort_order: 0,
+          created_at: new Date('2026-09-01T00:00:00.000Z'),
+          updated_at: new Date('2026-09-02T00:00:00.000Z'),
+          deleted_at: null,
+        },
+        {
+          id: testId('pa-2'),
+          nickname: 'รูป QR เก่า',
+          bank_code: 'SCB',
+          kind: 'image',
+          promptpay_id: null,
+          image: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          image_mime: 'image/png',
+          is_default: false,
+          sort_order: 1,
+          created_at: new Date('2026-09-01T00:00:00.000Z'),
+          updated_at: new Date('2026-09-03T00:00:00.000Z'),
+          deleted_at: new Date('2026-09-03T00:00:00.000Z'),
+        },
+      ]);
       // 15. Tenant meta
       mockEm.query.mockResolvedValueOnce([]);
 
@@ -381,7 +412,37 @@ describe('Backup Module (unit)', () => {
         parked: 1,
         categories: 2,
         cashDrawer: 1,
+        paymentAccounts: 2,
       });
+      expect(snapshot.sa_payment_accounts).toEqual([
+        {
+          id: testId('pa-1'),
+          nickname: 'บัญชีร้าน',
+          bankCode: 'KBANK',
+          kind: 'promptpay',
+          promptpayId: '0812345678',
+          imageBase64: null,
+          imageMime: null,
+          isDefault: true,
+          sortOrder: 0,
+          createdAt: '2026-09-01T00:00:00.000Z',
+          updatedAt: '2026-09-02T00:00:00.000Z',
+        },
+        {
+          id: testId('pa-2'),
+          nickname: 'รูป QR เก่า',
+          bankCode: 'SCB',
+          kind: 'image',
+          promptpayId: null,
+          imageBase64: 'iVBORw==',
+          imageMime: 'image/png',
+          isDefault: false,
+          sortOrder: 1,
+          createdAt: '2026-09-01T00:00:00.000Z',
+          updatedAt: '2026-09-03T00:00:00.000Z',
+          deletedAt: '2026-09-03T00:00:00.000Z',
+        },
+      ]);
 
       // Validate AC3: audit log written
       expect(mockAuditService.log).toHaveBeenCalledWith(

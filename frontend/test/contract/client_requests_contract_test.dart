@@ -45,6 +45,7 @@ import 'package:srisurart_pos/data/repositories/api/api_sales_repository.dart';
 import 'package:srisurart_pos/data/repositories/api/api_shifts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_customers_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
+import 'package:srisurart_pos/data/repositories/api_payment_accounts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_purchase_orders_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
@@ -54,6 +55,7 @@ import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
 import 'package:srisurart_pos/data/repositories/owner_import_repository.dart';
+import 'package:srisurart_pos/data/repositories/payment_accounts_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/review_items_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
@@ -80,6 +82,7 @@ final _sale = contractIds['sale']!;
 final _device = contractIds['device']!;
 final _review = contractIds['review']!;
 final _supplier = contractIds['supplier']!;
+final _paymentAccount = contractIds['paymentAccount']!;
 final _offlineCustomer = testId('ct-customer-offline');
 final _offlineOp = testId('ct-op-1');
 const _category = 'ct-category';
@@ -335,6 +338,38 @@ final _scenarios = <_Scenario>[
     await ApiSuppliersRepository(w.db, w.api).deleteSupplier(_supplier);
   }),
 
+  // ── QR payment accounts (owner 2026-10-10) ──────────────────────────────
+  _Scenario('payment-accounts.create', 'ApiPaymentAccountsRepository.addAccount',
+      ['POST /api/v1/payment-accounts'], (w) async {
+    await ApiPaymentAccountsRepository(w.db, w.api).addAccount(const PaymentAccountInput(
+      nickname: 'บัญชีร้าน',
+      bankCode: 'KBANK',
+      kind: 'promptpay',
+      promptpayId: '0812345678',
+      isDefault: true,
+    ));
+  }),
+  _Scenario('payment-accounts.update', 'ApiPaymentAccountsRepository.updateAccount',
+      ['PATCH /api/v1/payment-accounts/:id'], (w) async {
+    // What the settings dialog sends for an edited promptpay account.
+    await ApiPaymentAccountsRepository(w.db, w.api).updateAccount(
+      _paymentAccount,
+      const PaymentAccountsCompanion(
+        nickname: Value('บัญชีหน้าร้าน'),
+        bankCode: Value('SCB'),
+        promptpayId: Value('0898765432'),
+      ),
+    );
+  }),
+  _Scenario('payment-accounts.set-default', 'ApiPaymentAccountsRepository.setDefault',
+      ['PATCH /api/v1/payment-accounts/:id'], (w) async {
+    await ApiPaymentAccountsRepository(w.db, w.api).setDefault(_paymentAccount);
+  }),
+  _Scenario('payment-accounts.delete', 'ApiPaymentAccountsRepository.deleteAccount',
+      ['DELETE /api/v1/payment-accounts/:id'], (w) async {
+    await ApiPaymentAccountsRepository(w.db, w.api).deleteAccount(_paymentAccount);
+  }),
+
   // ── customers ────────────────────────────────────────────────────────────
   _Scenario('customers.create', 'ApiCustomersRepository.addCustomer', ['POST /api/v1/customers'], (w) async {
     await ApiCustomersRepository(w.db, w.api).addCustomer(const CustomersCompanion(
@@ -468,6 +503,17 @@ final _scenarios = <_Scenario>[
       total: 100,
       paymentMethod: 'โอน/QR', // checkout_screen.dart's own label
       quoteId: _quote,
+      items: [SaleLineInput(productId: _product, name: 'Contract part', qty: 1, price: 100)],
+    ));
+  }),
+  _Scenario('sales.create-qr-account', 'ApiSalesRepository.saveSale', ['POST /api/v1/sales'], (w) async {
+    // QR accounts (owner 2026-10-10): a โอน/QR bill names the account it was paid into.
+    await _sales(w).saveSale(SaleInput(
+      subtotal: 100,
+      discount: 0,
+      total: 100,
+      paymentMethod: 'โอน/QR', // checkout_screen.dart's own label
+      paymentAccountId: _paymentAccount,
       items: [SaleLineInput(productId: _product, name: 'Contract part', qty: 1, price: 100)],
     ));
   }),

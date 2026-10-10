@@ -48,6 +48,7 @@ const _useApiWrites = bool.fromEnvironment('USE_API_WRITES');
     OutboxOps,
     SyncCursors,
     OpEffects,
+    PaymentAccounts,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -82,7 +83,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -199,6 +200,13 @@ class AppDatabase extends _$AppDatabase {
       // from. Starts empty — ops queued before it take the legacy path.
       if (from < 13) {
         await m.createTable(opEffects);
+      }
+      // v13 → v14 (QR accounts, owner 2026-10-10): the payment-account cache
+      // and the account a โอน/QR bill was paid into. Both start empty/null —
+      // older bills have no account (the closing report shows ไม่ระบุบัญชี).
+      if (from < 14) {
+        await m.createTable(paymentAccounts);
+        await m.addColumn(sales, sales.paymentAccountId);
       }
     },
   );
@@ -441,8 +449,8 @@ class AppDatabase extends _$AppDatabase {
     await _seedBlankSettings();
   });
 
-  /// The server-pulled part of the cache — catalogue, quotes, POs, settings
-  /// and the sync cursors — for a DB adopted as this tenant's without being
+  /// The server-pulled part of the cache — catalogue, quotes, POs, settings,
+  /// payment accounts and the sync cursors — for a DB adopted as this tenant's without being
   /// emptied (`TenantCacheGuard`, legacy DB + device-token login). The next
   /// pull re-downloads all of it from zero. Kept: the till's own history,
   /// which no pull ever brings back (sales, returns, shifts, drawer, movements,
@@ -468,6 +476,8 @@ class AppDatabase extends _$AppDatabase {
       categories,
       settingsRow,
       syncCursors,
+      // Pulled whole from `GET /payment-accounts` (no cursor).
+      paymentAccounts,
     ]) {
       await delete(table).go();
     }

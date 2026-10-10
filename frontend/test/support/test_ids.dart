@@ -22,6 +22,8 @@ final contractIds = {
   'review': testId('ct-review-1'),
   'device': testId('ct-device-1'),
   'supplier': testId('ct-supplier-1'),
+  // QR payment accounts (owner 2026-10-10) — the server spec must seed it too.
+  'paymentAccount': testId('ct-payment-account-1'),
 };
 
 /// A lowercase UUIDv7, the shape `newUuid()` mints for every entity id (#616).

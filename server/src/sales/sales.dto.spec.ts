@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCreateSale, parseSaleQuoteId } from './sales.dto.js';
+import { parseCreateSale, parseSaleQuoteId, replayPaymentAccountId } from './sales.dto.js';
 import { testId } from '../../test/support/test-ids.js';
 
 describe('parseCreateSale — paymentMethod', () => {
@@ -148,5 +148,56 @@ describe('quoteId (#27, owner 2026-10-03)', () => {
     expect(parseSaleQuoteId(body(undefined))).toBeNull();
     expect(parseSaleQuoteId(body(null))).toBeNull();
     expect(() => parseSaleQuoteId(body(42))).toThrow(/quoteId must be a lowercase UUID/);
+  });
+});
+
+describe('parseCreateSale — paymentAccountId (QR accounts, contract §3)', () => {
+  const bodyWith = (extra: Record<string, unknown>) => ({
+    id: testId('s1'),
+    subtotal: '10.00',
+    discount: '0.00',
+    total: '10.00',
+    paymentMethod: 'โอน/QR',
+    items: [{ productId: testId('p1'), name: 'x', qty: 1, price: '10.00' }],
+    ...extra,
+  });
+
+  it('is null when absent, null or empty', () => {
+    expect(parseCreateSale(bodyWith({})).paymentAccountId).toBeNull();
+    expect(parseCreateSale(bodyWith({ paymentAccountId: null })).paymentAccountId).toBeNull();
+    expect(parseCreateSale(bodyWith({ paymentAccountId: '' })).paymentAccountId).toBeNull();
+    // …on any method.
+    expect(parseCreateSale(bodyWith({ paymentMethod: 'เงินสด', paymentAccountId: null })).paymentAccountId).toBeNull();
+  });
+
+  it('keeps a UUID on a โอน/QR bill', () => {
+    expect(parseCreateSale(bodyWith({ paymentAccountId: testId('pa1') })).paymentAccountId).toBe(testId('pa1'));
+  });
+
+  it('refuses an account on any other payment method (400)', () => {
+    for (const paymentMethod of ['เงินสด', 'เครดิตช่าง']) {
+      expect(() => parseCreateSale(bodyWith({ paymentMethod, paymentAccountId: testId('pa1') }))).toThrow(
+        /paymentAccountId is only allowed when paymentMethod is โอน\/QR/,
+      );
+    }
+  });
+
+  it('refuses a malformed id as INVALID_ID', () => {
+    expect(() => parseCreateSale(bodyWith({ paymentAccountId: 'pa1' }))).toThrow(
+      /paymentAccountId must be a lowercase UUID/,
+    );
+  });
+});
+
+describe('replayPaymentAccountId — a /sync/push replay never refuses for the account', () => {
+  it('keeps a UUID on a โอน/QR bill', () => {
+    expect(replayPaymentAccountId({ paymentMethod: 'โอน/QR', paymentAccountId: testId('pa1') })).toBe(testId('pa1'));
+  });
+
+  it('drops it to null on another method, a malformed id, or none', () => {
+    expect(replayPaymentAccountId({ paymentMethod: 'เงินสด', paymentAccountId: testId('pa1') })).toBeNull();
+    expect(replayPaymentAccountId({ paymentMethod: 'โอน/QR', paymentAccountId: 'pa1' })).toBeNull();
+    expect(replayPaymentAccountId({ paymentMethod: 'โอน/QR', paymentAccountId: 42 })).toBeNull();
+    expect(replayPaymentAccountId({ paymentMethod: 'โอน/QR' })).toBeNull();
   });
 });

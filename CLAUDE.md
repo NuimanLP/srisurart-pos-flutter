@@ -121,8 +121,9 @@ frontend/
       utils/                   ← newUuid/newIdempotencyKey/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
     data/
-      db/tables.dart           ← 26 Drift tables, schemaVersion 13 (20 ported sa_* stores + #24's
-                                 credit-payment outbox + phase-2 tables incl. OutboxOps, OpEffects) — recounted 2026-09-28
+      db/tables.dart           ← 27 Drift tables, schemaVersion 14 (20 ported sa_* stores + #24's
+                                 credit-payment outbox + phase-2 tables incl. OutboxOps, OpEffects
+                                 + #676 PaymentAccounts) — recounted 2026-10-10
       db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
       db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
       repositories/            ← one repo per domain; transactional services mirror db.js
@@ -131,9 +132,10 @@ frontend/
                                  (ADR-0010). Opt-in: --dart-define=USE_API_WRITES=true
     domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
     presentation/
-      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (22 entries:
-                                 17 repos incl. AuthRepository, + ApiClient/BootstrapService/
-                                 DocCounterSeeder/SyncFacade); `useApi` swaps in the #56 API repos
+      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (24 entries:
+                                 20 repos incl. AuthRepository and PaymentAccountsRepository, +
+                                 ApiClient/BootstrapService/DocCounterSeeder/SyncFacade) — recounted
+                                 2026-10-10; `useApi` swaps in the #56 API repos
       blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
       screens/                  ← 14 screen files: 12 in the AppShell nav + /devices + /login
       widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
@@ -311,9 +313,10 @@ develops against a demo tenant.
   fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to
   `mob04` as `00d3488` 2026-09-30 (run `36717963989`, Ansible `failed=0`).
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
-  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v13 (v12 = #417 indexes; v13 = #488
+  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v14 (v12 = #417 indexes; v13 = #488
   `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
-  exactly — ops queued before v13 have no row and take the legacy recompute path).
+  exactly — ops queued before v13 have no row and take the legacy recompute path; v14 = #676
+  `payment_accounts` cache + `Sales.paymentAccountId`).
 - ~~Two real bugs in migration `1788652803002-OwnerReviewItems.ts`~~ — **fixed 2026-09-25**
   by the new migration `1788652804200-OwnerReviewItemsFixes.ts`, proven in
   `server/test/schema.e2e-spec.ts` (found 2026-09-23, `01_DATABASE.md §11`): (1) its RLS
@@ -445,7 +448,8 @@ develops against a demo tenant.
   at `0001` instead of refusing with
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
   #488 (discard exactness / `void_offline` follow-up) closed 2026-09-28.
-- **Postgres has 29 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`;
+- **Postgres has 30 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`
+  + `payment_accounts` (#676);
   `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
   DDL in `01_DATABASE.md` is illustration.

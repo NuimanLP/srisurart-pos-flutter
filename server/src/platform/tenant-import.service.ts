@@ -22,6 +22,7 @@ import { buildTenantSnapshot } from '../backup/tenant-snapshot.js';
 import { preImportExportPath, writeExportFile } from '../backup/export-file.js';
 import { DOC_NUMBER_REGEX, DOC_PREFIX, type DocType } from '../documents/doc-number.service.js';
 import { snapshotProductCategory } from './snapshot-category.js';
+import { QR_PAYMENT_METHOD } from '../payment-accounts/payment-accounts.rules.js';
 import {
   describeBadDate,
   describeClamp,
@@ -29,7 +30,9 @@ import {
   planClampViolations,
   planBadIds,
   describeBadId,
+  describePaymentAccountViolation,
   planDuplicateDocNumbers,
+  planPaymentAccountViolations,
   planUnparseableDates,
 } from './snapshot-preflight.js';
 import { countTombstones, fieldId, planTombstones, TombstonePlan, TOMBSTONE_MARK } from './snapshot-tombstones.js';
@@ -60,6 +63,8 @@ export class SnapshotPayload {
   /** Parked bills: each element is the cart blob itself. */
   sa_parked?: Array<Record<string, unknown>>;
   sa_settings?: Record<string, unknown>;
+  /** QR payment accounts (contract §3), soft-deleted ones included; image as plain base64. */
+  sa_payment_accounts?: Array<Record<string, unknown>>;
   __meta?: Record<string, unknown>;
   [key: string]: unknown;
 }
@@ -71,7 +76,10 @@ export interface ImportJobResult {
   droppedSuppliers: number;
   /** `replace`: the shop's data was deleted first (owner, `POST /backup/import?mode=replace`). */
   mode?: 'empty-only' | 'replace';
-  /** Rows deleted per table, replace mode only. */
+  /**
+   * Rows deleted per table: replace mode; in either mode `payment_accounts` only when the
+   * file's non-empty `sa_payment_accounts` replaced accounts the shop already had.
+   */
   deleted?: Record<string, number>;
   /** The copy of the replaced data, written before the delete (replace mode only). */
   preImportExport?: { file: string; sizeBytes: number; sha256: string };
@@ -103,7 +111,9 @@ export type ImportRequester = { platformAdminId: string } | { userId: string };
 /**
  * Replace mode deletes, children first, everything the snapshot owns plus the review items
  * about it. Kept: tenants, users, devices, audit_log (append-only), import_jobs, settings (the
- * file's `sa_settings` overwrites it), idempotency_keys and doc_counters (see `writeSnapshot`).
+ * file's `sa_settings` overwrites it), payment_accounts (like settings: replaced only by a file
+ * whose `sa_payment_accounts` is non-empty, step 3.5c), idempotency_keys and doc_counters (see
+ * `writeSnapshot`).
  */
 const REPLACED_TABLES = [
   'owner_review_items',
@@ -289,6 +299,15 @@ export class TenantImportService {
     const clampViolations = planClampViolations(snapshot);
     if (clampViolations.length > 0) {
       throw new BadRequestException(`Pre-flight failed: values needing a clamp are refused instead — ${clampViolations.map(describeClamp).join('; ')}`);
+    }
+
+    // QR payment accounts: judged by the API's own rules, and the shop-wide ones (one
+    // default, five active) — the table's CHECKs and default index would otherwise 500.
+    const accountViolations = planPaymentAccountViolations(snapshot);
+    if (accountViolations.length > 0) {
+      throw new BadRequestException(
+        `Pre-flight failed: invalid payment accounts — ${accountViolations.map(describePaymentAccountViolation).join('; ')}`,
+      );
     }
 
     // #238: references to rows the shop hard-deleted become soft-deleted tombstones. A
@@ -562,6 +581,51 @@ export class TenantImportService {
         );
       }
 
+      // 3.5c QR payment accounts (contract §3), before the sales that name them. Treated like
+      // `settings`: only a file whose store is a NON-EMPTY array replaces the shop's accounts,
+      // in both modes. An absent or empty store (an older export, a shop that never set one
+      // up) keeps them — an import must not silently wipe the owner's QR setup. The delete is
+      // FK-safe: empty-only mode has no bill yet (checked above), replace mode already deleted
+      // `sales`. Pre-flight already validated every row.
+      const paymentAccountIds = new Set<string>();
+      const fileAccounts = Array.isArray(snapshot.sa_payment_accounts) ? snapshot.sa_payment_accounts : [];
+      if (fileAccounts.length > 0) {
+        const rows = await manager.query(
+          `WITH d AS (DELETE FROM payment_accounts WHERE tenant_id = $1 RETURNING 1) SELECT count(*)::int AS n FROM d`,
+          [tenantId],
+        );
+        if (replace || rows[0].n > 0) result.deleted = { ...result.deleted, payment_accounts: rows[0].n };
+        for (const a of fileAccounts) {
+          const id = String(a.id);
+          const kind = String(a.kind);
+          const imageBase64 = a.imageBase64 ?? a.image_base64;
+          const deletedAtRaw = a.deletedAt ?? a.deleted_at;
+          const deletedAt = deletedAtRaw != null ? parseDate(deletedAtRaw) : null;
+          await manager.query(
+            `INSERT INTO payment_accounts
+               (tenant_id, id, nickname, bank_code, kind, promptpay_id, image, image_mime,
+                is_default, sort_order, created_at, updated_at, deleted_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, clock_timestamp(), $12)`,
+            [
+              tenantId,
+              id,
+              String(a.nickname).trim(),
+              String(a.bankCode ?? a.bank_code),
+              kind,
+              kind === 'promptpay' ? String(a.promptpayId ?? a.promptpay_id) : null,
+              kind === 'image' ? Buffer.from(String(imageBase64), 'base64') : null,
+              kind === 'image' ? String(a.imageMime ?? a.image_mime) : null,
+              // A deleted row is never the default (`DELETE /payment-accounts/:id` clears it).
+              deletedAt === null && (a.isDefault ?? a.is_default) === true,
+              Number(a.sortOrder ?? a.sort_order ?? 0),
+              parseDate(a.createdAt ?? a.created_at),
+              deletedAt,
+            ],
+          );
+          paymentAccountIds.add(id);
+        }
+      }
+
       // 3.6 Sales & SaleItems. Pre-flight already refused a negative `pointsGranted` and any
       // line `qty` that was not a positive whole number (#239 item 3).
       const sales = snapshot.sa_sales || [];
@@ -581,15 +645,23 @@ export class TenantImportService {
         const date = parseDate(s.date);
         const voided = Boolean(s.voided);
         const voidedAt = s.voidedAt ? parseDate(s.voidedAt) : null;
+        // Contract §3: an account the file does not carry is NULL, as is an account on a
+        // bill that is not `โอน/QR` (the `ck_sales_payment_account_qr` CHECK) — the bill
+        // itself is never refused for it.
+        const accountRef = fieldId(s, 'paymentAccountId', 'payment_account_id');
+        const paymentAccountId =
+          accountRef !== null && paymentAccountIds.has(accountRef) && paymentMethod === QR_PAYMENT_METHOD
+            ? accountRef
+            : null;
 
         await manager.query(
-          `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta, points_granted, date, voided, voided_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          `INSERT INTO sales (tenant_id, id, receipt_no, subtotal, discount, total, payment_method, customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta, points_granted, date, voided, voided_at, payment_account_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
            ON CONFLICT (tenant_id, id) DO NOTHING`,
           [
             tenantId, id, receiptNo, subtotal, discount, total, paymentMethod,
             customerId, customerName, mechanicId, mechanicName, mechanicDelta,
-            pointsGranted, date, voided, voidedAt,
+            pointsGranted, date, voided, voidedAt, paymentAccountId,
           ],
         );
 

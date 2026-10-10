@@ -10,9 +10,11 @@ import 'core/network/api_client.dart';
 import 'core/network/pos_trust.dart';
 import 'data/db/database.dart';
 import 'data/repositories/auth_repository.dart';
+import 'data/repositories/api_payment_accounts_repository.dart';
 import 'data/repositories/api_settings_repository.dart';
 import 'data/repositories/offline_pin_repository.dart';
 import 'data/repositories/owner_import_repository.dart';
+import 'data/repositories/payment_accounts_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'data/services/doc_counter_seeder.dart';
 import 'presentation/blocs/auth_cubit.dart';
@@ -60,6 +62,10 @@ Future<void> main() async {
               final settings = ctx.read<SettingsRepository>();
               if (settings is ApiSettingsRepository) {
                 pullSettingsOnSignIn(cubit, settings);
+              }
+              final accounts = ctx.read<PaymentAccountsRepository>();
+              if (accounts is ApiPaymentAccountsRepository) {
+                pullPaymentAccountsOnSignIn(cubit, accounts);
               }
               cubit.init();
               // The refresh path clears the tokens and calls this; without the
