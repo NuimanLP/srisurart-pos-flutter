@@ -102,7 +102,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
       'ลบรูปสินค้า?', // agent ร่าง
       'ลบรูปของ "${widget.product.name}" ออก การ์ดสินค้าจะแสดงเป็นไอคอนแทน', // agent ร่าง
       danger: true,
-      confirmLabel: 'ลบ',
+      confirmLabel: 'ลบ', // agent ร่าง
     );
     if (!ok || !mounted) return;
     setState(() {

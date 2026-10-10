@@ -72,7 +72,7 @@ const _warnOrange = Color(0xFFD4820A);
 
 /// Sell-screen product card (owner sample 2026-10-10): the picture block's
 /// height and the card's fixed grid extent (the text block under the picture
-/// is ~120 px in Sarabun at font scale 1.0, so 152 px leaves room for the
+/// is ~120 px in Sarabun at font scale 1.0, so 168 px (288 − 120) leaves room for the
 /// largest font scale, 1.25). Exposed for the layout tests.
 const posCardImageHeight = 120.0;
 const posCardExtent = 288.0;
@@ -220,6 +220,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       url: url,
                       fit: BoxFit.contain,
                       iconSize: 64,
+                      fullResolution: true,
                     ),
                   ),
                 ),
@@ -251,7 +252,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   padding: const EdgeInsets.all(8),
                   child: TextButton(
                     onPressed: () => Navigator.of(ctx).pop(),
-                    child: const Text('ปิด'),
+                    child: const Text('ปิด'), // agent ร่าง
                   ),
                 ),
               ),

@@ -24,12 +24,17 @@ class ProductImage extends StatelessWidget {
     required this.url,
     this.fit = BoxFit.cover,
     this.iconSize = 36,
+    this.fullResolution = false,
   });
 
   /// Null = no picture: the placeholder, and no request at all.
   final String? url;
   final BoxFit fit;
   final double iconSize;
+
+  /// Decode the file at its own size (the zoomable preview, ≤1024 px), not
+  /// at the displayed size — a 4× zoom of a card-size decode is a blur.
+  final bool fullResolution;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +45,7 @@ class ProductImage extends StatelessWidget {
       builder: (context, box) {
         // Decode at the displayed size (Android/iOS; the web ignores it).
         final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1;
-        final cacheWidth = !kIsWeb && box.hasBoundedWidth
+        final cacheWidth = !kIsWeb && !fullResolution && box.hasBoundedWidth
             ? (box.maxWidth * dpr).round()
             : null;
         return Image.network(

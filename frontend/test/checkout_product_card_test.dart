@@ -162,6 +162,11 @@ void main() {
       expect(dialog, findsOneWidget);
       expect(networkUrl(tester, find.byKey(const Key('pos-image-preview'))),
           '$_base/img/$_tenant/${_key}_p.webp');
+      // The card decodes at its size; the zoomable preview at the file's own.
+      Image imageIn(Finder f) =>
+          tester.widget<Image>(find.descendant(of: f, matching: find.byType(Image)).first);
+      expect(imageIn(cardImage).image, isA<ResizeImage>());
+      expect(imageIn(find.byKey(const Key('pos-image-preview'))).image, isA<NetworkImage>());
       expect(find.descendant(of: dialog, matching: find.text(first.name)),
           findsOneWidget);
       expect(find.descendant(of: dialog, matching: find.text(first.partNo)),
