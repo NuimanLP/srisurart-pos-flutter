@@ -10,7 +10,10 @@
 // API build `ApiPaymentAccountsRepository` replaces every write with an
 // online-only request and keeps the reads here.
 
+import 'dart:async';
+
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show protected;
 
 import '../../core/errors/pos_exception.dart';
 import '../../core/utils/ids.dart';
@@ -137,25 +140,31 @@ class PaymentAccountsRepository {
   /// The accounts in display order: `sortOrder`, then id (UUIDv7 = creation
   /// order, the server's `created_at` tie-break). Local only — never waits on
   /// the network, so checkout can read it offline.
-  Future<List<PaymentAccountRow>> getAccounts() => _ordered().get();
+  Future<List<PaymentAccountRow>> getAccounts() => _ordered();
 
-  /// [getAccounts] as a stream: emits again whenever the cache changes — a
-  /// pull on login / reconnect, [getLatestAccounts], or an edit in Settings.
-  Stream<List<PaymentAccountRow>> watchAccounts() => _ordered().watch();
-
-  SimpleSelectStatement<$PaymentAccountsTable, PaymentAccountRow> _ordered() =>
-      db.select(db.paymentAccounts)
+  Future<List<PaymentAccountRow>> _ordered() => (db.select(db.paymentAccounts)
         ..orderBy([
           (t) => OrderingTerm.asc(t.sortOrder),
           (t) => OrderingTerm.asc(t.id),
-        ]);
+        ]))
+      .get();
+
+  /// Fires after this repository changed the cache: a pull on login /
+  /// reconnect, [getLatestAccounts], or an edit in Settings. Checkout re-reads
+  /// [getAccounts] on it. A plain broadcast stream, not a Drift `watch()`,
+  /// whose cancel leaves a timer pending in widget tests.
+  Stream<void> get changes => _changes.stream;
+  final StreamController<void> _changes = StreamController<void>.broadcast();
+
+  @protected
+  void notifyChanged() => _changes.add(null);
 
   /// [getAccounts] after bringing the cache up to date — for a screen that
   /// can wait on the network (Settings). The Drift build has nothing to pull.
   Future<List<PaymentAccountRow>> getLatestAccounts() => getAccounts();
 
-  Future<PaymentAccountRow> addAccount(PaymentAccountInput input) =>
-      db.transaction(() async {
+  Future<PaymentAccountRow> addAccount(PaymentAccountInput input) async {
+    final row = await db.transaction(() async {
         final existing = await getAccounts();
         if (existing.length >= maxPaymentAccounts) {
           throw const PosException(
@@ -180,13 +189,16 @@ class PaymentAccountsRepository {
         await db.into(db.paymentAccounts).insert(row);
         return row;
       });
+    notifyChanged();
+    return row;
+  }
 
   /// Patch an account: `nickname`, `bankCode`, `promptpayId`, `image` +
   /// `imageMime`, `isDefault`, `sortOrder`. `kind` cannot change (contract §2 —
   /// delete and add again); a `kind` in [patch] is ignored. `isDefault: true`
   /// clears every other account's default.
-  Future<void> updateAccount(String id, PaymentAccountsCompanion patch) =>
-      db.transaction(() async {
+  Future<void> updateAccount(String id, PaymentAccountsCompanion patch) async {
+    await db.transaction(() async {
         final current = await (db.select(db.paymentAccounts)
               ..where((t) => t.id.equals(id)))
             .getSingleOrNull();
@@ -214,14 +226,18 @@ class PaymentAccountsRepository {
           ),
         );
       });
+    notifyChanged();
+  }
 
   Future<void> setDefault(String id) =>
       updateAccount(id, const PaymentAccountsCompanion(isDefault: Value(true)));
 
   /// Removes the account. Bills that named it keep the id; the closing report
   /// reads it as `บัญชีที่ลบแล้ว`. Deleting the default leaves no default.
-  Future<void> deleteAccount(String id) =>
-      (db.delete(db.paymentAccounts)..where((t) => t.id.equals(id))).go();
+  Future<void> deleteAccount(String id) async {
+    await (db.delete(db.paymentAccounts)..where((t) => t.id.equals(id))).go();
+    notifyChanged();
+  }
 
   Future<void> _clearDefaults() => (db.update(db.paymentAccounts)
         ..where((t) => t.isDefault.equals(true)))

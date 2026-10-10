@@ -79,6 +79,7 @@ class ApiPaymentAccountsRepository extends PaymentAccountsRepository {
         await db.batch((b) => b.insertAll(db.paymentAccounts, rows));
         applied = true;
       });
+      if (applied) notifyChanged();
       return applied;
     } catch (e) {
       debugPrint('ApiPaymentAccountsRepository.pullFromServer: not applied — $e');
@@ -168,6 +169,7 @@ class ApiPaymentAccountsRepository extends PaymentAccountsRepository {
       await (db.delete(db.paymentAccounts)..where((t) => t.id.equals(id))).go();
       _writeGen++;
     });
+    notifyChanged();
     _pending.close(attempt);
   }
 
@@ -227,6 +229,7 @@ class ApiPaymentAccountsRepository extends PaymentAccountsRepository {
       await db.into(db.paymentAccounts).insertOnConflictUpdate(row);
       _writeGen++;
     });
+    notifyChanged();
   }
 
   /// A failure with no server answer. No local write; the attempt stays

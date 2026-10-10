@@ -97,7 +97,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // account the bill records — pinned by [_pinPayAccount], or switched to.
   List<PaymentAccountRow> _accounts = const [];
   String? _payAccountId;
-  StreamSubscription<List<PaymentAccountRow>>? _accountsSub;
+  StreamSubscription<void>? _accountsSub;
   // The bill discount is always stored/sent in baht (`_discount`). Percent mode
   // is UI only: the baht amount is derived from the current subtotal, so it
   // follows cart changes until the cashier switches back to ฿.
@@ -130,7 +130,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _parkedFuture = context.read<ParkedRepository>().getParked();
     _catColorsFuture = _loadCatColors();
     _loadFavorites();
-    _watchAccounts();
+    _loadAccounts();
+    _accountsSub = context
+        .read<PaymentAccountsRepository>()
+        .changes
+        .listen((_) => _loadAccounts());
     // A quote staged by QuotesManager (convert/edit) is consumed once on mount.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeConsumePendingQuote();
@@ -171,33 +175,36 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  /// The QR payment accounts, from the local cache — watched, so a pull on
-  /// login / reconnect, [_refreshAccounts] or an edit in Settings rebuilds the
-  /// panel. The cache keeps โอน/QR working offline.
-  void _watchAccounts() {
-    _accountsSub = context
-        .read<PaymentAccountsRepository>()
-        .watchAccounts()
-        .listen(
-          (list) {
-            if (!mounted) return;
-            setState(() {
-              _accounts = list;
-              _pinPayAccount();
-            });
-          },
-          // Unreadable cache: the QR panel shows the add-an-account hint and
-          // the sale still goes through as โอน/QR with no account.
-          onError: (Object _) {},
-        );
+  /// The QR payment accounts, from the local cache (so โอน/QR works offline).
+  /// Re-read on every [PaymentAccountsRepository.changes] — a pull on login /
+  /// reconnect, [_refreshAccounts], or an edit in Settings.
+  Future<void> _loadAccounts() async {
+    try {
+      final list =
+          await context.read<PaymentAccountsRepository>().getAccounts();
+      if (!mounted) return;
+      setState(() {
+        _accounts = list;
+        _pinPayAccount();
+      });
+    } catch (_) {
+      // Unreadable cache: the QR panel shows the add-an-account hint and the
+      // sale still goes through as โอน/QR with no account.
+    }
   }
 
   /// Asks the server for the current accounts when โอน/QR is shown, so an
   /// online till never shows an account edited or deleted elsewhere. While
-  /// Degraded it skips the network; the watch delivers whatever changed.
+  /// Degraded it skips the network and answers from the cache.
   Future<void> _refreshAccounts() async {
     try {
-      await context.read<PaymentAccountsRepository>().getLatestAccounts();
+      final list =
+          await context.read<PaymentAccountsRepository>().getLatestAccounts();
+      if (!mounted) return;
+      setState(() {
+        _accounts = list;
+        _pinPayAccount();
+      });
     } catch (_) {
       // The cache stays as it was.
     }

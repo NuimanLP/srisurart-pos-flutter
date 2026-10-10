@@ -295,12 +295,15 @@ void main() {
   });
 
   testWidgets("the pinned account stays when the cache's default changes", (tester) async {
-    await run(tester, const Size(1280, 800), accounts: [shop, branch], body: (db, item, rows) async {
+    late PaymentAccountsRepository repo;
+    await run(tester, const Size(1280, 800), accounts: [shop, branch],
+        accountsRepo: (db) => repo = PaymentAccountsRepository(db),
+        body: (db, item, rows) async {
       await pickQr(tester);
       final branchRow = rows.firstWhere((r) => r.isDefault);
       final shopRow = rows.firstWhere((r) => !r.isDefault);
-      // A pull lands with บัญชีร้าน as the new default.
-      await PaymentAccountsRepository(db).setDefault(shopRow.id);
+      // The cache changes under the open panel: บัญชีร้าน is the new default.
+      await repo.setDefault(shopRow.id);
       await settle(tester);
       expect(qrData(tester), promptPayPayload('1234567890123', item.price));
       await pay(tester);
@@ -310,15 +313,17 @@ void main() {
 
   testWidgets('a pinned account that vanished is kept while a sale attempt is parked',
       (tester) async {
+    late PaymentAccountsRepository repo;
     await run(
       tester,
       const Size(1280, 800),
       accounts: [shop, branch],
+      accountsRepo: (db) => repo = PaymentAccountsRepository(db),
       salesRepo: _ParkedSales.new,
       body: (db, item, rows) async {
         await pickQr(tester);
         final branchRow = rows.firstWhere((r) => r.isDefault);
-        await PaymentAccountsRepository(db).deleteAccount(branchRow.id);
+        await repo.deleteAccount(branchRow.id);
         await settle(tester);
         // The panel falls back to what is left; the retry's body does not move.
         expect(qrData(tester), promptPayPayload('0812345678', item.price));

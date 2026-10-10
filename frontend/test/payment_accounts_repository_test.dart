@@ -212,6 +212,23 @@ void main() {
       expect(rows.map((r) => r.id), ['pa2']);
     });
 
+    test('an applied pull fires changes (checkout re-reads on it); a failed one does not', () async {
+      var fired = 0;
+      final ok = repoWith((_) async => _ok([_wire('pa1')]));
+      final sub = ok.changes.listen((_) => fired++);
+      addTearDown(sub.cancel);
+      await ok.pullFromServer();
+      await Future<void>.delayed(Duration.zero);
+      expect(fired, 1);
+
+      final down = repoWith((_) async => _error(500, 'INTERNAL_ERROR'));
+      final sub2 = down.changes.listen((_) => fired++);
+      addTearDown(sub2.cancel);
+      await down.pullFromServer();
+      await Future<void>.delayed(Duration.zero);
+      expect(fired, 1);
+    });
+
     test('a failed or malformed pull leaves the cache and never throws', () async {
       await repoWith((_) async => _ok([_wire('pa1')])).pullFromServer();
       for (final handler in <MockClientHandler>[
