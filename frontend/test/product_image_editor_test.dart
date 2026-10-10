@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/network/api_client.dart';
@@ -258,6 +259,34 @@ void main() {
         shrinkProductPhoto(Uint8List.fromList(List.filled(64, 7))),
         throwsA(isA<Exception>()),
       );
+    });
+  });
+
+  testWidgets('shrinkProductPhoto applies EXIF orientation 6 (a phone photo held upright)',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Stored 300×100: left half red, right half blue. Orientation 6 =
+      // rotate 90° clockwise to display → 100×300, red on top, blue below.
+      final stored = img.Image(width: 300, height: 100);
+      img.fillRect(stored, x1: 0, y1: 0, x2: 149, y2: 99, color: img.ColorRgb8(255, 0, 0));
+      img.fillRect(stored, x1: 150, y1: 0, x2: 299, y2: 99, color: img.ColorRgb8(0, 0, 255));
+      stored.exif.imageIfd.orientation = 6;
+      final phone = img.encodeJpg(stored);
+      expect(img.decodeJpgExif(phone)!.imageIfd.orientation, 6);
+
+      final out = await shrinkProductPhoto(phone);
+      final frame = await (await ui.instantiateImageCodec(out)).getNextFrame();
+      expect([frame.image.width, frame.image.height], [100, 300]);
+      final px = (await frame.image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+      int at(int x, int y) => px.getUint32(4 * (y * 100 + x));
+      final top = at(50, 30);
+      final bottom = at(50, 270);
+      expect(top >> 24, greaterThan(200)); // red on top
+      expect((top >> 8) & 0xFF, lessThan(60));
+      expect((bottom >> 8) & 0xFF, greaterThan(200)); // blue below
+      expect(bottom >> 24, lessThan(60));
+      // The re-encoded JPEG carries no orientation of its own to apply twice.
+      expect(img.decodeJpgExif(out)?.imageIfd.orientation, isNull);
     });
   });
 }

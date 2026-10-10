@@ -4,8 +4,12 @@
 //
 // Decoding and resizing use the engine (`ui.instantiateImageCodec` with a
 // target size, as qr_image.dart does) — which also applies the photo's EXIF
-// orientation. The engine cannot encode JPEG, so the pixels are encoded by the
-// pure-Dart `image` package. A transparent PNG is flattened onto white first
+// orientation (Skia's codec honours it; pinned by product_image_editor_test's
+// orientation-6 case), so the re-encoded JPEG, which carries no EXIF, is
+// already upright. The engine cannot encode JPEG, so the pixels are encoded by
+// the pure-Dart `image` package — in a background isolate (`compute`; inline
+// on the web), since a 1600 px encode is long enough to drop frames. A
+// transparent PNG is flattened onto white first
 // (JPEG has no alpha). The server re-decodes, strips metadata and makes the
 // real thumbnail/preview; this step only saves bandwidth.
 
@@ -13,6 +17,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 
 import '../errors/pos_exception.dart';
@@ -76,15 +81,11 @@ Future<Uint8List> shrinkProductPhoto(
     decoded.dispose();
     final rgba = (await flat.toByteData(format: ui.ImageByteFormat.rawRgba))!;
     flat.dispose();
-    final out = img.encodeJpg(
-      img.Image.fromBytes(
-        width: w,
-        height: h,
-        bytes: rgba.buffer,
-        numChannels: 4,
-      ),
-      quality: productPhotoQuality,
-    );
+    final out = await compute(_encodeJpeg, (
+      rgba.buffer.asUint8List(rgba.offsetInBytes, rgba.lengthInBytes),
+      w,
+      h,
+    ));
     if (out.length <= maxBytes) return out;
     final next = (side * 0.8).floor();
     if (next < 400) break;
@@ -93,5 +94,21 @@ Future<Uint8List> shrinkProductPhoto(
   throw const PosException(
     'PRODUCT_IMAGE_TOO_LARGE',
     'รูปใหญ่เกิน 3 MB', // agent ร่าง (same as the server's PRODUCT_IMAGE_TOO_LARGE)
+  );
+}
+
+/// RGBA pixels → JPEG at [productPhotoQuality]. Top-level so [compute] can
+/// run it in another isolate.
+Uint8List _encodeJpeg((Uint8List, int, int) pixels) {
+  final (rgba, w, h) = pixels;
+  return img.encodeJpg(
+    img.Image.fromBytes(
+      width: w,
+      height: h,
+      bytes: rgba.buffer,
+      bytesOffset: rgba.offsetInBytes,
+      numChannels: 4,
+    ),
+    quality: productPhotoQuality,
   );
 }
