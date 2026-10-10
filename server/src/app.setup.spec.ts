@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Module, Post, Req, type INestApplication } from '@nestjs/common';
+import { Body, Controller, Get, Module, Patch, Post, Req, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Request } from 'express';
 import { generateKeyPairSync } from 'node:crypto';
@@ -172,6 +172,91 @@ describe('configureApp body limit for the owner import', () => {
     expect((await post().set('Authorization', `Bearer ${token({ typ: 'refresh' })}`).send(big)).status).toBe(413);
     const forged = signJwt({ aud: 'tenant', sub: 'u1', role: 'owner', tid: 't1', did: 'd1' } as never, 'hs-secret');
     expect((await post().set('Authorization', `Bearer ${forged}`).send(big)).status).toBe(413);
+  });
+});
+
+@Controller('payment-accounts')
+class PaymentAccountsProbeController {
+  @Post()
+  create(@Body() body: { blob?: string }) {
+    return { length: body?.blob?.length ?? 0 };
+  }
+
+  @Patch(':id')
+  update(@Body() body: { blob?: string }) {
+    return { length: body?.blob?.length ?? 0 };
+  }
+}
+
+@Controller('payment-accounts-other')
+class NotPaymentAccountsProbeController {
+  @Post()
+  create(@Body() body: { blob?: string }) {
+    return { length: body?.blob?.length ?? 0 };
+  }
+}
+
+@Module({
+  controllers: [PaymentAccountsProbeController, NotPaymentAccountsProbeController],
+  providers: [
+    { provide: APP_CONFIG, useValue: { corsOrigins: [] } },
+    { provide: JwtVerifier, useValue: new JwtVerifier({ jwtPublicKeys: [TENANT_PUB], jwtKeyId: 'key-1' } as AppConfig) },
+  ],
+})
+class PaymentAccountsProbeModule {}
+
+// QR payment accounts: a QR image is ≈ 400 KB of base64, so these routes take 1 MB — only for a
+// verified owner access token (no enrolled device needed), and nobody else.
+describe('configureApp body limit for payment accounts', () => {
+  let app: INestApplication;
+  const image = { blob: 'x'.repeat(600 * 1024) };
+  const tooBig = { blob: 'x'.repeat(1100 * 1024) };
+  const signer = new JwtSigner({ jwtPrivateKey: TENANT_PRIV, jwtKeyId: 'key-1' } as AppConfig);
+  const token = (claims: Record<string, unknown>) =>
+    signer.sign({ aud: 'tenant', sub: 'u1', jti: 'j1', typ: 'access', tid: 't1', role: 'owner', ...claims } as never, '5m');
+  const server = () => request(app.getHttpServer());
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [PaymentAccountsProbeModule] }).compile();
+    app = moduleRef.createNestApplication();
+    await configureApp(app, pino({ level: 'silent' }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('parses a 600 KB body for an owner, on POST and on PATCH /:id, with no device', async () => {
+    const auth = `Bearer ${token({})}`;
+    const created = await server().post('/api/v1/payment-accounts').set('Authorization', auth).send(image);
+    expect(created.status).toBe(201);
+    expect(created.body.data.length).toBe(image.blob.length);
+    const patched = await server()
+      .patch('/api/v1/payment-accounts/0192f000-0000-7000-8000-000000000001')
+      .set('Authorization', auth)
+      .send(image);
+    expect(patched.status).toBe(200);
+    expect(patched.body.data.length).toBe(image.blob.length);
+  });
+
+  it('refuses more than 1 MB even for an owner (413)', async () => {
+    const res = await server().post('/api/v1/payment-accounts').set('Authorization', `Bearer ${token({})}`).send(tooBig);
+    expect(res.status).toBe(413);
+  });
+
+  it('keeps everyone else, and every other route, on the default limit (413)', async () => {
+    const post = () => server().post('/api/v1/payment-accounts');
+    expect((await post().send(image)).status).toBe(413);
+    expect((await post().set('Authorization', `Bearer ${token({ role: 'cashier' })}`).send(image)).status).toBe(413);
+    expect((await post().set('Authorization', `Bearer ${token({ typ: 'refresh' })}`).send(image)).status).toBe(413);
+    expect((await post().set('Authorization', `Bearer ${token({ aud: 'platform' })}`).send(image)).status).toBe(413);
+    const forged = signJwt({ aud: 'tenant', sub: 'u1', role: 'owner', tid: 't1' } as never, 'hs-secret');
+    expect((await post().set('Authorization', `Bearer ${forged}`).send(image)).status).toBe(413);
+    const other = await server()
+      .post('/api/v1/payment-accounts-other')
+      .set('Authorization', `Bearer ${token({})}`)
+      .send(image);
+    expect(other.status).toBe(413);
   });
 });
 

@@ -5,7 +5,7 @@
 > - **ไม่ใช่สเปก** — เมื่อข้อความขัดแย้งกับสเปกหลักหรือ ADR ให้ยึดเอกสารต้นฉบับ ([`docs/Backend_design/`](00_INDEX.md) และ ADR-0001 ถึง ADR-0013) เป็นสำคัญ
 > - **อ่านจบแล้วต้องทำได้**: อธิบายสถาปัตยกรรม Multi-Tenant POS ของ Srisurart Autopart, เข้าใจแก่นของ Concurrency & Invariants (Sale, Void, Return, Shifts), ลำดับการถือ Lock (Lock Hierarchy) เพื่อป้องกัน Deadlock, กลไกแยกร้านระดับแถว (RLS + Handler-level `runTx`), และวิเคราะห์ความคุ้มค่าของแต่ละเลเยอร์ในระบบ
 > - **เนื้อหาอ้างอิง**: โค้ดเบสจริงในโฟลเดอร์ `server/src/`, `server/docker-compose.yml`, [`01_DATABASE.md`](01_DATABASE.md), [`02_API_SCREENS.md`](02_API_SCREENS.md), [`03_ARCHITECTURE.md`](03_ARCHITECTURE.md), และ ADR-0001 ถึง ADR-0013 ณ วันที่ 2026-09-21
-> - **ทบทวนกับโค้ดและ ADR อีกรอบ 2026-09-23** — จุดที่แก้มีหมายเหตุ `🔄 แก้ 2026-09-23` กำกับ เรื่องหลักคือ: DB จริงมี 29 ตาราง (RLS 26), void ออนไลน์ใช้แค่เหตุผลไม่ใช้ PIN แล้ว (08 E3), และเฟส 2 ให้เครื่อง `pos` ออกเลข RC/CN เอง (ADR-0007 addendum D4)
+> - **ทบทวนกับโค้ดและ ADR อีกรอบ 2026-09-23** — จุดที่แก้มีหมายเหตุ `🔄 แก้ 2026-09-23` กำกับ เรื่องหลักคือ: DB จริงมี 30 ตาราง (RLS 27; 🔄 2026-10-10: + `payment_accounts`), void ออนไลน์ใช้แค่เหตุผลไม่ใช้ PIN แล้ว (08 E3), และเฟส 2 ให้เครื่อง `pos` ออกเลข RC/CN เอง (ADR-0007 addendum D4)
 > </สัญญาของเอกสาร>
 
 > 📚 **งงกับ `PRIMARY KEY`/`FOREIGN KEY` ที่ §0 สมมติว่ารู้อยู่แล้ว?** อ่าน [`00_BASICS.md#keys`](00_BASICS.md#keys) (ฉบับเต็ม)
@@ -141,7 +141,7 @@ async createSale(@Body() body: any) {
 > - **T1 (ปัญหาเดิม):** ระบบแบบ SaaS ที่ให้บริการหลายร้านบนฐานข้อมูลเดียวกัน หากพึ่งพาแค่โปรแกรมเมอร์ไม่ลืมเขียน `WHERE tenant_id = :tid` ในทุก SQL query หากมีใครลืมแม้แต่จุดเดียว ข้อมูลของร้านหนึ่งจะรั่วไหลไปยังอีกร้านทันที
 > - **T2 (นิยาม):** Multi-Tenancy คือสถาปัตยกรรมที่หลายองค์กร/ร้านค้าใช้ทรัพยากรระบบร่วมกันอย่างเป็นอิสระ ส่วน Row-Level Security (RLS) คือกลไกความปลอดภัยระดับ Engine ของ PostgreSQL ที่กรองแถวข้อมูลตามตัวแปร Session ของฐานข้อมูลโดยอัตโนมัติ ไม่ว่า Query จะเขียนอย่างไร
 > - **T3 (อุปมา):** เหมือนตู้ล็อกเกอร์ฝากของที่มีกุญแจส่วนตัว แม้ตู้จะตั้งอยู่ในห้องโถงรวมเดียวกัน แต่ลูกค้าแต่ละคนจะเปิดดูและแตะต้องได้เฉพาะช่องล็อกเกอร์ของตัวเองเท่านั้น
-> - **T4 (ในระบบจริง):** นโยบาย RLS บน 26 ตารางใน PostgreSQL *(🔄 แก้ 2026-09-23: เดิมเขียน 25 — 25 ตารางจาก migration `…0001-RowLevelSecurity` + `owner_review_items`; ส่วน `tenants`, `platform_admins` เป็นตาราง global และ `import_jobs` ตั้งใจไม่ติด RLS เพราะอ่านจาก platform plane เท่านั้น)* ควบคุมด้วยคำสั่ง `SELECT set_config('app.tenant_id', $1, true)` ภายใน `TenantService.runTx` ([`server/src/common/database/tenant.service.ts`](../../server/src/common/database/tenant.service.ts))
+> - **T4 (ในระบบจริง):** นโยบาย RLS บน 27 ตารางใน PostgreSQL *(🔄 แก้ 2026-09-23: เดิมเขียน 25 — 25 ตารางจาก migration `…0001-RowLevelSecurity` + `owner_review_items`; 🔄 2026-10-10: + `payment_accounts`; ส่วน `tenants`, `platform_admins` เป็นตาราง global และ `import_jobs` ตั้งใจไม่ติด RLS เพราะอ่านจาก platform plane เท่านั้น)* ควบคุมด้วยคำสั่ง `SELECT set_config('app.tenant_id', $1, true)` ภายใน `TenantService.runTx` ([`server/src/common/database/tenant.service.ts`](../../server/src/common/database/tenant.service.ts))
 > - **T5 (กับดัก):** เข้าใจผิดว่าสร้างตารางแยก schema หรือแยกฐานข้อมูลต่อร้านจะปลอดภัยกว่าเสมอ — การแยก schema ทำให้การรัน Database Migration ซับซ้อนมหาศาล (100 ร้าน = รัน migration 100 รอบ) และกิน Connection Pool จนระบบล่ม
 
 > 📖 **Handler-level `runTx` & Transaction Scope**
@@ -742,7 +742,7 @@ stateDiagram-v2
 
 | หัวข้อที่ตัดออกไป | เหตุผลที่ไม่ได้ลงลึกในเอกสารนี้ | เอกสารที่ต้องไปอ่านต่อ |
 | :--- | :--- | :--- |
-| **โครงสร้าง DDL และชนิดข้อมูลของทั้ง 29 ตาราง** *(🔄 2026-09-23: เดิม 27 — เพิ่ม `import_jobs`, `owner_review_items`)* | เอกสารนี้เน้นที่การไหลของทรานแซกชันและสถาปัตยกรรม ไม่ใช่พจนานุกรมข้อมูล | [`docs/Backend_design/01_DATABASE.md`](01_DATABASE.md) |
+| **โครงสร้าง DDL และชนิดข้อมูลของทั้ง 30 ตาราง** *(🔄 2026-09-23: เดิม 27 — เพิ่ม `import_jobs`, `owner_review_items`; 🔄 2026-10-10: + `payment_accounts`)* | เอกสารนี้เน้นที่การไหลของทรานแซกชันและสถาปัตยกรรม ไม่ใช่พจนานุกรมข้อมูล | [`docs/Backend_design/01_DATABASE.md`](01_DATABASE.md) |
 | **รายละเอียด Request/Response JSON ของทุก Endpoint** | สเปกของ API แต่ละหน้าจอมีระบุไว้อย่างละเอียดตามคู่มือหน้าจอขายแล้ว | [`docs/Backend_design/02_API_SCREENS.md`](02_API_SCREENS.md) |
 | **ขั้นตอนการติดตั้ง Pipeline CI/CD และการตั้งค่าเซิร์ฟเวอร์** | เป็นเรื่องของการ Deploy และ Infrastructure จัดการผ่าน GitHub Actions | [`docs/Backend_design/07_CICD_DEPLOY.md`](07_CICD_DEPLOY.md) |
 | **ข้อกำหนดทางเทคนิคของการ Sync ออฟไลน์ในเฟส 2** | เป็นขอบเขตการทำงานของเฟส 2 *(🔄 แก้ 2026-09-23: เฟส 2 เริ่มแล้ว — server มี `POST /sync/push` (`server/src/sync/`) และ `owner_review_items` แล้ว ไม่ต้องรอ cutover · ร้านยังรัน Drift build อยู่)* | [`docs/Backend_design/08_PHASE2_SPEC.md`](08_PHASE2_SPEC.md) |
@@ -881,7 +881,7 @@ stateDiagram-v2
 
 | ลำดับ | เอกสารที่ต้องอ่าน | สิ่งที่คุณจะได้รับจากเอกสารนั้น |
 | :---: | :--- | :--- |
-| **1** | [`docs/Backend_design/01_DATABASE.md`](01_DATABASE.md) | โครงสร้าง DDL ของทั้ง 29 ตาราง (🔄 2026-09-23: เดิม 27), ดัชนี (Indexes), และนโยบาย RLS — ถ้า DDL ในเอกสารไม่ตรง migration ให้เชื่อ `server/src/db/migrations/` |
+| **1** | [`docs/Backend_design/01_DATABASE.md`](01_DATABASE.md) | โครงสร้าง DDL ของทั้ง 30 ตาราง (🔄 2026-09-23: เดิม 27; 🔄 2026-10-10: + `payment_accounts`), ดัชนี (Indexes), และนโยบาย RLS — ถ้า DDL ในเอกสารไม่ตรง migration ให้เชื่อ `server/src/db/migrations/` |
 | **2** | [`docs/Backend_design/02_API_SCREENS.md`](02_API_SCREENS.md) | สเปก Request / Response และรหัสข้อผิดพลาดของทั้ง 11 หน้าจอ |
 | **3** | [`docs/Backend_design/adr/0003-tenant-lifecycle.md`](adr/0003-tenant-lifecycle.md) | บันทึกการตัดสินใจเรื่อง Tenant Isolation และการปรับปรุงสถาปัตยกรรมสู่ `runTx` |
 | **4** | [`docs/Backend_design/07_CICD_DEPLOY.md`](07_CICD_DEPLOY.md) | สเปกการติดตั้งระบบบน Docker Compose, การตั้งค่าความปลอดภัย, และการ Deploy |

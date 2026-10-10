@@ -135,6 +135,17 @@ class SaleInput {
   /// build inside `saveSale`. The cart may differ from the quote freely.
   final String? quoteId;
 
+  /// The QR payment account a `โอน/QR` bill is paid into (owner 2026-10-10),
+  /// or null. Only ever sent / stored for `โอน/QR` — see
+  /// [effectivePaymentAccountId].
+  final String? paymentAccountId;
+
+  /// [paymentAccountId] when the method is `โอน/QR`, else null: the server
+  /// refuses an account on any other method (contract §3), so it never leaves
+  /// the client on one.
+  String? get effectivePaymentAccountId =>
+      paymentMethod == 'โอน/QR' ? paymentAccountId : null;
+
   const SaleInput({
     required this.subtotal,
     required this.discount,
@@ -147,6 +158,7 @@ class SaleInput {
     this.mechanicDelta,
     this.overrideCreditLimit = false,
     this.quoteId,
+    this.paymentAccountId,
     required this.items,
   });
 }

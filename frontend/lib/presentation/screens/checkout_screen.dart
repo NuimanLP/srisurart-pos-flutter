@@ -25,6 +25,7 @@
 // discount, best-effort re-select the customer, then clear the provider —
 // mirroring the JS screen's loadQuote/onQuoteLoaded effect.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -43,6 +44,7 @@ import '../../data/repositories/customers_repository.dart';
 import '../../data/repositories/favorites_repository.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/parked_repository.dart';
+import '../../data/repositories/payment_accounts_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/quotes_repository.dart';
 import '../../data/repositories/sales_repository.dart';
@@ -54,6 +56,7 @@ import '../widgets/device_role_banner.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_input_formatters.dart';
 import '../widgets/money_text.dart';
+import '../widgets/qr_payment_panel.dart';
 import '../widgets/receipt_view.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/tap_target.dart';
@@ -90,6 +93,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String _mechSearch = '';
   String? _editingPriceId;
   String _payMethod = 'เงินสด';
+  // QR accounts (owner 2026-10-10): the cached list (watched), and the
+  // account the bill records — pinned by [_pinPayAccount], or switched to.
+  List<PaymentAccountRow> _accounts = const [];
+  String? _payAccountId;
+  StreamSubscription<void>? _accountsSub;
   // The bill discount is always stored/sent in baht (`_discount`). Percent mode
   // is UI only: the baht amount is derived from the current subtotal, so it
   // follows cart changes until the cashier switches back to ฿.
@@ -122,6 +130,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _parkedFuture = context.read<ParkedRepository>().getParked();
     _catColorsFuture = _loadCatColors();
     _loadFavorites();
+    _loadAccounts();
+    _accountsSub = context
+        .read<PaymentAccountsRepository>()
+        .changes
+        .listen((_) => _loadAccounts());
     // A quote staged by QuotesManager (convert/edit) is consumed once on mount.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeConsumePendingQuote();
@@ -162,6 +175,68 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
+  /// The QR payment accounts, from the local cache (so โอน/QR works offline).
+  /// Re-read on every [PaymentAccountsRepository.changes] — a pull on login /
+  /// reconnect, [_refreshAccounts], or an edit in Settings.
+  Future<void> _loadAccounts() async {
+    try {
+      final list =
+          await context.read<PaymentAccountsRepository>().getAccounts();
+      if (!mounted) return;
+      setState(() {
+        _accounts = list;
+        _pinPayAccount();
+      });
+    } catch (_) {
+      // Unreadable cache: the QR panel shows the add-an-account hint and the
+      // sale still goes through as โอน/QR with no account.
+    }
+  }
+
+  /// Asks the server for the current accounts when โอน/QR is shown, so an
+  /// online till never shows an account edited or deleted elsewhere. While
+  /// Degraded it skips the network and answers from the cache.
+  Future<void> _refreshAccounts() async {
+    try {
+      final list =
+          await context.read<PaymentAccountsRepository>().getLatestAccounts();
+      if (!mounted) return;
+      setState(() {
+        _accounts = list;
+        _pinPayAccount();
+      });
+    } catch (_) {
+      // The cache stays as it was.
+    }
+  }
+
+  /// Pins the account a โอน/QR bill records the first time one resolves, so a
+  /// later cache change (a new default, a refresh) never silently changes the
+  /// sale body — and with it the sale's idempotency fingerprint. A pinned
+  /// account that has left the cache moves to the default/first only while no
+  /// sale attempt is parked: a parked retry must resend the same body, and the
+  /// server accepts this shop's soft-deleted account. Call inside setState.
+  void _pinPayAccount() {
+    if (_payMethod != 'โอน/QR') return;
+    if (_accounts.any((a) => a.id == _payAccountId)) return;
+    if (_payAccountId != null &&
+        context.read<SalesRepository>().hasParkedAttempt) {
+      return;
+    }
+    _payAccountId = defaultPaymentAccount(_accounts)?.id;
+  }
+
+  /// The account the QR panel shows: the pinned / switched-to one, else the
+  /// default, else the first (contract §5).
+  PaymentAccountRow? get _qrAccount =>
+      _accounts.where((a) => a.id == _payAccountId).firstOrNull ??
+      defaultPaymentAccount(_accounts);
+
+  /// The account id a โอน/QR bill records, else null. The pinned id wins
+  /// even when it has left the cache (see [_pinPayAccount]).
+  String? get _saleAccountId =>
+      _payMethod == 'โอน/QR' ? (_payAccountId ?? _qrAccount?.id) : null;
+
   void _refreshParked() => setState(() {
     _parkedFuture = context.read<ParkedRepository>().getParked();
   });
@@ -183,6 +258,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _mechSearchCtrl.dispose();
     _cashCtrl.dispose();
     _discountCtrl.dispose();
+    _accountsSub?.cancel();
     super.dispose();
   }
 
@@ -324,6 +400,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _selectedCustomer = null;
       _selectedMechanic = null;
       _payMethod = 'เงินสด';
+      _payAccountId = null;
       _editingPriceId = null;
     });
   }
@@ -392,6 +469,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // Preserve the in-progress payment state so a resume restores it
       // instead of inheriting whatever is left over from the next cart.
       'paymentMethod': _payMethod,
+      // The QR account switched to, so a resume restores it (contract §5).
+      'paymentAccountId': ?_saleAccountId,
       'cash': _cashCtrl.text,
       // Preserve per-line override context for an exact resume.
       'lines': [
@@ -461,6 +540,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final custId = blob['customerId'] as String?;
       final mechId = blob['mechanicId'] as String?;
       final payMethod = (blob['paymentMethod'] as String?) ?? 'เงินสด';
+      final payAccountId = blob['paymentAccountId'] as String?;
       final cash = (blob['cash'] as String?) ?? '';
       CustomerRow? cust;
       MechanicRow? mech;
@@ -482,10 +562,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _refreshParked();
       _setDiscountAmount(discount);
       _cashCtrl.text = cash;
+      if (payMethod == 'โอน/QR') unawaited(_refreshAccounts());
       setState(() {
         _selectedCustomer = cust;
         _selectedMechanic = mech;
         _payMethod = payMethod;
+        _payAccountId = payAccountId;
+        _pinPayAccount();
         _priceWarning = issues.isNotEmpty
             ? 'ข้อมูลเปลี่ยนระหว่างพักบิล:\n${issues.join('\n')}'
             : null;
@@ -702,6 +785,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         mechanicDelta: _selectedMechanic != null ? mechanicDelta : null,
         overrideCreditLimit: override,
         quoteId: _cart.quoteId,
+        paymentAccountId: _saleAccountId,
         items: [
           for (final it in cart)
             SaleLineInput(
@@ -2746,6 +2830,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
           if (_payMethod == 'เครดิตช่าง' && _selectedMechanic != null)
             _creditPanel(total),
+          if (_payMethod == 'โอน/QR')
+            QrPaymentPanel(
+              accounts: _accounts,
+              selected: _qrAccount,
+              total: total,
+              onSelect: (a) => setState(() => _payAccountId = a.id),
+            ),
           if (_payMethod == 'เงินสด') ...[
             const SizedBox(height: 12),
             TextField(
@@ -2820,7 +2911,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         : Icons.credit_score;
 
     return GestureDetector(
-      onTap: () => setState(() => _payMethod = m),
+      onTap: () {
+        setState(() {
+          _payMethod = m;
+          _pinPayAccount();
+        });
+        if (m == 'โอน/QR') unawaited(_refreshAccounts());
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 10),

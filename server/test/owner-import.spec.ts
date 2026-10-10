@@ -104,6 +104,41 @@ describe('owner import (POST /backup/import)', () => {
     expect(String(upserts[0][0])).toContain('GREATEST');
   });
 
+  it("QR accounts are like settings: only a non-empty sa_payment_accounts replaces the shop's", async () => {
+    const deletes = () =>
+      mockAdminDs.query.mock.calls.filter((c: any[]) => String(c[0]).includes('DELETE FROM payment_accounts'));
+    const inserts = () =>
+      mockAdminDs.query.mock.calls.filter((c: any[]) => String(c[0]).includes('INSERT INTO payment_accounts'));
+    const base = { __meta: { version: 2 }, sa_sales: [], sa_returns: [] };
+
+    for (const snap of [base, { ...base, sa_payment_accounts: [] }]) {
+      mockAdminDs.query.mockClear();
+      const res = await service.importSnapshot(tenantId, snap, testId('adm1'));
+      expect(res.status).toBe('success');
+      expect(deletes()).toEqual([]);
+      expect(inserts()).toEqual([]);
+    }
+
+    mockAdminDs.query.mockClear();
+    const account = {
+      id: testId('pa-1'),
+      nickname: 'บัญชีร้าน',
+      bankCode: 'KBANK',
+      kind: 'promptpay',
+      promptpayId: '0812345678',
+      isDefault: true,
+      sortOrder: 0,
+      createdAt: '2026-10-10T00:00:00.000Z',
+    };
+    await service.importSnapshot(tenantId, { ...base, sa_payment_accounts: [account] }, testId('adm1'));
+    expect(deletes()).toHaveLength(1);
+    expect(inserts()).toHaveLength(1);
+    const order = mockAdminDs.query.mock.calls.map((c: any[]) => String(c[0]));
+    expect(order.findIndex((q: string) => q.includes('DELETE FROM payment_accounts'))).toBeLessThan(
+      order.findIndex((q: string) => q.includes('INSERT INTO payment_accounts')),
+    );
+  });
+
   it('createOwnerJob keeps the safety rules: a shop with bills is refused 409', async () => {
     mockAdminDs.query.mockResolvedValue([{ n: 3 }]);
     await expect(service.createOwnerJob(tenantId, appExport(), ownerId, undefined)).rejects.toThrow(ConflictException);

@@ -2,6 +2,8 @@
 //
 // Sub-tabs:
 //   ⚙ ทั่วไป       — shop info form → SettingsRepository.updateSettings
+//   📱 บัญชีรับเงิน QR — the shop's QR payment accounts (PaymentAccountsSection,
+//                     widgets/payment_accounts_settings.dart; owner 2026-10-10)
 //   🎨 ธีม          — dark/light toggle via ThemeModeCubit
 //   💾 สำรอง/กู้คืน — backup (snapshotRepo.exportSnapshot → .json file) /
 //                     restore (importLegacyBackup; reload after) — on the API
@@ -52,6 +54,7 @@ import '../widgets/device_enrolment_dialog.dart';
 import '../widgets/font_scale_controller.dart';
 import '../widgets/login_dialog.dart';
 import '../widgets/offline_pin_setup_dialog.dart';
+import '../widgets/payment_accounts_settings.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 import '../widgets/theme_controller.dart';
@@ -121,6 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _tabs = [
     ['general', '⚙ ทั่วไป'],
     ['account', '🔐 บัญชี / ผูกเครื่อง'],
+    ['qr', '📱 บัญชีรับเงิน QR'], // เจ้าของรับรอง 2026-10-10
     ['theme', '🎨 ธีม'],
     ['backup', '💾 สำรอง/กู้คืน'],
     ['export', '📤 ส่งออก CSV'],
@@ -163,6 +167,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: switch (_subTab) {
               'general' => const _GeneralTab(),
               'account' => const _AccountTab(),
+              'qr' => const _ContentPane(
+                title: 'บัญชีรับเงิน QR', // เจ้าของรับรอง 2026-10-10
+                children: [PaymentAccountsSection()],
+              ),
               'theme' => const _ThemeTab(),
               'backup' => const _BackupTab(),
               'export' => const _ExportTab(),

@@ -14,6 +14,7 @@
 
 import 'dart:async';
 
+import '../../data/repositories/api_payment_accounts_repository.dart';
 import '../../data/repositories/api_settings_repository.dart';
 import 'auth_cubit.dart';
 
@@ -26,5 +27,17 @@ StreamSubscription<AuthState> pullSettingsOnSignIn(
 ) {
   return auth.stream.listen((state) {
     if (state is Authenticated) unawaited(settings.pullFromServer());
+  });
+}
+
+/// The QR payment accounts ride the same two moments (owner 2026-10-10):
+/// checkout reads them from the cache, so a fresh sign-in must fill it.
+/// [ApiPaymentAccountsRepository.pullFromServer] never throws either.
+StreamSubscription<AuthState> pullPaymentAccountsOnSignIn(
+  AuthCubit auth,
+  ApiPaymentAccountsRepository accounts,
+) {
+  return auth.stream.listen((state) {
+    if (state is Authenticated) unawaited(accounts.pullFromServer());
   });
 }

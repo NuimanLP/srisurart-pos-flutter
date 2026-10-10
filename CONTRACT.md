@@ -87,7 +87,7 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 | Categories | `CategoryRow` | `CategoriesCompanion` | name (PK), position(int — palette order) |
 | Customers | `CustomerRow` | `CustomersCompanion` | id, code, name, nameTH, phone?, address?, points(int=0), totalSpend(real=0), createdAt(text) |
 | Mechanics | `MechanicRow` | `MechanicsCompanion` | id, code, name, nameTH?, nickname?, shopName?, phone?, note?, creditLimit(real=0), creditBalance(real=0), totalSales(real=0), totalCredit(real=0), totalDiscount(real=0), totalMarkup(real=0), createdAt(text) |
-| Sales | `SaleRow` | `SalesCompanion` | id, receiptNo, subtotal, discount(=0), total, paymentMethod, customerId?, customerName?, mechanicId?, mechanicName?, mechanicDelta?(real), pointsGranted(int=0), date(dateTime), voided(bool=false), voidedAt?, shiftId?(text — v3, server-issued) |
+| Sales | `SaleRow` | `SalesCompanion` | id, receiptNo, subtotal, discount(=0), total, paymentMethod, customerId?, customerName?, mechanicId?, mechanicName?, mechanicDelta?(real), pointsGranted(int=0), date(dateTime), voided(bool=false), voidedAt?, shiftId?(text — v3, server-issued), paymentAccountId?(text — v14, the QR account of a `โอน/QR` bill; not an FK) |
 | SaleItems | `SaleItemRow` | `SaleItemsCompanion` | rowId(autoInc PK), saleId→Sales.id, productId, partNo?, name, nameTH?, qty(int), price(real) |
 | PurchaseOrders | `PurchaseOrderRow` | `PurchaseOrdersCompanion` | id, poNo, supplier, status(='open'), createdAt, receivedAt?, cancelledAt? |
 | PoItems | `PoItemRow` | `PoItemsCompanion` | rowId(autoInc PK), poId→PurchaseOrders.id, partNo, name, qty(int), cost(real) |
@@ -103,6 +103,7 @@ Screens & services consume these row classes DIRECTLY for flat entities.
 | ParkedSales | `ParkedSaleRow` | `ParkedSalesCompanion` | id, parkedAt, payload(JSON string) |
 | SettingsRow | `SettingsRowData` | `SettingsRowCompanion` | id(singleton=0), shopName, shopNameEN, taxRate(real=7), quoteValidDays(int=30), address?, phone?, cashierName?, taxId?, branchNo? |
 | AppMeta | `AppMetaRow` | `AppMetaCompanion` | key(PK), value |
+| PaymentAccounts | `PaymentAccountRow` | `PaymentAccountsCompanion` | id(PK), nickname, bankCode, kind(`promptpay`\|`image`), promptpayId?, image?(blob), imageMime?, isDefault(bool=false), sortOrder(int=0), updatedAt? — v14; API build = cache of `GET /payment-accounts`, Drift build = the list itself |
 
 **Mapping notes (db.js → Drift):**
 - The JS `sa_cash_drawer` (single active shift) is the `Shifts` row with
@@ -111,10 +112,11 @@ Screens & services consume these row classes DIRECTLY for flat entities.
   as a JSON string.
 - AppMeta seeds `schema_version=2` and `backup_format_version=2` (these are the
   JS `SCHEMA_VERSION` / `BACKUP_FORMAT_VERSION`).
-- Drift's own `schemaVersion => 13` (each step is in `database.dart`
+- Drift's own `schemaVersion => 14` (each step is in `database.dart`
   onUpgrade; e.g. v2 = sync bookkeeping + costAtSale; v3 = the columns the
   server's shape forces, ADR-0010; v12 = #417 indexes via `@TableIndex`;
-  v13 = #488 `OpEffects` — opId PK + JSON of the deltas an offline op applied);
+  v13 = #488 `OpEffects` — opId PK + JSON of the deltas an offline op applied;
+  v14 = QR accounts (owner 2026-10-10) — `PaymentAccounts` + `Sales.paymentAccountId`);
   the JS migration counter value (2) lives in AppMeta, NOT in Drift's schemaVersion — the two numbers
   are unrelated and coincide only by accident.
 - Every write that changes a `Products` row stamps `updatedAt` via
@@ -164,6 +166,7 @@ The other nine are **stubs that `throw UnimplementedError('<name>: pending <agen
 | `favorites_repository.dart` | `FavoritesRepository` | **Favorites** | `Future<Set<String>> getFavorites()`; `Future<Set<String>> toggle(productId)` (returns the new set); top-level `List<ProductRow> favoritesFirst(products, favorites, {onlyFavorites=false})` (starred first, stable). THIS DEVICE ONLY: one JSON array in AppMeta `pos_favorite_product_ids`, no server — same class on the Drift and API builds; a tenant switch (`resetTenantCache`) clears it |
 | `mechanics_repository.dart` | `MechanicsRepository` | **Mechanics** | `Future<List<MechanicRow>> getMechanics()`; `Future<MechanicRow> addMechanic(MechanicsCompanion)` (auto M### code); `Future<void> updateMechanic(id, MechanicsCompanion)`; `Future<void> deleteMechanic(id)`; `Future<CreditPaymentRow> addCreditPayment({mechanicId,amount,note?,paymentMethod,allowOverpayment=false})` (reduces balance, clamp 0; `paymentMethod` + `allowOverpayment` are for the API write, #24 — Drift has no method column and ignores both; the API build queues instead and may throw `CreditPaymentQueued`); `Future<List<CreditPaymentRow>> getCreditPayments({DateTime? from, DateTime? to})` (from inclusive, to exclusive, none = all; #417); outbox (#24, API build only writes it): `Future<List<PendingCreditPaymentRow>> getPendingCreditPayments()`, `Future<void> flushPendingCreditPayments()`, `Future<void> discardRejectedCreditPayment(id)`, `Future<void> resendRejectedAllowingOverpayment(id)` |
 | `customers_repository.dart` | `CustomersRepository` | **Customers** | `Future<List<CustomerRow>> getCustomers()`; `Future<CustomerRow> addCustomer(CustomersCompanion)` (auto CUS### code); `Future<void> updateCustomer(id, CustomersCompanion)`; `Future<void> deleteCustomer(id)` |
+| `payment_accounts_repository.dart` | `PaymentAccountsRepository` | **QR accounts** (2026-10-10) | `Future<List<PaymentAccountRow>> getAccounts()` (Drift, `sortOrder` then id); `Future<List<PaymentAccountRow>> getLatestAccounts()` (pulls first on the API build unless Degraded); `Future<PaymentAccountRow> addAccount(PaymentAccountInput)` (max 5 → `PAYMENT_ACCOUNT_LIMIT`; `isDefault` clears the others); `Future<void> updateAccount(id, PaymentAccountsCompanion)` (kind never changes); `Future<void> setDefault(id)`; `Future<void> deleteAccount(id)`; `bool get ownerOnly`; top-level `defaultPaymentAccount(list)` (default, else first). `ApiPaymentAccountsRepository` (`useApi`): online-only writes like settings, `pullFromServer()` replaces the cache (sign-in + `triggerEntityPull`) |
 | `snapshot_repository.dart` | `SnapshotRepository` | **Snapshot** | `Future<Map<String,dynamic>> exportSnapshot()` (sa_* keyed + __meta); `Future<void> importLegacyBackup(Map<String,dynamic>)` (atomic; Thai 'ไฟล์สำรองไม่ถูกต้อง — ไม่พบข้อมูล __meta' throw on missing __meta) |
 
 **Behaviour details for the implementers are documented inline at the top of
@@ -248,6 +251,7 @@ unwired.
 | `MovementsRepository` | `RepositoryProvider<MovementsRepository>` |
 | `SuppliersRepository` | `RepositoryProvider<SuppliersRepository>` |
 | `SettingsRepository` | `RepositoryProvider<SettingsRepository>` |
+| `PaymentAccountsRepository` | `RepositoryProvider<PaymentAccountsRepository>` (QR accounts; `useApi` → `ApiPaymentAccountsRepository`) |
 | `SnapshotRepository` | `RepositoryProvider<SnapshotRepository>` |
 | `ShiftsRepository` | `RepositoryProvider<ShiftsRepository>` |
 | `AuthRepository` | `RepositoryProvider<AuthRepository>` (#54) |
