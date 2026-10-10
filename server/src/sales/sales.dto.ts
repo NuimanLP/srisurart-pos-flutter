@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { toSatang } from '../common/money.js';
-import { optionalUuid, requiredUuid } from '../common/ids.js';
+import { isUuid, optionalUuid, requiredUuid } from '../common/ids.js';
+import { QR_PAYMENT_METHOD } from '../payment-accounts/payment-accounts.rules.js';
 
 /** One cart line as the client sends it, with money already in satang. */
 export interface SaleLine {
@@ -28,6 +29,12 @@ export interface CreateSale {
   mechanicDeltaSatang: number | null;
   /** The counter confirmed 'ยืนยันขายเครดิต?' — the bill may push the mechanic past the limit. */
   overrideCreditLimit: boolean;
+  /**
+   * The QR account a `โอน/QR` bill was paid into (contract §3), or null. Only ever non-null
+   * on a `โอน/QR` bill — `parseSaleParty` refuses anything else online, and the `/sync/push`
+   * replay drops it (`replayPaymentAccountId`).
+   */
+  paymentAccountId: string | null;
   items: SaleLine[];
 }
 
@@ -126,7 +133,37 @@ export function parseSaleParty(b: Record<string, unknown>): SaleParty {
       b.overrideCreditLimit,
       'overrideCreditLimit',
     ),
+    paymentAccountId: parsePaymentAccountId(b),
   };
+}
+
+/**
+ * `paymentAccountId` online (`POST /sales`, `POST /quotes/:id/convert`): a UUID or
+ * absent/null, and only on a `โอน/QR` bill — any other method naming an account is a 400,
+ * because the client meant something it did not send. Whether the account exists is the
+ * service's question (`400 PAYMENT_ACCOUNT_NOT_FOUND`), asked inside the transaction.
+ */
+function parsePaymentAccountId(b: Record<string, unknown>): string | null {
+  const id = optionalUuid(b.paymentAccountId, 'paymentAccountId');
+  if (id !== null && b.paymentMethod !== QR_PAYMENT_METHOD) {
+    throw new BadRequestException(
+      `paymentAccountId is only allowed when paymentMethod is ${QR_PAYMENT_METHOD}`,
+    );
+  }
+  return id;
+}
+
+/**
+ * `paymentAccountId` on a `/sync/push` `sale.create` replay (contract §3): the sale was
+ * already paid offline, so the account never refuses it. A value that is not a UUID, or
+ * any value on a bill that is not `โอน/QR`, is dropped to null here; an id this shop has no
+ * account for is dropped to null by `SalesService` (`soldOffline`).
+ */
+export function replayPaymentAccountId(body: unknown): string | null {
+  const b = asObject(body, 'body');
+  return isUuid(b.paymentAccountId) && b.paymentMethod === QR_PAYMENT_METHOD
+    ? b.paymentAccountId
+    : null;
 }
 
 /**

@@ -119,6 +119,7 @@
               "pointsGranted": 10,
               "date": "2026-09-15T05:00:00.000Z",
               "shiftId": "4492015a-7d13-5924-b0c4-a605d2f60584",
+              "paymentAccountId": null,
               "products": [
                 {
                   "id": "e7ce3922-6095-5e45-bfec-e66674fe7daf",

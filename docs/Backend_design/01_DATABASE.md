@@ -8,8 +8,8 @@
 > **สำหรับทีม backend:** นี่คือ "หน้าตาของ database" ที่ถามถึง
 > แอปเดิมเก็บทุกอย่างใน SQLite บนเครื่อง (Drift) **20 ตาราง** — เอกสารนี้แปลงเป็น PostgreSQL
 > พร้อมเพิ่มตารางที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant)
-> **ฐานข้อมูลจริงวันนี้มี 29 ตาราง** (ตรวจกับ `server/src/db/migrations/` 2026-09-23):
-> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6)
+> **ฐานข้อมูลจริงวันนี้มี 30 ตาราง** (ตรวจกับ `server/src/db/migrations/` 2026-09-23, +1 เมื่อ 2026-10-10):
+> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6) + `payment_accounts` (บัญชีรับเงิน QR, §5.8)
 > — `change_log` **ไม่สร้าง** (เคาะ 2026-09-15, #191 — ดู §5.1)
 > `platform_admins` เพิ่มเข้ามาตาม [ADR-0002](adr/0002-platform-admin-plane.md)
 >
@@ -952,7 +952,48 @@ CREATE UNIQUE INDEX uq_owner_review_items_quote_conflict ON owner_review_items (
 CREATE UNIQUE INDEX uq_owner_review_items_drawer_overdrawn_offline ON owner_review_items (tenant_id, ref_id)
   WHERE kind = 'drawer_overdrawn_offline';
 -- RLS เปิด + FORCE · policy tenant_isolation แบบมี NULLIF เหมือนตารางอื่น (…4200 แทน tenant_isolation_policy ของ …3002) ดู §11
+
+-- (2026-10-10 บัญชีรับเงิน QR — เจ้าของร้านขอ, migration 1788652805000) บัญชีที่ลูกค้าสแกนจ่าย: PromptPay (QR ใส่ยอดเงิน) หรือรูป QR ที่อัปโหลด
+CREATE TABLE payment_accounts (
+  tenant_id     UUID NOT NULL REFERENCES tenants(id),
+  id            UUID NOT NULL,                 -- client สร้าง (UUIDv7)
+  nickname      TEXT NOT NULL,                 -- 1–40 ตัวหลัง trim (บังคับที่ service)
+  bank_code     TEXT NOT NULL,                 -- SCB/KBANK/…/OTHER (บังคับที่ service — payment-accounts.rules.ts)
+  kind          TEXT NOT NULL,
+  promptpay_id  TEXT,                          -- ตัวเลขล้วน: เบอร์ 10 หลัก / เลขบัตร-ภาษี 13 / e-wallet 15
+  image         BYTEA,                         -- ≤ 300 KB, magic bytes ตรง mime (บังคับที่ service)
+  image_mime    TEXT,
+  is_default    BOOLEAN NOT NULL DEFAULT false,
+  sort_order    INT NOT NULL DEFAULT 0,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at    TIMESTAMPTZ,                   -- soft delete เท่านั้น: บิลเก่ายังอ้างถึง ชื่อเล่นยังออกรายงานได้
+  CONSTRAINT pk_payment_accounts PRIMARY KEY (tenant_id, id),
+  CONSTRAINT ck_payment_accounts_kind CHECK (kind IN ('promptpay','image')),
+  CONSTRAINT ck_payment_accounts_promptpay CHECK (kind <> 'promptpay' OR (promptpay_id IS NOT NULL AND image IS NULL)),
+  CONSTRAINT ck_payment_accounts_image CHECK (kind <> 'image' OR (image IS NOT NULL AND image_mime IS NOT NULL AND promptpay_id IS NULL)),
+  CONSTRAINT ck_payment_accounts_promptpay_digits CHECK (promptpay_id IS NULL OR promptpay_id ~ '^[0-9]+$'),
+  CONSTRAINT ck_payment_accounts_image_mime CHECK (image_mime IS NULL OR image_mime IN ('image/png','image/jpeg'))
+);
+-- ค่าเริ่มต้นได้ไม่เกินหนึ่งบัญชีต่อร้าน (แถวที่ลบแล้วไม่นับ)
+CREATE UNIQUE INDEX uq_payment_accounts_default ON payment_accounts (tenant_id) WHERE is_default AND deleted_at IS NULL;
+CREATE INDEX idx_payment_accounts_active ON payment_accounts (tenant_id, sort_order, created_at) WHERE deleted_at IS NULL;
+-- RLS เปิด + FORCE · policy tenant_isolation แบบมี NULLIF เหมือนตารางอื่น · pos_app ได้ SELECT/INSERT/UPDATE/DELETE
+-- เพดาน 5 บัญชีที่ยังไม่ลบต่อร้าน: บังคับใน PaymentAccountsService ใต้ pg_advisory_xact_lock ต่อร้าน (ไม่ใช่ trigger)
+
+-- บิลบันทึกว่ารับเงินเข้าบัญชีไหน (…5000)
+ALTER TABLE sales ADD COLUMN payment_account_id UUID;
+ALTER TABLE sales ADD CONSTRAINT fk_sales_payment_account
+  FOREIGN KEY (tenant_id, payment_account_id) REFERENCES payment_accounts (tenant_id, id);   -- 🔴 ไม่มี ON DELETE เลย (แถวถูก soft delete เท่านั้น; SET NULL แบบไม่ระบุคอลัมน์จะ null tenant_id ด้วย — บั๊ก …3002)
+ALTER TABLE sales ADD CONSTRAINT ck_sales_payment_account_qr
+  CHECK (payment_account_id IS NULL OR payment_method = 'โอน/QR');
 ```
+
+> **บัญชีรับเงิน QR (2026-10-10):** `POST /sales` อ่าน `payment_accounts` แบบไม่ล็อก (แถวไม่เคยถูกลบจริง) —
+> FK ตอน insert บิลจับ `FOR KEY SHARE` บนแถวบัญชี หลังล็อกสินค้า/`doc_counters` ตามลำดับเดิม · ฝั่งแก้บัญชีใช้
+> advisory lock ต่อร้าน + `UPDATE` ที่ไม่แตะคอลัมน์ key (`FOR NO KEY UPDATE`) จึงไม่ขวางบิล · export (`sa_payment_accounts`,
+> รวมรูปและแถวที่ลบแล้ว) / import (pre-flight ตรวจกติกาเดียวกับ API, บัญชีที่ไฟล์ไม่มี → บิลได้ NULL) ·
+> import แบบ replace ลบแล้วเขียน `payment_accounts` ใหม่ · import แบบร้านว่าง: ถ้าไฟล์มี `sa_payment_accounts` จะแทนที่บัญชีที่ร้านมี (ร้านยังไม่มีบิล จึงไม่มีอะไรอ้างถึง)
 
 ---
 

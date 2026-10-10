@@ -222,7 +222,7 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         `${r.route} ${r.successCode}${r.successCode === r.declared ? '' : ` (declares ${r.declared})`}${r.passthrough ? '' : ' (no @Res passthrough)'}${r.precheck ? ' (PIN pre-check)' : ''}`,
       ]),
     );
-    // Every live idempotent write route (39). The dead `PurchasingController` (registered
+    // Every live idempotent write route (42). The dead `PurchasingController` (registered
     // in no module) was deleted 2026-09-25 — `PurchaseOrdersController` serves its routes.
     expect(summary).toEqual({
       'CustomersController.create': 'POST /customers 201',
@@ -236,6 +236,9 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
         'POST /mechanics/:id/credit-payments 201',
       'MechanicsController.delete': 'DELETE /mechanics/:id 200',
       'ParkedSalesController.park': 'POST /parked-sales 201',
+      'PaymentAccountsController.create': 'POST /payment-accounts 201',
+      'PaymentAccountsController.update': 'PATCH /payment-accounts/:id 200',
+      'PaymentAccountsController.delete': 'DELETE /payment-accounts/:id 200',
       'ParkedSalesController.remove': 'DELETE /parked-sales/:id 200',
       'CategoriesController.create': 'POST /categories 201',
       'CategoriesController.delete': 'DELETE /categories/:name 200',
