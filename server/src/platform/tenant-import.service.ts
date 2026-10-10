@@ -1275,9 +1275,9 @@ export class TenantImportService {
       throw err;
     }
 
-    if (zipFile) {
-      // Before the job is queued: the worker reads the images from here.
-      const dest = importZipPath(tenantId, jobId);
+    // Before the job is queued: the worker reads the images from here.
+    const dest = zipFile ? importZipPath(tenantId, jobId) : undefined;
+    if (zipFile && dest) {
       await mkdir(dirname(dest), { recursive: true });
       await rename(zipFile, dest);
     }
@@ -1290,7 +1290,13 @@ export class TenantImportService {
       ...(replace ? { replace: true } : {}),
       ...(zipFile ? { zip: true } : {}),
     };
-    await this.importQueue.add(JOB_TENANT_IMPORT, payload, DEFAULT_JOB_OPTIONS);
+    try {
+      await this.importQueue.add(JOB_TENANT_IMPORT, payload, DEFAULT_JOB_OPTIONS);
+    } catch (err) {
+      // No worker will ever read the moved ZIP, and `withUpload` only knows its old path.
+      if (dest) await rm(dest, { force: true });
+      throw err;
+    }
     return { jobId };
   }
 

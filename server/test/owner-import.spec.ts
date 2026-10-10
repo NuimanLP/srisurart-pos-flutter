@@ -1,11 +1,15 @@
 import { ConflictException, HttpException } from '@nestjs/common';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { importZipPath } from '../src/backup/export-file.js';
 import { OwnerImportController } from '../src/backup/owner-import.controller.js';
 import { runInRequestContext } from '../src/common/request-context.js';
 import { AuditService } from '../src/platform/audit.service.js';
 import { TenantImportService } from '../src/platform/tenant-import.service.js';
 import { testId } from './support/test-ids.js';
+import { zipOf } from './support/zip.js';
 
 /**
  * The shop owner's own import (`POST /backup/import`, Settings → กู้คืนข้อมูล): the same
@@ -55,6 +59,27 @@ describe('owner import (POST /backup/import)', () => {
       expect.objectContaining({ tenantId, importJobId: jobId, requestedByUserId: ownerId }),
       expect.anything(),
     );
+  });
+
+  it('a ZIP already moved to its job is removed again when queueing the job fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'owner-import-zip-'));
+    const prev = process.env.EXPORT_DIR;
+    process.env.EXPORT_DIR = dir;
+    try {
+      const upload = join(dir, 'upload.zip');
+      writeFileSync(upload, await zipOf([['data.json', JSON.stringify(appExport())]]));
+      importQueue.add.mockRejectedValueOnce(new Error('redis-queue down'));
+      const jobId = testId('owner-import-queue-down');
+      await expect(
+        service.createOwnerJob(tenantId, undefined as any, ownerId, '10.0.0.5', undefined, jobId, upload),
+      ).rejects.toThrow('redis-queue down');
+      expect(existsSync(importZipPath(tenantId, jobId))).toBe(false);
+      expect(existsSync(upload)).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.EXPORT_DIR;
+      else process.env.EXPORT_DIR = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('replace: the typed shop name must match (NFC, trimmed); then pre-flight skips the empty-shop check', async () => {
