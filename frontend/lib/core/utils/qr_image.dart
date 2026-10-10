@@ -13,8 +13,9 @@ import '../errors/pos_exception.dart';
 
 const maxQrImageSide = 600;
 
-/// The encoded-size limit (matches the server's decoded-image limit).
-const maxQrImageEncodedBytes = 300 * 1024;
+/// The encoded-size limit — the stored image IS this PNG, so it is the
+/// decoded-image limit too (`maxQrImageBytes`, 300,000 bytes).
+const maxQrImageEncodedBytes = 300000;
 
 /// [source] (PNG / JPEG / anything the engine decodes) → PNG bytes, long side
 /// ≤ [maxSide], length ≤ [maxBytes]. A picture still too large at the long

@@ -44,8 +44,10 @@ String bankName(String code) => paymentAccountBanks[code] ?? code;
 /// Owner decision 2026-10-10: at most 5 active accounts per shop.
 const maxPaymentAccounts = 5;
 
-/// The decoded image limit the server enforces (contract §2).
-const maxQrImageBytes = 300 * 1024;
+/// The decoded image limit: 300,000 bytes. The server allows 300 × 1024;
+/// the client stays under the round figure so a file it accepts can never be
+/// one the server refuses (server lane, 2026-10-10).
+const maxQrImageBytes = 300000;
 
 /// `409 PAYMENT_ACCOUNT_LIMIT` — the same words on both builds.
 const paymentAccountLimitMessage =
