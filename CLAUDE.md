@@ -45,9 +45,11 @@ ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 2
 PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
 🔴 **Development freeze (owner, 2026-10-07): development stops here for the course submission.** Last release =
-`main` `1d70d1c` (PR #671, merge commit, 2026-10-08), deployed to `mob04` (run `37786076104`) + APK `apk-1d70d1c`;
-the owner lifted the freeze for exactly that one request (POS favourite-product stars, device-local, PR #672 —
-`docs/handoff_log/session-2026-10-08-pos-favorites.md`). Earlier exceptions: `847e7ef` (PR #665, shop-owner
+`main` `ef07e27` (PR #677, merge commit, 2026-10-10), deployed to `mob04` (run `38050647954`, migration
+`1788652805000-PaymentAccounts`) + APK `apk-ef07e27`; the owner lifted the freeze for exactly that one request (QR
+payment accounts ≤5, owner-only, PromptPay QR with amount at checkout, sale records the account — PR #676,
+`docs/handoff_log/session-2026-10-10-qr-payment-accounts.md`). Earlier exceptions: `1d70d1c` (PR #671/#672, POS
+favourite stars, `docs/handoff_log/session-2026-10-08-pos-favorites.md`), `847e7ef` (PR #665, shop-owner
 backup import, `docs/handoff_log/session-2026-10-08-owner-import.md`), then `6a38c87` (PR #669, suppliers pull
 fix); the release before them was `53fdd1b` (PR #658, `docs/handoff_log/session-2026-10-07-final-release.md`).
 Do not start feature work; only fixes the owner asks for. 🔴 **`develop` → `main` showing "conflict" while
@@ -727,7 +729,9 @@ on void/return paths. Keep this order in any new write touching more than one of
 - **Cancel stale waiting Deploy runs before approving a newer one** — a job waiting for approval holds
   the `deploy-demo` slot and the newer run sits `pending`; the approval API needs a `comment`.
   A code merge to `main` fires Deploy twice (once per CI workflow); the first usually skips green
-  because the other image is not on GHCR yet — approve the second (2026-10-06).
+  because the other image is not on GHCR yet — approve the second (2026-10-06). When both runs reach the
+  gate, the unapproved twin keeps waiting and blocks the *next* release — cancel it right after the deploy
+  (2026-10-10: run `37786086586` of `1d70d1c` held the slot for 2 days).
 - **A green `Deploy (demo)` run is not evidence that anything was deployed.** Its
   `deploy` job is gated on `needs.resolve.outputs.images_ready == 'true'`, so when the
   images for that SHA are not on GHCR yet the job is skipped and the workflow still
