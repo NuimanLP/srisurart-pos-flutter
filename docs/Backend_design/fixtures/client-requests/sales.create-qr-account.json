@@ -1,0 +1,38 @@
+{
+  "name": "sales.create-qr-account",
+  "caller": "ApiSalesRepository.saveSale",
+  "requests": [
+    {
+      "route": "POST /api/v1/sales",
+      "method": "POST",
+      "path": "/api/v1/sales",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "01a12547-fb47-7914-81c8-393ccec883d5",
+        "subtotal": "100.00",
+        "discount": "0.00",
+        "total": "100.00",
+        "paymentMethod": "โอน/QR",
+        "customerId": null,
+        "customerName": null,
+        "mechanicId": null,
+        "mechanicName": null,
+        "mechanicDelta": null,
+        "overrideCreditLimit": false,
+        "paymentAccountId": "43a5b631-4399-5192-9de9-ac7e5f1af22e",
+        "items": [
+          {
+            "lineNo": 1,
+            "productId": "a2bba7f5-f859-59f4-8ebd-92cee8c78f1c",
+            "partNo": null,
+            "name": "Contract part",
+            "nameTH": null,
+            "qty": 1,
+            "price": "100.00"
+          }
+        ]
+      }
+    }
+  ]
+}

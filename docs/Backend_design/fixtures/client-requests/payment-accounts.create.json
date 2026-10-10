@@ -1,0 +1,23 @@
+{
+  "name": "payment-accounts.create",
+  "caller": "ApiPaymentAccountsRepository.addAccount",
+  "requests": [
+    {
+      "route": "POST /api/v1/payment-accounts",
+      "method": "POST",
+      "path": "/api/v1/payment-accounts",
+      "idempotencyKey": true,
+      "authorization": "bearer",
+      "body": {
+        "id": "01a12547-fa9a-78d3-bcc6-93afacdd4b85",
+        "nickname": "บัญชีร้าน",
+        "bankCode": "KBANK",
+        "kind": "promptpay",
+        "promptpayId": "0812345678",
+        "imageBase64": null,
+        "imageMime": null,
+        "isDefault": true
+      }
+    }
+  ]
+}

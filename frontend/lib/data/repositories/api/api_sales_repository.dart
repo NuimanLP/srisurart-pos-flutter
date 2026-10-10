@@ -231,6 +231,8 @@ class ApiSalesRepository implements SalesRepository {
     input.mechanicDelta == null ? '' : wireMoney(input.mechanicDelta!),
     input.overrideCreditLimit,
     input.quoteId ?? '',
+    // Like the payment method: another account is another action.
+    input.effectivePaymentAccountId ?? '',
     for (final i in input.items) '${i.productId}x${i.qty}@${wireMoney(i.price)}',
   ].join('|');
 
@@ -277,6 +279,10 @@ class ApiSalesRepository implements SalesRepository {
     // open owner question — so a quote cart sold offline leaves its quote open
     // (and "→ ขาย" still on offer) until that is decided.
     'quoteId': ?input.quoteId,
+    // QR accounts (owner 2026-10-10): the account a โอน/QR bill was paid into.
+    // Absent otherwise, so every other request is byte-for-byte unchanged. The
+    // outbox `sale.create` payload is this same body (contract §3).
+    'paymentAccountId': ?input.effectivePaymentAccountId,
     'items': [
       for (var i = 0; i < input.items.length; i++)
         {
@@ -332,6 +338,10 @@ class ApiSalesRepository implements SalesRepository {
       shiftId: res['shiftId'] as String?,
       soldOffline: false,
       voidReason: null,
+      // The server's when it echoes the field (contract §3), else what was sent.
+      paymentAccountId: res.containsKey('paymentAccountId')
+          ? res['paymentAccountId'] as String?
+          : input.effectivePaymentAccountId,
     );
 
     // The response's per-line costs, keyed by the `lineNo` `_saleBody` sent.
@@ -549,6 +559,7 @@ class ApiSalesRepository implements SalesRepository {
         shiftId: effectiveShiftId,
         soldOffline: true,
         voidReason: null,
+        paymentAccountId: input.effectivePaymentAccountId,
       );
 
       payload = _saleBody(

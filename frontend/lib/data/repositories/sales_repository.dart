@@ -138,6 +138,7 @@ class SalesRepository {
         voidedAt: null,
         soldOffline: true,
         voidReason: null,
+        paymentAccountId: input.effectivePaymentAccountId,
       );
       await db.into(db.sales).insert(sale);
 

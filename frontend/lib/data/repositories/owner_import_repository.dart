@@ -264,6 +264,7 @@ class OwnerImportRepository {
                 voidReason: Value(r['voidReason'] as String?),
                 soldOffline: Value(r['soldOffline'] as bool? ?? false),
                 shiftId: Value(r['shiftId'] as String?),
+                paymentAccountId: Value(r['paymentAccountId'] as String?),
               ),
               mode: InsertMode.insertOrIgnore,
             );
