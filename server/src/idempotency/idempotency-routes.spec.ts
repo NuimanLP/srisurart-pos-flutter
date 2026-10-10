@@ -45,11 +45,12 @@ const PIN_PRECHECK =
  * the PIN — no pooled connection held across seconds of CPU. The key is still read first, the
  * pre-step reads nothing from Postgres, and the claim is still the first statement of the only
  * transaction. `settleImage` only wraps the claimed call so this upload's files can be removed
- * again afterwards when no product references them (404, 409, stale replay). Reported as
+ * again afterwards when no product references them (404, 409, stale replay); `image` carries
+ * the key and whether this upload created its files (`settleImage` uses it). Reported as
  * ` (image pre-check)`.
  */
 const IMAGE_PRECHECK =
-  /^\{\s*const params = idempotencyParamsOf\(req,\s*([^)]+?)\s*\);\s*const image = await this\.prepareImage\(req\);\s*return this\.settleImage\(image, \(\) =>\s*this\.idempotency\.runIdempotent\(params, res, \(\) => this\.products\.setImage\(id, image\)\),?\s*\);\s*\}$/;
+  /^\{\s*const params = idempotencyParamsOf\(req,\s*([^)]+?)\s*\);\s*const image = await this\.prepareImage\(req\);\s*return this\.settleImage\(image, \(\) =>\s*this\.idempotency\.runIdempotent\(params, res, \(\) => this\.products\.setImage\(id, image\.key\)\),?\s*\);\s*\}$/;
 
 interface Route {
   route: string;
@@ -189,7 +190,7 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
           const params = idempotencyParamsOf(req, 200);
           const image = await this.prepareImage(req);
           return this.settleImage(image, () =>
-            this.idempotency.runIdempotent(params, res, () => this.products.setImage(id, image)),
+            this.idempotency.runIdempotent(params, res, () => this.products.setImage(id, image.key)),
           );
         }
         @Put(':id/image2')
@@ -198,7 +199,7 @@ describe('idempotent routes claim first, with the status they send (tx.3 #152)',
           const image = await this.prepareImage(req);
           const p = await this.products.byId(id);
           return this.settleImage(image, () =>
-            this.idempotency.runIdempotent(params, res, () => this.products.setImage(id, image)),
+            this.idempotency.runIdempotent(params, res, () => this.products.setImage(id, image.key)),
           );
         }
       }`;
