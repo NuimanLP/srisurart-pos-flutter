@@ -7,7 +7,13 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { importUploadDir } from './export-file.js';
-import { isZipUpload, streamZipUpload, zipUploadOf } from './zip-upload.js';
+import {
+  IMPORT_REQUEST_TIMEOUT_MS,
+  IMPORT_ZIP_LIMIT_BYTES,
+  isZipUpload,
+  streamZipUpload,
+  zipUploadOf,
+} from './zip-upload.js';
 
 describe('streamZipUpload (contract §4)', () => {
   let dir: string;
@@ -80,5 +86,13 @@ describe('streamZipUpload (contract §4)', () => {
   it('leaves a JSON body alone', async () => {
     const res = await request(app(10)).post('/up').send({ a: 1 });
     expect(res.body.file).toBeNull();
+  });
+});
+
+describe('IMPORT_REQUEST_TIMEOUT_MS', () => {
+  it("outlasts a 200 MB ZIP at 2 Mbit/s, and Node's 300 s default would not", () => {
+    const secondsAt2Mbit = (IMPORT_ZIP_LIMIT_BYTES * 8) / 2_000_000;
+    expect(IMPORT_REQUEST_TIMEOUT_MS).toBeGreaterThan(secondsAt2Mbit * 1000);
+    expect(secondsAt2Mbit * 1000).toBeGreaterThan(300_000);
   });
 });

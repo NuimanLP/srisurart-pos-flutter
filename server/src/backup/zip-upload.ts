@@ -15,6 +15,14 @@ import { importUploadDir } from './export-file.js';
  */
 export const IMPORT_ZIP_LIMIT_BYTES = 200 * 1024 * 1024;
 
+/**
+ * Node's `server.requestTimeout` for the api (`main.ts`). Its default, 300 s, would cut off a
+ * 200 MB ZIP uploaded at under ~5.6 Mbit/s — nginx streams the body through unbuffered, so the
+ * API sees the client's own pace. 15 min covers `IMPORT_ZIP_LIMIT_BYTES` down to ~1.9 Mbit/s;
+ * nginx still drops a client that stalls (`client_body_timeout`, 60 s between reads).
+ */
+export const IMPORT_REQUEST_TIMEOUT_MS = 15 * 60_000;
+
 /** `application/x-zip-compressed` is what Windows browsers label a `.zip` with. */
 const ZIP_TYPES = ['application/zip', 'application/x-zip-compressed'];
 
