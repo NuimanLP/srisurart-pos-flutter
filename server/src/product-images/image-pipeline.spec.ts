@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import {
   imageKeyOf,
+  INPUT_PIXEL_LIMIT,
   PREVIEW_SIZE,
   PRODUCT_IMAGE_MAX_BYTES,
   processProductImage,
@@ -77,6 +78,23 @@ describe('processProductImage (contract §3)', () => {
       'PRODUCT_IMAGE_INVALID',
     );
   });
+
+  it('accepts a JPEG libjpeg only warns about (extraneous bytes before a marker, as some cameras write)', async () => {
+    const jpeg = await solid(800, 600).jpeg().toBuffer();
+    // "Corrupt JPEG data: 4 extraneous bytes before marker" — a warning, not an error.
+    // Inserted after the first segment, so the file still starts FF D8 FF (the sniff).
+    const at = 4 + jpeg.readUInt16BE(4);
+    const quirky = Buffer.concat([jpeg.subarray(0, at), Buffer.alloc(4), jpeg.subarray(at)]);
+    expect((await processProductImage(quirky)).key).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('takes exactly the pixel limit (6000 × 4000 = 24 MP) and refuses one column more', async () => {
+    expect(INPUT_PIXEL_LIMIT).toBe(6000 * 4000);
+    const atLimit = await solid(6000, 4000).png({ compressionLevel: 9 }).toBuffer();
+    expect((await processProductImage(atLimit)).key).toMatch(/^[0-9a-f]{32}$/);
+    const over = await solid(6001, 4000).png({ compressionLevel: 9 }).toBuffer();
+    expect(await codeOf(processProductImage(over))).toBe('PRODUCT_IMAGE_INVALID');
+  }, 30_000);
 
   it('refuses a decompression bomb past the pixel limit', async () => {
     // ~45 MP of one colour compresses to a few KB of PNG.

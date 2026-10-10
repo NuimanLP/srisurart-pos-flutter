@@ -16,10 +16,11 @@ export const PRODUCT_IMAGE_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/we
 
 /**
  * Decoded-size ceiling. sharp's default is ~268 MP; a 3 MB JPEG can claim far more pixels than
- * the 384 MB api container could decode. 40 MP still takes any phone photo (the client already
- * downscales to ≤ 1600 px, contract §5).
+ * the api (384 MB) or worker (256 MB) container could decode — 24 MP × 3 channels is ~72 MB of
+ * pixels, plus libvips' working copies. 24 MP (6000 × 4000) still takes a 24 MP camera photo,
+ * and the client already downscales to ≤ 1600 px (contract §5).
  */
-export const INPUT_PIXEL_LIMIT = 40_000_000;
+export const INPUT_PIXEL_LIMIT = 24_000_000;
 
 export const THUMB_SIZE = 256;
 export const PREVIEW_SIZE = 1024;
@@ -85,7 +86,8 @@ export function imageKeyOf(preview: Buffer): string {
  * not a JPEG/PNG/WebP sharp decodes cleanly within the pixel limit, and
  * `PRODUCT_IMAGE_TOO_LARGE` (413) past 3 MB.
  *
- * - `failOn: 'warning'`: a truncated or corrupt file is refused, not half-decoded.
+ * - `failOn: 'error'` (implies 'truncated'): a truncated or corrupt file is refused, not
+ *   half-decoded; a mere warning — e.g. a camera JPEG with bytes after its end marker — passes.
  * - `.rotate()` with no angle = auto-orient from EXIF, BEFORE the metadata is dropped — a
  *   phone photo would otherwise come out sideways.
  * - No `withMetadata`/`keepExif`: sharp's output carries no EXIF/GPS/ICC (its default).
@@ -99,7 +101,7 @@ export async function processProductImage(input: Buffer): Promise<ProcessedImage
   let thumb: Buffer;
   try {
     preview = await sharp(input, {
-      failOn: 'warning',
+      failOn: 'error',
       limitInputPixels: INPUT_PIXEL_LIMIT,
       animated: false,
     })
@@ -107,7 +109,7 @@ export async function processProductImage(input: Buffer): Promise<ProcessedImage
       .resize(PREVIEW_SIZE, PREVIEW_SIZE, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: PREVIEW_QUALITY })
       .toBuffer();
-    thumb = await sharp(preview, { failOn: 'warning' })
+    thumb = await sharp(preview, { failOn: 'error' })
       .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: THUMB_QUALITY })
       .toBuffer();
