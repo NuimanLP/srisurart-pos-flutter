@@ -503,19 +503,20 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   });
 
   it('platform_admins: an admin existing before …4600 gets password_changed_at backfilled to now(), not left NULL (#443)', async () => {
-    // Roll back down to …4600 (drops password_changed_at) — …4700 (#27 follow-up), …4800
-    // (PR #580 follow-up) and …4900 (#616) came after it — insert an admin as if it had existed beforehand, then re-run migrations: a fresh
-    // DataSource instance sees the rest as already applied and executes only those four,
-    // exactly like a real deploy. …4900 refuses a database with business rows, so the
-    // product fixture is taken out for the re-run and put back afterwards.
+    // Roll back down to …4600 (drops password_changed_at) — every migration after it first
+    // (…4700, …4800, …4900 #616, …5000 QR accounts, and whatever comes next) — insert an
+    // admin as if it had existed beforehand, then re-run migrations: a fresh DataSource
+    // instance sees the rest as already applied and executes exactly …4600 and the ones after
+    // it, like a real deploy. …4900 refuses a database with business rows, so the product
+    // fixture is taken out for the re-run and put back afterwards.
+    const names = MIGRATIONS.map((m) => new m().name);
+    const from4600 = names.slice(names.indexOf('PlatformAdminPasswordChangedAt1788652804600'));
+    expect(from4600[0]).toBe('PlatformAdminPasswordChangedAt1788652804600');
     await app.end();
     const ds = createMigrationDataSource(OWNER_URL);
     await ds.initialize();
     try {
-      await ds.undoLastMigration({ transaction: 'each' }); // …4900
-      await ds.undoLastMigration({ transaction: 'each' }); // …4800
-      await ds.undoLastMigration({ transaction: 'each' }); // …4700
-      await ds.undoLastMigration({ transaction: 'each' }); // …4600
+      for (let i = 0; i < from4600.length; i++) await ds.undoLastMigration({ transaction: 'each' });
       const inserted = await owner.query(
         `INSERT INTO platform_admins (username, password_hash, display_name)
          VALUES ('pre-4600-admin', 'x', 'X') RETURNING id`,
@@ -526,12 +527,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
         const before = Date.now();
         const ran = await ds.runMigrations({ transaction: 'each' });
         await insertFixtureProducts(owner);
-        expect(ran.map((m) => m.name)).toEqual([
-          'PlatformAdminPasswordChangedAt1788652804600',
-          'ReviewItemQuoteConflict1788652804700',
-          'ReviewItemDrawerOverdrawnOffline1788652804800',
-          'EntityIdsToUuid1788652804900',
-        ]);
+        expect(ran.map((m) => m.name)).toEqual(from4600);
         const r = await owner.query(
           `SELECT password_changed_at FROM platform_admins WHERE id = $1`,
           [id],
