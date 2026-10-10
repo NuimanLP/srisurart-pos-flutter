@@ -859,8 +859,11 @@ on void/return paths. Keep this order in any new write touching more than one of
   a new immutable URL; sharp writes `<tenantId>/<key>_t.webp` (256) and `_p.webp` (1024) to the `product-images` volume,
   nginx serves them read-only at `/img/` (public, `immutable`, no login: the UUID + 128-bit key is the secret).
   🔴 Removing an old key's files is **after commit, best-effort, never inside the transaction**, and only when no product of
-  that tenant still references the key (the import sweep also skips files newer than the job, so a just-written upload
-  survives). 🔴 **Image bytes never go into Drift or `audit_log`** — Drift keeps `Products.imageKey` only. 🔴 **Android loads
+  that tenant still references the key **and the files are older than `ORPHAN_GRACE_MS` (10 min)** — a concurrent upload of
+  the same bytes may be about to commit them (`image-store.ts`; only a refused upload deletes its own just-created files at
+  once; the import sweep also skips files newer than the job). Decode is capped at 24 MP (`INPUT_PIXEL_LIMIT`, api 384 MB /
+  worker 256 MB) with `failOn: 'error'`; Node `requestTimeout` = `IMPORT_REQUEST_TIMEOUT_MS` (15 min) so a slow 200 MB import
+  is not cut at the 300 s default. Drift v15 deletes the `products` sync cursor so upgraded clients re-pull existing keys. 🔴 **Image bytes never go into Drift or `audit_log`** — Drift keeps `Products.imageKey` only. 🔴 **Android loads
   images through the same private-CA trust as `ApiClient`** (`installPosTrust` / `HttpOverrides`) — never a
   `badCertificateCallback`. Owner backup is now a **ZIP** (`data.json` + `images/<key>.webp`; import takes `.zip` ≤ 200 MB or
   legacy `.json` ≤ 10 MB, the nginx limit is raised only on the two import locations; ZIP entries are whitelisted and capped).
