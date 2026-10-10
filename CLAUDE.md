@@ -48,7 +48,11 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). 🔴 **`develop` → `main` showing
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `e77356f`
+(PR #683, merge commit, 2026-10-10)**, deployed to `mob04` (run `38066101954`, `.current_sha` checked over SSH) — the first
+try `ac9d4dd` (#681) rolled back because sharp's prebuilt binaries need x86-64-v2 and `mob04` is a `qemu64` CPU; fixed by
+PR #682 (`docs/handoff_log/session-2026-10-10-product-images.md`). A Raspberry Pi 5 move is only a plan
+(`docs/research/pi5-migration-plan.md`, owner undecided). 🔴 **`develop` → `main` showing
 "conflict" while `git merge` is clean = criss-cross merge bases** (`git merge-base --all` prints 2+): merge `main` into
 `develop` with a merge-commit PR (#673), never squash. 🔴 **Never enable auto-merge on a PR an agent is still pushing to**
 (a push after the merge button misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
@@ -863,7 +867,13 @@ on void/return paths. Keep this order in any new write touching more than one of
   the same bytes may be about to commit them (`image-store.ts`; only a refused upload deletes its own just-created files at
   once; the import sweep also skips files newer than the job). Decode is capped at 24 MP (`INPUT_PIXEL_LIMIT`, api 384 MB /
   worker 256 MB) with `failOn: 'error'`; Node `requestTimeout` = `IMPORT_REQUEST_TIMEOUT_MS` (15 min) so a slow 200 MB import
-  is not cut at the 300 s default. Drift v15 deletes the `products` sync cursor so upgraded clients re-pull existing keys. 🔴 **Image bytes never go into Drift or `audit_log`** — Drift keeps `Products.imageKey` only. 🔴 **Android loads
+  is not cut at the 300 s default. Drift v15 deletes the `products` sync cursor so upgraded clients re-pull existing keys.
+  🔴 **`mob04` is a `QEMU Virtual CPU version 2.5+` (= `qemu64`: no SSSE3/SSE4/POPCNT, below x86-64-v2)** — never ship a
+  prebuilt native binary that assumes v2. `server/Dockerfile` builds **libvips 8.18.7** (sha256-pinned tarball, only
+  jpeg/png/webp/exif/lcms/zlib) and compiles sharp against it, and deletes every prebuilt `@img/sharp-*`; `server.yml`
+  `build-image` runs `server/docker/sharp-check/check.cjs` under `qemu-x86_64 -cpu qemu64` before Trivy/push (PR #682,
+  after `ac9d4dd` rolled back on 2026-10-10). Trivy does not track the self-built libvips — bump it by hand for CVEs
+  (sharp's `src/common.h` sets the minimum libvips). 🔴 **Image bytes never go into Drift or `audit_log`** — Drift keeps `Products.imageKey` only. 🔴 **Android loads
   images through the same private-CA trust as `ApiClient`** (`installPosTrust` / `HttpOverrides`) — never a
   `badCertificateCallback`. Owner backup is now a **ZIP** (`data.json` + `images/<key>.webp`; import takes `.zip` ≤ 200 MB or
   legacy `.json` ≤ 10 MB, the nginx limit is raised only on the two import locations; ZIP entries are whitelisted and capped).
