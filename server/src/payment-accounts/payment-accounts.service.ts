@@ -1,8 +1,10 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
+import { AuditService } from '../audit/audit.service.js';
 import { ClientIdReusedException } from '../common/client-id-reused.exception.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { currentRequestContext } from '../common/request-context.js';
+import { returning } from '../common/sql.js';
 import type {
   PaymentAccount,
   PaymentAccountCreate,
@@ -10,7 +12,7 @@ import type {
 } from './payment-accounts.dto.js';
 import { MAX_ACTIVE_PAYMENT_ACCOUNTS, type ImageMime, type PaymentAccountKind } from './payment-accounts.rules.js';
 
-interface PaymentAccountRow {
+export interface PaymentAccountRow {
   id: string;
   nickname: string;
   bank_code: string;
@@ -38,9 +40,19 @@ const COLUMNS = `id, nickname, bank_code, kind, promptpay_id, image, image_mime,
  * `FOR KEY SHARE` on the account row) never waits on it; and an `UPDATE` here changes no
  * key column, so it takes `FOR NO KEY UPDATE`, which `FOR KEY SHARE` does not conflict with.
  */
+/** Who is acting — from the token, never from the body. */
+export interface PaymentAccountActor {
+  userId?: string;
+  deviceId?: string;
+  ip?: string;
+}
+
 @Injectable()
 export class PaymentAccountsService {
-  constructor(private readonly tenants: TenantService) {}
+  constructor(
+    private readonly tenants: TenantService,
+    private readonly audit: AuditService,
+  ) {}
 
   /** Active rows only, in display order. */
   list(): Promise<PaymentAccount[]> {
@@ -58,11 +70,11 @@ export class PaymentAccountsService {
     return rows.map(toPaymentAccount);
   }
 
-  create(input: PaymentAccountCreate): Promise<PaymentAccount> {
-    return this.tenants.runTx(() => this.createIn(input));
+  create(actor: PaymentAccountActor, input: PaymentAccountCreate): Promise<PaymentAccount> {
+    return this.tenants.runTx(() => this.createIn(actor, input));
   }
 
-  private async createIn(input: PaymentAccountCreate): Promise<PaymentAccount> {
+  private async createIn(actor: PaymentAccountActor, input: PaymentAccountCreate): Promise<PaymentAccount> {
     const { tenantId, manager } = currentRequestContext();
     await lockAccounts(manager, tenantId);
 
@@ -81,7 +93,7 @@ export class PaymentAccountsService {
     )) as { n: number }[];
     if (active[0].n >= MAX_ACTIVE_PAYMENT_ACCOUNTS) throw paymentAccountLimit();
 
-    if (input.isDefault) await clearDefault(manager, tenantId);
+    const previousDefaultId = input.isDefault ? await clearDefault(manager, tenantId) : null;
     const rows = (await manager.query(
       `INSERT INTO payment_accounts
          (tenant_id, id, nickname, bank_code, kind, promptpay_id, image, image_mime, is_default, sort_order)
@@ -100,14 +112,21 @@ export class PaymentAccountsService {
         input.sortOrder,
       ],
     )) as PaymentAccountRow[];
+    await this.writeAudit(manager, tenantId, actor, 'payment_account.created', rows[0], {
+      after: { ...auditSummary(rows[0]), ...(previousDefaultId ? { previousDefaultId } : {}) },
+    });
     return toPaymentAccount(rows[0]);
   }
 
-  update(id: string, patch: PaymentAccountPatch): Promise<PaymentAccount> {
-    return this.tenants.runTx(() => this.updateIn(id, patch));
+  update(actor: PaymentAccountActor, id: string, patch: PaymentAccountPatch): Promise<PaymentAccount> {
+    return this.tenants.runTx(() => this.updateIn(actor, id, patch));
   }
 
-  private async updateIn(id: string, patch: PaymentAccountPatch): Promise<PaymentAccount> {
+  private async updateIn(
+    actor: PaymentAccountActor,
+    id: string,
+    patch: PaymentAccountPatch,
+  ): Promise<PaymentAccount> {
     const { tenantId, manager } = currentRequestContext();
     await lockAccounts(manager, tenantId);
     const current = await activeRow(manager, tenantId, id);
@@ -124,8 +143,10 @@ export class PaymentAccountsService {
       throw new BadRequestException(`Fields 'imageBase64'/'imageMime' are only for kind 'image'`);
     }
 
-    if (patch.isDefault === true) await clearDefault(manager, tenantId, id);
-    const rows = (await manager.query(
+    const previousDefaultId =
+      patch.isDefault === true && !current.is_default ? await clearDefault(manager, tenantId, id) : null;
+    // `returning`: TypeORM answers an UPDATE … RETURNING as `[rows, count]` (common/sql.ts).
+    const rows = returning<PaymentAccountRow>(await manager.query(
       `UPDATE payment_accounts SET
               nickname     = $3,
               bank_code    = $4,
@@ -148,7 +169,21 @@ export class PaymentAccountsService {
         patch.isDefault ?? current.is_default,
         patch.sortOrder ?? current.sort_order,
       ],
-    )) as PaymentAccountRow[];
+    ));
+    const changedFields = changedFieldsOf(current, rows[0]);
+    // A PATCH that only moved the default is the default switch; anything else is an edit.
+    const action =
+      changedFields.length === 1 && changedFields[0] === 'isDefault'
+        ? 'payment_account.default_changed'
+        : 'payment_account.updated';
+    await this.writeAudit(manager, tenantId, actor, action, rows[0], {
+      before: auditSummary(current),
+      after: {
+        ...auditSummary(rows[0]),
+        changedFields,
+        ...(previousDefaultId ? { previousDefaultId } : {}),
+      },
+    });
     return toPaymentAccount(rows[0]);
   }
 
@@ -156,22 +191,89 @@ export class PaymentAccountsService {
    * Soft delete: old bills keep their reference and the nickname stays reportable. Deleting
    * the default leaves the shop with no default (the client falls back to the first account).
    */
-  remove(id: string): Promise<PaymentAccount & { deletedAt: string }> {
-    return this.tenants.runTx(() => this.removeIn(id));
+  remove(actor: PaymentAccountActor, id: string): Promise<PaymentAccount & { deletedAt: string }> {
+    return this.tenants.runTx(() => this.removeIn(actor, id));
   }
 
-  private async removeIn(id: string): Promise<PaymentAccount & { deletedAt: string }> {
+  private async removeIn(
+    actor: PaymentAccountActor,
+    id: string,
+  ): Promise<PaymentAccount & { deletedAt: string }> {
     const { tenantId, manager } = currentRequestContext();
     await lockAccounts(manager, tenantId);
-    const rows = (await manager.query(
+    const rows = returning<PaymentAccountRow>(await manager.query(
       `UPDATE payment_accounts SET deleted_at = now(), is_default = false, updated_at = now()
         WHERE tenant_id = $1::uuid AND id = $2 AND deleted_at IS NULL
         RETURNING ${COLUMNS}`,
       [tenantId, id],
-    )) as PaymentAccountRow[];
+    ));
     if (rows.length === 0) throw paymentAccountNotFound();
-    return { ...toPaymentAccount(rows[0]), deletedAt: rows[0].deleted_at!.toISOString() };
+    const deletedAt = rows[0].deleted_at!.toISOString();
+    await this.writeAudit(manager, tenantId, actor, 'payment_account.deleted', rows[0], {
+      after: { ...auditSummary(rows[0]), deletedAt },
+    });
+    return { ...toPaymentAccount(rows[0]), deletedAt };
   }
+
+  /** One `audit_log` row on the request transaction: a write that rolls back leaves none. */
+  private writeAudit(
+    manager: EntityManager,
+    tenantId: string,
+    actor: PaymentAccountActor,
+    action: string,
+    row: PaymentAccountRow,
+    detail: { before?: Record<string, unknown>; after: Record<string, unknown> },
+  ): Promise<void> {
+    return this.audit.log(manager, {
+      tenantId,
+      userId: actor.userId,
+      deviceId: actor.deviceId,
+      ip: actor.ip,
+      action,
+      entity: 'payment_accounts',
+      entityId: row.id,
+      ...detail,
+    });
+  }
+}
+
+/**
+ * What `audit_log` keeps of an account. Never the image bytes, and never the whole PromptPay
+ * id: `audit_log` is read more widely than the till, which needs the number to build the QR.
+ */
+export function auditSummary(row: PaymentAccountRow): Record<string, unknown> {
+  return {
+    id: row.id,
+    nickname: row.nickname,
+    bankCode: row.bank_code,
+    kind: row.kind,
+    promptpayId: maskPromptPayId(row.promptpay_id),
+    isDefault: row.is_default,
+  };
+}
+
+/** `0812345678` → `******5678`: the last 4 digits only. */
+export function maskPromptPayId(id: string | null): string | null {
+  if (id === null) return null;
+  return id.length <= 4 ? '*'.repeat(id.length) : '*'.repeat(id.length - 4) + id.slice(-4);
+}
+
+/** The wire names of the fields a PATCH actually changed (an image compares by its bytes). */
+export function changedFieldsOf(before: PaymentAccountRow, after: PaymentAccountRow): string[] {
+  const sameImage =
+    before.image === null || after.image === null
+      ? before.image === after.image
+      : Buffer.from(before.image).equals(Buffer.from(after.image));
+  const changed: Array<[string, boolean]> = [
+    ['nickname', before.nickname !== after.nickname],
+    ['bankCode', before.bank_code !== after.bank_code],
+    ['promptpayId', before.promptpay_id !== after.promptpay_id],
+    ['imageBase64', !sameImage],
+    ['imageMime', before.image_mime !== after.image_mime],
+    ['isDefault', before.is_default !== after.is_default],
+    ['sortOrder', Number(before.sort_order) !== Number(after.sort_order)],
+  ];
+  return changed.filter(([, c]) => c).map(([name]) => name);
 }
 
 /** One account writer per shop at a time (see the class comment). */
@@ -191,14 +293,25 @@ async function activeRow(manager: EntityManager, tenantId: string, id: string): 
   return rows[0];
 }
 
-/** Clears the shop's default, in the same transaction that sets the new one. */
-async function clearDefault(manager: EntityManager, tenantId: string, exceptId?: string): Promise<void> {
-  await manager.query(
-    `UPDATE payment_accounts SET is_default = false, updated_at = now()
-      WHERE tenant_id = $1::uuid AND is_default AND deleted_at IS NULL
-        AND ($2::uuid IS NULL OR id <> $2::uuid)`,
-    [tenantId, exceptId ?? null],
+/**
+ * Clears the shop's default, in the same transaction that sets the new one. Returns the id
+ * that was the default, for the audit row (null = there was none).
+ */
+async function clearDefault(
+  manager: EntityManager,
+  tenantId: string,
+  exceptId?: string,
+): Promise<string | null> {
+  const rows = returning<{ id: string }>(
+    await manager.query(
+      `UPDATE payment_accounts SET is_default = false, updated_at = now()
+        WHERE tenant_id = $1::uuid AND is_default AND deleted_at IS NULL
+          AND ($2::uuid IS NULL OR id <> $2::uuid)
+        RETURNING id`,
+      [tenantId, exceptId ?? null],
+    ),
   );
+  return rows[0]?.id ?? null;
 }
 
 export function toPaymentAccount(row: PaymentAccountRow): PaymentAccount {

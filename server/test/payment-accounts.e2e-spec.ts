@@ -235,6 +235,53 @@ describe('payment accounts (e2e)', () => {
     });
   });
 
+  describe('audit log', () => {
+    const audits = async (entityId: string) =>
+      (await admin.query(
+        `SELECT action, user_id, before, after FROM audit_log
+          WHERE tenant_id = $1::uuid AND entity = 'payment_accounts' AND entity_id = $2
+          ORDER BY id`,
+        [TENANT, entityId],
+      )) as { action: string; user_id: string; before: unknown; after: Record<string, unknown> }[];
+
+    it('one row per create / update / default switch / delete — no image bytes, PromptPay id masked', async () => {
+      const first = promptpay({ isDefault: true });
+      const second = imageAccount(PNG);
+      expect((await create(first)).status).toBe(201);
+      expect((await create(second)).status).toBe(201);
+      expect((await patch(first.id, { nickname: 'ใหม่', promptpayId: '1234567890123' })).status).toBe(200);
+      expect((await patch(second.id, { isDefault: true })).status).toBe(200);
+      expect((await remove(first.id)).status).toBe(200);
+
+      const a = await audits(first.id);
+      expect(a.map((r) => r.action)).toEqual([
+        'payment_account.created',
+        'payment_account.updated',
+        'payment_account.deleted',
+      ]);
+      expect(a.every((r) => r.user_id === shop.userId)).toBe(true);
+      expect(a[0].after).toMatchObject({ id: first.id, kind: 'promptpay', bankCode: 'KBANK', promptpayId: '******5678' });
+      expect(a[1].after).toMatchObject({ nickname: 'ใหม่', promptpayId: '*********0123' });
+      expect(a[1].after.changedFields).toEqual(['nickname', 'promptpayId']);
+
+      const b = await audits(second.id);
+      expect(b.map((r) => r.action)).toEqual(['payment_account.created', 'payment_account.default_changed']);
+      expect(b[1].after).toMatchObject({ isDefault: true, previousDefaultId: first.id });
+
+      const text = JSON.stringify([...a, ...b]);
+      expect(text).not.toContain('0812345678');
+      expect(text).not.toContain('1234567890123');
+      expect(text).not.toContain(PNG.toString('base64'));
+    });
+
+    it('a refused write leaves no audit row (same transaction)', async () => {
+      const body = promptpay();
+      const cashier = accessToken({ tenantId: TENANT, userId: shop.userId, role: 'cashier' });
+      expect((await create(body, cashier)).status).toBe(403);
+      expect(await audits(body.id)).toEqual([]);
+    });
+  });
+
   describe('the 5-active limit', () => {
     it('the sixth active account is 409 PAYMENT_ACCOUNT_LIMIT; a deleted one frees a slot', async () => {
       const ids: string[] = [];

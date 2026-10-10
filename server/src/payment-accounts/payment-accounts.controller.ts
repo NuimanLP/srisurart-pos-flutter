@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { JwtVerifier } from '../auth/jwt-keys.service.js';
+import { clientIp } from '../common/client-ip.js';
 import { TenantGuard } from '../common/guards/tenant.guard.js';
 import { ParseUuidPipe } from '../common/parse-uuid.pipe.js';
 import { idempotencyParamsOf } from '../idempotency/idempotency.runner.js';
@@ -23,7 +24,7 @@ import {
   parsePaymentAccountPatch,
   type PaymentAccount,
 } from './payment-accounts.dto.js';
-import { PaymentAccountsService } from './payment-accounts.service.js';
+import { PaymentAccountsService, type PaymentAccountActor } from './payment-accounts.service.js';
 
 /** `/payment-accounts` as Express sees it under the global prefix (`app.setup.ts`). */
 export const PAYMENT_ACCOUNTS_ROUTE = '/api/v1/payment-accounts';
@@ -64,7 +65,7 @@ export class PaymentAccountsController {
   ): Promise<PaymentAccount> {
     return this.idempotency.runIdempotent(idempotencyParamsOf(req, 201), res, () => {
       requireOwner(req);
-      return this.accounts.create(parsePaymentAccountCreate(body));
+      return this.accounts.create(actorOf(req), parsePaymentAccountCreate(body));
     });
   }
 
@@ -77,7 +78,7 @@ export class PaymentAccountsController {
   ): Promise<PaymentAccount> {
     return this.idempotency.runIdempotent(idempotencyParamsOf(req, 200), res, () => {
       requireOwner(req);
-      return this.accounts.update(id, parsePaymentAccountPatch(body));
+      return this.accounts.update(actorOf(req), id, parsePaymentAccountPatch(body));
     });
   }
 
@@ -89,9 +90,18 @@ export class PaymentAccountsController {
   ): Promise<PaymentAccount & { deletedAt: string }> {
     return this.idempotency.runIdempotent(idempotencyParamsOf(req, 200), res, () => {
       requireOwner(req);
-      return this.accounts.remove(id);
+      return this.accounts.remove(actorOf(req), id);
     });
   }
+}
+
+/** For the audit row: who wrote, from the token, never from the body. */
+function actorOf(req: AuthenticatedRequest): PaymentAccountActor {
+  return {
+    userId: req.user?.userId,
+    deviceId: req.user?.deviceId,
+    ip: clientIp(req) ?? undefined,
+  };
 }
 
 /**
