@@ -40,6 +40,7 @@ export interface ExportSnapshotData {
   sa_cash_drawer: Record<string, unknown> | null;
   sa_shift_history: Array<Record<string, unknown>>;
   sa_parked: Array<Record<string, unknown>>;
+  sa_payment_accounts: Array<Record<string, unknown>>;
   sa_schema_version: string;
   __meta: {
     version: number;
@@ -165,7 +166,7 @@ export async function buildTenantSnapshot(
   const saleRows: Array<Record<string, any>> = await em.query(
     `SELECT id, receipt_no, subtotal, discount, total, payment_method,
             customer_id, customer_name, mechanic_id, mechanic_name, mechanic_delta,
-            points_granted, date, voided, voided_at
+            points_granted, date, voided, voided_at, payment_account_id
        FROM sales
       WHERE tenant_id = $1::uuid
       ORDER BY date DESC`,
@@ -205,6 +206,7 @@ export async function buildTenantSnapshot(
       date: iso(s.date),
       voided: Boolean(s.voided),
       ...(s.voided_at != null ? { voidedAt: iso(s.voided_at) } : {}),
+      ...(s.payment_account_id != null ? { paymentAccountId: s.payment_account_id } : {}),
       items: items.map((it) => ({
         productId: it.product_id,
         ...(it.part_no != null ? { partNo: it.part_no } : {}),
@@ -497,6 +499,32 @@ export async function buildTenantSnapshot(
     };
   });
 
+  // 14b. QR payment accounts (contract §3): every row, soft-deleted ones included, so an old
+  // bill's `paymentAccountId` still finds its account (and nickname) after a restore. The
+  // wire shape of `GET /payment-accounts`, plus `createdAt`/`deletedAt`.
+  const accountRows: Array<Record<string, any>> = await em.query(
+    `SELECT id, nickname, bank_code, kind, promptpay_id, image, image_mime, is_default, sort_order,
+            created_at, updated_at, deleted_at
+       FROM payment_accounts
+      WHERE tenant_id = $1::uuid
+      ORDER BY sort_order ASC, created_at ASC, id ASC`,
+    [tenantId],
+  );
+  const saPaymentAccounts = accountRows.map((a) => ({
+    id: a.id,
+    nickname: a.nickname,
+    bankCode: a.bank_code,
+    kind: a.kind,
+    promptpayId: a.promptpay_id,
+    imageBase64: a.image != null ? Buffer.from(a.image).toString('base64') : null,
+    imageMime: a.image_mime,
+    isDefault: Boolean(a.is_default),
+    sortOrder: num(a.sort_order),
+    createdAt: iso(a.created_at),
+    updatedAt: iso(a.updated_at),
+    ...(a.deleted_at != null ? { deletedAt: iso(a.deleted_at) } : {}),
+  }));
+
   // 15. Record counts & metadata
   const recordCounts = {
     products: saProducts.length,
@@ -513,6 +541,7 @@ export async function buildTenantSnapshot(
     parked: saParked.length,
     categories: saCategories.length,
     cashDrawer: cashDrawer !== null ? 1 : 0,
+    paymentAccounts: saPaymentAccounts.length,
   };
 
   const exportedAt = new Date().toISOString();
@@ -534,6 +563,7 @@ export async function buildTenantSnapshot(
     sa_cash_drawer: cashDrawer,
     sa_shift_history: history,
     sa_parked: saParked,
+    sa_payment_accounts: saPaymentAccounts,
     sa_schema_version: '2',
     __meta: {
       version: 2,
