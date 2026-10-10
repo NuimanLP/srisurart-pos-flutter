@@ -707,7 +707,7 @@ sha256sum deploy/scripts/backup-db.sh
 ssh mob04-deploy 'sha256sum /opt/pos/scripts/backup-db.sh'
 ```
 
-(รูปแบบเดียวกับที่ใช้ลง PR #519 บน `mob04` 2026-09-30 — คำสั่งชุดข้างบนเป็นตัวอย่างเขียนใหม่ ยังไม่เคยรันจริงบน `mob04`; ทางที่ครอบคลุมสคริปต์ทุกตัวคือ `provision.yml` §2.5)
+(รูปแบบเดียวกับที่ใช้ลง PR #519 บน `mob04` 2026-09-30 · **ลำดับเดียวกันนี้รันจริงบน `mob04` แล้ว 2026-10-10** หลัง deploy `e77356f`: sha256 `e2fc4c39…` ตรงกับ `main`, สำเนาเก่าเก็บเป็น `/opt/pos/scripts/.backup-db.sh.prev-ef07e27`, รันในสภาพ cron (`env -i`, cwd `/home/deploy`, เป็น `deploy`) ได้ทั้ง `pos_backup_…sql.gz` และ `pos_images_…tar.gz` ผ่าน `gzip -t` + sha256 · user `cloud` อ่าน `/opt/pos/backups` ไม่ได้ — ใช้ `sudo -u deploy` · ทางที่ครอบคลุมสคริปต์ทุกตัวคือ `provision.yml` §2.5)
 หลังลง รันหนึ่งครั้งแล้วดูว่ามีทั้งสองไฟล์:
 
 ```bash
