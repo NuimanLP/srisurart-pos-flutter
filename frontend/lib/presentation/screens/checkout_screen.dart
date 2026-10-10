@@ -25,6 +25,7 @@
 // discount, best-effort re-select the customer, then clear the provider —
 // mirroring the JS screen's loadQuote/onQuoteLoaded effect.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -92,10 +93,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String _mechSearch = '';
   String? _editingPriceId;
   String _payMethod = 'เงินสด';
-  // QR accounts (owner 2026-10-10): the cached list, and the account the
-  // cashier switched to (null = the default, see [_qrAccount]).
+  // QR accounts (owner 2026-10-10): the cached list (watched), and the
+  // account the bill records — pinned by [_pinPayAccount], or switched to.
   List<PaymentAccountRow> _accounts = const [];
   String? _payAccountId;
+  StreamSubscription<List<PaymentAccountRow>>? _accountsSub;
   // The bill discount is always stored/sent in baht (`_discount`). Percent mode
   // is UI only: the baht amount is derived from the current subtotal, so it
   // follows cart changes until the cashier switches back to ฿.
@@ -128,7 +130,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _parkedFuture = context.read<ParkedRepository>().getParked();
     _catColorsFuture = _loadCatColors();
     _loadFavorites();
-    _loadAccounts();
+    _watchAccounts();
     // A quote staged by QuotesManager (convert/edit) is consumed once on mount.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeConsumePendingQuote();
@@ -169,28 +171,64 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  /// The QR payment accounts, from the local cache (never the network, so
-  /// โอน/QR works offline). Re-read when โอน/QR is picked, so an account added
-  /// in Settings meanwhile shows up.
-  Future<void> _loadAccounts() async {
+  /// The QR payment accounts, from the local cache — watched, so a pull on
+  /// login / reconnect, [_refreshAccounts] or an edit in Settings rebuilds the
+  /// panel. The cache keeps โอน/QR working offline.
+  void _watchAccounts() {
+    _accountsSub = context
+        .read<PaymentAccountsRepository>()
+        .watchAccounts()
+        .listen(
+          (list) {
+            if (!mounted) return;
+            setState(() {
+              _accounts = list;
+              _pinPayAccount();
+            });
+          },
+          // Unreadable cache: the QR panel shows the add-an-account hint and
+          // the sale still goes through as โอน/QR with no account.
+          onError: (Object _) {},
+        );
+  }
+
+  /// Asks the server for the current accounts when โอน/QR is shown, so an
+  /// online till never shows an account edited or deleted elsewhere. While
+  /// Degraded it skips the network; the watch delivers whatever changed.
+  Future<void> _refreshAccounts() async {
     try {
-      final list =
-          await context.read<PaymentAccountsRepository>().getAccounts();
-      if (mounted) setState(() => _accounts = list);
+      await context.read<PaymentAccountsRepository>().getLatestAccounts();
     } catch (_) {
-      // Unreadable cache: the QR panel shows the add-an-account hint and the
-      // sale still goes through as โอน/QR with no account.
+      // The cache stays as it was.
     }
   }
 
-  /// The account a โอน/QR bill records: the one the cashier switched to, else
-  /// the default, else the first (contract §5).
+  /// Pins the account a โอน/QR bill records the first time one resolves, so a
+  /// later cache change (a new default, a refresh) never silently changes the
+  /// sale body — and with it the sale's idempotency fingerprint. A pinned
+  /// account that has left the cache moves to the default/first only while no
+  /// sale attempt is parked: a parked retry must resend the same body, and the
+  /// server accepts this shop's soft-deleted account. Call inside setState.
+  void _pinPayAccount() {
+    if (_payMethod != 'โอน/QR') return;
+    if (_accounts.any((a) => a.id == _payAccountId)) return;
+    if (_payAccountId != null &&
+        context.read<SalesRepository>().hasParkedAttempt) {
+      return;
+    }
+    _payAccountId = defaultPaymentAccount(_accounts)?.id;
+  }
+
+  /// The account the QR panel shows: the pinned / switched-to one, else the
+  /// default, else the first (contract §5).
   PaymentAccountRow? get _qrAccount =>
       _accounts.where((a) => a.id == _payAccountId).firstOrNull ??
       defaultPaymentAccount(_accounts);
 
-  /// [_qrAccount]'s id when paying by โอน/QR, else null.
-  String? get _saleAccountId => _payMethod == 'โอน/QR' ? _qrAccount?.id : null;
+  /// The account id a โอน/QR bill records, else null. The pinned id wins
+  /// even when it has left the cache (see [_pinPayAccount]).
+  String? get _saleAccountId =>
+      _payMethod == 'โอน/QR' ? (_payAccountId ?? _qrAccount?.id) : null;
 
   void _refreshParked() => setState(() {
     _parkedFuture = context.read<ParkedRepository>().getParked();
@@ -213,6 +251,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _mechSearchCtrl.dispose();
     _cashCtrl.dispose();
     _discountCtrl.dispose();
+    _accountsSub?.cancel();
     super.dispose();
   }
 
@@ -516,11 +555,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _refreshParked();
       _setDiscountAmount(discount);
       _cashCtrl.text = cash;
+      if (payMethod == 'โอน/QR') unawaited(_refreshAccounts());
       setState(() {
         _selectedCustomer = cust;
         _selectedMechanic = mech;
         _payMethod = payMethod;
         _payAccountId = payAccountId;
+        _pinPayAccount();
         _priceWarning = issues.isNotEmpty
             ? 'ข้อมูลเปลี่ยนระหว่างพักบิล:\n${issues.join('\n')}'
             : null;
@@ -2864,8 +2905,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     return GestureDetector(
       onTap: () {
-        setState(() => _payMethod = m);
-        if (m == 'โอน/QR') _loadAccounts();
+        setState(() {
+          _payMethod = m;
+          _pinPayAccount();
+        });
+        if (m == 'โอน/QR') unawaited(_refreshAccounts());
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),

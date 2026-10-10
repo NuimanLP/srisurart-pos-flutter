@@ -33,6 +33,11 @@ class SalesRepository {
   final AppDatabase db;
   SalesRepository(this.db);
 
+  /// Whether a sale attempt was sent and never got a verdict, so the next
+  /// press replays it under the same id and key. The Drift build writes
+  /// locally in one transaction and never parks one.
+  bool get hasParkedAttempt => false;
+
   /// Transactional. Returns the persisted SaleRow. Throws a Thai 'สต็อกไม่พอ…'
   /// error (and rolls back) on insufficient stock.
   Future<SaleRow> saveSale(SaleInput input) async {

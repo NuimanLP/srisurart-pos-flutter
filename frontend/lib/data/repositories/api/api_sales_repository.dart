@@ -80,6 +80,9 @@ class ApiSalesRepository implements SalesRepository {
   /// after a timeout from becoming a second bill.
   final PendingWrites _pending = PendingWrites();
 
+  @override
+  bool get hasParkedAttempt => _pending.anyParked;
+
   bool get _isDegraded {
     if (isOffline) return true;
     final sync = syncService ??

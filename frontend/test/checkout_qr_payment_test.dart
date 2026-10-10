@@ -1,11 +1,14 @@
 // Checkout's โอน/QR panel (owner request 2026-10-10, contract §5): the
 // default account's QR with the bill total, switching accounts, the sale
 // carrying the chosen account id, the no-accounts hint, the parked bill
-// keeping the account, and no overflow at 390 px / 1280 px.
+// keeping the account, and no overflow at 390 px / 1280 px. Also: the list is
+// refreshed when โอน/QR opens, and the account the bill records is pinned so a
+// later cache change never changes the sale body under a parked retry.
 
 import 'dart:convert';
 
 import 'package:barcode_widget/barcode_widget.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -17,11 +20,35 @@ import 'package:srisurart_pos/core/utils/promptpay.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/payment_accounts_repository.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
+import 'package:srisurart_pos/data/repositories/sales_repository.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
 import 'package:srisurart_pos/presentation/widgets/qr_payment_panel.dart';
+
+/// Stands in for the API build's `getLatestAccounts`: [pull] plays the
+/// server's reply landing in the cache.
+class _RefreshingAccounts extends PaymentAccountsRepository {
+  _RefreshingAccounts(super.db, this.pull);
+  final Future<void> Function() pull;
+  int calls = 0;
+
+  @override
+  Future<List<PaymentAccountRow>> getLatestAccounts() async {
+    calls++;
+    await pull();
+    return getAccounts();
+  }
+}
+
+/// A Drift build whose last sale attempt never got a verdict.
+class _ParkedSales extends SalesRepository {
+  _ParkedSales(super.db);
+
+  @override
+  bool get hasParkedAttempt => true;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -38,6 +65,8 @@ void main() {
     Size size, {
     required List<PaymentAccountInput> accounts,
     required Future<void> Function(AppDatabase db, ProductRow item, List<PaymentAccountRow> rows) body,
+    PaymentAccountsRepository Function(AppDatabase db)? accountsRepo,
+    SalesRepository Function(AppDatabase db)? salesRepo,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -60,7 +89,13 @@ void main() {
       cart.add(item);
       await tester.pumpWidget(
         MultiRepositoryProvider(
-          providers: repositoryProviders(db),
+          providers: [
+            ...repositoryProviders(db),
+            if (accountsRepo != null)
+              RepositoryProvider<PaymentAccountsRepository>.value(value: accountsRepo(db)),
+            if (salesRepo != null)
+              RepositoryProvider<SalesRepository>.value(value: salesRepo(db)),
+          ],
           child: MultiBlocProvider(
             providers: [
               BlocProvider<PendingQuoteCubit>.value(value: pq),
@@ -218,6 +253,113 @@ void main() {
       expect(await db.select(db.parkedSales).get(), isEmpty);
       expect(qrData(tester), promptPayPayload('0812345678', item.price));
     });
+  });
+
+  /// Lets a Drift watch emit and the screen rebuild from it.
+  Future<void> settle(WidgetTester tester) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await tester.pumpAndSettle(const Duration(milliseconds: 100));
+  }
+
+  testWidgets("opening โอน/QR refreshes the list: a stale account is replaced by the server's",
+      (tester) async {
+    late _RefreshingAccounts repo;
+    await run(
+      tester,
+      const Size(1280, 800),
+      accounts: [branch],
+      accountsRepo: (db) => repo = _RefreshingAccounts(db, () async {
+        // Elsewhere the owner deleted สาขาสอง and added a new default.
+        await db.delete(db.paymentAccounts).go();
+        await db.into(db.paymentAccounts).insert(PaymentAccountsCompanion.insert(
+              id: 'pa-fresh',
+              nickname: 'บัญชีใหม่',
+              bankCode: 'BBL',
+              kind: 'promptpay',
+              promptpayId: const Value('0899999999'),
+              isDefault: const Value(true),
+            ));
+      }),
+      body: (db, item, rows) async {
+        await pickQr(tester);
+        await settle(tester);
+        expect(repo.calls, 1);
+        final panel = find.byType(QrPaymentPanel);
+        expect(find.descendant(of: panel, matching: find.text('บัญชีใหม่')), findsWidgets);
+        expect(find.descendant(of: panel, matching: find.text('สาขาสอง')), findsNothing);
+        expect(qrData(tester), promptPayPayload('0899999999', item.price));
+        await pay(tester);
+        expect((await db.select(db.sales).getSingle()).paymentAccountId, 'pa-fresh');
+      },
+    );
+  });
+
+  testWidgets("the pinned account stays when the cache's default changes", (tester) async {
+    await run(tester, const Size(1280, 800), accounts: [shop, branch], body: (db, item, rows) async {
+      await pickQr(tester);
+      final branchRow = rows.firstWhere((r) => r.isDefault);
+      final shopRow = rows.firstWhere((r) => !r.isDefault);
+      // A pull lands with บัญชีร้าน as the new default.
+      await PaymentAccountsRepository(db).setDefault(shopRow.id);
+      await settle(tester);
+      expect(qrData(tester), promptPayPayload('1234567890123', item.price));
+      await pay(tester);
+      expect((await db.select(db.sales).getSingle()).paymentAccountId, branchRow.id);
+    });
+  });
+
+  testWidgets('a pinned account that vanished is kept while a sale attempt is parked',
+      (tester) async {
+    await run(
+      tester,
+      const Size(1280, 800),
+      accounts: [shop, branch],
+      salesRepo: _ParkedSales.new,
+      body: (db, item, rows) async {
+        await pickQr(tester);
+        final branchRow = rows.firstWhere((r) => r.isDefault);
+        await PaymentAccountsRepository(db).deleteAccount(branchRow.id);
+        await settle(tester);
+        // The panel falls back to what is left; the retry's body does not move.
+        expect(qrData(tester), promptPayPayload('0812345678', item.price));
+        await pay(tester);
+        expect((await db.select(db.sales).getSingle()).paymentAccountId, branchRow.id);
+      },
+    );
+  });
+
+  testWidgets('an image QR sits on a white quiet zone, inline and fullscreen', (tester) async {
+    // A 1×1 transparent PNG: on a dark panel its modules would vanish.
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    );
+    await run(
+      tester,
+      const Size(390, 844),
+      accounts: [
+        PaymentAccountInput(
+          nickname: 'รูปร้าน',
+          bankCode: 'KTB',
+          kind: 'image',
+          image: png,
+          imageMime: 'image/png',
+        ),
+      ],
+      body: (db, item, rows) async {
+        await pickQr(tester);
+        Finder onWhite() => find.ancestor(
+              of: find.byKey(const ValueKey('image-qr')),
+              matching: find.byWidgetPredicate(
+                (w) => w is Container && w.color == Colors.white && w.padding != null,
+              ),
+            );
+        expect(onWhite(), findsOneWidget);
+        await tester.tap(find.text('ขยาย'));
+        await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        expect(onWhite(), findsNWidgets(2));
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 
   testWidgets('ขยาย opens the QR fullscreen', (tester) async {

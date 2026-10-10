@@ -137,12 +137,18 @@ class PaymentAccountsRepository {
   /// The accounts in display order: `sortOrder`, then id (UUIDv7 = creation
   /// order, the server's `created_at` tie-break). Local only — never waits on
   /// the network, so checkout can read it offline.
-  Future<List<PaymentAccountRow>> getAccounts() => (db.select(db.paymentAccounts)
+  Future<List<PaymentAccountRow>> getAccounts() => _ordered().get();
+
+  /// [getAccounts] as a stream: emits again whenever the cache changes — a
+  /// pull on login / reconnect, [getLatestAccounts], or an edit in Settings.
+  Stream<List<PaymentAccountRow>> watchAccounts() => _ordered().watch();
+
+  SimpleSelectStatement<$PaymentAccountsTable, PaymentAccountRow> _ordered() =>
+      db.select(db.paymentAccounts)
         ..orderBy([
           (t) => OrderingTerm.asc(t.sortOrder),
           (t) => OrderingTerm.asc(t.id),
-        ]))
-      .get();
+        ]);
 
   /// [getAccounts] after bringing the cache up to date — for a screen that
   /// can wait on the network (Settings). The Drift build has nothing to pull.
