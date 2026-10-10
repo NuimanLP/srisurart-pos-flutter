@@ -40,6 +40,7 @@ import 'package:srisurart_pos/data/repositories/api/api_sales_repository.dart';
 import 'package:srisurart_pos/data/repositories/api/api_shifts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_customers_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_mechanics_repository.dart';
+import 'package:srisurart_pos/data/repositories/api_payment_accounts_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_purchase_orders_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
@@ -49,6 +50,7 @@ import 'package:srisurart_pos/data/repositories/auth_repository.dart';
 import 'package:srisurart_pos/data/repositories/devices_repository.dart';
 import 'package:srisurart_pos/data/repositories/offline_pin_repository.dart';
 import 'package:srisurart_pos/data/repositories/owner_import_repository.dart';
+import 'package:srisurart_pos/data/repositories/payment_accounts_repository.dart';
 import 'package:srisurart_pos/data/repositories/returns_repository.dart';
 import 'package:srisurart_pos/data/repositories/review_items_repository.dart';
 import 'package:srisurart_pos/data/repositories/sales_repository.dart';
@@ -172,6 +174,11 @@ final Map<String, _Reply> _replies = {
 const _keepsServerText = {
   'ApiProductsRepository.delete',
   'ApiSettingsRepository.updateSettings',
+  // QR accounts sit on the Settings screen and convert like settings.
+  'ApiPaymentAccountsRepository.addAccount',
+  'ApiPaymentAccountsRepository.updateAccount',
+  'ApiPaymentAccountsRepository.setDefault',
+  'ApiPaymentAccountsRepository.deleteAccount',
   'OfflinePinRepository.setPin',
   'ApiSalesRepository.saveSale',
   'ApiReturnsRepository.createReturn',
@@ -250,6 +257,12 @@ const _classes = <String, List<(String, String)>>{
     ('lib/data/repositories/api_suppliers_repository.dart', 'ApiSuppliersRepository'),
     ('lib/data/repositories/suppliers_repository.dart', 'SuppliersRepository'),
   ],
+  'ApiPaymentAccountsRepository': [
+    ('lib/data/repositories/api_payment_accounts_repository.dart',
+        'ApiPaymentAccountsRepository'),
+    ('lib/data/repositories/payment_accounts_repository.dart',
+        'PaymentAccountsRepository'),
+  ],
   'DevicesRepository': [
     ('lib/data/repositories/devices_repository.dart', 'DevicesRepository'),
   ],
@@ -294,6 +307,7 @@ const _noApiCall = <String, String>{
   'ApiMechanicsRepository.discardRejectedCreditPayment': 'inherited, Drift only',
   'ApiSettingsRepository.getSettings': 'inherited, Drift only',
   'ApiSuppliersRepository.getSuppliersForProduct': 'inherited, Drift only',
+  'ApiPaymentAccountsRepository.getAccounts': 'inherited, Drift only',
   'ApiMechanicsRepository.flushPendingCreditPayments':
       'driven below via its outbox op; listed for its writesToServer=false early exit',
   'AuthRepository.logout': 'token storage only',
@@ -480,6 +494,25 @@ final Map<String, _Call> _cases = {
       .updateSupplier('ts1', name: const Value('ร้านใหม่')),
   'ApiSuppliersRepository.deleteSupplier': (w) =>
       ApiSuppliersRepository(w.db, w.api).deleteSupplier('ts1'),
+  // ── QR payment accounts ──
+  'ApiPaymentAccountsRepository.pullFromServer': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).pullFromServer(),
+  'ApiPaymentAccountsRepository.getLatestAccounts': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).getLatestAccounts(),
+  'ApiPaymentAccountsRepository.addAccount': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).addAccount(const PaymentAccountInput(
+        nickname: 'บัญชีร้าน',
+        bankCode: 'KBANK',
+        kind: 'promptpay',
+        promptpayId: '0812345678',
+      )),
+  'ApiPaymentAccountsRepository.updateAccount': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api)
+          .updateAccount('pa1', const PaymentAccountsCompanion(nickname: Value('ใหม่'))),
+  'ApiPaymentAccountsRepository.setDefault': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).setDefault('pa1'),
+  'ApiPaymentAccountsRepository.deleteAccount': (w) =>
+      ApiPaymentAccountsRepository(w.db, w.api).deleteAccount('pa1'),
   // ── Devices / review items ──
   'DevicesRepository.listDevices': (w) => DevicesRepository(w.api).listDevices(),
   'DevicesRepository.createDevice': (w) =>

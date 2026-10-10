@@ -24,6 +24,9 @@ class SaleLite {
   final String paymentMethod;
   final bool voided;
   final List<ItemLite> items;
+
+  /// The QR account a โอน/QR bill was paid into (`Sales.paymentAccountId`).
+  final String? paymentAccountId;
   const SaleLite({
     this.id = '',
     required this.subtotal,
@@ -32,6 +35,7 @@ class SaleLite {
     required this.paymentMethod,
     this.voided = false,
     required this.items,
+    this.paymentAccountId,
   });
 }
 
@@ -44,11 +48,16 @@ class ReturnLite {
   final double refundTotal;
   final String refundMethod;
   final List<ItemLite> items;
+
+  /// The original bill's QR account ([SaleLite.paymentAccountId]), when that
+  /// bill is known — a transfer refund is taken off that account's row.
+  final String? saleAccountId;
   const ReturnLite({
     required this.saleId,
     required this.refundTotal,
     required this.refundMethod,
     required this.items,
+    this.saleAccountId,
   });
 }
 
@@ -214,6 +223,13 @@ class NetSales {
   final PaymentGroup qr;
   final PaymentGroup credit;
 
+  /// [qr] split by QR account (owner 2026-10-10): key = the bill's
+  /// `paymentAccountId`, null = no account recorded. A transfer refund is
+  /// taken off its original bill's account (null when that bill had none or
+  /// is unknown), so the values always sum to [qr]. Insertion order = first
+  /// bill seen.
+  final Map<String?, PaymentGroup> qrByAccount;
+
   /// Every part with a positive net quantity, highest net revenue first.
   final List<TopItem> topItems;
 
@@ -230,6 +246,7 @@ class NetSales {
     this.cash,
     this.qr,
     this.credit,
+    this.qrByAccount,
     this.topItems,
     this.netItems,
     this._returns,
@@ -294,12 +311,24 @@ class NetSales {
     final topItems = top.values.where((t) => t.qty > 0).toList()
       ..sort((a, b) => b.revenue.compareTo(a.revenue));
 
+    final qrCounted = qrSales(counted);
+    final byAccount = <String?, (int, double)>{};
+    for (final s in qrCounted) {
+      final cur = byAccount[s.paymentAccountId] ?? (0, 0.0);
+      byAccount[s.paymentAccountId] = (cur.$1 + 1, cur.$2 + s.total);
+    }
+    for (final r in returns.where((r) => _isQrRefund(r.refundMethod))) {
+      final cur = byAccount[r.saleAccountId] ?? (0, 0.0);
+      byAccount[r.saleAccountId] = (cur.$1, cur.$2 - r.refundTotal);
+    }
+
     return NetSales._(
       counted,
       sumTotal(counted) - refunds((_) => true),
       group(cashSales(counted), _isCashRefund),
-      group(qrSales(counted), _isQrRefund),
+      group(qrCounted, _isQrRefund),
       group(creditSales(counted), _isCreditRefund),
+      {for (final e in byAccount.entries) e.key: PaymentGroup(e.value.$1, e.value.$2)},
       topItems,
       netItems,
       returns,
@@ -331,6 +360,10 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
 }) {
   final costByPart = {for (final p in products) p.partNo: p.cost};
   final productById = {for (final p in products) p.id: p};
+  final accountBySale = {
+    for (final s in originalSales) s.sale.id: s.sale.paymentAccountId,
+    for (final s in sales) s.sale.id: s.sale.paymentAccountId,
+  };
   final linesBySale = {
     for (final s in originalSales) s.sale.id: s.items,
     for (final s in sales) s.sale.id: s.items,
@@ -362,6 +395,7 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
           total: s.sale.total,
           paymentMethod: s.sale.paymentMethod,
           voided: s.sale.voided,
+          paymentAccountId: s.sale.paymentAccountId,
           items: [
             for (final i in s.items)
               ItemLite(
@@ -381,6 +415,7 @@ bool _isCreditRefund(String m) => m == 'หักจากเครดิต';
           saleId: r.ret.saleId,
           refundTotal: r.ret.refundTotal,
           refundMethod: r.ret.refundMethod,
+          saleAccountId: accountBySale[r.ret.saleId],
           items: [for (final i in r.items) returnLine(r.ret.saleId, i)],
         ),
     ],

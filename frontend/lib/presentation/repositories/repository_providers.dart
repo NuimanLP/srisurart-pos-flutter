@@ -1,4 +1,4 @@
-// flutter_bloc RepositoryProvider tree — 23 providers: 19 repositories plus
+// flutter_bloc RepositoryProvider tree — 24 providers: 20 repositories plus
 // ApiClient, BootstrapService, DocCounterSeeder and SyncFacade. Ported off
 // Riverpod's providers.dart + shift_providers.dart (see
 // docs/plans/riverpod-to-bloc.md).
@@ -12,6 +12,7 @@ import '../../data/repositories/favorites_repository.dart';
 import '../../data/repositories/mechanics_repository.dart';
 import '../../data/repositories/movements_repository.dart';
 import '../../data/repositories/parked_repository.dart';
+import '../../data/repositories/payment_accounts_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/purchase_orders_repository.dart';
 import '../../data/repositories/quotes_repository.dart';
@@ -33,6 +34,7 @@ import '../../data/storage/token_storage.dart';
 
 import '../../data/repositories/api_customers_repository.dart';
 import '../../data/repositories/api_mechanics_repository.dart';
+import '../../data/repositories/api_payment_accounts_repository.dart';
 import '../../data/repositories/api_products_repository.dart';
 import '../../data/repositories/api_purchase_orders_repository.dart';
 import '../../data/repositories/api_quotes_repository.dart';
@@ -88,6 +90,7 @@ List<RepositoryProvider> repositoryProviders(
   late final MechanicsRepository mechanicsRepo;
   late final SettingsRepository settingsRepo;
   late final SuppliersRepository suppliersRepo;
+  late final PaymentAccountsRepository paymentAccountsRepo;
 
   triggerEntityPull = () async {
     // #474: settings ride the same reconnect hook as products/customers/
@@ -95,10 +98,13 @@ List<RepositoryProvider> repositoryProviders(
     // not on useApiRepositories, since that's what selects it below.
     final s = settingsRepo;
     final sup = suppliersRepo;
+    final pa = paymentAccountsRepo;
     final futures = <Future<void>>[
       if (s is ApiSettingsRepository) s.pullFromServer().then((_) {}),
       // Suppliers follow the same switch as settings (useApi).
       if (sup is ApiSuppliersRepository) sup.pullFromServer().then((_) {}),
+      // QR payment accounts: same switch (useApi), pulled whole.
+      if (pa is ApiPaymentAccountsRepository) pa.pullFromServer().then((_) {}),
     ];
     if (useApiRepositories) {
       final p = productsRepo;
@@ -213,6 +219,15 @@ List<RepositoryProvider> repositoryProviders(
   suppliersRepo = useApi
       ? ApiSuppliersRepository(db, client, syncFacade: syncFacade ?? realSyncService)
       : SuppliersRepository(db);
+  // QR payment accounts (owner 2026-10-10): on the API build the server's are
+  // the truth — pulled into Drift, edited online only by the owner.
+  paymentAccountsRepo = useApi
+      ? ApiPaymentAccountsRepository(
+          db,
+          client,
+          syncFacade: syncFacade ?? realSyncService,
+        )
+      : PaymentAccountsRepository(db);
 
   return [
     RepositoryProvider<ProductsRepository>.value(value: productsRepo),
@@ -230,6 +245,9 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<MovementsRepository>.value(value: MovementsRepository(db)),
     RepositoryProvider<SuppliersRepository>.value(value: suppliersRepo),
     RepositoryProvider<SettingsRepository>.value(value: settingsRepo),
+    RepositoryProvider<PaymentAccountsRepository>.value(
+      value: paymentAccountsRepo,
+    ),
     RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db, restoresViaServer: useApi)),
     RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),
     RepositoryProvider<AuthRepository>.value(value: authRepo),

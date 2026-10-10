@@ -21,6 +21,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/dates.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/pdf_fonts.dart';
+import '../../data/db/database.dart';
+import '../../data/repositories/payment_accounts_repository.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
@@ -59,9 +61,13 @@ class _ClosingData {
   final String? address;
   final String? phone;
   final String? cashierName;
+
+  /// The โอน/QR row split by account ([qrAccountRows]).
+  final List<QrAccountRow> qrAccounts;
   const _ClosingData({
     required this.net,
     required this.cash,
+    required this.qrAccounts,
     required this.drawerToday,
     required this.shopName,
     required this.shopNameEN,
@@ -76,6 +82,47 @@ class _ClosingData {
   double get drawerStarting => cash.startingCash;
   double get drawerIn => cash.totalIn;
   double get drawerOut => cash.totalOut;
+}
+
+/// One line of the โอน/QR breakdown under the closing report's QR row.
+typedef QrAccountRow = ({String label, int bills, double net});
+
+/// A bill whose account is no longer in the local cache (deleted).
+const qrDeletedAccountLabel = 'บัญชีที่ลบแล้ว'; // agent ร่าง (contract §5)
+
+/// A โอน/QR bill with no account recorded.
+const qrNoAccountLabel = 'ไม่ระบุบัญชี'; // agent ร่าง (contract §5)
+
+/// [NetSales.qrByAccount] as display rows: the shop's accounts in their own
+/// order (by nickname), then every deleted account merged into one
+/// [qrDeletedAccountLabel] row, then [qrNoAccountLabel]. Empty when there is
+/// no โอน/QR money at all, so the report shows no breakdown.
+List<QrAccountRow> qrAccountRows(
+  Map<String?, PaymentGroup> byAccount,
+  List<PaymentAccountRow> accounts,
+) {
+  final known = {for (final a in accounts) a.id};
+  final rows = <QrAccountRow>[
+    for (final a in accounts)
+      if (byAccount[a.id] case final g?)
+        (label: a.nickname, bills: g.bills, net: g.net),
+  ];
+  var deletedBills = 0;
+  var deletedNet = 0.0;
+  var anyDeleted = false;
+  for (final e in byAccount.entries) {
+    if (e.key == null || known.contains(e.key)) continue;
+    anyDeleted = true;
+    deletedBills += e.value.bills;
+    deletedNet += e.value.net;
+  }
+  if (anyDeleted) {
+    rows.add((label: qrDeletedAccountLabel, bills: deletedBills, net: deletedNet));
+  }
+  if (byAccount[null] case final g?) {
+    rows.add((label: qrNoAccountLabel, bills: g.bills, net: g.net));
+  }
+  return rows;
 }
 
 /// Disclosure lines for [GrossProfitResult] — verbatim copy of the warning
@@ -94,6 +141,7 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   final productsRepo = context.read<ProductsRepository>();
   final settingsRepo = context.read<SettingsRepository>();
   final shiftsRepo = context.read<ShiftsRepository>();
+  final accountsRepo = context.read<PaymentAccountsRepository>();
 
   final now = DateTime.now();
   final today = dateKey(now);
@@ -118,6 +166,7 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
   );
   final products = await productsRepo.getAll();
   final settings = await settingsRepo.getSettings();
+  final accounts = await accountsRepo.getAccounts();
 
   final lites = toReportLites(
     sales: salesAgg,
@@ -134,9 +183,11 @@ Future<_ClosingData> _loadClosingData(BuildContext context) async {
       ? await shiftsRepo.drawerCash(drawer)
       : DrawerCash.empty;
 
+  final net = NetSales.of(lites.sales, lites.returns, settings.taxRate);
   return _ClosingData(
-    net: NetSales.of(lites.sales, lites.returns, settings.taxRate),
+    net: net,
     cash: cash,
+    qrAccounts: qrAccountRows(net.qrByAccount, accounts),
     drawerToday: drawerToday,
     shopName: settings.shopName,
     shopNameEN: settings.shopNameEN,
@@ -341,6 +392,8 @@ class _ClosingReportState extends State<ClosingReport> {
             sectionTitle('แบ่งตามวิธีชำระเงิน'),
             row('💵 เงินสด (${cash.bills} บิล)', baht(cash.net)),
             row('📱 โอน/QR (${qr.bills} บิล)', baht(qr.net)),
+            for (final a in d.qrAccounts)
+              row('    · ${a.label} (${a.bills} บิล)', baht(a.net)),
             row('🔧 เครดิตช่าง (${credit.bills} บิล)', baht(credit.net)),
             row('รวมทั้งหมด', baht(totalRevenue), big: true),
             divider(),
@@ -524,6 +577,7 @@ class _ClosingReportState extends State<ClosingReport> {
         _SectionTitle('วิธีชำระเงิน'),
         _payRow('💵 เงินสด', cash.bills, cash.net, AppColors.orange),
         _payRow('📱 โอน/QR', qr.bills, qr.net, AppColors.steelBlue),
+        for (final a in d.qrAccounts) _qrAccountRow(a),
         _payRow('🔧 เครดิตช่าง', credit.bills, credit.net, AppColors.warning),
         Container(
           decoration: BoxDecoration(
@@ -880,6 +934,47 @@ class _ClosingReportState extends State<ClosingReport> {
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: color,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// One indented account line under the โอน/QR row (owner 2026-10-10).
+  Widget _qrAccountRow(QrAccountRow a) {
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        return Padding(
+          padding: const EdgeInsets.only(left: 20, top: 4, bottom: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: '· ${a.label} '),
+                      TextSpan(
+                        text: '(${a.bills} บิล)',
+                        style: TextStyle(
+                          color: AppColors.steelBlue,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              Text(
+                baht(a.net),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.steelBlue,
                 ),
               ),
             ],

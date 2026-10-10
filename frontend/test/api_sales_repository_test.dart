@@ -1840,4 +1840,83 @@ void main() {
     expect(await repo.getSales(from: DateTime(2021)), isEmpty);
     expect(await repo.getSales(to: DateTime(2020)), isEmpty);
   });
+
+  group('QR payment account (owner 2026-10-10)', () {
+    SaleInput qrInput(String method) => SaleInput(
+          subtotal: 200,
+          discount: 0,
+          total: 200,
+          paymentMethod: method,
+          paymentAccountId: 'pa1',
+          items: const [
+            SaleLineInput(productId: 'tp1', name: 'Brake Pad', qty: 2, price: 100),
+          ],
+        );
+
+    test('a โอน/QR bill sends paymentAccountId and stores the server\'s echo', () async {
+      late Map<String, dynamic> body;
+      final repo = repoWith((req) async {
+        body = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response(
+          _ok(created()..['paymentAccountId'] = 'pa1'),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final sale = await repo.saveSale(qrInput('โอน/QR'));
+      expect(body['paymentAccountId'], 'pa1');
+      expect(sale.paymentAccountId, 'pa1');
+      expect((await db.select(db.sales).getSingle()).paymentAccountId, 'pa1');
+    });
+
+    test('any other method never sends an account, even if the input carries one', () async {
+      late Map<String, dynamic> body;
+      final repo = repoWith((req) async {
+        body = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response(_ok(created()), 201,
+            headers: {'content-type': 'application/json'});
+      });
+      final sale = await repo.saveSale(qrInput('เงินสด'));
+      expect(body.containsKey('paymentAccountId'), isFalse);
+      expect(sale.paymentAccountId, isNull);
+    });
+
+    test('a reply that omits the field keeps the account that was sent', () async {
+      final repo = repoWith((req) async => http.Response(_ok(created()), 201,
+          headers: {'content-type': 'application/json'}));
+      final sale = await repo.saveSale(qrInput('โอน/QR'));
+      expect(sale.paymentAccountId, 'pa1');
+    });
+
+    test('an offline โอน/QR bill queues sale.create carrying paymentAccountId', () async {
+      const deviceId = 'dev-pos-qr';
+      final numbers = DocNumberService(db: db);
+      final period = DocNumberService.formatPeriod(DateTime.now());
+      await db.into(db.docCounters).insert(DocCountersCompanion.insert(
+            deviceId: deviceId,
+            deviceNo: 1,
+            docType: 'receipt',
+            period: period,
+            lastNo: 0,
+          ));
+      await numbers.recordSeedMarker(deviceId: deviceId, period: period);
+      final repo = ApiSalesRepository(
+        api: ApiClient(
+          baseUrl: 'http://server.test',
+          httpClient: MockClient((req) async => fail('HTTP should not be called offline')),
+          tokenStorage: _MemoryTokenStorage(),
+        ),
+        db: db,
+        drift: SalesRepository(db),
+        docNumberService: numbers,
+        isOffline: true,
+      );
+      final sale = await repo.saveSale(qrInput('โอน/QR'));
+      final payload =
+          jsonDecode((await db.select(db.outboxOps).getSingle()).payload) as Map<String, dynamic>;
+      expect(payload['paymentAccountId'], 'pa1');
+      expect((await db.select(db.sales).getSingle()).paymentAccountId, 'pa1');
+      expect(sale.paymentAccountId, 'pa1');
+    });
+  });
 }

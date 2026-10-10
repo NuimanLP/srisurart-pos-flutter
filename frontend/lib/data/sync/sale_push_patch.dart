@@ -51,10 +51,17 @@ Future<void> patchSaleFromPushReply(
   final date = response['date'];
   final shiftId = response['shiftId'];
   final points = response['pointsGranted'];
+  // QR accounts: a replay stores an unknown account as NULL (contract §3), so
+  // the reply's value wins — absent leaves the local one, null clears it.
+  final account = response['paymentAccountId'];
   final header = SalesCompanion(
     date: date is String ? Value(stamp(date)) : const Value.absent(),
     shiftId: shiftId is String ? Value(shiftId) : const Value.absent(),
     pointsGranted: points is int ? Value(points) : const Value.absent(),
+    paymentAccountId: response.containsKey('paymentAccountId') &&
+            (account == null || account is String)
+        ? Value(account as String?)
+        : const Value.absent(),
   );
   if (header != const SalesCompanion()) {
     await (db.update(
