@@ -227,6 +227,11 @@ class PaymentAccountsRepository {
 const paymentAccountNotFoundMessage =
     'ไม่พบบัญชีรับเงินที่เลือก กรุณาเลือกบัญชีใหม่'; // agent ร่าง (contract §2)
 
+/// `404 NOT_FOUND` on an account write — the account was deleted (by another
+/// device) after this screen read the list.
+const paymentAccountGoneMessage =
+    'ไม่พบบัญชีรับเงินนี้ อาจถูกลบไปแล้ว'; // agent ร่าง
+
 /// Throws the [paymentAccountError] for [input] as a `PosException`.
 void checkPaymentAccountInput(PaymentAccountInput input) {
   final error = paymentAccountError(

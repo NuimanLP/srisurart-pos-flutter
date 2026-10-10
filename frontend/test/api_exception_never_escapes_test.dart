@@ -174,11 +174,6 @@ final Map<String, _Reply> _replies = {
 const _keepsServerText = {
   'ApiProductsRepository.delete',
   'ApiSettingsRepository.updateSettings',
-  // QR accounts sit on the Settings screen and convert like settings.
-  'ApiPaymentAccountsRepository.addAccount',
-  'ApiPaymentAccountsRepository.updateAccount',
-  'ApiPaymentAccountsRepository.setDefault',
-  'ApiPaymentAccountsRepository.deleteAccount',
   'OfflinePinRepository.setPin',
   'ApiSalesRepository.saveSale',
   'ApiReturnsRepository.createReturn',

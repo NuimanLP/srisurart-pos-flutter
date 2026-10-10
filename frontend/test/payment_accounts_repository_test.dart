@@ -284,6 +284,44 @@ void main() {
       expect(keys.toSet(), hasLength(2));
     });
 
+    test('a 4xx keeps its Thai verdict; a 5xx shows the connection sentence, never the server text',
+        () async {
+      http.Response raw(int status, String code, String message) => http.Response(
+            jsonEncode({
+              'status': 'error',
+              'error': {'code': code, 'message': message},
+            }),
+            status,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+      final cases = <http.Response, String>{
+        raw(409, 'PAYMENT_ACCOUNT_LIMIT', 'limit'): paymentAccountLimitMessage,
+        raw(403, 'OWNER_ONLY', 'owner only'): paymentAccountOwnerOnlyMessage,
+        raw(409, 'CLIENT_ID_REUSED', 'reused'): 'รหัสรายการซ้ำกับรายการอื่น กรุณาตรวจสอบ',
+        raw(404, 'NOT_FOUND', 'Payment account not found'): paymentAccountGoneMessage,
+        raw(400, 'BAD_REQUEST', 'nickname is required'):
+            'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่',
+        raw(500, 'INTERNAL_ERROR', 'Internal server error'):
+            'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์',
+        raw(502, 'BAD_GATEWAY', '<html>bad gateway</html>'):
+            'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์',
+      };
+      for (final MapEntry(key: reply, value: thai) in cases.entries) {
+        final repo = repoWith((_) async => reply);
+        for (final write in <Future<Object?> Function()>[
+          () => repo.addAccount(_pp('ร้าน')),
+          () => repo.updateAccount('pa1', const PaymentAccountsCompanion(nickname: Value('x'))),
+          () => repo.deleteAccount('pa1'),
+        ]) {
+          await expectLater(
+            write(),
+            throwsA(isA<PosException>().having((e) => e.message, 'message', thai)),
+            reason: '${reply.statusCode}',
+          );
+        }
+      }
+    });
+
     test('Degraded: every write is refused before the network', () async {
       final repo = repoWith(
         (_) async => fail('no request while Degraded'),

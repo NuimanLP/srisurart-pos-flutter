@@ -160,7 +160,7 @@ class ApiPaymentAccountsRepository extends PaymentAccountsRepository {
       );
     } on ApiException catch (e) {
       _pending.closeIfVerdict(attempt, e);
-      rethrowServerRefusal(e);
+      _rethrowRefusal(e);
     } catch (e) {
       throw _notSent(e);
     }
@@ -180,6 +180,17 @@ class ApiPaymentAccountsRepository extends PaymentAccountsRepository {
     }
   }
 
+  /// A server answer as the screen's Thai sentence: a 4xx keeps its own
+  /// verdict, a 5xx reads as the connection sentence (never the server's raw
+  /// text). A `404 NOT_FOUND` on these routes is an account deleted since the
+  /// list was read.
+  Never _rethrowRefusal(ApiException e) {
+    if (e.code == 'NOT_FOUND') {
+      throw PosException(e.code, paymentAccountGoneMessage, e.details);
+    }
+    throw posExceptionFromApi(e);
+  }
+
   /// Sends one write and returns the server's account. A verdict (4xx)
   /// closes the attempt; a 5xx / 429 / transport failure leaves it parked.
   Future<PaymentAccountRow> _send(
@@ -191,7 +202,7 @@ class ApiPaymentAccountsRepository extends PaymentAccountsRepository {
       res = await request();
     } on ApiException catch (e) {
       _pending.closeIfVerdict(attempt, e);
-      rethrowServerRefusal(e);
+      _rethrowRefusal(e);
     } catch (e) {
       throw _notSent(e);
     }
