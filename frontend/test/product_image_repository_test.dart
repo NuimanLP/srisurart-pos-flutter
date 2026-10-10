@@ -41,6 +41,13 @@ void main() {
       );
     });
 
+    test('an uppercase tenant id is lowercased (nginx /img/ matches lowercase only)', () {
+      expect(
+        productImageUrl(baseUrl: '', tenantId: _tenant.toUpperCase(), imageKey: _key),
+        '/img/$_tenant/${_key}_t.webp',
+      );
+    });
+
     test('no key, or anything but the exact server shapes → null (no request)', () {
       String? url(String? tenant, String? key) =>
           productImageUrl(baseUrl: 'https://h', tenantId: tenant, imageKey: key);

@@ -38,13 +38,16 @@ class ProductImageUrls {
 
 /// `<baseUrl>/img/<tenantId>/<imageKey>_t.webp` (`_p` when [preview]), or
 /// null when either id is missing or not the server's exact shape — a key
-/// from the wire is never put into a path unchecked.
+/// from the wire is never put into a path unchecked. The tenant id is
+/// lowercased first: nginx's `/img/` regex (and the volume) only know the
+/// lowercase form.
 String? productImageUrl({
   required String baseUrl,
   required String? tenantId,
   required String? imageKey,
   bool preview = false,
 }) {
+  tenantId = tenantId?.toLowerCase();
   if (tenantId == null || !_tenantId.hasMatch(tenantId)) return null;
   if (imageKey == null || !_imageKey.hasMatch(imageKey)) return null;
   final base = baseUrl.replaceAll(RegExp(r'/+$'), '');
