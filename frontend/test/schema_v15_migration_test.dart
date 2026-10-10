@@ -2,7 +2,8 @@
 //
 // v15 adds products.image_key, so a v14 file is a fresh v15 file with that
 // column dropped and user_version set back to 14. Opening it must keep every
-// product and add the column as NULL; a key then round-trips.
+// product and add the column as NULL, and drop the products sync cursor; a
+// key then round-trips.
 
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
@@ -21,6 +22,11 @@ void main() {
     await seed.close();
     expect(before, isNotEmpty);
     rawDb.execute('ALTER TABLE products DROP COLUMN image_key');
+    rawDb.execute(
+      "INSERT INTO sync_cursors (entity, cursor) VALUES "
+      "('products', '2026-10-01T00:00:00.000000Z'), "
+      "('customers', '2026-10-01T00:00:00.000000Z')",
+    );
     rawDb.execute('PRAGMA user_version = 14');
 
     final db = AppDatabase(NativeDatabase.opened(rawDb));
@@ -35,6 +41,10 @@ void main() {
     expect(after.map((p) => p.id), before.map((p) => p.id));
     expect(after.map((p) => p.stock), before.map((p) => p.stock));
     expect(after.every((p) => p.imageKey == null), isTrue);
+    // The products cursor is gone (next pull from epoch brings existing
+    // keys); other entities keep theirs.
+    final cursors = await db.select(db.syncCursors).get();
+    expect(cursors.map((c) => c.entity), ['customers']);
 
     const key = 'aaaaaaaabbbbbbbbccccccccdddddddd';
     await (db.update(db.products)..where((t) => t.id.equals(after.first.id)))

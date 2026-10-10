@@ -219,6 +219,14 @@ class AppDatabase extends _$AppDatabase {
       if (from < 15 && from >= 7) {
         await m.addColumn(products, products.imageKey);
       }
+      // ...and the products cursor goes, so that next pull runs from epoch:
+      // an incremental pull past the old cursor would never bring the keys of
+      // products whose image was set before this upgrade. (The pull's pending-
+      // outbox stock guard applies to a full pull exactly as to any other.)
+      if (from < 15) {
+        await (delete(syncCursors)..where((t) => t.entity.equals('products')))
+            .go();
+      }
     },
   );
 
