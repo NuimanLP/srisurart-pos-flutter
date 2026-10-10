@@ -502,6 +502,19 @@ jobs:
             exit 1
           fi
 
+      - name: sharp on a baseline x86-64 CPU (blocks the push)
+        # mob04 is a "QEMU Virtual CPU version 2.5+" (= qemu64: no SSSE3/SSE4/POPCNT, below
+        # x86-64-v2). sharp's prebuilt binaries need v2, so ac9d4dd's api never got healthy there
+        # and rolled back (2026-10-10) while every check here was green on the runner's modern
+        # CPU. server/Dockerfile now compiles libvips + sharp for baseline x86-64; this runs the
+        # real product-image pipeline from dist/ under user-mode QEMU with that same CPU model,
+        # and fails if any prebuilt @img/sharp-* package is back in the image. (A prebuilt sharp
+        # dies with "Illegal instruction" here.) qemu is added to this throwaway container only.
+        run: |
+          docker run --rm --user root -v "$PWD/docker/sharp-check:/check:ro" \
+            --entrypoint sh "$IMAGE:$GITHUB_SHA" -c \
+            'apk add --no-cache -q qemu-x86_64 && qemu-x86_64 -cpu qemu64 /usr/local/bin/node /check/check.cjs'
+
       - name: Trivy — image CVEs (blocks the push)
         # Deliberately before the login and the push: a fixable HIGH/CRITICAL means the
         # registry gains no tag for this commit. Fix it by bumping the base digest in
