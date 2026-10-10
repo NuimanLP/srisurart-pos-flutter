@@ -83,10 +83,11 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <h1 class="sec">แผนผังบริการ · URL <span class="en">Service map</span></h1>
   <table class="grid">
     <tr><th>บริการ</th><th>หน้าที่</th><th>หมายเหตุ</th></tr>
-    <tr><td><code>nginx</code></td><td>TLS, rate limit, เสิร์ฟเว็บ Flutter, proxy <code>/api/</code> <code>/health/</code></td><td>ต้องเป็น proxy ตัวเดียวหน้า API · <code>/api/v1/platform/</code> เปิดเฉพาะ loopback + <code>172.30.0.20</code></td></tr>
+    <tr><td><code>nginx</code></td><td>TLS, rate limit, เสิร์ฟเว็บ Flutter, proxy <code>/api/</code> <code>/health/</code>, เสิร์ฟรูปสินค้าที่ <code>/img/</code> (อ่านจาก volume <code>product-images</code> แบบ read-only)</td><td>ต้องเป็น proxy ตัวเดียวหน้า API · <code>/api/v1/platform/</code> เปิดเฉพาะ loopback + <code>172.30.0.20</code></td></tr>
     <tr><td><code>api-1</code>..<code>api-3</code></td><td>NestJS (<code>172.30.0.11–13:3000</code>)</td><td>Nginx แบ่งแบบ <code>least_conn</code> · restart ทีละตัวตอน deploy</td></tr>
-    <tr><td><code>worker</code></td><td>BullMQ worker 1 ตัว</td><td>ไม่เสิร์ฟ HTTP</td></tr>
-    <tr><td><code>postgres</code></td><td>PostgreSQL 16 — ข้อมูลจริง, RLS ทุกตารางของร้าน</td><td>29 ตาราง · migration คือความจริงของ schema</td></tr>
+    <tr><td><code>worker</code></td><td>BullMQ worker 1 ตัว</td><td>ไม่เสิร์ฟ HTTP · เขียน/อ่านรูปใน <code>product-images</code> ตอน import/export backup</td></tr>
+    <tr><td>volume <code>product-images</code></td><td>ไฟล์รูปสินค้า <code>&lt;tenantId&gt;/&lt;imageKey&gt;_t.webp</code> (≤256 px) และ <code>_p.webp</code> (≤1024 px)</td><td>api/worker เขียนที่ <code>/app/product-images</code> · nginx อ่านที่ <code>/srv/product-images</code> (ro) · <strong>ไม่อยู่ใน <code>pg_dump</code></strong> · ห้าม <code>down -v</code></td></tr>
+    <tr><td><code>postgres</code></td><td>PostgreSQL 16 — ข้อมูลจริง, RLS ทุกตารางของร้าน</td><td>30 ตาราง · migration คือความจริงของ schema (รูปสินค้าเพิ่มแค่คอลัมน์ <code>products.image_key</code>)</td></tr>
     <tr><td><code>redis-cache</code> / <code>redis-queue</code></td><td>cache (<code>allkeys-lru</code>) / คิว (<code>noeviction</code> + AOF)</td><td>ตั้งใจแยก 2 ตัว</td></tr>
     <tr><td><code>etcd</code> + <code>etcd-init</code></td><td>ค่าตั้งแบบเปลี่ยนสด (ไม่ลับ)</td><td>API บูตได้แม้ etcd ล่ม (fail-open)</td></tr>
     <tr><td><code>bull-board</code></td><td>หน้าเว็บดูคิว</td><td><code>127.0.0.1:3100</code> · Basic Auth</td></tr>
@@ -213,10 +214,13 @@ flutter run -d web-server --web-port=8090 --web-hostname=127.0.0.1 \
   <ol class="steps">
     <li><span class="st-title">cron ของ user <code>deploy</code> เวลา 03:00</span></li>
     <li><span class="st-title"><code>pg_dump --create</code> → gzip → checksum → <code>/opt/pos/backups</code> (0700)</span>เก็บ <code>BACKUP_KEEP_DAYS</code> วัน (ค่าเริ่มต้น 7)</li>
+    <li><span class="st-title">เก็บรูปสินค้า: volume <code>product-images</code> → <code>pos_images_&lt;ts&gt;.tar.gz</code> + <code>.sha256</code> ในโฟลเดอร์เดียวกัน</span>อ่านผ่าน container <code>nginx</code> (mount แบบ <code>:ro</code>) · กฎ <code>.partial</code> → <code>mv</code>, prune ตามวัน และ offsite เหมือนไฟล์ dump · ไม่มี volume ให้เก็บ = <code>::warning::No product-images volume to archive</code> แล้ว exit 0 (backup นั้นไม่มีรูป) · เก็บแล้วพัง = <code>::error::PRODUCT IMAGES ARCHIVE FAILED</code> + exit ไม่เป็น 0 (dump ยังอยู่)</li>
     <li><span class="st-title">offsite ผ่าน <code>rclone</code> (ถ้าตั้งค่า)</span><code>BACKUP_RCLONE_REMOTE</code> ว่าง → เตือน <code>::warning::</code> 1 บรรทัด แล้ว exit 0 · ตั้งไว้แต่พัง → <code>::error::</code> + exit ไม่เป็น 0</li>
   </ol>
   <div class="note warn"><span class="nt">อ่าน log ให้ถูก</span><code>backup-cron.log</code> ที่ไม่มี error <strong>ไม่ได้พิสูจน์</strong> ว่าสำเนาออกจาก VM — ต้องอ่านบรรทัด <code>::warning::</code>/<code>::error::</code> · วันที่เปิดใช้ offsite ครั้งแรก ให้ upload ไฟล์เก่าที่ไม่มี marker <code>.uploaded</code> ด้วยมือหนึ่งครั้ง</div>
-  <p>กู้คืนจาก dump ในเครื่อง: <code>deploy/scripts/restore-db.sh &lt;ไฟล์.sql.gz&gt; [ฐานข้อมูล]</code> — ตรวจ checksum และตรวจค่า timeout ของ <code>pos_app</code> หลังกู้</p>
+  <div class="note warn"><span class="nt">สคริปต์บน VM ไม่ตามรุ่นกับ CD</span>CD deploy <strong>ไม่</strong>อัปเดต <code>/opt/pos/scripts</code> — มีแค่ <code>provision.yml</code> (user <code>cloud</code>) หรือการติดตั้งด้วยมือเท่านั้น ถ้า <code>backup-db.sh</code> บน <code>mob04</code> ยังเป็นรุ่นก่อนรูปสินค้า (PR #680) backup จะ<strong>ไม่มีรูปโดยไม่มีข้อความเตือน</strong> · ติดตั้งด้วยมือ: <code>sudo install -o deploy -g deploy -m 0755 backup-db.sh /opt/pos/scripts/backup-db.sh</code> (ในนาม <code>cloud</code>, ไฟล์ต้นฉบับจาก <code>main</code>) แล้วเทียบ <code>sha256sum</code> กับต้นฉบับ และรันหนึ่งรอบให้เห็นทั้ง <code>pos_backup_*.sql.gz</code> และ <code>pos_images_*.tar.gz</code> — ขั้นตอนเต็มใน <code>docs/tutorial/VM-dploy-full-stack-tutorial.md</code> §3 ข้อ 8</div>
+  <p>กู้คืนจาก dump ในเครื่อง: <code>deploy/scripts/restore-db.sh &lt;ไฟล์.sql.gz&gt; [ฐานข้อมูล]</code> — ตรวจ checksum และตรวจค่า timeout ของ <code>pos_app</code> หลังกู้ · 🔴 <code>restore-db.sh</code> <strong>ยังไม่กู้รูปสินค้า</strong> — ต้องแตก <code>pos_images_*.tar.gz</code> ลง volume <code>product-images</code> เอง (ยังไม่มีขั้นตอนที่พิสูจน์แล้ว) · ตรวจรูปบน VM: <code>docker volume inspect srisurart-pos_product-images</code> และ <code>curl -sk -D - -o /dev/null https://127.0.0.1/img/&lt;tenantId&gt;/&lt;imageKey&gt;_t.webp</code> ต้องได้ <code>200</code> + <code>Cache-Control: public, max-age=31536000, immutable</code> (ไฟล์ที่ไม่มี = <code>404</code>)</p>
+  <p>import backup จากหน้าเว็บ/แพลตฟอร์ม: Nginx รับ body ได้ถึง <strong>200 MB</strong> เฉพาะ <code>POST /api/v1/backup/import</code> และ <code>POST /api/v1/platform/tenants/&lt;uuid&gt;/import</code> (ที่อื่นยัง 10 MB) — เจ้าของส่ง <code>.zip</code> (มีรูป) หรือ <code>.json</code> เดิมได้ (ภาค 02 หัวข้อ 8)</p>
 
   <h2 class="sub">etcd <span class="en">Runtime config</span></h2>
   <ul class="ticks">
@@ -280,6 +284,8 @@ docker compose exec etcd etcdctl --endpoints=http://127.0.0.1:2379 get /pos/conf
     <tr><td>แก้ <code>nginx.conf</code> แล้วไม่เห็นผล</td><td>bind mount ไฟล์เดี่ยวค้าง inode เก่า</td><td>deploy สร้าง nginx ใหม่ทุกครั้งแล้ว (#249) — บน dev ให้ <code>up -d --force-recreate nginx</code></td></tr>
     <tr><td>Prometheus ขึ้น <code>api-readiness</code> DOWN ทั้งที่ API ปกติ</td><td><code>/health/ready</code> ตอบ JSON ไม่ใช่รูปแบบ metric</td><td>ปกติ ดู job <code>api-metrics</code> แทน (ภาค 05)</td></tr>
     <tr><td>แอป Android ต่อ <code>mob04</code> ไม่ได้ (TLS) · เบราว์เซอร์เตือน cert</td><td>APK ยังไม่ฝัง <code>ca.crt</code> ของ CA ส่วนตัว (เบราว์เซอร์เตือนเป็นปกติ)</td><td>ขั้นตอนครั้งเดียว: copy <code>ca.crt</code> ออกจาก <code>mob04</code> → commit → build APK ใหม่ — <code>07_CICD_DEPLOY.md</code> §5 "TLS"</td></tr>
+    <tr><td>รูปสินค้าไม่ขึ้นบนการ์ดทั้งที่อัปโหลดสำเร็จ</td><td>nginx ยังไม่มี mount <code>product-images</code>/<code>nginx.conf</code> รุ่นเก่า (ยังไม่ recreate) หรือ api กับ nginx ใช้คนละ volume</td><td><code>curl</code> ที่ <code>/img/…</code> ต้อง 200 · ตรวจ mount ด้วย <code>docker inspect</code> (VM-dploy-full-stack-tutorial §4.7) · deploy สร้าง nginx ใหม่ทุกครั้ง</td></tr>
+    <tr><td>backup ไม่มี <code>pos_images_*.tar.gz</code></td><td><code>backup-db.sh</code> บน VM เป็นรุ่นเก่า หรือไม่มี volume ให้เก็บ (<code>::warning::</code>)</td><td>ติดตั้งสคริปต์ใหม่ด้วยมือ/<code>provision.yml</code> แล้วรันซ้ำ</td></tr>
     <tr><td>platform-ui ได้ 403</td><td>allowlist</td><td>ภาค 03 หัวข้อ 5</td></tr>
   </table>
   </div>
