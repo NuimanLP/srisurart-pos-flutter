@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/core/theme/app_theme.dart';
+import 'package:srisurart_pos/core/utils/product_image.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/favorites_repository.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
@@ -53,6 +54,7 @@ void main() {
     bool soldOut = false,
     bool dark = false,
     String? longName,
+    ProductsRepository Function(AppDatabase db)? products,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -90,6 +92,8 @@ void main() {
           providers: repositoryProviders(db, apiClient: ApiClient(baseUrl: _base)),
           child: MultiBlocProvider(
             providers: [
+              if (products != null)
+                RepositoryProvider<ProductsRepository>.value(value: products(db)),
               BlocProvider<PendingQuoteCubit>.value(value: pq),
               BlocProvider<CartCubit>.value(value: cart),
             ],
@@ -176,6 +180,23 @@ void main() {
     });
   });
 
+  testWidgets('tenant id not known when the screen opens: tried again after the product load',
+      (tester) async {
+    late _LateTenantProducts repo;
+    await run(
+      tester,
+      const Size(1280, 800),
+      products: (db) => repo = _LateTenantProducts(db),
+      (db, cart, first) async {
+        // The first answer (screen open) was "no tenant"; the one after the
+        // product load had it.
+        expect(repo.calls, 2);
+        final cardImage = find.byKey(Key('pos-card-image-${first.id}'));
+        expect(networkUrl(tester, cardImage), '$_base/img/$_tenant/${_key}_t.webp');
+      },
+    );
+  });
+
   testWidgets('a lost picture shows the placeholder, never an error', (tester) async {
     await run(tester, const Size(1280, 800), (db, cart, first) async {
       // flutter_test's HttpClient answers every request with an error.
@@ -211,4 +232,15 @@ void main() {
       expect(cart.state, isEmpty);
     });
   });
+}
+
+/// No tenant id on the first ask (as when app_meta has none yet), then one.
+class _LateTenantProducts extends ProductsRepository {
+  _LateTenantProducts(super.db);
+
+  int calls = 0;
+
+  @override
+  Future<ProductImageUrls?> getImageUrls() async =>
+      ++calls == 1 ? null : const ProductImageUrls(baseUrl: _base, tenantId: _tenant);
 }

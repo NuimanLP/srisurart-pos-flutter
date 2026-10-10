@@ -134,7 +134,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   @override
   void initState() {
     super.initState();
-    _productsFuture = context.read<ProductsRepository>().getAll();
+    _productsFuture = _loadProducts();
     _customersFuture = context.read<CustomersRepository>().getCustomers();
     _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
     _categoriesFuture = context.read<ProductsRepository>().getCategories();
@@ -170,6 +170,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } catch (_) {
       // Unreadable favorites: the grid simply shows no stars.
     }
+  }
+
+  /// The product list — and, while the picture URLs are still unknown (no
+  /// tenant id in app_meta yet when the screen opened), another try at them
+  /// once this load (a pull, on the API build) is over.
+  Future<List<ProductRow>> _loadProducts() {
+    final load = context.read<ProductsRepository>().getAll();
+    if (_imageUrls == null) {
+      load.then(
+        (_) => mounted && _imageUrls == null ? _loadImageUrls() : null,
+        onError: (Object _) => null, // the grid shows the load error itself
+      );
+    }
+    return load;
   }
 
   /// Where this shop's product pictures live (API build, signed in); null on
@@ -333,7 +347,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// the mechanic/customer stats a sale updates (credit balance, points).
   void _refreshAfterSale() {
     setState(() {
-      _productsFuture = context.read<ProductsRepository>().getAll();
+      _productsFuture = _loadProducts();
       _mechanicsFuture = context.read<MechanicsRepository>().getMechanics();
       _customersFuture = context.read<CustomersRepository>().getCustomers();
     });
@@ -961,7 +975,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _productsFuture = context.read<ProductsRepository>().getAll();
+          _productsFuture = _loadProducts();
         });
       }
       if (isDeviceRoleRefusal(e)) {
