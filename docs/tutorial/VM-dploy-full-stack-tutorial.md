@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
+**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-10 (รูปสินค้า — volume `product-images`, `/img/`, backup ZIP/รูป; ตรวจกับ branch `feat/product-images`, PR #680 — §3 ข้อ 8, §4.7, §6.5)** — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
@@ -689,6 +689,33 @@ IMAGE_TAG was unset; resolved from /opt/pos/.current_sha: <sha>
 === Backup Complete (local only -- offsite upload not configured, see the warning above) ===
 ```
 
+**รูปสินค้า (PR #680, 2026-10-10):** `backup-db.sh` รุ่นใหม่เขียนไฟล์ที่สอง `pos_images_<YYYYmmdd_HHMMSSZ>.tar.gz` (+ `.sha256`) จาก volume
+`product-images` (อ่านผ่าน mount `:ro` ของ container `nginx`) — รูปไม่อยู่ใน `pg_dump` (Postgres เก็บแค่ `products.image_key`) · กฎ `.partial`/prune/offsite
+เดียวกับไฟล์ dump · output ที่เพิ่มเข้ามา: `Archiving product images (docker)...` แล้ว `-> Product images archived (<size>).`
+* ไม่มี volume ให้เก็บ (เช่น nginx ยังไม่ได้ mount) → `::warning::No product-images volume to archive ...` แล้ว exit 0 (dump ปกติ แต่ **ไม่มีรูปใน backup นั้น**)
+* พยายามเก็บแล้วพัง → `::error::PRODUCT IMAGES ARCHIVE FAILED ...` + **exit ไม่เป็น 0** (dump ของรอบนั้นยังอยู่)
+* 🔴 **CD deploy ไม่อัปเดต `/opt/pos/scripts`** (เฉพาะ `provision.yml` หรือติดตั้งด้วยมือ) — ถ้าบน `mob04` ยังเป็นสคริปต์รุ่นก่อน PR #680 backup จะ**ไม่มีรูป
+  และไม่มีข้อความเตือนใดเลย** ต้องลงสคริปต์ใหม่ก่อนอ้างว่ารูปถูก backup:
+
+```bash
+# บน notebook (checkout สะอาดของ main ที่มี PR #680) — ส่งไฟล์ไปที่ /tmp ของ user cloud
+scp deploy/scripts/backup-db.sh mob04:/tmp/backup-db.sh
+# ติดตั้งในนาม cloud (มี sudo) — owner/group ต้องเป็น deploy เพราะ cron รันเป็น deploy
+ssh mob04 'sudo cp -a /opt/pos/scripts/backup-db.sh /opt/pos/scripts/.backup-db.sh.prev && sudo install -o deploy -g deploy -m 0755 /tmp/backup-db.sh /opt/pos/scripts/backup-db.sh && rm -f /tmp/backup-db.sh'
+# เทียบ sha256 กับต้นฉบับ (สองบรรทัดต้องเหมือนกัน)
+sha256sum deploy/scripts/backup-db.sh
+ssh mob04-deploy 'sha256sum /opt/pos/scripts/backup-db.sh'
+```
+
+(รูปแบบเดียวกับที่ใช้ลง PR #519 บน `mob04` 2026-09-30 — คำสั่งชุดข้างบนเป็นตัวอย่างเขียนใหม่ ยังไม่เคยรันจริงบน `mob04`; ทางที่ครอบคลุมสคริปต์ทุกตัวคือ `provision.yml` §2.5)
+หลังลง รันหนึ่งครั้งแล้วดูว่ามีทั้งสองไฟล์:
+
+```bash
+ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -6'
+```
+
+✅ มี `pos_backup_<ts>.sql.gz` **และ** `pos_images_<ts>.tar.gz` (+ `.sha256` ทั้งคู่) · `restore-db.sh` **ยังไม่กู้รูป** — ต้องแตก `pos_images_*.tar.gz` ลง volume เอง (ยังไม่มีขั้นตอนที่พิสูจน์แล้ว)
+
 ✅ มี `Backup created successfully` และไฟล์ `pos_backup_<YYYYmmdd_HHMMSSZ>.sql.gz` (+ `.sha256`) บนสุดของ `ls` → **จดชื่อไฟล์** ·
 บรรทัด `::warning::` เรื่อง offsite เป็นเรื่องปกติ (สคริปต์ exit 0) — backup นี้อยู่บน VM เท่านั้น
 ❌ `No such file` → ยังไม่มี `/opt/pos/scripts` ให้ owner รัน provision (§2.4)
@@ -826,6 +853,34 @@ ssh mob04-deploy 'grep -c "^CORS_ORIGINS=.*https://172\.30\.58\.20" /opt/pos/.en
 🔴 ห้ามเขียนว่า "ปิด CORS บน VM แล้ว" จนกว่า 4.1 และข้อนี้จะผ่านทั้งคู่
 
 > 2026-09-30: `Origin` แปลกหน้าเคยได้ HTTP 500 — แก้แล้ว PR #516 (`00d3488`, run `36717963989`) ตอนนี้ได้สถานะปกติของ route (เช่น `/health/live` 200 — ไม่ใช่ 500) ไม่มี `Access-Control-Allow-Origin` · origin ตัวเอง `https://172.30.58.20` ได้ ACAO
+
+**4.7 รูปสินค้า (เมื่อ release มี PR #680)** — volume, Nginx `/img/` และ header:
+
+```bash
+# volume ถูกสร้างแล้ว (ชื่อมี prefix ของ compose project)
+ssh mob04-deploy 'docker volume inspect srisurart-pos_product-images --format "{{.Name}} {{.Mountpoint}}"'
+# api/worker เขียนได้ (rw) และ nginx อ่านได้อย่างเดียว (ro)
+ssh mob04-deploy 'docker inspect srisurart-pos-api-1-1 --format "{{range .Mounts}}{{.Destination}} rw={{.RW}}{{println}}{{end}}" | grep product-images'
+ssh mob04-deploy 'docker inspect srisurart-pos-nginx-1 --format "{{range .Mounts}}{{.Destination}} rw={{.RW}}{{println}}{{end}}" | grep product-images'
+# ไฟล์ที่ไม่มี = 404 ธรรมดา (ไม่มี Cache-Control ยาว) — ใช้ UUID/คีย์ปลอมที่รูปแบบถูกต้อง
+ssh mob04-deploy 'curl -sk -D - -o /dev/null https://127.0.0.1/img/00000000-0000-0000-0000-000000000000/00000000000000000000000000000000_t.webp'
+```
+
+✅ บรรทัดที่สองเห็น `/app/product-images rw=true` · บรรทัดที่สามเห็น `/srv/product-images rw=false` · คำสั่ง `curl` ได้ `HTTP/1.1 404` และ**ไม่มี** `Cache-Control: ...immutable`
+หลังเจ้าของอัปโหลดรูปจริงหนึ่งรูป (เมนู สินค้า/สต็อก → แก้ไข → เลือกรูป) ให้ลองดึงรูปนั้น — URL คือ `https://172.30.58.20/img/<tenantId>/<imageKey>_t.webp`
+(`tenantId` = UUID ของร้าน, `imageKey` = 32 ตัวอักษร hex ที่ `GET /api/v1/products` ส่งมาในช่อง `imageKey`):
+
+```bash
+ssh mob04-deploy 'curl -sk -D - -o /dev/null https://127.0.0.1/img/<tenantId>/<imageKey>_t.webp | grep -iE "^HTTP|cache-control|content-type|x-content-type"'
+```
+
+✅ `HTTP/1.1 200` · `Content-Type: image/webp` · `Cache-Control: public, max-age=31536000, immutable` · `X-Content-Type-Options: nosniff`
+❌ ได้ 404 ทั้งที่แอปแสดงรูป → ชื่อ volume ของ api กับ nginx ไม่ตรงกัน หรือ nginx ยังไม่ถูก recreate (deploy task 13 ทำทุกครั้ง) · ❌ `/img/` ได้หน้า SPA แทน 404 → `nginx.conf` บน VM เป็นรุ่นเก่า
+ไม่มี login ที่ `/img/` โดยออกแบบ (URL = UUID ของร้าน + แฮช 128 บิต เดาไม่ได้) · รูปไม่ผ่าน `pg_dump` จึงต้องดู `pos_images_*.tar.gz` ใน §3 ข้อ 8
+
+**ขนาดไฟล์ที่ import ได้:** ตอนนี้ import backup รับ `.zip` ได้ถึง **200 MB** (และ `.json` เดิม 10 MB) — Nginx ยก `client_max_body_size 200m` **เฉพาะ** `POST /api/v1/backup/import`
+และ `POST /api/v1/platform/tenants/<uuid>/import` (path อื่นยัง 10 MB) และไม่ buffer body ที่ Nginx (`proxy_request_buffering off`) — ถ้า import ใหญ่ ๆ ได้ `413`
+ที่ path อื่นนอกสองตัวนี้ คือพฤติกรรมที่ถูกต้อง
 
 ---
 
@@ -987,6 +1042,7 @@ gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --
 ### 6.5 กฎห้ามทำ
 
 - [ ] ห้าม `docker compose down -v` / `docker volume rm srisurart-pos_*`
+- [ ] ห้ามลบ volume `srisurart-pos_product-images` — รูปสินค้าไม่อยู่ใน `pg_dump` และไม่มีที่อื่นนอกจาก volume นี้กับ `pos_images_*.tar.gz` บนดิสก์ VM เดียวกัน
 - [ ] ห้าม `--diff` กับ `provision.yml` · ห้าม `export DEMO_ENV_FILE`
 - [ ] ห้ามรัน `provision.yml` เป็น `deploy` หรือ `deploy.yml` เป็น `cloud`
 - [ ] ห้ามรัน `deploy.yml` จาก working tree ที่ไม่ใช่ worktree สะอาดที่ `$TAG` · ห้ามรันเมื่อ gate `docker pull` ของ §3 ข้อ 5 เป็น STOP

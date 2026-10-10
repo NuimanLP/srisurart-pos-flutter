@@ -854,6 +854,13 @@ conf ปัจจุบันไม่มี ทำให้ `.js`/`.wasm` ข�
 > IP แอดมินจากนอกเครื่องยังเป็น `TODO(owner)` ในไฟล์ (Nginx ไม่อ่าน `PLATFORM_ADMIN_IPS` — ตัวแปรนั้นเป็นชั้นของแอป, #367) · ไฟล์จริงยังมี `location = /metrics` (404), `location = /sw.js` (no-cache) และ
 > `location = /prometheus-remote-write/api/v1/write` (§10.3) นอกเหนือจากสี่บล็อกข้างบน
 
+**รูปสินค้า และ import ไฟล์ใหญ่ (2026-10-10, PR #680):** `nginx.conf` มีสามบล็อกเพิ่มจากสี่ข้างบน —
+(1) `location ^~ /img/` เสิร์ฟ `/img/<tenant UUID>/<32 hex>_{t,p}.webp` จาก volume `product-images` (mount `:ro` ที่ `/srv/product-images`; api และ worker เขียนที่ `/app/product-images`)
+เฉพาะ `GET`/`HEAD` พร้อม `Cache-Control: public, max-age=31536000, immutable` + `X-Content-Type-Options: nosniff` — รูปแบบอื่นใต้ `/img/` และไฟล์ที่ไม่มี = `404` ธรรมดา (ไม่ตกไป `index.html`, ไม่มี header แคชยาว), ไม่มี `autoindex`, ไม่มี login (URL = UUID ร้าน + แฮช 128 บิต), ไม่มี `limit_req` · key เปลี่ยนเมื่อรูปเปลี่ยน ไฟล์จึงไม่เปลี่ยนเนื้อหา
+(2) `location = /api/v1/backup/import` และ (3) regex `^/api/v1/platform/tenants/<uuid>/import$` ยก `client_max_body_size` เป็น `200m` + `proxy_request_buffering off` **เฉพาะสองที่นี้** (ที่อื่นยัง 10m; API ซ้ำเพดาน 200 MB สำหรับ owner ที่ตรวจ token แล้ว) ·
+บล็อกที่ (3) ต้องซ้ำ allowlist ของ `/api/v1/platform/` บรรทัดต่อบรรทัด เพราะ regex ชนะ prefix · volume ถูกประกาศใน `server/docker-compose.yml` ไม่ใช่ `vm.override.yml` จึงไปถึง `mob04` กับ compose ที่ `deploy.yml` copy และ Nginx ถูก recreate ทุก deploy (§6; ลำดับ task ใน `docs/tutorial/VM-dploy-full-stack-tutorial.md` §6.1 ข้อ 4 และ 13) ·
+CI: `nginx-check` รัน `deploy/scripts/test/nginx-img.test.sh` กับ nginx image จริง (ข้างหลัง `nginx -t`) · เฉพาะ `provision.yml`/การติดตั้งมือ ไม่ใช่ CD ที่อัปเดต `backup-db.sh` (§6) · ห้าม `down -v` — รูปไม่อยู่ใน `pg_dump`
+
 **Cache ของ web (2026-09-28):** `location /` ส่ง `Cache-Control: no-cache` ทุกไฟล์ (browser ต้อง revalidate —
 ไม่เปลี่ยนได้ 304 ถูก ๆ) เพราะชื่อไฟล์ Flutter ไม่เปลี่ยนข้าม release · ข้อยกเว้นเดียวคือ regex location
 `^/main\.[0-9a-z]+\.dart\.js$` → `public, max-age=31536000, immutable` และ `try_files $uri =404` (ห้าม fallback เป็น
