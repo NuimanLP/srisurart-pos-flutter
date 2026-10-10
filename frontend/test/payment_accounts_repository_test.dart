@@ -451,5 +451,28 @@ void main() {
         isEmpty,
       );
     });
+
+    test("a file with no accounts (absent or []) keeps the shop's; a non-empty one replaces them",
+        () async {
+      final repo = PaymentAccountsRepository(db);
+      await repo.addAccount(_pp('บัญชีเดิม', isDefault: true));
+      final snap = await SnapshotRepository(db).exportSnapshot();
+
+      for (final store in <Object?>[null, <Object?>[]]) {
+        final file = jsonDecode(jsonEncode(snap)) as Map<String, dynamic>;
+        if (store == null) {
+          file.remove('sa_payment_accounts');
+        } else {
+          file['sa_payment_accounts'] = store;
+        }
+        await SnapshotRepository(db).importLegacyBackup(file);
+        expect((await repo.getAccounts()).map((r) => r.nickname), ['บัญชีเดิม'], reason: '$store');
+      }
+
+      final file = jsonDecode(jsonEncode(snap)) as Map<String, dynamic>;
+      file['sa_payment_accounts'] = [_wire('pa-file', nickname: 'จากไฟล์')];
+      await SnapshotRepository(db).importLegacyBackup(file);
+      expect((await repo.getAccounts()).map((r) => r.id), ['pa-file']);
+    });
   });
 }

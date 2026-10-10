@@ -77,8 +77,8 @@ export interface ImportJobResult {
   /** `replace`: the shop's data was deleted first (owner, `POST /backup/import?mode=replace`). */
   mode?: 'empty-only' | 'replace';
   /**
-   * Rows deleted per table: replace mode; in empty-only mode only `payment_accounts`, when
-   * the file's `sa_payment_accounts` replaced accounts the shop already had.
+   * Rows deleted per table: replace mode; in either mode `payment_accounts` only when the
+   * file's non-empty `sa_payment_accounts` replaced accounts the shop already had.
    */
   deleted?: Record<string, number>;
   /** The copy of the replaced data, written before the delete (replace mode only). */
@@ -109,10 +109,11 @@ export interface ImportJobStatus extends Partial<ImportJobResult> {
 export type ImportRequester = { platformAdminId: string } | { userId: string };
 
 /**
- * Replace mode deletes, children first, everything the snapshot owns (QR payment accounts
- * included, contract §3) plus the review items
+ * Replace mode deletes, children first, everything the snapshot owns plus the review items
  * about it. Kept: tenants, users, devices, audit_log (append-only), import_jobs, settings (the
- * file's `sa_settings` overwrites it), idempotency_keys and doc_counters (see `writeSnapshot`).
+ * file's `sa_settings` overwrites it), payment_accounts (like settings: replaced only by a file
+ * whose `sa_payment_accounts` is non-empty, step 3.5c), idempotency_keys and doc_counters (see
+ * `writeSnapshot`).
  */
 const REPLACED_TABLES = [
   'owner_review_items',
@@ -120,8 +121,6 @@ const REPLACED_TABLES = [
   'returns',
   'sale_items',
   'sales',
-  // After `sales`, whose `payment_account_id` references it.
-  'payment_accounts',
   'credit_payments',
   'drawer_entries',
   'shifts',
@@ -582,21 +581,21 @@ export class TenantImportService {
         );
       }
 
-      // 3.5c QR payment accounts (contract §3), before the sales that name them. A file that
-      // carries the store replaces the shop's accounts — in empty-only mode too, where the
-      // shop has no bill yet (checked above), so no row references them; replace mode has
-      // already deleted them with the rest. A file without the store (older export) leaves
-      // an empty-only shop's accounts alone. Pre-flight already validated every row.
+      // 3.5c QR payment accounts (contract §3), before the sales that name them. Treated like
+      // `settings`: only a file whose store is a NON-EMPTY array replaces the shop's accounts,
+      // in both modes. An absent or empty store (an older export, a shop that never set one
+      // up) keeps them — an import must not silently wipe the owner's QR setup. The delete is
+      // FK-safe: empty-only mode has no bill yet (checked above), replace mode already deleted
+      // `sales`. Pre-flight already validated every row.
       const paymentAccountIds = new Set<string>();
-      if (Array.isArray(snapshot.sa_payment_accounts)) {
-        if (!replace) {
-          const rows = await manager.query(
-            `WITH d AS (DELETE FROM payment_accounts WHERE tenant_id = $1 RETURNING 1) SELECT count(*)::int AS n FROM d`,
-            [tenantId],
-          );
-          if (rows[0].n > 0) result.deleted = { ...result.deleted, payment_accounts: rows[0].n };
-        }
-        for (const a of snapshot.sa_payment_accounts) {
+      const fileAccounts = Array.isArray(snapshot.sa_payment_accounts) ? snapshot.sa_payment_accounts : [];
+      if (fileAccounts.length > 0) {
+        const rows = await manager.query(
+          `WITH d AS (DELETE FROM payment_accounts WHERE tenant_id = $1 RETURNING 1) SELECT count(*)::int AS n FROM d`,
+          [tenantId],
+        );
+        if (replace || rows[0].n > 0) result.deleted = { ...result.deleted, payment_accounts: rows[0].n };
+        for (const a of fileAccounts) {
           const id = String(a.id);
           const kind = String(a.kind);
           const imageBase64 = a.imageBase64 ?? a.image_base64;

@@ -233,6 +233,42 @@ describe('payment accounts: export / import round trip (e2e)', () => {
     expect(refs.get(ids.cashSale)).toBeNull();
   });
 
+  it("a file with no accounts (absent or []) keeps the shop's accounts, in both modes; its bills get NULL", async () => {
+    const ids = await seedSourceShop();
+    const own = newUuid();
+    await write(ownerOf(target), 'post', '/payment-accounts', {
+      id: own,
+      nickname: 'บัญชีเดิม',
+      bankCode: 'BBL',
+      kind: 'promptpay',
+      promptpayId: '0899999999',
+      isDefault: true,
+    });
+    const { snapshot } = await buildTenantSnapshot(fixture.admin.manager, SOURCE);
+
+    // empty-only, store absent (an export from before QR accounts existed).
+    const absent = JSON.parse(JSON.stringify(snapshot)) as Json;
+    delete absent.sa_payment_accounts;
+    const first = await importOk(absent);
+    expect(first.deleted?.payment_accounts).toBeUndefined();
+    expect((await accountsOf(TARGET)).map((a) => a.id)).toEqual([own]);
+
+    // replace, store empty.
+    const empty = JSON.parse(JSON.stringify(snapshot)) as Json;
+    empty.sa_payment_accounts = [];
+    const second = await importOk(empty, `?mode=replace&confirmShopName=${encodeURIComponent('ร้านปลายทาง')}`);
+    expect(second.deleted.payment_accounts).toBeUndefined();
+    expect(second.deleted.sales).toBeGreaterThan(0);
+    const kept = await accountsOf(TARGET);
+    expect(kept.map((a) => a.id)).toEqual([own]);
+    expect(kept[0]).toMatchObject({ nickname: 'บัญชีเดิม', is_default: true, deleted: false });
+
+    // The file's bills name accounts the file does not carry: NULL, as for any missing one.
+    const refs = new Map((await saleAccounts(TARGET)).map((s) => [s.id, s.payment_account_id]));
+    expect(refs.get(ids.qrSale)).toBeNull();
+    expect(refs.get(ids.imageSale)).toBeNull();
+  });
+
   it('pre-flight refuses a file with two live defaults (400), before writing anything', async () => {
     await seedSourceShop();
     const { snapshot } = await buildTenantSnapshot(fixture.admin.manager, SOURCE);

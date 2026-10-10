@@ -993,7 +993,8 @@ ALTER TABLE sales ADD CONSTRAINT ck_sales_payment_account_qr
 > FK ตอน insert บิลจับ `FOR KEY SHARE` บนแถวบัญชี หลังล็อกสินค้า/`doc_counters` ตามลำดับเดิม · ฝั่งแก้บัญชีใช้
 > advisory lock ต่อร้าน + `UPDATE` ที่ไม่แตะคอลัมน์ key (`FOR NO KEY UPDATE`) จึงไม่ขวางบิล · export (`sa_payment_accounts`,
 > รวมรูปและแถวที่ลบแล้ว) / import (pre-flight ตรวจกติกาเดียวกับ API, บัญชีที่ไฟล์ไม่มี → บิลได้ NULL) ·
-> import แบบ replace ลบแล้วเขียน `payment_accounts` ใหม่ · import แบบร้านว่าง: ถ้าไฟล์มี `sa_payment_accounts` จะแทนที่บัญชีที่ร้านมี (ร้านยังไม่มีบิล จึงไม่มีอะไรอ้างถึง)
+> import (ทั้งแบบร้านว่างและ replace) ถือ `payment_accounts` แบบเดียวกับ `settings`: **แทนที่บัญชีของร้านเฉพาะเมื่อไฟล์มี `sa_payment_accounts` ที่ไม่ว่าง** —
+> ไม่มี key นี้หรือเป็น `[]` = เก็บบัญชีเดิมของร้านไว้ (ไม่ลบ) และบิลในไฟล์ที่อ้างบัญชีที่ไฟล์ไม่มี → NULL ตามเดิม · การลบไม่ชน FK เพราะแบบร้านว่างยังไม่มีบิล และ replace ลบ `sales` ไปก่อนแล้ว (review 2026-10-10)
 
 ---
 

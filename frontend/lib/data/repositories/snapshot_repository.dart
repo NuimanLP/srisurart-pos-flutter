@@ -692,7 +692,10 @@ class SnapshotRepository {
       await db.delete(db.categories).go();
       await db.delete(db.creditPayments).go();
       await db.delete(db.parkedSales).go();
-      await db.delete(db.paymentAccounts).go();
+      // QR accounts are like settings: only a file that carries some replaces
+      // them; an absent or empty store keeps the shop's (as the server import).
+      final fileAccounts = asList(data['sa_payment_accounts']);
+      if (fileAccounts.isNotEmpty) await db.delete(db.paymentAccounts).go();
 
       // ── 2. Products (zone → category migration) ──
       for (final p in asList(data['sa_products'])) {
@@ -964,7 +967,7 @@ class SnapshotRepository {
       }
 
       // ── 10b. QR payment accounts — active rows only (no deletedAt here) ──
-      for (final a in asList(data['sa_payment_accounts'])) {
+      for (final a in fileAccounts) {
         if (a['deletedAt'] != null) continue;
         final image = a['imageBase64'];
         await db.into(db.paymentAccounts).insert(
