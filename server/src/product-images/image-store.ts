@@ -23,7 +23,18 @@ export type ImageVariant = 't' | 'p';
 
 const FILE_NAME = /^([0-9a-f]{32})_([tp])\.webp$/;
 
-/** Both parts are validated, so no value can climb out of `productImagesDir()`. */
+/**
+ * A file sitting unreferenced is removed only once it is older than this. A cleanup reads "no
+ * product references key X" and then deletes X's files; an upload of the identical image may
+ * have just (re)written X and not yet committed, and would then point a product at a missing
+ * file. Every write refreshes the mtime (`writeImageFiles`), so a fresh file is spared.
+ */
+export const ORPHAN_GRACE_MS = 10 * 60_000;
+
+/**
+ * Both parts are validated, so no value can climb out of `productImagesDir()`. `isUuid` takes
+ * a lowercase UUID only, so every directory matches nginx's lowercase `/img/` regex.
+ */
 export function imageFilePath(tenantId: string, key: string, variant: ImageVariant): string {
   if (!isUuid(tenantId) || !IMAGE_KEY.test(key)) {
     throw new Error('Invalid tenant id or image key for a product image file');
@@ -34,16 +45,22 @@ export function imageFilePath(tenantId: string, key: string, variant: ImageVaria
 /**
  * Writes both variants, each to a unique temp name in the same directory and then renamed over
  * the final name (atomic): nginx never serves a half-written file. Content-addressed, so
- * rewriting an existing key writes the same bytes and is harmless.
+ * rewriting an existing key writes the same bytes and is harmless — and it always rewrites,
+ * never skips an existing file, so the mtime is fresh and `removeImageFilesIfStale` spares it.
+ * Resolves `true` when this call created the key (no preview existed before it).
  */
 export async function writeImageFiles(
   tenantId: string,
   key: string,
   files: { thumb: Buffer; preview: Buffer },
-): Promise<void> {
+): Promise<boolean> {
   const preview = imageFilePath(tenantId, key, 'p');
   const thumb = imageFilePath(tenantId, key, 't');
   await mkdir(join(productImagesDir(), tenantId), { recursive: true, mode: 0o755 });
+  const created = await stat(preview).then(
+    () => false,
+    () => true,
+  );
   // Preview first: the thumbnail is what a card asks for, so it appears only once both exist.
   for (const [path, bytes] of [
     [preview, files.preview],
@@ -58,12 +75,34 @@ export async function writeImageFiles(
       throw err;
     }
   }
+  return created;
 }
 
 /** Removes both variants of `key`. Missing files are not an error. */
 export async function removeImageFiles(tenantId: string, key: string): Promise<void> {
   await rm(imageFilePath(tenantId, key, 't'), { force: true });
   await rm(imageFilePath(tenantId, key, 'p'), { force: true });
+}
+
+/**
+ * Removes both variants of an unreferenced `key` unless either was written within
+ * `ORPHAN_GRACE_MS` of `now` (a concurrent upload of the same image may be about to commit
+ * it). Resolves `true` when the files are gone.
+ */
+export async function removeImageFilesIfStale(
+  tenantId: string,
+  key: string,
+  now: number = Date.now(),
+): Promise<boolean> {
+  for (const variant of ['t', 'p'] as const) {
+    try {
+      if ((await stat(imageFilePath(tenantId, key, variant))).mtimeMs > now - ORPHAN_GRACE_MS) return false;
+    } catch {
+      // missing: nothing to spare
+    }
+  }
+  await removeImageFiles(tenantId, key);
+  return true;
 }
 
 /**

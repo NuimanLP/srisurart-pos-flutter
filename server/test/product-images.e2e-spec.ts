@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
@@ -69,6 +69,11 @@ describe('product images (e2e)', () => {
     request(server()).delete(`/api/v1/products/${productId}/image`).set(auth(token)).set('Idempotency-Key', key);
   const filesOf = (tenantId: string, key: string) =>
     [imageFilePath(tenantId, key, 't'), imageFilePath(tenantId, key, 'p')].map((p) => existsSync(p));
+  /** Ages a key's files past `ORPHAN_GRACE_MS`, so an unreferenced-file cleanup may take them. */
+  const backdate = (tenantId: string, key: string) => {
+    const old = new Date('2020-01-01T00:00:00Z');
+    for (const v of ['t', 'p'] as const) utimesSync(imageFilePath(tenantId, key, v), old, old);
+  };
   const tenantFiles = (tenantId: string) => {
     try {
       return readdirSync(join(IMAGES_DIR, tenantId));
@@ -182,11 +187,13 @@ describe('product images (e2e)', () => {
     it('replace removes the old files; delete clears imageKey and removes the files', async () => {
       const id = await product(testId('pi-p3'), 'PI-003');
       const a = (await put(id, await jpeg(30))).body.data.imageKey as string;
+      backdate(TENANT, a);
       const b = (await put(id, await jpeg(230))).body.data.imageKey as string;
       expect(b).not.toBe(a);
       expect(filesOf(TENANT, a)).toEqual([false, false]);
       expect(filesOf(TENANT, b)).toEqual([true, true]);
 
+      backdate(TENANT, b);
       const cleared = await del(id);
       expect(cleared.status).toBe(200);
       expect(cleared.body.data.imageKey).toBeNull();
@@ -194,6 +201,14 @@ describe('product images (e2e)', () => {
       expect(filesOf(TENANT, b)).toEqual([false, false]);
       // Deleting an image that is already gone is fine.
       expect((await del(id)).status).toBe(200);
+    });
+
+    it('spares an unreferenced file written within the grace period (an identical upload may be committing)', async () => {
+      const id = await product(testId('pi-p3b'), 'PI-003B');
+      const a = (await put(id, await jpeg(35))).body.data.imageKey as string;
+      // Replaced at once: `a` is unreferenced but fresh, so it stays until it is old.
+      await put(id, await jpeg(235));
+      expect(filesOf(TENANT, a)).toEqual([true, true]);
     });
 
     it('removes an old key only once no product of the shop references it', async () => {
@@ -204,6 +219,7 @@ describe('product images (e2e)', () => {
       const k2 = (await put(p2, same)).body.data.imageKey as string;
       expect(k2).toBe(k1); // content-addressed
 
+      backdate(TENANT, k1);
       await put(p1, await jpeg(140));
       expect(filesOf(TENANT, k1)).toEqual([true, true]); // p2 still shows it
       await del(p2);

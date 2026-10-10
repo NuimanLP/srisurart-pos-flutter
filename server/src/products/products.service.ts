@@ -12,7 +12,7 @@ import {
   currentRequestContext,
   onTransactionCommit,
 } from '../common/request-context.js';
-import { removeImageFiles } from '../product-images/image-store.js';
+import { removeImageFiles, removeImageFilesIfStale } from '../product-images/image-store.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
@@ -454,11 +454,15 @@ export class ProductsService {
    * Deletes `key`'s two files when no product of the authorised shop references it any more
    * (soft-deleted products included — their row still names it). Runs after a commit: the
    * reference check is its own short read, and the files go only once it has answered.
+   * Files written within `ORPHAN_GRACE_MS` are spared (a concurrent upload of the identical
+   * image may not have committed yet) unless `evenIfFresh` — the caller's own upload created
+   * them and was refused.
    */
-  async removeImageIfUnreferenced(key: string): Promise<void> {
+  async removeImageIfUnreferenced(key: string, { evenIfFresh = false } = {}): Promise<void> {
     const tenantId = authorisedTenantId();
     if (await this.isImageReferenced(key)) return;
-    await removeImageFiles(tenantId, key);
+    if (evenIfFresh) await removeImageFiles(tenantId, key);
+    else await removeImageFilesIfStale(tenantId, key);
   }
 
   isImageReferenced(key: string): Promise<boolean> {

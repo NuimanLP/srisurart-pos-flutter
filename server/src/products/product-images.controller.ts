@@ -60,7 +60,7 @@ export class ProductImagesController {
     const params = idempotencyParamsOf(req, 200);
     const image = await this.prepareImage(req);
     return this.settleImage(image, () =>
-      this.idempotency.runIdempotent(params, res, () => this.products.setImage(id, image)),
+      this.idempotency.runIdempotent(params, res, () => this.products.setImage(id, image.key)),
     );
   }
 
@@ -76,15 +76,18 @@ export class ProductImagesController {
     });
   }
 
-  /** Owner check, then validate + re-encode the body and write both files. Returns the key. */
-  private async prepareImage(req: OwnerRequest): Promise<string> {
+  /**
+   * Owner check, then validate + re-encode the body and write both files. Returns the key, and
+   * whether this request created its files (none existed before).
+   */
+  private async prepareImage(req: OwnerRequest): Promise<{ key: string; created: boolean }> {
     requireOwner(req);
     // A Buffer only when the raw parser ran, i.e. a verified owner token AND an accepted
     // Content-Type; JSON, a form, or no body at all is not an image.
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw productImageInvalid();
     const image = await processProductImage(req.body);
-    await writeImageFiles(authorisedTenantId(), image.key, image);
-    return image.key;
+    const created = await writeImageFiles(authorisedTenantId(), image.key, image);
+    return { key: image.key, created };
   }
 
   /**
@@ -92,10 +95,15 @@ export class ProductImagesController {
    * product references them: the product was unknown (404), the key was refused (409), or a
    * stale replay answered for an image the product no longer has. Skipped while the original
    * request with this key is still in flight (503) — its files are the same files, and it has
-   * not committed yet. Two products given the identical image at the same instant can still
-   * race this check; the cost is a placeholder until that image is uploaded again.
+   * not committed yet. Files this request did not create (they were already there) are kept
+   * while fresh (`ORPHAN_GRACE_MS`): another upload of the identical image may be about to
+   * commit them. Files it did create go at once — only an upload of the identical image racing
+   * this very request could lose them; the cost is a placeholder until it is uploaded again.
    */
-  private async settleImage<T>(key: string, write: () => Promise<T>): Promise<T> {
+  private async settleImage<T>(
+    image: { key: string; created: boolean },
+    write: () => Promise<T>,
+  ): Promise<T> {
     let inFlight = false;
     try {
       return await write();
@@ -103,13 +111,13 @@ export class ProductImagesController {
       inFlight = err instanceof ServiceUnavailableException;
       throw err;
     } finally {
-      if (!inFlight) await this.dropIfUnreferenced(key);
+      if (!inFlight) await this.dropIfUnreferenced(image.key, image.created);
     }
   }
 
-  private async dropIfUnreferenced(key: string): Promise<void> {
+  private async dropIfUnreferenced(key: string, evenIfFresh: boolean): Promise<void> {
     try {
-      await this.products.removeImageIfUnreferenced(key);
+      await this.products.removeImageIfUnreferenced(key, { evenIfFresh });
     } catch (err) {
       this.logger.warn({ err, imageKey: key }, 'product image cleanup failed');
     }
