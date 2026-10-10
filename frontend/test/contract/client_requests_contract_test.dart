@@ -318,6 +318,14 @@ final _scenarios = <_Scenario>[
     // The type string products_screen.dart `_AdjustStockDialog._save` passes.
     await ApiProductsRepository(w.db, w.api).adjustStock(_product, 3, 'adjustment-in', 'นับสต็อก');
   }),
+  // Product images: only the DELETE is pinned here. The PUT sends the raw
+  // JPEG (`ApiClient.sendBytes`), and this harness records JSON bodies only —
+  // its replay half posts JSON — so that request is covered by
+  // product_image_repository_test.dart instead.
+  _Scenario('products.image-delete', 'ApiProductsRepository.removeImage',
+      ['DELETE /api/v1/products/:id/image'], (w) async {
+    await ApiProductsRepository(w.db, w.api).removeImage(_product);
+  }),
   _Scenario('categories.create', 'ApiProductsRepository.addCategory', ['POST /api/v1/categories'], (w) async {
     await ApiProductsRepository(w.db, w.api).addCategory('หมวดใหม่');
   }),
@@ -603,6 +611,14 @@ final _scenarios = <_Scenario>[
         },
       ],
     }, confirmShopName: 'ร้านทดสอบ');
+  }),
+
+  // The owner's backup export (a `.zip` since product images, 2026-10-10):
+  // only the POST that queues it is a write; the job poll and the download are reads.
+  _Scenario('backup.export', 'OwnerImportRepository.exportBackup', ['POST /api/v1/backup/export'],
+      (w) async {
+    await OwnerImportRepository(w.api, w.db, exportPollInterval: Duration.zero, maxExportPolls: 0)
+        .exportBackup();
   }),
 
   // ── sync ─────────────────────────────────────────────────────────────────

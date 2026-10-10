@@ -345,6 +345,11 @@ jobs:
             -v "$PWD/.tmp-nginx/certs:/etc/nginx/certs:ro" \
             -v "$PWD/.tmp-nginx/auth:/etc/nginx/auth:ro" \
             nginx:1.29-alpine nginx -t
+      # Product images (contract §2/§4): /img/ serves exactly /img/<uuid>/<32 hex>_{t,p}.webp from
+      # the volume with the immutable headers and refuses everything else; only the two import
+      # locations take a body past 10m. Runs the real nginx image against the real nginx.conf.
+      - name: nginx /img/ + import body-limit behaviour (nginx-img.test.sh)
+        run: deploy/scripts/test/nginx-img.test.sh
       # #443 PR4: the platform-ui dashboard is also nginx, and its config needs `proxy_ssl_trusted_
       # certificate` (a real, readable PEM) to test clean — reuse the throwaway ca.crt above.
       - name: test platform-ui nginx configuration (nginx -t)

@@ -7,6 +7,7 @@ import {
 } from './catalogue.controllers.js';
 import { CategoriesService } from './categories.service.js';
 import { MovementsService } from './movements.service.js';
+import { ProductImagesController } from './product-images.controller.js';
 import { ProductsController } from './products.controller.js';
 import { ProductsService } from './products.service.js';
 import { SuppliersService } from './suppliers.service.js';
@@ -15,6 +16,7 @@ import { SuppliersService } from './suppliers.service.js';
   imports: [IdempotencyModule],
   controllers: [
     ProductsController,
+    ProductImagesController,
     CategoriesController,
     SuppliersController,
     MovementsController,

@@ -65,6 +65,7 @@ void main() {
     rawDb.execute('DROP TABLE op_effects'); // v13 (#488)
     rawDb.execute('DROP TABLE payment_accounts'); // v14 (QR accounts)
     rawDb.execute('ALTER TABLE sales DROP COLUMN payment_account_id');
+    rawDb.execute('ALTER TABLE products DROP COLUMN image_key'); // v15 (images)
     rawDb.execute(
       "INSERT INTO products (id, part_no, name, name_t_h, category, brand, "
       "price, cost, stock, min_stock) VALUES "
@@ -84,7 +85,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first as int)
         .getSingle();
-    expect(version, 14);
+    expect(version, 15);
 
     // Upgraded file has exactly the indexes a fresh install has.
     expect(await _indexNames(db), freshIndexes);

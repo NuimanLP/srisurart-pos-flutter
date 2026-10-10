@@ -89,7 +89,7 @@ export async function buildTenantSnapshot(
 
   // 3. Products
   const productRows: Array<Record<string, any>> = await em.query(
-    `SELECT id, part_no, name, name_th, category, brand, price, cost, stock, min_stock, compat, updated_at
+    `SELECT id, part_no, name, name_th, category, brand, price, cost, stock, min_stock, compat, image_key, updated_at
        FROM products
       WHERE tenant_id = $1::uuid
       ORDER BY id ASC`,
@@ -107,6 +107,9 @@ export async function buildTenantSnapshot(
     stock: num(p.stock),
     minStock: num(p.min_stock),
     ...(p.compat != null ? { compat: p.compat } : {}),
+    // Contract §4: the backup ZIP's `images/<imageKey>.webp`. Absent when there is none, like
+    // `compat` — the Drift build's `importLegacyBackup` reads absent and null alike.
+    ...(p.image_key != null ? { imageKey: p.image_key } : {}),
     ...(p.updated_at != null ? { updatedAt: iso(p.updated_at) } : {}),
   }));
 

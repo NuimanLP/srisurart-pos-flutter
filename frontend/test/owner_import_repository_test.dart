@@ -151,6 +151,8 @@ void main() {
       seedDocCounters: () async => seeds++,
       pollInterval: Duration.zero,
       maxPolls: maxPolls,
+      exportPollInterval: Duration.zero,
+      maxExportPolls: 3,
     );
   }
 
@@ -430,4 +432,100 @@ void main() {
       expect(await marker(), isNull, reason: 'a refused upload created no job');
     });
   }
+
+  group('product images (2026-10-10): raw upload and the .zip export', () {
+    final zip = [0x50, 0x4B, 0x03, 0x04, 1, 2, 3, 0xFF];
+
+    test('a .zip is sent raw as application/zip; a .json as application/json', () async {
+      final r = repo((req) async => req.method == 'POST'
+          ? _ok(202, {'jobId': req.url.queryParameters['jobId']})
+          : _ok(200, {'status': 'succeeded'}));
+      await r.importBackupFile(zip,
+          contentType: OwnerImportRepository.zipContentType, confirmShopName: 'ร้าน');
+      expect(sent.first.url.path, '/api/v1/backup/import');
+      expect(sent.first.headers['content-type'], 'application/zip');
+      expect(sent.first.bodyBytes, zip);
+      expect(sent.first.url.queryParameters['mode'], 'replace');
+
+      final r2 = repo((req) async => req.method == 'POST'
+          ? _ok(202, {'jobId': req.url.queryParameters['jobId']})
+          : _ok(200, {'status': 'succeeded'}));
+      await r2.importBackup(_snapshot, confirmShopName: 'ร้าน');
+      expect(sent.first.headers['content-type'], startsWith('application/json'));
+      expect(jsonDecode(utf8.decode(sent.first.bodyBytes)), _snapshot);
+    });
+
+    test('a .zip over the server cap reads as the 200 MB sentence', () async {
+      final r = repo((req) async => _err(413, 'PAYLOAD_TOO_LARGE', 'too big'));
+      await expectLater(
+        r.importBackupFile(zip,
+            contentType: OwnerImportRepository.zipContentType, confirmShopName: 'ร้าน'),
+        throwsA(isA<PosException>().having(
+            (e) => e.message, 'message', OwnerImportRepository.zipTooLargeMessage)),
+      );
+      expect(await marker(), isNull);
+    });
+
+    test('export: queue, poll the job, download the .zip from its downloadPath', () async {
+      var polls = 0;
+      final r = repo((req) async {
+        final path = req.url.path;
+        if (req.method == 'POST' && path == '/api/v1/backup/export') {
+          return _ok(202, {'jobId': 'j1', 'status': 'queued'});
+        }
+        if (path == '/api/v1/backup/jobs/j1') {
+          polls++;
+          return _ok(200, polls < 2
+              ? {'status': 'active'}
+              : {
+                  'status': 'completed',
+                  'data': {'downloadPath': '/api/v1/backup/jobs/j1/download'},
+                });
+        }
+        if (path == '/api/v1/backup/jobs/j1/download') {
+          return http.Response.bytes(zip, 200,
+              headers: {'content-type': 'application/zip'});
+        }
+        return _err(404, 'NOT_FOUND', path);
+      });
+      expect(await r.exportBackup(), zip);
+      expect(sent.map((q) => '${q.method} ${q.url.path}').toList(), [
+        'POST /api/v1/backup/export',
+        'GET /api/v1/backup/jobs/j1',
+        'GET /api/v1/backup/jobs/j1',
+        'GET /api/v1/backup/jobs/j1/download',
+      ]);
+    });
+
+    for (final c in {
+      'failed job': (
+        (http.Request req) async => req.method == 'POST'
+            ? _ok(202, {'jobId': 'j1'})
+            : _ok(200, {'status': 'failed'}),
+        OwnerImportRepository.exportFailedMessage,
+      ),
+      'never finishes': (
+        (http.Request req) async => req.method == 'POST'
+            ? _ok(202, {'jobId': 'j1'})
+            : _ok(200, {'status': 'active'}),
+        OwnerImportRepository.exportTimedOutMessage,
+      ),
+      'not an enrolled device': (
+        (http.Request req) async => _err(403, 'DEVICE_ROLE_FORBIDDEN', 'device'),
+        OwnerImportRepository.exportNeedsEnrolledDeviceMessage,
+      ),
+      '5xx': (
+        (http.Request req) async => http.Response('<html>bad gateway</html>', 502),
+        'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์',
+      ),
+    }.entries) {
+      test('export refusal in Thai: ${c.key}', () async {
+        final r = repo(c.value.$1);
+        await expectLater(
+          r.exportBackup(),
+          throwsA(isA<PosException>().having((e) => e.message, 'message', c.value.$2)),
+        );
+      });
+    }
+  });
 }

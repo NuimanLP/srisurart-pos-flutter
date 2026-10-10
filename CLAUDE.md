@@ -123,9 +123,9 @@ frontend/
       utils/                   ← newUuid/newIdempotencyKey/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
     data/
-      db/tables.dart           ← 27 Drift tables, schemaVersion 14 (20 ported sa_* stores + #24's
+      db/tables.dart           ← 27 Drift tables, schemaVersion 15 (20 ported sa_* stores + #24's
                                  credit-payment outbox + phase-2 tables incl. OutboxOps, OpEffects
-                                 + #676 PaymentAccounts) — recounted 2026-10-10
+                                 + #676 PaymentAccounts; v15 = Products.imageKey) — recounted 2026-10-10
       db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
       db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
       repositories/            ← one repo per domain; transactional services mirror db.js
@@ -315,10 +315,11 @@ develops against a demo tenant.
   fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to
   `mob04` as `00d3488` 2026-09-30 (run `36717963989`, Ansible `failed=0`).
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
-  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v14 (v12 = #417 indexes; v13 = #488
+  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v15 (v12 = #417 indexes; v13 = #488
   `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
   exactly — ops queued before v13 have no row and take the legacy recompute path; v14 = #676
-  `payment_accounts` cache + `Sales.paymentAccountId`).
+  `payment_accounts` cache + `Sales.paymentAccountId`; v15 = product images, `Products.imageKey` — the
+  server's content hash only, bytes never in Drift; v7's `TableMigration(products)` lists it in `newColumns`).
 - ~~Two real bugs in migration `1788652803002-OwnerReviewItems.ts`~~ — **fixed 2026-09-25**
   by the new migration `1788652804200-OwnerReviewItemsFixes.ts`, proven in
   `server/test/schema.e2e-spec.ts` (found 2026-09-23, `01_DATABASE.md §11`): (1) its RLS

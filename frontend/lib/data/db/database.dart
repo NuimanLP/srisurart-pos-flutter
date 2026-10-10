@@ -83,7 +83,7 @@ class AppDatabase extends _$AppDatabase {
   /// but Drift's own schemaVersion starts at 1 for this fresh native schema.
   /// The JS schema-version value (2) is seeded into AppMeta as 'schema_version'.
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -156,7 +156,11 @@ class AppDatabase extends _$AppDatabase {
       // v6 → v7 (Ticket #272): Drop Products.offlineOk (ADR-0010 / Phase 2 spec:
       // Postgres never had this column, client drops it).
       if (from < 7) {
-        await m.alterTable(TableMigration(products));
+        // TableMigration rebuilds from TODAY's definition: a column added in a
+        // later version (v15 image_key) is not in the old table yet.
+        await m.alterTable(
+          TableMigration(products, newColumns: [products.imageKey]),
+        );
       }
       // v7 → v8 (Ticket #274, C16): Clear doc_counter_seeds upon upgrade so
       // stale seed markers from before switch-over are wiped.
@@ -207,6 +211,13 @@ class AppDatabase extends _$AppDatabase {
       if (from < 14) {
         await m.createTable(paymentAccounts);
         await m.addColumn(sales, sales.paymentAccountId);
+      }
+      // v14 → v15 (product images, owner 2026-10-10): products.image_key.
+      // NULL on every existing row — the next pull brings the server's keys.
+      // A file older than v7 already has it: v7's TableMigration(products)
+      // rebuilt the table from today's definition, image_key included.
+      if (from < 15 && from >= 7) {
+        await m.addColumn(products, products.imageKey);
       }
     },
   );

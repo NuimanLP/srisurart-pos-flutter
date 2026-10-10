@@ -28,4 +28,14 @@ describe('IdempotencyService.requestHash', () => {
   it('is a sha256 hex digest', () => {
     expect(hash({ a: 1 })).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  // `PUT /products/:id/image` sends raw bytes: the fingerprint must cover every one of them.
+  it('fingerprints a raw body by its bytes', () => {
+    const a = Buffer.from([1, 2, 3, 4]);
+    expect(hash(a)).toBe(hash(Buffer.from([1, 2, 3, 4])));
+    expect(hash(a)).not.toBe(hash(Buffer.from([1, 2, 3, 5])));
+    expect(hash(a)).toMatch(/^[0-9a-f]{64}$/);
+    // Never the JSON digest of the same Buffer.
+    expect(hash(a)).not.toBe(hash(a.toJSON()));
+  });
 });

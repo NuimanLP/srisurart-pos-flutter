@@ -27,9 +27,11 @@ WORKDIR /app
 RUN apk upgrade --no-cache \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
            /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
- && mkdir -p /app/exports && chown node:node /app/exports
-# /app/exports: mount point of the `exports` volume (tenant export files, EXPORT_DIR). Created
-# here, owned by node, so Docker seeds a fresh named volume with that ownership.
+ && mkdir -p /app/exports /app/product-images  && chown node:node /app/exports /app/product-images
+# /app/exports: mount point of the `exports` volume (tenant export files, EXPORT_DIR);
+# /app/product-images: of the `product-images` volume (PRODUCT_IMAGES_DIR). Created here, owned
+# by node, so Docker seeds a fresh named volume with that ownership. sharp (product images) needs
+# no extra package here: pnpm installs its prebuilt linuxmusl-x64 libvips in the deps stage.
 USER node
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist

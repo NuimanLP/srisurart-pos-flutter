@@ -370,6 +370,7 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
 `.env` มาจาก env `DEMO_ENV_FILE` ของเครื่องคนที่รัน · playbook ยังติดตั้ง ops scripts ลง `/opt/pos/scripts/`, สร้าง
 `/opt/pos/backups` (0700) และตั้ง **cron backup รายวัน 03:00** ของ user `deploy` (`provision.yml:133–193`, §7a) ·
 🔴 **เพิ่ม 2026-09-30:** `provision.yml` เป็นตัวติดตั้ง `/opt/pos/scripts` **ทางเดียว** — CD (`deploy.yml`) ไม่อัปเดต `backup-db.sh` บน VM · แก้สคริปต์ใน `main` (เช่น PR #519) แล้วต้องรัน `provision.yml` หรือ `sudo install -o deploy -g deploy -m 0755` ลงเอง แล้วเทียบ sha256 ·
+🔴 **2026-10-10 (รูปสินค้า):** `backup-db.sh` เก็บ volume `product-images` เพิ่มเป็น `pos_images_<ts>.tar.gz` (+ `.sha256`, อ่านผ่าน mount `:ro` ของ container `nginx`) — กฎ `.partial`/prune/offsite เดียวกับ dump · ไม่มี volume = `::warning::` แล้ว exit 0, เก็บพลาด = `::error::` + exit 1 · **ต้อง install สคริปต์ใหม่บน `mob04` เอง** ตามบรรทัดข้างบน ·
 **ไม่**ติดตั้ง `ansible-core`/`git`/`rclone` (§6.2 ข้อ 3, §7a)
 
 🔴 **SSH user ของสอง playbook ต่างกันและสลับกันไม่ได้ (แก้ 2026-09-23):** `deploy.yml` รันเป็น **`deploy`** (เจ้าของ

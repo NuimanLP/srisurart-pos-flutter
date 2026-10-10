@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import request from 'supertest';
+import { backupDataJson } from './support/zip.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { newUuid } from '../src/common/ids.js';
 import { QueueProcessorsModule } from '../src/queue/queue.module.js';
@@ -289,10 +290,11 @@ describe('owner import: POST /backup/import (e2e)', () => {
     expect(await count('devices')).toBe(2);
     expect(await count('users')).toBe(1);
 
-    // The replaced data is in the pre-import file, in the export's shape.
+    // The replaced data is in the pre-import file, in the export's shape (the backup ZIP).
     const file = result.preImportExport.file as string;
     expect(existsSync(file)).toBe(true);
-    const copy = JSON.parse(readFileSync(file, 'utf8'));
+    expect(file.endsWith('.zip')).toBe(true);
+    const copy = await backupDataJson(readFileSync(file));
     expect(copy.sa_sales).toHaveLength(oldSales);
     expect(copy.__meta.version).toBe(2);
 

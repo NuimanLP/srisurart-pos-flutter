@@ -191,6 +191,7 @@ describe('OwnerImportController', () => {
   const importService = {
     createOwnerJob: vi.fn().mockResolvedValue({ jobId: 'j1' }),
     getJob: vi.fn().mockResolvedValue({ jobId: 'j1', status: 'queued' }),
+    discardUpload: vi.fn().mockResolvedValue(undefined),
   };
   const controller = new OwnerImportController(importService as any);
   const asTenant = <T>(fn: () => Promise<T>) => runInRequestContext({ tenantId, manager: null as any }, fn);
@@ -201,7 +202,23 @@ describe('OwnerImportController', () => {
 
   it('enqueues for the tenant the guard authorised, never one the request names', async () => {
     await asTenant(() => controller.importSnapshot({ __meta: {} } as any, req(owner)));
-    expect(importService.createOwnerJob).toHaveBeenCalledWith(tenantId, { __meta: {} }, owner.userId, '10.0.0.5', undefined, undefined);
+    expect(importService.createOwnerJob).toHaveBeenCalledWith(
+      tenantId, { __meta: {} }, owner.userId, '10.0.0.5', undefined, undefined, undefined,
+    );
+  });
+
+  // Contract §4: a backup ZIP arrives as a file `app.setup.ts` streamed to disk.
+  it('hands an uploaded ZIP to the service, and discards it when the request is refused', async () => {
+    const zipReq = (user: Record<string, unknown>) => ({ ...req(user), importZipFile: '/tmp/up.zip' });
+    await asTenant(() => controller.importSnapshot(undefined as any, zipReq(owner)));
+    expect(importService.createOwnerJob).toHaveBeenCalledWith(
+      tenantId, undefined, owner.userId, '10.0.0.5', undefined, undefined, '/tmp/up.zip',
+    );
+    expect(importService.discardUpload).not.toHaveBeenCalled();
+
+    const err = await asTenant(() => controller.importSnapshot(undefined as any, zipReq({ ...owner, role: 'x' }))).catch((e) => e);
+    expect(err.getStatus()).toBe(403);
+    expect(importService.discardUpload).toHaveBeenCalledWith('/tmp/up.zip');
   });
 
   it('passes replace, the typed name and a client-named job id through; refuses a bad mode or job id', async () => {
@@ -210,7 +227,7 @@ describe('OwnerImportController', () => {
       controller.importSnapshot({ __meta: {} } as any, req(owner), 'replace', 'ร้านทดสอบ', jobId),
     );
     expect(importService.createOwnerJob).toHaveBeenCalledWith(
-      tenantId, { __meta: {} }, owner.userId, '10.0.0.5', { confirmShopName: 'ร้านทดสอบ' }, jobId,
+      tenantId, { __meta: {} }, owner.userId, '10.0.0.5', { confirmShopName: 'ร้านทดสอบ' }, jobId, undefined,
     );
     const badMode = await asTenant(() => controller.importSnapshot({} as any, req(owner), 'merge')).catch((e) => e);
     expect(badMode.getStatus()).toBe(400);

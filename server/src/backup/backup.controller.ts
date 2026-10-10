@@ -99,7 +99,7 @@ export class BackupController {
   }
 
   /**
-   * Streams the finished export (`sa_*` + `__meta` JSON). The file path comes from the
+   * Streams the finished export — a ZIP of `data.json` (`sa_*` + `__meta`) and `images/`. The file path comes from the
    * authorised tenant and the job's own id — never from the request — and the job must
    * belong to that tenant, so one shop can never read another's file. 404 once the job or
    * its file has expired (`EXPORT_TTL_MS`). Library-mode `@Res()`: the envelope interceptor
@@ -133,11 +133,11 @@ export class BackupController {
       throw err;
     }
     res.status(HttpStatus.OK);
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Length', String(size));
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="backup-${descriptor.exportedAt.slice(0, 10)}.json"`,
+      `attachment; filename="backup-${descriptor.exportedAt.slice(0, 10)}.zip"`,
     );
     res.setHeader('Cache-Control', 'no-store');
     const stream = fh.createReadStream();
