@@ -132,7 +132,17 @@ class QrCodeView extends StatelessWidget {
     if (account.kind == 'image') {
       final image = account.image;
       if (image == null) return _broken();
-      return Image.memory(image, width: size, height: size, fit: BoxFit.contain);
+      // A transparent PNG's black modules vanish on a dark panel: same white
+      // quiet zone as the PromptPay QR below.
+      return _quietZone(
+        Image.memory(
+          image,
+          key: const ValueKey('image-qr'),
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+        ),
+      );
     }
     final String payload;
     try {
@@ -140,11 +150,8 @@ class QrCodeView extends StatelessWidget {
     } on ArgumentError {
       return _broken();
     }
-    // A white quiet zone so a phone camera reads it in dark mode too.
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.all(8),
-      child: BarcodeWidget(
+    return _quietZone(
+      BarcodeWidget(
         key: const ValueKey('promptpay-qr'),
         barcode: Barcode.qrCode(),
         data: payload,
@@ -154,6 +161,14 @@ class QrCodeView extends StatelessWidget {
       ),
     );
   }
+
+  /// A white quiet zone so a phone camera reads the QR in dark mode too.
+  Widget _quietZone(Widget qr) => Container(
+        key: const ValueKey('qr-quiet-zone'),
+        color: Colors.white,
+        padding: const EdgeInsets.all(8),
+        child: qr,
+      );
 
   Widget _broken() => SizedBox(
         width: size,
