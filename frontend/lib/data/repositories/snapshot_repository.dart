@@ -25,6 +25,11 @@
 //    entries[] array (DrawerEntries), or null if no active shift.
 //  • sa_shift_history is the array of all OTHER (inactive) shift objects.
 //  • sa_parked is an array of decoded parked-bill payload objects.
+//  • sa_payment_accounts (QR accounts, 2026-10-10) is the server's tenant-backup
+//    store: the `GET /payment-accounts` wire shape (image as `imageBase64`),
+//    plus `createdAt`/`deletedAt` there. This cache has neither: the export
+//    omits both, and the import keeps only active rows (a bill naming a deleted
+//    one reads บัญชีที่ลบแล้ว). Each sale carries `paymentAccountId` when set.
 //  • Dates that db.js held as ISO strings are emitted as ISO strings on export
 //    and parsed back to DateTime on import.
 
@@ -79,6 +84,7 @@ class SnapshotRepository {
     'sa_cash_drawer',
     'sa_shift_history',
     'sa_parked',
+    'sa_payment_accounts',
     'sa_schema_version',
   };
 
@@ -215,6 +221,8 @@ class SnapshotRepository {
             'date': _iso(s.date),
             'voided': s.voided,
             if (s.voidedAt != null) 'voidedAt': _iso(s.voidedAt),
+            if (s.paymentAccountId != null)
+              'paymentAccountId': s.paymentAccountId,
             'items': (saleItemsBySale[s.id] ?? const [])
                 .map(
                   (it) => <String, dynamic>{
@@ -428,6 +436,29 @@ class SnapshotRepository {
         )
         .toList();
 
+    // ── QR payment accounts (sa_payment_accounts) — the server's backup key ──
+    final accountRows = await (db.select(db.paymentAccounts)
+          ..orderBy([
+            (t) => OrderingTerm.asc(t.sortOrder),
+            (t) => OrderingTerm.asc(t.id),
+          ]))
+        .get();
+    final paymentAccounts = [
+      for (final a in accountRows)
+        <String, dynamic>{
+          'id': a.id,
+          'nickname': a.nickname,
+          'bankCode': a.bankCode,
+          'kind': a.kind,
+          'promptpayId': a.promptpayId,
+          'imageBase64': a.image == null ? null : base64Encode(a.image!),
+          'imageMime': a.imageMime,
+          'isDefault': a.isDefault,
+          'sortOrder': a.sortOrder,
+          if (a.updatedAt != null) 'updatedAt': _iso(a.updatedAt),
+        },
+    ];
+
     // ── categories (sa_categories) — array of names ordered by position ──
     final categoryRows = await (db.select(
       db.categories,
@@ -549,6 +580,9 @@ class SnapshotRepository {
       'sa_cash_drawer': cashDrawer,
       'sa_shift_history': history,
       'sa_parked': parked,
+      // Only when the shop has any: a file from before QR accounts (or a shop
+      // with none) keeps exactly its old stores.
+      if (paymentAccounts.isNotEmpty) 'sa_payment_accounts': paymentAccounts,
       // raw string, never JSON-parsed (BACKUP_META_KEYS in db.js)
       'sa_schema_version': schemaVersionStr,
     };
@@ -587,6 +621,7 @@ class SnapshotRepository {
       'parked': parked.length,
       'categories': categories.length,
       'cashDrawer': cashDrawer != null ? 1 : 0,
+      'paymentAccounts': paymentAccounts.length,
     };
 
     data['__meta'] = <String, dynamic>{
@@ -657,6 +692,7 @@ class SnapshotRepository {
       await db.delete(db.categories).go();
       await db.delete(db.creditPayments).go();
       await db.delete(db.parkedSales).go();
+      await db.delete(db.paymentAccounts).go();
 
       // ── 2. Products (zone → category migration) ──
       for (final p in asList(data['sa_products'])) {
@@ -757,6 +793,7 @@ class SnapshotRepository {
                 date: _parseDate(s['date']) ?? DateTime.now(),
                 voided: Value(_asBool(s['voided'])),
                 voidedAt: Value(_parseDate(s['voidedAt'])),
+                paymentAccountId: Value(_asNullableStr(s['paymentAccountId'])),
               ),
             );
         for (final it in asList(s['items'])) {
@@ -922,6 +959,28 @@ class SnapshotRepository {
                 name: _asStr(s['name']),
                 unitCost: _asDouble(s['unitCost']),
                 freight: Value(_asDouble(s['freight'])),
+              ),
+            );
+      }
+
+      // ── 10b. QR payment accounts — active rows only (no deletedAt here) ──
+      for (final a in asList(data['sa_payment_accounts'])) {
+        if (a['deletedAt'] != null) continue;
+        final image = a['imageBase64'];
+        await db.into(db.paymentAccounts).insert(
+              PaymentAccountsCompanion.insert(
+                id: _asStr(a['id']),
+                nickname: _asStr(a['nickname']),
+                bankCode: _asStr(a['bankCode']),
+                kind: _asStr(a['kind']),
+                promptpayId: Value(_asNullableStr(a['promptpayId'])),
+                image: Value(
+                  image is String && image.isNotEmpty ? base64Decode(image) : null,
+                ),
+                imageMime: Value(_asNullableStr(a['imageMime'])),
+                isDefault: Value(_asBool(a['isDefault'])),
+                sortOrder: Value(_asInt(a['sortOrder'])),
+                updatedAt: Value(_parseDate(a['updatedAt'])),
               ),
             );
       }
