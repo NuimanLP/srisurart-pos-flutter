@@ -9,7 +9,7 @@
 > แอปเดิมเก็บทุกอย่างใน SQLite บนเครื่อง (Drift) **20 ตาราง** — เอกสารนี้แปลงเป็น PostgreSQL
 > พร้อมเพิ่มตารางที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant)
 > **ฐานข้อมูลจริงวันนี้มี 30 ตาราง** (ตรวจกับ `server/src/db/migrations/` 2026-09-23, +1 เมื่อ 2026-10-10):
-> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6) + `payment_accounts` (บัญชีรับเงิน QR, §5.8)
+> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6) + `payment_accounts` (บัญชีรับเงิน QR, §5.8) · `products.image_key` (รูปสินค้า, §5.8, 2026-10-10) ไม่ใช่ตารางใหม่
 > — `change_log` **ไม่สร้าง** (เคาะ 2026-09-15, #191 — ดู §5.1)
 > `platform_admins` เพิ่มเข้ามาตาม [ADR-0002](adr/0002-platform-admin-plane.md)
 >
@@ -500,6 +500,7 @@ CREATE TABLE products (
   stock      INT  NOT NULL CHECK (stock >= 0),      -- ⚠️ ดู §7.1 เรื่อง strict stock
   min_stock  INT  NOT NULL DEFAULT 0,
   compat     TEXT,                                   -- รุ่นรถที่ใส่ได้ (ค้นด้วย pg_trgm)
+  image_key  TEXT CHECK (image_key IS NULL OR image_key ~ '^[0-9a-f]{32}$'),  -- (migration 1788652805100, 2026-10-10) hash ของรูป — ดู §5.8
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,                            -- soft delete (จำเป็นสำหรับ sync)
   -- ⚠️ ห้ามใส่ FK ไป categories — ของเดิม "ลบหมวด" ไม่แตะ products.category
@@ -996,6 +997,23 @@ ALTER TABLE sales ADD CONSTRAINT ck_sales_payment_account_qr
 > import (ทั้งแบบร้านว่างและ replace) ถือ `payment_accounts` แบบเดียวกับ `settings`: **แทนที่บัญชีของร้านเฉพาะเมื่อไฟล์มี `sa_payment_accounts` ที่ไม่ว่าง** —
 > ไม่มี key นี้หรือเป็น `[]` = เก็บบัญชีเดิมของร้านไว้ (ไม่ลบ) และบิลในไฟล์ที่อ้างบัญชีที่ไฟล์ไม่มี → NULL ตามเดิม · การลบไม่ชน FK เพราะแบบร้านว่างยังไม่มีบิล และ replace ลบ `sales` ไปก่อนแล้ว (review 2026-10-10)
 
+```sql
+-- (2026-10-10 รูปสินค้า — เจ้าของร้านขอ, migration 1788652805100) หนึ่งรูปต่อสินค้า
+ALTER TABLE products ADD COLUMN image_key TEXT;
+ALTER TABLE products ADD CONSTRAINT ck_products_image_key
+  CHECK (image_key IS NULL OR image_key ~ '^[0-9a-f]{32}$');
+CREATE INDEX idx_products_image_key ON products (tenant_id, image_key) WHERE image_key IS NOT NULL;
+```
+
+> **รูปสินค้า (2026-10-10):** Postgres เก็บ**แค่ key** — 32 ตัวแรกของ sha256 ของไฟล์ preview — ไบต์ของรูปอยู่ใน
+> volume `product-images` (`<tenantId>/<imageKey>_t.webp` ≤ 256 px, `_p.webp` ≤ 1024 px) ที่ Nginx เสิร์ฟตรงที่
+> `/img/…` (`02_API_SCREENS.md §3.2`) · ตั้ง/ล้าง key = bump `updated_at` แบบเดิม จึงไปกับ keyset pull
+> (`imageKey` บน wire) โดยไม่มีกติกา cursor ใหม่ — เป็นแค่อีกช่องของสินค้า ฝั่ง client จึงไม่แตะ guard สต็อกของ outbox ·
+> ไฟล์ของ key เดิมถูกลบ**หลัง commit** และเฉพาะเมื่อไม่มีสินค้าใดของร้าน (รวมที่ soft delete) อ้าง key นั้น
+> (`idx_products_image_key` ทำให้ตรวจเป็น index probe) · `pg_dump` **ไม่มีรูป** — `deploy/scripts/backup-db.sh` เก็บ
+> volume เป็น `pos_images_<ts>.tar.gz` แยกต่างหาก · backup ของร้าน (export) เป็น `.zip` ที่มีรูป และ import
+> ทั้งสองทางคำนวณ key ใหม่จากรูปที่เข้ารหัสใหม่ (`02 §3.10`) · build ออฟไลน์ (Drift) ไม่มีรูป
+
 ---
 
 ## 6. สรุป Index ทั้งหมด (ไว้ตรวจตอน review)
@@ -1009,6 +1027,7 @@ ALTER TABLE sales ADD CONSTRAINT ck_sales_payment_account_qr
 | `products` | `idx_products_search` GIN **pg_trgm** (ไม่ใช่ full-text) | ช่องค้นหาหน้า Checkout & Vehicle Search — ใต้ RLS planner ยังไม่ใช้ (#16) |
 | `products` | partial `WHERE stock <= min_stock AND deleted_at IS NULL` | LowStockAlert + รายงานของใกล้หมด |
 | `products` | `(tenant_id, updated_at)` | keyset pull (ADR-0010) |
+| `products` | `idx_products_image_key` partial `(tenant_id, image_key) WHERE image_key IS NOT NULL` | ตรวจ "ยังมีสินค้าอ้างรูปนี้ไหม" ก่อนลบไฟล์ (2026-10-10) |
 | `customers` / `mechanics` | `(tenant_id, updated_at, id)` | keyset pull (ADR-0010) |
 | `sales` | `(tenant_id, date DESC)` | หน้า Reports, ปิดกะ, ประวัติบิล |
 | `sales` | `(tenant_id, receipt_no)` UNIQUE | หน้า Returns ค้นบิลด้วยเลขที่ |

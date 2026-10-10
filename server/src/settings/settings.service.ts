@@ -21,6 +21,7 @@ export interface ProductBootstrap {
   stock: number;
   minStock: number;
   compat: string | null;
+  imageKey: string | null;
   updatedAt: string;
 }
 
@@ -63,6 +64,7 @@ interface ProductRow {
   stock: number;
   min_stock: number;
   compat: string | null;
+  image_key: string | null;
   updated_at: Date;
 }
 
@@ -216,7 +218,7 @@ export class SettingsService {
     const { tenantId, manager } = currentRequestContext();
 
     const productRows = (await manager.query(
-      `SELECT id, part_no, name, name_th, category, brand, price, cost, stock, min_stock, compat, updated_at
+      `SELECT id, part_no, name, name_th, category, brand, price, cost, stock, min_stock, compat, image_key, updated_at
          FROM products
         WHERE tenant_id = $1::uuid AND deleted_at IS NULL
         ORDER BY part_no ASC, id ASC`,
@@ -287,6 +289,7 @@ function toProductBootstrap(row: ProductRow): ProductBootstrap {
     stock: Number(row.stock),
     minStock: Number(row.min_stock),
     compat: row.compat,
+    imageKey: row.image_key,
     updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : new Date(row.updated_at).toISOString(),
   };
 }

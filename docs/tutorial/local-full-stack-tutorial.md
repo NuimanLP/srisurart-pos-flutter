@@ -65,6 +65,11 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 
 ครั้งแรกจะ build image `srisurart-pos/server:local` (ช้าสุด) รอบต่อไปจะ cache ไว้แล้วเร็วขึ้นมาก
 
+**รูปสินค้า (PR #680, 2026-10-10):** `docker-compose.yml` มี volume ชื่อ `product-images` เพิ่ม — api-1/2/3 และ worker เขียนได้ที่ `/app/product-images`,
+Nginx อ่านอย่างเดียวที่ `/srv/product-images` แล้วเสิร์ฟที่ `/img/…` · การย่อ/แปลงรูปใช้ไลบรารี `sharp` ที่ติดมากับ image อยู่แล้ว (ไม่ต้องลงอะไรบนเครื่อง) แต่ต้อง
+**build image ใหม่** (`up -d --build`) ถ้า checkout ของคุณเพิ่ง pull โค้ดที่มีฟีเจอร์นี้ · migration `1788652805100-ProductImageKey` เพิ่มคอลัมน์ `products.image_key`
+(รันเองตอน `migrate` ขึ้น) · อย่า `down -v` — จะลบรูปทั้งหมดพร้อมฐานข้อมูล
+
 **เช็คว่าทุก container healthy:**
 
 ```bash
@@ -285,6 +290,35 @@ lib\main.dart is being served at http://127.0.0.1:8090
 > จาก server เพราะ `syncFromServer()` เพิ่มข้อมูลเข้าไปไม่ได้ล้าง seed ทิ้ง — ไม่ใช่บั๊ก
 > ทดสอบขายด้วยสินค้าที่มีจริงบน server (เช่น `DEMO-001`) อย่าจิ้มสินค้าที่มาจาก seed
 
+
+### 6.1 ลองอัปโหลดรูปสินค้า แล้วดู `/img/`
+
+ต้องล็อกอินเป็น **owner** (ไม่ใช่ platform admin) และเครื่องต้องออนไลน์ (ฟีเจอร์นี้ไม่มีบน build ออฟไลน์ Drift ล้วน)
+
+1. เมนู **สินค้า/สต็อก** → กด **แก้ไข** ที่แถวสินค้า (สินค้าที่มีอยู่แล้วเท่านั้น — หน้าต่าง "เพิ่มสินค้าใหม่" ยังไม่มีส่วนรูป)
+2. ส่วน **รูปสินค้า** ด้านบนของหน้าต่าง → **เลือกรูป** → เลือกไฟล์ JPG/PNG/WebP (แอปย่อให้เหลือด้านยาว ≤ 1600 px เป็น JPEG ก่อนส่ง; เซิร์ฟเวอร์รับไม่เกิน 3 MB)
+3. รูปขึ้นในส่วนนั้นทันที และการ์ดสินค้าที่หน้า **ขายสินค้า** แสดงรูป — ปุ่มแว่นขยาย (`ดูรูป`) มุมขวาล่างของรูปเปิดรูปใหญ่ซูมได้
+
+เช็คฝั่งเซิร์ฟเวอร์ (จากโฟลเดอร์ใดก็ได้ — ชื่อ container ขึ้นกับ compose project `srisurart-pos`):
+
+```bash
+# ไฟล์ที่เขียนลง volume: <tenantId>/<imageKey>_t.webp (≤256 px) และ _p.webp (≤1024 px)
+docker exec srisurart-pos-api-1-1 ls -R /app/product-images
+# ดึงผ่าน Nginx ตรง ๆ (cert self-signed → -k) — แทน <tenantId>/<imageKey> ด้วยชื่อที่เห็นข้างบน
+curl -sk -D - -o /dev/null https://localhost/img/<tenantId>/<imageKey>_t.webp
+# หรือผ่าน tlswrap (ข้อ 4) ซึ่งเป็นที่อยู่เดียวกับที่แอปเว็บใช้
+curl -s -D - -o /dev/null http://127.0.0.1:8081/img/<tenantId>/<imageKey>_t.webp
+```
+
+✅ `200`, `Content-Type: image/webp`, `Cache-Control: public, max-age=31536000, immutable` · ชื่อไฟล์ที่ไม่มีอยู่ได้ `404` · กด **ลบรูป** แล้วไฟล์ของ key เดิมหายจากรายการ `ls -R`
+(ลบหลังบันทึกสำเร็จ และเฉพาะเมื่อไม่มีสินค้าใดของร้านยังอ้าง key นั้น)
+
+> 🟠 ถ้าเปลี่ยนเป็นรูปเดิมเป๊ะ ๆ key จะเท่าเดิม (ที่อยู่ไฟล์ตามเนื้อหา) — ไม่ใช่บั๊ก · ถ้าอัปโหลดแล้วได้ข้อความ `รูปใหญ่เกิน 3 MB` หรือ `ไฟล์รูปไม่ถูกต้อง กรุณาใช้รูป JPG, PNG หรือ WebP`
+> นั่นคือ `413 PRODUCT_IMAGE_TOO_LARGE` / `400 PRODUCT_IMAGE_INVALID` (ข้อความร่างโดย agent รอเจ้าของรับรอง)
+
+**ลอง backup แบบ ZIP:** ตั้งค่า → 💾 สำรอง/กู้คืน → **⬇ ดาวน์โหลดไฟล์ backup (.zip)** (บน API build) ได้ `pos-backup-<yyyymmdd>.zip` ที่มี `data.json` กับโฟลเดอร์ `images/`
+(หนึ่งไฟล์ `<imageKey>.webp` ต่อรูป) · 📥 กู้คืนข้อมูล รับทั้ง `.zip` และ `.json` เดิม (ดูรายละเอียดใน `docs/tutorial/sri-pos-manual/02-owner-backoffice.html` หัวข้อ 8)
+
 ---
 
 ## 7) URL ทั้งหมดที่ควรเปิดได้ตอนนี้
@@ -363,6 +397,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml -f ../deploy/comp
 | `etcd` ค้าง `(unhealthy)` ตลอด ส่วนอื่น healthy หมด | volume `etcd-data` จากรอบก่อน bake รหัสผ่านไม่ตรง `.env` (#365) | ไม่บล็อกอะไร ใช้งานต่อได้ — อย่า `down -v` (ข้อ 3) |
 | `bootstrap-admin` บอก `already exists — password left alone` แล้ว login admin ไม่ผ่าน | admin มีอยู่แล้วใน `pgdata` รอบก่อน รหัสใหม่ไม่ถูกบันทึก | รันซ้ำพร้อม `--force` (ข้อ 5.1) ต้องเห็น `password reset` |
 | `tenants:create` ได้ `409 … already exists` | `--code`/`--owner-username` ซ้ำของเดิมใน volume | ใช้ code + username ใหม่ (ข้อ 5.2) |
+| รูปสินค้าไม่ขึ้นในการ์ด (เห็นไอคอนแทน) ทั้งที่อัปโหลดสำเร็จ | `docker compose up` รอบก่อน build ก่อนมี `/img/` หรือ Nginx ยังไม่ถูก recreate · หรือ `API_BASE_URL` ไม่ใช่ origin เดียวกับ Nginx | `up -d --build` ด้วยชุด `-f` เดิม แล้วลอง `curl` ตามข้อ 6.1 — ต้อง 200 ก่อนจะโทษแอป |
 | platform CLI login ไม่ผ่านทั้งที่รหัสถูก (pipe จาก PowerShell) | PowerShell pipe ส่งข้อความเข้า stdin ไม่ตรงตัว | พิมพ์รหัสแบบ interactive หรือใช้ Git Bash `printf '%s\n'` (ข้อ 5.2) |
 | Grafana panel "Disk usage (/)" ไม่มีข้อมูล | `node-exporter` mount `/:/rootfs:ro` แต่ Docker Desktop รันบน WSL VM ไม่ใช่ดิสก์ Windows ตรง ๆ | รู้ไว้เฉย ๆ ไม่ใช่บั๊ก จะขึ้นปกติบน `mob04` (Linux จริง) |
 | ยิงตรงไปที่ `/api/v1/platform/...` จาก host (หรือผ่าน `ssh -L`) ได้ `403 Forbidden` | docker-proxy เปิด connection ใหม่เข้า container — nginx และ guard เห็น IP เป็น gateway (`172.30.0.1`) ไม่ใช่ `127.0.0.1` · เกิดบนทุกโฮสต์ รวม `mob04` (#335 D3) | ใช้หน้าเว็บ http://127.0.0.1:3200 (ข้อ 5.2 ทาง A) หรือ platform CLI จาก**ภายใน container `api-1` เอง**: `docker compose exec api-1 node dist/cli/platform.js login --user <admin>` (ข้อ 5.2 ทาง B) |

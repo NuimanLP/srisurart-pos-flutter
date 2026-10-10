@@ -1,7 +1,10 @@
-import { Body, Controller, Get, Module, Patch, Post, Req, type INestApplication } from '@nestjs/common';
+import { Body, Controller, Get, Module, Patch, Post, Put, Req, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { Request } from 'express';
 import { generateKeyPairSync } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import pino from 'pino';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -257,6 +260,101 @@ describe('configureApp body limit for payment accounts', () => {
       .set('Authorization', `Bearer ${token({})}`)
       .send(image);
     expect(other.status).toBe(413);
+  });
+});
+
+@Controller('products/:id')
+class ProductImageProbeController {
+  @Put('image')
+  put(@Req() req: Request) {
+    return { raw: Buffer.isBuffer(req.body), length: Buffer.isBuffer(req.body) ? req.body.length : 0 };
+  }
+}
+
+@Controller('backup')
+class ZipImportProbeController {
+  @Post('import')
+  import(@Req() req: Request & { importZipFile?: string }) {
+    return { zip: typeof req.importZipFile === 'string' };
+  }
+}
+
+@Module({
+  controllers: [ProductImageProbeController, ZipImportProbeController],
+  providers: [
+    { provide: APP_CONFIG, useValue: { corsOrigins: [] } },
+    { provide: JwtVerifier, useValue: new JwtVerifier({ jwtPublicKeys: [TENANT_PUB], jwtKeyId: 'key-1' } as AppConfig) },
+  ],
+})
+class ProductImageProbeModule {}
+
+// Product images (contract §3/§4): `PUT /products/:id/image` reads a raw body of ≤ 3 MB, and
+// the import routes stream a backup ZIP to disk — both only for a verified owner token.
+describe('configureApp raw bodies: product image and backup ZIP', () => {
+  let app: INestApplication;
+  const signer = new JwtSigner({ jwtPrivateKey: TENANT_PRIV, jwtKeyId: 'key-1' } as AppConfig);
+  const token = (claims: Record<string, unknown>) =>
+    signer.sign({ aud: 'tenant', sub: 'u1', jti: 'j1', typ: 'access', tid: 't1', role: 'owner', did: 'd1', ...claims } as never, '5m');
+  const put = () => request(app.getHttpServer()).put('/api/v1/products/0192f000-0000-7000-8000-000000000001/image');
+  const jpegish = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(100 * 1024)]);
+  const prevExportDir = process.env.EXPORT_DIR;
+  let exportDir: string;
+
+  beforeAll(async () => {
+    exportDir = mkdtempSync(join(tmpdir(), 'app-setup-zip-'));
+    process.env.EXPORT_DIR = exportDir;
+    const moduleRef = await Test.createTestingModule({ imports: [ProductImageProbeModule] }).compile();
+    app = moduleRef.createNestApplication();
+    await configureApp(app, pino({ level: 'silent' }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+    rmSync(exportDir, { recursive: true, force: true });
+    if (prevExportDir === undefined) delete process.env.EXPORT_DIR;
+    else process.env.EXPORT_DIR = prevExportDir;
+  });
+
+  it('gives an owner the image bytes as a Buffer, for each accepted type', async () => {
+    for (const type of ['image/jpeg', 'image/png', 'image/webp']) {
+      const res = await put().set('Authorization', `Bearer ${token({})}`).set('Content-Type', type).send(jpegish);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ raw: true, length: jpegish.length });
+    }
+  });
+
+  it('answers 413 PRODUCT_IMAGE_TOO_LARGE past 3 MB', async () => {
+    const res = await put()
+      .set('Authorization', `Bearer ${token({})}`)
+      .set('Content-Type', 'image/jpeg')
+      .send(Buffer.alloc(3 * 1024 * 1024 + 1));
+    expect(res.status).toBe(413);
+    expect(res.body.error.code).toBe('PRODUCT_IMAGE_TOO_LARGE');
+  });
+
+  it('reads no body for anyone but a verified owner, nor for another content type', async () => {
+    const anon = await put().set('Content-Type', 'image/jpeg').send(jpegish);
+    expect(anon.body.data).toEqual({ raw: false, length: 0 });
+    const cashier = await put().set('Authorization', `Bearer ${token({ role: 'cashier' })}`).set('Content-Type', 'image/jpeg').send(jpegish);
+    expect(cashier.body.data).toEqual({ raw: false, length: 0 });
+    const svg = await put().set('Authorization', `Bearer ${token({})}`).set('Content-Type', 'image/svg+xml').send('<svg/>');
+    expect(svg.body.data).toEqual({ raw: false, length: 0 });
+  });
+
+  it('streams a ZIP to disk on the import route for an owner on an enrolled device only', async () => {
+    const zip = Buffer.from('PK not really a zip, the service checks');
+    const owner = await request(app.getHttpServer())
+      .post('/api/v1/backup/import')
+      .set('Authorization', `Bearer ${token({})}`)
+      .set('Content-Type', 'application/zip')
+      .send(zip);
+    expect(owner.body.data).toEqual({ zip: true });
+    const noDevice = await request(app.getHttpServer())
+      .post('/api/v1/backup/import')
+      .set('Authorization', `Bearer ${token({ did: undefined })}`)
+      .set('Content-Type', 'application/zip')
+      .send(zip);
+    expect(noDevice.body.data).toEqual({ zip: false });
   });
 });
 

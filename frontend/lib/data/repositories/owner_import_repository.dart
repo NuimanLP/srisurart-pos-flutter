@@ -1,4 +1,12 @@
-// OwnerImportRepository — Settings → 📥 กู้คืนข้อมูล on the API build.
+// OwnerImportRepository — Settings → 💾 สำรองข้อมูล / 📥 กู้คืนข้อมูล on the API build.
+//
+// Export (product images, owner 2026-10-10): `POST /api/v1/backup/export`
+// queues the worker's export, `GET /api/v1/backup/jobs/:id` is polled, and the
+// finished `.zip` (`data.json` + `images/<imageKey>.webp`) is downloaded from
+// the job's `downloadPath` ([exportBackup]).
+//
+// Import: the file is sent RAW — a `.zip` as `application/zip`, a legacy
+// `.json` as `application/json` ([importBackupFile]).
 //
 // The shop owner replaces the shop's data on the server with a backup file:
 // `POST /api/v1/backup/import?mode=replace&confirmShopName=…` (the typed shop
@@ -30,6 +38,8 @@
 // never reach a screen); the server's English detail stays in its logs and in
 // `import_jobs.error`.
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
@@ -59,6 +69,10 @@ class OwnerImportRepository {
     this.pollInterval = const Duration(seconds: 2),
     this.maxPolls = 90,
     this.uploadTimeout = const Duration(minutes: 3),
+    this.zipUploadTimeout = const Duration(minutes: 10),
+    this.exportPollInterval = const Duration(seconds: 1),
+    this.maxExportPolls = 180,
+    this.downloadTimeout = const Duration(minutes: 10),
   });
 
   final ApiClient _api;
@@ -77,6 +91,18 @@ class OwnerImportRepository {
 
   /// The upload itself: up to 10 MiB, which `ApiClient.defaultWriteTimeout` (40 s) does not cover.
   final Duration uploadTimeout;
+
+  /// A `.zip` with pictures may be up to 200 MB (the server's cap).
+  final Duration zipUploadTimeout;
+
+  /// Export: poll cadence/cap for the worker's job (180 × 1 s = 3 min), and
+  /// the download of the finished `.zip`.
+  final Duration exportPollInterval;
+  final int maxExportPolls;
+  final Duration downloadTimeout;
+
+  static const String zipContentType = 'application/zip';
+  static const String jsonContentType = 'application/json';
 
   /// app_meta: the import job whose outcome this device has not applied yet.
   static const String pendingImportKey = 'pending_server_import';
@@ -100,6 +126,16 @@ class OwnerImportRepository {
       'ไฟล์นี้นำเข้าไม่ได้ — ข้อมูลในไฟล์ไม่ผ่านการตรวจสอบ';
   static const String tooLargeMessage =
       'ไฟล์ใหญ่เกินไป (เกิน 10 MB) — นำเข้าไม่ได้';
+  // agent ร่าง (product images 2026-10-10) — the server's `.zip` cap.
+  static const String zipTooLargeMessage =
+      'ไฟล์ใหญ่เกินไป (เกิน 200 MB) — นำเข้าไม่ได้';
+  // agent ร่าง (product images 2026-10-10) — export.
+  static const String exportNeedsEnrolledDeviceMessage =
+      'ต้องใช้เครื่องที่ลงทะเบียนแล้วจึงจะส่งออกข้อมูลได้';
+  static const String exportFailedMessage =
+      'สร้างไฟล์สำรองไม่สำเร็จ กรุณาลองใหม่';
+  static const String exportTimedOutMessage =
+      'การเตรียมไฟล์สำรองใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง';
   static const String needsEnrolledDeviceMessage =
       'ต้องใช้เครื่องที่ลงทะเบียนแล้วจึงจะนำเข้าข้อมูลได้';
   static const String failedMessage =
@@ -110,12 +146,59 @@ class OwnerImportRepository {
       'ไม่ได้รับคำตอบจากระบบ — ยังไม่ทราบว่าระบบได้รับไฟล์หรือไม่ '
       'เครื่องนี้จะตรวจผลอีกครั้งเมื่อเปิดแอปหรือเข้าสู่ระบบครั้งถัดไป กรุณาอย่าส่งไฟล์ซ้ำทันที';
 
-  /// Sends [snapshot] (a parsed backup file) to replace this shop's data and
-  /// waits for the server's job. [confirmShopName] is what the owner typed.
+  /// The shop's backup from the server as `.zip` bytes (contract §4): queue
+  /// the export, wait for the worker, download the file. Throws a Thai
+  /// [PosException] on every failure.
+  Future<Uint8List> exportBackup() async {
+    try {
+      final started = await _api.post('/api/v1/backup/export');
+      final jobId = started is Map ? started['jobId']?.toString() : null;
+      if (jobId == null || jobId.isEmpty) throw unreadableResponse();
+      for (var i = 0; i < maxExportPolls; i++) {
+        await Future<void>.delayed(exportPollInterval);
+        final job = await _api.get('/api/v1/backup/jobs/$jobId');
+        if (job is! Map) throw unreadableResponse();
+        switch (job['status']) {
+          case 'completed':
+            final data = job['data'];
+            final path = data is Map ? data['downloadPath'] as String? : null;
+            if (path == null || !path.startsWith('/api/v1/')) {
+              throw unreadableResponse();
+            }
+            return await _api.getBytes(path, timeout: downloadTimeout);
+          case 'failed':
+            throw const PosException('EXPORT_FAILED', exportFailedMessage);
+        }
+      }
+      throw const PosException('EXPORT_TIMED_OUT', exportTimedOutMessage);
+    } on ApiException catch (e) {
+      if (e.statusCode == 403 && e.code == 'DEVICE_ROLE_FORBIDDEN') {
+        throw PosException(e.code, exportNeedsEnrolledDeviceMessage, e.details);
+      }
+      throw posExceptionFromApi(e);
+    }
+  }
+
+  /// Sends [snapshot] (a parsed `.json` backup) — see [importBackupFile].
   Future<OwnerImportOutcome> importBackup(
     Map<String, dynamic> snapshot, {
     required String confirmShopName,
+  }) =>
+      importBackupFile(
+        utf8.encode(jsonEncode(snapshot)),
+        contentType: jsonContentType,
+        confirmShopName: confirmShopName,
+      );
+
+  /// Sends a backup file RAW ([contentType] [zipContentType] or
+  /// [jsonContentType]) to replace this shop's data and waits for the
+  /// server's job. [confirmShopName] is what the owner typed.
+  Future<OwnerImportOutcome> importBackupFile(
+    List<int> bytes, {
+    required String contentType,
+    required String confirmShopName,
   }) async {
+    final isZip = contentType == zipContentType;
     final guard = TenantCacheGuard(_db);
     if (await guard.hasLocalWork()) {
       throw const PosException('IMPORT_UNSENT_WORK', unsentWorkMessage);
@@ -134,11 +217,20 @@ class OwnerImportRepository {
     ).toString();
     var accepted = true;
     try {
-      await _api.post(path, body: snapshot, timeout: uploadTimeout);
+      await _api.sendBytes(
+        'POST',
+        path,
+        bytes,
+        contentType: contentType,
+        timeout: isZip ? zipUploadTimeout : uploadTimeout,
+      );
     } on ApiException catch (e) {
       // Only a 4xx is a verdict; after a 5xx / 429 the job may exist (08 §5).
       if (isVerdict(e)) {
         await _clearPending(); // refused before any job was created
+        if (isZip && e.statusCode == 413) {
+          throw PosException(e.code, zipTooLargeMessage, e.details);
+        }
         throw _refusal(e);
       }
       accepted = false;

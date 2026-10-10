@@ -10,7 +10,9 @@ import { fromSatang, satangOf } from '../common/money.js';
 import {
   authorisedTenantId,
   currentRequestContext,
+  onTransactionCommit,
 } from '../common/request-context.js';
+import { removeImageFiles, removeImageFilesIfStale } from '../product-images/image-store.js';
 import { TenantService } from '../common/database/tenant.service.js';
 import { returning } from '../common/sql.js';
 import { TenantCache } from '../infra/tenant-cache.service.js';
@@ -39,6 +41,11 @@ export interface Product {
   stock: number;
   minStock: number;
   compat: string | null;
+  /**
+   * Content hash of the product's image (`products.image_key`), or null. The files are
+   * `/img/<tenantId>/<imageKey>_t.webp` (thumbnail) and `_p.webp` (preview) — contract §2.
+   */
+  imageKey: string | null;
   updatedAt: string;
   deletedAt: string | null;
 }
@@ -55,6 +62,7 @@ interface ProductRow {
   stock: number;
   min_stock: number;
   compat: string | null;
+  image_key: string | null;
   updated_at: Date;
   deleted_at: Date | null;
 }
@@ -84,7 +92,7 @@ export interface StockAdjustmentResult {
 }
 
 const COLUMNS = `id, part_no, name, name_th, category, brand, price, cost, stock,
-                 min_stock, compat, updated_at, deleted_at`;
+                 min_stock, compat, image_key, updated_at, deleted_at`;
 
 /**
  * Exactly the expression `idx_products_search` is built on (migration
@@ -396,6 +404,81 @@ export class ProductsService {
   }
 
   /**
+   * `PUT /products/:id/image` (contract §3): points the product at an image whose two files
+   * the controller has already written (outside this transaction). Bumps `updated_at`, so the
+   * keyset pull carries the new `imageKey`. The previous key's files go after commit — never
+   * inside the transaction — and only if no product of this shop still references that key.
+   * Locks this one product row only (not part of the money lock order).
+   */
+  setImage(id: string, key: string): Promise<Product> {
+    return this.tenants.runTx(() => this.setImageIn(id, key));
+  }
+
+  /** `DELETE /products/:id/image`: `image_key = NULL`, the files go after commit as above. */
+  clearImage(id: string): Promise<Product> {
+    return this.tenants.runTx(() => this.clearImageIn(id));
+  }
+
+  private clearImageIn(id: string): Promise<Product> {
+    return this.setImageIn(id, null);
+  }
+
+  private async setImageIn(id: string, key: string | null): Promise<Product> {
+    const { tenantId, manager } = currentRequestContext();
+    const locked = (await manager.query(
+      `SELECT image_key FROM products
+        WHERE tenant_id = $1::uuid AND id = $2 AND deleted_at IS NULL
+          FOR UPDATE`,
+      [tenantId, id],
+    )) as { image_key: string | null }[];
+    if (locked.length === 0) throw productNotFound();
+    const previous = locked[0].image_key;
+
+    const rows = returning<ProductRow>(
+      await manager.query(
+        `UPDATE products SET image_key = $3, updated_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND id = $2
+      RETURNING ${COLUMNS}`,
+        [tenantId, id, key],
+      ),
+    );
+    this.cache.invalidateAfterCommit(tenantId, 'products');
+    if (previous !== null && previous !== key) {
+      // Best effort: `runTx` logs a failing hook and the response stands.
+      onTransactionCommit(() => this.removeImageIfUnreferenced(previous));
+    }
+    return toProduct(rows[0]);
+  }
+
+  /**
+   * Deletes `key`'s two files when no product of the authorised shop references it any more
+   * (soft-deleted products included — their row still names it). Runs after a commit: the
+   * reference check is its own short read, and the files go only once it has answered.
+   * Files written within `ORPHAN_GRACE_MS` are spared (a concurrent upload of the identical
+   * image may not have committed yet) unless `evenIfFresh` — the caller's own upload created
+   * them and was refused.
+   */
+  async removeImageIfUnreferenced(key: string, { evenIfFresh = false } = {}): Promise<void> {
+    const tenantId = authorisedTenantId();
+    if (await this.isImageReferenced(key)) return;
+    if (evenIfFresh) await removeImageFiles(tenantId, key);
+    else await removeImageFilesIfStale(tenantId, key);
+  }
+
+  isImageReferenced(key: string): Promise<boolean> {
+    return this.tenants.runTx(() => this.isImageReferencedIn(key));
+  }
+
+  private async isImageReferencedIn(key: string): Promise<boolean> {
+    const { tenantId, manager } = currentRequestContext();
+    const rows = (await manager.query(
+      `SELECT 1 FROM products WHERE tenant_id = $1::uuid AND image_key = $2 LIMIT 1`,
+      [tenantId, key],
+    )) as unknown[];
+    return rows.length > 0;
+  }
+
+  /**
    * `db.js adjustStock`: a manual correction CLAMPS at zero — deliberately unlike a
    * sale, which refuses (01_DATABASE.md §7.6) — and writes one `movements` row.
    *
@@ -534,6 +617,7 @@ function toProduct(row: ProductRow): Product {
     stock: row.stock,
     minStock: row.min_stock,
     compat: row.compat,
+    imageKey: row.image_key,
     updatedAt: row.updated_at.toISOString(),
     deletedAt: row.deleted_at?.toISOString() ?? null,
   };

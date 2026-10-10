@@ -38,6 +38,12 @@ class Products extends Table {
   /// `?updatedSince=` cursor does not re-resurrect deleted products.
   DateTimeColumn get deletedAt => dateTime().nullable()();
 
+  /// Schema v15 (product images, owner 2026-10-10): the server's content
+  /// hash of the product's picture (32 lowercase hex), or null for none. Only
+  /// the key is cached — the bytes are fetched from `/img/<tenant>/<key>_t.webp`
+  /// and never stored in Drift.
+  TextColumn get imageKey => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

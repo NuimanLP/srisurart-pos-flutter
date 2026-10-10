@@ -143,6 +143,17 @@ class $ProductsTable extends Products
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _imageKeyMeta = const VerificationMeta(
+    'imageKey',
+  );
+  @override
+  late final GeneratedColumn<String> imageKey = GeneratedColumn<String>(
+    'image_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -159,6 +170,7 @@ class $ProductsTable extends Products
     zone,
     updatedAt,
     deletedAt,
+    imageKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -273,6 +285,12 @@ class $ProductsTable extends Products
         deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
       );
     }
+    if (data.containsKey('image_key')) {
+      context.handle(
+        _imageKeyMeta,
+        imageKey.isAcceptableOrUnknown(data['image_key']!, _imageKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -338,6 +356,10 @@ class $ProductsTable extends Products
         DriftSqlType.dateTime,
         data['${effectivePrefix}deleted_at'],
       ),
+      imageKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}image_key'],
+      ),
     );
   }
 
@@ -365,6 +387,12 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
   /// Schema v4 (Ticket #55): soft delete timestamp from server so that
   /// `?updatedSince=` cursor does not re-resurrect deleted products.
   final DateTime? deletedAt;
+
+  /// Schema v15 (product images, owner 2026-10-10): the server's content
+  /// hash of the product's picture (32 lowercase hex), or null for none. Only
+  /// the key is cached — the bytes are fetched from `/img/<tenant>/<key>_t.webp`
+  /// and never stored in Drift.
+  final String? imageKey;
   const ProductRow({
     required this.id,
     required this.partNo,
@@ -380,6 +408,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     this.zone,
     this.updatedAt,
     this.deletedAt,
+    this.imageKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -406,6 +435,9 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<DateTime>(deletedAt);
     }
+    if (!nullToAbsent || imageKey != null) {
+      map['image_key'] = Variable<String>(imageKey);
+    }
     return map;
   }
 
@@ -431,6 +463,9 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
+      imageKey: imageKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(imageKey),
     );
   }
 
@@ -454,6 +489,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       zone: serializer.fromJson<String?>(json['zone']),
       updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      imageKey: serializer.fromJson<String?>(json['imageKey']),
     );
   }
   @override
@@ -474,6 +510,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       'zone': serializer.toJson<String?>(zone),
       'updatedAt': serializer.toJson<DateTime?>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'imageKey': serializer.toJson<String?>(imageKey),
     };
   }
 
@@ -492,6 +529,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     Value<String?> zone = const Value.absent(),
     Value<DateTime?> updatedAt = const Value.absent(),
     Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> imageKey = const Value.absent(),
   }) => ProductRow(
     id: id ?? this.id,
     partNo: partNo ?? this.partNo,
@@ -507,6 +545,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     zone: zone.present ? zone.value : this.zone,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    imageKey: imageKey.present ? imageKey.value : this.imageKey,
   );
   ProductRow copyWithCompanion(ProductsCompanion data) {
     return ProductRow(
@@ -524,6 +563,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
       zone: data.zone.present ? data.zone.value : this.zone,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      imageKey: data.imageKey.present ? data.imageKey.value : this.imageKey,
     );
   }
 
@@ -543,7 +583,8 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
           ..write('compat: $compat, ')
           ..write('zone: $zone, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('deletedAt: $deletedAt')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('imageKey: $imageKey')
           ..write(')'))
         .toString();
   }
@@ -564,6 +605,7 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
     zone,
     updatedAt,
     deletedAt,
+    imageKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -582,7 +624,8 @@ class ProductRow extends DataClass implements Insertable<ProductRow> {
           other.compat == this.compat &&
           other.zone == this.zone &&
           other.updatedAt == this.updatedAt &&
-          other.deletedAt == this.deletedAt);
+          other.deletedAt == this.deletedAt &&
+          other.imageKey == this.imageKey);
 }
 
 class ProductsCompanion extends UpdateCompanion<ProductRow> {
@@ -600,6 +643,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
   final Value<String?> zone;
   final Value<DateTime?> updatedAt;
   final Value<DateTime?> deletedAt;
+  final Value<String?> imageKey;
   final Value<int> rowid;
   const ProductsCompanion({
     this.id = const Value.absent(),
@@ -616,6 +660,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     this.zone = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.imageKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ProductsCompanion.insert({
@@ -633,6 +678,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     this.zone = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
+    this.imageKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        partNo = Value(partNo),
@@ -659,6 +705,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     Expression<String>? zone,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
+    Expression<String>? imageKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -676,6 +723,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
       if (zone != null) 'zone': zone,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
+      if (imageKey != null) 'image_key': imageKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -695,6 +743,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     Value<String?>? zone,
     Value<DateTime?>? updatedAt,
     Value<DateTime?>? deletedAt,
+    Value<String?>? imageKey,
     Value<int>? rowid,
   }) {
     return ProductsCompanion(
@@ -712,6 +761,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
       zone: zone ?? this.zone,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
+      imageKey: imageKey ?? this.imageKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -761,6 +811,9 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
     if (deletedAt.present) {
       map['deleted_at'] = Variable<DateTime>(deletedAt.value);
     }
+    if (imageKey.present) {
+      map['image_key'] = Variable<String>(imageKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -784,6 +837,7 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
           ..write('zone: $zone, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
+          ..write('imageKey: $imageKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -14212,6 +14266,7 @@ typedef $$ProductsTableCreateCompanionBuilder =
       Value<String?> zone,
       Value<DateTime?> updatedAt,
       Value<DateTime?> deletedAt,
+      Value<String?> imageKey,
       Value<int> rowid,
     });
 typedef $$ProductsTableUpdateCompanionBuilder =
@@ -14230,6 +14285,7 @@ typedef $$ProductsTableUpdateCompanionBuilder =
       Value<String?> zone,
       Value<DateTime?> updatedAt,
       Value<DateTime?> deletedAt,
+      Value<String?> imageKey,
       Value<int> rowid,
     });
 
@@ -14309,6 +14365,11 @@ class $$ProductsTableFilterComposer
 
   ColumnFilters<DateTime> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get imageKey => $composableBuilder(
+    column: $table.imageKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -14391,6 +14452,11 @@ class $$ProductsTableOrderingComposer
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get imageKey => $composableBuilder(
+    column: $table.imageKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ProductsTableAnnotationComposer
@@ -14443,6 +14509,9 @@ class $$ProductsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get imageKey =>
+      $composableBuilder(column: $table.imageKey, builder: (column) => column);
 }
 
 class $$ProductsTableTableManager
@@ -14490,6 +14559,7 @@ class $$ProductsTableTableManager
                 Value<String?> zone = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> imageKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ProductsCompanion(
                 id: id,
@@ -14506,6 +14576,7 @@ class $$ProductsTableTableManager
                 zone: zone,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
+                imageKey: imageKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -14524,6 +14595,7 @@ class $$ProductsTableTableManager
                 Value<String?> zone = const Value.absent(),
                 Value<DateTime?> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> imageKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ProductsCompanion.insert(
                 id: id,
@@ -14540,6 +14612,7 @@ class $$ProductsTableTableManager
                 zone: zone,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
+                imageKey: imageKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

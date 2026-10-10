@@ -21,6 +21,7 @@ void main() {
     await seed.close();
     rawDb.execute('DROP TABLE payment_accounts');
     rawDb.execute('ALTER TABLE sales DROP COLUMN payment_account_id');
+    rawDb.execute('ALTER TABLE products DROP COLUMN image_key'); // v15 (images)
     rawDb.execute(
       "INSERT INTO sales (id, receipt_no, subtotal, discount, total, "
       "payment_method, points_granted, date, voided, sold_offline) VALUES "
@@ -35,7 +36,7 @@ void main() {
         .customSelect('PRAGMA user_version')
         .map((r) => r.data.values.first as int)
         .getSingle();
-    expect(version, 14);
+    expect(version, 15);
     expect(await db.select(db.paymentAccounts).get(), isEmpty);
     final old = await db.select(db.sales).getSingle();
     expect(old.id, 's-old');

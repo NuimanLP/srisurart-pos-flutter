@@ -20,24 +20,34 @@ import {
   pruneExportFiles,
 } from '../src/backup/export-file.js';
 import { testId } from './support/test-ids.js';
+import { unzipEntries } from './support/zip.js';
+import { imageFilePath } from '../src/product-images/image-store.js';
 
 const logger = pino({ level: 'silent' });
 
 describe('Backup Module (unit)', () => {
   const TENANT_ID = '11111111-1111-1111-1111-111111111111';
   const USER_ID = '22222222-2222-2222-2222-222222222222';
+  const IMAGE_KEY = 'ab'.repeat(16);
   let exportRoot: string;
+  let imagesRoot: string;
   const prevExportDir = process.env.EXPORT_DIR;
+  const prevImagesDir = process.env.PRODUCT_IMAGES_DIR;
 
   beforeAll(() => {
     exportRoot = mkdtempSync(join(tmpdir(), 'backup-spec-'));
+    imagesRoot = mkdtempSync(join(tmpdir(), 'backup-spec-img-'));
     process.env.EXPORT_DIR = exportRoot;
+    process.env.PRODUCT_IMAGES_DIR = imagesRoot;
   });
 
   afterAll(() => {
     rmSync(exportRoot, { recursive: true, force: true });
+    rmSync(imagesRoot, { recursive: true, force: true });
     if (prevExportDir === undefined) delete process.env.EXPORT_DIR;
     else process.env.EXPORT_DIR = prevExportDir;
+    if (prevImagesDir === undefined) delete process.env.PRODUCT_IMAGES_DIR;
+    else process.env.PRODUCT_IMAGES_DIR = prevImagesDir;
   });
 
   describe('BackupProcessor', () => {
@@ -113,6 +123,7 @@ describe('Backup Module (unit)', () => {
           stock: 25,
           min_stock: 5,
           compat: 'Toyota Vios',
+          image_key: IMAGE_KEY,
           updated_at: new Date('2026-09-01T10:00:00.000Z'),
         },
       ]);
@@ -343,6 +354,10 @@ describe('Backup Module (unit)', () => {
       // 15. Tenant meta
       mockEm.query.mockResolvedValueOnce([]);
 
+      const preview = imageFilePath(TENANT_ID, IMAGE_KEY, 'p');
+      mkdirSync(dirname(preview), { recursive: true });
+      writeFileSync(preview, 'preview-bytes');
+
       const job = {
         id: 'job-export-1',
         name: JOB_TENANT_EXPORT,
@@ -365,7 +380,12 @@ describe('Backup Module (unit)', () => {
       const bytes = readFileSync(exportFilePath(TENANT_ID, 'job-export-1'));
       expect(descriptor.sizeBytes).toBe(bytes.length);
       expect(descriptor.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
-      const snapshot = JSON.parse(bytes.toString('utf8'));
+      // Contract §4: a ZIP of data.json + images/<imageKey>.webp (the preview file).
+      const entries = await unzipEntries(bytes);
+      expect([...entries.keys()].sort()).toEqual(['data.json', `images/${IMAGE_KEY}.webp`]);
+      expect(entries.get(`images/${IMAGE_KEY}.webp`)).toEqual(Buffer.from('preview-bytes'));
+      const snapshot = JSON.parse(entries.get('data.json')!.toString('utf8'));
+      expect(snapshot.sa_products[0].imageKey).toBe(IMAGE_KEY);
       expect(descriptor.recordCounts).toEqual(snapshot.__meta.recordCounts);
 
       // Validate core snapshot structure
@@ -614,7 +634,8 @@ describe('Backup Module (unit)', () => {
         await res.done;
         expect(res.body()).toBe('{"sa_products":[]}');
         expect(res.headers['Content-Length']).toBe('18');
-        expect(res.headers['Content-Disposition']).toBe('attachment; filename="backup-2026-09-25.json"');
+        expect(res.headers['Content-Type']).toBe('application/zip');
+        expect(res.headers['Content-Disposition']).toBe('attachment; filename="backup-2026-09-25.zip"');
       });
 
       it('404s another tenant\'s job without touching its file', async () => {
@@ -648,7 +669,7 @@ describe('Backup Module (unit)', () => {
       expect(() => exportFilePath('../etc', '1')).toThrow();
       expect(() => exportFilePath(TENANT_ID, '../../x')).toThrow();
       expect(() => exportFilePath('A6616616-6166-4166-8166-616616616616', '1')).toThrow(); // #621
-      expect(exportFilePath(TENANT_ID, '42')).toBe(join(exportRoot, TENANT_ID, '42.json'));
+      expect(exportFilePath(TENANT_ID, '42')).toBe(join(exportRoot, TENANT_ID, '42.zip'));
     });
 
     it('prunes only files older than the TTL', async () => {

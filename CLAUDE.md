@@ -44,18 +44,14 @@ ancestor of `main` and `pos-deploy` would refuse every SHA. Repository ruleset 2
 "main: merge commit only" (active, no bypass actors) refuses squash and rebase on PRs into `main`;
 PRs into `develop` may still squash. `develop` has the same branch protection as `main`.
 
-🔴 **Development freeze (owner, 2026-10-07): development stops here for the course submission.** Last release =
-`main` `ef07e27` (PR #677, merge commit, 2026-10-10), deployed to `mob04` (run `38050647954`, migration
-`1788652805000-PaymentAccounts`) + APK `apk-ef07e27`; the owner lifted the freeze for exactly that one request (QR
-payment accounts ≤5, owner-only, PromptPay QR with amount at checkout, sale records the account — PR #676,
-`docs/handoff_log/session-2026-10-10-qr-payment-accounts.md`). Earlier exceptions: `1d70d1c` (PR #671/#672, POS
-favourite stars, `docs/handoff_log/session-2026-10-08-pos-favorites.md`), `847e7ef` (PR #665, shop-owner
-backup import, `docs/handoff_log/session-2026-10-08-owner-import.md`), then `6a38c87` (PR #669, suppliers pull
-fix); the release before them was `53fdd1b` (PR #658, `docs/handoff_log/session-2026-10-07-final-release.md`).
-Do not start feature work; only fixes the owner asks for. 🔴 **`develop` → `main` showing "conflict" while
-`git merge` is clean = criss-cross merge bases** (`git merge-base --all` prints 2+): merge `main` into `develop`
-with a merge-commit PR (#673), never squash. 🔴 **Never enable auto-merge on a PR an agent is still pushing to** (a push after the merge button
-misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
+🔴 **The development freeze was lifted by the owner on 2026-10-10; normal development resumed** (it had run since
+2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
+owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
+`develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). 🔴 **`develop` → `main` showing
+"conflict" while `git merge` is clean = criss-cross merge bases** (`git merge-base --all` prints 2+): merge `main` into
+`develop` with a merge-commit PR (#673), never squash. 🔴 **Never enable auto-merge on a PR an agent is still pushing to**
+(a push after the merge button misses `develop` — recurred 2026-10-07 on #654, see the lesson below).
 
 > Read `docs/Backend_design/adr/README.md` before writing backend code, and remember:
 > **where a doc contradicts an ADR, the ADR wins.**
@@ -123,9 +119,9 @@ frontend/
       utils/                   ← newUuid/newIdempotencyKey/docNo (ids.dart), baht/round2/pointsFor (money.dart),
                                  csvSafe (csv_safe.dart)
     data/
-      db/tables.dart           ← 27 Drift tables, schemaVersion 14 (20 ported sa_* stores + #24's
+      db/tables.dart           ← 27 Drift tables, schemaVersion 15 (20 ported sa_* stores + #24's
                                  credit-payment outbox + phase-2 tables incl. OutboxOps, OpEffects
-                                 + #676 PaymentAccounts) — recounted 2026-10-10
+                                 + #676 PaymentAccounts; v15 = Products.imageKey) — recounted 2026-10-10
       db/database.dart         ← AppDatabase (@DriftDatabase) + seed data + AppDatabase.open()
       db/database.g.dart       ← GENERATED (committed). Regenerate ONLY on an ASCII path.
       repositories/            ← one repo per domain; transactional services mirror db.js
@@ -315,10 +311,11 @@ develops against a demo tenant.
   fixed by PR #516 (`callback(null,false)`: request served, no ACAO header), deployed to
   `mob04` as `00d3488` 2026-09-30 (run `36717963989`, Ansible `failed=0`).
 - ~~#272 — drop `Products.offlineOk` (Drift schema v7)~~ — **done**: merged via PR #310
-  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v14 (v12 = #417 indexes; v13 = #488
+  (commit `8faebac`), issue closed 2026-09-19. Drift is now at schema v15 (v12 = #417 indexes; v13 = #488
   `op_effects`: the deltas an offline sale/return/void actually applied, so discard reverses
   exactly — ops queued before v13 have no row and take the legacy recompute path; v14 = #676
-  `payment_accounts` cache + `Sales.paymentAccountId`).
+  `payment_accounts` cache + `Sales.paymentAccountId`; v15 = product images, `Products.imageKey` — the
+  server's content hash only, bytes never in Drift; v7's `TableMigration(products)` lists it in `newColumns`).
 - ~~Two real bugs in migration `1788652803002-OwnerReviewItems.ts`~~ — **fixed 2026-09-25**
   by the new migration `1788652804200-OwnerReviewItemsFixes.ts`, proven in
   `server/test/schema.e2e-spec.ts` (found 2026-09-23, `01_DATABASE.md §11`): (1) its RLS
@@ -451,8 +448,8 @@ develops against a demo tenant.
   `ต้องเชื่อมต่ออินเทอร์เน็ตหนึ่งครั้งเพื่อเตรียมเลขเอกสารก่อนใช้งานออฟไลน์` (08 §9 E8).
   #488 (discard exactness / `void_offline` follow-up) closed 2026-09-28.
 - **Postgres has 30 tables** (27 from `InitialSchema` + `import_jobs` + `owner_review_items`
-  + `payment_accounts` (#676);
-  `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
+  + `payment_accounts` (#676); recounted 2026-10-10 — product images add the column `products.image_key`
+  (migration `1788652805100`), not a table; `change_log` never built). `docs/Backend_design/` was re-synced to the migrations, code and
   ADRs on 2026-09-23 (PR #390) — **the migrations are the schema's source of truth**, the
   DDL in `01_DATABASE.md` is illustration.
 - Opened 2026-09-21 from verified findings. **#364, #366 and #367 were closed the same
@@ -856,6 +853,23 @@ on void/return paths. Keep this order in any new write touching more than one of
   `Future`** — the arrow form trips a Flutter assertion (compiled out in release builds,
   which is why it hid for a while).
 
+- **Product images (owner request 2026-10-10, PR #680; 02 §3.2/§3.10, 07 §9):** one picture per product, **owner-only**
+  (`403 OWNER_ONLY`) and online-only (`PUT`/`DELETE /products/:id/image`, raw jpeg/png/webp ≤ 3 MB, idempotent over the body
+  bytes). `products.image_key` is **content-addressed** — first 32 hex of the sha256 of the stored preview — so a new image is
+  a new immutable URL; sharp writes `<tenantId>/<key>_t.webp` (256) and `_p.webp` (1024) to the `product-images` volume,
+  nginx serves them read-only at `/img/` (public, `immutable`, no login: the UUID + 128-bit key is the secret).
+  🔴 Removing an old key's files is **after commit, best-effort, never inside the transaction**, and only when no product of
+  that tenant still references the key **and the files are older than `ORPHAN_GRACE_MS` (10 min)** — a concurrent upload of
+  the same bytes may be about to commit them (`image-store.ts`; only a refused upload deletes its own just-created files at
+  once; the import sweep also skips files newer than the job). Decode is capped at 24 MP (`INPUT_PIXEL_LIMIT`, api 384 MB /
+  worker 256 MB) with `failOn: 'error'`; Node `requestTimeout` = `IMPORT_REQUEST_TIMEOUT_MS` (15 min) so a slow 200 MB import
+  is not cut at the 300 s default. Drift v15 deletes the `products` sync cursor so upgraded clients re-pull existing keys. 🔴 **Image bytes never go into Drift or `audit_log`** — Drift keeps `Products.imageKey` only. 🔴 **Android loads
+  images through the same private-CA trust as `ApiClient`** (`installPosTrust` / `HttpOverrides`) — never a
+  `badCertificateCallback`. Owner backup is now a **ZIP** (`data.json` + `images/<key>.webp`; import takes `.zip` ≤ 200 MB or
+  legacy `.json` ≤ 10 MB, the nginx limit is raised only on the two import locations; ZIP entries are whitelisted and capped).
+  🔴 **`backup-db.sh` also archives the volume as `pos_images_<ts>.tar.gz`, but a CD deploy does not update
+  `/opt/pos/scripts`** — install it by hand (`sudo install -o deploy -g deploy -m 0755`) or via `provision.yml`, else backups
+  silently omit images; **`restore-db.sh` does not restore images yet**. Never `down -v` (the images are not in `pg_dump`).
 - **Local cache is tenant-scoped (API build, #539):** `AppMeta tenant_id` + `TenantCacheGuard`;
   a switch resets via `resetTenantCache`/`resetPulledCache` and is **refused with unsent work**
   (`TENANT_SWITCH_UNSENT_WORK`, `ENROL_UNSENT_WORK`). `cacheGeneration` fences late pulls/seeds, and
