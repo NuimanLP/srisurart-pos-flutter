@@ -72,6 +72,7 @@ Priority: **P1** = blocks or misleads the user, **P2** = slows them down or is h
 | P | Where | Problem | Fix |
 |---|---|---|---|
 | P2 | stock figure l.539–561 | `100/120` at 20 px w800 in a fixed 64 px box wraps or clips. | `FittedBox(scaleDown)` around the figure. |
+| P1 | whole banner (found by group B) | On a 390×844 phone the full banner pushed the checkout product grid down to y≈790 until dismissed. | Below `AppBreakpoints.compact` it starts as a one-line strip (⚠ + the existing `พบ N รายการหมด + M รายการต่ำกว่าขั้นต่ำ` + `ดูรายการ` + `✕ ปิด`); `ดูรายการ` opens the same full banner (same list, same handled ticks, same print/order). `✕ ปิด` calls the same `onClose`. Wider screens unchanged. Test: `test/widgets/low_stock_banner_compact_test.dart`. |
 | P3 | private colour consts l.73–76 | Duplicate hex for brand tokens. | Point them at `AppColors` (same values). |
 
 ### Considered, not changed
@@ -85,3 +86,9 @@ Priority: **P1** = blocks or misleads the user, **P2** = slows them down or is h
 
 ## New Thai strings (agent ร่าง — owner to ratify)
 - `ล้างคำค้นหา` — tooltip on the search field's clear (✕) button (`search_field.dart`).
+- `ดูรายการ` — button that opens the low-stock list from the compact phone strip
+  (`low_stock_alert.dart`); same words as the owner-review banner's existing `ดูรายการ ›` link.
+
+Follow-up (coordinator review): the phone topbar's time-only line carries the full
+day + date (`EEE` + `thaiDate` + `thaiTime`, the same string the wide bar shows) as its
+tooltip and semantics label — no new string.

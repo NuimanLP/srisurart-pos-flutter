@@ -20,6 +20,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/pdf_fonts.dart';
 import '../../data/db/database.dart';
@@ -69,6 +70,10 @@ class _LowStockBannerState extends State<LowStockBanner> {
   final Set<String> _dismissed = <String>{};
   bool _busy = false;
   bool _printed = false;
+
+  /// Phone width only: the full list pushed the checkout grid off a 390 px
+  /// screen, so it starts as a one-line strip the counter can open.
+  bool _expanded = false;
 
   static const Color _outColor = AppColors.error; // #C0392B
   static const Color _lowColor = AppColors.warning; // #D4820A
@@ -267,6 +272,11 @@ class _LowStockBannerState extends State<LowStockBanner> {
     final lowN = widget.lowStock.length;
     final visible = _visibleCount;
 
+    if (!_expanded &&
+        MediaQuery.sizeOf(context).width < AppBreakpoints.compact) {
+      return _compactStrip(theme, outN, lowN);
+    }
+
     return Material(
       color: Colors.transparent,
       child: Container(
@@ -412,6 +422,51 @@ class _LowStockBannerState extends State<LowStockBanner> {
                   ),
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One line: what the alert is about + both counts, ดูรายการ opens the full
+  /// banner (same list, same handled ticks), ✕ ปิด dismisses it as before.
+  Widget _compactStrip(ThemeData theme, int outN, int lowN) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+        decoration: BoxDecoration(
+          color: _lowColor.withValues(alpha: 0.1),
+          border: Border.all(color: _lowColor, width: 1.5),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            const Text('⚠', style: TextStyle(fontSize: 20)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'พบ $outN รายการหมด + $lowN รายการต่ำกว่าขั้นต่ำ',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            TextButton(
+              // agent ร่าง — owner to ratify (same words as the owner-review
+              // banner's link).
+              onPressed: () => setState(() {
+                _expanded = true;
+              }),
+              child: const Text('ดูรายการ'),
+            ),
+            TextButton(
+              onPressed: widget.onClose,
+              child: const Text('✕ ปิด'),
             ),
           ],
         ),
