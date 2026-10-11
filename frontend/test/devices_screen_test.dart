@@ -196,6 +196,54 @@ void main() {
     expect(find.text('เชื่อมต่อแล้ว'), findsNWidgets(2));
   });
 
+  // UX pass 2026-10-11: the header actions and each card's retire button used
+  // to share a Row with the text and overflowed a phone.
+  testWidgets('DevicesScreen lays out at 390 px phone width without overflow', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    devicesRepo.devices = [
+      DeviceModel(
+        id: 'dev_01',
+        label: 'เคาน์เตอร์หน้าร้าน เครื่องคิดเงินหลัก',
+        deviceNo: 1,
+        role: 'pos',
+        enrolled: true,
+        unsyncedOps: 2,
+        unsyncedReportedAt: DateTime.now(),
+        lastSeenAt: DateTime.now(),
+      ),
+      DeviceModel(
+        id: 'dev_02',
+        label: 'โน้ตบุ๊กหลังร้าน',
+        deviceNo: 2,
+        role: 'backoffice',
+        enrolled: false,
+        enrolExpiresAt: DateTime.now().add(const Duration(minutes: 10)),
+      ),
+    ];
+
+    await tester.pumpWidget(buildTestWidget(
+      child: const DevicesScreen(),
+      devicesRepo: devicesRepo,
+      authCubit: authCubit,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('ออกรหัสผูกเครื่องใหม่'), findsOneWidget);
+
+    // The cards sit below the header on a phone — scroll them into view.
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('ปลดเครื่อง'), findsWidgets);
+  });
+
   // #558: a session with no device token cannot use any /devices route.
   testWidgets('no device token: explains how to enrol, never calls the server, hides issue-code', (tester) async {
     tester.view.physicalSize = const Size(1280, 1200);

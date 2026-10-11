@@ -87,7 +87,7 @@ class _DeviceEnrolmentDialogState extends State<DeviceEnrolmentDialog> {
         children: [
           Icon(Icons.devices, color: AppColors.orange),
           SizedBox(width: 8),
-          Text('ผูกเครื่องขาย (POS Terminal)'),
+          Flexible(child: Text('ผูกเครื่องขาย (POS Terminal)')),
         ],
       ),
       content: SizedBox(
