@@ -32,13 +32,25 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: AppColors.steelBlue),
+            // Icon in a soft disc so the state reads as intentional, not as
+            // a screen that failed to load.
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: AppColors.steelBlue.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 44, color: AppColors.steelBlue),
+            ),
             const SizedBox(height: 16),
+            // Readable message (steel-blue text was ~3:1 on off-white).
             Text(
               message,
               textAlign: TextAlign.center,
               style: theme.textTheme.titleMedium?.copyWith(
-                color: AppColors.steelBlue,
+                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
               ),
             ),
             if (hint != null) ...[
@@ -46,8 +58,8 @@ class EmptyState extends StatelessWidget {
               Text(
                 hint!,
                 textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppColors.steelBlue,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],

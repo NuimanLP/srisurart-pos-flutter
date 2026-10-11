@@ -70,10 +70,10 @@ class _LowStockBannerState extends State<LowStockBanner> {
   bool _busy = false;
   bool _printed = false;
 
-  static const Color _outColor = Color(0xFFC0392B); // #C0392B
-  static const Color _lowColor = Color(0xFFD4820A); // #D4820A
-  static const Color _navy = Color(0xFF0B2444); // pill fallback (catColor miss)
-  static const Color _partColor = Color(0xFFE8601C); // #E8601C
+  static const Color _outColor = AppColors.error; // #C0392B
+  static const Color _lowColor = AppColors.warning; // #D4820A
+  static const Color _navy = AppColors.navy; // pill fallback (catColor miss)
+  static const Color _partColor = AppColors.orange; // #E8601C
 
   Color _pillColor(String category) {
     final hex = widget.catColors[category];
@@ -541,13 +541,20 @@ class _LowStockBannerState extends State<LowStockBanner> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    statusLabel,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 20,
-                      height: 1,
-                      color: statusColor,
+                  // Scales down instead of wrapping when the figure is wide
+                  // (e.g. 120/150) in the fixed 64 px column.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      statusLabel,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 20,
+                        height: 1,
+                        color: statusColor,
+                      ),
                     ),
                   ),
                   Text(
