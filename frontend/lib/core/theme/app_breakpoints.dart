@@ -27,6 +27,10 @@ class AppBreakpoints {
   /// enough (the cart pane is a fixed 400dp, so this stays high).
   static const double checkoutTwoPane = 900;
 
+  /// Width at/above which the Customers top bar fits on one row (two stats +
+  /// 260dp search + add button; it overflowed at ~680dp).
+  static const double customersTopBarRow = 900;
+
   static bool isPhone(double width) => width < compact;
   static bool isTablet(double width) => width >= compact && width < expanded;
   static bool isDesktop(double width) => width >= expanded;

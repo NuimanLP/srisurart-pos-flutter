@@ -19,7 +19,7 @@ import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/settings_screen.dart';
 import 'package:srisurart_pos/presentation/widgets/font_scale_controller.dart';
-import 'package:srisurart_pos/presentation/widgets/ui_zoom_controller.dart';
+import 'package:srisurart_pos/presentation/blocs/ui_zoom_cubit.dart';
 import 'package:srisurart_pos/presentation/widgets/theme_controller.dart';
 
 Future<void> _openRestoreTab(

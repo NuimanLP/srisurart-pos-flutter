@@ -213,8 +213,7 @@ class _TopBar extends StatelessWidget {
           // Wide (tablet): keep the original single-row layout byte-identical —
           // un-flexed stats, fixed 260px search, one Spacer pushing the
           // search + button flush right.
-          // Needs ~900px: two stats + 260px search + button (overflowed at ~680).
-          if (constraints.maxWidth >= AppBreakpoints.checkoutTwoPane) {
+          if (constraints.maxWidth >= AppBreakpoints.customersTopBarRow) {
             return Row(
               children: [
                 ...stats,

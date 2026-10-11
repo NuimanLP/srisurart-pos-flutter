@@ -1,10 +1,12 @@
-// Whole-screen zoom (ui_zoom_controller.dart): the cap per screen size, and
-// that a zoomed app is laid out smaller, painted larger, and still tappable.
+// Whole-screen zoom (blocs/ui_zoom_cubit.dart, widgets/ui_zoom.dart): the cap
+// per screen size, and that a zoomed app is laid out smaller, painted larger,
+// and still tappable.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:srisurart_pos/presentation/widgets/ui_zoom_controller.dart';
+import 'package:srisurart_pos/presentation/blocs/ui_zoom_cubit.dart';
+import 'package:srisurart_pos/presentation/widgets/ui_zoom.dart';
 
 void main() {
   group('effectiveUiZoom', () {

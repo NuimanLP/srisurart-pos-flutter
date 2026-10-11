@@ -26,7 +26,7 @@ import 'presentation/blocs/settings_pull.dart';
 import 'presentation/repositories/repository_providers.dart';
 import 'presentation/widgets/font_scale_controller.dart';
 import 'presentation/widgets/theme_controller.dart';
-import 'presentation/widgets/ui_zoom_controller.dart';
+import 'presentation/blocs/ui_zoom_cubit.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

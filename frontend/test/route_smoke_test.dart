@@ -30,7 +30,8 @@ import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/widgets/font_scale_controller.dart';
-import 'package:srisurart_pos/presentation/widgets/ui_zoom_controller.dart';
+import 'package:srisurart_pos/presentation/blocs/ui_zoom_cubit.dart';
+import 'package:srisurart_pos/presentation/widgets/ui_zoom.dart';
 import 'package:srisurart_pos/presentation/widgets/theme_controller.dart';
 import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
 import 'package:srisurart_pos/presentation/screens/products_screen.dart';
@@ -71,7 +72,7 @@ final List<_ScreenCase> _screens = [
 const Size _tablet = Size(1280, 800);
 const Size _phone = Size(400, 800);
 
-/// Whole-screen zoom (ui_zoom_controller.dart): a 1920x1080 screen at 3x and a
+/// Whole-screen zoom (blocs/ui_zoom_cubit.dart, widgets/ui_zoom.dart): a 1920x1080 screen at 3x and a
 /// 1366x768 laptop at 2x lay the app out on a ~640x360 / ~683x384 logical screen.
 const List<(String, Size, double)> _cases = [
   ('tablet', _tablet, 1.0),
