@@ -21,6 +21,7 @@ import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/purchase_orders_repository.dart';
+import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_text_field.dart';
@@ -46,6 +47,9 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   // _refresh too, so a receive's cost update is reflected next time the
   // create dialog opens.
   late Future<List<ProductRow>> _productsFuture;
+  // Per-product supplier quotes: the create dialog's supplier suggestions and
+  // the picked supplier's products/unit costs.
+  late Future<List<SupplierRow>> _suppliersFuture;
 
   @override
   void initState() {
@@ -56,6 +60,7 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   void _load() {
     _posFuture = context.read<PurchaseOrdersRepository>().getPOs();
     _productsFuture = context.read<ProductsRepository>().getAll();
+    _suppliersFuture = context.read<SuppliersRepository>().getSuppliers();
   }
 
   void _refresh() => setState(_load);
@@ -66,10 +71,20 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
       return;
     }
     final products = await _productsFuture;
+    final suppliers = await _suppliersFuture;
+    final pos = await _posFuture;
     if (!mounted) return;
     final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => _CreatePoDialog(products: products),
+      builder: (_) => _CreatePoDialog(
+        products: products,
+        suppliers: suppliers,
+        // getPOs is newest first, so recently used suppliers lead the list.
+        knownSuppliers: _knownSupplierNames(
+          pos.map((p) => p.po.supplier),
+          suppliers.map((s) => s.name),
+        ),
+      ),
     );
     if (saved == true) _refresh();
   }
@@ -515,9 +530,33 @@ class _DraftItem {
   });
 }
 
+String _norm(String s) => s.trim().toLowerCase();
+
+/// Distinct supplier names, first spelling wins, compared trimmed and
+/// case-insensitively. [recent] (past PO suppliers, newest first) leads.
+List<String> _knownSupplierNames(
+  Iterable<String> recent,
+  Iterable<String> quoted,
+) {
+  final seen = <String>{};
+  final out = <String>[];
+  for (final raw in [...recent, ...quoted]) {
+    final name = raw.trim();
+    if (name.isEmpty || !seen.add(name.toLowerCase())) continue;
+    out.add(name);
+  }
+  return out;
+}
+
 class _CreatePoDialog extends StatefulWidget {
   final List<ProductRow> products;
-  const _CreatePoDialog({required this.products});
+  final List<SupplierRow> suppliers;
+  final List<String> knownSuppliers;
+  const _CreatePoDialog({
+    required this.products,
+    this.suppliers = const [],
+    this.knownSuppliers = const [],
+  });
 
   @override
   State<_CreatePoDialog> createState() => _CreatePoDialogState();
@@ -529,6 +568,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
   final List<_DraftItem> _items = [];
   String _supplier = '';
   String _partSearch = '';
+  bool _supplierFocused = false;
   bool _busy = false;
 
   @override
@@ -551,8 +591,41 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
         .toList();
   }
 
+  List<String> get _supplierSuggestions {
+    final q = _norm(_supplier);
+    return widget.knownSuppliers
+        .where((n) => n.toLowerCase().contains(q))
+        .take(8)
+        .toList();
+  }
+
+  /// Supplier quote rows whose name is the typed supplier.
+  List<SupplierRow> get _supplierRows {
+    final q = _norm(_supplier);
+    if (q.isEmpty) return const [];
+    return widget.suppliers.where((s) => _norm(s.name) == q).toList();
+  }
+
+  List<ProductRow> get _supplierProducts {
+    final ids = _supplierRows.map((s) => s.productId).toSet();
+    return widget.products.where((p) => ids.contains(p.id)).toList();
+  }
+
+  /// Low-stock products — only the picked supplier's when one is known.
+  List<ProductRow> get _lowStock {
+    final pool = _supplierRows.isEmpty ? widget.products : _supplierProducts;
+    return pool.where((p) => p.stock <= p.minStock).toList();
+  }
+
+  /// The picked supplier's quoted unit cost for [p], else the product cost.
+  double _costFor(ProductRow p) =>
+      _supplierRows.where((s) => s.productId == p.id).firstOrNull?.unitCost ??
+      p.cost;
+
   double get _poTotalDraft =>
       _items.fold<double>(0, (s, i) => s + i.qty * i.cost);
+
+  bool get _canSave => _supplier.trim().isNotEmpty && _items.isNotEmpty;
 
   void _addItem(ProductRow product) {
     setState(() {
@@ -565,7 +638,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
             partNo: product.partNo,
             name: product.name,
             qty: 1,
-            cost: product.cost,
+            cost: _costFor(product),
           ),
         );
       }
@@ -574,17 +647,30 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
     });
   }
 
+  void _addLowStock() {
+    for (final p in _lowStock) {
+      if (_items.any((i) => i.partNo == p.partNo)) continue;
+      _addItem(p);
+    }
+  }
+
+  void _pickSupplier(String name) {
+    _supplierCtrl.text = name;
+    setState(() => _supplier = name);
+    FocusScope.of(context).unfocus();
+  }
+
   void _removeItem(String partNo) {
     setState(() => _items.removeWhere((i) => i.partNo == partNo));
   }
 
   Future<void> _submit() async {
-    if (_busy || _supplier.isEmpty || _items.isEmpty) return;
+    if (_busy || !_canSave) return;
     setState(() => _busy = true);
     try {
       await context.read<PurchaseOrdersRepository>().savePO(
         PoInput(
-          supplier: _supplier,
+          supplier: _supplier.trim(),
           items: _items
               .map(
                 (i) => PoLineInput(
@@ -609,9 +695,134 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
     }
   }
 
+  Widget _box(List<Widget> children) => Container(
+    margin: const EdgeInsets.only(top: 4),
+    decoration: BoxDecoration(
+      border: Border.all(color: Theme.of(context).dividerColor),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(children: children),
+  );
+
+  Widget _partTile(ProductRow p, {double? cost}) {
+    final low = p.stock <= p.minStock;
+    return InkWell(
+      onTap: () => _addItem(p),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(p.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(
+                    low
+                        ? 'คงเหลือ ${p.stock} · สต็อกต่ำ'
+                        : 'คงเหลือ ${p.stock}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: low ? AppColors.warning : AppColors.steelBlue,
+                      fontWeight: low ? FontWeight.w700 : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    p.partNo,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.orange,
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                    ),
+                  ),
+                  if (cost != null)
+                    Text(baht(cost), style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+            const Icon(Icons.add, size: 18, color: AppColors.steelBlue),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _supplierPicker() {
+    final suggestions = _supplierSuggestions;
+    final exact = suggestions.any((n) => _norm(n) == _norm(_supplier));
+    final showList = _supplierFocused && !exact;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Focus(
+          onFocusChange: (f) => setState(() => _supplierFocused = f),
+          child: AppTextField(
+            label: 'ซัพพลายเออร์ · Supplier',
+            hint: 'ชื่อบริษัทซัพพลายเออร์…',
+            controller: _supplierCtrl,
+            onChanged: (v) => setState(() => _supplier = v),
+          ),
+        ),
+        // TextFieldTapRegion: tapping a suggestion is not a "tap outside" the
+        // field, so the list is not torn down before the tap lands.
+        if (showList)
+          TextFieldTapRegion(
+            child: suggestions.isNotEmpty
+                ? _box([
+                    for (final n in suggestions)
+                      InkWell(
+                        onTap: () => _pickSupplier(n),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.factory_outlined,
+                                size: 18,
+                                color: AppColors.steelBlue,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(child: Text(n)),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ])
+                : _supplier.trim().isEmpty
+                ? const SizedBox.shrink()
+                : const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      // agent ร่าง
+                      'ไม่พบซัพพลายเออร์นี้ — จะบันทึกเป็นซัพพลายเออร์ใหม่',
+                      style: TextStyle(color: AppColors.steelBlue),
+                    ),
+                  ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final parts = _filteredParts;
+    final supplierProducts = _supplierProducts;
+    final lowStock = _lowStock
+        .where((p) => !_items.any((i) => i.partNo == p.partNo))
+        .toList();
     return Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 660, maxHeight: 720),
@@ -635,56 +846,31 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      AppTextField(
-                        label: 'ซัพพลายเออร์ · Supplier',
-                        hint: 'ชื่อบริษัทซัพพลายเออร์…',
-                        controller: _supplierCtrl,
-                        onChanged: (v) => setState(() => _supplier = v),
-                      ),
+                      _supplierPicker(),
+                      if (supplierProducts.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        const Text(
+                          'สินค้าของซัพพลายเออร์นี้', // agent ร่าง
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        _box([
+                          for (final p in supplierProducts)
+                            _partTile(p, cost: _costFor(p)),
+                        ]),
+                      ],
                       const SizedBox(height: 14),
                       AppTextField(
                         label: 'เพิ่มสินค้า · Add Items',
                         hint: 'ค้นหาด้วยชื่อหรือรหัสสินค้า…',
                         controller: _searchCtrl,
                         onChanged: (v) => setState(() => _partSearch = v),
+                        onSubmitted: () {
+                          final first = _filteredParts.firstOrNull;
+                          if (first != null) _addItem(first);
+                        },
                       ),
                       if (parts.isNotEmpty)
-                        Container(
-                          margin: const EdgeInsets.only(top: 4),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Theme.of(context).dividerColor,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            children: [
-                              for (final p in parts)
-                                InkWell(
-                                  onTap: () => _addItem(p),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 12,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(child: Text(p.name)),
-                                        Text(
-                                          p.partNo,
-                                          style: const TextStyle(
-                                            color: AppColors.orange,
-                                            fontFamily: 'monospace',
-                                            fontSize: 11,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        )
+                        _box([for (final p in parts) _partTile(p)])
                       else if (_partSearch.trim().isNotEmpty)
                         const Padding(
                           padding: EdgeInsets.only(top: 12),
@@ -692,6 +878,18 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                             'ไม่พบสินค้า',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: AppColors.steelBlue),
+                          ),
+                        ),
+                      if (lowStock.isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _addLowStock,
+                            icon: const Icon(Icons.playlist_add),
+                            label: Text(
+                              // agent ร่าง
+                              'เพิ่มสินค้าสต็อกต่ำ (${lowStock.length} รายการ)',
+                            ),
                           ),
                         ),
                       if (_items.isNotEmpty) ...[
@@ -720,21 +918,32 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              if (!_canSave && !_busy)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    // agent ร่าง
+                    'เลือกซัพพลายเออร์และเพิ่มสินค้าอย่างน้อย 1 รายการ',
+                    textAlign: TextAlign.end,
+                    style: TextStyle(color: AppColors.steelBlue, fontSize: 12),
+                  ),
+                ),
+              // Wrap, not Row: at phone width (390) the two buttons don't fit
+              // side by side inside the dialog.
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
                 children: [
                   AppButton.secondary(
                     label: 'ยกเลิก',
                     onPressed: () => Navigator.of(context).pop(false),
                   ),
-                  const SizedBox(width: 8),
                   AppButton(
                     label: 'บันทึกใบสั่งซื้อ',
                     icon: Icons.save,
                     busy: _busy,
-                    onPressed: (_supplier.isEmpty || _items.isEmpty)
-                        ? null
-                        : _submit,
+                    onPressed: _canSave ? _submit : null,
                   ),
                 ],
               ),
