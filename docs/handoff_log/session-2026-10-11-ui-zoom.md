@@ -50,3 +50,40 @@ Text scale past 1.25x overflows fixed-height cards (the sell-screen product card
 - Raspberry Pi 5 move is a plan only (`docs/research/pi5-migration-plan.md`, 11 open questions in its §7) — owner undecided.
 - Leftover worktree folders on disk that could not be deleted ("Directory not empty"): `agent-a05cc7211d87708d7`, `pi-combine`, `agent-a5c18f90cf27c2e6e`, plus ~60 older `agent-*` folders.
 - Bank API / slip verification questions from an earlier handoff remain open.
+
+---
+
+# Release 2 — create-PO supplier search (PR #690/#691)
+
+**Status:** deployed, `.current_sha` verified · no schema/server change · `main` = **`2dabbcf`**
+
+## 8. Owner report and cause
+- Owner report 2026-10-11 (Thai): searching a supplier name in สั่งซื้อ → สร้างใบสั่งซื้อ shows nothing; asked to improve the dialog's UX.
+- Cause: `_CreatePoDialog` in `frontend/lib/presentation/screens/purchase_orders_screen.dart` used a plain text field — no search at all.
+
+## 9. Change (dialog only; `PoInput`/`savePO` unchanged)
+- Supplier suggestions from past PO suppliers (newest first) + `Suppliers` table names, case/space-insensitive dedupe. Works for Thai and English names ('จิ้น' finds 'จิ้นเซ่งฮวดอะไหล่ยนต์'). The owner's Suppliers data holds Thai names, past POs English ones — no cross-language matching. Free text still allowed.
+- The picked supplier's products show as one-tap add with that supplier's lowest `unitCost` (freight not included, as before). Changing supplier re-prices lines whose cost the user did not edit.
+- Enter adds the exact partNo match first. Product rows show stock + a `สต็อกต่ำ` flag.
+- Add-low-stock button: known supplier only, its products only, qty `max(1, minStock − stock)`.
+- Disabled-save hint; Cancel/Save row wraps at 390 px; suppliers load lazily when the dialog opens, with a double-tap guard.
+- Process: Opus agent implemented, Opus `/scrutinize` (ship-with-fixes) → fixes applied. Flutter tests 1813 pass, `dart analyze` clean, CI green.
+
+## 10. Release and deploy
+- PR #690 (squash into `develop`) = `09820ab`; release PR #691 (`develop` → `main`, merge commit) = **`2dabbcf`**.
+- Deploy run `38103562796` approved on the owner's instruction; `deploy to demo` success (twin run `38103468772` skipped — normal).
+- Verified on `mob04` 2026-10-11 (SSH was briefly unreachable right after the run; checked once the VPN returned): `/opt/pos/.current_sha` = `2dabbcf55e896705a600301608e1cad2901b99c6`, `/health/ready` 200, api-1/2/3 healthy, served bundle `main.2dabbcf55e89.dart.js`.
+- APK: `android-apk.yml` run `38103153683` success → prerelease `apk-2dabbcf`.
+
+## 11. Known gap
+- At 360 px logical width (possible under whole-screen zoom) the PO list's top stat bar overflows ~13 px (pre-existing; list screen not touched).
+
+## 12. New Thai strings — `agent ร่าง`, awaiting owner ratification
+- `ไม่พบซัพพลายเออร์นี้ — จะบันทึกเป็นซัพพลายเออร์ใหม่`
+- `สินค้าของซัพพลายเออร์นี้`
+- `เพิ่มสินค้าสต็อกต่ำ (N รายการ)`
+- `เลือกซัพพลายเออร์และเพิ่มสินค้าอย่างน้อย 1 รายการ`
+
+## 13. Owner Q&A this session
+- **Barcode:** only one kind exists — Code128 of `partNo`, printed on shelf labels (`label_printer.dart`). A scan matches `partNo` exactly, case-insensitive (`checkout_screen.dart` `_handleBarcode`; server `lower(part_no)`). A factory EAN works only if `partNo` equals it. A separate barcode column would need Drift v16 + a server migration — not started, owner has not decided.
+- **VPN:** a deploy needs no VPN (the runner on `mob04` pulls from GitHub). Using the app at https://172.30.58.20 and verifying over SSH needs the VPN/faculty network.
