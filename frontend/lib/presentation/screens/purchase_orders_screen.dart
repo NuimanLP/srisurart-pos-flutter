@@ -47,9 +47,8 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   // _refresh too, so a receive's cost update is reflected next time the
   // create dialog opens.
   late Future<List<ProductRow>> _productsFuture;
-  // Per-product supplier quotes: the create dialog's supplier suggestions and
-  // the picked supplier's products/unit costs.
-  late Future<List<SupplierRow>> _suppliersFuture;
+  // True while _openCreate loads; blocks a double tap opening two dialogs.
+  bool _opening = false;
 
   @override
   void initState() {
@@ -60,7 +59,6 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   void _load() {
     _posFuture = context.read<PurchaseOrdersRepository>().getPOs();
     _productsFuture = context.read<ProductsRepository>().getAll();
-    _suppliersFuture = context.read<SuppliersRepository>().getSuppliers();
   }
 
   void _refresh() => setState(_load);
@@ -70,9 +68,24 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
       _showDegradedWarning();
       return;
     }
-    final products = await _productsFuture;
-    final suppliers = await _suppliersFuture;
-    final pos = await _posFuture;
+    if (_opening) return;
+    final supplierRepo = context.read<SuppliersRepository>();
+    setState(() => _opening = true);
+    final List<ProductRow> products;
+    // Per-product supplier quotes, read fresh for each dialog: the supplier
+    // suggestions and the picked supplier's products/unit costs.
+    final List<SupplierRow> suppliers;
+    final List<PurchaseOrderWithItems> pos;
+    try {
+      products = await _productsFuture;
+      suppliers = await supplierRepo.getSuppliers();
+      pos = await _posFuture;
+    } catch (e) {
+      _showError(e);
+      return;
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
     if (!mounted) return;
     final saved = await showDialog<bool>(
       context: context,
@@ -213,6 +226,7 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
               return _PoListView(
                 pos: snap.data!,
                 onCreate: _openCreate,
+                opening: _opening,
                 onReceive: _receive,
                 onCancel: _cancel,
                 onDelete: _delete,
@@ -255,6 +269,7 @@ double _poTotal(PurchaseOrderWithItems p) =>
 class _PoListView extends StatelessWidget {
   final List<PurchaseOrderWithItems> pos;
   final VoidCallback onCreate;
+  final bool opening;
   final ValueChanged<PurchaseOrderRow> onReceive;
   final ValueChanged<PurchaseOrderRow> onCancel;
   final ValueChanged<PurchaseOrderRow> onDelete;
@@ -263,6 +278,7 @@ class _PoListView extends StatelessWidget {
   const _PoListView({
     required this.pos,
     required this.onCreate,
+    this.opening = false,
     required this.onReceive,
     required this.onCancel,
     required this.onDelete,
@@ -310,6 +326,7 @@ class _PoListView extends StatelessWidget {
               AppButton(
                 label: 'สร้างใบสั่งซื้อ',
                 icon: Icons.add,
+                busy: opening,
                 onPressed: isDegraded ? null : onCreate,
               ),
             ],
@@ -522,6 +539,8 @@ class _DraftItem {
   final String name;
   int qty;
   double cost;
+  // Set once the user types a cost; a supplier change then leaves it alone.
+  bool costEdited = false;
   _DraftItem({
     required this.partNo,
     required this.name,
@@ -569,6 +588,8 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
   String _supplier = '';
   String _partSearch = '';
   bool _supplierFocused = false;
+  // Bumped on a re-price so the draft rows' cost fields (initialValue) rebuild.
+  int _priceGen = 0;
   bool _busy = false;
 
   @override
@@ -611,23 +632,48 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
     return widget.products.where((p) => ids.contains(p.id)).toList();
   }
 
-  /// Low-stock products — only the picked supplier's when one is known.
-  List<ProductRow> get _lowStock {
-    final pool = _supplierRows.isEmpty ? widget.products : _supplierProducts;
-    return pool.where((p) => p.stock <= p.minStock).toList();
+  /// The known supplier's low-stock products not yet in the draft (empty for
+  /// an unknown/free-text supplier).
+  List<ProductRow> get _lowStock => _supplierProducts
+      .where(
+        (p) =>
+            p.stock <= p.minStock && !_items.any((i) => i.partNo == p.partNo),
+      )
+      .toList();
+
+  /// The picked supplier's quoted unit cost for [p] (lowest when it has
+  /// several rows), else the product cost. Freight stays out of the PO cost.
+  double _costFor(ProductRow p) {
+    double? best;
+    for (final s in _supplierRows) {
+      if (s.productId == p.id && (best == null || s.unitCost < best)) {
+        best = s.unitCost;
+      }
+    }
+    return best ?? p.cost;
   }
 
-  /// The picked supplier's quoted unit cost for [p], else the product cost.
-  double _costFor(ProductRow p) =>
-      _supplierRows.where((s) => s.productId == p.id).firstOrNull?.unitCost ??
-      p.cost;
+  /// Supplier changed: re-price lines whose cost the user never edited.
+  void _reprice() {
+    for (final item in _items) {
+      if (item.costEdited) continue;
+      final p = widget.products.where((p) => p.partNo == item.partNo);
+      if (p.isNotEmpty) item.cost = _costFor(p.first);
+    }
+    _priceGen++;
+  }
+
+  void _setSupplier(String v) => setState(() {
+    _supplier = v;
+    _reprice();
+  });
 
   double get _poTotalDraft =>
       _items.fold<double>(0, (s, i) => s + i.qty * i.cost);
 
   bool get _canSave => _supplier.trim().isNotEmpty && _items.isNotEmpty;
 
-  void _addItem(ProductRow product) {
+  void _addItem(ProductRow product, {int qty = 1}) {
     setState(() {
       final ex = _items.where((i) => i.partNo == product.partNo).firstOrNull;
       if (ex != null) {
@@ -637,7 +683,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
           _DraftItem(
             partNo: product.partNo,
             name: product.name,
-            qty: 1,
+            qty: qty,
             cost: _costFor(product),
           ),
         );
@@ -649,14 +695,24 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
 
   void _addLowStock() {
     for (final p in _lowStock) {
-      if (_items.any((i) => i.partNo == p.partNo)) continue;
-      _addItem(p);
+      final short = p.minStock - p.stock;
+      _addItem(p, qty: short < 1 ? 1 : short);
     }
+  }
+
+  /// Enter in the item search: an exact part number first, else the first
+  /// listed match.
+  void _addSearchMatch() {
+    final q = _partSearch.trim().toLowerCase();
+    if (q.isEmpty) return;
+    final exact = widget.products.where((p) => p.partNo.toLowerCase() == q);
+    final pick = exact.isNotEmpty ? exact.first : _filteredParts.firstOrNull;
+    if (pick != null) _addItem(pick);
   }
 
   void _pickSupplier(String name) {
     _supplierCtrl.text = name;
-    setState(() => _supplier = name);
+    _setSupplier(name);
     FocusScope.of(context).unfocus();
   }
 
@@ -770,7 +826,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
             label: 'ซัพพลายเออร์ · Supplier',
             hint: 'ชื่อบริษัทซัพพลายเออร์…',
             controller: _supplierCtrl,
-            onChanged: (v) => setState(() => _supplier = v),
+            onChanged: _setSupplier,
           ),
         ),
         // TextFieldTapRegion: tapping a suggestion is not a "tap outside" the
@@ -820,9 +876,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
   Widget build(BuildContext context) {
     final parts = _filteredParts;
     final supplierProducts = _supplierProducts;
-    final lowStock = _lowStock
-        .where((p) => !_items.any((i) => i.partNo == p.partNo))
-        .toList();
+    final lowStock = _lowStock;
     return Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 660, maxHeight: 720),
@@ -864,10 +918,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                         hint: 'ค้นหาด้วยชื่อหรือรหัสสินค้า…',
                         controller: _searchCtrl,
                         onChanged: (v) => setState(() => _partSearch = v),
-                        onSubmitted: () {
-                          final first = _filteredParts.firstOrNull;
-                          if (first != null) _addItem(first);
-                        },
+                        onSubmitted: _addSearchMatch,
                       ),
                       if (parts.isNotEmpty)
                         _box([for (final p in parts) _partTile(p)])
@@ -896,9 +947,13 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                         const SizedBox(height: 12),
                         for (final item in _items)
                           _DraftItemRow(
+                            key: ValueKey((item.partNo, _priceGen)),
                             item: item,
                             onQty: (q) => setState(() => item.qty = q),
-                            onCost: (c) => setState(() => item.cost = c),
+                            onCost: (c) => setState(() {
+                              item.cost = c;
+                              item.costEdited = true;
+                            }),
                             onRemove: () => _removeItem(item.partNo),
                           ),
                         const SizedBox(height: 8),
@@ -962,6 +1017,7 @@ class _DraftItemRow extends StatelessWidget {
   final VoidCallback onRemove;
 
   const _DraftItemRow({
+    super.key,
     required this.item,
     required this.onQty,
     required this.onCost,
