@@ -414,6 +414,11 @@ class _LabelPrinterState extends State<LabelPrinter> {
   }
 
   Widget _selectorCol(ThemeData theme) {
+    final listed = _listed;
+    // The quick chips act on EVERY product, not just the searched ones —
+    // while a search is on, say how many they will pick.
+    final searching = _query.trim().isNotEmpty;
+    final lowCount = widget.products.where((p) => p.stock <= p.minStock).length;
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -426,14 +431,18 @@ class _LabelPrinterState extends State<LabelPrinter> {
             runSpacing: 6,
             children: [
               _selChip(
-                'เลือกทั้งหมด',
+                searching
+                    ? 'เลือกทั้งหมด (ทั้งหมด ${widget.products.length})' // agent ร่าง
+                    : 'เลือกทั้งหมด',
                 () => setState(
                   () => _selected = widget.products.map((p) => p.id).toSet(),
                 ),
               ),
               _selChip('ล้าง', () => setState(() => _selected = {})),
               _selChip(
-                '⚠ สต็อกต่ำ',
+                searching
+                    ? '⚠ สต็อกต่ำ (ทั้งหมด $lowCount)' // agent ร่าง
+                    : '⚠ สต็อกต่ำ',
                 () => setState(
                   () => _selected = widget.products
                       .where((p) => p.stock <= p.minStock)
@@ -458,9 +467,9 @@ class _LabelPrinterState extends State<LabelPrinter> {
           const SizedBox(height: 8),
           Expanded(
             child: ListView.builder(
-              itemCount: _listed.length,
+              itemCount: listed.length,
               itemBuilder: (ctx, i) {
-                final p = _listed[i];
+                final p = listed[i];
                 final on = _selected.contains(p.id);
                 return InkWell(
                   onTap: () => _toggle(p.id),
