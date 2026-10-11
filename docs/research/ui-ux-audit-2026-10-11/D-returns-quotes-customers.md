@@ -53,8 +53,14 @@ an elderly owner on 2x–3x whole-screen zoom (1366x768 at 3x is a ~455x256 logi
 ### Found while verifying (a throwaway widget test at 390x800, 455x256, 640x360, 683x384 and 1366x768)
 - R11 P1 — `_SummaryBox` total row and `_SummaryRow` overflowed horizontally at 390 px (two large
   texts in a `Row`). The label is now `Flexible` and the amount uses `FittedBox(scaleDown)`.
-- R1 refinement — the summary stacks its buttons below 600 dp wide, so a pane narrower than 600 dp
-  always scrolls as one, whatever its height.
+- R1 revised after review — the detail pane is now **one tree at every size**: a
+  `SingleChildScrollView` holding `minHeight` plus `spaceBetween`. The summary sits at the bottom when
+  everything fits and scrolls with the items when it does not. The first version switched tree shape
+  at 600 dp, so a soft keyboard could flip the mode and drop focus from the reason/qty field. Trade-off:
+  a bill with many lines on desktop no longer keeps the summary pinned while the items scroll.
+- `คืนได้อีก N` stays hidden until the already-refunded qty has loaded, so the full qty never flashes.
+  `คืนเข้าสต็อก N ชิ้น` sits only with the return (คืน) button, never above the whole-bill void, and
+  never on a voided bill.
 - Q6 P1 — at 455x256 (1366x768 at 3x) the quotes header and filters left a negative height for the
   list. Below 520 dp tall the page is a `CustomScrollView`, so the header and filters scroll away
   with the list. Taller screens keep them pinned.

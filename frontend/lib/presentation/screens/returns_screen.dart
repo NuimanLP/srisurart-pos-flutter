@@ -1025,6 +1025,7 @@ class _RefundDetailState extends State<_RefundDetail> {
       future: _refundedFuture,
       builder: (context, snap) {
         final refunded = snap.data ?? const <String, int>{};
+        final refundedLoaded = snap.connectionState == ConnectionState.done;
 
         final items = widget.refundItems();
         final sub = widget.refundSubtotal(items);
@@ -1103,6 +1104,7 @@ class _RefundDetailState extends State<_RefundDetail> {
             remaining: remaining,
             current: current,
             fully: fully,
+            refundedLoaded: refundedLoaded,
             onSetQty: widget.onSetQty,
           );
         }
@@ -1130,57 +1132,46 @@ class _RefundDetailState extends State<_RefundDetail> {
         );
 
         const padding = EdgeInsets.fromLTRB(24, 20, 24, 20);
+        // ONE tree for every pane size: a soft keyboard shrinking the pane
+        // must not swap parents under the reason/qty TextField (focus would
+        // be lost mid-edit). The pane scrolls as a whole; minHeight +
+        // spaceBetween keeps the summary at the bottom when everything fits,
+        // and on a short pane (phone, keyboard up, 2x–3x zoom) the items are
+        // never squeezed to 0 — the pane scrolls instead.
         return LayoutBuilder(
-          builder: (context, c) {
-            // A short pane (phone landscape, soft keyboard up, 2x–3x zoom)
-            // can't hold the item list AND the pinned summary — scroll the
-            // whole pane as one list instead of squeezing the items to 0.
-            // ~600 = header + label + a few item rows + the ~330dp summary.
-            // Below 600dp wide the summary stacks its buttons and grows, so a
-            // phone always scrolls the pane as one.
-            if (c.maxHeight < 600 || c.maxWidth < 600) {
-              return SingleChildScrollView(
-                padding: padding,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    header,
-                    const Divider(height: 24),
-                    listLabel,
-                    const SizedBox(height: 10),
-                    for (var k = 0; k < widget.sale.items.length; k++) ...[
-                      if (k > 0) const SizedBox(height: 6),
-                      itemAt(k),
-                    ],
-                    const SizedBox(height: 14),
-                    summary,
-                  ],
+          builder: (context, c) => SingleChildScrollView(
+            padding: padding,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (c.maxHeight - padding.vertical).clamp(
+                  0.0,
+                  double.infinity,
                 ),
-              );
-            }
-            return Padding(
-              padding: padding,
+              ),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  header,
-                  const Divider(height: 24),
-                  listLabel,
-                  const SizedBox(height: 10),
-                  // Item list.
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: widget.sale.items.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 6),
-                      itemBuilder: (_, idx) => itemAt(idx),
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      header,
+                      const Divider(height: 24),
+                      listLabel,
+                      const SizedBox(height: 10),
+                      for (var k = 0; k < widget.sale.items.length; k++) ...[
+                        if (k > 0) const SizedBox(height: 6),
+                        itemAt(k),
+                      ],
+                      const SizedBox(height: 14),
+                    ],
                   ),
-                  const SizedBox(height: 14),
                   summary,
                 ],
               ),
-            );
-          },
+            ),
+          ),
         );
       },
     );
@@ -1193,6 +1184,9 @@ class _ItemRow extends StatelessWidget {
   final int remaining;
   final int current;
   final bool fully;
+  // False until the already-refunded qty has loaded — "คืนได้อีก" would
+  // otherwise flash the full sold qty on a partly returned bill.
+  final bool refundedLoaded;
   final void Function(String pid, int val, int max) onSetQty;
 
   const _ItemRow({
@@ -1201,6 +1195,7 @@ class _ItemRow extends StatelessWidget {
     required this.remaining,
     required this.current,
     required this.fully,
+    required this.refundedLoaded,
     required this.onSetQty,
   });
 
@@ -1237,7 +1232,7 @@ class _ItemRow extends StatelessWidget {
                   ),
                 ),
               ),
-            if (!fully)
+            if (refundedLoaded && !fully)
               Padding(
                 padding: const EdgeInsets.only(left: 8),
                 child: Text(
@@ -1634,17 +1629,7 @@ class _SummaryBox extends StatelessWidget {
               hintText: 'เช่น ลูกค้าเปลี่ยนใจ, สินค้าชำรุด, ขายผิดรุ่น',
             ),
           ),
-          const SizedBox(height: 14),
-          // What the return does besides money: the pieces go back on the shelf.
-          if (stockBackQty > 0)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _InlineNote(
-                icon: Icons.inventory_2_outlined,
-                color: AppColors.info,
-                text: 'คืนเข้าสต็อก $stockBackQty ชิ้น',
-              ),
-            ),
+          const SizedBox(height: 18),
           // Actions. Below ~480dp the fixed void button + Expanded submit can't
           // both fit, so stack full-width buttons (submit on top, destructive
           // void below) instead of two cramped red buttons side by side.
@@ -1660,6 +1645,22 @@ class _SummaryBox extends StatelessWidget {
                 fullWidth: true,
                 onPressed: (itemCount == 0 || busy) ? null : onSubmit,
               );
+              // What THIS return does besides money — shown with the return
+              // button only (the whole-bill void restores everything).
+              final submitBlock = (stockBackQty > 0 && !isVoided)
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _InlineNote(
+                          icon: Icons.inventory_2_outlined,
+                          color: AppColors.info,
+                          text: 'คืนเข้าสต็อก $stockBackQty ชิ้น',
+                        ),
+                        const SizedBox(height: 8),
+                        submit,
+                      ],
+                    )
+                  : submit;
               final voidBtn = (isDegraded && soldOffline && !isVoided)
                   ? AppButton(
                       label: '✕ ยกเลิกบิลออฟไลน์',
@@ -1680,7 +1681,7 @@ class _SummaryBox extends StatelessWidget {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    submit,
+                    submitBlock,
                     if (voidBtn != null) ...[
                       const SizedBox(height: 8),
                       voidBtn,
@@ -1689,9 +1690,10 @@ class _SummaryBox extends StatelessWidget {
                 );
               }
               return Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   if (voidBtn != null) ...[voidBtn, const SizedBox(width: 10)],
-                  Expanded(child: submit),
+                  Expanded(child: submitBlock),
                 ],
               );
             },
