@@ -54,9 +54,15 @@ class UiZoomCubit extends Cubit<double> {
   bool _chosen = false;
 
   /// The stored zoom, or 1.0 when none (or an invalid one) is stored.
+  /// Never throws: it runs in main() before runApp, and blocked browser
+  /// storage must not stop the app from booting.
   static Future<double> readStored() async {
-    final prefs = await SharedPreferences.getInstance();
-    return _valid(prefs.getDouble(_kUiZoomKey)) ?? 1.0;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _valid(prefs.getDouble(_kUiZoomKey)) ?? 1.0;
+    } catch (_) {
+      return 1.0;
+    }
   }
 
   static double? _valid(double? v) => v != null && v >= 1.0 ? v : null;
