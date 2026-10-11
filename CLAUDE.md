@@ -48,8 +48,10 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `e77356f`
-(PR #683, merge commit, 2026-10-10)**, deployed to `mob04` (run `38066101954`, `.current_sha` checked over SSH) — the first
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `bf02582`
+(PR #687, merge commit, 2026-10-11)**, whole-screen zoom up to 3x for elderly users (PR #686), deployed to `mob04` (run
+`38100697523`, `.current_sha` checked over SSH; `docs/handoff_log/session-2026-10-11-ui-zoom.md`). The release before it,
+`e77356f` (PR #683, 2026-10-10, run `38066101954`): the first
 try `ac9d4dd` (#681) rolled back because sharp's prebuilt binaries need x86-64-v2 and `mob04` is a `qemu64` CPU; fixed by
 PR #682 (`docs/handoff_log/session-2026-10-10-product-images.md`). A Raspberry Pi 5 move is only a plan
 (`docs/research/pi5-migration-plan.md`, owner undecided). 🔴 **`develop` → `main` showing
