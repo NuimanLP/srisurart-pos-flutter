@@ -404,8 +404,11 @@ class _OfflineNote extends StatelessWidget {
           Expanded(
             child: Text(
               text,
+              // The amber icon carries the warning; the sentence itself uses
+              // the theme's text colour so it reads in light and dark mode
+              // (amber text on the off-white/navy surfaces is too faint).
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.warning,
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -2039,7 +2042,9 @@ class _BackupTabState extends State<_BackupTab> {
     // API build: the server replaces the shop's data with the file's, never
     // the local cache directly; the pull after it brings the rows here.
     final toServer = context.read<SnapshotRepository>().restoresViaServer;
-    final offline = isDegraded;
+    // The offline note only where offline is the actual reason: the restore
+    // goes to the server. (The disabled condition below is unchanged.)
+    final offline = isDegraded && toServer;
     isDegraded = isDegraded || _importing;
     final pmeta =
         (_preview?['__meta'] as Map?)?.cast<String, dynamic>() ?? const {};
