@@ -11,6 +11,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/core/theme/app_theme.dart';
@@ -18,6 +19,7 @@ import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/settings_repository.dart';
 import 'package:srisurart_pos/data/sync/sync_facade.dart';
 import 'package:srisurart_pos/presentation/widgets/app_shell.dart';
+import 'package:srisurart_pos/presentation/widgets/thai_format.dart';
 import 'package:srisurart_pos/presentation/widgets/theme_controller.dart';
 
 import '../support/fake_sync_facade.dart';
@@ -108,6 +110,15 @@ void main() {
     expect(find.byTooltip('รอตรวจสอบ (1)'), findsOneWidget);
     // The banner below the bar still states the offline mode in words.
     expect(find.textContaining('ออฟไลน์ (ขายสำรอง) —'), findsOneWidget);
+    // Time only on the bar; the full day + date sits in its tooltip.
+    final now = DateTime.now();
+    expect(
+      find.byTooltip(
+        '${DateFormat('EEE', 'th').format(now)} '
+        '${thaiDate(now)} · ${thaiTime(now)}',
+      ),
+      findsOneWidget,
+    );
     await unmount(tester);
   });
 

@@ -411,6 +411,12 @@ class _TopBarState extends State<_TopBar> {
               stream: settings,
               builder: (context, snap) {
                 final cashier = snap.data?.cashierName;
+                final fullDate = '${DateFormat('EEE', 'th').format(now)} '
+                    '${thaiDate(now)} · ${thaiTime(now)}';
+                const dateStyle = TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                );
                 return Container(
                   padding: const EdgeInsets.only(left: 12),
                   decoration: const BoxDecoration(
@@ -432,18 +438,27 @@ class _TopBarState extends State<_TopBar> {
                           fontSize: 15,
                         ),
                       ),
-                      Text(
-                        narrow
-                            ? thaiTime(now)
-                            : '${DateFormat('EEE', 'th').format(now)} '
-                                  '${thaiDate(now)} · ${thaiTime(now)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
+                      if (narrow)
+                        // Phone bar shows the time only; the full day + date
+                        // stays one long-press / hover away, and is what a
+                        // screen reader announces.
+                        Tooltip(
+                          message: fullDate,
+                          child: Text(
+                            thaiTime(now),
+                            semanticsLabel: fullDate,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: dateStyle,
+                          ),
+                        )
+                      else
+                        Text(
+                          fullDate,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: dateStyle,
                         ),
-                      ),
                     ],
                   ),
                 );
