@@ -13,6 +13,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:drift/drift.dart' show Value;
 
 import '../../core/network/server_error_resolver.dart';
+import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
@@ -209,10 +210,10 @@ class _TopBar extends StatelessWidget {
             icon: Icons.add,
             onPressed: onAdd,
           );
-          // Wide (tablet): keep the original single-row layout byte-identical —
-          // un-flexed stats, fixed 260px search, one Spacer pushing the
-          // search + button flush right.
-          if (constraints.maxWidth >= 600) {
+          // Wide (>= AppBreakpoints.customersTopBarRow, 900dp): the original
+          // single row — un-flexed stats, fixed 260px search, one Spacer
+          // pushing the search + button flush right. Narrower widths stack.
+          if (constraints.maxWidth >= AppBreakpoints.customersTopBarRow) {
             return Row(
               children: [
                 ...stats,
@@ -223,7 +224,7 @@ class _TopBar extends StatelessWidget {
               ],
             );
           }
-          // Narrow (phone): stack the stats row above a full-width search +
+          // Narrow (phone, small tablet): stack the stats row above a full-width search +
           // button so nothing overflows horizontally.
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

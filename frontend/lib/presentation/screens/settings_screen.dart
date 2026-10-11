@@ -58,6 +58,7 @@ import '../widgets/payment_accounts_settings.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 import '../widgets/theme_controller.dart';
+import '../blocs/ui_zoom_cubit.dart';
 
 // Week-boundary key (today − 7d, yyyy-MM-dd) — matches the db.js slice.
 // todayKey()/monthKey() come from core/utils/dates.dart.
@@ -1026,6 +1027,9 @@ class _ThemeTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 32),
+        // ── Whole-screen zoom (elderly) ──
+        const _UiZoomSection(),
+        const SizedBox(height: 24),
         // ── Font scale section ──
         const _FontScaleSection(),
       ],
@@ -1127,6 +1131,88 @@ class _ThemeCard extends StatelessWidget {
   }
 }
 
+// ── Whole-screen zoom presets (blocs/ui_zoom_cubit.dart, widgets/ui_zoom.dart) ──
+class _UiZoomSection extends StatelessWidget {
+  const _UiZoomSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final requested = context.watch<UiZoomCubit>().state;
+    // This screen is itself zoomed: the cap comes from the real window size.
+    // UiZoom divides size by z and multiplies devicePixelRatio by z, so
+    // size × dpr / the view's own dpr recovers the unzoomed logical size —
+    // and reading it through MediaQuery rebuilds this card on window resize.
+    final screen =
+        MediaQuery.sizeOf(context) *
+        MediaQuery.devicePixelRatioOf(context) /
+        View.of(context).devicePixelRatio;
+    final max = maxUiZoomFor(screen);
+    final applied = effectiveUiZoom(screen, requested);
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // agent ร่าง (2026-10-11) — the strings in this card await owner ratification.
+          const _SectionTitle('ขยายทั้งหน้าจอ · Zoom'),
+          const SizedBox(height: 4),
+          Text(
+            'ขยายทุกอย่างบนจอ ทั้งตัวอักษร ปุ่ม และรูป ให้ผู้สูงอายุอ่านง่าย',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.secondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = 10.0;
+              const minCard = 96.0;
+              final n = uiZoomLevels.length;
+              final perRow = ((constraints.maxWidth + gap) / (minCard + gap))
+                  .floor()
+                  .clamp(1, n);
+              final w = (constraints.maxWidth - gap * (perRow - 1)) / perRow;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (final z in uiZoomLevels)
+                    SizedBox(
+                      width: w,
+                      child: _FontScalePresetCard(
+                        label: z == 1.0 ? 'ปกติ' : '${_zoomText(z)} เท่า',
+                        icon: z == 1.0 ? Icons.crop_free : Icons.zoom_in,
+                        active: (requested - z).abs() < 0.01,
+                        // A level this screen cannot reach would look the same
+                        // as the cap — grey it out instead.
+                        enabled: z <= max + 0.01,
+                        onTap: () => context.read<UiZoomCubit>().setZoom(z),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          if (requested > applied + 0.01) ...[
+            const SizedBox(height: 12),
+            Text(
+              'จอนี้ขยายได้สูงสุด ${max.toStringAsFixed(1)} เท่า',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.orange,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+String _zoomText(double z) =>
+    z == z.roundToDouble() ? z.toStringAsFixed(0) : z.toStringAsFixed(1);
+
 // ── Font scale preset cards + slider + preview ──
 class _FontScaleSection extends StatelessWidget {
   const _FontScaleSection();
@@ -1158,7 +1244,9 @@ class _FontScaleSection extends StatelessWidget {
                     SizedBox(
                       width: w,
                       child: _FontScalePresetCard(
-                        preset: p,
+                        label: p.label,
+                        valueText: '${p.value}x',
+                        icon: p.icon,
                         active: (currentScale - p.value).abs() < 0.01,
                         onTap: () =>
                             context.read<FontScaleCubit>().setScale(p.value),
@@ -1316,20 +1404,26 @@ class _FontScaleSection extends StatelessWidget {
 }
 
 class _FontScalePresetCard extends StatelessWidget {
-  final FontScalePreset preset;
+  final String label;
+  final String? valueText;
+  final IconData icon;
   final bool active;
+  final bool enabled;
   final VoidCallback onTap;
   const _FontScalePresetCard({
-    required this.preset,
+    required this.label,
+    this.valueText,
+    required this.icon,
     required this.active,
+    this.enabled = true,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return InkWell(
-      onTap: onTap,
+    final card = InkWell(
+      onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(10),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -1351,13 +1445,13 @@ class _FontScalePresetCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              preset.icon,
+              icon,
               size: 22,
               color: active ? AppColors.orange : theme.colorScheme.secondary,
             ),
             const SizedBox(height: 6),
             Text(
-              preset.label,
+              label,
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 12,
@@ -1365,9 +1459,10 @@ class _FontScalePresetCard extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
+            if (valueText != null) ...[
             const SizedBox(height: 2),
             Text(
-              '${preset.value}x',
+              valueText!,
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 11,
@@ -1375,6 +1470,7 @@ class _FontScalePresetCard extends StatelessWidget {
                 letterSpacing: 0.5,
               ),
             ),
+            ],
             if (active) ...[
               const SizedBox(height: 4),
               Text(
@@ -1390,6 +1486,7 @@ class _FontScalePresetCard extends StatelessWidget {
         ),
       ),
     );
+    return enabled ? card : Opacity(opacity: 0.35, child: card);
   }
 }
 
