@@ -117,7 +117,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final kpi = find.byType(GridView).first;
+    final kpi = find.byKey(const Key('reports-kpis'));
     Finder inKpi(String text) =>
         find.descendant(of: kpi, matching: find.text(text));
 

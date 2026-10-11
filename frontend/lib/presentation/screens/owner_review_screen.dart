@@ -189,7 +189,7 @@ class _RejectedAndStuckTab extends StatelessWidget {
             children: [
               Icon(Icons.warning_amber_rounded, color: AppColors.error),
               SizedBox(width: 8),
-              Text('ยืนยันการทิ้งรายการ'),
+              Flexible(child: Text('ยืนยันการทิ้งรายการ')),
             ],
           ),
           content: Form(
@@ -280,27 +280,10 @@ class _RejectedAndStuckTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (ops.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.check_circle_outline, size: 64, color: AppColors.success),
-            const SizedBox(height: 16),
-            const Text(
-              'ไม่มีรายการที่ถูกปฏิเสธหรือค้างส่ง',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppColors.navy,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'ข้อมูลทั้งหมดได้รับการซิงค์เรียบร้อยแล้ว',
-              style: TextStyle(color: AppColors.gray500),
-            ),
-          ],
-        ),
+      return const _AllClear(
+        icon: Icons.check_circle_outline,
+        title: 'ไม่มีรายการที่ถูกปฏิเสธหรือค้างส่ง',
+        detail: 'ข้อมูลทั้งหมดได้รับการซิงค์เรียบร้อยแล้ว',
       );
     }
 
@@ -308,8 +291,16 @@ class _RejectedAndStuckTab extends StatelessWidget {
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: ops.length,
-      itemBuilder: (context, index) {
+      itemCount: ops.length + 1,
+      itemBuilder: (context, i) {
+        if (i == 0) {
+          // agent ร่าง
+          return const _ActionHint(
+            'รายการเหล่านี้ส่งเข้าระบบไม่สำเร็จ — กด "ส่งใหม่" เพื่อลองอีกครั้ง '
+            'หรือ "ทิ้ง" พร้อมหมายเหตุ',
+          );
+        }
+        final index = i - 1;
         final op = ops[index];
         final isRejected = op.status == OutboxOpStatus.rejected;
 
@@ -374,8 +365,10 @@ class _RejectedAndStuckTab extends StatelessWidget {
                   ],
                 ),
                 const Divider(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: 12,
+                  runSpacing: 4,
                   children: [
                     Text(
                       'พยายามส่งแล้ว: ${op.attempts} ครั้ง',
@@ -464,6 +457,7 @@ class _RejectedAndStuckTab extends StatelessWidget {
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.error,
                         side: const BorderSide(color: AppColors.error),
+                        minimumSize: const Size(0, 44),
                       ),
                       onPressed: () => _handleDiscard(context, op),
                       icon: const Icon(Icons.delete_outline, size: 18),
@@ -474,6 +468,7 @@ class _RejectedAndStuckTab extends StatelessWidget {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.orange,
                         foregroundColor: AppColors.white,
+                        minimumSize: const Size(0, 44),
                       ),
                       onPressed: () => _handleResend(context, op),
                       icon: const Icon(Icons.refresh, size: 18),
@@ -623,31 +618,14 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
         onRefresh: _loadItems,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            SizedBox(
-              height: MediaQuery.sizeOf(context).height * 0.6,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.verified_outlined, size: 64, color: AppColors.success),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'ไม่มีรายการที่รอตรวจ',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'ทุกรายการได้รับการตรวจสอบเรียบร้อยแล้ว',
-                      style: TextStyle(color: AppColors.gray500),
-                    ),
-                  ],
-                ),
-              ),
+          children: const [
+            // Inside the pull-to-refresh list, so it scrolls instead of
+            // overflowing on a short, zoomed screen.
+            _AllClear(
+              icon: Icons.verified_outlined,
+              title: 'ไม่มีรายการที่รอตรวจ',
+              detail: 'ทุกรายการได้รับการตรวจสอบเรียบร้อยแล้ว',
+              scrolls: false,
             ),
           ],
         ),
@@ -660,9 +638,15 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
       onRefresh: _loadItems,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: _items.length,
-        itemBuilder: (context, index) {
-          final item = _items[index];
+        itemCount: _items.length + 1,
+        itemBuilder: (context, i) {
+          if (i == 0) {
+            // agent ร่าง
+            return const _ActionHint(
+              'ตรวจดูแต่ละรายการ แล้วกด "ตรวจแล้ว" เพื่อเอาออกจากรายการ',
+            );
+          }
+          final item = _items[i - 1];
           final color = _kindColor(item.kind);
 
           return Card(
@@ -676,7 +660,12 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  // Wrap: on a phone the date drops to its own line instead
+                  // of squeezing the reference.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -696,14 +685,11 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'อ้างอิง: ${item.refId}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
+                      Text(
+                        'อ้างอิง: ${item.refId}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
                         ),
                       ),
                       Text(
@@ -759,6 +745,7 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.forestGreen,
                         foregroundColor: AppColors.white,
+                        minimumSize: const Size(0, 44),
                       ),
                       onPressed: () => _handleMarkReviewed(item),
                       icon: const Icon(Icons.check, size: 18),
@@ -770,6 +757,83 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// "Nothing to do" state: same icon/text as before, but it scrolls instead of
+/// overflowing a short, zoomed screen. [scrolls] false = it already sits in a
+/// scrolling list.
+class _AllClear extends StatelessWidget {
+  const _AllClear({
+    required this.icon,
+    required this.title,
+    required this.detail,
+    this.scrolls = true,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+  final bool scrolls;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 64, color: AppColors.success),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppColors.navy,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            detail,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.gray500),
+          ),
+        ],
+      ),
+    );
+    if (!scrolls) return body;
+    return Center(child: SingleChildScrollView(child: body));
+  }
+}
+
+/// One line above a list saying what the owner is expected to do with it.
+class _ActionHint extends StatelessWidget {
+  const _ActionHint(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.touch_app_outlined, size: 20, color: AppColors.steelBlue),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.secondary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
