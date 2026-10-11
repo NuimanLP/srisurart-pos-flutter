@@ -191,6 +191,9 @@ class _Rail extends StatelessWidget {
       labelType: NavigationRailLabelType.all,
       scrollable: true,
       backgroundColor: AppColors.navyDeep,
+      // Brand-tinted pill behind the current page's icon (the seeded M3
+      // default was a pale pill that clashed with the navy rail).
+      indicatorColor: AppColors.orange.withValues(alpha: 0.22),
       selectedIconTheme: const IconThemeData(color: AppColors.orange),
       selectedLabelTextStyle: const TextStyle(
         color: AppColors.orange,
@@ -221,43 +224,59 @@ class _NavDrawer extends StatelessWidget {
       child: SafeArea(
         child: ListView(
           children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(
+            // Compact brand strip (was a ~160 px DrawerHeader): under 2x–3x
+            // zoom the menu items, not the header, should fill the drawer.
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: const BoxDecoration(
                 border: Border(
                   bottom: BorderSide(color: AppColors.orange, width: 3),
                 ),
               ),
-              child: Center(
-                child: Text(
-                  'Srisurart POS',
-                  style: TextStyle(
-                    color: AppColors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22,
-                  ),
+              child: const Text(
+                'Srisurart POS',
+                style: TextStyle(
+                  color: AppColors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 22,
                 ),
               ),
             ),
             for (var i = 0; i < _destinations.length; i++)
-              ListTile(
-                leading: _NavIcon(
-                  destination: _destinations[i],
-                  color: i == selected ? AppColors.orange : AppColors.gray300,
-                ),
-                title: Text(
-                  _destinations[i].label,
-                  style: TextStyle(
-                    color: i == selected ? AppColors.orange : AppColors.gray300,
-                    fontWeight: i == selected
-                        ? FontWeight.w700
-                        : FontWeight.w400,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                child: ListTile(
+                  // Current page = orange text + a tinted, rounded tile, so it
+                  // stands out at a glance; hover/press tinted for the navy.
+                  minTileHeight: 52,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
+                  selectedTileColor: AppColors.orange.withValues(alpha: 0.16),
+                  hoverColor: AppColors.white.withValues(alpha: 0.06),
+                  focusColor: AppColors.white.withValues(alpha: 0.12),
+                  splashColor: AppColors.orange.withValues(alpha: 0.2),
+                  leading: _NavIcon(
+                    destination: _destinations[i],
+                    color: i == selected ? AppColors.orange : AppColors.gray300,
+                  ),
+                  title: Text(
+                    _destinations[i].label,
+                    style: TextStyle(
+                      color: i == selected ? AppColors.orange : AppColors.gray300,
+                      fontWeight: i == selected
+                          ? FontWeight.w700
+                          : FontWeight.w400,
+                    ),
+                  ),
+                  selected: i == selected,
+                  onTap: () {
+                    Navigator.pop(context);
+                    context.go(_destinations[i].path);
+                  },
                 ),
-                selected: i == selected,
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go(_destinations[i].path);
-                },
               ),
           ],
         ),
@@ -307,6 +326,11 @@ class _TopBarState extends State<_TopBar> {
     final now = _now;
 
     final topPadding = MediaQuery.of(context).padding.top;
+    // Phone width (or a phone-sized logical screen under whole-screen zoom):
+    // the fixed-width right cluster used to overflow the row at 390 px. Slim
+    // it down there — the SyncAlertBanner right below still spells out an
+    // offline / needs-owner state in full.
+    final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.compact;
 
     return Container(
       constraints: BoxConstraints(minHeight: 68 + topPadding),
@@ -362,8 +386,11 @@ class _TopBarState extends State<_TopBar> {
             ),
           ),
           const SizedBox(width: 8),
-          const SyncStatusIndicator(),
-          const SizedBox(width: 8),
+          SyncStatusIndicator(
+            compact: narrow,
+            crowded: MediaQuery.sizeOf(context).width < AppBreakpoints.expanded,
+          ),
+          SizedBox(width: narrow ? 0 : 8),
           IconButton(
             tooltip: mode == ThemeMode.dark ? 'โหมดสว่าง' : 'โหมดมืด',
             icon: Icon(
@@ -372,14 +399,14 @@ class _TopBarState extends State<_TopBar> {
             ),
             onPressed: () => context.read<ThemeModeCubit>().toggle(),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: narrow ? 0 : 8),
           // Fixed-size (NOT Flexible): a Flexible here would share the Row's
           // free space 50/50 with the Expanded shop name and float the cluster
           // to the topbar's centre. As a plain ConstrainedBox the Expanded shop
           // name absorbs all the slack and this stays pinned to the right edge;
           // maxWidth + ellipsis still keep a long cashier name from overflowing.
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
+            constraints: BoxConstraints(maxWidth: narrow ? 112 : 220),
             child: StreamBuilder(
               stream: settings,
               builder: (context, snap) {
@@ -406,12 +433,14 @@ class _TopBarState extends State<_TopBar> {
                         ),
                       ),
                       Text(
-                        '${DateFormat('EEE', 'th').format(now)} '
-                        '${thaiDate(now)} · ${thaiTime(now)}',
+                        narrow
+                            ? thaiTime(now)
+                            : '${DateFormat('EEE', 'th').format(now)} '
+                                  '${thaiDate(now)} · ${thaiTime(now)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Colors.white54,
+                          color: Colors.white70,
                           fontSize: 12,
                         ),
                       ),
@@ -435,7 +464,21 @@ class _TopBarState extends State<_TopBar> {
 /// - [SyncStatus.syncing] -> 'กำลังส่งข้อมูล...'
 /// - If [SyncFacade.needsOwner] is non-empty, displays a 'รอตรวจสอบ ($count)' badge.
 class SyncStatusIndicator extends StatelessWidget {
-  const SyncStatusIndicator({super.key});
+  const SyncStatusIndicator({
+    super.key,
+    this.compact = false,
+    this.crowded = false,
+  });
+
+  /// Icon (+ count) only, the full label in a tooltip — for a phone-width
+  /// topbar where the worded pill would overflow the row.
+  final bool compact;
+
+  /// A mid-width bar (tablet / zoomed laptop): when the owner badge is also
+  /// shown, the worded offline/sending pill drops to icon + count so both fit
+  /// (the banner below the bar still words the state). The badge keeps its
+  /// words — it is the one the counter acts on.
+  final bool crowded;
 
   @override
   Widget build(BuildContext context) {
@@ -470,9 +513,17 @@ class SyncStatusIndicator extends StatelessWidget {
                 return Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildStatusPill(context, status, remaining),
+                    _buildStatusPill(
+                      context,
+                      status,
+                      remaining,
+                      iconOnly: compact ||
+                          (crowded &&
+                              needsOwnerCount > 0 &&
+                              status != SyncStatus.online),
+                    ),
                     if (needsOwnerCount > 0) ...[
-                      const SizedBox(width: 8),
+                      SizedBox(width: compact ? 2 : 8),
                       _buildNeedsOwnerBadge(context, needsOwnerCount),
                     ],
                   ],
@@ -486,7 +537,8 @@ class SyncStatusIndicator extends StatelessWidget {
   }
 
   Widget _buildStatusPill(
-      BuildContext context, SyncStatus status, int remaining) {
+      BuildContext context, SyncStatus status, int remaining,
+      {bool iconOnly = false}) {
     final Color bg;
     final Color border;
     final Color fg;
@@ -521,6 +573,53 @@ class SyncStatusIndicator extends StatelessWidget {
             ? 'กำลังส่งข้อมูล... ($remaining)'
             : 'กำลังส่งข้อมูล...';
         break;
+    }
+
+    if (iconOnly) {
+      // Same colours and icon, no words: the label moves to the tooltip and
+      // the screen-reader label. A pending count stays visible.
+      return Tooltip(
+        message: label,
+        child: Semantics(
+          label: label,
+          excludeSemantics: true,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isSpinning)
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(fg),
+                    ),
+                  )
+                else
+                  Icon(icon, size: 16, color: fg),
+                if (remaining > 0 && status != SyncStatus.online) ...[
+                  const SizedBox(width: 4),
+                  Text(
+                    '$remaining',
+                    style: TextStyle(
+                      color: fg,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
     }
 
     return Container(
@@ -559,34 +658,55 @@ class SyncStatusIndicator extends StatelessWidget {
   }
 
   Widget _buildNeedsOwnerBadge(BuildContext context, int count) {
-    return InkWell(
+    final label = 'รอตรวจสอบ ($count)';
+    // The pill itself is ~22 px tall; the InkWell's box gives the finger a
+    // 40 px target around it (the topbar is 68 px, so it still fits).
+    final badge = InkWell(
       borderRadius: BorderRadius.circular(999),
       onTap: () => context.go(AppRoutes.ownerReview),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.error.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: AppColors.error.withValues(alpha: 0.6)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.assignment_late_outlined,
-                size: 14, color: AppColors.error),
-            const SizedBox(width: 6),
-            Text(
-              'รอตรวจสอบ ($count)',
-              style: const TextStyle(
-                color: AppColors.error,
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 40, minWidth: 40),
+        child: Center(
+          widthFactor: 1,
+          heightFactor: 1,
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 7 : 10,
+              vertical: compact ? 5 : 4,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.error.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: AppColors.errorTextOnDark.withValues(alpha: 0.6),
               ),
             ),
-          ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Light red: the plain error red on the navy bar was ~2:1.
+                const Icon(
+                  Icons.assignment_late_outlined,
+                  size: 14,
+                  color: AppColors.errorTextOnDark,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  compact ? '$count' : label,
+                  semanticsLabel: label,
+                  style: const TextStyle(
+                    color: AppColors.errorTextOnDark,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
+    return compact ? Tooltip(message: label, child: badge) : badge;
   }
 }
 
@@ -629,13 +749,13 @@ class SyncAlertBanner extends StatelessWidget {
 
             final isDark = Theme.of(context).brightness == Brightness.dark;
             final degradedBg =
-                isDark ? const Color(0xFF423200) : const Color(0xFFFFF3CD);
+                isDark ? AppColors.warningBannerDark : AppColors.warningBanner;
             final degradedFg =
-                isDark ? const Color(0xFFFFD56B) : const Color(0xFF856404);
+                isDark ? AppColors.warningTextOnDark : AppColors.warningText;
             final ownerBg =
-                isDark ? const Color(0xFF4A1015) : const Color(0xFFF8D7DA);
+                isDark ? AppColors.errorBannerDark : AppColors.errorBanner;
             final ownerFg =
-                isDark ? const Color(0xFFFF8E99) : const Color(0xFF721C24);
+                isDark ? AppColors.errorTextOnDark : AppColors.errorText;
 
             return Column(
               mainAxisSize: MainAxisSize.min,
@@ -670,6 +790,8 @@ class SyncAlertBanner extends StatelessWidget {
                       onTap: () => context.go(AppRoutes.ownerReview),
                       child: Container(
                         width: double.infinity,
+                        // The whole strip is the tap target: keep it finger-high.
+                        constraints: const BoxConstraints(minHeight: 44),
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 6),
                         child: Row(

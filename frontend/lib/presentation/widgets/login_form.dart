@@ -169,47 +169,18 @@ class _LoginFormState extends State<LoginForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: isPos
-                ? AppColors.success.withValues(alpha: 0.1)
-                : Colors.grey.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: isPos
-                  ? AppColors.success.withValues(alpha: 0.3)
-                  : Colors.grey.withValues(alpha: 0.3),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                isPos ? Icons.point_of_sale : Icons.computer,
-                size: 18,
-                color: isPos ? AppColors.success : Colors.grey[700],
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isPos
-                      ? 'เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)'
-                      : hasUnconfirmedEnrolment
-                          // #465c เจ้าของโปรเจกต์รับรอง 2026-10-07 — เครื่องผูกกับ
-                          // ร้านแล้วจริง แต่ role (pos/backoffice) ยังไม่ทราบจนกว่าจะ
-                          // เข้าสู่ระบบสำเร็จครั้งแรก จึงเลี่ยงข้อความเดิมที่อ้างว่า
-                          // "ยังไม่ได้ผูกเครื่อง POS" ซึ่งไม่จริงอีกต่อไป
-                          ? 'ผูกเครื่องกับร้านแล้ว รอเข้าสู่ระบบเพื่อยืนยันสิทธิ์การใช้งาน'
-                          : 'โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: isPos ? AppColors.success : Colors.grey[800],
-                  ),
-                ),
-              ),
-            ],
-          ),
+        _Notice(
+          tone: isPos ? _NoticeTone.success : _NoticeTone.neutral,
+          icon: isPos ? Icons.point_of_sale : Icons.computer,
+          text: isPos
+              ? 'เครื่อง POS (มีสิทธิ์ขายและบันทึกเงินสด)'
+              : hasUnconfirmedEnrolment
+                  // #465c เจ้าของโปรเจกต์รับรอง 2026-10-07 — เครื่องผูกกับ
+                  // ร้านแล้วจริง แต่ role (pos/backoffice) ยังไม่ทราบจนกว่าจะ
+                  // เข้าสู่ระบบสำเร็จครั้งแรก จึงเลี่ยงข้อความเดิมที่อ้างว่า
+                  // "ยังไม่ได้ผูกเครื่อง POS" ซึ่งไม่จริงอีกต่อไป
+                  ? 'ผูกเครื่องกับร้านแล้ว รอเข้าสู่ระบบเพื่อยืนยันสิทธิ์การใช้งาน'
+                  : 'โหมด Backoffice (ยังไม่ได้ผูกเครื่อง POS)',
         ),
         const SizedBox(height: 16),
 
@@ -234,27 +205,11 @@ class _LoginFormState extends State<LoginForm> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: Colors.orange.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.timer_off, color: Colors.orange, size: 20),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'ไม่สามารถใช้ PIN ออฟไลน์ได้เนื่องจากเกินกำหนด 3 วัน กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบใหม่',
-                              style: TextStyle(fontSize: 12, color: Colors.brown),
-                            ),
-                          ),
-                        ],
-                      ),
+                    const _Notice(
+                      tone: _NoticeTone.warning,
+                      icon: Icons.timer_off,
+                      text:
+                          'ไม่สามารถใช้ PIN ออฟไลน์ได้เนื่องจากเกินกำหนด 3 วัน กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบใหม่',
                     ),
                     const SizedBox(height: 16),
                     _buildOnlineForm(),
@@ -267,27 +222,11 @@ class _LoginFormState extends State<LoginForm> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppColors.error.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: AppColors.error.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.lock, color: AppColors.error, size: 20),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'รหัส PIN ถูกล็อกเนื่องจากใส่ผิดครบ 5 ครั้ง กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบด้วยรหัสผ่านหลัก',
-                              style: TextStyle(fontSize: 12, color: Colors.red),
-                            ),
-                          ),
-                        ],
-                      ),
+                    const _Notice(
+                      tone: _NoticeTone.danger,
+                      icon: Icons.lock,
+                      text:
+                          'รหัส PIN ถูกล็อกเนื่องจากใส่ผิดครบ 5 ครั้ง กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบด้วยรหัสผ่านหลัก',
                     ),
                     const SizedBox(height: 16),
                     _buildOnlineForm(),
@@ -300,27 +239,11 @@ class _LoginFormState extends State<LoginForm> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: Colors.grey.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.grey, size: 20),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'เครื่องนี้ยังไม่ได้ตั้งค่า PIN ออฟไลน์ กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบ',
-                              style: TextStyle(fontSize: 12, color: Colors.grey),
-                            ),
-                          ),
-                        ],
-                      ),
+                    const _Notice(
+                      tone: _NoticeTone.neutral,
+                      icon: Icons.info_outline,
+                      text:
+                          'เครื่องนี้ยังไม่ได้ตั้งค่า PIN ออฟไลน์ กรุณาเชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบ',
                     ),
                     const SizedBox(height: 16),
                     _buildOnlineForm(),
@@ -356,31 +279,34 @@ class _LoginFormState extends State<LoginForm> {
     );
   }
 
+  /// The submit button, alone and full width on the login route; right-aligned
+  /// after ยกเลิก in the dialog (Wrap: the pair stacks when zoom leaves no room).
+  Widget _actions(Widget submit) {
+    if (widget.onCancel == null) return submit;
+    return Wrap(
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        TextButton(
+          onPressed: _busy ? null : widget.onCancel,
+          child: const Text('ยกเลิก'),
+        ),
+        submit,
+      ],
+    );
+  }
+
   Widget _buildPinForm() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: AppColors.orange.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: AppColors.orange.withValues(alpha: 0.3),
-            ),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.offline_bolt, color: AppColors.orange, size: 20),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'โหมดออฟไลน์: เข้าสู่ระบบหน้าร้านด้วย PIN 4-6 หลัก เพื่อขายของและบันทึกรายการ',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
-          ),
+        const _Notice(
+          tone: _NoticeTone.accent,
+          icon: Icons.offline_bolt,
+          text:
+              'โหมดออฟไลน์: เข้าสู่ระบบหน้าร้านด้วย PIN 4-6 หลัก เพื่อขายของและบันทึกรายการ',
         ),
         const SizedBox(height: 16),
         AppTextField(
@@ -401,23 +327,14 @@ class _LoginFormState extends State<LoginForm> {
           onSubmitted: _submitPin,
         ),
         const SizedBox(height: 20),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            if (widget.onCancel != null) ...[
-              TextButton(
-                onPressed: _busy ? null : widget.onCancel,
-                child: const Text('ยกเลิก'),
-              ),
-              const SizedBox(width: 8),
-            ],
-            AppButton(
-              label: 'เข้าสู่ระบบ (PIN ออฟไลน์)',
-              icon: Icons.login,
-              onPressed: _busy ? null : _submitPin,
-              busy: _busy,
-            ),
-          ],
+        _actions(
+          AppButton(
+            label: 'เข้าสู่ระบบ (PIN ออฟไลน์)',
+            icon: Icons.login,
+            onPressed: _busy ? null : _submitPin,
+            busy: _busy,
+            fullWidth: widget.onCancel == null,
+          ),
         ),
         const SizedBox(height: 12),
         Center(
@@ -463,22 +380,14 @@ class _LoginFormState extends State<LoginForm> {
             onSubmitted: _submit,
           ),
           const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              if (widget.onCancel != null) ...[
-                TextButton(
-                  onPressed: _busy ? null : widget.onCancel,
-                  child: const Text('ยกเลิก'),
-                ),
-                const SizedBox(width: 8),
-              ],
-              AppButton(
-                label: 'เข้าสู่ระบบ',
-                onPressed: _busy ? null : _submit,
-                busy: _busy,
-              ),
-            ],
+          _actions(
+            AppButton(
+              label: 'เข้าสู่ระบบ',
+              icon: Icons.login,
+              onPressed: _busy ? null : _submit,
+              busy: _busy,
+              fullWidth: widget.onCancel == null,
+            ),
           ),
         ],
       ),
@@ -516,4 +425,70 @@ class _PinFormEligibility {
   final bool isLocked;
   final bool isExpired;
   final bool isAvailable;
+}
+
+enum _NoticeTone { success, neutral, warning, danger, accent }
+
+/// One status line above the login fields (device role, PIN expired / locked /
+/// not set up, offline mode). Colours come from the theme tokens and switch
+/// with brightness — the old hard-coded greys/brown were dark-on-dark and
+/// unreadable in the dark theme.
+class _Notice extends StatelessWidget {
+  const _Notice({required this.tone, required this.icon, required this.text});
+
+  final _NoticeTone tone;
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final (Color base, Color fg) = switch (tone) {
+      _NoticeTone.success => (
+        AppColors.success,
+        dark ? AppColors.successLight : AppColors.forestGreen,
+      ),
+      _NoticeTone.neutral => (
+        AppColors.steelBlue,
+        theme.colorScheme.onSurfaceVariant,
+      ),
+      _NoticeTone.warning => (
+        AppColors.warning,
+        dark ? AppColors.warningTextOnDark : AppColors.warningText,
+      ),
+      _NoticeTone.danger => (
+        AppColors.error,
+        dark ? AppColors.errorTextOnDark : AppColors.error,
+      ),
+      _NoticeTone.accent => (AppColors.orange, theme.colorScheme.onSurface),
+    };
+    final iconColor = tone == _NoticeTone.accent ? AppColors.orange : fg;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: base.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: base.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: iconColor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w500,
+                color: fg,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

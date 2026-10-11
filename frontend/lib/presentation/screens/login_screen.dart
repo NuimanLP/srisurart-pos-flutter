@@ -46,59 +46,86 @@ class LoginScreen extends StatelessWidget {
                       child: Center(child: CircularProgressIndicator()),
                     )
                   : Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.lock_outline,
+                      clipBehavior: Clip.antiAlias,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // The shop's navy fascia with the orange rule, as
+                          // on the app's own topbar — the counter knows at a
+                          // glance this is the till's sign-in, not a website.
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(24, 18, 24, 16),
+                            decoration: const BoxDecoration(
+                              color: AppColors.navyDeep,
+                              border: Border(
+                                bottom: BorderSide(
                                   color: AppColors.orange,
+                                  width: 3,
                                 ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  // #443 PR3: LoginForm has swapped to the
-                                  // change-password form (owner-ratified 2026-10-07).
-                                  authState is AuthPasswordChangeRequired
-                                      ? 'ตั้งรหัสผ่านใหม่'
-                                      : 'เข้าสู่ระบบ',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
-                            const SizedBox(height: 4),
-                            const Text(
+                            child: const Text(
                               'Srisurart POS',
                               style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.steelBlue,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.white,
                               ),
                             ),
-                            const SizedBox(height: 16),
-                            const LoginForm(),
-                            // ADR-0004: a fresh machine has no device token,
-                            // and enrolment must be reachable before anyone is
-                            // signed in. An enrolled machine does not offer it
-                            // again — rebinding is Settings' job, after login.
-                            if (offerEnrolment) ...[
-                              const Divider(height: 32),
-                              TextButton.icon(
-                                onPressed: () =>
-                                    DeviceEnrolmentDialog.show(context),
-                                icon: const Icon(Icons.devices),
-                                label: const Text(
-                                  'ผูกเครื่องขาย (POS Terminal)',
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.lock_outline,
+                                      color: AppColors.orange,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        // #443 PR3: LoginForm has swapped to the
+                                        // change-password form (owner-ratified 2026-10-07).
+                                        authState is AuthPasswordChangeRequired
+                                            ? 'ตั้งรหัสผ่านใหม่'
+                                            : 'เข้าสู่ระบบ',
+                                        style: const TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
-                          ],
-                        ),
+                                const SizedBox(height: 16),
+                                const LoginForm(),
+                                // ADR-0004: a fresh machine has no device token,
+                                // and enrolment must be reachable before anyone is
+                                // signed in. An enrolled machine does not offer it
+                                // again — rebinding is Settings' job, after login.
+                                if (offerEnrolment) ...[
+                                  const Divider(height: 32),
+                                  TextButton.icon(
+                                    onPressed: () =>
+                                        DeviceEnrolmentDialog.show(context),
+                                    icon: const Icon(Icons.devices),
+                                    label: const Text(
+                                      'ผูกเครื่องขาย (POS Terminal)',
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
             ),

@@ -85,6 +85,11 @@ class NotPosDeviceBanner extends StatelessWidget {
       bloc: cubit,
       builder: (context, state) {
         if (!_isNotPos(state)) return const SizedBox.shrink();
+        // Readable red on both themes (plain error red on the dark navy
+        // surface was ~2:1).
+        final fg = Theme.of(context).brightness == Brightness.dark
+            ? AppColors.errorTextOnDark
+            : AppColors.error;
         return Material(
           color: AppColors.error.withValues(alpha: 0.08),
           child: Container(
@@ -102,17 +107,17 @@ class NotPosDeviceBanner extends StatelessWidget {
               spacing: 12,
               runSpacing: 8,
               children: [
-                const Row(
+                Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.point_of_sale, color: AppColors.error, size: 20),
-                    SizedBox(width: 8),
+                    Icon(Icons.point_of_sale, color: fg, size: 20),
+                    const SizedBox(width: 8),
                     Flexible(
                       child: Text(
                         notPosDeviceMessage,
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
-                          color: AppColors.error,
+                          color: fg,
                         ),
                       ),
                     ),

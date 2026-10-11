@@ -60,6 +60,12 @@ class AppTheme {
         foregroundColor: AppColors.white,
         elevation: 0,
       ),
+      // A long Thai error (a server refusal, a PIN lock) must be readable in
+      // full — Flutter's default clips error/helper text to one line.
+      inputDecorationTheme: const InputDecorationTheme(
+        errorMaxLines: 3,
+        helperMaxLines: 3,
+      ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.orange,
