@@ -26,6 +26,7 @@ import 'presentation/blocs/settings_pull.dart';
 import 'presentation/repositories/repository_providers.dart';
 import 'presentation/widgets/font_scale_controller.dart';
 import 'presentation/widgets/theme_controller.dart';
+import 'presentation/widgets/ui_zoom_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +44,7 @@ Future<void> main() async {
         providers: [
           BlocProvider<ThemeModeCubit>(create: (_) => ThemeModeCubit()),
           BlocProvider<FontScaleCubit>(create: (_) => FontScaleCubit()),
+          BlocProvider<UiZoomCubit>(create: (_) => UiZoomCubit()),
           BlocProvider<PendingQuoteCubit>(create: (_) => PendingQuoteCubit()),
           BlocProvider<CartCubit>(create: (_) => CartCubit()),
           BlocProvider<AuthCubit>(

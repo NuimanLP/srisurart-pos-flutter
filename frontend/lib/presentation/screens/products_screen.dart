@@ -7,6 +7,8 @@
 // "± ปรับ" adjust action (adjustStock clamps at 0 + writes a movement); the edit
 // form strips stock + partNo exactly like the JSX.
 
+import 'dart:math' as math;
+
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -542,10 +544,17 @@ class _StockTabState extends State<_StockTab> {
         final outCount = _products.where((p) => p.stock == 0).length;
         final filtered = _filtered;
 
-        return Column(
+        return LayoutBuilder(
+          builder: (context, viewport) => Column(
           children: [
-            // toolbar
-            Container(
+            // toolbar — on a short screen (e.g. whole-screen zoom) it wraps
+            // into many rows; keep 160px for the list and let it scroll.
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: math.max(120, viewport.maxHeight - 160),
+              ),
+              child: SingleChildScrollView(
+                child: Container(
           width: double.infinity,
           color: theme.colorScheme.surface,
           padding: const EdgeInsets.all(16),
@@ -735,6 +744,8 @@ class _StockTabState extends State<_StockTab> {
             ],
           ),
         ),
+              ),
+            ),
         if (_showCatMgr) _catManagerPanel(theme, isDegraded),
         // table
         Expanded(
@@ -822,7 +833,8 @@ class _StockTabState extends State<_StockTab> {
         ),
         if (_selecting) _bulkBar(theme, filtered, isDegraded),
       ],
-    );
+          ),
+        );
       },
     );
   }

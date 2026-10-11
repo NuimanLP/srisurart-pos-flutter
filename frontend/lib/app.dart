@@ -14,6 +14,7 @@ import 'presentation/blocs/auth_cubit.dart';
 import 'presentation/blocs/cart_cubit.dart';
 import 'presentation/blocs/pending_quote_cubit.dart';
 import 'presentation/widgets/font_scale_controller.dart';
+import 'presentation/widgets/ui_zoom_controller.dart';
 import 'presentation/widgets/theme_controller.dart';
 
 class SrisurartApp extends StatefulWidget {
@@ -83,6 +84,7 @@ class _SrisurartAppState extends State<SrisurartApp> {
   @override
   Widget build(BuildContext context) {
     final fontScale = context.watch<FontScaleCubit>().state;
+    final zoom = context.watch<UiZoomCubit>().state;
     return MaterialApp.router(
       title: 'Srisurart POS',
       debugShowCheckedModeBanner: false,
@@ -102,7 +104,7 @@ class _SrisurartAppState extends State<SrisurartApp> {
           data: MediaQuery.of(
             context,
           ).copyWith(textScaler: TextScaler.linear(fontScale)),
-          child: child!,
+          child: UiZoom(zoom: zoom, child: child!),
         );
       },
     );

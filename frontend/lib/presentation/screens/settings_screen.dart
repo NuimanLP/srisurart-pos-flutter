@@ -58,6 +58,7 @@ import '../widgets/payment_accounts_settings.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 import '../widgets/theme_controller.dart';
+import '../widgets/ui_zoom_controller.dart';
 
 // Week-boundary key (today − 7d, yyyy-MM-dd) — matches the db.js slice.
 // todayKey()/monthKey() come from core/utils/dates.dart.
@@ -1026,6 +1027,9 @@ class _ThemeTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 32),
+        // ── Whole-screen zoom (elderly) ──
+        const _UiZoomSection(),
+        const SizedBox(height: 24),
         // ── Font scale section ──
         const _FontScaleSection(),
       ],
@@ -1122,6 +1126,76 @@ class _ThemeCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Whole-screen zoom presets (ui_zoom_controller.dart) ──
+class _UiZoomSection extends StatelessWidget {
+  const _UiZoomSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final requested = context.watch<UiZoomCubit>().state;
+    // This screen is itself zoomed: the cap comes from the real window size.
+    final screen = MediaQueryData.fromView(View.of(context)).size;
+    final max = maxUiZoomFor(screen);
+    final applied = effectiveUiZoom(screen, requested);
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _SectionTitle('ขยายทั้งหน้าจอ · Zoom'),
+          const SizedBox(height: 4),
+          Text(
+            'ขยายทุกอย่างบนจอ ทั้งตัวอักษร ปุ่ม และรูป ให้ผู้สูงอายุอ่านง่าย',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.secondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = 10.0;
+              const minCard = 96.0;
+              final n = uiZoomPresets.length;
+              final perRow = ((constraints.maxWidth + gap) / (minCard + gap))
+                  .floor()
+                  .clamp(1, n);
+              final w = (constraints.maxWidth - gap * (perRow - 1)) / perRow;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (final p in uiZoomPresets)
+                    SizedBox(
+                      width: w,
+                      child: _FontScalePresetCard(
+                        preset: p,
+                        active: (requested - p.value).abs() < 0.01,
+                        onTap: () =>
+                            context.read<UiZoomCubit>().setZoom(p.value),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          if (requested > applied + 0.01) ...[
+            const SizedBox(height: 12),
+            Text(
+              'จอนี้ขยายได้สูงสุด ${max.toStringAsFixed(1)} เท่า '
+              '(ตอนนี้ใช้ ${applied.toStringAsFixed(1)} เท่า)',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.orange,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

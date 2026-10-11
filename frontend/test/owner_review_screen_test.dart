@@ -17,6 +17,7 @@ import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/owner_review_screen.dart';
 import 'package:srisurart_pos/presentation/widgets/font_scale_controller.dart';
+import 'package:srisurart_pos/presentation/widgets/ui_zoom_controller.dart';
 import 'package:srisurart_pos/presentation/widgets/theme_controller.dart';
 
 import 'support/fake_sync_facade.dart';
@@ -54,6 +55,7 @@ Widget buildTestWidget({
       providers: [
         BlocProvider(create: (_) => ThemeModeCubit()),
         BlocProvider(create: (_) => FontScaleCubit()),
+        BlocProvider(create: (_) => UiZoomCubit()),
       ],
       child: MaterialApp(
         home: child,
@@ -336,6 +338,7 @@ void main() {
               providers: [
                 BlocProvider(create: (_) => ThemeModeCubit()),
                 BlocProvider(create: (_) => FontScaleCubit()),
+                BlocProvider(create: (_) => UiZoomCubit()),
                 BlocProvider(create: (_) => PendingQuoteCubit()),
                 BlocProvider(create: (_) => CartCubit()),
               ],
