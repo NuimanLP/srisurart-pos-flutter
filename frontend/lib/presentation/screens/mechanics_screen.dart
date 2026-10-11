@@ -19,6 +19,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/errors/pos_exception.dart';
 import '../../core/network/server_error_resolver.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/mechanics_repository.dart';
@@ -32,11 +33,13 @@ import '../widgets/money_text.dart';
 import '../widgets/search_field.dart';
 import '../widgets/sync_status_builder.dart';
 
-// Status colors used in the JSX (kept literal for parity).
-const Color _credit = Color(0xFFD4820A); // ยอดค้าง / ลดให้ช่าง
-const Color _green = Color(0xFF2ECC71); // รับชำระ / ส่วนต่าง
-const Color _red = Color(0xFFC0392B); // เกินวงเงิน
-const Color _saleOrange = Color(0xFFE8601C);
+// Status colors — the JSX's literals mapped onto the theme palette (credit,
+// red and orange are the same hex; the JSX green #2ECC71 was ~2:1 on the light
+// surface, so payments use successLight).
+const Color _credit = AppColors.warning; // ยอดค้าง / ลดให้ช่าง
+const Color _green = AppColors.successLight; // รับชำระ / ส่วนต่าง
+const Color _red = AppColors.error; // เกินวงเงิน
+const Color _saleOrange = AppColors.orange;
 
 class MechanicsScreen extends StatefulWidget {
   const MechanicsScreen({super.key});
@@ -113,7 +116,9 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
                 return const LoadingView();
               }
               if (snap.hasError) {
-                return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+                return Center(
+                  child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'),
+                );
               }
               final mechanics = snap.data!;
               final selected = _selectedId == null
@@ -195,7 +200,6 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
                       'ช่าง · Mechanics',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -279,18 +283,34 @@ class _MechanicsScreenState extends State<MechanicsScreen> {
         Expanded(
           child: visible.isEmpty
               ? const EmptyState(message: 'ไม่พบช่าง')
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                  itemCount: visible.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final m = visible[i];
-                    return _MechanicRowTile(
-                      mechanic: m,
-                      selected: selected?.id == m.id,
-                      onTap: () => _onSelect(m),
-                      onEdit: isDegraded ? null : () => _openEdit(m),
-                      onDelete: isDegraded ? null : () => _remove(m),
+              : LayoutBuilder(
+                  builder: (context, c) {
+                    // The 24px list padding on each side comes off first.
+                    final compact = c.maxWidth - 48 < _MechanicRowTile.wideMin;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!compact) const _MechanicListHeader(),
+                        Expanded(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                            itemCount: visible.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (_, i) {
+                              final m = visible[i];
+                              return _MechanicRowTile(
+                                mechanic: m,
+                                selected: selected?.id == m.id,
+                                compact: compact,
+                                onTap: () => _onSelect(m),
+                                onEdit: isDegraded ? null : () => _openEdit(m),
+                                onDelete: isDegraded ? null : () => _remove(m),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -575,7 +595,9 @@ class _PendingPaymentsDialogState extends State<_PendingPaymentsDialog> {
                                                 r.id,
                                               ),
                                         ),
-                                  child: const Text('ส่งอีกครั้ง (ยืนยันจ่ายเกิน)'),
+                                  child: const Text(
+                                    'ส่งอีกครั้ง (ยืนยันจ่ายเกิน)',
+                                  ),
                                 ),
                               TextButton(
                                 onPressed: _busy
@@ -654,8 +676,7 @@ class _TabButton extends StatelessWidget {
           label,
           style: TextStyle(
             fontWeight: FontWeight.w700,
-            fontSize: 13,
-            letterSpacing: 0.5,
+            fontSize: 14,
             color: active ? _saleOrange : Theme.of(context).hintColor,
           ),
         ),
@@ -667,16 +688,69 @@ class _TabButton extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // LIST ROW TILE
 // ─────────────────────────────────────────────────────────────────────────────
+/// Column headings over the wide (table) list — two unlabelled money columns
+/// side by side made it easy to read ยอดซื้อ as the debt. Flexes match
+/// [_MechanicRowTile]'s wide row. Headings are agent ร่าง.
+class _MechanicListHeader extends StatelessWidget {
+  const _MechanicListHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.bodySmall?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: theme.hintColor,
+    );
+    Widget cell(String t, int flex, {bool end = false}) => Expanded(
+      flex: flex,
+      child: Text(
+        t,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: end ? TextAlign.right : TextAlign.left,
+        style: style,
+      ),
+    );
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(width: 64, child: Text('รหัส', style: style)),
+          cell('ชื่อช่าง', 3),
+          cell('อู่ / ร้าน', 2),
+          cell('เบอร์โทร', 2),
+          cell('ยอดซื้อ', 2, end: true),
+          cell('ยอดค้าง', 2, end: true),
+          cell('วงเงิน', 2, end: true),
+          // The two action icons.
+          const SizedBox(width: 80),
+        ],
+      ),
+    );
+  }
+}
+
 class _MechanicRowTile extends StatelessWidget {
   final MechanicRow mechanic;
   final bool selected;
+
+  /// Two-line phone layout instead of the 7-column table row.
+  final bool compact;
   final VoidCallback onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
+  /// Below this row width the table columns are crushed (~15px each at 390).
+  static const double wideMin = 640;
+
   const _MechanicRowTile({
     required this.mechanic,
     required this.selected,
+    this.compact = false,
     required this.onTap,
     this.onEdit,
     this.onDelete,
@@ -696,6 +770,130 @@ class _MechanicRowTile extends StatelessWidget {
       rowBg = _red.withValues(alpha: 0.06);
     } else if (selected) {
       rowBg = _saleOrange.withValues(alpha: 0.08);
+    }
+
+    final barColor = overLimit ? _red : (ratio > 0.8 ? _credit : _green);
+    final actions = [
+      IconButton(
+        tooltip: 'แก้ไข',
+        icon: const Icon(Icons.edit_outlined, size: 18),
+        onPressed: onEdit,
+        visualDensity: VisualDensity.compact,
+      ),
+      IconButton(
+        tooltip: 'ลบ',
+        icon: const Icon(Icons.delete_outline, size: 18),
+        onPressed: onDelete,
+        visualDensity: VisualDensity.compact,
+      ),
+    ];
+
+    if (compact) {
+      final sub = [
+        m.code,
+        if ((m.shopName ?? '').isNotEmpty) m.shopName!,
+        if ((m.phone ?? '').isNotEmpty) m.phone!,
+      ].join(' · ');
+      return InkWell(
+        onTap: onTap,
+        child: Container(
+          color: rowBg,
+          padding: const EdgeInsets.fromLTRB(8, 10, 0, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    RichText(
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      text: TextSpan(
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                        children: [
+                          TextSpan(text: '🔧 ${m.nameTH ?? ''}'),
+                          if ((m.nickname ?? '').isNotEmpty)
+                            TextSpan(
+                              text: '  (${m.nickname})',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.hintColor,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sub,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.hintColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // The debt is the number that matters on this list.
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 120),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (bal > 0)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (overLimit)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 4),
+                              child: Text('⚠', style: TextStyle(color: _red)),
+                            ),
+                          Flexible(
+                            child: MoneyText(
+                              bal,
+                              color: overLimit ? _red : _credit,
+                              scaleDown: true,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Text('—', style: TextStyle(color: theme.hintColor)),
+                    if (lim > 0) ...[
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        width: 80,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: ratio,
+                            minHeight: 4,
+                            backgroundColor: theme.dividerColor,
+                            color: barColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              ...actions,
+            ],
+          ),
+        ),
+      );
     }
 
     return InkWell(
@@ -805,9 +1003,7 @@ class _MechanicRowTile extends StatelessWidget {
                             value: ratio,
                             minHeight: 3,
                             backgroundColor: theme.dividerColor,
-                            color: overLimit
-                                ? _red
-                                : (ratio > 0.8 ? _credit : _green),
+                            color: barColor,
                           ),
                         ),
                       ],
@@ -821,18 +1017,7 @@ class _MechanicRowTile extends StatelessWidget {
                     ),
             ),
             // Actions.
-            IconButton(
-              tooltip: 'แก้ไข',
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              onPressed: onEdit,
-              visualDensity: VisualDensity.compact,
-            ),
-            IconButton(
-              tooltip: 'ลบ',
-              icon: const Icon(Icons.delete_outline, size: 18),
-              onPressed: onDelete,
-              visualDensity: VisualDensity.compact,
-            ),
+            ...actions,
           ],
         ),
       ),
@@ -1047,27 +1232,46 @@ class _CreditCard extends StatelessWidget {
                       'ยอดเครดิตค้างชำระ ${overLimit ? '⚠ เกินวงเงิน' : ''}',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
-                        fontSize: 11,
-                        letterSpacing: 1.1,
+                        fontSize: 13,
                         color: accent,
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      baht(bal),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 32,
-                        height: 1,
-                        color: accent,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        baht(bal),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 32,
+                          height: 1,
+                          color: accent,
+                        ),
                       ),
                     ),
                     if (lim > 0)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          'วงเงิน ${baht(lim)}',
-                          style: theme.textTheme.bodySmall,
+                        child: Wrap(
+                          spacing: 10,
+                          children: [
+                            Text(
+                              'วงเงิน ${baht(lim)}',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                            // What is left to sell on credit — no mental
+                            // arithmetic at the counter (agent ร่าง).
+                            Text(
+                              overLimit
+                                  ? 'เกินวงเงิน ${baht(round2(bal - lim))}'
+                                  : 'ใช้ได้อีก ${baht(round2(lim - bal))}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: overLimit ? _red : _green,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],
@@ -1131,20 +1335,27 @@ class _StatBox extends StatelessWidget {
         children: [
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontWeight: FontWeight.w700,
-              fontSize: 11,
-              letterSpacing: 1.0,
+              fontSize: 12,
               color: c ?? theme.hintColor,
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            baht(value),
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 22,
-              color: c ?? theme.colorScheme.onSurface,
+          // Three boxes share a phone-width row: shrink, never wrap a digit.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              baht(value),
+              maxLines: 1,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 22,
+                color: c ?? theme.colorScheme.onSurface,
+              ),
             ),
           ),
         ],
@@ -1209,8 +1420,7 @@ class _AccountHistory extends StatelessWidget {
                         'ประวัติเดินบัญชี (${sales.length} ขาย · ${pays.length} รับชำระ)',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                          letterSpacing: 1.1,
+                          fontSize: 13,
                           color: theme.hintColor,
                         ),
                       ),
@@ -1775,17 +1985,26 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'ยอดค้างปัจจุบัน',
-                          style: theme.textTheme.bodySmall,
+                        Flexible(
+                          child: Text(
+                            'ยอดค้างปัจจุบัน',
+                            style: theme.textTheme.bodySmall,
+                          ),
                         ),
-                        Text(
-                          baht(_outstanding),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 24,
-                            height: 1,
-                            color: _credit,
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              baht(_outstanding),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 24,
+                                height: 1,
+                                color: _credit,
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -1806,20 +2025,55 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'ยอดค้างหลังรับชำระ',
-                            style: theme.textTheme.bodySmall,
+                          Flexible(
+                            child: Text(
+                              'ยอดค้างหลังรับชำระ',
+                              style: theme.textTheme.bodySmall,
+                            ),
                           ),
-                          Text(
-                            baht(after),
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 20,
-                              color: after == 0 ? _green : _credit,
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                baht(after),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 20,
+                                  color: after == 0 ? _green : _credit,
+                                ),
+                              ),
                             ),
                           ),
                         ],
                       ),
+                      // A green ฿0 alone read as "all good" while the counter
+                      // was about to take more than is owed. Display only —
+                      // the confirm on submit is unchanged (agent ร่าง).
+                      if (amt > _outstanding)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                size: 18,
+                                color: _red,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'รับเกินยอดค้าง ${baht(round2(amt - _outstanding))}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: _red,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                     ],
                   ],
                 ),
@@ -1843,8 +2097,9 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
                 runSpacing: 6,
                 children: [
                   for (final v in [100, 500, 1000, 2000, 5000])
+                    // Sets the amount (it never added) — so no '+' on it.
                     _QuickChip(
-                      label: '+฿$v',
+                      label: baht(v),
                       onTap: () => setState(() => _amount.text = '$v'),
                     ),
                   _QuickChip(
@@ -1862,8 +2117,7 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
                   'วิธีชำระ',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    letterSpacing: 1.0,
+                    fontSize: 13,
                     color: theme.hintColor,
                   ),
                 ),
@@ -1921,15 +2175,15 @@ class _QuickChip extends StatelessWidget {
     return OutlinedButton(
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        minimumSize: Size.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        minimumSize: const Size(0, 40),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         foregroundColor: theme.hintColor,
         side: BorderSide(color: theme.dividerColor),
       ),
       child: Text(
         label,
-        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
       ),
     );
   }
@@ -2017,8 +2271,7 @@ class AppTextFieldLite extends StatelessWidget {
               label!,
               style: TextStyle(
                 fontWeight: FontWeight.w700,
-                fontSize: 12,
-                letterSpacing: 1.0,
+                fontSize: 13,
                 color: theme.hintColor,
               ),
             ),
