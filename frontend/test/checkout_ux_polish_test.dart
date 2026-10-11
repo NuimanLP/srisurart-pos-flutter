@@ -2,8 +2,11 @@
 // B-checkout.md): presentation only — these check what the counter now SEES,
 // and that each new control goes through the same CartCubit calls as before.
 
+import 'dart:async';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -12,13 +15,32 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/core/utils/money.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
+import 'package:srisurart_pos/data/repositories/sales_repository.dart';
+import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
 import 'package:srisurart_pos/presentation/widgets/low_stock_alert.dart';
 import 'package:srisurart_pos/presentation/widgets/ui_zoom.dart';
+
+/// Counts `saveSale` calls; each call waits on [gate] (when set), then refuses
+/// — the screen's own catch shows an alert, a quiet place for a test to stop.
+class _CountingSales extends SalesRepository {
+  _CountingSales(super.db);
+
+  int calls = 0;
+  Completer<void>? gate;
+
+  @override
+  Future<SaleRow> saveSale(SaleInput input) async {
+    calls++;
+    if (gate != null) await gate!.future;
+    throw Exception('test stops here');
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +58,7 @@ void main() {
     Future<void> Function(CartCubit cart, List<ProductRow> products) body, {
     Future<void> Function(AppDatabase db)? setup,
     double zoom = 1.0,
+    SalesRepository Function(AppDatabase db)? sales,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -54,7 +77,11 @@ void main() {
       final products = await ProductsRepository(db).getAll();
       await tester.pumpWidget(
         MultiRepositoryProvider(
-          providers: repositoryProviders(db),
+          providers: [
+            ...repositoryProviders(db),
+            if (sales != null)
+              RepositoryProvider<SalesRepository>.value(value: sales(db)),
+          ],
           child: MultiBlocProvider(
             providers: [
               BlocProvider<PendingQuoteCubit>.value(value: pq),
@@ -265,5 +292,161 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+  });
+
+  group('F9 pays only when a click on the pay button would', () {
+    late _CountingSales sales;
+    SalesRepository makeSales(AppDatabase db) => sales = _CountingSales(db);
+
+    Future<void> enterCash(WidgetTester tester) async {
+      await tester.enterText(
+        find.widgetWithText(TextField, 'รับเงิน ฿…'),
+        '1000000',
+      );
+      await settle(tester);
+    }
+
+    Future<void> dismissAlert(WidgetTester tester) async {
+      if (find.text('ตกลง').evaluate().isNotEmpty) {
+        await tester.tap(find.text('ตกลง'));
+        await settle(tester);
+      }
+    }
+
+    testWidgets('empty cart: nothing', (tester) async {
+      await run(tester, desktop, sales: makeSales, (cart, products) async {
+        await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+        await settle(tester);
+        expect(sales.calls, 0);
+        expect(find.byType(AlertDialog), findsNothing);
+      });
+    });
+
+    testWidgets('with items: one sale, through the same handler', (
+      tester,
+    ) async {
+      await run(tester, desktop, sales: makeSales, (cart, products) async {
+        cart.add(products.firstWhere((x) => x.stock > 0));
+        await settle(tester);
+        await enterCash(tester);
+        await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+        await settle(tester);
+        expect(sales.calls, 1);
+        await dismissAlert(tester);
+      });
+    });
+
+    testWidgets('while a sale is in flight: no second sale', (tester) async {
+      await run(tester, desktop, sales: makeSales, (cart, products) async {
+        cart.add(products.firstWhere((x) => x.stock > 0));
+        await settle(tester);
+        await enterCash(tester);
+        sales.gate = Completer<void>();
+        await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+        await tester.pump();
+        expect(sales.calls, 1);
+        sales.gate!.complete();
+        await settle(tester);
+        expect(sales.calls, 1);
+        await dismissAlert(tester);
+      });
+    });
+
+    testWidgets('with a line price being edited: no sale (a click would '
+        'commit the edit first, a key would not)', (tester) async {
+      await run(tester, desktop, sales: makeSales, (cart, products) async {
+        final p = products.firstWhere((x) => x.stock > 0);
+        cart.add(p);
+        await settle(tester);
+        await enterCash(tester);
+        // The price button is live only with a mechanic attached.
+        final mech = (await sales.db.select(sales.db.mechanics).get()).first;
+        await tester.enterText(
+          find.widgetWithText(TextField, 'ค้นหาช่าง / ชื่อเล่น / เบอร์…'),
+          mech.nameTH ?? mech.name,
+        );
+        await settle(tester);
+        await tester.tap(find.text(mech.nameTH ?? mech.name).last);
+        await settle(tester);
+        final priceButton = find.widgetWithText(OutlinedButton, baht(p.price));
+        await tester.tap(priceButton);
+        await settle(tester);
+        expect(priceButton, findsNothing); // the edit field is open
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+        await settle(tester);
+        expect(sales.calls, 0);
+      });
+    });
+  });
+
+  testWidgets('a scan while a sale is in flight stays in the field, not added '
+      'to a cart about to be cleared', (tester) async {
+    late _CountingSales sales;
+    await run(tester, desktop, sales: (db) => sales = _CountingSales(db), (
+      cart,
+      products,
+    ) async {
+      final p = products.firstWhere((x) => x.stock > 1);
+      final other = products.firstWhere((x) => x.stock > 0 && x.id != p.id);
+      cart.add(p);
+      await settle(tester);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'รับเงิน ฿…'),
+        '1000000',
+      );
+      await settle(tester);
+      sales.gate = Completer<void>();
+      await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+      await tester.pump();
+      expect(sales.calls, 1);
+
+      final scan = find.widgetWithText(TextField, 'สแกนบาร์โค้ด / รหัสอะไหล่');
+      await tester.enterText(scan, other.partNo);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(cart.state.map((l) => l.productId), [p.id]);
+      expect(tester.widget<TextField>(scan).controller!.text, other.partNo);
+
+      sales.gate!.complete();
+      await settle(tester);
+      if (find.text('ตกลง').evaluate().isNotEmpty) {
+        await tester.tap(find.text('ตกลง'));
+        await settle(tester);
+      }
+    });
+  });
+
+  testWidgets('qty dialog selects the whole number, so typing replaces it '
+      '(mobile does not select on focus by default)', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      await run(tester, phone, (cart, products) async {
+        final p = products.firstWhere((x) => x.stock > 0);
+        cart.add(p);
+        await settle(tester);
+        await tester.tap(find.text('ตะกร้า'));
+        await settle(tester);
+        await tester.tap(find.byKey(Key('cart-qty-${p.id}')));
+        await settle(tester);
+        final edit = tester.widget<EditableText>(
+          find.descendant(
+            of: find.byKey(const Key('cart-qty-input')),
+            matching: find.byType(EditableText),
+          ),
+        );
+        expect(edit.focusNode.hasFocus, isTrue);
+        expect(
+          edit.controller.selection,
+          const TextSelection(baseOffset: 0, extentOffset: 1),
+        );
+        await tester.tap(find.text('ยกเลิก'));
+        await settle(tester);
+      });
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 }

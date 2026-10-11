@@ -1075,8 +1075,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           if (isWide) ...{
             const SingleActivator(LogicalKeyboardKey.f2): () =>
                 _barcodeFocus.requestFocus(),
+            // Not while a line price is being edited: a click on the pay
+            // button commits that edit first (onTapOutside), a key press
+            // would not — the bill would go out at the old price.
             const SingleActivator(LogicalKeyboardKey.f9): () {
-              if (_cart.state.isNotEmpty && !_submitting) _handleCheckout();
+              if (_cart.state.isNotEmpty &&
+                  !_submitting &&
+                  _editingPriceId == null) {
+                _handleCheckout();
+              }
             },
           },
         },
@@ -1384,6 +1391,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       // field, so take it back for the next scan — before a
                       // not-found dialog, which hands focus back on close.
                       if (_isWide) _barcodeFocus.requestFocus();
+                      // A sale in flight clears the cart when it lands, so a
+                      // line added now would vanish. Keep the scanned code in
+                      // the field; Enter again once the receipt is closed.
+                      if (_submitting) return;
                       _handleBarcode(products);
                     },
                   ),
@@ -2959,41 +2970,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Type a line's quantity. The typed number goes through the same
   /// [CartCubit.setQty] as the +/- buttons (stock check; 0 removes the line).
   Future<void> _promptQty(CartLine item, ProductRow? product) async {
-    var typed = '${item.qty}';
     final qty = await showDialog<int>(
       context: context,
-      builder: (ctx) {
-        void submit() => Navigator.pop(ctx, int.tryParse(typed.trim()));
-        return AlertDialog(
-          title: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-          content: TextFormField(
-            key: const Key('cart-qty-input'),
-            initialValue: typed,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(5),
-            ],
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-            decoration: InputDecoration(
-              labelText: 'จำนวน', // agent ร่าง
-              helperText: product == null ? null : 'คงเหลือ ${product.stock}',
-              border: const OutlineInputBorder(),
-            ),
-            onChanged: (v) => typed = v,
-            onFieldSubmitted: (_) => submit(),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('ยกเลิก'),
-            ),
-            FilledButton(onPressed: submit, child: const Text('ตกลง')),
-          ],
-        );
-      },
+      builder: (ctx) => _QtyDialog(item: item, product: product),
     );
     if (qty == null || qty == item.qty || !mounted) return;
     final err = _cart.setQty(item.productId, qty, product);
@@ -3793,6 +3772,73 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The qty-entry dialog behind a tap on a cart line's number. Pops the typed
+/// quantity (null on cancel / blank); the caller applies it via setQty.
+class _QtyDialog extends StatefulWidget {
+  const _QtyDialog({required this.item, required this.product});
+
+  final CartLine item;
+  final ProductRow? product;
+
+  @override
+  State<_QtyDialog> createState() => _QtyDialogState();
+}
+
+class _QtyDialogState extends State<_QtyDialog> {
+  // The whole current qty starts selected, so typing replaces it — mobile
+  // does not select on focus ("1" then typing 12 would read 112).
+  late final _ctrl = TextEditingController(text: '${widget.item.qty}')
+    ..selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: '${widget.item.qty}'.length,
+    );
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.pop(context, int.tryParse(_ctrl.text.trim()));
+
+  @override
+  Widget build(BuildContext context) {
+    final product = widget.product;
+    return AlertDialog(
+      title: Text(
+        widget.item.name,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      content: TextField(
+        key: const Key('cart-qty-input'),
+        controller: _ctrl,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(5),
+        ],
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+        decoration: InputDecoration(
+          labelText: 'จำนวน', // agent ร่าง
+          helperText: product == null ? null : 'คงเหลือ ${product.stock}',
+          border: const OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ยกเลิก'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('ตกลง')),
+      ],
     );
   }
 }
