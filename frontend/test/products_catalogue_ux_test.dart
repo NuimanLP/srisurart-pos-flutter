@@ -16,8 +16,10 @@ import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/products_repository.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
+import 'package:srisurart_pos/presentation/blocs/ui_zoom_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/screens/products_screen.dart';
+import 'package:srisurart_pos/presentation/widgets/ui_zoom.dart';
 
 void main() {
   setUpAll(() {
@@ -25,16 +27,24 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  Future<void> pumpScreen(WidgetTester tester, AppDatabase db) async {
+  Future<void> pumpScreen(
+    WidgetTester tester,
+    AppDatabase db, {
+    double zoom = 1,
+  }) async {
     await tester.pumpWidget(
       MultiRepositoryProvider(
         providers: repositoryProviders(db, useApiRepositories: false),
         child: MultiBlocProvider(
           providers: [
+            BlocProvider<UiZoomCubit>(create: (_) => UiZoomCubit()),
             BlocProvider<PendingQuoteCubit>(create: (_) => PendingQuoteCubit()),
             BlocProvider<CartCubit>(create: (_) => CartCubit()),
           ],
-          child: const MaterialApp(home: Scaffold(body: ProductsScreen())),
+          child: MaterialApp(
+            home: const Scaffold(body: ProductsScreen()),
+            builder: (context, child) => UiZoom(zoom: zoom, child: child!),
+          ),
         ),
       ),
     );
@@ -123,6 +133,60 @@ void main() {
 
       await tester.tap(find.text('ยกเลิก').last);
       await tester.pumpAndSettle();
+      await db.close();
+    });
+  });
+
+  // The suppliers tab stacks its product picker above the detail on a narrow
+  // logical screen; it must not overflow at whole-screen zoom or 390 px.
+  for (final (label, size, zoom) in const [
+    ('zoom3x-fullhd', Size(1920, 1080), 3.0),
+    ('zoom2x-laptop', Size(1366, 768), 2.0),
+    // Narrow AND short: the stacked layout under the tightest zoom.
+    ('zoom3x-laptop', Size(1366, 768), 3.0),
+    ('phone390', Size(390, 844), 1.0),
+  ]) {
+    testWidgets('suppliers tab at $label renders without exception', (
+      tester,
+    ) async {
+      setSize(tester, size);
+      final db = AppDatabase(NativeDatabase.memory());
+      Object? caught;
+      await tester.runAsync(() async {
+        await pumpScreen(tester, db, zoom: zoom);
+        final tab = find.text('ซัพพลายเออร์ · Suppliers');
+        await tester.ensureVisible(tab);
+        await tester.pumpAndSettle();
+        await tester.tap(tab);
+        for (var i = 0; i < 3; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          await tester.pumpAndSettle(const Duration(milliseconds: 100));
+        }
+        expect(find.byKey(const Key('suppliers-product-list')), findsOneWidget);
+        caught = tester.takeException();
+        await db.close();
+      });
+      expect(caught, isNull, reason: 'suppliers tab threw at $label');
+    });
+  }
+
+  testWidgets('label printer: quick chips say they act on every product '
+      'while a search is on', (tester) async {
+    setSize(tester, const Size(1280, 900));
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(() async {
+      await pumpScreen(tester, db);
+      final total = (await ProductsRepository(db).getAll()).length;
+      await tester.tap(find.text('พิมพ์ป้าย'));
+      await tester.pumpAndSettle();
+      expect(find.text('เลือกทั้งหมด'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('label-printer-search')),
+        'zz',
+      );
+      await tester.pump();
+      expect(find.text('เลือกทั้งหมด (ทั้งหมด $total)'), findsOneWidget);
+      expect(find.textContaining('⚠ สต็อกต่ำ (ทั้งหมด '), findsOneWidget);
       await db.close();
     });
   });

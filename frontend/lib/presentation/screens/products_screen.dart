@@ -2156,7 +2156,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                         child: _sectionTitle('ข้อมูลสินค้า'), // agent ร่าง
                       ),
                       SizedBox(
-                        width: w,
+                        width: c.maxWidth,
                         child: _field(
                           'รหัสสินค้า',
                           _partNo,
@@ -2168,14 +2168,38 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                               : 'รหัสไม่สามารถแก้ไขได้ (ผูกกับประวัติการขาย)',
                         ),
                       ),
+                      // Either name is enough, so the pair is marked once.
+                      SizedBox(
+                        width: c.maxWidth,
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              const TextSpan(
+                                text: '* ',
+                                style: TextStyle(
+                                  color: AppColors.error,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              TextSpan(text: _nameHint),
+                            ],
+                          ),
+                          key: const Key('product-name-pair-label'),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: nameMissing
+                                ? AppColors.error
+                                : theme.colorScheme.secondary,
+                            fontWeight: nameMissing ? FontWeight.w700 : null,
+                          ),
+                        ),
+                      ),
                       SizedBox(
                         width: w,
                         child: _field(
                           'ชื่อ (EN)',
                           _name,
-                          required: true,
-                          hint: _nameHint,
-                          error: nameMissing ? _nameHint : null,
+                          // Red border only; the line above says why.
+                          error: nameMissing ? '' : null,
                         ),
                       ),
                       SizedBox(
@@ -2183,8 +2207,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                         child: _field(
                           'ชื่อ (TH)',
                           _nameTH,
-                          required: true,
-                          error: nameMissing ? _nameHint : null,
+                          error: nameMissing ? '' : null,
                         ),
                       ),
                       SizedBox(
@@ -2196,7 +2219,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                         child: _categoryField(theme),
                       ),
                       SizedBox(
-                        width: w,
+                        width: c.maxWidth,
                         child: _field(
                           'ใช้กับรถรุ่น',
                           _compat,
@@ -2720,7 +2743,9 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
               const SizedBox(height: 4),
               TextField(
                 controller: _delta,
-                autofocus: true,
+                // Not on a phone: the keyboard would cover the ± steps.
+                autofocus:
+                    MediaQuery.sizeOf(context).width >= AppBreakpoints.compact,
                 keyboardType: const TextInputType.numberWithOptions(
                   signed: true,
                 ),
@@ -3378,6 +3403,15 @@ class _SuppliersTabState extends State<_SuppliersTab> {
         return LayoutBuilder(
           builder: (context, box) {
             final narrow = box.maxWidth < AppBreakpoints.compact;
+            final listTitle = Padding(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                'เลือกสินค้า',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: theme.colorScheme.secondary,
+                ),
+              ),
+            );
             return Flex(
           direction: narrow ? Axis.vertical : Axis.horizontal,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3385,25 +3419,23 @@ class _SuppliersTabState extends State<_SuppliersTab> {
             // product list
             Container(
           width: narrow ? null : 260,
-          height: narrow ? box.maxHeight * 0.38 : null,
+          // At least 120 px (or half a very short screen, e.g. 3x zoom);
+          // on a phone the title scrolls with the list so nothing is fixed.
+          height: narrow
+              ? math.max(math.min(120.0, box.maxHeight / 2), box.maxHeight * 0.38)
+              : null,
           color: theme.colorScheme.surfaceContainerLow,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  'เลือกสินค้า',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.secondary,
-                  ),
-                ),
-              ),
+              if (!narrow) listTitle,
               Expanded(
                 child: ListView.builder(
-                  itemCount: _products.length,
+                  key: const Key('suppliers-product-list'),
+                  itemCount: _products.length + (narrow ? 1 : 0),
                   itemBuilder: (ctx, i) {
-                    final p = _products[i];
+                    if (narrow && i == 0) return listTitle;
+                    final p = _products[narrow ? i - 1 : i];
                     final active = p.id == _selectedId;
                     final count = _suppliers
                         .where((s) => s.productId == p.id)
