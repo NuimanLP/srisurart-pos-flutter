@@ -1104,21 +1104,26 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     final isOut = value == 'out';
     Color? bg;
     Color? border;
-    Color? fg;
     if (active) {
       if (isOut) {
         bg = AppColors.error.withValues(alpha: 0.15);
         border = AppColors.error;
-        fg = AppColors.error;
       } else {
         bg = AppColors.successLight.withValues(alpha: 0.15);
         border = AppColors.successLight;
-        fg = AppColors.successLight;
       }
     }
     return Builder(
       builder: (context) {
         final theme = Theme.of(context);
+        // The palette red/green read on the light surface but fall below 3:1
+        // on the dark navy one — keep the lighter tones there.
+        final dark = theme.brightness == Brightness.dark;
+        final Color? fg = !active
+            ? null
+            : isOut
+            ? (dark ? _outOnDark : AppColors.error)
+            : (dark ? _inOnDark : AppColors.successLight);
         return InkWell(
           onTap: () => setState(() => _entryType = value),
           borderRadius: BorderRadius.circular(8),
@@ -1226,6 +1231,11 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
     },
   );
 }
+
+// Active cash-out / cash-in toggle text on the dark navy surface (the light
+// theme uses AppColors.error / successLight).
+const Color _outOnDark = Color(0xFFE57373);
+const Color _inOnDark = Color(0xFF81C784);
 
 // ── date/time helpers (long Thai date for the header) ────────────────────────
 const _thMonths = [

@@ -2051,7 +2051,8 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
                       // A green ฿0 alone read as "all good" while the counter
                       // was about to take more than is owed. Display only —
                       // the confirm on submit is unchanged (agent ร่าง).
-                      if (amt > _outstanding)
+                      // round2: float noise must not show "เกิน ฿0".
+                      if (round2(amt - _outstanding) > 0)
                         Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Row(
