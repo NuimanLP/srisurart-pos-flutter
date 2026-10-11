@@ -345,6 +345,9 @@ class _PoListView extends StatelessWidget {
                       itemCount: pos.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 10),
                       itemBuilder: (_, i) => _PoCard(
+                        // The item list's open state follows the PO, not
+                        // its position in the list.
+                        key: ValueKey(pos[i].po.id),
                         data: pos[i],
                         onReceive: () => onReceive(pos[i].po),
                         onCancel: () => onCancel(pos[i].po),
@@ -401,6 +404,7 @@ class _PoCard extends StatelessWidget {
   final bool isDegraded;
 
   const _PoCard({
+    super.key,
     required this.data,
     required this.onReceive,
     required this.onCancel,
