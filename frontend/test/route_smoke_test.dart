@@ -30,6 +30,8 @@ import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
 import 'package:srisurart_pos/presentation/widgets/font_scale_controller.dart';
+import 'package:srisurart_pos/presentation/blocs/ui_zoom_cubit.dart';
+import 'package:srisurart_pos/presentation/widgets/ui_zoom.dart';
 import 'package:srisurart_pos/presentation/widgets/theme_controller.dart';
 import 'package:srisurart_pos/presentation/screens/checkout_screen.dart';
 import 'package:srisurart_pos/presentation/screens/products_screen.dart';
@@ -70,6 +72,17 @@ final List<_ScreenCase> _screens = [
 const Size _tablet = Size(1280, 800);
 const Size _phone = Size(400, 800);
 
+/// Whole-screen zoom (blocs/ui_zoom_cubit.dart, widgets/ui_zoom.dart): a 1920x1080 screen at 3x and a
+/// 1366x768 laptop at 2x lay the app out on a ~640x360 / ~683x384 logical screen.
+const List<(String, Size, double)> _cases = [
+  ('tablet', _tablet, 1.0),
+  ('phone', _phone, 1.0),
+  ('zoom3x-fullhd', Size(1920, 1080), 3.0),
+  ('zoom2x-laptop', Size(1366, 768), 2.0),
+  // Capped to ~569x320: the shortest logical height the cap allows.
+  ('zoom3x-laptop', Size(1366, 768), 3.0),
+];
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -78,8 +91,7 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  for (final size in [_tablet, _phone]) {
-    final sizeLabel = size == _tablet ? 'tablet' : 'phone';
+  for (final (sizeLabel, size, zoom) in _cases) {
 
     group('$sizeLabel (${size.width.toInt()}x${size.height.toInt()})', () {
       for (final sc in _screens) {
@@ -115,6 +127,7 @@ void main() {
                     BlocProvider<FontScaleCubit>(
                       create: (_) => FontScaleCubit(),
                     ),
+                    BlocProvider<UiZoomCubit>(create: (_) => UiZoomCubit()),
                     BlocProvider<PendingQuoteCubit>(
                       create: (_) => PendingQuoteCubit(),
                     ),
@@ -124,6 +137,8 @@ void main() {
                     // A bare Scaffold parent gives screens an Overlay/Navigator
                     // and Material ancestor without pulling in go_router.
                     home: Scaffold(body: sc.build()),
+                    builder: (context, child) =>
+                        UiZoom(zoom: zoom, child: child!),
                   ),
                 ),
               ),

@@ -138,7 +138,7 @@ frontend/
                                  20 repos incl. AuthRepository and PaymentAccountsRepository, +
                                  ApiClient/BootstrapService/DocCounterSeeder/SyncFacade) — recounted
                                  2026-10-10; `useApi` swaps in the #56 API repos
-      blocs/                    ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
+      blocs/                    ← Cubits (ThemeMode, FontScale, UiZoom, PendingQuote, Cart)
       screens/                  ← 14 screen files: 12 in the AppShell nav + /devices + /login
       widgets/                  ← shared UI kit + AppShell nav + sub-views (receipt, A4 quote,
                                   label printer, closing report)
@@ -856,6 +856,10 @@ on void/return paths. Keep this order in any new write touching more than one of
 - `setState(() { x = …; })`, never the arrow form, **when the assigned value is a
   `Future`** — the arrow form trips a Flutter assertion (compiled out in release builds,
   which is why it hid for a while).
+- **Whole-screen zoom (#686):** `UiZoom` wraps the app in `MaterialApp.builder`. Code that needs the real
+  window size must use `MediaQueryData.fromView(View.of(context))`; everything else uses `MediaQuery`
+  (the zoomed logical screen). The route smoke test runs every screen at 3x on 1920x1080 and 2x on
+  1366x768 — a new screen must pass both. The zoom card's Thai strings are `agent ร่าง` (owner to ratify).
 
 - **Product images (owner request 2026-10-10, PR #680; 02 §3.2/§3.10, 07 §9):** one picture per product, **owner-only**
   (`403 OWNER_ONLY`) and online-only (`PUT`/`DELETE /products/:id/image`, raw jpeg/png/webp ≤ 3 MB, idempotent over the body

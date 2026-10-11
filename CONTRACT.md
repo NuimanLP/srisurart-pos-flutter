@@ -63,7 +63,7 @@ lib/
     models/aggregates.dart        ← read aggregates + input DTOs (Contract — frozen)
   presentation/
     repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (Contract — frozen)
-    blocs/                        ← Cubits (ThemeMode, FontScale, PendingQuote, Cart)
+    blocs/                        ← Cubits (ThemeMode, FontScale, UiZoom, PendingQuote, Cart)
     screens/                      ← one stub file per screen (screen agents fill in)
     widgets/app_shell.dart        ← nav frame (Contract; screen agents may extend)
   app.dart                        ← SrisurartApp (Contract)
@@ -268,6 +268,7 @@ alongside their persistence helpers), wired via `MultiBlocProvider` in
 |---|---|---|
 | `ThemeModeCubit` | `ThemeMode` | app-wide light/dark, persisted `sa_pos_theme` |
 | `FontScaleCubit` | `double` | app-wide text scale, persisted `sa_pos_font_scale` |
+| `UiZoomCubit` | `double` | whole-screen zoom (1/1.5/2/2.5/3x, capped per screen), persisted `sa_pos_ui_zoom`; applied via `UiZoom` in `MaterialApp.builder` |
 | `PendingQuoteCubit` | `QuoteWithItems?` | QuotesScreen → CheckoutScreen quote hand-off |
 | `CartCubit` | `List<CartLine>` | checkout cart (add/setQty/setPrice/clear) |
 
@@ -451,6 +452,7 @@ confirmations through `showConfirm`, never `showDialog` ad-hoc for yes/no.
 | `status_chip.dart` | `StatusChip(String label, {StatusTone tone = neutral})`; factory `StatusChip.of(String status)` maps open/converted/received/expired/cancelled/voided → Thai label+tone; enum `StatusTone { success, info, warning, danger, neutral }` | `StatusChip.of('converted')` or `StatusChip('ค้างชำระ', tone: StatusTone.warning)` |
 | `thai_format.dart` | top-level fns: `String thaiInt(num)`; `String thaiDate(DateTime)` (พ.ศ.); `String thaiDateTime(DateTime)`; `String thaiTime(DateTime)`; `String thaiDateSlash(DateTime)` (numeric "23/06/2569", CSV/receipt shape); `String thaiDateTimeSlash(DateTime)` — dates only; money stays in `baht()` | `Text(thaiDate(sale.date))` |
 | `theme_controller.dart` | `ThemeModeCubit extends Cubit<ThemeMode> { Future<void> toggle(); Future<void> set(ThemeMode) }`; persists to shared_preferences key `sa_pos_theme` | `context.read<ThemeModeCubit>().toggle()` |
+| `ui_zoom.dart` | `UiZoom({required double zoom, required Widget child})` — whole-screen zoom wrapper (scales text, buttons, spacing); wrapped around the app in `MaterialApp.builder` (`lib/app.dart`); `zoom` is `effectiveUiZoom(...)` of `UiZoomCubit` | `builder: (context, child) => UiZoom(zoom: z, child: child!)` |
 | `app_shell.dart` | `AppShell({required Widget child})` — Contract+UIKit owned nav frame; topbar (shop name/cashier/date + theme toggle) + NavigationRail(>=1000px)/Drawer; do not edit | router `ShellRoute → AppShell(child: ...)` |
 
 **Coordination note (theme toggle):** the topbar toggle flips
