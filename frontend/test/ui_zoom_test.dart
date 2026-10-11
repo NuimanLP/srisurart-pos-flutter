@@ -72,4 +72,57 @@ void main() {
     await tester.tapAt(const Offset(170, 80));
     expect(taps, 1);
   });
+
+  testWidgets('state below the zoom survives crossing 1x (2 → 1 → 2)', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final zoom = ValueNotifier<double>(2.0);
+    addTearDown(zoom.dispose);
+    await tester.pumpWidget(
+      ValueListenableBuilder<double>(
+        valueListenable: zoom,
+        // The counter sits directly under UiZoom with no GlobalKey, like the
+        // unkeyed Router of MaterialApp.router (a plain MaterialApp's
+        // Navigator has a GlobalKey and would be reparented, hiding a remount).
+        builder: (context, z, _) => MaterialApp(
+          builder: (context, _) => UiZoom(zoom: z, child: const _Counter()),
+        ),
+      ),
+    );
+
+    final state = tester.state<_CounterState>(find.byType(_Counter));
+    state.bump();
+    for (final z in [1.0, 2.0]) {
+      zoom.value = z;
+      await tester.pump();
+      expect(
+        tester.state<_CounterState>(find.byType(_Counter)),
+        same(state),
+        reason: 'remounted at zoom $z',
+      );
+    }
+    expect(find.text('1'), findsOneWidget);
+  });
+}
+
+class _Counter extends StatefulWidget {
+  const _Counter();
+
+  @override
+  State<_Counter> createState() => _CounterState();
+}
+
+class _CounterState extends State<_Counter> {
+  int count = 0;
+
+  void bump() => setState(() {
+    count++;
+  });
+
+  @override
+  Widget build(BuildContext context) => Text('$count');
 }

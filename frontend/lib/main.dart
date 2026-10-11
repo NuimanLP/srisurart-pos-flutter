@@ -37,6 +37,8 @@ Future<void> main() async {
   // net; the offline PWA shell can't reach fonts.gstatic.com (flutter#163554).
   GoogleFonts.config.allowRuntimeFetching = false;
   final db = AppDatabase.open();
+  // Read before runApp so the first frame is already at the stored zoom.
+  final uiZoom = await UiZoomCubit.readStored();
   runApp(
     MultiRepositoryProvider(
       providers: repositoryProviders(db),
@@ -44,7 +46,9 @@ Future<void> main() async {
         providers: [
           BlocProvider<ThemeModeCubit>(create: (_) => ThemeModeCubit()),
           BlocProvider<FontScaleCubit>(create: (_) => FontScaleCubit()),
-          BlocProvider<UiZoomCubit>(create: (_) => UiZoomCubit()),
+          BlocProvider<UiZoomCubit>(
+            create: (_) => UiZoomCubit(initial: uiZoom),
+          ),
           BlocProvider<PendingQuoteCubit>(create: (_) => PendingQuoteCubit()),
           BlocProvider<CartCubit>(create: (_) => CartCubit()),
           BlocProvider<AuthCubit>(

@@ -4,6 +4,15 @@
 // menus (inside the Navigator overlay) are zoomed too. Hit testing goes
 // through the same transform (FittedBox). The zoom is capped per screen by
 // effectiveUiZoom (blocs/ui_zoom_cubit.dart).
+//
+// The tree shape is the same at every zoom (1x included): returning [child]
+// bare at 1x would remount the Router/Navigator subtree — losing its state —
+// whenever the applied zoom crosses 1x (choosing 1x, or a window resize
+// across the cap).
+//
+// Known limit: the cap uses the full screen height, not the height minus the
+// on-screen keyboard, so a form dialog on a landscape tablet at its cap may
+// overflow while the keyboard is open.
 
 import 'package:flutter/widgets.dart';
 
@@ -18,7 +27,6 @@ class UiZoom extends StatelessWidget {
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
     final z = effectiveUiZoom(mq.size, zoom);
-    if (z <= 1.0) return child;
     final size = mq.size / z;
     return MediaQuery(
       data: mq.copyWith(

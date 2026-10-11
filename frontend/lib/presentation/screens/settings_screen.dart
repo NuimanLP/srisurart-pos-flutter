@@ -1140,7 +1140,13 @@ class _UiZoomSection extends StatelessWidget {
     final theme = Theme.of(context);
     final requested = context.watch<UiZoomCubit>().state;
     // This screen is itself zoomed: the cap comes from the real window size.
-    final screen = MediaQueryData.fromView(View.of(context)).size;
+    // UiZoom divides size by z and multiplies devicePixelRatio by z, so
+    // size × dpr / the view's own dpr recovers the unzoomed logical size —
+    // and reading it through MediaQuery rebuilds this card on window resize.
+    final screen =
+        MediaQuery.sizeOf(context) *
+        MediaQuery.devicePixelRatioOf(context) /
+        View.of(context).devicePixelRatio;
     final max = maxUiZoomFor(screen);
     final applied = effectiveUiZoom(screen, requested);
 

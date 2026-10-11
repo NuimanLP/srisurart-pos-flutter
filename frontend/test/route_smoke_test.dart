@@ -79,6 +79,8 @@ const List<(String, Size, double)> _cases = [
   ('phone', _phone, 1.0),
   ('zoom3x-fullhd', Size(1920, 1080), 3.0),
   ('zoom2x-laptop', Size(1366, 768), 2.0),
+  // Capped to ~569x320: the shortest logical height the cap allows.
+  ('zoom3x-laptop', Size(1366, 768), 3.0),
 ];
 
 void main() {

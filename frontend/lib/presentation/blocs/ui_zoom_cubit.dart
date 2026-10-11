@@ -43,17 +43,29 @@ double effectiveUiZoom(Size screen, double requested) {
 }
 
 class UiZoomCubit extends Cubit<double> {
-  UiZoomCubit() : super(1.0) {
+  /// [initial] is the stored zoom read in main() before runApp (see
+  /// [readStored]), so the first frame is already zoomed — no 1x flash. The
+  /// async load below still runs for callers that pass nothing (tests); when
+  /// [initial] already holds the stored value its emit is a no-op.
+  UiZoomCubit({double initial = 1.0}) : super(initial) {
     _load();
   }
 
   bool _chosen = false;
 
+  /// The stored zoom, or 1.0 when none (or an invalid one) is stored.
+  static Future<double> readStored() async {
+    final prefs = await SharedPreferences.getInstance();
+    return _valid(prefs.getDouble(_kUiZoomKey)) ?? 1.0;
+  }
+
+  static double? _valid(double? v) => v != null && v >= 1.0 ? v : null;
+
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final v = prefs.getDouble(_kUiZoomKey);
+    final v = _valid(prefs.getDouble(_kUiZoomKey));
     // A choice made while prefs were loading wins over the stored value.
-    if (v != null && v >= 1.0 && !_chosen) {
+    if (v != null && !_chosen) {
       emit(v);
     }
   }

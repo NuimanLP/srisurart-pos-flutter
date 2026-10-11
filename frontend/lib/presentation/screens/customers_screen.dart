@@ -210,9 +210,9 @@ class _TopBar extends StatelessWidget {
             icon: Icons.add,
             onPressed: onAdd,
           );
-          // Wide (tablet): keep the original single-row layout byte-identical —
-          // un-flexed stats, fixed 260px search, one Spacer pushing the
-          // search + button flush right.
+          // Wide (>= AppBreakpoints.customersTopBarRow, 900dp): the original
+          // single row — un-flexed stats, fixed 260px search, one Spacer
+          // pushing the search + button flush right. Narrower widths stack.
           if (constraints.maxWidth >= AppBreakpoints.customersTopBarRow) {
             return Row(
               children: [
