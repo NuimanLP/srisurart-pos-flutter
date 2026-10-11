@@ -55,7 +55,7 @@ Text scale past 1.25x overflows fixed-height cards (the sell-screen product card
 
 # Release 2 — create-PO supplier search (PR #690/#691)
 
-**Status:** deployed run green, **VM not verified** · no schema/server change · `main` = **`2dabbcf`**
+**Status:** deployed, `.current_sha` verified · no schema/server change · `main` = **`2dabbcf`**
 
 ## 8. Owner report and cause
 - Owner report 2026-10-11 (Thai): searching a supplier name in สั่งซื้อ → สร้างใบสั่งซื้อ shows nothing; asked to improve the dialog's UX.
@@ -72,7 +72,7 @@ Text scale past 1.25x overflows fixed-height cards (the sell-screen product card
 ## 10. Release and deploy
 - PR #690 (squash into `develop`) = `09820ab`; release PR #691 (`develop` → `main`, merge commit) = **`2dabbcf`**.
 - Deploy run `38103562796` approved on the owner's instruction; `deploy to demo` success (twin run `38103468772` skipped — normal).
-- 🔴 **NOT verified on the VM:** SSH and HTTPS to 172.30.58.20 timed out right after (owner's VPN likely off). Check `ssh mob04 cat /opt/pos/.current_sha` = `2dabbcf55e896705a600301608e1cad2901b99c6` before claiming it deployed (a green Deploy run is not evidence).
+- Verified on `mob04` 2026-10-11 (SSH was briefly unreachable right after the run; checked once the VPN returned): `/opt/pos/.current_sha` = `2dabbcf55e896705a600301608e1cad2901b99c6`, `/health/ready` 200, api-1/2/3 healthy, served bundle `main.2dabbcf55e89.dart.js`.
 - APK: `android-apk.yml` run `38103153683` success → prerelease `apk-2dabbcf`.
 
 ## 11. Known gap
