@@ -1379,41 +1379,49 @@ class _StockTabState extends State<_StockTab> {
               ),
               if (!_selecting) ...[
                 const Divider(height: 20),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                // Text buttons wrap on the left; the two icon actions stay
+                // pinned right instead of dropping onto a line of their own.
+                Row(
                   children: [
-                    FilledButton.tonalIcon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.successLight.withValues(
-                          alpha: 0.15,
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilledButton.tonalIcon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.successLight.withValues(
+                                alpha: 0.15,
+                              ),
+                              foregroundColor: AppColors.successLight,
+                              minimumSize: const Size(0, 44),
+                            ),
+                            onPressed: isDegraded || _busy
+                                ? null
+                                : () => _openAdjust(p),
+                            icon: const Icon(Icons.sync_alt, size: 18),
+                            label: const Text(
+                              'ปรับสต็อก',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 44),
+                            ),
+                            onPressed: isDegraded || _busy
+                                ? null
+                                : () => _openEdit(p),
+                            icon: const Icon(Icons.edit, size: 18),
+                            label: const Text(
+                              'แก้ไข',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          ],
                         ),
-                        foregroundColor: AppColors.successLight,
-                        minimumSize: const Size(0, 44),
                       ),
-                      onPressed: isDegraded || _busy
-                          ? null
-                          : () => _openAdjust(p),
-                      icon: const Icon(Icons.sync_alt, size: 18),
-                      label: const Text(
-                        'ปรับสต็อก',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 44),
-                      ),
-                      onPressed: isDegraded || _busy
-                          ? null
-                          : () => _openEdit(p),
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: const Text(
-                        'แก้ไข',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
                     IconButton(
                       tooltip: 'พิมพ์ป้าย',
                       icon: const Icon(Icons.print_outlined, size: 20),

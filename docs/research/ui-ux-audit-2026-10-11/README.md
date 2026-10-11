@@ -24,6 +24,11 @@ and dark mode; every finding was fixed by the original agent before merge.
 - Returns: one widget tree for all sizes, so the soft keyboard no longer drops focus mid-edit.
   Trade-off: on desktop with many lines the summary scrolls with the items instead of staying pinned.
 
+## Browser QA fixes (found by eye in Chrome / the app's browser, missed by tests)
+- Cash drawer: the ฿500–฿3,000 quick chips filled the whole width (`Container(alignment:)` in a `Wrap`) → `IntrinsicWidth`.
+- Mechanics (desktop): the credit-usage bar spanned the whole วงเงิน column and read as an input underline → 80 px bar.
+- Products (phone card): print/delete icons dropped onto a line of their own → pinned right, text buttons wrap on the left.
+
 ## Verification
 - `dart analyze` clean; full `flutter test` **1848 passed, 0 failed** (baseline on develop: 1813).
 - `flutter build web --no-tree-shake-icons` OK; local offline build checked in a browser at 1366 px and 375 px.

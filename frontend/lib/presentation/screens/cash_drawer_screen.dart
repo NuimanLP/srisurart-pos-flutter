@@ -1174,20 +1174,24 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
           onTap: onTap,
           borderRadius: BorderRadius.circular(6),
           // ≥40dp tall: these were ~26dp, below the touch minimum.
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 40),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              border: Border.all(color: theme.dividerColor),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: AppColors.steelBlue,
+          // IntrinsicWidth: `alignment` alone makes the Container fill the
+          // Wrap's full width.
+          child: IntrinsicWidth(
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 40),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                border: Border.all(color: theme.dividerColor),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.steelBlue,
+                ),
               ),
             ),
           ),

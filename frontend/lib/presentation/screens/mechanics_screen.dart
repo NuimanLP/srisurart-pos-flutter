@@ -997,13 +997,18 @@ class _MechanicRowTile extends StatelessWidget {
                       children: [
                         Text(baht(lim), style: theme.textTheme.bodySmall),
                         const SizedBox(height: 3),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: ratio,
-                            minHeight: 3,
-                            backgroundColor: theme.dividerColor,
-                            color: barColor,
+                        // A short bar under the amount — full column width
+                        // read as an input underline.
+                        SizedBox(
+                          width: 80,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              value: ratio,
+                              minHeight: 4,
+                              backgroundColor: theme.dividerColor,
+                              color: barColor,
+                            ),
                           ),
                         ),
                       ],
