@@ -47,6 +47,7 @@
     <a class="toc-row" href="#po"><span class="n">5</span><span class="t">ใบสั่งซื้อ · รับของ <span class="en">Purchase orders</span></span><span class="pg">6</span></a>
     <a class="toc-row" href="#people"><span class="n">6</span><span class="t">ลูกค้า · ช่าง · รับชำระเครดิต <span class="en">Customers &amp; mechanics</span></span><span class="pg">7</span></a>
     <a class="toc-row" href="#reports"><span class="n">7</span><span class="t">รายงาน · สรุปยอดปิดร้าน <span class="en">Reports</span></span><span class="pg">8</span></a>
+    <a class="toc-row" href="#photo-view"><span class="n">7.1</span><span class="t">ดูรูปหลักฐานสินค้าของบิล <span class="en">Sale photo evidence</span></span><span class="pg">8.1</span></a>
     <a class="toc-row" href="#settings"><span class="n">8</span><span class="t">ตั้งค่า · ธีม · สำรอง/กู้คืน · ส่งออก CSV <span class="en">Settings &amp; theme</span></span><span class="pg">9</span></a>
     <a class="toc-row" href="#review"><span class="n">9</span><span class="t">หน้า รอเจ้าของ <span class="en">Owner review</span></span><span class="pg">10</span></a>
     <a class="toc-row" href="#eod"><span class="n">10</span><span class="t">SOP สิ้นวัน · ข้อจำกัด <span class="en">End of day</span></span><span class="pg">11</span></a>
@@ -263,6 +264,7 @@
     <li><span class="st-title">ค้นสินค้าในช่อง <span class="ui ghost">เพิ่มสินค้า · Add Items</span> แล้วแตะเพื่อเพิ่ม</span>แก้จำนวนและราคาทุนได้ · แตะสินค้าเดิมซ้ำ = เพิ่มจำนวน</li>
     <li><span class="st-title">กด <span class="ui">บันทึกใบสั่งซื้อ</span></span>(กดได้เมื่อมีซัพพลายเออร์และสินค้าอย่างน้อย 1 รายการ)<span class="see">การ์ดสถานะ <span class="msg">รอรับสินค้า</span></span></li>
   </ol>
+  <div class="note tip"><span class="nt">สแกนด้วยกล้องตอนสร้าง PO</span>ช่องค้นหาใต้ <span class="ui ghost">เพิ่มสินค้า · Add Items</span> มีไอคอนกล้องท้ายช่อง — สแกนแล้วระบบเพิ่มบรรทัดให้เฉพาะเมื่อรหัสตรงกับรหัสอะไหล่ทุกตัวอักษร (ไม่ตรงจะแสดงรายการใกล้เคียงให้เลือกเอง) · หน้า สินค้า/สต็อก ก็มีไอคอนกล้องท้ายช่องค้นหา (กรองรายการ) · ตัวช่วยรับของ (Receive) ไม่มีปุ่มสแกน · รายละเอียดภาค 01 หัวข้อ 3.2</div>
   <div class="note tip"><span class="nt">ทางลัดจากหน้าขาย</span>ครั้งแรกที่เปิดหน้าขายในแต่ละรอบการใช้แอป (รีโหลดหน้าแล้วจะขึ้นอีก) ถ้ามีสินค้าหมด/ต่ำกว่าขั้นต่ำ หน้าขายจะเด้ง <span class="msg">แจ้งเตือนสต็อก · Stock Alert</span> — มีปุ่ม <span class="ui ghost">🛒 ไปหน้าสั่งซื้อ</span> และ <span class="ui ghost">🖨 พิมพ์ใบสั่งซื้อ</span></div>
 
   <h2 class="sub">รับของ <span class="en">Receive</span></h2>
@@ -340,9 +342,41 @@
     <li><strong>ประวัติสต็อก / สินค้าดี-แย่:</strong> แท็บย่อยในหน้าเดียวกัน</li>
     <li><strong>สรุปยอดปิดร้าน:</strong> หน้า <span class="ui ghost">ลิ้นชัก</span> → <span class="ui ghost">📊 สรุปยอดปิดร้าน</span> — รายได้ วิธีชำระ (เงินสด · โอน/QR · เครดิตช่าง) สินค้าขายดีวันนี้ ตรวจนับเงินของกะที่เปิดอยู่ และพิมพ์รายงาน 80 มม. มีช่องลายมือชื่อ (ภาค 01 หัวข้อ 7)</li>
   </ul>
+  <div class="note tip"><span class="nt">แตะ รายการล่าสุด เพื่อดูรูปหลักฐาน</span>แถวในกล่อง <span class="msg">รายการล่าสุด</span> แตะได้ (API build) เปิดแผ่นบิลแบบย่อพร้อมรูปหลักฐานที่พนักงานถ่าย — ดูหัวข้อ 7.1</div>
   <figure><img src="img/reports-mobile.png" alt="หน้า รายงาน บนมือถือ 390 px ช่วง ทั้งหมด — การ์ด รายได้สุทธิ จำนวนบิล ยอดเฉลี่ยต่อบิล ชิ้นสินค้าที่ขาย" loading="lazy" style="max-width:300px"><figcaption>บนมือถือ — การ์ดตัวเลขหลักเรียง 2×2 (ช่วง ทั้งหมด) · ปุ่มช่วงเวลาเลื่อนซ้าย-ขวาได้</figcaption></figure>
   <div class="note warn"><span class="nt">อ่านตัวเลขให้ถูก</span>ช่วง <span class="ui ghost">7 วัน</span> ไม่มีเพดานวันสิ้นสุด — ถ้ามีบิลวันที่ในอนาคต (เช่น นาฬิกาเครื่องผิด) จะถูกนับด้วย</div>
   <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">8</span></div>
+</section>
+
+<!-- ════════════════ 7.1 · VIEW PHOTO EVIDENCE ════════════════ -->
+<section class="page" id="photo-view">
+  <div class="runhead"><span>Srisurart POS · ภาค 02</span><span class="r">7.1 · ดูรูปหลักฐาน</span></div>
+  <div class="sec-no">Section 7.1</div>
+  <h1 class="sec">ดูรูปหลักฐานสินค้าของบิล <span class="en">Sale photo evidence</span></h1>
+  <p class="sec-lede">รูปที่พนักงานถ่ายหลังชำระเงิน (ภาค 01 หัวข้อ 4.1) ดูได้ 2 ที่: หน้า คืนสินค้า และ รายงาน — เหมาะใช้ตอนลูกค้าอ้างว่าสินค้าชำรุดหรือมีรอย เพื่อเทียบกับสภาพตอนส่งมอบ (ออกให้ใช้ 2026-10-12 · เฉพาะ API build)</p>
+  <h2 class="sub">ดูจากหน้า คืนสินค้า <span class="en">Returns</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">เมนู <span class="ui ghost">คืนสินค้า</span> → แท็บ <span class="ui ghost">ค้นหาบิล</span> → แตะบิล</span><span class="see">ใต้หัวบิล เหนือรายการสินค้า มีแถบรูปย่อ <span class="msg">รูปหลักฐานตอนขาย ({n})</span></span></li>
+    <li><span class="st-title">แตะรูปย่อ</span>เปิดเต็มจอ ปัดดูรูปถัดไป ซูมได้ · หัวรูปบอก <span class="msg">รูป {i}/{n}</span> · <span class="msg">ถ่ายเมื่อ {วันเวลา}</span> (นาฬิกาเครื่องที่ถ่าย) และ <span class="msg">อัปโหลดเมื่อ {วันเวลา}</span> ถ้าส่งขึ้นเซิร์ฟเวอร์ช้ากว่าเวลาถ่ายเกิน 1 ชั่วโมง</li>
+  </ol>
+  <h2 class="sub">ดูจากหน้า รายงาน <span class="en">Reports</span></h2>
+  <ol class="steps">
+    <li><span class="st-title">เมนู <span class="ui ghost">รายงาน</span> → แตะแถวใน <span class="msg">รายการล่าสุด</span></span><span class="see">เปิดแผ่นบิลแบบย่อ: เลขที่บิล วันเวลา วิธีชำระ ยอดรวม และแถบรูป <span class="msg">รูปหลักฐานตอนขาย ({n})</span> — ไม่มีรายการสินค้าและไม่มีปุ่มอื่น</span></li>
+    <li><span class="st-title">แตะรูปย่อเพื่อดูเต็มจอ</span>เหมือนหน้า คืนสินค้า</li>
+  </ol>
+  <figure><div style="border:2px dashed #9AA5B1;border-radius:8px;padding:28px 16px;text-align:center;color:#6B7785;font-size:14px">(ภาพหน้าจอ: returns-sale-photos — รอเพิ่ม)</div><figcaption>หน้า คืนสินค้า — แถบ รูปหลักฐานตอนขาย ใต้หัวบิล</figcaption></figure>
+  <figure><div style="border:2px dashed #9AA5B1;border-radius:8px;padding:28px 16px;text-align:center;color:#6B7785;font-size:14px">(ภาพหน้าจอ: reports-bill-sheet — รอเพิ่ม)</div><figcaption>รายงาน — แตะแถว รายการล่าสุด เปิดแผ่นบิลพร้อมรูปหลักฐาน</figcaption></figure>
+  <table class="grid">
+    <tr><th>ถ้าเห็น</th><th>หมายความว่า</th></tr>
+    <tr><td><span class="msg">บิลนี้ไม่มีรูปหลักฐาน</span></td><td>พนักงานไม่ได้ถ่าย หรือบิลนี้ถ่ายไม่ได้ (เช่น ขายตอนออฟไลน์แล้วปิดใบเสร็จไปก่อน)</td></tr>
+    <tr><td><span class="msg">ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะดูรูปได้</span></td><td>เครื่องออฟไลน์ — รูปอยู่บนเซิร์ฟเวอร์ ต้องมีอินเทอร์เน็ตจึงจะดึงมาดูได้</td></tr>
+    <tr><td><span class="msg">โหลดรูปไม่สำเร็จ</span> + <span class="ui ghost">ลองอีกครั้ง</span></td><td>โหลดไม่ขึ้นชั่วคราว — กดลองอีกครั้ง</td></tr>
+  </table>
+  <div class="note warn"><span class="nt">ดูได้เฉพาะบิลที่ขายบนเครื่องนี้</span>หน้า คืนสินค้า และ รายงาน อ่านบิลจากข้อมูลในเครื่อง ไม่ได้ค้นบิลจากเซิร์ฟเวอร์ — จึงเห็นรูปได้เฉพาะ<strong>บิลที่ขายจากเครื่องเดียวกันนี้</strong> บิลที่ขายจากเครื่องอื่นของร้านจะไม่ปรากฏในหน้าเหล่านี้ (รูปยังอยู่บนเซิร์ฟเวอร์ครบ แต่ยังไม่มีหน้าค้นบิลข้ามเครื่องในเวอร์ชันนี้)</div>
+  <div class="note key"><span class="nt">ใครดูได้ · ลบได้ไหม · เก็บนานแค่ไหน</span>ทุกบทบาทของร้านที่เข้าสู่ระบบดูรูปได้ (ถ่ายได้เฉพาะเครื่อง POS) · <strong>ไม่มีใครลบรูปได้</strong> ทั้งพนักงาน เจ้าของ และผู้ดูแลแพลตฟอร์ม และไม่ลบอัตโนมัติ — ถ่ายผิดต้องกด ✕ ก่อนกดบันทึกเท่านั้น · รูปไม่ถูกเก็บในเครื่อง ดึงมาดูทุกครั้งผ่านการเข้าสู่ระบบ (ไม่ถูกแคชในเบราว์เซอร์)</div>
+  <div class="note warn"><span class="nt">รูปหลักฐาน ไม่อยู่ในไฟล์ backup ของเจ้าของร้าน</span>ไฟล์ <code>.zip</code> จากหน้า สำรอง/กู้คืน มีรูป<strong>สินค้า</strong>เท่านั้น <strong>ไม่มีรูปหลักฐานตอนขาย</strong> (รูปหลักฐานสำรองโดยทีม IT ที่ฝั่งเซิร์ฟเวอร์ — ภาค 04) · การ <span class="ui ghost">กู้คืนข้อมูล</span> แบบแทนที่ทั้งร้าน<strong>ไม่ลบ</strong>รูปหลักฐานบนเซิร์ฟเวอร์ — ถ้าไฟล์ที่นำเข้ามีบิลเลขเดิม รูปจะกลับมาผูกกับบิลนั้นเอง ส่วนบิลที่ไม่กลับมา รูปจะค้างบนเซิร์ฟเวอร์โดยไม่มีหน้าไหนแสดง</div>
+  <div class="note tip"><span class="nt">ข้อความเหล่านี้ยังเป็นร่าง</span>ถ้อยคำของแถบรูปหลักฐานเป็น <code>agent ร่าง</code> — ยังไม่ผ่านการรับรองจากเจ้าของโปรเจกต์ · ประกาศแจ้งลูกค้าเรื่องการถ่ายรูป (PDPA) เป็นเรื่องที่เจ้าของต้องตัดสินใจเอง ยังไม่ได้ทำ</div>
+  <div class="runfoot"><span>ภาค 02 · เจ้าของร้าน</span><span class="pagenum">8.1</span></div>
 </section>
 
 <!-- ════════════════ 9 · SETTINGS ════════════════ -->
@@ -374,6 +408,7 @@
     <li><span class="st-title">แท็บ <span class="ui ghost">💾 สำรอง/กู้คืน</span> → <span class="ui ghost">💾 สำรองข้อมูล</span></span>ดูจำนวนระเบียน 14 ประเภท</li>
     <li><span class="st-title">กด <span class="ui">⬇ ดาวน์โหลดไฟล์ backup (.zip)</span> (API build) หรือ <span class="ui">⬇ ดาวน์โหลดไฟล์ backup (.json)</span> (Drift build)</span><span class="see">API build: <span class="msg">กำลังเตรียมไฟล์สำรอง (ข้อมูลและรูปสินค้า)… กรุณาอย่าปิดหน้านี้</span> แล้วได้ไฟล์ <code>pos-backup-&lt;yyyymmdd&gt;.zip</code> · Drift build: <span class="msg">ดาวน์โหลดไฟล์ backup สำเร็จ</span> — เก็บไฟล์ไว้นอกเครื่อง</span></li>
   </ol>
+  <div class="note warn"><span class="nt">backup .zip ไม่มีรูปหลักฐานตอนขาย</span>รูปที่พนักงานถ่ายหลังชำระเงิน (หัวข้อ 7.1) ไม่อยู่ในไฟล์ <code>.zip</code>/<code>.json</code> นี้ — อยู่บนเซิร์ฟเวอร์ และทีม IT สำรองแยกต่างหาก · กู้คืนแบบแทนที่ทั้งร้านไม่ลบรูปหลักฐาน</div>
   <div class="note key"><span class="nt">backup ของ API build เป็น .zip และมีรูปสินค้า</span>ไฟล์ <code>.zip</code> ประกอบด้วย <code>data.json</code> (ข้อมูลร้านเหมือน backup .json เดิม) กับโฟลเดอร์ <code>images/</code> ที่มีรูปของสินค้าที่มีรูป (หนึ่งไฟล์ <code>.webp</code> ต่อรูป) — อย่าแตกแล้วแก้ไฟล์ในนั้น นำเข้ากลับต้องใช้ตัวไฟล์ <code>.zip</code> เดิม · ไฟล์ <code>.json</code> แบบเก่า<strong>ไม่มีรูป</strong> · build ออฟไลน์ล้วน (Drift) ไม่มีรูปสินค้าจึงยังออกเป็น <code>.json</code></div>
   <h2 class="sub">กู้คืน <span class="en">Restore</span></h2>
   <ol class="steps">
@@ -461,6 +496,7 @@
   <div class="limits"><span class="nt">ข้อจำกัดปัจจุบัน <span class="en">Current limitations</span></span>
     <ul class="ticks">
       <li>ร้านจริงยังใช้ Drift build — หัวข้อ 1–3 และ 9 ใช้กับ API build เท่านั้น</li>
+      <li>รูปหลักฐานสินค้า (7.1): ดูได้เฉพาะบิลที่ขายบนเครื่องเดียวกัน · ไม่มีใครลบหรือเพิ่มรูปทีหลังได้ · ไม่อยู่ใน backup .zip · ประกาศแจ้งลูกค้า (PDPA) ยังรอเจ้าของตัดสิน · ถ้อยคำเป็น <code>agent ร่าง</code></li>
       <li>สิทธิ์ POS/Backoffice บังคับที่เซิร์ฟเวอร์ หน้าจอส่วนใหญ่ไม่ได้ซ่อนปุ่ม — กดบนเครื่อง Backoffice แล้วเซิร์ฟเวอร์จะปฏิเสธ</li>
       <li>รหัสผูกเครื่องที่ออกจากแอปมีอายุ 15 นาที แต่รหัสผูกเครื่องแรกที่ทีมแพลตฟอร์มออกให้ตอนเปิดร้านมีอายุ 7 วัน</li>
       <li>ข้อความในหน้า รอเจ้าของ (<span class="msg">ถูกปฏิเสธ / ค้าง</span> / <span class="msg">รอตรวจ</span>) ต่างเล็กน้อยจากถ้อยคำที่รับรองไว้ในสเปก (<span class="msg">รายการติดปัญหา / ค้างส่ง</span> / <span class="msg">รายการรอตรวจสอบ</span>) — คู่มือนี้ใช้คำที่อยู่บนจอจริง</li>

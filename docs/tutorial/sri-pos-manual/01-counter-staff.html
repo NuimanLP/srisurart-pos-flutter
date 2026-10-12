@@ -43,7 +43,9 @@
     <a class="toc-row" href="#open"><span class="n">2</span><span class="t">เปิดกะ — ลิ้นชักเงินสด <span class="en">Open shift</span></span><span class="pg">3</span></a>
     <a class="toc-row" href="#sell"><span class="n">3</span><span class="t">ขายสินค้า <span class="en">Checkout</span></span><span class="pg">4</span></a>
     <a class="toc-row" href="#vehicle"><span class="n">3.1</span><span class="t">ค้นหาอะไหล่ตามรุ่นรถ <span class="en">Search by vehicle</span></span><span class="pg">4.1</span></a>
+    <a class="toc-row" href="#camera-scan"><span class="n">3.2</span><span class="t">สแกนบาร์โค้ดด้วยกล้อง <span class="en">Camera barcode scan</span></span><span class="pg">4.2</span></a>
     <a class="toc-row" href="#receipt"><span class="n">4</span><span class="t">ราคาช่าง · เครดิตช่าง · ใบเสร็จ <span class="en">Mechanic &amp; receipt</span></span><span class="pg">5</span></a>
+    <a class="toc-row" href="#photo-evidence"><span class="n">4.1</span><span class="t">ถ่ายรูปหลักฐานสินค้าหลังชำระเงิน <span class="en">Photo evidence</span></span><span class="pg">5.1</span></a>
     <a class="toc-row" href="#park"><span class="n">5</span><span class="t">พักบิล · ใบเสนอราคา <span class="en">Park &amp; quotes</span></span><span class="pg">6</span></a>
     <a class="toc-row" href="#returns"><span class="n">6</span><span class="t">คืนสินค้า · ยกเลิกบิล <span class="en">Returns &amp; void</span></span><span class="pg">7</span></a>
     <a class="toc-row" href="#close"><span class="n">7</span><span class="t">เงินเข้า-ออก · ปิดกะ · เปิดกะถัดไป <span class="en">Drawer, close &amp; next shift</span></span><span class="pg">8</span></a>
@@ -126,7 +128,7 @@
   <p class="sec-lede">หน้าแรกของระบบ ซ้ายคือรายการสินค้า ขวาคือตะกร้าและการชำระเงิน (บนมือถือแยกเป็น 2 แท็บ <span class="ui ghost">สินค้า</span> / <span class="ui ghost">ตะกร้า</span>)</p>
   <figure><img src="img/checkout-payment.png" alt="ตะกร้า ยอดรวม วิธีชำระ ปุ่มลัดรับเงิน และปุ่ม ชำระเงิน" loading="lazy"><figcaption>ตะกร้า ยอดรวม วิธีชำระ ปุ่มลัดรับเงิน และปุ่ม ชำระเงิน</figcaption></figure>
   <ol class="steps">
-    <li><span class="st-title">เพิ่มสินค้า</span>ยิงบาร์โค้ด/พิมพ์รหัสในช่อง <span class="ui ghost">สแกนบาร์โค้ด / รหัสอะไหล่</span> แล้วกด Enter หรือค้นชื่อในช่อง <span class="ui ghost">ค้นหาชื่อสินค้า…</span> แล้วแตะการ์ดสินค้า (กรองหมวดด้วยชิป <span class="ui ghost">ทั้งหมด</span> ฯลฯ) <span class="see">สินค้าลงตะกร้า — ถ้ารหัสไม่มีจะขึ้น <span class="msg">ไม่พบรหัส: {val}</span></span></li>
+    <li><span class="st-title">เพิ่มสินค้า</span>ยิงบาร์โค้ด/พิมพ์รหัสในช่อง <span class="ui ghost">สแกนบาร์โค้ด / รหัสอะไหล่</span> แล้วกด Enter หรือค้นชื่อในช่อง <span class="ui ghost">ค้นหาชื่อสินค้า…</span> แล้วแตะการ์ดสินค้า (กรองหมวดด้วยชิป <span class="ui ghost">ทั้งหมด</span> ฯลฯ) หรือกดไอคอนกล้องท้ายช่องสแกนเพื่อสแกนด้วยกล้องเครื่อง (หัวข้อ 3.2) <span class="see">สินค้าลงตะกร้า — ถ้ารหัสไม่มีจะขึ้น <span class="msg">ไม่พบรหัส: {val}</span></span></li>
     <li><span class="st-title">ปรับจำนวน</span>ขายเกินสต็อกไม่ได้: <span class="msg">สต็อก "{name}" เหลือเพียง {stock} ชิ้น</span> · การ์ดที่ขึ้น <span class="msg">สินค้าหมด</span> กดไม่ได้</li>
     <li><span class="st-title">เลือกลูกค้า (ถ้ามี)</span>ช่อง <span class="ui ghost">ลูกค้า</span> ค้นด้วยชื่อหรือเบอร์ — ลูกค้าได้แต้ม <strong>1 แต้มต่อทุก ฿10</strong> (ปัดลง)</li>
     <li><span class="st-title">เลือกช่าง (ถ้าเป็นงานช่าง)</span>ช่อง <span class="ui ghost">🔧 ช่าง (ปรับราคาช่าง)</span> — ดูหัวข้อ 4</li>
@@ -174,6 +176,46 @@
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">4.1</span></div>
 </section>
 
+<!-- ════════════════ 3.2 · CAMERA BARCODE SCAN ════════════════ -->
+<section class="page" id="camera-scan">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">3.2 · สแกนด้วยกล้อง</span></div>
+  <div class="sec-no">Section 3.2</div>
+  <h1 class="sec">สแกนบาร์โค้ดด้วยกล้อง <span class="en">Camera barcode scan</span></h1>
+  <p class="sec-lede">ไม่มีเครื่องยิงบาร์โค้ด ก็ใช้กล้องของมือถือ แท็บเล็ต หรือเครื่อง POS บน Windows สแกนแทนได้ — เครื่องยิงแบบคีย์บอร์ดและการพิมพ์รหัสเองยังใช้ได้เหมือนเดิม (ออกให้ใช้ 2026-10-12)</p>
+  <ol class="steps">
+    <li><span class="st-title">กดไอคอนกล้อง</span>ปุ่มไอคอนกล้องสีส้ม (ชี้ค้างจะขึ้น <span class="msg">สแกนบาร์โค้ดด้วยกล้อง</span>) อยู่ท้ายช่องค้นหา 3 แห่ง: ช่อง <span class="ui ghost">สแกนบาร์โค้ด / รหัสอะไหล่</span> ในหน้า ขายสินค้า · ช่อง <span class="ui ghost">ค้นหา ชื่อ / รหัส…</span> ในหน้า สินค้า/สต็อก · ช่องค้นหาใต้ <span class="ui ghost">เพิ่มสินค้า · Add Items</span> ตอนสร้างใบสั่งซื้อ (PO)<span class="see">ขึ้นหน้าต่าง <span class="msg">สแกนบาร์โค้ดด้วยกล้อง</span> พร้อมภาพจากกล้อง กรอบสีส้ม และคำแนะนำ <span class="msg">เล็งบาร์โค้ดให้อยู่ในกรอบ</span> · ครั้งแรกเบราว์เซอร์/มือถืออาจถามขอสิทธิ์ใช้กล้อง ให้กดอนุญาต</span></li>
+    <li><span class="st-title">เล็งบาร์โค้ดให้อยู่ในกรอบ</span>เจอรหัสแรกแล้วหน้าต่างปิดเอง ไม่ต้องกดอะไร · ที่มืดใช้ปุ่มไฟฉายมุมบน (<span class="msg">เปิด/ปิดไฟฉาย</span>) · ไม่ต้องการแล้วกด ✕ (<span class="msg">ปิด</span>) จะไม่มีอะไรเกิดขึ้น</li>
+    <li><span class="st-title">ดูผลตามหน้าที่สแกน</span>ตารางด้านล่าง</li>
+  </ol>
+  <div class="tbl-scroll">
+  <table class="grid">
+    <tr><th>สแกนที่</th><th>เกิดอะไรขึ้น</th></tr>
+    <tr><td>ขายสินค้า</td><td>ทำเหมือนพิมพ์รหัสแล้วกด Enter หรือยิงเครื่องสแกน: ถ้ารหัสตรงกับสินค้า สินค้าลงตะกร้า 1 ชิ้น (ติดเงื่อนไขสต็อกเหมือนเดิม) · ไม่ตรงจะขึ้น <span class="msg">ไม่พบรหัส: {val}</span></td></tr>
+    <tr><td>สินค้า/สต็อก</td><td>รหัสที่สแกนถูกใส่ในช่องค้นหาและกรองรายการเหมือนพิมพ์เอง — ไม่ได้เพิ่มหรือแก้อะไร · ไม่เจอจะเห็นรายการว่างเหมือนค้นด้วยมือ</td></tr>
+    <tr><td>สร้างใบสั่งซื้อ (PO) — เพิ่มสินค้า</td><td>เพิ่มบรรทัดเข้า PO <strong>เฉพาะเมื่อรหัสตรงกับรหัสอะไหล่ทุกตัวอักษร</strong> · ถ้าไม่ตรงหรือตรงบางส่วน จะไม่เพิ่มบรรทัดให้ แค่แสดงรายการที่ใกล้เคียง (หรือ <span class="msg">ไม่พบสินค้า</span>) ให้เลือกเอง</td></tr>
+  </table>
+  </div>
+  <figure><div style="border:2px dashed #9AA5B1;border-radius:8px;padding:28px 16px;text-align:center;color:#6B7785;font-size:14px">(ภาพหน้าจอ: barcode-scan-button — รอเพิ่ม)</div><figcaption>ช่องสแกนบาร์โค้ด / รหัสอะไหล่ — ไอคอนกล้องสีส้มท้ายช่อง</figcaption></figure>
+  <figure><div style="border:2px dashed #9AA5B1;border-radius:8px;padding:28px 16px;text-align:center;color:#6B7785;font-size:14px">(ภาพหน้าจอ: barcode-scan-dialog — รอเพิ่ม)</div><figcaption>หน้าต่างสแกน — ภาพกล้อง กรอบสีส้ม ปุ่มไฟฉาย และปุ่มปิด</figcaption></figure>
+  <h2 class="sub">ข้อความที่อาจเจอ <span class="en">Scanner messages</span></h2>
+  <div class="tbl-scroll">
+  <table class="grid">
+    <tr><th>ข้อความบนจอ</th><th>สาเหตุ</th><th>ทำอย่างไร</th></tr>
+    <tr><td><span class="msg">ไม่ได้รับอนุญาตให้ใช้กล้อง</span></td><td>เคยกดไม่อนุญาตสิทธิ์กล้อง</td><td>เปิดสิทธิ์กล้องให้แอป/เว็บไซต์ในการตั้งค่าของเครื่องหรือเบราว์เซอร์ แล้วเปิดหน้าต่างสแกนใหม่</td></tr>
+    <tr><td><span class="msg">ไม่พบกล้อง</span></td><td>เครื่องไม่มีกล้อง หรือไม่ได้ต่อกล้อง</td><td>พิมพ์รหัสเอง หรือใช้เครื่องยิงบาร์โค้ด</td></tr>
+    <tr><td><span class="msg">เปิดกล้องไม่ได้</span></td><td>กล้องถูกโปรแกรมอื่นใช้อยู่ หรือเปิดไม่สำเร็จ</td><td>ปิดโปรแกรมที่ใช้กล้องแล้วลองใหม่</td></tr>
+    <tr><td><span class="msg">เปิดไฟฉายไม่ได้</span></td><td>เครื่อง/กล้องนี้ไม่มีไฟฉาย</td><td>สแกนต่อได้ตามปกติ หรือเพิ่มแสงรอบบาร์โค้ด</td></tr>
+    <tr><td><span class="msg">เบราว์เซอร์นี้ใช้กล้องไม่ได้ (ต้องเปิดผ่าน HTTPS)</span></td><td>เปิดเว็บ POS ผ่านที่อยู่ที่ไม่ใช่ HTTPS — เบราว์เซอร์ไม่ยอมให้ใช้กล้อง</td><td>เปิดด้วยที่อยู่ <code>https://…</code> ที่ IT ให้ไว้</td></tr>
+    <tr><td><span class="msg">เบราว์เซอร์นี้สแกนบาร์โค้ดไม่ได้</span></td><td>เบราว์เซอร์เก่ามาก ไม่รองรับ WebAssembly</td><td>อัปเดตเบราว์เซอร์ หรือใช้ Chrome/Edge รุ่นใหม่</td></tr>
+    <tr><td><span class="msg">โหลดตัวอ่านบาร์โค้ดไม่สำเร็จ</span></td><td>ไฟล์ตัวอ่านบาร์โค้ดของเว็บโหลดไม่ขึ้น</td><td>รีเฟรชหน้า (Ctrl+F5) แล้วลองใหม่ ถ้ายังเป็นอีกแจ้ง IT</td></tr>
+  </table>
+  </div>
+  <div class="note key"><span class="nt">เครื่องไหนใช้ได้ · อ่านอะไรได้</span>ใช้ได้ทั้งแอปบนมือถือ/แท็บเล็ตและเว็บ POS บนเครื่อง Windows หน้าร้าน (ตัวถอดรหัสบาร์โค้ดมากับตัวเว็บเอง ไม่ต้องโหลดจากอินเทอร์เน็ต) · บนเว็บต้องเปิดผ่าน <strong>HTTPS</strong> · อ่านบาร์โค้ด EAN-13/8, UPC-A/E, Code 128/39/93, ITF-14, Codabar และ QR · <strong>ระบบจับคู่กับ "รหัสอะไหล่" เท่านั้น</strong> — ถ้าบาร์โค้ดบนกล่องไม่ใช่รหัสเดียวกับที่ร้านบันทึก จะไม่เจอสินค้า (ให้เจ้าของร้านตั้งรหัสสินค้าให้ตรงกับบาร์โค้ด)</div>
+  <div class="note warn"><span class="nt">ข้อควรรู้</span>ถ้าบิลกำลังบันทึกอยู่ (ปุ่มขึ้น <span class="msg">กำลังบันทึก…</span>) รหัสที่สแกนในหน้าขายจะค้างในช่อง ยังไม่ลงตะกร้า — รอใบเสร็จขึ้นและปิดก่อน แล้วสแกนใหม่ · <strong>หน้ารับสินค้าเข้าของ PO (รับของ) ไม่มีปุ่มสแกน</strong> ใช้ได้เฉพาะตอนสร้าง PO</div>
+  <div class="note tip"><span class="nt">ข้อความเหล่านี้ยังเป็นร่าง</span>ถ้อยคำทั้งหมดของฟีเจอร์สแกนด้วยกล้องเป็น <code>agent ร่าง</code> — ยังไม่ผ่านการรับรองจากเจ้าของโปรเจกต์ อาจเปลี่ยนถ้อยคำ</div>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">4.2</span></div>
+</section>
+
 <!-- ════════════════ 5 · MECHANIC / RECEIPT ════════════════ -->
 <section class="page" id="receipt">
   <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">4 · ช่าง · ใบเสร็จ</span></div>
@@ -201,10 +243,48 @@
   <ul class="ticks">
     <li>มี <span class="msg">เลขที่</span> / <span class="msg">วันที่</span> / <span class="msg">แคชเชียร์</span> / ลูกค้าและช่าง (ถ้ามี) — เลขบิลขึ้นต้น <code>RC</code> ใช้ค้นตอนคืนสินค้า</li>
     <li>บิลเครดิตช่างแสดง <span class="msg">ค้างชำระ (เครดิตช่าง)</span> แทนเงินทอน · ถ้ามีลูกค้าแสดง <span class="msg">แต้มสะสม +{n} แต้ม</span></li>
+    <li>ปุ่ม <span class="ui ghost">ถ่ายรูปหลักฐานสินค้า</span> ใต้แถบขายสำเร็จ (API build) — ไม่บังคับ ดูหัวข้อ 4.1</li>
     <li>กด <span class="ui">พิมพ์ใบเสร็จ</span> → หน้าต่างพิมพ์ของเครื่อง หรือ <span class="ui ghost">ปิด</span> เพื่อเริ่มบิลถัดไป</li>
   </ul>
   <div class="note warn"><span class="nt">พิมพ์ใบเสร็จซ้ำไม่ได้</span>หน้าต่างใบเสร็จขึ้นครั้งเดียวหลังกดชำระเงิน — ไม่มีเมนูพิมพ์ใบเสร็จย้อนหลัง ถ้าลูกค้าต้องการใบเสร็จ ให้กด <span class="ui">พิมพ์ใบเสร็จ</span> ก่อนกด <span class="ui ghost">ปิด</span> (เลขบิลยังดูได้ในหน้า <span class="ui ghost">คืนสินค้า</span> และ <span class="ui ghost">รายงาน</span> → รายการล่าสุด)</div>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">5</span></div>
+</section>
+
+<!-- ════════════════ 4.1 · PHOTO EVIDENCE ════════════════ -->
+<section class="page" id="photo-evidence">
+  <div class="runhead"><span>Srisurart POS · ภาค 01</span><span class="r">4.1 · รูปหลักฐานสินค้า</span></div>
+  <div class="sec-no">Section 4.1</div>
+  <h1 class="sec">ถ่ายรูปหลักฐานสินค้าหลังชำระเงิน <span class="en">Photo evidence</span></h1>
+  <p class="sec-lede">เก็บรูปว่าสินค้าตอนส่งมอบเป็นของใหม่ ไม่มีรอยขีดข่วน ไม่ชำรุด ผูกกับบิลนั้นบนเซิร์ฟเวอร์ — <strong>ไม่บังคับ</strong> การชำระเงินไม่ถูกบล็อกหรือช้าลง ถ้าไม่ถ่ายก็ปิดใบเสร็จไปขายบิลต่อไปได้เลย (ออกให้ใช้ 2026-10-12 · เฉพาะ API build)</p>
+  <ol class="steps">
+    <li><span class="st-title">ชำระเงินจนใบเสร็จขึ้น</span>ใต้แถบ "ขายสำเร็จ" มีปุ่ม <span class="ui ghost">ถ่ายรูปหลักฐานสินค้า</span></li>
+    <li><span class="st-title">กดปุ่มนั้น</span><span class="see">ขึ้นแผ่น <span class="msg">รูปหลักฐานสินค้า</span> พร้อมเลขที่บิล และคำแนะนำ <span class="msg">ถ่ายให้เห็นสภาพสินค้าก่อนส่งมอบ</span> / <span class="msg">ไม่ต้องถ่ายหน้าลูกค้าหรือทะเบียนรถ</span></span></li>
+    <li><span class="st-title">ถ่ายหรือเลือกรูป (1–5 รูป)</span>กด <span class="ui ghost">ถ่ายรูป</span> (ปุ่มนี้มีเฉพาะแอปบน Android/iOS) หรือ <span class="ui ghost">เลือกรูป</span> (เลือกไฟล์ — มีทุกเครื่อง; บนเว็บของมือถือ เบราว์เซอร์มักเสนอให้ถ่ายด้วยกล้องในหน้าต่างเลือกไฟล์; เครื่อง PC ไม่มีกล้องก็เลือกไฟล์) · รูปที่ได้ถูกย่อให้เล็กลงอัตโนมัติ · ตัวนับขึ้น <span class="msg">{n} / 5 รูป</span> · ครบ 5 ขึ้น <span class="msg">ครบ 5 รูปแล้ว</span> และถ่ายเพิ่มไม่ได้ · ถ่ายผิด กด ✕ ที่รูปนั้นเพื่อทิ้ง (ทำได้เฉพาะรูปที่ยังไม่ได้บันทึก)</li>
+    <li><span class="st-title">กด <span class="ui">บันทึก {n} รูป</span></span>ระบบส่งขึ้นเซิร์ฟเวอร์ทีละรูป ระหว่างนั้นปุ่มกดไม่ได้ · เสร็จครบแล้วแผ่นปิดเอง และที่ใบเสร็จจะเห็น <span class="msg">บันทึกรูปแล้ว</span> แทนปุ่มเดิม</li>
+    <li><span class="st-title">ไม่อยากถ่าย</span>กด <span class="ui ghost">ข้าม</span> (หรือปิดแผ่นเฉย ๆ) ได้เลย</li>
+  </ol>
+  <figure><div style="border:2px dashed #9AA5B1;border-radius:8px;padding:28px 16px;text-align:center;color:#6B7785;font-size:14px">(ภาพหน้าจอ: receipt-photo-button — รอเพิ่ม)</div><figcaption>ใบเสร็จ — ปุ่ม ถ่ายรูปหลักฐานสินค้า ใต้แถบ ขายสำเร็จ</figcaption></figure>
+  <figure><div style="border:2px dashed #9AA5B1;border-radius:8px;padding:28px 16px;text-align:center;color:#6B7785;font-size:14px">(ภาพหน้าจอ: sale-photo-sheet — รอเพิ่ม)</div><figcaption>แผ่น รูปหลักฐานสินค้า — รูปย่อ ตัวนับ {n} / 5 รูป ปุ่ม ถ่ายรูป / เลือกรูป และ ข้าม / บันทึก {n} รูป</figcaption></figure>
+
+  <h2 class="sub">ถ้าบันทึกไม่สำเร็จ <span class="en">Retry</span></h2>
+  <ul class="ticks">
+    <li>รูปที่ส่งไม่ผ่านจะมีป้ายเตือนที่รูปนั้นพร้อมข้อความ และ <strong>แผ่นไม่ปิด</strong> — กด <span class="ui ghost">ลองอีกครั้ง</span> (ส่งรูปเดิมซ้ำ ไม่เกิดรูปซ้ำ) · เน็ตหลุด เซิร์ฟเวอร์ยุ่ง หรือหมดเวลา ลองใหม่ได้</li>
+    <li>ถ้าเป็นคำตอบที่ลองซ้ำก็ไม่เปลี่ยน (เช่น <span class="msg">บิลนี้มีรูปหลักฐานครบ 5 รูปแล้ว</span> หรือไฟล์ไม่ใช่รูป <span class="msg">ไฟล์รูปไม่ถูกต้อง กรุณาใช้รูป JPG, PNG หรือ WebP</span>) จะไม่มีปุ่มลองใหม่ ให้กด ✕ ทิ้งรูปนั้น</li>
+    <li>เปิดกล้องไม่ติดจะขึ้น <span class="msg">เปิดกล้องไม่ได้ ลองใช้ปุ่ม เลือกรูป แทน</span></li>
+    <li>กด <span class="ui ghost">ปิด</span> ทั้งที่ยังมีรูปไม่ได้บันทึก จะถามยืนยัน <span class="msg">ปิดโดยไม่บันทึกรูปที่เหลือ?</span> / <span class="msg">รูปที่ยังไม่ได้บันทึก {n} รูปจะหายไป</span></li>
+  </ul>
+
+  <h2 class="sub">เมื่อปุ่มกดไม่ได้ <span class="en">Disabled button</span></h2>
+  <table class="grid">
+    <tr><th>ข้อความใต้ปุ่ม</th><th>สาเหตุ</th></tr>
+    <tr><td><span class="msg">ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะถ่ายรูปหลักฐานได้</span></td><td>เครื่องออฟไลน์ (สถานะ Degraded) — รูปไม่เข้าคิว ต้องออนไลน์เท่านั้น</td></tr>
+    <tr><td><span class="msg">บิลนี้ยังไม่ถึงเซิร์ฟเวอร์ — ถ่ายรูปหลักฐานไม่ได้</span></td><td>บิลนี้ขายตอนออฟไลน์และยังอยู่ในคิวรอส่ง — ถ้าใบเสร็จยังเปิดอยู่ ปุ่มจะใช้ได้เองเมื่อบิลถูกส่งเข้าระบบ</td></tr>
+    <tr><td><span class="msg">ตรวจสถานะบิลไม่ได้ กดอีกครั้งเพื่อลองใหม่</span></td><td>ตรวจไม่ได้ว่าบิลถึงเซิร์ฟเวอร์หรือยัง — กดปุ่มอีกครั้งเพื่อตรวจใหม่</td></tr>
+  </table>
+  <div class="note warn"><span class="nt">ทำได้เฉพาะตอนนี้ — เพิ่มทีหลังไม่ได้</span>รูปเก็บชั่วคราวในหน่วยความจำของแผ่นนี้เท่านั้น ปิดแผ่น ปิดแอป หรือรีสตาร์ตก่อนกด <span class="ui">บันทึก</span> รูปที่ยังไม่บันทึกหายหมด · หลังปิดใบเสร็จ <strong>ไม่มีทางกลับมาถ่ายเพิ่ม</strong> ให้บิลเดิมในเวอร์ชันนี้ · ดูรูปที่บันทึกแล้วได้ที่หน้า รับคืน และ รายงาน (ภาค 02)</div>
+  <div class="note key"><span class="nt">ความเป็นส่วนตัว</span>ถ่ายเฉพาะตัวสินค้า <strong>อย่าถ่ายหน้าลูกค้าหรือป้ายทะเบียนรถ</strong> · รูปถูกตัดข้อมูลตำแหน่ง (GPS) ออก เห็นได้เฉพาะผู้ที่เข้าสู่ระบบของร้าน และไม่มีใครลบรูปได้ในเวอร์ชันนี้ · ประกาศแจ้งลูกค้าเรื่องการถ่ายรูปยังรอเจ้าของโปรเจกต์ตัดสิน</div>
+  <div class="note tip"><span class="nt">ข้อความเหล่านี้ยังเป็นร่าง</span>ถ้อยคำของฟีเจอร์นี้เป็น <code>agent ร่าง</code> ยังไม่ผ่านการรับรองจากเจ้าของโปรเจกต์ — ยกเว้นชื่อปุ่ม <span class="ui ghost">ถ่ายรูปหลักฐานสินค้า</span> ที่เป็นถ้อยคำของเจ้าของเอง</div>
+  <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">5.1</span></div>
 </section>
 
 <!-- ════════════════ 6 · PARK / QUOTES ════════════════ -->
@@ -264,6 +344,7 @@
     <li><span class="st-title">ใส่เหตุผล (ไม่บังคับ)</span>เช่น <span class="msg">เช่น ลูกค้าเปลี่ยนใจ, สินค้าชำรุด, ขายผิดรุ่น</span></li>
     <li><span class="st-title">กดยืนยัน</span><span class="see"><span class="msg">ยืนยันการคืนสินค้า {n} รายการ มูลค่า {baht}?</span> → <span class="ui">ตกลง</span> → ใบลดหนี้ (เลข <code>CN</code>) พร้อมปุ่ม <span class="ui">พิมพ์ใบลดหนี้</span> และรายการขึ้นในแท็บ <span class="ui ghost">ประวัติการคืน ({n})</span></span></li>
   </ol>
+  <div class="note tip"><span class="nt">รูปหลักฐานตอนขาย</span>ถ้าพนักงานถ่ายรูปไว้ตอนขาย (หัวข้อ 4.1) จะเห็นแถบ <span class="msg">รูปหลักฐานตอนขาย ({n})</span> ใต้หัวบิล เหนือรายการสินค้า — แตะดูเต็มจอได้ · ไม่มีรูปขึ้น <span class="msg">บิลนี้ไม่มีรูปหลักฐาน</span> · เห็นเฉพาะบิลที่ขายบนเครื่องนี้ (ภาค 02 หัวข้อ 7.1)</div>
   <div class="twocol"><figure><img src="img/returns-confirm.png" alt="กล่อง ยืนยันการคืนสินค้า" loading="lazy"><figcaption>กล่อง ยืนยันการคืนสินค้า</figcaption></figure><figure><img src="img/credit-note.png" alt="ใบลดหนี้ · CREDIT NOTE" loading="lazy"><figcaption>ใบลดหนี้ · CREDIT NOTE</figcaption></figure></div>
   <figure><img src="img/returns-history.png" alt="แท็บ ประวัติการคืน — เลข CN อ้างอิงบิล RC และเหตุผล" loading="lazy"><figcaption>แท็บ ประวัติการคืน — เลข CN อ้างอิงบิล RC และเหตุผล</figcaption></figure>
   <div class="note warn"><span class="nt">บิลเครดิต แต่คืนเป็นเงินสด</span>ระบบเตือน <span class="msg">คืนเป็นเงินสด?</span> เพราะ <span class="msg">การคืนเป็นเงินสดจะไม่ลดยอดเครดิตของช่าง</span> — ปกติให้ใช้ <span class="ui ghost">หักจากเครดิต</span></div>
@@ -352,6 +433,7 @@
         <li>ปิดกะ</li>
         <li>ยกเลิกบิลที่ขายตอนออนไลน์</li>
         <li>ใบเสนอราคาทุกงาน</li>
+        <li>ถ่ายรูปหลักฐานสินค้า (ไม่เข้าคิว) · ดูรูปหลักฐาน</li>
         <li>สินค้า หมวด ซัพพลายเออร์ ใบสั่งซื้อ ช่าง (เพิ่ม/แก้)</li>
         <li>ตั้งค่า ลบข้อมูลทุกชนิด ตั้ง PIN จัดการเครื่อง สำรอง/นำเข้า</li>
       </ul>
@@ -390,7 +472,8 @@
     <ul class="ticks">
       <li>ร้านจริงยังใช้ Drift build — หัวข้อ 1, 8 และข้อความที่เกี่ยวกับกะ/เครื่อง/ซิงก์ ใช้กับ API build เท่านั้น</li>
       <li>ข้อความ <span class="msg">ยังมี {N} รายการติดปัญหา / ค้างส่ง…</span> ยังเป็นร่างที่ทีมเขียน ยังไม่ผ่านการรับรองจากเจ้าของโปรเจกต์ — อาจเปลี่ยนถ้อยคำ</li>
-      <li>สแกนบาร์โค้ดใช้เครื่องยิงแบบคีย์บอร์ดหรือพิมพ์เอง · พิมพ์ผ่านหน้าต่างพิมพ์ของเครื่อง ไม่มีการสั่งเครื่องพิมพ์หรือเด้งลิ้นชักโดยตรง</li>
+      <li>สแกนบาร์โค้ดใช้เครื่องยิงแบบคีย์บอร์ด พิมพ์เอง หรือกล้องของเครื่อง (หัวข้อ 3.2 — จับคู่รหัสอะไหล่เท่านั้น) · พิมพ์ผ่านหน้าต่างพิมพ์ของเครื่อง ไม่มีการสั่งเครื่องพิมพ์หรือเด้งลิ้นชักโดยตรง</li>
+      <li>รูปหลักฐานสินค้า: ถ่ายได้เฉพาะหลังชำระเงิน ขณะออนไลน์ และเพิ่ม/ลบทีหลังไม่ได้ (หัวข้อ 4.1) · ถ้อยคำของฟีเจอร์สแกนด้วยกล้องและรูปหลักฐานเป็น <code>agent ร่าง</code></li>
     </ul>
   </div>
   <div class="runfoot"><span>ภาค 01 · พนักงานหน้าร้าน</span><span class="pagenum">10</span></div>

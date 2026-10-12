@@ -1,6 +1,6 @@
 # คู่มือ deploy full stack ขึ้น VM `mob04` (Ansible) — ฉบับมือใหม่
 
-**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-10 (รูปสินค้า — volume `product-images`, `/img/`, backup ZIP/รูป; ตรวจกับ branch `feat/product-images`, PR #680 — §3 ข้อ 8, §4.7, §6.5)** — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
+**ตรวจกับโค้ดที่:** `origin/main` @ `494ace3` · 2026-09-30 — **อัปเดต 2026-10-12 (รูปหลักฐานสินค้าตอนขาย — volume `sale-photos`, ตาราง `sale_photos` → Postgres 31 ตาราง, `backup-db.sh` เก็บ `pos_sale_photos_*.tar.gz`; `main` `c3e33aa` PR #699 — §3 ข้อ 8, §4.7b)** — **อัปเดต 2026-10-10 (รูปสินค้า — volume `product-images`, `/img/`, backup ZIP/รูป; ตรวจกับ branch `feat/product-images`, PR #680 — §3 ข้อ 8, §4.7, §6.5)** — **อัปเดต 2026-10-06 (#616 UUID cutover, `main` = `65861ea`, ดู §6.2/§6.3/§6.3b)** — อัปเดตจุดที่ล้าสมัยกับ `4832172` 2026-10-01 (#519 `.partial`, #516 CORS) (รวม PR #498–#504 — web-sync หลัง API + สลับแบบ atomic, `.env` มี newline ท้าย, backup resolve `IMAGE_TAG` เอง, web cache-busting · และ #506 — `.env` เปลี่ยน = `deploy.yml` rollout SHA เดิมซ้ำ, provision ตรวจคีย์ก่อนเขียน · #508 — `deploy.yml` สร้าง `docker/nginx` เองบน `/opt/pos` ที่ว่าง · และ deploy/rollback จริงบน `mob04` 2026-09-30)
 **เอกสารเจ้าของเรื่อง:** `docs/Backend_design/07_CICD_DEPLOY.md` §5–§7, ADR-0013 · ถ้าคู่มือนี้ขัดกับไฟล์ใน `deploy/` → **ไฟล์ถูก**
 
 ---
@@ -714,7 +714,21 @@ ssh mob04-deploy 'sha256sum /opt/pos/scripts/backup-db.sh'
 ssh mob04-deploy '/opt/pos/scripts/backup-db.sh /opt/pos/backups && ls -lt /opt/pos/backups | head -6'
 ```
 
-✅ มี `pos_backup_<ts>.sql.gz` **และ** `pos_images_<ts>.tar.gz` (+ `.sha256` ทั้งคู่) · `restore-db.sh` **ยังไม่กู้รูป** — ต้องแตก `pos_images_*.tar.gz` ลง volume เอง (ยังไม่มีขั้นตอนที่พิสูจน์แล้ว)
+✅ มี `pos_backup_<ts>.sql.gz` **และ** `pos_images_<ts>.tar.gz` **และ** `pos_sale_photos_<ts>.tar.gz` (+ `.sha256` ทุกไฟล์) · `restore-db.sh` **ยังไม่กู้รูป** — ต้องแตก `pos_images_*.tar.gz` / `pos_sale_photos_*.tar.gz` ลง volume เอง (ยังไม่มีขั้นตอนที่พิสูจน์แล้ว)
+
+**รูปหลักฐานตอนขาย (PR #698/#699, 2026-10-12):** `backup-db.sh` รุ่นใหม่เขียนไฟล์ที่สาม `pos_sale_photos_<YYYYmmdd_HHMMSSZ>.tar.gz` (+ `.sha256`) จาก volume `sale-photos` —
+**อ่านผ่าน container `worker`** (`docker compose exec -T worker tar -cf - -C /app/sale-photos .`) เพราะ nginx ไม่ mount volume นี้ (รูปหลักฐานเป็นส่วนตัว ไม่ผ่าน `/img/`) · รูปไม่อยู่ใน `pg_dump` (Postgres เก็บแค่แถว `sale_photos`)
+* 🔴 **ลำดับสำคัญ: ติดตั้งสคริปต์ใหม่ “หลัง” deploy ที่ส่ง `worker` รุ่นที่มี `/app/sale-photos` ขึ้นไปแล้วเท่านั้น** — ถ้าลงก่อน compose จะเห็น `worker` แต่ `exec … test -d /app/sale-photos` ล้ม → สคริปต์ถือว่า
+  “เก็บแล้วพัง” → `::error::SALE PHOTOS ARCHIVE FAILED ...` + **exit ไม่เป็น 0 ทุกคืน** (dump ยังอยู่) · ต่างจากรูปสินค้าที่ไม่มี volume = แค่ `::warning::` · ไม่มี `worker`/ไม่มี volume เลย = `::warning::No sale-photos volume to archive ...` + exit 0
+* ตรวจก่อนลงสคริปต์ ว่า volume ถูกสร้างและ worker mount แล้ว:
+
+```bash
+ssh mob04-deploy 'docker volume ls | grep sale-photos'
+# ต้องเห็น srisurart-pos_sale-photos (ไม่เห็น = deploy ของ release นี้ยังไม่ถึง → ห้ามลงสคริปต์)
+```
+
+* ลงสคริปต์ด้วยคำสั่งชุดเดียวกับด้านบน (`scp` → `sudo install -o deploy -g deploy -m 0755` → เทียบ `sha256sum`) · **ลงจริงบน `mob04` แล้ว 2026-10-12**: sha256 `e70debda…`, สำเนาเก่าเก็บเป็น `/opt/pos/scripts/.backup-db.sh.prev-ec31121`
+* ถ้าลงผิดลำดับแล้ว cron ล้ม: ถอยสคริปต์ด้วยสำเนา `.backup-db.sh.prev-*` หรือ deploy ให้เสร็จก่อนแล้วรันซ้ำ — ไม่ต้องแก้ข้อมูล
 
 ✅ มี `Backup created successfully` และไฟล์ `pos_backup_<YYYYmmdd_HHMMSSZ>.sql.gz` (+ `.sha256`) บนสุดของ `ls` → **จดชื่อไฟล์** ·
 บรรทัด `::warning::` เรื่อง offsite เป็นเรื่องปกติ (สคริปต์ exit 0) — backup นี้อยู่บน VM เท่านั้น
@@ -877,6 +891,19 @@ ssh mob04-deploy 'curl -sk -D - -o /dev/null https://127.0.0.1/img/<tenantId>/<i
 ✅ `HTTP/1.1 200` · `Content-Type: image/webp` · `Cache-Control: public, max-age=31536000, immutable` · `X-Content-Type-Options: nosniff`
 ❌ ได้ 404 ทั้งที่แอปแสดงรูป → ชื่อ volume ของ api กับ nginx ไม่ตรงกัน หรือ nginx ยังไม่ถูก recreate (deploy task 13 ทำทุกครั้ง) · ❌ `/img/` ได้หน้า SPA แทน 404 → `nginx.conf` บน VM เป็นรุ่นเก่า
 ไม่มี login ที่ `/img/` โดยออกแบบ (URL = UUID ของร้าน + แฮช 128 บิต เดาไม่ได้) · รูปไม่ผ่าน `pg_dump` จึงต้องดู `pos_images_*.tar.gz` ใน §3 ข้อ 8
+
+**4.7b รูปหลักฐานตอนขาย (เมื่อ release มี PR #698)** — volume `sale-photos` ต้องมีที่ api และ worker แต่ **ไม่มีที่ nginx**:
+
+```bash
+ssh mob04-deploy 'docker volume ls | grep sale-photos'
+ssh mob04-deploy 'docker inspect srisurart-pos-api-1-1 --format "{{range .Mounts}}{{.Destination}} rw={{.RW}}{{println}}{{end}}" | grep sale-photos'
+ssh mob04-deploy 'docker inspect srisurart-pos-worker-1 --format "{{range .Mounts}}{{.Destination}} rw={{.RW}}{{println}}{{end}}" | grep sale-photos'
+# nginx ต้องไม่มี mount นี้ — ผลลัพธ์ต้องว่าง
+ssh mob04-deploy 'docker inspect srisurart-pos-nginx-1 --format "{{range .Mounts}}{{.Destination}}{{println}}{{end}}" | grep sale-photos || echo "nginx: no sale-photos mount (ถูกต้อง)"'
+```
+
+✅ api/worker เห็น `/app/sale-photos rw=true` · nginx เห็นข้อความ `nginx: no sale-photos mount` · ❌ nginx มี mount นี้ = ผิดดีไซน์ (รูปหลักฐานต้องเข้าได้ผ่าน API ที่ล็อกอินเท่านั้น) รายงาน owner
+ไม่มี login ที่ `/img/` สำหรับรูปสินค้า แต่รูปหลักฐานอยู่นอก `/img/` เสมอ — `/img/<tenantId>/<key>_t.webp` ของ key รูปหลักฐานต้องได้ 404 · ชื่อ container ขึ้นกับชื่อ compose project บน VM (ปรับตามที่ `docker ps` แสดง)
 
 **ขนาดไฟล์ที่ import ได้:** ตอนนี้ import backup รับ `.zip` ได้ถึง **200 MB** (และ `.json` เดิม 10 MB) — Nginx ยก `client_max_body_size 200m` **เฉพาะ** `POST /api/v1/backup/import`
 และ `POST /api/v1/platform/tenants/<uuid>/import` (path อื่นยัง 10 MB) และไม่ buffer body ที่ Nginx (`proxy_request_buffering off`) — ถ้า import ใหญ่ ๆ ได้ `413`
@@ -1043,6 +1070,7 @@ gh run list -R NuimanLP/srisurart-pos-flutter --workflow deploy.yml --limit 3 --
 
 - [ ] ห้าม `docker compose down -v` / `docker volume rm srisurart-pos_*`
 - [ ] ห้ามลบ volume `srisurart-pos_product-images` — รูปสินค้าไม่อยู่ใน `pg_dump` และไม่มีที่อื่นนอกจาก volume นี้กับ `pos_images_*.tar.gz` บนดิสก์ VM เดียวกัน
+- [ ] ห้ามลบ volume `srisurart-pos_sale-photos` — รูปหลักฐานตอนขายไม่อยู่ใน `pg_dump` ไม่มีใครลบรูปได้ในแอป และไม่มีที่อื่นนอกจาก volume นี้กับ `pos_sale_photos_*.tar.gz` บนดิสก์ VM เดียวกัน
 - [ ] ห้าม `--diff` กับ `provision.yml` · ห้าม `export DEMO_ENV_FILE`
 - [ ] ห้ามรัน `provision.yml` เป็น `deploy` หรือ `deploy.yml` เป็น `cloud`
 - [ ] ห้ามรัน `deploy.yml` จาก working tree ที่ไม่ใช่ worktree สะอาดที่ `$TAG` · ห้ามรันเมื่อ gate `docker pull` ของ §3 ข้อ 5 เป็น STOP

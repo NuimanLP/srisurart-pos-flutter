@@ -282,6 +282,27 @@ pnpm test:e2e test/product-images.e2e-spec.ts
 
 (e2e ต้องเตรียม Postgres/Redis ตามข้อ 2.3 และต้องมี `sharp` ที่ลงด้วย `pnpm install` แล้ว) · ผ่านเมื่อไม่มี test แดง
 
+#### 🆕 รูปหลักฐานสินค้าตอนขาย + สแกนบาร์โค้ดด้วยกล้อง (PR #697/#698/#699, 2026-10-12)
+
+ฟีเจอร์: หลังชำระเงินถ่าย/เลือก 1–5 รูปผูกกับบิล (`PUT /sales/:saleId/photos/:photoId`, `GET …/photos`, `GET …/photos/:photoId/t|p`), เก็บใน volume `sale-photos` (nginx ไม่ mount), ตาราง `sale_photos` (append-only ของ `pos_app`); และปุ่มกล้องสแกนบาร์โค้ดในหน้าขาย/สินค้า/สร้าง PO
+
+| ไฟล์ | ชนิด | ตรวจอะไร |
+|---|---|---|
+| `server/test/sale-photos.e2e-spec.ts` | e2e (Postgres/Redis จริง + sharp จริง) | `PUT` → `GET` list → `GET` bytes (ไฟล์อยู่ใน `sale-photos` ไม่ใช่ `product-images`, ไม่มี EXIF) · replay ด้วย key เดิม / photoId เดิม (key ใหม่ + ไบต์เดิม = 200, ไบต์ต่าง = `409 CLIENT_ID_REUSED`) · รูปที่ 6 = `409 SALE_PHOTO_LIMIT` และคำขอพร้อมกันได้ครบ 5 ไม่ใช่ 6 · ลำดับการปฏิเสธ §4.3 (เครื่อง `backoffice` = `403 DEVICE_ROLE_FORBIDDEN`, ร้านถูกระงับ, > 3 MB = `413`, ไฟล์ไม่ใช่รูป/เกิน 4 MP = `400`, บิลไม่มี = `404 SALE_NOT_FOUND`) · ร้านอื่นอ่านได้ `[]`/404 · replace-import ไม่แตะแถวและไฟล์ · อ่านรูปไม่ถือ connection ของ pool (`DB_POOL_SIZE=1`) |
+| `server/src/sale-photos/sale-photos.controller.spec.ts`, `src/product-images/image-pipeline.spec.ts`, `image-store.spec.ts` | unit | controller ตามลำดับการปฏิเสธ · pipeline มี semaphore ช่องเดียวและเพดานพิกเซลของรูปหลักฐาน · store รับรากของ volume |
+| `server/src/idempotency/idempotency-routes.spec.ts`, `src/app.setup.spec.ts` | architecture / unit | route `PUT …/photos/:photoId` ต้องมี idempotency claim · raw body ของรูปหลักฐานอ่านเฉพาะ token ของเครื่อง `pos` |
+| `deploy/scripts/test/backup-db.test.sh`, `nginx-img.test.sh` | shell (stub) | `backup-db.sh`: มี/ไม่มี volume `sale-photos` (`pos_sale_photos_*.tar.gz`, `.partial` ไม่ค้าง, `::error::` เมื่อ worker เข้าไม่ได้) · nginx: key ของรูปหลักฐานผ่าน `/img/` ได้ 404 |
+| `frontend/test/barcode_scan_button_test.dart` | widget | ปุ่มกล้องส่งค่าที่สแกนเข้า callback (scanner เป็น seam — กล้องจริงรันใน test ไม่ได้) |
+| `frontend/test/sale_photo_sheet_test.dart`, `receipt_photo_button_test.dart`, `sale_photos_repository_test.dart` | widget / unit | แผ่นถ่ายรูป (ส่งทีละรูป, ลองอีกครั้งด้วย photoId+key เดิม, 4xx ไม่มีปุ่มลองใหม่, ครบ 5 รูป), ปุ่ม/เหตุผล disabled บนใบเสร็จ, repository กับ fake |
+
+```bash
+pnpm test:e2e test/sale-photos.e2e-spec.ts
+pnpm test src/sale-photos src/product-images
+bash deploy/scripts/test/backup-db.test.sh
+```
+
+(e2e ต้องเตรียม Postgres/Redis ตามข้อ 2.3 เช่นเดียวกับ `product-images.e2e-spec.ts`) · กล้องจริง (ถ่ายรูป/สแกน) ทดสอบด้วยมือบน APK หรือเว็บ HTTPS เท่านั้น — ไม่มี test อัตโนมัติ
+
 ---
 
 ## 3. Test ฝั่ง Flutter — รันในโฟลเดอร์ `frontend/`
@@ -536,6 +557,7 @@ gh api repos/NuimanLP/srisurart-pos-flutter/actions/jobs/107022509504/logs
 | สแกนช่องโหว่ server | `server/` | `pnpm audit --audit-level=high` |
 | nginx `/img/` + body limit ของ import | root | `deploy/scripts/test/nginx-img.test.sh` (ต้องมี docker, openssl, curl) |
 | test รูปสินค้า server | `server/` | `pnpm test src/product-images src/backup` แล้ว `pnpm test:e2e test/product-images.e2e-spec.ts` |
+| 🆕 test รูปหลักฐานตอนขาย server | `server/` | `pnpm test src/sale-photos` แล้ว `pnpm test:e2e test/sale-photos.e2e-spec.ts` |
 | ตรวจโค้ด Flutter | `frontend/` | `dart analyze --fatal-infos` |
 | test Flutter | `frontend/` | `flutter test --reporter expanded` |
 | สแกนช่องโหว่ Flutter | root | `osv-scanner --lockfile=frontend/pubspec.lock` |
