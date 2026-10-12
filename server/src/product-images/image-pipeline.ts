@@ -37,6 +37,9 @@ export interface ProcessedImage {
   key: string;
   thumb: Buffer;
   preview: Buffer;
+  /** The preview's pixel size (`sale_photos.width`/`height`). */
+  width: number;
+  height: number;
 }
 
 export function productImageInvalid(): HttpException {
@@ -140,7 +143,7 @@ async function encode(
   input: Buffer,
   { previewSize, inputPixelLimit }: { previewSize: number; inputPixelLimit: number },
 ): Promise<ProcessedImage> {
-  let preview: Buffer;
+  let preview: { data: Buffer; info: { width: number; height: number } };
   let thumb: Buffer;
   try {
     preview = await sharp(input, {
@@ -151,13 +154,19 @@ async function encode(
       .rotate()
       .resize(previewSize, previewSize, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: PREVIEW_QUALITY })
-      .toBuffer();
-    thumb = await sharp(preview, { failOn: 'error' })
+      .toBuffer({ resolveWithObject: true });
+    thumb = await sharp(preview.data, { failOn: 'error' })
       .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: THUMB_QUALITY })
       .toBuffer();
   } catch {
     throw productImageInvalid();
   }
-  return { key: imageKeyOf(preview), thumb, preview };
+  return {
+    key: imageKeyOf(preview.data),
+    thumb,
+    preview: preview.data,
+    width: preview.info.width,
+    height: preview.info.height,
+  };
 }

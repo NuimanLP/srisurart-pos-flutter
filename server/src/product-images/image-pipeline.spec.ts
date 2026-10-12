@@ -122,6 +122,7 @@ describe('processSalePhoto (10_SALE_PHOTO_EVIDENCE.md §3.3, §5.3)', () => {
     const p = await sharp(out.preview).metadata();
     const t = await sharp(out.thumb).metadata();
     expect([p.format, p.width, p.height]).toEqual(['webp', 1600, 1200]);
+    expect([out.width, out.height]).toEqual([1600, 1200]);
     expect([t.width, t.height]).toEqual([THUMB_SIZE, 192]);
     expect(p.exif).toBeUndefined();
     // The product pipeline is unchanged by the parameters.
