@@ -42,7 +42,7 @@ every add (stacks up at counter speed; the badges do the job).
 - `widgets/tap_target.dart` is good; a `tooltip` parameter would save the
   `Tooltip(child: TapTarget(...))` wrapping used here.
 
-## New Thai strings (agent ร่าง — owner to ratify)
+## New Thai strings (owner-ratified 2026-10-12 — see 02_API_SCREENS.md §8.1.1)
 
 | String | Where |
 |---|---|

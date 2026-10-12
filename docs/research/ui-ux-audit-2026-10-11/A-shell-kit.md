@@ -84,7 +84,7 @@ Priority: **P1** = blocks or misleads the user, **P2** = slows them down or is h
 - `loading_view.dart`, `section_header.dart`, `money_text.dart`, `app_card.dart`,
   `password_field.dart`, `sync_status_builder.dart`: no user-facing problem found worth the churn.
 
-## New Thai strings (agent ร่าง — owner to ratify)
+## New Thai strings (owner-ratified 2026-10-12 — see 02_API_SCREENS.md §8.1.1)
 - `ล้างคำค้นหา` — tooltip on the search field's clear (✕) button (`search_field.dart`).
 - `ดูรายการ` — button that opens the low-stock list from the compact phone strip
   (`low_stock_alert.dart`); same words as the owner-review banner's existing `ดูรายการ ›` link.

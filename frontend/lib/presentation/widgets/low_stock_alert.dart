@@ -457,7 +457,7 @@ class _LowStockBannerState extends State<LowStockBanner> {
               ),
             ),
             TextButton(
-              // agent ร่าง — owner to ratify (same words as the owner-review
+              // owner-ratified 2026-10-12 (same words as the owner-review
               // banner's link).
               onPressed: () => setState(() {
                 _expanded = true;

@@ -66,7 +66,7 @@ class _SearchFieldState extends State<SearchField> {
         isDense: true,
         suffixIcon: hasText
             ? IconButton(
-                // agent ร่าง — owner to ratify.
+                // owner-ratified 2026-10-12.
                 tooltip: 'ล้างคำค้นหา',
                 icon: const Icon(Icons.close, size: 18),
                 onPressed: () {

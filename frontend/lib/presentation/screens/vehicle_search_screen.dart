@@ -104,7 +104,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
       ?..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text('คัดลอกรหัส $partNo แล้ว'), // agent ร่าง
+          content: Text('คัดลอกรหัส $partNo แล้ว'), // owner-ratified 2026-10-12
           duration: const Duration(seconds: 2),
         ),
       );
@@ -185,7 +185,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _query.isNotEmpty
               ? IconButton(
-                  tooltip: 'ล้างคำค้น',
+                  tooltip: 'ล้างคำค้นหา',
                   icon: const Icon(Icons.close, size: 18),
                   onPressed: () => _setQuery(''),
                 )

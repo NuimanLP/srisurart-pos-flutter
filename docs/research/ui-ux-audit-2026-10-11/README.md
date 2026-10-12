@@ -34,7 +34,7 @@ and dark mode; every finding was fixed by the original agent before merge.
 - `flutter build web --no-tree-shake-icons` OK; local offline build checked in a browser at 1366 px and 375 px.
 
 ## For the owner
-- **Ratify the new Thai strings** — every audit doc has a "New Thai strings (agent ร่าง — owner to ratify)"
+- **New Thai strings: owner-ratified 2026-10-12** (02_API_SCREENS.md §8.1.1; three duplicate wordings unified). Every audit doc has a "New Thai strings"
   section. No existing Thai string was changed, except the mechanic quick-pay chips: "+฿100" → "฿100"
   (they replace the amount, they never added to it).
 - Things deliberately NOT done because they would change behaviour are listed at the end of each audit

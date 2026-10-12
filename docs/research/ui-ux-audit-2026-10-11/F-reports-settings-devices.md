@@ -76,7 +76,7 @@ Line numbers are from `main` `2dabbcf`.
 - `AppCard` has no way to switch off its inner padding, which is why screens nest a second `Padding`.
 - There is no shared "responsive action row" (text + trailing button that stacks on narrow); settings and devices each needed one.
 
-## New Thai strings (agent ร่าง — owner to ratify)
+## New Thai strings (owner-ratified 2026-10-12 — see 02_API_SCREENS.md §8.1.1)
 
 | Where | String |
 |---|---|

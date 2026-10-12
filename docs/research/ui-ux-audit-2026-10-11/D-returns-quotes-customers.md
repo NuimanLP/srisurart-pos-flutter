@@ -73,11 +73,11 @@ an elderly owner on 2x–3x whole-screen zoom (1366x768 at 3x is a ~455x256 logi
 - The return confirm text is not changed (Thai strings are behaviour parity). A richer
   confirm sheet would need the owner's approval of new copy.
 
-## New Thai strings (agent ร่าง — owner to ratify)
+## New Thai strings (owner-ratified 2026-10-12 — see 02_API_SCREENS.md §8.1.1)
 - `คืนได้อีก N` — returns, item row: how many units can still be returned.
 - `คืนเข้าสต็อก N ชิ้น` — returns summary: what the return does to stock.
 - `บิลเครดิต: คืนเป็นเงินสดจะไม่ลดยอดค้างของช่าง แนะนำ "หักจากเครดิต"` — returns, inline warning.
 - `แสดง N จาก M บิล — พิมพ์เพื่อค้นบิลที่เก่ากว่า` — returns search, truncated list.
 - `ไม่พบลูกค้าที่ค้นหา` — customers, search with no match.
 - `กรอกชื่อไทยหรืออังกฤษอย่างน้อย 1 ช่อง` — customer editor hint.
-- (reused, not new: `ลองใหม่` from `owner_review_screen.dart`.)
+- Retry buttons: `ลองใหม่อีกครั้ง` (unified 2026-10-12 — the existing devices-screen wording).

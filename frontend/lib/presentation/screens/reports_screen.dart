@@ -458,12 +458,12 @@ class _RangeBar extends StatelessWidget {
       case ReportRange.today:
         return thaiDateSlash(b.from!);
       case ReportRange.week:
-        return '${thaiDateSlash(b.from!)} – วันนี้'; // agent ร่าง
+        return '${thaiDateSlash(b.from!)} – วันนี้'; // owner-ratified 2026-10-12
       case ReportRange.month:
         return '${thaiDateSlash(b.from!)} – '
             '${thaiDateSlash(b.to!.subtract(const Duration(days: 1)))}';
       case ReportRange.all:
-        return 'ทุกรายการที่บันทึกไว้'; // agent ร่าง
+        return 'ทุกรายการที่บันทึกไว้'; // owner-ratified 2026-10-12
     }
   }
 

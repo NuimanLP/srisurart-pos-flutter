@@ -1232,7 +1232,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
                 onPressed: () => DefaultTabController.of(tabCtx).animateTo(1),
                 icon: const Icon(Icons.arrow_forward, size: 18),
-                label: const Text('ดูตะกร้า'), // agent ร่าง
+                label: const Text('ดูตะกร้า'), // owner-ratified 2026-10-12
               ),
             ],
           ),
@@ -2151,7 +2151,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               // Its own 36 px target: a 14 px ✕ next to "resume" was easy to
               // miss — and a miss resumes the bill instead.
               Tooltip(
-                message: 'ลบบิลที่พัก', // agent ร่าง
+                message: 'ลบบิลที่พัก', // owner-ratified 2026-10-12
                 child: TapTarget(
                   minSize: 36,
                   onTap: () => _handleDeleteParked(pk),
@@ -2803,7 +2803,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 // Tap the number to type a quantity (12 bolts = one entry,
                 // not 11 taps on +).
                 Tooltip(
-                  message: 'แตะเพื่อพิมพ์จำนวน', // agent ร่าง
+                  message: 'แตะเพื่อพิมพ์จำนวน', // owner-ratified 2026-10-12
                   child: InkWell(
                     key: Key('cart-qty-${item.productId}'),
                     borderRadius: BorderRadius.circular(6),
@@ -3591,7 +3591,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            short ? 'ยังขาด' : 'เงินทอน', // 'ยังขาด': agent ร่าง
+            short ? 'ยังขาด' : 'เงินทอน', // 'ยังขาด': owner-ratified 2026-10-12
             style: TextStyle(
               fontWeight: FontWeight.w700,
               fontSize: 16,
@@ -3826,7 +3826,7 @@ class _QtyDialogState extends State<_QtyDialog> {
         textAlign: TextAlign.center,
         style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
         decoration: InputDecoration(
-          labelText: 'จำนวน', // agent ร่าง
+          labelText: 'จำนวน', // owner-ratified 2026-10-12
           helperText: product == null ? null : 'คงเหลือ ${product.stock}',
           border: const OutlineInputBorder(),
         ),

@@ -720,7 +720,7 @@ class _ClosingReportState extends State<ClosingReport> {
             ),
           const SizedBox(height: 8),
         ] else
-          // ฿0 below with no shift read as "the drawer is empty" (agent ร่าง).
+          // ฿0 below with no shift read as "the drawer is empty" (owner-ratified 2026-10-12).
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(

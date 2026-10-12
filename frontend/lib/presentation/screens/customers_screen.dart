@@ -138,7 +138,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                   action: OutlinedButton.icon(
                     onPressed: _refresh,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('ลองใหม่'),
+                    label: const Text('ลองใหม่อีกครั้ง'),
                   ),
                 );
               }
