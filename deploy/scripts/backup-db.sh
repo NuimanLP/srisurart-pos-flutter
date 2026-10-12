@@ -17,10 +17,14 @@
 #   POSTGRES_USER        Superuser name for pg_dump (default: postgres)
 #   PRODUCT_IMAGES_DIR   Product-images directory to archive when no compose nginx mounts the
 #                        `product-images` volume (tests, a bare host). Unset on the VM.
+#   SALE_PHOTOS_DIR      Sale-photos directory to archive when no compose worker mounts the
+#                        `sale-photos` volume (tests, a bare host). Unset on the VM.
 #
 # Product images (contract §2): each run also writes ${POSTGRES_DB}_images_<ts>.tar.gz (+ .sha256)
 # from the `product-images` volume — Postgres holds only each image's key. Same `.partial` + `mv`,
-# prune and offsite rules as the dump. 🔴 Only provision.yml (or a manual `install`) updates
+# prune and offsite rules as the dump. Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §5.4) the
+# same way: ${POSTGRES_DB}_sale_photos_<ts>.tar.gz from the `sale-photos` volume, read through the
+# worker (nginx never mounts it). 🔴 Only provision.yml (or a manual `install`) updates
 # /opt/pos/scripts — a CD deploy does not.
 #
 # Offsite upload (#363 — the dump above never left the VM before this):
@@ -145,7 +149,11 @@ PARTIAL_FILE="${BACKUP_FILE}.partial"
 IMAGES_FILE="$BACKUP_DIR/${POSTGRES_DB}_images_${TIMESTAMP}.tar.gz"
 IMAGES_CHECKSUM="${IMAGES_FILE}.sha256"
 IMAGES_PARTIAL="${IMAGES_FILE}.partial"
-trap 'rm -f "$PARTIAL_FILE" "$IMAGES_PARTIAL"' EXIT
+# Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §5.4): its own volume, its own archive.
+SALE_PHOTOS_FILE="$BACKUP_DIR/${POSTGRES_DB}_sale_photos_${TIMESTAMP}.tar.gz"
+SALE_PHOTOS_CHECKSUM="${SALE_PHOTOS_FILE}.sha256"
+SALE_PHOTOS_PARTIAL="${SALE_PHOTOS_FILE}.partial"
+trap 'rm -f "$PARTIAL_FILE" "$IMAGES_PARTIAL" "$SALE_PHOTOS_PARTIAL"' EXIT
 
 echo "Dumping database and appending role ceiling configuration (#213)..."
 (
@@ -197,57 +205,77 @@ echo "  -> Backup created successfully ($BACKUP_SIZE)."
 #     `::warning::`, no archive, the run still exits 0 — a host whose deploy predates images.
 #   * an archive that was attempted and failed -> loud `::error::` and a NON-ZERO exit at the end
 #     (the dump above is kept either way).
-images_source() {
+#
+# --- Sale photos (10_SALE_PHOTO_EVIDENCE.md §5.4) ----------------------------------------------
+# Same rules for the `sale-photos` volume, read through the worker container (nginx never mounts
+# it — the photos are private) at /app/sale-photos, or SALE_PHOTOS_DIR outside compose.
+#
+# volume_source <service> <mount> <dir>: docker | dir | none
+volume_source() {
   if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
     local services
     services="$(docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null || true)"
-    if grep -qx nginx <<<"$services" \
-        && docker compose "${COMPOSE_ARGS[@]}" exec -T nginx test -d /srv/product-images >/dev/null 2>&1; then
+    if grep -qx "$1" <<<"$services" \
+        && docker compose "${COMPOSE_ARGS[@]}" exec -T "$1" test -d "$2" >/dev/null 2>&1; then
       echo docker
       return
     fi
   fi
-  if [[ -n "${PRODUCT_IMAGES_DIR:-}" && -d "${PRODUCT_IMAGES_DIR}" ]]; then
+  if [[ -n "$3" && -d "$3" ]]; then
     echo dir
     return
   fi
   echo none
 }
 
-images_tar() {
+# volume_tar <source> <service> <mount> <dir>
+volume_tar() {
   case "$1" in
-    docker) docker compose "${COMPOSE_ARGS[@]}" exec -T nginx tar -cf - -C /srv/product-images . ;;
-    dir) tar -cf - -C "$PRODUCT_IMAGES_DIR" . ;;
+    docker) docker compose "${COMPOSE_ARGS[@]}" exec -T "$2" tar -cf - -C "$3" . ;;
+    dir) tar -cf - -C "$4" . ;;
   esac
 }
 
-IMAGES_STATE=absent
-IMAGES_SOURCE="$(images_source)"
-if [[ "$IMAGES_SOURCE" == none ]]; then
-  echo "::warning::No product-images volume to archive (no running nginx service mounting /srv/product-images, and PRODUCT_IMAGES_DIR unset) — this backup has no product images." >&2
-else
-  echo "Archiving product images ($IMAGES_SOURCE)..."
-  # WebP is already compressed: gzip -1 costs little and the archive is still a tar.gz.
-  if images_tar "$IMAGES_SOURCE" | gzip -1 > "$IMAGES_PARTIAL"; then
-    mv "$IMAGES_PARTIAL" "$IMAGES_FILE"
-    chmod 0600 "$IMAGES_FILE"
-    if command -v sha256sum >/dev/null 2>&1; then
-      (cd "$BACKUP_DIR" && sha256sum "$(basename "$IMAGES_FILE")" > "$(basename "$IMAGES_CHECKSUM")")
-    elif command -v shasum >/dev/null 2>&1; then
-      (cd "$BACKUP_DIR" && shasum -a 256 "$(basename "$IMAGES_FILE")" > "$(basename "$IMAGES_CHECKSUM")")
-    fi
-    if [[ -f "$IMAGES_CHECKSUM" ]]; then
-      chmod 0600 "$IMAGES_CHECKSUM"
-    fi
-    IMAGES_STATE=ok
-    # shellcheck disable=SC2012
-    echo "  -> Product images archived ($(ls -lh "$IMAGES_FILE" | awk '{print $5}'))."
-  else
-    rm -f "$IMAGES_PARTIAL"
-    IMAGES_STATE=failed
-    echo "::error::PRODUCT IMAGES ARCHIVE FAILED ($IMAGES_SOURCE) — this run's database dump is kept, but the images are not backed up." >&2
+# archive_volume <label> <volume> <service> <mount> <dir env name> <dir> <file> <checksum> <partial>
+# Sets ARCHIVE_STATE to absent | ok | failed.
+archive_volume() {
+  local label="$1" volume="$2" service="$3" mount="$4" dir_name="$5" dir="$6"
+  local file="$7" checksum="$8" partial="$9" src
+  ARCHIVE_STATE=absent
+  src="$(volume_source "$service" "$mount" "$dir")"
+  if [[ "$src" == none ]]; then
+    echo "::warning::No ${volume} volume to archive (no running ${service} service mounting ${mount}, and ${dir_name} unset) — this backup has no ${label}." >&2
+    return
   fi
-fi
+  echo "Archiving ${label} ($src)..."
+  # WebP is already compressed: gzip -1 costs little and the archive is still a tar.gz.
+  if volume_tar "$src" "$service" "$mount" "$dir" | gzip -1 > "$partial"; then
+    mv "$partial" "$file"
+    chmod 0600 "$file"
+    if command -v sha256sum >/dev/null 2>&1; then
+      (cd "$BACKUP_DIR" && sha256sum "$(basename "$file")" > "$(basename "$checksum")")
+    elif command -v shasum >/dev/null 2>&1; then
+      (cd "$BACKUP_DIR" && shasum -a 256 "$(basename "$file")" > "$(basename "$checksum")")
+    fi
+    if [[ -f "$checksum" ]]; then
+      chmod 0600 "$checksum"
+    fi
+    ARCHIVE_STATE=ok
+    # shellcheck disable=SC2012
+    echo "  -> ${label} archived ($(ls -lh "$file" | awk '{print $5}'))."
+  else
+    rm -f "$partial"
+    ARCHIVE_STATE=failed
+    echo "::error::${label^^} ARCHIVE FAILED ($src) — this run's database dump is kept, but the ${label} are not backed up." >&2
+  fi
+}
+
+archive_volume "product images" product-images nginx /srv/product-images PRODUCT_IMAGES_DIR \
+  "${PRODUCT_IMAGES_DIR:-}" "$IMAGES_FILE" "$IMAGES_CHECKSUM" "$IMAGES_PARTIAL"
+IMAGES_STATE="$ARCHIVE_STATE"
+archive_volume "sale photos" sale-photos worker /app/sale-photos SALE_PHOTOS_DIR \
+  "${SALE_PHOTOS_DIR:-}" "$SALE_PHOTOS_FILE" "$SALE_PHOTOS_CHECKSUM" "$SALE_PHOTOS_PARTIAL"
+SALE_PHOTOS_STATE="$ARCHIVE_STATE"
 
 # --- Offsite upload (#363) ---------------------------------------------------------------------
 # Copies this run's backup + checksum off the VM via rclone. Never echoes rclone.conf or any
@@ -294,13 +322,16 @@ offsite_upload() {
   if [[ -f "$CHECKSUM_FILE" ]]; then
     copy_offsite "$CHECKSUM_FILE" || return 1
   fi
-  if [[ -f "$IMAGES_FILE" ]]; then
-    echo "Uploading $(basename "$IMAGES_FILE") to '$OFFSITE_LABEL'..."
-    copy_offsite "$IMAGES_FILE" || return 1
-    if [[ -f "$IMAGES_CHECKSUM" ]]; then
-      copy_offsite "$IMAGES_CHECKSUM" || return 1
+  local archive
+  for archive in "$IMAGES_FILE" "$SALE_PHOTOS_FILE"; do
+    if [[ -f "$archive" ]]; then
+      echo "Uploading $(basename "$archive") to '$OFFSITE_LABEL'..."
+      copy_offsite "$archive" || return 1
+      if [[ -f "${archive}.sha256" ]]; then
+        copy_offsite "${archive}.sha256" || return 1
+      fi
     fi
-  fi
+  done
   echo "  -> Offsite upload confirmed ($OFFSITE_LABEL)."
 }
 
@@ -314,10 +345,12 @@ elif offsite_upload; then
   OFFSITE_STATE=ok
   : > "$UPLOAD_MARKER"
   chmod 0600 "$UPLOAD_MARKER"
-  if [[ -f "$IMAGES_FILE" ]]; then
-    : > "${IMAGES_FILE}.uploaded"
-    chmod 0600 "${IMAGES_FILE}.uploaded"
-  fi
+  for archive in "$IMAGES_FILE" "$SALE_PHOTOS_FILE"; do
+    if [[ -f "$archive" ]]; then
+      : > "${archive}.uploaded"
+      chmod 0600 "${archive}.uploaded"
+    fi
+  done
 else
   OFFSITE_STATE=failed
 fi
@@ -332,12 +365,12 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
     while IFS= read -r -d '' marker; do
       base="${marker%.uploaded}"
       rm -f "$base" "${base}.sha256" "$marker"
-    done < <(find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -o -name "${POSTGRES_DB}_images_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -print0)
+    done < <(find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" -o -name "${POSTGRES_DB}_images_*.tar.gz.uploaded" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -print0)
     while IFS= read -r -d '' stale; do
       if [[ ! -f "${stale}.uploaded" ]]; then
         echo "::warning::Keeping $(basename "$stale") past the ${BACKUP_KEEP_DAYS}-day retention window -- its offsite upload was never confirmed." >&2
       fi
-    done < <(find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_images_*.tar.gz" \) -mtime +"$BACKUP_KEEP_DAYS" -print0)
+    done < <(find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_images_*.tar.gz" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz" \) -mtime +"$BACKUP_KEEP_DAYS" -print0)
   else
     # Offsite is not configured at all -- prune exactly as before this ticket (age-based, no
     # confirmation concept applies), so an indefinitely-long "not configured yet" period does not
@@ -349,14 +382,16 @@ if [[ "$BACKUP_KEEP_DAYS" -gt 0 ]]; then
     find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz" -o -name "${POSTGRES_DB}_backup_*.sql.gz.sha256" -o -name "${POSTGRES_DB}_backup_*.sql.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
     # The product-images archives (contract §2), same age rule.
     find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_images_*.tar.gz" -o -name "${POSTGRES_DB}_images_*.tar.gz.sha256" -o -name "${POSTGRES_DB}_images_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+    # The sale-photos archives (10_SALE_PHOTO_EVIDENCE.md §5.4), same age rule.
+    find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_sale_photos_*.tar.gz" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.sha256" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.uploaded" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
   fi
   # A `.partial` is only ever left by a SIGKILL'd run (the EXIT trap covers every other exit). It is
   # never a backup, has no offsite copy to confirm, so prune it by age in both modes.
-  find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -o -name "${POSTGRES_DB}_images_*.tar.gz.partial" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
+  find "$BACKUP_DIR" -type f \( -name "${POSTGRES_DB}_backup_*.sql.gz.partial" -o -name "${POSTGRES_DB}_images_*.tar.gz.partial" -o -name "${POSTGRES_DB}_sale_photos_*.tar.gz.partial" \) -mtime +"$BACKUP_KEEP_DAYS" -exec rm -f {} +
 fi
 
-if [[ "$IMAGES_STATE" == failed ]]; then
-  echo "=== Product images NOT backed up -- see the PRODUCT IMAGES ARCHIVE error above ==="
+if [[ "$IMAGES_STATE" == failed || "$SALE_PHOTOS_STATE" == failed ]]; then
+  echo "=== Product images or sale photos NOT backed up -- see the ARCHIVE FAILED error above ==="
   exit 1
 fi
 
