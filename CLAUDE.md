@@ -48,8 +48,12 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `2dabbcf`
-(PR #691, merge commit, 2026-10-11)**, create-PO supplier search (PR #690), deployed to `mob04` (run `38103562796`,
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `ec31121`
+(PR #696, merge commit, 2026-10-12)**, the owner-ratified Thai strings of the UI/UX pass (PR #695), deployed to `mob04` (run
+`38189738827`, `.current_sha` checked over SSH). Before it `2d6a575` (PR #694, 2026-10-12, run `38187206166`): the
+presentation-only UI/UX polish of every screen (PR #693; audits in `docs/research/ui-ux-audit-2026-10-11/`,
+`docs/handoff_log/session-2026-10-12-ui-ux-polish.md`). Before that `2dabbcf`
+(PR #691, merge commit, 2026-10-11), create-PO supplier search (PR #690), deployed to `mob04` (run `38103562796`,
 `.current_sha` checked over SSH once the VPN returned; `docs/handoff_log/session-2026-10-11-ui-zoom.md` Release 2). The release before it,
 `bf02582` (PR #687, 2026-10-11), whole-screen zoom up to 3x for elderly users (PR #686), deployed to `mob04` (run
 `38100697523`, `.current_sha` checked over SSH). The release before that, `e77356f` (PR #683, 2026-10-10, run `38066101954`): the first
@@ -863,6 +867,11 @@ on void/return paths. Keep this order in any new write touching more than one of
   window size must use `MediaQueryData.fromView(View.of(context))`; everything else uses `MediaQuery`
   (the zoomed logical screen). The route smoke test runs every screen at 3x on 1920x1080 and 2x on
   1366x768 — a new screen must pass both. The zoom card's Thai strings are `agent ร่าง` (owner to ratify).
+- **Look at the built web app, not only the tests (#693, 2026-10-12):** three layout bugs passed 1848 tests and were only
+  seen by eye (a `Container(alignment:)` inside a `Wrap` fills the whole row — wrap it in `IntrinsicWidth`). For a local
+  look: `flutter build web --no-tree-shake-icons --no-web-resources-cdn` (CanvasKit from gstatic is blocked in the app's
+  browser pane), serve `build/web`, and unregister the service worker + clear caches before re-checking a rebuild — `sw.js`
+  otherwise serves the previous build.
 
 - **Product images (owner request 2026-10-10, PR #680; 02 §3.2/§3.10, 07 §9):** one picture per product, **owner-only**
   (`403 OWNER_ONLY`) and online-only (`PUT`/`DELETE /products/:id/image`, raw jpeg/png/webp ≤ 3 MB, idempotent over the body
