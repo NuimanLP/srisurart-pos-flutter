@@ -6,25 +6,25 @@
 // scan follows the same rule as typed / USB-scanner input.
 //
 // The camera cannot run in tests, so the scanner is a seam: [barcodeScanner]
-// (tests replace it) or the per-button [BarcodeScanButton.scanner].
+// (tests replace it).
 //
-// Web: forced to the browser's native BarcodeDetector so nothing is fetched
-// from a CDN at runtime (mobile_scanner's default `auto` falls back to
-// zxing-wasm/jsDelivr). Browsers without BarcodeDetector (e.g. desktop
-// Firefox) show the "no camera / not supported" message instead.
+// Web: barcode_scan_web.dart picks the native BarcodeDetector or the zxing-wasm
+// decoder vendored under web/zxing/ — never a CDN — and returns a Thai reason
+// BEFORE the camera is requested when neither can work.
 //
 // All Thai strings here are `agent ร่าง` (owner to ratify).
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/theme/app_colors.dart';
+import 'barcode_scan_platform.dart'
+    if (dart.library.js_interop) 'barcode_scan_web.dart';
 
 /// Opens a scanner and resolves with the scanned text, or null if cancelled.
 typedef BarcodeScanner = Future<String?> Function(BuildContext context);
 
-/// The scanner every [BarcodeScanButton] uses unless given its own.
+/// The scanner every [BarcodeScanButton] uses.
 /// Tests assign a fake here (and restore it in tearDown).
 @visibleForTesting
 BarcodeScanner barcodeScanner = showBarcodeScannerDialog;
@@ -32,18 +32,11 @@ BarcodeScanner barcodeScanner = showBarcodeScannerDialog;
 class BarcodeScanButton extends StatelessWidget {
   /// Receives the trimmed, non-empty scanned value.
   final ValueChanged<String> onScanned;
-  final BarcodeScanner? scanner;
-  final bool enabled;
 
-  const BarcodeScanButton({
-    super.key,
-    required this.onScanned,
-    this.scanner,
-    this.enabled = true,
-  });
+  const BarcodeScanButton({super.key, required this.onScanned});
 
   Future<void> _scan(BuildContext context) async {
-    final value = await (scanner ?? barcodeScanner)(context);
+    final value = await barcodeScanner(context);
     final v = value?.trim();
     if (v != null && v.isNotEmpty) onScanned(v);
   }
@@ -55,7 +48,7 @@ class BarcodeScanButton extends StatelessWidget {
       tooltip: 'สแกนบาร์โค้ดด้วยกล้อง',
       icon: const Icon(Icons.photo_camera_outlined, size: 22),
       color: AppColors.orange,
-      onPressed: enabled ? () => _scan(context) : null,
+      onPressed: () => _scan(context),
     );
   }
 }
@@ -80,15 +73,23 @@ class _ScannerDialogState extends State<_ScannerDialog> {
   bool _done = false;
   bool _torchOn = false;
 
+  /// False until the web setup says scanning can work. The camera is only
+  /// requested once the MobileScanner widget is built, i.e. after this.
+  bool _ready = false;
+
+  /// A Thai reason scanning cannot start (shown instead of the camera).
+  String? _blocked;
+
   @override
   void initState() {
     super.initState();
-    if (kIsWeb) {
-      // No runtime CDN fetch (see file header).
-      MobileScannerPlatform.instance.setWebBarcodeReader(
-        WebBarcodeReader.barcodeDetector,
-      );
-    }
+    prepareWebScanner().then((reason) {
+      if (!mounted) return;
+      setState(() {
+        _blocked = reason;
+        _ready = reason == null;
+      });
+    });
     _controller = MobileScannerController(
       facing: CameraFacing.back,
       detectionSpeed: DetectionSpeed.noDuplicates,
@@ -132,6 +133,28 @@ class _ScannerDialogState extends State<_ScannerDialog> {
     _ => 'เปิดกล้องไม่ได้',
   };
 
+  static Widget _message(String text) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.videocam_off_outlined,
+            color: AppColors.gray300,
+            size: 40,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.white, fontSize: 15),
+          ),
+        ],
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -165,11 +188,17 @@ class _ScannerDialogState extends State<_ScannerDialog> {
                     color: _torchOn ? AppColors.orangeLight : AppColors.gray300,
                     icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off),
                     onPressed: () async {
+                      final messenger = ScaffoldMessenger.maybeOf(context);
                       try {
                         await _controller.toggleTorch();
                         if (mounted) setState(() => _torchOn = !_torchOn);
                       } catch (_) {
-                        // No torch on this device — the button is a no-op.
+                        messenger?.showSnackBar(
+                          const SnackBar(
+                            // agent ร่าง
+                            content: Text('เปิดไฟฉายไม่ได้'),
+                          ),
+                        );
                       }
                     },
                   ),
@@ -188,52 +217,37 @@ class _ScannerDialogState extends State<_ScannerDialog> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  MobileScanner(
-                    controller: _controller,
-                    onDetect: _onDetect,
-                    errorBuilder: (context, error) => Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.videocam_off_outlined,
-                              color: AppColors.gray300,
-                              size: 40,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _errorText(error),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: AppColors.white,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                  if (_blocked != null)
+                    _message(_blocked!)
+                  else if (_ready)
+                    MobileScanner(
+                      controller: _controller,
+                      onDetect: _onDetect,
+                      errorBuilder: (context, error) {
+                        // Release the camera on every error path.
+                        _controller.stop().catchError((_) {});
+                        return _message(_errorText(error));
+                      },
                     ),
-                  ),
                   // Aiming frame — decorative only.
-                  IgnorePointer(
-                    child: Center(
-                      child: FractionallySizedBox(
-                        widthFactor: 0.7,
-                        heightFactor: 0.4,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: AppColors.orange,
-                              width: 3,
+                  if (_ready && _blocked == null)
+                    IgnorePointer(
+                      child: Center(
+                        child: FractionallySizedBox(
+                          widthFactor: 0.7,
+                          heightFactor: 0.4,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: AppColors.orange,
+                                width: 3,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),

@@ -39,14 +39,10 @@ void main() {
   ) async {
     final got = <String>[];
     String? next;
+    barcodeScanner = (_) async => next;
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(
-          body: BarcodeScanButton(
-            scanner: (_) async => next,
-            onScanned: got.add,
-          ),
-        ),
+        home: Scaffold(body: BarcodeScanButton(onScanned: got.add)),
       ),
     );
     next = '  ABC-1 \n';
@@ -59,27 +55,6 @@ void main() {
     await tester.tap(cam);
     await tester.pump();
     expect(got, ['ABC-1']);
-  });
-
-  testWidgets('disabled button does not open the scanner', (tester) async {
-    var opened = false;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: BarcodeScanButton(
-            enabled: false,
-            scanner: (_) async {
-              opened = true;
-              return 'X';
-            },
-            onScanned: (_) {},
-          ),
-        ),
-      ),
-    );
-    await tester.tap(cam);
-    await tester.pump();
-    expect(opened, isFalse);
   });
 
   testWidgets('Products: a scan fills the search box and filters', (

@@ -789,11 +789,15 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
 
   /// Enter in the item search: an exact part number first, else the first
   /// listed match.
-  void _addSearchMatch() {
+  /// Enter adds the exact part number, else the first match. A camera scan
+  /// passes [exactOnly]: an unknown or partial code only shows its matches.
+  void _addSearchMatch({bool exactOnly = false}) {
     final q = _partSearch.trim().toLowerCase();
     if (q.isEmpty) return;
     final exact = widget.products.where((p) => p.partNo.toLowerCase() == q);
-    final pick = exact.isNotEmpty ? exact.first : _filteredParts.firstOrNull;
+    final pick = exact.isNotEmpty
+        ? exact.first
+        : (exactOnly ? null : _filteredParts.firstOrNull);
     if (pick != null) _addItem(pick);
   }
 
@@ -1010,12 +1014,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                           onScanned: (v) {
                             _searchCtrl.text = v;
                             setState(() => _partSearch = v);
-                            // Add only on an exact part number; otherwise just show matches.
-                            if (widget.products.any(
-                              (p) => p.partNo.toLowerCase() == v.toLowerCase(),
-                            )) {
-                              _addSearchMatch();
-                            }
+                            _addSearchMatch(exactOnly: true);
                           },
                         ),
                       ),
