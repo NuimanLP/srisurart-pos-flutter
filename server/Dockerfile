@@ -73,10 +73,12 @@ RUN apk upgrade --no-cache \
  && apk add --no-cache glib libexpat libjpeg-turbo libpng libwebp libwebpmux libwebpdemux libexif lcms2 \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
            /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
- && mkdir -p /app/exports /app/product-images  && chown node:node /app/exports /app/product-images
+ && mkdir -p /app/exports /app/product-images /app/sale-photos \
+ && chown node:node /app/exports /app/product-images /app/sale-photos
 # /app/exports: mount point of the `exports` volume (tenant export files, EXPORT_DIR);
-# /app/product-images: of the `product-images` volume (PRODUCT_IMAGES_DIR). Created here, owned
-# by node, so Docker seeds a fresh named volume with that ownership.
+# /app/product-images: of the `product-images` volume (PRODUCT_IMAGES_DIR); /app/sale-photos: of
+# the `sale-photos` volume (SALE_PHOTOS_DIR). Created here, owned by node, so Docker seeds a fresh
+# named volume with that ownership.
 # libvips (built above) goes in musl's default search path; sharp.node links libvips-cpp.so.42.
 COPY --from=libvips /vips-runtime/ /usr/local/lib/
 USER node

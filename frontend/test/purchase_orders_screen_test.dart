@@ -20,6 +20,7 @@ import 'package:srisurart_pos/data/repositories/purchase_orders_repository.dart'
 import 'package:srisurart_pos/data/repositories/suppliers_repository.dart';
 import 'package:srisurart_pos/domain/models/aggregates.dart';
 import 'package:srisurart_pos/presentation/screens/purchase_orders_screen.dart';
+import 'package:srisurart_pos/presentation/widgets/barcode_scan_button.dart';
 
 class _FailingPoRepo extends PurchaseOrdersRepository {
   _FailingPoRepo(super.db);
@@ -234,6 +235,40 @@ void main() {
       expect(saved.po.supplier, 'ร้านใหม่ทดสอบ');
       expect(saved.items.single.partNo, 'EXACT-1');
       expect(saved.items.single.cost, products[1].cost);
+    });
+  });
+
+  testWidgets('create dialog: a camera scan fills the item search and adds '
+      'only an exact part number', (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final saved = barcodeScanner;
+    addTearDown(() => barcodeScanner = saved);
+    await tester.runAsync(() async {
+      final products = await ProductsRepository(db).getAll();
+      await setProduct(db, products[0].id, partNo: 'SCAN-1-LONG');
+      await setProduct(db, products[1].id, partNo: 'SCAN-1');
+      final repo = PurchaseOrdersRepository(db);
+      await pump(tester, db, repo);
+      await openCreate(tester);
+      await tester.enterText(find.byType(TextField).first, 'ร้านสแกน');
+      await settle(tester);
+
+      // Partial code: search shows matches, nothing is added.
+      barcodeScanner = (_) async => 'SCAN';
+      await tester.tap(find.byIcon(Icons.photo_camera_outlined));
+      await settle(tester);
+      expect(tester.widget<TextField>(find.byType(TextField).at(1)).controller!
+          .text, 'SCAN');
+      expect(dialogText('เลือกซัพพลายเออร์และเพิ่มสินค้าอย่างน้อย 1 รายการ'),
+          findsOneWidget);
+
+      // Exact code: added.
+      barcodeScanner = (_) async => 'scan-1';
+      await tester.tap(find.byIcon(Icons.photo_camera_outlined));
+      await settle(tester);
+      await save(tester);
+      expect((await repo.getPOs()).single.items.single.partNo, 'SCAN-1');
     });
   });
 

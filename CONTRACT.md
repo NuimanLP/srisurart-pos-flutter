@@ -253,6 +253,7 @@ unwired.
 | `SuppliersRepository` | `RepositoryProvider<SuppliersRepository>` |
 | `SettingsRepository` | `RepositoryProvider<SettingsRepository>` |
 | `PaymentAccountsRepository` | `RepositoryProvider<PaymentAccountsRepository>` (QR accounts; `useApi` → `ApiPaymentAccountsRepository`) |
+| `SalePhotosRepository` | `RepositoryProvider<SalePhotosRepository?>` — **nullable**: `ApiSalePhotosRepository` when `useApi`, `null` on the Drift build (no server holds photos; the button and strips then do not show). Read it with `salePhotosRepositoryOf(context)`, never `context.read<SalePhotosRepository>()`. Sale photo evidence, `docs/Backend_design/10_SALE_PHOTO_EVIDENCE.md` |
 | `SnapshotRepository` | `RepositoryProvider<SnapshotRepository>` |
 | `ShiftsRepository` | `RepositoryProvider<ShiftsRepository>` |
 | `AuthRepository` | `RepositoryProvider<AuthRepository>` (#54) |
@@ -292,15 +293,15 @@ never inline in `build`.
 
 | File (`lib/presentation/screens/`) | Class | Route path (AppRoutes) | Sub-views OWNED by this screen agent |
 |---|---|---|---|
-| `checkout_screen.dart` | `CheckoutScreen` | `/` (`checkout`, home) | Receipt modal, LowStockAlert, park strip, save-quote, mechanic override |
+| `checkout_screen.dart` | `CheckoutScreen` | `/` (`checkout`, home) | Receipt modal (+ `ถ่ายรูปหลักฐานสินค้า` button → `SalePhotoSheet`, `widgets/sale_photo_sheet.dart`), LowStockAlert, park strip, save-quote, mechanic override |
 | `products_screen.dart` | `ProductsScreen` | `/products` (`products`) | LabelPrinter (barcode print), stock report, supplier editor |
 | `purchase_orders_screen.dart` | `PurchaseOrdersScreen` | `/purchase-orders` (`purchaseOrders`) | PO create + receive |
 | `vehicle_search_screen.dart` | `VehicleSearchScreen` | `/vehicle-search` (`vehicleSearch`) | — |
 | `customers_screen.dart` | `CustomersScreen` | `/customers` (`customers`) | — |
 | `mechanics_screen.dart` | `MechanicsScreen` | `/mechanics` (`mechanics`) | credit-payment intake |
-| `returns_screen.dart` | `ReturnsScreen` | `/returns` (`returns`) | credit-note view |
+| `returns_screen.dart` | `ReturnsScreen` | `/returns` (`returns`) | credit-note view, `SalePhotoStrip` in the refund detail (`widgets/sale_photo_strip.dart`) |
 | `quotes_screen.dart` | `QuotesScreen` | `/quotes` (`quotes`) | QuotesManager (list/filter/convert/edit/duplicate/CSV/purge), Quote A4 preview |
-| `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category |
+| `reports_screen.dart` | `ReportsScreen` | `/reports` (`reports`) | KPIs, top products, by-category, bill sheet (`showSaleBillSheet`: header + `SalePhotoStrip`) |
 | `settings_screen.dart` | `SettingsScreen` | `/settings` (`settings`) | BackupRestore (export/import snapshot), ExportCSV |
 | `cash_drawer_screen.dart` | `CashDrawerScreen` | `/cash-drawer` (`cashDrawer`) | ClosingReport popup, open/close shift, cash in/out |
 

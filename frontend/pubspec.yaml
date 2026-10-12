@@ -51,6 +51,7 @@ dependencies:
   pdf: ^3.13.0
   printing: ^5.15.0
   barcode_widget: ^2.0.4
+  mobile_scanner: ^7.4.2 # camera barcode scan (products, checkout, PO search)
   web: ^1.1.1 # browser file-download for backup/CSV export on the web target
   flutter_bloc: ^9.1.1
   bloc: ^9.2.1
@@ -64,6 +65,7 @@ dependencies:
   # JPEG encoder for product photos (the engine encodes PNG only). Already in
   # the lock through `pdf`; pinned to that resolved version.
   image: ^4.9.1
+  image_picker: ^1.2.4
 
 dev_dependencies:
   flutter_test:

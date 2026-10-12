@@ -44,6 +44,8 @@ import 'package:srisurart_pos/data/repositories/api_payment_accounts_repository.
 import 'package:srisurart_pos/data/repositories/api_products_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_purchase_orders_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_quotes_repository.dart';
+import 'package:srisurart_pos/data/repositories/api_sale_photos_repository.dart';
+import 'package:srisurart_pos/data/repositories/sale_photos_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_settings_repository.dart';
 import 'package:srisurart_pos/data/repositories/api_suppliers_repository.dart';
 import 'package:srisurart_pos/data/repositories/auth_repository.dart';
@@ -266,6 +268,12 @@ const _classes = <String, List<(String, String)>>{
     ('lib/data/repositories/payment_accounts_repository.dart',
         'PaymentAccountsRepository'),
   ],
+  // The interface, model and exception live in sale_photos_repository.dart;
+  // every public method is declared here.
+  'ApiSalePhotosRepository': [
+    ('lib/data/repositories/api_sale_photos_repository.dart',
+        'ApiSalePhotosRepository'),
+  ],
   'DevicesRepository': [
     ('lib/data/repositories/devices_repository.dart', 'DevicesRepository'),
   ],
@@ -353,6 +361,7 @@ const _noApiCall = <String, String>{
   'SyncService.writeAtomic': 'Drift transaction only',
   'SyncService.enqueueOp': 'Drift write only',
   'OwnerImportRepository.pendingImportJobId': 'Drift read',
+  'ApiSalePhotosRepository.hasPendingSaleCreate': 'Drift read (outbox_ops)',
 };
 
 SaleInput _sale() => const SaleInput(
@@ -521,6 +530,20 @@ final Map<String, _Call> _cases = {
       ApiPaymentAccountsRepository(w.db, w.api).setDefault('pa1'),
   'ApiPaymentAccountsRepository.deleteAccount': (w) =>
       ApiPaymentAccountsRepository(w.db, w.api).deleteAccount('pa1'),
+  // ── Sale photo evidence ──
+  'ApiSalePhotosRepository.upload': (w) =>
+      ApiSalePhotosRepository(w.db, w.api).upload(
+        saleId: 's1',
+        photoId: 'p1',
+        idempotencyKey: 'salephoto-p1',
+        bytes: Uint8List.fromList([0xFF, 0xD8, 0xFF]),
+        takenAt: DateTime.utc(2026, 10, 12),
+        sortOrder: 0,
+      ),
+  'ApiSalePhotosRepository.list': (w) =>
+      ApiSalePhotosRepository(w.db, w.api).list('s1'),
+  'ApiSalePhotosRepository.bytes': (w) =>
+      ApiSalePhotosRepository(w.db, w.api).bytes('s1', 'p1', SalePhotoVariant.thumb),
   // ── Devices / review items ──
   'DevicesRepository.listDevices': (w) => DevicesRepository(w.api).listDevices(),
   'DevicesRepository.createDevice': (w) =>

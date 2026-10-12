@@ -1,8 +1,9 @@
-// flutter_bloc RepositoryProvider tree — 24 providers: 20 repositories plus
+// flutter_bloc RepositoryProvider tree — 25 providers: 21 repositories plus
 // ApiClient, BootstrapService, DocCounterSeeder and SyncFacade. Ported off
 // Riverpod's providers.dart + shift_providers.dart (see
 // docs/plans/riverpod-to-bloc.md).
 
+import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../data/db/database.dart';
@@ -41,12 +42,24 @@ import '../../data/repositories/api_quotes_repository.dart';
 import '../../data/repositories/api_settings_repository.dart';
 import '../../data/repositories/api_suppliers_repository.dart';
 import '../../data/repositories/review_items_repository.dart';
+import '../../data/repositories/api_sale_photos_repository.dart';
+import '../../data/repositories/sale_photos_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
 import '../../data/services/doc_number_service.dart';
 import '../../data/services/tenant_cache_guard.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../data/sync/sync_service.dart';
+
+/// The sale-photo repository, or null on the Drift build (and in a test that
+/// does not provide one): the photo button and strips then do not show.
+SalePhotosRepository? salePhotosRepositoryOf(BuildContext context) {
+  try {
+    return context.read<SalePhotosRepository?>();
+  } on ProviderNotFoundException {
+    return null;
+  }
+}
 
 /// The repository providers, mirroring providers.dart + shift_providers.dart,
 /// plus AuthRepository, ApiClient, and ApiRepositories (Ticket #55 / ADR-0010).
@@ -247,6 +260,11 @@ List<RepositoryProvider> repositoryProviders(
     RepositoryProvider<SettingsRepository>.value(value: settingsRepo),
     RepositoryProvider<PaymentAccountsRepository>.value(
       value: paymentAccountsRepo,
+    ),
+    // Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md): the API build only —
+    // null on the Drift build, where no server holds photos and no button shows.
+    RepositoryProvider<SalePhotosRepository?>.value(
+      value: useApi ? ApiSalePhotosRepository(db, client) : null,
     ),
     RepositoryProvider<SnapshotRepository>.value(value: SnapshotRepository(db, restoresViaServer: useApi)),
     RepositoryProvider<ShiftsRepository>.value(value: shiftsRepository),
