@@ -41,6 +41,16 @@ bool lowStockShownThisSession = false;
   return (out: out, low: low);
 }
 
+enum StockLevel { out, low, ok }
+
+/// One product's stock level, by the same rule as [lowStockBuckets]:
+/// out = nothing left, low = at or under its minimum.
+StockLevel stockLevel(ProductRow p) => p.stock == 0
+    ? StockLevel.out
+    : p.stock > 0 && p.stock <= p.minStock
+    ? StockLevel.low
+    : StockLevel.ok;
+
 class LowStockBanner extends StatefulWidget {
   final List<ProductRow> outOfStock;
   final List<ProductRow> lowStock;
