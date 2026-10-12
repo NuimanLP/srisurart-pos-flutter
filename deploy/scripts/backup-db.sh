@@ -208,17 +208,26 @@ echo "  -> Backup created successfully ($BACKUP_SIZE)."
 #
 # --- Sale photos (10_SALE_PHOTO_EVIDENCE.md §5.4) ----------------------------------------------
 # Same rules for the `sale-photos` volume, read through the worker container (nginx never mounts
-# it — the photos are private) at /app/sale-photos, or SALE_PHOTOS_DIR outside compose.
+# it — the photos are private) at /app/sale-photos, or SALE_PHOTOS_DIR outside compose. One
+# difference: when compose lists the worker but `exec` into it fails, that is a FAILED archive
+# (`::error::`, non-zero exit), not "no volume" — every deploy since the sale-photos release has
+# that mount, so an unreachable worker means the photos were not backed up.
 #
-# volume_source <service> <mount> <dir>: docker | dir | none
+# volume_source <service> <mount> <dir> <strict>: docker | dir | none | unreachable
+# (`unreachable` only when strict = 1: the service is listed but `exec … test -d` failed)
 volume_source() {
   if command -v docker >/dev/null 2>&1 && [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
     local services
     services="$(docker compose "${COMPOSE_ARGS[@]}" ps --services 2>/dev/null || true)"
-    if grep -qx "$1" <<<"$services" \
-        && docker compose "${COMPOSE_ARGS[@]}" exec -T "$1" test -d "$2" >/dev/null 2>&1; then
-      echo docker
-      return
+    if grep -qx "$1" <<<"$services"; then
+      if docker compose "${COMPOSE_ARGS[@]}" exec -T "$1" test -d "$2" >/dev/null 2>&1; then
+        echo docker
+        return
+      fi
+      if [[ "$4" == 1 ]]; then
+        echo unreachable
+        return
+      fi
     fi
   fi
   if [[ -n "$3" && -d "$3" ]]; then
@@ -236,15 +245,20 @@ volume_tar() {
   esac
 }
 
-# archive_volume <label> <volume> <service> <mount> <dir env name> <dir> <file> <checksum> <partial>
+# archive_volume <label> <volume> <service> <mount> <dir env name> <dir> <file> <checksum> <partial> <strict>
 # Sets ARCHIVE_STATE to absent | ok | failed.
 archive_volume() {
   local label="$1" volume="$2" service="$3" mount="$4" dir_name="$5" dir="$6"
-  local file="$7" checksum="$8" partial="$9" src
+  local file="$7" checksum="$8" partial="$9" strict="${10}" src
   ARCHIVE_STATE=absent
-  src="$(volume_source "$service" "$mount" "$dir")"
+  src="$(volume_source "$service" "$mount" "$dir" "$strict")"
   if [[ "$src" == none ]]; then
     echo "::warning::No ${volume} volume to archive (no running ${service} service mounting ${mount}, and ${dir_name} unset) — this backup has no ${label}." >&2
+    return
+  fi
+  if [[ "$src" == unreachable ]]; then
+    ARCHIVE_STATE=failed
+    echo "::error::${label^^} ARCHIVE FAILED (compose lists the ${service} service but exec into it to read ${mount} failed) — this run's database dump is kept, but the ${label} are not backed up." >&2
     return
   fi
   echo "Archiving ${label} ($src)..."
@@ -271,10 +285,10 @@ archive_volume() {
 }
 
 archive_volume "product images" product-images nginx /srv/product-images PRODUCT_IMAGES_DIR \
-  "${PRODUCT_IMAGES_DIR:-}" "$IMAGES_FILE" "$IMAGES_CHECKSUM" "$IMAGES_PARTIAL"
+  "${PRODUCT_IMAGES_DIR:-}" "$IMAGES_FILE" "$IMAGES_CHECKSUM" "$IMAGES_PARTIAL" 0
 IMAGES_STATE="$ARCHIVE_STATE"
 archive_volume "sale photos" sale-photos worker /app/sale-photos SALE_PHOTOS_DIR \
-  "${SALE_PHOTOS_DIR:-}" "$SALE_PHOTOS_FILE" "$SALE_PHOTOS_CHECKSUM" "$SALE_PHOTOS_PARTIAL"
+  "${SALE_PHOTOS_DIR:-}" "$SALE_PHOTOS_FILE" "$SALE_PHOTOS_CHECKSUM" "$SALE_PHOTOS_PARTIAL" 1
 SALE_PHOTOS_STATE="$ARCHIVE_STATE"
 
 # --- Offsite upload (#363) ---------------------------------------------------------------------

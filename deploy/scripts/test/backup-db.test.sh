@@ -210,4 +210,27 @@ check "vm path exits 0" test "$rc" -eq 0
 check "vm path archives the images through nginx" has_image "$(find "$D" -maxdepth 1 -name 'pos_images_*.tar.gz' | head -1)"
 check "vm path archives the sale photos through the worker" has_photo "$(find "$D" -maxdepth 1 -name 'pos_sale_photos_*.tar.gz' | head -1)"
 
+# 6. compose lists the worker but `exec` into it fails: the sale photos are a FAILED archive
+# (loud, non-zero), never "no volume" — the dump and the product-images archive are kept.
+cat > "$STUBS/docker" <<'STUB'
+#!/bin/sh
+case "$*" in
+  *"ps --services"*) printf 'postgres\nnginx\nworker\n'; exit 0 ;;
+  *"exec -T postgres pg_dump"*) echo "CREATE TABLE t ();"; exit 0 ;;
+  *"exec -T nginx test -d /srv/product-images"*) exit 0 ;;
+  *"exec -T nginx tar -cf - -C /srv/product-images ."*) tar -cf - -C "$STUB_IMG" . ; exit $? ;;
+  *"exec -T worker"*) echo "Error: service worker is not running" >&2; exit 1 ;;
+esac
+exit 1
+STUB
+D="$WORK/vmworkerdown"
+mkdir -p "$D"
+STUB_IMG="$IMG" run_backup "$D" 0 "" "$SP"
+check "worker exec failure exits non-zero" test "$rc" -ne 0
+check "worker exec failure says SALE PHOTOS ARCHIVE FAILED" grep -q '::error::SALE PHOTOS ARCHIVE FAILED' "$D.log"
+check "worker exec failure is not reported as a missing volume" test -z "$(grep '::warning::No sale-photos volume' "$D.log")"
+check "worker exec failure writes no pos_sale_photos_* (no .partial)" test "$(count "$D" 'pos_sale_photos_*')" = 0
+check "worker exec failure keeps the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
+check "worker exec failure keeps the product-images archive" test "$(count "$D" 'pos_images_*.tar.gz')" = 1
+
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
