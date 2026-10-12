@@ -14,6 +14,10 @@ const PRECACHE_ASSETS = [
   'favicon.png',
   'sqlite3.wasm',
   'drift_worker.js',
+  // Camera barcode scan decoder (web/zxing/VERSION.txt) — so scanning also
+  // works offline on browsers without a native BarcodeDetector.
+  'zxing/zxing_reader.js',
+  'zxing/zxing_reader.wasm',
   'flutter_bootstrap.js',
   'main.dart.js',
   'icons/Icon-192.png',

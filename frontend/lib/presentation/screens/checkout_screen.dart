@@ -54,6 +54,7 @@ import '../../data/repositories/settings_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../blocs/cart_cubit.dart';
 import '../blocs/pending_quote_cubit.dart';
+import '../widgets/barcode_scan_button.dart';
 import '../widgets/device_role_banner.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_input_formatters.dart';
@@ -1360,6 +1361,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           size: 20,
                         ),
                       ),
+                      suffixIcon: BarcodeScanButton(
+                        onScanned: (v) async {
+                          // Same path as typed / USB-scanner input. Products
+                          // are read after the dialog closed, not as captured
+                          // when the button was tapped.
+                          _barcodeCtrl.text = v;
+                          final fresh = await _productsFuture;
+                          if (!mounted) return;
+                          _submitBarcode(fresh);
+                        },
+                      ),
                       filled: true,
                       fillColor: isDark
                           ? Colors.white.withValues(alpha: 0.06)
@@ -1386,17 +1398,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ),
                     ),
                     textInputAction: TextInputAction.done,
-                    onSubmitted: (_) {
-                      // Two-pane (keyboard / scanner): Enter unfocuses the
-                      // field, so take it back for the next scan — before a
-                      // not-found dialog, which hands focus back on close.
-                      if (_isWide) _barcodeFocus.requestFocus();
-                      // A sale in flight clears the cart when it lands, so a
-                      // line added now would vanish. Keep the scanned code in
-                      // the field; Enter again once the receipt is closed.
-                      if (_submitting) return;
-                      _handleBarcode(products);
-                    },
+                    onSubmitted: (_) => _submitBarcode(products),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1938,6 +1940,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ),
       ),
     );
+  }
+
+  /// Enter in the field and a camera scan both land here.
+  void _submitBarcode(List<ProductRow> products) {
+    // Two-pane (keyboard / scanner): Enter unfocuses the field, so take it
+    // back for the next scan — before a not-found dialog, which hands focus
+    // back on close.
+    if (_isWide) _barcodeFocus.requestFocus();
+    // A sale in flight clears the cart when it lands, so a line added now
+    // would vanish. Keep the scanned code in the field; Enter again once the
+    // receipt is closed.
+    if (_submitting) return;
+    _handleBarcode(products);
   }
 
   void _handleBarcode(List<ProductRow> products) {
