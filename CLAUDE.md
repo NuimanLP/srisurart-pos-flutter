@@ -48,9 +48,11 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `ec31121`
-(PR #696, merge commit, 2026-10-12)**, the owner-ratified Thai strings of the UI/UX pass (PR #695), deployed to `mob04` (run
-`38189738827`, `.current_sha` checked over SSH). Before it `2d6a575` (PR #694, 2026-10-12, run `38187206166`): the
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `c3e33aa`
+(PR #699, merge commit, 2026-10-12)**: camera barcode scan (PR #697) + sale photo evidence (PR #698; rules in "Camera
+barcode scan" / "Sale photo evidence" below), deployed to `mob04` (run `38260777086`, `.current_sha` checked over SSH, the
+new `backup-db.sh` installed by hand the same day; `docs/handoff_log/session-2026-10-12-photo-evidence-barcode.md`). Before
+it `ec31121` (PR #696, 2026-10-12, run `38189738827`): the owner-ratified Thai strings of the UI/UX pass (PR #695). Before that `2d6a575` (PR #694, 2026-10-12, run `38187206166`): the
 presentation-only UI/UX polish of every screen (PR #693; audits in `docs/research/ui-ux-audit-2026-10-11/`,
 `docs/handoff_log/session-2026-10-12-ui-ux-polish.md`). Before that `2dabbcf`
 (PR #691, merge commit, 2026-10-11), create-PO supplier search (PR #690), deployed to `mob04` (run `38103562796`,
@@ -896,6 +898,34 @@ on void/return paths. Keep this order in any new write touching more than one of
   🔴 **`backup-db.sh` also archives the volume as `pos_images_<ts>.tar.gz`, but a CD deploy does not update
   `/opt/pos/scripts`** — install it by hand (`sudo install -o deploy -g deploy -m 0755`) or via `provision.yml`, else backups
   silently omit images; **`restore-db.sh` does not restore images yet**. Never `down -v` (the images are not in `pg_dump`).
+- **Sale photo evidence (owner request 2026-10-12, PR #698; design + API contract `docs/Backend_design/10_SALE_PHOTO_EVIDENCE.md`
+  §4, which binds both sides — change §4 first, in its own PR):** optional, **after payment** (receipt button
+  `ถ่ายรูปหลักฐานสินค้า`), ≤ 5 photos per bill, **online-only v1** (photos live in memory while the sheet is open; a failed
+  upload keeps the sheet open and `ลองอีกครั้ง` resends the **same photoId + `Idempotency-Key`**; the button is disabled
+  while Degraded or while the bill's `sale.create` is still in `outbox_ops`). Viewing is **same-device only** (Returns /
+  Reports read sales from Drift; no server bill lookup). `sale_photos` (migration `1788652805200`, Postgres 31 tables) is
+  **append-only** for `pos_app` (no DELETE route), has **no FK to `sales`** and is **not in `REPLACED_TABLES`**, so a replace-
+  import keeps the photos; the import's file sweep stays bound to `productImages`. 🔴 Sale photos are **not** public like
+  product images: separate volume `sale-photos` mounted on api + worker only (**never nginx** — `nginx-img.test.sh` proves
+  `/img/` 404s), read through `GET /sales/:id/photos/:photoId/{t|p}` with `Cache-Control: no-store`; the file path comes only
+  from the token's tenant + the stored `image_key`. The PUT always answers **200**; replay is by key **and** permanently by
+  `photoId` + `source_sha256`; the 5-limit is counted under the `sales` row `FOR UPDATE`. The raw body is buffered only for
+  `drole === 'pos'` tokens. The query (`takenAt`/`sortOrder`) is deliberately outside the fingerprint — the client fixes
+  `sortOrder` at capture. `withImageSlot` serialises sharp per process (product images and sale photos share it; the queue
+  is unbounded — follow-up); sale photos cap input at 2048² and preview at 1600 px. 🔴 `backup-db.sh` writes
+  `pos_sale_photos_<ts>.tar.gz` **through the worker container** (a failed exec = `::error::` + non-zero exit) — install it on
+  the VM only **after** the deploy that ships a worker with `/app/sale-photos`; installed on `mob04` 2026-10-12 (sha256
+  `e70debda…`, previous copy `.backup-db.sh.prev-ec31121`). Not in the owner backup ZIP; `restore-db.sh` does not restore
+  them. Open owner items: PDPA customer notice, the `agent ร่าง` strings, the X1 real-device trial.
+- **Camera barcode scan (owner request 2026-10-12, PR #697):** one shared `BarcodeScanButton` (`mobile_scanner` 7.4.2) on
+  products search, the checkout scan field (goes through `_submitBarcode` → `_handleBarcode`, the same path as typing / a USB
+  scanner) and the create-PO search (adds a line only on an exact part number). Matches `partNo` only — there is no barcode
+  column; PO receiving has no search, so no button. 🔴 **Web never fetches a decoder from a CDN:** native `BarcodeDetector`
+  where present, else **zxing-wasm 3.1.3 bundled in `frontend/web/zxing/`** (`VERSION.txt` holds npm integrity + sha256;
+  precached by `sw.js`) — Windows desktop Chrome/Edge have no `BarcodeDetector`, so the bundle is what makes the shop PC
+  work. Bumping `mobile_scanner` = re-check the zxing version it pins and update the bundle. Support is checked **before**
+  any camera permission prompt. The iOS `NSCameraUsageDescription` is one key shared with sale photos
+  (`ใช้กล้องเพื่อสแกนบาร์โค้ดและถ่ายรูปหลักฐานสินค้า`, `agent ร่าง`).
 - **Local cache is tenant-scoped (API build, #539):** `AppMeta tenant_id` + `TenantCacheGuard`;
   a switch resets via `resetTenantCache`/`resetPulledCache` and is **refused with unsent work**
   (`TENANT_SWITCH_UNSENT_WORK`, `ENROL_UNSENT_WORK`). `cacheGeneration` fences late pulls/seeds, and
