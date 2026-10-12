@@ -6,6 +6,8 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ใช้กล้องถ่ายรูปหลักฐานสินค้าตอนขาย</string>
 	<key>CFBundleDisplayName</key>
 	<string>Srisurart Pos</string>
 	<key>CFBundleExecutable</key>
