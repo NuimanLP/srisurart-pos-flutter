@@ -25,6 +25,7 @@ import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_text_field.dart';
+import '../widgets/barcode_scan_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
@@ -1005,6 +1006,18 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                         controller: _searchCtrl,
                         onChanged: (v) => setState(() => _partSearch = v),
                         onSubmitted: _addSearchMatch,
+                        suffix: BarcodeScanButton(
+                          onScanned: (v) {
+                            _searchCtrl.text = v;
+                            setState(() => _partSearch = v);
+                            // Add only on an exact part number; otherwise just show matches.
+                            if (widget.products.any(
+                              (p) => p.partNo.toLowerCase() == v.toLowerCase(),
+                            )) {
+                              _addSearchMatch();
+                            }
+                          },
+                        ),
                       ),
                       if (parts.isNotEmpty)
                         _box([for (final p in parts) _partTile(p)])

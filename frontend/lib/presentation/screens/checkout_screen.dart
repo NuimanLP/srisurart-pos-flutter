@@ -54,6 +54,7 @@ import '../../data/repositories/settings_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../blocs/cart_cubit.dart';
 import '../blocs/pending_quote_cubit.dart';
+import '../widgets/barcode_scan_button.dart';
 import '../widgets/device_role_banner.dart';
 import '../widgets/low_stock_alert.dart';
 import '../widgets/money_input_formatters.dart';
@@ -1359,6 +1360,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           color: _orange,
                           size: 20,
                         ),
+                      ),
+                      suffixIcon: BarcodeScanButton(
+                        onScanned: (v) {
+                          // Same path as typed / USB-scanner input.
+                          _barcodeCtrl.text = v;
+                          if (_submitting) return;
+                          _handleBarcode(products);
+                        },
                       ),
                       filled: true,
                       fillColor: isDark

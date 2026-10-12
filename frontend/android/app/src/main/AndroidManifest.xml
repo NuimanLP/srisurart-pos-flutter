@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The api build talks to the server over HTTPS; a release build has no INTERNET by default. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Camera barcode scan (mobile_scanner). Optional hardware: a tablet/PC without a camera still installs. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="srisurart_pos"
         android:name="${applicationName}"
