@@ -271,7 +271,7 @@ Content-Type: image/jpeg            (หรือ image/png | image/webp)
 
 | # | ชั้น | เงื่อนไข | HTTP + `code` |
 |---|---|---|---|
-| 0 | raw parser (`app.setup.ts`) | parse body เฉพาะ access token ที่ verify แล้ว **มี `did`** และ `Content-Type` ที่รับ · body > 3 MB สำหรับ token นั้น | `413 PRODUCT_IMAGE_TOO_LARGE` (ตอบที่ชั้นนี้) · token อื่น = ไม่ parse, ตกไปชั้นถัดไป |
+| 0 | raw parser (`app.setup.ts`) | parse body เฉพาะ access token ที่ verify แล้วและ **`drole === 'pos'`** (เครื่อง `pos` เท่านั้น — เข้มกว่า "มี `did`") และ `Content-Type` ที่รับ · body > 3 MB สำหรับ token นั้น | `413 PRODUCT_IMAGE_TOO_LARGE` (ตอบที่ชั้นนี้) · token อื่น = ไม่ parse, ตกไปชั้นถัดไป |
 | 1 | `TenantGuard` | ไม่มี/ผิด token | `401 UNAUTHORIZED` · ร้านถูกระงับ `403 TENANT_SUSPENDED` · อื่น ๆ ของ guard ตามเดิม |
 | 2 | `@RequireDeviceRole('pos')` | เครื่องไม่ใช่ `pos` / ไม่มี `did` | `403 DEVICE_ROLE_FORBIDDEN` — 🔴 **ก่อน** ตรวจ body เสมอ (ไม่งั้น `backoffice` ได้ `400` เพราะ parser ไม่ได้ parse ให้) |
 | 3 | `ParseUuidPipe` | `saleId`/`photoId` ไม่ใช่ UUID ตัวเล็ก | `400 INVALID_ID` |
