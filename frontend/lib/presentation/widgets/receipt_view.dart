@@ -19,6 +19,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/pdf_fonts.dart';
 import '../../data/db/database.dart';
@@ -76,9 +77,76 @@ Future<void> showReceiptDialog(BuildContext context, ReceiptData data) {
     builder: (ctx) => Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(16),
-      child: ReceiptView(data: data),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SaleDoneBanner(data: data),
+            const SizedBox(height: 12),
+            ReceiptView(data: data),
+          ],
+        ),
+      ),
     ),
   );
+}
+
+/// The first thing the clerk needs after a sale, readable at arm's length:
+/// the change to hand back (cash), else that the sale went through.
+class _SaleDoneBanner extends StatelessWidget {
+  const _SaleDoneBanner({required this.data});
+
+  final ReceiptData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasChange = data.change > 0;
+    return Container(
+      key: const Key('receipt-sale-done'),
+      constraints: const BoxConstraints(maxWidth: 360),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.success,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_circle, color: Colors.white, size: 32),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 'ขายสำเร็จ': agent ร่าง
+                Text(
+                  hasChange ? 'เงินทอน' : 'ขายสำเร็จ',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    baht(hasChange ? data.change : data.sale.total),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class ReceiptView extends StatelessWidget {
@@ -99,19 +167,24 @@ class ReceiptView extends StatelessWidget {
               icon: const Icon(Icons.print, size: 18),
               label: const Text('พิมพ์ใบเสร็จ'),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFE8601C),
+                backgroundColor: AppColors.orange,
                 foregroundColor: Colors.white,
+                minimumSize: const Size(0, 48),
               ),
             ),
             const SizedBox(width: 8),
+            // Focused on open: Enter / Space closes the receipt and the next
+            // sale can start straight from the keyboard.
             OutlinedButton.icon(
+              autofocus: true,
               onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.close, size: 18),
               label: const Text('ปิด'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFFA8B4C2),
-                backgroundColor: const Color(0xFF153660),
+                foregroundColor: Colors.white,
+                backgroundColor: AppColors.navyMid,
                 side: const BorderSide(color: Color(0x26FFFFFF)),
+                minimumSize: const Size(0, 48),
               ),
             ),
           ],

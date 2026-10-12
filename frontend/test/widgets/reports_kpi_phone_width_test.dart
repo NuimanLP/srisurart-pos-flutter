@@ -122,10 +122,11 @@ void main() {
     expect(find.text('ยอดเฉลี่ย/บิล'), findsOneWidget);
     expect(find.text('ชิ้นสินค้าที่ขาย'), findsOneWidget);
 
-    // The KPI row is the screen's only GridView — scope the value lookups to
-    // it, since the same baht amount can coincidentally also appear in the
-    // category/top-products/recent-sales cards below.
-    final kpiGrid = find.byType(GridView).first;
+    // Scope the value lookups to the KPI block, since the same baht amount
+    // can coincidentally also appear in the category/top-products/recent-sales
+    // cards below. (At phone width the block is a full-width net-revenue tile
+    // over a 3-column grid, so it is found by key rather than as a GridView.)
+    final kpiGrid = find.byKey(const Key('reports-kpis'));
 
     // Values: netRevenue=200, transactions=2, avgTicket=100, items=3 — all
     // distinct so each finder is unambiguous within the KPI row.

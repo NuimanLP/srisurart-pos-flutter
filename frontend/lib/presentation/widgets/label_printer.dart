@@ -62,6 +62,10 @@ class LabelPrinter extends StatefulWidget {
 class _LabelPrinterState extends State<LabelPrinter> {
   int _copies = 1;
   late Set<String> _selected;
+
+  /// Narrows the product list on screen only — what is selected (and
+  /// printed) is unchanged by it.
+  String _query = '';
   // #480: shelf labels hard-coded "รวม VAT 7%" regardless of the shop's
   // configured VAT (%); this is the same taxRate the settings screen and the
   // price-calculator tab (products_screen.dart) already read.
@@ -86,6 +90,19 @@ class _LabelPrinterState extends State<LabelPrinter> {
       widget.products.where((p) => _selected.contains(p.id)).toList();
 
   Color _catColor(String cat) => AppColors.catColor(cat, widget.categories);
+
+  List<ProductRow> get _listed {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return widget.products;
+    return widget.products
+        .where(
+          (p) =>
+              p.name.toLowerCase().contains(q) ||
+              p.nameTH.toLowerCase().contains(q) ||
+              p.partNo.toLowerCase().contains(q),
+        )
+        .toList();
+  }
 
   void _toggle(String id) {
     setState(() {
@@ -310,6 +327,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
                     ),
                   ),
                   IconButton(
+                    tooltip: 'ปิด',
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
@@ -327,9 +345,14 @@ class _LabelPrinterState extends State<LabelPrinter> {
                   if (c.maxWidth < 720) {
                     return Column(
                       children: [
-                        Expanded(child: _selectorCol(theme)),
+                        // The picker (search + list + copies) needs more
+                        // room than the preview of one label.
+                        Expanded(flex: 3, child: _selectorCol(theme)),
                         const Divider(height: 1),
-                        Expanded(child: _previewCol(theme, printProducts)),
+                        Expanded(
+                          flex: 2,
+                          child: _previewCol(theme, printProducts),
+                        ),
                       ],
                     );
                   }
@@ -346,29 +369,40 @@ class _LabelPrinterState extends State<LabelPrinter> {
             ),
             const Divider(height: 1),
             // footer
+            // A phone puts the total on its own line above the buttons
+            // (in one row the text was squeezed to a sliver).
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 14, 24, 14),
-              child: Row(
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
-                  Expanded(
-                    child: Text(
-                      '${_selected.length} สินค้า × $_copies ชุด = ${_selected.length * _copies} ป้าย',
-                      style: theme.textTheme.bodyMedium,
+                  Text(
+                    '${_selected.length} สินค้า × $_copies ชุด = ${_selected.length * _copies} ป้าย',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('ยกเลิก'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.orange,
-                      foregroundColor: AppColors.white,
-                    ),
-                    onPressed: _selected.isEmpty ? null : _print,
-                    icon: const Icon(Icons.print),
-                    label: const Text('พิมพ์ป้ายราคา'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('ยกเลิก'),
+                      ),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.orange,
+                          foregroundColor: AppColors.white,
+                        ),
+                        onPressed: _selected.isEmpty ? null : _print,
+                        icon: const Icon(Icons.print),
+                        label: const Text('พิมพ์ป้ายราคา'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -380,6 +414,11 @@ class _LabelPrinterState extends State<LabelPrinter> {
   }
 
   Widget _selectorCol(ThemeData theme) {
+    final listed = _listed;
+    // The quick chips act on EVERY product, not just the searched ones —
+    // while a search is on, say how many they will pick.
+    final searching = _query.trim().isNotEmpty;
+    final lowCount = widget.products.where((p) => p.stock <= p.minStock).length;
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -392,14 +431,18 @@ class _LabelPrinterState extends State<LabelPrinter> {
             runSpacing: 6,
             children: [
               _selChip(
-                'เลือกทั้งหมด',
+                searching
+                    ? 'เลือกทั้งหมด (ทั้งหมด ${widget.products.length})' // agent ร่าง
+                    : 'เลือกทั้งหมด',
                 () => setState(
                   () => _selected = widget.products.map((p) => p.id).toSet(),
                 ),
               ),
               _selChip('ล้าง', () => setState(() => _selected = {})),
               _selChip(
-                '⚠ สต็อกต่ำ',
+                searching
+                    ? '⚠ สต็อกต่ำ (ทั้งหมด $lowCount)' // agent ร่าง
+                    : '⚠ สต็อกต่ำ',
                 () => setState(
                   () => _selected = widget.products
                       .where((p) => p.stock <= p.minStock)
@@ -410,12 +453,23 @@ class _LabelPrinterState extends State<LabelPrinter> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
+          TextField(
+            key: const Key('label-printer-search'),
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: 'ค้นหา ชื่อ / รหัส…',
+              prefixIcon: Icon(Icons.search, size: 20),
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (v) => setState(() => _query = v),
+          ),
+          const SizedBox(height: 8),
           Expanded(
             child: ListView.builder(
-              itemCount: widget.products.length,
+              itemCount: listed.length,
               itemBuilder: (ctx, i) {
-                final p = widget.products[i];
+                final p = listed[i];
                 final on = _selected.contains(p.id);
                 return InkWell(
                   onTap: () => _toggle(p.id),
@@ -454,7 +508,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
                               Text(
                                 p.partNo,
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: AppColors.orange,
                                 ),
                               ),
@@ -481,9 +535,13 @@ class _LabelPrinterState extends State<LabelPrinter> {
           Row(
             children: [
               IconButton.filledTonal(
-                onPressed: () => setState(() {
-                  if (_copies > 1) _copies--;
-                }),
+                tooltip: 'ลดจำนวนชุด', // agent ร่าง
+                // Greyed at 1 (it never went below 1).
+                onPressed: _copies > 1
+                    ? () => setState(() {
+                        if (_copies > 1) _copies--;
+                      })
+                    : null,
                 icon: const Icon(Icons.remove),
               ),
               SizedBox(
@@ -498,6 +556,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
                 ),
               ),
               IconButton.filledTonal(
+                tooltip: 'เพิ่มจำนวนชุด', // agent ร่าง
                 onPressed: () => setState(() => _copies++),
                 icon: const Icon(Icons.add),
               ),

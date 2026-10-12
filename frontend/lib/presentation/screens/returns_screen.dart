@@ -384,7 +384,15 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                 return const LoadingView();
               }
               if (snap.hasError) {
-                return Center(child: Text('โหลดข้อมูลไม่สำเร็จ: ${snap.error}'));
+                return EmptyState(
+                  icon: Icons.error_outline,
+                  message: 'โหลดข้อมูลไม่สำเร็จ: ${snap.error}',
+                  action: OutlinedButton.icon(
+                    onPressed: _refreshAll,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('ลองใหม่'),
+                  ),
+                );
               }
               final sales = snap.data!.sales;
               final returns = snap.data!.returns;
@@ -404,7 +412,8 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                   if (!context.mounted) return;
                   await showDialog<void>(
                     context: context,
-                    builder: (_) => _CreditNoteDialog(cn: cn, settings: settings),
+                    builder: (_) =>
+                        _CreditNoteDialog(cn: cn, settings: settings),
                   );
                 },
               );
@@ -564,6 +573,9 @@ class _TabButton extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
+        // 44dp min height — the tab is a primary touch control on phones.
+        constraints: const BoxConstraints(minHeight: 44),
+        alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         decoration: BoxDecoration(
           border: Border(
@@ -628,6 +640,17 @@ class _SearchTab extends StatelessWidget {
             onChanged: onSearch,
           ),
         ),
+        // Only the newest bills are listed — say so, or an older bill looks lost.
+        if (filtered.length < matching.length)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+            child: Text(
+              'แสดง ${filtered.length} จาก ${matching.length} บิล — พิมพ์เพื่อค้นบิลที่เก่ากว่า',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.secondary,
+              ),
+            ),
+          ),
         Expanded(
           child: filtered.isEmpty
               ? const EmptyState(message: 'ไม่พบบิล')
@@ -1002,6 +1025,7 @@ class _RefundDetailState extends State<_RefundDetail> {
       future: _refundedFuture,
       builder: (context, snap) {
         final refunded = snap.data ?? const <String, int>{};
+        final refundedLoaded = snap.connectionState == ConnectionState.done;
 
         final items = widget.refundItems();
         final sub = widget.refundSubtotal(items);
@@ -1014,106 +1038,139 @@ class _RefundDetailState extends State<_RefundDetail> {
           if (s.mechanicId != null) 'หักจากเครดิต',
         ];
 
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header.
-              Row(
+        // Same breakpoint as the screen: below it the detail replaces the
+        // list, so the way out reads as "back", not "cancel".
+        final narrow = MediaQuery.of(context).size.width < 900;
+
+        final header = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          s.receiptNo,
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${thaiDateTime(s.date)} · ${s.paymentMethod}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.secondary,
-                          ),
-                        ),
-                        if (s.mechanicName != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              '🔧 ${s.mechanicName}',
-                              style: const TextStyle(
-                                color: AppColors.warning,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                      ],
+                  Text(
+                    s.receiptNo,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                  IconButton(
-                    onPressed: widget.onClose,
-                    icon: const Icon(Icons.close),
-                    tooltip: 'ปิด',
+                  const SizedBox(height: 2),
+                  Text(
+                    '${thaiDateTime(s.date)} · ${s.paymentMethod}',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.secondary,
+                    ),
                   ),
+                  if (s.mechanicName != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '🔧 ${s.mechanicName}',
+                        style: const TextStyle(
+                          color: AppColors.warning,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                 ],
               ),
-              const Divider(height: 24),
-              Text(
-                'เลือกรายการที่จะคืน',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2,
-                  color: theme.colorScheme.secondary,
+            ),
+            IconButton(
+              onPressed: widget.onClose,
+              icon: Icon(narrow ? Icons.arrow_back : Icons.close),
+              tooltip: 'ปิด',
+            ),
+          ],
+        );
+
+        final listLabel = Text(
+          'เลือกรายการที่จะคืน',
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: theme.colorScheme.secondary,
+          ),
+        );
+
+        Widget itemAt(int idx) {
+          final i = widget.sale.items[idx];
+          final refundedQty = refunded[i.productId] ?? 0;
+          final remaining = i.qty - refundedQty;
+          final current = widget.refundQtys[i.productId] ?? 0;
+          final fully = remaining <= 0;
+          return _ItemRow(
+            item: i,
+            refundedQty: refundedQty,
+            remaining: remaining,
+            current: current,
+            fully: fully,
+            refundedLoaded: refundedLoaded,
+            onSetQty: widget.onSetQty,
+          );
+        }
+
+        // Summary + actions.
+        final summary = _SummaryBox(
+          sub: sub,
+          disc: disc,
+          total: total,
+          methods: methods,
+          refundMethod: widget.refundMethod,
+          reasonController: widget.reasonController,
+          busy: widget.busy,
+          itemCount: items.length,
+          stockBackQty: items.fold<int>(0, (a, i) => a + i.qty),
+          creditSale: s.paymentMethod == 'เครดิตช่าง',
+          isDegraded: widget.isDegraded,
+          soldOffline: widget.sale.sale.soldOffline,
+          isVoided: widget.sale.sale.voided,
+          onMethod: widget.onMethod,
+          onReason: widget.onReason,
+          onSubmit: () => widget.onSubmit(refunded),
+          onVoid: () => widget.onVoid(refunded),
+          onVoidOffline: widget.onVoidOffline,
+        );
+
+        const padding = EdgeInsets.fromLTRB(24, 20, 24, 20);
+        // ONE tree for every pane size: a soft keyboard shrinking the pane
+        // must not swap parents under the reason/qty TextField (focus would
+        // be lost mid-edit). The pane scrolls as a whole; minHeight +
+        // spaceBetween keeps the summary at the bottom when everything fits,
+        // and on a short pane (phone, keyboard up, 2x–3x zoom) the items are
+        // never squeezed to 0 — the pane scrolls instead.
+        return LayoutBuilder(
+          builder: (context, c) => SingleChildScrollView(
+            padding: padding,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (c.maxHeight - padding.vertical).clamp(
+                  0.0,
+                  double.infinity,
                 ),
               ),
-              const SizedBox(height: 10),
-              // Item list.
-              Expanded(
-                child: ListView.separated(
-                  itemCount: widget.sale.items.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 6),
-                  itemBuilder: (_, idx) {
-                    final i = widget.sale.items[idx];
-                    final refundedQty = refunded[i.productId] ?? 0;
-                    final remaining = i.qty - refundedQty;
-                    final current = widget.refundQtys[i.productId] ?? 0;
-                    final fully = remaining <= 0;
-                    return _ItemRow(
-                      item: i,
-                      refundedQty: refundedQty,
-                      remaining: remaining,
-                      current: current,
-                      fully: fully,
-                      onSetQty: widget.onSetQty,
-                    );
-                  },
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      header,
+                      const Divider(height: 24),
+                      listLabel,
+                      const SizedBox(height: 10),
+                      for (var k = 0; k < widget.sale.items.length; k++) ...[
+                        if (k > 0) const SizedBox(height: 6),
+                        itemAt(k),
+                      ],
+                      const SizedBox(height: 14),
+                    ],
+                  ),
+                  summary,
+                ],
               ),
-              const SizedBox(height: 14),
-              // Summary + actions.
-              _SummaryBox(
-                sub: sub,
-                disc: disc,
-                total: total,
-                methods: methods,
-                refundMethod: widget.refundMethod,
-                reasonController: widget.reasonController,
-                busy: widget.busy,
-                itemCount: items.length,
-                isDegraded: widget.isDegraded,
-                soldOffline: widget.sale.sale.soldOffline,
-                isVoided: widget.sale.sale.voided,
-                onMethod: widget.onMethod,
-                onReason: widget.onReason,
-                onSubmit: () => widget.onSubmit(refunded),
-                onVoid: () => widget.onVoid(refunded),
-                onVoidOffline: widget.onVoidOffline,
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -1127,6 +1184,9 @@ class _ItemRow extends StatelessWidget {
   final int remaining;
   final int current;
   final bool fully;
+  // False until the already-refunded qty has loaded — "คืนได้อีก" would
+  // otherwise flash the full sold qty on a partly returned bill.
+  final bool refundedLoaded;
   final void Function(String pid, int val, int max) onSetQty;
 
   const _ItemRow({
@@ -1135,6 +1195,7 @@ class _ItemRow extends StatelessWidget {
     required this.remaining,
     required this.current,
     required this.fully,
+    required this.refundedLoaded,
     required this.onSetQty,
   });
 
@@ -1166,6 +1227,18 @@ class _ItemRow extends StatelessWidget {
                   '· คืนแล้ว $refundedQty',
                   style: const TextStyle(
                     color: AppColors.error,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            if (refundedLoaded && !fully)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(
+                  '· คืนได้อีก $remaining',
+                  style: const TextStyle(
+                    color: AppColors.success,
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
@@ -1329,6 +1402,12 @@ class _QtyStepperState extends State<_QtyStepper> {
             textAlign: TextAlign.center,
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            // Select the whole number on tap so typing replaces it ("0" → "2",
+            // not "02"; "1" → "3", not "13").
+            onTap: () => _ctl.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: _ctl.text.length,
+            ),
             style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
             decoration: const InputDecoration(
               isDense: true,
@@ -1420,6 +1499,8 @@ class _SummaryBox extends StatelessWidget {
   final TextEditingController reasonController;
   final bool busy;
   final int itemCount;
+  final int stockBackQty;
+  final bool creditSale;
   final bool isDegraded;
   final bool soldOffline;
   final bool isVoided;
@@ -1438,6 +1519,8 @@ class _SummaryBox extends StatelessWidget {
     required this.reasonController,
     required this.busy,
     required this.itemCount,
+    required this.stockBackQty,
+    required this.creditSale,
     required this.isDegraded,
     required this.soldOffline,
     required this.isVoided,
@@ -1475,18 +1558,29 @@ class _SummaryBox extends StatelessWidget {
               padding: const EdgeInsets.only(top: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                // Flexible + scaleDown: at phone width / big zoom the two big
+                // texts can't both fit — shrink rather than overflow.
                 children: [
-                  Text(
-                    'คืนเงินทั้งสิ้น',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
+                  Flexible(
+                    child: Text(
+                      'คืนเงินทั้งสิ้น',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                  Text(
-                    '−${baht(total)}',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.error,
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        '−${baht(total)}',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.error,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -1511,6 +1605,18 @@ class _SummaryBox extends StatelessWidget {
               ],
             ],
           ),
+          // Warn while choosing, not only in the final confirm: cash back on a
+          // credit bill leaves the mechanic's credit balance untouched.
+          if (creditSale && refundMethod == 'เงินสด')
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: _InlineNote(
+                icon: Icons.warning_amber_rounded,
+                color: AppColors.warning,
+                text:
+                    'บิลเครดิต: คืนเป็นเงินสดจะไม่ลดยอดค้างของช่าง แนะนำ "หักจากเครดิต"',
+              ),
+            ),
           const SizedBox(height: 12),
           // Reason.
           _FieldLabel('เหตุผล (ไม่บังคับ)'),
@@ -1539,6 +1645,22 @@ class _SummaryBox extends StatelessWidget {
                 fullWidth: true,
                 onPressed: (itemCount == 0 || busy) ? null : onSubmit,
               );
+              // What THIS return does besides money — shown with the return
+              // button only (the whole-bill void restores everything).
+              final submitBlock = (stockBackQty > 0 && !isVoided)
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _InlineNote(
+                          icon: Icons.inventory_2_outlined,
+                          color: AppColors.info,
+                          text: 'คืนเข้าสต็อก $stockBackQty ชิ้น',
+                        ),
+                        const SizedBox(height: 8),
+                        submit,
+                      ],
+                    )
+                  : submit;
               final voidBtn = (isDegraded && soldOffline && !isVoided)
                   ? AppButton(
                       label: '✕ ยกเลิกบิลออฟไลน์',
@@ -1547,19 +1669,19 @@ class _SummaryBox extends StatelessWidget {
                       onPressed: busy ? null : onVoidOffline,
                     )
                   : (!isDegraded && !isVoided)
-                      ? AppButton(
-                          label: '✕ ยกเลิกบิลทั้งบิล',
-                          variant: AppButtonVariant.danger,
-                          fullWidth: c.maxWidth < 480,
-                          onPressed: busy ? null : onVoid,
-                        )
-                      : null;
+                  ? AppButton(
+                      label: '✕ ยกเลิกบิลทั้งบิล',
+                      variant: AppButtonVariant.danger,
+                      fullWidth: c.maxWidth < 480,
+                      onPressed: busy ? null : onVoid,
+                    )
+                  : null;
 
               if (c.maxWidth < 480) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    submit,
+                    submitBlock,
                     if (voidBtn != null) ...[
                       const SizedBox(height: 8),
                       voidBtn,
@@ -1568,15 +1690,52 @@ class _SummaryBox extends StatelessWidget {
                 );
               }
               return Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  if (voidBtn != null) ...[
-                    voidBtn,
-                    const SizedBox(width: 10),
-                  ],
-                  Expanded(child: submit),
+                  if (voidBtn != null) ...[voidBtn, const SizedBox(width: 10)],
+                  Expanded(child: submitBlock),
                 ],
               );
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A one-line icon + text note inside the refund summary.
+class _InlineNote extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String text;
+  const _InlineNote({
+    required this.icon,
+    required this.color,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),
@@ -1597,12 +1756,15 @@ class _SummaryRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.secondary,
+          Flexible(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.secondary,
+              ),
             ),
           ),
+          const SizedBox(width: 8),
           Text(value, style: theme.textTheme.bodyMedium),
         ],
       ),
@@ -1621,7 +1783,6 @@ class _FieldLabel extends StatelessWidget {
       text,
       style: theme.textTheme.labelSmall?.copyWith(
         fontWeight: FontWeight.w700,
-        letterSpacing: 1,
         color: theme.colorScheme.secondary,
       ),
     );

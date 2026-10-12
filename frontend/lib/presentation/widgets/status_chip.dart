@@ -54,9 +54,28 @@ class StatusChip extends StatelessWidget {
     }
   }
 
+  /// Label colour: the tone colour itself is ~3:1 as 12 px text on its own
+  /// tint (and ~2:1 for neutral/danger on the dark theme's navy), so the text
+  /// takes a readable shade of the same tone per brightness.
+  Color _textColor(bool dark) {
+    switch (tone) {
+      case StatusTone.success:
+        return dark ? AppColors.successLight : AppColors.forestGreen;
+      case StatusTone.info:
+        return dark ? AppColors.gray300 : AppColors.navyLight;
+      case StatusTone.warning:
+        return dark ? AppColors.warningTextOnDark : AppColors.warningText;
+      case StatusTone.danger:
+        return dark ? AppColors.errorTextOnDark : AppColors.error;
+      case StatusTone.neutral:
+        return dark ? AppColors.gray300 : AppColors.gray500;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = _color;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
@@ -66,7 +85,11 @@ class StatusChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: 12),
+        style: TextStyle(
+          color: _textColor(dark),
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
       ),
     );
   }

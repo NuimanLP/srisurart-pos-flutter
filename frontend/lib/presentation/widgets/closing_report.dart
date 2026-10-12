@@ -88,10 +88,12 @@ class _ClosingData {
 typedef QrAccountRow = ({String label, int bills, double net});
 
 /// A bill whose account is no longer in the local cache (deleted).
-const qrDeletedAccountLabel = 'บัญชีที่ลบแล้ว'; // เจ้าของรับรอง 2026-10-10 (contract §5)
+const qrDeletedAccountLabel =
+    'บัญชีที่ลบแล้ว'; // เจ้าของรับรอง 2026-10-10 (contract §5)
 
 /// A โอน/QR bill with no account recorded.
-const qrNoAccountLabel = 'ไม่ระบุบัญชี'; // เจ้าของรับรอง 2026-10-10 (contract §5)
+const qrNoAccountLabel =
+    'ไม่ระบุบัญชี'; // เจ้าของรับรอง 2026-10-10 (contract §5)
 
 /// [NetSales.qrByAccount] as display rows: the shop's accounts in their own
 /// order (by nickname), then every deleted account merged into one
@@ -117,7 +119,11 @@ List<QrAccountRow> qrAccountRows(
     deletedNet += e.value.net;
   }
   if (anyDeleted) {
-    rows.add((label: qrDeletedAccountLabel, bills: deletedBills, net: deletedNet));
+    rows.add((
+      label: qrDeletedAccountLabel,
+      bills: deletedBills,
+      net: deletedNet,
+    ));
   }
   if (byAccount[null] case final g?) {
     rows.add((label: qrNoAccountLabel, bills: g.bills, net: g.net));
@@ -713,7 +719,17 @@ class _ClosingReportState extends State<ClosingReport> {
               AppColors.error,
             ),
           const SizedBox(height: 8),
-        ],
+        ] else
+          // ฿0 below with no shift read as "the drawer is empty" (agent ร่าง).
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'ยังไม่ได้เปิดกะ — ไม่มีเงินในลิ้นชักให้ตรวจนับ',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.steelBlue,
+              ),
+            ),
+          ),
         Row(
           children: [
             Expanded(
@@ -725,16 +741,32 @@ class _ClosingReportState extends State<ClosingReport> {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              baht(cashExpected),
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(
+                  baht(cashExpected),
+                  maxLines: 1,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ),
           ],
         ),
         const SizedBox(height: 10),
         _fieldLabel('นับเงินสดจริงได้ ฿'),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(
+            'นับเงินทั้งหมดในลิ้นชัก รวมเงินตั้งต้นด้วย',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppColors.steelBlue,
+            ),
+          ),
+        ),
         TextField(
           controller: _cashCtl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -743,7 +775,9 @@ class _ClosingReportState extends State<ClosingReport> {
           decoration: const InputDecoration(isDense: true, hintText: '0'),
           onChanged: (_) => setState(() {}),
         ),
-        if (_cashCtl.text.isNotEmpty)
+        // Only once the text is a number: a lone "." read as ฿0 and showed a
+        // false shortfall (the cash-drawer screen's hasPhys rule).
+        if (double.tryParse(_cashCtl.text) != null)
           Container(
             margin: const EdgeInsets.only(top: 10),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -915,20 +949,25 @@ class _ClosingReportState extends State<ClosingReport> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(text: '$label '),
-                    TextSpan(
-                      text: '($count บิล)',
-                      style: TextStyle(
-                        color: AppColors.steelBlue,
-                        fontSize: 13,
+              // Expanded: the label used to push the amount off a zoomed or
+              // phone-width dialog.
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: '$label '),
+                      TextSpan(
+                        text: '($count บิล)',
+                        style: TextStyle(
+                          color: AppColors.steelBlue,
+                          fontSize: 13,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 baht(value),
                 style: theme.textTheme.titleMedium?.copyWith(
@@ -992,10 +1031,12 @@ class _ClosingReportState extends State<ClosingReport> {
           padding: const EdgeInsets.symmetric(vertical: 3),
           child: Row(
             children: [
+              // bodyMedium: the lines the cashier checks one by one were the
+              // smallest text in the dialog.
               Expanded(
                 child: Text(
                   label,
-                  style: theme.textTheme.bodySmall?.copyWith(
+                  style: theme.textTheme.bodyMedium?.copyWith(
                     color: AppColors.steelBlue,
                   ),
                 ),
@@ -1003,7 +1044,10 @@ class _ClosingReportState extends State<ClosingReport> {
               const SizedBox(width: 8),
               Text(
                 value,
-                style: theme.textTheme.bodySmall?.copyWith(color: color),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -1051,7 +1095,6 @@ class _SectionTitle extends StatelessWidget {
         title,
         style: theme.textTheme.labelMedium?.copyWith(
           fontWeight: FontWeight.w700,
-          letterSpacing: 1.2,
           color: AppColors.steelBlue,
         ),
       ),

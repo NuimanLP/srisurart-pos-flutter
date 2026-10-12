@@ -200,6 +200,18 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
                           ),
                       ],
                     ),
+                    // The picture is its own write, apart from the form —
+                    // say so, or the owner presses ยกเลิก expecting undo.
+                    if (note == null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'เปลี่ยนรูปแล้วบันทึกทันที ไม่ต้องกด "บันทึก"', // agent ร่าง
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.secondary,
+                          ),
+                        ),
+                      ),
                     if (note != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),

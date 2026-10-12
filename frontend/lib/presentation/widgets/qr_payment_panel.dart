@@ -72,7 +72,9 @@ class QrPaymentPanel extends StatelessWidget {
                         ],
                       ),
                     ),
-                    TextButton.icon(
+                    // The step most bills take next (turn the screen to the
+                    // customer), so a filled button, not a text link.
+                    FilledButton.tonalIcon(
                       onPressed: () => showQrFullscreen(context, a, total),
                       icon: const Icon(Icons.fullscreen),
                       label: const Text('ขยาย'), // เจ้าของรับรอง 2026-10-10
@@ -235,8 +237,14 @@ Future<void> showQrFullscreen(
                 Positioned(
                   top: 8,
                   right: 8,
+                  // Large: this screen faces the customer; the clerk reaches
+                  // over to close it. The page is always white.
                   child: IconButton(
                     tooltip: 'ปิด',
+                    iconSize: 32,
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black12,
+                    ),
                     icon: const Icon(Icons.close, color: Colors.black),
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
