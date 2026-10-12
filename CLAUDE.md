@@ -48,8 +48,12 @@ PRs into `develop` may still squash. `develop` has the same branch protection as
 2026-10-07 for the course submission, with one-off exceptions: QR payment accounts `ef07e27`, POS favourites `1d70d1c`,
 owner backup import `847e7ef`, suppliers pull `6a38c87`; the release before the freeze was `53fdd1b`). Work goes through
 `develop` as usual. The first post-freeze feature is **product images** (PR #680, `feat/product-images`; API in
-`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `c3e33aa`
-(PR #699, merge commit, 2026-10-12)**: camera barcode scan (PR #697) + sale photo evidence (PR #698; rules in "Camera
+`docs/Backend_design/02_API_SCREENS.md §3.2`/`§3.10`, rules in "Product images" below). **Last release = `main` `8a44a03`
+(PR #704, merge commit, 2026-10-13)**: the sale-photo sheet's built-in camera + photo reorder (PR #702) and the
+supplier-first Suppliers tab with one-click PO and one shared `stockLevel` rule (PR #703; rules in "Supplier-first tab"
+below), deployed to `mob04` (run `38275228902`, `.current_sha` checked over SSH; client only, no migration;
+`docs/handoff_log/session-2026-10-13-camera-suppliers.md`). Before it `c3e33aa`
+(PR #699, merge commit, 2026-10-12): camera barcode scan (PR #697) + sale photo evidence (PR #698; rules in "Camera
 barcode scan" / "Sale photo evidence" below), deployed to `mob04` (run `38260777086`, `.current_sha` checked over SSH, the
 new `backup-db.sh` installed by hand the same day; `docs/handoff_log/session-2026-10-12-photo-evidence-barcode.md`). Before
 it `ec31121` (PR #696, 2026-10-12, run `38189738827`): the owner-ratified Thai strings of the UI/UX pass (PR #695). Before that `2d6a575` (PR #694, 2026-10-12, run `38187206166`): the
@@ -911,9 +915,11 @@ on void/return paths. Keep this order in any new write touching more than one of
   from the token's tenant + the stored `image_key`. The PUT always answers **200**; replay is by key **and** permanently by
   `photoId` + `source_sha256`; the 5-limit is counted under the `sales` row `FOR UPDATE`. The raw body is buffered only for
   `drole === 'pos'` tokens. The query (`takenAt`/`sortOrder`) is deliberately outside the fingerprint — so the client freezes a
-  photo's `sortOrder` at its **first send attempt** and resends it on every retry; staff may reorder tiles only before the first
+  photo's `sortOrder` at its **first send attempt** (the lowest slot 0–4 not held by a saved/retryable/uploading photo — never
+  max+1, which reached 5 and was refused) and resends it on every retry; staff may reorder tiles only before the first
   `บันทึก` (owner 2026-10-12). Capture = in-app camera (`camera` package, `sale_photo_camera.dart`, all platforms incl. the PC
-  webcam; `image_picker` removed) + `file_picker`. `withImageSlot` serialises sharp per process (product images and sale photos share it; the queue
+  webcam; `image_picker` removed; the camera counts only shots the sheet accepted) + `file_picker`. 🔴 The Android manifest
+  strips `RECORD_AUDIO`/`WRITE_EXTERNAL_STORAGE` that `camera_android_camerax` merges in (`tools:node="remove"`) — keep it. `withImageSlot` serialises sharp per process (product images and sale photos share it; the queue
   is unbounded — follow-up); sale photos cap input at 2048² and preview at 1600 px. 🔴 `backup-db.sh` writes
   `pos_sale_photos_<ts>.tar.gz` **through the worker container** (a failed exec = `::error::` + non-zero exit) — install it on
   the VM only **after** the deploy that ships a worker with `/app/sale-photos`; installed on `mob04` 2026-10-12 (sha256
@@ -928,6 +934,17 @@ on void/return paths. Keep this order in any new write touching more than one of
   work. Bumping `mobile_scanner` = re-check the zxing version it pins and update the bundle. Support is checked **before**
   any camera permission prompt. The iOS `NSCameraUsageDescription` is one key shared with sale photos
   (`ใช้กล้องเพื่อสแกนบาร์โค้ดและถ่ายรูปหลักฐานสินค้า`, `agent ร่าง`).
+- **Supplier-first tab (owner request 2026-10-12, PR #703; plan + as-built `docs/research/supplier-first-plan-2026-10-12.md`):**
+  Products → `ซัพพลายเออร์` opens on `ตามซัพฯ` (supplier list → that supplier's products); the old per-product view stays behind
+  `ตามสินค้า`. Code lives in `products_suppliers_tab.part.dart` (a `part` of `products_screen.dart`). A "supplier" is the group
+  of `Suppliers` quote rows by `supplierKey()` (`core/utils/supplier_name.dart`, trim + lower-case) — the **same key** the
+  create-PO dialog uses; no supplier entity, no schema change (rename/merge and contact details are "later"). Cheapest =
+  integer-satang `cost + freight`, compared only against **other** suppliers. 🔴 **One stock rule: `stockLevel()`**
+  (`low_stock_alert.dart`; out = `stock <= 0`, low = `stock <= minStock`) — the Stock tab, `lowStockBuckets` and the PO
+  dialog's low-stock list all use it; never inline `stock <= minStock` in new code. `สร้างใบสั่งซื้อ (n)` passes a `PoPrefill`
+  **class** via go_router `extra` (never a String/Map — it would be serialised into history and reopen on back). Writes keep
+  the API-build rules (Degraded refused at press, `_busy`, no local write, dialog keeps values on error, add body byte-stable
+  for `PendingWrites`). Owner question open: supplier routes have no role check (any role can edit costs).
 - **Local cache is tenant-scoped (API build, #539):** `AppMeta tenant_id` + `TenantCacheGuard`;
   a switch resets via `resetTenantCache`/`resetPulledCache` and is **refused with unsent work**
   (`TENANT_SWITCH_UNSENT_WORK`, `ENROL_UNSENT_WORK`). `cacheGeneration` fences late pulls/seeds, and
