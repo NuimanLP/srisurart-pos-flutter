@@ -163,7 +163,9 @@ ShellRoute _buildShell() => ShellRoute(
     ),
     GoRoute(
       path: AppRoutes.purchaseOrders,
-      builder: (context, state) => const PurchaseOrdersScreen(),
+      builder: (context, state) => PurchaseOrdersScreen(
+        prefill: state.extra is PoPrefill ? state.extra as PoPrefill : null,
+      ),
     ),
     GoRoute(
       path: AppRoutes.vehicleSearch,

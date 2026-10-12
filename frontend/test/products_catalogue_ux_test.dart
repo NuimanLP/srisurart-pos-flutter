@@ -137,8 +137,9 @@ void main() {
     });
   });
 
-  // The suppliers tab stacks its product picker above the detail on a narrow
-  // logical screen; it must not overflow at whole-screen zoom or 390 px.
+  // The suppliers tab's "ตามสินค้า" view stacks its product picker above the
+  // detail on a narrow logical screen; it must not overflow at whole-screen
+  // zoom or 390 px. (The default supplier-first view: suppliers_tab_test.dart.)
   for (final (label, size, zoom) in const [
     ('zoom3x-fullhd', Size(1920, 1080), 3.0),
     ('zoom2x-laptop', Size(1366, 768), 2.0),
@@ -162,6 +163,8 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 50));
           await tester.pumpAndSettle(const Duration(milliseconds: 100));
         }
+        await tester.tap(find.text('ตามสินค้า'));
+        await tester.pumpAndSettle();
         expect(find.byKey(const Key('suppliers-product-list')), findsOneWidget);
         caught = tester.takeException();
         await db.close();

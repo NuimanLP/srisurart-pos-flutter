@@ -910,8 +910,10 @@ on void/return paths. Keep this order in any new write touching more than one of
   `/img/` 404s), read through `GET /sales/:id/photos/:photoId/{t|p}` with `Cache-Control: no-store`; the file path comes only
   from the token's tenant + the stored `image_key`. The PUT always answers **200**; replay is by key **and** permanently by
   `photoId` + `source_sha256`; the 5-limit is counted under the `sales` row `FOR UPDATE`. The raw body is buffered only for
-  `drole === 'pos'` tokens. The query (`takenAt`/`sortOrder`) is deliberately outside the fingerprint — the client fixes
-  `sortOrder` at capture. `withImageSlot` serialises sharp per process (product images and sale photos share it; the queue
+  `drole === 'pos'` tokens. The query (`takenAt`/`sortOrder`) is deliberately outside the fingerprint — so the client freezes a
+  photo's `sortOrder` at its **first send attempt** and resends it on every retry; staff may reorder tiles only before the first
+  `บันทึก` (owner 2026-10-12). Capture = in-app camera (`camera` package, `sale_photo_camera.dart`, all platforms incl. the PC
+  webcam; `image_picker` removed) + `file_picker`. `withImageSlot` serialises sharp per process (product images and sale photos share it; the queue
   is unbounded — follow-up); sale photos cap input at 2048² and preview at 1600 px. 🔴 `backup-db.sh` writes
   `pos_sale_photos_<ts>.tar.gz` **through the worker container** (a failed exec = `::error::` + non-zero exit) — install it on
   the VM only **after** the deploy that ships a worker with `/app/sale-photos`; installed on `mob04` 2026-10-12 (sha256

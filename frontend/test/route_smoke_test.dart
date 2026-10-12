@@ -21,6 +21,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -53,6 +54,9 @@ import 'package:srisurart_pos/presentation/screens/returns_screen.dart';
 import 'package:srisurart_pos/presentation/screens/settings_screen.dart';
 import 'package:srisurart_pos/presentation/screens/cash_drawer_screen.dart';
 import 'package:srisurart_pos/presentation/screens/owner_review_screen.dart';
+import 'package:srisurart_pos/presentation/widgets/sale_photo_camera.dart';
+
+import 'support/fake_camera_platform.dart';
 
 /// One screen under test: a human label + a builder for the widget.
 class _ScreenCase {
@@ -162,6 +166,16 @@ _photoSurfaces = {
     paymentMethod: 'เครดิตช่าง',
     totalText: '฿123,456.00',
   ),
+  // The in-app camera on a fake platform: live preview, then (no camera) the
+  // error state — the only state a browser pane without a camera ever shows.
+  'sale photo camera': (context, repo) {
+    CameraPlatform.instance = FakeCameraPlatform();
+    showSalePhotoCamera(context, count: 2, limit: 5, onShot: (_) async => null);
+  },
+  'sale photo camera, no camera': (context, repo) {
+    CameraPlatform.instance = FakeCameraPlatform()..cameras = const [];
+    showSalePhotoCamera(context, count: 0, limit: 5, onShot: (_) async => null);
+  },
   'photo viewer': (context, repo) async {
     final photos = await repo.list(_photoSaleId);
     if (context.mounted) {
@@ -182,6 +196,12 @@ void main() {
     await initializeDateFormatting('th', null);
     SharedPreferences.setMockInitialValues({});
     GoogleFonts.config.allowRuntimeFetching = false;
+  });
+
+  // The camera surfaces swap in a fake platform; put the real one back.
+  final realCamera = CameraPlatform.instance;
+  tearDown(() {
+    CameraPlatform.instance = realCamera;
   });
 
   for (final (sizeLabel, size, zoom) in _cases) {
@@ -299,6 +319,15 @@ void main() {
                   await tester.pumpAndSettle(const Duration(milliseconds: 100));
                 }
                 expect(find.text('ครบ 5 รูปแล้ว'), findsOneWidget);
+              }
+              if (surface.key == 'sale photo camera') {
+                expect(find.byKey(const Key('fake-preview-1')), findsOneWidget);
+                await tester.tap(find.byKey(const Key('sale-camera-shutter')));
+                await tester.pumpAndSettle(const Duration(milliseconds: 100));
+                expect(find.text('3 / 5 รูป'), findsOneWidget);
+              }
+              if (surface.key == 'sale photo camera, no camera') {
+                expect(find.text('ไม่พบกล้อง'), findsOneWidget);
               }
               caught = tester.takeException();
               await db.close();

@@ -50,6 +50,7 @@ void main() {
     AppDatabase db,
     PurchaseOrdersRepository po, {
     Size size = const Size(1280, 900),
+    PoPrefill? prefill,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -66,7 +67,9 @@ void main() {
             value: SuppliersRepository(db),
           ),
         ],
-        child: const MaterialApp(home: Scaffold(body: PurchaseOrdersScreen())),
+        child: MaterialApp(
+          home: Scaffold(body: PurchaseOrdersScreen(prefill: prefill)),
+        ),
       ),
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -82,6 +85,57 @@ void main() {
     supplier: 'ซัพทดสอบ',
     items: [PoLineInput(partNo: 'ZZ-NONE', name: 'x', qty: 1, cost: 10)],
   );
+
+  // From the Suppliers tab's "สร้างใบสั่งซื้อ" (owner 2026-10-12): the dialog
+  // opens once with the supplier picked and its low-stock products added at
+  // the supplier's quoted cost; nothing is saved until บันทึก.
+  testWidgets('prefill opens the create dialog with supplier + low-stock lines', (
+    tester,
+  ) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    await tester.runAsync(() async {
+      // Spark Plug NGK (p2, min 15) runs low; NGK Thailand quotes it at 62.
+      await (db.update(db.products)..where((t) => t.id.equals('p2')))
+          .write(const ProductsCompanion(stock: Value(3)));
+      final repo = PurchaseOrdersRepository(db);
+      await pump(
+        tester,
+        db,
+        repo,
+        prefill: const PoPrefill(supplier: ' NGK Thailand '),
+      );
+      await settle(tester);
+      expect(find.text('สร้างใบสั่งซื้อใหม่ · New Purchase Order'), findsOneWidget);
+      final dialog = find.byType(Dialog);
+      expect(
+        find.descendant(of: dialog, matching: find.text('NGK Thailand')),
+        findsWidgets,
+      );
+      expect(
+        find.descendant(of: dialog, matching: find.text('Spark Plug NGK')),
+        findsWidgets,
+      );
+      // qty = minStock - stock = 12, at NGK's quoted 62 → 744.
+      expect(
+        find.descendant(of: dialog, matching: find.textContaining('744')),
+        findsWidgets,
+      );
+      expect(await repo.getPOs(), isEmpty); // nothing saved yet
+    });
+  });
+
+  testWidgets('no prefill: the create dialog does not open by itself', (
+    tester,
+  ) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    await tester.runAsync(() async {
+      await pump(tester, db, PurchaseOrdersRepository(db));
+      await settle(tester);
+      expect(find.text('สร้างใบสั่งซื้อใหม่ · New Purchase Order'), findsNothing);
+    });
+  });
 
   testWidgets('received PO has no delete button; open PO keeps it', (
     tester,
