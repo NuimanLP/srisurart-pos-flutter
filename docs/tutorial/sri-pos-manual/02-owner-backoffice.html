@@ -225,12 +225,22 @@
   <figure><img src="img/products-categories.png" alt="แถบ จัดการประเภท — ชิปหมวดพร้อม ✕ ช่องประเภทใหม่ และปุ่ม + เพิ่ม" loading="lazy"><figcaption>แถบ จัดการประเภท — ร้านใหม่ได้ 5 หมวดเริ่มต้นตอนสร้างร้าน (ในภาพเพิ่ม "ช่วงล่าง" แล้ว)</figcaption></figure>
 
   <h2 class="sub">ซัพพลายเออร์และราคาทุน <span class="en">Suppliers</span></h2>
+  <p>แท็บ <span class="ui ghost">ซัพพลายเออร์ · Suppliers</span> เปิดมาที่มุมมอง <span class="ui ghost">ตามซัพฯ</span>: เลือกร้านก่อน แล้วดูสินค้าทั้งหมดที่ร้านนั้นเสนอราคาไว้ (ปรับตามคำขอเจ้าของร้าน 12 ต.ค. 2569)</p>
   <ol class="steps">
-    <li><span class="st-title">แท็บ <span class="ui ghost">ซัพพลายเออร์ · Suppliers</span> → แตะสินค้าในรายการซ้าย</span>ใต้ชื่อบอกจำนวน "ซัพฯ" ที่บันทึกไว้</li>
-    <li><span class="st-title">กด <span class="ui">เพิ่มซัพฯ</span> → กรอก <span class="ui ghost">ชื่อซัพพลายเออร์</span> · <span class="ui ghost">ราคาต่อชิ้น ฿</span> · <span class="ui ghost">ค่าส่ง ฿</span></span><span class="see">แถวใหม่ในตาราง — แถวที่ "รวม" (ทุน + ค่าส่ง) ถูกที่สุดได้ป้าย <span class="msg">✓ ราคาถูกสุด</span> (เท่ากันได้ทั้งคู่)</span></li>
+    <li><span class="st-title">รายการซ้าย = ซัพพลายเออร์</span>ใต้ชื่อบอก <span class="msg">{n} สินค้า</span> · ร้านที่มีสินค้าหมดหรือใกล้หมดขึ้นก่อน พร้อมป้ายส้ม <span class="msg">ต้องสั่ง {m}</span> · ชื่อที่ต่างกันแค่ตัวพิมพ์เล็ก/ใหญ่หรือช่องว่างหัวท้ายนับเป็นร้านเดียวกัน</li>
+    <li><span class="st-title">ช่อง <span class="ui ghost">ค้นหาซัพฯ หรือสินค้า</span></span>พิมพ์ชื่อร้าน หรือชื่อ/รหัสสินค้า ("ร้านไหนขายชิ้นนี้?") · กด Enter = เปิดร้านแรกที่ตรง</li>
+    <li><span class="st-title">แตะร้าน → ตารางสินค้าของร้านนั้น</span>คอลัมน์ สินค้า · สต็อก · ทุน/ชิ้น · ค่าส่ง · รวม · จัดการ — สินค้า <span class="msg">หมด</span> / <span class="msg">ใกล้หมด</span> อยู่บนสุด<span class="see"><span class="msg">✓ ราคาถูกสุด</span> = ราคารวม (ทุน + ค่าส่ง) ต่ำที่สุดในบรรดาซัพฯ ของสินค้านั้น (เท่ากันได้หลายร้าน) · ถ้าไม่ใช่ร้านถูกสุดจะบอก <span class="msg">แพงกว่า ฿x · ถูกสุด {ร้าน}</span></span></li>
+    <li><span class="st-title">แตะชื่อสินค้า</span>สลับไปมุมมอง <span class="ui ghost">ตามสินค้า</span> เพื่อเทียบทุกร้านของสินค้านั้น (มุมมองเดิม)</li>
+    <li><span class="st-title">กด <span class="ui">เพิ่มสินค้า</span> → ค้นหาสินค้า → กรอก <span class="ui ghost">ราคาต่อชิ้น ฿</span> · <span class="ui ghost">ค่าส่ง ฿</span> → <span class="ui">บันทึก</span></span>สินค้าที่ร้านนี้มีราคาอยู่แล้วจะไม่ขึ้นให้เลือก</li>
+    <li><span class="st-title">แก้ราคา: ไอคอนดินสอ (<span class="ui ghost">แก้ราคา</span>) → <span class="ui">บันทึก</span></span>ถ้าบันทึกไม่สำเร็จ หน้าต่างยังเปิดอยู่พร้อมตัวเลขเดิม ให้กดซ้ำได้</li>
     <li><span class="st-title">ลบ: ไอคอนถังขยะที่แถว</span><strong>ไม่มีถามยืนยัน</strong> — กดแล้วหายทันที</li>
+    <li><span class="st-title">ร้านใหม่: <span class="ui">ซัพพลายเออร์ใหม่</span> (ใต้ช่องค้นหา)</span>กรอกชื่อ + เลือกสินค้าแรก — <span class="msg">ซัพพลายเออร์ต้องมีสินค้าอย่างน้อย 1 รายการ</span></li>
+    <li><span class="st-title">กด <span class="ui">สร้างใบสั่งซื้อ</span></span>ไปหน้าใบสั่งซื้อ เปิดหน้าต่างสร้างใบใหม่ที่เลือกร้านนี้ไว้แล้ว และใส่สินค้าใกล้หมดของร้านให้ (ราคาตามที่ร้านเสนอ) — ยังไม่บันทึกจนกว่าจะกด <span class="ui">บันทึกใบสั่งซื้อ</span></li>
   </ol>
-  <figure><img src="img/products-suppliers.png" alt="แท็บ ซัพพลายเออร์ — Oil Filter มี 2 ร้าน ทั้งคู่ได้ป้าย ราคาถูกสุด เพราะรวม ฿45 เท่ากัน" loading="lazy"><figcaption>ซัพพลายเออร์ — สองร้านรวม ฿45 เท่ากัน จึงได้ป้าย ✓ ราคาถูกสุด ทั้งคู่</figcaption></figure>
+  <p class="muted">บนมือถือหรือเมื่อซูมหน้าจอมาก: รายการร้านเต็มจอ แตะร้านเพื่อเปิด แล้วกดลูกศร <span class="ui ghost">กลับ</span> (หรือปุ่มย้อนกลับของเครื่อง) เพื่อกลับไปรายการ · ทุกปุ่มที่แก้ข้อมูลใช้ไม่ได้ขณะออฟไลน์</p>
+  <p class="muted">เปลี่ยนชื่อร้าน / รวมสองชื่อเป็นร้านเดียว ยังทำไม่ได้ (ต้องแก้ทีละแถว)</p>
+  <figure><img src="img/products-suppliers.png" alt="แท็บ ซัพพลายเออร์ มุมมอง ตามสินค้า — Oil Filter มี 2 ร้าน ทั้งคู่ได้ป้าย ราคาถูกสุด เพราะรวม ฿45 เท่ากัน" loading="lazy"><figcaption>มุมมอง ตามสินค้า (ภาพเดิม) — สองร้านรวม ฿45 เท่ากัน จึงได้ป้าย ✓ ราคาถูกสุด ทั้งคู่</figcaption></figure>
+  <div class="note tip"><span class="nt">ข้อความเหล่านี้ยังเป็นร่าง</span>ถ้อยคำใหม่ของมุมมอง <span class="ui ghost">ตามซัพฯ</span> (เช่น <span class="msg">ต้องสั่ง {m}</span>, <span class="msg">ใกล้หมด</span>, <span class="msg">แพงกว่า ฿x</span>, <span class="ui ghost">ซัพพลายเออร์ใหม่</span>) เป็น <code>agent ร่าง</code> — ยังไม่ผ่านการรับรองจากเจ้าของโปรเจกต์ อาจเปลี่ยนถ้อยคำ</div>
   <p class="muted">ราคาซัพฯ ถูกสุดไปโผล่ในไฟล์ <span class="msg">🗂 สต็อกปัจจุบัน</span> (ตั้งค่า → ส่งออก CSV) · ราคาทุนของสินค้าจริงเปลี่ยนตอนรับของจากใบสั่งซื้อ (หัวข้อ 5) ไม่ใช่จากตารางนี้</p>
 
   <h2 class="sub">พิมพ์ป้ายราคาติดชั้น <span class="en">Shelf labels</span></h2>

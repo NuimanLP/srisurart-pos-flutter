@@ -294,3 +294,39 @@ Each new string gets a `// agent ร่าง` comment in code and a row in the 
 - Supplier spend history and PO totals per supplier, beyond the last PO date.
 - Offline queueing of supplier writes. They stay online-only, as today.
 - Changing the create-PO dialog's own UI, the low-stock alert, or the settings export.
+
+## 11. As built (2026-10-12, after `/scrutinize` → go-with-changes)
+
+Changes from the plan above, decided by the review:
+- **Last PO date: cut** (moved to Later). `ApiPurchaseOrdersRepository.getPOs()` runs `syncFromServer()`, which pages
+  the whole PO history on every call and does not skip while Degraded.
+- **Breakpoint:** master/detail only when the tab is ≥ **840** logical px wide (`_splitMin`); below that, list → detail
+  push with `PopScope(canPop: _openKey == null)`. 3x zoom on 1920 = 640 px gets the push layout. The product table
+  turns into cards from the detail's own `LayoutBuilder` width (< 640).
+- **Stock level:** one public `stockLevel(ProductRow)` → `StockLevel.out/low/ok` next to `lowStockBuckets()` in
+  `widgets/low_stock_alert.dart` (out = `stock == 0`, low = `0 < stock <= minStock`). The Stock tab's
+  `_stockStatus` delegates to it; the other inline call sites are untouched.
+- **Name key:** `supplierKey()` in `core/utils/supplier_name.dart` (`trim().toLowerCase()`, no NFC) replaces the PO
+  dialog's private `_norm`; the tab groups by the same function. Display name = the most used trimmed spelling,
+  ties to the first. Blank names are skipped. New writes send `name.trim()`.
+- **Grouping** is a pure function, `groupSuppliers()` in `widgets/supplier_groups.dart`, run in `_load` and after
+  each refresh (never in `build`). Totals are compared in whole satang.
+- **Writes:** no repository change. The edit and add dialogs check `context.isDegraded` at press time and disable
+  their buttons while Degraded, use a `_busy` guard, keep the dialog open with the same values on failure and show
+  `ServerErrorResolver.resolveCounterError(e)`, never write locally, send `unitCost` and `freight` as absolute values,
+  and re-read `getSuppliers()` only after success. The add body is byte-stable on retry, so `PendingWrites` replays.
+- **PO prefill:** `PoPrefill` (a class) goes through `context.go(..., extra:)`. go_router drops a non-JSON extra from
+  history, so a refresh or back never reopens it. `PurchaseOrdersScreen(prefill:)` opens the dialog once after the
+  first frame. `_CreatePoDialog.initialSupplier` is applied in `initState`: the supplier is set and its low-stock
+  products are added at its quoted cost.
+- **Cut:** the "แพงกว่า" tooltip (it is plain text now: `แพงกว่า ฿x · ถูกสุด {name}`), search autofocus, and Esc.
+  Enter (`onSubmitted`) is kept.
+
+Files: `frontend/lib/presentation/screens/products_screen.dart` (`_SuppliersTab` + `_AddQuoteDialog`,
+`_EditQuoteDialog`, `_CheapestPill`), `widgets/supplier_groups.dart`, `widgets/low_stock_alert.dart`,
+`core/utils/supplier_name.dart`, `screens/purchase_orders_screen.dart`, `core/router/app_router.dart`. Tests:
+`test/suppliers_tab_test.dart` (new), `purchase_orders_screen_test.dart` (prefill), and
+`products_catalogue_ux_test.dart` (the by-product zoom loop now taps `ตามสินค้า` first).
+
+Still Later: rename or merge a supplier, delete a whole supplier, last PO date, and a real supplier entity.
+Not decided here: whether any role may edit a cost (an owner item).
