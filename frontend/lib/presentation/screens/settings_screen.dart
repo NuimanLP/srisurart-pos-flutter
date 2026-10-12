@@ -184,7 +184,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'account' => const _AccountTab(),
               'qr' => const _ContentPane(
                 title: 'บัญชีรับเงิน QR', // เจ้าของรับรอง 2026-10-10
-                subtitle: 'บัญชีที่ลูกค้าสแกนจ่ายเงินตอนคิดเงิน', // agent ร่าง
+                subtitle: 'บัญชีที่ลูกค้าสแกนจ่ายเงินตอนคิดเงิน', // owner-ratified 2026-10-12
                 children: [PaymentAccountsSection()],
               ),
               'theme' => const _ThemeTab(),
@@ -470,7 +470,7 @@ class _AccountTab extends StatelessWidget {
 
     return _ContentPane(
       title: '🔐 บัญชีผู้ใช้และการผูกเครื่อง (Auth & Device)',
-      // agent ร่าง
+      // owner-ratified 2026-10-12
       subtitle:
           'ผู้ที่เข้าสู่ระบบ บทบาทของเครื่องนี้ และ PIN สำหรับขายตอนออฟไลน์',
       children: [
@@ -1026,7 +1026,7 @@ class _GeneralTabState extends State<_GeneralTab> {
       builder: (context, status, isDegraded) {
         return _ContentPane(
           title: 'ข้อมูลร้านค้า · Shop Information',
-          // agent ร่าง
+          // owner-ratified 2026-10-12
           subtitle: 'ชื่อร้าน ที่อยู่ และค่าที่ใช้พิมพ์บนใบเสร็จและใบเสนอราคา',
           children: [
             AppCard(
@@ -1158,7 +1158,7 @@ class _ThemeTab extends StatelessWidget {
     ];
     return _ContentPane(
       title: 'ธีมการแสดงผล · Display Theme',
-      subtitle: 'สีพื้นหลัง ขนาดตัวอักษร และการขยายหน้าจอ', // agent ร่าง
+      subtitle: 'สีพื้นหลัง ขนาดตัวอักษร และการขยายหน้าจอ', // owner-ratified 2026-10-12
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 500),
@@ -1958,7 +1958,7 @@ class _BackupTabState extends State<_BackupTab> {
             (meta['recordCounts'] as Map?)?.cast<String, dynamic>() ?? {};
         return _ContentPane(
           title: 'สำรอง / กู้คืนข้อมูล · Backup & Restore',
-          // agent ร่าง
+          // owner-ratified 2026-10-12
           subtitle: 'เก็บสำเนาข้อมูลร้านไว้เป็นไฟล์ หรือนำไฟล์สำรองกลับมาใช้',
           children: [
             // sub-tab bar — restore replaces the shop's data, so it reads as
@@ -2734,7 +2734,7 @@ class _ExportTabState extends State<_ExportTab> {
     return _ContentPane(
       title: 'ส่งออกข้อมูล · Export to CSV',
       subtitle:
-          'ดาวน์โหลดยอดขายและสต็อกเป็นไฟล์ CSV เปิดใน Excel ได้', // agent ร่าง
+          'ดาวน์โหลดยอดขายและสต็อกเป็นไฟล์ CSV เปิดใน Excel ได้', // owner-ratified 2026-10-12
       children: [
         AppCard(
           child: Column(
@@ -2854,7 +2854,7 @@ class _ExportTabState extends State<_ExportTab> {
   Widget _pickDateButton(TextEditingController controller) {
     return IconButton(
       icon: const Icon(Icons.calendar_month_rounded),
-      tooltip: 'เลือกจากปฏิทิน', // agent ร่าง
+      tooltip: 'เลือกจากปฏิทิน', // owner-ratified 2026-10-12
       onPressed: () async {
         final now = DateTime.now();
         final first = DateTime(2000);

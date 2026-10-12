@@ -206,7 +206,7 @@ class _ProductImageEditorState extends State<ProductImageEditor> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
-                          'เปลี่ยนรูปแล้วบันทึกทันที ไม่ต้องกด "บันทึก"', // agent ร่าง
+                          'เปลี่ยนรูปแล้วบันทึกทันที ไม่ต้องกด "บันทึก"', // owner-ratified 2026-10-12
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.secondary,
                           ),

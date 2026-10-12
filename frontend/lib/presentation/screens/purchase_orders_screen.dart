@@ -553,7 +553,7 @@ class _PoCard extends StatelessWidget {
 
 /// What is on the PO, so whoever unpacks the delivery can check it against the
 /// boxes before pressing รับสินค้า (which receives the whole PO). Collapsed by
-/// default; the heading is agent ร่าง.
+/// default; the heading is owner-ratified 2026-10-12.
 class _PoItemsList extends StatelessWidget {
   final List<PoItemRow> items;
   const _PoItemsList({required this.items});
@@ -1161,7 +1161,7 @@ class _DraftItemRow extends StatelessWidget {
       ),
     );
     final removeBtn = IconButton(
-      tooltip: 'นำออกจากใบสั่งซื้อ', // agent ร่าง
+      tooltip: 'นำออกจากใบสั่งซื้อ', // owner-ratified 2026-10-12
       onPressed: onRemove,
       icon: const Icon(Icons.close, size: 18),
       color: AppColors.steelBlue,

@@ -655,7 +655,7 @@ class _StockTabState extends State<_StockTab> {
                             suffixIcon: _search.isEmpty
                                 ? null
                                 : IconButton(
-                                    tooltip: 'ล้างคำค้น',
+                                    tooltip: 'ล้างคำค้นหา',
                                     icon: const Icon(Icons.close, size: 18),
                                     onPressed: () {
                                       _searchCtrl.clear();
@@ -1913,8 +1913,8 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
   /// marked next to the field itself (the toast still says why).
   bool _triedSave = false;
 
-  // agent ร่าง
-  static const _nameHint = 'กรอกชื่อ EN หรือ TH อย่างน้อยหนึ่งช่อง';
+  // owner-ratified 2026-10-12
+  static const _nameHint = 'กรอกชื่อไทยหรืออังกฤษอย่างน้อย 1 ช่อง';
 
   @override
   void initState() {
@@ -2161,7 +2161,7 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                     children: [
                       SizedBox(
                         width: c.maxWidth,
-                        child: _sectionTitle('ข้อมูลสินค้า'), // agent ร่าง
+                        child: _sectionTitle('ข้อมูลสินค้า'), // owner-ratified 2026-10-12
                       ),
                       SizedBox(
                         width: c.maxWidth,
@@ -2231,13 +2231,13 @@ class _ProductEditDialogState extends State<_ProductEditDialog> {
                         child: _field(
                           'ใช้กับรถรุ่น',
                           _compat,
-                          // agent ร่าง — the vehicle search reads this text.
+                          // owner-ratified 2026-10-12 — the vehicle search reads this text.
                           hint: 'เช่น Toyota Hilux 2015-2020, Isuzu D-Max',
                         ),
                       ),
                       SizedBox(
                         width: c.maxWidth,
-                        child: _sectionTitle('จำนวนในคลัง'), // agent ร่าง
+                        child: _sectionTitle('จำนวนในคลัง'), // owner-ratified 2026-10-12
                       ),
                       SizedBox(
                         width: w,
@@ -2850,7 +2850,7 @@ class _AdjustStockDialogState extends State<_AdjustStockDialog> {
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
-                      'ลดได้มากสุด ${p.stock} ชิ้น — สต็อกจะเหลือ 0', // agent ร่าง
+                      'ลดได้มากสุด ${p.stock} ชิ้น — สต็อกจะเหลือ 0', // owner-ratified 2026-10-12
                       style: const TextStyle(
                         color: AppColors.warning,
                         fontWeight: FontWeight.w700,
@@ -3515,7 +3515,7 @@ class _SuppliersTabState extends State<_SuppliersTab> {
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Text(
-                      'เลือกสินค้าเพื่อดูและเพิ่มซัพพลายเออร์', // agent ร่าง
+                      'เลือกสินค้าเพื่อดูและเพิ่มซัพพลายเออร์', // owner-ratified 2026-10-12
                       textAlign: TextAlign.center,
                       style: TextStyle(color: theme.colorScheme.secondary),
                     ),

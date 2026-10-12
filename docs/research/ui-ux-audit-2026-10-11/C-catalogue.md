@@ -51,11 +51,11 @@ product without mistakes, adjust stock, print shelf labels.
 - Shared kit: `SearchField` (widgets/search_field.dart) has no tooltip on its ✕ and no way to
   style it like the stock tab's filled search — I kept the screen's own TextField.
 
-## New Thai strings (agent ร่าง — owner to ratify)
+## New Thai strings (owner-ratified 2026-10-12 — see 02_API_SCREENS.md §8.1.1)
 
 | String | Where |
 |---|---|
-| `ล้างคำค้น` (tooltip) | stock search ✕, vehicle search ✕ |
+| `ล้างคำค้นหา` (tooltip; unified 2026-10-12) | stock search ✕, vehicle search ✕ |
 | `เลือกสินค้าที่แสดงอยู่ไว้ให้ (N รายการ)` (tooltip) | stock tab พิมพ์ป้าย button |
 | `แสดง N จาก M รายการ` | stock tab, while a filter is on |
 | `ล้างตัวกรอง` | stock tab, while a filter is on |
@@ -63,7 +63,7 @@ product without mistakes, adjust stock, print shelf labels.
 | `ขั้นต่ำ N` | phone product card |
 | `ทุน ฿X` | phone product card |
 | `ข้อมูลสินค้า` / `จำนวนในคลัง` | add/edit section titles |
-| `* กรอกชื่อ EN หรือ TH อย่างน้อยหนึ่งช่อง` | add/edit label over the EN/TH name pair |
+| `* กรอกชื่อไทยหรืออังกฤษอย่างน้อย 1 ช่อง` (unified 2026-10-12) | add/edit label over the EN/TH name pair |
 | `จำเป็นต้องกรอก` | add/edit part-no error |
 | `เช่น Toyota Hilux 2015-2020, Isuzu D-Max` | add/edit ใช้กับรถรุ่น hint |
 | `ลดได้มากสุด N ชิ้น — สต็อกจะเหลือ 0` | adjust-stock warning |

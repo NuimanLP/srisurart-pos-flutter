@@ -74,7 +74,7 @@ mechanics list at 1600x900) and checks each cue plus no overflow. Existing tests
 - `AppTextFieldLite` in `mechanics_screen.dart` exists because `AppTextField` has no
   `helperText`/`textStyle`; adding them would let it go.
 
-## New Thai strings (agent ร่าง — owner to ratify)
+## New Thai strings (owner-ratified 2026-10-12 — see 02_API_SCREENS.md §8.1.1)
 
 | String | Where |
 |---|---|
