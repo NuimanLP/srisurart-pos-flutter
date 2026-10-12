@@ -113,6 +113,62 @@ void main() {
     );
   });
 
+  testWidgets('a status event does not flicker the button to disabled', (
+    t,
+  ) async {
+    final facade = FakeSyncFacade();
+    await t.binding.setSurfaceSize(const Size(900, 1600));
+    addTearDown(() => t.binding.setSurfaceSize(null));
+    await t.pumpWidget(
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<SalePhotosRepository?>.value(
+            value: FakeSalePhotosRepository(),
+          ),
+          RepositoryProvider<SyncFacade>.value(value: facade),
+        ],
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: ElevatedButton(
+                onPressed: () => showReceiptDialog(context, _data),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await t.tap(find.text('open'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 100));
+    expect(enabled(t), isTrue);
+    facade.emitStatus(SyncStatus.syncing);
+    await t.pump();
+    expect(enabled(t), isTrue, reason: 'same frame as the event');
+    await t.pump(const Duration(milliseconds: 100));
+    expect(enabled(t), isTrue);
+  });
+
+  testWidgets('a failed lookup says so and a press tries again', (t) async {
+    final repo = FakeSalePhotosRepository()..lookupFails = true;
+    await pump(t, repo: repo);
+    expect(enabled(t), isTrue);
+    expect(
+      t.widget<Text>(reason).data,
+      'ตรวจสถานะบิลไม่ได้ กดอีกครั้งเพื่อลองใหม่',
+    );
+    repo.lookupFails = false;
+    await t.tap(button);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 100));
+    expect(
+      find.text('รูปหลักฐานสินค้า'),
+      findsOneWidget,
+      reason: 'sheet opened',
+    );
+  });
+
   testWidgets('sale.create still in the outbox: disabled, says why', (t) async {
     await pump(t, repo: FakeSalePhotosRepository(pendingSaleCreate: true));
     expect(enabled(t), isFalse);

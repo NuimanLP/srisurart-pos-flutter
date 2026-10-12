@@ -42,6 +42,7 @@ import '../../data/repositories/api_quotes_repository.dart';
 import '../../data/repositories/api_settings_repository.dart';
 import '../../data/repositories/api_suppliers_repository.dart';
 import '../../data/repositories/review_items_repository.dart';
+import '../../data/repositories/api_sale_photos_repository.dart';
 import '../../data/repositories/sale_photos_repository.dart';
 import '../../data/services/bootstrap_service.dart';
 import '../../data/services/doc_counter_seeder.dart';
@@ -55,7 +56,7 @@ import '../../data/sync/sync_service.dart';
 SalePhotosRepository? salePhotosRepositoryOf(BuildContext context) {
   try {
     return context.read<SalePhotosRepository?>();
-  } catch (_) {
+  } on ProviderNotFoundException {
     return null;
   }
 }

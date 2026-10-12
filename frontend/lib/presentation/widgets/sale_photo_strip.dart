@@ -25,6 +25,9 @@ const _emptyNote = 'บิลนี้ไม่มีรูปหลักฐา
 const _offlineNote = 'ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะดูรูปได้';
 const _failedNote = 'โหลดรูปไม่สำเร็จ';
 const _retryLabel = 'ลองอีกครั้ง';
+const _takenPrefix = 'ถ่ายเมื่อ';
+const _uploadedPrefix = 'อัปโหลดเมื่อ';
+String _viewerTitle(int i, int n) => 'รูป $i/$n';
 
 class SalePhotoStrip extends StatefulWidget {
   const SalePhotoStrip({super.key, required this.saleId});
@@ -38,6 +41,7 @@ class SalePhotoStrip extends StatefulWidget {
 class _SalePhotoStripState extends State<SalePhotoStrip> {
   SalePhotosRepository? _repo;
   Future<List<SalePhoto>>? _list;
+  List<SalePhoto>? _photos;
   final Map<String, Future<Uint8List>> _thumbs = {};
 
   @override
@@ -51,6 +55,7 @@ class _SalePhotoStripState extends State<SalePhotoStrip> {
     super.didUpdateWidget(old);
     if (old.saleId != widget.saleId) {
       _list = null;
+      _photos = null;
       _thumbs.clear();
     }
   }
@@ -58,6 +63,7 @@ class _SalePhotoStripState extends State<SalePhotoStrip> {
   void _reload() {
     setState(() {
       _list = null;
+      _photos = null;
       _thumbs.clear();
     });
   }
@@ -66,12 +72,15 @@ class _SalePhotoStripState extends State<SalePhotoStrip> {
   Widget build(BuildContext context) {
     final repo = _repo;
     if (repo == null) return const SizedBox.shrink();
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.secondary;
+    final muted = Theme.of(context).colorScheme.secondary;
     return SyncStatusBuilder(
       builder: (context, status, isDegraded) {
+        final loaded = _photos;
         if (isDegraded) {
-          return _Note(_offlineNote, color: muted);
+          // Offline: what is already on screen stays; nothing new is asked for.
+          return loaded == null
+              ? _Note(_offlineNote, color: muted)
+              : _content(repo, loaded, degraded: true);
         }
         final future = _list ??= repo.list(widget.saleId);
         return FutureBuilder<List<SalePhoto>>(
@@ -93,50 +102,73 @@ class _SalePhotoStripState extends State<SalePhotoStrip> {
             }
             final photos = snap.data;
             if (photos == null) return const _Skeleton();
-            if (photos.isEmpty) return _Note(_emptyNote, color: muted);
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$_titlePrefix (${photos.length})',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: muted,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 72,
-                  child: ListView.separated(
-                    key: const Key('sale-photo-strip-list'),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: photos.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 8),
-                    itemBuilder: (context, i) {
-                      final p = photos[i];
-                      final bytes = _thumbs[p.id] ??= repo.bytes(
-                        widget.saleId,
-                        p.id,
-                        SalePhotoVariant.thumb,
-                      );
-                      return _Thumb(
-                        key: Key('sale-photo-thumb-${p.id}'),
-                        bytes: bytes,
-                        onTap: () => showSalePhotoViewer(
-                          context,
-                          repo: repo,
-                          photos: photos,
-                          initial: i,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            );
+            _photos = photos;
+            return _content(repo, photos, degraded: false);
           },
         );
       },
+    );
+  }
+
+  Widget _content(
+    SalePhotosRepository repo,
+    List<SalePhoto> photos, {
+    required bool degraded,
+  }) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.secondary;
+    if (photos.isEmpty) return _Note(_emptyNote, color: muted);
+    // Thumbnails are only ever started while online; offline, a photo whose
+    // thumbnail was never asked for stays a placeholder.
+    final missing = degraded && photos.any((p) => !_thumbs.containsKey(p.id));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$_titlePrefix (${photos.length})',
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: muted,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 72,
+          child: ListView.separated(
+            key: const Key('sale-photo-strip-list'),
+            scrollDirection: Axis.horizontal,
+            itemCount: photos.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final p = photos[i];
+              final bytes = degraded
+                  ? _thumbs[p.id]
+                  : (_thumbs[p.id] ??= repo.bytes(
+                      widget.saleId,
+                      p.id,
+                      SalePhotoVariant.thumb,
+                    ));
+              return _Thumb(
+                key: Key('sale-photo-thumb-${p.id}'),
+                bytes: bytes,
+                onTap: () => showSalePhotoViewer(
+                  context,
+                  repo: repo,
+                  photos: photos,
+                  initial: i,
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '$_takenPrefix ${thaiDateTime(photos.first.takenAt)}',
+          key: const Key('sale-photo-strip-taken'),
+          style: theme.textTheme.bodySmall?.copyWith(color: muted),
+        ),
+        if (missing) _Note(_offlineNote, color: muted),
+      ],
     );
   }
 }
@@ -185,7 +217,8 @@ class _Skeleton extends StatelessWidget {
 class _Thumb extends StatelessWidget {
   const _Thumb({super.key, required this.bytes, required this.onTap});
 
-  final Future<Uint8List> bytes;
+  /// Null: not fetched (offline) — a placeholder.
+  final Future<Uint8List>? bytes;
   final VoidCallback onTap;
 
   @override
@@ -279,8 +312,8 @@ class _ViewerState extends State<_Viewer> {
     final n = widget.photos.length;
     final delayed =
         p.createdAt.difference(p.takenAt).abs() > const Duration(hours: 1);
-    return 'รูป ${_index + 1}/$n · ถ่ายเมื่อ ${thaiDateTime(p.takenAt)}'
-        '${delayed ? ' · อัปโหลดเมื่อ ${thaiDateTime(p.createdAt)}' : ''}';
+    return '${_viewerTitle(_index + 1, n)} · $_takenPrefix ${thaiDateTime(p.takenAt)}'
+        '${delayed ? ' · $_uploadedPrefix ${thaiDateTime(p.createdAt)}' : ''}';
   }
 
   @override

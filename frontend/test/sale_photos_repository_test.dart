@@ -16,6 +16,7 @@ import 'package:srisurart_pos/core/network/api_client.dart';
 import 'package:srisurart_pos/core/network/api_exception.dart';
 import 'package:srisurart_pos/data/db/database.dart';
 import 'package:srisurart_pos/data/repositories/fake_sale_photos_repository.dart';
+import 'package:srisurart_pos/data/repositories/api_sale_photos_repository.dart';
 import 'package:srisurart_pos/data/repositories/sale_photos_repository.dart';
 
 const _sale = '0199d4a2-6b0d-7f2e-8a1b-2c3d4e5f6a7b';
@@ -126,11 +127,10 @@ void main() {
       },
     );
 
-    test('429, 503 IN_FLIGHT and 401 are retryable', () async {
+    test('429 and 503 IN_FLIGHT are retryable', () async {
       for (final (status, code) in [
         (429, 'RATE_LIMITED'),
         (503, 'IDEMPOTENCY_KEY_IN_FLIGHT'),
-        (401, 'UNAUTHORIZED'),
       ]) {
         reply = (_) => _err(status, code);
         await expectLater(
@@ -145,6 +145,21 @@ void main() {
         );
       }
     });
+
+    test(
+      '401: not retryable (a retry cannot succeed), the login sentence',
+      () async {
+        reply = (_) => _err(401, 'UNAUTHORIZED');
+        await expectLater(
+          upload(),
+          throwsA(
+            isA<SalePhotoException>()
+                .having((e) => e.retryable, 'retryable', isFalse)
+                .having((e) => e.message, 'message', 'กรุณาเข้าสู่ระบบ'),
+          ),
+        );
+      },
+    );
 
     test('4xx is a verdict: not retryable, in Thai', () async {
       for (final (status, code, thai) in [

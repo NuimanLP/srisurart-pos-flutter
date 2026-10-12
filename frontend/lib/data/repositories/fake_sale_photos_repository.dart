@@ -29,6 +29,9 @@ class FakeSalePhotosRepository implements SalePhotosRepository {
   /// Scripted outcomes for the next uploads, front first (null = succeed).
   final List<SalePhotoException?> failures = [];
 
+  /// Makes [hasPendingSaleCreate] throw (a failed outbox lookup).
+  bool lookupFails = false;
+
   /// Scripted outcome for [list] / [bytes] while non-null.
   SalePhotoException? readFailure;
 
@@ -136,7 +139,10 @@ class FakeSalePhotosRepository implements SalePhotosRepository {
   }
 
   @override
-  Future<bool> hasPendingSaleCreate(String saleId) async => pendingSaleCreate;
+  Future<bool> hasPendingSaleCreate(String saleId) async {
+    if (lookupFails) throw StateError('outbox unreadable');
+    return pendingSaleCreate;
+  }
 
   static bool _same(Uint8List a, Uint8List b) {
     if (a.length != b.length) return false;

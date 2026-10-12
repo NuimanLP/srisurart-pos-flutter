@@ -122,12 +122,17 @@ Future<bool> showSalePhotoSheet(
 enum _St { processing, captured, uploading, saved, retryable, rejected }
 
 class _Shot {
-  _Shot(this.takenAt) : id = newUuid(), st = _St.processing {
+  _Shot(this.takenAt, this.sortOrder) : id = newUuid(), st = _St.processing {
+    // §4.3 specifies this key shape; the repository never mints its own.
     key = 'salephoto-$id';
   }
 
   final String id;
   late final String key;
+
+  /// Fixed when the photo is captured (0–4); the server keeps it on replay, so
+  /// it must not change between a first attempt and a retry.
+  final int sortOrder;
   final DateTime takenAt;
   Uint8List? bytes;
   _St st;
@@ -176,14 +181,28 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
     final Uint8List? raw;
     try {
       raw = await source();
-    } catch (_) {
-      if (mounted && camera) setState(() => _notice = _cameraFailed);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _notice = camera
+              ? _cameraFailed
+              : ServerErrorResolver.resolveCounterError(e);
+        });
+      }
       return;
     }
     if (raw == null || !mounted || _full) return;
-    final shot = _Shot(DateTime.now());
+    final used = {for (final s in _shots) s.sortOrder};
+    final shot = _Shot(
+      DateTime.now(),
+      [
+        for (var i = 0; i < maxSalePhotos; i++) i,
+      ].firstWhere((i) => !used.contains(i)),
+    );
     setState(() {
-      _shots.add(shot);
+      _shots
+        ..add(shot)
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     });
     try {
       final small = await widget.sources.shrink(raw);
@@ -227,7 +246,7 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
           idempotencyKey: s.key,
           bytes: s.bytes!,
           takenAt: s.takenAt,
-          sortOrder: _shots.indexOf(s),
+          sortOrder: s.sortOrder,
         );
         if (!mounted) return;
         setState(() {
@@ -514,9 +533,9 @@ class _Tile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = shot;
-    final removable =
-        enabled &&
-        (s.st == _St.captured || s.st == _St.retryable || s.st == _St.rejected);
+    // Not a retryable tile: its upload may have reached the server, so the
+    // photo is not ours to throw away until ลองอีกครั้ง gets an answer.
+    final removable = enabled && (s.st == _St.captured || s.st == _St.rejected);
     final scrim = Colors.black.withValues(alpha: 0.5);
     return SizedBox(
       width: _tileSize,

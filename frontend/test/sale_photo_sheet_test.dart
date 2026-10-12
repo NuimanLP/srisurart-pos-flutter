@@ -243,9 +243,75 @@ void main() {
     );
     expect(
       find.byKey(Key('sale-photo-remove-${ids[1]}')),
-      findsOneWidget,
-      reason: 'failed, not yet saved',
+      findsNothing,
+      reason: 'a retryable upload may already be on the server: no ✕',
     );
+  });
+
+  testWidgets(
+    'sortOrder is fixed at capture: a removal does not renumber, a retry keeps it',
+    (tester) async {
+      repo.failures.add(FakeSalePhotosRepository.serverDown);
+      await open(tester);
+      await addFile(tester);
+      await addFile(tester);
+      await addFile(tester);
+      // Drop the first photo, then add another: it takes the freed slot 0.
+      final first =
+          tester.widget<Widget>(tiles().first).key as ValueKey<String>;
+      final id = first.value.replaceFirst('sale-photo-tile-', '');
+      await tester.tap(find.byKey(Key('sale-photo-remove-$id')));
+      await _settle(tester);
+      await addFile(tester);
+      await tester.tap(find.byKey(const Key('sale-photo-save')));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('sale-photo-save')));
+      await _settle(tester);
+      await _settle(tester);
+      final byPhoto = <String, Set<int>>{};
+      for (final c in repo.calls) {
+        byPhoto.putIfAbsent(c.photoId, () => {}).add(c.sortOrder);
+      }
+      expect(
+        byPhoto.values.every((s) => s.length == 1),
+        isTrue,
+        reason: 'the retried photo kept its sortOrder',
+      );
+      expect(repo.stored(_sale).map((p) => p.sortOrder).toSet(), {0, 1, 2});
+    },
+  );
+
+  testWidgets('a failing file picker is shown, not swallowed', (tester) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () => showSalePhotoSheet(
+              context,
+              repo: repo,
+              saleId: _sale,
+              receiptNo: 'RC',
+              sources: SalePhotoSources(
+                files: () async => throw Exception('picker exploded'),
+                shrink: (b) async => b,
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await _settle(tester);
+    await addFile(tester);
+    expect(find.byKey(const Key('sale-photo-notice')), findsOneWidget);
+    expect(find.text('picker exploded'), findsOneWidget);
   });
 
   testWidgets('closing with unsent photos asks first; ยกเลิก keeps the sheet', (
@@ -430,6 +496,52 @@ void main() {
             .widget<Text>(find.byKey(const Key('sale-photo-viewer-title')))
             .data,
         startsWith('รูป 2/3 · ถ่ายเมื่อ'),
+      );
+    });
+
+    testWidgets('shows when the first photo was taken', (tester) async {
+      seed(2);
+      await pumpStrip(tester);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('sale-photo-strip-taken')))
+            .data,
+        startsWith('ถ่ายเมื่อ'),
+      );
+    });
+
+    testWidgets('going Degraded keeps the loaded thumbnails on screen', (
+      tester,
+    ) async {
+      seed(2);
+      final facade = FakeSyncFacade();
+      tester.view.physicalSize = const Size(390, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<SalePhotosRepository?>.value(value: repo),
+            RepositoryProvider<SyncFacade>.value(value: facade),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: SalePhotoStrip(saleId: _sale)),
+          ),
+        ),
+      );
+      await _settle(tester);
+      expect(find.byKey(const Key('sale-photo-thumb-p1')), findsOneWidget);
+      facade.emitStatus(SyncStatus.degraded);
+      await _settle(tester);
+      expect(find.byKey(const Key('sale-photo-thumb-p1')), findsOneWidget);
+      expect(find.byKey(const Key('sale-photo-strip-taken')), findsOneWidget);
+      expect(
+        find.text('ต้องเชื่อมต่ออินเทอร์เน็ตจึงจะดูรูปได้'),
+        findsNothing,
+        reason: 'every thumbnail was already loaded',
       );
     });
 
