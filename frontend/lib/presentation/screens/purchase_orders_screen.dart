@@ -18,6 +18,7 @@ import '../../core/errors/pos_exception.dart';
 import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/money.dart';
+import '../../core/utils/supplier_name.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/purchase_orders_repository.dart';
@@ -34,8 +35,22 @@ import '../widgets/status_chip.dart';
 import '../widgets/sync_status_builder.dart';
 import '../widgets/thai_format.dart';
 
+/// Opens the create-PO dialog once, with [supplier] picked and its low-stock
+/// products already added (from the Suppliers tab's "สร้างใบสั่งซื้อ").
+/// Nothing is saved until บันทึก.
+///
+/// Passed as a go_router `extra`. A class, not a String/Map, on purpose:
+/// go_router drops a non-JSON extra from the browser history, so a refresh or
+/// back never opens the dialog a second time.
+class PoPrefill {
+  const PoPrefill({required this.supplier});
+  final String supplier;
+}
+
 class PurchaseOrdersScreen extends StatefulWidget {
-  const PurchaseOrdersScreen({super.key});
+  const PurchaseOrdersScreen({super.key, this.prefill});
+
+  final PoPrefill? prefill;
 
   @override
   State<PurchaseOrdersScreen> createState() => _PurchaseOrdersScreenState();
@@ -55,6 +70,12 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
   void initState() {
     super.initState();
     _load();
+    final prefill = widget.prefill;
+    if (prefill != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openCreate(prefill: prefill);
+      });
+    }
   }
 
   void _load() {
@@ -64,7 +85,7 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
 
   void _refresh() => setState(_load);
 
-  Future<void> _openCreate() async {
+  Future<void> _openCreate({PoPrefill? prefill}) async {
     if (context.isDegraded) {
       _showDegradedWarning();
       return;
@@ -98,6 +119,7 @@ class _PurchaseOrdersScreenState extends State<PurchaseOrdersScreen> {
           pos.map((p) => p.po.supplier),
           suppliers.map((s) => s.name),
         ),
+        initialSupplier: prefill?.supplier,
       ),
     );
     if (saved == true) _refresh();
@@ -636,8 +658,6 @@ class _DraftItem {
   });
 }
 
-String _norm(String s) => s.trim().toLowerCase();
-
 /// Distinct supplier names, first spelling wins, compared trimmed and
 /// case-insensitively. [recent] (past PO suppliers, newest first) leads.
 List<String> _knownSupplierNames(
@@ -648,7 +668,7 @@ List<String> _knownSupplierNames(
   final out = <String>[];
   for (final raw in [...recent, ...quoted]) {
     final name = raw.trim();
-    if (name.isEmpty || !seen.add(name.toLowerCase())) continue;
+    if (name.isEmpty || !seen.add(supplierKey(name))) continue;
     out.add(name);
   }
   return out;
@@ -658,10 +678,14 @@ class _CreatePoDialog extends StatefulWidget {
   final List<ProductRow> products;
   final List<SupplierRow> suppliers;
   final List<String> knownSuppliers;
+
+  /// Prefill: this supplier is picked and its low-stock products added.
+  final String? initialSupplier;
   const _CreatePoDialog({
     required this.products,
     this.suppliers = const [],
     this.knownSuppliers = const [],
+    this.initialSupplier,
   });
 
   @override
@@ -678,6 +702,28 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
   // Bumped on a re-price so the draft rows' cost fields (initialValue) rebuild.
   int _priceGen = 0;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final supplier = widget.initialSupplier?.trim() ?? '';
+    if (supplier.isEmpty) return;
+    // Applied directly (no setState before the first build), as
+    // _pickSupplier + _addLowStock would.
+    _supplierCtrl.text = supplier;
+    _supplier = supplier;
+    for (final p in _lowStock) {
+      final short = p.minStock - p.stock;
+      _items.add(
+        _DraftItem(
+          partNo: p.partNo,
+          name: p.name,
+          qty: short < 1 ? 1 : short,
+          cost: _costFor(p),
+        ),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -700,7 +746,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
   }
 
   List<String> get _supplierSuggestions {
-    final q = _norm(_supplier);
+    final q = supplierKey(_supplier);
     return widget.knownSuppliers
         .where((n) => n.toLowerCase().contains(q))
         .take(8)
@@ -709,9 +755,9 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
 
   /// Supplier quote rows whose name is the typed supplier.
   List<SupplierRow> get _supplierRows {
-    final q = _norm(_supplier);
+    final q = supplierKey(_supplier);
     if (q.isEmpty) return const [];
-    return widget.suppliers.where((s) => _norm(s.name) == q).toList();
+    return widget.suppliers.where((s) => supplierKey(s.name) == q).toList();
   }
 
   List<ProductRow> get _supplierProducts {
@@ -906,7 +952,7 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
 
   Widget _supplierPicker() {
     final suggestions = _supplierSuggestions;
-    final exact = suggestions.any((n) => _norm(n) == _norm(_supplier));
+    final exact = suggestions.any((n) => supplierKey(n) == supplierKey(_supplier));
     final showList = _supplierFocused && !exact;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
