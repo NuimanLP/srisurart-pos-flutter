@@ -137,7 +137,7 @@ frontend/
                                  (ADR-0010). Opt-in: --dart-define=USE_API_WRITES=true
     domain/models/aggregates.dart  ← SaleWithItems/… read aggregates + input DTOs (SaleInput…)
     presentation/
-      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (24 entries:
+      repositories/repository_providers.dart ← flutter_bloc RepositoryProvider tree (25 entries:
                                  20 repos incl. AuthRepository and PaymentAccountsRepository, +
                                  ApiClient/BootstrapService/DocCounterSeeder/SyncFacade) — recounted
                                  2026-10-10; `useApi` swaps in the #56 API repos

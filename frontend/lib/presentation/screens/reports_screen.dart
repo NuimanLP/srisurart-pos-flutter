@@ -23,11 +23,13 @@ import '../../data/repositories/products_repository.dart';
 import '../../data/repositories/returns_repository.dart';
 import '../../data/repositories/sales_repository.dart';
 import '../../domain/models/aggregates.dart';
+import '../repositories/repository_providers.dart';
 import '../../domain/reports/net_sales.dart'
     show NetSales, ReturnLite, TopItem, toReportLites;
 import '../widgets/app_button.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
+import '../widgets/sale_photo_strip.dart';
 import '../widgets/status_chip.dart';
 import '../widgets/thai_format.dart';
 
@@ -1391,7 +1393,20 @@ class _RecentRow extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final s = sale.sale;
-    return Container(
+    // Photo evidence (API build only): tap opens the minimal bill sheet.
+    final hasPhotos = salePhotosRepositoryOf(context) != null;
+    return InkWell(
+      onTap: !hasPhotos
+          ? null
+          : () => showSaleBillSheet(
+                context,
+                saleId: s.id,
+                receiptNo: s.receiptNo,
+                date: s.date,
+                paymentMethod: s.paymentMethod,
+                totalText: baht(s.total),
+              ),
+      child: Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
         border: isLast
@@ -1498,6 +1513,7 @@ class _RecentRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

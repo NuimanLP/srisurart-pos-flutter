@@ -32,10 +32,12 @@ import '../../data/repositories/sales_repository.dart';
 import '../../data/repositories/settings_repository.dart';
 import '../../data/sync/sync_facade.dart';
 import '../../domain/models/aggregates.dart';
+import '../repositories/repository_providers.dart';
 import '../widgets/app_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
+import '../widgets/sale_photo_strip.dart';
 import '../widgets/search_field.dart';
 import '../widgets/thai_format.dart';
 
@@ -1158,6 +1160,10 @@ class _RefundDetailState extends State<_RefundDetail> {
                     children: [
                       header,
                       const Divider(height: 24),
+                      // Photo evidence (API build only; nothing without it).
+                      SalePhotoStrip(saleId: s.id),
+                      if (salePhotosRepositoryOf(context) != null)
+                        const Divider(height: 24),
                       listLabel,
                       const SizedBox(height: 10),
                       for (var k = 0; k < widget.sale.items.length; k++) ...[
