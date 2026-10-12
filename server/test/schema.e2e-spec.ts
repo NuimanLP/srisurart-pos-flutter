@@ -770,7 +770,7 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
       expect(ran.map((m) => m.name)).toEqual(
         MIGRATIONS.map((m) => new m().name),
       );
-      expect(await tableNames(owner)).toHaveLength(30);
+      expect(await tableNames(owner)).toHaveLength(31);
     } finally {
       await ds.destroy();
     }
