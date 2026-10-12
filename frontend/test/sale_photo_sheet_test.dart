@@ -2,6 +2,7 @@
 // (10_SALE_PHOTO_EVIDENCE.md §2.2–§2.5), driven against FakeSalePhotosRepository
 // with injected photo sources (no platform channels).
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -56,6 +57,7 @@ void main() {
     WidgetTester tester, {
     Size size = const Size(800, 1000),
     SyncStatus status = SyncStatus.online,
+    Future<Uint8List> Function(Uint8List)? shrink,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -70,11 +72,11 @@ void main() {
           (context, {required count, required limit, required onShot}) async {
             cameraOpens.add(count);
             for (var i = 0; i < cameraShots && count + i < limit; i++) {
-              onShot(Uint8List.fromList([..._png, picks++]));
+              await onShot(Uint8List.fromList([..._png, picks++]));
             }
           },
       files: () async => Uint8List.fromList([..._png, picks++]),
-      shrink: (b) async => b,
+      shrink: shrink ?? (b) async => b,
     );
     await tester.pumpWidget(
       RepositoryProvider<SyncFacade>.value(
@@ -441,6 +443,74 @@ void main() {
       final added = ids(tester).last;
       await save(tester);
       expect(sentOrder()[added], 4);
+    });
+
+    testWidgets('a refused FIRST photo: later sortOrders never reach 5', (
+      tester,
+    ) async {
+      repo.failures.add(FakeSalePhotosRepository.limit); // A refused
+      await open(tester);
+      for (var i = 0; i < 5; i++) {
+        await addFile(tester);
+      }
+      final [a, b, c, d, e] = ids(tester);
+      await save(tester); // A (0) refused; the send stops there
+      await save(tester); // B–E
+      await tester.tap(find.byKey(Key('sale-photo-remove-$a')));
+      await _settle(tester);
+      await addFile(tester);
+      final f = ids(tester).last;
+      await save(tester);
+
+      final sent = sentOrder();
+      expect(sent.values, everyElement(inInclusiveRange(0, 4)));
+      expect(
+        {
+          for (final id in [b, c, d, e, f]) sent[id],
+        },
+        {0, 1, 2, 3, 4},
+      );
+      expect(repo.stored(_sale), hasLength(5));
+      expect(find.text('รูปหลักฐานสินค้า'), findsNothing, reason: 'all saved');
+    });
+  });
+
+  group('a photo still being shrunk', () {
+    testWidgets('can be removed, and its late result is dropped', (
+      tester,
+    ) async {
+      final gate = Completer<Uint8List>();
+      await open(tester, shrink: (_) => gate.future);
+      await addFile(tester);
+      final tile = tester.widget<Widget>(tiles().first).key as ValueKey<String>;
+      final id = tile.value.replaceFirst('sale-photo-tile-', '');
+      expect(
+        tester
+            .widget<AppButton>(find.byKey(const Key('sale-photo-save')))
+            .onPressed,
+        isNull,
+        reason: 'บันทึก waits for the shrink',
+      );
+      await tester.tap(find.byKey(Key('sale-photo-remove-$id')));
+      await _settle(tester);
+      expect(tiles(), findsNothing);
+
+      gate.complete(Uint8List.fromList(_png));
+      await _settle(tester);
+      expect(tiles(), findsNothing, reason: 'the removed photo stays gone');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a shrink failure is shown and the photo is not kept', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        shrink: (_) async => throw Exception('shrink exploded'),
+      );
+      await addFile(tester);
+      expect(tiles(), findsNothing);
+      expect(find.text('shrink exploded'), findsOneWidget);
     });
   });
 

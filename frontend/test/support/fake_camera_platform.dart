@@ -29,6 +29,9 @@ class FakeCameraPlatform extends CameraPlatform {
   List<CameraDescription> cameras = const [fakeFrontCamera, fakeBackCamera];
   Object? availableError;
   Object? initError;
+
+  /// When set, every initialize waits for it (to test a close mid-open).
+  Completer<void>? initGate;
   final created = <CameraDescription>[];
   final settings = <MediaSettings>[];
   final disposed = <int>[];
@@ -73,6 +76,7 @@ class FakeCameraPlatform extends CameraPlatform {
     int cameraId, {
     ImageFormatGroup imageFormatGroup = ImageFormatGroup.unknown,
   }) async {
+    if (initGate != null) await initGate!.future;
     if (initError != null) throw initError!;
     _initialized.add(
       CameraInitializedEvent(

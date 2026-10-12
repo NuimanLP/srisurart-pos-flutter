@@ -14,13 +14,12 @@
 // sortOrder is frozen at its FIRST send attempt, not at capture: the server has
 // no update route and keeps the query outside the fingerprint, so a retry must
 // resend the same photoId + key + sortOrder. After บันทึก the order is locked;
-// a photo added later takes the next sortOrder after the highest one in use.
+// a photo sent later takes the lowest free sortOrder (see _nextSortOrder).
 //
 // The sources (camera, file picker, shrink) are injectable so a widget test
 // drives the sheet with no platform channels.
 
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -52,7 +51,7 @@ const _moveLeft = 'เลื่อนไปก่อนหน้า';
 const _moveRight = 'เลื่อนไปถัดไป';
 const _confirmTitle = 'ปิดโดยไม่บันทึกรูปที่เหลือ?';
 String _saveLabel(int n) => 'บันทึก $n รูป';
-String _counter(int n) => '$n / 5 รูป';
+String _counter(int n) => salePhotoCounter(n, maxSalePhotos);
 String _confirmBody(int n) => 'รูปที่ยังไม่ได้บันทึก $n รูปจะหายไป';
 
 const maxSalePhotos = 5;
@@ -69,7 +68,9 @@ class SalePhotoSources {
   final Future<Uint8List?> Function() files;
   final Future<Uint8List> Function(Uint8List) shrink;
 
-  /// The in-app camera and file_picker, on every platform.
+  /// The in-app camera and file_picker. The camera works on Android, iOS and
+  /// the web (the shop PC runs the web build); native desktop has no camera
+  /// plugin, so there the camera view shows `เปิดกล้องไม่ได้` and files remain.
   factory SalePhotoSources.platform() {
     return SalePhotoSources(
       files: () async {
@@ -198,30 +199,38 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
       context,
       count: _shots.length,
       limit: maxSalePhotos,
-      onShot: (raw) => unawaited(_addRaw(raw)),
+      onShot: _addRaw,
     );
   }
 
   /// A new photo goes to the end of the row; its sortOrder waits for บันทึก.
-  Future<void> _addRaw(Uint8List raw) async {
-    if (!mounted || _full) return;
+  /// Resolves null when the photo was kept, else the Thai reason it was not
+  /// (the camera shows it too).
+  Future<String?> _addRaw(Uint8List raw) async {
+    if (!mounted) return null;
+    if (_full) return _fullNote;
     final shot = _Shot(DateTime.now());
     setState(() {
       _shots.add(shot);
     });
     try {
       final small = await widget.sources.shrink(raw);
-      if (!mounted) return;
+      // ✕ while it was being shrunk: the late result is not wanted.
+      if (!mounted || !_shots.contains(shot)) return null;
       setState(() {
         shot.bytes = small;
         shot.st = _St.captured;
       });
+      return null;
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _shots.remove(shot);
-        _notice = ServerErrorResolver.resolveCounterError(e);
-      });
+      final reason = ServerErrorResolver.resolveCounterError(e);
+      if (mounted && _shots.contains(shot)) {
+        setState(() {
+          _shots.remove(shot);
+          _notice = reason;
+        });
+      }
+      return reason;
     }
   }
 
@@ -243,12 +252,25 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
     });
   }
 
-  /// The sortOrder a photo's first send attempt gets: one after the highest in
-  /// use. The frozen values stay 0..k with no gap — a send stops at the first
-  /// failure, and only that refused (highest) photo can be removed — so with
-  /// at most 5 photos this never passes 4.
-  int _nextSortOrder() =>
-      _shots.map((s) => s.sortOrder ?? -1).fold(-1, math.max) + 1;
+  /// The sortOrder a photo's first send attempt gets: the lowest of 0..4 no
+  /// saved / retryable / uploading photo holds (those may be on the server). A
+  /// 4xx-refused photo is not on the server, so its value is free again — e.g.
+  /// A (0) refused, B–E sent as 1–4, A removed: a new F gets 0, not 5 (which
+  /// the server refuses). With at most 5 photos a free value always exists,
+  /// and unsent photos take theirs in on-screen order.
+  int _nextSortOrder() {
+    final held = {
+      for (final s in _shots)
+        if (s.sortOrder != null &&
+            (s.st == _St.saved ||
+                s.st == _St.retryable ||
+                s.st == _St.uploading))
+          s.sortOrder!,
+    };
+    return [
+      for (var i = 0; i < maxSalePhotos; i++) i,
+    ].firstWhere((i) => !held.contains(i));
+  }
 
   Future<void> _saveAll() async {
     if (_busy) return;
@@ -262,7 +284,7 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
       if (s.st != _St.captured && s.st != _St.retryable) continue;
       setState(() {
         // Sends run in tile order and the order is locked from here on, so
-        // tile order stays = sortOrder order.
+        // unsent photos take their free sortOrders in on-screen order.
         s.sortOrder ??= _nextSortOrder();
         s.st = _St.uploading;
         s.error = null;
@@ -651,7 +673,12 @@ class _Tile extends StatelessWidget {
     final s = shot;
     // Not a retryable tile: its upload may have reached the server, so the
     // photo is not ours to throw away until ลองอีกครั้ง gets an answer.
-    final removable = enabled && (s.st == _St.captured || s.st == _St.rejected);
+    // A tile still being shrunk can go too (its late result is dropped).
+    final removable =
+        enabled &&
+        (s.st == _St.captured ||
+            s.st == _St.processing ||
+            s.st == _St.rejected);
     final scrim = Colors.black.withValues(alpha: 0.5);
     return SizedBox(
       width: _tileSize,

@@ -2,6 +2,8 @@
 // against a fake CameraPlatform: the camera choice, the multi-shot session,
 // every failure state, and that the camera is always released.
 
+import 'dart:async';
+
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,12 +22,23 @@ void main() {
   late FakeCameraPlatform fake;
   late List<Uint8List> got;
   late bool closed;
+  String? dropReason; // what the fake sheet answers for each shot
+  late CameraPlatform original;
+
+  setUpAll(() {
+    original = CameraPlatform.instance;
+  });
 
   setUp(() {
     fake = FakeCameraPlatform();
     CameraPlatform.instance = fake;
     got = [];
     closed = false;
+    dropReason = null;
+  });
+
+  tearDown(() {
+    CameraPlatform.instance = original;
   });
 
   Future<void> open(
@@ -49,7 +62,10 @@ void main() {
                   context,
                   count: count,
                   limit: 5,
-                  onShot: got.add,
+                  onShot: (b) async {
+                    got.add(b);
+                    return dropReason;
+                  },
                 );
                 closed = true;
               },
@@ -96,6 +112,40 @@ void main() {
     expect(got, hasLength(2));
     expect(closed, isTrue, reason: 'the sheet is full');
     expect(fake.open, 0, reason: 'camera released on close');
+  });
+
+  testWidgets('a shot the sheet drops is not counted, and says why', (
+    tester,
+  ) async {
+    await open(tester, count: 4);
+    dropReason = 'อ่านรูปไม่ได้';
+    await tester.tap(shutter());
+    await _settle(tester);
+    expect(got, hasLength(1));
+    expect(find.text('4 / 5 รูป'), findsOneWidget, reason: 'not counted');
+    expect(find.text('อ่านรูปไม่ได้'), findsOneWidget);
+    expect(closed, isFalse, reason: 'no auto-close on a dropped shot');
+
+    dropReason = null;
+    await tester.tap(shutter());
+    await _settle(tester);
+    expect(closed, isTrue, reason: 'the fifth kept photo fills the sheet');
+  });
+
+  testWidgets('✕ while the camera is still opening releases it, no error', (
+    tester,
+  ) async {
+    fake.initGate = Completer<void>();
+    await open(tester);
+    expect(find.text('กำลังเปิดกล้อง…'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('sale-camera-close')));
+    await _settle(tester);
+    expect(closed, isTrue);
+    fake.initGate!.complete();
+    await _settle(tester);
+    expect(tester.takeException(), isNull);
+    expect(fake.created, hasLength(1));
+    expect(fake.open, 0, reason: 'the late open was released');
   });
 
   testWidgets('✕ closes and releases the camera', (tester) async {

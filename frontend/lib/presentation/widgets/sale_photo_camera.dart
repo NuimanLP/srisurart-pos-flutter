@@ -3,8 +3,9 @@
 // web (the shop PC's webcam), via the `camera` plugin; no microphone.
 //
 // One open = a session: every shutter press hands the raw bytes to [onShot]
-// straight away (the sheet shrinks them and gives each its photoId + key at
-// once) and the view stays open for the next shot, closing itself when the
+// and the view stays open for the next shot. The sheet shrinks the photo and
+// gives it its photoId + key; the view counts a shot only once the sheet has
+// accepted it (a shot it drops shows why, here), and closes itself when the
 // sheet is full. No per-shot "use this photo?" step: the sheet's tiles already
 // show every shot with ✕ and a full-screen view, so a confirm would only add a
 // tap per photo.
@@ -33,31 +34,34 @@ const _closeTip = 'ปิดกล้อง';
 const _shutterTip = 'ถ่าย';
 const _switchTip = 'สลับกล้อง';
 const _starting = 'กำลังเปิดกล้อง…';
-const _denied = 'ไม่ได้รับอนุญาตให้ใช้กล้อง';
 const _deniedHint = 'อนุญาตให้แอปหรือเบราว์เซอร์ใช้กล้อง แล้วกด ลองอีกครั้ง';
-const _noCamera = 'ไม่พบกล้อง';
-const _inUse = 'กล้องถูกใช้อยู่ในโปรแกรมอื่น';
-const _failed = 'เปิดกล้องไม่ได้';
 const _fallbackHint = 'หรือปิดหน้านี้ แล้วใช้ปุ่ม เลือกรูปจากเครื่อง';
 const _retry = 'ลองอีกครั้ง';
 const _shotFailed = 'ถ่ายไม่สำเร็จ ลองกดอีกครั้ง';
 String _hint(int limit) => 'ถ่ายต่อได้จนครบ $limit รูป กด ✕ เมื่อเสร็จ';
 
+/// `{n} / {limit} รูป` — the photo counter of the sheet and the camera.
+String salePhotoCounter(int n, int limit) => '$n / $limit รูป';
+
+/// Hands one shot to the sheet. Resolves null once the sheet has kept it, or a
+/// Thai reason it was dropped (e.g. the photo could not be shrunk).
+typedef SalePhotoShotHandler = Future<String?> Function(Uint8List raw);
+
 /// Opens the camera; resolves when it is closed. [count] photos are already in
-/// the sheet, at most [limit]; each shot goes to [onShot] immediately.
+/// the sheet, at most [limit].
 typedef SalePhotoCamera =
     Future<void> Function(
       BuildContext context, {
       required int count,
       required int limit,
-      required ValueChanged<Uint8List> onShot,
+      required SalePhotoShotHandler onShot,
     });
 
 Future<void> showSalePhotoCamera(
   BuildContext context, {
   required int count,
   required int limit,
-  required ValueChanged<Uint8List> onShot,
+  required SalePhotoShotHandler onShot,
 }) {
   return showDialog<void>(
     context: context,
@@ -79,10 +83,32 @@ class SalePhotoCameraView extends StatefulWidget {
 
   final int count;
   final int limit;
-  final ValueChanged<Uint8List> onShot;
+  final SalePhotoShotHandler onShot;
 
   @override
   State<SalePhotoCameraView> createState() => _SalePhotoCameraViewState();
+}
+
+/// Why the camera is not showing a picture.
+enum _CamError {
+  blocked, // the page cannot reach a camera at all (web, not HTTPS)
+  noCamera,
+  denied,
+  inUse,
+  failed;
+
+  static _CamError of(Object e) {
+    final code = e is CameraException ? e.code : '';
+    return switch (code) {
+      'CameraAccessDenied' ||
+      'CameraAccessDeniedWithoutPrompt' ||
+      'CameraAccessRestricted' ||
+      'NotAllowedError' => denied,
+      'cameraNotFound' || 'NotFoundError' || 'cameraNotSupported' => noCamera,
+      'cameraNotReadable' || 'NotReadableError' => inUse,
+      _ => failed,
+    };
+  }
 }
 
 class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
@@ -97,9 +123,13 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
   bool _ready = false;
   bool _pausedByLifecycle = false;
   bool _shooting = false;
-  String? _error;
-  bool _deniedError = false;
+  _CamError? _error;
+
+  /// The Thai reason from [cameraBlockedReason], for [_CamError.blocked].
+  String? _blockedText;
   String? _shotError;
+
+  /// Shots the sheet has accepted during this open.
   int _taken = 0;
   Uint8List? _last;
 
@@ -122,8 +152,11 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Not `inactive`: on the web that is any window blur — the permission
-    // prompt itself — and releasing there would loop.
+    // `inactive` is ignored on purpose, on every platform: on the web it is any
+    // window blur, and on Android/iOS the camera-permission dialog itself fires
+    // it — releasing there would loop. Real backgrounding always passes through
+    // hidden/paused, and CameraX / AVCaptureSession handle short interruptions
+    // (a call, Control Center) themselves.
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
       // Also while still opening: the late initialize then disposes itself.
@@ -145,13 +178,13 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
     final gen = ++_gen;
     setState(() {
       _error = null;
-      _deniedError = false;
       _ready = false;
     });
     final blocked = cameraBlockedReason();
     if (blocked != null) {
       setState(() {
-        _error = blocked;
+        _error = _CamError.blocked;
+        _blockedText = blocked;
       });
       return;
     }
@@ -167,18 +200,23 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
       if (!mounted || gen != _gen) return;
       if (_cameras.isEmpty) {
         setState(() {
-          _error = _noCamera;
+          _error = _CamError.noCamera;
         });
         return;
       }
       await _open(gen);
     } catch (e) {
-      if (!mounted || gen != _gen) return;
-      setState(() {
-        _error = _errorText(e);
-        _deniedError = _error == _denied;
-      });
+      _fail(e, gen);
     }
+  }
+
+  /// Shows why the camera did not open — unless a newer attempt (or a close)
+  /// has taken over since [gen].
+  void _fail(Object e, int gen) {
+    if (!mounted || gen != _gen) return;
+    setState(() {
+      _error = _CamError.of(e);
+    });
   }
 
   /// Throws when the camera does not open; the failed controller is released.
@@ -215,20 +253,10 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
   static Future<void> _disposeQuietly(CameraController c) async {
     try {
       await c.dispose();
-    } catch (_) {}
-  }
-
-  static String _errorText(Object e) {
-    final code = e is CameraException ? e.code : '';
-    return switch (code) {
-      'CameraAccessDenied' ||
-      'CameraAccessDeniedWithoutPrompt' ||
-      'CameraAccessRestricted' ||
-      'NotAllowedError' => _denied,
-      'cameraNotFound' || 'NotFoundError' || 'cameraNotSupported' => _noCamera,
-      'cameraNotReadable' || 'NotReadableError' => _inUse,
-      _ => _failed,
-    };
+    } catch (_) {
+      // Releasing a camera that never opened (or already went away) can throw;
+      // there is nothing left to release then.
+    }
   }
 
   Future<void> _switch() async {
@@ -241,11 +269,7 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
     try {
       await _open(gen);
     } catch (e) {
-      if (!mounted || gen != _gen) return;
-      setState(() {
-        _error = _errorText(e);
-        _deniedError = _error == _denied;
-      });
+      _fail(e, gen);
     }
   }
 
@@ -260,12 +284,20 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
       final file = await c.takePicture();
       final bytes = await file.readAsBytes();
       if (!mounted) return;
-      widget.onShot(bytes);
+      // Wait for the sheet's verdict, so the counter only counts kept photos.
+      final dropped = await widget.onShot(bytes);
+      if (!mounted) return;
       setState(() {
-        _taken++;
-        _last = bytes;
+        if (dropped == null) {
+          _taken++;
+          _last = bytes;
+        } else {
+          _shotError = dropped;
+        }
       });
-      if (_count >= widget.limit) Navigator.of(context).pop();
+      if (dropped == null && _count >= widget.limit) {
+        Navigator.of(context).pop();
+      }
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -281,6 +313,14 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
     }
   }
 
+  String _errorText(_CamError e) => switch (e) {
+    _CamError.blocked => _blockedText ?? 'เปิดกล้องไม่ได้',
+    _CamError.noCamera => 'ไม่พบกล้อง',
+    _CamError.denied => 'ไม่ได้รับอนุญาตให้ใช้กล้อง',
+    _CamError.inUse => 'กล้องถูกใช้อยู่ในโปรแกรมอื่น',
+    _CamError.failed => 'เปิดกล้องไม่ได้',
+  };
+
   @override
   Widget build(BuildContext context) {
     final c = _controller;
@@ -288,9 +328,11 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
     if (_error != null) {
       body = _Message(
         key: const Key('sale-camera-error'),
-        text: _error!,
-        hint: _deniedError ? '$_deniedHint\n$_fallbackHint' : _fallbackHint,
-        onRetry: _error == _noCamera ? null : _start,
+        text: _errorText(_error!),
+        hint: _error == _CamError.denied
+            ? '$_deniedHint\n$_fallbackHint'
+            : _fallbackHint,
+        onRetry: _error == _CamError.noCamera ? null : _start,
       );
     } else if (_ready && c != null) {
       body = Center(child: CameraPreview(c));
@@ -335,7 +377,7 @@ class _SalePhotoCameraViewState extends State<SalePhotoCameraView>
                   ),
                 ),
                 Text(
-                  '$_count / ${widget.limit} รูป',
+                  salePhotoCounter(_count, widget.limit),
                   key: const Key('sale-camera-counter'),
                   style: const TextStyle(
                     color: AppColors.orangeLight,
