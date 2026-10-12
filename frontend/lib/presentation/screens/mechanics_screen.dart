@@ -690,7 +690,7 @@ class _TabButton extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 /// Column headings over the wide (table) list — two unlabelled money columns
 /// side by side made it easy to read ยอดซื้อ as the debt. Flexes match
-/// [_MechanicRowTile]'s wide row. Headings are agent ร่าง.
+/// [_MechanicRowTile]'s wide row. Headings are owner-ratified 2026-10-12.
 class _MechanicListHeader extends StatelessWidget {
   const _MechanicListHeader();
 
@@ -1266,7 +1266,7 @@ class _CreditCard extends StatelessWidget {
                               style: theme.textTheme.bodySmall,
                             ),
                             // What is left to sell on credit — no mental
-                            // arithmetic at the counter (agent ร่าง).
+                            // arithmetic at the counter (owner-ratified 2026-10-12).
                             Text(
                               overLimit
                                   ? 'เกินวงเงิน ${baht(round2(bal - lim))}'
@@ -2055,7 +2055,7 @@ class _PayCreditDialogState extends State<_PayCreditDialog> {
                       ),
                       // A green ฿0 alone read as "all good" while the counter
                       // was about to take more than is owed. Display only —
-                      // the confirm on submit is unchanged (agent ร่าง).
+                      // the confirm on submit is unchanged (owner-ratified 2026-10-12).
                       // round2: float noise must not show "เกิน ฿0".
                       if (round2(amt - _outstanding) > 0)
                         Padding(

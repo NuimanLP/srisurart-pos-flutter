@@ -432,7 +432,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
             children: [
               _selChip(
                 searching
-                    ? 'เลือกทั้งหมด (ทั้งหมด ${widget.products.length})' // agent ร่าง
+                    ? 'เลือกทั้งหมด (ทั้งหมด ${widget.products.length})' // owner-ratified 2026-10-12
                     : 'เลือกทั้งหมด',
                 () => setState(
                   () => _selected = widget.products.map((p) => p.id).toSet(),
@@ -441,7 +441,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
               _selChip('ล้าง', () => setState(() => _selected = {})),
               _selChip(
                 searching
-                    ? '⚠ สต็อกต่ำ (ทั้งหมด $lowCount)' // agent ร่าง
+                    ? '⚠ สต็อกต่ำ (ทั้งหมด $lowCount)' // owner-ratified 2026-10-12
                     : '⚠ สต็อกต่ำ',
                 () => setState(
                   () => _selected = widget.products
@@ -535,7 +535,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
           Row(
             children: [
               IconButton.filledTonal(
-                tooltip: 'ลดจำนวนชุด', // agent ร่าง
+                tooltip: 'ลดจำนวนชุด', // owner-ratified 2026-10-12
                 // Greyed at 1 (it never went below 1).
                 onPressed: _copies > 1
                     ? () => setState(() {
@@ -556,7 +556,7 @@ class _LabelPrinterState extends State<LabelPrinter> {
                 ),
               ),
               IconButton.filledTonal(
-                tooltip: 'เพิ่มจำนวนชุด', // agent ร่าง
+                tooltip: 'เพิ่มจำนวนชุด', // owner-ratified 2026-10-12
                 onPressed: () => setState(() => _copies++),
                 icon: const Icon(Icons.add),
               ),

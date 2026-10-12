@@ -390,7 +390,7 @@ class _ReturnsScreenState extends State<ReturnsScreen> {
                   action: OutlinedButton.icon(
                     onPressed: _refreshAll,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('ลองใหม่'),
+                    label: const Text('ลองใหม่อีกครั้ง'),
                   ),
                 );
               }

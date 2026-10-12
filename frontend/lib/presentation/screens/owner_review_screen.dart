@@ -294,7 +294,7 @@ class _RejectedAndStuckTab extends StatelessWidget {
       itemCount: ops.length + 1,
       itemBuilder: (context, i) {
         if (i == 0) {
-          // agent ร่าง
+          // owner-ratified 2026-10-12
           return const _ActionHint(
             'รายการเหล่านี้ส่งเข้าระบบไม่สำเร็จ — กด "ส่งใหม่" เพื่อลองอีกครั้ง '
             'หรือ "ทิ้ง" พร้อมหมายเหตุ',
@@ -641,7 +641,7 @@ class _PendingReviewItemsTabState extends State<_PendingReviewItemsTab> {
         itemCount: _items.length + 1,
         itemBuilder: (context, i) {
           if (i == 0) {
-            // agent ร่าง
+            // owner-ratified 2026-10-12
             return const _ActionHint(
               'ตรวจดูแต่ละรายการ แล้วกด "ตรวจแล้ว" เพื่อเอาออกจากรายการ',
             );

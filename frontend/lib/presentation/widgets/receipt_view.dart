@@ -119,7 +119,7 @@ class _SaleDoneBanner extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 'ขายสำเร็จ': agent ร่าง
+                // 'ขายสำเร็จ': owner-ratified 2026-10-12
                 Text(
                   hasChange ? 'เงินทอน' : 'ขายสำเร็จ',
                   style: const TextStyle(

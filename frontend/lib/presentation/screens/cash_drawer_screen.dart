@@ -894,7 +894,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
               ),
               const SizedBox(height: 20),
               _fieldLabel('นับเงินสดจริงได้ ฿'),
-              // The commonest miss: leaving the float out (agent ร่าง).
+              // The commonest miss: leaving the float out (owner-ratified 2026-10-12).
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Text(
@@ -966,7 +966,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      // What the number means for the counter (agent ร่าง).
+                      // What the number means for the counter (owner-ratified 2026-10-12).
                       Text(
                         variance == 0
                             ? 'เงินในลิ้นชักตรงกับยอดที่ควรมี'
@@ -993,7 +993,7 @@ class _CashDrawerScreenState extends State<CashDrawerScreen> {
                       final queued = remaining > 0;
                       // Why the button is greyed out — the same three
                       // conditions, shown UNDER the button so it never moves.
-                      // agent ร่าง (owner to ratify).
+                      // owner-ratified 2026-10-12.
                       final String? blocked = !hasPhys
                           ? 'กรอกยอดเงินที่นับได้ก่อน จึงจะปิดลิ้นชักได้'
                           : isDegraded
