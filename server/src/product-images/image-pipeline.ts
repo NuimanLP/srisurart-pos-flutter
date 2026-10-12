@@ -27,8 +27,8 @@ export const PREVIEW_SIZE = 1024;
 const THUMB_QUALITY = 75;
 const PREVIEW_QUALITY = 80;
 
-// One image at a time per process, and no libvips operation cache: the api container is
-// 384 MB and the worker 256 MB, and an upload is a rare owner action, not a hot path.
+// One libvips thread per operation, and no libvips operation cache: the api container is
+// 384 MB and the worker 256 MB. One operation at a time per process is `withImageSlot` below.
 sharp.cache(false);
 sharp.concurrency(1);
 
@@ -37,6 +37,9 @@ export interface ProcessedImage {
   key: string;
   thumb: Buffer;
   preview: Buffer;
+  /** The preview's pixel size (`sale_photos.width`/`height`). */
+  width: number;
+  height: number;
 }
 
 export function productImageInvalid(): HttpException {
@@ -94,27 +97,76 @@ export function imageKeyOf(preview: Buffer): string {
  * - Animated input: the first frame only.
  * - The thumbnail is made from the preview (already oriented and stripped), not the original.
  */
-export async function processProductImage(input: Buffer): Promise<ProcessedImage> {
-  if (input.length > PRODUCT_IMAGE_MAX_BYTES) throw productImageTooLarge();
-  if (sniffImageType(input) === null) throw productImageInvalid();
-  let preview: Buffer;
+export function processProductImage(input: Buffer): Promise<ProcessedImage> {
+  return processImage(input, { previewSize: PREVIEW_SIZE, inputPixelLimit: INPUT_PIXEL_LIMIT });
+}
+
+/**
+ * Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §3.3/§5.3): the same pipeline and the same
+ * error codes, with a larger preview (the photo is evidence of a scratch, not a catalogue card)
+ * and a far lower pixel ceiling — the client always sends ≤ 1600 px (2.56 MP).
+ */
+export const SALE_PHOTO_PREVIEW_SIZE = 1600;
+export const SALE_PHOTO_INPUT_PIXEL_LIMIT = 2048 * 2048;
+
+export function processSalePhoto(input: Buffer): Promise<ProcessedImage> {
+  return processImage(input, {
+    previewSize: SALE_PHOTO_PREVIEW_SIZE,
+    inputPixelLimit: SALE_PHOTO_INPUT_PIXEL_LIMIT,
+  });
+}
+
+let slotTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * One image decode at a time per process (§3.3). `sharp.concurrency(1)` caps libvips' threads
+ * per operation, not the number of operations: two uploads arriving together would decode
+ * side by side in a 384 MB container. Every caller of `processImage` queues here, in memory —
+ * before any idempotency claim and holding no pooled connection. A failed job frees the slot.
+ */
+export function withImageSlot<T>(work: () => Promise<T>): Promise<T> {
+  const run = slotTail.then(() => work());
+  slotTail = run.catch(() => undefined);
+  return run;
+}
+
+function processImage(
+  input: Buffer,
+  limits: { previewSize: number; inputPixelLimit: number },
+): Promise<ProcessedImage> {
+  if (input.length > PRODUCT_IMAGE_MAX_BYTES) return Promise.reject(productImageTooLarge());
+  if (sniffImageType(input) === null) return Promise.reject(productImageInvalid());
+  return withImageSlot(() => encode(input, limits));
+}
+
+async function encode(
+  input: Buffer,
+  { previewSize, inputPixelLimit }: { previewSize: number; inputPixelLimit: number },
+): Promise<ProcessedImage> {
+  let preview: { data: Buffer; info: { width: number; height: number } };
   let thumb: Buffer;
   try {
     preview = await sharp(input, {
       failOn: 'error',
-      limitInputPixels: INPUT_PIXEL_LIMIT,
+      limitInputPixels: inputPixelLimit,
       animated: false,
     })
       .rotate()
-      .resize(PREVIEW_SIZE, PREVIEW_SIZE, { fit: 'inside', withoutEnlargement: true })
+      .resize(previewSize, previewSize, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: PREVIEW_QUALITY })
-      .toBuffer();
-    thumb = await sharp(preview, { failOn: 'error' })
+      .toBuffer({ resolveWithObject: true });
+    thumb = await sharp(preview.data, { failOn: 'error' })
       .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: THUMB_QUALITY })
       .toBuffer();
   } catch {
     throw productImageInvalid();
   }
-  return { key: imageKeyOf(preview), thumb, preview };
+  return {
+    key: imageKeyOf(preview.data),
+    thumb,
+    preview: preview.data,
+    width: preview.info.width,
+    height: preview.info.height,
+  };
 }

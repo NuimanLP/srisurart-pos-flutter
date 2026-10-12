@@ -6,8 +6,12 @@ import {
   PREVIEW_SIZE,
   PRODUCT_IMAGE_MAX_BYTES,
   processProductImage,
+  processSalePhoto,
+  SALE_PHOTO_INPUT_PIXEL_LIMIT,
+  SALE_PHOTO_PREVIEW_SIZE,
   sniffImageType,
   THUMB_SIZE,
+  withImageSlot,
 } from './image-pipeline.js';
 
 const solid = (width: number, height: number) =>
@@ -106,6 +110,84 @@ describe('processProductImage (contract §3)', () => {
   it('refuses more than 3 MB with 413 PRODUCT_IMAGE_TOO_LARGE', async () => {
     const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(PRODUCT_IMAGE_MAX_BYTES)]);
     expect(await codeOf(processProductImage(big))).toBe('PRODUCT_IMAGE_TOO_LARGE');
+  });
+});
+
+describe('processSalePhoto (10_SALE_PHOTO_EVIDENCE.md §3.3, §5.3)', () => {
+  it('previews at up to 1600 px (product images stay 1024), thumbnail 256, WebP, metadata stripped', async () => {
+    expect(SALE_PHOTO_PREVIEW_SIZE).toBe(1600);
+    const phone = await solid(2000, 1500).jpeg().withMetadata({ orientation: 1 }).toBuffer();
+    const out = await processSalePhoto(phone);
+    expect(out.key).toBe(imageKeyOf(out.preview));
+    const p = await sharp(out.preview).metadata();
+    const t = await sharp(out.thumb).metadata();
+    expect([p.format, p.width, p.height]).toEqual(['webp', 1600, 1200]);
+    expect([out.width, out.height]).toEqual([1600, 1200]);
+    expect([t.width, t.height]).toEqual([THUMB_SIZE, 192]);
+    expect(p.exif).toBeUndefined();
+    // The product pipeline is unchanged by the parameters.
+    expect((await sharp((await processProductImage(phone)).preview).metadata()).width).toBe(PREVIEW_SIZE);
+  });
+
+  it('takes exactly 2048 × 2048 and refuses one column more (product images keep 24 MP)', async () => {
+    expect(SALE_PHOTO_INPUT_PIXEL_LIMIT).toBe(2048 * 2048);
+    const atLimit = await solid(2048, 2048).png({ compressionLevel: 9 }).toBuffer();
+    expect((await processSalePhoto(atLimit)).key).toMatch(/^[0-9a-f]{32}$/);
+    const over = await solid(2049, 2048).png({ compressionLevel: 9 }).toBuffer();
+    expect(await codeOf(processSalePhoto(over))).toBe('PRODUCT_IMAGE_INVALID');
+    expect((await processProductImage(over)).key).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('refuses non-images, truncated files and > 3 MB with the same codes as product images', async () => {
+    const jpeg = await solid(800, 600).jpeg().toBuffer();
+    expect(await codeOf(processSalePhoto(Buffer.from('<svg/>')))).toBe('PRODUCT_IMAGE_INVALID');
+    expect(await codeOf(processSalePhoto(jpeg.subarray(0, jpeg.length >> 1)))).toBe('PRODUCT_IMAGE_INVALID');
+    const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(PRODUCT_IMAGE_MAX_BYTES)]);
+    expect(await codeOf(processSalePhoto(big))).toBe('PRODUCT_IMAGE_TOO_LARGE');
+  });
+});
+
+describe('withImageSlot — one image decode at a time per process (§3.3)', () => {
+  const deferred = () => {
+    let resolve!: () => void;
+    let reject!: (e: Error) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 10));
+
+  it('runs a second job only once the first has settled, even when the first fails', async () => {
+    const events: string[] = [];
+    const first = deferred();
+    const second = deferred();
+    const a = withImageSlot(async () => {
+      events.push('a:start');
+      await first.promise;
+      events.push('a:end');
+    });
+    const b = withImageSlot(async () => {
+      events.push('b:start');
+      await second.promise;
+      events.push('b:end');
+      return 'b';
+    });
+    const c = withImageSlot(async () => {
+      events.push('c:start');
+      return 'c';
+    });
+    await tick();
+    expect(events).toEqual(['a:start']);
+    first.reject(new Error('boom'));
+    await expect(a).rejects.toThrow('boom');
+    await tick();
+    expect(events).toEqual(['a:start', 'b:start']);
+    second.resolve();
+    await expect(b).resolves.toBe('b');
+    await expect(c).resolves.toBe('c');
+    expect(events).toEqual(['a:start', 'b:start', 'b:end', 'c:start']);
   });
 });
 

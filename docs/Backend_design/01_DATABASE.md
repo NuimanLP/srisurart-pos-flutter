@@ -8,8 +8,8 @@
 > **สำหรับทีม backend:** นี่คือ "หน้าตาของ database" ที่ถามถึง
 > แอปเดิมเก็บทุกอย่างใน SQLite บนเครื่อง (Drift) **20 ตาราง** — เอกสารนี้แปลงเป็น PostgreSQL
 > พร้อมเพิ่มตารางที่จำเป็นเมื่อมี backend + หลายร้าน (multi-tenant)
-> **ฐานข้อมูลจริงวันนี้มี 30 ตาราง** (ตรวจกับ `server/src/db/migrations/` 2026-09-23, +1 เมื่อ 2026-10-10):
-> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6) + `payment_accounts` (บัญชีรับเงิน QR, §5.8) · `products.image_key` (รูปสินค้า, §5.8, 2026-10-10) ไม่ใช่ตารางใหม่
+> **ฐานข้อมูลจริงวันนี้มี 31 ตาราง** (ตรวจกับ `server/src/db/migrations/` 2026-09-23, +1 เมื่อ 2026-10-10, +1 เมื่อ 2026-10-12):
+> 27 ตารางจาก `InitialSchema` + `import_jobs` (#239) + `owner_review_items` (08 §2 C6) + `payment_accounts` (บัญชีรับเงิน QR, §5.8) + `sale_photos` (รูปหลักฐานตอนขาย, migration `1788652805200-SalePhotos` — DDL และกติกาอยู่ที่ [`10_SALE_PHOTO_EVIDENCE.md §5.1`](10_SALE_PHOTO_EVIDENCE.md): ไม่มี FK ไป `sales`, `pos_app` ได้แค่ `SELECT, INSERT`) · `products.image_key` (รูปสินค้า, §5.8, 2026-10-10) ไม่ใช่ตารางใหม่
 > — `change_log` **ไม่สร้าง** (เคาะ 2026-09-15, #191 — ดู §5.1)
 > `platform_admins` เพิ่มเข้ามาตาม [ADR-0002](adr/0002-platform-admin-plane.md)
 >

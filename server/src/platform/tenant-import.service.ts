@@ -33,7 +33,7 @@ import {
 } from '../backup/snapshot-zip.js';
 import { LOGGER } from '../infra/logger.provider.js';
 import { processProductImage } from '../product-images/image-pipeline.js';
-import { listImageKeys, removeImageFiles, writeImageFiles } from '../product-images/image-store.js';
+import { productImages } from '../product-images/image-store.js';
 import { DOC_NUMBER_REGEX, DOC_PREFIX, type DocType } from '../documents/doc-number.service.js';
 import { snapshotProductCategory } from './snapshot-category.js';
 import { QR_PAYMENT_METHOD } from '../payment-accounts/payment-accounts.rules.js';
@@ -145,7 +145,8 @@ export type ImportRequester = { platformAdminId: string } | { userId: string };
  * about it. Kept: tenants, users, devices, audit_log (append-only), import_jobs, settings (the
  * file's `sa_settings` overwrites it), payment_accounts (like settings: replaced only by a file
  * whose `sa_payment_accounts` is non-empty, step 3.5c), idempotency_keys and doc_counters (see
- * `writeSnapshot`).
+ * `writeSnapshot`), and sale_photos (10_SALE_PHOTO_EVIDENCE.md §0 C: no FK to `sales`, so a bill
+ * the file brings back under the same id finds its photos again).
  */
 const REPLACED_TABLES = [
   'owner_review_items',
@@ -1426,7 +1427,7 @@ export class TenantImportService {
         }
         throw err;
       }
-      await writeImageFiles(tenantId, image.key, image);
+      await productImages.writeImageFiles(tenantId, image.key, image);
       keys.set(fileKey, image.key);
     });
     return { keys, counts: { imported: keys.size, missing: wanted.length - keys.size - rejected, rejected } };
@@ -1441,7 +1442,7 @@ export class TenantImportService {
         [tenantId, keys],
       )) as Array<{ image_key: string }>;
       const referenced = new Set(rows.map((r) => r.image_key));
-      for (const key of keys) if (!referenced.has(key)) await removeImageFiles(tenantId, key);
+      for (const key of keys) if (!referenced.has(key)) await productImages.removeImageFiles(tenantId, key);
     } catch (err) {
       this.logger?.warn({ err, tenantId }, 'import: removing unreferenced product images failed');
     }
@@ -1451,7 +1452,8 @@ export class TenantImportService {
    * After the import commits: every image file of the tenant that no product references and
    * that predates this job is removed — a replace import's old images, or a crashed attempt's.
    * The mtime bound spares a file a concurrent `PUT /products/:id/image` has just written but
-   * not yet committed. Best effort, logged.
+   * not yet committed. Best effort, logged. 🔴 Bound to the `product-images` store by name: the
+   * `sale-photos` volume (10_SALE_PHOTO_EVIDENCE.md §0 C) survives every import, rows and files.
    */
   private async sweepOrphanImages(tenantId: string, before: number): Promise<void> {
     try {
@@ -1460,8 +1462,8 @@ export class TenantImportService {
         [tenantId],
       )) as Array<{ image_key: string }>;
       const referenced = new Set(rows.map((r) => r.image_key));
-      for (const [key, mtimeMs] of await listImageKeys(tenantId)) {
-        if (!referenced.has(key) && mtimeMs < before) await removeImageFiles(tenantId, key);
+      for (const [key, mtimeMs] of await productImages.listImageKeys(tenantId)) {
+        if (!referenced.has(key) && mtimeMs < before) await productImages.removeImageFiles(tenantId, key);
       }
     } catch (err) {
       this.logger?.warn({ err, tenantId }, 'import: orphan product image sweep failed');
