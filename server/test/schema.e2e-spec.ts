@@ -17,12 +17,19 @@ import { testId } from './support/test-ids.js';
 
 const OWNER_REVIEW_ITEMS_TABLE = 'owner_review_items';
 const PAYMENT_ACCOUNTS_TABLE = 'payment_accounts';
+const SALE_PHOTOS_TABLE = 'sale_photos';
 const TENANT_SCOPED_TABLES = [
   ...INITIAL_TENANT_SCOPED_TABLES,
   OWNER_REVIEW_ITEMS_TABLE,
   PAYMENT_ACCOUNTS_TABLE,
+  SALE_PHOTOS_TABLE,
 ] as const;
-const ALL_TABLES = [...INITIAL_ALL_TABLES, OWNER_REVIEW_ITEMS_TABLE, PAYMENT_ACCOUNTS_TABLE] as const;
+const ALL_TABLES = [
+  ...INITIAL_ALL_TABLES,
+  OWNER_REVIEW_ITEMS_TABLE,
+  PAYMENT_ACCOUNTS_TABLE,
+  SALE_PHOTOS_TABLE,
+] as const;
 
 // #15 acceptance suite. Runs the REAL migrations into a throwaway database on the
 // compose Postgres (127.0.0.1:5432, published by docker-compose.dev.yml) — never synchronize, never mocks. The owner
@@ -118,9 +125,9 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
   // migration explains why it could not simply be appended to either exported list.
   const IMPORT_JOBS_TABLE = 'import_jobs';
 
-  it('runs from an empty database to exactly 30 tables (27 + import_jobs + owner_review_items + payment_accounts), without change_log', async () => {
+  it('runs from an empty database to exactly 31 tables (27 + import_jobs + owner_review_items + payment_accounts + sale_photos), without change_log', async () => {
     const tables = await tableNames(owner);
-    expect(tables).toHaveLength(30);
+    expect(tables).toHaveLength(31);
     expect(tables).toEqual([...ALL_TABLES, IMPORT_JOBS_TABLE].sort());
     expect(tables).not.toContain('change_log');
   });
@@ -374,6 +381,51 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     }
   });
 
+  it('sale_photos: an emptied app.tenant_id reads 0 rows (not 22P02); pos_app inserts and reads under RLS but cannot UPDATE/DELETE; no FK to sales (…5200)', async () => {
+    const row = (tenantId: string, id: string, saleId: string) => [
+      tenantId,
+      id,
+      saleId,
+      'a'.repeat(32),
+      'b'.repeat(64),
+      testId('sp-user'),
+      testId('sp-device'),
+    ];
+    const INSERT = `INSERT INTO sale_photos (tenant_id, id, sale_id, image_key, source_sha256, width, height, sort_order, taken_at, uploaded_by, device_id)
+                    VALUES ($1, $2, $3, $4, $5, 1600, 1200, 0, now(), $6, $7)`;
+    const SP_A = testId('sp-a');
+    const SP_B = testId('sp-b');
+    const SP_APP = testId('sp-app');
+    // No `sales` row exists for either sale id: there is no FK to break (owner decision C).
+    await owner.query(INSERT, row(TENANT_A, SP_A, testId('sp-sale-a')));
+    await owner.query(INSERT, row(TENANT_B, SP_B, testId('sp-sale-b')));
+    try {
+      const fks = await owner.query(
+        `SELECT confrelid::regclass::text AS target FROM pg_constraint
+          WHERE contype = 'f' AND conrelid = 'sale_photos'::regclass`,
+      );
+      expect(fks.rows).toEqual([{ target: 'tenants' }]);
+
+      await app.query('BEGIN');
+      await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [TENANT_A]);
+      expect((await app.query(`SELECT id FROM sale_photos`)).rows).toEqual([{ id: SP_A }]);
+      await app.query(INSERT, row(TENANT_A, SP_APP, testId('sp-sale-a')));
+      await app.query('SAVEPOINT s');
+      await expect(app.query(`UPDATE sale_photos SET width = 1`)).rejects.toMatchObject({ code: '42501' });
+      await app.query('ROLLBACK TO SAVEPOINT s');
+      await expect(app.query(`DELETE FROM sale_photos`)).rejects.toMatchObject({ code: '42501' });
+      await app.query('ROLLBACK');
+
+      expect((await app.query(`SELECT count(*)::int AS n FROM sale_photos`)).rows[0].n).toBe(0);
+      await expect(app.query(INSERT, row(TENANT_A, testId('sp-x'), testId('sp-sale-a')))).rejects.toMatchObject({
+        code: '42501',
+      });
+    } finally {
+      await app.query('ROLLBACK').catch(() => undefined);
+      await owner.query(`DELETE FROM sale_photos WHERE id = ANY($1::uuid[])`, [[SP_A, SP_B, SP_APP]]);
+    }
+  });
+
   it('payment_accounts: kind CHECKs, one live default per tenant, and the sales FK + โอน/QR CHECK (…5000)', async () => {
     const insert = (id: string, cols: string, values: string) =>
       owner.query(
@@ -545,8 +597,8 @@ describe('schema (e2e) — #15 migrations, RLS, seed', () => {
     app = await connect(APP_URL);
   });
 
-  it(`${APP_ROLE} has DML on every table (movements and audit_log insert-only) and none on the migrations table`, async () => {
-    const APPEND_ONLY: readonly string[] = ['movements', 'audit_log'];
+  it(`${APP_ROLE} has DML on every table (movements, audit_log and sale_photos insert-only) and none on the migrations table`, async () => {
+    const APPEND_ONLY: readonly string[] = ['movements', 'audit_log', SALE_PHOTOS_TABLE];
     for (const t of ALL_TABLES) {
       const r = await owner.query(
         `SELECT has_table_privilege($1, $2, 'SELECT') AS s, has_table_privilege($1, $2, 'INSERT') AS i,
