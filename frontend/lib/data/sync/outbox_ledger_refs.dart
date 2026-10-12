@@ -114,3 +114,14 @@ String? earlierStamp(Object? a, Object? b) {
   if (db == null) return a as String;
   return db.isBefore(da) ? b as String : a as String;
 }
+
+/// Whether an `outbox_ops.aggregates` JSON list holds exactly [aggregate]
+/// (e.g. `sale:<id>`). Unreadable JSON holds nothing.
+bool outboxAggregatesInclude(String aggregatesJson, String aggregate) {
+  try {
+    final aggs = jsonDecode(aggregatesJson);
+    return aggs is List && aggs.contains(aggregate);
+  } catch (_) {
+    return false;
+  }
+}

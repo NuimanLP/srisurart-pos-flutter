@@ -18,14 +18,22 @@
 //   Drift query futures actually complete before the test finishes, then
 //   pumpAndSettle. This is plugin/test-harness noise, not a leaked app Timer.
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:srisurart_pos/data/db/database.dart';
+import 'package:srisurart_pos/data/repositories/fake_sale_photos_repository.dart';
+import 'package:srisurart_pos/data/repositories/sale_photos_repository.dart';
+import 'package:srisurart_pos/presentation/widgets/sale_photo_sheet.dart';
+import 'package:srisurart_pos/presentation/widgets/sale_photo_strip.dart';
 import 'package:srisurart_pos/presentation/blocs/cart_cubit.dart';
 import 'package:srisurart_pos/presentation/blocs/pending_quote_cubit.dart';
 import 'package:srisurart_pos/presentation/repositories/repository_providers.dart';
@@ -83,16 +91,100 @@ const List<(String, Size, double)> _cases = [
   ('zoom3x-laptop', Size(1366, 768), 3.0),
 ];
 
+/// Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §2.5): the surfaces that open
+/// ON TOP of a screen — the capture sheet (five photos), the Reports bill sheet
+/// and the full-screen viewer — opened with a fake repository at every size.
+const _photoSaleId = '0199d4a2-6b0d-7f2e-8a1b-2c3d4e5f6a7b';
+final _photoPng = Uint8List.fromList(
+  base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  ),
+);
+
+class _Opener extends StatefulWidget {
+  const _Opener(this.open);
+  final void Function(BuildContext) open;
+
+  @override
+  State<_Opener> createState() => _OpenerState();
+}
+
+class _OpenerState extends State<_Opener> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.open(context);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.expand();
+}
+
+FakeSalePhotosRepository _photoRepo() {
+  final repo = FakeSalePhotosRepository();
+  for (var i = 0; i < 3; i++) {
+    repo.seed(
+      _photoSaleId,
+      SalePhoto(
+        id: 'p$i',
+        saleId: _photoSaleId,
+        sortOrder: i,
+        width: 1,
+        height: 1,
+        takenAt: DateTime(2026, 10, 12, 14, 5),
+        createdAt: DateTime(2026, 10, 12, 14, 5),
+      ),
+      _photoPng,
+    );
+  }
+  return repo;
+}
+
+final Map<String, void Function(BuildContext, SalePhotosRepository)>
+_photoSurfaces = {
+  'sale photo sheet': (context, repo) => showSalePhotoSheet(
+    context,
+    repo: repo,
+    saleId: _photoSaleId,
+    receiptNo: 'RC01-2569-10-0042',
+    sources: SalePhotoSources(
+      files: () async => _photoPng,
+      shrink: (b) async => b,
+    ),
+  ),
+  'reports bill sheet': (context, repo) => showSaleBillSheet(
+    context,
+    saleId: _photoSaleId,
+    receiptNo: 'RC01-2569-10-0042',
+    date: DateTime(2026, 10, 12, 14, 5),
+    paymentMethod: 'เครดิตช่าง',
+    totalText: '฿123,456.00',
+  ),
+  'photo viewer': (context, repo) async {
+    final photos = await repo.list(_photoSaleId);
+    if (context.mounted) {
+      await showSalePhotoViewer(
+        context,
+        repo: repo,
+        photos: photos,
+        initial: 1,
+      );
+    }
+  },
+};
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() {
+  setUpAll(() async {
+    await initializeDateFormatting('th', null);
     SharedPreferences.setMockInitialValues({});
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
   for (final (sizeLabel, size, zoom) in _cases) {
-
     group('$sizeLabel (${size.width.toInt()}x${size.height.toInt()})', () {
       for (final sc in _screens) {
         testWidgets('${sc.label} renders without exception', (tester) async {
@@ -162,5 +254,63 @@ void main() {
         });
       }
     });
+  }
+  for (final (sizeLabel, size, zoom) in _cases) {
+    group(
+      'sale photos at $sizeLabel (${size.width.toInt()}x${size.height.toInt()})',
+      () {
+        for (final surface in _photoSurfaces.entries) {
+          testWidgets('${surface.key} renders without exception', (
+            tester,
+          ) async {
+            tester.view.physicalSize = size;
+            tester.view.devicePixelRatio = 1.0;
+            addTearDown(() {
+              tester.view.resetPhysicalSize();
+              tester.view.resetDevicePixelRatio();
+            });
+            final db = AppDatabase(NativeDatabase.memory());
+            final repo = _photoRepo();
+            Object? caught;
+            await tester.runAsync(() async {
+              await tester.pumpWidget(
+                MultiRepositoryProvider(
+                  providers: repositoryProviders(db, useApiRepositories: false),
+                  child: RepositoryProvider<SalePhotosRepository?>.value(
+                    value: repo,
+                    child: MaterialApp(
+                      home: Scaffold(
+                        body: _Opener((c) => surface.value(c, repo)),
+                      ),
+                      builder: (context, child) =>
+                          UiZoom(zoom: zoom, child: child!),
+                    ),
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle(const Duration(milliseconds: 100));
+              if (surface.key == 'sale photo sheet') {
+                // Fill the sheet: five photos is its tallest state.
+                for (var i = 0; i < 5; i++) {
+                  final files = find.byKey(const Key('sale-photo-files'));
+                  await tester.ensureVisible(files);
+                  await tester.pump();
+                  await tester.tap(files);
+                  await tester.pumpAndSettle(const Duration(milliseconds: 100));
+                }
+                expect(find.text('ครบ 5 รูปแล้ว'), findsOneWidget);
+              }
+              caught = tester.takeException();
+              await db.close();
+            });
+            expect(
+              caught,
+              isNull,
+              reason: '${surface.key} threw at $sizeLabel',
+            );
+          });
+        }
+      },
+    );
   }
 }

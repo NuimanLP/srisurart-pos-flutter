@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- agent ร่าง: Thai camera-permission text for the barcode scan, owner to ratify -->
+	<!-- agent ร่าง -->
 	<key>NSCameraUsageDescription</key>
-	<string>ใช้กล้องเพื่อสแกนบาร์โค้ดสินค้า</string>
+	<string>ใช้กล้องเพื่อสแกนบาร์โค้ดและถ่ายรูปหลักฐานสินค้า</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

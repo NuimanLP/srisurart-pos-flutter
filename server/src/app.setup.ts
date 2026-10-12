@@ -26,6 +26,7 @@ import {
 } from './payment-accounts/payment-accounts.controller.js';
 import { isZipUpload, streamZipUpload } from './backup/zip-upload.js';
 import { PRODUCT_IMAGE_ROUTE } from './products/product-images.controller.js';
+import { posDeviceTokenFromHeader, SALE_PHOTO_ROUTE } from './sale-photos/sale-photos.controller.js';
 import {
   PRODUCT_IMAGE_CONTENT_TYPES,
   PRODUCT_IMAGE_MAX_BYTES,
@@ -180,6 +181,27 @@ export async function configureApp(
       req.method !== 'PUT' ||
       !tenantVerifier ||
       !ownerTokenFromHeader(req.headers.authorization, tenantVerifier)
+    ) {
+      return next();
+    }
+    imageRaw(req, res, (err?: unknown) => {
+      if ((err as { type?: unknown } | undefined)?.type === 'entity.too.large') {
+        const { status, body } = toErrorEnvelope(productImageTooLarge());
+        res.status(status).json(body);
+        return;
+      }
+      next(err);
+    });
+  });
+  // Sale photo evidence (10_SALE_PHOTO_EVIDENCE.md §4.3 row 0): the same raw body and limit,
+  // earned only by a verified access token of the `pos` device (`drole === 'pos'`). Anything
+  // else falls through unparsed, so a `backoffice` device or web session gets the guard's 403,
+  // never a 400 for its body.
+  app.use(SALE_PHOTO_ROUTE, (req: Request, res: Response, next: NextFunction) => {
+    if (
+      req.method !== 'PUT' ||
+      !tenantVerifier ||
+      !posDeviceTokenFromHeader(req.headers.authorization, tenantVerifier)
     ) {
       return next();
     }

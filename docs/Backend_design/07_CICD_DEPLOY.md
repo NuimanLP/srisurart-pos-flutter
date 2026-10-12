@@ -371,6 +371,7 @@ Prometheus (9090), Grafana (3000), node-exporter — ทั้งหมดผู
 `/opt/pos/backups` (0700) และตั้ง **cron backup รายวัน 03:00** ของ user `deploy` (`provision.yml:133–193`, §7a) ·
 🔴 **เพิ่ม 2026-09-30:** `provision.yml` เป็นตัวติดตั้ง `/opt/pos/scripts` **ทางเดียว** — CD (`deploy.yml`) ไม่อัปเดต `backup-db.sh` บน VM · แก้สคริปต์ใน `main` (เช่น PR #519) แล้วต้องรัน `provision.yml` หรือ `sudo install -o deploy -g deploy -m 0755` ลงเอง แล้วเทียบ sha256 ·
 🔴 **2026-10-10 (รูปสินค้า):** `backup-db.sh` เก็บ volume `product-images` เพิ่มเป็น `pos_images_<ts>.tar.gz` (+ `.sha256`, อ่านผ่าน mount `:ro` ของ container `nginx`) — กฎ `.partial`/prune/offsite เดียวกับ dump · ไม่มี volume = `::warning::` แล้ว exit 0, เก็บพลาด = `::error::` + exit 1 · **ต้อง install สคริปต์ใหม่บน `mob04` เอง** ตามบรรทัดข้างบน · 🔴 สำเนาก่อนนำเข้าแบบ replace (`/app/exports/<tenant>/pre-import/<jobId>.zip`, volume `exports`) **มีรูปสินค้าทั้งร้านอยู่ในไฟล์ด้วย** และ**ไม่มีวันถูก prune** — ทั้ง `pruneExportFiles` และ `backup-db.sh` ไม่แตะ (PDPA: ระยะเก็บเป็นการตัดสินของเจ้าของร้าน) จึงกินดิสก์ VM เพิ่มทุกครั้งที่ replace ·
+🔴 **2026-10-12 (รูปหลักฐานตอนขาย):** `backup-db.sh` เก็บ volume `sale-photos` เพิ่มเป็น `pos_sale_photos_<ts>.tar.gz` (+ `.sha256`, อ่านผ่าน container `worker` — Nginx ไม่ mount volume นี้) กฎเดียวกับรูปสินค้า · **ต้อง install สคริปต์ใหม่บน `mob04` เองอีกครั้ง** (§9 "รูปหลักฐานตอนขาย") ·
 **ไม่**ติดตั้ง `ansible-core`/`git`/`rclone` (§6.2 ข้อ 3, §7a)
 
 🔴 **SSH user ของสอง playbook ต่างกันและสลับกันไม่ได้ (แก้ 2026-09-23):** `deploy.yml` รันเป็น **`deploy`** (เจ้าของ
@@ -860,6 +861,11 @@ conf ปัจจุบันไม่มี ทำให้ `.js`/`.wasm` ข�
 (2) `location = /api/v1/backup/import` และ (3) regex `^/api/v1/platform/tenants/<uuid>/import$` ยก `client_max_body_size` เป็น `200m` + `proxy_request_buffering off` **เฉพาะสองที่นี้** (ที่อื่นยัง 10m; API ซ้ำเพดาน 200 MB สำหรับ owner ที่ตรวจ token แล้ว) ·
 บล็อกที่ (3) ต้องซ้ำ allowlist ของ `/api/v1/platform/` บรรทัดต่อบรรทัด เพราะ regex ชนะ prefix · volume ถูกประกาศใน `server/docker-compose.yml` ไม่ใช่ `vm.override.yml` จึงไปถึง `mob04` กับ compose ที่ `deploy.yml` copy และ Nginx ถูก recreate ทุก deploy (§6; ลำดับ task ใน `docs/tutorial/VM-dploy-full-stack-tutorial.md` §6.1 ข้อ 4 และ 13) ·
 CI: `nginx-check` รัน `deploy/scripts/test/nginx-img.test.sh` กับ nginx image จริง (ข้างหลัง `nginx -t`) · เฉพาะ `provision.yml`/การติดตั้งมือ ไม่ใช่ CD ที่อัปเดต `backup-db.sh` (§6) · ห้าม `down -v` — รูปไม่อยู่ใน `pg_dump`
+
+**รูปหลักฐานตอนขาย (2026-10-12, [`10_SALE_PHOTO_EVIDENCE.md`](10_SALE_PHOTO_EVIDENCE.md) §5.3/§5.4):** volume ใหม่ **`sale-photos`** mount ที่ `/app/sale-photos` (`SALE_PHOTOS_DIR`) ใน api-1..3 + worker เท่านั้น ·
+🔴 **Nginx ไม่ mount volume นี้** และไม่มี `location` ใดชี้ไป — รูปหลักฐานอ่านได้ทางเดียวคือ `GET /api/v1/sales/:saleId/photos/:photoId/{t|p}` ที่ต้อง login (`Cache-Control: no-store`) · ประกาศใน `server/docker-compose.yml` (ไม่ใช่ `vm.override.yml`) จึงไปถึง `mob04` เอง · `server/Dockerfile` สร้าง `/app/sale-photos` เป็นของ `node` ·
+`backup-db.sh` เก็บ volume นี้เพิ่มเป็น `pos_sale_photos_<ts>.tar.gz` (+ `.sha256`) อ่านผ่าน `docker compose exec -T worker tar` (Nginx ไม่ mount) — กฎ `.partial`/prune/offsite เดียวกับ dump · ไม่มี volume = `::warning::` แล้ว exit 0, เก็บพลาด = `::error::` + exit 1 ·
+🔴 **CD ไม่อัปเดต `/opt/pos/scripts` — ต้องติดตั้ง `backup-db.sh` ตัวใหม่บน `mob04` เอง** (`sudo install -o deploy -g deploy -m 0755` แล้วเทียบ sha256 กับ `origin/main`, หรือรัน `provision.yml`) ไม่งั้น backup คืนนั้นไม่มีรูปหลักฐาน · `restore-db.sh` ไม่กู้ไฟล์รูป (เหมือนรูปสินค้า) · import (owner/platform) ไม่แตะทั้งแถว `sale_photos` และ volume นี้ · ห้าม `down -v`
 
 **Cache ของ web (2026-09-28):** `location /` ส่ง `Cache-Control: no-cache` ทุกไฟล์ (browser ต้อง revalidate —
 ไม่เปลี่ยนได้ 304 ถูก ๆ) เพราะชื่อไฟล์ Flutter ไม่เปลี่ยนข้าม release · ข้อยกเว้นเดียวคือ regex location

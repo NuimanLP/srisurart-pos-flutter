@@ -30,6 +30,11 @@ mkdir -p "$WORK/certs" "$WORK/auth" "$WORK/images/$TENANT"
 printf 'dummy:%s\n' "$(openssl passwd -apr1 dummy)" > "$WORK/auth/k6-remote-write.htpasswd"
 printf 'thumb-bytes' > "$WORK/images/$TENANT/${KEY}_t.webp"
 printf 'preview-bytes' > "$WORK/images/$TENANT/${KEY}_p.webp"
+# A sale-photo file (10_SALE_PHOTO_EVIDENCE.md §5.3) of the exact /img/ shape, outside the
+# product-images mount: /img/ must never reach it, even with it mounted elsewhere in the container.
+SALE_KEY="eeeeeeeeffffffff0000000011111111"
+mkdir -p "$WORK/sale-photos/$TENANT"
+printf 'sale-photo-bytes' > "$WORK/sale-photos/$TENANT/${SALE_KEY}_t.webp"
 chmod -R a+rX "$WORK"
 
 docker run -d --name "$NAME" -p 127.0.0.1::443 \
@@ -37,6 +42,7 @@ docker run -d --name "$NAME" -p 127.0.0.1::443 \
   -v "$(host_path "$WORK/certs"):/etc/nginx/certs:ro" \
   -v "$(host_path "$WORK/auth"):/etc/nginx/auth:ro" \
   -v "$(host_path "$WORK/images"):/srv/product-images:ro" \
+  -v "$(host_path "$WORK/sale-photos"):/srv/sale-photos:ro" \
   "$IMAGE" >/dev/null || { echo "FAIL - nginx container did not start"; exit 1; }
 
 PORT=""
@@ -75,6 +81,11 @@ check "PUT: refused (403)" test "$(status -X PUT --data x "$T")" = 403
 MISSING="$BASE/img/$TENANT/ffffffffffffffffffffffffffffffff_t.webp"
 check "missing file: 404" test "$(status "$MISSING")" = 404
 check "missing file: no long-cache header" test -z "$(header "$MISSING" Cache-Control | grep immutable)"
+SALE="$BASE/img/$TENANT/${SALE_KEY}_t.webp"
+check "sale-photo file outside the product-images mount: 404" test "$(status "$SALE")" = 404
+no_sale_bytes() { ! curl -sk --path-as-is "$1" | grep -q 'sale-photo-bytes'; }
+check "sale-photo file: its bytes never served" no_sale_bytes "$SALE"
+check "sale-photo file via traversal: not served" no_sale_bytes "$BASE/img/../srv/sale-photos/$TENANT/${SALE_KEY}_t.webp"
 check "tenant directory: 404 (no listing)" test "$(status "$BASE/img/$TENANT/")" = 404
 check "volume root: 404" test "$(status "$BASE/img/")" = 404
 check "non-uuid tenant: 404" test "$(status "$BASE/img/not-a-tenant/${KEY}_t.webp")" = 404

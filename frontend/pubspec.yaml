@@ -65,6 +65,7 @@ dependencies:
   # JPEG encoder for product photos (the engine encodes PNG only). Already in
   # the lock through `pdf`; pinned to that resolved version.
   image: ^4.9.1
+  image_picker: ^1.2.4
 
 dev_dependencies:
   flutter_test:

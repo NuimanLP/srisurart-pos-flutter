@@ -30,10 +30,10 @@ check() { # description, command...
 }
 
 rc=0
-run_backup() { # dir, fail-flag, [images dir] ; sets rc
+run_backup() { # dir, fail-flag, [images dir], [sale photos dir] ; sets rc
   env -u POSTGRES_DB -u POSTGRES_USER -u BACKUP_KEEP_DAYS -u BACKUP_RCLONE_CONFIG \
     PATH="$STUBS:$PATH" IMAGE_TAG=test BACKUP_RCLONE_REMOTE='' STUB_PG_DUMP_FAIL="$2" \
-    PRODUCT_IMAGES_DIR="${3:-}" \
+    PRODUCT_IMAGES_DIR="${3:-}" SALE_PHOTOS_DIR="${4:-}" \
     bash "$SCRIPT" "$1" >"$1.log" 2>&1
   rc=$?
 }
@@ -78,6 +78,8 @@ run_backup "$D" 0
 check "no images volume exits 0" test "$rc" -eq 0
 check "no images volume writes no images archive" test "$(count "$D" 'pos_images_*')" = 0
 check "no images volume warns" grep -q '::warning::No product-images volume' "$D.log"
+check "no sale-photos volume writes no sale-photos archive" test "$(count "$D" 'pos_sale_photos_*')" = 0
+check "no sale-photos volume warns" grep -q '::warning::No sale-photos volume' "$D.log"
 
 # 3c. product images (contract §2): a tar.gz of the volume with a sha256 sidecar, no .partial.
 IMG="$WORK/images-src"
@@ -96,6 +98,38 @@ sidecar_ok() { (cd "$D" && sha256sum -c "$(basename "$img").sha256" >/dev/null 2
 check "images sha256 sidecar verifies" sidecar_ok
 check "images run leaves no .partial" test "$(count "$D" '*.partial')" = 0
 check "images run still writes the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
+check "images run without sale photos writes no sale-photos archive" test "$(count "$D" 'pos_sale_photos_*')" = 0
+
+# 3c'. sale photos (10_SALE_PHOTO_EVIDENCE.md §5.4): their own tar.gz + sidecar, never mixed into
+# the product-images archive, no .partial.
+SP="$WORK/sale-photos-src"
+mkdir -p "$SP/0192f000-0000-7000-8000-000000000001"
+printf 'evidence' > "$SP/0192f000-0000-7000-8000-000000000001/eeeeeeeeffffffff0000000011111111_p.webp"
+D="$WORK/salephotos"
+mkdir -p "$D"
+run_backup "$D" 0 "$IMG" "$SP"
+check "sale photos run exits 0" test "$rc" -eq 0
+check "sale photos run writes one pos_sale_photos_*.tar.gz" test "$(count "$D" 'pos_sale_photos_*.tar.gz')" = 1
+sp="$(find "$D" -maxdepth 1 -name 'pos_sale_photos_*.tar.gz' | head -1)"
+has_photo() { tar -tzf "$1" | grep -q 'eeeeeeeeffffffff0000000011111111_p.webp'; }
+check "sale photos archive holds the photo" has_photo "$sp"
+not_in_images() { ! tar -tzf "$(find "$D" -maxdepth 1 -name 'pos_images_*.tar.gz' | head -1)" | grep -q 'eeeeeeee'; }
+check "the product-images archive does not hold the photo" not_in_images
+check "sale photos archive has a sha256 sidecar" test "$(count "$D" 'pos_sale_photos_*.tar.gz.sha256')" = 1
+sp_sidecar_ok() { (cd "$D" && sha256sum -c "$(basename "$sp").sha256" >/dev/null 2>&1); }
+check "sale photos sha256 sidecar verifies" sp_sidecar_ok
+check "sale photos run leaves no .partial" test "$(count "$D" '*.partial')" = 0
+
+# 3c''. prune: old sale-photos archives, sidecars and a stale .partial age out too.
+D="$WORK/spprune"
+mkdir -p "$D"
+for f in pos_sale_photos_old.tar.gz pos_sale_photos_old.tar.gz.sha256 pos_sale_photos_old.tar.gz.partial; do
+  touch -t 202001010000 "$D/$f"
+done
+run_backup "$D" 0 "" "$SP"
+check "sale photos prune run exits 0" test "$rc" -eq 0
+check "old sale-photos archive + sidecar + .partial are pruned" test "$(count "$D" 'pos_sale_photos_old*')" = 0
+check "this run's sale-photos archive is kept" test "$(count "$D" 'pos_sale_photos_*.tar.gz')" = 1
 
 # 3d. prune: images archives and their sidecars age out with the dump; a stale images .partial too.
 D="$WORK/imgprune"
@@ -124,6 +158,22 @@ check "failed images archive leaves no pos_images_* (no .partial)" test "$(count
 check "failed images archive keeps the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
 check "failed images archive says so" grep -q '::error::PRODUCT IMAGES ARCHIVE FAILED' "$D.log"
 
+# 3f. a sale-photos archive that is attempted and fails (product images absent): same guarantees.
+cat > "$STUBS/tar" <<'STUB'
+#!/bin/sh
+echo "tar: write error" >&2
+exit 2
+STUB
+chmod +x "$STUBS/tar"
+D="$WORK/spfail"
+mkdir -p "$D"
+run_backup "$D" 0 "" "$SP"
+rm -f "$STUBS/tar"
+check "failed sale-photos archive exits non-zero" test "$rc" -ne 0
+check "failed sale-photos archive leaves no pos_sale_photos_* (no .partial)" test "$(count "$D" 'pos_sale_photos_*')" = 0
+check "failed sale-photos archive keeps the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
+check "failed sale-photos archive says so" grep -q '::error::SALE PHOTOS ARCHIVE FAILED' "$D.log"
+
 # 4. the real mob04 path: compose lists a postgres service, `exec` fails -> same guarantees.
 cat > "$STUBS/docker" <<'STUB'
 #!/bin/sh
@@ -144,17 +194,43 @@ check "failed compose exec leaves no .sql.gz/.partial" test "$(count "$D" 'pos_b
 cat > "$STUBS/docker" <<'STUB'
 #!/bin/sh
 case "$*" in
-  *"ps --services"*) printf 'postgres\nnginx\n'; exit 0 ;;
+  *"ps --services"*) printf 'postgres\nnginx\nworker\n'; exit 0 ;;
   *"exec -T postgres pg_dump"*) echo "CREATE TABLE t ();"; exit 0 ;;
   *"exec -T nginx test -d /srv/product-images"*) exit 0 ;;
   *"exec -T nginx tar -cf - -C /srv/product-images ."*) tar -cf - -C "$STUB_IMG" . ; exit $? ;;
+  *"exec -T worker test -d /app/sale-photos"*) exit 0 ;;
+  *"exec -T worker tar -cf - -C /app/sale-photos ."*) tar -cf - -C "$STUB_SP" . ; exit $? ;;
 esac
 exit 1
 STUB
 D="$WORK/vm"
 mkdir -p "$D"
-STUB_IMG="$IMG" run_backup "$D" 0
+STUB_IMG="$IMG" STUB_SP="$SP" run_backup "$D" 0
 check "vm path exits 0" test "$rc" -eq 0
 check "vm path archives the images through nginx" has_image "$(find "$D" -maxdepth 1 -name 'pos_images_*.tar.gz' | head -1)"
+check "vm path archives the sale photos through the worker" has_photo "$(find "$D" -maxdepth 1 -name 'pos_sale_photos_*.tar.gz' | head -1)"
+
+# 6. compose lists the worker but `exec` into it fails: the sale photos are a FAILED archive
+# (loud, non-zero), never "no volume" — the dump and the product-images archive are kept.
+cat > "$STUBS/docker" <<'STUB'
+#!/bin/sh
+case "$*" in
+  *"ps --services"*) printf 'postgres\nnginx\nworker\n'; exit 0 ;;
+  *"exec -T postgres pg_dump"*) echo "CREATE TABLE t ();"; exit 0 ;;
+  *"exec -T nginx test -d /srv/product-images"*) exit 0 ;;
+  *"exec -T nginx tar -cf - -C /srv/product-images ."*) tar -cf - -C "$STUB_IMG" . ; exit $? ;;
+  *"exec -T worker"*) echo "Error: service worker is not running" >&2; exit 1 ;;
+esac
+exit 1
+STUB
+D="$WORK/vmworkerdown"
+mkdir -p "$D"
+STUB_IMG="$IMG" run_backup "$D" 0 "" "$SP"
+check "worker exec failure exits non-zero" test "$rc" -ne 0
+check "worker exec failure says SALE PHOTOS ARCHIVE FAILED" grep -q '::error::SALE PHOTOS ARCHIVE FAILED' "$D.log"
+check "worker exec failure is not reported as a missing volume" test -z "$(grep '::warning::No sale-photos volume' "$D.log")"
+check "worker exec failure writes no pos_sale_photos_* (no .partial)" test "$(count "$D" 'pos_sale_photos_*')" = 0
+check "worker exec failure keeps the database dump" test "$(count "$D" 'pos_backup_*.sql.gz')" = 1
+check "worker exec failure keeps the product-images archive" test "$(count "$D" 'pos_images_*.tar.gz')" = 1
 
 if [ "$fails" -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

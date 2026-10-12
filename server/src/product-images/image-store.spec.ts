@@ -6,8 +6,10 @@ import {
   imageFilePath,
   listImageKeys,
   ORPHAN_GRACE_MS,
+  productImages,
   removeImageFiles,
   removeImageFilesIfStale,
+  salePhotos,
   writeImageFiles,
 } from './image-store.js';
 
@@ -109,5 +111,49 @@ describe('product image store (contract §2)', () => {
       }
       expect(await removeImageFilesIfStale(TENANT, KEY)).toBe(false);
     });
+  });
+});
+
+describe('sale photo store (10_SALE_PHOTO_EVIDENCE.md §5.3) — its own root, never product-images', () => {
+  let productRoot: string;
+  let saleRoot: string;
+  const prevProduct = process.env.PRODUCT_IMAGES_DIR;
+  const prevSale = process.env.SALE_PHOTOS_DIR;
+  beforeEach(async () => {
+    productRoot = await mkdtemp(join(tmpdir(), 'img-store-p-'));
+    saleRoot = await mkdtemp(join(tmpdir(), 'img-store-s-'));
+    process.env.PRODUCT_IMAGES_DIR = productRoot;
+    process.env.SALE_PHOTOS_DIR = saleRoot;
+  });
+  afterEach(async () => {
+    await rm(productRoot, { recursive: true, force: true });
+    await rm(saleRoot, { recursive: true, force: true });
+    for (const [name, prev] of [
+      ['PRODUCT_IMAGES_DIR', prevProduct],
+      ['SALE_PHOTOS_DIR', prevSale],
+    ] as const) {
+      if (prev === undefined) delete process.env[name];
+      else process.env[name] = prev;
+    }
+  });
+
+  it('writes, lists and removes under SALE_PHOTOS_DIR only; the product functions never see it', async () => {
+    expect(salePhotos.imageFilePath(TENANT, KEY, 'p')).toBe(join(saleRoot, TENANT, `${KEY}_p.webp`));
+    expect(await salePhotos.writeImageFiles(TENANT, KEY, { thumb: Buffer.from('t'), preview: Buffer.from('p') })).toBe(
+      true,
+    );
+    expect(await readdir(join(saleRoot, TENANT))).toHaveLength(2);
+    expect([...(await listImageKeys(TENANT)).keys()]).toEqual([]);
+    expect([...(await productImages.listImageKeys(TENANT)).keys()]).toEqual([]);
+    expect([...(await salePhotos.listImageKeys(TENANT)).keys()]).toEqual([KEY]);
+    await removeImageFiles(TENANT, KEY);
+    expect(await readdir(join(saleRoot, TENANT))).toHaveLength(2);
+    await salePhotos.removeImageFiles(TENANT, KEY);
+    expect(await readdir(join(saleRoot, TENANT))).toHaveLength(0);
+  });
+
+  it('refuses a tenant or key that could climb out of its root', () => {
+    expect(() => salePhotos.imageFilePath('../x', KEY, 't')).toThrow();
+    expect(() => salePhotos.imageFilePath(TENANT, '../../etc/passwd', 'p')).toThrow();
   });
 });
