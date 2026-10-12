@@ -5,6 +5,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,17 +41,20 @@ void main() {
   late FakeSalePhotosRepository repo;
   late int picks;
   late bool? lastResult;
+  late int cameraShots;
+  late List<int> cameraOpens;
 
   setUp(() {
     repo = FakeSalePhotosRepository();
     picks = 0;
     lastResult = null;
+    cameraShots = 1;
+    cameraOpens = [];
   });
 
   Future<void> open(
     WidgetTester tester, {
     Size size = const Size(800, 1000),
-    bool withCamera = false,
     SyncStatus status = SyncStatus.online,
   }) async {
     tester.view.physicalSize = size;
@@ -60,9 +64,15 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
     final sources = SalePhotoSources(
-      camera: withCamera
-          ? () async => Uint8List.fromList([..._png, picks++])
-          : null,
+      // The fake camera takes [cameraShots] photos per open (capped by the
+      // room left, as the real one closes itself when the sheet is full).
+      camera:
+          (context, {required count, required limit, required onShot}) async {
+            cameraOpens.add(count);
+            for (var i = 0; i < cameraShots && count + i < limit; i++) {
+              onShot(Uint8List.fromList([..._png, picks++]));
+            }
+          },
       files: () async => Uint8List.fromList([..._png, picks++]),
       shrink: (b) async => b,
     );
@@ -138,20 +148,52 @@ void main() {
     expect(tiles(), findsNWidgets(5));
     expect(find.text('ครบ 5 รูปแล้ว'), findsOneWidget);
     expect(button(tester, 'sale-photo-files').onPressed, isNull);
-    expect(find.byKey(const Key('sale-photo-add-tile')), findsNothing);
+    expect(button(tester, 'sale-photo-camera').onPressed, isNull);
     expect(picks, 6, reason: 'a sixth pick is never even started');
   });
 
-  testWidgets('the camera button exists only where the platform has a camera', (
+  testWidgets('exactly two actions: ถ่ายรูป and เลือกรูปจากเครื่อง', (
     tester,
   ) async {
-    await open(tester, withCamera: false);
-    expect(find.byKey(const Key('sale-photo-camera')), findsNothing);
-    expect(find.byKey(const Key('sale-photo-files')), findsOneWidget);
+    await open(tester);
+    expect(button(tester, 'sale-photo-camera').label, 'ถ่ายรูป');
+    expect(button(tester, 'sale-photo-files').label, 'เลือกรูปจากเครื่อง');
+    expect(find.text('เพิ่มรูป'), findsNothing, reason: 'no duplicate tile');
+    expect(find.text('เลือกรูป'), findsNothing);
+    expect(tiles(), findsNothing);
+  });
+
+  testWidgets('both actions add tiles; one camera session adds several', (
+    tester,
+  ) async {
+    await open(tester);
+    await addFile(tester);
+    expect(tiles(), findsOneWidget);
+
+    cameraShots = 3;
+    await tester.tap(find.byKey(const Key('sale-photo-camera')));
+    await _settle(tester);
+    expect(cameraOpens, [1], reason: 'the camera knows what is already in');
+    expect(tiles(), findsNWidgets(4));
+
+    // The camera stops at the limit even when more shots are asked for.
+    await tester.tap(find.byKey(const Key('sale-photo-camera')));
+    await _settle(tester);
+    expect(tiles(), findsNWidgets(5));
+    expect(find.text('ครบ 5 รูปแล้ว'), findsOneWidget);
+    expect(button(tester, 'sale-photo-camera').onPressed, isNull);
+  });
+
+  testWidgets('the two actions stack on a narrow sheet', (tester) async {
+    await open(tester, size: const Size(360, 640));
+    final cam = tester.getTopLeft(find.byKey(const Key('sale-photo-camera')));
+    final files = tester.getTopLeft(find.byKey(const Key('sale-photo-files')));
+    expect(files.dy, greaterThan(cam.dy));
+    expect(files.dx, cam.dx);
   });
 
   testWidgets('บันทึก uploads in order, then closes with true', (tester) async {
-    await open(tester, withCamera: true);
+    await open(tester);
     await tester.tap(find.byKey(const Key('sale-photo-camera')));
     await _settle(tester);
     await addFile(tester);
@@ -248,38 +290,159 @@ void main() {
     );
   });
 
-  testWidgets(
-    'sortOrder is fixed at capture: a removal does not renumber, a retry keeps it',
-    (tester) async {
+  group('order', () {
+    List<String> ids(WidgetTester t) => [
+      for (final e in tiles().evaluate())
+        (e.widget.key as ValueKey<String>).value.replaceFirst(
+          'sale-photo-tile-',
+          '',
+        ),
+    ];
+
+    Future<void> save(WidgetTester t) async {
+      await t.tap(find.byKey(const Key('sale-photo-save')));
+      await _settle(t);
+      await _settle(t);
+    }
+
+    Finder draggables() =>
+        find.byWidgetPredicate((w) => w is LongPressDraggable);
+
+    Map<String, int> sentOrder() => {
+      for (final c in repo.calls) c.photoId: c.sortOrder,
+    };
+
+    testWidgets('◀ ▶ reorder before บันทึก changes the sent sortOrders', (
+      tester,
+    ) async {
+      await open(tester);
+      for (var i = 0; i < 3; i++) {
+        await addFile(tester);
+      }
+      final [a, b, c] = ids(tester);
+      expect(find.byKey(const Key('sale-photo-reorder-hint')), findsOneWidget);
+      expect(find.byKey(Key('sale-photo-left-$a')), findsNothing);
+      expect(find.byKey(Key('sale-photo-right-$c')), findsNothing);
+
+      await tester.tap(find.byKey(Key('sale-photo-left-$c')));
+      await _settle(tester);
+      await tester.tap(find.byKey(Key('sale-photo-left-$c')));
+      await _settle(tester);
+      expect(ids(tester), [c, a, b]);
+
+      await save(tester);
+      expect(sentOrder(), {c: 0, a: 1, b: 2});
+      expect(repo.calls.map((x) => x.photoId), [c, a, b]);
+    });
+
+    testWidgets('long-press drag onto another tile moves it there', (
+      tester,
+    ) async {
+      await open(tester);
+      for (var i = 0; i < 3; i++) {
+        await addFile(tester);
+      }
+      final [a, b, c] = ids(tester);
+      final from = tester.getCenter(find.byKey(Key('sale-photo-tile-$a')));
+      final to = tester.getCenter(find.byKey(Key('sale-photo-tile-$c')));
+      final g = await tester.startGesture(from);
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+      await g.moveTo(to);
+      await tester.pump();
+      await g.up();
+      await _settle(tester);
+      expect(ids(tester), [b, c, a]);
+
+      await save(tester);
+      expect(sentOrder(), {b: 0, c: 1, a: 2});
+    });
+
+    testWidgets('reorder is locked once บันทึก has been pressed', (
+      tester,
+    ) async {
+      repo.failures.addAll([null, FakeSalePhotosRepository.serverDown]);
+      await open(tester);
+      for (var i = 0; i < 3; i++) {
+        await addFile(tester);
+      }
+      final [_, _, c] = ids(tester);
+      expect(find.byKey(Key('sale-photo-left-$c')), findsOneWidget);
+      expect(draggables(), findsNWidgets(3));
+      await save(tester);
+      expect(find.byKey(const Key('sale-photo-reorder-hint')), findsNothing);
+      for (final id in ids(tester)) {
+        expect(find.byKey(Key('sale-photo-left-$id')), findsNothing);
+        expect(find.byKey(Key('sale-photo-right-$id')), findsNothing);
+      }
+      expect(draggables(), findsNothing);
+    });
+
+    testWidgets('a retry after a reorder resends the frozen sortOrder', (
+      tester,
+    ) async {
       repo.failures.add(FakeSalePhotosRepository.serverDown);
       await open(tester);
       await addFile(tester);
       await addFile(tester);
+      final [a, b] = ids(tester);
+      await tester.tap(find.byKey(Key('sale-photo-left-$b')));
+      await _settle(tester);
+      await save(tester); // b (0) fails
+      expect(repo.calls.single.photoId, b);
+      expect(repo.calls.single.sortOrder, 0);
+
+      await save(tester); // ลองอีกครั้ง
+      expect(repo.calls, hasLength(3));
+      expect(repo.calls[1].photoId, b);
+      expect(repo.calls[1].sortOrder, 0, reason: 'frozen at first attempt');
+      expect(repo.calls[1].key, repo.calls[0].key);
+      expect(sentOrder(), {b: 0, a: 1});
+    });
+
+    testWidgets('a photo added after a partial save takes the next sortOrder', (
+      tester,
+    ) async {
+      repo.failures.addAll([null, FakeSalePhotosRepository.serverDown]);
+      await open(tester);
       await addFile(tester);
-      // Drop the first photo, then add another: it takes the freed slot 0.
-      final first =
-          tester.widget<Widget>(tiles().first).key as ValueKey<String>;
-      final id = first.value.replaceFirst('sale-photo-tile-', '');
-      await tester.tap(find.byKey(Key('sale-photo-remove-$id')));
-      await _settle(tester);
       await addFile(tester);
-      await tester.tap(find.byKey(const Key('sale-photo-save')));
-      await _settle(tester);
-      await tester.tap(find.byKey(const Key('sale-photo-save')));
-      await _settle(tester);
-      await _settle(tester);
-      final byPhoto = <String, Set<int>>{};
-      for (final c in repo.calls) {
-        byPhoto.putIfAbsent(c.photoId, () => {}).add(c.sortOrder);
-      }
+      await save(tester); // first saved (0), second retryable (1)
+      await addFile(tester);
+      final [a, b, c] = ids(tester);
       expect(
-        byPhoto.values.every((s) => s.length == 1),
-        isTrue,
-        reason: 'the retried photo kept its sortOrder',
+        find.byKey(Key('sale-photo-left-$c')),
+        findsNothing,
+        reason: 'still locked',
       );
+      await save(tester);
+      expect(sentOrder(), {a: 0, b: 1, c: 2});
       expect(repo.stored(_sale).map((p) => p.sortOrder).toSet(), {0, 1, 2});
-    },
-  );
+    });
+
+    testWidgets('a removed 4xx photo frees its sortOrder for the next one', (
+      tester,
+    ) async {
+      repo.failures.addAll([
+        null,
+        null,
+        null,
+        null,
+        FakeSalePhotosRepository.limit,
+      ]);
+      await open(tester);
+      for (var i = 0; i < 5; i++) {
+        await addFile(tester);
+      }
+      await save(tester); // 0–3 saved, 4 refused for good
+      final last = ids(tester).last;
+      await tester.tap(find.byKey(Key('sale-photo-remove-$last')));
+      await _settle(tester);
+      await addFile(tester);
+      final added = ids(tester).last;
+      await save(tester);
+      expect(sentOrder()[added], 4);
+    });
+  });
 
   testWidgets('a failing file picker is shown, not swallowed', (tester) async {
     tester.view.physicalSize = const Size(800, 1000);
@@ -350,7 +513,7 @@ void main() {
   testWidgets(
     'works at 360 px (full-screen, the logical width of 3x zoom on 1080)',
     (tester) async {
-      await open(tester, size: const Size(360, 640), withCamera: true);
+      await open(tester, size: const Size(360, 640));
       for (var i = 0; i < 4; i++) {
         await addFile(tester);
       }
@@ -369,7 +532,7 @@ void main() {
       'five photos and a failure lay out at the logical size of 3x/2x zoom $size',
       (tester) async {
         repo.failures.add(FakeSalePhotosRepository.serverDown);
-        await open(tester, size: size, withCamera: true);
+        await open(tester, size: size);
         for (var i = 0; i < 5; i++) {
           await addFile(tester);
         }

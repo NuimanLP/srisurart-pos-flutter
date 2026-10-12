@@ -6,16 +6,25 @@
 // keeps the sheet open; ลองอีกครั้ง sends the SAME photoId + key. A 4xx verdict
 // can only be removed. Closing with unsent photos asks first.
 //
+// Two ways in, side by side: ถ่ายรูป (the in-app camera, sale_photo_camera.dart,
+// on every platform incl. the shop PC webcam) and เลือกรูปจากเครื่อง (file_picker).
+//
+// Order: the tiles can be rearranged (long-press drag, or ◀ ▶) until บันทึก is
+// first pressed. On screen order = upload order = sortOrder. A photo's
+// sortOrder is frozen at its FIRST send attempt, not at capture: the server has
+// no update route and keeps the query outside the fingerprint, so a retry must
+// resend the same photoId + key + sortOrder. After บันทึก the order is locked;
+// a photo added later takes the next sortOrder after the highest one in use.
+//
 // The sources (camera, file picker, shrink) are injectable so a widget test
 // drives the sheet with no platform channels.
 
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/network/server_error_resolver.dart';
 import '../../core/theme/app_colors.dart';
@@ -25,6 +34,7 @@ import '../../core/utils/product_photo.dart';
 import '../../data/repositories/sale_photos_repository.dart';
 import 'app_button.dart';
 import 'confirm_dialog.dart';
+import 'sale_photo_camera.dart';
 
 // agent ร่าง — every sentence below is awaiting owner ratification (§2.7).
 // 'ถ่ายรูปหลักฐานสินค้า' (the receipt button) is the owner's own wording.
@@ -32,13 +42,14 @@ const _title = 'รูปหลักฐานสินค้า';
 const _hint1 = 'ถ่ายให้เห็นสภาพสินค้าก่อนส่งมอบ';
 const _hint2 = 'ไม่ต้องถ่ายหน้าลูกค้าหรือทะเบียนรถ';
 const _cameraLabel = 'ถ่ายรูป';
-const _filesLabel = 'เลือกรูป';
-const _addLabel = 'เพิ่มรูป';
+const _filesLabel = 'เลือกรูปจากเครื่อง';
 const _skipLabel = 'ข้าม';
 const _closeLabel = 'ปิด';
 const _retryLabel = 'ลองอีกครั้ง';
 const _fullNote = 'ครบ 5 รูปแล้ว';
-const _cameraFailed = 'เปิดกล้องไม่ได้ ลองใช้ปุ่ม เลือกรูป แทน';
+const _reorderHint = 'กดค้างที่รูปแล้วลากเพื่อเรียงลำดับ หรือกดลูกศร';
+const _moveLeft = 'เลื่อนไปก่อนหน้า';
+const _moveRight = 'เลื่อนไปถัดไป';
 const _confirmTitle = 'ปิดโดยไม่บันทึกรูปที่เหลือ?';
 String _saveLabel(int n) => 'บันทึก $n รูป';
 String _counter(int n) => '$n / 5 รูป';
@@ -46,36 +57,21 @@ String _confirmBody(int n) => 'รูปที่ยังไม่ได้บ�
 
 const maxSalePhotos = 5;
 
-/// Where a photo comes from. [camera] is null where there is no camera to open
-/// (web, desktop): the button is then not shown.
+/// Where a photo comes from.
 class SalePhotoSources {
   const SalePhotoSources({
-    this.camera,
+    this.camera = showSalePhotoCamera,
     required this.files,
     this.shrink = shrinkProductPhoto,
   });
 
-  final Future<Uint8List?> Function()? camera;
+  final SalePhotoCamera camera;
   final Future<Uint8List?> Function() files;
   final Future<Uint8List> Function(Uint8List) shrink;
 
-  /// image_picker on Android/iOS, file_picker everywhere.
+  /// The in-app camera and file_picker, on every platform.
   factory SalePhotoSources.platform() {
-    final mobile =
-        !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS);
     return SalePhotoSources(
-      camera: mobile
-          ? () async {
-              final x = await ImagePicker().pickImage(
-                source: ImageSource.camera,
-                maxWidth: 1600,
-                imageQuality: 85,
-              );
-              return x?.readAsBytes();
-            }
-          : null,
       files: () async {
         final f = await FilePicker.pickFile(
           type: FileType.image,
@@ -122,7 +118,7 @@ Future<bool> showSalePhotoSheet(
 enum _St { processing, captured, uploading, saved, retryable, rejected }
 
 class _Shot {
-  _Shot(this.takenAt, this.sortOrder) : id = newUuid(), st = _St.processing {
+  _Shot(this.takenAt) : id = newUuid(), st = _St.processing {
     // §4.3 specifies this key shape; the repository never mints its own.
     key = 'salephoto-$id';
   }
@@ -130,9 +126,9 @@ class _Shot {
   final String id;
   late final String key;
 
-  /// Fixed when the photo is captured (0–4); the server keeps it on replay, so
-  /// it must not change between a first attempt and a retry.
-  final int sortOrder;
+  /// Null until the photo's FIRST send attempt, then frozen (0–4): the server
+  /// keeps it on replay, so a retry must send the same value.
+  int? sortOrder;
   final DateTime takenAt;
   Uint8List? bytes;
   _St st;
@@ -159,6 +155,9 @@ class _SalePhotoSheet extends StatefulWidget {
 class _SalePhotoSheetState extends State<_SalePhotoSheet> {
   final List<_Shot> _shots = [];
   bool _busy = false;
+
+  /// Set by the first บันทึก press: from then on the order is locked.
+  bool _saveStarted = false;
   String? _notice;
 
   int get _savedCount => _shots.where((s) => s.st == _St.saved).length;
@@ -168,11 +167,9 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
   bool get _anyFailed =>
       _shots.any((s) => s.st == _St.retryable || s.st == _St.rejected);
   bool get _full => _shots.length >= maxSalePhotos;
+  bool get _reorderable => !_busy && !_saveStarted && _shots.length > 1;
 
-  Future<void> _add(
-    Future<Uint8List?> Function() source, {
-    bool camera = false,
-  }) async {
+  Future<void> _pickFile() async {
     if (_busy || _full) return;
     setState(() {
       _notice = null;
@@ -180,29 +177,37 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
     // The picker is the first await: on the web it must open inside the tap.
     final Uint8List? raw;
     try {
-      raw = await source();
+      raw = await widget.sources.files();
     } catch (e) {
       if (mounted) {
         setState(() {
-          _notice = camera
-              ? _cameraFailed
-              : ServerErrorResolver.resolveCounterError(e);
+          _notice = ServerErrorResolver.resolveCounterError(e);
         });
       }
       return;
     }
-    if (raw == null || !mounted || _full) return;
-    final used = {for (final s in _shots) s.sortOrder};
-    final shot = _Shot(
-      DateTime.now(),
-      [
-        for (var i = 0; i < maxSalePhotos; i++) i,
-      ].firstWhere((i) => !used.contains(i)),
-    );
+    if (raw != null) await _addRaw(raw);
+  }
+
+  Future<void> _openCamera() async {
+    if (_busy || _full) return;
     setState(() {
-      _shots
-        ..add(shot)
-        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      _notice = null;
+    });
+    await widget.sources.camera(
+      context,
+      count: _shots.length,
+      limit: maxSalePhotos,
+      onShot: (raw) => unawaited(_addRaw(raw)),
+    );
+  }
+
+  /// A new photo goes to the end of the row; its sortOrder waits for บันทึก.
+  Future<void> _addRaw(Uint8List raw) async {
+    if (!mounted || _full) return;
+    final shot = _Shot(DateTime.now());
+    setState(() {
+      _shots.add(shot);
     });
     try {
       final small = await widget.sources.shrink(raw);
@@ -226,16 +231,39 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
     });
   }
 
+  /// Moves [s] to position [to] (before บันทึก only).
+  void _move(_Shot s, int to) {
+    if (!_reorderable) return;
+    final from = _shots.indexOf(s);
+    if (from < 0 || to < 0 || to >= _shots.length || from == to) return;
+    setState(() {
+      _shots
+        ..removeAt(from)
+        ..insert(to, s);
+    });
+  }
+
+  /// The sortOrder a photo's first send attempt gets: one after the highest in
+  /// use. The frozen values stay 0..k with no gap — a send stops at the first
+  /// failure, and only that refused (highest) photo can be removed — so with
+  /// at most 5 photos this never passes 4.
+  int _nextSortOrder() =>
+      _shots.map((s) => s.sortOrder ?? -1).fold(-1, math.max) + 1;
+
   Future<void> _saveAll() async {
     if (_busy) return;
     setState(() {
       _busy = true;
+      _saveStarted = true;
       _notice = null;
     });
     var failed = false;
     for (final s in List.of(_shots)) {
       if (s.st != _St.captured && s.st != _St.retryable) continue;
       setState(() {
+        // Sends run in tile order and the order is locked from here on, so
+        // tile order stays = sortOrder order.
+        s.sortOrder ??= _nextSortOrder();
         s.st = _St.uploading;
         s.error = null;
       });
@@ -246,7 +274,7 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
           idempotencyKey: s.key,
           bytes: s.bytes!,
           takenAt: s.takenAt,
-          sortOrder: s.sortOrder,
+          sortOrder: s.sortOrder!,
         );
         if (!mounted) return;
         setState(() {
@@ -325,38 +353,79 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
     );
   }
 
+  /// Long-press drag a tile onto another to put it there (touch and mouse).
+  Widget _orderable(_Shot s, int index, Widget tile) {
+    if (!_reorderable) return tile;
+    return DragTarget<_Shot>(
+      onWillAcceptWithDetails: (d) => d.data != s,
+      onAcceptWithDetails: (d) => _move(d.data, index),
+      builder: (context, candidates, _) => LongPressDraggable<_Shot>(
+        data: s,
+        feedback: Material(
+          color: Colors.transparent,
+          elevation: 6,
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            width: _tileSize,
+            height: _tileSize,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: s.bytes == null
+                  ? const ColoredBox(color: AppColors.gray200)
+                  : Image.memory(s.bytes!, fit: BoxFit.cover),
+            ),
+          ),
+        ),
+        childWhenDragging: Opacity(opacity: 0.3, child: tile),
+        child: DecoratedBox(
+          position: DecorationPosition.foreground,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: candidates.isEmpty
+                ? null
+                : Border.all(color: AppColors.orange, width: 3),
+          ),
+          child: tile,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final camera = widget.sources.camera;
     final failedShots = [
       for (var i = 0; i < _shots.length; i++)
         if (_shots[i].error != null) (i, _shots[i]),
     ];
     final primaryLabel = _anyRetryable ? _retryLabel : _saveLabel(_toSend);
-    final canSave = !_busy && (_anyRetryable || _toSend > 0);
+    // Not while a photo is still being shrunk: sends run in tile order, and a
+    // skipped tile would later get a sortOrder out of that order.
+    final canSave =
+        !_busy &&
+        !_shots.any((s) => s.st == _St.processing) &&
+        (_anyRetryable || _toSend > 0);
 
     final pickButtons = LayoutBuilder(
       builder: (context, c) {
+        // Two equal ways in — no third "add" tile doing the same thing.
         final enabled = !_busy && !_full;
-        final cameraBtn = camera == null
-            ? null
-            : AppButton.secondary(
-                key: const Key('sale-photo-camera'),
-                label: _cameraLabel,
-                icon: Icons.photo_camera_outlined,
-                fullWidth: true,
-                onPressed: enabled ? () => _add(camera, camera: true) : null,
-              );
+        final cameraBtn = AppButton.secondary(
+          key: const Key('sale-photo-camera'),
+          label: _cameraLabel,
+          icon: Icons.photo_camera_outlined,
+          fullWidth: true,
+          onPressed: enabled ? _openCamera : null,
+        );
         final filesBtn = AppButton.secondary(
           key: const Key('sale-photo-files'),
           label: _filesLabel,
-          icon: Icons.photo_library_outlined,
+          icon: Icons.image_outlined,
           fullWidth: true,
-          onPressed: enabled ? () => _add(widget.sources.files) : null,
+          onPressed: enabled ? _pickFile : null,
         );
-        if (cameraBtn == null) return filesBtn;
-        if (c.maxWidth < 360) {
+        // 'เลือกรูปจากเครื่อง' needs ~200 px beside its icon: stack below that.
+        if (c.maxWidth < 420) {
           return Column(
             children: [cameraBtn, const SizedBox(height: 8), filesBtn],
           );
@@ -425,27 +494,46 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final s in _shots)
-                        _Tile(
-                          key: Key('sale-photo-tile-${s.id}'),
-                          shot: s,
-                          enabled: !_busy,
-                          onView: () => _view(s),
-                          onRemove: () => _remove(s),
-                          onRetry: _saveAll,
+                  pickButtons,
+                  if (_shots.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final (i, s) in _shots.indexed)
+                          _orderable(
+                            s,
+                            i,
+                            _Tile(
+                              key: Key('sale-photo-tile-${s.id}'),
+                              shot: s,
+                              enabled: !_busy,
+                              onView: () => _view(s),
+                              onRemove: () => _remove(s),
+                              onRetry: _saveAll,
+                              onLeft: _reorderable && i > 0
+                                  ? () => _move(s, i - 1)
+                                  : null,
+                              onRight: _reorderable && i < _shots.length - 1
+                                  ? () => _move(s, i + 1)
+                                  : null,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                  if (_reorderable)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _reorderHint,
+                        key: const Key('sale-photo-reorder-hint'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.secondary,
                         ),
-                      if (!_full && !_busy)
-                        _AddTile(
-                          onTap: () => camera != null
-                              ? _add(camera, camera: true)
-                              : _add(widget.sources.files),
-                        ),
-                    ],
-                  ),
+                      ),
+                    ),
                   const SizedBox(height: 8),
                   Text(
                     _full ? _fullNote : _counter(_shots.length),
@@ -476,8 +564,6 @@ class _SalePhotoSheetState extends State<_SalePhotoSheet> {
                         ),
                       ),
                     ),
-                  const SizedBox(height: 12),
-                  pickButtons,
                 ],
               ),
             ),
@@ -522,6 +608,8 @@ class _Tile extends StatelessWidget {
     required this.onView,
     required this.onRemove,
     required this.onRetry,
+    this.onLeft,
+    this.onRight,
   });
 
   final _Shot shot;
@@ -529,6 +617,34 @@ class _Tile extends StatelessWidget {
   final VoidCallback onView;
   final VoidCallback onRemove;
   final VoidCallback onRetry;
+
+  /// Move one place back / forward; null = no arrow (ends, or order locked).
+  final VoidCallback? onLeft;
+  final VoidCallback? onRight;
+
+  static Widget _arrow(
+    Key key,
+    IconData icon,
+    String tip,
+    VoidCallback onTap,
+  ) => Tooltip(
+    message: tip,
+    child: InkWell(
+      key: key,
+      onTap: onTap,
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Center(
+          child: CircleAvatar(
+            radius: 13,
+            backgroundColor: Colors.black54,
+            child: Icon(icon, size: 18, color: Colors.white),
+          ),
+        ),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -612,6 +728,28 @@ class _Tile extends StatelessWidget {
                   ],
                 ),
               ),
+            if (onLeft != null)
+              Positioned(
+                left: 0,
+                bottom: 0,
+                child: _arrow(
+                  Key('sale-photo-left-${s.id}'),
+                  Icons.chevron_left,
+                  _moveLeft,
+                  onLeft!,
+                ),
+              ),
+            if (onRight != null)
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: _arrow(
+                  Key('sale-photo-right-${s.id}'),
+                  Icons.chevron_right,
+                  _moveRight,
+                  onRight!,
+                ),
+              ),
             if (removable)
               Positioned(
                 top: 0,
@@ -633,40 +771,6 @@ class _Tile extends StatelessWidget {
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AddTile extends StatelessWidget {
-  const _AddTile({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.secondary;
-    return SizedBox(
-      width: _tileSize,
-      height: _tileSize,
-      child: InkWell(
-        key: const Key('sale-photo-add-tile'),
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: color.withValues(alpha: 0.5), width: 1.5),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.add_a_photo_outlined, color: color),
-              const SizedBox(height: 4),
-              Text(_addLabel, style: TextStyle(color: color, fontSize: 12)),
-            ],
-          ),
         ),
       ),
     );
