@@ -25,6 +25,7 @@ import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_text_field.dart';
+import '../widgets/barcode_scan_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/loading_view.dart';
@@ -788,11 +789,15 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
 
   /// Enter in the item search: an exact part number first, else the first
   /// listed match.
-  void _addSearchMatch() {
+  /// Enter adds the exact part number, else the first match. A camera scan
+  /// passes [exactOnly]: an unknown or partial code only shows its matches.
+  void _addSearchMatch({bool exactOnly = false}) {
     final q = _partSearch.trim().toLowerCase();
     if (q.isEmpty) return;
     final exact = widget.products.where((p) => p.partNo.toLowerCase() == q);
-    final pick = exact.isNotEmpty ? exact.first : _filteredParts.firstOrNull;
+    final pick = exact.isNotEmpty
+        ? exact.first
+        : (exactOnly ? null : _filteredParts.firstOrNull);
     if (pick != null) _addItem(pick);
   }
 
@@ -1005,6 +1010,13 @@ class _CreatePoDialogState extends State<_CreatePoDialog> {
                         controller: _searchCtrl,
                         onChanged: (v) => setState(() => _partSearch = v),
                         onSubmitted: _addSearchMatch,
+                        suffix: BarcodeScanButton(
+                          onScanned: (v) {
+                            _searchCtrl.text = v;
+                            setState(() => _partSearch = v);
+                            _addSearchMatch(exactOnly: true);
+                          },
+                        ),
                       ),
                       if (parts.isNotEmpty)
                         _box([for (final p in parts) _partTile(p)])

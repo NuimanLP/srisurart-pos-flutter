@@ -27,6 +27,7 @@ import '../../data/repositories/suppliers_repository.dart';
 import '../../domain/models/aggregates.dart';
 import '../../domain/reports/net_sales.dart'
     show NetSales, PaymentGroup, TopItem, toReportLites;
+import '../widgets/barcode_scan_button.dart';
 import '../widgets/confirm_dialog.dart';
 import '../widgets/label_printer.dart';
 import '../widgets/loading_view.dart';
@@ -652,9 +653,11 @@ class _StockTabState extends State<_StockTab> {
                             isDense: true,
                             hintText: 'ค้นหา ชื่อ / รหัส…',
                             prefixIcon: const Icon(Icons.search, size: 20),
-                            suffixIcon: _search.isEmpty
-                                ? null
-                                : IconButton(
+                            suffixIcon: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_search.isNotEmpty)
+                                  IconButton(
                                     tooltip: 'ล้างคำค้นหา',
                                     icon: const Icon(Icons.close, size: 18),
                                     onPressed: () {
@@ -662,6 +665,14 @@ class _StockTabState extends State<_StockTab> {
                                       setState(() => _search = '');
                                     },
                                   ),
+                                BarcodeScanButton(
+                                  onScanned: (v) {
+                                    _searchCtrl.text = v;
+                                    setState(() => _search = v);
+                                  },
+                                ),
+                              ],
+                            ),
                             filled: true,
                             fillColor: theme.colorScheme.surfaceContainerLow,
                             border: OutlineInputBorder(
