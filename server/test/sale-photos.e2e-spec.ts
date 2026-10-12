@@ -10,8 +10,11 @@ import { salePhotos } from '../src/product-images/image-store.js';
 import { QueueProcessorsModule } from '../src/queue/queue.module.js';
 import {
   accessToken,
+  clearTenantCache,
   createTestApp,
   resetTenant,
+  seedOpenShift,
+  seedProduct,
   TENANT_TABLES_DEPTH_FIRST,
   type TenantFixture,
   type TestApp,
@@ -328,6 +331,81 @@ describe('sale photos (e2e)', () => {
       expect(filesIn(SALE_DIR, TENANT)).toEqual([]);
     });
 
+    it('a suspended shop: 403 TENANT_SUSPENDED for the pos device (a backoffice device gets DEVICE_ROLE_FORBIDDEN first)', async () => {
+      const saleId = await seedSale(TENANT, testId('sp-suspended'));
+      await fixture.admin.query(`UPDATE tenants SET status = 'suspended' WHERE id = $1::uuid`, [TENANT]);
+      await clearTenantCache(fixture.cache, TENANT);
+      const img = await jpeg(81);
+      const pos = await put(saleId, newUuid(), img);
+      expect([pos.status, pos.body.error.code]).toEqual([403, 'TENANT_SUSPENDED']);
+      // TenantGuard checks the device role (step 5) before the shop's status (step 6), so a
+      // backoffice device never learns the shop is suspended here — both answers are a 403
+      // before the body is read, which is what §4.3 rows 1–2 protect.
+      const bo = await put(saleId, newUuid(), img, { token: backofficeToken });
+      expect([bo.status, bo.body.error.code]).toEqual([403, 'DEVICE_ROLE_FORBIDDEN']);
+      expect(await rows(TENANT)).toHaveLength(0);
+      expect(filesIn(SALE_DIR, TENANT)).toEqual([]);
+    });
+
+    it('a failed file write is 500: no claim is taken, no row; the same key then succeeds', async () => {
+      const saleId = await seedSale(TENANT, testId('sp-write-fail'));
+      const photoId = newUuid();
+      const img = await jpeg(140, 20, 200);
+      // A regular file where the volume's root should be: mkdir under it fails (ENOTDIR/EEXIST).
+      const blocker = join(mkdtempSync(join(tmpdir(), 'sale-photos-e2e-blocked-')), 'not-a-dir');
+      writeFileSync(blocker, 'x');
+      process.env.SALE_PHOTOS_DIR = blocker;
+      try {
+        const res = await put(saleId, photoId, img, { key: 'k-write-fail' });
+        expect(res.status).toBe(500);
+      } finally {
+        process.env.SALE_PHOTOS_DIR = SALE_DIR;
+      }
+      expect(await rows(TENANT)).toHaveLength(0);
+      expect(
+        (await fixture.admin.query(`SELECT 1 FROM idempotency_keys WHERE tenant_id = $1 AND key = 'k-write-fail'`, [TENANT]))
+          .length,
+      ).toBe(0);
+      expect((await put(saleId, photoId, img, { key: 'k-write-fail' })).status).toBe(200);
+    });
+
+    it('503 IDEMPOTENCY_KEY_IN_FLIGHT while the original holds the key — and its files are NOT cleaned up', async () => {
+      const saleId = await seedSale(TENANT, testId('sp-in-flight'));
+      const photoId = newUuid();
+      // The "original" request: a claim row inserted and not yet committed.
+      const original = fixture.admin.createQueryRunner();
+      await original.connect();
+      try {
+        await original.startTransaction();
+        await original.query(
+          `INSERT INTO idempotency_keys (tenant_id, key, endpoint, request_hash, status)
+           VALUES ($1::uuid, 'k-in-flight', $2, 'x', 'in_progress')`,
+          [TENANT, `PUT /api/v1/sales/${saleId}/photos/${photoId}`],
+        );
+        const res = await put(saleId, photoId, await jpeg(30, 160, 90), { key: 'k-in-flight' });
+        expect([res.status, res.body.error.code]).toEqual([503, 'IDEMPOTENCY_KEY_IN_FLIGHT']);
+        // This request created the files (none existed); a cleanup would have removed them at
+        // once. They stay: they are the in-flight original's files too.
+        expect(filesIn(SALE_DIR, TENANT)).toHaveLength(2);
+      } finally {
+        await original.rollbackTransaction();
+        await original.release();
+      }
+      expect(await rows(TENANT)).toHaveLength(0);
+    });
+
+    it('the same photoId with the same bytes on another bill is 409 CLIENT_ID_REUSED, not a replay', async () => {
+      const first = await seedSale(TENANT, testId('sp-pid-bill-1'));
+      const second = await seedSale(TENANT, testId('sp-pid-bill-2'));
+      const photoId = newUuid();
+      const img = await jpeg(210, 120, 30);
+      expect((await put(first, photoId, img, { key: 'k-bill-1' })).status).toBe(200);
+      const other = await put(second, photoId, img, { key: 'k-bill-2' });
+      expect([other.status, other.body.error.code]).toEqual([409, 'CLIENT_ID_REUSED']);
+      expect(await rows(TENANT, second)).toHaveLength(0);
+      expect((await list(second)).body.data).toEqual([]);
+    });
+
     it('more than 3 MB is 413 PRODUCT_IMAGE_TOO_LARGE', async () => {
       const saleId = await seedSale(TENANT, testId('sp-big'));
       const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(PRODUCT_IMAGE_MAX_BYTES)]);
@@ -502,7 +580,7 @@ describe('sale photo reads hold no pooled connection (DB_POOL_SIZE = 1)', () => 
     else process.env.DB_POOL_SIZE = prevPool;
   });
 
-  it('many byte streams and list reads at once all finish with one connection in the pool', async () => {
+  it('byte streams, list reads and a POST /sales at once all finish with one connection in the pool', async () => {
     const shop = await resetTenant(fixture.admin, TENANT_1, { cache: fixture.cache });
     const token = accessToken({
       tenantId: TENANT_1,
@@ -526,6 +604,22 @@ describe('sale photo reads hold no pooled connection (DB_POOL_SIZE = 1)', () => 
       .send(await jpeg(5, 5, 5, 2000, 1500));
     expect(up.status, JSON.stringify(up.body)).toBe(200);
 
+    const productId = testId('sp-pool-product');
+    await seedProduct(fixture.admin, TENANT_1, { id: productId, partNo: 'SP-POOL', name: 'Pool', price: 85, cost: 50, stock: 10 });
+    await seedOpenShift(fixture.admin, TENANT_1, shop.posDeviceId, { userId: shop.userId });
+    const newSaleId = testId('sp-pool-new-sale');
+    const sale = request(fixture.app.getHttpServer())
+      .post('/api/v1/sales')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', newUuid())
+      .send({
+        id: newSaleId,
+        subtotal: '85.00',
+        discount: '0.00',
+        total: '85.00',
+        paymentMethod: 'เงินสด',
+        items: [{ lineNo: 1, productId, name: 'Pool', qty: 1, price: '85.00' }],
+      });
     const reads = Array.from({ length: 12 }, (_, i) =>
       i % 2 === 0
         ? request(fixture.app.getHttpServer())
@@ -535,7 +629,13 @@ describe('sale photo reads hold no pooled connection (DB_POOL_SIZE = 1)', () => 
             .parse(binary)
         : request(fixture.app.getHttpServer()).get(`/api/v1/sales/${saleId}/photos`).set('Authorization', `Bearer ${token}`),
     );
-    const results = await Promise.all(reads);
+    const [saleRes, ...results] = await Promise.all([sale, ...reads]);
+    expect(saleRes.status, JSON.stringify(saleRes.body)).toBe(201);
     expect(results.map((r) => r.status)).toEqual(Array(12).fill(200));
+    const stock = await fixture.admin.query(`SELECT stock FROM products WHERE tenant_id = $1 AND id = $2`, [
+      TENANT_1,
+      productId,
+    ]);
+    expect(stock[0].stock).toBe(9);
   });
 });
