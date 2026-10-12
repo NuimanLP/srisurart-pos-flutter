@@ -65,7 +65,9 @@ dependencies:
   # JPEG encoder for product photos (the engine encodes PNG only). Already in
   # the lock through `pdf`; pinned to that resolved version.
   image: ^4.9.1
-  image_picker: ^1.2.4
+  # In-app camera for sale photos (live viewfinder on Android/iOS/web; camera_web
+  # uses getUserMedia only — no CDN script).
+  camera: ^0.12.1
 
 dev_dependencies:
   flutter_test:
@@ -78,6 +80,8 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   drift_dev: ^2.34.0
+  # Tests fake the in-app camera through CameraPlatform.instance.
+  camera_platform_interface: ^2.15.0
   build_runner: ^2.15.0
   # Test-only: schema_v3_migration_test builds a real v2 database file before
   # AppDatabase opens it. Pinned to the version drift already resolves, so the

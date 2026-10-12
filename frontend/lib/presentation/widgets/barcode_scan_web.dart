@@ -19,17 +19,16 @@ import 'dart:js_interop_unsafe';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:web/web.dart' as web;
 
+import 'camera_access_web.dart';
+
 // mobile_scanner's id for its zxing-wasm script tag: if a tag with this id
 // exists it does not load its own.
 const _scriptId = 'mobile-scanner-zxing-wasm';
 
 /// Returns null when scanning can start, else a Thai reason.
 Future<String?> prepareWebScanner() async {
-  final nav = web.window.navigator as JSObject;
-  if (nav.getProperty<JSAny?>('mediaDevices'.toJS) == null) {
-    // agent ร่าง — camera API needs HTTPS (or localhost).
-    return 'เบราว์เซอร์นี้ใช้กล้องไม่ได้ (ต้องเปิดผ่าน HTTPS)';
-  }
+  final blocked = cameraBlockedReason();
+  if (blocked != null) return blocked;
   if (await _nativeDetectorWorks()) {
     MobileScannerPlatform.instance.setWebBarcodeReader(
       WebBarcodeReader.barcodeDetector,
